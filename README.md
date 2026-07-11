@@ -1,7 +1,13 @@
-# 🐋 Orca-Strator
+<p align="center">
+  <img src="build/icon.png" width="128" alt="Orca-Strator logo — a teal whale cresting over cyan waves" />
+</p>
 
-Orchestrate and run multiple AI coding agents **in parallel** from one
-cross-platform desktop app (**Windows + Linux**).
+<h1 align="center">Orca-Strator</h1>
+
+<p align="center">
+  <b>Orchestrate and run multiple AI coding agents in parallel</b><br />
+  One cross-platform desktop app · <b>Windows + Linux</b>
+</p>
 
 Orca-Strator drives the agent CLIs you already have installed — each in its own
 live terminal — and lets one configurable **orchestrator** delegate work to
