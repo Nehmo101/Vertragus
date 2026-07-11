@@ -49,6 +49,8 @@ interface LineInterpretation {
   log?: string
   /** Final assistant text (result), if this event carries it. */
   result?: string
+  /** The provider reported a failure (may exit 0 anyway, e.g. codex). */
+  isError?: boolean
   costUsd?: number
   tokensIn?: number
   tokensOut?: number
@@ -76,6 +78,7 @@ function interpretClaudeStyle(obj: Record<string, unknown>): LineInterpretation 
     const usage = obj['usage'] as { input_tokens?: number; output_tokens?: number } | undefined
     return {
       result: typeof obj['result'] === 'string' ? (obj['result'] as string) : '',
+      isError: obj['is_error'] === true,
       costUsd: typeof obj['total_cost_usd'] === 'number' ? (obj['total_cost_usd'] as number) : undefined,
       tokensIn: usage?.input_tokens,
       tokensOut: usage?.output_tokens,
@@ -86,16 +89,39 @@ function interpretClaudeStyle(obj: Record<string, unknown>): LineInterpretation 
   return {}
 }
 
+/** Pull a human-readable message out of codex's sometimes-nested error payloads. */
+function codexErrorText(raw: unknown): string {
+  if (typeof raw !== 'string') return 'unbekannter Fehler'
+  try {
+    const inner = JSON.parse(raw) as { error?: { message?: string }; message?: string }
+    return inner.error?.message ?? inner.message ?? raw
+  } catch {
+    return raw
+  }
+}
+
 /** codex exec --json emits its own event shapes. */
 function interpretCodex(obj: Record<string, unknown>): LineInterpretation {
   const type = String(obj['type'] ?? '')
-  const item = obj['item'] as { type?: string; text?: string; command?: string } | undefined
+  const item = obj['item'] as
+    | { type?: string; text?: string; command?: string; message?: string }
+    | undefined
   if (type === 'item.completed' || type === 'item.started') {
     if (item?.type === 'agent_message' && item.text) return { log: line(C.reset, item.text.trim()) }
     if (item?.type === 'command_execution' && item.command)
       return { log: line(C.cyan, `$ ${item.command}`) }
+    if (item?.type === 'error' && item.message) return { log: line(C.red, `✗ ${item.message}`) }
     if (item?.type === 'reasoning') return { log: line(C.grey, '  · denkt nach …') }
     return {}
+  }
+  if (type === 'error') {
+    const msg = codexErrorText(obj['message'])
+    return { log: line(C.red, `✗ ${msg}`), isError: true, result: msg }
+  }
+  if (type === 'turn.failed') {
+    const err = obj['error'] as { message?: string } | undefined
+    const msg = codexErrorText(err?.message)
+    return { log: line(C.red, `✗ ${msg}`), isError: true, result: msg }
   }
   if (type === 'turn.completed') {
     const usage = obj['usage'] as { input_tokens?: number; output_tokens?: number } | undefined
@@ -146,13 +172,17 @@ export function runHeadless(
       child = spawn(resolved.file, resolved.args, {
         cwd: opts.workingDir,
         env: { ...process.env } as Record<string, string>,
-        windowsHide: true
+        windowsHide: true,
+        // stdin = /dev/null: the prompt is passed as an arg. Leaving stdin as an
+        // open pipe makes codex exec block on "Reading additional input from stdin".
+        stdio: ['ignore', 'pipe', 'pipe']
       })
 
       const acc: HeadlessResult = { result: '', isError: false }
       let lastText = ''
       let stdoutBuf = ''
       let rawTail = ''
+      let sawError = false
 
       const handleLine = (raw: string): void => {
         const trimmed = raw.trim()
@@ -170,6 +200,7 @@ export function runHeadless(
         if (typeof r.result === 'string' && r.result) {
           acc.result = r.result
         }
+        if (r.isError) sawError = true
         if (r.log && obj['type'] !== 'result') lastText = r.log
         if (r.costUsd != null) acc.costUsd = r.costUsd
         if (r.tokensIn != null) acc.tokensIn = r.tokensIn
@@ -207,10 +238,12 @@ export function runHeadless(
           if (tmpDir) rmSync(tmpDir, { recursive: true, force: true })
         }
         if (!acc.result) acc.result = (lastText || rawTail).trim()
-        acc.isError = killed || (code != null && code !== 0 && !acc.result)
-        if (code === 0) onLine(line(C.green, '✓ fertig'))
-        else if (killed) onLine(line(C.yellow, '— gestoppt —'))
-        else onLine(line(C.red, `✗ exit ${code}`))
+        // Providers may report a failure yet still exit 0 (codex turn.failed),
+        // so trust an observed error event too.
+        acc.isError = killed || sawError || (code != null && code !== 0)
+        if (killed) onLine(line(C.yellow, '— gestoppt —'))
+        else if (acc.isError) onLine(line(C.red, `✗ fehlgeschlagen${code ? ` (exit ${code})` : ''}`))
+        else onLine(line(C.green, '✓ fertig'))
         resolve(acc)
       })
     })

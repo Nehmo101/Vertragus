@@ -9,6 +9,19 @@ import { is } from '@electron-toolkit/utils'
 
 const BG = '#080c15'
 
+/** Representative profile for headless ProfileEditor screenshots. */
+const DEMO_PROFILE = {
+  id: 'demo',
+  name: 'Uwe',
+  workingDir: 'C:\\git\\UWE',
+  orchestrator: { provider: 'claude', model: 'fable', autoOpenSubwindows: true },
+  agents: [
+    { role: 'backend', provider: 'codex', model: '', count: 2, orchestrated: true, yolo: true },
+    { role: 'frontend', provider: 'cursor', model: 'composer', count: 3, orchestrated: true, yolo: false }
+  ],
+  yoloDefault: false
+}
+
 function loadRoute(win: BrowserWindow, hash: string): void {
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     win.loadURL(`${process.env['ELECTRON_RENDERER_URL']}#${hash}`)
@@ -52,6 +65,11 @@ export function createMainWindow(): BrowserWindow {
     win.webContents.once('did-finish-load', () => {
       if (process.env['ORCA_DEMO_DAG']) {
         setTimeout(() => pushDemoState(win), 2500)
+      }
+      if (process.env['ORCA_DEMO_EDITOR']) {
+        setTimeout(() => {
+          void win.webContents.executeJavaScript(`window.__orca && window.__orca.openEditor(${JSON.stringify(DEMO_PROFILE)})`)
+        }, 2500)
       }
       setTimeout(async () => {
         try {

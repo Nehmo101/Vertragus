@@ -23,6 +23,10 @@ export default function App(): JSX.Element {
 
   useEffect(() => {
     void store.init()
+    // Dev/CI affordance for headless screenshots of modal UI.
+    ;(window as unknown as { __orca?: unknown }).__orca = {
+      openEditor: (p: Parameters<typeof store.openEditor>[0]) => store.openEditor(p)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

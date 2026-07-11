@@ -71,22 +71,39 @@ export class OrchestratorEngine extends EventEmitter {
     return [{ role: 'worker', provider: 'codex', model: 'gpt-5.6', count: 3, orchestrated: true, yolo: false }]
   }
 
+  /**
+   * Assign each slot a UNIQUE role the orchestrator can target. Slots often
+   * share the default role "worker" (or none), which would make them
+   * indistinguishable; fall back to the provider name and suffix duplicates.
+   */
+  private slotsWithRoles(): Array<{ slot: AgentSlot; role: string }> {
+    const seen = new Map<string, number>()
+    return this.dispatchableSlots().map((slot) => {
+      const base = (slot.role?.trim() || slot.provider).toLowerCase()
+      const n = seen.get(base) ?? 0
+      seen.set(base, n + 1)
+      return { slot, role: n === 0 ? base : `${base}-${n + 1}` }
+    })
+  }
+
   listSubagents(): SubagentDescriptor[] {
-    return this.dispatchableSlots().map((s) => ({
-      role: s.role,
-      provider: s.provider,
-      model: s.model,
-      capacity: s.count,
-      busy: this.busy.get(s.role) ?? 0
+    return this.slotsWithRoles().map(({ slot, role }) => ({
+      role,
+      provider: slot.provider,
+      model: slot.model,
+      capacity: slot.count,
+      busy: this.busy.get(role) ?? 0
     }))
   }
 
-  private pickSlot(role: string): AgentSlot {
-    const slots = this.dispatchableSlots()
+  private pickSlot(role: string): { slot: AgentSlot; role: string } {
+    const entries = this.slotsWithRoles()
+    const q = role.trim().toLowerCase()
     return (
-      slots.find((s) => s.role.toLowerCase() === role.toLowerCase()) ??
-      slots.find((s) => s.role.toLowerCase().includes(role.toLowerCase())) ??
-      slots[0]
+      entries.find((e) => e.role === q) ??
+      entries.find((e) => e.slot.provider === q) ??
+      entries.find((e) => e.role.includes(q) || q.includes(e.role)) ??
+      entries[0]
     )
   }
 
@@ -95,7 +112,7 @@ export class OrchestratorEngine extends EventEmitter {
    * Returns the subagent's final message (fed back to the orchestrator).
    */
   async dispatch(role: string, prompt: string, title?: string): Promise<string> {
-    const slot = this.pickSlot(role)
+    const { slot, role: slotRole } = this.pickSlot(role)
     const profile = this.activeProfile()
     this.taskSeq += 1
     const taskId = `t-${this.taskSeq.toString(36)}`
@@ -104,7 +121,7 @@ export class OrchestratorEngine extends EventEmitter {
     const task: OrcaTask = {
       id: taskId,
       title: title?.trim() || prompt.split('\n')[0].slice(0, 60),
-      role: slot.role,
+      role: slotRole,
       provider: slot.provider,
       model: slot.model,
       status: 'running',
@@ -112,7 +129,7 @@ export class OrchestratorEngine extends EventEmitter {
       createdAt: Date.now()
     }
     this.tasks.set(taskId, task)
-    this.busy.set(slot.role, (this.busy.get(slot.role) ?? 0) + 1)
+    this.busy.set(slotRole, (this.busy.get(slotRole) ?? 0) + 1)
     this.push()
 
     const subSystemPrompt =
@@ -123,7 +140,7 @@ export class OrchestratorEngine extends EventEmitter {
       const { info, done } = await agentManager.runTask({
         provider: slot.provider,
         model: slot.model,
-        role: slot.role,
+        role: slotRole,
         taskId,
         prompt,
         systemPrompt: subSystemPrompt,
@@ -139,17 +156,17 @@ export class OrchestratorEngine extends EventEmitter {
       task.finishedAt = Date.now()
       const preview = result.result.replace(/\s+/g, ' ').trim().slice(0, RESULT_PREVIEW)
       task.note = result.isError ? 'Fehler bei der Ausführung' : preview
-      this.decBusy(slot.role)
+      this.decBusy(slotRole)
       this.push()
 
       return result.isError
-        ? `Subagent (${slot.role}) meldete einen Fehler. Ausgabe:\n${result.result}`
+        ? `Subagent (${slotRole}) meldete einen Fehler. Ausgabe:\n${result.result}`
         : result.result || '(kein Textergebnis)'
     } catch (err) {
       task.status = 'error'
       task.note = err instanceof Error ? err.message : String(err)
       task.finishedAt = Date.now()
-      this.decBusy(slot.role)
+      this.decBusy(slotRole)
       this.push()
       return `Dispatch fehlgeschlagen: ${task.note}`
     }
@@ -161,12 +178,12 @@ export class OrchestratorEngine extends EventEmitter {
 
   /** Open a persistent interactive subagent in its own OS window. */
   async openSubwindow(role: string, prompt?: string): Promise<string> {
-    const slot = this.pickSlot(role)
+    const { slot, role: slotRole } = this.pickSlot(role)
     const profile = this.activeProfile()
     const info = await agentManager.spawn({
       provider: slot.provider,
       model: slot.model,
-      role: `Subagent · ${slot.role}`,
+      role: `Subagent · ${slotRole}`,
       kind: 'sub',
       yolo: slot.yolo || (profile?.yoloDefault ?? false),
       workingDir: slot.workingDir || profile?.workingDir

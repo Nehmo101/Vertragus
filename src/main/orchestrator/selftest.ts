@@ -13,6 +13,12 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { agentManager } from '@main/agents/AgentManager'
 import { orchestratorEngine } from '@main/orchestrator/Engine'
 import { getMcpHandle } from '@main/orchestrator/mcpHandle'
+import {
+  saveProfile,
+  deleteProfile,
+  getActiveProfileId,
+  setActiveProfileId
+} from '@main/config/store'
 import type { AgentInstanceInfo } from '@shared/agents'
 
 function log(ok: boolean, msg: string): boolean {
@@ -32,7 +38,7 @@ export async function runSelfTest(): Promise<void> {
     if (!handle) throw new Error('no handle')
 
     // Stub runTask so dispatch resolves instantly without a real CLI.
-    const dispatched: string[] = []
+    const dispatched: Array<{ provider: string; role: string; prompt: string }> = []
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ;(agentManager as any).runTask = async (req: {
       provider: string
@@ -41,7 +47,7 @@ export async function runSelfTest(): Promise<void> {
       taskId: string
       prompt: string
     }): Promise<{ info: AgentInstanceInfo; done: Promise<{ result: string; isError: boolean }> }> => {
-      dispatched.push(req.prompt)
+      dispatched.push({ provider: req.provider, role: req.role, prompt: req.prompt })
       const info: AgentInstanceInfo = {
         id: `task-${dispatched.length}`,
         provider: req.provider as AgentInstanceInfo['provider'],
@@ -84,6 +90,10 @@ export async function runSelfTest(): Promise<void> {
     }
     const subs = JSON.parse(listRes.content[0].text) as Array<{ role: string }>
     check(subs.length > 0, `list_subagents -> ${subs.length} slot(s): ${subs.map((s) => s.role).join(', ')}`)
+    check(
+      new Set(subs.map((s) => s.role)).size === subs.length,
+      `subagent roles are unique: ${subs.map((s) => s.role).join(', ')}`
+    )
 
     const dispRes = (await client.callTool({
       name: 'dispatch_subagent',
@@ -101,6 +111,46 @@ export async function runSelfTest(): Promise<void> {
       task?.status === 'success' && task.title === 'Feature X',
       `DAG updated: task "${task?.title}" status=${task?.status}`
     )
+
+    // Two same-named slots must become individually addressable, and dispatch
+    // must route to the RIGHT provider (Bug 2 regression guard).
+    const origActive = getActiveProfileId()
+    const testId = 'selftest-multi'
+    saveProfile({
+      id: testId,
+      name: 'Selftest Multi',
+      workingDir: '',
+      orchestrator: { provider: 'claude', model: 'fable', autoOpenSubwindows: true },
+      agents: [
+        { role: 'worker', provider: 'codex', model: '', count: 1, orchestrated: true, yolo: false },
+        { role: 'worker', provider: 'cursor', model: 'composer', count: 6, orchestrated: true, yolo: false }
+      ],
+      yoloDefault: false
+    })
+    setActiveProfileId(testId)
+    try {
+      const multi = (await client.callTool({ name: 'list_subagents', arguments: {} })) as {
+        content: Array<{ text: string }>
+      }
+      const mslots = JSON.parse(multi.content[0].text) as Array<{ role: string; provider: string }>
+      check(
+        mslots.length === 2 && new Set(mslots.map((s) => s.role)).size === 2,
+        `two same-named slots get unique roles: ${mslots.map((s) => `${s.role}(${s.provider})`).join(', ')}`
+      )
+      const cursorRole = mslots.find((s) => s.provider === 'cursor')!.role
+      dispatched.length = 0
+      await client.callTool({
+        name: 'dispatch_subagent',
+        arguments: { role: cursorRole, prompt: 'Composer-Aufgabe' }
+      })
+      check(
+        dispatched[0]?.provider === 'cursor',
+        `dispatch(role="${cursorRole}") routed to cursor (got ${dispatched[0]?.provider})`
+      )
+    } finally {
+      setActiveProfileId(origActive)
+      deleteProfile(testId)
+    }
 
     await client.close()
   } catch (err) {

@@ -10,8 +10,8 @@ export const agentSlotSchema = z.object({
   /** Logical role, e.g. "worker", "reviewer". */
   role: z.string().min(1).default('worker'),
   provider: agentProviderId,
-  /** Model alias, resolved per provider (e.g. "fable", "gpt-5.6"). */
-  model: z.string().min(1),
+  /** Model name (free-text, per provider). Empty = the CLI's own default. */
+  model: z.string().default(''),
   /** Number of instances to open for this slot. */
   count: z.number().int().min(1).max(16).default(1),
   /** May the orchestrator dispatch tasks to this slot? */
@@ -45,14 +45,19 @@ export type AgentSlot = z.infer<typeof agentSlotSchema>
 export type OrchestratorConfig = z.infer<typeof orchestratorSchema>
 export type WorkspaceProfile = z.infer<typeof workspaceProfileSchema>
 
-/** The user's canonical example: Claude/Fable orchestrator + 3x GPT-5.6 subagents. */
+/**
+ * The user's canonical example: a Claude/Fable orchestrator delegating to codex
+ * subagents. The subagent model is left blank so codex uses its own configured
+ * default (~/.codex/config.toml) — hard-coding a name like "gpt-5.6" 400s on a
+ * ChatGPT account. Set the model explicitly in the Profile-Editor if needed.
+ */
 export const DEFAULT_PROFILE: WorkspaceProfile = {
   id: 'default',
-  name: 'Fable + 3x GPT-5.6',
+  name: 'Fable + Codex subagents',
   workingDir: '',
   orchestrator: { provider: 'claude', model: 'fable', autoOpenSubwindows: true },
   agents: [
-    { role: 'worker', provider: 'codex', model: 'gpt-5.6', count: 3, orchestrated: true, yolo: false }
+    { role: 'codex', provider: 'codex', model: '', count: 3, orchestrated: true, yolo: false }
   ],
   yoloDefault: false
 }

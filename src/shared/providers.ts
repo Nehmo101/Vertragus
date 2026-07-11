@@ -93,12 +93,16 @@ export function getProvider(id: ProviderId): ProviderDef | undefined {
 }
 
 /**
- * Fallback model lists per agent provider (design defaults). Ollama is
- * replaced by live `/api/tags` results when the daemon is reachable.
+ * Model *suggestions* per agent provider — NOT an exhaustive/validated list.
+ * The ProfileEditor's model field is free-text; valid models depend on each
+ * CLI's version and the user's account. `codex` is intentionally empty here:
+ * models.ts prepends the user's ~/.codex/config.toml model, and leaving it blank
+ * means "use codex's own configured default" (passing a wrong name 400s, e.g.
+ * gpt-5/gpt-5.6 are rejected on a ChatGPT account). Claude aliases are stable.
  */
 export const DEFAULT_MODELS: Record<AgentProviderId, string[]> = {
   claude: ['fable', 'opus', 'sonnet', 'haiku'],
-  codex: ['gpt-5.6', 'gpt-5.6-mini', 'o5-pro'],
-  cursor: ['composer', 'auto', 'gpt-5.6', 'sonnet-4-thinking'],
+  codex: [],
+  cursor: ['composer', 'auto'],
   ollama: ['qwen2.5-coder:32b', 'llama3.3:70b', 'deepseek-coder-v2']
 }

@@ -88,21 +88,20 @@ export default function ProfileEditor(): JSX.Element | null {
               </div>
               <div style={{ flex: 1 }}>
                 <div className="select-label">Modell</div>
-                <select
+                <input
                   className="select mono"
+                  list="orch-models"
+                  placeholder="CLI-Standard"
                   value={draft.orchestrator.model}
                   onChange={(e) =>
                     patch({ orchestrator: { ...draft.orchestrator!, model: e.target.value } })
                   }
-                >
-                  {[
-                    ...new Set([draft.orchestrator.model, ...modelsFor(draft.orchestrator.provider)])
-                  ].map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
+                />
+                <datalist id="orch-models">
+                  {modelsFor(draft.orchestrator.provider).map((m) => (
+                    <option key={m} value={m} />
                   ))}
-                </select>
+                </datalist>
               </div>
               <div className="orch-note">steuert Subagents</div>
               <button
@@ -141,6 +140,18 @@ export default function ProfileEditor(): JSX.Element | null {
           <div className="slot-list">
             {draft.agents.map((slot, idx) => (
               <div className="slot-row" key={idx}>
+                <div className="slot-role-field">
+                  <div className="slot-col-label" title="Name, mit dem der Orchestrator diesen Slot gezielt anspricht">
+                    Rolle / Label
+                  </div>
+                  <input
+                    className="slot-role-input"
+                    value={slot.role}
+                    placeholder={slot.provider}
+                    onChange={(e) => patchSlot(idx, { role: e.target.value })}
+                  />
+                </div>
+                <div className="slot-fields">
                 <div style={{ flex: 1.1 }}>
                   <div className="slot-col-label">Provider</div>
                   <select
@@ -160,17 +171,18 @@ export default function ProfileEditor(): JSX.Element | null {
                 </div>
                 <div style={{ flex: 1.4 }}>
                   <div className="slot-col-label">Modell</div>
-                  <select
+                  <input
                     className="slot-select-sm mono"
+                    list={`slot-models-${idx}`}
+                    placeholder="CLI-Standard"
                     value={slot.model}
                     onChange={(e) => patchSlot(idx, { model: e.target.value })}
-                  >
-                    {[...new Set([slot.model, ...modelsFor(slot.provider)])].map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
+                  />
+                  <datalist id={`slot-models-${idx}`}>
+                    {modelsFor(slot.provider).map((m) => (
+                      <option key={m} value={m} />
                     ))}
-                  </select>
+                  </datalist>
                 </div>
                 <div style={{ flex: 'none' }}>
                   <div className="slot-col-label" style={{ textAlign: 'center' }}>
@@ -215,6 +227,7 @@ export default function ProfileEditor(): JSX.Element | null {
                 >
                   ✕
                 </button>
+                </div>
               </div>
             ))}
           </div>
