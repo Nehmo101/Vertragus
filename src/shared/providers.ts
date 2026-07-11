@@ -91,3 +91,14 @@ export const PROVIDERS: readonly ProviderDef[] = [
 export function getProvider(id: ProviderId): ProviderDef | undefined {
   return PROVIDERS.find((p) => p.id === id)
 }
+
+/**
+ * Fallback model lists per agent provider (design defaults). Ollama is
+ * replaced by live `/api/tags` results when the daemon is reachable.
+ */
+export const DEFAULT_MODELS: Record<AgentProviderId, string[]> = {
+  claude: ['fable', 'opus', 'sonnet', 'haiku'],
+  codex: ['gpt-5.6', 'gpt-5.6-mini', 'o5-pro'],
+  cursor: ['composer', 'auto', 'gpt-5.6', 'sonnet-4-thinking'],
+  ollama: ['qwen2.5-coder:32b', 'llama3.3:70b', 'deepseek-coder-v2']
+}

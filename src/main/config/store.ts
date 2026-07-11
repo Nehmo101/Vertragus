@@ -46,6 +46,18 @@ export function saveProfile(profile: WorkspaceProfile): WorkspaceProfile[] {
   return profiles
 }
 
+export function deleteProfile(id: string): WorkspaceProfile[] {
+  let profiles = store.get('profiles').filter((p) => p.id !== id)
+  if (profiles.length === 0) profiles = [DEFAULT_PROFILE]
+  store.set('profiles', profiles)
+  if (store.get('activeProfileId') === id) store.set('activeProfileId', profiles[0].id)
+  return profiles
+}
+
+export function getProfile(id: string): WorkspaceProfile | undefined {
+  return store.get('profiles').find((p) => p.id === id)
+}
+
 export function getActiveProfileId(): string {
   return store.get('activeProfileId')
 }

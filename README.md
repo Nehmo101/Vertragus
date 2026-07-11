@@ -58,11 +58,12 @@ pnpm build:linux   # Linux AppImage + .deb
 
 ## Roadmap
 
-- **Phase 0** — repo & scaffold, config store, provider health *(current)*
-- **Phase 0.5** — UI layout/mockup
-- **Phase 1** — multi-agent grid, live terminals, Yolo mode, worktree isolation,
-  approvals inbox, cost/token tracking
-- **Phase 2** — profiles/presets, orchestrator engine + MCP dispatch, task DAG
+- **Phase 0** — repo & scaffold, config store, provider health ✔
+- **Phase 0.5** — UI layout/mockup (design handoff) ✔
+- **Phase 1** — multi-agent grid with live PTY terminals, pop-out windows,
+  Yolo mode + kill switch, worktree isolation, profile editor *(current —
+  approvals inbox & cost/token tracking still open)*
+- **Phase 2** — orchestrator engine + MCP dispatch, task DAG, diff/merge view
 - **Phase 3** — Cloudflare Tunnel, session persistence, installers
 
 ## License
