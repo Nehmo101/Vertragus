@@ -17,6 +17,18 @@ export default function Workspace(): JSX.Element {
         <span className="ws-count">
           {agents.length} Agents · Kachel-Layout
         </span>
+        {agents.length > 0 && (
+          <>
+            <div className="ws-divider" />
+            <button
+              className="clean-btn"
+              title="Workspace leeren: alle Agents stoppen und entfernen"
+              onClick={() => void store.cleanWorkspace()}
+            >
+              🧹 Leeren
+            </button>
+          </>
+        )}
         <div className="ws-divider" />
         <button className="layout-btn active" title="Kachel-Layout">
           ▦

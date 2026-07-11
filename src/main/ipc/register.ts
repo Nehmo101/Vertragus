@@ -2,7 +2,7 @@
  * Registers all ipcMain handlers. Each maps 1:1 onto a method in OrcaApi
  * (src/shared/ipc.ts) which the preload bridge exposes on window.orca.
  */
-import { app, ipcMain, BrowserWindow } from 'electron'
+import { app, dialog, ipcMain, BrowserWindow } from 'electron'
 import { IPC, type AppInfo } from '@shared/ipc'
 import type { SpawnAgentRequest } from '@shared/agents'
 import type { WorkspaceProfile } from '@shared/profile'
@@ -54,6 +54,19 @@ export function registerIpcHandlers(): void {
   // ---- git ----
   ipcMain.handle(IPC.gitInfo, (_e, dir: string) => gitInfo(dir))
 
+  // ---- native folder picker ----
+  ipcMain.handle(IPC.dialogPickFolder, async (e) => {
+    const win = senderWindow(e)
+    const opts: Electron.OpenDialogOptions = {
+      title: 'Arbeitsverzeichnis / Repo wählen',
+      properties: ['openDirectory', 'createDirectory']
+    }
+    const result = win
+      ? await dialog.showOpenDialog(win, opts)
+      : await dialog.showOpenDialog(opts)
+    return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]
+  })
+
   // ---- agents ----
   ipcMain.handle(IPC.agentsList, () => agentManager.list())
   ipcMain.handle(IPC.agentSpawn, (_e, req: SpawnAgentRequest) => agentManager.spawn(req))
@@ -102,6 +115,10 @@ export function registerIpcHandlers(): void {
   )
   ipcMain.handle(IPC.agentKill, (_e, id: string) => agentManager.kill(id))
   ipcMain.handle(IPC.agentsKillAll, () => agentManager.killAll())
+  ipcMain.handle(IPC.agentsClean, async () => {
+    await agentManager.removeAll()
+    orchestratorEngine.reset()
+  })
   ipcMain.handle(IPC.agentBuffer, (_e, id: string) => agentManager.buffer(id))
   ipcMain.handle(IPC.agentPopout, (_e, id: string) => {
     createPaneWindow(id)

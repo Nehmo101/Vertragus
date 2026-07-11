@@ -25,6 +25,7 @@ export const IPC = {
   profileGetActive: 'profiles:getActive',
   profileSetActive: 'profiles:setActive',
   gitInfo: 'git:info',
+  dialogPickFolder: 'dialog:pickFolder',
   agentsList: 'agents:list',
   agentSpawn: 'agent:spawn',
   agentsSpawnProfile: 'agents:spawnProfile',
@@ -32,6 +33,7 @@ export const IPC = {
   agentResize: 'agent:resize',
   agentKill: 'agent:kill',
   agentsKillAll: 'agents:killAll',
+  agentsClean: 'agents:clean',
   agentBuffer: 'agent:buffer',
   agentPopout: 'agent:popout',
   orchestratorSnapshot: 'orchestrator:snapshot',
@@ -82,6 +84,8 @@ export interface OrcaApi {
   setActiveProfileId(id: string): Promise<void>
 
   gitInfo(dir: string): Promise<GitInfo>
+  /** Open a native folder picker; resolves to the chosen path or null. */
+  pickFolder(): Promise<string | null>
 
   agents: {
     list(): Promise<AgentInstanceInfo[]>
@@ -92,6 +96,8 @@ export interface OrcaApi {
     resize(id: string, cols: number, rows: number): void
     kill(id: string): Promise<void>
     killAll(): Promise<void>
+    /** Stop all + remove panes (clean slate). */
+    clean(): Promise<void>
     /** Scrollback replay for late-mounting terminals (pop-outs, reloads). */
     buffer(id: string): Promise<AgentBufferSnapshot>
     popout(id: string): Promise<void>

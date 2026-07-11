@@ -24,6 +24,7 @@ const orca: OrcaApi = {
   setActiveProfileId: (id) => ipcRenderer.invoke(IPC.profileSetActive, id),
 
   gitInfo: (dir) => ipcRenderer.invoke(IPC.gitInfo, dir),
+  pickFolder: () => ipcRenderer.invoke(IPC.dialogPickFolder),
 
   agents: {
     list: () => ipcRenderer.invoke(IPC.agentsList),
@@ -34,6 +35,7 @@ const orca: OrcaApi = {
     resize: (id, cols, rows) => ipcRenderer.send(IPC.agentResize, id, cols, rows),
     kill: (id) => ipcRenderer.invoke(IPC.agentKill, id),
     killAll: () => ipcRenderer.invoke(IPC.agentsKillAll),
+    clean: () => ipcRenderer.invoke(IPC.agentsClean),
     buffer: (id) => ipcRenderer.invoke(IPC.agentBuffer, id),
     popout: (id) => ipcRenderer.invoke(IPC.agentPopout, id),
     onData: (cb) => subscribe<AgentDataChunk>(IPC.evAgentData, cb),

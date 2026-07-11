@@ -35,6 +35,7 @@ interface AppState {
   showToast(msg: string): void
   startAll(): Promise<void>
   stopAll(): Promise<void>
+  cleanWorkspace(): Promise<void>
   addAgent(): Promise<void>
   killAgent(id: string): Promise<void>
   popout(id: string): Promise<void>
@@ -135,6 +136,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   async stopAll() {
     await window.orca.agents.killAll()
     get().showToast('Alle Agents gestoppt.')
+  },
+
+  async cleanWorkspace() {
+    await window.orca.agents.clean()
+    get().showToast('Workspace geleert — alle Agents entfernt.')
   },
 
   async addAgent() {

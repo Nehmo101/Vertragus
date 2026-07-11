@@ -719,6 +719,24 @@ button {
   height: 18px;
   background: var(--border-3);
 }
+.clean-btn {
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 6px;
+  border: 1px solid var(--border-4);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.clean-btn:hover {
+  border-color: rgba(242, 85, 90, 0.5);
+  color: var(--err-text);
+  background: rgba(242, 85, 90, 0.08);
+}
 .layout-btn {
   width: 28px;
   height: 28px;
@@ -1565,6 +1583,68 @@ button {
   font-size: 12px;
 }
 
+.dir-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  margin-bottom: 18px;
+}
+.dir-row .text-input {
+  flex: 1;
+  margin-bottom: 0;
+}
+.browse-btn {
+  flex: none;
+  white-space: nowrap;
+}
+.mode-toggle {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.mode-toggle button {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 11px 13px;
+  border-radius: 11px;
+  border: 1px solid var(--border-3);
+  background: var(--bg-slot);
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  transition: all 0.14s ease;
+}
+.mode-toggle button span {
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--text-4);
+}
+.mode-toggle button:hover {
+  border-color: rgba(45, 212, 191, 0.35);
+}
+.mode-toggle button.active {
+  border-color: var(--accent);
+  background: linear-gradient(160deg, rgba(45, 212, 191, 0.1), rgba(45, 212, 191, 0.02));
+  color: var(--text-1);
+}
+.mode-toggle button.active span {
+  color: var(--accent-light);
+}
+.single-hint {
+  margin-bottom: 20px;
+  padding: 12px 14px;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px dashed var(--border-4);
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
 .orch-block {
   display: flex;
   gap: 10px;

@@ -50,15 +50,51 @@ export default function ProfileEditor(): JSX.Element | null {
           />
 
           <label className="field-label">Working Directory (Repo)</label>
-          <input
-            className="text-input mono"
-            placeholder="C:\git\mein-repo"
-            value={draft.workingDir}
-            onChange={(e) => patch({ workingDir: e.target.value })}
-          />
+          <div className="dir-row">
+            <input
+              className="text-input mono"
+              placeholder="C:\git\mein-repo"
+              value={draft.workingDir}
+              onChange={(e) => patch({ workingDir: e.target.value })}
+            />
+            <button
+              className="btn-secondary browse-btn"
+              onClick={async () => {
+                const dir = await window.orca.pickFolder()
+                if (dir) patch({ workingDir: dir })
+              }}
+            >
+              Durchsuchen…
+            </button>
+          </div>
 
           <div className="field-label" style={{ marginBottom: 8 }}>
-            Orchestrator
+            Modus
+          </div>
+          <div className="mode-toggle">
+            <button
+              className={draft.orchestrator ? 'active' : ''}
+              onClick={() =>
+                !draft.orchestrator &&
+                patch({
+                  orchestrator: {
+                    provider: 'claude',
+                    model: modelsFor('claude')[0] ?? 'fable',
+                    autoOpenSubwindows: true
+                  }
+                })
+              }
+            >
+              🪄 Orchestriert
+              <span>ein Orchestrator delegiert an Subagents</span>
+            </button>
+            <button
+              className={!draft.orchestrator ? 'active' : ''}
+              onClick={() => patch({ orchestrator: undefined })}
+            >
+              ⚡ Single
+              <span>alle Slots laufen parallel, kein Orchestrator</span>
+            </button>
           </div>
           {draft.orchestrator ? (
             <div className="orch-block">
@@ -104,30 +140,12 @@ export default function ProfileEditor(): JSX.Element | null {
                 </datalist>
               </div>
               <div className="orch-note">steuert Subagents</div>
-              <button
-                className="slot-remove"
-                title="Orchestrator entfernen"
-                onClick={() => patch({ orchestrator: undefined })}
-              >
-                ✕
-              </button>
             </div>
           ) : (
-            <button
-              className="add-slot"
-              style={{ marginTop: 0, marginBottom: 20 }}
-              onClick={() =>
-                patch({
-                  orchestrator: {
-                    provider: 'claude',
-                    model: modelsFor('claude')[0] ?? 'fable',
-                    autoOpenSubwindows: true
-                  }
-                })
-              }
-            >
-              ＋ Orchestrator hinzufügen
-            </button>
+            <div className="single-hint">
+              Kein Orchestrator — beim Start laufen alle Subagent-Slots (mit ihrer Anzahl) parallel
+              als eigenständige, interaktive Agents.
+            </div>
           )}
 
           <div className="slots-caption">

@@ -278,6 +278,18 @@ export class AgentManager extends EventEmitter {
     this.changed()
   }
 
+  /** Stop everything AND remove the panes — a clean slate for the workspace. */
+  async removeAll(): Promise<void> {
+    const count = this.agents.size
+    for (const m of this.agents.values()) {
+      this.terminate(m)
+      this.names.release(m.info.name)
+    }
+    this.agents.clear()
+    this.emitEvent(`🧹 Workspace geleert · ${count} Agents entfernt`, 'muted')
+    this.changed()
+  }
+
   /** True while at least one agent process is alive. */
   anyRunning(): boolean {
     return [...this.agents.values()].some((m) => this.isAlive(m))
