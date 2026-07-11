@@ -1,5 +1,9 @@
 appId: dev.nehmo.orca-strator
 productName: Orca-Strator
+publish:
+  provider: github
+  owner: Nehmo101
+  repo: Orca-Strator
 directories:
   buildResources: build
   output: release/${version}
