@@ -1,0 +1,93 @@
+/**
+ * Provider definitions shared across main / preload / renderer.
+ * Pure data + types only — no Node.js imports so the renderer can use it too.
+ */
+
+export type AgentProviderId = 'claude' | 'codex' | 'cursor' | 'ollama'
+export type IntegrationProviderId = 'github' | 'cloudflare'
+export type ProviderId = AgentProviderId | IntegrationProviderId
+
+export type ProviderKind = 'agent' | 'llm' | 'integration'
+
+export interface ProviderDef {
+  id: ProviderId
+  label: string
+  /** Executable resolved via PATH. */
+  command: string
+  /** Args used to probe availability / version. */
+  versionArgs: string[]
+  kind: ProviderKind
+  /** Whether Yolo/auto-approve is a meaningful concept for this provider. */
+  supportsYolo: boolean
+  docsUrl?: string
+}
+
+export interface ProviderHealth {
+  id: ProviderId
+  available: boolean
+  version?: string
+  /** Extra status line, e.g. gh auth account or ollama model count. */
+  detail?: string
+  error?: string
+  checkedAt: number
+}
+
+/** Canonical registry of everything Orca-Strator can talk to. */
+export const PROVIDERS: readonly ProviderDef[] = [
+  {
+    id: 'claude',
+    label: 'Claude Code',
+    command: 'claude',
+    versionArgs: ['--version'],
+    kind: 'agent',
+    supportsYolo: true,
+    docsUrl: 'https://docs.claude.com/en/docs/claude-code'
+  },
+  {
+    id: 'codex',
+    label: 'Codex',
+    command: 'codex',
+    versionArgs: ['--version'],
+    kind: 'agent',
+    supportsYolo: true
+  },
+  {
+    id: 'cursor',
+    label: 'Cursor Agent',
+    command: 'cursor-agent',
+    versionArgs: ['--version'],
+    kind: 'agent',
+    supportsYolo: true
+  },
+  {
+    id: 'ollama',
+    label: 'Ollama (local LLMs)',
+    command: 'ollama',
+    versionArgs: ['--version'],
+    kind: 'llm',
+    supportsYolo: false,
+    docsUrl: 'https://ollama.com'
+  },
+  {
+    id: 'github',
+    label: 'GitHub',
+    command: 'gh',
+    versionArgs: ['--version'],
+    kind: 'integration',
+    supportsYolo: false,
+    docsUrl: 'https://cli.github.com'
+  },
+  {
+    id: 'cloudflare',
+    label: 'Cloudflare Tunnel',
+    command: 'cloudflared',
+    versionArgs: ['--version'],
+    kind: 'integration',
+    supportsYolo: false,
+    docsUrl: 'https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/'
+  }
+] as const
+
+export function getProvider(id: ProviderId): ProviderDef | undefined {
+  return PROVIDERS.find((p) => p.id === id)
+}

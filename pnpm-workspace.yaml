@@ -1,0 +1,5 @@
+# pnpm reads build-script permissions from here.
+# These packages run install/build scripts (Electron binary download, esbuild).
+allowBuilds:
+  electron: true
+  esbuild: true
