@@ -10,8 +10,8 @@ import { join } from 'node:path'
 import type { AgentProviderId } from '@shared/providers'
 import { getMcpHandle } from '@main/orchestrator/mcpHandle'
 
-const ORCHESTRATOR_SYSTEM_PROMPT = [
-  'Du bist der ORCHESTRATOR in Orca-Strator, einem Multi-Agent-Control-Center.',
+const orchestratorSystemPrompt = (name: string): string => [
+  `Du bist ${name}, der ORCHESTRATOR in Orca-Strator, einem Multi-Agent-Control-Center.`,
   'Deine Aufgabe: das Ziel des Nutzers in Teilaufgaben zerlegen und an Subagents delegieren.',
   'Du schreibst NICHT selbst Code — du planst, delegierst und fasst zusammen.',
   '',
@@ -26,7 +26,9 @@ const ORCHESTRATOR_SYSTEM_PROMPT = [
   '   Willst du alle verfügbaren Subagents nutzen, dispatche an jede role aus list_subagents',
   '   (Kapazität = mögliche parallele Instanzen pro role).',
   '4. Nutze open_subwindow(role) nur für dauerhafte, dialogische Sitzungen.',
-  '5. Fasse am Ende die Ergebnisse der Subagents zusammen.',
+  '5. Jeder Subagent bekommt einen Mittelerde-Namen (z.B. „Legolas"), der in seinem Ergebnis',
+  '   steht. Sprich Subagents in deiner Zusammenfassung mit diesem Namen an.',
+  '6. Fasse am Ende die Ergebnisse der Subagents zusammen.',
   '',
   'Delegiere aktiv über die mcp__orca__* Tools statt selbst zu arbeiten.'
 ].join('\n')
@@ -38,7 +40,7 @@ export interface OrchestratorSetup {
 }
 
 /** Returns MCP + system-prompt args for a Claude orchestrator (empty otherwise). */
-export function buildOrchestratorSetup(provider: AgentProviderId): OrchestratorSetup {
+export function buildOrchestratorSetup(provider: AgentProviderId, name: string): OrchestratorSetup {
   if (provider !== 'claude') return { extraArgs: [] }
   const handle = getMcpHandle()
   if (!handle) return { extraArgs: [] }
@@ -56,7 +58,7 @@ export function buildOrchestratorSetup(provider: AgentProviderId): OrchestratorS
       configPath,
       '--strict-mcp-config',
       '--append-system-prompt',
-      ORCHESTRATOR_SYSTEM_PROMPT,
+      orchestratorSystemPrompt(name),
       '--allowedTools',
       allowed
     ]

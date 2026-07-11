@@ -148,6 +148,7 @@ export class OrchestratorEngine extends EventEmitter {
         workingDir: slot.workingDir || profile?.workingDir
       })
       task.agentId = info.id
+      task.agentName = info.name
       this.push()
 
       const result = await done
@@ -160,8 +161,8 @@ export class OrchestratorEngine extends EventEmitter {
       this.push()
 
       return result.isError
-        ? `Subagent (${slotRole}) meldete einen Fehler. Ausgabe:\n${result.result}`
-        : result.result || '(kein Textergebnis)'
+        ? `${info.name} (${slotRole}) meldete einen Fehler. Ausgabe:\n${result.result}`
+        : `${info.name} (${slotRole}) meldet:\n${result.result || '(kein Textergebnis)'}`
     } catch (err) {
       task.status = 'error'
       task.note = err instanceof Error ? err.message : String(err)

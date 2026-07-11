@@ -115,17 +115,17 @@ export function broadcast(channel: string, payload: unknown): void {
 function pushDemoState(win: BrowserWindow): void {
   const now = Date.now()
   const agents = [
-    { id: 'orch-01', provider: 'claude', model: 'fable', role: 'Orchestrator · plant & verteilt', kind: 'orchestrator', mode: 'interactive', yolo: false, workingDir: '~/repos/checkout', status: 'running', startedAt: now },
-    { id: 'task-02', provider: 'codex', model: 'gpt-5.6', role: 'Task · worker', kind: 'sub', mode: 'task', taskId: 't-1', yolo: false, workingDir: '.', worktree: '.', status: 'running', startedAt: now },
-    { id: 'task-03', provider: 'codex', model: 'gpt-5.6', role: 'Task · worker', kind: 'sub', mode: 'task', taskId: 't-2', yolo: true, workingDir: '.', worktree: '.', status: 'running', startedAt: now },
-    { id: 'task-04', provider: 'codex', model: 'gpt-5.6', role: 'Task · worker', kind: 'sub', mode: 'task', taskId: 't-3', yolo: false, workingDir: '.', status: 'stopped', startedAt: now }
+    { id: 'orch-01', name: 'Boromir', provider: 'claude', model: 'fable', role: 'Orchestrator · plant & verteilt', kind: 'orchestrator', mode: 'interactive', yolo: false, workingDir: '~/repos/checkout', status: 'running', startedAt: now },
+    { id: 'task-02', name: 'Legolas', provider: 'codex', model: 'gpt-5.6', role: 'Task · worker', kind: 'sub', mode: 'task', taskId: 't-1', yolo: false, workingDir: '.', worktree: '.', status: 'running', startedAt: now },
+    { id: 'task-03', name: 'Gimli', provider: 'codex', model: 'gpt-5.6', role: 'Task · worker', kind: 'sub', mode: 'task', taskId: 't-2', yolo: true, workingDir: '.', worktree: '.', status: 'running', startedAt: now },
+    { id: 'task-04', name: 'Frodo', provider: 'codex', model: 'gpt-5.6', role: 'Task · worker', kind: 'sub', mode: 'task', taskId: 't-3', yolo: false, workingDir: '.', status: 'stopped', startedAt: now }
   ]
   const snapshot = {
     goal: { id: 'epic-4471', title: 'Checkout-Flow v2', active: true },
     tasks: [
-      { id: 't-1', title: 'API · POST /checkout', role: 'worker', agentId: 'task-02', provider: 'codex', model: 'gpt-5.6', status: 'running', createdAt: now },
-      { id: 't-2', title: 'E2E · Checkout-Spec', role: 'worker', agentId: 'task-03', provider: 'codex', model: 'gpt-5.6', status: 'running', yolo: true, createdAt: now + 1 },
-      { id: 't-3', title: 'DB · Migration', role: 'worker', agentId: 'task-04', provider: 'codex', model: 'gpt-5.6', status: 'success', progress: 100, note: 'Migration erstellt, Tests grün.', createdAt: now + 2, finishedAt: now + 3 },
+      { id: 't-1', title: 'API · POST /checkout', role: 'worker', agentId: 'task-02', agentName: 'Legolas', provider: 'codex', model: 'gpt-5.6', status: 'running', createdAt: now },
+      { id: 't-2', title: 'E2E · Checkout-Spec', role: 'worker', agentId: 'task-03', agentName: 'Gimli', provider: 'codex', model: 'gpt-5.6', status: 'running', yolo: true, createdAt: now + 1 },
+      { id: 't-3', title: 'DB · Migration', role: 'worker', agentId: 'task-04', agentName: 'Frodo', provider: 'codex', model: 'gpt-5.6', status: 'success', progress: 100, note: 'Migration erstellt, Tests grün.', createdAt: now + 2, finishedAt: now + 3 },
       { id: 't-4', title: 'Review · PR #482', role: 'worker', provider: 'codex', model: 'gpt-5.6', status: 'queued', createdAt: now + 3 }
     ]
   }

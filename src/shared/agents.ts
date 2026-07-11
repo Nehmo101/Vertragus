@@ -16,6 +16,8 @@ export type AgentStatus = 'running' | 'waiting' | 'stopped' | 'error'
 
 export interface AgentInstanceInfo {
   id: string
+  /** Middle-earth code-name, e.g. "Boromir". */
+  name: string
   provider: AgentProviderId
   model: string
   /** Display role, e.g. "Subagent · Backend / API". */

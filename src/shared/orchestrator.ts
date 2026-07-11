@@ -16,6 +16,8 @@ export interface OrcaTask {
   role: string
   /** The agent instance the task was dispatched to (pane id), if any. */
   agentId?: string
+  /** Code-name of the subagent handling it, e.g. "Legolas". */
+  agentName?: string
   provider?: AgentProviderId
   model?: string
   status: TaskStatus

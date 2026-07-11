@@ -50,6 +50,7 @@ export async function runSelfTest(): Promise<void> {
       dispatched.push({ provider: req.provider, role: req.role, prompt: req.prompt })
       const info: AgentInstanceInfo = {
         id: `task-${dispatched.length}`,
+        name: `Testagent-${dispatched.length}`,
         provider: req.provider as AgentInstanceInfo['provider'],
         model: req.model,
         role: `Task · ${req.role}`,
@@ -110,6 +111,10 @@ export async function runSelfTest(): Promise<void> {
     check(
       task?.status === 'success' && task.title === 'Feature X',
       `DAG updated: task "${task?.title}" status=${task?.status}`
+    )
+    check(
+      task?.agentName === 'Testagent-1' && dispRes.content[0].text.includes('Testagent-1'),
+      `subagent name flows to DAG + result (${task?.agentName})`
     )
 
     // Two same-named slots must become individually addressable, and dispatch

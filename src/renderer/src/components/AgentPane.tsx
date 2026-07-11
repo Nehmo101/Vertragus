@@ -104,6 +104,7 @@ export default function AgentPane({ agent, onClose, onPopout }: Props): JSX.Elem
         </span>
         <div className="pane-title-block">
           <div className="pane-line1">
+            <span className="pane-name">{agent.name}</span>
             <span className="pane-model">{agent.model}</span>
             {isOrch && <span className="badge-orch">Orchestrator</span>}
             {agent.yolo && <span className="badge-yolo">YOLO</span>}

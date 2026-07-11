@@ -18,6 +18,7 @@ import { createWorktree } from '@main/agents/worktree'
 import { getSetting } from '@main/config/store'
 import { runHeadless, type HeadlessHandle, type HeadlessResult } from '@main/agents/headless'
 import { buildOrchestratorSetup } from '@main/orchestrator/orchestratorLaunch'
+import { NameAllocator } from '@main/agents/names'
 
 const BUFFER_LIMIT = 200_000 // chars of scrollback kept per agent
 
@@ -42,6 +43,7 @@ export interface RunTaskRequest {
 
 export class AgentManager extends EventEmitter {
   private readonly agents = new Map<string, Managed>()
+  private readonly names = new NameAllocator()
   private seq = 0
 
   list(): AgentInstanceInfo[] {
@@ -95,12 +97,13 @@ export class AgentManager extends EventEmitter {
   async spawn(req: SpawnAgentRequest): Promise<AgentInstanceInfo> {
     const kind = req.kind ?? 'sub'
     const id = this.nextId(kind === 'orchestrator' ? 'orch' : 'sub')
+    const name = this.names.allocate(kind)
     const yolo = req.yolo ?? false
     const { workingDir, worktree } = await this.prepareWorkingDir(id, req.workingDir)
 
     // Orchestrators get the Orca MCP server + orchestrator system prompt.
     const orchestratorArgs =
-      kind === 'orchestrator' ? buildOrchestratorSetup(req.provider).extraArgs : []
+      kind === 'orchestrator' ? buildOrchestratorSetup(req.provider, name).extraArgs : []
 
     const launch = buildInteractiveLaunch(req.provider, {
       model: req.model,
@@ -112,6 +115,7 @@ export class AgentManager extends EventEmitter {
 
     const info: AgentInstanceInfo = {
       id,
+      name,
       provider: req.provider,
       model: req.model,
       role: req.role ?? (kind === 'orchestrator' ? 'Orchestrator · plant & verteilt' : 'Subagent'),
@@ -144,14 +148,14 @@ export class AgentManager extends EventEmitter {
         info.exitCode = exitCode
         info.status = exitCode === 0 ? 'stopped' : 'error'
         this.emitEvent(
-          exitCode === 0 ? `${id} beendet` : `${id} Fehler · exit ${exitCode}`,
+          exitCode === 0 ? `${name} beendet` : `${name} · Fehler · exit ${exitCode}`,
           exitCode === 0 ? 'muted' : 'error'
         )
         this.changed()
       })
 
       this.emitEvent(
-        `${kind === 'orchestrator' ? 'ORCH' : id} gestartet · ${req.provider}/${req.model}${yolo ? ' [YOLO]' : ''}`,
+        `${name} gestartet · ${req.provider}/${req.model}${yolo ? ' [YOLO]' : ''}`,
         yolo ? 'yolo' : 'dispatch'
       )
     } catch (err) {
@@ -172,10 +176,12 @@ export class AgentManager extends EventEmitter {
    */
   async runTask(req: RunTaskRequest): Promise<{ info: AgentInstanceInfo; done: Promise<HeadlessResult> }> {
     const id = this.nextId('task')
+    const name = this.names.allocate('sub')
     const { workingDir, worktree } = await this.prepareWorkingDir(id, req.workingDir)
 
     const info: AgentInstanceInfo = {
       id,
+      name,
       provider: req.provider,
       model: req.model,
       role: `Task · ${req.role}`,
@@ -191,9 +197,9 @@ export class AgentManager extends EventEmitter {
     const managed: Managed = { info, buffer: '', seq: 0 }
     this.agents.set(id, managed)
 
-    this.pushData(managed, `\x1b[36m▶ ${req.provider}/${req.model} · ${req.role}\x1b[0m\r\n`)
+    this.pushData(managed, `\x1b[36m▶ ${name} · ${req.provider}/${req.model} · ${req.role}\x1b[0m\r\n`)
     this.emitEvent(
-      `${id} dispatch · ${req.provider}/${req.model} · ${req.role}${req.yolo ? ' [YOLO]' : ''}`,
+      `${name} dispatch · ${req.role} · ${req.provider}/${req.model}${req.yolo ? ' [YOLO]' : ''}`,
       req.yolo ? 'yolo' : 'dispatch'
     )
 
@@ -213,7 +219,7 @@ export class AgentManager extends EventEmitter {
         info.status = result.isError ? 'error' : 'stopped'
         info.exitCode = result.isError ? 1 : 0
         this.emitEvent(
-          result.isError ? `${id} Task-Fehler` : `${id} ✓ Task fertig`,
+          result.isError ? `${name} · Task-Fehler` : `${name} · ✓ Task fertig`,
           result.isError ? 'error' : 'success'
         )
         this.changed()
@@ -257,7 +263,8 @@ export class AgentManager extends EventEmitter {
     this.terminate(managed)
     managed.info.status = 'stopped'
     this.agents.delete(id)
-    this.emitEvent(`${id} geschlossen`, 'muted')
+    this.names.release(managed.info.name)
+    this.emitEvent(`${managed.info.name} geschlossen`, 'muted')
     this.changed()
   }
 

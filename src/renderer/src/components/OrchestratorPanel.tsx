@@ -52,7 +52,7 @@ function TaskCard({ task }: { task: OrcaTask }): JSX.Element {
               className="assignee-dot"
               style={{ background: chip?.fg ?? '#5b697f' }}
             />
-            {task.role}
+            {task.agentName ? `${task.agentName} · ${task.role}` : task.role}
             {task.model ? ` · ${task.model}` : ''}
           </span>
           <span className="spacer" />
