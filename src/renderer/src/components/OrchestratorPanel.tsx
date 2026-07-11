@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAppStore, activeProfile } from '@renderer/store/useAppStore'
+import { PROVIDER_THEME } from '@renderer/ui/theme'
+import type { OrcaTask, TaskStatus } from '@shared/orchestrator'
 
 function useClock(): string {
   const [now, setNow] = useState(() => new Date())
@@ -14,16 +16,75 @@ function fmtTime(ts: number): string {
   return new Date(ts).toTimeString().slice(0, 8)
 }
 
+const TASK_PILL: Record<TaskStatus, { bg: string; fg: string; dot: string; label: string }> = {
+  queued: { bg: 'rgba(255,255,255,0.06)', fg: '#8b98ad', dot: '#5b697f', label: 'geplant' },
+  running: { bg: 'rgba(63,209,122,0.14)', fg: '#5fe39a', dot: '#3fd17a', label: 'läuft' },
+  success: { bg: 'rgba(63,209,122,0.14)', fg: '#5fe39a', dot: '#3fd17a', label: 'fertig' },
+  error: { bg: 'rgba(242,85,90,0.15)', fg: '#ff7377', dot: '#f2555a', label: 'Fehler' },
+  stopped: { bg: 'rgba(91,105,127,0.16)', fg: '#8a96a8', dot: '#5b697f', label: 'gestoppt' }
+}
+
+function TaskCard({ task }: { task: OrcaTask }): JSX.Element {
+  const pill = TASK_PILL[task.status]
+  const chip = task.provider ? PROVIDER_THEME[task.provider] : undefined
+  const label = task.status === 'running' && task.yolo ? 'läuft · yolo' : pill.label
+  return (
+    <div className="dag-item">
+      <div className="dag-rail">
+        <span
+          className="dag-node"
+          style={{ background: pill.dot, boxShadow: `0 0 7px ${pill.dot}` }}
+        />
+        <span className="dag-line" />
+      </div>
+      <div className="task-card">
+        <div className="task-row1">
+          <span
+            className="task-dot"
+            style={{ background: pill.dot, boxShadow: `0 0 6px ${pill.dot}` }}
+          />
+          <span className="task-title">{task.title}</span>
+          <span className="task-id">{task.id}</span>
+        </div>
+        <div className="task-row2">
+          <span className="assignee">
+            <span
+              className="assignee-dot"
+              style={{ background: chip?.fg ?? '#5b697f' }}
+            />
+            {task.role}
+            {task.model ? ` · ${task.model}` : ''}
+          </span>
+          <span className="spacer" />
+          <span className="task-pill" style={{ background: pill.bg, color: pill.fg }}>
+            {label}
+          </span>
+        </div>
+        {task.status === 'running' && (
+          <div className="task-bar">
+            <div className="task-bar-fill indeterminate" />
+          </div>
+        )}
+        {task.note && (
+          <div className={`task-note ${task.status === 'error' ? 'err' : ''}`}>{task.note}</div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function OrchestratorPanel(): JSX.Element {
   const store = useAppStore()
   const clock = useClock()
   const profile = activeProfile(store)
   const orch = store.agents.find((a) => a.kind === 'orchestrator')
+  const { goal, tasks } = store.orchestrator
   const logRef = useRef<HTMLDivElement>(null)
 
-  const [autoDispatch, setAutoDispatch] = useState(true)
+  const done = tasks.filter((t) => t.status === 'success').length
+  const pct = tasks.length > 0 ? Math.round((done / tasks.length) * 100) : 0
+  const assigned = tasks.filter((t) => t.agentId).length
 
-  // Auto-scroll dispatch log to bottom on new events.
   useEffect(() => {
     const el = logRef.current
     if (el) el.scrollTop = el.scrollHeight
@@ -35,39 +96,39 @@ export default function OrchestratorPanel(): JSX.Element {
         <div className="orch-head-row">
           <span className="orch-diamond">◇</span>
           <span className="orch-title">Orchestrator</span>
-          <span className="orch-model">
-            {orch?.model ?? profile?.orchestrator?.model ?? '—'}
-          </span>
+          <span className="orch-model">{orch?.model ?? profile?.orchestrator?.model ?? '—'}</span>
           <div className="spacer" />
-          <span className="mini-toggle-label">Auto-Dispatch</span>
-          <button
-            className={`mini-toggle ${autoDispatch ? '' : 'off'}`}
-            title="Automatisches Verteilen an Subagents (Engine folgt in Phase 2)"
-            onClick={() => setAutoDispatch((v) => !v)}
-          >
+          <span className="mini-toggle-label">{goal?.active ? 'aktiv' : 'inaktiv'}</span>
+          <span className={`mini-toggle ${goal?.active ? '' : 'off'}`}>
             <span className="knob" />
-          </button>
+          </span>
         </div>
 
         <div className="goal-card">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span className="goal-caption">Aktuelles Ziel</span>
-            <span className="goal-id">{orch ? orch.id : '—'}</span>
+            <span className="goal-id">{goal?.id ?? '—'}</span>
           </div>
-          {orch ? (
+          {goal ? (
             <>
-              <div className="goal-title">Orchestrator läuft interaktiv</div>
-              <div className="goal-note">
-                Ziel &amp; Subtasks direkt im Orchestrator-Terminal vergeben. Automatische
-                Zerlegung + Dispatch an Subagents kommt in Phase 2 (MCP-Engine).
+              <div className="goal-title">{goal.title}</div>
+              <div className="goal-bar">
+                <div className="goal-bar-fill" style={{ width: `${pct}%` }} />
+              </div>
+              <div className="goal-stats">
+                <span>
+                  {tasks.length} Subtasks · {assigned} zugewiesen
+                </span>
+                <span className="pct">{pct}%</span>
               </div>
             </>
           ) : (
             <>
               <div className="goal-title">Kein aktives Ziel</div>
               <div className="goal-note">
-                Workspace starten, um den Orchestrator ({profile?.orchestrator?.provider ?? '—'}/
-                {profile?.orchestrator?.model ?? '—'}) zu aktivieren.
+                „▶ Alle starten" aktiviert den Orchestrator ({profile?.orchestrator?.provider ?? '—'}
+                /{profile?.orchestrator?.model ?? '—'}). Gib ihm im Terminal ein Ziel — er zerlegt es
+                und delegiert an Subagents.
               </div>
             </>
           )}
@@ -80,11 +141,14 @@ export default function OrchestratorPanel(): JSX.Element {
           <span className="tag">DAG</span>
         </div>
         <div className="dag-scroll">
-          <div className="dag-empty">
-            Noch keine automatische Zerlegung — die Orchestrator-Engine (Task-DAG,
-            dispatch_subagent, open_subwindow) folgt in Phase 2. Das Dispatch-Protokoll unten
-            zeigt bereits echte Agent-Ereignisse.
-          </div>
+          {tasks.length === 0 ? (
+            <div className="dag-empty">
+              Noch keine Aufgaben. Sobald der Orchestrator <code>dispatch_subagent</code> aufruft,
+              erscheinen hier die Teilaufgaben live — jede läuft als echter Subagent im Grid.
+            </div>
+          ) : (
+            tasks.map((task) => <TaskCard key={task.id} task={task} />)
+          )}
         </div>
 
         <div className="dispatch">

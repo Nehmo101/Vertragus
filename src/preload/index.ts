@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import { IPC, type OrcaApi } from '@shared/ipc'
 import type { AgentDataChunk, AgentInstanceInfo, OrcaEvent } from '@shared/agents'
+import type { OrchestratorSnapshot } from '@shared/orchestrator'
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
   const listener = (_e: Electron.IpcRendererEvent, payload: T): void => cb(payload)
@@ -38,6 +39,12 @@ const orca: OrcaApi = {
     onData: (cb) => subscribe<AgentDataChunk>(IPC.evAgentData, cb),
     onChanged: (cb) => subscribe<AgentInstanceInfo[]>(IPC.evAgentsChanged, cb),
     onEvent: (cb) => subscribe<OrcaEvent>(IPC.evOrcaEvent, cb)
+  },
+
+  orchestrator: {
+    snapshot: () => ipcRenderer.invoke(IPC.orchestratorSnapshot),
+    reset: () => ipcRenderer.invoke(IPC.orchestratorReset),
+    onSnapshot: (cb) => subscribe<OrchestratorSnapshot>(IPC.evOrchestrator, cb)
   },
 
   win: {

@@ -10,6 +10,7 @@ import { checkAllProviders } from '@main/providers/health'
 import { listModels } from '@main/providers/models'
 import { gitInfo } from '@main/integrations/git'
 import { agentManager } from '@main/agents/AgentManager'
+import { orchestratorEngine } from '@main/orchestrator/Engine'
 import { broadcast, createPaneWindow } from '@main/windows'
 import {
   getSetting,
@@ -59,8 +60,13 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.agentsSpawnProfile, async (_e, profileId: string, yoloMaster: boolean) => {
     const profile = getProfile(profileId)
     if (!profile) return []
+    orchestratorEngine.reset()
     const spawned: Awaited<ReturnType<typeof agentManager.spawn>>[] = []
+
     if (profile.orchestrator) {
+      // Orchestrator mode: start only the orchestrator — it dispatches subagents
+      // on demand (as task panes) via the Orca MCP tools. The profile's slots are
+      // the dispatch pool it draws from.
       spawned.push(
         await agentManager.spawn({
           provider: profile.orchestrator.provider,
@@ -71,18 +77,21 @@ export function registerIpcHandlers(): void {
           workingDir: profile.workingDir
         })
       )
-    }
-    for (const slot of profile.agents) {
-      for (let i = 1; i <= slot.count; i++) {
-        spawned.push(
-          await agentManager.spawn({
-            provider: slot.provider,
-            model: slot.model,
-            role: `Subagent · ${slot.role}${slot.count > 1 ? ` #${i}` : ''}`,
-            yolo: slot.yolo || yoloMaster,
-            workingDir: slot.workingDir || profile.workingDir
-          })
-        )
+      orchestratorEngine.activate()
+    } else {
+      // Manual mode (no orchestrator): open each slot as an interactive pane.
+      for (const slot of profile.agents) {
+        for (let i = 1; i <= slot.count; i++) {
+          spawned.push(
+            await agentManager.spawn({
+              provider: slot.provider,
+              model: slot.model,
+              role: `Subagent · ${slot.role}${slot.count > 1 ? ` #${i}` : ''}`,
+              yolo: slot.yolo || yoloMaster,
+              workingDir: slot.workingDir || profile.workingDir
+            })
+          )
+        }
       }
     }
     return spawned
@@ -98,6 +107,10 @@ export function registerIpcHandlers(): void {
     createPaneWindow(id)
   })
 
+  // ---- orchestrator ----
+  ipcMain.handle(IPC.orchestratorSnapshot, () => orchestratorEngine.snapshot())
+  ipcMain.handle(IPC.orchestratorReset, () => orchestratorEngine.reset())
+
   // ---- window controls (frameless title bar) ----
   ipcMain.on(IPC.winMinimize, (e) => senderWindow(e)?.minimize())
   ipcMain.on(IPC.winMaximizeToggle, (e) => {
@@ -111,4 +124,5 @@ export function registerIpcHandlers(): void {
   agentManager.on('data', (chunk) => broadcast(IPC.evAgentData, chunk))
   agentManager.on('changed', (list) => broadcast(IPC.evAgentsChanged, list))
   agentManager.on('event', (evt) => broadcast(IPC.evOrcaEvent, evt))
+  orchestratorEngine.on('snapshot', (snap) => broadcast(IPC.evOrchestrator, snap))
 }

@@ -5,7 +5,13 @@ import type { AgentProviderId } from './providers'
 
 export type AgentKind = 'orchestrator' | 'sub'
 
-/** UI-facing status. `waiting` is reserved for Phase 2 (approval detection). */
+/**
+ * interactive = live PTY the user types into (Phase 1).
+ * task = headless run dispatched by the orchestrator, streamed read-only (Phase 2).
+ */
+export type AgentMode = 'interactive' | 'task'
+
+/** UI-facing status. `waiting` is reserved for approval detection (later). */
 export type AgentStatus = 'running' | 'waiting' | 'stopped' | 'error'
 
 export interface AgentInstanceInfo {
@@ -15,7 +21,10 @@ export interface AgentInstanceInfo {
   /** Display role, e.g. "Subagent · Backend / API". */
   role: string
   kind: AgentKind
+  mode: AgentMode
   yolo: boolean
+  /** For task agents: the orchestrator task that owns this run. */
+  taskId?: string
   workingDir: string
   /** Set when the agent runs in an isolated git worktree. */
   worktree?: string

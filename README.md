@@ -26,7 +26,10 @@ live terminal — and lets one configurable **orchestrator** delegate work to
 - **Multi-agent workspace** — a tiled grid of live terminals; pop any pane out
   into its own OS window (hybrid grid + pop-out).
 - **Configurable orchestration** — pick who orchestrates whom, e.g. a
-  Claude/*Fable* orchestrator driving **3× GPT‑5.6** subagents.
+  Claude/*Fable* orchestrator driving **3× GPT‑5.6** subagents. The orchestrator
+  delegates through an in-app **MCP server** (`dispatch_subagent`,
+  `list_subagents`, `open_subwindow`, `set_goal`); dispatched subtasks run as
+  real subagents and stream into a live **task-DAG** panel.
 - **Yolo Mode** — per-agent and global auto-approve so agents work without
   prompts (`--dangerously-skip-permissions` / `--dangerously-bypass-approvals-and-sandbox`
   / `--yolo`), with a red warning badge, a global kill-switch, and git-worktree
@@ -37,8 +40,9 @@ live terminal — and lets one configurable **orchestrator** delegate work to
 ## Tech stack
 
 Electron · TypeScript · React · Vite (`electron-vite`) · node-pty + xterm.js
-(terminals, Phase 1) · electron-store + zod (config) · electron-builder
-(packaging: NSIS `.exe` + AppImage/`.deb`).
+(terminals) · `@modelcontextprotocol/sdk` (orchestrator ↔ subagent dispatch) ·
+electron-store + zod (config) · electron-builder (packaging: NSIS `.exe` +
+AppImage/`.deb`).
 
 ## Development
 
@@ -61,9 +65,10 @@ pnpm build:linux   # Linux AppImage + .deb
 - **Phase 0** — repo & scaffold, config store, provider health ✔
 - **Phase 0.5** — UI layout/mockup (design handoff) ✔
 - **Phase 1** — multi-agent grid with live PTY terminals, pop-out windows,
-  Yolo mode + kill switch, worktree isolation, profile editor *(current —
-  approvals inbox & cost/token tracking still open)*
-- **Phase 2** — orchestrator engine + MCP dispatch, task DAG, diff/merge view
+  Yolo mode + kill switch, worktree isolation, profile editor ✔
+- **Phase 2** — orchestrator engine + in-app MCP dispatch, live task-DAG panel,
+  headless subagent runs *(current — diff/merge view & cost/token tracking still
+  open)*
 - **Phase 3** — Cloudflare Tunnel, session persistence, installers
 
 ## License

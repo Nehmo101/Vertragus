@@ -11,6 +11,7 @@ import type {
   OrcaEvent,
   SpawnAgentRequest
 } from './agents'
+import type { OrchestratorSnapshot } from './orchestrator'
 
 export const IPC = {
   appInfo: 'app:info',
@@ -33,10 +34,13 @@ export const IPC = {
   agentsKillAll: 'agents:killAll',
   agentBuffer: 'agent:buffer',
   agentPopout: 'agent:popout',
+  orchestratorSnapshot: 'orchestrator:snapshot',
+  orchestratorReset: 'orchestrator:reset',
   // main -> renderer push channels
   evAgentData: 'ev:agentData',
   evAgentsChanged: 'ev:agentsChanged',
   evOrcaEvent: 'ev:orcaEvent',
+  evOrchestrator: 'ev:orchestrator',
   // window controls (frameless title bar)
   winMinimize: 'win:minimize',
   winMaximizeToggle: 'win:maximizeToggle',
@@ -94,6 +98,13 @@ export interface OrcaApi {
     onData(cb: (chunk: AgentDataChunk) => void): () => void
     onChanged(cb: (list: AgentInstanceInfo[]) => void): () => void
     onEvent(cb: (evt: OrcaEvent) => void): () => void
+  }
+
+  orchestrator: {
+    snapshot(): Promise<OrchestratorSnapshot>
+    /** Clear the task graph (fresh goal). */
+    reset(): Promise<void>
+    onSnapshot(cb: (snap: OrchestratorSnapshot) => void): () => void
   }
 
   win: {

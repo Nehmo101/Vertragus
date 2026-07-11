@@ -1098,6 +1098,172 @@ button {
   margin-top: 6px;
   line-height: 1.5;
 }
+.goal-bar {
+  margin-top: 9px;
+  height: 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.goal-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #2dd4bf, #22d3ee);
+  transition: width 0.3s ease;
+}
+.goal-stats {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 10.5px;
+  color: var(--text-2);
+}
+.goal-stats .pct {
+  color: var(--accent-light);
+  font-weight: 600;
+}
+
+/* ---------- DAG task cards ---------- */
+.dag-item {
+  display: flex;
+  gap: 9px;
+}
+.dag-rail {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 14px;
+}
+.dag-node {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+  margin-top: 15px;
+  border: 2px solid var(--bg-panel);
+}
+.dag-line {
+  flex: 1;
+  width: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  margin-top: 2px;
+}
+.task-card {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 9px;
+  padding: 10px 11px;
+  border-radius: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-3);
+  transition: all 0.12s ease;
+}
+.task-card:hover {
+  border-color: rgba(45, 212, 191, 0.4);
+  transform: translateX(1px);
+}
+.task-row1 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.task-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+.task-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-1);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.task-id {
+  font-size: 9.5px;
+  color: var(--text-4);
+  font-family: var(--font-mono);
+  flex: none;
+}
+.task-row2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 7px;
+}
+.assignee {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  color: #a9b6c9;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 2px 8px 2px 6px;
+  border-radius: 20px;
+  border: 1px solid var(--border-2);
+  max-width: 210px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.assignee-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
+  flex: none;
+}
+.task-pill {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2.5px 9px;
+  border-radius: 6px;
+  white-space: nowrap;
+  flex: none;
+}
+.task-bar {
+  margin-top: 8px;
+  height: 4px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.task-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #2dd4bf, #22d3ee);
+}
+.task-bar-fill.indeterminate {
+  width: 40%;
+  animation: indeterminate 1.4s ease-in-out infinite;
+}
+@keyframes indeterminate {
+  0% {
+    margin-left: -40%;
+  }
+  100% {
+    margin-left: 100%;
+  }
+}
+.task-note {
+  margin-top: 7px;
+  font-size: 10.5px;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  word-break: break-word;
+}
+.task-note.err {
+  color: #ff9a9c;
+}
+.dag-empty code {
+  font-family: var(--font-mono);
+  color: var(--accent-light);
+  font-size: 10.5px;
+}
 
 .dag-caption {
   flex: none;

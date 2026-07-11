@@ -6,6 +6,7 @@ import type { AgentInstanceInfo, OrcaEvent } from '@shared/agents'
 import type { AgentProviderId, ProviderHealth } from '@shared/providers'
 import { DEFAULT_MODELS } from '@shared/providers'
 import type { WorkspaceProfile } from '@shared/profile'
+import type { OrchestratorSnapshot } from '@shared/orchestrator'
 import type { AppInfo, GitInfo } from '@shared/ipc'
 
 const ADD_ROLES = ['Docs / Changelog', 'Refactor / Cleanup', 'Security-Review', 'Perf / Bench']
@@ -19,6 +20,7 @@ interface AppState {
   gitInfo: GitInfo | null
   agents: AgentInstanceInfo[]
   events: OrcaEvent[]
+  orchestrator: OrchestratorSnapshot
   yoloMaster: boolean
   toast: string | null
   /** Profile being edited in the modal; null = closed. */
@@ -60,6 +62,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   gitInfo: null,
   agents: [],
   events: [],
+  orchestrator: { goal: null, tasks: [] },
   yoloMaster: false,
   toast: null,
   editorProfile: null,
@@ -73,15 +76,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     window.orca.agents.onEvent((evt) =>
       set((s) => ({ events: [...s.events.slice(-199), evt] }))
     )
+    window.orca.orchestrator.onSnapshot((snap) => set({ orchestrator: snap }))
 
-    const [appInfo, profiles, activeProfileId, agents, yolo] = await Promise.all([
+    const [appInfo, profiles, activeProfileId, agents, yolo, snapshot] = await Promise.all([
       window.orca.getAppInfo(),
       window.orca.listProfiles(),
       window.orca.getActiveProfileId(),
       window.orca.agents.list(),
-      window.orca.getConfig<boolean>('yoloMaster')
+      window.orca.getConfig<boolean>('yoloMaster'),
+      window.orca.orchestrator.snapshot()
     ])
-    set({ appInfo, profiles, activeProfileId, agents, yoloMaster: yolo ?? false })
+    set({ appInfo, profiles, activeProfileId, agents, yoloMaster: yolo ?? false, orchestrator: snapshot })
 
     void get().refreshGit()
     void get().refreshHealth()

@@ -11,18 +11,33 @@ import { homedir } from 'node:os'
 import { execFile } from 'node:child_process'
 import * as pty from '@lydell/node-pty'
 import type { AgentInstanceInfo, OrcaEvent, SpawnAgentRequest } from '@shared/agents'
+import type { AgentProviderId } from '@shared/providers'
 import { buildInteractiveLaunch } from '@main/providers/types'
 import { resolveLaunch } from '@main/agents/resolveCommand'
 import { createWorktree } from '@main/agents/worktree'
 import { getSetting } from '@main/config/store'
+import { runHeadless, type HeadlessHandle, type HeadlessResult } from '@main/agents/headless'
+import { buildOrchestratorSetup } from '@main/orchestrator/orchestratorLaunch'
 
 const BUFFER_LIMIT = 200_000 // chars of scrollback kept per agent
 
 interface Managed {
   info: AgentInstanceInfo
   pty?: pty.IPty
+  headless?: HeadlessHandle
   buffer: string
   seq: number
+}
+
+export interface RunTaskRequest {
+  provider: AgentProviderId
+  model: string
+  role: string
+  taskId: string
+  prompt: string
+  systemPrompt?: string
+  yolo: boolean
+  workingDir?: string
 }
 
 export class AgentManager extends EventEmitter {
@@ -47,19 +62,18 @@ export class AgentManager extends EventEmitter {
     this.emit('changed', this.list())
   }
 
-  private nextId(kind: string): string {
+  private nextId(prefix: string): string {
     this.seq += 1
-    return `${kind === 'orchestrator' ? 'orch' : 'sub'}-${String(this.seq).padStart(2, '0')}`
+    return `${prefix}-${String(this.seq).padStart(2, '0')}`
   }
 
-  async spawn(req: SpawnAgentRequest): Promise<AgentInstanceInfo> {
-    const kind = req.kind ?? 'sub'
-    const id = this.nextId(kind)
-    const yolo = req.yolo ?? false
-    let workingDir = req.workingDir?.trim() || homedir()
+  /** Resolve the effective working dir, creating an isolated worktree if enabled. */
+  private async prepareWorkingDir(
+    id: string,
+    requested: string | undefined
+  ): Promise<{ workingDir: string; worktree?: string }> {
+    let workingDir = requested?.trim() || homedir()
     let worktree: string | undefined
-
-    // Worktree isolation (default ON): only when the dir is inside a git repo.
     const isolate = getSetting<boolean>('worktreeIsolation') ?? true
     if (isolate) {
       const wt = await createWorktree(workingDir, id)
@@ -69,11 +83,30 @@ export class AgentManager extends EventEmitter {
         this.emitEvent(`${id} worktree ${wt.branch} @ ${wt.path}`, 'muted')
       }
     }
+    return { workingDir, worktree }
+  }
+
+  private pushData(managed: Managed, data: string): void {
+    managed.buffer = (managed.buffer + data).slice(-BUFFER_LIMIT)
+    managed.seq += 1
+    this.emit('data', { id: managed.info.id, data, seq: managed.seq })
+  }
+
+  async spawn(req: SpawnAgentRequest): Promise<AgentInstanceInfo> {
+    const kind = req.kind ?? 'sub'
+    const id = this.nextId(kind === 'orchestrator' ? 'orch' : 'sub')
+    const yolo = req.yolo ?? false
+    const { workingDir, worktree } = await this.prepareWorkingDir(id, req.workingDir)
+
+    // Orchestrators get the Orca MCP server + orchestrator system prompt.
+    const orchestratorArgs =
+      kind === 'orchestrator' ? buildOrchestratorSetup(req.provider).extraArgs : []
 
     const launch = buildInteractiveLaunch(req.provider, {
       model: req.model,
       workingDir,
-      yolo
+      yolo,
+      extraArgs: orchestratorArgs
     })
     const resolved = await resolveLaunch(launch.command, launch.args)
 
@@ -83,6 +116,7 @@ export class AgentManager extends EventEmitter {
       model: req.model,
       role: req.role ?? (kind === 'orchestrator' ? 'Orchestrator · plant & verteilt' : 'Subagent'),
       kind,
+      mode: 'interactive',
       yolo,
       workingDir,
       worktree,
@@ -103,11 +137,7 @@ export class AgentManager extends EventEmitter {
       managed.pty = proc
       info.pid = proc.pid
 
-      proc.onData((data) => {
-        managed.buffer = (managed.buffer + data).slice(-BUFFER_LIMIT)
-        managed.seq += 1
-        this.emit('data', { id, data, seq: managed.seq })
-      })
+      proc.onData((data) => this.pushData(managed, data))
       proc.onExit(({ exitCode }) => {
         managed.pty = undefined
         if (!this.agents.has(id)) return // killed & removed explicitly
@@ -135,6 +165,65 @@ export class AgentManager extends EventEmitter {
     return info
   }
 
+  /**
+   * Dispatch a single headless task. It appears as a read-only pane in the
+   * grid, streams parsed provider output, and resolves with the result text
+   * (which the orchestrator receives back from dispatch_subagent).
+   */
+  async runTask(req: RunTaskRequest): Promise<{ info: AgentInstanceInfo; done: Promise<HeadlessResult> }> {
+    const id = this.nextId('task')
+    const { workingDir, worktree } = await this.prepareWorkingDir(id, req.workingDir)
+
+    const info: AgentInstanceInfo = {
+      id,
+      provider: req.provider,
+      model: req.model,
+      role: `Task · ${req.role}`,
+      kind: 'sub',
+      mode: 'task',
+      taskId: req.taskId,
+      yolo: req.yolo,
+      workingDir,
+      worktree,
+      status: 'running',
+      startedAt: Date.now()
+    }
+    const managed: Managed = { info, buffer: '', seq: 0 }
+    this.agents.set(id, managed)
+
+    this.pushData(managed, `\x1b[36m▶ ${req.provider}/${req.model} · ${req.role}\x1b[0m\r\n`)
+    this.emitEvent(
+      `${id} dispatch · ${req.provider}/${req.model} · ${req.role}${req.yolo ? ' [YOLO]' : ''}`,
+      req.yolo ? 'yolo' : 'dispatch'
+    )
+
+    const handle = runHeadless(
+      req.provider,
+      req.prompt,
+      { model: req.model, workingDir, yolo: req.yolo, systemPrompt: req.systemPrompt },
+      (chunk) => this.pushData(managed, chunk)
+    )
+    managed.headless = handle
+    info.pid = handle.pid
+    this.changed()
+
+    const done = handle.done.then((result) => {
+      managed.headless = undefined
+      if (this.agents.has(id)) {
+        info.status = result.isError ? 'error' : 'stopped'
+        info.exitCode = result.isError ? 1 : 0
+        this.emitEvent(
+          result.isError ? `${id} Task-Fehler` : `${id} ✓ Task fertig`,
+          result.isError ? 'error' : 'success'
+        )
+        this.changed()
+      }
+      return result
+    })
+
+    return { info, done }
+  }
+
   write(id: string, data: string): void {
     this.agents.get(id)?.pty?.write(data)
   }
@@ -144,6 +233,10 @@ export class AgentManager extends EventEmitter {
   }
 
   private terminate(managed: Managed): void {
+    if (managed.headless) {
+      managed.headless.kill()
+      return
+    }
     const proc = managed.pty
     if (!proc) return
     if (process.platform === 'win32' && proc.pid) {
@@ -152,6 +245,10 @@ export class AgentManager extends EventEmitter {
     } else {
       proc.kill()
     }
+  }
+
+  private isAlive(m: Managed): boolean {
+    return Boolean(m.pty || m.headless)
   }
 
   async kill(id: string): Promise<void> {
@@ -165,7 +262,7 @@ export class AgentManager extends EventEmitter {
   }
 
   async killAll(): Promise<void> {
-    const running = [...this.agents.values()].filter((m) => m.pty)
+    const running = [...this.agents.values()].filter((m) => this.isAlive(m))
     for (const m of running) {
       this.terminate(m)
       m.info.status = 'stopped'
@@ -174,15 +271,15 @@ export class AgentManager extends EventEmitter {
     this.changed()
   }
 
-  /** True while at least one PTY is alive. */
+  /** True while at least one agent process is alive. */
   anyRunning(): boolean {
-    return [...this.agents.values()].some((m) => m.pty)
+    return [...this.agents.values()].some((m) => this.isAlive(m))
   }
 
   /** Remove exited agents from the list (panes closed in the UI). */
   prune(id: string): void {
     const managed = this.agents.get(id)
-    if (managed && !managed.pty) {
+    if (managed && !this.isAlive(managed)) {
       this.agents.delete(id)
       this.changed()
     }
