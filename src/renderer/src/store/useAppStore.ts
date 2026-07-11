@@ -144,12 +144,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ addSeq: s.addSeq + 1 })
     await window.orca.agents.spawn({
       provider: 'codex',
-      model: s.models.codex[0] ?? 'gpt-5.6',
+      model: s.models.codex[0] ?? '',
       role: `Subagent · ${role}`,
       yolo: s.yoloMaster,
       workingDir: profile?.workingDir
     })
-    s.showToast(`Neuer Subagent gestartet — ${s.models.codex[0] ?? 'gpt-5.6'}`)
+    s.showToast(`Neuer Subagent gestartet — ${s.models.codex[0] || 'Codex-Default'}`)
   },
 
   async killAgent(id) {
@@ -180,7 +180,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           {
             role: 'worker',
             provider: 'codex',
-            model: models.codex[0] ?? 'gpt-5.6',
+            model: models.codex[0] ?? '',
             count: 1,
             orchestrated: true,
             yolo: false

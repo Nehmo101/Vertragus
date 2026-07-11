@@ -23,6 +23,7 @@ const ORCHESTRATOR_TOOLS = [
   'mcp__orca__set_goal',
   'mcp__orca__list_subagents',
   'mcp__orca__dispatch_subagent',
+  'mcp__orca__dispatch_batch',
   'mcp__orca__open_subwindow'
 ]
 
@@ -88,6 +89,29 @@ function buildMcpServer(): McpServer {
         String(args.prompt ?? ''),
         args.title ? String(args.title) : undefined
       )
+      return text(result)
+    }
+  )
+
+  register(
+    'dispatch_batch',
+    'Delegiere MEHRERE Teilaufgaben auf einmal — sie laufen PARALLEL (begrenzt durch die ' +
+      'Kapazität jeder Rolle) und alle Ergebnisse kommen zusammen zurück. Bevorzuge dies, um ' +
+      'mehrere Subagents gleichzeitig arbeiten zu lassen.',
+    {
+      tasks: z
+        .array(
+          z.object({
+            role: z.string().describe('Rolle aus list_subagents'),
+            prompt: z.string().describe('Vollständige, eigenständige Aufgabe'),
+            title: z.string().optional()
+          })
+        )
+        .describe('Liste der parallel zu startenden Teilaufgaben')
+    },
+    async (args) => {
+      const tasks = (args.tasks as Array<{ role: string; prompt: string; title?: string }>) ?? []
+      const result = await orchestratorEngine.dispatchBatch(tasks)
       return text(result)
     }
   )

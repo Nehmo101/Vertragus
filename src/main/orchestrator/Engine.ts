@@ -18,6 +18,7 @@ import type { AgentSlot, WorkspaceProfile } from '@shared/profile'
 import { agentManager } from '@main/agents/AgentManager'
 import { getProfile, getActiveProfileId } from '@main/config/store'
 import { createPaneWindow } from '@main/windows'
+import { Semaphore } from '@main/orchestrator/semaphore'
 
 const RESULT_PREVIEW = 160
 
@@ -25,8 +26,8 @@ export class OrchestratorEngine extends EventEmitter {
   private goal: OrchestratorGoal | null = null
   private readonly tasks = new Map<string, OrcaTask>()
   private taskSeq = 0
-  /** running task count per slot role, for capacity display. */
-  private readonly busy = new Map<string, number>()
+  /** Per-role capacity limiter — count = max parallel subagents of that role. */
+  private readonly limiters = new Map<string, Semaphore>()
 
   snapshot(): OrchestratorSnapshot {
     return {
@@ -42,8 +43,19 @@ export class OrchestratorEngine extends EventEmitter {
   reset(): void {
     this.goal = null
     this.tasks.clear()
-    this.busy.clear()
+    this.limiters.clear()
     this.push()
+  }
+
+  private limiter(role: string, capacity: number): Semaphore {
+    let sem = this.limiters.get(role)
+    if (!sem) {
+      sem = new Semaphore(Math.max(1, capacity))
+      this.limiters.set(role, sem)
+    } else {
+      sem.setLimit(Math.max(1, capacity))
+    }
+    return sem
   }
 
   /** Called when an orchestrator agent starts, to mark the goal active. */
@@ -68,7 +80,7 @@ export class OrchestratorEngine extends EventEmitter {
     const slots = (profile?.agents ?? []).filter((s) => s.orchestrated)
     if (slots.length > 0) return slots
     // Fallback so the orchestrator always has somewhere to dispatch.
-    return [{ role: 'worker', provider: 'codex', model: 'gpt-5.6', count: 3, orchestrated: true, yolo: false }]
+    return [{ role: 'worker', provider: 'codex', model: '', count: 3, orchestrated: true, yolo: false }]
   }
 
   /**
@@ -92,7 +104,7 @@ export class OrchestratorEngine extends EventEmitter {
       provider: slot.provider,
       model: slot.model,
       capacity: slot.count,
-      busy: this.busy.get(role) ?? 0
+      busy: this.limiters.get(role)?.inUse ?? 0
     }))
   }
 
@@ -110,6 +122,7 @@ export class OrchestratorEngine extends EventEmitter {
   /**
    * Dispatch a subtask to a subagent and wait for its result.
    * Returns the subagent's final message (fed back to the orchestrator).
+   * Respects the slot's capacity: extra tasks show as "queued" until a slot frees.
    */
   async dispatch(role: string, prompt: string, title?: string): Promise<string> {
     const { slot, role: slotRole } = this.pickSlot(role)
@@ -124,12 +137,16 @@ export class OrchestratorEngine extends EventEmitter {
       role: slotRole,
       provider: slot.provider,
       model: slot.model,
-      status: 'running',
+      status: 'queued',
       yolo,
       createdAt: Date.now()
     }
     this.tasks.set(taskId, task)
-    this.busy.set(slotRole, (this.busy.get(slotRole) ?? 0) + 1)
+    this.push()
+
+    const sem = this.limiter(slotRole, slot.count)
+    await sem.acquire()
+    task.status = 'running'
     this.push()
 
     const subSystemPrompt =
@@ -157,7 +174,6 @@ export class OrchestratorEngine extends EventEmitter {
       task.finishedAt = Date.now()
       const preview = result.result.replace(/\s+/g, ' ').trim().slice(0, RESULT_PREVIEW)
       task.note = result.isError ? 'Fehler bei der Ausführung' : preview
-      this.decBusy(slotRole)
       this.push()
 
       return result.isError
@@ -167,14 +183,26 @@ export class OrchestratorEngine extends EventEmitter {
       task.status = 'error'
       task.note = err instanceof Error ? err.message : String(err)
       task.finishedAt = Date.now()
-      this.decBusy(slotRole)
       this.push()
       return `Dispatch fehlgeschlagen: ${task.note}`
+    } finally {
+      sem.release()
     }
   }
 
-  private decBusy(role: string): void {
-    this.busy.set(role, Math.max(0, (this.busy.get(role) ?? 1) - 1))
+  /**
+   * Fan out several subtasks at once. They run in parallel (bounded by each
+   * role's capacity) and all results are collected — the way to get real
+   * parallelism instead of one blocking dispatch at a time.
+   */
+  async dispatchBatch(items: Array<{ role: string; prompt: string; title?: string }>): Promise<string> {
+    const results = await Promise.all(
+      items.map(async (it, i) => {
+        const out = await this.dispatch(it.role, it.prompt, it.title)
+        return `#${i + 1} ${out}`
+      })
+    )
+    return results.join('\n\n---\n\n')
   }
 
   /** Open a persistent interactive subagent in its own OS window. */

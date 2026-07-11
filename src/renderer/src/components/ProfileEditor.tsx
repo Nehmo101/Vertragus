@@ -242,7 +242,7 @@ export default function ProfileEditor(): JSX.Element | null {
                   {
                     role: 'worker',
                     provider: 'codex',
-                    model: modelsFor('codex')[0] ?? 'gpt-5.6',
+                    model: modelsFor('codex')[0] ?? '',
                     count: 1,
                     orchestrated: true,
                     yolo: false

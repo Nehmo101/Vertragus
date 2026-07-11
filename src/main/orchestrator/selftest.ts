@@ -13,6 +13,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { agentManager } from '@main/agents/AgentManager'
 import { orchestratorEngine } from '@main/orchestrator/Engine'
 import { getMcpHandle } from '@main/orchestrator/mcpHandle'
+import { Semaphore } from '@main/orchestrator/semaphore'
 import {
   saveProfile,
   deleteProfile,
@@ -36,6 +37,25 @@ export async function runSelfTest(): Promise<void> {
     const handle = getMcpHandle()
     check(Boolean(handle), `MCP server running at ${handle?.url}`)
     if (!handle) throw new Error('no handle')
+
+    // Semaphore: limit 2, 4 acquires -> 2 run, 2 queue; releases let them through.
+    {
+      const sem = new Semaphore(2)
+      const order: number[] = []
+      await sem.acquire()
+      await sem.acquire()
+      const p3 = sem.acquire().then(() => order.push(3))
+      const p4 = sem.acquire().then(() => order.push(4))
+      await new Promise((r) => setTimeout(r, 10))
+      const blockedInitially = order.length === 0 && sem.inUse === 2
+      sem.release()
+      sem.release()
+      await Promise.all([p3, p4])
+      check(
+        blockedInitially && order.length === 2,
+        `semaphore caps concurrency at limit (queued then released: ${order.join(',')})`
+      )
+    }
 
     // Stub runTask so dispatch resolves instantly without a real CLI.
     const dispatched: Array<{ provider: string; role: string; prompt: string }> = []
@@ -73,7 +93,7 @@ export async function runSelfTest(): Promise<void> {
     const tools = await client.listTools()
     const names = tools.tools.map((t) => t.name).sort()
     check(
-      names.join(',') === 'dispatch_subagent,list_subagents,open_subwindow,set_goal',
+      names.join(',') === 'dispatch_batch,dispatch_subagent,list_subagents,open_subwindow,set_goal',
       `tools/list returned: ${names.join(', ')}`
     )
 
@@ -151,6 +171,22 @@ export async function runSelfTest(): Promise<void> {
       check(
         dispatched[0]?.provider === 'cursor',
         `dispatch(role="${cursorRole}") routed to cursor (got ${dispatched[0]?.provider})`
+      )
+
+      dispatched.length = 0
+      const batchRes = (await client.callTool({
+        name: 'dispatch_batch',
+        arguments: {
+          tasks: [
+            { role: cursorRole, prompt: 'A' },
+            { role: cursorRole, prompt: 'B' },
+            { role: cursorRole, prompt: 'C' }
+          ]
+        }
+      })) as { content: Array<{ text: string }> }
+      check(
+        dispatched.length === 3 && /#1[\s\S]*#2[\s\S]*#3/.test(batchRes.content[0].text),
+        `dispatch_batch fanned out 3 tasks (ran ${dispatched.length})`
       )
     } finally {
       setActiveProfileId(origActive)
