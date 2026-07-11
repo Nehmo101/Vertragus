@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { is } from '@electron-toolkit/utils'
 
 const BG = '#080c15'
+const WINDOW_ICON = join(__dirname, '../renderer/favicon.png')
 
 /** Representative profile for headless ProfileEditor screenshots. */
 const DEMO_PROFILE = {
@@ -48,6 +49,7 @@ export function createMainWindow(): BrowserWindow {
     frame: false, // custom title bar (design: window controls in-app)
     autoHideMenuBar: true,
     backgroundColor: BG,
+    icon: WINDOW_ICON,
     title: 'Orca-Strator',
     webPreferences: baseWebPreferences()
   })
@@ -95,6 +97,7 @@ export function createPaneWindow(agentId: string): BrowserWindow {
     minHeight: 300,
     autoHideMenuBar: true,
     backgroundColor: BG,
+    icon: WINDOW_ICON,
     title: `Orca-Strator — ${agentId}`,
     webPreferences: baseWebPreferences()
   })

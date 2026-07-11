@@ -1,16 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAppStore, activeProfile } from '@renderer/store/useAppStore'
 import type { WorkspaceProfile } from '@shared/profile'
-
-function OrcaLogo(): JSX.Element {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="11.5" cy="14" r="6.4" fill="#04121a" />
-      <polygon points="12,2.5 17.5,10.5 8,9.5" fill="#04121a" />
-      <circle cx="9.4" cy="12.6" r="1.15" fill="#5eead4" />
-    </svg>
-  )
-}
+import WhaleLogo from '@renderer/components/WhaleLogo'
 
 function useClock(): string {
   const [now, setNow] = useState(() => new Date())
@@ -59,9 +50,7 @@ export default function TitleBar(): JSX.Element {
     <>
       <header className="titlebar">
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div className="logo-badge">
-            <OrcaLogo />
-          </div>
+          <WhaleLogo size={30} />
           <div style={{ lineHeight: 1.05 }}>
             <div className="wordmark">
               Orca<span className="dash">-</span>Strator
