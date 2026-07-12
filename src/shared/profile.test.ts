@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  agentSlotsWithRoles,
   DEFAULT_PROFILE,
   profileDefaultBaseBranch,
   profileRepoLocalPath,
@@ -67,5 +68,27 @@ describe('workspaceProfileSchema', () => {
         autoPr: { ...profile.autoPr, baseBranch: 'release' }
       })
     ).toBe('release')
+  })
+
+  it('assigns the same stable unique role keys used by team start and dispatch', () => {
+    const slots = [
+      { role: 'Worker', provider: 'codex' as const, model: '', count: 2, orchestrated: true, yolo: false },
+      { role: 'Worker', provider: 'cursor' as const, model: 'composer', count: 1, orchestrated: true, yolo: false },
+      { role: 'Review', provider: 'claude' as const, model: 'sonnet', count: 1, orchestrated: true, yolo: false }
+    ]
+
+    expect(agentSlotsWithRoles(slots).map(({ role }) => role)).toEqual([
+      'worker',
+      'worker-2',
+      'review'
+    ])
+    expect(
+      agentSlotsWithRoles([
+        { ...slots[0], orchestrated: false },
+        slots[1]
+      ])
+        .filter(({ slot }) => slot.orchestrated)
+        .map(({ role }) => role)
+    ).toEqual(['worker-2'])
   })
 })

@@ -9,6 +9,7 @@ import { is } from '@electron-toolkit/utils'
 
 const BG = '#080c15'
 const WINDOW_ICON = join(__dirname, '../renderer/favicon.png')
+const paneWindows = new Map<string, Set<BrowserWindow>>()
 
 /** Representative profile for headless ProfileEditor screenshots. */
 const DEMO_PROFILE = {
@@ -110,8 +111,28 @@ export function createPaneWindow(agentId: string): BrowserWindow {
     title: `Orca-Strator — ${agentId}`,
     webPreferences: baseWebPreferences()
   })
+  let windows = paneWindows.get(agentId)
+  if (!windows) {
+    windows = new Set()
+    paneWindows.set(agentId, windows)
+  }
+  windows.add(win)
+  win.on('closed', () => {
+    windows?.delete(win)
+    if (windows?.size === 0) paneWindows.delete(agentId)
+  })
   loadRoute(win, `/pane/${agentId}`)
   return win
+}
+
+/** Close every native pop-out that displays the given agent pane. */
+export function closePaneWindows(agentId: string): void {
+  const windows = paneWindows.get(agentId)
+  if (!windows) return
+  paneWindows.delete(agentId)
+  for (const win of windows) {
+    if (!win.isDestroyed()) win.close()
+  }
 }
 
 export function broadcast(channel: string, payload: unknown): void {

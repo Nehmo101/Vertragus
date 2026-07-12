@@ -16,7 +16,10 @@ const LAYOUTS: Array<{ id: WorkspaceLayout; icon: string; label: string }> = [
 export default function Workspace(): JSX.Element {
   const store = useAppStore()
   const profile = activeProfile(store)
-  const agents = workspaceAgents(store)
+  const agents = [...workspaceAgents(store)].sort((a, b) => {
+    if (a.kind !== b.kind) return a.kind === 'orchestrator' ? -1 : 1
+    return a.startedAt - b.startedAt
+  })
   const activeRunning = agents.some(
     (agent) => agent.status === 'running' || agent.status === 'waiting'
   )

@@ -34,6 +34,8 @@ import { detectLimit, limitKindLabel } from '@main/agents/limitSignals'
 import { buildBriefing } from '@main/agents/handoff'
 import { providerCapacity } from '@main/agents/providerCapacity'
 import { seedWithReadyHandshake } from '@main/agents/interactiveReady'
+import { agentIdentityInstruction, isReusableTeamMember } from '@main/agents/teamReuse'
+import { closePaneWindows } from '@main/windows'
 
 const BUFFER_LIMIT = 200_000 // chars of scrollback kept per agent
 
@@ -49,6 +51,10 @@ interface Managed {
   capacityProvider?: AgentProviderId
   /** Set while a headless task waits for provider capacity. */
   waitAbort?: { aborted: boolean }
+  /** Protect a team pane from automatic reuse after the user typed into it. */
+  interactiveUsed?: boolean
+  /** Ignore the interactive PTY exit while converting this pane into a task. */
+  reassigning?: boolean
 }
 
 export interface RunTaskRequest {
@@ -218,6 +224,7 @@ export class AgentManager extends EventEmitter {
       kind,
       mode: 'interactive',
       yolo,
+      teamRole: req.teamRole,
       workingDir,
       worktree,
       branch,
@@ -227,6 +234,12 @@ export class AgentManager extends EventEmitter {
     const managed: Managed = { info, buffer: '', seq: 0, capacityProvider: req.provider }
     capacityHeld = false
     this.agents.set(id, managed)
+    if (req.teamRole) {
+      this.pushData(
+        managed,
+        `\x1b[36m▶ Orca-Identität: ${name} · Team ${req.teamRole} · ${req.provider}/${req.model || 'Standard'}\x1b[0m\r\n`
+      )
+    }
 
     try {
       const proc = pty.spawn(resolved.file, resolved.args, {
@@ -234,14 +247,23 @@ export class AgentManager extends EventEmitter {
         cols: 100,
         rows: 30,
         cwd: workingDir,
-        env: { ...process.env } as Record<string, string>
+        env: {
+          ...process.env,
+          ORCA_AGENT_NAME: name,
+          ORCA_AGENT_ROLE: req.teamRole ?? info.role
+        } as Record<string, string>
       })
       managed.pty = proc
       info.pid = proc.pid
 
       proc.onData((data) => this.pushData(managed, data))
       proc.onExit(({ exitCode }) => {
+        const wasReassigned = managed.reassigning
         managed.pty = undefined
+        if (wasReassigned) {
+          managed.reassigning = false
+          return
+        }
         if (!this.agents.has(id)) return // killed & removed explicitly
         this.releaseCapacity(managed)
         info.exitCode = exitCode
@@ -405,113 +427,134 @@ export class AgentManager extends EventEmitter {
     return info
   }
 
-  /**
-   * Dispatch a single headless task. It appears as a read-only pane in the
-   * grid, streams parsed provider output, and resolves with the result text
-   * (which the orchestrator receives back from dispatch_subagent).
-   */
-  async runTask(req: RunTaskRequest): Promise<{ info: AgentInstanceInfo; done: Promise<HeadlessResult> }> {
-    const id = this.nextId('task')
-    const name = this.names.allocate('sub')
-    const resolvedModel = resolveModel(req.provider, req)
-    const { workingDir, worktree, branch } = await this.prepareWorkingDir(
-      id,
-      req.workingDir,
-      undefined,
-      req.workspaceSessionId,
-      req.profileId
+  /** Claim an untouched profile-team pane before allocating another subagent. */
+  private claimTeamMember(req: RunTaskRequest): Managed | undefined {
+    return [...this.agents.values()].find((managed) =>
+      isReusableTeamMember(
+        managed.info,
+        { provider: req.provider, model: req.model, role: req.role },
+        { hasPty: Boolean(managed.pty), interactiveUsed: Boolean(managed.interactiveUsed) }
+      )
     )
-
-    let resolveDone!: (result: HeadlessResult) => void
-    const done = new Promise<HeadlessResult>((resolve) => {
-      resolveDone = resolve
-    })
-
-    const info: AgentInstanceInfo = {
-      id,
-      name,
-      provider: req.provider,
-      profileId: req.profileId,
-      workspaceSessionId: req.workspaceSessionId,
-      model: resolvedModel,
-      role: `Task · ${req.role}`,
-      kind: 'sub',
-      mode: 'task',
-      taskId: req.taskId,
-      yolo: req.yolo,
-      workingDir,
-      worktree,
-      branch,
-      status: 'waiting',
-      startedAt: Date.now()
-    }
-    const managed: Managed = { info, buffer: '', seq: 0, waitAbort: { aborted: false } }
-    this.agents.set(id, managed)
-
-    this.pushData(
-      managed,
-      `\x1b[33m⏳ ${name} wartet auf ${req.provider}-Kapazität · ${req.role}\x1b[0m\r\n`
-    )
-    this.changed()
-
-    void this.startRunTask(managed, req, name, resolvedModel, resolveDone)
-    return { info, done }
   }
 
-  private async startRunTask(
-    managed: Managed,
-    req: RunTaskRequest,
-    name: string,
-    resolvedModel: string,
-    resolveDone: (result: HeadlessResult) => void
-  ): Promise<void> {
-    const id = managed.info.id
-    const acquired = await providerCapacity.acquireWait(req.provider, managed.waitAbort)
-    if (!acquired || !this.agents.has(id)) {
-      resolveDone({ result: '', isError: false, status: 'cancelled' })
-      return
+  /**
+   * Dispatch a single headless task. A matching untouched team pane is reused
+   * first; only overflow work allocates another named subagent pane.
+   */
+  async runTask(req: RunTaskRequest): Promise<{ info: AgentInstanceInfo; done: Promise<HeadlessResult> }> {
+    const resolvedModel = resolveModel(req.provider, req)
+    const taskReq = { ...req, model: resolvedModel }
+    let managed = this.claimTeamMember(taskReq)
+
+    if (managed) {
+      const proc = managed.pty!
+      managed.reassigning = true
+      managed.pty = undefined
+      this.terminatePty(proc)
+
+      const info = managed.info
+      info.role = `Task · ${req.role}`
+      info.mode = 'task'
+      info.taskId = req.taskId
+      info.yolo = req.yolo
+      info.model = resolvedModel
+      info.profileId = req.profileId ?? info.profileId
+      info.workspaceSessionId = req.workspaceSessionId ?? info.workspaceSessionId
+      info.status = 'running'
+      info.startedAt = Date.now()
+      info.pid = undefined
+      info.exitCode = undefined
+      info.usage = undefined
+      info.limitWarning = undefined
+      managed.limitWarned = false
+      this.pushData(
+        managed,
+        `\r\n\x1b[36m▶ ${info.name} übernimmt als ${req.role} die Orchestrator-Aufgabe.\x1b[0m\r\n`
+      )
+      this.emitEvent(`${info.name} übernimmt vorbereiteten Team-Slot · ${req.role}`, 'dispatch', info)
+    } else {
+      const id = this.nextId('task')
+      const name = this.names.allocate('sub')
+      const { workingDir, worktree, branch } = await this.prepareWorkingDir(
+        id,
+        req.workingDir,
+        undefined,
+        req.workspaceSessionId,
+        req.profileId
+      )
+      const info: AgentInstanceInfo = {
+        id,
+        name,
+        provider: req.provider,
+        profileId: req.profileId,
+        workspaceSessionId: req.workspaceSessionId,
+        model: resolvedModel,
+        role: `Task · ${req.role}`,
+        kind: 'sub',
+        mode: 'task',
+        taskId: req.taskId,
+        yolo: req.yolo,
+        workingDir,
+        worktree,
+        branch,
+        status: 'running',
+        startedAt: Date.now()
+      }
+      managed = { info, buffer: '', seq: 0 }
+      this.agents.set(id, managed)
+      this.pushData(
+        managed,
+        `\x1b[36m▶ ${name} · zusätzlicher Worker · ${req.provider}/${resolvedModel || 'Standard'} · ${req.role}\x1b[0m\r\n`
+      )
+      this.emitEvent(
+        `${name} zusätzlich gestartet · ${req.role} · ${req.provider}/${resolvedModel || 'Standard'}${req.yolo ? ' [YOLO]' : ''}`,
+        req.yolo ? 'yolo' : 'dispatch',
+        info
+      )
     }
 
-    managed.capacityProvider = req.provider
-    managed.info.status = 'running'
-    this.pushData(managed, `\x1b[36m▶ ${name} · ${req.provider}/${resolvedModel || 'CLI-Standard'} · ${req.role}\x1b[0m\r\n`)
-    this.emitEvent(
-      `${name} dispatch · ${req.role} · ${req.provider}/${resolvedModel || 'CLI-Standard'}${req.yolo ? ' [YOLO]' : ''}`,
-      req.yolo ? 'yolo' : 'dispatch', managed.info
-    )
+    if (!managed) throw new Error('Task-Agent konnte nicht vorbereitet werden.')
+    const active = managed
+    const info = active.info
+    const { id, name, workingDir } = info
+    const identityInstruction = agentIdentityInstruction(name)
+    const taskPrompt = `${identityInstruction}\n\n${req.prompt}`
+    const systemPrompt = req.systemPrompt
+      ? `${identityInstruction} ${req.systemPrompt}`
+      : identityInstruction
 
     const handle = runHeadless(
       req.provider,
-      req.prompt,
+      taskPrompt,
       {
         model: resolvedModel || undefined,
-        workingDir: managed.info.workingDir,
+        workingDir,
         yolo: req.yolo,
-        systemPrompt: req.systemPrompt,
+        systemPrompt,
         extraArgs: buildSubagentMcpArgs(req.provider, id)
       },
-      (chunk) => this.pushData(managed, chunk)
+      (chunk) => this.pushData(active, chunk)
     )
-    managed.headless = handle
-    managed.info.pid = handle.pid
+    active.headless = handle
+    info.pid = handle.pid
     this.changed()
 
-    try {
-      const result = await handle.done
-      resolveDone(result)
+    const done = handle.done.then((result) => {
+      active.headless = undefined
       if (this.agents.has(id)) {
         const failed =
           result.status === 'failed' ||
           (result.status == null && result.isError)
-        managed.info.status = failed ? 'error' : 'stopped'
-        managed.info.exitCode = failed ? 1 : 0
+        info.status = failed ? 'error' : 'stopped'
+        info.exitCode = failed ? 1 : 0
         if (
           result.costUsd != null ||
           result.tokensIn != null ||
           result.tokensOut != null ||
           result.steps != null
         ) {
-          managed.info.usage = {
+          info.usage = {
             costUsd: result.costUsd,
             tokensIn: result.tokensIn,
             tokensOut: result.tokensOut,
@@ -520,21 +563,27 @@ export class AgentManager extends EventEmitter {
         }
         const event =
           result.status === 'cancelled'
-            ? { text: `${name} · Task gestoppt`, tone: 'muted' as const }
+            ? { text: `${name} · Task gestoppt · Fenster geschlossen`, tone: 'muted' as const }
             : failed
-              ? { text: `${name} · Task-Fehler`, tone: 'error' as const }
-                : { text: `${name} · ✓ Task fertig`, tone: 'success' as const }
-        this.emitEvent(event.text, event.tone, managed.info)
+              ? { text: `${name} · Task-Fehler · Fenster geschlossen`, tone: 'error' as const }
+              : { text: `${name} · ✓ Task fertig · Fenster geschlossen`, tone: 'success' as const }
+        this.emitEvent(event.text, event.tone, info)
+        this.agents.delete(id)
+        this.names.release(name)
+        closePaneWindows(id)
         this.changed()
       }
-    } finally {
-      managed.headless = undefined
-      this.releaseCapacity(managed)
-    }
+      return result
+    })
+
+    return { info, done }
   }
 
   write(id: string, data: string): void {
-    this.agents.get(id)?.pty?.write(data)
+    const managed = this.agents.get(id)
+    if (!managed?.pty) return
+    if (managed.info.teamRole && data.length > 0) managed.interactiveUsed = true
+    managed.pty.write(data)
   }
 
   /**
@@ -559,19 +608,21 @@ export class AgentManager extends EventEmitter {
     if (cols > 0 && rows > 0) this.agents.get(id)?.pty?.resize(cols, rows)
   }
 
-  private terminate(managed: Managed): void {
-    if (managed.headless) {
-      managed.headless.kill()
-      return
-    }
-    const proc = managed.pty
-    if (!proc) return
+  private terminatePty(proc: pty.IPty): void {
     if (process.platform === 'win32' && proc.pid) {
       // Kill the whole tree — agent CLIs spawn children (shells, node, git).
       execFile('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { windowsHide: true }, () => {})
     } else {
       proc.kill()
     }
+  }
+
+  private terminate(managed: Managed): void {
+    if (managed.headless) {
+      managed.headless.kill()
+      return
+    }
+    if (managed.pty) this.terminatePty(managed.pty)
   }
 
   private isAlive(m: Managed): boolean {

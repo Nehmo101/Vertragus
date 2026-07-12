@@ -2,7 +2,11 @@
  * Spawn orchestrator + subagent team for a workspace profile.
  */
 import type { AgentInstanceInfo } from '@shared/agents'
-import { profileRepoLocalPath, type WorkspaceProfile } from '@shared/profile'
+import {
+  agentSlotsWithRoles,
+  profileRepoLocalPath,
+  type WorkspaceProfile
+} from '@shared/profile'
 import { agentManager } from '@main/agents/AgentManager'
 import { workspaceSessions } from '@main/orchestrator/WorkspaceSessionRegistry'
 
@@ -20,8 +24,26 @@ export async function spawnProfileTeam(
   const workingDir = profileRepoLocalPath(profile) || profile.workingDir
   const spawned: AgentInstanceInfo[] = []
 
+  for (const { slot, role } of agentSlotsWithRoles(profile.agents)) {
+    for (let i = 1; i <= slot.count; i++) {
+      spawned.push(
+        await agentManager.spawn({
+          provider: slot.provider,
+          model: slot.model,
+          modelPreset: slot.modelPreset,
+          role: `Subagent · ${slot.role}${slot.count > 1 ? ` #${i}` : ''}`,
+          teamRole: role,
+          yolo: slot.yolo || yoloMaster,
+          workingDir: slot.workingDir || workingDir,
+          profileId: profile.id,
+          workspaceSessionId: session.id
+        })
+      )
+    }
+  }
+
   if (profile.orchestrator) {
-    spawned.push(
+    spawned.unshift(
       await agentManager.spawn({
         provider: profile.orchestrator.provider,
         model: profile.orchestrator.model,
@@ -35,23 +57,6 @@ export async function spawnProfileTeam(
       })
     )
     engine.activate(profile)
-  }
-
-  for (const slot of profile.agents) {
-    for (let i = 1; i <= slot.count; i++) {
-      spawned.push(
-        await agentManager.spawn({
-          provider: slot.provider,
-          model: slot.model,
-          modelPreset: slot.modelPreset,
-          role: `Subagent · ${slot.role}${slot.count > 1 ? ` #${i}` : ''}`,
-          yolo: slot.yolo || yoloMaster,
-          workingDir: slot.workingDir || workingDir,
-          profileId: profile.id,
-          workspaceSessionId: session.id
-        })
-      )
-    }
   }
 
   return spawned

@@ -119,6 +119,21 @@ export function profileDefaultBaseBranch(profile: Pick<WorkspaceProfile, 'autoPr
 }
 
 /**
+ * Give every configured slot a stable role key for orchestrator dispatch.
+ * Profiles may contain several slots called "worker"; suffixing those keys in
+ * one shared helper keeps the prestarted team and the orchestrator in sync.
+ */
+export function agentSlotsWithRoles(slots: AgentSlot[]): Array<{ slot: AgentSlot; role: string }> {
+  const seen = new Map<string, number>()
+  return slots.map((slot) => {
+    const base = (slot.role?.trim() || slot.provider).toLowerCase()
+    const occurrence = seen.get(base) ?? 0
+    seen.set(base, occurrence + 1)
+    return { slot, role: occurrence === 0 ? base : `${base}-${occurrence + 1}` }
+  })
+}
+
+/**
  * The user's canonical example: a Claude/Fable orchestrator delegating to codex
  * subagents. The subagent model is left blank so codex uses its own configured
  * default (~/.codex/config.toml) — hard-coding a name like "gpt-5.6" 400s on a
