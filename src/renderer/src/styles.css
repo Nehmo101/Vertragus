@@ -885,6 +885,44 @@ button {
   flex: none;
   white-space: nowrap;
 }
+@keyframes limitpulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(233, 185, 73, 0);
+  }
+  50% {
+    box-shadow: 0 0 9px 0 rgba(233, 185, 73, 0.55);
+  }
+}
+.badge-limit {
+  font-size: 9.5px;
+  letter-spacing: 0.4px;
+  color: #1a1204;
+  background: var(--warn);
+  padding: 1.5px 6px;
+  border-radius: 5px;
+  font-weight: 700;
+  flex: none;
+  white-space: nowrap;
+  animation: limitpulse 1.6s ease-in-out infinite;
+}
+.badge-handoff {
+  font-size: 9.5px;
+  letter-spacing: 0.4px;
+  color: var(--accent-light);
+  background: rgba(45, 212, 191, 0.14);
+  border: 1px solid rgba(45, 212, 191, 0.28);
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-weight: 600;
+  flex: none;
+  white-space: nowrap;
+}
+.badge-handoff.from {
+  color: var(--text-2);
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--border-4);
+}
 .pane-line2 {
   display: flex;
   align-items: center;
@@ -937,6 +975,71 @@ button {
 .pane-icon-btn.close:hover {
   background: rgba(242, 85, 90, 0.15);
   color: var(--err-text);
+}
+.pane-icon-btn.handoff:hover {
+  background: rgba(45, 212, 191, 0.14);
+  color: var(--accent-light);
+}
+/* When a usage limit is detected, draw attention to the handoff button. */
+.pane-icon-btn.handoff.warn {
+  color: var(--warn-text);
+  background: rgba(233, 185, 73, 0.14);
+  animation: limitpulse 1.6s ease-in-out infinite;
+}
+.pane-icon-btn.handoff.warn:hover {
+  background: rgba(233, 185, 73, 0.24);
+}
+
+/* ---------- handoff modal ---------- */
+.handoff-source {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 9px;
+  background: var(--bg-slot);
+  border: 1px solid var(--border-2);
+  margin-bottom: 14px;
+}
+.handoff-source .info {
+  min-width: 0;
+}
+.handoff-source .name {
+  font-size: 13px;
+  color: var(--text-1);
+  font-weight: 600;
+}
+.handoff-source .name .sub {
+  font-weight: 400;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.handoff-source .reason {
+  font-size: 11px;
+  color: var(--warn-text);
+  margin-top: 2px;
+}
+.handoff-target-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.handoff-text {
+  width: 100%;
+  min-height: 58px;
+  resize: vertical;
+  margin-bottom: 6px;
+}
+.handoff-note {
+  font-size: 11px;
+  color: var(--text-3);
+  line-height: 1.5;
+  margin-top: 6px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  background: rgba(45, 212, 191, 0.05);
+  border: 1px solid var(--border-1);
 }
 
 .pane-term {

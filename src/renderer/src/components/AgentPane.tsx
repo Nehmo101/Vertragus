@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import type { AgentInstanceInfo } from '@shared/agents'
+import { LIMIT_KIND_LABELS } from '@shared/agents'
 import { PROVIDER_THEME, STATUS_THEME, XTERM_THEME } from '@renderer/ui/theme'
 import LoreName from '@renderer/components/LoreName'
 
@@ -10,6 +11,7 @@ interface Props {
   onClose?: () => void
   onPopout?: () => void
   onFocus?: () => void
+  onHandoff?: () => void
   focused?: boolean
   subdued?: boolean
 }
@@ -93,7 +95,7 @@ function useAgentTerminal(agentId: string): React.RefObject<HTMLDivElement> {
   return hostRef
 }
 
-export default function AgentPane({ agent, onClose, onPopout, onFocus, focused, subdued }: Props): JSX.Element {
+export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff, focused, subdued }: Props): JSX.Element {
   const hostRef = useAgentTerminal(agent.id)
   const provider = PROVIDER_THEME[agent.provider]
   const status = STATUS_THEME[agent.status]
@@ -101,6 +103,7 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, focused, 
   const yoloLive = agent.yolo && agent.status === 'running'
   const usage = agent.usage
   const tokens = (usage?.tokensIn ?? 0) + (usage?.tokensOut ?? 0)
+  const limit = agent.limitWarning
 
   return (
     <div
@@ -117,6 +120,21 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, focused, 
             <span className="pane-model">{agent.model}</span>
             {isOrch && <span className="badge-orch">Orchestrator</span>}
             {agent.yolo && <span className="badge-yolo">YOLO</span>}
+            {limit && (
+              <span className="badge-limit" title={limit.note ?? 'Limit erkannt'}>
+                ⚠ {LIMIT_KIND_LABELS[limit.kind]}
+              </span>
+            )}
+            {agent.handoffTo && (
+              <span className="badge-handoff" title={`übergeben an ${agent.handoffTo.name}`}>
+                ↪ {agent.handoffTo.name}
+              </span>
+            )}
+            {agent.handoffFrom && (
+              <span className="badge-handoff from" title={`übernommen von ${agent.handoffFrom.name}`}>
+                ↩ {agent.handoffFrom.name}
+              </span>
+            )}
           </div>
           <div className="pane-line2">
             <span
@@ -138,6 +156,17 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, focused, 
             </span>
           </div>
         </div>
+        {onHandoff && (
+          <button
+            type="button"
+            className={`pane-icon-btn handoff ${limit ? 'warn' : ''}`}
+            title={limit ? `Limit nahe — an anderen Agent übergeben` : 'Arbeit an anderen Agent übergeben'}
+            aria-label="Arbeit an anderen Agent übergeben"
+            onClick={onHandoff}
+          >
+            ⇄
+          </button>
+        )}
         {onPopout && (
           <button type="button" className="pane-icon-btn" title="Als eigenes Fenster" aria-label="Agent als eigenes Fenster öffnen" onClick={onPopout}>
             ⧉

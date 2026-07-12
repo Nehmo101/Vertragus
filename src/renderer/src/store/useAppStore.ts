@@ -2,7 +2,8 @@
  * Central renderer state (zustand), wired to the real main-process API.
  */
 import { create } from 'zustand'
-import type { AgentInstanceInfo, OrcaEvent } from '@shared/agents'
+import type { AgentInstanceInfo, HandoffRequest, OrcaEvent } from '@shared/agents'
+import { LIMIT_KIND_LABELS } from '@shared/agents'
 import type { AgentProviderId, ProviderHealth } from '@shared/providers'
 import { DEFAULT_MODELS, DEFAULT_PROVIDER_LIMITS } from '@shared/providers'
 import type { WorkspaceProfile } from '@shared/profile'
@@ -38,6 +39,8 @@ interface AppState {
   toast: string | null
   /** Profile being edited in the modal; null = closed. */
   editorProfile: WorkspaceProfile | null
+  /** Source agent for the handoff modal; null = closed. */
+  handoffSource: AgentInstanceInfo | null
   addSeq: number
 
   init(): Promise<void>
@@ -56,6 +59,9 @@ interface AppState {
   addAgent(): Promise<void>
   killAgent(id: string): Promise<void>
   popout(id: string): Promise<void>
+  openHandoff(id: string): void
+  closeHandoff(): void
+  handoff(req: HandoffRequest): Promise<void>
   openEditor(profile: WorkspaceProfile): void
   openEditorNew(): void
   closeEditor(): void
@@ -88,13 +94,25 @@ export const useAppStore = create<AppState>((set, get) => ({
   uiDensity: 'comfortable',
   toast: null,
   editorProfile: null,
+  handoffSource: null,
   addSeq: 0,
 
   async init() {
     if (initialized) return
     initialized = true
 
-    window.orca.agents.onChanged((agents) => set({ agents }))
+    window.orca.agents.onChanged((agents) => {
+      // Surface a toast the first time an agent trips a usage-limit signal.
+      const prev = get().agents
+      for (const a of agents) {
+        if (!a.limitWarning) continue
+        const before = prev.find((p) => p.id === a.id)
+        if (before?.limitWarning) continue
+        const label = LIMIT_KIND_LABELS[a.limitWarning.kind]
+        get().showToast(`⚠ ${a.name}: ${label} nahe — „⇄ Übergeben" möglich`)
+      }
+      set({ agents })
+    })
     window.orca.agents.onEvent((evt) =>
       set((s) => ({ events: [...s.events.slice(-199), evt] }))
     )
@@ -253,6 +271,26 @@ export const useAppStore = create<AppState>((set, get) => ({
     await window.orca.agents.popout(id)
     if (agent) {
       get().showToast(`„${agent.model} · ${agent.role.split('·').pop()?.trim()}" als eigenes Fenster geöffnet ⧉`)
+    }
+  },
+
+  openHandoff(id) {
+    const agent = get().agents.find((a) => a.id === id)
+    if (agent) set({ handoffSource: agent })
+  },
+
+  closeHandoff() {
+    set({ handoffSource: null })
+  },
+
+  async handoff(req) {
+    const source = get().agents.find((a) => a.id === req.sourceId)
+    try {
+      const target = await window.orca.agents.handoff(req)
+      set({ handoffSource: null })
+      get().showToast(`↪ Übergabe: ${source?.name ?? 'Agent'} → ${target.name}`)
+    } catch (error) {
+      get().showToast(`Übergabe fehlgeschlagen: ${errorMessage(error)}`)
     }
   },
 
