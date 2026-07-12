@@ -20,6 +20,9 @@ const orca: OrcaApi = {
     install: () => ipcRenderer.invoke(IPC.appUpdateInstall),
     onState: (cb) => subscribe<UpdateState>(IPC.evAppUpdateState, cb)
   },
+  diagnostics: {
+    exportLatest: (profileId) => ipcRenderer.invoke(IPC.diagnosticsExportLatest, profileId)
+  },
   checkProviders: () => ipcRenderer.invoke(IPC.providersHealth),
   getProviderCapacity: () => ipcRenderer.invoke(IPC.providersCapacity),
   loginProvider: (id) => ipcRenderer.invoke(IPC.providerLogin, id),
@@ -95,6 +98,8 @@ const orca: OrcaApi = {
     snapshot: (profileId) => ipcRenderer.invoke(IPC.orchestratorSnapshot, profileId),
     reset: (profileId) => ipcRenderer.invoke(IPC.orchestratorReset, profileId),
     reviewPlan: (profileId, approved) => ipcRenderer.invoke(IPC.orchestratorReviewPlan, profileId, approved),
+    taskDiff: (profileId, taskId) =>
+      ipcRenderer.invoke(IPC.orchestratorTaskDiff, profileId, taskId),
     onSnapshot: (cb) => subscribe<OrchestratorSnapshot>(IPC.evOrchestrator, cb)
   },
 

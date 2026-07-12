@@ -22,6 +22,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:ui-smoke": "node scripts/ui-smoke.mjs",
     "build:win": "pnpm run build && electron-builder --win",
     "build:linux": "pnpm run build && electron-builder --linux",
     "ci": "pnpm run lint && pnpm run typecheck && pnpm run test && electron-vite build"

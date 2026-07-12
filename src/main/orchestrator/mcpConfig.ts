@@ -134,3 +134,44 @@ export function buildCodexMcpArgs(servers: McpServerSpec[], opts: CodexMcpOption
   for (const spec of servers) args.push(...codexServerArgs(spec))
   return args
 }
+
+/** Map one normalized server to GitHub Copilot CLI's transient JSON format. */
+export function toCopilotServerConfig(spec: McpServerSpec): Record<string, unknown> {
+  const tools = spec.allowedTools?.map((tool) => bareToolName(spec.name, tool)) ?? ['*']
+  if (spec.transport === 'stdio') {
+    const entry: Record<string, unknown> = { type: 'stdio', command: spec.command ?? '', tools }
+    if (spec.args && spec.args.length > 0) entry.args = spec.args
+    if (spec.env && Object.keys(spec.env).length > 0) entry.env = spec.env
+    return entry
+  }
+  const entry: Record<string, unknown> = { type: spec.transport, url: spec.url ?? '', tools }
+  if (spec.headers && Object.keys(spec.headers).length > 0) entry.headers = spec.headers
+  return entry
+}
+
+export function toCopilotMcpConfig(servers: McpServerSpec[]): {
+  mcpServers: Record<string, unknown>
+} {
+  const mcpServers: Record<string, unknown> = {}
+  for (const spec of servers) mcpServers[spec.name] = toCopilotServerConfig(spec)
+  return { mcpServers }
+}
+
+/**
+ * Copilot CLI accepts a JSON object through --additional-mcp-config for one
+ * process only. Explicit Orca tools are pre-approved without enabling every
+ * built-in tool or URL.
+ */
+export function buildCopilotMcpArgs(servers: McpServerSpec[]): string[] {
+  if (servers.length === 0) return []
+  const args = [
+    '--additional-mcp-config',
+    JSON.stringify(toCopilotMcpConfig(servers)),
+    '--allow-all-mcp-server-instructions'
+  ]
+  const allowedTools = servers.flatMap((spec) =>
+    (spec.allowedTools ?? []).map((tool) => `${spec.name}(${bareToolName(spec.name, tool)})`)
+  )
+  if (allowedTools.length > 0) args.push('--allow-tool', allowedTools.join(','))
+  return args
+}

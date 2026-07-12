@@ -5,8 +5,10 @@
 import { app, BrowserWindow, shell } from 'electron'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { is } from '@electron-toolkit/utils'
 import { installEditContextMenu } from '@main/editMenu'
+import { protectWebContents } from '@main/security/navigation'
 
 const BG = '#080c15'
 const WINDOW_ICON = join(__dirname, '../renderer/favicon.png')
@@ -45,9 +47,19 @@ function loadRoute(win: BrowserWindow, hash: string): void {
 function baseWebPreferences(): Electron.WebPreferences {
   return {
     preload: join(__dirname, '../preload/index.js'),
-    sandbox: false,
-    contextIsolation: true
+    sandbox: true,
+    contextIsolation: true,
+    nodeIntegration: false,
+    webSecurity: true
   }
+}
+
+function secureWindow(win: BrowserWindow): void {
+  protectWebContents(win.webContents, {
+    developmentUrl: process.env['ELECTRON_RENDERER_URL'],
+    packagedRendererUrl: pathToFileURL(join(__dirname, '../renderer/index.html')).toString(),
+    openExternal: (url) => shell.openExternal(url)
+  })
 }
 
 export function createMainWindow(): BrowserWindow {
@@ -66,11 +78,10 @@ export function createMainWindow(): BrowserWindow {
   })
   installEditContextMenu(win)
 
-  win.on('ready-to-show', () => win.show())
-  win.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
-    return { action: 'deny' }
-  })
+  if (!process.env['ORCA_UI_SMOKE']) {
+    win.on('ready-to-show', () => win.show())
+  }
+  secureWindow(win)
 
   // Headless UI capture for verification/CI: ORCA_SCREENSHOT=<file.png>.
   // ORCA_DEMO_DAG=1 pushes demo agents + task graph through the real render path.
@@ -96,6 +107,28 @@ export function createMainWindow(): BrowserWindow {
     })
   }
 
+  const smokePath = process.env['ORCA_UI_SMOKE']
+  if (smokePath) {
+    win.webContents.once('did-finish-load', () => {
+      setTimeout(async () => {
+        const checks = await win.webContents.executeJavaScript(`(() => ({
+          preload: typeof window.orca === 'object',
+          sidebar: Boolean(document.querySelector('.sidebar')),
+          workspace: Boolean(document.querySelector('.workspace')),
+          titlebar: Boolean(document.querySelector('.titlebar')),
+          language: document.documentElement.lang === 'de',
+          csp: Boolean(document.querySelector('meta[http-equiv="Content-Security-Policy"]'))
+        }))()`)
+        const ok = Object.values(checks).every(Boolean)
+        writeFileSync(
+          smokePath,
+          JSON.stringify({ ok, checks, capturedAt: new Date().toISOString() }, null, 2)
+        )
+        app.exit(ok ? 0 : 1)
+      }, 3000)
+    })
+  }
+
   loadRoute(win, '/')
   return win
 }
@@ -114,6 +147,7 @@ export function createPaneWindow(agentId: string): BrowserWindow {
     webPreferences: baseWebPreferences()
   })
   installEditContextMenu(win)
+  secureWindow(win)
   let windows = paneWindows.get(agentId)
   if (!windows) {
     windows = new Set()

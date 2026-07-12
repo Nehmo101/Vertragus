@@ -13,9 +13,9 @@ Orca-Strator drives the agent CLIs you already have installed — each in its ow
 live terminal — and lets one configurable **orchestrator** delegate work to
 **subagents** across tools.
 
-The current `DEV` implementation adds verified **Claude and Codex
+The current `DEV` implementation adds verified **Claude, Codex and GitHub Copilot
 orchestrators**, a validated adaptive DAG planner, workspace/session binding,
-safe Auto-PR policies, and the **Cozy Organic** UI in light and dark mode. See the
+safe Auto-PR policies, production hardening, and the **Cozy Organic** UI. See the
 [implementation status](docs/IMPLEMENTATION_STATUS.md) for exact boundaries.
 
 ## Supported agents & integrations
@@ -25,7 +25,7 @@ safe Auto-PR policies, and the **Cozy Organic** UI in light and dark mode. See t
 | **Claude Code** | `claude` | agent / orchestrator (e.g. model *Fable*) |
 | **Codex** | `codex` | agent / orchestrator (CLI-configured model) |
 | **Cursor Agent** | `cursor-agent` | agent (e.g. GPT‑5.6 / Sonnet) |
-| **GitHub Copilot** | `copilot` | agent / subagent (`@github/copilot` CLI) |
+| **GitHub Copilot** | `copilot` | agent / subagent / orchestrator (`@github/copilot` CLI) |
 | **Ollama** | `ollama` | local LLMs (HTTP API on `:11434`) |
 | **GitHub** | `gh` | repo / branch / PR context |
 | **Cloudflare Tunnel** | `cloudflared` | remote access (later) |
@@ -58,7 +58,7 @@ safe Auto-PR policies, and the **Cozy Organic** UI in light and dark mode. See t
   launched agent — the orchestrator **and** each individual subagent — so all of
   them can see and use those tools directly. stdio, HTTP and SSE transports, a
   per-server scope (all / orchestrator / subagents) and an enable switch; wired
-  for the Claude and Codex CLIs.
+  for the Claude, Codex and GitHub Copilot CLIs.
 - **Provider connections** — shows real account state and opens the official
   Claude, Codex, Cursor, Ollama, GitHub or Cloudflare CLI login in a visible
   terminal; Orca never receives or stores passwords, API keys or tokens.
@@ -67,6 +67,12 @@ safe Auto-PR policies, and the **Cozy Organic** UI in light and dark mode. See t
   main build exists.
 - **Session-safe worktree isolation**, provider health, persisted task state and
   real token/cost/step values when the provider reports them.
+
+- **Production hardening** — sandboxed Electron windows, CSP and navigation
+  allowlists, redacted per-run diagnostics, a task review cockpit, selected-agent
+  push-to-talk with explicit preview, and Windows/Linux UI smoke tests.
+- **Supply-chain provenance** — release artifacts can be certificate-signed and
+  published with GitHub Artifact Attestations.
 
 ## Tech stack
 
@@ -82,6 +88,7 @@ pnpm install     # flat node_modules via .npmrc (node-linker=hoisted)
 pnpm dev         # launch the app with HMR
 pnpm typecheck   # type-check main + preload + renderer
 pnpm build       # typecheck + production build
+pnpm test:ui-smoke # start the built Electron app and verify critical UI surfaces
 ```
 
 ### Packaging
@@ -95,8 +102,21 @@ Installer from GitHub Releases follow the `main` update channel. A successful pu
 to `main` publishes a newer Windows/Linux build automatically; tagged releases
 remain available for fixed release milestones.
 
-## Roadmap
+## Current delivery status
 
+
+- Multi-agent terminals, profiles, worktrees and pop-outs: complete.
+- Claude, Codex and GitHub Copilot orchestration with MCP: complete.
+- Adaptive DAG planning, review mode, session binding and Auto-PR: complete.
+- Read-only task review, redacted diagnostics and selected-agent STT: available.
+- Electron hardening, config migrations, UI smoke and artifact provenance: available.
+- Full conflict editor, offline Whisper, signed production certificates and
+  authenticated Cloudflare remote control: still open.
+
+See [implementation status](docs/IMPLEMENTATION_STATUS.md) and
+[production hardening](docs/PRODUCTION_HARDENING.md) for exact boundaries.
+
+### Historical phase snapshot (superseded)
 - **Phase 0** — repo & scaffold, config store, provider health ✔
 - **Phase 0.5** — UI layout/mockup (design handoff) ✔
 - **Phase 1** — multi-agent grid with live PTY terminals, pop-out windows,

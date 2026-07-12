@@ -10,6 +10,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
   release:
@@ -57,12 +59,16 @@ jobs:
           --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
 
       - name: Package and publish tagged release
         if: startsWith(github.ref, 'refs/tags/')
         run: pnpm exec electron-builder --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
 
       - name: Package installers for manual run
         if: github.event_name == 'workflow_dispatch'
@@ -79,3 +85,12 @@ jobs:
             release/**/*.yml
             release/**/*.blockmap
           if-no-files-found: warn
+
+      - name: Attest installer provenance
+        if: github.event_name != 'workflow_dispatch'
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            release/**/*.exe
+            release/**/*.AppImage
+            release/**/*.deb

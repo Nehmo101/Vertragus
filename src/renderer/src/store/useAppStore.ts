@@ -40,6 +40,7 @@ interface AppState {
   events: OrcaEvent[]
   orchestrator: OrchestratorSnapshot
   orchestrators: Record<string, OrchestratorSnapshot>
+  selectedAgentId: string | null
   yoloMaster: boolean
   theme: UiTheme
   workspaceLayout: WorkspaceLayout
@@ -67,6 +68,8 @@ interface AppState {
   setWorkspaceLayout(layout: WorkspaceLayout): void
   setUiDensity(density: UiDensity): void
   showToast(msg: string): void
+  exportDiagnostics(): Promise<void>
+  setSelectedAgent(id: string | null): void
   startAll(): Promise<void>
   stopAll(): Promise<void>
   cleanWorkspace(): Promise<void>
@@ -124,6 +127,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   events: [],
   orchestrator: { goal: null, tasks: [] },
   orchestrators: {},
+  selectedAgentId: null,
   yoloMaster: false,
   theme: 'light',
   workspaceLayout: 'tiles',
@@ -333,6 +337,21 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ toast: msg })
     clearTimeout(toastTimer)
     toastTimer = setTimeout(() => set({ toast: null }), 2600)
+  },
+
+  async exportDiagnostics() {
+    try {
+      const path = await window.orca.diagnostics.exportLatest(get().activeProfileId)
+      get().showToast(
+        path ? `Diagnose exportiert: ${path}` : 'Für dieses Workspace-Profil gibt es noch keinen Run.'
+      )
+    } catch (error) {
+      get().showToast(`Diagnoseexport fehlgeschlagen: ${errorMessage(error)}`)
+    }
+  },
+
+  setSelectedAgent(id) {
+    set({ selectedAgentId: id })
   },
 
   async startAll() {

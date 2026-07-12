@@ -1,6 +1,6 @@
 # Orca-Strator – Umsetzungsstand auf `DEV`
 
-Stand: 12. Juli 2026
+Stand: 13. Juli 2026
 
 Dieser Stand setzt die fünf angeforderten Kernbereiche als zusammenhängenden
 Produktpfad um. Die ursprüngliche Audit- und Roadmap-Datei bleibt als historische
@@ -8,12 +8,14 @@ Ausgangsbasis erhalten.
 
 ## Fertig umgesetzt
 
-### Claude und Codex als Orchestrator
+### Claude, Codex und GitHub Copilot als Orchestrator
 
 - Claude und Codex besitzen getrennte, verifizierte Provider-Adapter.
 - Beide erhalten den lokalen Orca-MCP-Server und dieselbe Orchestrator-Policy.
 - Die Codex-Konfiguration wird nur über prozesslokale `-c`-Overrides gesetzt;
   die persönliche Codex-Konfiguration wird nicht verändert.
+- GitHub Copilot erhält Orca ausschließlich über `--additional-mcp-config` und
+  eine enge Tool-Allowlist. Persönliche Copilot-Konfigurationen bleiben unverändert.
 - Cursor und Ollama bleiben Worker. Ein Start als scheinbarer Orchestrator ohne
   Delegationswerkzeuge wird sowohl in der UI als auch in der Runtime verhindert.
 
@@ -86,6 +88,13 @@ Ausgangsbasis erhalten.
 
 ### Stabilität und Qualität
 
+- Electron-Fenster laufen mit Sandbox, CSP, Navigationsschutz und Scheme-Allowlist.
+- Redigierte Run-Journale lassen sich pro Workspace exportieren.
+- Task-Karten besitzen ein read-only Review-Cockpit mit begrenztem Git-Diff.
+- Die Voice-Leiste sendet erst nach editierbarer Vorschau an den gewählten Agenten.
+- Linux und Windows starten den gebauten Renderer in CI als Smoke-Test.
+- Konfigurationsmigrationen erstellen vor Änderungen ein Backup.
+
 - Fehlende CLI, Spawn-Fehler und manuelle Abbrüche lösen den Task immer
   deterministisch auf.
 - Zustände unterscheiden `succeeded`, `failed` und `cancelled`.
@@ -115,10 +124,11 @@ der fünf Kernfeatures:
 
 - Auto-Merge oder Force-Push
 - Remote-Steuerung über Cloudflare
-- vollständiges Diff-/Merge-Center
+- vollständige interaktive Konfliktauflösung und Merge-Editor
 - Wiederverwendung warmer interaktiver Agents als Scheduler-Pool
 - automatische Retry-/Replan-Schleifen
-- signierte Installer
+- produktiv signierte Installer, solange Zertifikat-Secrets nicht gesetzt sind
+- lokaler Whisper-Adapter und deutscher STT-Benchmarkkorpus
 
 ## Lokale Abnahme
 
