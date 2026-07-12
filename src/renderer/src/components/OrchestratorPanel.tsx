@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAppStore, activeProfile } from '@renderer/store/useAppStore'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
+import LoreName from '@renderer/components/LoreName'
 import type { OrcaTask, TaskStatus } from '@shared/orchestrator'
 
 function useClock(): string {
@@ -52,7 +53,14 @@ function TaskCard({ task }: { task: OrcaTask }): JSX.Element {
               className="assignee-dot"
               style={{ background: chip?.fg ?? '#5b697f' }}
             />
-            {task.agentName ? `${task.agentName} · ${task.role}` : task.role}
+            {task.agentName ? (
+              <>
+                <LoreName name={task.agentName} className="assignee-name" />
+                {` · ${task.role}`}
+              </>
+            ) : (
+              task.role
+            )}
             {task.model ? ` · ${task.model}` : ''}
           </span>
           <span className="spacer" />

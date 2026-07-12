@@ -3,6 +3,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import type { AgentInstanceInfo } from '@shared/agents'
 import { PROVIDER_THEME, STATUS_THEME, XTERM_THEME } from '@renderer/ui/theme'
+import LoreName from '@renderer/components/LoreName'
 
 interface Props {
   agent: AgentInstanceInfo
@@ -112,7 +113,7 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, focused, 
         </span>
         <div className="pane-title-block">
           <div className="pane-line1">
-            <span className="pane-name">{agent.name}</span>
+            <LoreName name={agent.name} className="pane-name" />
             <span className="pane-model">{agent.model}</span>
             {isOrch && <span className="badge-orch">Orchestrator</span>}
             {agent.yolo && <span className="badge-yolo">YOLO</span>}
