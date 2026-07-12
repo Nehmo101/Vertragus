@@ -7,6 +7,7 @@
  */
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { refreshProcessPathFromSystem } from '@main/providers/processPath'
 
 const execFileAsync = promisify(execFile)
 
@@ -27,7 +28,13 @@ async function resolvePath(command: string): Promise<string> {
   let resolved = command
   try {
     if (process.platform === 'win32') {
-      const { stdout } = await execFileAsync('where.exe', [command], { windowsHide: true })
+      let stdout: string
+      try {
+        ;({ stdout } = await execFileAsync('where.exe', [command], { windowsHide: true }))
+      } catch {
+        await refreshProcessPathFromSystem()
+        ;({ stdout } = await execFileAsync('where.exe', [command], { windowsHide: true }))
+      }
       const candidates = stdout
         .split(/\r?\n/)
         .map((l) => l.trim())
@@ -43,7 +50,9 @@ async function resolvePath(command: string): Promise<string> {
       resolved = stdout.trim() || command
     }
   } catch {
-    // Leave unresolved; the PTY spawn will surface a clear error.
+    // Leave unresolved; the PTY spawn will surface a clear error. Do not cache
+    // this miss, because the CLI may be installed while Orca keeps running.
+    return resolved
   }
   cache.set(command, resolved)
   return resolved
