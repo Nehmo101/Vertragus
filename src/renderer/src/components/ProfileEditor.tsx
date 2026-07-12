@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '@renderer/store/useAppStore'
 import type { WorkspaceProfile, AgentSlot } from '@shared/profile'
 import type { AgentProviderId } from '@shared/providers'
+import type { GithubProjectSummary } from '@shared/ipc'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import InfoTip from '@renderer/components/InfoTip'
 
@@ -11,6 +12,8 @@ const ORCHESTRATOR_PROVIDERS: AgentProviderId[] = ['claude', 'codex']
 const HELP = {
   profileName: 'Frei wählbarer Name für diese Kombination aus Workspace, Orchestrator und Subagents.',
   workingDir: 'Repository oder Ordner, in dem Agents arbeiten. Task-Worktrees werden von diesem Git-Repository abgeleitet.',
+  githubProject: 'Optionales GitHub Projects Board für diesen Workspace. Der Owner wird aus origin erkannt oder kann manuell gesetzt werden.',
+  agentWorkingDir: 'Optionaler Pfad nur für diesen Slot. Leer übernimmt den Workspace-Basispfad.',
   mode: 'Orchestriert lässt Claude oder Codex planen und delegieren. Single startet nur die konfigurierten Slots.',
   orchestratorProvider: 'Nur Provider mit verifiziertem Orca-MCP-Adapter können orchestrieren.',
   model: 'Leer verwendet den Standard der jeweiligen CLI. Eine Modell-ID muss für dein Konto verfügbar sein.',
@@ -30,11 +33,19 @@ const HELP = {
 function boundedNumber(value: number, min: number, max: number, fallback: number): number {
   return Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback
 }
+function projectKey(project: Pick<GithubProjectSummary, 'owner' | 'number'>): string {
+  return `${project.owner}#${project.number}`
+}
 
 export default function ProfileEditor(): JSX.Element | null {
   const store = useAppStore()
   const initial = store.editorProfile
   const [draft, setDraft] = useState<WorkspaceProfile | null>(initial)
+  const [projectOwner, setProjectOwner] = useState(initial?.githubProject?.owner ?? '')
+  const [projects, setProjects] = useState<GithubProjectSummary[]>(
+    initial?.githubProject ? [{ ...initial.githubProject, closed: false }] : []
+  )
+  const [projectsStatus, setProjectsStatus] = useState('')
   const nameRef = useRef<HTMLInputElement>(null)
   const closeEditor = store.closeEditor
 
@@ -60,6 +71,26 @@ export default function ProfileEditor(): JSX.Element | null {
     const agents = draft.agents.map((s, i) => (i === idx ? { ...s, ...p } : s))
     setDraft({ ...draft, agents })
   }
+  const loadProjects = async (): Promise<void> => {
+    setProjectsStatus('GitHub-Boards werden geladen…')
+    try {
+      const result = await window.orca.githubProjects(draft.workingDir, projectOwner || undefined)
+      setProjectOwner(result.owner)
+      setProjects(result.projects)
+      setProjectsStatus(
+        result.projects.length === 0
+          ? `Keine offenen Boards für ${result.owner} gefunden.`
+          : `${result.projects.length} Board(s) geladen.`
+      )
+    } catch (error) {
+      setProjectsStatus(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  const projectOptions =
+    draft.githubProject && !projects.some((project) => projectKey(project) === projectKey(draft.githubProject!))
+      ? [{ ...draft.githubProject, closed: false }, ...projects]
+      : projects
 
   const subTotal = draft.agents.reduce((n, s) => n + s.count, 0)
   const hasOrch = Boolean(draft.orchestrator)
@@ -113,6 +144,61 @@ export default function ProfileEditor(): JSX.Element | null {
               Durchsuchen…
             </button>
           </div>
+          <section className="github-project-field" aria-labelledby="github-project-heading">
+            <div className="field-label" id="github-project-heading">
+              GitHub Board <InfoTip text={HELP.githubProject} />
+            </div>
+            <div className="github-project-owner-row">
+              <input
+                className="text-input mono"
+                placeholder="Owner automatisch aus origin"
+                aria-label="GitHub-Owner"
+                value={projectOwner}
+                onChange={(event) => setProjectOwner(event.target.value)}
+              />
+              <button
+                type="button"
+                className="btn-secondary browse-btn"
+                disabled={!draft.workingDir.trim() && !projectOwner.trim()}
+                onClick={() => void loadProjects()}
+              >
+                Boards laden
+              </button>
+            </div>
+            <select
+              className="select github-project-select"
+              aria-label="GitHub Board für Workspace"
+              value={draft.githubProject ? projectKey(draft.githubProject) : ''}
+              onChange={(event) => {
+                const selected = projectOptions.find(
+                  (project) => projectKey(project) === event.target.value
+                )
+                patch({
+                  githubProject: selected
+                    ? {
+                        owner: selected.owner,
+                        number: selected.number,
+                        title: selected.title,
+                        url: selected.url
+                      }
+                    : undefined
+                })
+              }}
+            >
+              <option value="">Kein Board</option>
+              {projectOptions.map((project) => (
+                <option key={projectKey(project)} value={projectKey(project)}>
+                  {project.title} (#{project.number})
+                </option>
+              ))}
+            </select>
+            <div className="github-project-status" aria-live="polite">
+              {projectsStatus ||
+                (draft.githubProject
+                  ? `${draft.githubProject.owner} · #${draft.githubProject.number}`
+                  : 'Owner leer lassen, um ihn aus dem GitHub-origin zu erkennen.')}
+            </div>
+          </section>
 
           <div className="field-label" style={{ marginBottom: 8 }}>
             Modus <InfoTip text={HELP.mode} />
@@ -421,6 +507,31 @@ export default function ProfileEditor(): JSX.Element | null {
                 >
                   ✕
                 </button>
+                </div>
+                <div className="slot-path-row">
+                  <div className="slot-path-field">
+                    <div className="slot-col-label">
+                      Eigener Pfad (optional) <InfoTip text={HELP.agentWorkingDir} />
+                    </div>
+                    <input
+                      className="slot-select-sm mono"
+                      placeholder={draft.workingDir || 'Workspace-Basispfad'}
+                      value={slot.workingDir ?? ''}
+                      onChange={(event) =>
+                        patchSlot(idx, { workingDir: event.target.value || undefined })
+                      }
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-secondary slot-browse-btn"
+                    onClick={async () => {
+                      const dir = await window.orca.pickFolder()
+                      if (dir) patchSlot(idx, { workingDir: dir })
+                    }}
+                  >
+                    Durchsuchen…
+                  </button>
                 </div>
               </div>
             ))}

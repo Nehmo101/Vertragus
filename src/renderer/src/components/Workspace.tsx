@@ -36,6 +36,21 @@ export default function Workspace(): JSX.Element {
             ))}
           </select>
         </label>
+        <div className="workspace-context" aria-label="Workspace-Kontext">
+          {store.gitInfo?.isRepo && (
+            <span
+              className={`workspace-context-chip ${store.gitInfo.dirty ? 'dirty' : ''}`}
+              title={store.gitInfo.root}
+            >
+              Branch: {store.gitInfo.branch ?? 'unbekannt'}
+            </span>
+          )}
+          {profile?.githubProject && (
+            <span className="workspace-context-chip board" title={profile.githubProject.url}>
+              Board: {profile.githubProject.title} · #{profile.githubProject.number}
+            </span>
+          )}
+        </div>
         <div className="spacer" />
         <span className="ws-count">
           {agents.length} Agents · {LAYOUTS.find((item) => item.id === store.workspaceLayout)?.label}

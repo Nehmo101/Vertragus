@@ -27,6 +27,7 @@ export const IPC = {
   profileGetActive: 'profiles:getActive',
   profileSetActive: 'profiles:setActive',
   gitInfo: 'git:info',
+  githubProjects: 'github:projects',
   dialogPickFolder: 'dialog:pickFolder',
   agentsList: 'agents:list',
   agentSpawn: 'agent:spawn',
@@ -73,6 +74,19 @@ export interface GitInfo {
   dirty?: boolean
 }
 
+export interface GithubProjectSummary {
+  owner: string
+  number: number
+  title: string
+  url: string
+  closed: boolean
+}
+
+export interface GithubProjectsResult {
+  owner: string
+  projects: GithubProjectSummary[]
+}
+
 /**
  * The API bridged onto `window.orca` in the renderer. Every method maps 1:1
  * onto an ipcMain handler (or push channel) registered in the main process.
@@ -97,6 +111,8 @@ export interface OrcaApi {
   setActiveProfileId(id: string): Promise<void>
 
   gitInfo(dir: string): Promise<GitInfo>
+  /** List GitHub Projects boards for the explicit owner or the workspace origin owner. */
+  githubProjects(dir: string, owner?: string): Promise<GithubProjectsResult>
   /** Open a native folder picker; resolves to the chosen path or null. */
   pickFolder(): Promise<string | null>
 

@@ -89,19 +89,21 @@ export class AgentManager extends EventEmitter {
     id: string,
     requested: string | undefined,
     isolateOverride?: boolean
-  ): Promise<{ workingDir: string; worktree?: string }> {
+  ): Promise<{ workingDir: string; worktree?: string; branch?: string }> {
     let workingDir = requested?.trim() || homedir()
     let worktree: string | undefined
+    let branch: string | undefined
     const isolate = isolateOverride ?? getSetting<boolean>('worktreeIsolation') ?? true
     if (isolate) {
       const wt = await createWorktree(workingDir, id, this.sessionId)
       if (wt) {
         workingDir = wt.path
         worktree = wt.path
+        branch = wt.branch
         this.emitEvent(`${id} worktree ${wt.branch} @ ${wt.path}`, 'muted')
       }
     }
-    return { workingDir, worktree }
+    return { workingDir, worktree, branch }
   }
 
   private pushData(managed: Managed, data: string): void {
@@ -138,7 +140,7 @@ export class AgentManager extends EventEmitter {
     const id = this.nextId(kind === 'orchestrator' ? 'orch' : 'sub')
     const name = this.names.allocate(kind)
     const yolo = req.yolo ?? false
-    const { workingDir, worktree } = await this.prepareWorkingDir(
+    const { workingDir, worktree, branch } = await this.prepareWorkingDir(
       id,
       req.workingDir,
       req.isolateWorktree
@@ -171,6 +173,7 @@ export class AgentManager extends EventEmitter {
       yolo,
       workingDir,
       worktree,
+      branch,
       status: 'running',
       startedAt: Date.now()
     }
@@ -359,7 +362,7 @@ export class AgentManager extends EventEmitter {
   async runTask(req: RunTaskRequest): Promise<{ info: AgentInstanceInfo; done: Promise<HeadlessResult> }> {
     const id = this.nextId('task')
     const name = this.names.allocate('sub')
-    const { workingDir, worktree } = await this.prepareWorkingDir(id, req.workingDir)
+    const { workingDir, worktree, branch } = await this.prepareWorkingDir(id, req.workingDir)
 
     const info: AgentInstanceInfo = {
       id,
@@ -373,6 +376,7 @@ export class AgentManager extends EventEmitter {
       yolo: req.yolo,
       workingDir,
       worktree,
+      branch,
       status: 'running',
       startedAt: Date.now()
     }

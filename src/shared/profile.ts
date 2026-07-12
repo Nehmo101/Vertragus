@@ -47,11 +47,20 @@ export const autoPrConfigSchema = z.object({
   reviewers: z.array(z.string().min(1)).max(20).default([])
 })
 
+export const githubProjectSchema = z.object({
+  owner: z.string().min(1),
+  number: z.number().int().positive(),
+  title: z.string().min(1),
+  url: z.string().url()
+})
+
 export const workspaceProfileSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   /** Default working directory (usually a git repo). */
   workingDir: z.string().default(''),
+  /** Optional GitHub Projects board associated with this workspace. */
+  githubProject: githubProjectSchema.optional(),
   /** Optional — a workspace can run without an orchestrator. */
   orchestrator: orchestratorSchema.optional(),
   agents: z.array(agentSlotSchema).default([]),
@@ -65,6 +74,7 @@ export type AgentSlot = z.infer<typeof agentSlotSchema>
 export type OrchestratorConfig = z.infer<typeof orchestratorSchema>
 export type PlannerConfig = z.infer<typeof plannerConfigSchema>
 export type AutoPrConfig = z.infer<typeof autoPrConfigSchema>
+export type GithubProjectConfig = z.infer<typeof githubProjectSchema>
 export type WorkspaceProfile = z.infer<typeof workspaceProfileSchema>
 
 /**

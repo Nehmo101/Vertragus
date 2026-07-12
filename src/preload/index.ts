@@ -27,6 +27,7 @@ const orca: OrcaApi = {
   setActiveProfileId: (id) => ipcRenderer.invoke(IPC.profileSetActive, id),
 
   gitInfo: (dir) => ipcRenderer.invoke(IPC.gitInfo, dir),
+  githubProjects: (dir, owner) => ipcRenderer.invoke(IPC.githubProjects, dir, owner),
   pickFolder: () => ipcRenderer.invoke(IPC.dialogPickFolder),
 
   agents: {

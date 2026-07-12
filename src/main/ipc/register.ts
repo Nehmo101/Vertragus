@@ -12,6 +12,7 @@ import type { WorkspaceProfile } from '@shared/profile'
 import { checkAllProviders } from '@main/providers/health'
 import { listModels } from '@main/providers/models'
 import { gitInfo } from '@main/integrations/git'
+import { listGithubProjects } from '@main/integrations/github'
 import { agentManager } from '@main/agents/AgentManager'
 import { orchestratorEngine } from '@main/orchestrator/Engine'
 import { broadcast, createPaneWindow } from '@main/windows'
@@ -28,6 +29,18 @@ import {
 
 function senderWindow(e: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent): BrowserWindow | null {
   return BrowserWindow.fromWebContents(e.sender)
+}
+
+async function normalizeDirectory(raw: string, label: string): Promise<string> {
+  const directory = resolve(raw.trim())
+  try {
+    const info = await stat(directory)
+    if (!info.isDirectory()) throw new Error('Pfad ist kein Verzeichnis.')
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    throw new Error(`${label} ist nicht zugreifbar: ${directory} (${detail})`)
+  }
+  return directory
 }
 
 export function registerIpcHandlers(): void {
@@ -56,16 +69,16 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.profilesList, () => listProfiles())
   ipcMain.handle(IPC.profileSave, async (_e, profile: WorkspaceProfile) => {
     const rawDir = profile.workingDir.trim()
-    if (!rawDir) return saveProfile(profile)
-    const workingDir = resolve(rawDir)
-    try {
-      const info = await stat(workingDir)
-      if (!info.isDirectory()) throw new Error('Pfad ist kein Verzeichnis.')
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error)
-      throw new Error(`Workspace ist nicht zugreifbar: ${workingDir} (${detail})`)
-    }
-    return saveProfile({ ...profile, workingDir })
+    const workingDir = rawDir ? await normalizeDirectory(rawDir, 'Workspace') : ''
+    const agents = await Promise.all(
+      profile.agents.map(async (slot, index) => ({
+        ...slot,
+        workingDir: slot.workingDir?.trim()
+          ? await normalizeDirectory(slot.workingDir, `Pfad für Slot ${index + 1}`)
+          : undefined
+      }))
+    )
+    return saveProfile({ ...profile, workingDir, agents })
   })
   ipcMain.handle(IPC.profileDelete, (_e, id: string) => deleteProfile(id))
   ipcMain.handle(IPC.profileGetActive, () => getActiveProfileId())
@@ -78,6 +91,9 @@ export function registerIpcHandlers(): void {
 
   // ---- git ----
   ipcMain.handle(IPC.gitInfo, (_e, dir: string) => gitInfo(dir))
+  ipcMain.handle(IPC.githubProjects, (_e, dir: string, owner?: string) =>
+    listGithubProjects(dir, owner)
+  )
 
   // ---- native folder picker ----
   ipcMain.handle(IPC.dialogPickFolder, async (e) => {
