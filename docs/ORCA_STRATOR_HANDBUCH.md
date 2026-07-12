@@ -38,7 +38,7 @@ Noch geplant oder unvollständig:
 ### Entwicklung
 
 - Git
-- Node.js 20 passend zum aktuellen Release-Workflow
+- Node.js 22.13 oder neuer (erforderlich für das festgelegte pnpm 11)
 - Corepack
 - die gewünschten Agent-CLIs
 
