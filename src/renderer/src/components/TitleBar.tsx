@@ -33,9 +33,32 @@ export default function TitleBar(): JSX.Element {
   const running = store.agents.filter((a) => a.status === 'running').length
   const anyRunning = running > 0
 
+  useEffect(() => {
+    if (!menuOpen && !confirmKill) return
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        setMenuOpen(false)
+        setConfirmKill(false)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [confirmKill, menuOpen])
   const displayDir = (profile?.workingDir || '')
     .replace(/\\/g, '/')
     .replace(/^([A-Za-z]:)?\/(Users|home)\/[^/]+/, '~')
+
+  const remoteLabel = store.gitInfo?.remote?.replace(/(https?:\/\/)[^/@]+@/i, '$1')
+  const gitTitle = store.gitInfo?.isRepo
+    ? [
+        store.gitInfo.branch ? `Branch: ${store.gitInfo.branch}` : undefined,
+        store.gitInfo.defaultBranch ? `Standard-Branch: ${store.gitInfo.defaultBranch}` : undefined,
+        remoteLabel ? `Remote: ${remoteLabel}` : undefined,
+        `Arbeitsbaum: ${store.gitInfo.dirty ? 'ungespeicherte Änderungen' : 'sauber'}`
+      ]
+        .filter(Boolean)
+        .join('\n')
+    : undefined
 
   const onStopClick = (): void => {
     if (anyRunning) {
@@ -64,8 +87,14 @@ export default function TitleBar(): JSX.Element {
           <span className="path" title={profile?.workingDir || undefined}>
             {profile?.workingDir ? displayDir : 'kein Arbeitsverzeichnis'}
           </span>
-          {store.gitInfo?.isRepo && store.gitInfo.branch && (
-            <span className="branch-pill">{store.gitInfo.branch}</span>
+          {store.gitInfo?.isRepo && (
+            <span
+              className={`branch-pill ${store.gitInfo.dirty ? 'dirty' : ''}`}
+              title={gitTitle}
+            >
+              {store.gitInfo.branch ?? 'Git'}
+              {store.gitInfo.dirty && <span className="dirty-mark">● dirty</span>}
+            </span>
           )}
         </div>
 
@@ -80,7 +109,7 @@ export default function TitleBar(): JSX.Element {
           <span className="clock">{clock}</span>
         </div>
 
-        <button
+        <button type="button"
           className={`yolo-btn ${store.yoloMaster ? 'on' : ''}`}
           onClick={store.toggleYolo}
           title="Yolo-Master: neue Agents starten ohne Bestätigungen"
@@ -91,14 +120,17 @@ export default function TitleBar(): JSX.Element {
           <span className="label">YOLO</span>
         </button>
 
-        <button className={`stop-btn ${anyRunning ? '' : 'resume'}`} onClick={onStopClick}>
+        <button type="button" className={`stop-btn ${anyRunning ? '' : 'resume'}`} onClick={onStopClick}>
           <span style={{ fontSize: 13, lineHeight: 1 }}>{anyRunning ? '⛔' : '▶'}</span>
           <span>{anyRunning ? 'Alle stoppen' : 'Alle starten'}</span>
         </button>
 
         <div style={{ position: 'relative' }} className="no-drag">
-          <button
+          <button type="button"
             className="profile-btn"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            aria-label="Workspace-Profil wählen"
             onClick={() => {
               setMenuOpen((v) => !v)
               setConfirmKill(false)
@@ -113,10 +145,10 @@ export default function TitleBar(): JSX.Element {
           {menuOpen && (
             <>
               <div className="menu-backdrop" onClick={() => setMenuOpen(false)} />
-              <div className="profile-menu">
+              <div className="profile-menu" role="menu" aria-label="Workspace-Profile">
                 <div className="menu-caption">Workspace-Profile</div>
                 {store.profiles.map((p) => (
-                  <button
+                  <button type="button"
                     key={p.id}
                     className="menu-item"
                     onClick={() => {
@@ -137,7 +169,7 @@ export default function TitleBar(): JSX.Element {
                   </button>
                 ))}
                 <div className="menu-sep" />
-                <button
+                <button type="button"
                   className="menu-action"
                   onClick={() => {
                     setMenuOpen(false)
@@ -153,10 +185,10 @@ export default function TitleBar(): JSX.Element {
 
         <div className="tb-divider" />
         <div className="win-controls no-drag">
-          <button className="win-btn" title="Minimieren" onClick={() => window.orca.win.minimize()}>
+          <button type="button" className="win-btn" title="Minimieren" onClick={() => window.orca.win.minimize()}>
             ─
           </button>
-          <button
+          <button type="button"
             className="win-btn"
             title="Maximieren"
             style={{ fontSize: 11 }}
@@ -164,7 +196,7 @@ export default function TitleBar(): JSX.Element {
           >
             ▢
           </button>
-          <button className="win-btn close" title="Schließen" onClick={() => window.orca.win.close()}>
+          <button type="button" className="win-btn close" title="Schließen" onClick={() => window.orca.win.close()}>
             ✕
           </button>
         </div>
@@ -173,20 +205,20 @@ export default function TitleBar(): JSX.Element {
       {confirmKill && (
         <>
           <div className="confirm-backdrop" onClick={() => setConfirmKill(false)} />
-          <div className="confirm-pop">
+          <div className="confirm-pop" role="alertdialog" aria-modal="true" aria-labelledby="stop-agents-title">
             <div className="head">
               <span style={{ fontSize: 16 }}>⛔</span>
-              <b>Alle Agents stoppen?</b>
+              <b id="stop-agents-title">Alle Agents stoppen?</b>
             </div>
             <div className="text">
               {running} laufende Agents werden sofort beendet. Nicht committete Änderungen in
               Sandbox-Worktrees gehen verloren.
             </div>
             <div className="actions">
-              <button className="btn-ghost" onClick={() => setConfirmKill(false)}>
+              <button type="button" className="btn-ghost" onClick={() => setConfirmKill(false)}>
                 Abbrechen
               </button>
-              <button
+              <button type="button"
                 className="btn-danger"
                 onClick={() => {
                   setConfirmKill(false)

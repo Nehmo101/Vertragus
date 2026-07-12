@@ -36,7 +36,7 @@ export default function App(): JSX.Element {
   }
 
   return (
-    <div className="app-root">
+    <div className="app-root" data-preset={store.uiPreset} data-density={store.uiDensity}>
       <TitleBar />
 
       {store.yoloMaster && (
@@ -49,7 +49,7 @@ export default function App(): JSX.Element {
         </div>
       )}
 
-      <div className="body-row">
+      <div className={`body-row layout-${store.workspaceLayout}`}>
         <Sidebar />
         <Workspace />
         <OrchestratorPanel />
@@ -58,7 +58,7 @@ export default function App(): JSX.Element {
       {store.editorProfile && <ProfileEditor key={store.editorProfile.id} />}
 
       {store.toast && (
-        <div className="toast">
+        <div className="toast" role="status" aria-live="polite">
           <span className="diamond">◆</span>
           {store.toast}
         </div>

@@ -13,12 +13,17 @@ Orca-Strator drives the agent CLIs you already have installed — each in its ow
 live terminal — and lets one configurable **orchestrator** delegate work to
 **subagents** across tools.
 
+The current `DEV` implementation adds verified **Claude and Codex
+orchestrators**, a validated adaptive DAG planner, workspace/session binding,
+safe Auto-PR policies, and three switchable UI themes. See the
+[implementation status](docs/IMPLEMENTATION_STATUS.md) for exact boundaries.
+
 ## Supported agents & integrations
 
 | Provider | Command | Role |
 |---|---|---|
 | **Claude Code** | `claude` | agent / orchestrator (e.g. model *Fable*) |
-| **Codex** | `codex` | agent (e.g. GPT‑5.6) |
+| **Codex** | `codex` | agent / orchestrator (CLI-configured model) |
 | **Cursor Agent** | `cursor-agent` | agent (e.g. GPT‑5.6 / Sonnet) |
 | **Ollama** | `ollama` | local LLMs (HTTP API on `:11434`) |
 | **GitHub** | `gh` | repo / branch / PR context |
@@ -34,14 +39,21 @@ live terminal — and lets one configurable **orchestrator** delegate work to
 - **Configurable orchestration** — pick who orchestrates whom, e.g. a
   Claude/*Fable* orchestrator driving **3× GPT‑5.6** subagents. The orchestrator
   delegates through an in-app **MCP server** (`dispatch_subagent`,
-  `list_subagents`, `open_subwindow`, `set_goal`); dispatched subtasks run as
-  real subagents and stream into a live **task-DAG** panel.
+  `dispatch_batch`, `execute_plan`, `list_subagents`, `open_subwindow`,
+  `set_goal`); dispatched subtasks run as real subagents and stream into a live
+  **task-DAG** panel.
+- **Adaptive planner** — validates DAGs, dependencies, conflict keys and
+  concurrency before execution; supports auto, review-first and manual modes.
+- **Safe Auto-PR** — runs configured gates, scans staged diffs, prepares task
+  commits and publishes aggregate or per-task PRs without force-push or merge.
+- **Switchable workspace UI** — Abyss Control, Polar Focus and Sonar Tactical,
+  plus density and tiles/focus/DAG layout controls.
 - **Yolo Mode** — per-agent and global auto-approve so agents work without
   prompts (`--dangerously-skip-permissions` / `--dangerously-bypass-approvals-and-sandbox`
   / `--yolo`), with a red warning badge, a global kill-switch, and git-worktree
   isolation.
-- **Worktree isolation, approvals inbox, cost/token tracking** and a provider
-  health dashboard.
+- **Session-safe worktree isolation**, provider health, persisted task state and
+  real token/cost/step values when the provider reports them.
 
 ## Tech stack
 

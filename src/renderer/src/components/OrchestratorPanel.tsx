@@ -68,6 +68,16 @@ function TaskCard({ task }: { task: OrcaTask }): JSX.Element {
         {task.note && (
           <div className={`task-note ${task.status === 'error' ? 'err' : ''}`}>{task.note}</div>
         )}
+        {(task.prUrl || task.autoPrStatus) && (
+          <div className="task-pr-row">
+            <span>Auto-PR: {task.autoPrStatus ?? 'unbekannt'}</span>
+            {task.prUrl && (
+              <a href={task.prUrl} target="_blank" rel="noreferrer">
+                Pull Request oeffnen
+              </a>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -78,7 +88,7 @@ export default function OrchestratorPanel(): JSX.Element {
   const clock = useClock()
   const profile = activeProfile(store)
   const orch = store.agents.find((a) => a.kind === 'orchestrator')
-  const { goal, tasks } = store.orchestrator
+  const { goal, tasks, pendingPlan } = store.orchestrator
   const logRef = useRef<HTMLDivElement>(null)
 
   const done = tasks.filter((t) => t.status === 'success').length
@@ -140,6 +150,41 @@ export default function OrchestratorPanel(): JSX.Element {
           <span>Aufgaben-Zerlegung</span>
           <span className="tag">DAG</span>
         </div>
+        {pendingPlan && (
+          <div className="plan-review" role="status" aria-live="polite">
+            <div className="plan-review-head">
+              <div>
+                <strong>Plan wartet auf Freigabe</strong>
+                <span>
+                  {pendingPlan.plan.tasks.length} Aufgaben, maximal{' '}
+                  {pendingPlan.plan.maxParallel} parallel
+                </span>
+              </div>
+              <code>{pendingPlan.planId}</code>
+            </div>
+            <ol>
+              {pendingPlan.plan.tasks.map((task) => (
+                <li key={task.id}>
+                  <strong>{task.title}</strong>
+                  <span>{task.role}</span>
+                </li>
+              ))}
+            </ol>
+            {pendingPlan.validationIssues.length > 0 && (
+              <div className="plan-review-warning">
+                Der Vorschlag wurde sicher normalisiert. Bitte vor dem Start pruefen.
+              </div>
+            )}
+            <div className="plan-review-actions">
+              <button type="button" className="btn ghost" onClick={() => void window.orca.orchestrator.reviewPlan(false)}>
+                Ablehnen
+              </button>
+              <button type="button" className="btn primary" onClick={() => void window.orca.orchestrator.reviewPlan(true)}>
+                Plan starten
+              </button>
+            </div>
+          </div>
+        )}
         <div className="dag-scroll">
           {tasks.length === 0 ? (
             <div className="dag-empty">

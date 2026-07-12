@@ -24,9 +24,27 @@ export const agentSlotSchema = z.object({
 
 export const orchestratorSchema = z.object({
   provider: agentProviderId.default('claude'),
-  model: z.string().min(1).default('fable'),
+  /** Empty = use the provider CLI's configured default. */
+  model: z.string().default(''),
   /** Orchestrator may open sub-windows on demand. */
   autoOpenSubwindows: z.boolean().default(true)
+})
+
+export const plannerConfigSchema = z.object({
+  mode: z.enum(['auto', 'review', 'manual']).default('review'),
+  maxParallel: z.number().int().min(1).max(32).default(6),
+  taskTimeoutMinutes: z.number().int().min(1).max(240).default(30)
+})
+
+export const autoPrConfigSchema = z.object({
+  mode: z.enum(['off', 'draft-after-checks', 'ready-after-checks']).default('off'),
+  strategy: z.enum(['aggregate', 'per-task']).default('aggregate'),
+  /** Empty = repository default branch. */
+  baseBranch: z.string().default(''),
+  /** Trusted local shell commands executed inside the integration worktree. */
+  qualityGates: z.array(z.string().min(1)).max(12).default(['corepack pnpm typecheck']),
+  labels: z.array(z.string().min(1)).max(20).default([]),
+  reviewers: z.array(z.string().min(1)).max(20).default([])
 })
 
 export const workspaceProfileSchema = z.object({
@@ -38,11 +56,15 @@ export const workspaceProfileSchema = z.object({
   orchestrator: orchestratorSchema.optional(),
   agents: z.array(agentSlotSchema).default([]),
   /** Global Yolo master switch (default OFF for safety). */
-  yoloDefault: z.boolean().default(false)
+  yoloDefault: z.boolean().default(false),
+  planner: plannerConfigSchema.default({}),
+  autoPr: autoPrConfigSchema.default({})
 })
 
 export type AgentSlot = z.infer<typeof agentSlotSchema>
 export type OrchestratorConfig = z.infer<typeof orchestratorSchema>
+export type PlannerConfig = z.infer<typeof plannerConfigSchema>
+export type AutoPrConfig = z.infer<typeof autoPrConfigSchema>
 export type WorkspaceProfile = z.infer<typeof workspaceProfileSchema>
 
 /**
@@ -59,5 +81,14 @@ export const DEFAULT_PROFILE: WorkspaceProfile = {
   agents: [
     { role: 'codex', provider: 'codex', model: '', count: 3, orchestrated: true, yolo: false }
   ],
-  yoloDefault: false
+  yoloDefault: false,
+  planner: { mode: 'review', maxParallel: 6, taskTimeoutMinutes: 30 },
+  autoPr: {
+    mode: 'off',
+    strategy: 'aggregate',
+    baseBranch: '',
+    qualityGates: ['corepack pnpm typecheck'],
+    labels: [],
+    reviewers: []
+  }
 }

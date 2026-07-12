@@ -38,6 +38,7 @@ export const IPC = {
   agentPopout: 'agent:popout',
   orchestratorSnapshot: 'orchestrator:snapshot',
   orchestratorReset: 'orchestrator:reset',
+  orchestratorReviewPlan: 'orchestrator:reviewPlan',
   // main -> renderer push channels
   evAgentData: 'ev:agentData',
   evAgentsChanged: 'ev:agentsChanged',
@@ -62,6 +63,10 @@ export interface GitInfo {
   isRepo: boolean
   root?: string
   branch?: string
+  head?: string
+  remote?: string
+  defaultBranch?: string
+  dirty?: boolean
 }
 
 /**
@@ -110,6 +115,8 @@ export interface OrcaApi {
     snapshot(): Promise<OrchestratorSnapshot>
     /** Clear the task graph (fresh goal). */
     reset(): Promise<void>
+    /** Resolve a plan waiting in review mode. */
+    reviewPlan(approved: boolean): Promise<boolean>
     onSnapshot(cb: (snap: OrchestratorSnapshot) => void): () => void
   }
 

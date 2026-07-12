@@ -32,7 +32,11 @@ export function setSetting(key: string, value: unknown): void {
 }
 
 export function listProfiles(): WorkspaceProfile[] {
-  return store.get('profiles')
+  const parsed = store.get('profiles').map((profile) => workspaceProfileSchema.parse(profile))
+  // Persist schema defaults so older installations migrate once and every
+  // process observes the same complete profile shape.
+  store.set('profiles', parsed)
+  return parsed
 }
 
 /** Validate + upsert a profile by id, returning the full updated list. */
@@ -55,7 +59,7 @@ export function deleteProfile(id: string): WorkspaceProfile[] {
 }
 
 export function getProfile(id: string): WorkspaceProfile | undefined {
-  return store.get('profiles').find((p) => p.id === id)
+  return listProfiles().find((p) => p.id === id)
 }
 
 export function getActiveProfileId(): string {

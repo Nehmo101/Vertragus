@@ -2,13 +2,15 @@
  * Git worktree isolation: each agent gets its own worktree + branch so
  * parallel (especially Yolo) agents never collide in the same checkout.
  *
- * Worktrees live under <repoRoot>/.orca-worktrees/<agentId> on branch
- * orca/<agentId>. They are left in place when an agent stops (no data loss);
+ * Worktrees live under <repoRoot>/.orca-worktrees/<sessionId>/<agentId> on
+ * branch orca/<sessionId>/<agentId>. Stopping an agent never deletes them;
  * cleanup tooling comes with the diff/merge view in Phase 2.
  */
 import { execFile } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
+import { mkdir } from 'node:fs/promises'
 import { promisify } from 'node:util'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 const execFileAsync = promisify(execFile)
 
@@ -41,22 +43,55 @@ export interface WorktreeResult {
   branch: string
 }
 
-/** Create (or reuse) an isolated worktree for the given agent id. */
-export async function createWorktree(dir: string, agentId: string): Promise<WorktreeResult | null> {
+function safeIdentityPart(value: string, label: string): string {
+  const safe = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  if (!safe) throw new Error(`${label} ergibt keine sichere Git-Identität`)
+  return safe
+}
+
+/**
+ * Build a unique, inspectable identity without consulting or mutating Git.
+ * The session id keeps process-local agent ids from colliding after an app
+ * restart. Existing branches/worktrees are deliberately never reused.
+ */
+export function worktreeIdentity(
+  root: string,
+  agentId: string,
+  sessionId: string
+): WorktreeResult {
+  const safeSession = safeIdentityPart(sessionId, 'Session-ID')
+  const safeAgent = safeIdentityPart(agentId, 'Agent-ID')
+  return {
+    path: join(root, '.orca-worktrees', safeSession, safeAgent),
+    branch: `orca/${safeSession}/${safeAgent}`
+  }
+}
+
+/**
+ * Create a fresh isolated worktree for the given agent and app session.
+ * A non-Git directory returns null. Git failures are surfaced to the caller;
+ * falling back to a shared checkout would silently disable isolation.
+ */
+export async function createWorktree(
+  dir: string,
+  agentId: string,
+  sessionId: string = randomUUID()
+): Promise<WorktreeResult | null> {
   const root = await repoRoot(dir)
   if (!root) return null
-  const path = join(root, '.orca-worktrees', agentId)
-  const branch = `orca/${agentId}`
+  const identity = worktreeIdentity(root, agentId, sessionId)
+  await mkdir(dirname(identity.path), { recursive: true })
   try {
-    await git(root, ['worktree', 'add', '-b', branch, path])
-    return { path, branch }
-  } catch {
-    // Branch/dir may already exist from a previous run — try plain checkout.
-    try {
-      await git(root, ['worktree', 'add', path, branch])
-      return { path, branch }
-    } catch {
-      return null
-    }
+    await git(root, ['worktree', 'add', '-b', identity.branch, identity.path])
+    return identity
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err)
+    throw new Error(`Worktree ${identity.branch} konnte nicht erstellt werden: ${detail}`, {
+      cause: err
+    })
   }
 }
