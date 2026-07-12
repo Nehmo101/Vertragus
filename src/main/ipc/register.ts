@@ -13,6 +13,13 @@ import { checkAllProviders } from '@main/providers/health'
 import { listModels } from '@main/providers/models'
 import { gitInfo } from '@main/integrations/git'
 import { listGithubProjects } from '@main/integrations/github'
+import {
+  checkForMainUpdate,
+  downloadMainUpdate,
+  getUpdateState,
+  installMainUpdate,
+  onUpdateState
+} from '@main/updater'
 import { agentManager } from '@main/agents/AgentManager'
 import { orchestratorEngine } from '@main/orchestrator/Engine'
 import { broadcast, createPaneWindow } from '@main/windows'
@@ -55,6 +62,10 @@ export function registerIpcHandlers(): void {
       platform: process.platform
     }
   })
+  ipcMain.handle(IPC.appUpdateState, () => getUpdateState())
+  ipcMain.handle(IPC.appUpdateCheck, () => checkForMainUpdate())
+  ipcMain.handle(IPC.appUpdateDownload, () => downloadMainUpdate())
+  ipcMain.handle(IPC.appUpdateInstall, () => installMainUpdate())
   ipcMain.handle(IPC.providersHealth, () => checkAllProviders())
   ipcMain.handle(IPC.providerLogin, async (_e, id: ProviderId) => {
     const info = await agentManager.loginProvider(id)
@@ -190,4 +201,5 @@ export function registerIpcHandlers(): void {
       .then((health) => broadcast(IPC.evProvidersHealth, health))
       .catch((error) => console.warn('[Providers] refresh after login failed', error))
   })
+  onUpdateState((next) => broadcast(IPC.evAppUpdateState, next))
 }

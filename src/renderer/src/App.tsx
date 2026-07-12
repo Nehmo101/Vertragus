@@ -33,11 +33,15 @@ export default function App(): JSX.Element {
 
   const paneMatch = hash.match(/^#\/pane\/(.+)$/)
   if (paneMatch) {
-    return <PaneWindow agentId={paneMatch[1]} />
+    return (
+      <div className="app-root pane-window-root" data-theme={store.theme}>
+        <PaneWindow agentId={paneMatch[1]} />
+      </div>
+    )
   }
 
   return (
-    <div className="app-root" data-preset={store.uiPreset} data-density={store.uiDensity}>
+    <div className="app-root" data-theme={store.theme} data-density={store.uiDensity}>
       <TitleBar />
 
       {store.yoloMaster && (

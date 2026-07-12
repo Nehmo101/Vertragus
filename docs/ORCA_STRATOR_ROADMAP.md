@@ -43,7 +43,7 @@ Die Zielrichtung:
 | Approvals-Inbox | nicht vorhanden | Status `waiting` ist nur vorbereitet. |
 | Session-Persistenz | nicht vorhanden | Profile bleiben, laufende Ziele und Tasks nicht. |
 | Provider-Health | vorhanden | CLI-Versionen sowie GitHub-/Ollama-Details. |
-| Release-Pipeline | vorhanden | Tag-basierte Windows-/Linux-Artefakte. |
+| Release-Pipeline | vorhanden | `main`-Self-Update-Kanal plus tag-basierte Windows-/Linux-Releases. |
 
 ## Bestätigte Bugs und Risiken
 
@@ -223,23 +223,20 @@ Die Basis existiert bereits. Nächste Schritte:
 - Wiederholung erzeugt keinen zweiten PR für denselben Goal-Branch.
 - Fehlende `gh`-Authentifizierung ist ein erklärter, wiederholbarer Zustand.
 
-## Pflichtfeature 5: Umschaltbare UI-Designs
+## Pflichtfeature 5: Cozy Organic UI
 
-Keine parallelen Komponentenbäume: Ein Designsystem erhält semantische Tokens,
-Theme, Dichte und Layout werden separat gespeichert.
+Keine parallelen Komponentenbäume: Ein warmes Organic-Designsystem erhält
+semantische Tokens; Theme und Layout werden separat gespeichert.
 
-| Preset | Charakter | Layout | Geeignet für |
+| Look | Modi | Charakter | Layout |
 |---|---|---|---|
-| **Abyss Control** | dunkles Teal, heutige Marke weiterentwickelt | drei Spalten, dichte Telemetrie | tägliche Arbeit mit vielen Agents |
-| **Polar Focus** | ruhiges helles/automatisches System-Theme | Hauptpane im Fokus, Seiten einklappbar | lange Sessions, kleinere Displays |
-| **Sonar Tactical** | hoher Kontrast, reduzierte Effekte | DAG/Plan zentral, Terminals als Drawer/Pop-out | Planprüfung, Incident und Review |
+| **Cozy Organic** | Hell und Dunkel | Creme/Sand oder warmes Espresso mit Terracotta und Salbei | Kacheln, Fokus oder DAG |
 
 Unabhängige Schalter:
 
-- Dichte: `comfortable` / `compact`
+- Theme: `light` / `dark`
 - Layout: `tiles` / `focus` / `dag`
-- Bewegung: `full` / `reduced`
-- Schriftgröße und Terminal-Zoom
+- Bewegung respektiert `prefers-reduced-motion`
 
 Technik: semantische CSS-Tokens; `data-theme`, `data-density`, `data-layout` am
 App-Root; Persistenz in `electron-store`; Kontrast-, Tastatur- und
@@ -303,19 +300,19 @@ Screenshot-Regressionen für 1180×720 und 1440×900.
 
 **Exit:** Zwei-Agent-E2E erzeugt genau einen geprüften Draft-PR.
 
-### Phase E – Design Switcher & UX (P1/P2)
+### Phase E – Cozy Organic & UX (P1/P2)
 
 - Bestehendes CSS tokenisieren.
-- Abyss Control, Polar Focus und Sonar Tactical.
+- Cozy Organic in persistentem Hell-/Dunkelmodus.
 - Fokus- und DAG-Layout statt Platzhalterbutton.
 - Accessibility- und Screenshot-Regressionen.
 
-**Exit:** Alle Presets bestehen Kontrast-, Tastatur- und Größenprüfungen.
+**Exit:** Beide Theme-Modi bestehen Kontrast-, Tastatur- und Größenprüfungen.
 
 ### Phase F – Production Hardening (P2)
 
 - Session-Restore, Kosten/Budgets, Approval Inbox und Support-Bundle.
-- Signierte Installer, Update-Kanal, Store-Migrationen.
+- Signierte Installer, Update-Härtung und Store-Migrationen.
 - Remote-Zugriff nur mit Authentifizierung und Audit-Log.
 - Telemetrie ausschließlich opt-in und ohne Prompt-/Codeinhalte.
 

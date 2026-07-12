@@ -4,6 +4,7 @@ import { registerIpcHandlers } from '@main/ipc/register'
 import { createMainWindow } from '@main/windows'
 import { agentManager } from '@main/agents/AgentManager'
 import { startMcpServer } from '@main/orchestrator/OrcaMcpServer'
+import { initializeUpdater } from '@main/updater'
 
 app.whenReady().then(async () => {
   electronApp.setAppUserModelId('dev.nehmo.orca-strator')
@@ -25,6 +26,7 @@ app.whenReady().then(async () => {
 
   registerIpcHandlers()
   createMainWindow()
+  initializeUpdater()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow()
