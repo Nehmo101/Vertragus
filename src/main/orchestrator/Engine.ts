@@ -254,7 +254,6 @@ export class OrchestratorEngine extends EventEmitter {
         systemPrompt: subSystemPrompt,
         yolo,
         workingDir: slot.workingDir || profile?.workingDir,
-        timeoutMs: (profile?.planner.taskTimeoutMinutes ?? 30) * 60_000
       })
       task.agentId = info.id
       task.agentName = info.name

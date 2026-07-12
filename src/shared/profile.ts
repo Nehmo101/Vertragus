@@ -33,7 +33,6 @@ export const orchestratorSchema = z.object({
 export const plannerConfigSchema = z.object({
   mode: z.enum(['auto', 'review', 'manual']).default('review'),
   maxParallel: z.number().int().min(1).max(32).default(6),
-  taskTimeoutMinutes: z.number().int().min(1).max(240).default(30)
 })
 
 export const autoPrConfigSchema = z.object({
@@ -92,7 +91,7 @@ export const DEFAULT_PROFILE: WorkspaceProfile = {
     { role: 'codex', provider: 'codex', model: '', count: 3, orchestrated: true, yolo: false }
   ],
   yoloDefault: false,
-  planner: { mode: 'review', maxParallel: 6, taskTimeoutMinutes: 30 },
+  planner: { mode: 'review', maxParallel: 6 },
   autoPr: {
     mode: 'off',
     strategy: 'aggregate',

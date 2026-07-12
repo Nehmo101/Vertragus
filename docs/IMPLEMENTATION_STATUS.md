@@ -30,7 +30,7 @@ Ausgangsbasis erhalten.
 - Modi: `auto`, `review` und `manual`.
 - Im Review-Modus erscheint der Plan vor Ausführung in der Oberfläche und kann
   freigegeben oder abgelehnt werden.
-- Task-Timeouts sind pro Profil konfigurierbar.
+- Headless-Subagents laufen ohne Zeitlimit, bis sie fertig sind oder manuell gestoppt werden.
 
 ### Workspace-Auswahl und Session-Sicherheit
 
@@ -83,9 +83,9 @@ Ausgangsbasis erhalten.
 
 ### Stabilität und Qualität
 
-- Fehlende CLI, Spawn-Fehler, Abbruch vor Spawn und Timeout lösen den Task immer
+- Fehlende CLI, Spawn-Fehler und manuelle Abbrüche lösen den Task immer
   deterministisch auf.
-- Zustände unterscheiden `succeeded`, `failed`, `cancelled` und `timed_out`.
+- Zustände unterscheiden `succeeded`, `failed` und `cancelled`.
 - Session-Ziel und Task-DAG werden wiederhergestellt; unterbrochene Tasks werden
   nach Neustart als gestoppt markiert.
 - Echte Provider-Nutzungswerte werden angezeigt, sofern die CLI sie liefert;

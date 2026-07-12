@@ -53,7 +53,6 @@ export interface RunTaskRequest {
   systemPrompt?: string
   yolo: boolean
   workingDir?: string
-  timeoutMs?: number
 }
 
 export class AgentManager extends EventEmitter {
@@ -406,8 +405,7 @@ export class AgentManager extends EventEmitter {
         // Attach the subagent-scoped external MCP servers to this headless run.
         extraArgs: buildSubagentMcpArgs(req.provider, id)
       },
-      (chunk) => this.pushData(managed, chunk),
-      { timeoutMs: req.timeoutMs }
+      (chunk) => this.pushData(managed, chunk)
     )
     managed.headless = handle
     info.pid = handle.pid
@@ -418,7 +416,6 @@ export class AgentManager extends EventEmitter {
       if (this.agents.has(id)) {
         const failed =
           result.status === 'failed' ||
-          result.status === 'timed_out' ||
           (result.status == null && result.isError)
         info.status = failed ? 'error' : 'stopped'
         info.exitCode = failed ? 1 : 0
@@ -433,10 +430,8 @@ export class AgentManager extends EventEmitter {
         const event =
           result.status === 'cancelled'
             ? { text: `${name} · Task gestoppt`, tone: 'muted' as const }
-            : result.status === 'timed_out'
-              ? { text: `${name} · Task-Timeout`, tone: 'error' as const }
-              : failed
-                ? { text: `${name} · Task-Fehler`, tone: 'error' as const }
+            : failed
+              ? { text: `${name} · Task-Fehler`, tone: 'error' as const }
                 : { text: `${name} · ✓ Task fertig`, tone: 'success' as const }
         this.emitEvent(event.text, event.tone)
         this.changed()

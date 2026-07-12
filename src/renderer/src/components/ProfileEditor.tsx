@@ -19,7 +19,6 @@ const HELP = {
   model: 'Leer verwendet den Standard der jeweiligen CLI. Eine Modell-ID muss für dein Konto verfügbar sein.',
   plannerMode: 'Auto startet valide Pläne direkt. Review wartet auf Freigabe. Manuell deaktiviert execute_plan.',
   maxParallel: 'Globales Oberlimit gleichzeitig laufender Plan-Tasks; Rollen-Kapazitäten können es weiter reduzieren.',
-  timeout: 'Nach dieser Laufzeit wird ein Headless-Task beendet und als Timeout markiert.',
   autoPrMode: 'PRs entstehen nur nach erfolgreichen Gates. Draft ist der empfohlene sichere Startmodus.',
   prStrategy: 'Aggregate kombiniert Task-Commits in einen Goal-PR. Per Task erzeugt getrennte PRs.',
   baseBranch: 'Zielbranch des PRs. Leer nutzt den Standardbranch des origin-Remotes.',
@@ -325,19 +324,6 @@ export default function ProfileEditor(): JSX.Element | null {
                   max={32}
                   value={draft.planner.maxParallel}
                   onChange={(event) => patch({ planner: { ...draft.planner, maxParallel: boundedNumber(event.currentTarget.valueAsNumber, 1, 32, draft.planner.maxParallel) } })}
-                />
-              </label>
-              <label>
-                <span className="slot-col-label">
-                  Timeout (Min.) <InfoTip text={HELP.timeout} />
-                </span>
-                <input
-                  className="slot-select-sm"
-                  type="number"
-                  min={1}
-                  max={240}
-                  value={draft.planner.taskTimeoutMinutes}
-                  onChange={(event) => patch({ planner: { ...draft.planner, taskTimeoutMinutes: boundedNumber(event.currentTarget.valueAsNumber, 1, 240, draft.planner.taskTimeoutMinutes) } })}
                 />
               </label>
             </div>

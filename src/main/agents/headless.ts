@@ -29,7 +29,7 @@ function line(color: string, text: string): string {
   return `${color}${text}${C.reset}\r\n`
 }
 
-export type HeadlessStatus = 'succeeded' | 'failed' | 'cancelled' | 'timed_out'
+export type HeadlessStatus = 'succeeded' | 'failed' | 'cancelled'
 
 export interface HeadlessResult {
   result: string
@@ -43,14 +43,6 @@ export interface HeadlessResult {
   steps?: number
 }
 
-export interface HeadlessRuntimeOptions {
-  /** Includes command resolution. Defaults to 30 minutes. */
-  timeoutMs?: number
-  /** Maximum wait for a closing process after cancellation. */
-  stopGraceMs?: number
-}
-
-export const DEFAULT_HEADLESS_TIMEOUT_MS = 30 * 60 * 1000
 const DEFAULT_STOP_GRACE_MS = 5_000
 
 export interface HeadlessHandle {
@@ -157,28 +149,21 @@ export function runHeadless(
   id: AgentProviderId,
   prompt: string,
   opts: HeadlessOpts,
-  onLine: (chunk: string) => void,
-  runtime: HeadlessRuntimeOptions = {}
+  onLine: (chunk: string) => void
 ): HeadlessHandle {
-  const timeoutMs = Number.isFinite(runtime.timeoutMs) && (runtime.timeoutMs ?? 0) > 0 ? Math.floor(runtime.timeoutMs as number) : DEFAULT_HEADLESS_TIMEOUT_MS
-  const stopGraceMs = Number.isFinite(runtime.stopGraceMs) && (runtime.stopGraceMs ?? 0) > 0 ? Math.floor(runtime.stopGraceMs as number) : DEFAULT_STOP_GRACE_MS
 
   if (id === 'ollama') {
     const handle = runOllamaChat(prompt, opts, onLine)
-    let stopStatus: Extract<HeadlessStatus, 'cancelled' | 'timed_out'> | undefined
-    const timer = setTimeout(() => { stopStatus = 'timed_out'; handle.kill() }, timeoutMs)
-    timer.unref()
+    let cancelled = false
     return {
       get pid() { return handle.pid },
       done: handle.done.then((result) => {
-        clearTimeout(timer)
-        const status = stopStatus ?? (result.isError ? 'failed' : 'succeeded')
-        return { ...result, status, isError: status !== 'succeeded', error: status === 'timed_out' ? `Timeout nach ${timeoutMs} ms` : result.error }
+        const status = cancelled ? 'cancelled' : result.isError ? 'failed' : 'succeeded'
+        return { ...result, status, isError: status !== 'succeeded' }
       }),
-      kill() { if (!stopStatus) stopStatus = 'cancelled'; handle.kill() }
+      kill() { cancelled = true; handle.kill() }
     }
   }
-
   let lastMsgFile: string | undefined
   let tmpDir: string | undefined
   const extraArgs = [...(opts.extraArgs ?? [])]
@@ -199,12 +184,11 @@ export function runHeadless(
   let lastText = ''
   let sawError = false
   let settled = false
-  let stopStatus: Extract<HeadlessStatus, 'cancelled' | 'timed_out'> | undefined
+  let stopStatus: Extract<HeadlessStatus, 'cancelled'> | undefined
   let stopFallback: NodeJS.Timeout | undefined
   let resolveDone!: (result: HeadlessResult) => void
 
   const cleanup = (): void => {
-    if (timeoutTimer) clearTimeout(timeoutTimer)
     if (stopFallback) clearTimeout(stopFallback)
     if (tmpDir) { rmSync(tmpDir, { recursive: true, force: true }); tmpDir = undefined }
   }
@@ -214,7 +198,7 @@ export function runHeadless(
     cleanup()
     resolveDone({ ...acc, result: acc.result || fallback, status, isError: status !== 'succeeded', error })
   }
-  const stoppedText = (status: 'cancelled' | 'timed_out'): string => status === 'timed_out' ? `Task-Timeout nach ${timeoutMs} ms` : 'Task abgebrochen'
+  const stoppedText = (): string => 'Task abgebrochen'
   const terminateChild = (): void => {
     if (!child) return
     if (process.platform === 'win32' && child.pid) {
@@ -222,19 +206,19 @@ export function runHeadless(
       killer.on('error', () => child?.kill())
     } else child.kill('SIGTERM')
   }
-  const requestStop = (status: 'cancelled' | 'timed_out'): void => {
+  const requestStop = (): void => {
     if (settled || stopStatus) return
-    stopStatus = status
+    stopStatus = 'cancelled'
     if (!child) {
-      onLine(line(C.yellow, status === 'timed_out' ? '— Timeout —' : '— gestoppt —'))
-      finish(status, stoppedText(status), status === 'timed_out' ? stoppedText(status) : undefined)
+      onLine(line(C.yellow, 'Task gestoppt'))
+      finish(stopStatus, stoppedText())
       return
     }
     terminateChild()
     stopFallback = setTimeout(() => {
-      onLine(line(C.yellow, status === 'timed_out' ? '— Timeout —' : '— gestoppt —'))
-      finish(status, stoppedText(status), status === 'timed_out' ? stoppedText(status) : undefined)
-    }, stopGraceMs)
+      onLine(line(C.yellow, 'Task gestoppt'))
+      finish(stopStatus!, stoppedText())
+    }, DEFAULT_STOP_GRACE_MS)
     stopFallback.unref()
   }
   const handleLine = (raw: string): void => {
@@ -255,8 +239,6 @@ export function runHeadless(
   }
 
   const done = new Promise<HeadlessResult>((resolve) => { resolveDone = resolve })
-  const timeoutTimer = setTimeout(() => requestStop('timed_out'), timeoutMs)
-  timeoutTimer.unref()
 
   void resolveLaunch(launch.command, launch.args)
     .then((resolved) => {
@@ -275,7 +257,7 @@ export function runHeadless(
       })
       child.on('error', (err) => {
         const message = err.message
-        if (stopStatus) { finish(stopStatus, stoppedText(stopStatus), stopStatus === 'timed_out' ? stoppedText(stopStatus) : undefined); return }
+        if (stopStatus) { finish(stopStatus, stoppedText()); return }
         onLine(line(C.red, `Spawn fehlgeschlagen: ${message}`)); finish('failed', message, message)
       })
       child.on('close', (code) => {
@@ -286,8 +268,8 @@ export function runHeadless(
         }
         if (!acc.result) acc.result = (lastText || rawTail || stderrTail).trim()
         if (stopStatus) {
-          onLine(line(C.yellow, stopStatus === 'timed_out' ? '— Timeout —' : '— gestoppt —'))
-          finish(stopStatus, stoppedText(stopStatus), stopStatus === 'timed_out' ? stoppedText(stopStatus) : undefined); return
+          onLine(line(C.yellow, 'Task gestoppt'))
+          finish(stopStatus, stoppedText()); return
         }
         const failed = sawError || code !== 0
         if (failed) {
@@ -302,5 +284,5 @@ export function runHeadless(
       onLine(line(C.red, `Command-Auflösung fehlgeschlagen: ${message}`)); finish('failed', message, message)
     })
 
-  return { get pid() { return child?.pid }, done, kill() { requestStop('cancelled') } }
+  return { get pid() { return child?.pid }, done, kill() { requestStop() } }
 }

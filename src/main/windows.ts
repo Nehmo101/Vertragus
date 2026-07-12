@@ -21,7 +21,7 @@ const DEMO_PROFILE = {
     { role: 'frontend', provider: 'cursor', model: 'composer', count: 3, orchestrated: true, yolo: false }
   ],
   yoloDefault: false,
-  planner: { mode: 'review', maxParallel: 4, taskTimeoutMinutes: 30 },
+  planner: { mode: 'review', maxParallel: 4 },
   autoPr: {
     mode: 'draft-after-checks',
     strategy: 'aggregate',

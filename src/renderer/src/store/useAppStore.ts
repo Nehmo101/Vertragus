@@ -344,7 +344,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           }
         ],
         yoloDefault: false,
-        planner: { mode: 'review', maxParallel: 6, taskTimeoutMinutes: 30 },
+        planner: { mode: 'review', maxParallel: 6 },
         autoPr: {
           mode: 'off',
           strategy: 'aggregate',
