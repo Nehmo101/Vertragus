@@ -15,7 +15,7 @@ live terminal — and lets one configurable **orchestrator** delegate work to
 
 The current `DEV` implementation adds verified **Claude and Codex
 orchestrators**, a validated adaptive DAG planner, workspace/session binding,
-safe Auto-PR policies, and three switchable UI themes. See the
+safe Auto-PR policies, and the **Cozy Organic** UI in light and dark mode. See the
 [implementation status](docs/IMPLEMENTATION_STATUS.md) for exact boundaries.
 
 ## Supported agents & integrations
@@ -47,8 +47,8 @@ safe Auto-PR policies, and three switchable UI themes. See the
   concurrency before execution; supports auto, review-first and manual modes.
 - **Safe Auto-PR** — runs configured gates, scans staged diffs, prepares task
   commits and publishes aggregate or per-task PRs without force-push or merge.
-- **Switchable workspace UI** — Abyss Control, Polar Focus and Sonar Tactical,
-  plus density and tiles/focus/DAG layout controls.
+- **Cozy Organic workspace UI** — one warm visual system with persisted light/dark
+  mode plus tiles/focus/DAG layout controls.
 - **Yolo Mode** — per-agent and global auto-approve so agents work without
   prompts (`--dangerously-skip-permissions` / `--dangerously-bypass-approvals-and-sandbox`
   / `--yolo`), with a red warning badge, a global kill-switch, and git-worktree
@@ -56,6 +56,9 @@ safe Auto-PR policies, and three switchable UI themes. See the
 - **Provider connections** — shows real account state and opens the official
   Claude, Codex, Cursor, Ollama, GitHub or Cloudflare CLI login in a visible
   terminal; Orca never receives or stores passwords, API keys or tokens.
+- **Main-channel self-update** — every successful `main` build is published for
+  Windows and Linux; the title bar offers download and restart only when a newer
+  main build exists.
 - **Session-safe worktree isolation**, provider health, persisted task state and
   real token/cost/step values when the provider reports them.
 
@@ -63,8 +66,8 @@ safe Auto-PR policies, and three switchable UI themes. See the
 
 Electron · TypeScript · React · Vite (`electron-vite`) · node-pty + xterm.js
 (terminals) · `@modelcontextprotocol/sdk` (orchestrator ↔ subagent dispatch) ·
-electron-store + zod (config) · electron-builder (packaging: NSIS `.exe` +
-AppImage/`.deb`).
+electron-store + zod (config) · electron-builder + electron-updater (main-channel
+updates and packaging: NSIS `.exe` + AppImage/`.deb`).
 
 ## Development
 
@@ -81,6 +84,10 @@ pnpm build       # typecheck + production build
 pnpm build:win     # Windows NSIS installer
 pnpm build:linux   # Linux AppImage + .deb
 ```
+
+Installer from GitHub Releases follow the `main` update channel. A successful push
+to `main` publishes a newer Windows/Linux build automatically; tagged releases
+remain available for fixed release milestones.
 
 ## Roadmap
 

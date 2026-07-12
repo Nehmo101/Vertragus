@@ -2255,97 +2255,7 @@ button {
   min-height: 0;
 }
 
-/* ---------- UI presets, density and real layout modes ---------- */
-.app-root[data-preset='polar'] {
-  --bg-app: #e8eef5;
-  --bg-panel: #f5f8fc;
-  --bg-pane: #f9fbfd;
-  --bg-input: #ffffff;
-  --bg-modal: #f7faff;
-  --bg-slot: #edf3f8;
-  --bg-menu: #ffffff;
-  --bg-card: #f7faff;
-  --border-1: rgba(21, 45, 70, 0.08);
-  --border-2: rgba(21, 45, 70, 0.1);
-  --border-3: rgba(21, 45, 70, 0.12);
-  --border-4: rgba(21, 45, 70, 0.18);
-  --border-5: rgba(21, 45, 70, 0.24);
-  --text-1: #14283b;
-  --text-2: #425d72;
-  --text-3: #657f93;
-  --text-4: #7890a3;
-  --text-faint: #a2b3c1;
-  --text-log: #dce8f2;
-  --accent: #087ea4;
-  --accent-light: #0b6f91;
-  --cyan: #0d83ad;
-  background: #e8eef5;
-}
-.app-root[data-preset='polar'] .titlebar,
-.app-root[data-preset='polar'] .pane-term,
-.app-root[data-preset='polar'] .dispatch {
-  color-scheme: dark;
-}
-.app-root[data-preset='polar'] .titlebar {
-  background: linear-gradient(180deg, #173047, #10263a);
-  color: #f1f7fb;
-}
-.app-root[data-preset='polar'] .titlebar .repo-path .path,
-.app-root[data-preset='polar'] .titlebar .live-counter,
-.app-root[data-preset='polar'] .wordmark-sub {
-  color: #a9bfd0;
-}
-.app-root[data-preset='polar'] .pane-term {
-  background: #07111d;
-}
-.app-root[data-preset='polar'] .pane.orch {
-  background: linear-gradient(180deg, #f2fbfd, #edf6fa);
-}
-
-.app-root[data-preset='sonar'] {
-  --bg-app: #07110f;
-  --bg-panel: #091814;
-  --bg-pane: #0a1714;
-  --bg-input: #06120f;
-  --bg-modal: #0b1b17;
-  --bg-slot: #091713;
-  --bg-menu: #0c211b;
-  --bg-card: #0b1b17;
-  --border-1: rgba(101, 239, 179, 0.07);
-  --border-2: rgba(101, 239, 179, 0.1);
-  --border-3: rgba(101, 239, 179, 0.13);
-  --border-4: rgba(101, 239, 179, 0.2);
-  --border-5: rgba(101, 239, 179, 0.28);
-  --text-1: #d9f5e9;
-  --text-2: #86b8a3;
-  --text-3: #638f7c;
-  --text-4: #4f7465;
-  --text-faint: #355447;
-  --text-log: #b9e4d2;
-  --accent: #55e6a5;
-  --accent-light: #8af2c1;
-  --cyan: #8ce9d1;
-  --warn: #e4b84b;
-  --warn-text: #f4cf72;
-  background-image:
-    linear-gradient(rgba(85, 230, 165, 0.022) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(85, 230, 165, 0.022) 1px, transparent 1px);
-  background-size: 28px 28px;
-}
-.app-root[data-preset='sonar'] .titlebar {
-  background: linear-gradient(180deg, #0c201a, #081712);
-}
-.app-root[data-preset='sonar'] .pane.orch {
-  background: linear-gradient(180deg, #0d241d, #091914);
-}
-
-.preset-switch {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 4px;
-  padding: 2px 12px 6px;
-}
-.preset-switch button,
+/* ---------- density and real layout modes ---------- */
 .density-btn {
   min-width: 0;
   border: 1px solid var(--border-4);
@@ -2356,9 +2266,8 @@ button {
   font-size: 10px;
   padding: 5px 4px;
 }
-.preset-switch button:hover,
 .density-btn:hover,
-.preset-switch button.active {
+.density-btn:focus-visible {
   border-color: color-mix(in srgb, var(--accent) 42%, transparent);
   background: color-mix(in srgb, var(--accent) 11%, transparent);
   color: var(--accent-light);
@@ -2811,4 +2720,46 @@ textarea:focus-visible,
   font: 9.5px var(--font-mono);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ---------- main-channel self update ---------- */
+.self-update-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 11px;
+  border: 1px solid rgba(45, 212, 191, 0.48);
+  border-radius: 7px;
+  background: rgba(45, 212, 191, 0.13);
+  color: var(--accent-light);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 0 14px rgba(45, 212, 191, 0.14);
+}
+.self-update-btn:hover:not(:disabled),
+.self-update-btn:focus-visible {
+  border-color: var(--accent);
+  background: rgba(45, 212, 191, 0.2);
+  outline: none;
+}
+.self-update-btn.downloading {
+  cursor: progress;
+  opacity: 0.82;
+}
+.self-update-btn.downloaded {
+  border-color: rgba(63, 209, 122, 0.62);
+  background: rgba(63, 209, 122, 0.17);
+  color: var(--ok-text);
+}
+.self-update-btn.error {
+  border-color: rgba(233, 185, 73, 0.55);
+  background: rgba(233, 185, 73, 0.12);
+  color: var(--warn-text);
+}
+.self-update-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }

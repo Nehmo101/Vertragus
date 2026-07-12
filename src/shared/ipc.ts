@@ -16,6 +16,10 @@ import type { OrchestratorSnapshot } from './orchestrator'
 
 export const IPC = {
   appInfo: 'app:info',
+  appUpdateState: 'app:updateState',
+  appUpdateCheck: 'app:updateCheck',
+  appUpdateDownload: 'app:updateDownload',
+  appUpdateInstall: 'app:updateInstall',
   providersHealth: 'providers:health',
   providersModels: 'providers:models',
   providerLogin: 'providers:login',
@@ -48,6 +52,7 @@ export const IPC = {
   evAgentsChanged: 'ev:agentsChanged',
   evOrcaEvent: 'ev:orcaEvent',
   evProvidersHealth: 'ev:providersHealth',
+  evAppUpdateState: 'ev:appUpdateState',
   evOrchestrator: 'ev:orchestrator',
   // window controls (frameless title bar)
   winMinimize: 'win:minimize',
@@ -62,6 +67,24 @@ export interface AppInfo {
   chrome: string
   node: string
   platform: NodeJS.Platform
+}
+
+export type UpdateStatus =
+  | 'unsupported'
+  | 'idle'
+  | 'checking'
+  | 'up-to-date'
+  | 'available'
+  | 'downloading'
+  | 'downloaded'
+  | 'error'
+
+export interface UpdateState {
+  status: UpdateStatus
+  currentVersion: string
+  availableVersion?: string
+  progress?: number
+  message?: string
 }
 
 export interface GitInfo {
@@ -93,6 +116,13 @@ export interface GithubProjectsResult {
  */
 export interface OrcaApi {
   getAppInfo(): Promise<AppInfo>
+  updates: {
+    state(): Promise<UpdateState>
+    check(): Promise<UpdateState>
+    download(): Promise<UpdateState>
+    install(): Promise<void>
+    onState(cb: (state: UpdateState) => void): () => void
+  }
   /** Probe every provider CLI/integration for availability + version. */
   checkProviders(): Promise<ProviderHealth[]>
   /** Model options per agent provider (ollama live when reachable). */
