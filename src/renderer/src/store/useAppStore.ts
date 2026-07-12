@@ -4,7 +4,7 @@
 import { create } from 'zustand'
 import type { AgentInstanceInfo, OrcaEvent } from '@shared/agents'
 import type { AgentProviderId, ProviderHealth } from '@shared/providers'
-import { DEFAULT_MODELS } from '@shared/providers'
+import { DEFAULT_MODELS, DEFAULT_PROVIDER_LIMITS } from '@shared/providers'
 import type { WorkspaceProfile } from '@shared/profile'
 import type { OrchestratorSnapshot } from '@shared/orchestrator'
 import type { AppInfo, GitInfo } from '@shared/ipc'
@@ -23,6 +23,8 @@ interface AppState {
   appInfo: AppInfo | null
   health: ProviderHealth[]
   models: Record<AgentProviderId, string[]>
+  /** Per-provider concurrency budgets shown live in the Limits panel. */
+  providerLimits: Record<AgentProviderId, number>
   profiles: WorkspaceProfile[]
   activeProfileId: string
   gitInfo: GitInfo | null
@@ -42,6 +44,7 @@ interface AppState {
   refreshHealth(): Promise<void>
   refreshGit(): Promise<void>
   selectProfile(id: string): Promise<boolean>
+  setProviderLimit(provider: AgentProviderId, value: number): void
   toggleYolo(): void
   setUiPreset(preset: UiPreset): void
   setWorkspaceLayout(layout: WorkspaceLayout): void
@@ -72,6 +75,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   appInfo: null,
   health: [],
   models: DEFAULT_MODELS,
+  providerLimits: DEFAULT_PROVIDER_LIMITS,
   profiles: [],
   activeProfileId: '',
   gitInfo: null,
@@ -96,7 +100,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     )
     window.orca.orchestrator.onSnapshot((snap) => set({ orchestrator: snap }))
 
-    const [appInfo, profiles, activeProfileId, agents, yolo, snapshot, preset, layout, density] =
+    const [appInfo, profiles, activeProfileId, agents, yolo, snapshot, preset, layout, density, limits] =
       await Promise.all([
         window.orca.getAppInfo(),
         window.orca.listProfiles(),
@@ -106,7 +110,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         window.orca.orchestrator.snapshot(),
         window.orca.getConfig<UiPreset>('ui.preset'),
         window.orca.getConfig<WorkspaceLayout>('ui.workspaceLayout'),
-        window.orca.getConfig<UiDensity>('ui.density')
+        window.orca.getConfig<UiDensity>('ui.density'),
+        window.orca.getConfig<Partial<Record<AgentProviderId, number>>>('providerLimits')
       ])
     set({
       appInfo,
@@ -117,7 +122,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       orchestrator: snapshot,
       uiPreset: preset === 'polar' || preset === 'sonar' ? preset : 'abyss',
       workspaceLayout: layout === 'focus' || layout === 'dag' ? layout : 'tiles',
-      uiDensity: density === 'compact' ? density : 'comfortable'
+      uiDensity: density === 'compact' ? density : 'comfortable',
+      providerLimits: { ...DEFAULT_PROVIDER_LIMITS, ...(limits ?? {}) }
     })
 
     void get().refreshGit()
@@ -156,6 +162,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       get().showToast(`Profilwechsel nicht möglich: ${errorMessage(error)}`)
       return false
     }
+  },
+
+  setProviderLimit(provider, value) {
+    const clamped = Number.isFinite(value) ? Math.min(16, Math.max(1, Math.round(value))) : 1
+    const providerLimits = { ...get().providerLimits, [provider]: clamped }
+    set({ providerLimits })
+    void window.orca.setConfig('providerLimits', providerLimits)
   },
 
   toggleYolo() {
@@ -215,15 +228,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     const profile = activeProfile(s)
     const role = ADD_ROLES[s.addSeq % ADD_ROLES.length]
     try {
+      // Empty model = codex uses its own ~/.codex/config.toml default (safe:
+      // an explicit unsupported name 400s). The rich model list is a picker only.
       await window.orca.agents.spawn({
         provider: 'codex',
-        model: s.models.codex[0] ?? '',
+        model: '',
         role: `Subagent · ${role}`,
         yolo: s.yoloMaster,
         workingDir: profile?.workingDir
       })
       set({ addSeq: s.addSeq + 1 })
-      get().showToast(`Neuer Subagent gestartet — ${s.models.codex[0] || 'Codex-Default'}`)
+      get().showToast('Neuer Subagent gestartet — Codex-Default')
     } catch (error) {
       get().showToast(`Agent konnte nicht starten: ${errorMessage(error)}`)
     }
@@ -246,7 +261,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   openEditorNew() {
-    const models = get().models
     set({
       editorProfile: {
         id: `profile-${Date.now().toString(36)}`,
@@ -255,9 +269,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         orchestrator: { provider: 'claude', model: 'fable', autoOpenSubwindows: true },
         agents: [
           {
+            // Empty model = codex's own configured default (see DEFAULT_PROFILE).
             role: 'worker',
             provider: 'codex',
-            model: models.codex[0] ?? '',
+            model: '',
             count: 1,
             orchestrated: true,
             yolo: false
