@@ -2,6 +2,7 @@ import { useAppStore } from '@renderer/store/useAppStore'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import { profileSummary, profileAgentCount } from '@renderer/components/TitleBar'
 import type { ProviderHealth, ProviderId } from '@shared/providers'
+import { MCP_SCOPE_LABELS, MCP_TRANSPORT_LABELS } from '@shared/mcp'
 
 interface RowStatus {
   label: string
@@ -117,6 +118,51 @@ export default function Sidebar(): JSX.Element {
       <div className="side-list">
         <ProviderRow id="github" />
         <ProviderRow id="cloudflare" />
+      </div>
+
+      <div className="side-caption" style={{ paddingTop: 14 }}>
+        <span>MCP-Server</span>
+        <button
+          type="button"
+          className="icon-btn-sm"
+          title="MCP-Server verwalten — für alle Agents sichtbar"
+          aria-label="MCP-Server verwalten"
+          onClick={store.openMcpEditor}
+        >
+          ⚙
+        </button>
+      </div>
+      <div className="side-list">
+        {store.mcpServers.length === 0 ? (
+          <button
+            type="button"
+            className="mcp-empty-row"
+            title="MCP-Server hinzufügen, die alle Agents sehen und nutzen können"
+            onClick={store.openMcpEditor}
+          >
+            ＋ MCP-Server anbinden
+          </button>
+        ) : (
+          store.mcpServers.map((server) => (
+            <button
+              type="button"
+              key={server.id}
+              className="mcp-row"
+              title={`${MCP_TRANSPORT_LABELS[server.transport]} · ${MCP_SCOPE_LABELS[server.scope]}${server.enabled ? '' : ' · inaktiv'}`}
+              onClick={store.openMcpEditor}
+            >
+              <span
+                className="status-dot"
+                style={{
+                  background: server.enabled ? '#3fd17a' : '#5a6b78',
+                  boxShadow: server.enabled ? '0 0 7px #3fd17a' : 'none'
+                }}
+              />
+              <span className="mcp-row-name">{server.name}</span>
+              <span className="mcp-row-tag">{server.transport}</span>
+            </button>
+          ))
+        )}
       </div>
 
       <div className="side-sep" />

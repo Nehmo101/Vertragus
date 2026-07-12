@@ -55,6 +55,23 @@ Ausgangsbasis erhalten.
   `blocked` zurückgegeben; der Arbeitsstand bleibt zur Prüfung erhalten.
 - PR-Status und URL werden an Task-DAG und Session-Snapshot zurückgegeben.
 
+### Externe MCP-Server
+
+- Eigene Model-Context-Protocol-Server werden einmal in Orca gepflegt und dann
+  an jeden gestarteten Agent angebunden — an den Orchestrator **und** an jeden
+  einzelnen Subagenten (interaktiv wie headless), sodass alle deren Tools direkt
+  sehen und nutzen.
+- Transporte: `stdio` (lokaler Prozess), `http` (Streamable) und `sse`.
+- Pro Server konfigurierbar: Name, Reichweite (alle / nur Orchestrator / nur
+  Subagents) und ein Aktiv-Schalter.
+- Verifiziert für die Claude- und Codex-CLI. Claude erhält die Server über eine
+  prozesslokale `--mcp-config`-Datei (ohne `--strict-mcp-config` bei Subagents,
+  damit deren eigene `.mcp.json` erhalten bleibt); Codex über prozesslokale
+  `-c mcp_servers.*`-Overrides. Die persönliche Provider-Konfiguration wird nicht
+  verändert.
+- Provider ohne verifizierte MCP-Anbindung ignorieren die Server geräuschlos.
+- Ohne konfigurierte Server sind die Agent-Starts identisch zu vorher.
+
 ### Cozy Organic Design
 
 - Ein Organic-Look mit persistiertem Hell-/Dunkelmodus über `data-theme`.

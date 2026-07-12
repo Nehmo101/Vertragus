@@ -1,14 +1,25 @@
-import { writeFileSync } from 'node:fs'
-import { join } from 'node:path'
 import type { AgentProviderId } from '@shared/providers'
 import type { OrchestratorProviderCapability } from '@shared/orchestrator'
 import type { McpServerHandle } from '@main/orchestrator/mcpHandle'
+import {
+  buildClaudeMcpArgs,
+  buildCodexMcpArgs,
+  type McpServerSpec
+} from '@main/orchestrator/mcpConfig'
 
 export interface OrchestratorAdapterContext {
   name: string
   handle: McpServerHandle
   configDir: string
   systemPrompt: string
+  /**
+   * User-configured external MCP servers scoped to the orchestrator. Merged
+   * alongside the Orca server so the orchestrator sees them too. Optional for
+   * backward compatibility with callers that only wire the Orca server.
+   */
+  externalServers?: McpServerSpec[]
+  /** Unique config-file suffix (Claude). Defaults to a stable orchestrator tag. */
+  fileTag?: string
 }
 
 export interface OrchestratorAdapter {
@@ -16,15 +27,15 @@ export interface OrchestratorAdapter {
   buildArgs(context: OrchestratorAdapterContext): string[]
 }
 
-const READONLY_CLAUDE_TOOLS = ['Read', 'Glob', 'Grep', 'TodoWrite']
-
-function tomlString(value: string): string {
-  // JSON basic strings have the escaping needed by TOML for these values.
-  return JSON.stringify(value)
-}
-
-function codexToolNames(handle: McpServerHandle): string[] {
-  return handle.allowedTools.map((tool) => tool.replace(/^mcp__orca__/, ''))
+/** The Orca MCP server as a normalized spec (explicit tool allowlist). */
+function orcaSpec(handle: McpServerHandle): McpServerSpec {
+  return {
+    name: 'orca',
+    transport: 'http',
+    url: handle.url,
+    allowedTools: handle.allowedTools,
+    required: true
+  }
 }
 
 const claudeAdapter: OrchestratorAdapter = {
@@ -34,22 +45,15 @@ const claudeAdapter: OrchestratorAdapter = {
     transport: 'mcp-http',
     transientConfig: true
   },
-  buildArgs({ handle, configDir, systemPrompt }) {
-    const configPath = join(configDir, 'orca-mcp.json')
-    writeFileSync(
-      configPath,
-      JSON.stringify({ mcpServers: { orca: { type: 'http', url: handle.url } } }, null, 2)
-    )
-    const allowed = [...handle.allowedTools, ...READONLY_CLAUDE_TOOLS].join(',')
-    return [
-      '--mcp-config',
-      configPath,
-      '--strict-mcp-config',
-      '--append-system-prompt',
+  buildArgs({ handle, configDir, systemPrompt, externalServers, fileTag }) {
+    const servers = [orcaSpec(handle), ...(externalServers ?? [])]
+    return buildClaudeMcpArgs(servers, {
+      configDir,
+      fileTag: fileTag ?? 'orchestrator',
+      strict: true,
       systemPrompt,
-      '--allowedTools',
-      allowed
-    ]
+      includeReadonlyTools: true
+    })
   }
 }
 
@@ -60,19 +64,10 @@ const codexAdapter: OrchestratorAdapter = {
     transport: 'mcp-http',
     transientConfig: true
   },
-  buildArgs({ handle, systemPrompt }) {
-    const tools = codexToolNames(handle)
+  buildArgs({ handle, systemPrompt, externalServers }) {
     // Every override is process-local. Nothing is written to ~/.codex/config.toml.
-    return [
-      '-c',
-      `developer_instructions=${tomlString(systemPrompt)}`,
-      '-c',
-      `mcp_servers.orca.url=${tomlString(handle.url)}`,
-      '-c',
-      'mcp_servers.orca.required=true',
-      '-c',
-      `mcp_servers.orca.enabled_tools=${JSON.stringify(tools)}`
-    ]
+    const servers = [orcaSpec(handle), ...(externalServers ?? [])]
+    return buildCodexMcpArgs(servers, { systemPrompt })
   }
 }
 

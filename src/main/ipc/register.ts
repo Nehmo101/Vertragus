@@ -9,6 +9,7 @@ import { IPC, type AppInfo } from '@shared/ipc'
 import type { HandoffRequest, SpawnAgentRequest } from '@shared/agents'
 import type { ProviderId } from '@shared/providers'
 import type { WorkspaceProfile } from '@shared/profile'
+import type { McpServerConfig } from '@shared/mcp'
 import { checkAllProviders } from '@main/providers/health'
 import { listModels } from '@main/providers/models'
 import { gitInfo } from '@main/integrations/git'
@@ -31,7 +32,9 @@ import {
   deleteProfile,
   getProfile,
   getActiveProfileId,
-  setActiveProfileId
+  setActiveProfileId,
+  listMcpServers,
+  saveMcpServers
 } from '@main/config/store'
 
 function senderWindow(e: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent): BrowserWindow | null {
@@ -99,6 +102,10 @@ export function registerIpcHandlers(): void {
     }
     setActiveProfileId(id)
   })
+
+  // ---- external MCP servers ----
+  ipcMain.handle(IPC.mcpList, () => listMcpServers())
+  ipcMain.handle(IPC.mcpSave, (_e, servers: McpServerConfig[]) => saveMcpServers(servers))
 
   // ---- git ----
   ipcMain.handle(IPC.gitInfo, (_e, dir: string) => gitInfo(dir))
