@@ -55,10 +55,15 @@ export class OrchestratorEngine extends EventEmitter {
   private pendingPlanResolve: ((approved: boolean) => void) | undefined
   /** Per-role capacity limiter — count = max parallel subagents of that role. */
   private boundProfile: WorkspaceProfile | undefined
+  private readonly workspaceSessionId: string | undefined
 
-  constructor() {
+  constructor(options: { profile?: WorkspaceProfile; workspaceSessionId?: string } = {}) {
     super()
-    const restored = getSetting<OrchestratorSnapshot>('orchestratorSnapshot')
+    this.boundProfile = options.profile
+      ? { ...options.profile, agents: options.profile.agents.map((slot) => ({ ...slot })) }
+      : undefined
+    this.workspaceSessionId = options.workspaceSessionId
+    const restored = getSetting<OrchestratorSnapshot>(this.persistenceKey())
     if (!restored || !Array.isArray(restored.tasks)) return
     this.goal = restored.goal
       ? { ...restored.goal, active: false }
@@ -79,6 +84,8 @@ export class OrchestratorEngine extends EventEmitter {
 
   snapshot(): OrchestratorSnapshot {
     return {
+      profileId: this.boundProfile?.id,
+      workspaceSessionId: this.workspaceSessionId,
       goal: this.goal,
       tasks: [...this.tasks.values()].sort((a, b) => a.createdAt - b.createdAt),
       pendingPlan: this.pendingPlan
@@ -88,7 +95,7 @@ export class OrchestratorEngine extends EventEmitter {
   private push(): void {
     const snapshot = this.snapshot()
     try {
-      setSetting('orchestratorSnapshot', snapshot)
+      setSetting(this.persistenceKey(), snapshot)
     } catch (error) {
       console.warn('[Orchestrator] snapshot persistence failed', error)
     }
@@ -103,8 +110,13 @@ export class OrchestratorEngine extends EventEmitter {
     this.tasks.clear()
     this.limiters.clear()
     this.preparedChanges.clear()
-    this.boundProfile = undefined
     this.push()
+  }
+
+  private persistenceKey(): string {
+    return this.boundProfile?.id
+      ? `orchestratorSnapshot:${this.boundProfile.id}`
+      : 'orchestratorSnapshot'
   }
 
   reviewPlan(approved: boolean): boolean {
@@ -138,8 +150,8 @@ export class OrchestratorEngine extends EventEmitter {
   }
 
   /** Called when an orchestrator agent starts, to mark the goal active. */
-  activate(): void {
-    const profile = getProfile(getActiveProfileId())
+  activate(profileOverride?: WorkspaceProfile): void {
+    const profile = profileOverride ?? this.boundProfile ?? getProfile(getActiveProfileId())
     this.boundProfile = profile
       ? { ...profile, agents: profile.agents.map((slot) => ({ ...slot })) }
       : undefined
@@ -254,6 +266,8 @@ export class OrchestratorEngine extends EventEmitter {
         systemPrompt: subSystemPrompt,
         yolo,
         workingDir: slot.workingDir || profile?.workingDir,
+        profileId: profile?.id,
+        workspaceSessionId: this.workspaceSessionId
       })
       task.agentId = info.id
       task.agentName = info.name
@@ -518,7 +532,9 @@ export class OrchestratorEngine extends EventEmitter {
       role: `Subagent · ${slotRole}`,
       kind: 'sub',
       yolo: slot.yolo || (profile?.yoloDefault ?? false),
-      workingDir: slot.workingDir || profile?.workingDir
+      workingDir: slot.workingDir || profile?.workingDir,
+      profileId: profile?.id,
+      workspaceSessionId: this.workspaceSessionId
     })
     createPaneWindow(info.id)
     if (prompt) {

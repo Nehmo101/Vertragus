@@ -22,7 +22,7 @@ import {
   onUpdateState
 } from '@main/updater'
 import { agentManager } from '@main/agents/AgentManager'
-import { orchestratorEngine } from '@main/orchestrator/Engine'
+import { workspaceSessions } from '@main/orchestrator/WorkspaceSessionRegistry'
 import { broadcast, createPaneWindow } from '@main/windows'
 import {
   getSetting,
@@ -95,15 +95,16 @@ export function registerIpcHandlers(): void {
     return saveProfile({ ...profile, workingDir, agents })
   })
   ipcMain.handle(IPC.profileDelete, (_e, id: string) => {
-    if (id === getActiveProfileId() && agentManager.anyRunning()) {
+    if (agentManager.anyRunning(id)) {
       throw new Error('Profil löschen ist während einer laufenden Agent-Session gesperrt.')
     }
+    workspaceSessions.remove(id)
     return deleteProfile(id)
   })
   ipcMain.handle(IPC.profileGetActive, () => getActiveProfileId())
   ipcMain.handle(IPC.profileSetActive, (_e, id: string) => {
-    if (agentManager.anyRunning()) {
-      throw new Error('Profilwechsel ist während einer laufenden Agent-Session gesperrt.')
+    if (!getProfile(id)) {
+      throw new Error('Workspace-Profil nicht gefunden.')
     }
     setActiveProfileId(id)
   })
@@ -133,11 +134,22 @@ export function registerIpcHandlers(): void {
 
   // ---- agents ----
   ipcMain.handle(IPC.agentsList, () => agentManager.list())
-  ipcMain.handle(IPC.agentSpawn, (_e, req: SpawnAgentRequest) => agentManager.spawn(req))
+  ipcMain.handle(IPC.agentSpawn, (_e, req: SpawnAgentRequest) => {
+    if (!req.profileId) return agentManager.spawn(req)
+    const profile = getProfile(req.profileId)
+    if (!profile) throw new Error('Workspace-Profil nicht gefunden.')
+    const session = workspaceSessions.ensure(profile)
+    return agentManager.spawn({ ...req, workspaceSessionId: session.id })
+  })
   ipcMain.handle(IPC.agentsSpawnProfile, async (_e, profileId: string, yoloMaster: boolean) => {
     const profile = getProfile(profileId)
     if (!profile) return []
-    orchestratorEngine.reset()
+    if (agentManager.anyRunning(profileId)) {
+      throw new Error('Workspace laeuft bereits.')
+    }
+    await agentManager.removeAll(profileId)
+    const session = workspaceSessions.start(profile)
+    const engine = session.engine
     const spawned: Awaited<ReturnType<typeof agentManager.spawn>>[] = []
 
     // Team start: open the WHOLE team at once — the orchestrator (if any) plus
@@ -151,10 +163,12 @@ export function registerIpcHandlers(): void {
           kind: 'orchestrator',
           role: 'Orchestrator · plant & verteilt',
           yolo: yoloMaster,
-          workingDir: profile.workingDir
+          workingDir: profile.workingDir,
+          profileId,
+          workspaceSessionId: session.id
         })
       )
-      orchestratorEngine.activate()
+      engine.activate(profile)
     }
     for (const slot of profile.agents) {
       for (let i = 1; i <= slot.count; i++) {
@@ -164,7 +178,9 @@ export function registerIpcHandlers(): void {
             model: slot.model,
             role: `Subagent · ${slot.role}${slot.count > 1 ? ` #${i}` : ''}`,
             yolo: slot.yolo || yoloMaster,
-            workingDir: slot.workingDir || profile.workingDir
+            workingDir: slot.workingDir || profile.workingDir,
+            profileId,
+            workspaceSessionId: session.id
           })
         )
       }
@@ -177,9 +193,10 @@ export function registerIpcHandlers(): void {
   )
   ipcMain.handle(IPC.agentKill, (_e, id: string) => agentManager.kill(id))
   ipcMain.handle(IPC.agentsKillAll, () => agentManager.killAll())
-  ipcMain.handle(IPC.agentsClean, async () => {
-    await agentManager.removeAll()
-    orchestratorEngine.reset()
+  ipcMain.handle(IPC.agentsClean, async (_e, profileId: string) => {
+    await agentManager.removeAll(profileId)
+    const profile = getProfile(profileId)
+    if (profile) workspaceSessions.reset(profile)
   })
   ipcMain.handle(IPC.agentBuffer, (_e, id: string) => agentManager.buffer(id))
   ipcMain.handle(IPC.agentPopout, (_e, id: string) => {
@@ -188,10 +205,18 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.agentHandoff, (_e, req: HandoffRequest) => agentManager.handoff(req))
 
   // ---- orchestrator ----
-  ipcMain.handle(IPC.orchestratorSnapshot, () => orchestratorEngine.snapshot())
-  ipcMain.handle(IPC.orchestratorReset, () => orchestratorEngine.reset())
-  ipcMain.handle(IPC.orchestratorReviewPlan, (_e, approved: boolean) =>
-    orchestratorEngine.reviewPlan(Boolean(approved)))
+  ipcMain.handle(IPC.orchestratorSnapshot, (_e, profileId: string) => {
+    const profile = getProfile(profileId)
+    return profile ? workspaceSessions.snapshot(profile) : { profileId, goal: null, tasks: [] }
+  })
+  ipcMain.handle(IPC.orchestratorReset, (_e, profileId: string) => {
+    const profile = getProfile(profileId)
+    if (profile) workspaceSessions.reset(profile)
+  })
+  ipcMain.handle(IPC.orchestratorReviewPlan, (_e, profileId: string, approved: boolean) => {
+    const profile = getProfile(profileId)
+    return profile ? workspaceSessions.reviewPlan(profile, Boolean(approved)) : false
+  })
 
   // ---- window controls (frameless title bar) ----
   ipcMain.on(IPC.winMinimize, (e) => senderWindow(e)?.minimize())
@@ -207,7 +232,7 @@ export function registerIpcHandlers(): void {
   agentManager.on('data', (chunk) => broadcast(IPC.evAgentData, chunk))
   agentManager.on('changed', (list) => broadcast(IPC.evAgentsChanged, list))
   agentManager.on('event', (evt) => broadcast(IPC.evOrcaEvent, evt))
-  orchestratorEngine.on('snapshot', (snap) => broadcast(IPC.evOrchestrator, snap))
+  workspaceSessions.on('snapshot', (snap) => broadcast(IPC.evOrchestrator, snap))
   agentManager.on('provider-auth-complete', () => {
     void checkAllProviders()
       .then((health) => broadcast(IPC.evProvidersHealth, health))
