@@ -11,7 +11,10 @@ const LAYOUTS: Array<{ id: WorkspaceLayout; icon: string; label: string }> = [
 export default function Workspace(): JSX.Element {
   const store = useAppStore()
   const profile = activeProfile(store)
-  const agents = store.agents
+  const agents = [...store.agents].sort((a, b) => {
+    if (a.kind !== b.kind) return a.kind === 'orchestrator' ? -1 : 1
+    return a.startedAt - b.startedAt
+  })
   const [focusedAgentId, setFocusedAgentId] = useState<string | null>(null)
   const focusedId = agents.some((agent) => agent.id === focusedAgentId)
     ? focusedAgentId

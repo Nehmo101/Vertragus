@@ -8,7 +8,7 @@ import { resolve } from 'node:path'
 import { IPC, type AppInfo } from '@shared/ipc'
 import type { HandoffRequest, SpawnAgentRequest } from '@shared/agents'
 import type { ProviderId } from '@shared/providers'
-import type { WorkspaceProfile } from '@shared/profile'
+import { agentSlotsWithRoles, type WorkspaceProfile } from '@shared/profile'
 import type { McpServerConfig } from '@shared/mcp'
 import { checkAllProviders } from '@main/providers/health'
 import { listModels } from '@main/providers/models'
@@ -140,11 +140,25 @@ export function registerIpcHandlers(): void {
     orchestratorEngine.reset()
     const spawned: Awaited<ReturnType<typeof agentManager.spawn>>[] = []
 
-    // Team start: open the WHOLE team at once — the orchestrator (if any) plus
-    // every subagent slot × its count — each as its own interactive pane. The
-    // orchestrator additionally keeps its MCP tools to dispatch on-demand workers.
+    // Team start: make every configured subagent available before opening the
+    // orchestrator. This closes the startup race where an early dispatch could
+    // allocate overflow capacity while the profile team was still spawning.
+    for (const { slot, role } of agentSlotsWithRoles(profile.agents)) {
+      for (let i = 1; i <= slot.count; i++) {
+        spawned.push(
+          await agentManager.spawn({
+            provider: slot.provider,
+            model: slot.model,
+            role: `Subagent · ${role}${slot.count > 1 ? ` #${i}` : ''}`,
+            teamRole: role,
+            yolo: slot.yolo || yoloMaster,
+            workingDir: slot.workingDir || profile.workingDir
+          })
+        )
+      }
+    }
     if (profile.orchestrator) {
-      spawned.push(
+      spawned.unshift(
         await agentManager.spawn({
           provider: profile.orchestrator.provider,
           model: profile.orchestrator.model,
@@ -155,19 +169,6 @@ export function registerIpcHandlers(): void {
         })
       )
       orchestratorEngine.activate()
-    }
-    for (const slot of profile.agents) {
-      for (let i = 1; i <= slot.count; i++) {
-        spawned.push(
-          await agentManager.spawn({
-            provider: slot.provider,
-            model: slot.model,
-            role: `Subagent · ${slot.role}${slot.count > 1 ? ` #${i}` : ''}`,
-            yolo: slot.yolo || yoloMaster,
-            workingDir: slot.workingDir || profile.workingDir
-          })
-        )
-      }
     }
     return spawned
   })

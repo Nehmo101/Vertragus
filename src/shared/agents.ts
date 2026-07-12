@@ -65,6 +65,8 @@ export interface AgentInstanceInfo {
   yolo: boolean
   /** For task agents: the orchestrator task that owns this run. */
   taskId?: string
+  /** Stable profile role when this pane belongs to the prestarted workspace team. */
+  teamRole?: string
   workingDir: string
   /** Set when the agent runs in an isolated git worktree. */
   worktree?: string
@@ -90,6 +92,8 @@ export interface SpawnAgentRequest {
   role?: string
   kind?: AgentKind
   yolo?: boolean
+  /** Marks an interactive profile agent as reusable capacity for this orchestrator role. */
+  teamRole?: string
   /** Defaults to the active profile's workingDir. */
   workingDir?: string
   /**
