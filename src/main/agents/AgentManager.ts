@@ -414,6 +414,10 @@ export class AgentManager extends EventEmitter {
           exitCode === 0 ? 'success' : 'error'
         )
         this.emit('provider-auth-complete', provider)
+        if (exitCode === 0) {
+          this.agents.delete(id)
+          closePaneWindows(id)
+        }
         this.changed()
       })
       this.emitEvent(`${def.label}-Login geöffnet`, 'info')
