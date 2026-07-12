@@ -37,9 +37,12 @@ Ausgangsbasis erhalten.
 - Workspace-Auswahl ist prominent in der Hauptoberfläche und im Profil-Editor.
 - Pfade werden beim Speichern normalisiert und validiert.
 - Git-Root, Branch, Remote, Default-Branch und Dirty-State werden angezeigt.
-- Ein laufendes Team ist an einen Profil-Snapshot gebunden; Profilwechsel
-  während aktiver Prozesse werden blockiert.
-- Worktrees und Branches tragen eine UUID-basierte Session-ID. Alte Worktrees
+- Ein laufendes Team ist an einen Profil-Snapshot und eine UUID-Session gebunden.
+- Profilwechsel ändern nur die sichtbare Session. Agents, Headless-Runs und
+  Orchestratoren anderer Workspaces laufen im Hintergrund weiter.
+- Agent-Listen, Dispatch-Protokoll, DAG und MCP-Aufrufe werden pro Workspace-
+  Session geroutet; die Profilleiste zeigt laufende Hintergrund-Workspaces.
+- Worktrees und Branches tragen die UUID-basierte Session-ID. Alte Worktrees
   werden nicht still wiederverwendet oder gelöscht.
 
 ### Auto-PR

@@ -90,6 +90,12 @@ export default function Sidebar(): JSX.Element {
   const onlineCount = aiIds.filter(
     (id) => store.health.find((h) => h.id === id)?.available
   ).length
+  const runningByProfile = new Map<string, number>()
+  for (const agent of store.agents) {
+    if (!agent.profileId || (agent.status !== 'running' && agent.status !== 'waiting')) continue
+    runningByProfile.set(agent.profileId, (runningByProfile.get(agent.profileId) ?? 0) + 1)
+  }
+
 
   return (
     <aside className="sidebar">
@@ -190,7 +196,11 @@ export default function Sidebar(): JSX.Element {
               <div className="name">{p.name}</div>
               <div className="summary">{profileSummary(p)}</div>
             </div>
-            <span className="profile-count">{profileAgentCount(p)}</span>
+            <span className={`profile-count ${runningByProfile.has(p.id) ? 'running' : ''}`}>
+              {runningByProfile.has(p.id)
+                ? `${runningByProfile.get(p.id)} aktiv`
+                : profileAgentCount(p)}
+            </span>
           </button>
         ))}
       </div>

@@ -164,7 +164,7 @@ export interface OrcaApi {
     kill(id: string): Promise<void>
     killAll(): Promise<void>
     /** Stop all + remove panes (clean slate). */
-    clean(): Promise<void>
+    clean(profileId: string): Promise<void>
     /** Scrollback replay for late-mounting terminals (pop-outs, reloads). */
     buffer(id: string): Promise<AgentBufferSnapshot>
     popout(id: string): Promise<void>
@@ -179,11 +179,11 @@ export interface OrcaApi {
   }
 
   orchestrator: {
-    snapshot(): Promise<OrchestratorSnapshot>
+    snapshot(profileId: string): Promise<OrchestratorSnapshot>
     /** Clear the task graph (fresh goal). */
-    reset(): Promise<void>
+    reset(profileId: string): Promise<void>
     /** Resolve a plan waiting in review mode. */
-    reviewPlan(approved: boolean): Promise<boolean>
+    reviewPlan(profileId: string, approved: boolean): Promise<boolean>
     onSnapshot(cb: (snap: OrchestratorSnapshot) => void): () => void
   }
 

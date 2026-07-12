@@ -55,18 +55,27 @@ export interface OrchestratorSetup {
 export function buildOrchestratorSetup(
   provider: AgentProviderId,
   name: string,
-  agentId: string
+  agentId: string,
+  workspaceSessionId?: string
 ): OrchestratorSetup {
   const adapter = getOrchestratorAdapter(provider)
   const handle = getMcpHandle()
   if (!handle || !adapter.capability.supported) {
     return { extraArgs: [], capability: adapter.capability }
   }
+  const scopedHandle = workspaceSessionId
+    ? (() => {
+        const url = new URL(handle.url)
+        url.searchParams.set('workspaceSession', workspaceSessionId)
+        return { ...handle, url: url.toString() }
+      })()
+    : handle
+
 
   return {
     extraArgs: adapter.buildArgs({
       name,
-      handle,
+      handle: scopedHandle,
       configDir: app.getPath('userData'),
       systemPrompt: orchestratorSystemPrompt(name),
       externalServers: externalMcpSpecsFor('orchestrator', provider),

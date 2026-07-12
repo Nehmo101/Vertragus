@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { useAppStore, activeProfile } from '@renderer/store/useAppStore'
+import {
+  useAppStore,
+  activeProfile,
+  workspaceAgents,
+  workspaceEvents
+} from '@renderer/store/useAppStore'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import LoreName from '@renderer/components/LoreName'
 import LimitsPanel from '@renderer/components/LimitsPanel'
@@ -96,7 +101,8 @@ export default function OrchestratorPanel(): JSX.Element {
   const store = useAppStore()
   const clock = useClock()
   const profile = activeProfile(store)
-  const orch = store.agents.find((a) => a.kind === 'orchestrator')
+  const orch = workspaceAgents(store).find((agent) => agent.kind === 'orchestrator')
+  const events = workspaceEvents(store)
   const { goal, tasks, pendingPlan } = store.orchestrator
   const logRef = useRef<HTMLDivElement>(null)
 
@@ -107,7 +113,7 @@ export default function OrchestratorPanel(): JSX.Element {
   useEffect(() => {
     const el = logRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [store.events.length])
+  }, [events.length])
 
   return (
     <section className="orch-panel">
@@ -186,10 +192,10 @@ export default function OrchestratorPanel(): JSX.Element {
               </div>
             )}
             <div className="plan-review-actions">
-              <button type="button" className="btn ghost" onClick={() => void window.orca.orchestrator.reviewPlan(false)}>
+              <button type="button" className="btn ghost" onClick={() => void window.orca.orchestrator.reviewPlan(store.activeProfileId, false)}>
                 Ablehnen
               </button>
-              <button type="button" className="btn primary" onClick={() => void window.orca.orchestrator.reviewPlan(true)}>
+              <button type="button" className="btn primary" onClick={() => void window.orca.orchestrator.reviewPlan(store.activeProfileId, true)}>
                 Plan starten
               </button>
             </div>
@@ -214,10 +220,10 @@ export default function OrchestratorPanel(): JSX.Element {
             <span className="clock">{clock}</span>
           </div>
           <div className="dispatch-body" ref={logRef}>
-            {store.events.length === 0 && (
+            {events.length === 0 && (
               <div className="dispatch-line tone-muted">— bereit —</div>
             )}
-            {store.events.map((evt, i) => (
+            {events.map((evt, i) => (
               <div key={i} className={`dispatch-line tone-${evt.tone}`}>
                 <span className="time">{fmtTime(evt.time)}</span> {evt.text}
               </div>
