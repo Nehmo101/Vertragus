@@ -59,6 +59,14 @@ import {
   removeArtifact
 } from '@main/inbox/store'
 import type { AddArtifactInput, CreateIdeaInput, UpdateIdeaInput } from '@shared/inbox'
+import type { InboxSpeechSettingsPatch, TranscribeAudioPayload } from '@shared/inboxSpeech'
+import {
+  abortInboxTranscription,
+  getInboxSpeechSettings,
+  getInboxSpeechStatus,
+  setInboxSpeechSettings,
+  transcribeInboxAudio
+} from '@main/voice/InboxSpeechService'
 
 function senderWindow(e: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent): BrowserWindow | null {
   return BrowserWindow.fromWebContents(e.sender)
@@ -238,6 +246,19 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.ideasRemoveArtifact, (_e, ideaId: string, artifactId: string) =>
     removeArtifact(ideaId, artifactId)
   )
+
+  // ---- inbox speech-to-text ----
+  ipcMain.handle(IPC.inboxSpeechStatus, () => getInboxSpeechStatus())
+  ipcMain.handle(IPC.inboxSpeechGetSettings, () => getInboxSpeechSettings())
+  ipcMain.handle(IPC.inboxSpeechSetSettings, (_e, patch: InboxSpeechSettingsPatch) =>
+    setInboxSpeechSettings(patch)
+  )
+  ipcMain.handle(IPC.inboxSpeechTranscribe, (_e, payload: TranscribeAudioPayload) =>
+    transcribeInboxAudio(payload)
+  )
+  ipcMain.handle(IPC.inboxSpeechAbort, () => {
+    abortInboxTranscription()
+  })
 
   // ---- agents ----
   ipcMain.handle(IPC.agentsList, () => agentManager.list())

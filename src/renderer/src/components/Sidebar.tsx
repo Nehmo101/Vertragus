@@ -179,7 +179,6 @@ export default function Sidebar(): JSX.Element {
 
       <div className="side-sep" />
 
-
       <div className="side-caption" style={{ paddingTop: 10 }}>
         <span>Navigation</span>
       </div>
@@ -195,7 +194,7 @@ export default function Sidebar(): JSX.Element {
           <span className="nav-icon">📥</span>
           <div className="info">
             <div className="name">Ideen-Inbox</div>
-            <div className="summary">Notizen · Dateien · Links</div>
+            <div className="summary">Notizen · Sprache · Dateien</div>
           </div>
         </button>
         <button

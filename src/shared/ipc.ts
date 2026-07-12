@@ -20,6 +20,13 @@ import type {
   Idea,
   UpdateIdeaInput
 } from './inbox'
+import type {
+  InboxSpeechSettings,
+  InboxSpeechSettingsPatch,
+  InboxSpeechStatus,
+  TranscribeAudioPayload,
+  TranscribeAudioResult
+} from './inboxSpeech'
 
 export const IPC = {
   appInfo: 'app:info',
@@ -57,6 +64,11 @@ export const IPC = {
   ideasDelete: 'ideas:delete',
   ideasAddArtifact: 'ideas:addArtifact',
   ideasRemoveArtifact: 'ideas:removeArtifact',
+  inboxSpeechStatus: 'inboxSpeech:status',
+  inboxSpeechGetSettings: 'inboxSpeech:getSettings',
+  inboxSpeechSetSettings: 'inboxSpeech:setSettings',
+  inboxSpeechTranscribe: 'inboxSpeech:transcribe',
+  inboxSpeechAbort: 'inboxSpeech:abort',
   agentsList: 'agents:list',
   agentSpawn: 'agent:spawn',
   agentsSpawnProfile: 'agents:spawnProfile',
@@ -255,6 +267,14 @@ export interface OrcaApi {
     delete(id: string): Promise<Idea[]>
     addArtifact(ideaId: string, input: AddArtifactInput): Promise<Idea>
     removeArtifact(ideaId: string, artifactId: string): Promise<Idea>
+  }
+
+  inboxSpeech: {
+    status(): Promise<InboxSpeechStatus>
+    getSettings(): Promise<InboxSpeechSettings>
+    setSettings(patch: InboxSpeechSettingsPatch): Promise<InboxSpeechSettings>
+    transcribe(payload: TranscribeAudioPayload): Promise<TranscribeAudioResult>
+    abort(): Promise<void>
   }
 
   agents: {

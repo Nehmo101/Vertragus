@@ -1,12 +1,23 @@
-import { useCallback, useEffect, useState } from 'react'
+﻿import { useCallback, useEffect, useState } from 'react'
 import type { Idea, IdeaArtifact, IdeaStatus } from '@shared/inbox'
 import { IDEA_STATUSES } from '@shared/inbox'
+import type { InboxSpeechSettings } from '@shared/inboxSpeech'
+import { DEFAULT_TRANSCRIPTION_ENDPOINT, DEFAULT_TRANSCRIPTION_MODEL } from '@shared/inboxSpeech'
+import { useInboxSpeech } from '@renderer/hooks/useInboxSpeech'
 
 const STATUS_LABEL: Record<IdeaStatus, string> = {
   draft: 'Entwurf',
   ready: 'Bereit',
   archived: 'Archiv',
   done: 'Erledigt'
+}
+
+const SPEECH_STATE_LABEL: Record<string, string> = {
+  idle: 'Bereit',
+  recording: 'AufnahmeÔÇª',
+  transcribing: 'TranskribiertÔÇª',
+  review: 'Vorschau',
+  failed: 'Fehler'
 }
 
 function fmtDate(ts: number): string {
@@ -31,7 +42,7 @@ function ArtifactRow({
     detail = artifact.text?.slice(0, 120) ?? ''
   } else if (artifact.kind === 'url') {
     detail = artifact.url ?? ''
-    if (artifact.urlInvalid) warn = 'Ungültige URL'
+    if (artifact.urlInvalid) warn = 'Ung├╝ltige URL'
   } else {
     detail = artifact.fileName ?? artifact.sourcePath ?? ''
     if (artifact.missing) warn = 'Datei fehlt'
@@ -44,18 +55,138 @@ function ArtifactRow({
         <span className="kind">{artifact.kind}</span>
         <span className="label">{artifact.label}</span>
         <button type="button" className="icon-btn-sm" title="Artefakt entfernen" onClick={onRemove}>
-          ✕
+          Ô£ò
         </button>
       </div>
       <div className="inbox-artifact-body" title={detail}>
-        {detail || '—'}
+        {detail || 'ÔÇö'}
       </div>
       {warn && <div className="inbox-artifact-warn">{warn}</div>}
     </div>
   )
 }
 
+function InboxSpeechSettingsPanel({
+  open,
+  onClose,
+  onSaved
+}: {
+  open: boolean
+  onClose: () => void
+  onSaved: () => void
+}): JSX.Element | null {
+  const [settings, setSettings] = useState<InboxSpeechSettings | null>(null)
+  const [model, setModel] = useState(DEFAULT_TRANSCRIPTION_MODEL)
+  const [language, setLanguage] = useState('de')
+  const [endpointUrl, setEndpointUrl] = useState(DEFAULT_TRANSCRIPTION_ENDPOINT)
+  const [apiKey, setApiKey] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!open) return
+    void window.orca.inboxSpeech.getSettings().then((s) => {
+      setSettings(s)
+      setModel(s.model)
+      setLanguage(s.language)
+      setEndpointUrl(s.endpointUrl)
+      setApiKey('')
+      setError('')
+    })
+  }, [open])
+
+  if (!open) return null
+
+  const save = async (): Promise<void> => {
+    setSaving(true)
+    setError('')
+    try {
+      await window.orca.inboxSpeech.setSettings({
+        model,
+        language,
+        endpointUrl,
+        ...(apiKey ? { apiKey } : {})
+      })
+      setApiKey('')
+      onSaved()
+      onClose()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const clearKey = async (): Promise<void> => {
+    setSaving(true)
+    setError('')
+    try {
+      await window.orca.inboxSpeech.setSettings({ apiKey: '' })
+      setApiKey('')
+      onSaved()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="confirm-backdrop" onClick={onClose} />
+      <div className="confirm-pop inbox-speech-settings" role="dialog" aria-modal="true">
+        <div className="head">
+          <b>Sprache-zu-Text (Cloud)</b>
+        </div>
+        <div className="text">
+          API-Schl├╝ssel wird verschl├╝sselt im Main-Prozess gespeichert und nie an den Renderer
+          zur├╝ckgegeben.
+        </div>
+        <label className="inbox-field">
+          <span>Modell</span>
+          <input value={model} onChange={(e) => setModel(e.target.value)} />
+        </label>
+        <label className="inbox-field">
+          <span>Sprache</span>
+          <input value={language} onChange={(e) => setLanguage(e.target.value)} />
+        </label>
+        <label className="inbox-field">
+          <span>Transcriptions-Endpunkt</span>
+          <input value={endpointUrl} onChange={(e) => setEndpointUrl(e.target.value)} />
+        </label>
+        <label className="inbox-field">
+          <span>
+            API-Schl├╝ssel {settings?.hasApiKey ? '(gespeichert ÔÇö leer lassen zum Behalten)' : ''}
+          </span>
+          <input
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder={settings?.hasApiKey ? 'ÔÇóÔÇóÔÇóÔÇóÔÇóÔÇóÔÇóÔÇó' : 'sk-ÔÇª'}
+            autoComplete="off"
+          />
+        </label>
+        {error && <div className="inbox-error">{error}</div>}
+        <div className="actions">
+          {settings?.hasApiKey && (
+            <button type="button" className="btn-ghost" disabled={saving} onClick={() => void clearKey()}>
+              Schl├╝ssel l├Âschen
+            </button>
+          )}
+          <button type="button" className="btn-ghost" onClick={onClose}>
+            Abbrechen
+          </button>
+          <button type="button" className="btn-primary" disabled={saving} onClick={() => void save()}>
+            Speichern
+          </button>
+        </div>
+      </div>
+    </>
+  )
+}
+
 export default function InboxPanel(): JSX.Element {
+  const speech = useInboxSpeech()
   const [ideas, setIdeas] = useState<Idea[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [draft, setDraft] = useState<Idea | null>(null)
@@ -65,6 +196,7 @@ export default function InboxPanel(): JSX.Element {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [urlInput, setUrlInput] = useState('')
   const [textInput, setTextInput] = useState('')
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   const refresh = useCallback(async (): Promise<void> => {
     setLoading(true)
@@ -134,6 +266,28 @@ export default function InboxPanel(): JSX.Element {
       const list = await window.orca.inbox.list()
       setIdeas(list)
       setDraft({ ...updated })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const confirmVoiceDraft = async (): Promise<void> => {
+    if (!speech.voiceDraft) return
+    setSaving(true)
+    setError('')
+    try {
+      const idea = await window.orca.inbox.create({
+        title: speech.voiceDraft.title.trim() || 'Sprachnotiz',
+        content: speech.voiceDraft.content,
+        status: 'draft',
+        tags: ['sprache']
+      })
+      const list = await window.orca.inbox.list()
+      setIdeas(list)
+      selectIdea(idea)
+      speech.discardVoiceDraft()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -238,16 +392,48 @@ export default function InboxPanel(): JSX.Element {
     }
   }
 
+  const speechBusy = speech.state === 'recording' || speech.state === 'transcribing'
+  const showVoiceReview = speech.state === 'review' && speech.voiceDraft
+
   return (
     <main className="inbox-panel" aria-label="Ideen-Inbox">
       <div className="inbox-header">
         <div>
           <div className="inbox-title">Ideen-Inbox</div>
-          <div className="inbox-sub">Ideen, Notizen und Artefakte lokal speichern</div>
+          <div className="inbox-sub">Ideen, Notizen und Spracheingabe ÔÇö unabh├ñngig vom Workspace</div>
+        </div>
+        <div className="inbox-speech-bar">
+          <span className={`inbox-speech-status state-${speech.state}`}>
+            {SPEECH_STATE_LABEL[speech.state] ?? speech.state}
+          </span>
+          <button
+            type="button"
+            className={`inbox-speech-mic ${speech.state === 'recording' ? 'recording' : ''}`}
+            title={
+              speech.state === 'recording'
+                ? 'Aufnahme stoppen'
+                : speech.state === 'transcribing'
+                  ? 'Abbrechen'
+                  : 'Spracheingabe starten/stoppen'
+            }
+            disabled={speech.state === 'review' || saving}
+            aria-pressed={speech.state === 'recording'}
+            onClick={() => void speech.toggleRecording()}
+          >
+            {speech.state === 'recording' ? 'Ôûá' : '­ƒÄÖ'}
+          </button>
+          <button
+            type="button"
+            className="inbox-btn ghost sm"
+            title="Cloud-STT Einstellungen"
+            onClick={() => setSettingsOpen(true)}
+          >
+            ÔÜÖ STT
+          </button>
         </div>
         <div className="spacer" />
-        <button type="button" className="inbox-btn" disabled={saving} onClick={() => void createIdea()}>
-          ＋ Neue Idee
+        <button type="button" className="inbox-btn" disabled={saving || speechBusy} onClick={() => void createIdea()}>
+          ´╝ï Neue Idee
         </button>
         <button
           type="button"
@@ -256,17 +442,64 @@ export default function InboxPanel(): JSX.Element {
             window.location.hash = ''
           }}
         >
-          ← Workspace
+          ÔåÉ Workspace
         </button>
       </div>
 
-      {error && <div className="inbox-error">{error}</div>}
+      {(error || speech.error) && (
+        <div className="inbox-error">{error || speech.error}</div>
+      )}
+
+      {speech.status && (
+        <div className="inbox-speech-hint">
+          Limit: {Math.round(speech.status.maxDurationMs / 1000)}s ┬À{' '}
+          {Math.round(speech.status.maxBytes / (1024 * 1024))} MB ┬À Modell {speech.status.model}
+          {!speech.status.configured && ' ┬À API-Schl├╝ssel fehlt'}
+        </div>
+      )}
+
+      {showVoiceReview && speech.voiceDraft && (
+        <section className="inbox-voice-review" aria-label="Sprachtranskript Vorschau">
+          <div className="inbox-voice-review-head">
+            <b>Neuer Ideenentwurf aus Sprache</b>
+            <span className="hint">Erst nach Best├ñtigung gespeichert</span>
+          </div>
+          <label className="inbox-field">
+            <span>Titel</span>
+            <input
+              value={speech.voiceDraft.title}
+              onChange={(e) => speech.updateVoiceDraft({ title: e.target.value })}
+            />
+          </label>
+          <label className="inbox-field">
+            <span>Inhalt (editierbar)</span>
+            <textarea
+              rows={6}
+              value={speech.voiceDraft.content}
+              onChange={(e) => speech.updateVoiceDraft({ content: e.target.value })}
+            />
+          </label>
+          <div className="inbox-voice-review-actions">
+            <button type="button" className="inbox-btn ghost" onClick={speech.discardVoiceDraft}>
+              Verwerfen
+            </button>
+            <button
+              type="button"
+              className="inbox-btn"
+              disabled={saving || !speech.voiceDraft.content.trim()}
+              onClick={() => void confirmVoiceDraft()}
+            >
+              Als Idee speichern
+            </button>
+          </div>
+        </section>
+      )}
 
       <div className="inbox-body">
         <aside className="inbox-list">
-          {loading && <div className="inbox-empty">Lade…</div>}
+          {loading && <div className="inbox-empty">LadeÔÇª</div>}
           {!loading && ideas.length === 0 && (
-            <div className="inbox-empty">Noch keine Ideen. Erstelle die erste.</div>
+            <div className="inbox-empty">Noch keine Ideen. Erstelle die erste oder nutze ­ƒÄÖ.</div>
           )}
           {ideas.map((idea) => (
             <button
@@ -295,7 +528,7 @@ export default function InboxPanel(): JSX.Element {
 
         <section className="inbox-editor">
           {!draft ? (
-            <div className="inbox-empty">Wähle oder erstelle eine Idee.</div>
+            <div className="inbox-empty">W├ñhle oder erstelle eine Idee.</div>
           ) : (
             <>
               <div className="inbox-editor-head">
@@ -321,7 +554,7 @@ export default function InboxPanel(): JSX.Element {
                 <button
                   type="button"
                   className="inbox-btn"
-                  disabled={saving}
+                  disabled={saving || speechBusy}
                   onClick={() => void saveDraft()}
                 >
                   Speichern
@@ -329,9 +562,10 @@ export default function InboxPanel(): JSX.Element {
                 <button
                   type="button"
                   className="inbox-btn danger"
+                  disabled={speechBusy}
                   onClick={() => setConfirmDelete(true)}
                 >
-                  Löschen
+                  L├Âschen
                 </button>
               </div>
 
@@ -420,12 +654,12 @@ export default function InboxPanel(): JSX.Element {
 
                 <div className="inbox-artifact-add">
                   <input
-                    placeholder="URL (https://…)"
+                    placeholder="URL (https://ÔÇª)"
                     value={urlInput}
                     onChange={(e) => setUrlInput(e.target.value)}
                   />
                   <button type="button" className="inbox-btn sm" disabled={saving} onClick={() => void addUrl()}>
-                    URL hinzufügen
+                    URL hinzuf├╝gen
                   </button>
                 </div>
                 <div className="inbox-artifact-add">
@@ -436,7 +670,7 @@ export default function InboxPanel(): JSX.Element {
                     rows={2}
                   />
                   <button type="button" className="inbox-btn sm" disabled={saving} onClick={() => void addText()}>
-                    Text hinzufügen
+                    Text hinzuf├╝gen
                   </button>
                 </div>
 
@@ -455,7 +689,7 @@ export default function InboxPanel(): JSX.Element {
               </div>
 
               <div className="inbox-meta">
-                ID: {draft.id} · erstellt {fmtDate(draft.createdAt)} · aktualisiert{' '}
+                ID: {draft.id} ┬À erstellt {fmtDate(draft.createdAt)} ┬À aktualisiert{' '}
                 {fmtDate(draft.updatedAt)}
               </div>
             </>
@@ -463,22 +697,28 @@ export default function InboxPanel(): JSX.Element {
         </section>
       </div>
 
+      <InboxSpeechSettingsPanel
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onSaved={() => void speech.refreshStatus()}
+      />
+
       {confirmDelete && draft && (
         <>
           <div className="confirm-backdrop" onClick={() => setConfirmDelete(false)} />
           <div className="confirm-pop" role="alertdialog" aria-modal="true">
             <div className="head">
-              <b>Idee löschen?</b>
+              <b>Idee l├Âschen?</b>
             </div>
             <div className="text">
-              „{draft.title}" und alle Artefakt-Metadaten werden unwiderruflich entfernt.
+              ÔÇ×{draft.title}" und alle Artefakt-Metadaten werden unwiderruflich entfernt.
             </div>
             <div className="actions">
               <button type="button" className="btn-ghost" onClick={() => setConfirmDelete(false)}>
                 Abbrechen
               </button>
               <button type="button" className="btn-danger" disabled={saving} onClick={() => void deleteIdea()}>
-                Löschen
+                L├Âschen
               </button>
             </div>
           </div>

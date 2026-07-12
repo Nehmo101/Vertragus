@@ -60,6 +60,14 @@ const orca: OrcaApi = {
       ipcRenderer.invoke(IPC.ideasRemoveArtifact, ideaId, artifactId)
   },
 
+  inboxSpeech: {
+    status: () => ipcRenderer.invoke(IPC.inboxSpeechStatus),
+    getSettings: () => ipcRenderer.invoke(IPC.inboxSpeechGetSettings),
+    setSettings: (patch) => ipcRenderer.invoke(IPC.inboxSpeechSetSettings, patch),
+    transcribe: (payload) => ipcRenderer.invoke(IPC.inboxSpeechTranscribe, payload),
+    abort: () => ipcRenderer.invoke(IPC.inboxSpeechAbort)
+  },
+
   agents: {
     list: () => ipcRenderer.invoke(IPC.agentsList),
     spawn: (req) => ipcRenderer.invoke(IPC.agentSpawn, req),
