@@ -66,6 +66,13 @@ pnpm build:win     # Windows NSIS installer
 pnpm build:linux   # Linux AppImage + .deb
 ```
 
+### Branching model
+
+All changes go to **`dev`** first and reach **`main`** only through a merge from
+`dev` — `main` stays release-ready at all times. Branch your work off `dev`,
+open a pull request **into `dev`**, and promote `dev → main` when it's stable.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full workflow.
+
 ## Roadmap
 
 - **Phase 0** — repo & scaffold, config store, provider health ✔
