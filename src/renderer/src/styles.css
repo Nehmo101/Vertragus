@@ -1783,6 +1783,43 @@ button {
 .btn-danger:hover {
   background: var(--danger-btn-hover);
 }
+.btn-danger:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.modal-delete-btn {
+  flex: none;
+  height: 38px;
+  padding: 0 16px;
+}
+
+.profile-delete-confirm {
+  flex: none;
+  margin: 0 22px 14px;
+  padding: 14px;
+  border: 1px solid rgba(242, 85, 90, 0.42);
+  border-radius: 10px;
+  background: rgba(192, 51, 58, 0.1);
+}
+.profile-delete-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--danger-text);
+  font-size: 13px;
+}
+.profile-delete-text {
+  margin-top: 7px;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.profile-delete-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 13px;
+}
 
 /* ---------- modal: profile editor ---------- */
 .modal-wrap {

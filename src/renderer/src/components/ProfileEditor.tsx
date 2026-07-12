@@ -46,6 +46,7 @@ export default function ProfileEditor(): JSX.Element | null {
     initial?.githubProject ? [{ ...initial.githubProject, closed: false }] : []
   )
   const [projectsStatus, setProjectsStatus] = useState('')
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const nameRef = useRef<HTMLInputElement>(null)
   const closeEditor = store.closeEditor
 
@@ -95,6 +96,10 @@ export default function ProfileEditor(): JSX.Element | null {
   const subTotal = draft.agents.reduce((n, s) => n + s.count, 0)
   const hasOrch = Boolean(draft.orchestrator)
   const grandTotal = subTotal + (hasOrch ? 1 : 0)
+  const isSavedProfile = store.profiles.some((profile) => profile.id === draft.id)
+  const hasRunningAgents = store.agents.some(
+    (agent) => agent.status === 'running' || agent.status === 'waiting'
+  )
 
   return (
     <div className="modal-wrap">
@@ -560,11 +565,42 @@ export default function ProfileEditor(): JSX.Element | null {
           </button>
         </div>
 
+        {confirmDelete && (
+          <div className="profile-delete-confirm" role="alertdialog" aria-modal="true" aria-labelledby="profile-delete-title">
+            <div className="profile-delete-head">
+              <span aria-hidden="true">⚠</span>
+              <b id="profile-delete-title">Profil löschen?</b>
+            </div>
+            <div className="profile-delete-text">
+              „{draft.name}" und alle zugehörigen Einstellungen werden dauerhaft entfernt.
+              {store.profiles.length === 1 && ' Danach wird das Standardprofil wiederhergestellt.'}
+            </div>
+            <div className="profile-delete-actions">
+              <button type="button" className="btn-ghost" onClick={() => setConfirmDelete(false)}>
+                Abbrechen
+              </button>
+              <button type="button" className="btn-danger" onClick={() => void store.deleteProfile(draft.id)}>
+                Endgültig löschen
+              </button>
+            </div>
+          </div>
+        )}
         <div className="modal-foot">
           <div className="totals">
             Gesamt: <b>{hasOrch ? 1 : 0}</b> Orchestrator + <b>{subTotal}</b> Subagents ={' '}
             <b className="grand">{grandTotal} Agents</b>
           </div>
+          {isSavedProfile && (
+            <button
+              type="button"
+              className="btn-danger modal-delete-btn"
+              disabled={hasRunningAgents}
+              title={hasRunningAgents ? 'Während einer laufenden Agent-Session nicht verfügbar' : 'Profil löschen'}
+              onClick={() => setConfirmDelete(true)}
+            >
+              Profil löschen
+            </button>
+          )}
           <button type="button" className="btn-secondary" onClick={store.closeEditor}>
             Abbrechen
           </button>

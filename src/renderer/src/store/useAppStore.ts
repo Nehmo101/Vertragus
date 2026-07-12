@@ -67,6 +67,7 @@ interface AppState {
   openEditorNew(): void
   closeEditor(): void
   saveEditor(profile: WorkspaceProfile): Promise<void>
+  deleteProfile(id: string): Promise<void>
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined
@@ -355,6 +356,26 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (selected) get().showToast(`Profil „${profile.name}" gespeichert.`)
     } catch (error) {
       get().showToast(`Profil konnte nicht gespeichert werden: ${errorMessage(error)}`)
+    }
+  },
+
+  async deleteProfile(id) {
+    const profile = get().profiles.find((item) => item.id === id)
+    if (!profile) return
+
+    try {
+      const profiles = await window.orca.deleteProfile(id)
+      const activeProfileId = await window.orca.getActiveProfileId()
+      set({ profiles, activeProfileId, editorProfile: null })
+      await get().refreshGit().catch(() => undefined)
+      const replacementCreated = !profiles.some((item) => item.id === id)
+      get().showToast(
+        replacementCreated
+          ? `Profil „${profile.name}" gelöscht. Das Standardprofil wurde wiederhergestellt.`
+          : `Profil „${profile.name}" gelöscht.`
+      )
+    } catch (error) {
+      get().showToast(`Profil konnte nicht gelöscht werden: ${errorMessage(error)}`)
     }
   }
 }))

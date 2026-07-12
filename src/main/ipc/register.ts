@@ -80,7 +80,12 @@ export function registerIpcHandlers(): void {
     )
     return saveProfile({ ...profile, workingDir, agents })
   })
-  ipcMain.handle(IPC.profileDelete, (_e, id: string) => deleteProfile(id))
+  ipcMain.handle(IPC.profileDelete, (_e, id: string) => {
+    if (id === getActiveProfileId() && agentManager.anyRunning()) {
+      throw new Error('Profil löschen ist während einer laufenden Agent-Session gesperrt.')
+    }
+    return deleteProfile(id)
+  })
   ipcMain.handle(IPC.profileGetActive, () => getActiveProfileId())
   ipcMain.handle(IPC.profileSetActive, (_e, id: string) => {
     if (agentManager.anyRunning()) {
