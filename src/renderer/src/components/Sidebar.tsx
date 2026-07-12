@@ -1,4 +1,5 @@
-import { useAppStore } from '@renderer/store/useAppStore'
+import { useEffect, useState } from 'react'
+import { useAppStore, type UiPreset } from '@renderer/store/useAppStore'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import { profileSummary, profileAgentCount } from '@renderer/components/TitleBar'
 import type { ProviderHealth, ProviderId } from '@shared/providers'
@@ -84,8 +85,19 @@ function ProviderRow({ id }: { id: ProviderId }): JSX.Element {
 }
 
 
+function useHashRoute(): string {
+  const [hash, setHash] = useState(() => window.location.hash)
+  useEffect(() => {
+    const onChange = (): void => setHash(window.location.hash)
+    window.addEventListener('hashchange', onChange)
+    return () => window.removeEventListener('hashchange', onChange)
+  }, [])
+  return hash
+}
+
 export default function Sidebar(): JSX.Element {
   const store = useAppStore()
+  const hash = useHashRoute()
   const aiIds: ProviderId[] = ['claude', 'codex', 'cursor', 'copilot', 'ollama']
   const onlineCount = aiIds.filter(
     (id) => store.health.find((h) => h.id === id)?.available
@@ -167,6 +179,42 @@ export default function Sidebar(): JSX.Element {
 
       <div className="side-sep" />
 
+
+      <div className="side-caption" style={{ paddingTop: 10 }}>
+        <span>Navigation</span>
+      </div>
+      <div className="side-list" style={{ paddingBottom: 8 }}>
+        <button
+          type="button"
+          className={`nav-row ${hash === '#/inbox' ? 'active' : ''}`}
+          onClick={() => {
+            window.location.hash = '#/inbox'
+          }}
+          title="Ideen und Artefakte verwalten"
+        >
+          <span className="nav-icon">📥</span>
+          <div className="info">
+            <div className="name">Ideen-Inbox</div>
+            <div className="summary">Notizen · Dateien · Links</div>
+          </div>
+        </button>
+        <button
+          type="button"
+          className={`nav-row ${hash !== '#/inbox' ? 'active' : ''}`}
+          onClick={() => {
+            window.location.hash = ''
+          }}
+          title="Agent-Workspace"
+        >
+          <span className="nav-icon">▦</span>
+          <div className="info">
+            <div className="name">Workspace</div>
+            <div className="summary">Agents &amp; Terminals</div>
+          </div>
+        </button>
+      </div>
+
+      <div className="side-sep" />
 
       <div className="side-caption" style={{ paddingTop: 10 }}>
         <span>Workspace-Profile</span>

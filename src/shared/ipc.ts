@@ -14,6 +14,12 @@ import type {
   SpawnAgentRequest
 } from './agents'
 import type { OrchestratorSnapshot } from './orchestrator'
+import type {
+  AddArtifactInput,
+  CreateIdeaInput,
+  Idea,
+  UpdateIdeaInput
+} from './inbox'
 
 export const IPC = {
   appInfo: 'app:info',
@@ -43,6 +49,14 @@ export const IPC = {
   githubRepoBind: 'github:repoBind',
   githubRepoCheckLocal: 'github:repoCheckLocal',
   dialogPickFolder: 'dialog:pickFolder',
+  dialogPickFile: 'dialog:pickFile',
+  ideasList: 'ideas:list',
+  ideasGet: 'ideas:get',
+  ideasCreate: 'ideas:create',
+  ideasUpdate: 'ideas:update',
+  ideasDelete: 'ideas:delete',
+  ideasAddArtifact: 'ideas:addArtifact',
+  ideasRemoveArtifact: 'ideas:removeArtifact',
   agentsList: 'agents:list',
   agentSpawn: 'agent:spawn',
   agentsSpawnProfile: 'agents:spawnProfile',
@@ -230,6 +244,18 @@ export interface OrcaApi {
   ): Promise<GithubRepoLocalCheck>
   /** Open a native folder picker; resolves to the chosen path or null. */
   pickFolder(): Promise<string | null>
+  /** Open a native file picker for inbox artifacts; resolves to path or null. */
+  pickFile(): Promise<string | null>
+
+  inbox: {
+    list(): Promise<Idea[]>
+    get(id: string): Promise<Idea | undefined>
+    create(input?: CreateIdeaInput): Promise<Idea>
+    update(input: UpdateIdeaInput): Promise<Idea>
+    delete(id: string): Promise<Idea[]>
+    addArtifact(ideaId: string, input: AddArtifactInput): Promise<Idea>
+    removeArtifact(ideaId: string, artifactId: string): Promise<Idea>
+  }
 
   agents: {
     list(): Promise<AgentInstanceInfo[]>

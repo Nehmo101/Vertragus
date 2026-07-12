@@ -49,6 +49,16 @@ import {
   listMcpServers,
   saveMcpServers
 } from '@main/config/store'
+import {
+  listIdeas,
+  getIdea,
+  createIdea,
+  updateIdea,
+  deleteIdea,
+  addArtifact,
+  removeArtifact
+} from '@main/inbox/store'
+import type { AddArtifactInput, CreateIdeaInput, UpdateIdeaInput } from '@shared/inbox'
 
 function senderWindow(e: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent): BrowserWindow | null {
   return BrowserWindow.fromWebContents(e.sender)
@@ -203,6 +213,31 @@ export function registerIpcHandlers(): void {
       : await dialog.showOpenDialog(opts)
     return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]
   })
+
+  ipcMain.handle(IPC.dialogPickFile, async (e) => {
+    const win = senderWindow(e)
+    const opts: Electron.OpenDialogOptions = {
+      title: 'Datei für Artefakt wählen',
+      properties: ['openFile']
+    }
+    const result = win
+      ? await dialog.showOpenDialog(win, opts)
+      : await dialog.showOpenDialog(opts)
+    return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]
+  })
+
+  // ---- ideas inbox ----
+  ipcMain.handle(IPC.ideasList, () => listIdeas())
+  ipcMain.handle(IPC.ideasGet, (_e, id: string) => getIdea(id))
+  ipcMain.handle(IPC.ideasCreate, (_e, input?: CreateIdeaInput) => createIdea(input))
+  ipcMain.handle(IPC.ideasUpdate, (_e, input: UpdateIdeaInput) => updateIdea(input))
+  ipcMain.handle(IPC.ideasDelete, (_e, id: string) => deleteIdea(id))
+  ipcMain.handle(IPC.ideasAddArtifact, async (_e, ideaId: string, input: AddArtifactInput) =>
+    addArtifact(ideaId, input)
+  )
+  ipcMain.handle(IPC.ideasRemoveArtifact, (_e, ideaId: string, artifactId: string) =>
+    removeArtifact(ideaId, artifactId)
+  )
 
   // ---- agents ----
   ipcMain.handle(IPC.agentsList, () => agentManager.list())

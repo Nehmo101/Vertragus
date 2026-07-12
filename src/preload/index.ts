@@ -47,6 +47,18 @@ const orca: OrcaApi = {
   githubRepoCheckLocal: (owner, repo, localPath) =>
     ipcRenderer.invoke(IPC.githubRepoCheckLocal, owner, repo, localPath),
   pickFolder: () => ipcRenderer.invoke(IPC.dialogPickFolder),
+  pickFile: () => ipcRenderer.invoke(IPC.dialogPickFile),
+
+  inbox: {
+    list: () => ipcRenderer.invoke(IPC.ideasList),
+    get: (id) => ipcRenderer.invoke(IPC.ideasGet, id),
+    create: (input) => ipcRenderer.invoke(IPC.ideasCreate, input),
+    update: (input) => ipcRenderer.invoke(IPC.ideasUpdate, input),
+    delete: (id) => ipcRenderer.invoke(IPC.ideasDelete, id),
+    addArtifact: (ideaId, input) => ipcRenderer.invoke(IPC.ideasAddArtifact, ideaId, input),
+    removeArtifact: (ideaId, artifactId) =>
+      ipcRenderer.invoke(IPC.ideasRemoveArtifact, ideaId, artifactId)
+  },
 
   agents: {
     list: () => ipcRenderer.invoke(IPC.agentsList),
