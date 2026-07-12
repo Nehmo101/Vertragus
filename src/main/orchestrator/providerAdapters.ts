@@ -93,6 +93,9 @@ const ADAPTERS: Record<AgentProviderId, OrchestratorAdapter> = {
   claude: claudeAdapter,
   codex: codexAdapter,
   cursor: unsupported('cursor'),
+  // copilot works as a dispatched subagent (headless), but has no verified
+  // MCP-orchestrator adapter yet, so it fails closed as an orchestrator.
+  copilot: unsupported('copilot'),
   ollama: unsupported('ollama')
 }
 

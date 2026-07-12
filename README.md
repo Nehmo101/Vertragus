@@ -25,6 +25,7 @@ safe Auto-PR policies, and three switchable UI themes. See the
 | **Claude Code** | `claude` | agent / orchestrator (e.g. model *Fable*) |
 | **Codex** | `codex` | agent / orchestrator (CLI-configured model) |
 | **Cursor Agent** | `cursor-agent` | agent (e.g. GPT‑5.6 / Sonnet) |
+| **GitHub Copilot** | `copilot` | agent / subagent (`@github/copilot` CLI) |
 | **Ollama** | `ollama` | local LLMs (HTTP API on `:11434`) |
 | **GitHub** | `gh` | repo / branch / PR context |
 | **Cloudflare Tunnel** | `cloudflared` | remote access (later) |

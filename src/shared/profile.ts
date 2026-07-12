@@ -4,7 +4,7 @@
  */
 import { z } from 'zod'
 
-export const agentProviderId = z.enum(['claude', 'codex', 'cursor', 'ollama'])
+export const agentProviderId = z.enum(['claude', 'codex', 'cursor', 'copilot', 'ollama'])
 
 export const agentSlotSchema = z.object({
   /** Logical role, e.g. "worker", "reviewer". */

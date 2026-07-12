@@ -16,6 +16,7 @@ export const PROVIDER_THEME: Record<ProviderId, ProviderTheme> = {
   claude: { label: 'Claude', mono: 'CL', fg: '#e0a17f', bg: 'rgba(224,161,127,0.16)' },
   codex: { label: 'Codex', mono: 'Cx', fg: '#4fd18a', bg: 'rgba(79,209,138,0.15)' },
   cursor: { label: 'Cursor', mono: 'Cu', fg: '#c4b5fd', bg: 'rgba(196,181,253,0.15)' },
+  copilot: { label: 'GitHub Copilot', mono: 'Co', fg: '#6cb6ff', bg: 'rgba(108,182,255,0.15)' },
   ollama: { label: 'Ollama', mono: 'Ol', fg: '#cbd5e1', bg: 'rgba(203,213,225,0.13)' },
   github: { label: 'GitHub', mono: 'GH', fg: '#c9d3e0', bg: 'rgba(201,211,224,0.12)' },
   cloudflare: { label: 'Cloudflare', mono: 'CF', fg: '#f6a94f', bg: 'rgba(246,169,79,0.15)' }

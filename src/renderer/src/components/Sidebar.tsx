@@ -67,7 +67,7 @@ const PRESETS: Array<{ id: UiPreset; label: string; hint: string }> = [
 
 export default function Sidebar(): JSX.Element {
   const store = useAppStore()
-  const aiIds: ProviderId[] = ['claude', 'codex', 'cursor', 'ollama']
+  const aiIds: ProviderId[] = ['claude', 'codex', 'cursor', 'copilot', 'ollama']
   const onlineCount = aiIds.filter(
     (id) => store.health.find((h) => h.id === id)?.available
   ).length

@@ -27,13 +27,14 @@ export interface Launch {
 }
 
 /**
- * Yolo (auto-approve) flags per provider — verified against each CLI's --help.
- * ollama has no permission layer.
+ * Yolo (auto-approve) flags per provider — verified against each CLI's --help
+ * (copilot per the public @github/copilot CLI). ollama has no permission layer.
  */
 export const YOLO_FLAGS: Record<AgentProviderId, string[]> = {
   claude: ['--dangerously-skip-permissions'],
   codex: ['--dangerously-bypass-approvals-and-sandbox'],
   cursor: ['--yolo'],
+  copilot: ['--allow-all-tools'],
   ollama: []
 }
 
@@ -54,6 +55,12 @@ export function buildInteractiveLaunch(id: AgentProviderId, opts: SpawnOpts): La
     case 'cursor':
       return {
         command: 'cursor-agent',
+        args: [...(opts.model ? ['--model', opts.model] : []), ...yolo, ...extra]
+      }
+    case 'copilot':
+      // Bare `copilot` launches the interactive agent TUI in the working dir.
+      return {
+        command: 'copilot',
         args: [...(opts.model ? ['--model', opts.model] : []), ...yolo, ...extra]
       }
     case 'ollama':
@@ -101,6 +108,13 @@ export function buildHeadlessLaunch(
           ...yolo,
           ...extra
         ]
+      }
+    case 'copilot':
+      // `-p` runs a single prompt non-interactively and streams plain text to
+      // stdout (no JSON envelope) — runHeadless's non-JSON path handles it.
+      return {
+        command: 'copilot',
+        args: ['-p', prompt, ...(opts.model ? ['--model', opts.model] : []), ...yolo, ...extra]
       }
     case 'ollama':
       // ollama is driven via its HTTP API in runHeadless(); no CLI launch here.
