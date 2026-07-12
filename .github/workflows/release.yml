@@ -34,7 +34,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Verify and build renderer + main
-        run: pnpm ci
+        run: pnpm run ci
 
       - name: Determine main-channel version
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
