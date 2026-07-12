@@ -44,9 +44,11 @@ export default function TitleBar(): JSX.Element {
       ? `Update ${Math.round(update.progress ?? 0)} %`
       : update?.status === 'downloaded'
         ? 'Update installieren'
-        : update?.status === 'error'
-          ? 'Update erneut prüfen'
-          : 'Self-Update'
+        : update?.status === 'available'
+          ? 'Aktualisierung verfügbar'
+          : update?.status === 'error'
+            ? 'Update erneut prüfen'
+            : 'Self-Update'
   const updateTitle = update?.status === 'downloaded' && anyRunning
     ? 'Vor der Installation bitte alle Agents stoppen.'
     : update?.message ??

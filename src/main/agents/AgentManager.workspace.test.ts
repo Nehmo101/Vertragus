@@ -3,6 +3,9 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('electron', () => ({
   app: { getPath: () => '.' }
 }))
+vi.mock('@main/windows', () => ({
+  closePaneWindows: vi.fn()
+}))
 vi.mock('@main/config/store', () => ({
   getSetting: () => undefined
 }))

@@ -18,7 +18,7 @@ import type {
   OrchestratorSnapshot,
   SubagentDescriptor
 } from '@shared/orchestrator'
-import type { AgentSlot, WorkspaceProfile } from '@shared/profile'
+import { agentSlotsWithRoles, type AgentSlot, type WorkspaceProfile } from '@shared/profile'
 import { agentManager } from '@main/agents/AgentManager'
 import {
   getProfile,
@@ -169,28 +169,20 @@ export class OrchestratorEngine extends EventEmitter {
     return this.boundProfile ?? getProfile(getActiveProfileId())
   }
 
-  /** Slots the orchestrator is allowed to dispatch to. */
-  private dispatchableSlots(): AgentSlot[] {
-    const profile = this.activeProfile()
-    const slots = (profile?.agents ?? []).filter((s) => s.orchestrated)
-    if (slots.length > 0) return slots
-    // Fallback so the orchestrator always has somewhere to dispatch.
-    return [{ role: 'worker', provider: 'codex', model: '', count: 3, orchestrated: true, yolo: false }]
-  }
-
   /**
-   * Assign each slot a UNIQUE role the orchestrator can target. Slots often
-   * share the default role "worker" (or none), which would make them
-   * indistinguishable; fall back to the provider name and suffix duplicates.
+   * Assign every profile slot a stable role before filtering dispatchability.
+   * This keeps duplicate-role suffixes identical to the already-started team,
+   * even when an earlier slot with the same role is not orchestrated.
    */
   private slotsWithRoles(): Array<{ slot: AgentSlot; role: string }> {
-    const seen = new Map<string, number>()
-    return this.dispatchableSlots().map((slot) => {
-      const base = (slot.role?.trim() || slot.provider).toLowerCase()
-      const n = seen.get(base) ?? 0
-      seen.set(base, n + 1)
-      return { slot, role: n === 0 ? base : `${base}-${n + 1}` }
-    })
+    const configured = agentSlotsWithRoles(this.activeProfile()?.agents ?? []).filter(
+      ({ slot }) => slot.orchestrated
+    )
+    if (configured.length > 0) return configured
+    // Fallback so the orchestrator always has somewhere to dispatch.
+    return agentSlotsWithRoles([
+      { role: 'worker', provider: 'codex', model: '', count: 3, orchestrated: true, yolo: false }
+    ])
   }
 
   listSubagents(): SubagentDescriptor[] {
@@ -253,7 +245,7 @@ export class OrchestratorEngine extends EventEmitter {
     this.push()
 
     const subSystemPrompt =
-      'Du bist ein Subagent in Orca-Strator, beauftragt vom Orchestrator. ' +
+      'Du bist ein namentlich gekennzeichneter Subagent in Orca-Strator, beauftragt vom Orchestrator. ' +
       'Erledige die Aufgabe eigenständig und fasse das Ergebnis am Ende knapp zusammen.'
 
     try {
