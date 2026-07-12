@@ -3,7 +3,7 @@
  * Pure data + types only — no Node.js imports so the renderer can use it too.
  */
 
-export type AgentProviderId = 'claude' | 'codex' | 'cursor' | 'ollama'
+export type AgentProviderId = 'claude' | 'codex' | 'cursor' | 'copilot' | 'ollama'
 export type IntegrationProviderId = 'github' | 'cloudflare'
 export type ProviderId = AgentProviderId | IntegrationProviderId
 
@@ -60,6 +60,17 @@ export const PROVIDERS: readonly ProviderDef[] = [
     supportsYolo: true
   },
   {
+    id: 'copilot',
+    label: 'GitHub Copilot',
+    // The standalone, agentic GitHub Copilot CLI (npm: @github/copilot),
+    // NOT the older `gh copilot` extension. Resolved via PATH like the others.
+    command: 'copilot',
+    versionArgs: ['--version'],
+    kind: 'agent',
+    supportsYolo: true,
+    docsUrl: 'https://www.npmjs.com/package/@github/copilot'
+  },
+  {
     id: 'ollama',
     label: 'Ollama (local LLMs)',
     command: 'ollama',
@@ -104,5 +115,8 @@ export const DEFAULT_MODELS: Record<AgentProviderId, string[]> = {
   claude: ['fable', 'opus', 'sonnet', 'haiku'],
   codex: [],
   cursor: ['composer', 'auto'],
+  // copilot: free-text like the rest; leaving it blank uses the CLI's own
+  // default (currently Claude Sonnet). These are just picker suggestions.
+  copilot: ['claude-sonnet-4.5', 'gpt-5'],
   ollama: ['qwen2.5-coder:32b', 'llama3.3:70b', 'deepseek-coder-v2']
 }

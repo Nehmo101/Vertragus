@@ -4,7 +4,7 @@ import type { WorkspaceProfile, AgentSlot } from '@shared/profile'
 import type { AgentProviderId } from '@shared/providers'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 
-const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'cursor', 'ollama']
+const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'cursor', 'copilot', 'ollama']
 
 const ORCHESTRATOR_PROVIDERS: AgentProviderId[] = ['claude', 'codex']
 function boundedNumber(value: number, min: number, max: number, fallback: number): number {
