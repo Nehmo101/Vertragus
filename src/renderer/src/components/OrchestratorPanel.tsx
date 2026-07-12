@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAppStore, activeProfile } from '@renderer/store/useAppStore'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
+import LimitsPanel from '@renderer/components/LimitsPanel'
 import type { OrcaTask, TaskStatus } from '@shared/orchestrator'
 
 function useClock(): string {
@@ -102,6 +103,7 @@ export default function OrchestratorPanel(): JSX.Element {
 
   return (
     <section className="orch-panel">
+      <LimitsPanel />
       <div className="orch-head">
         <div className="orch-head-row">
           <span className="orch-diamond">◇</span>
