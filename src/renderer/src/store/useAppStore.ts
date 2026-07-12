@@ -7,6 +7,7 @@ import { LIMIT_KIND_LABELS } from '@shared/agents'
 import type { AgentProviderId, ProviderHealth, ProviderId } from '@shared/providers'
 import { DEFAULT_MODELS, DEFAULT_PROVIDER_LIMITS } from '@shared/providers'
 import type { WorkspaceProfile } from '@shared/profile'
+import type { McpServerConfig } from '@shared/mcp'
 import type { OrchestratorSnapshot } from '@shared/orchestrator'
 import type { AppInfo, GitInfo } from '@shared/ipc'
 
@@ -16,7 +17,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-export type UiPreset = 'abyss' | 'polar' | 'sonar'
+export type UiTheme = 'light' | 'dark'
 export type WorkspaceLayout = 'tiles' | 'focus' | 'dag'
 export type UiDensity = 'comfortable' | 'compact'
 
@@ -28,12 +29,16 @@ interface AppState {
   providerLimits: Record<AgentProviderId, number>
   profiles: WorkspaceProfile[]
   activeProfileId: string
+  /** User-configured external MCP servers attached to the launched agents. */
+  mcpServers: McpServerConfig[]
+  /** True while the MCP-server manager modal is open. */
+  mcpEditorOpen: boolean
   gitInfo: GitInfo | null
   agents: AgentInstanceInfo[]
   events: OrcaEvent[]
   orchestrator: OrchestratorSnapshot
   yoloMaster: boolean
-  uiPreset: UiPreset
+  theme: UiTheme
   workspaceLayout: WorkspaceLayout
   uiDensity: UiDensity
   toast: string | null
@@ -50,7 +55,7 @@ interface AppState {
   selectProfile(id: string): Promise<boolean>
   setProviderLimit(provider: AgentProviderId, value: number): void
   toggleYolo(): void
-  setUiPreset(preset: UiPreset): void
+  toggleTheme(): void
   setWorkspaceLayout(layout: WorkspaceLayout): void
   setUiDensity(density: UiDensity): void
   showToast(msg: string): void
@@ -68,6 +73,9 @@ interface AppState {
   closeEditor(): void
   saveEditor(profile: WorkspaceProfile): Promise<void>
   deleteProfile(id: string): Promise<void>
+  openMcpEditor(): void
+  closeMcpEditor(): void
+  saveMcpServers(servers: McpServerConfig[]): Promise<void>
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined
@@ -86,12 +94,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   providerLimits: DEFAULT_PROVIDER_LIMITS,
   profiles: [],
   activeProfileId: '',
+  mcpServers: [],
+  mcpEditorOpen: false,
   gitInfo: null,
   agents: [],
   events: [],
   orchestrator: { goal: null, tasks: [] },
   yoloMaster: false,
-  uiPreset: 'abyss',
+  theme: 'light',
   workspaceLayout: 'tiles',
   uiDensity: 'comfortable',
   toast: null,
@@ -121,15 +131,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     window.orca.onProvidersChanged((health) => set({ health }))
     window.orca.orchestrator.onSnapshot((snap) => set({ orchestrator: snap }))
 
-    const [appInfo, profiles, activeProfileId, agents, yolo, snapshot, preset, layout, density, limits] =
+    const [appInfo, profiles, activeProfileId, mcpServers, agents, yolo, snapshot, theme, layout, density, limits] =
       await Promise.all([
         window.orca.getAppInfo(),
         window.orca.listProfiles(),
         window.orca.getActiveProfileId(),
+        window.orca.listMcpServers(),
         window.orca.agents.list(),
         window.orca.getConfig<boolean>('yoloMaster'),
         window.orca.orchestrator.snapshot(),
-        window.orca.getConfig<UiPreset>('ui.preset'),
+        window.orca.getConfig<UiTheme>('ui.theme'),
         window.orca.getConfig<WorkspaceLayout>('ui.workspaceLayout'),
         window.orca.getConfig<UiDensity>('ui.density'),
         window.orca.getConfig<Partial<Record<AgentProviderId, number>>>('providerLimits')
@@ -138,10 +149,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       appInfo,
       profiles,
       activeProfileId,
+      mcpServers,
       agents,
       yoloMaster: yolo ?? false,
       orchestrator: snapshot,
-      uiPreset: preset === 'polar' || preset === 'sonar' ? preset : 'abyss',
+      theme: theme === 'dark' ? 'dark' : 'light',
       workspaceLayout: layout === 'focus' || layout === 'dag' ? layout : 'tiles',
       uiDensity: density === 'compact' ? density : 'comfortable',
       providerLimits: { ...DEFAULT_PROVIDER_LIMITS, ...(limits ?? {}) }
@@ -209,9 +221,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     void window.orca.setConfig('yoloMaster', next)
   },
 
-  setUiPreset(preset) {
-    set({ uiPreset: preset })
-    void window.orca.setConfig('ui.preset', preset)
+  toggleTheme() {
+    const next = get().theme === 'light' ? 'dark' : 'light'
+    set({ theme: next })
+    void window.orca.setConfig('ui.theme', next)
   },
 
   setWorkspaceLayout(layout) {
@@ -376,6 +389,24 @@ export const useAppStore = create<AppState>((set, get) => ({
       )
     } catch (error) {
       get().showToast(`Profil konnte nicht gelöscht werden: ${errorMessage(error)}`)
+    }
+  },
+
+  openMcpEditor() {
+    set({ mcpEditorOpen: true })
+  },
+
+  closeMcpEditor() {
+    set({ mcpEditorOpen: false })
+  },
+
+  async saveMcpServers(servers) {
+    try {
+      const saved = await window.orca.saveMcpServers(servers)
+      set({ mcpServers: saved, mcpEditorOpen: false })
+      get().showToast(`MCP-Server gespeichert (${saved.length}).`)
+    } catch (error) {
+      get().showToast(`MCP-Server konnten nicht gespeichert werden: ${errorMessage(error)}`)
     }
   }
 }))

@@ -9,10 +9,18 @@ import { IPC, type AppInfo } from '@shared/ipc'
 import type { HandoffRequest, SpawnAgentRequest } from '@shared/agents'
 import type { ProviderId } from '@shared/providers'
 import type { WorkspaceProfile } from '@shared/profile'
+import type { McpServerConfig } from '@shared/mcp'
 import { checkAllProviders } from '@main/providers/health'
 import { listModels } from '@main/providers/models'
 import { gitInfo } from '@main/integrations/git'
 import { listGithubProjects } from '@main/integrations/github'
+import {
+  checkForMainUpdate,
+  downloadMainUpdate,
+  getUpdateState,
+  installMainUpdate,
+  onUpdateState
+} from '@main/updater'
 import { agentManager } from '@main/agents/AgentManager'
 import { orchestratorEngine } from '@main/orchestrator/Engine'
 import { broadcast, createPaneWindow } from '@main/windows'
@@ -24,7 +32,9 @@ import {
   deleteProfile,
   getProfile,
   getActiveProfileId,
-  setActiveProfileId
+  setActiveProfileId,
+  listMcpServers,
+  saveMcpServers
 } from '@main/config/store'
 
 function senderWindow(e: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent): BrowserWindow | null {
@@ -55,6 +65,10 @@ export function registerIpcHandlers(): void {
       platform: process.platform
     }
   })
+  ipcMain.handle(IPC.appUpdateState, () => getUpdateState())
+  ipcMain.handle(IPC.appUpdateCheck, () => checkForMainUpdate())
+  ipcMain.handle(IPC.appUpdateDownload, () => downloadMainUpdate())
+  ipcMain.handle(IPC.appUpdateInstall, () => installMainUpdate())
   ipcMain.handle(IPC.providersHealth, () => checkAllProviders())
   ipcMain.handle(IPC.providerLogin, async (_e, id: ProviderId) => {
     const info = await agentManager.loginProvider(id)
@@ -93,6 +107,10 @@ export function registerIpcHandlers(): void {
     }
     setActiveProfileId(id)
   })
+
+  // ---- external MCP servers ----
+  ipcMain.handle(IPC.mcpList, () => listMcpServers())
+  ipcMain.handle(IPC.mcpSave, (_e, servers: McpServerConfig[]) => saveMcpServers(servers))
 
   // ---- git ----
   ipcMain.handle(IPC.gitInfo, (_e, dir: string) => gitInfo(dir))
@@ -195,4 +213,5 @@ export function registerIpcHandlers(): void {
       .then((health) => broadcast(IPC.evProvidersHealth, health))
       .catch((error) => console.warn('[Providers] refresh after login failed', error))
   })
+  onUpdateState((next) => broadcast(IPC.evAppUpdateState, next))
 }

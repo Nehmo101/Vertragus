@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAppStore, activeProfile } from '@renderer/store/useAppStore'
 import type { WorkspaceProfile } from '@shared/profile'
+import type { UpdateState } from '@shared/ipc'
 import WhaleLogo from '@renderer/components/WhaleLogo'
 
 function useClock(): string {
@@ -28,13 +29,39 @@ export default function TitleBar(): JSX.Element {
   const clock = useClock()
   const [menuOpen, setMenuOpen] = useState(false)
   const [confirmKill, setConfirmKill] = useState(false)
+  const [update, setUpdate] = useState<UpdateState | null>(null)
 
   const profile = activeProfile(store)
   const running = store.agents.filter((a) => a.status === 'running').length
   const anyRunning = running > 0
+  const updateVisible =
+    update?.status === 'available' ||
+    update?.status === 'downloading' ||
+    update?.status === 'downloaded' ||
+    (update?.status === 'error' && Boolean(update.availableVersion))
+  const updateLabel =
+    update?.status === 'downloading'
+      ? `Update ${Math.round(update.progress ?? 0)} %`
+      : update?.status === 'downloaded'
+        ? 'Update installieren'
+        : update?.status === 'error'
+          ? 'Update erneut prüfen'
+          : 'Self-Update'
+  const updateTitle = update?.status === 'downloaded' && anyRunning
+    ? 'Vor der Installation bitte alle Agents stoppen.'
+    : update?.message ??
+      (update?.availableVersion
+        ? `Main-Update ${update.availableVersion} ist verfügbar.`
+        : 'Neue Version vom Main-Branch installieren.')
 
   const activeProfileId = store.activeProfileId
   const refreshGit = store.refreshGit
+  useEffect(() => {
+    if (!window.orca?.updates) return
+    const unsubscribe = window.orca.updates.onState(setUpdate)
+    void window.orca.updates.state().then(setUpdate)
+    return unsubscribe
+  }, [])
   useEffect(() => {
     if (!menuOpen && !confirmKill) return
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -86,7 +113,7 @@ export default function TitleBar(): JSX.Element {
     <>
       <header className="titlebar">
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <WhaleLogo size={30} />
+          <WhaleLogo size={34} />
           <div style={{ lineHeight: 1.05 }}>
             <div className="wordmark">
               Orca<span className="dash">-</span>Strator
@@ -122,6 +149,44 @@ export default function TitleBar(): JSX.Element {
           <span className="clock">{clock}</span>
         </div>
 
+        {updateVisible && (
+          <button
+            type="button"
+            className={`self-update-btn ${update?.status ?? ''}`}
+            title={updateTitle}
+            aria-live="polite"
+            disabled={update?.status === 'downloading' || (update?.status === 'downloaded' && anyRunning)}
+            onClick={() => {
+              if (update?.status === 'available') void window.orca.updates.download()
+              else if (update?.status === 'downloaded') void window.orca.updates.install()
+              else void window.orca.updates.check()
+            }}
+          >
+            <span aria-hidden="true">↻</span>
+            <span>{updateLabel}</span>
+          </button>
+        )}
+
+        <button
+          type="button"
+          className="theme-toggle-btn no-drag"
+          onClick={store.toggleTheme}
+          title="Erscheinung: Hell / Dunkel umschalten"
+          aria-label="Hell/Dunkel umschalten"
+        >
+          <span className={`theme-toggle-swatch ${store.theme === 'light' ? 'active' : ''}`} aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.75" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="4" />
+              <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+            </svg>
+          </span>
+          <span className={`theme-toggle-swatch ${store.theme === 'dark' ? 'active' : ''}`} aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.75" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+            </svg>
+          </span>
+        </button>
+
         <button type="button"
           className={`yolo-btn ${store.yoloMaster ? 'on' : ''}`}
           onClick={store.toggleYolo}
@@ -134,7 +199,15 @@ export default function TitleBar(): JSX.Element {
         </button>
 
         <button type="button" className={`stop-btn ${anyRunning ? '' : 'resume'}`} onClick={onStopClick}>
-          <span style={{ fontSize: 13, lineHeight: 1 }}>{anyRunning ? '⛔' : '▶'}</span>
+          {anyRunning ? (
+            <svg className="button-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <circle cx="12" cy="12" r="9" /><rect x="9" y="9" width="6" height="6" rx="1.4" />
+            </svg>
+          ) : (
+            <svg className="button-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M7 4.5v15l12-7.5z" />
+            </svg>
+          )}
           <span>{anyRunning ? 'Alle stoppen' : 'Alle starten'}</span>
         </button>
 

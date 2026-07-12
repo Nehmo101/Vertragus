@@ -55,12 +55,29 @@ Ausgangsbasis erhalten.
   `blocked` zurückgegeben; der Arbeitsstand bleibt zur Prüfung erhalten.
 - PR-Status und URL werden an Task-DAG und Session-Snapshot zurückgegeben.
 
-### Umschaltbare Designs
+### Externe MCP-Server
 
-- Themes: **Abyss Control**, **Polar Focus**, **Sonar Tactical**.
-- Dichte: komfortabel oder kompakt.
+- Eigene Model-Context-Protocol-Server werden einmal in Orca gepflegt und dann
+  an jeden gestarteten Agent angebunden — an den Orchestrator **und** an jeden
+  einzelnen Subagenten (interaktiv wie headless), sodass alle deren Tools direkt
+  sehen und nutzen.
+- Transporte: `stdio` (lokaler Prozess), `http` (Streamable) und `sse`.
+- Pro Server konfigurierbar: Name, Reichweite (alle / nur Orchestrator / nur
+  Subagents) und ein Aktiv-Schalter.
+- Verifiziert für die Claude- und Codex-CLI. Claude erhält die Server über eine
+  prozesslokale `--mcp-config`-Datei (ohne `--strict-mcp-config` bei Subagents,
+  damit deren eigene `.mcp.json` erhalten bleibt); Codex über prozesslokale
+  `-c mcp_servers.*`-Overrides. Die persönliche Provider-Konfiguration wird nicht
+  verändert.
+- Provider ohne verifizierte MCP-Anbindung ignorieren die Server geräuschlos.
+- Ohne konfigurierte Server sind die Agent-Starts identisch zu vorher.
+
+### Cozy Organic Design
+
+- Ein Organic-Look mit persistiertem Hell-/Dunkelmodus über `data-theme`.
+- Der Sonne-/Mond-Umschalter sitzt in der Titelleiste.
 - Layout: Kacheln, Fokus oder DAG.
-- Alle Varianten verwenden denselben Komponentenbaum und semantische CSS-Tokens.
+- Alle Modi verwenden denselben Komponentenbaum und semantische CSS-Tokens.
 - Einstellungen werden gespeichert; reduzierte Bewegung und sichtbare
   Tastatur-Fokuszustände werden berücksichtigt.
 
@@ -74,6 +91,8 @@ Ausgangsbasis erhalten.
 - Echte Provider-Nutzungswerte werden angezeigt, sofern die CLI sie liefert;
   andernfalls zeigt die UI bewusst „nicht verfügbar“.
 - ESLint, Vitest und Pull-Request-CI für Linux und Windows sind eingerichtet.
+- Erfolgreiche `main`-Builds veröffentlichen einen fortlaufenden Windows-/Linux-
+  Update-Kanal; der Client prüft ihn automatisch und installiert nur nach Klick.
 
 ### Provider-Verbindungen und Feldhilfen
 
@@ -96,7 +115,7 @@ der fünf Kernfeatures:
 - vollständiges Diff-/Merge-Center
 - Wiederverwendung warmer interaktiver Agents als Scheduler-Pool
 - automatische Retry-/Replan-Schleifen
-- signierte Installer und Auto-Update-Kanal
+- signierte Installer
 
 ## Lokale Abnahme
 

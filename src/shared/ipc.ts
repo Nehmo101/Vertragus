@@ -4,6 +4,7 @@
  */
 import type { AgentProviderId, ProviderHealth, ProviderId } from './providers'
 import type { WorkspaceProfile } from './profile'
+import type { McpServerConfig } from './mcp'
 import type {
   AgentBufferSnapshot,
   AgentDataChunk,
@@ -16,6 +17,10 @@ import type { OrchestratorSnapshot } from './orchestrator'
 
 export const IPC = {
   appInfo: 'app:info',
+  appUpdateState: 'app:updateState',
+  appUpdateCheck: 'app:updateCheck',
+  appUpdateDownload: 'app:updateDownload',
+  appUpdateInstall: 'app:updateInstall',
   providersHealth: 'providers:health',
   providersModels: 'providers:models',
   providerLogin: 'providers:login',
@@ -26,6 +31,8 @@ export const IPC = {
   profileDelete: 'profile:delete',
   profileGetActive: 'profiles:getActive',
   profileSetActive: 'profiles:setActive',
+  mcpList: 'mcp:list',
+  mcpSave: 'mcp:save',
   gitInfo: 'git:info',
   githubProjects: 'github:projects',
   dialogPickFolder: 'dialog:pickFolder',
@@ -48,6 +55,7 @@ export const IPC = {
   evAgentsChanged: 'ev:agentsChanged',
   evOrcaEvent: 'ev:orcaEvent',
   evProvidersHealth: 'ev:providersHealth',
+  evAppUpdateState: 'ev:appUpdateState',
   evOrchestrator: 'ev:orchestrator',
   // window controls (frameless title bar)
   winMinimize: 'win:minimize',
@@ -62,6 +70,24 @@ export interface AppInfo {
   chrome: string
   node: string
   platform: NodeJS.Platform
+}
+
+export type UpdateStatus =
+  | 'unsupported'
+  | 'idle'
+  | 'checking'
+  | 'up-to-date'
+  | 'available'
+  | 'downloading'
+  | 'downloaded'
+  | 'error'
+
+export interface UpdateState {
+  status: UpdateStatus
+  currentVersion: string
+  availableVersion?: string
+  progress?: number
+  message?: string
 }
 
 export interface GitInfo {
@@ -93,6 +119,13 @@ export interface GithubProjectsResult {
  */
 export interface OrcaApi {
   getAppInfo(): Promise<AppInfo>
+  updates: {
+    state(): Promise<UpdateState>
+    check(): Promise<UpdateState>
+    download(): Promise<UpdateState>
+    install(): Promise<void>
+    onState(cb: (state: UpdateState) => void): () => void
+  }
   /** Probe every provider CLI/integration for availability + version. */
   checkProviders(): Promise<ProviderHealth[]>
   /** Model options per agent provider (ollama live when reachable). */
@@ -109,6 +142,11 @@ export interface OrcaApi {
   deleteProfile(id: string): Promise<WorkspaceProfile[]>
   getActiveProfileId(): Promise<string>
   setActiveProfileId(id: string): Promise<void>
+
+  /** External MCP servers attached to the launched agents. */
+  listMcpServers(): Promise<McpServerConfig[]>
+  /** Validate + persist the full MCP server list; returns the stored result. */
+  saveMcpServers(servers: McpServerConfig[]): Promise<McpServerConfig[]>
 
   gitInfo(dir: string): Promise<GitInfo>
   /** List GitHub Projects boards for the explicit owner or the workspace origin owner. */

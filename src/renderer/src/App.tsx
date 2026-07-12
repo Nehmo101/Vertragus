@@ -5,6 +5,7 @@ import Sidebar from '@renderer/components/Sidebar'
 import Workspace from '@renderer/components/Workspace'
 import OrchestratorPanel from '@renderer/components/OrchestratorPanel'
 import ProfileEditor from '@renderer/components/ProfileEditor'
+import McpServerEditor from '@renderer/components/McpServerEditor'
 import HandoffModal from '@renderer/components/HandoffModal'
 import PaneWindow from '@renderer/components/PaneWindow'
 
@@ -33,11 +34,15 @@ export default function App(): JSX.Element {
 
   const paneMatch = hash.match(/^#\/pane\/(.+)$/)
   if (paneMatch) {
-    return <PaneWindow agentId={paneMatch[1]} />
+    return (
+      <div className="app-root pane-window-root" data-theme={store.theme}>
+        <PaneWindow agentId={paneMatch[1]} />
+      </div>
+    )
   }
 
   return (
-    <div className="app-root" data-preset={store.uiPreset} data-density={store.uiDensity}>
+    <div className="app-root" data-theme={store.theme} data-density={store.uiDensity}>
       <TitleBar />
 
       {store.yoloMaster && (
@@ -57,6 +62,8 @@ export default function App(): JSX.Element {
       </div>
 
       {store.editorProfile && <ProfileEditor key={store.editorProfile.id} />}
+
+      {store.mcpEditorOpen && <McpServerEditor />}
 
       {store.handoffSource && <HandoffModal key={store.handoffSource.id} />}
 

@@ -1,7 +1,8 @@
-import { useAppStore, type UiPreset } from '@renderer/store/useAppStore'
+import { useAppStore } from '@renderer/store/useAppStore'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import { profileSummary, profileAgentCount } from '@renderer/components/TitleBar'
 import type { ProviderHealth, ProviderId } from '@shared/providers'
+import { MCP_SCOPE_LABELS, MCP_TRANSPORT_LABELS } from '@shared/mcp'
 
 interface RowStatus {
   label: string
@@ -10,20 +11,20 @@ interface RowStatus {
 }
 
 function statusFor(id: ProviderId, h: ProviderHealth | undefined): RowStatus {
-  if (!h) return { label: 'Prüfe…', dot: '#e9b949', text: '#f2c85a' }
-  if (!h.available) return { label: 'Fehlt', dot: '#f2555a', text: '#ff7377' }
+  if (!h) return { label: 'Prüfe…', dot: 'var(--wait)', text: 'var(--wait-text)' }
+  if (!h.available) return { label: 'Fehlt', dot: 'var(--err)', text: 'var(--err-text)' }
   switch (h.connection) {
     case 'connected':
-      return { label: 'Verbunden', dot: '#3fd17a', text: '#5fe39a' }
+      return { label: 'Verbunden', dot: 'var(--run)', text: 'var(--run-text)' }
     case 'disconnected':
-      return { label: 'Login', dot: '#e9b949', text: '#f2c85a' }
+      return { label: 'Login', dot: 'var(--wait)', text: 'var(--wait-text)' }
     case 'local':
-      return { label: 'Lokal', dot: '#3fd17a', text: '#5fe39a' }
+      return { label: 'Lokal', dot: 'var(--run)', text: 'var(--run-text)' }
     default:
       return {
         label: id === 'cloudflare' ? 'Bereit' : 'Installiert',
-        dot: '#22d3ee',
-        text: '#7fdfff'
+        dot: 'var(--sage)',
+        text: 'var(--sage-strong)'
       }
   }
 }
@@ -82,11 +83,6 @@ function ProviderRow({ id }: { id: ProviderId }): JSX.Element {
   )
 }
 
-const PRESETS: Array<{ id: UiPreset; label: string; hint: string }> = [
-  { id: 'abyss', label: 'Abyss', hint: 'dunkles Control Center' },
-  { id: 'polar', label: 'Polar', hint: 'ruhiger Fokus' },
-  { id: 'sonar', label: 'Sonar', hint: 'taktischer DAG' }
-]
 
 export default function Sidebar(): JSX.Element {
   const store = useAppStore()
@@ -124,36 +120,53 @@ export default function Sidebar(): JSX.Element {
         <ProviderRow id="cloudflare" />
       </div>
 
-      <div className="side-sep" />
-
-      <div className="side-caption" style={{ paddingTop: 10 }}>
-        <span>UI-Design</span>
+      <div className="side-caption" style={{ paddingTop: 14 }}>
+        <span>MCP-Server</span>
         <button
           type="button"
-          className="density-btn"
-          aria-label={`Dichte: ${store.uiDensity}`}
-          title="Darstellungsdichte wechseln"
-          onClick={() => store.setUiDensity(store.uiDensity === 'compact' ? 'comfortable' : 'compact')}
+          className="icon-btn-sm"
+          title="MCP-Server verwalten — für alle Agents sichtbar"
+          aria-label="MCP-Server verwalten"
+          onClick={store.openMcpEditor}
         >
-          {store.uiDensity === 'compact' ? 'Kompakt' : 'Komfort'}
+          ⚙
         </button>
       </div>
-      <div className="preset-switch" role="group" aria-label="UI-Design auswählen">
-        {PRESETS.map((preset) => (
+      <div className="side-list">
+        {store.mcpServers.length === 0 ? (
           <button
-            key={preset.id}
             type="button"
-            className={store.uiPreset === preset.id ? 'active' : ''}
-            title={preset.hint}
-            aria-pressed={store.uiPreset === preset.id}
-            onClick={() => store.setUiPreset(preset.id)}
+            className="mcp-empty-row"
+            title="MCP-Server hinzufügen, die alle Agents sehen und nutzen können"
+            onClick={store.openMcpEditor}
           >
-            {preset.label}
+            ＋ MCP-Server anbinden
           </button>
-        ))}
+        ) : (
+          store.mcpServers.map((server) => (
+            <button
+              type="button"
+              key={server.id}
+              className="mcp-row"
+              title={`${MCP_TRANSPORT_LABELS[server.transport]} · ${MCP_SCOPE_LABELS[server.scope]}${server.enabled ? '' : ' · inaktiv'}`}
+              onClick={store.openMcpEditor}
+            >
+              <span
+                className="status-dot"
+                style={{
+                  background: server.enabled ? '#3fd17a' : '#5a6b78',
+                  boxShadow: server.enabled ? '0 0 7px #3fd17a' : 'none'
+                }}
+              />
+              <span className="mcp-row-name">{server.name}</span>
+              <span className="mcp-row-tag">{server.transport}</span>
+            </button>
+          ))
+        )}
       </div>
 
       <div className="side-sep" />
+
 
       <div className="side-caption" style={{ paddingTop: 10 }}>
         <span>Workspace-Profile</span>

@@ -27,6 +27,7 @@ import { createWorktree } from '@main/agents/worktree'
 import { getSetting } from '@main/config/store'
 import { runHeadless, type HeadlessHandle, type HeadlessResult } from '@main/agents/headless'
 import { buildOrchestratorSetup } from '@main/orchestrator/orchestratorLaunch'
+import { buildSubagentMcpArgs } from '@main/orchestrator/externalMcp'
 import { NameAllocator } from '@main/agents/names'
 import { detectLimit, limitKindLabel } from '@main/agents/limitSignals'
 import { buildBriefing } from '@main/agents/handoff'
@@ -146,19 +147,24 @@ export class AgentManager extends EventEmitter {
       req.isolateWorktree
     )
 
-    // Orchestrators get the Orca MCP server + orchestrator system prompt.
+    // Orchestrators get the Orca MCP server + orchestrator system prompt (which
+    // also merges in any orchestrator-scoped external MCP servers). Every other
+    // interactive agent gets its subagent-scoped external MCP servers attached
+    // so it can see and use them directly.
     const orchestratorSetup =
-      kind === 'orchestrator' ? buildOrchestratorSetup(req.provider, name) : undefined
+      kind === 'orchestrator' ? buildOrchestratorSetup(req.provider, name, id) : undefined
     if (orchestratorSetup && !orchestratorSetup.capability.supported) {
       throw new Error(orchestratorSetup.capability.reason ?? `${req.provider} cannot orchestrate.`)
     }
-    const orchestratorArgs = orchestratorSetup?.extraArgs ?? []
+    const extraArgs = orchestratorSetup
+      ? orchestratorSetup.extraArgs
+      : buildSubagentMcpArgs(req.provider, id)
 
     const launch = buildInteractiveLaunch(req.provider, {
       model: req.model,
       workingDir,
       yolo,
-      extraArgs: orchestratorArgs
+      extraArgs
     })
     const resolved = await resolveLaunch(launch.command, launch.args)
 
@@ -392,7 +398,14 @@ export class AgentManager extends EventEmitter {
     const handle = runHeadless(
       req.provider,
       req.prompt,
-      { model: req.model, workingDir, yolo: req.yolo, systemPrompt: req.systemPrompt },
+      {
+        model: req.model,
+        workingDir,
+        yolo: req.yolo,
+        systemPrompt: req.systemPrompt,
+        // Attach the subagent-scoped external MCP servers to this headless run.
+        extraArgs: buildSubagentMcpArgs(req.provider, id)
+      },
       (chunk) => this.pushData(managed, chunk),
       { timeoutMs: req.timeoutMs }
     )
