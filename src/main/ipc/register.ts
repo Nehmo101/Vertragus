@@ -6,7 +6,7 @@ import { app, dialog, ipcMain, BrowserWindow } from 'electron'
 import { stat } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { IPC, type AppInfo } from '@shared/ipc'
-import type { SpawnAgentRequest } from '@shared/agents'
+import type { HandoffRequest, SpawnAgentRequest } from '@shared/agents'
 import type { WorkspaceProfile } from '@shared/profile'
 import { checkAllProviders } from '@main/providers/health'
 import { listModels } from '@main/providers/models'
@@ -140,6 +140,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.agentPopout, (_e, id: string) => {
     createPaneWindow(id)
   })
+  ipcMain.handle(IPC.agentHandoff, (_e, req: HandoffRequest) => agentManager.handoff(req))
 
   // ---- orchestrator ----
   ipcMain.handle(IPC.orchestratorSnapshot, () => orchestratorEngine.snapshot())
