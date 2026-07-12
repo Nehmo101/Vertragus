@@ -2720,3 +2720,95 @@ textarea:focus-visible,
     transition: none;
   }
 }
+/* ---------- workspace GitHub/path context ---------- */
+.github-project-field {
+  margin: -2px 0 18px;
+  padding: 12px;
+  border: 1px solid var(--border-3);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-slot) 78%, transparent);
+}
+.github-project-owner-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.github-project-owner-row .text-input {
+  flex: 1;
+  margin-bottom: 0;
+}
+.github-project-owner-row button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.github-project-select {
+  height: 36px;
+}
+.github-project-status {
+  min-height: 16px;
+  margin-top: 6px;
+  color: var(--text-3);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+.slot-path-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.slot-path-field {
+  flex: 1;
+  min-width: 0;
+}
+.slot-browse-btn {
+  flex: none;
+  height: 32px;
+  padding: 0 10px;
+}
+.workspace-context {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 40%;
+}
+.workspace-context-chip {
+  max-width: 210px;
+  overflow: hidden;
+  padding: 3px 7px;
+  border: 1px solid rgba(45, 212, 191, 0.2);
+  border-radius: 6px;
+  background: rgba(45, 212, 191, 0.08);
+  color: var(--accent-light);
+  font: 10.5px var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-context-chip.dirty {
+  border-color: rgba(233, 185, 73, 0.42);
+  background: rgba(233, 185, 73, 0.1);
+  color: var(--warn-text);
+}
+.workspace-context-chip.board {
+  border-color: rgba(112, 156, 255, 0.28);
+  background: rgba(112, 156, 255, 0.09);
+  color: #b8caff;
+}
+.branch-pill {
+  max-width: 230px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-branch-tag {
+  max-width: 220px;
+  overflow: hidden;
+  padding: 1px 5px;
+  border: 1px solid rgba(112, 156, 255, 0.24);
+  border-radius: 4px;
+  background: rgba(112, 156, 255, 0.08);
+  color: #a9bfff;
+  font: 9.5px var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

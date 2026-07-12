@@ -33,6 +33,8 @@ export default function TitleBar(): JSX.Element {
   const running = store.agents.filter((a) => a.status === 'running').length
   const anyRunning = running > 0
 
+  const activeProfileId = store.activeProfileId
+  const refreshGit = store.refreshGit
   useEffect(() => {
     if (!menuOpen && !confirmKill) return
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -44,6 +46,17 @@ export default function TitleBar(): JSX.Element {
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [confirmKill, menuOpen])
+  useEffect(() => {
+    const refresh = (): void => {
+      if (!document.hidden) void refreshGit()
+    }
+    const interval = setInterval(refresh, 10_000)
+    window.addEventListener('focus', refresh)
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('focus', refresh)
+    }
+  }, [activeProfileId, refreshGit])
   const displayDir = (profile?.workingDir || '')
     .replace(/\\/g, '/')
     .replace(/^([A-Za-z]:)?\/(Users|home)\/[^/]+/, '~')
@@ -92,7 +105,7 @@ export default function TitleBar(): JSX.Element {
               className={`branch-pill ${store.gitInfo.dirty ? 'dirty' : ''}`}
               title={gitTitle}
             >
-              {store.gitInfo.branch ?? 'Git'}
+              Branch: {store.gitInfo.branch ?? 'Git'}
               {store.gitInfo.dirty && <span className="dirty-mark">● dirty</span>}
             </span>
           )}

@@ -200,6 +200,11 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
           </span>
         )}
         <span className="spacer" />
+        {agent.branch && (
+          <span className="agent-branch-tag" title={`Branch: ${agent.branch}`}>
+            {agent.branch}
+          </span>
+        )}
         {agent.worktree && (
           <span className="wt-tag" title={`Worktree: ${agent.worktree}`}>
             wt

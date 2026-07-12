@@ -68,6 +68,8 @@ export interface AgentInstanceInfo {
   workingDir: string
   /** Set when the agent runs in an isolated git worktree. */
   worktree?: string
+  /** Effective branch for the isolated worktree, when Git isolation is active. */
+  branch?: string
   status: AgentStatus
   pid?: number
   exitCode?: number
