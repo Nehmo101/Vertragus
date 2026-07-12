@@ -58,7 +58,14 @@ import {
   addArtifact,
   removeArtifact
 } from '@main/inbox/store'
-import type { AddArtifactInput, CreateIdeaInput, UpdateIdeaInput } from '@shared/inbox'
+import { retryIdeaTransfer, transferIdeaToProfile } from '@main/inbox/transferService'
+import { spawnProfileTeam } from '@main/agents/spawnProfile'
+import type {
+  AddArtifactInput,
+  CreateIdeaInput,
+  UpdateIdeaInput
+} from '@shared/inbox'
+import type { IdeaTransferRequest } from '@shared/inboxTransfer'
 import type { InboxSpeechSettingsPatch, TranscribeAudioPayload } from '@shared/inboxSpeech'
 import {
   abortInboxTranscription,
@@ -246,6 +253,12 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.ideasRemoveArtifact, (_e, ideaId: string, artifactId: string) =>
     removeArtifact(ideaId, artifactId)
   )
+  ipcMain.handle(IPC.ideasTransferToProfile, (_e, req: IdeaTransferRequest) =>
+    transferIdeaToProfile(req)
+  )
+  ipcMain.handle(IPC.ideasTransferRetry, (_e, ideaId: string, yoloMaster?: boolean) =>
+    retryIdeaTransfer(ideaId, yoloMaster)
+  )
 
   // ---- inbox speech-to-text ----
   ipcMain.handle(IPC.inboxSpeechStatus, () => getInboxSpeechStatus())
@@ -266,41 +279,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.agentsSpawnProfile, async (_e, profileId: string, yoloMaster: boolean) => {
     const profile = getProfile(profileId)
     if (!profile) return []
-    orchestratorEngine.reset()
-    const spawned: Awaited<ReturnType<typeof agentManager.spawn>>[] = []
-
-    // Team start: open the WHOLE team at once — the orchestrator (if any) plus
-    // every subagent slot × its count — each as its own interactive pane. The
-    // orchestrator additionally keeps its MCP tools to dispatch on-demand workers.
-    if (profile.orchestrator) {
-      spawned.push(
-        await agentManager.spawn({
-          provider: profile.orchestrator.provider,
-          model: profile.orchestrator.model,
-          modelPreset: profile.orchestrator.modelPreset,
-          kind: 'orchestrator',
-          role: 'Orchestrator · plant & verteilt',
-          yolo: yoloMaster,
-          workingDir: profile.workingDir
-        })
-      )
-      orchestratorEngine.activate()
-    }
-    for (const slot of profile.agents) {
-      for (let i = 1; i <= slot.count; i++) {
-        spawned.push(
-          await agentManager.spawn({
-            provider: slot.provider,
-            model: slot.model,
-            modelPreset: slot.modelPreset,
-            role: `Subagent · ${slot.role}${slot.count > 1 ? ` #${i}` : ''}`,
-            yolo: slot.yolo || yoloMaster,
-            workingDir: slot.workingDir || profile.workingDir
-          })
-        )
-      }
-    }
-    return spawned
+    return spawnProfileTeam(profile, yoloMaster)
   })
   ipcMain.on(IPC.agentWrite, (_e, id: string, data: string) => agentManager.write(id, data))
   ipcMain.on(IPC.agentResize, (_e, id: string, cols: number, rows: number) =>

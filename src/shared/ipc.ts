@@ -18,6 +18,8 @@ import type {
   AddArtifactInput,
   CreateIdeaInput,
   Idea,
+  IdeaTransferRequest,
+  IdeaTransferResult,
   UpdateIdeaInput
 } from './inbox'
 import type {
@@ -64,6 +66,8 @@ export const IPC = {
   ideasDelete: 'ideas:delete',
   ideasAddArtifact: 'ideas:addArtifact',
   ideasRemoveArtifact: 'ideas:removeArtifact',
+  ideasTransferToProfile: 'ideas:transferToProfile',
+  ideasTransferRetry: 'ideas:transferRetry',
   inboxSpeechStatus: 'inboxSpeech:status',
   inboxSpeechGetSettings: 'inboxSpeech:getSettings',
   inboxSpeechSetSettings: 'inboxSpeech:setSettings',
@@ -267,6 +271,10 @@ export interface OrcaApi {
     delete(id: string): Promise<Idea[]>
     addArtifact(ideaId: string, input: AddArtifactInput): Promise<Idea>
     removeArtifact(ideaId: string, artifactId: string): Promise<Idea>
+    /** Hand idea + artifacts to a workspace profile and start orchestrator planning. */
+    transferToProfile(req: IdeaTransferRequest): Promise<IdeaTransferResult>
+    /** Retry a failed, retryable transfer for the same profile. */
+    transferRetry(ideaId: string, yoloMaster?: boolean): Promise<IdeaTransferResult>
   }
 
   inboxSpeech: {

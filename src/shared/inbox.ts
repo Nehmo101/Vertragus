@@ -2,6 +2,7 @@
  * Ideas & artifacts inbox — shared types and validation.
  */
 import { z } from 'zod'
+import { ideaTransferSchema } from './inboxTransfer'
 
 export const IDEA_STATUSES = ['draft', 'ready', 'archived', 'done'] as const
 export type IdeaStatus = (typeof IDEA_STATUSES)[number]
@@ -39,6 +40,8 @@ export const ideaSchema = z.object({
   tags: z.array(z.string()),
   refs: ideaRefsSchema.optional(),
   artifacts: z.array(ideaArtifactSchema),
+  /** Latest inbox → workspace transfer state (stable transfer id per idea). */
+  transfer: ideaTransferSchema.optional(),
   createdAt: z.number(),
   updatedAt: z.number()
 })
@@ -46,6 +49,8 @@ export const ideaSchema = z.object({
 export type IdeaRefs = z.infer<typeof ideaRefsSchema>
 export type IdeaArtifact = z.infer<typeof ideaArtifactSchema>
 export type Idea = z.infer<typeof ideaSchema>
+
+export type { IdeaTransfer, IdeaTransferRequest, IdeaTransferResult } from './inboxTransfer'
 
 export interface CreateIdeaInput {
   title?: string
@@ -62,6 +67,7 @@ export interface UpdateIdeaInput {
   status?: IdeaStatus
   tags?: string[]
   refs?: IdeaRefs
+  transfer?: import('./inboxTransfer').IdeaTransfer
 }
 
 export interface AddTextArtifactInput {

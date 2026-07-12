@@ -83,6 +83,7 @@ export function updateIdea(input: UpdateIdeaInput): Idea {
     status: input.status ?? current.status,
     tags: input.tags !== undefined ? normalizeTags(input.tags) : current.tags,
     refs: input.refs !== undefined ? input.refs : current.refs,
+    transfer: input.transfer !== undefined ? input.transfer : current.transfer,
     updatedAt: now()
   })
   ideas[idx] = updated

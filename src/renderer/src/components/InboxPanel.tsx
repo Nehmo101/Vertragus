@@ -1,15 +1,24 @@
 ﻿import { useCallback, useEffect, useState } from 'react'
 import type { Idea, IdeaArtifact, IdeaStatus } from '@shared/inbox'
 import { IDEA_STATUSES } from '@shared/inbox'
+import { isTransferActive } from '@shared/inboxTransfer'
 import type { InboxSpeechSettings } from '@shared/inboxSpeech'
 import { DEFAULT_TRANSCRIPTION_ENDPOINT, DEFAULT_TRANSCRIPTION_MODEL } from '@shared/inboxSpeech'
 import { useInboxSpeech } from '@renderer/hooks/useInboxSpeech'
+import IdeaTransferModal from '@renderer/components/IdeaTransferModal'
 
 const STATUS_LABEL: Record<IdeaStatus, string> = {
   draft: 'Entwurf',
   ready: 'Bereit',
   archived: 'Archiv',
   done: 'Erledigt'
+}
+
+const TRANSFER_STATUS_LABEL: Record<string, string> = {
+  pending: 'Übergabe wartet',
+  running: 'Planung läuft',
+  planned: 'Plan im Review',
+  failed: 'Übergabe fehlgeschlagen'
 }
 
 const SPEECH_STATE_LABEL: Record<string, string> = {
@@ -197,6 +206,7 @@ export default function InboxPanel(): JSX.Element {
   const [urlInput, setUrlInput] = useState('')
   const [textInput, setTextInput] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [transferOpen, setTransferOpen] = useState(false)
 
   const refresh = useCallback(async (): Promise<void> => {
     setLoading(true)
@@ -554,6 +564,15 @@ export default function InboxPanel(): JSX.Element {
                 <button
                   type="button"
                   className="inbox-btn"
+                  disabled={saving || speechBusy || isTransferActive(draft.transfer)}
+                  onClick={() => setTransferOpen(true)}
+                  title="Idee an Workspace-Profil übergeben und Orchestrator-Planung starten"
+                >
+                  An Profil übergeben
+                </button>
+                <button
+                  type="button"
+                  className="inbox-btn"
                   disabled={saving || speechBusy}
                   onClick={() => void saveDraft()}
                 >
@@ -568,6 +587,14 @@ export default function InboxPanel(): JSX.Element {
                   L├Âschen
                 </button>
               </div>
+
+              {draft.transfer && (
+                <div className={`inbox-transfer-status status-${draft.transfer.status}`}>
+                  Übergabe {TRANSFER_STATUS_LABEL[draft.transfer.status] ?? draft.transfer.status}
+                  {draft.transfer.error && ` — ${draft.transfer.error}`}
+                  {draft.transfer.planId && ` · Plan ${draft.transfer.planId}`}
+                </div>
+              )}
 
               <label className="inbox-field">
                 <span>Inhalt</span>
@@ -702,6 +729,17 @@ export default function InboxPanel(): JSX.Element {
         onClose={() => setSettingsOpen(false)}
         onSaved={() => void speech.refreshStatus()}
       />
+
+      {transferOpen && draft && (
+        <IdeaTransferModal
+          idea={draft}
+          onClose={() => setTransferOpen(false)}
+          onTransferred={(idea) => {
+            setDraft({ ...idea })
+            void refresh()
+          }}
+        />
+      )}
 
       {confirmDelete && draft && (
         <>
