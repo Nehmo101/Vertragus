@@ -9,7 +9,8 @@ import { DEFAULT_MODELS, DEFAULT_PROVIDER_LIMITS } from '@shared/providers'
 import type { WorkspaceProfile } from '@shared/profile'
 import type { McpServerConfig } from '@shared/mcp'
 import type { OrchestratorSnapshot } from '@shared/orchestrator'
-import type { AppInfo, GitInfo } from '@shared/ipc'
+import type { AppInfo, GitInfo, GithubAuthStatus } from '@shared/ipc'
+import { profileRepoLocalPath } from '@shared/profile'
 
 const ADD_ROLES = ['Docs / Changelog', 'Refactor / Cleanup', 'Security-Review', 'Perf / Bench']
 
@@ -34,9 +35,11 @@ interface AppState {
   /** True while the MCP-server manager modal is open. */
   mcpEditorOpen: boolean
   gitInfo: GitInfo | null
+  githubAuth: GithubAuthStatus | null
   agents: AgentInstanceInfo[]
   events: OrcaEvent[]
   orchestrator: OrchestratorSnapshot
+  orchestrators: Record<string, OrchestratorSnapshot>
   yoloMaster: boolean
   theme: UiTheme
   workspaceLayout: WorkspaceLayout
@@ -50,6 +53,10 @@ interface AppState {
 
   init(): Promise<void>
   refreshHealth(): Promise<void>
+  refreshGithubAuth(): Promise<void>
+  githubLogin(): Promise<void>
+  githubLogout(): Promise<void>
+  githubTerminalLogin(): Promise<void>
   loginProvider(id: ProviderId): Promise<void>
   refreshGit(): Promise<void>
   selectProfile(id: string): Promise<boolean>
@@ -72,6 +79,7 @@ interface AppState {
   openEditorNew(): void
   closeEditor(): void
   saveEditor(profile: WorkspaceProfile): Promise<void>
+  deleteProfile(id: string): Promise<void>
   openMcpEditor(): void
   closeMcpEditor(): void
   saveMcpServers(servers: McpServerConfig[]): Promise<void>
@@ -86,6 +94,20 @@ export function activeProfile(s: Pick<AppState, 'profiles' | 'activeProfileId'>)
   return s.profiles.find((p) => p.id === s.activeProfileId)
 }
 
+export function workspaceAgents(
+  state: Pick<AppState, 'agents' | 'activeProfileId'>
+): AgentInstanceInfo[] {
+  return state.agents.filter(
+    (agent) => !agent.profileId || agent.profileId === state.activeProfileId
+  )
+}
+
+export function workspaceEvents(
+  state: Pick<AppState, 'events' | 'activeProfileId'>
+): OrcaEvent[] {
+  return state.events.filter((event) => !event.profileId || event.profileId === state.activeProfileId)
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   appInfo: null,
   health: [],
@@ -96,9 +118,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   mcpServers: [],
   mcpEditorOpen: false,
   gitInfo: null,
+  githubAuth: null,
   agents: [],
   events: [],
   orchestrator: { goal: null, tasks: [] },
+  orchestrators: {},
   yoloMaster: false,
   theme: 'light',
   workspaceLayout: 'tiles',
@@ -128,7 +152,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       set((s) => ({ events: [...s.events.slice(-199), evt] }))
     )
     window.orca.onProvidersChanged((health) => set({ health }))
-    window.orca.orchestrator.onSnapshot((snap) => set({ orchestrator: snap }))
+    window.orca.orchestrator.onSnapshot((snap) =>
+      set((state) => {
+        const profileId = snap.profileId
+        if (!profileId) return { orchestrator: snap }
+        const orchestrators = { ...state.orchestrators, [profileId]: snap }
+        return profileId === state.activeProfileId
+          ? { orchestrators, orchestrator: snap }
+          : { orchestrators }
+      })
+    )
 
     const [appInfo, profiles, activeProfileId, mcpServers, agents, yolo, snapshot, theme, layout, density, limits] =
       await Promise.all([
@@ -138,7 +171,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         window.orca.listMcpServers(),
         window.orca.agents.list(),
         window.orca.getConfig<boolean>('yoloMaster'),
-        window.orca.orchestrator.snapshot(),
+        window.orca.getActiveProfileId().then((profileId) =>
+          window.orca.orchestrator.snapshot(profileId)),
         window.orca.getConfig<UiTheme>('ui.theme'),
         window.orca.getConfig<WorkspaceLayout>('ui.workspaceLayout'),
         window.orca.getConfig<UiDensity>('ui.density'),
@@ -152,6 +186,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       agents,
       yoloMaster: yolo ?? false,
       orchestrator: snapshot,
+      orchestrators: { [activeProfileId]: snapshot },
       theme: theme === 'dark' ? 'dark' : 'light',
       workspaceLayout: layout === 'focus' || layout === 'dag' ? layout : 'tiles',
       uiDensity: density === 'compact' ? density : 'comfortable',
@@ -160,7 +195,43 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     void get().refreshGit()
     void get().refreshHealth()
+    void get().refreshGithubAuth()
     void window.orca.listModels().then((models) => set({ models }))
+  },
+
+  async refreshGithubAuth() {
+    const githubAuth = await window.orca.githubAuthStatus()
+    set({ githubAuth })
+  },
+
+  async githubLogin() {
+    try {
+      const githubAuth = await window.orca.githubAuthLogin()
+      set({ githubAuth })
+      void get().refreshHealth()
+      get().showToast(
+        githubAuth.authenticated
+          ? `GitHub verbunden${githubAuth.account ? ` als ${githubAuth.account}` : ''}.`
+          : 'GitHub-Anmeldung unvollständig.'
+      )
+    } catch (error) {
+      get().showToast(`GitHub-Login fehlgeschlagen: ${errorMessage(error)}`)
+    }
+  },
+
+  async githubLogout() {
+    try {
+      const githubAuth = await window.orca.githubAuthLogout()
+      set({ githubAuth })
+      void get().refreshHealth()
+      get().showToast('GitHub abgemeldet.')
+    } catch (error) {
+      get().showToast(`GitHub-Abmeldung fehlgeschlagen: ${errorMessage(error)}`)
+    }
+  },
+
+  async githubTerminalLogin() {
+    await get().loginProvider('github')
   },
 
   async refreshHealth() {
@@ -181,9 +252,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   async refreshGit() {
     const profile = activeProfile(get())
-    const gitInfo = profile?.workingDir
-      ? await window.orca.gitInfo(profile.workingDir)
-      : { isRepo: false }
+    const dir = profile ? profileRepoLocalPath(profile) : ''
+    const gitInfo = dir ? await window.orca.gitInfo(dir) : { isRepo: false }
     set({ gitInfo })
   },
 
@@ -196,7 +266,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     try {
       await window.orca.setActiveProfileId(id)
-      set({ activeProfileId: id })
+      const snapshot = await window.orca.orchestrator.snapshot(id)
+      set((state) => ({
+        activeProfileId: id,
+        orchestrator: snapshot,
+        orchestrators: { ...state.orchestrators, [id]: snapshot }
+      }))
       await get().refreshGit().catch((error) => {
         get().showToast(`Profil gewechselt, Git-Status nicht verfügbar: ${errorMessage(error)}`)
       })
@@ -263,7 +338,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   async cleanWorkspace() {
-    await window.orca.agents.clean()
+    await window.orca.agents.clean(get().activeProfileId)
     get().showToast('Workspace geleert — alle Agents entfernt.')
   },
 
@@ -279,7 +354,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         model: '',
         role: `Subagent · ${role}`,
         yolo: s.yoloMaster,
-        workingDir: profile?.workingDir
+        workingDir: profile?.workingDir,
+        profileId: profile?.id
       })
       set({ addSeq: s.addSeq + 1 })
       get().showToast('Neuer Subagent gestartet — Codex-Default')
@@ -330,20 +406,21 @@ export const useAppStore = create<AppState>((set, get) => ({
         id: `profile-${Date.now().toString(36)}`,
         name: 'Neues Profil',
         workingDir: activeProfile(get())?.workingDir ?? '',
-        orchestrator: { provider: 'claude', model: 'fable', autoOpenSubwindows: true },
+        orchestrator: { provider: 'claude', model: 'fable', modelPreset: 'balanced', autoOpenSubwindows: true },
         agents: [
           {
             // Empty model = codex's own configured default (see DEFAULT_PROFILE).
             role: 'worker',
             provider: 'codex',
             model: '',
+            modelPreset: 'balanced',
             count: 1,
             orchestrated: true,
             yolo: false
           }
         ],
         yoloDefault: false,
-        planner: { mode: 'review', maxParallel: 6, taskTimeoutMinutes: 30 },
+        planner: { mode: 'review', maxParallel: 6 },
         autoPr: {
           mode: 'off',
           strategy: 'aggregate',
@@ -368,6 +445,26 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (selected) get().showToast(`Profil „${profile.name}" gespeichert.`)
     } catch (error) {
       get().showToast(`Profil konnte nicht gespeichert werden: ${errorMessage(error)}`)
+    }
+  },
+
+  async deleteProfile(id) {
+    const profile = get().profiles.find((item) => item.id === id)
+    if (!profile) return
+
+    try {
+      const profiles = await window.orca.deleteProfile(id)
+      const activeProfileId = await window.orca.getActiveProfileId()
+      set({ profiles, activeProfileId, editorProfile: null })
+      await get().refreshGit().catch(() => undefined)
+      const replacementCreated = !profiles.some((item) => item.id === id)
+      get().showToast(
+        replacementCreated
+          ? `Profil „${profile.name}" gelöscht. Das Standardprofil wurde wiederhergestellt.`
+          : `Profil „${profile.name}" gelöscht.`
+      )
+    } catch (error) {
+      get().showToast(`Profil konnte nicht gelöscht werden: ${errorMessage(error)}`)
     }
   },
 

@@ -21,6 +21,7 @@ const orca: OrcaApi = {
     onState: (cb) => subscribe<UpdateState>(IPC.evAppUpdateState, cb)
   },
   checkProviders: () => ipcRenderer.invoke(IPC.providersHealth),
+  getProviderCapacity: () => ipcRenderer.invoke(IPC.providersCapacity),
   loginProvider: (id) => ipcRenderer.invoke(IPC.providerLogin, id),
   onProvidersChanged: (cb) => subscribe<ProviderHealth[]>(IPC.evProvidersHealth, cb),
   listModels: () => ipcRenderer.invoke(IPC.providersModels),
@@ -38,7 +39,38 @@ const orca: OrcaApi = {
 
   gitInfo: (dir) => ipcRenderer.invoke(IPC.gitInfo, dir),
   githubProjects: (dir, owner) => ipcRenderer.invoke(IPC.githubProjects, dir, owner),
+  githubAuthStatus: () => ipcRenderer.invoke(IPC.githubAuthStatus),
+  githubAuthLogin: () => ipcRenderer.invoke(IPC.githubAuthLogin),
+  githubAuthLogout: () => ipcRenderer.invoke(IPC.githubAuthLogout),
+  githubRepoSearch: (query, limit) => ipcRenderer.invoke(IPC.githubRepoSearch, query, limit),
+  githubRepoResolve: (owner, repo) => ipcRenderer.invoke(IPC.githubRepoResolve, owner, repo),
+  githubRepoBind: (req) => ipcRenderer.invoke(IPC.githubRepoBind, req),
+  githubRepoCheckLocal: (owner, repo, localPath) =>
+    ipcRenderer.invoke(IPC.githubRepoCheckLocal, owner, repo, localPath),
   pickFolder: () => ipcRenderer.invoke(IPC.dialogPickFolder),
+  pickFile: () => ipcRenderer.invoke(IPC.dialogPickFile),
+
+  inbox: {
+    list: () => ipcRenderer.invoke(IPC.ideasList),
+    get: (id) => ipcRenderer.invoke(IPC.ideasGet, id),
+    create: (input) => ipcRenderer.invoke(IPC.ideasCreate, input),
+    update: (input) => ipcRenderer.invoke(IPC.ideasUpdate, input),
+    delete: (id) => ipcRenderer.invoke(IPC.ideasDelete, id),
+    addArtifact: (ideaId, input) => ipcRenderer.invoke(IPC.ideasAddArtifact, ideaId, input),
+    removeArtifact: (ideaId, artifactId) =>
+      ipcRenderer.invoke(IPC.ideasRemoveArtifact, ideaId, artifactId),
+    transferToProfile: (req) => ipcRenderer.invoke(IPC.ideasTransferToProfile, req),
+    transferRetry: (ideaId, yoloMaster) =>
+      ipcRenderer.invoke(IPC.ideasTransferRetry, ideaId, yoloMaster)
+  },
+
+  inboxSpeech: {
+    status: () => ipcRenderer.invoke(IPC.inboxSpeechStatus),
+    getSettings: () => ipcRenderer.invoke(IPC.inboxSpeechGetSettings),
+    setSettings: (patch) => ipcRenderer.invoke(IPC.inboxSpeechSetSettings, patch),
+    transcribe: (payload) => ipcRenderer.invoke(IPC.inboxSpeechTranscribe, payload),
+    abort: () => ipcRenderer.invoke(IPC.inboxSpeechAbort)
+  },
 
   agents: {
     list: () => ipcRenderer.invoke(IPC.agentsList),
@@ -49,7 +81,7 @@ const orca: OrcaApi = {
     resize: (id, cols, rows) => ipcRenderer.send(IPC.agentResize, id, cols, rows),
     kill: (id) => ipcRenderer.invoke(IPC.agentKill, id),
     killAll: () => ipcRenderer.invoke(IPC.agentsKillAll),
-    clean: () => ipcRenderer.invoke(IPC.agentsClean),
+    clean: (profileId) => ipcRenderer.invoke(IPC.agentsClean, profileId),
     buffer: (id) => ipcRenderer.invoke(IPC.agentBuffer, id),
     popout: (id) => ipcRenderer.invoke(IPC.agentPopout, id),
     handoff: (req) => ipcRenderer.invoke(IPC.agentHandoff, req),
@@ -59,9 +91,9 @@ const orca: OrcaApi = {
   },
 
   orchestrator: {
-    snapshot: () => ipcRenderer.invoke(IPC.orchestratorSnapshot),
-    reset: () => ipcRenderer.invoke(IPC.orchestratorReset),
-    reviewPlan: (approved) => ipcRenderer.invoke(IPC.orchestratorReviewPlan, approved),
+    snapshot: (profileId) => ipcRenderer.invoke(IPC.orchestratorSnapshot, profileId),
+    reset: (profileId) => ipcRenderer.invoke(IPC.orchestratorReset, profileId),
+    reviewPlan: (profileId, approved) => ipcRenderer.invoke(IPC.orchestratorReviewPlan, profileId, approved),
     onSnapshot: (cb) => subscribe<OrchestratorSnapshot>(IPC.evOrchestrator, cb)
   },
 

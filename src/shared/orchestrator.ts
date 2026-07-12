@@ -56,6 +56,9 @@ export interface PendingPlanReview {
 }
 
 export interface OrchestratorSnapshot {
+  /** Workspace ownership for multi-session renderer routing. */
+  profileId?: string
+  workspaceSessionId?: string
   goal: OrchestratorGoal | null
   tasks: OrcaTask[]
   pendingPlan?: PendingPlanReview

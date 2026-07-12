@@ -16,7 +16,8 @@ import { z } from 'zod'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
-import { orchestratorEngine } from '@main/orchestrator/Engine'
+import { orchestratorEngine, type OrchestratorEngine } from '@main/orchestrator/Engine'
+import { workspaceSessions } from '@main/orchestrator/WorkspaceSessionRegistry'
 import { setMcpHandle, type McpServerHandle } from '@main/orchestrator/mcpHandle'
 
 const ORCHESTRATOR_TOOLS = [
@@ -33,7 +34,7 @@ function text(s: string): ToolText {
   return { content: [{ type: 'text', text: s }] }
 }
 
-function buildMcpServer(): McpServer {
+function buildMcpServer(engine: OrchestratorEngine = orchestratorEngine): McpServer {
   const server = new McpServer(
     { name: 'orca-strator', version: '0.1.0' },
     { instructions: 'Orchestration tools for delegating work to Orca-Strator subagents.' }
@@ -63,7 +64,7 @@ function buildMcpServer(): McpServer {
     { title: z.string().describe('Kurzer Titel des Ziels, z.B. "Checkout-Flow v2"') },
     async (args) => {
       const title = String(args.title ?? '')
-      orchestratorEngine.setGoal(title)
+      engine.setGoal(title)
       return text(`Ziel gesetzt: ${title}`)
     }
   )
@@ -72,7 +73,7 @@ function buildMcpServer(): McpServer {
     'list_subagents',
     'Liste die verfügbaren Subagent-Rollen (Provider, Modell, Kapazität), an die du delegieren kannst.',
     {},
-    async () => text(JSON.stringify(orchestratorEngine.listSubagents(), null, 2))
+    async () => text(JSON.stringify(engine.listSubagents(), null, 2))
   )
 
   register(
@@ -85,7 +86,7 @@ function buildMcpServer(): McpServer {
       title: z.string().optional().describe('Optionaler Kurztitel für die Aufgaben-Ansicht')
     },
     async (args) => {
-      const result = await orchestratorEngine.dispatch(
+      const result = await engine.dispatch(
         String(args.role ?? 'worker'),
         String(args.prompt ?? ''),
         args.title ? String(args.title) : undefined
@@ -112,7 +113,7 @@ function buildMcpServer(): McpServer {
     },
     async (args) => {
       const tasks = (args.tasks as Array<{ role: string; prompt: string; title?: string }>) ?? []
-      const result = await orchestratorEngine.dispatchBatch(tasks)
+      const result = await engine.dispatchBatch(tasks)
       return text(result)
     }
   )
@@ -150,7 +151,7 @@ function buildMcpServer(): McpServer {
             }
           })
         : rawPlan?.tasks
-      const result = await orchestratorEngine.executePlan({
+      const result = await engine.executePlan({
         ...rawPlan,
         version: 1,
         tasks: rawTasks
@@ -168,7 +169,7 @@ function buildMcpServer(): McpServer {
       prompt: z.string().optional().describe('Optionaler Start-Prompt')
     },
     async (args) => {
-      const id = await orchestratorEngine.openSubwindow(
+      const id = await engine.openSubwindow(
         String(args.role ?? 'worker'),
         args.prompt ? String(args.prompt) : undefined
       )
@@ -233,7 +234,12 @@ export async function startMcpServer(): Promise<McpServerHandle> {
         transport.onclose = (): void => {
           if (transport!.sessionId) transports.delete(transport!.sessionId)
         }
-        await buildMcpServer().connect(transport)
+        const workspaceSessionId = url.searchParams.get('workspaceSession')
+        const engine = workspaceSessionId
+          ? workspaceSessions.getById(workspaceSessionId)?.engine
+          : orchestratorEngine
+        if (!engine) throw new Error('Workspace-Session ist nicht mehr aktiv.')
+        await buildMcpServer(engine).connect(transport)
       }
       if (!transport) {
         res.writeHead(400, { 'Content-Type': 'application/json' }).end(

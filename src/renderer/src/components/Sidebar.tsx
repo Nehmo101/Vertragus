@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { useAppStore } from '@renderer/store/useAppStore'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import { profileSummary, profileAgentCount } from '@renderer/components/TitleBar'
@@ -84,12 +85,29 @@ function ProviderRow({ id }: { id: ProviderId }): JSX.Element {
 }
 
 
+function useHashRoute(): string {
+  const [hash, setHash] = useState(() => window.location.hash)
+  useEffect(() => {
+    const onChange = (): void => setHash(window.location.hash)
+    window.addEventListener('hashchange', onChange)
+    return () => window.removeEventListener('hashchange', onChange)
+  }, [])
+  return hash
+}
+
 export default function Sidebar(): JSX.Element {
   const store = useAppStore()
+  const hash = useHashRoute()
   const aiIds: ProviderId[] = ['claude', 'codex', 'cursor', 'copilot', 'ollama']
   const onlineCount = aiIds.filter(
     (id) => store.health.find((h) => h.id === id)?.available
   ).length
+  const runningByProfile = new Map<string, number>()
+  for (const agent of store.agents) {
+    if (!agent.profileId || (agent.status !== 'running' && agent.status !== 'waiting')) continue
+    runningByProfile.set(agent.profileId, (runningByProfile.get(agent.profileId) ?? 0) + 1)
+  }
+
 
   return (
     <aside className="sidebar">
@@ -167,6 +185,41 @@ export default function Sidebar(): JSX.Element {
 
       <div className="side-sep" />
 
+      <div className="side-caption" style={{ paddingTop: 10 }}>
+        <span>Navigation</span>
+      </div>
+      <div className="side-list" style={{ paddingBottom: 8 }}>
+        <button
+          type="button"
+          className={`nav-row ${hash === '#/inbox' ? 'active' : ''}`}
+          onClick={() => {
+            window.location.hash = '#/inbox'
+          }}
+          title="Ideen und Artefakte verwalten"
+        >
+          <span className="nav-icon">📥</span>
+          <div className="info">
+            <div className="name">Ideen-Inbox</div>
+            <div className="summary">Notizen · Sprache · Dateien</div>
+          </div>
+        </button>
+        <button
+          type="button"
+          className={`nav-row ${hash !== '#/inbox' ? 'active' : ''}`}
+          onClick={() => {
+            window.location.hash = ''
+          }}
+          title="Agent-Workspace"
+        >
+          <span className="nav-icon">▦</span>
+          <div className="info">
+            <div className="name">Workspace</div>
+            <div className="summary">Agents &amp; Terminals</div>
+          </div>
+        </button>
+      </div>
+
+      <div className="side-sep" />
 
       <div className="side-caption" style={{ paddingTop: 10 }}>
         <span>Workspace-Profile</span>
@@ -190,7 +243,11 @@ export default function Sidebar(): JSX.Element {
               <div className="name">{p.name}</div>
               <div className="summary">{profileSummary(p)}</div>
             </div>
-            <span className="profile-count">{profileAgentCount(p)}</span>
+            <span className={`profile-count ${runningByProfile.has(p.id) ? 'running' : ''}`}>
+              {runningByProfile.has(p.id)
+                ? `${runningByProfile.get(p.id)} aktiv`
+                : profileAgentCount(p)}
+            </span>
           </button>
         ))}
       </div>

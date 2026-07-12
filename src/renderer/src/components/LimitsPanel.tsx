@@ -1,9 +1,11 @@
+import { useEffect, useState } from 'react'
 import { useAppStore } from '@renderer/store/useAppStore'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import type { AgentProviderId } from '@shared/providers'
+import type { ProviderCapacitySnapshot } from '@shared/ipc'
 
-/** Agent providers surfaced in the Limits panel (integrations excluded). */
-const PANEL_PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'cursor', 'ollama']
+/** All agent providers surfaced in the Limits panel (integrations excluded). */
+const PANEL_PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'cursor', 'copilot', 'ollama']
 
 function fmtTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
@@ -15,6 +17,7 @@ function fmtTokens(n: number): string {
 interface ProviderUsage {
   id: AgentProviderId
   active: number
+  waiting: number
   tokens: number
   cost: number
   limit: number
@@ -24,22 +27,47 @@ interface ProviderUsage {
  * Live per-provider budget view — "wie viele Agents laufen gerade je Provider,
  * und wie viel verbrauchen sie". Always visible on the right so the user can see
  * their limits at a glance while a mixed team (Claude + Codex + Cursor …) runs.
- * The per-provider limit is an editable concurrency budget persisted to config.
+ * Active/waiting counts come from the main-process capacity gate; token/cost from agents.
  */
 export default function LimitsPanel(): JSX.Element {
   const agents = useAppStore((s) => s.agents)
   const limits = useAppStore((s) => s.providerLimits)
   const setProviderLimit = useAppStore((s) => s.setProviderLimit)
+  const [capacity, setCapacity] = useState<Record<AgentProviderId, ProviderCapacitySnapshot> | null>(
+    null
+  )
+
+  useEffect(() => {
+    let cancelled = false
+    const refresh = (): void => {
+      void window.orca.getProviderCapacity().then((stats) => {
+        if (!cancelled) setCapacity(stats)
+      })
+    }
+    refresh()
+    return () => {
+      cancelled = true
+    }
+  }, [agents, limits])
 
   const rows: ProviderUsage[] = PANEL_PROVIDERS.map((id) => {
     const list = agents.filter((a) => a.provider === id)
-    const active = list.filter((a) => a.status === 'running' || a.status === 'waiting').length
+    const gate = capacity?.[id]
+    const active = gate?.active ?? list.filter((a) => a.status === 'running' || a.status === 'waiting').length
+    const waiting = gate?.waiting ?? 0
     const tokens = list.reduce(
       (n, a) => n + (a.usage?.tokensIn ?? 0) + (a.usage?.tokensOut ?? 0),
       0
     )
     const cost = list.reduce((n, a) => n + (a.usage?.costUsd ?? 0), 0)
-    return { id, active, tokens, cost, limit: limits[id] ?? 0 }
+    return {
+      id,
+      active,
+      waiting,
+      tokens,
+      cost,
+      limit: gate?.limit ?? limits[id] ?? 0
+    }
   })
 
   const totalActive = rows.reduce((n, r) => n + r.active, 0)
@@ -92,8 +120,12 @@ export default function LimitsPanel(): JSX.Element {
                 >
                   −
                 </button>
-                <span className={`limit-count-val ${over ? 'over' : ''}`} title="aktiv / Limit">
+                <span
+                  className={`limit-count-val ${over ? 'over' : ''}`}
+                  title={r.waiting > 0 ? `${r.waiting} wartend · aktiv / Limit` : 'aktiv / Limit'}
+                >
                   {r.active}/{r.limit}
+                  {r.waiting > 0 ? ` (+${r.waiting})` : ''}
                 </span>
                 <button
                   type="button"

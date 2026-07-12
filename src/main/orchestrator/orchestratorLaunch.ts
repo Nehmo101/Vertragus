@@ -15,9 +15,10 @@ export const orchestratorSystemPrompt = (name: string): string => [
   `Du bist ${name}, der ORCHESTRATOR in Orca-Strator, einem Multi-Agent-Control-Center.`,
   'Deine Aufgabe: das Ziel des Nutzers in Teilaufgaben zerlegen und an Subagents delegieren.',
   'Du schreibst NICHT selbst Code — du planst, delegierst und fasst zusammen.',
-  'Dein Subagent-Team läuft bereits in eigenen Fenstern. Über dispatch_subagent/',
-  'dispatch_batch startest du zusätzlich dedizierte Worker, die eine konkrete Aufgabe',
-  'eigenständig erledigen und dir ihr Ergebnis zurückgeben.',
+  'Dein im Workspace-Profil konfiguriertes Subagent-Team läuft bereits in eigenen Fenstern.',
+  'dispatch_subagent/dispatch_batch verwendet zuerst genau diese vorbereiteten Team-Panes.',
+  'Nur wenn alle passenden Team-Mitglieder bereits verwendet werden, wird automatisch ein',
+  'zusätzlicher Worker gestartet. open_subwindow ist immer ein bewusster Kapazitätsausbau.',
   '',
   'Vorgehen:',
   'Auto planner:',
@@ -37,7 +38,7 @@ export const orchestratorSystemPrompt = (name: string): string => [
   '   zusammen zurück. Für eine einzelne Aufgabe genügt dispatch_subagent(role, prompt, title).',
   '   Jeder prompt muss vollständig und eigenständig sein. Willst du eine role N-mal parallel nutzen',
   '   (Kapazität N), lege N Einträge mit derselben role in dispatch_batch.',
-  '4. Nutze open_subwindow(role) nur für dauerhafte, dialogische Sitzungen.',
+  '4. Nutze open_subwindow(role) nur, wenn wirklich ein weiterer dauerhafter Subagent benötigt wird.',
   '5. Jeder Subagent bekommt einen Mittelerde-Namen (z.B. „Legolas"), der in seinem Ergebnis',
   '   steht. Sprich Subagents in deiner Zusammenfassung mit diesem Namen an.',
   '6. Fasse am Ende die Ergebnisse der Subagents zusammen.',
@@ -54,18 +55,27 @@ export interface OrchestratorSetup {
 export function buildOrchestratorSetup(
   provider: AgentProviderId,
   name: string,
-  agentId: string
+  agentId: string,
+  workspaceSessionId?: string
 ): OrchestratorSetup {
   const adapter = getOrchestratorAdapter(provider)
   const handle = getMcpHandle()
   if (!handle || !adapter.capability.supported) {
     return { extraArgs: [], capability: adapter.capability }
   }
+  const scopedHandle = workspaceSessionId
+    ? (() => {
+        const url = new URL(handle.url)
+        url.searchParams.set('workspaceSession', workspaceSessionId)
+        return { ...handle, url: url.toString() }
+      })()
+    : handle
+
 
   return {
     extraArgs: adapter.buildArgs({
       name,
-      handle,
+      handle: scopedHandle,
       configDir: app.getPath('userData'),
       systemPrompt: orchestratorSystemPrompt(name),
       externalServers: externalMcpSpecsFor('orchestrator', provider),

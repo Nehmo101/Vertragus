@@ -8,6 +8,7 @@ import ProfileEditor from '@renderer/components/ProfileEditor'
 import McpServerEditor from '@renderer/components/McpServerEditor'
 import HandoffModal from '@renderer/components/HandoffModal'
 import PaneWindow from '@renderer/components/PaneWindow'
+import InboxPanel from '@renderer/components/InboxPanel'
 
 function useHashRoute(): string {
   const [hash, setHash] = useState(() => window.location.hash)
@@ -57,7 +58,7 @@ export default function App(): JSX.Element {
 
       <div className={`body-row layout-${store.workspaceLayout}`}>
         <Sidebar />
-        <Workspace />
+        {hash === '#/inbox' ? <InboxPanel /> : <Workspace />}
         <OrchestratorPanel />
       </div>
 

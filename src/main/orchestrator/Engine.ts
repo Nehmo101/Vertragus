@@ -18,7 +18,13 @@ import type {
   OrchestratorSnapshot,
   SubagentDescriptor
 } from '@shared/orchestrator'
-import type { AgentSlot, WorkspaceProfile } from '@shared/profile'
+import {
+  agentSlotsWithRoles,
+  profileDefaultBaseBranch,
+  type AgentSlot,
+  type WorkspaceProfile
+} from '@shared/profile'
+import { resolveModel } from '@shared/models'
 import { agentManager } from '@main/agents/AgentManager'
 import {
   getProfile,
@@ -55,10 +61,15 @@ export class OrchestratorEngine extends EventEmitter {
   private pendingPlanResolve: ((approved: boolean) => void) | undefined
   /** Per-role capacity limiter — count = max parallel subagents of that role. */
   private boundProfile: WorkspaceProfile | undefined
+  private readonly workspaceSessionId: string | undefined
 
-  constructor() {
+  constructor(options: { profile?: WorkspaceProfile; workspaceSessionId?: string } = {}) {
     super()
-    const restored = getSetting<OrchestratorSnapshot>('orchestratorSnapshot')
+    this.boundProfile = options.profile
+      ? { ...options.profile, agents: options.profile.agents.map((slot) => ({ ...slot })) }
+      : undefined
+    this.workspaceSessionId = options.workspaceSessionId
+    const restored = getSetting<OrchestratorSnapshot>(this.persistenceKey())
     if (!restored || !Array.isArray(restored.tasks)) return
     this.goal = restored.goal
       ? { ...restored.goal, active: false }
@@ -79,6 +90,8 @@ export class OrchestratorEngine extends EventEmitter {
 
   snapshot(): OrchestratorSnapshot {
     return {
+      profileId: this.boundProfile?.id,
+      workspaceSessionId: this.workspaceSessionId,
       goal: this.goal,
       tasks: [...this.tasks.values()].sort((a, b) => a.createdAt - b.createdAt),
       pendingPlan: this.pendingPlan
@@ -88,7 +101,7 @@ export class OrchestratorEngine extends EventEmitter {
   private push(): void {
     const snapshot = this.snapshot()
     try {
-      setSetting('orchestratorSnapshot', snapshot)
+      setSetting(this.persistenceKey(), snapshot)
     } catch (error) {
       console.warn('[Orchestrator] snapshot persistence failed', error)
     }
@@ -103,8 +116,13 @@ export class OrchestratorEngine extends EventEmitter {
     this.tasks.clear()
     this.limiters.clear()
     this.preparedChanges.clear()
-    this.boundProfile = undefined
     this.push()
+  }
+
+  private persistenceKey(): string {
+    return this.boundProfile?.id
+      ? `orchestratorSnapshot:${this.boundProfile.id}`
+      : 'orchestratorSnapshot'
   }
 
   reviewPlan(approved: boolean): boolean {
@@ -138,8 +156,8 @@ export class OrchestratorEngine extends EventEmitter {
   }
 
   /** Called when an orchestrator agent starts, to mark the goal active. */
-  activate(): void {
-    const profile = getProfile(getActiveProfileId())
+  activate(profileOverride?: WorkspaceProfile): void {
+    const profile = profileOverride ?? this.boundProfile ?? getProfile(getActiveProfileId())
     this.boundProfile = profile
       ? { ...profile, agents: profile.agents.map((slot) => ({ ...slot })) }
       : undefined
@@ -157,35 +175,27 @@ export class OrchestratorEngine extends EventEmitter {
     return this.boundProfile ?? getProfile(getActiveProfileId())
   }
 
-  /** Slots the orchestrator is allowed to dispatch to. */
-  private dispatchableSlots(): AgentSlot[] {
-    const profile = this.activeProfile()
-    const slots = (profile?.agents ?? []).filter((s) => s.orchestrated)
-    if (slots.length > 0) return slots
-    // Fallback so the orchestrator always has somewhere to dispatch.
-    return [{ role: 'worker', provider: 'codex', model: '', count: 3, orchestrated: true, yolo: false }]
-  }
-
   /**
-   * Assign each slot a UNIQUE role the orchestrator can target. Slots often
-   * share the default role "worker" (or none), which would make them
-   * indistinguishable; fall back to the provider name and suffix duplicates.
+   * Assign every profile slot a stable role before filtering dispatchability.
+   * This keeps duplicate-role suffixes identical to the already-started team,
+   * even when an earlier slot with the same role is not orchestrated.
    */
   private slotsWithRoles(): Array<{ slot: AgentSlot; role: string }> {
-    const seen = new Map<string, number>()
-    return this.dispatchableSlots().map((slot) => {
-      const base = (slot.role?.trim() || slot.provider).toLowerCase()
-      const n = seen.get(base) ?? 0
-      seen.set(base, n + 1)
-      return { slot, role: n === 0 ? base : `${base}-${n + 1}` }
-    })
+    const configured = agentSlotsWithRoles(this.activeProfile()?.agents ?? []).filter(
+      ({ slot }) => slot.orchestrated
+    )
+    if (configured.length > 0) return configured
+    // Fallback so the orchestrator always has somewhere to dispatch.
+    return agentSlotsWithRoles([
+      { role: 'worker', provider: 'codex', model: '', count: 3, orchestrated: true, yolo: false }
+    ])
   }
 
   listSubagents(): SubagentDescriptor[] {
     return this.slotsWithRoles().map(({ slot, role }) => ({
       role,
       provider: slot.provider,
-      model: slot.model,
+      model: resolveModel(slot.provider, slot),
       capacity: slot.count,
       busy: this.limiters.get(role)?.inUse ?? 0
     }))
@@ -224,7 +234,7 @@ export class OrchestratorEngine extends EventEmitter {
       title: title?.trim() || prompt.split('\n')[0].slice(0, 60),
       role: slotRole,
       provider: slot.provider,
-      model: slot.model,
+      model: resolveModel(slot.provider, slot),
       status: 'queued',
       yolo,
       createdAt: Date.now(),
@@ -241,20 +251,22 @@ export class OrchestratorEngine extends EventEmitter {
     this.push()
 
     const subSystemPrompt =
-      'Du bist ein Subagent in Orca-Strator, beauftragt vom Orchestrator. ' +
+      'Du bist ein namentlich gekennzeichneter Subagent in Orca-Strator, beauftragt vom Orchestrator. ' +
       'Erledige die Aufgabe eigenständig und fasse das Ergebnis am Ende knapp zusammen.'
 
     try {
       const { info, done } = await agentManager.runTask({
         provider: slot.provider,
         model: slot.model,
+        modelPreset: slot.modelPreset,
         role: slotRole,
         taskId,
         prompt,
         systemPrompt: subSystemPrompt,
         yolo,
         workingDir: slot.workingDir || profile?.workingDir,
-        timeoutMs: (profile?.planner.taskTimeoutMinutes ?? 30) * 60_000
+        profileId: profile?.id,
+        workspaceSessionId: this.workspaceSessionId
       })
       task.agentId = info.id
       task.agentName = info.name
@@ -353,7 +365,7 @@ export class OrchestratorEngine extends EventEmitter {
             title: planned.title,
             role: selected.role,
             provider: selected.slot.provider,
-            model: selected.slot.model,
+            model: resolveModel(selected.slot.provider, selected.slot),
             status: 'stopped',
             note: reason,
             planId,
@@ -383,7 +395,7 @@ export class OrchestratorEngine extends EventEmitter {
         title: task.title,
         role: selected.role,
         provider: selected.slot.provider,
-        model: selected.slot.model,
+        model: resolveModel(selected.slot.provider, selected.slot),
         status: 'stopped',
         note: reason,
         dependsOn: task.dependsOn.map((id) => runtimeIds.get(id)!),
@@ -493,7 +505,8 @@ export class OrchestratorEngine extends EventEmitter {
       config: profile.autoPr,
       goalId: this.goal?.id ?? planId ?? 'goal',
       goalTitle: this.goal?.title ?? 'Orca-Strator Aufgabe',
-      changes
+      changes,
+      profileDefaultBranch: profileDefaultBaseBranch(profile)
     })
     const changedCommits = new Set(changes.map((change) => change.commit))
     for (const task of this.tasks.values()) {
@@ -516,15 +529,17 @@ export class OrchestratorEngine extends EventEmitter {
     const info = await agentManager.spawn({
       provider: slot.provider,
       model: slot.model,
+      modelPreset: slot.modelPreset,
       role: `Subagent · ${slotRole}`,
       kind: 'sub',
       yolo: slot.yolo || (profile?.yoloDefault ?? false),
-      workingDir: slot.workingDir || profile?.workingDir
+      workingDir: slot.workingDir || profile?.workingDir,
+      profileId: profile?.id,
+      workspaceSessionId: this.workspaceSessionId
     })
     createPaneWindow(info.id)
     if (prompt) {
-      // Give the interactive CLI a moment to boot before feeding the prompt.
-      setTimeout(() => agentManager.write(info.id, prompt + '\r'), 1500)
+      void agentManager.seedInteractive(info.id, prompt)
     }
     return info.id
   }

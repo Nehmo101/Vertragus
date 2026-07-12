@@ -30,16 +30,19 @@ Ausgangsbasis erhalten.
 - Modi: `auto`, `review` und `manual`.
 - Im Review-Modus erscheint der Plan vor Ausführung in der Oberfläche und kann
   freigegeben oder abgelehnt werden.
-- Task-Timeouts sind pro Profil konfigurierbar.
+- Headless-Subagents laufen ohne Zeitlimit, bis sie fertig sind oder manuell gestoppt werden.
 
 ### Workspace-Auswahl und Session-Sicherheit
 
 - Workspace-Auswahl ist prominent in der Hauptoberfläche und im Profil-Editor.
 - Pfade werden beim Speichern normalisiert und validiert.
 - Git-Root, Branch, Remote, Default-Branch und Dirty-State werden angezeigt.
-- Ein laufendes Team ist an einen Profil-Snapshot gebunden; Profilwechsel
-  während aktiver Prozesse werden blockiert.
-- Worktrees und Branches tragen eine UUID-basierte Session-ID. Alte Worktrees
+- Ein laufendes Team ist an einen Profil-Snapshot und eine UUID-Session gebunden.
+- Profilwechsel ändern nur die sichtbare Session. Agents, Headless-Runs und
+  Orchestratoren anderer Workspaces laufen im Hintergrund weiter.
+- Agent-Listen, Dispatch-Protokoll, DAG und MCP-Aufrufe werden pro Workspace-
+  Session geroutet; die Profilleiste zeigt laufende Hintergrund-Workspaces.
+- Worktrees und Branches tragen die UUID-basierte Session-ID. Alte Worktrees
   werden nicht still wiederverwendet oder gelöscht.
 
 ### Auto-PR
@@ -83,9 +86,9 @@ Ausgangsbasis erhalten.
 
 ### Stabilität und Qualität
 
-- Fehlende CLI, Spawn-Fehler, Abbruch vor Spawn und Timeout lösen den Task immer
+- Fehlende CLI, Spawn-Fehler und manuelle Abbrüche lösen den Task immer
   deterministisch auf.
-- Zustände unterscheiden `succeeded`, `failed`, `cancelled` und `timed_out`.
+- Zustände unterscheiden `succeeded`, `failed` und `cancelled`.
 - Session-Ziel und Task-DAG werden wiederhergestellt; unterbrochene Tasks werden
   nach Neustart als gestoppt markiert.
 - Echte Provider-Nutzungswerte werden angezeigt, sofern die CLI sie liefert;

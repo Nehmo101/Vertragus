@@ -2,6 +2,7 @@
  * Agent runtime types shared across main / preload / renderer.
  */
 import type { AgentProviderId, ProviderId } from './providers'
+import type { ModelPreset } from './models'
 
 export type AgentKind = 'orchestrator' | 'sub'
 
@@ -54,6 +55,10 @@ export interface HandoffLink {
 
 export interface AgentInstanceInfo {
   id: string
+  /** Workspace profile that owns this agent. Omitted for global utility panes such as logins. */
+  profileId?: string
+  /** Concrete runtime session within the workspace profile. */
+  workspaceSessionId?: string
   /** Middle-earth code-name, e.g. "Boromir". */
   name: string
   provider: ProviderId
@@ -65,6 +70,8 @@ export interface AgentInstanceInfo {
   yolo: boolean
   /** For task agents: the orchestrator task that owns this run. */
   taskId?: string
+  /** Stable profile role when this pane belongs to the prestarted workspace team. */
+  teamRole?: string
   workingDir: string
   /** Set when the agent runs in an isolated git worktree. */
   worktree?: string
@@ -86,10 +93,18 @@ export interface AgentInstanceInfo {
 
 export interface SpawnAgentRequest {
   provider: AgentProviderId
+  /** Free-text override; empty uses modelPreset or CLI default. */
   model: string
+  modelPreset?: ModelPreset
   role?: string
   kind?: AgentKind
   yolo?: boolean
+  /** Marks an interactive profile agent as reusable capacity for this orchestrator role. */
+  teamRole?: string
+  /** Workspace ownership used for background session routing. */
+  profileId?: string
+  /** Concrete session created when the workspace team starts. */
+  workspaceSessionId?: string
   /** Defaults to the active profile's workingDir. */
   workingDir?: string
   /**
@@ -122,6 +137,9 @@ export interface OrcaEvent {
   time: number
   text: string
   tone: 'dispatch' | 'info' | 'warn' | 'error' | 'success' | 'yolo' | 'muted'
+  /** Workspace-scoped events remain attached while another workspace is visible. */
+  profileId?: string
+  workspaceSessionId?: string
 }
 
 export interface AgentDataChunk {

@@ -85,6 +85,11 @@ Unter Linux sind dieselben `corepack pnpm ...`-Befehle nutzbar.
 Der Pfad in der Titelzeile und der Branch-Chip kontrollieren, welcher Workspace
 aktiv ist.
 
+Ein Profilwechsel stoppt keine laufenden Agents. Orca-Strator schaltet nur die
+sichtbaren Terminals, den DAG und das Dispatch-Protokoll um; andere Workspaces
+laufen im Hintergrund weiter. Die Profilleiste zeigt deren laufende Agentzahl
+als **n aktiv** an.
+
 ## 4. Profile richtig konfigurieren
 
 ### Orchestriert
@@ -145,7 +150,7 @@ parallel laufender Tasks ist durch die Slot-Kapazität begrenzt.
 
 - Jede Kachel ist ein echtes Terminal oder ein read-only Headless-Run.
 - Der Pop-out-Button spiegelt eine Kachel in ein eigenes Fenster.
-- **Leeren** stoppt Agents und entfernt Kacheln aus der Oberfläche.
+- **Leeren** stoppt nur die Agents des sichtbaren Workspace und entfernt dessen Kacheln.
 - Rechts erscheinen Ziel, Tasks und Dispatch-Protokoll.
 - `queued` bedeutet Warten auf freie Slot-Kapazität.
 - „fertig“ bedeutet, dass der Agent erfolgreich endete; eine unabhängige

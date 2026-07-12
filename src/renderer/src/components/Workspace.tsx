@@ -1,5 +1,10 @@
 import { useState } from 'react'
-import { useAppStore, activeProfile, type WorkspaceLayout } from '@renderer/store/useAppStore'
+import {
+  useAppStore,
+  activeProfile,
+  workspaceAgents,
+  type WorkspaceLayout
+} from '@renderer/store/useAppStore'
 import AgentPane from '@renderer/components/AgentPane'
 
 const LAYOUTS: Array<{ id: WorkspaceLayout; icon: string; label: string }> = [
@@ -11,7 +16,13 @@ const LAYOUTS: Array<{ id: WorkspaceLayout; icon: string; label: string }> = [
 export default function Workspace(): JSX.Element {
   const store = useAppStore()
   const profile = activeProfile(store)
-  const agents = store.agents
+  const agents = [...workspaceAgents(store)].sort((a, b) => {
+    if (a.kind !== b.kind) return a.kind === 'orchestrator' ? -1 : 1
+    return a.startedAt - b.startedAt
+  })
+  const activeRunning = agents.some(
+    (agent) => agent.status === 'running' || agent.status === 'waiting'
+  )
   const [focusedAgentId, setFocusedAgentId] = useState<string | null>(null)
   const focusedId = agents.some((agent) => agent.id === focusedAgentId)
     ? focusedAgentId
@@ -55,6 +66,15 @@ export default function Workspace(): JSX.Element {
         <span className="ws-count">
           {agents.length} Agents · {LAYOUTS.find((item) => item.id === store.workspaceLayout)?.label}
         </span>
+        {!activeRunning && (
+          <button
+            type="button"
+            className="clean-btn workspace-start-btn"
+            onClick={() => void store.startAll()}
+          >
+            Workspace starten
+          </button>
+        )}
         {agents.length > 0 && (
           <>
             <div className="ws-divider" />

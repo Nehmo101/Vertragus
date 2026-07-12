@@ -32,7 +32,12 @@ function useAgentTerminal(agentId: string): React.RefObject<HTMLDivElement> {
       fontSize: 11,
       lineHeight: 1.35,
       theme: XTERM_THEME,
-      cursorBlink: true,
+      // Agent CLIs redraw progress lines while input stays active. A blinking
+      // block cursor makes those cursor moves look like terminal flicker.
+      cursorBlink: false,
+      cursorStyle: 'bar',
+      cursorWidth: 1,
+      cursorInactiveStyle: 'none',
       scrollback: 4000,
       allowProposedApi: true
     })
@@ -117,7 +122,7 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
         <div className="pane-title-block">
           <div className="pane-line1">
             <LoreName name={agent.name} className="pane-name" />
-            <span className="pane-model">{agent.model}</span>
+            <span className="pane-model">{agent.model || 'CLI-Standard'}</span>
             {isOrch && <span className="badge-orch">Orchestrator</span>}
             {agent.yolo && <span className="badge-yolo">YOLO</span>}
             {limit && (

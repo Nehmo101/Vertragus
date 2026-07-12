@@ -13,4 +13,11 @@ describe('autoPr safety helpers', () => {
     ).toThrow(/Secret/)
     expect(() => autoPrInternals.assertDiffLooksSafe('+ const value = "safe"')).not.toThrow()
   })
+
+  it('prefers explicit base branch over profile default', () => {
+    expect(autoPrInternals.pickBaseBranch('main', 'develop', 'master')).toBe('main')
+    expect(autoPrInternals.pickBaseBranch('', 'develop', 'master')).toBe('develop')
+    expect(autoPrInternals.pickBaseBranch('', '', 'master')).toBe('master')
+    expect(autoPrInternals.pickBaseBranch('', '', '')).toBe('main')
+  })
 })
