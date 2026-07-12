@@ -76,10 +76,10 @@ export function registerIpcHandlers(): void {
     orchestratorEngine.reset()
     const spawned: Awaited<ReturnType<typeof agentManager.spawn>>[] = []
 
+    // Team start: open the WHOLE team at once — the orchestrator (if any) plus
+    // every subagent slot × its count — each as its own interactive pane. The
+    // orchestrator additionally keeps its MCP tools to dispatch on-demand workers.
     if (profile.orchestrator) {
-      // Orchestrator mode: start only the orchestrator — it dispatches subagents
-      // on demand (as task panes) via the Orca MCP tools. The profile's slots are
-      // the dispatch pool it draws from.
       spawned.push(
         await agentManager.spawn({
           provider: profile.orchestrator.provider,
@@ -91,20 +91,18 @@ export function registerIpcHandlers(): void {
         })
       )
       orchestratorEngine.activate()
-    } else {
-      // Manual mode (no orchestrator): open each slot as an interactive pane.
-      for (const slot of profile.agents) {
-        for (let i = 1; i <= slot.count; i++) {
-          spawned.push(
-            await agentManager.spawn({
-              provider: slot.provider,
-              model: slot.model,
-              role: `Subagent · ${slot.role}${slot.count > 1 ? ` #${i}` : ''}`,
-              yolo: slot.yolo || yoloMaster,
-              workingDir: slot.workingDir || profile.workingDir
-            })
-          )
-        }
+    }
+    for (const slot of profile.agents) {
+      for (let i = 1; i <= slot.count; i++) {
+        spawned.push(
+          await agentManager.spawn({
+            provider: slot.provider,
+            model: slot.model,
+            role: `Subagent · ${slot.role}${slot.count > 1 ? ` #${i}` : ''}`,
+            yolo: slot.yolo || yoloMaster,
+            workingDir: slot.workingDir || profile.workingDir
+          })
+        )
       }
     }
     return spawned
