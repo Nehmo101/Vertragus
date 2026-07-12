@@ -3,6 +3,7 @@ import { electronAPI } from '@electron-toolkit/preload'
 import { IPC, type OrcaApi } from '@shared/ipc'
 import type { AgentDataChunk, AgentInstanceInfo, OrcaEvent } from '@shared/agents'
 import type { OrchestratorSnapshot } from '@shared/orchestrator'
+import type { ProviderHealth } from '@shared/providers'
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
   const listener = (_e: Electron.IpcRendererEvent, payload: T): void => cb(payload)
@@ -13,6 +14,8 @@ function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
 const orca: OrcaApi = {
   getAppInfo: () => ipcRenderer.invoke(IPC.appInfo),
   checkProviders: () => ipcRenderer.invoke(IPC.providersHealth),
+  loginProvider: (id) => ipcRenderer.invoke(IPC.providerLogin, id),
+  onProvidersChanged: (cb) => subscribe<ProviderHealth[]>(IPC.evProvidersHealth, cb),
   listModels: () => ipcRenderer.invoke(IPC.providersModels),
   getConfig: (key) => ipcRenderer.invoke(IPC.configGet, key),
   setConfig: (key, value) => ipcRenderer.invoke(IPC.configSet, key, value),

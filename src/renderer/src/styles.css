@@ -2612,3 +2612,111 @@ textarea:focus-visible,
     transform: translateX(-50%) translateY(0);
   }
 }
+
+/* ---------- provider auth + field help ---------- */
+.provider-refresh-btn {
+  width: 23px;
+  height: 23px;
+  margin-left: auto;
+  margin-right: 6px;
+  border: 1px solid var(--border-3);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  line-height: 1;
+}
+.provider-refresh-btn:hover,
+.provider-refresh-btn:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent-light);
+  outline: none;
+}
+.provider-login-btn {
+  flex: none;
+  min-width: 42px;
+  height: 25px;
+  padding: 0 7px;
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--border-3));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--accent-light);
+  font-size: 9.5px;
+  cursor: pointer;
+}
+.provider-login-btn:hover,
+.provider-login-btn:focus-visible {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  outline: none;
+}
+.provider-login-btn:disabled {
+  cursor: progress;
+  opacity: 0.55;
+}
+.provider-row:has(.provider-login-btn) {
+  gap: 7px;
+}
+.field-label,
+.select-label,
+.slot-col-label {
+  align-items: center;
+}
+.info-tip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  margin-left: 4px;
+  border: 1px solid color-mix(in srgb, var(--text-3) 55%, transparent);
+  border-radius: 50%;
+  color: var(--text-3);
+  font: 700 9px/1 var(--font-ui);
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: help;
+  vertical-align: middle;
+}
+.info-tip::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  z-index: 120;
+  left: -8px;
+  bottom: calc(100% + 8px);
+  width: min(280px, 55vw);
+  padding: 8px 10px;
+  border: 1px solid var(--border-4);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  color: var(--text-1);
+  font: 11px/1.4 var(--font-ui);
+  letter-spacing: 0;
+  text-align: left;
+  text-transform: none;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(3px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+.info-tip:hover::after,
+.info-tip:focus-visible::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+.info-tip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.field-label .info-tip,
+.select-label .info-tip,
+.slot-col-label .info-tip {
+  text-transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .info-tip::after {
+    transition: none;
+  }
+}

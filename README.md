@@ -53,6 +53,9 @@ safe Auto-PR policies, and three switchable UI themes. See the
   prompts (`--dangerously-skip-permissions` / `--dangerously-bypass-approvals-and-sandbox`
   / `--yolo`), with a red warning badge, a global kill-switch, and git-worktree
   isolation.
+- **Provider connections** — shows real account state and opens the official
+  Claude, Codex, Cursor, Ollama, GitHub or Cloudflare CLI login in a visible
+  terminal; Orca never receives or stores passwords, API keys or tokens.
 - **Session-safe worktree isolation**, provider health, persisted task state and
   real token/cost/step values when the provider reports them.
 

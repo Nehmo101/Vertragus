@@ -4,7 +4,7 @@
 import { create } from 'zustand'
 import type { AgentInstanceInfo, HandoffRequest, OrcaEvent } from '@shared/agents'
 import { LIMIT_KIND_LABELS } from '@shared/agents'
-import type { AgentProviderId, ProviderHealth } from '@shared/providers'
+import type { AgentProviderId, ProviderHealth, ProviderId } from '@shared/providers'
 import { DEFAULT_MODELS, DEFAULT_PROVIDER_LIMITS } from '@shared/providers'
 import type { WorkspaceProfile } from '@shared/profile'
 import type { OrchestratorSnapshot } from '@shared/orchestrator'
@@ -45,6 +45,7 @@ interface AppState {
 
   init(): Promise<void>
   refreshHealth(): Promise<void>
+  loginProvider(id: ProviderId): Promise<void>
   refreshGit(): Promise<void>
   selectProfile(id: string): Promise<boolean>
   setProviderLimit(provider: AgentProviderId, value: number): void
@@ -116,6 +117,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     window.orca.agents.onEvent((evt) =>
       set((s) => ({ events: [...s.events.slice(-199), evt] }))
     )
+    window.orca.onProvidersChanged((health) => set({ health }))
     window.orca.orchestrator.onSnapshot((snap) => set({ orchestrator: snap }))
 
     const [appInfo, profiles, activeProfileId, agents, yolo, snapshot, preset, layout, density, limits] =
@@ -152,6 +154,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   async refreshHealth() {
     const health = await window.orca.checkProviders()
     set({ health })
+  },
+
+  async loginProvider(id) {
+    const provider = get().health.find((item) => item.id === id)
+    if (!provider?.available || !provider.canLogin) return
+    try {
+      await window.orca.loginProvider(id)
+      get().showToast(`${provider.loginLabel ?? 'Provider-Login'} im sicheren Terminal geöffnet.`)
+    } catch (error) {
+      get().showToast(`Login konnte nicht gestartet werden: ${errorMessage(error)}`)
+    }
   },
 
   async refreshGit() {

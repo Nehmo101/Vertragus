@@ -1,7 +1,7 @@
 /**
  * Agent runtime types shared across main / preload / renderer.
  */
-import type { AgentProviderId } from './providers'
+import type { AgentProviderId, ProviderId } from './providers'
 
 export type AgentKind = 'orchestrator' | 'sub'
 
@@ -56,7 +56,7 @@ export interface AgentInstanceInfo {
   id: string
   /** Middle-earth code-name, e.g. "Boromir". */
   name: string
-  provider: AgentProviderId
+  provider: ProviderId
   model: string
   /** Display role, e.g. "Subagent · Backend / API". */
   role: string

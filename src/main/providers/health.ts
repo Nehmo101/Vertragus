@@ -6,6 +6,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { PROVIDERS, type ProviderDef, type ProviderHealth } from '@shared/providers'
+import { probeProviderConnection } from '@main/providers/auth'
 
 const execFileAsync = promisify(execFile)
 
@@ -26,36 +27,44 @@ function firstLine(text: string): string {
   return text.split(/\r?\n/).find((l) => l.trim().length > 0)?.trim() ?? ''
 }
 
-async function detail(def: ProviderDef): Promise<string | undefined> {
-  try {
-    if (def.id === 'github') {
-      const out = await run('gh', ['auth', 'status'])
-      const acct = out.match(/account\s+(\S+)/i)?.[1]
-      return acct ? `Logged in as ${acct}` : firstLine(out)
-    }
-    if (def.id === 'ollama') {
+async function providerDetails(def: ProviderDef): Promise<Partial<ProviderHealth>> {
+  const auth = await probeProviderConnection(def, run)
+  let detail = auth.detail
+  if (def.id === 'ollama') {
+    try {
       const res = await fetch('http://localhost:11434/api/tags', {
         signal: AbortSignal.timeout(PROBE_TIMEOUT_MS)
       })
       const data = (await res.json()) as { models?: unknown[] }
-      return `${data.models?.length ?? 0} model(s) available`
+      detail = `${data.models?.length ?? 0} lokale Modelle · Cloud-Login optional`
+    } catch {
+      detail = 'CLI installiert; lokaler Dienst nicht erreichbar'
     }
-  } catch {
-    // Detail is best-effort; availability is decided by the version probe.
-    return undefined
   }
-  return undefined
+  return {
+    connection: auth.connection,
+    detail,
+    canLogin: Boolean(def.auth),
+    loginLabel: def.auth?.loginLabel
+  }
 }
 
 export async function checkProvider(def: ProviderDef): Promise<ProviderHealth> {
   const base = { id: def.id, checkedAt: Date.now() }
   try {
     const version = firstLine(await run(def.command, def.versionArgs))
-    return { ...base, available: true, version, detail: await detail(def) }
+    return {
+      ...base,
+      available: true,
+      version,
+      ...(await providerDetails(def))
+    }
   } catch (err) {
     return {
       ...base,
       available: false,
+      connection: 'unknown',
+      canLogin: false,
       error: err instanceof Error ? err.message : String(err)
     }
   }

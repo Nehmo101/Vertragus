@@ -75,6 +75,17 @@ Ausgangsbasis erhalten.
   andernfalls zeigt die UI bewusst „nicht verfügbar“.
 - ESLint, Vitest und Pull-Request-CI für Linux und Windows sind eingerichtet.
 
+### Provider-Verbindungen und Feldhilfen
+
+- Die Sidebar unterscheidet Installation und Kontoverbindung.
+- Login startet ausschließlich den offiziellen CLI-Flow in einem sichtbaren,
+  interaktiven Orca-Terminal.
+- Unterstützte Flows: Claude, Codex/ChatGPT, Cursor, Ollama Cloud, GitHub und
+  Cloudflare Tunnel, sofern die jeweilige CLI installiert ist.
+- Orca überträgt keine Tokens über IPC und speichert keine Zugangsdaten.
+- Der Profil-Editor erklärt Workspace-, Planner-, Auto-PR-, Orchestrator- und
+  Slot-Felder über tastaturerreichbare Tooltips.
+
 ## Bewusst noch nicht enthalten
 
 Diese Punkte waren Ideen der langfristigen Roadmap, aber keine Voraussetzung

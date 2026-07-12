@@ -20,7 +20,7 @@ import type {
   OrcaEvent,
   SpawnAgentRequest
 } from '@shared/agents'
-import type { AgentProviderId } from '@shared/providers'
+import { getProvider, type AgentProviderId, type ProviderId } from '@shared/providers'
 import { buildInteractiveLaunch } from '@main/providers/types'
 import { resolveLaunch } from '@main/agents/resolveCommand'
 import { createWorktree } from '@main/agents/worktree'
@@ -118,6 +118,9 @@ export class AgentManager extends EventEmitter {
    */
   private scanForLimit(managed: Managed): void {
     if (managed.limitWarned || managed.info.mode !== 'interactive') return
+    // Login terminals for integrations are represented like interactive agents,
+    // but only executable agent providers can emit model usage-limit signals.
+    if (managed.info.provider === 'github' || managed.info.provider === 'cloudflare') return
     // Match against a short tail so phrases split across chunks are still caught.
     const hit = detectLimit(managed.info.provider, managed.buffer.slice(-2000))
     if (!hit) return
@@ -273,6 +276,79 @@ export class AgentManager extends EventEmitter {
     this.emitEvent(`↪ Übergabe: ${src.info.name} → ${target.name}`, 'dispatch')
     this.changed()
     return target
+  }
+
+  /** Open the provider-owned interactive login flow in a normal Orca terminal. */
+  async loginProvider(provider: ProviderId): Promise<AgentInstanceInfo> {
+    const def = getProvider(provider)
+    if (!def?.auth) throw new Error(`Für ${provider} ist kein Login-Flow registriert.`)
+
+    const taskId = `auth:${provider}`
+    const running = [...this.agents.values()].find(
+      (managed) => managed.info.taskId === taskId && this.isAlive(managed)
+    )
+    if (running) return running.info
+
+    const id = this.nextId('auth')
+    const name = `${def.label} Login`
+    const workingDir = homedir()
+    const resolved = await resolveLaunch(def.command, def.auth.loginArgs)
+    const info: AgentInstanceInfo = {
+      id,
+      name,
+      provider,
+      model: 'Konto-Verbindung',
+      role: `Provider-Login · ${def.label}`,
+      kind: 'sub',
+      mode: 'interactive',
+      taskId,
+      yolo: false,
+      workingDir,
+      status: 'running',
+      startedAt: Date.now()
+    }
+    const managed: Managed = { info, buffer: '', seq: 0 }
+    this.agents.set(id, managed)
+    this.pushData(
+      managed,
+      `\x1b[36m▶ Sicherer ${def.label}-Login über die offizielle CLI\x1b[0m\r\n` +
+        '\x1b[90mOrca speichert keine Tokens oder Passwörter. Folge den Hinweisen der CLI.\x1b[0m\r\n\r\n'
+    )
+
+    try {
+      const proc = pty.spawn(resolved.file, resolved.args, {
+        name: 'xterm-256color',
+        cols: 100,
+        rows: 30,
+        cwd: workingDir,
+        env: { ...process.env } as Record<string, string>
+      })
+      managed.pty = proc
+      info.pid = proc.pid
+      proc.onData((data) => this.pushData(managed, data))
+      proc.onExit(({ exitCode }) => {
+        managed.pty = undefined
+        if (!this.agents.has(id)) return
+        info.exitCode = exitCode
+        info.status = exitCode === 0 ? 'stopped' : 'error'
+        this.emitEvent(
+          exitCode === 0
+            ? `${def.label}-Login abgeschlossen`
+            : `${def.label}-Login fehlgeschlagen · exit ${exitCode}`,
+          exitCode === 0 ? 'success' : 'error'
+        )
+        this.emit('provider-auth-complete', provider)
+        this.changed()
+      })
+      this.emitEvent(`${def.label}-Login geöffnet`, 'info')
+    } catch (error) {
+      info.status = 'error'
+      const message = error instanceof Error ? error.message : String(error)
+      this.pushData(managed, `\x1b[31mLogin konnte nicht gestartet werden: ${message}\x1b[0m\r\n`)
+      this.emit('provider-auth-complete', provider)
+    }
+    this.changed()
+    return info
   }
 
   /**

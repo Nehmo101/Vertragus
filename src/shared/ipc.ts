@@ -2,7 +2,7 @@
  * IPC channel names and the typed API surface exposed to the renderer via preload.
  * Keeping these in one shared module keeps main <-> preload <-> renderer in sync.
  */
-import type { AgentProviderId, ProviderHealth } from './providers'
+import type { AgentProviderId, ProviderHealth, ProviderId } from './providers'
 import type { WorkspaceProfile } from './profile'
 import type {
   AgentBufferSnapshot,
@@ -18,6 +18,7 @@ export const IPC = {
   appInfo: 'app:info',
   providersHealth: 'providers:health',
   providersModels: 'providers:models',
+  providerLogin: 'providers:login',
   configGet: 'config:get',
   configSet: 'config:set',
   profilesList: 'profiles:list',
@@ -45,6 +46,7 @@ export const IPC = {
   evAgentData: 'ev:agentData',
   evAgentsChanged: 'ev:agentsChanged',
   evOrcaEvent: 'ev:orcaEvent',
+  evProvidersHealth: 'ev:providersHealth',
   evOrchestrator: 'ev:orchestrator',
   // window controls (frameless title bar)
   winMinimize: 'win:minimize',
@@ -80,6 +82,10 @@ export interface OrcaApi {
   /** Probe every provider CLI/integration for availability + version. */
   checkProviders(): Promise<ProviderHealth[]>
   /** Model options per agent provider (ollama live when reachable). */
+  /** Open the provider's official CLI login flow in an interactive Orca terminal. */
+  loginProvider(id: ProviderId): Promise<AgentInstanceInfo>
+  /** Receive refreshed connection state after an interactive login exits. */
+  onProvidersChanged(cb: (health: ProviderHealth[]) => void): () => void
   listModels(): Promise<Record<AgentProviderId, string[]>>
   getConfig<T = unknown>(key: string): Promise<T | undefined>
   setConfig(key: string, value: unknown): Promise<void>

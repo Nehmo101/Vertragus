@@ -12,15 +12,19 @@ interface RowStatus {
 function statusFor(id: ProviderId, h: ProviderHealth | undefined): RowStatus {
   if (!h) return { label: 'Prüfe…', dot: '#e9b949', text: '#f2c85a' }
   if (!h.available) return { label: 'Fehlt', dot: '#f2555a', text: '#ff7377' }
-  switch (id) {
-    case 'ollama':
+  switch (h.connection) {
+    case 'connected':
+      return { label: 'Verbunden', dot: '#3fd17a', text: '#5fe39a' }
+    case 'disconnected':
+      return { label: 'Login', dot: '#e9b949', text: '#f2c85a' }
+    case 'local':
       return { label: 'Lokal', dot: '#3fd17a', text: '#5fe39a' }
-    case 'github':
-      return { label: 'Verb.', dot: '#3fd17a', text: '#5fe39a' }
-    case 'cloudflare':
-      return { label: 'Bereit', dot: '#22d3ee', text: '#7fdfff' }
     default:
-      return { label: 'Auth', dot: '#3fd17a', text: '#5fe39a' }
+      return {
+        label: id === 'cloudflare' ? 'Bereit' : 'Installiert',
+        dot: '#22d3ee',
+        text: '#7fdfff'
+      }
   }
 }
 
@@ -31,10 +35,13 @@ function detailFor(h: ProviderHealth | undefined): string {
 }
 
 function ProviderRow({ id }: { id: ProviderId }): JSX.Element {
-  const health = useAppStore((s) => s.health)
+  const store = useAppStore()
   const theme = PROVIDER_THEME[id]
-  const h = health.find((x) => x.id === id)
+  const h = store.health.find((x) => x.id === id)
   const st = statusFor(id, h)
+  const loginRunning = store.agents.some(
+    (agent) => agent.taskId === `auth:${id}` && agent.status === 'running'
+  )
   return (
     <div className="provider-row">
       <span className="chip sz-26" style={{ background: theme.bg, color: theme.fg }}>
@@ -55,6 +62,22 @@ function ProviderRow({ id }: { id: ProviderId }): JSX.Element {
           {st.label}
         </span>
       </span>
+      {h?.available && h.canLogin && (
+        <button
+          type="button"
+          className="provider-login-btn"
+          disabled={loginRunning}
+          title={
+            loginRunning
+              ? 'Login läuft bereits im Provider-Terminal'
+              : `${h.loginLabel}. Orca speichert keine Zugangsdaten.`
+          }
+          aria-label={h.loginLabel ?? `${theme.label} verbinden`}
+          onClick={() => void store.loginProvider(id)}
+        >
+          {loginRunning ? 'Offen' : h.connection === 'connected' ? 'Konto' : id === 'ollama' ? 'Cloud' : 'Login'}
+        </button>
+      )}
     </div>
   )
 }
@@ -76,6 +99,15 @@ export default function Sidebar(): JSX.Element {
     <aside className="sidebar">
       <div className="side-caption">
         <span>KI-Provider</span>
+        <button
+          type="button"
+          className="provider-refresh-btn"
+          title="Installation und Login-Status aller Provider neu prüfen"
+          aria-label="Provider-Status aktualisieren"
+          onClick={() => void store.refreshHealth()}
+        >
+          ↻
+        </button>
         <span className="online-pill">{onlineCount} online</span>
       </div>
       <div className="side-list">

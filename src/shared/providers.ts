@@ -9,6 +9,14 @@ export type ProviderId = AgentProviderId | IntegrationProviderId
 
 export type ProviderKind = 'agent' | 'llm' | 'integration'
 
+export interface ProviderAuthDef {
+  /** Official CLI arguments that start the provider-owned login flow. */
+  loginArgs: string[]
+  /** Non-interactive status command. Omit when the CLI exposes none. */
+  statusArgs?: string[]
+  loginLabel: string
+}
+
 export interface ProviderDef {
   id: ProviderId
   label: string
@@ -19,6 +27,7 @@ export interface ProviderDef {
   kind: ProviderKind
   /** Whether Yolo/auto-approve is a meaningful concept for this provider. */
   supportsYolo: boolean
+  auth?: ProviderAuthDef
   docsUrl?: string
 }
 
@@ -28,6 +37,12 @@ export interface ProviderHealth {
   version?: string
   /** Extra status line, e.g. gh auth account or ollama model count. */
   detail?: string
+  /** Account/session state. Ollama remains usable locally without cloud login. */
+  connection?: 'connected' | 'disconnected' | 'local' | 'unknown'
+  /** True when Orca can open the provider's official CLI login flow. */
+  canLogin?: boolean
+  /** Provider-specific button text, e.g. "Mit ChatGPT verbinden". */
+  loginLabel?: string
   error?: string
   checkedAt: number
 }
@@ -41,6 +56,11 @@ export const PROVIDERS: readonly ProviderDef[] = [
     versionArgs: ['--version'],
     kind: 'agent',
     supportsYolo: true,
+    auth: {
+      loginArgs: ['auth', 'login'],
+      statusArgs: ['auth', 'status'],
+      loginLabel: 'Claude verbinden'
+    },
     docsUrl: 'https://docs.claude.com/en/docs/claude-code'
   },
   {
@@ -49,7 +69,12 @@ export const PROVIDERS: readonly ProviderDef[] = [
     command: 'codex',
     versionArgs: ['--version'],
     kind: 'agent',
-    supportsYolo: true
+    supportsYolo: true,
+    auth: {
+      loginArgs: ['login'],
+      statusArgs: ['login', 'status'],
+      loginLabel: 'Mit ChatGPT verbinden'
+    }
   },
   {
     id: 'cursor',
@@ -57,7 +82,12 @@ export const PROVIDERS: readonly ProviderDef[] = [
     command: 'cursor-agent',
     versionArgs: ['--version'],
     kind: 'agent',
-    supportsYolo: true
+    supportsYolo: true,
+    auth: {
+      loginArgs: ['login'],
+      statusArgs: ['status'],
+      loginLabel: 'Cursor verbinden'
+    }
   },
   {
     id: 'copilot',
@@ -77,6 +107,10 @@ export const PROVIDERS: readonly ProviderDef[] = [
     versionArgs: ['--version'],
     kind: 'llm',
     supportsYolo: false,
+    auth: {
+      loginArgs: ['signin'],
+      loginLabel: 'Ollama Cloud verbinden'
+    },
     docsUrl: 'https://ollama.com'
   },
   {
@@ -86,6 +120,11 @@ export const PROVIDERS: readonly ProviderDef[] = [
     versionArgs: ['--version'],
     kind: 'integration',
     supportsYolo: false,
+    auth: {
+      loginArgs: ['auth', 'login'],
+      statusArgs: ['auth', 'status'],
+      loginLabel: 'GitHub verbinden'
+    },
     docsUrl: 'https://cli.github.com'
   },
   {
@@ -95,6 +134,10 @@ export const PROVIDERS: readonly ProviderDef[] = [
     versionArgs: ['--version'],
     kind: 'integration',
     supportsYolo: false,
+    auth: {
+      loginArgs: ['tunnel', 'login'],
+      loginLabel: 'Cloudflare verbinden'
+    },
     docsUrl: 'https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/'
   }
 ] as const
