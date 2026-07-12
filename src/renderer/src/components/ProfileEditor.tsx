@@ -2,6 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '@renderer/store/useAppStore'
 import type { WorkspaceProfile, AgentSlot } from '@shared/profile'
 import type { AgentProviderId } from '@shared/providers'
+import type { ModelPreset } from '@shared/models'
+import {
+  MODEL_PRESETS,
+  MODEL_PRESET_LABELS,
+  formatModelLabel,
+  resolveModel
+} from '@shared/models'
 import type { GithubProjectSummary, GithubRepoSummary } from '@shared/ipc'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import InfoTip from '@renderer/components/InfoTip'
@@ -19,7 +26,8 @@ const HELP = {
   agentWorkingDir: 'Optionaler Pfad nur für diesen Slot. Leer übernimmt den Workspace-Basispfad.',
   mode: 'Orchestriert lässt Claude oder Codex planen und delegieren. Single startet nur die konfigurierten Slots.',
   orchestratorProvider: 'Nur Provider mit verifiziertem Orca-MCP-Adapter können orchestrieren.',
-  model: 'Leer verwendet den Standard der jeweiligen CLI. Eine Modell-ID muss für dein Konto verfügbar sein.',
+  model: 'Leer verwendet Preset oder CLI-Standard. Freitext überschreibt das Preset.',
+  modelPreset: 'Leistungs-Preset (schnell/ausgewogen/stark). Gilt nur wenn Modell leer ist — Freitext hat Vorrang.',
   plannerMode: 'Auto startet valide Pläne direkt. Review wartet auf Freigabe. Manuell deaktiviert execute_plan.',
   maxParallel: 'Globales Oberlimit gleichzeitig laufender Plan-Tasks; Rollen-Kapazitäten können es weiter reduzieren.',
   timeout: 'Nach dieser Laufzeit wird ein Headless-Task beendet und als Timeout markiert.',
@@ -79,6 +87,9 @@ export default function ProfileEditor(): JSX.Element | null {
   const models = store.models
   const modelsFor = (p: AgentProviderId): string[] => models[p] ?? []
   const defaultModelFor = (p: AgentProviderId): string => (p === 'codex' ? '' : modelsFor(p)[0] ?? '')
+  const presetValue = (preset?: ModelPreset): string => preset ?? ''
+  const parsePreset = (value: string): ModelPreset | undefined =>
+    value === 'fast' || value === 'balanced' || value === 'strong' ? value : undefined
 
   const patch = (p: Partial<WorkspaceProfile>): void => setDraft({ ...draft, ...p })
   const patchSlot = (idx: number, p: Partial<AgentSlot>): void => {
@@ -459,6 +470,7 @@ export default function ProfileEditor(): JSX.Element | null {
                   orchestrator: {
                     provider: 'claude',
                     model: modelsFor('claude')[0] ?? 'fable',
+                    modelPreset: 'balanced',
                     autoOpenSubwindows: true
                   }
                 })
@@ -503,6 +515,30 @@ export default function ProfileEditor(): JSX.Element | null {
                   ))}
                 </select>
               </div>
+              <div style={{ flex: 0.9 }}>
+                <div className="select-label">
+                  Preset <InfoTip text={HELP.modelPreset} />
+                </div>
+                <select
+                  className="select"
+                  value={presetValue(draft.orchestrator.modelPreset)}
+                  onChange={(e) =>
+                    patch({
+                      orchestrator: {
+                        ...draft.orchestrator!,
+                        modelPreset: parsePreset(e.target.value)
+                      }
+                    })
+                  }
+                >
+                  <option value="">Legacy (CLI)</option>
+                  {MODEL_PRESETS.map((preset) => (
+                    <option key={preset} value={preset}>
+                      {MODEL_PRESET_LABELS[preset]}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div style={{ flex: 1 }}>
                 <div className="select-label">
                   Modell <InfoTip text={HELP.model} />
@@ -513,7 +549,7 @@ export default function ProfileEditor(): JSX.Element | null {
                 <input
                   className="select mono"
                   list="orch-models"
-                  placeholder="CLI-Standard"
+                  placeholder="CLI-Standard / Preset"
                   value={draft.orchestrator.model}
                   onChange={(e) =>
                     patch({ orchestrator: { ...draft.orchestrator!, model: e.target.value } })
@@ -524,6 +560,13 @@ export default function ProfileEditor(): JSX.Element | null {
                     <option key={m} value={m} />
                   ))}
                 </datalist>
+                <div className="model-effective" aria-live="polite">
+                  Effektiv:{' '}
+                  {formatModelLabel(
+                    resolveModel(draft.orchestrator.provider, draft.orchestrator),
+                    draft.orchestrator
+                  )}
+                </div>
               </div>
               <div className="orch-note">steuert Subagents</div>
             </div>
@@ -695,6 +738,23 @@ export default function ProfileEditor(): JSX.Element | null {
                     ))}
                   </select>
                 </div>
+                <div style={{ flex: 0.85 }}>
+                  <div className="slot-col-label">
+                    Preset <InfoTip text={HELP.modelPreset} />
+                  </div>
+                  <select
+                    className="slot-select-sm"
+                    value={presetValue(slot.modelPreset)}
+                    onChange={(e) => patchSlot(idx, { modelPreset: parsePreset(e.target.value) })}
+                  >
+                    <option value="">Legacy (CLI)</option>
+                    {MODEL_PRESETS.map((preset) => (
+                      <option key={preset} value={preset}>
+                        {MODEL_PRESET_LABELS[preset]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 <div style={{ flex: 1.4 }}>
                   <div className="slot-col-label">
                     Modell <InfoTip text={HELP.model} />
@@ -705,7 +765,7 @@ export default function ProfileEditor(): JSX.Element | null {
                   <input
                     className="slot-select-sm mono"
                     list={`slot-models-${idx}`}
-                    placeholder="CLI-Standard"
+                    placeholder="CLI-Standard / Preset"
                     value={slot.model}
                     onChange={(e) => patchSlot(idx, { model: e.target.value })}
                   />
@@ -714,6 +774,9 @@ export default function ProfileEditor(): JSX.Element | null {
                       <option key={m} value={m} />
                     ))}
                   </datalist>
+                  <div className="model-effective" aria-live="polite">
+                    Effektiv: {formatModelLabel(resolveModel(slot.provider, slot), slot)}
+                  </div>
                 </div>
                 <div style={{ flex: 'none' }}>
                   <div className="slot-col-label" style={{ textAlign: 'center' }}>
@@ -798,7 +861,8 @@ export default function ProfileEditor(): JSX.Element | null {
                   {
                     role: 'worker',
                     provider: 'codex',
-                    model: defaultModelFor('codex'),
+                    model: '',
+                    modelPreset: 'balanced',
                     count: 1,
                     orchestrated: true,
                     yolo: false

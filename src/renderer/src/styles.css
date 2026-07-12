@@ -1263,6 +1263,12 @@ button {
   font-family: var(--font-mono);
   vertical-align: middle;
 }
+.model-effective {
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
 
 .orch-head {
   flex: none;

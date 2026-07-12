@@ -19,6 +19,7 @@ import type {
   SubagentDescriptor
 } from '@shared/orchestrator'
 import { profileDefaultBaseBranch, type AgentSlot, type WorkspaceProfile } from '@shared/profile'
+import { resolveModel } from '@shared/models'
 import { agentManager } from '@main/agents/AgentManager'
 import {
   getProfile,
@@ -185,7 +186,7 @@ export class OrchestratorEngine extends EventEmitter {
     return this.slotsWithRoles().map(({ slot, role }) => ({
       role,
       provider: slot.provider,
-      model: slot.model,
+      model: resolveModel(slot.provider, slot),
       capacity: slot.count,
       busy: this.limiters.get(role)?.inUse ?? 0
     }))
@@ -224,7 +225,7 @@ export class OrchestratorEngine extends EventEmitter {
       title: title?.trim() || prompt.split('\n')[0].slice(0, 60),
       role: slotRole,
       provider: slot.provider,
-      model: slot.model,
+      model: resolveModel(slot.provider, slot),
       status: 'queued',
       yolo,
       createdAt: Date.now(),
@@ -248,6 +249,7 @@ export class OrchestratorEngine extends EventEmitter {
       const { info, done } = await agentManager.runTask({
         provider: slot.provider,
         model: slot.model,
+        modelPreset: slot.modelPreset,
         role: slotRole,
         taskId,
         prompt,
@@ -353,7 +355,7 @@ export class OrchestratorEngine extends EventEmitter {
             title: planned.title,
             role: selected.role,
             provider: selected.slot.provider,
-            model: selected.slot.model,
+            model: resolveModel(selected.slot.provider, selected.slot),
             status: 'stopped',
             note: reason,
             planId,
@@ -383,7 +385,7 @@ export class OrchestratorEngine extends EventEmitter {
         title: task.title,
         role: selected.role,
         provider: selected.slot.provider,
-        model: selected.slot.model,
+        model: resolveModel(selected.slot.provider, selected.slot),
         status: 'stopped',
         note: reason,
         dependsOn: task.dependsOn.map((id) => runtimeIds.get(id)!),
@@ -517,6 +519,7 @@ export class OrchestratorEngine extends EventEmitter {
     const info = await agentManager.spawn({
       provider: slot.provider,
       model: slot.model,
+      modelPreset: slot.modelPreset,
       role: `Subagent · ${slotRole}`,
       kind: 'sub',
       yolo: slot.yolo || (profile?.yoloDefault ?? false),

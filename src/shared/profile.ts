@@ -3,6 +3,7 @@
  * A profile describes which agents to open, who orchestrates whom, and Yolo settings.
  */
 import { z } from 'zod'
+import { modelPresetSchema } from './models'
 
 export const agentProviderId = z.enum(['claude', 'codex', 'cursor', 'copilot', 'ollama'])
 
@@ -10,8 +11,10 @@ export const agentSlotSchema = z.object({
   /** Logical role, e.g. "worker", "reviewer". */
   role: z.string().min(1).default('worker'),
   provider: agentProviderId,
-  /** Model name (free-text, per provider). Empty = the CLI's own default. */
+  /** Model name (free-text, per provider). Empty = preset or CLI default. */
   model: z.string().default(''),
+  /** Performance preset when model is empty. Omitted = legacy CLI default. */
+  modelPreset: modelPresetSchema.optional(),
   /** Number of instances to open for this slot. */
   count: z.number().int().min(1).max(16).default(1),
   /** May the orchestrator dispatch tasks to this slot? */
@@ -24,8 +27,10 @@ export const agentSlotSchema = z.object({
 
 export const orchestratorSchema = z.object({
   provider: agentProviderId.default('claude'),
-  /** Empty = use the provider CLI's configured default. */
+  /** Empty = preset or CLI default. Non-empty overrides modelPreset. */
   model: z.string().default(''),
+  /** Performance preset when model is empty. Omitted = legacy CLI default. */
+  modelPreset: modelPresetSchema.optional(),
   /** Orchestrator may open sub-windows on demand. */
   autoOpenSubwindows: z.boolean().default(true)
 })

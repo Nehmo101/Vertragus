@@ -373,13 +373,14 @@ export const useAppStore = create<AppState>((set, get) => ({
         id: `profile-${Date.now().toString(36)}`,
         name: 'Neues Profil',
         workingDir: activeProfile(get())?.workingDir ?? '',
-        orchestrator: { provider: 'claude', model: 'fable', autoOpenSubwindows: true },
+        orchestrator: { provider: 'claude', model: 'fable', modelPreset: 'balanced', autoOpenSubwindows: true },
         agents: [
           {
             // Empty model = codex's own configured default (see DEFAULT_PROFILE).
             role: 'worker',
             provider: 'codex',
             model: '',
+            modelPreset: 'balanced',
             count: 1,
             orchestrated: true,
             yolo: false

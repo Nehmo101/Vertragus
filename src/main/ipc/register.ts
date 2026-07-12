@@ -256,6 +256,7 @@ export function registerIpcHandlers(): void {
         await agentManager.spawn({
           provider: profile.orchestrator.provider,
           model: profile.orchestrator.model,
+          modelPreset: profile.orchestrator.modelPreset,
           kind: 'orchestrator',
           role: 'Orchestrator · plant & verteilt',
           yolo: yoloMaster,
@@ -270,6 +271,7 @@ export function registerIpcHandlers(): void {
           await agentManager.spawn({
             provider: slot.provider,
             model: slot.model,
+            modelPreset: slot.modelPreset,
             role: `Subagent · ${slot.role}${slot.count > 1 ? ` #${i}` : ''}`,
             yolo: slot.yolo || yoloMaster,
             workingDir: slot.workingDir || profile.workingDir

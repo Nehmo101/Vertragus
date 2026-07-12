@@ -176,11 +176,14 @@ export const DEFAULT_MODELS: Record<AgentProviderId, string[]> = {
   ],
   codex: ['gpt-5.6-codex', 'gpt-5.6', 'gpt-5.1-codex', 'gpt-5.1', 'o4-mini', 'o3'],
   cursor: [
+    'composer-2.5-fast',
+    'composer-2.5',
     'composer',
     'auto',
+    'gpt-5.3-codex',
+    'claude-opus-4-8-high',
     'gpt-5.6',
     'claude-sonnet-5',
-    'claude-opus-4-8',
     'gemini-2.5-pro'
   ],
   // copilot: free-text like the rest; leaving it blank uses the CLI's own

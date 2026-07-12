@@ -21,6 +21,7 @@ import type {
   SpawnAgentRequest
 } from '@shared/agents'
 import { getProvider, type AgentProviderId, type ProviderId } from '@shared/providers'
+import { resolveModel, type ModelPreset } from '@shared/models'
 import { buildInteractiveLaunch } from '@main/providers/types'
 import { resolveLaunch } from '@main/agents/resolveCommand'
 import { createWorktree } from '@main/agents/worktree'
@@ -52,6 +53,7 @@ interface Managed {
 export interface RunTaskRequest {
   provider: AgentProviderId
   model: string
+  modelPreset?: ModelPreset
   role: string
   taskId: string
   prompt: string
@@ -155,6 +157,7 @@ export class AgentManager extends EventEmitter {
     const id = this.nextId(kind === 'orchestrator' ? 'orch' : 'sub')
     const name = this.names.allocate(kind)
     const yolo = req.yolo ?? false
+    const resolvedModel = resolveModel(req.provider, req)
     const { workingDir, worktree, branch } = await this.prepareWorkingDir(
       id,
       req.workingDir,
@@ -176,7 +179,7 @@ export class AgentManager extends EventEmitter {
       : buildSubagentMcpArgs(req.provider, id)
 
     const launch = buildInteractiveLaunch(req.provider, {
-      model: req.model,
+      model: resolvedModel || undefined,
       workingDir,
       yolo,
       extraArgs
@@ -187,7 +190,7 @@ export class AgentManager extends EventEmitter {
       id,
       name,
       provider: req.provider,
-      model: req.model,
+      model: resolvedModel,
       role: req.role ?? (kind === 'orchestrator' ? 'Orchestrator · plant & verteilt' : 'Subagent'),
       kind,
       mode: 'interactive',
@@ -228,7 +231,7 @@ export class AgentManager extends EventEmitter {
       })
 
       this.emitEvent(
-        `${name} gestartet · ${req.provider}/${req.model}${yolo ? ' [YOLO]' : ''}`,
+        `${name} gestartet · ${req.provider}/${resolvedModel || 'CLI-Standard'}${yolo ? ' [YOLO]' : ''}`,
         yolo ? 'yolo' : 'dispatch'
       )
     } catch (err) {
@@ -387,6 +390,7 @@ export class AgentManager extends EventEmitter {
   async runTask(req: RunTaskRequest): Promise<{ info: AgentInstanceInfo; done: Promise<HeadlessResult> }> {
     const id = this.nextId('task')
     const name = this.names.allocate('sub')
+    const resolvedModel = resolveModel(req.provider, req)
     const { workingDir, worktree, branch } = await this.prepareWorkingDir(id, req.workingDir)
 
     let resolveDone!: (result: HeadlessResult) => void
@@ -398,7 +402,7 @@ export class AgentManager extends EventEmitter {
       id,
       name,
       provider: req.provider,
-      model: req.model,
+      model: resolvedModel,
       role: `Task · ${req.role}`,
       kind: 'sub',
       mode: 'task',
@@ -419,7 +423,7 @@ export class AgentManager extends EventEmitter {
     )
     this.changed()
 
-    void this.startRunTask(managed, req, name, resolveDone)
+    void this.startRunTask(managed, req, name, resolvedModel, resolveDone)
     return { info, done }
   }
 
@@ -427,6 +431,7 @@ export class AgentManager extends EventEmitter {
     managed: Managed,
     req: RunTaskRequest,
     name: string,
+    resolvedModel: string,
     resolveDone: (result: HeadlessResult) => void
   ): Promise<void> {
     const id = managed.info.id
@@ -438,9 +443,9 @@ export class AgentManager extends EventEmitter {
 
     managed.capacityProvider = req.provider
     managed.info.status = 'running'
-    this.pushData(managed, `\x1b[36m▶ ${name} · ${req.provider}/${req.model} · ${req.role}\x1b[0m\r\n`)
+    this.pushData(managed, `\x1b[36m▶ ${name} · ${req.provider}/${resolvedModel || 'CLI-Standard'} · ${req.role}\x1b[0m\r\n`)
     this.emitEvent(
-      `${name} dispatch · ${req.role} · ${req.provider}/${req.model}${req.yolo ? ' [YOLO]' : ''}`,
+      `${name} dispatch · ${req.role} · ${req.provider}/${resolvedModel || 'CLI-Standard'}${req.yolo ? ' [YOLO]' : ''}`,
       req.yolo ? 'yolo' : 'dispatch'
     )
 
@@ -448,7 +453,7 @@ export class AgentManager extends EventEmitter {
       req.provider,
       req.prompt,
       {
-        model: req.model,
+        model: resolvedModel || undefined,
         workingDir: managed.info.workingDir,
         yolo: req.yolo,
         systemPrompt: req.systemPrompt,
