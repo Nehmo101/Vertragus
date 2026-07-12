@@ -21,6 +21,7 @@ import type {
   SpawnAgentRequest
 } from '@shared/agents'
 import { getProvider, type AgentProviderId, type ProviderId } from '@shared/providers'
+import { resolveModel, type ModelPreset } from '@shared/models'
 import { buildInteractiveLaunch } from '@main/providers/types'
 import { resolveLaunch } from '@main/agents/resolveCommand'
 import { createWorktree } from '@main/agents/worktree'
@@ -31,6 +32,7 @@ import { buildSubagentMcpArgs } from '@main/orchestrator/externalMcp'
 import { NameAllocator } from '@main/agents/names'
 import { detectLimit, limitKindLabel } from '@main/agents/limitSignals'
 import { buildBriefing } from '@main/agents/handoff'
+import { providerCapacity } from '@main/agents/providerCapacity'
 
 const BUFFER_LIMIT = 200_000 // chars of scrollback kept per agent
 
@@ -42,11 +44,16 @@ interface Managed {
   seq: number
   /** True once a usage-limit signal fired for this agent (debounce). */
   limitWarned?: boolean
+  /** Provider slot held while running or after acquire for a waiting task. */
+  capacityProvider?: AgentProviderId
+  /** Set while a headless task waits for provider capacity. */
+  waitAbort?: { aborted: boolean }
 }
 
 export interface RunTaskRequest {
   provider: AgentProviderId
   model: string
+  modelPreset?: ModelPreset
   role: string
   taskId: string
   prompt: string
@@ -77,6 +84,12 @@ export class AgentManager extends EventEmitter {
 
   private changed(): void {
     this.emit('changed', this.list())
+  }
+
+  private releaseCapacity(managed: Managed): void {
+    if (!managed.capacityProvider) return
+    providerCapacity.release(managed.capacityProvider)
+    managed.capacityProvider = undefined
   }
 
   private nextId(prefix: string): string {
@@ -136,10 +149,14 @@ export class AgentManager extends EventEmitter {
   }
 
   async spawn(req: SpawnAgentRequest): Promise<AgentInstanceInfo> {
+    providerCapacity.tryAcquire(req.provider)
+    let capacityHeld = true
+
     const kind = req.kind ?? 'sub'
     const id = this.nextId(kind === 'orchestrator' ? 'orch' : 'sub')
     const name = this.names.allocate(kind)
     const yolo = req.yolo ?? false
+    const resolvedModel = resolveModel(req.provider, req)
     const { workingDir, worktree, branch } = await this.prepareWorkingDir(
       id,
       req.workingDir,
@@ -153,6 +170,7 @@ export class AgentManager extends EventEmitter {
     const orchestratorSetup =
       kind === 'orchestrator' ? buildOrchestratorSetup(req.provider, name, id) : undefined
     if (orchestratorSetup && !orchestratorSetup.capability.supported) {
+      providerCapacity.release(req.provider)
       throw new Error(orchestratorSetup.capability.reason ?? `${req.provider} cannot orchestrate.`)
     }
     const extraArgs = orchestratorSetup
@@ -160,7 +178,7 @@ export class AgentManager extends EventEmitter {
       : buildSubagentMcpArgs(req.provider, id)
 
     const launch = buildInteractiveLaunch(req.provider, {
-      model: req.model,
+      model: resolvedModel || undefined,
       workingDir,
       yolo,
       extraArgs
@@ -171,7 +189,7 @@ export class AgentManager extends EventEmitter {
       id,
       name,
       provider: req.provider,
-      model: req.model,
+      model: resolvedModel,
       role: req.role ?? (kind === 'orchestrator' ? 'Orchestrator · plant & verteilt' : 'Subagent'),
       kind,
       mode: 'interactive',
@@ -182,7 +200,8 @@ export class AgentManager extends EventEmitter {
       status: 'running',
       startedAt: Date.now()
     }
-    const managed: Managed = { info, buffer: '', seq: 0 }
+    const managed: Managed = { info, buffer: '', seq: 0, capacityProvider: req.provider }
+    capacityHeld = false
     this.agents.set(id, managed)
 
     try {
@@ -200,6 +219,7 @@ export class AgentManager extends EventEmitter {
       proc.onExit(({ exitCode }) => {
         managed.pty = undefined
         if (!this.agents.has(id)) return // killed & removed explicitly
+        this.releaseCapacity(managed)
         info.exitCode = exitCode
         info.status = exitCode === 0 ? 'stopped' : 'error'
         this.emitEvent(
@@ -210,10 +230,12 @@ export class AgentManager extends EventEmitter {
       })
 
       this.emitEvent(
-        `${name} gestartet · ${req.provider}/${req.model}${yolo ? ' [YOLO]' : ''}`,
+        `${name} gestartet · ${req.provider}/${resolvedModel || 'CLI-Standard'}${yolo ? ' [YOLO]' : ''}`,
         yolo ? 'yolo' : 'dispatch'
       )
     } catch (err) {
+      if (capacityHeld) providerCapacity.release(req.provider)
+      else this.releaseCapacity(managed)
       info.status = 'error'
       const msg = err instanceof Error ? err.message : String(err)
       managed.buffer = `Spawn fehlgeschlagen: ${msg}\r\n`
@@ -367,13 +389,19 @@ export class AgentManager extends EventEmitter {
   async runTask(req: RunTaskRequest): Promise<{ info: AgentInstanceInfo; done: Promise<HeadlessResult> }> {
     const id = this.nextId('task')
     const name = this.names.allocate('sub')
+    const resolvedModel = resolveModel(req.provider, req)
     const { workingDir, worktree, branch } = await this.prepareWorkingDir(id, req.workingDir)
+
+    let resolveDone!: (result: HeadlessResult) => void
+    const done = new Promise<HeadlessResult>((resolve) => {
+      resolveDone = resolve
+    })
 
     const info: AgentInstanceInfo = {
       id,
       name,
       provider: req.provider,
-      model: req.model,
+      model: resolvedModel,
       role: `Task · ${req.role}`,
       kind: 'sub',
       mode: 'task',
@@ -382,15 +410,41 @@ export class AgentManager extends EventEmitter {
       workingDir,
       worktree,
       branch,
-      status: 'running',
+      status: 'waiting',
       startedAt: Date.now()
     }
-    const managed: Managed = { info, buffer: '', seq: 0 }
+    const managed: Managed = { info, buffer: '', seq: 0, waitAbort: { aborted: false } }
     this.agents.set(id, managed)
 
-    this.pushData(managed, `\x1b[36m▶ ${name} · ${req.provider}/${req.model} · ${req.role}\x1b[0m\r\n`)
+    this.pushData(
+      managed,
+      `\x1b[33m⏳ ${name} wartet auf ${req.provider}-Kapazität · ${req.role}\x1b[0m\r\n`
+    )
+    this.changed()
+
+    void this.startRunTask(managed, req, name, resolvedModel, resolveDone)
+    return { info, done }
+  }
+
+  private async startRunTask(
+    managed: Managed,
+    req: RunTaskRequest,
+    name: string,
+    resolvedModel: string,
+    resolveDone: (result: HeadlessResult) => void
+  ): Promise<void> {
+    const id = managed.info.id
+    const acquired = await providerCapacity.acquireWait(req.provider, managed.waitAbort)
+    if (!acquired || !this.agents.has(id)) {
+      resolveDone({ result: '', isError: false, status: 'cancelled' })
+      return
+    }
+
+    managed.capacityProvider = req.provider
+    managed.info.status = 'running'
+    this.pushData(managed, `\x1b[36m▶ ${name} · ${req.provider}/${resolvedModel || 'CLI-Standard'} · ${req.role}\x1b[0m\r\n`)
     this.emitEvent(
-      `${name} dispatch · ${req.role} · ${req.provider}/${req.model}${req.yolo ? ' [YOLO]' : ''}`,
+      `${name} dispatch · ${req.role} · ${req.provider}/${resolvedModel || 'CLI-Standard'}${req.yolo ? ' [YOLO]' : ''}`,
       req.yolo ? 'yolo' : 'dispatch'
     )
 
@@ -398,34 +452,39 @@ export class AgentManager extends EventEmitter {
       req.provider,
       req.prompt,
       {
-        model: req.model,
-        workingDir,
+        model: resolvedModel || undefined,
+        workingDir: managed.info.workingDir,
         yolo: req.yolo,
         systemPrompt: req.systemPrompt,
-        // Attach the subagent-scoped external MCP servers to this headless run.
         extraArgs: buildSubagentMcpArgs(req.provider, id)
       },
       (chunk) => this.pushData(managed, chunk)
     )
     managed.headless = handle
-    info.pid = handle.pid
+    managed.info.pid = handle.pid
     this.changed()
 
-    const done = handle.done.then((result) => {
-      managed.headless = undefined
+    try {
+      const result = await handle.done
+      resolveDone(result)
       if (this.agents.has(id)) {
         const failed =
           result.status === 'failed' ||
           (result.status == null && result.isError)
-        info.status = failed ? 'error' : 'stopped'
-        info.exitCode = failed ? 1 : 0
+        managed.info.status = failed ? 'error' : 'stopped'
+        managed.info.exitCode = failed ? 1 : 0
         if (
           result.costUsd != null ||
           result.tokensIn != null ||
           result.tokensOut != null ||
           result.steps != null
         ) {
-          info.usage = { costUsd: result.costUsd, tokensIn: result.tokensIn, tokensOut: result.tokensOut, steps: result.steps }
+          managed.info.usage = {
+            costUsd: result.costUsd,
+            tokensIn: result.tokensIn,
+            tokensOut: result.tokensOut,
+            steps: result.steps
+          }
         }
         const event =
           result.status === 'cancelled'
@@ -436,10 +495,10 @@ export class AgentManager extends EventEmitter {
         this.emitEvent(event.text, event.tone)
         this.changed()
       }
-      return result
-    })
-
-    return { info, done }
+    } finally {
+      managed.headless = undefined
+      this.releaseCapacity(managed)
+    }
   }
 
   write(id: string, data: string): void {
@@ -466,13 +525,25 @@ export class AgentManager extends EventEmitter {
   }
 
   private isAlive(m: Managed): boolean {
-    return Boolean(m.pty || m.headless)
+    return Boolean(m.pty || m.headless || m.info.status === 'waiting')
   }
 
   async kill(id: string): Promise<void> {
     const managed = this.agents.get(id)
     if (!managed) return
+
+    if (managed.info.status === 'waiting' && !managed.headless) {
+      if (managed.waitAbort) managed.waitAbort.aborted = true
+      this.releaseCapacity(managed)
+      this.agents.delete(id)
+      this.names.release(managed.info.name)
+      this.emitEvent(`${managed.info.name} · Warteschlange abgebrochen`, 'muted')
+      this.changed()
+      return
+    }
+
     this.terminate(managed)
+    this.releaseCapacity(managed)
     managed.info.status = 'stopped'
     this.agents.delete(id)
     this.names.release(managed.info.name)
@@ -481,9 +552,16 @@ export class AgentManager extends EventEmitter {
   }
 
   async killAll(): Promise<void> {
-    const running = [...this.agents.values()].filter((m) => this.isAlive(m))
+    const running = [...this.agents.values()].filter((m) => this.isAlive(m) || m.info.status === 'waiting')
     for (const m of running) {
+      if (m.info.status === 'waiting' && !m.headless) {
+        if (m.waitAbort) m.waitAbort.aborted = true
+        this.releaseCapacity(m)
+        m.info.status = 'stopped'
+        continue
+      }
       this.terminate(m)
+      this.releaseCapacity(m)
       m.info.status = 'stopped'
     }
     this.emitEvent(`⛔ ALLE AGENTS GESTOPPT · ${running.length} beendet`, 'error')
@@ -494,7 +572,9 @@ export class AgentManager extends EventEmitter {
   async removeAll(): Promise<void> {
     const count = this.agents.size
     for (const m of this.agents.values()) {
+      if (m.waitAbort) m.waitAbort.aborted = true
       this.terminate(m)
+      this.releaseCapacity(m)
       this.names.release(m.info.name)
     }
     this.agents.clear()

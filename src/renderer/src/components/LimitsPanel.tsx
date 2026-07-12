@@ -14,7 +14,8 @@ function fmtTokens(n: number): string {
 
 interface ProviderUsage {
   id: AgentProviderId
-  active: number
+  running: number
+  waiting: number
   tokens: number
   cost: number
   limit: number
@@ -33,16 +34,17 @@ export default function LimitsPanel(): JSX.Element {
 
   const rows: ProviderUsage[] = PANEL_PROVIDERS.map((id) => {
     const list = agents.filter((a) => a.provider === id)
-    const active = list.filter((a) => a.status === 'running' || a.status === 'waiting').length
+    const running = list.filter((a) => a.status === 'running').length
+    const waiting = list.filter((a) => a.status === 'waiting').length
     const tokens = list.reduce(
       (n, a) => n + (a.usage?.tokensIn ?? 0) + (a.usage?.tokensOut ?? 0),
       0
     )
     const cost = list.reduce((n, a) => n + (a.usage?.costUsd ?? 0), 0)
-    return { id, active, tokens, cost, limit: limits[id] ?? 0 }
+    return { id, running, waiting, tokens, cost, limit: limits[id] ?? 0 }
   })
 
-  const totalActive = rows.reduce((n, r) => n + r.active, 0)
+  const totalActive = rows.reduce((n, r) => n + r.running + r.waiting, 0)
   const totalCost = rows.reduce((n, r) => n + r.cost, 0)
 
   return (
@@ -56,8 +58,10 @@ export default function LimitsPanel(): JSX.Element {
       <div className="limits-list">
         {rows.map((r) => {
           const theme = PROVIDER_THEME[r.id]
-          const pct = r.limit > 0 ? Math.min(100, Math.round((r.active / r.limit) * 100)) : 0
-          const over = r.limit > 0 && r.active >= r.limit
+          const pct = r.limit > 0 ? Math.min(100, Math.round((r.running / r.limit) * 100)) : 0
+          const over = r.limit > 0 && r.running >= r.limit
+          const countLabel =
+            r.waiting > 0 ? `${r.running}+${r.waiting}` : String(r.running)
           return (
             <div className={`limit-row ${over ? 'over' : ''}`} key={r.id}>
               <span className="chip sz-22" style={{ background: theme.bg, color: theme.fg }}>
@@ -92,8 +96,8 @@ export default function LimitsPanel(): JSX.Element {
                 >
                   −
                 </button>
-                <span className={`limit-count-val ${over ? 'over' : ''}`} title="aktiv / Limit">
-                  {r.active}/{r.limit}
+                <span className={`limit-count-val ${over ? 'over' : ''}`} title="aktiv / wartend / Limit">
+                  {countLabel}/{r.limit}
                 </span>
                 <button
                   type="button"

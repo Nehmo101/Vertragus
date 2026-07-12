@@ -38,7 +38,35 @@ const orca: OrcaApi = {
 
   gitInfo: (dir) => ipcRenderer.invoke(IPC.gitInfo, dir),
   githubProjects: (dir, owner) => ipcRenderer.invoke(IPC.githubProjects, dir, owner),
+  githubAuthStatus: () => ipcRenderer.invoke(IPC.githubAuthStatus),
+  githubAuthLogin: () => ipcRenderer.invoke(IPC.githubAuthLogin),
+  githubAuthLogout: () => ipcRenderer.invoke(IPC.githubAuthLogout),
+  githubRepoSearch: (query, limit) => ipcRenderer.invoke(IPC.githubRepoSearch, query, limit),
+  githubRepoResolve: (owner, repo) => ipcRenderer.invoke(IPC.githubRepoResolve, owner, repo),
+  githubRepoBind: (req) => ipcRenderer.invoke(IPC.githubRepoBind, req),
+  githubRepoCheckLocal: (owner, repo, localPath) =>
+    ipcRenderer.invoke(IPC.githubRepoCheckLocal, owner, repo, localPath),
   pickFolder: () => ipcRenderer.invoke(IPC.dialogPickFolder),
+  pickFile: () => ipcRenderer.invoke(IPC.dialogPickFile),
+
+  inbox: {
+    list: () => ipcRenderer.invoke(IPC.ideasList),
+    get: (id) => ipcRenderer.invoke(IPC.ideasGet, id),
+    create: (input) => ipcRenderer.invoke(IPC.ideasCreate, input),
+    update: (input) => ipcRenderer.invoke(IPC.ideasUpdate, input),
+    delete: (id) => ipcRenderer.invoke(IPC.ideasDelete, id),
+    addArtifact: (ideaId, input) => ipcRenderer.invoke(IPC.ideasAddArtifact, ideaId, input),
+    removeArtifact: (ideaId, artifactId) =>
+      ipcRenderer.invoke(IPC.ideasRemoveArtifact, ideaId, artifactId)
+  },
+
+  inboxSpeech: {
+    status: () => ipcRenderer.invoke(IPC.inboxSpeechStatus),
+    getSettings: () => ipcRenderer.invoke(IPC.inboxSpeechGetSettings),
+    setSettings: (patch) => ipcRenderer.invoke(IPC.inboxSpeechSetSettings, patch),
+    transcribe: (payload) => ipcRenderer.invoke(IPC.inboxSpeechTranscribe, payload),
+    abort: () => ipcRenderer.invoke(IPC.inboxSpeechAbort)
+  },
 
   agents: {
     list: () => ipcRenderer.invoke(IPC.agentsList),

@@ -17,6 +17,19 @@ export class Semaphore {
     return this.limit
   }
 
+  get waiting(): number {
+    return this.queue.length
+  }
+
+  /** Non-blocking acquire; returns false when the limit is already reached. */
+  tryAcquire(): boolean {
+    if (this.active < this.limit) {
+      this.active++
+      return true
+    }
+    return false
+  }
+
   setLimit(n: number): void {
     this.limit = Math.max(1, n)
     // A raised limit may let queued waiters through.

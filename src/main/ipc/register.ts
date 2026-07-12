@@ -8,8 +8,9 @@ import { resolve } from 'node:path'
 import { IPC, type AppInfo } from '@shared/ipc'
 import type { HandoffRequest, SpawnAgentRequest } from '@shared/agents'
 import type { ProviderId } from '@shared/providers'
-import type { WorkspaceProfile } from '@shared/profile'
+import { profileRepoLocalPath, type WorkspaceProfile } from '@shared/profile'
 import type { McpServerConfig } from '@shared/mcp'
+import type { GithubRepoBindRequest } from '@shared/ipc'
 import { checkAllProviders } from '@main/providers/health'
 import { listModels } from '@main/providers/models'
 import { gitInfo } from '@main/integrations/git'
@@ -21,7 +22,19 @@ import {
   installMainUpdate,
   onUpdateState
 } from '@main/updater'
+import {
+  githubAuthLogin,
+  githubAuthLogout,
+  githubAuthStatus
+} from '@main/integrations/githubAuth'
+import {
+  bindGithubRepo,
+  checkGithubRepoLocal,
+  resolveGithubRepo,
+  searchGithubRepos
+} from '@main/integrations/githubRepo'
 import { agentManager } from '@main/agents/AgentManager'
+import { providerCapacity } from '@main/agents/providerCapacity'
 import { orchestratorEngine } from '@main/orchestrator/Engine'
 import { broadcast, createPaneWindow } from '@main/windows'
 import {
@@ -36,6 +49,24 @@ import {
   listMcpServers,
   saveMcpServers
 } from '@main/config/store'
+import {
+  listIdeas,
+  getIdea,
+  createIdea,
+  updateIdea,
+  deleteIdea,
+  addArtifact,
+  removeArtifact
+} from '@main/inbox/store'
+import type { AddArtifactInput, CreateIdeaInput, UpdateIdeaInput } from '@shared/inbox'
+import type { InboxSpeechSettingsPatch, TranscribeAudioPayload } from '@shared/inboxSpeech'
+import {
+  abortInboxTranscription,
+  getInboxSpeechSettings,
+  getInboxSpeechStatus,
+  setInboxSpeechSettings,
+  transcribeInboxAudio
+} from '@main/voice/InboxSpeechService'
 
 function senderWindow(e: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent): BrowserWindow | null {
   return BrowserWindow.fromWebContents(e.sender)
@@ -54,6 +85,8 @@ async function normalizeDirectory(raw: string, label: string): Promise<string> {
 }
 
 export function registerIpcHandlers(): void {
+  providerCapacity.refreshLimits()
+
   // ---- app / providers / config ----
   ipcMain.handle(IPC.appInfo, (): AppInfo => {
     return {
@@ -77,13 +110,45 @@ export function registerIpcHandlers(): void {
   })
   ipcMain.handle(IPC.providersModels, () => listModels())
   ipcMain.handle(IPC.configGet, (_e, key: string) => getSetting(key))
-  ipcMain.handle(IPC.configSet, (_e, key: string, value: unknown) => setSetting(key, value))
+  ipcMain.handle(IPC.configSet, (_e, key: string, value: unknown) => {
+    setSetting(key, value)
+    if (key === 'providerLimits') providerCapacity.refreshLimits()
+  })
 
   // ---- profiles ----
   ipcMain.handle(IPC.profilesList, () => listProfiles())
   ipcMain.handle(IPC.profileSave, async (_e, profile: WorkspaceProfile) => {
-    const rawDir = profile.workingDir.trim()
-    const workingDir = rawDir ? await normalizeDirectory(rawDir, 'Workspace') : ''
+    let workingDir = profile.workingDir.trim()
+    let githubRepo = profile.githubRepo
+
+    if (githubRepo) {
+      const localPath = githubRepo.localPath?.trim()
+      if (localPath) {
+        workingDir = await normalizeDirectory(localPath, 'Repository')
+        if (githubRepo.owner && githubRepo.repo) {
+          const check = await checkGithubRepoLocal(githubRepo.owner, githubRepo.repo, workingDir)
+          githubRepo = { ...githubRepo, localPath: workingDir, cloneStatus: check.cloneStatus }
+          if (check.cloneStatus === 'diverged') {
+            throw new Error(check.message)
+          }
+        } else {
+          githubRepo = { ...githubRepo, localPath: workingDir }
+        }
+      } else if (workingDir) {
+        workingDir = await normalizeDirectory(workingDir, 'Workspace')
+        githubRepo = { ...githubRepo, localPath: workingDir }
+        if (githubRepo.owner && githubRepo.repo) {
+          const check = await checkGithubRepoLocal(githubRepo.owner, githubRepo.repo, workingDir)
+          githubRepo = { ...githubRepo, cloneStatus: check.cloneStatus }
+          if (check.cloneStatus === 'diverged') {
+            throw new Error(check.message)
+          }
+        }
+      }
+    } else if (workingDir) {
+      workingDir = await normalizeDirectory(workingDir, 'Workspace')
+    }
+
     const agents = await Promise.all(
       profile.agents.map(async (slot, index) => ({
         ...slot,
@@ -92,7 +157,8 @@ export function registerIpcHandlers(): void {
           : undefined
       }))
     )
-    return saveProfile({ ...profile, workingDir, agents })
+    const effectiveWorkingDir = profileRepoLocalPath({ workingDir, githubRepo }) || workingDir
+    return saveProfile({ ...profile, workingDir: effectiveWorkingDir, githubRepo, agents })
   })
   ipcMain.handle(IPC.profileDelete, (_e, id: string) => {
     if (id === getActiveProfileId() && agentManager.anyRunning()) {
@@ -117,6 +183,31 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.githubProjects, (_e, dir: string, owner?: string) =>
     listGithubProjects(dir, owner)
   )
+  ipcMain.handle(IPC.githubAuthStatus, () => githubAuthStatus())
+  ipcMain.handle(IPC.githubAuthLogin, async () => {
+    const status = await githubAuthLogin()
+    void checkAllProviders()
+      .then((health) => broadcast(IPC.evProvidersHealth, health))
+      .catch((error) => console.warn('[GitHub] refresh after login failed', error))
+    return status
+  })
+  ipcMain.handle(IPC.githubAuthLogout, async () => {
+    const status = await githubAuthLogout()
+    void checkAllProviders()
+      .then((health) => broadcast(IPC.evProvidersHealth, health))
+      .catch((error) => console.warn('[GitHub] refresh after logout failed', error))
+    return status
+  })
+  ipcMain.handle(IPC.githubRepoSearch, (_e, query: string, limit?: number) =>
+    searchGithubRepos(query, limit)
+  )
+  ipcMain.handle(IPC.githubRepoResolve, (_e, owner: string, repo: string) =>
+    resolveGithubRepo(owner, repo)
+  )
+  ipcMain.handle(IPC.githubRepoBind, (_e, req: GithubRepoBindRequest) => bindGithubRepo(req))
+  ipcMain.handle(IPC.githubRepoCheckLocal, (_e, owner: string, repo: string, localPath: string) =>
+    checkGithubRepoLocal(owner, repo, localPath)
+  )
 
   // ---- native folder picker ----
   ipcMain.handle(IPC.dialogPickFolder, async (e) => {
@@ -129,6 +220,44 @@ export function registerIpcHandlers(): void {
       ? await dialog.showOpenDialog(win, opts)
       : await dialog.showOpenDialog(opts)
     return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]
+  })
+
+  ipcMain.handle(IPC.dialogPickFile, async (e) => {
+    const win = senderWindow(e)
+    const opts: Electron.OpenDialogOptions = {
+      title: 'Datei für Artefakt wählen',
+      properties: ['openFile']
+    }
+    const result = win
+      ? await dialog.showOpenDialog(win, opts)
+      : await dialog.showOpenDialog(opts)
+    return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]
+  })
+
+  // ---- ideas inbox ----
+  ipcMain.handle(IPC.ideasList, () => listIdeas())
+  ipcMain.handle(IPC.ideasGet, (_e, id: string) => getIdea(id))
+  ipcMain.handle(IPC.ideasCreate, (_e, input?: CreateIdeaInput) => createIdea(input))
+  ipcMain.handle(IPC.ideasUpdate, (_e, input: UpdateIdeaInput) => updateIdea(input))
+  ipcMain.handle(IPC.ideasDelete, (_e, id: string) => deleteIdea(id))
+  ipcMain.handle(IPC.ideasAddArtifact, async (_e, ideaId: string, input: AddArtifactInput) =>
+    addArtifact(ideaId, input)
+  )
+  ipcMain.handle(IPC.ideasRemoveArtifact, (_e, ideaId: string, artifactId: string) =>
+    removeArtifact(ideaId, artifactId)
+  )
+
+  // ---- inbox speech-to-text ----
+  ipcMain.handle(IPC.inboxSpeechStatus, () => getInboxSpeechStatus())
+  ipcMain.handle(IPC.inboxSpeechGetSettings, () => getInboxSpeechSettings())
+  ipcMain.handle(IPC.inboxSpeechSetSettings, (_e, patch: InboxSpeechSettingsPatch) =>
+    setInboxSpeechSettings(patch)
+  )
+  ipcMain.handle(IPC.inboxSpeechTranscribe, (_e, payload: TranscribeAudioPayload) =>
+    transcribeInboxAudio(payload)
+  )
+  ipcMain.handle(IPC.inboxSpeechAbort, () => {
+    abortInboxTranscription()
   })
 
   // ---- agents ----
@@ -148,6 +277,7 @@ export function registerIpcHandlers(): void {
         await agentManager.spawn({
           provider: profile.orchestrator.provider,
           model: profile.orchestrator.model,
+          modelPreset: profile.orchestrator.modelPreset,
           kind: 'orchestrator',
           role: 'Orchestrator · plant & verteilt',
           yolo: yoloMaster,
@@ -162,6 +292,7 @@ export function registerIpcHandlers(): void {
           await agentManager.spawn({
             provider: slot.provider,
             model: slot.model,
+            modelPreset: slot.modelPreset,
             role: `Subagent · ${slot.role}${slot.count > 1 ? ` #${i}` : ''}`,
             yolo: slot.yolo || yoloMaster,
             workingDir: slot.workingDir || profile.workingDir

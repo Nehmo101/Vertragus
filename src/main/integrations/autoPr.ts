@@ -37,6 +37,8 @@ interface PublishInput {
   goalId: string
   goalTitle: string
   changes: PreparedTaskChange[]
+  /** Profile-bound default branch when autoPr.baseBranch is empty. */
+  profileDefaultBranch?: string
 }
 
 async function runFile(cwd: string, command: string, args: string[]): Promise<string> {
@@ -164,8 +166,24 @@ async function repositoryRoot(cwd: string): Promise<string> {
   return first.trim()
 }
 
-async function defaultBase(cwd: string, configured: string): Promise<string> {
+export function pickBaseBranch(
+  configured: string,
+  profileDefaultBranch?: string,
+  remoteBranch?: string
+): string {
   if (configured.trim()) return configured.trim()
+  if (profileDefaultBranch?.trim()) return profileDefaultBranch.trim()
+  if (remoteBranch?.trim()) return remoteBranch.trim()
+  return 'main'
+}
+
+async function defaultBase(
+  cwd: string,
+  configured: string,
+  profileDefaultBranch?: string
+): Promise<string> {
+  if (configured.trim()) return configured.trim()
+  if (profileDefaultBranch?.trim()) return profileDefaultBranch.trim()
   try {
     const symbolic = await git(cwd, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'])
     return symbolic.replace(/^origin\//, '')
@@ -196,7 +214,8 @@ async function pushAndOpenPr(
   config: AutoPrConfig,
   branch: string,
   title: string,
-  body: string
+  body: string,
+  profileDefaultBranch?: string
 ): Promise<string> {
   if (['main', 'master'].includes(branch.toLowerCase())) {
     throw new Error(`Auto-PR verweigert Push auf geschützten Branch ${branch}.`)
@@ -207,7 +226,7 @@ async function pushAndOpenPr(
   if (existing) return existing
 
   const args = ['pr', 'create', '--head', branch, '--title', title, '--body', body]
-  const base = await defaultBase(cwd, config.baseBranch)
+  const base = await defaultBase(cwd, config.baseBranch, profileDefaultBranch)
   if (base) args.push('--base', base)
   if (config.mode === 'draft-after-checks') args.push('--draft')
   for (const label of config.labels) args.push('--label', label)
@@ -232,7 +251,8 @@ async function publishPerTask(input: PublishInput): Promise<AutoPrOutcome> {
         input.config,
         change.branch,
         `[Orca ${change.taskId}] ${change.title}`,
-        body
+        body,
+        input.profileDefaultBranch
       )
     )
   }
@@ -249,7 +269,7 @@ async function publishAggregate(input: PublishInput): Promise<AutoPrOutcome> {
   const branch = `orca/goal-${safeSlug(input.goalId)}-${Date.now().toString(36)}`
   const integrationPath = join(root, '.orca-worktrees', 'integration', safeSlug(branch, 60))
   await mkdir(join(root, '.orca-worktrees', 'integration'), { recursive: true })
-  const base = await defaultBase(root, input.config.baseBranch)
+  const base = await defaultBase(root, input.config.baseBranch, input.profileDefaultBranch)
   await git(root, ['worktree', 'add', '-b', branch, integrationPath, `origin/${base}`])
 
   try {
@@ -271,7 +291,8 @@ async function publishAggregate(input: PublishInput): Promise<AutoPrOutcome> {
       input.config,
       branch,
       `[Orca] ${input.goalTitle}`,
-      body
+      body,
+      input.profileDefaultBranch
     )
     return {
       status: 'published',
@@ -307,4 +328,4 @@ export async function publishPreparedChanges(input: PublishInput): Promise<AutoP
   }
 }
 
-export const autoPrInternals = { safeSlug, assertDiffLooksSafe }
+export const autoPrInternals = { safeSlug, assertDiffLooksSafe, defaultBase, pickBaseBranch }

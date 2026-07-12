@@ -2,6 +2,7 @@
  * Agent runtime types shared across main / preload / renderer.
  */
 import type { AgentProviderId, ProviderId } from './providers'
+import type { ModelPreset } from './models'
 
 export type AgentKind = 'orchestrator' | 'sub'
 
@@ -86,7 +87,9 @@ export interface AgentInstanceInfo {
 
 export interface SpawnAgentRequest {
   provider: AgentProviderId
+  /** Free-text override; empty uses modelPreset or CLI default. */
   model: string
+  modelPreset?: ModelPreset
   role?: string
   kind?: AgentKind
   yolo?: boolean

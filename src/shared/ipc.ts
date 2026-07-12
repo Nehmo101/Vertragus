@@ -3,7 +3,7 @@
  * Keeping these in one shared module keeps main <-> preload <-> renderer in sync.
  */
 import type { AgentProviderId, ProviderHealth, ProviderId } from './providers'
-import type { WorkspaceProfile } from './profile'
+import type { ProfileCloneStatus, ProfileGithubRepo, WorkspaceProfile } from './profile'
 import type { McpServerConfig } from './mcp'
 import type {
   AgentBufferSnapshot,
@@ -14,6 +14,19 @@ import type {
   SpawnAgentRequest
 } from './agents'
 import type { OrchestratorSnapshot } from './orchestrator'
+import type {
+  AddArtifactInput,
+  CreateIdeaInput,
+  Idea,
+  UpdateIdeaInput
+} from './inbox'
+import type {
+  InboxSpeechSettings,
+  InboxSpeechSettingsPatch,
+  InboxSpeechStatus,
+  TranscribeAudioPayload,
+  TranscribeAudioResult
+} from './inboxSpeech'
 
 export const IPC = {
   appInfo: 'app:info',
@@ -35,7 +48,27 @@ export const IPC = {
   mcpSave: 'mcp:save',
   gitInfo: 'git:info',
   githubProjects: 'github:projects',
+  githubAuthStatus: 'github:authStatus',
+  githubAuthLogin: 'github:authLogin',
+  githubAuthLogout: 'github:authLogout',
+  githubRepoSearch: 'github:repoSearch',
+  githubRepoResolve: 'github:repoResolve',
+  githubRepoBind: 'github:repoBind',
+  githubRepoCheckLocal: 'github:repoCheckLocal',
   dialogPickFolder: 'dialog:pickFolder',
+  dialogPickFile: 'dialog:pickFile',
+  ideasList: 'ideas:list',
+  ideasGet: 'ideas:get',
+  ideasCreate: 'ideas:create',
+  ideasUpdate: 'ideas:update',
+  ideasDelete: 'ideas:delete',
+  ideasAddArtifact: 'ideas:addArtifact',
+  ideasRemoveArtifact: 'ideas:removeArtifact',
+  inboxSpeechStatus: 'inboxSpeech:status',
+  inboxSpeechGetSettings: 'inboxSpeech:getSettings',
+  inboxSpeechSetSettings: 'inboxSpeech:setSettings',
+  inboxSpeechTranscribe: 'inboxSpeech:transcribe',
+  inboxSpeechAbort: 'inboxSpeech:abort',
   agentsList: 'agents:list',
   agentSpawn: 'agent:spawn',
   agentsSpawnProfile: 'agents:spawnProfile',
@@ -113,6 +146,64 @@ export interface GithubProjectsResult {
   projects: GithubProjectSummary[]
 }
 
+export type GithubAuthMethod = 'none' | 'gh-cli' | 'oauth'
+
+export interface GithubAuthStatus {
+  authenticated: boolean
+  method: GithubAuthMethod
+  account?: string
+  scopes: string[]
+  missingScopes: string[]
+  needsReauth: boolean
+  /** True when ORCA_GITHUB_OAUTH_CLIENT_ID or a saved client id is configured. */
+  oauthConfigured: boolean
+  detail?: string
+}
+
+export interface GithubRepoSummary {
+  owner: string
+  repo: string
+  fullName: string
+  description?: string
+  defaultBranch: string
+  url: string
+  private: boolean
+}
+
+export interface GithubRepoSearchResult {
+  repos: GithubRepoSummary[]
+  query: string
+}
+
+export interface GithubRepoResolveResult {
+  owner: string
+  repo: string
+  defaultBranch: string
+  url: string
+}
+
+export interface GithubRepoBindRequest {
+  owner: string
+  repo: string
+  defaultBranch?: string
+  localPath?: string
+  /** Clone into localPath when the directory is missing or empty. */
+  clone?: boolean
+}
+
+export interface GithubRepoBindResult {
+  binding: ProfileGithubRepo
+  workingDir: string
+  message: string
+}
+
+export interface GithubRepoLocalCheck {
+  localPath: string
+  cloneStatus: ProfileCloneStatus
+  remoteUrl?: string
+  message: string
+}
+
 /**
  * The API bridged onto `window.orca` in the renderer. Every method maps 1:1
  * onto an ipcMain handler (or push channel) registered in the main process.
@@ -151,8 +242,40 @@ export interface OrcaApi {
   gitInfo(dir: string): Promise<GitInfo>
   /** List GitHub Projects boards for the explicit owner or the workspace origin owner. */
   githubProjects(dir: string, owner?: string): Promise<GithubProjectsResult>
+  githubAuthStatus(): Promise<GithubAuthStatus>
+  /** Browser-based OAuth (device flow) or gh --web fallback; never returns tokens. */
+  githubAuthLogin(): Promise<GithubAuthStatus>
+  githubAuthLogout(): Promise<GithubAuthStatus>
+  githubRepoSearch(query: string, limit?: number): Promise<GithubRepoSearchResult>
+  githubRepoResolve(owner: string, repo: string): Promise<GithubRepoResolveResult>
+  githubRepoBind(req: GithubRepoBindRequest): Promise<GithubRepoBindResult>
+  githubRepoCheckLocal(
+    owner: string,
+    repo: string,
+    localPath: string
+  ): Promise<GithubRepoLocalCheck>
   /** Open a native folder picker; resolves to the chosen path or null. */
   pickFolder(): Promise<string | null>
+  /** Open a native file picker for inbox artifacts; resolves to path or null. */
+  pickFile(): Promise<string | null>
+
+  inbox: {
+    list(): Promise<Idea[]>
+    get(id: string): Promise<Idea | undefined>
+    create(input?: CreateIdeaInput): Promise<Idea>
+    update(input: UpdateIdeaInput): Promise<Idea>
+    delete(id: string): Promise<Idea[]>
+    addArtifact(ideaId: string, input: AddArtifactInput): Promise<Idea>
+    removeArtifact(ideaId: string, artifactId: string): Promise<Idea>
+  }
+
+  inboxSpeech: {
+    status(): Promise<InboxSpeechStatus>
+    getSettings(): Promise<InboxSpeechSettings>
+    setSettings(patch: InboxSpeechSettingsPatch): Promise<InboxSpeechSettings>
+    transcribe(payload: TranscribeAudioPayload): Promise<TranscribeAudioResult>
+    abort(): Promise<void>
+  }
 
   agents: {
     list(): Promise<AgentInstanceInfo[]>

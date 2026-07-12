@@ -9,7 +9,8 @@ import { DEFAULT_MODELS, DEFAULT_PROVIDER_LIMITS } from '@shared/providers'
 import type { WorkspaceProfile } from '@shared/profile'
 import type { McpServerConfig } from '@shared/mcp'
 import type { OrchestratorSnapshot } from '@shared/orchestrator'
-import type { AppInfo, GitInfo } from '@shared/ipc'
+import type { AppInfo, GitInfo, GithubAuthStatus } from '@shared/ipc'
+import { profileRepoLocalPath } from '@shared/profile'
 
 const ADD_ROLES = ['Docs / Changelog', 'Refactor / Cleanup', 'Security-Review', 'Perf / Bench']
 
@@ -34,6 +35,7 @@ interface AppState {
   /** True while the MCP-server manager modal is open. */
   mcpEditorOpen: boolean
   gitInfo: GitInfo | null
+  githubAuth: GithubAuthStatus | null
   agents: AgentInstanceInfo[]
   events: OrcaEvent[]
   orchestrator: OrchestratorSnapshot
@@ -50,6 +52,10 @@ interface AppState {
 
   init(): Promise<void>
   refreshHealth(): Promise<void>
+  refreshGithubAuth(): Promise<void>
+  githubLogin(): Promise<void>
+  githubLogout(): Promise<void>
+  githubTerminalLogin(): Promise<void>
   loginProvider(id: ProviderId): Promise<void>
   refreshGit(): Promise<void>
   selectProfile(id: string): Promise<boolean>
@@ -97,6 +103,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   mcpServers: [],
   mcpEditorOpen: false,
   gitInfo: null,
+  githubAuth: null,
   agents: [],
   events: [],
   orchestrator: { goal: null, tasks: [] },
@@ -161,7 +168,43 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     void get().refreshGit()
     void get().refreshHealth()
+    void get().refreshGithubAuth()
     void window.orca.listModels().then((models) => set({ models }))
+  },
+
+  async refreshGithubAuth() {
+    const githubAuth = await window.orca.githubAuthStatus()
+    set({ githubAuth })
+  },
+
+  async githubLogin() {
+    try {
+      const githubAuth = await window.orca.githubAuthLogin()
+      set({ githubAuth })
+      void get().refreshHealth()
+      get().showToast(
+        githubAuth.authenticated
+          ? `GitHub verbunden${githubAuth.account ? ` als ${githubAuth.account}` : ''}.`
+          : 'GitHub-Anmeldung unvollständig.'
+      )
+    } catch (error) {
+      get().showToast(`GitHub-Login fehlgeschlagen: ${errorMessage(error)}`)
+    }
+  },
+
+  async githubLogout() {
+    try {
+      const githubAuth = await window.orca.githubAuthLogout()
+      set({ githubAuth })
+      void get().refreshHealth()
+      get().showToast('GitHub abgemeldet.')
+    } catch (error) {
+      get().showToast(`GitHub-Abmeldung fehlgeschlagen: ${errorMessage(error)}`)
+    }
+  },
+
+  async githubTerminalLogin() {
+    await get().loginProvider('github')
   },
 
   async refreshHealth() {
@@ -182,9 +225,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   async refreshGit() {
     const profile = activeProfile(get())
-    const gitInfo = profile?.workingDir
-      ? await window.orca.gitInfo(profile.workingDir)
-      : { isRepo: false }
+    const dir = profile ? profileRepoLocalPath(profile) : ''
+    const gitInfo = dir ? await window.orca.gitInfo(dir) : { isRepo: false }
     set({ gitInfo })
   },
 
@@ -331,13 +373,14 @@ export const useAppStore = create<AppState>((set, get) => ({
         id: `profile-${Date.now().toString(36)}`,
         name: 'Neues Profil',
         workingDir: activeProfile(get())?.workingDir ?? '',
-        orchestrator: { provider: 'claude', model: 'fable', autoOpenSubwindows: true },
+        orchestrator: { provider: 'claude', model: 'fable', modelPreset: 'balanced', autoOpenSubwindows: true },
         agents: [
           {
             // Empty model = codex's own configured default (see DEFAULT_PROFILE).
             role: 'worker',
             provider: 'codex',
             model: '',
+            modelPreset: 'balanced',
             count: 1,
             orchestrated: true,
             yolo: false
