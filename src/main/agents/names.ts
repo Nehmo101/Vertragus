@@ -1,40 +1,15 @@
 /**
  * Middle-earth code-names for agents, so each has a memorable identity you can
  * refer to ("Boromir hat den Endpoint gebaut"). Orchestrators draw from a
- * leaders pool, subagents from a fellowship pool. Names are handed out uniquely
- * among the currently live agents and returned to the pool when an agent ends.
+ * leaders pool, subagents from a wilder fellowship pool. Names are handed out
+ * uniquely among the currently live agents and returned to the pool when an
+ * agent ends. The cast (and the hover tooltips that explain each figure) live
+ * in the shared `tolkien` module.
  */
-const LEADERS = [
-  'Gandalf',
-  'Aragorn',
-  'Elrond',
-  'Galadriel',
-  'Théoden',
-  'Faramir',
-  'Boromir',
-  'Círdan'
-]
+import { LEADER_NAMES, FELLOWSHIP_NAMES } from '@shared/tolkien'
 
-const FELLOWSHIP = [
-  'Frodo',
-  'Samweis',
-  'Merry',
-  'Pippin',
-  'Legolas',
-  'Gimli',
-  'Éowyn',
-  'Éomer',
-  'Bilbo',
-  'Radagast',
-  'Glorfindel',
-  'Haldir',
-  'Bard',
-  'Thorin',
-  'Balin',
-  'Dwalin',
-  'Treebeard',
-  'Beregond'
-]
+const LEADERS = LEADER_NAMES
+const FELLOWSHIP = FELLOWSHIP_NAMES
 
 export class NameAllocator {
   private readonly taken = new Set<string>()

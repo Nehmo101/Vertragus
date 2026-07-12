@@ -2453,3 +2453,59 @@ textarea:focus-visible,
   font-weight: 700;
   letter-spacing: 0.15px;
 }
+
+/* ============================================================
+   Tolkien code-name lore tooltip
+   ============================================================ */
+.lore-name {
+  cursor: help;
+  text-decoration: underline dotted rgba(94, 234, 212, 0.35);
+  text-underline-offset: 2.5px;
+}
+.lore-name:hover,
+.lore-name:focus-visible {
+  color: var(--accent-light);
+  text-decoration-color: var(--accent-light);
+}
+.assignee .lore-name {
+  color: inherit;
+}
+.lore-tip {
+  position: fixed;
+  transform: translateX(-50%);
+  z-index: 1200;
+  max-width: 260px;
+  padding: 8px 11px;
+  border-radius: 9px;
+  background: var(--bg-popover);
+  border: 1px solid var(--border-4);
+  box-shadow:
+    0 12px 34px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  animation: loretip-in 0.12s ease-out;
+}
+.lore-tip-name {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  color: var(--accent-light);
+}
+.lore-tip-text {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+@keyframes loretip-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
