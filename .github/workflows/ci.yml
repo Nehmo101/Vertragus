@@ -23,7 +23,7 @@ jobs:
           node-version: 22.13
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm ci
+      - run: pnpm run ci
 
   windows-build:
     runs-on: windows-latest
