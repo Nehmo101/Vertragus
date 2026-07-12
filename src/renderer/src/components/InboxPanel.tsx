@@ -367,14 +367,15 @@ export default function InboxPanel(): JSX.Element {
 
   const addFile = async (): Promise<void> => {
     if (!draft) return
-    const path = await window.orca.pickFile()
-    if (!path) return
+    const picked = await window.orca.pickFile()
+    if (!picked) return
     setSaving(true)
     setError('')
     try {
       const updated = await window.orca.inbox.addArtifact(draft.id, {
         kind: 'file',
-        sourcePath: path
+        grantId: picked.grantId,
+        label: picked.fileName
       })
       setDraft({ ...updated })
       const list = await window.orca.inbox.list()

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { githubRepoInternals } from './githubRepo'
+import { bindGithubRepo, githubRepoInternals } from './githubRepo'
+import { resolveGithubLocalPath } from '@main/security/localPath'
 
 describe('githubRepo helpers', () => {
   it.each([
@@ -28,5 +29,12 @@ describe('githubRepo helpers', () => {
 
   it('rejects invalid repo slugs', () => {
     expect(() => githubRepoInternals.normalizeRepoSlug('../evil', 'Repository')).toThrow(/Ungültig/)
+  })
+
+  it('rejects traversal local paths before bind', async () => {
+    expect(() => resolveGithubLocalPath('C:\\git\\..\\secret', 'Ziel')).toThrow(/Traversal/)
+    await expect(
+      bindGithubRepo({ owner: 'acme', repo: 'demo', localPath: '..\\escape', clone: true })
+    ).rejects.toThrow(/Traversal|Ungültig/)
   })
 })

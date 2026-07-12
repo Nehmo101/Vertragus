@@ -16,6 +16,8 @@ import {
   type UpdateIdeaInput
 } from '@shared/inbox'
 import { fileExists, tryCopyArtifactFile } from '@main/inbox/files'
+import { consumePickerGrant } from '@main/inbox/pickerGrants'
+import type { IdeaTransfer } from '@shared/inboxTransfer'
 
 interface InboxStoreShape {
   ideas: Idea[]
@@ -83,7 +85,28 @@ export function updateIdea(input: UpdateIdeaInput): Idea {
     status: input.status ?? current.status,
     tags: input.tags !== undefined ? normalizeTags(input.tags) : current.tags,
     refs: input.refs !== undefined ? input.refs : current.refs,
-    transfer: input.transfer !== undefined ? input.transfer : current.transfer,
+    transfer: current.transfer,
+    updatedAt: now()
+  })
+  ideas[idx] = updated
+  saveIdeas(ideas)
+  return enrichIdea(updated, fileExists)
+}
+
+/** Main-process only: persist transfer state (never accepted from renderer IPC). */
+export function applyIdeaTransfer(
+  ideaId: string,
+  transfer: IdeaTransfer,
+  refs?: Idea['refs']
+): Idea {
+  const ideas = parseIdeas()
+  const idx = ideas.findIndex((i) => i.id === ideaId)
+  if (idx < 0) throw new Error('Idee nicht gefunden.')
+  const current = ideas[idx]
+  const updated: Idea = ideaSchema.parse({
+    ...current,
+    refs: refs !== undefined ? refs : current.refs,
+    transfer,
     updatedAt: now()
   })
   ideas[idx] = updated
@@ -115,9 +138,10 @@ export async function addArtifact(ideaId: string, input: AddArtifactInput): Prom
     if (!isValidUrl(input.url)) throw new Error('URL ist ungültig (http/https erforderlich).')
     artifact.url = input.url.trim()
   } else {
+    const sourcePath = consumePickerGrant(input.grantId)
     const userData = app.getPath('userData')
-    const copy = await tryCopyArtifactFile(userData, ideaId, artifact.id, input.sourcePath)
-    artifact.sourcePath = input.sourcePath
+    const copy = await tryCopyArtifactFile(userData, ideaId, artifact.id, sourcePath)
+    artifact.sourcePath = sourcePath
     artifact.fileName = copy.fileName
     artifact.copied = copy.copied
     if (copy.storedPath) artifact.storedPath = copy.storedPath
@@ -152,7 +176,7 @@ export function removeArtifact(ideaId: string, artifactId: string): Idea {
 function defaultArtifactLabel(input: AddArtifactInput): string {
   if (input.kind === 'text') return 'Text'
   if (input.kind === 'url') return 'Link'
-  return input.sourcePath.split(/[/\\]/).pop() || 'Datei'
+  return input.label?.trim() || 'Datei'
 }
 
 /** Test hook: replace in-memory ideas without touching disk defaults. */

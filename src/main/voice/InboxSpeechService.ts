@@ -27,6 +27,10 @@ import {
   type TranscribeAudioPayload,
   type TranscribeAudioResult
 } from '@shared/inboxSpeech'
+import {
+  safeTranscriptionEndpointUrl,
+  validateTranscriptionEndpointUrl
+} from '@shared/inboxSpeechEndpoint'
 
 const SETTINGS_MODEL = 'inboxSpeech.model'
 const SETTINGS_LANGUAGE = 'inboxSpeech.language'
@@ -46,7 +50,7 @@ export function getInboxSpeechStatus(): InboxSpeechStatus {
     encryptionAvailable: isEncryptionAvailable(),
     model: getSetting<string>(SETTINGS_MODEL)?.trim() || DEFAULT_TRANSCRIPTION_MODEL,
     language: getSetting<string>(SETTINGS_LANGUAGE)?.trim() || DEFAULT_TRANSCRIPTION_LANGUAGE,
-    endpointUrl: getSetting<string>(SETTINGS_ENDPOINT)?.trim() || DEFAULT_TRANSCRIPTION_ENDPOINT,
+    endpointUrl: safeTranscriptionEndpointUrl(getSetting<string>(SETTINGS_ENDPOINT)),
     maxBytes: INBOX_SPEECH_MAX_BYTES,
     maxDurationMs: INBOX_SPEECH_MAX_DURATION_MS,
     minBytes: INBOX_SPEECH_MIN_BYTES
@@ -75,17 +79,7 @@ export function setInboxSpeechSettings(patch: InboxSpeechSettingsPatch): InboxSp
     setSetting(SETTINGS_LANGUAGE, language)
   }
   if (patch.endpointUrl !== undefined) {
-    const endpointUrl = patch.endpointUrl.trim()
-    if (!endpointUrl) throw new Error('Endpunkt-URL darf nicht leer sein.')
-    try {
-      const u = new URL(endpointUrl)
-      if (u.protocol !== 'https:' && u.protocol !== 'http:') {
-        throw new Error('Nur http/https erlaubt.')
-      }
-    } catch (error) {
-      if (error instanceof TypeError) throw new Error('Endpunkt-URL ist ungültig.')
-      throw error
-    }
+    const endpointUrl = validateTranscriptionEndpointUrl(patch.endpointUrl)
     setSetting(SETTINGS_ENDPOINT, endpointUrl)
   }
   if (patch.apiKey !== undefined) {
@@ -109,6 +103,15 @@ export async function transcribeInboxAudio(
   const signal = abortController.signal
 
   const status = getInboxSpeechStatus()
+  const rawEndpoint =
+    getSetting<string>(SETTINGS_ENDPOINT)?.trim() || DEFAULT_TRANSCRIPTION_ENDPOINT
+  let endpointUrl: string
+  try {
+    endpointUrl = validateTranscriptionEndpointUrl(rawEndpoint)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return { ok: false, code: 'provider_error', message }
+  }
   if (!status.encryptionAvailable) {
     return {
       ok: false,
@@ -145,7 +148,7 @@ export async function transcribeInboxAudio(
       mimeType: payload.mimeType || 'audio/webm',
       model: status.model,
       language: status.language,
-      endpointUrl: status.endpointUrl,
+      endpointUrl,
       apiKey,
       signal
     })

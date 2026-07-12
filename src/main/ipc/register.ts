@@ -37,9 +37,8 @@ import { agentManager } from '@main/agents/AgentManager'
 import { providerCapacity } from '@main/agents/providerCapacity'
 import { orchestratorEngine } from '@main/orchestrator/Engine'
 import { broadcast, createPaneWindow } from '@main/windows'
+import { getPublicConfig, setPublicConfig } from '@main/config/configAccess'
 import {
-  getSetting,
-  setSetting,
   listProfiles,
   saveProfile,
   deleteProfile,
@@ -49,6 +48,8 @@ import {
   listMcpServers,
   saveMcpServers
 } from '@main/config/store'
+import { issuePickerGrant } from '@main/inbox/pickerGrants'
+import { resolveGithubLocalPathOptional } from '@main/security/localPath'
 import {
   listIdeas,
   getIdea,
@@ -116,9 +117,9 @@ export function registerIpcHandlers(): void {
     return info
   })
   ipcMain.handle(IPC.providersModels, () => listModels())
-  ipcMain.handle(IPC.configGet, (_e, key: string) => getSetting(key))
+  ipcMain.handle(IPC.configGet, (_e, key: string) => getPublicConfig(key))
   ipcMain.handle(IPC.configSet, (_e, key: string, value: unknown) => {
-    setSetting(key, value)
+    setPublicConfig(key, value)
     if (key === 'providerLimits') providerCapacity.refreshLimits()
   })
 
@@ -129,7 +130,7 @@ export function registerIpcHandlers(): void {
     let githubRepo = profile.githubRepo
 
     if (githubRepo) {
-      const localPath = githubRepo.localPath?.trim()
+      const localPath = resolveGithubLocalPathOptional(githubRepo.localPath, 'Repository')
       if (localPath) {
         workingDir = await normalizeDirectory(localPath, 'Repository')
         if (githubRepo.owner && githubRepo.repo) {
@@ -238,7 +239,9 @@ export function registerIpcHandlers(): void {
     const result = win
       ? await dialog.showOpenDialog(win, opts)
       : await dialog.showOpenDialog(opts)
-    return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]
+    return result.canceled || result.filePaths.length === 0
+      ? null
+      : issuePickerGrant(result.filePaths[0])
   })
 
   // ---- ideas inbox ----

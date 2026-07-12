@@ -16,6 +16,7 @@ import type { ProfileCloneStatus, ProfileGithubRepo } from '@shared/profile'
 import { githubOwnerFromRemote } from '@main/integrations/github'
 import { githubAuthStatus } from '@main/integrations/githubAuth'
 import { gitInfo } from '@main/integrations/git'
+import { resolveGithubLocalPath, resolveGithubLocalPathOptional } from '@main/security/localPath'
 
 const execFileAsync = promisify(execFile)
 
@@ -172,7 +173,7 @@ export async function checkGithubRepoLocal(
 ): Promise<GithubRepoLocalCheck> {
   const normalizedOwner = normalizeRepoSlug(owner, 'Owner')
   const normalizedRepo = normalizeRepoSlug(repo, 'Repository')
-  const path = localPath.trim()
+  const path = localPath.trim() ? resolveGithubLocalPathOptional(localPath, 'Lokaler Pfad') : ''
   if (!path) {
     return {
       localPath: path,
@@ -247,16 +248,22 @@ async function cloneGithubRepo(owner: string, repo: string, localPath: string): 
 export async function bindGithubRepo(req: GithubRepoBindRequest): Promise<GithubRepoBindResult> {
   const owner = normalizeRepoSlug(req.owner, 'Owner')
   const repo = normalizeRepoSlug(req.repo, 'Repository')
-  const resolved = await resolveGithubRepo(owner, repo)
-  const defaultBranch = req.defaultBranch?.trim() || resolved.defaultBranch
-  let localPath = req.localPath?.trim() || ''
-  let cloneStatus: ProfileCloneStatus = 'linked'
-  let message = `Repository ${owner}/${repo} gebunden.`
-
+  let localPath = resolveGithubLocalPathOptional(req.localPath, 'Zielverzeichnis')
   if (req.clone) {
     if (!localPath) {
       throw new Error('Für das Klonen muss ein Zielverzeichnis gewählt werden.')
     }
+    localPath = resolveGithubLocalPath(localPath, 'Zielverzeichnis')
+  } else if (localPath) {
+    localPath = resolveGithubLocalPath(localPath, 'Lokaler Pfad')
+  }
+
+  const resolved = await resolveGithubRepo(owner, repo)
+  const defaultBranch = req.defaultBranch?.trim() || resolved.defaultBranch
+  let cloneStatus: ProfileCloneStatus = 'linked'
+  let message = `Repository ${owner}/${repo} gebunden.`
+
+  if (req.clone) {
     await cloneGithubRepo(owner, repo, localPath)
     cloneStatus = 'cloned'
     message = `Repository nach ${localPath} geklont.`

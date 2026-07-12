@@ -15,7 +15,7 @@ import {
   type IdeaTransferResult
 } from '@shared/inboxTransfer'
 import { profileRepoLocalPath } from '@shared/profile'
-import { getIdea, updateIdea } from '@main/inbox/store'
+import { getIdea, applyIdeaTransfer } from '@main/inbox/store'
 import { assessProfileOrchestrator, assessRepoReadiness } from '@main/inbox/transferReadiness'
 import { spawnProfileTeam } from '@main/agents/spawnProfile'
 import { agentManager } from '@main/agents/AgentManager'
@@ -55,14 +55,10 @@ function persistTransfer(
 ): IdeaTransferResult['idea'] {
   const idea = getIdea(ideaId)
   if (!idea) throw new Error('Idee nicht gefunden.')
-  return updateIdea({
-    id: ideaId,
-    refs: {
-      ...idea.refs,
-      profileId: refs?.profileId ?? idea.refs?.profileId,
-      planId: refs?.planId ?? idea.refs?.planId
-    },
-    transfer
+  return applyIdeaTransfer(ideaId, transfer, {
+    ...idea.refs,
+    profileId: refs?.profileId ?? idea.refs?.profileId,
+    planId: refs?.planId ?? idea.refs?.planId
   })
 }
 

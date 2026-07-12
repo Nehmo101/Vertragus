@@ -208,6 +208,12 @@ export interface GithubRepoLocalCheck {
   message: string
 }
 
+/** Short-lived grant returned by the native file picker (not a raw filesystem path). */
+export interface PickedFileGrant {
+  grantId: string
+  fileName: string
+}
+
 /**
  * The API bridged onto `window.orca` in the renderer. Every method maps 1:1
  * onto an ipcMain handler (or push channel) registered in the main process.
@@ -260,8 +266,8 @@ export interface OrcaApi {
   ): Promise<GithubRepoLocalCheck>
   /** Open a native folder picker; resolves to the chosen path or null. */
   pickFolder(): Promise<string | null>
-  /** Open a native file picker for inbox artifacts; resolves to path or null. */
-  pickFile(): Promise<string | null>
+  /** Open a native file picker for inbox artifacts; returns a short-lived grant. */
+  pickFile(): Promise<PickedFileGrant | null>
 
   inbox: {
     list(): Promise<Idea[]>

@@ -67,7 +67,6 @@ export interface UpdateIdeaInput {
   status?: IdeaStatus
   tags?: string[]
   refs?: IdeaRefs
-  transfer?: import('./inboxTransfer').IdeaTransfer
 }
 
 export interface AddTextArtifactInput {
@@ -85,7 +84,8 @@ export interface AddUrlArtifactInput {
 export interface AddFileArtifactInput {
   kind: 'file'
   label?: string
-  sourcePath: string
+  /** Short-lived grant from pickFile(); raw paths from renderer are rejected. */
+  grantId: string
 }
 
 export type AddArtifactInput = AddTextArtifactInput | AddUrlArtifactInput | AddFileArtifactInput
