@@ -7,6 +7,7 @@ import { LIMIT_KIND_LABELS } from '@shared/agents'
 import type { AgentProviderId, ProviderHealth, ProviderId } from '@shared/providers'
 import { DEFAULT_MODELS, DEFAULT_PROVIDER_LIMITS } from '@shared/providers'
 import type { WorkspaceProfile } from '@shared/profile'
+import type { McpServerConfig } from '@shared/mcp'
 import type { OrchestratorSnapshot } from '@shared/orchestrator'
 import type { AppInfo, GitInfo } from '@shared/ipc'
 
@@ -28,6 +29,10 @@ interface AppState {
   providerLimits: Record<AgentProviderId, number>
   profiles: WorkspaceProfile[]
   activeProfileId: string
+  /** User-configured external MCP servers attached to the launched agents. */
+  mcpServers: McpServerConfig[]
+  /** True while the MCP-server manager modal is open. */
+  mcpEditorOpen: boolean
   gitInfo: GitInfo | null
   agents: AgentInstanceInfo[]
   events: OrcaEvent[]
@@ -67,6 +72,9 @@ interface AppState {
   openEditorNew(): void
   closeEditor(): void
   saveEditor(profile: WorkspaceProfile): Promise<void>
+  openMcpEditor(): void
+  closeMcpEditor(): void
+  saveMcpServers(servers: McpServerConfig[]): Promise<void>
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined
@@ -85,6 +93,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   providerLimits: DEFAULT_PROVIDER_LIMITS,
   profiles: [],
   activeProfileId: '',
+  mcpServers: [],
+  mcpEditorOpen: false,
   gitInfo: null,
   agents: [],
   events: [],
@@ -120,11 +130,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     window.orca.onProvidersChanged((health) => set({ health }))
     window.orca.orchestrator.onSnapshot((snap) => set({ orchestrator: snap }))
 
-    const [appInfo, profiles, activeProfileId, agents, yolo, snapshot, theme, layout, density, limits] =
+    const [appInfo, profiles, activeProfileId, mcpServers, agents, yolo, snapshot, theme, layout, density, limits] =
       await Promise.all([
         window.orca.getAppInfo(),
         window.orca.listProfiles(),
         window.orca.getActiveProfileId(),
+        window.orca.listMcpServers(),
         window.orca.agents.list(),
         window.orca.getConfig<boolean>('yoloMaster'),
         window.orca.orchestrator.snapshot(),
@@ -137,6 +148,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       appInfo,
       profiles,
       activeProfileId,
+      mcpServers,
       agents,
       yoloMaster: yolo ?? false,
       orchestrator: snapshot,
@@ -356,6 +368,24 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (selected) get().showToast(`Profil „${profile.name}" gespeichert.`)
     } catch (error) {
       get().showToast(`Profil konnte nicht gespeichert werden: ${errorMessage(error)}`)
+    }
+  },
+
+  openMcpEditor() {
+    set({ mcpEditorOpen: true })
+  },
+
+  closeMcpEditor() {
+    set({ mcpEditorOpen: false })
+  },
+
+  async saveMcpServers(servers) {
+    try {
+      const saved = await window.orca.saveMcpServers(servers)
+      set({ mcpServers: saved, mcpEditorOpen: false })
+      get().showToast(`MCP-Server gespeichert (${saved.length}).`)
+    } catch (error) {
+      get().showToast(`MCP-Server konnten nicht gespeichert werden: ${errorMessage(error)}`)
     }
   }
 }))

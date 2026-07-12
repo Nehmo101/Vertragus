@@ -9,6 +9,7 @@ import type { AgentProviderId } from '@shared/providers'
 import type { OrchestratorProviderCapability } from '@shared/orchestrator'
 import { getMcpHandle } from '@main/orchestrator/mcpHandle'
 import { getOrchestratorAdapter } from '@main/orchestrator/providerAdapters'
+import { externalMcpSpecsFor } from '@main/orchestrator/externalMcp'
 
 export const orchestratorSystemPrompt = (name: string): string => [
   `Du bist ${name}, der ORCHESTRATOR in Orca-Strator, einem Multi-Agent-Control-Center.`,
@@ -50,7 +51,11 @@ export interface OrchestratorSetup {
 }
 
 /** Returns transient MCP + system-prompt args for any supported provider. */
-export function buildOrchestratorSetup(provider: AgentProviderId, name: string): OrchestratorSetup {
+export function buildOrchestratorSetup(
+  provider: AgentProviderId,
+  name: string,
+  agentId: string
+): OrchestratorSetup {
   const adapter = getOrchestratorAdapter(provider)
   const handle = getMcpHandle()
   if (!handle || !adapter.capability.supported) {
@@ -62,7 +67,9 @@ export function buildOrchestratorSetup(provider: AgentProviderId, name: string):
       name,
       handle,
       configDir: app.getPath('userData'),
-      systemPrompt: orchestratorSystemPrompt(name)
+      systemPrompt: orchestratorSystemPrompt(name),
+      externalServers: externalMcpSpecsFor('orchestrator', provider),
+      fileTag: agentId
     }),
     capability: adapter.capability
   }
