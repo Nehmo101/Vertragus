@@ -32,7 +32,12 @@ function useAgentTerminal(agentId: string): React.RefObject<HTMLDivElement> {
       fontSize: 11,
       lineHeight: 1.35,
       theme: XTERM_THEME,
-      cursorBlink: true,
+      // Agent CLIs redraw progress lines while input stays active. A blinking
+      // block cursor makes those cursor moves look like terminal flicker.
+      cursorBlink: false,
+      cursorStyle: 'bar',
+      cursorWidth: 1,
+      cursorInactiveStyle: 'none',
       scrollback: 4000,
       allowProposedApi: true
     })
