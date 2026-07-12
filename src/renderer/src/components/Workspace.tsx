@@ -98,6 +98,7 @@ export default function Workspace(): JSX.Element {
               onFocus={() => setFocusedAgentId(agent.id)}
               onClose={() => void store.killAgent(agent.id)}
               onPopout={() => void store.popout(agent.id)}
+              onHandoff={() => store.openHandoff(agent.id)}
             />
           ))}
           <button type="button" className="add-tile" onClick={() => void store.addAgent()}>

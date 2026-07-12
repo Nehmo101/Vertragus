@@ -3,10 +3,30 @@ import { useAppStore } from '@renderer/store/useAppStore'
 import type { WorkspaceProfile, AgentSlot } from '@shared/profile'
 import type { AgentProviderId } from '@shared/providers'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
+import InfoTip from '@renderer/components/InfoTip'
 
-const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'cursor', 'ollama']
+const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'cursor', 'copilot', 'ollama']
 
 const ORCHESTRATOR_PROVIDERS: AgentProviderId[] = ['claude', 'codex']
+const HELP = {
+  profileName: 'Frei wählbarer Name für diese Kombination aus Workspace, Orchestrator und Subagents.',
+  workingDir: 'Repository oder Ordner, in dem Agents arbeiten. Task-Worktrees werden von diesem Git-Repository abgeleitet.',
+  mode: 'Orchestriert lässt Claude oder Codex planen und delegieren. Single startet nur die konfigurierten Slots.',
+  orchestratorProvider: 'Nur Provider mit verifiziertem Orca-MCP-Adapter können orchestrieren.',
+  model: 'Leer verwendet den Standard der jeweiligen CLI. Eine Modell-ID muss für dein Konto verfügbar sein.',
+  plannerMode: 'Auto startet valide Pläne direkt. Review wartet auf Freigabe. Manuell deaktiviert execute_plan.',
+  maxParallel: 'Globales Oberlimit gleichzeitig laufender Plan-Tasks; Rollen-Kapazitäten können es weiter reduzieren.',
+  timeout: 'Nach dieser Laufzeit wird ein Headless-Task beendet und als Timeout markiert.',
+  autoPrMode: 'PRs entstehen nur nach erfolgreichen Gates. Draft ist der empfohlene sichere Startmodus.',
+  prStrategy: 'Aggregate kombiniert Task-Commits in einen Goal-PR. Per Task erzeugt getrennte PRs.',
+  baseBranch: 'Zielbranch des PRs. Leer nutzt den Standardbranch des origin-Remotes.',
+  qualityGates: 'Vertrauenswürdige Shell-Befehle, die im Task- und Integrations-Worktree erfolgreich laufen müssen.',
+  role: 'Eindeutige Fähigkeit, die der Planner adressiert, etwa frontend, backend, tests oder review.',
+  agentProvider: 'CLI, die diesen Slot ausführt. Der Login erfolgt separat in der Provider-Seitenleiste.',
+  count: 'Maximale parallele Task-Kapazität dieser Rolle und Anzahl beim manuellen Teamstart.',
+  yolo: 'Überspringt Provider-Bestätigungen. Nur mit Worktree-Isolation und bewusstem Scope verwenden.',
+  orchestrated: 'Wenn aktiv, darf der Orchestrator Aufgaben an diesen Slot delegieren.'
+} as const
 function boundedNumber(value: number, min: number, max: number, fallback: number): number {
   return Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback
 }
@@ -31,6 +51,9 @@ export default function ProfileEditor(): JSX.Element | null {
 
   const models = store.models
   const modelsFor = (p: AgentProviderId): string[] => models[p] ?? []
+  // codex defaults to empty = its own configured default (an explicit
+  // unsupported model 400s); other providers default to their first suggestion.
+  const defaultModelFor = (p: AgentProviderId): string => (p === 'codex' ? '' : modelsFor(p)[0] ?? '')
 
   const patch = (p: Partial<WorkspaceProfile>): void => setDraft({ ...draft, ...p })
   const patchSlot = (idx: number, p: Partial<AgentSlot>): void => {
@@ -58,7 +81,9 @@ export default function ProfileEditor(): JSX.Element | null {
         </div>
 
         <div className="modal-body">
-          <label className="field-label" htmlFor="profile-name">Profilname</label>
+          <label className="field-label" htmlFor="profile-name">
+            Profilname <InfoTip text={HELP.profileName} />
+          </label>
           <input
             ref={nameRef}
             id="profile-name"
@@ -67,7 +92,9 @@ export default function ProfileEditor(): JSX.Element | null {
             onChange={(e) => patch({ name: e.target.value })}
           />
 
-          <label className="field-label" htmlFor="profile-working-dir">Working Directory (Repo)</label>
+          <label className="field-label" htmlFor="profile-working-dir">
+            Working Directory (Repo) <InfoTip text={HELP.workingDir} />
+          </label>
           <div className="dir-row">
             <input
               id="profile-working-dir"
@@ -88,7 +115,7 @@ export default function ProfileEditor(): JSX.Element | null {
           </div>
 
           <div className="field-label" style={{ marginBottom: 8 }}>
-            Modus
+            Modus <InfoTip text={HELP.mode} />
           </div>
           <div className="mode-toggle">
             <button type="button"
@@ -119,7 +146,9 @@ export default function ProfileEditor(): JSX.Element | null {
             <div className="orch-block">
               <span className="avatar">◇</span>
               <div style={{ flex: 1 }}>
-                <div className="select-label">Provider</div>
+                <div className="select-label">
+                  Provider <InfoTip text={HELP.orchestratorProvider} />
+                </div>
                 <select
                   className="select"
                   value={draft.orchestrator.provider}
@@ -129,7 +158,7 @@ export default function ProfileEditor(): JSX.Element | null {
                       orchestrator: {
                         ...draft.orchestrator!,
                         provider,
-                        model: modelsFor(provider)[0] ?? ''
+                        model: defaultModelFor(provider)
                       }
                     })
                   }}
@@ -142,7 +171,12 @@ export default function ProfileEditor(): JSX.Element | null {
                 </select>
               </div>
               <div style={{ flex: 1 }}>
-                <div className="select-label">Modell</div>
+                <div className="select-label">
+                  Modell <InfoTip text={HELP.model} />
+                  <span className="model-count" title="verfügbare Modelle dieses Providers (frei eingebbar)">
+                    {modelsFor(draft.orchestrator.provider).length}
+                  </span>
+                </div>
                 <input
                   className="select mono"
                   list="orch-models"
@@ -174,7 +208,9 @@ export default function ProfileEditor(): JSX.Element | null {
             </div>
             <div className="automation-grid">
               <label>
-                <span className="slot-col-label">Planungsmodus</span>
+                <span className="slot-col-label">
+                  Planungsmodus <InfoTip text={HELP.plannerMode} />
+                </span>
                 <select
                   className="slot-select-sm"
                   value={draft.planner.mode}
@@ -188,7 +224,9 @@ export default function ProfileEditor(): JSX.Element | null {
                 </select>
               </label>
               <label>
-                <span className="slot-col-label">Max. parallel</span>
+                <span className="slot-col-label">
+                  Max. parallel <InfoTip text={HELP.maxParallel} />
+                </span>
                 <input
                   className="slot-select-sm"
                   type="number"
@@ -199,7 +237,9 @@ export default function ProfileEditor(): JSX.Element | null {
                 />
               </label>
               <label>
-                <span className="slot-col-label">Timeout (Min.)</span>
+                <span className="slot-col-label">
+                  Timeout (Min.) <InfoTip text={HELP.timeout} />
+                </span>
                 <input
                   className="slot-select-sm"
                   type="number"
@@ -219,7 +259,9 @@ export default function ProfileEditor(): JSX.Element | null {
             </div>
             <div className="automation-grid auto-pr-grid">
               <label>
-                <span className="slot-col-label">Modus</span>
+                <span className="slot-col-label">
+                  Modus <InfoTip text={HELP.autoPrMode} />
+                </span>
                 <select
                   className="slot-select-sm"
                   value={draft.autoPr.mode}
@@ -233,7 +275,9 @@ export default function ProfileEditor(): JSX.Element | null {
                 </select>
               </label>
               <label>
-                <span className="slot-col-label">PR-Strategie</span>
+                <span className="slot-col-label">
+                  PR-Strategie <InfoTip text={HELP.prStrategy} />
+                </span>
                 <select
                   className="slot-select-sm"
                   value={draft.autoPr.strategy}
@@ -246,7 +290,9 @@ export default function ProfileEditor(): JSX.Element | null {
                 </select>
               </label>
               <label>
-                <span className="slot-col-label">Basis-Branch</span>
+                <span className="slot-col-label">
+                  Basis-Branch <InfoTip text={HELP.baseBranch} />
+                </span>
                 <input
                   className="slot-select-sm mono"
                   placeholder="Repo-Standard"
@@ -255,7 +301,9 @@ export default function ProfileEditor(): JSX.Element | null {
                 />
               </label>
               <label className="quality-gates-field">
-                <span className="slot-col-label">Quality Gates (eine Zeile je Befehl)</span>
+                <span className="slot-col-label">
+                  Quality Gates (eine Zeile je Befehl) <InfoTip text={HELP.qualityGates} />
+                </span>
                 <textarea
                   className="text-input mono quality-gates"
                   value={draft.autoPr.qualityGates.join('\n')}
@@ -282,9 +330,7 @@ export default function ProfileEditor(): JSX.Element | null {
             {draft.agents.map((slot, idx) => (
               <div className="slot-row" key={idx}>
                 <div className="slot-role-field">
-                  <div className="slot-col-label" title="Name, mit dem der Orchestrator diesen Slot gezielt anspricht">
-                    Rolle / Label
-                  </div>
+                  <div className="slot-col-label">Rolle / Label <InfoTip text={HELP.role} /></div>
                   <input
                     className="slot-role-input"
                     value={slot.role}
@@ -294,13 +340,15 @@ export default function ProfileEditor(): JSX.Element | null {
                 </div>
                 <div className="slot-fields">
                 <div style={{ flex: 1.1 }}>
-                  <div className="slot-col-label">Provider</div>
+                  <div className="slot-col-label">
+                    Provider <InfoTip text={HELP.agentProvider} />
+                  </div>
                   <select
                     className="slot-select-sm"
                     value={slot.provider}
                     onChange={(e) => {
                       const provider = e.target.value as AgentProviderId
-                      patchSlot(idx, { provider, model: modelsFor(provider)[0] ?? '' })
+                      patchSlot(idx, { provider, model: defaultModelFor(provider) })
                     }}
                   >
                     {AGENT_PROVIDERS.map((p) => (
@@ -311,7 +359,12 @@ export default function ProfileEditor(): JSX.Element | null {
                   </select>
                 </div>
                 <div style={{ flex: 1.4 }}>
-                  <div className="slot-col-label">Modell</div>
+                  <div className="slot-col-label">
+                    Modell <InfoTip text={HELP.model} />
+                    <span className="model-count" title="verfügbare Modelle dieses Providers (frei eingebbar)">
+                      {modelsFor(slot.provider).length}
+                    </span>
+                  </div>
                   <input
                     className="slot-select-sm mono"
                     list={`slot-models-${idx}`}
@@ -327,7 +380,7 @@ export default function ProfileEditor(): JSX.Element | null {
                 </div>
                 <div style={{ flex: 'none' }}>
                   <div className="slot-col-label" style={{ textAlign: 'center' }}>
-                    Anzahl
+                    Anzahl <InfoTip text={HELP.count} />
                   </div>
                   <div className="stepper">
                     <button type="button" onClick={() => patchSlot(idx, { count: Math.max(1, slot.count - 1) })}>
@@ -340,7 +393,9 @@ export default function ProfileEditor(): JSX.Element | null {
                   </div>
                 </div>
                 <div style={{ flex: 'none', textAlign: 'center' }}>
-                  <div className="slot-col-label">Yolo</div>
+                  <div className="slot-col-label">
+                    Yolo <InfoTip text={HELP.yolo} />
+                  </div>
                   <button type="button"
                     className={`slot-yolo ${slot.yolo ? 'on' : ''}`}
                     onClick={() => patchSlot(idx, { yolo: !slot.yolo })}
@@ -349,9 +404,7 @@ export default function ProfileEditor(): JSX.Element | null {
                   </button>
                 </div>
                 <div style={{ flex: 'none', textAlign: 'center' }}>
-                  <div className="slot-col-label" title="vom Orchestrator steuerbar">
-                    steuerbar
-                  </div>
+                  <div className="slot-col-label">steuerbar <InfoTip text={HELP.orchestrated} /></div>
                   <button type="button"
                     className={`ctrl-check ${slot.orchestrated ? 'on' : ''}`}
                     onClick={() => patchSlot(idx, { orchestrated: !slot.orchestrated })}
@@ -383,7 +436,7 @@ export default function ProfileEditor(): JSX.Element | null {
                   {
                     role: 'worker',
                     provider: 'codex',
-                    model: modelsFor('codex')[0] ?? '',
+                    model: defaultModelFor('codex'),
                     count: 1,
                     orchestrated: true,
                     yolo: false

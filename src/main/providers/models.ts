@@ -24,6 +24,7 @@ export async function listModels(): Promise<Record<AgentProviderId, string[]>> {
     claude: [...DEFAULT_MODELS.claude],
     codex: [...DEFAULT_MODELS.codex],
     cursor: [...DEFAULT_MODELS.cursor],
+    copilot: [...DEFAULT_MODELS.copilot],
     ollama: [...DEFAULT_MODELS.ollama]
   }
 

@@ -6,7 +6,8 @@ import { app, dialog, ipcMain, BrowserWindow } from 'electron'
 import { stat } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { IPC, type AppInfo } from '@shared/ipc'
-import type { SpawnAgentRequest } from '@shared/agents'
+import type { HandoffRequest, SpawnAgentRequest } from '@shared/agents'
+import type { ProviderId } from '@shared/providers'
 import type { WorkspaceProfile } from '@shared/profile'
 import { checkAllProviders } from '@main/providers/health'
 import { listModels } from '@main/providers/models'
@@ -42,6 +43,11 @@ export function registerIpcHandlers(): void {
     }
   })
   ipcMain.handle(IPC.providersHealth, () => checkAllProviders())
+  ipcMain.handle(IPC.providerLogin, async (_e, id: ProviderId) => {
+    const info = await agentManager.loginProvider(id)
+    createPaneWindow(info.id)
+    return info
+  })
   ipcMain.handle(IPC.providersModels, () => listModels())
   ipcMain.handle(IPC.configGet, (_e, key: string) => getSetting(key))
   ipcMain.handle(IPC.configSet, (_e, key: string, value: unknown) => setSetting(key, value))
@@ -140,6 +146,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.agentPopout, (_e, id: string) => {
     createPaneWindow(id)
   })
+  ipcMain.handle(IPC.agentHandoff, (_e, req: HandoffRequest) => agentManager.handoff(req))
 
   // ---- orchestrator ----
   ipcMain.handle(IPC.orchestratorSnapshot, () => orchestratorEngine.snapshot())
@@ -162,4 +169,9 @@ export function registerIpcHandlers(): void {
   agentManager.on('changed', (list) => broadcast(IPC.evAgentsChanged, list))
   agentManager.on('event', (evt) => broadcast(IPC.evOrcaEvent, evt))
   orchestratorEngine.on('snapshot', (snap) => broadcast(IPC.evOrchestrator, snap))
+  agentManager.on('provider-auth-complete', () => {
+    void checkAllProviders()
+      .then((health) => broadcast(IPC.evProvidersHealth, health))
+      .catch((error) => console.warn('[Providers] refresh after login failed', error))
+  })
 }
