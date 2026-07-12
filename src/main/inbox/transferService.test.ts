@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ideaSchema } from '@shared/inbox'
-import { DEFAULT_PROFILE } from '@shared/profile'
+import { DEFAULT_PROFILE, type WorkspaceProfile } from '@shared/profile'
 
-const profileWithRepo = {
+const profileWithRepo: WorkspaceProfile = {
   ...DEFAULT_PROFILE,
   id: 'prof-1',
   workingDir: 'C:\\git\\demo',
@@ -45,7 +45,9 @@ const {
   snapshotMock: vi.fn(() => ({ goal: null, tasks: [], pendingPlan: undefined })),
   onSnapshotMock: vi.fn(),
   offSnapshotMock: vi.fn(),
-  getProfileMock: vi.fn((id: string) => (id === 'prof-1' ? profileWithRepo : undefined)),
+  getProfileMock: vi.fn((id: string): WorkspaceProfile | undefined =>
+    id === 'prof-1' ? profileWithRepo : undefined
+  ),
   checkGithubRepoLocalMock: vi.fn(async () => ({
     localPath: 'C:\\git\\demo',
     cloneStatus: 'cloned',
@@ -55,7 +57,7 @@ const {
 
 vi.mock('@main/config/store', () => ({
   getProfile: getProfileMock,
-  saveProfile: vi.fn((p: typeof profileWithRepo) => p),
+  saveProfile: vi.fn((p: WorkspaceProfile) => p),
   setActiveProfileId: vi.fn(),
   getActiveProfileId: vi.fn(() => 'prof-1')
 }))
@@ -143,9 +145,9 @@ describe('transferService', () => {
   })
 
   it('fails with needsClone when repo not cloned and clone not requested', async () => {
-    const needsCloneProfile = {
+    const needsCloneProfile: WorkspaceProfile = {
       ...profileWithRepo,
-      githubRepo: { ...profileWithRepo.githubRepo!, cloneStatus: 'linked' as const }
+      githubRepo: { ...profileWithRepo.githubRepo!, cloneStatus: 'linked' }
     }
     getProfileMock.mockReturnValueOnce(needsCloneProfile)
     checkGithubRepoLocalMock.mockResolvedValueOnce({
