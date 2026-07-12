@@ -31,6 +31,9 @@ export default function ProfileEditor(): JSX.Element | null {
 
   const models = store.models
   const modelsFor = (p: AgentProviderId): string[] => models[p] ?? []
+  // codex defaults to empty = its own configured default (an explicit
+  // unsupported model 400s); other providers default to their first suggestion.
+  const defaultModelFor = (p: AgentProviderId): string => (p === 'codex' ? '' : modelsFor(p)[0] ?? '')
 
   const patch = (p: Partial<WorkspaceProfile>): void => setDraft({ ...draft, ...p })
   const patchSlot = (idx: number, p: Partial<AgentSlot>): void => {
@@ -129,7 +132,7 @@ export default function ProfileEditor(): JSX.Element | null {
                       orchestrator: {
                         ...draft.orchestrator!,
                         provider,
-                        model: modelsFor(provider)[0] ?? ''
+                        model: defaultModelFor(provider)
                       }
                     })
                   }}
@@ -142,7 +145,12 @@ export default function ProfileEditor(): JSX.Element | null {
                 </select>
               </div>
               <div style={{ flex: 1 }}>
-                <div className="select-label">Modell</div>
+                <div className="select-label">
+                  Modell
+                  <span className="model-count" title="verfügbare Modelle dieses Providers (frei eingebbar)">
+                    {modelsFor(draft.orchestrator.provider).length}
+                  </span>
+                </div>
                 <input
                   className="select mono"
                   list="orch-models"
@@ -300,7 +308,7 @@ export default function ProfileEditor(): JSX.Element | null {
                     value={slot.provider}
                     onChange={(e) => {
                       const provider = e.target.value as AgentProviderId
-                      patchSlot(idx, { provider, model: modelsFor(provider)[0] ?? '' })
+                      patchSlot(idx, { provider, model: defaultModelFor(provider) })
                     }}
                   >
                     {AGENT_PROVIDERS.map((p) => (
@@ -311,7 +319,12 @@ export default function ProfileEditor(): JSX.Element | null {
                   </select>
                 </div>
                 <div style={{ flex: 1.4 }}>
-                  <div className="slot-col-label">Modell</div>
+                  <div className="slot-col-label">
+                    Modell
+                    <span className="model-count" title="verfügbare Modelle dieses Providers (frei eingebbar)">
+                      {modelsFor(slot.provider).length}
+                    </span>
+                  </div>
                   <input
                     className="slot-select-sm mono"
                     list={`slot-models-${idx}`}
@@ -383,7 +396,7 @@ export default function ProfileEditor(): JSX.Element | null {
                   {
                     role: 'worker',
                     provider: 'codex',
-                    model: modelsFor('codex')[0] ?? '',
+                    model: defaultModelFor('codex'),
                     count: 1,
                     orchestrated: true,
                     yolo: false
