@@ -197,9 +197,9 @@ export const DEFAULT_MODELS: Record<AgentProviderId, string[]> = {
 
 /**
  * Default per-provider concurrency limits — how many agents of a given provider
- * the user wants to run at once. Purely a user-facing budget shown live in the
- * Limits panel (Limits & Nutzung); persisted under the `providerLimits` config
- * key and editable in the UI. Not a hard cap on spawning.
+ * the user wants to run at once. Enforced on the main process for agent spawns
+ * and headless tasks; editable in the Limits panel (Limits & Nutzung) and
+ * persisted under the `providerLimits` config key.
  */
 export const DEFAULT_PROVIDER_LIMITS: Record<AgentProviderId, number> = {
   claude: 4,

@@ -34,6 +34,7 @@ import {
   searchGithubRepos
 } from '@main/integrations/githubRepo'
 import { agentManager } from '@main/agents/AgentManager'
+import { providerCapacity } from '@main/agents/providerCapacity'
 import { orchestratorEngine } from '@main/orchestrator/Engine'
 import { broadcast, createPaneWindow } from '@main/windows'
 import {
@@ -66,6 +67,8 @@ async function normalizeDirectory(raw: string, label: string): Promise<string> {
 }
 
 export function registerIpcHandlers(): void {
+  providerCapacity.refreshLimits()
+
   // ---- app / providers / config ----
   ipcMain.handle(IPC.appInfo, (): AppInfo => {
     return {
@@ -89,7 +92,10 @@ export function registerIpcHandlers(): void {
   })
   ipcMain.handle(IPC.providersModels, () => listModels())
   ipcMain.handle(IPC.configGet, (_e, key: string) => getSetting(key))
-  ipcMain.handle(IPC.configSet, (_e, key: string, value: unknown) => setSetting(key, value))
+  ipcMain.handle(IPC.configSet, (_e, key: string, value: unknown) => {
+    setSetting(key, value)
+    if (key === 'providerLimits') providerCapacity.refreshLimits()
+  })
 
   // ---- profiles ----
   ipcMain.handle(IPC.profilesList, () => listProfiles())
