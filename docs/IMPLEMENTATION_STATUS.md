@@ -1,0 +1,106 @@
+# Orca-Strator – Umsetzungsstand auf `DEV`
+
+Stand: 12. Juli 2026
+
+Dieser Stand setzt die fünf angeforderten Kernbereiche als zusammenhängenden
+Produktpfad um. Die ursprüngliche Audit- und Roadmap-Datei bleibt als historische
+Ausgangsbasis erhalten.
+
+## Fertig umgesetzt
+
+### Claude und Codex als Orchestrator
+
+- Claude und Codex besitzen getrennte, verifizierte Provider-Adapter.
+- Beide erhalten den lokalen Orca-MCP-Server und dieselbe Orchestrator-Policy.
+- Die Codex-Konfiguration wird nur über prozesslokale `-c`-Overrides gesetzt;
+  die persönliche Codex-Konfiguration wird nicht verändert.
+- Cursor und Ollama bleiben Worker. Ein Start als scheinbarer Orchestrator ohne
+  Delegationswerkzeuge wird sowohl in der UI als auch in der Runtime verhindert.
+
+### Automatischer Subagent-Planer
+
+- Der Orchestrator kann einen strukturierten `ExecutionPlan` über
+  `execute_plan` einreichen.
+- Orca validiert Task-IDs, Rollen, Abhängigkeiten, Zyklen, Parallelitätsgrenzen
+  und Konflikt-Keys, bevor ein Prozess startet.
+- Ungültige Pläne werden vollständig verworfen und sicher auf genau einen Task
+  zurückgestuft.
+- Der Scheduler respektiert globale Parallelität, Rollen-Kapazitäten,
+  Abhängigkeiten und Dateikonflikte.
+- Modi: `auto`, `review` und `manual`.
+- Im Review-Modus erscheint der Plan vor Ausführung in der Oberfläche und kann
+  freigegeben oder abgelehnt werden.
+- Task-Timeouts sind pro Profil konfigurierbar.
+
+### Workspace-Auswahl und Session-Sicherheit
+
+- Workspace-Auswahl ist prominent in der Hauptoberfläche und im Profil-Editor.
+- Pfade werden beim Speichern normalisiert und validiert.
+- Git-Root, Branch, Remote, Default-Branch und Dirty-State werden angezeigt.
+- Ein laufendes Team ist an einen Profil-Snapshot gebunden; Profilwechsel
+  während aktiver Prozesse werden blockiert.
+- Worktrees und Branches tragen eine UUID-basierte Session-ID. Alte Worktrees
+  werden nicht still wiederverwendet oder gelöscht.
+
+### Auto-PR
+
+- Modi: aus, Draft nach Checks oder Ready nach Checks.
+- Strategien: ein gemeinsamer Goal-PR oder ein PR pro Task.
+- Pro Task laufen konfigurierbare Quality Gates, `git diff --check`, Größenlimit
+  und Secret-Musterprüfung vor dem Commit.
+- Die Aggregation cherry-pickt erfolgreiche Task-Commits in einen separaten
+  Integrations-Worktree und führt die Gates erneut aus.
+- Kein Force-Push, kein Auto-Merge und kein Push auf `main` oder `master`.
+- Fehlende `gh`-Authentifizierung, Konflikte oder rote Gates werden sichtbar als
+  `blocked` zurückgegeben; der Arbeitsstand bleibt zur Prüfung erhalten.
+- PR-Status und URL werden an Task-DAG und Session-Snapshot zurückgegeben.
+
+### Umschaltbare Designs
+
+- Themes: **Abyss Control**, **Polar Focus**, **Sonar Tactical**.
+- Dichte: komfortabel oder kompakt.
+- Layout: Kacheln, Fokus oder DAG.
+- Alle Varianten verwenden denselben Komponentenbaum und semantische CSS-Tokens.
+- Einstellungen werden gespeichert; reduzierte Bewegung und sichtbare
+  Tastatur-Fokuszustände werden berücksichtigt.
+
+### Stabilität und Qualität
+
+- Fehlende CLI, Spawn-Fehler, Abbruch vor Spawn und Timeout lösen den Task immer
+  deterministisch auf.
+- Zustände unterscheiden `succeeded`, `failed`, `cancelled` und `timed_out`.
+- Session-Ziel und Task-DAG werden wiederhergestellt; unterbrochene Tasks werden
+  nach Neustart als gestoppt markiert.
+- Echte Provider-Nutzungswerte werden angezeigt, sofern die CLI sie liefert;
+  andernfalls zeigt die UI bewusst „nicht verfügbar“.
+- ESLint, Vitest und Pull-Request-CI für Linux und Windows sind eingerichtet.
+
+## Bewusst noch nicht enthalten
+
+Diese Punkte waren Ideen der langfristigen Roadmap, aber keine Voraussetzung
+der fünf Kernfeatures:
+
+- Auto-Merge oder Force-Push
+- Remote-Steuerung über Cloudflare
+- vollständiges Diff-/Merge-Center
+- Wiederverwendung warmer interaktiver Agents als Scheduler-Pool
+- automatische Retry-/Replan-Schleifen
+- signierte Installer und Auto-Update-Kanal
+
+## Lokale Abnahme
+
+```powershell
+corepack pnpm peers check
+corepack pnpm lint
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+
+$env:ORCA_MCP_SELFTEST = '1'
+.\node_modules\.bin\electron-vite.CMD preview
+Remove-Item Env:ORCA_MCP_SELFTEST
+```
+
+Der MCP-Selbsttest deckt Adapter-Capabilities, Toolliste, Einzeldispatch,
+Batch-Parallelität, validierte DAG-Ausführung, Abhängigkeiten und den sicheren
+Fallback für zyklische Pläne ab.

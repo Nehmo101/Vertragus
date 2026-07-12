@@ -14,6 +14,13 @@ export type AgentMode = 'interactive' | 'task'
 /** UI-facing status. `waiting` is reserved for approval detection (later). */
 export type AgentStatus = 'running' | 'waiting' | 'stopped' | 'error'
 
+export interface AgentUsage {
+  costUsd?: number
+  tokensIn?: number
+  tokensOut?: number
+  steps?: number
+}
+
 export interface AgentInstanceInfo {
   id: string
   /** Middle-earth code-name, e.g. "Boromir". */
@@ -34,6 +41,8 @@ export interface AgentInstanceInfo {
   pid?: number
   exitCode?: number
   startedAt: number
+  /** Populated for providers that report structured headless usage. */
+  usage?: AgentUsage
 }
 
 export interface SpawnAgentRequest {

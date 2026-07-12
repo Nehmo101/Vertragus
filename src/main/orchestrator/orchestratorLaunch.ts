@@ -1,16 +1,16 @@
 /**
- * Builds the extra CLI args that turn a plain Claude agent into an Orca
+ * Builds transient CLI args that turn a supported provider into an Orca
  * orchestrator: attaches the Orca MCP server and injects the orchestrator
- * system prompt. Only Claude is wired for now (the user's Fable case); other
- * providers spawn normally until their MCP wiring lands.
+ * system prompt. Unsupported providers fail closed instead of starting without
+ * delegation tools.
  */
 import { app } from 'electron'
-import { writeFileSync } from 'node:fs'
-import { join } from 'node:path'
 import type { AgentProviderId } from '@shared/providers'
+import type { OrchestratorProviderCapability } from '@shared/orchestrator'
 import { getMcpHandle } from '@main/orchestrator/mcpHandle'
+import { getOrchestratorAdapter } from '@main/orchestrator/providerAdapters'
 
-const orchestratorSystemPrompt = (name: string): string => [
+export const orchestratorSystemPrompt = (name: string): string => [
   `Du bist ${name}, der ORCHESTRATOR in Orca-Strator, einem Multi-Agent-Control-Center.`,
   'Deine Aufgabe: das Ziel des Nutzers in Teilaufgaben zerlegen und an Subagents delegieren.',
   'Du schreibst NICHT selbst Code — du planst, delegierst und fasst zusammen.',
@@ -19,6 +19,15 @@ const orchestratorSystemPrompt = (name: string): string => [
   'eigenständig erledigen und dir ihr Ergebnis zurückgeben.',
   '',
   'Vorgehen:',
+  'Auto planner:',
+  '- Decide how many subagents are actually useful. Prefer a small number of focused tasks.',
+  '- For complex work, call execute_plan with version=1, goal, maxParallel and tasks.',
+  '- Every task needs id, title, role, prompt, dependsOn and conflictKeys.',
+  '- maxParallel must be 1..8. Dependencies must form a DAG.',
+  '- Reuse a conflictKey when tasks may edit the same files or resources.',
+  '- Invalid plans safely fall back to one worker; inspect validationIssues in the result.',
+  '- Keep using dispatch_subagent or dispatch_batch for simple ad-hoc work.',
+  '',
   '1. Rufe set_goal(title) mit einem kurzen Zieltitel auf.',
   '2. Rufe list_subagents() auf. Es liefert für jeden Slot ein Feld "role" (Provider, Modell,',
   '   Kapazität). Verwende für dispatch_subagent GENAU diese role-Werte — erfinde keine eigenen.',
@@ -35,34 +44,26 @@ const orchestratorSystemPrompt = (name: string): string => [
   'Delegiere aktiv über die mcp__orca__* Tools statt selbst zu arbeiten.'
 ].join('\n')
 
-const READONLY_TOOLS = ['Read', 'Glob', 'Grep', 'TodoWrite']
-
 export interface OrchestratorSetup {
+  capability: OrchestratorProviderCapability
   extraArgs: string[]
 }
 
-/** Returns MCP + system-prompt args for a Claude orchestrator (empty otherwise). */
+/** Returns transient MCP + system-prompt args for any supported provider. */
 export function buildOrchestratorSetup(provider: AgentProviderId, name: string): OrchestratorSetup {
-  if (provider !== 'claude') return { extraArgs: [] }
+  const adapter = getOrchestratorAdapter(provider)
   const handle = getMcpHandle()
-  if (!handle) return { extraArgs: [] }
+  if (!handle || !adapter.capability.supported) {
+    return { extraArgs: [], capability: adapter.capability }
+  }
 
-  const configPath = join(app.getPath('userData'), 'orca-mcp.json')
-  writeFileSync(
-    configPath,
-    JSON.stringify({ mcpServers: { orca: { type: 'http', url: handle.url } } }, null, 2)
-  )
-
-  const allowed = [...handle.allowedTools, ...READONLY_TOOLS].join(',')
   return {
-    extraArgs: [
-      '--mcp-config',
-      configPath,
-      '--strict-mcp-config',
-      '--append-system-prompt',
-      orchestratorSystemPrompt(name),
-      '--allowedTools',
-      allowed
-    ]
+    extraArgs: adapter.buildArgs({
+      name,
+      handle,
+      configDir: app.getPath('userData'),
+      systemPrompt: orchestratorSystemPrompt(name)
+    }),
+    capability: adapter.capability
   }
 }

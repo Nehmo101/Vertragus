@@ -1,4 +1,4 @@
-import { useAppStore } from '@renderer/store/useAppStore'
+import { useAppStore, type UiPreset } from '@renderer/store/useAppStore'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import { profileSummary, profileAgentCount } from '@renderer/components/TitleBar'
 import type { ProviderHealth, ProviderId } from '@shared/providers'
@@ -59,6 +59,12 @@ function ProviderRow({ id }: { id: ProviderId }): JSX.Element {
   )
 }
 
+const PRESETS: Array<{ id: UiPreset; label: string; hint: string }> = [
+  { id: 'abyss', label: 'Abyss', hint: 'dunkles Control Center' },
+  { id: 'polar', label: 'Polar', hint: 'ruhiger Fokus' },
+  { id: 'sonar', label: 'Sonar', hint: 'taktischer DAG' }
+]
+
 export default function Sidebar(): JSX.Element {
   const store = useAppStore()
   const aiIds: ProviderId[] = ['claude', 'codex', 'cursor', 'ollama']
@@ -89,19 +95,50 @@ export default function Sidebar(): JSX.Element {
       <div className="side-sep" />
 
       <div className="side-caption" style={{ paddingTop: 10 }}>
+        <span>UI-Design</span>
+        <button
+          type="button"
+          className="density-btn"
+          aria-label={`Dichte: ${store.uiDensity}`}
+          title="Darstellungsdichte wechseln"
+          onClick={() => store.setUiDensity(store.uiDensity === 'compact' ? 'comfortable' : 'compact')}
+        >
+          {store.uiDensity === 'compact' ? 'Kompakt' : 'Komfort'}
+        </button>
+      </div>
+      <div className="preset-switch" role="group" aria-label="UI-Design auswählen">
+        {PRESETS.map((preset) => (
+          <button
+            key={preset.id}
+            type="button"
+            className={store.uiPreset === preset.id ? 'active' : ''}
+            title={preset.hint}
+            aria-pressed={store.uiPreset === preset.id}
+            onClick={() => store.setUiPreset(preset.id)}
+          >
+            {preset.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="side-sep" />
+
+      <div className="side-caption" style={{ paddingTop: 10 }}>
         <span>Workspace-Profile</span>
-        <button className="icon-btn-sm" title="Neues Profil" onClick={store.openEditorNew}>
+        <button type="button" className="icon-btn-sm" title="Neues Profil" aria-label="Neues Workspace-Profil" onClick={store.openEditorNew}>
           ＋
         </button>
       </div>
       <div className="side-list" style={{ paddingBottom: 14 }}>
         {store.profiles.map((p) => (
-          <div
+          <button
+            type="button"
             key={p.id}
             className={`profile-row ${p.id === store.activeProfileId ? 'active' : ''}`}
             onClick={() => void store.selectProfile(p.id)}
             onDoubleClick={() => store.openEditor(p)}
             title="Klick: aktivieren · Doppelklick: bearbeiten"
+            aria-pressed={p.id === store.activeProfileId}
           >
             <span className="profile-rail" />
             <div className="info">
@@ -109,7 +146,7 @@ export default function Sidebar(): JSX.Element {
               <div className="summary">{profileSummary(p)}</div>
             </div>
             <span className="profile-count">{profileAgentCount(p)}</span>
-          </div>
+          </button>
         ))}
       </div>
     </aside>

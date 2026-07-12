@@ -3,6 +3,8 @@
  * (src/shared/ipc.ts) which the preload bridge exposes on window.orca.
  */
 import { app, dialog, ipcMain, BrowserWindow } from 'electron'
+import { stat } from 'node:fs/promises'
+import { resolve } from 'node:path'
 import { IPC, type AppInfo } from '@shared/ipc'
 import type { SpawnAgentRequest } from '@shared/agents'
 import type { WorkspaceProfile } from '@shared/profile'
@@ -46,10 +48,27 @@ export function registerIpcHandlers(): void {
 
   // ---- profiles ----
   ipcMain.handle(IPC.profilesList, () => listProfiles())
-  ipcMain.handle(IPC.profileSave, (_e, profile: WorkspaceProfile) => saveProfile(profile))
+  ipcMain.handle(IPC.profileSave, async (_e, profile: WorkspaceProfile) => {
+    const rawDir = profile.workingDir.trim()
+    if (!rawDir) return saveProfile(profile)
+    const workingDir = resolve(rawDir)
+    try {
+      const info = await stat(workingDir)
+      if (!info.isDirectory()) throw new Error('Pfad ist kein Verzeichnis.')
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      throw new Error(`Workspace ist nicht zugreifbar: ${workingDir} (${detail})`)
+    }
+    return saveProfile({ ...profile, workingDir })
+  })
   ipcMain.handle(IPC.profileDelete, (_e, id: string) => deleteProfile(id))
   ipcMain.handle(IPC.profileGetActive, () => getActiveProfileId())
-  ipcMain.handle(IPC.profileSetActive, (_e, id: string) => setActiveProfileId(id))
+  ipcMain.handle(IPC.profileSetActive, (_e, id: string) => {
+    if (agentManager.anyRunning()) {
+      throw new Error('Profilwechsel ist während einer laufenden Agent-Session gesperrt.')
+    }
+    setActiveProfileId(id)
+  })
 
   // ---- git ----
   ipcMain.handle(IPC.gitInfo, (_e, dir: string) => gitInfo(dir))
@@ -125,13 +144,16 @@ export function registerIpcHandlers(): void {
   // ---- orchestrator ----
   ipcMain.handle(IPC.orchestratorSnapshot, () => orchestratorEngine.snapshot())
   ipcMain.handle(IPC.orchestratorReset, () => orchestratorEngine.reset())
+  ipcMain.handle(IPC.orchestratorReviewPlan, (_e, approved: boolean) =>
+    orchestratorEngine.reviewPlan(Boolean(approved)))
 
   // ---- window controls (frameless title bar) ----
   ipcMain.on(IPC.winMinimize, (e) => senderWindow(e)?.minimize())
   ipcMain.on(IPC.winMaximizeToggle, (e) => {
     const win = senderWindow(e)
     if (!win) return
-    win.isMaximized() ? win.unmaximize() : win.maximize()
+    if (win.isMaximized()) win.unmaximize()
+    else win.maximize()
   })
   ipcMain.on(IPC.winClose, (e) => senderWindow(e)?.close())
 

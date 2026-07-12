@@ -46,6 +46,7 @@ const orca: OrcaApi = {
   orchestrator: {
     snapshot: () => ipcRenderer.invoke(IPC.orchestratorSnapshot),
     reset: () => ipcRenderer.invoke(IPC.orchestratorReset),
+    reviewPlan: (approved) => ipcRenderer.invoke(IPC.orchestratorReviewPlan, approved),
     onSnapshot: (cb) => subscribe<OrchestratorSnapshot>(IPC.evOrchestrator, cb)
   },
 
@@ -64,8 +65,8 @@ if (process.contextIsolated) {
     console.error(error)
   }
 } else {
-  // @ts-ignore (fallback when context isolation is disabled)
+  // @ts-expect-error fallback when context isolation is disabled
   window.electron = electronAPI
-  // @ts-ignore
+  // @ts-expect-error fallback when context isolation is disabled
   window.orca = orca
 }

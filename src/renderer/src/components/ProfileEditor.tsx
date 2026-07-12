@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '@renderer/store/useAppStore'
 import type { WorkspaceProfile, AgentSlot } from '@shared/profile'
 import type { AgentProviderId } from '@shared/providers'
@@ -6,10 +6,26 @@ import { PROVIDER_THEME } from '@renderer/ui/theme'
 
 const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'cursor', 'ollama']
 
+const ORCHESTRATOR_PROVIDERS: AgentProviderId[] = ['claude', 'codex']
+function boundedNumber(value: number, min: number, max: number, fallback: number): number {
+  return Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback
+}
+
 export default function ProfileEditor(): JSX.Element | null {
   const store = useAppStore()
   const initial = store.editorProfile
   const [draft, setDraft] = useState<WorkspaceProfile | null>(initial)
+  const nameRef = useRef<HTMLInputElement>(null)
+  const closeEditor = store.closeEditor
+
+  useEffect(() => {
+    nameRef.current?.focus()
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') closeEditor()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [closeEditor])
 
   if (!initial || !draft) return null
 
@@ -29,35 +45,38 @@ export default function ProfileEditor(): JSX.Element | null {
   return (
     <div className="modal-wrap">
       <div className="modal-scrim" onClick={store.closeEditor} />
-      <div className="modal">
+      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="profile-editor-title">
         <div className="modal-head">
           <span className="modal-gear">⚙</span>
           <div style={{ flex: 1 }}>
-            <div className="modal-title">Profil-Editor</div>
+            <div className="modal-title" id="profile-editor-title">Profil-Editor</div>
             <div className="modal-sub">Orchestrator &amp; Subagent-Slots konfigurieren</div>
           </div>
-          <button className="modal-close" onClick={store.closeEditor}>
+          <button type="button" className="modal-close" aria-label="Profil-Editor schließen" onClick={store.closeEditor}>
             ✕
           </button>
         </div>
 
         <div className="modal-body">
-          <label className="field-label">Profilname</label>
+          <label className="field-label" htmlFor="profile-name">Profilname</label>
           <input
+            ref={nameRef}
+            id="profile-name"
             className="text-input"
             value={draft.name}
             onChange={(e) => patch({ name: e.target.value })}
           />
 
-          <label className="field-label">Working Directory (Repo)</label>
+          <label className="field-label" htmlFor="profile-working-dir">Working Directory (Repo)</label>
           <div className="dir-row">
             <input
+              id="profile-working-dir"
               className="text-input mono"
               placeholder="C:\git\mein-repo"
               value={draft.workingDir}
               onChange={(e) => patch({ workingDir: e.target.value })}
             />
-            <button
+            <button type="button"
               className="btn-secondary browse-btn"
               onClick={async () => {
                 const dir = await window.orca.pickFolder()
@@ -72,7 +91,7 @@ export default function ProfileEditor(): JSX.Element | null {
             Modus
           </div>
           <div className="mode-toggle">
-            <button
+            <button type="button"
               className={draft.orchestrator ? 'active' : ''}
               onClick={() =>
                 !draft.orchestrator &&
@@ -88,7 +107,7 @@ export default function ProfileEditor(): JSX.Element | null {
               🪄 Orchestriert
               <span>ein Orchestrator delegiert an Subagents</span>
             </button>
-            <button
+            <button type="button"
               className={!draft.orchestrator ? 'active' : ''}
               onClick={() => patch({ orchestrator: undefined })}
             >
@@ -115,7 +134,7 @@ export default function ProfileEditor(): JSX.Element | null {
                     })
                   }}
                 >
-                  {AGENT_PROVIDERS.map((p) => (
+                  {ORCHESTRATOR_PROVIDERS.map((p) => (
                     <option key={p} value={p}>
                       {PROVIDER_THEME[p].label}
                     </option>
@@ -148,6 +167,110 @@ export default function ProfileEditor(): JSX.Element | null {
             </div>
           )}
 
+          <section className="automation-section" aria-labelledby="planner-heading">
+            <div className="slots-caption compact-caption">
+              <span id="planner-heading">Auto-Subagent-Planer</span>
+              <span className="count">entscheidet Parallelität und Re-Planning</span>
+            </div>
+            <div className="automation-grid">
+              <label>
+                <span className="slot-col-label">Planungsmodus</span>
+                <select
+                  className="slot-select-sm"
+                  value={draft.planner.mode}
+                  onChange={(event) =>
+                    patch({ planner: { ...draft.planner, mode: event.target.value as WorkspaceProfile['planner']['mode'] } })
+                  }
+                >
+                  <option value="auto">Auto — direkt ausführen</option>
+                  <option value="review">Review — Plan bestätigen</option>
+                  <option value="manual">Manuell — keine Auto-Planung</option>
+                </select>
+              </label>
+              <label>
+                <span className="slot-col-label">Max. parallel</span>
+                <input
+                  className="slot-select-sm"
+                  type="number"
+                  min={1}
+                  max={32}
+                  value={draft.planner.maxParallel}
+                  onChange={(event) => patch({ planner: { ...draft.planner, maxParallel: boundedNumber(event.currentTarget.valueAsNumber, 1, 32, draft.planner.maxParallel) } })}
+                />
+              </label>
+              <label>
+                <span className="slot-col-label">Timeout (Min.)</span>
+                <input
+                  className="slot-select-sm"
+                  type="number"
+                  min={1}
+                  max={240}
+                  value={draft.planner.taskTimeoutMinutes}
+                  onChange={(event) => patch({ planner: { ...draft.planner, taskTimeoutMinutes: boundedNumber(event.currentTarget.valueAsNumber, 1, 240, draft.planner.taskTimeoutMinutes) } })}
+                />
+              </label>
+            </div>
+          </section>
+
+          <section className="automation-section" aria-labelledby="auto-pr-heading">
+            <div className="slots-caption compact-caption">
+              <span id="auto-pr-heading">Auto-PR</span>
+              <span className="count">nur nach erfolgreichen Quality Gates</span>
+            </div>
+            <div className="automation-grid auto-pr-grid">
+              <label>
+                <span className="slot-col-label">Modus</span>
+                <select
+                  className="slot-select-sm"
+                  value={draft.autoPr.mode}
+                  onChange={(event) =>
+                    patch({ autoPr: { ...draft.autoPr, mode: event.target.value as WorkspaceProfile['autoPr']['mode'] } })
+                  }
+                >
+                  <option value="off">Aus</option>
+                  <option value="draft-after-checks">Draft nach Checks</option>
+                  <option value="ready-after-checks">Ready nach Checks</option>
+                </select>
+              </label>
+              <label>
+                <span className="slot-col-label">PR-Strategie</span>
+                <select
+                  className="slot-select-sm"
+                  value={draft.autoPr.strategy}
+                  onChange={(event) =>
+                    patch({ autoPr: { ...draft.autoPr, strategy: event.target.value as WorkspaceProfile['autoPr']['strategy'] } })
+                  }
+                >
+                  <option value="aggregate">Ein gemeinsamer PR</option>
+                  <option value="per-task">Ein PR je Task</option>
+                </select>
+              </label>
+              <label>
+                <span className="slot-col-label">Basis-Branch</span>
+                <input
+                  className="slot-select-sm mono"
+                  placeholder="Repo-Standard"
+                  value={draft.autoPr.baseBranch}
+                  onChange={(event) => patch({ autoPr: { ...draft.autoPr, baseBranch: event.target.value } })}
+                />
+              </label>
+              <label className="quality-gates-field">
+                <span className="slot-col-label">Quality Gates (eine Zeile je Befehl)</span>
+                <textarea
+                  className="text-input mono quality-gates"
+                  value={draft.autoPr.qualityGates.join('\n')}
+                  onChange={(event) =>
+                    patch({
+                      autoPr: {
+                        ...draft.autoPr,
+                        qualityGates: event.target.value.split('\n').map((line) => line.trim()).filter(Boolean)
+                      }
+                    })
+                  }
+                />
+              </label>
+            </div>
+          </section>
           <div className="slots-caption">
             <span>Subagent-Slots</span>
             <span className="count">
@@ -207,18 +330,18 @@ export default function ProfileEditor(): JSX.Element | null {
                     Anzahl
                   </div>
                   <div className="stepper">
-                    <button onClick={() => patchSlot(idx, { count: Math.max(1, slot.count - 1) })}>
+                    <button type="button" onClick={() => patchSlot(idx, { count: Math.max(1, slot.count - 1) })}>
                       −
                     </button>
                     <span className="val">{slot.count}</span>
-                    <button onClick={() => patchSlot(idx, { count: Math.min(9, slot.count + 1) })}>
+                    <button type="button" onClick={() => patchSlot(idx, { count: Math.min(9, slot.count + 1) })}>
                       +
                     </button>
                   </div>
                 </div>
                 <div style={{ flex: 'none', textAlign: 'center' }}>
                   <div className="slot-col-label">Yolo</div>
-                  <button
+                  <button type="button"
                     className={`slot-yolo ${slot.yolo ? 'on' : ''}`}
                     onClick={() => patchSlot(idx, { yolo: !slot.yolo })}
                   >
@@ -229,14 +352,14 @@ export default function ProfileEditor(): JSX.Element | null {
                   <div className="slot-col-label" title="vom Orchestrator steuerbar">
                     steuerbar
                   </div>
-                  <button
+                  <button type="button"
                     className={`ctrl-check ${slot.orchestrated ? 'on' : ''}`}
                     onClick={() => patchSlot(idx, { orchestrated: !slot.orchestrated })}
                   >
                     {slot.orchestrated ? '✓' : ''}
                   </button>
                 </div>
-                <button
+                <button type="button"
                   className="slot-remove"
                   title="Slot entfernen"
                   onClick={() =>
@@ -250,7 +373,7 @@ export default function ProfileEditor(): JSX.Element | null {
             ))}
           </div>
 
-          <button
+          <button type="button"
             className="add-slot"
             onClick={() =>
               setDraft({
@@ -278,10 +401,10 @@ export default function ProfileEditor(): JSX.Element | null {
             Gesamt: <b>{hasOrch ? 1 : 0}</b> Orchestrator + <b>{subTotal}</b> Subagents ={' '}
             <b className="grand">{grandTotal} Agents</b>
           </div>
-          <button className="btn-secondary" onClick={store.closeEditor}>
+          <button type="button" className="btn-secondary" onClick={store.closeEditor}>
             Abbrechen
           </button>
-          <button className="btn-primary" onClick={() => void store.saveEditor(draft)}>
+          <button type="button" className="btn-primary" onClick={() => void store.saveEditor(draft)}>
             Profil speichern
           </button>
         </div>

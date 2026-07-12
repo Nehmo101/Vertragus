@@ -29,14 +29,29 @@ function line(color: string, text: string): string {
   return `${color}${text}${C.reset}\r\n`
 }
 
+export type HeadlessStatus = 'succeeded' | 'failed' | 'cancelled' | 'timed_out'
+
 export interface HeadlessResult {
   result: string
   isError: boolean
+  /** Explicit terminal reason; optional for compatibility with provider adapters. */
+  status?: HeadlessStatus
+  error?: string
   costUsd?: number
   tokensIn?: number
   tokensOut?: number
   steps?: number
 }
+
+export interface HeadlessRuntimeOptions {
+  /** Includes command resolution. Defaults to 30 minutes. */
+  timeoutMs?: number
+  /** Maximum wait for a closing process after cancellation. */
+  stopGraceMs?: number
+}
+
+export const DEFAULT_HEADLESS_TIMEOUT_MS = 30 * 60 * 1000
+const DEFAULT_STOP_GRACE_MS = 5_000
 
 export interface HeadlessHandle {
   pid?: number
@@ -142,19 +157,32 @@ export function runHeadless(
   id: AgentProviderId,
   prompt: string,
   opts: HeadlessOpts,
-  onLine: (chunk: string) => void
+  onLine: (chunk: string) => void,
+  runtime: HeadlessRuntimeOptions = {}
 ): HeadlessHandle {
+  const timeoutMs = Number.isFinite(runtime.timeoutMs) && (runtime.timeoutMs ?? 0) > 0 ? Math.floor(runtime.timeoutMs as number) : DEFAULT_HEADLESS_TIMEOUT_MS
+  const stopGraceMs = Number.isFinite(runtime.stopGraceMs) && (runtime.stopGraceMs ?? 0) > 0 ? Math.floor(runtime.stopGraceMs as number) : DEFAULT_STOP_GRACE_MS
+
   if (id === 'ollama') {
-    return runOllamaChat(prompt, opts, onLine)
+    const handle = runOllamaChat(prompt, opts, onLine)
+    let stopStatus: Extract<HeadlessStatus, 'cancelled' | 'timed_out'> | undefined
+    const timer = setTimeout(() => { stopStatus = 'timed_out'; handle.kill() }, timeoutMs)
+    timer.unref()
+    return {
+      get pid() { return handle.pid },
+      done: handle.done.then((result) => {
+        clearTimeout(timer)
+        const status = stopStatus ?? (result.isError ? 'failed' : 'succeeded')
+        return { ...result, status, isError: status !== 'succeeded', error: status === 'timed_out' ? `Timeout nach ${timeoutMs} ms` : result.error }
+      }),
+      kill() { if (!stopStatus) stopStatus = 'cancelled'; handle.kill() }
+    }
   }
 
   let lastMsgFile: string | undefined
   let tmpDir: string | undefined
   const extraArgs = [...(opts.extraArgs ?? [])]
-
-  if (id === 'claude') {
-    extraArgs.push('--verbose') // required for stream-json in -p mode
-  }
+  if (id === 'claude') extraArgs.push('--verbose')
   if (id === 'codex') {
     tmpDir = mkdtempSync(join(tmpdir(), 'orca-codex-'))
     lastMsgFile = join(tmpDir, 'last.txt')
@@ -163,106 +191,116 @@ export function runHeadless(
 
   const launch = buildHeadlessLaunch(id, prompt, { ...opts, extraArgs })
   const interpret = interpreterFor(id)
-
+  const acc: HeadlessResult = { result: '', isError: false }
   let child: ChildProcess | undefined
-  let killed = false
+  let stdoutBuf = ''
+  let rawTail = ''
+  let stderrTail = ''
+  let lastText = ''
+  let sawError = false
+  let settled = false
+  let stopStatus: Extract<HeadlessStatus, 'cancelled' | 'timed_out'> | undefined
+  let stopFallback: NodeJS.Timeout | undefined
+  let resolveDone!: (result: HeadlessResult) => void
 
-  const done = new Promise<HeadlessResult>((resolve) => {
-    void resolveLaunch(launch.command, launch.args).then((resolved) => {
-      child = spawn(resolved.file, resolved.args, {
-        cwd: opts.workingDir,
-        env: { ...process.env } as Record<string, string>,
-        windowsHide: true,
-        // stdin = /dev/null: the prompt is passed as an arg. Leaving stdin as an
-        // open pipe makes codex exec block on "Reading additional input from stdin".
-        stdio: ['ignore', 'pipe', 'pipe']
-      })
+  const cleanup = (): void => {
+    if (timeoutTimer) clearTimeout(timeoutTimer)
+    if (stopFallback) clearTimeout(stopFallback)
+    if (tmpDir) { rmSync(tmpDir, { recursive: true, force: true }); tmpDir = undefined }
+  }
+  const finish = (status: HeadlessStatus, fallback = '', error?: string): void => {
+    if (settled) return
+    settled = true
+    cleanup()
+    resolveDone({ ...acc, result: acc.result || fallback, status, isError: status !== 'succeeded', error })
+  }
+  const stoppedText = (status: 'cancelled' | 'timed_out'): string => status === 'timed_out' ? `Task-Timeout nach ${timeoutMs} ms` : 'Task abgebrochen'
+  const terminateChild = (): void => {
+    if (!child) return
+    if (process.platform === 'win32' && child.pid) {
+      const killer = spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' })
+      killer.on('error', () => child?.kill())
+    } else child.kill('SIGTERM')
+  }
+  const requestStop = (status: 'cancelled' | 'timed_out'): void => {
+    if (settled || stopStatus) return
+    stopStatus = status
+    if (!child) {
+      onLine(line(C.yellow, status === 'timed_out' ? '— Timeout —' : '— gestoppt —'))
+      finish(status, stoppedText(status), status === 'timed_out' ? stoppedText(status) : undefined)
+      return
+    }
+    terminateChild()
+    stopFallback = setTimeout(() => {
+      onLine(line(C.yellow, status === 'timed_out' ? '— Timeout —' : '— gestoppt —'))
+      finish(status, stoppedText(status), status === 'timed_out' ? stoppedText(status) : undefined)
+    }, stopGraceMs)
+    stopFallback.unref()
+  }
+  const handleLine = (raw: string): void => {
+    const trimmed = raw.trim()
+    if (!trimmed) return
+    rawTail = (rawTail + trimmed + '\n').slice(-4000)
+    let obj: Record<string, unknown>
+    try { obj = JSON.parse(trimmed) as Record<string, unknown> } catch { onLine(line(C.grey, trimmed)); return }
+    const result = interpret(obj)
+    if (result.log) onLine(result.log)
+    if (typeof result.result === 'string' && result.result) acc.result = result.result
+    if (result.isError) sawError = true
+    if (result.log && obj['type'] !== 'result') lastText = result.log
+    if (result.costUsd != null) acc.costUsd = result.costUsd
+    if (result.tokensIn != null) acc.tokensIn = result.tokensIn
+    if (result.tokensOut != null) acc.tokensOut = result.tokensOut
+    if (result.steps != null) acc.steps = result.steps
+  }
 
-      const acc: HeadlessResult = { result: '', isError: false }
-      let lastText = ''
-      let stdoutBuf = ''
-      let rawTail = ''
-      let sawError = false
+  const done = new Promise<HeadlessResult>((resolve) => { resolveDone = resolve })
+  const timeoutTimer = setTimeout(() => requestStop('timed_out'), timeoutMs)
+  timeoutTimer.unref()
 
-      const handleLine = (raw: string): void => {
-        const trimmed = raw.trim()
-        if (!trimmed) return
-        rawTail = (rawTail + trimmed + '\n').slice(-4000)
-        let obj: Record<string, unknown>
-        try {
-          obj = JSON.parse(trimmed) as Record<string, unknown>
-        } catch {
-          onLine(line(C.grey, trimmed)) // non-JSON line — show raw
-          return
-        }
-        const r = interpret(obj)
-        if (r.log) onLine(r.log)
-        if (typeof r.result === 'string' && r.result) {
-          acc.result = r.result
-        }
-        if (r.isError) sawError = true
-        if (r.log && obj['type'] !== 'result') lastText = r.log
-        if (r.costUsd != null) acc.costUsd = r.costUsd
-        if (r.tokensIn != null) acc.tokensIn = r.tokensIn
-        if (r.tokensOut != null) acc.tokensOut = r.tokensOut
-        if (r.steps != null) acc.steps = r.steps
+  void resolveLaunch(launch.command, launch.args)
+    .then((resolved) => {
+      if (settled || stopStatus) return
+      try {
+        child = spawn(resolved.file, resolved.args, { cwd: opts.workingDir, env: { ...process.env } as Record<string, string>, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        onLine(line(C.red, `Spawn fehlgeschlagen: ${message}`)); finish('failed', message, message); return
       }
-
-      child.stdout?.on('data', (d: Buffer) => {
-        stdoutBuf += d.toString()
-        const parts = stdoutBuf.split(/\r?\n/)
-        stdoutBuf = parts.pop() ?? ''
-        for (const p of parts) handleLine(p)
+      child.stdout?.on('data', (data: Buffer) => {
+        stdoutBuf += data.toString(); const parts = stdoutBuf.split(/\r?\n/); stdoutBuf = parts.pop() ?? ''; for (const part of parts) handleLine(part)
       })
-      child.stderr?.on('data', (d: Buffer) => {
-        const t = d.toString().trim()
-        if (t) onLine(line(C.red, t))
+      child.stderr?.on('data', (data: Buffer) => {
+        const text = data.toString().trim(); if (!text) return; stderrTail = (stderrTail + text + '\n').slice(-4000); onLine(line(C.red, text))
       })
-
       child.on('error', (err) => {
-        onLine(line(C.red, `Spawn fehlgeschlagen: ${err.message}`))
-        acc.isError = true
-        resolve(acc)
+        const message = err.message
+        if (stopStatus) { finish(stopStatus, stoppedText(stopStatus), stopStatus === 'timed_out' ? stoppedText(stopStatus) : undefined); return }
+        onLine(line(C.red, `Spawn fehlgeschlagen: ${message}`)); finish('failed', message, message)
       })
-
       child.on('close', (code) => {
+        if (settled) return
         if (stdoutBuf.trim()) handleLine(stdoutBuf)
-        // codex: prefer the last-message file for a clean result.
         if (lastMsgFile) {
-          try {
-            const fileResult = readFileSync(lastMsgFile, 'utf8').trim()
-            if (fileResult) acc.result = fileResult
-          } catch {
-            /* ignore */
-          }
-          if (tmpDir) rmSync(tmpDir, { recursive: true, force: true })
+          try { const fileResult = readFileSync(lastMsgFile, 'utf8').trim(); if (fileResult) acc.result = fileResult } catch { /* stream fallback */ }
         }
-        if (!acc.result) acc.result = (lastText || rawTail).trim()
-        // Providers may report a failure yet still exit 0 (codex turn.failed),
-        // so trust an observed error event too.
-        acc.isError = killed || sawError || (code != null && code !== 0)
-        if (killed) onLine(line(C.yellow, '— gestoppt —'))
-        else if (acc.isError) onLine(line(C.red, `✗ fehlgeschlagen${code ? ` (exit ${code})` : ''}`))
-        else onLine(line(C.green, '✓ fertig'))
-        resolve(acc)
+        if (!acc.result) acc.result = (lastText || rawTail || stderrTail).trim()
+        if (stopStatus) {
+          onLine(line(C.yellow, stopStatus === 'timed_out' ? '— Timeout —' : '— gestoppt —'))
+          finish(stopStatus, stoppedText(stopStatus), stopStatus === 'timed_out' ? stoppedText(stopStatus) : undefined); return
+        }
+        const failed = sawError || code !== 0
+        if (failed) {
+          const detail = code == null ? 'Prozess ohne Exit-Code beendet' : `Prozess beendet (exit ${code})`
+          onLine(line(C.red, `✗ fehlgeschlagen${code != null ? ` (exit ${code})` : ''}`)); finish('failed', detail, detail)
+        } else { onLine(line(C.green, '✓ fertig')); finish('succeeded') }
       })
     })
-  })
+    .catch((err: unknown) => {
+      if (settled || stopStatus) return
+      const message = err instanceof Error ? err.message : String(err)
+      onLine(line(C.red, `Command-Auflösung fehlgeschlagen: ${message}`)); finish('failed', message, message)
+    })
 
-  return {
-    get pid() {
-      return child?.pid
-    },
-    done,
-    kill() {
-      killed = true
-      if (child?.pid) {
-        if (process.platform === 'win32') {
-          spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true })
-        } else {
-          child.kill('SIGTERM')
-        }
-      }
-    }
-  }
+  return { get pid() { return child?.pid }, done, kill() { requestStop('cancelled') } }
 }

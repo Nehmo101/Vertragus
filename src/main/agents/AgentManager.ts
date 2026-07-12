@@ -7,6 +7,7 @@
  * to replay scrollback.
  */
 import { EventEmitter } from 'node:events'
+import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { execFile } from 'node:child_process'
 import * as pty from '@lydell/node-pty'
@@ -39,11 +40,13 @@ export interface RunTaskRequest {
   systemPrompt?: string
   yolo: boolean
   workingDir?: string
+  timeoutMs?: number
 }
 
 export class AgentManager extends EventEmitter {
   private readonly agents = new Map<string, Managed>()
   private readonly names = new NameAllocator()
+  private readonly sessionId = randomUUID()
   private seq = 0
 
   list(): AgentInstanceInfo[] {
@@ -78,7 +81,7 @@ export class AgentManager extends EventEmitter {
     let worktree: string | undefined
     const isolate = getSetting<boolean>('worktreeIsolation') ?? true
     if (isolate) {
-      const wt = await createWorktree(workingDir, id)
+      const wt = await createWorktree(workingDir, id, this.sessionId)
       if (wt) {
         workingDir = wt.path
         worktree = wt.path
@@ -102,8 +105,12 @@ export class AgentManager extends EventEmitter {
     const { workingDir, worktree } = await this.prepareWorkingDir(id, req.workingDir)
 
     // Orchestrators get the Orca MCP server + orchestrator system prompt.
-    const orchestratorArgs =
-      kind === 'orchestrator' ? buildOrchestratorSetup(req.provider, name).extraArgs : []
+    const orchestratorSetup =
+      kind === 'orchestrator' ? buildOrchestratorSetup(req.provider, name) : undefined
+    if (orchestratorSetup && !orchestratorSetup.capability.supported) {
+      throw new Error(orchestratorSetup.capability.reason ?? `${req.provider} cannot orchestrate.`)
+    }
+    const orchestratorArgs = orchestratorSetup?.extraArgs ?? []
 
     const launch = buildInteractiveLaunch(req.provider, {
       model: req.model,
@@ -207,7 +214,8 @@ export class AgentManager extends EventEmitter {
       req.provider,
       req.prompt,
       { model: req.model, workingDir, yolo: req.yolo, systemPrompt: req.systemPrompt },
-      (chunk) => this.pushData(managed, chunk)
+      (chunk) => this.pushData(managed, chunk),
+      { timeoutMs: req.timeoutMs }
     )
     managed.headless = handle
     info.pid = handle.pid
@@ -216,12 +224,29 @@ export class AgentManager extends EventEmitter {
     const done = handle.done.then((result) => {
       managed.headless = undefined
       if (this.agents.has(id)) {
-        info.status = result.isError ? 'error' : 'stopped'
-        info.exitCode = result.isError ? 1 : 0
-        this.emitEvent(
-          result.isError ? `${name} · Task-Fehler` : `${name} · ✓ Task fertig`,
-          result.isError ? 'error' : 'success'
-        )
+        const failed =
+          result.status === 'failed' ||
+          result.status === 'timed_out' ||
+          (result.status == null && result.isError)
+        info.status = failed ? 'error' : 'stopped'
+        info.exitCode = failed ? 1 : 0
+        if (
+          result.costUsd != null ||
+          result.tokensIn != null ||
+          result.tokensOut != null ||
+          result.steps != null
+        ) {
+          info.usage = { costUsd: result.costUsd, tokensIn: result.tokensIn, tokensOut: result.tokensOut, steps: result.steps }
+        }
+        const event =
+          result.status === 'cancelled'
+            ? { text: `${name} · Task gestoppt`, tone: 'muted' as const }
+            : result.status === 'timed_out'
+              ? { text: `${name} · Task-Timeout`, tone: 'error' as const }
+              : failed
+                ? { text: `${name} · Task-Fehler`, tone: 'error' as const }
+                : { text: `${name} · ✓ Task fertig`, tone: 'success' as const }
+        this.emitEvent(event.text, event.tone)
         this.changed()
       }
       return result

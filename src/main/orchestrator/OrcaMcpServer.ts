@@ -24,7 +24,8 @@ const ORCHESTRATOR_TOOLS = [
   'mcp__orca__list_subagents',
   'mcp__orca__dispatch_subagent',
   'mcp__orca__dispatch_batch',
-  'mcp__orca__open_subwindow'
+  'mcp__orca__open_subwindow',
+  'mcp__orca__execute_plan'
 ]
 
 type ToolText = { content: Array<{ type: 'text'; text: string }> }
@@ -117,6 +118,48 @@ function buildMcpServer(): McpServer {
   )
 
   register(
+    'execute_plan',
+    'Validiere und starte einen kompletten Auto-Subagent-Plan als DAG. Unabhaengige Tasks laufen ' +
+      'parallel; dependsOn, conflictKeys, maxParallel und Slot-Kapazitaeten werden erzwungen.',
+    {
+      plan: z.object({
+        version: z.literal(1).optional(),
+        goal: z.string(),
+        maxParallel: z.number(),
+        tasks: z.array(
+          z.object({
+            id: z.string(),
+            title: z.string(),
+            role: z.string(),
+            prompt: z.string(),
+            dependsOn: z.array(z.string()).optional(),
+            conflictKeys: z.array(z.string()).optional()
+          })
+        )
+      })
+    },
+    async (args) => {
+      const rawPlan = args.plan as Record<string, unknown>
+      const rawTasks = Array.isArray(rawPlan?.tasks)
+        ? rawPlan.tasks.map((raw) => {
+            const task = raw as Record<string, unknown>
+            return {
+              ...task,
+              dependsOn: task.dependsOn ?? [],
+              conflictKeys: task.conflictKeys ?? []
+            }
+          })
+        : rawPlan?.tasks
+      const result = await orchestratorEngine.executePlan({
+        ...rawPlan,
+        version: 1,
+        tasks: rawTasks
+      })
+      return text(JSON.stringify(result, null, 2))
+    }
+  )
+
+  register(
     'open_subwindow',
     'Öffne einen persistenten, interaktiven Subagenten in einem eigenen Fenster ' +
       '(für längere, dialogische Arbeit statt einer einmaligen Aufgabe).',
@@ -155,6 +198,7 @@ export async function startMcpServer(): Promise<McpServerHandle> {
 
   // sessionId -> transport (stateful; one session per orchestrator client)
   const transports = new Map<string, StreamableHTTPServerTransport>()
+  const authToken = randomUUID()
 
   const httpServer: Server = createServer((req, res) => {
     void handleRequest(req, res).catch((err) => {
@@ -164,9 +208,13 @@ export async function startMcpServer(): Promise<McpServerHandle> {
   })
 
   async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const url = req.url ?? ''
-    if (!url.startsWith('/mcp')) {
+    const url = new URL(req.url ?? '/', 'http://127.0.0.1')
+    if (url.pathname !== '/mcp') {
       res.writeHead(404).end()
+      return
+    }
+    if (url.searchParams.get('token') !== authToken) {
+      res.writeHead(401).end()
       return
     }
     const sessionId = req.headers['mcp-session-id'] as string | undefined
@@ -219,7 +267,7 @@ export async function startMcpServer(): Promise<McpServerHandle> {
   })
 
   started = {
-    url: `http://127.0.0.1:${port}/mcp`,
+    url: `http://127.0.0.1:${port}/mcp?token=${encodeURIComponent(authToken)}`,
     allowedTools: ORCHESTRATOR_TOOLS,
     close: () =>
       new Promise<void>((resolve) => {
