@@ -81,7 +81,7 @@ const orca: OrcaApi = {
     resize: (id, cols, rows) => ipcRenderer.send(IPC.agentResize, id, cols, rows),
     kill: (id) => ipcRenderer.invoke(IPC.agentKill, id),
     killAll: () => ipcRenderer.invoke(IPC.agentsKillAll),
-    clean: () => ipcRenderer.invoke(IPC.agentsClean),
+    clean: (profileId) => ipcRenderer.invoke(IPC.agentsClean, profileId),
     buffer: (id) => ipcRenderer.invoke(IPC.agentBuffer, id),
     popout: (id) => ipcRenderer.invoke(IPC.agentPopout, id),
     handoff: (req) => ipcRenderer.invoke(IPC.agentHandoff, req),
@@ -91,9 +91,9 @@ const orca: OrcaApi = {
   },
 
   orchestrator: {
-    snapshot: () => ipcRenderer.invoke(IPC.orchestratorSnapshot),
-    reset: () => ipcRenderer.invoke(IPC.orchestratorReset),
-    reviewPlan: (approved) => ipcRenderer.invoke(IPC.orchestratorReviewPlan, approved),
+    snapshot: (profileId) => ipcRenderer.invoke(IPC.orchestratorSnapshot, profileId),
+    reset: (profileId) => ipcRenderer.invoke(IPC.orchestratorReset, profileId),
+    reviewPlan: (profileId, approved) => ipcRenderer.invoke(IPC.orchestratorReviewPlan, profileId, approved),
     onSnapshot: (cb) => subscribe<OrchestratorSnapshot>(IPC.evOrchestrator, cb)
   },
 

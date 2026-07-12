@@ -25,7 +25,8 @@ import {
 } from '@main/inbox/transferReadiness'
 import { spawnProfileTeam } from '@main/agents/spawnProfile'
 import { agentManager } from '@main/agents/AgentManager'
-import { orchestratorEngine } from '@main/orchestrator/Engine'
+import { workspaceSessions } from '@main/orchestrator/WorkspaceSessionRegistry'
+import type { OrchestratorEngine } from '@main/orchestrator/Engine'
 import {
   getProfile,
   saveProfile,
@@ -194,13 +195,14 @@ async function resolveProfileForTransfer(
 function watchForPlanReview(
   ideaId: string,
   transfer: IdeaTransfer,
+  engine: OrchestratorEngine,
   timeoutMs = PLAN_WAIT_MS
 ): void {
   const started = now()
   const onSnapshot = (): void => {
-    const snap = orchestratorEngine.snapshot()
+    const snap = engine.snapshot()
     if (snap.pendingPlan) {
-      orchestratorEngine.off('snapshot', onSnapshot)
+      engine.off('snapshot', onSnapshot)
       const planned = ideaTransferSchema.parse({
         ...transfer,
         status: 'planned',
@@ -212,7 +214,7 @@ function watchForPlanReview(
       return
     }
     if (now() - started > timeoutMs) {
-      orchestratorEngine.off('snapshot', onSnapshot)
+      engine.off('snapshot', onSnapshot)
       void cleanupTransferAgents(transfer.id).then(() => {
         failTransfer(
           ideaId,
@@ -223,7 +225,7 @@ function watchForPlanReview(
       })
     }
   }
-  orchestratorEngine.on('snapshot', onSnapshot)
+  engine.on('snapshot', onSnapshot)
   onSnapshot()
 }
 
@@ -305,12 +307,24 @@ export async function transferIdeaToProfile(req: IdeaTransferRequest): Promise<I
       )
     }
 
-    orchestratorEngine.setGoal(currentIdea.title)
+    const session = workspaceSessions.getByProfile(profile.id)
+    const engine = session?.engine
+    if (!engine) {
+      await cleanupTransferAgents(transferId)
+      return failTransfer(
+        req.ideaId,
+        transfer,
+        'Orchestrator-Session konnte nicht aufgelöst werden.',
+        true
+      )
+    }
+
+    engine.setGoal(currentIdea.title)
     void seedOrchestrator(
       orchestrator.id,
       buildOrchestratorSeedPrompt(briefingPath, currentIdea.title)
     )
-    watchForPlanReview(req.ideaId, transfer)
+    watchForPlanReview(req.ideaId, transfer, engine)
 
     return {
       idea: currentIdea,

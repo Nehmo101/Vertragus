@@ -104,12 +104,16 @@ vi.mock('@main/agents/AgentManager', () => ({
   agentManager: { seedInteractive: seedMock, kill: killMock }
 }))
 
-vi.mock('@main/orchestrator/Engine', () => ({
-  orchestratorEngine: {
-    setGoal: setGoalMock,
-    snapshot: snapshotMock,
-    on: onSnapshotMock,
-    off: offSnapshotMock
+vi.mock('@main/orchestrator/WorkspaceSessionRegistry', () => ({
+  workspaceSessions: {
+    getByProfile: vi.fn(() => ({
+      engine: {
+        setGoal: setGoalMock,
+        snapshot: snapshotMock,
+        on: onSnapshotMock,
+        off: offSnapshotMock
+      }
+    }))
   }
 }))
 

@@ -4,14 +4,19 @@
 import type { AgentInstanceInfo } from '@shared/agents'
 import { profileRepoLocalPath, type WorkspaceProfile } from '@shared/profile'
 import { agentManager } from '@main/agents/AgentManager'
-import { orchestratorEngine } from '@main/orchestrator/Engine'
+import { workspaceSessions } from '@main/orchestrator/WorkspaceSessionRegistry'
 
 export async function spawnProfileTeam(
   profile: WorkspaceProfile,
   yoloMaster: boolean,
   options?: { resetOrchestrator?: boolean }
 ): Promise<AgentInstanceInfo[]> {
-  if (options?.resetOrchestrator !== false) orchestratorEngine.reset()
+  await agentManager.removeAll(profile.id)
+  const session =
+    options?.resetOrchestrator === false
+      ? workspaceSessions.ensure(profile)
+      : workspaceSessions.start(profile)
+  const engine = session.engine
   const workingDir = profileRepoLocalPath(profile) || profile.workingDir
   const spawned: AgentInstanceInfo[] = []
 
@@ -24,10 +29,12 @@ export async function spawnProfileTeam(
         kind: 'orchestrator',
         role: 'Orchestrator · plant & verteilt',
         yolo: yoloMaster,
-        workingDir
+        workingDir,
+        profileId: profile.id,
+        workspaceSessionId: session.id
       })
     )
-    orchestratorEngine.activate()
+    engine.activate(profile)
   }
 
   for (const slot of profile.agents) {
@@ -39,7 +46,9 @@ export async function spawnProfileTeam(
           modelPreset: slot.modelPreset,
           role: `Subagent · ${slot.role}${slot.count > 1 ? ` #${i}` : ''}`,
           yolo: slot.yolo || yoloMaster,
-          workingDir: slot.workingDir || workingDir
+          workingDir: slot.workingDir || workingDir,
+          profileId: profile.id,
+          workspaceSessionId: session.id
         })
       )
     }

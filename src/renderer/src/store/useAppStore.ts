@@ -39,6 +39,7 @@ interface AppState {
   agents: AgentInstanceInfo[]
   events: OrcaEvent[]
   orchestrator: OrchestratorSnapshot
+  orchestrators: Record<string, OrchestratorSnapshot>
   yoloMaster: boolean
   theme: UiTheme
   workspaceLayout: WorkspaceLayout
@@ -93,6 +94,20 @@ export function activeProfile(s: Pick<AppState, 'profiles' | 'activeProfileId'>)
   return s.profiles.find((p) => p.id === s.activeProfileId)
 }
 
+export function workspaceAgents(
+  state: Pick<AppState, 'agents' | 'activeProfileId'>
+): AgentInstanceInfo[] {
+  return state.agents.filter(
+    (agent) => !agent.profileId || agent.profileId === state.activeProfileId
+  )
+}
+
+export function workspaceEvents(
+  state: Pick<AppState, 'events' | 'activeProfileId'>
+): OrcaEvent[] {
+  return state.events.filter((event) => !event.profileId || event.profileId === state.activeProfileId)
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   appInfo: null,
   health: [],
@@ -107,6 +122,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   agents: [],
   events: [],
   orchestrator: { goal: null, tasks: [] },
+  orchestrators: {},
   yoloMaster: false,
   theme: 'light',
   workspaceLayout: 'tiles',
@@ -136,7 +152,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       set((s) => ({ events: [...s.events.slice(-199), evt] }))
     )
     window.orca.onProvidersChanged((health) => set({ health }))
-    window.orca.orchestrator.onSnapshot((snap) => set({ orchestrator: snap }))
+    window.orca.orchestrator.onSnapshot((snap) =>
+      set((state) => {
+        const profileId = snap.profileId
+        if (!profileId) return { orchestrator: snap }
+        const orchestrators = { ...state.orchestrators, [profileId]: snap }
+        return profileId === state.activeProfileId
+          ? { orchestrators, orchestrator: snap }
+          : { orchestrators }
+      })
+    )
 
     const [appInfo, profiles, activeProfileId, mcpServers, agents, yolo, snapshot, theme, layout, density, limits] =
       await Promise.all([
@@ -146,7 +171,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         window.orca.listMcpServers(),
         window.orca.agents.list(),
         window.orca.getConfig<boolean>('yoloMaster'),
-        window.orca.orchestrator.snapshot(),
+        window.orca.getActiveProfileId().then((profileId) =>
+          window.orca.orchestrator.snapshot(profileId)),
         window.orca.getConfig<UiTheme>('ui.theme'),
         window.orca.getConfig<WorkspaceLayout>('ui.workspaceLayout'),
         window.orca.getConfig<UiDensity>('ui.density'),
@@ -160,6 +186,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       agents,
       yoloMaster: yolo ?? false,
       orchestrator: snapshot,
+      orchestrators: { [activeProfileId]: snapshot },
       theme: theme === 'dark' ? 'dark' : 'light',
       workspaceLayout: layout === 'focus' || layout === 'dag' ? layout : 'tiles',
       uiDensity: density === 'compact' ? density : 'comfortable',
@@ -239,7 +266,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     try {
       await window.orca.setActiveProfileId(id)
-      set({ activeProfileId: id })
+      const snapshot = await window.orca.orchestrator.snapshot(id)
+      set((state) => ({
+        activeProfileId: id,
+        orchestrator: snapshot,
+        orchestrators: { ...state.orchestrators, [id]: snapshot }
+      }))
       await get().refreshGit().catch((error) => {
         get().showToast(`Profil gewechselt, Git-Status nicht verfügbar: ${errorMessage(error)}`)
       })
@@ -306,7 +338,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   async cleanWorkspace() {
-    await window.orca.agents.clean()
+    await window.orca.agents.clean(get().activeProfileId)
     get().showToast('Workspace geleert — alle Agents entfernt.')
   },
 
@@ -322,7 +354,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         model: '',
         role: `Subagent · ${role}`,
         yolo: s.yoloMaster,
-        workingDir: profile?.workingDir
+        workingDir: profile?.workingDir,
+        profileId: profile?.id
       })
       set({ addSeq: s.addSeq + 1 })
       get().showToast('Neuer Subagent gestartet — Codex-Default')

@@ -61,6 +61,8 @@ export interface RunTaskRequest {
   systemPrompt?: string
   yolo: boolean
   workingDir?: string
+  profileId?: string
+  workspaceSessionId?: string
 }
 
 export class AgentManager extends EventEmitter {
@@ -69,8 +71,10 @@ export class AgentManager extends EventEmitter {
   private readonly sessionId = randomUUID()
   private seq = 0
 
-  list(): AgentInstanceInfo[] {
-    return [...this.agents.values()].map((m) => m.info)
+  list(profileId?: string): AgentInstanceInfo[] {
+    return [...this.agents.values()]
+      .filter((managed) => !profileId || managed.info.profileId === profileId)
+      .map((managed) => managed.info)
   }
 
   buffer(id: string): { data: string; seq: number } {
@@ -78,8 +82,18 @@ export class AgentManager extends EventEmitter {
     return { data: m?.buffer ?? '', seq: m?.seq ?? 0 }
   }
 
-  private emitEvent(text: string, tone: OrcaEvent['tone'] = 'info'): void {
-    const evt: OrcaEvent = { time: Date.now(), text, tone }
+  private emitEvent(
+    text: string,
+    tone: OrcaEvent['tone'] = 'info',
+    context?: Pick<AgentInstanceInfo, 'profileId' | 'workspaceSessionId'>
+  ): void {
+    const evt: OrcaEvent = {
+      time: Date.now(),
+      text,
+      tone,
+      profileId: context?.profileId,
+      workspaceSessionId: context?.workspaceSessionId
+    }
     this.emit('event', evt)
   }
 
@@ -102,19 +116,24 @@ export class AgentManager extends EventEmitter {
   private async prepareWorkingDir(
     id: string,
     requested: string | undefined,
-    isolateOverride?: boolean
+    isolateOverride?: boolean,
+    workspaceSessionId?: string,
+    profileId?: string
   ): Promise<{ workingDir: string; worktree?: string; branch?: string }> {
     let workingDir = requested?.trim() || homedir()
     let worktree: string | undefined
     let branch: string | undefined
     const isolate = isolateOverride ?? getSetting<boolean>('worktreeIsolation') ?? true
     if (isolate) {
-      const wt = await createWorktree(workingDir, id, this.sessionId)
+      const wt = await createWorktree(workingDir, id, workspaceSessionId ?? this.sessionId)
       if (wt) {
         workingDir = wt.path
         worktree = wt.path
         branch = wt.branch
-        this.emitEvent(`${id} worktree ${wt.branch} @ ${wt.path}`, 'muted')
+        this.emitEvent(`${id} worktree ${wt.branch} @ ${wt.path}`, 'muted', {
+          profileId,
+          workspaceSessionId
+        })
       }
     }
     return { workingDir, worktree, branch }
@@ -144,7 +163,7 @@ export class AgentManager extends EventEmitter {
     managed.info.limitWarning = { kind: hit.kind, detectedAt: Date.now(), note: hit.note }
     this.emitEvent(
       `⚠ ${managed.info.name} nähert sich einem Limit (${limitKindLabel(hit.kind)}) — Übergabe möglich`,
-      'warn'
+      'warn', managed.info
     )
     this.changed()
   }
@@ -161,7 +180,9 @@ export class AgentManager extends EventEmitter {
     const { workingDir, worktree, branch } = await this.prepareWorkingDir(
       id,
       req.workingDir,
-      req.isolateWorktree
+      req.isolateWorktree,
+      req.workspaceSessionId,
+      req.profileId
     )
 
     // Orchestrators get the Orca MCP server + orchestrator system prompt (which
@@ -169,7 +190,7 @@ export class AgentManager extends EventEmitter {
     // interactive agent gets its subagent-scoped external MCP servers attached
     // so it can see and use them directly.
     const orchestratorSetup =
-      kind === 'orchestrator' ? buildOrchestratorSetup(req.provider, name, id) : undefined
+      kind === 'orchestrator' ? buildOrchestratorSetup(req.provider, name, id, req.workspaceSessionId) : undefined
     if (orchestratorSetup && !orchestratorSetup.capability.supported) {
       providerCapacity.release(req.provider)
       throw new Error(orchestratorSetup.capability.reason ?? `${req.provider} cannot orchestrate.`)
@@ -189,6 +210,8 @@ export class AgentManager extends EventEmitter {
     const info: AgentInstanceInfo = {
       id,
       name,
+      profileId: req.profileId,
+      workspaceSessionId: req.workspaceSessionId,
       provider: req.provider,
       model: resolvedModel,
       role: req.role ?? (kind === 'orchestrator' ? 'Orchestrator · plant & verteilt' : 'Subagent'),
@@ -225,14 +248,14 @@ export class AgentManager extends EventEmitter {
         info.status = exitCode === 0 ? 'stopped' : 'error'
         this.emitEvent(
           exitCode === 0 ? `${name} beendet` : `${name} · Fehler · exit ${exitCode}`,
-          exitCode === 0 ? 'muted' : 'error'
+          exitCode === 0 ? 'muted' : 'error', info
         )
         this.changed()
       })
 
       this.emitEvent(
         `${name} gestartet · ${req.provider}/${resolvedModel || 'CLI-Standard'}${yolo ? ' [YOLO]' : ''}`,
-        yolo ? 'yolo' : 'dispatch'
+        yolo ? 'yolo' : 'dispatch', info
       )
     } catch (err) {
       if (capacityHeld) providerCapacity.release(req.provider)
@@ -240,7 +263,7 @@ export class AgentManager extends EventEmitter {
       info.status = 'error'
       const msg = err instanceof Error ? err.message : String(err)
       managed.buffer = `Spawn fehlgeschlagen: ${msg}\r\n`
-      this.emitEvent(`${id} Spawn fehlgeschlagen: ${msg}`, 'error')
+      this.emitEvent(`${id} Spawn fehlgeschlagen: ${msg}`, 'error', info)
     }
 
     this.changed()
@@ -275,7 +298,9 @@ export class AgentManager extends EventEmitter {
       role: req.role?.trim() || `Übernahme von ${src.info.name}`,
       yolo: req.yolo ?? src.info.yolo,
       workingDir: src.info.workingDir,
-      isolateWorktree: false
+      isolateWorktree: false,
+      profileId: src.info.profileId,
+      workspaceSessionId: src.info.workspaceSessionId
     })
     // If spawn failed to register (e.g. PTY error), surface the info as-is.
     if (!this.agents.has(target.id)) return target
@@ -302,7 +327,7 @@ export class AgentManager extends EventEmitter {
       `und mach genau dort weiter, wo ${src.info.name} aufgehört hat. Bestätige zuerst kurz dein Verständnis der Aufgabe.`
     void this.seedInteractive(target.id, seed)
 
-    this.emitEvent(`↪ Übergabe: ${src.info.name} → ${target.name}`, 'dispatch')
+    this.emitEvent(`↪ Übergabe: ${src.info.name} → ${target.name}`, 'dispatch', src.info)
     this.changed()
     return target
   }
@@ -389,7 +414,13 @@ export class AgentManager extends EventEmitter {
     const id = this.nextId('task')
     const name = this.names.allocate('sub')
     const resolvedModel = resolveModel(req.provider, req)
-    const { workingDir, worktree, branch } = await this.prepareWorkingDir(id, req.workingDir)
+    const { workingDir, worktree, branch } = await this.prepareWorkingDir(
+      id,
+      req.workingDir,
+      undefined,
+      req.workspaceSessionId,
+      req.profileId
+    )
 
     let resolveDone!: (result: HeadlessResult) => void
     const done = new Promise<HeadlessResult>((resolve) => {
@@ -400,6 +431,8 @@ export class AgentManager extends EventEmitter {
       id,
       name,
       provider: req.provider,
+      profileId: req.profileId,
+      workspaceSessionId: req.workspaceSessionId,
       model: resolvedModel,
       role: `Task · ${req.role}`,
       kind: 'sub',
@@ -444,7 +477,7 @@ export class AgentManager extends EventEmitter {
     this.pushData(managed, `\x1b[36m▶ ${name} · ${req.provider}/${resolvedModel || 'CLI-Standard'} · ${req.role}\x1b[0m\r\n`)
     this.emitEvent(
       `${name} dispatch · ${req.role} · ${req.provider}/${resolvedModel || 'CLI-Standard'}${req.yolo ? ' [YOLO]' : ''}`,
-      req.yolo ? 'yolo' : 'dispatch'
+      req.yolo ? 'yolo' : 'dispatch', managed.info
     )
 
     const handle = runHeadless(
@@ -491,7 +524,7 @@ export class AgentManager extends EventEmitter {
             : failed
               ? { text: `${name} · Task-Fehler`, tone: 'error' as const }
                 : { text: `${name} · ✓ Task fertig`, tone: 'success' as const }
-        this.emitEvent(event.text, event.tone)
+        this.emitEvent(event.text, event.tone, managed.info)
         this.changed()
       }
     } finally {
@@ -564,12 +597,14 @@ export class AgentManager extends EventEmitter {
     managed.info.status = 'stopped'
     this.agents.delete(id)
     this.names.release(managed.info.name)
-    this.emitEvent(`${managed.info.name} geschlossen`, 'muted')
+    this.emitEvent(`${managed.info.name} geschlossen`, 'muted', managed.info)
     this.changed()
   }
 
-  async killAll(): Promise<void> {
-    const running = [...this.agents.values()].filter((m) => this.isAlive(m) || m.info.status === 'waiting')
+  async killAll(profileId?: string): Promise<void> {
+    const running = [...this.agents.values()].filter(
+      (m) => (this.isAlive(m) || m.info.status === 'waiting') && (!profileId || m.info.profileId === profileId)
+    )
     for (const m of running) {
       if (m.info.status === 'waiting' && !m.headless) {
         if (m.waitAbort) m.waitAbort.aborted = true
@@ -581,27 +616,32 @@ export class AgentManager extends EventEmitter {
       this.releaseCapacity(m)
       m.info.status = 'stopped'
     }
-    this.emitEvent(`⛔ ALLE AGENTS GESTOPPT · ${running.length} beendet`, 'error')
+    this.emitEvent(`⛔ ALLE AGENTS GESTOPPT · ${running.length} beendet`, 'error', { profileId })
     this.changed()
   }
 
   /** Stop everything AND remove the panes — a clean slate for the workspace. */
-  async removeAll(): Promise<void> {
-    const count = this.agents.size
-    for (const m of this.agents.values()) {
-      if (m.waitAbort) m.waitAbort.aborted = true
-      this.terminate(m)
-      this.releaseCapacity(m)
-      this.names.release(m.info.name)
+  async removeAll(profileId?: string): Promise<void> {
+    const targets = [...this.agents.entries()].filter(
+      ([, managed]) => !profileId || managed.info.profileId === profileId
+    )
+    const count = targets.length
+    for (const [id, managed] of targets) {
+      if (managed.waitAbort) managed.waitAbort.aborted = true
+      this.terminate(managed)
+      this.releaseCapacity(managed)
+      this.names.release(managed.info.name)
+      this.agents.delete(id)
     }
-    this.agents.clear()
-    this.emitEvent(`🧹 Workspace geleert · ${count} Agents entfernt`, 'muted')
+    this.emitEvent(`🧹 Workspace geleert · ${count} Agents entfernt`, 'muted', { profileId })
     this.changed()
   }
 
   /** True while at least one agent process is alive. */
-  anyRunning(): boolean {
-    return [...this.agents.values()].some((m) => this.isAlive(m))
+  anyRunning(profileId?: string): boolean {
+    return [...this.agents.values()].some(
+      (managed) => this.isAlive(managed) && (!profileId || managed.info.profileId === profileId)
+    )
   }
 
   /** Remove exited agents from the list (panes closed in the UI). */
