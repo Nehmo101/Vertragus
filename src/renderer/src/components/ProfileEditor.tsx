@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '@renderer/store/useAppStore'
 import type { WorkspaceProfile, AgentSlot } from '@shared/profile'
 import type { AgentProviderId } from '@shared/providers'
-import type { GithubProjectSummary } from '@shared/ipc'
+import type { GithubProjectSummary, GithubRepoSummary } from '@shared/ipc'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import InfoTip from '@renderer/components/InfoTip'
 
@@ -11,8 +11,11 @@ const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'cursor', 'copilo
 const ORCHESTRATOR_PROVIDERS: AgentProviderId[] = ['claude', 'codex']
 const HELP = {
   profileName: 'Frei wählbarer Name für diese Kombination aus Workspace, Orchestrator und Subagents.',
-  workingDir: 'Repository oder Ordner, in dem Agents arbeiten. Task-Worktrees werden von diesem Git-Repository abgeleitet.',
-  githubProject: 'Optionales GitHub Projects Board für diesen Workspace. Der Owner wird aus origin erkannt oder kann manuell gesetzt werden.',
+  workingDir: 'Repository oder Ordner, in dem Agents arbeiten. Bei GitHub-Bindung wird der lokale Klon-Pfad verwendet.',
+  githubAuth: 'Browser-OAuth (Device Flow mit ORCA_GITHUB_OAUTH_CLIENT_ID) oder gh --web. Tokens werden verschlüsselt lokal gespeichert, nie im Profil oder in Logs.',
+  githubRepo: 'Owner/Repo binden, Standardbranch auflösen und optional in ein Zielverzeichnis klonen.',
+  githubClone: 'Leeres Zielverzeichnis wird per git clone befüllt. Bestehende Klone werden auf origin-Abweichungen geprüft.',
+  githubProject: 'Optionales GitHub Projects Board für diesen Workspace. Der Owner wird aus der Repository-Bindung oder origin erkannt.',
   agentWorkingDir: 'Optionaler Pfad nur für diesen Slot. Leer übernimmt den Workspace-Basispfad.',
   mode: 'Orchestriert lässt Claude oder Codex planen und delegieren. Single startet nur die konfigurierten Slots.',
   orchestratorProvider: 'Nur Provider mit verifiziertem Orca-MCP-Adapter können orchestrieren.',
@@ -22,7 +25,7 @@ const HELP = {
   timeout: 'Nach dieser Laufzeit wird ein Headless-Task beendet und als Timeout markiert.',
   autoPrMode: 'PRs entstehen nur nach erfolgreichen Gates. Draft ist der empfohlene sichere Startmodus.',
   prStrategy: 'Aggregate kombiniert Task-Commits in einen Goal-PR. Per Task erzeugt getrennte PRs.',
-  baseBranch: 'Zielbranch des PRs. Leer nutzt den Standardbranch des origin-Remotes.',
+  baseBranch: 'Zielbranch des PRs. Leer nutzt den gebundenen Standardbranch oder den des origin-Remotes.',
   qualityGates: 'Vertrauenswürdige Shell-Befehle, die im Task- und Integrations-Worktree erfolgreich laufen müssen.',
   role: 'Eindeutige Fähigkeit, die der Planner adressiert, etwa frontend, backend, tests oder review.',
   agentProvider: 'CLI, die diesen Slot ausführt. Der Login erfolgt separat in der Provider-Seitenleiste.',
@@ -37,11 +40,22 @@ function projectKey(project: Pick<GithubProjectSummary, 'owner' | 'number'>): st
   return `${project.owner}#${project.number}`
 }
 
+function repoKey(repo: Pick<GithubRepoSummary, 'owner' | 'repo'>): string {
+  return `${repo.owner}/${repo.repo}`
+}
+
 export default function ProfileEditor(): JSX.Element | null {
   const store = useAppStore()
   const initial = store.editorProfile
   const [draft, setDraft] = useState<WorkspaceProfile | null>(initial)
-  const [projectOwner, setProjectOwner] = useState(initial?.githubProject?.owner ?? '')
+  const [repoQuery, setRepoQuery] = useState(
+    initial?.githubRepo ? `${initial.githubRepo.owner}/${initial.githubRepo.repo}` : ''
+  )
+  const [repoResults, setRepoResults] = useState<GithubRepoSummary[]>([])
+  const [repoStatus, setRepoStatus] = useState('')
+  const [projectOwner, setProjectOwner] = useState(
+    initial?.githubProject?.owner ?? initial?.githubRepo?.owner ?? ''
+  )
   const [projects, setProjects] = useState<GithubProjectSummary[]>(
     initial?.githubProject ? [{ ...initial.githubProject, closed: false }] : []
   )
@@ -52,19 +66,18 @@ export default function ProfileEditor(): JSX.Element | null {
 
   useEffect(() => {
     nameRef.current?.focus()
+    void store.refreshGithubAuth()
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') closeEditor()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [closeEditor])
+  }, [closeEditor, store])
 
   if (!initial || !draft) return null
 
   const models = store.models
   const modelsFor = (p: AgentProviderId): string[] => models[p] ?? []
-  // codex defaults to empty = its own configured default (an explicit
-  // unsupported model 400s); other providers default to their first suggestion.
   const defaultModelFor = (p: AgentProviderId): string => (p === 'codex' ? '' : modelsFor(p)[0] ?? '')
 
   const patch = (p: Partial<WorkspaceProfile>): void => setDraft({ ...draft, ...p })
@@ -75,7 +88,9 @@ export default function ProfileEditor(): JSX.Element | null {
   const loadProjects = async (): Promise<void> => {
     setProjectsStatus('GitHub-Boards werden geladen…')
     try {
-      const result = await window.orca.githubProjects(draft.workingDir, projectOwner || undefined)
+      const dir = draft.githubRepo?.localPath || draft.workingDir
+      const ownerHint = projectOwner || draft.githubRepo?.owner
+      const result = await window.orca.githubProjects(dir, ownerHint || undefined)
       setProjectOwner(result.owner)
       setProjects(result.projects)
       setProjectsStatus(
@@ -87,6 +102,86 @@ export default function ProfileEditor(): JSX.Element | null {
       setProjectsStatus(error instanceof Error ? error.message : String(error))
     }
   }
+
+  const searchRepos = async (): Promise<void> => {
+    setRepoStatus('Repositories werden gesucht…')
+    try {
+      const result = await window.orca.githubRepoSearch(repoQuery, 30)
+      setRepoResults(result.repos)
+      setRepoStatus(
+        result.repos.length === 0
+          ? 'Keine Repositories gefunden.'
+          : `${result.repos.length} Repository(s) gefunden.`
+      )
+    } catch (error) {
+      setRepoStatus(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  const bindRepo = async (clone: boolean): Promise<void> => {
+    const binding = draft.githubRepo
+    if (!binding?.owner || !binding.repo) {
+      setRepoStatus('Bitte zuerst ein Repository auswählen.')
+      return
+    }
+    setRepoStatus(clone ? 'Repository wird geklont…' : 'Bindung wird geprüft…')
+    try {
+      const localPath = binding.localPath || draft.workingDir
+      const result = await window.orca.githubRepoBind({
+        owner: binding.owner,
+        repo: binding.repo,
+        defaultBranch: binding.defaultBranch || undefined,
+        localPath: localPath || undefined,
+        clone
+      })
+      setDraft({
+        ...draft,
+        workingDir: result.workingDir || draft.workingDir,
+        githubRepo: result.binding
+      })
+      if (result.binding.owner) setProjectOwner(result.binding.owner)
+      setRepoStatus(result.message)
+    } catch (error) {
+      setRepoStatus(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  const checkLocalRepo = async (): Promise<void> => {
+    const binding = draft.githubRepo
+    const localPath = binding?.localPath || draft.workingDir
+    if (!binding?.owner || !binding.repo || !localPath) {
+      setRepoStatus('Owner, Repo und lokaler Pfad werden für die Prüfung benötigt.')
+      return
+    }
+    setRepoStatus('Lokaler Remote wird geprüft…')
+    try {
+      const check = await window.orca.githubRepoCheckLocal(binding.owner, binding.repo, localPath)
+      patch({
+        githubRepo: { ...binding, localPath, cloneStatus: check.cloneStatus }
+      })
+      setRepoStatus(check.message)
+    } catch (error) {
+      setRepoStatus(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  const repoOptions =
+    draft.githubRepo &&
+    !repoResults.some((repo) => repoKey(repo) === repoKey(draft.githubRepo!))
+      ? [
+          {
+            owner: draft.githubRepo.owner,
+            repo: draft.githubRepo.repo,
+            fullName: `${draft.githubRepo.owner}/${draft.githubRepo.repo}`,
+            defaultBranch: draft.githubRepo.defaultBranch || 'main',
+            url: `https://github.com/${draft.githubRepo.owner}/${draft.githubRepo.repo}`,
+            private: false
+          },
+          ...repoResults
+        ]
+      : repoResults
+
+  const githubAuth = store.githubAuth
 
   const projectOptions =
     draft.githubProject && !projects.some((project) => projectKey(project) === projectKey(draft.githubProject!))
@@ -128,6 +223,123 @@ export default function ProfileEditor(): JSX.Element | null {
             onChange={(e) => patch({ name: e.target.value })}
           />
 
+          <section className="github-repo-field" aria-labelledby="github-auth-heading">
+            <div className="field-label" id="github-auth-heading">
+              GitHub-Verbindung <InfoTip text={HELP.githubAuth} />
+            </div>
+            <div className="github-auth-row">
+              <div className="github-auth-status" aria-live="polite">
+                {githubAuth?.authenticated ? (
+                  <>
+                    <span className="github-auth-ok">●</span>
+                    {githubAuth.account ?? 'GitHub'} · {githubAuth.method}
+                    {githubAuth.needsReauth
+                      ? ` · Reauth nötig (${githubAuth.missingScopes.join(', ')})`
+                      : githubAuth.scopes.length > 0
+                        ? ` · ${githubAuth.scopes.join(', ')}`
+                        : ''}
+                  </>
+                ) : (
+                  <>
+                    <span className="github-auth-warn">●</span>
+                    {githubAuth?.oauthConfigured
+                      ? 'Nicht angemeldet · Browser-OAuth verfügbar'
+                      : 'Nicht angemeldet · Fallback gh --web / PTY'}
+                  </>
+                )}
+              </div>
+              <button type="button" className="btn-secondary browse-btn" onClick={() => void store.githubLogin()}>
+                {githubAuth?.authenticated && !githubAuth.needsReauth ? 'Erneuern' : 'Verbinden'}
+              </button>
+              {githubAuth?.authenticated && (
+                <button type="button" className="btn-secondary browse-btn" onClick={() => void store.githubLogout()}>
+                  Abmelden
+                </button>
+              )}
+              <button
+                type="button"
+                className="btn-secondary browse-btn"
+                title="Fallback: gh auth login im Terminal"
+                onClick={() => void store.githubTerminalLogin()}
+              >
+                PTY
+              </button>
+            </div>
+          </section>
+
+          <section className="github-repo-field" aria-labelledby="github-repo-heading">
+            <div className="field-label" id="github-repo-heading">
+              GitHub-Repository <InfoTip text={HELP.githubRepo} />
+            </div>
+            <div className="github-project-owner-row">
+              <input
+                className="text-input mono"
+                placeholder="Suche oder owner/repo"
+                aria-label="Repository-Suche"
+                value={repoQuery}
+                onChange={(event) => setRepoQuery(event.target.value)}
+              />
+              <button type="button" className="btn-secondary browse-btn" onClick={() => void searchRepos()}>
+                Suchen
+              </button>
+            </div>
+            <select
+              className="select github-project-select"
+              aria-label="GitHub-Repository für Workspace"
+              value={draft.githubRepo ? repoKey(draft.githubRepo) : ''}
+              onChange={(event) => {
+                const selected = repoOptions.find((repo) => repoKey(repo) === event.target.value)
+                if (!selected) {
+                  patch({ githubRepo: undefined })
+                  return
+                }
+                patch({
+                  githubRepo: {
+                    owner: selected.owner,
+                    repo: selected.repo,
+                    defaultBranch: selected.defaultBranch,
+                    localPath: draft.githubRepo?.localPath || draft.workingDir,
+                    cloneStatus: draft.githubRepo?.cloneStatus ?? 'linked'
+                  }
+                })
+                setProjectOwner(selected.owner)
+                setRepoQuery(`${selected.owner}/${selected.repo}`)
+              }}
+            >
+              <option value="">Kein Repository</option>
+              {repoOptions.map((repo) => (
+                <option key={repoKey(repo)} value={repoKey(repo)}>
+                  {repo.fullName}
+                  {repo.description ? ` — ${repo.description}` : ''}
+                </option>
+              ))}
+            </select>
+            {draft.githubRepo && (
+              <>
+                <label className="field-label" htmlFor="profile-default-branch" style={{ marginTop: 10 }}>
+                  Standardbranch
+                </label>
+                <input
+                  id="profile-default-branch"
+                  className="text-input mono"
+                  placeholder="z. B. main"
+                  value={draft.githubRepo.defaultBranch}
+                  onChange={(event) =>
+                    patch({
+                      githubRepo: { ...draft.githubRepo!, defaultBranch: event.target.value }
+                    })
+                  }
+                />
+              </>
+            )}
+            <div className="github-project-status" aria-live="polite">
+              {repoStatus ||
+                (draft.githubRepo
+                  ? `${draft.githubRepo.owner}/${draft.githubRepo.repo} · ${draft.githubRepo.cloneStatus}`
+                  : 'Repository binden für Auto-PR-Basisbranch und Board-Owner.')}
+            </div>
+          </section>
+
           <label className="field-label" htmlFor="profile-working-dir">
             Working Directory (Repo) <InfoTip text={HELP.workingDir} />
           </label>
@@ -136,19 +348,49 @@ export default function ProfileEditor(): JSX.Element | null {
               id="profile-working-dir"
               className="text-input mono"
               placeholder="C:\git\mein-repo"
-              value={draft.workingDir}
-              onChange={(e) => patch({ workingDir: e.target.value })}
+              value={draft.githubRepo?.localPath || draft.workingDir}
+              onChange={(e) => {
+                const value = e.target.value
+                if (draft.githubRepo) {
+                  patch({ githubRepo: { ...draft.githubRepo, localPath: value }, workingDir: value })
+                } else {
+                  patch({ workingDir: value })
+                }
+              }}
             />
             <button type="button"
               className="btn-secondary browse-btn"
               onClick={async () => {
                 const dir = await window.orca.pickFolder()
-                if (dir) patch({ workingDir: dir })
+                if (!dir) return
+                if (draft.githubRepo) {
+                  patch({ githubRepo: { ...draft.githubRepo, localPath: dir }, workingDir: dir })
+                } else {
+                  patch({ workingDir: dir })
+                }
               }}
             >
               Durchsuchen…
             </button>
           </div>
+          {draft.githubRepo && (
+            <div className="github-repo-actions">
+              <button type="button" className="btn-secondary browse-btn" onClick={() => void checkLocalRepo()}>
+                Remote prüfen
+              </button>
+              <button
+                type="button"
+                className="btn-secondary browse-btn"
+                title={HELP.githubClone}
+                onClick={() => void bindRepo(true)}
+              >
+                Klonen
+              </button>
+              <button type="button" className="btn-secondary browse-btn" onClick={() => void bindRepo(false)}>
+                Binden
+              </button>
+            </div>
+          )}
           <section className="github-project-field" aria-labelledby="github-project-heading">
             <div className="field-label" id="github-project-heading">
               GitHub Board <InfoTip text={HELP.githubProject} />
@@ -164,7 +406,7 @@ export default function ProfileEditor(): JSX.Element | null {
               <button
                 type="button"
                 className="btn-secondary browse-btn"
-                disabled={!draft.workingDir.trim() && !projectOwner.trim()}
+                disabled={!draft.workingDir.trim() && !draft.githubRepo?.localPath?.trim() && !projectOwner.trim()}
                 onClick={() => void loadProjects()}
               >
                 Boards laden
@@ -386,7 +628,11 @@ export default function ProfileEditor(): JSX.Element | null {
                 </span>
                 <input
                   className="slot-select-sm mono"
-                  placeholder="Repo-Standard"
+                  placeholder={
+                    draft.githubRepo?.defaultBranch ||
+                    draft.autoPr.baseBranch ||
+                    'Gebundener Standardbranch'
+                  }
                   value={draft.autoPr.baseBranch}
                   onChange={(event) => patch({ autoPr: { ...draft.autoPr, baseBranch: event.target.value } })}
                 />

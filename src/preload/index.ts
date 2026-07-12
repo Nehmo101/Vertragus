@@ -38,6 +38,14 @@ const orca: OrcaApi = {
 
   gitInfo: (dir) => ipcRenderer.invoke(IPC.gitInfo, dir),
   githubProjects: (dir, owner) => ipcRenderer.invoke(IPC.githubProjects, dir, owner),
+  githubAuthStatus: () => ipcRenderer.invoke(IPC.githubAuthStatus),
+  githubAuthLogin: () => ipcRenderer.invoke(IPC.githubAuthLogin),
+  githubAuthLogout: () => ipcRenderer.invoke(IPC.githubAuthLogout),
+  githubRepoSearch: (query, limit) => ipcRenderer.invoke(IPC.githubRepoSearch, query, limit),
+  githubRepoResolve: (owner, repo) => ipcRenderer.invoke(IPC.githubRepoResolve, owner, repo),
+  githubRepoBind: (req) => ipcRenderer.invoke(IPC.githubRepoBind, req),
+  githubRepoCheckLocal: (owner, repo, localPath) =>
+    ipcRenderer.invoke(IPC.githubRepoCheckLocal, owner, repo, localPath),
   pickFolder: () => ipcRenderer.invoke(IPC.dialogPickFolder),
 
   agents: {

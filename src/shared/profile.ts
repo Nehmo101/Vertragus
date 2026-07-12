@@ -54,11 +54,36 @@ export const githubProjectSchema = z.object({
   url: z.string().url()
 })
 
+/** Local clone / remote binding state for the workspace repository. */
+export const profileCloneStatusSchema = z.enum([
+  'unbound',
+  'linked',
+  'cloned',
+  'diverged',
+  'error'
+])
+
+/**
+ * Structured GitHub repository binding for a workspace profile.
+ * Backward compatible: older profiles omit this block and rely on workingDir alone.
+ */
+export const profileGithubRepoSchema = z.object({
+  owner: z.string().min(1),
+  repo: z.string().min(1),
+  /** Empty = resolve from GitHub when binding or at Auto-PR time. */
+  defaultBranch: z.string().default(''),
+  /** Local checkout path; empty falls back to profile.workingDir. */
+  localPath: z.string().default(''),
+  cloneStatus: profileCloneStatusSchema.default('unbound')
+})
+
 export const workspaceProfileSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   /** Default working directory (usually a git repo). */
   workingDir: z.string().default(''),
+  /** Optional structured GitHub repository binding (owner/repo/branch/local clone). */
+  githubRepo: profileGithubRepoSchema.optional(),
   /** Optional GitHub Projects board associated with this workspace. */
   githubProject: githubProjectSchema.optional(),
   /** Optional — a workspace can run without an orchestrator. */
@@ -75,7 +100,19 @@ export type OrchestratorConfig = z.infer<typeof orchestratorSchema>
 export type PlannerConfig = z.infer<typeof plannerConfigSchema>
 export type AutoPrConfig = z.infer<typeof autoPrConfigSchema>
 export type GithubProjectConfig = z.infer<typeof githubProjectSchema>
+export type ProfileCloneStatus = z.infer<typeof profileCloneStatusSchema>
+export type ProfileGithubRepo = z.infer<typeof profileGithubRepoSchema>
 export type WorkspaceProfile = z.infer<typeof workspaceProfileSchema>
+
+/** Effective local path for a profile's bound repository. */
+export function profileRepoLocalPath(profile: Pick<WorkspaceProfile, 'workingDir' | 'githubRepo'>): string {
+  return profile.githubRepo?.localPath?.trim() || profile.workingDir.trim()
+}
+
+/** Default branch from explicit Auto-PR override, profile binding, or empty (= resolve later). */
+export function profileDefaultBaseBranch(profile: Pick<WorkspaceProfile, 'autoPr' | 'githubRepo'>): string {
+  return profile.autoPr.baseBranch.trim() || profile.githubRepo?.defaultBranch?.trim() || ''
+}
 
 /**
  * The user's canonical example: a Claude/Fable orchestrator delegating to codex

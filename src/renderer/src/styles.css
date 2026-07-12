@@ -2697,6 +2697,40 @@ textarea:focus-visible,
   font-size: 10.5px;
   line-height: 1.4;
 }
+.github-repo-field {
+  margin: 0 0 14px;
+  padding: 12px;
+  border: 1px solid var(--border-3);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-slot) 78%, transparent);
+}
+.github-auth-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.github-auth-status {
+  flex: 1 1 220px;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text-2);
+  line-height: 1.45;
+}
+.github-auth-ok {
+  color: #3fd17a;
+  margin-right: 6px;
+}
+.github-auth-warn {
+  color: #e9b949;
+  margin-right: 6px;
+}
+.github-repo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -4px 0 14px;
+}
 .slot-path-row {
   display: flex;
   align-items: flex-end;

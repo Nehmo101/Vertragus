@@ -18,7 +18,7 @@ import type {
   OrchestratorSnapshot,
   SubagentDescriptor
 } from '@shared/orchestrator'
-import type { AgentSlot, WorkspaceProfile } from '@shared/profile'
+import { profileDefaultBaseBranch, type AgentSlot, type WorkspaceProfile } from '@shared/profile'
 import { agentManager } from '@main/agents/AgentManager'
 import {
   getProfile,
@@ -493,7 +493,8 @@ export class OrchestratorEngine extends EventEmitter {
       config: profile.autoPr,
       goalId: this.goal?.id ?? planId ?? 'goal',
       goalTitle: this.goal?.title ?? 'Orca-Strator Aufgabe',
-      changes
+      changes,
+      profileDefaultBranch: profileDefaultBaseBranch(profile)
     })
     const changedCommits = new Set(changes.map((change) => change.commit))
     for (const task of this.tasks.values()) {
