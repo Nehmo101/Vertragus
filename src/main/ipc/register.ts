@@ -13,7 +13,7 @@ import type { McpServerConfig } from '@shared/mcp'
 import type { GithubRepoBindRequest } from '@shared/ipc'
 import { checkAllProviders } from '@main/providers/health'
 import { listModels } from '@main/providers/models'
-import { gitInfo } from '@main/integrations/git'
+import { gitInfo, switchBranch } from '@main/integrations/git'
 import { listGithubProjects } from '@main/integrations/github'
 import {
   checkForMainUpdate,
@@ -189,6 +189,9 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.mcpSave, (_e, servers: McpServerConfig[]) => saveMcpServers(servers))
 
   // ---- git ----
+  ipcMain.handle(IPC.gitSwitchBranch, (_e, dir: string, branch: string) =>
+    switchBranch(dir, branch)
+  )
   ipcMain.handle(IPC.gitInfo, (_e, dir: string) => gitInfo(dir))
   ipcMain.handle(IPC.githubProjects, (_e, dir: string, owner?: string) =>
     listGithubProjects(dir, owner)

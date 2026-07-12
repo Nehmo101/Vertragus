@@ -37,6 +37,7 @@ const orca: OrcaApi = {
   listMcpServers: () => ipcRenderer.invoke(IPC.mcpList),
   saveMcpServers: (servers) => ipcRenderer.invoke(IPC.mcpSave, servers),
 
+  gitSwitchBranch: (dir, branch) => ipcRenderer.invoke(IPC.gitSwitchBranch, dir, branch),
   gitInfo: (dir) => ipcRenderer.invoke(IPC.gitInfo, dir),
   githubProjects: (dir, owner) => ipcRenderer.invoke(IPC.githubProjects, dir, owner),
   githubAuthStatus: () => ipcRenderer.invoke(IPC.githubAuthStatus),

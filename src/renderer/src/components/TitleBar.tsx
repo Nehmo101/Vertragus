@@ -30,6 +30,7 @@ export default function TitleBar(): JSX.Element {
   const [menuOpen, setMenuOpen] = useState(false)
   const [confirmKill, setConfirmKill] = useState(false)
   const [update, setUpdate] = useState<UpdateState | null>(null)
+  const [branchSwitching, setBranchSwitching] = useState(false)
 
   const profile = activeProfile(store)
   const running = store.agents.filter((a) => a.status === 'running').length
@@ -130,13 +131,32 @@ export default function TitleBar(): JSX.Element {
             {profile?.workingDir ? displayDir : 'kein Arbeitsverzeichnis'}
           </span>
           {store.gitInfo?.isRepo && (
-            <span
-              className={`branch-pill ${store.gitInfo.dirty ? 'dirty' : ''}`}
+            <label
+              className={`branch-pill branch-picker no-drag ${store.gitInfo.dirty ? 'dirty' : ''}`}
               title={gitTitle}
             >
-              Branch: {store.gitInfo.branch ?? 'Git'}
+              <span>Branch:</span>
+              <select
+                aria-label={'Aktuellen Git-Branch ausw\u00e4hlen'}
+                value={store.gitInfo.branch ?? ''}
+                disabled={branchSwitching || !store.gitInfo.branches?.length}
+                onChange={(event) => {
+                  const branch = event.target.value
+                  if (!branch || branch === store.gitInfo?.branch) return
+                  setBranchSwitching(true)
+                  void store.switchGitBranch(branch).finally(() => setBranchSwitching(false))
+                }}
+              >
+                {store.gitInfo.branch && !store.gitInfo.branches?.includes(store.gitInfo.branch) && (
+                  <option value={store.gitInfo.branch}>{store.gitInfo.branch}</option>
+                )}
+                {store.gitInfo.branches?.map((branch) => (
+                  <option key={branch} value={branch}>{branch}</option>
+                ))}
+              </select>
+              {branchSwitching && <span className="branch-spinner" aria-hidden="true">{'\u21bb'}</span>}
               {store.gitInfo.dirty && <span className="dirty-mark">● dirty</span>}
-            </span>
+            </label>
           )}
         </div>
 

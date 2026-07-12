@@ -49,6 +49,7 @@ export const IPC = {
   profileSetActive: 'profiles:setActive',
   mcpList: 'mcp:list',
   mcpSave: 'mcp:save',
+  gitSwitchBranch: 'git:switchBranch',
   gitInfo: 'git:info',
   githubProjects: 'github:projects',
   githubAuthStatus: 'github:authStatus',
@@ -131,6 +132,7 @@ export interface UpdateState {
 export interface GitInfo {
   isRepo: boolean
   root?: string
+  branches?: string[]
   branch?: string
   head?: string
   remote?: string
@@ -260,6 +262,7 @@ export interface OrcaApi {
   saveMcpServers(servers: McpServerConfig[]): Promise<McpServerConfig[]>
 
   gitInfo(dir: string): Promise<GitInfo>
+  gitSwitchBranch(dir: string, branch: string): Promise<GitInfo>
   /** List GitHub Projects boards for the explicit owner or the workspace origin owner. */
   githubProjects(dir: string, owner?: string): Promise<GithubProjectsResult>
   githubAuthStatus(): Promise<GithubAuthStatus>

@@ -59,6 +59,7 @@ interface AppState {
   githubTerminalLogin(): Promise<void>
   loginProvider(id: ProviderId): Promise<void>
   refreshGit(): Promise<void>
+  switchGitBranch(branch: string): Promise<boolean>
   selectProfile(id: string): Promise<boolean>
   setProviderLimit(provider: AgentProviderId, value: number): void
   toggleYolo(): void
@@ -255,6 +256,23 @@ export const useAppStore = create<AppState>((set, get) => ({
     const dir = profile ? profileRepoLocalPath(profile) : ''
     const gitInfo = dir ? await window.orca.gitInfo(dir) : { isRepo: false }
     set({ gitInfo })
+  },
+
+  async switchGitBranch(branch) {
+    const profile = activeProfile(get())
+    const dir = profile ? profileRepoLocalPath(profile) : ''
+    if (!dir) return false
+
+    try {
+      const gitInfo = await window.orca.gitSwitchBranch(dir, branch)
+      set({ gitInfo })
+      get().showToast(`Branch gewechselt: ${gitInfo.branch ?? branch}`)
+      return true
+    } catch (error) {
+      get().showToast(`Branch konnte nicht gewechselt werden: ${errorMessage(error)}`)
+      await get().refreshGit().catch(() => undefined)
+      return false
+    }
   },
 
   async selectProfile(id) {
