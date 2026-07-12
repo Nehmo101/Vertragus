@@ -33,6 +33,7 @@ import { NameAllocator } from '@main/agents/names'
 import { detectLimit, limitKindLabel } from '@main/agents/limitSignals'
 import { buildBriefing } from '@main/agents/handoff'
 import { providerCapacity } from '@main/agents/providerCapacity'
+import { seedWithReadyHandshake } from '@main/agents/interactiveReady'
 
 const BUFFER_LIMIT = 200_000 // chars of scrollback kept per agent
 
@@ -295,13 +296,11 @@ export class AgentManager extends EventEmitter {
     src.info.handoffTo = { id: target.id, name: target.name, at }
     target.handoffFrom = { id: src.info.id, name: src.info.name, at }
 
-    // Seed the new interactive agent once its CLI has booted (same delay/pattern
-    // as Engine.openSubwindow). The prompt only points at the briefing file, so
-    // large scrollbacks never have to be typed into the PTY.
+    // Seed the new interactive agent once its CLI has booted.
     const seed =
       `Du übernimmst die Arbeit von ${src.info.name}. Lies die Übergabe-Notiz unter "${briefingPath}" ` +
       `und mach genau dort weiter, wo ${src.info.name} aufgehört hat. Bestätige zuerst kurz dein Verständnis der Aufgabe.`
-    setTimeout(() => this.write(target.id, seed + '\r'), 1500)
+    void this.seedInteractive(target.id, seed)
 
     this.emitEvent(`↪ Übergabe: ${src.info.name} → ${target.name}`, 'dispatch')
     this.changed()
@@ -503,6 +502,24 @@ export class AgentManager extends EventEmitter {
 
   write(id: string, data: string): void {
     this.agents.get(id)?.pty?.write(data)
+  }
+
+  /**
+   * Feed a prompt to an interactive agent after its CLI finishes booting.
+   * Uses output-idle detection plus bounded seed retries instead of a fixed delay.
+   */
+  async seedInteractive(id: string, prompt: string): Promise<void> {
+    await seedWithReadyHandshake(
+      (text) => this.write(id, text),
+      () => {
+        const managed = this.agents.get(id)
+        return {
+          buffer: managed?.buffer ?? '',
+          alive: managed ? this.isAlive(managed) : false
+        }
+      },
+      prompt
+    )
   }
 
   resize(id: string, cols: number, rows: number): void {

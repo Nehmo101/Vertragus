@@ -21,6 +21,7 @@ const orca: OrcaApi = {
     onState: (cb) => subscribe<UpdateState>(IPC.evAppUpdateState, cb)
   },
   checkProviders: () => ipcRenderer.invoke(IPC.providersHealth),
+  getProviderCapacity: () => ipcRenderer.invoke(IPC.providersCapacity),
   loginProvider: (id) => ipcRenderer.invoke(IPC.providerLogin, id),
   onProvidersChanged: (cb) => subscribe<ProviderHealth[]>(IPC.evProvidersHealth, cb),
   listModels: () => ipcRenderer.invoke(IPC.providersModels),

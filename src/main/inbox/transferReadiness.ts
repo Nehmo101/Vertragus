@@ -4,6 +4,10 @@
 import type { ProfileCloneStatus, WorkspaceProfile } from '@shared/profile'
 import { profileRepoLocalPath } from '@shared/profile'
 import type { IdeaTransferAction } from '@shared/inboxTransfer'
+import { assessProfileOrchestrator } from '@shared/inboxTransfer'
+import type { GithubAuthStatus } from '@shared/ipc'
+
+export { assessProfileOrchestrator }
 
 export interface RepoReadinessReady {
   ready: true
@@ -23,22 +27,41 @@ export interface RepoReadinessBlocked {
 
 export type RepoReadiness = RepoReadinessReady | RepoReadinessBlocked
 
-export function assessProfileOrchestrator(
-  profile: WorkspaceProfile
-): { ok: true } | { ok: false; message: string } {
-  if (!profile.orchestrator) {
-    return {
-      ok: false,
-      message: 'Profil hat keinen Orchestrator — Übergabe benötigt Planungs-Modus.'
-    }
+/** True when GitHub auth is missing or scopes are incomplete for clone/API flows. */
+export function githubNeedsAuth(status: GithubAuthStatus): boolean {
+  return !status.authenticated || status.needsReauth
+}
+
+/** Map clone/bind/git errors to a transfer action when auth is the root cause. */
+export function mapGithubErrorToTransferAction(error: unknown): IdeaTransferAction | undefined {
+  const msg = (error instanceof Error ? error.message : String(error)).toLowerCase()
+  if (
+    msg.includes('anmeldung') ||
+    msg.includes('authentication') ||
+    msg.includes('auth') ||
+    msg.includes('could not read username') ||
+    msg.includes('permission denied') ||
+    msg.includes('bad credentials') ||
+    msg.includes('support for password authentication was removed') ||
+    msg.includes('401') ||
+    msg.includes('403') ||
+    msg.includes('denied') ||
+    msg.includes('scope')
+  ) {
+    return 'needsAuth'
   }
-  if (profile.planner.mode === 'manual') {
-    return {
-      ok: false,
-      message: 'Planner-Modus ist „manuell" — execute_plan ist deaktiviert.'
-    }
+  return undefined
+}
+
+export function buildNeedsAuthReadiness(detail?: string): RepoReadinessBlocked {
+  return {
+    ready: false,
+    action: 'needsAuth',
+    message:
+      detail?.trim() ||
+      'GitHub-Anmeldung fehlt oder Scopes sind unvollständig — bitte zuerst verbinden.',
+    retryable: true
   }
-  return { ok: true }
 }
 
 /** Assess whether the profile has a usable local checkout for workspace spawn. */

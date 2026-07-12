@@ -1,9 +1,11 @@
+import { useEffect, useState } from 'react'
 import { useAppStore } from '@renderer/store/useAppStore'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import type { AgentProviderId } from '@shared/providers'
+import type { ProviderCapacitySnapshot } from '@shared/ipc'
 
-/** Agent providers surfaced in the Limits panel (integrations excluded). */
-const PANEL_PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'cursor', 'ollama']
+/** All agent providers surfaced in the Limits panel (integrations excluded). */
+const PANEL_PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'cursor', 'copilot', 'ollama']
 
 function fmtTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
@@ -14,7 +16,7 @@ function fmtTokens(n: number): string {
 
 interface ProviderUsage {
   id: AgentProviderId
-  running: number
+  active: number
   waiting: number
   tokens: number
   cost: number
@@ -25,26 +27,50 @@ interface ProviderUsage {
  * Live per-provider budget view — "wie viele Agents laufen gerade je Provider,
  * und wie viel verbrauchen sie". Always visible on the right so the user can see
  * their limits at a glance while a mixed team (Claude + Codex + Cursor …) runs.
- * The per-provider limit is an editable concurrency budget persisted to config.
+ * Active/waiting counts come from the main-process capacity gate; token/cost from agents.
  */
 export default function LimitsPanel(): JSX.Element {
   const agents = useAppStore((s) => s.agents)
   const limits = useAppStore((s) => s.providerLimits)
   const setProviderLimit = useAppStore((s) => s.setProviderLimit)
+  const [capacity, setCapacity] = useState<Record<AgentProviderId, ProviderCapacitySnapshot> | null>(
+    null
+  )
+
+  useEffect(() => {
+    let cancelled = false
+    const refresh = (): void => {
+      void window.orca.getProviderCapacity().then((stats) => {
+        if (!cancelled) setCapacity(stats)
+      })
+    }
+    refresh()
+    return () => {
+      cancelled = true
+    }
+  }, [agents, limits])
 
   const rows: ProviderUsage[] = PANEL_PROVIDERS.map((id) => {
     const list = agents.filter((a) => a.provider === id)
-    const running = list.filter((a) => a.status === 'running').length
-    const waiting = list.filter((a) => a.status === 'waiting').length
+    const gate = capacity?.[id]
+    const active = gate?.active ?? list.filter((a) => a.status === 'running' || a.status === 'waiting').length
+    const waiting = gate?.waiting ?? 0
     const tokens = list.reduce(
       (n, a) => n + (a.usage?.tokensIn ?? 0) + (a.usage?.tokensOut ?? 0),
       0
     )
     const cost = list.reduce((n, a) => n + (a.usage?.costUsd ?? 0), 0)
-    return { id, running, waiting, tokens, cost, limit: limits[id] ?? 0 }
+    return {
+      id,
+      active,
+      waiting,
+      tokens,
+      cost,
+      limit: gate?.limit ?? limits[id] ?? 0
+    }
   })
 
-  const totalActive = rows.reduce((n, r) => n + r.running + r.waiting, 0)
+  const totalActive = rows.reduce((n, r) => n + r.active, 0)
   const totalCost = rows.reduce((n, r) => n + r.cost, 0)
 
   return (
@@ -58,10 +84,8 @@ export default function LimitsPanel(): JSX.Element {
       <div className="limits-list">
         {rows.map((r) => {
           const theme = PROVIDER_THEME[r.id]
-          const pct = r.limit > 0 ? Math.min(100, Math.round((r.running / r.limit) * 100)) : 0
-          const over = r.limit > 0 && r.running >= r.limit
-          const countLabel =
-            r.waiting > 0 ? `${r.running}+${r.waiting}` : String(r.running)
+          const pct = r.limit > 0 ? Math.min(100, Math.round((r.active / r.limit) * 100)) : 0
+          const over = r.limit > 0 && r.active >= r.limit
           return (
             <div className={`limit-row ${over ? 'over' : ''}`} key={r.id}>
               <span className="chip sz-22" style={{ background: theme.bg, color: theme.fg }}>
@@ -96,8 +120,12 @@ export default function LimitsPanel(): JSX.Element {
                 >
                   −
                 </button>
-                <span className={`limit-count-val ${over ? 'over' : ''}`} title="aktiv / wartend / Limit">
-                  {countLabel}/{r.limit}
+                <span
+                  className={`limit-count-val ${over ? 'over' : ''}`}
+                  title={r.waiting > 0 ? `${r.waiting} wartend · aktiv / Limit` : 'aktiv / Limit'}
+                >
+                  {r.active}/{r.limit}
+                  {r.waiting > 0 ? ` (+${r.waiting})` : ''}
                 </span>
                 <button
                   type="button"

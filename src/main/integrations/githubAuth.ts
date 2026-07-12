@@ -312,7 +312,10 @@ export async function githubAuthStatus(): Promise<GithubAuthStatus> {
   })
 }
 
-export async function githubAuthLogin(): Promise<GithubAuthStatus> {
+export async function githubAuthLogin(options?: {
+  /** Open gh login in a visible Orca PTY instead of a headless gh --web process. */
+  useTerminalLogin?: () => Promise<void>
+}): Promise<GithubAuthStatus> {
   const clientId = githubOAuthClientId()
   if (clientId) {
     try {
@@ -320,6 +323,15 @@ export async function githubAuthLogin(): Promise<GithubAuthStatus> {
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
       throw new Error(`GitHub-OAuth fehlgeschlagen: ${detail}`)
+    }
+  }
+  if (options?.useTerminalLogin) {
+    await options.useTerminalLogin()
+    const status = await githubAuthStatus()
+    return {
+      ...status,
+      detail:
+        'GitHub-Login im Orca-Terminal geöffnet — folge den Anweisungen der gh CLI im sichtbaren Fenster.'
     }
   }
   try {

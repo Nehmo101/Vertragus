@@ -526,8 +526,7 @@ export class OrchestratorEngine extends EventEmitter {
     })
     createPaneWindow(info.id)
     if (prompt) {
-      // Give the interactive CLI a moment to boot before feeding the prompt.
-      setTimeout(() => agentManager.write(info.id, prompt + '\r'), 1500)
+      void agentManager.seedInteractive(info.id, prompt)
     }
     return info.id
   }

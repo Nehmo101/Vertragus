@@ -76,6 +76,14 @@ class ProviderCapacityGate {
     const sem = this.gate(provider)
     return { active: sem.inUse, waiting: sem.waiting, limit: sem.limitValue }
   }
+
+  statsAll(): Record<AgentProviderId, ProviderCapacityStats> {
+    const out = {} as Record<AgentProviderId, ProviderCapacityStats>
+    for (const provider of AGENT_PROVIDERS) {
+      out[provider] = this.stats(provider)
+    }
+    return out
+  }
 }
 
 export const providerCapacity = new ProviderCapacityGate()

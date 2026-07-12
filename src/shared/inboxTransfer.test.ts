@@ -3,7 +3,8 @@ import {
   buildIdeaTransferBriefing,
   buildOrchestratorSeedPrompt,
   canStartTransfer,
-  isTransferActive
+  isTransferActive,
+  isTransferBlocking
 } from './inboxTransfer'
 import { ideaSchema } from './inbox'
 
@@ -46,6 +47,12 @@ describe('inbox transfer helpers', () => {
       false
     )
     expect(canStartTransfer({ id: 't1', status: 'running', profileId: 'p1', startedAt: 1, updatedAt: 1 }).ok).toBe(
+      false
+    )
+    expect(isTransferBlocking({ id: 't1', status: 'planned', profileId: 'p1', startedAt: 1, updatedAt: 1 })).toBe(
+      true
+    )
+    expect(canStartTransfer({ id: 't1', status: 'planned', profileId: 'p1', startedAt: 1, updatedAt: 1 }).ok).toBe(
       false
     )
   })

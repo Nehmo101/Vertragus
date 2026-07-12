@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_PROFILE } from '@shared/profile'
-import { assessProfileOrchestrator, assessRepoReadiness } from '@main/inbox/transferReadiness'
+import { assessProfileOrchestrator, assessRepoReadiness, buildNeedsAuthReadiness, mapGithubErrorToTransferAction } from '@main/inbox/transferReadiness'
 
 describe('transfer repo readiness', () => {
   it('requires orchestrator on profile', () => {
@@ -70,5 +70,14 @@ describe('transfer repo readiness', () => {
     const result = assessRepoReadiness(profile)
     expect(result.ready).toBe(true)
     if (result.ready) expect(result.localPath).toBe('C:\\git\\local')
+  })
+
+  it('maps github auth errors to needsAuth action', () => {
+    expect(mapGithubErrorToTransferAction(new Error('GitHub-Anmeldung fehlt'))).toBe('needsAuth')
+    expect(mapGithubErrorToTransferAction(new Error('HTTP 401 Unauthorized'))).toBe('needsAuth')
+    expect(mapGithubErrorToTransferAction(new Error('disk full'))).toBeUndefined()
+    const blocked = buildNeedsAuthReadiness()
+    expect(blocked.action).toBe('needsAuth')
+    expect(blocked.retryable).toBe(true)
   })
 })

@@ -37,6 +37,7 @@ export const IPC = {
   appUpdateDownload: 'app:updateDownload',
   appUpdateInstall: 'app:updateInstall',
   providersHealth: 'providers:health',
+  providersCapacity: 'providers:capacity',
   providersModels: 'providers:models',
   providerLogin: 'providers:login',
   configGet: 'config:get',
@@ -214,6 +215,13 @@ export interface PickedFileGrant {
   fileName: string
 }
 
+/** Main-process provider concurrency snapshot (authoritative for Limits panel). */
+export interface ProviderCapacitySnapshot {
+  active: number
+  waiting: number
+  limit: number
+}
+
 /**
  * The API bridged onto `window.orca` in the renderer. Every method maps 1:1
  * onto an ipcMain handler (or push channel) registered in the main process.
@@ -229,6 +237,8 @@ export interface OrcaApi {
   }
   /** Probe every provider CLI/integration for availability + version. */
   checkProviders(): Promise<ProviderHealth[]>
+  /** Authoritative per-provider concurrency usage from the main process gate. */
+  getProviderCapacity(): Promise<Record<AgentProviderId, ProviderCapacitySnapshot>>
   /** Model options per agent provider (ollama live when reachable). */
   /** Open the provider's official CLI login flow in an interactive Orca terminal. */
   loginProvider(id: ProviderId): Promise<AgentInstanceInfo>

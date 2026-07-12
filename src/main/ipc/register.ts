@@ -111,6 +111,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.appUpdateDownload, () => downloadMainUpdate())
   ipcMain.handle(IPC.appUpdateInstall, () => installMainUpdate())
   ipcMain.handle(IPC.providersHealth, () => checkAllProviders())
+  ipcMain.handle(IPC.providersCapacity, () => providerCapacity.statsAll())
   ipcMain.handle(IPC.providerLogin, async (_e, id: ProviderId) => {
     const info = await agentManager.loginProvider(id)
     createPaneWindow(info.id)
@@ -193,7 +194,12 @@ export function registerIpcHandlers(): void {
   )
   ipcMain.handle(IPC.githubAuthStatus, () => githubAuthStatus())
   ipcMain.handle(IPC.githubAuthLogin, async () => {
-    const status = await githubAuthLogin()
+    const status = await githubAuthLogin({
+      useTerminalLogin: async () => {
+        const info = await agentManager.loginProvider('github')
+        createPaneWindow(info.id)
+      }
+    })
     void checkAllProviders()
       .then((health) => broadcast(IPC.evProvidersHealth, health))
       .catch((error) => console.warn('[GitHub] refresh after login failed', error))

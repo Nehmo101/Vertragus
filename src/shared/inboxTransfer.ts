@@ -3,6 +3,7 @@
  */
 import { z } from 'zod'
 import type { Idea, IdeaArtifact } from './inbox'
+import type { WorkspaceProfile } from './profile'
 
 export const IDEA_TRANSFER_STATUSES = ['pending', 'running', 'planned', 'failed'] as const
 export type IdeaTransferStatus = (typeof IDEA_TRANSFER_STATUSES)[number]
@@ -48,7 +49,15 @@ export interface IdeaTransferResult {
   orchestratorAgentId?: string
 }
 
+/** Statuses that block a new transfer/plan attempt (idempotent guard). */
+export const BLOCKING_TRANSFER_STATUSES: IdeaTransferStatus[] = ['pending', 'running', 'planned']
+
+/** @deprecated Use BLOCKING_TRANSFER_STATUSES — planned also blocks re-planning in MVP. */
 export const ACTIVE_TRANSFER_STATUSES: IdeaTransferStatus[] = ['pending', 'running']
+
+export function isTransferBlocking(transfer: IdeaTransfer | undefined): boolean {
+  return transfer ? BLOCKING_TRANSFER_STATUSES.includes(transfer.status) : false
+}
 
 export function isTransferActive(transfer: IdeaTransfer | undefined): boolean {
   return transfer ? ACTIVE_TRANSFER_STATUSES.includes(transfer.status) : false
@@ -57,8 +66,34 @@ export function isTransferActive(transfer: IdeaTransfer | undefined): boolean {
 export function canStartTransfer(
   transfer: IdeaTransfer | undefined
 ): { ok: true } | { ok: false; reason: string } {
+  if (!transfer) return { ok: true }
+  if (transfer.status === 'planned') {
+    return {
+      ok: false,
+      reason: 'Plan wartet im Review — erneutes Planen nur nach Ablehnung oder explizitem Neustart.'
+    }
+  }
   if (isTransferActive(transfer)) {
     return { ok: false, reason: 'Für diese Idee läuft bereits eine Übergabe oder Planung.' }
+  }
+  return { ok: true }
+}
+
+/** Whether a profile can run review-gated inbox transfer planning. */
+export function assessProfileOrchestrator(
+  profile: WorkspaceProfile
+): { ok: true } | { ok: false; message: string } {
+  if (!profile.orchestrator) {
+    return {
+      ok: false,
+      message: 'Profil hat keinen Orchestrator — Übergabe benötigt Planungs-Modus.'
+    }
+  }
+  if (profile.planner.mode === 'manual') {
+    return {
+      ok: false,
+      message: 'Planner-Modus ist „manuell" — execute_plan ist deaktiviert.'
+    }
   }
   return { ok: true }
 }
