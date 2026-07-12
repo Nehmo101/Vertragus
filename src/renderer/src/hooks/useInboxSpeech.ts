@@ -46,7 +46,10 @@ export function useInboxSpeech(): UseInboxSpeechResult {
   }, [])
 
   useEffect(() => {
-    void refreshStatus()
+    const timer = window.setTimeout(() => {
+      void refreshStatus()
+    }, 0)
+    return () => window.clearTimeout(timer)
   }, [refreshStatus])
 
   const cleanupStream = useCallback((): void => {
@@ -70,7 +73,9 @@ export function useInboxSpeech(): UseInboxSpeechResult {
     })
   }, [])
 
-  stopRecordingRef.current = stopRecording
+  useEffect(() => {
+    stopRecordingRef.current = stopRecording
+  }, [stopRecording])
 
   const finishRecording = useCallback(async (): Promise<void> => {
     const durationMs = Math.max(0, Date.now() - startedAtRef.current)

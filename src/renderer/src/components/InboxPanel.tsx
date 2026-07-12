@@ -233,7 +233,10 @@ export default function InboxPanel(): JSX.Element {
   }, [selectedId])
 
   useEffect(() => {
-    void refresh()
+    const timer = window.setTimeout(() => {
+      void refresh()
+    }, 0)
+    return () => window.clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

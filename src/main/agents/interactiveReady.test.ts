@@ -28,7 +28,7 @@ describe('interactiveReady', () => {
 
   it('seeds with bounded retries after ready handshake', async () => {
     const write = vi.fn()
-    let buffer = 'interactive cli ready'
+    const buffer = 'interactive cli ready'
     await seedWithReadyHandshake(
       write,
       () => ({ buffer, alive: true }),

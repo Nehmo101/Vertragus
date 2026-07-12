@@ -34,15 +34,12 @@ export default function IdeaTransferModal({
     eligibleProfiles[0]?.id ??
     store.activeProfileId
   const [profileId, setProfileId] = useState(defaultProfileId)
+  const resolvedProfileId = eligibleProfiles.some((p) => p.id === profileId)
+    ? profileId
+    : defaultProfileId
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [lastResult, setLastResult] = useState<Idea['transfer']>()
-
-  useEffect(() => {
-    if (!eligibleProfiles.some((p) => p.id === profileId)) {
-      setProfileId(defaultProfileId)
-    }
-  }, [defaultProfileId, eligibleProfiles, profileId])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -58,7 +55,7 @@ export default function IdeaTransferModal({
     try {
       const result = await window.orca.inbox.transferToProfile({
         ideaId: idea.id,
-        profileId,
+        profileId: resolvedProfileId,
         clone,
         yoloMaster: store.yoloMaster
       })
@@ -76,7 +73,7 @@ export default function IdeaTransferModal({
         onTransferred(result.idea)
         return
       }
-      await store.selectProfile(profileId)
+      await store.selectProfile(resolvedProfileId)
       onTransferred(result.idea)
       window.location.hash = ''
       store.showToast(`Idee „${idea.title}" an Workspace übergeben — Planung läuft.`)
@@ -99,7 +96,7 @@ export default function IdeaTransferModal({
         onTransferred(result.idea)
         return
       }
-      await store.selectProfile(profileId)
+      await store.selectProfile(resolvedProfileId)
       onTransferred(result.idea)
       window.location.hash = ''
       store.showToast('Übergabe wiederholt — Workspace geöffnet.')
@@ -116,7 +113,7 @@ export default function IdeaTransferModal({
   const needsAuth = transfer?.action === 'needsAuth'
   const canRetry = transfer?.status === 'failed' && transfer.retryable !== false
   const blocking = isTransferBlocking(idea.transfer)
-  const selectedEligible = eligibleProfiles.some((p) => p.id === profileId)
+  const selectedEligible = eligibleProfiles.some((p) => p.id === resolvedProfileId)
   const noEligibleProfiles = eligibleProfiles.length === 0
 
   const githubLogin = (): void => {
@@ -157,7 +154,7 @@ export default function IdeaTransferModal({
           <label className="inbox-field">
             <span>Workspace-Profil</span>
             <select
-              value={profileId}
+              value={resolvedProfileId}
               disabled={busy || blocking || noEligibleProfiles}
               onChange={(e) => setProfileId(e.target.value)}
             >
