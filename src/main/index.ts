@@ -5,9 +5,11 @@ import { createMainWindow } from '@main/windows'
 import { agentManager } from '@main/agents/AgentManager'
 import { startMcpServer } from '@main/orchestrator/OrcaMcpServer'
 import { initializeUpdater } from '@main/updater'
+import { installEditMenu } from '@main/editMenu'
 
 app.whenReady().then(async () => {
   electronApp.setAppUserModelId('dev.nehmo.orca-strator')
+  installEditMenu()
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)

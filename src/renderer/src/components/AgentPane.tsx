@@ -45,6 +45,14 @@ function useAgentTerminal(agentId: string): React.RefObject<HTMLDivElement> {
     term.loadAddon(fit)
     term.open(host)
 
+    // Preserve Ctrl/Cmd+C as SIGINT when nothing is selected, but let xterm's
+    // copy event handler place an active terminal selection on the clipboard.
+    term.attachCustomKeyEventHandler((event) => {
+      const modifier = event.ctrlKey || event.metaKey
+      const isCopy = modifier && !event.altKey && event.key.toLowerCase() === 'c'
+      return !(event.type === 'keydown' && isCopy && term.hasSelection())
+    })
+
     let lastSeq = 0
     let ready = false
     const queue: Array<{ data: string; seq: number }> = []

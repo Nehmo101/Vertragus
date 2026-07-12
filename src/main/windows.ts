@@ -6,6 +6,7 @@ import { app, BrowserWindow, shell } from 'electron'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { is } from '@electron-toolkit/utils'
+import { installEditContextMenu } from '@main/editMenu'
 
 const BG = '#080c15'
 const WINDOW_ICON = join(__dirname, '../renderer/favicon.png')
@@ -63,6 +64,7 @@ export function createMainWindow(): BrowserWindow {
     title: 'Orca-Strator',
     webPreferences: baseWebPreferences()
   })
+  installEditContextMenu(win)
 
   win.on('ready-to-show', () => win.show())
   win.webContents.setWindowOpenHandler((details) => {
@@ -111,6 +113,7 @@ export function createPaneWindow(agentId: string): BrowserWindow {
     title: `Orca-Strator — ${agentId}`,
     webPreferences: baseWebPreferences()
   })
+  installEditContextMenu(win)
   let windows = paneWindows.get(agentId)
   if (!windows) {
     windows = new Set()
