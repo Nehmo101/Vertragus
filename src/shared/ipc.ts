@@ -8,6 +8,7 @@ import type {
   AgentBufferSnapshot,
   AgentDataChunk,
   AgentInstanceInfo,
+  HandoffRequest,
   OrcaEvent,
   SpawnAgentRequest
 } from './agents'
@@ -36,6 +37,7 @@ export const IPC = {
   agentsClean: 'agents:clean',
   agentBuffer: 'agent:buffer',
   agentPopout: 'agent:popout',
+  agentHandoff: 'agent:handoff',
   orchestratorSnapshot: 'orchestrator:snapshot',
   orchestratorReset: 'orchestrator:reset',
   orchestratorReviewPlan: 'orchestrator:reviewPlan',
@@ -106,6 +108,11 @@ export interface OrcaApi {
     /** Scrollback replay for late-mounting terminals (pop-outs, reloads). */
     buffer(id: string): Promise<AgentBufferSnapshot>
     popout(id: string): Promise<void>
+    /**
+     * Hand a source agent's live work over to a freshly spawned agent, seeded
+     * with a handoff briefing. Returns the new (taking-over) agent.
+     */
+    handoff(req: HandoffRequest): Promise<AgentInstanceInfo>
     onData(cb: (chunk: AgentDataChunk) => void): () => void
     onChanged(cb: (list: AgentInstanceInfo[]) => void): () => void
     onEvent(cb: (evt: OrcaEvent) => void): () => void
