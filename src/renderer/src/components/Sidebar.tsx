@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useAppStore, type UiPreset } from '@renderer/store/useAppStore'
+import { useAppStore } from '@renderer/store/useAppStore'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import { profileSummary, profileAgentCount } from '@renderer/components/TitleBar'
 import type { ProviderHealth, ProviderId } from '@shared/providers'
