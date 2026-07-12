@@ -4,6 +4,7 @@
  */
 import type { AgentProviderId, ProviderHealth, ProviderId } from './providers'
 import type { WorkspaceProfile } from './profile'
+import type { McpServerConfig } from './mcp'
 import type {
   AgentBufferSnapshot,
   AgentDataChunk,
@@ -30,6 +31,8 @@ export const IPC = {
   profileDelete: 'profile:delete',
   profileGetActive: 'profiles:getActive',
   profileSetActive: 'profiles:setActive',
+  mcpList: 'mcp:list',
+  mcpSave: 'mcp:save',
   gitInfo: 'git:info',
   githubProjects: 'github:projects',
   dialogPickFolder: 'dialog:pickFolder',
@@ -139,6 +142,11 @@ export interface OrcaApi {
   deleteProfile(id: string): Promise<WorkspaceProfile[]>
   getActiveProfileId(): Promise<string>
   setActiveProfileId(id: string): Promise<void>
+
+  /** External MCP servers attached to the launched agents. */
+  listMcpServers(): Promise<McpServerConfig[]>
+  /** Validate + persist the full MCP server list; returns the stored result. */
+  saveMcpServers(servers: McpServerConfig[]): Promise<McpServerConfig[]>
 
   gitInfo(dir: string): Promise<GitInfo>
   /** List GitHub Projects boards for the explicit owner or the workspace origin owner. */

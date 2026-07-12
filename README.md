@@ -53,6 +53,12 @@ safe Auto-PR policies, and the **Cozy Organic** UI in light and dark mode. See t
   prompts (`--dangerously-skip-permissions` / `--dangerously-bypass-approvals-and-sandbox`
   / `--yolo`), with a red warning badge, a global kill-switch, and git-worktree
   isolation.
+- **External MCP servers** — connect your own Model-Context-Protocol servers
+  (filesystem, web search, database, …) once in Orca; they are attached to every
+  launched agent — the orchestrator **and** each individual subagent — so all of
+  them can see and use those tools directly. stdio, HTTP and SSE transports, a
+  per-server scope (all / orchestrator / subagents) and an enable switch; wired
+  for the Claude and Codex CLIs.
 - **Provider connections** — shows real account state and opens the official
   Claude, Codex, Cursor, Ollama, GitHub or Cloudflare CLI login in a visible
   terminal; Orca never receives or stores passwords, API keys or tokens.

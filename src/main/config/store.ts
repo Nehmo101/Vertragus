@@ -4,6 +4,7 @@
  */
 import Store from 'electron-store'
 import { DEFAULT_PROFILE, workspaceProfileSchema, type WorkspaceProfile } from '@shared/profile'
+import { mcpServerSchema, mcpServersSchema, type McpServerConfig } from '@shared/mcp'
 
 interface OrcaConfigShape {
   profiles: WorkspaceProfile[]
@@ -68,4 +69,27 @@ export function getActiveProfileId(): string {
 
 export function setActiveProfileId(id: string): void {
   store.set('activeProfileId', id)
+}
+
+/**
+ * User-configured external MCP servers (persisted under the `mcpServers`
+ * settings key). Invalid entries are dropped so a corrupt store never breaks
+ * agent launches.
+ */
+export function listMcpServers(): McpServerConfig[] {
+  const raw = getSetting<unknown[]>('mcpServers')
+  if (!Array.isArray(raw)) return []
+  const servers: McpServerConfig[] = []
+  for (const entry of raw) {
+    const parsed = mcpServerSchema.safeParse(entry)
+    if (parsed.success) servers.push(parsed.data)
+  }
+  return servers
+}
+
+/** Validate + persist the full MCP server list, returning the stored result. */
+export function saveMcpServers(servers: McpServerConfig[]): McpServerConfig[] {
+  const parsed = mcpServersSchema.parse(servers)
+  setSetting('mcpServers', parsed)
+  return parsed
 }

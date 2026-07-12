@@ -5,6 +5,7 @@ import Sidebar from '@renderer/components/Sidebar'
 import Workspace from '@renderer/components/Workspace'
 import OrchestratorPanel from '@renderer/components/OrchestratorPanel'
 import ProfileEditor from '@renderer/components/ProfileEditor'
+import McpServerEditor from '@renderer/components/McpServerEditor'
 import HandoffModal from '@renderer/components/HandoffModal'
 import PaneWindow from '@renderer/components/PaneWindow'
 
@@ -61,6 +62,8 @@ export default function App(): JSX.Element {
       </div>
 
       {store.editorProfile && <ProfileEditor key={store.editorProfile.id} />}
+
+      {store.mcpEditorOpen && <McpServerEditor />}
 
       {store.handoffSource && <HandoffModal key={store.handoffSource.id} />}
 
