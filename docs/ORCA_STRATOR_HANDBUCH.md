@@ -252,17 +252,22 @@ corepack pnpm build:linux
 ```
 
 Windows erzeugt einen NSIS-Installer, Linux eine AppImage- und eine
-Debian-Paketvariante unter `release/<version>/`.
+Debian-Paketvariante unter `release/<version>/`. Installierte Builds prüfen den
+`main`-Kanal beim Start und danach regelmäßig. Nur wenn dort ein neuerer Build
+vorliegt, erscheint in der Titelleiste der Self-Update-Button. Download und
+Installation bleiben eine bewusste Benutzeraktion; laufende Agents müssen vor
+dem Neustart gestoppt werden.
 
 ## 10. Release-Ablauf
 
-1. Version und Changelog aktualisieren.
-2. Typecheck, Tests, Lint, MCP-Selbsttest und Build ausführen.
-3. Commit und Release-Tag erstellen.
-4. Tag `v*` pushen.
-5. GitHub Actions baut Windows und Linux und veröffentlicht bei Tag-Runs eine
-   GitHub Release.
-6. Artefakte auf Start, Provider-Erkennung und Deinstallation prüfen.
+1. Änderungen über `DEV` prüfen und nach `main` übernehmen.
+2. GitHub Actions baut bei jedem Push auf `main` Windows- und Linux-Installer.
+3. Der Build erhält eine fortlaufende `main`-Kanal-Version und wird als
+   GitHub-Prerelease mit Update-Metadaten veröffentlicht.
+4. Installierte Clients erkennen den neuen Build und bieten das Self-Update an.
+5. Für feste Meilensteine zusätzlich Version und Changelog aktualisieren, Tag
+   `v*` erstellen und pushen; Tag-Runs veröffentlichen weiterhin normale Releases.
+6. Artefakte auf Update, Start, Provider-Erkennung und Deinstallation prüfen.
 
 Beispiel erst nach grünen Prüfungen:
 

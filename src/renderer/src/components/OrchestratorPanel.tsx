@@ -19,11 +19,11 @@ function fmtTime(ts: number): string {
 }
 
 const TASK_PILL: Record<TaskStatus, { bg: string; fg: string; dot: string; label: string }> = {
-  queued: { bg: 'rgba(255,255,255,0.06)', fg: '#8b98ad', dot: '#5b697f', label: 'geplant' },
-  running: { bg: 'rgba(63,209,122,0.14)', fg: '#5fe39a', dot: '#3fd17a', label: 'läuft' },
-  success: { bg: 'rgba(63,209,122,0.14)', fg: '#5fe39a', dot: '#3fd17a', label: 'fertig' },
-  error: { bg: 'rgba(242,85,90,0.15)', fg: '#ff7377', dot: '#f2555a', label: 'Fehler' },
-  stopped: { bg: 'rgba(91,105,127,0.16)', fg: '#8a96a8', dot: '#5b697f', label: 'gestoppt' }
+  queued: { bg: 'var(--stop-soft)', fg: 'var(--stop-text)', dot: 'var(--stop)', label: 'geplant' },
+  running: { bg: 'color-mix(in srgb, var(--run) 18%, transparent)', fg: 'var(--run-text)', dot: 'var(--run)', label: 'läuft' },
+  success: { bg: 'color-mix(in srgb, var(--run) 18%, transparent)', fg: 'var(--run-text)', dot: 'var(--run)', label: 'fertig' },
+  error: { bg: 'var(--err-soft)', fg: 'var(--err-text)', dot: 'var(--err)', label: 'Fehler' },
+  stopped: { bg: 'var(--stop-soft)', fg: 'var(--stop-text)', dot: 'var(--stop)', label: 'gestoppt' }
 }
 
 function TaskCard({ task }: { task: OrcaTask }): JSX.Element {
@@ -52,7 +52,7 @@ function TaskCard({ task }: { task: OrcaTask }): JSX.Element {
           <span className="assignee">
             <span
               className="assignee-dot"
-              style={{ background: chip?.fg ?? '#5b697f' }}
+              style={{ background: chip?.fg ?? 'var(--stop)' }}
             />
             {task.agentName ? (
               <>

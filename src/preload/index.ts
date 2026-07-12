@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import { IPC, type OrcaApi } from '@shared/ipc'
+import { IPC, type OrcaApi, type UpdateState } from '@shared/ipc'
 import type { AgentDataChunk, AgentInstanceInfo, OrcaEvent } from '@shared/agents'
 import type { OrchestratorSnapshot } from '@shared/orchestrator'
 import type { ProviderHealth } from '@shared/providers'
@@ -13,6 +13,13 @@ function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
 
 const orca: OrcaApi = {
   getAppInfo: () => ipcRenderer.invoke(IPC.appInfo),
+  updates: {
+    state: () => ipcRenderer.invoke(IPC.appUpdateState),
+    check: () => ipcRenderer.invoke(IPC.appUpdateCheck),
+    download: () => ipcRenderer.invoke(IPC.appUpdateDownload),
+    install: () => ipcRenderer.invoke(IPC.appUpdateInstall),
+    onState: (cb) => subscribe<UpdateState>(IPC.evAppUpdateState, cb)
+  },
   checkProviders: () => ipcRenderer.invoke(IPC.providersHealth),
   loginProvider: (id) => ipcRenderer.invoke(IPC.providerLogin, id),
   onProvidersChanged: (cb) => subscribe<ProviderHealth[]>(IPC.evProvidersHealth, cb),

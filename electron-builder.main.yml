@@ -1,0 +1,7 @@
+extends: ./electron-builder.yml
+publish:
+  provider: github
+  owner: Nehmo101
+  repo: Orca-Strator
+  channel: main
+  releaseType: prerelease
