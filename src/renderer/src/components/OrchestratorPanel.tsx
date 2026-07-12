@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAppStore, activeProfile } from '@renderer/store/useAppStore'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
+import LoreName from '@renderer/components/LoreName'
+import LimitsPanel from '@renderer/components/LimitsPanel'
 import type { OrcaTask, TaskStatus } from '@shared/orchestrator'
 
 function useClock(): string {
@@ -17,11 +19,11 @@ function fmtTime(ts: number): string {
 }
 
 const TASK_PILL: Record<TaskStatus, { bg: string; fg: string; dot: string; label: string }> = {
-  queued: { bg: 'rgba(255,255,255,0.06)', fg: '#8b98ad', dot: '#5b697f', label: 'geplant' },
-  running: { bg: 'rgba(63,209,122,0.14)', fg: '#5fe39a', dot: '#3fd17a', label: 'läuft' },
-  success: { bg: 'rgba(63,209,122,0.14)', fg: '#5fe39a', dot: '#3fd17a', label: 'fertig' },
-  error: { bg: 'rgba(242,85,90,0.15)', fg: '#ff7377', dot: '#f2555a', label: 'Fehler' },
-  stopped: { bg: 'rgba(91,105,127,0.16)', fg: '#8a96a8', dot: '#5b697f', label: 'gestoppt' }
+  queued: { bg: 'var(--stop-soft)', fg: 'var(--stop-text)', dot: 'var(--stop)', label: 'geplant' },
+  running: { bg: 'color-mix(in srgb, var(--run) 18%, transparent)', fg: 'var(--run-text)', dot: 'var(--run)', label: 'läuft' },
+  success: { bg: 'color-mix(in srgb, var(--run) 18%, transparent)', fg: 'var(--run-text)', dot: 'var(--run)', label: 'fertig' },
+  error: { bg: 'var(--err-soft)', fg: 'var(--err-text)', dot: 'var(--err)', label: 'Fehler' },
+  stopped: { bg: 'var(--stop-soft)', fg: 'var(--stop-text)', dot: 'var(--stop)', label: 'gestoppt' }
 }
 
 function TaskCard({ task }: { task: OrcaTask }): JSX.Element {
@@ -50,9 +52,16 @@ function TaskCard({ task }: { task: OrcaTask }): JSX.Element {
           <span className="assignee">
             <span
               className="assignee-dot"
-              style={{ background: chip?.fg ?? '#5b697f' }}
+              style={{ background: chip?.fg ?? 'var(--stop)' }}
             />
-            {task.agentName ? `${task.agentName} · ${task.role}` : task.role}
+            {task.agentName ? (
+              <>
+                <LoreName name={task.agentName} className="assignee-name" />
+                {` · ${task.role}`}
+              </>
+            ) : (
+              task.role
+            )}
             {task.model ? ` · ${task.model}` : ''}
           </span>
           <span className="spacer" />
@@ -68,6 +77,16 @@ function TaskCard({ task }: { task: OrcaTask }): JSX.Element {
         {task.note && (
           <div className={`task-note ${task.status === 'error' ? 'err' : ''}`}>{task.note}</div>
         )}
+        {(task.prUrl || task.autoPrStatus) && (
+          <div className="task-pr-row">
+            <span>Auto-PR: {task.autoPrStatus ?? 'unbekannt'}</span>
+            {task.prUrl && (
+              <a href={task.prUrl} target="_blank" rel="noreferrer">
+                Pull Request oeffnen
+              </a>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -78,7 +97,7 @@ export default function OrchestratorPanel(): JSX.Element {
   const clock = useClock()
   const profile = activeProfile(store)
   const orch = store.agents.find((a) => a.kind === 'orchestrator')
-  const { goal, tasks } = store.orchestrator
+  const { goal, tasks, pendingPlan } = store.orchestrator
   const logRef = useRef<HTMLDivElement>(null)
 
   const done = tasks.filter((t) => t.status === 'success').length
@@ -92,6 +111,7 @@ export default function OrchestratorPanel(): JSX.Element {
 
   return (
     <section className="orch-panel">
+      <LimitsPanel />
       <div className="orch-head">
         <div className="orch-head-row">
           <span className="orch-diamond">◇</span>
@@ -140,6 +160,41 @@ export default function OrchestratorPanel(): JSX.Element {
           <span>Aufgaben-Zerlegung</span>
           <span className="tag">DAG</span>
         </div>
+        {pendingPlan && (
+          <div className="plan-review" role="status" aria-live="polite">
+            <div className="plan-review-head">
+              <div>
+                <strong>Plan wartet auf Freigabe</strong>
+                <span>
+                  {pendingPlan.plan.tasks.length} Aufgaben, maximal{' '}
+                  {pendingPlan.plan.maxParallel} parallel
+                </span>
+              </div>
+              <code>{pendingPlan.planId}</code>
+            </div>
+            <ol>
+              {pendingPlan.plan.tasks.map((task) => (
+                <li key={task.id}>
+                  <strong>{task.title}</strong>
+                  <span>{task.role}</span>
+                </li>
+              ))}
+            </ol>
+            {pendingPlan.validationIssues.length > 0 && (
+              <div className="plan-review-warning">
+                Der Vorschlag wurde sicher normalisiert. Bitte vor dem Start pruefen.
+              </div>
+            )}
+            <div className="plan-review-actions">
+              <button type="button" className="btn ghost" onClick={() => void window.orca.orchestrator.reviewPlan(false)}>
+                Ablehnen
+              </button>
+              <button type="button" className="btn primary" onClick={() => void window.orca.orchestrator.reviewPlan(true)}>
+                Plan starten
+              </button>
+            </div>
+          </div>
+        )}
         <div className="dag-scroll">
           {tasks.length === 0 ? (
             <div className="dag-empty">

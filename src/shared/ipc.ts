@@ -2,12 +2,13 @@
  * IPC channel names and the typed API surface exposed to the renderer via preload.
  * Keeping these in one shared module keeps main <-> preload <-> renderer in sync.
  */
-import type { AgentProviderId, ProviderHealth } from './providers'
+import type { AgentProviderId, ProviderHealth, ProviderId } from './providers'
 import type { WorkspaceProfile } from './profile'
 import type {
   AgentBufferSnapshot,
   AgentDataChunk,
   AgentInstanceInfo,
+  HandoffRequest,
   OrcaEvent,
   SpawnAgentRequest
 } from './agents'
@@ -15,8 +16,13 @@ import type { OrchestratorSnapshot } from './orchestrator'
 
 export const IPC = {
   appInfo: 'app:info',
+  appUpdateState: 'app:updateState',
+  appUpdateCheck: 'app:updateCheck',
+  appUpdateDownload: 'app:updateDownload',
+  appUpdateInstall: 'app:updateInstall',
   providersHealth: 'providers:health',
   providersModels: 'providers:models',
+  providerLogin: 'providers:login',
   configGet: 'config:get',
   configSet: 'config:set',
   profilesList: 'profiles:list',
@@ -25,6 +31,7 @@ export const IPC = {
   profileGetActive: 'profiles:getActive',
   profileSetActive: 'profiles:setActive',
   gitInfo: 'git:info',
+  githubProjects: 'github:projects',
   dialogPickFolder: 'dialog:pickFolder',
   agentsList: 'agents:list',
   agentSpawn: 'agent:spawn',
@@ -36,12 +43,16 @@ export const IPC = {
   agentsClean: 'agents:clean',
   agentBuffer: 'agent:buffer',
   agentPopout: 'agent:popout',
+  agentHandoff: 'agent:handoff',
   orchestratorSnapshot: 'orchestrator:snapshot',
   orchestratorReset: 'orchestrator:reset',
+  orchestratorReviewPlan: 'orchestrator:reviewPlan',
   // main -> renderer push channels
   evAgentData: 'ev:agentData',
   evAgentsChanged: 'ev:agentsChanged',
   evOrcaEvent: 'ev:orcaEvent',
+  evProvidersHealth: 'ev:providersHealth',
+  evAppUpdateState: 'ev:appUpdateState',
   evOrchestrator: 'ev:orchestrator',
   // window controls (frameless title bar)
   winMinimize: 'win:minimize',
@@ -58,10 +69,45 @@ export interface AppInfo {
   platform: NodeJS.Platform
 }
 
+export type UpdateStatus =
+  | 'unsupported'
+  | 'idle'
+  | 'checking'
+  | 'up-to-date'
+  | 'available'
+  | 'downloading'
+  | 'downloaded'
+  | 'error'
+
+export interface UpdateState {
+  status: UpdateStatus
+  currentVersion: string
+  availableVersion?: string
+  progress?: number
+  message?: string
+}
+
 export interface GitInfo {
   isRepo: boolean
   root?: string
   branch?: string
+  head?: string
+  remote?: string
+  defaultBranch?: string
+  dirty?: boolean
+}
+
+export interface GithubProjectSummary {
+  owner: string
+  number: number
+  title: string
+  url: string
+  closed: boolean
+}
+
+export interface GithubProjectsResult {
+  owner: string
+  projects: GithubProjectSummary[]
 }
 
 /**
@@ -70,9 +116,20 @@ export interface GitInfo {
  */
 export interface OrcaApi {
   getAppInfo(): Promise<AppInfo>
+  updates: {
+    state(): Promise<UpdateState>
+    check(): Promise<UpdateState>
+    download(): Promise<UpdateState>
+    install(): Promise<void>
+    onState(cb: (state: UpdateState) => void): () => void
+  }
   /** Probe every provider CLI/integration for availability + version. */
   checkProviders(): Promise<ProviderHealth[]>
   /** Model options per agent provider (ollama live when reachable). */
+  /** Open the provider's official CLI login flow in an interactive Orca terminal. */
+  loginProvider(id: ProviderId): Promise<AgentInstanceInfo>
+  /** Receive refreshed connection state after an interactive login exits. */
+  onProvidersChanged(cb: (health: ProviderHealth[]) => void): () => void
   listModels(): Promise<Record<AgentProviderId, string[]>>
   getConfig<T = unknown>(key: string): Promise<T | undefined>
   setConfig(key: string, value: unknown): Promise<void>
@@ -84,6 +141,8 @@ export interface OrcaApi {
   setActiveProfileId(id: string): Promise<void>
 
   gitInfo(dir: string): Promise<GitInfo>
+  /** List GitHub Projects boards for the explicit owner or the workspace origin owner. */
+  githubProjects(dir: string, owner?: string): Promise<GithubProjectsResult>
   /** Open a native folder picker; resolves to the chosen path or null. */
   pickFolder(): Promise<string | null>
 
@@ -101,6 +160,11 @@ export interface OrcaApi {
     /** Scrollback replay for late-mounting terminals (pop-outs, reloads). */
     buffer(id: string): Promise<AgentBufferSnapshot>
     popout(id: string): Promise<void>
+    /**
+     * Hand a source agent's live work over to a freshly spawned agent, seeded
+     * with a handoff briefing. Returns the new (taking-over) agent.
+     */
+    handoff(req: HandoffRequest): Promise<AgentInstanceInfo>
     onData(cb: (chunk: AgentDataChunk) => void): () => void
     onChanged(cb: (list: AgentInstanceInfo[]) => void): () => void
     onEvent(cb: (evt: OrcaEvent) => void): () => void
@@ -110,6 +174,8 @@ export interface OrcaApi {
     snapshot(): Promise<OrchestratorSnapshot>
     /** Clear the task graph (fresh goal). */
     reset(): Promise<void>
+    /** Resolve a plan waiting in review mode. */
+    reviewPlan(approved: boolean): Promise<boolean>
     onSnapshot(cb: (snap: OrchestratorSnapshot) => void): () => void
   }
 

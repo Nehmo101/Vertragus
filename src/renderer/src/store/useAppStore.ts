@@ -2,19 +2,30 @@
  * Central renderer state (zustand), wired to the real main-process API.
  */
 import { create } from 'zustand'
-import type { AgentInstanceInfo, OrcaEvent } from '@shared/agents'
-import type { AgentProviderId, ProviderHealth } from '@shared/providers'
-import { DEFAULT_MODELS } from '@shared/providers'
+import type { AgentInstanceInfo, HandoffRequest, OrcaEvent } from '@shared/agents'
+import { LIMIT_KIND_LABELS } from '@shared/agents'
+import type { AgentProviderId, ProviderHealth, ProviderId } from '@shared/providers'
+import { DEFAULT_MODELS, DEFAULT_PROVIDER_LIMITS } from '@shared/providers'
 import type { WorkspaceProfile } from '@shared/profile'
 import type { OrchestratorSnapshot } from '@shared/orchestrator'
 import type { AppInfo, GitInfo } from '@shared/ipc'
 
 const ADD_ROLES = ['Docs / Changelog', 'Refactor / Cleanup', 'Security-Review', 'Perf / Bench']
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+export type UiTheme = 'light' | 'dark'
+export type WorkspaceLayout = 'tiles' | 'focus' | 'dag'
+export type UiDensity = 'comfortable' | 'compact'
+
 interface AppState {
   appInfo: AppInfo | null
   health: ProviderHealth[]
   models: Record<AgentProviderId, string[]>
+  /** Per-provider concurrency budgets shown live in the Limits panel. */
+  providerLimits: Record<AgentProviderId, number>
   profiles: WorkspaceProfile[]
   activeProfileId: string
   gitInfo: GitInfo | null
@@ -22,16 +33,26 @@ interface AppState {
   events: OrcaEvent[]
   orchestrator: OrchestratorSnapshot
   yoloMaster: boolean
+  theme: UiTheme
+  workspaceLayout: WorkspaceLayout
+  uiDensity: UiDensity
   toast: string | null
   /** Profile being edited in the modal; null = closed. */
   editorProfile: WorkspaceProfile | null
+  /** Source agent for the handoff modal; null = closed. */
+  handoffSource: AgentInstanceInfo | null
   addSeq: number
 
   init(): Promise<void>
   refreshHealth(): Promise<void>
+  loginProvider(id: ProviderId): Promise<void>
   refreshGit(): Promise<void>
-  selectProfile(id: string): Promise<void>
+  selectProfile(id: string): Promise<boolean>
+  setProviderLimit(provider: AgentProviderId, value: number): void
   toggleYolo(): void
+  toggleTheme(): void
+  setWorkspaceLayout(layout: WorkspaceLayout): void
+  setUiDensity(density: UiDensity): void
   showToast(msg: string): void
   startAll(): Promise<void>
   stopAll(): Promise<void>
@@ -39,6 +60,9 @@ interface AppState {
   addAgent(): Promise<void>
   killAgent(id: string): Promise<void>
   popout(id: string): Promise<void>
+  openHandoff(id: string): void
+  closeHandoff(): void
+  handoff(req: HandoffRequest): Promise<void>
   openEditor(profile: WorkspaceProfile): void
   openEditorNew(): void
   closeEditor(): void
@@ -58,6 +82,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   appInfo: null,
   health: [],
   models: DEFAULT_MODELS,
+  providerLimits: DEFAULT_PROVIDER_LIMITS,
   profiles: [],
   activeProfileId: '',
   gitInfo: null,
@@ -65,29 +90,61 @@ export const useAppStore = create<AppState>((set, get) => ({
   events: [],
   orchestrator: { goal: null, tasks: [] },
   yoloMaster: false,
+  theme: 'light',
+  workspaceLayout: 'tiles',
+  uiDensity: 'comfortable',
   toast: null,
   editorProfile: null,
+  handoffSource: null,
   addSeq: 0,
 
   async init() {
     if (initialized) return
     initialized = true
 
-    window.orca.agents.onChanged((agents) => set({ agents }))
+    window.orca.agents.onChanged((agents) => {
+      // Surface a toast the first time an agent trips a usage-limit signal.
+      const prev = get().agents
+      for (const a of agents) {
+        if (!a.limitWarning) continue
+        const before = prev.find((p) => p.id === a.id)
+        if (before?.limitWarning) continue
+        const label = LIMIT_KIND_LABELS[a.limitWarning.kind]
+        get().showToast(`⚠ ${a.name}: ${label} nahe — „⇄ Übergeben" möglich`)
+      }
+      set({ agents })
+    })
     window.orca.agents.onEvent((evt) =>
       set((s) => ({ events: [...s.events.slice(-199), evt] }))
     )
+    window.orca.onProvidersChanged((health) => set({ health }))
     window.orca.orchestrator.onSnapshot((snap) => set({ orchestrator: snap }))
 
-    const [appInfo, profiles, activeProfileId, agents, yolo, snapshot] = await Promise.all([
-      window.orca.getAppInfo(),
-      window.orca.listProfiles(),
-      window.orca.getActiveProfileId(),
-      window.orca.agents.list(),
-      window.orca.getConfig<boolean>('yoloMaster'),
-      window.orca.orchestrator.snapshot()
-    ])
-    set({ appInfo, profiles, activeProfileId, agents, yoloMaster: yolo ?? false, orchestrator: snapshot })
+    const [appInfo, profiles, activeProfileId, agents, yolo, snapshot, theme, layout, density, limits] =
+      await Promise.all([
+        window.orca.getAppInfo(),
+        window.orca.listProfiles(),
+        window.orca.getActiveProfileId(),
+        window.orca.agents.list(),
+        window.orca.getConfig<boolean>('yoloMaster'),
+        window.orca.orchestrator.snapshot(),
+        window.orca.getConfig<UiTheme>('ui.theme'),
+        window.orca.getConfig<WorkspaceLayout>('ui.workspaceLayout'),
+        window.orca.getConfig<UiDensity>('ui.density'),
+        window.orca.getConfig<Partial<Record<AgentProviderId, number>>>('providerLimits')
+      ])
+    set({
+      appInfo,
+      profiles,
+      activeProfileId,
+      agents,
+      yoloMaster: yolo ?? false,
+      orchestrator: snapshot,
+      theme: theme === 'dark' ? 'dark' : 'light',
+      workspaceLayout: layout === 'focus' || layout === 'dag' ? layout : 'tiles',
+      uiDensity: density === 'compact' ? density : 'comfortable',
+      providerLimits: { ...DEFAULT_PROVIDER_LIMITS, ...(limits ?? {}) }
+    })
 
     void get().refreshGit()
     void get().refreshHealth()
@@ -99,6 +156,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ health })
   },
 
+  async loginProvider(id) {
+    const provider = get().health.find((item) => item.id === id)
+    if (!provider?.available || !provider.canLogin) return
+    try {
+      await window.orca.loginProvider(id)
+      get().showToast(`${provider.loginLabel ?? 'Provider-Login'} im sicheren Terminal geöffnet.`)
+    } catch (error) {
+      get().showToast(`Login konnte nicht gestartet werden: ${errorMessage(error)}`)
+    }
+  },
+
   async refreshGit() {
     const profile = activeProfile(get())
     const gitInfo = profile?.workingDir
@@ -108,15 +176,52 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   async selectProfile(id) {
-    await window.orca.setActiveProfileId(id)
-    set({ activeProfileId: id })
-    void get().refreshGit()
+    if (id === get().activeProfileId) {
+      await get().refreshGit().catch((error) => {
+        get().showToast(`Git-Status nicht verfügbar: ${errorMessage(error)}`)
+      })
+      return true
+    }
+    try {
+      await window.orca.setActiveProfileId(id)
+      set({ activeProfileId: id })
+      await get().refreshGit().catch((error) => {
+        get().showToast(`Profil gewechselt, Git-Status nicht verfügbar: ${errorMessage(error)}`)
+      })
+      return true
+    } catch (error) {
+      get().showToast(`Profilwechsel nicht möglich: ${errorMessage(error)}`)
+      return false
+    }
+  },
+
+  setProviderLimit(provider, value) {
+    const clamped = Number.isFinite(value) ? Math.min(16, Math.max(1, Math.round(value))) : 1
+    const providerLimits = { ...get().providerLimits, [provider]: clamped }
+    set({ providerLimits })
+    void window.orca.setConfig('providerLimits', providerLimits)
   },
 
   toggleYolo() {
     const next = !get().yoloMaster
     set({ yoloMaster: next })
     void window.orca.setConfig('yoloMaster', next)
+  },
+
+  toggleTheme() {
+    const next = get().theme === 'light' ? 'dark' : 'light'
+    set({ theme: next })
+    void window.orca.setConfig('ui.theme', next)
+  },
+
+  setWorkspaceLayout(layout) {
+    set({ workspaceLayout: layout })
+    void window.orca.setConfig('ui.workspaceLayout', layout)
+  },
+
+  setUiDensity(density) {
+    set({ uiDensity: density })
+    void window.orca.setConfig('ui.density', density)
   },
 
   showToast(msg) {
@@ -128,9 +233,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   async startAll() {
     const s = get()
     const profile = activeProfile(s)
-    if (!profile) return
+    if (!profile) {
+      s.showToast('Kein Workspace-Profil ausgewählt.')
+      return
+    }
     s.showToast(`Workspace „${profile.name}" startet…`)
-    await window.orca.agents.spawnProfile(profile.id, s.yoloMaster)
+    try {
+      await window.orca.agents.spawnProfile(profile.id, s.yoloMaster)
+    } catch (error) {
+      get().showToast(`Workspace konnte nicht starten: ${errorMessage(error)}`)
+    }
   },
 
   async stopAll() {
@@ -147,15 +259,21 @@ export const useAppStore = create<AppState>((set, get) => ({
     const s = get()
     const profile = activeProfile(s)
     const role = ADD_ROLES[s.addSeq % ADD_ROLES.length]
-    set({ addSeq: s.addSeq + 1 })
-    await window.orca.agents.spawn({
-      provider: 'codex',
-      model: s.models.codex[0] ?? '',
-      role: `Subagent · ${role}`,
-      yolo: s.yoloMaster,
-      workingDir: profile?.workingDir
-    })
-    s.showToast(`Neuer Subagent gestartet — ${s.models.codex[0] || 'Codex-Default'}`)
+    try {
+      // Empty model = codex uses its own ~/.codex/config.toml default (safe:
+      // an explicit unsupported name 400s). The rich model list is a picker only.
+      await window.orca.agents.spawn({
+        provider: 'codex',
+        model: '',
+        role: `Subagent · ${role}`,
+        yolo: s.yoloMaster,
+        workingDir: profile?.workingDir
+      })
+      set({ addSeq: s.addSeq + 1 })
+      get().showToast('Neuer Subagent gestartet — Codex-Default')
+    } catch (error) {
+      get().showToast(`Agent konnte nicht starten: ${errorMessage(error)}`)
+    }
   },
 
   async killAgent(id) {
@@ -170,12 +288,31 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  openHandoff(id) {
+    const agent = get().agents.find((a) => a.id === id)
+    if (agent) set({ handoffSource: agent })
+  },
+
+  closeHandoff() {
+    set({ handoffSource: null })
+  },
+
+  async handoff(req) {
+    const source = get().agents.find((a) => a.id === req.sourceId)
+    try {
+      const target = await window.orca.agents.handoff(req)
+      set({ handoffSource: null })
+      get().showToast(`↪ Übergabe: ${source?.name ?? 'Agent'} → ${target.name}`)
+    } catch (error) {
+      get().showToast(`Übergabe fehlgeschlagen: ${errorMessage(error)}`)
+    }
+  },
+
   openEditor(profile) {
     set({ editorProfile: profile })
   },
 
   openEditorNew() {
-    const models = get().models
     set({
       editorProfile: {
         id: `profile-${Date.now().toString(36)}`,
@@ -184,15 +321,25 @@ export const useAppStore = create<AppState>((set, get) => ({
         orchestrator: { provider: 'claude', model: 'fable', autoOpenSubwindows: true },
         agents: [
           {
+            // Empty model = codex's own configured default (see DEFAULT_PROFILE).
             role: 'worker',
             provider: 'codex',
-            model: models.codex[0] ?? '',
+            model: '',
             count: 1,
             orchestrated: true,
             yolo: false
           }
         ],
-        yoloDefault: false
+        yoloDefault: false,
+        planner: { mode: 'review', maxParallel: 6, taskTimeoutMinutes: 30 },
+        autoPr: {
+          mode: 'off',
+          strategy: 'aggregate',
+          baseBranch: '',
+          qualityGates: ['corepack pnpm typecheck'],
+          labels: [],
+          reviewers: []
+        }
       }
     })
   },
@@ -202,9 +349,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   async saveEditor(profile) {
-    const profiles = await window.orca.saveProfile(profile)
-    set({ profiles, editorProfile: null })
-    await get().selectProfile(profile.id)
-    get().showToast(`Profil „${profile.name}" gespeichert.`)
+    try {
+      const profiles = await window.orca.saveProfile(profile)
+      set({ profiles, editorProfile: null })
+      const selected = await get().selectProfile(profile.id)
+      if (selected) get().showToast(`Profil „${profile.name}" gespeichert.`)
+    } catch (error) {
+      get().showToast(`Profil konnte nicht gespeichert werden: ${errorMessage(error)}`)
+    }
   }
 }))

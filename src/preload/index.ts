@@ -1,8 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import { IPC, type OrcaApi } from '@shared/ipc'
+import { IPC, type OrcaApi, type UpdateState } from '@shared/ipc'
 import type { AgentDataChunk, AgentInstanceInfo, OrcaEvent } from '@shared/agents'
 import type { OrchestratorSnapshot } from '@shared/orchestrator'
+import type { ProviderHealth } from '@shared/providers'
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
   const listener = (_e: Electron.IpcRendererEvent, payload: T): void => cb(payload)
@@ -12,7 +13,16 @@ function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
 
 const orca: OrcaApi = {
   getAppInfo: () => ipcRenderer.invoke(IPC.appInfo),
+  updates: {
+    state: () => ipcRenderer.invoke(IPC.appUpdateState),
+    check: () => ipcRenderer.invoke(IPC.appUpdateCheck),
+    download: () => ipcRenderer.invoke(IPC.appUpdateDownload),
+    install: () => ipcRenderer.invoke(IPC.appUpdateInstall),
+    onState: (cb) => subscribe<UpdateState>(IPC.evAppUpdateState, cb)
+  },
   checkProviders: () => ipcRenderer.invoke(IPC.providersHealth),
+  loginProvider: (id) => ipcRenderer.invoke(IPC.providerLogin, id),
+  onProvidersChanged: (cb) => subscribe<ProviderHealth[]>(IPC.evProvidersHealth, cb),
   listModels: () => ipcRenderer.invoke(IPC.providersModels),
   getConfig: (key) => ipcRenderer.invoke(IPC.configGet, key),
   setConfig: (key, value) => ipcRenderer.invoke(IPC.configSet, key, value),
@@ -24,6 +34,7 @@ const orca: OrcaApi = {
   setActiveProfileId: (id) => ipcRenderer.invoke(IPC.profileSetActive, id),
 
   gitInfo: (dir) => ipcRenderer.invoke(IPC.gitInfo, dir),
+  githubProjects: (dir, owner) => ipcRenderer.invoke(IPC.githubProjects, dir, owner),
   pickFolder: () => ipcRenderer.invoke(IPC.dialogPickFolder),
 
   agents: {
@@ -38,6 +49,7 @@ const orca: OrcaApi = {
     clean: () => ipcRenderer.invoke(IPC.agentsClean),
     buffer: (id) => ipcRenderer.invoke(IPC.agentBuffer, id),
     popout: (id) => ipcRenderer.invoke(IPC.agentPopout, id),
+    handoff: (req) => ipcRenderer.invoke(IPC.agentHandoff, req),
     onData: (cb) => subscribe<AgentDataChunk>(IPC.evAgentData, cb),
     onChanged: (cb) => subscribe<AgentInstanceInfo[]>(IPC.evAgentsChanged, cb),
     onEvent: (cb) => subscribe<OrcaEvent>(IPC.evOrcaEvent, cb)
@@ -46,6 +58,7 @@ const orca: OrcaApi = {
   orchestrator: {
     snapshot: () => ipcRenderer.invoke(IPC.orchestratorSnapshot),
     reset: () => ipcRenderer.invoke(IPC.orchestratorReset),
+    reviewPlan: (approved) => ipcRenderer.invoke(IPC.orchestratorReviewPlan, approved),
     onSnapshot: (cb) => subscribe<OrchestratorSnapshot>(IPC.evOrchestrator, cb)
   },
 
@@ -64,8 +77,8 @@ if (process.contextIsolated) {
     console.error(error)
   }
 } else {
-  // @ts-ignore (fallback when context isolation is disabled)
+  // @ts-expect-error fallback when context isolation is disabled
   window.electron = electronAPI
-  // @ts-ignore
+  // @ts-expect-error fallback when context isolation is disabled
   window.orca = orca
 }

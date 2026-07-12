@@ -13,12 +13,13 @@ export interface ProviderTheme {
 }
 
 export const PROVIDER_THEME: Record<ProviderId, ProviderTheme> = {
-  claude: { label: 'Claude', mono: 'CL', fg: '#e0a17f', bg: 'rgba(224,161,127,0.16)' },
-  codex: { label: 'Codex', mono: 'Cx', fg: '#4fd18a', bg: 'rgba(79,209,138,0.15)' },
-  cursor: { label: 'Cursor', mono: 'Cu', fg: '#c4b5fd', bg: 'rgba(196,181,253,0.15)' },
-  ollama: { label: 'Ollama', mono: 'Ol', fg: '#cbd5e1', bg: 'rgba(203,213,225,0.13)' },
-  github: { label: 'GitHub', mono: 'GH', fg: '#c9d3e0', bg: 'rgba(201,211,224,0.12)' },
-  cloudflare: { label: 'Cloudflare', mono: 'CF', fg: '#f6a94f', bg: 'rgba(246,169,79,0.15)' }
+  claude: { label: 'Claude', mono: 'CL', fg: 'var(--prov-claude)', bg: 'color-mix(in srgb, var(--prov-claude) 17%, transparent)' },
+  codex: { label: 'Codex', mono: 'Cx', fg: 'var(--prov-codex)', bg: 'color-mix(in srgb, var(--prov-codex) 17%, transparent)' },
+  cursor: { label: 'Cursor', mono: 'Cu', fg: 'var(--prov-cursor)', bg: 'color-mix(in srgb, var(--prov-cursor) 17%, transparent)' },
+  copilot: { label: 'GitHub Copilot', mono: 'Co', fg: 'var(--prov-github)', bg: 'color-mix(in srgb, var(--prov-github) 17%, transparent)' },
+  ollama: { label: 'Ollama', mono: 'Ol', fg: 'var(--prov-ollama)', bg: 'color-mix(in srgb, var(--prov-ollama) 17%, transparent)' },
+  github: { label: 'GitHub', mono: 'GH', fg: 'var(--prov-github)', bg: 'color-mix(in srgb, var(--prov-github) 17%, transparent)' },
+  cloudflare: { label: 'Cloudflare', mono: 'CF', fg: 'var(--prov-cloudflare)', bg: 'color-mix(in srgb, var(--prov-cloudflare) 17%, transparent)' }
 }
 
 export interface StatusTheme {
@@ -29,33 +30,33 @@ export interface StatusTheme {
 }
 
 export const STATUS_THEME: Record<AgentStatus, StatusTheme> = {
-  running: { dot: '#3fd17a', text: '#5fe39a', label: 'läuft', pulse: '1.9s' },
-  waiting: { dot: '#e9b949', text: '#f2c85a', label: 'wartet', pulse: '1.3s' },
-  error: { dot: '#f2555a', text: '#ff7377', label: 'Fehler', pulse: '1.9s' },
-  stopped: { dot: '#5b697f', text: '#7a869a', label: 'gestoppt', pulse: null }
+  running: { dot: 'var(--run)', text: 'var(--run-text)', label: 'läuft', pulse: '1.9s' },
+  waiting: { dot: 'var(--wait)', text: 'var(--wait-text)', label: 'wartet', pulse: '1.3s' },
+  error: { dot: 'var(--err)', text: 'var(--err-text)', label: 'Fehler', pulse: '1.9s' },
+  stopped: { dot: 'var(--stop)', text: 'var(--stop-text)', label: 'gestoppt', pulse: null }
 }
 
 /** xterm.js theme matching the terminal design tokens. */
 export const XTERM_THEME = {
-  background: '#070b12',
-  foreground: '#c7d2e0',
-  cursor: '#2dd4bf',
-  cursorAccent: '#04121a',
-  selectionBackground: 'rgba(45,212,191,0.30)',
-  black: '#0b1120',
-  red: '#f2555a',
-  green: '#3fd17a',
-  yellow: '#e9b949',
-  blue: '#4f9cf2',
-  magenta: '#c4b5fd',
-  cyan: '#22d3ee',
-  white: '#c7d2e0',
-  brightBlack: '#5b697f',
-  brightRed: '#ff7377',
-  brightGreen: '#5fe39a',
-  brightYellow: '#f2c85a',
-  brightBlue: '#7fb5ff',
-  brightMagenta: '#d9ceff',
-  brightCyan: '#7fdfff',
-  brightWhite: '#e6edf6'
+  background: '#22190f',
+  foreground: '#ece0cb',
+  cursor: '#f0a86a',
+  cursorAccent: '#22190f',
+  selectionBackground: 'rgba(240,168,106,0.28)',
+  black: '#140f0a',
+  red: '#d9735c',
+  green: '#a9c483',
+  yellow: '#e6b45f',
+  blue: '#f0a86a',
+  magenta: '#e79a58',
+  cyan: '#a9c483',
+  white: '#ece0cb',
+  brightBlack: '#93856b',
+  brightRed: '#f0a08c',
+  brightGreen: '#b6d38f',
+  brightYellow: '#f0c885',
+  brightBlue: '#ffca9f',
+  brightMagenta: '#f0a86a',
+  brightCyan: '#cbdbb1',
+  brightWhite: '#f3e8d5'
 }

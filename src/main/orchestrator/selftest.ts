@@ -13,6 +13,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { agentManager } from '@main/agents/AgentManager'
 import { orchestratorEngine } from '@main/orchestrator/Engine'
 import { getMcpHandle } from '@main/orchestrator/mcpHandle'
+import { getOrchestratorAdapter } from '@main/orchestrator/providerAdapters'
 import { Semaphore } from '@main/orchestrator/semaphore'
 import {
   saveProfile,
@@ -21,6 +22,7 @@ import {
   setActiveProfileId
 } from '@main/config/store'
 import type { AgentInstanceInfo } from '@shared/agents'
+import { DEFAULT_PROFILE } from '@shared/profile'
 
 function log(ok: boolean, msg: string): boolean {
   console.log(`[SELFTEST] ${ok ? 'PASS' : 'FAIL'} — ${msg}`)
@@ -35,8 +37,32 @@ export async function runSelfTest(): Promise<void> {
 
   try {
     const handle = getMcpHandle()
-    check(Boolean(handle), `MCP server running at ${handle?.url}`)
+    check(Boolean(handle), `MCP server running at ${handle ? new URL(handle.url).origin + '/mcp' : undefined}`)
     if (!handle) throw new Error('no handle')
+    const unauthenticatedUrl = new URL(handle.url)
+    unauthenticatedUrl.searchParams.delete('token')
+    const unauthenticatedResponse = await fetch(unauthenticatedUrl)
+    check(unauthenticatedResponse.status === 401, 'MCP rejects requests without the session token')
+
+    const codexAdapter = getOrchestratorAdapter('codex')
+    const codexArgs = codexAdapter.buildArgs({
+      name: 'Gandalf',
+      handle,
+      configDir: app.getPath('userData'),
+      systemPrompt: 'Orchestrate this session.'
+    })
+    check(
+      codexAdapter.capability.supported &&
+        codexAdapter.capability.transientConfig &&
+        codexArgs.some((arg) => arg.startsWith('developer_instructions=')) &&
+        codexArgs.some((arg) => arg.startsWith('mcp_servers.orca.url=')) &&
+        codexArgs.some((arg) => arg.startsWith('mcp_servers.orca.enabled_tools=')),
+      'Codex adapter uses transient developer instructions and MCP overrides'
+    )
+    check(
+      getOrchestratorAdapter('cursor').capability.supported === false,
+      'unsupported providers fail closed instead of pretending to orchestrate'
+    )
 
     // Semaphore: limit 2, 4 acquires -> 2 run, 2 queue; releases let them through.
     {
@@ -93,10 +119,11 @@ export async function runSelfTest(): Promise<void> {
     const tools = await client.listTools()
     const names = tools.tools.map((t) => t.name).sort()
     check(
-      names.join(',') === 'dispatch_batch,dispatch_subagent,list_subagents,open_subwindow,set_goal',
+      names.join(',') === 'dispatch_batch,dispatch_subagent,execute_plan,list_subagents,open_subwindow,set_goal',
       `tools/list returned: ${names.join(', ')}`
     )
 
+    orchestratorEngine.reset()
     const goalRes = (await client.callTool({
       name: 'set_goal',
       arguments: { title: 'Selbsttest-Ziel' }
@@ -142,6 +169,7 @@ export async function runSelfTest(): Promise<void> {
     const origActive = getActiveProfileId()
     const testId = 'selftest-multi'
     saveProfile({
+      ...DEFAULT_PROFILE,
       id: testId,
       name: 'Selftest Multi',
       workingDir: '',
@@ -150,7 +178,8 @@ export async function runSelfTest(): Promise<void> {
         { role: 'worker', provider: 'codex', model: '', count: 1, orchestrated: true, yolo: false },
         { role: 'worker', provider: 'cursor', model: 'composer', count: 6, orchestrated: true, yolo: false }
       ],
-      yoloDefault: false
+      yoloDefault: false,
+      planner: { ...DEFAULT_PROFILE.planner, mode: 'auto' },
     })
     setActiveProfileId(testId)
     try {
@@ -187,6 +216,69 @@ export async function runSelfTest(): Promise<void> {
       check(
         dispatched.length === 3 && /#1[\s\S]*#2[\s\S]*#3/.test(batchRes.content[0].text),
         `dispatch_batch fanned out 3 tasks (ran ${dispatched.length})`
+      )
+      dispatched.length = 0
+      const planResponse = (await client.callTool({
+        name: 'execute_plan',
+        arguments: {
+          plan: {
+            version: 1,
+            goal: 'Validated DAG',
+            maxParallel: 2,
+            tasks: [
+              {
+                id: 'inspect-a',
+                title: 'Inspect A',
+                role: cursorRole,
+                prompt: 'PLAN-A',
+                dependsOn: [],
+                conflictKeys: ['area-a']
+              },
+              {
+                id: 'inspect-b',
+                title: 'Inspect B',
+                role: cursorRole,
+                prompt: 'PLAN-B',
+                dependsOn: [],
+                conflictKeys: ['area-b']
+              },
+              {
+                id: 'integrate',
+                title: 'Integrate',
+                role: cursorRole,
+                prompt: 'PLAN-C',
+                dependsOn: ['inspect-a', 'inspect-b'],
+                conflictKeys: ['area-a', 'area-b']
+              }
+            ]
+          }
+        }
+      })) as { content: Array<{ text: string }> }
+      const planResult = JSON.parse(planResponse.content[0].text) as {
+        usedFallback: boolean
+        tasks: Array<{ status: string }>
+      }
+      check(
+        !planResult.usedFallback &&
+          planResult.tasks.every((task) => task.status === 'success') &&
+          dispatched.map((item) => item.prompt).join(',') === 'PLAN-A,PLAN-B,PLAN-C',
+        'execute_plan runs prerequisites before dependent DAG nodes'
+      )
+
+      const fallback = await orchestratorEngine.executePlan({
+        version: 1,
+        goal: 'Cycle fallback',
+        maxParallel: 2,
+        tasks: [
+          { id: 'x', title: 'X', role: cursorRole, prompt: 'X', dependsOn: ['y'], conflictKeys: [] },
+          { id: 'y', title: 'Y', role: cursorRole, prompt: 'Y', dependsOn: ['x'], conflictKeys: [] }
+        ]
+      })
+      check(
+        fallback.usedFallback &&
+          fallback.tasks.length === 1 &&
+          fallback.validationIssues.some((issue) => issue.code === 'dependency_cycle'),
+        'cyclic plans fail closed to one validated fallback task'
       )
     } finally {
       setActiveProfileId(origActive)

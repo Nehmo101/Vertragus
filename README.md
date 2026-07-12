@@ -13,13 +13,19 @@ Orca-Strator drives the agent CLIs you already have installed — each in its ow
 live terminal — and lets one configurable **orchestrator** delegate work to
 **subagents** across tools.
 
+The current `DEV` implementation adds verified **Claude and Codex
+orchestrators**, a validated adaptive DAG planner, workspace/session binding,
+safe Auto-PR policies, and the **Cozy Organic** UI in light and dark mode. See the
+[implementation status](docs/IMPLEMENTATION_STATUS.md) for exact boundaries.
+
 ## Supported agents & integrations
 
 | Provider | Command | Role |
 |---|---|---|
 | **Claude Code** | `claude` | agent / orchestrator (e.g. model *Fable*) |
-| **Codex** | `codex` | agent (e.g. GPT‑5.6) |
+| **Codex** | `codex` | agent / orchestrator (CLI-configured model) |
 | **Cursor Agent** | `cursor-agent` | agent (e.g. GPT‑5.6 / Sonnet) |
+| **GitHub Copilot** | `copilot` | agent / subagent (`@github/copilot` CLI) |
 | **Ollama** | `ollama` | local LLMs (HTTP API on `:11434`) |
 | **GitHub** | `gh` | repo / branch / PR context |
 | **Cloudflare Tunnel** | `cloudflared` | remote access (later) |
@@ -34,21 +40,34 @@ live terminal — and lets one configurable **orchestrator** delegate work to
 - **Configurable orchestration** — pick who orchestrates whom, e.g. a
   Claude/*Fable* orchestrator driving **3× GPT‑5.6** subagents. The orchestrator
   delegates through an in-app **MCP server** (`dispatch_subagent`,
-  `list_subagents`, `open_subwindow`, `set_goal`); dispatched subtasks run as
-  real subagents and stream into a live **task-DAG** panel.
+  `dispatch_batch`, `execute_plan`, `list_subagents`, `open_subwindow`,
+  `set_goal`); dispatched subtasks run as real subagents and stream into a live
+  **task-DAG** panel.
+- **Adaptive planner** — validates DAGs, dependencies, conflict keys and
+  concurrency before execution; supports auto, review-first and manual modes.
+- **Safe Auto-PR** — runs configured gates, scans staged diffs, prepares task
+  commits and publishes aggregate or per-task PRs without force-push or merge.
+- **Cozy Organic workspace UI** — one warm visual system with persisted light/dark
+  mode plus tiles/focus/DAG layout controls.
 - **Yolo Mode** — per-agent and global auto-approve so agents work without
   prompts (`--dangerously-skip-permissions` / `--dangerously-bypass-approvals-and-sandbox`
   / `--yolo`), with a red warning badge, a global kill-switch, and git-worktree
   isolation.
-- **Worktree isolation, approvals inbox, cost/token tracking** and a provider
-  health dashboard.
+- **Provider connections** — shows real account state and opens the official
+  Claude, Codex, Cursor, Ollama, GitHub or Cloudflare CLI login in a visible
+  terminal; Orca never receives or stores passwords, API keys or tokens.
+- **Main-channel self-update** — every successful `main` build is published for
+  Windows and Linux; the title bar offers download and restart only when a newer
+  main build exists.
+- **Session-safe worktree isolation**, provider health, persisted task state and
+  real token/cost/step values when the provider reports them.
 
 ## Tech stack
 
 Electron · TypeScript · React · Vite (`electron-vite`) · node-pty + xterm.js
 (terminals) · `@modelcontextprotocol/sdk` (orchestrator ↔ subagent dispatch) ·
-electron-store + zod (config) · electron-builder (packaging: NSIS `.exe` +
-AppImage/`.deb`).
+electron-store + zod (config) · electron-builder + electron-updater (main-channel
+updates and packaging: NSIS `.exe` + AppImage/`.deb`).
 
 ## Development
 
@@ -66,12 +85,9 @@ pnpm build:win     # Windows NSIS installer
 pnpm build:linux   # Linux AppImage + .deb
 ```
 
-### Branching model
-
-All changes go to **`dev`** first and reach **`main`** only through a merge from
-`dev` — `main` stays release-ready at all times. Branch your work off `dev`,
-open a pull request **into `dev`**, and promote `dev → main` when it's stable.
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full workflow.
+Installer from GitHub Releases follow the `main` update channel. A successful push
+to `main` publishes a newer Windows/Linux build automatically; tagged releases
+remain available for fixed release milestones.
 
 ## Roadmap
 

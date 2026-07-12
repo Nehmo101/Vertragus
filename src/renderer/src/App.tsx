@@ -5,6 +5,7 @@ import Sidebar from '@renderer/components/Sidebar'
 import Workspace from '@renderer/components/Workspace'
 import OrchestratorPanel from '@renderer/components/OrchestratorPanel'
 import ProfileEditor from '@renderer/components/ProfileEditor'
+import HandoffModal from '@renderer/components/HandoffModal'
 import PaneWindow from '@renderer/components/PaneWindow'
 
 function useHashRoute(): string {
@@ -32,11 +33,15 @@ export default function App(): JSX.Element {
 
   const paneMatch = hash.match(/^#\/pane\/(.+)$/)
   if (paneMatch) {
-    return <PaneWindow agentId={paneMatch[1]} />
+    return (
+      <div className="app-root pane-window-root" data-theme={store.theme}>
+        <PaneWindow agentId={paneMatch[1]} />
+      </div>
+    )
   }
 
   return (
-    <div className="app-root">
+    <div className="app-root" data-theme={store.theme} data-density={store.uiDensity}>
       <TitleBar />
 
       {store.yoloMaster && (
@@ -49,7 +54,7 @@ export default function App(): JSX.Element {
         </div>
       )}
 
-      <div className="body-row">
+      <div className={`body-row layout-${store.workspaceLayout}`}>
         <Sidebar />
         <Workspace />
         <OrchestratorPanel />
@@ -57,8 +62,10 @@ export default function App(): JSX.Element {
 
       {store.editorProfile && <ProfileEditor key={store.editorProfile.id} />}
 
+      {store.handoffSource && <HandoffModal key={store.handoffSource.id} />}
+
       {store.toast && (
-        <div className="toast">
+        <div className="toast" role="status" aria-live="polite">
           <span className="diamond">◆</span>
           {store.toast}
         </div>

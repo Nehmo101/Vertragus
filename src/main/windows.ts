@@ -20,7 +20,16 @@ const DEMO_PROFILE = {
     { role: 'backend', provider: 'codex', model: '', count: 2, orchestrated: true, yolo: true },
     { role: 'frontend', provider: 'cursor', model: 'composer', count: 3, orchestrated: true, yolo: false }
   ],
-  yoloDefault: false
+  yoloDefault: false,
+  planner: { mode: 'review', maxParallel: 4, taskTimeoutMinutes: 30 },
+  autoPr: {
+    mode: 'draft-after-checks',
+    strategy: 'aggregate',
+    baseBranch: 'DEV',
+    qualityGates: ['corepack pnpm lint', 'corepack pnpm test'],
+    labels: [],
+    reviewers: []
+  }
 }
 
 function loadRoute(win: BrowserWindow, hash: string): void {

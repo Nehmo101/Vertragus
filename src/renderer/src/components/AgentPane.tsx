@@ -2,12 +2,18 @@ import { useEffect, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import type { AgentInstanceInfo } from '@shared/agents'
+import { LIMIT_KIND_LABELS } from '@shared/agents'
 import { PROVIDER_THEME, STATUS_THEME, XTERM_THEME } from '@renderer/ui/theme'
+import LoreName from '@renderer/components/LoreName'
 
 interface Props {
   agent: AgentInstanceInfo
   onClose?: () => void
   onPopout?: () => void
+  onFocus?: () => void
+  onHandoff?: () => void
+  focused?: boolean
+  subdued?: boolean
 }
 
 /**
@@ -89,25 +95,46 @@ function useAgentTerminal(agentId: string): React.RefObject<HTMLDivElement> {
   return hostRef
 }
 
-export default function AgentPane({ agent, onClose, onPopout }: Props): JSX.Element {
+export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff, focused, subdued }: Props): JSX.Element {
   const hostRef = useAgentTerminal(agent.id)
   const provider = PROVIDER_THEME[agent.provider]
   const status = STATUS_THEME[agent.status]
   const isOrch = agent.kind === 'orchestrator'
   const yoloLive = agent.yolo && agent.status === 'running'
+  const usage = agent.usage
+  const tokens = (usage?.tokensIn ?? 0) + (usage?.tokensOut ?? 0)
+  const limit = agent.limitWarning
 
   return (
-    <div className={`pane ${isOrch ? 'orch' : ''} ${yoloLive && !isOrch ? 'yolo-live' : ''}`}>
+    <div
+      className={`pane ${isOrch ? 'orch' : ''} ${yoloLive && !isOrch ? 'yolo-live' : ''} ${focused ? 'focused' : ''} ${subdued ? 'subdued' : ''}`}
+      onMouseDown={onFocus}
+    >
       <div className="pane-head">
         <span className="chip sz-27" style={{ background: provider.bg, color: provider.fg }}>
           {provider.mono}
         </span>
         <div className="pane-title-block">
           <div className="pane-line1">
-            <span className="pane-name">{agent.name}</span>
+            <LoreName name={agent.name} className="pane-name" />
             <span className="pane-model">{agent.model}</span>
             {isOrch && <span className="badge-orch">Orchestrator</span>}
             {agent.yolo && <span className="badge-yolo">YOLO</span>}
+            {limit && (
+              <span className="badge-limit" title={limit.note ?? 'Limit erkannt'}>
+                ⚠ {LIMIT_KIND_LABELS[limit.kind]}
+              </span>
+            )}
+            {agent.handoffTo && (
+              <span className="badge-handoff" title={`übergeben an ${agent.handoffTo.name}`}>
+                ↪ {agent.handoffTo.name}
+              </span>
+            )}
+            {agent.handoffFrom && (
+              <span className="badge-handoff from" title={`übernommen von ${agent.handoffFrom.name}`}>
+                ↩ {agent.handoffFrom.name}
+              </span>
+            )}
           </div>
           <div className="pane-line2">
             <span
@@ -129,13 +156,24 @@ export default function AgentPane({ agent, onClose, onPopout }: Props): JSX.Elem
             </span>
           </div>
         </div>
+        {onHandoff && (
+          <button
+            type="button"
+            className={`pane-icon-btn handoff ${limit ? 'warn' : ''}`}
+            title={limit ? `Limit nahe — an anderen Agent übergeben` : 'Arbeit an anderen Agent übergeben'}
+            aria-label="Arbeit an anderen Agent übergeben"
+            onClick={onHandoff}
+          >
+            ⇄
+          </button>
+        )}
         {onPopout && (
-          <button className="pane-icon-btn" title="Als eigenes Fenster" onClick={onPopout}>
+          <button type="button" className="pane-icon-btn" title="Als eigenes Fenster" aria-label="Agent als eigenes Fenster öffnen" onClick={onPopout}>
             ⧉
           </button>
         )}
         {onClose && (
-          <button className="pane-icon-btn close" title="Agent schließen" onClick={onClose}>
+          <button type="button" className="pane-icon-btn close" title="Agent schließen" aria-label="Agent schließen" onClick={onClose}>
             ✕
           </button>
         )}
@@ -144,16 +182,29 @@ export default function AgentPane({ agent, onClose, onPopout }: Props): JSX.Elem
       <div className={`pane-term ${agent.status === 'stopped' ? 'stopped' : ''}`} ref={hostRef} />
 
       <div className="pane-foot">
-        <span>
-          <span className="k">Schritte</span> <b>—</b>
-        </span>
-        <span>
-          <span className="k">Tokens</span> <b>—</b>
-        </span>
-        <span>
-          <span className="k">Kosten</span> <b className="cost">—</b>
-        </span>
+        {usage ? (
+          <>
+            {usage.steps != null && <span><span className="k">Schritte</span> <b>{usage.steps}</b></span>}
+            {tokens > 0 && (
+              <span title={`${usage.tokensIn ?? 0} Eingabe · ${usage.tokensOut ?? 0} Ausgabe`}>
+                <span className="k">Tokens</span> <b>{tokens.toLocaleString()}</b>
+              </span>
+            )}
+            {usage.costUsd != null && (
+              <span><span className="k">Kosten</span> <b className="cost">${usage.costUsd.toFixed(4)}</b></span>
+            )}
+          </>
+        ) : (
+          <span className="usage-unavailable" title="Dieser Provider liefert derzeit keine Telemetrie an Orca-Strator">
+            Nutzungsdaten nicht verfügbar
+          </span>
+        )}
         <span className="spacer" />
+        {agent.branch && (
+          <span className="agent-branch-tag" title={`Branch: ${agent.branch}`}>
+            {agent.branch}
+          </span>
+        )}
         {agent.worktree && (
           <span className="wt-tag" title={`Worktree: ${agent.worktree}`}>
             wt
