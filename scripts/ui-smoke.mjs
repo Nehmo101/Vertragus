@@ -12,7 +12,14 @@ const dataPath = join(tmpdir(), `orca-ui-smoke-data-${randomUUID()}`)
 mkdirSync(dataPath, { recursive: true })
 const timeoutMs = 30_000
 
-const child = spawn(electron, ['.', `--user-data-dir=${dataPath}`], {
+const electronArgs = ['.']
+if (process.platform === 'linux' && process.env.CI) {
+  // GitHub-hosted Linux runners cannot use Chromium's SUID sandbox.
+  electronArgs.push('--no-sandbox')
+}
+electronArgs.push(`--user-data-dir=${dataPath}`)
+
+const child = spawn(electron, electronArgs, {
   cwd: process.cwd(),
   env: {
     ...process.env,
