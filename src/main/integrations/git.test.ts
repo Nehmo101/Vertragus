@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdtemp, realpath, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -32,10 +32,11 @@ describe('workspace branch selection', () => {
 
   it('lists local branches and switches the real checkout', async () => {
     const before = await gitInfo(dir)
+    const canonicalDir = (await realpath(dir)).replace(/\\/g, '/')
     expect(before.branch).toBe('main')
     expect(before.branches).toEqual(['feature/test', 'main'])
     expect(before.worktrees).toEqual([
-      expect.objectContaining({ path: dir.replace(/\\/g, '/'), branch: 'main', detached: false, bare: false })
+      expect.objectContaining({ path: canonicalDir, branch: 'main', detached: false, bare: false })
     ])
 
     const after = await switchBranch(dir, 'feature/test')
