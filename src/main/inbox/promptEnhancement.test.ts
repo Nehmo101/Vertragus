@@ -376,7 +376,7 @@ describe('prompt enhancement execution', () => {
       selectionSource: 'profile-orchestrator'
     })
     expect(executor).toHaveBeenCalledOnce()
-    expect(executor.mock.calls[0]?.[0]).toMatchObject({ provider: 'claude', model: 'fable' })
+    expect(executor.mock.calls[0]?.[0]).toMatchObject({ provider: 'claude', model: 'sonnet' })
   })
 
   it('maps an invalid response to a clearly labelled deterministic fallback', async () => {
