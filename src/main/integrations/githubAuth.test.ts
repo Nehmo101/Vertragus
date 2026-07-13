@@ -26,7 +26,7 @@ github.com
     ])
   })
 
-  it('never marks incomplete GitHub auth data as authenticated', () => {
+  it('keeps verified credentials visible while requiring missing scopes', () => {
     const status = githubAuthInternals.buildGithubAuthStatus({
       authenticated: true,
       method: 'gh-cli',
@@ -34,8 +34,9 @@ github.com
       scopes: ['repo'],
       oauthConfigured: false
     })
-    expect(status.authenticated).toBe(false)
-    expect(status.method).toBe('none')
+    expect(status.authenticated).toBe(true)
+    expect(status.method).toBe('gh-cli')
+    expect(status.account).toBe('nehmo')
     expect(status.needsReauth).toBe(true)
     expect(status.missingScopes).toContain('project')
   })
@@ -59,19 +60,33 @@ github.com
         headers: new Headers({ 'x-oauth-scopes': 'repo, read:org, project, workflow' }),
         json: async () => ({})
       }
-    },
-    {
-      name: 'missing required scope',
-      token: 'valid-token',
-      response: {
-        ok: true,
-        headers: new Headers({ 'x-oauth-scopes': 'repo, read:org, workflow' }),
-        json: async () => ({ login: 'nehmo' })
-      }
     }
   ])('rejects $name OAuth data before it can be shown as authenticated', async ({ token, response }) => {
     if (response) vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response))
 
     await expect(githubAuthInternals.probeOAuthUser(token)).rejects.toThrow()
+  })
+
+  it('reports a verified OAuth account with missing scopes as needing reauth', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers({ 'x-oauth-scopes': 'repo, read:org, workflow' }),
+      json: async () => ({ login: 'nehmo' })
+    }))
+
+    const user = await githubAuthInternals.probeOAuthUser('valid-token')
+    const status = githubAuthInternals.buildGithubAuthStatus({
+      authenticated: true,
+      method: 'oauth',
+      account: user.login,
+      scopes: user.scopes
+    })
+    expect(status).toMatchObject({
+      authenticated: true,
+      method: 'oauth',
+      account: 'nehmo',
+      needsReauth: true,
+      missingScopes: ['project']
+    })
   })
 })

@@ -5,9 +5,10 @@ import type { AgentInstanceInfo } from '@shared/agents'
 import { LIMIT_KIND_LABELS } from '@shared/agents'
 import { summarizeUsage, TELEMETRY_STATUS_LABELS, TELEMETRY_STATUS_TITLES } from '@shared/telemetry'
 import { PROVIDER_THEME, STATUS_THEME, XTERM_THEME } from '@renderer/ui/theme'
+import { formatTokenBreakdown, formatTokenCount, formatUsd } from '@renderer/telemetryFormat'
 import LoreName from '@renderer/components/LoreName'
 import { isAgentTerminalChunk } from './terminalStream'
-import { terminalEnterAction } from '@renderer/components/terminalEnter'
+import { terminalEnterData } from '@renderer/components/terminalEnter'
 import styles from './responsiveGuards.module.css'
 
 interface Props {
@@ -24,7 +25,7 @@ interface Props {
  * Live terminal bound to a real agent PTY. Replays the scrollback buffer via
  * seq numbers, then streams — duplicates and gaps are impossible by design.
  */
-function useAgentTerminal(agentId: string, inputEnabled: boolean): React.RefObject<HTMLDivElement> {
+export function useAgentTerminal(agentId: string, inputEnabled: boolean): React.RefObject<HTMLDivElement> {
   const hostRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<Terminal | null>(null)
   const inputEnabledRef = useRef(inputEnabled)
@@ -61,10 +62,11 @@ function useAgentTerminal(agentId: string, inputEnabled: boolean): React.RefObje
     // Preserve Ctrl/Cmd+C as SIGINT when nothing is selected, but let xterm's
     // copy event handler place an active terminal selection on the clipboard.
     term.attachCustomKeyEventHandler((event) => {
-      const enterAction = terminalEnterAction(event)
-      if (enterAction) {
+      const enterData = terminalEnterData(event)
+      if (enterData) {
         if (inputEnabledRef.current) {
-          window.orca.agents.write(agentId, enterAction === 'newline' ? '\n' : '\r')
+          window.orca.agents.markInteractiveUsed(agentId)
+          window.orca.agents.write(agentId, enterData)
         }
         return false
       }
@@ -74,6 +76,7 @@ function useAgentTerminal(agentId: string, inputEnabled: boolean): React.RefObje
       return !(event.type === 'keydown' && isCopy && term.hasSelection())
     })
 
+    let disposed = false
     let lastSeq = 0
     let ready = false
     const queue: Array<{ data: string; seq: number }> = []
@@ -90,6 +93,7 @@ function useAgentTerminal(agentId: string, inputEnabled: boolean): React.RefObje
     })
 
     void window.orca.agents.buffer(agentId).then((snap) => {
+      if (disposed) return
       if (snap.data) term.write(snap.data)
       lastSeq = snap.seq
       ready = true
@@ -135,6 +139,7 @@ function useAgentTerminal(agentId: string, inputEnabled: boolean): React.RefObje
     observer.observe(host)
 
     return () => {
+      disposed = true
       observer.disconnect()
       if (resizeFrame != null) cancelAnimationFrame(resizeFrame)
       onInput.dispose()
@@ -155,15 +160,13 @@ function useAgentTerminal(agentId: string, inputEnabled: boolean): React.RefObje
  */
 const TerminalHost = memo(function TerminalHost({
   agentId,
-  stopped,
   inputEnabled
 }: {
   agentId: string
-  stopped: boolean
   inputEnabled: boolean
 }): JSX.Element {
   const hostRef = useAgentTerminal(agentId, inputEnabled)
-  return <div className={`pane-term ${stopped ? 'stopped' : ''}`} ref={hostRef} />
+  return <div className="pane-term" ref={hostRef} />
 })
 
 export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff, focused, subdued }: Props): JSX.Element {
@@ -251,7 +254,6 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
 
       <TerminalHost
         agentId={agent.id}
-        stopped={agent.status === 'stopped'}
         inputEnabled={agent.status === 'running'}
       />
 
@@ -260,12 +262,12 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
           <>
             {telemetry.steps != null && <span><span className="k">Schritte</span> <b>{telemetry.steps}</b></span>}
             {telemetry.tokens != null && (
-              <span title={`${usage.tokensIn ?? 0} Eingabe · ${usage.tokensOut ?? 0} Ausgabe`}>
-                <span className="k">Tokens</span> <b>{telemetry.tokens.toLocaleString()}</b>
+              <span title={formatTokenBreakdown(usage.tokensIn, usage.tokensOut)}>
+                <span className="k">Tokens</span> <b>{formatTokenCount(telemetry.tokens)}</b>
               </span>
             )}
             {telemetry.costUsd != null && (
-              <span><span className="k">Kosten</span> <b className="cost">${telemetry.costUsd.toFixed(4)}</b></span>
+              <span><span className="k">Kosten</span> <b className="cost">{formatUsd(telemetry.costUsd)}</b></span>
             )}
           </>
         ) : (

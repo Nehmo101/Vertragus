@@ -3,6 +3,7 @@ import { useAppStore, activeProfile } from '@renderer/store/useAppStore'
 import type { WorkspaceProfile } from '@shared/profile'
 import type { UpdateState } from '@shared/ipc'
 import WhaleLogo from '@renderer/components/WhaleLogo'
+import GitWorkspaceTree from '@renderer/components/GitWorkspaceTree'
 import styles from './responsiveGuards.module.css'
 
 function useClock(): string {
@@ -159,6 +160,11 @@ export default function TitleBar(): JSX.Element {
               {store.gitInfo.dirty && <span className="dirty-mark">● dirty</span>}
             </label>
           )}
+          <GitWorkspaceTree
+            profile={profile}
+            gitInfo={store.gitInfo}
+            githubAuth={store.githubAuth}
+          />
         </div>
 
         <div className="spacer" />

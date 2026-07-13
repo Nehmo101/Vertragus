@@ -14,7 +14,8 @@
   "scripts": {
     "dev": "electron-vite dev",
     "start": "electron-vite preview",
-    "build": "pnpm run typecheck && electron-vite build",
+    "icons": "node scripts/gen-icons.mjs",
+    "build": "pnpm run icons && pnpm run typecheck && electron-vite build",
     "postinstall": "electron-builder install-app-deps",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
@@ -25,7 +26,7 @@
     "test:ui-smoke": "node scripts/ui-smoke.mjs",
     "build:win": "pnpm run build && electron-builder --win",
     "build:linux": "pnpm run build && electron-builder --linux",
-    "ci": "pnpm run lint && pnpm run typecheck && pnpm run test && electron-vite build"
+    "ci": "pnpm run icons && pnpm run lint && pnpm run typecheck && pnpm run test && electron-vite build"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.1",

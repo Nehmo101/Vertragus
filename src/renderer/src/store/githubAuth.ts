@@ -27,7 +27,7 @@ export function githubAuthPresentation(status: GithubAuthStatus | null): GithubA
     }
   }
 
-  if (status.authenticated) {
+  if (status.needsReauth) {
     return {
       label: 'Erneuern',
       detail: `Berechtigungen fehlen: ${status.missingScopes.join(', ') || 'unbekannt'}`

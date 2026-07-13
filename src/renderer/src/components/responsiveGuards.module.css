@@ -26,8 +26,16 @@
   white-space: nowrap;
 }
 
+/* Workspace is squeezed by fixed side panels, so react to its actual content
+   width instead of the unreachable main-window viewport width. */
+.workspace {
+  container-name: workspace;
+  container-type: inline-size;
+}
+
 .workspace :global(.workspace-picker),
 .workspace :global(.workspace-context),
+.workspace :global(.ws-header > *),
 .inboxPanel :global(.inbox-header > :first-child),
 .inboxPanel :global(.inbox-speech-bar) {
   min-width: 0;
@@ -44,31 +52,35 @@
   text-overflow: ellipsis;
 }
 
-@media (max-width: 960px) {
-  .titlebar {
-    gap: 8px;
-  }
-  .titlebar > :first-child,
-  .titlebar :global(.repo-path),
-  .titlebar :global(.profile-btn) {
-    min-width: 0;
-  }
-  .titlebar :global(.repo-path) {
-    flex: 1 1 160px;
-  }
-  .titlebar :global(.repo-path .path),
-  .titlebar :global(.branch-pill),
-  .titlebar :global(.profile-btn .name) {
-    min-width: 0;
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .titlebar :global(.branch-picker select) {
-    min-width: 0;
-    max-width: 130px;
-  }
+/* The titlebar spans the viewport, but every flexible text region must be
+   allowed to shrink before optional labels are hidden. */
+.titlebar {
+  min-width: 0;
+}
+.titlebar > :first-child,
+.titlebar :global(.repo-path),
+.titlebar :global(.profile-btn) {
+  min-width: 0;
+}
+.titlebar :global(.repo-path) {
+  flex: 1 1 160px;
+  overflow: hidden;
+}
+.titlebar :global(.repo-path .path),
+.titlebar :global(.branch-pill),
+.titlebar :global(.profile-btn .name) {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.titlebar :global(.branch-picker select) {
+  min-width: 0;
+  max-width: 130px;
+}
+
+@container workspace (max-width: 760px) {
   .workspace :global(.ws-header) {
     height: auto;
     min-height: 52px;
@@ -76,11 +88,13 @@
     padding-top: 8px;
     padding-bottom: 8px;
   }
-  .workspace :global(.ws-header .spacer) {
+  .workspace :global(.ws-header .spacer),
+  .workspace :global(.ws-divider) {
     display: none;
   }
   .workspace :global(.workspace-picker) {
     flex: 1 1 220px;
+    min-width: 0;
   }
   .workspace :global(.workspace-context) {
     flex: 1 1 160px;
@@ -90,6 +104,26 @@
     min-width: 0;
     max-width: 100%;
   }
+  .workspace :global(.layout-switch) {
+    margin-left: auto;
+  }
+  .workspace :global(.ws-grid.cols-2),
+  .workspace :global(.ws-grid.cols-3) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@container workspace (max-width: 520px) {
+  .workspace :global(.workspace-picker),
+  .workspace :global(.workspace-context) {
+    flex-basis: 100%;
+  }
+  .workspace :global(.ws-count) {
+    display: none;
+  }
+}
+
+@media (max-width: 960px) {
   .inboxPanel :global(.inbox-header) {
     flex-wrap: wrap;
   }
@@ -98,14 +132,19 @@
   }
 }
 
-@media (max-width: 720px) {
+/* Reachable at the BrowserWindow minimum width (1180px). */
+@media (max-width: 1320px) {
+  .titlebar {
+    gap: 8px;
+  }
   .titlebar :global(.wordmark-sub),
-  .titlebar :global(.repo-path),
+  .titlebar :global(.repo-path .path),
   .titlebar :global(.live-counter .clock),
   .titlebar :global(.live-counter .sep),
   .titlebar :global(.stop-btn > span),
   .titlebar :global(.yolo-btn .label),
-  .titlebar :global(.self-update-btn > span:last-child) {
+  .titlebar :global(.self-update-btn > span:last-child),
+  .titlebar :global(.profile-btn .name) {
     display: none;
   }
   .titlebar :global(.tb-divider) {
@@ -117,6 +156,12 @@
   .titlebar :global(.self-update-btn) {
     padding-left: 9px;
     padding-right: 9px;
+  }
+}
+
+@media (max-width: 720px) {
+  .titlebar :global(.repo-path) {
+    display: none;
   }
   .inboxPanel :global(.inbox-body) {
     grid-template-columns: minmax(150px, 38%) minmax(0, 1fr);

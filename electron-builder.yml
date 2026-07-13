@@ -13,13 +13,17 @@ files:
 asarUnpack:
   - resources/**
 win:
+  icon: build/icon.ico
   target:
     - nsis
   artifactName: ${productName}-${version}-setup.${ext}
+mac:
+  icon: build/icon.icns
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
 linux:
+  icon: build/icons
   target:
     - AppImage
     - deb

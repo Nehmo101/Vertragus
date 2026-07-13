@@ -47,6 +47,20 @@ export interface ProviderHealth {
   checkedAt: number
 }
 
+export type ModelCatalogSource = 'live' | 'fallback' | 'unavailable'
+
+/** Account-aware model choices for one provider. */
+export interface ProviderModelCatalogEntry {
+  models: string[]
+  /** Live is account verified; fallback is curated; unavailable exposes no guesses. */
+  source: ModelCatalogSource
+  accountDependent: boolean
+  /** Short, user-facing explanation of the discovery result. */
+  detail?: string
+}
+
+export type ProviderModelCatalog = Record<AgentProviderId, ProviderModelCatalogEntry>
+
 /** Canonical registry of everything Orca-Strator can talk to. */
 export const PROVIDERS: readonly ProviderDef[] = [
   {
@@ -147,45 +161,30 @@ export function getProvider(id: ProviderId): ProviderDef | undefined {
 }
 
 /**
- * Model *suggestions* per agent provider — the datalist the ProfileEditor shows.
- * These are suggestions, NOT a validated whitelist: the model field stays
- * free-text, and which models are actually valid depends on each CLI's version
- * and the user's account/subscription. The lists below aim to surface the full
- * catalogue a provider commonly exposes so the user isn't stuck with a single
- * option; models.ts additionally merges live/configured models on top
- * (ollama from the local daemon, codex from ~/.codex/config.toml).
+ * Curated fallbacks used only when live discovery is unavailable.
  *
- * codex safety: a wrong model name 400s (e.g. gpt-5.x can be rejected on a
- * ChatGPT-plan account), so the *default* selection for a new codex slot stays
- * empty = "use codex's own configured default" (see defaultModelFor in the
- * ProfileEditor and DEFAULT_PROFILE). The names here are only pickable hints.
- * Claude aliases (opus/sonnet/haiku/fable) are stable across accounts.
+ * Account-dependent providers should prefer an empty fallback over invented
+ * entitlements: Claude and Cursor are populated only from their local account
+ * discovery. Codex IDs below are canonical CLI names, but still remain visibly
+ * marked as fallback unless the local Codex model cache confirms them.
+ *
+ * The model input stays free-text for intentional overrides. Leaving it empty
+ * uses the provider CLI's own configured default.
  */
 export const DEFAULT_MODELS: Record<AgentProviderId, string[]> = {
-  claude: [
-    'fable',
-    'opus',
-    'sonnet',
-    'haiku',
-    'claude-opus-4-8',
-    'claude-opus-4-7',
-    'claude-sonnet-5',
-    'claude-sonnet-4-6',
-    'claude-haiku-4-5',
-    'claude-fable-5'
+  // Claude and Cursor are account-dependent. Their picker entries come from
+  // live local account caches/CLI discovery; no guessed fallback models.
+  claude: [],
+  codex: [
+    'gpt-5.6-sol',
+    'gpt-5.6-terra',
+    'gpt-5.6-luna',
+    'gpt-5.5',
+    'gpt-5.4',
+    'gpt-5.4-mini',
+    'gpt-5.3-codex-spark'
   ],
-  codex: ['gpt-5.6-codex', 'gpt-5.6', 'gpt-5.1-codex', 'gpt-5.1', 'o4-mini', 'o3'],
-  cursor: [
-    'composer-2.5-fast',
-    'composer-2.5',
-    'composer',
-    'auto',
-    'gpt-5.3-codex',
-    'claude-opus-4-8-high',
-    'gpt-5.6',
-    'claude-sonnet-5',
-    'gemini-2.5-pro'
-  ],
+  cursor: [],
   // copilot: free-text like the rest; leaving it blank uses the CLI's own
   // default (currently Claude Sonnet). These are just picker suggestions.
   copilot: ['claude-sonnet-4.5', 'gpt-5'],

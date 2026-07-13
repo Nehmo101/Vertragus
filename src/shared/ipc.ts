@@ -2,7 +2,7 @@
  * IPC channel names and the typed API surface exposed to the renderer via preload.
  * Keeping these in one shared module keeps main <-> preload <-> renderer in sync.
  */
-import type { AgentProviderId, ProviderHealth, ProviderId } from './providers'
+import type { AgentProviderId, ProviderHealth, ProviderId, ProviderModelCatalog } from './providers'
 import type { ProfileCloneStatus, ProfileGithubRepo, WorkspaceProfile } from './profile'
 import type { McpServerConfig } from './mcp'
 import type {
@@ -132,10 +132,24 @@ export interface UpdateState {
   message?: string
 }
 
+export interface GitWorktreeInfo {
+  path: string
+  head?: string
+  /** Local branch name without the refs/heads/ prefix. */
+  branch?: string
+  detached: boolean
+  bare: boolean
+  /** Optional reason reported by `git worktree list --porcelain`. */
+  locked?: string
+  /** Optional prune reason reported by `git worktree list --porcelain`. */
+  prunable?: string
+}
+
 export interface GitInfo {
   isRepo: boolean
   root?: string
   branches?: string[]
+  worktrees?: GitWorktreeInfo[]
   branch?: string
   head?: string
   remote?: string
@@ -259,7 +273,7 @@ export interface OrcaApi {
   loginProvider(id: ProviderId): Promise<AgentInstanceInfo>
   /** Receive refreshed connection state after an interactive login exits. */
   onProvidersChanged(cb: (health: ProviderHealth[]) => void): () => void
-  listModels(): Promise<Record<AgentProviderId, string[]>>
+  listModels(): Promise<ProviderModelCatalog>
   getConfig<T = unknown>(key: string): Promise<T | undefined>
   setConfig(key: string, value: unknown): Promise<void>
 

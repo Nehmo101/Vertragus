@@ -24,3 +24,10 @@ export function terminalEnterAction(event: TerminalKeyEvent): TerminalEnterActio
 
   return event.shiftKey ? 'newline' : 'submit'
 }
+/** Bytes understood by the PTY-backed agent prompts for submit vs multiline. */
+export function terminalEnterData(event: TerminalKeyEvent): '\r' | '\n' | null {
+  const action = terminalEnterAction(event)
+  if (action === 'submit') return '\r'
+  if (action === 'newline') return '\n'
+  return null
+}

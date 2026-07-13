@@ -56,4 +56,15 @@ describe('GitHub auth presentation', () => {
       detail: 'Berechtigungen fehlen: read:org, project, workflow'
     })
   })
+
+  it('prioritizes reauth over an inconsistent unauthenticated flag', () => {
+    const auth = status({
+      authenticated: false,
+      scopes: ['repo'],
+      missingScopes: ['read:org', 'project', 'workflow'],
+      needsReauth: true
+    })
+
+    expect(githubAuthPresentation(auth).label).toBe('Erneuern')
+  })
 })

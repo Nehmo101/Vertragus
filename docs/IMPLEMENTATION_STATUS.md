@@ -46,6 +46,8 @@ Ausgangsbasis erhalten.
   Session geroutet; die Profilleiste zeigt laufende Hintergrund-Workspaces.
 - Worktrees und Branches tragen die UUID-basierte Session-ID. Alte Worktrees
   werden nicht still wiederverwendet oder gelöscht.
+- Bei nutzbarer GitHub-Anmeldung und Repository-Bindung zeigt die Titelleiste einen
+  read-only Branch-/Worktree-Baum; andernfalls erscheint ein klarer Empty-State.
 
 ### Auto-PR
 
@@ -128,6 +130,19 @@ Ausgangsbasis erhalten.
 - Orca überträgt keine Tokens über IPC und speichert keine Zugangsdaten.
 - Der Profil-Editor erklärt Workspace-, Planner-, Auto-PR-, Orchestrator- und
   Slot-Felder über tastaturerreichbare Tooltips.
+
+### Account-aware Modellkatalog und Ideen-Briefing
+
+- Codex liest den accountbezogenen lokalen CLI-Modellcache; Claude nutzt nur
+  vorhandene lokale Account-Optionen, Cursor ausschließlich die Ausgabe von
+  cursor-agent models und Ollama den lokalen Dienst. Copilot-Discovery bleibt
+  Best Effort.
+- Live-Listen werden nicht mit geratenen Modellen gemischt. Fallback und
+  „nicht verfügbar“ sind sichtbar gekennzeichnet; Presets sind nur aktiv, wenn
+  ihr Ziel im Live-Katalog vorkommt. Freitext bleibt eine bewusste Überschreibung.
+- „Prompt schärfen“ erzeugt in der Ideen-Inbox eine nicht-mutierende Vorschau des
+  strukturierten Orchestrator-Briefings. Der bestehende Transfer-Flow bleibt
+  unverändert.
 
 ## Bewusst außerhalb des aktuellen Sprints
 

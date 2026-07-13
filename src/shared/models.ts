@@ -31,9 +31,9 @@ export const PRESET_MODELS: Record<AgentProviderId, Record<ModelPreset, string>>
     strong: 'opus'
   },
   codex: {
-    fast: 'o4-mini',
-    balanced: '',
-    strong: 'gpt-5.6-codex'
+    fast: 'gpt-5.4-mini',
+    balanced: 'gpt-5.6-terra',
+    strong: 'gpt-5.6-sol'
   },
   cursor: {
     fast: 'composer-2.5-fast',

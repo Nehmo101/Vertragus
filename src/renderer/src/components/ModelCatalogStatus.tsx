@@ -11,8 +11,13 @@ export default function ModelCatalogStatus({
   catalog
 }: ModelCatalogStatusProps): JSX.Element {
   return (
-    <div className={`model-catalog-status ${catalog.source}`} aria-live="polite">
-      {modelCatalogLabel(provider, catalog)}
+    <div
+      className={`model-catalog-status ${catalog.source}`}
+      aria-live="polite"
+      title={catalog.detail}
+    >
+      <span>{modelCatalogLabel(provider, catalog)}</span>
+      {catalog.detail && <span className="model-catalog-detail">{catalog.detail}</span>}
     </div>
   )
 }
