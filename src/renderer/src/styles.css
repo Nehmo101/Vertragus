@@ -3589,6 +3589,22 @@ textarea:focus-visible,
   color: var(--text-3);
   line-height: 1.45;
 }
+.inbox-briefing-preview {
+  margin-top: 12px;
+}
+.inbox-briefing-preview-content {
+  max-height: 280px;
+  overflow: auto;
+  margin: 8px 0 0;
+  padding: 10px;
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  background: var(--bg-pane);
+  color: var(--text-2);
+  font: 10.5px/1.45 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .idea-transfer-modal {
   max-width: 480px;
 }

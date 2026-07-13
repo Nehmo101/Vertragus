@@ -182,6 +182,17 @@ describe('transferService', () => {
     expect(spawnMock).not.toHaveBeenCalled()
   })
 
+  it('rejects an empty idea before it starts a workspace team', async () => {
+    __resetIdeasForTest([{ ...baseIdea, title: ' ', content: '\n', artifacts: [] }])
+
+    const result = await transferIdeaToProfile({ ideaId: 'idea-1', profileId: 'prof-1' })
+
+    expect(result.transfer.status).toBe('failed')
+    expect(result.transfer.retryable).toBe(false)
+    expect(result.transfer.error).toMatch(/mindestens einen Titel/i)
+    expect(spawnMock).not.toHaveBeenCalled()
+  })
+
   it('fails with needsClone when repo not cloned and clone not requested', async () => {
     const needsCloneProfile: WorkspaceProfile = {
       ...profileWithRepo,

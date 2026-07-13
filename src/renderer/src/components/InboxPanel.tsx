@@ -264,7 +264,7 @@ export default function InboxPanel(): JSX.Element {
     }
   }
 
-  const saveDraft = async (): Promise<void> => {
+  const saveDraft = async (openTransferAfterSave = false): Promise<void> => {
     if (!draft) return
     setSaving(true)
     setError('')
@@ -280,6 +280,7 @@ export default function InboxPanel(): JSX.Element {
       const list = await window.orca.inbox.list()
       setIdeas(list)
       setDraft({ ...updated })
+      if (openTransferAfterSave) setTransferOpen(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -570,7 +571,7 @@ export default function InboxPanel(): JSX.Element {
                   type="button"
                   className="inbox-btn"
                   disabled={saving || speechBusy || isTransferActive(draft.transfer)}
-                  onClick={() => setTransferOpen(true)}
+                  onClick={() => void saveDraft(true)}
                   title="Idee an Workspace-Profil übergeben und Orchestrator-Planung starten"
                 >
                   An Profil übergeben
