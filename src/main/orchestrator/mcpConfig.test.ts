@@ -5,9 +5,11 @@ import { join } from 'node:path'
 import {
   buildClaudeMcpArgs,
   buildCodexMcpArgs,
+  buildCopilotMcpArgs,
   claudeAllowedTools,
   codexServerArgs,
   toClaudeMcpConfig,
+  toCopilotMcpConfig,
   type McpServerSpec
 } from './mcpConfig'
 
@@ -139,5 +141,28 @@ describe('buildCodexMcpArgs', () => {
     expect(args).toContain('developer_instructions="Delegate."')
     expect(args).toContain('mcp_servers.orca.url="http://127.0.0.1:1234/mcp"')
     expect(args).toContain('mcp_servers.filesystem.command="npx"')
+  })
+})
+
+describe('buildCopilotMcpArgs', () => {
+  it('creates transient config and narrow tool approvals', () => {
+    const args = buildCopilotMcpArgs([orca, filesystem])
+    const configIndex = args.indexOf('--additional-mcp-config')
+    const config = JSON.parse(args[configIndex + 1])
+    expect(config).toEqual(toCopilotMcpConfig([orca, filesystem]))
+    expect(config.mcpServers.orca.tools).toEqual(['execute_plan', 'set_goal'])
+    expect(config.mcpServers.filesystem).toEqual({
+      type: 'stdio',
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
+      env: { ROOT: '/tmp' },
+      tools: ['*']
+    })
+    expect(args).toContain('--allow-all-mcp-server-instructions')
+    expect(args).toContain('orca(execute_plan),orca(set_goal)')
+  })
+
+  it('does nothing without servers', () => {
+    expect(buildCopilotMcpArgs([])).toEqual([])
   })
 })

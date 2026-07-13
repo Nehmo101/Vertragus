@@ -36,6 +36,7 @@ export const IPC = {
   appUpdateCheck: 'app:updateCheck',
   appUpdateDownload: 'app:updateDownload',
   appUpdateInstall: 'app:updateInstall',
+  diagnosticsExportLatest: 'diagnostics:exportLatest',
   providersHealth: 'providers:health',
   providersCapacity: 'providers:capacity',
   providersModels: 'providers:models',
@@ -89,6 +90,7 @@ export const IPC = {
   orchestratorSnapshot: 'orchestrator:snapshot',
   orchestratorReset: 'orchestrator:reset',
   orchestratorReviewPlan: 'orchestrator:reviewPlan',
+  orchestratorTaskDiff: 'orchestrator:taskDiff',
   // main -> renderer push channels
   evAgentData: 'ev:agentData',
   evAgentsChanged: 'ev:agentsChanged',
@@ -224,6 +226,12 @@ export interface ProviderCapacitySnapshot {
   limit: number
 }
 
+export interface TaskReviewDiff {
+  taskId: string
+  diff: string
+  truncated: boolean
+}
+
 /**
  * The API bridged onto `window.orca` in the renderer. Every method maps 1:1
  * onto an ipcMain handler (or push channel) registered in the main process.
@@ -236,6 +244,10 @@ export interface OrcaApi {
     download(): Promise<UpdateState>
     install(): Promise<void>
     onState(cb: (state: UpdateState) => void): () => void
+  }
+  diagnostics: {
+    /** Export the latest redacted JSONL run for a workspace through a native save dialog. */
+    exportLatest(profileId: string): Promise<string | null>
   }
   /** Probe every provider CLI/integration for availability + version. */
   checkProviders(): Promise<ProviderHealth[]>
@@ -335,6 +347,8 @@ export interface OrcaApi {
     /** Resolve a plan waiting in review mode. */
     reviewPlan(profileId: string, approved: boolean): Promise<boolean>
     onSnapshot(cb: (snap: OrchestratorSnapshot) => void): () => void
+    /** Read a size-limited patch from the task's trusted Orca worktree. */
+    taskDiff(profileId: string, taskId: string): Promise<TaskReviewDiff>
   }
 
   win: {

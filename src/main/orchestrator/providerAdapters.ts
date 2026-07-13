@@ -4,6 +4,7 @@ import type { McpServerHandle } from '@main/orchestrator/mcpHandle'
 import {
   buildClaudeMcpArgs,
   buildCodexMcpArgs,
+  buildCopilotMcpArgs,
   type McpServerSpec
 } from '@main/orchestrator/mcpConfig'
 
@@ -71,6 +72,19 @@ const codexAdapter: OrchestratorAdapter = {
   }
 }
 
+const copilotAdapter: OrchestratorAdapter = {
+  capability: {
+    provider: 'copilot',
+    supported: true,
+    transport: 'mcp-http',
+    transientConfig: true
+  },
+  buildArgs({ handle, externalServers }) {
+    const servers = [orcaSpec(handle), ...(externalServers ?? [])]
+    return buildCopilotMcpArgs(servers)
+  }
+}
+
 function unsupported(provider: AgentProviderId): OrchestratorAdapter {
   return {
     capability: {
@@ -88,9 +102,7 @@ const ADAPTERS: Record<AgentProviderId, OrchestratorAdapter> = {
   claude: claudeAdapter,
   codex: codexAdapter,
   cursor: unsupported('cursor'),
-  // copilot works as a dispatched subagent (headless), but has no verified
-  // MCP-orchestrator adapter yet, so it fails closed as an orchestrator.
-  copilot: unsupported('copilot'),
+  copilot: copilotAdapter,
   ollama: unsupported('ollama')
 }
 

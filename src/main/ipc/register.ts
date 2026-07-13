@@ -4,9 +4,10 @@
  */
 import { app, dialog, ipcMain, BrowserWindow } from 'electron'
 import { stat } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { IPC, type AppInfo } from '@shared/ipc'
-import type { HandoffRequest, SpawnAgentRequest } from '@shared/agents'
+import type { HandoffRequest, OrcaEvent, SpawnAgentRequest } from '@shared/agents'
+import type { OrchestratorSnapshot } from '@shared/orchestrator'
 import type { ProviderId } from '@shared/providers'
 import { profileRepoLocalPath, type WorkspaceProfile } from '@shared/profile'
 import type { McpServerConfig } from '@shared/mcp'
@@ -75,11 +76,36 @@ import {
   setInboxSpeechSettings,
   transcribeInboxAudio
 } from '@main/voice/InboxSpeechService'
+import { RunJournal } from '@main/diagnostics/runJournal'
+import { loadTaskReviewDiff } from '@main/integrations/reviewDiff'
 
 function senderWindow(e: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent): BrowserWindow | null {
   return BrowserWindow.fromWebContents(e.sender)
 }
 
+async function saveRunDialog(
+  win: BrowserWindow | null,
+  defaultPath: string
+): Promise<Electron.SaveDialogReturnValue> {
+  const options: Electron.SaveDialogOptions = {
+    title: 'Redigierte Orca-Diagnose exportieren',
+    defaultPath,
+    filters: [{ name: 'JSON Lines', extensions: ['jsonl'] }]
+  }
+  return win ? dialog.showSaveDialog(win, options) : dialog.showSaveDialog(options)
+}
+
+
+function recordDiagnostic(
+  journal: RunJournal,
+  record: Parameters<RunJournal['record']>[0]
+): void {
+  try {
+    journal.record(record)
+  } catch (error) {
+    console.warn('[Diagnostics] run journal write failed', error)
+  }
+}
 async function normalizeDirectory(raw: string, label: string): Promise<string> {
   const directory = resolve(raw.trim())
   try {
@@ -95,6 +121,7 @@ async function normalizeDirectory(raw: string, label: string): Promise<string> {
 export function registerIpcHandlers(): void {
   providerCapacity.refreshLimits()
 
+  const runJournal = new RunJournal(join(app.getPath('userData'), 'diagnostics', 'runs'))
   // ---- app / providers / config ----
   ipcMain.handle(IPC.appInfo, (): AppInfo => {
     return {
@@ -112,6 +139,17 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.appUpdateInstall, () => installMainUpdate())
   ipcMain.handle(IPC.providersHealth, () => checkAllProviders())
   ipcMain.handle(IPC.providersCapacity, () => providerCapacity.statsAll())
+  ipcMain.handle(IPC.diagnosticsExportLatest, async (e, profileId: string) => {
+    const latest = runJournal.list(String(profileId ?? ''))[0]
+    if (!latest) return null
+    const result = await saveRunDialog(
+      senderWindow(e),
+      `orca-run-${latest.runId}-${new Date(latest.updatedAt).toISOString().slice(0, 10)}.jsonl`
+    )
+    if (result.canceled || !result.filePath) return null
+    runJournal.export(latest.runId, result.filePath)
+    return result.filePath
+  })
   ipcMain.handle(IPC.providerLogin, async (_e, id: ProviderId) => {
     const info = await agentManager.loginProvider(id)
     createPaneWindow(info.id)
@@ -333,6 +371,13 @@ export function registerIpcHandlers(): void {
     const profile = getProfile(profileId)
     return profile ? workspaceSessions.reviewPlan(profile, Boolean(approved)) : false
   })
+  ipcMain.handle(IPC.orchestratorTaskDiff, async (_e, profileId: string, taskId: string) => {
+    const profile = getProfile(profileId)
+    if (!profile) throw new Error('Workspace-Profil nicht gefunden.')
+    const task = workspaceSessions.snapshot(profile).tasks.find((entry) => entry.id === taskId)
+    if (!task) throw new Error('Aufgabe nicht gefunden.')
+    return loadTaskReviewDiff(task)
+  })
 
   // ---- window controls (frameless title bar) ----
   ipcMain.on(IPC.winMinimize, (e) => senderWindow(e)?.minimize())
@@ -347,8 +392,25 @@ export function registerIpcHandlers(): void {
   // ---- push events: agent output / state / dispatch feed ----
   agentManager.on('data', (chunk) => broadcast(IPC.evAgentData, chunk))
   agentManager.on('changed', (list) => broadcast(IPC.evAgentsChanged, list))
-  agentManager.on('event', (evt) => broadcast(IPC.evOrcaEvent, evt))
-  workspaceSessions.on('snapshot', (snap) => broadcast(IPC.evOrchestrator, snap))
+  agentManager.on('event', (evt: OrcaEvent) => {
+    recordDiagnostic(runJournal, {
+      kind: 'agent-event',
+      profileId: evt.profileId,
+      workspaceSessionId: evt.workspaceSessionId,
+      at: evt.time,
+      payload: evt
+    })
+    broadcast(IPC.evOrcaEvent, evt)
+  })
+  workspaceSessions.on('snapshot', (snap: OrchestratorSnapshot) => {
+    recordDiagnostic(runJournal, {
+      kind: 'orchestrator-snapshot',
+      profileId: snap.profileId,
+      workspaceSessionId: snap.workspaceSessionId,
+      payload: snap
+    })
+    broadcast(IPC.evOrchestrator, snap)
+  })
   agentManager.on('provider-auth-complete', () => {
     void checkAllProviders()
       .then((health) => broadcast(IPC.evProvidersHealth, health))

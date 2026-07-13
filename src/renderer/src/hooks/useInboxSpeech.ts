@@ -80,10 +80,9 @@ export function useInboxSpeech(): UseInboxSpeechResult {
   const finishRecording = useCallback(async (): Promise<void> => {
     const durationMs = Math.max(0, Date.now() - startedAtRef.current)
     const mimeType = recorderRef.current?.mimeType || pickMimeType()
+    const chunks = chunksRef.current
     cleanupStream()
-
-    const blob = new Blob(chunksRef.current, { type: mimeType })
-    chunksRef.current = []
+    const blob = new Blob(chunks, { type: mimeType })
 
     if (blob.size === 0) {
       setState('failed')

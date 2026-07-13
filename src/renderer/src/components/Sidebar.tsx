@@ -217,6 +217,18 @@ export default function Sidebar(): JSX.Element {
             <div className="summary">Agents &amp; Terminals</div>
           </div>
         </button>
+        <button
+          type="button"
+          className="nav-row"
+          onClick={() => void store.exportDiagnostics()}
+          title="Letzten redigierten Workspace-Run als JSONL exportieren"
+        >
+          <span className="nav-icon">⇩</span>
+          <div className="info">
+            <div className="name">Diagnose exportieren</div>
+            <div className="summary">Run-Historie · ohne Secrets</div>
+          </div>
+        </button>
       </div>
 
       <div className="side-sep" />

@@ -15,7 +15,7 @@ import InfoTip from '@renderer/components/InfoTip'
 
 const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'cursor', 'copilot', 'ollama']
 
-const ORCHESTRATOR_PROVIDERS: AgentProviderId[] = ['claude', 'codex']
+const ORCHESTRATOR_PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'copilot']
 const HELP = {
   profileName: 'Frei wählbarer Name für diese Kombination aus Workspace, Orchestrator und Subagents.',
   workingDir: 'Repository oder Ordner, in dem Agents arbeiten. Bei GitHub-Bindung wird der lokale Klon-Pfad verwendet.',
