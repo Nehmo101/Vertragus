@@ -10,17 +10,33 @@ import LoreName from '@renderer/components/LoreName'
 import LimitsPanel from '@renderer/components/LimitsPanel'
 import type { OrcaTask, TaskStatus } from '@shared/orchestrator'
 
-function useClock(): string {
-  const [now, setNow] = useState(() => new Date())
+const STALE_HEARTBEAT_MS = 90_000
+
+type TaskWithTelemetry = OrcaTask & {
+  lastHeartbeatAt?: number
+  phase?: string
+  lastAction?: string
+}
+
+function useClock(): number {
+  const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 1000)
+    const t = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(t)
   }, [])
-  return now.toTimeString().slice(0, 8)
+  return now
 }
 
 function fmtTime(ts: number): string {
   return new Date(ts).toTimeString().slice(0, 8)
+}
+
+function fmtAge(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000))
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m`
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
 }
 
 const TASK_PILL: Record<TaskStatus, { bg: string; fg: string; dot: string; label: string }> = {
@@ -31,12 +47,18 @@ const TASK_PILL: Record<TaskStatus, { bg: string; fg: string; dot: string; label
   stopped: { bg: 'var(--stop-soft)', fg: 'var(--stop-text)', dot: 'var(--stop)', label: 'gestoppt' }
 }
 
-function TaskCard({ task, profileId }: { task: OrcaTask; profileId: string }): JSX.Element {
+function TaskCard({ task, profileId, now }: { task: OrcaTask; profileId: string; now: number }): JSX.Element {
   const [diff, setDiff] = useState<string | null>(null)
   const [diffError, setDiffError] = useState<string | null>(null)
   const [diffLoading, setDiffLoading] = useState(false)
+  const telemetry = task as TaskWithTelemetry
   const pill = TASK_PILL[task.status]
   const chip = task.provider ? PROVIDER_THEME[task.provider] : undefined
+  const heartbeatBase = telemetry.lastHeartbeatAt ?? task.createdAt
+  const heartbeatAge = now - heartbeatBase
+  const heartbeatMissing = task.status === 'running' && telemetry.lastHeartbeatAt == null
+  const heartbeatStale = task.status === 'running' && heartbeatAge > STALE_HEARTBEAT_MS
+  const showTelemetry = task.status === 'running' || Boolean(telemetry.phase || telemetry.lastAction)
   const label = task.status === 'running' && task.yolo ? 'läuft · yolo' : pill.label
   const hasReview = Boolean(task.worktree || task.branch || task.commit || task.autoPrStatus)
 
@@ -61,7 +83,7 @@ function TaskCard({ task, profileId }: { task: OrcaTask; profileId: string }): J
         />
         <span className="dag-line" />
       </div>
-      <div className="task-card">
+      <div className={`task-card ${heartbeatStale ? 'heartbeat-stale' : ''}`}>
         <div className="task-row1">
           <span
             className="task-dot"
@@ -93,7 +115,44 @@ function TaskCard({ task, profileId }: { task: OrcaTask; profileId: string }): J
         </div>
         {task.status === 'running' && (
           <div className="task-bar">
-            <div className="task-bar-fill indeterminate" />
+            <div
+              className={`task-bar-fill ${task.progress == null ? 'indeterminate' : ''}`}
+              style={
+                task.progress == null
+                  ? undefined
+                  : { width: `${Math.min(100, Math.max(0, task.progress))}%` }
+              }
+            />
+          </div>
+        )}
+        {showTelemetry && (
+          <div className={`task-telemetry ${heartbeatStale ? 'stale' : ''}`}>
+            <div className="task-telemetry-row">
+              <span className="task-phase">{telemetry.phase?.trim() || 'In Arbeit'}</span>
+              {task.progress != null && <span>{Math.round(task.progress)}%</span>}
+              {task.status === 'running' && (
+                <span
+                  className="task-heartbeat"
+                  title={
+                    telemetry.lastHeartbeatAt
+                      ? `Letzter Heartbeat: ${new Date(telemetry.lastHeartbeatAt).toLocaleString()}`
+                      : 'Noch kein expliziter Heartbeat empfangen'
+                  }
+                >
+                  <span className="heartbeat-dot" />
+                  {heartbeatStale
+                    ? `Heartbeat veraltet · ${fmtAge(heartbeatAge)}`
+                    : heartbeatMissing
+                      ? `Heartbeat ausstehend · ${fmtAge(heartbeatAge)}`
+                      : `Heartbeat · vor ${fmtAge(heartbeatAge)}`}
+                </span>
+              )}
+            </div>
+            {telemetry.lastAction?.trim() && (
+              <div className="task-last-action" title={telemetry.lastAction}>
+                Zuletzt: {telemetry.lastAction}
+              </div>
+            )}
           </div>
         )}
         {task.note && (
@@ -140,7 +199,7 @@ function TaskCard({ task, profileId }: { task: OrcaTask; profileId: string }): J
 
 export default function OrchestratorPanel(): JSX.Element {
   const store = useAppStore()
-  const clock = useClock()
+  const now = useClock()
   const profile = activeProfile(store)
   const orch = workspaceAgents(store).find((agent) => agent.kind === 'orchestrator')
   const events = workspaceEvents(store)
@@ -249,7 +308,9 @@ export default function OrchestratorPanel(): JSX.Element {
               erscheinen hier die Teilaufgaben live — jede läuft als echter Subagent im Grid.
             </div>
           ) : (
-            tasks.map((task) => <TaskCard key={task.id} task={task} profileId={store.activeProfileId} />)
+            tasks.map((task) => (
+              <TaskCard key={task.id} task={task} profileId={store.activeProfileId} now={now} />
+            ))
           )}
         </div>
 
@@ -258,7 +319,7 @@ export default function OrchestratorPanel(): JSX.Element {
             <span className="caption">Dispatch-Protokoll</span>
             <span className="dot" />
             <div className="spacer" />
-            <span className="clock">{clock}</span>
+            <span className="clock">{fmtTime(now)}</span>
           </div>
           <div className="dispatch-body" ref={logRef}>
             {events.length === 0 && (

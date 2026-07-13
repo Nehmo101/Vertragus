@@ -45,6 +45,10 @@ safe Auto-PR policies, production hardening, and the **Cozy Organic** UI. See th
   **task-DAG** panel.
 - **Adaptive planner** — validates DAGs, dependencies, conflict keys and
   concurrency before execution; supports auto, review-first and manual modes.
+- **Reliable async lifecycle** — dispatch returns task IDs immediately; polling exposes
+  heartbeats and results, while verified commits, shared-file ownership, security gates,
+  and a dedicated integration phase protect each implementation wave. See
+  [Reliable Agent Lifecycle](docs/RELIABLE_AGENT_LIFECYCLE.md).
 - **Safe Auto-PR** — runs configured gates, scans staged diffs, prepares task
   commits and publishes aggregate or per-task PRs without force-push or merge.
 - **Cozy Organic workspace UI** — one warm visual system with persisted light/dark

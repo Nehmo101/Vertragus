@@ -25,8 +25,14 @@ import { resolveModel, type ModelPreset } from '@shared/models'
 import { buildInteractiveLaunch } from '@main/providers/types'
 import { resolveLaunch } from '@main/agents/resolveCommand'
 import { createWorktree } from '@main/agents/worktree'
+import { shouldAutoTrustCursorWorktree } from '@main/agents/cursorWorkspaceTrust'
 import { getSetting } from '@main/config/store'
-import { runHeadless, type HeadlessHandle, type HeadlessResult } from '@main/agents/headless'
+import {
+  runHeadless,
+  type HeadlessHandle,
+  type HeadlessLifecycleOptions,
+  type HeadlessResult
+} from '@main/agents/headless'
 import { buildOrchestratorSetup } from '@main/orchestrator/orchestratorLaunch'
 import { buildSubagentMcpArgs } from '@main/orchestrator/externalMcp'
 import { NameAllocator } from '@main/agents/names'
@@ -53,6 +59,8 @@ interface Managed {
   waitAbort?: { aborted: boolean }
   /** Protect a team pane from automatic reuse after the user typed into it. */
   interactiveUsed?: boolean
+  /** Cursor's startup trust confirmation was handled for an Orca worktree. */
+  workspaceTrustHandled?: boolean
   /** Ignore the interactive PTY exit while converting this pane into a task. */
   reassigning?: boolean
 }
@@ -150,8 +158,32 @@ export class AgentManager extends EventEmitter {
     managed.seq += 1
     this.emit('data', { id: managed.info.id, data, seq: managed.seq })
     this.scanForLimit(managed)
+    this.autoTrustCursorWorktree(managed)
   }
 
+
+  /**
+   * Cursor's --trust flag is headless-only. In interactive mode, confirm its
+   * initial prompt only when this manager created the isolated worktree.
+   */
+  private autoTrustCursorWorktree(managed: Managed): void {
+    const { info } = managed
+    if (info.provider !== 'cursor' || !managed.pty) return
+    if (
+      !shouldAutoTrustCursorWorktree({
+        output: managed.buffer,
+        workingDir: info.workingDir,
+        worktree: info.worktree,
+        alreadyHandled: Boolean(managed.workspaceTrustHandled),
+        interactiveUsed: Boolean(managed.interactiveUsed)
+      })
+    ) {
+      return
+    }
+    managed.workspaceTrustHandled = true
+    managed.pty.write('a\r')
+    this.emitEvent(`${info.name} vertraut Orca-Worktree automatisch`, 'muted', info)
+  }
   /**
    * Best-effort scan of an interactive agent's output for a usage-limit banner.
    * Fires once per agent (debounced). Marks `info.limitWarning` and emits a warn
@@ -446,7 +478,10 @@ export class AgentManager extends EventEmitter {
    * Dispatch a single headless task. A matching untouched team pane is reused
    * first; only overflow work allocates another named subagent pane.
    */
-  async runTask(req: RunTaskRequest): Promise<{ info: AgentInstanceInfo; done: Promise<HeadlessResult> }> {
+  async runTask(
+    req: RunTaskRequest,
+    lifecycle?: HeadlessLifecycleOptions
+  ): Promise<{ info: AgentInstanceInfo; done: Promise<HeadlessResult>; baseCommit?: string }> {
     const resolvedModel = resolveModel(req.provider, req)
     const taskReq = { ...req, model: resolvedModel }
     let managed = this.claimTeamMember(taskReq)
@@ -528,6 +563,16 @@ export class AgentManager extends EventEmitter {
       ? `${identityInstruction} ${req.systemPrompt}`
       : identityInstruction
 
+    const baseCommit = info.worktree
+      ? await new Promise<string | undefined>((resolve) => {
+          execFile(
+            'git', ['rev-parse', '--verify', 'HEAD^{commit}'],
+            { cwd: info.worktree, windowsHide: true },
+            (error, stdout) => resolve(error ? undefined : stdout.trim().toLowerCase())
+          )
+        })
+      : undefined
+
     const handle = runHeadless(
       req.provider,
       taskPrompt,
@@ -538,7 +583,8 @@ export class AgentManager extends EventEmitter {
         systemPrompt,
         extraArgs: buildSubagentMcpArgs(req.provider, id)
       },
-      (chunk) => this.pushData(active, chunk)
+      (chunk) => this.pushData(active, chunk),
+      lifecycle
     )
     active.headless = handle
     info.pid = handle.pid
@@ -580,13 +626,13 @@ export class AgentManager extends EventEmitter {
       return result
     })
 
-    return { info, done }
+    return { info, done, baseCommit }
   }
 
   write(id: string, data: string): void {
     const managed = this.agents.get(id)
     if (!managed?.pty) return
-    if (managed.info.teamRole && data.length > 0) managed.interactiveUsed = true
+    if (data.length > 0) managed.interactiveUsed = true
     managed.pty.write(data)
   }
 

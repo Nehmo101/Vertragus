@@ -86,6 +86,15 @@ Ausgangsbasis erhalten.
 - Einstellungen werden gespeichert; reduzierte Bewegung und sichtbare
   Tastatur-Fokuszustände werden berücksichtigt.
 
+### Zuverlässiger Agent-Lebenszyklus
+
+- Dispatch und DAG-Ausführung sind asynchron; Task- und Run-IDs werden sofort zurückgegeben.
+- Status-Polling liefert Heartbeat, Phase, letzte Aktion, Fortschritt und Ergebnis.
+- Erfolgreiche Worker benötigen einen verifizierten Commit oder einen expliziten No-op.
+- Shared-Hotspots gehören genau einer finalen Integrator-Aufgabe.
+- Security-Negativtests und die vollständige Integrations-Abnahme sind Merge-Gates.
+- Die UI trennt warme Agents, Task-Parallelität, Provider-Hardlimits und Warteschlangen.
+
 ### Stabilität und Qualität
 
 - Electron-Fenster laufen mit Sandbox, CSP, Navigationsschutz und Scheme-Allowlist.

@@ -16,7 +16,9 @@ import type {
   OrchestratorGoal,
   PendingPlanReview,
   OrchestratorSnapshot,
-  SubagentDescriptor
+  PlanRunStatusSnapshot,
+  SubagentDescriptor,
+  TaskStatusSnapshot
 } from '@shared/orchestrator'
 import {
   agentSlotsWithRoles,
@@ -26,6 +28,7 @@ import {
 } from '@shared/profile'
 import { resolveModel } from '@shared/models'
 import { agentManager } from '@main/agents/AgentManager'
+import { stripAnsi } from '@main/agents/limitSignals'
 import {
   getProfile,
   getActiveProfileId,
@@ -56,6 +59,10 @@ export class OrchestratorEngine extends EventEmitter {
   private goal: OrchestratorGoal | null = null
   private readonly tasks = new Map<string, OrcaTask>()
   private readonly preparedChanges = new Map<string, PreparedTaskChange>()
+  private readonly taskResults = new Map<string, string>()
+  private readonly taskRuns = new Map<string, Promise<string>>()
+  private readonly planRuns = new Map<string, Promise<ExecutionPlanResult>>()
+  private readonly planRunResults = new Map<string, PlanRunStatusSnapshot>()
   private taskSeq = 0
   private pendingPlan: PendingPlanReview | undefined
   private pendingPlanResolve: ((approved: boolean) => void) | undefined
@@ -89,11 +96,25 @@ export class OrchestratorEngine extends EventEmitter {
   private readonly limiters = new Map<string, Semaphore>()
 
   snapshot(): OrchestratorSnapshot {
+    const profile = this.activeProfile()
+    const tasks = [...this.tasks.values()].sort((a, b) => a.createdAt - b.createdAt)
+    const agents = typeof agentManager.list === 'function' ? agentManager.list() : []
+    const warmInteractiveAgents = agents.filter((agent) =>
+      agent.mode === 'interactive' && agent.kind === 'sub' && agent.status !== 'stopped' &&
+      agent.status !== 'error' && (!profile?.id || agent.profileId === profile.id)
+    ).length
     return {
       profileId: this.boundProfile?.id,
       workspaceSessionId: this.workspaceSessionId,
       goal: this.goal,
-      tasks: [...this.tasks.values()].sort((a, b) => a.createdAt - b.createdAt),
+      tasks,
+      capacity: {
+        warmInteractiveAgents,
+        maxTaskParallelism: profile?.planner.maxParallel ?? 1,
+        configuredRoleCapacity: this.slotsWithRoles().reduce((sum, entry) => sum + entry.slot.count, 0),
+        activeTasks: tasks.filter((task) => task.status === 'running').length,
+        waitingTasks: tasks.filter((task) => task.status === 'queued').length
+      },
       pendingPlan: this.pendingPlan
     }
   }
@@ -116,6 +137,10 @@ export class OrchestratorEngine extends EventEmitter {
     this.tasks.clear()
     this.limiters.clear()
     this.preparedChanges.clear()
+    this.taskResults.clear()
+    this.taskRuns.clear()
+    this.planRuns.clear()
+    this.planRunResults.clear()
     this.push()
   }
 
@@ -201,6 +226,11 @@ export class OrchestratorEngine extends EventEmitter {
     }))
   }
 
+  private nextTaskId(): string {
+    this.taskSeq += 1
+    return `t-${this.taskSeq.toString(36)}`
+  }
+
   private pickSlot(role: string): { slot: AgentSlot; role: string } {
     const entries = this.slotsWithRoles()
     const q = role.trim().toLowerCase()
@@ -225,8 +255,7 @@ export class OrchestratorEngine extends EventEmitter {
   ): Promise<string> {
     const { slot, role: slotRole } = this.pickSlot(role)
     const profile = this.activeProfile()
-    this.taskSeq += 1
-    const taskId = options.taskId ?? `t-${this.taskSeq.toString(36)}`
+    const taskId = options.taskId ?? this.nextTaskId()
     const yolo = slot.yolo || (profile?.yoloDefault ?? false)
 
     const task: OrcaTask = {
@@ -236,6 +265,9 @@ export class OrchestratorEngine extends EventEmitter {
       provider: slot.provider,
       model: resolveModel(slot.provider, slot),
       status: 'queued',
+      phase: 'queued',
+      lastAction: 'Wartet auf freie Kapazität',
+      lastHeartbeatAt: Date.now(),
       yolo,
       createdAt: Date.now(),
       dependsOn: options.dependsOn,
@@ -248,14 +280,37 @@ export class OrchestratorEngine extends EventEmitter {
     const sem = this.limiter(slotRole, slot.count)
     await sem.acquire()
     task.status = 'running'
+    task.phase = 'starting'
+    task.lastAction = 'Worker wird gestartet'
+    task.lastHeartbeatAt = Date.now()
     this.push()
 
     const subSystemPrompt =
       'Du bist ein namentlich gekennzeichneter Subagent in Orca-Strator, beauftragt vom Orchestrator. ' +
       'Erledige die Aufgabe eigenständig und fasse das Ergebnis am Ende knapp zusammen.'
 
+    let lastLifecyclePush = 0
+    const onLifecycleEvent = (event: import('@main/agents/headless').HeadlessLifecycleEvent): void => {
+      task.lastHeartbeatAt = event.timestamp
+      if (event.type === 'phase') task.lastAction = `Worker-Phase: ${event.phase}`
+      if (event.type === 'heartbeat') task.lastAction = `Worker aktiv · ${Math.round(event.idleMs / 1000)}s ohne Ausgabe`
+      if (event.type === 'progress') task.lastAction = `Provider-Fortschritt: ${event.providerEvent}`
+      if (event.type === 'output') {
+        const clean = stripAnsi(event.chunk).replace(/\s+/g, ' ').trim()
+        if (clean) task.lastAction = clean.slice(-RESULT_PREVIEW)
+        if (/\b(test|vitest|typecheck|lint|pytest|cargo test)\b/i.test(clean)) task.phase = 'testing'
+        else if (/\b(git commit|committ(?:ing|ed)?)\b/i.test(clean)) task.phase = 'committing'
+        else if (task.phase === 'starting') task.phase = 'working'
+      }
+      const force = event.type === 'heartbeat' || event.type === 'phase' || event.type === 'finished'
+      if (force || event.timestamp - lastLifecyclePush >= 1_000) {
+        lastLifecyclePush = event.timestamp
+        this.push()
+      }
+    }
+
     try {
-      const { info, done } = await agentManager.runTask({
+      const { info, done, baseCommit } = await agentManager.runTask({
         provider: slot.provider,
         model: slot.model,
         modelPreset: slot.modelPreset,
@@ -267,46 +322,77 @@ export class OrchestratorEngine extends EventEmitter {
         workingDir: slot.workingDir || profile?.workingDir,
         profileId: profile?.id,
         workspaceSessionId: this.workspaceSessionId
-      })
+      }, { onEvent: onLifecycleEvent, heartbeatIntervalMs: 45_000 })
       task.agentId = info.id
       task.agentName = info.name
+      task.phase = 'working'
+      task.lastAction = 'Worker arbeitet'
+      task.lastHeartbeatAt = Date.now()
       this.push()
 
       const result = await done
       const wasCancelled = result.status === 'cancelled'
       task.status = wasCancelled ? 'stopped' : result.isError ? 'error' : 'success'
       task.progress = task.status === 'success' ? 100 : undefined
+      task.phase = task.status === 'success' ? 'completed' : task.phase
+      task.lastAction = wasCancelled ? 'Manuell gestoppt' : result.isError ? 'Worker fehlgeschlagen' : 'Worker abgeschlossen'
+      task.lastHeartbeatAt = Date.now()
       task.finishedAt = Date.now()
       const preview = result.result.replace(/\s+/g, ' ').trim().slice(0, RESULT_PREVIEW)
       task.note = result.isError ? 'Fehler bei der Ausführung' : preview
       task.worktree = info.worktree
       const autoPr = profile?.autoPr
-      if (!result.isError && autoPr && autoPr.mode !== 'off') {
+      if (!result.isError && !wasCancelled && autoPr) {
+        task.phase = 'security-review'
+        task.lastAction = 'Abnahme, Security und Commit-Vertrag laufen'
+        task.lastHeartbeatAt = Date.now()
+        this.push()
         const prepared = await prepareTaskChange({
           config: autoPr,
+          commitOnly: true,
+          baseCommit,
           taskId,
           title: task.title,
           worktree: info.worktree
         })
-        task.autoPrStatus = prepared.status
+        task.autoPrStatus = autoPr.mode === 'off' ? 'skipped' : prepared.status
         task.branch = prepared.branch
-        task.commit = prepared.change?.commit
-        if (prepared.change) this.preparedChanges.set(taskId, prepared.change)
-        if (prepared.status === 'blocked') {
-          task.note = `${task.note || 'Task fertig'} · Auto-PR blockiert: ${prepared.message}`
+        if (prepared.result === 'committed' && prepared.change) {
+          task.commit = prepared.change.commit
+          task.completion = { kind: 'commit', commit: prepared.change.commit }
+          if (autoPr.mode !== 'off') this.preparedChanges.set(taskId, prepared.change)
+        } else if (prepared.result === 'no-changes') {
+          task.completion = { kind: 'no-changes' }
+        } else {
+          task.status = 'error'
+          task.progress = undefined
+          task.note = (task.note || 'Worker fertig') + ' · Abnahme blockiert: ' + prepared.message
+          task.lastAction = 'Commit-Vertrag oder Security-Gate fehlgeschlagen'
         }
-        if (!options.deferPublish && !options.planId && prepared.change) {
+        if (
+          task.status === 'success' && autoPr.mode !== 'off' && !options.deferPublish &&
+          !options.planId && prepared.change
+        ) {
           await this.publishPendingChanges()
         }
       }
       this.push()
 
       if (wasCancelled) return `${info.name} (${slotRole}) stopped.`
+      if (task.status === 'error' && !result.isError) {
+        return `${info.name} (${slotRole}) scheiterte an der Abnahme: ${task.note}`
+      }
+      const completion = task.completion?.kind === 'commit'
+        ? `\n\nVerifizierter Commit: ${task.completion.commit}`
+        : task.completion?.kind === 'no-changes' ? '\n\nVerifizierter Status: keine Änderungen' : ''
       return result.isError
         ? `${info.name} (${slotRole}) meldete einen Fehler. Ausgabe:\n${result.result}`
-        : `${info.name} (${slotRole}) meldet:\n${result.result || '(kein Textergebnis)'}`
+        : `${info.name} (${slotRole}) meldet:\n${result.result || '(kein Textergebnis)'}${completion}`
     } catch (err) {
       task.status = 'error'
+      task.phase = task.phase ?? 'starting'
+      task.lastAction = 'Dispatch fehlgeschlagen'
+      task.lastHeartbeatAt = Date.now()
       task.note = err instanceof Error ? err.message : String(err)
       task.finishedAt = Date.now()
       this.push()
@@ -314,6 +400,48 @@ export class OrchestratorEngine extends EventEmitter {
     } finally {
       sem.release()
     }
+  }
+
+  /** Start one worker without holding the MCP request open. */
+  dispatchAsync(role: string, prompt: string, title?: string): TaskStatusSnapshot {
+    const taskId = this.nextTaskId()
+    const run = this.dispatch(role, prompt, title, { taskId })
+      .then((result) => { this.taskResults.set(taskId, result); return result })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error)
+        this.taskResults.set(taskId, message)
+        return message
+      })
+    this.taskRuns.set(taskId, run)
+    void run.finally(() => this.taskRuns.delete(taskId))
+    return { taskId, status: this.tasks.get(taskId)?.status ?? 'queued' }
+  }
+
+  dispatchBatchAsync(items: Array<{ role: string; prompt: string; title?: string }>): TaskStatusSnapshot[] {
+    return items.map((item) => this.dispatchAsync(item.role, item.prompt, item.title))
+  }
+
+  getTaskStatus(taskId: string): TaskStatusSnapshot | undefined {
+    const task = this.tasks.get(taskId)
+    if (!task) return undefined
+    const result = this.taskResults.get(taskId)
+    // dispatch() updates the DAG just before its Promise resolves. Keep polling
+    // non-terminal until the async result map is populated, so callers never
+    // observe success/error without the corresponding result payload.
+    const status = result == null && this.taskRuns.has(taskId) &&
+      (task.status === 'success' || task.status === 'error' || task.status === 'stopped')
+      ? 'running'
+      : task.status
+    return {
+      taskId, status, phase: task.phase, progress: task.progress,
+      lastAction: task.lastAction, lastHeartbeatAt: task.lastHeartbeatAt, completion: task.completion,
+      result: task.status === 'success' || task.status === 'stopped' ? result : undefined,
+      error: task.status === 'error' ? result ?? task.note : undefined
+    }
+  }
+
+  listTaskStatuses(): TaskStatusSnapshot[] {
+    return [...this.tasks.keys()].map((id) => this.getTaskStatus(id)!).filter(Boolean)
   }
 
   /**
@@ -414,7 +542,13 @@ export class OrchestratorEngine extends EventEmitter {
       pending.delete(task.id)
       for (const key of task.conflictKeys) activeConflicts.add(key)
       const runtimeId = runtimeIds.get(task.id)!
-      const running = this.dispatch(task.role, task.prompt, task.title, {
+      const dependencyContext = task.ownership === 'integrator'
+        ? task.dependsOn.map((id) => results.get(id)?.result).filter(Boolean).join('\n\n--- dependency ---\n\n')
+        : ''
+      const taskPrompt = dependencyContext
+        ? `${task.prompt}\n\nDependency results (commits and integration notes):\n${dependencyContext}`
+        : task.prompt
+      const running = this.dispatch(task.role, taskPrompt, task.title, {
         taskId: runtimeId,
         planId,
         dependsOn: task.dependsOn.map((id) => runtimeIds.get(id)!),
@@ -501,6 +635,22 @@ export class OrchestratorEngine extends EventEmitter {
       .map(([, change]) => change)
     if (changes.length === 0) return
 
+    const integrationId = 'integration-' + (planId ?? Date.now().toString(36))
+    const integrationTask: OrcaTask = {
+      id: integrationId,
+      title: 'Integration & Abnahme',
+      role: 'integrator',
+      status: 'running',
+      phase: 'integrating',
+      progress: 25,
+      lastAction: 'Übernimmt verifizierte Task-Commits',
+      lastHeartbeatAt: Date.now(),
+      planId,
+      createdAt: Date.now()
+    }
+    this.tasks.set(integrationId, integrationTask)
+    this.push()
+
     const outcome = await publishPreparedChanges({
       config: profile.autoPr,
       goalId: this.goal?.id ?? planId ?? 'goal',
@@ -508,6 +658,15 @@ export class OrchestratorEngine extends EventEmitter {
       changes,
       profileDefaultBranch: profileDefaultBaseBranch(profile)
     })
+    integrationTask.status = outcome.status === 'blocked' ? 'error' : 'success'
+    integrationTask.phase = outcome.status === 'blocked' ? 'security-review' : 'completed'
+    integrationTask.progress = outcome.status === 'blocked' ? undefined : 100
+    integrationTask.lastAction = outcome.message
+    integrationTask.lastHeartbeatAt = Date.now()
+    integrationTask.finishedAt = Date.now()
+    integrationTask.completion = { kind: 'no-changes' }
+    integrationTask.prUrl = outcome.url
+    integrationTask.autoPrStatus = outcome.status
     const changedCommits = new Set(changes.map((change) => change.commit))
     for (const task of this.tasks.values()) {
       if (!task.commit || !changedCommits.has(task.commit)) continue
@@ -521,6 +680,26 @@ export class OrchestratorEngine extends EventEmitter {
     this.push()
   }
 
+
+  /** Start a complete DAG without keeping the MCP request open. */
+  executePlanAsync(input: unknown): PlanRunStatusSnapshot {
+    const runId = `plan-run-${Date.now().toString(36)}-${(this.planSeq + 1).toString(36)}`
+    this.planRunResults.set(runId, { runId, status: 'running' })
+    const run = this.executePlan(input)
+      .then((result) => { this.planRunResults.set(runId, { runId, status: 'success', result }); return result })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error)
+        this.planRunResults.set(runId, { runId, status: 'error', error: message })
+        throw error
+      })
+    this.planRuns.set(runId, run)
+    void run.catch(() => undefined).finally(() => this.planRuns.delete(runId))
+    return { runId, status: 'running' }
+  }
+
+  getPlanRunStatus(runId: string): PlanRunStatusSnapshot | undefined {
+    return this.planRunResults.get(runId)
+  }
 
   /** Open a persistent interactive subagent in its own OS window. */
   async openSubwindow(role: string, prompt?: string): Promise<string> {

@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react'
-import { useAppStore } from '@renderer/store/useAppStore'
+import {
+  activeProfile,
+  useAppStore,
+  workspaceAgents
+} from '@renderer/store/useAppStore'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import type { AgentProviderId } from '@shared/providers'
 import type { ProviderCapacitySnapshot } from '@shared/ipc'
@@ -30,9 +34,10 @@ interface ProviderUsage {
  * Active/waiting counts come from the main-process capacity gate; token/cost from agents.
  */
 export default function LimitsPanel(): JSX.Element {
-  const agents = useAppStore((s) => s.agents)
-  const limits = useAppStore((s) => s.providerLimits)
-  const setProviderLimit = useAppStore((s) => s.setProviderLimit)
+  const store = useAppStore()
+  const { agents, providerLimits: limits, setProviderLimit } = store
+  const profile = activeProfile(store)
+  const visibleAgents = workspaceAgents(store)
   const [capacity, setCapacity] = useState<Record<AgentProviderId, ProviderCapacitySnapshot> | null>(
     null
   )
@@ -42,11 +47,13 @@ export default function LimitsPanel(): JSX.Element {
     const refresh = (): void => {
       void window.orca.getProviderCapacity().then((stats) => {
         if (!cancelled) setCapacity(stats)
-      })
+      }).catch(() => undefined)
     }
     refresh()
+    const timer = setInterval(refresh, 5000)
     return () => {
       cancelled = true
+      clearInterval(timer)
     }
   }, [agents, limits])
 
@@ -71,15 +78,52 @@ export default function LimitsPanel(): JSX.Element {
   })
 
   const totalActive = rows.reduce((n, r) => n + r.active, 0)
+  const totalWaiting = rows.reduce((n, r) => n + r.waiting, 0)
   const totalCost = rows.reduce((n, r) => n + r.cost, 0)
+  const configuredPrewarmed =
+    profile?.agents.reduce((count, slot) => count + slot.count, 0) ?? 0
+  const prewarmed = visibleAgents.filter(
+    (agent) =>
+      agent.kind === 'sub' &&
+      agent.mode === 'interactive' &&
+      Boolean(agent.teamRole) &&
+      (agent.status === 'running' || agent.status === 'waiting')
+  ).length
+  const taskParallelism = profile?.planner.maxParallel ?? 0
 
   return (
     <section className="limits-panel" aria-label="Limits und Nutzung">
       <div className="limits-head">
-        <span className="limits-title">Limits &amp; Nutzung</span>
+        <span className="limits-title">Kapazität</span>
         <span className="limits-total">
-          {totalActive} aktiv{totalCost > 0 ? ` · $${totalCost.toFixed(2)}` : ''}
+          {totalCost > 0 ? `${totalCost.toFixed(2)} Nutzung` : 'Live-Modell'}
         </span>
+      </div>
+      <div className="capacity-grid" aria-label="Einheitliches Kapazitätsmodell">
+        <div className="capacity-item" title="Vorgewärmte, interaktive Team-Agents im aktuellen Workspace">
+          <span className="capacity-label">Vorgewärmt</span>
+          <strong>{prewarmed}/{configuredPrewarmed}</strong>
+          <small>interaktiv · Workspace</small>
+        </div>
+        <div className="capacity-item" title="Maximale parallele Tasks laut Planner-Profil">
+          <span className="capacity-label">Task-Parallelität</span>
+          <strong>{taskParallelism || '—'}</strong>
+          <small>Maximum · Workspace</small>
+        </div>
+        <div className="capacity-item" title="Prozesse, die aktuell einen Provider-Slot belegen">
+          <span className="capacity-label">Aktive Prozesse</span>
+          <strong>{totalActive}</strong>
+          <small>global · alle Provider</small>
+        </div>
+        <div className={`capacity-item ${totalWaiting > 0 ? 'waiting' : ''}`} title="Prozesse in der globalen Provider-Warteschlange">
+          <span className="capacity-label">Wartende Prozesse</span>
+          <strong>{totalWaiting}</strong>
+          <small>global · Provider-Gate</small>
+        </div>
+      </div>
+      <div className="limits-subhead">
+        <span>Provider-Hardlimits</span>
+        <span>aktiv / Limit (+ wartend)</span>
       </div>
       <div className="limits-list">
         {rows.map((r) => {

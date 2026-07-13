@@ -3,6 +3,8 @@ import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import type { AutoPrConfig } from '@shared/profile'
+import { noTaskChanges, verifiedTaskCommit } from './commitContract'
+import { assertSecurityGate } from './securityGate'
 
 const execFileAsync = promisify(execFile)
 const execAsync = promisify(exec)
@@ -14,6 +16,7 @@ export interface PreparedTaskChange {
   worktree: string
   branch: string
   commit: string
+  commits: string[]
   files: string[]
 }
 
@@ -27,6 +30,10 @@ export interface AutoPrOutcome {
 
 interface PrepareTaskInput {
   config: AutoPrConfig
+  /** Enforce the worker commit contract even when PR publishing is disabled. */
+  commitOnly?: boolean
+  /** HEAD captured before the worker process started. */
+  baseCommit?: string
   taskId: string
   title: string
   worktree?: string
@@ -67,18 +74,7 @@ function safeSlug(value: string, max = 42): string {
 }
 
 function assertDiffLooksSafe(diff: string): void {
-  if (Buffer.byteLength(diff, 'utf8') > 5 * 1024 * 1024) {
-    throw new Error('Diff ist größer als 5 MiB; Auto-PR wurde sicherheitshalber blockiert.')
-  }
-  const secretPatterns = [
-    /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
-    /\bAKIA[0-9A-Z]{16}\b/,
-    /\bgh[opsu]_[A-Za-z0-9]{30,}\b/,
-    /\bsk-[A-Za-z0-9_-]{32,}\b/
-  ]
-  if (secretPatterns.some((pattern) => pattern.test(diff))) {
-    throw new Error('Mögliches Secret im Diff erkannt; Auto-PR wurde blockiert.')
-  }
+  assertSecurityGate(diff)
 }
 
 async function runQualityGates(cwd: string, gates: string[]): Promise<void> {
@@ -98,46 +94,104 @@ async function runQualityGates(cwd: string, gates: string[]): Promise<void> {
   }
 }
 
-export async function prepareTaskChange(input: PrepareTaskInput): Promise<AutoPrOutcome & { change?: PreparedTaskChange }> {
-  if (input.config.mode === 'off') return { status: 'skipped', message: 'Auto-PR ist deaktiviert.' }
-  if (!input.worktree) return { status: 'skipped', message: 'Task besitzt keinen Git-Worktree.' }
+export type PrepareTaskResult = AutoPrOutcome & {
+  result: 'disabled' | 'unavailable' | 'no-changes' | 'committed' | 'blocked'
+  noChanges?: boolean
+  change?: PreparedTaskChange
+}
+
+export async function prepareTaskChange(input: PrepareTaskInput): Promise<PrepareTaskResult> {
+  if (input.config.mode === 'off' && !input.commitOnly) {
+    return { status: 'skipped', result: 'disabled', message: 'Auto-PR ist deaktiviert.' }
+  }
+  if (!input.worktree) {
+    return { status: 'blocked', result: 'unavailable', message: 'Task besitzt keinen Git-Worktree.' }
+  }
 
   let staged = false
   try {
-    const status = await git(input.worktree, ['status', '--porcelain=v1'])
-    if (!status) return { status: 'skipped', message: 'Keine Änderungen für Auto-PR.' }
+    let baseCommit: string | undefined
+    if (input.baseCommit?.trim()) {
+      const resolvedBase = await git(input.worktree, [
+        'rev-parse', '--verify', input.baseCommit.trim() + '^{commit}'
+      ])
+      baseCommit = verifiedTaskCommit(input.baseCommit, resolvedBase).commit
+    }
+
+    const initialStatus = await git(input.worktree, ['status', '--porcelain=v1'])
+    const initialHeadCandidate = await git(input.worktree, ['rev-parse', '--verify', 'HEAD^{commit}'])
+    const initialHeadResolved = await git(input.worktree, [
+      'rev-parse', '--verify', initialHeadCandidate + '^{commit}'
+    ])
+    const initialHead = verifiedTaskCommit(initialHeadCandidate, initialHeadResolved).commit
+    const existingCommitDiff = baseCommit && initialHead !== baseCommit
+      ? await git(input.worktree, ['diff', '--no-ext-diff', '--binary', baseCommit + '...HEAD'])
+      : ''
+
+    if (!initialStatus && !existingCommitDiff) {
+      return { status: 'skipped', message: 'Keine Änderungen; expliziter No-op bestätigt.', ...noTaskChanges() }
+    }
+    if (existingCommitDiff) assertSecurityGate(existingCommitDiff)
+    if (initialStatus) {
+      await git(input.worktree, ['add', '--all'])
+      staged = true
+      await git(input.worktree, ['diff', '--cached', '--check'])
+      assertSecurityGate(await git(input.worktree, ['diff', '--cached', '--no-ext-diff', '--binary']))
+    }
 
     await runQualityGates(input.worktree, input.config.qualityGates)
 
+    // Gates may format or generate files. Stage and inspect their final output too.
     await git(input.worktree, ['add', '--all'])
     staged = true
     await git(input.worktree, ['diff', '--cached', '--check'])
     const stagedDiff = await git(input.worktree, ['diff', '--cached', '--no-ext-diff', '--binary'])
-    assertDiffLooksSafe(stagedDiff)
-    const files = (await git(input.worktree, ['diff', '--cached', '--name-only']))
+    if (stagedDiff) assertSecurityGate(stagedDiff)
+    const stagedFiles = (await git(input.worktree, ['diff', '--cached', '--name-only']))
       .split(/\r?\n/)
       .map((file) => file.trim())
       .filter(Boolean)
-    if (files.length === 0) return { status: 'skipped', message: 'Keine versionierbaren Änderungen.' }
 
-    await git(input.worktree, [
-      'commit',
-      '-m',
-      `orca(${input.taskId}): ${input.title.trim().slice(0, 72)}`
-    ])
+    if (stagedFiles.length > 0) {
+      await git(input.worktree, [
+        'commit', '-m', 'orca(' + input.taskId + '): ' + input.title.trim().slice(0, 72)
+      ])
+    }
     const branch = await git(input.worktree, ['branch', '--show-current'])
-    const commit = await git(input.worktree, ['rev-parse', 'HEAD'])
+    if (!branch.trim()) throw new Error('Commit-Vertrag verletzt: Worker-Branch ist nicht bestimmbar.')
+    const candidate = await git(input.worktree, ['rev-parse', '--verify', 'HEAD^{commit}'])
+    const resolved = await git(input.worktree, ['rev-parse', '--verify', candidate + '^{commit}'])
+    const contract = verifiedTaskCommit(candidate, resolved)
+    const commitLines = baseCommit
+      ? (await git(input.worktree, ['rev-list', '--reverse', baseCommit + '..' + contract.commit]))
+          .split(/\r?\n/).map((value) => value.trim()).filter(Boolean)
+      : [contract.commit]
+    const commits: string[] = []
+    for (const value of commitLines) {
+      const verified = await git(input.worktree, ['rev-parse', '--verify', value + '^{commit}'])
+      commits.push(verifiedTaskCommit(value, verified).commit)
+    }
+    if (commits.length === 0) {
+      return { status: 'skipped', message: 'Keine versionierbaren Änderungen; No-op bestätigt.', ...noTaskChanges() }
+    }
+    const files = baseCommit
+      ? (await git(input.worktree, ['diff', '--name-only', baseCommit + '...' + contract.commit]))
+          .split(/\r?\n/).map((file) => file.trim()).filter(Boolean)
+      : stagedFiles
     const change: PreparedTaskChange = {
       taskId: input.taskId,
       title: input.title,
       worktree: input.worktree,
       branch,
-      commit,
+      commit: contract.commit,
+      commits,
       files
     }
     return {
       status: 'prepared',
-      message: `${files.length} Datei(en) committed.`,
+      result: 'committed',
+      noChanges: false,
+      message: files.length + ' Datei(en) in ' + commits.length + ' Commit(s) verifiziert.',
       branch,
       worktree: input.worktree,
       change
@@ -145,7 +199,6 @@ export async function prepareTaskChange(input: PrepareTaskInput): Promise<AutoPr
   } catch (error) {
     if (staged) {
       try {
-        // Reset only the index. Worktree content remains untouched for inspection.
         await git(input.worktree, ['reset', '--mixed', 'HEAD'])
       } catch {
         // Preserve the original error and surface the worktree path below.
@@ -153,6 +206,7 @@ export async function prepareTaskChange(input: PrepareTaskInput): Promise<AutoPr
     }
     return {
       status: 'blocked',
+      result: 'blocked',
       message: error instanceof Error ? error.message : String(error),
       worktree: input.worktree
     }
@@ -243,7 +297,8 @@ async function publishPerTask(input: PublishInput): Promise<AutoPrOutcome> {
       `Task: ${change.taskId} – ${change.title}`,
       '',
       'Quality Gates:',
-      ...input.config.qualityGates.map((gate) => `- \`${gate}\``)
+      ...input.config.qualityGates.map((gate) => `- \`${gate}\``),
+      '- Security Gate (Secrets + sensitive negative tests)'
     ].join('\n')
     urls.push(
       await pushAndOpenPr(
@@ -274,8 +329,14 @@ async function publishAggregate(input: PublishInput): Promise<AutoPrOutcome> {
 
   try {
     for (const change of input.changes) {
-      await git(integrationPath, ['cherry-pick', change.commit])
+      for (const commit of change.commits) {
+        const candidate = await git(change.worktree, ['rev-parse', '--verify', commit + '^{commit}'])
+        const contract = verifiedTaskCommit(commit, candidate)
+        await git(integrationPath, ['cherry-pick', contract.commit])
+      }
     }
+    const integratedDiff = await git(integrationPath, ['diff', '--no-ext-diff', '--binary', `origin/${base}...HEAD`])
+    assertSecurityGate(integratedDiff)
     await runQualityGates(integrationPath, input.config.qualityGates)
     const body = [
       `Automatisch integriert von Orca-Strator für **${input.goalTitle}**.`,
@@ -284,7 +345,8 @@ async function publishAggregate(input: PublishInput): Promise<AutoPrOutcome> {
       ...input.changes.map((change) => `- ${change.taskId}: ${change.title}`),
       '',
       'Quality Gates:',
-      ...input.config.qualityGates.map((gate) => `- \`${gate}\``)
+      ...input.config.qualityGates.map((gate) => `- \`${gate}\``),
+      '- Security Gate (Secrets + sensitive negative tests)'
     ].join('\n')
     const url = await pushAndOpenPr(
       integrationPath,

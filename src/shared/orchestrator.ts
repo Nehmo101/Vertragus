@@ -8,6 +8,20 @@ import type { AgentProviderId } from './providers'
 
 export type TaskStatus = 'queued' | 'running' | 'success' | 'error' | 'stopped'
 
+export type TaskPhase =
+  | 'queued'
+  | 'starting'
+  | 'working'
+  | 'testing'
+  | 'committing'
+  | 'integrating'
+  | 'security-review'
+  | 'completed'
+
+export type TaskCompletion =
+  | { kind: 'commit'; commit: string }
+  | { kind: 'no-changes' }
+
 export interface OrcaTask {
   id: string
   /** Short title shown on the DAG card. */
@@ -23,6 +37,12 @@ export interface OrcaTask {
   status: TaskStatus
   /** 0..100, best-effort. */
   progress?: number
+  /** Structured lifecycle phase for long-running worker visibility. */
+  phase?: TaskPhase
+  /** Last meaningful worker action, kept intentionally short for the DAG card. */
+  lastAction?: string
+  /** Updated by worker output and the periodic lifecycle heartbeat. */
+  lastHeartbeatAt?: number
   /** One-line note (error text, block reason, result preview). */
   note?: string
   /** Runtime task ids that must finish successfully before this task may start. */
@@ -34,6 +54,8 @@ export interface OrcaTask {
   worktree?: string
   branch?: string
   commit?: string
+  /** A successful implementation must prove a commit or explicitly report no changes. */
+  completion?: TaskCompletion
   prUrl?: string
   /** Auto-PR is independent from the agent execution status. */
   autoPrStatus?: 'skipped' | 'prepared' | 'published' | 'blocked'
@@ -61,7 +83,37 @@ export interface OrchestratorSnapshot {
   workspaceSessionId?: string
   goal: OrchestratorGoal | null
   tasks: OrcaTask[]
+  capacity?: OrchestratorCapacitySnapshot
   pendingPlan?: PendingPlanReview
+}
+
+/** One mental model for warm panes, scheduler slots, provider gates and queues. */
+export interface OrchestratorCapacitySnapshot {
+  warmInteractiveAgents: number
+  maxTaskParallelism: number
+  configuredRoleCapacity: number
+  activeTasks: number
+  waitingTasks: number
+}
+
+/** Polling response returned by the asynchronous MCP task API. */
+export interface TaskStatusSnapshot {
+  taskId: string
+  status: TaskStatus
+  phase?: TaskPhase
+  progress?: number
+  lastAction?: string
+  lastHeartbeatAt?: number
+  result?: string
+  error?: string
+  completion?: TaskCompletion
+}
+
+export interface PlanRunStatusSnapshot {
+  runId: string
+  status: 'running' | 'success' | 'error'
+  result?: ExecutionPlanResult
+  error?: string
 }
 
 /** A subagent slot as advertised to the orchestrator via list_subagents. */
@@ -93,6 +145,10 @@ export interface ExecutionPlanTask {
   dependsOn: string[]
   /** Tasks sharing a key never run at the same time. */
   conflictKeys: string[]
+  /** Shared-hotspot ownership is explicit and limited to one final integrator task. */
+  ownership: 'feature' | 'integrator'
+  /** Best-effort declared write set used for ownership validation. */
+  expectedFiles: string[]
 }
 
 /** Structured plan produced by an orchestrator after inspecting available slots. */
@@ -109,6 +165,7 @@ export type PlanValidationCode =
   | 'invalid_goal'
   | 'invalid_parallelism'
   | 'invalid_task'
+  | 'invalid_ownership'
   | 'too_many_tasks'
   | 'duplicate_task_id'
   | 'unknown_dependency'
