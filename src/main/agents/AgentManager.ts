@@ -84,6 +84,14 @@ export interface RunTaskRequest {
   workspaceSessionId?: string
 }
 
+function assertModelSelection(provider: AgentProviderId, model: string): void {
+  if (provider === 'ollama' && !model) {
+    throw new Error(
+      'Ollama benötigt ein lokal installiertes Modell. Bitte ein Modell aus der Live-Liste auswählen.'
+    )
+  }
+}
+
 export class AgentManager extends EventEmitter {
   private readonly agents = new Map<string, Managed>()
   private readonly names = new NameAllocator()
@@ -237,6 +245,8 @@ export class AgentManager extends EventEmitter {
   }
 
   async spawn(req: SpawnAgentRequest): Promise<AgentInstanceInfo> {
+    const resolvedModel = resolveModel(req.provider, req)
+    assertModelSelection(req.provider, resolvedModel)
     providerCapacity.tryAcquire(req.provider)
     let capacityHeld = true
 
@@ -244,7 +254,6 @@ export class AgentManager extends EventEmitter {
     const id = this.nextId(kind === 'orchestrator' ? 'orch' : 'sub')
     const name = this.names.allocate(kind)
     const yolo = req.yolo ?? false
-    const resolvedModel = resolveModel(req.provider, req)
     const { workingDir, worktree, branch } = await this.prepareWorkingDir(
       id,
       req.workingDir,
@@ -299,7 +308,7 @@ export class AgentManager extends EventEmitter {
     if (req.teamRole) {
       this.pushData(
         managed,
-        `\x1b[36m▶ Orca-Identität: ${name} · Team ${req.teamRole} · ${req.provider}/${req.model || 'Standard'}\x1b[0m\r\n`
+        `\x1b[36m▶ Orca-Identität: ${name} · Team ${req.teamRole} · ${req.provider}/${resolvedModel || 'CLI-Standard'}\x1b[0m\r\n`
       )
     }
 
@@ -520,6 +529,7 @@ export class AgentManager extends EventEmitter {
     lifecycle?: HeadlessLifecycleOptions
   ): Promise<{ info: AgentInstanceInfo; done: Promise<HeadlessResult>; baseCommit?: string }> {
     const resolvedModel = resolveModel(req.provider, req)
+    assertModelSelection(req.provider, resolvedModel)
     const taskReq = { ...req, model: resolvedModel }
     let managed = this.claimTeamMember(taskReq)
 

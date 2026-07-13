@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAppStore, activeProfile } from '@renderer/store/useAppStore'
 import type { WorkspaceProfile } from '@shared/profile'
+import { resolveModel } from '@shared/models'
 import type { UpdateState } from '@shared/ipc'
 import WhaleLogo from '@renderer/components/WhaleLogo'
 import GitWorkspaceTree from '@renderer/components/GitWorkspaceTree'
@@ -17,8 +18,14 @@ function useClock(): string {
 
 function profileSummary(p: WorkspaceProfile): string {
   const parts: string[] = []
-  if (p.orchestrator) parts.push(`${p.orchestrator.provider}/${p.orchestrator.model}`)
-  for (const slot of p.agents) parts.push(`${slot.count}× ${slot.model}`)
+  if (p.orchestrator) {
+    parts.push(
+      `${p.orchestrator.provider}/${resolveModel(p.orchestrator.provider, p.orchestrator) || 'CLI-Standard'}`
+    )
+  }
+  for (const slot of p.agents) {
+    parts.push(`${slot.count}× ${slot.provider}/${resolveModel(slot.provider, slot) || 'CLI-Standard'}`)
+  }
   return parts.join(' · ') || 'leer'
 }
 

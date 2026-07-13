@@ -177,6 +177,7 @@ export interface GithubAuthStatus {
   method: GithubAuthMethod
   account?: string
   scopes: string[]
+  /** Connection-level scopes that are missing (feature-specific scopes are checked on use). */
   missingScopes: string[]
   needsReauth: boolean
   /** True when ORCA_GITHUB_OAUTH_CLIENT_ID or a saved client id is configured. */

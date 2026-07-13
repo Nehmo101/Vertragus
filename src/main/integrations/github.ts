@@ -98,6 +98,11 @@ export async function listGithubProjects(
     return { owner, projects: parseGithubProjects(stdout, owner) }
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error)
+    if (/read:project|missing required scopes/i.test(detail)) {
+      throw new Error(
+        'GitHub-Boards benötigen Leserechte für Projects. Bitte einmal „gh auth refresh -s read:project“ ausführen.'
+      )
+    }
     throw new Error(`GitHub-Boards für ${owner} konnten nicht geladen werden: ${detail}`)
   }
 }

@@ -9,6 +9,7 @@ import { PROVIDER_THEME } from '@renderer/ui/theme'
 import LoreName from '@renderer/components/LoreName'
 import LimitsPanel from '@renderer/components/LimitsPanel'
 import type { OrcaTask, TaskStatus } from '@shared/orchestrator'
+import { resolveModel } from '@shared/models'
 
 const STALE_HEARTBEAT_MS = 90_000
 
@@ -219,6 +220,10 @@ export default function OrchestratorPanel(): JSX.Element {
   const done = tasks.filter((t) => t.status === 'success').length
   const pct = tasks.length > 0 ? Math.round((done / tasks.length) * 100) : 0
   const assigned = tasks.filter((t) => t.agentId).length
+  const configuredOrchestratorModel = profile?.orchestrator
+    ? resolveModel(profile.orchestrator.provider, profile.orchestrator) || 'CLI-Standard'
+    : '—'
+  const displayedOrchestratorModel = orch?.model || configuredOrchestratorModel
 
   useEffect(() => {
     const el = logRef.current
@@ -232,7 +237,7 @@ export default function OrchestratorPanel(): JSX.Element {
         <div className="orch-head-row">
           <span className="orch-diamond">◇</span>
           <span className="orch-title">Orchestrator</span>
-          <span className="orch-model">{orch?.model ?? profile?.orchestrator?.model ?? '—'}</span>
+          <span className="orch-model">{displayedOrchestratorModel}</span>
           <div className="spacer" />
           <span className="mini-toggle-label">{goal?.active ? 'aktiv' : 'inaktiv'}</span>
           <span className={`mini-toggle ${goal?.active ? '' : 'off'}`}>
@@ -263,7 +268,7 @@ export default function OrchestratorPanel(): JSX.Element {
               <div className="goal-title">Kein aktives Ziel</div>
               <div className="goal-note">
                 „▶ Alle starten" aktiviert den Orchestrator ({profile?.orchestrator?.provider ?? '—'}
-                /{profile?.orchestrator?.model ?? '—'}). Gib ihm im Terminal ein Ziel — er zerlegt es
+                /{configuredOrchestratorModel}). Gib ihm im Terminal ein Ziel — er zerlegt es
                 und delegiert an Subagents.
               </div>
             </>

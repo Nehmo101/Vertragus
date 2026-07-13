@@ -542,6 +542,8 @@ body {
   border-radius: 16px;
   background: var(--terminal);
   overflow: hidden;
+  contain: layout paint;
+  isolation: isolate;
 }
 .pane-term .xterm { padding: 12px 14px; }
 .pane-term .xterm-viewport { border-radius: 16px; }

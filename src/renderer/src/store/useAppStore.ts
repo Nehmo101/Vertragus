@@ -16,8 +16,15 @@ import type { OrchestratorSnapshot } from '@shared/orchestrator'
 import type { AppInfo, GitInfo, GithubAuthStatus } from '@shared/ipc'
 import { profileRepoLocalPath } from '@shared/profile'
 import { normalizeModelCatalog, type ModelCatalog } from '@renderer/modelCatalog'
+import type { ModelPreset } from '@shared/models'
 
 const ADD_ROLES = ['Docs / Changelog', 'Refactor / Cleanup', 'Security-Review', 'Perf / Bench']
+
+export interface ManualAgentSelection {
+  provider: AgentProviderId
+  model: string
+  modelPreset?: ModelPreset
+}
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -58,6 +65,7 @@ interface AppState {
   editorProfile: WorkspaceProfile | null
   /** Source agent for the handoff modal; null = closed. */
   handoffSource: AgentInstanceInfo | null
+  addAgentOpen: boolean
   addSeq: number
 
   init(): Promise<void>
@@ -84,7 +92,9 @@ interface AppState {
   startAll(): Promise<void>
   stopAll(): Promise<void>
   cleanWorkspace(): Promise<void>
-  addAgent(): Promise<void>
+  openAddAgent(): void
+  closeAddAgent(): void
+  addAgent(selection: ManualAgentSelection): Promise<boolean>
   killAgent(id: string): Promise<void>
   popout(id: string): Promise<void>
   openHandoff(id: string): void
@@ -172,6 +182,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   toast: null,
   editorProfile: null,
   handoffSource: null,
+  addAgentOpen: false,
   addSeq: 0,
 
   async init() {
@@ -490,25 +501,36 @@ export const useAppStore = create<AppState>((set, get) => ({
     get().showToast('Workspace geleert — alle Agents entfernt.')
   },
 
-  async addAgent() {
+  openAddAgent() {
+    set({ addAgentOpen: true })
+  },
+
+  closeAddAgent() {
+    set({ addAgentOpen: false })
+  },
+
+  async addAgent(selection) {
     const s = get()
     const profile = activeProfile(s)
     const role = ADD_ROLES[s.addSeq % ADD_ROLES.length]
     try {
-      // Empty model = codex uses its own ~/.codex/config.toml default (safe:
-      // an explicit unsupported name 400s). The rich model list is a picker only.
-      await window.orca.agents.spawn({
-        provider: 'codex',
-        model: '',
+      const agent = await window.orca.agents.spawn({
+        provider: selection.provider,
+        model: selection.model,
+        modelPreset: selection.modelPreset,
         role: `Subagent · ${role}`,
         yolo: s.yoloMaster,
-        workingDir: profile?.workingDir,
+        workingDir: profile ? profileRepoLocalPath(profile) : undefined,
         profileId: profile?.id
       })
-      set({ addSeq: s.addSeq + 1 })
-      get().showToast('Neuer Subagent gestartet — Codex-Default')
+      set({ addSeq: s.addSeq + 1, addAgentOpen: false })
+      get().showToast(
+        `Neuer Subagent gestartet — ${selection.provider}/${agent.model || 'CLI-Standard'}`
+      )
+      return true
     } catch (error) {
       get().showToast(`Agent konnte nicht starten: ${errorMessage(error)}`)
+      return false
     }
   },
 
@@ -520,7 +542,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     const agent = get().agents.find((a) => a.id === id)
     await window.orca.agents.popout(id)
     if (agent) {
-      get().showToast(`„${agent.model} · ${agent.role.split('·').pop()?.trim()}" als eigenes Fenster geöffnet ⧉`)
+      get().showToast(
+        `„${agent.model || 'CLI-Standard'} · ${agent.role.split('·').pop()?.trim()}" als eigenes Fenster geöffnet ⧉`
+      )
     }
   },
 
@@ -554,7 +578,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         id: `profile-${Date.now().toString(36)}`,
         name: 'Neues Profil',
         workingDir: activeProfile(get())?.workingDir ?? '',
-        orchestrator: { provider: 'claude', model: 'fable', modelPreset: 'balanced', autoOpenSubwindows: true },
+        orchestrator: {
+          provider: 'claude',
+          model: '',
+          modelPreset: 'balanced',
+          autoOpenSubwindows: true
+        },
         agents: [
           {
             // Empty model = codex's own configured default (see DEFAULT_PROFILE).

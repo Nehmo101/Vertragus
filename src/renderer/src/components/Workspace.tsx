@@ -151,7 +151,7 @@ export default function Workspace(): JSX.Element {
               onHandoff={() => actions.openHandoff(agent.id)}
             />
           ))}
-          <button type="button" className="add-tile" onClick={() => void actions.addAgent()}>
+          <button type="button" className="add-tile" onClick={() => actions.openAddAgent()}>
             <span className="plus">＋</span>
             <span className="t1">Agent hinzufügen</span>
             <span className="t2">Provider &amp; Modell wählen</span>

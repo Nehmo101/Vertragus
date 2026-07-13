@@ -26,6 +26,14 @@ export interface Launch {
   args: string[]
 }
 
+function requiredOllamaModel(model: string | undefined): string {
+  const selected = model?.trim()
+  if (!selected) {
+    throw new Error('Ollama benötigt ein explizit ausgewähltes lokales Modell.')
+  }
+  return selected
+}
+
 /**
  * Yolo (auto-approve) flags per provider — verified against each CLI's --help
  * (copilot per the public @github/copilot CLI). ollama has no permission layer.
@@ -50,7 +58,7 @@ export function buildInteractiveLaunch(id: AgentProviderId, opts: SpawnOpts): La
     case 'codex':
       return {
         command: 'codex',
-        args: [...(opts.model ? ['-c', `model=${opts.model}`] : []), ...yolo, ...extra]
+        args: [...(opts.model ? ['--model', opts.model] : []), ...yolo, ...extra]
       }
     case 'cursor':
       return {
@@ -64,7 +72,7 @@ export function buildInteractiveLaunch(id: AgentProviderId, opts: SpawnOpts): La
         args: [...(opts.model ? ['--model', opts.model] : []), ...yolo, ...extra]
       }
     case 'ollama':
-      return { command: 'ollama', args: ['run', opts.model ?? 'llama3', ...extra] }
+      return { command: 'ollama', args: ['run', requiredOllamaModel(opts.model), ...extra] }
   }
 }
 
@@ -94,7 +102,13 @@ export function buildHeadlessLaunch(
     case 'codex':
       return {
         command: 'codex',
-        args: ['exec', prompt, ...(opts.model ? ['-c', `model=${opts.model}`] : []), ...yolo, ...extra]
+        args: [
+          'exec',
+          ...(opts.model ? ['--model', opts.model] : []),
+          prompt,
+          ...yolo,
+          ...extra
+        ]
       }
     case 'cursor':
       return {
@@ -118,6 +132,6 @@ export function buildHeadlessLaunch(
       }
     case 'ollama':
       // ollama is driven via its HTTP API in runHeadless(); no CLI launch here.
-      return { command: 'ollama', args: ['run', opts.model ?? 'llama3'] }
+      return { command: 'ollama', args: ['run', requiredOllamaModel(opts.model)] }
   }
 }

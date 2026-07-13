@@ -42,8 +42,8 @@ export const PRESET_MODELS: Record<AgentProviderId, Record<ModelPreset, string>>
   },
   copilot: {
     fast: 'claude-haiku-4.5',
-    balanced: 'claude-sonnet-4.5',
-    strong: 'gpt-5'
+    balanced: 'claude-sonnet-4.6',
+    strong: 'gpt-5.4'
   },
   ollama: {
     fast: 'qwen2.5-coder:14b',

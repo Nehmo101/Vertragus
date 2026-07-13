@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { GithubAuthStatus, GitInfo, GitWorktreeInfo } from '@shared/ipc'
 import type { WorkspaceProfile } from '@shared/profile'
 import { githubAuthPresentation, hasUsableGithubAuth } from '@renderer/store/githubAuth'
@@ -85,6 +86,8 @@ function WorktreeRow({ worktree, root }: { worktree: GitWorktreeInfo; root?: str
 
 export default function GitWorkspaceTree({ profile, gitInfo, githubAuth }: Props): JSX.Element {
   const [open, setOpen] = useState(false)
+  const [popoverPosition, setPopoverPosition] = useState({ left: 0, top: 0 })
+  const anchorRef = useRef<HTMLDivElement>(null)
   const repoBound = Boolean(profile?.githubRepo?.owner.trim() && profile.githubRepo.repo.trim())
   const gate = gitWorkspaceTreeGate({
     authResolved: githubAuth !== null,
@@ -107,8 +110,30 @@ export default function GitWorkspaceTree({ profile, gitInfo, githubAuth }: Props
     return () => window.removeEventListener('keydown', closeOnEscape)
   }, [open])
 
+  useLayoutEffect(() => {
+    if (!open) return
+
+    const positionPopover = (): void => {
+      const anchor = anchorRef.current
+      if (!anchor) return
+
+      const rect = anchor.getBoundingClientRect()
+      const viewportPadding = 14
+      const popoverWidth = Math.min(430, window.innerWidth - viewportPadding * 2)
+      const left = Math.min(
+        Math.max(viewportPadding, rect.left),
+        window.innerWidth - popoverWidth - viewportPadding
+      )
+      setPopoverPosition({ left, top: rect.bottom + 7 })
+    }
+
+    positionPopover()
+    window.addEventListener('resize', positionPopover)
+    return () => window.removeEventListener('resize', positionPopover)
+  }, [open])
+
   return (
-    <div className="git-tree-anchor no-drag">
+    <div ref={anchorRef} className="git-tree-anchor no-drag">
       <button
         type="button"
         className={`git-tree-trigger ${gate === 'ready' ? 'ready' : 'locked'}`}
@@ -125,7 +150,7 @@ export default function GitWorkspaceTree({ profile, gitInfo, githubAuth }: Props
             : 'Git-Baum'}
         </span>
       </button>
-      {open && (
+      {open && createPortal(
         <>
           <button
             type="button"
@@ -133,7 +158,12 @@ export default function GitWorkspaceTree({ profile, gitInfo, githubAuth }: Props
             aria-label="Git-Baum schließen"
             onClick={() => setOpen(false)}
           />
-          <section className="git-tree-popover" role="dialog" aria-label="Workspace Git-Baum">
+          <section
+            className="git-tree-popover"
+            role="dialog"
+            aria-label="Workspace Git-Baum"
+            style={popoverPosition}
+          >
             <header className="git-tree-headline">
               <span>
                 <strong>Branches &amp; Worktrees</strong>
@@ -203,7 +233,8 @@ export default function GitWorkspaceTree({ profile, gitInfo, githubAuth }: Props
               </div>
             )}
           </section>
-        </>
+        </>,
+        document.body
       )}
     </div>
   )

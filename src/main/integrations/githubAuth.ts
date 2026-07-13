@@ -15,7 +15,14 @@ import {
 
 const execFileAsync = promisify(execFile)
 
-export const GITHUB_REQUIRED_SCOPES = ['repo', 'read:org', 'project', 'workflow'] as const
+/**
+ * A verified account with repository access is a usable GitHub connection.
+ * Feature-specific scopes must not make the global connection look logged out.
+ */
+export const GITHUB_REQUIRED_SCOPES = ['repo'] as const
+
+/** Scopes requested for new logins so every current GitHub feature is available. */
+export const GITHUB_LOGIN_SCOPES = ['repo', 'read:org', 'read:project', 'workflow'] as const
 
 interface GhAuthProbe {
   authenticated: boolean
@@ -169,7 +176,7 @@ async function syncTokenToGh(token: string): Promise<void> {
 async function requestDeviceCode(clientId: string): Promise<DeviceCodeResponse> {
   const body = new URLSearchParams({
     client_id: clientId,
-    scope: GITHUB_REQUIRED_SCOPES.join(' ')
+    scope: GITHUB_LOGIN_SCOPES.join(' ')
   })
   const response = await fetch('https://github.com/login/device/code', {
     method: 'POST',
@@ -251,7 +258,7 @@ async function loginWithGhWeb(): Promise<GithubAuthStatus> {
         '--git-protocol',
         'https',
         '--scopes',
-        GITHUB_REQUIRED_SCOPES.join(',')
+        GITHUB_LOGIN_SCOPES.join(',')
       ],
       {
         windowsHide: true,

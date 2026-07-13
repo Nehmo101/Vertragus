@@ -47,12 +47,12 @@ export interface ProviderHealth {
   checkedAt: number
 }
 
-export type ModelCatalogSource = 'live' | 'fallback' | 'unavailable'
+export type ModelCatalogSource = 'live' | 'mixed' | 'fallback' | 'unavailable'
 
 /** Account-aware model choices for one provider. */
 export interface ProviderModelCatalogEntry {
   models: string[]
-  /** Live is account verified; fallback is curated; unavailable exposes no guesses. */
+  /** Live comes from the installed provider, mixed adds curated suggestions. */
   source: ModelCatalogSource
   accountDependent: boolean
   /** Short, user-facing explanation of the discovery result. */
@@ -163,18 +163,27 @@ export function getProvider(id: ProviderId): ProviderDef | undefined {
 /**
  * Curated fallbacks used only when live discovery is unavailable.
  *
- * Account-dependent providers should prefer an empty fallback over invented
- * entitlements: Claude and Cursor are populated only from their local account
- * discovery. Codex IDs below are canonical CLI names, but still remain visibly
- * marked as fallback unless the local Codex model cache confirms them.
+ * These values are picker suggestions, not a whitelist. Provider discovery may
+ * replace them with an account/local catalogue (Codex, Cursor, Ollama) or merge
+ * additional options into them (Claude). This keeps stable CLI aliases visible
+ * even when a provider cache only contains experimental/additional models.
  *
  * The model input stays free-text for intentional overrides. Leaving it empty
  * uses the provider CLI's own configured default.
  */
 export const DEFAULT_MODELS: Record<AgentProviderId, string[]> = {
-  // Claude and Cursor are account-dependent. Their picker entries come from
-  // live local account caches/CLI discovery; no guessed fallback models.
-  claude: [],
+  claude: [
+    'sonnet',
+    'opus',
+    'haiku',
+    'fable',
+    'claude-sonnet-5',
+    'claude-opus-4-8',
+    'claude-opus-4-7',
+    'claude-sonnet-4-6',
+    'claude-haiku-4-5',
+    'claude-fable-5'
+  ],
   codex: [
     'gpt-5.6-sol',
     'gpt-5.6-terra',
@@ -184,10 +193,28 @@ export const DEFAULT_MODELS: Record<AgentProviderId, string[]> = {
     'gpt-5.4-mini',
     'gpt-5.3-codex-spark'
   ],
-  cursor: [],
-  // copilot: free-text like the rest; leaving it blank uses the CLI's own
-  // default (currently Claude Sonnet). These are just picker suggestions.
-  copilot: ['claude-sonnet-4.5', 'gpt-5'],
+  // Used only when `cursor-agent models` cannot return the account catalogue.
+  cursor: [
+    'auto',
+    'composer-2.5',
+    'composer-2.5-fast',
+    'gpt-5.3-codex',
+    'claude-opus-4-8-high',
+    'claude-sonnet-5',
+    'gemini-3.1-pro'
+  ],
+  // IDs documented by the standalone @github/copilot CLI. Account and
+  // organization policies may still restrict individual entries.
+  copilot: [
+    'auto',
+    'claude-sonnet-4.6',
+    'gpt-5.4',
+    'claude-haiku-4.5',
+    'gpt-5.3-codex',
+    'gemini-3.1-pro-preview',
+    'gemini-3.5-flash',
+    'mai-code-1-flash'
+  ],
   ollama: [
     'qwen2.5-coder:32b',
     'qwen2.5-coder:14b',

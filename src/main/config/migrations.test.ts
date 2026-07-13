@@ -25,4 +25,47 @@ describe('config migrations', () => {
     expect(result.activeProfileId).toBe(result.profiles[0].id)
     expect(result.settings).toEqual({})
   })
+
+  it('resets the shipped Fable default to the balanced Claude preset once', () => {
+    const result = migrateConfigSnapshot({
+      schemaVersion: 1,
+      profiles: [
+        {
+          id: 'default',
+          name: 'Fable + Codex subagents',
+          workingDir: '',
+          orchestrator: { provider: 'claude', model: 'fable', autoOpenSubwindows: true },
+          agents: []
+        },
+        {
+          id: 'custom',
+          name: 'Intentional Fable',
+          workingDir: '',
+          orchestrator: { provider: 'claude', model: 'fable', autoOpenSubwindows: true },
+          agents: []
+        },
+        {
+          id: 'generated',
+          name: 'Generated profile',
+          workingDir: '',
+          orchestrator: {
+            provider: 'claude',
+            model: 'fable',
+            modelPreset: 'balanced',
+            autoOpenSubwindows: true
+          },
+          agents: []
+        }
+      ],
+      activeProfileId: 'default'
+    })
+
+    expect(result.profiles[0]).toMatchObject({
+      name: 'Claude + Codex subagents',
+      orchestrator: { model: '', modelPreset: 'balanced' }
+    })
+    expect(result.profiles[1].orchestrator?.model).toBe('fable')
+    expect(result.profiles[1].orchestrator?.modelPreset).toBeUndefined()
+    expect(result.profiles[2].orchestrator).toMatchObject({ model: '', modelPreset: 'balanced' })
+  })
 })

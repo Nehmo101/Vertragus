@@ -7,7 +7,7 @@ function status(overrides: Partial<GithubAuthStatus> = {}): GithubAuthStatus {
     authenticated: false,
     method: 'none',
     scopes: [],
-    missingScopes: ['repo', 'read:org', 'project', 'workflow'],
+    missingScopes: ['repo'],
     needsReauth: false,
     oauthConfigured: false,
     ...overrides
@@ -20,7 +20,7 @@ describe('GitHub auth presentation', () => {
       authenticated: true,
       method: 'oauth',
       account: 'eowyn',
-      scopes: ['repo', 'read:org', 'project', 'workflow'],
+      scopes: ['repo', 'read:org', 'read:project', 'workflow'],
       missingScopes: [],
       detail: 'Angemeldet als eowyn (OAuth)'
     })
@@ -45,23 +45,23 @@ describe('GitHub auth presentation', () => {
       authenticated: true,
       method: 'gh-cli',
       account: 'eowyn',
-      scopes: ['repo'],
-      missingScopes: ['read:org', 'project', 'workflow'],
+      scopes: ['read:org'],
+      missingScopes: ['repo'],
       needsReauth: true
     })
 
     expect(hasUsableGithubAuth(auth)).toBe(false)
     expect(githubAuthPresentation(auth)).toEqual({
       label: 'Erneuern',
-      detail: 'Berechtigungen fehlen: read:org, project, workflow'
+      detail: 'Berechtigungen fehlen: repo'
     })
   })
 
   it('prioritizes reauth over an inconsistent unauthenticated flag', () => {
     const auth = status({
       authenticated: false,
-      scopes: ['repo'],
-      missingScopes: ['read:org', 'project', 'workflow'],
+      scopes: [],
+      missingScopes: ['repo'],
       needsReauth: true
     })
 

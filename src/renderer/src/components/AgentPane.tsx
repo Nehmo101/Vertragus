@@ -8,6 +8,7 @@ import { PROVIDER_THEME, STATUS_THEME, XTERM_THEME } from '@renderer/ui/theme'
 import { formatTokenBreakdown, formatTokenCount, formatUsd } from '@renderer/telemetryFormat'
 import LoreName from '@renderer/components/LoreName'
 import { isAgentTerminalChunk } from './terminalStream'
+import { createTerminalFrameWriter } from './terminalFrameWriter'
 import { terminalEnterData } from '@renderer/components/terminalEnter'
 import styles from './responsiveGuards.module.css'
 
@@ -58,6 +59,7 @@ export function useAgentTerminal(agentId: string, inputEnabled: boolean): React.
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.open(host)
+    const frameWriter = createTerminalFrameWriter((data) => term.write(data))
 
     // Preserve Ctrl/Cmd+C as SIGINT when nothing is selected, but let xterm's
     // copy event handler place an active terminal selection on the clipboard.
@@ -89,21 +91,22 @@ export function useAgentTerminal(agentId: string, inputEnabled: boolean): React.
       }
       if (chunk.seq <= lastSeq) return
       lastSeq = chunk.seq
-      term.write(chunk.data)
+      frameWriter.write(chunk.data)
     })
 
     void window.orca.agents.buffer(agentId).then((snap) => {
       if (disposed) return
-      if (snap.data) term.write(snap.data)
+      let initialData = snap.data
       lastSeq = snap.seq
       ready = true
       for (const chunk of queue) {
         if (chunk.seq > lastSeq) {
           lastSeq = chunk.seq
-          term.write(chunk.data)
+          initialData += chunk.data
         }
       }
       queue.length = 0
+      frameWriter.write(initialData)
     })
 
     const onInput = term.onData((data) => {
@@ -146,6 +149,7 @@ export function useAgentTerminal(agentId: string, inputEnabled: boolean): React.
       onKey.dispose()
       host.removeEventListener('paste', onPaste, true)
       unsubscribe()
+      frameWriter.dispose()
       term.dispose()
       terminalRef.current = null
     }
@@ -214,10 +218,7 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
               className="pane-dot"
               style={{
                 background: status.dot,
-                boxShadow: `0 0 8px ${status.dot}`,
-                animation: status.pulse
-                  ? `dotpulse ${status.pulse} ease-in-out infinite`
-                  : 'none'
+                boxShadow: `0 0 8px ${status.dot}`
               }}
             />
             <span className="pane-status" style={{ color: status.text }}>

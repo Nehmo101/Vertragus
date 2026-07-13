@@ -15,9 +15,10 @@ export default function HandoffModal(): JSX.Element | null {
   const models = store.models
   const catalogFor = (p: AgentProviderId) => models[p]
   const modelsFor = (p: AgentProviderId): string[] => catalogFor(p).models
-  // Never auto-select unverified fallback guesses. A live account catalogue may
-  // provide the first safe handoff default; otherwise the provider CLI decides.
-  const defaultModelFor = (p: AgentProviderId): string => defaultHandoffModel(catalogFor(p))
+  // Cloud CLIs decide when the field is empty. Ollama has no model-less mode,
+  // so select the first locally discovered model there.
+  const defaultModelFor = (p: AgentProviderId): string =>
+    defaultHandoffModel(p, catalogFor(p))
 
   const [provider, setProvider] = useState<AgentProviderId>('codex')
   const [model, setModel] = useState<string>(defaultModelFor('codex'))
