@@ -1,10 +1,11 @@
-import { useEffect, useRef } from 'react'
+import { memo, useEffect, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import type { AgentInstanceInfo } from '@shared/agents'
 import { LIMIT_KIND_LABELS } from '@shared/agents'
 import { PROVIDER_THEME, STATUS_THEME, XTERM_THEME } from '@renderer/ui/theme'
 import LoreName from '@renderer/components/LoreName'
+import { isAgentTerminalChunk } from './terminalStream'
 
 interface Props {
   agent: AgentInstanceInfo
@@ -58,7 +59,7 @@ function useAgentTerminal(agentId: string): React.RefObject<HTMLDivElement> {
     const queue: Array<{ data: string; seq: number }> = []
 
     const unsubscribe = window.orca.agents.onData((chunk) => {
-      if (chunk.id !== agentId) return
+      if (!isAgentTerminalChunk(agentId, chunk.id)) return
       if (!ready) {
         queue.push(chunk)
         return
@@ -90,20 +91,32 @@ function useAgentTerminal(agentId: string): React.RefObject<HTMLDivElement> {
     const onPaste = (): void => window.orca.agents.markInteractiveUsed(agentId)
     host.addEventListener('paste', onPaste, true)
 
+    let lastSize = ''
     const doFit = (): void => {
       try {
         fit.fit()
+        const size = `${term.cols}x${term.rows}`
+        if (size === lastSize) return
+        lastSize = size
         window.orca.agents.resize(agentId, term.cols, term.rows)
       } catch {
         // host not laid out yet
       }
     }
     doFit()
-    const observer = new ResizeObserver(doFit)
+    let resizeFrame: number | undefined
+    const observer = new ResizeObserver(() => {
+      if (resizeFrame != null) return
+      resizeFrame = requestAnimationFrame(() => {
+        resizeFrame = undefined
+        doFit()
+      })
+    })
     observer.observe(host)
 
     return () => {
       observer.disconnect()
+      if (resizeFrame != null) cancelAnimationFrame(resizeFrame)
       onInput.dispose()
       onKey.dispose()
       host.removeEventListener('paste', onPaste, true)
@@ -115,8 +128,16 @@ function useAgentTerminal(agentId: string): React.RefObject<HTMLDivElement> {
   return hostRef
 }
 
+/**
+ * The xterm instance is deliberately isolated from status and usage updates.
+ * It is recreated only when its backing PTY instance changes.
+ */
+const TerminalHost = memo(function TerminalHost({ agentId, stopped }: { agentId: string; stopped: boolean }): JSX.Element {
+  const hostRef = useAgentTerminal(agentId)
+  return <div className={`pane-term ${stopped ? 'stopped' : ''}`} ref={hostRef} />
+})
+
 export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff, focused, subdued }: Props): JSX.Element {
-  const hostRef = useAgentTerminal(agent.id)
   const provider = PROVIDER_THEME[agent.provider]
   const status = STATUS_THEME[agent.status]
   const isOrch = agent.kind === 'orchestrator'
@@ -199,7 +220,7 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
         )}
       </div>
 
-      <div className={`pane-term ${agent.status === 'stopped' ? 'stopped' : ''}`} ref={hostRef} />
+      <TerminalHost agentId={agent.id} stopped={agent.status === 'stopped'} />
 
       <div className="pane-foot">
         {usage ? (
