@@ -25,6 +25,7 @@ import { resolveModel, type ModelPreset } from '@shared/models'
 import { buildInteractiveLaunch } from '@main/providers/types'
 import { resolveLaunch } from '@main/agents/resolveCommand'
 import { createWorktree } from '@main/agents/worktree'
+import { shouldAutoTrustCursorWorktree } from '@main/agents/cursorWorkspaceTrust'
 import { getSetting } from '@main/config/store'
 import {
   runHeadless,
@@ -58,6 +59,8 @@ interface Managed {
   waitAbort?: { aborted: boolean }
   /** Protect a team pane from automatic reuse after the user typed into it. */
   interactiveUsed?: boolean
+  /** Cursor's startup trust confirmation was handled for an Orca worktree. */
+  workspaceTrustHandled?: boolean
   /** Ignore the interactive PTY exit while converting this pane into a task. */
   reassigning?: boolean
 }
@@ -155,8 +158,32 @@ export class AgentManager extends EventEmitter {
     managed.seq += 1
     this.emit('data', { id: managed.info.id, data, seq: managed.seq })
     this.scanForLimit(managed)
+    this.autoTrustCursorWorktree(managed)
   }
 
+
+  /**
+   * Cursor's --trust flag is headless-only. In interactive mode, confirm its
+   * initial prompt only when this manager created the isolated worktree.
+   */
+  private autoTrustCursorWorktree(managed: Managed): void {
+    const { info } = managed
+    if (info.provider !== 'cursor' || !managed.pty) return
+    if (
+      !shouldAutoTrustCursorWorktree({
+        output: managed.buffer,
+        workingDir: info.workingDir,
+        worktree: info.worktree,
+        alreadyHandled: Boolean(managed.workspaceTrustHandled),
+        interactiveUsed: Boolean(managed.interactiveUsed)
+      })
+    ) {
+      return
+    }
+    managed.workspaceTrustHandled = true
+    managed.pty.write('a\r')
+    this.emitEvent(`${info.name} vertraut Orca-Worktree automatisch`, 'muted', info)
+  }
   /**
    * Best-effort scan of an interactive agent's output for a usage-limit banner.
    * Fires once per agent (debounced). Marks `info.limitWarning` and emits a warn
@@ -605,7 +632,7 @@ export class AgentManager extends EventEmitter {
   write(id: string, data: string): void {
     const managed = this.agents.get(id)
     if (!managed?.pty) return
-    if (managed.info.teamRole && data.length > 0) managed.interactiveUsed = true
+    if (data.length > 0) managed.interactiveUsed = true
     managed.pty.write(data)
   }
 

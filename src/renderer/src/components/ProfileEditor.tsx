@@ -69,17 +69,19 @@ export default function ProfileEditor(): JSX.Element | null {
   const [projectsStatus, setProjectsStatus] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const nameRef = useRef<HTMLInputElement>(null)
-  const closeEditor = store.closeEditor
+  const closeEditorRef = useRef(store.closeEditor)
+  const refreshGithubAuthRef = useRef(store.refreshGithubAuth)
 
   useEffect(() => {
-    nameRef.current?.focus()
-    void store.refreshGithubAuth()
+    const closeEditor = closeEditorRef.current
+    nameRef.current?.focus({ preventScroll: true })
+    void refreshGithubAuthRef.current()
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') closeEditor()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [closeEditor, store])
+  }, [])
 
   if (!initial || !draft) return null
 
