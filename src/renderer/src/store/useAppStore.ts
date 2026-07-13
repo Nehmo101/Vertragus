@@ -40,6 +40,7 @@ interface AppState {
   events: OrcaEvent[]
   orchestrator: OrchestratorSnapshot
   orchestrators: Record<string, OrchestratorSnapshot>
+  selectedAgentId: string | null
   yoloMaster: boolean
   theme: UiTheme
   workspaceLayout: WorkspaceLayout
@@ -59,6 +60,7 @@ interface AppState {
   githubTerminalLogin(): Promise<void>
   loginProvider(id: ProviderId): Promise<void>
   refreshGit(): Promise<void>
+  switchGitBranch(branch: string): Promise<boolean>
   selectProfile(id: string): Promise<boolean>
   setProviderLimit(provider: AgentProviderId, value: number): void
   toggleYolo(): void
@@ -66,6 +68,8 @@ interface AppState {
   setWorkspaceLayout(layout: WorkspaceLayout): void
   setUiDensity(density: UiDensity): void
   showToast(msg: string): void
+  exportDiagnostics(): Promise<void>
+  setSelectedAgent(id: string | null): void
   startAll(): Promise<void>
   stopAll(): Promise<void>
   cleanWorkspace(): Promise<void>
@@ -123,6 +127,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   events: [],
   orchestrator: { goal: null, tasks: [] },
   orchestrators: {},
+  selectedAgentId: null,
   yoloMaster: false,
   theme: 'light',
   workspaceLayout: 'tiles',
@@ -257,6 +262,23 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ gitInfo })
   },
 
+  async switchGitBranch(branch) {
+    const profile = activeProfile(get())
+    const dir = profile ? profileRepoLocalPath(profile) : ''
+    if (!dir) return false
+
+    try {
+      const gitInfo = await window.orca.gitSwitchBranch(dir, branch)
+      set({ gitInfo })
+      get().showToast(`Branch gewechselt: ${gitInfo.branch ?? branch}`)
+      return true
+    } catch (error) {
+      get().showToast(`Branch konnte nicht gewechselt werden: ${errorMessage(error)}`)
+      await get().refreshGit().catch(() => undefined)
+      return false
+    }
+  },
+
   async selectProfile(id) {
     if (id === get().activeProfileId) {
       await get().refreshGit().catch((error) => {
@@ -315,6 +337,21 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ toast: msg })
     clearTimeout(toastTimer)
     toastTimer = setTimeout(() => set({ toast: null }), 2600)
+  },
+
+  async exportDiagnostics() {
+    try {
+      const path = await window.orca.diagnostics.exportLatest(get().activeProfileId)
+      get().showToast(
+        path ? `Diagnose exportiert: ${path}` : 'Für dieses Workspace-Profil gibt es noch keinen Run.'
+      )
+    } catch (error) {
+      get().showToast(`Diagnoseexport fehlgeschlagen: ${errorMessage(error)}`)
+    }
+  },
+
+  setSelectedAgent(id) {
+    set({ selectedAgentId: id })
   },
 
   async startAll() {

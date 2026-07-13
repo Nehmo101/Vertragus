@@ -24,6 +24,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm run ci
+      - name: Electron UI smoke
+        run: xvfb-run -a pnpm run test:ui-smoke
 
   windows-build:
     runs-on: windows-latest
@@ -36,3 +38,5 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+      - name: Electron UI smoke
+        run: pnpm run test:ui-smoke

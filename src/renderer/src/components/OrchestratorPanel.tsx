@@ -31,10 +31,27 @@ const TASK_PILL: Record<TaskStatus, { bg: string; fg: string; dot: string; label
   stopped: { bg: 'var(--stop-soft)', fg: 'var(--stop-text)', dot: 'var(--stop)', label: 'gestoppt' }
 }
 
-function TaskCard({ task }: { task: OrcaTask }): JSX.Element {
+function TaskCard({ task, profileId }: { task: OrcaTask; profileId: string }): JSX.Element {
+  const [diff, setDiff] = useState<string | null>(null)
+  const [diffError, setDiffError] = useState<string | null>(null)
+  const [diffLoading, setDiffLoading] = useState(false)
   const pill = TASK_PILL[task.status]
   const chip = task.provider ? PROVIDER_THEME[task.provider] : undefined
   const label = task.status === 'running' && task.yolo ? 'läuft · yolo' : pill.label
+  const hasReview = Boolean(task.worktree || task.branch || task.commit || task.autoPrStatus)
+
+  const loadDiff = async (): Promise<void> => {
+    setDiffLoading(true)
+    setDiffError(null)
+    try {
+      const result = await window.orca.orchestrator.taskDiff(profileId, task.id)
+      setDiff(result.diff)
+    } catch (error) {
+      setDiffError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setDiffLoading(false)
+    }
+  }
   return (
     <div className="dag-item">
       <div className="dag-rail">
@@ -91,6 +108,30 @@ function TaskCard({ task }: { task: OrcaTask }): JSX.Element {
               </a>
             )}
           </div>
+        )}
+        {hasReview && (
+          <details className="task-review">
+            <summary>Review-Details</summary>
+            <dl>
+              {task.branch && <><dt>Branch</dt><dd><code>{task.branch}</code></dd></>}
+              {task.commit && <><dt>Commit</dt><dd><code>{task.commit}</code></dd></>}
+              {task.worktree && <><dt>Worktree</dt><dd title={task.worktree}>{task.worktree}</dd></>}
+              {task.dependsOn?.length ? <><dt>Abhängig von</dt><dd>{task.dependsOn.join(', ')}</dd></> : null}
+              {task.conflictKeys?.length ? <><dt>Konfliktbereiche</dt><dd>{task.conflictKeys.join(', ')}</dd></> : null}
+            </dl>
+            {task.worktree && (
+              <button
+                type="button"
+                className="btn ghost task-diff-btn"
+                disabled={diffLoading}
+                onClick={() => void loadDiff()}
+              >
+                {diffLoading ? 'Diff wird geladen…' : diff ? 'Diff aktualisieren' : 'Git-Diff anzeigen'}
+              </button>
+            )}
+            {diffError && <div className="task-note err">{diffError}</div>}
+            {diff && <pre className="task-diff">{diff}</pre>}
+          </details>
         )}
       </div>
     </div>
@@ -208,7 +249,7 @@ export default function OrchestratorPanel(): JSX.Element {
               erscheinen hier die Teilaufgaben live — jede läuft als echter Subagent im Grid.
             </div>
           ) : (
-            tasks.map((task) => <TaskCard key={task.id} task={task} />)
+            tasks.map((task) => <TaskCard key={task.id} task={task} profileId={store.activeProfileId} />)
           )}
         </div>
 

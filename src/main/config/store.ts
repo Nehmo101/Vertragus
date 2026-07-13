@@ -3,10 +3,14 @@
  * Secrets (e.g. Cloudflare token) will be encrypted via Electron safeStorage in Phase 3.
  */
 import Store from 'electron-store'
+import { copyFileSync, existsSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { DEFAULT_PROFILE, workspaceProfileSchema, type WorkspaceProfile } from '@shared/profile'
 import { mcpServerSchema, mcpServersSchema, type McpServerConfig } from '@shared/mcp'
+import { CURRENT_CONFIG_SCHEMA_VERSION, migrateConfigSnapshot } from '@main/config/migrations'
 
 interface OrcaConfigShape {
+  schemaVersion: number
   profiles: WorkspaceProfile[]
   activeProfileId: string
   settings: Record<string, unknown>
@@ -15,11 +19,37 @@ interface OrcaConfigShape {
 const store = new Store<OrcaConfigShape>({
   name: 'orca-strator',
   defaults: {
+    schemaVersion: 0,
     profiles: [DEFAULT_PROFILE],
     activeProfileId: DEFAULT_PROFILE.id,
     settings: {}
   }
 })
+
+function migrateStore(): void {
+  const previousVersion = store.get('schemaVersion') ?? 0
+  if (previousVersion >= CURRENT_CONFIG_SCHEMA_VERSION) return
+
+  if (existsSync(store.path)) {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+    copyFileSync(
+      store.path,
+      join(dirname(store.path), `orca-strator.pre-v${CURRENT_CONFIG_SCHEMA_VERSION}.${stamp}.json`)
+    )
+  }
+  const migrated = migrateConfigSnapshot({
+    schemaVersion: previousVersion,
+    profiles: store.get('profiles'),
+    activeProfileId: store.get('activeProfileId'),
+    settings: store.get('settings')
+  })
+  store.set('profiles', migrated.profiles)
+  store.set('activeProfileId', migrated.activeProfileId)
+  store.set('settings', migrated.settings)
+  store.set('schemaVersion', migrated.schemaVersion)
+}
+
+migrateStore()
 
 export function getSetting<T = unknown>(key: string): T | undefined {
   const settings = store.get('settings')

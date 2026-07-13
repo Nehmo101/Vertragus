@@ -37,7 +37,14 @@ function text(s: string): ToolText {
 function buildMcpServer(engine: OrchestratorEngine = orchestratorEngine): McpServer {
   const server = new McpServer(
     { name: 'orca-strator', version: '0.1.0' },
-    { instructions: 'Orchestration tools for delegating work to Orca-Strator subagents.' }
+    {
+      instructions: [
+        'You are the Orca-Strator orchestrator. Plan and delegate instead of editing code yourself.',
+        'Call set_goal first, then list_subagents. Use exactly the returned role values.',
+        'Use execute_plan for dependent work and dispatch_batch for independent parallel work.',
+        'Give every subagent a complete standalone prompt and summarize their results for the user.'
+      ].join(' ')
+    }
   )
 
   // server.tool's generic inference over zod shapes is extremely deep and trips

@@ -7,6 +7,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { PROVIDERS, type ProviderDef, type ProviderHealth } from '@shared/providers'
 import { probeProviderConnection } from '@main/providers/auth'
+import { refreshProcessPathFromSystem } from '@main/providers/processPath'
 
 const execFileAsync = promisify(execFile)
 
@@ -71,5 +72,6 @@ export async function checkProvider(def: ProviderDef): Promise<ProviderHealth> {
 }
 
 export async function checkAllProviders(): Promise<ProviderHealth[]> {
+  await refreshProcessPathFromSystem()
   return Promise.all(PROVIDERS.map(checkProvider))
 }

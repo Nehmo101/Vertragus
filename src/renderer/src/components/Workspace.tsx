@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import {
   useAppStore,
   activeProfile,
@@ -6,6 +5,7 @@ import {
   type WorkspaceLayout
 } from '@renderer/store/useAppStore'
 import AgentPane from '@renderer/components/AgentPane'
+import VoiceBar from '@renderer/components/VoiceBar'
 
 const LAYOUTS: Array<{ id: WorkspaceLayout; icon: string; label: string }> = [
   { id: 'tiles', icon: '▦', label: 'Kacheln' },
@@ -23,10 +23,10 @@ export default function Workspace(): JSX.Element {
   const activeRunning = agents.some(
     (agent) => agent.status === 'running' || agent.status === 'waiting'
   )
-  const [focusedAgentId, setFocusedAgentId] = useState<string | null>(null)
-  const focusedId = agents.some((agent) => agent.id === focusedAgentId)
-    ? focusedAgentId
+  const focusedId = agents.some((agent) => agent.id === store.selectedAgentId)
+    ? store.selectedAgentId
     : (agents[0]?.id ?? null)
+  const selectedAgent = agents.find((agent) => agent.id === focusedId)
   const cols = agents.length + 1 > 5 ? 3 : 2
 
 
@@ -106,6 +106,7 @@ export default function Workspace(): JSX.Element {
         </div>
       </div>
 
+      <VoiceBar key={selectedAgent?.id ?? 'no-agent'} agent={selectedAgent} />
       <div className="ws-scroll">
         {store.workspaceLayout === 'dag' && (
           <div className="dag-layout-note">
@@ -130,7 +131,7 @@ export default function Workspace(): JSX.Element {
               agent={agent}
               focused={store.workspaceLayout === 'focus' && agent.id === focusedId}
               subdued={store.workspaceLayout === 'focus' && agent.id !== focusedId}
-              onFocus={() => setFocusedAgentId(agent.id)}
+              onFocus={() => store.setSelectedAgent(agent.id)}
               onClose={() => void store.killAgent(agent.id)}
               onPopout={() => void store.popout(agent.id)}
               onHandoff={() => store.openHandoff(agent.id)}
