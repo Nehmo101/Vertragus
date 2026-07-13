@@ -20,6 +20,7 @@ import type {
   OrcaEvent,
   SpawnAgentRequest
 } from '@shared/agents'
+import type { PanePreflightReport } from '@shared/orchestrator'
 import {
   getProvider,
   isModelDisabled,
@@ -32,6 +33,12 @@ import { resolveModel, type ModelPreset } from '@shared/models'
 import { buildInteractiveLaunch } from '@main/providers/types'
 import { resolveLaunch } from '@main/agents/resolveCommand'
 import { createWorktree } from '@main/agents/worktree'
+import { canonicalWorkspacePath, workspacePathKey } from '@main/agents/workspacePath'
+import {
+  PanePreflightError,
+  runPanePreflight,
+  type PanePreflightInput
+} from '@main/agents/panePreflight'
 import { cursorWorkspaceTrustPrompt } from '@main/agents/cursorWorkspaceTrust'
 import { getProfile, getSetting } from '@main/config/store'
 import {
@@ -93,7 +100,10 @@ export interface RunTaskRequest {
   workingDir?: string
   profileId?: string
   workspaceSessionId?: string
+  engineId?: string
 }
+
+export type PanePreflightRunner = (input: PanePreflightInput) => Promise<PanePreflightReport>
 
 function assertModelSelection(provider: AgentProviderId, model: string): void {
   if (provider === 'ollama' && !model) {
@@ -116,6 +126,11 @@ function assertProviderSelection(provider: AgentProviderId, model: string): void
 
 export class AgentManager extends EventEmitter {
   private readonly agents = new Map<string, Managed>()
+  private readonly preflightReports = new Map<string, PanePreflightReport>()
+
+  constructor(private readonly preflightRunner: PanePreflightRunner = runPanePreflight) {
+    super()
+  }
   private readonly names = new NameAllocator()
   private readonly sessionId = randomUUID()
   private seq = 0
@@ -124,6 +139,27 @@ export class AgentManager extends EventEmitter {
     return [...this.agents.values()]
       .filter((managed) => !profileId || managed.info.profileId === profileId)
       .map((managed) => managed.info)
+  }
+
+  private preflightKey(provider: AgentProviderId, workingDir: string): string {
+    return `${provider}:${workspacePathKey(workingDir)}`
+  }
+
+  latestPreflight(provider: AgentProviderId, workingDir: string): PanePreflightReport | undefined {
+    return this.preflightReports.get(this.preflightKey(provider, workingDir))
+  }
+
+  async preflightSlot(input: PanePreflightInput): Promise<PanePreflightReport> {
+    try {
+      const report = await this.preflightRunner(input)
+      this.preflightReports.set(this.preflightKey(input.provider, input.workingDir), report)
+      return report
+    } catch (error) {
+      if (error instanceof PanePreflightError) {
+        this.preflightReports.set(this.preflightKey(input.provider, input.workingDir), error.report)
+      }
+      throw error
+    }
   }
 
   buffer(id: string): { data: string; seq: number } {
@@ -169,7 +205,7 @@ export class AgentManager extends EventEmitter {
     workspaceSessionId?: string,
     profileId?: string
   ): Promise<{ workingDir: string; worktree?: string; branch?: string }> {
-    let workingDir = requested?.trim() || homedir()
+    let workingDir = await canonicalWorkspacePath(requested?.trim() || homedir())
     let worktree: string | undefined
     let branch: string | undefined
     const isolate = isolateOverride ?? getSetting<boolean>('worktreeIsolation') ?? true
@@ -336,7 +372,8 @@ export class AgentManager extends EventEmitter {
     const orchestratorSetup = kind === 'orchestrator'
       ? buildOrchestratorSetup(req.provider, name, id, req.workspaceSessionId, {
           adaptiveTeam: orchestratorProfile?.planner.routingMode === 'adaptive',
-          maxRetries: orchestratorProfile?.planner.maxRetries
+          maxRetries: orchestratorProfile?.planner.maxRetries,
+          engineId: req.engineId
         })
       : undefined
     if (orchestratorSetup && !orchestratorSetup.capability.supported) {
@@ -360,6 +397,7 @@ export class AgentManager extends EventEmitter {
       name,
       profileId: req.profileId,
       workspaceSessionId: req.workspaceSessionId,
+      engineId: req.engineId,
       provider: req.provider,
       model: resolvedModel,
       role: req.role ?? (kind === 'orchestrator' ? 'Orchestrator · plant & verteilt' : 'Subagent'),
@@ -619,6 +657,7 @@ export class AgentManager extends EventEmitter {
       info.model = resolvedModel
       info.profileId = req.profileId ?? info.profileId
       info.workspaceSessionId = req.workspaceSessionId ?? info.workspaceSessionId
+      info.engineId = req.engineId ?? info.engineId
       info.status = 'running'
       info.startedAt = Date.now()
       info.pid = undefined
@@ -647,6 +686,7 @@ export class AgentManager extends EventEmitter {
         provider: req.provider,
         profileId: req.profileId,
         workspaceSessionId: req.workspaceSessionId,
+        engineId: req.engineId,
         model: resolvedModel,
         role: `Task · ${req.role}`,
         kind: 'sub',
@@ -676,6 +716,24 @@ export class AgentManager extends EventEmitter {
     const active = managed
     const info = active.info
     const { id, name, workingDir } = info
+    try {
+      info.preflight = await this.preflightSlot({
+        provider: req.provider,
+        workingDir,
+        worktree: info.worktree,
+        engineId: req.engineId,
+        workspaceSessionId: req.workspaceSessionId
+      })
+    } catch (error) {
+      info.preflight = error instanceof PanePreflightError ? error.report : undefined
+      info.status = 'error'
+      info.exitCode = 1
+      const message = error instanceof Error ? error.message : String(error)
+      this.pushData(active, `\r\n\x1b[31mPane-Preflight fehlgeschlagen: ${message}\x1b[0m\r\n`)
+      this.emitEvent(`${name} · Pane-Preflight fehlgeschlagen`, 'error', info)
+      this.changed()
+      throw error
+    }
     const identityInstruction = agentIdentityInstruction(name)
     const taskPrompt = `${identityInstruction}\n\n${req.prompt}`
     const systemPrompt = req.systemPrompt

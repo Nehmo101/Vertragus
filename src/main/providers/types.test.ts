@@ -38,4 +38,11 @@ describe('provider model argument passing', () => {
     expect(() => buildInteractiveLaunch('ollama', withoutModel)).toThrow(/Modell/)
     expect(() => buildHeadlessLaunch('ollama', 'do work', withoutModel)).toThrow(/Modell/)
   })
+
+
+  it('trusts Cursor workspaces noninteractively for headless tasks', () => {
+    const args = buildHeadlessLaunch('cursor', 'do work', opts).args
+    expect(args).toContain('--trust')
+    expect(args.indexOf('--trust')).toBeLessThan(args.indexOf('--model'))
+  })
 })

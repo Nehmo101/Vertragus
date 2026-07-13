@@ -36,7 +36,8 @@ export async function spawnProfileTeam(
           yolo: slot.yolo || yoloMaster,
           workingDir: slot.workingDir || workingDir,
           profileId: profile.id,
-          workspaceSessionId: session.id
+          workspaceSessionId: session.id,
+          engineId: engine.engineId
         })
       )
     }
@@ -53,7 +54,8 @@ export async function spawnProfileTeam(
         yolo: yoloMaster,
         workingDir,
         profileId: profile.id,
-        workspaceSessionId: session.id
+        workspaceSessionId: session.id,
+        engineId: engine.engineId
       })
     )
     engine.activate(profile)

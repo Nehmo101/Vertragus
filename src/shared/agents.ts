@@ -3,6 +3,7 @@
  */
 import type { AgentProviderId, ProviderId } from './providers'
 import type { ModelPreset } from './models'
+import type { PanePreflightReport } from './orchestrator'
 
 export type AgentKind = 'orchestrator' | 'sub'
 
@@ -59,6 +60,8 @@ export interface AgentInstanceInfo {
   profileId?: string
   /** Concrete runtime session within the workspace profile. */
   workspaceSessionId?: string
+  /** Engine identity is the single authority for task, pane and status routing. */
+  engineId?: string
   /** Middle-earth code-name, e.g. "Boromir". */
   name: string
   provider: ProviderId
@@ -77,6 +80,8 @@ export interface AgentInstanceInfo {
   worktree?: string
   /** Effective branch for the isolated worktree, when Git isolation is active. */
   branch?: string
+  /** Last dispatch preflight that qualified this pane/worktree for execution. */
+  preflight?: PanePreflightReport
   status: AgentStatus
   pid?: number
   exitCode?: number
@@ -105,6 +110,8 @@ export interface SpawnAgentRequest {
   profileId?: string
   /** Concrete session created when the workspace team starts. */
   workspaceSessionId?: string
+  /** Engine that owns all task/status operations for this pane. */
+  engineId?: string
   /** Defaults to the active profile's workingDir. */
   workingDir?: string
   /**

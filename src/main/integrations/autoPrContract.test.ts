@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -38,7 +38,7 @@ afterEach(async () => {
 }, 20_000)
 
 describe('Auto-PR worker commit contract', () => {
-  it('captures commits the worker created before returning', async () => {
+  it('rewrites worker-created commits into a centrally owned task commit', async () => {
     const { dir, base } = await repo()
     await writeFile(join(dir, 'feature.ts'), 'export const feature = true\n')
     await git(dir, 'add', '--all')
@@ -55,9 +55,11 @@ describe('Auto-PR worker commit contract', () => {
     })
 
     expect(result.result).toBe('committed')
-    expect(result.change?.commit).toBe(workerCommit)
-    expect(result.change?.commits).toEqual([workerCommit])
+    expect(result.change?.commit).not.toBe(workerCommit)
+    expect(result.change?.commits).toEqual([result.change?.commit])
     expect(result.change?.files).toContain('feature.ts')
+    expect(await git(dir, 'rev-parse', 'HEAD^')).toBe(base)
+    expect(await git(dir, 'show', '-s', '--format=%s', 'HEAD')).toBe('orca(worker-1): Feature')
   }, 20_000)
 
   it('returns explicit no-changes when HEAD and worktree match the captured base', async () => {
@@ -71,5 +73,34 @@ describe('Auto-PR worker commit contract', () => {
       worktree: dir
     })
     expect(result).toEqual(expect.objectContaining({ result: 'no-changes', noChanges: true }))
+  }, 20_000)
+
+
+  it('keeps security-blocked file work in a central needs-work commit', async () => {
+    const { dir, base } = await repo()
+    const ipcDir = join(dir, 'src', 'main', 'ipc')
+    await mkdir(ipcDir, { recursive: true })
+    await writeFile(
+      join(ipcDir, 'accounts.ts'),
+      "import { ipcMain } from 'electron'\nipcMain.handle('account:read', (_event, id) => id)\n"
+    )
+
+    const result = await prepareTaskChange({
+      config,
+      commitOnly: true,
+      baseCommit: base,
+      taskId: 'worker-security',
+      title: 'Sensitive IPC',
+      worktree: dir
+    })
+
+    expect(result).toEqual(expect.objectContaining({
+      result: 'needs-work',
+      status: 'blocked',
+      change: expect.objectContaining({ commit: expect.stringMatching(/^[0-9a-f]{40}$/) }),
+      findings: [expect.objectContaining({ gate: 'security', code: 'missing-ipc-controls' })]
+    }))
+    expect(await git(dir, 'show', '-s', '--format=%s', 'HEAD')).toMatch(/needs work/)
+    expect(await git(dir, 'rev-parse', 'HEAD^')).toBe(base)
   }, 20_000)
 })

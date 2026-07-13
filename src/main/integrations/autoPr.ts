@@ -3,9 +3,13 @@ import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import type { AutoPrConfig } from '@shared/profile'
-import type { RemoteCiStatus } from '@shared/orchestrator'
+import type { RemoteCiStatus, TaskGateFinding } from '@shared/orchestrator'
 import { noTaskChanges, verifiedTaskCommit } from './commitContract'
-import { assertSecurityGate } from './securityGate'
+import {
+  assertSecurityGate,
+  evaluateSecurityGate,
+  SecurityGateError
+} from './securityGate'
 
 const execFileAsync = promisify(execFile)
 const execAsync = promisify(exec)
@@ -15,6 +19,14 @@ const REMOTE_CI_TOTAL_TIMEOUT_MS = 20 * 60_000
 const REMOTE_CI_POLL_MS = 5_000
 const REMOTE_CI_READ_TIMEOUT_MS = 30_000
 const REMOTE_CHECK_FIELDS = 'bucket,link,name,state,workflow'
+
+class QualityGateError extends Error {
+  readonly code = 'quality-gate-failed'
+  constructor(readonly command: string, detail: string) {
+    super(`Quality Gate fehlgeschlagen: ${command}\n${detail}`)
+    this.name = 'QualityGateError'
+  }
+}
 
 export interface PreparedTaskChange {
   taskId: string
@@ -167,15 +179,88 @@ async function runQualityGates(cwd: string, gates: string[]): Promise<void> {
       })
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
-      throw new Error(`Quality Gate fehlgeschlagen: ${command}\n${detail}`)
+      throw new QualityGateError(command, detail)
     }
   }
 }
 
 export type PrepareTaskResult = AutoPrOutcome & {
-  result: 'disabled' | 'unavailable' | 'no-changes' | 'committed' | 'blocked'
+  result: 'disabled' | 'unavailable' | 'no-changes' | 'committed' | 'needs-work' | 'blocked'
   noChanges?: boolean
   change?: PreparedTaskChange
+  findings?: TaskGateFinding[]
+}
+
+function uniqueTaskFindings(findings: TaskGateFinding[]): TaskGateFinding[] {
+  return [...new Map(findings.map((finding) => [
+    `${finding.gate}:${finding.code}:${(finding.files ?? []).join(',')}`,
+    finding
+  ])).values()]
+}
+
+function securityFindings(error: SecurityGateError): TaskGateFinding[] {
+  return error.report.findings.map((finding) => ({
+    gate: 'security',
+    code: `missing-${finding.surface}-controls`,
+    message: `${finding.surface}: ${finding.missingControls.join(', ')}`,
+    files: finding.files,
+    missingControls: finding.missingControls
+  }))
+}
+
+async function captureNeedsWorkChange(
+  input: PrepareTaskInput,
+  baseCommit: string | undefined
+): Promise<{ change?: PreparedTaskChange; extraFindings: TaskGateFinding[] }> {
+  const status = await git(input.worktree!, ['status', '--porcelain=v1'])
+  const extraFindings: TaskGateFinding[] = []
+  if (status) {
+    await git(input.worktree!, ['add', '--all'])
+    await git(input.worktree!, ['diff', '--cached', '--check'])
+    const stagedDiff = await git(input.worktree!, ['diff', '--cached', '--no-ext-diff', '--binary'])
+    const report = evaluateSecurityGate(stagedDiff)
+    for (const finding of report.findings) {
+      extraFindings.push({
+        gate: 'security',
+        code: `missing-${finding.surface}-controls`,
+        message: `${finding.surface}: ${finding.missingControls.join(', ')}`,
+        files: finding.files,
+        missingControls: finding.missingControls
+      })
+    }
+    const stagedFiles = (await git(input.worktree!, ['diff', '--cached', '--name-only'])).trim()
+    if (stagedFiles) {
+      await git(input.worktree!, [
+        'commit', '-m', `orca(${input.taskId}): needs work - ${input.title.trim().slice(0, 60)}`
+      ])
+    }
+  }
+
+  const branch = await git(input.worktree!, ['branch', '--show-current'])
+  const candidate = await git(input.worktree!, ['rev-parse', '--verify', 'HEAD^{commit}'])
+  const resolved = await git(input.worktree!, ['rev-parse', '--verify', candidate + '^{commit}'])
+  const commit = verifiedTaskCommit(candidate, resolved).commit
+  const commits = baseCommit
+    ? (await git(input.worktree!, ['rev-list', '--reverse', baseCommit + '..' + commit]))
+        .split(/\r?\n/).map((value) => value.trim()).filter(Boolean)
+    : [commit]
+  if (commits.length === 0) return { extraFindings }
+  const files = baseCommit
+    ? (await git(input.worktree!, ['diff', '--name-only', baseCommit + '...' + commit]))
+        .split(/\r?\n/).map((file) => file.trim()).filter(Boolean)
+    : []
+  return {
+    extraFindings,
+    change: {
+      taskId: input.taskId,
+      title: input.title,
+      worktree: input.worktree!,
+      branch,
+      commit,
+      commits,
+      files
+    }
+  }
 }
 
 export async function prepareTaskChange(input: PrepareTaskInput): Promise<PrepareTaskResult> {
@@ -187,8 +272,8 @@ export async function prepareTaskChange(input: PrepareTaskInput): Promise<Prepar
   }
 
   let staged = false
+  let baseCommit: string | undefined
   try {
-    let baseCommit: string | undefined
     if (input.baseCommit?.trim()) {
       const resolvedBase = await git(input.worktree, [
         'rev-parse', '--verify', input.baseCommit.trim() + '^{commit}'
@@ -196,20 +281,22 @@ export async function prepareTaskChange(input: PrepareTaskInput): Promise<Prepar
       baseCommit = verifiedTaskCommit(input.baseCommit, resolvedBase).commit
     }
 
-    const initialStatus = await git(input.worktree, ['status', '--porcelain=v1'])
     const initialHeadCandidate = await git(input.worktree, ['rev-parse', '--verify', 'HEAD^{commit}'])
     const initialHeadResolved = await git(input.worktree, [
       'rev-parse', '--verify', initialHeadCandidate + '^{commit}'
     ])
     const initialHead = verifiedTaskCommit(initialHeadCandidate, initialHeadResolved).commit
-    const existingCommitDiff = baseCommit && initialHead !== baseCommit
-      ? await git(input.worktree, ['diff', '--no-ext-diff', '--binary', baseCommit + '...HEAD'])
-      : ''
 
-    if (!initialStatus && !existingCommitDiff) {
+    // A worker may have ignored the no-Git contract. Preserve its file result,
+    // but rewrite every worker-authored commit into one centrally owned commit.
+    if (baseCommit && initialHead !== baseCommit) {
+      await git(input.worktree, ['reset', '--soft', baseCommit])
+      staged = true
+    }
+    const initialStatus = await git(input.worktree, ['status', '--porcelain=v1'])
+    if (!initialStatus) {
       return { status: 'skipped', message: 'Keine Änderungen; expliziter No-op bestätigt.', ...noTaskChanges() }
     }
-    if (existingCommitDiff) assertSecurityGate(existingCommitDiff)
     if (initialStatus) {
       await git(input.worktree, ['add', '--all'])
       staged = true
@@ -275,6 +362,37 @@ export async function prepareTaskChange(input: PrepareTaskInput): Promise<Prepar
       change
     }
   } catch (error) {
+    if (error instanceof SecurityGateError || error instanceof QualityGateError) {
+      try {
+        const captured = await captureNeedsWorkChange(input, baseCommit)
+        if (captured.change) {
+          const findings = uniqueTaskFindings(error instanceof SecurityGateError
+            ? [...securityFindings(error), ...captured.extraFindings]
+            : [{
+                gate: 'quality' as const,
+                code: error.code,
+                message: error.message
+              }, ...captured.extraFindings])
+          return {
+            status: 'blocked',
+            result: 'needs-work',
+            message: `Partieller Commit ${captured.change.commit.slice(0, 8)} bleibt erhalten; Gates benötigen Nacharbeit.`,
+            branch: captured.change.branch,
+            worktree: input.worktree,
+            change: captured.change,
+            findings
+          }
+        }
+      } catch (captureError) {
+        const detail = captureError instanceof Error ? captureError.message : String(captureError)
+        return {
+          status: 'blocked',
+          result: 'blocked',
+          message: `${error.message}\nPartielle Arbeit konnte nicht zentral gesichert werden: ${detail}`,
+          worktree: input.worktree
+        }
+      }
+    }
     if (staged) {
       try {
         await git(input.worktree, ['reset', '--mixed', 'HEAD'])

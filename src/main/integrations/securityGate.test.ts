@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { assertSecurityGate, evaluateSecurityGate } from './securityGate'
+import { assertSecurityGate, evaluateSecurityGate, securityChecklistForFiles } from './securityGate'
 
 function diffFile(path: string, lines: string[]): string {
   return [
@@ -84,5 +84,20 @@ describe('security gate', () => {
       "it('does not leak secrets', async () => expect(await failure()).not.toContain('client-secret'))"
     ])
     expect(assertSecurityGate(`${source}\n${tests}`).findings).toEqual([])
+  })
+
+
+  it('derives task DoD checks from expected security-sensitive files', () => {
+    expect(securityChecklistForFiles([
+      'src/main/ipc/accounts.ts',
+      'src/main/auth/oauth.ts',
+      'src/main/files/workspacePath.ts'
+    ])).toEqual(expect.arrayContaining([
+      expect.stringMatching(/Autorisierungs-Negativtest/),
+      expect.stringMatching(/Validierungs-Negativtest/),
+      expect.stringMatching(/Path-Traversal/),
+      expect.stringMatching(/Secret-Leak/)
+    ]))
+    expect(securityChecklistForFiles(['src/renderer/math.ts'])).toEqual([])
   })
 })

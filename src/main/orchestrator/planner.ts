@@ -50,6 +50,8 @@ function fallbackPlan(input: unknown, role: string, prompt?: string): ExecutionP
         role: safeRole,
         prompt: safePrompt,
         dependsOn: [],
+        advisoryDependsOn: [],
+        criticality: 'required',
         conflictKeys: ['fallback-exclusive'],
         ownership: 'feature',
         expectedFiles: []
@@ -59,17 +61,19 @@ function fallbackPlan(input: unknown, role: string, prompt?: string): ExecutionP
 }
 
 function hasCycle(tasks: ExecutionPlanTask[]): boolean {
-  const remainingDependencies = new Map(tasks.map((task) => [task.id, task.dependsOn.length]))
+  const allDependencies = (task: ExecutionPlanTask): string[] =>
+    [...task.dependsOn, ...task.advisoryDependsOn]
+  const remainingDependencies = new Map(tasks.map((task) => [task.id, allDependencies(task).length]))
   const dependents = new Map<string, string[]>()
   for (const task of tasks) {
-    for (const dependency of task.dependsOn) {
+    for (const dependency of allDependencies(task)) {
       const list = dependents.get(dependency) ?? []
       list.push(task.id)
       dependents.set(dependency, list)
     }
   }
 
-  const ready = tasks.filter((task) => task.dependsOn.length === 0).map((task) => task.id)
+  const ready = tasks.filter((task) => allDependencies(task).length === 0).map((task) => task.id)
   let visited = 0
   while (ready.length > 0) {
     const id = ready.shift()!
@@ -143,9 +147,11 @@ export function resolveExecutionPlan(
       const role = cleanString(raw.role, MAX_ROLE_LENGTH)
       const prompt = cleanString(raw.prompt, MAX_PROMPT_LENGTH)
       const dependsOn = stringArray(raw.dependsOn)
+      const advisoryDependsOn = stringArray(raw.advisoryDependsOn)
       const conflictKeys = stringArray(raw.conflictKeys)
       const expectedFiles = stringArray(raw.expectedFiles)
       const ownership = raw.ownership == null ? 'feature' : raw.ownership
+      const criticality = raw.criticality == null ? 'required' : raw.criticality
       if (
         !id ||
         !SAFE_ID.test(id) ||
@@ -153,14 +159,18 @@ export function resolveExecutionPlan(
         !role ||
         !prompt ||
         !dependsOn ||
+        !advisoryDependsOn ||
         !conflictKeys ||
         !expectedFiles ||
         (ownership !== 'feature' && ownership !== 'integrator') ||
-        dependsOn.length > MAX_PLAN_TASKS ||
+        (criticality !== 'required' && criticality !== 'advisory') ||
+        dependsOn.length + advisoryDependsOn.length > MAX_PLAN_TASKS ||
         (allowedRoleSet != null && !allowedRoleSet.has(role.toLowerCase())) ||
         conflictKeys.length > MAX_CONFLICT_KEYS ||
         expectedFiles.length > MAX_EXPECTED_FILES ||
-        dependsOn.includes(id)
+        dependsOn.includes(id) ||
+        advisoryDependsOn.includes(id) ||
+        advisoryDependsOn.some((dependency) => dependsOn.includes(dependency))
       ) {
         issues.push({
           code: 'invalid_task',
@@ -175,6 +185,8 @@ export function resolveExecutionPlan(
         role,
         prompt,
         dependsOn,
+        advisoryDependsOn,
+        criticality,
         conflictKeys: [...new Set([
           ...conflictKeys.map((key) => key.toLowerCase()),
           ...(ownership === 'integrator' ? ['shared-hotspots'] : [])
@@ -199,7 +211,13 @@ export function resolveExecutionPlan(
   }
   const integrator = integrators[0]
   if (integrator) {
-    const missingDependencies = tasks.filter((task) => task.id !== integrator.id && !integrator.dependsOn.includes(task.id))
+    const integrationDependencies = new Set([
+      ...integrator.dependsOn,
+      ...integrator.advisoryDependsOn
+    ])
+    const missingDependencies = tasks.filter(
+      (task) => task.id !== integrator.id && !integrationDependencies.has(task.id)
+    )
     if (missingDependencies.length > 0) {
       issues.push({ code: 'invalid_ownership', message: 'The integrator must depend on every feature task.', taskId: integrator.id })
     }
@@ -217,7 +235,7 @@ export function resolveExecutionPlan(
     ids.add(task.id)
   }
   for (const task of tasks) {
-    for (const dependency of task.dependsOn) {
+    for (const dependency of [...task.dependsOn, ...task.advisoryDependsOn]) {
       if (!ids.has(dependency)) {
         issues.push({
           code: 'unknown_dependency',

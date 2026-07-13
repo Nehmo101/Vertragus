@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { promisify } from 'node:util'
 import { dirname, join } from 'node:path'
+import { canonicalWorkspacePath } from '@main/agents/workspacePath'
 
 const execFileAsync = promisify(execFile)
 
@@ -81,13 +82,14 @@ export async function createWorktree(
   agentId: string,
   sessionId: string = randomUUID()
 ): Promise<WorktreeResult | null> {
-  const root = await repoRoot(dir)
-  if (!root) return null
+  const discoveredRoot = await repoRoot(dir)
+  if (!discoveredRoot) return null
+  const root = await canonicalWorkspacePath(discoveredRoot)
   const identity = worktreeIdentity(root, agentId, sessionId)
   await mkdir(dirname(identity.path), { recursive: true })
   try {
     await git(root, ['worktree', 'add', '-b', identity.branch, identity.path])
-    return identity
+    return { ...identity, path: await canonicalWorkspacePath(identity.path) }
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err)
     throw new Error(`Worktree ${identity.branch} konnte nicht erstellt werden: ${detail}`, {
