@@ -94,7 +94,7 @@ function GithubRow(): JSX.Element {
     (agent) => agent.taskId === 'auth:github' && agent.status === 'running'
   )
   const connected = hasUsableGithubAuth(auth)
-  const reauth = Boolean(auth?.authenticated && auth.needsReauth)
+  const reauth = Boolean(auth?.needsReauth)
   const busy = store.githubAuthBusy || loginRunning
   const color = connected ? 'var(--run)' : 'var(--wait)'
 

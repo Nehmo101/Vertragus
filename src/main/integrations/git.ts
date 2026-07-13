@@ -25,6 +25,45 @@ async function localBranches(cwd: string): Promise<string[]> {
   return refs ? refs.split(/\r?\n/).filter(Boolean) : []
 }
 
+type GitWorktreeInfo = NonNullable<GitInfo['worktrees']>[number]
+
+/** Parse the stable, record-oriented output from `git worktree list --porcelain`. */
+export function parseWorktreePorcelain(output: string): GitWorktreeInfo[] {
+  const worktrees: GitWorktreeInfo[] = []
+  let current: GitWorktreeInfo | undefined
+
+  const flush = (): void => {
+    if (current?.path) worktrees.push(current)
+    current = undefined
+  }
+
+  for (const line of output.split(/\0|\r?\n/)) {
+    if (!line) {
+      flush()
+      continue
+    }
+    const separator = line.indexOf(' ')
+    const key = separator < 0 ? line : line.slice(0, separator)
+    const value = separator < 0 ? '' : line.slice(separator + 1)
+
+    if (key === 'worktree') {
+      flush()
+      current = { path: value, detached: false, bare: false }
+      continue
+    }
+    if (!current) continue
+
+    if (key === 'HEAD') current.head = value
+    else if (key === 'branch') current.branch = value.replace(/^refs\/heads\//, '')
+    else if (key === 'detached') current.detached = true
+    else if (key === 'bare') current.bare = true
+    else if (key === 'locked') current.locked = value || 'gesperrt'
+    else if (key === 'prunable') current.prunable = value || 'entfernbar'
+  }
+  flush()
+  return worktrees
+}
+
 function gitErrorDetail(error: unknown): string {
   if (error && typeof error === 'object' && 'stderr' in error) {
     const stderr = String(error.stderr).trim()
@@ -37,13 +76,14 @@ export async function gitInfo(dir: string): Promise<GitInfo> {
   if (!dir?.trim()) return { isRepo: false }
   const root = await repoRoot(dir)
   if (!root) return { isRepo: false }
-  const [branch, branches, head, remote, defaultRef, status] = await Promise.all([
+  const [branch, branches, head, remote, defaultRef, status, worktreeOutput] = await Promise.all([
     currentBranch(root),
     localBranches(root),
     optionalGit(root, ['rev-parse', 'HEAD']),
     optionalGit(root, ['remote', 'get-url', 'origin']),
     optionalGit(root, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']),
-    optionalGit(root, ['status', '--porcelain=v1'])
+    optionalGit(root, ['status', '--porcelain=v1']),
+    optionalGit(root, ['worktree', 'list', '--porcelain', '-z'])
   ])
   return {
     isRepo: true,
@@ -53,7 +93,8 @@ export async function gitInfo(dir: string): Promise<GitInfo> {
     head,
     remote,
     defaultBranch: defaultRef?.replace(/^origin\//, ''),
-    dirty: Boolean(status)
+    dirty: Boolean(status),
+    worktrees: worktreeOutput ? parseWorktreePorcelain(worktreeOutput) : []
   }
 }
 

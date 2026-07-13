@@ -83,17 +83,19 @@ function outputMentionsWorkspace(output: string, workspace: string): boolean {
   const normalizedTerminal = usesWindowsPath(workspace)
     ? terminal.replace(/\\/g, '/').toLowerCase()
     : terminal
-  const start = normalizedTerminal.indexOf(normalizedWorkspace)
-  if (start < 0) return false
-
-  const end = start + normalizedWorkspace.length
-  const previous = normalizedTerminal[start - 1]
-  const next = normalizedTerminal[end]
-  const startsAtBoundary =
-    start === 0 || /\s/.test(previous) || ['\'', '"', '`', '(', '['].includes(previous)
-  const endsAtBoundary =
-    end === normalizedTerminal.length || /\s/.test(next) || ['\'', '"', '`', ')', ']', ',', ':', ';'].includes(next)
-  return startsAtBoundary && endsAtBoundary
+  let start = normalizedTerminal.indexOf(normalizedWorkspace)
+  while (start >= 0) {
+    const end = start + normalizedWorkspace.length
+    const previous = normalizedTerminal[start - 1]
+    const next = normalizedTerminal[end]
+    const startsAtBoundary =
+      start === 0 || /\s/.test(previous) || ['\'', '"', '`', '(', '['].includes(previous)
+    const endsAtBoundary =
+      end === normalizedTerminal.length || /\s/.test(next) || ['\'', '"', '`', ')', ']', ',', ':', ';'].includes(next)
+    if (startsAtBoundary && endsAtBoundary) return true
+    start = normalizedTerminal.indexOf(normalizedWorkspace, start + 1)
+  }
+  return false
 }
 
 const TRUST_THIS_WORKSPACE_RE = /\btrust\s+(?:this\s+)?workspace\b/i

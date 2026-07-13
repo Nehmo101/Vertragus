@@ -78,6 +78,18 @@ describe('shouldAutoTrustCursorWorktree', () => {
     ).toBe(false)
   })
 
+  it('accepts a later exact path after an earlier lookalike occurrence', () => {
+    expect(
+      shouldAutoTrustCursorWorktree({
+        output: `cached=${worktree}-old\nWorkspace Trust Required\n${worktree}\n[a] Trust this workspace`,
+        workingDir: worktree,
+        worktree,
+        alreadyHandled: false,
+        interactiveUsed: false
+      })
+    ).toBe(true)
+  })
+
   it('keeps Cursor confirmation for ordinary, malformed, or already-interacted workspaces', () => {
     const output = `Workspace Trust Required\n${worktree}\n[a] Trust this workspace`
     expect(

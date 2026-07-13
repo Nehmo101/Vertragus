@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { terminalEnterAction } from './terminalEnter'
+import { terminalEnterAction, terminalEnterData } from './terminalEnter'
 
 const enter = (overrides: Partial<KeyboardEvent> = {}): KeyboardEvent =>
   ({ type: 'keydown', key: 'Enter', ...overrides }) as KeyboardEvent
@@ -11,6 +11,12 @@ describe('terminalEnterAction', () => {
 
   it('inserts a line break on Shift+Enter', () => {
     expect(terminalEnterAction(enter({ shiftKey: true }))).toBe('newline')
+  })
+
+  it('maps submit and multiline actions to distinct PTY bytes', () => {
+    expect(terminalEnterData(enter())).toBe('\r')
+    expect(terminalEnterData(enter({ shiftKey: true }))).toBe('\n')
+    expect(terminalEnterData(enter({ ctrlKey: true }))).toBeNull()
   })
 
   it.each([

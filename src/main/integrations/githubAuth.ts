@@ -82,8 +82,11 @@ export function buildGithubAuthStatus(input: {
   const account = input.account?.trim() || undefined
   const scopes = (input.scopes ?? []).map((scope) => scope.trim()).filter(Boolean)
   const missingScopes = missingGithubScopes(scopes)
-  const authenticated = Boolean(input.authenticated && account && missingScopes.length === 0)
-  const needsReauth = Boolean(input.authenticated && !authenticated)
+  // `authenticated` describes a verified credential/account. Missing scopes
+  // are represented independently by `needsReauth`; callers gate privileged
+  // GitHub actions on both fields.
+  const authenticated = Boolean(input.authenticated && account)
+  const needsReauth = Boolean(authenticated && missingScopes.length > 0)
   return {
     authenticated,
     method: authenticated ? input.method : 'none',
@@ -138,9 +141,6 @@ async function probeOAuthUser(token: string): Promise<{ login: string; scopes: s
   const login = user.login?.trim()
   if (!login) {
     throw new Error('GitHub-OAuth-Antwort enthält kein Konto.')
-  }
-  if (missingGithubScopes(scopes).length > 0) {
-    throw new Error('GitHub-OAuth-Scopes sind unvollständig.')
   }
   return { login, scopes }
 }

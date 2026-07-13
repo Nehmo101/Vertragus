@@ -2,7 +2,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { gitInfo, switchBranch } from './git'
+import { gitInfo, parseWorktreePorcelain, switchBranch } from './git'
 import { GitTestHarness } from './gitTestHarness'
 
 const gitHarness = new GitTestHarness()
@@ -34,12 +34,44 @@ describe('workspace branch selection', () => {
     const before = await gitInfo(dir)
     expect(before.branch).toBe('main')
     expect(before.branches).toEqual(['feature/test', 'main'])
+    expect(before.worktrees).toEqual([
+      expect.objectContaining({ path: dir.replace(/\\/g, '/'), branch: 'main', detached: false, bare: false })
+    ])
 
     const after = await switchBranch(dir, 'feature/test')
 
     expect(after.branch).toBe('feature/test')
     expect(after.branches).toEqual(['feature/test', 'main'])
   }, 20_000)
+
+  it('parses detached, locked, and prunable worktree records', () => {
+    expect(parseWorktreePorcelain(`worktree C:/repo
+HEAD 1111111111111111111111111111111111111111
+branch refs/heads/main
+
+worktree C:/repo/.orca-worktrees/session/sub-01
+HEAD 2222222222222222222222222222222222222222
+detached
+locked cleanup pending
+prunable
+`)).toEqual([
+      {
+        path: 'C:/repo',
+        head: '1111111111111111111111111111111111111111',
+        branch: 'main',
+        detached: false,
+        bare: false
+      },
+      {
+        path: 'C:/repo/.orca-worktrees/session/sub-01',
+        head: '2222222222222222222222222222222222222222',
+        detached: true,
+        bare: false,
+        locked: 'cleanup pending',
+        prunable: 'entfernbar'
+      }
+    ])
+  })
 
   it('rejects names that are not local branches', async () => {
     await expect(switchBranch(dir, '--detach')).rejects.toThrow('Lokaler Branch nicht gefunden')

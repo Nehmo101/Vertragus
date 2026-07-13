@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { Idea, IdeaArtifact, IdeaStatus } from '@shared/inbox'
 import { IDEA_STATUSES } from '@shared/inbox'
 import { isTransferActive } from '@shared/inboxTransfer'
@@ -6,6 +6,7 @@ import type { InboxSpeechSettings } from '@shared/inboxSpeech'
 import { DEFAULT_TRANSCRIPTION_ENDPOINT, DEFAULT_TRANSCRIPTION_MODEL } from '@shared/inboxSpeech'
 import { useInboxSpeech } from '@renderer/hooks/useInboxSpeech'
 import IdeaTransferModal from '@renderer/components/IdeaTransferModal'
+import { PROMPT_SHARPEN_LABEL, sharpenInboxPrompt } from '@renderer/inboxPrompt'
 import styles from './responsiveGuards.module.css'
 
 const STATUS_LABEL: Record<IdeaStatus, string> = {
@@ -208,6 +209,7 @@ export default function InboxPanel(): JSX.Element {
   const [textInput, setTextInput] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [transferOpen, setTransferOpen] = useState(false)
+  const [promptPreviewOpen, setPromptPreviewOpen] = useState(false)
 
   const refresh = useCallback(async (): Promise<void> => {
     setLoading(true)
@@ -245,6 +247,7 @@ export default function InboxPanel(): JSX.Element {
     setSelectedId(idea.id)
     setDraft({ ...idea })
     setConfirmDelete(false)
+    setPromptPreviewOpen(false)
     setUrlInput('')
     setTextInput('')
   }
@@ -410,6 +413,7 @@ export default function InboxPanel(): JSX.Element {
 
   const speechBusy = speech.state === 'recording' || speech.state === 'transcribing'
   const showVoiceReview = speech.state === 'review' && speech.voiceDraft
+  const sharpenedPrompt = draft ? sharpenInboxPrompt(draft) : null
 
   return (
     <main className={`inbox-panel ${styles.inboxPanel}`} aria-label="Ideen-Inbox">
@@ -569,6 +573,16 @@ export default function InboxPanel(): JSX.Element {
                 </select>
                 <button
                   type="button"
+                  className="inbox-btn ghost"
+                  disabled={saving || speechBusy}
+                  aria-expanded={promptPreviewOpen}
+                  onClick={() => setPromptPreviewOpen((open) => !open)}
+                  title="Rohe Idee als orchestrator-taugliches Briefing prüfen"
+                >
+                  {PROMPT_SHARPEN_LABEL}
+                </button>
+                <button
+                  type="button"
                   className="inbox-btn"
                   disabled={saving || speechBusy || isTransferActive(draft.transfer)}
                   onClick={() => void saveDraft(true)}
@@ -600,6 +614,31 @@ export default function InboxPanel(): JSX.Element {
                   {draft.transfer.error && ` — ${draft.transfer.error}`}
                   {draft.transfer.planId && ` · Plan ${draft.transfer.planId}`}
                 </div>
+              )}
+
+              {promptPreviewOpen && sharpenedPrompt && (
+                <section className="inbox-briefing-preview inbox-prompt-preview" aria-live="polite">
+                  <div className="inbox-prompt-preview-head">
+                    <b>Geschärftes Orchestrator-Briefing</b>
+                    <span>Vorschau · noch nicht übertragen</span>
+                  </div>
+                  {sharpenedPrompt.ok ? (
+                    <>
+                      {sharpenedPrompt.warnings.length > 0 && (
+                        <div className="inbox-transfer-hint">
+                          {sharpenedPrompt.warnings.join(' ')}
+                        </div>
+                      )}
+                      <pre className="inbox-briefing-preview-content">
+                        {sharpenedPrompt.briefing}
+                      </pre>
+                    </>
+                  ) : (
+                    <div className="inbox-error" role="alert">
+                      {sharpenedPrompt.message}
+                    </div>
+                  )}
+                </section>
               )}
 
               <label className="inbox-field">

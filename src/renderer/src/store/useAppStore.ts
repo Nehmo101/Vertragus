@@ -275,9 +275,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (request === githubAuthRequest) set({ githubAuth })
       void get().refreshHealth()
       get().showToast(
-        githubAuth.authenticated
-          ? `GitHub verbunden${githubAuth.account ? ` als ${githubAuth.account}` : ''}.`
-          : 'GitHub-Anmeldung unvollständig.'
+        githubAuth.needsReauth
+          ? `GitHub-Berechtigungen fehlen: ${githubAuth.missingScopes.join(', ')}.`
+          : githubAuth.authenticated
+            ? `GitHub verbunden${githubAuth.account ? ` als ${githubAuth.account}` : ''}.`
+            : 'GitHub-Anmeldung unvollständig.'
       )
     } catch (error) {
       get().showToast(`GitHub-Login fehlgeschlagen: ${errorMessage(error)}`)
@@ -329,8 +331,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (sequence !== modelRefreshSequence) return
       set({ models: normalizeModelCatalog(models) })
     } catch {
-      // Model suggestions are optional. Keep the last known catalogue when a
-      // provider is unavailable or a live probe times out.
+      // Never retain another account's last live catalogue after logout or a
+      // failed refresh. Fall back to explicitly unverified local suggestions.
+      if (sequence === modelRefreshSequence) set({ models: normalizeModelCatalog(DEFAULT_MODELS) })
     }
   },
 

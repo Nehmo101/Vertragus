@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="build/icon.png" width="128" alt="Orca-Strator logo — a teal whale cresting over cyan waves" />
+  <img src="build/icon.png" width="128" alt="Orca-Strator logo — a warm terracotta whale in the Cozy Organic palette" />
 </p>
 
 <h1 align="center">Orca-Strator</h1>
@@ -24,7 +24,7 @@ safe Auto-PR policies, production hardening, and the **Cozy Organic** UI. See th
 |---|---|---|
 | **Claude Code** | `claude` | agent / orchestrator (e.g. model *Fable*) |
 | **Codex** | `codex` | agent / orchestrator (CLI-configured model) |
-| **Cursor Agent** | `cursor-agent` | agent (e.g. GPT‑5.6 / Sonnet) |
+| **Cursor Agent** | `cursor-agent` | agent (account-exposed CLI models) |
 | **GitHub Copilot** | `copilot` | agent / subagent / orchestrator (`@github/copilot` CLI) |
 | **Ollama** | `ollama` | local LLMs (HTTP API on `:11434`) |
 | **GitHub** | `gh` | repo / branch / PR context |
@@ -38,8 +38,8 @@ safe Auto-PR policies, production hardening, and the **Cozy Organic** UI. See th
 - **Multi-agent workspace** — a tiled grid of live terminals; pop any pane out
   into its own OS window (hybrid grid + pop-out).
 - **Configurable orchestration** — pick who orchestrates whom, e.g. a
-  Claude/*Fable* orchestrator driving **3× GPT‑5.6** subagents. The orchestrator
-  delegates through an in-app **MCP server** (`dispatch_subagent`,
+  Claude/*Fable* orchestrator driving **three account-enabled coding agents**. The
+  orchestrator delegates through an in-app **MCP server** (`dispatch_subagent`,
   `dispatch_batch`, `execute_plan`, `list_subagents`, `open_subwindow`,
   `set_goal`); dispatched subtasks run as real subagents and stream into a live
   **task-DAG** panel.

@@ -1,6 +1,7 @@
 /**
- * Renders build/icon.svg into the raster icons electron-builder needs
- * (build/icon.png) plus a renderer favicon. Run: node scripts/gen-icons.mjs
+ * Renders the canonical Cozy-Organic SVG into every icon consumed by
+ * electron-builder, BrowserWindow, and the renderer favicon.
+ * Run directly or through `pnpm run icons`.
  */
 import sharp from 'sharp'
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs'

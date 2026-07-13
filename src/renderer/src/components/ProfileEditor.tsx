@@ -12,8 +12,9 @@ import {
 import type { GithubProjectSummary, GithubRepoSummary } from '@shared/ipc'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import InfoTip from '@renderer/components/InfoTip'
-import { hasUsableGithubAuth } from '@renderer/store/githubAuth'
+import { githubAuthPresentation, hasUsableGithubAuth } from '@renderer/store/githubAuth'
 import ModelCatalogStatus from '@renderer/components/ModelCatalogStatus'
+import { modelPresetAvailability } from '@renderer/modelCatalog'
 
 const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'cursor', 'copilot', 'ollama']
 
@@ -93,6 +94,25 @@ export default function ProfileEditor(): JSX.Element | null {
   const presetValue = (preset?: ModelPreset): string => preset ?? ''
   const parsePreset = (value: string): ModelPreset | undefined =>
     value === 'fast' || value === 'balanced' || value === 'strong' ? value : undefined
+  const presetAvailable = (provider: AgentProviderId, preset: ModelPreset): boolean =>
+    modelPresetAvailability(provider, preset, catalogFor(provider)).available
+  const selectionHasUnavailablePreset = (
+    provider: AgentProviderId,
+    model: string,
+    preset?: ModelPreset
+  ): boolean => Boolean(!model.trim() && preset && !presetAvailable(provider, preset))
+  const unavailablePresetCount =
+    (draft.orchestrator &&
+    selectionHasUnavailablePreset(
+      draft.orchestrator.provider,
+      draft.orchestrator.model,
+      draft.orchestrator.modelPreset
+    )
+      ? 1
+      : 0) +
+    draft.agents.filter((slot) =>
+      selectionHasUnavailablePreset(slot.provider, slot.model, slot.modelPreset)
+    ).length
 
   const patch = (p: Partial<WorkspaceProfile>): void => setDraft({ ...draft, ...p })
   const patchSlot = (idx: number, p: Partial<AgentSlot>): void => {
@@ -197,6 +217,7 @@ export default function ProfileEditor(): JSX.Element | null {
 
   const githubAuth = store.githubAuth
   const githubAuthUsable = hasUsableGithubAuth(githubAuth)
+  const githubAuthView = githubAuthPresentation(githubAuth)
   const githubTerminalLoginRunning = store.agents.some(
     (agent) => agent.taskId === 'auth:github' && agent.status === 'running'
   )
@@ -246,36 +267,23 @@ export default function ProfileEditor(): JSX.Element | null {
               GitHub-Verbindung <InfoTip text={HELP.githubAuth} />
             </div>
             <div className="github-auth-row">
-              <div className="github-auth-status" aria-live="polite">
-                {githubAuthUsable ? (
-                  <>
-                    <span className="github-auth-ok">●</span>
-                    {githubAuth.account ?? 'GitHub'} · {githubAuth.method}
-                    {githubAuth.needsReauth
-                      ? ` · Reauth nötig (${githubAuth.missingScopes.join(', ')})`
-                      : githubAuth.scopes.length > 0
-                        ? ` · ${githubAuth.scopes.join(', ')}`
-                        : ''}
-                  </>
-                ) : (
-                  <>
-                    <span className="github-auth-warn">●</span>
-                    {githubAuth?.authenticated
-                      ? `Reauth nötig (${githubAuth.missingScopes.join(', ')})`
-                      : githubAuth?.oauthConfigured
-                        ? 'Nicht angemeldet · Browser-OAuth verfügbar'
-                        : 'Nicht angemeldet · Fallback gh --web / PTY'}
-                  </>
-                )}
+              <div className="github-auth-status" aria-live="polite" title={githubAuthView.detail}>
+                <span className={githubAuthUsable ? 'github-auth-ok' : 'github-auth-warn'}>●</span>
+                {githubAuthView.detail}
+                {githubAuthUsable && githubAuth.scopes.length > 0
+                  ? ` · ${githubAuth.scopes.join(', ')}`
+                  : ''}
               </div>
-              <button
-                type="button"
-                className="btn-secondary browse-btn"
-                disabled={store.githubAuthBusy || githubTerminalLoginRunning}
-                onClick={() => void store.githubLogin()}
-              >
-                {githubAuth?.needsReauth ? 'Erneuern' : 'Verbinden'}
-              </button>
+              {!githubAuthUsable && (
+                <button
+                  type="button"
+                  className="btn-secondary browse-btn"
+                  disabled={store.githubAuthBusy || githubTerminalLoginRunning}
+                  onClick={() => void store.githubLogin()}
+                >
+                  {githubAuthView.label === 'Erneuern' ? 'Erneuern' : 'Verbinden'}
+                </button>
+              )}
               {githubAuthUsable && (
                 <button
                   type="button"
@@ -557,11 +565,15 @@ export default function ProfileEditor(): JSX.Element | null {
                   }
                 >
                   <option value="">Legacy (CLI)</option>
-                  {MODEL_PRESETS.map((preset) => (
-                    <option key={preset} value={preset}>
-                      {MODEL_PRESET_LABELS[preset]}
-                    </option>
-                  ))}
+                  {MODEL_PRESETS.map((preset) => {
+                    const available = presetAvailable(draft.orchestrator!.provider, preset)
+                    return (
+                      <option key={preset} value={preset} disabled={!available}>
+                        {MODEL_PRESET_LABELS[preset]}
+                        {!available ? ' (nicht verfügbar)' : ''}
+                      </option>
+                    )
+                  })}
                 </select>
               </div>
               <div style={{ flex: 1 }}>
@@ -766,11 +778,15 @@ export default function ProfileEditor(): JSX.Element | null {
                     onChange={(e) => patchSlot(idx, { modelPreset: parsePreset(e.target.value) })}
                   >
                     <option value="">Legacy (CLI)</option>
-                    {MODEL_PRESETS.map((preset) => (
-                      <option key={preset} value={preset}>
-                        {MODEL_PRESET_LABELS[preset]}
-                      </option>
-                    ))}
+                    {MODEL_PRESETS.map((preset) => {
+                      const available = presetAvailable(slot.provider, preset)
+                      return (
+                        <option key={preset} value={preset} disabled={!available}>
+                          {MODEL_PRESET_LABELS[preset]}
+                          {!available ? ' (nicht verfügbar)' : ''}
+                        </option>
+                      )
+                    })}
                   </select>
                 </div>
                 <div style={{ flex: 1.4 }}>
@@ -930,10 +946,26 @@ export default function ProfileEditor(): JSX.Element | null {
               Profil löschen
             </button>
           )}
+          {unavailablePresetCount > 0 && (
+            <div className="model-preset-warning" role="alert">
+              {unavailablePresetCount} Preset(s) sind für den Live-Katalog nicht verfügbar. Wähle
+              CLI-Standard oder ein explizites Modell.
+            </div>
+          )}
           <button type="button" className="btn-secondary" onClick={store.closeEditor}>
             Abbrechen
           </button>
-          <button type="button" className="btn-primary" onClick={() => void store.saveEditor(draft)}>
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={unavailablePresetCount > 0}
+            title={
+              unavailablePresetCount > 0
+                ? 'Nicht verfügbare Modell-Presets zuerst korrigieren'
+                : undefined
+            }
+            onClick={() => void store.saveEditor(draft)}
+          >
             Profil speichern
           </button>
         </div>

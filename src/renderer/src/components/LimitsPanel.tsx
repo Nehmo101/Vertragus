@@ -5,19 +5,13 @@ import {
   workspaceAgents
 } from '@renderer/store/useAppStore'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
+import { formatTokenCount, formatUsd } from '@renderer/telemetryFormat'
 import { PROVIDER_GATE_MAX, PROVIDER_GATE_MIN, type AgentProviderId } from '@shared/providers'
 import type { ProviderCapacitySnapshot } from '@shared/ipc'
 import { summarizeUsageGroup, TELEMETRY_STATUS_LABELS, TELEMETRY_STATUS_TITLES, type TelemetrySummary } from '@shared/telemetry'
 
 /** All agent providers surfaced in the Limits panel (integrations excluded). */
 const PANEL_PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'cursor', 'copilot', 'ollama']
-
-function fmtTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 10_000) return `${Math.round(n / 1000)}k`
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`
-  return String(n)
-}
 
 interface ProviderUsage {
   id: AgentProviderId
@@ -92,7 +86,7 @@ export default function LimitsPanel(): JSX.Element {
       <div className="limits-head">
         <span className="limits-title">Orca-Gates</span>
         <span className="limits-total">
-          {totalActive} aktiv{hasCost ? ` · $${totalCost.toFixed(2)}` : ''}
+          {totalActive} aktiv{hasCost ? ` · ${formatUsd(totalCost)}` : ''}
         </span>
       </div>
       <p className="limits-gate-note">
@@ -139,11 +133,11 @@ export default function LimitsPanel(): JSX.Element {
                   <span className="limit-name">{theme.label}</span>
                   <span className="limit-usage">
                     {r.telemetry.tokens != null && (
-                      <span title={`${r.telemetry.tokens.toLocaleString()} Tokens (Eingabe + Ausgabe)`}>
-                        {fmtTokens(r.telemetry.tokens)} Tokens
+                      <span title={`${formatTokenCount(r.telemetry.tokens)} Tokens (Eingabe + Ausgabe)`}>
+                        {formatTokenCount(r.telemetry.tokens)} Tokens
                       </span>
                     )}
-                    {r.telemetry.costUsd != null && <span className="cost">${r.telemetry.costUsd.toFixed(2)}</span>}
+                    {r.telemetry.costUsd != null && <span className="cost">{formatUsd(r.telemetry.costUsd)}</span>}
                     {r.telemetry.status !== 'present' && (
                       <span className={`telemetry-status ${r.telemetry.status}`} title={TELEMETRY_STATUS_TITLES[r.telemetry.status]}>
                         {TELEMETRY_STATUS_LABELS[r.telemetry.status]}

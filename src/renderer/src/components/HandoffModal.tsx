@@ -4,8 +4,9 @@ import { LIMIT_KIND_LABELS } from '@shared/agents'
 import type { AgentProviderId } from '@shared/providers'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import ModelCatalogStatus from '@renderer/components/ModelCatalogStatus'
+import { defaultHandoffModel } from '@renderer/modelCatalog'
 
-const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'cursor', 'ollama']
+const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'cursor', 'copilot', 'ollama']
 
 export default function HandoffModal(): JSX.Element | null {
   const store = useAppStore()
@@ -14,8 +15,9 @@ export default function HandoffModal(): JSX.Element | null {
   const models = store.models
   const catalogFor = (p: AgentProviderId) => models[p]
   const modelsFor = (p: AgentProviderId): string[] => catalogFor(p).models
-  // codex defaults to the empty CLI-default (an explicit unsupported name 400s).
-  const defaultModelFor = (p: AgentProviderId): string => (p === 'codex' ? '' : modelsFor(p)[0] ?? '')
+  // Never auto-select unverified fallback guesses. A live account catalogue may
+  // provide the first safe handoff default; otherwise the provider CLI decides.
+  const defaultModelFor = (p: AgentProviderId): string => defaultHandoffModel(catalogFor(p))
 
   const [provider, setProvider] = useState<AgentProviderId>('codex')
   const [model, setModel] = useState<string>(defaultModelFor('codex'))

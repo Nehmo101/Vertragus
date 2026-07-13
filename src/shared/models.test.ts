@@ -24,6 +24,8 @@ describe('resolveModel', () => {
   it('maps preset when model is empty', () => {
     expect(resolveModel('claude', { model: '', modelPreset: 'strong' })).toBe('opus')
     expect(resolveModel('cursor', { model: '', modelPreset: 'fast' })).toBe('composer-2.5-fast')
+    expect(resolveModel('codex', { model: '', modelPreset: 'balanced' })).toBe('gpt-5.6-terra')
+    expect(resolveModel('codex', { model: '', modelPreset: 'strong' })).toBe('gpt-5.6-sol')
   })
 
   it('keeps legacy CLI default when preset is absent and model empty', () => {
