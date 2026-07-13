@@ -19,7 +19,7 @@ const DEMO_PROFILE = {
   id: 'demo',
   name: 'Uwe',
   workingDir: 'C:\\git\\UWE',
-  orchestrator: { provider: 'claude', model: 'fable', autoOpenSubwindows: true },
+  orchestrator: { provider: 'claude', model: '', modelPreset: 'balanced', autoOpenSubwindows: true },
   agents: [
     { role: 'backend', provider: 'codex', model: '', count: 2, orchestrated: true, yolo: true },
     { role: 'frontend', provider: 'cursor', model: 'composer', count: 3, orchestrated: true, yolo: false }
@@ -203,7 +203,7 @@ export function broadcast(channel: string, payload: unknown): void {
 function pushDemoState(win: BrowserWindow): void {
   const now = Date.now()
   const agents = [
-    { id: 'orch-01', name: 'Boromir', provider: 'claude', model: 'fable', role: 'Orchestrator · plant & verteilt', kind: 'orchestrator', mode: 'interactive', yolo: false, workingDir: '~/repos/checkout', status: 'running', startedAt: now },
+    { id: 'orch-01', name: 'Boromir', provider: 'claude', model: 'sonnet', role: 'Orchestrator · plant & verteilt', kind: 'orchestrator', mode: 'interactive', yolo: false, workingDir: '~/repos/checkout', status: 'running', startedAt: now },
     { id: 'task-02', name: 'Legolas', provider: 'codex', model: 'gpt-5.6', role: 'Task · worker', kind: 'sub', mode: 'task', taskId: 't-1', yolo: false, workingDir: '.', worktree: '.', status: 'running', startedAt: now },
     { id: 'task-03', name: 'Gimli', provider: 'codex', model: 'gpt-5.6', role: 'Task · worker', kind: 'sub', mode: 'task', taskId: 't-2', yolo: true, workingDir: '.', worktree: '.', status: 'running', startedAt: now },
     { id: 'task-04', name: 'Frodo', provider: 'codex', model: 'gpt-5.6', role: 'Task · worker', kind: 'sub', mode: 'task', taskId: 't-3', yolo: false, workingDir: '.', status: 'stopped', startedAt: now }

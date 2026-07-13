@@ -1,8 +1,9 @@
 /**
  * Account-aware model discovery for provider pickers.
  *
- * A live catalogue is never merged with curated defaults: once a CLI or its
- * account-scoped cache returns models, only those identifiers are exposed.
+ * Discovery is provider-specific: complete account/local catalogues replace
+ * fallbacks (Codex, Cursor, Ollama), while Claude's partial option cache is
+ * merged with its stable CLI aliases and curated suggestions.
  */
 import { execFile } from 'node:child_process'
 import { readFileSync } from 'node:fs'
@@ -55,6 +56,10 @@ function uniqueModels(values: unknown[]): string[] {
   return [...seen]
 }
 
+function mergeModels(...groups: unknown[][]): string[] {
+  return uniqueModels(groups.flat())
+}
+
 function fallback(
   provider: AgentProviderId,
   models: string[] = DEFAULT_MODELS[provider],
@@ -66,10 +71,6 @@ function fallback(
     accountDependent: provider !== 'ollama',
     detail
   }
-}
-
-function unavailable(detail: string): ProviderModelCatalogEntry {
-  return { models: [], source: 'unavailable', accountDependent: true, detail }
 }
 
 /** Parse the account-scoped cache written by the Codex CLI. */
@@ -88,7 +89,7 @@ export function parseCodexModelCache(raw: string): string[] {
   }
 }
 
-/** Parse Claude Code's local account option cache without trusting configured defaults. */
+/** Parse Claude Code's partial local cache of additional account options. */
 export function parseClaudeAccountCache(raw: string): string[] {
   try {
     const parsed = JSON.parse(raw) as {
@@ -118,7 +119,12 @@ export function parseClaudeAccountCache(raw: string): string[] {
         .trim()
       if (!value) continue
       models.push(value)
-      if (typeof option.label === 'string' && /^fable$/i.test(option.label.trim())) models.push('fable')
+      if (typeof option.label === 'string') {
+        const alias = option.label.trim().toLowerCase()
+        if (alias === 'sonnet' || alias === 'opus' || alias === 'haiku' || alias === 'fable') {
+          models.push(alias)
+        }
+      }
     }
     return uniqueModels(models)
   } catch {
@@ -152,28 +158,47 @@ export function parseSimpleModelList(stdout: string): string[] {
   )
 }
 
+/** Parse model identifiers advertised in the installed Copilot CLI help. */
+export function parseCopilotHelpModels(stdout: string): string[] {
+  const plain = stdout.replace(ANSI_SGR_PATTERN, '')
+  const identifiers = plain.match(
+    /\b(?:auto|claude-[a-z0-9][a-z0-9.-]*|gpt-[a-z0-9][a-z0-9.-]*|gemini-[a-z0-9][a-z0-9.-]*|mai-[a-z0-9][a-z0-9.-]*)\b/gi
+  )
+  return uniqueModels((identifiers ?? []).map((model) => model.toLowerCase()))
+}
+
+function configuredJsonModel(raw: string): string | undefined {
+  try {
+    const model = (JSON.parse(raw) as { model?: unknown }).model
+    return typeof model === 'string' ? model.trim() || undefined : undefined
+  } catch {
+    return undefined
+  }
+}
+
 async function codexCatalog(deps: ModelDiscoveryDependencies): Promise<ProviderModelCatalogEntry> {
   const root = join(deps.homeDir(), '.codex')
-  try {
-    const live = parseCodexModelCache(deps.readFile(join(root, 'models_cache.json')))
-    if (live.length > 0) {
-      return {
-        models: live,
-        source: 'live',
-        accountDependent: true,
-        detail: 'Account-Katalog aus dem lokalen Codex-CLI-Cache.'
-      }
-    }
-  } catch {
-    // Cache unavailable — fall through to an explicitly labelled fallback.
-  }
-
   let configured: string | undefined
   try {
     configured = configuredTomlModel(deps.readFile(join(root, 'config.toml')))
   } catch {
     // Optional configured default.
   }
+
+  try {
+    const live = parseCodexModelCache(deps.readFile(join(root, 'models_cache.json')))
+    if (live.length > 0) {
+      return {
+        models: mergeModels(configured ? [configured] : [], live),
+        source: 'live',
+        accountDependent: true,
+        detail: 'Vollständiger Account-Katalog aus dem lokalen Codex-CLI-Cache.'
+      }
+    }
+  } catch {
+    // Cache unavailable — fall through to an explicitly labelled fallback.
+  }
+
   return fallback(
     'codex',
     configured ? [configured, ...DEFAULT_MODELS.codex] : DEFAULT_MODELS.codex,
@@ -191,9 +216,13 @@ async function cursorCatalog(deps: ModelDiscoveryDependencies): Promise<Provider
           accountDependent: true,
           detail: 'Live von cursor-agent models.'
         }
-      : unavailable('cursor-agent hat keine Modelle für dieses Konto gemeldet.')
+      : fallback('cursor', DEFAULT_MODELS.cursor, 'cursor-agent hat keine Modelle gemeldet.')
   } catch {
-    return unavailable('cursor-agent models ist nicht verfügbar oder nicht angemeldet.')
+    return fallback(
+      'cursor',
+      DEFAULT_MODELS.cursor,
+      'cursor-agent models ist nicht verfügbar; kuratierte Vorschläge.'
+    )
   }
 }
 
@@ -202,39 +231,49 @@ async function claudeCatalog(deps: ModelDiscoveryDependencies): Promise<Provider
     const live = parseClaudeAccountCache(deps.readFile(join(deps.homeDir(), '.claude.json')))
     if (live.length > 0) {
       return {
-        models: live,
-        source: 'live',
+        models: mergeModels(DEFAULT_MODELS.claude, live),
+        source: 'mixed',
         accountDependent: true,
-        detail: 'Account-Katalog aus dem lokalen Claude-Code-Cache.'
+        detail: 'Claude-CLI-Aliase und Vorschläge plus lokale zusätzliche Account-Optionen.'
       }
     }
   } catch {
     // Account cache unavailable — configured defaults are not entitlement proof.
   }
 
-  return unavailable(
-    'Claude-Account-Katalog nicht verfügbar; konfigurierte Defaults sind kein Berechtigungsnachweis.'
+  return fallback(
+    'claude',
+    DEFAULT_MODELS.claude,
+    'Stabile Claude-CLI-Aliase und kuratierte Modellvorschläge.'
   )
 }
 
 async function copilotCatalog(deps: ModelDiscoveryDependencies): Promise<ProviderModelCatalogEntry> {
+  const root = join(deps.homeDir(), '.copilot')
+  let configured: string | undefined
   try {
-    const help = await deps.exec('copilot', ['--help'], 5_000)
-    if (/^\s*models?\s+/im.test(help)) {
-      const live = parseSimpleModelList(await deps.exec('copilot', ['models'], 8_000))
-      if (live.length > 0) {
-        return {
-          models: live,
-          source: 'live',
-          accountDependent: true,
-          detail: 'Live von der Copilot-CLI.'
-        }
+    configured = configuredJsonModel(deps.readFile(join(root, 'settings.json')))
+  } catch {
+    // Optional configured default.
+  }
+  try {
+    const live = parseCopilotHelpModels(await deps.exec('copilot', ['help'], 5_000))
+    if (live.length > 0) {
+      return {
+        models: mergeModels(configured ? [configured] : [], live),
+        source: 'live',
+        accountDependent: true,
+        detail: 'Von der installierten Copilot-CLI gemeldete Modelle; Kontorichtlinien gelten.'
       }
     }
   } catch {
-    // CLI missing, unauthenticated, or no supported model-list command.
+    // CLI missing or unable to print help.
   }
-  return fallback('copilot', DEFAULT_MODELS.copilot, 'Copilot-Modellliste nicht verifizierbar.')
+  return fallback(
+    'copilot',
+    mergeModels(configured ? [configured] : [], DEFAULT_MODELS.copilot),
+    'Copilot-CLI-Modellliste nicht verfügbar; dokumentierte Vorschläge.'
+  )
 }
 
 async function ollamaCatalog(deps: ModelDiscoveryDependencies): Promise<ProviderModelCatalogEntry> {

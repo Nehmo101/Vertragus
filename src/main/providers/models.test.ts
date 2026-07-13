@@ -3,6 +3,7 @@ import {
   listModels,
   parseClaudeAccountCache,
   parseCodexModelCache,
+  parseCopilotHelpModels,
   parseCursorModels
 } from './models'
 
@@ -41,17 +42,25 @@ describe('model catalogue discovery', () => {
       parseCursorModels(
         'Available models:\nNot authenticated\nFailed to load models:\n* composer-2.5 - Composer\n'
       )
-    ).toEqual([
-      'composer-2.5'
-    ])
+    ).toEqual(['composer-2.5'])
   })
 
-  it('does not merge live catalogues with dead defaults', async () => {
+  it('reads the model identifiers advertised by Copilot help', () => {
+    expect(
+      parseCopilotHelpModels(
+        'Supported models:\n  claude-sonnet-4.6 - default\n  gpt-5.4\n  gemini-3.5-flash\n'
+      )
+    ).toEqual(['claude-sonnet-4.6', 'gpt-5.4', 'gemini-3.5-flash'])
+  })
+
+  it('uses complete live catalogues but augments Claude partial cache options', async () => {
     const exec = vi.fn(async (command: string, args: string[]) => {
       if (command === 'cursor-agent' && args[0] === 'models') {
         return 'Available models:\ncomposer-2.5 - Composer'
       }
-      if (command === 'copilot' && args[0] === '--help') return 'Commands:\n  auth  Login'
+      if (command === 'copilot' && args[0] === 'help') {
+        return 'Supported models:\nclaude-sonnet-4.6\ngpt-5.4'
+      }
       throw new Error('unexpected command')
     })
     const readFile = vi.fn((path: string) => {
@@ -93,13 +102,19 @@ describe('model catalogue discovery', () => {
       accountDependent: true
     })
     expect(catalog.claude).toMatchObject({
-      models: ['claude-fable-5', 'fable'],
+      source: 'mixed'
+    })
+    expect(catalog.claude.models).toEqual(
+      expect.arrayContaining(['sonnet', 'opus', 'haiku', 'fable', 'claude-fable-5'])
+    )
+    expect(catalog.copilot).toMatchObject({
+      models: ['claude-sonnet-4.6', 'gpt-5.4'],
       source: 'live'
     })
     expect(catalog.ollama.source).toBe('fallback')
   })
 
-  it('returns Cursor unavailable instead of guessed models when discovery fails', async () => {
+  it('keeps useful Claude and Cursor suggestions when live discovery fails', async () => {
     const catalog = await listModels({
       exec: async () => {
         throw new Error('not logged in')
@@ -113,27 +128,29 @@ describe('model catalogue discovery', () => {
       }
     })
 
-    expect(catalog.cursor).toEqual({
-      models: [],
-      source: 'unavailable',
+    expect(catalog.cursor).toMatchObject({
+      models: expect.arrayContaining(['auto', 'composer-2.5']),
+      source: 'fallback',
       accountDependent: true,
-      detail: expect.stringMatching(/nicht verfügbar|nicht angemeldet/)
+      detail: expect.stringMatching(/Vorschläge/)
     })
-    expect(catalog.claude).toEqual({
-      models: [],
-      source: 'unavailable',
+    expect(catalog.claude).toMatchObject({
+      models: expect.arrayContaining(['sonnet', 'opus', 'haiku', 'fable']),
+      source: 'fallback',
       accountDependent: true,
-      detail: expect.stringMatching(/kein Berechtigungsnachweis/)
+      detail: expect.stringMatching(/Aliase/)
     })
   })
 
-  it('uses Copilot live output only when the CLI advertises a model-list command', async () => {
+  it('uses Copilot model IDs from CLI help without invoking a nonexistent models subcommand', async () => {
+    const exec = vi.fn(async (command: string, args: string[]) => {
+      if (command === 'copilot' && args[0] === 'help') {
+        return 'Supported models:\nclaude-sonnet-4.6\ngpt-5.4\nclaude-haiku-4.5'
+      }
+      throw new Error('unavailable')
+    })
     const catalog = await listModels({
-      exec: async (command, args) => {
-        if (command === 'copilot' && args[0] === '--help') return 'Commands:\n  models  List account models'
-        if (command === 'copilot' && args[0] === 'models') return 'claude-sonnet-4.5\ngpt-5'
-        throw new Error('unavailable')
-      },
+      exec,
       readFile: () => {
         throw new Error('missing')
       },
@@ -144,9 +161,10 @@ describe('model catalogue discovery', () => {
     })
 
     expect(catalog.copilot).toMatchObject({
-      models: ['claude-sonnet-4.5', 'gpt-5'],
+      models: ['claude-sonnet-4.6', 'gpt-5.4', 'claude-haiku-4.5'],
       source: 'live',
       accountDependent: true
     })
+    expect(exec).not.toHaveBeenCalledWith('copilot', ['models'], expect.any(Number))
   })
 })

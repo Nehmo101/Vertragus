@@ -542,7 +542,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     const agent = get().agents.find((a) => a.id === id)
     await window.orca.agents.popout(id)
     if (agent) {
-      get().showToast(`„${agent.model} · ${agent.role.split('·').pop()?.trim()}" als eigenes Fenster geöffnet ⧉`)
+      get().showToast(
+        `„${agent.model || 'CLI-Standard'} · ${agent.role.split('·').pop()?.trim()}" als eigenes Fenster geöffnet ⧉`
+      )
     }
   },
 
@@ -576,7 +578,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         id: `profile-${Date.now().toString(36)}`,
         name: 'Neues Profil',
         workingDir: activeProfile(get())?.workingDir ?? '',
-        orchestrator: { provider: 'claude', model: 'fable', modelPreset: 'balanced', autoOpenSubwindows: true },
+        orchestrator: {
+          provider: 'claude',
+          model: '',
+          modelPreset: 'balanced',
+          autoOpenSubwindows: true
+        },
         agents: [
           {
             // Empty model = codex's own configured default (see DEFAULT_PROFILE).

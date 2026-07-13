@@ -34,7 +34,7 @@ describe('normalizeModelCatalog', () => {
     expect(modelCatalogLabel('codex', catalog.codex)).toContain('nicht kontoverifiziert')
   })
 
-  it('never exposes Claude legacy or structured fallback guesses', () => {
+  it('keeps Claude aliases visible for legacy and structured fallback responses', () => {
     const legacy = normalizeModelCatalog({ claude: ['sonnet', 'haiku'] })
     const structured = normalizeModelCatalog({
       claude: {
@@ -46,27 +46,27 @@ describe('normalizeModelCatalog', () => {
     })
 
     expect(legacy.claude).toMatchObject({
-      models: [],
-      source: 'unavailable',
+      models: ['sonnet', 'haiku'],
+      source: 'fallback',
       accountDependent: true
     })
     expect(structured.claude).toMatchObject({
-      models: [],
-      source: 'unavailable',
+      models: ['opus'],
+      source: 'fallback',
       accountDependent: true
     })
   })
 
-  it('does not expose Cursor fallback guesses as verified choices', () => {
+  it('keeps Cursor fallback suggestions visible without marking them live', () => {
     const catalog = normalizeModelCatalog({ cursor: ['composer', 'auto'] })
 
     expect(catalog.cursor).toEqual({
-      models: [],
-      source: 'unavailable',
+      models: ['composer', 'auto'],
+      source: 'fallback',
       accountDependent: true,
-      detail: 'Live-Liste von cursor-agent models erforderlich.'
+      detail: 'Kuratierte Vorschläge; Konto-Verfügbarkeit nicht verifiziert.'
     })
-    expect(modelCatalogLabel('cursor', catalog.cursor)).toBe('Nicht verfügbar · kontoabhängig')
+    expect(modelCatalogLabel('cursor', catalog.cursor)).toContain('Fallback · 2 Vorschläge')
   })
 
   it('preserves explicit unavailable state and drops its model guesses', () => {
@@ -103,6 +103,19 @@ describe('normalizeModelCatalog', () => {
       detail: undefined
     })
   })
+
+  it('preserves mixed Claude catalogues and their provenance', () => {
+    const catalog = normalizeModelCatalog({
+      claude: {
+        models: ['sonnet', 'opus', 'claude-fable-5'],
+        source: 'mixed',
+        accountDependent: true
+      }
+    })
+
+    expect(catalog.claude.source).toBe('mixed')
+    expect(modelCatalogLabel('claude', catalog.claude)).toContain('Live + Vorschläge')
+  })
 })
 
 describe('modelPresetAvailability', () => {
@@ -121,7 +134,7 @@ describe('modelPresetAvailability', () => {
     })
   })
 
-  it('enables canonical Codex presets only when the live account catalogue contains them', () => {
+  it('enables canonical Codex presets from live or fallback suggestions', () => {
     const live = normalizeModelCatalog({
       codex: {
         models: ['gpt-5.6-terra', 'gpt-5.6-sol'],
@@ -141,12 +154,12 @@ describe('modelPresetAvailability', () => {
       available: true,
       target: 'gpt-5.6-terra'
     })
-    expect(modelPresetAvailability('codex', 'balanced', fallback.codex).available).toBe(false)
+    expect(modelPresetAvailability('codex', 'balanced', fallback.codex).available).toBe(true)
   })
 })
 
 describe('defaultHandoffModel', () => {
-  it('uses only live account models and leaves fallback catalogues on CLI default', () => {
+  it('leaves cloud providers on CLI default and selects a required Ollama model', () => {
     const catalog = normalizeModelCatalog({
       claude: {
         models: ['claude-fable-5', 'fable'],
@@ -154,13 +167,19 @@ describe('defaultHandoffModel', () => {
         accountDependent: true
       },
       copilot: {
-        models: ['claude-sonnet-4.5'],
+        models: ['claude-sonnet-4.6'],
         source: 'fallback',
         accountDependent: true
+      },
+      ollama: {
+        models: ['qwen2.5:32b', 'llava:7b'],
+        source: 'live',
+        accountDependent: false
       }
     })
 
-    expect(defaultHandoffModel(catalog.claude)).toBe('claude-fable-5')
-    expect(defaultHandoffModel(catalog.copilot)).toBe('')
+    expect(defaultHandoffModel('claude', catalog.claude)).toBe('')
+    expect(defaultHandoffModel('copilot', catalog.copilot)).toBe('')
+    expect(defaultHandoffModel('ollama', catalog.ollama)).toBe('qwen2.5:32b')
   })
 })

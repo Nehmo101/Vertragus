@@ -134,16 +134,20 @@ export function agentSlotsWithRoles(slots: AgentSlot[]): Array<{ slot: AgentSlot
 }
 
 /**
- * The user's canonical example: a Claude/Fable orchestrator delegating to codex
- * subagents. The subagent model is left blank so codex uses its own configured
- * default (~/.codex/config.toml) — hard-coding a name like "gpt-5.6" 400s on a
- * ChatGPT account. Set the model explicitly in the Profile-Editor if needed.
+ * A balanced Claude orchestrator delegating to Codex subagents. The Claude
+ * preset resolves to the stable `sonnet` alias; Codex stays empty so its own
+ * configured CLI default is used unless the user explicitly selects a model.
  */
 export const DEFAULT_PROFILE: WorkspaceProfile = {
   id: 'default',
-  name: 'Fable + Codex subagents',
+  name: 'Claude + Codex subagents',
   workingDir: '',
-  orchestrator: { provider: 'claude', model: 'fable', autoOpenSubwindows: true },
+  orchestrator: {
+    provider: 'claude',
+    model: '',
+    modelPreset: 'balanced',
+    autoOpenSubwindows: true
+  },
   agents: [
     { role: 'codex', provider: 'codex', model: '', count: 3, orchestrated: true, yolo: false }
   ],

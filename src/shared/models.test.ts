@@ -26,6 +26,9 @@ describe('resolveModel', () => {
     expect(resolveModel('cursor', { model: '', modelPreset: 'fast' })).toBe('composer-2.5-fast')
     expect(resolveModel('codex', { model: '', modelPreset: 'balanced' })).toBe('gpt-5.6-terra')
     expect(resolveModel('codex', { model: '', modelPreset: 'strong' })).toBe('gpt-5.6-sol')
+    expect(resolveModel('copilot', { model: '', modelPreset: 'balanced' })).toBe(
+      'claude-sonnet-4.6'
+    )
   })
 
   it('keeps legacy CLI default when preset is absent and model empty', () => {

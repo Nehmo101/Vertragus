@@ -12,6 +12,8 @@ export function runOllamaChat(
   opts: HeadlessOpts,
   onLine: (chunk: string) => void
 ): HeadlessHandle {
+  const model = opts.model?.trim()
+  if (!model) throw new Error('Ollama benötigt ein explizit ausgewähltes lokales Modell.')
   const controller = new AbortController()
   let killed = false
 
@@ -27,7 +29,7 @@ export function runOllamaChat(
         const res = await fetch('http://localhost:11434/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: opts.model ?? 'llama3', messages, stream: true }),
+          body: JSON.stringify({ model, messages, stream: true }),
           signal: controller.signal
         })
         if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)

@@ -22,7 +22,7 @@ safe Auto-PR policies, production hardening, and the **Cozy Organic** UI. See th
 
 | Provider | Command | Role |
 |---|---|---|
-| **Claude Code** | `claude` | agent / orchestrator (e.g. model *Fable*) |
+| **Claude Code** | `claude` | agent / orchestrator (CLI aliases and account options) |
 | **Codex** | `codex` | agent / orchestrator (CLI-configured model) |
 | **Cursor Agent** | `cursor-agent` | agent (account-exposed CLI models) |
 | **GitHub Copilot** | `copilot` | agent / subagent / orchestrator (`@github/copilot` CLI) |
@@ -38,7 +38,7 @@ safe Auto-PR policies, production hardening, and the **Cozy Organic** UI. See th
 - **Multi-agent workspace** — a tiled grid of live terminals; pop any pane out
   into its own OS window (hybrid grid + pop-out).
 - **Configurable orchestration** — pick who orchestrates whom, e.g. a
-  Claude/*Fable* orchestrator driving **three account-enabled coding agents**. The
+  Claude orchestrator driving **three account-enabled coding agents**. The
   orchestrator delegates through an in-app **MCP server** (`dispatch_subagent`,
   `dispatch_batch`, `execute_plan`, `list_subagents`, `open_subwindow`,
   `set_goal`); dispatched subtasks run as real subagents and stream into a live

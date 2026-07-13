@@ -11,7 +11,7 @@ export type ProviderModelCatalog = ProviderModelCatalogEntry
 export type ModelCatalog = SharedModelCatalog
 
 const PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'cursor', 'copilot', 'ollama']
-const MAX_MODELS_PER_PROVIDER = 200
+const MAX_MODELS_PER_PROVIDER = 1_000
 const MAX_DETAIL_LENGTH = 300
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -39,19 +39,6 @@ function detailText(value: unknown): string | undefined {
 }
 
 function fallbackCatalog(provider: AgentProviderId, models: string[] = []): ProviderModelCatalog {
-  // Claude and Cursor choices are strictly live-only. Legacy array responses must never
-  // reintroduce curated guesses from older Orca versions.
-  if (provider === 'cursor' || provider === 'claude') {
-    return {
-      models: [],
-      source: 'unavailable',
-      accountDependent: true,
-      detail:
-        provider === 'cursor'
-          ? 'Live-Liste von cursor-agent models erforderlich.'
-          : 'Claude-Account-Katalog erforderlich.'
-    }
-  }
   return {
     models,
     source: 'fallback',
@@ -70,26 +57,14 @@ export function normalizeModelCatalog(value: unknown): ModelCatalog {
       if (!isRecord(entry)) return [provider, fallbackCatalog(provider)]
 
       const source: ModelCatalogSource =
-        entry.source === 'live' || entry.source === 'fallback' || entry.source === 'unavailable'
+        entry.source === 'live' ||
+        entry.source === 'mixed' ||
+        entry.source === 'fallback' ||
+        entry.source === 'unavailable'
           ? entry.source
           : 'fallback'
       const models = source === 'unavailable' ? [] : modelNames(entry.models)
-      if ((provider === 'cursor' || provider === 'claude') && source !== 'live') {
-        return [
-          provider,
-          {
-            models: [],
-            source: 'unavailable',
-            accountDependent: true,
-            detail:
-              detailText(entry.detail) ??
-              (provider === 'cursor'
-                ? 'Live-Liste von cursor-agent models erforderlich.'
-                : 'Claude-Account-Katalog erforderlich.')
-          }
-        ]
-      }
-      if (source === 'live' && models.length === 0) {
+      if ((source === 'live' || source === 'mixed') && models.length === 0) {
         return [
           provider,
           {
@@ -105,8 +80,7 @@ export function normalizeModelCatalog(value: unknown): ModelCatalog {
         {
           models,
           source,
-          accountDependent:
-            entry.accountDependent === true || provider === 'claude' || provider === 'codex',
+          accountDependent: entry.accountDependent === true || provider !== 'ollama',
           detail: detailText(entry.detail)
         }
       ]
@@ -115,8 +89,8 @@ export function normalizeModelCatalog(value: unknown): ModelCatalog {
 }
 
 /**
- * Concrete presets are selectable only when a live account catalogue contains
- * their target. Empty targets intentionally mean "use the provider CLI default".
+ * Presets are picker conveniences, not an entitlement whitelist. A target is
+ * selectable whenever discovery or the provider fallback suggests it.
  */
 export function modelPresetAvailability(
   provider: AgentProviderId,
@@ -125,22 +99,25 @@ export function modelPresetAvailability(
 ): { available: boolean; target: string; reason?: string } {
   const target = PRESET_MODELS[provider][preset] ?? ''
   if (!target) return { available: true, target }
-  if (catalog.source === 'live' && catalog.models.includes(target)) {
+  if (catalog.models.includes(target)) {
     return { available: true, target }
   }
   return {
     available: false,
     target,
     reason:
-      catalog.source === 'live'
+      catalog.source === 'live' || catalog.source === 'mixed'
         ? `${target} ist für dieses Konto nicht verfügbar.`
-        : `${target} ist ohne Live-Katalog nicht verifiziert.`
+        : `${target} ist in den Vorschlägen dieses Providers nicht enthalten.`
   }
 }
 
-/** Handoffs default only to a model verified by the current live catalogue. */
-export function defaultHandoffModel(catalog: ProviderModelCatalog): string {
-  return catalog.source === 'live' ? catalog.models[0] ?? '' : ''
+/** Cloud CLIs keep their own default; Ollama requires an explicit local model. */
+export function defaultHandoffModel(
+  provider: AgentProviderId,
+  catalog: ProviderModelCatalog
+): string {
+  return provider === 'ollama' ? catalog.models[0] ?? '' : ''
 }
 
 export function modelCatalogLabel(
@@ -150,8 +127,13 @@ export function modelCatalogLabel(
   if (catalog.source === 'unavailable') {
     return `Nicht verfügbar${catalog.accountDependent ? ' · kontoabhängig' : ''}`
   }
-  const origin = catalog.source === 'live' ? 'Live' : 'Fallback'
-  const noun = catalog.source === 'live' ? 'Modelle' : 'Vorschläge'
+  const origin =
+    catalog.source === 'live'
+      ? 'Live'
+      : catalog.source === 'mixed'
+        ? 'Live + Vorschläge'
+        : 'Fallback'
+  const noun = catalog.source === 'fallback' ? 'Vorschläge' : 'Modelle'
   const account =
     catalog.source === 'fallback' && catalog.accountDependent
       ? ' · nicht kontoverifiziert'

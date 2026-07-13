@@ -1673,6 +1673,7 @@ button {
   color: var(--text-3);
 }
 .model-catalog-status.live { color: var(--run-text); }
+.model-catalog-status.mixed { color: var(--run-text); }
 .model-catalog-status.fallback { color: var(--warn-text); }
 .model-catalog-status.unavailable { color: var(--text-muted); }
 .model-catalog-detail {
