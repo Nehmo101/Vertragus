@@ -26,14 +26,13 @@ export interface StatusTheme {
   dot: string
   text: string
   label: string
-  pulse: string | null
 }
 
 export const STATUS_THEME: Record<AgentStatus, StatusTheme> = {
-  running: { dot: 'var(--run)', text: 'var(--run-text)', label: 'läuft', pulse: '1.9s' },
-  waiting: { dot: 'var(--wait)', text: 'var(--wait-text)', label: 'wartet', pulse: '1.3s' },
-  error: { dot: 'var(--err)', text: 'var(--err-text)', label: 'Fehler', pulse: '1.9s' },
-  stopped: { dot: 'var(--stop)', text: 'var(--stop-text)', label: 'gestoppt', pulse: null }
+  running: { dot: 'var(--run)', text: 'var(--run-text)', label: 'läuft' },
+  waiting: { dot: 'var(--wait)', text: 'var(--wait-text)', label: 'wartet' },
+  error: { dot: 'var(--err)', text: 'var(--err-text)', label: 'Fehler' },
+  stopped: { dot: 'var(--stop)', text: 'var(--stop-text)', label: 'gestoppt' }
 }
 
 /** xterm.js theme matching the terminal design tokens. */
