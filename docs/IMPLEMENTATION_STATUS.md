@@ -59,6 +59,9 @@ Ausgangsbasis erhalten.
 - Fehlende `gh`-Authentifizierung, Konflikte oder rote Gates werden sichtbar als
   `blocked` zurückgegeben; der Arbeitsstand bleibt zur Prüfung erhalten.
 - PR-Status und URL werden an Task-DAG und Session-Snapshot zurückgegeben.
+- Nach der Veröffentlichung wartet Orca auf GitHub-Checks und zeigt Remote-CI
+  separat als wartend, laufend, grün, fehlgeschlagen, abgebrochen, zeitlich
+  begrenzt oder wegen Authentifizierung nicht verfügbar an.
 
 ### Externe MCP-Server
 
@@ -144,11 +147,7 @@ der fünf Kernfeatures:
 ## Lokale Abnahme
 
 ```powershell
-corepack pnpm peers check
-corepack pnpm lint
-corepack pnpm typecheck
-corepack pnpm test
-corepack pnpm build
+corepack pnpm run ci
 
 $env:ORCA_MCP_SELFTEST = '1'
 .\node_modules\.bin\electron-vite.CMD preview

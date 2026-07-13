@@ -122,11 +122,8 @@ sollte aber keine zufälligen Formatierungen oder fremde Änderungen enthalten.
 ## 7. Qualitätsprüfung vor Push
 
 ```powershell
-corepack pnpm peers check
-corepack pnpm lint
-corepack pnpm typecheck
-corepack pnpm test
-corepack pnpm build
+corepack pnpm run ci
+corepack pnpm run test:ui-smoke
 ```
 
 Wenn ein Check nicht lokal laufen kann, schreibe im PR exakt, welcher Check
@@ -221,16 +218,13 @@ Empfohlener Start:
 - Modus: `draft-after-checks`
 - Strategie: `aggregate`
 - Basisbranch: `DEV`
-- Gates: Lint, Typecheck, Tests und Build
+- Gate: `corepack pnpm run ci`
 - keine automatische Zusammenführung
 
 Beispiel für Quality Gates im Profil:
 
 ```text
-corepack pnpm lint
-corepack pnpm typecheck
-corepack pnpm test
-corepack pnpm build
+corepack pnpm run ci
 ```
 
 Auto-PR benötigt einen Git-Workspace mit `origin`, Push-Berechtigung und eine
@@ -334,9 +328,7 @@ git branch -d <branch-name>
 git fetch origin --prune
 git status --short --branch
 git diff --check
-corepack pnpm lint
-corepack pnpm typecheck
-corepack pnpm test
+corepack pnpm run ci
 git log --oneline --decorate -8
 ```
 

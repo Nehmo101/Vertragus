@@ -39,6 +39,6 @@ jobs:
           node-version: 22.13
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build
+      - run: pnpm run ci
       - name: Electron UI smoke
         run: pnpm run test:ui-smoke

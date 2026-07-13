@@ -50,7 +50,8 @@ safe Auto-PR policies, production hardening, and the **Cozy Organic** UI. See th
   and a dedicated integration phase protect each implementation wave. See
   [Reliable Agent Lifecycle](docs/RELIABLE_AGENT_LIFECYCLE.md).
 - **Safe Auto-PR** — runs configured gates, scans staged diffs, prepares task
-  commits and publishes aggregate or per-task PRs without force-push or merge.
+  commits and publishes aggregate or per-task PRs without force-push or merge,
+  then tracks GitHub checks as a separate remote-CI state.
 - **Cozy Organic workspace UI** — one warm visual system with persisted light/dark
   mode plus tiles/focus/DAG layout controls.
 - **Yolo Mode** — per-agent and global auto-approve so agents work without
@@ -88,11 +89,10 @@ updates and packaging: NSIS `.exe` + AppImage/`.deb`).
 ## Development
 
 ```bash
-pnpm install     # flat node_modules via .npmrc (node-linker=hoisted)
-pnpm dev         # launch the app with HMR
-pnpm typecheck   # type-check main + preload + renderer
-pnpm build       # typecheck + production build
-pnpm test:ui-smoke # start the built Electron app and verify critical UI surfaces
+corepack pnpm install --frozen-lockfile # flat node_modules via .npmrc
+corepack pnpm dev                       # launch the app with HMR
+corepack pnpm run ci                    # canonical lint + typecheck + test + build
+corepack pnpm run test:ui-smoke         # verify critical Electron UI surfaces
 ```
 
 ### Packaging

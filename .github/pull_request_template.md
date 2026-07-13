@@ -15,5 +15,5 @@
 
 ## Checklist
 
-- [ ] `pnpm typecheck` passes
-- [ ] `pnpm build` passes
+- [ ] `corepack pnpm run ci` passes
+- [ ] `corepack pnpm run test:ui-smoke` passes, or the platform limitation is documented

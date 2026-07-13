@@ -38,9 +38,9 @@ git checkout -b feature/my-change   # or fix/…, or an agent's claude/… branc
 ### 2. Do the work and keep it green
 
 ```bash
-pnpm install
-pnpm typecheck   # type-check main + preload + renderer
-pnpm build       # typecheck + production build
+corepack pnpm install --frozen-lockfile
+corepack pnpm run ci            # lint + typecheck + tests + production build
+corepack pnpm run test:ui-smoke # optional: critical Electron UI surfaces
 ```
 
 ### 3. Open a pull request **into `DEV`**
