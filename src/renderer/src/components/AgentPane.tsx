@@ -6,6 +6,7 @@ import { LIMIT_KIND_LABELS } from '@shared/agents'
 import { PROVIDER_THEME, STATUS_THEME, XTERM_THEME } from '@renderer/ui/theme'
 import LoreName from '@renderer/components/LoreName'
 import { isAgentTerminalChunk } from './terminalStream'
+import { terminalEnterAction } from '@renderer/components/terminalEnter'
 
 interface Props {
   agent: AgentInstanceInfo
@@ -21,8 +22,15 @@ interface Props {
  * Live terminal bound to a real agent PTY. Replays the scrollback buffer via
  * seq numbers, then streams — duplicates and gaps are impossible by design.
  */
-function useAgentTerminal(agentId: string): React.RefObject<HTMLDivElement> {
+function useAgentTerminal(agentId: string, inputEnabled: boolean): React.RefObject<HTMLDivElement> {
   const hostRef = useRef<HTMLDivElement>(null)
+  const terminalRef = useRef<Terminal | null>(null)
+  const inputEnabledRef = useRef(inputEnabled)
+
+  useEffect(() => {
+    inputEnabledRef.current = inputEnabled
+    if (terminalRef.current) terminalRef.current.options.disableStdin = !inputEnabled
+  }, [inputEnabled])
 
   useEffect(() => {
     const host = hostRef.current
@@ -40,8 +48,10 @@ function useAgentTerminal(agentId: string): React.RefObject<HTMLDivElement> {
       cursorWidth: 1,
       cursorInactiveStyle: 'none',
       scrollback: 4000,
+      disableStdin: !inputEnabledRef.current,
       allowProposedApi: true
     })
+    terminalRef.current = term
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.open(host)
@@ -49,6 +59,14 @@ function useAgentTerminal(agentId: string): React.RefObject<HTMLDivElement> {
     // Preserve Ctrl/Cmd+C as SIGINT when nothing is selected, but let xterm's
     // copy event handler place an active terminal selection on the clipboard.
     term.attachCustomKeyEventHandler((event) => {
+      const enterAction = terminalEnterAction(event)
+      if (enterAction) {
+        if (inputEnabledRef.current) {
+          window.orca.agents.write(agentId, enterAction === 'newline' ? '\n' : '\r')
+        }
+        return false
+      }
+
       const modifier = event.ctrlKey || event.metaKey
       const isCopy = modifier && !event.altKey && event.key.toLowerCase() === 'c'
       return !(event.type === 'keydown' && isCopy && term.hasSelection())
@@ -83,7 +101,7 @@ function useAgentTerminal(agentId: string): React.RefObject<HTMLDivElement> {
     })
 
     const onInput = term.onData((data) => {
-      window.orca.agents.write(agentId, data)
+      if (inputEnabledRef.current) window.orca.agents.write(agentId, data)
     })
     // onData also carries automatic terminal protocol replies. Only real user
     // keyboard/paste actions reserve a warm team pane from orchestrator reuse.
@@ -122,6 +140,7 @@ function useAgentTerminal(agentId: string): React.RefObject<HTMLDivElement> {
       host.removeEventListener('paste', onPaste, true)
       unsubscribe()
       term.dispose()
+      terminalRef.current = null
     }
   }, [agentId])
 
@@ -132,8 +151,16 @@ function useAgentTerminal(agentId: string): React.RefObject<HTMLDivElement> {
  * The xterm instance is deliberately isolated from status and usage updates.
  * It is recreated only when its backing PTY instance changes.
  */
-const TerminalHost = memo(function TerminalHost({ agentId, stopped }: { agentId: string; stopped: boolean }): JSX.Element {
-  const hostRef = useAgentTerminal(agentId)
+const TerminalHost = memo(function TerminalHost({
+  agentId,
+  stopped,
+  inputEnabled
+}: {
+  agentId: string
+  stopped: boolean
+  inputEnabled: boolean
+}): JSX.Element {
+  const hostRef = useAgentTerminal(agentId, inputEnabled)
   return <div className={`pane-term ${stopped ? 'stopped' : ''}`} ref={hostRef} />
 })
 
@@ -220,7 +247,11 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
         )}
       </div>
 
-      <TerminalHost agentId={agent.id} stopped={agent.status === 'stopped'} />
+      <TerminalHost
+        agentId={agent.id}
+        stopped={agent.status === 'stopped'}
+        inputEnabled={agent.status === 'running'}
+      />
 
       <div className="pane-foot">
         {usage ? (
