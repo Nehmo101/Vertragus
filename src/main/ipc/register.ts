@@ -10,7 +10,11 @@ import { IPC, type AppInfo } from '@shared/ipc'
 import type { HandoffRequest, OrcaEvent, SpawnAgentRequest } from '@shared/agents'
 import type { OrchestratorSnapshot } from '@shared/orchestrator'
 import type { ProviderId } from '@shared/providers'
-import { profileRepoLocalPath, type WorkspaceProfile } from '@shared/profile'
+import {
+  profileRepoLocalPath,
+  type RepoProfileGenerationRequest,
+  type WorkspaceProfile
+} from '@shared/profile'
 import type { McpServerConfig } from '@shared/mcp'
 import type { GithubRepoBindRequest } from '@shared/ipc'
 import { checkAllProviders } from '@main/providers/health'
@@ -59,10 +63,12 @@ import {
   updateIdea,
   deleteIdea,
   addArtifact,
-  removeArtifact
+  removeArtifact,
+  resetIdeaTransfer
 } from '@main/inbox/store'
 import { retryIdeaTransfer, transferIdeaToProfile } from '@main/inbox/transferService'
 import { spawnProfileTeam } from '@main/agents/spawnProfile'
+import { generateProfileForRepo } from '@main/profiles/generateProfileForRepo'
 import type {
   AddArtifactInput,
   CreateIdeaInput,
@@ -228,6 +234,9 @@ export function registerIpcHandlers(): void {
     const effectiveWorkingDir = profileRepoLocalPath({ workingDir, githubRepo }) || workingDir
     return saveProfile({ ...profile, workingDir: effectiveWorkingDir, githubRepo, agents })
   })
+  ipcMain.handle(IPC.profileGenerateForRepo, (_e, req: RepoProfileGenerationRequest) =>
+    generateProfileForRepo(req)
+  )
   ipcMain.handle(IPC.profileDelete, (_e, id: string) => {
     if (agentManager.anyRunning(id)) {
       throw new Error('Profil löschen ist während einer laufenden Agent-Session gesperrt.')
@@ -241,6 +250,19 @@ export function registerIpcHandlers(): void {
       throw new Error('Workspace-Profil nicht gefunden.')
     }
     setActiveProfileId(id)
+  })
+  ipcMain.handle(IPC.workspaceSessionsList, (_e, profileId?: string) =>
+    workspaceSessions.list(profileId)
+  )
+  ipcMain.handle(IPC.workspaceSessionSetActive, (_e, profileId: string, sessionId: string) => {
+    const profile = getProfile(profileId)
+    if (!profile) throw new Error('Workspace-Profil nicht gefunden.')
+    return workspaceSessions.setActive(profileId, sessionId).engine.snapshot()
+  })
+  ipcMain.handle(IPC.workspaceSessionRemove, async (_e, profileId: string, sessionId: string) => {
+    await agentManager.removeAll(profileId, sessionId)
+    workspaceSessions.removeSession(sessionId)
+    return workspaceSessions.list(profileId)
   })
 
   // ---- external MCP servers ----
@@ -337,6 +359,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.ideasAbortPromptEnhancement, (event, request: unknown) =>
     promptController.abort(event, request)
   )
+  ipcMain.handle(IPC.ideasTransferReset, (_e, ideaId: string) => resetIdeaTransfer(ideaId))
 
   // ---- inbox speech-to-text ----
   ipcMain.handle(IPC.inboxSpeechStatus, () => getInboxSpeechStatus())
@@ -363,9 +386,6 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.agentsSpawnProfile, async (_e, profileId: string, yoloMaster: boolean) => {
     const profile = getProfile(profileId)
     if (!profile) return []
-    if (agentManager.anyRunning(profileId)) {
-      throw new Error('Workspace laeuft bereits.')
-    }
     return spawnProfileTeam(profile, yoloMaster)
   })
   ipcMain.on(IPC.agentWrite, (_e, id: string, data: string) => agentManager.write(id, data))
@@ -377,10 +397,10 @@ export function registerIpcHandlers(): void {
   )
   ipcMain.handle(IPC.agentKill, (_e, id: string) => agentManager.kill(id))
   ipcMain.handle(IPC.agentsKillAll, () => agentManager.killAll())
-  ipcMain.handle(IPC.agentsClean, async (_e, profileId: string) => {
-    await agentManager.removeAll(profileId)
-    const profile = getProfile(profileId)
-    if (profile) workspaceSessions.reset(profile)
+  ipcMain.handle(IPC.agentsClean, async (_e, profileId: string, workspaceSessionId?: string) => {
+    await agentManager.removeAll(profileId, workspaceSessionId)
+    if (workspaceSessionId) workspaceSessions.removeSession(workspaceSessionId)
+    else workspaceSessions.remove(profileId)
   })
   ipcMain.handle(IPC.agentBuffer, (_e, id: string) => agentManager.buffer(id))
   ipcMain.handle(IPC.agentPopout, (_e, id: string) => {
@@ -389,22 +409,28 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.agentHandoff, (_e, req: HandoffRequest) => agentManager.handoff(req))
 
   // ---- orchestrator ----
-  ipcMain.handle(IPC.orchestratorSnapshot, (_e, profileId: string) => {
+  ipcMain.handle(IPC.orchestratorSnapshot, (_e, profileId: string, workspaceSessionId?: string) => {
     const profile = getProfile(profileId)
-    return profile ? workspaceSessions.snapshot(profile) : { profileId, goal: null, tasks: [] }
+    return profile
+      ? workspaceSessions.snapshot(profile, workspaceSessionId)
+      : { profileId, workspaceSessionId, goal: null, tasks: [] }
   })
-  ipcMain.handle(IPC.orchestratorReset, (_e, profileId: string) => {
+  ipcMain.handle(IPC.orchestratorReset, (_e, profileId: string, workspaceSessionId?: string) => {
     const profile = getProfile(profileId)
-    if (profile) workspaceSessions.reset(profile)
+    if (profile) workspaceSessions.reset(profile, workspaceSessionId)
   })
-  ipcMain.handle(IPC.orchestratorReviewPlan, (_e, profileId: string, approved: boolean) => {
+  ipcMain.handle(IPC.orchestratorReviewPlan, (_e, profileId: string, approved: boolean, workspaceSessionId?: string) => {
     const profile = getProfile(profileId)
-    return profile ? workspaceSessions.reviewPlan(profile, Boolean(approved)) : false
+    return profile
+      ? workspaceSessions.reviewPlan(profile, Boolean(approved), workspaceSessionId)
+      : false
   })
-  ipcMain.handle(IPC.orchestratorTaskDiff, async (_e, profileId: string, taskId: string) => {
+  ipcMain.handle(IPC.orchestratorTaskDiff, async (_e, profileId: string, taskId: string, workspaceSessionId?: string) => {
     const profile = getProfile(profileId)
     if (!profile) throw new Error('Workspace-Profil nicht gefunden.')
-    const task = workspaceSessions.snapshot(profile).tasks.find((entry) => entry.id === taskId)
+    const task = workspaceSessions
+      .snapshot(profile, workspaceSessionId)
+      .tasks.find((entry) => entry.id === taskId)
     if (!task) throw new Error('Aufgabe nicht gefunden.')
     return loadTaskReviewDiff(task)
   })
@@ -431,6 +457,9 @@ export function registerIpcHandlers(): void {
       payload: evt
     })
     broadcast(IPC.evOrcaEvent, evt)
+  })
+  workspaceSessions.on('changed', () => {
+    broadcast(IPC.evWorkspaceSessions, workspaceSessions.list())
   })
   workspaceSessions.on('snapshot', (snap: OrchestratorSnapshot) => {
     recordDiagnostic(runJournal, {

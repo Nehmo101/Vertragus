@@ -475,6 +475,21 @@ export default function InboxPanel(): JSX.Element {
     }
   }
 
+  const resetTransfer = async (): Promise<void> => {
+    if (!draft?.transfer) return
+    setSaving(true)
+    setError('')
+    try {
+      const updated = await window.orca.inbox.transferReset(draft.id)
+      setDraft({ ...updated })
+      setIdeas((current) => current.map((idea) => (idea.id === updated.id ? updated : idea)))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const addText = async (): Promise<void> => {
     if (!draft || !textInput.trim()) return
     setSaving(true)
@@ -754,6 +769,14 @@ export default function InboxPanel(): JSX.Element {
                   Übergabe {TRANSFER_STATUS_LABEL[draft.transfer.status] ?? draft.transfer.status}
                   {draft.transfer.error && ` — ${draft.transfer.error}`}
                   {draft.transfer.planId && ` · Plan ${draft.transfer.planId}`}
+                  <button
+                    type="button"
+                    className="inbox-transfer-reset"
+                    disabled={saving}
+                    onClick={() => void resetTransfer()}
+                  >
+                    Zuruecksetzen
+                  </button>
                 </div>
               )}
 

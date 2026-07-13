@@ -16,13 +16,17 @@ export const agentSlotSchema = z.object({
   /** Performance preset when model is empty. Omitted = legacy CLI default. */
   modelPreset: modelPresetSchema.optional(),
   /** Number of instances to open for this slot. */
-  count: z.number().int().min(1).max(16).default(1),
+  count: z.number().int().min(1).default(1),
   /** May the orchestrator dispatch tasks to this slot? */
   orchestrated: z.boolean().default(true),
   /** Run without approval prompts (see Yolo Mode). */
   yolo: z.boolean().default(false),
   /** Optional per-slot working directory override. */
-  workingDir: z.string().optional()
+  workingDir: z.string().optional(),
+  /** Tasks this worker/model is especially suitable for. */
+  strengths: z.array(z.string().min(1)).max(24).default([]),
+  /** Tasks the adaptive router should avoid assigning to this worker/model. */
+  weaknesses: z.array(z.string().min(1)).max(24).default([])
 })
 
 export const orchestratorSchema = z.object({
@@ -37,7 +41,11 @@ export const orchestratorSchema = z.object({
 
 export const plannerConfigSchema = z.object({
   mode: z.enum(['auto', 'review', 'manual']).default('review'),
-  maxParallel: z.number().int().min(1).max(32).default(6),
+  /** Fixed addresses configured roles; adaptive treats them as a worker pool. */
+  routingMode: z.enum(['fixed', 'adaptive']).default('adaptive'),
+  maxParallel: z.number().int().min(1).default(6),
+  /** Maximum focused re-plan attempts after a failed execution wave. */
+  maxRetries: z.number().int().min(0).max(5).default(1)
 })
 
 export const autoPrConfigSchema = z.object({
@@ -108,6 +116,14 @@ export type ProfileCloneStatus = z.infer<typeof profileCloneStatusSchema>
 export type ProfileGithubRepo = z.infer<typeof profileGithubRepoSchema>
 export type WorkspaceProfile = z.infer<typeof workspaceProfileSchema>
 
+export interface RepoProfileGenerationRequest {
+  workingDir: string
+  /** Provider/model that performs the repository analysis. */
+  provider: OrchestratorConfig['provider']
+  model: string
+  modelPreset?: OrchestratorConfig['modelPreset']
+}
+
 /** Effective local path for a profile's bound repository. */
 export function profileRepoLocalPath(profile: Pick<WorkspaceProfile, 'workingDir' | 'githubRepo'>): string {
   return profile.githubRepo?.localPath?.trim() || profile.workingDir.trim()
@@ -133,6 +149,64 @@ export function agentSlotsWithRoles(slots: AgentSlot[]): Array<{ slot: AgentSlot
   })
 }
 
+export interface AgentSlotCapabilities {
+  strengths: string[]
+  weaknesses: string[]
+}
+
+/**
+ * Give the orchestrator useful routing context even for older profiles that do
+ * not yet contain explicit strengths/weaknesses. Explicit profile knowledge is
+ * always preferred over these conservative provider/model defaults.
+ */
+export function agentSlotCapabilities(slot: AgentSlot): AgentSlotCapabilities {
+  const strengths = slot.strengths ?? []
+  const weaknesses = slot.weaknesses ?? []
+  if (strengths.length > 0 || weaknesses.length > 0) {
+    return { strengths: [...strengths], weaknesses: [...weaknesses] }
+  }
+
+  const model = slot.model.toLowerCase()
+  if (slot.provider === 'cursor' && model.includes('fast')) {
+    return {
+      strengths: [
+        'schnelle klar abgegrenzte Implementierung',
+        'Frontend-Iteration',
+        'mechanische Repo-Aenderungen'
+      ],
+      weaknesses: ['tiefes Architekturdesign', 'abschliessendes Security-Review']
+    }
+  }
+  if (slot.provider === 'claude' && (model.includes('fable') || model.includes('opus'))) {
+    return {
+      strengths: ['Backend-Architektur', 'komplexe Refactorings', 'lange Kontexte und Abwaegungen'],
+      weaknesses: ['kleine mechanische Aenderungen mit engem Zeitbudget']
+    }
+  }
+  if (slot.provider === 'claude') {
+    return {
+      strengths: ['Architektur', 'Review', 'komplexe Analyse'],
+      weaknesses: ['sehr repetitive Massenaenderungen']
+    }
+  }
+  if (slot.provider === 'codex') {
+    return {
+      strengths: ['repo-nahe Implementierung', 'Tests und Debugging', 'praezise Code-Reviews'],
+      weaknesses: ['rein visuelle Entwurfsarbeit ohne Repo-Kontext']
+    }
+  }
+  if (slot.provider === 'copilot') {
+    return {
+      strengths: ['gezielte Implementierung', 'GitHub-nahe Aufgaben', 'Code-Ergaenzungen'],
+      weaknesses: ['grosse autonome Architekturumbauten']
+    }
+  }
+  return {
+    strengths: ['lokale kostenguenstige Aufgaben', 'offlinefaehige Analyse'],
+    weaknesses: ['sehr grosse Kontexte', 'providerabhaengige Tool-Integrationen']
+  }
+}
+
 /**
  * A balanced Claude orchestrator delegating to Codex subagents. The Claude
  * preset resolves to the stable `sonnet` alias; Codex stays empty so its own
@@ -149,10 +223,19 @@ export const DEFAULT_PROFILE: WorkspaceProfile = {
     autoOpenSubwindows: true
   },
   agents: [
-    { role: 'codex', provider: 'codex', model: '', count: 3, orchestrated: true, yolo: false }
+    {
+      role: 'codex',
+      provider: 'codex',
+      model: '',
+      count: 3,
+      orchestrated: true,
+      yolo: false,
+      strengths: [],
+      weaknesses: []
+    }
   ],
   yoloDefault: false,
-  planner: { mode: 'review', maxParallel: 6 },
+  planner: { mode: 'review', routingMode: 'adaptive', maxParallel: 6, maxRetries: 1 },
   autoPr: {
     mode: 'off',
     strategy: 'aggregate',

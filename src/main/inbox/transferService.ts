@@ -36,7 +36,7 @@ import { bindGithubRepo, checkGithubRepoLocal } from '@main/integrations/githubR
 import { githubAuthStatus } from '@main/integrations/githubAuth'
 
 const ideaLocks = new Set<string>()
-const PLAN_WAIT_MS = 120_000
+const PLAN_WAIT_MS = 600_000
 /** Spawned agent ids per transfer — cleaned up on failure, kept while plan is in review. */
 const transferSpawnedAgents = new Map<string, string[]>()
 
@@ -59,13 +59,14 @@ async function seedOrchestrator(agentId: string, prompt: string): Promise<void> 
 function persistTransfer(
   ideaId: string,
   transfer: IdeaTransfer,
-  refs?: { profileId?: string; planId?: string }
+  refs?: { profileId?: string; workspaceId?: string; planId?: string }
 ): IdeaTransferResult['idea'] {
   const idea = getIdea(ideaId)
   if (!idea) throw new Error('Idee nicht gefunden.')
   return applyIdeaTransfer(ideaId, transfer, {
     ...idea.refs,
     profileId: refs?.profileId ?? idea.refs?.profileId,
+    workspaceId: refs?.workspaceId ?? idea.refs?.workspaceId,
     planId: refs?.planId ?? idea.refs?.planId
   })
 }
@@ -87,15 +88,6 @@ function failTransfer(
   })
   const idea = persistTransfer(ideaId, failed)
   return { idea, transfer: failed }
-}
-
-async function cleanupTransferAgents(transferId: string): Promise<void> {
-  const ids = transferSpawnedAgents.get(transferId)
-  if (!ids?.length) return
-  transferSpawnedAgents.delete(transferId)
-  for (const id of ids) {
-    await agentManager.kill(id)
-  }
 }
 
 function trackTransferAgents(transferId: string, agentIds: string[]): void {
@@ -198,10 +190,19 @@ function watchForPlanReview(
   engine: OrchestratorEngine,
   timeoutMs = PLAN_WAIT_MS
 ): void {
-  const started = now()
+  const timeout = setTimeout(() => {
+    engine.off('snapshot', onSnapshot)
+    failTransfer(
+      ideaId,
+      transfer,
+      'Orchestrator hat keinen Review-Plan innerhalb des Zeitlimits erstellt. Der Workspace bleibt fuer Diagnose und Fortsetzung erhalten.',
+      true
+    )
+  }, timeoutMs)
   const onSnapshot = (): void => {
     const snap = engine.snapshot()
     if (snap.pendingPlan) {
+      clearTimeout(timeout)
       engine.off('snapshot', onSnapshot)
       const planned = ideaTransferSchema.parse({
         ...transfer,
@@ -211,18 +212,6 @@ function watchForPlanReview(
         updatedAt: now()
       })
       persistTransfer(ideaId, planned, { planId: snap.pendingPlan.planId })
-      return
-    }
-    if (now() - started > timeoutMs) {
-      engine.off('snapshot', onSnapshot)
-      void cleanupTransferAgents(transfer.id).then(() => {
-        failTransfer(
-          ideaId,
-          transfer,
-          'Orchestrator hat keinen Review-Plan innerhalb des Zeitlimits erstellt.',
-          true
-        )
-      })
     }
   }
   engine.on('snapshot', onSnapshot)
@@ -284,8 +273,6 @@ export async function transferIdeaToProfile(req: IdeaTransferRequest): Promise<I
       return { idea: currentIdea, transfer }
     }
 
-    await cleanupTransferAgents(transferId)
-
     transfer = ideaTransferSchema.parse({
       ...transfer,
       status: 'running',
@@ -302,7 +289,6 @@ export async function transferIdeaToProfile(req: IdeaTransferRequest): Promise<I
 
     const orchestrator = spawned.find((a) => a.kind === 'orchestrator')
     if (!orchestrator) {
-      await cleanupTransferAgents(transferId)
       return failTransfer(
         req.ideaId,
         transfer,
@@ -311,10 +297,11 @@ export async function transferIdeaToProfile(req: IdeaTransferRequest): Promise<I
       )
     }
 
-    const session = workspaceSessions.getByProfile(profile.id)
+    const session = orchestrator.workspaceSessionId
+      ? workspaceSessions.getById(orchestrator.workspaceSessionId)
+      : undefined
     const engine = session?.engine
     if (!engine) {
-      await cleanupTransferAgents(transferId)
       return failTransfer(
         req.ideaId,
         transfer,
@@ -323,6 +310,12 @@ export async function transferIdeaToProfile(req: IdeaTransferRequest): Promise<I
       )
     }
 
+    transfer = ideaTransferSchema.parse({
+      ...transfer,
+      workspaceSessionId: session.id,
+      updatedAt: now()
+    })
+    currentIdea = persistTransfer(req.ideaId, transfer, { workspaceId: session.id })
     engine.setGoal(currentIdea.title)
     void seedOrchestrator(
       orchestrator.id,
@@ -333,12 +326,12 @@ export async function transferIdeaToProfile(req: IdeaTransferRequest): Promise<I
     return {
       idea: currentIdea,
       transfer,
-      orchestratorAgentId: orchestrator.id
+      orchestratorAgentId: orchestrator.id,
+      workspaceSessionId: session.id
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     const action = mapGithubErrorToTransferAction(error)
-    await cleanupTransferAgents(transferId)
     const retryable = !message.includes('bereits')
     if (action === 'needsAuth') {
       return failTransfer(req.ideaId, transfer, message, true, 'needsAuth')
@@ -366,7 +359,7 @@ export async function retryIdeaTransfer(ideaId: string, yoloMaster?: boolean): P
   })
 }
 
-/** Test hook: clear in-memory transfer locks and spawned-agent tracking. */
+/** Test hook: clear in-memory transfer locks and diagnostics tracking. */
 export function __clearTransferLocksForTest(): void {
   ideaLocks.clear()
   transferSpawnedAgents.clear()

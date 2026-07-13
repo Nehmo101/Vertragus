@@ -24,11 +24,17 @@ import type {
 } from '@shared/orchestrator'
 import {
   agentSlotsWithRoles,
+  agentSlotCapabilities,
   profileDefaultBaseBranch,
   type AgentSlot,
   type WorkspaceProfile
 } from '@shared/profile'
 import { resolveModel } from '@shared/models'
+import {
+  isModelDisabled,
+  normalizeDisabledModels,
+  normalizeProviderEnabled
+} from '@shared/providers'
 import { agentManager } from '@main/agents/AgentManager'
 import { stripAnsi } from '@main/agents/limitSignals'
 import {
@@ -229,9 +235,11 @@ export class OrchestratorEngine extends EventEmitter {
   }
 
   private persistenceKey(): string {
-    return this.boundProfile?.id
-      ? `orchestratorSnapshot:${this.boundProfile.id}`
-      : 'orchestratorSnapshot'
+    if (this.boundProfile?.id && this.workspaceSessionId) {
+      return `orchestratorSnapshot:${this.boundProfile.id}:${this.workspaceSessionId}`
+    }
+    if (this.boundProfile?.id) return `orchestratorSnapshot:${this.boundProfile.id}`
+    return 'orchestratorSnapshot'
   }
 
   reviewPlan(approved: boolean): boolean {
@@ -239,6 +247,14 @@ export class OrchestratorEngine extends EventEmitter {
     if (!resolve) return false
     this.pendingPlanResolve = undefined
     this.pendingPlan = undefined
+    this.setActivityState(
+      approved ? 'delegating' : 'blocked',
+      approved
+        ? 'Der freigegebene Plan wird jetzt an die vorgesehenen Subagents verteilt.'
+        : 'Der vorgeschlagene Plan wurde abgelehnt; es werden keine Subagents gestartet.',
+      [],
+      approved ? 'Subagents starten und ihre ersten Statusmeldungen prüfen.' : 'Auf ein angepasstes Ziel oder einen neuen Plan warten.'
+    )
     this.push()
     resolve(approved)
     return true
@@ -308,24 +324,45 @@ export class OrchestratorEngine extends EventEmitter {
    * even when an earlier slot with the same role is not orchestrated.
    */
   private slotsWithRoles(): Array<{ slot: AgentSlot; role: string }> {
+    const enabled = normalizeProviderEnabled(getSetting('providerEnabled'))
+    const disabledModels = normalizeDisabledModels(getSetting('disabledModels'))
     const configured = agentSlotsWithRoles(this.activeProfile()?.agents ?? []).filter(
-      ({ slot }) => slot.orchestrated
+      ({ slot }) =>
+        slot.orchestrated &&
+        enabled[slot.provider] &&
+        !isModelDisabled(disabledModels, slot.provider, resolveModel(slot.provider, slot))
     )
     if (configured.length > 0) return configured
-    // Fallback so the orchestrator always has somewhere to dispatch.
-    return agentSlotsWithRoles([
-      { role: 'worker', provider: 'codex', model: '', count: 3, orchestrated: true, yolo: false }
-    ])
+
+    const fallbackProvider = (['codex', 'claude', 'copilot', 'cursor', 'ollama'] as const)
+      .find((provider) => enabled[provider])
+    if (!fallbackProvider) return []
+    return agentSlotsWithRoles([{
+      role: 'worker',
+      provider: fallbackProvider,
+      model: '',
+      count: 1,
+      orchestrated: true,
+      yolo: false,
+      strengths: [],
+      weaknesses: []
+    }])
   }
 
   listSubagents(): SubagentDescriptor[] {
-    return this.slotsWithRoles().map(({ slot, role }) => ({
-      role,
-      provider: slot.provider,
-      model: resolveModel(slot.provider, slot),
-      capacity: slot.count,
-      busy: this.limiters.get(role)?.inUse ?? 0
-    }))
+    return this.slotsWithRoles().map(({ slot, role }) => {
+      const capabilities = agentSlotCapabilities(slot)
+      return {
+        role,
+        provider: slot.provider,
+        model: resolveModel(slot.provider, slot),
+        capacity: slot.count,
+        busy: this.limiters.get(role)?.inUse ?? 0,
+        strengths: capabilities.strengths,
+        weaknesses: capabilities.weaknesses,
+        available: true
+      }
+    })
   }
 
   private nextTaskId(): string {
@@ -336,12 +373,15 @@ export class OrchestratorEngine extends EventEmitter {
   private pickSlot(role: string): { slot: AgentSlot; role: string } {
     const entries = this.slotsWithRoles()
     const q = role.trim().toLowerCase()
-    return (
-      entries.find((e) => e.role === q) ??
-      entries.find((e) => e.slot.provider === q) ??
-      entries.find((e) => e.role.includes(q) || q.includes(e.role)) ??
+    const selected =
+      entries.find((entry) => entry.role === q) ??
+      entries.find((entry) => entry.slot.provider === q) ??
+      entries.find((entry) => entry.role.includes(q) || q.includes(entry.role)) ??
       entries[0]
-    )
+    if (!selected) {
+      throw new Error('Kein global aktivierter Worker ist fuer dieses Profil verfuegbar.')
+    }
+    return selected
   }
 
   /**
@@ -675,18 +715,55 @@ export class OrchestratorEngine extends EventEmitter {
       const taskPrompt = dependencyContext
         ? `${task.prompt}\n\nDependency results (commits and integration notes):\n${dependencyContext}`
         : task.prompt
-      const running = this.dispatch(task.role, taskPrompt, task.title, {
-        taskId: runtimeId,
-        planId,
-        dependsOn: task.dependsOn.map((id) => runtimeIds.get(id)!),
-        conflictKeys: task.conflictKeys
-      })
-        .then((output) => {
+      const running = (async (): Promise<void> => {
+        const maxRetries = profile?.planner.maxRetries ?? 1
+        const attemptedRoles = new Set<string>()
+        let requestedRole = task.role
+        let recoveryContext = ''
+
+        for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+          attemptedRoles.add(requestedRole)
+          const output = await this.dispatch(
+            requestedRole,
+            recoveryContext
+              ? `${taskPrompt}\n\nPrevious worker attempt failed. Diagnose the failure and continue safely:\n${recoveryContext}`
+              : taskPrompt,
+            task.title,
+            {
+              taskId: runtimeId,
+              planId,
+              dependsOn: task.dependsOn.map((id) => runtimeIds.get(id)!),
+              conflictKeys: task.conflictKeys
+            }
+          )
           const runtimeTask = this.tasks.get(runtimeId)
-          const status = runtimeTask?.status === 'success'
-            ? 'success' : runtimeTask?.status === 'stopped' ? 'stopped' : 'error'
-          results.set(task.id, { id: task.id, status, result: output })
-        })
+          if (runtimeTask?.status === 'success') {
+            results.set(task.id, { id: task.id, status: 'success', result: output })
+            return
+          }
+          if (runtimeTask?.status === 'stopped') {
+            results.set(task.id, { id: task.id, status: 'stopped', result: output })
+            return
+          }
+          if (attempt >= maxRetries) {
+            results.set(task.id, { id: task.id, status: 'error', result: output })
+            return
+          }
+
+          recoveryContext = output
+          const alternatives = this.listSubagents().filter((agent) => !attemptedRoles.has(agent.role))
+          if (profile?.planner.routingMode === 'adaptive' && alternatives.length > 0) {
+            requestedRole = alternatives.sort((a, b) => (a.busy / a.capacity) - (b.busy / b.capacity))[0]!.role
+          }
+          this.setActivityState(
+            'delegating',
+            `Worker-Fehler erkannt; Recovery ${attempt + 1}/${maxRetries} wird gestartet.`,
+            [`${task.title}: ${requestedRole}`],
+            'Ersatz-Worker auswerten und erst danach abhaengige Aufgaben freigeben.'
+          )
+          this.push()
+        }
+      })()
         .catch((error: unknown) => {
           const message = error instanceof Error ? error.message : String(error)
           results.set(task.id, { id: task.id, status: 'error', result: message })

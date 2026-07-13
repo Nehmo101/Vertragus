@@ -20,13 +20,20 @@ import type {
   OrcaEvent,
   SpawnAgentRequest
 } from '@shared/agents'
-import { getProvider, type AgentProviderId, type ProviderId } from '@shared/providers'
+import {
+  getProvider,
+  isModelDisabled,
+  normalizeDisabledModels,
+  normalizeProviderEnabled,
+  type AgentProviderId,
+  type ProviderId
+} from '@shared/providers'
 import { resolveModel, type ModelPreset } from '@shared/models'
 import { buildInteractiveLaunch } from '@main/providers/types'
 import { resolveLaunch } from '@main/agents/resolveCommand'
 import { createWorktree } from '@main/agents/worktree'
 import { cursorWorkspaceTrustPrompt } from '@main/agents/cursorWorkspaceTrust'
-import { getSetting } from '@main/config/store'
+import { getProfile, getSetting } from '@main/config/store'
 import {
   runHeadless,
   type HeadlessHandle,
@@ -36,7 +43,7 @@ import {
 import { buildOrchestratorSetup } from '@main/orchestrator/orchestratorLaunch'
 import { buildSubagentMcpArgs } from '@main/orchestrator/externalMcp'
 import { NameAllocator } from '@main/agents/names'
-import { detectLimit, limitKindLabel } from '@main/agents/limitSignals'
+import { detectLimit, limitKindLabel, stripAnsi } from '@main/agents/limitSignals'
 import { buildBriefing } from '@main/agents/handoff'
 import { providerCapacity } from '@main/agents/providerCapacity'
 import { seedWithReadyHandshake } from '@main/agents/interactiveReady'
@@ -46,6 +53,7 @@ import { closePaneWindows } from '@main/windows'
 const BUFFER_LIMIT = 200_000 // chars of scrollback kept per agent
 const CURSOR_TRUST_RETRY_DELAY_MS = 150
 const CURSOR_TRUST_MAX_RETRIES = 3
+const CURSOR_TRUST_WATCHDOG_MS = 8_000
 
 interface Managed {
   info: AgentInstanceInfo
@@ -66,6 +74,9 @@ interface Managed {
   /** A bounded retry while Cursor renders its trust screen across PTY chunks. */
   workspaceTrustRetry?: ReturnType<typeof setTimeout>
   workspaceTrustRetryCount?: number
+  /** Detect and recover when Cursor stays on "Trusting workspace..." indefinitely. */
+  workspaceTrustWatchdog?: ReturnType<typeof setTimeout>
+  workspaceTrustNudged?: boolean
   /** Ignore the interactive PTY exit while converting this pane into a task. */
   reassigning?: boolean
 }
@@ -89,6 +100,17 @@ function assertModelSelection(provider: AgentProviderId, model: string): void {
     throw new Error(
       'Ollama benötigt ein lokal installiertes Modell. Bitte ein Modell aus der Live-Liste auswählen.'
     )
+  }
+}
+
+function assertProviderSelection(provider: AgentProviderId, model: string): void {
+  const enabled = normalizeProviderEnabled(getSetting('providerEnabled'))
+  if (!enabled[provider]) {
+    throw new Error(`Provider ${provider} ist global deaktiviert.`)
+  }
+  const disabledModels = normalizeDisabledModels(getSetting('disabledModels'))
+  if (isModelDisabled(disabledModels, provider, model)) {
+    throw new Error(`Modell ${provider}/${model} ist global deaktiviert.`)
   }
 }
 
@@ -172,6 +194,7 @@ export class AgentManager extends EventEmitter {
     this.emit('data', { id: managed.info.id, data, seq: managed.seq })
     this.scanForLimit(managed)
     this.autoTrustCursorWorktree(managed)
+    this.monitorCursorWorkspaceTrust(managed)
   }
 
 
@@ -180,9 +203,48 @@ export class AgentManager extends EventEmitter {
    * initial prompt only when this manager created the isolated worktree.
    */
   private clearCursorWorkspaceTrustRetry(managed: Managed): void {
-    if (!managed.workspaceTrustRetry) return
-    clearTimeout(managed.workspaceTrustRetry)
-    managed.workspaceTrustRetry = undefined
+    if (managed.workspaceTrustRetry) {
+      clearTimeout(managed.workspaceTrustRetry)
+      managed.workspaceTrustRetry = undefined
+    }
+    if (managed.workspaceTrustWatchdog) {
+      clearTimeout(managed.workspaceTrustWatchdog)
+      managed.workspaceTrustWatchdog = undefined
+    }
+  }
+
+  private cursorTrustProgressVisible(managed: Managed): boolean {
+    const tail = stripAnsi(managed.buffer.slice(-800)).replace(/\r/g, '\n').trimEnd()
+    return /Trusting workspace(?:\.{3})?\s*$/i.test(tail)
+  }
+
+  private monitorCursorWorkspaceTrust(managed: Managed): void {
+    if (!managed.workspaceTrustHandled || !managed.pty || managed.info.provider !== 'cursor') return
+    if (!this.cursorTrustProgressVisible(managed)) {
+      if (managed.workspaceTrustWatchdog) this.clearCursorWorkspaceTrustRetry(managed)
+      return
+    }
+    if (managed.workspaceTrustWatchdog) return
+    managed.workspaceTrustWatchdog = setTimeout(() => {
+      managed.workspaceTrustWatchdog = undefined
+      if (!this.agents.has(managed.info.id) || !managed.pty || !this.cursorTrustProgressVisible(managed)) return
+      if (!managed.workspaceTrustNudged) {
+        managed.workspaceTrustNudged = true
+        managed.pty.write('\r')
+        this.emitEvent(`${managed.info.name} - Cursor-Trust reagiert nicht; Enter wird erneut gesendet.`, 'warn', managed.info)
+        this.monitorCursorWorkspaceTrust(managed)
+        return
+      }
+      this.terminate(managed)
+      this.releaseCapacity(managed)
+      managed.info.status = 'error'
+      this.pushData(
+        managed,
+        '\r\n\x1b[31mCursor blieb bei der Workspace-Trust-Bestaetigung haengen. Der Agent wurde beendet und kann vom Orchestrator ersetzt werden.\x1b[0m\r\n'
+      )
+      this.emitEvent(`${managed.info.name} - Cursor Workspace-Trust fehlgeschlagen`, 'error', managed.info)
+      this.changed()
+    }, CURSOR_TRUST_WATCHDOG_MS)
   }
 
   private retryCursorWorkspaceTrust(managed: Managed): void {
@@ -246,6 +308,7 @@ export class AgentManager extends EventEmitter {
 
   async spawn(req: SpawnAgentRequest): Promise<AgentInstanceInfo> {
     const resolvedModel = resolveModel(req.provider, req)
+    assertProviderSelection(req.provider, resolvedModel)
     assertModelSelection(req.provider, resolvedModel)
     providerCapacity.tryAcquire(req.provider)
     let capacityHeld = true
@@ -266,8 +329,15 @@ export class AgentManager extends EventEmitter {
     // also merges in any orchestrator-scoped external MCP servers). Every other
     // interactive agent gets its subagent-scoped external MCP servers attached
     // so it can see and use them directly.
-    const orchestratorSetup =
-      kind === 'orchestrator' ? buildOrchestratorSetup(req.provider, name, id, req.workspaceSessionId) : undefined
+    const orchestratorProfile = kind === 'orchestrator' && req.profileId
+      ? getProfile(req.profileId)
+      : undefined
+    const orchestratorSetup = kind === 'orchestrator'
+      ? buildOrchestratorSetup(req.provider, name, id, req.workspaceSessionId, {
+          adaptiveTeam: orchestratorProfile?.planner.routingMode === 'adaptive',
+          maxRetries: orchestratorProfile?.planner.maxRetries
+        })
+      : undefined
     if (orchestratorSetup && !orchestratorSetup.capability.supported) {
       providerCapacity.release(req.provider)
       throw new Error(orchestratorSetup.capability.reason ?? `${req.provider} cannot orchestrate.`)
@@ -529,6 +599,7 @@ export class AgentManager extends EventEmitter {
     lifecycle?: HeadlessLifecycleOptions
   ): Promise<{ info: AgentInstanceInfo; done: Promise<HeadlessResult>; baseCommit?: string }> {
     const resolvedModel = resolveModel(req.provider, req)
+    assertProviderSelection(req.provider, resolvedModel)
     assertModelSelection(req.provider, resolvedModel)
     const taskReq = { ...req, model: resolvedModel }
     let managed = this.claimTeamMember(taskReq)
@@ -778,9 +849,11 @@ export class AgentManager extends EventEmitter {
   }
 
   /** Stop everything AND remove the panes — a clean slate for the workspace. */
-  async removeAll(profileId?: string): Promise<void> {
+  async removeAll(profileId?: string, workspaceSessionId?: string): Promise<void> {
     const targets = [...this.agents.entries()].filter(
-      ([, managed]) => !profileId || managed.info.profileId === profileId
+      ([, managed]) =>
+        (!profileId || managed.info.profileId === profileId) &&
+        (!workspaceSessionId || managed.info.workspaceSessionId === workspaceSessionId)
     )
     const count = targets.length
     for (const [id, managed] of targets) {

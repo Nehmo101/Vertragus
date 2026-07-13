@@ -116,6 +116,15 @@ export interface PendingPlanReview {
   validationIssues: PlanValidationIssue[]
 }
 
+export interface WorkspaceSessionSummary {
+  id: string
+  profileId: string
+  profileName: string
+  sequence: number
+  startedAt: number
+  active: boolean
+}
+
 export interface OrchestratorSnapshot {
   /** Workspace ownership for multi-session renderer routing. */
   profileId?: string
@@ -171,6 +180,10 @@ export interface SubagentDescriptor {
   /** How many parallel instances this slot allows. */
   capacity: number
   busy: number
+  /** Routing knowledge exposed to the orchestrator. */
+  strengths: string[]
+  weaknesses: string[]
+  available: boolean
 }
 
 /** Provider features needed to act as Orca's top-level orchestrator. */

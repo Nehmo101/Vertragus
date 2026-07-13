@@ -54,7 +54,17 @@ const TASK_PILL: Record<TaskStatus, { bg: string; fg: string; dot: string; label
   stopped: { bg: 'var(--stop-soft)', fg: 'var(--stop-text)', dot: 'var(--stop)', label: 'gestoppt' }
 }
 
-function TaskCard({ task, profileId, now }: { task: OrcaTask; profileId: string; now: number }): JSX.Element {
+function TaskCard({
+  task,
+  profileId,
+  workspaceSessionId,
+  now
+}: {
+  task: OrcaTask
+  profileId: string
+  workspaceSessionId?: string
+  now: number
+}): JSX.Element {
   const [diff, setDiff] = useState<string | null>(null)
   const [diffError, setDiffError] = useState<string | null>(null)
   const [diffLoading, setDiffLoading] = useState(false)
@@ -75,7 +85,7 @@ function TaskCard({ task, profileId, now }: { task: OrcaTask; profileId: string;
     setDiffLoading(true)
     setDiffError(null)
     try {
-      const result = await window.orca.orchestrator.taskDiff(profileId, task.id)
+      const result = await window.orca.orchestrator.taskDiff(profileId, task.id, workspaceSessionId)
       setDiff(result.diff)
     } catch (error) {
       setDiffError(error instanceof Error ? error.message : String(error))
@@ -384,10 +394,10 @@ export default function OrchestratorPanel(): JSX.Element {
               </div>
             )}
             <div className="plan-review-actions">
-              <button type="button" className="btn ghost" onClick={() => void window.orca.orchestrator.reviewPlan(store.activeProfileId, false)}>
+              <button type="button" className="btn ghost" onClick={() => void window.orca.orchestrator.reviewPlan(store.activeProfileId, false, store.activeWorkspaceSessionId ?? undefined)}>
                 Ablehnen
               </button>
-              <button type="button" className="btn primary" onClick={() => void window.orca.orchestrator.reviewPlan(store.activeProfileId, true)}>
+              <button type="button" className="btn primary" onClick={() => void window.orca.orchestrator.reviewPlan(store.activeProfileId, true, store.activeWorkspaceSessionId ?? undefined)}>
                 Plan starten
               </button>
             </div>
@@ -401,7 +411,13 @@ export default function OrchestratorPanel(): JSX.Element {
             </div>
           ) : (
             tasks.map((task) => (
-              <TaskCard key={task.id} task={task} profileId={store.activeProfileId} now={now} />
+              <TaskCard
+                key={task.id}
+                task={task}
+                profileId={store.activeProfileId}
+                workspaceSessionId={store.activeWorkspaceSessionId ?? undefined}
+                now={now}
+              />
             ))
           )}
         </div>

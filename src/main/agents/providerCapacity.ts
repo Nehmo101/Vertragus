@@ -39,10 +39,14 @@ class ProviderCapacityGate {
     return normalizeProviderLimits(stored)[provider]
   }
 
+  private effectiveLimit(provider: AgentProviderId): number {
+    const configured = this.limitFor(provider)
+    return configured === 0 ? Number.MAX_SAFE_INTEGER : configured
+  }
   private gate(provider: AgentProviderId): Semaphore {
     let sem = this.gates.get(provider)
     if (!sem) {
-      sem = new Semaphore(this.limitFor(provider))
+      sem = new Semaphore(this.effectiveLimit(provider))
       this.gates.set(provider, sem)
     }
     return sem
@@ -50,14 +54,14 @@ class ProviderCapacityGate {
 
   refreshLimits(): void {
     for (const provider of AGENT_PROVIDERS) {
-      this.gate(provider).setLimit(this.limitFor(provider))
+      this.gate(provider).setLimit(this.effectiveLimit(provider))
     }
   }
 
   /** Fail fast when the provider is at capacity (manual interactive spawns). */
   tryAcquire(provider: AgentProviderId): void {
     const sem = this.gate(provider)
-    if (!sem.tryAcquire()) throw new ProviderLimitError(provider, sem.limitValue)
+    if (!sem.tryAcquire()) throw new ProviderLimitError(provider, this.limitFor(provider))
   }
 
   /** Wait for a free slot (automatic headless tasks). */
@@ -77,7 +81,7 @@ class ProviderCapacityGate {
 
   stats(provider: AgentProviderId): ProviderCapacityStats {
     const sem = this.gate(provider)
-    return { active: sem.inUse, waiting: sem.waiting, limit: sem.limitValue }
+    return { active: sem.inUse, waiting: sem.waiting, limit: this.limitFor(provider) }
   }
 
   statsAll(): Record<AgentProviderId, ProviderCapacityStats> {

@@ -79,7 +79,11 @@ export default function IdeaTransferModal({
         onTransferred(result.idea)
         return
       }
-      await store.selectProfile(resolvedProfileId)
+      if (result.workspaceSessionId) {
+        await store.selectWorkspaceSession(resolvedProfileId, result.workspaceSessionId)
+      } else {
+        await store.selectProfile(resolvedProfileId)
+      }
       onTransferred(result.idea)
       window.location.hash = ''
       store.showToast(`Idee „${idea.title}" an Workspace übergeben — Planung läuft.`)
@@ -102,7 +106,11 @@ export default function IdeaTransferModal({
         onTransferred(result.idea)
         return
       }
-      await store.selectProfile(resolvedProfileId)
+      if (result.workspaceSessionId) {
+        await store.selectWorkspaceSession(resolvedProfileId, result.workspaceSessionId)
+      } else {
+        await store.selectProfile(resolvedProfileId)
+      }
       onTransferred(result.idea)
       window.location.hash = ''
       store.showToast('Übergabe wiederholt — Workspace geöffnet.')

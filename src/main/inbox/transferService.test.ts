@@ -35,6 +35,7 @@ const {
       provider: 'claude',
       model: 'fable',
       kind: 'orchestrator',
+      workspaceSessionId: 'session-1',
       role: 'Orchestrator',
       mode: 'interactive',
       yolo: false,
@@ -48,6 +49,7 @@ const {
       provider: 'codex',
       model: '',
       kind: 'sub',
+      workspaceSessionId: 'session-1',
       role: 'Subagent',
       mode: 'interactive',
       yolo: false,
@@ -106,14 +108,15 @@ vi.mock('@main/agents/AgentManager', () => ({
 
 vi.mock('@main/orchestrator/WorkspaceSessionRegistry', () => ({
   workspaceSessions: {
-    getByProfile: vi.fn(() => ({
+    getById: vi.fn((id: string) => id === 'session-1' ? ({
+      id: 'session-1',
       engine: {
         setGoal: setGoalMock,
         snapshot: snapshotMock,
         on: onSnapshotMock,
         off: offSnapshotMock
       }
-    }))
+    }) : undefined)
   }
 }))
 

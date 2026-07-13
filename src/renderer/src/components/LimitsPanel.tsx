@@ -6,7 +6,7 @@ import {
 } from '@renderer/store/useAppStore'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import { formatTokenCount, formatUsd } from '@renderer/telemetryFormat'
-import { PROVIDER_GATE_MAX, PROVIDER_GATE_MIN, type AgentProviderId } from '@shared/providers'
+import { PROVIDER_GATE_MIN, PROVIDER_GATE_UNLIMITED, type AgentProviderId } from '@shared/providers'
 import type { ProviderCapacitySnapshot } from '@shared/ipc'
 import { summarizeUsageGroup, TELEMETRY_STATUS_LABELS, TELEMETRY_STATUS_TITLES, type TelemetrySummary } from '@shared/telemetry'
 
@@ -18,6 +18,7 @@ interface ProviderUsage {
   active: number
   waiting: number
   limit: number
+  enabled: boolean
   telemetry: TelemetrySummary
 }
 
@@ -29,7 +30,13 @@ interface ProviderUsage {
  */
 export default function LimitsPanel(): JSX.Element {
   const store = useAppStore()
-  const { agents, providerLimits: limits, setProviderLimit } = store
+  const {
+    agents,
+    providerLimits: limits,
+    setModelEnabled,
+    setProviderEnabled,
+    setProviderLimit
+  } = store
   const profile = activeProfile(store)
   const visibleAgents = workspaceAgents(store)
   const [capacity, setCapacity] = useState<Record<AgentProviderId, ProviderCapacitySnapshot> | null>(
@@ -62,6 +69,7 @@ export default function LimitsPanel(): JSX.Element {
       active,
       waiting,
       limit: gate?.limit ?? limits[id] ?? 0,
+      enabled: store.providerEnabled[id],
       telemetry
     }
   })
@@ -121,10 +129,11 @@ export default function LimitsPanel(): JSX.Element {
       <div className="limits-list">
         {rows.map((r) => {
           const theme = PROVIDER_THEME[r.id]
-          const pct = r.limit > 0 ? Math.min(100, Math.round((r.active / r.limit) * 100)) : 0
-          const over = r.limit > 0 && r.active >= r.limit
+          const unlimited = r.limit === PROVIDER_GATE_UNLIMITED
+          const pct = unlimited ? 0 : Math.min(100, Math.round((r.active / r.limit) * 100))
+          const over = !unlimited && r.active >= r.limit
           return (
-            <div className={`limit-row ${over ? 'over' : ''}`} key={r.id}>
+            <div className={`limit-row ${over ? 'over' : ''} ${r.enabled ? '' : 'disabled'}`} key={r.id}>
               <span className="chip sz-22" style={{ background: theme.bg, color: theme.fg }}>
                 {theme.mono}
               </span>
@@ -151,13 +160,50 @@ export default function LimitsPanel(): JSX.Element {
                     style={{ width: `${pct}%`, background: over ? 'var(--err)' : theme.fg }}
                   />
                 </div>
+                <details className="limit-model-gates">
+                  <summary>Modelle global schalten</summary>
+                  <div className="limit-model-grid">
+                    {store.models[r.id].models.map((model) => {
+                      const enabled = !store.disabledModels[r.id].some(
+                        (disabled) => disabled.toLowerCase() === model.toLowerCase()
+                      )
+                      return (
+                        <label key={model} title={model}>
+                          <input
+                            type="checkbox"
+                            checked={enabled}
+                            onChange={(event) => setModelEnabled(r.id, model, event.target.checked)}
+                          />
+                          <span>{model}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </details>
               </div>
               <div className="limit-count">
                 <button
                   type="button"
+                  title={`${theme.label} global ${r.enabled ? 'deaktivieren' : 'aktivieren'}`}
+                  aria-pressed={r.enabled}
+                  onClick={() => setProviderEnabled(r.id, !r.enabled)}
+                >
+                  {r.enabled ? 'An' : 'Aus'}
+                </button>
+                <button
+                  type="button"
+                  title={`${theme.label} ohne Orca-Prozesslimit`}
+                  aria-label={`${theme.label}-Orca-Gate unbegrenzt`}
+                  aria-pressed={unlimited}
+                  onClick={() => setProviderLimit(r.id, PROVIDER_GATE_UNLIMITED)}
+                >
+                  {'\u221e'}
+                </button>
+                <button
+                  type="button"
                   title={`${theme.label}-Orca-Gate verringern`}
                   aria-label={`${theme.label}-Orca-Gate verringern`}
-                  disabled={r.limit <= PROVIDER_GATE_MIN}
+                  disabled={unlimited || r.limit <= Math.max(1, PROVIDER_GATE_MIN)}
                   onClick={() => setProviderLimit(r.id, r.limit - 1)}
                 >
                   −
@@ -170,15 +216,14 @@ export default function LimitsPanel(): JSX.Element {
                       : 'aktiv / Orca-Gate (keine API-Quote)'
                   }
                 >
-                  {r.active}/{r.limit}
+                  {r.active}/{unlimited ? '\u221e' : r.limit}
                   {r.waiting > 0 ? ` (+${r.waiting})` : ''}
                 </span>
                 <button
                   type="button"
                   title={`${theme.label}-Orca-Gate erhöhen`}
                   aria-label={`${theme.label}-Orca-Gate erhöhen`}
-                  disabled={r.limit >= PROVIDER_GATE_MAX}
-                  onClick={() => setProviderLimit(r.id, r.limit + 1)}
+                  onClick={() => setProviderLimit(r.id, unlimited ? 4 : r.limit + 1)}
                 >
                   +
                 </button>

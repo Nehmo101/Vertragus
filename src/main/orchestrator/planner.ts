@@ -6,7 +6,6 @@ import type {
 } from '@shared/orchestrator'
 
 export const MAX_PLAN_TASKS = 24
-export const MAX_PLAN_PARALLEL = 8
 const MAX_GOAL_LENGTH = 500
 const MAX_TITLE_LENGTH = 160
 const MAX_ROLE_LENGTH = 64
@@ -114,12 +113,11 @@ export function resolveExecutionPlan(
   if (
     typeof maxParallel !== 'number' ||
     !Number.isInteger(maxParallel) ||
-    maxParallel < 1 ||
-    maxParallel > MAX_PLAN_PARALLEL
+    maxParallel < 1
   ) {
     issues.push({
       code: 'invalid_parallelism',
-      message: `maxParallel must be an integer from 1 to ${MAX_PLAN_PARALLEL}.`
+      message: 'maxParallel must be a positive integer.'
     })
   }
 

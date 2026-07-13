@@ -72,9 +72,18 @@ describe('workspaceProfileSchema', () => {
 
   it('assigns the same stable unique role keys used by team start and dispatch', () => {
     const slots = [
-      { role: 'Worker', provider: 'codex' as const, model: '', count: 2, orchestrated: true, yolo: false },
-      { role: 'Worker', provider: 'cursor' as const, model: 'composer', count: 1, orchestrated: true, yolo: false },
-      { role: 'Review', provider: 'claude' as const, model: 'sonnet', count: 1, orchestrated: true, yolo: false }
+      {
+        role: 'Worker', provider: 'codex' as const, model: '', count: 2, orchestrated: true,
+        yolo: false, strengths: [], weaknesses: []
+      },
+      {
+        role: 'Worker', provider: 'cursor' as const, model: 'composer', count: 1, orchestrated: true,
+        yolo: false, strengths: [], weaknesses: []
+      },
+      {
+        role: 'Review', provider: 'claude' as const, model: 'sonnet', count: 1, orchestrated: true,
+        yolo: false, strengths: [], weaknesses: []
+      }
     ]
 
     expect(agentSlotsWithRoles(slots).map(({ role }) => role)).toEqual([

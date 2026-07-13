@@ -43,8 +43,10 @@ safe Auto-PR policies, production hardening, and the **Cozy Organic** UI. See th
   `dispatch_batch`, `execute_plan`, `list_subagents`, `open_subwindow`,
   `set_goal`); dispatched subtasks run as real subagents and stream into a live
   **task-DAG** panel.
-- **Adaptive planner** — validates DAGs, dependencies, conflict keys and
-  concurrency before execution; supports auto, review-first and manual modes.
+- **Adaptive planner** — starts orchestrated profiles with only the coordinator,
+  selects the smallest useful team from role strengths/weaknesses, validates
+  DAGs before execution, and can add or replace workers during focused recovery
+  and follow-up plan loops; supports auto, review-first and manual modes.
 - **Reliable async lifecycle** — dispatch returns task IDs immediately; polling exposes
   heartbeats and results, while verified commits, shared-file ownership, security gates,
   and a dedicated integration phase protect each implementation wave. See

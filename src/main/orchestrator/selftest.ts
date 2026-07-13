@@ -224,8 +224,14 @@ export async function runSelfTest(): Promise<void> {
       workingDir: '',
       orchestrator: { provider: 'claude', model: 'fable', autoOpenSubwindows: true },
       agents: [
-        { role: 'worker', provider: 'codex', model: '', count: 1, orchestrated: true, yolo: false },
-        { role: 'worker', provider: 'cursor', model: 'composer', count: 6, orchestrated: true, yolo: false }
+        {
+          role: 'worker', provider: 'codex', model: '', count: 1, orchestrated: true,
+          yolo: false, strengths: [], weaknesses: []
+        },
+        {
+          role: 'worker', provider: 'cursor', model: 'composer', count: 6, orchestrated: true,
+          yolo: false, strengths: [], weaknesses: []
+        }
       ],
       yoloDefault: false,
       planner: { ...DEFAULT_PROFILE.planner, mode: 'auto' },

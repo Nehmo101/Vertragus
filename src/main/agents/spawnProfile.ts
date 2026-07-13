@@ -15,7 +15,6 @@ export async function spawnProfileTeam(
   yoloMaster: boolean,
   options?: { resetOrchestrator?: boolean }
 ): Promise<AgentInstanceInfo[]> {
-  await agentManager.removeAll(profile.id)
   const session =
     options?.resetOrchestrator === false
       ? workspaceSessions.ensure(profile)
@@ -24,7 +23,8 @@ export async function spawnProfileTeam(
   const workingDir = profileRepoLocalPath(profile) || profile.workingDir
   const spawned: AgentInstanceInfo[] = []
 
-  for (const { slot, role } of agentSlotsWithRoles(profile.agents)) {
+  const prewarmWorkers = profile.planner.routingMode !== 'adaptive' || !profile.orchestrator
+  for (const { slot, role } of prewarmWorkers ? agentSlotsWithRoles(profile.agents) : []) {
     for (let i = 1; i <= slot.count; i++) {
       spawned.push(
         await agentManager.spawn({

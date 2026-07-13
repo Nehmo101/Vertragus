@@ -4,15 +4,25 @@
 import { create } from 'zustand'
 import type { AgentInstanceInfo, HandoffRequest, OrcaEvent } from '@shared/agents'
 import { LIMIT_KIND_LABELS } from '@shared/agents'
-import type { AgentProviderId, ProviderHealth, ProviderId } from '@shared/providers'
+import type {
+  AgentProviderId,
+  DisabledModels,
+  ProviderEnabled,
+  ProviderHealth,
+  ProviderId
+} from '@shared/providers'
 import {
+  DEFAULT_DISABLED_MODELS,
   DEFAULT_MODELS,
+  DEFAULT_PROVIDER_ENABLED,
   DEFAULT_PROVIDER_LIMITS,
+  normalizeDisabledModels,
+  normalizeProviderEnabled,
   normalizeProviderLimits
 } from '@shared/providers'
 import type { WorkspaceProfile } from '@shared/profile'
 import type { McpServerConfig } from '@shared/mcp'
-import type { OrchestratorSnapshot } from '@shared/orchestrator'
+import type { OrchestratorSnapshot, WorkspaceSessionSummary } from '@shared/orchestrator'
 import type { AppInfo, GitInfo, GithubAuthStatus } from '@shared/ipc'
 import { profileRepoLocalPath } from '@shared/profile'
 import { normalizeModelCatalog, type ModelCatalog } from '@renderer/modelCatalog'
@@ -40,8 +50,12 @@ interface AppState {
   models: ModelCatalog
   /** Per-provider Orca process gates shown live in the Limits panel. */
   providerLimits: Record<AgentProviderId, number>
+  providerEnabled: ProviderEnabled
+  disabledModels: DisabledModels
   profiles: WorkspaceProfile[]
   activeProfileId: string
+  workspaceSessions: WorkspaceSessionSummary[]
+  activeWorkspaceSessionId: string | null
   /** User-configured external MCP servers attached to the launched agents. */
   mcpServers: McpServerConfig[]
   /** True while the MCP-server manager modal is open. */
@@ -79,7 +93,11 @@ interface AppState {
   refreshGit(): Promise<void>
   switchGitBranch(branch: string): Promise<boolean>
   selectProfile(id: string): Promise<boolean>
+  selectWorkspaceSession(profileId: string, sessionId: string): Promise<boolean>
+  removeWorkspaceSession(profileId: string, sessionId: string): Promise<void>
   setProviderLimit(provider: AgentProviderId, value: number): void
+  setProviderEnabled(provider: AgentProviderId, enabled: boolean): void
+  setModelEnabled(provider: AgentProviderId, model: string, enabled: boolean): void
   toggleYolo(): void
   toggleTheme(): void
   setWorkspaceLayout(layout: WorkspaceLayout): void
@@ -101,6 +119,7 @@ interface AppState {
   closeHandoff(): void
   handoff(req: HandoffRequest): Promise<void>
   openEditor(profile: WorkspaceProfile): void
+  openEditorCopy(profile: WorkspaceProfile): void
   openEditorNew(): void
   closeEditor(): void
   saveEditor(profile: WorkspaceProfile): Promise<void>
@@ -123,10 +142,13 @@ export function activeProfile(s: Pick<AppState, 'profiles' | 'activeProfileId'>)
 }
 
 export function workspaceAgents(
-  state: Pick<AppState, 'agents' | 'activeProfileId'>
+  state: Pick<AppState, 'agents' | 'activeProfileId'> &
+    Partial<Pick<AppState, 'activeWorkspaceSessionId'>>
 ): AgentInstanceInfo[] {
   return state.agents.filter(
-    (agent) => !agent.profileId || agent.profileId === state.activeProfileId
+    (agent) =>
+      (!agent.profileId || agent.profileId === state.activeProfileId) &&
+      (!state.activeWorkspaceSessionId || agent.workspaceSessionId === state.activeWorkspaceSessionId)
   )
 }
 
@@ -135,7 +157,8 @@ export function isFinishedSubagent(agent: AgentInstanceInfo): boolean {
 }
 
 export function workspaceAgentHistory(
-  state: Pick<AppState, 'agents' | 'activeProfileId'>
+  state: Pick<AppState, 'agents' | 'activeProfileId'> &
+    Partial<Pick<AppState, 'activeWorkspaceSessionId'>>
 ): AgentInstanceInfo[] {
   return workspaceAgents(state)
     .filter((agent) => agent.profileId === state.activeProfileId && isFinishedSubagent(agent))
@@ -143,7 +166,8 @@ export function workspaceAgentHistory(
 }
 
 export function visibleWorkspaceAgents(
-  state: Pick<AppState, 'agents' | 'activeProfileId' | 'reopenedAgentIds'>
+  state: Pick<AppState, 'agents' | 'activeProfileId' | 'reopenedAgentIds'> &
+    Partial<Pick<AppState, 'activeWorkspaceSessionId'>>
 ): AgentInstanceInfo[] {
   const reopened = new Set(state.reopenedAgentIds)
   return workspaceAgents(state).filter(
@@ -152,9 +176,14 @@ export function visibleWorkspaceAgents(
 }
 
 export function workspaceEvents(
-  state: Pick<AppState, 'events' | 'activeProfileId'>
+  state: Pick<AppState, 'events' | 'activeProfileId'> &
+    Partial<Pick<AppState, 'activeWorkspaceSessionId'>>
 ): OrcaEvent[] {
-  return state.events.filter((event) => !event.profileId || event.profileId === state.activeProfileId)
+  return state.events.filter(
+    (event) =>
+      (!event.profileId || event.profileId === state.activeProfileId) &&
+      (!state.activeWorkspaceSessionId || event.workspaceSessionId === state.activeWorkspaceSessionId)
+  )
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -162,8 +191,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   health: [],
   models: normalizeModelCatalog(DEFAULT_MODELS),
   providerLimits: DEFAULT_PROVIDER_LIMITS,
+  providerEnabled: DEFAULT_PROVIDER_ENABLED,
+  disabledModels: DEFAULT_DISABLED_MODELS,
   profiles: [],
   activeProfileId: '',
+  workspaceSessions: [],
+  activeWorkspaceSessionId: null,
   mcpServers: [],
   mcpEditorOpen: false,
   gitInfo: null,
@@ -214,18 +247,53 @@ export const useAppStore = create<AppState>((set, get) => ({
       void get().refreshModels()
       if (health.some((provider) => provider.id === 'github')) void get().refreshGithubAuth()
     })
+    window.orca.workspaceSessions.onChanged((workspaceSessions) =>
+      set((state) => {
+        const currentStillExists = workspaceSessions.some(
+          (session) => session.id === state.activeWorkspaceSessionId
+        )
+        const active = workspaceSessions.find(
+          (session) => session.profileId === state.activeProfileId && session.active
+        )
+        return {
+          workspaceSessions,
+          activeWorkspaceSessionId: currentStillExists
+            ? state.activeWorkspaceSessionId
+            : (active?.id ?? null)
+        }
+      })
+    )
     window.orca.orchestrator.onSnapshot((snap) =>
       set((state) => {
         const profileId = snap.profileId
         if (!profileId) return { orchestrator: snap }
-        const orchestrators = { ...state.orchestrators, [profileId]: snap }
-        return profileId === state.activeProfileId
+        const key = snap.workspaceSessionId ?? profileId
+        const orchestrators = { ...state.orchestrators, [key]: snap }
+        const isActive =
+          profileId === state.activeProfileId &&
+          (!state.activeWorkspaceSessionId || snap.workspaceSessionId === state.activeWorkspaceSessionId)
+        return isActive
           ? { orchestrators, orchestrator: snap }
           : { orchestrators }
       })
     )
 
-    const [appInfo, profiles, activeProfileId, mcpServers, agents, yolo, snapshot, theme, layout, density, limits] =
+    const [
+      appInfo,
+      profiles,
+      activeProfileId,
+      mcpServers,
+      agents,
+      yolo,
+      snapshot,
+      theme,
+      layout,
+      density,
+      limits,
+      workspaceSessions,
+      providerEnabled,
+      disabledModels
+    ] =
       await Promise.all([
         window.orca.getAppInfo(),
         window.orca.listProfiles(),
@@ -238,21 +306,31 @@ export const useAppStore = create<AppState>((set, get) => ({
         window.orca.getConfig<UiTheme>('ui.theme'),
         window.orca.getConfig<WorkspaceLayout>('ui.workspaceLayout'),
         window.orca.getConfig<UiDensity>('ui.density'),
-        window.orca.getConfig<Partial<Record<AgentProviderId, number>>>('providerLimits')
+        window.orca.getConfig<Partial<Record<AgentProviderId, number>>>('providerLimits'),
+        window.orca.workspaceSessions.list(),
+        window.orca.getConfig<Partial<ProviderEnabled>>('providerEnabled'),
+        window.orca.getConfig<Partial<DisabledModels>>('disabledModels')
       ])
     set({
       appInfo,
       profiles,
       activeProfileId,
+      workspaceSessions,
+      activeWorkspaceSessionId:
+        snapshot.workspaceSessionId ??
+        workspaceSessions.find((session) => session.profileId === activeProfileId && session.active)?.id ??
+        null,
       mcpServers,
       agents,
       yoloMaster: yolo ?? false,
       orchestrator: snapshot,
-      orchestrators: { [activeProfileId]: snapshot },
+      orchestrators: { [snapshot.workspaceSessionId ?? activeProfileId]: snapshot },
       theme: theme === 'dark' ? 'dark' : 'light',
       workspaceLayout: layout === 'focus' || layout === 'dag' ? layout : 'tiles',
       uiDensity: density === 'compact' ? density : 'comfortable',
-      providerLimits: normalizeProviderLimits(limits)
+      providerLimits: normalizeProviderLimits(limits),
+      providerEnabled: normalizeProviderEnabled(providerEnabled),
+      disabledModels: normalizeDisabledModels(disabledModels)
     })
 
     void get().refreshGit()
@@ -394,11 +472,20 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     try {
       await window.orca.setActiveProfileId(id)
-      const snapshot = await window.orca.orchestrator.snapshot(id)
+      const workspaceSessions = await window.orca.workspaceSessions.list()
+      const activeSession = workspaceSessions.find(
+        (session) => session.profileId === id && session.active
+      )
+      const snapshot = await window.orca.orchestrator.snapshot(id, activeSession?.id)
       set((state) => ({
         activeProfileId: id,
+        workspaceSessions,
+        activeWorkspaceSessionId: activeSession?.id ?? null,
         orchestrator: snapshot,
-        orchestrators: { ...state.orchestrators, [id]: snapshot }
+        orchestrators: {
+          ...state.orchestrators,
+          [snapshot.workspaceSessionId ?? id]: snapshot
+        }
       }))
       await get().refreshGit().catch((error) => {
         get().showToast(`Profil gewechselt, Git-Status nicht verfügbar: ${errorMessage(error)}`)
@@ -410,10 +497,80 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  async selectWorkspaceSession(profileId, sessionId) {
+    try {
+      if (profileId !== get().activeProfileId) {
+        await window.orca.setActiveProfileId(profileId)
+      }
+      const snapshot = await window.orca.workspaceSessions.setActive(profileId, sessionId)
+      const workspaceSessions = await window.orca.workspaceSessions.list()
+      set((state) => ({
+        activeProfileId: profileId,
+        activeWorkspaceSessionId: sessionId,
+        workspaceSessions,
+        orchestrator: snapshot,
+        orchestrators: { ...state.orchestrators, [sessionId]: snapshot },
+        selectedAgentId: null
+      }))
+      await get().refreshGit().catch(() => undefined)
+      return true
+    } catch (error) {
+      get().showToast(`Workspace konnte nicht ausgewaehlt werden: ${errorMessage(error)}`)
+      return false
+    }
+  },
+
+  async removeWorkspaceSession(profileId, sessionId) {
+    try {
+      const workspaceSessions = await window.orca.workspaceSessions.remove(profileId, sessionId)
+      const activeSession = workspaceSessions.find(
+        (session) => session.profileId === profileId && session.active
+      )
+      const snapshot = await window.orca.orchestrator.snapshot(profileId, activeSession?.id)
+      set((state) => ({
+        workspaceSessions,
+        activeWorkspaceSessionId: activeSession?.id ?? null,
+        orchestrator: snapshot,
+        orchestrators: {
+          ...state.orchestrators,
+          [snapshot.workspaceSessionId ?? profileId]: snapshot
+        },
+        selectedAgentId: null
+      }))
+      get().showToast('Workspace-Lauf entfernt.')
+    } catch (error) {
+      get().showToast(`Workspace konnte nicht entfernt werden: ${errorMessage(error)}`)
+    }
+  },
+
   setProviderLimit(provider, value) {
     const providerLimits = normalizeProviderLimits({ ...get().providerLimits, [provider]: value })
     set({ providerLimits })
     void window.orca.setConfig('providerLimits', providerLimits)
+  },
+
+  setProviderEnabled(provider, enabled) {
+    const providerEnabled = normalizeProviderEnabled({
+      ...get().providerEnabled,
+      [provider]: enabled
+    })
+    set({ providerEnabled })
+    void window.orca.setConfig('providerEnabled', providerEnabled)
+  },
+
+  setModelEnabled(provider, model, enabled) {
+    const normalized = model.trim()
+    if (!normalized) return
+    const current = get().disabledModels[provider]
+    const disabled = enabled
+      ? current.filter((entry) => entry.toLowerCase() !== normalized.toLowerCase())
+      : [...current.filter((entry) => entry.toLowerCase() !== normalized.toLowerCase()), normalized]
+    const disabledModels = normalizeDisabledModels({
+      ...get().disabledModels,
+      [provider]: disabled
+    })
+    set({ disabledModels })
+    void window.orca.setConfig('disabledModels', disabledModels)
   },
 
   toggleYolo() {
@@ -485,7 +642,22 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     s.showToast(`Workspace „${profile.name}" startet…`)
     try {
-      await window.orca.agents.spawnProfile(profile.id, s.yoloMaster)
+      const spawned = await window.orca.agents.spawnProfile(profile.id, s.yoloMaster)
+      const workspaceSessionId = spawned.find((agent) => agent.workspaceSessionId)?.workspaceSessionId
+      if (workspaceSessionId) {
+        const [workspaceSessions, snapshot] = await Promise.all([
+          window.orca.workspaceSessions.list(),
+          window.orca.orchestrator.snapshot(profile.id, workspaceSessionId)
+        ])
+        set((state) => ({
+          workspaceSessions,
+          activeWorkspaceSessionId: workspaceSessionId,
+          orchestrator: snapshot,
+          orchestrators: { ...state.orchestrators, [workspaceSessionId]: snapshot },
+          selectedAgentId: null
+        }))
+        get().showToast(`Workspace ${workspaceSessions.find((item) => item.id === workspaceSessionId)?.sequence ?? ''} gestartet.`)
+      }
     } catch (error) {
       get().showToast(`Workspace konnte nicht starten: ${errorMessage(error)}`)
     }
@@ -497,7 +669,28 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   async cleanWorkspace() {
-    await window.orca.agents.clean(get().activeProfileId)
+    await window.orca.agents.clean(
+      get().activeProfileId,
+      get().activeWorkspaceSessionId ?? undefined
+    )
+    const workspaceSessions = await window.orca.workspaceSessions.list()
+    const activeSession = workspaceSessions.find(
+      (session) => session.profileId === get().activeProfileId && session.active
+    )
+    const snapshot = await window.orca.orchestrator.snapshot(
+      get().activeProfileId,
+      activeSession?.id
+    )
+    set((state) => ({
+      workspaceSessions,
+      activeWorkspaceSessionId: activeSession?.id ?? null,
+      orchestrator: snapshot,
+      orchestrators: {
+        ...state.orchestrators,
+        [snapshot.workspaceSessionId ?? get().activeProfileId]: snapshot
+      },
+      selectedAgentId: null
+    }))
     get().showToast('Workspace geleert — alle Agents entfernt.')
   },
 
@@ -521,7 +714,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         role: `Subagent · ${role}`,
         yolo: s.yoloMaster,
         workingDir: profile ? profileRepoLocalPath(profile) : undefined,
-        profileId: profile?.id
+        profileId: profile?.id,
+        workspaceSessionId: s.activeWorkspaceSessionId ?? undefined
       })
       set({ addSeq: s.addSeq + 1, addAgentOpen: false })
       get().showToast(
@@ -572,6 +766,30 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ editorProfile: profile })
   },
 
+  openEditorCopy(profile) {
+    set({
+      editorProfile: {
+        ...profile,
+        id: `profile-${Date.now().toString(36)}`,
+        name: `${profile.name} (Kopie)`,
+        orchestrator: profile.orchestrator ? { ...profile.orchestrator } : undefined,
+        githubRepo: profile.githubRepo ? { ...profile.githubRepo } : undefined,
+        agents: profile.agents.map((slot) => ({
+          ...slot,
+          strengths: [...slot.strengths],
+          weaknesses: [...slot.weaknesses]
+        })),
+        planner: { ...profile.planner },
+        autoPr: {
+          ...profile.autoPr,
+          qualityGates: [...profile.autoPr.qualityGates],
+          labels: [...profile.autoPr.labels],
+          reviewers: [...profile.autoPr.reviewers]
+        }
+      }
+    })
+  },
+
   openEditorNew() {
     set({
       editorProfile: {
@@ -593,11 +811,13 @@ export const useAppStore = create<AppState>((set, get) => ({
             modelPreset: 'balanced',
             count: 1,
             orchestrated: true,
-            yolo: false
+            yolo: false,
+            strengths: [],
+            weaknesses: []
           }
         ],
         yoloDefault: false,
-        planner: { mode: 'review', maxParallel: 6 },
+        planner: { mode: 'review', routingMode: 'adaptive', maxParallel: 6, maxRetries: 1 },
         autoPr: {
           mode: 'off',
           strategy: 'aggregate',

@@ -50,11 +50,12 @@ function buildMcpServer(engine: OrchestratorEngine = orchestratorEngine): McpSer
     {
       instructions: [
         'You are the Orca-Strator orchestrator. Plan and delegate instead of editing code yourself.',
-        'Call set_goal first, report_activity for planning, then list_subagents. Use exactly the returned role values.',
-        'Keep report_activity current so the user sees what you are doing, what workers are doing, and what happens next.',
-        'Use execute_plan for dependent work and dispatch_batch for independent parallel work.',
-        'Poll task status at meaningful transitions.',
-        'Identify a worker only by the exact agentName returned by get_task_status or list_tasks.',
+        'For every new goal call set_goal first, report_activity for planning, then list_subagents and execute_plan.',
+        'Use exactly the returned role values and choose only the roles the plan needs.',
+        'Keep report_activity current so the user can see what you are doing, what workers are doing, and what happens next.',
+        'Poll each plan to a terminal result, evaluate it against the goal, and submit focused follow-up plans when needed.',
+        'Stop only when the goal is verified or a concrete dead end requires user input or an external change.',
+        'Poll task status at meaningful transitions. Identify a worker only by the exact agentName returned by get_task_status or list_tasks.',
         'If agentName is absent, use taskId and role until a later poll returns it; never infer or invent a worker name.',
         'Report each worker task, phase, current action, and blocker.',
         'Give every subagent a complete standalone prompt and summarize their results for the user.'
@@ -115,7 +116,8 @@ function buildMcpServer(engine: OrchestratorEngine = orchestratorEngine): McpSer
 
   register(
     'list_subagents',
-    'Liste die verfügbaren Subagent-Rollen (Provider, Modell, Kapazität), an die du delegieren kannst.',
+    'Liste den verfügbaren Fähigkeiten-Pool mit Rollen, Provider, Modell, Kapazität, Stärken und Schwächen. ' +
+      'Die Rollen sind nicht zwingend bereits gestartet; ein Plan startet nur die ausgewählten Agents.',
     {},
     async () => text(JSON.stringify(engine.listSubagents(), null, 2))
   )
@@ -190,7 +192,8 @@ function buildMcpServer(engine: OrchestratorEngine = orchestratorEngine): McpSer
   register(
     'execute_plan',
     'Validiere und starte einen kompletten Auto-Subagent-Plan asynchron als DAG. Die Antwort ' +
-      'enthält sofort runId; Status und Ergebnis werden mit get_plan_status abgefragt.',
+      'enthält sofort runId; Status und Ergebnis werden mit get_plan_status abgefragt. ' +
+      'Bewerte danach das Gesamtziel und reiche bei Bedarf einen fokussierten Folgeplan ein.',
     {
       plan: z.object({
         version: z.literal(1).optional(),
