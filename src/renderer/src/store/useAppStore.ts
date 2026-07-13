@@ -15,6 +15,7 @@ import type { McpServerConfig } from '@shared/mcp'
 import type { OrchestratorSnapshot } from '@shared/orchestrator'
 import type { AppInfo, GitInfo, GithubAuthStatus } from '@shared/ipc'
 import { profileRepoLocalPath } from '@shared/profile'
+import { normalizeModelCatalog, type ModelCatalog } from '@renderer/modelCatalog'
 
 const ADD_ROLES = ['Docs / Changelog', 'Refactor / Cleanup', 'Security-Review', 'Perf / Bench']
 
@@ -29,7 +30,7 @@ export type UiDensity = 'comfortable' | 'compact'
 interface AppState {
   appInfo: AppInfo | null
   health: ProviderHealth[]
-  models: Record<AgentProviderId, string[]>
+  models: ModelCatalog
   /** Per-provider Orca process gates shown live in the Limits panel. */
   providerLimits: Record<AgentProviderId, number>
   profiles: WorkspaceProfile[]
@@ -103,6 +104,7 @@ let toastTimer: ReturnType<typeof setTimeout> | undefined
 let initialized = false
 let githubAuthRequest = 0
 let githubAuthAction = 0
+let modelRefreshSequence = 0
 
 export function activeProfile(s: Pick<AppState, 'profiles' | 'activeProfileId'>):
   | WorkspaceProfile
@@ -148,7 +150,7 @@ export function workspaceEvents(
 export const useAppStore = create<AppState>((set, get) => ({
   appInfo: null,
   health: [],
-  models: DEFAULT_MODELS,
+  models: normalizeModelCatalog(DEFAULT_MODELS),
   providerLimits: DEFAULT_PROVIDER_LIMITS,
   profiles: [],
   activeProfileId: '',
@@ -197,7 +199,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     )
     window.orca.onProvidersChanged((health) => {
       set({ health })
-      // A provider login can change the account-visible model catalogue.
+      // The account-visible catalogue may change when the interactive login closes.
       void get().refreshModels()
       if (health.some((provider) => provider.id === 'github')) void get().refreshGithubAuth()
     })
@@ -310,17 +312,24 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   async refreshHealth() {
-    const health = await window.orca.checkProviders()
-    set({ health })
-    if (health.some((provider) => provider.id === 'github')) void get().refreshGithubAuth()
+    try {
+      const health = await window.orca.checkProviders()
+      set({ health })
+      if (health.some((provider) => provider.id === 'github')) void get().refreshGithubAuth()
+    } finally {
+      // The sidebar refresh is also an explicit refresh of model suggestions.
+      await get().refreshModels()
+    }
   },
 
   async refreshModels() {
+    const sequence = ++modelRefreshSequence
     try {
       const models = await window.orca.listModels()
-      set({ models })
+      if (sequence !== modelRefreshSequence) return
+      set({ models: normalizeModelCatalog(models) })
     } catch {
-      // Model suggestions are optional. Keep the last known list when a
+      // Model suggestions are optional. Keep the last known catalogue when a
       // provider is unavailable or a live probe times out.
     }
   },
@@ -330,6 +339,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!provider?.available || !provider.canLogin) return
     try {
       await window.orca.loginProvider(id)
+      // The completion event triggers a second reload after the CLI closes.
       void get().refreshModels()
       get().showToast(`${provider.loginLabel ?? 'Provider-Login'} im sicheren Terminal geöffnet.`)
     } catch (error) {

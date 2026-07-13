@@ -3,6 +3,7 @@ import { useAppStore } from '@renderer/store/useAppStore'
 import { LIMIT_KIND_LABELS } from '@shared/agents'
 import type { AgentProviderId } from '@shared/providers'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
+import ModelCatalogStatus from '@renderer/components/ModelCatalogStatus'
 
 const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'cursor', 'ollama']
 
@@ -11,7 +12,8 @@ export default function HandoffModal(): JSX.Element | null {
   const source = store.handoffSource
   const closeHandoff = store.closeHandoff
   const models = store.models
-  const modelsFor = (p: AgentProviderId): string[] => models[p] ?? []
+  const catalogFor = (p: AgentProviderId) => models[p]
+  const modelsFor = (p: AgentProviderId): string[] => catalogFor(p).models
   // codex defaults to the empty CLI-default (an explicit unsupported name 400s).
   const defaultModelFor = (p: AgentProviderId): string => (p === 'codex' ? '' : modelsFor(p)[0] ?? '')
 
@@ -103,6 +105,7 @@ export default function HandoffModal(): JSX.Element | null {
                   <option key={m} value={m} />
                 ))}
               </datalist>
+              <ModelCatalogStatus provider={provider} catalog={catalogFor(provider)} />
             </div>
           </div>
 

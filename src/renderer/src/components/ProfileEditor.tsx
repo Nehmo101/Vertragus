@@ -13,6 +13,7 @@ import type { GithubProjectSummary, GithubRepoSummary } from '@shared/ipc'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import InfoTip from '@renderer/components/InfoTip'
 import { hasUsableGithubAuth } from '@renderer/store/githubAuth'
+import ModelCatalogStatus from '@renderer/components/ModelCatalogStatus'
 
 const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'cursor', 'copilot', 'ollama']
 
@@ -87,7 +88,8 @@ export default function ProfileEditor(): JSX.Element | null {
   if (!initial || !draft) return null
 
   const models = store.models
-  const modelsFor = (p: AgentProviderId): string[] => models[p] ?? []
+  const catalogFor = (p: AgentProviderId) => models[p]
+  const modelsFor = (p: AgentProviderId): string[] => catalogFor(p).models
   const presetValue = (preset?: ModelPreset): string => preset ?? ''
   const parsePreset = (value: string): ModelPreset | undefined =>
     value === 'fast' || value === 'balanced' || value === 'strong' ? value : undefined
@@ -583,6 +585,10 @@ export default function ProfileEditor(): JSX.Element | null {
                     <option key={m} value={m} />
                   ))}
                 </datalist>
+                <ModelCatalogStatus
+                  provider={draft.orchestrator.provider}
+                  catalog={catalogFor(draft.orchestrator.provider)}
+                />
                 <div className="model-effective" aria-live="polite">
                   Effektiv:{' '}
                   {formatModelLabel(
@@ -786,6 +792,7 @@ export default function ProfileEditor(): JSX.Element | null {
                       <option key={m} value={m} />
                     ))}
                   </datalist>
+                  <ModelCatalogStatus provider={slot.provider} catalog={catalogFor(slot.provider)} />
                   <div className="model-effective" aria-live="polite">
                     Effektiv: {formatModelLabel(resolveModel(slot.provider, slot), slot)}
                   </div>
