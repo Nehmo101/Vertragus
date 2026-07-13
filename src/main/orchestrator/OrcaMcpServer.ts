@@ -45,6 +45,8 @@ function buildMcpServer(engine: OrchestratorEngine = orchestratorEngine): McpSer
         'You are the Orca-Strator orchestrator. Plan and delegate instead of editing code yourself.',
         'Call set_goal first, then list_subagents. Use exactly the returned role values.',
         'Use execute_plan for dependent work and dispatch_batch for independent parallel work.',
+        'Identify a worker only by the exact agentName returned by get_task_status or list_tasks.',
+        'If agentName is absent, use taskId and role until a later poll returns it; never infer or invent a worker name.',
         'Give every subagent a complete standalone prompt and summarize their results for the user.'
       ].join(' ')
     }

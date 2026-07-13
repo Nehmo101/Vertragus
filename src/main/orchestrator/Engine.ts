@@ -415,7 +415,7 @@ export class OrchestratorEngine extends EventEmitter {
       })
     this.taskRuns.set(taskId, run)
     void run.finally(() => this.taskRuns.delete(taskId))
-    return { taskId, status: this.tasks.get(taskId)?.status ?? 'queued' }
+    return this.getTaskStatus(taskId) ?? { taskId, status: 'queued' }
   }
 
   dispatchBatchAsync(items: Array<{ role: string; prompt: string; title?: string }>): TaskStatusSnapshot[] {
@@ -434,10 +434,11 @@ export class OrchestratorEngine extends EventEmitter {
       ? 'running'
       : task.status
     return {
-      taskId, status, phase: task.phase, progress: task.progress,
+      taskId, title: task.title, role: task.role, agentId: task.agentId, agentName: task.agentName,
+      provider: task.provider, model: task.model, status, phase: task.phase, progress: task.progress,
       lastAction: task.lastAction, lastHeartbeatAt: task.lastHeartbeatAt, completion: task.completion,
       result: task.status === 'success' || task.status === 'stopped' ? result : undefined,
-      error: task.status === 'error' ? result ?? task.note : undefined
+      error: task.status === 'error' ? result ?? task.note : undefined, note: task.note
     }
   }
 

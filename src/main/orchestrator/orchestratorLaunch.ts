@@ -31,6 +31,8 @@ export const orchestratorSystemPrompt = (name: string): string => [
   '- Reuse a conflictKey when tasks may edit the same files or resources.',
   '- Invalid plans safely fall back to one worker; inspect validationIssues in the result.',
   '- execute_plan returns immediately with runId. Poll get_plan_status until success/error.',
+  '- For every worker name, use only the exact agentName returned by list_tasks/get_task_status.',
+  '- If agentName is missing, report taskId and role and poll again; never infer or invent a worker name.',
   '- Keep using dispatch_subagent or dispatch_batch for simple ad-hoc work.',
   '',
   '1. Rufe set_goal(title) mit einem kurzen Zieltitel auf.',

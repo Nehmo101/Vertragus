@@ -114,6 +114,12 @@ export interface OrchestratorCapacitySnapshot {
 /** Polling response returned by the asynchronous MCP task API. */
 export interface TaskStatusSnapshot {
   taskId: string
+  title?: string
+  role?: string
+  agentId?: string
+  agentName?: string
+  provider?: AgentProviderId
+  model?: string
   status: TaskStatus
   phase?: TaskPhase
   progress?: number
@@ -121,6 +127,7 @@ export interface TaskStatusSnapshot {
   lastHeartbeatAt?: number
   result?: string
   error?: string
+  note?: string
   completion?: TaskCompletion
 }
 

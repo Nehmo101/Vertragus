@@ -67,6 +67,7 @@ describe('asynchronous orchestration API', () => {
 
     const accepted = engine.dispatchAsync('codex', 'Implement feature', 'Feature')
     expect(accepted.taskId).toMatch(/^t-/)
+    expect(accepted).toEqual(expect.objectContaining({ title: 'Feature', role: expect.any(String) }))
     expect(['queued', 'running']).toContain(accepted.status)
     await vi.waitFor(() => expect(runTask).toHaveBeenCalledTimes(1))
 
@@ -75,6 +76,11 @@ describe('asynchronous orchestration API', () => {
     expect(engine.getTaskStatus(accepted.taskId)).toEqual(
       expect.objectContaining({ result: expect.stringContaining('Committed abc'), completion: { kind: 'no-changes' } })
     )
+    expect(engine.getTaskStatus(accepted.taskId)).toEqual(expect.objectContaining({
+      agentName: 'Legolas',
+      title: 'Feature',
+      role: accepted.role
+    }))
   })
 
   it('propagates remote CI failures without losing the published PR state', async () => {
