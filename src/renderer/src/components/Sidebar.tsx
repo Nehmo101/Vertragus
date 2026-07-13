@@ -3,7 +3,7 @@ import { useAppStore, workspaceAgentHistory } from '@renderer/store/useAppStore'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import { profileSummary, profileAgentCount } from '@renderer/components/TitleBar'
 import { githubAuthPresentation, hasUsableGithubAuth } from '@renderer/store/githubAuth'
-import type { ProviderHealth, ProviderId } from '@shared/providers'
+import type { AgentProviderId, ProviderHealth, ProviderId } from '@shared/providers'
 import { MCP_SCOPE_LABELS, MCP_TRANSPORT_LABELS } from '@shared/mcp'
 
 interface RowStatus {
@@ -42,11 +42,14 @@ function ProviderRow({ id }: { id: ProviderId }): JSX.Element {
   const theme = PROVIDER_THEME[id]
   const h = store.health.find((x) => x.id === id)
   const st = statusFor(id, h)
+  const configurable = id !== 'github' && id !== 'cloudflare'
+  const providerId = configurable ? (id as AgentProviderId) : undefined
+  const enabled = providerId ? store.providerEnabled[providerId] : true
   const loginRunning = store.agents.some(
     (agent) => agent.taskId === `auth:${id}` && agent.status === 'running'
   )
   return (
-    <div className="provider-row">
+    <div className={`provider-row ${enabled ? '' : 'disabled'}`}>
       <span className="chip sz-26" style={{ background: theme.bg, color: theme.fg }}>
         {theme.mono}
       </span>
@@ -65,6 +68,17 @@ function ProviderRow({ id }: { id: ProviderId }): JSX.Element {
           {st.label}
         </span>
       </span>
+      {providerId && (
+        <button
+          type="button"
+          className={`provider-enable-btn ${enabled ? 'enabled' : 'disabled'}`}
+          title={`${theme.label} global ${enabled ? 'deaktivieren' : 'aktivieren'}`}
+          aria-pressed={enabled}
+          onClick={() => store.setProviderEnabled(providerId, !enabled)}
+        >
+          {enabled ? 'An' : 'Aus'}
+        </button>
+      )}
       {h?.available && h.canLogin && (
         <button
           type="button"
@@ -153,7 +167,7 @@ export default function Sidebar(): JSX.Element {
   const hash = useHashRoute()
   const aiIds: ProviderId[] = ['claude', 'codex', 'cursor', 'copilot', 'ollama']
   const onlineCount = aiIds.filter(
-    (id) => store.health.find((h) => h.id === id)?.available
+    (id) => store.providerEnabled[id as AgentProviderId] && store.health.find((h) => h.id === id)?.available
   ).length
   const runningByProfile = new Map<string, number>()
   for (const agent of store.agents) {
@@ -330,6 +344,31 @@ export default function Sidebar(): JSX.Element {
         <button type="button" className="icon-btn-sm" title="Neues Profil" aria-label="Neues Workspace-Profil" onClick={store.openEditorNew}>
           ＋
         </button>
+        {store.profiles.find((profile) => profile.id === store.activeProfileId) && (
+          <>
+            <button
+              type="button"
+              className="icon-btn-sm"
+              title="Aktives Profil kopieren"
+              aria-label="Aktives Workspace-Profil kopieren"
+              onClick={() => {
+                const profile = store.profiles.find((item) => item.id === store.activeProfileId)
+                if (profile) store.openEditorCopy(profile)
+              }}
+            >
+              ⧉
+            </button>
+            <button
+              type="button"
+              className="icon-btn-sm"
+              title="Weiteren Workspace aus diesem Profil starten"
+              aria-label="Weiteren Workspace starten"
+              onClick={() => void store.startAll()}
+            >
+              ▶
+            </button>
+          </>
+        )}
       </div>
       <div className="side-list" style={{ paddingBottom: 14 }}>
         {store.profiles.map((p) => (
@@ -355,6 +394,45 @@ export default function Sidebar(): JSX.Element {
           </button>
         ))}
       </div>
+      {store.workspaceSessions.some((session) => session.profileId === store.activeProfileId) && (
+        <>
+          <div className="side-caption workspace-session-caption">
+            <span>Profil-Workspaces</span>
+          </div>
+          <div className="side-list workspace-session-list">
+            {store.workspaceSessions
+              .filter((session) => session.profileId === store.activeProfileId)
+              .map((session) => {
+                const running = store.agents.filter(
+                  (agent) =>
+                    agent.workspaceSessionId === session.id &&
+                    (agent.status === 'running' || agent.status === 'waiting')
+                ).length
+                return (
+                  <div className="workspace-session-row" key={session.id}>
+                    <button
+                      type="button"
+                      className={`workspace-session-select ${session.id === store.activeWorkspaceSessionId ? 'active' : ''}`}
+                      onClick={() => void store.selectWorkspaceSession(session.profileId, session.id)}
+                    >
+                      <span>Workspace {session.sequence}</span>
+                      <small>{running > 0 ? `${running} aktiv` : 'inaktiv'}</small>
+                    </button>
+                    <button
+                      type="button"
+                      className="workspace-session-remove"
+                      title="Diesen Workspace-Lauf entfernen"
+                      aria-label={`Workspace ${session.sequence} entfernen`}
+                      onClick={() => void store.removeWorkspaceSession(session.profileId, session.id)}
+                    >
+                      ×
+                    </button>
+                  </div>
+                )
+              })}
+          </div>
+        </>
+      )}
     </aside>
   )
 }

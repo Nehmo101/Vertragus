@@ -15,8 +15,13 @@ import { AgentManager } from '@main/agents/AgentManager'
 
 const worktree = 'C:\\git\\UWE\\.orca-worktrees\\session-a\\sub-01'
 
-function addCursorAgent(manager: AgentManager): { write: ReturnType<typeof vi.fn>; managed: unknown } {
+function addCursorAgent(manager: AgentManager): {
+  write: ReturnType<typeof vi.fn>
+  kill: ReturnType<typeof vi.fn>
+  managed: unknown
+} {
   const write = vi.fn()
+  const kill = vi.fn()
   const info: AgentInstanceInfo = {
     id: 'sub-01',
     name: 'Glaurung',
@@ -31,10 +36,10 @@ function addCursorAgent(manager: AgentManager): { write: ReturnType<typeof vi.fn
     status: 'running',
     startedAt: 1
   }
-  const managed = { info, pty: { write }, buffer: '', seq: 0 }
+  const managed = { info, pty: { write, kill }, buffer: '', seq: 0 }
   const agents = (manager as unknown as { agents: Map<string, unknown> }).agents
   agents.set(info.id, managed)
-  return { write, managed }
+  return { write, kill, managed }
 }
 
 function push(manager: AgentManager, managed: unknown, output: string): void {
@@ -77,5 +82,28 @@ describe('AgentManager Cursor workspace trust dispatch', () => {
     vi.advanceTimersByTime(500)
 
     expect(write).not.toHaveBeenCalled()
+  })
+
+  it('nudges Cursor once and terminates a trust confirmation that remains stuck', () => {
+    vi.useFakeTimers()
+    const manager = new AgentManager()
+    const event = vi.fn()
+    manager.on('event', event)
+    const { write, kill, managed } = addCursorAgent(manager)
+
+    push(manager, managed, `${worktree}\n[a] Trust this workspace`)
+    expect(write).toHaveBeenCalledWith('a\r')
+
+    push(manager, managed, '\nTrusting workspace...')
+    vi.advanceTimersByTime(8_000)
+    expect(write).toHaveBeenLastCalledWith('\r')
+    expect(kill).not.toHaveBeenCalled()
+
+    vi.advanceTimersByTime(8_000)
+    expect(kill).toHaveBeenCalledTimes(1)
+    expect(manager.list()).toEqual([expect.objectContaining({ id: 'sub-01', status: 'error' })])
+    expect(event).toHaveBeenCalledWith(
+      expect.objectContaining({ tone: 'error', text: expect.stringContaining('Workspace-Trust fehlgeschlagen') })
+    )
   })
 })

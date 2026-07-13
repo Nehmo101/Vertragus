@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_PROVIDER_LIMITS, type AgentProviderId } from '@shared/providers'
 import { getSetting } from '@main/config/store'
 import { ProviderLimitError, providerCapacity } from '@main/agents/providerCapacity'
@@ -17,6 +17,17 @@ function drainCapacity(): void {
 }
 
 describe('providerCapacity', () => {
+  beforeEach(() => {
+    vi.mocked(getSetting).mockReturnValue({
+      claude: 4,
+      codex: 4,
+      cursor: 4,
+      copilot: 4,
+      ollama: 2
+    })
+    providerCapacity.refreshLimits()
+  })
+
   afterEach(() => {
     drainCapacity()
     vi.mocked(getSetting).mockReturnValue(undefined)
@@ -57,7 +68,7 @@ describe('providerCapacity', () => {
   })
 
   it('falls back to safe defaults for corrupt persisted gate values', () => {
-    vi.mocked(getSetting).mockReturnValue({ claude: 0, cursor: Number.POSITIVE_INFINITY })
+    vi.mocked(getSetting).mockReturnValue({ claude: -1, cursor: Number.POSITIVE_INFINITY })
     providerCapacity.refreshLimits()
 
     expect(providerCapacity.stats('claude').limit).toBe(DEFAULT_PROVIDER_LIMITS.claude)

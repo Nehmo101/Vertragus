@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '@renderer/store/useAppStore'
-import type { WorkspaceProfile, AgentSlot } from '@shared/profile'
+import { profileRepoLocalPath, type WorkspaceProfile, type AgentSlot } from '@shared/profile'
 import type { AgentProviderId } from '@shared/providers'
 import type { ModelPreset } from '@shared/models'
 import {
@@ -32,7 +32,9 @@ const HELP = {
   model: 'Leer verwendet Preset oder CLI-Standard. Freitext überschreibt das Preset.',
   modelPreset: 'Leistungs-Preset (schnell/ausgewogen/stark). Gilt nur wenn Modell leer ist — Freitext hat Vorrang.',
   plannerMode: 'Auto startet valide Pläne direkt. Review wartet auf Freigabe. Manuell deaktiviert execute_plan.',
+  routingMode: 'Adaptiv startet zunächst nur den Orchestrator und aktiviert Task-Agents passend zum Plan. Vorgewärmt startet alle Slots sofort.',
   maxParallel: 'Globales Oberlimit gleichzeitig laufender Plan-Tasks; Rollen-Kapazitäten können es weiter reduzieren.',
+  maxRetries: 'Wie oft der Orchestrator nach einem fehlgeschlagenen Plan ohne neue Nutzerinformation fokussiert nachplanen darf.',
   autoPrMode: 'PRs entstehen nur nach erfolgreichen Gates. Draft ist der empfohlene sichere Startmodus.',
   prStrategy: 'Aggregate kombiniert Task-Commits in einen Goal-PR. Per Task erzeugt getrennte PRs.',
   baseBranch: 'Zielbranch des PRs. Leer nutzt den gebundenen Standardbranch oder den des origin-Remotes.',
@@ -41,10 +43,15 @@ const HELP = {
   agentProvider: 'CLI, die diesen Slot ausführt. Der Login erfolgt separat in der Provider-Seitenleiste.',
   count: 'Maximale parallele Task-Kapazität dieser Rolle und Anzahl beim manuellen Teamstart.',
   yolo: 'Überspringt Provider-Bestätigungen. Nur mit Worktree-Isolation und bewusstem Scope verwenden.',
-  orchestrated: 'Wenn aktiv, darf der Orchestrator Aufgaben an diesen Slot delegieren.'
+  orchestrated: 'Wenn aktiv, darf der Orchestrator Aufgaben an diesen Slot delegieren.',
+  strengths: 'Kommagetrennte Fähigkeiten, die der Orchestrator bei der Rollenwahl bevorzugen soll.',
+  weaknesses: 'Kommagetrennte Aufgaben, für die der Orchestrator diesen Slot möglichst nicht wählen soll.'
 } as const
 function boundedNumber(value: number, min: number, max: number, fallback: number): number {
   return Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback
+}
+function parseCapabilityList(value: string): string[] {
+  return [...new Set(value.split(',').map((item) => item.trim()).filter(Boolean))]
 }
 function projectKey(project: Pick<GithubProjectSummary, 'owner' | 'number'>): string {
   return `${project.owner}#${project.number}`
@@ -71,6 +78,7 @@ export default function ProfileEditor(): JSX.Element | null {
   )
   const [projectsStatus, setProjectsStatus] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [generatingProfile, setGeneratingProfile] = useState(false)
   const nameRef = useRef<HTMLInputElement>(null)
   const closeEditorRef = useRef(store.closeEditor)
   const refreshGithubAuthRef = useRef(store.refreshGithubAuth)
@@ -90,7 +98,12 @@ export default function ProfileEditor(): JSX.Element | null {
 
   const models = store.models
   const catalogFor = (p: AgentProviderId) => models[p]
-  const modelsFor = (p: AgentProviderId): string[] => catalogFor(p).models
+  const modelsFor = (p: AgentProviderId): string[] =>
+    catalogFor(p).models.filter(
+      (model) => !store.disabledModels[p].some(
+        (disabled) => disabled.toLowerCase() === model.toLowerCase()
+      )
+    )
   const presetValue = (preset?: ModelPreset): string => preset ?? ''
   const parsePreset = (value: string): ModelPreset | undefined =>
     value === 'fast' || value === 'balanced' || value === 'strong' ? value : undefined
@@ -118,6 +131,34 @@ export default function ProfileEditor(): JSX.Element | null {
   const patchSlot = (idx: number, p: Partial<AgentSlot>): void => {
     const agents = draft.agents.map((s, i) => (i === idx ? { ...s, ...p } : s))
     setDraft({ ...draft, agents })
+  }
+  const generateFromRepo = async (): Promise<void> => {
+    const analyzer = draft.orchestrator ?? draft.agents[0]
+    const workingDir = profileRepoLocalPath(draft)
+    if (!analyzer || !workingDir) {
+      setRepoStatus('Bitte zuerst Repository-Pfad und Analysemodell auswaehlen.')
+      return
+    }
+    setGeneratingProfile(true)
+    setRepoStatus('Das ausgewaehlte Modell analysiert das Repository...')
+    try {
+      const generated = await window.orca.generateProfileForRepo({
+        workingDir,
+        provider: analyzer.provider,
+        model: analyzer.model,
+        modelPreset: analyzer.modelPreset
+      })
+      setDraft({
+        ...generated,
+        githubRepo: draft.githubRepo,
+        githubProject: draft.githubProject
+      })
+      setRepoStatus('Repo-Profil erzeugt. Rollen und Quality Gates bitte pruefen.')
+    } catch (error) {
+      setRepoStatus(error instanceof Error ? error.message : String(error))
+    } finally {
+      setGeneratingProfile(false)
+    }
   }
   const loadProjects = async (): Promise<void> => {
     setProjectsStatus('GitHub-Boards werden geladen…')
@@ -412,6 +453,14 @@ export default function ProfileEditor(): JSX.Element | null {
               Durchsuchen…
             </button>
           </div>
+          <button
+            type="button"
+            className="btn-secondary profile-generate-btn"
+            disabled={generatingProfile || !profileRepoLocalPath(draft)}
+            onClick={() => void generateFromRepo()}
+          >
+            {generatingProfile ? 'Repo wird analysiert...' : 'KI-Profil aus Git-Repo erzeugen'}
+          </button>
           {draft.githubRepo && (
             <div className="github-repo-actions">
               <button type="button" className="btn-secondary browse-btn" onClick={() => void checkLocalRepo()}>
@@ -541,7 +590,9 @@ export default function ProfileEditor(): JSX.Element | null {
                     })
                   }}
                 >
-                  {ORCHESTRATOR_PROVIDERS.map((p) => (
+                  {ORCHESTRATOR_PROVIDERS
+                    .filter((p) => store.providerEnabled[p] || p === draft.orchestrator?.provider)
+                    .map((p) => (
                     <option key={p} value={p}>
                       {PROVIDER_THEME[p].label}
                     </option>
@@ -626,6 +677,21 @@ export default function ProfileEditor(): JSX.Element | null {
             <div className="automation-grid">
               <label>
                 <span className="slot-col-label">
+                  Team-Start <InfoTip text={HELP.routingMode} />
+                </span>
+                <select
+                  className="slot-select-sm"
+                  value={draft.planner.routingMode}
+                  onChange={(event) =>
+                    patch({ planner: { ...draft.planner, routingMode: event.target.value as WorkspaceProfile['planner']['routingMode'] } })
+                  }
+                >
+                  <option value="adaptive">Adaptiv — nach Plan aktivieren</option>
+                  <option value="fixed">Vorgewärmt — alle Slots starten</option>
+                </select>
+              </label>
+              <label>
+                <span className="slot-col-label">
                   Planungsmodus <InfoTip text={HELP.plannerMode} />
                 </span>
                 <select
@@ -651,6 +717,24 @@ export default function ProfileEditor(): JSX.Element | null {
                   max={32}
                   value={draft.planner.maxParallel}
                   onChange={(event) => patch({ planner: { ...draft.planner, maxParallel: boundedNumber(event.currentTarget.valueAsNumber, 1, 32, draft.planner.maxParallel) } })}
+                />
+              </label>
+              <label>
+                <span className="slot-col-label">
+                  Re-Plan-Versuche <InfoTip text={HELP.maxRetries} />
+                </span>
+                <input
+                  className="slot-select-sm"
+                  type="number"
+                  min={0}
+                  max={5}
+                  value={draft.planner.maxRetries}
+                  onChange={(event) => patch({
+                    planner: {
+                      ...draft.planner,
+                      maxRetries: boundedNumber(event.currentTarget.valueAsNumber, 0, 5, draft.planner.maxRetries)
+                    }
+                  })}
                 />
               </label>
             </div>
@@ -761,7 +845,9 @@ export default function ProfileEditor(): JSX.Element | null {
                       patchSlot(idx, { provider, model: '' })
                     }}
                   >
-                    {AGENT_PROVIDERS.map((p) => (
+                    {AGENT_PROVIDERS
+                      .filter((p) => store.providerEnabled[p] || p === slot.provider)
+                      .map((p) => (
                       <option key={p} value={p}>
                         {PROVIDER_THEME[p].label}
                       </option>
@@ -822,7 +908,7 @@ export default function ProfileEditor(): JSX.Element | null {
                       −
                     </button>
                     <span className="val">{slot.count}</span>
-                    <button type="button" onClick={() => patchSlot(idx, { count: Math.min(9, slot.count + 1) })}>
+                    <button type="button" onClick={() => patchSlot(idx, { count: slot.count + 1 })}>
                       +
                     </button>
                   </div>
@@ -882,6 +968,34 @@ export default function ProfileEditor(): JSX.Element | null {
                     Durchsuchen…
                   </button>
                 </div>
+                <div className="slot-path-row">
+                  <div className="slot-path-field">
+                    <div className="slot-col-label">
+                      Stärken (optional) <InfoTip text={HELP.strengths} />
+                    </div>
+                    <input
+                      className="slot-select-sm"
+                      placeholder="z. B. Frontend, Tests, Security-Review"
+                      value={slot.strengths.join(', ')}
+                      onChange={(event) =>
+                        patchSlot(idx, { strengths: parseCapabilityList(event.target.value) })
+                      }
+                    />
+                  </div>
+                  <div className="slot-path-field">
+                    <div className="slot-col-label">
+                      Schwächen (optional) <InfoTip text={HELP.weaknesses} />
+                    </div>
+                    <input
+                      className="slot-select-sm"
+                      placeholder="z. B. große Refactorings"
+                      value={slot.weaknesses.join(', ')}
+                      onChange={(event) =>
+                        patchSlot(idx, { weaknesses: parseCapabilityList(event.target.value) })
+                      }
+                    />
+                  </div>
+                </div>
               </div>
             ))}
           </div>
@@ -900,7 +1014,9 @@ export default function ProfileEditor(): JSX.Element | null {
                     modelPreset: 'balanced',
                     count: 1,
                     orchestrated: true,
-                    yolo: false
+                    yolo: false,
+                    strengths: [],
+                    weaknesses: []
                   }
                 ]
               })

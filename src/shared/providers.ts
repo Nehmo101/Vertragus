@@ -225,8 +225,9 @@ export const DEFAULT_MODELS: Record<AgentProviderId, string[]> = {
 }
 
 /** Orca's safe range for its local, per-provider process gates. */
-export const PROVIDER_GATE_MIN = 1
-export const PROVIDER_GATE_MAX = 16
+export const PROVIDER_GATE_UNLIMITED = 0
+export const PROVIDER_GATE_MIN = PROVIDER_GATE_UNLIMITED
+export const PROVIDER_GATE_MAX = Number.MAX_SAFE_INTEGER
 
 /**
  * Default per-provider concurrency gates — how many agents of a given provider
@@ -235,11 +236,11 @@ export const PROVIDER_GATE_MAX = 16
  * the Limits panel, and persisted under the `providerLimits` config key.
  */
 export const DEFAULT_PROVIDER_LIMITS: Record<AgentProviderId, number> = {
-  claude: 4,
-  codex: 4,
-  cursor: 4,
-  copilot: 4,
-  ollama: 2
+  claude: PROVIDER_GATE_UNLIMITED,
+  codex: PROVIDER_GATE_UNLIMITED,
+  cursor: PROVIDER_GATE_UNLIMITED,
+  copilot: PROVIDER_GATE_UNLIMITED,
+  ollama: PROVIDER_GATE_UNLIMITED
 }
 
 export type ProviderLimits = Record<AgentProviderId, number>
@@ -293,4 +294,93 @@ export function parseProviderLimits(value: unknown): ProviderLimits {
   }
 
   return normalizeProviderLimits(candidate)
+}
+
+export type ProviderEnabled = Record<AgentProviderId, boolean>
+export type DisabledModels = Record<AgentProviderId, string[]>
+
+export const DEFAULT_PROVIDER_ENABLED: ProviderEnabled = {
+  claude: true,
+  codex: true,
+  cursor: true,
+  copilot: true,
+  ollama: true
+}
+
+export const DEFAULT_DISABLED_MODELS: DisabledModels = {
+  claude: [],
+  codex: [],
+  cursor: [],
+  copilot: [],
+  ollama: []
+}
+
+export function normalizeProviderEnabled(value: unknown): ProviderEnabled {
+  const enabled: ProviderEnabled = { ...DEFAULT_PROVIDER_ENABLED }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return enabled
+  const candidate = value as Record<string, unknown>
+  for (const provider of AGENT_PROVIDER_IDS) {
+    if (typeof candidate[provider] === 'boolean') enabled[provider] = candidate[provider]
+  }
+  return enabled
+}
+
+export function parseProviderEnabled(value: unknown): ProviderEnabled {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Provider-Schalter muessen als Objekt angegeben werden.')
+  }
+  for (const [provider, enabled] of Object.entries(value as Record<string, unknown>)) {
+    if (!AGENT_PROVIDER_IDS.includes(provider as AgentProviderId) || typeof enabled !== 'boolean') {
+      throw new Error(`Ungueltiger Provider-Schalter: ${provider}`)
+    }
+  }
+  return normalizeProviderEnabled(value)
+}
+
+export function normalizeDisabledModels(value: unknown): DisabledModels {
+  const disabled: DisabledModels = {
+    claude: [],
+    codex: [],
+    cursor: [],
+    copilot: [],
+    ollama: []
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return disabled
+  const candidate = value as Record<string, unknown>
+  for (const provider of AGENT_PROVIDER_IDS) {
+    const models = candidate[provider]
+    if (!Array.isArray(models)) continue
+    disabled[provider] = [...new Set(models
+      .filter((model): model is string => typeof model === 'string' && Boolean(model.trim()))
+      .map((model) => model.trim()))]
+  }
+  return disabled
+}
+
+export function parseDisabledModels(value: unknown): DisabledModels {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Deaktivierte Modelle muessen als Objekt angegeben werden.')
+  }
+  for (const [provider, models] of Object.entries(value as Record<string, unknown>)) {
+    if (
+      !AGENT_PROVIDER_IDS.includes(provider as AgentProviderId) ||
+      !Array.isArray(models) ||
+      models.some((model) => typeof model !== 'string')
+    ) {
+      throw new Error(`Ungueltige Modell-Deaktivierung: ${provider}`)
+    }
+  }
+  return normalizeDisabledModels(value)
+}
+
+export function isModelDisabled(
+  disabledModels: DisabledModels,
+  provider: AgentProviderId,
+  model: string
+): boolean {
+  const normalized = model.trim().toLowerCase()
+  return Boolean(
+    normalized &&
+    disabledModels[provider].some((entry) => entry.toLowerCase() === normalized)
+  )
 }

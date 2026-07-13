@@ -19,6 +19,7 @@ const LAYOUTS: Array<{ id: WorkspaceLayout; icon: string; label: string }> = [
 export default function Workspace(): JSX.Element {
   const profiles = useAppStore((state) => state.profiles)
   const activeProfileId = useAppStore((state) => state.activeProfileId)
+  const activeWorkspaceSessionId = useAppStore((state) => state.activeWorkspaceSessionId)
   const gitInfo = useAppStore((state) => state.gitInfo)
   const agents = useAppStore((state) => state.agents)
   const reopenedAgentIds = useAppStore((state) => state.reopenedAgentIds)
@@ -26,8 +27,13 @@ export default function Workspace(): JSX.Element {
   const workspaceLayout = useAppStore((state) => state.workspaceLayout)
   const actions = useAppStore.getState()
   const profile = activeProfile({ profiles, activeProfileId })
-  const allAgents = workspaceAgents({ agents, activeProfileId })
-  const sortedAgents = [...visibleWorkspaceAgents({ agents, activeProfileId, reopenedAgentIds })].sort((a, b) => {
+  const allAgents = workspaceAgents({ agents, activeProfileId, activeWorkspaceSessionId })
+  const sortedAgents = [...visibleWorkspaceAgents({
+    agents,
+    activeProfileId,
+    activeWorkspaceSessionId,
+    reopenedAgentIds
+  })].sort((a, b) => {
     if (a.kind !== b.kind) return a.kind === 'orchestrator' ? -1 : 1
     return a.startedAt - b.startedAt
   })

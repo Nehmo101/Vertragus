@@ -67,6 +67,7 @@ describe('asynchronous orchestration API', () => {
 
     const accepted = engine.dispatchAsync('codex', 'Implement feature', 'Feature')
     expect(accepted.taskId).toMatch(/^t-/)
+    expect(accepted).toEqual(expect.objectContaining({ title: 'Feature', provider: 'codex', role: expect.any(String) }))
     expect(['queued', 'running']).toContain(accepted.status)
     await vi.waitFor(() => expect(runTask).toHaveBeenCalledTimes(1))
 
@@ -75,6 +76,12 @@ describe('asynchronous orchestration API', () => {
     expect(engine.getTaskStatus(accepted.taskId)).toEqual(
       expect.objectContaining({ result: expect.stringContaining('Committed abc'), completion: { kind: 'no-changes' } })
     )
+    expect(engine.getTaskStatus(accepted.taskId)).toEqual(expect.objectContaining({
+      agentName: 'Legolas',
+      title: 'Feature',
+      role: accepted.role
+    }))
+    expect(engine.snapshot().activity?.phase).toBe('summarizing')
   })
 
   it('propagates remote CI failures without losing the published PR state', async () => {
@@ -165,5 +172,74 @@ describe('asynchronous orchestration API', () => {
     expect(started.status).toBe('running')
     await vi.waitFor(() => expect(engine.getPlanRunStatus(started.runId)?.status).toBe('success'))
     expect(engine.getPlanRunStatus(started.runId)?.result?.tasks[0]?.status).toBe('success')
+  })
+
+  it('advertises routing knowledge and recovers with an untried role in adaptive mode', async () => {
+    runTask
+      .mockImplementationOnce(async (request) => ({
+        info: { ...info(request.taskId), provider: request.provider },
+        done: Promise.resolve({ result: 'First role failed', isError: true, status: 'failed' as const })
+      }))
+      .mockImplementationOnce(async (request) => ({
+        info: { ...info(request.taskId), provider: request.provider },
+        done: Promise.resolve({ result: 'Recovered safely', isError: false, status: 'succeeded' as const })
+      }))
+
+    const profile = {
+      ...DEFAULT_PROFILE,
+      agents: [
+        {
+          role: 'implementation',
+          provider: 'codex' as const,
+          model: '',
+          count: 1,
+          orchestrated: true,
+          yolo: false,
+          strengths: ['repo-nahe Implementierung'],
+          weaknesses: []
+        },
+        {
+          role: 'review',
+          provider: 'cursor' as const,
+          model: 'composer',
+          count: 1,
+          orchestrated: true,
+          yolo: false,
+          strengths: ['schnelle Verifikation'],
+          weaknesses: []
+        }
+      ],
+      planner: {
+        ...DEFAULT_PROFILE.planner,
+        mode: 'auto' as const,
+        routingMode: 'adaptive' as const,
+        maxRetries: 1
+      }
+    }
+    const engine = new OrchestratorEngine({ profile })
+
+    expect(engine.listSubagents()).toEqual([
+      expect.objectContaining({ role: 'implementation', strengths: ['repo-nahe Implementierung'] }),
+      expect.objectContaining({ role: 'review', strengths: ['schnelle Verifikation'] })
+    ])
+
+    const result = await engine.executePlan({
+      version: 1,
+      goal: 'Recover the implementation',
+      maxParallel: 1,
+      tasks: [{
+        id: 'work',
+        title: 'Work',
+        role: 'implementation',
+        prompt: 'Implement and verify.',
+        dependsOn: [],
+        conflictKeys: [],
+        ownership: 'feature',
+        expectedFiles: []
+      }]
+    })
+
+    expect(result.tasks[0]).toEqual(expect.objectContaining({ status: 'success' }))
+    expect(runTask.mock.calls.slice(-2).map(([request]) => request.provider)).toEqual(['codex', 'cursor'])
   })
 })

@@ -2,7 +2,11 @@
  * Guard generic configGet/configSet IPC — only public UI keys; never secrets.*.
  */
 import { getSetting, setSetting } from '@main/config/store'
-import { parseProviderLimits } from '@shared/providers'
+import {
+  parseDisabledModels,
+  parseProviderEnabled,
+  parseProviderLimits
+} from '@shared/providers'
 
 /** Keys the renderer may read via config:get. */
 export const PUBLIC_CONFIG_GET_KEYS = new Set([
@@ -10,7 +14,9 @@ export const PUBLIC_CONFIG_GET_KEYS = new Set([
   'ui.theme',
   'ui.workspaceLayout',
   'ui.density',
-  'providerLimits'
+  'providerLimits',
+  'providerEnabled',
+  'disabledModels'
 ])
 
 /** Keys the renderer may write via config:set. */
@@ -19,7 +25,9 @@ export const PUBLIC_CONFIG_SET_KEYS = new Set([
   'ui.theme',
   'ui.workspaceLayout',
   'ui.density',
-  'providerLimits'
+  'providerLimits',
+  'providerEnabled',
+  'disabledModels'
 ])
 
 function rejectSecretsKey(key: string, action: 'read' | 'write'): void {
@@ -52,6 +60,14 @@ export function setPublicConfig(key: string, value: unknown): void {
   assertConfigSetAllowed(key)
   if (key === 'providerLimits') {
     setSetting(key, parseProviderLimits(value))
+    return
+  }
+  if (key === 'providerEnabled') {
+    setSetting(key, parseProviderEnabled(value))
+    return
+  }
+  if (key === 'disabledModels') {
+    setSetting(key, parseDisabledModels(value))
     return
   }
   setSetting(key, value)

@@ -27,7 +27,8 @@ export const ideaTransferSchema = z.object({
   action: z.enum(IDEA_TRANSFER_ACTIONS).optional(),
   startedAt: z.number(),
   updatedAt: z.number(),
-  planId: z.string().optional()
+  planId: z.string().optional(),
+  workspaceSessionId: z.string().optional()
 })
 
 export type IdeaTransfer = z.infer<typeof ideaTransferSchema>
@@ -47,6 +48,8 @@ export interface IdeaTransferResult {
   duplicate?: boolean
   /** Spawned orchestrator agent id when workspace opened. */
   orchestratorAgentId?: string
+  /** Independent workspace run created for this handoff. */
+  workspaceSessionId?: string
 }
 
 /** Statuses that block a new transfer/plan attempt (idempotent guard). */

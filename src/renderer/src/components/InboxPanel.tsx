@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Idea, IdeaArtifact, IdeaStatus } from '@shared/inbox'
 import { IDEA_STATUSES } from '@shared/inbox'
 import { isTransferActive } from '@shared/inboxTransfer'
@@ -6,7 +6,22 @@ import type { InboxSpeechSettings } from '@shared/inboxSpeech'
 import { DEFAULT_TRANSCRIPTION_ENDPOINT, DEFAULT_TRANSCRIPTION_MODEL } from '@shared/inboxSpeech'
 import { useInboxSpeech } from '@renderer/hooks/useInboxSpeech'
 import IdeaTransferModal from '@renderer/components/IdeaTransferModal'
-import { PROMPT_SHARPEN_LABEL, sharpenInboxPrompt } from '@renderer/inboxPrompt'
+import PromptEnhancementReview from '@renderer/components/PromptEnhancementReview'
+import type { PromptEnhancementIpcResult, PromptEnhancementSelection } from '@shared/promptEnhancement'
+import {
+  INITIAL_PROMPT_ENHANCEMENT_SESSION,
+  PROMPT_SHARPEN_LABEL,
+  abortPromptEnhancementSession,
+  closePromptEnhancementSession,
+  confirmPromptEnhancementApply,
+  copyPromptEnhancement,
+  createOfferedDeterministicFallback,
+  promptEnhancementSourceFromIdea,
+  requestPromptApplyConfirmation,
+  settlePromptEnhancementSession,
+  startPromptEnhancementSession,
+  type PromptEnhancementSession
+} from '@renderer/inboxPrompt'
 import styles from './responsiveGuards.module.css'
 
 const STATUS_LABEL: Record<IdeaStatus, string> = {
@@ -209,7 +224,17 @@ export default function InboxPanel(): JSX.Element {
   const [textInput, setTextInput] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [transferOpen, setTransferOpen] = useState(false)
-  const [promptPreviewOpen, setPromptPreviewOpen] = useState(false)
+  const [promptSession, setPromptSession] = useState<PromptEnhancementSession>(
+    INITIAL_PROMPT_ENHANCEMENT_SESSION
+  )
+  const promptSessionRef = useRef(promptSession)
+  const activePromptRef = useRef<{ requestId: string; generation: number }>()
+  const titleInputRef = useRef<HTMLInputElement>(null)
+
+  const commitPromptSession = (next: PromptEnhancementSession): void => {
+    promptSessionRef.current = next
+    setPromptSession(next)
+  }
 
   const refresh = useCallback(async (): Promise<void> => {
     setLoading(true)
@@ -243,11 +268,128 @@ export default function InboxPanel(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  useEffect(() => {
+    return () => {
+      const active = activePromptRef.current
+      activePromptRef.current = undefined
+      promptSessionRef.current = closePromptEnhancementSession(promptSessionRef.current)
+      if (active) void window.orca.inbox.abortPromptEnhancement(active.requestId).catch(() => undefined)
+    }
+  }, [])
+
+  const closePromptReview = (showAborted = true): void => {
+    const active = activePromptRef.current
+    activePromptRef.current = undefined
+    if (active) {
+      void window.orca.inbox.abortPromptEnhancement(active.requestId).catch(() => undefined)
+    }
+    commitPromptSession(
+      active && showAborted
+        ? abortPromptEnhancementSession(promptSessionRef.current, active.requestId)
+        : closePromptEnhancementSession(promptSessionRef.current)
+    )
+  }
+
+  const runPromptEnhancement = async (
+    explicitSelection?: PromptEnhancementSelection
+  ): Promise<void> => {
+    if (!draft || promptSessionRef.current.phase === 'loading') return
+    const source = promptEnhancementSourceFromIdea(draft)
+    const requestId = globalThis.crypto?.randomUUID?.() ??
+      `prompt-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const started = startPromptEnhancementSession(
+      promptSessionRef.current,
+      requestId,
+      source,
+      explicitSelection
+    )
+    if (started === promptSessionRef.current) return
+    const active = { requestId, generation: started.generation }
+    activePromptRef.current = active
+    commitPromptSession(started)
+
+    try {
+      const result = await window.orca.inbox.enhancePrompt({
+        requestId,
+        source,
+        explicitSelection
+      })
+      if (activePromptRef.current?.requestId !== requestId) return
+      commitPromptSession(
+        settlePromptEnhancementSession(
+          promptSessionRef.current,
+          requestId,
+          active.generation,
+          result
+        )
+      )
+    } catch (err) {
+      if (activePromptRef.current?.requestId !== requestId) return
+      const failure: PromptEnhancementIpcResult = {
+        status: 'invalid-input',
+        code: 'invalid-input',
+        message: err instanceof Error ? err.message : String(err)
+      }
+      commitPromptSession(
+        settlePromptEnhancementSession(
+          promptSessionRef.current,
+          requestId,
+          active.generation,
+          failure
+        )
+      )
+    } finally {
+      if (activePromptRef.current?.requestId === requestId) activePromptRef.current = undefined
+    }
+  }
+
+  const showDeterministicFallback = (): void => {
+    const original = promptSessionRef.current.original
+    if (!original) return
+    const fallback = createOfferedDeterministicFallback(original)
+    if (!fallback) return
+    commitPromptSession({
+      ...promptSessionRef.current,
+      phase: 'result',
+      requestId: undefined,
+      result: fallback,
+      copied: false,
+      confirmApply: false
+    })
+  }
+
+  const copyPromptResult = async (): Promise<void> => {
+    const result = promptSessionRef.current.result
+    if (!result) return
+    const generation = promptSessionRef.current.generation
+    try {
+      const copied = await copyPromptEnhancement(result, (text) => navigator.clipboard.writeText(text))
+      if (
+        copied &&
+        promptSessionRef.current.generation === generation &&
+        promptSessionRef.current.result === result
+      ) {
+        commitPromptSession({ ...promptSessionRef.current, copied: true })
+      }
+    } catch (err) {
+      setError(`Kopieren fehlgeschlagen: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  const confirmPromptApply = (): void => {
+    const result = promptSessionRef.current.result
+    if (!draft || !result) return
+    if (!promptSessionRef.current.confirmApply) return
+    setDraft(confirmPromptEnhancementApply(draft, promptSessionRef.current))
+    closePromptReview(false)
+    window.setTimeout(() => titleInputRef.current?.focus(), 0)
+  }
+
   const selectIdea = (idea: Idea): void => {
+    closePromptReview(false)
     setSelectedId(idea.id)
     setDraft({ ...idea })
     setConfirmDelete(false)
-    setPromptPreviewOpen(false)
     setUrlInput('')
     setTextInput('')
   }
@@ -326,6 +468,21 @@ export default function InboxPanel(): JSX.Element {
         setSelectedId(null)
         setDraft(null)
       }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const resetTransfer = async (): Promise<void> => {
+    if (!draft?.transfer) return
+    setSaving(true)
+    setError('')
+    try {
+      const updated = await window.orca.inbox.transferReset(draft.id)
+      setDraft({ ...updated })
+      setIdeas((current) => current.map((idea) => (idea.id === updated.id ? updated : idea)))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -413,8 +570,6 @@ export default function InboxPanel(): JSX.Element {
 
   const speechBusy = speech.state === 'recording' || speech.state === 'transcribing'
   const showVoiceReview = speech.state === 'review' && speech.voiceDraft
-  const sharpenedPrompt = draft ? sharpenInboxPrompt(draft) : null
-
   return (
     <main className={`inbox-panel ${styles.inboxPanel}`} aria-label="Ideen-Inbox">
       <div className="inbox-header">
@@ -553,6 +708,7 @@ export default function InboxPanel(): JSX.Element {
             <>
               <div className="inbox-editor-head">
                 <input
+                  ref={titleInputRef}
                   className="inbox-title-input"
                   value={draft.title}
                   onChange={(e) => setDraft({ ...draft, title: e.target.value })}
@@ -574,12 +730,12 @@ export default function InboxPanel(): JSX.Element {
                 <button
                   type="button"
                   className="inbox-btn ghost"
-                  disabled={saving || speechBusy}
-                  aria-expanded={promptPreviewOpen}
-                  onClick={() => setPromptPreviewOpen((open) => !open)}
-                  title="Rohe Idee als orchestrator-taugliches Briefing prüfen"
+                  disabled={saving || speechBusy || promptSession.phase === 'loading'}
+                  aria-expanded={promptSession.open}
+                  onClick={() => void runPromptEnhancement()}
+                  title="Lokalen Draft im Main-Prozess mit der verknüpften Provider-Konfiguration schärfen"
                 >
-                  {PROMPT_SHARPEN_LABEL}
+                  {promptSession.phase === 'loading' ? 'Wird geschärft …' : PROMPT_SHARPEN_LABEL}
                 </button>
                 <button
                   type="button"
@@ -613,33 +769,31 @@ export default function InboxPanel(): JSX.Element {
                   Übergabe {TRANSFER_STATUS_LABEL[draft.transfer.status] ?? draft.transfer.status}
                   {draft.transfer.error && ` — ${draft.transfer.error}`}
                   {draft.transfer.planId && ` · Plan ${draft.transfer.planId}`}
+                  <button
+                    type="button"
+                    className="inbox-transfer-reset"
+                    disabled={saving}
+                    onClick={() => void resetTransfer()}
+                  >
+                    Zuruecksetzen
+                  </button>
                 </div>
               )}
 
-              {promptPreviewOpen && sharpenedPrompt && (
-                <section className="inbox-briefing-preview inbox-prompt-preview" aria-live="polite">
-                  <div className="inbox-prompt-preview-head">
-                    <b>Geschärftes Orchestrator-Briefing</b>
-                    <span>Vorschau · noch nicht übertragen</span>
-                  </div>
-                  {sharpenedPrompt.ok ? (
-                    <>
-                      {sharpenedPrompt.warnings.length > 0 && (
-                        <div className="inbox-transfer-hint">
-                          {sharpenedPrompt.warnings.join(' ')}
-                        </div>
-                      )}
-                      <pre className="inbox-briefing-preview-content">
-                        {sharpenedPrompt.briefing}
-                      </pre>
-                    </>
-                  ) : (
-                    <div className="inbox-error" role="alert">
-                      {sharpenedPrompt.message}
-                    </div>
-                  )}
-                </section>
-              )}
+              <PromptEnhancementReview
+                session={promptSession}
+                onCancel={() => closePromptReview(true)}
+                onRetry={(selection) => void runPromptEnhancement(selection)}
+                onFallback={showDeterministicFallback}
+                onCopy={() => void copyPromptResult()}
+                onRequestApply={() =>
+                  commitPromptSession(requestPromptApplyConfirmation(promptSessionRef.current))
+                }
+                onConfirmApply={confirmPromptApply}
+                onCancelApply={() =>
+                  commitPromptSession({ ...promptSessionRef.current, confirmApply: false })
+                }
+              />
 
               <label className="inbox-field">
                 <span>Inhalt</span>

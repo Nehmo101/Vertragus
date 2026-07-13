@@ -114,6 +114,23 @@ export function applyIdeaTransfer(
   return enrichIdea(updated, fileExists)
 }
 
+/** Clear the handoff state while preserving the selected profile as a convenience. */
+export function resetIdeaTransfer(ideaId: string): Idea {
+  const ideas = parseIdeas()
+  const idx = ideas.findIndex((idea) => idea.id === ideaId)
+  if (idx < 0) throw new Error('Idee nicht gefunden.')
+  const current = ideas[idx]
+  const updated: Idea = ideaSchema.parse({
+    ...current,
+    refs: current.refs?.profileId ? { profileId: current.refs.profileId } : undefined,
+    transfer: undefined,
+    updatedAt: now()
+  })
+  ideas[idx] = updated
+  saveIdeas(ideas)
+  return enrichIdea(updated, fileExists)
+}
+
 export function deleteIdea(id: string): Idea[] {
   const ideas = parseIdeas().filter((i) => i.id !== id)
   saveIdeas(ideas)

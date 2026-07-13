@@ -3,7 +3,12 @@
  * Keeping these in one shared module keeps main <-> preload <-> renderer in sync.
  */
 import type { AgentProviderId, ProviderHealth, ProviderId, ProviderModelCatalog } from './providers'
-import type { ProfileCloneStatus, ProfileGithubRepo, WorkspaceProfile } from './profile'
+import type {
+  ProfileCloneStatus,
+  ProfileGithubRepo,
+  RepoProfileGenerationRequest,
+  WorkspaceProfile
+} from './profile'
 import type { McpServerConfig } from './mcp'
 import type {
   AgentBufferSnapshot,
@@ -13,7 +18,7 @@ import type {
   OrcaEvent,
   SpawnAgentRequest
 } from './agents'
-import type { OrchestratorSnapshot } from './orchestrator'
+import type { OrchestratorSnapshot, WorkspaceSessionSummary } from './orchestrator'
 import type {
   AddArtifactInput,
   CreateIdeaInput,
@@ -29,6 +34,10 @@ import type {
   TranscribeAudioPayload,
   TranscribeAudioResult
 } from './inboxSpeech'
+import type {
+  PromptEnhancementIpcRequest,
+  PromptEnhancementIpcResult
+} from './promptEnhancement'
 
 export const IPC = {
   appInfo: 'app:info',
@@ -46,8 +55,12 @@ export const IPC = {
   profilesList: 'profiles:list',
   profileSave: 'profile:save',
   profileDelete: 'profile:delete',
+  profileGenerateForRepo: 'profile:generateForRepo',
   profileGetActive: 'profiles:getActive',
   profileSetActive: 'profiles:setActive',
+  workspaceSessionsList: 'workspaceSessions:list',
+  workspaceSessionSetActive: 'workspaceSessions:setActive',
+  workspaceSessionRemove: 'workspaceSessions:remove',
   mcpList: 'mcp:list',
   mcpSave: 'mcp:save',
   gitSwitchBranch: 'git:switchBranch',
@@ -71,6 +84,9 @@ export const IPC = {
   ideasRemoveArtifact: 'ideas:removeArtifact',
   ideasTransferToProfile: 'ideas:transferToProfile',
   ideasTransferRetry: 'ideas:transferRetry',
+  ideasEnhancePrompt: 'ideas:enhancePrompt',
+  ideasAbortPromptEnhancement: 'ideas:abortPromptEnhancement',
+  ideasTransferReset: 'ideas:transferReset',
   inboxSpeechStatus: 'inboxSpeech:status',
   inboxSpeechGetSettings: 'inboxSpeech:getSettings',
   inboxSpeechSetSettings: 'inboxSpeech:setSettings',
@@ -99,6 +115,7 @@ export const IPC = {
   evProvidersHealth: 'ev:providersHealth',
   evAppUpdateState: 'ev:appUpdateState',
   evOrchestrator: 'ev:orchestrator',
+  evWorkspaceSessions: 'ev:workspaceSessions',
   // window controls (frameless title bar)
   winMinimize: 'win:minimize',
   winMaximizeToggle: 'win:maximizeToggle',
@@ -281,8 +298,15 @@ export interface OrcaApi {
   listProfiles(): Promise<WorkspaceProfile[]>
   saveProfile(profile: WorkspaceProfile): Promise<WorkspaceProfile[]>
   deleteProfile(id: string): Promise<WorkspaceProfile[]>
+  generateProfileForRepo(req: RepoProfileGenerationRequest): Promise<WorkspaceProfile>
   getActiveProfileId(): Promise<string>
   setActiveProfileId(id: string): Promise<void>
+  workspaceSessions: {
+    list(profileId?: string): Promise<WorkspaceSessionSummary[]>
+    setActive(profileId: string, sessionId: string): Promise<OrchestratorSnapshot>
+    remove(profileId: string, sessionId: string): Promise<WorkspaceSessionSummary[]>
+    onChanged(cb: (sessions: WorkspaceSessionSummary[]) => void): () => void
+  }
 
   /** External MCP servers attached to the launched agents. */
   listMcpServers(): Promise<McpServerConfig[]>
@@ -322,6 +346,12 @@ export interface OrcaApi {
     transferToProfile(req: IdeaTransferRequest): Promise<IdeaTransferResult>
     /** Retry a failed, retryable transfer for the same profile. */
     transferRetry(ideaId: string, yoloMaster?: boolean): Promise<IdeaTransferResult>
+    /** Improve an unsaved local draft. This never persists or transfers the idea. */
+    enhancePrompt(req: PromptEnhancementIpcRequest): Promise<PromptEnhancementIpcResult>
+    /** Abort only the caller's matching in-flight enhancement request. */
+    abortPromptEnhancement(requestId: string): Promise<boolean>
+    /** Clear transfer metadata so the idea can be edited and handed over again. */
+    transferReset(ideaId: string): Promise<Idea>
   }
 
   inboxSpeech: {
@@ -344,7 +374,7 @@ export interface OrcaApi {
     kill(id: string): Promise<void>
     killAll(): Promise<void>
     /** Stop all + remove panes (clean slate). */
-    clean(profileId: string): Promise<void>
+    clean(profileId: string, workspaceSessionId?: string): Promise<void>
     /** Scrollback replay for late-mounting terminals (pop-outs, reloads). */
     buffer(id: string): Promise<AgentBufferSnapshot>
     popout(id: string): Promise<void>
@@ -359,14 +389,14 @@ export interface OrcaApi {
   }
 
   orchestrator: {
-    snapshot(profileId: string): Promise<OrchestratorSnapshot>
+    snapshot(profileId: string, workspaceSessionId?: string): Promise<OrchestratorSnapshot>
     /** Clear the task graph (fresh goal). */
-    reset(profileId: string): Promise<void>
+    reset(profileId: string, workspaceSessionId?: string): Promise<void>
     /** Resolve a plan waiting in review mode. */
-    reviewPlan(profileId: string, approved: boolean): Promise<boolean>
+    reviewPlan(profileId: string, approved: boolean, workspaceSessionId?: string): Promise<boolean>
     onSnapshot(cb: (snap: OrchestratorSnapshot) => void): () => void
     /** Read a size-limited patch from the task's trusted Orca worktree. */
-    taskDiff(profileId: string, taskId: string): Promise<TaskReviewDiff>
+    taskDiff(profileId: string, taskId: string, workspaceSessionId?: string): Promise<TaskReviewDiff>
   }
 
   win: {

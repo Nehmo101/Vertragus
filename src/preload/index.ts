@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import { IPC, type OrcaApi, type UpdateState } from '@shared/ipc'
 import type { AgentDataChunk, AgentInstanceInfo, OrcaEvent } from '@shared/agents'
-import type { OrchestratorSnapshot } from '@shared/orchestrator'
+import type { OrchestratorSnapshot, WorkspaceSessionSummary } from '@shared/orchestrator'
 import type { ProviderHealth } from '@shared/providers'
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
@@ -34,8 +34,17 @@ const orca: OrcaApi = {
   listProfiles: () => ipcRenderer.invoke(IPC.profilesList),
   saveProfile: (profile) => ipcRenderer.invoke(IPC.profileSave, profile),
   deleteProfile: (id) => ipcRenderer.invoke(IPC.profileDelete, id),
+  generateProfileForRepo: (req) => ipcRenderer.invoke(IPC.profileGenerateForRepo, req),
   getActiveProfileId: () => ipcRenderer.invoke(IPC.profileGetActive),
   setActiveProfileId: (id) => ipcRenderer.invoke(IPC.profileSetActive, id),
+  workspaceSessions: {
+    list: (profileId) => ipcRenderer.invoke(IPC.workspaceSessionsList, profileId),
+    setActive: (profileId, sessionId) =>
+      ipcRenderer.invoke(IPC.workspaceSessionSetActive, profileId, sessionId),
+    remove: (profileId, sessionId) =>
+      ipcRenderer.invoke(IPC.workspaceSessionRemove, profileId, sessionId),
+    onChanged: (cb) => subscribe<WorkspaceSessionSummary[]>(IPC.evWorkspaceSessions, cb)
+  },
 
   listMcpServers: () => ipcRenderer.invoke(IPC.mcpList),
   saveMcpServers: (servers) => ipcRenderer.invoke(IPC.mcpSave, servers),
@@ -65,7 +74,11 @@ const orca: OrcaApi = {
       ipcRenderer.invoke(IPC.ideasRemoveArtifact, ideaId, artifactId),
     transferToProfile: (req) => ipcRenderer.invoke(IPC.ideasTransferToProfile, req),
     transferRetry: (ideaId, yoloMaster) =>
-      ipcRenderer.invoke(IPC.ideasTransferRetry, ideaId, yoloMaster)
+      ipcRenderer.invoke(IPC.ideasTransferRetry, ideaId, yoloMaster),
+    enhancePrompt: (req) => ipcRenderer.invoke(IPC.ideasEnhancePrompt, req),
+    abortPromptEnhancement: (requestId) =>
+      ipcRenderer.invoke(IPC.ideasAbortPromptEnhancement, { requestId }),
+    transferReset: (ideaId) => ipcRenderer.invoke(IPC.ideasTransferReset, ideaId)
   },
 
   inboxSpeech: {
@@ -86,7 +99,8 @@ const orca: OrcaApi = {
     resize: (id, cols, rows) => ipcRenderer.send(IPC.agentResize, id, cols, rows),
     kill: (id) => ipcRenderer.invoke(IPC.agentKill, id),
     killAll: () => ipcRenderer.invoke(IPC.agentsKillAll),
-    clean: (profileId) => ipcRenderer.invoke(IPC.agentsClean, profileId),
+    clean: (profileId, workspaceSessionId) =>
+      ipcRenderer.invoke(IPC.agentsClean, profileId, workspaceSessionId),
     buffer: (id) => ipcRenderer.invoke(IPC.agentBuffer, id),
     popout: (id) => ipcRenderer.invoke(IPC.agentPopout, id),
     handoff: (req) => ipcRenderer.invoke(IPC.agentHandoff, req),
@@ -96,11 +110,14 @@ const orca: OrcaApi = {
   },
 
   orchestrator: {
-    snapshot: (profileId) => ipcRenderer.invoke(IPC.orchestratorSnapshot, profileId),
-    reset: (profileId) => ipcRenderer.invoke(IPC.orchestratorReset, profileId),
-    reviewPlan: (profileId, approved) => ipcRenderer.invoke(IPC.orchestratorReviewPlan, profileId, approved),
-    taskDiff: (profileId, taskId) =>
-      ipcRenderer.invoke(IPC.orchestratorTaskDiff, profileId, taskId),
+    snapshot: (profileId, workspaceSessionId) =>
+      ipcRenderer.invoke(IPC.orchestratorSnapshot, profileId, workspaceSessionId),
+    reset: (profileId, workspaceSessionId) =>
+      ipcRenderer.invoke(IPC.orchestratorReset, profileId, workspaceSessionId),
+    reviewPlan: (profileId, approved, workspaceSessionId) =>
+      ipcRenderer.invoke(IPC.orchestratorReviewPlan, profileId, approved, workspaceSessionId),
+    taskDiff: (profileId, taskId, workspaceSessionId) =>
+      ipcRenderer.invoke(IPC.orchestratorTaskDiff, profileId, taskId, workspaceSessionId),
     onSnapshot: (cb) => subscribe<OrchestratorSnapshot>(IPC.evOrchestrator, cb)
   },
 

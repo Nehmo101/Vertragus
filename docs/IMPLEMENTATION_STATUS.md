@@ -29,6 +29,15 @@ Ausgangsbasis erhalten.
   zurückgestuft.
 - Der Scheduler respektiert globale Parallelität, Rollen-Kapazitäten,
   Abhängigkeiten und Dateikonflikte.
+- Im adaptiven Team-Modus startet zunächst nur der Orchestrator. Die Profil-Slots
+  bilden einen Fähigkeiten-Pool mit optionalen Stärken und Schwächen; erst der
+  freigegebene Plan startet die tatsächlich benötigten Task-Agents.
+- Nicht ausgewählte Agents bleiben ausgeschaltet. Spätere Folgepläne dürfen
+  weitere Rollen hinzunehmen; fehlgeschlagene Tasks können begrenzt mit einer
+  noch nicht versuchten Rolle wiederaufgenommen werden.
+- Die Orchestrator-Policy erzwingt den Regelkreis Planen → Ausführen → Prüfen →
+  fokussiert nachplanen, bis das Ziel belegt erfüllt ist oder eine konkrete
+  Sackgasse eine Nutzerentscheidung beziehungsweise externe Änderung erfordert.
 - Modi: `auto`, `review` und `manual`.
 - Im Review-Modus erscheint der Plan vor Ausführung in der Oberfläche und kann
   freigegeben oder abgelehnt werden.
@@ -155,7 +164,6 @@ der fünf Kernfeatures:
 - Merge-/Konflikteditor einschließlich vollständiger interaktiver
   Konfliktauflösung; das Review-Cockpit bleibt read-only.
 - Wiederverwendung warmer interaktiver Agents als Scheduler-Pool
-- automatische Retry-/Replan-Schleifen
 - produktiv signierte Installer, solange Zertifikat-Secrets nicht gesetzt sind
 - lokaler Whisper-Adapter und deutscher STT-Benchmarkkorpus
 

@@ -8,6 +8,12 @@ import {
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import LoreName from '@renderer/components/LoreName'
 import LimitsPanel from '@renderer/components/LimitsPanel'
+import {
+  liveOrchestratorTasks,
+  ORCHESTRATOR_ACTIVITY_LABEL,
+  resolveOrchestratorActivity,
+  taskActivityText
+} from '@renderer/orchestratorActivity'
 import type { OrcaTask, TaskStatus } from '@shared/orchestrator'
 import { resolveModel } from '@shared/models'
 
@@ -48,7 +54,17 @@ const TASK_PILL: Record<TaskStatus, { bg: string; fg: string; dot: string; label
   stopped: { bg: 'var(--stop-soft)', fg: 'var(--stop-text)', dot: 'var(--stop)', label: 'gestoppt' }
 }
 
-function TaskCard({ task, profileId, now }: { task: OrcaTask; profileId: string; now: number }): JSX.Element {
+function TaskCard({
+  task,
+  profileId,
+  workspaceSessionId,
+  now
+}: {
+  task: OrcaTask
+  profileId: string
+  workspaceSessionId?: string
+  now: number
+}): JSX.Element {
   const [diff, setDiff] = useState<string | null>(null)
   const [diffError, setDiffError] = useState<string | null>(null)
   const [diffLoading, setDiffLoading] = useState(false)
@@ -69,7 +85,7 @@ function TaskCard({ task, profileId, now }: { task: OrcaTask; profileId: string;
     setDiffLoading(true)
     setDiffError(null)
     try {
-      const result = await window.orca.orchestrator.taskDiff(profileId, task.id)
+      const result = await window.orca.orchestrator.taskDiff(profileId, task.id, workspaceSessionId)
       setDiff(result.diff)
     } catch (error) {
       setDiffError(error instanceof Error ? error.message : String(error))
@@ -216,6 +232,8 @@ export default function OrchestratorPanel(): JSX.Element {
   const events = workspaceEvents(store)
   const { goal, tasks, pendingPlan } = store.orchestrator
   const logRef = useRef<HTMLDivElement>(null)
+  const activity = resolveOrchestratorActivity(store.orchestrator, now)
+  const liveTasks = liveOrchestratorTasks(tasks)
 
   const done = tasks.filter((t) => t.status === 'success').length
   const pct = tasks.length > 0 ? Math.round((done / tasks.length) * 100) : 0
@@ -276,6 +294,75 @@ export default function OrchestratorPanel(): JSX.Element {
         </div>
       </div>
 
+      <div className="live-activity">
+        <div className="live-activity-caption">
+          <span>Live-Lagebericht</span>
+          <span>aktualisiert vor {fmtAge(now - activity.updatedAt)}</span>
+        </div>
+        <div className="coordinator-status">
+          <span className="coordinator-mark">ORCH</span>
+          <div className="coordinator-status-copy">
+            <div className="coordinator-status-head">
+              <strong>
+                {orch?.name ? <LoreName name={orch.name} /> : 'Orchestrator'}
+              </strong>
+              <span className={`activity-phase phase-${activity.phase}`}>
+                {ORCHESTRATOR_ACTIVITY_LABEL[activity.phase]}
+              </span>
+            </div>
+            <div className="coordinator-summary" role="status" aria-live="polite">{activity.summary}</div>
+            {activity.details.length > 0 && (
+              <ul className="coordinator-details">
+                {activity.details.map((detail, index) => <li key={`${detail}-${index}`}>{detail}</li>)}
+              </ul>
+            )}
+            {activity.nextStep && (
+              <div className="coordinator-next"><span>Als Nächstes</span>{activity.nextStep}</div>
+            )}
+          </div>
+        </div>
+
+        <div className="live-workers-head">
+          <span>Subagents gerade</span>
+          <span>{liveTasks.length} aktiv / wartend</span>
+        </div>
+        <div className="live-workers">
+          {liveTasks.length === 0 ? (
+            <div className="live-workers-empty">
+              {pendingPlan
+                ? 'Noch nicht gestartet — der Plan wartet auf Freigabe.'
+                : 'Keine Subagents aktiv. Der Orchestrator plant oder fasst Ergebnisse zusammen.'}
+            </div>
+          ) : liveTasks.map((task) => {
+            const heartbeatAt = task.lastHeartbeatAt ?? task.createdAt
+            const heartbeatAge = now - heartbeatAt
+            const stale = task.status === 'running' && heartbeatAge > STALE_HEARTBEAT_MS
+            return (
+              <div key={task.id} className={`live-worker ${stale ? 'stale' : ''}`}>
+                <div className="live-worker-head">
+                  <strong>
+                    {task.agentName ? <LoreName name={task.agentName} /> : task.role}
+                  </strong>
+                  <span>{task.status === 'queued' ? 'wartet' : stale ? 'ohne neues Signal' : 'arbeitet'}</span>
+                </div>
+                <div className="live-worker-task">{task.title}</div>
+                <div className="live-worker-action" title={task.lastAction}>
+                  {taskActivityText(task)}
+                </div>
+                <div className="live-worker-meta">
+                  <span>{task.role}{task.model ? ` · ${task.model}` : ''}</span>
+                  <span>
+                    {task.status === 'queued'
+                      ? `wartet seit ${fmtAge(now - task.createdAt)}`
+                      : `Update vor ${fmtAge(heartbeatAge)}`}
+                  </span>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
       <div className="orch-panel-body">
         <div className="dag-caption">
           <span>Aufgaben-Zerlegung</span>
@@ -307,10 +394,10 @@ export default function OrchestratorPanel(): JSX.Element {
               </div>
             )}
             <div className="plan-review-actions">
-              <button type="button" className="btn ghost" onClick={() => void window.orca.orchestrator.reviewPlan(store.activeProfileId, false)}>
+              <button type="button" className="btn ghost" onClick={() => void window.orca.orchestrator.reviewPlan(store.activeProfileId, false, store.activeWorkspaceSessionId ?? undefined)}>
                 Ablehnen
               </button>
-              <button type="button" className="btn primary" onClick={() => void window.orca.orchestrator.reviewPlan(store.activeProfileId, true)}>
+              <button type="button" className="btn primary" onClick={() => void window.orca.orchestrator.reviewPlan(store.activeProfileId, true, store.activeWorkspaceSessionId ?? undefined)}>
                 Plan starten
               </button>
             </div>
@@ -324,7 +411,13 @@ export default function OrchestratorPanel(): JSX.Element {
             </div>
           ) : (
             tasks.map((task) => (
-              <TaskCard key={task.id} task={task} profileId={store.activeProfileId} now={now} />
+              <TaskCard
+                key={task.id}
+                task={task}
+                profileId={store.activeProfileId}
+                workspaceSessionId={store.activeWorkspaceSessionId ?? undefined}
+                now={now}
+              />
             ))
           )}
         </div>

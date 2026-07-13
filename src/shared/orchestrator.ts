@@ -18,6 +18,30 @@ export type TaskPhase =
   | 'security-review'
   | 'completed'
 
+export type OrchestratorActivityPhase =
+  | 'idle'
+  | 'planning'
+  | 'awaiting-review'
+  | 'delegating'
+  | 'monitoring'
+  | 'reviewing'
+  | 'integrating'
+  | 'summarizing'
+  | 'completed'
+  | 'blocked'
+
+/** Explicit, user-facing account of what the coordinator is doing right now. */
+export interface OrchestratorActivity {
+  phase: OrchestratorActivityPhase
+  /** One concise sentence suitable for the live status card. */
+  summary: string
+  /** Concrete checks or coordination actions currently in progress. */
+  details: string[]
+  /** What the orchestrator intends to do after the current action. */
+  nextStep?: string
+  updatedAt: number
+}
+
 export type TaskCompletion =
   | { kind: 'commit'; commit: string }
   | { kind: 'no-changes' }
@@ -92,11 +116,21 @@ export interface PendingPlanReview {
   validationIssues: PlanValidationIssue[]
 }
 
+export interface WorkspaceSessionSummary {
+  id: string
+  profileId: string
+  profileName: string
+  sequence: number
+  startedAt: number
+  active: boolean
+}
+
 export interface OrchestratorSnapshot {
   /** Workspace ownership for multi-session renderer routing. */
   profileId?: string
   workspaceSessionId?: string
   goal: OrchestratorGoal | null
+  activity?: OrchestratorActivity
   tasks: OrcaTask[]
   capacity?: OrchestratorCapacitySnapshot
   pendingPlan?: PendingPlanReview
@@ -114,6 +148,12 @@ export interface OrchestratorCapacitySnapshot {
 /** Polling response returned by the asynchronous MCP task API. */
 export interface TaskStatusSnapshot {
   taskId: string
+  title?: string
+  role?: string
+  agentId?: string
+  agentName?: string
+  provider?: AgentProviderId
+  model?: string
   status: TaskStatus
   phase?: TaskPhase
   progress?: number
@@ -121,6 +161,7 @@ export interface TaskStatusSnapshot {
   lastHeartbeatAt?: number
   result?: string
   error?: string
+  note?: string
   completion?: TaskCompletion
 }
 
@@ -139,6 +180,10 @@ export interface SubagentDescriptor {
   /** How many parallel instances this slot allows. */
   capacity: number
   busy: number
+  /** Routing knowledge exposed to the orchestrator. */
+  strengths: string[]
+  weaknesses: string[]
+  available: boolean
 }
 
 /** Provider features needed to act as Orca's top-level orchestrator. */

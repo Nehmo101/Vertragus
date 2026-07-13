@@ -61,5 +61,10 @@ The UI separates four values that previously looked interchangeable:
 - active and waiting provider processes;
 - provider hard limits.
 
+With adaptive team startup, profile slots are a capability pool rather than an
+eager process list. Only the orchestrator is prestarted; validated plan nodes
+activate the selected roles. Follow-up plans may add roles later, while
+unselected workers remain off.
+
 Task cards show phase, last action, progress, and heartbeat age. A running task
 without a fresh heartbeat for 90 seconds is marked stale.
