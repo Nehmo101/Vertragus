@@ -87,7 +87,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Attest installer provenance
-        if: github.event_name != 'workflow_dispatch'
+        if: false # disabled: attestations require a public repo or org-owned private repo
         uses: actions/attest@v4
         with:
           subject-path: |
