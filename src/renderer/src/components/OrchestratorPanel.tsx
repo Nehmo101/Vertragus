@@ -261,7 +261,7 @@ export default function OrchestratorPanel(): JSX.Element {
         </div>
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      <div className="orch-panel-body">
         <div className="dag-caption">
           <span>Aufgaben-Zerlegung</span>
           <span className="tag">DAG</span>
