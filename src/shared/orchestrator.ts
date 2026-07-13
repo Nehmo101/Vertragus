@@ -18,6 +18,30 @@ export type TaskPhase =
   | 'security-review'
   | 'completed'
 
+export type OrchestratorActivityPhase =
+  | 'idle'
+  | 'planning'
+  | 'awaiting-review'
+  | 'delegating'
+  | 'monitoring'
+  | 'reviewing'
+  | 'integrating'
+  | 'summarizing'
+  | 'completed'
+  | 'blocked'
+
+/** Explicit, user-facing account of what the coordinator is doing right now. */
+export interface OrchestratorActivity {
+  phase: OrchestratorActivityPhase
+  /** One concise sentence suitable for the live status card. */
+  summary: string
+  /** Concrete checks or coordination actions currently in progress. */
+  details: string[]
+  /** What the orchestrator intends to do after the current action. */
+  nextStep?: string
+  updatedAt: number
+}
+
 export type TaskCompletion =
   | { kind: 'commit'; commit: string }
   | { kind: 'no-changes' }
@@ -97,6 +121,7 @@ export interface OrchestratorSnapshot {
   profileId?: string
   workspaceSessionId?: string
   goal: OrchestratorGoal | null
+  activity?: OrchestratorActivity
   tasks: OrcaTask[]
   capacity?: OrchestratorCapacitySnapshot
   pendingPlan?: PendingPlanReview

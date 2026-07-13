@@ -13,6 +13,8 @@ import type {
   ExecutionPlanTask,
   ExecutionPlanTaskResult,
   OrcaTask,
+  OrchestratorActivity,
+  OrchestratorActivityPhase,
   OrchestratorGoal,
   PendingPlanReview,
   OrchestratorSnapshot,
@@ -58,6 +60,7 @@ const RESULT_PREVIEW = 160
 export class OrchestratorEngine extends EventEmitter {
   private planSeq = 0
   private goal: OrchestratorGoal | null = null
+  private activity: OrchestratorActivity | undefined
   private readonly tasks = new Map<string, OrcaTask>()
   private readonly preparedChanges = new Map<string, PreparedTaskChange>()
   private readonly taskResults = new Map<string, string>()
@@ -79,6 +82,15 @@ export class OrchestratorEngine extends EventEmitter {
     this.workspaceSessionId = options.workspaceSessionId
     const restored = getSetting<OrchestratorSnapshot>(this.persistenceKey())
     if (!restored || !Array.isArray(restored.tasks)) return
+    this.activity = restored.activity
+      ? {
+          phase: 'idle',
+          summary: 'Der vorherige Lauf ist beendet oder wurde durch den App-Neustart unterbrochen.',
+          details: [],
+          nextStep: 'Ein neues Ziel aufnehmen oder den letzten Stand prüfen.',
+          updatedAt: Date.now()
+        }
+      : undefined
     this.goal = restored.goal
       ? { ...restored.goal, active: false }
       : null
@@ -108,6 +120,7 @@ export class OrchestratorEngine extends EventEmitter {
       profileId: this.boundProfile?.id,
       workspaceSessionId: this.workspaceSessionId,
       goal: this.goal,
+      activity: this.activity ? { ...this.activity, details: [...this.activity.details] } : undefined,
       tasks,
       capacity: {
         warmInteractiveAgents,
@@ -130,11 +143,81 @@ export class OrchestratorEngine extends EventEmitter {
     this.emit('snapshot', snapshot)
   }
 
+  private setActivityState(
+    phase: OrchestratorActivityPhase,
+    summary: string,
+    details: string[] = [],
+    nextStep?: string
+  ): void {
+    const clean = (value: string, max: number): string =>
+      value.replace(/\s+/g, ' ').trim().slice(0, max)
+    this.activity = {
+      phase,
+      summary: clean(summary, 280) || 'Aktualisiert den Orchestrierungsstatus.',
+      details: details.map((detail) => clean(detail, 220)).filter(Boolean).slice(0, 4),
+      nextStep: nextStep ? clean(nextStep, 220) : undefined,
+      updatedAt: Date.now()
+    }
+  }
+
+  reportActivity(input: {
+    phase: OrchestratorActivityPhase
+    summary: string
+    details?: string[]
+    nextStep?: string
+  }): OrchestratorActivity {
+    this.setActivityState(input.phase, input.summary, input.details, input.nextStep)
+    this.push()
+    return { ...this.activity!, details: [...this.activity!.details] }
+  }
+
+  private syncActivityFromTasks(): void {
+    const tasks = [...this.tasks.values()]
+    const running = tasks.filter((task) => task.status === 'running')
+    const queued = tasks.filter((task) => task.status === 'queued')
+    const active = [...running, ...queued]
+    const details = active.slice(0, 4).map((task) => {
+      const owner = task.agentName ?? task.role
+      const action = task.lastAction ?? task.phase ?? task.status
+      return `${owner}: ${task.title} · ${action}`
+    })
+    const integration = running.find((task) => task.role === 'integrator')
+    if (integration) {
+      this.setActivityState(
+        'integrating',
+        integration.lastAction || 'Führt die verifizierten Subagent-Ergebnisse zusammen.',
+        details,
+        'Integration und Qualitätsprüfungen abschließen.'
+      )
+      return
+    }
+    if (running.length > 0 || queued.length > 0) {
+      this.setActivityState(
+        running.length > 0 ? 'monitoring' : 'delegating',
+        `Überwacht ${running.length} laufende Subagents; ${queued.length} Aufgabe(n) warten auf Kapazität.`,
+        details,
+        'Statuswechsel, Blocker und Ergebnisse prüfen.'
+      )
+      return
+    }
+    const recent = tasks.sort((a, b) => b.createdAt - a.createdAt).slice(0, 4)
+    const failed = recent.filter((task) => task.status === 'error')
+    this.setActivityState(
+      failed.length > 0 ? 'blocked' : 'summarizing',
+      failed.length > 0
+        ? `Prüft ${failed.length} fehlgeschlagene Aufgabe(n) und ordnet die Blocker ein.`
+        : 'Alle gestarteten Subagents sind fertig; Ergebnisse werden für den Nutzer zusammengefasst.',
+      recent.map((task) => `${task.agentName ?? task.role}: ${task.title} · ${task.lastAction ?? task.status}`),
+      failed.length > 0 ? 'Fehlerursachen und sichere nächste Schritte nennen.' : 'Ergebnis, Prüfungen und nächste Schritte berichten.'
+    )
+  }
+
   reset(): void {
     this.pendingPlanResolve?.(false)
     this.pendingPlanResolve = undefined
     this.pendingPlan = undefined
     this.goal = null
+    this.activity = undefined
     this.tasks.clear()
     this.limiters.clear()
     this.preparedChanges.clear()
@@ -166,6 +249,12 @@ export class OrchestratorEngine extends EventEmitter {
     return new Promise<boolean>((resolve) => {
       this.pendingPlan = review
       this.pendingPlanResolve = resolve
+      this.setActivityState(
+        'awaiting-review',
+        `Der Plan mit ${review.plan.tasks.length} Aufgabe(n) ist erstellt und wartet auf Freigabe.`,
+        review.plan.tasks.slice(0, 4).map((task) => `${task.role}: ${task.title}`),
+        'Nach Freigabe die DAG-Aufgaben gemäß Abhängigkeiten starten.'
+      )
       this.push()
     })
   }
@@ -189,11 +278,23 @@ export class OrchestratorEngine extends EventEmitter {
       : undefined
     if (!this.goal) this.goal = { id: 'goal', title: 'Orchestrator aktiv', active: true }
     else this.goal.active = true
+    this.setActivityState(
+      'idle',
+      'Der Orchestrator ist bereit und wartet im Terminal auf ein konkretes Ziel.',
+      [],
+      'Ziel aufnehmen, Teamkapazität prüfen und eine sinnvolle Aufgabenverteilung entwerfen.'
+    )
     this.push()
   }
 
   setGoal(title: string): void {
     this.goal = { id: `epic-${Date.now().toString(36)}`, title, active: true }
+    this.setActivityState(
+      'planning',
+      'Analysiert das Ziel und entscheidet, welche Teilaufgaben delegiert werden sollen.',
+      [`Ziel: ${title}`],
+      'Verfügbare Subagent-Rollen prüfen und den Ausführungsplan erstellen.'
+    )
     this.push()
   }
 
@@ -276,6 +377,12 @@ export class OrchestratorEngine extends EventEmitter {
       planId: options.planId
     }
     this.tasks.set(taskId, task)
+    this.setActivityState(
+      'delegating',
+      `Übergibt „${task.title}“ an die Rolle ${slotRole}.`,
+      [`Task ${taskId} wurde angelegt und wartet auf einen freien Worker.`],
+      'Worker-Start bestätigen und anschließend Fortschritt überwachen.'
+    )
     this.push()
 
     const sem = this.limiter(slotRole, slot.count)
@@ -284,6 +391,7 @@ export class OrchestratorEngine extends EventEmitter {
     task.phase = 'starting'
     task.lastAction = 'Worker wird gestartet'
     task.lastHeartbeatAt = Date.now()
+    this.syncActivityFromTasks()
     this.push()
 
     const subSystemPrompt =
@@ -329,6 +437,7 @@ export class OrchestratorEngine extends EventEmitter {
       task.phase = 'working'
       task.lastAction = 'Worker arbeitet'
       task.lastHeartbeatAt = Date.now()
+      this.syncActivityFromTasks()
       this.push()
 
       const result = await done
@@ -347,6 +456,12 @@ export class OrchestratorEngine extends EventEmitter {
         task.phase = 'security-review'
         task.lastAction = 'Abnahme, Security und Commit-Vertrag laufen'
         task.lastHeartbeatAt = Date.now()
+        this.setActivityState(
+          'reviewing',
+          `Prüft das Ergebnis von ${task.agentName ?? task.role} vor der Integration.`,
+          [`${task.title}: ${task.lastAction}`],
+          'Commit-Vertrag und Security-Gate auswerten.'
+        )
         this.push()
         const prepared = await prepareTaskChange({
           config: autoPr,
@@ -377,6 +492,7 @@ export class OrchestratorEngine extends EventEmitter {
           await this.publishPendingChanges()
         }
       }
+      this.syncActivityFromTasks()
       this.push()
 
       if (wasCancelled) return `${info.name} (${slotRole}) stopped.`
@@ -396,6 +512,7 @@ export class OrchestratorEngine extends EventEmitter {
       task.lastHeartbeatAt = Date.now()
       task.note = err instanceof Error ? err.message : String(err)
       task.finishedAt = Date.now()
+      this.syncActivityFromTasks()
       this.push()
       return `Dispatch fehlgeschlagen: ${task.note}`
     } finally {
@@ -512,6 +629,13 @@ export class OrchestratorEngine extends EventEmitter {
         }
       }
     }
+    this.setActivityState(
+      'delegating',
+      `Startet den Ausführungsplan mit ${plan.tasks.length} Aufgabe(n) und maximal ${plan.maxParallel} parallel.`,
+      plan.tasks.slice(0, 4).map((task) => `${task.role}: ${task.title}`),
+      'Subagents gemäß Abhängigkeiten starten und laufend überwachen.'
+    )
+    this.push()
     const pending = new Map(plan.tasks.map((task) => [task.id, task]))
     const active = new Map<string, Promise<void>>()
     const activeConflicts = new Set<string>()
@@ -537,6 +661,7 @@ export class OrchestratorEngine extends EventEmitter {
       this.tasks.set(runtimeId, stopped)
       results.set(task.id, { id: task.id, status: 'stopped', result: reason })
       pending.delete(task.id)
+      this.syncActivityFromTasks()
       this.push()
     }
 
@@ -610,6 +735,17 @@ export class OrchestratorEngine extends EventEmitter {
       if (active.size > 0) await Promise.race(active.values())
     }
     await this.publishPendingChanges(planId)
+    const planTasks = [...this.tasks.values()].filter((task) => task.planId === planId)
+    const failedTasks = planTasks.filter((task) => task.status === 'error' || task.status === 'stopped')
+    this.setActivityState(
+      failedTasks.length > 0 ? 'blocked' : 'summarizing',
+      failedTasks.length > 0
+        ? `Der Plan ist beendet; ${failedTasks.length} Aufgabe(n) benötigen Aufmerksamkeit.`
+        : 'Der Plan ist beendet; alle Subagent-Ergebnisse werden jetzt zu einer verständlichen Antwort verdichtet.',
+      planTasks.slice(-4).map((task) => `${task.agentName ?? task.role}: ${task.title} · ${task.lastAction ?? task.status}`),
+      failedTasks.length > 0 ? 'Blocker erklären und sichere Folgeaktionen vorschlagen.' : 'Gesamtergebnis, Prüfstatus und nächste Schritte berichten.'
+    )
+    this.push()
 
     return {
       planId,
@@ -668,10 +804,22 @@ export class OrchestratorEngine extends EventEmitter {
         task.remoteCiUrl = remoteCi.url
         task.remoteCiSummary = remoteCi.message
       }
+      this.setActivityState(
+        'reviewing',
+        remoteCi.message,
+        ['Remote-CI und Pull-Request-Status werden unabhängig vom Worker-Ergebnis geprüft.'],
+        'Auf einen terminalen CI-Status warten und das Resultat einordnen.'
+      )
       this.push()
     }
 
     this.tasks.set(integrationId, integrationTask)
+    this.setActivityState(
+      'integrating',
+      'Führt die verifizierten Subagent-Commits zusammen und startet die Abnahme.',
+      changes.slice(0, 4).map((change) => `${change.title}: ${change.commit.slice(0, 8)}`),
+      'Security-Gates, Pull Request und Remote-CI prüfen.'
+    )
     this.push()
 
     const outcome = await publishPreparedChanges({
@@ -718,6 +866,14 @@ export class OrchestratorEngine extends EventEmitter {
       }
       this.preparedChanges.delete(task.id)
     }
+    this.setActivityState(
+      integrationTask.status === 'error' ? 'blocked' : 'summarizing',
+      integrationTask.status === 'error'
+        ? `Integration oder Remote-CI benötigt Aufmerksamkeit: ${outcome.message}`
+        : 'Integration und Abnahme sind beendet; der Orchestrator bereitet den Abschlussbericht vor.',
+      [integrationTask.lastAction],
+      integrationTask.status === 'error' ? 'Blocker und Wiederholungsoptionen erklären.' : 'PR-, CI- und Commit-Status zusammenfassen.'
+    )
     this.push()
   }
 

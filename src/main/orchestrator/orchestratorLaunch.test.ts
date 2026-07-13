@@ -14,4 +14,15 @@ describe('orchestrator worker identity prompt', () => {
     expect(prompt).toContain('taskId and role')
     expect(prompt).toContain('never infer or invent a worker name')
   })
+
+  it('requires detailed, truthful updates for coordinator and named workers', () => {
+    const prompt = orchestratorSystemPrompt('Gandalf')
+
+    expect(prompt).toContain('report_activity')
+    expect(prompt).toContain('was du selbst gerade')
+    expect(prompt).toContain('Subagent-Name')
+    expect(prompt).toContain('aktueller Aktion und Blocker')
+    expect(prompt).toContain('Nächster Schritt')
+    expect(prompt).toContain('erfinde keinen Fortschritt')
+  })
 })

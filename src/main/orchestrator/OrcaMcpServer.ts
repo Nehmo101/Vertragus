@@ -17,11 +17,13 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
 import { orchestratorEngine, type OrchestratorEngine } from '@main/orchestrator/Engine'
+import type { OrchestratorActivityPhase } from '@shared/orchestrator'
 import { workspaceSessions } from '@main/orchestrator/WorkspaceSessionRegistry'
 import { setMcpHandle, type McpServerHandle } from '@main/orchestrator/mcpHandle'
 
 const ORCHESTRATOR_TOOLS = [
   'mcp__orca__set_goal',
+  'mcp__orca__report_activity',
   'mcp__orca__list_subagents',
   'mcp__orca__dispatch_subagent',
   'mcp__orca__dispatch_batch',
@@ -31,6 +33,11 @@ const ORCHESTRATOR_TOOLS = [
   'mcp__orca__open_subwindow',
   'mcp__orca__execute_plan'
 ]
+
+const ACTIVITY_PHASES = [
+  'idle', 'planning', 'awaiting-review', 'delegating', 'monitoring',
+  'reviewing', 'integrating', 'summarizing', 'completed', 'blocked'
+] as const
 
 type ToolText = { content: Array<{ type: 'text'; text: string }> }
 function text(s: string): ToolText {
@@ -43,10 +50,13 @@ function buildMcpServer(engine: OrchestratorEngine = orchestratorEngine): McpSer
     {
       instructions: [
         'You are the Orca-Strator orchestrator. Plan and delegate instead of editing code yourself.',
-        'Call set_goal first, then list_subagents. Use exactly the returned role values.',
+        'Call set_goal first, report_activity for planning, then list_subagents. Use exactly the returned role values.',
+        'Keep report_activity current so the user sees what you are doing, what workers are doing, and what happens next.',
         'Use execute_plan for dependent work and dispatch_batch for independent parallel work.',
+        'Poll task status at meaningful transitions.',
         'Identify a worker only by the exact agentName returned by get_task_status or list_tasks.',
         'If agentName is absent, use taskId and role until a later poll returns it; never infer or invent a worker name.',
+        'Report each worker task, phase, current action, and blocker.',
         'Give every subagent a complete standalone prompt and summarize their results for the user.'
       ].join(' ')
     }
@@ -78,6 +88,28 @@ function buildMcpServer(engine: OrchestratorEngine = orchestratorEngine): McpSer
       const title = String(args.title ?? '')
       engine.setGoal(title)
       return text(`Ziel gesetzt: ${title}`)
+    }
+  )
+
+  register(
+    'report_activity',
+    'Aktualisiere den sichtbaren Lagebericht des Orchestrators. Melde eigene aktuelle Arbeit, ' +
+      'konkrete Details und den nächsten Schritt bei jeder wichtigen Phase oder Statusänderung.',
+    {
+      phase: z.enum(ACTIVITY_PHASES).describe('Aktuelle Orchestrator-Phase'),
+      summary: z.string().min(1).max(280).describe('Was du als Orchestrator gerade konkret machst'),
+      details: z.array(z.string().min(1).max(220)).max(4).optional()
+        .describe('Bis zu vier konkrete Prüf-, Delegations- oder Koordinationsschritte'),
+      nextStep: z.string().min(1).max(220).optional().describe('Dein unmittelbar nächster Schritt')
+    },
+    async (args) => {
+      const activity = engine.reportActivity({
+        phase: String(args.phase ?? 'idle') as OrchestratorActivityPhase,
+        summary: String(args.summary ?? ''),
+        details: Array.isArray(args.details) ? args.details.map(String) : [],
+        nextStep: args.nextStep ? String(args.nextStep) : undefined
+      })
+      return text(JSON.stringify(activity, null, 2))
     }
   )
 
@@ -130,7 +162,7 @@ function buildMcpServer(engine: OrchestratorEngine = orchestratorEngine): McpSer
 
   register(
     'get_task_status',
-    'Liefere Status, Heartbeat, Phase und finales Ergebnis einer asynchronen Aufgabe.',
+    'Liefere Titel, Rolle, Subagent-Name, Status, Heartbeat, Phase, aktuelle Aktion und finales Ergebnis einer asynchronen Aufgabe.',
     { taskId: z.string().describe('taskId aus dispatch_subagent oder dispatch_batch') },
     async (args) => {
       const result = engine.getTaskStatus(String(args.taskId ?? ''))
@@ -140,7 +172,7 @@ function buildMcpServer(engine: OrchestratorEngine = orchestratorEngine): McpSer
 
   register(
     'list_tasks',
-    'Liste alle Tasks mit aktuellem Status, Heartbeat und Ergebnis, falls abgeschlossen.',
+    'Liste alle Tasks mit Titel, Rolle, Subagent-Name, aktuellem Status, Phase, Aktion, Heartbeat und Ergebnis.',
     {},
     async () => text(JSON.stringify(engine.listTaskStatuses(), null, 2))
   )

@@ -81,6 +81,7 @@ describe('asynchronous orchestration API', () => {
       title: 'Feature',
       role: accepted.role
     }))
+    expect(engine.snapshot().activity?.phase).toBe('summarizing')
   })
 
   it('propagates remote CI failures without losing the published PR state', async () => {

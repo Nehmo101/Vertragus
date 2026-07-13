@@ -152,7 +152,7 @@ export async function runSelfTest(): Promise<void> {
     const tools = await client.listTools()
     const names = tools.tools.map((t) => t.name).sort()
     check(
-      names.join(',') === 'dispatch_batch,dispatch_subagent,execute_plan,get_plan_status,get_task_status,list_subagents,list_tasks,open_subwindow,set_goal',
+      names.join(',') === 'dispatch_batch,dispatch_subagent,execute_plan,get_plan_status,get_task_status,list_subagents,list_tasks,open_subwindow,report_activity,set_goal',
       `tools/list returned: ${names.join(', ')}`
     )
 
@@ -164,6 +164,20 @@ export async function runSelfTest(): Promise<void> {
     check(
       orchestratorEngine.snapshot().goal?.title === 'Selbsttest-Ziel',
       `set_goal -> engine goal set (${goalRes.content[0]?.text})`
+    )
+    const activityRes = (await client.callTool({
+      name: 'report_activity',
+      arguments: {
+        phase: 'planning',
+        summary: 'Prüft Ziel und Rollen.',
+        details: ['Vergleicht Aufgaben mit verfügbarer Kapazität.'],
+        nextStep: 'Plan erstellen.'
+      }
+    })) as { content: Array<{ text: string }> }
+    const reportedActivity = JSON.parse(activityRes.content[0].text) as { phase: string }
+    check(
+      reportedActivity.phase === 'planning' && orchestratorEngine.snapshot().activity?.phase === 'planning',
+      'report_activity -> live coordinator status stored'
     )
 
     const listRes = (await client.callTool({ name: 'list_subagents', arguments: {} })) as {
