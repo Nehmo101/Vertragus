@@ -66,6 +66,18 @@ describe('shouldAutoTrustCursorWorktree', () => {
     ).toBe('partial')
   })
 
+  it('does not confirm when Cursor shows the worktree only as a larger lookalike path', () => {
+    expect(
+      shouldAutoTrustCursorWorktree({
+        output: `Workspace Trust Required\n${worktree}-old\n[a] Trust this workspace`,
+        workingDir: worktree,
+        worktree,
+        alreadyHandled: false,
+        interactiveUsed: false
+      })
+    ).toBe(false)
+  })
+
   it('keeps Cursor confirmation for ordinary, malformed, or already-interacted workspaces', () => {
     const output = `Workspace Trust Required\n${worktree}\n[a] Trust this workspace`
     expect(

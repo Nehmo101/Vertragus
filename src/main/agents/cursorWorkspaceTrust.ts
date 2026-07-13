@@ -89,8 +89,10 @@ function outputMentionsWorkspace(output: string, workspace: string): boolean {
   const end = start + normalizedWorkspace.length
   const previous = normalizedTerminal[start - 1]
   const next = normalizedTerminal[end]
-  const startsAtBoundary = start === 0 || /[\s'"`(\[]/.test(previous)
-  const endsAtBoundary = end === normalizedTerminal.length || /[\s'"`\)\],:;]/.test(next)
+  const startsAtBoundary =
+    start === 0 || /\s/.test(previous) || ['\'', '"', '`', '(', '['].includes(previous)
+  const endsAtBoundary =
+    end === normalizedTerminal.length || /\s/.test(next) || ['\'', '"', '`', ')', ']', ',', ':', ';'].includes(next)
   return startsAtBoundary && endsAtBoundary
 }
 
