@@ -1,0 +1,124 @@
+/* Local responsive safeguards for dense renderer components. */
+.agentPane :global(.pane-line1) {
+  flex-wrap: wrap;
+  overflow: visible;
+}
+.agentPane :global(.pane-name),
+.agentPane :global(.pane-model),
+.agentPane :global(.badge-handoff) {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agentPane :global(.pane-foot) {
+  flex-wrap: wrap;
+}
+.agentPane :global(.pane-foot .spacer) {
+  min-width: 0;
+}
+.agentPane :global(.pane-foot .id) {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace :global(.workspace-picker),
+.workspace :global(.workspace-context),
+.inboxPanel :global(.inbox-header > :first-child),
+.inboxPanel :global(.inbox-speech-bar) {
+  min-width: 0;
+}
+.workspace :global(.workspace-context),
+.inboxPanel :global(.inbox-speech-bar),
+.inboxPanel :global(.inbox-voice-review-head) {
+  flex-wrap: wrap;
+}
+.inboxPanel :global(.inbox-header > :first-child),
+.inboxPanel :global(.inbox-sub),
+.inboxPanel :global(.inbox-speech-status) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 960px) {
+  .titlebar {
+    gap: 8px;
+  }
+  .titlebar > :first-child,
+  .titlebar :global(.repo-path),
+  .titlebar :global(.profile-btn) {
+    min-width: 0;
+  }
+  .titlebar :global(.repo-path) {
+    flex: 1 1 160px;
+  }
+  .titlebar :global(.repo-path .path),
+  .titlebar :global(.branch-pill),
+  .titlebar :global(.profile-btn .name) {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .titlebar :global(.branch-picker select) {
+    min-width: 0;
+    max-width: 130px;
+  }
+  .workspace :global(.ws-header) {
+    height: auto;
+    min-height: 52px;
+    flex-wrap: wrap;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+  .workspace :global(.ws-header .spacer) {
+    display: none;
+  }
+  .workspace :global(.workspace-picker) {
+    flex: 1 1 220px;
+  }
+  .workspace :global(.workspace-context) {
+    flex: 1 1 160px;
+    max-width: none;
+  }
+  .workspace :global(.workspace-context-chip) {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .inboxPanel :global(.inbox-header) {
+    flex-wrap: wrap;
+  }
+  .inboxPanel :global(.inbox-speech-bar) {
+    flex: 1 1 180px;
+  }
+}
+
+@media (max-width: 720px) {
+  .titlebar :global(.wordmark-sub),
+  .titlebar :global(.repo-path),
+  .titlebar :global(.live-counter .clock),
+  .titlebar :global(.live-counter .sep),
+  .titlebar :global(.stop-btn > span),
+  .titlebar :global(.yolo-btn .label),
+  .titlebar :global(.self-update-btn > span:last-child) {
+    display: none;
+  }
+  .titlebar :global(.tb-divider) {
+    margin: 0;
+  }
+  .titlebar :global(.live-counter),
+  .titlebar :global(.stop-btn),
+  .titlebar :global(.yolo-btn),
+  .titlebar :global(.self-update-btn) {
+    padding-left: 9px;
+    padding-right: 9px;
+  }
+  .inboxPanel :global(.inbox-body) {
+    grid-template-columns: minmax(150px, 38%) minmax(0, 1fr);
+  }
+}

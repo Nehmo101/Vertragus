@@ -25,7 +25,7 @@ import { resolveModel, type ModelPreset } from '@shared/models'
 import { buildInteractiveLaunch } from '@main/providers/types'
 import { resolveLaunch } from '@main/agents/resolveCommand'
 import { createWorktree } from '@main/agents/worktree'
-import { shouldAutoTrustCursorWorktree } from '@main/agents/cursorWorkspaceTrust'
+import { cursorWorkspaceTrustPrompt } from '@main/agents/cursorWorkspaceTrust'
 import { getSetting } from '@main/config/store'
 import {
   runHeadless,
@@ -44,6 +44,8 @@ import { agentIdentityInstruction, isReusableTeamMember } from '@main/agents/tea
 import { closePaneWindows } from '@main/windows'
 
 const BUFFER_LIMIT = 200_000 // chars of scrollback kept per agent
+const CURSOR_TRUST_RETRY_DELAY_MS = 150
+const CURSOR_TRUST_MAX_RETRIES = 3
 
 interface Managed {
   info: AgentInstanceInfo
@@ -61,6 +63,9 @@ interface Managed {
   interactiveUsed?: boolean
   /** Cursor's startup trust confirmation was handled for an Orca worktree. */
   workspaceTrustHandled?: boolean
+  /** A bounded retry while Cursor renders its trust screen across PTY chunks. */
+  workspaceTrustRetry?: ReturnType<typeof setTimeout>
+  workspaceTrustRetryCount?: number
   /** Ignore the interactive PTY exit while converting this pane into a task. */
   reassigning?: boolean
 }
@@ -166,23 +171,48 @@ export class AgentManager extends EventEmitter {
    * Cursor's --trust flag is headless-only. In interactive mode, confirm its
    * initial prompt only when this manager created the isolated worktree.
    */
-  private autoTrustCursorWorktree(managed: Managed): void {
-    const { info } = managed
-    if (info.provider !== 'cursor' || !managed.pty) return
+  private clearCursorWorkspaceTrustRetry(managed: Managed): void {
+    if (!managed.workspaceTrustRetry) return
+    clearTimeout(managed.workspaceTrustRetry)
+    managed.workspaceTrustRetry = undefined
+  }
+
+  private retryCursorWorkspaceTrust(managed: Managed): void {
     if (
-      !shouldAutoTrustCursorWorktree({
-        output: managed.buffer,
-        workingDir: info.workingDir,
-        worktree: info.worktree,
-        alreadyHandled: Boolean(managed.workspaceTrustHandled),
-        interactiveUsed: Boolean(managed.interactiveUsed)
-      })
+      managed.workspaceTrustRetry ||
+      managed.workspaceTrustHandled ||
+      (managed.workspaceTrustRetryCount ?? 0) >= CURSOR_TRUST_MAX_RETRIES
     ) {
       return
     }
+    managed.workspaceTrustRetryCount = (managed.workspaceTrustRetryCount ?? 0) + 1
+    managed.workspaceTrustRetry = setTimeout(() => {
+      managed.workspaceTrustRetry = undefined
+      if (!this.agents.has(managed.info.id) || !managed.pty) return
+      this.autoTrustCursorWorktree(managed)
+    }, CURSOR_TRUST_RETRY_DELAY_MS)
+  }
+
+  private autoTrustCursorWorktree(managed: Managed): void {
+    const { info } = managed
+    if (info.provider !== 'cursor' || !managed.pty) return
+    const prompt = cursorWorkspaceTrustPrompt({
+      output: managed.buffer,
+      workingDir: info.workingDir,
+      worktree: info.worktree,
+      alreadyHandled: Boolean(managed.workspaceTrustHandled),
+      interactiveUsed: Boolean(managed.interactiveUsed)
+    })
+    if (prompt === 'none') return
+    if (prompt === 'partial') {
+      this.retryCursorWorkspaceTrust(managed)
+      return
+    }
+
+    this.clearCursorWorkspaceTrustRetry(managed)
     managed.workspaceTrustHandled = true
     managed.pty.write('a\r')
-    this.emitEvent(`${info.name} vertraut Orca-Worktree automatisch`, 'muted', info)
+    this.emitEvent(`${info.name} · Cursor-Trust für Orca-Worktree bestätigt (a gesendet)`, 'dispatch', info)
   }
   /**
    * Best-effort scan of an interactive agent's output for a usage-limit banner.
@@ -292,6 +322,7 @@ export class AgentManager extends EventEmitter {
       proc.onExit(({ exitCode }) => {
         const wasReassigned = managed.reassigning
         managed.pty = undefined
+        this.clearCursorWorkspaceTrustRetry(managed)
         if (wasReassigned) {
           managed.reassigning = false
           return
@@ -644,8 +675,9 @@ export class AgentManager extends EventEmitter {
   /** Mark only explicit renderer keyboard/paste activity, not xterm protocol replies. */
   markInteractiveUsed(id: string): void {
     const managed = this.agents.get(id)
-    if (!managed?.info.teamRole || managed.info.mode !== 'interactive') return
+    if (!managed || managed.info.mode !== 'interactive') return
     managed.interactiveUsed = true
+    this.clearCursorWorkspaceTrustRetry(managed)
   }
 
   /**
@@ -706,6 +738,7 @@ export class AgentManager extends EventEmitter {
     }
 
     this.terminate(managed)
+    this.clearCursorWorkspaceTrustRetry(managed)
     this.releaseCapacity(managed)
     managed.info.status = 'stopped'
     this.agents.delete(id)
@@ -726,6 +759,7 @@ export class AgentManager extends EventEmitter {
         continue
       }
       this.terminate(m)
+      this.clearCursorWorkspaceTrustRetry(m)
       this.releaseCapacity(m)
       m.info.status = 'stopped'
     }
@@ -742,6 +776,7 @@ export class AgentManager extends EventEmitter {
     for (const [id, managed] of targets) {
       if (managed.waitAbort) managed.waitAbort.aborted = true
       this.terminate(managed)
+      this.clearCursorWorkspaceTrustRetry(managed)
       this.releaseCapacity(managed)
       this.names.release(managed.info.name)
       this.agents.delete(id)

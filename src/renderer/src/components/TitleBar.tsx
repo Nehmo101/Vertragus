@@ -3,6 +3,7 @@ import { useAppStore, activeProfile } from '@renderer/store/useAppStore'
 import type { WorkspaceProfile } from '@shared/profile'
 import type { UpdateState } from '@shared/ipc'
 import WhaleLogo from '@renderer/components/WhaleLogo'
+import styles from './responsiveGuards.module.css'
 
 function useClock(): string {
   const [now, setNow] = useState(() => new Date())
@@ -114,7 +115,7 @@ export default function TitleBar(): JSX.Element {
 
   return (
     <>
-      <header className="titlebar">
+      <header className={`titlebar ${styles.titlebar}`}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <WhaleLogo size={34} />
           <div style={{ lineHeight: 1.05 }}>

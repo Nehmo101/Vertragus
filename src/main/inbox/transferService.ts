@@ -6,10 +6,10 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
 import {
-  buildIdeaTransferBriefing,
   buildOrchestratorSeedPrompt,
   canStartTransfer,
   ideaTransferSchema,
+  previewIdeaTransferBriefing,
   type IdeaTransfer,
   type IdeaTransferRequest,
   type IdeaTransferResult
@@ -263,6 +263,10 @@ export async function transferIdeaToProfile(req: IdeaTransferRequest): Promise<I
 
   try {
     let currentIdea = persistTransfer(req.ideaId, transfer, { profileId: req.profileId })
+    const briefing = previewIdeaTransferBriefing(currentIdea, transferId)
+    if (!briefing.ok) {
+      return failTransfer(req.ideaId, transfer, briefing.message, false)
+    }
 
     const { profile, readiness } = await resolveProfileForTransfer(req.profileId, req.clone)
     if (!profile) throw new Error('Workspace-Profil nicht gefunden.')
@@ -292,7 +296,7 @@ export async function transferIdeaToProfile(req: IdeaTransferRequest): Promise<I
     currentIdea = persistTransfer(req.ideaId, transfer)
 
     setActiveProfileId(profile.id)
-    const briefingPath = writeBriefing(transferId, buildIdeaTransferBriefing(currentIdea, transferId))
+    const briefingPath = writeBriefing(transferId, briefing.briefing)
     const spawned = await spawnProfileTeam(profile, req.yoloMaster ?? false)
     trackTransferAgents(transferId, spawned.map((agent) => agent.id))
 

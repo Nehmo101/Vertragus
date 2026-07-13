@@ -1,9 +1,13 @@
 /**
- * Per-provider concurrency gate — enforces the user-configured `providerLimits`
- * budget on the main process. Interactive spawns fail when full; headless tasks
- * wait. Lowering a limit never stops agents that are already running.
+ * Per-provider concurrency gate — enforces Orca's user-configured local
+ * `providerLimits` process gates in the main process. Interactive spawns fail
+ * when full; headless tasks wait. Lowering a gate never stops running agents.
  */
-import { DEFAULT_PROVIDER_LIMITS, type AgentProviderId } from '@shared/providers'
+import {
+  DEFAULT_PROVIDER_LIMITS,
+  normalizeProviderLimits,
+  type AgentProviderId
+} from '@shared/providers'
 import { getSetting } from '@main/config/store'
 import { Semaphore } from '@main/orchestrator/semaphore'
 
@@ -12,7 +16,7 @@ export class ProviderLimitError extends Error {
   readonly limit: number
 
   constructor(provider: AgentProviderId, limit: number) {
-    super(`Provider-Limit erreicht: ${provider} (${limit} parallel).`)
+    super(`Orca-Gate erreicht: ${provider} (${limit} parallel, keine API-Quote).`)
     this.name = 'ProviderLimitError'
     this.provider = provider
     this.limit = limit
@@ -32,8 +36,7 @@ class ProviderCapacityGate {
 
   private limitFor(provider: AgentProviderId): number {
     const stored = getSetting<Partial<Record<AgentProviderId, number>>>('providerLimits')
-    const value = stored?.[provider] ?? DEFAULT_PROVIDER_LIMITS[provider]
-    return Math.max(1, value)
+    return normalizeProviderLimits(stored)[provider]
   }
 
   private gate(provider: AgentProviderId): Semaphore {

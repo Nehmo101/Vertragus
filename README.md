@@ -75,8 +75,8 @@ safe Auto-PR policies, production hardening, and the **Cozy Organic** UI. See th
 - **Production hardening** — sandboxed Electron windows, CSP and navigation
   allowlists, redacted per-run diagnostics, a task review cockpit, selected-agent
   push-to-talk with explicit preview, and Windows/Linux UI smoke tests.
-- **Supply-chain provenance** — release artifacts can be certificate-signed and
-  published with GitHub Artifact Attestations.
+- **Supply-chain provenance** — Windows release artifacts can be
+  certificate-signed; GitHub Artifact Attestations are currently disabled.
 
 ## Tech stack
 
@@ -113,9 +113,11 @@ remain available for fixed release milestones.
 - Claude, Codex and GitHub Copilot orchestration with MCP: complete.
 - Adaptive DAG planning, review mode, session binding and Auto-PR: complete.
 - Read-only task review, redacted diagnostics and selected-agent STT: available.
-- Electron hardening, config migrations, UI smoke and artifact provenance: available.
-- Full conflict editor, offline Whisper, signed production certificates and
-  authenticated Cloudflare remote control: still open.
+- Electron hardening, config migrations and UI smoke: available. Artifact
+  attestations are currently disabled.
+- Deliberately outside the current sprint: merge/conflict editor and
+  authenticated Cloudflare remote control. Offline Whisper and signed production
+  certificates also remain open.
 
 See [implementation status](docs/IMPLEMENTATION_STATUS.md) and
 [production hardening](docs/PRODUCTION_HARDENING.md) for exact boundaries.

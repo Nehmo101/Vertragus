@@ -12,6 +12,8 @@ import {
 import type { GithubProjectSummary, GithubRepoSummary } from '@shared/ipc'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import InfoTip from '@renderer/components/InfoTip'
+import { hasUsableGithubAuth } from '@renderer/store/githubAuth'
+import ModelCatalogStatus from '@renderer/components/ModelCatalogStatus'
 
 const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'cursor', 'copilot', 'ollama']
 
@@ -86,8 +88,8 @@ export default function ProfileEditor(): JSX.Element | null {
   if (!initial || !draft) return null
 
   const models = store.models
-  const modelsFor = (p: AgentProviderId): string[] => models[p] ?? []
-  const defaultModelFor = (p: AgentProviderId): string => (p === 'codex' ? '' : modelsFor(p)[0] ?? '')
+  const catalogFor = (p: AgentProviderId) => models[p]
+  const modelsFor = (p: AgentProviderId): string[] => catalogFor(p).models
   const presetValue = (preset?: ModelPreset): string => preset ?? ''
   const parsePreset = (value: string): ModelPreset | undefined =>
     value === 'fast' || value === 'balanced' || value === 'strong' ? value : undefined
@@ -194,6 +196,10 @@ export default function ProfileEditor(): JSX.Element | null {
       : repoResults
 
   const githubAuth = store.githubAuth
+  const githubAuthUsable = hasUsableGithubAuth(githubAuth)
+  const githubTerminalLoginRunning = store.agents.some(
+    (agent) => agent.taskId === 'auth:github' && agent.status === 'running'
+  )
 
   const projectOptions =
     draft.githubProject && !projects.some((project) => projectKey(project) === projectKey(draft.githubProject!))
@@ -241,7 +247,7 @@ export default function ProfileEditor(): JSX.Element | null {
             </div>
             <div className="github-auth-row">
               <div className="github-auth-status" aria-live="polite">
-                {githubAuth?.authenticated ? (
+                {githubAuthUsable ? (
                   <>
                     <span className="github-auth-ok">●</span>
                     {githubAuth.account ?? 'GitHub'} · {githubAuth.method}
@@ -254,17 +260,29 @@ export default function ProfileEditor(): JSX.Element | null {
                 ) : (
                   <>
                     <span className="github-auth-warn">●</span>
-                    {githubAuth?.oauthConfigured
-                      ? 'Nicht angemeldet · Browser-OAuth verfügbar'
-                      : 'Nicht angemeldet · Fallback gh --web / PTY'}
+                    {githubAuth?.authenticated
+                      ? `Reauth nötig (${githubAuth.missingScopes.join(', ')})`
+                      : githubAuth?.oauthConfigured
+                        ? 'Nicht angemeldet · Browser-OAuth verfügbar'
+                        : 'Nicht angemeldet · Fallback gh --web / PTY'}
                   </>
                 )}
               </div>
-              <button type="button" className="btn-secondary browse-btn" onClick={() => void store.githubLogin()}>
-                {githubAuth?.authenticated && !githubAuth.needsReauth ? 'Erneuern' : 'Verbinden'}
+              <button
+                type="button"
+                className="btn-secondary browse-btn"
+                disabled={store.githubAuthBusy || githubTerminalLoginRunning}
+                onClick={() => void store.githubLogin()}
+              >
+                {githubAuth?.needsReauth ? 'Erneuern' : 'Verbinden'}
               </button>
-              {githubAuth?.authenticated && (
-                <button type="button" className="btn-secondary browse-btn" onClick={() => void store.githubLogout()}>
+              {githubAuthUsable && (
+                <button
+                  type="button"
+                  className="btn-secondary browse-btn"
+                  disabled={store.githubAuthBusy || githubTerminalLoginRunning}
+                  onClick={() => void store.githubLogout()}
+                >
                   Abmelden
                 </button>
               )}
@@ -272,6 +290,7 @@ export default function ProfileEditor(): JSX.Element | null {
                 type="button"
                 className="btn-secondary browse-btn"
                 title="Fallback: gh auth login im Terminal"
+                disabled={store.githubAuthBusy || githubTerminalLoginRunning}
                 onClick={() => void store.githubTerminalLogin()}
               >
                 PTY
@@ -470,7 +489,9 @@ export default function ProfileEditor(): JSX.Element | null {
                 patch({
                   orchestrator: {
                     provider: 'claude',
-                    model: modelsFor('claude')[0] ?? 'fable',
+                    // The preset defines the default; a model remains an
+                    // intentional, provider-specific override.
+                    model: '',
                     modelPreset: 'balanced',
                     autoOpenSubwindows: true
                   }
@@ -504,7 +525,10 @@ export default function ProfileEditor(): JSX.Element | null {
                       orchestrator: {
                         ...draft.orchestrator!,
                         provider,
-                        model: defaultModelFor(provider)
+                        // An explicit model takes priority over a preset.
+                        // Do not carry an incompatible old-provider model
+                        // across a provider switch.
+                        model: ''
                       }
                     })
                   }}
@@ -561,6 +585,10 @@ export default function ProfileEditor(): JSX.Element | null {
                     <option key={m} value={m} />
                   ))}
                 </datalist>
+                <ModelCatalogStatus
+                  provider={draft.orchestrator.provider}
+                  catalog={catalogFor(draft.orchestrator.provider)}
+                />
                 <div className="model-effective" aria-live="polite">
                   Effektiv:{' '}
                   {formatModelLabel(
@@ -716,7 +744,9 @@ export default function ProfileEditor(): JSX.Element | null {
                     value={slot.provider}
                     onChange={(e) => {
                       const provider = e.target.value as AgentProviderId
-                      patchSlot(idx, { provider, model: defaultModelFor(provider) })
+                      // Clear the explicit override, so the current preset is
+                      // resolved against the newly selected provider.
+                      patchSlot(idx, { provider, model: '' })
                     }}
                   >
                     {AGENT_PROVIDERS.map((p) => (
@@ -762,6 +792,7 @@ export default function ProfileEditor(): JSX.Element | null {
                       <option key={m} value={m} />
                     ))}
                   </datalist>
+                  <ModelCatalogStatus provider={slot.provider} catalog={catalogFor(slot.provider)} />
                   <div className="model-effective" aria-live="polite">
                     Effektiv: {formatModelLabel(resolveModel(slot.provider, slot), slot)}
                   </div>

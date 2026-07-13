@@ -126,14 +126,16 @@ Ausgangsbasis erhalten.
 - Der Profil-Editor erklärt Workspace-, Planner-, Auto-PR-, Orchestrator- und
   Slot-Felder über tastaturerreichbare Tooltips.
 
-## Bewusst noch nicht enthalten
+## Bewusst außerhalb des aktuellen Sprints
 
 Diese Punkte waren Ideen der langfristigen Roadmap, aber keine Voraussetzung
 der fünf Kernfeatures:
 
 - Auto-Merge oder Force-Push
-- Remote-Steuerung über Cloudflare
-- vollständige interaktive Konfliktauflösung und Merge-Editor
+- Cloudflare-Remote-Steuerung; der lokale CLI-Verbindungsstatus ist kein
+  freigegebener Remote-Zugriff.
+- Merge-/Konflikteditor einschließlich vollständiger interaktiver
+  Konfliktauflösung; das Review-Cockpit bleibt read-only.
 - Wiederverwendung warmer interaktiver Agents als Scheduler-Pool
 - automatische Retry-/Replan-Schleifen
 - produktiv signierte Installer, solange Zertifikat-Secrets nicht gesetzt sind
