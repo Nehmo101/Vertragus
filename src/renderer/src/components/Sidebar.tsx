@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { useAppStore } from '@renderer/store/useAppStore'
+import { useAppStore, workspaceAgentHistory } from '@renderer/store/useAppStore'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import { profileSummary, profileAgentCount } from '@renderer/components/TitleBar'
+import { githubAuthPresentation, hasUsableGithubAuth } from '@renderer/store/githubAuth'
 import type { ProviderHealth, ProviderId } from '@shared/providers'
 import { MCP_SCOPE_LABELS, MCP_TRANSPORT_LABELS } from '@shared/mcp'
 
@@ -84,6 +85,58 @@ function ProviderRow({ id }: { id: ProviderId }): JSX.Element {
   )
 }
 
+function GithubRow(): JSX.Element {
+  const store = useAppStore()
+  const theme = PROVIDER_THEME.github
+  const auth = store.githubAuth
+  const presentation = githubAuthPresentation(auth)
+  const loginRunning = store.agents.some(
+    (agent) => agent.taskId === 'auth:github' && agent.status === 'running'
+  )
+  const connected = hasUsableGithubAuth(auth)
+  const reauth = Boolean(auth?.authenticated && auth.needsReauth)
+  const busy = store.githubAuthBusy || loginRunning
+  const color = connected ? 'var(--run)' : 'var(--wait)'
+
+  return (
+    <div className="provider-row">
+      <span className="chip sz-26" style={{ background: theme.bg, color: theme.fg }}>
+        {theme.mono}
+      </span>
+      <div className="info">
+        <div className="name">{theme.label}</div>
+        <div className="detail" title={presentation.detail}>
+          {presentation.detail}
+        </div>
+      </div>
+      <span className="status-wrap">
+        <span className="status-dot" style={{ background: color, boxShadow: `0 0 7px ${color}` }} />
+        <span className="status-label" style={{ color: connected ? 'var(--run-text)' : 'var(--wait-text)' }}>
+          {presentation.label}
+        </span>
+      </span>
+      <button
+        type="button"
+        className="provider-login-btn"
+        disabled={busy}
+        title={
+          loginRunning
+            ? 'Login läuft bereits im Provider-Terminal'
+            : connected
+              ? 'GitHub-Verbindung abmelden'
+              : reauth
+                ? 'GitHub-Berechtigungen erneuern'
+                : 'GitHub verbinden'
+        }
+        aria-label={connected ? 'GitHub abmelden' : reauth ? 'GitHub-Berechtigungen erneuern' : 'GitHub verbinden'}
+        onClick={() => void (connected ? store.githubLogout() : store.githubLogin())}
+      >
+        {busy ? 'Offen' : connected ? 'Abmelden' : reauth ? 'Erneuern' : 'Login'}
+      </button>
+    </div>
+  )
+}
+
 
 function useHashRoute(): string {
   const [hash, setHash] = useState(() => window.location.hash)
@@ -107,6 +160,7 @@ export default function Sidebar(): JSX.Element {
     if (!agent.profileId || (agent.status !== 'running' && agent.status !== 'waiting')) continue
     runningByProfile.set(agent.profileId, (runningByProfile.get(agent.profileId) ?? 0) + 1)
   }
+  const agentHistory = workspaceAgentHistory(store)
 
 
   return (
@@ -134,7 +188,7 @@ export default function Sidebar(): JSX.Element {
         <span>Infrastruktur</span>
       </div>
       <div className="side-list">
-        <ProviderRow id="github" />
+        <GithubRow />
         <ProviderRow id="cloudflare" />
       </div>
 
@@ -232,6 +286,44 @@ export default function Sidebar(): JSX.Element {
       </div>
 
       <div className="side-sep" />
+      {agentHistory.length > 0 && (
+        <>
+          <div className="side-caption agent-history-caption" style={{ paddingTop: 10 }}>
+            <span>Agent-Verlauf</span>
+            <span className="agent-history-count">{agentHistory.length} gespeichert</span>
+          </div>
+          <div className="side-list agent-history-list">
+            {agentHistory.map((agent) => {
+              const provider = PROVIDER_THEME[agent.provider]
+              const failed = agent.status === 'error'
+              return (
+                <button
+                  type="button"
+                  key={agent.id}
+                  className={`agent-history-row ${store.reopenedAgentIds.includes(agent.id) ? 'open' : ''}`}
+                  title={`${agent.role} - Chat wieder aufrufen`}
+                  onClick={() => {
+                    store.reopenAgent(agent.id)
+                    window.location.hash = ''
+                  }}
+                >
+                  <span className="chip sz-26" style={{ background: provider.bg, color: provider.fg }}>
+                    {provider.mono}
+                  </span>
+                  <span className="agent-history-info">
+                    <span className="agent-history-name">{agent.name}</span>
+                    <span className="agent-history-role">{agent.role}</span>
+                  </span>
+                  <span className={`agent-history-status ${failed ? 'failed' : 'done'}`}>
+                    {failed ? 'Fehler' : 'Beendet'}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+          <div className="side-sep" />
+        </>
+      )}
 
       <div className="side-caption" style={{ paddingTop: 10 }}>
         <span>Workspace-Profile</span>

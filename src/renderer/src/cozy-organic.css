@@ -430,6 +430,9 @@ body {
   font-size: 10.5px;
 }
 .profile-row.active .profile-count { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent-soft-text); }
+.agent-history-row { border-radius: 12px; color: var(--text); }
+.agent-history-row:hover,
+.agent-history-row.open { border-color: var(--accent-line); background: var(--accent-soft); }
 
 /* Workspace */
 .workspace { background: var(--bg); }

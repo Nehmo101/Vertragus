@@ -59,6 +59,9 @@ Ausgangsbasis erhalten.
 - Fehlende `gh`-Authentifizierung, Konflikte oder rote Gates werden sichtbar als
   `blocked` zurückgegeben; der Arbeitsstand bleibt zur Prüfung erhalten.
 - PR-Status und URL werden an Task-DAG und Session-Snapshot zurückgegeben.
+- Nach der Veröffentlichung wartet Orca auf GitHub-Checks und zeigt Remote-CI
+  separat als wartend, laufend, grün, fehlgeschlagen, abgebrochen, zeitlich
+  begrenzt oder wegen Authentifizierung nicht verfügbar an.
 
 ### Externe MCP-Server
 
@@ -126,14 +129,16 @@ Ausgangsbasis erhalten.
 - Der Profil-Editor erklärt Workspace-, Planner-, Auto-PR-, Orchestrator- und
   Slot-Felder über tastaturerreichbare Tooltips.
 
-## Bewusst noch nicht enthalten
+## Bewusst außerhalb des aktuellen Sprints
 
 Diese Punkte waren Ideen der langfristigen Roadmap, aber keine Voraussetzung
 der fünf Kernfeatures:
 
 - Auto-Merge oder Force-Push
-- Remote-Steuerung über Cloudflare
-- vollständige interaktive Konfliktauflösung und Merge-Editor
+- Cloudflare-Remote-Steuerung; der lokale CLI-Verbindungsstatus ist kein
+  freigegebener Remote-Zugriff.
+- Merge-/Konflikteditor einschließlich vollständiger interaktiver
+  Konfliktauflösung; das Review-Cockpit bleibt read-only.
 - Wiederverwendung warmer interaktiver Agents als Scheduler-Pool
 - automatische Retry-/Replan-Schleifen
 - produktiv signierte Installer, solange Zertifikat-Secrets nicht gesetzt sind
@@ -142,11 +147,7 @@ der fünf Kernfeatures:
 ## Lokale Abnahme
 
 ```powershell
-corepack pnpm peers check
-corepack pnpm lint
-corepack pnpm typecheck
-corepack pnpm test
-corepack pnpm build
+corepack pnpm run ci
 
 $env:ORCA_MCP_SELFTEST = '1'
 .\node_modules\.bin\electron-vite.CMD preview

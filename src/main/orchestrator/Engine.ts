@@ -39,7 +39,8 @@ import { createPaneWindow } from '@main/windows'
 import {
   prepareTaskChange,
   publishPreparedChanges,
-  type PreparedTaskChange
+  type PreparedTaskChange,
+  type RemoteCiOutcome
 } from '@main/integrations/autoPr'
 import { resolveExecutionPlan } from '@main/orchestrator/planner'
 import { Semaphore } from '@main/orchestrator/semaphore'
@@ -648,6 +649,27 @@ export class OrchestratorEngine extends EventEmitter {
       planId,
       createdAt: Date.now()
     }
+    const changedCommits = new Set(changes.map((change) => change.commit))
+    const affectedTasks = (): OrcaTask[] => [...this.tasks.values()].filter(
+      (task) => Boolean(task.commit && changedCommits.has(task.commit))
+    )
+    const applyRemoteCi = (remoteCi: RemoteCiOutcome): void => {
+      integrationTask.status = 'running'
+      integrationTask.phase = 'testing'
+      integrationTask.progress = remoteCi.status === 'waiting' ? 70 : remoteCi.status === 'pending' ? 85 : 95
+      integrationTask.lastAction = remoteCi.message
+      integrationTask.lastHeartbeatAt = Date.now()
+      integrationTask.remoteCiStatus = remoteCi.status
+      integrationTask.remoteCiUrl = remoteCi.url
+      integrationTask.remoteCiSummary = remoteCi.message
+      for (const task of affectedTasks()) {
+        task.remoteCiStatus = remoteCi.status
+        task.remoteCiUrl = remoteCi.url
+        task.remoteCiSummary = remoteCi.message
+      }
+      this.push()
+    }
+
     this.tasks.set(integrationId, integrationTask)
     this.push()
 
@@ -656,24 +678,42 @@ export class OrchestratorEngine extends EventEmitter {
       goalId: this.goal?.id ?? planId ?? 'goal',
       goalTitle: this.goal?.title ?? 'Orca-Strator Aufgabe',
       changes,
-      profileDefaultBranch: profileDefaultBaseBranch(profile)
+      profileDefaultBranch: profileDefaultBaseBranch(profile),
+      onRemoteCiUpdate: applyRemoteCi
     })
-    integrationTask.status = outcome.status === 'blocked' ? 'error' : 'success'
-    integrationTask.phase = outcome.status === 'blocked' ? 'security-review' : 'completed'
-    integrationTask.progress = outcome.status === 'blocked' ? undefined : 100
+    const remoteStatus = outcome.remoteCi?.status
+    const remoteFailed = remoteStatus === 'failed' || remoteStatus === 'cancelled'
+    const remoteIncomplete = remoteStatus === 'timed-out' || remoteStatus === 'unavailable'
+    integrationTask.status = outcome.status === 'blocked' || remoteFailed
+      ? 'error'
+      : remoteIncomplete ? 'stopped' : 'success'
+    integrationTask.phase = outcome.status === 'blocked'
+      ? 'security-review'
+      : remoteStatus && remoteStatus !== 'passed' ? 'testing' : 'completed'
+    integrationTask.progress = integrationTask.status === 'success' ? 100 : undefined
     integrationTask.lastAction = outcome.message
     integrationTask.lastHeartbeatAt = Date.now()
     integrationTask.finishedAt = Date.now()
     integrationTask.completion = { kind: 'no-changes' }
     integrationTask.prUrl = outcome.url
     integrationTask.autoPrStatus = outcome.status
-    const changedCommits = new Set(changes.map((change) => change.commit))
-    for (const task of this.tasks.values()) {
-      if (!task.commit || !changedCommits.has(task.commit)) continue
+    integrationTask.remoteCiStatus = remoteStatus
+    integrationTask.remoteCiUrl = outcome.remoteCi?.url
+    integrationTask.remoteCiSummary = outcome.remoteCi?.message
+    if (outcome.remoteCi && outcome.remoteCi.status !== 'passed') {
+      integrationTask.note = outcome.remoteCi.message
+    }
+
+    for (const task of affectedTasks()) {
       task.autoPrStatus = outcome.status
       task.prUrl = outcome.url
+      task.remoteCiStatus = remoteStatus
+      task.remoteCiUrl = outcome.remoteCi?.url
+      task.remoteCiSummary = outcome.remoteCi?.message
       if (outcome.status === 'blocked') {
         task.note = `${task.note || 'Task fertig'} · Auto-PR blockiert: ${outcome.message}`
+      } else if (outcome.remoteCi && outcome.remoteCi.status !== 'passed') {
+        task.note = `${task.note || 'Task fertig'} · Remote-CI: ${outcome.remoteCi.message}`
       }
       this.preparedChanges.delete(task.id)
     }

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { DEFAULT_PROFILE } from '@shared/profile'
+import type { AutoPrOutcome, PrepareTaskResult, RemoteCiOutcome } from '@main/integrations/autoPr'
 
 vi.mock('electron', () => ({
   app: { getPath: () => '.', getName: () => 'test', isPackaged: false },
@@ -15,15 +16,24 @@ vi.mock('@main/config/store', () => ({
   setSetting: vi.fn()
 }))
 
-const { runTask } = vi.hoisted(() => ({ runTask: vi.fn() }))
+const { runTask, prepareTaskChange, publishPreparedChanges } = vi.hoisted(() => ({
+  runTask: vi.fn(),
+  prepareTaskChange: vi.fn<(input: unknown) => Promise<PrepareTaskResult>>(async () => ({
+    status: 'skipped',
+    result: 'no-changes',
+    noChanges: true,
+    message: 'No-op bestätigt.'
+  })),
+  publishPreparedChanges: vi.fn<(
+    input: { onRemoteCiUpdate?: (outcome: RemoteCiOutcome) => void }
+  ) => Promise<AutoPrOutcome>>()
+}))
 vi.mock('@main/agents/AgentManager', () => ({
   agentManager: { runTask, list: () => [] }
 }))
 vi.mock('@main/integrations/autoPr', () => ({
-  prepareTaskChange: vi.fn(async () => ({
-    status: 'skipped', result: 'no-changes', noChanges: true, message: 'No-op bestätigt.'
-  })),
-  publishPreparedChanges: vi.fn()
+  prepareTaskChange,
+  publishPreparedChanges
 }))
 
 import { OrchestratorEngine } from './Engine'
@@ -65,6 +75,74 @@ describe('asynchronous orchestration API', () => {
     expect(engine.getTaskStatus(accepted.taskId)).toEqual(
       expect.objectContaining({ result: expect.stringContaining('Committed abc'), completion: { kind: 'no-changes' } })
     )
+  })
+
+  it('propagates remote CI failures without losing the published PR state', async () => {
+    runTask.mockImplementationOnce(async (request) => ({
+      info: info(request.taskId),
+      done: Promise.resolve({ result: 'Done', isError: false, status: 'succeeded' as const })
+    }))
+    prepareTaskChange.mockResolvedValueOnce({
+      status: 'prepared',
+      result: 'committed',
+      noChanges: false,
+      message: 'Commit verified.',
+      branch: 'orca/test',
+      worktree: '.',
+      change: {
+        taskId: 'worker',
+        title: 'Feature',
+        worktree: '.',
+        branch: 'orca/test',
+        commit: 'a'.repeat(40),
+        commits: ['a'.repeat(40)],
+        files: ['feature.ts']
+      }
+    })
+    publishPreparedChanges.mockImplementationOnce(async (input) => {
+      input.onRemoteCiUpdate?.({
+        status: 'pending',
+        message: '1 Remote-Check läuft.',
+        url: 'https://checks/pending'
+      })
+      return {
+        status: 'published',
+        message: 'PR published. Remote-CI failed.',
+        url: 'https://github.test/pr/1',
+        remoteCi: {
+          status: 'failed',
+          message: 'Remote-CI fehlgeschlagen: CI.',
+          url: 'https://checks/fail'
+        }
+      }
+    })
+    const profile = {
+      ...DEFAULT_PROFILE,
+      autoPr: { ...DEFAULT_PROFILE.autoPr, mode: 'draft-after-checks' as const }
+    }
+    const engine = new OrchestratorEngine({ profile })
+    const accepted = engine.dispatchAsync('codex', 'Implement feature', 'Feature')
+
+    await vi.waitFor(() => {
+      const task = engine.snapshot().tasks.find((candidate) => candidate.id === accepted.taskId)
+      expect(task?.remoteCiStatus).toBe('failed')
+    })
+
+    const task = engine.snapshot().tasks.find((candidate) => candidate.id === accepted.taskId)
+    const integration = engine.snapshot().tasks.find((candidate) => candidate.role === 'integrator')
+    expect(task).toEqual(expect.objectContaining({
+      status: 'success',
+      autoPrStatus: 'published',
+      prUrl: 'https://github.test/pr/1',
+      remoteCiStatus: 'failed',
+      remoteCiUrl: 'https://checks/fail'
+    }))
+    expect(integration).toEqual(expect.objectContaining({
+      status: 'error',
+      phase: 'testing',
+      autoPrStatus: 'published',
+      remoteCiStatus: 'failed'
+    }))
   })
 
   it('starts a full plan asynchronously and makes its terminal result pollable', async () => {

@@ -2,6 +2,7 @@
  * Guard generic configGet/configSet IPC — only public UI keys; never secrets.*.
  */
 import { getSetting, setSetting } from '@main/config/store'
+import { parseProviderLimits } from '@shared/providers'
 
 /** Keys the renderer may read via config:get. */
 export const PUBLIC_CONFIG_GET_KEYS = new Set([
@@ -49,5 +50,9 @@ export function getPublicConfig<T = unknown>(key: string): T | undefined {
 
 export function setPublicConfig(key: string, value: unknown): void {
   assertConfigSetAllowed(key)
+  if (key === 'providerLimits') {
+    setSetting(key, parseProviderLimits(value))
+    return
+  }
   setSetting(key, value)
 }

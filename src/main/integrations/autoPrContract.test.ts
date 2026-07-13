@@ -1,13 +1,12 @@
-import { execFile } from 'node:child_process'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { promisify } from 'node:util'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { AutoPrConfig } from '@shared/profile'
 import { prepareTaskChange } from './autoPr'
+import { GitTestHarness } from './gitTestHarness'
 
-const run = promisify(execFile)
+const gitHarness = new GitTestHarness()
 const created: string[] = []
 const config: AutoPrConfig = {
   mode: 'off',
@@ -19,8 +18,7 @@ const config: AutoPrConfig = {
 }
 
 async function git(cwd: string, ...args: string[]): Promise<string> {
-  const { stdout } = await run('git', args, { cwd, windowsHide: true })
-  return stdout.trim()
+  return gitHarness.git(cwd, ...args)
 }
 
 async function repo(): Promise<{ dir: string; base: string }> {
@@ -36,8 +34,8 @@ async function repo(): Promise<{ dir: string; base: string }> {
 }
 
 afterEach(async () => {
-  await Promise.all(created.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
-})
+  await gitHarness.cleanup(created.splice(0))
+}, 20_000)
 
 describe('Auto-PR worker commit contract', () => {
   it('captures commits the worker created before returning', async () => {
@@ -60,7 +58,7 @@ describe('Auto-PR worker commit contract', () => {
     expect(result.change?.commit).toBe(workerCommit)
     expect(result.change?.commits).toEqual([workerCommit])
     expect(result.change?.files).toContain('feature.ts')
-  })
+  }, 20_000)
 
   it('returns explicit no-changes when HEAD and worktree match the captured base', async () => {
     const { dir, base } = await repo()
@@ -73,5 +71,5 @@ describe('Auto-PR worker commit contract', () => {
       worktree: dir
     })
     expect(result).toEqual(expect.objectContaining({ result: 'no-changes', noChanges: true }))
-  })
+  }, 20_000)
 })

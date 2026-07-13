@@ -3,12 +3,18 @@ import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import type { AutoPrConfig } from '@shared/profile'
+import type { RemoteCiStatus } from '@shared/orchestrator'
 import { noTaskChanges, verifiedTaskCommit } from './commitContract'
 import { assertSecurityGate } from './securityGate'
 
 const execFileAsync = promisify(execFile)
 const execAsync = promisify(exec)
 const MAX_OUTPUT = 8 * 1024 * 1024
+const REMOTE_CI_REGISTRATION_TIMEOUT_MS = 90_000
+const REMOTE_CI_TOTAL_TIMEOUT_MS = 20 * 60_000
+const REMOTE_CI_POLL_MS = 5_000
+const REMOTE_CI_READ_TIMEOUT_MS = 30_000
+const REMOTE_CHECK_FIELDS = 'bucket,link,name,state,workflow'
 
 export interface PreparedTaskChange {
   taskId: string
@@ -20,12 +26,53 @@ export interface PreparedTaskChange {
   files: string[]
 }
 
+export interface RemoteCiOutcome {
+  status: RemoteCiStatus
+  message: string
+  url?: string
+}
+
+export interface RemoteCiCommandResult {
+  stdout: string
+  stderr: string
+  exitCode: number
+  timedOut: boolean
+}
+
+export interface RemoteCiCheckCommand {
+  cwd: string
+  prUrl: string
+  watch: boolean
+  timeoutMs: number
+}
+
+export interface RemoteCiMonitorDeps {
+  now(): number
+  delay(ms: number): Promise<void>
+  runChecks(command: RemoteCiCheckCommand): Promise<RemoteCiCommandResult>
+}
+
+interface RemoteCheckRow {
+  bucket: string
+  link?: string
+  name: string
+  state?: string
+  workflow?: string
+}
+
+interface MonitorRemoteCiInput {
+  cwd: string
+  prUrl: string
+  onUpdate?: (outcome: RemoteCiOutcome) => void
+}
+
 export interface AutoPrOutcome {
   status: 'skipped' | 'prepared' | 'published' | 'blocked'
   message: string
   url?: string
   branch?: string
   worktree?: string
+  remoteCi?: RemoteCiOutcome
 }
 
 interface PrepareTaskInput {
@@ -46,6 +93,7 @@ interface PublishInput {
   changes: PreparedTaskChange[]
   /** Profile-bound default branch when autoPr.baseBranch is empty. */
   profileDefaultBranch?: string
+  onRemoteCiUpdate?: (outcome: RemoteCiOutcome) => void
 }
 
 async function runFile(cwd: string, command: string, args: string[]): Promise<string> {
@@ -56,6 +104,36 @@ async function runFile(cwd: string, command: string, args: string[]): Promise<st
     maxBuffer: MAX_OUTPUT
   })
   return (stdout || stderr || '').trim()
+}
+
+async function runFileResult(
+  cwd: string,
+  command: string,
+  args: string[],
+  timeoutMs: number
+): Promise<RemoteCiCommandResult> {
+  try {
+    const { stdout, stderr } = await execFileAsync(command, args, {
+      cwd,
+      windowsHide: true,
+      timeout: timeoutMs,
+      maxBuffer: MAX_OUTPUT
+    })
+    return { stdout, stderr, exitCode: 0, timedOut: false }
+  } catch (error) {
+    const failed = error as Error & {
+      stdout?: string
+      stderr?: string
+      code?: number | string
+      killed?: boolean
+    }
+    return {
+      stdout: typeof failed.stdout === 'string' ? failed.stdout : '',
+      stderr: typeof failed.stderr === 'string' && failed.stderr.trim() ? failed.stderr : failed.message,
+      exitCode: typeof failed.code === 'number' ? failed.code : 1,
+      timedOut: Boolean(failed.killed || /timed out/i.test(failed.message))
+    }
+  }
 }
 
 async function git(cwd: string, args: string[]): Promise<string> {
@@ -288,8 +366,217 @@ async function pushAndOpenPr(
   return runFile(cwd, 'gh', args)
 }
 
+function parseRemoteChecks(raw: string): RemoteCheckRow[] {
+  if (!raw.trim()) return []
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((row): row is RemoteCheckRow => {
+      if (!row || typeof row !== 'object') return false
+      const candidate = row as Partial<RemoteCheckRow>
+      return typeof candidate.bucket === 'string' && typeof candidate.name === 'string'
+    })
+  } catch {
+    return []
+  }
+}
+
+function remoteCiFromChecks(checks: RemoteCheckRow[], prUrl: string): RemoteCiOutcome {
+  const failed = checks.find((check) => check.bucket === 'fail')
+  if (failed) {
+    return {
+      status: 'failed',
+      message: `Remote-CI fehlgeschlagen: ${failed.workflow || failed.name}.`,
+      url: failed.link || prUrl
+    }
+  }
+  const cancelled = checks.find((check) => check.bucket === 'cancel')
+  if (cancelled) {
+    return {
+      status: 'cancelled',
+      message: `Remote-CI abgebrochen: ${cancelled.workflow || cancelled.name}.`,
+      url: cancelled.link || prUrl
+    }
+  }
+  const pending = checks.filter((check) => !['pass', 'skipping'].includes(check.bucket))
+  if (pending.length > 0) {
+    return {
+      status: 'pending',
+      message: `${pending.length} Remote-Check(s) laufen.`,
+      url: pending[0]?.link || prUrl
+    }
+  }
+  return {
+    status: 'passed',
+    message: `${checks.length} Remote-Check(s) grün.`,
+    url: checks[0]?.link || prUrl
+  }
+}
+
+function combineRemoteCi(outcomes: RemoteCiOutcome[]): RemoteCiOutcome {
+  if (outcomes.length === 0) {
+    return { status: 'waiting', message: 'Remote-CI wird registriert.' }
+  }
+  if (outcomes.length === 1) return outcomes[0]
+  const priority: Record<RemoteCiStatus, number> = {
+    failed: 7,
+    cancelled: 6,
+    unavailable: 5,
+    'timed-out': 4,
+    pending: 3,
+    waiting: 2,
+    passed: 1
+  }
+  const decisive = outcomes.reduce((current, outcome) =>
+    priority[outcome.status] > priority[current.status] ? outcome : current
+  )
+  const counts = new Map<RemoteCiStatus, number>()
+  for (const outcome of outcomes) counts.set(outcome.status, (counts.get(outcome.status) ?? 0) + 1)
+  return {
+    status: decisive.status,
+    message: `Remote-CI (${outcomes.length} PRs): ${[...counts.entries()]
+      .map(([status, count]) => `${count} ${status}`)
+      .join(', ')}.`,
+    url: decisive.url
+  }
+}
+
+function hasAuthFailure(result: RemoteCiCommandResult): boolean {
+  return /(auth|login|logged in|token|HTTP 40[13]|permission)/i.test(
+    result.stdout + '\n' + result.stderr
+  )
+}
+
+function isNoChecksYet(result: RemoteCiCommandResult): boolean {
+  return /no checks reported/i.test(result.stdout + '\n' + result.stderr)
+}
+
+function commandDetail(result: RemoteCiCommandResult): string {
+  return (result.stderr || result.stdout).replace(/\s+/g, ' ').trim().slice(0, 240)
+}
+
+const defaultRemoteCiDeps: RemoteCiMonitorDeps = {
+  now: () => Date.now(),
+  delay: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  runChecks: async (command) => {
+    const args = ['pr', 'checks', command.prUrl, '--json', REMOTE_CHECK_FIELDS]
+    if (command.watch) args.push('--watch', '--fail-fast', '--interval', '10')
+    return runFileResult(command.cwd, 'gh', args, command.timeoutMs)
+  }
+}
+
+async function monitorRemoteCi(
+  input: MonitorRemoteCiInput,
+  deps: RemoteCiMonitorDeps = defaultRemoteCiDeps
+): Promise<RemoteCiOutcome> {
+  const startedAt = deps.now()
+  const report = (outcome: RemoteCiOutcome): RemoteCiOutcome => {
+    input.onUpdate?.(outcome)
+    return outcome
+  }
+
+  report({ status: 'waiting', message: 'Remote-CI wird registriert.', url: input.prUrl })
+
+  while (deps.now() - startedAt <= REMOTE_CI_REGISTRATION_TIMEOUT_MS) {
+    const currentResult = await deps.runChecks({
+      cwd: input.cwd,
+      prUrl: input.prUrl,
+      watch: false,
+      timeoutMs: REMOTE_CI_READ_TIMEOUT_MS
+    })
+    if (hasAuthFailure(currentResult)) {
+      return report({
+        status: 'unavailable',
+        message: 'Remote-CI nicht verfügbar: GitHub-Authentifizierung fehlt oder ist ungültig.',
+        url: input.prUrl
+      })
+    }
+
+    const checks = parseRemoteChecks(currentResult.stdout)
+    if (checks.length > 0) {
+      const current = remoteCiFromChecks(checks, input.prUrl)
+      report(current)
+      if (current.status !== 'pending') return current
+
+      const remaining = REMOTE_CI_TOTAL_TIMEOUT_MS - (deps.now() - startedAt)
+      if (remaining <= 0) {
+        return report({
+          status: 'timed-out',
+          message: 'Remote-CI läuft nach dem Zeitlimit weiter.',
+          url: current.url || input.prUrl
+        })
+      }
+
+      const watched = await deps.runChecks({
+        cwd: input.cwd,
+        prUrl: input.prUrl,
+        watch: true,
+        timeoutMs: remaining
+      })
+      if (hasAuthFailure(watched)) {
+        return report({
+          status: 'unavailable',
+          message: 'Remote-CI nicht verfügbar: GitHub-Authentifizierung ist abgelaufen.',
+          url: input.prUrl
+        })
+      }
+      if (watched.timedOut) {
+        return report({
+          status: 'timed-out',
+          message: 'Remote-CI läuft nach dem Zeitlimit weiter.',
+          url: current.url || input.prUrl
+        })
+      }
+
+      const finalResult = await deps.runChecks({
+        cwd: input.cwd,
+        prUrl: input.prUrl,
+        watch: false,
+        timeoutMs: REMOTE_CI_READ_TIMEOUT_MS
+      })
+      if (hasAuthFailure(finalResult)) {
+        return report({
+          status: 'unavailable',
+          message: 'Remote-CI-Ergebnis konnte wegen GitHub-Authentifizierung nicht gelesen werden.',
+          url: input.prUrl
+        })
+      }
+      const finalChecks = parseRemoteChecks(finalResult.stdout)
+      if (finalChecks.length > 0) {
+        const finalOutcome = remoteCiFromChecks(finalChecks, input.prUrl)
+        if (finalOutcome.status !== 'pending') return report(finalOutcome)
+      }
+      return report({
+        status: 'timed-out',
+        message: 'Remote-CI-Watch endete ohne terminales Ergebnis.',
+        url: current.url || input.prUrl
+      })
+    }
+
+    if (
+      currentResult.exitCode !== 0 &&
+      currentResult.exitCode !== 8 &&
+      !currentResult.timedOut &&
+      !isNoChecksYet(currentResult)
+    ) {
+      return report({
+        status: 'unavailable',
+        message: `Remote-CI konnte nicht gelesen werden: ${commandDetail(currentResult) || 'unbekannter gh-Fehler'}.`,
+        url: input.prUrl
+      })
+    }
+    await deps.delay(REMOTE_CI_POLL_MS)
+  }
+
+  return report({
+    status: 'timed-out',
+    message: 'GitHub hat innerhalb von 90 Sekunden keine Remote-Checks registriert.',
+    url: input.prUrl
+  })
+}
+
 async function publishPerTask(input: PublishInput): Promise<AutoPrOutcome> {
-  const urls: string[] = []
+  const published: Array<{ cwd: string; url: string }> = []
   for (const change of input.changes) {
     const body = [
       `Automatisch vorbereitet von Orca-Strator für **${input.goalTitle}**.`,
@@ -300,21 +587,37 @@ async function publishPerTask(input: PublishInput): Promise<AutoPrOutcome> {
       ...input.config.qualityGates.map((gate) => `- \`${gate}\``),
       '- Security Gate (Secrets + sensitive negative tests)'
     ].join('\n')
-    urls.push(
-      await pushAndOpenPr(
-        change.worktree,
-        input.config,
-        change.branch,
-        `[Orca ${change.taskId}] ${change.title}`,
-        body,
-        input.profileDefaultBranch
-      )
+    const url = await pushAndOpenPr(
+      change.worktree,
+      input.config,
+      change.branch,
+      `[Orca ${change.taskId}] ${change.title}`,
+      body,
+      input.profileDefaultBranch
     )
+    published.push({ cwd: change.worktree, url })
   }
+
+  const live = new Map<number, RemoteCiOutcome>()
+  const remoteOutcomes = await Promise.all(
+    published.map((entry, index) =>
+      monitorRemoteCi({
+        cwd: entry.cwd,
+        prUrl: entry.url,
+        onUpdate: (outcome) => {
+          live.set(index, outcome)
+          input.onRemoteCiUpdate?.(combineRemoteCi([...live.values()]))
+        }
+      })
+    )
+  )
+  const remoteCi = combineRemoteCi(remoteOutcomes)
+  input.onRemoteCiUpdate?.(remoteCi)
   return {
     status: 'published',
-    message: `${urls.length} Pull Request(s) erstellt oder wiederverwendet.`,
-    url: urls[0]
+    message: `${published.length} Pull Request(s) erstellt oder wiederverwendet. ${remoteCi.message}`,
+    url: published[0]?.url,
+    remoteCi
   }
 }
 
@@ -356,12 +659,18 @@ async function publishAggregate(input: PublishInput): Promise<AutoPrOutcome> {
       body,
       input.profileDefaultBranch
     )
+    const remoteCi = await monitorRemoteCi({
+      cwd: integrationPath,
+      prUrl: url,
+      onUpdate: input.onRemoteCiUpdate
+    })
     return {
       status: 'published',
-      message: `${input.changes.length} Tasks in einen Pull Request integriert.`,
+      message: `${input.changes.length} Tasks in einen Pull Request integriert. ${remoteCi.message}`,
       url,
       branch,
-      worktree: integrationPath
+      worktree: integrationPath,
+      remoteCi
     }
   } catch (error) {
     try {
@@ -390,4 +699,13 @@ export async function publishPreparedChanges(input: PublishInput): Promise<AutoP
   }
 }
 
-export const autoPrInternals = { safeSlug, assertDiffLooksSafe, defaultBase, pickBaseBranch }
+export const autoPrInternals = {
+  safeSlug,
+  assertDiffLooksSafe,
+  defaultBase,
+  pickBaseBranch,
+  parseRemoteChecks,
+  remoteCiFromChecks,
+  combineRemoteCi,
+  monitorRemoteCi
+}

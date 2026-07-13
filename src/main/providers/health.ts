@@ -6,6 +6,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { PROVIDERS, type ProviderDef, type ProviderHealth } from '@shared/providers'
+import { githubAuthStatus } from '@main/integrations/githubAuth'
 import { probeProviderConnection } from '@main/providers/auth'
 import { refreshProcessPathFromSystem } from '@main/providers/processPath'
 
@@ -29,6 +30,19 @@ function firstLine(text: string): string {
 }
 
 async function providerDetails(def: ProviderDef): Promise<Partial<ProviderHealth>> {
+  if (def.id === 'github') {
+    const auth = await githubAuthStatus()
+    const connected = auth.authenticated && !auth.needsReauth
+    return {
+      connection: connected ? 'connected' : 'disconnected',
+      detail: auth.needsReauth
+        ? `Berechtigungen fehlen: ${auth.missingScopes.join(', ')}`
+        : auth.detail,
+      canLogin: Boolean(def.auth),
+      loginLabel: def.auth?.loginLabel
+    }
+  }
+
   const auth = await probeProviderConnection(def, run)
   let detail = auth.detail
   if (def.id === 'ollama') {

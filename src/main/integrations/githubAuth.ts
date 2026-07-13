@@ -9,7 +9,6 @@ import type { GithubAuthMethod, GithubAuthStatus } from '@shared/ipc'
 import {
   clearGithubOAuthToken,
   githubOAuthClientId,
-  readGithubOAuthMeta,
   readGithubOAuthToken,
   writeGithubOAuthToken
 } from '@main/config/secrets'
@@ -80,17 +79,20 @@ export function buildGithubAuthStatus(input: {
   oauthConfigured?: boolean
   detail?: string
 }): GithubAuthStatus {
-  const scopes = input.scopes ?? []
-  const missingScopes = input.authenticated ? missingGithubScopes(scopes) : [...GITHUB_REQUIRED_SCOPES]
+  const account = input.account?.trim() || undefined
+  const scopes = (input.scopes ?? []).map((scope) => scope.trim()).filter(Boolean)
+  const missingScopes = missingGithubScopes(scopes)
+  const authenticated = Boolean(input.authenticated && account && missingScopes.length === 0)
+  const needsReauth = Boolean(input.authenticated && !authenticated)
   return {
-    authenticated: input.authenticated,
-    method: input.method,
-    account: input.account,
+    authenticated,
+    method: authenticated ? input.method : 'none',
+    account: authenticated ? account : undefined,
     scopes,
     missingScopes,
-    needsReauth: input.authenticated && missingScopes.length > 0,
+    needsReauth,
     oauthConfigured: input.oauthConfigured ?? Boolean(githubOAuthClientId()),
-    detail: input.detail
+    detail: needsReauth ? 'GitHub-Anmeldung unvollständig. Bitte erneut anmelden.' : input.detail
   }
 }
 
@@ -111,11 +113,15 @@ async function probeGhAuth(): Promise<GhAuthProbe> {
   }
 }
 
-async function probeOAuthUser(token: string): Promise<{ login?: string; scopes: string[] }> {
+async function probeOAuthUser(token: string): Promise<{ login: string; scopes: string[] }> {
+  const normalizedToken = token.trim()
+  if (!normalizedToken) {
+    throw new Error('OAuth-Token ist leer.')
+  }
   const response = await fetch('https://api.github.com/user', {
     headers: {
       Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${normalizedToken}`,
       'X-GitHub-Api-Version': '2022-11-28'
     },
     signal: AbortSignal.timeout(12_000)
@@ -129,7 +135,14 @@ async function probeOAuthUser(token: string): Promise<{ login?: string; scopes: 
     .split(',')
     .map((scope) => scope.trim())
     .filter(Boolean)
-  return { login: user.login, scopes }
+  const login = user.login?.trim()
+  if (!login) {
+    throw new Error('GitHub-OAuth-Antwort enthält kein Konto.')
+  }
+  if (missingGithubScopes(scopes).length > 0) {
+    throw new Error('GitHub-OAuth-Scopes sind unvollständig.')
+  }
+  return { login, scopes }
 }
 
 async function syncTokenToGh(token: string): Promise<void> {
@@ -273,21 +286,22 @@ async function loginWithGhWeb(): Promise<GithubAuthStatus> {
 export async function githubAuthStatus(): Promise<GithubAuthStatus> {
   const oauthConfigured = Boolean(githubOAuthClientId())
   const stored = readGithubOAuthToken()
-  if (stored) {
+  if (stored?.trim()) {
     try {
       const user = await probeOAuthUser(stored)
-      const meta = readGithubOAuthMeta()
       return buildGithubAuthStatus({
         authenticated: true,
         method: 'oauth',
-        account: user.login ?? meta?.account,
-        scopes: user.scopes.length > 0 ? user.scopes : (meta?.scopes ?? []),
+        account: user.login,
+        scopes: user.scopes,
         oauthConfigured,
-        detail: `Angemeldet als ${user.login ?? meta?.account ?? 'GitHub'} (OAuth)`
+        detail: `Angemeldet als ${user.login} (OAuth)`
       })
     } catch {
       clearGithubOAuthToken()
     }
+  } else if (stored !== undefined) {
+    clearGithubOAuthToken()
   }
 
   const gh = await probeGhAuth()
@@ -357,5 +371,6 @@ export async function githubAuthLogout(): Promise<GithubAuthStatus> {
 export const githubAuthInternals = {
   parseGhAuthStatus,
   missingGithubScopes,
-  buildGithubAuthStatus
+  buildGithubAuthStatus,
+  probeOAuthUser
 }

@@ -60,7 +60,9 @@ function TaskCard({ task, profileId, now }: { task: OrcaTask; profileId: string;
   const heartbeatStale = task.status === 'running' && heartbeatAge > STALE_HEARTBEAT_MS
   const showTelemetry = task.status === 'running' || Boolean(telemetry.phase || telemetry.lastAction)
   const label = task.status === 'running' && task.yolo ? 'läuft · yolo' : pill.label
-  const hasReview = Boolean(task.worktree || task.branch || task.commit || task.autoPrStatus)
+  const hasReview = Boolean(
+    task.worktree || task.branch || task.commit || task.autoPrStatus || task.remoteCiStatus
+  )
 
   const loadDiff = async (): Promise<void> => {
     setDiffLoading(true)
@@ -158,12 +160,20 @@ function TaskCard({ task, profileId, now }: { task: OrcaTask; profileId: string;
         {task.note && (
           <div className={`task-note ${task.status === 'error' ? 'err' : ''}`}>{task.note}</div>
         )}
-        {(task.prUrl || task.autoPrStatus) && (
+        {(task.prUrl || task.autoPrStatus || task.remoteCiStatus) && (
           <div className="task-pr-row">
             <span>Auto-PR: {task.autoPrStatus ?? 'unbekannt'}</span>
+            {task.remoteCiStatus && (
+              <span title={task.remoteCiSummary}>Remote-CI: {task.remoteCiStatus}</span>
+            )}
             {task.prUrl && (
               <a href={task.prUrl} target="_blank" rel="noreferrer">
                 Pull Request oeffnen
+              </a>
+            )}
+            {task.remoteCiUrl && task.remoteCiUrl !== task.prUrl && (
+              <a href={task.remoteCiUrl} target="_blank" rel="noreferrer">
+                CI-Check oeffnen
               </a>
             )}
           </div>

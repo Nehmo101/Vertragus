@@ -1,10 +1,14 @@
-import { useEffect, useRef } from 'react'
+import { memo, useEffect, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import type { AgentInstanceInfo } from '@shared/agents'
 import { LIMIT_KIND_LABELS } from '@shared/agents'
+import { summarizeUsage, TELEMETRY_STATUS_LABELS, TELEMETRY_STATUS_TITLES } from '@shared/telemetry'
 import { PROVIDER_THEME, STATUS_THEME, XTERM_THEME } from '@renderer/ui/theme'
 import LoreName from '@renderer/components/LoreName'
+import { isAgentTerminalChunk } from './terminalStream'
+import { terminalEnterAction } from '@renderer/components/terminalEnter'
+import styles from './responsiveGuards.module.css'
 
 interface Props {
   agent: AgentInstanceInfo
@@ -20,8 +24,15 @@ interface Props {
  * Live terminal bound to a real agent PTY. Replays the scrollback buffer via
  * seq numbers, then streams — duplicates and gaps are impossible by design.
  */
-function useAgentTerminal(agentId: string): React.RefObject<HTMLDivElement> {
+function useAgentTerminal(agentId: string, inputEnabled: boolean): React.RefObject<HTMLDivElement> {
   const hostRef = useRef<HTMLDivElement>(null)
+  const terminalRef = useRef<Terminal | null>(null)
+  const inputEnabledRef = useRef(inputEnabled)
+
+  useEffect(() => {
+    inputEnabledRef.current = inputEnabled
+    if (terminalRef.current) terminalRef.current.options.disableStdin = !inputEnabled
+  }, [inputEnabled])
 
   useEffect(() => {
     const host = hostRef.current
@@ -39,8 +50,10 @@ function useAgentTerminal(agentId: string): React.RefObject<HTMLDivElement> {
       cursorWidth: 1,
       cursorInactiveStyle: 'none',
       scrollback: 4000,
+      disableStdin: !inputEnabledRef.current,
       allowProposedApi: true
     })
+    terminalRef.current = term
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.open(host)
@@ -48,6 +61,14 @@ function useAgentTerminal(agentId: string): React.RefObject<HTMLDivElement> {
     // Preserve Ctrl/Cmd+C as SIGINT when nothing is selected, but let xterm's
     // copy event handler place an active terminal selection on the clipboard.
     term.attachCustomKeyEventHandler((event) => {
+      const enterAction = terminalEnterAction(event)
+      if (enterAction) {
+        if (inputEnabledRef.current) {
+          window.orca.agents.write(agentId, enterAction === 'newline' ? '\n' : '\r')
+        }
+        return false
+      }
+
       const modifier = event.ctrlKey || event.metaKey
       const isCopy = modifier && !event.altKey && event.key.toLowerCase() === 'c'
       return !(event.type === 'keydown' && isCopy && term.hasSelection())
@@ -58,7 +79,7 @@ function useAgentTerminal(agentId: string): React.RefObject<HTMLDivElement> {
     const queue: Array<{ data: string; seq: number }> = []
 
     const unsubscribe = window.orca.agents.onData((chunk) => {
-      if (chunk.id !== agentId) return
+      if (!isAgentTerminalChunk(agentId, chunk.id)) return
       if (!ready) {
         queue.push(chunk)
         return
@@ -82,45 +103,81 @@ function useAgentTerminal(agentId: string): React.RefObject<HTMLDivElement> {
     })
 
     const onInput = term.onData((data) => {
-      window.orca.agents.write(agentId, data)
+      if (inputEnabledRef.current) window.orca.agents.write(agentId, data)
     })
+    // onData also carries automatic terminal protocol replies. Only real user
+    // keyboard/paste actions reserve a warm team pane from orchestrator reuse.
+    const onKey = term.onKey(() => window.orca.agents.markInteractiveUsed(agentId))
+    const onPaste = (): void => window.orca.agents.markInteractiveUsed(agentId)
+    host.addEventListener('paste', onPaste, true)
 
+    let lastSize = ''
     const doFit = (): void => {
       try {
         fit.fit()
+        const size = `${term.cols}x${term.rows}`
+        if (size === lastSize) return
+        lastSize = size
         window.orca.agents.resize(agentId, term.cols, term.rows)
       } catch {
         // host not laid out yet
       }
     }
     doFit()
-    const observer = new ResizeObserver(doFit)
+    let resizeFrame: number | undefined
+    const observer = new ResizeObserver(() => {
+      if (resizeFrame != null) return
+      resizeFrame = requestAnimationFrame(() => {
+        resizeFrame = undefined
+        doFit()
+      })
+    })
     observer.observe(host)
 
     return () => {
       observer.disconnect()
+      if (resizeFrame != null) cancelAnimationFrame(resizeFrame)
       onInput.dispose()
+      onKey.dispose()
+      host.removeEventListener('paste', onPaste, true)
       unsubscribe()
       term.dispose()
+      terminalRef.current = null
     }
   }, [agentId])
 
   return hostRef
 }
 
+/**
+ * The xterm instance is deliberately isolated from status and usage updates.
+ * It is recreated only when its backing PTY instance changes.
+ */
+const TerminalHost = memo(function TerminalHost({
+  agentId,
+  stopped,
+  inputEnabled
+}: {
+  agentId: string
+  stopped: boolean
+  inputEnabled: boolean
+}): JSX.Element {
+  const hostRef = useAgentTerminal(agentId, inputEnabled)
+  return <div className={`pane-term ${stopped ? 'stopped' : ''}`} ref={hostRef} />
+})
+
 export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff, focused, subdued }: Props): JSX.Element {
-  const hostRef = useAgentTerminal(agent.id)
   const provider = PROVIDER_THEME[agent.provider]
   const status = STATUS_THEME[agent.status]
   const isOrch = agent.kind === 'orchestrator'
   const yoloLive = agent.yolo && agent.status === 'running'
   const usage = agent.usage
-  const tokens = (usage?.tokensIn ?? 0) + (usage?.tokensOut ?? 0)
+  const telemetry = summarizeUsage(usage)
   const limit = agent.limitWarning
 
   return (
     <div
-      className={`pane ${isOrch ? 'orch' : ''} ${yoloLive && !isOrch ? 'yolo-live' : ''} ${focused ? 'focused' : ''} ${subdued ? 'subdued' : ''}`}
+      className={`pane ${styles.agentPane} ${isOrch ? 'orch' : ''} ${yoloLive && !isOrch ? 'yolo-live' : ''} ${focused ? 'focused' : ''} ${subdued ? 'subdued' : ''}`}
       onMouseDown={onFocus}
     >
       <div className="pane-head">
@@ -192,24 +249,33 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
         )}
       </div>
 
-      <div className={`pane-term ${agent.status === 'stopped' ? 'stopped' : ''}`} ref={hostRef} />
+      <TerminalHost
+        agentId={agent.id}
+        stopped={agent.status === 'stopped'}
+        inputEnabled={agent.status === 'running'}
+      />
 
       <div className="pane-foot">
         {usage ? (
           <>
-            {usage.steps != null && <span><span className="k">Schritte</span> <b>{usage.steps}</b></span>}
-            {tokens > 0 && (
+            {telemetry.steps != null && <span><span className="k">Schritte</span> <b>{telemetry.steps}</b></span>}
+            {telemetry.tokens != null && (
               <span title={`${usage.tokensIn ?? 0} Eingabe · ${usage.tokensOut ?? 0} Ausgabe`}>
-                <span className="k">Tokens</span> <b>{tokens.toLocaleString()}</b>
+                <span className="k">Tokens</span> <b>{telemetry.tokens.toLocaleString()}</b>
               </span>
             )}
-            {usage.costUsd != null && (
-              <span><span className="k">Kosten</span> <b className="cost">${usage.costUsd.toFixed(4)}</b></span>
+            {telemetry.costUsd != null && (
+              <span><span className="k">Kosten</span> <b className="cost">${telemetry.costUsd.toFixed(4)}</b></span>
             )}
           </>
         ) : (
-          <span className="usage-unavailable" title="Dieser Provider liefert derzeit keine Telemetrie an Orca-Strator">
-            Nutzungsdaten nicht verfügbar
+          <span className="telemetry-status absent" title={TELEMETRY_STATUS_TITLES.absent}>
+            {TELEMETRY_STATUS_LABELS.absent}
+          </span>
+        )}
+        {usage && telemetry.status !== 'present' && (
+          <span className={`telemetry-status ${telemetry.status}`} title={TELEMETRY_STATUS_TITLES[telemetry.status]}>
+            {TELEMETRY_STATUS_LABELS[telemetry.status]}
           </span>
         )}
         <span className="spacer" />

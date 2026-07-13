@@ -78,15 +78,38 @@ Profilreferenz auf ein gültiges Profil zurückgesetzt.
 
 ## Release-Signierung und Provenance
 
-Für signierte Windows-Artefakte werden folgende Repository-Secrets erwartet:
+Der Release-Workflow verwendet für Pushes auf `main` und für Tags ausschließlich
+folgende **GitHub-Actions-Repository-Secrets**:
 
-- `WIN_CSC_LINK`
-- `WIN_CSC_KEY_PASSWORD`
+| Secret | Zweck im Release-Workflow |
+| --- | --- |
+| `WIN_CSC_LINK` | Zertifikatsquelle für Windows-Code-Signing; wird nur als `CSC_LINK` an electron-builder weitergereicht. |
+| `WIN_CSC_KEY_PASSWORD` | Passwort zur Zertifikatsquelle; wird nur als `CSC_KEY_PASSWORD` an electron-builder weitergereicht. |
 
-Ohne diese Secrets bleiben Windows-Installer unsigniert. Release-Builds außerhalb
-manueller Testläufe erzeugen zusätzlich GitHub Artifact Attestations für EXE,
-AppImage und DEB. Verifikation:
+Die Werte gehören ausschließlich in GitHubs Secret-Verwaltung. Sie dürfen weder
+in `.env`-Dateien, Konfigurationsdateien, Issues, PR-Beschreibungen noch in
+Konsolen- oder CI-Debug-Ausgaben erscheinen. Keine echten Werte, Zertifikatsdateien
+oder kodierten Varianten in Commits aufnehmen. Der Zugriff auf die Secrets ist auf
+die Release-Verantwortlichen zu beschränken und bei Verdacht zu widerrufen oder zu
+rotieren.
+
+Pull-Request- und CI-Builds erhalten keine Signing-Variablen. Auch ein manuell
+gestarteter Workflow erzeugt mit `--publish never` nur unsignierte Testartefakte.
+Fehlen die Secrets bei einem Release, bleibt der Windows-Installer bewusst
+unsigniert; der Build darf nicht durch Ersatzwerte oder Klartext-Variablen
+repariert werden.
+
+Die in der Workflow-Datei derzeit deaktivierten GitHub Artifact Attestations sind
+keine verfügbare Provenance-Zusage. Nach einer expliziten Aktivierung können
+veröffentlichte Artefakte so geprüft werden:
 
 ```bash
 gh attestation verify <installer> -R Nehmo101/Orca-Strator
+```
+
+Für einen signierten Installer ist zusätzlich auf einem Windows-Rechner zu
+prüfen, dass die Signatur gültig ist:
+
+```powershell
+Get-AuthenticodeSignature <installer> | Select-Object Status, StatusMessage
 ```

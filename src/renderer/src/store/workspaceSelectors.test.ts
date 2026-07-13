@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentInstanceInfo, OrcaEvent } from '@shared/agents'
-import { workspaceAgents, workspaceEvents } from '@renderer/store/useAppStore'
+import {
+  visibleWorkspaceAgents,
+  workspaceAgentHistory,
+  workspaceAgents,
+  workspaceEvents
+} from '@renderer/store/useAppStore'
 
 function agent(id: string, profileId?: string): AgentInstanceInfo {
   return {
@@ -37,5 +42,25 @@ describe('workspace renderer selectors', () => {
 
     expect(workspaceEvents({ events, activeProfileId: 'beta' }).map((event) => event.text))
       .toEqual(['beta', 'global'])
+  })
+
+  it('hides finished subagents until they are reopened from history', () => {
+    const finished = { ...agent('finished', 'alpha'), status: 'stopped' as const, startedAt: 2 }
+    const failed = { ...agent('failed', 'alpha'), status: 'error' as const, startedAt: 3 }
+    const running = agent('running', 'alpha')
+    const state = {
+      agents: [finished, failed, running, agent('other', 'beta')],
+      activeProfileId: 'alpha',
+      reopenedAgentIds: ['finished']
+    }
+
+    expect(visibleWorkspaceAgents(state).map((item) => item.id)).toEqual([
+      'finished',
+      'running'
+    ])
+    expect(workspaceAgentHistory(state).map((item) => item.id)).toEqual([
+      'failed',
+      'finished'
+    ])
   })
 })

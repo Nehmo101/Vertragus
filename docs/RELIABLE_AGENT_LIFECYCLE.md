@@ -40,6 +40,11 @@ dedicated integration worktree, scans the aggregate diff, reruns all configured
 quality gates, and only then publishes the PR. Conflicts and red gates remain
 blocked for inspection; Orca does not force-push or guess a conflict resolution.
 
+After publication, Orca waits up to 90 seconds for GitHub checks to appear and
+follows them with a bounded 20-minute `gh pr checks --watch` run. PR publication
+and remote-CI are separate states, so failed, cancelled, timed-out, or unavailable
+checks remain visible without pretending that the PR itself was not created.
+
 New profiles default to this acceptance sequence:
 
 1. `corepack pnpm typecheck`

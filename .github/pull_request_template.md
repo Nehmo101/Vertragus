@@ -1,6 +1,6 @@
 <!--
-  Branching rule: changes go to `dev` first, then reach `main` via a merge
-  from `dev`. Feature/fix/agent PRs must target `dev` as their base branch.
+  Branching rule: changes go to `DEV` first, then reach `main` via a merge
+  from `DEV`. Feature/fix/agent PRs must target `DEV` as their base branch.
   See CONTRIBUTING.md.
 -->
 
@@ -10,10 +10,10 @@
 
 ## Base branch
 
-- [ ] This PR targets **`dev`** (feature / fix / agent work — the default).
-- [ ] This PR is a **`dev` → `main` promotion** (release only).
+- [ ] This PR targets **`DEV`** (feature / fix / agent work — the default).
+- [ ] This PR is a **`DEV` → `main` promotion** (release only).
 
 ## Checklist
 
-- [ ] `pnpm typecheck` passes
-- [ ] `pnpm build` passes
+- [ ] `corepack pnpm run ci` passes
+- [ ] `corepack pnpm run test:ui-smoke` passes, or the platform limitation is documented

@@ -80,6 +80,7 @@ export const IPC = {
   agentSpawn: 'agent:spawn',
   agentsSpawnProfile: 'agents:spawnProfile',
   agentWrite: 'agent:write',
+  agentMarkInteractiveUsed: 'agent:markInteractiveUsed',
   agentResize: 'agent:resize',
   agentKill: 'agent:kill',
   agentsKillAll: 'agents:killAll',
@@ -322,6 +323,8 @@ export interface OrcaApi {
     /** Spawn orchestrator + all slots of a profile. */
     spawnProfile(profileId: string, yoloMaster: boolean): Promise<AgentInstanceInfo[]>
     write(id: string, data: string): void
+    /** Protect a prestarted team agent after an actual user key or paste action. */
+    markInteractiveUsed(id: string): void
     resize(id: string, cols: number, rows: number): void
     kill(id: string): Promise<void>
     killAll(): Promise<void>

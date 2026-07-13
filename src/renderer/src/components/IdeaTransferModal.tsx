@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAppStore } from '@renderer/store/useAppStore'
 import type { Idea } from '@shared/inbox'
-import { assessProfileOrchestrator, isTransferBlocking } from '@shared/inboxTransfer'
+import {
+  assessProfileOrchestrator,
+  isTransferBlocking,
+  previewIdeaTransferBriefing
+} from '@shared/inboxTransfer'
 import type { WorkspaceProfile } from '@shared/profile'
 
 const TRANSFER_STATUS_LABEL: Record<string, string> = {
@@ -40,6 +44,8 @@ export default function IdeaTransferModal({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [lastResult, setLastResult] = useState<Idea['transfer']>()
+  const [briefingPreviewOpen, setBriefingPreviewOpen] = useState(false)
+  const briefingPreview = useMemo(() => previewIdeaTransferBriefing(idea), [idea])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -177,6 +183,38 @@ export default function IdeaTransferModal({
             </div>
           )}
 
+          <div className="inbox-briefing-preview">
+            <button
+              type="button"
+              className="btn-ghost"
+              aria-expanded={briefingPreviewOpen}
+              onClick={() => setBriefingPreviewOpen((open) => !open)}
+            >
+              {briefingPreviewOpen ? 'Briefing-Vorschau ausblenden' : 'Briefing-Vorschau anzeigen'}
+            </button>
+            {!briefingPreview.ok && (
+              <div className="inbox-error" role="alert">
+                {briefingPreview.message}
+              </div>
+            )}
+            {briefingPreviewOpen && briefingPreview.ok && (
+              <>
+                <div className="inbox-transfer-hint">
+                  Dieses Briefing wird an den Orchestrator übergeben. Rohmaterial ist als Kontext
+                  markiert; die Planungsvorgaben bleiben verbindlich.
+                </div>
+                {briefingPreview.warnings.length > 0 && (
+                  <div className="inbox-transfer-hint">
+                    {briefingPreview.warnings.join(' ')}
+                  </div>
+                )}
+                <pre className="inbox-briefing-preview-content">
+                  {briefingPreview.briefing}
+                </pre>
+              </>
+            )}
+          </div>
+
           {error && <div className="inbox-error">{error}</div>}
 
           {needsClone && !needsAuth && (
@@ -221,7 +259,7 @@ export default function IdeaTransferModal({
             <button
               type="button"
               className="btn-primary"
-              disabled={busy || !selectedEligible}
+              disabled={busy || !selectedEligible || !briefingPreview.ok}
               onClick={() => void runTransfer(true)}
             >
               Klonen & übergeben
@@ -230,7 +268,7 @@ export default function IdeaTransferModal({
             <button
               type="button"
               className="btn-primary"
-              disabled={busy || blocking || !selectedEligible}
+              disabled={busy || blocking || !selectedEligible || !briefingPreview.ok}
               onClick={() => void runTransfer()}
             >
               {busy ? 'Übergabe…' : 'Übergeben & planen'}

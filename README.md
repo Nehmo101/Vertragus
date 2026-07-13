@@ -50,7 +50,8 @@ safe Auto-PR policies, production hardening, and the **Cozy Organic** UI. See th
   and a dedicated integration phase protect each implementation wave. See
   [Reliable Agent Lifecycle](docs/RELIABLE_AGENT_LIFECYCLE.md).
 - **Safe Auto-PR** — runs configured gates, scans staged diffs, prepares task
-  commits and publishes aggregate or per-task PRs without force-push or merge.
+  commits and publishes aggregate or per-task PRs without force-push or merge,
+  then tracks GitHub checks as a separate remote-CI state.
 - **Cozy Organic workspace UI** — one warm visual system with persisted light/dark
   mode plus tiles/focus/DAG layout controls.
 - **Yolo Mode** — per-agent and global auto-approve so agents work without
@@ -75,8 +76,8 @@ safe Auto-PR policies, production hardening, and the **Cozy Organic** UI. See th
 - **Production hardening** — sandboxed Electron windows, CSP and navigation
   allowlists, redacted per-run diagnostics, a task review cockpit, selected-agent
   push-to-talk with explicit preview, and Windows/Linux UI smoke tests.
-- **Supply-chain provenance** — release artifacts can be certificate-signed and
-  published with GitHub Artifact Attestations.
+- **Supply-chain provenance** — Windows release artifacts can be
+  certificate-signed; GitHub Artifact Attestations are currently disabled.
 
 ## Tech stack
 
@@ -88,11 +89,10 @@ updates and packaging: NSIS `.exe` + AppImage/`.deb`).
 ## Development
 
 ```bash
-pnpm install     # flat node_modules via .npmrc (node-linker=hoisted)
-pnpm dev         # launch the app with HMR
-pnpm typecheck   # type-check main + preload + renderer
-pnpm build       # typecheck + production build
-pnpm test:ui-smoke # start the built Electron app and verify critical UI surfaces
+corepack pnpm install --frozen-lockfile # flat node_modules via .npmrc
+corepack pnpm dev                       # launch the app with HMR
+corepack pnpm run ci                    # canonical lint + typecheck + test + build
+corepack pnpm run test:ui-smoke         # verify critical Electron UI surfaces
 ```
 
 ### Packaging
@@ -113,9 +113,11 @@ remain available for fixed release milestones.
 - Claude, Codex and GitHub Copilot orchestration with MCP: complete.
 - Adaptive DAG planning, review mode, session binding and Auto-PR: complete.
 - Read-only task review, redacted diagnostics and selected-agent STT: available.
-- Electron hardening, config migrations, UI smoke and artifact provenance: available.
-- Full conflict editor, offline Whisper, signed production certificates and
-  authenticated Cloudflare remote control: still open.
+- Electron hardening, config migrations and UI smoke: available. Artifact
+  attestations are currently disabled.
+- Deliberately outside the current sprint: merge/conflict editor and
+  authenticated Cloudflare remote control. Offline Whisper and signed production
+  certificates also remain open.
 
 See [implementation status](docs/IMPLEMENTATION_STATUS.md) and
 [production hardening](docs/PRODUCTION_HARDENING.md) for exact boundaries.

@@ -6,6 +6,7 @@ import type { InboxSpeechSettings } from '@shared/inboxSpeech'
 import { DEFAULT_TRANSCRIPTION_ENDPOINT, DEFAULT_TRANSCRIPTION_MODEL } from '@shared/inboxSpeech'
 import { useInboxSpeech } from '@renderer/hooks/useInboxSpeech'
 import IdeaTransferModal from '@renderer/components/IdeaTransferModal'
+import styles from './responsiveGuards.module.css'
 
 const STATUS_LABEL: Record<IdeaStatus, string> = {
   draft: 'Entwurf',
@@ -263,7 +264,7 @@ export default function InboxPanel(): JSX.Element {
     }
   }
 
-  const saveDraft = async (): Promise<void> => {
+  const saveDraft = async (openTransferAfterSave = false): Promise<void> => {
     if (!draft) return
     setSaving(true)
     setError('')
@@ -279,6 +280,7 @@ export default function InboxPanel(): JSX.Element {
       const list = await window.orca.inbox.list()
       setIdeas(list)
       setDraft({ ...updated })
+      if (openTransferAfterSave) setTransferOpen(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -410,7 +412,7 @@ export default function InboxPanel(): JSX.Element {
   const showVoiceReview = speech.state === 'review' && speech.voiceDraft
 
   return (
-    <main className="inbox-panel" aria-label="Ideen-Inbox">
+    <main className={`inbox-panel ${styles.inboxPanel}`} aria-label="Ideen-Inbox">
       <div className="inbox-header">
         <div>
           <div className="inbox-title">Ideen-Inbox</div>
@@ -569,7 +571,7 @@ export default function InboxPanel(): JSX.Element {
                   type="button"
                   className="inbox-btn"
                   disabled={saving || speechBusy || isTransferActive(draft.transfer)}
-                  onClick={() => setTransferOpen(true)}
+                  onClick={() => void saveDraft(true)}
                   title="Idee an Workspace-Profil übergeben und Orchestrator-Planung starten"
                 >
                   An Profil übergeben

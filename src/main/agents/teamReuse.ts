@@ -5,6 +5,8 @@ export interface TeamTaskTarget {
   provider: AgentProviderId
   model: string
   role: string
+  profileId?: string
+  workspaceSessionId?: string
 }
 
 export interface TeamRuntimeState {
@@ -22,6 +24,8 @@ export function isReusableTeamMember(
     info.teamRole === target.role &&
     info.provider === target.provider &&
     info.model === target.model &&
+    (!target.profileId || info.profileId === target.profileId) &&
+    (!target.workspaceSessionId || info.workspaceSessionId === target.workspaceSessionId) &&
     info.kind === 'sub' &&
     info.mode === 'interactive' &&
     info.status === 'running' &&

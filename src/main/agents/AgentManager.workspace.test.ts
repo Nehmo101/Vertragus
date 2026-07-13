@@ -7,7 +7,30 @@ vi.mock('@main/windows', () => ({
   closePaneWindows: vi.fn()
 }))
 vi.mock('@main/config/store', () => ({
-  getSetting: () => undefined
+  getSetting: () => undefined,
+  listMcpServers: () => []
+}))
+const taskResult = vi.hoisted(() => ({
+  status: 'succeeded' as 'succeeded' | 'failed',
+  isError: false
+}))
+vi.mock('@main/agents/worktree', () => ({
+  createWorktree: vi.fn().mockResolvedValue(undefined)
+}))
+vi.mock('@main/agents/headless', () => ({
+  runHeadless: vi.fn((...args: unknown[]) => {
+    const onData = args[3] as (chunk: string) => void
+    onData('retained terminal output')
+    return {
+      pid: 123,
+      kill: vi.fn(),
+      done: Promise.resolve({
+        result: 'done',
+        status: taskResult.status,
+        isError: taskResult.isError
+      })
+    }
+  })
 }))
 
 
@@ -81,5 +104,32 @@ describe('AgentManager workspace isolation', () => {
     await manager.removeAll('alpha')
 
     expect(manager.list().map((agent) => agent.id)).toEqual(['beta-agent'])
+  })
+
+  it.each([
+    ['succeeded', false, 'stopped'],
+    ['failed', true, 'error']
+  ] as const)('retains %s task chats until the workspace is cleared', async (status, isError, expected) => {
+    taskResult.status = status
+    taskResult.isError = isError
+    const manager = new AgentManager()
+    const run = await manager.runTask({
+      provider: 'codex',
+      model: '',
+      role: 'Backend',
+      taskId: `task-${status}`,
+      prompt: 'Do the work',
+      yolo: false,
+      workingDir: '.',
+      profileId: 'alpha',
+      workspaceSessionId: 'session-alpha'
+    })
+
+    await run.done
+    expect(manager.list('alpha')).toEqual([expect.objectContaining({ id: run.info.id, status: expected })])
+    expect(manager.buffer(run.info.id).data).toContain('retained terminal output')
+
+    await manager.removeAll('alpha')
+    expect(manager.list('alpha')).toEqual([])
   })
 })

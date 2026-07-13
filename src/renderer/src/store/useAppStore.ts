@@ -5,12 +5,17 @@ import { create } from 'zustand'
 import type { AgentInstanceInfo, HandoffRequest, OrcaEvent } from '@shared/agents'
 import { LIMIT_KIND_LABELS } from '@shared/agents'
 import type { AgentProviderId, ProviderHealth, ProviderId } from '@shared/providers'
-import { DEFAULT_MODELS, DEFAULT_PROVIDER_LIMITS } from '@shared/providers'
+import {
+  DEFAULT_MODELS,
+  DEFAULT_PROVIDER_LIMITS,
+  normalizeProviderLimits
+} from '@shared/providers'
 import type { WorkspaceProfile } from '@shared/profile'
 import type { McpServerConfig } from '@shared/mcp'
 import type { OrchestratorSnapshot } from '@shared/orchestrator'
 import type { AppInfo, GitInfo, GithubAuthStatus } from '@shared/ipc'
 import { profileRepoLocalPath } from '@shared/profile'
+import { normalizeModelCatalog, type ModelCatalog } from '@renderer/modelCatalog'
 
 const ADD_ROLES = ['Docs / Changelog', 'Refactor / Cleanup', 'Security-Review', 'Perf / Bench']
 
@@ -25,8 +30,8 @@ export type UiDensity = 'comfortable' | 'compact'
 interface AppState {
   appInfo: AppInfo | null
   health: ProviderHealth[]
-  models: Record<AgentProviderId, string[]>
-  /** Per-provider concurrency budgets shown live in the Limits panel. */
+  models: ModelCatalog
+  /** Per-provider Orca process gates shown live in the Limits panel. */
   providerLimits: Record<AgentProviderId, number>
   profiles: WorkspaceProfile[]
   activeProfileId: string
@@ -36,11 +41,14 @@ interface AppState {
   mcpEditorOpen: boolean
   gitInfo: GitInfo | null
   githubAuth: GithubAuthStatus | null
+  githubAuthBusy: boolean
   agents: AgentInstanceInfo[]
   events: OrcaEvent[]
   orchestrator: OrchestratorSnapshot
   orchestrators: Record<string, OrchestratorSnapshot>
   selectedAgentId: string | null
+  /** Finished subagents explicitly reopened from the sidebar history. */
+  reopenedAgentIds: string[]
   yoloMaster: boolean
   theme: UiTheme
   workspaceLayout: WorkspaceLayout
@@ -54,6 +62,7 @@ interface AppState {
 
   init(): Promise<void>
   refreshHealth(): Promise<void>
+  refreshModels(): Promise<void>
   refreshGithubAuth(): Promise<void>
   githubLogin(): Promise<void>
   githubLogout(): Promise<void>
@@ -70,6 +79,8 @@ interface AppState {
   showToast(msg: string): void
   exportDiagnostics(): Promise<void>
   setSelectedAgent(id: string | null): void
+  reopenAgent(id: string): void
+  hideAgent(id: string): void
   startAll(): Promise<void>
   stopAll(): Promise<void>
   cleanWorkspace(): Promise<void>
@@ -91,6 +102,9 @@ interface AppState {
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined
 let initialized = false
+let githubAuthRequest = 0
+let githubAuthAction = 0
+let modelRefreshSequence = 0
 
 export function activeProfile(s: Pick<AppState, 'profiles' | 'activeProfileId'>):
   | WorkspaceProfile
@@ -106,6 +120,27 @@ export function workspaceAgents(
   )
 }
 
+export function isFinishedSubagent(agent: AgentInstanceInfo): boolean {
+  return agent.kind === 'sub' && (agent.status === 'stopped' || agent.status === 'error')
+}
+
+export function workspaceAgentHistory(
+  state: Pick<AppState, 'agents' | 'activeProfileId'>
+): AgentInstanceInfo[] {
+  return workspaceAgents(state)
+    .filter((agent) => agent.profileId === state.activeProfileId && isFinishedSubagent(agent))
+    .sort((a, b) => b.startedAt - a.startedAt)
+}
+
+export function visibleWorkspaceAgents(
+  state: Pick<AppState, 'agents' | 'activeProfileId' | 'reopenedAgentIds'>
+): AgentInstanceInfo[] {
+  const reopened = new Set(state.reopenedAgentIds)
+  return workspaceAgents(state).filter(
+    (agent) => !isFinishedSubagent(agent) || reopened.has(agent.id)
+  )
+}
+
 export function workspaceEvents(
   state: Pick<AppState, 'events' | 'activeProfileId'>
 ): OrcaEvent[] {
@@ -115,7 +150,7 @@ export function workspaceEvents(
 export const useAppStore = create<AppState>((set, get) => ({
   appInfo: null,
   health: [],
-  models: DEFAULT_MODELS,
+  models: normalizeModelCatalog(DEFAULT_MODELS),
   providerLimits: DEFAULT_PROVIDER_LIMITS,
   profiles: [],
   activeProfileId: '',
@@ -123,11 +158,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   mcpEditorOpen: false,
   gitInfo: null,
   githubAuth: null,
+  githubAuthBusy: false,
   agents: [],
   events: [],
   orchestrator: { goal: null, tasks: [] },
   orchestrators: {},
   selectedAgentId: null,
+  reopenedAgentIds: [],
   yoloMaster: false,
   theme: 'light',
   workspaceLayout: 'tiles',
@@ -151,12 +188,21 @@ export const useAppStore = create<AppState>((set, get) => ({
         const label = LIMIT_KIND_LABELS[a.limitWarning.kind]
         get().showToast(`⚠ ${a.name}: ${label} nahe — „⇄ Übergeben" möglich`)
       }
-      set({ agents })
+      const retainedIds = new Set(agents.map((agent) => agent.id))
+      set((state) => ({
+        agents,
+        reopenedAgentIds: state.reopenedAgentIds.filter((id) => retainedIds.has(id))
+      }))
     })
     window.orca.agents.onEvent((evt) =>
       set((s) => ({ events: [...s.events.slice(-199), evt] }))
     )
-    window.orca.onProvidersChanged((health) => set({ health }))
+    window.orca.onProvidersChanged((health) => {
+      set({ health })
+      // The account-visible catalogue may change when the interactive login closes.
+      void get().refreshModels()
+      if (health.some((provider) => provider.id === 'github')) void get().refreshGithubAuth()
+    })
     window.orca.orchestrator.onSnapshot((snap) =>
       set((state) => {
         const profileId = snap.profileId
@@ -195,24 +241,38 @@ export const useAppStore = create<AppState>((set, get) => ({
       theme: theme === 'dark' ? 'dark' : 'light',
       workspaceLayout: layout === 'focus' || layout === 'dag' ? layout : 'tiles',
       uiDensity: density === 'compact' ? density : 'comfortable',
-      providerLimits: { ...DEFAULT_PROVIDER_LIMITS, ...(limits ?? {}) }
+      providerLimits: normalizeProviderLimits(limits)
     })
 
     void get().refreshGit()
     void get().refreshHealth()
     void get().refreshGithubAuth()
-    void window.orca.listModels().then((models) => set({ models }))
+    void get().refreshModels()
   },
 
   async refreshGithubAuth() {
-    const githubAuth = await window.orca.githubAuthStatus()
-    set({ githubAuth })
+    const request = ++githubAuthRequest
+    try {
+      const githubAuth = await window.orca.githubAuthStatus()
+      if (request === githubAuthRequest) set({ githubAuth })
+    } catch (error) {
+      // Do not keep displaying an old authenticated session when its status
+      // can no longer be verified.
+      if (request === githubAuthRequest) {
+        set({ githubAuth: null })
+        get().showToast(`GitHub-Status nicht verfügbar: ${errorMessage(error)}`)
+      }
+    }
   },
 
   async githubLogin() {
+    if (get().githubAuthBusy) return
+    const action = ++githubAuthAction
+    const request = ++githubAuthRequest
+    set({ githubAuthBusy: true })
     try {
       const githubAuth = await window.orca.githubAuthLogin()
-      set({ githubAuth })
+      if (request === githubAuthRequest) set({ githubAuth })
       void get().refreshHealth()
       get().showToast(
         githubAuth.authenticated
@@ -221,17 +281,29 @@ export const useAppStore = create<AppState>((set, get) => ({
       )
     } catch (error) {
       get().showToast(`GitHub-Login fehlgeschlagen: ${errorMessage(error)}`)
+      if (action === githubAuthAction) set({ githubAuthBusy: false })
+      await get().refreshGithubAuth()
+    } finally {
+      if (action === githubAuthAction) set({ githubAuthBusy: false })
     }
   },
 
   async githubLogout() {
+    if (get().githubAuthBusy) return
+    const action = ++githubAuthAction
+    const request = ++githubAuthRequest
+    set({ githubAuthBusy: true })
     try {
       const githubAuth = await window.orca.githubAuthLogout()
-      set({ githubAuth })
+      if (request === githubAuthRequest) set({ githubAuth })
       void get().refreshHealth()
       get().showToast('GitHub abgemeldet.')
     } catch (error) {
       get().showToast(`GitHub-Abmeldung fehlgeschlagen: ${errorMessage(error)}`)
+      if (action === githubAuthAction) set({ githubAuthBusy: false })
+      await get().refreshGithubAuth()
+    } finally {
+      if (action === githubAuthAction) set({ githubAuthBusy: false })
     }
   },
 
@@ -240,8 +312,26 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   async refreshHealth() {
-    const health = await window.orca.checkProviders()
-    set({ health })
+    try {
+      const health = await window.orca.checkProviders()
+      set({ health })
+      if (health.some((provider) => provider.id === 'github')) void get().refreshGithubAuth()
+    } finally {
+      // The sidebar refresh is also an explicit refresh of model suggestions.
+      await get().refreshModels()
+    }
+  },
+
+  async refreshModels() {
+    const sequence = ++modelRefreshSequence
+    try {
+      const models = await window.orca.listModels()
+      if (sequence !== modelRefreshSequence) return
+      set({ models: normalizeModelCatalog(models) })
+    } catch {
+      // Model suggestions are optional. Keep the last known catalogue when a
+      // provider is unavailable or a live probe times out.
+    }
   },
 
   async loginProvider(id) {
@@ -249,6 +339,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!provider?.available || !provider.canLogin) return
     try {
       await window.orca.loginProvider(id)
+      // The completion event triggers a second reload after the CLI closes.
+      void get().refreshModels()
       get().showToast(`${provider.loginLabel ?? 'Provider-Login'} im sicheren Terminal geöffnet.`)
     } catch (error) {
       get().showToast(`Login konnte nicht gestartet werden: ${errorMessage(error)}`)
@@ -305,8 +397,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setProviderLimit(provider, value) {
-    const clamped = Number.isFinite(value) ? Math.min(16, Math.max(1, Math.round(value))) : 1
-    const providerLimits = { ...get().providerLimits, [provider]: clamped }
+    const providerLimits = normalizeProviderLimits({ ...get().providerLimits, [provider]: value })
     set({ providerLimits })
     void window.orca.setConfig('providerLimits', providerLimits)
   },
@@ -352,6 +443,23 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setSelectedAgent(id) {
     set({ selectedAgentId: id })
+  },
+
+  reopenAgent(id) {
+    if (!get().agents.some((agent) => agent.id === id)) return
+    set((state) => ({
+      reopenedAgentIds: state.reopenedAgentIds.includes(id)
+        ? state.reopenedAgentIds
+        : [...state.reopenedAgentIds, id],
+      selectedAgentId: id
+    }))
+  },
+
+  hideAgent(id) {
+    set((state) => ({
+      reopenedAgentIds: state.reopenedAgentIds.filter((agentId) => agentId !== id),
+      selectedAgentId: state.selectedAgentId === id ? null : state.selectedAgentId
+    }))
   },
 
   async startAll() {

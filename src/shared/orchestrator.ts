@@ -22,6 +22,15 @@ export type TaskCompletion =
   | { kind: 'commit'; commit: string }
   | { kind: 'no-changes' }
 
+export type RemoteCiStatus =
+  | 'waiting'
+  | 'pending'
+  | 'passed'
+  | 'failed'
+  | 'cancelled'
+  | 'timed-out'
+  | 'unavailable'
+
 export interface OrcaTask {
   id: string
   /** Short title shown on the DAG card. */
@@ -59,6 +68,12 @@ export interface OrcaTask {
   prUrl?: string
   /** Auto-PR is independent from the agent execution status. */
   autoPrStatus?: 'skipped' | 'prepared' | 'published' | 'blocked'
+  /** Remote GitHub checks are tracked separately from successful PR publication. */
+  remoteCiStatus?: RemoteCiStatus
+  /** Best available check or pull-request URL for remote CI. */
+  remoteCiUrl?: string
+  /** Human-readable remote CI result or diagnostic. */
+  remoteCiSummary?: string
   yolo?: boolean
   createdAt: number
   finishedAt?: number
