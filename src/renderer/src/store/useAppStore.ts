@@ -36,6 +36,7 @@ interface AppState {
   mcpEditorOpen: boolean
   gitInfo: GitInfo | null
   githubAuth: GithubAuthStatus | null
+  githubAuthBusy: boolean
   agents: AgentInstanceInfo[]
   events: OrcaEvent[]
   orchestrator: OrchestratorSnapshot
@@ -96,6 +97,8 @@ interface AppState {
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined
 let initialized = false
+let githubAuthRequest = 0
+let githubAuthAction = 0
 
 export function activeProfile(s: Pick<AppState, 'profiles' | 'activeProfileId'>):
   | WorkspaceProfile
@@ -149,6 +152,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   mcpEditorOpen: false,
   gitInfo: null,
   githubAuth: null,
+  githubAuthBusy: false,
   agents: [],
   events: [],
   orchestrator: { goal: null, tasks: [] },
@@ -191,6 +195,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ health })
       // A provider login can change the account-visible model catalogue.
       void get().refreshModels()
+      if (health.some((provider) => provider.id === 'github')) void get().refreshGithubAuth()
     })
     window.orca.orchestrator.onSnapshot((snap) =>
       set((state) => {
@@ -240,14 +245,28 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   async refreshGithubAuth() {
-    const githubAuth = await window.orca.githubAuthStatus()
-    set({ githubAuth })
+    const request = ++githubAuthRequest
+    try {
+      const githubAuth = await window.orca.githubAuthStatus()
+      if (request === githubAuthRequest) set({ githubAuth })
+    } catch (error) {
+      // Do not keep displaying an old authenticated session when its status
+      // can no longer be verified.
+      if (request === githubAuthRequest) {
+        set({ githubAuth: null })
+        get().showToast(`GitHub-Status nicht verfügbar: ${errorMessage(error)}`)
+      }
+    }
   },
 
   async githubLogin() {
+    if (get().githubAuthBusy) return
+    const action = ++githubAuthAction
+    const request = ++githubAuthRequest
+    set({ githubAuthBusy: true })
     try {
       const githubAuth = await window.orca.githubAuthLogin()
-      set({ githubAuth })
+      if (request === githubAuthRequest) set({ githubAuth })
       void get().refreshHealth()
       get().showToast(
         githubAuth.authenticated
@@ -256,17 +275,29 @@ export const useAppStore = create<AppState>((set, get) => ({
       )
     } catch (error) {
       get().showToast(`GitHub-Login fehlgeschlagen: ${errorMessage(error)}`)
+      if (action === githubAuthAction) set({ githubAuthBusy: false })
+      await get().refreshGithubAuth()
+    } finally {
+      if (action === githubAuthAction) set({ githubAuthBusy: false })
     }
   },
 
   async githubLogout() {
+    if (get().githubAuthBusy) return
+    const action = ++githubAuthAction
+    const request = ++githubAuthRequest
+    set({ githubAuthBusy: true })
     try {
       const githubAuth = await window.orca.githubAuthLogout()
-      set({ githubAuth })
+      if (request === githubAuthRequest) set({ githubAuth })
       void get().refreshHealth()
       get().showToast('GitHub abgemeldet.')
     } catch (error) {
       get().showToast(`GitHub-Abmeldung fehlgeschlagen: ${errorMessage(error)}`)
+      if (action === githubAuthAction) set({ githubAuthBusy: false })
+      await get().refreshGithubAuth()
+    } finally {
+      if (action === githubAuthAction) set({ githubAuthBusy: false })
     }
   },
 
@@ -277,6 +308,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   async refreshHealth() {
     const health = await window.orca.checkProviders()
     set({ health })
+    if (health.some((provider) => provider.id === 'github')) void get().refreshGithubAuth()
   },
 
   async refreshModels() {

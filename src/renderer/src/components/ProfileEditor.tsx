@@ -12,6 +12,7 @@ import {
 import type { GithubProjectSummary, GithubRepoSummary } from '@shared/ipc'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import InfoTip from '@renderer/components/InfoTip'
+import { hasUsableGithubAuth } from '@renderer/store/githubAuth'
 
 const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'cursor', 'copilot', 'ollama']
 
@@ -193,6 +194,10 @@ export default function ProfileEditor(): JSX.Element | null {
       : repoResults
 
   const githubAuth = store.githubAuth
+  const githubAuthUsable = hasUsableGithubAuth(githubAuth)
+  const githubTerminalLoginRunning = store.agents.some(
+    (agent) => agent.taskId === 'auth:github' && agent.status === 'running'
+  )
 
   const projectOptions =
     draft.githubProject && !projects.some((project) => projectKey(project) === projectKey(draft.githubProject!))
@@ -240,7 +245,7 @@ export default function ProfileEditor(): JSX.Element | null {
             </div>
             <div className="github-auth-row">
               <div className="github-auth-status" aria-live="polite">
-                {githubAuth?.authenticated ? (
+                {githubAuthUsable ? (
                   <>
                     <span className="github-auth-ok">●</span>
                     {githubAuth.account ?? 'GitHub'} · {githubAuth.method}
@@ -253,17 +258,29 @@ export default function ProfileEditor(): JSX.Element | null {
                 ) : (
                   <>
                     <span className="github-auth-warn">●</span>
-                    {githubAuth?.oauthConfigured
-                      ? 'Nicht angemeldet · Browser-OAuth verfügbar'
-                      : 'Nicht angemeldet · Fallback gh --web / PTY'}
+                    {githubAuth?.authenticated
+                      ? `Reauth nötig (${githubAuth.missingScopes.join(', ')})`
+                      : githubAuth?.oauthConfigured
+                        ? 'Nicht angemeldet · Browser-OAuth verfügbar'
+                        : 'Nicht angemeldet · Fallback gh --web / PTY'}
                   </>
                 )}
               </div>
-              <button type="button" className="btn-secondary browse-btn" onClick={() => void store.githubLogin()}>
-                {githubAuth?.authenticated && !githubAuth.needsReauth ? 'Erneuern' : 'Verbinden'}
+              <button
+                type="button"
+                className="btn-secondary browse-btn"
+                disabled={store.githubAuthBusy || githubTerminalLoginRunning}
+                onClick={() => void store.githubLogin()}
+              >
+                {githubAuth?.needsReauth ? 'Erneuern' : 'Verbinden'}
               </button>
-              {githubAuth?.authenticated && (
-                <button type="button" className="btn-secondary browse-btn" onClick={() => void store.githubLogout()}>
+              {githubAuthUsable && (
+                <button
+                  type="button"
+                  className="btn-secondary browse-btn"
+                  disabled={store.githubAuthBusy || githubTerminalLoginRunning}
+                  onClick={() => void store.githubLogout()}
+                >
                   Abmelden
                 </button>
               )}
@@ -271,6 +288,7 @@ export default function ProfileEditor(): JSX.Element | null {
                 type="button"
                 className="btn-secondary browse-btn"
                 title="Fallback: gh auth login im Terminal"
+                disabled={store.githubAuthBusy || githubTerminalLoginRunning}
                 onClick={() => void store.githubTerminalLogin()}
               >
                 PTY
