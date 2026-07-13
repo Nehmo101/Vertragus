@@ -307,9 +307,7 @@ button {
   background: transparent;
 }
 .git-tree-popover {
-  position: absolute;
-  top: 31px;
-  left: 0;
+  position: fixed;
   z-index: 44;
   width: min(430px, calc(100vw - 28px));
   overflow: hidden;

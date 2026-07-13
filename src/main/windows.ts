@@ -111,14 +111,30 @@ export function createMainWindow(): BrowserWindow {
   if (smokePath) {
     win.webContents.once('did-finish-load', () => {
       setTimeout(async () => {
-        const checks = await win.webContents.executeJavaScript(`(() => ({
-          preload: typeof window.orca === 'object',
-          sidebar: Boolean(document.querySelector('.sidebar')),
-          workspace: Boolean(document.querySelector('.workspace')),
-          titlebar: Boolean(document.querySelector('.titlebar')),
-          language: document.documentElement.lang === 'de',
-          csp: Boolean(document.querySelector('meta[http-equiv="Content-Security-Policy"]'))
-        }))()`)
+        const checks = await win.webContents.executeJavaScript(`(async () => {
+          const gitTreeTrigger = document.querySelector('.git-tree-trigger')
+          gitTreeTrigger?.click()
+          await new Promise((resolve) => requestAnimationFrame(resolve))
+          const gitTreePopover = document.querySelector('.git-tree-popover')
+          const titlebarBottom = document.querySelector('.titlebar')?.getBoundingClientRect().bottom ?? 0
+          const popoverRect = gitTreePopover?.getBoundingClientRect()
+
+          return {
+            preload: typeof window.orca === 'object',
+            sidebar: Boolean(document.querySelector('.sidebar')),
+            workspace: Boolean(document.querySelector('.workspace')),
+            titlebar: Boolean(document.querySelector('.titlebar')),
+            gitTreePopover: Boolean(
+              gitTreePopover &&
+              gitTreePopover.parentElement === document.body &&
+              popoverRect &&
+              popoverRect.height > 0 &&
+              popoverRect.bottom > titlebarBottom
+            ),
+            language: document.documentElement.lang === 'de',
+            csp: Boolean(document.querySelector('meta[http-equiv="Content-Security-Policy"]'))
+          }
+        })()`)
         const ok = Object.values(checks).every(Boolean)
         writeFileSync(
           smokePath,
