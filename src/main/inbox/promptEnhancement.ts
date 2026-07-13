@@ -48,6 +48,15 @@ const sourceSchema = z
     content: z.string().optional(),
     status: z.enum(['draft', 'ready', 'archived', 'done']).optional(),
     tags: z.array(z.string()).max(PROMPT_ENHANCEMENT_LIMITS.maxTags).optional(),
+    refs: z
+      .object({
+        profileId: z.string().max(200).optional(),
+        workspaceId: z.string().max(200).optional(),
+        planId: z.string().max(200).optional(),
+        taskId: z.string().max(200).optional()
+      })
+      .strict()
+      .optional(),
     artifacts: z.array(artifactSchema).max(PROMPT_ENHANCEMENT_LIMITS.maxArtifacts).optional()
   })
   .passthrough()
@@ -439,9 +448,15 @@ export function buildPromptEnhancementPrompts(
     }
   }
 
+  const workspaceName = workspace?.success
+    ? redactPromptSecrets(workspace.data.name)
+    : undefined
+  if (workspaceName?.redacted) {
+    warnings.push('Sensible Daten im Workspace-Namen wurden vor der Provider-Ausführung entfernt.')
+  }
   const confirmedContext = workspace?.success
     ? {
-        workspace: workspace.data.name,
+        workspace: workspaceName?.value,
         repositoryFacts: (workspace.data.repositoryFacts ?? []).map((fact) => ({
           fact: redactPromptSecrets(fact.text).value,
           checkedAt: fact.checkedAt,
@@ -455,6 +470,12 @@ export function buildPromptEnhancementPrompts(
     content: content.value.trim(),
     status: source.status ?? 'draft',
     tags: (source.tags ?? []).map((tag) => redactPromptSecrets(tag).value.trim()).filter(Boolean),
+    refs: Object.fromEntries(
+      Object.entries(source.refs ?? {}).map(([key, value]) => [
+        key,
+        redactPromptSecrets(value ?? '').value
+      ])
+    ),
     artifacts
   }
 
@@ -562,8 +583,8 @@ export function resolvePromptEnhancementProvider(
     return {
       status: 'unavailable',
       message: !current?.available
-        ? `${label} ist nicht verfügbar. Es wurde kein anderer Provider automatisch gewählt.`
-        : `${label} ist nicht angemeldet. Es wurde kein anderer Provider automatisch gewählt.`,
+        ? `${label} ist nicht verfügbar. Prüfe Installation und Profilkonfiguration oder nutze den ausdrücklich angebotenen lokalen Fallback; es wurde kein anderer Provider automatisch gewählt.`
+        : `${label} ist nicht angemeldet. Melde den im Profil konfigurierten Provider an oder nutze den ausdrücklich angebotenen lokalen Fallback; es wurde kein anderer Provider automatisch gewählt.`,
       selection,
       candidates
     }
@@ -590,6 +611,20 @@ function cleanBlock(value: string): string {
 
 function cleanItem(value: string): string {
   return cleanBlock(value).replace(/^[-*+]\s+/, '').trim()
+}
+
+const HIDDEN_INSTRUCTION_MARKERS = [
+  "You are Orca-Strator's prompt editor",
+  'SECURITY AND FACTUALITY RULES',
+  'CONFIRMED_CONTEXT_DATA and UNTRUSTED_SOURCE_DATA',
+  'Return exactly this object shape'
+] as const
+
+function leaksHiddenInstructions(value: string): boolean {
+  const lower = value.toLocaleLowerCase('en-US')
+  return HIDDEN_INSTRUCTION_MARKERS.some((marker) =>
+    lower.includes(marker.toLocaleLowerCase('en-US'))
+  )
 }
 
 function renderList(heading: string, values: string[], includeWhenEmpty = true): string[] {
@@ -648,7 +683,7 @@ export function preparePromptEnhancementResponse(
     ...renderList(document.labels.openQuestions, document.openQuestions ?? [], false)
   ]
   const unredacted = blocks.join('\n').trim()
-  if (unredacted.includes(SYSTEM_PROMPT)) return undefined
+  if (leaksHiddenInstructions(unredacted)) return undefined
   const redacted = redactPromptSecrets(unredacted)
   if (redacted.value.length > maxOutputChars) return undefined
   const sourceRedaction = redactPromptSecrets(JSON.stringify(document))

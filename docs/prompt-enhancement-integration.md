@@ -1,79 +1,41 @@
-# Prompt schärfen: Main-Domänenintegration
+# Prompt schärfen: produktive Integration
 
-Die isolierte Domäne liegt in `src/main/inbox/promptEnhancement.ts`. Der produktive Adapter in
-`src/main/inbox/promptEnhancementProvider.ts` verwendet die vorhandenen Provider-CLI-Sessions,
-`checkAllProviders()`, die bestehende Modellauflösung und die vorhandenen Provider-Kapazitätsgates.
-Es gibt keine separate API-Key-Ablage.
+„Prompt schärfen“ verbessert den aktuellen lokalen Inbox-Draft, ohne ihn vorher zu speichern und
+ohne eine Profilübergabe, Planung oder Agent-Ausführung zu starten. Die bestehende
+`previewIdeaTransferBriefing`- und Übergabelogik bleibt davon getrennt und unverändert.
 
-## Main/IPC
+## Sicherheits- und Prozessgrenzen
 
-Der Integrator registriert einen neuen IPC-Handler und ein Abort-Pendant in den dafür vorgesehenen
-Shared-/Preload-Dateien. Der Handler darf nicht das vom Renderer gesendete Idea-, Profil- oder
-Workspace-Objekt direkt weiterreichen:
+- `src/shared/promptEnhancement.ts` definiert strikt validierte Zod-Schemas für Draft, Request,
+  Abort und Response. Renderer-Payloads können keine Dateipfade, Transferdaten oder
+  Workspace-Fakten transportieren.
+- `src/main/inbox/promptEnhancementIpc.ts` autorisiert ausschließlich bekannte Orca-Hauptframes
+  mit vertrauenswürdiger Renderer-URL. Request-IDs sind an den jeweiligen Sender gebunden;
+  fremde Fenster können einen Request nicht abbrechen.
+- Eine im Draft referenzierte Profil-ID wird im Main-Konfigurationsstore aufgelöst. Ein vorhandener
+  Profil-Orchestrator hat Vorrang. Ohne Profil oder Orchestrator gibt es keine stille
+  Cloud-Auswahl; die UI verlangt eine ausdrückliche Wahl.
+- `src/main/inbox/promptEnhancementContext.ts` inspiziert read-only eine kleine feste Dateiliste.
+  Root-Escape, Traversal, Geräte-/Netzwerkpfade und aus dem Root führende Symlinks werden
+  abgewiesen oder ignoriert. Vollständige lokale Pfade gelangen nicht in den Prompt.
+- `src/main/inbox/promptEnhancementProvider.ts` nutzt vorhandene Provider-CLI-Sessions,
+  Modellauflösung und Kapazitätsgates. Der Provider läuft ohne Yolo und ohne externe MCP-Argumente
+  in einem leeren temporären Verzeichnis. Es gibt keine zweite API-Key-Verwaltung.
 
-1. Der Renderer sendet eine Idea-ID, optional eine ausdrücklich vom Benutzer gewählte
-   Provider-/Modell-Auswahl und eine Request-ID für Abort.
-2. Main lädt die Idea mit `getIdea(ideaId)`. Titel, Inhalt, Status, Tags und Artefakte kommen nur aus
-   diesem gespeicherten Objekt.
-3. Main löst zuerst `idea.refs?.profileId` auf. Falls der UI-Workflow eine andere Profil-ID zulässt,
-   muss Main diese mit `getProfile(profileId)` bestätigen. Das geladene `WorkspaceProfile` wird als
-   `profile` übergeben. Bei vorhandenem Orchestrator ignoriert die Domäne eine konkurrierende
-   explizite Provider-Auswahl und nutzt die Profilkonfiguration.
-4. `VerifiedPromptWorkspaceContext.repositoryFacts` enthält ausschließlich Fakten, die Main im
-   konkreten Checkout read-only geprüft hat. Jeder Eintrag braucht
-   `evidence: 'workspace-inspection'` und `checkedAt`. Behauptungen aus Idea-Texten, Artefakten,
-   Dateiinhalten oder dem Renderer gehören nie in dieses Feld. Vollständige lokale Pfade und
-   Dateiinhalte sind nicht nötig. Der Provider läuft absichtlich in einem leeren temporären
-   Verzeichnis, nicht im Repository; nur die explizit bestätigten Fakten gelangen in den Prompt.
-5. Eine langlebige Instanz aus `createMainPromptEnhancementService()` führt `enhance(...)` aus.
-   Pro Request-ID hält der Handler einen `AbortController`; der Abort-Handler ruft `abort()` auf und
-   entfernt den Eintrag nach Abschluss.
-6. Shared IPC-Typen spiegeln `PromptEnhancementResult` als diskriminierte Union. Diese Main-Datei
-   wird nicht in Shared importiert.
+Artefakte, Tags, Referenzen und eingegebener Text werden als `UNTRUSTED_SOURCE_DATA` markiert.
+Nur tatsächlich inspizierte Fakten tragen `evidence: "workspace-inspection"`. Eingabe-, Timeout-,
+Abort- und Ausgabelimits sowie strikte Modellantwort-Schemas begrenzen die Ausführung. Secrets und
+Fragmente interner Prompt-Regeln werden vor Ausgabe entfernt beziehungsweise abgewiesen.
 
-Skizze für den exklusiv vom Integrator zu ergänzenden Handler:
+## Renderer-Verhalten
 
-```ts
-const service = createMainPromptEnhancementService()
-const promptControllers = new Map<string, AbortController>()
+Die vorhandene Schaltfläche zeigt während der Ausführung „Wird geschärft …“. Original und
+Vorschlag bleiben getrennt sichtbar. Provider und effektives Modell werden transparent angezeigt.
+Abbruch, Fehler und stale Antworten verändern den Draft nicht. „Übernehmen“ verlangt eine zweite
+Bestätigung und ersetzt danach ausschließlich den lokalen Titel und Inhalt; Status, Tags,
+Artefakte, Referenzen und Transferzustand bleiben unverändert.
 
-// Im IPC-Handler: Renderer-Payload zuerst mit einem Shared-Schema validieren.
-const idea = getIdea(payload.ideaId)
-const profileId = idea?.refs?.profileId ?? payload.profileId
-const profile = profileId ? getProfile(profileId) : undefined
-const controller = new AbortController()
-promptControllers.set(payload.requestId, controller)
-try {
-  return await service.enhance({
-    source: idea,
-    profile,
-    workspace: await inspectPromptWorkspaceFacts(profile),
-    explicitSelection: payload.explicitSelection,
-    signal: controller.signal
-  })
-} finally {
-  promptControllers.delete(payload.requestId)
-}
-```
-
-`inspectPromptWorkspaceFacts` ist absichtlich kein Bestandteil dieser Feature-Änderung: Der
-Integrator soll nur bereits vorhandene, tatsächlich geprüfte Workspace-Informationen einspeisen
-und keine Repository-Eigenschaften vermuten.
-
-## Renderer
-
-`src/renderer/src/inboxPrompt.ts` bleibt bis zur IPC-Integration unverändert. Danach ruft der
-Renderer den neuen IPC-Endpunkt statt `previewIdeaTransferBriefing` auf und bildet die Resultate
-explizit ab:
-
-- `enhanced`: als KI-Verbesserung mit Provider/Modell anzeigen.
-- `fallback`: Badge „Deterministischer Fallback – keine KI-Verbesserung“, plus `reason` und
-  `message` anzeigen.
-- `selection-required`: Kandidaten samt Status anzeigen; erst eine bewusste Auswahl erneut senden.
-- `provider-unavailable`: den konfigurierten Provider und die Nichtverfügbarkeit anzeigen. Nicht
-  still auf einen anderen Cloud-Provider wechseln.
-- `invalid-input`, `aborted`: verständliche Inline-Rückmeldung ohne den Idea-Text zu überschreiben.
-
-Die bestehende `previewIdeaTransferBriefing`-/Übergabefunktion bleibt erhalten. Der neue
-deterministische Pfad ruft sie ausschließlich nach Timeout, Providerfehler oder ungültiger
-Modellantwort auf und kennzeichnet das Resultat unmissverständlich als Nicht-KI-Ausgabe.
+Ohne verfügbaren Provider kann der Benutzer den bestehenden deterministischen
+`previewIdeaTransferBriefing`-Pfad ausdrücklich anfordern. Dieser wird sichtbar als
+„Deterministischer Fallback – keine KI-Verbesserung“ gekennzeichnet und nie als KI-Ergebnis
+ausgegeben.

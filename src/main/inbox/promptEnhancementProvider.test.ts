@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { HeadlessHandle, HeadlessResult } from '@main/agents/headless'
 import {
+  assertDisposablePromptWorkingDirectory,
   createHeadlessPromptEnhancementExecutor,
   createMainPromptEnhancementService,
   type PromptEnhancementCapacity,
@@ -26,6 +27,18 @@ function availableCapacity(): PromptEnhancementCapacity & {
 }
 
 describe('headless prompt enhancement provider adapter', () => {
+  it('rejects provider-context path traversal outside the disposable temp root', () => {
+    expect(() =>
+      assertDisposablePromptWorkingDirectory('C:\\workspace\\repo', 'C:\\temp')
+    ).toThrow(/Path-Traversal/)
+    expect(() =>
+      assertDisposablePromptWorkingDirectory('C:\\temp\\..\\workspace', 'C:\\temp')
+    ).toThrow(/Path-Traversal/)
+    expect(() =>
+      assertDisposablePromptWorkingDirectory('C:\\temp', 'C:\\temp')
+    ).toThrow(/Path-Traversal/)
+  })
+
   it('uses existing headless architecture without Yolo or MCP arguments', async () => {
     const runner = vi.fn<PromptHeadlessRunner>(() => ({
       done: Promise.resolve({ result: '{"ok":true}', isError: false, status: 'succeeded' }),

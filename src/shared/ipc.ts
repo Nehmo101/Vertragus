@@ -29,6 +29,10 @@ import type {
   TranscribeAudioPayload,
   TranscribeAudioResult
 } from './inboxSpeech'
+import type {
+  PromptEnhancementIpcRequest,
+  PromptEnhancementIpcResult
+} from './promptEnhancement'
 
 export const IPC = {
   appInfo: 'app:info',
@@ -71,6 +75,8 @@ export const IPC = {
   ideasRemoveArtifact: 'ideas:removeArtifact',
   ideasTransferToProfile: 'ideas:transferToProfile',
   ideasTransferRetry: 'ideas:transferRetry',
+  ideasEnhancePrompt: 'ideas:enhancePrompt',
+  ideasAbortPromptEnhancement: 'ideas:abortPromptEnhancement',
   inboxSpeechStatus: 'inboxSpeech:status',
   inboxSpeechGetSettings: 'inboxSpeech:getSettings',
   inboxSpeechSetSettings: 'inboxSpeech:setSettings',
@@ -322,6 +328,10 @@ export interface OrcaApi {
     transferToProfile(req: IdeaTransferRequest): Promise<IdeaTransferResult>
     /** Retry a failed, retryable transfer for the same profile. */
     transferRetry(ideaId: string, yoloMaster?: boolean): Promise<IdeaTransferResult>
+    /** Improve an unsaved local draft. This never persists or transfers the idea. */
+    enhancePrompt(req: PromptEnhancementIpcRequest): Promise<PromptEnhancementIpcResult>
+    /** Abort only the caller's matching in-flight enhancement request. */
+    abortPromptEnhancement(requestId: string): Promise<boolean>
   }
 
   inboxSpeech: {

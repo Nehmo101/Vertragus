@@ -5,6 +5,7 @@
 import { app, dialog, ipcMain, BrowserWindow } from 'electron'
 import { stat } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { IPC, type AppInfo } from '@shared/ipc'
 import type { HandoffRequest, OrcaEvent, SpawnAgentRequest } from '@shared/agents'
 import type { OrchestratorSnapshot } from '@shared/orchestrator'
@@ -78,6 +79,13 @@ import {
 } from '@main/voice/InboxSpeechService'
 import { RunJournal } from '@main/diagnostics/runJournal'
 import { loadTaskReviewDiff } from '@main/integrations/reviewDiff'
+import { createMainPromptEnhancementService } from '@main/inbox/promptEnhancementProvider'
+import { inspectPromptWorkspaceContext } from '@main/inbox/promptEnhancementContext'
+import {
+  assertAuthorizedPromptEnhancementSender,
+  createPromptEnhancementIpcController,
+  type PromptIpcWebContentsLike
+} from '@main/inbox/promptEnhancementIpc'
 
 function senderWindow(e: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent): BrowserWindow | null {
   return BrowserWindow.fromWebContents(e.sender)
@@ -122,6 +130,19 @@ export function registerIpcHandlers(): void {
   providerCapacity.refreshLimits()
 
   const runJournal = new RunJournal(join(app.getPath('userData'), 'diagnostics', 'runs'))
+  const promptService = createMainPromptEnhancementService()
+  const promptController = createPromptEnhancementIpcController({
+    authorize: (event) =>
+      assertAuthorizedPromptEnhancementSender(event, {
+        developmentUrl: process.env['ELECTRON_RENDERER_URL'],
+        packagedRendererUrl: pathToFileURL(join(__dirname, '../renderer/index.html')).toString(),
+        isKnownSender: (sender: PromptIpcWebContentsLike) =>
+          Boolean(BrowserWindow.fromWebContents(sender as Electron.WebContents))
+      }),
+    getProfile,
+    inspectWorkspace: inspectPromptWorkspaceContext,
+    service: promptService
+  })
   // ---- app / providers / config ----
   ipcMain.handle(IPC.appInfo, (): AppInfo => {
     return {
@@ -309,6 +330,12 @@ export function registerIpcHandlers(): void {
   )
   ipcMain.handle(IPC.ideasTransferRetry, (_e, ideaId: string, yoloMaster?: boolean) =>
     retryIdeaTransfer(ideaId, yoloMaster)
+  )
+  ipcMain.handle(IPC.ideasEnhancePrompt, (event, request: unknown) =>
+    promptController.enhance(event, request)
+  )
+  ipcMain.handle(IPC.ideasAbortPromptEnhancement, (event, request: unknown) =>
+    promptController.abort(event, request)
   )
 
   // ---- inbox speech-to-text ----

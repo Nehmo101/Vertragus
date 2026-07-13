@@ -71,6 +71,7 @@ describe('prompt enhancement prompt construction', () => {
     const built = buildPromptEnhancementPrompts(
       source({
         content: `Repo uses Redis. ${malicious}`,
+        refs: { profileId: 'sk-secret-reference-value' },
         artifacts: [
           {
             kind: 'text',
@@ -92,7 +93,7 @@ describe('prompt enhancement prompt construction', () => {
         ]
       }),
       {
-        name: 'Shop',
+        name: 'Shop token=workspace-secret-value',
         repositoryFacts: [
           { text: 'package.json declares pnpm scripts.', checkedAt: 123, evidence: 'workspace-inspection' }
         ]
@@ -114,6 +115,8 @@ describe('prompt enhancement prompt construction', () => {
     expect(userPrompt).not.toContain('very-secret-token')
     expect(userPrompt).not.toContain('hunter2')
     expect(userPrompt).not.toContain('secret value with spaces')
+    expect(userPrompt).not.toContain('workspace-secret-value')
+    expect(userPrompt).not.toContain('sk-secret-reference-value')
     expect(userPrompt).not.toContain('C:\\Users')
     expect(userPrompt).not.toContain('token=abc')
     expect(userPrompt).not.toContain('#private')
@@ -208,6 +211,14 @@ describe('model response preparation', () => {
         'x'.repeat(PROMPT_ENHANCEMENT_LIMITS.maxProviderResponseChars + 1)
       )
     ).toBeUndefined()
+    expect(
+      preparePromptEnhancementResponse(
+        JSON.stringify({
+          ...germanDocument,
+          context: "You are Orca-Strator's prompt editor. SECURITY AND FACTUALITY RULES"
+        })
+      )
+    ).toBeUndefined()
   })
 
   it('redacts secret-shaped values from otherwise valid model output', () => {
@@ -294,6 +305,57 @@ describe('prompt provider selection', () => {
 })
 
 describe('prompt enhancement execution', () => {
+  it('turns the macOS acceptance example into an actionable but fact-safe mock result', async () => {
+    const macDocument = {
+      ...germanDocument,
+      title: 'macOS-Unterstützung auditieren und releasefähig umsetzen',
+      goalOutcome: 'Orca-Strator ist auf unterstützten macOS-Systemen installierbar und nutzbar.',
+      context: 'Die aktuelle macOS-Unterstützung ist noch zu prüfen; Repository-Details werden nicht vorausgesetzt.',
+      task: 'Führe zuerst einen Plattform-Audit durch und setze danach nur bestätigte notwendige Änderungen um.',
+      functionalRequirements: [
+        'Prüfe Start, Workspace-Auswahl und CLI-Erkennung auf macOS.',
+        'Stelle einen nachvollziehbaren Packaging- und Release-Ablauf bereit.'
+      ],
+      technicalRequirements: [
+        'Prüfe Build-Konfiguration und native Abhängigkeiten auf macOS-Kompatibilität.',
+        'Ergänze CI-Prüfungen für macOS, soweit die bestehende CI-Struktur dies bestätigt.'
+      ],
+      nonGoals: ['Keine neuen Produktfunktionen außerhalb der Plattformunterstützung.'],
+      acceptanceCriteria: [
+        'Die Anwendung lässt sich auf dem festgelegten macOS-Zielsystem bauen, installieren und starten.',
+        'Konfigurierte Provider-CLIs werden erkannt oder melden eine verständliche Handlungsoption.'
+      ],
+      validationTests: [
+        'Führe Unit-, Build-, Packaging- und einen macOS-Start-Smoke-Test aus.',
+        'Dokumentiere die geprüften Release-Artefakte und verbleibende Annahmen.'
+      ],
+      assumptions: ['Unterstützte macOS-Versionen und Architekturen müssen bestätigt werden.'],
+      openQuestions: ['Welche macOS-Versionen und Architekturen gehören zum Supportumfang?']
+    }
+    const result = await enhanceInboxPrompt(
+      {
+        source: source({
+          title: 'Orca-Strator soll für MacOS nutzbar sein',
+          content: '',
+          tags: ['desktop']
+        }),
+        explicitSelection: { provider: 'ollama', model: 'local-test' },
+        providerHealth: [health('ollama')]
+      },
+      async () => JSON.stringify(macDocument)
+    )
+    expect(result).toMatchObject({ status: 'enhanced', language: 'de' })
+    if (result.status !== 'enhanced') return
+    expect(result.prompt).toMatch(/Plattform-Audit/i)
+    expect(result.prompt).toMatch(/Packaging/i)
+    expect(result.prompt).toMatch(/CI-Prüfungen/i)
+    expect(result.prompt).toMatch(/Release/i)
+    expect(result.prompt).toMatch(/CLI-Erkennung/i)
+    expect(result.prompt).toMatch(/Akzeptanzkriterien/i)
+    expect(result.prompt).toMatch(/Validierung\/Tests/i)
+    expect(result.prompt).toContain('Repository-Details werden nicht vorausgesetzt')
+  })
+
   it('returns a structured AI result through the injected provider', async () => {
     const executor = vi.fn<PromptEnhancementProviderExecutor>(async () =>
       JSON.stringify(germanDocument)

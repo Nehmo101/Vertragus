@@ -65,7 +65,10 @@ const orca: OrcaApi = {
       ipcRenderer.invoke(IPC.ideasRemoveArtifact, ideaId, artifactId),
     transferToProfile: (req) => ipcRenderer.invoke(IPC.ideasTransferToProfile, req),
     transferRetry: (ideaId, yoloMaster) =>
-      ipcRenderer.invoke(IPC.ideasTransferRetry, ideaId, yoloMaster)
+      ipcRenderer.invoke(IPC.ideasTransferRetry, ideaId, yoloMaster),
+    enhancePrompt: (req) => ipcRenderer.invoke(IPC.ideasEnhancePrompt, req),
+    abortPromptEnhancement: (requestId) =>
+      ipcRenderer.invoke(IPC.ideasAbortPromptEnhancement, { requestId })
   },
 
   inboxSpeech: {

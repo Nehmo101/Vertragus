@@ -1,6 +1,6 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, relative, resolve } from 'node:path'
 import { runHeadless, type HeadlessHandle } from '@main/agents/headless'
 import { providerCapacity } from '@main/agents/providerCapacity'
 import { checkAllProviders } from '@main/providers/health'
@@ -17,6 +17,19 @@ export type PromptHeadlessRunner = typeof runHeadless
 export interface PromptEnhancementCapacity {
   acquireWait(provider: AgentProviderId, signal?: { aborted: boolean }): Promise<boolean>
   release(provider: AgentProviderId): void
+}
+
+/** Defense in depth: the editing-capable CLI must remain in Orca's disposable temp root. */
+export function assertDisposablePromptWorkingDirectory(
+  workingDir: string,
+  temporaryRoot: string = tmpdir()
+): void {
+  const root = resolve(temporaryRoot)
+  const candidate = resolve(workingDir)
+  const rel = relative(root, candidate)
+  if (!rel || rel.startsWith('..') || isAbsolute(rel)) {
+    throw new Error('Provider-Arbeitsverzeichnis verletzt die Path-Traversal-Grenze.')
+  }
 }
 
 /**
@@ -46,7 +59,9 @@ export function createHeadlessPromptEnhancementExecutor(
       }
       // A disposable empty CWD prevents an editing-capable agent CLI from reading
       // or mutating the linked repository during this text-only operation.
-      workingDir = mkdtempSync(join(tmpdir(), 'orca-prompt-enhancement-'))
+      const temporaryRoot = tmpdir()
+      workingDir = mkdtempSync(resolve(temporaryRoot, 'orca-prompt-enhancement-'))
+      assertDisposablePromptWorkingDirectory(workingDir, temporaryRoot)
       handle = runner(
         request.provider,
         combinedPrompt,
