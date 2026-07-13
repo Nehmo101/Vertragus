@@ -1,3 +1,5 @@
+import { stripAnsi } from '@main/agents/limitSignals'
+
 /**
  * Cursor Agent's interactive TUI does not accept its `--trust` switch (that
  * option is restricted to `--print`). Detect its initial trust screen so Orca
@@ -15,7 +17,7 @@ export function shouldAutoTrustCursorWorktree(input: {
   if (!input.worktree || input.worktree !== input.workingDir) return false
 
   // Cursor uses ANSI styling in its TUI, so match its visible text only.
-  const text = input.output.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
+  const text = stripAnsi(input.output)
   return (
     text.includes('Workspace Trust Required') &&
     text.includes('[a] Trust this workspace') &&
