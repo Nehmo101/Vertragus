@@ -25,6 +25,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run ci
       - name: Electron UI smoke
+        env:
+          ELECTRON_DISABLE_SANDBOX: '1'
         run: xvfb-run -a pnpm run test:ui-smoke
 
   windows-build:
