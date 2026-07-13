@@ -5,7 +5,11 @@ import { create } from 'zustand'
 import type { AgentInstanceInfo, HandoffRequest, OrcaEvent } from '@shared/agents'
 import { LIMIT_KIND_LABELS } from '@shared/agents'
 import type { AgentProviderId, ProviderHealth, ProviderId } from '@shared/providers'
-import { DEFAULT_MODELS, DEFAULT_PROVIDER_LIMITS } from '@shared/providers'
+import {
+  DEFAULT_MODELS,
+  DEFAULT_PROVIDER_LIMITS,
+  normalizeProviderLimits
+} from '@shared/providers'
 import type { WorkspaceProfile } from '@shared/profile'
 import type { McpServerConfig } from '@shared/mcp'
 import type { OrchestratorSnapshot } from '@shared/orchestrator'
@@ -26,7 +30,7 @@ interface AppState {
   appInfo: AppInfo | null
   health: ProviderHealth[]
   models: Record<AgentProviderId, string[]>
-  /** Per-provider concurrency budgets shown live in the Limits panel. */
+  /** Per-provider Orca process gates shown live in the Limits panel. */
   providerLimits: Record<AgentProviderId, number>
   profiles: WorkspaceProfile[]
   activeProfileId: string
@@ -235,7 +239,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       theme: theme === 'dark' ? 'dark' : 'light',
       workspaceLayout: layout === 'focus' || layout === 'dag' ? layout : 'tiles',
       uiDensity: density === 'compact' ? density : 'comfortable',
-      providerLimits: { ...DEFAULT_PROVIDER_LIMITS, ...(limits ?? {}) }
+      providerLimits: normalizeProviderLimits(limits)
     })
 
     void get().refreshGit()
@@ -383,8 +387,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setProviderLimit(provider, value) {
-    const clamped = Number.isFinite(value) ? Math.min(16, Math.max(1, Math.round(value))) : 1
-    const providerLimits = { ...get().providerLimits, [provider]: clamped }
+    const providerLimits = normalizeProviderLimits({ ...get().providerLimits, [provider]: value })
     set({ providerLimits })
     void window.orca.setConfig('providerLimits', providerLimits)
   },

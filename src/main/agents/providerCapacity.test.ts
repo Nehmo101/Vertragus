@@ -56,6 +56,14 @@ describe('providerCapacity', () => {
     expect(() => providerCapacity.tryAcquire('cursor')).toThrow(ProviderLimitError)
   })
 
+  it('falls back to safe defaults for corrupt persisted gate values', () => {
+    vi.mocked(getSetting).mockReturnValue({ claude: 0, cursor: Number.POSITIVE_INFINITY })
+    providerCapacity.refreshLimits()
+
+    expect(providerCapacity.stats('claude').limit).toBe(DEFAULT_PROVIDER_LIMITS.claude)
+    expect(providerCapacity.stats('cursor').limit).toBe(DEFAULT_PROVIDER_LIMITS.cursor)
+  })
+
   it('aborts a queued waiter without consuming a slot', async () => {
     providerCapacity.tryAcquire('ollama')
     providerCapacity.tryAcquire('ollama')

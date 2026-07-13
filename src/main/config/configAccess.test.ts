@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { setSetting } from '@main/config/store'
 import {
   assertConfigGetAllowed,
   assertConfigSetAllowed,
@@ -29,5 +30,20 @@ describe('configAccess', () => {
   it('rejects unknown keys', () => {
     expect(() => assertConfigGetAllowed('inboxSpeech.model')).toThrow(/nicht über IPC lesbar/)
     expect(() => assertConfigSetAllowed('github.oauthClientId')).toThrow(/nicht über IPC schreibbar/)
+  })
+
+  it('persists only validated Orca process gates', () => {
+    setPublicConfig('providerLimits', { cursor: 2, claude: 6 })
+
+    expect(setSetting).toHaveBeenLastCalledWith('providerLimits', {
+      claude: 6,
+      codex: 4,
+      cursor: 2,
+      copilot: 4,
+      ollama: 2
+    })
+    expect(() => setPublicConfig('providerLimits', { cursor: 0 })).toThrow(/zwischen 1 und 16/)
+    expect(() => setPublicConfig('providerLimits', { claude: Number.NaN })).toThrow(/ganze Zahl/)
+    expect(() => setPublicConfig('providerLimits', { injected: 4 })).toThrow(/Unbekanntes Orca-Gate/)
   })
 })

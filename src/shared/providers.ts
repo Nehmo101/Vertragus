@@ -198,11 +198,15 @@ export const DEFAULT_MODELS: Record<AgentProviderId, string[]> = {
   ]
 }
 
+/** Orca's safe range for its local, per-provider process gates. */
+export const PROVIDER_GATE_MIN = 1
+export const PROVIDER_GATE_MAX = 16
+
 /**
- * Default per-provider concurrency limits — how many agents of a given provider
- * the user wants to run at once. Enforced on the main process for agent spawns
- * and headless tasks; editable in the Limits panel (Limits & Nutzung) and
- * persisted under the `providerLimits` config key.
+ * Default per-provider concurrency gates — how many agents of a given provider
+ * Orca-Strator may run at once. These are local Orca process gates, not provider
+ * API quotas. They are enforced for agent spawns and headless tasks, editable in
+ * the Limits panel, and persisted under the `providerLimits` config key.
  */
 export const DEFAULT_PROVIDER_LIMITS: Record<AgentProviderId, number> = {
   claude: 4,
@@ -210,4 +214,57 @@ export const DEFAULT_PROVIDER_LIMITS: Record<AgentProviderId, number> = {
   cursor: 4,
   copilot: 4,
   ollama: 2
+}
+
+export type ProviderLimits = Record<AgentProviderId, number>
+
+const AGENT_PROVIDER_IDS = Object.keys(DEFAULT_PROVIDER_LIMITS) as AgentProviderId[]
+
+function isProviderGateLimit(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isSafeInteger(value) &&
+    value >= PROVIDER_GATE_MIN &&
+    value <= PROVIDER_GATE_MAX
+  )
+}
+
+/**
+ * Resolve a stored config defensively. Corrupt or legacy values fall back to
+ * safe defaults so they can never disable a process gate.
+ */
+export function normalizeProviderLimits(value: unknown): ProviderLimits {
+  const limits: ProviderLimits = { ...DEFAULT_PROVIDER_LIMITS }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return limits
+
+  const candidate = value as Record<string, unknown>
+  for (const provider of AGENT_PROVIDER_IDS) {
+    if (isProviderGateLimit(candidate[provider])) limits[provider] = candidate[provider]
+  }
+  return limits
+}
+
+/**
+ * Validate a renderer-supplied gate update before it reaches persistent config.
+ * Partial values are allowed for forward-compatible settings writes; omitted
+ * providers receive their safe defaults and unknown providers are rejected.
+ */
+export function parseProviderLimits(value: unknown): ProviderLimits {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Orca-Gates müssen als Objekt angegeben werden.')
+  }
+
+  const candidate = value as Record<string, unknown>
+  for (const [provider, limit] of Object.entries(candidate)) {
+    if (!AGENT_PROVIDER_IDS.includes(provider as AgentProviderId)) {
+      throw new Error(`Unbekanntes Orca-Gate: ${provider}`)
+    }
+    if (!isProviderGateLimit(limit)) {
+      throw new Error(
+        `Orca-Gate für ${provider} muss eine ganze Zahl zwischen ${PROVIDER_GATE_MIN} und ${PROVIDER_GATE_MAX} sein.`
+      )
+    }
+  }
+
+  return normalizeProviderLimits(candidate)
 }
