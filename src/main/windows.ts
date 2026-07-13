@@ -96,6 +96,11 @@ export function createMainWindow(): BrowserWindow {
           void win.webContents.executeJavaScript(`window.__orca && window.__orca.openEditor(${JSON.stringify(DEMO_PROFILE)})`)
         }, 2500)
       }
+      if (process.env['ORCA_DEMO_ADD_AGENT']) {
+        setTimeout(() => {
+          void win.webContents.executeJavaScript('window.__orca && window.__orca.openAddAgent()')
+        }, 2500)
+      }
       setTimeout(async () => {
         try {
           const image = await win.webContents.capturePage()

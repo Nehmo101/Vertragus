@@ -2376,6 +2376,51 @@ button {
   background: rgba(242, 85, 90, 0.15);
   color: var(--err-text);
 }
+.modal-close:disabled,
+.btn-primary:disabled,
+.btn-secondary:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+.add-agent-modal {
+  width: 520px;
+}
+.add-agent-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px 12px;
+}
+.add-agent-body > label:last-of-type,
+.add-agent-body > .model-catalog-status,
+.add-agent-effective,
+.add-agent-hint {
+  grid-column: 1 / -1;
+}
+.add-agent-body .field-label {
+  margin-bottom: 6px;
+}
+.add-agent-effective {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 11px 12px;
+  border: 1px solid var(--border-3);
+  border-radius: 9px;
+  background: var(--bg-slot);
+  color: var(--text-3);
+  font-size: 12px;
+}
+.add-agent-effective b {
+  color: var(--text-1);
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+.add-agent-hint {
+  margin-top: -10px;
+  color: var(--wait-text);
+  font-size: 11px;
+}
 .modal-body {
   flex: 1;
   overflow-y: auto;
