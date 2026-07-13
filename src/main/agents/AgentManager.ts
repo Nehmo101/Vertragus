@@ -235,6 +235,7 @@ export class AgentManager extends EventEmitter {
         this.monitorCursorWorkspaceTrust(managed)
         return
       }
+      managed.reassigning = true
       this.terminate(managed)
       this.releaseCapacity(managed)
       managed.info.status = 'error'
