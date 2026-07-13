@@ -717,6 +717,66 @@ button {
   color: var(--ok);
   background: rgba(63, 209, 122, 0.12);
 }
+.agent-history-caption {
+  gap: 8px;
+}
+.agent-history-count {
+  color: var(--text-3);
+  font-size: 9.5px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.agent-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.agent-history-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-1);
+  text-align: left;
+  cursor: pointer;
+}
+.agent-history-row:hover,
+.agent-history-row.open {
+  border-color: rgba(45, 212, 191, 0.22);
+  background: rgba(45, 212, 191, 0.07);
+}
+.agent-history-info {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+}
+.agent-history-name {
+  font-size: 12px;
+  font-weight: 600;
+}
+.agent-history-role {
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-history-status {
+  flex: none;
+  font-size: 9.5px;
+  font-weight: 600;
+}
+.agent-history-status.done {
+  color: var(--ok);
+}
+.agent-history-status.failed {
+  color: var(--err-text);
+}
 
 /* ---------- center workspace ---------- */
 .workspace {

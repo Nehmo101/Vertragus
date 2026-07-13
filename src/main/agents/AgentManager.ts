@@ -619,13 +619,13 @@ export class AgentManager extends EventEmitter {
         }
         const event =
           result.status === 'cancelled'
-            ? { text: `${name} · Task gestoppt · Fenster geschlossen`, tone: 'muted' as const }
+            ? { text: `${name} · Task gestoppt · Chat ausgeblendet`, tone: 'muted' as const }
             : failed
-              ? { text: `${name} · Task-Fehler · Fenster geschlossen`, tone: 'error' as const }
-              : { text: `${name} · ✓ Task fertig · Fenster geschlossen`, tone: 'success' as const }
+              ? { text: `${name} · Task-Fehler · Chat ausgeblendet`, tone: 'error' as const }
+              : { text: `${name} · ✓ Task fertig · Chat ausgeblendet`, tone: 'success' as const }
         this.emitEvent(event.text, event.tone, info)
-        this.agents.delete(id)
-        this.names.release(name)
+        // Keep the finished task and its scrollback until the workspace is
+        // explicitly cleared or rebuilt. The renderer hides it by default.
         closePaneWindows(id)
         this.changed()
       }

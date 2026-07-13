@@ -1,6 +1,8 @@
 import {
   useAppStore,
   activeProfile,
+  isFinishedSubagent,
+  visibleWorkspaceAgents,
   workspaceAgents,
   type WorkspaceLayout
 } from '@renderer/store/useAppStore'
@@ -16,11 +18,12 @@ const LAYOUTS: Array<{ id: WorkspaceLayout; icon: string; label: string }> = [
 export default function Workspace(): JSX.Element {
   const store = useAppStore()
   const profile = activeProfile(store)
-  const agents = [...workspaceAgents(store)].sort((a, b) => {
+  const allAgents = workspaceAgents(store)
+  const agents = [...visibleWorkspaceAgents(store)].sort((a, b) => {
     if (a.kind !== b.kind) return a.kind === 'orchestrator' ? -1 : 1
     return a.startedAt - b.startedAt
   })
-  const activeRunning = agents.some(
+  const activeRunning = allAgents.some(
     (agent) => agent.status === 'running' || agent.status === 'waiting'
   )
   const focusedId = agents.some((agent) => agent.id === store.selectedAgentId)
@@ -64,7 +67,7 @@ export default function Workspace(): JSX.Element {
         </div>
         <div className="spacer" />
         <span className="ws-count">
-          {agents.length} Agents · {LAYOUTS.find((item) => item.id === store.workspaceLayout)?.label}
+          {allAgents.length} Agents · {LAYOUTS.find((item) => item.id === store.workspaceLayout)?.label}
         </span>
         {!activeRunning && (
           <button
@@ -75,7 +78,7 @@ export default function Workspace(): JSX.Element {
             Workspace starten
           </button>
         )}
-        {agents.length > 0 && (
+        {allAgents.length > 0 && (
           <>
             <div className="ws-divider" />
             <button
@@ -132,7 +135,10 @@ export default function Workspace(): JSX.Element {
               focused={store.workspaceLayout === 'focus' && agent.id === focusedId}
               subdued={store.workspaceLayout === 'focus' && agent.id !== focusedId}
               onFocus={() => store.setSelectedAgent(agent.id)}
-              onClose={() => void store.killAgent(agent.id)}
+              onClose={() => {
+                if (isFinishedSubagent(agent)) store.hideAgent(agent.id)
+                else void store.killAgent(agent.id)
+              }}
               onPopout={() => void store.popout(agent.id)}
               onHandoff={() => store.openHandoff(agent.id)}
             />

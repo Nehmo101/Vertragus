@@ -41,6 +41,8 @@ interface AppState {
   orchestrator: OrchestratorSnapshot
   orchestrators: Record<string, OrchestratorSnapshot>
   selectedAgentId: string | null
+  /** Finished subagents explicitly reopened from the sidebar history. */
+  reopenedAgentIds: string[]
   yoloMaster: boolean
   theme: UiTheme
   workspaceLayout: WorkspaceLayout
@@ -70,6 +72,8 @@ interface AppState {
   showToast(msg: string): void
   exportDiagnostics(): Promise<void>
   setSelectedAgent(id: string | null): void
+  reopenAgent(id: string): void
+  hideAgent(id: string): void
   startAll(): Promise<void>
   stopAll(): Promise<void>
   cleanWorkspace(): Promise<void>
@@ -106,6 +110,27 @@ export function workspaceAgents(
   )
 }
 
+export function isFinishedSubagent(agent: AgentInstanceInfo): boolean {
+  return agent.kind === 'sub' && (agent.status === 'stopped' || agent.status === 'error')
+}
+
+export function workspaceAgentHistory(
+  state: Pick<AppState, 'agents' | 'activeProfileId'>
+): AgentInstanceInfo[] {
+  return workspaceAgents(state)
+    .filter((agent) => agent.profileId === state.activeProfileId && isFinishedSubagent(agent))
+    .sort((a, b) => b.startedAt - a.startedAt)
+}
+
+export function visibleWorkspaceAgents(
+  state: Pick<AppState, 'agents' | 'activeProfileId' | 'reopenedAgentIds'>
+): AgentInstanceInfo[] {
+  const reopened = new Set(state.reopenedAgentIds)
+  return workspaceAgents(state).filter(
+    (agent) => !isFinishedSubagent(agent) || reopened.has(agent.id)
+  )
+}
+
 export function workspaceEvents(
   state: Pick<AppState, 'events' | 'activeProfileId'>
 ): OrcaEvent[] {
@@ -128,6 +153,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   orchestrator: { goal: null, tasks: [] },
   orchestrators: {},
   selectedAgentId: null,
+  reopenedAgentIds: [],
   yoloMaster: false,
   theme: 'light',
   workspaceLayout: 'tiles',
@@ -151,7 +177,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         const label = LIMIT_KIND_LABELS[a.limitWarning.kind]
         get().showToast(`⚠ ${a.name}: ${label} nahe — „⇄ Übergeben" möglich`)
       }
-      set({ agents })
+      const retainedIds = new Set(agents.map((agent) => agent.id))
+      set((state) => ({
+        agents,
+        reopenedAgentIds: state.reopenedAgentIds.filter((id) => retainedIds.has(id))
+      }))
     })
     window.orca.agents.onEvent((evt) =>
       set((s) => ({ events: [...s.events.slice(-199), evt] }))
@@ -352,6 +382,23 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setSelectedAgent(id) {
     set({ selectedAgentId: id })
+  },
+
+  reopenAgent(id) {
+    if (!get().agents.some((agent) => agent.id === id)) return
+    set((state) => ({
+      reopenedAgentIds: state.reopenedAgentIds.includes(id)
+        ? state.reopenedAgentIds
+        : [...state.reopenedAgentIds, id],
+      selectedAgentId: id
+    }))
+  },
+
+  hideAgent(id) {
+    set((state) => ({
+      reopenedAgentIds: state.reopenedAgentIds.filter((agentId) => agentId !== id),
+      selectedAgentId: state.selectedAgentId === id ? null : state.selectedAgentId
+    }))
   },
 
   async startAll() {

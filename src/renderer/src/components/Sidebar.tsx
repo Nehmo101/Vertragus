@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useAppStore } from '@renderer/store/useAppStore'
+import { useAppStore, workspaceAgentHistory } from '@renderer/store/useAppStore'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import { profileSummary, profileAgentCount } from '@renderer/components/TitleBar'
 import type { ProviderHealth, ProviderId } from '@shared/providers'
@@ -107,6 +107,7 @@ export default function Sidebar(): JSX.Element {
     if (!agent.profileId || (agent.status !== 'running' && agent.status !== 'waiting')) continue
     runningByProfile.set(agent.profileId, (runningByProfile.get(agent.profileId) ?? 0) + 1)
   }
+  const agentHistory = workspaceAgentHistory(store)
 
 
   return (
@@ -232,6 +233,44 @@ export default function Sidebar(): JSX.Element {
       </div>
 
       <div className="side-sep" />
+      {agentHistory.length > 0 && (
+        <>
+          <div className="side-caption agent-history-caption" style={{ paddingTop: 10 }}>
+            <span>Agent-Verlauf</span>
+            <span className="agent-history-count">{agentHistory.length} gespeichert</span>
+          </div>
+          <div className="side-list agent-history-list">
+            {agentHistory.map((agent) => {
+              const provider = PROVIDER_THEME[agent.provider]
+              const failed = agent.status === 'error'
+              return (
+                <button
+                  type="button"
+                  key={agent.id}
+                  className={`agent-history-row ${store.reopenedAgentIds.includes(agent.id) ? 'open' : ''}`}
+                  title={`${agent.role} - Chat wieder aufrufen`}
+                  onClick={() => {
+                    store.reopenAgent(agent.id)
+                    window.location.hash = ''
+                  }}
+                >
+                  <span className="chip sz-26" style={{ background: provider.bg, color: provider.fg }}>
+                    {provider.mono}
+                  </span>
+                  <span className="agent-history-info">
+                    <span className="agent-history-name">{agent.name}</span>
+                    <span className="agent-history-role">{agent.role}</span>
+                  </span>
+                  <span className={`agent-history-status ${failed ? 'failed' : 'done'}`}>
+                    {failed ? 'Fehler' : 'Beendet'}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+          <div className="side-sep" />
+        </>
+      )}
 
       <div className="side-caption" style={{ paddingTop: 10 }}>
         <span>Workspace-Profile</span>
