@@ -6,6 +6,7 @@ import type { InboxSpeechSettings } from '@shared/inboxSpeech'
 import { DEFAULT_TRANSCRIPTION_ENDPOINT, DEFAULT_TRANSCRIPTION_MODEL } from '@shared/inboxSpeech'
 import { useInboxSpeech } from '@renderer/hooks/useInboxSpeech'
 import IdeaTransferModal from '@renderer/components/IdeaTransferModal'
+import styles from './responsiveGuards.module.css'
 
 const STATUS_LABEL: Record<IdeaStatus, string> = {
   draft: 'Entwurf',
@@ -410,7 +411,7 @@ export default function InboxPanel(): JSX.Element {
   const showVoiceReview = speech.state === 'review' && speech.voiceDraft
 
   return (
-    <main className="inbox-panel" aria-label="Ideen-Inbox">
+    <main className={`inbox-panel ${styles.inboxPanel}`} aria-label="Ideen-Inbox">
       <div className="inbox-header">
         <div>
           <div className="inbox-title">Ideen-Inbox</div>

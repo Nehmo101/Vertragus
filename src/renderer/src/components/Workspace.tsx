@@ -8,6 +8,7 @@ import {
 } from '@renderer/store/useAppStore'
 import AgentPane from '@renderer/components/AgentPane'
 import VoiceBar from '@renderer/components/VoiceBar'
+import styles from './responsiveGuards.module.css'
 
 const LAYOUTS: Array<{ id: WorkspaceLayout; icon: string; label: string }> = [
   { id: 'tiles', icon: '▦', label: 'Kacheln' },
@@ -41,7 +42,7 @@ export default function Workspace(): JSX.Element {
 
 
   return (
-    <main className={`workspace workspace-${workspaceLayout}`} aria-label="Agent-Workspace">
+    <main className={`workspace ${styles.workspace} workspace-${workspaceLayout}`} aria-label="Agent-Workspace">
       <div className="ws-header">
         <label className="workspace-picker">
           <span>Workspace</span>

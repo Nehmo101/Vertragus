@@ -7,6 +7,7 @@ import { PROVIDER_THEME, STATUS_THEME, XTERM_THEME } from '@renderer/ui/theme'
 import LoreName from '@renderer/components/LoreName'
 import { isAgentTerminalChunk } from './terminalStream'
 import { terminalEnterAction } from '@renderer/components/terminalEnter'
+import styles from './responsiveGuards.module.css'
 
 interface Props {
   agent: AgentInstanceInfo
@@ -175,7 +176,7 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
 
   return (
     <div
-      className={`pane ${isOrch ? 'orch' : ''} ${yoloLive && !isOrch ? 'yolo-live' : ''} ${focused ? 'focused' : ''} ${subdued ? 'subdued' : ''}`}
+      className={`pane ${styles.agentPane} ${isOrch ? 'orch' : ''} ${yoloLive && !isOrch ? 'yolo-live' : ''} ${focused ? 'focused' : ''} ${subdued ? 'subdued' : ''}`}
       onMouseDown={onFocus}
     >
       <div className="pane-head">
