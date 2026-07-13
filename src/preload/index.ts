@@ -82,6 +82,7 @@ const orca: OrcaApi = {
     spawnProfile: (profileId, yoloMaster) =>
       ipcRenderer.invoke(IPC.agentsSpawnProfile, profileId, yoloMaster),
     write: (id, data) => ipcRenderer.send(IPC.agentWrite, id, data),
+    markInteractiveUsed: (id) => ipcRenderer.send(IPC.agentMarkInteractiveUsed, id),
     resize: (id, cols, rows) => ipcRenderer.send(IPC.agentResize, id, cols, rows),
     kill: (id) => ipcRenderer.invoke(IPC.agentKill, id),
     killAll: () => ipcRenderer.invoke(IPC.agentsKillAll),

@@ -468,7 +468,13 @@ export class AgentManager extends EventEmitter {
     return [...this.agents.values()].find((managed) =>
       isReusableTeamMember(
         managed.info,
-        { provider: req.provider, model: req.model, role: req.role },
+        {
+          provider: req.provider,
+          model: req.model,
+          role: req.role,
+          profileId: req.profileId,
+          workspaceSessionId: req.workspaceSessionId
+        },
         { hasPty: Boolean(managed.pty), interactiveUsed: Boolean(managed.interactiveUsed) }
       )
     )
@@ -632,8 +638,14 @@ export class AgentManager extends EventEmitter {
   write(id: string, data: string): void {
     const managed = this.agents.get(id)
     if (!managed?.pty) return
-    if (data.length > 0) managed.interactiveUsed = true
     managed.pty.write(data)
+  }
+
+  /** Mark only explicit renderer keyboard/paste activity, not xterm protocol replies. */
+  markInteractiveUsed(id: string): void {
+    const managed = this.agents.get(id)
+    if (!managed?.info.teamRole || managed.info.mode !== 'interactive') return
+    managed.interactiveUsed = true
   }
 
   /**

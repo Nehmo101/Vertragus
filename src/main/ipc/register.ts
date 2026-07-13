@@ -342,6 +342,9 @@ export function registerIpcHandlers(): void {
     return spawnProfileTeam(profile, yoloMaster)
   })
   ipcMain.on(IPC.agentWrite, (_e, id: string, data: string) => agentManager.write(id, data))
+  ipcMain.on(IPC.agentMarkInteractiveUsed, (_e, id: string) =>
+    agentManager.markInteractiveUsed(id)
+  )
   ipcMain.on(IPC.agentResize, (_e, id: string, cols: number, rows: number) =>
     agentManager.resize(id, cols, rows)
   )

@@ -84,6 +84,11 @@ function useAgentTerminal(agentId: string): React.RefObject<HTMLDivElement> {
     const onInput = term.onData((data) => {
       window.orca.agents.write(agentId, data)
     })
+    // onData also carries automatic terminal protocol replies. Only real user
+    // keyboard/paste actions reserve a warm team pane from orchestrator reuse.
+    const onKey = term.onKey(() => window.orca.agents.markInteractiveUsed(agentId))
+    const onPaste = (): void => window.orca.agents.markInteractiveUsed(agentId)
+    host.addEventListener('paste', onPaste, true)
 
     const doFit = (): void => {
       try {
@@ -100,6 +105,8 @@ function useAgentTerminal(agentId: string): React.RefObject<HTMLDivElement> {
     return () => {
       observer.disconnect()
       onInput.dispose()
+      onKey.dispose()
+      host.removeEventListener('paste', onPaste, true)
       unsubscribe()
       term.dispose()
     }

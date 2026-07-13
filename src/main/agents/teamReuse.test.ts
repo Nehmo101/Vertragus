@@ -6,6 +6,8 @@ const teamAgent: AgentInstanceInfo = {
   id: 'sub-02',
   name: 'Gimli',
   provider: 'cursor',
+  profileId: 'profile-a',
+  workspaceSessionId: 'session-a',
   model: 'composer',
   role: 'Subagent · worker',
   kind: 'sub',
@@ -34,6 +36,30 @@ describe('profile team reuse', () => {
     expect(
       isReusableTeamMember(
         { ...teamAgent, teamRole: 'review' },
+        target,
+        { hasPty: true, interactiveUsed: false }
+      )
+    ).toBe(false)
+  })
+
+  it('never claims a matching pane from another profile or workspace session', () => {
+    const target = {
+      provider: 'cursor' as const,
+      model: 'composer',
+      role: 'worker',
+      profileId: 'profile-a',
+      workspaceSessionId: 'session-a'
+    }
+    expect(
+      isReusableTeamMember(
+        { ...teamAgent, profileId: 'profile-b' },
+        target,
+        { hasPty: true, interactiveUsed: false }
+      )
+    ).toBe(false)
+    expect(
+      isReusableTeamMember(
+        { ...teamAgent, workspaceSessionId: 'session-b' },
         target,
         { hasPty: true, interactiveUsed: false }
       )
