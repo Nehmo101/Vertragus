@@ -119,7 +119,7 @@ function buildMcpServer(engine: OrchestratorEngine = orchestratorEngine): McpSer
     'Liste den verfügbaren Fähigkeiten-Pool mit Rollen, Provider, Modell, Kapazität, Stärken und Schwächen. ' +
       'Die Rollen sind nicht zwingend bereits gestartet; ein Plan startet nur die ausgewählten Agents.',
     {},
-    async () => text(JSON.stringify(engine.listSubagents(), null, 2))
+    async () => text(JSON.stringify(await engine.listSubagentsWithHealth(), null, 2))
   )
 
   register(
@@ -181,7 +181,8 @@ function buildMcpServer(engine: OrchestratorEngine = orchestratorEngine): McpSer
 
   register(
     'get_plan_status',
-    'Liefere Status und Ergebnis eines asynchron gestarteten DAG-Laufs.',
+    'Liefere den wahrheitsgetreuen Gesamtstatus sowie jeden Knoten mit Phase, Heartbeat, ' +
+      'letzter Aktion, Findings und Engine-/Workspace-Identität.',
     { runId: z.string().describe('runId aus execute_plan') },
     async (args) => {
       const result = engine.getPlanRunStatus(String(args.runId ?? ''))
@@ -206,7 +207,9 @@ function buildMcpServer(engine: OrchestratorEngine = orchestratorEngine): McpSer
             role: z.string(),
             prompt: z.string(),
             dependsOn: z.array(z.string()).optional(),
+            advisoryDependsOn: z.array(z.string()).optional(),
             conflictKeys: z.array(z.string()).optional(),
+            criticality: z.enum(['required', 'advisory']).optional(),
             ownership: z.enum(['feature', 'integrator']).optional(),
             expectedFiles: z.array(z.string()).optional()
           })
@@ -221,7 +224,9 @@ function buildMcpServer(engine: OrchestratorEngine = orchestratorEngine): McpSer
             return {
               ...task,
               dependsOn: task.dependsOn ?? [],
+              advisoryDependsOn: task.advisoryDependsOn ?? [],
               conflictKeys: task.conflictKeys ?? [],
+              criticality: task.criticality ?? 'required',
               ownership: task.ownership ?? 'feature',
               expectedFiles: task.expectedFiles ?? []
             }
@@ -315,6 +320,10 @@ export async function startMcpServer(): Promise<McpServerHandle> {
           ? workspaceSessions.getById(workspaceSessionId)?.engine
           : orchestratorEngine
         if (!engine) throw new Error('Workspace-Session ist nicht mehr aktiv.')
+        const requestedEngineId = url.searchParams.get('engineId')
+        if (requestedEngineId && requestedEngineId !== engine.engineId) {
+          throw new Error('Orchestrator-Verbindung verweist auf eine veraltete Engine-Instanz.')
+        }
         await buildMcpServer(engine).connect(transport)
       }
       if (!transport) {

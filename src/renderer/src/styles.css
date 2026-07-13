@@ -2160,6 +2160,14 @@ button {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+ .task-criticality {
+  padding: 1px 5px;
+  border: 1px solid color-mix(in srgb, #f5a524 45%, transparent);
+  border-radius: 999px;
+  color: #f7c96b;
+  font: 8.5px var(--font-mono);
+  text-transform: uppercase;
+}
 .task-id {
   font-size: 9.5px;
   color: var(--text-4);
@@ -2285,7 +2293,53 @@ button {
   word-break: break-word;
 }
 .task-note.err {
-  color: #ff9a9c;
+  color: #ffb45f;
+}
+.task-findings,
+.task-blocker {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, #f5a524 38%, var(--border-2));
+  border-radius: 7px;
+  background: color-mix(in srgb, #f5a524 7%, transparent);
+  color: var(--text-2);
+  font-size: 9.5px;
+}
+.task-findings > div {
+  display: grid;
+  gap: 2px;
+}
+.task-findings span,
+.task-blocker strong {
+  color: #f7c96b;
+  font-family: var(--font-mono);
+}
+.task-findings p,
+.task-blocker small {
+  margin: 0;
+  color: var(--text-3);
+}
+.reliability-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 9px;
+}
+.reliability-strip span {
+  padding: 3px 6px;
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  color: var(--text-3);
+  font-size: 9px;
+}
+.reliability-strip strong {
+  color: var(--text-1);
+}
+.reliability-strip .warn,
+.reliability-strip .warn strong {
+  color: #f7c96b;
 }
 .task-pr-row {
   display: flex;

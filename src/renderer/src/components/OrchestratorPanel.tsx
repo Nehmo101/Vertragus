@@ -50,6 +50,7 @@ const TASK_PILL: Record<TaskStatus, { bg: string; fg: string; dot: string; label
   queued: { bg: 'var(--stop-soft)', fg: 'var(--stop-text)', dot: 'var(--stop)', label: 'geplant' },
   running: { bg: 'color-mix(in srgb, var(--run) 18%, transparent)', fg: 'var(--run-text)', dot: 'var(--run)', label: 'läuft' },
   success: { bg: 'color-mix(in srgb, var(--run) 18%, transparent)', fg: 'var(--run-text)', dot: 'var(--run)', label: 'fertig' },
+  'needs-work': { bg: 'color-mix(in srgb, #f5a524 18%, transparent)', fg: '#f7c96b', dot: '#f5a524', label: 'Nacharbeit' },
   error: { bg: 'var(--err-soft)', fg: 'var(--err-text)', dot: 'var(--err)', label: 'Fehler' },
   stopped: { bg: 'var(--stop-soft)', fg: 'var(--stop-text)', dot: 'var(--stop)', label: 'gestoppt' }
 }
@@ -78,7 +79,8 @@ function TaskCard({
   const showTelemetry = task.status === 'running' || Boolean(telemetry.phase || telemetry.lastAction)
   const label = task.status === 'running' && task.yolo ? 'läuft · yolo' : pill.label
   const hasReview = Boolean(
-    task.worktree || task.branch || task.commit || task.autoPrStatus || task.remoteCiStatus
+    task.worktree || task.branch || task.commit || task.autoPrStatus || task.remoteCiStatus ||
+    task.findings?.length || task.blocker || task.preflight || task.attempts?.length
   )
 
   const loadDiff = async (): Promise<void> => {
@@ -109,6 +111,7 @@ function TaskCard({
             style={{ background: pill.dot, boxShadow: `0 0 6px ${pill.dot}` }}
           />
           <span className="task-title">{task.title}</span>
+          {task.criticality === 'advisory' && <span className="task-criticality">advisory</span>}
           <span className="task-id">{task.id}</span>
         </div>
         <div className="task-row2">
@@ -175,7 +178,25 @@ function TaskCard({
           </div>
         )}
         {task.note && (
-          <div className={`task-note ${task.status === 'error' ? 'err' : ''}`}>{task.note}</div>
+          <div className={`task-note ${task.status === 'error' || task.status === 'needs-work' ? 'err' : ''}`}>{task.note}</div>
+        )}
+        {task.findings?.length ? (
+          <div className="task-findings" role="status">
+            <strong>Gate-Findings</strong>
+            {task.findings.map((finding, index) => (
+              <div key={`${finding.gate}-${index}`}>
+                <span>{finding.gate} · {finding.code}</span>
+                <p>{finding.message}</p>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        {task.blocker && (
+          <div className="task-blocker">
+            <strong>{task.blocker.code}</strong>
+            <span>{task.blocker.summary}</span>
+            {task.blocker.details.length > 0 && <small>{task.blocker.details.join(' · ')}</small>}
+          </div>
         )}
         {(task.prUrl || task.autoPrStatus || task.remoteCiStatus) && (
           <div className="task-pr-row">
@@ -202,8 +223,11 @@ function TaskCard({
               {task.branch && <><dt>Branch</dt><dd><code>{task.branch}</code></dd></>}
               {task.commit && <><dt>Commit</dt><dd><code>{task.commit}</code></dd></>}
               {task.worktree && <><dt>Worktree</dt><dd title={task.worktree}>{task.worktree}</dd></>}
-              {task.dependsOn?.length ? <><dt>Abhängig von</dt><dd>{task.dependsOn.join(', ')}</dd></> : null}
+              {task.dependsOn?.length ? <><dt>Harte Abhängigkeiten</dt><dd>{task.dependsOn.join(', ')}</dd></> : null}
+              {task.advisoryDependsOn?.length ? <><dt>Advisory-Abhängigkeiten</dt><dd>{task.advisoryDependsOn.join(', ')}</dd></> : null}
               {task.conflictKeys?.length ? <><dt>Konfliktbereiche</dt><dd>{task.conflictKeys.join(', ')}</dd></> : null}
+              {task.preflight ? <><dt>Preflight</dt><dd>{task.preflight.status === 'passed' ? 'bestanden' : 'fehlgeschlagen'} · {task.preflight.checks.filter((check) => check.status === 'passed').length}/{task.preflight.checks.length} Checks</dd></> : null}
+              {task.attempts?.length ? <><dt>Versuche</dt><dd>{task.attempts.map((attempt) => `${attempt.agentName ?? attempt.agentId}: ${attempt.status}`).join(' · ')}</dd></> : null}
             </dl>
             {task.worktree && (
               <button
@@ -230,13 +254,14 @@ export default function OrchestratorPanel(): JSX.Element {
   const profile = activeProfile(store)
   const orch = workspaceAgents(store).find((agent) => agent.kind === 'orchestrator')
   const events = workspaceEvents(store)
-  const { goal, tasks, pendingPlan } = store.orchestrator
+  const { goal, tasks, pendingPlan, reliability, engineId } = store.orchestrator
   const logRef = useRef<HTMLDivElement>(null)
   const activity = resolveOrchestratorActivity(store.orchestrator, now)
   const liveTasks = liveOrchestratorTasks(tasks)
 
-  const done = tasks.filter((t) => t.status === 'success').length
-  const pct = tasks.length > 0 ? Math.round((done / tasks.length) * 100) : 0
+  const requiredTasks = tasks.filter((task) => (task.criticality ?? 'required') === 'required')
+  const done = requiredTasks.filter((task) => task.status === 'success').length
+  const pct = requiredTasks.length > 0 ? Math.round((done / requiredTasks.length) * 100) : 0
   const assigned = tasks.filter((t) => t.agentId).length
   const configuredOrchestratorModel = profile?.orchestrator
     ? resolveModel(profile.orchestrator.provider, profile.orchestrator) || 'CLI-Standard'
@@ -292,6 +317,15 @@ export default function OrchestratorPanel(): JSX.Element {
             </>
           )}
         </div>
+        {reliability && (
+          <div className="reliability-strip" title={engineId}>
+            <span><strong>{reliability.preflightPassed}</strong> Preflights ok</span>
+            <span className={reliability.preflightFailed > 0 ? 'warn' : ''}><strong>{reliability.preflightFailed}</strong> blockiert</span>
+            <span><strong>{reliability.automaticRecoveries}</strong> Auto-Recoveries</span>
+            <span><strong>{reliability.preventedFalseSuccesses}</strong> False-Success verhindert</span>
+            <span><strong>{fmtAge(reliability.maxRunningStatusAgeMs)}</strong> max. Statusalter</span>
+          </div>
+        )}
       </div>
 
       <div className="live-activity">

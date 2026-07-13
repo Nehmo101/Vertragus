@@ -14,6 +14,7 @@ import { externalMcpSpecsFor } from '@main/orchestrator/externalMcp'
 export interface OrchestratorPolicyOptions {
   adaptiveTeam?: boolean
   maxRetries?: number
+  engineId?: string
 }
 
 export const orchestratorSystemPrompt = (
@@ -44,7 +45,9 @@ export const orchestratorSystemPrompt = (
   'Planvertrag:',
   '- Decide how many subagents are actually useful. Prefer a small number of focused tasks.',
   '- Call execute_plan with version=1, goal, maxParallel and tasks.',
-  '- Every task needs id, title, role, prompt, dependsOn, conflictKeys, ownership and expectedFiles.',
+  '- Every task needs id, title, role, prompt, dependsOn, advisoryDependsOn, criticality, conflictKeys, ownership and expectedFiles.',
+  '- dependsOn is hard: failures block the consumer. advisoryDependsOn waits and forwards available results without blocking.',
+  '- criticality=required decides plan success; advisory audits may fail without turning a verified delivery red.',
   '- ownership is feature by default. Exactly one final integrator owns shared schemas, IPC, profile and global CSS.',
   '- The integrator must depend on every feature task; dependency results provide commit hashes and notes.',
   '- maxParallel has no Orca-wide ceiling; choose only as much parallelism as the task benefits from.',
@@ -76,8 +79,11 @@ export const orchestratorSystemPrompt = (
   '- Nutze open_subwindow(role) nur, wenn wirklich ein weiterer dauerhafter Subagent benötigt wird.',
   '- Jeder Subagent bekommt einen Mittelerde-Namen (z.B. „Legolas"), der in seinem Ergebnis',
   '   steht. Sprich Subagents in deiner Zusammenfassung mit diesem Namen an.',
-  '- Definition of Done je Task: Commit-Hash ODER explizit keine Änderungen; relevante Tests,',
-  '   Typecheck/Lint, Security-Negativfälle und Integrationshinweise müssen im Ergebnis stehen.',
+  '- Definition of Done je Task: geänderte Dateien oder explizit keine Änderungen; relevante Tests,',
+  '   Typecheck/Lint, automatisch injizierte Security-Negativfälle und Integrationshinweise müssen im Ergebnis stehen.',
+  '- Der Worker führt kein git add, commit, cherry-pick oder push aus. Orcas Main-Prozess sichert und verifiziert den Commit zentral.',
+  '- Bei einem Infrastrukturblocker liefere nur ein strukturiertes Kurzresultat: Blocker, geprüfte Alternativen,',
+  '   geplante Dateien, Schnittstellen und knappe Implementierungsnotizen — keinen vollständigen Ersatz-Codeentwurf.',
   '- Gemeinsame Hotspots (Shared Schemas, IPC, Profilmodell, globale Styles) gehören in genau',
   '   eine Integrationsaufgabe. Feature-Tasks liefern Module und klare Schnittstellenhinweise.',
   '- Fasse erst zusammen, wenn alle taskIds beziehungsweise der Planlauf terminal sind.',
@@ -107,6 +113,7 @@ export function buildOrchestratorSetup(
     ? (() => {
         const url = new URL(handle.url)
         url.searchParams.set('workspaceSession', workspaceSessionId)
+        if (policy.engineId) url.searchParams.set('engineId', policy.engineId)
         return { ...handle, url: url.toString() }
       })()
     : handle

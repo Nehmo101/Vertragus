@@ -6,10 +6,14 @@
  */
 import type { AgentProviderId } from './providers'
 
-export type TaskStatus = 'queued' | 'running' | 'success' | 'error' | 'stopped'
+export type TaskStatus = 'queued' | 'running' | 'success' | 'needs-work' | 'error' | 'stopped'
+
+export type TaskCriticality = 'required' | 'advisory'
+export type TaskFailureKind = 'infrastructure' | 'worker' | 'gate' | 'cancelled'
 
 export type TaskPhase =
   | 'queued'
+  | 'preflight'
   | 'starting'
   | 'working'
   | 'testing'
@@ -46,6 +50,61 @@ export type TaskCompletion =
   | { kind: 'commit'; commit: string }
   | { kind: 'no-changes' }
 
+export interface TaskGateFinding {
+  gate: 'security' | 'quality' | 'commit' | 'preflight'
+  code: string
+  message: string
+  files?: string[]
+  missingControls?: string[]
+}
+
+export interface TaskBlocker {
+  kind: TaskFailureKind
+  code: string
+  summary: string
+  details: string[]
+  recoverable: boolean
+}
+
+export type PanePreflightCheckId =
+  | 'provider'
+  | 'workspace'
+  | 'git-common-dir'
+  | 'dependencies'
+  | 'toolchain'
+  | 'identity'
+
+export interface PanePreflightCheck {
+  id: PanePreflightCheckId
+  status: 'passed' | 'warning' | 'failed'
+  detail: string
+  durationMs: number
+}
+
+export interface PanePreflightReport {
+  status: 'passed' | 'failed'
+  provider: AgentProviderId
+  workspaceId: string
+  engineId?: string
+  workspaceSessionId?: string
+  startedAt: number
+  completedAt: number
+  checks: PanePreflightCheck[]
+}
+
+export interface TaskAttemptSnapshot {
+  attempt: number
+  agentId?: string
+  agentName?: string
+  provider?: AgentProviderId
+  model?: string
+  status: Extract<TaskStatus, 'running' | 'success' | 'needs-work' | 'error' | 'stopped'>
+  startedAt: number
+  finishedAt?: number
+  failureKind?: TaskFailureKind
+  note?: string
+}
+
 export type RemoteCiStatus =
   | 'waiting'
   | 'pending'
@@ -68,6 +127,11 @@ export interface OrcaTask {
   provider?: AgentProviderId
   model?: string
   status: TaskStatus
+  /** Required tasks decide the plan outcome; advisory tasks may fail without blocking delivery. */
+  criticality?: TaskCriticality
+  ownership?: 'feature' | 'integrator'
+  /** Stable id from the authored plan, separate from the runtime task id. */
+  planTaskId?: string
   /** 0..100, best-effort. */
   progress?: number
   /** Structured lifecycle phase for long-running worker visibility. */
@@ -80,15 +144,24 @@ export interface OrcaTask {
   note?: string
   /** Runtime task ids that must finish successfully before this task may start. */
   dependsOn?: string[]
+  /** Dependencies that must finish, but whose failure does not block this task. */
+  advisoryDependsOn?: string[]
   /** Resources/files that must not be worked on concurrently inside one plan. */
   conflictKeys?: string[]
   /** Groups tasks that were submitted as one validated execution plan. */
   planId?: string
+  engineId?: string
+  expectedFiles?: string[]
   worktree?: string
   branch?: string
   commit?: string
   /** A successful implementation must prove a commit or explicitly report no changes. */
   completion?: TaskCompletion
+  findings?: TaskGateFinding[]
+  blocker?: TaskBlocker
+  failureKind?: TaskFailureKind
+  preflight?: PanePreflightReport
+  attempts?: TaskAttemptSnapshot[]
   prUrl?: string
   /** Auto-PR is independent from the agent execution status. */
   autoPrStatus?: 'skipped' | 'prepared' | 'published' | 'blocked'
@@ -129,11 +202,29 @@ export interface OrchestratorSnapshot {
   /** Workspace ownership for multi-session renderer routing. */
   profileId?: string
   workspaceSessionId?: string
+  engineId?: string
   goal: OrchestratorGoal | null
   activity?: OrchestratorActivity
   tasks: OrcaTask[]
   capacity?: OrchestratorCapacitySnapshot
+  reliability?: OrchestratorReliabilityMetrics
   pendingPlan?: PendingPlanReview
+}
+
+export interface OrchestratorReliabilityMetrics {
+  dispatchAttempts: number
+  preflightPassed: number
+  preflightFailed: number
+  infrastructureFailures: number
+  automaticRecoveries: number
+  needsWorkTasks: number
+  rescuedNeedsWorkCommits: number
+  completedPlans: number
+  preventedFalseSuccesses: number
+  lastSnapshotAt: number
+  maxRunningStatusAgeMs: number
+  timeToFirstUsefulCommitMs?: number
+  failuresByProviderAndPlatform: Record<string, number>
 }
 
 /** One mental model for warm panes, scheduler slots, provider gates and queues. */
@@ -155,6 +246,9 @@ export interface TaskStatusSnapshot {
   provider?: AgentProviderId
   model?: string
   status: TaskStatus
+  criticality?: TaskCriticality
+  ownership?: 'feature' | 'integrator'
+  planTaskId?: string
   phase?: TaskPhase
   progress?: number
   lastAction?: string
@@ -163,11 +257,29 @@ export interface TaskStatusSnapshot {
   error?: string
   note?: string
   completion?: TaskCompletion
+  findings?: TaskGateFinding[]
+  blocker?: TaskBlocker
+  failureKind?: TaskFailureKind
+  preflight?: PanePreflightReport
+  attempts?: TaskAttemptSnapshot[]
 }
 
 export interface PlanRunStatusSnapshot {
   runId: string
-  status: 'running' | 'success' | 'error'
+  status: 'running' | 'success' | 'needs-work' | 'error' | 'stopped'
+  engineId?: string
+  workspaceSessionId?: string
+  planId?: string
+  goal?: string
+  tasks?: TaskStatusSnapshot[]
+  summary?: {
+    required: number
+    advisory: number
+    running: number
+    succeeded: number
+    needsWork: number
+    failed: number
+  }
   result?: ExecutionPlanResult
   error?: string
 }
@@ -184,6 +296,7 @@ export interface SubagentDescriptor {
   strengths: string[]
   weaknesses: string[]
   available: boolean
+  preflight?: PanePreflightReport
 }
 
 /** Provider features needed to act as Orca's top-level orchestrator. */
@@ -203,6 +316,10 @@ export interface ExecutionPlanTask {
   role: string
   prompt: string
   dependsOn: string[]
+  /** Wait for these tasks, consume their result when present, but never block on failure. */
+  advisoryDependsOn: string[]
+  /** Only required tasks participate in the plan's success decision. */
+  criticality: TaskCriticality
   /** Tasks sharing a key never run at the same time. */
   conflictKeys: string[]
   /** Shared-hotspot ownership is explicit and limited to one final integrator task. */
@@ -246,12 +363,16 @@ export interface ResolvedExecutionPlan {
 
 export interface ExecutionPlanTaskResult {
   id: string
-  status: Extract<TaskStatus, 'success' | 'error' | 'stopped'>
+  status: Extract<TaskStatus, 'success' | 'needs-work' | 'error' | 'stopped'>
+  criticality: TaskCriticality
   result: string
+  commit?: string
+  findings?: TaskGateFinding[]
 }
 
 export interface ExecutionPlanResult {
   planId: string
+  status: Extract<PlanRunStatusSnapshot['status'], 'success' | 'needs-work' | 'error' | 'stopped'>
   usedFallback: boolean
   validationIssues: PlanValidationIssue[]
   tasks: ExecutionPlanTaskResult[]

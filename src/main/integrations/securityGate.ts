@@ -17,6 +17,14 @@ export interface SecurityGateReport {
   findings: SecurityFinding[]
 }
 
+export class SecurityGateError extends Error {
+  readonly code = 'security-controls-missing'
+  constructor(readonly report: SecurityGateReport, message: string) {
+    super(message)
+    this.name = 'SecurityGateError'
+  }
+}
+
 const leakedSecretPatterns = [
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
   /\bAKIA[0-9A-Z]{16}\b/,
@@ -137,6 +145,28 @@ export function evaluateSecurityGate(diff: string): SecurityGateReport {
   }
 }
 
+export function securityChecklistForFiles(files: readonly string[]): string[] {
+  const normalized = files.map((file) => file.replace(/\\/g, '/').toLowerCase())
+  const surfaces = new Set<SecuritySurface>()
+  for (const file of normalized) {
+    if (/(^|\/)src\/(?:main\/ipc|preload)(?:\/|$)|(?:^|[/.-])ipc(?:[/.-]|$)/.test(file)) surfaces.add('ipc')
+    if (/(?:^|\/)(?:files?|paths?|worktree|workspace|storage)(?:[/.-]|$)/.test(file)) surfaces.add('filesystem')
+    if (/(?:oauth|auth|login|pkce)/.test(file)) surfaces.add('oauth')
+    if (/(?:secret|credential|token|config)/.test(file)) surfaces.add('secret')
+  }
+  const controls = new Set<SecurityControl>()
+  for (const surface of surfaces) {
+    for (const control of requiredControls[surface]) controls.add(control)
+  }
+  const labels: Record<SecurityControl, string> = {
+    authorization: 'Autorisierungs-Negativtest (unberechtigter Aufruf wird abgewiesen)',
+    validation: 'Validierungs-Negativtest (ungültige Eingabe wird abgewiesen)',
+    'path-traversal': 'Path-Traversal-/Symlink-Negativtest (Workspace-Grenze kann nicht verlassen werden)',
+    'secret-leak': 'Secret-Leak-/Redaktions-Negativtest (Token und Credentials erscheinen nicht in Ausgabe)'
+  }
+  return [...controls].map((control) => labels[control])
+}
+
 export function assertSecurityGate(diff: string): SecurityGateReport {
   const report = evaluateSecurityGate(diff)
   if (report.findings.length === 0) return report
@@ -147,5 +177,8 @@ export function assertSecurityGate(diff: string): SecurityGateReport {
         `${finding.surface} (${finding.files.join(', ')}): ${finding.missingControls.join(', ')}`
     )
     .join('; ')
-  throw new Error(`Security Gate fehlgeschlagen; erforderliche Negativtests fehlen: ${details}`)
+  throw new SecurityGateError(
+    report,
+    `Security Gate fehlgeschlagen; erforderliche Negativtests fehlen: ${details}`
+  )
 }

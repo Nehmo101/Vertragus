@@ -115,6 +115,7 @@ export function createMainWindow(): BrowserWindow {
   const smokePath = process.env['ORCA_UI_SMOKE']
   if (smokePath) {
     win.webContents.once('did-finish-load', () => {
+      setTimeout(() => pushDemoState(win), 250)
       setTimeout(async () => {
         const checks = await win.webContents.executeJavaScript(`(async () => {
           const gitTreeTrigger = document.querySelector('.git-tree-trigger')
@@ -137,7 +138,11 @@ export function createMainWindow(): BrowserWindow {
               popoverRect.bottom > titlebarBottom
             ),
             language: document.documentElement.lang === 'de',
-            csp: Boolean(document.querySelector('meta[http-equiv="Content-Security-Policy"]'))
+            csp: Boolean(document.querySelector('meta[http-equiv="Content-Security-Policy"]')),
+            needsWork: [...document.querySelectorAll('.task-pill')].some((node) => node.textContent?.includes('Nacharbeit')),
+            gateFindings: Boolean(document.querySelector('.task-findings')),
+            preflight: [...document.querySelectorAll('.task-review dd')].some((node) => node.textContent?.includes('bestanden')),
+            reliability: Boolean(document.querySelector('.reliability-strip'))
           }
         })()`)
         const ok = Object.values(checks).every(Boolean)
@@ -209,12 +214,40 @@ function pushDemoState(win: BrowserWindow): void {
     { id: 'task-04', name: 'Frodo', provider: 'codex', model: 'gpt-5.6', role: 'Task · worker', kind: 'sub', mode: 'task', taskId: 't-3', yolo: false, workingDir: '.', status: 'stopped', startedAt: now }
   ]
   const snapshot = {
+    engineId: 'engine-demo',
     goal: { id: 'epic-4471', title: 'Checkout-Flow v2', active: true },
+    reliability: {
+      dispatchAttempts: 4,
+      preflightPassed: 3,
+      preflightFailed: 1,
+      infrastructureFailures: 1,
+      automaticRecoveries: 1,
+      needsWorkTasks: 1,
+      rescuedNeedsWorkCommits: 1,
+      completedPlans: 1,
+      preventedFalseSuccesses: 1,
+      lastSnapshotAt: now,
+      maxRunningStatusAgeMs: 42000,
+      failuresByProviderAndPlatform: { 'cursor:win32': 1 }
+    },
     tasks: [
       { id: 't-1', title: 'API · POST /checkout', role: 'worker', agentId: 'task-02', agentName: 'Legolas', provider: 'codex', model: 'gpt-5.6', status: 'running', createdAt: now },
       { id: 't-2', title: 'E2E · Checkout-Spec', role: 'worker', agentId: 'task-03', agentName: 'Gimli', provider: 'codex', model: 'gpt-5.6', status: 'running', yolo: true, createdAt: now + 1 },
-      { id: 't-3', title: 'DB · Migration', role: 'worker', agentId: 'task-04', agentName: 'Frodo', provider: 'codex', model: 'gpt-5.6', status: 'success', progress: 100, note: 'Migration erstellt, Tests grün.', createdAt: now + 2, finishedAt: now + 3 },
-      { id: 't-4', title: 'Review · PR #482', role: 'worker', provider: 'codex', model: 'gpt-5.6', status: 'queued', createdAt: now + 3 }
+      {
+        id: 't-3', title: 'DB · Migration', role: 'worker', agentId: 'task-04', agentName: 'Frodo',
+        provider: 'codex', model: 'gpt-5.6', status: 'needs-work', criticality: 'required',
+        phase: 'security-review', commit: 'abcdef0123456789',
+        note: 'Partieller Commit gesichert; ein Security-Negativtest fehlt.',
+        findings: [{ gate: 'security', code: 'missing-filesystem-controls', message: 'path-traversal', files: ['src/main/files/migrate.ts'] }],
+        preflight: {
+          status: 'passed', provider: 'codex', workspaceId: 'demo', engineId: 'engine-demo',
+          startedAt: now - 2000, completedAt: now - 1800,
+          checks: [{ id: 'workspace', status: 'passed', detail: 'Workspace schreibbar', durationMs: 2 }]
+        },
+        attempts: [{ attempt: 1, agentId: 'task-04', agentName: 'Frodo', provider: 'codex', model: 'gpt-5.6', status: 'needs-work', startedAt: now - 5000, finishedAt: now - 1000 }],
+        createdAt: now + 2, finishedAt: now + 3
+      },
+      { id: 't-4', title: 'Review · PR #482', role: 'worker', provider: 'codex', model: 'gpt-5.6', status: 'queued', criticality: 'advisory', createdAt: now + 3 }
     ]
   }
   win.webContents.send('ev:agentsChanged', agents)

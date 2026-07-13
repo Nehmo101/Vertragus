@@ -8,6 +8,8 @@
  * the DAG, and returns the result text to the orchestrator.
  */
 import { EventEmitter } from 'node:events'
+import { randomUUID } from 'node:crypto'
+import { homedir } from 'node:os'
 import type {
   ExecutionPlanResult,
   ExecutionPlanTask,
@@ -16,10 +18,13 @@ import type {
   OrchestratorActivity,
   OrchestratorActivityPhase,
   OrchestratorGoal,
+  OrchestratorReliabilityMetrics,
   PendingPlanReview,
   OrchestratorSnapshot,
   PlanRunStatusSnapshot,
   SubagentDescriptor,
+  TaskAttemptSnapshot,
+  TaskCriticality,
   TaskStatusSnapshot
 } from '@shared/orchestrator'
 import {
@@ -36,6 +41,7 @@ import {
   normalizeProviderEnabled
 } from '@shared/providers'
 import { agentManager } from '@main/agents/AgentManager'
+import { PanePreflightError } from '@main/agents/panePreflight'
 import { stripAnsi } from '@main/agents/limitSignals'
 import {
   getProfile,
@@ -52,18 +58,44 @@ import {
 } from '@main/integrations/autoPr'
 import { resolveExecutionPlan } from '@main/orchestrator/planner'
 import { Semaphore } from '@main/orchestrator/semaphore'
+import { securityChecklistForFiles } from '@main/integrations/securityGate'
 
 interface DispatchOptions {
   taskId?: string
   planId?: string
   dependsOn?: string[]
+  advisoryDependsOn?: string[]
   conflictKeys?: string[]
+  expectedFiles?: string[]
+  criticality?: TaskCriticality
+  ownership?: 'feature' | 'integrator'
+  planTaskId?: string
+  attempt?: number
+  maxAttempts?: number
   deferPublish?: boolean
 }
 
 const RESULT_PREVIEW = 160
 
+function initialReliability(): OrchestratorReliabilityMetrics {
+  return {
+    dispatchAttempts: 0,
+    preflightPassed: 0,
+    preflightFailed: 0,
+    infrastructureFailures: 0,
+    automaticRecoveries: 0,
+    needsWorkTasks: 0,
+    rescuedNeedsWorkCommits: 0,
+    completedPlans: 0,
+    preventedFalseSuccesses: 0,
+    lastSnapshotAt: Date.now(),
+    maxRunningStatusAgeMs: 0,
+    failuresByProviderAndPlatform: {}
+  }
+}
+
 export class OrchestratorEngine extends EventEmitter {
+  readonly engineId: string
   private planSeq = 0
   private goal: OrchestratorGoal | null = null
   private activity: OrchestratorActivity | undefined
@@ -73,6 +105,9 @@ export class OrchestratorEngine extends EventEmitter {
   private readonly taskRuns = new Map<string, Promise<string>>()
   private readonly planRuns = new Map<string, Promise<ExecutionPlanResult>>()
   private readonly planRunResults = new Map<string, PlanRunStatusSnapshot>()
+  private readonly planRunPlanIds = new Map<string, string>()
+  private readonly reliability = initialReliability()
+  private goalStartedAt?: number
   private taskSeq = 0
   private pendingPlan: PendingPlanReview | undefined
   private pendingPlanResolve: ((approved: boolean) => void) | undefined
@@ -82,11 +117,17 @@ export class OrchestratorEngine extends EventEmitter {
 
   constructor(options: { profile?: WorkspaceProfile; workspaceSessionId?: string } = {}) {
     super()
+    this.engineId = `engine-${options.workspaceSessionId ?? randomUUID()}`
     this.boundProfile = options.profile
       ? { ...options.profile, agents: options.profile.agents.map((slot) => ({ ...slot })) }
       : undefined
     this.workspaceSessionId = options.workspaceSessionId
     const restored = getSetting<OrchestratorSnapshot>(this.persistenceKey())
+    if (restored?.reliability) {
+      Object.assign(this.reliability, restored.reliability, {
+        failuresByProviderAndPlatform: { ...restored.reliability.failuresByProviderAndPlatform }
+      })
+    }
     if (!restored || !Array.isArray(restored.tasks)) return
     this.activity = restored.activity
       ? {
@@ -118,6 +159,15 @@ export class OrchestratorEngine extends EventEmitter {
     const profile = this.activeProfile()
     const tasks = [...this.tasks.values()].sort((a, b) => a.createdAt - b.createdAt)
     const agents = typeof agentManager.list === 'function' ? agentManager.list() : []
+    const now = Date.now()
+    const runningAges = tasks
+      .filter((task) => task.status === 'running')
+      .map((task) => now - (task.lastHeartbeatAt ?? task.createdAt))
+    this.reliability.maxRunningStatusAgeMs = Math.max(
+      this.reliability.maxRunningStatusAgeMs,
+      ...runningAges,
+      0
+    )
     const warmInteractiveAgents = agents.filter((agent) =>
       agent.mode === 'interactive' && agent.kind === 'sub' && agent.status !== 'stopped' &&
       agent.status !== 'error' && (!profile?.id || agent.profileId === profile.id)
@@ -125,9 +175,14 @@ export class OrchestratorEngine extends EventEmitter {
     return {
       profileId: this.boundProfile?.id,
       workspaceSessionId: this.workspaceSessionId,
+      engineId: this.engineId,
       goal: this.goal,
       activity: this.activity ? { ...this.activity, details: [...this.activity.details] } : undefined,
       tasks,
+      reliability: {
+        ...this.reliability,
+        failuresByProviderAndPlatform: { ...this.reliability.failuresByProviderAndPlatform }
+      },
       capacity: {
         warmInteractiveAgents,
         maxTaskParallelism: profile?.planner.maxParallel ?? 1,
@@ -140,6 +195,7 @@ export class OrchestratorEngine extends EventEmitter {
   }
 
   private push(): void {
+    this.reliability.lastSnapshotAt = Date.now()
     const snapshot = this.snapshot()
     try {
       setSetting(this.persistenceKey(), snapshot)
@@ -207,7 +263,7 @@ export class OrchestratorEngine extends EventEmitter {
       return
     }
     const recent = tasks.sort((a, b) => b.createdAt - a.createdAt).slice(0, 4)
-    const failed = recent.filter((task) => task.status === 'error')
+    const failed = recent.filter((task) => task.status === 'error' || task.status === 'needs-work')
     this.setActivityState(
       failed.length > 0 ? 'blocked' : 'summarizing',
       failed.length > 0
@@ -231,6 +287,7 @@ export class OrchestratorEngine extends EventEmitter {
     this.taskRuns.clear()
     this.planRuns.clear()
     this.planRunResults.clear()
+    this.planRunPlanIds.clear()
     this.push()
   }
 
@@ -304,6 +361,7 @@ export class OrchestratorEngine extends EventEmitter {
   }
 
   setGoal(title: string): void {
+    this.goalStartedAt = Date.now()
     this.goal = { id: `epic-${Date.now().toString(36)}`, title, active: true }
     this.setActivityState(
       'planning',
@@ -350,8 +408,13 @@ export class OrchestratorEngine extends EventEmitter {
   }
 
   listSubagents(): SubagentDescriptor[] {
+    const profile = this.activeProfile()
     return this.slotsWithRoles().map(({ slot, role }) => {
       const capabilities = agentSlotCapabilities(slot)
+      const workingDir = slot.workingDir || profile?.workingDir || homedir()
+      const preflight = typeof agentManager.latestPreflight === 'function'
+        ? agentManager.latestPreflight(slot.provider, workingDir)
+        : undefined
       return {
         role,
         provider: slot.provider,
@@ -360,9 +423,30 @@ export class OrchestratorEngine extends EventEmitter {
         busy: this.limiters.get(role)?.inUse ?? 0,
         strengths: capabilities.strengths,
         weaknesses: capabilities.weaknesses,
-        available: true
+        available: preflight?.status !== 'failed',
+        preflight
       }
     })
+  }
+
+  async listSubagentsWithHealth(): Promise<SubagentDescriptor[]> {
+    const profile = this.activeProfile()
+    if (typeof agentManager.preflightSlot === 'function') {
+      await Promise.allSettled(this.slotsWithRoles().map(async ({ slot }) => {
+        const workingDir = slot.workingDir || profile?.workingDir || homedir()
+        const cached = typeof agentManager.latestPreflight === 'function'
+          ? agentManager.latestPreflight(slot.provider, workingDir)
+          : undefined
+        if (cached && Date.now() - cached.completedAt < 60_000) return
+        await agentManager.preflightSlot({
+          provider: slot.provider,
+          workingDir,
+          engineId: this.engineId,
+          workspaceSessionId: this.workspaceSessionId
+        })
+      }))
+    }
+    return this.listSubagents()
   }
 
   private nextTaskId(): string {
@@ -400,22 +484,39 @@ export class OrchestratorEngine extends EventEmitter {
     const taskId = options.taskId ?? this.nextTaskId()
     const yolo = slot.yolo || (profile?.yoloDefault ?? false)
 
-    const task: OrcaTask = {
+    const task: OrcaTask = this.tasks.get(taskId) ?? {
       id: taskId,
       title: title?.trim() || prompt.split('\n')[0].slice(0, 60),
       role: slotRole,
+      status: 'queued',
+      createdAt: Date.now()
+    }
+    Object.assign(task, {
+      title: title?.trim() || task.title,
+      role: slotRole,
       provider: slot.provider,
       model: resolveModel(slot.provider, slot),
-      status: 'queued',
-      phase: 'queued',
+      status: 'queued' as const,
+      phase: 'queued' as const,
       lastAction: 'Wartet auf freie Kapazität',
       lastHeartbeatAt: Date.now(),
       yolo,
-      createdAt: Date.now(),
       dependsOn: options.dependsOn,
+      advisoryDependsOn: options.advisoryDependsOn,
       conflictKeys: options.conflictKeys,
-      planId: options.planId
-    }
+      planId: options.planId,
+      engineId: this.engineId,
+      expectedFiles: options.expectedFiles,
+      criticality: options.criticality ?? task.criticality ?? 'required',
+      ownership: options.ownership ?? task.ownership ?? 'feature',
+      planTaskId: options.planTaskId ?? task.planTaskId,
+      agentId: undefined,
+      agentName: undefined,
+      blocker: undefined,
+      findings: undefined,
+      failureKind: undefined,
+      finishedAt: undefined
+    })
     this.tasks.set(taskId, task)
     this.setActivityState(
       'delegating',
@@ -428,16 +529,30 @@ export class OrchestratorEngine extends EventEmitter {
     const sem = this.limiter(slotRole, slot.count)
     await sem.acquire()
     task.status = 'running'
-    task.phase = 'starting'
-    task.lastAction = 'Worker wird gestartet'
+    task.phase = 'preflight'
+    task.lastAction = 'Pane-Preflight läuft'
     task.lastHeartbeatAt = Date.now()
     this.syncActivityFromTasks()
     this.push()
 
+    const securityChecklist = securityChecklistForFiles(options.expectedFiles ?? [])
+    const executionContract = [
+      'Orca-Ausführungsvertrag:',
+      '- Bearbeite nur die beauftragte Fachaufgabe und die erwarteten Dateien.',
+      '- Führe relevante Tests, Typecheck und Lint aus.',
+      '- Führe kein git add, commit, cherry-pick oder push aus; Orcas Main-Prozess sichert Änderungen zentral.',
+      '- Bei Infrastrukturblockern antworte strukturiert und knapp: Blocker, Alternativen, geplante Dateien, Schnittstellen.',
+      ...securityChecklist.map((item) => `- Security-Pflicht: ${item}`)
+    ].join('\n')
+    const taskPrompt = `${prompt}\n\n${executionContract}`
     const subSystemPrompt =
       'Du bist ein namentlich gekennzeichneter Subagent in Orca-Strator, beauftragt vom Orchestrator. ' +
-      'Erledige die Aufgabe eigenständig und fasse das Ergebnis am Ende knapp zusammen.'
+      'Erledige die Aufgabe eigenständig und fasse das Ergebnis am Ende knapp zusammen. ' +
+      'Git-Schreiboperationen werden ausschließlich von Orcas Main-Prozess ausgeführt.'
 
+    const attemptNumber = options.attempt ?? (task.attempts?.length ?? 0) + 1
+    let activeAttempt: TaskAttemptSnapshot | undefined
+    this.reliability.dispatchAttempts += 1
     let lastLifecyclePush = 0
     const onLifecycleEvent = (event: import('@main/agents/headless').HeadlessLifecycleEvent): void => {
       task.lastHeartbeatAt = event.timestamp
@@ -465,15 +580,28 @@ export class OrchestratorEngine extends EventEmitter {
         modelPreset: slot.modelPreset,
         role: slotRole,
         taskId,
-        prompt,
+        prompt: taskPrompt,
         systemPrompt: subSystemPrompt,
         yolo,
         workingDir: slot.workingDir || profile?.workingDir,
         profileId: profile?.id,
-        workspaceSessionId: this.workspaceSessionId
+        workspaceSessionId: this.workspaceSessionId,
+        engineId: this.engineId
       }, { onEvent: onLifecycleEvent, heartbeatIntervalMs: 45_000 })
       task.agentId = info.id
       task.agentName = info.name
+      task.preflight = info.preflight
+      if (info.preflight?.status === 'passed') this.reliability.preflightPassed += 1
+      activeAttempt = {
+        attempt: attemptNumber,
+        agentId: info.id,
+        agentName: info.name,
+        provider: info.provider as OrcaTask['provider'],
+        model: info.model,
+        status: 'running',
+        startedAt: Date.now()
+      }
+      task.attempts = [...(task.attempts ?? []), activeAttempt]
       task.phase = 'working'
       task.lastAction = 'Worker arbeitet'
       task.lastHeartbeatAt = Date.now()
@@ -483,9 +611,16 @@ export class OrchestratorEngine extends EventEmitter {
       const result = await done
       const wasCancelled = result.status === 'cancelled'
       task.status = wasCancelled ? 'stopped' : result.isError ? 'error' : 'success'
+      task.failureKind = wasCancelled ? 'cancelled' : result.isError ? 'worker' : undefined
       task.progress = task.status === 'success' ? 100 : undefined
       task.phase = task.status === 'success' ? 'completed' : task.phase
       task.lastAction = wasCancelled ? 'Manuell gestoppt' : result.isError ? 'Worker fehlgeschlagen' : 'Worker abgeschlossen'
+      if (activeAttempt) {
+        activeAttempt.status = task.status
+        activeAttempt.failureKind = task.failureKind
+        activeAttempt.finishedAt = Date.now()
+        activeAttempt.note = result.result.replace(/\s+/g, ' ').trim().slice(0, RESULT_PREVIEW)
+      }
       task.lastHeartbeatAt = Date.now()
       task.finishedAt = Date.now()
       const preview = result.result.replace(/\s+/g, ' ').trim().slice(0, RESULT_PREVIEW)
@@ -516,7 +651,26 @@ export class OrchestratorEngine extends EventEmitter {
         if (prepared.result === 'committed' && prepared.change) {
           task.commit = prepared.change.commit
           task.completion = { kind: 'commit', commit: prepared.change.commit }
+          if (this.reliability.timeToFirstUsefulCommitMs == null && this.goalStartedAt) {
+            this.reliability.timeToFirstUsefulCommitMs = Date.now() - this.goalStartedAt
+          }
           if (autoPr.mode !== 'off') this.preparedChanges.set(taskId, prepared.change)
+        } else if (prepared.result === 'needs-work' && prepared.change) {
+          task.status = 'needs-work'
+          task.progress = undefined
+          task.commit = prepared.change.commit
+          task.completion = { kind: 'commit', commit: prepared.change.commit }
+          task.findings = prepared.findings
+          task.failureKind = 'gate'
+          task.note = prepared.message
+          task.lastAction = 'Partieller Commit gesichert · Gates benötigen Nacharbeit'
+          this.reliability.needsWorkTasks += 1
+          this.reliability.rescuedNeedsWorkCommits += 1
+          if (activeAttempt) {
+            activeAttempt.status = 'needs-work'
+            activeAttempt.failureKind = 'gate'
+            activeAttempt.note = prepared.message
+          }
         } else if (prepared.result === 'no-changes') {
           task.completion = { kind: 'no-changes' }
         } else {
@@ -536,6 +690,10 @@ export class OrchestratorEngine extends EventEmitter {
       this.push()
 
       if (wasCancelled) return `${info.name} (${slotRole}) stopped.`
+      if (task.status === 'needs-work') {
+        const findings = task.findings?.map((finding) => finding.message).join('; ') || 'Gate-Nacharbeit erforderlich'
+        return `${info.name} (${slotRole}) needs-work. Partieller Commit: ${task.commit}. Findings: ${findings}`
+      }
       if (task.status === 'error' && !result.isError) {
         return `${info.name} (${slotRole}) scheiterte an der Abnahme: ${task.note}`
       }
@@ -547,11 +705,46 @@ export class OrchestratorEngine extends EventEmitter {
         : `${info.name} (${slotRole}) meldet:\n${result.result || '(kein Textergebnis)'}${completion}`
     } catch (err) {
       task.status = 'error'
-      task.phase = task.phase ?? 'starting'
-      task.lastAction = 'Dispatch fehlgeschlagen'
+      task.failureKind = 'infrastructure'
+      task.phase = task.phase ?? 'preflight'
+      task.lastAction = err instanceof PanePreflightError ? 'Pane-Preflight fehlgeschlagen' : 'Dispatch fehlgeschlagen'
       task.lastHeartbeatAt = Date.now()
       task.note = err instanceof Error ? err.message : String(err)
       task.finishedAt = Date.now()
+      this.reliability.infrastructureFailures += 1
+      const metricKey = `${slot.provider}:${process.platform}`
+      this.reliability.failuresByProviderAndPlatform[metricKey] =
+        (this.reliability.failuresByProviderAndPlatform[metricKey] ?? 0) + 1
+      if (err instanceof PanePreflightError) {
+        task.preflight = err.report
+        task.blocker = err.blocker()
+        task.findings = err.report.checks
+          .filter((check) => check.status === 'failed')
+          .map((check) => ({
+            gate: 'preflight' as const,
+            code: check.id,
+            message: check.detail
+          }))
+        this.reliability.preflightFailed += 1
+      }
+      if (!activeAttempt) {
+        activeAttempt = {
+          attempt: attemptNumber,
+          provider: slot.provider,
+          model: resolveModel(slot.provider, slot),
+          status: 'error',
+          startedAt: Date.now(),
+          finishedAt: Date.now(),
+          failureKind: 'infrastructure',
+          note: task.note
+        }
+        task.attempts = [...(task.attempts ?? []), activeAttempt]
+      } else {
+        activeAttempt.status = 'error'
+        activeAttempt.failureKind = 'infrastructure'
+        activeAttempt.finishedAt = Date.now()
+        activeAttempt.note = task.note
+      }
       this.syncActivityFromTasks()
       this.push()
       return `Dispatch fehlgeschlagen: ${task.note}`
@@ -587,15 +780,36 @@ export class OrchestratorEngine extends EventEmitter {
     // non-terminal until the async result map is populated, so callers never
     // observe success/error without the corresponding result payload.
     const status = result == null && this.taskRuns.has(taskId) &&
-      (task.status === 'success' || task.status === 'error' || task.status === 'stopped')
+      (task.status === 'success' || task.status === 'needs-work' || task.status === 'error' || task.status === 'stopped')
       ? 'running'
       : task.status
     return {
-      taskId, title: task.title, role: task.role, agentId: task.agentId, agentName: task.agentName,
-      provider: task.provider, model: task.model, status, phase: task.phase, progress: task.progress,
-      lastAction: task.lastAction, lastHeartbeatAt: task.lastHeartbeatAt, completion: task.completion,
-      result: task.status === 'success' || task.status === 'stopped' ? result : undefined,
-      error: task.status === 'error' ? result ?? task.note : undefined, note: task.note
+      taskId,
+      title: task.title,
+      role: task.role,
+      agentId: task.agentId,
+      agentName: task.agentName,
+      provider: task.provider,
+      model: task.model,
+      status,
+      criticality: task.criticality,
+      ownership: task.ownership,
+      planTaskId: task.planTaskId,
+      phase: task.phase,
+      progress: task.progress,
+      lastAction: task.lastAction,
+      lastHeartbeatAt: task.lastHeartbeatAt,
+      completion: task.completion,
+      findings: task.findings?.map((finding) => ({ ...finding, files: finding.files ? [...finding.files] : undefined })),
+      blocker: task.blocker ? { ...task.blocker, details: [...task.blocker.details] } : undefined,
+      failureKind: task.failureKind,
+      preflight: task.preflight ? { ...task.preflight, checks: task.preflight.checks.map((check) => ({ ...check })) } : undefined,
+      attempts: task.attempts?.map((attempt) => ({ ...attempt })),
+      result: task.status === 'success' || task.status === 'needs-work' || task.status === 'stopped'
+        ? result ?? task.note
+        : undefined,
+      error: task.status === 'error' ? result ?? task.note : undefined,
+      note: task.note
     }
   }
 
@@ -622,60 +836,111 @@ export class OrchestratorEngine extends EventEmitter {
    * Validate and execute a model-authored DAG. The scheduler enforces global
    * concurrency, role capacity, dependencies and conflict keys.
    */
-  async executePlan(input: unknown): Promise<ExecutionPlanResult> {
+  async executePlan(input: unknown, runId?: string): Promise<ExecutionPlanResult> {
     const profile = this.activeProfile()
     if (profile?.planner.mode === 'manual') {
       throw new Error('Auto-Planung ist für dieses Profil deaktiviert.')
     }
     const subagents = this.listSubagents()
-    const defaultRole = subagents[0]?.role ?? 'worker'
+    const availableSubagents = subagents.filter((agent) => agent.available)
+    if (availableSubagents.length === 0) {
+      throw new Error('Kein Subagent hat den Pane-Preflight bestanden.')
+    }
+    const defaultRole = availableSubagents[0]?.role ?? 'worker'
     const resolved = resolveExecutionPlan(
-      input, defaultRole, undefined, subagents.map((agent) => agent.role)
+      input,
+      defaultRole,
+      undefined,
+      availableSubagents.map((agent) => agent.role)
     )
     const configuredLimit = profile?.planner.maxParallel ?? resolved.plan.maxParallel
     const plan = { ...resolved.plan, maxParallel: Math.min(resolved.plan.maxParallel, configuredLimit) }
     this.setGoal(plan.goal)
     this.planSeq += 1
     const planId = `plan-${Date.now().toString(36)}-${this.planSeq.toString(36)}`
+    if (runId) this.planRunPlanIds.set(runId, planId)
     const runtimeIds = new Map(
       plan.tasks.map((task) => [task.id, `${planId}-${task.id}`])
     )
+    const requiredDependencies = (task: ExecutionPlanTask): string[] => task.dependsOn
+    const advisoryDependencies = (task: ExecutionPlanTask): string[] => task.advisoryDependsOn
+    const allDependencies = (task: ExecutionPlanTask): string[] =>
+      [...requiredDependencies(task), ...advisoryDependencies(task)]
+
+    // Materialize every node before review/dispatch. list_tasks and
+    // get_plan_status can therefore never claim a plan is running with no children.
+    for (const planned of plan.tasks) {
+      const selected = this.pickSlot(planned.role)
+      const runtimeId = runtimeIds.get(planned.id)!
+      this.tasks.set(runtimeId, {
+        id: runtimeId,
+        planTaskId: planned.id,
+        title: planned.title,
+        role: selected.role,
+        provider: selected.slot.provider,
+        model: resolveModel(selected.slot.provider, selected.slot),
+        status: 'queued',
+        phase: 'queued',
+        criticality: planned.criticality,
+        ownership: planned.ownership,
+        note: planned.criticality === 'advisory' ? 'Advisory-Task' : undefined,
+        lastAction: profile?.planner.mode === 'review'
+          ? 'Wartet auf Planfreigabe'
+          : 'Wartet auf Abhängigkeiten und Kapazität',
+        lastHeartbeatAt: Date.now(),
+        dependsOn: requiredDependencies(planned).map((id) => runtimeIds.get(id)!),
+        advisoryDependsOn: advisoryDependencies(planned).map((id) => runtimeIds.get(id)!),
+        conflictKeys: planned.conflictKeys,
+        expectedFiles: planned.expectedFiles,
+        planId,
+        engineId: this.engineId,
+        createdAt: Date.now()
+      })
+    }
+    this.push()
+
     if (profile?.planner.mode === 'review') {
       const approved = await this.requestPlanReview({ planId, plan, validationIssues: resolved.issues })
       if (!approved) {
         const reason = 'Plan wurde im Review abgelehnt.'
         for (const planned of plan.tasks) {
-          const selected = this.pickSlot(planned.role)
-          const runtimeId = runtimeIds.get(planned.id)!
-          this.tasks.set(runtimeId, {
-            id: runtimeId,
-            title: planned.title,
-            role: selected.role,
-            provider: selected.slot.provider,
-            model: resolveModel(selected.slot.provider, selected.slot),
-            status: 'stopped',
+          const runtimeTask = this.tasks.get(runtimeIds.get(planned.id)!)!
+          Object.assign(runtimeTask, {
+            status: 'stopped' as const,
+            failureKind: 'cancelled' as const,
             note: reason,
-            planId,
-            createdAt: Date.now(),
+            lastAction: reason,
             finishedAt: Date.now()
           })
         }
         this.push()
         return {
           planId,
+          status: 'stopped',
           usedFallback: resolved.usedFallback,
           validationIssues: resolved.issues,
-          tasks: plan.tasks.map((task) => ({ id: task.id, status: 'stopped', result: reason }))
+          tasks: plan.tasks.map((task) => ({
+            id: task.id,
+            status: 'stopped',
+            criticality: task.criticality,
+            result: reason
+          }))
         }
       }
+    }
+
+    for (const planned of plan.tasks) {
+      const runtimeTask = this.tasks.get(runtimeIds.get(planned.id)!)
+      if (runtimeTask) runtimeTask.lastAction = 'Wartet auf Abhängigkeiten und Kapazität'
     }
     this.setActivityState(
       'delegating',
       `Startet den Ausführungsplan mit ${plan.tasks.length} Aufgabe(n) und maximal ${plan.maxParallel} parallel.`,
       plan.tasks.slice(0, 4).map((task) => `${task.role}: ${task.title}`),
-      'Subagents gemäß Abhängigkeiten starten und laufend überwachen.'
+      'Subagents gemäß harten und advisory Abhängigkeiten starten und laufend überwachen.'
     )
     this.push()
+
     const pending = new Map(plan.tasks.map((task) => [task.id, task]))
     const active = new Map<string, Promise<void>>()
     const activeConflicts = new Set<string>()
@@ -683,23 +948,21 @@ export class OrchestratorEngine extends EventEmitter {
 
     const stopTask = (task: ExecutionPlanTask, reason: string): void => {
       const runtimeId = runtimeIds.get(task.id)!
-      const selected = this.pickSlot(task.role)
-      const stopped: OrcaTask = {
-        id: runtimeId,
-        title: task.title,
-        role: selected.role,
-        provider: selected.slot.provider,
-        model: resolveModel(selected.slot.provider, selected.slot),
-        status: 'stopped',
+      const stopped = this.tasks.get(runtimeId)!
+      Object.assign(stopped, {
+        status: 'stopped' as const,
+        failureKind: 'worker' as const,
         note: reason,
-        dependsOn: task.dependsOn.map((id) => runtimeIds.get(id)!),
-        conflictKeys: task.conflictKeys,
-        planId,
-        createdAt: Date.now(),
+        lastAction: reason,
         finishedAt: Date.now()
-      }
-      this.tasks.set(runtimeId, stopped)
-      results.set(task.id, { id: task.id, status: 'stopped', result: reason })
+      })
+      results.set(task.id, {
+        id: task.id,
+        status: 'stopped',
+        criticality: task.criticality,
+        result: reason
+      })
+      this.taskResults.set(runtimeId, reason)
       pending.delete(task.id)
       this.syncActivityFromTasks()
       this.push()
@@ -709,11 +972,17 @@ export class OrchestratorEngine extends EventEmitter {
       pending.delete(task.id)
       for (const key of task.conflictKeys) activeConflicts.add(key)
       const runtimeId = runtimeIds.get(task.id)!
-      const dependencyContext = task.ownership === 'integrator'
-        ? task.dependsOn.map((id) => results.get(id)?.result).filter(Boolean).join('\n\n--- dependency ---\n\n')
-        : ''
+      const dependencyContext = allDependencies(task)
+        .map((id) => {
+          const dependency = results.get(id)
+          return dependency
+            ? `# ${id} [${dependency.status}]\n${dependency.result}`
+            : undefined
+        })
+        .filter(Boolean)
+        .join('\n\n--- dependency ---\n\n')
       const taskPrompt = dependencyContext
-        ? `${task.prompt}\n\nDependency results (commits and integration notes):\n${dependencyContext}`
+        ? `${task.prompt}\n\nDependency results (use available commits/findings; advisory failures do not block):\n${dependencyContext}`
         : task.prompt
       const running = (async (): Promise<void> => {
         const maxRetries = profile?.planner.maxRetries ?? 1
@@ -726,47 +995,93 @@ export class OrchestratorEngine extends EventEmitter {
           const output = await this.dispatch(
             requestedRole,
             recoveryContext
-              ? `${taskPrompt}\n\nPrevious worker attempt failed. Diagnose the failure and continue safely:\n${recoveryContext}`
+              ? `${taskPrompt}\n\nPrevious worker attempt failed. Continue safely from this concise recovery context:\n${recoveryContext.slice(0, 4_000)}`
               : taskPrompt,
             task.title,
             {
               taskId: runtimeId,
               planId,
-              dependsOn: task.dependsOn.map((id) => runtimeIds.get(id)!),
-              conflictKeys: task.conflictKeys
+              planTaskId: task.id,
+              dependsOn: requiredDependencies(task).map((id) => runtimeIds.get(id)!),
+              advisoryDependsOn: advisoryDependencies(task).map((id) => runtimeIds.get(id)!),
+              conflictKeys: task.conflictKeys,
+              expectedFiles: task.expectedFiles,
+              criticality: task.criticality,
+              ownership: task.ownership,
+              attempt: attempt + 1,
+              maxAttempts: maxRetries + 1
             }
           )
+          this.taskResults.set(runtimeId, output)
           const runtimeTask = this.tasks.get(runtimeId)
-          if (runtimeTask?.status === 'success') {
-            results.set(task.id, { id: task.id, status: 'success', result: output })
+          const terminal = runtimeTask?.status
+          if (terminal === 'success' || terminal === 'needs-work' || terminal === 'stopped') {
+            results.set(task.id, {
+              id: task.id,
+              status: terminal,
+              criticality: task.criticality,
+              result: output,
+              commit: runtimeTask?.commit,
+              findings: runtimeTask?.findings
+            })
             return
           }
-          if (runtimeTask?.status === 'stopped') {
-            results.set(task.id, { id: task.id, status: 'stopped', result: output })
-            return
-          }
+
           if (attempt >= maxRetries) {
-            results.set(task.id, { id: task.id, status: 'error', result: output })
+            results.set(task.id, {
+              id: task.id,
+              status: 'error',
+              criticality: task.criticality,
+              result: output,
+              commit: runtimeTask?.commit,
+              findings: runtimeTask?.findings
+            })
             return
           }
 
           recoveryContext = output
-          const alternatives = this.listSubagents().filter((agent) => !attemptedRoles.has(agent.role))
-          if (profile?.planner.routingMode === 'adaptive' && alternatives.length > 0) {
-            requestedRole = alternatives.sort((a, b) => (a.busy / a.capacity) - (b.busy / b.capacity))[0]!.role
+          const alternatives = this.listSubagents()
+            .filter((agent) => agent.available && !attemptedRoles.has(agent.role))
+            .sort((a, b) => (a.busy / a.capacity) - (b.busy / b.capacity))
+          if (profile?.planner.routingMode !== 'adaptive' || alternatives.length === 0) {
+            results.set(task.id, {
+              id: task.id,
+              status: 'error',
+              criticality: task.criticality,
+              result: output,
+              commit: runtimeTask?.commit,
+              findings: runtimeTask?.findings
+            })
+            return
           }
+          requestedRole = alternatives[0]!.role
+          this.reliability.automaticRecoveries += 1
           this.setActivityState(
             'delegating',
-            `Worker-Fehler erkannt; Recovery ${attempt + 1}/${maxRetries} wird gestartet.`,
+            `Worker-/Pane-Fehler erkannt; Recovery ${attempt + 1}/${maxRetries} auf gesundem Slot.`,
             [`${task.title}: ${requestedRole}`],
-            'Ersatz-Worker auswerten und erst danach abhaengige Aufgaben freigeben.'
+            'Ersatz-Worker auswerten und erst danach abhängige Aufgaben freigeben.'
           )
           this.push()
         }
       })()
         .catch((error: unknown) => {
           const message = error instanceof Error ? error.message : String(error)
-          results.set(task.id, { id: task.id, status: 'error', result: message })
+          const runtimeTask = this.tasks.get(runtimeId)
+          if (runtimeTask) {
+            runtimeTask.status = 'error'
+            runtimeTask.failureKind = 'infrastructure'
+            runtimeTask.note = message
+            runtimeTask.lastAction = 'Plan-Dispatch unerwartet fehlgeschlagen'
+            runtimeTask.finishedAt = Date.now()
+          }
+          results.set(task.id, {
+            id: task.id,
+            status: 'error',
+            criticality: task.criticality,
+            result: message
+          })
+          this.taskResults.set(runtimeId, message)
         })
         .finally(() => {
           active.delete(task.id)
@@ -776,17 +1091,16 @@ export class OrchestratorEngine extends EventEmitter {
     }
 
     while (pending.size > 0 || active.size > 0) {
-      // A failed prerequisite stops its downstream nodes without spawning CLIs.
       let stoppedOne: boolean
       do {
         stoppedOne = false
         for (const task of [...pending.values()]) {
-          const failedDependency = task.dependsOn.find((dependency) => {
+          const failedDependency = requiredDependencies(task).find((dependency) => {
             const result = results.get(dependency)
             return result && result.status !== 'success'
           })
           if (failedDependency) {
-            stopTask(task, `Abhaengigkeit ${failedDependency} ist fehlgeschlagen.`)
+            stopTask(task, `Erforderliche Abhängigkeit ${failedDependency} ist fehlgeschlagen.`)
             stoppedOne = true
           }
         }
@@ -795,7 +1109,8 @@ export class OrchestratorEngine extends EventEmitter {
       while (active.size < plan.maxParallel) {
         const next = [...pending.values()].find(
           (task) =>
-            task.dependsOn.every((dependency) => results.get(dependency)?.status === 'success') &&
+            requiredDependencies(task).every((dependency) => results.get(dependency)?.status === 'success') &&
+            advisoryDependencies(task).every((dependency) => results.has(dependency)) &&
             task.conflictKeys.every((key) => !activeConflicts.has(key))
         )
         if (!next) break
@@ -803,29 +1118,45 @@ export class OrchestratorEngine extends EventEmitter {
       }
 
       if (active.size === 0 && pending.size > 0) {
-        // Validation should make this unreachable; keep the runtime fail-closed.
         for (const task of [...pending.values()]) {
-          stopTask(task, 'Scheduler konnte keinen sicheren naechsten Task bestimmen.')
+          stopTask(task, 'Scheduler konnte keinen sicheren nächsten Task bestimmen.')
         }
         break
       }
       if (active.size > 0) await Promise.race(active.values())
     }
+
     await this.publishPendingChanges(planId)
     const planTasks = [...this.tasks.values()].filter((task) => task.planId === planId)
-    const failedTasks = planTasks.filter((task) => task.status === 'error' || task.status === 'stopped')
+    const requiredTasks = planTasks.filter((task) => (task.criticality ?? 'required') === 'required')
+    const requiredNeedsWork = requiredTasks.filter((task) => task.status === 'needs-work')
+    const requiredErrors = requiredTasks.filter((task) => task.status === 'error')
+    const requiredStopped = requiredTasks.filter((task) => task.status === 'stopped')
+    const planStatus: ExecutionPlanResult['status'] = requiredNeedsWork.length > 0
+      ? 'needs-work'
+      : requiredErrors.length > 0
+        ? 'error'
+        : requiredStopped.length > 0
+          ? 'stopped'
+          : 'success'
+    const attentionTasks = [...requiredNeedsWork, ...requiredErrors, ...requiredStopped]
+    this.reliability.completedPlans += 1
+    if (planStatus !== 'success') this.reliability.preventedFalseSuccesses += 1
     this.setActivityState(
-      failedTasks.length > 0 ? 'blocked' : 'summarizing',
-      failedTasks.length > 0
-        ? `Der Plan ist beendet; ${failedTasks.length} Aufgabe(n) benötigen Aufmerksamkeit.`
-        : 'Der Plan ist beendet; alle Subagent-Ergebnisse werden jetzt zu einer verständlichen Antwort verdichtet.',
+      attentionTasks.length > 0 ? 'blocked' : 'summarizing',
+      attentionTasks.length > 0
+        ? `Der Plan ist wahrheitsgetreu ${planStatus}; ${attentionTasks.length} erforderliche Aufgabe(n) benötigen Aufmerksamkeit.`
+        : 'Alle erforderlichen Aufgaben und Integrationsprüfungen sind erfolgreich; advisory Findings bleiben sichtbar.',
       planTasks.slice(-4).map((task) => `${task.agentName ?? task.role}: ${task.title} · ${task.lastAction ?? task.status}`),
-      failedTasks.length > 0 ? 'Blocker erklären und sichere Folgeaktionen vorschlagen.' : 'Gesamtergebnis, Prüfstatus und nächste Schritte berichten.'
+      attentionTasks.length > 0
+        ? 'Partielle Commits und Blocker erklären und fokussierte Nacharbeit planen.'
+        : 'Gesamtergebnis, Prüfstatus und advisory Hinweise berichten.'
     )
     this.push()
 
     return {
       planId,
+      status: planStatus,
       usedFallback: resolved.usedFallback,
       validationIssues: resolved.issues,
       tasks: plan.tasks.map(
@@ -833,6 +1164,7 @@ export class OrchestratorEngine extends EventEmitter {
           results.get(task.id) ?? {
             id: task.id,
             status: 'stopped',
+            criticality: task.criticality,
             result: 'Kein Ergebnis.'
           }
       )
@@ -856,6 +1188,9 @@ export class OrchestratorEngine extends EventEmitter {
       title: 'Integration & Abnahme',
       role: 'integrator',
       status: 'running',
+      criticality: 'required',
+      ownership: 'integrator',
+      engineId: this.engineId,
       phase: 'integrating',
       progress: 25,
       lastAction: 'Übernimmt verifizierte Task-Commits',
@@ -958,21 +1293,60 @@ export class OrchestratorEngine extends EventEmitter {
   /** Start a complete DAG without keeping the MCP request open. */
   executePlanAsync(input: unknown): PlanRunStatusSnapshot {
     const runId = `plan-run-${Date.now().toString(36)}-${(this.planSeq + 1).toString(36)}`
-    this.planRunResults.set(runId, { runId, status: 'running' })
-    const run = this.executePlan(input)
-      .then((result) => { this.planRunResults.set(runId, { runId, status: 'success', result }); return result })
+    const initial: PlanRunStatusSnapshot = {
+      runId,
+      status: 'running',
+      engineId: this.engineId,
+      workspaceSessionId: this.workspaceSessionId,
+      goal: this.goal?.title
+    }
+    this.planRunResults.set(runId, initial)
+    const run = this.executePlan(input, runId)
+      .then((result) => {
+        this.planRunResults.set(runId, {
+          ...initial,
+          status: result.status,
+          planId: result.planId,
+          result
+        })
+        return result
+      })
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error)
-        this.planRunResults.set(runId, { runId, status: 'error', error: message })
+        this.planRunResults.set(runId, { ...initial, status: 'error', error: message })
         throw error
       })
     this.planRuns.set(runId, run)
     void run.catch(() => undefined).finally(() => this.planRuns.delete(runId))
-    return { runId, status: 'running' }
+    return initial
   }
 
   getPlanRunStatus(runId: string): PlanRunStatusSnapshot | undefined {
-    return this.planRunResults.get(runId)
+    const stored = this.planRunResults.get(runId)
+    if (!stored) return undefined
+    const planId = stored.planId ?? this.planRunPlanIds.get(runId)
+    const tasks = planId
+      ? [...this.tasks.values()]
+          .filter((task) => task.planId === planId)
+          .map((task) => this.getTaskStatus(task.id))
+          .filter((task): task is TaskStatusSnapshot => Boolean(task))
+      : []
+    return {
+      ...stored,
+      engineId: this.engineId,
+      workspaceSessionId: this.workspaceSessionId,
+      planId,
+      goal: this.goal?.title,
+      tasks,
+      summary: {
+        required: tasks.filter((task) => (task.criticality ?? 'required') === 'required').length,
+        advisory: tasks.filter((task) => task.criticality === 'advisory').length,
+        running: tasks.filter((task) => task.status === 'queued' || task.status === 'running').length,
+        succeeded: tasks.filter((task) => task.status === 'success').length,
+        needsWork: tasks.filter((task) => task.status === 'needs-work').length,
+        failed: tasks.filter((task) => task.status === 'error' || task.status === 'stopped').length
+      }
+    }
   }
 
   /** Open a persistent interactive subagent in its own OS window. */
@@ -988,7 +1362,8 @@ export class OrchestratorEngine extends EventEmitter {
       yolo: slot.yolo || (profile?.yoloDefault ?? false),
       workingDir: slot.workingDir || profile?.workingDir,
       profileId: profile?.id,
-      workspaceSessionId: this.workspaceSessionId
+      workspaceSessionId: this.workspaceSessionId,
+      engineId: this.engineId
     })
     createPaneWindow(info.id)
     if (prompt) {

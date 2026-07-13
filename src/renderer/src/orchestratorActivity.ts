@@ -21,6 +21,7 @@ export const ORCHESTRATOR_ACTIVITY_LABEL: Record<OrchestratorActivityPhase, stri
 
 export const TASK_PHASE_LABEL: Record<TaskPhase, string> = {
   queued: 'Wartet',
+  preflight: 'Preflight',
   starting: 'Startet',
   working: 'Arbeitet',
   testing: 'Prüft',
@@ -103,7 +104,7 @@ export function resolveOrchestratorActivity(
 
   if (snapshot.goal?.active && snapshot.tasks.length > 0) {
     const recent = [...snapshot.tasks].sort((a, b) => b.createdAt - a.createdAt).slice(0, 4)
-    const failed = recent.filter((task) => task.status === 'error')
+    const failed = recent.filter((task) => task.status === 'error' || task.status === 'needs-work')
     return {
       phase: failed.length > 0 ? 'blocked' : 'summarizing',
       summary: failed.length > 0

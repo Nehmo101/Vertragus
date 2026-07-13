@@ -242,4 +242,135 @@ describe('asynchronous orchestration API', () => {
     expect(result.tasks[0]).toEqual(expect.objectContaining({ status: 'success' }))
     expect(runTask.mock.calls.slice(-2).map(([request]) => request.provider)).toEqual(['codex', 'cursor'])
   })
+
+
+  it('shows live plan nodes and derives failure from required child state', async () => {
+    let finish!: (value: { result: string; isError: boolean; status: 'failed' }) => void
+    runTask.mockImplementationOnce(async (request) => ({
+      info: info(request.taskId),
+      done: new Promise((resolve) => { finish = resolve })
+    }))
+    const profile = {
+      ...DEFAULT_PROFILE,
+      planner: { ...DEFAULT_PROFILE.planner, mode: 'auto' as const, maxRetries: 0 }
+    }
+    const engine = new OrchestratorEngine({ profile })
+    const started = engine.executePlanAsync({
+      version: 1,
+      goal: 'Truthful live plan',
+      maxParallel: 1,
+      tasks: [{
+        id: 'required', title: 'Required delivery', role: 'codex', prompt: 'Fail explicitly.',
+        dependsOn: [], advisoryDependsOn: [], criticality: 'required', conflictKeys: [],
+        ownership: 'feature', expectedFiles: []
+      }]
+    })
+
+    await vi.waitFor(() => {
+      expect(engine.getPlanRunStatus(started.runId)?.tasks?.[0]).toEqual(
+        expect.objectContaining({
+          planTaskId: 'required',
+          status: 'running',
+          lastAction: expect.any(String),
+          lastHeartbeatAt: expect.any(Number)
+        })
+      )
+    })
+    finish({ result: 'Worker failed', isError: true, status: 'failed' })
+    await vi.waitFor(() => expect(engine.getPlanRunStatus(started.runId)?.status).toBe('error'))
+    expect(engine.getPlanRunStatus(started.runId)?.summary).toEqual(
+      expect.objectContaining({ required: 1, failed: 1 })
+    )
+    expect(engine.snapshot().reliability?.preventedFalseSuccesses).toBe(1)
+  })
+
+  it('allows advisory failure without turning verified required work red', async () => {
+    runTask.mockImplementation(async (request) => ({
+      info: info(request.taskId),
+      done: Promise.resolve(
+        request.prompt.includes('Advisory audit')
+          ? { result: 'Audit unavailable', isError: true, status: 'failed' as const }
+          : { result: 'Delivery verified', isError: false, status: 'succeeded' as const }
+      )
+    }))
+    const profile = {
+      ...DEFAULT_PROFILE,
+      planner: { ...DEFAULT_PROFILE.planner, mode: 'auto' as const, maxRetries: 0 }
+    }
+    const engine = new OrchestratorEngine({ profile })
+    const result = await engine.executePlan({
+      version: 1,
+      goal: 'Advisory semantics',
+      maxParallel: 1,
+      tasks: [
+        {
+          id: 'audit', title: 'Optional audit', role: 'codex', prompt: 'Advisory audit',
+          dependsOn: [], advisoryDependsOn: [], criticality: 'advisory', conflictKeys: [],
+          ownership: 'feature', expectedFiles: []
+        },
+        {
+          id: 'delivery', title: 'Required delivery', role: 'codex', prompt: 'Required work',
+          dependsOn: [], advisoryDependsOn: ['audit'], criticality: 'required', conflictKeys: [],
+          ownership: 'feature', expectedFiles: []
+        }
+      ]
+    })
+
+    expect(result.status).toBe('success')
+    expect(result.tasks).toEqual([
+      expect.objectContaining({ id: 'audit', status: 'error', criticality: 'advisory' }),
+      expect.objectContaining({ id: 'delivery', status: 'success', criticality: 'required' })
+    ])
+  })
+
+  it('surfaces a partial central commit as needs-work with findings', async () => {
+    runTask.mockImplementationOnce(async (request) => ({
+      info: info(request.taskId),
+      done: Promise.resolve({ result: 'Implemented', isError: false, status: 'succeeded' as const })
+    }))
+    prepareTaskChange.mockResolvedValueOnce({
+      status: 'blocked',
+      result: 'needs-work',
+      message: 'Partial commit retained.',
+      branch: 'orca/partial',
+      worktree: '.',
+      change: {
+        taskId: 'partial',
+        title: 'Sensitive feature',
+        worktree: '.',
+        branch: 'orca/partial',
+        commit: 'b'.repeat(40),
+        commits: ['b'.repeat(40)],
+        files: ['src/main/ipc/sensitive.ts']
+      },
+      findings: [{
+        gate: 'security',
+        code: 'missing-ipc-controls',
+        message: 'authorization, validation',
+        files: ['src/main/ipc/sensitive.ts']
+      }]
+    })
+    const profile = {
+      ...DEFAULT_PROFILE,
+      planner: { ...DEFAULT_PROFILE.planner, mode: 'auto' as const, maxRetries: 0 }
+    }
+    const engine = new OrchestratorEngine({ profile })
+    const result = await engine.executePlan({
+      version: 1,
+      goal: 'Preserve partial value',
+      maxParallel: 1,
+      tasks: [{
+        id: 'partial', title: 'Sensitive feature', role: 'codex', prompt: 'Implement IPC.',
+        dependsOn: [], advisoryDependsOn: [], criticality: 'required', conflictKeys: [],
+        ownership: 'feature', expectedFiles: ['src/main/ipc/sensitive.ts']
+      }]
+    })
+
+    expect(result.status).toBe('needs-work')
+    expect(result.tasks[0]).toEqual(expect.objectContaining({
+      status: 'needs-work',
+      commit: 'b'.repeat(40),
+      findings: [expect.objectContaining({ code: 'missing-ipc-controls' })]
+    }))
+  })
 })

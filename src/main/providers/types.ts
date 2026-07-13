@@ -115,6 +115,7 @@ export function buildHeadlessLaunch(
         command: 'cursor-agent',
         args: [
           '-p',
+          '--trust',
           prompt,
           '--output-format',
           'stream-json',

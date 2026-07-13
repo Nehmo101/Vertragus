@@ -320,10 +320,16 @@ export async function runSelfTest(): Promise<void> {
         'get_plan_status', { runId: planAccepted.runId }, (value) => value.status !== 'running'
       )
       const planResult = planRun.result!
+      const planAPosition = dispatched.findIndex((item) => item.prompt.includes('PLAN-A'))
+      const planBPosition = dispatched.findIndex((item) => item.prompt.includes('PLAN-B'))
+      const planCPosition = dispatched.findIndex((item) => item.prompt.includes('PLAN-C'))
       check(
         !planResult.usedFallback &&
           planResult.tasks.every((task) => task.status === 'success') &&
-          dispatched.map((item) => item.prompt).join(',') === 'PLAN-A,PLAN-B,PLAN-C',
+          planAPosition >= 0 &&
+          planBPosition >= 0 &&
+          planCPosition > planAPosition &&
+          planCPosition > planBPosition,
         'execute_plan runs prerequisites before dependent DAG nodes'
       )
 
