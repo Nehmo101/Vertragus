@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { shouldAutoTrustCursorWorktree } from './cursorWorkspaceTrust'
+import {
+  cursorWorkspaceTrustPrompt,
+  isOrcaWorktreePath,
+  normalizeWorkspacePath,
+  shouldAutoTrustCursorWorktree
+} from './cursorWorkspaceTrust'
 
 const worktree = 'C:\\git\\UWE\\.orca-worktrees\\session-a\\sub-01'
 
@@ -16,7 +21,49 @@ describe('shouldAutoTrustCursorWorktree', () => {
     ).toBe(true)
   })
 
-  it('keeps Cursor confirmation for ordinary or already-interacted workspaces', () => {
+  it.each([
+    `[A] Trust this workspace\n${worktree}`,
+    `${worktree}\n(a) Trust this workspace`,
+    `${worktree.replace(/\\/g, '/')}\nPress 'a' to trust this workspace`,
+    `\x1b[2K${worktree}\r\nA)\x1b[1m Trust this workspace\x1b[0m`
+  ])('accepts ANSI and Cursor prompt variants', (output) => {
+    expect(
+      shouldAutoTrustCursorWorktree({
+        output,
+        workingDir: worktree,
+        worktree,
+        alreadyHandled: false,
+        interactiveUsed: false
+      })
+    ).toBe(true)
+  })
+
+  it('normalizes equivalent Windows paths before checking ownership', () => {
+    expect(normalizeWorkspacePath(worktree)).toBe('c:/git/uwe/.orca-worktrees/session-a/sub-01')
+    expect(
+      shouldAutoTrustCursorWorktree({
+        output: `Trust this workspace\n[a]\nC:/git/UWE/.orca-worktrees/session-a/sub-01`,
+        workingDir: 'C:/git/UWE/.orca-worktrees/session-a/./sub-01',
+        worktree,
+        alreadyHandled: false,
+        interactiveUsed: false
+      })
+    ).toBe(true)
+  })
+
+  it('waits for incomplete trust screens without accepting them', () => {
+    expect(
+      cursorWorkspaceTrustPrompt({
+        output: 'Workspace Trust Required\nTrust this workspace',
+        workingDir: worktree,
+        worktree,
+        alreadyHandled: false,
+        interactiveUsed: false
+      })
+    ).toBe('partial')
+  })
+
+  it('keeps Cursor confirmation for ordinary, malformed, or already-interacted workspaces', () => {
     const output = `Workspace Trust Required\n${worktree}\n[a] Trust this workspace`
     expect(
       shouldAutoTrustCursorWorktree({
@@ -35,5 +82,24 @@ describe('shouldAutoTrustCursorWorktree', () => {
         interactiveUsed: false
       })
     ).toBe(false)
+    expect(
+      shouldAutoTrustCursorWorktree({
+        output,
+        workingDir: 'C:\\Users\\user\\project',
+        worktree: 'C:\\Users\\user\\project',
+        alreadyHandled: false,
+        interactiveUsed: false
+      })
+    ).toBe(false)
+    expect(
+      shouldAutoTrustCursorWorktree({
+        output: `C:\\git\\UWE\\.orca-worktrees\\session-a\\sub-01\\nested\n[a] Trust this workspace`,
+        workingDir: 'C:\\git\\UWE\\.orca-worktrees\\session-a\\sub-01\\nested',
+        worktree: 'C:\\git\\UWE\\.orca-worktrees\\session-a\\sub-01\\nested',
+        alreadyHandled: false,
+        interactiveUsed: false
+      })
+    ).toBe(false)
+    expect(isOrcaWorktreePath('C:\\git\\UWE\\.orca-worktrees\\session-a\\sub-01\\nested')).toBe(false)
   })
 })
