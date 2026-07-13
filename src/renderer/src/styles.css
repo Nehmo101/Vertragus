@@ -2658,10 +2658,14 @@ button {
   height: 25px;
 }
 
-.usage-unavailable {
-  color: var(--text-4);
-  font-size: 10px;
+.telemetry-status {
+  color: var(--text-3);
+  font-size: 9.5px;
   font-style: italic;
+  white-space: nowrap;
+}
+.telemetry-status.partial {
+  color: var(--warn-text);
 }
 .automation-section {
   margin-top: 17px;

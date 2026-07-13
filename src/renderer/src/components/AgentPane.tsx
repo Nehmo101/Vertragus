@@ -3,6 +3,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import type { AgentInstanceInfo } from '@shared/agents'
 import { LIMIT_KIND_LABELS } from '@shared/agents'
+import { summarizeUsage, TELEMETRY_STATUS_LABELS, TELEMETRY_STATUS_TITLES } from '@shared/telemetry'
 import { PROVIDER_THEME, STATUS_THEME, XTERM_THEME } from '@renderer/ui/theme'
 import LoreName from '@renderer/components/LoreName'
 import { isAgentTerminalChunk } from './terminalStream'
@@ -171,7 +172,7 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
   const isOrch = agent.kind === 'orchestrator'
   const yoloLive = agent.yolo && agent.status === 'running'
   const usage = agent.usage
-  const tokens = (usage?.tokensIn ?? 0) + (usage?.tokensOut ?? 0)
+  const telemetry = summarizeUsage(usage)
   const limit = agent.limitWarning
 
   return (
@@ -257,19 +258,24 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
       <div className="pane-foot">
         {usage ? (
           <>
-            {usage.steps != null && <span><span className="k">Schritte</span> <b>{usage.steps}</b></span>}
-            {tokens > 0 && (
+            {telemetry.steps != null && <span><span className="k">Schritte</span> <b>{telemetry.steps}</b></span>}
+            {telemetry.tokens != null && (
               <span title={`${usage.tokensIn ?? 0} Eingabe · ${usage.tokensOut ?? 0} Ausgabe`}>
-                <span className="k">Tokens</span> <b>{tokens.toLocaleString()}</b>
+                <span className="k">Tokens</span> <b>{telemetry.tokens.toLocaleString()}</b>
               </span>
             )}
-            {usage.costUsd != null && (
-              <span><span className="k">Kosten</span> <b className="cost">${usage.costUsd.toFixed(4)}</b></span>
+            {telemetry.costUsd != null && (
+              <span><span className="k">Kosten</span> <b className="cost">${telemetry.costUsd.toFixed(4)}</b></span>
             )}
           </>
         ) : (
-          <span className="usage-unavailable" title="Dieser Provider liefert derzeit keine Telemetrie an Orca-Strator">
-            Nutzungsdaten nicht verfügbar
+          <span className="telemetry-status absent" title={TELEMETRY_STATUS_TITLES.absent}>
+            {TELEMETRY_STATUS_LABELS.absent}
+          </span>
+        )}
+        {usage && telemetry.status !== 'present' && (
+          <span className={`telemetry-status ${telemetry.status}`} title={TELEMETRY_STATUS_TITLES[telemetry.status]}>
+            {TELEMETRY_STATUS_LABELS[telemetry.status]}
           </span>
         )}
         <span className="spacer" />

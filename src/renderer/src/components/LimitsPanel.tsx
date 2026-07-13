@@ -7,6 +7,7 @@ import {
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import type { AgentProviderId } from '@shared/providers'
 import type { ProviderCapacitySnapshot } from '@shared/ipc'
+import { summarizeUsageGroup, TELEMETRY_STATUS_LABELS, TELEMETRY_STATUS_TITLES, type TelemetrySummary } from '@shared/telemetry'
 
 /** All agent providers surfaced in the Limits panel (integrations excluded). */
 const PANEL_PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'cursor', 'copilot', 'ollama']
@@ -22,9 +23,8 @@ interface ProviderUsage {
   id: AgentProviderId
   active: number
   waiting: number
-  tokens: number
-  cost: number
   limit: number
+  telemetry: TelemetrySummary
 }
 
 /**
@@ -62,24 +62,20 @@ export default function LimitsPanel(): JSX.Element {
     const gate = capacity?.[id]
     const active = gate?.active ?? list.filter((a) => a.status === 'running' || a.status === 'waiting').length
     const waiting = gate?.waiting ?? 0
-    const tokens = list.reduce(
-      (n, a) => n + (a.usage?.tokensIn ?? 0) + (a.usage?.tokensOut ?? 0),
-      0
-    )
-    const cost = list.reduce((n, a) => n + (a.usage?.costUsd ?? 0), 0)
+    const telemetry = summarizeUsageGroup(list.map((agent) => agent.usage))
     return {
       id,
       active,
       waiting,
-      tokens,
-      cost,
-      limit: gate?.limit ?? limits[id] ?? 0
+      limit: gate?.limit ?? limits[id] ?? 0,
+      telemetry
     }
   })
 
   const totalActive = rows.reduce((n, r) => n + r.active, 0)
   const totalWaiting = rows.reduce((n, r) => n + r.waiting, 0)
-  const totalCost = rows.reduce((n, r) => n + r.cost, 0)
+  const totalCost = rows.reduce((n, r) => n + (r.telemetry.costUsd ?? 0), 0)
+  const hasCost = rows.some((r) => r.telemetry.costUsd != null)
   const configuredPrewarmed =
     profile?.agents.reduce((count, slot) => count + slot.count, 0) ?? 0
   const prewarmed = visibleAgents.filter(
@@ -96,7 +92,7 @@ export default function LimitsPanel(): JSX.Element {
       <div className="limits-head">
         <span className="limits-title">Kapazität</span>
         <span className="limits-total">
-          {totalCost > 0 ? `${totalCost.toFixed(2)} Nutzung` : 'Live-Modell'}
+          {totalActive} aktiv{hasCost ? ` · $${totalCost.toFixed(2)}` : ''}
         </span>
       </div>
       <div className="capacity-grid" aria-label="Einheitliches Kapazitätsmodell">
@@ -139,12 +135,17 @@ export default function LimitsPanel(): JSX.Element {
                 <div className="limit-row-top">
                   <span className="limit-name">{theme.label}</span>
                   <span className="limit-usage">
-                    {r.tokens > 0 && (
-                      <span title={`${r.tokens.toLocaleString()} Tokens (Eingabe + Ausgabe)`}>
-                        {fmtTokens(r.tokens)} Tok
+                    {r.telemetry.tokens != null && (
+                      <span title={`${r.telemetry.tokens.toLocaleString()} Tokens (Eingabe + Ausgabe)`}>
+                        {fmtTokens(r.telemetry.tokens)} Tokens
                       </span>
                     )}
-                    {r.cost > 0 && <span className="cost">${r.cost.toFixed(2)}</span>}
+                    {r.telemetry.costUsd != null && <span className="cost">${r.telemetry.costUsd.toFixed(2)}</span>}
+                    {r.telemetry.status !== 'present' && (
+                      <span className={`telemetry-status ${r.telemetry.status}`} title={TELEMETRY_STATUS_TITLES[r.telemetry.status]}>
+                        {TELEMETRY_STATUS_LABELS[r.telemetry.status]}
+                      </span>
+                    )}
                   </span>
                 </div>
                 <div className="limit-bar">
