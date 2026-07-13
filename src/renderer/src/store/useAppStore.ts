@@ -56,6 +56,7 @@ interface AppState {
 
   init(): Promise<void>
   refreshHealth(): Promise<void>
+  refreshModels(): Promise<void>
   refreshGithubAuth(): Promise<void>
   githubLogin(): Promise<void>
   githubLogout(): Promise<void>
@@ -186,7 +187,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     window.orca.agents.onEvent((evt) =>
       set((s) => ({ events: [...s.events.slice(-199), evt] }))
     )
-    window.orca.onProvidersChanged((health) => set({ health }))
+    window.orca.onProvidersChanged((health) => {
+      set({ health })
+      // A provider login can change the account-visible model catalogue.
+      void get().refreshModels()
+    })
     window.orca.orchestrator.onSnapshot((snap) =>
       set((state) => {
         const profileId = snap.profileId
@@ -231,7 +236,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     void get().refreshGit()
     void get().refreshHealth()
     void get().refreshGithubAuth()
-    void window.orca.listModels().then((models) => set({ models }))
+    void get().refreshModels()
   },
 
   async refreshGithubAuth() {
@@ -274,11 +279,22 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ health })
   },
 
+  async refreshModels() {
+    try {
+      const models = await window.orca.listModels()
+      set({ models })
+    } catch {
+      // Model suggestions are optional. Keep the last known list when a
+      // provider is unavailable or a live probe times out.
+    }
+  },
+
   async loginProvider(id) {
     const provider = get().health.find((item) => item.id === id)
     if (!provider?.available || !provider.canLogin) return
     try {
       await window.orca.loginProvider(id)
+      void get().refreshModels()
       get().showToast(`${provider.loginLabel ?? 'Provider-Login'} im sicheren Terminal geöffnet.`)
     } catch (error) {
       get().showToast(`Login konnte nicht gestartet werden: ${errorMessage(error)}`)

@@ -87,7 +87,6 @@ export default function ProfileEditor(): JSX.Element | null {
 
   const models = store.models
   const modelsFor = (p: AgentProviderId): string[] => models[p] ?? []
-  const defaultModelFor = (p: AgentProviderId): string => (p === 'codex' ? '' : modelsFor(p)[0] ?? '')
   const presetValue = (preset?: ModelPreset): string => preset ?? ''
   const parsePreset = (value: string): ModelPreset | undefined =>
     value === 'fast' || value === 'balanced' || value === 'strong' ? value : undefined
@@ -470,7 +469,9 @@ export default function ProfileEditor(): JSX.Element | null {
                 patch({
                   orchestrator: {
                     provider: 'claude',
-                    model: modelsFor('claude')[0] ?? 'fable',
+                    // The preset defines the default; a model remains an
+                    // intentional, provider-specific override.
+                    model: '',
                     modelPreset: 'balanced',
                     autoOpenSubwindows: true
                   }
@@ -504,7 +505,10 @@ export default function ProfileEditor(): JSX.Element | null {
                       orchestrator: {
                         ...draft.orchestrator!,
                         provider,
-                        model: defaultModelFor(provider)
+                        // An explicit model takes priority over a preset.
+                        // Do not carry an incompatible old-provider model
+                        // across a provider switch.
+                        model: ''
                       }
                     })
                   }}
@@ -716,7 +720,9 @@ export default function ProfileEditor(): JSX.Element | null {
                     value={slot.provider}
                     onChange={(e) => {
                       const provider = e.target.value as AgentProviderId
-                      patchSlot(idx, { provider, model: defaultModelFor(provider) })
+                      // Clear the explicit override, so the current preset is
+                      // resolved against the newly selected provider.
+                      patchSlot(idx, { provider, model: '' })
                     }}
                   >
                     {AGENT_PROVIDERS.map((p) => (
