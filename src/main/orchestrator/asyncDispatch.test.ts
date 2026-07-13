@@ -1,0 +1,91 @@
+import { describe, expect, it, vi } from 'vitest'
+import { DEFAULT_PROFILE } from '@shared/profile'
+
+vi.mock('electron', () => ({
+  app: { getPath: () => '.', getName: () => 'test', isPackaged: false },
+  BrowserWindow: class {},
+  shell: { openExternal: vi.fn() }
+}))
+
+vi.mock('@main/windows', () => ({ createPaneWindow: vi.fn(), broadcast: vi.fn() }))
+vi.mock('@main/config/store', () => ({
+  getProfile: () => DEFAULT_PROFILE,
+  getActiveProfileId: () => 'default',
+  getSetting: () => undefined,
+  setSetting: vi.fn()
+}))
+
+const { runTask } = vi.hoisted(() => ({ runTask: vi.fn() }))
+vi.mock('@main/agents/AgentManager', () => ({
+  agentManager: { runTask, list: () => [] }
+}))
+vi.mock('@main/integrations/autoPr', () => ({
+  prepareTaskChange: vi.fn(async () => ({
+    status: 'skipped', result: 'no-changes', noChanges: true, message: 'No-op bestätigt.'
+  })),
+  publishPreparedChanges: vi.fn()
+}))
+
+import { OrchestratorEngine } from './Engine'
+
+function info(taskId: string) {
+  return {
+    id: `agent-${taskId}`,
+    name: 'Legolas',
+    provider: 'codex' as const,
+    model: '',
+    role: 'Task · worker',
+    kind: 'sub' as const,
+    mode: 'task' as const,
+    taskId,
+    yolo: false,
+    workingDir: '.',
+    worktree: '.',
+    status: 'running' as const,
+    startedAt: Date.now()
+  }
+}
+
+describe('asynchronous orchestration API', () => {
+  it('returns taskId immediately and exposes the final result through polling', async () => {
+    let finish!: (value: { result: string; isError: boolean; status: 'succeeded' }) => void
+    runTask.mockImplementationOnce(async (request) => ({
+      info: info(request.taskId),
+      done: new Promise((resolve) => { finish = resolve })
+    }))
+    const engine = new OrchestratorEngine({ profile: { ...DEFAULT_PROFILE } })
+
+    const accepted = engine.dispatchAsync('codex', 'Implement feature', 'Feature')
+    expect(accepted.taskId).toMatch(/^t-/)
+    expect(['queued', 'running']).toContain(accepted.status)
+    await vi.waitFor(() => expect(runTask).toHaveBeenCalledTimes(1))
+
+    finish({ result: 'Committed abc', isError: false, status: 'succeeded' })
+    await vi.waitFor(() => expect(engine.getTaskStatus(accepted.taskId)?.status).toBe('success'))
+    expect(engine.getTaskStatus(accepted.taskId)).toEqual(
+      expect.objectContaining({ result: expect.stringContaining('Committed abc'), completion: { kind: 'no-changes' } })
+    )
+  })
+
+  it('starts a full plan asynchronously and makes its terminal result pollable', async () => {
+    runTask.mockImplementation(async (request) => ({
+      info: info(request.taskId),
+      done: Promise.resolve({ result: 'Done', isError: false, status: 'succeeded' as const })
+    }))
+    const profile = { ...DEFAULT_PROFILE, planner: { ...DEFAULT_PROFILE.planner, mode: 'auto' as const } }
+    const engine = new OrchestratorEngine({ profile })
+    const started = engine.executePlanAsync({
+      version: 1,
+      goal: 'Async plan',
+      maxParallel: 1,
+      tasks: [{
+        id: 'one', title: 'One', role: 'codex', prompt: 'Work', dependsOn: [], conflictKeys: [],
+        ownership: 'feature', expectedFiles: []
+      }]
+    })
+
+    expect(started.status).toBe('running')
+    await vi.waitFor(() => expect(engine.getPlanRunStatus(started.runId)?.status).toBe('success'))
+    expect(engine.getPlanRunStatus(started.runId)?.result?.tasks[0]?.status).toBe('success')
+  })
+})

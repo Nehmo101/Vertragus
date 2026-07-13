@@ -31,6 +31,50 @@ function line(color: string, text: string): string {
 
 export type HeadlessStatus = 'succeeded' | 'failed' | 'cancelled'
 
+export type HeadlessLifecyclePhase =
+  | 'starting'
+  | 'resolving-command'
+  | 'starting-process'
+  | 'running'
+  | 'stopping'
+  | 'finished'
+
+interface HeadlessLifecycleEventBase {
+  timestamp: number
+  elapsedMs: number
+  phase: HeadlessLifecyclePhase
+}
+
+export type HeadlessLifecycleEvent =
+  | (HeadlessLifecycleEventBase & { type: 'started'; provider: AgentProviderId })
+  | (HeadlessLifecycleEventBase & {
+      type: 'phase'
+      previousPhase: HeadlessLifecyclePhase
+    })
+  | (HeadlessLifecycleEventBase & { type: 'heartbeat'; idleMs: number; pid?: number })
+  | (HeadlessLifecycleEventBase & {
+      type: 'output'
+      chunk: string
+      source: 'stdout' | 'stderr' | 'system'
+    })
+  | (HeadlessLifecycleEventBase & {
+      type: 'progress'
+      providerEvent: string
+      pid?: number
+    })
+  | (HeadlessLifecycleEventBase & {
+      type: 'finished'
+      status: HeadlessStatus
+      result: HeadlessResult
+    })
+
+export interface HeadlessLifecycleOptions {
+  /** Receives structured lifecycle events. Exceptions are isolated from the worker run. */
+  onEvent(event: HeadlessLifecycleEvent): void
+  /** Heartbeats are deliberately constrained to the product's 30-60 second window. */
+  heartbeatIntervalMs?: number
+}
+
 export interface HeadlessResult {
   result: string
   isError: boolean
@@ -44,11 +88,108 @@ export interface HeadlessResult {
 }
 
 const DEFAULT_STOP_GRACE_MS = 5_000
+const DEFAULT_HEARTBEAT_INTERVAL_MS = 45_000
+const MIN_HEARTBEAT_INTERVAL_MS = 30_000
+const MAX_HEARTBEAT_INTERVAL_MS = 60_000
 
 export interface HeadlessHandle {
   pid?: number
   done: Promise<HeadlessResult>
   kill(): void
+}
+
+interface LifecycleReporter {
+  phase(next: HeadlessLifecyclePhase): void
+  output(chunk: string, source: 'stdout' | 'stderr' | 'system'): void
+  progress(providerEvent: string): void
+  finish(status: HeadlessStatus, result: HeadlessResult): void
+}
+
+function createLifecycleReporter(
+  provider: AgentProviderId,
+  options: HeadlessLifecycleOptions | undefined,
+  getPid: () => number | undefined
+): LifecycleReporter {
+  if (!options) {
+    return {
+      phase() {},
+      output() {},
+      progress() {},
+      finish() {}
+    }
+  }
+
+  const startedAt = Date.now()
+  let lastActivityAt = startedAt
+  let currentPhase: HeadlessLifecyclePhase = 'starting'
+  let finished = false
+  const emit = (event: HeadlessLifecycleEvent): void => {
+    try {
+      options.onEvent(event)
+    } catch {
+      // Observability must never be able to fail the task it observes.
+    }
+  }
+  const base = (): HeadlessLifecycleEventBase => {
+    const now = Date.now()
+    return { timestamp: now, elapsedMs: Math.max(0, now - startedAt), phase: currentPhase }
+  }
+  const activity = (): void => {
+    lastActivityAt = Date.now()
+  }
+
+  emit({ ...base(), type: 'started', provider })
+  const configuredInterval = options.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS
+  const requestedInterval = Number.isFinite(configuredInterval)
+    ? configuredInterval
+    : DEFAULT_HEARTBEAT_INTERVAL_MS
+  const heartbeatIntervalMs = Math.min(
+    MAX_HEARTBEAT_INTERVAL_MS,
+    Math.max(MIN_HEARTBEAT_INTERVAL_MS, requestedInterval)
+  )
+  const heartbeat = setInterval(() => {
+    if (finished) return
+    const now = Date.now()
+    emit({
+      timestamp: now,
+      elapsedMs: Math.max(0, now - startedAt),
+      phase: currentPhase,
+      type: 'heartbeat',
+      idleMs: Math.max(0, now - lastActivityAt),
+      pid: getPid()
+    })
+  }, heartbeatIntervalMs)
+  heartbeat.unref()
+
+  return {
+    phase(next) {
+      if (finished || next === currentPhase) return
+      const previousPhase = currentPhase
+      currentPhase = next
+      activity()
+      emit({ ...base(), type: 'phase', previousPhase })
+    },
+    output(chunk, source) {
+      if (finished) return
+      activity()
+      emit({ ...base(), type: 'output', chunk, source })
+    },
+    progress(providerEvent) {
+      if (finished) return
+      activity()
+      emit({ ...base(), type: 'progress', providerEvent, pid: getPid() })
+    },
+    finish(status, result) {
+      if (finished) return
+      finished = true
+      clearInterval(heartbeat)
+      const previousPhase = currentPhase
+      currentPhase = 'finished'
+      activity()
+      emit({ ...base(), type: 'phase', previousPhase })
+      emit({ ...base(), type: 'finished', status, result })
+    }
+  }
 }
 
 /** Interprets one parsed JSON event from a provider stream. */
@@ -149,19 +290,73 @@ export function runHeadless(
   id: AgentProviderId,
   prompt: string,
   opts: HeadlessOpts,
-  onLine: (chunk: string) => void
+  onLine: (chunk: string) => void,
+  lifecycleOptions?: HeadlessLifecycleOptions
 ): HeadlessHandle {
+  let currentPid: number | undefined
+  const lifecycle = createLifecycleReporter(id, lifecycleOptions, () => currentPid)
+  const emitLine = (
+    chunk: string,
+    source: 'stdout' | 'stderr' | 'system' = 'system'
+  ): void => {
+    onLine(chunk)
+    lifecycle.output(chunk, source)
+  }
 
   if (id === 'ollama') {
-    const handle = runOllamaChat(prompt, opts, onLine)
+    lifecycle.phase('starting-process')
+    let handle: HeadlessHandle
+    try {
+      handle = runOllamaChat(prompt, opts, (chunk) => emitLine(chunk, 'stdout'))
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      const result: HeadlessResult = {
+        result: message,
+        isError: true,
+        status: 'failed',
+        error: message
+      }
+      lifecycle.finish('failed', result)
+      throw err
+    }
+    currentPid = handle.pid
+    lifecycle.phase('running')
     let cancelled = false
     return {
       get pid() { return handle.pid },
-      done: handle.done.then((result) => {
-        const status = cancelled ? 'cancelled' : result.isError ? 'failed' : 'succeeded'
-        return { ...result, status, isError: status !== 'succeeded' }
-      }),
-      kill() { cancelled = true; handle.kill() }
+      done: handle.done.then(
+        (result) => {
+          const status: HeadlessStatus = cancelled
+            ? 'cancelled'
+            : result.isError
+              ? 'failed'
+              : 'succeeded'
+          const finalResult: HeadlessResult = {
+            ...result,
+            status,
+            isError: status !== 'succeeded'
+          }
+          lifecycle.finish(status, finalResult)
+          return finalResult
+        },
+        (err: unknown) => {
+          const message = err instanceof Error ? err.message : String(err)
+          const finalResult: HeadlessResult = {
+            result: message,
+            isError: true,
+            status: 'failed',
+            error: message
+          }
+          lifecycle.finish('failed', finalResult)
+          throw err
+        }
+      ),
+      kill() {
+        if (cancelled) return
+        cancelled = true
+        lifecycle.phase('stopping')
+        handle.kill()
+      }
     }
   }
   let lastMsgFile: string | undefined
@@ -188,6 +383,8 @@ export function runHeadless(
   let stopFallback: NodeJS.Timeout | undefined
   let resolveDone!: (result: HeadlessResult) => void
 
+  lifecycle.phase('resolving-command')
+
   const cleanup = (): void => {
     if (stopFallback) clearTimeout(stopFallback)
     if (tmpDir) { rmSync(tmpDir, { recursive: true, force: true }); tmpDir = undefined }
@@ -196,7 +393,15 @@ export function runHeadless(
     if (settled) return
     settled = true
     cleanup()
-    resolveDone({ ...acc, result: acc.result || fallback, status, isError: status !== 'succeeded', error })
+    const result: HeadlessResult = {
+      ...acc,
+      result: acc.result || fallback,
+      status,
+      isError: status !== 'succeeded',
+      error
+    }
+    lifecycle.finish(status, result)
+    resolveDone(result)
   }
   const stoppedText = (): string => 'Task abgebrochen'
   const terminateChild = (): void => {
@@ -209,14 +414,15 @@ export function runHeadless(
   const requestStop = (): void => {
     if (settled || stopStatus) return
     stopStatus = 'cancelled'
+    lifecycle.phase('stopping')
     if (!child) {
-      onLine(line(C.yellow, 'Task gestoppt'))
+      emitLine(line(C.yellow, 'Task gestoppt'))
       finish(stopStatus, stoppedText())
       return
     }
     terminateChild()
     stopFallback = setTimeout(() => {
-      onLine(line(C.yellow, 'Task gestoppt'))
+      emitLine(line(C.yellow, 'Task gestoppt'))
       finish(stopStatus!, stoppedText())
     }, DEFAULT_STOP_GRACE_MS)
     stopFallback.unref()
@@ -226,9 +432,15 @@ export function runHeadless(
     if (!trimmed) return
     rawTail = (rawTail + trimmed + '\n').slice(-4000)
     let obj: Record<string, unknown>
-    try { obj = JSON.parse(trimmed) as Record<string, unknown> } catch { onLine(line(C.grey, trimmed)); return }
+    try {
+      obj = JSON.parse(trimmed) as Record<string, unknown>
+    } catch {
+      emitLine(line(C.grey, trimmed), 'stdout')
+      return
+    }
+    lifecycle.progress(String(obj['type'] ?? 'provider-event'))
     const result = interpret(obj)
-    if (result.log) onLine(result.log)
+    if (result.log) emitLine(result.log, 'stdout')
     if (typeof result.result === 'string' && result.result) acc.result = result.result
     if (result.isError) sawError = true
     if (result.log && obj['type'] !== 'result') lastText = result.log
@@ -243,22 +455,25 @@ export function runHeadless(
   void resolveLaunch(launch.command, launch.args)
     .then((resolved) => {
       if (settled || stopStatus) return
+      lifecycle.phase('starting-process')
       try {
         child = spawn(resolved.file, resolved.args, { cwd: opts.workingDir, env: { ...process.env } as Record<string, string>, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
+        currentPid = child.pid
+        lifecycle.phase('running')
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
-        onLine(line(C.red, `Spawn fehlgeschlagen: ${message}`)); finish('failed', message, message); return
+        emitLine(line(C.red, `Spawn fehlgeschlagen: ${message}`)); finish('failed', message, message); return
       }
       child.stdout?.on('data', (data: Buffer) => {
         stdoutBuf += data.toString(); const parts = stdoutBuf.split(/\r?\n/); stdoutBuf = parts.pop() ?? ''; for (const part of parts) handleLine(part)
       })
       child.stderr?.on('data', (data: Buffer) => {
-        const text = data.toString().trim(); if (!text) return; stderrTail = (stderrTail + text + '\n').slice(-4000); onLine(line(C.red, text))
+        const text = data.toString().trim(); if (!text) return; stderrTail = (stderrTail + text + '\n').slice(-4000); emitLine(line(C.red, text), 'stderr')
       })
       child.on('error', (err) => {
         const message = err.message
         if (stopStatus) { finish(stopStatus, stoppedText()); return }
-        onLine(line(C.red, `Spawn fehlgeschlagen: ${message}`)); finish('failed', message, message)
+        emitLine(line(C.red, `Spawn fehlgeschlagen: ${message}`)); finish('failed', message, message)
       })
       child.on('close', (code) => {
         if (settled) return
@@ -268,20 +483,20 @@ export function runHeadless(
         }
         if (!acc.result) acc.result = (lastText || rawTail || stderrTail).trim()
         if (stopStatus) {
-          onLine(line(C.yellow, 'Task gestoppt'))
+          emitLine(line(C.yellow, 'Task gestoppt'))
           finish(stopStatus, stoppedText()); return
         }
         const failed = sawError || code !== 0
         if (failed) {
           const detail = code == null ? 'Prozess ohne Exit-Code beendet' : `Prozess beendet (exit ${code})`
-          onLine(line(C.red, `✗ fehlgeschlagen${code != null ? ` (exit ${code})` : ''}`)); finish('failed', detail, detail)
-        } else { onLine(line(C.green, '✓ fertig')); finish('succeeded') }
+          emitLine(line(C.red, `✗ fehlgeschlagen${code != null ? ` (exit ${code})` : ''}`)); finish('failed', detail, detail)
+        } else { emitLine(line(C.green, '✓ fertig')); finish('succeeded') }
       })
     })
     .catch((err: unknown) => {
       if (settled || stopStatus) return
       const message = err instanceof Error ? err.message : String(err)
-      onLine(line(C.red, `Command-Auflösung fehlgeschlagen: ${message}`)); finish('failed', message, message)
+      emitLine(line(C.red, `Command-Auflösung fehlgeschlagen: ${message}`)); finish('failed', message, message)
     })
 
   return { get pid() { return child?.pid }, done, kill() { requestStop() } }

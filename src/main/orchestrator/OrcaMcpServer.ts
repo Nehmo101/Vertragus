@@ -25,6 +25,9 @@ const ORCHESTRATOR_TOOLS = [
   'mcp__orca__list_subagents',
   'mcp__orca__dispatch_subagent',
   'mcp__orca__dispatch_batch',
+  'mcp__orca__get_task_status',
+  'mcp__orca__list_tasks',
+  'mcp__orca__get_plan_status',
   'mcp__orca__open_subwindow',
   'mcp__orca__execute_plan'
 ]
@@ -85,28 +88,27 @@ function buildMcpServer(engine: OrchestratorEngine = orchestratorEngine): McpSer
 
   register(
     'dispatch_subagent',
-    'Delegiere eine Teilaufgabe an einen Subagenten und warte auf dessen Ergebnis. ' +
-      'Der Subagent läuft real (eigenes Pane) und gibt seine finale Antwort zurück.',
+    'Starte eine Teilaufgabe asynchron. Die Antwort enthält sofort taskId und Status; ' +
+      'Ergebnis und Heartbeat werden danach mit get_task_status abgefragt.',
     {
       role: z.string().describe('Rolle/Slot aus list_subagents (z.B. "worker", "backend")'),
       prompt: z.string().describe('Vollständige, eigenständige Aufgabenbeschreibung für den Subagenten'),
       title: z.string().optional().describe('Optionaler Kurztitel für die Aufgaben-Ansicht')
     },
     async (args) => {
-      const result = await engine.dispatch(
+      const task = engine.dispatchAsync(
         String(args.role ?? 'worker'),
         String(args.prompt ?? ''),
         args.title ? String(args.title) : undefined
       )
-      return text(result)
+      return text(JSON.stringify(task, null, 2))
     }
   )
 
   register(
     'dispatch_batch',
-    'Delegiere MEHRERE Teilaufgaben auf einmal — sie laufen PARALLEL (begrenzt durch die ' +
-      'Kapazität jeder Rolle) und alle Ergebnisse kommen zusammen zurück. Bevorzuge dies, um ' +
-      'mehrere Subagents gleichzeitig arbeiten zu lassen.',
+    'Starte mehrere Teilaufgaben parallel und gib sofort ihre taskIds zurück. ' +
+      'Ergebnisse werden mit get_task_status oder list_tasks abgefragt.',
     {
       tasks: z
         .array(
@@ -120,15 +122,41 @@ function buildMcpServer(engine: OrchestratorEngine = orchestratorEngine): McpSer
     },
     async (args) => {
       const tasks = (args.tasks as Array<{ role: string; prompt: string; title?: string }>) ?? []
-      const result = await engine.dispatchBatch(tasks)
-      return text(result)
+      return text(JSON.stringify(engine.dispatchBatchAsync(tasks), null, 2))
+    }
+  )
+
+  register(
+    'get_task_status',
+    'Liefere Status, Heartbeat, Phase und finales Ergebnis einer asynchronen Aufgabe.',
+    { taskId: z.string().describe('taskId aus dispatch_subagent oder dispatch_batch') },
+    async (args) => {
+      const result = engine.getTaskStatus(String(args.taskId ?? ''))
+      return text(JSON.stringify(result ?? { error: 'Task nicht gefunden.' }, null, 2))
+    }
+  )
+
+  register(
+    'list_tasks',
+    'Liste alle Tasks mit aktuellem Status, Heartbeat und Ergebnis, falls abgeschlossen.',
+    {},
+    async () => text(JSON.stringify(engine.listTaskStatuses(), null, 2))
+  )
+
+  register(
+    'get_plan_status',
+    'Liefere Status und Ergebnis eines asynchron gestarteten DAG-Laufs.',
+    { runId: z.string().describe('runId aus execute_plan') },
+    async (args) => {
+      const result = engine.getPlanRunStatus(String(args.runId ?? ''))
+      return text(JSON.stringify(result ?? { error: 'Planlauf nicht gefunden.' }, null, 2))
     }
   )
 
   register(
     'execute_plan',
-    'Validiere und starte einen kompletten Auto-Subagent-Plan als DAG. Unabhaengige Tasks laufen ' +
-      'parallel; dependsOn, conflictKeys, maxParallel und Slot-Kapazitaeten werden erzwungen.',
+    'Validiere und starte einen kompletten Auto-Subagent-Plan asynchron als DAG. Die Antwort ' +
+      'enthält sofort runId; Status und Ergebnis werden mit get_plan_status abgefragt.',
     {
       plan: z.object({
         version: z.literal(1).optional(),
@@ -141,7 +169,9 @@ function buildMcpServer(engine: OrchestratorEngine = orchestratorEngine): McpSer
             role: z.string(),
             prompt: z.string(),
             dependsOn: z.array(z.string()).optional(),
-            conflictKeys: z.array(z.string()).optional()
+            conflictKeys: z.array(z.string()).optional(),
+            ownership: z.enum(['feature', 'integrator']).optional(),
+            expectedFiles: z.array(z.string()).optional()
           })
         )
       })
@@ -154,11 +184,13 @@ function buildMcpServer(engine: OrchestratorEngine = orchestratorEngine): McpSer
             return {
               ...task,
               dependsOn: task.dependsOn ?? [],
-              conflictKeys: task.conflictKeys ?? []
+              conflictKeys: task.conflictKeys ?? [],
+              ownership: task.ownership ?? 'feature',
+              expectedFiles: task.expectedFiles ?? []
             }
           })
         : rawPlan?.tasks
-      const result = await engine.executePlan({
+      const result = engine.executePlanAsync({
         ...rawPlan,
         version: 1,
         tasks: rawTasks

@@ -8,6 +8,11 @@
  * result returned to the caller, plus the DAG snapshot updates.
  */
 import { app } from 'electron'
+import { execFile } from 'node:child_process'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { promisify } from 'node:util'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { agentManager } from '@main/agents/AgentManager'
@@ -24,6 +29,8 @@ import {
 import type { AgentInstanceInfo } from '@shared/agents'
 import { DEFAULT_PROFILE } from '@shared/profile'
 
+const execFileAsync = promisify(execFile)
+
 function log(ok: boolean, msg: string): boolean {
   console.log(`[SELFTEST] ${ok ? 'PASS' : 'FAIL'} — ${msg}`)
   return ok
@@ -31,11 +38,20 @@ function log(ok: boolean, msg: string): boolean {
 
 export async function runSelfTest(): Promise<void> {
   let allOk = true
+  let selftestWorktree: string | undefined
   const check = (ok: boolean, msg: string): void => {
     if (!log(ok, msg)) allOk = false
   }
 
   try {
+    selftestWorktree = await mkdtemp(join(tmpdir(), 'orca-mcp-selftest-'))
+    await execFileAsync('git', ['init'], { cwd: selftestWorktree, windowsHide: true })
+    await execFileAsync('git', ['config', 'user.name', 'Orca Selftest'], { cwd: selftestWorktree, windowsHide: true })
+    await execFileAsync('git', ['config', 'user.email', 'orca@example.invalid'], { cwd: selftestWorktree, windowsHide: true })
+    await writeFile(join(selftestWorktree, 'README.md'), 'selftest\n')
+    await execFileAsync('git', ['add', '--all'], { cwd: selftestWorktree, windowsHide: true })
+    await execFileAsync('git', ['commit', '-m', 'selftest base'], { cwd: selftestWorktree, windowsHide: true })
+
     const handle = getMcpHandle()
     check(Boolean(handle), `MCP server running at ${handle ? new URL(handle.url).origin + '/mcp' : undefined}`)
     if (!handle) throw new Error('no handle')
@@ -104,7 +120,8 @@ export async function runSelfTest(): Promise<void> {
         mode: 'task',
         taskId: req.taskId,
         yolo: false,
-        workingDir: '.',
+        workingDir: selftestWorktree!,
+        worktree: selftestWorktree!,
         status: 'running',
         startedAt: Date.now()
       }
@@ -116,10 +133,26 @@ export async function runSelfTest(): Promise<void> {
     await client.connect(transport)
     check(true, 'MCP client connected + initialized')
 
+    const pollJson = async <T extends { status?: string }>(
+      tool: string,
+      args: Record<string, unknown>,
+      terminal: (value: T) => boolean
+    ): Promise<T> => {
+      for (let attempt = 0; attempt < 100; attempt++) {
+        const response = (await client.callTool({ name: tool, arguments: args })) as {
+          content: Array<{ text: string }>
+        }
+        const value = JSON.parse(response.content[0].text) as T
+        if (terminal(value)) return value
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      }
+      throw new Error('Polling timeout for ' + tool)
+    }
+
     const tools = await client.listTools()
     const names = tools.tools.map((t) => t.name).sort()
     check(
-      names.join(',') === 'dispatch_batch,dispatch_subagent,execute_plan,list_subagents,open_subwindow,set_goal',
+      names.join(',') === 'dispatch_batch,dispatch_subagent,execute_plan,get_plan_status,get_task_status,list_subagents,list_tasks,open_subwindow,set_goal',
       `tools/list returned: ${names.join(', ')}`
     )
 
@@ -147,21 +180,23 @@ export async function runSelfTest(): Promise<void> {
       name: 'dispatch_subagent',
       arguments: { role: subs[0].role, prompt: 'Implementiere Feature X', title: 'Feature X' }
     })) as { content: Array<{ text: string }> }
-    check(
-      dispRes.content[0].text.includes('STUB-RESULT'),
-      `dispatch_subagent -> result routed back: "${dispRes.content[0].text.slice(0, 40)}…"`
+    const accepted = JSON.parse(dispRes.content[0].text) as { taskId: string }
+    check(Boolean(accepted.taskId), 'dispatch_subagent -> accepted taskId ' + accepted.taskId)
+    const completed = await pollJson<{ status: string; result?: string }>(
+      'get_task_status', { taskId: accepted.taskId }, (value) => ['success', 'error', 'stopped'].includes(value.status)
     )
-    check(dispatched.length === 1, `dispatch invoked runTask exactly once (${dispatched.length})`)
+    check(completed.result?.includes('STUB-RESULT') === true, 'get_task_status returns final worker result')
+    check(dispatched.length === 1, 'dispatch invoked runTask exactly once (' + dispatched.length + ')')
 
     const snap = orchestratorEngine.snapshot()
     const task = snap.tasks[0]
     check(
       task?.status === 'success' && task.title === 'Feature X',
-      `DAG updated: task "${task?.title}" status=${task?.status}`
+      'DAG updated: task ' + task?.title + ' status=' + task?.status
     )
     check(
-      task?.agentName === 'Testagent-1' && dispRes.content[0].text.includes('Testagent-1'),
-      `subagent name flows to DAG + result (${task?.agentName})`
+      task?.agentName === 'Testagent-1' && completed.result?.includes('Testagent-1') === true,
+      'subagent name flows to DAG + result (' + task?.agentName + ')'
     )
 
     // Two same-named slots must become individually addressable, and dispatch
@@ -193,10 +228,12 @@ export async function runSelfTest(): Promise<void> {
       )
       const cursorRole = mslots.find((s) => s.provider === 'cursor')!.role
       dispatched.length = 0
-      await client.callTool({
+      const routedResponse = (await client.callTool({
         name: 'dispatch_subagent',
         arguments: { role: cursorRole, prompt: 'Composer-Aufgabe' }
-      })
+      })) as { content: Array<{ text: string }> }
+      const routedTask = JSON.parse(routedResponse.content[0].text) as { taskId: string }
+      await pollJson('get_task_status', { taskId: routedTask.taskId }, (value) => value.status !== 'queued' && value.status !== 'running')
       check(
         dispatched[0]?.provider === 'cursor',
         `dispatch(role="${cursorRole}") routed to cursor (got ${dispatched[0]?.provider})`
@@ -213,9 +250,13 @@ export async function runSelfTest(): Promise<void> {
           ]
         }
       })) as { content: Array<{ text: string }> }
+      const acceptedBatch = JSON.parse(batchRes.content[0].text) as Array<{ taskId: string }>
+      await Promise.all(acceptedBatch.map((item) =>
+        pollJson('get_task_status', { taskId: item.taskId }, (value) => value.status !== 'queued' && value.status !== 'running')
+      ))
       check(
-        dispatched.length === 3 && /#1[\s\S]*#2[\s\S]*#3/.test(batchRes.content[0].text),
-        `dispatch_batch fanned out 3 tasks (ran ${dispatched.length})`
+        dispatched.length === 3 && acceptedBatch.length === 3,
+        'dispatch_batch accepted and ran 3 tasks (ran ' + dispatched.length + ')'
       )
       dispatched.length = 0
       const planResponse = (await client.callTool({
@@ -254,10 +295,11 @@ export async function runSelfTest(): Promise<void> {
           }
         }
       })) as { content: Array<{ text: string }> }
-      const planResult = JSON.parse(planResponse.content[0].text) as {
-        usedFallback: boolean
-        tasks: Array<{ status: string }>
-      }
+      const planAccepted = JSON.parse(planResponse.content[0].text) as { runId: string }
+      const planRun = await pollJson<{ status: string; result?: { usedFallback: boolean; tasks: Array<{ status: string }> } }>(
+        'get_plan_status', { runId: planAccepted.runId }, (value) => value.status !== 'running'
+      )
+      const planResult = planRun.result!
       check(
         !planResult.usedFallback &&
           planResult.tasks.every((task) => task.status === 'success') &&
@@ -290,6 +332,7 @@ export async function runSelfTest(): Promise<void> {
     check(false, `threw: ${err instanceof Error ? err.stack : String(err)}`)
   }
 
+  if (selftestWorktree) await rm(selftestWorktree, { recursive: true, force: true })
   console.log(`[SELFTEST] ${allOk ? 'ALL PASSED' : 'FAILURES PRESENT'}`)
   app.exit(allOk ? 0 : 1)
 }

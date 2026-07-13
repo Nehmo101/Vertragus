@@ -462,7 +462,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           mode: 'off',
           strategy: 'aggregate',
           baseBranch: '',
-          qualityGates: ['corepack pnpm typecheck'],
+          qualityGates: ['corepack pnpm typecheck', 'corepack pnpm test', 'corepack pnpm lint'],
           labels: [],
           reviewers: []
         }

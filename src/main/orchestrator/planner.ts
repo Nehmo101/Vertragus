@@ -12,6 +12,8 @@ const MAX_TITLE_LENGTH = 160
 const MAX_ROLE_LENGTH = 64
 const MAX_PROMPT_LENGTH = 40_000
 const MAX_CONFLICT_KEYS = 16
+const MAX_EXPECTED_FILES = 64
+const SHARED_HOTSPOT = /^(?:src\/shared\/|src\/main\/ipc\/|src\/preload\/|src\/shared\/profile\.ts$|src\/renderer\/src\/(?:styles|cozy-organic)\.css$)/i
 const SAFE_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/
 
 type UnknownRecord = Record<string, unknown>
@@ -49,7 +51,9 @@ function fallbackPlan(input: unknown, role: string, prompt?: string): ExecutionP
         role: safeRole,
         prompt: safePrompt,
         dependsOn: [],
-        conflictKeys: ['fallback-exclusive']
+        conflictKeys: ['fallback-exclusive'],
+        ownership: 'feature',
+        expectedFiles: []
       }
     ]
   }
@@ -142,6 +146,8 @@ export function resolveExecutionPlan(
       const prompt = cleanString(raw.prompt, MAX_PROMPT_LENGTH)
       const dependsOn = stringArray(raw.dependsOn)
       const conflictKeys = stringArray(raw.conflictKeys)
+      const expectedFiles = stringArray(raw.expectedFiles)
+      const ownership = raw.ownership == null ? 'feature' : raw.ownership
       if (
         !id ||
         !SAFE_ID.test(id) ||
@@ -150,9 +156,12 @@ export function resolveExecutionPlan(
         !prompt ||
         !dependsOn ||
         !conflictKeys ||
+        !expectedFiles ||
+        (ownership !== 'feature' && ownership !== 'integrator') ||
         dependsOn.length > MAX_PLAN_TASKS ||
         (allowedRoleSet != null && !allowedRoleSet.has(role.toLowerCase())) ||
         conflictKeys.length > MAX_CONFLICT_KEYS ||
+        expectedFiles.length > MAX_EXPECTED_FILES ||
         dependsOn.includes(id)
       ) {
         issues.push({
@@ -168,9 +177,34 @@ export function resolveExecutionPlan(
         role,
         prompt,
         dependsOn,
-        conflictKeys: conflictKeys.map((key) => key.toLowerCase())
+        conflictKeys: [...new Set([
+          ...conflictKeys.map((key) => key.toLowerCase()),
+          ...(ownership === 'integrator' ? ['shared-hotspots'] : [])
+        ])],
+        ownership,
+        expectedFiles: expectedFiles.map((file) => file.replace(/\\/g, '/').toLowerCase())
       })
     })
+  }
+
+  const integrators = tasks.filter((task) => task.ownership === 'integrator')
+  if (integrators.length > 1) {
+    issues.push({ code: 'invalid_ownership', message: 'A plan may contain only one shared-file integrator.' })
+  }
+  const declaredSharedFiles = tasks.flatMap((task) =>
+    task.expectedFiles.filter((file) => SHARED_HOTSPOT.test(file)).map((file) => ({ task, file }))
+  )
+  for (const { task, file } of declaredSharedFiles) {
+    if (task.ownership !== 'integrator') {
+      issues.push({ code: 'invalid_ownership', message: 'Shared hotspot ' + file + ' must be owned by the integrator task.', taskId: task.id })
+    }
+  }
+  const integrator = integrators[0]
+  if (integrator) {
+    const missingDependencies = tasks.filter((task) => task.id !== integrator.id && !integrator.dependsOn.includes(task.id))
+    if (missingDependencies.length > 0) {
+      issues.push({ code: 'invalid_ownership', message: 'The integrator must depend on every feature task.', taskId: integrator.id })
+    }
   }
 
   const ids = new Set<string>()

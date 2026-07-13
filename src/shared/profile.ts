@@ -46,7 +46,7 @@ export const autoPrConfigSchema = z.object({
   /** Empty = repository default branch. */
   baseBranch: z.string().default(''),
   /** Trusted local shell commands executed inside the integration worktree. */
-  qualityGates: z.array(z.string().min(1)).max(12).default(['corepack pnpm typecheck']),
+  qualityGates: z.array(z.string().min(1)).max(12).default(['corepack pnpm typecheck', 'corepack pnpm test', 'corepack pnpm lint']),
   labels: z.array(z.string().min(1)).max(20).default([]),
   reviewers: z.array(z.string().min(1)).max(20).default([])
 })
@@ -153,7 +153,7 @@ export const DEFAULT_PROFILE: WorkspaceProfile = {
     mode: 'off',
     strategy: 'aggregate',
     baseBranch: '',
-    qualityGates: ['corepack pnpm typecheck'],
+    qualityGates: ['corepack pnpm typecheck', 'corepack pnpm test', 'corepack pnpm lint'],
     labels: [],
     reviewers: []
   }

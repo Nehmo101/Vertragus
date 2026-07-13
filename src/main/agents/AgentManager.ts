@@ -26,7 +26,12 @@ import { buildInteractiveLaunch } from '@main/providers/types'
 import { resolveLaunch } from '@main/agents/resolveCommand'
 import { createWorktree } from '@main/agents/worktree'
 import { getSetting } from '@main/config/store'
-import { runHeadless, type HeadlessHandle, type HeadlessResult } from '@main/agents/headless'
+import {
+  runHeadless,
+  type HeadlessHandle,
+  type HeadlessLifecycleOptions,
+  type HeadlessResult
+} from '@main/agents/headless'
 import { buildOrchestratorSetup } from '@main/orchestrator/orchestratorLaunch'
 import { buildSubagentMcpArgs } from '@main/orchestrator/externalMcp'
 import { NameAllocator } from '@main/agents/names'
@@ -446,7 +451,10 @@ export class AgentManager extends EventEmitter {
    * Dispatch a single headless task. A matching untouched team pane is reused
    * first; only overflow work allocates another named subagent pane.
    */
-  async runTask(req: RunTaskRequest): Promise<{ info: AgentInstanceInfo; done: Promise<HeadlessResult> }> {
+  async runTask(
+    req: RunTaskRequest,
+    lifecycle?: HeadlessLifecycleOptions
+  ): Promise<{ info: AgentInstanceInfo; done: Promise<HeadlessResult>; baseCommit?: string }> {
     const resolvedModel = resolveModel(req.provider, req)
     const taskReq = { ...req, model: resolvedModel }
     let managed = this.claimTeamMember(taskReq)
@@ -528,6 +536,16 @@ export class AgentManager extends EventEmitter {
       ? `${identityInstruction} ${req.systemPrompt}`
       : identityInstruction
 
+    const baseCommit = info.worktree
+      ? await new Promise<string | undefined>((resolve) => {
+          execFile(
+            'git', ['rev-parse', '--verify', 'HEAD^{commit}'],
+            { cwd: info.worktree, windowsHide: true },
+            (error, stdout) => resolve(error ? undefined : stdout.trim().toLowerCase())
+          )
+        })
+      : undefined
+
     const handle = runHeadless(
       req.provider,
       taskPrompt,
@@ -538,7 +556,8 @@ export class AgentManager extends EventEmitter {
         systemPrompt,
         extraArgs: buildSubagentMcpArgs(req.provider, id)
       },
-      (chunk) => this.pushData(active, chunk)
+      (chunk) => this.pushData(active, chunk),
+      lifecycle
     )
     active.headless = handle
     info.pid = handle.pid
@@ -580,7 +599,7 @@ export class AgentManager extends EventEmitter {
       return result
     })
 
-    return { info, done }
+    return { info, done, baseCommit }
   }
 
   write(id: string, data: string): void {
