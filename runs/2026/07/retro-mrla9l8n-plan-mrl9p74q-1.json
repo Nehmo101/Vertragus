@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784071766550,
+  "exportedAt": 1784071952558,
   "app": {
     "name": "orca-strator",
     "version": "0.1.29-main.1.gcfaf136"
@@ -14,7 +14,7 @@
     "planId": "plan-mrl9p74q-1",
     "goal": "Workspace-Profile können über die vorhandene Anwendung zuverlässig gelöscht werden; UI, Zustandsverwaltung und Persistenz bleiben konsistent und der Löschpfad ist durch relevante Tests verifiziert.",
     "status": "needs-work",
-    "summary": "Lauf mit Nacharbeit: 1 Modell(e), 0/1 Tasks erfolgreich.",
+    "summary": "Der Worker fand und reparierte die UI-/Profilbezug-Regressionsursache gründlich und entwickelte bei einem Vitest-EPERM einen Smoke-Test-Fallback. Die zentrale Security-Prüfung deckte anschließend fehlende IPC-Autorisierung auf; konkrete Modell-Learnings konnten nicht gespeichert werden, weil Orca für den Codex-Slot keinen Modellnamen liefert.",
     "modelStats": [
       {
         "provider": "codex",
