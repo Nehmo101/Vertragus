@@ -1,6 +1,6 @@
 import { exec, execFile } from 'node:child_process'
 import { mkdir } from 'node:fs/promises'
-import { join, posix, win32 } from 'node:path'
+import { isAbsolute, join, posix, relative, resolve, sep, win32 } from 'node:path'
 import { promisify } from 'node:util'
 import { ensureWorktreeDependencies } from '@main/agents/dependencyBootstrap'
 import type { AutoPrConfig } from '@shared/profile'
@@ -203,6 +203,23 @@ interface IntegrationQualityGateDeps {
   runGates(cwd: string, gates: string[]): Promise<void>
 }
 
+function assertManagedIntegrationPath(repositoryRoot: string, integrationPath: string): void {
+  const integrationRoot = resolve(repositoryRoot, '.orca-worktrees', 'integration')
+  const candidate = resolve(integrationPath)
+  const relativePath = relative(integrationRoot, candidate)
+  if (
+    !relativePath ||
+    relativePath === '..' ||
+    relativePath.startsWith(`..${sep}`) ||
+    isAbsolute(relativePath)
+  ) {
+    throw new QualityGateError(
+      'Dependency-Bootstrap',
+      'Integration-Worktree liegt nicht innerhalb des verwalteten Integration-Verzeichnisses.'
+    )
+  }
+}
+
 async function runIntegrationQualityGates(
   repositoryRoot: string,
   integrationPath: string,
@@ -212,6 +229,7 @@ async function runIntegrationQualityGates(
     runGates: runQualityGates
   }
 ): Promise<void> {
+  assertManagedIntegrationPath(repositoryRoot, integrationPath)
   try {
     await deps.bootstrap(repositoryRoot, integrationPath)
   } catch (error) {

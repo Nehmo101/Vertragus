@@ -152,6 +152,21 @@ describe('autoPr safety helpers', () => {
     expect(runGates).not.toHaveBeenCalled()
   })
 
+  it('rejects path traversal outside the managed integration root before bootstrapping', async () => {
+    const bootstrap = vi.fn(async () => undefined)
+    const runGates = vi.fn(async () => undefined)
+
+    await expect(autoPrInternals.runIntegrationQualityGates(
+      '/repo',
+      '/repo/.orca-worktrees/integration/../../outside',
+      ['corepack pnpm lint'],
+      { bootstrap, runGates }
+    )).rejects.toThrow(/nicht innerhalb des verwalteten Integration-Verzeichnisses/)
+
+    expect(bootstrap).not.toHaveBeenCalled()
+    expect(runGates).not.toHaveBeenCalled()
+  })
+
   it('adds the target worktree local binaries to the gate shell PATH', () => {
     expect(autoPrInternals.qualityGateShellCommand(
       "C:\\repo's copy",
