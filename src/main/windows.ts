@@ -9,6 +9,7 @@ import { pathToFileURL } from 'node:url'
 import { is } from '@electron-toolkit/utils'
 import { installEditContextMenu } from '@main/editMenu'
 import { protectWebContents } from '@main/security/navigation'
+import { middleEarthWorkspaceName } from '@shared/workspaceNames'
 
 const BG = '#080c15'
 const WINDOW_ICON = join(__dirname, '../renderer/favicon.png')
@@ -292,6 +293,7 @@ function pushDemoState(win: BrowserWindow): void {
     profileId,
     profileName: 'UI Smoke',
     sequence: 1,
+    name: middleEarthWorkspaceName(1),
     startedAt: now,
     active: true
   }])

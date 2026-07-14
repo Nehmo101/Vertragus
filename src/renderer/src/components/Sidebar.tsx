@@ -5,6 +5,7 @@ import { profileSummary, profileAgentCount } from '@renderer/components/TitleBar
 import { githubAuthPresentation, hasUsableGithubAuth } from '@renderer/store/githubAuth'
 import type { AgentProviderId, ProviderHealth, ProviderId } from '@shared/providers'
 import { MCP_SCOPE_LABELS, MCP_TRANSPORT_LABELS } from '@shared/mcp'
+import { middleEarthWorkspaceName } from '@shared/workspaceNames'
 
 interface RowStatus {
   label: string
@@ -408,6 +409,8 @@ export default function Sidebar(): JSX.Element {
                     agent.workspaceSessionId === session.id &&
                     (agent.status === 'running' || agent.status === 'waiting')
                 ).length
+                const name = session.name || middleEarthWorkspaceName(session.sequence)
+                const label = `W${session.sequence} ${name}`
                 return (
                   <div className="workspace-session-row" key={session.id}>
                     <button
@@ -415,14 +418,14 @@ export default function Sidebar(): JSX.Element {
                       className={`workspace-session-select ${session.id === store.activeWorkspaceSessionId ? 'active' : ''}`}
                       onClick={() => void store.selectWorkspaceSession(session.profileId, session.id)}
                     >
-                      <span>Workspace {session.sequence}</span>
+                      <span>{label}</span>
                       <small>{running > 0 ? `${running} aktiv` : 'inaktiv'}</small>
                     </button>
                     <button
                       type="button"
                       className="workspace-session-remove"
                       title="Diesen Workspace-Lauf entfernen"
-                      aria-label={`Workspace ${session.sequence} entfernen`}
+                      aria-label={`${label} entfernen`}
                       onClick={() => void store.removeWorkspaceSession(session.profileId, session.id)}
                     >
                       ×

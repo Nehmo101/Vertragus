@@ -27,6 +27,7 @@ import type { AppInfo, GitInfo, GithubAuthStatus } from '@shared/ipc'
 import { profileRepoLocalPath } from '@shared/profile'
 import { normalizeModelCatalog, type ModelCatalog } from '@renderer/modelCatalog'
 import type { ModelPreset } from '@shared/models'
+import { middleEarthWorkspaceName } from '@shared/workspaceNames'
 
 const ADD_ROLES = ['Docs / Changelog', 'Refactor / Cleanup', 'Security-Review', 'Perf / Bench']
 
@@ -695,7 +696,13 @@ export const useAppStore = create<AppState>((set, get) => ({
           orchestrators: { ...state.orchestrators, [workspaceSessionId]: snapshot },
           selectedAgentId: null
         }))
-        get().showToast(`Workspace ${workspaceSessions.find((item) => item.id === workspaceSessionId)?.sequence ?? ''} gestartet.`)
+        const startedSession = workspaceSessions.find((item) => item.id === workspaceSessionId)
+        if (startedSession) {
+          const name = startedSession.name || middleEarthWorkspaceName(startedSession.sequence)
+          get().showToast(`W${startedSession.sequence} ${name} gestartet.`)
+        } else {
+          get().showToast('Workspace gestartet.')
+        }
       }
     } catch (error) {
       get().showToast(`Workspace konnte nicht starten: ${errorMessage(error)}`)

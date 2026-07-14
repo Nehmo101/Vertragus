@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import type { OrchestratorSnapshot, WorkspaceSessionSummary } from '@shared/orchestrator'
 import type { WorkspaceProfile } from '@shared/profile'
+import { middleEarthWorkspaceName } from '@shared/workspaceNames'
 import { OrchestratorEngine } from '@main/orchestrator/Engine'
 
 export interface WorkspaceSession {
@@ -9,6 +10,7 @@ export interface WorkspaceSession {
   profileId: string
   profile: WorkspaceProfile
   sequence: number
+  name: string
   startedAt: number
   engine: OrchestratorEngine
 }
@@ -38,6 +40,7 @@ function summary(session: WorkspaceSession, active: boolean): WorkspaceSessionSu
     profileId: session.profileId,
     profileName: session.profile.name,
     sequence: session.sequence,
+    name: session.name || middleEarthWorkspaceName(session.sequence),
     startedAt: session.startedAt,
     active
   }
@@ -52,12 +55,14 @@ export class WorkspaceSessionRegistry extends EventEmitter {
     const snapshot = cloneProfile(profile)
     const sessionId = randomUUID()
     const sessions = this.byProfile.get(snapshot.id) ?? []
+    const sequence = sessions.length + 1
     const engine = new OrchestratorEngine({ profile: snapshot, workspaceSessionId: sessionId })
     const session: WorkspaceSession = {
       id: sessionId,
       profileId: snapshot.id,
       profile: snapshot,
-      sequence: sessions.length + 1,
+      sequence,
+      name: middleEarthWorkspaceName(sequence),
       startedAt: Date.now(),
       engine
     }

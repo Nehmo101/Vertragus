@@ -213,6 +213,7 @@ export interface WorkspaceSessionSummary {
   profileId: string
   profileName: string
   sequence: number
+  name: string
   startedAt: number
   active: boolean
 }
