@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import { autoPrInternals, type RemoteCiCommandResult } from './autoPr'
 
 function commandResult(overrides: Partial<RemoteCiCommandResult> = {}): RemoteCiCommandResult {
@@ -15,6 +16,29 @@ describe('autoPr safety helpers', () => {
   it('creates stable safe slugs', () => {
     expect(autoPrInternals.safeSlug('Checkout Flow / API #42')).toBe('checkout-flow-api-42')
     expect(autoPrInternals.safeSlug('***')).toBe('orca-task')
+  })
+
+  it.each([
+    ['parent traversal', '../../evil'],
+    ['Windows parent traversal', '..\\..\\windows'],
+    ['Windows absolute path', 'C:\\Windows\\System32'],
+    ['POSIX absolute path', '/tmp/evil'],
+    ['null byte', 'evil\0outside']
+  ])('keeps an invalid %s branch inside the integration root', (_case, maliciousBranch) => {
+    const repositoryRoot = resolve('fixture-repository')
+    const integrationRoot = join(repositoryRoot, '.orca-worktrees', 'integration')
+    const integrationPath = autoPrInternals.integrationWorktreePath(
+      repositoryRoot,
+      maliciousBranch
+    )
+
+    expect(dirname(integrationPath)).toBe(integrationRoot)
+    expect(integrationPath).toBe(join(
+      integrationRoot,
+      autoPrInternals.safeSlug(maliciousBranch, 60)
+    ))
+    expect(integrationPath.startsWith(`${integrationRoot}${sep}`)).toBe(true)
+    expect(relative(repositoryRoot, integrationPath)).not.toMatch(/^\.\.(?:[\\/]|$)/)
   })
 
   it('blocks common secret shapes', () => {
@@ -107,5 +131,61 @@ describe('autoPr safety helpers', () => {
 
     expect(outcome.status).toBe('unavailable')
     expect(outcome.message).toMatch(/Authentifizierung/)
+  })
+
+  it('bootstraps a fresh integration worktree before running its quality gates', async () => {
+    const calls: string[] = []
+    const bootstrap = vi.fn(async () => {
+      calls.push('bootstrap')
+      return { status: 'linked' as const, detail: 'shared dependencies linked' }
+    })
+    const runGates = vi.fn(async () => {
+      calls.push('gates')
+    })
+    const repositoryRoot = 'C:\\repo'
+    const integrationPath = 'C:\\repo\\.orca-worktrees\\integration\\orca-goal'
+
+    await autoPrInternals.runIntegrationQualityGates(
+      repositoryRoot,
+      integrationPath,
+      ['corepack pnpm lint'],
+      { bootstrap, runGates }
+    )
+
+    expect(calls).toEqual(['bootstrap', 'gates'])
+    expect(bootstrap).toHaveBeenCalledWith(repositoryRoot, integrationPath)
+    expect(runGates).toHaveBeenCalledWith(integrationPath, ['corepack pnpm lint'])
+  })
+
+  it('reports dependency bootstrap failures clearly and skips integration gates', async () => {
+    const runGates = vi.fn(async () => undefined)
+
+    await expect(autoPrInternals.runIntegrationQualityGates(
+      'C:\\repo',
+      'C:\\repo\\.orca-worktrees\\integration\\orca-goal',
+      ['corepack pnpm lint'],
+      {
+        bootstrap: vi.fn(async () => {
+          throw new Error('Junction konnte nicht erstellt werden')
+        }),
+        runGates
+      }
+    )).rejects.toThrow(
+      /Quality Gate fehlgeschlagen: Dependency-Bootstrap[\s\S]*Integration-Worktree[\s\S]*Junction konnte nicht erstellt werden/
+    )
+    expect(runGates).not.toHaveBeenCalled()
+  })
+
+  it('adds the target worktree local binaries to the gate shell PATH', () => {
+    expect(autoPrInternals.qualityGateShellCommand(
+      "C:\\repo's copy",
+      'eslint .',
+      'win32'
+    )).toBe("& { $env:PATH = 'C:\\repo''s copy\\node_modules\\.bin;' + $env:PATH; eslint . }")
+    expect(autoPrInternals.qualityGateShellCommand(
+      "/repo's copy",
+      'eslint .',
+      'linux'
+    )).toBe("export PATH='/repo'\"'\"'s copy/node_modules/.bin':\"$PATH\"; eslint .")
   })
 })
