@@ -78,6 +78,7 @@ import {
   recordModelLearnings,
   recordRunRetro
 } from '@main/orchestrator/retroStore'
+import { captureTaskRecoveryArtifact } from '@main/orchestrator/recoveryArtifact'
 
 interface DispatchOptions {
   taskId?: string
@@ -91,10 +92,24 @@ interface DispatchOptions {
   planTaskId?: string
   attempt?: number
   maxAttempts?: number
+  /** Verified failed-worker worktree whose partial files may be resumed. */
+  recoveryWorktree?: string
   deferPublish?: boolean
 }
 
 const RESULT_PREVIEW = 160
+export function platformExecutionGuidance(
+  platform: NodeJS.Platform = process.platform
+): string[] {
+  if (platform !== 'win32') return []
+  return [
+    'Windows/PowerShell: Nutze pro Tool-Aufruf einen kurzen Einzelbefehl.',
+    "Windows/PowerShell: Nutze rg -g (z. B. rg -g '*.ts' Muster) statt Shell-Pfadglobs wie src/**/*.ts.",
+    "Windows/PowerShell: rg mit Exit-Code 1 und leerem stderr bedeutet 'keine Treffer', nicht Infrastrukturfehler.",
+    'Windows/PowerShell: Vereinfache nach Parser- oder Quotingfehlern den Aufruf; wiederhole ihn nicht unveraendert.'
+  ]
+}
+
 
 function initialReliability(): OrchestratorReliabilityMetrics {
   return {
@@ -582,6 +597,7 @@ export class OrchestratorEngine extends EventEmitter {
       '- Führe relevante Tests, Typecheck und Lint aus.',
       '- Führe kein git add, commit, cherry-pick oder push aus; Orcas Main-Prozess sichert Änderungen zentral.',
       '- Bei Infrastrukturblockern antworte strukturiert und knapp: Blocker, Alternativen, geplante Dateien, Schnittstellen.',
+      ...platformExecutionGuidance().map((item) => `- ${item}`),
       ...securityChecklist.map((item) => `- Security-Pflicht: ${item}`)
     ].join('\n')
     const taskPrompt = `${prompt}\n\n${executionContract}`
@@ -640,6 +656,7 @@ export class OrchestratorEngine extends EventEmitter {
         workingDir: slot.workingDir || profile?.workingDir,
         profileId: profile?.id,
         workspaceSessionId: this.workspaceSessionId,
+        recoveryWorktree: options.recoveryWorktree,
         engineId: this.engineId
       }, { onEvent: onLifecycleEvent, heartbeatIntervalMs: 45_000 })
       task.agentId = info.id
@@ -677,11 +694,22 @@ export class OrchestratorEngine extends EventEmitter {
         }
       }
       const wasCancelled = result.status === 'cancelled'
+      const infrastructureFailure =
+        result.failureKind === 'provider-auth' ||
+        result.failureKind === 'sandbox' ||
+        result.failureKind === 'stalled'
       task.status = wasCancelled ? 'stopped' : result.isError ? 'error' : 'success'
-      task.failureKind = wasCancelled ? 'cancelled' : result.isError ? 'worker' : undefined
+      task.failureKind = wasCancelled
+        ? 'cancelled'
+        : infrastructureFailure
+          ? 'infrastructure'
+          : result.isError ? 'worker' : undefined
       task.progress = task.status === 'success' ? 100 : undefined
       task.phase = task.status === 'success' ? 'completed' : task.phase
-      task.lastAction = wasCancelled ? 'Manuell gestoppt' : result.isError ? 'Worker fehlgeschlagen' : 'Worker abgeschlossen'
+      task.lastAction = wasCancelled
+        ? 'Manuell gestoppt'
+        : infrastructureFailure
+          ? 'Provider-Infrastruktur fehlgeschlagen' : result.isError ? 'Worker fehlgeschlagen' : 'Worker abgeschlossen'
       if (activeAttempt) {
         activeAttempt.status = task.status
         activeAttempt.failureKind = task.failureKind
@@ -693,6 +721,32 @@ export class OrchestratorEngine extends EventEmitter {
       const preview = result.result.replace(/\s+/g, ' ').trim().slice(0, RESULT_PREVIEW)
       task.note = result.isError ? 'Fehler bei der Ausführung' : preview
       task.worktree = info.worktree
+      if (infrastructureFailure) {
+        task.note = preview || 'Provider-Infrastruktur fehlgeschlagen'
+        task.blocker = {
+          kind: 'infrastructure',
+          code: `provider-${result.failureKind}`,
+          summary: task.note,
+          details: [result.result.trim().slice(0, 1_000)].filter(Boolean),
+          recoverable: true
+        }
+        this.reliability.infrastructureFailures += 1
+        const metricKey = `${slot.provider}:${process.platform}`
+        this.reliability.failuresByProviderAndPlatform[metricKey] =
+          (this.reliability.failuresByProviderAndPlatform[metricKey] ?? 0) + 1
+      }
+      if (result.isError && !wasCancelled) {
+        task.recoveryArtifact = await captureTaskRecoveryArtifact({
+          worktree: info.worktree,
+          baseCommit
+        })
+        if (task.recoveryArtifact) {
+          task.lastAction = 'Teilarbeit als Recovery-Artefakt gesichert'
+          task.note = `${task.note} · ${task.recoveryArtifact.changedFiles.length} Datei(en) quarantined`
+        }
+      } else {
+        task.recoveryArtifact = undefined
+      }
       const autoPr = profile?.autoPr
       if (!result.isError && !wasCancelled && autoPr) {
         task.phase = 'security-review'
@@ -767,8 +821,12 @@ export class OrchestratorEngine extends EventEmitter {
       const completion = task.completion?.kind === 'commit'
         ? `\n\nVerifizierter Commit: ${task.completion.commit}`
         : task.completion?.kind === 'no-changes' ? '\n\nVerifizierter Status: keine Änderungen' : ''
+      const recoveryArtifact = task.recoveryArtifact
+      const recovery = recoveryArtifact
+        ? `\n\nRecovery-Artefakt: ${recoveryArtifact.worktree}\nDateien: ${recoveryArtifact.changedFiles.join(', ')}`
+        : ''
       return result.isError
-        ? `${info.name} (${slotRole}) meldete einen Fehler. Ausgabe:\n${result.result}`
+        ? `${info.name} (${slotRole}) meldete einen Fehler. Ausgabe:\n${result.result}${recovery}`
         : `${info.name} (${slotRole}) meldet:\n${result.result || '(kein Textergebnis)'}${completion}`
     } catch (err) {
       task.status = 'error'
@@ -873,6 +931,11 @@ export class OrchestratorEngine extends EventEmitter {
       blocker: task.blocker ? { ...task.blocker, details: [...task.blocker.details] } : undefined,
       failureKind: task.failureKind,
       preflight: task.preflight ? { ...task.preflight, checks: task.preflight.checks.map((check) => ({ ...check })) } : undefined,
+      recoveryArtifact: task.recoveryArtifact
+        ? {
+            ...task.recoveryArtifact,
+            changedFiles: [...task.recoveryArtifact.changedFiles]
+          } : undefined,
       attempts: task.attempts?.map((attempt) => ({ ...attempt })),
       result: task.status === 'success' || task.status === 'needs-work' || task.status === 'stopped'
         ? result ?? task.note
@@ -1058,6 +1121,7 @@ export class OrchestratorEngine extends EventEmitter {
         const attemptedRoles = new Set<string>()
         let requestedRole = task.role
         let recoveryContext = ''
+        let recoveryWorktree: string | undefined
 
         for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
           attemptedRoles.add(requestedRole)
@@ -1078,7 +1142,8 @@ export class OrchestratorEngine extends EventEmitter {
               criticality: task.criticality,
               ownership: task.ownership,
               attempt: attempt + 1,
-              maxAttempts: maxRetries + 1
+              maxAttempts: maxRetries + 1,
+              recoveryWorktree
             }
           )
           this.taskResults.set(runtimeId, output)
@@ -1109,6 +1174,7 @@ export class OrchestratorEngine extends EventEmitter {
           }
 
           recoveryContext = output
+          recoveryWorktree = runtimeTask?.recoveryArtifact?.worktree
           const alternatives = this.listSubagents()
             .filter((agent) => agent.available && !attemptedRoles.has(agent.role))
             .sort((a, b) => (a.busy / a.capacity) - (b.busy / b.capacity))

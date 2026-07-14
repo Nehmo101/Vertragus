@@ -74,6 +74,10 @@ interface AppState {
   theme: UiTheme
   workspaceLayout: WorkspaceLayout
   uiDensity: UiDensity
+  /** Global default: CLI panes show a readable activity summary instead of raw output. */
+  cliReadable: boolean
+  /** Per-agent overrides of the global readable default (session-scoped). */
+  paneReadable: Record<string, boolean>
   toast: string | null
   /** Profile being edited in the modal; null = closed. */
   editorProfile: WorkspaceProfile | null
@@ -100,6 +104,10 @@ interface AppState {
   setModelEnabled(provider: AgentProviderId, model: string, enabled: boolean): void
   toggleYolo(): void
   toggleTheme(): void
+  /** Flip the global default for readable CLI panes and persist it. */
+  toggleCliReadable(): void
+  /** Override the readable/raw mode for a single pane (relative to the current effective value). */
+  togglePaneReadable(agentId: string): void
   setWorkspaceLayout(layout: WorkspaceLayout): void
   setUiDensity(density: UiDensity): void
   showToast(msg: string): void
@@ -154,6 +162,14 @@ export function workspaceAgents(
 
 export function isFinishedSubagent(agent: AgentInstanceInfo): boolean {
   return agent.kind === 'sub' && (agent.status === 'stopped' || agent.status === 'error')
+}
+
+/** Whether a pane shows the readable summary: its own override, else the global default. */
+export function effectivePaneReadable(
+  state: Pick<AppState, 'cliReadable' | 'paneReadable'>,
+  agentId: string
+): boolean {
+  return state.paneReadable[agentId] ?? state.cliReadable
 }
 
 export function workspaceAgentHistory(
@@ -212,6 +228,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   theme: 'light',
   workspaceLayout: 'tiles',
   uiDensity: 'comfortable',
+  cliReadable: false,
+  paneReadable: {},
   toast: null,
   editorProfile: null,
   handoffSource: null,
@@ -235,7 +253,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       const retainedIds = new Set(agents.map((agent) => agent.id))
       set((state) => ({
         agents,
-        reopenedAgentIds: state.reopenedAgentIds.filter((id) => retainedIds.has(id))
+        reopenedAgentIds: state.reopenedAgentIds.filter((id) => retainedIds.has(id)),
+        paneReadable: Object.fromEntries(
+          Object.entries(state.paneReadable).filter(([id]) => retainedIds.has(id))
+        )
       }))
     })
     window.orca.agents.onEvent((evt) =>
@@ -292,7 +313,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       limits,
       workspaceSessions,
       providerEnabled,
-      disabledModels
+      disabledModels,
+      cliReadable
     ] =
       await Promise.all([
         window.orca.getAppInfo(),
@@ -309,7 +331,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         window.orca.getConfig<Partial<Record<AgentProviderId, number>>>('providerLimits'),
         window.orca.workspaceSessions.list(),
         window.orca.getConfig<Partial<ProviderEnabled>>('providerEnabled'),
-        window.orca.getConfig<Partial<DisabledModels>>('disabledModels')
+        window.orca.getConfig<Partial<DisabledModels>>('disabledModels'),
+        window.orca.getConfig<boolean>('ui.cliReadable')
       ])
     set({
       appInfo,
@@ -328,6 +351,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       theme: theme === 'dark' ? 'dark' : 'light',
       workspaceLayout: layout === 'focus' || layout === 'dag' ? layout : 'tiles',
       uiDensity: density === 'compact' ? density : 'comfortable',
+      cliReadable: cliReadable ?? false,
       providerLimits: normalizeProviderLimits(limits),
       providerEnabled: normalizeProviderEnabled(providerEnabled),
       disabledModels: normalizeDisabledModels(disabledModels)
@@ -583,6 +607,21 @@ export const useAppStore = create<AppState>((set, get) => ({
     const next = get().theme === 'light' ? 'dark' : 'light'
     set({ theme: next })
     void window.orca.setConfig('ui.theme', next)
+  },
+
+  toggleCliReadable() {
+    const next = !get().cliReadable
+    set({ cliReadable: next })
+    void window.orca.setConfig('ui.cliReadable', next)
+  },
+
+  togglePaneReadable(agentId) {
+    set((state) => ({
+      paneReadable: {
+        ...state.paneReadable,
+        [agentId]: !effectivePaneReadable(state, agentId)
+      }
+    }))
   },
 
   setWorkspaceLayout(layout) {

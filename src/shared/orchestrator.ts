@@ -68,8 +68,18 @@ export interface TaskBlocker {
   recoverable: boolean
 }
 
+export interface TaskRecoveryArtifact {
+  /** Verified Orca worktree whose files remain available for audit or retry. */
+  worktree: string
+  baseCommit?: string
+  changedFiles: string[]
+  statusSummary: string
+  capturedAt: number
+}
+
 export type PanePreflightCheckId =
   | 'provider'
+  | 'provider-runtime'
   | 'workspace'
   | 'git-common-dir'
   | 'dependencies'
@@ -158,6 +168,8 @@ export interface OrcaTask {
   planId?: string
   engineId?: string
   expectedFiles?: string[]
+  /** Quarantined partial work from a failed worker; never auto-integrated. */
+  recoveryArtifact?: TaskRecoveryArtifact
   worktree?: string
   branch?: string
   commit?: string
@@ -271,6 +283,7 @@ export interface TaskStatusSnapshot {
   blocker?: TaskBlocker
   failureKind?: TaskFailureKind
   preflight?: PanePreflightReport
+  recoveryArtifact?: TaskRecoveryArtifact
   attempts?: TaskAttemptSnapshot[]
 }
 

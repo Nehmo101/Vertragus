@@ -30,6 +30,8 @@ function line(color: string, text: string): string {
 }
 
 export type HeadlessStatus = 'succeeded' | 'failed' | 'cancelled'
+export type HeadlessFailureKind = 'provider-auth' | 'sandbox' | 'stalled' | 'provider'
+
 
 export type HeadlessLifecyclePhase =
   | 'starting'
@@ -78,6 +80,8 @@ export interface HeadlessLifecycleOptions {
   onEvent(event: HeadlessLifecycleEvent): void
   /** Heartbeats are deliberately constrained to the product's 30-60 second window. */
   heartbeatIntervalMs?: number
+  /** Abort a spawned worker only after this long without meaningful provider progress; 0 disables it. */
+  stallTimeoutMs?: number
 }
 
 export interface HeadlessResult {
@@ -87,6 +91,8 @@ export interface HeadlessResult {
   status?: HeadlessStatus
   error?: string
   costUsd?: number
+  /** Machine-readable cause used by the orchestrator's recovery policy. */
+  failureKind?: HeadlessFailureKind
   tokensIn?: number
   tokensOut?: number
   steps?: number
@@ -94,8 +100,42 @@ export interface HeadlessResult {
 
 const DEFAULT_STOP_GRACE_MS = 5_000
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 45_000
+const DEFAULT_STALL_TIMEOUT_MS = 15 * 60_000
+const STALL_CHECK_INTERVAL_MS = 30_000
 const MIN_HEARTBEAT_INTERVAL_MS = 30_000
 const MAX_HEARTBEAT_INTERVAL_MS = 60_000
+
+export interface FatalProviderFailure {
+  kind: Extract<HeadlessFailureKind, 'provider-auth' | 'sandbox'>
+  message: string
+}
+
+const FATAL_AUTH_PATTERN =
+  /token_revoked|invalidated oauth token|oauth token[^\n]*(?:revoked|invalid|expired)|authentication token[^\n]*(?:revoked|invalid|expired)/i
+const FATAL_SANDBOX_PATTERN =
+  /failed to prepare[^\n]*sandbox|cannot enforce split writable root sets|createrestrictedtoken failed|windows sandbox wrapper[^\n]*(?:failed|refus)/i
+
+/** Convert terminal stderr conditions into immediate, actionable failures. */
+export function classifyFatalProviderStderr(
+  provider: AgentProviderId,
+  text: string
+): FatalProviderFailure | undefined {
+  const detail = text.trim().slice(-1_200)
+  if (!detail) return undefined
+  if (FATAL_AUTH_PATTERN.test(detail)) {
+    return {
+      kind: 'provider-auth',
+      message: `${provider}: Anmeldung ist abgelaufen oder widerrufen. Provider-Login erneuern. Details: ${detail}`
+    }
+  }
+  if (provider === 'codex' && FATAL_SANDBOX_PATTERN.test(detail)) {
+    return {
+      kind: 'sandbox',
+      message: `Codex-Sandbox konnte nicht initialisiert werden. Worker nicht unsandboxed fortgesetzt. Details: ${detail}`
+    }
+  }
+  return undefined
+}
 
 export interface HeadlessHandle {
   pid?: number
@@ -178,7 +218,7 @@ function createLifecycleReporter(
     },
     output(chunk, source) {
       if (finished) return
-      activity()
+      if (source !== 'stderr') activity()
       emit({ ...base(), type: 'output', chunk, source })
     },
     progress(providerEvent) {
@@ -261,15 +301,36 @@ function codexErrorText(raw: unknown): string {
 }
 
 /** codex exec --json emits its own event shapes. */
-function interpretCodex(obj: Record<string, unknown>): LineInterpretation {
+function interpretCodex(
+  obj: Record<string, unknown>,
+  activeCommands: Map<string, number>
+): LineInterpretation {
   const type = String(obj['type'] ?? '')
   const item = obj['item'] as
-    | { type?: string; text?: string; command?: string; message?: string }
+    | { id?: string; type?: string; text?: string; command?: string; message?: string; status?: string; exit_code?: number }
     | undefined
-  if (type === 'item.completed' || type === 'item.started') {
-    if (item?.type === 'agent_message' && item.text) return { log: line(C.reset, item.text.trim()) }
-    if (item?.type === 'command_execution' && item.command)
+  if (type === 'item.started') {
+    if (item?.type === 'command_execution' && item.command) {
+      const key = item.id ?? item.command
+      activeCommands.set(key, (activeCommands.get(key) ?? 0) + 1)
       return { log: line(C.cyan, `$ ${item.command}`) }
+    }
+    if (item?.type === 'reasoning') return { log: line(C.grey, '  - denkt nach ...') }
+    return {}
+  }
+  if (type === 'item.completed') {
+    if (item?.type === 'agent_message' && item.text) return { log: line(C.reset, item.text.trim()) }
+    if (item?.type === 'command_execution' && item.command) {
+      const key = item.id ?? item.command
+      const activeCount = activeCommands.get(key) ?? 0
+      if (activeCount > 0) {
+        if (activeCount === 1) activeCommands.delete(key)
+        else activeCommands.set(key, activeCount - 1)
+        const failed = item.status === 'failed' || (item.exit_code != null && item.exit_code !== 0)
+        return failed ? { log: line(C.red, `  command exit ${item.exit_code ?? 'failed'}`) } : {}
+      }
+      return { log: line(C.cyan, `$ ${item.command}`) }
+    }
     if (item?.type === 'error' && item.message) return { log: line(C.red, `✗ ${item.message}`) }
     if (item?.type === 'reasoning') return { log: line(C.grey, '  · denkt nach …') }
     return {}
@@ -291,7 +352,9 @@ function interpretCodex(obj: Record<string, unknown>): LineInterpretation {
 }
 
 function interpreterFor(id: AgentProviderId): (o: Record<string, unknown>) => LineInterpretation {
-  return id === 'codex' ? interpretCodex : interpretClaudeStyle
+  if (id !== 'codex') return interpretClaudeStyle
+  const activeCommands = new Map<string, number>()
+  return (event) => interpretCodex(event, activeCommands)
 }
 
 /**
@@ -393,15 +456,29 @@ export function runHeadless(
   let settled = false
   let stopStatus: Extract<HeadlessStatus, 'cancelled'> | undefined
   let stopFallback: NodeJS.Timeout | undefined
+  let stallWatchdog: NodeJS.Timeout | undefined
+  let lastMeaningfulProgressAt = Date.now()
+  let fatalFailure:
+    | { kind: Exclude<HeadlessFailureKind, 'provider'>; message: string }
+    | undefined
+  const configuredStallTimeout = lifecycleOptions?.stallTimeoutMs ?? DEFAULT_STALL_TIMEOUT_MS
+  const stallTimeoutMs =
+    Number.isFinite(configuredStallTimeout) && configuredStallTimeout > 0 ? configuredStallTimeout : 0
   let resolveDone!: (result: HeadlessResult) => void
 
   lifecycle.phase('resolving-command')
 
   const cleanup = (): void => {
     if (stopFallback) clearTimeout(stopFallback)
+    if (stallWatchdog) clearInterval(stallWatchdog)
     if (tmpDir) { rmSync(tmpDir, { recursive: true, force: true }); tmpDir = undefined }
   }
-  const finish = (status: HeadlessStatus, fallback = '', error?: string): void => {
+  const finish = (
+    status: HeadlessStatus,
+    fallback = '',
+    error?: string,
+    failureKind?: HeadlessFailureKind
+  ): void => {
     if (settled) return
     settled = true
     cleanup()
@@ -410,7 +487,8 @@ export function runHeadless(
       result: acc.result || fallback,
       status,
       isError: status !== 'succeeded',
-      error
+      error,
+      failureKind: status === 'failed' ? failureKind ?? 'provider' : undefined
     }
     lifecycle.finish(status, result)
     resolveDone(result)
@@ -423,8 +501,41 @@ export function runHeadless(
       killer.on('error', () => child?.kill())
     } else child.kill('SIGTERM')
   }
+  const requestFailure = (failure: {
+    kind: Exclude<HeadlessFailureKind, 'provider'>
+    message: string
+  }): void => {
+    if (settled || stopStatus || fatalFailure) return
+    fatalFailure = failure
+    sawError = true
+    acc.result = failure.message
+    lifecycle.phase('stopping')
+    emitLine(line(C.red, `Fataler Workerfehler: ${failure.message}`))
+    if (!child) {
+      finish('failed', failure.message, failure.message, failure.kind)
+      return
+    }
+    terminateChild()
+    stopFallback = setTimeout(() => {
+      finish('failed', failure.message, failure.message, failure.kind)
+    }, DEFAULT_STOP_GRACE_MS)
+    stopFallback.unref()
+  }
+  const startStallWatchdog = (): void => {
+    if (stallTimeoutMs <= 0 || stallWatchdog) return
+    lastMeaningfulProgressAt = Date.now()
+    stallWatchdog = setInterval(() => {
+      const idleMs = Date.now() - lastMeaningfulProgressAt
+      if (idleMs < stallTimeoutMs) return
+      requestFailure({
+        kind: 'stalled',
+        message: `Worker ohne sinnvollen Provider-Fortschritt seit ${Math.round(idleMs / 1_000)} Sekunden.`
+      })
+    }, Math.min(STALL_CHECK_INTERVAL_MS, stallTimeoutMs))
+    stallWatchdog.unref()
+  }
   const requestStop = (): void => {
-    if (settled || stopStatus) return
+    if (settled || stopStatus || fatalFailure) return
     stopStatus = 'cancelled'
     lifecycle.phase('stopping')
     if (!child) {
@@ -443,6 +554,7 @@ export function runHeadless(
     const trimmed = raw.trim()
     if (!trimmed) return
     rawTail = (rawTail + trimmed + '\n').slice(-4000)
+    lastMeaningfulProgressAt = Date.now()
     let obj: Record<string, unknown>
     try {
       obj = JSON.parse(trimmed) as Record<string, unknown>
@@ -485,20 +597,31 @@ export function runHeadless(
         child = spawn(resolved.file, resolved.args, { cwd: opts.workingDir, env: { ...process.env } as Record<string, string>, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
         currentPid = child.pid
         lifecycle.phase('running')
+        startStallWatchdog()
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
-        emitLine(line(C.red, `Spawn fehlgeschlagen: ${message}`)); finish('failed', message, message); return
+        emitLine(line(C.red, `Spawn fehlgeschlagen: ${message}`)); finish('failed', message, message, 'provider'); return
       }
       child.stdout?.on('data', (data: Buffer) => {
         stdoutBuf += data.toString(); const parts = stdoutBuf.split(/\r?\n/); stdoutBuf = parts.pop() ?? ''; for (const part of parts) handleLine(part)
       })
       child.stderr?.on('data', (data: Buffer) => {
-        const text = data.toString().trim(); if (!text) return; stderrTail = (stderrTail + text + '\n').slice(-4000); emitLine(line(C.red, text), 'stderr')
+        const text = data.toString().trim()
+        if (!text) return
+        stderrTail = (stderrTail + text + '\n').slice(-4000)
+        emitLine(line(C.red, text), 'stderr')
+        const failure = classifyFatalProviderStderr(id, stderrTail)
+        if (failure) requestFailure(failure)
       })
       child.on('error', (err) => {
         const message = err.message
+        if (fatalFailure) {
+          acc.result = fatalFailure.message
+          finish('failed', fatalFailure.message, fatalFailure.message, fatalFailure.kind)
+          return
+        }
         if (stopStatus) { finish(stopStatus, stoppedText()); return }
-        emitLine(line(C.red, `Spawn fehlgeschlagen: ${message}`)); finish('failed', message, message)
+        emitLine(line(C.red, `Spawn fehlgeschlagen: ${message}`)); finish('failed', message, message, 'provider')
       })
       child.on('close', (code) => {
         if (settled) return
@@ -510,6 +633,11 @@ export function runHeadless(
         if (stopStatus) {
           emitLine(line(C.yellow, 'Task gestoppt'))
           finish(stopStatus, stoppedText()); return
+        }
+        if (fatalFailure) {
+          acc.result = fatalFailure.message
+          finish('failed', fatalFailure.message, fatalFailure.message, fatalFailure.kind)
+          return
         }
         const failed = sawError || code !== 0
         if (failed) {
