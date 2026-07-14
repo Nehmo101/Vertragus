@@ -98,7 +98,6 @@ interface DispatchOptions {
   maxAttempts?: number
   /** Verified failed-worker worktree whose partial files may be resumed. */
   recoveryWorktree?: string
-  deferPublish?: boolean
 }
 
 const RESULT_PREVIEW = 160
@@ -121,6 +120,15 @@ export function platformExecutionGuidance(
   ]
 }
 
+
+/** Numeric sequence of a `<prefix><base36>` runtime id, or null for foreign ids. */
+function parseSequenceId(id: string, prefix: string): number | null {
+  if (!id.startsWith(prefix)) return null
+  const raw = id.slice(prefix.length)
+  if (!/^[0-9a-z]+$/.test(raw)) return null
+  const value = Number.parseInt(raw, 36)
+  return Number.isFinite(value) ? value : null
+}
 
 function initialReliability(): OrchestratorReliabilityMetrics {
   return {
@@ -209,6 +217,18 @@ export class OrchestratorEngine extends EventEmitter {
         note: interrupted ? 'Durch App-Neustart unterbrochen.' : task.note,
         finishedAt: interrupted ? Date.now() : task.finishedAt
       })
+      // Resume the id sequence past restored tasks; otherwise the next
+      // dispatch would silently overwrite restored history under the same id.
+      const taskSeq = parseSequenceId(task.id, 't-')
+      if (taskSeq != null) this.taskSeq = Math.max(this.taskSeq, taskSeq)
+    }
+    if (Array.isArray(restored.findings)) {
+      for (const finding of restored.findings) {
+        if (!finding || typeof finding.id !== 'string' || typeof finding.title !== 'string') continue
+        this.findingsBoard.push({ ...finding, files: finding.files ? [...finding.files] : undefined })
+        const findingSeq = parseSequenceId(finding.id, 'finding-')
+        if (findingSeq != null) this.findingSeq = Math.max(this.findingSeq, findingSeq)
+      }
     }
   }
 
@@ -250,7 +270,8 @@ export class OrchestratorEngine extends EventEmitter {
         waitingTasks: tasks.filter((task) => task.status === 'queued').length
       },
       pendingPlan: this.pendingPlan,
-      lastRetro: this.lastRetro
+      lastRetro: this.lastRetro,
+      findings: this.listTaskFindings()
     }
   }
 
@@ -870,10 +891,7 @@ export class OrchestratorEngine extends EventEmitter {
           task.note = (task.note || 'Worker fertig') + ' · Abnahme blockiert: ' + prepared.message
           task.lastAction = 'Commit-Vertrag oder Security-Gate fehlgeschlagen'
         }
-        if (
-          task.status === 'success' && autoPr.mode !== 'off' && !options.deferPublish &&
-          !options.planId && prepared.change
-        ) {
+        if (task.status === 'success' && autoPr.mode !== 'off' && !options.planId && prepared.change) {
           await this.publishPendingChanges()
         }
       }
@@ -1029,21 +1047,6 @@ export class OrchestratorEngine extends EventEmitter {
     return [...this.tasks.keys()].map((id) => this.getTaskStatus(id)!).filter(Boolean)
   }
 
-  /**
-   * Fan out several subtasks at once. They run in parallel (bounded by each
-   * role's capacity) and all results are collected — the way to get real
-   * parallelism instead of one blocking dispatch at a time.
-   */
-  async dispatchBatch(items: Array<{ role: string; prompt: string; title?: string }>): Promise<string> {
-    const results = await Promise.all(
-      items.map(async (it, i) => {
-        const out = await this.dispatch(it.role, it.prompt, it.title, { deferPublish: true })
-        return `#${i + 1} ${out}`
-      })
-    )
-    await this.publishPendingChanges()
-    return results.join('\n\n---\n\n')
-  }
   /**
    * Validate and execute a model-authored DAG. The scheduler enforces global
    * concurrency, role capacity, dependencies and conflict keys.

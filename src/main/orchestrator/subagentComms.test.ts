@@ -5,10 +5,11 @@ vi.mock('electron', () => ({
   app: { getPath: () => '.', getName: () => 'test', isPackaged: false }
 }))
 vi.mock('@main/windows', () => ({ createPaneWindow: vi.fn(), broadcast: vi.fn() }))
+const persisted = vi.hoisted(() => ({ snapshot: undefined as unknown }))
 vi.mock('@main/config/store', () => ({
   getProfile: () => DEFAULT_PROFILE,
   getActiveProfileId: () => 'default',
-  getSetting: () => undefined,
+  getSetting: (key: string) => (key.startsWith('orchestratorSnapshot') ? persisted.snapshot : undefined),
   setSetting: vi.fn(),
   listMcpServers: () => []
 }))
@@ -65,6 +66,7 @@ function pendingRun(): { finish: (result: { result: string; isError: boolean; st
 afterEach(() => {
   setMcpHandle(null)
   runTask.mockReset()
+  persisted.snapshot = undefined
 })
 
 describe('subagent communication channel', () => {
@@ -118,8 +120,12 @@ describe('subagent communication channel', () => {
         files: ['src/moduleA.ts']
       })
     ])
-    // The orchestrator view (no task scope) sees the complete board.
+    // The orchestrator view (no task scope) sees the complete board, and the
+    // snapshot carries it into the renderer.
     expect(engine.listTaskFindings()).toHaveLength(1)
+    expect(engine.snapshot().findings).toEqual([
+      expect.objectContaining({ title: 'API-Vertrag Modul A' })
+    ])
 
     expect(() => engine.postTaskFinding('missing', { kind: 'insight', title: 't', detail: 'd' }))
       .toThrowError('Task nicht gefunden.')
@@ -154,6 +160,48 @@ describe('subagent communication channel', () => {
     expect(runTask.mock.calls[1]![0].prompt).not.toContain('report_progress')
     withoutTools.finish({ result: 'Done', isError: false, status: 'succeeded' })
     await vi.waitFor(() => expect(engine.getTaskStatus(second.taskId)?.status).toBe('success'))
+  })
+
+  it('restores the findings board and resumes id sequences after a restart', async () => {
+    persisted.snapshot = {
+      goal: null,
+      tasks: [
+        { id: 't-3', title: 'Alte Aufgabe', role: 'codex', status: 'success', createdAt: 1 }
+      ],
+      findings: [
+        {
+          id: 'finding-5',
+          taskId: 't-3',
+          kind: 'interface',
+          title: 'Alt-API',
+          detail: 'export function legacy(): void',
+          createdAt: 1
+        }
+      ]
+    }
+    const run = pendingRun()
+    const engine = new OrchestratorEngine({ profile: { ...DEFAULT_PROFILE } })
+
+    expect(engine.listTaskFindings()).toEqual([
+      expect.objectContaining({ id: 'finding-5', title: 'Alt-API' })
+    ])
+
+    // New ids must continue AFTER the restored ones instead of overwriting them.
+    const accepted = engine.dispatchAsync('codex', 'Neue Aufgabe', 'Neu')
+    expect(accepted.taskId).toBe('t-4')
+    expect(engine.getTaskStatus('t-3')?.title).toBe('Alte Aufgabe')
+    await vi.waitFor(() => expect(runTask).toHaveBeenCalledTimes(1))
+
+    const fresh = engine.postTaskFinding(accepted.taskId, {
+      kind: 'decision',
+      title: 'Neue Entscheidung',
+      detail: 'Wir erweitern die Alt-API.'
+    })
+    expect(fresh.id).toBe('finding-6')
+    expect(engine.listTaskFindings()).toHaveLength(2)
+
+    run.finish({ result: 'Done', isError: false, status: 'succeeded' })
+    await vi.waitFor(() => expect(engine.getTaskStatus(accepted.taskId)?.status).toBe('success'))
   })
 
   it('keeps concurrent plan runs and their goals separate', async () => {

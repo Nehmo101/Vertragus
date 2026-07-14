@@ -251,6 +251,8 @@ export interface OrchestratorSnapshot {
   pendingPlan?: PendingPlanReview
   /** Retrospective of the most recent terminal plan run in this session. */
   lastRetro?: RunRetro
+  /** Recent shared findings board entries (newest last), for the live UI. */
+  findings?: SubagentFinding[]
 }
 
 export interface OrchestratorReliabilityMetrics {
