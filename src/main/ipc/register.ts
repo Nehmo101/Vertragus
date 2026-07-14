@@ -424,6 +424,12 @@ export function registerIpcHandlers(): void {
     const profile = getProfile(profileId)
     if (profile) workspaceSessions.reset(profile, workspaceSessionId)
   })
+  ipcMain.handle(IPC.orchestratorEnableAutoMode, (_e, profileId: string, workspaceSessionId?: string) => {
+    const profile = getProfile(profileId)
+    return profile
+      ? workspaceSessions.enableAutoMode(profile, workspaceSessionId)
+      : false
+  })
   ipcMain.handle(IPC.orchestratorReviewPlan, (_e, profileId: string, approved: boolean, workspaceSessionId?: string) => {
     const profile = getProfile(profileId)
     return profile

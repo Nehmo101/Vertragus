@@ -2040,6 +2040,63 @@ button {
   background: #8b98ad;
 }
 
+.planner-mode-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 9px 10px;
+  border: 1px solid var(--border-1);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-card) 88%, transparent);
+}
+.planner-mode-control.auto {
+  border-color: color-mix(in srgb, var(--run) 48%, transparent);
+  background: color-mix(in srgb, var(--run) 8%, var(--bg-card));
+}
+.planner-mode-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+.planner-mode-copy span {
+  color: var(--text-3);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.planner-mode-copy strong {
+  overflow: hidden;
+  color: var(--text-1);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.planner-mode-btn {
+  flex: none;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 52%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  color: var(--accent-light);
+  font: 600 10px var(--font-body);
+  cursor: pointer;
+}
+.planner-mode-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.planner-mode-btn:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+.planner-mode-control.auto .planner-mode-btn {
+  border-color: color-mix(in srgb, var(--run) 42%, transparent);
+  background: color-mix(in srgb, var(--run) 12%, transparent);
+  color: var(--run-text);
+}
 .goal-card {
   margin-top: 12px;
   padding: 10px 12px;

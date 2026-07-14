@@ -58,7 +58,7 @@ export async function spawnProfileTeam(
         engineId: engine.engineId
       })
     )
-    engine.activate(profile)
+    engine.activate(session.profile)
   }
 
   return spawned

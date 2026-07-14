@@ -107,6 +107,7 @@ export const IPC = {
   agentHandoff: 'agent:handoff',
   orchestratorSnapshot: 'orchestrator:snapshot',
   orchestratorReset: 'orchestrator:reset',
+  orchestratorEnableAutoMode: 'orchestrator:enableAutoMode',
   orchestratorReviewPlan: 'orchestrator:reviewPlan',
   orchestratorTaskDiff: 'orchestrator:taskDiff',
   retroListRetros: 'retro:listRetros',
@@ -396,6 +397,8 @@ export interface OrcaApi {
     snapshot(profileId: string, workspaceSessionId?: string): Promise<OrchestratorSnapshot>
     /** Clear the task graph (fresh goal). */
     reset(profileId: string, workspaceSessionId?: string): Promise<void>
+    /** Switch this running workspace session to direct automatic plan execution. */
+    enableAutoMode(profileId: string, workspaceSessionId?: string): Promise<boolean>
     /** Resolve a plan waiting in review mode. */
     reviewPlan(profileId: string, approved: boolean, workspaceSessionId?: string): Promise<boolean>
     onSnapshot(cb: (snap: OrchestratorSnapshot) => void): () => void
