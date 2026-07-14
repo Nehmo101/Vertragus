@@ -201,10 +201,21 @@ button {
   color: var(--accent);
 }
 .wordmark-sub {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-size: 10px;
   color: var(--text-4);
   letter-spacing: 0.6px;
   text-transform: uppercase;
+  white-space: nowrap;
+}
+.wordmark-version {
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.2px;
+  text-transform: none;
 }
 
 .tb-divider {
