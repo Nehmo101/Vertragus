@@ -4962,6 +4962,30 @@ textarea:focus-visible,
   resize: vertical;
 }
 
+.voice-settings {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.voice-settings:hover {
+  color: var(--text-1);
+  border-color: var(--sage-strong);
+}
+
+.voice-settings.unconfigured {
+  border-color: var(--err);
+  background: var(--err-soft);
+  color: var(--err-text);
+}
+
 .voice-error {
   max-width: 320px;
   overflow: hidden;
@@ -4969,4 +4993,18 @@ textarea:focus-visible,
   font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.voice-error-action {
+  max-width: 360px;
+  border: 1px solid var(--err);
+  border-radius: 999px;
+  padding: 4px 10px;
+  background: var(--err-soft);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.voice-error-action:hover {
+  text-decoration: underline;
 }
