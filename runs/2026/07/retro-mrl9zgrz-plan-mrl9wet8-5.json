@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "exportedAt": 1784071294158,
+  "app": {
+    "name": "orca-strator",
+    "version": "0.1.29-main.1.gcfaf136"
+  },
+  "machineId": "5087fc1f7b9d",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrl9zgrz-plan-mrl9wet8-5",
+    "profileId": "profile-mri86faq",
+    "workspaceSessionId": "f0e2f36f-cb16-49b9-b624-d1a869ddf7b8",
+    "planId": "plan-mrl9wet8-5",
+    "goal": "Nach erneuerter Authentifizierung final bestätigen, dass ein leerer Commit mit Nachricht `chore: verify renderer theme imports` sicher auf dem live `DEV`-Tip erstellt werden darf.",
+    "status": "success",
+    "summary": "Lauf erfolgreich: 1 Modell(e), 1/1 Tasks erfolgreich.",
+    "modelStats": [
+      {
+        "provider": "codex",
+        "model": "",
+        "roles": [
+          "worker"
+        ],
+        "tasks": 1,
+        "succeeded": 1,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failedAttempts": 0,
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "avgDurationMs": 142058
+      }
+    ],
+    "learnings": [],
+    "createdAt": 1784071294127
+  }
+}
