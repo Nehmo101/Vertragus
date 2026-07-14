@@ -7,6 +7,8 @@ describe('Codex runtime preflight', () => {
 
     expect(args).toEqual([
       'sandbox',
+      '-c',
+      'sandbox_workspace_write.exclude_slash_tmp=true',
       '--permission-profile',
       ':workspace',
       '-C',

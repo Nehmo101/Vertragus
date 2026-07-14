@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { access, open, rm } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, open, rm, rmdir } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -14,6 +14,11 @@ import { getProvider, type AgentProviderId } from '@shared/providers'
 import { ensureWorktreeDependencies } from '@main/agents/dependencyBootstrap'
 import { canonicalWorkspacePath, workspacePathKey } from '@main/agents/workspacePath'
 import { resolveLaunch } from '@main/agents/resolveCommand'
+import {
+  CODEX_RUNTIME_DIR_NAME,
+  codexSingleRootEnvironment,
+  codexSingleRootSandboxArgs
+} from '@main/agents/codexSandbox'
 
 const execFileAsync = promisify(execFile)
 const PREFLIGHT_TIMEOUT_MS = 12_000
@@ -110,6 +115,7 @@ async function writeProbe(directory: string): Promise<void> {
 export function codexRuntimeCanaryArgs(workingDir: string): string[] {
   return [
     'sandbox',
+    ...codexSingleRootSandboxArgs('win32'),
     '--permission-profile',
     ':workspace',
     '-C',
@@ -144,16 +150,25 @@ async function providerRuntimeCanary(input: PanePreflightInput, workingDir: stri
   }
 
   const markerPath = join(workingDir, `.orca-codex-runtime-${randomUUID()}.tmp`)
-  const launch = await resolveLaunch('codex', codexRuntimeCanaryArgs(workingDir))
+  const runtimeRoot = join(workingDir, CODEX_RUNTIME_DIR_NAME)
+  await mkdir(runtimeRoot, { recursive: true })
+  let runtimeDir: string | undefined
   try {
+    runtimeDir = await mkdtemp(join(runtimeRoot, 'preflight-'))
+    const launch = await resolveLaunch('codex', codexRuntimeCanaryArgs(workingDir))
     await execFileAsync(launch.file, launch.args, {
       cwd: workingDir,
-      env: { ...process.env, ORCA_CODEX_CANARY_PATH: markerPath },
+      env: codexSingleRootEnvironment(runtimeDir, {
+        ...process.env,
+        ORCA_CODEX_CANARY_PATH: markerPath
+      }),
       windowsHide: true,
       timeout: PREFLIGHT_TIMEOUT_MS
     })
   } finally {
     await rm(markerPath, { force: true })
+    if (runtimeDir) await rm(runtimeDir, { recursive: true, force: true })
+    await rmdir(runtimeRoot).catch(() => undefined)
   }
   return { detail: `Codex-Sandbox startet und schreibt im Worker-Worktree: ${workingDir}` }
 }

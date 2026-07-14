@@ -7,13 +7,18 @@
  * one headless run whose textual result flows back to the orchestrator.
  */
 import { spawn, type ChildProcess } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentProviderId } from '@shared/providers'
 import { buildHeadlessLaunch, type HeadlessOpts } from '@main/providers/types'
 import { resolveLaunch } from '@main/agents/resolveCommand'
 import { runOllamaChat } from '@main/agents/ollamaHeadless'
+import {
+  CODEX_RUNTIME_DIR_NAME,
+  codexSingleRootEnvironment,
+  codexSingleRootSandboxArgs
+} from '@main/agents/codexSandbox'
 
 // ---- ANSI helpers (colors match the xterm theme) ----
 const C = {
@@ -440,10 +445,17 @@ export function runHeadless(
   }
   let lastMsgFile: string | undefined
   let tmpDir: string | undefined
+  let runtimeRoot: string | undefined
   const extraArgs = [...(opts.extraArgs ?? [])]
   if (id === 'claude') extraArgs.push('--verbose')
   if (id === 'codex') {
-    tmpDir = mkdtempSync(join(tmpdir(), 'orca-codex-'))
+    const useSingleRootSandbox = process.platform === 'win32' && !opts.yolo
+    if (useSingleRootSandbox) {
+      runtimeRoot = join(opts.workingDir, CODEX_RUNTIME_DIR_NAME)
+      mkdirSync(runtimeRoot, { recursive: true })
+      extraArgs.push(...codexSingleRootSandboxArgs())
+    }
+    tmpDir = mkdtempSync(join(runtimeRoot ?? tmpdir(), 'orca-codex-'))
     lastMsgFile = join(tmpDir, 'last.txt')
     extraArgs.push('--json', '-o', lastMsgFile)
   }
@@ -476,6 +488,10 @@ export function runHeadless(
     if (stopFallback) clearTimeout(stopFallback)
     if (stallWatchdog) clearInterval(stallWatchdog)
     if (tmpDir) { rmSync(tmpDir, { recursive: true, force: true }); tmpDir = undefined }
+    if (runtimeRoot) {
+      try { rmdirSync(runtimeRoot) } catch { /* another run or stale diagnostics still use it */ }
+      runtimeRoot = undefined
+    }
   }
   const finish = (
     status: HeadlessStatus,
@@ -596,7 +612,10 @@ export function runHeadless(
       if (settled || stopStatus) return
       lifecycle.phase('starting-process')
       try {
-        child = spawn(resolved.file, resolved.args, { cwd: opts.workingDir, env: { ...process.env } as Record<string, string>, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
+        const env = id === 'codex' && tmpDir && process.platform === 'win32' && !opts.yolo
+          ? codexSingleRootEnvironment(tmpDir)
+          : { ...process.env }
+        child = spawn(resolved.file, resolved.args, { cwd: opts.workingDir, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
         currentPid = child.pid
         lifecycle.phase('running')
         startStallWatchdog()
