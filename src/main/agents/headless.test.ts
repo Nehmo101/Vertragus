@@ -105,6 +105,12 @@ describe('runHeadless lifecycle', () => {
     const handle = runHeadless('claude', 'task', opts, vi.fn())
     await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce())
 
+    expect(mocks.spawn).toHaveBeenCalledWith(
+      'claude',
+      [],
+      expect.objectContaining({ detached: process.platform !== 'win32' })
+    )
+
     child.emit('close', 0)
 
     await expect(handle.done).resolves.toMatchObject({ status: 'succeeded', isError: false })
@@ -158,7 +164,6 @@ describe('runHeadless lifecycle', () => {
     const child = fakeChild()
     mocks.resolveLaunch.mockResolvedValueOnce({ file: 'codex', args: [] })
     mocks.spawn.mockReturnValueOnce(child)
-    if (process.platform === 'win32') mocks.spawn.mockReturnValueOnce(fakeChild())
     const handle = runHeadless('codex', 'task', opts, vi.fn())
     await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalled())
 
@@ -179,7 +184,6 @@ describe('runHeadless lifecycle', () => {
     const child = fakeChild()
     mocks.resolveLaunch.mockResolvedValueOnce({ file: 'codex', args: [] })
     mocks.spawn.mockReturnValueOnce(child)
-    if (process.platform === 'win32') mocks.spawn.mockReturnValueOnce(fakeChild())
     const handle = runHeadless('codex', 'task', opts, vi.fn(), {
       stallTimeoutMs: 60_000,
       onEvent: vi.fn()

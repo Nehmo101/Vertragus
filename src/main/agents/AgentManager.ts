@@ -32,6 +32,7 @@ import {
 import { resolveModel, type ModelPreset } from '@shared/models'
 import { buildInteractiveLaunch } from '@main/providers/types'
 import { resolveLaunch } from '@main/agents/resolveCommand'
+import { terminateProcessTreeWithEscalation } from '@main/agents/processTermination'
 import { createWorktree, currentBranch, rollbackWorktree } from '@main/agents/worktree'
 import { canonicalWorkspacePath, workspacePathKey } from '@main/agents/workspacePath'
 import {
@@ -900,13 +901,30 @@ export class AgentManager extends EventEmitter {
     if (cols > 0 && rows > 0) this.agents.get(id)?.pty?.resize(cols, rows)
   }
 
-  private terminatePty(proc: pty.IPty): void {
-    if (process.platform === 'win32' && proc.pid) {
-      // Kill the whole tree — agent CLIs spawn children (shells, node, git).
-      execFile('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { windowsHide: true }, () => {})
-    } else {
-      proc.kill()
+  private terminatePty(
+    proc: pty.IPty,
+    isCurrentProcess: (expectedPid: number) => boolean = (pid) => proc.pid === pid
+  ): void {
+    const expectedPid = proc.pid
+    let exited = false
+    let cancelEscalation = (): void => undefined
+    let exitListener: { dispose(): void } | undefined
+    if (typeof proc.onExit === 'function') {
+      exitListener = proc.onExit(() => {
+        exited = true
+        cancelEscalation()
+        exitListener?.dispose()
+      })
     }
+    // POSIX forkpty children lead their own process group; Windows keeps taskkill /T /F.
+    cancelEscalation = terminateProcessTreeWithEscalation(
+      expectedPid,
+      (signal) => proc.kill(signal),
+      (pid) => !exited && isCurrentProcess(pid),
+      process.platform,
+      process.platform !== 'win32'
+    )
+    if (exited) cancelEscalation()
   }
 
   private terminate(managed: Managed): void {
@@ -914,7 +932,10 @@ export class AgentManager extends EventEmitter {
       managed.headless.kill()
       return
     }
-    if (managed.pty) this.terminatePty(managed.pty)
+    if (managed.pty) {
+      const proc = managed.pty
+      this.terminatePty(proc, (pid) => managed.pty === proc && proc.pid === pid)
+    }
   }
 
   private isAlive(m: Managed): boolean {

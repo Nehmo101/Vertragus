@@ -2,7 +2,7 @@
  * Cross-platform executable resolution for PTY spawning.
  *
  * On Windows many agent CLIs are shims (.cmd/.ps1) that a PTY cannot exec
- * directly — wrap them in cmd.exe / powershell.exe. On Linux the command
+ * directly — wrap them in cmd.exe / powershell.exe. On POSIX the command
  * resolves via PATH and runs as-is.
  */
 import { execFile } from 'node:child_process'
@@ -20,6 +20,15 @@ const cache = new Map<string, string>()
 
 /** Order matters: prefer real executables over script shims. */
 const WIN_EXT_PRIORITY = ['.exe', '.com', '.cmd', '.bat', '.ps1']
+
+async function resolvePosixCommand(command: string): Promise<string> {
+  const { stdout } = await execFileAsync(
+    '/bin/sh',
+    ['-c', 'command -v "$1"', 'orca-command-resolution', command],
+    { windowsHide: true }
+  )
+  return stdout.trim() || command
+}
 
 async function resolvePath(command: string): Promise<string> {
   const cached = cache.get(command)
@@ -46,8 +55,14 @@ async function resolvePath(command: string): Promise<string> {
         candidates[0] ??
         command
     } else {
-      const { stdout } = await execFileAsync('/bin/sh', ['-c', `command -v ${command}`])
-      resolved = stdout.trim() || command
+      try {
+        resolved = await resolvePosixCommand(command)
+      } catch (error) {
+        if (process.platform !== 'darwin') throw error
+        // The CLI may have been installed since this Finder-launched app began.
+        await refreshProcessPathFromSystem()
+        resolved = await resolvePosixCommand(command)
+      }
     }
   } catch {
     // Leave unresolved; the PTY spawn will surface a clear error. Do not cache
