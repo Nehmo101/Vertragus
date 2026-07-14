@@ -15,10 +15,11 @@ import {
   putRepoFile,
   type RepoRef
 } from '@main/integrations/githubContents'
+import { refreshPromptOverlay } from '@main/orchestrator/promptOverlay'
 import { listModelLearnings } from '@main/orchestrator/retroStore'
+import { retroSyncConfig } from '@main/orchestrator/retroSyncConfig'
 import type { BenchmarkRecord, RunRetro } from '@shared/retro'
 import {
-  RETRO_SYNC_DEFAULTS,
   type RetroExportEnvelope,
   type RetroExportKind,
   type RetroSyncConfig,
@@ -74,15 +75,6 @@ function machineId(): string {
       .slice(0, 12)
   }
   return cachedMachineId
-}
-
-export function retroSyncConfig(): RetroSyncConfig {
-  return {
-    enabled: getSetting<boolean>('retroSync.enabled') ?? RETRO_SYNC_DEFAULTS.enabled,
-    repoOwner: getSetting<string>('retroSync.repoOwner')?.trim() || RETRO_SYNC_DEFAULTS.repoOwner,
-    repoName: getSetting<string>('retroSync.repoName')?.trim() || RETRO_SYNC_DEFAULTS.repoName,
-    branch: getSetting<string>('retroSync.branch')?.trim() || RETRO_SYNC_DEFAULTS.branch
-  }
 }
 
 function repoRef(config: RetroSyncConfig): RepoRef {
@@ -269,13 +261,15 @@ export function retroSyncStatus(): RetroSyncStatus {
   }
 }
 
-/** Start-of-app hook: immediate flush plus a coarse retry interval. */
+/** Start-of-app hook: immediate flush + overlay refresh, coarse retry interval. */
 export function startRetroSyncScheduler(): void {
   if (schedulerStarted) return
   schedulerStarted = true
   void flushRetroExportQueue()
+  void refreshPromptOverlay()
   const timer = setInterval(() => {
     void flushRetroExportQueue()
+    void refreshPromptOverlay()
   }, FLUSH_INTERVAL_MS)
   timer.unref?.()
 }
