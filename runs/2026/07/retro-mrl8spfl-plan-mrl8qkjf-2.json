@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784069299174,
+  "exportedAt": 1784069445337,
   "app": {
     "name": "orca-strator",
     "version": "0.1.29-main.1.gcfaf136"
@@ -14,7 +14,7 @@
     "planId": "plan-mrl8qkjf-2",
     "goal": "Fokussierter Wiederholungsversuch: In jeder betroffenen Datei unter src/renderer/src/components/ ausschließlich `import { theme } from '../ui/theme'` durch `import { theme } from '@renderer/ui/theme'` ersetzen; sonst nichts ändern.",
     "status": "success",
-    "summary": "Lauf erfolgreich: 1 Modell(e), 1/1 Tasks erfolgreich.",
+    "summary": "Der fokussierte Wiederholungsplan war erfolgreich. Der Worker verifizierte sauber, dass der alte exakte Import bereits null Treffer hat und deshalb keine Änderung notwendig war.",
     "modelStats": [
       {
         "provider": "codex",
@@ -34,7 +34,22 @@
         "avgDurationMs": 99243
       }
     ],
-    "learnings": [],
+    "learnings": [
+      {
+        "id": "learning-mrl8vu75-1-xyvfji",
+        "provider": "codex",
+        "model": "unknown",
+        "role": "worker",
+        "kind": "strength",
+        "insight": "Präzise bei eng begrenzten No-Change-Audits: akzeptiert ein bereits erfülltes Ziel, statt unnötige Dateien anzufassen.",
+        "evidence": "Faramir belegte 0 Resttreffer, leeren `git diff --exit-code` und leeren `git status --short`; Orca lieferte keinen Modellnamen.",
+        "source": "orchestrator",
+        "profileId": "profile-mri86faq",
+        "observations": 1,
+        "createdAt": 1784069445281,
+        "updatedAt": 1784069445281
+      }
+    ],
     "createdAt": 1784069299137
   }
 }
