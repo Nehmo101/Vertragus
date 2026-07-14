@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784069330763,
+  "exportedAt": 1784069446593,
   "app": {
     "name": "orca-strator",
     "version": "0.1.29-main.1.gcfaf136"
@@ -8,6 +8,20 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrl8vu75-1-xyvfji",
+      "provider": "codex",
+      "model": "unknown",
+      "role": "worker",
+      "kind": "strength",
+      "insight": "Präzise bei eng begrenzten No-Change-Audits: akzeptiert ein bereits erfülltes Ziel, statt unnötige Dateien anzufassen.",
+      "evidence": "Faramir belegte 0 Resttreffer, leeren `git diff --exit-code` und leeren `git status --short`; Orca lieferte keinen Modellnamen.",
+      "source": "orchestrator",
+      "profileId": "profile-mri86faq",
+      "observations": 1,
+      "createdAt": 1784069445281,
+      "updatedAt": 1784069445281
+    },
     {
       "id": "learning-mrl8tcte-1-ps1cf4",
       "provider": "codex",
