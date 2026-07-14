@@ -35,7 +35,21 @@ vi.mock('@main/agents/headless', () => ({
 
 
 import type { AgentInstanceInfo } from '@shared/agents'
-import { AgentManager } from '@main/agents/AgentManager'
+import { AgentManager, type PanePreflightRunner } from '@main/agents/AgentManager'
+
+const successfulPreflight: PanePreflightRunner = async (input) => {
+  const now = Date.now()
+  return {
+    status: 'passed',
+    provider: input.provider,
+    workspaceId: input.workingDir,
+    engineId: input.engineId,
+    workspaceSessionId: input.workspaceSessionId,
+    startedAt: now,
+    completedAt: now,
+    checks: []
+  }
+}
 
 function info(id: string, profileId: string): AgentInstanceInfo {
   return {
@@ -112,7 +126,7 @@ describe('AgentManager workspace isolation', () => {
   ] as const)('retains %s task chats until the workspace is cleared', async (status, isError, expected) => {
     taskResult.status = status
     taskResult.isError = isError
-    const manager = new AgentManager()
+    const manager = new AgentManager(successfulPreflight)
     const run = await manager.runTask({
       provider: 'codex',
       model: '',
