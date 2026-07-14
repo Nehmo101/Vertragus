@@ -69,6 +69,7 @@ import {
 import { retryIdeaTransfer, transferIdeaToProfile } from '@main/inbox/transferService'
 import { spawnProfileTeam } from '@main/agents/spawnProfile'
 import { generateProfileForRepo } from '@main/profiles/generateProfileForRepo'
+import { deleteWorkspaceProfile } from '@main/profiles/deleteWorkspaceProfile'
 import {
   listBenchmarkRecords,
   listModelLearnings,
@@ -242,13 +243,14 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.profileGenerateForRepo, (_e, req: RepoProfileGenerationRequest) =>
     generateProfileForRepo(req)
   )
-  ipcMain.handle(IPC.profileDelete, (_e, id: string) => {
-    if (agentManager.anyRunning(id)) {
-      throw new Error('Profil löschen ist während einer laufenden Agent-Session gesperrt.')
-    }
-    workspaceSessions.remove(id)
-    return deleteProfile(id)
-  })
+  ipcMain.handle(IPC.profileDelete, (_e, id: string) =>
+    deleteWorkspaceProfile(id, {
+      getProfile,
+      hasRunningAgents: (profileId) => agentManager.anyRunning(profileId),
+      deletePersistedProfile: deleteProfile,
+      removeWorkspaceSessions: (profileId) => workspaceSessions.remove(profileId)
+    })
+  )
   ipcMain.handle(IPC.profileGetActive, () => getActiveProfileId())
   ipcMain.handle(IPC.profileSetActive, (_e, id: string) => {
     if (!getProfile(id)) {

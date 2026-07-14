@@ -160,6 +160,18 @@ export function workspaceAgents(
   )
 }
 
+/** Only agents belonging to the profile being deleted may block its deletion. */
+export function profileHasRunningAgents(
+  agents: AgentInstanceInfo[],
+  profileId: string
+): boolean {
+  return agents.some(
+    (agent) =>
+      agent.profileId === profileId &&
+      (agent.status === 'running' || agent.status === 'waiting')
+  )
+}
+
 export function isFinishedSubagent(agent: AgentInstanceInfo): boolean {
   return agent.kind === 'sub' && (agent.status === 'stopped' || agent.status === 'error')
 }
@@ -889,15 +901,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   async deleteProfile(id) {
     const profile = get().profiles.find((item) => item.id === id)
     if (!profile) return
+    const wasLastProfile = get().profiles.length === 1
 
     try {
       const profiles = await window.orca.deleteProfile(id)
       const activeProfileId = await window.orca.getActiveProfileId()
       set({ profiles, activeProfileId, editorProfile: null })
       await get().refreshGit().catch(() => undefined)
-      const replacementCreated = !profiles.some((item) => item.id === id)
       get().showToast(
-        replacementCreated
+        wasLastProfile
           ? `Profil „${profile.name}" gelöscht. Das Standardprofil wurde wiederhergestellt.`
           : `Profil „${profile.name}" gelöscht.`
       )

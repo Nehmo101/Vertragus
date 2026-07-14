@@ -8,6 +8,7 @@ import { dirname, join } from 'node:path'
 import { DEFAULT_PROFILE, workspaceProfileSchema, type WorkspaceProfile } from '@shared/profile'
 import { mcpServerSchema, mcpServersSchema, type McpServerConfig } from '@shared/mcp'
 import { CURRENT_CONFIG_SCHEMA_VERSION, migrateConfigSnapshot } from '@main/config/migrations'
+import { deriveProfileDeletion } from '@main/config/profileDeletion'
 
 interface OrcaConfigShape {
   schemaVersion: number
@@ -82,11 +83,16 @@ export function saveProfile(profile: WorkspaceProfile): WorkspaceProfile[] {
 }
 
 export function deleteProfile(id: string): WorkspaceProfile[] {
-  let profiles = store.get('profiles').filter((p) => p.id !== id)
-  if (profiles.length === 0) profiles = [DEFAULT_PROFILE]
-  store.set('profiles', profiles)
-  if (store.get('activeProfileId') === id) store.set('activeProfileId', profiles[0].id)
-  return profiles
+  const deletion = deriveProfileDeletion(
+    store.get('profiles'),
+    store.get('activeProfileId'),
+    id
+  )
+  store.set({
+    profiles: deletion.profiles,
+    activeProfileId: deletion.activeProfileId
+  })
+  return deletion.profiles
 }
 
 export function getProfile(id: string): WorkspaceProfile | undefined {
