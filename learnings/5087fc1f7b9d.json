@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784069922021,
+  "exportedAt": 1784070254478,
   "app": {
     "name": "orca-strator",
     "version": "0.1.29-main.1.gcfaf136"
@@ -8,6 +8,34 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrl9d4go-1-z8q3se",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "main-orchestrator",
+      "kind": "strength",
+      "insight": "Liefert auch große Refactorings (4-Modul-Subsystem + Schema-Integration) vollständig aus reinem Ziel-Fallback-Prompt: sauberer Modulschnitt, rückwärtskompatible Fassade, eigene Findings-Meldung",
+      "evidence": "Fallback-Task plan-mrl8gwri-1: src/shared/retro/ in contracts/learnings/runAnalysis/benchmarkAnalysis zerlegt, ExecutionPlanResult.retro ergänzt, 410/410 Tests, Typecheck+ESLint grün, Commit 86f3e5b",
+      "source": "orchestrator",
+      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+      "observations": 1,
+      "createdAt": 1784070251736,
+      "updatedAt": 1784070251736
+    },
+    {
+      "id": "learning-mrl9d4go-2-iujth6",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "main-orchestrator",
+      "kind": "strength",
+      "insight": "Meldet Schnittstellenentscheidungen frühzeitig aufs Findings-Board (Modulgrenzen, öffentliche API), was Live-Koordination ohne Terminal-Warten ermöglicht",
+      "evidence": "finding-1 mit komplettem Modulschnitt und Schema-Entscheidung nach ~2 Minuten Laufzeit",
+      "source": "orchestrator",
+      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+      "observations": 1,
+      "createdAt": 1784070251736,
+      "updatedAt": 1784070251736
+    },
     {
       "id": "learning-mrl960wg-1-8or1iw",
       "provider": "codex",
