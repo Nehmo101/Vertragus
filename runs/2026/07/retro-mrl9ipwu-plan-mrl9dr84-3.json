@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "exportedAt": 1784070512838,
+  "app": {
+    "name": "orca-strator",
+    "version": "0.1.29-main.1.gcfaf136"
+  },
+  "machineId": "5087fc1f7b9d",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrl9ipwu-plan-mrl9dr84-3",
+    "profileId": "profile-mri86faq",
+    "workspaceSessionId": "f0e2f36f-cb16-49b9-b624-d1a869ddf7b8",
+    "planId": "plan-mrl9dr84-3",
+    "goal": "Sicher prüfen und vorbereiten, ob die Theme-Importmigration zielbezogen committed und direkt nach `dev` gepusht werden kann; nur die exakten Importänderungen dürfen in Scope sein.",
+    "status": "success",
+    "summary": "Lauf erfolgreich: 1 Modell(e), 1/1 Tasks erfolgreich.",
+    "modelStats": [
+      {
+        "provider": "codex",
+        "model": "",
+        "roles": [
+          "worker"
+        ],
+        "tasks": 1,
+        "succeeded": 1,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failedAttempts": 0,
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "avgDurationMs": 231139
+      }
+    ],
+    "learnings": [],
+    "createdAt": 1784070512814
+  }
+}
