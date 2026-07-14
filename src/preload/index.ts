@@ -124,7 +124,9 @@ const orca: OrcaApi = {
   retro: {
     listRetros: (profileId) => ipcRenderer.invoke(IPC.retroListRetros, profileId),
     listLearnings: () => ipcRenderer.invoke(IPC.retroListLearnings),
-    listBenchmarks: (profileId) => ipcRenderer.invoke(IPC.retroListBenchmarks, profileId)
+    listBenchmarks: (profileId) => ipcRenderer.invoke(IPC.retroListBenchmarks, profileId),
+    syncStatus: () => ipcRenderer.invoke(IPC.retroSyncStatus),
+    syncFlush: () => ipcRenderer.invoke(IPC.retroSyncFlush)
   },
 
   win: {

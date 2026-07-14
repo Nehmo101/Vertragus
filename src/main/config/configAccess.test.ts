@@ -32,6 +32,24 @@ describe('configAccess', () => {
     expect(() => assertConfigSetAllowed('github.oauthClientId')).toThrow(/nicht über IPC schreibbar/)
   })
 
+  it('validates retroSync keys before persisting', () => {
+    setPublicConfig('retroSync.enabled', true)
+    expect(setSetting).toHaveBeenLastCalledWith('retroSync.enabled', true)
+    expect(() => setPublicConfig('retroSync.enabled', 'yes')).toThrow(/true oder false/)
+
+    setPublicConfig('retroSync.repoOwner', ' @Nehmo101 ')
+    expect(setSetting).toHaveBeenLastCalledWith('retroSync.repoOwner', 'Nehmo101')
+    expect(() => setPublicConfig('retroSync.repoOwner', '-x')).toThrow(/Ungültiger GitHub-Owner/)
+
+    setPublicConfig('retroSync.repoName', 'Orca-Strator')
+    expect(setSetting).toHaveBeenLastCalledWith('retroSync.repoName', 'Orca-Strator')
+    expect(() => setPublicConfig('retroSync.repoName', 'a/b')).toThrow(/Repo-Name/)
+
+    setPublicConfig('retroSync.branch', ' retros ')
+    expect(setSetting).toHaveBeenLastCalledWith('retroSync.branch', 'retros')
+    expect(() => setPublicConfig('retroSync.branch', 'main')).toThrow(/geschützten Branch/)
+  })
+
   it('persists only validated Orca process gates', () => {
     setPublicConfig('providerLimits', { cursor: 2, claude: 6 })
 

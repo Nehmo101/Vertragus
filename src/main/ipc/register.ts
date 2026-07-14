@@ -74,6 +74,7 @@ import {
   listModelLearnings,
   listRunRetros
 } from '@main/orchestrator/retroStore'
+import { flushRetroExportQueue, retroSyncStatus } from '@main/orchestrator/retroExport'
 import type {
   AddArtifactInput,
   CreateIdeaInput,
@@ -448,6 +449,8 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.retroListBenchmarks, (_e, profileId?: string) =>
     listBenchmarkRecords(profileId ? String(profileId) : undefined)
   )
+  ipcMain.handle(IPC.retroSyncStatus, () => retroSyncStatus())
+  ipcMain.handle(IPC.retroSyncFlush, () => flushRetroExportQueue())
 
   // ---- window controls (frameless title bar) ----
   ipcMain.on(IPC.winMinimize, (e) => senderWindow(e)?.minimize())

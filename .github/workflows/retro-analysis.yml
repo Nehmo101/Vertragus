@@ -1,0 +1,85 @@
+# Wöchentliche Retro-Analyse: liest neue Retros vom Daten-Branch `retros`,
+# lässt Claude das Overlay-Regelwerk revidieren und Verbesserungs-Briefs
+# generieren, und öffnet einen Review-PR gegen `retros`. Der menschliche
+# Merge dieses PRs ist das Sicherheits-Gate — nichts wendet sich selbst an.
+#
+# Hinweis: scheduled Workflows laufen nur vom Default-Branch (main); bis der
+# Workflow dort gelandet ist, per workflow_dispatch manuell starten.
+# Benötigt das Repo-Secret ANTHROPIC_API_KEY (siehe docs/retro-sync.md).
+name: Retro Analysis
+
+on:
+  schedule:
+    - cron: '0 6 * * 1' # montags 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: retro-analysis
+  cancel-in-progress: false
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      # App-Code vom Default-Branch: das Skript nutzt immer die aktuelle
+      # src/shared-Logik. Daneben der reine Daten-Checkout des retros-Branch.
+      - uses: actions/checkout@v4
+        with:
+          path: app
+      - id: data
+        uses: actions/checkout@v4
+        # Branch existiert erst nach dem ersten Retro-Export -> dann einfach skippen.
+        continue-on-error: true
+        with:
+          path: data
+          ref: retros
+          fetch-depth: 1
+      - if: steps.data.outcome == 'success'
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: app/package.json
+      - if: steps.data.outcome == 'success'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.13'
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+      - if: steps.data.outcome == 'success'
+        run: pnpm install --frozen-lockfile
+        working-directory: app
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - if: steps.data.outcome == 'success'
+        name: Retro-Analyse ausführen
+        run: pnpm run retro:analyze -- --dir "$GITHUB_WORKSPACE/data" --write --summary-file "$GITHUB_WORKSPACE/summary.md"
+        working-directory: app
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      - if: steps.data.outcome == 'success'
+        name: Review-PR gegen retros öffnen
+        working-directory: data
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet && [ -z "$(git status --porcelain)" ]; then
+            echo "Keine Änderungen — kein PR nötig."
+            exit 0
+          fi
+          BRANCH="retro-analysis/$(date -u +%Y-%m-%d)"
+          git config user.name "orca-retro-bot"
+          git config user.email "actions@github.com"
+          git switch -c "$BRANCH"
+          git add overlay proposals state
+          git commit -m "Retro-Analyse $(date -u +%Y-%m-%d)"
+          git push origin "$BRANCH"
+          if [ ! -f "$GITHUB_WORKSPACE/summary.md" ]; then
+            echo "Automatische Retro-Analyse." > "$GITHUB_WORKSPACE/summary.md"
+          fi
+          gh pr create --base retros --head "$BRANCH" \
+            --title "Retro-Analyse $(date -u +%Y-%m-%d)" \
+            --body-file "$GITHUB_WORKSPACE/summary.md"
