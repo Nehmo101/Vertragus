@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784070926008,
+  "exportedAt": 1784070949687,
   "app": {
     "name": "orca-strator",
     "version": "0.1.29-main.1.gcfaf136"
@@ -14,7 +14,7 @@
     "planId": "plan-mrl9o9wt-4",
     "goal": "Finalen sicheren Preflight für einen ausdrücklich gewünschten leeren Verifikationscommit auf dem exakt benannten Remote-Branch `DEV` durchführen.",
     "status": "success",
-    "summary": "Lauf erfolgreich: 1 Modell(e), 1/1 Tasks erfolgreich.",
+    "summary": "Haldir bestätigte den sicheren Publish-Pfad und verhinderte einen nicht-fast-forward-fähigen Leercommit auf veraltetem HEAD; die Live-Remote-Prüfung muss im Main-Prozess erfolgen.",
     "modelStats": [
       {
         "provider": "codex",
@@ -34,7 +34,22 @@
         "avgDurationMs": 153431
       }
     ],
-    "learnings": [],
+    "learnings": [
+      {
+        "id": "learning-mrl9s2wl-1-k2fgx",
+        "provider": "codex",
+        "model": "unknown",
+        "role": "worker",
+        "kind": "strength",
+        "insight": "Erkennt bei direkten Branch-Pushes zuverlässig veraltete Basen und fordert einen Leercommit auf dem live verifizierten Remote-Tip statt auf lokalem HEAD.",
+        "evidence": "Haldir stellte HEAD 13c0938 gegenüber gecachtem origin/DEV 56a6242 als 0 ahead/1 behind fest und gab korrekt No-Go; Orca lieferte keinen Modellnamen.",
+        "source": "orchestrator",
+        "profileId": "profile-mri86faq",
+        "observations": 1,
+        "createdAt": 1784070949557,
+        "updatedAt": 1784070949557
+      }
+    ],
     "createdAt": 1784070925927
   }
 }
