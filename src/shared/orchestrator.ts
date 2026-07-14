@@ -404,5 +404,7 @@ export interface ExecutionPlanResult {
   status: Extract<PlanRunStatusSnapshot['status'], 'success' | 'needs-work' | 'error' | 'stopped'>
   usedFallback: boolean
   validationIssues: PlanValidationIssue[]
+  /** Side-effect-free run analysis persisted after the terminal task graph completed. */
+  retro?: RunRetro
   tasks: ExecutionPlanTaskResult[]
 }

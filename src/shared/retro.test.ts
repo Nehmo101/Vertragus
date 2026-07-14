@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { OrcaTask } from './orchestrator'
 import {
+  analyzeRunRetro,
   benchmarkLearnings,
   deriveHeuristicLearnings,
   deriveModelStats,
@@ -206,6 +207,27 @@ describe('summarizeRetro', () => {
       'Lauf mit Nacharbeit: 1 Modell(e), 1/2 Tasks erfolgreich.'
     )
     expect(summarizeRetro([], undefined)).toContain('Lauf ausgewertet')
+  })
+})
+
+describe('analyzeRunRetro', () => {
+  it('returns the complete persistence-neutral analysis contract', () => {
+    const analysis = analyzeRunRetro({
+      tasks: [task({ id: 'a', role: 'frontend' }), task({ id: 'b', role: 'frontend' })],
+      status: 'success',
+      profileId: 'profile-1'
+    })
+
+    expect(analysis.summary).toBe('Lauf erfolgreich: 1 Modell(e), 2/2 Tasks erfolgreich.')
+    expect(analysis.modelStats).toHaveLength(1)
+    expect(analysis.learnings).toContainEqual(
+      expect.objectContaining({
+        provider: 'codex',
+        kind: 'strength',
+        profileId: 'profile-1',
+        source: 'auto-retro'
+      })
+    )
   })
 })
 
