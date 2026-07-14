@@ -292,13 +292,14 @@ function TaskCard({
 
 export default function OrchestratorPanel(): JSX.Element {
   const store = useAppStore()
+  const [autoModeBusy, setAutoModeBusy] = useState(false)
   const now = useClock()
   const profile = activeProfile(store)
   const wsAgents = workspaceAgents(store)
   const orch = wsAgents.find((agent) => agent.kind === 'orchestrator')
   const usageByAgentId = new Map(wsAgents.map((agent) => [agent.id, agent.usage] as const))
   const events = workspaceEvents(store)
-  const { goal, tasks, pendingPlan, reliability, engineId, lastRetro } = store.orchestrator
+  const { goal, tasks, pendingPlan, plannerMode, reliability, engineId, lastRetro } = store.orchestrator
   const logRef = useRef<HTMLDivElement>(null)
   const activity = resolveOrchestratorActivity(store.orchestrator, now)
   const liveTasks = liveOrchestratorTasks(tasks)
@@ -317,6 +318,28 @@ export default function OrchestratorPanel(): JSX.Element {
     const el = logRef.current
     if (el) el.scrollTop = el.scrollHeight
   }, [events.length])
+  const autoModeActive = (plannerMode ?? profile?.planner.mode) === 'auto'
+  const enableAutoMode = async (): Promise<void> => {
+    if (autoModeBusy || autoModeActive || !store.activeWorkspaceSessionId) return
+    const startsPendingPlan = Boolean(pendingPlan)
+    setAutoModeBusy(true)
+    try {
+      const enabled = await window.orca.orchestrator.enableAutoMode(
+        store.activeProfileId,
+        store.activeWorkspaceSessionId
+      )
+      if (!enabled) throw new Error('Automodus konnte nicht aktiviert werden.')
+      store.showToast(
+        startsPendingPlan
+          ? 'Automodus aktiv \u2013 der wartende Plan wurde gestartet.'
+          : 'Automodus f\u00fcr diesen Workspace aktiviert.'
+      )
+    } catch (error) {
+      store.showToast(error instanceof Error ? error.message : String(error))
+    } finally {
+      setAutoModeBusy(false)
+    }
+  }
 
   return (
     <section className="orch-panel">
@@ -332,6 +355,30 @@ export default function OrchestratorPanel(): JSX.Element {
             <span className="knob" />
           </span>
         </div>
+        {orch && store.activeWorkspaceSessionId && (
+          <div className={`planner-mode-control ${autoModeActive ? 'auto' : ''}`}>
+            <div className="planner-mode-copy">
+              <span>Planungsmodus</span>
+              <strong>
+                {autoModeActive
+                  ? 'Auto \u2013 Pl\u00e4ne direkt ausf\u00fchren'
+                  : plannerMode === 'manual'
+                    ? 'Manuell \u2013 keine Auto-Planung'
+                    : 'Review \u2013 Plan best\u00e4tigen'}
+              </strong>
+            </div>
+            <button
+              type="button"
+              className="planner-mode-btn"
+              disabled={autoModeActive || autoModeBusy}
+              aria-pressed={autoModeActive}
+              title={'Nur diesen laufenden Workspace auf direkte automatische Planausf\u00fchrung umstellen'}
+              onClick={() => void enableAutoMode()}
+            >
+              {autoModeActive ? 'Auto aktiv' : autoModeBusy ? 'Wird aktiviert\u2026' : 'Automodus starten'}
+            </button>
+          </div>
+        )}
 
         <div className="goal-card">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

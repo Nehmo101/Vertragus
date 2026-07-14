@@ -137,7 +137,8 @@
   .titlebar {
     gap: 8px;
   }
-  .titlebar :global(.wordmark-sub),
+  .titlebar :global(.wordmark-sub-label),
+  .titlebar :global(.wordmark-sub-separator),
   .titlebar :global(.repo-path .path),
   .titlebar :global(.live-counter .clock),
   .titlebar :global(.live-counter .sep),

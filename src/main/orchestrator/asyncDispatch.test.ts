@@ -167,6 +167,50 @@ describe('asynchronous orchestration API', () => {
     }))
   })
 
+  it('enables auto mode for a running review workspace and starts its pending plan', async () => {
+    runTask.mockImplementation(async (request) => ({
+      info: info(request.taskId),
+      done: Promise.resolve({ result: 'Done', isError: false, status: 'succeeded' as const })
+    }))
+    const profile = {
+      ...DEFAULT_PROFILE,
+      planner: { ...DEFAULT_PROFILE.planner, mode: 'review' as const }
+    }
+    const engine = new OrchestratorEngine({ profile })
+    const runTaskCallsBeforePlan = runTask.mock.calls.length
+    const result = engine.executePlan({
+      version: 1,
+      goal: 'Promote this workspace',
+      maxParallel: 1,
+      tasks: [{
+        id: 'one', title: 'One', role: 'codex', prompt: 'Work', dependsOn: [], conflictKeys: [],
+        ownership: 'feature', expectedFiles: []
+      }]
+    })
+
+    await vi.waitFor(() => expect(engine.snapshot().pendingPlan).toBeDefined())
+    expect(engine.snapshot().plannerMode).toBe('review')
+    expect(runTask).toHaveBeenCalledTimes(runTaskCallsBeforePlan)
+
+    expect(engine.enableAutoMode()).toBe(true)
+    expect(engine.snapshot()).toEqual(expect.objectContaining({
+      plannerMode: 'auto',
+      pendingPlan: undefined
+    }))
+    await expect(result).resolves.toEqual(expect.objectContaining({ status: 'success' }))
+
+    const nextResult = await engine.executePlan({
+      version: 1,
+      goal: 'Stay automatic',
+      maxParallel: 1,
+      tasks: [{
+        id: 'two', title: 'Two', role: 'codex', prompt: 'More work', dependsOn: [], conflictKeys: [],
+        ownership: 'feature', expectedFiles: []
+      }]
+    })
+    expect(nextResult.status).toBe('success')
+  })
+
   it('starts a full plan asynchronously and makes its terminal result pollable', async () => {
     runTask.mockImplementation(async (request) => ({
       info: info(request.taskId),

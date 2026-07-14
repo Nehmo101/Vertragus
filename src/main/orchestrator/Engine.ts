@@ -218,6 +218,7 @@ export class OrchestratorEngine extends EventEmitter {
       profileId: this.boundProfile?.id,
       workspaceSessionId: this.workspaceSessionId,
       engineId: this.engineId,
+      plannerMode: profile?.planner.mode,
       goal: this.goal,
       activity: this.activity ? { ...this.activity, details: [...this.activity.details] } : undefined,
       tasks,
@@ -359,6 +360,26 @@ export class OrchestratorEngine extends EventEmitter {
     )
     this.push()
     resolve(approved)
+    return true
+  }
+
+  /**
+   * Promote only this live workspace session to automatic plan execution.
+   * A plan already waiting at the review gate is approved as part of the switch.
+   */
+  enableAutoMode(): boolean {
+    const profile = this.activeProfile()
+    if (!profile) return false
+    this.boundProfile = {
+      ...profile,
+      agents: profile.agents.map((slot) => ({ ...slot })),
+      planner: { ...profile.planner, mode: 'auto' }
+    }
+    if (this.pendingPlanResolve) {
+      this.reviewPlan(true)
+    } else {
+      this.push()
+    }
     return true
   }
 

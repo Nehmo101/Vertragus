@@ -20,9 +20,11 @@ import { spawnProfileTeam } from './spawnProfile'
 describe('adaptive profile team start', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    const session = { id: 'session-1', engine: { activate: mocks.activate } }
-    mocks.start.mockReturnValue(session)
-    mocks.ensure.mockReturnValue(session)
+    const sessionFor = (profile = DEFAULT_PROFILE) => (
+      { id: 'session-1', profile, engine: { activate: mocks.activate } }
+    )
+    mocks.start.mockImplementation(sessionFor)
+    mocks.ensure.mockImplementation(sessionFor)
     mocks.spawn.mockImplementation(async (request) => ({
       id: `agent-${mocks.spawn.mock.calls.length}`,
       name: request.kind === 'orchestrator' ? 'Gandalf' : 'Legolas',
