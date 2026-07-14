@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentInstanceInfo, OrcaEvent } from '@shared/agents'
 import {
+  effectivePaneReadable,
   visibleWorkspaceAgents,
   workspaceAgentHistory,
   workspaceAgents,
@@ -62,5 +63,12 @@ describe('workspace renderer selectors', () => {
       'failed',
       'finished'
     ])
+  })
+
+  it('resolves a pane readable mode from its override, else the global default', () => {
+    expect(effectivePaneReadable({ cliReadable: true, paneReadable: {} }, 'alpha')).toBe(true)
+    expect(effectivePaneReadable({ cliReadable: false, paneReadable: {} }, 'alpha')).toBe(false)
+    expect(effectivePaneReadable({ cliReadable: false, paneReadable: { alpha: true } }, 'alpha')).toBe(true)
+    expect(effectivePaneReadable({ cliReadable: true, paneReadable: { alpha: false } }, 'alpha')).toBe(false)
   })
 })
