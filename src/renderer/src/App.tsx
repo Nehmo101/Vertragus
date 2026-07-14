@@ -26,9 +26,11 @@ export default function App(): JSX.Element {
   const hash = useHashRoute()
 
   useEffect(() => {
-    void store.init()
+    const ready = store.init()
+    void ready
     // Dev/CI affordance for headless screenshots of modal UI.
     ;(window as unknown as { __orca?: unknown }).__orca = {
+      ready,
       openEditor: (p: Parameters<typeof store.openEditor>[0]) => store.openEditor(p),
       openAddAgent: () => store.openAddAgent()
     }

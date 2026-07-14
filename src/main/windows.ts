@@ -115,46 +115,77 @@ export function createMainWindow(): BrowserWindow {
   const smokePath = process.env['ORCA_UI_SMOKE']
   if (smokePath) {
     win.webContents.once('did-finish-load', () => {
-      setTimeout(() => pushDemoState(win), 250)
-      setTimeout(async () => {
-        const checks = await win.webContents.executeJavaScript(`(async () => {
-          const gitTreeTrigger = document.querySelector('.git-tree-trigger')
-          gitTreeTrigger?.click()
-          await new Promise((resolve) => requestAnimationFrame(resolve))
-          const gitTreePopover = document.querySelector('.git-tree-popover')
-          const titlebarBottom = document.querySelector('.titlebar')?.getBoundingClientRect().bottom ?? 0
-          const popoverRect = gitTreePopover?.getBoundingClientRect()
+      void (async () => {
+        try {
+          await win.webContents.executeJavaScript(`new Promise((resolve, reject) => {
+            const deadline = Date.now() + 10000
+            const waitForReady = () => {
+              const ready = window.__orca?.ready
+              if (ready) {
+                Promise.resolve(ready).then(resolve, reject)
+                return
+              }
+              if (Date.now() >= deadline) {
+                reject(new Error('Renderer initialization timed out.'))
+                return
+              }
+              setTimeout(waitForReady, 25)
+            }
+            waitForReady()
+          })`)
 
-          return {
-            preload: typeof window.orca === 'object',
-            sidebar: Boolean(document.querySelector('.sidebar')),
-            workspace: Boolean(document.querySelector('.workspace')),
-            titlebar: Boolean(document.querySelector('.titlebar')),
-            gitTreePopover: Boolean(
-              gitTreePopover &&
-              gitTreePopover.parentElement === document.body &&
-              popoverRect &&
-              popoverRect.height > 0 &&
-              popoverRect.bottom > titlebarBottom
-            ),
-            language: document.documentElement.lang === 'de',
-            csp: Boolean(document.querySelector('meta[http-equiv="Content-Security-Policy"]')),
-            needsWork: [...document.querySelectorAll('.task-pill')].some((node) => node.textContent?.includes('Nacharbeit')),
-            gateFindings: Boolean(document.querySelector('.task-findings')),
-            preflight: [...document.querySelectorAll('.task-review dd')].some((node) => node.textContent?.includes('bestanden')),
-            reliability: Boolean(document.querySelector('.reliability-strip'))
-          }
-        })()`)
-        const ok = Object.values(checks).every(Boolean)
-        writeFileSync(
-          smokePath,
-          JSON.stringify({ ok, checks, capturedAt: new Date().toISOString() }, null, 2)
-        )
-        app.exit(ok ? 0 : 1)
-      }, 3000)
+          pushDemoState(win)
+          await new Promise((resolve) => setTimeout(resolve, 250))
+
+          const checks = await win.webContents.executeJavaScript(`(async () => {
+            const gitTreeTrigger = document.querySelector('.git-tree-trigger')
+            gitTreeTrigger?.click()
+            await new Promise((resolve) => requestAnimationFrame(resolve))
+            const gitTreePopover = document.querySelector('.git-tree-popover')
+            const titlebarBottom = document.querySelector('.titlebar')?.getBoundingClientRect().bottom ?? 0
+            const popoverRect = gitTreePopover?.getBoundingClientRect()
+
+            return {
+              preload: typeof window.orca === 'object',
+              sidebar: Boolean(document.querySelector('.sidebar')),
+              workspace: Boolean(document.querySelector('.workspace')),
+              titlebar: Boolean(document.querySelector('.titlebar')),
+              gitTreePopover: Boolean(
+                gitTreePopover &&
+                gitTreePopover.parentElement === document.body &&
+                popoverRect &&
+                popoverRect.height > 0 &&
+                popoverRect.bottom > titlebarBottom
+              ),
+              language: document.documentElement.lang === 'de',
+              csp: Boolean(document.querySelector('meta[http-equiv="Content-Security-Policy"]')),
+              needsWork: [...document.querySelectorAll('.task-pill')].some((node) => node.textContent?.includes('Nacharbeit')),
+              gateFindings: Boolean(document.querySelector('.task-findings')),
+              preflight: [...document.querySelectorAll('.task-review dd')].some((node) => node.textContent?.includes('bestanden')),
+              reliability: Boolean(document.querySelector('.reliability-strip'))
+            }
+          })()`)
+          const ok = Object.values(checks).every(Boolean)
+          writeFileSync(
+            smokePath,
+            JSON.stringify({ ok, checks, capturedAt: new Date().toISOString() }, null, 2)
+          )
+          app.exit(ok ? 0 : 1)
+        } catch (error) {
+          writeFileSync(
+            smokePath,
+            JSON.stringify({
+              ok: false,
+              checks: {},
+              error: error instanceof Error ? error.message : String(error),
+              capturedAt: new Date().toISOString()
+            }, null, 2)
+          )
+          app.exit(1)
+        }
+      })()
     })
   }
-
   loadRoute(win, '/')
   return win
 }
