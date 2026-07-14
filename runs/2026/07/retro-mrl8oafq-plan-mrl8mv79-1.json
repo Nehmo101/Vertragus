@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "exportedAt": 1784069093108,
+  "app": {
+    "name": "orca-strator",
+    "version": "0.1.29-main.1.gcfaf136"
+  },
+  "machineId": "5087fc1f7b9d",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrl8oafq-plan-mrl8mv79-1",
+    "profileId": "profile-mri86faq",
+    "workspaceSessionId": "f0e2f36f-cb16-49b9-b624-d1a869ddf7b8",
+    "planId": "plan-mrl8mv79-1",
+    "goal": "In jeder betroffenen Datei unter src/renderer/src/components/ ausschließlich `import { theme } from '../ui/theme'` durch `import { theme } from '@renderer/ui/theme'` ersetzen; sonst nichts ändern.",
+    "status": "error",
+    "summary": "Lauf mit Fehlern: 1 Modell(e), 0/1 Tasks erfolgreich.",
+    "modelStats": [
+      {
+        "provider": "codex",
+        "model": "",
+        "roles": [
+          "worker"
+        ],
+        "tasks": 1,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 1,
+        "stopped": 0,
+        "failedAttempts": 1,
+        "gateFindings": 0,
+        "avgDurationMs": 66272,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrl8oafk-1-wyxgkj",
+        "provider": "codex",
+        "model": "",
+        "role": "worker",
+        "kind": "weakness",
+        "insight": "fehleranfällig bei worker",
+        "evidence": "1/1 Tasks fehlgeschlagen",
+        "source": "auto-retro",
+        "profileId": "profile-mri86faq",
+        "observations": 1,
+        "createdAt": 1784069093072,
+        "updatedAt": 1784069093072
+      }
+    ],
+    "createdAt": 1784069093078
+  }
+}
