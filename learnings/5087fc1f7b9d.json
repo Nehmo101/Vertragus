@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784069182501,
+  "exportedAt": 1784069330763,
   "app": {
     "name": "orca-strator",
     "version": "0.1.29-main.1.gcfaf136"
@@ -8,6 +8,34 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrl8tcte-1-ps1cf4",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "main-orchestrator",
+      "kind": "strength",
+      "insight": "Sehr stark bei kleinen Querschnitts-Features über shared/main/renderer: erfüllt expliziten Ergebnisvertrag (Dateiliste, Gate-Ausgaben, Integrationshinweise, kein git) vollständig",
+      "evidence": "Task me-names: 8 Dateien, Negativtests (NaN, negativ, 1e9), Legacy-Fallback, 8/8 vitest, typecheck+lint grün, Commit 50a413b",
+      "source": "orchestrator",
+      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+      "observations": 1,
+      "createdAt": 1784069329442,
+      "updatedAt": 1784069329442
+    },
+    {
+      "id": "learning-mrl8tcte-2-4i7sy7",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "main-orchestrator",
+      "kind": "weakness",
+      "insight": "Lauf-Erkenntnis: grüne Worker-Gates garantieren keinen grünen Plan — zentrales Integrations-Gate kann an fehlendem eslint scheitern und blockiert den Auto-PR",
+      "evidence": "Integration-Node: pnpm lint → 'eslint ... konnte nicht gefunden werden', obwohl lint im Worker-Worktree task-13 grün war",
+      "source": "orchestrator",
+      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+      "observations": 1,
+      "createdAt": 1784069329442,
+      "updatedAt": 1784069329442
+    },
     {
       "id": "learning-mrl8q5u0-1-fl7g8h",
       "provider": "codex",
