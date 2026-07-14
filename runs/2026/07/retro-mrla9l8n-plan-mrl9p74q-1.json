@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "exportedAt": 1784071766550,
+  "app": {
+    "name": "orca-strator",
+    "version": "0.1.29-main.1.gcfaf136"
+  },
+  "machineId": "5087fc1f7b9d",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrla9l8n-plan-mrl9p74q-1",
+    "profileId": "profile-mri86faq",
+    "workspaceSessionId": "a10c1cf0-3ea5-4514-b09a-20dc97f10dac",
+    "planId": "plan-mrl9p74q-1",
+    "goal": "Workspace-Profile können über die vorhandene Anwendung zuverlässig gelöscht werden; UI, Zustandsverwaltung und Persistenz bleiben konsistent und der Löschpfad ist durch relevante Tests verifiziert.",
+    "status": "needs-work",
+    "summary": "Lauf mit Nacharbeit: 1 Modell(e), 0/1 Tasks erfolgreich.",
+    "modelStats": [
+      {
+        "provider": "codex",
+        "model": "",
+        "roles": [
+          "worker"
+        ],
+        "tasks": 1,
+        "succeeded": 0,
+        "needsWork": 1,
+        "failed": 0,
+        "stopped": 0,
+        "failedAttempts": 0,
+        "gateFindings": 1,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "avgDurationMs": 949828
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrla9l8c-1-qua21e",
+        "provider": "codex",
+        "model": "",
+        "role": "worker",
+        "kind": "weakness",
+        "insight": "Quality-Gates erfordern Nacharbeit bei worker",
+        "evidence": "1 Task(s) mit 1 Gate-Finding(s)",
+        "source": "auto-retro",
+        "profileId": "profile-mri86faq",
+        "observations": 1,
+        "createdAt": 1784071766460,
+        "updatedAt": 1784071766460
+      }
+    ],
+    "createdAt": 1784071766471
+  }
+}
