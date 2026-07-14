@@ -7,7 +7,7 @@
  * to replay scrollback.
  */
 import { EventEmitter } from 'node:events'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { execFile } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
@@ -57,6 +57,15 @@ import { buildSubagentMcpArgs } from '@main/orchestrator/externalMcp'
 import { NameAllocator } from '@main/agents/names'
 import { detectLimit, limitKindLabel, stripAnsi } from '@main/agents/limitSignals'
 import { buildBriefing } from '@main/agents/handoff'
+import {
+  HandoffHandshakeRegistry,
+  type HandoffAcknowledgement,
+  type HandoffAcknowledgementResult,
+  type HandoffAgentIdentity,
+  type HandoffClientIdentity,
+  type HandoffContextResult,
+  type HandoffHandshakeSnapshot
+} from '@main/agents/handoffHandshake'
 import { providerCapacity } from '@main/agents/providerCapacity'
 import { seedWithReadyHandshake } from '@main/agents/interactiveReady'
 import { agentIdentityInstruction, isReusableTeamMember } from '@main/agents/teamReuse'
@@ -66,6 +75,7 @@ const BUFFER_LIMIT = 200_000 // chars of scrollback kept per agent
 const CURSOR_TRUST_RETRY_DELAY_MS = 150
 const CURSOR_TRUST_MAX_RETRIES = 3
 const CURSOR_TRUST_WATCHDOG_MS = 8_000
+const HANDOFF_SHUTDOWN_TIMEOUT_MS = 5_000
 
 interface Managed {
   info: AgentInstanceInfo
@@ -134,6 +144,15 @@ function assertProviderSelection(provider: AgentProviderId, model: string): void
 export class AgentManager extends EventEmitter {
   private readonly agents = new Map<string, Managed>()
   private readonly preflightReports = new Map<string, PanePreflightReport>()
+  private readonly handoffStarts = new Set<string>()
+  private readonly handoffBriefings = new Map<
+    string,
+    { path: string; targetName: string; task?: string; summary?: string; timestamp: number }
+  >()
+  private readonly handoffHandshakes = new HandoffHandshakeRegistry({
+    onTransition: (snapshot) => this.applyHandoffTransition(snapshot),
+    onAccepted: (snapshot) => this.shutdownHandoffSource(snapshot)
+  })
 
   constructor(private readonly preflightRunner: PanePreflightRunner = runPanePreflight) {
     super()
@@ -191,6 +210,211 @@ export class AgentManager extends EventEmitter {
 
   private changed(): void {
     this.emit('changed', this.list())
+  }
+
+  private handoffIdentity(info: AgentInstanceInfo): HandoffAgentIdentity {
+    return {
+      agentId: info.id,
+      name: info.name,
+      profileId: info.profileId,
+      workspaceSessionId: info.workspaceSessionId,
+      engineId: info.engineId
+    }
+  }
+
+  private handoffSourceContinuity(handoffId: string): string | undefined {
+    const snapshot = this.handoffHandshakes.snapshot(handoffId)
+    const source = snapshot ? this.agents.get(snapshot.source.agentId) : undefined
+    return source
+      ? createHash('sha256').update(source.buffer).digest('hex')
+      : undefined
+  }
+
+  private latestHandoffBriefing(handoffId: string): string | undefined {
+    const snapshot = this.handoffHandshakes.snapshot(handoffId)
+    const metadata = this.handoffBriefings.get(handoffId)
+    const source = snapshot ? this.agents.get(snapshot.source.agentId) : undefined
+    if (!source || !metadata) return undefined
+    const briefing = buildBriefing({
+      source: source.info,
+      targetName: metadata.targetName,
+      task: metadata.task,
+      summary: metadata.summary,
+      scrollback: source.buffer,
+      scrollbackChars: getSetting<number>('handoff.scrollbackChars'),
+      timestamp: metadata.timestamp
+    })
+    try {
+      writeFileSync(metadata.path, briefing, 'utf8')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      this.emitEvent(`Übergabe-Notiz konnte nicht aktualisiert werden: ${message}`, 'warn', source.info)
+    }
+    return briefing
+  }
+
+  /** Live identity bound to an orchestrator MCP connection at initialization. */
+  orchestratorClientIdentity(agentId: string): HandoffClientIdentity | undefined {
+    const managed = this.agents.get(agentId)
+    if (!managed || managed.info.kind !== 'orchestrator' || !this.isAlive(managed)) return undefined
+    const identity = this.handoffIdentity(managed.info)
+    return {
+      agentId: identity.agentId,
+      profileId: identity.profileId,
+      workspaceSessionId: identity.workspaceSessionId,
+      engineId: identity.engineId
+    }
+  }
+
+  readOrchestratorHandoffContext(
+    request: { handoffId: string; receiptToken: string },
+    identity: HandoffClientIdentity,
+    orchestratorState: unknown
+  ): HandoffContextResult {
+    const managed = this.agents.get(identity.agentId)
+    if (!managed || !this.isAlive(managed)) {
+      this.handoffHandshakes.markAgentUnavailable(
+        identity.agentId,
+        'Der Ziel-Orchestrator ist vor der Wissensbestätigung nicht mehr arbeitsfähig.'
+      )
+    }
+    const latestBriefing = this.latestHandoffBriefing(request.handoffId)
+    const sourceContinuity = this.handoffSourceContinuity(request.handoffId)
+    return this.handoffHandshakes.readContext(
+      request,
+      identity,
+      orchestratorState,
+      sourceContinuity,
+      latestBriefing
+    )
+  }
+
+  acknowledgeOrchestratorHandoff(
+    request: HandoffAcknowledgement,
+    identity: HandoffClientIdentity
+  ): Promise<HandoffAcknowledgementResult> {
+    const managed = this.agents.get(identity.agentId)
+    if (!managed || !this.isAlive(managed)) {
+      this.handoffHandshakes.markAgentUnavailable(
+        identity.agentId,
+        'Der Ziel-Orchestrator ist vor der Wissensbestätigung nicht mehr arbeitsfähig.'
+      )
+    }
+    return this.handoffHandshakes.acknowledge(
+      request,
+      identity,
+      this.handoffSourceContinuity(request.handoffId)
+    )
+  }
+
+  private applyHandoffTransition(snapshot: HandoffHandshakeSnapshot): void {
+    const source = this.agents.get(snapshot.source.agentId)
+    const target = this.agents.get(snapshot.target.agentId)
+    const previousPhase =
+      source?.info.handoffTo?.handshake?.phase ?? target?.info.handoffFrom?.handshake?.phase
+    let touched = false
+    const handshake = {
+      id: snapshot.handoffId,
+      phase: snapshot.phase,
+      updatedAt: snapshot.updatedAt,
+      error: snapshot.error
+    }
+    if (source?.info.handoffTo?.handshake?.id === snapshot.handoffId) {
+      source.info.handoffTo.handshake = handshake
+      touched = true
+    }
+    if (target?.info.handoffFrom?.handshake?.id === snapshot.handoffId) {
+      target.info.handoffFrom.handshake = handshake
+      touched = true
+    }
+    if (!touched) return
+
+    if (snapshot.phase === 'completed' || snapshot.phase === 'failed') {
+      this.handoffBriefings.delete(snapshot.handoffId)
+    }
+
+    if (snapshot.phase === 'awaiting-context' && previousPhase === 'awaiting-ack') {
+      this.emitEvent(
+        `⚠ ${snapshot.source.name} hat neuen Terminalstand erzeugt · ${snapshot.target.name} muss den Kontext erneut abrufen`,
+        'warn',
+        source?.info ?? target?.info
+      )
+    } else if (snapshot.phase === 'awaiting-ack') {
+      this.emitEvent(
+        `↪ Übergabe-Kontext von ${snapshot.target.name} abgerufen · Wissensbestätigung ausstehend`,
+        'info',
+        source?.info ?? target?.info
+      )
+    } else if (snapshot.phase === 'completing') {
+      this.emitEvent(
+        `✓ ${snapshot.target.name} hat Kontext und Wissensstand bestätigt`,
+        'success',
+        source?.info ?? target?.info
+      )
+    } else if (snapshot.phase === 'completed') {
+      this.emitEvent(
+        `↪ Orchestrator-Übergabe abgeschlossen · ${snapshot.target.name} arbeitet weiter`,
+        'success',
+        target?.info
+      )
+    } else if (snapshot.phase === 'failed') {
+      this.emitEvent(
+        `⚠ Orchestrator-Übergabe nicht bestätigt · ${snapshot.error ?? 'unbekannter Fehler'} · ${snapshot.source.name} bleibt aktiv`,
+        'error',
+        source?.info ?? target?.info
+      )
+      if (target && this.isAlive(target)) {
+        void this.kill(target.info.id).catch((error) => {
+          console.error('[AgentManager] failed handoff target cleanup failed', error)
+        })
+      }
+    }
+    this.changed()
+  }
+
+  private async shutdownHandoffSource(snapshot: HandoffHandshakeSnapshot): Promise<void> {
+    const source = this.agents.get(snapshot.source.agentId)
+    const target = this.agents.get(snapshot.target.agentId)
+    if (!source || !this.isAlive(source)) {
+      throw new Error('Quell-Orchestrator ist nicht mehr aktiv.')
+    }
+    if (!target || !this.isAlive(target)) {
+      throw new Error('Ziel-Orchestrator ist nicht mehr aktiv.')
+    }
+    const liveSource = this.handoffIdentity(source.info)
+    const liveTarget = this.handoffIdentity(target.info)
+    if (
+      source.info.kind !== 'orchestrator' ||
+      target.info.kind !== 'orchestrator' ||
+      liveSource.profileId !== snapshot.source.profileId ||
+      liveSource.workspaceSessionId !== snapshot.source.workspaceSessionId ||
+      liveSource.engineId !== snapshot.source.engineId ||
+      liveTarget.profileId !== snapshot.target.profileId ||
+      liveTarget.workspaceSessionId !== snapshot.target.workspaceSessionId ||
+      liveTarget.engineId !== snapshot.target.engineId
+    ) {
+      throw new Error('Agent-, Workspace- oder Engine-Zuordnung hat sich während der Übergabe geändert.')
+    }
+
+    await this.terminateHandoffSourceProcess(source)
+    this.clearCursorWorkspaceTrustRetry(source)
+    this.releaseCapacity(source)
+    source.info.status = 'stopped'
+    this.agents.delete(source.info.id)
+    this.names.release(source.info.name)
+    try {
+      closePaneWindows(source.info.id)
+      this.emitEvent(
+        `${source.info.name} nach bestätigter Orchestrator-Übergabe beendet`,
+        'muted',
+        target.info
+      )
+      this.changed()
+    } catch (error) {
+      // The source is already safely terminated; a UI listener/window failure
+      // must not turn the accepted handshake back into a false failed state.
+      console.error('[AgentManager] handoff shutdown notification failed', error)
+    }
   }
 
   /**
@@ -492,6 +716,10 @@ export class AgentManager extends EventEmitter {
           return
         }
         if (!this.agents.has(id)) return // killed & removed explicitly
+        this.handoffHandshakes.markAgentUnavailable(
+          id,
+          `${name} wurde vor Abschluss der Orchestrator-Übergabe beendet (exit ${exitCode}).`
+        )
         this.releaseCapacity(managed)
         info.exitCode = exitCode
         info.status = exitCode === 0 ? 'stopped' : 'error'
@@ -533,52 +761,126 @@ export class AgentManager extends EventEmitter {
    *
    * The new agent starts in the SOURCE's working tree (so it sees the source's
    * uncommitted work, and no nested worktree is created), gets a handoff
-   * briefing written to an absolute path, and is seeded with a short prompt
-   * telling it to read that briefing and continue. The source keeps running and
-   * is marked as handed off.
+   * briefing written to an absolute path, and is seeded with a short prompt.
+   * A subagent source keeps running as before. An orchestrator source is only
+   * stopped after the target fetched and explicitly acknowledged the correlated
+   * briefing + engine snapshot through its own MCP connection.
    */
   async handoff(req: HandoffRequest): Promise<AgentInstanceInfo> {
     const src = this.agents.get(req.sourceId)
     if (!src) throw new Error(`Quell-Agent ${req.sourceId} nicht gefunden.`)
+    if (!this.isAlive(src)) throw new Error(`Quell-Agent ${req.sourceId} ist nicht mehr aktiv.`)
+    const orchestratorHandoff = src.info.kind === 'orchestrator'
+    if (orchestratorHandoff) {
+      if (this.handoffStarts.has(src.info.id)) {
+        throw new Error(`Für ${src.info.id} wird bereits eine Orchestrator-Übergabe gestartet.`)
+      }
+      this.handoffHandshakes.assertCanStart(src.info.id)
+      this.handoffStarts.add(src.info.id)
+    }
 
-    const target = await this.spawn({
-      provider: req.provider,
-      model: req.model,
-      role: req.role?.trim() || `Übernahme von ${src.info.name}`,
-      yolo: req.yolo ?? src.info.yolo,
-      workingDir: src.info.workingDir,
-      isolateWorktree: false,
-      profileId: src.info.profileId,
-      workspaceSessionId: src.info.workspaceSessionId
-    })
-    // If spawn failed to register (e.g. PTY error), surface the info as-is.
-    if (!this.agents.has(target.id)) return target
+    let target: AgentInstanceInfo | undefined
+    let handshakeBegan = false
+    try {
+      target = await this.spawn({
+        provider: req.provider,
+        model: req.model,
+        role: req.role?.trim() || `Übernahme von ${src.info.name}`,
+        kind: src.info.kind,
+        yolo: req.yolo ?? src.info.yolo,
+        workingDir: src.info.workingDir,
+        isolateWorktree: false,
+        profileId: src.info.profileId,
+        workspaceSessionId: src.info.workspaceSessionId,
+        engineId: src.info.engineId
+      })
+      const targetManaged = this.agents.get(target.id)
+      if (!targetManaged || target.status !== 'running' || !this.isAlive(targetManaged)) {
+        throw new Error(
+          `Ziel-Agent ${target.name} konnte nicht arbeitsfähig gestartet werden${target.exitCode != null ? ` (exit ${target.exitCode})` : ''}.`
+        )
+      }
+      if (!this.isAlive(src)) {
+        throw new Error(`Quell-Agent ${src.info.name} wurde während des Zielstarts beendet.`)
+      }
 
-    const at = Date.now()
-    const briefing = buildBriefing({
-      source: src.info,
-      targetName: target.name,
-      task: req.task,
-      summary: req.summary,
-      scrollback: src.buffer,
-      scrollbackChars: getSetting<number>('handoff.scrollbackChars'),
-      timestamp: at
-    })
-    const briefingPath = this.writeBriefing(req.sourceId, target.id, at, briefing)
+      const at = Date.now()
+      const briefing = buildBriefing({
+        source: src.info,
+        targetName: target.name,
+        task: req.task,
+        summary: req.summary,
+        scrollback: src.buffer,
+        scrollbackChars: getSetting<number>('handoff.scrollbackChars'),
+        timestamp: at
+      })
+      const briefingPath = this.writeBriefing(req.sourceId, target.id, at, briefing)
 
-    // Mark both ends; the source keeps running (user choice).
-    src.info.handoffTo = { id: target.id, name: target.name, at }
-    target.handoffFrom = { id: src.info.id, name: src.info.name, at }
+      if (orchestratorHandoff) {
+        const challenge = this.handoffHandshakes.begin({
+          source: this.handoffIdentity(src.info),
+          target: this.handoffIdentity(target),
+          briefingPath,
+          briefing
+        })
+        handshakeBegan = true
+        this.handoffBriefings.set(challenge.handoffId, {
+          path: briefingPath,
+          targetName: target.name,
+          task: req.task,
+          summary: req.summary,
+          timestamp: at
+        })
+        const handshake = {
+          id: challenge.handoffId,
+          phase: 'awaiting-context' as const,
+          updatedAt: at
+        }
+        src.info.handoffTo = { id: target.id, name: target.name, at, handshake }
+        target.handoffFrom = { id: src.info.id, name: src.info.name, at, handshake: { ...handshake } }
 
-    // Seed the new interactive agent once its CLI has booted.
-    const seed =
-      `Du übernimmst die Arbeit von ${src.info.name}. Lies die Übergabe-Notiz unter "${briefingPath}" ` +
-      `und mach genau dort weiter, wo ${src.info.name} aufgehört hat. Bestätige zuerst kurz dein Verständnis der Aufgabe.`
-    void this.seedInteractive(target.id, seed)
+        const seed = [
+          `Du übernimmst die laufende Orchestrierung von ${src.info.name}.`,
+          'Rufe zuerst das Orca-MCP-Tool get_handoff_context mit diesen exakten Werten auf:',
+          `handoffId=${challenge.handoffId}`,
+          `receiptToken=${challenge.receiptToken}`,
+          'Prüfe den vollständigen Briefing- und Orchestrator-Zustand in der Antwort.',
+          'Rufe erst danach acknowledge_handoff mit handoffId, receiptToken, dem gelieferten knowledgeDigest',
+          'und einer kurzen konkreten Zusammenfassung deines übernommenen Wissensstands auf.',
+          'Falls acknowledge_handoff context-changed meldet, rufe den Kontext erneut ab und bestätige den neuen Digest.',
+          `${src.info.name} bleibt bis zu dieser exakten Bestätigung aktiv. Bestätige nicht, wenn Kontext fehlt.`
+        ].join('\n')
+        const seeded = await this.seedInteractive(target.id, seed)
+        if (!seeded || !this.isAlive(targetManaged)) {
+          this.handoffHandshakes.fail(
+            challenge.handoffId,
+            `Der Ziel-Orchestrator ${target.name} wurde nicht rechtzeitig interaktiv arbeitsfähig.`
+          )
+          throw new Error(
+            `Ziel-Orchestrator ${target.name} wurde nicht rechtzeitig arbeitsfähig; ${src.info.name} bleibt aktiv.`
+          )
+        }
+      } else {
+        // Preserve the existing manual subagent handoff behavior.
+        src.info.handoffTo = { id: target.id, name: target.name, at }
+        target.handoffFrom = { id: src.info.id, name: src.info.name, at }
+        const seed =
+          `Du übernimmst die Arbeit von ${src.info.name}. Lies die Übergabe-Notiz unter "${briefingPath}" ` +
+          `und mach genau dort weiter, wo ${src.info.name} aufgehört hat. Bestätige zuerst kurz dein Verständnis der Aufgabe.`
+        void this.seedInteractive(target.id, seed)
+      }
 
-    this.emitEvent(`↪ Übergabe: ${src.info.name} → ${target.name}`, 'dispatch', src.info)
-    this.changed()
-    return target
+      this.emitEvent(`↪ Übergabe: ${src.info.name} → ${target.name}`, 'dispatch', src.info)
+      this.changed()
+      return target
+    } catch (error) {
+      if (orchestratorHandoff && target && !handshakeBegan && this.agents.has(target.id)) {
+        await this.kill(target.id)
+      }
+      throw error
+    } finally {
+      if (orchestratorHandoff) this.handoffStarts.delete(src.info.id)
+    }
   }
 
   /** Open the provider-owned interactive login flow in a normal Orca terminal. */
@@ -882,8 +1184,8 @@ export class AgentManager extends EventEmitter {
    * Feed a prompt to an interactive agent after its CLI finishes booting.
    * Uses output-idle detection plus bounded seed retries instead of a fixed delay.
    */
-  async seedInteractive(id: string, prompt: string): Promise<void> {
-    await seedWithReadyHandshake(
+  async seedInteractive(id: string, prompt: string): Promise<boolean> {
+    return seedWithReadyHandshake(
       (text) => this.write(id, text),
       () => {
         const managed = this.agents.get(id)
@@ -909,6 +1211,50 @@ export class AgentManager extends EventEmitter {
     }
   }
 
+  /** Confirm the OS-level source termination before completing a handoff. */
+  private terminateHandoffSourceProcess(managed: Managed): Promise<void> {
+    const proc = managed.pty
+    if (!proc) return Promise.reject(new Error('Quell-Orchestrator besitzt keinen aktiven PTY-Prozess.'))
+
+    return new Promise((resolve, reject) => {
+      let settled = false
+      let terminationError: Error | undefined
+      const finish = (error?: Error): void => {
+        if (settled) return
+        settled = true
+        clearTimeout(timeout)
+        if (error) reject(error)
+        else resolve()
+      }
+      const timeout = setTimeout(() => {
+        finish(
+          terminationError ??
+            new Error('Betriebssystem hat das Ende des Quell-Orchestrators nicht rechtzeitig bestätigt.')
+        )
+      }, HANDOFF_SHUTDOWN_TIMEOUT_MS)
+      proc.onExit(() => finish())
+
+      if (process.platform === 'win32' && proc.pid) {
+        execFile(
+          'taskkill',
+          ['/pid', String(proc.pid), '/T', '/F'],
+          { windowsHide: true },
+          (error) => {
+            if (error) terminationError = error
+            else finish()
+          }
+        )
+        return
+      }
+
+      try {
+        proc.kill()
+      } catch (error) {
+        finish(error instanceof Error ? error : new Error(String(error)))
+      }
+    })
+  }
+
   private terminate(managed: Managed): void {
     if (managed.headless) {
       managed.headless.kill()
@@ -924,12 +1270,17 @@ export class AgentManager extends EventEmitter {
   async kill(id: string): Promise<void> {
     const managed = this.agents.get(id)
     if (!managed) return
+    this.handoffHandshakes.markAgentUnavailable(
+      id,
+      `${managed.info.name} wurde vor Abschluss der Orchestrator-Übergabe geschlossen.`
+    )
 
     if (managed.info.status === 'waiting' && !managed.headless) {
       if (managed.waitAbort) managed.waitAbort.aborted = true
       this.releaseCapacity(managed)
       this.agents.delete(id)
       this.names.release(managed.info.name)
+      closePaneWindows(id)
       this.emitEvent(`${managed.info.name} · Warteschlange abgebrochen`, 'muted')
       this.changed()
       return
@@ -941,6 +1292,7 @@ export class AgentManager extends EventEmitter {
     managed.info.status = 'stopped'
     this.agents.delete(id)
     this.names.release(managed.info.name)
+    closePaneWindows(id)
     this.emitEvent(`${managed.info.name} geschlossen`, 'muted', managed.info)
     this.changed()
   }
@@ -950,6 +1302,10 @@ export class AgentManager extends EventEmitter {
       (m) => (this.isAlive(m) || m.info.status === 'waiting') && (!profileId || m.info.profileId === profileId)
     )
     for (const m of running) {
+      this.handoffHandshakes.markAgentUnavailable(
+        m.info.id,
+        `${m.info.name} wurde vor Abschluss der Orchestrator-Übergabe gestoppt.`
+      )
       if (m.info.status === 'waiting' && !m.headless) {
         if (m.waitAbort) m.waitAbort.aborted = true
         this.releaseCapacity(m)
@@ -975,6 +1331,10 @@ export class AgentManager extends EventEmitter {
     const count = targets.length
     const rollbacks: Array<{ name: string; worktree: string; branch?: string }> = []
     for (const [id, managed] of targets) {
+      this.handoffHandshakes.markAgentUnavailable(
+        id,
+        `${managed.info.name} wurde vor Abschluss der Orchestrator-Übergabe aus dem Workspace entfernt.`
+      )
       if (managed.waitAbort) managed.waitAbort.aborted = true
       this.terminate(managed)
       this.clearCursorWorkspaceTrustRetry(managed)
@@ -988,6 +1348,7 @@ export class AgentManager extends EventEmitter {
         })
       }
       this.agents.delete(id)
+      closePaneWindows(id)
     }
     this.emitEvent(`🧹 Workspace geleert · ${count} Agents entfernt`, 'muted', { profileId })
     this.changed()

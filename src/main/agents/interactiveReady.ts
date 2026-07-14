@@ -67,14 +67,17 @@ export async function seedWithReadyHandshake(
   getSnapshot: () => InteractiveSnapshot,
   prompt: string,
   options: SeedWithReadyOptions = {}
-): Promise<void> {
-  await waitForInteractiveReady(getSnapshot, options.ready)
+): Promise<boolean> {
+  const ready = await waitForInteractiveReady(getSnapshot, options.ready)
+  if (!ready) return false
   const maxAttempts = options.maxAttempts ?? 3
   const retryDelayMs = options.retryDelayMs ?? 600
   const text = prompt.endsWith('\r') ? prompt : `${prompt}\r`
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (!getSnapshot().alive) return false
     write(text)
     if (attempt < maxAttempts - 1) await sleep(retryDelayMs)
   }
+  return true
 }
