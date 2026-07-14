@@ -167,15 +167,53 @@ function assertDiffLooksSafe(diff: string): void {
   assertSecurityGate(diff)
 }
 
-async function runQualityGates(cwd: string, gates: string[]): Promise<void> {
+interface QualityGateRuntime {
+  inheritedEnv: NodeJS.ProcessEnv
+  platform: NodeJS.Platform
+}
+
+function qualityGateEnvironment(
+  cwd: string,
+  workspaceRoot: string,
+  inheritedEnv: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform
+): NodeJS.ProcessEnv {
+  const pathKey = platform === 'win32'
+    ? Object.keys(inheritedEnv).find((key) => key.toLowerCase() === 'path') ?? 'Path'
+    : 'PATH'
+  const separator = platform === 'win32' ? ';' : ':'
+  const binaryPaths = [join(cwd, 'node_modules', '.bin')]
+  const workspaceBinaryPath = join(workspaceRoot, 'node_modules', '.bin')
+  if (workspaceBinaryPath !== binaryPaths[0]) binaryPaths.push(workspaceBinaryPath)
+  const inheritedPath = inheritedEnv[pathKey]
+  if (inheritedPath) binaryPaths.push(inheritedPath)
+  return { ...inheritedEnv, [pathKey]: binaryPaths.join(separator) }
+}
+
+async function runQualityGates(
+  cwd: string,
+  gates: string[],
+  workspaceRoot = cwd,
+  runtime: QualityGateRuntime = {
+    inheritedEnv: process.env,
+    platform: process.platform
+  }
+): Promise<void> {
+  const env = qualityGateEnvironment(
+    cwd,
+    workspaceRoot,
+    runtime.inheritedEnv,
+    runtime.platform
+  )
   for (const command of gates) {
     try {
       await execAsync(command, {
         cwd,
+        env,
         windowsHide: true,
         timeout: 15 * 60_000,
         maxBuffer: MAX_OUTPUT,
-        shell: process.platform === 'win32' ? 'powershell.exe' : '/bin/sh'
+        shell: runtime.platform === 'win32' ? 'powershell.exe' : '/bin/sh'
       })
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
@@ -758,7 +796,7 @@ async function publishAggregate(input: PublishInput): Promise<AutoPrOutcome> {
     }
     const integratedDiff = await git(integrationPath, ['diff', '--no-ext-diff', '--binary', `origin/${base}...HEAD`])
     assertSecurityGate(integratedDiff)
-    await runQualityGates(integrationPath, input.config.qualityGates)
+    await runQualityGates(integrationPath, input.config.qualityGates, root)
     const body = [
       `Automatisch integriert von Orca-Strator für **${input.goalTitle}**.`,
       '',
@@ -820,6 +858,8 @@ export async function publishPreparedChanges(input: PublishInput): Promise<AutoP
 export const autoPrInternals = {
   safeSlug,
   assertDiffLooksSafe,
+  qualityGateEnvironment,
+  runQualityGates,
   defaultBase,
   pickBaseBranch,
   parseRemoteChecks,
