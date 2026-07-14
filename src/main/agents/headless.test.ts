@@ -16,7 +16,11 @@ vi.mock('node:child_process', async (importOriginal) => {
 })
 vi.mock('@main/agents/ollamaHeadless', () => ({ runOllamaChat: mocks.runOllamaChat }))
 
-import { runHeadless, type HeadlessLifecycleEvent } from './headless'
+import {
+  classifyFatalProviderStderr,
+  runHeadless,
+  type HeadlessLifecycleEvent
+} from './headless'
 
 const opts = { workingDir: '.', model: 'test', yolo: false }
 
@@ -40,6 +44,21 @@ function fakeChild(): ChildProcess {
 afterEach(() => {
   vi.useRealTimers()
   vi.clearAllMocks()
+})
+
+describe('fatal provider stderr classification', () => {
+  it('recognizes revoked authentication and Windows sandbox bootstrap failures', () => {
+    expect(classifyFatalProviderStderr('codex', '401 token_revoked: invalidated OAuth token')).toMatchObject({
+      kind: 'provider-auth'
+    })
+    expect(
+      classifyFatalProviderStderr(
+        'codex',
+        'failed to prepare windows sandbox wrapper: CreateRestrictedToken failed: 87'
+      )
+    ).toMatchObject({ kind: 'sandbox' })
+    expect(classifyFatalProviderStderr('codex', 'ordinary diagnostic output')).toBeUndefined()
+  })
 })
 
 describe('runHeadless lifecycle', () => {
@@ -133,6 +152,74 @@ describe('runHeadless lifecycle', () => {
       tokensOut: 8,
       steps: 3
     })
+  })
+
+  it('fails a Codex run immediately when stderr reports a revoked token', async () => {
+    const child = fakeChild()
+    mocks.resolveLaunch.mockResolvedValueOnce({ file: 'codex', args: [] })
+    mocks.spawn.mockReturnValueOnce(child)
+    if (process.platform === 'win32') mocks.spawn.mockReturnValueOnce(fakeChild())
+    const handle = runHeadless('codex', 'task', opts, vi.fn())
+    await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalled())
+
+    child.stderr?.emit('data', Buffer.from('401 token_revoked: invalidated OAuth token'))
+    child.emit('error', new Error('terminated after fatal stderr'))
+
+    await expect(handle.done).resolves.toMatchObject({
+      status: 'failed',
+      isError: true,
+      failureKind: 'provider-auth',
+      result: expect.stringContaining('Provider-Login erneuern')
+    })
+  })
+
+  it('stalls only on missing meaningful progress; stderr noise does not keep it alive', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-13T00:00:00Z'))
+    const child = fakeChild()
+    mocks.resolveLaunch.mockResolvedValueOnce({ file: 'codex', args: [] })
+    mocks.spawn.mockReturnValueOnce(child)
+    if (process.platform === 'win32') mocks.spawn.mockReturnValueOnce(fakeChild())
+    const handle = runHeadless('codex', 'task', opts, vi.fn(), {
+      stallTimeoutMs: 60_000,
+      onEvent: vi.fn()
+    })
+    await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalled())
+
+    await vi.advanceTimersByTimeAsync(30_000)
+    child.stderr?.emit('data', Buffer.from('diagnostic heartbeat only'))
+    await vi.advanceTimersByTimeAsync(30_000)
+    child.emit('close', 0)
+
+    await expect(handle.done).resolves.toMatchObject({
+      status: 'failed',
+      failureKind: 'stalled',
+      result: expect.stringContaining('ohne sinnvollen Provider-Fortschritt')
+    })
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('renders a Codex command once across item.started and item.completed JSONL events', async () => {
+    const child = fakeChild()
+    const output: string[] = []
+    mocks.resolveLaunch.mockResolvedValueOnce({ file: 'codex', args: [] })
+    mocks.spawn.mockReturnValueOnce(child)
+    const handle = runHeadless('codex', 'task', opts, (chunk) => output.push(chunk))
+    await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce())
+
+    const started = {
+      type: 'item.started',
+      item: { id: 'cmd-1', type: 'command_execution', command: 'rg --files' }
+    }
+    const completed = {
+      type: 'item.completed',
+      item: { id: 'cmd-1', type: 'command_execution', command: 'rg --files', status: 'completed', exit_code: 0 }
+    }
+    child.stdout?.emit('data', Buffer.from(`${JSON.stringify(started)}\n${JSON.stringify(completed)}\n`))
+    child.emit('close', 0)
+
+    await expect(handle.done).resolves.toMatchObject({ status: 'succeeded' })
+    expect(output.join('').match(/\$ rg --files/g)).toHaveLength(1)
   })
 
   it('emits structured phases, progress, output, heartbeats, and a terminal event', async () => {

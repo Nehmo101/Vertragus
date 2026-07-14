@@ -22,6 +22,7 @@ export interface PanePreflightInput {
   provider: AgentProviderId
   workingDir: string
   worktree?: string
+  yolo?: boolean
   engineId?: string
   workspaceSessionId?: string
 }
@@ -101,6 +102,62 @@ async function writeProbe(directory: string): Promise<void> {
   }
 }
 
+/**
+ * Exercise Codex's real Windows sandbox bootstrap inside the exact worker
+ * workspace. A host-process write probe alone cannot detect restricted-token
+ * or split-writable-root failures that only happen in a nested Codex process.
+ */
+export function codexRuntimeCanaryArgs(workingDir: string): string[] {
+  return [
+    'sandbox',
+    '--permission-profile',
+    ':workspace',
+    '-C',
+    workingDir,
+    'powershell.exe',
+    '-NoLogo',
+    '-NoProfile',
+    '-NonInteractive',
+    '-Command',
+    "$path = $env:ORCA_CODEX_CANARY_PATH; [System.IO.File]::WriteAllText($path, 'orca-runtime-preflight'); Remove-Item -LiteralPath $path -Force"
+  ]
+}
+
+async function providerRuntimeCanary(input: PanePreflightInput, workingDir: string): Promise<{
+  status?: PanePreflightCheck['status']
+  detail: string
+}> {
+  if (input.provider !== 'codex') {
+    return { detail: 'Fuer diesen Provider ist kein separater Runtime-Canary erforderlich.' }
+  }
+  if (input.yolo) {
+    return {
+      status: 'warning',
+      detail: 'Expliziter Yolo-Modus: Codex umgeht Approval- und Sandbox-Pruefungen.'
+    }
+  }
+  if (process.platform !== 'win32') {
+    return {
+      status: 'warning',
+      detail: 'Der Codex-Runtime-Canary ist derzeit auf den Windows-Sandboxfehler zugeschnitten.'
+    }
+  }
+
+  const markerPath = join(workingDir, `.orca-codex-runtime-${randomUUID()}.tmp`)
+  const launch = await resolveLaunch('codex', codexRuntimeCanaryArgs(workingDir))
+  try {
+    await execFileAsync(launch.file, launch.args, {
+      cwd: workingDir,
+      env: { ...process.env, ORCA_CODEX_CANARY_PATH: markerPath },
+      windowsHide: true,
+      timeout: PREFLIGHT_TIMEOUT_MS
+    })
+  } finally {
+    await rm(markerPath, { force: true })
+  }
+  return { detail: `Codex-Sandbox startet und schreibt im Worker-Worktree: ${workingDir}` }
+}
+
 export async function runPanePreflight(input: PanePreflightInput): Promise<PanePreflightReport> {
   const startedAt = Date.now()
   const canonicalWorkspace = await canonicalWorkspacePath(input.workingDir)
@@ -119,6 +176,7 @@ export async function runPanePreflight(input: PanePreflightInput): Promise<PaneP
       const version = (stdout || stderr || '').split(/\r?\n/).find(Boolean)?.trim() ?? 'bereit'
       return { detail: `${provider.label} startet noninteraktiv: ${version}` }
     }),
+    check('provider-runtime', () => providerRuntimeCanary(input, canonicalWorkspace)),
     check('workspace', async () => {
       await access(canonicalWorkspace, constants.R_OK | constants.W_OK)
       await writeProbe(canonicalWorkspace)
