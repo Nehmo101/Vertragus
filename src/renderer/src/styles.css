@@ -2285,6 +2285,27 @@ button {
     margin-left: 100%;
   }
 }
+.task-usage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid var(--border-1);
+  font-size: 9.5px;
+  color: var(--text-3);
+}
+.task-usage .k {
+  color: var(--text-4);
+}
+.task-usage b {
+  color: #a9b6c9;
+  font-weight: 600;
+}
+.task-usage b.cost {
+  color: var(--accent-light);
+}
 .task-note {
   margin-top: 7px;
   font-size: 10.5px;
