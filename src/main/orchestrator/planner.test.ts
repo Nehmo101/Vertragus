@@ -31,7 +31,122 @@ describe('auto subagent planner validation', () => {
   it('accepts a bounded acyclic plan', () => {
     const result = resolveExecutionPlan(validPlan, 'worker', undefined, ['worker'])
     expect(result.usedFallback).toBe(false)
+    expect(result.rejected).toBe(false)
+    expect(result.issues).toEqual([])
     expect(result.plan.tasks).toHaveLength(2)
+  })
+
+  it('allows an advisory audit to run after the integrator', () => {
+    const result = resolveExecutionPlan({
+      ...validPlan,
+      tasks: [
+        {
+          ...validPlan.tasks[0],
+          id: 'feature',
+          ownership: 'feature',
+          criticality: 'required',
+          expectedFiles: ['src/main/features/example.ts']
+        },
+        {
+          ...validPlan.tasks[1],
+          id: 'integrate',
+          dependsOn: ['feature'],
+          ownership: 'integrator',
+          criticality: 'required',
+          expectedFiles: ['src/shared/orchestrator.ts']
+        },
+        {
+          ...validPlan.tasks[1],
+          id: 'audit',
+          dependsOn: [],
+          advisoryDependsOn: ['integrate'],
+          ownership: 'feature',
+          criticality: 'advisory',
+          expectedFiles: []
+        }
+      ]
+    })
+
+    expect(result.usedFallback).toBe(false)
+    expect(result.rejected).toBe(false)
+    expect(result.issues).toEqual([])
+    expect(result.plan.tasks).toHaveLength(3)
+  })
+
+  it('rejects an integrator missing a required feature dependency', () => {
+    const result = resolveExecutionPlan({
+      ...validPlan,
+      tasks: [
+        {
+          ...validPlan.tasks[0],
+          id: 'feature',
+          criticality: 'required'
+        },
+        {
+          ...validPlan.tasks[1],
+          id: 'integrate',
+          dependsOn: [],
+          ownership: 'integrator'
+        }
+      ]
+    })
+
+    expect(result.usedFallback).toBe(true)
+    expect(result.rejected).toBe(true)
+    expect(result.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'invalid_ownership', taskId: 'integrate' })
+      ])
+    )
+  })
+
+  it('still requires integrator ownership for shared hotspots', () => {
+    const result = resolveExecutionPlan({
+      ...validPlan,
+      tasks: [
+        {
+          ...validPlan.tasks[0],
+          ownership: 'feature',
+          expectedFiles: ['src/shared/orchestrator.ts']
+        }
+      ]
+    })
+
+    expect(result.usedFallback).toBe(true)
+    expect(result.rejected).toBe(true)
+    expect(result.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'invalid_ownership', taskId: 'inspect' })
+      ])
+    )
+  })
+
+  it('marks a structured but invalid plan as rejected and preserves its issues', () => {
+    const result = resolveExecutionPlan({ ...validPlan, maxParallel: 0 })
+
+    expect(result.usedFallback).toBe(true)
+    expect(result.rejected).toBe(true)
+    expect(result.plan.tasks).toHaveLength(1)
+    expect(result.issues).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'invalid_parallelism' })])
+    )
+  })
+
+  it('uses a non-rejected fallback for unparseable input', () => {
+    const inputs = [
+      null,
+      {},
+      { ...validPlan, tasks: [] },
+      { ...validPlan, tasks: ['not-a-task'] }
+    ]
+
+    for (const input of inputs) {
+      const result = resolveExecutionPlan(input)
+      expect(result.usedFallback).toBe(true)
+      expect(result.rejected).toBe(false)
+      expect(result.plan.tasks).toHaveLength(1)
+      expect(result.issues.length).toBeGreaterThan(0)
+    }
   })
 
   it('fails closed to one task for cycles or unknown roles', () => {
