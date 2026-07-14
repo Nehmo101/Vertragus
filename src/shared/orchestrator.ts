@@ -194,6 +194,28 @@ export interface OrcaTask {
   finishedAt?: number
 }
 
+export type SubagentFindingKind = 'interface' | 'decision' | 'blocker' | 'insight'
+
+/**
+ * One entry on the shared findings board. Subagents post interface contracts,
+ * decisions, blockers and insights here so parallel workers (and the
+ * orchestrator) can coordinate without waiting for terminal task results.
+ */
+export interface SubagentFinding {
+  id: string
+  /** Runtime task id of the reporting worker. */
+  taskId: string
+  /** Plan scope; findings without a plan are visible to every task. */
+  planId?: string
+  agentName?: string
+  role?: string
+  kind: SubagentFindingKind
+  title: string
+  detail: string
+  files?: string[]
+  createdAt: number
+}
+
 export interface OrchestratorGoal {
   id: string
   title: string
