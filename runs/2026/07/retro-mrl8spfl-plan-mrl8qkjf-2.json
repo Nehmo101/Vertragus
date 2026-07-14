@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "exportedAt": 1784069299174,
+  "app": {
+    "name": "orca-strator",
+    "version": "0.1.29-main.1.gcfaf136"
+  },
+  "machineId": "5087fc1f7b9d",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrl8spfl-plan-mrl8qkjf-2",
+    "profileId": "profile-mri86faq",
+    "workspaceSessionId": "f0e2f36f-cb16-49b9-b624-d1a869ddf7b8",
+    "planId": "plan-mrl8qkjf-2",
+    "goal": "Fokussierter Wiederholungsversuch: In jeder betroffenen Datei unter src/renderer/src/components/ ausschließlich `import { theme } from '../ui/theme'` durch `import { theme } from '@renderer/ui/theme'` ersetzen; sonst nichts ändern.",
+    "status": "success",
+    "summary": "Lauf erfolgreich: 1 Modell(e), 1/1 Tasks erfolgreich.",
+    "modelStats": [
+      {
+        "provider": "codex",
+        "model": "",
+        "roles": [
+          "worker"
+        ],
+        "tasks": 1,
+        "succeeded": 1,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failedAttempts": 0,
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "avgDurationMs": 99243
+      }
+    ],
+    "learnings": [],
+    "createdAt": 1784069299137
+  }
+}
