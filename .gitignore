@@ -12,6 +12,7 @@ release/
 *.log
 npm-debug.log*
 pnpm-debug.log*
+.orca-runtime/
 
 # Env / secrets
 .env
