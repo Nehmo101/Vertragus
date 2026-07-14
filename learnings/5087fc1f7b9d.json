@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784072643951,
+  "exportedAt": 1784073329784,
   "app": {
     "name": "orca-strator",
     "version": "0.1.29-main.1.gcfaf136"
@@ -8,6 +8,20 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrla9l8c-1-qua21e",
+      "provider": "codex",
+      "model": "",
+      "role": "worker",
+      "kind": "weakness",
+      "insight": "Quality-Gates erfordern Nacharbeit bei worker",
+      "evidence": "1 Task(s) mit 1 Gate-Finding(s)",
+      "source": "auto-retro",
+      "profileId": "profile-mri86faq",
+      "observations": 2,
+      "createdAt": 1784071766460,
+      "updatedAt": 1784073328609
+    },
     {
       "id": "learning-mrlasda5-1-b1eeez",
       "provider": "codex",
@@ -77,20 +91,6 @@
       "observations": 1,
       "createdAt": 1784072099008,
       "updatedAt": 1784072099008
-    },
-    {
-      "id": "learning-mrla9l8c-1-qua21e",
-      "provider": "codex",
-      "model": "",
-      "role": "worker",
-      "kind": "weakness",
-      "insight": "Quality-Gates erfordern Nacharbeit bei worker",
-      "evidence": "1 Task(s) mit 1 Gate-Finding(s)",
-      "source": "auto-retro",
-      "profileId": "profile-mri86faq",
-      "observations": 1,
-      "createdAt": 1784071766460,
-      "updatedAt": 1784071766460
     },
     {
       "id": "learning-mrl9zuon-1-78c3he",
