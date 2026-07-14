@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784070558829,
+  "exportedAt": 1784070951371,
   "app": {
     "name": "orca-strator",
     "version": "0.1.29-main.1.gcfaf136"
@@ -8,6 +8,20 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrl9s2wl-1-k2fgx",
+      "provider": "codex",
+      "model": "unknown",
+      "role": "worker",
+      "kind": "strength",
+      "insight": "Erkennt bei direkten Branch-Pushes zuverlässig veraltete Basen und fordert einen Leercommit auf dem live verifizierten Remote-Tip statt auf lokalem HEAD.",
+      "evidence": "Haldir stellte HEAD 13c0938 gegenüber gecachtem origin/DEV 56a6242 als 0 ahead/1 behind fest und gab korrekt No-Go; Orca lieferte keinen Modellnamen.",
+      "source": "orchestrator",
+      "profileId": "profile-mri86faq",
+      "observations": 1,
+      "createdAt": 1784070949557,
+      "updatedAt": 1784070949557
+    },
     {
       "id": "learning-mrl9jo5c-1-o72tbm",
       "provider": "codex",
