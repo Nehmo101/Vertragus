@@ -27,10 +27,9 @@ describe('provider model argument passing', () => {
       'chosen-model',
       '--sandbox',
       'workspace-write',
-      '--ask-for-approval',
-      'never',
       'do work'
     ])
+    expect(headless.args).not.toContain('--ask-for-approval')
     expect([...interactive.args, ...headless.args]).not.toContain('model=chosen-model')
   })
   it('keeps Codex standard and explicit Yolo execution mutually exclusive', () => {
@@ -46,12 +45,12 @@ describe('provider model argument passing', () => {
       'chosen-model',
       '--sandbox',
       'workspace-write',
-      '--ask-for-approval',
-      'never',
       '-c',
       'mcp_servers.demo.enabled=true',
       'do work'
     ])
+    expect(standard).not.toContain('--ask-for-approval')
+    expect(yolo).not.toContain('--ask-for-approval')
     expect(standard).not.toContain('--dangerously-bypass-approvals-and-sandbox')
     expect(yolo).toContain('--dangerously-bypass-approvals-and-sandbox')
     expect(yolo).not.toContain('--sandbox')

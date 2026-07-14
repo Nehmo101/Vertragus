@@ -105,9 +105,8 @@ export function buildHeadlessLaunch(
         args: [
           'exec',
           ...(opts.model ? ['--model', opts.model] : []),
-          ...(opts.yolo
-            ? YOLO_FLAGS.codex
-            : ['--sandbox', 'workspace-write', '--ask-for-approval', 'never']),
+          // codex exec läuft immer non-interaktiv; --ask-for-approval wird ab codex-cli 0.144.x abgelehnt (exit 2)
+          ...(opts.yolo ? YOLO_FLAGS.codex : ['--sandbox', 'workspace-write']),
           ...extra,
           prompt
         ]
