@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "exportedAt": 1784063589893,
+  "app": {
+    "name": "orca-strator",
+    "version": "0.1.29-main.1.gcfaf136"
+  },
+  "machineId": "5087fc1f7b9d",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrl5ec4i-plan-mrl4a34n-1",
+    "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+    "workspaceSessionId": "0d3d16cf-6ea5-44f4-b19e-f83e07aa539a",
+    "planId": "plan-mrl4a34n-1",
+    "goal": "Orca-Strator für macOS nutzbar machen: mac-Packaging/CI/Release, POSIX-Prozessterminierung, PATH-Discovery und darwin-Pfadbehandlung, sodass die App auf macOS installierbar und mit Kernfunktionen lauffähig ist.",
+    "status": "error",
+    "summary": "Lauf mit Fehlern: 1 Modell(e), 0/1 Tasks erfolgreich.",
+    "modelStats": [
+      {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "roles": [
+          "renderer-ui"
+        ],
+        "tasks": 1,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 1,
+        "stopped": 0,
+        "failedAttempts": 2,
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "avgDurationMs": 1877766
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrl5ec42-1-48gbwb",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "renderer-ui",
+        "kind": "weakness",
+        "insight": "fehleranfällig bei renderer-ui",
+        "evidence": "1/1 Tasks fehlgeschlagen",
+        "source": "auto-retro",
+        "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+        "observations": 1,
+        "createdAt": 1784063589842,
+        "updatedAt": 1784063589842
+      }
+    ],
+    "createdAt": 1784063589858
+  }
+}
