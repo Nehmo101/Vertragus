@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784070951371,
+  "exportedAt": 1784071313487,
   "app": {
     "name": "orca-strator",
     "version": "0.1.29-main.1.gcfaf136"
@@ -8,6 +8,20 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrl9zuon-1-78c3he",
+      "provider": "codex",
+      "model": "unknown",
+      "role": "worker",
+      "kind": "strength",
+      "insight": "Trennt lokale Scope-Belege sauber von nicht verifizierbarer Remote-Wahrheit und gibt bei Worker-Netzwerkblockade ein bedingtes statt falsches Go.",
+      "evidence": "Beorn 2 belegte 0 Resttreffer und sauberen Status, kennzeichnete origin/DEV 56a6242 ausdrücklich nur als Cache und verlangte Main-Prozess-Verifikation; Orca lieferte keinen Modellnamen.",
+      "source": "orchestrator",
+      "profileId": "profile-mri86faq",
+      "observations": 1,
+      "createdAt": 1784071312151,
+      "updatedAt": 1784071312151
+    },
     {
       "id": "learning-mrl9s2wl-1-k2fgx",
       "provider": "codex",
