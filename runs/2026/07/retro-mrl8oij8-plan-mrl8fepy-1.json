@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784069103594,
+  "exportedAt": 1784069920606,
   "app": {
     "name": "orca-strator",
     "version": "0.1.29-main.1.gcfaf136"
@@ -14,7 +14,7 @@
     "planId": "plan-mrl8fepy-1",
     "goal": "Drei unabhängige Hilfsmodule in src/shared: Telemetrie-Formatter, Modellkatalog-Filter, Inbox-Sortierer — je als eigenständiges Pure-Function-Modul mit co-located Vitest-Tests, ohne Änderungen an bestehenden Dateien.",
     "status": "error",
-    "summary": "Lauf mit Fehlern: 1 Modell(e), 1/1 Tasks erfolgreich.",
+    "summary": "Ziel erreicht trotz Plan-Kollaps: 3-Task-Plan fiel wegen invalid_ownership (src/shared/* ist komplett Shared-Hotspot) auf Fallback zurück; Beregond (codex) lieferte alle drei Module inkl. Tests in einem Lauf (Commit bbdf2c42). Integrations-Gate scheiterte nur an eslint-PATH-Infrafehler; Direktverifikation grün.",
     "modelStats": [
       {
         "provider": "codex",
@@ -34,7 +34,36 @@
         "avgDurationMs": 364269
       }
     ],
-    "learnings": [],
+    "learnings": [
+      {
+        "id": "learning-mrl960wg-1-8or1iw",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "main-orchestrator",
+        "kind": "strength",
+        "insight": "Liefert aus reinem Goal-Text (Fallback ohne Task-Prompts) mehrere unabhängige Pure-Function-Module vollständig: Tests 10/10, Suite 419/419, Lint+Typecheck sauber, Bestandsdateien unberührt",
+        "evidence": "plan-run-mrl8feou-1: Commit bbdf2c42, Direktverifikation eslint/vitest/tsc im task-14-Worktree grün",
+        "source": "orchestrator",
+        "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+        "observations": 1,
+        "createdAt": 1784069920528,
+        "updatedAt": 1784069920528
+      },
+      {
+        "id": "learning-mrl960wg-2-2pzrwd",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "main-orchestrator",
+        "kind": "strength",
+        "insight": "Hält No-Git-Vertrag und Namenskonventionen (camelCase-Module neben bestehenden shared-Modulen) auch ohne explizite Dateiliste im Prompt ein",
+        "evidence": "Worker meldete korrekt 'Kein Git-Commit oder Staging durchgeführt'; Orca-Main committete zentral",
+        "source": "orchestrator",
+        "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+        "observations": 1,
+        "createdAt": 1784069920528,
+        "updatedAt": 1784069920528
+      }
+    ],
     "createdAt": 1784069103572
   }
 }
