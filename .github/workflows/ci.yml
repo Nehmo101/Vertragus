@@ -2,6 +2,9 @@ name: CI
 
 on:
   pull_request:
+    # PRs gegen den reinen Daten-Branch `retros` (Retro-Analyse) enthalten
+    # keinen Code — die CI-Matrix würde dort nur scheitern.
+    branches-ignore: [retros]
   # Pushes auf main laufen nicht hier: der Release-Workflow führt vor dem
   # Publish dasselbe `pnpm run ci`-Gate aus, ein zweiter Lauf wäre doppelt.
   push:
