@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784072100948,
+  "exportedAt": 1784072643951,
   "app": {
     "name": "orca-strator",
     "version": "0.1.29-main.1.gcfaf136"
@@ -8,6 +8,34 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrlasda5-1-b1eeez",
+      "provider": "codex",
+      "model": "unspecified",
+      "role": "worker",
+      "kind": "strength",
+      "insight": "Sehr zuverlässig bei Live-Remote-, Branch-Casing-, Auth- und Divergenzprüfungen vor direkten Branch-Pushes.",
+      "evidence": "Samweis verifizierte origin/DEV live, gh-Auth, beide Ancestry-Richtungen und die 6:1-Divergenz und gab korrekt STOP statt Force-Push.",
+      "source": "orchestrator",
+      "profileId": "profile-mri86faq",
+      "observations": 1,
+      "createdAt": 1784072642621,
+      "updatedAt": 1784072642621
+    },
+    {
+      "id": "learning-mrlasda5-2-6dv7sk",
+      "provider": "codex",
+      "model": "unspecified",
+      "role": "worker",
+      "kind": "strength",
+      "insight": "Identifiziert Integrationshotspots präzise, ohne den Arbeitsbaum zu verändern.",
+      "evidence": "Die Überschneidung wurde auf Sidebar.tsx und useAppStore.ts eingegrenzt; Worktree und Index blieben sauber.",
+      "source": "orchestrator",
+      "profileId": "profile-mri86faq",
+      "observations": 1,
+      "createdAt": 1784072642621,
+      "updatedAt": 1784072642621
+    },
     {
       "id": "learning-mrlagpts-1-yfwzuo",
       "provider": "codex",
