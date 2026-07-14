@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "exportedAt": 1784069091727,
+  "app": {
+    "name": "orca-strator",
+    "version": "0.1.29-main.1.gcfaf136"
+  },
+  "machineId": "5087fc1f7b9d",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrl8o9dg-plan-mrl8b1n4-1",
+    "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+    "workspaceSessionId": "bc2b072b-869e-49c5-942c-6afc80652b0a",
+    "planId": "plan-mrl8b1n4-1",
+    "goal": "Workspace-Sessions bekommen Mittelerde-Namen: Anzeige \"W{sequence} {Name}\" (z.B. \"W1 Minas Tirith\", \"W2 Minas Morgul\", \"W3 Amon Sûl\") statt \"Workspace N\" in Sidebar und Toasts.",
+    "status": "error",
+    "summary": "Lauf mit Fehlern: 1 Modell(e), 1/1 Tasks erfolgreich.",
+    "modelStats": [
+      {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "roles": [
+          "main-orchestrator"
+        ],
+        "tasks": 1,
+        "succeeded": 1,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failedAttempts": 0,
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "avgDurationMs": 554273
+      }
+    ],
+    "learnings": [],
+    "createdAt": 1784069091700
+  }
+}
