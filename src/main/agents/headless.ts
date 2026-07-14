@@ -88,6 +88,8 @@ export interface HeadlessLifecycleOptions {
 export interface HeadlessResult {
   result: string
   isError: boolean
+  /** Actual provider-process exit code when one was observed. */
+  exitCode?: number
   /** Explicit terminal reason; optional for compatibility with provider adapters. */
   status?: HeadlessStatus
   error?: string
@@ -113,6 +115,14 @@ const DEFAULT_STALL_TIMEOUT_MS = 15 * 60_000
 const STALL_CHECK_INTERVAL_MS = 30_000
 const MIN_HEARTBEAT_INTERVAL_MS = 30_000
 const MAX_HEARTBEAT_INTERVAL_MS = 60_000
+
+export function hasExplicitWorkerSuccess(text: string): boolean {
+  return /(?:^|\n)\s*ERGEBNIS:\s*ERFOLG\b/im.test(text)
+}
+
+export function hasExplicitWorkerBlocker(text: string): boolean {
+  return /(?:^|\n)\s*ERGEBNIS:\s*BLOCKER\b/im.test(text)
+}
 
 export interface FatalProviderFailure {
   kind: Extract<HeadlessFailureKind, 'provider-auth' | 'sandbox'>
@@ -328,7 +338,9 @@ function interpretCodex(
     return {}
   }
   if (type === 'item.completed') {
-    if (item?.type === 'agent_message' && item.text) return { log: line(C.reset, item.text.trim()) }
+    if (item?.type === 'agent_message' && item.text) {
+      return { log: line(C.reset, item.text.trim()), result: item.text.trim() }
+    }
     if (item?.type === 'command_execution' && item.command) {
       const key = item.id ?? item.command
       const activeCount = activeCommands.get(key) ?? 0
@@ -469,6 +481,7 @@ export function runHeadless(
   let stderrTail = ''
   let lastText = ''
   let sawError = false
+  let finalProviderResultIsError: boolean | undefined
   let settled = false
   let stopStatus: Extract<HeadlessStatus, 'cancelled'> | undefined
   let stopFallback: NodeJS.Timeout | undefined
@@ -587,6 +600,9 @@ export function runHeadless(
     if (result.log) emitLine(result.log, 'stdout')
     if (typeof result.result === 'string' && result.result) acc.result = result.result
     if (result.isError) sawError = true
+    if (obj['type'] === 'result' && typeof result.isError === 'boolean') {
+      finalProviderResultIsError = result.isError
+    }
     if (result.log && obj['type'] !== 'result') lastText = result.log
     let usageChanged = false
     if (result.costUsd != null) { acc.costUsd = result.costUsd; usageChanged = true }
@@ -651,6 +667,7 @@ export function runHeadless(
           try { const fileResult = readFileSync(lastMsgFile, 'utf8').trim(); if (fileResult) acc.result = fileResult } catch { /* stream fallback */ }
         }
         if (!acc.result) acc.result = (lastText || rawTail || stderrTail).trim()
+        if (code != null) acc.exitCode = code
         if (stopStatus) {
           emitLine(line(C.yellow, 'Task gestoppt'))
           finish(stopStatus, stoppedText()); return
@@ -660,7 +677,10 @@ export function runHeadless(
           finish('failed', fatalFailure.message, fatalFailure.message, fatalFailure.kind)
           return
         }
-        const failed = sawError || code !== 0
+        const explicitSuccess = code === 0 && hasExplicitWorkerSuccess(acc.result)
+        const explicitBlocker = hasExplicitWorkerBlocker(acc.result)
+        const failed = code !== 0 || explicitBlocker ||
+          ((finalProviderResultIsError ?? sawError) && !explicitSuccess)
         if (failed) {
           const detail = code == null ? 'Prozess ohne Exit-Code beendet' : `Prozess beendet (exit ${code})`
           emitLine(line(C.red, `✗ fehlgeschlagen${code != null ? ` (exit ${code})` : ''}`)); finish('failed', detail, detail)
