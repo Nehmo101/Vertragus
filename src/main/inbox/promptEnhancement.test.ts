@@ -221,6 +221,24 @@ describe('model response preparation', () => {
     ).toBeUndefined()
   })
 
+  it('accepts a valid document even when the provider wraps it in preamble and trailing notes', () => {
+    const wrapped = `Sure, here is the improved prompt as JSON:\n\n${JSON.stringify(
+      germanDocument
+    )}\n\nLet me know if you would like changes.`
+    const result = preparePromptEnhancementResponse(wrapped)
+
+    expect(result).toMatchObject({ language: 'de', title: germanDocument.title })
+    expect(result?.prompt).toContain('# Checkout mit Apple Pay ergänzen')
+    expect(result?.prompt).not.toContain('here is the improved prompt')
+  })
+
+  it('extracts the balanced object even when string values contain braces', () => {
+    const doc = { ...germanDocument, context: 'Nutze das Muster {id} und schließe mit } ab.' }
+    const result = preparePromptEnhancementResponse(`Antwort:\n${JSON.stringify(doc)}`)
+
+    expect(result?.prompt).toContain('Nutze das Muster {id} und schließe mit } ab.')
+  })
+
   it('redacts secret-shaped values from otherwise valid model output', () => {
     const result = preparePromptEnhancementResponse(
       JSON.stringify({ ...germanDocument, context: 'Authorization: Bearer top-secret-token' })
@@ -426,6 +444,59 @@ describe('prompt enhancement execution', () => {
     if (result.status === 'fallback') {
       expect(result.prompt.length).toBeLessThanOrEqual(PROMPT_ENHANCEMENT_LIMITS.defaultOutputChars)
     }
+  })
+
+  it('keeps running while the provider reports steady progress past the idle budget', async () => {
+    vi.useFakeTimers()
+    const executor: PromptEnhancementProviderExecutor = (request) =>
+      new Promise<string>((resolve) => {
+        // Two progress pings, each below the 1s idle budget, then the result.
+        setTimeout(() => request.onActivity?.(), 800)
+        setTimeout(() => request.onActivity?.(), 1_600)
+        setTimeout(() => resolve(JSON.stringify(germanDocument)), 2_400)
+      })
+    const resultPromise = enhanceInboxPrompt(
+      {
+        source: source(),
+        profile: DEFAULT_PROFILE,
+        providerHealth: [health('claude')],
+        timeoutMs: 1_000
+      },
+      executor
+    )
+    await vi.advanceTimersByTimeAsync(2_400)
+
+    await expect(resultPromise).resolves.toMatchObject({ status: 'enhanced' })
+  })
+
+  it('enforces the absolute hard ceiling even while the provider keeps streaming', async () => {
+    vi.useFakeTimers()
+    let providerSignal: AbortSignal | undefined
+    const executor: PromptEnhancementProviderExecutor = (request) => {
+      providerSignal = request.signal
+      const ping = (): void => {
+        if (request.signal.aborted) return
+        request.onActivity?.()
+        setTimeout(ping, 500)
+      }
+      setTimeout(ping, 500)
+      return new Promise<string>(() => undefined)
+    }
+    const resultPromise = enhanceInboxPrompt(
+      {
+        source: source(),
+        profile: DEFAULT_PROFILE,
+        providerHealth: [health('claude')],
+        timeoutMs: 1_000,
+        hardTimeoutMs: 5_000
+      },
+      executor
+    )
+    await vi.advanceTimersByTimeAsync(5_000)
+    const result = await resultPromise
+
+    expect(providerSignal?.aborted).toBe(true)
+    expect(result).toMatchObject({ status: 'fallback', reason: 'timeout', retryable: true })
   })
 
   it('maps external abort without presenting fallback content', async () => {

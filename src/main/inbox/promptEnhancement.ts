@@ -24,9 +24,16 @@ export const PROMPT_ENHANCEMENT_LIMITS = {
   defaultOutputChars: 12_000,
   minOutputChars: 1_000,
   maxOutputChars: 16_000,
-  defaultTimeoutMs: 30_000,
+  // Idle/no-progress budget: reset whenever the provider reports activity, so a
+  // steadily streaming model or a long capacity-queue wait is not mistaken for a hang.
+  defaultTimeoutMs: 45_000,
   minTimeoutMs: 1_000,
-  maxTimeoutMs: 120_000
+  maxTimeoutMs: 120_000,
+  // Absolute ceiling that still fires even while a provider keeps streaming, so a
+  // runaway CLI can never run unbounded.
+  defaultHardTimeoutMs: 180_000,
+  minHardTimeoutMs: 5_000,
+  maxHardTimeoutMs: 600_000
 } as const
 
 const artifactSchema = z
@@ -169,6 +176,12 @@ export interface PromptEnhancementProviderRequest {
   systemPrompt: string
   userPrompt: string
   signal: AbortSignal
+  /**
+   * Called by the executor whenever the provider makes progress (capacity
+   * acquired, process started, output streamed). Each call resets the caller's
+   * idle timeout so queue waiting and steady streaming are not treated as a hang.
+   */
+  onActivity?: () => void
 }
 
 /** Provider calls are injected so domain tests never start a real provider. */
@@ -187,7 +200,10 @@ export interface PromptEnhancementRequest {
   explicitSelection?: ExplicitPromptProviderSelection
   /** Results from the existing provider health/auth architecture. */
   providerHealth: ProviderHealth[]
+  /** Idle/no-progress budget; reset by provider activity. */
   timeoutMs?: number
+  /** Absolute ceiling that fires regardless of ongoing provider activity. */
+  hardTimeoutMs?: number
   maxOutputChars?: number
   signal?: AbortSignal
 }
@@ -601,6 +617,51 @@ function stripJsonFence(raw: string): string {
   return match ? match[1].trim() : trimmed
 }
 
+/**
+ * Extracts the first balanced top-level JSON object. Provider CLIs sometimes wrap
+ * the answer in a short preamble ("Here is the JSON:") or trailing note; without
+ * this a valid document would be rejected and fall back needlessly. String bodies
+ * and escapes are respected so braces inside values do not miscount depth.
+ */
+function extractFirstJsonObject(raw: string): string | undefined {
+  const start = raw.indexOf('{')
+  if (start === -1) return undefined
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let index = start; index < raw.length; index += 1) {
+    const character = raw[index]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (character === '\\') escaped = true
+      else if (character === '"') inString = false
+      continue
+    }
+    if (character === '"') inString = true
+    else if (character === '{') depth += 1
+    else if (character === '}') {
+      depth -= 1
+      if (depth === 0) return raw.slice(start, index + 1)
+    }
+  }
+  return undefined
+}
+
+function parsePromptResponseJson(raw: string): unknown {
+  const candidate = stripJsonFence(raw)
+  try {
+    return JSON.parse(candidate)
+  } catch {
+    const extracted = extractFirstJsonObject(candidate)
+    if (extracted === undefined) return undefined
+    try {
+      return JSON.parse(extracted)
+    } catch {
+      return undefined
+    }
+  }
+}
+
 function cleanHeading(value: string): string {
   return compactInline(value.replace(/^#{1,6}\s*/, ''), 80)
 }
@@ -650,12 +711,8 @@ export function preparePromptEnhancementResponse(
   maxOutputChars: number = PROMPT_ENHANCEMENT_LIMITS.defaultOutputChars
 ): PreparedModelPrompt | undefined {
   if (!raw.trim() || raw.length > PROMPT_ENHANCEMENT_LIMITS.maxProviderResponseChars) return undefined
-  let json: unknown
-  try {
-    json = JSON.parse(stripJsonFence(raw))
-  } catch {
-    return undefined
-  }
+  const json = parsePromptResponseJson(raw)
+  if (json === undefined) return undefined
   const parsed = modelDocumentSchema.safeParse(json)
   if (!parsed.success) return undefined
   const document = parsed.data
@@ -706,38 +763,58 @@ type ExecutionOutcome =
   | { status: 'timeout' }
   | { status: 'aborted' }
 
+interface ExecutionBounds {
+  /** No-progress budget; each provider activity ping restarts it. */
+  idleTimeoutMs: number
+  /** Absolute ceiling that fires even while the provider keeps streaming. */
+  hardTimeoutMs: number
+}
+
 async function executeBounded(
   executor: PromptEnhancementProviderExecutor,
-  request: Omit<PromptEnhancementProviderRequest, 'signal'>,
-  timeoutMs: number,
+  request: Omit<PromptEnhancementProviderRequest, 'signal' | 'onActivity'>,
+  bounds: ExecutionBounds,
   externalSignal?: AbortSignal
 ): Promise<ExecutionOutcome> {
   if (externalSignal?.aborted) return { status: 'aborted' }
   const controller = new AbortController()
   return new Promise((resolve) => {
     let settled = false
+    let idleTimer: ReturnType<typeof setTimeout> | undefined
     const finish = (outcome: ExecutionOutcome): void => {
       if (settled) return
       settled = true
-      clearTimeout(timer)
+      if (idleTimer) clearTimeout(idleTimer)
+      clearTimeout(hardTimer)
       externalSignal?.removeEventListener('abort', abort)
       resolve(outcome)
+    }
+    const timeout = (): void => {
+      controller.abort()
+      finish({ status: 'timeout' })
     }
     const abort = (): void => {
       controller.abort()
       finish({ status: 'aborted' })
     }
+    // Provider progress restarts the idle budget; the hard ceiling is never reset,
+    // so a stuck queue wait cannot consume the inference budget yet a runaway
+    // stream still terminates.
+    const armIdle = (): void => {
+      if (settled) return
+      if (idleTimer) clearTimeout(idleTimer)
+      idleTimer = setTimeout(timeout, bounds.idleTimeoutMs)
+      idleTimer.unref?.()
+    }
     externalSignal?.addEventListener('abort', abort, { once: true })
-    const timer = setTimeout(() => {
-      controller.abort()
-      finish({ status: 'timeout' })
-    }, timeoutMs)
-    timer.unref?.()
+    const hardTimer = setTimeout(timeout, bounds.hardTimeoutMs)
+    hardTimer.unref?.()
+    armIdle()
 
     void Promise.resolve().then(async () => {
       if (settled) return
       try {
-        const output = await executor({ ...request, signal: controller.signal })
+        const output = await executor({ ...request, signal: controller.signal, onActivity: armIdle })
         finish({ status: 'completed', output })
       } catch (error) {
         finish({ status: 'failed', error })
@@ -835,11 +912,20 @@ export async function enhanceInboxPrompt(
   const { selection } = resolution
   const warnings = [...built.value.warnings]
   if (selection.warning) warnings.push(selection.warning)
-  const timeoutMs = bounded(
+  const idleTimeoutMs = bounded(
     request.timeoutMs,
     PROMPT_ENHANCEMENT_LIMITS.defaultTimeoutMs,
     PROMPT_ENHANCEMENT_LIMITS.minTimeoutMs,
     PROMPT_ENHANCEMENT_LIMITS.maxTimeoutMs
+  )
+  const hardTimeoutMs = Math.max(
+    idleTimeoutMs,
+    bounded(
+      request.hardTimeoutMs,
+      PROMPT_ENHANCEMENT_LIMITS.defaultHardTimeoutMs,
+      PROMPT_ENHANCEMENT_LIMITS.minHardTimeoutMs,
+      PROMPT_ENHANCEMENT_LIMITS.maxHardTimeoutMs
+    )
   )
   const maxOutputChars = bounded(
     request.maxOutputChars,
@@ -855,7 +941,7 @@ export async function enhanceInboxPrompt(
       systemPrompt: built.value.systemPrompt,
       userPrompt: built.value.userPrompt
     },
-    timeoutMs,
+    { idleTimeoutMs, hardTimeoutMs },
     request.signal
   )
 
