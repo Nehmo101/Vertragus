@@ -159,6 +159,8 @@ export interface OrcaTask {
   usage?: AgentUsage
   /** One-line note (error text, block reason, result preview). */
   note?: string
+  /** Concrete reason produced by the terminal-result judge, especially for error states. */
+  judgeReason?: string
   /** Runtime task ids that must finish successfully before this task may start. */
   dependsOn?: string[]
   /** Dependencies that must finish, but whose failure does not block this task. */
@@ -205,6 +207,8 @@ export interface OrchestratorGoal {
 export interface PendingPlanReview {
   planId: string
   plan: ExecutionPlan
+  usedFallback: boolean
+  rejected: boolean
   validationIssues: PlanValidationIssue[]
 }
 
@@ -281,6 +285,7 @@ export interface TaskStatusSnapshot {
   result?: string
   error?: string
   note?: string
+  judgeReason?: string
   completion?: TaskCompletion
   findings?: TaskGateFinding[]
   blocker?: TaskBlocker
@@ -297,6 +302,14 @@ export interface PlanRunStatusSnapshot {
   workspaceSessionId?: string
   planId?: string
   goal?: string
+  /** True when validation replaced unparseable input with one conservative task. */
+  usedFallback?: boolean
+  /** True when a structured but invalid plan was rejected without creating tasks. */
+  rejected?: boolean
+  /** Validation details are available on the initial execute_plan response. */
+  validationIssues?: PlanValidationIssue[]
+  /** Stable authored task ids, available before runtime task materialization. */
+  planTaskIds?: string[]
   tasks?: TaskStatusSnapshot[]
   summary?: {
     required: number
@@ -397,12 +410,14 @@ export interface ExecutionPlanTaskResult {
   result: string
   commit?: string
   findings?: TaskGateFinding[]
+  judgeReason?: string
 }
 
 export interface ExecutionPlanResult {
   planId: string
   status: Extract<PlanRunStatusSnapshot['status'], 'success' | 'needs-work' | 'error' | 'stopped'>
   usedFallback: boolean
+  rejected: boolean
   validationIssues: PlanValidationIssue[]
   tasks: ExecutionPlanTaskResult[]
 }
