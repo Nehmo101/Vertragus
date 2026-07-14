@@ -189,7 +189,10 @@ function RetroSyncRow(): JSX.Element {
   }
 
   useEffect(() => {
-    void reload()
+    const timer = window.setTimeout(() => {
+      void reload()
+    }, 0)
+    return () => window.clearTimeout(timer)
   }, [])
 
   const toggle = async (): Promise<void> => {
