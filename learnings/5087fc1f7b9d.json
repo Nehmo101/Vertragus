@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784065414152,
+  "exportedAt": 1784069089400,
   "app": {
     "name": "orca-strator",
     "version": "0.1.29-main.1.gcfaf136"
@@ -8,6 +8,20 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrl8o6zb-1-ct4pn2",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "main-orchestrator",
+      "kind": "strength",
+      "insight": "zuverlässig im ersten Anlauf bei main-orchestrator",
+      "evidence": "2/2 Tasks ohne Wiederholung erfolgreich",
+      "source": "auto-retro",
+      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+      "observations": 1,
+      "createdAt": 1784069088599,
+      "updatedAt": 1784069088599
+    },
     {
       "id": "learning-mrl6hepg-1-jjjrbm",
       "provider": "codex",
@@ -35,6 +49,20 @@
       "observations": 1,
       "createdAt": 1784065412788,
       "updatedAt": 1784065412788
+    },
+    {
+      "id": "learning-mrl5gqdd-1-rjs235",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "main-orchestrator",
+      "kind": "strength",
+      "insight": "Sehr stark bei großen Querschnitts-Portierungen: komplette macOS-Unterstützung (Packaging, CI/Release, PATH-Discovery, Prozessgruppen-Kill, Updater) eigenständig aus einem Ziel-Prompt",
+      "evidence": "Fallback-Task plan-mrl4a34n-1: 15 Dateien, 416/416 Tests, Lint, Typecheck, Prod-Build und UI-Smoke grün in einem Durchlauf (Beorn)",
+      "source": "orchestrator",
+      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+      "observations": 1,
+      "createdAt": 1784063701633,
+      "updatedAt": 1784063701633
     },
     {
       "id": "learning-mrl5gqdd-2-fmj90p",
@@ -65,20 +93,6 @@
       "updatedAt": 1784063701633
     },
     {
-      "id": "learning-mrl5gqdd-1-rjs235",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "main-orchestrator",
-      "kind": "strength",
-      "insight": "Sehr stark bei großen Querschnitts-Portierungen: komplette macOS-Unterstützung (Packaging, CI/Release, PATH-Discovery, Prozessgruppen-Kill, Updater) eigenständig aus einem Ziel-Prompt",
-      "evidence": "Fallback-Task plan-mrl4a34n-1: 15 Dateien, 416/416 Tests, Lint, Typecheck, Prod-Build und UI-Smoke grün in einem Durchlauf (Beorn)",
-      "source": "orchestrator",
-      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
-      "observations": 1,
-      "createdAt": 1784063701633,
-      "updatedAt": 1784063701633
-    },
-    {
       "id": "learning-mrl5ec42-1-48gbwb",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -93,20 +107,6 @@
       "updatedAt": 1784063589842
     },
     {
-      "id": "learning-mrkr8n9d-2-bcfmau",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "release-build-engineer",
-      "kind": "weakness",
-      "insight": "Kennt Orcas Security-Gate-Heuristik nicht von selbst: process.env in neuen Diff-Zeilen triggert die Secret-Surface — verbotene Muster im Prompt explizit auflisten",
-      "evidence": "Gollum (t-1): process.env.ComSpec führte zu missing-secret-controls; mit expliziter Musterliste vermied Samweis das Problem im ersten Anlauf",
-      "source": "orchestrator",
-      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
-      "observations": 1,
-      "createdAt": 1784039809729,
-      "updatedAt": 1784039809729
-    },
-    {
       "id": "learning-mrkr8n9d-1-b7zn4u",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -114,6 +114,20 @@
       "kind": "strength",
       "insight": "Sehr stark bei Build-/Toolchain-Diagnose; liefert bei Sandbox-Blockern (spawn EPERM) präzise strukturierte Kurzresultate mit Alternativen statt Blindversuchen",
       "evidence": "Samweis (t-2): Commit 96cca10a passierte alle Gates; Blocker-Report benannte spawn EPERM exakt, zentrale Verifikation bestätigte (out/ gebaut, ui-smoke grün)",
+      "source": "orchestrator",
+      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+      "observations": 1,
+      "createdAt": 1784039809729,
+      "updatedAt": 1784039809729
+    },
+    {
+      "id": "learning-mrkr8n9d-2-bcfmau",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "release-build-engineer",
+      "kind": "weakness",
+      "insight": "Kennt Orcas Security-Gate-Heuristik nicht von selbst: process.env in neuen Diff-Zeilen triggert die Secret-Surface — verbotene Muster im Prompt explizit auflisten",
+      "evidence": "Gollum (t-1): process.env.ComSpec führte zu missing-secret-controls; mit expliziter Musterliste vermied Samweis das Problem im ersten Anlauf",
       "source": "orchestrator",
       "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
       "observations": 1,
@@ -135,20 +149,6 @@
       "updatedAt": 1784038129069
     },
     {
-      "id": "learning-mrkpq3dt-2-mtqr97",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "main-orchestrator",
-      "kind": "weakness",
-      "insight": "Kein Modellfehler, aber Gate-Falle: pnpm lint schlägt in Worker-Worktrees non-TTY fehl (pnpm Deps-Check will node_modules purgen) — needs-work kann falsch-negativ sein",
-      "evidence": "ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY bei pnpm lint in task-02; direkter eslint-Aufruf Exit 0",
-      "source": "orchestrator",
-      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
-      "observations": 1,
-      "createdAt": 1784037264545,
-      "updatedAt": 1784037264545
-    },
-    {
       "id": "learning-mrkpq3dt-1-u4wtv5",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -156,6 +156,20 @@
       "kind": "strength",
       "insight": "Liefert kleine UI-Features auch aus minimalem Fallback-Prompt (nur Zieltitel) vollständig und sauber: korrekte Store-Anbindung, additive CSS-Klasse, Responsive-Guards mitgedacht",
       "evidence": "Commit 146ca4e2: TitleBar.tsx nutzt store.appInfo?.version bedingt, neue .wordmark-version-Klasse, responsiveGuards.module.css konsistent; eslint/tsc/408 Tests grün",
+      "source": "orchestrator",
+      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+      "observations": 1,
+      "createdAt": 1784037264545,
+      "updatedAt": 1784037264545
+    },
+    {
+      "id": "learning-mrkpq3dt-2-mtqr97",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "main-orchestrator",
+      "kind": "weakness",
+      "insight": "Kein Modellfehler, aber Gate-Falle: pnpm lint schlägt in Worker-Worktrees non-TTY fehl (pnpm Deps-Check will node_modules purgen) — needs-work kann falsch-negativ sein",
+      "evidence": "ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY bei pnpm lint in task-02; direkter eslint-Aufruf Exit 0",
       "source": "orchestrator",
       "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
       "observations": 1,
