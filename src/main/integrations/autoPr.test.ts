@@ -1,5 +1,33 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const mocks = vi.hoisted(() => ({ exec: vi.fn() }))
+
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>()
+  return { ...actual, exec: mocks.exec }
+})
+
 import { autoPrInternals, type RemoteCiCommandResult } from './autoPr'
+
+beforeEach(() => {
+  mocks.exec.mockReset()
+  mocks.exec.mockImplementation((...args: unknown[]) => {
+    const callback = args[args.length - 1]
+    if (typeof callback === 'function') callback(null, '', '')
+  })
+})
+
+function normalizedPath(value: string | undefined): string | undefined {
+  return value?.replaceAll('\\', '/')
+}
+
+function lastGateInvocation(): { command: string; env: NodeJS.ProcessEnv } {
+  const [command, options] = mocks.exec.mock.calls[mocks.exec.mock.calls.length - 1] ?? []
+  return {
+    command: String(command),
+    env: (options as { env: NodeJS.ProcessEnv }).env
+  }
+}
 
 function commandResult(overrides: Partial<RemoteCiCommandResult> = {}): RemoteCiCommandResult {
   return {
@@ -130,7 +158,11 @@ describe('autoPr safety helpers', () => {
 
     expect(calls).toEqual(['bootstrap', 'gates'])
     expect(bootstrap).toHaveBeenCalledWith(repositoryRoot, integrationPath)
-    expect(runGates).toHaveBeenCalledWith(integrationPath, ['corepack pnpm lint'])
+    expect(runGates).toHaveBeenCalledWith(
+      integrationPath,
+      ['corepack pnpm lint'],
+      repositoryRoot
+    )
   })
 
   it('reports dependency bootstrap failures clearly and skips integration gates', async () => {
@@ -178,5 +210,76 @@ describe('autoPr safety helpers', () => {
       'eslint .',
       'linux'
     )).toBe("export PATH='/repo'\"'\"'s copy/node_modules/.bin':\"$PATH\"; eslint .")
+  })
+})
+
+describe('autoPr quality gate environment', () => {
+  it('prefixes the cwd binary directory and preserves the existing PATH', async () => {
+    await autoPrInternals.runQualityGates(
+      '/repo/worktree',
+      ['pnpm lint'],
+      '/repo/worktree',
+      { inheritedEnv: { PATH: '/system/bin' }, platform: 'linux' }
+    )
+
+    expect(normalizedPath(lastGateInvocation().env.PATH)).toBe(
+      '/repo/worktree/node_modules/.bin:/system/bin'
+    )
+  })
+
+  it('preserves the Windows Path key and uses semicolon separators', async () => {
+    await autoPrInternals.runQualityGates(
+      'C:/repo/worktree',
+      ['pnpm lint'],
+      'C:/repo/worktree',
+      { inheritedEnv: { Path: 'C:/system/bin' }, platform: 'win32' }
+    )
+
+    const gateEnv = lastGateInvocation().env
+    expect(normalizedPath(gateEnv.Path)).toBe(
+      'C:/repo/worktree/node_modules/.bin;C:/system/bin'
+    )
+    expect(gateEnv.PATH).toBeUndefined()
+  })
+
+  it('adds the main workspace binaries for a worktree without node_modules', async () => {
+    await autoPrInternals.runQualityGates(
+      '/repo/.orca-worktrees/integration/branch',
+      ['pnpm lint'],
+      '/repo',
+      { inheritedEnv: { PATH: '/system/bin' }, platform: 'linux' }
+    )
+
+    expect(normalizedPath(lastGateInvocation().env.PATH)).toBe(
+      '/repo/.orca-worktrees/integration/branch/node_modules/.bin:' +
+      '/repo/node_modules/.bin:/system/bin'
+    )
+  })
+
+  it('does not leak a secret through the command or logs and leaves other env values unchanged', async () => {
+    const privateMarker = 'private-marker-value'
+    const inheritedEnv = { PATH: '/system/bin', ORCA_PRIVATE_MARKER: privateMarker }
+    const originalEnv = { ...inheritedEnv }
+    const logs = [
+      vi.spyOn(console, 'log').mockImplementation(() => undefined),
+      vi.spyOn(console, 'info').mockImplementation(() => undefined),
+      vi.spyOn(console, 'warn').mockImplementation(() => undefined),
+      vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    ]
+
+    await autoPrInternals.runQualityGates(
+      '/repo/worktree',
+      ['pnpm lint'],
+      '/repo/worktree',
+      { inheritedEnv, platform: 'linux' }
+    )
+
+    const invocation = lastGateInvocation()
+    expect(inheritedEnv).toEqual(originalEnv)
+    expect(invocation.env).not.toBe(inheritedEnv)
+    expect(invocation.env.ORCA_PRIVATE_MARKER).toBe(privateMarker)
+    expect(invocation.command).toBe('pnpm lint')
+    expect(invocation.command).not.toContain(privateMarker)
+    for (const log of logs) expect(log).not.toHaveBeenCalled()
   })
 })

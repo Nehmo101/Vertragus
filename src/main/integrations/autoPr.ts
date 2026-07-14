@@ -181,15 +181,53 @@ function qualityGateShellCommand(
   return `export PATH='${localBin}':"$PATH"; ${command}`
 }
 
-async function runQualityGates(cwd: string, gates: string[]): Promise<void> {
+interface QualityGateRuntime {
+  inheritedEnv: NodeJS.ProcessEnv
+  platform: NodeJS.Platform
+}
+
+function qualityGateEnvironment(
+  cwd: string,
+  workspaceRoot: string,
+  inheritedEnv: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform
+): NodeJS.ProcessEnv {
+  const pathKey = platform === 'win32'
+    ? Object.keys(inheritedEnv).find((key) => key.toLowerCase() === 'path') ?? 'Path'
+    : 'PATH'
+  const separator = platform === 'win32' ? ';' : ':'
+  const binaryPaths = [join(cwd, 'node_modules', '.bin')]
+  const workspaceBinaryPath = join(workspaceRoot, 'node_modules', '.bin')
+  if (workspaceBinaryPath !== binaryPaths[0]) binaryPaths.push(workspaceBinaryPath)
+  const inheritedPath = inheritedEnv[pathKey]
+  if (inheritedPath) binaryPaths.push(inheritedPath)
+  return { ...inheritedEnv, [pathKey]: binaryPaths.join(separator) }
+}
+
+async function runQualityGates(
+  cwd: string,
+  gates: string[],
+  workspaceRoot = cwd,
+  runtime: QualityGateRuntime = {
+    inheritedEnv: process.env,
+    platform: process.platform
+  }
+): Promise<void> {
+  const env = qualityGateEnvironment(
+    cwd,
+    workspaceRoot,
+    runtime.inheritedEnv,
+    runtime.platform
+  )
   for (const command of gates) {
     try {
-      await execAsync(qualityGateShellCommand(cwd, command), {
+      await execAsync(command, {
         cwd,
+        env,
         windowsHide: true,
         timeout: 15 * 60_000,
         maxBuffer: MAX_OUTPUT,
-        shell: process.platform === 'win32' ? 'powershell.exe' : '/bin/sh'
+        shell: runtime.platform === 'win32' ? 'powershell.exe' : '/bin/sh'
       })
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
@@ -200,7 +238,7 @@ async function runQualityGates(cwd: string, gates: string[]): Promise<void> {
 
 interface IntegrationQualityGateDeps {
   bootstrap(repositoryRoot: string, workingDir: string): Promise<unknown>
-  runGates(cwd: string, gates: string[]): Promise<void>
+  runGates(cwd: string, gates: string[], workspaceRoot?: string): Promise<void>
 }
 
 function assertManagedIntegrationPath(repositoryRoot: string, integrationPath: string): void {
@@ -239,7 +277,7 @@ async function runIntegrationQualityGates(
       `Dependencies für den Integration-Worktree konnten nicht bereitgestellt werden: ${detail}`
     )
   }
-  await deps.runGates(integrationPath, gates)
+  await deps.runGates(integrationPath, gates, repositoryRoot)
 }
 
 export type PrepareTaskResult = AutoPrOutcome & {
@@ -878,6 +916,8 @@ export async function publishPreparedChanges(input: PublishInput): Promise<AutoP
 export const autoPrInternals = {
   safeSlug,
   assertDiffLooksSafe,
+  qualityGateEnvironment,
+  runQualityGates,
   defaultBase,
   pickBaseBranch,
   parseRemoteChecks,
