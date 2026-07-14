@@ -594,6 +594,51 @@ button {
   box-shadow: 0 0 6px rgba(255, 255, 255, 0.8);
 }
 
+.readable-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 7px;
+  cursor: pointer;
+  border: 1px solid var(--border-4);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-2);
+  transition: all 0.15s ease;
+}
+.readable-btn:hover {
+  filter: brightness(1.12);
+}
+.readable-btn.on {
+  border-color: rgba(45, 212, 191, 0.55);
+  background: rgba(45, 212, 191, 0.16);
+  color: var(--accent-light);
+  box-shadow: 0 0 14px rgba(45, 212, 191, 0.25);
+}
+.readable-btn .readable-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid var(--border-4);
+  font-size: 11px;
+  line-height: 1;
+  color: transparent;
+}
+.readable-btn.on .readable-check {
+  background: var(--accent-light);
+  border-color: var(--accent-light);
+  color: #06121a;
+}
+.readable-btn .label {
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+}
+
 .stop-btn {
   display: flex;
   align-items: center;
@@ -1437,12 +1482,97 @@ button {
   border: 1px solid var(--border-1);
 }
 
+.pane-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .pane-term {
   flex: 1;
   min-height: 0;
   overflow: hidden;
   padding: 6px 4px 6px 10px;
   background: linear-gradient(180deg, var(--bg-term-a), var(--bg-term-b));
+}
+
+/* "Lesbar"-mode overlay: covers the raw terminal with a plain-language summary
+   of what the agent is doing. The terminal stays mounted underneath, so its PTY
+   stream and scrollback survive toggling. */
+.pane-readable {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 14px 16px;
+  background: linear-gradient(180deg, var(--bg-term-a), var(--bg-term-b));
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.pane.orch .pane-readable {
+  background: linear-gradient(180deg, #0d1a24, #0b1320);
+}
+.pane-readable-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pane-readable-tag {
+  font-size: 9.5px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-4);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-1);
+  border-radius: 5px;
+  padding: 2px 7px;
+}
+.pane-readable-phase {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent-light);
+}
+.pane-readable-headline {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.pane-readable-lines {
+  margin: 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pane-readable-lines li {
+  color: var(--text-2);
+}
+.pane-readable-next {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11.5px;
+  color: var(--text-2);
+  border-left: 2px solid var(--accent-light);
+  padding-left: 8px;
+}
+.pane-readable-next span {
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-4);
+}
+.pane-readable-hint {
+  margin-top: auto;
+  padding-top: 6px;
+  font-size: 10.5px;
+  color: var(--text-4);
 }
 
 .pane-term .xterm {
@@ -1473,6 +1603,50 @@ button {
 .pane-foot .id {
   color: var(--text-4);
   font-family: var(--font-mono);
+}
+.pane-readable-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  user-select: none;
+  padding: 2px 7px;
+  border-radius: 5px;
+  border: 1px solid var(--border-1);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text-4);
+  transition: all 0.15s ease;
+}
+.pane-readable-toggle:hover {
+  filter: brightness(1.15);
+}
+.pane-readable-toggle input {
+  display: none;
+}
+.pane-readable-toggle .mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  border-radius: 3px;
+  border: 1px solid var(--border-4);
+  font-size: 10px;
+  line-height: 1;
+  color: transparent;
+}
+.pane-readable-toggle .label {
+  font-weight: 600;
+}
+.pane-readable-toggle.on {
+  border-color: rgba(45, 212, 191, 0.5);
+  background: rgba(45, 212, 191, 0.12);
+  color: var(--accent-light);
+}
+.pane-readable-toggle.on .mark {
+  background: var(--accent-light);
+  border-color: var(--accent-light);
+  color: #06121a;
 }
 .wt-tag {
   font-size: 9.5px;
