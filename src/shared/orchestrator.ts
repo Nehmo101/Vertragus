@@ -6,6 +6,7 @@
  */
 import type { AgentProviderId } from './providers'
 import type { AgentUsage } from './agents'
+import type { PlannerConfig } from './profile'
 import type { RunRetro } from './retro'
 
 export type TaskStatus = 'queued' | 'running' | 'success' | 'needs-work' | 'error' | 'stopped'
@@ -243,6 +244,8 @@ export interface OrchestratorSnapshot {
   profileId?: string
   workspaceSessionId?: string
   engineId?: string
+  /** Effective planning mode for this workspace session. */
+  plannerMode?: PlannerConfig['mode']
   goal: OrchestratorGoal | null
   activity?: OrchestratorActivity
   tasks: OrcaTask[]

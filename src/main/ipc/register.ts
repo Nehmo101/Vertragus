@@ -74,6 +74,7 @@ import {
   listModelLearnings,
   listRunRetros
 } from '@main/orchestrator/retroStore'
+import { flushRetroExportQueue, retroSyncStatus } from '@main/orchestrator/retroExport'
 import type {
   AddArtifactInput,
   CreateIdeaInput,
@@ -424,6 +425,12 @@ export function registerIpcHandlers(): void {
     const profile = getProfile(profileId)
     if (profile) workspaceSessions.reset(profile, workspaceSessionId)
   })
+  ipcMain.handle(IPC.orchestratorEnableAutoMode, (_e, profileId: string, workspaceSessionId?: string) => {
+    const profile = getProfile(profileId)
+    return profile
+      ? workspaceSessions.enableAutoMode(profile, workspaceSessionId)
+      : false
+  })
   ipcMain.handle(IPC.orchestratorReviewPlan, (_e, profileId: string, approved: boolean, workspaceSessionId?: string) => {
     const profile = getProfile(profileId)
     return profile
@@ -448,6 +455,8 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.retroListBenchmarks, (_e, profileId?: string) =>
     listBenchmarkRecords(profileId ? String(profileId) : undefined)
   )
+  ipcMain.handle(IPC.retroSyncStatus, () => retroSyncStatus())
+  ipcMain.handle(IPC.retroSyncFlush, () => flushRetroExportQueue())
 
   // ---- window controls (frameless title bar) ----
   ipcMain.on(IPC.winMinimize, (e) => senderWindow(e)?.minimize())

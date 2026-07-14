@@ -7,6 +7,11 @@ import {
   parseProviderEnabled,
   parseProviderLimits
 } from '@shared/providers'
+import {
+  assertSafeRetroBranch,
+  normalizeRetroSyncOwner,
+  normalizeRetroSyncRepo
+} from '@shared/retroSync'
 
 /** Keys the renderer may read via config:get. */
 export const PUBLIC_CONFIG_GET_KEYS = new Set([
@@ -17,7 +22,11 @@ export const PUBLIC_CONFIG_GET_KEYS = new Set([
   'ui.cliReadable',
   'providerLimits',
   'providerEnabled',
-  'disabledModels'
+  'disabledModels',
+  'retroSync.enabled',
+  'retroSync.repoOwner',
+  'retroSync.repoName',
+  'retroSync.branch'
 ])
 
 /** Keys the renderer may write via config:set. */
@@ -29,7 +38,11 @@ export const PUBLIC_CONFIG_SET_KEYS = new Set([
   'ui.cliReadable',
   'providerLimits',
   'providerEnabled',
-  'disabledModels'
+  'disabledModels',
+  'retroSync.enabled',
+  'retroSync.repoOwner',
+  'retroSync.repoName',
+  'retroSync.branch'
 ])
 
 function rejectSecretsKey(key: string, action: 'read' | 'write'): void {
@@ -70,6 +83,25 @@ export function setPublicConfig(key: string, value: unknown): void {
   }
   if (key === 'disabledModels') {
     setSetting(key, parseDisabledModels(value))
+    return
+  }
+  if (key === 'retroSync.enabled') {
+    if (typeof value !== 'boolean') {
+      throw new Error('retroSync.enabled erwartet true oder false.')
+    }
+    setSetting(key, value)
+    return
+  }
+  if (key === 'retroSync.repoOwner') {
+    setSetting(key, normalizeRetroSyncOwner(value))
+    return
+  }
+  if (key === 'retroSync.repoName') {
+    setSetting(key, normalizeRetroSyncRepo(value))
+    return
+  }
+  if (key === 'retroSync.branch') {
+    setSetting(key, assertSafeRetroBranch(value))
     return
   }
   setSetting(key, value)

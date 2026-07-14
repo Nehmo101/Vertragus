@@ -128,6 +128,12 @@ export class WorkspaceSessionRegistry extends EventEmitter {
     return this.ensure(profile, sessionId).engine.reviewPlan(approved)
   }
 
+  enableAutoMode(profile: WorkspaceProfile, sessionId?: string): boolean {
+    const session = this.ensure(profile, sessionId)
+    session.profile.planner = { ...session.profile.planner, mode: 'auto' }
+    return session.engine.enableAutoMode()
+  }
+
   reset(profile: WorkspaceProfile, sessionId?: string): void {
     this.ensure(profile, sessionId).engine.reset()
   }

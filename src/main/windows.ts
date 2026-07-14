@@ -162,7 +162,8 @@ export function createMainWindow(): BrowserWindow {
               needsWork: [...document.querySelectorAll('.task-pill')].some((node) => node.textContent?.includes('Nacharbeit')),
               gateFindings: Boolean(document.querySelector('.task-findings')),
               preflight: [...document.querySelectorAll('.task-review dd')].some((node) => node.textContent?.includes('bestanden')),
-              reliability: Boolean(document.querySelector('.reliability-strip'))
+              reliability: Boolean(document.querySelector('.reliability-strip')),
+              autoMode: document.querySelector('.planner-mode-btn')?.textContent?.trim() === 'Automodus starten'
             }
           })()`)
           const ok = Object.values(checks).every(Boolean)
@@ -237,14 +238,19 @@ export function broadcast(channel: string, payload: unknown): void {
 
 /** Dev/CI only: feed representative Phase-2 state through the normal push channels. */
 function pushDemoState(win: BrowserWindow): void {
+  const profileId = 'default'
+  const workspaceSessionId = 'session-demo'
   const now = Date.now()
   const agents = [
     { id: 'orch-01', name: 'Boromir', provider: 'claude', model: 'sonnet', role: 'Orchestrator · plant & verteilt', kind: 'orchestrator', mode: 'interactive', yolo: false, workingDir: '~/repos/checkout', status: 'running', startedAt: now },
     { id: 'task-02', name: 'Legolas', provider: 'codex', model: 'gpt-5.6', role: 'Task · worker', kind: 'sub', mode: 'task', taskId: 't-1', yolo: false, workingDir: '.', worktree: '.', status: 'running', startedAt: now },
     { id: 'task-03', name: 'Gimli', provider: 'codex', model: 'gpt-5.6', role: 'Task · worker', kind: 'sub', mode: 'task', taskId: 't-2', yolo: true, workingDir: '.', worktree: '.', status: 'running', startedAt: now },
     { id: 'task-04', name: 'Frodo', provider: 'codex', model: 'gpt-5.6', role: 'Task · worker', kind: 'sub', mode: 'task', taskId: 't-3', yolo: false, workingDir: '.', status: 'stopped', startedAt: now }
-  ]
+  ].map((agent) => ({ ...agent, profileId, workspaceSessionId, engineId: 'engine-demo' }))
   const snapshot = {
+    profileId,
+    workspaceSessionId,
+    plannerMode: 'review',
     engineId: 'engine-demo',
     goal: { id: 'epic-4471', title: 'Checkout-Flow v2', active: true },
     reliability: {
@@ -281,6 +287,14 @@ function pushDemoState(win: BrowserWindow): void {
       { id: 't-4', title: 'Review · PR #482', role: 'worker', provider: 'codex', model: 'gpt-5.6', status: 'queued', criticality: 'advisory', createdAt: now + 3 }
     ]
   }
+  win.webContents.send('ev:workspaceSessions', [{
+    id: workspaceSessionId,
+    profileId,
+    profileName: 'UI Smoke',
+    sequence: 1,
+    startedAt: now,
+    active: true
+  }])
   win.webContents.send('ev:agentsChanged', agents)
   win.webContents.send('ev:orchestrator', snapshot)
 }

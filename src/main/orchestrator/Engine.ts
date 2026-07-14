@@ -82,6 +82,7 @@ import {
   recordModelLearnings,
   recordRunRetro
 } from '@main/orchestrator/retroStore'
+import { enqueueBenchmarkExport, enqueueRetroExport } from '@main/orchestrator/retroExport'
 import { captureTaskRecoveryArtifact } from '@main/orchestrator/recoveryArtifact'
 
 interface DispatchOptions {
@@ -255,6 +256,7 @@ export class OrchestratorEngine extends EventEmitter {
       profileId: this.boundProfile?.id,
       workspaceSessionId: this.workspaceSessionId,
       engineId: this.engineId,
+      plannerMode: profile?.planner.mode,
       goal: this.goal,
       activity: this.activity ? { ...this.activity, details: [...this.activity.details] } : undefined,
       tasks,
@@ -431,6 +433,26 @@ export class OrchestratorEngine extends EventEmitter {
     )
     this.push()
     resolve(approved)
+    return true
+  }
+
+  /**
+   * Promote only this live workspace session to automatic plan execution.
+   * A plan already waiting at the review gate is approved as part of the switch.
+   */
+  enableAutoMode(): boolean {
+    const profile = this.activeProfile()
+    if (!profile) return false
+    this.boundProfile = {
+      ...profile,
+      agents: profile.agents.map((slot) => ({ ...slot })),
+      planner: { ...profile.planner, mode: 'auto' }
+    }
+    if (this.pendingPlanResolve) {
+      this.reviewPlan(true)
+    } else {
+      this.push()
+    }
     return true
   }
 
@@ -1546,6 +1568,7 @@ export class OrchestratorEngine extends EventEmitter {
       }
       recordRunRetro(retro)
       this.lastRetro = retro
+      enqueueRetroExport(retro)
     } catch (error) {
       console.warn('[Orchestrator] Automatische Retro fehlgeschlagen', error)
     }
@@ -1586,6 +1609,7 @@ export class OrchestratorEngine extends EventEmitter {
         ]
       }
       recordRunRetro(this.lastRetro)
+      enqueueRetroExport(this.lastRetro)
     } else {
       this.lastRetro = {
         id: `retro-${Date.now().toString(36)}-adhoc`,
@@ -1599,6 +1623,7 @@ export class OrchestratorEngine extends EventEmitter {
         createdAt: Date.now()
       }
       recordRunRetro(this.lastRetro)
+      enqueueRetroExport(this.lastRetro)
     }
     this.push()
     return { summary: this.lastRetro.summary, storedLearnings: applied }
@@ -1711,6 +1736,7 @@ export class OrchestratorEngine extends EventEmitter {
       createdAt: Date.now()
     }
     recordBenchmarkRecord(record)
+    enqueueBenchmarkExport(record)
     recordModelLearnings(benchmarkLearnings(record, rankings))
     this.setActivityState(
       'summarizing',

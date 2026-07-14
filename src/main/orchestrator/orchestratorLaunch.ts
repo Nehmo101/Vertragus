@@ -10,6 +10,7 @@ import type { OrchestratorProviderCapability } from '@shared/orchestrator'
 import { getMcpHandle } from '@main/orchestrator/mcpHandle'
 import { getOrchestratorAdapter } from '@main/orchestrator/providerAdapters'
 import { externalMcpSpecsFor } from '@main/orchestrator/externalMcp'
+import { getPromptOverlay } from '@main/orchestrator/promptOverlay'
 
 export interface OrchestratorPolicyOptions {
   adaptiveTeam?: boolean
@@ -17,6 +18,8 @@ export interface OrchestratorPolicyOptions {
   engineId?: string
   /** Auto-Benchmark profile: every slot gets the same task and is scored. */
   benchmarkMode?: boolean
+  /** Reviewed learnings overlay (retro branch) injected into the prompt. */
+  overlayText?: string
 }
 
 export const orchestratorSystemPrompt = (
@@ -82,6 +85,13 @@ export const orchestratorSystemPrompt = (
   '   (provider, model, strength/weakness, Einsicht wie "sehr stark bei UI-Aufgaben" oder "Code-Review besonders präzise").',
   '- Halte Erkenntnisse ehrlich und spezifisch; sie machen künftige Orchestrierung messbar besser.',
   '',
+  ...(options.overlayText
+    ? [
+        'Gelerntes Teamwissen (aus geprüften Retros früherer Läufe; verbindlich zu berücksichtigen):',
+        options.overlayText,
+        ''
+      ]
+    : []),
   ...(options.benchmarkMode
     ? [
         'Auto-Benchmark-Modus (dieses Profil):',
@@ -143,12 +153,14 @@ export function buildOrchestratorSetup(
     : handle
 
 
+  const overlayText = getPromptOverlay()
+
   return {
     extraArgs: adapter.buildArgs({
       name,
       handle: scopedHandle,
       configDir: app.getPath('userData'),
-      systemPrompt: orchestratorSystemPrompt(name, policy),
+      systemPrompt: orchestratorSystemPrompt(name, { ...policy, overlayText }),
       externalServers: externalMcpSpecsFor('orchestrator', provider),
       fileTag: agentId
     }),

@@ -114,6 +114,8 @@ const orca: OrcaApi = {
       ipcRenderer.invoke(IPC.orchestratorSnapshot, profileId, workspaceSessionId),
     reset: (profileId, workspaceSessionId) =>
       ipcRenderer.invoke(IPC.orchestratorReset, profileId, workspaceSessionId),
+    enableAutoMode: (profileId, workspaceSessionId) =>
+      ipcRenderer.invoke(IPC.orchestratorEnableAutoMode, profileId, workspaceSessionId),
     reviewPlan: (profileId, approved, workspaceSessionId) =>
       ipcRenderer.invoke(IPC.orchestratorReviewPlan, profileId, approved, workspaceSessionId),
     taskDiff: (profileId, taskId, workspaceSessionId) =>
@@ -124,7 +126,9 @@ const orca: OrcaApi = {
   retro: {
     listRetros: (profileId) => ipcRenderer.invoke(IPC.retroListRetros, profileId),
     listLearnings: () => ipcRenderer.invoke(IPC.retroListLearnings),
-    listBenchmarks: (profileId) => ipcRenderer.invoke(IPC.retroListBenchmarks, profileId)
+    listBenchmarks: (profileId) => ipcRenderer.invoke(IPC.retroListBenchmarks, profileId),
+    syncStatus: () => ipcRenderer.invoke(IPC.retroSyncStatus),
+    syncFlush: () => ipcRenderer.invoke(IPC.retroSyncFlush)
   },
 
   win: {

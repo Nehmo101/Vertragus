@@ -31,6 +31,9 @@ vi.mock('@main/orchestrator/Engine', () => ({
     reviewPlan(): boolean {
       return true
     }
+    enableAutoMode(): boolean {
+      return true
+    }
   }
 }))
 
@@ -56,6 +59,11 @@ describe('WorkspaceSessionRegistry', () => {
     registry.setActive(DEFAULT_PROFILE.id, first.id)
     expect(registry.getByProfile(DEFAULT_PROFILE.id)?.id).toBe(first.id)
     expect(registry.list(DEFAULT_PROFILE.id).find((session) => session.active)?.id).toBe(first.id)
+
+    expect(registry.enableAutoMode(DEFAULT_PROFILE, first.id)).toBe(true)
+    expect(first.profile.planner.mode).toBe('auto')
+    expect(second.profile.planner.mode).toBe('review')
+    expect(DEFAULT_PROFILE.planner.mode).toBe('review')
 
     registry.removeSession(first.id)
     expect(registry.getByProfile(DEFAULT_PROFILE.id)?.id).toBe(second.id)

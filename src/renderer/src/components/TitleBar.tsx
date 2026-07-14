@@ -130,7 +130,20 @@ export default function TitleBar(): JSX.Element {
             <div className="wordmark">
               Orca<span className="dash">-</span>Strator
             </div>
-            <div className="wordmark-sub">Agent Control Center</div>
+            <div className="wordmark-sub">
+              <span className="wordmark-sub-label">Agent Control Center</span>
+              {store.appInfo?.version && (
+                <>
+                  <span className="wordmark-sub-separator" aria-hidden="true">{'\u00b7'}</span>
+                  <span
+                    className="wordmark-version"
+                    title={`Orca-Strator Version ${store.appInfo.version}`}
+                  >
+                    v{store.appInfo.version}
+                  </span>
+                </>
+              )}
+            </div>
           </div>
         </div>
 

@@ -20,6 +20,7 @@ import type {
 } from './agents'
 import type { OrchestratorSnapshot, WorkspaceSessionSummary } from './orchestrator'
 import type { BenchmarkRecord, ModelLearning, RunRetro } from './retro'
+import type { RetroSyncStatus } from './retroSync'
 import type {
   AddArtifactInput,
   CreateIdeaInput,
@@ -107,11 +108,14 @@ export const IPC = {
   agentHandoff: 'agent:handoff',
   orchestratorSnapshot: 'orchestrator:snapshot',
   orchestratorReset: 'orchestrator:reset',
+  orchestratorEnableAutoMode: 'orchestrator:enableAutoMode',
   orchestratorReviewPlan: 'orchestrator:reviewPlan',
   orchestratorTaskDiff: 'orchestrator:taskDiff',
   retroListRetros: 'retro:listRetros',
   retroListLearnings: 'retro:listLearnings',
   retroListBenchmarks: 'retro:listBenchmarks',
+  retroSyncStatus: 'retro:syncStatus',
+  retroSyncFlush: 'retro:syncFlush',
   // main -> renderer push channels
   evAgentData: 'ev:agentData',
   evAgentsChanged: 'ev:agentsChanged',
@@ -396,6 +400,8 @@ export interface OrcaApi {
     snapshot(profileId: string, workspaceSessionId?: string): Promise<OrchestratorSnapshot>
     /** Clear the task graph (fresh goal). */
     reset(profileId: string, workspaceSessionId?: string): Promise<void>
+    /** Switch this running workspace session to direct automatic plan execution. */
+    enableAutoMode(profileId: string, workspaceSessionId?: string): Promise<boolean>
     /** Resolve a plan waiting in review mode. */
     reviewPlan(profileId: string, approved: boolean, workspaceSessionId?: string): Promise<boolean>
     onSnapshot(cb: (snap: OrchestratorSnapshot) => void): () => void
@@ -410,6 +416,10 @@ export interface OrcaApi {
     listLearnings(): Promise<ModelLearning[]>
     /** Scored benchmark records, newest first (optionally per profile). */
     listBenchmarks(profileId?: string): Promise<BenchmarkRecord[]>
+    /** Current retro-sync state: config, queue length, last export/error. */
+    syncStatus(): Promise<RetroSyncStatus>
+    /** Drain the export queue now; returns the resulting sync status. */
+    syncFlush(): Promise<RetroSyncStatus>
   }
 
   win: {
