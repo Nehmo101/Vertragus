@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "exportedAt": 1784073328656,
+  "app": {
+    "name": "orca-strator",
+    "version": "0.1.29-main.1.gcfaf136"
+  },
+  "machineId": "5087fc1f7b9d",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrlb72lm-plan-mrla4khx-1",
+    "profileId": "profile-mri86faq",
+    "workspaceSessionId": "607b881e-10e7-4b95-8aa6-a0f6a19a6e0d",
+    "planId": "plan-mrla4khx-1",
+    "goal": "Wenn Arbeit von einem Orchestrator an einen neuen Orchestrator übergeben wird, muss der abgebende Orchestrator so zuverlässig wie möglich verifizieren, dass der neue Orchestrator tatsächlich gestartet ist und den vollständigen erforderlichen Wissensstand übernommen hat. Erst nach dieser Bestätigung darf sich der alte Orchestrator selbst beenden. Implementiere dies passend zur bestehenden Architektur, mit belastbaren Tests und ohne Regressionen.",
+    "status": "needs-work",
+    "summary": "Lauf mit Nacharbeit: 1 Modell(e), 0/1 Tasks erfolgreich.",
+    "modelStats": [
+      {
+        "provider": "codex",
+        "model": "",
+        "roles": [
+          "worker"
+        ],
+        "tasks": 1,
+        "succeeded": 0,
+        "needsWork": 1,
+        "failed": 0,
+        "stopped": 0,
+        "failedAttempts": 0,
+        "gateFindings": 1,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "avgDurationMs": 1794805
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrla9l8c-1-qua21e",
+        "provider": "codex",
+        "model": "",
+        "role": "worker",
+        "kind": "weakness",
+        "insight": "Quality-Gates erfordern Nacharbeit bei worker",
+        "evidence": "1 Task(s) mit 1 Gate-Finding(s)",
+        "source": "auto-retro",
+        "profileId": "profile-mri86faq",
+        "observations": 2,
+        "createdAt": 1784071766460,
+        "updatedAt": 1784073328609
+      }
+    ],
+    "createdAt": 1784073328618
+  }
+}
