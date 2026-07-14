@@ -31,8 +31,14 @@ const ORCHESTRATOR_TOOLS = [
   'mcp__orca__list_tasks',
   'mcp__orca__get_plan_status',
   'mcp__orca__open_subwindow',
-  'mcp__orca__execute_plan'
+  'mcp__orca__execute_plan',
+  'mcp__orca__record_retro',
+  'mcp__orca__run_benchmark',
+  'mcp__orca__get_benchmark_status',
+  'mcp__orca__record_benchmark'
 ]
+
+const AGENT_PROVIDERS = ['claude', 'codex', 'cursor', 'copilot', 'ollama'] as const
 
 const ACTIVITY_PHASES = [
   'idle', 'planning', 'awaiting-review', 'delegating', 'monitoring',
@@ -54,6 +60,7 @@ function buildMcpServer(engine: OrchestratorEngine = orchestratorEngine): McpSer
         'Use exactly the returned role values and choose only the roles the plan needs.',
         'Keep report_activity current so the user can see what you are doing, what workers are doing, and what happens next.',
         'Poll each plan to a terminal result, evaluate it against the goal, and submit focused follow-up plans when needed.',
+        'After every terminal plan run call record_retro with concise per-model learnings (strengths/weaknesses); they feed back into list_subagents as learnedStrengths/learnedWeaknesses.',
         'Stop only when the goal is verified or a concrete dead end requires user input or an external change.',
         'Poll task status at meaningful transitions. Identify a worker only by the exact agentName returned by get_task_status or list_tasks.',
         'If agentName is absent, use taskId and role until a later poll returns it; never infer or invent a worker name.',
@@ -117,6 +124,7 @@ function buildMcpServer(engine: OrchestratorEngine = orchestratorEngine): McpSer
   register(
     'list_subagents',
     'Liste den verfügbaren Fähigkeiten-Pool mit Rollen, Provider, Modell, Kapazität, Stärken und Schwächen. ' +
+      'learnedStrengths/learnedWeaknesses sind aus Retros und Benchmarks früherer Läufe gelerntes Modellwissen — nutze es bei der Rollenwahl. ' +
       'Die Rollen sind nicht zwingend bereits gestartet; ein Plan startet nur die ausgewählten Agents.',
     {},
     async () => text(JSON.stringify(await engine.listSubagentsWithHealth(), null, 2))
@@ -236,6 +244,111 @@ function buildMcpServer(engine: OrchestratorEngine = orchestratorEngine): McpSer
         ...rawPlan,
         version: 1,
         tasks: rawTasks
+      })
+      return text(JSON.stringify(result, null, 2))
+    }
+  )
+
+  register(
+    'record_retro',
+    'Speichere nach einem terminalen Lauf eine kurze Retrospektive mit Modell-Erkenntnissen, ' +
+      'z.B. "sehr stark bei UI-Aufgaben" oder "Code-Review besonders präzise". Die Erkenntnisse ' +
+      'werden dauerhaft gespeichert und fließen als learnedStrengths/learnedWeaknesses in list_subagents zurück.',
+    {
+      summary: z.string().min(1).max(500).describe('Kurzes Fazit des Laufs in ein bis zwei Sätzen'),
+      learnings: z
+        .array(
+          z.object({
+            provider: z.enum(AGENT_PROVIDERS).describe('Provider des bewerteten Modells'),
+            model: z.string().min(1).describe('Exakter Modellname aus list_subagents/get_task_status'),
+            role: z.string().optional().describe('Rollen-Kontext der Beobachtung, z.B. "frontend"'),
+            kind: z.enum(['strength', 'weakness']).describe('Stärke oder Schwäche'),
+            insight: z.string().min(1).max(200).describe('Kurze Erkenntnis, z.B. "sehr stark bei UI-Aufgaben"'),
+            evidence: z.string().max(300).optional().describe('Konkreter Beleg aus diesem Lauf')
+          })
+        )
+        .max(20)
+        .describe('Konkrete Modell-Erkenntnisse aus diesem Lauf')
+    },
+    async (args) => {
+      const result = engine.recordOrchestratorRetro({
+        summary: String(args.summary ?? ''),
+        learnings: Array.isArray(args.learnings)
+          ? (args.learnings as Array<{
+              provider: (typeof AGENT_PROVIDERS)[number]
+              model: string
+              role?: string
+              kind: 'strength' | 'weakness'
+              insight: string
+              evidence?: string
+            }>)
+          : []
+      })
+      return text(JSON.stringify(result, null, 2))
+    }
+  )
+
+  register(
+    'run_benchmark',
+    'Starte einen Auto-Benchmark: DIESELBE Aufgabe läuft parallel auf jedem verfügbaren Slot ' +
+      '(isolierte Worktrees). Die Antwort enthält sofort benchmarkId und taskIds; ' +
+      'Status und Ergebnisse werden mit get_benchmark_status und get_task_status abgefragt.',
+    {
+      prompt: z.string().min(1).describe('Vollständige, eigenständige Aufgabe, identisch für alle Slots'),
+      title: z.string().optional().describe('Kurztitel des Benchmarks für die Aufgaben-Ansicht')
+    },
+    async (args) => {
+      const result = engine.runBenchmarkAsync(
+        String(args.prompt ?? ''),
+        args.title ? String(args.title) : undefined
+      )
+      return text(JSON.stringify(result, null, 2))
+    }
+  )
+
+  register(
+    'get_benchmark_status',
+    'Liefere den Stand eines Benchmarks: je Teilnehmer Status, Phase, letzte Aktion, Dauer, ' +
+      'Tokenverbrauch und finales Ergebnis. status=completed sobald alle Läufe terminal sind.',
+    { benchmarkId: z.string().describe('benchmarkId aus run_benchmark') },
+    async (args) => {
+      const result = engine.getBenchmarkStatus(String(args.benchmarkId ?? ''))
+      return text(JSON.stringify(result ?? { error: 'Benchmark nicht gefunden.' }, null, 2))
+    }
+  )
+
+  register(
+    'record_benchmark',
+    'Bewerte einen abgeschlossenen Benchmark: Score 0-10, Verdict und Stärken/Schwächen je Teilnehmer. ' +
+      'Die Bewertung wird dauerhaft gespeichert und als Modellwissen für künftige Rollenwahl genutzt.',
+    {
+      benchmarkId: z.string().describe('benchmarkId aus run_benchmark'),
+      task: z.string().min(1).describe('Die gemeinsame Aufgabe, die alle Teilnehmer ausgeführt haben'),
+      summary: z.string().min(1).max(800).describe('Gesamtfazit inkl. Sieger und Begründung'),
+      rankings: z
+        .array(
+          z.object({
+            role: z.string().describe('Rolle des Teilnehmers aus run_benchmark'),
+            provider: z.enum(AGENT_PROVIDERS).optional(),
+            model: z.string().optional(),
+            score: z.number().min(0).max(10).describe('Faire Bewertung 0-10'),
+            verdict: z.string().max(300).describe('Kurzbegründung der Bewertung'),
+            strengths: z.array(z.string().min(1).max(200)).max(8).optional(),
+            weaknesses: z.array(z.string().min(1).max(200)).max(8).optional()
+          })
+        )
+        .min(1)
+        .max(16)
+        .describe('Bewertung je Teilnehmer')
+    },
+    async (args) => {
+      const result = engine.recordBenchmark({
+        benchmarkId: String(args.benchmarkId ?? ''),
+        task: String(args.task ?? ''),
+        summary: String(args.summary ?? ''),
+        rankings: Array.isArray(args.rankings)
+          ? (args.rankings as Parameters<typeof engine.recordBenchmark>[0]['rankings'])
+          : []
       })
       return text(JSON.stringify(result, null, 2))
     }

@@ -3,9 +3,11 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import type { AgentInstanceInfo } from '@shared/agents'
 import { LIMIT_KIND_LABELS } from '@shared/agents'
-import { summarizeUsage, TELEMETRY_STATUS_LABELS, TELEMETRY_STATUS_TITLES } from '@shared/telemetry'
+import { absentTelemetryNotice, summarizeUsage, TELEMETRY_STATUS_LABELS, TELEMETRY_STATUS_TITLES } from '@shared/telemetry'
 import { PROVIDER_THEME, STATUS_THEME, XTERM_THEME } from '@renderer/ui/theme'
 import { formatTokenBreakdown, formatTokenCount, formatUsd } from '@renderer/telemetryFormat'
+import { useAppStore, effectivePaneReadable } from '@renderer/store/useAppStore'
+import { paneReadableSummary } from '@renderer/orchestratorActivity'
 import LoreName from '@renderer/components/LoreName'
 import { isAgentTerminalChunk } from './terminalStream'
 import { createTerminalFrameWriter } from './terminalFrameWriter'
@@ -180,7 +182,12 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
   const yoloLive = agent.yolo && agent.status === 'running'
   const usage = agent.usage
   const telemetry = summarizeUsage(usage)
+  const absence = absentTelemetryNotice(agent.mode)
   const limit = agent.limitWarning
+  const readable = useAppStore((s) => effectivePaneReadable(s, agent.id))
+  const togglePaneReadable = useAppStore((s) => s.togglePaneReadable)
+  const orchestrator = useAppStore((s) => s.orchestrator)
+  const summary = readable ? paneReadableSummary(agent, orchestrator) : null
 
   return (
     <div
@@ -253,12 +260,51 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
         )}
       </div>
 
-      <TerminalHost
-        agentId={agent.id}
-        inputEnabled={agent.status === 'running'}
-      />
+      <div className="pane-body">
+        <TerminalHost
+          agentId={agent.id}
+          inputEnabled={agent.status === 'running'}
+        />
+        {readable && summary && (
+          <div className="pane-readable" role="status" aria-live="polite">
+            <div className="pane-readable-head">
+              <span className="pane-readable-tag">Lesbare Zusammenfassung</span>
+              <span className="pane-readable-phase">{summary.phaseLabel}</span>
+            </div>
+            <div className="pane-readable-headline">{summary.headline}</div>
+            {summary.lines.length > 0 && (
+              <ul className="pane-readable-lines">
+                {summary.lines.map((line, index) => (
+                  <li key={`${line}-${index}`}>{line}</li>
+                ))}
+              </ul>
+            )}
+            {summary.nextStep && (
+              <div className="pane-readable-next">
+                <span>Als Nächstes</span>
+                {summary.nextStep}
+              </div>
+            )}
+            <div className="pane-readable-hint">
+              Haken „Lesbar" entfernen, um die Rohausgabe im Terminal zu sehen.
+            </div>
+          </div>
+        )}
+      </div>
 
       <div className="pane-foot">
+        <label
+          className={`pane-readable-toggle ${readable ? 'on' : ''}`}
+          title="Lesbare Zusammenfassung statt Rohausgabe in diesem CLI-Fenster (übersteuert die globale Voreinstellung)"
+        >
+          <input
+            type="checkbox"
+            checked={readable}
+            onChange={() => togglePaneReadable(agent.id)}
+          />
+          <span className="mark" aria-hidden="true">✓</span>
+          <span className="label">Lesbar</span>
+        </label>
         {usage ? (
           <>
             {telemetry.steps != null && <span><span className="k">Schritte</span> <b>{telemetry.steps}</b></span>}
@@ -272,8 +318,8 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
             )}
           </>
         ) : (
-          <span className="telemetry-status absent" title={TELEMETRY_STATUS_TITLES.absent}>
-            {TELEMETRY_STATUS_LABELS.absent}
+          <span className="telemetry-status absent" title={absence.title}>
+            {absence.label}
           </span>
         )}
         {usage && telemetry.status !== 'present' && (

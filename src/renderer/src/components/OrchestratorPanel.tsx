@@ -16,6 +16,9 @@ import {
 } from '@renderer/orchestratorActivity'
 import type { OrcaTask, TaskStatus } from '@shared/orchestrator'
 import { resolveModel } from '@shared/models'
+import type { AgentUsage } from '@shared/agents'
+import { summarizeUsage, TELEMETRY_STATUS_LABELS, TELEMETRY_STATUS_TITLES } from '@shared/telemetry'
+import { formatTokenBreakdown, formatTokenCount, formatUsd } from '@renderer/telemetryFormat'
 
 const STALE_HEARTBEAT_MS = 90_000
 
@@ -46,6 +49,17 @@ function fmtAge(ms: number): string {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
 }
 
+/** Compact "12k Token · $0.12" line; null when the provider reported nothing. */
+function usageText(usage?: OrcaTask['usage']): string | null {
+  const summary = summarizeUsage(usage)
+  if (summary.status === 'absent') return null
+  const parts: string[] = []
+  if (summary.tokens != null) parts.push(`${formatTokenCount(summary.tokens)} Token`)
+  if (summary.costUsd != null) parts.push(formatUsd(summary.costUsd))
+  if (parts.length === 0 && summary.steps != null) parts.push(`${summary.steps} Schritte`)
+  return parts.length > 0 ? parts.join(' · ') : null
+}
+
 const TASK_PILL: Record<TaskStatus, { bg: string; fg: string; dot: string; label: string }> = {
   queued: { bg: 'var(--stop-soft)', fg: 'var(--stop-text)', dot: 'var(--stop)', label: 'geplant' },
   running: { bg: 'color-mix(in srgb, var(--run) 18%, transparent)', fg: 'var(--run-text)', dot: 'var(--run)', label: 'läuft' },
@@ -57,11 +71,13 @@ const TASK_PILL: Record<TaskStatus, { bg: string; fg: string; dot: string; label
 
 function TaskCard({
   task,
+  usage,
   profileId,
   workspaceSessionId,
   now
 }: {
   task: OrcaTask
+  usage?: AgentUsage
   profileId: string
   workspaceSessionId?: string
   now: number
@@ -71,6 +87,7 @@ function TaskCard({
   const [diffLoading, setDiffLoading] = useState(false)
   const telemetry = task as TaskWithTelemetry
   const pill = TASK_PILL[task.status]
+  const worker = summarizeUsage(usage)
   const chip = task.provider ? PROVIDER_THEME[task.provider] : undefined
   const heartbeatBase = telemetry.lastHeartbeatAt ?? task.createdAt
   const heartbeatAge = now - heartbeatBase
@@ -175,6 +192,31 @@ function TaskCard({
                 Zuletzt: {telemetry.lastAction}
               </div>
             )}
+            {usageText(task.usage) && (
+              <div className="task-usage" title="Vom Provider gemeldeter Verbrauch dieses Tasks">
+                Verbrauch: {usageText(task.usage)}
+              </div>
+            )}
+          </div>
+        )}
+        {usage && worker.status !== 'absent' && (
+          <div className="task-usage" title="Telemetrie des Subagents">
+            {worker.steps != null && (
+              <span><span className="k">Schritte</span> <b>{worker.steps}</b></span>
+            )}
+            {worker.tokens != null && (
+              <span title={formatTokenBreakdown(usage.tokensIn, usage.tokensOut)}>
+                <span className="k">Tokens</span> <b>{formatTokenCount(worker.tokens)}</b>
+              </span>
+            )}
+            {worker.costUsd != null && (
+              <span><span className="k">Kosten</span> <b className="cost">{formatUsd(worker.costUsd)}</b></span>
+            )}
+            {worker.status === 'partial' && (
+              <span className="telemetry-status partial" title={TELEMETRY_STATUS_TITLES.partial}>
+                {TELEMETRY_STATUS_LABELS.partial}
+              </span>
+            )}
           </div>
         )}
         {task.note && (
@@ -252,9 +294,11 @@ export default function OrchestratorPanel(): JSX.Element {
   const store = useAppStore()
   const now = useClock()
   const profile = activeProfile(store)
-  const orch = workspaceAgents(store).find((agent) => agent.kind === 'orchestrator')
+  const wsAgents = workspaceAgents(store)
+  const orch = wsAgents.find((agent) => agent.kind === 'orchestrator')
+  const usageByAgentId = new Map(wsAgents.map((agent) => [agent.id, agent.usage] as const))
   const events = workspaceEvents(store)
-  const { goal, tasks, pendingPlan, reliability, engineId } = store.orchestrator
+  const { goal, tasks, pendingPlan, reliability, engineId, lastRetro } = store.orchestrator
   const logRef = useRef<HTMLDivElement>(null)
   const activity = resolveOrchestratorActivity(store.orchestrator, now)
   const liveTasks = liveOrchestratorTasks(tasks)
@@ -263,6 +307,7 @@ export default function OrchestratorPanel(): JSX.Element {
   const done = requiredTasks.filter((task) => task.status === 'success').length
   const pct = requiredTasks.length > 0 ? Math.round((done / requiredTasks.length) * 100) : 0
   const assigned = tasks.filter((t) => t.agentId).length
+  const runUsage = summarizeUsageGroup(tasks.map((task) => task.usage))
   const configuredOrchestratorModel = profile?.orchestrator
     ? resolveModel(profile.orchestrator.provider, profile.orchestrator) || 'CLI-Standard'
     : '—'
@@ -326,6 +371,48 @@ export default function OrchestratorPanel(): JSX.Element {
             <span><strong>{fmtAge(reliability.maxRunningStatusAgeMs)}</strong> max. Statusalter</span>
           </div>
         )}
+        {runUsage.status !== 'absent' && (
+          <div className="usage-strip" title="Vom Provider gemeldeter Verbrauch aller Tasks dieses Laufs">
+            <span>Token gesamt: <strong>{runUsage.tokens != null ? formatTokenCount(runUsage.tokens) : '—'}</strong></span>
+            <span>Kosten: <strong>{runUsage.costUsd != null ? formatUsd(runUsage.costUsd) : '—'}</strong></span>
+            <span>Schritte: <strong>{runUsage.steps ?? '—'}</strong></span>
+          </div>
+        )}
+        {lastRetro && (
+          <details className="retro-card">
+            <summary title={lastRetro.goal}>
+              <span className="retro-caption">Retro</span> {lastRetro.summary}
+            </summary>
+            <div className="retro-body">
+              {lastRetro.modelStats.map((stat) => (
+                <div key={`${stat.provider}/${stat.model}`} className="retro-model">
+                  <strong>{stat.provider}/{stat.model || 'Standard'}</strong>
+                  <span>
+                    {stat.succeeded}/{stat.tasks} ok
+                    {stat.needsWork > 0 ? ` · ${stat.needsWork} Nacharbeit` : ''}
+                    {stat.failed > 0 ? ` · ${stat.failed} Fehler` : ''}
+                    {stat.avgDurationMs != null ? ` · Ø ${fmtAge(stat.avgDurationMs)}` : ''}
+                    {stat.tokensIn != null || stat.tokensOut != null
+                      ? ` · ${formatTokenCount((stat.tokensIn ?? 0) + (stat.tokensOut ?? 0))} Token`
+                      : ''}
+                  </span>
+                </div>
+              ))}
+              {lastRetro.learnings.length > 0 && (
+                <ul className="retro-learnings">
+                  {lastRetro.learnings.slice(0, 6).map((learning) => (
+                    <li key={learning.id} title={learning.evidence}>
+                      <span className={learning.kind === 'strength' ? 'retro-up' : 'retro-down'}>
+                        {learning.kind === 'strength' ? '▲' : '▼'}
+                      </span>
+                      {learning.provider}/{learning.model || 'Standard'}: {learning.insight}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </details>
+        )}
       </div>
 
       <div className="live-activity">
@@ -383,6 +470,13 @@ export default function OrchestratorPanel(): JSX.Element {
                 <div className="live-worker-action" title={task.lastAction}>
                   {taskActivityText(task)}
                 </div>
+                {task.recentActions && task.recentActions.length > 1 && (
+                  <ul className="live-worker-history" title="Vorherige Aktionen dieses Workers">
+                    {task.recentActions.slice(1).map((action, index) => (
+                      <li key={`${index}-${action}`}>{action}</li>
+                    ))}
+                  </ul>
+                )}
                 <div className="live-worker-meta">
                   <span>{task.role}{task.model ? ` · ${task.model}` : ''}</span>
                   <span>
@@ -391,6 +485,11 @@ export default function OrchestratorPanel(): JSX.Element {
                       : `Update vor ${fmtAge(heartbeatAge)}`}
                   </span>
                 </div>
+                {usageText(task.usage) && (
+                  <div className="live-worker-usage" title="Vom Provider gemeldeter Verbrauch dieses Tasks">
+                    {usageText(task.usage)}
+                  </div>
+                )}
               </div>
             )
           })}
@@ -448,6 +547,7 @@ export default function OrchestratorPanel(): JSX.Element {
               <TaskCard
                 key={task.id}
                 task={task}
+                usage={task.agentId ? usageByAgentId.get(task.agentId) : undefined}
                 profileId={store.activeProfileId}
                 workspaceSessionId={store.activeWorkspaceSessionId ?? undefined}
                 now={now}

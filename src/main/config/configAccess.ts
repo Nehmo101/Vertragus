@@ -14,6 +14,7 @@ export const PUBLIC_CONFIG_GET_KEYS = new Set([
   'ui.theme',
   'ui.workspaceLayout',
   'ui.density',
+  'ui.cliReadable',
   'providerLimits',
   'providerEnabled',
   'disabledModels'
@@ -25,6 +26,7 @@ export const PUBLIC_CONFIG_SET_KEYS = new Set([
   'ui.theme',
   'ui.workspaceLayout',
   'ui.density',
+  'ui.cliReadable',
   'providerLimits',
   'providerEnabled',
   'disabledModels'

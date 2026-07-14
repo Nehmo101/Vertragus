@@ -223,6 +223,17 @@ export default function TitleBar(): JSX.Element {
           </span>
         </button>
 
+        <button
+          type="button"
+          className={`readable-btn no-drag ${store.cliReadable ? 'on' : ''}`}
+          onClick={store.toggleCliReadable}
+          title="Globale Voreinstellung: CLI-Fenster zeigen eine lesbare Zusammenfassung dessen, was der Agent gerade macht, statt der Rohausgabe. Pro Fenster unten übersteuerbar."
+          aria-pressed={store.cliReadable}
+        >
+          <span className="readable-check" aria-hidden="true">✓</span>
+          <span className="label">Lesbar</span>
+        </button>
+
         <button type="button"
           className={`yolo-btn ${store.yoloMaster ? 'on' : ''}`}
           onClick={store.toggleYolo}

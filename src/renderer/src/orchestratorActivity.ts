@@ -1,3 +1,4 @@
+import type { AgentInstanceInfo, AgentStatus } from '@shared/agents'
 import type {
   OrcaTask,
   OrchestratorActivity,
@@ -46,6 +47,83 @@ export function taskActivityText(task: OrcaTask): string {
   const phase = task.phase ? TASK_PHASE_LABEL[task.phase] : task.status === 'running' ? 'Arbeitet' : 'Wartet'
   const action = task.lastAction?.trim()
   return action ? `${phase} · ${action}` : phase
+}
+
+const AGENT_STATUS_READABLE: Record<AgentStatus, string> = {
+  running: 'Arbeitet',
+  waiting: 'Wartet auf Freigabe',
+  stopped: 'Gestoppt',
+  error: 'Fehler'
+}
+
+/**
+ * Readable, plain-language view of what a single CLI pane's agent is doing right
+ * now — the "Lesbar"-mode alternative to the raw PTY output. Derived from the
+ * live orchestrator/task state, never from parsing the terminal stream.
+ */
+export interface PaneReadableSummary {
+  /** Short phase/status label, e.g. "überwacht" or "Arbeitet". */
+  phaseLabel: string
+  /** One-line description of the current activity. */
+  headline: string
+  /** Supporting bullet lines (subtask details / last action). */
+  lines: string[]
+  /** Forward-looking next step, when known. */
+  nextStep?: string
+  /** Epoch ms of the underlying data, when known. */
+  updatedAt?: number
+}
+
+/**
+ * Build the "Lesbar"-mode summary for one agent pane. The orchestrator pane maps
+ * to the live coordinator report; task-bound subagents map to their task phase
+ * and last action; plain interactive panes fall back to a truthful status line.
+ */
+export function paneReadableSummary(
+  agent: AgentInstanceInfo,
+  snapshot: OrchestratorSnapshot | undefined,
+  now: number = Date.now()
+): PaneReadableSummary {
+  if (agent.kind === 'orchestrator' && snapshot) {
+    const activity = resolveOrchestratorActivity(snapshot, now)
+    return {
+      phaseLabel: ORCHESTRATOR_ACTIVITY_LABEL[activity.phase],
+      headline: activity.summary,
+      lines: [...activity.details],
+      nextStep: activity.nextStep,
+      updatedAt: activity.updatedAt
+    }
+  }
+
+  const task = agent.taskId
+    ? snapshot?.tasks.find((entry) => entry.id === agent.taskId)
+    : undefined
+  if (task) {
+    const phaseLabel = task.phase
+      ? TASK_PHASE_LABEL[task.phase]
+      : task.status === 'running'
+        ? 'Arbeitet'
+        : 'Wartet'
+    const lines: string[] = []
+    if (task.lastAction?.trim()) lines.push(`Zuletzt: ${task.lastAction.trim()}`)
+    if (task.note?.trim()) lines.push(task.note.trim())
+    return {
+      phaseLabel,
+      headline: task.title,
+      lines,
+      updatedAt: task.lastHeartbeatAt ?? task.finishedAt ?? task.createdAt
+    }
+  }
+
+  const headline =
+    agent.status === 'running'
+      ? `Arbeitet interaktiv — ${agent.role}.`
+      : agent.status === 'waiting'
+        ? 'Wartet auf eine Eingabe oder Freigabe.'
+        : agent.status === 'error'
+          ? 'Der Agent wurde mit einem Fehler beendet.'
+          : 'Der Agent ist gestoppt.'
+  return { phaseLabel: AGENT_STATUS_READABLE[agent.status], headline, lines: [] }
 }
 
 /**

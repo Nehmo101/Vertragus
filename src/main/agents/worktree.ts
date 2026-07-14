@@ -3,8 +3,10 @@
  * parallel (especially Yolo) agents never collide in the same checkout.
  *
  * Worktrees live under <repoRoot>/.orca-worktrees/<sessionId>/<agentId> on
- * branch orca/<sessionId>/<agentId>. Stopping an agent never deletes them;
- * cleanup tooling comes with the diff/merge view in Phase 2.
+ * branch orca/<sessionId>/<agentId>. Stopping a single agent keeps its worktree
+ * so its work can still be inspected; killing (removing) a whole workspace run
+ * rolls the agents back via `rollbackWorktree`, discarding the isolated
+ * checkout and its branch.
  */
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
@@ -96,4 +98,79 @@ export async function createWorktree(
       cause: err
     })
   }
+}
+
+/** Only ever touch paths Orca created under `.orca-worktrees/`. */
+export function isOrcaWorktreePath(path: string): boolean {
+  return /[\\/]\.orca-worktrees[\\/]/.test(path.trim())
+}
+
+/** Only ever delete branches Orca created under the `orca/` namespace. */
+export function isOrcaBranch(branch: string): boolean {
+  return /^orca\//.test(branch.trim())
+}
+
+/**
+ * Resolve the main working tree that owns a linked worktree, so
+ * `git worktree remove` runs from the repository root instead of from inside
+ * the worktree being removed (Git refuses to remove the current tree).
+ */
+async function mainWorktreeRoot(worktreePath: string): Promise<string | null> {
+  try {
+    const commonDir = await git(worktreePath, [
+      'rev-parse',
+      '--path-format=absolute',
+      '--git-common-dir'
+    ])
+    // The shared git dir of a normal checkout is <root>/.git.
+    return commonDir ? dirname(commonDir) : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Roll back (discard) an Orca-managed isolated worktree and its branch.
+ *
+ * Rolling back a killed workspace deliberately throws away the agent's
+ * uncommitted, unmerged work, so removal is forced. As a hard safety net only
+ * worktrees under `.orca-worktrees/` and branches under `orca/` are ever
+ * touched — the main checkout and user branches are never affected. Every Git
+ * failure is swallowed (best-effort cleanup); returns true when the worktree or
+ * its branch was actually removed.
+ */
+export async function rollbackWorktree(
+  worktreePath: string,
+  branch?: string
+): Promise<boolean> {
+  const path = worktreePath.trim()
+  if (!path || !isOrcaWorktreePath(path)) return false
+
+  const root = await mainWorktreeRoot(path)
+  if (!root) return false
+
+  let removed = false
+  try {
+    await git(root, ['worktree', 'remove', '--force', path])
+    removed = true
+  } catch {
+    // The checkout may already be gone or locked; still try the branch + prune.
+  }
+
+  if (branch && isOrcaBranch(branch)) {
+    try {
+      await git(root, ['branch', '-D', branch])
+      removed = true
+    } catch {
+      // The branch may never have been created (failed `worktree add`).
+    }
+  }
+
+  try {
+    await git(root, ['worktree', 'prune'])
+  } catch {
+    // Prune is best-effort metadata cleanup.
+  }
+
+  return removed
 }

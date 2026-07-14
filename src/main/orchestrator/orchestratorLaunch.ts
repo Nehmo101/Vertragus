@@ -15,6 +15,8 @@ export interface OrchestratorPolicyOptions {
   adaptiveTeam?: boolean
   maxRetries?: number
   engineId?: string
+  /** Auto-Benchmark profile: every slot gets the same task and is scored. */
+  benchmarkMode?: boolean
 }
 
 export const orchestratorSystemPrompt = (
@@ -70,6 +72,25 @@ export const orchestratorSystemPrompt = (
   '- Melde nach dem Dispatch nicht nur taskIds: poll kurz, bis Namen und erste Aktionen sichtbar sind.',
   '- Vor der finalen Antwort setze report_activity auf summarizing, danach auf completed oder blocked.',
   '',
+  'Retrospektive und Modellwissen (verbindlich):',
+  '- list_subagents liefert je Slot zusätzlich learnedStrengths/learnedWeaknesses: gespeichertes',
+  '   Modellwissen aus Retros und Benchmarks früherer Läufe. Beziehe es in jede Rollenwahl ein.',
+  '- Rufe nach jedem terminalen Planlauf record_retro auf: kurzes Fazit plus konkrete Modell-Erkenntnisse',
+  '   (provider, model, strength/weakness, Einsicht wie "sehr stark bei UI-Aufgaben" oder "Code-Review besonders präzise").',
+  '- Halte Erkenntnisse ehrlich und spezifisch; sie machen künftige Orchestrierung messbar besser.',
+  '',
+  ...(options.benchmarkMode
+    ? [
+        'Auto-Benchmark-Modus (dieses Profil):',
+        '- Dieses Profil ist ein Benchmark-Profil: gib allen Slots DIESELBE Aufgabe statt sie aufzuteilen.',
+        '- Nutze run_benchmark(prompt, title); es startet die Aufgabe parallel auf jedem Slot in isolierten Worktrees.',
+        '- Poll get_benchmark_status(benchmarkId) bis alle Läufe terminal sind; Details je Lauf via get_task_status.',
+        '- Bewerte danach jedes Ergebnis fair (Korrektheit, Vollständigkeit, Tests, Stil, Dauer, Tokenverbrauch)',
+        '   und rufe record_benchmark mit Score 0-10, Verdict und Stärken/Schwächen je Teilnehmer auf.',
+        '- Fasse dem Nutzer die Rangliste mit Begründung zusammen; die Bewertung wird als Hintergrundwissen gespeichert.',
+        ''
+      ]
+    : []),
   'Rollen und Ausführung:',
   '- Rufe list_subagents() auf. Es liefert für jeden Slot ein Feld "role" (Provider, Modell,',
   '   Kapazität). Verwende für dispatch_subagent GENAU diese role-Werte — erfinde keine eigenen.',

@@ -38,7 +38,8 @@ import { resolveModel } from '@shared/models'
 import {
   isModelDisabled,
   normalizeDisabledModels,
-  normalizeProviderEnabled
+  normalizeProviderEnabled,
+  type AgentProviderId
 } from '@shared/providers'
 import { agentManager } from '@main/agents/AgentManager'
 import { PanePreflightError } from '@main/agents/panePreflight'
@@ -59,6 +60,25 @@ import {
 import { resolveExecutionPlan } from '@main/orchestrator/planner'
 import { Semaphore } from '@main/orchestrator/semaphore'
 import { securityChecklistForFiles } from '@main/integrations/securityGate'
+import {
+  benchmarkLearnings,
+  deriveHeuristicLearnings,
+  deriveModelStats,
+  summarizeRetro,
+  type BenchmarkRanking,
+  type BenchmarkRecord,
+  type BenchmarkRunStatus,
+  type LearningKind,
+  type ModelLearning,
+  type RunRetro
+} from '@shared/retro'
+import {
+  learningsForModel,
+  recordBenchmarkRecord,
+  recordModelLearnings,
+  recordRunRetro
+} from '@main/orchestrator/retroStore'
+import { captureTaskRecoveryArtifact } from '@main/orchestrator/recoveryArtifact'
 
 interface DispatchOptions {
   taskId?: string
@@ -72,10 +92,24 @@ interface DispatchOptions {
   planTaskId?: string
   attempt?: number
   maxAttempts?: number
+  /** Verified failed-worker worktree whose partial files may be resumed. */
+  recoveryWorktree?: string
   deferPublish?: boolean
 }
 
 const RESULT_PREVIEW = 160
+export function platformExecutionGuidance(
+  platform: NodeJS.Platform = process.platform
+): string[] {
+  if (platform !== 'win32') return []
+  return [
+    'Windows/PowerShell: Nutze pro Tool-Aufruf einen kurzen Einzelbefehl.',
+    "Windows/PowerShell: Nutze rg -g (z. B. rg -g '*.ts' Muster) statt Shell-Pfadglobs wie src/**/*.ts.",
+    "Windows/PowerShell: rg mit Exit-Code 1 und leerem stderr bedeutet 'keine Treffer', nicht Infrastrukturfehler.",
+    'Windows/PowerShell: Vereinfache nach Parser- oder Quotingfehlern den Aufruf; wiederhole ihn nicht unveraendert.'
+  ]
+}
+
 
 function initialReliability(): OrchestratorReliabilityMetrics {
   return {
@@ -109,6 +143,12 @@ export class OrchestratorEngine extends EventEmitter {
   private readonly reliability = initialReliability()
   private goalStartedAt?: number
   private taskSeq = 0
+  private benchSeq = 0
+  private lastRetro: RunRetro | undefined
+  private readonly benchmarkRuns = new Map<
+    string,
+    { benchmarkId: string; title: string; prompt: string; taskIds: string[]; startedAt: number }
+  >()
   private pendingPlan: PendingPlanReview | undefined
   private pendingPlanResolve: ((approved: boolean) => void) | undefined
   /** Per-role capacity limiter — count = max parallel subagents of that role. */
@@ -129,6 +169,7 @@ export class OrchestratorEngine extends EventEmitter {
       })
     }
     if (!restored || !Array.isArray(restored.tasks)) return
+    this.lastRetro = restored.lastRetro
     this.activity = restored.activity
       ? {
           phase: 'idle',
@@ -190,7 +231,8 @@ export class OrchestratorEngine extends EventEmitter {
         activeTasks: tasks.filter((task) => task.status === 'running').length,
         waitingTasks: tasks.filter((task) => task.status === 'queued').length
       },
-      pendingPlan: this.pendingPlan
+      pendingPlan: this.pendingPlan,
+      lastRetro: this.lastRetro
     }
   }
 
@@ -288,6 +330,8 @@ export class OrchestratorEngine extends EventEmitter {
     this.planRuns.clear()
     this.planRunResults.clear()
     this.planRunPlanIds.clear()
+    this.benchmarkRuns.clear()
+    this.lastRetro = undefined
     this.push()
   }
 
@@ -415,14 +459,25 @@ export class OrchestratorEngine extends EventEmitter {
       const preflight = typeof agentManager.latestPreflight === 'function'
         ? agentManager.latestPreflight(slot.provider, workingDir)
         : undefined
+      const model = resolveModel(slot.provider, slot)
+      // Knowledge accumulated from earlier retros/benchmarks; never allowed to
+      // break routing when the store is unavailable.
+      let learned: { strengths: string[]; weaknesses: string[] } = { strengths: [], weaknesses: [] }
+      try {
+        learned = learningsForModel(slot.provider, model)
+      } catch (error) {
+        console.warn('[Orchestrator] Modell-Lernwissen nicht lesbar', error)
+      }
       return {
         role,
         provider: slot.provider,
-        model: resolveModel(slot.provider, slot),
+        model,
         capacity: slot.count,
         busy: this.limiters.get(role)?.inUse ?? 0,
         strengths: capabilities.strengths,
         weaknesses: capabilities.weaknesses,
+        learnedStrengths: learned.strengths,
+        learnedWeaknesses: learned.weaknesses,
         available: preflight?.status !== 'failed',
         preflight
       }
@@ -542,6 +597,7 @@ export class OrchestratorEngine extends EventEmitter {
       '- Führe relevante Tests, Typecheck und Lint aus.',
       '- Führe kein git add, commit, cherry-pick oder push aus; Orcas Main-Prozess sichert Änderungen zentral.',
       '- Bei Infrastrukturblockern antworte strukturiert und knapp: Blocker, Alternativen, geplante Dateien, Schnittstellen.',
+      ...platformExecutionGuidance().map((item) => `- ${item}`),
       ...securityChecklist.map((item) => `- Security-Pflicht: ${item}`)
     ].join('\n')
     const taskPrompt = `${prompt}\n\n${executionContract}`
@@ -554,17 +610,31 @@ export class OrchestratorEngine extends EventEmitter {
     let activeAttempt: TaskAttemptSnapshot | undefined
     this.reliability.dispatchAttempts += 1
     let lastLifecyclePush = 0
+    const rememberAction = (): void => {
+      const action = task.lastAction?.trim()
+      if (!action || task.recentActions?.[0] === action) return
+      task.recentActions = [
+        action,
+        ...(task.recentActions ?? []).filter((entry) => entry !== action)
+      ].slice(0, 3)
+    }
     const onLifecycleEvent = (event: import('@main/agents/headless').HeadlessLifecycleEvent): void => {
       task.lastHeartbeatAt = event.timestamp
       if (event.type === 'phase') task.lastAction = `Worker-Phase: ${event.phase}`
       if (event.type === 'heartbeat') task.lastAction = `Worker aktiv · ${Math.round(event.idleMs / 1000)}s ohne Ausgabe`
       if (event.type === 'progress') task.lastAction = `Provider-Fortschritt: ${event.providerEvent}`
+      if (event.type === 'usage') task.usage = { ...event.usage }
       if (event.type === 'output') {
         const clean = stripAnsi(event.chunk).replace(/\s+/g, ' ').trim()
         if (clean) task.lastAction = clean.slice(-RESULT_PREVIEW)
         if (/\b(test|vitest|typecheck|lint|pytest|cargo test)\b/i.test(clean)) task.phase = 'testing'
         else if (/\b(git commit|committ(?:ing|ed)?)\b/i.test(clean)) task.phase = 'committing'
         else if (task.phase === 'starting') task.phase = 'working'
+      }
+      // Heartbeat idle counters churn every tick; only real activity belongs
+      // in the "what did the worker actually do" history.
+      if (event.type === 'phase' || event.type === 'progress' || event.type === 'output') {
+        rememberAction()
       }
       const force = event.type === 'heartbeat' || event.type === 'phase' || event.type === 'finished'
       if (force || event.timestamp - lastLifecyclePush >= 1_000) {
@@ -586,6 +656,7 @@ export class OrchestratorEngine extends EventEmitter {
         workingDir: slot.workingDir || profile?.workingDir,
         profileId: profile?.id,
         workspaceSessionId: this.workspaceSessionId,
+        recoveryWorktree: options.recoveryWorktree,
         engineId: this.engineId
       }, { onEvent: onLifecycleEvent, heartbeatIntervalMs: 45_000 })
       task.agentId = info.id
@@ -609,12 +680,36 @@ export class OrchestratorEngine extends EventEmitter {
       this.push()
 
       const result = await done
+      if (
+        result.costUsd != null ||
+        result.tokensIn != null ||
+        result.tokensOut != null ||
+        result.steps != null
+      ) {
+        task.usage = {
+          costUsd: result.costUsd,
+          tokensIn: result.tokensIn,
+          tokensOut: result.tokensOut,
+          steps: result.steps
+        }
+      }
       const wasCancelled = result.status === 'cancelled'
+      const infrastructureFailure =
+        result.failureKind === 'provider-auth' ||
+        result.failureKind === 'sandbox' ||
+        result.failureKind === 'stalled'
       task.status = wasCancelled ? 'stopped' : result.isError ? 'error' : 'success'
-      task.failureKind = wasCancelled ? 'cancelled' : result.isError ? 'worker' : undefined
+      task.failureKind = wasCancelled
+        ? 'cancelled'
+        : infrastructureFailure
+          ? 'infrastructure'
+          : result.isError ? 'worker' : undefined
       task.progress = task.status === 'success' ? 100 : undefined
       task.phase = task.status === 'success' ? 'completed' : task.phase
-      task.lastAction = wasCancelled ? 'Manuell gestoppt' : result.isError ? 'Worker fehlgeschlagen' : 'Worker abgeschlossen'
+      task.lastAction = wasCancelled
+        ? 'Manuell gestoppt'
+        : infrastructureFailure
+          ? 'Provider-Infrastruktur fehlgeschlagen' : result.isError ? 'Worker fehlgeschlagen' : 'Worker abgeschlossen'
       if (activeAttempt) {
         activeAttempt.status = task.status
         activeAttempt.failureKind = task.failureKind
@@ -626,6 +721,32 @@ export class OrchestratorEngine extends EventEmitter {
       const preview = result.result.replace(/\s+/g, ' ').trim().slice(0, RESULT_PREVIEW)
       task.note = result.isError ? 'Fehler bei der Ausführung' : preview
       task.worktree = info.worktree
+      if (infrastructureFailure) {
+        task.note = preview || 'Provider-Infrastruktur fehlgeschlagen'
+        task.blocker = {
+          kind: 'infrastructure',
+          code: `provider-${result.failureKind}`,
+          summary: task.note,
+          details: [result.result.trim().slice(0, 1_000)].filter(Boolean),
+          recoverable: true
+        }
+        this.reliability.infrastructureFailures += 1
+        const metricKey = `${slot.provider}:${process.platform}`
+        this.reliability.failuresByProviderAndPlatform[metricKey] =
+          (this.reliability.failuresByProviderAndPlatform[metricKey] ?? 0) + 1
+      }
+      if (result.isError && !wasCancelled) {
+        task.recoveryArtifact = await captureTaskRecoveryArtifact({
+          worktree: info.worktree,
+          baseCommit
+        })
+        if (task.recoveryArtifact) {
+          task.lastAction = 'Teilarbeit als Recovery-Artefakt gesichert'
+          task.note = `${task.note} · ${task.recoveryArtifact.changedFiles.length} Datei(en) quarantined`
+        }
+      } else {
+        task.recoveryArtifact = undefined
+      }
       const autoPr = profile?.autoPr
       if (!result.isError && !wasCancelled && autoPr) {
         task.phase = 'security-review'
@@ -700,8 +821,12 @@ export class OrchestratorEngine extends EventEmitter {
       const completion = task.completion?.kind === 'commit'
         ? `\n\nVerifizierter Commit: ${task.completion.commit}`
         : task.completion?.kind === 'no-changes' ? '\n\nVerifizierter Status: keine Änderungen' : ''
+      const recoveryArtifact = task.recoveryArtifact
+      const recovery = recoveryArtifact
+        ? `\n\nRecovery-Artefakt: ${recoveryArtifact.worktree}\nDateien: ${recoveryArtifact.changedFiles.join(', ')}`
+        : ''
       return result.isError
-        ? `${info.name} (${slotRole}) meldete einen Fehler. Ausgabe:\n${result.result}`
+        ? `${info.name} (${slotRole}) meldete einen Fehler. Ausgabe:\n${result.result}${recovery}`
         : `${info.name} (${slotRole}) meldet:\n${result.result || '(kein Textergebnis)'}${completion}`
     } catch (err) {
       task.status = 'error'
@@ -798,12 +923,19 @@ export class OrchestratorEngine extends EventEmitter {
       phase: task.phase,
       progress: task.progress,
       lastAction: task.lastAction,
+      recentActions: task.recentActions ? [...task.recentActions] : undefined,
       lastHeartbeatAt: task.lastHeartbeatAt,
+      usage: task.usage ? { ...task.usage } : undefined,
       completion: task.completion,
       findings: task.findings?.map((finding) => ({ ...finding, files: finding.files ? [...finding.files] : undefined })),
       blocker: task.blocker ? { ...task.blocker, details: [...task.blocker.details] } : undefined,
       failureKind: task.failureKind,
       preflight: task.preflight ? { ...task.preflight, checks: task.preflight.checks.map((check) => ({ ...check })) } : undefined,
+      recoveryArtifact: task.recoveryArtifact
+        ? {
+            ...task.recoveryArtifact,
+            changedFiles: [...task.recoveryArtifact.changedFiles]
+          } : undefined,
       attempts: task.attempts?.map((attempt) => ({ ...attempt })),
       result: task.status === 'success' || task.status === 'needs-work' || task.status === 'stopped'
         ? result ?? task.note
@@ -989,6 +1121,7 @@ export class OrchestratorEngine extends EventEmitter {
         const attemptedRoles = new Set<string>()
         let requestedRole = task.role
         let recoveryContext = ''
+        let recoveryWorktree: string | undefined
 
         for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
           attemptedRoles.add(requestedRole)
@@ -1009,7 +1142,8 @@ export class OrchestratorEngine extends EventEmitter {
               criticality: task.criticality,
               ownership: task.ownership,
               attempt: attempt + 1,
-              maxAttempts: maxRetries + 1
+              maxAttempts: maxRetries + 1,
+              recoveryWorktree
             }
           )
           this.taskResults.set(runtimeId, output)
@@ -1040,6 +1174,7 @@ export class OrchestratorEngine extends EventEmitter {
           }
 
           recoveryContext = output
+          recoveryWorktree = runtimeTask?.recoveryArtifact?.worktree
           const alternatives = this.listSubagents()
             .filter((agent) => agent.available && !attemptedRoles.has(agent.role))
             .sort((a, b) => (a.busy / a.capacity) - (b.busy / b.capacity))
@@ -1142,6 +1277,7 @@ export class OrchestratorEngine extends EventEmitter {
     const attentionTasks = [...requiredNeedsWork, ...requiredErrors, ...requiredStopped]
     this.reliability.completedPlans += 1
     if (planStatus !== 'success') this.reliability.preventedFalseSuccesses += 1
+    this.recordPlanRetro(planId, plan.goal, planStatus, planTasks)
     this.setActivityState(
       attentionTasks.length > 0 ? 'blocked' : 'summarizing',
       attentionTasks.length > 0
@@ -1289,6 +1425,217 @@ export class OrchestratorEngine extends EventEmitter {
     this.push()
   }
 
+
+  /**
+   * Automatic retrospective after every terminal plan run: aggregate per-model
+   * stats, derive conservative heuristic learnings, persist both and surface
+   * the retro on the snapshot. Must never be able to fail the plan itself.
+   */
+  private recordPlanRetro(
+    planId: string,
+    goal: string,
+    status: ExecutionPlanResult['status'],
+    planTasks: OrcaTask[]
+  ): void {
+    try {
+      const modelStats = deriveModelStats(planTasks)
+      if (modelStats.length === 0) return
+      const learnings = recordModelLearnings(
+        deriveHeuristicLearnings(modelStats, { profileId: this.boundProfile?.id })
+      )
+      const retro: RunRetro = {
+        id: `retro-${Date.now().toString(36)}-${planId}`,
+        profileId: this.boundProfile?.id,
+        workspaceSessionId: this.workspaceSessionId,
+        planId,
+        goal,
+        status,
+        summary: summarizeRetro(modelStats, status),
+        modelStats,
+        learnings,
+        createdAt: Date.now()
+      }
+      recordRunRetro(retro)
+      this.lastRetro = retro
+    } catch (error) {
+      console.warn('[Orchestrator] Automatische Retro fehlgeschlagen', error)
+    }
+  }
+
+  /**
+   * Qualitative retro recorded by the orchestrator itself (record_retro tool),
+   * e.g. "Modell X war sehr stark bei UI-Aufgaben". Learnings merge into the
+   * persistent store and attach to the current run's retro card.
+   */
+  recordOrchestratorRetro(input: {
+    summary: string
+    learnings: Array<{
+      provider: AgentProviderId
+      model: string
+      role?: string
+      kind: LearningKind
+      insight: string
+      evidence?: string
+    }>
+  }): { summary: string; storedLearnings: ModelLearning[] } {
+    const applied = recordModelLearnings(
+      input.learnings.map((learning) => ({
+        ...learning,
+        source: 'orchestrator' as const,
+        profileId: this.boundProfile?.id
+      }))
+    )
+    const summary = input.summary.replace(/\s+/g, ' ').trim().slice(0, 500)
+    if (this.lastRetro) {
+      const known = new Set(this.lastRetro.learnings.map((entry) => entry.id))
+      this.lastRetro = {
+        ...this.lastRetro,
+        summary: summary || this.lastRetro.summary,
+        learnings: [
+          ...this.lastRetro.learnings,
+          ...applied.filter((entry) => !known.has(entry.id))
+        ]
+      }
+      recordRunRetro(this.lastRetro)
+    } else {
+      this.lastRetro = {
+        id: `retro-${Date.now().toString(36)}-adhoc`,
+        profileId: this.boundProfile?.id,
+        workspaceSessionId: this.workspaceSessionId,
+        planId: 'ad-hoc',
+        goal: this.goal?.title ?? '',
+        summary: summary || 'Retro ohne Planlauf aufgezeichnet.',
+        modelStats: deriveModelStats([...this.tasks.values()]),
+        learnings: applied,
+        createdAt: Date.now()
+      }
+      recordRunRetro(this.lastRetro)
+    }
+    this.push()
+    return { summary: this.lastRetro.summary, storedLearnings: applied }
+  }
+
+  /**
+   * Auto-Benchmark: fan the SAME prompt out to every dispatchable slot. Each
+   * contestant runs in its own isolated worktree; results are polled like any
+   * other task and finally judged via recordBenchmark.
+   */
+  runBenchmarkAsync(prompt: string, title?: string): BenchmarkRunStatus {
+    const entries = this.slotsWithRoles()
+    if (entries.length === 0) {
+      throw new Error('Kein orchestrierbarer Slot für den Benchmark verfügbar.')
+    }
+    this.benchSeq += 1
+    const benchmarkId = `bench-${Date.now().toString(36)}-${this.benchSeq.toString(36)}`
+    const benchTitle = title?.trim() || prompt.split('\n')[0].slice(0, 48)
+    const tasks = entries.map(({ role }) =>
+      this.dispatchAsync(role, prompt, `Benchmark · ${benchTitle} · ${role}`)
+    )
+    this.benchmarkRuns.set(benchmarkId, {
+      benchmarkId,
+      title: benchTitle,
+      prompt,
+      taskIds: tasks.map((task) => task.taskId),
+      startedAt: Date.now()
+    })
+    this.setActivityState(
+      'delegating',
+      `Benchmark „${benchTitle}“: dieselbe Aufgabe läuft parallel auf ${tasks.length} Slot(s).`,
+      entries.slice(0, 4).map(({ slot, role }) => `${role}: ${slot.provider}/${resolveModel(slot.provider, slot) || 'Standard'}`),
+      'Alle Läufe bis zum Terminalstatus verfolgen und danach fair bewerten.'
+    )
+    this.push()
+    return { benchmarkId, title: benchTitle, status: 'running', tasks }
+  }
+
+  getBenchmarkStatus(benchmarkId: string): BenchmarkRunStatus | undefined {
+    const run = this.benchmarkRuns.get(benchmarkId)
+    if (!run) return undefined
+    const tasks: Array<TaskStatusSnapshot & { durationMs?: number }> = []
+    for (const taskId of run.taskIds) {
+      const status = this.getTaskStatus(taskId)
+      if (!status) continue
+      const task = this.tasks.get(taskId)
+      const durationMs = task?.finishedAt != null && task.finishedAt > task.createdAt
+        ? task.finishedAt - task.createdAt
+        : undefined
+      tasks.push({ ...status, durationMs })
+    }
+    const terminal = tasks.every(
+      (task) => task.status === 'success' || task.status === 'needs-work' ||
+        task.status === 'error' || task.status === 'stopped'
+    )
+    return {
+      benchmarkId,
+      title: run.title,
+      status: tasks.length > 0 && terminal ? 'completed' : 'running',
+      tasks
+    }
+  }
+
+  /**
+   * Persist the orchestrator's benchmark judgement and convert it into model
+   * learnings (background knowledge for future routing).
+   */
+  recordBenchmark(input: {
+    benchmarkId: string
+    task: string
+    summary: string
+    rankings: Array<Omit<BenchmarkRanking, 'strengths' | 'weaknesses'> & {
+      strengths?: string[]
+      weaknesses?: string[]
+    }>
+  }): BenchmarkRecord {
+    const run = this.benchmarkRuns.get(input.benchmarkId)
+    const resolveContestant = (role: string): OrcaTask | undefined => {
+      if (!run) return undefined
+      return run.taskIds
+        .map((taskId) => this.tasks.get(taskId))
+        .find((task) => task?.role === role)
+    }
+    const rankings: BenchmarkRanking[] = input.rankings.map((ranking) => {
+      const contestant = resolveContestant(ranking.role)
+      const tokens = contestant?.usage?.tokensIn != null || contestant?.usage?.tokensOut != null
+        ? (contestant?.usage?.tokensIn ?? 0) + (contestant?.usage?.tokensOut ?? 0)
+        : undefined
+      return {
+        ...ranking,
+        provider: ranking.provider ?? contestant?.provider,
+        model: ranking.model ?? contestant?.model,
+        strengths: ranking.strengths ?? [],
+        weaknesses: ranking.weaknesses ?? [],
+        durationMs: ranking.durationMs ?? (
+          contestant?.finishedAt && contestant.finishedAt > contestant.createdAt
+            ? contestant.finishedAt - contestant.createdAt
+            : undefined
+        ),
+        tokens: ranking.tokens ?? tokens
+      }
+    })
+    const record: BenchmarkRecord = {
+      id: `benchrec-${Date.now().toString(36)}`,
+      benchmarkId: input.benchmarkId,
+      profileId: this.boundProfile?.id,
+      task: input.task.replace(/\s+/g, ' ').trim().slice(0, 500),
+      summary: input.summary.replace(/\s+/g, ' ').trim().slice(0, 800),
+      rankings,
+      createdAt: Date.now()
+    }
+    recordBenchmarkRecord(record)
+    recordModelLearnings(benchmarkLearnings(record, rankings))
+    this.setActivityState(
+      'summarizing',
+      `Benchmark bewertet: ${record.summary}`.slice(0, 280),
+      rankings
+        .slice()
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 4)
+        .map((ranking) => `${ranking.role} (${ranking.provider ?? '?'}/${ranking.model || 'Standard'}): ${ranking.score}/10`),
+      'Rangliste und gespeicherte Erkenntnisse dem Nutzer berichten.'
+    )
+    this.push()
+    return record
+  }
 
   /** Start a complete DAG without keeping the MCP request open. */
   executePlanAsync(input: unknown): PlanRunStatusSnapshot {

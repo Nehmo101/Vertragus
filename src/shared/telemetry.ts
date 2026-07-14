@@ -1,4 +1,4 @@
-import type { AgentUsage } from './agents'
+import type { AgentMode, AgentUsage } from './agents'
 
 /** Availability of the metrics Orca-Strator can display for an agent/provider. */
 export type TelemetryStatus = 'absent' | 'partial' | 'present'
@@ -18,6 +18,28 @@ export const TELEMETRY_STATUS_LABELS: Record<Exclude<TelemetryStatus, 'present'>
 export const TELEMETRY_STATUS_TITLES: Record<Exclude<TelemetryStatus, 'present'>, string> = {
   absent: 'Dieser Provider liefert derzeit keine Telemetrie an Orca-Strator.',
   partial: 'Dieser Provider liefert nur einen Teil der Telemetrie an Orca-Strator.'
+}
+
+export interface TelemetryAbsence {
+  label: string
+  title: string
+}
+
+/**
+ * Explains why an agent shows no metrics. Interactive agents run a live TUI and
+ * never stream structured usage, so we say so plainly instead of implying the
+ * provider is broken — only dispatched (headless) tasks report tokens/cost.
+ */
+export function absentTelemetryNotice(mode: AgentMode): TelemetryAbsence {
+  if (mode === 'interactive') {
+    return {
+      label: 'Telemetrie nur für Tasks',
+      title:
+        'Interaktive Agents liefern keine strukturierte Nutzungstelemetrie an Orca-Strator. ' +
+        'Tokens und Kosten erscheinen nur bei vom Orchestrator dispatchten Tasks.'
+    }
+  }
+  return { label: TELEMETRY_STATUS_LABELS.absent, title: TELEMETRY_STATUS_TITLES.absent }
 }
 
 function metric(value: unknown): number | undefined {

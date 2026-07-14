@@ -121,6 +121,12 @@ const orca: OrcaApi = {
     onSnapshot: (cb) => subscribe<OrchestratorSnapshot>(IPC.evOrchestrator, cb)
   },
 
+  retro: {
+    listRetros: (profileId) => ipcRenderer.invoke(IPC.retroListRetros, profileId),
+    listLearnings: () => ipcRenderer.invoke(IPC.retroListLearnings),
+    listBenchmarks: (profileId) => ipcRenderer.invoke(IPC.retroListBenchmarks, profileId)
+  },
+
   win: {
     minimize: () => ipcRenderer.send(IPC.winMinimize),
     maximizeToggle: () => ipcRenderer.send(IPC.winMaximizeToggle),
