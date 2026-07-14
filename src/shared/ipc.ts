@@ -20,6 +20,7 @@ import type {
 } from './agents'
 import type { OrchestratorSnapshot, WorkspaceSessionSummary } from './orchestrator'
 import type { BenchmarkRecord, ModelLearning, RunRetro } from './retro'
+import type { RetroSyncStatus } from './retroSync'
 import type {
   AddArtifactInput,
   CreateIdeaInput,
@@ -112,6 +113,8 @@ export const IPC = {
   retroListRetros: 'retro:listRetros',
   retroListLearnings: 'retro:listLearnings',
   retroListBenchmarks: 'retro:listBenchmarks',
+  retroSyncStatus: 'retro:syncStatus',
+  retroSyncFlush: 'retro:syncFlush',
   // main -> renderer push channels
   evAgentData: 'ev:agentData',
   evAgentsChanged: 'ev:agentsChanged',
@@ -410,6 +413,10 @@ export interface OrcaApi {
     listLearnings(): Promise<ModelLearning[]>
     /** Scored benchmark records, newest first (optionally per profile). */
     listBenchmarks(profileId?: string): Promise<BenchmarkRecord[]>
+    /** Current retro-sync state: config, queue length, last export/error. */
+    syncStatus(): Promise<RetroSyncStatus>
+    /** Drain the export queue now; returns the resulting sync status. */
+    syncFlush(): Promise<RetroSyncStatus>
   }
 
   win: {

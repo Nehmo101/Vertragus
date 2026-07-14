@@ -78,6 +78,7 @@ import {
   recordModelLearnings,
   recordRunRetro
 } from '@main/orchestrator/retroStore'
+import { enqueueBenchmarkExport, enqueueRetroExport } from '@main/orchestrator/retroExport'
 import { captureTaskRecoveryArtifact } from '@main/orchestrator/recoveryArtifact'
 
 interface DispatchOptions {
@@ -1464,6 +1465,7 @@ export class OrchestratorEngine extends EventEmitter {
       }
       recordRunRetro(retro)
       this.lastRetro = retro
+      enqueueRetroExport(retro)
     } catch (error) {
       console.warn('[Orchestrator] Automatische Retro fehlgeschlagen', error)
     }
@@ -1504,6 +1506,7 @@ export class OrchestratorEngine extends EventEmitter {
         ]
       }
       recordRunRetro(this.lastRetro)
+      enqueueRetroExport(this.lastRetro)
     } else {
       this.lastRetro = {
         id: `retro-${Date.now().toString(36)}-adhoc`,
@@ -1517,6 +1520,7 @@ export class OrchestratorEngine extends EventEmitter {
         createdAt: Date.now()
       }
       recordRunRetro(this.lastRetro)
+      enqueueRetroExport(this.lastRetro)
     }
     this.push()
     return { summary: this.lastRetro.summary, storedLearnings: applied }
@@ -1629,6 +1633,7 @@ export class OrchestratorEngine extends EventEmitter {
       createdAt: Date.now()
     }
     recordBenchmarkRecord(record)
+    enqueueBenchmarkExport(record)
     recordModelLearnings(benchmarkLearnings(record, rankings))
     this.setActivityState(
       'summarizing',

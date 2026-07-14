@@ -41,6 +41,12 @@ app.whenReady().then(async () => {
   windows.createMainWindow()
   updater.initializeUpdater()
 
+  // Retro-Sync: drain queued retro exports on start + coarse retry interval.
+  if (!process.env['ORCA_UI_SMOKE']) {
+    const retroExport = await import('@main/orchestrator/retroExport')
+    retroExport.startRetroSyncScheduler()
+  }
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) windows.createMainWindow()
   })
