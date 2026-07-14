@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784065336109,
+  "exportedAt": 1784065412835,
   "app": {
     "name": "orca-strator",
     "version": "0.1.29-main.1.gcfaf136"
@@ -14,7 +14,7 @@
     "planId": "plan-mrl5hp3c-2",
     "goal": "macOS-Portierung finalisieren: das vollständige, aber quarantinierte Fallback-Ergebnis (Recovery-Artefakt in task-02) übernehmen, sicherheitshärten, um fehlende darwin-Punkte ergänzen und mit grünen Gates liefern.",
     "status": "success",
-    "summary": "Lauf erfolgreich: 1 Modell(e), 1/1 Tasks erfolgreich.",
+    "summary": "Ein-Task-Integrator-Plan (Recovery-Artefakt übernehmen + härten) lief fehlerfrei durch: Pippin lieferte die macOS-Portierung mit 425/425 Tests, Lint, Typecheck, Security-Gate grün und verifiziertem Commit 56a6242a. Muster „Fallback-Artefakt per Folgeplan adoptieren“ funktioniert zuverlässig.",
     "modelStats": [
       {
         "provider": "codex",
@@ -34,7 +34,36 @@
         "avgDurationMs": 1537765
       }
     ],
-    "learnings": [],
+    "learnings": [
+      {
+        "id": "learning-mrl6hepg-1-jjjrbm",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "main-orchestrator",
+        "kind": "strength",
+        "insight": "Exzellent als Integrator für Übernahme+Härtung fremder Artefakte: findet echte Schwächen (SHELL-Injection, PATH-Hijacking, PID-Reuse) und fixt sie mit Negativtests statt blind zu übernehmen",
+        "evidence": "Pippin ersetzte $SHELL durch Shell-Allowlist, ordnete Systempfade vor angereicherte PATH-Einträge, sicherte Prozessgruppen-Kill per Ownership-Check ab; 425/425 Tests, alle Gates grün, Commit 56a6242a",
+        "source": "orchestrator",
+        "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+        "observations": 1,
+        "createdAt": 1784065412788,
+        "updatedAt": 1784065412788
+      },
+      {
+        "id": "learning-mrl6hepg-2-n6fatg",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "main-orchestrator",
+        "kind": "strength",
+        "insight": "Security-Gate-Vertrag wird eingehalten, wenn der Prompt die Gate-Heuristik (process.env/fs-Muster + geforderte Negativtests) explizit auflistet",
+        "evidence": "Gleicher Task-Typ scheiterte zuvor ohne diese Prompt-Angaben (Beorn, error trotz grüner Gates); mit expliziten Vorgaben lief das Security-Gate grün durch (surfaces filesystem+secret, controls validation/path-traversal/secret-leak)",
+        "source": "orchestrator",
+        "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+        "observations": 1,
+        "createdAt": 1784065412788,
+        "updatedAt": 1784065412788
+      }
+    ],
     "createdAt": 1784065336083
   }
 }
