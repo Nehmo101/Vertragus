@@ -2,6 +2,14 @@
 # Their paths intentionally differ from pnpm's cached workspace state.
 verifyDepsBeforeRun: false
 
+# Universal macOS packages need both optional @lydell/node-pty binaries.
+supportedArchitectures:
+  os:
+    - current
+  cpu:
+    - x64
+    - arm64
+
 # pnpm reads build-script permissions from here.
 # These packages run install/build scripts (Electron binary download, esbuild).
 allowBuilds:

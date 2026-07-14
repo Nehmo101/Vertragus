@@ -82,12 +82,12 @@ export function initializeUpdater(): void {
   if (initialized) return
   initialized = true
 
-  if (!app.isPackaged || !['win32', 'linux'].includes(process.platform)) {
+  if (!app.isPackaged || !['win32', 'darwin', 'linux'].includes(process.platform)) {
     publish({
       status: 'unsupported',
       currentVersion: app.getVersion(),
       message: app.isPackaged
-        ? 'Self-Updates werden nur unter Windows und Linux unterstützt.'
+        ? 'Self-Updates werden auf dieser Plattform nicht unterstützt.'
         : 'Self-Updates sind nur in einer installierten App aktiv.'
     })
     return

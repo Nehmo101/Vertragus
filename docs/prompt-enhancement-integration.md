@@ -21,6 +21,13 @@ ohne eine Profilübergabe, Planung oder Agent-Ausführung zu starten. Die besteh
 - `src/main/inbox/promptEnhancementProvider.ts` nutzt vorhandene Provider-CLI-Sessions,
   Modellauflösung und Kapazitätsgates. Der Provider läuft ohne Yolo und ohne externe MCP-Argumente
   in einem leeren temporären Verzeichnis. Es gibt keine zweite API-Key-Verwaltung.
+- Das Zeitlimit ist fortschrittsbasiert: Ein Idle-Timeout (Standard 45 s) wird bei jedem
+  Provider-Fortschritt zurückgesetzt – sobald die Kapazitätswarteschlange frei wird und bei jeder
+  gestreamten Ausgabe. Wartezeit in der Warteschlange und ein langsam, aber stetig arbeitendes
+  Modell lösen so keinen Fehl-Timeout mehr aus. Ein absolutes Hard-Limit (Standard 180 s) beendet
+  eine dennoch nicht endende Ausführung. Die Modellantwort wird zusätzlich robust aus einem
+  eventuell umgebenden Vor-/Nachtext extrahiert (erstes ausbalanciertes JSON-Objekt), bevor die
+  strikte Schema-Prüfung greift; ansonsten bleibt der klar gekennzeichnete deterministische Fallback.
 
 Artefakte, Tags, Referenzen und eingegebener Text werden als `UNTRUSTED_SOURCE_DATA` markiert.
 Nur tatsächlich inspizierte Fakten tragen `evidence: "workspace-inspection"`. Eingabe-, Timeout-,

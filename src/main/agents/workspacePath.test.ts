@@ -16,6 +16,15 @@ afterEach(async () => {
 })
 
 describe('workspace path canonicalization', () => {
+  it('folds path case on default case-insensitive Windows and macOS filesystems', () => {
+    const mixedCase = join(process.cwd(), 'WorkspaceCase')
+    const lowerCase = mixedCase.toLowerCase()
+
+    expect(workspacePathKey(mixedCase, 'win32')).toBe(workspacePathKey(lowerCase, 'win32'))
+    expect(workspacePathKey(mixedCase, 'darwin')).toBe(workspacePathKey(lowerCase, 'darwin'))
+    expect(workspacePathKey(mixedCase, 'linux')).not.toBe(workspacePathKey(lowerCase, 'linux'))
+  })
+
   it('collapses symlink/junction aliases to one workspace identity', async () => {
     const root = await mkdtemp(join(tmpdir(), 'orca-path-'))
     roots.push(root)

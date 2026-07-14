@@ -1,6 +1,7 @@
 import { app, BrowserWindow } from 'electron'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { installEditMenu } from '@main/editMenu'
+import { refreshProcessPathFromSystem } from '@main/providers/processPath'
 
 const smokeUserData = process.env['ORCA_UI_SMOKE_DATA']
 if (process.env['ORCA_UI_SMOKE'] && smokeUserData) {
@@ -10,6 +11,9 @@ if (process.env['ORCA_UI_SMOKE'] && smokeUserData) {
 let stopAgents: () => Promise<void> = async () => undefined
 
 app.whenReady().then(async () => {
+  // Finder-launched macOS apps do not inherit the user's login-shell PATH.
+  // Refresh before any provider, Git or MCP process can be discovered/spawned.
+  await refreshProcessPathFromSystem()
   const [ipc, agents, mcp, windows, updater] = await Promise.all([
     import('@main/ipc/register'),
     import('@main/agents/AgentManager'),
@@ -40,6 +44,12 @@ app.whenReady().then(async () => {
   ipc.registerIpcHandlers()
   windows.createMainWindow()
   updater.initializeUpdater()
+
+  // Retro-Sync: drain queued retro exports on start + coarse retry interval.
+  if (!process.env['ORCA_UI_SMOKE']) {
+    const retroExport = await import('@main/orchestrator/retroExport')
+    retroExport.startRetroSyncScheduler()
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) windows.createMainWindow()

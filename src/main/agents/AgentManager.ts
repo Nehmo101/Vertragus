@@ -32,6 +32,7 @@ import {
 import { resolveModel, type ModelPreset } from '@shared/models'
 import { buildInteractiveLaunch } from '@main/providers/types'
 import { resolveLaunch } from '@main/agents/resolveCommand'
+import { terminateProcessTreeWithEscalation } from '@main/agents/processTermination'
 import { createWorktree, currentBranch, rollbackWorktree } from '@main/agents/worktree'
 import { canonicalWorkspacePath, workspacePathKey } from '@main/agents/workspacePath'
 import {
@@ -78,7 +79,7 @@ interface Managed {
   /** Provider slot held while running or after acquire for a waiting task. */
   capacityProvider?: AgentProviderId
   /** Set while a headless task waits for provider capacity. */
-  waitAbort?: { aborted: boolean }
+  waitAbort?: { aborted: boolean; onAbort?: () => void }
   /** Protect a team pane from automatic reuse after the user typed into it. */
   interactiveUsed?: boolean
   /** Cursor's startup trust confirmation was handled for an Orca worktree. */
@@ -213,6 +214,13 @@ export class AgentManager extends EventEmitter {
     if (!managed.capacityProvider) return
     providerCapacity.release(managed.capacityProvider)
     managed.capacityProvider = undefined
+  }
+
+  /** Abort a queued provider-capacity wait and wake the waiting runTask. */
+  private abortCapacityWait(managed: Managed): void {
+    if (!managed.waitAbort) return
+    managed.waitAbort.aborted = true
+    managed.waitAbort.onAbort?.()
   }
 
   private nextId(prefix: string): string {
@@ -399,44 +407,57 @@ export class AgentManager extends EventEmitter {
     const id = this.nextId(kind === 'orchestrator' ? 'orch' : 'sub')
     const name = this.names.allocate(kind)
     const yolo = req.yolo ?? false
-    const { workingDir, worktree, branch } = await this.prepareWorkingDir(
-      id,
-      req.workingDir,
-      req.isolateWorktree,
-      req.workspaceSessionId,
-      req.profileId
-    )
+    let workingDir: string
+    let worktree: string | undefined
+    let branch: string | undefined
+    let resolved: Awaited<ReturnType<typeof resolveLaunch>>
+    try {
+      const preparedDir = await this.prepareWorkingDir(
+        id,
+        req.workingDir,
+        req.isolateWorktree,
+        req.workspaceSessionId,
+        req.profileId
+      )
+      workingDir = preparedDir.workingDir
+      worktree = preparedDir.worktree
+      branch = preparedDir.branch
 
-    // Orchestrators get the Orca MCP server + orchestrator system prompt (which
-    // also merges in any orchestrator-scoped external MCP servers). Every other
-    // interactive agent gets its subagent-scoped external MCP servers attached
-    // so it can see and use them directly.
-    const orchestratorProfile = kind === 'orchestrator' && req.profileId
-      ? getProfile(req.profileId)
-      : undefined
-    const orchestratorSetup = kind === 'orchestrator'
-      ? buildOrchestratorSetup(req.provider, name, id, req.workspaceSessionId, {
-          adaptiveTeam: orchestratorProfile?.planner.routingMode === 'adaptive',
-          maxRetries: orchestratorProfile?.planner.maxRetries,
-          engineId: req.engineId,
-          benchmarkMode: orchestratorProfile?.benchmark?.enabled ?? false
-        })
-      : undefined
-    if (orchestratorSetup && !orchestratorSetup.capability.supported) {
+      // Orchestrators get the Orca MCP server + orchestrator system prompt (which
+      // also merges in any orchestrator-scoped external MCP servers). Every other
+      // interactive agent gets its subagent-scoped external MCP servers attached
+      // so it can see and use them directly.
+      const orchestratorProfile = kind === 'orchestrator' && req.profileId
+        ? getProfile(req.profileId)
+        : undefined
+      const orchestratorSetup = kind === 'orchestrator'
+        ? buildOrchestratorSetup(req.provider, name, id, req.workspaceSessionId, {
+            adaptiveTeam: orchestratorProfile?.planner.routingMode === 'adaptive',
+            maxRetries: orchestratorProfile?.planner.maxRetries,
+            engineId: req.engineId,
+            benchmarkMode: orchestratorProfile?.benchmark?.enabled ?? false
+          })
+        : undefined
+      if (orchestratorSetup && !orchestratorSetup.capability.supported) {
+        throw new Error(orchestratorSetup.capability.reason ?? `${req.provider} cannot orchestrate.`)
+      }
+      const extraArgs = orchestratorSetup
+        ? orchestratorSetup.extraArgs
+        : buildSubagentMcpArgs(req.provider, id)
+
+      const launch = buildInteractiveLaunch(req.provider, {
+        model: resolvedModel || undefined,
+        workingDir,
+        yolo,
+        extraArgs
+      })
+      resolved = await resolveLaunch(launch.command, launch.args)
+    } catch (err) {
+      // No Managed exists yet — release the held provider slot and name here.
       providerCapacity.release(req.provider)
-      throw new Error(orchestratorSetup.capability.reason ?? `${req.provider} cannot orchestrate.`)
+      this.names.release(name)
+      throw err
     }
-    const extraArgs = orchestratorSetup
-      ? orchestratorSetup.extraArgs
-      : buildSubagentMcpArgs(req.provider, id)
-
-    const launch = buildInteractiveLaunch(req.provider, {
-      model: resolvedModel || undefined,
-      workingDir,
-      yolo,
-      extraArgs
-    })
-    const resolved = await resolveLaunch(launch.command, launch.args)
 
     const info: AgentInstanceInfo = {
       id,
@@ -764,6 +785,47 @@ export class AgentManager extends EventEmitter {
     const active = managed
     const info = active.info
     const { id, name, workingDir } = info
+
+    // Enforce the user-configured provider gate for headless tasks: wait for a
+    // free slot instead of overshooting the limit ("interactive spawns fail
+    // when full; headless tasks wait"). A reused team pane already holds its
+    // provider slot from spawn() and skips the wait.
+    if (!active.capacityProvider) {
+      let wakeOnAbort!: () => void
+      const abortedEarly = new Promise<false>((resolve) => {
+        wakeOnAbort = () => resolve(false)
+      })
+      const waitAbort = { aborted: false, onAbort: wakeOnAbort }
+      active.waitAbort = waitAbort
+      const stats = providerCapacity.stats(req.provider)
+      if (stats.limit !== 0 && stats.active >= stats.limit) {
+        info.status = 'waiting'
+        this.pushData(
+          active,
+          `\x1b[90m… wartet auf freie ${req.provider}-Kapazität (Orca-Gate: ${stats.active}/${stats.limit} belegt)\x1b[0m\r\n`
+        )
+        this.changed()
+      }
+      const acquired = await Promise.race([
+        providerCapacity.acquireWait(req.provider, waitAbort),
+        abortedEarly
+      ])
+      active.waitAbort = undefined
+      if (!acquired) {
+        const cancelled: HeadlessResult = {
+          result: 'Task abgebrochen',
+          isError: true,
+          status: 'cancelled'
+        }
+        return { info, done: Promise.resolve(cancelled), baseCommit: undefined }
+      }
+      active.capacityProvider = req.provider
+      if (info.status === 'waiting') {
+        info.status = 'running'
+        this.changed()
+      }
+    }
+
     try {
       info.preflight = await this.preflightSlot({
         provider: req.provider,
@@ -774,6 +836,7 @@ export class AgentManager extends EventEmitter {
         workspaceSessionId: req.workspaceSessionId
       })
     } catch (error) {
+      this.releaseCapacity(active)
       info.preflight = error instanceof PanePreflightError ? error.report : undefined
       info.status = 'error'
       info.exitCode = 1
@@ -808,25 +871,45 @@ export class AgentManager extends EventEmitter {
         lifecycle?.onEvent(event)
       }
     }
-    const handle = runHeadless(
-      req.provider,
-      taskPrompt,
-      {
-        model: resolvedModel || undefined,
-        workingDir,
-        yolo: req.yolo,
-        systemPrompt,
-        extraArgs: buildSubagentMcpArgs(req.provider, id)
-      },
-      (chunk) => this.pushData(active, chunk),
-      taskLifecycle
-    )
+    let handle: HeadlessHandle
+    try {
+      handle = runHeadless(
+        req.provider,
+        taskPrompt,
+        {
+          model: resolvedModel || undefined,
+          workingDir,
+          yolo: req.yolo,
+          systemPrompt,
+          // The task scope attaches Orca's subagent tools (report_progress,
+          // post_finding, list_findings) alongside external MCP servers.
+          extraArgs: buildSubagentMcpArgs(req.provider, id, {
+            taskId: req.taskId,
+            engineId: req.engineId,
+            workspaceSessionId: req.workspaceSessionId
+          })
+        },
+        (chunk) => this.pushData(active, chunk),
+        taskLifecycle
+      )
+    } catch (error) {
+      this.releaseCapacity(active)
+      info.status = 'error'
+      info.exitCode = 1
+      const message = error instanceof Error ? error.message : String(error)
+      this.pushData(active, `\r\n\x1b[31mWorker-Start fehlgeschlagen: ${message}\x1b[0m\r\n`)
+      this.changed()
+      throw error
+    }
     active.headless = handle
     info.pid = handle.pid
     this.changed()
 
     const done = handle.done.then((result) => {
       active.headless = undefined
+      // The provider process is gone — free the gate slot even when the pane
+      // was already pruned or the task ran on a reused team pane.
+      this.releaseCapacity(active)
       if (this.agents.has(id)) {
         const failed =
           result.status === 'failed' ||
@@ -900,13 +983,30 @@ export class AgentManager extends EventEmitter {
     if (cols > 0 && rows > 0) this.agents.get(id)?.pty?.resize(cols, rows)
   }
 
-  private terminatePty(proc: pty.IPty): void {
-    if (process.platform === 'win32' && proc.pid) {
-      // Kill the whole tree — agent CLIs spawn children (shells, node, git).
-      execFile('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { windowsHide: true }, () => {})
-    } else {
-      proc.kill()
+  private terminatePty(
+    proc: pty.IPty,
+    isCurrentProcess: (expectedPid: number) => boolean = (pid) => proc.pid === pid
+  ): void {
+    const expectedPid = proc.pid
+    let exited = false
+    let cancelEscalation = (): void => undefined
+    let exitListener: { dispose(): void } | undefined
+    if (typeof proc.onExit === 'function') {
+      exitListener = proc.onExit(() => {
+        exited = true
+        cancelEscalation()
+        exitListener?.dispose()
+      })
     }
+    // POSIX forkpty children lead their own process group; Windows keeps taskkill /T /F.
+    cancelEscalation = terminateProcessTreeWithEscalation(
+      expectedPid,
+      (signal) => proc.kill(signal),
+      (pid) => !exited && isCurrentProcess(pid),
+      process.platform,
+      process.platform !== 'win32'
+    )
+    if (exited) cancelEscalation()
   }
 
   private terminate(managed: Managed): void {
@@ -914,7 +1014,10 @@ export class AgentManager extends EventEmitter {
       managed.headless.kill()
       return
     }
-    if (managed.pty) this.terminatePty(managed.pty)
+    if (managed.pty) {
+      const proc = managed.pty
+      this.terminatePty(proc, (pid) => managed.pty === proc && proc.pid === pid)
+    }
   }
 
   private isAlive(m: Managed): boolean {
@@ -926,7 +1029,7 @@ export class AgentManager extends EventEmitter {
     if (!managed) return
 
     if (managed.info.status === 'waiting' && !managed.headless) {
-      if (managed.waitAbort) managed.waitAbort.aborted = true
+      this.abortCapacityWait(managed)
       this.releaseCapacity(managed)
       this.agents.delete(id)
       this.names.release(managed.info.name)
@@ -951,7 +1054,7 @@ export class AgentManager extends EventEmitter {
     )
     for (const m of running) {
       if (m.info.status === 'waiting' && !m.headless) {
-        if (m.waitAbort) m.waitAbort.aborted = true
+        this.abortCapacityWait(m)
         this.releaseCapacity(m)
         m.info.status = 'stopped'
         continue
@@ -975,7 +1078,7 @@ export class AgentManager extends EventEmitter {
     const count = targets.length
     const rollbacks: Array<{ name: string; worktree: string; branch?: string }> = []
     for (const [id, managed] of targets) {
-      if (managed.waitAbort) managed.waitAbort.aborted = true
+      this.abortCapacityWait(managed)
       this.terminate(managed)
       this.clearCursorWorkspaceTrustRetry(managed)
       this.releaseCapacity(managed)
@@ -1029,6 +1132,7 @@ export class AgentManager extends EventEmitter {
   prune(id: string): void {
     const managed = this.agents.get(id)
     if (managed && !this.isAlive(managed)) {
+      this.releaseCapacity(managed)
       this.agents.delete(id)
       this.changed()
     }

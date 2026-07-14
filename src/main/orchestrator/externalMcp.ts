@@ -16,11 +16,19 @@ import {
   type McpServerConfig
 } from '@shared/mcp'
 import { listMcpServers } from '@main/config/store'
+import { getMcpHandle, SUBAGENT_ALLOWED_TOOLS } from '@main/orchestrator/mcpHandle'
 import {
   buildClaudeMcpArgs,
   buildCodexMcpArgs,
   type McpServerSpec
 } from '@main/orchestrator/mcpConfig'
+
+/** Task scope for the per-worker Orca subagent MCP session. */
+export interface SubagentMcpContext {
+  taskId?: string
+  engineId?: string
+  workspaceSessionId?: string
+}
 
 /** Turn a stored config into a launch spec, dropping empty optional fields. */
 function toSpec(config: McpServerConfig): McpServerSpec {
@@ -62,12 +70,51 @@ export function externalMcpSpecsFor(
 }
 
 /**
- * Extra CLI args that attach the external MCP servers scoped to a subagent
- * (interactive subwindow or headless dispatch). Returns `[]` for providers
- * without MCP support or when nothing is configured.
+ * The Orca subagent server (report_progress / post_finding / list_findings)
+ * scoped to one running task, or undefined when the Orca MCP server is not up
+ * or no task scope was provided.
  */
-export function buildSubagentMcpArgs(provider: AgentProviderId, agentId: string): string[] {
-  const servers = externalMcpSpecsFor('subagent', provider)
+function orcaSubagentSpec(context: SubagentMcpContext): McpServerSpec | undefined {
+  const base = getMcpHandle()?.subagentUrl
+  if (!base || !context.taskId) return undefined
+  const url = new URL(base)
+  url.searchParams.set('subagentTask', context.taskId)
+  if (context.workspaceSessionId) url.searchParams.set('workspaceSession', context.workspaceSessionId)
+  if (context.engineId) url.searchParams.set('engineId', context.engineId)
+  return {
+    name: 'orca-sub',
+    transport: 'http',
+    url: url.toString(),
+    allowedTools: [...SUBAGENT_ALLOWED_TOOLS]
+  }
+}
+
+/**
+ * True when a dispatched worker of this provider will get the Orca subagent
+ * tools attached — used to decide whether the execution contract should
+ * mention them.
+ */
+export function subagentOrcaToolsAvailable(provider: AgentProviderId): boolean {
+  return providerSupportsExternalMcp(provider) && Boolean(getMcpHandle()?.subagentUrl)
+}
+
+/**
+ * Extra CLI args that attach the external MCP servers scoped to a subagent
+ * (interactive subwindow or headless dispatch), plus — for headless tasks with
+ * a task scope — the Orca subagent report/finding tools. Returns `[]` for
+ * providers without MCP support or when nothing is configured.
+ */
+export function buildSubagentMcpArgs(
+  provider: AgentProviderId,
+  agentId: string,
+  context: SubagentMcpContext = {}
+): string[] {
+  if (!providerSupportsExternalMcp(provider)) return []
+  const orcaSub = orcaSubagentSpec(context)
+  const servers = [
+    ...(orcaSub ? [orcaSub] : []),
+    ...externalMcpSpecsFor('subagent', provider)
+  ]
   if (servers.length === 0) return []
   if (provider === 'claude') {
     // strict=false so the subagent keeps its own personal .mcp.json servers too.

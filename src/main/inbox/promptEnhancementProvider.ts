@@ -57,6 +57,9 @@ export function createHeadlessPromptEnhancementExecutor(
       if (!capacityHeld || request.signal.aborted) {
         throw new Error('Prompt-Verbesserung abgebrochen.')
       }
+      // Queue waiting is done: give the actual inference a fresh idle budget so a
+      // busy capacity gate can no longer be mistaken for a provider hang.
+      request.onActivity?.()
       // A disposable empty CWD prevents an editing-capable agent CLI from reading
       // or mutating the linked repository during this text-only operation.
       const temporaryRoot = tmpdir()
@@ -72,7 +75,9 @@ export function createHeadlessPromptEnhancementExecutor(
           systemPrompt: request.systemPrompt,
           extraArgs: []
         },
-        () => undefined
+        // Each streamed line is progress; reset the caller's idle timeout so a
+        // slow-but-advancing model is not aborted mid-generation.
+        () => request.onActivity?.()
       )
       const result = await handle.done
       if (result.status === 'cancelled' || request.signal.aborted) {

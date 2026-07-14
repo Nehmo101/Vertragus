@@ -69,6 +69,7 @@ describe('asynchronous orchestration API', () => {
     expect(guidance).toContain("rg -g")
     expect(guidance).toContain('Exit-Code 1')
     expect(guidance).toContain('Quotingfehlern')
+    expect(platformExecutionGuidance('darwin').join('\n')).toMatch(/zsh.*BSD/i)
     expect(platformExecutionGuidance('linux')).toEqual([])
   })
 

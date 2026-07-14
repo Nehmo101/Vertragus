@@ -15,6 +15,11 @@ import { buildHeadlessLaunch, type HeadlessOpts } from '@main/providers/types'
 import { resolveLaunch } from '@main/agents/resolveCommand'
 import { runOllamaChat } from '@main/agents/ollamaHeadless'
 import {
+  PROCESS_TERMINATION_GRACE_MS,
+  shouldCreateProcessGroup,
+  terminateProcessTreeWithEscalation
+} from '@main/agents/processTermination'
+import {
   CODEX_RUNTIME_DIR_NAME,
   codexSingleRootEnvironment,
   codexSingleRootSandboxArgs
@@ -107,7 +112,6 @@ export interface HeadlessUsageSnapshot {
   steps?: number
 }
 
-const DEFAULT_STOP_GRACE_MS = 5_000
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 45_000
 const DEFAULT_STALL_TIMEOUT_MS = 15 * 60_000
 const STALL_CHECK_INTERVAL_MS = 30_000
@@ -472,6 +476,8 @@ export function runHeadless(
   let settled = false
   let stopStatus: Extract<HeadlessStatus, 'cancelled'> | undefined
   let stopFallback: NodeJS.Timeout | undefined
+  let cancelTerminationEscalation: (() => void) | undefined
+  let childExited = false
   let stallWatchdog: NodeJS.Timeout | undefined
   let lastMeaningfulProgressAt = Date.now()
   let fatalFailure:
@@ -486,6 +492,7 @@ export function runHeadless(
 
   const cleanup = (): void => {
     if (stopFallback) clearTimeout(stopFallback)
+    cancelTerminationEscalation?.()
     if (stallWatchdog) clearInterval(stallWatchdog)
     if (tmpDir) { rmSync(tmpDir, { recursive: true, force: true }); tmpDir = undefined }
     if (runtimeRoot) {
@@ -515,11 +522,17 @@ export function runHeadless(
   }
   const stoppedText = (): string => 'Task abgebrochen'
   const terminateChild = (): void => {
-    if (!child) return
-    if (process.platform === 'win32' && child.pid) {
-      const killer = spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' })
-      killer.on('error', () => child?.kill())
-    } else child.kill('SIGTERM')
+    const target = child
+    if (!target) return
+    cancelTerminationEscalation?.()
+    const ownsProcessGroup = shouldCreateProcessGroup()
+    cancelTerminationEscalation = terminateProcessTreeWithEscalation(
+      target.pid,
+      (signal) => target.kill(signal),
+      (expectedPid) => child === target && !childExited && target.pid === expectedPid,
+      process.platform,
+      ownsProcessGroup
+    )
   }
   const requestFailure = (failure: {
     kind: Exclude<HeadlessFailureKind, 'provider'>
@@ -538,7 +551,7 @@ export function runHeadless(
     terminateChild()
     stopFallback = setTimeout(() => {
       finish('failed', failure.message, failure.message, failure.kind)
-    }, DEFAULT_STOP_GRACE_MS)
+    }, PROCESS_TERMINATION_GRACE_MS)
     stopFallback.unref()
   }
   const startStallWatchdog = (): void => {
@@ -567,7 +580,7 @@ export function runHeadless(
     stopFallback = setTimeout(() => {
       emitLine(line(C.yellow, 'Task gestoppt'))
       finish(stopStatus!, stoppedText())
-    }, DEFAULT_STOP_GRACE_MS)
+    }, PROCESS_TERMINATION_GRACE_MS)
     stopFallback.unref()
   }
   const handleLine = (raw: string): void => {
@@ -615,7 +628,14 @@ export function runHeadless(
         const env = id === 'codex' && tmpDir && process.platform === 'win32' && !opts.yolo
           ? codexSingleRootEnvironment(tmpDir)
           : { ...process.env }
-        child = spawn(resolved.file, resolved.args, { cwd: opts.workingDir, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
+        child = spawn(resolved.file, resolved.args, {
+          cwd: opts.workingDir,
+          env,
+          detached: shouldCreateProcessGroup(),
+          windowsHide: true,
+          stdio: ['ignore', 'pipe', 'pipe']
+        })
+        childExited = false
         currentPid = child.pid
         lifecycle.phase('running')
         startStallWatchdog()
@@ -643,6 +663,11 @@ export function runHeadless(
         }
         if (stopStatus) { finish(stopStatus, stoppedText()); return }
         emitLine(line(C.red, `Spawn fehlgeschlagen: ${message}`)); finish('failed', message, message, 'provider')
+      })
+      child.once('exit', () => {
+        childExited = true
+        cancelTerminationEscalation?.()
+        cancelTerminationEscalation = undefined
       })
       child.on('close', (code) => {
         if (settled) return

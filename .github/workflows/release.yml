@@ -26,7 +26,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: [windows-latest, macos-latest, ubuntu-latest]
 
     steps:
       - uses: actions/checkout@v4
@@ -56,6 +56,15 @@ jobs:
             ~\AppData\Local\electron-builder\Cache
           key: electron-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
+      - name: Cache Electron binaries
+        if: runner.os == 'macOS'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+          key: electron-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -75,8 +84,27 @@ jobs:
             const shortSha = context.sha.slice(0, 7)
             core.setOutput('version', `${major}.${minor}.${patch}-main.${attempt}.g${shortSha}`)
 
+      - name: Detect complete macOS signing credentials
+        if: runner.os == 'macOS' && github.event_name == 'push'
+        id: mac-signing
+        shell: bash
+        env:
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [[ -n "$MAC_CSC_LINK" && -n "$MAC_CSC_KEY_PASSWORD" && -n "$APPLE_ID" && -n "$APPLE_APP_SPECIFIC_PASSWORD" && -n "$APPLE_TEAM_ID" ]]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Package and publish main update
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: >-
+          github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+          (runner.os != 'macOS' || steps.mac-signing.outputs.ready == 'true')
         run: >-
           pnpm exec electron-builder
           --config electron-builder.main.yml
@@ -84,20 +112,56 @@ jobs:
           --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          CSC_LINK: ${{ runner.os == 'Windows' && secrets.WIN_CSC_LINK || runner.os == 'macOS' && secrets.MAC_CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ runner.os == 'Windows' && secrets.WIN_CSC_KEY_PASSWORD || runner.os == 'macOS' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
+          APPLE_ID: ${{ runner.os == 'macOS' && secrets.APPLE_ID || '' }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ runner.os == 'macOS' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ runner.os == 'macOS' && secrets.APPLE_TEAM_ID || '' }}
+
+      - name: Package and publish unsigned macOS main update
+        if: >-
+          github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+          runner.os == 'macOS' && steps.mac-signing.outputs.ready != 'true'
+        run: >-
+          pnpm exec electron-builder
+          --config electron-builder.main.yml
+          --config.extraMetadata.version=${{ steps.main-version.outputs.version }}
+          --config.mac.notarize=false
+          --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
       - name: Package and publish tagged release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: >-
+          startsWith(github.ref, 'refs/tags/') &&
+          (runner.os != 'macOS' || steps.mac-signing.outputs.ready == 'true')
         run: pnpm exec electron-builder --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          CSC_LINK: ${{ runner.os == 'Windows' && secrets.WIN_CSC_LINK || runner.os == 'macOS' && secrets.MAC_CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ runner.os == 'Windows' && secrets.WIN_CSC_KEY_PASSWORD || runner.os == 'macOS' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
+          APPLE_ID: ${{ runner.os == 'macOS' && secrets.APPLE_ID || '' }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ runner.os == 'macOS' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ runner.os == 'macOS' && secrets.APPLE_TEAM_ID || '' }}
+
+      - name: Package and publish unsigned tagged macOS release
+        if: >-
+          startsWith(github.ref, 'refs/tags/') && runner.os == 'macOS' &&
+          steps.mac-signing.outputs.ready != 'true'
+        run: >-
+          pnpm exec electron-builder
+          --config.mac.notarize=false
+          --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
       - name: Package installers for manual run
         if: github.event_name == 'workflow_dispatch'
         run: pnpm exec electron-builder --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ runner.os == 'macOS' && 'false' || '' }}
 
       - name: Upload installer artifacts
         uses: actions/upload-artifact@v4
@@ -105,6 +169,8 @@ jobs:
           name: orca-strator-${{ matrix.os }}
           path: |
             release/**/*.exe
+            release/**/*.dmg
+            release/**/*.zip
             release/**/*.AppImage
             release/**/*.deb
             release/**/*.yml
@@ -120,5 +186,7 @@ jobs:
         with:
           subject-path: |
             release/**/*.exe
+            release/**/*.dmg
+            release/**/*.zip
             release/**/*.AppImage
             release/**/*.deb
