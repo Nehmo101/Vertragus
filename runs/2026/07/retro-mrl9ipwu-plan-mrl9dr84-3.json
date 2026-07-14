@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784070512838,
+  "exportedAt": 1784070557234,
   "app": {
     "name": "orca-strator",
     "version": "0.1.29-main.1.gcfaf136"
@@ -14,7 +14,7 @@
     "planId": "plan-mrl9dr84-3",
     "goal": "Sicher prüfen und vorbereiten, ob die Theme-Importmigration zielbezogen committed und direkt nach `dev` gepusht werden kann; nur die exakten Importänderungen dürfen in Scope sein.",
     "status": "success",
-    "summary": "Lauf erfolgreich: 1 Modell(e), 1/1 Tasks erfolgreich.",
+    "summary": "Der Publish-Preflight war fachlich erfolgreich und verhinderte einen falschen Direkt-Push: keine zielbezogenen Änderungen, HEAD nicht voraus und Branchname vermutlich `DEV` statt `dev`.",
     "modelStats": [
       {
         "provider": "codex",
@@ -34,7 +34,22 @@
         "avgDurationMs": 231139
       }
     ],
-    "learnings": [],
+    "learnings": [
+      {
+        "id": "learning-mrl9jo5c-1-o72tbm",
+        "provider": "codex",
+        "model": "unknown",
+        "role": "worker",
+        "kind": "strength",
+        "insight": "Sehr gründlich bei Git-Publish-Preflights: prüft Scope, Branch-Casing, Divergenz, Authentifizierung und Gates, ohne verbotene Git-Mutationen auszuführen.",
+        "evidence": "Merry belegte sauberen Worktree, 0 Importtreffer, `origin/DEV...HEAD` = 1/0, ungültige gh-Auth sowie grüne Lint-/Typecheck-Gates; Orca lieferte keinen Modellnamen.",
+        "source": "orchestrator",
+        "profileId": "profile-mri86faq",
+        "observations": 1,
+        "createdAt": 1784070557184,
+        "updatedAt": 1784070557184
+      }
+    ],
     "createdAt": 1784070512814
   }
 }
