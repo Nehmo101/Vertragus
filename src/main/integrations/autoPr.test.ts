@@ -108,4 +108,60 @@ describe('autoPr safety helpers', () => {
     expect(outcome.status).toBe('unavailable')
     expect(outcome.message).toMatch(/Authentifizierung/)
   })
+
+  it('bootstraps a fresh integration worktree before running its quality gates', async () => {
+    const calls: string[] = []
+    const bootstrap = vi.fn(async () => {
+      calls.push('bootstrap')
+      return { status: 'linked' as const, detail: 'shared dependencies linked' }
+    })
+    const runGates = vi.fn(async () => {
+      calls.push('gates')
+    })
+    const repositoryRoot = 'C:\\repo'
+    const integrationPath = 'C:\\repo\\.orca-worktrees\\integration\\orca-goal'
+
+    await autoPrInternals.runIntegrationQualityGates(
+      repositoryRoot,
+      integrationPath,
+      ['corepack pnpm lint'],
+      { bootstrap, runGates }
+    )
+
+    expect(calls).toEqual(['bootstrap', 'gates'])
+    expect(bootstrap).toHaveBeenCalledWith(repositoryRoot, integrationPath)
+    expect(runGates).toHaveBeenCalledWith(integrationPath, ['corepack pnpm lint'])
+  })
+
+  it('reports dependency bootstrap failures clearly and skips integration gates', async () => {
+    const runGates = vi.fn(async () => undefined)
+
+    await expect(autoPrInternals.runIntegrationQualityGates(
+      'C:\\repo',
+      'C:\\repo\\.orca-worktrees\\integration\\orca-goal',
+      ['corepack pnpm lint'],
+      {
+        bootstrap: vi.fn(async () => {
+          throw new Error('Junction konnte nicht erstellt werden')
+        }),
+        runGates
+      }
+    )).rejects.toThrow(
+      /Quality Gate fehlgeschlagen: Dependency-Bootstrap[\s\S]*Integration-Worktree[\s\S]*Junction konnte nicht erstellt werden/
+    )
+    expect(runGates).not.toHaveBeenCalled()
+  })
+
+  it('adds the target worktree local binaries to the gate shell PATH', () => {
+    expect(autoPrInternals.qualityGateShellCommand(
+      "C:\\repo's copy",
+      'eslint .',
+      'win32'
+    )).toBe("& { $env:PATH = 'C:\\repo''s copy\\node_modules\\.bin;' + $env:PATH; eslint . }")
+    expect(autoPrInternals.qualityGateShellCommand(
+      "/repo's copy",
+      'eslint .',
+      'linux'
+    )).toBe("export PATH='/repo'\"'\"'s copy/node_modules/.bin':\"$PATH\"; eslint .")
+  })
 })

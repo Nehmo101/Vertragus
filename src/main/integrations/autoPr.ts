@@ -1,7 +1,8 @@
 import { exec, execFile } from 'node:child_process'
 import { mkdir } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, posix, win32 } from 'node:path'
 import { promisify } from 'node:util'
+import { ensureWorktreeDependencies } from '@main/agents/dependencyBootstrap'
 import type { AutoPrConfig } from '@shared/profile'
 import type { RemoteCiStatus, TaskGateFinding } from '@shared/orchestrator'
 import { noTaskChanges, verifiedTaskCommit } from './commitContract'
@@ -167,10 +168,23 @@ function assertDiffLooksSafe(diff: string): void {
   assertSecurityGate(diff)
 }
 
+function qualityGateShellCommand(
+  cwd: string,
+  command: string,
+  platform: NodeJS.Platform = process.platform
+): string {
+  if (platform === 'win32') {
+    const localBin = win32.join(cwd, 'node_modules', '.bin').replace(/'/g, "''")
+    return `& { $env:PATH = '${localBin};' + $env:PATH; ${command} }`
+  }
+  const localBin = posix.join(cwd, 'node_modules', '.bin').replace(/'/g, "'\"'\"'")
+  return `export PATH='${localBin}':"$PATH"; ${command}`
+}
+
 async function runQualityGates(cwd: string, gates: string[]): Promise<void> {
   for (const command of gates) {
     try {
-      await execAsync(command, {
+      await execAsync(qualityGateShellCommand(cwd, command), {
         cwd,
         windowsHide: true,
         timeout: 15 * 60_000,
@@ -182,6 +196,32 @@ async function runQualityGates(cwd: string, gates: string[]): Promise<void> {
       throw new QualityGateError(command, detail)
     }
   }
+}
+
+interface IntegrationQualityGateDeps {
+  bootstrap(repositoryRoot: string, workingDir: string): Promise<unknown>
+  runGates(cwd: string, gates: string[]): Promise<void>
+}
+
+async function runIntegrationQualityGates(
+  repositoryRoot: string,
+  integrationPath: string,
+  gates: string[],
+  deps: IntegrationQualityGateDeps = {
+    bootstrap: ensureWorktreeDependencies,
+    runGates: runQualityGates
+  }
+): Promise<void> {
+  try {
+    await deps.bootstrap(repositoryRoot, integrationPath)
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    throw new QualityGateError(
+      'Dependency-Bootstrap',
+      `Dependencies für den Integration-Worktree konnten nicht bereitgestellt werden: ${detail}`
+    )
+  }
+  await deps.runGates(integrationPath, gates)
 }
 
 export type PrepareTaskResult = AutoPrOutcome & {
@@ -758,7 +798,7 @@ async function publishAggregate(input: PublishInput): Promise<AutoPrOutcome> {
     }
     const integratedDiff = await git(integrationPath, ['diff', '--no-ext-diff', '--binary', `origin/${base}...HEAD`])
     assertSecurityGate(integratedDiff)
-    await runQualityGates(integrationPath, input.config.qualityGates)
+    await runIntegrationQualityGates(root, integrationPath, input.config.qualityGates)
     const body = [
       `Automatisch integriert von Orca-Strator für **${input.goalTitle}**.`,
       '',
@@ -825,5 +865,7 @@ export const autoPrInternals = {
   parseRemoteChecks,
   remoteCiFromChecks,
   combineRemoteCi,
-  monitorRemoteCi
+  monitorRemoteCi,
+  qualityGateShellCommand,
+  runIntegrationQualityGates
 }
