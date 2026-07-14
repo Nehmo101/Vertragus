@@ -66,11 +66,6 @@ export type HeadlessLifecycleEvent =
     })
   | (HeadlessLifecycleEventBase & { type: 'usage' } & HeadlessUsageSnapshot)
   | (HeadlessLifecycleEventBase & {
-      type: 'usage'
-      /** Latest provider-reported totals (tokens/cost/steps) for live display. */
-      usage: { costUsd?: number; tokensIn?: number; tokensOut?: number; steps?: number }
-    })
-  | (HeadlessLifecycleEventBase & {
       type: 'finished'
       status: HeadlessStatus
       result: HeadlessResult

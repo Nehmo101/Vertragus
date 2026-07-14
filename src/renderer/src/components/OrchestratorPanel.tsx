@@ -17,7 +17,7 @@ import {
 import type { OrcaTask, TaskStatus } from '@shared/orchestrator'
 import { resolveModel } from '@shared/models'
 import type { AgentUsage } from '@shared/agents'
-import { summarizeUsage, TELEMETRY_STATUS_LABELS, TELEMETRY_STATUS_TITLES } from '@shared/telemetry'
+import { summarizeUsage, summarizeUsageGroup, TELEMETRY_STATUS_LABELS, TELEMETRY_STATUS_TITLES } from '@shared/telemetry'
 import { formatTokenBreakdown, formatTokenCount, formatUsd } from '@renderer/telemetryFormat'
 
 const STALE_HEARTBEAT_MS = 90_000

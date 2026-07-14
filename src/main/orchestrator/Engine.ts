@@ -623,7 +623,14 @@ export class OrchestratorEngine extends EventEmitter {
       if (event.type === 'phase') task.lastAction = `Worker-Phase: ${event.phase}`
       if (event.type === 'heartbeat') task.lastAction = `Worker aktiv · ${Math.round(event.idleMs / 1000)}s ohne Ausgabe`
       if (event.type === 'progress') task.lastAction = `Provider-Fortschritt: ${event.providerEvent}`
-      if (event.type === 'usage') task.usage = { ...event.usage }
+      if (event.type === 'usage') {
+        task.usage = {
+          costUsd: event.costUsd,
+          tokensIn: event.tokensIn,
+          tokensOut: event.tokensOut,
+          steps: event.steps
+        }
+      }
       if (event.type === 'output') {
         const clean = stripAnsi(event.chunk).replace(/\s+/g, ' ').trim()
         if (clean) task.lastAction = clean.slice(-RESULT_PREVIEW)
