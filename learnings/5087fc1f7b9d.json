@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784070254478,
+  "exportedAt": 1784070558829,
   "app": {
     "name": "orca-strator",
     "version": "0.1.29-main.1.gcfaf136"
@@ -8,6 +8,20 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrl9jo5c-1-o72tbm",
+      "provider": "codex",
+      "model": "unknown",
+      "role": "worker",
+      "kind": "strength",
+      "insight": "Sehr gründlich bei Git-Publish-Preflights: prüft Scope, Branch-Casing, Divergenz, Authentifizierung und Gates, ohne verbotene Git-Mutationen auszuführen.",
+      "evidence": "Merry belegte sauberen Worktree, 0 Importtreffer, `origin/DEV...HEAD` = 1/0, ungültige gh-Auth sowie grüne Lint-/Typecheck-Gates; Orca lieferte keinen Modellnamen.",
+      "source": "orchestrator",
+      "profileId": "profile-mri86faq",
+      "observations": 1,
+      "createdAt": 1784070557184,
+      "updatedAt": 1784070557184
+    },
     {
       "id": "learning-mrl9d4go-1-z8q3se",
       "provider": "codex",
