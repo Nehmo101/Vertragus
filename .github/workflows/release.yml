@@ -10,13 +10,19 @@ on:
 
 permissions:
   contents: write
-  id-token: write
-  attestations: write
+
+# Läufe pro Ref serialisieren statt abbrechen: ein abgebrochener Publish
+# könnte ein halb hochgeladenes Release hinterlassen, und der jeweils
+# neueste main-Stand soll auch als letztes Prerelease erscheinen.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   release:
     name: build installers (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -29,8 +35,26 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22.13
+          node-version: '22.13'
           cache: pnpm
+
+      - name: Cache Electron binaries
+        if: runner.os == 'Linux'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: electron-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Cache Electron binaries
+        if: runner.os == 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~\AppData\Local\electron\Cache
+            ~\AppData\Local\electron-builder\Cache
+          key: electron-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -48,7 +72,8 @@ jobs:
             const [major, minor, rawPatch] = pkg.version.split('.')
             const patch = Number(rawPatch.split('-')[0]) + Number(process.env.GITHUB_RUN_NUMBER)
             const attempt = process.env.GITHUB_RUN_ATTEMPT || '1'
-            core.setOutput('version', `${major}.${minor}.${patch}-main.${attempt}`)
+            const shortSha = context.sha.slice(0, 7)
+            core.setOutput('version', `${major}.${minor}.${patch}-main.${attempt}.g${shortSha}`)
 
       - name: Package and publish main update
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -84,10 +109,13 @@ jobs:
             release/**/*.deb
             release/**/*.yml
             release/**/*.blockmap
-          if-no-files-found: warn
+          if-no-files-found: error
 
       - name: Attest installer provenance
-        if: false # disabled: attestations require a public repo or org-owned private repo
+        # disabled: attestations require a public repo or org-owned private repo.
+        # Beim Reaktivieren oben wieder `id-token: write` und
+        # `attestations: write` zu den permissions hinzufügen.
+        if: false
         uses: actions/attest@v4
         with:
           subject-path: |
