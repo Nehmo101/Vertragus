@@ -61,10 +61,8 @@ import { resolveExecutionPlan } from '@main/orchestrator/planner'
 import { Semaphore } from '@main/orchestrator/semaphore'
 import { securityChecklistForFiles } from '@main/integrations/securityGate'
 import {
+  analyzeRunRetro,
   benchmarkLearnings,
-  deriveHeuristicLearnings,
-  deriveModelStats,
-  summarizeRetro,
   type BenchmarkRanking,
   type BenchmarkRecord,
   type BenchmarkRunStatus,
@@ -1305,7 +1303,7 @@ export class OrchestratorEngine extends EventEmitter {
     const attentionTasks = [...requiredNeedsWork, ...requiredErrors, ...requiredStopped]
     this.reliability.completedPlans += 1
     if (planStatus !== 'success') this.reliability.preventedFalseSuccesses += 1
-    this.recordPlanRetro(planId, plan.goal, planStatus, planTasks)
+    const retro = this.recordPlanRetro(planId, plan.goal, planStatus, planTasks)
     this.setActivityState(
       attentionTasks.length > 0 ? 'blocked' : 'summarizing',
       attentionTasks.length > 0
@@ -1323,6 +1321,7 @@ export class OrchestratorEngine extends EventEmitter {
       status: planStatus,
       usedFallback: resolved.usedFallback,
       validationIssues: resolved.issues,
+      retro,
       tasks: plan.tasks.map(
         (task) =>
           results.get(task.id) ?? {
@@ -1464,13 +1463,15 @@ export class OrchestratorEngine extends EventEmitter {
     goal: string,
     status: ExecutionPlanResult['status'],
     planTasks: OrcaTask[]
-  ): void {
+  ): RunRetro | undefined {
     try {
-      const modelStats = deriveModelStats(planTasks)
-      if (modelStats.length === 0) return
-      const learnings = recordModelLearnings(
-        deriveHeuristicLearnings(modelStats, { profileId: this.boundProfile?.id })
-      )
+      const analysis = analyzeRunRetro({
+        tasks: planTasks,
+        status,
+        profileId: this.boundProfile?.id
+      })
+      if (analysis.modelStats.length === 0) return undefined
+      const learnings = recordModelLearnings(analysis.learnings)
       const retro: RunRetro = {
         id: `retro-${Date.now().toString(36)}-${planId}`,
         profileId: this.boundProfile?.id,
@@ -1478,15 +1479,17 @@ export class OrchestratorEngine extends EventEmitter {
         planId,
         goal,
         status,
-        summary: summarizeRetro(modelStats, status),
-        modelStats,
+        summary: analysis.summary,
+        modelStats: analysis.modelStats,
         learnings,
         createdAt: Date.now()
       }
       recordRunRetro(retro)
       this.lastRetro = retro
+      return retro
     } catch (error) {
       console.warn('[Orchestrator] Automatische Retro fehlgeschlagen', error)
+      return undefined
     }
   }
 
@@ -1533,7 +1536,7 @@ export class OrchestratorEngine extends EventEmitter {
         planId: 'ad-hoc',
         goal: this.goal?.title ?? '',
         summary: summary || 'Retro ohne Planlauf aufgezeichnet.',
-        modelStats: deriveModelStats([...this.tasks.values()]),
+        modelStats: analyzeRunRetro({ tasks: [...this.tasks.values()] }).modelStats,
         learnings: applied,
         createdAt: Date.now()
       }
