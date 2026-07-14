@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784061669629,
+  "exportedAt": 1784063590760,
   "app": {
     "name": "orca-strator",
     "version": "0.1.29-main.1.gcfaf136"
@@ -8,6 +8,20 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrl5ec42-1-48gbwb",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "renderer-ui",
+      "kind": "weakness",
+      "insight": "fehleranfällig bei renderer-ui",
+      "evidence": "1/1 Tasks fehlgeschlagen",
+      "source": "auto-retro",
+      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+      "observations": 1,
+      "createdAt": 1784063589842,
+      "updatedAt": 1784063589842
+    },
     {
       "id": "learning-mrkr8n9d-2-bcfmau",
       "provider": "codex",
