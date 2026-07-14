@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784069093884,
+  "exportedAt": 1784069182501,
   "app": {
     "name": "orca-strator",
     "version": "0.1.29-main.1.gcfaf136"
@@ -8,6 +8,20 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrl8q5u0-1-fl7g8h",
+      "provider": "codex",
+      "model": "unknown",
+      "role": "worker",
+      "kind": "weakness",
+      "insight": "Der Worker-Slot kann bei Provider-Kapazität vor der eigentlichen Implementierung ausfallen.",
+      "evidence": "Frodo endete mit `Selected model is at capacity`; `model` war in list_subagents und get_task_status leer.",
+      "source": "orchestrator",
+      "profileId": "profile-mri86faq",
+      "observations": 1,
+      "createdAt": 1784069180424,
+      "updatedAt": 1784069180424
+    },
     {
       "id": "learning-mrl8oafk-1-wyxgkj",
       "provider": "codex",
