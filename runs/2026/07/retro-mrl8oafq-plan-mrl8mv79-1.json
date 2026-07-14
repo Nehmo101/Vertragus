@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784069093108,
+  "exportedAt": 1784069180483,
   "app": {
     "name": "orca-strator",
     "version": "0.1.29-main.1.gcfaf136"
@@ -14,7 +14,7 @@
     "planId": "plan-mrl8mv79-1",
     "goal": "In jeder betroffenen Datei unter src/renderer/src/components/ ausschließlich `import { theme } from '../ui/theme'` durch `import { theme } from '@renderer/ui/theme'` ersetzen; sonst nichts ändern.",
     "status": "error",
-    "summary": "Lauf mit Fehlern: 1 Modell(e), 0/1 Tasks erfolgreich.",
+    "summary": "Der erste Planlauf erreichte wegen ausgelastetem Codex-Modell keine Implementierungsphase; es entstanden keine Änderungen oder Findings. Die Orca-Metadaten lieferten keinen Modellnamen.",
     "modelStats": [
       {
         "provider": "codex",
@@ -48,6 +48,20 @@
         "observations": 1,
         "createdAt": 1784069093072,
         "updatedAt": 1784069093072
+      },
+      {
+        "id": "learning-mrl8q5u0-1-fl7g8h",
+        "provider": "codex",
+        "model": "unknown",
+        "role": "worker",
+        "kind": "weakness",
+        "insight": "Der Worker-Slot kann bei Provider-Kapazität vor der eigentlichen Implementierung ausfallen.",
+        "evidence": "Frodo endete mit `Selected model is at capacity`; `model` war in list_subagents und get_task_status leer.",
+        "source": "orchestrator",
+        "profileId": "profile-mri86faq",
+        "observations": 1,
+        "createdAt": 1784069180424,
+        "updatedAt": 1784069180424
       }
     ],
     "createdAt": 1784069093078
