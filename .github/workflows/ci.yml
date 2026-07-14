@@ -2,8 +2,10 @@ name: CI
 
 on:
   pull_request:
+  # Pushes auf main laufen nicht hier: der Release-Workflow führt vor dem
+  # Publish dasselbe `pnpm run ci`-Gate aus, ein zweiter Lauf wäre doppelt.
   push:
-    branches: [main, DEV]
+    branches: [DEV]
 
 permissions:
   contents: read
@@ -15,13 +17,19 @@ concurrency:
 jobs:
   quality:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22.13
+          node-version: '22.13'
           cache: pnpm
+      - name: Cache Electron binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/electron
+          key: electron-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       - run: pnpm install --frozen-lockfile
       - run: pnpm run ci
       - name: Electron UI smoke
@@ -31,13 +39,19 @@ jobs:
 
   windows-build:
     runs-on: windows-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22.13
+          node-version: '22.13'
           cache: pnpm
+      - name: Cache Electron binaries
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\electron\Cache
+          key: electron-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       - run: pnpm install --frozen-lockfile
       - run: pnpm run ci
       - name: Electron UI smoke
