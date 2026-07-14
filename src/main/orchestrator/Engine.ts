@@ -38,7 +38,8 @@ import { resolveModel } from '@shared/models'
 import {
   isModelDisabled,
   normalizeDisabledModels,
-  normalizeProviderEnabled
+  normalizeProviderEnabled,
+  type AgentProviderId
 } from '@shared/providers'
 import { agentManager } from '@main/agents/AgentManager'
 import { PanePreflightError } from '@main/agents/panePreflight'
@@ -59,6 +60,24 @@ import {
 import { resolveExecutionPlan } from '@main/orchestrator/planner'
 import { Semaphore } from '@main/orchestrator/semaphore'
 import { securityChecklistForFiles } from '@main/integrations/securityGate'
+import {
+  benchmarkLearnings,
+  deriveHeuristicLearnings,
+  deriveModelStats,
+  summarizeRetro,
+  type BenchmarkRanking,
+  type BenchmarkRecord,
+  type BenchmarkRunStatus,
+  type LearningKind,
+  type ModelLearning,
+  type RunRetro
+} from '@shared/retro'
+import {
+  learningsForModel,
+  recordBenchmarkRecord,
+  recordModelLearnings,
+  recordRunRetro
+} from '@main/orchestrator/retroStore'
 import { captureTaskRecoveryArtifact } from '@main/orchestrator/recoveryArtifact'
 
 interface DispatchOptions {
@@ -124,6 +143,12 @@ export class OrchestratorEngine extends EventEmitter {
   private readonly reliability = initialReliability()
   private goalStartedAt?: number
   private taskSeq = 0
+  private benchSeq = 0
+  private lastRetro: RunRetro | undefined
+  private readonly benchmarkRuns = new Map<
+    string,
+    { benchmarkId: string; title: string; prompt: string; taskIds: string[]; startedAt: number }
+  >()
   private pendingPlan: PendingPlanReview | undefined
   private pendingPlanResolve: ((approved: boolean) => void) | undefined
   /** Per-role capacity limiter — count = max parallel subagents of that role. */
@@ -144,6 +169,7 @@ export class OrchestratorEngine extends EventEmitter {
       })
     }
     if (!restored || !Array.isArray(restored.tasks)) return
+    this.lastRetro = restored.lastRetro
     this.activity = restored.activity
       ? {
           phase: 'idle',
@@ -205,7 +231,8 @@ export class OrchestratorEngine extends EventEmitter {
         activeTasks: tasks.filter((task) => task.status === 'running').length,
         waitingTasks: tasks.filter((task) => task.status === 'queued').length
       },
-      pendingPlan: this.pendingPlan
+      pendingPlan: this.pendingPlan,
+      lastRetro: this.lastRetro
     }
   }
 
@@ -303,6 +330,8 @@ export class OrchestratorEngine extends EventEmitter {
     this.planRuns.clear()
     this.planRunResults.clear()
     this.planRunPlanIds.clear()
+    this.benchmarkRuns.clear()
+    this.lastRetro = undefined
     this.push()
   }
 
@@ -430,14 +459,25 @@ export class OrchestratorEngine extends EventEmitter {
       const preflight = typeof agentManager.latestPreflight === 'function'
         ? agentManager.latestPreflight(slot.provider, workingDir)
         : undefined
+      const model = resolveModel(slot.provider, slot)
+      // Knowledge accumulated from earlier retros/benchmarks; never allowed to
+      // break routing when the store is unavailable.
+      let learned: { strengths: string[]; weaknesses: string[] } = { strengths: [], weaknesses: [] }
+      try {
+        learned = learningsForModel(slot.provider, model)
+      } catch (error) {
+        console.warn('[Orchestrator] Modell-Lernwissen nicht lesbar', error)
+      }
       return {
         role,
         provider: slot.provider,
-        model: resolveModel(slot.provider, slot),
+        model,
         capacity: slot.count,
         busy: this.limiters.get(role)?.inUse ?? 0,
         strengths: capabilities.strengths,
         weaknesses: capabilities.weaknesses,
+        learnedStrengths: learned.strengths,
+        learnedWeaknesses: learned.weaknesses,
         available: preflight?.status !== 'failed',
         preflight
       }
@@ -570,17 +610,31 @@ export class OrchestratorEngine extends EventEmitter {
     let activeAttempt: TaskAttemptSnapshot | undefined
     this.reliability.dispatchAttempts += 1
     let lastLifecyclePush = 0
+    const rememberAction = (): void => {
+      const action = task.lastAction?.trim()
+      if (!action || task.recentActions?.[0] === action) return
+      task.recentActions = [
+        action,
+        ...(task.recentActions ?? []).filter((entry) => entry !== action)
+      ].slice(0, 3)
+    }
     const onLifecycleEvent = (event: import('@main/agents/headless').HeadlessLifecycleEvent): void => {
       task.lastHeartbeatAt = event.timestamp
       if (event.type === 'phase') task.lastAction = `Worker-Phase: ${event.phase}`
       if (event.type === 'heartbeat') task.lastAction = `Worker aktiv · ${Math.round(event.idleMs / 1000)}s ohne Ausgabe`
       if (event.type === 'progress') task.lastAction = `Provider-Fortschritt: ${event.providerEvent}`
+      if (event.type === 'usage') task.usage = { ...event.usage }
       if (event.type === 'output') {
         const clean = stripAnsi(event.chunk).replace(/\s+/g, ' ').trim()
         if (clean) task.lastAction = clean.slice(-RESULT_PREVIEW)
         if (/\b(test|vitest|typecheck|lint|pytest|cargo test)\b/i.test(clean)) task.phase = 'testing'
         else if (/\b(git commit|committ(?:ing|ed)?)\b/i.test(clean)) task.phase = 'committing'
         else if (task.phase === 'starting') task.phase = 'working'
+      }
+      // Heartbeat idle counters churn every tick; only real activity belongs
+      // in the "what did the worker actually do" history.
+      if (event.type === 'phase' || event.type === 'progress' || event.type === 'output') {
+        rememberAction()
       }
       const force = event.type === 'heartbeat' || event.type === 'phase' || event.type === 'finished'
       if (force || event.timestamp - lastLifecyclePush >= 1_000) {
@@ -626,6 +680,19 @@ export class OrchestratorEngine extends EventEmitter {
       this.push()
 
       const result = await done
+      if (
+        result.costUsd != null ||
+        result.tokensIn != null ||
+        result.tokensOut != null ||
+        result.steps != null
+      ) {
+        task.usage = {
+          costUsd: result.costUsd,
+          tokensIn: result.tokensIn,
+          tokensOut: result.tokensOut,
+          steps: result.steps
+        }
+      }
       const wasCancelled = result.status === 'cancelled'
       const infrastructureFailure =
         result.failureKind === 'provider-auth' ||
@@ -856,7 +923,9 @@ export class OrchestratorEngine extends EventEmitter {
       phase: task.phase,
       progress: task.progress,
       lastAction: task.lastAction,
+      recentActions: task.recentActions ? [...task.recentActions] : undefined,
       lastHeartbeatAt: task.lastHeartbeatAt,
+      usage: task.usage ? { ...task.usage } : undefined,
       completion: task.completion,
       findings: task.findings?.map((finding) => ({ ...finding, files: finding.files ? [...finding.files] : undefined })),
       blocker: task.blocker ? { ...task.blocker, details: [...task.blocker.details] } : undefined,
@@ -1208,6 +1277,7 @@ export class OrchestratorEngine extends EventEmitter {
     const attentionTasks = [...requiredNeedsWork, ...requiredErrors, ...requiredStopped]
     this.reliability.completedPlans += 1
     if (planStatus !== 'success') this.reliability.preventedFalseSuccesses += 1
+    this.recordPlanRetro(planId, plan.goal, planStatus, planTasks)
     this.setActivityState(
       attentionTasks.length > 0 ? 'blocked' : 'summarizing',
       attentionTasks.length > 0
@@ -1355,6 +1425,217 @@ export class OrchestratorEngine extends EventEmitter {
     this.push()
   }
 
+
+  /**
+   * Automatic retrospective after every terminal plan run: aggregate per-model
+   * stats, derive conservative heuristic learnings, persist both and surface
+   * the retro on the snapshot. Must never be able to fail the plan itself.
+   */
+  private recordPlanRetro(
+    planId: string,
+    goal: string,
+    status: ExecutionPlanResult['status'],
+    planTasks: OrcaTask[]
+  ): void {
+    try {
+      const modelStats = deriveModelStats(planTasks)
+      if (modelStats.length === 0) return
+      const learnings = recordModelLearnings(
+        deriveHeuristicLearnings(modelStats, { profileId: this.boundProfile?.id })
+      )
+      const retro: RunRetro = {
+        id: `retro-${Date.now().toString(36)}-${planId}`,
+        profileId: this.boundProfile?.id,
+        workspaceSessionId: this.workspaceSessionId,
+        planId,
+        goal,
+        status,
+        summary: summarizeRetro(modelStats, status),
+        modelStats,
+        learnings,
+        createdAt: Date.now()
+      }
+      recordRunRetro(retro)
+      this.lastRetro = retro
+    } catch (error) {
+      console.warn('[Orchestrator] Automatische Retro fehlgeschlagen', error)
+    }
+  }
+
+  /**
+   * Qualitative retro recorded by the orchestrator itself (record_retro tool),
+   * e.g. "Modell X war sehr stark bei UI-Aufgaben". Learnings merge into the
+   * persistent store and attach to the current run's retro card.
+   */
+  recordOrchestratorRetro(input: {
+    summary: string
+    learnings: Array<{
+      provider: AgentProviderId
+      model: string
+      role?: string
+      kind: LearningKind
+      insight: string
+      evidence?: string
+    }>
+  }): { summary: string; storedLearnings: ModelLearning[] } {
+    const applied = recordModelLearnings(
+      input.learnings.map((learning) => ({
+        ...learning,
+        source: 'orchestrator' as const,
+        profileId: this.boundProfile?.id
+      }))
+    )
+    const summary = input.summary.replace(/\s+/g, ' ').trim().slice(0, 500)
+    if (this.lastRetro) {
+      const known = new Set(this.lastRetro.learnings.map((entry) => entry.id))
+      this.lastRetro = {
+        ...this.lastRetro,
+        summary: summary || this.lastRetro.summary,
+        learnings: [
+          ...this.lastRetro.learnings,
+          ...applied.filter((entry) => !known.has(entry.id))
+        ]
+      }
+      recordRunRetro(this.lastRetro)
+    } else {
+      this.lastRetro = {
+        id: `retro-${Date.now().toString(36)}-adhoc`,
+        profileId: this.boundProfile?.id,
+        workspaceSessionId: this.workspaceSessionId,
+        planId: 'ad-hoc',
+        goal: this.goal?.title ?? '',
+        summary: summary || 'Retro ohne Planlauf aufgezeichnet.',
+        modelStats: deriveModelStats([...this.tasks.values()]),
+        learnings: applied,
+        createdAt: Date.now()
+      }
+      recordRunRetro(this.lastRetro)
+    }
+    this.push()
+    return { summary: this.lastRetro.summary, storedLearnings: applied }
+  }
+
+  /**
+   * Auto-Benchmark: fan the SAME prompt out to every dispatchable slot. Each
+   * contestant runs in its own isolated worktree; results are polled like any
+   * other task and finally judged via recordBenchmark.
+   */
+  runBenchmarkAsync(prompt: string, title?: string): BenchmarkRunStatus {
+    const entries = this.slotsWithRoles()
+    if (entries.length === 0) {
+      throw new Error('Kein orchestrierbarer Slot für den Benchmark verfügbar.')
+    }
+    this.benchSeq += 1
+    const benchmarkId = `bench-${Date.now().toString(36)}-${this.benchSeq.toString(36)}`
+    const benchTitle = title?.trim() || prompt.split('\n')[0].slice(0, 48)
+    const tasks = entries.map(({ role }) =>
+      this.dispatchAsync(role, prompt, `Benchmark · ${benchTitle} · ${role}`)
+    )
+    this.benchmarkRuns.set(benchmarkId, {
+      benchmarkId,
+      title: benchTitle,
+      prompt,
+      taskIds: tasks.map((task) => task.taskId),
+      startedAt: Date.now()
+    })
+    this.setActivityState(
+      'delegating',
+      `Benchmark „${benchTitle}“: dieselbe Aufgabe läuft parallel auf ${tasks.length} Slot(s).`,
+      entries.slice(0, 4).map(({ slot, role }) => `${role}: ${slot.provider}/${resolveModel(slot.provider, slot) || 'Standard'}`),
+      'Alle Läufe bis zum Terminalstatus verfolgen und danach fair bewerten.'
+    )
+    this.push()
+    return { benchmarkId, title: benchTitle, status: 'running', tasks }
+  }
+
+  getBenchmarkStatus(benchmarkId: string): BenchmarkRunStatus | undefined {
+    const run = this.benchmarkRuns.get(benchmarkId)
+    if (!run) return undefined
+    const tasks: Array<TaskStatusSnapshot & { durationMs?: number }> = []
+    for (const taskId of run.taskIds) {
+      const status = this.getTaskStatus(taskId)
+      if (!status) continue
+      const task = this.tasks.get(taskId)
+      const durationMs = task?.finishedAt != null && task.finishedAt > task.createdAt
+        ? task.finishedAt - task.createdAt
+        : undefined
+      tasks.push({ ...status, durationMs })
+    }
+    const terminal = tasks.every(
+      (task) => task.status === 'success' || task.status === 'needs-work' ||
+        task.status === 'error' || task.status === 'stopped'
+    )
+    return {
+      benchmarkId,
+      title: run.title,
+      status: tasks.length > 0 && terminal ? 'completed' : 'running',
+      tasks
+    }
+  }
+
+  /**
+   * Persist the orchestrator's benchmark judgement and convert it into model
+   * learnings (background knowledge for future routing).
+   */
+  recordBenchmark(input: {
+    benchmarkId: string
+    task: string
+    summary: string
+    rankings: Array<Omit<BenchmarkRanking, 'strengths' | 'weaknesses'> & {
+      strengths?: string[]
+      weaknesses?: string[]
+    }>
+  }): BenchmarkRecord {
+    const run = this.benchmarkRuns.get(input.benchmarkId)
+    const resolveContestant = (role: string): OrcaTask | undefined => {
+      if (!run) return undefined
+      return run.taskIds
+        .map((taskId) => this.tasks.get(taskId))
+        .find((task) => task?.role === role)
+    }
+    const rankings: BenchmarkRanking[] = input.rankings.map((ranking) => {
+      const contestant = resolveContestant(ranking.role)
+      const tokens = contestant?.usage?.tokensIn != null || contestant?.usage?.tokensOut != null
+        ? (contestant?.usage?.tokensIn ?? 0) + (contestant?.usage?.tokensOut ?? 0)
+        : undefined
+      return {
+        ...ranking,
+        provider: ranking.provider ?? contestant?.provider,
+        model: ranking.model ?? contestant?.model,
+        strengths: ranking.strengths ?? [],
+        weaknesses: ranking.weaknesses ?? [],
+        durationMs: ranking.durationMs ?? (
+          contestant?.finishedAt && contestant.finishedAt > contestant.createdAt
+            ? contestant.finishedAt - contestant.createdAt
+            : undefined
+        ),
+        tokens: ranking.tokens ?? tokens
+      }
+    })
+    const record: BenchmarkRecord = {
+      id: `benchrec-${Date.now().toString(36)}`,
+      benchmarkId: input.benchmarkId,
+      profileId: this.boundProfile?.id,
+      task: input.task.replace(/\s+/g, ' ').trim().slice(0, 500),
+      summary: input.summary.replace(/\s+/g, ' ').trim().slice(0, 800),
+      rankings,
+      createdAt: Date.now()
+    }
+    recordBenchmarkRecord(record)
+    recordModelLearnings(benchmarkLearnings(record, rankings))
+    this.setActivityState(
+      'summarizing',
+      `Benchmark bewertet: ${record.summary}`.slice(0, 280),
+      rankings
+        .slice()
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 4)
+        .map((ranking) => `${ranking.role} (${ranking.provider ?? '?'}/${ranking.model || 'Standard'}): ${ranking.score}/10`),
+      'Rangliste und gespeicherte Erkenntnisse dem Nutzer berichten.'
+    )
+    this.push()
+    return record
+  }
 
   /** Start a complete DAG without keeping the MCP request open. */
   executePlanAsync(input: unknown): PlanRunStatusSnapshot {

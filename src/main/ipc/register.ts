@@ -69,6 +69,11 @@ import {
 import { retryIdeaTransfer, transferIdeaToProfile } from '@main/inbox/transferService'
 import { spawnProfileTeam } from '@main/agents/spawnProfile'
 import { generateProfileForRepo } from '@main/profiles/generateProfileForRepo'
+import {
+  listBenchmarkRecords,
+  listModelLearnings,
+  listRunRetros
+} from '@main/orchestrator/retroStore'
 import type {
   AddArtifactInput,
   CreateIdeaInput,
@@ -434,6 +439,15 @@ export function registerIpcHandlers(): void {
     if (!task) throw new Error('Aufgabe nicht gefunden.')
     return loadTaskReviewDiff(task)
   })
+
+  // ---- retro / model learnings / benchmarks ----
+  ipcMain.handle(IPC.retroListRetros, (_e, profileId?: string) =>
+    listRunRetros(profileId ? String(profileId) : undefined)
+  )
+  ipcMain.handle(IPC.retroListLearnings, () => listModelLearnings())
+  ipcMain.handle(IPC.retroListBenchmarks, (_e, profileId?: string) =>
+    listBenchmarkRecords(profileId ? String(profileId) : undefined)
+  )
 
   // ---- window controls (frameless title bar) ----
   ipcMain.on(IPC.winMinimize, (e) => senderWindow(e)?.minimize())

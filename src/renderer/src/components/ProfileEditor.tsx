@@ -45,7 +45,13 @@ const HELP = {
   yolo: 'Überspringt Provider-Bestätigungen. Nur mit Worktree-Isolation und bewusstem Scope verwenden.',
   orchestrated: 'Wenn aktiv, darf der Orchestrator Aufgaben an diesen Slot delegieren.',
   strengths: 'Kommagetrennte Fähigkeiten, die der Orchestrator bei der Rollenwahl bevorzugen soll.',
-  weaknesses: 'Kommagetrennte Aufgaben, für die der Orchestrator diesen Slot möglichst nicht wählen soll.'
+  weaknesses: 'Kommagetrennte Aufgaben, für die der Orchestrator diesen Slot möglichst nicht wählen soll.',
+  benchmark:
+    'Auto-Benchmark: Der Orchestrator gibt allen Slots dieselbe Aufgabe, vergleicht die Ergebnisse, ' +
+    'bewertet sie und speichert die Erkenntnisse als Modellwissen für künftige Läufe.',
+  applyLearnings:
+    'Übernimmt gespeicherte Retro- und Benchmark-Erkenntnisse passend zu Provider und Modell ' +
+    'in die Stärken/Schwächen der Slots. Die Erkenntnisse entstehen automatisch nach jedem Lauf.'
 } as const
 function boundedNumber(value: number, min: number, max: number, fallback: number): number {
   return Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback
@@ -79,6 +85,7 @@ export default function ProfileEditor(): JSX.Element | null {
   const [projectsStatus, setProjectsStatus] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [generatingProfile, setGeneratingProfile] = useState(false)
+  const [learningsStatus, setLearningsStatus] = useState('')
   const nameRef = useRef<HTMLInputElement>(null)
   const closeEditorRef = useRef(store.closeEditor)
   const refreshGithubAuthRef = useRef(store.refreshGithubAuth)
@@ -158,6 +165,55 @@ export default function ProfileEditor(): JSX.Element | null {
       setRepoStatus(error instanceof Error ? error.message : String(error))
     } finally {
       setGeneratingProfile(false)
+    }
+  }
+  const applyLearnings = async (): Promise<void> => {
+    try {
+      const learnings = await window.orca.retro.listLearnings()
+      if (learnings.length === 0) {
+        setLearningsStatus('Noch keine gespeicherten Retro-/Benchmark-Erkenntnisse vorhanden.')
+        return
+      }
+      let applied = 0
+      const agents = draft.agents.map((slot) => {
+        const model = resolveModel(slot.provider, slot).trim().toLowerCase()
+        const matches = learnings.filter(
+          (learning) =>
+            learning.provider === slot.provider &&
+            (model === '' || learning.model.trim().toLowerCase() === model)
+        )
+        if (matches.length === 0) return slot
+        const merge = (current: string[], additions: string[]): string[] => {
+          const seen = new Set(current.map((entry) => entry.toLowerCase()))
+          const merged = [...current]
+          for (const addition of additions) {
+            if (seen.has(addition.toLowerCase()) || merged.length >= 24) continue
+            seen.add(addition.toLowerCase())
+            merged.push(addition)
+            applied += 1
+          }
+          return merged
+        }
+        return {
+          ...slot,
+          strengths: merge(
+            slot.strengths,
+            matches.filter((learning) => learning.kind === 'strength').map((learning) => learning.insight)
+          ),
+          weaknesses: merge(
+            slot.weaknesses,
+            matches.filter((learning) => learning.kind === 'weakness').map((learning) => learning.insight)
+          )
+        }
+      })
+      setDraft({ ...draft, agents })
+      setLearningsStatus(
+        applied > 0
+          ? `${applied} Erkenntnis(se) in Stärken/Schwächen übernommen. Bitte prüfen und speichern.`
+          : 'Keine neuen Erkenntnisse für die konfigurierten Provider/Modelle gefunden.'
+      )
+    } catch (error) {
+      setLearningsStatus(error instanceof Error ? error.message : String(error))
     }
   }
   const loadProjects = async (): Promise<void> => {
@@ -461,6 +517,19 @@ export default function ProfileEditor(): JSX.Element | null {
           >
             {generatingProfile ? 'Repo wird analysiert...' : 'KI-Profil aus Git-Repo erzeugen'}
           </button>
+          <button
+            type="button"
+            className="btn-secondary profile-generate-btn"
+            title={HELP.applyLearnings}
+            onClick={() => void applyLearnings()}
+          >
+            Retro-Erkenntnisse übernehmen
+          </button>
+          {learningsStatus && (
+            <div className="github-project-status" aria-live="polite">
+              {learningsStatus}
+            </div>
+          )}
           {draft.githubRepo && (
             <div className="github-repo-actions">
               <button type="button" className="btn-secondary browse-btn" onClick={() => void checkLocalRepo()}>
@@ -736,6 +805,23 @@ export default function ProfileEditor(): JSX.Element | null {
                     }
                   })}
                 />
+              </label>
+              <label>
+                <span className="slot-col-label">
+                  Auto-Benchmark <InfoTip text={HELP.benchmark} />
+                </span>
+                <select
+                  className="slot-select-sm"
+                  value={draft.benchmark.enabled ? 'on' : 'off'}
+                  disabled={!draft.orchestrator}
+                  title={!draft.orchestrator ? 'Auto-Benchmark benötigt einen Orchestrator.' : undefined}
+                  onChange={(event) =>
+                    patch({ benchmark: { enabled: event.target.value === 'on' } })
+                  }
+                >
+                  <option value="off">Aus</option>
+                  <option value="on">Aktiv — gleiche Aufgabe für alle Slots</option>
+                </select>
               </label>
             </div>
           </section>

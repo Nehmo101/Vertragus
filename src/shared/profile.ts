@@ -48,6 +48,15 @@ export const plannerConfigSchema = z.object({
   maxRetries: z.number().int().min(0).max(5).default(1)
 })
 
+export const benchmarkConfigSchema = z.object({
+  /**
+   * Auto-Benchmark profile: the orchestrator gives every slot the SAME task,
+   * compares the results and stores scored model knowledge (run_benchmark /
+   * record_benchmark tools).
+   */
+  enabled: z.boolean().default(false)
+})
+
 export const autoPrConfigSchema = z.object({
   mode: z.enum(['off', 'draft-after-checks', 'ready-after-checks']).default('off'),
   strategy: z.enum(['aggregate', 'per-task']).default('aggregate'),
@@ -104,12 +113,14 @@ export const workspaceProfileSchema = z.object({
   /** Global Yolo master switch (default OFF for safety). */
   yoloDefault: z.boolean().default(false),
   planner: plannerConfigSchema.default({}),
+  benchmark: benchmarkConfigSchema.default({}),
   autoPr: autoPrConfigSchema.default({})
 })
 
 export type AgentSlot = z.infer<typeof agentSlotSchema>
 export type OrchestratorConfig = z.infer<typeof orchestratorSchema>
 export type PlannerConfig = z.infer<typeof plannerConfigSchema>
+export type BenchmarkConfig = z.infer<typeof benchmarkConfigSchema>
 export type AutoPrConfig = z.infer<typeof autoPrConfigSchema>
 export type GithubProjectConfig = z.infer<typeof githubProjectSchema>
 export type ProfileCloneStatus = z.infer<typeof profileCloneStatusSchema>
@@ -236,6 +247,7 @@ export const DEFAULT_PROFILE: WorkspaceProfile = {
   ],
   yoloDefault: false,
   planner: { mode: 'review', routingMode: 'adaptive', maxParallel: 6, maxRetries: 1 },
+  benchmark: { enabled: false },
   autoPr: {
     mode: 'off',
     strategy: 'aggregate',

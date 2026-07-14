@@ -819,6 +819,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           weaknesses: [...slot.weaknesses]
         })),
         planner: { ...profile.planner },
+        benchmark: { ...profile.benchmark },
         autoPr: {
           ...profile.autoPr,
           qualityGates: [...profile.autoPr.qualityGates],
@@ -857,6 +858,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         ],
         yoloDefault: false,
         planner: { mode: 'review', routingMode: 'adaptive', maxParallel: 6, maxRetries: 1 },
+        benchmark: { enabled: false },
         autoPr: {
           mode: 'off',
           strategy: 'aggregate',

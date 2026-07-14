@@ -418,7 +418,8 @@ export class AgentManager extends EventEmitter {
       ? buildOrchestratorSetup(req.provider, name, id, req.workspaceSessionId, {
           adaptiveTeam: orchestratorProfile?.planner.routingMode === 'adaptive',
           maxRetries: orchestratorProfile?.planner.maxRetries,
-          engineId: req.engineId
+          engineId: req.engineId,
+          benchmarkMode: orchestratorProfile?.benchmark?.enabled ?? false
         })
       : undefined
     if (orchestratorSetup && !orchestratorSetup.capability.supported) {
