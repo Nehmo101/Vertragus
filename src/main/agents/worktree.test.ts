@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { worktreeIdentity } from './worktree'
+import { isOrcaBranch, isOrcaWorktreePath, worktreeIdentity } from './worktree'
 
 describe('worktreeIdentity', () => {
   it('isolates identical agent ids across app sessions', () => {
@@ -20,5 +20,22 @@ describe('worktreeIdentity', () => {
 
   it('rejects identities that have no safe characters', () => {
     expect(() => worktreeIdentity('/repo', '///', 'session-a')).toThrow('Agent-ID')
+  })
+})
+
+describe('rollback safety guards', () => {
+  it('only accepts paths inside an .orca-worktrees tree', () => {
+    expect(isOrcaWorktreePath('/repo/.orca-worktrees/session-a/task-01')).toBe(true)
+    expect(isOrcaWorktreePath('C:\\repo\\.orca-worktrees\\session-a\\task-01')).toBe(true)
+    expect(isOrcaWorktreePath('/repo')).toBe(false)
+    expect(isOrcaWorktreePath('/repo/src/orca-worktrees-note')).toBe(false)
+    expect(isOrcaWorktreePath('')).toBe(false)
+  })
+
+  it('only accepts branches in the orca/ namespace', () => {
+    expect(isOrcaBranch('orca/session-a/task-01')).toBe(true)
+    expect(isOrcaBranch('DEV')).toBe(false)
+    expect(isOrcaBranch('feature/orca')).toBe(false)
+    expect(isOrcaBranch('')).toBe(false)
   })
 })
