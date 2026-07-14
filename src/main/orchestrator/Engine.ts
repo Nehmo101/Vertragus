@@ -23,8 +23,11 @@ import type {
   OrchestratorSnapshot,
   PlanRunStatusSnapshot,
   SubagentDescriptor,
+  SubagentFinding,
+  SubagentFindingKind,
   TaskAttemptSnapshot,
   TaskCriticality,
+  TaskPhase,
   TaskStatusSnapshot
 } from '@shared/orchestrator'
 import {
@@ -59,6 +62,7 @@ import {
 } from '@main/integrations/autoPr'
 import { resolveExecutionPlan } from '@main/orchestrator/planner'
 import { Semaphore } from '@main/orchestrator/semaphore'
+import { subagentOrcaToolsAvailable } from '@main/orchestrator/externalMcp'
 import { securityChecklistForFiles } from '@main/integrations/securityGate'
 import {
   benchmarkLearnings,
@@ -95,10 +99,16 @@ interface DispatchOptions {
   maxAttempts?: number
   /** Verified failed-worker worktree whose partial files may be resumed. */
   recoveryWorktree?: string
-  deferPublish?: boolean
 }
 
 const RESULT_PREVIEW = 160
+/** Disk writes are throttled; the in-memory snapshot event stays immediate. */
+const SNAPSHOT_PERSIST_MIN_INTERVAL_MS = 2_000
+/** Bounded shared findings board (oldest entries are dropped first). */
+const MAX_BOARD_FINDINGS = 200
+const MAX_FINDINGS_RESPONSE = 50
+/** Cap each injected dependency result so chained prompts stay bounded. */
+const MAX_DEPENDENCY_CONTEXT_CHARS = 4_000
 export function platformExecutionGuidance(
   platform: NodeJS.Platform = process.platform
 ): string[] {
@@ -111,6 +121,15 @@ export function platformExecutionGuidance(
   ]
 }
 
+
+/** Numeric sequence of a `<prefix><base36>` runtime id, or null for foreign ids. */
+function parseSequenceId(id: string, prefix: string): number | null {
+  if (!id.startsWith(prefix)) return null
+  const raw = id.slice(prefix.length)
+  if (!/^[0-9a-z]+$/.test(raw)) return null
+  const value = Number.parseInt(raw, 36)
+  return Number.isFinite(value) ? value : null
+}
 
 function initialReliability(): OrchestratorReliabilityMetrics {
   return {
@@ -145,7 +164,14 @@ export class OrchestratorEngine extends EventEmitter {
   private goalStartedAt?: number
   private taskSeq = 0
   private benchSeq = 0
+  private runSeq = 0
   private lastRetro: RunRetro | undefined
+  /** Live coordination board written by subagents (post_finding). */
+  private readonly findingsBoard: SubagentFinding[] = []
+  private findingSeq = 0
+  private persistTimer: ReturnType<typeof setTimeout> | undefined
+  private lastPersistedAt = 0
+  private pendingSnapshot: OrchestratorSnapshot | undefined
   private readonly benchmarkRuns = new Map<
     string,
     { benchmarkId: string; title: string; prompt: string; taskIds: string[]; startedAt: number }
@@ -192,6 +218,18 @@ export class OrchestratorEngine extends EventEmitter {
         note: interrupted ? 'Durch App-Neustart unterbrochen.' : task.note,
         finishedAt: interrupted ? Date.now() : task.finishedAt
       })
+      // Resume the id sequence past restored tasks; otherwise the next
+      // dispatch would silently overwrite restored history under the same id.
+      const taskSeq = parseSequenceId(task.id, 't-')
+      if (taskSeq != null) this.taskSeq = Math.max(this.taskSeq, taskSeq)
+    }
+    if (Array.isArray(restored.findings)) {
+      for (const finding of restored.findings) {
+        if (!finding || typeof finding.id !== 'string' || typeof finding.title !== 'string') continue
+        this.findingsBoard.push({ ...finding, files: finding.files ? [...finding.files] : undefined })
+        const findingSeq = parseSequenceId(finding.id, 'finding-')
+        if (findingSeq != null) this.findingSeq = Math.max(this.findingSeq, findingSeq)
+      }
     }
   }
 
@@ -234,19 +272,47 @@ export class OrchestratorEngine extends EventEmitter {
         waitingTasks: tasks.filter((task) => task.status === 'queued').length
       },
       pendingPlan: this.pendingPlan,
-      lastRetro: this.lastRetro
+      lastRetro: this.lastRetro,
+      findings: this.listTaskFindings()
     }
   }
 
   private push(): void {
     this.reliability.lastSnapshotAt = Date.now()
     const snapshot = this.snapshot()
+    // Lifecycle events arrive up to once per second per running worker; a full
+    // synchronous config write for each would stall the main process. The live
+    // event stays immediate, only the disk write is throttled (with a trailing
+    // write, so the persisted state is never older than the throttle window).
+    this.persistSnapshotThrottled(snapshot)
+    this.emit('snapshot', snapshot)
+  }
+
+  private persistSnapshotThrottled(snapshot: OrchestratorSnapshot): void {
+    this.pendingSnapshot = snapshot
+    if (this.persistTimer) return
+    const wait = this.lastPersistedAt + SNAPSHOT_PERSIST_MIN_INTERVAL_MS - Date.now()
+    if (wait <= 0) {
+      this.persistPendingSnapshot()
+      return
+    }
+    this.persistTimer = setTimeout(() => {
+      this.persistTimer = undefined
+      this.persistPendingSnapshot()
+    }, wait)
+    this.persistTimer.unref?.()
+  }
+
+  private persistPendingSnapshot(): void {
+    const snapshot = this.pendingSnapshot
+    this.pendingSnapshot = undefined
+    if (!snapshot) return
+    this.lastPersistedAt = Date.now()
     try {
       setSetting(this.persistenceKey(), snapshot)
     } catch (error) {
       console.warn('[Orchestrator] snapshot persistence failed', error)
     }
-    this.emit('snapshot', snapshot)
   }
 
   private setActivityState(
@@ -333,8 +399,15 @@ export class OrchestratorEngine extends EventEmitter {
     this.planRunResults.clear()
     this.planRunPlanIds.clear()
     this.benchmarkRuns.clear()
+    this.findingsBoard.length = 0
     this.lastRetro = undefined
     this.push()
+    // A reset must survive an immediate app restart; skip the throttle window.
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer)
+      this.persistTimer = undefined
+    }
+    this.persistPendingSnapshot()
   }
 
   private persistenceKey(): string {
@@ -605,6 +678,16 @@ export class OrchestratorEngine extends EventEmitter {
 
     const sem = this.limiter(slotRole, slot.count)
     await sem.acquire()
+    // The slot models a running worker PROCESS. Gates, commit contract and
+    // remote CI happen after the process exits, so the slot is handed back as
+    // soon as the worker terminates instead of blocking queued tasks for the
+    // whole acceptance pipeline.
+    let slotReleased = false
+    const releaseSlot = (): void => {
+      if (slotReleased) return
+      slotReleased = true
+      sem.release()
+    }
     task.status = 'running'
     task.phase = 'preflight'
     task.lastAction = 'Pane-Preflight läuft'
@@ -613,12 +696,19 @@ export class OrchestratorEngine extends EventEmitter {
     this.push()
 
     const securityChecklist = securityChecklistForFiles(options.expectedFiles ?? [])
+    const orcaSubTools = subagentOrcaToolsAvailable(slot.provider)
     const executionContract = [
       'Orca-Ausführungsvertrag:',
       '- Bearbeite nur die beauftragte Fachaufgabe und die erwarteten Dateien.',
       '- Führe relevante Tests, Typecheck und Lint aus.',
       '- Führe kein git add, commit, cherry-pick oder push aus; Orcas Main-Prozess sichert Änderungen zentral.',
       '- Bei Infrastrukturblockern antworte strukturiert und knapp: Blocker, Alternativen, geplante Dateien, Schnittstellen.',
+      ...(orcaSubTools
+        ? [
+            '- Live-Status: Melde wichtige Phasenwechsel und Zwischenstände knapp über das MCP-Tool report_progress (Server orca-sub).',
+            '- Team-Board: Teile Schnittstellen, Entscheidungen und Blocker, die parallele Tasks betreffen, über post_finding; prüfe mit list_findings die Einträge anderer Subagents, bevor du gemeinsame Schnittstellen festlegst.'
+          ]
+        : []),
       ...platformExecutionGuidance().map((item) => `- ${item}`),
       ...securityChecklist.map((item) => `- Security-Pflicht: ${item}`)
     ].join('\n')
@@ -632,14 +722,7 @@ export class OrchestratorEngine extends EventEmitter {
     let activeAttempt: TaskAttemptSnapshot | undefined
     this.reliability.dispatchAttempts += 1
     let lastLifecyclePush = 0
-    const rememberAction = (): void => {
-      const action = task.lastAction?.trim()
-      if (!action || task.recentActions?.[0] === action) return
-      task.recentActions = [
-        action,
-        ...(task.recentActions ?? []).filter((entry) => entry !== action)
-      ].slice(0, 3)
-    }
+    const rememberAction = (): void => this.rememberTaskAction(task)
     const onLifecycleEvent = (event: import('@main/agents/headless').HeadlessLifecycleEvent): void => {
       task.lastHeartbeatAt = event.timestamp
       if (event.type === 'phase') task.lastAction = `Worker-Phase: ${event.phase}`
@@ -709,6 +792,7 @@ export class OrchestratorEngine extends EventEmitter {
       this.push()
 
       const result = await done
+      releaseSlot()
       if (
         result.costUsd != null ||
         result.tokensIn != null ||
@@ -829,10 +913,7 @@ export class OrchestratorEngine extends EventEmitter {
           task.note = (task.note || 'Worker fertig') + ' · Abnahme blockiert: ' + prepared.message
           task.lastAction = 'Commit-Vertrag oder Security-Gate fehlgeschlagen'
         }
-        if (
-          task.status === 'success' && autoPr.mode !== 'off' && !options.deferPublish &&
-          !options.planId && prepared.change
-        ) {
+        if (task.status === 'success' && autoPr.mode !== 'off' && !options.planId && prepared.change) {
           await this.publishPendingChanges()
         }
       }
@@ -903,8 +984,18 @@ export class OrchestratorEngine extends EventEmitter {
       this.push()
       return `Dispatch fehlgeschlagen: ${task.note}`
     } finally {
-      sem.release()
+      releaseSlot()
     }
+  }
+
+  /** Keep a short, distinct history of what the worker actually did. */
+  private rememberTaskAction(task: OrcaTask): void {
+    const action = task.lastAction?.trim()
+    if (!action || task.recentActions?.[0] === action) return
+    task.recentActions = [
+      action,
+      ...(task.recentActions ?? []).filter((entry) => entry !== action)
+    ].slice(0, 3)
   }
 
   /** Start one worker without holding the MCP request open. */
@@ -979,21 +1070,6 @@ export class OrchestratorEngine extends EventEmitter {
   }
 
   /**
-   * Fan out several subtasks at once. They run in parallel (bounded by each
-   * role's capacity) and all results are collected — the way to get real
-   * parallelism instead of one blocking dispatch at a time.
-   */
-  async dispatchBatch(items: Array<{ role: string; prompt: string; title?: string }>): Promise<string> {
-    const results = await Promise.all(
-      items.map(async (it, i) => {
-        const out = await this.dispatch(it.role, it.prompt, it.title, { deferPublish: true })
-        return `#${i + 1} ${out}`
-      })
-    )
-    await this.publishPendingChanges()
-    return results.join('\n\n---\n\n')
-  }
-  /**
    * Validate and execute a model-authored DAG. The scheduler enforces global
    * concurrency, role capacity, dependencies and conflict keys.
    */
@@ -1019,7 +1095,13 @@ export class OrchestratorEngine extends EventEmitter {
     this.setGoal(plan.goal)
     this.planSeq += 1
     const planId = `plan-${Date.now().toString(36)}-${this.planSeq.toString(36)}`
-    if (runId) this.planRunPlanIds.set(runId, planId)
+    if (runId) {
+      this.planRunPlanIds.set(runId, planId)
+      // Pin this run's goal so concurrent plans cannot rewrite each other's
+      // reported goal through the shared engine-level goal.
+      const stored = this.planRunResults.get(runId)
+      if (stored) this.planRunResults.set(runId, { ...stored, goal: plan.goal, planId })
+    }
     const runtimeIds = new Map(
       plan.tasks.map((task) => [task.id, `${planId}-${task.id}`])
     )
@@ -1137,7 +1219,7 @@ export class OrchestratorEngine extends EventEmitter {
         .map((id) => {
           const dependency = results.get(id)
           return dependency
-            ? `# ${id} [${dependency.status}]\n${dependency.result}`
+            ? `# ${id} [${dependency.status}]\n${dependency.result.slice(0, MAX_DEPENDENCY_CONTEXT_CHARS)}`
             : undefined
         })
         .filter(Boolean)
@@ -1672,7 +1754,10 @@ export class OrchestratorEngine extends EventEmitter {
 
   /** Start a complete DAG without keeping the MCP request open. */
   executePlanAsync(input: unknown): PlanRunStatusSnapshot {
-    const runId = `plan-run-${Date.now().toString(36)}-${(this.planSeq + 1).toString(36)}`
+    // Own monotonic counter: planSeq only advances once executePlan validates,
+    // so deriving the runId from it collides for rapid consecutive submissions.
+    this.runSeq += 1
+    const runId = `plan-run-${Date.now().toString(36)}-${this.runSeq.toString(36)}`
     const initial: PlanRunStatusSnapshot = {
       runId,
       status: 'running',
@@ -1684,7 +1769,7 @@ export class OrchestratorEngine extends EventEmitter {
     const run = this.executePlan(input, runId)
       .then((result) => {
         this.planRunResults.set(runId, {
-          ...initial,
+          ...(this.planRunResults.get(runId) ?? initial),
           status: result.status,
           planId: result.planId,
           result
@@ -1693,7 +1778,11 @@ export class OrchestratorEngine extends EventEmitter {
       })
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error)
-        this.planRunResults.set(runId, { ...initial, status: 'error', error: message })
+        this.planRunResults.set(runId, {
+          ...(this.planRunResults.get(runId) ?? initial),
+          status: 'error',
+          error: message
+        })
         throw error
       })
     this.planRuns.set(runId, run)
@@ -1716,7 +1805,7 @@ export class OrchestratorEngine extends EventEmitter {
       engineId: this.engineId,
       workspaceSessionId: this.workspaceSessionId,
       planId,
-      goal: this.goal?.title,
+      goal: stored.goal ?? this.goal?.title,
       tasks,
       summary: {
         required: tasks.filter((task) => (task.criticality ?? 'required') === 'required').length,
@@ -1727,6 +1816,88 @@ export class OrchestratorEngine extends EventEmitter {
         failed: tasks.filter((task) => task.status === 'error' || task.status === 'stopped').length
       }
     }
+  }
+
+  /**
+   * Structured self-report from a running subagent (report_progress tool).
+   * Replaces heuristic output parsing with the worker's own account of what it
+   * is doing; feeds the same fields the orchestrator polls via get_task_status.
+   */
+  reportSubagentProgress(
+    taskId: string,
+    input: { message: string; phase?: Extract<TaskPhase, 'working' | 'testing' | 'committing'> }
+  ): TaskStatusSnapshot | undefined {
+    const task = this.tasks.get(taskId)
+    if (!task) return undefined
+    const clean = input.message.replace(/\s+/g, ' ').trim().slice(0, 220)
+    if (clean) {
+      task.lastAction = `Worker meldet: ${clean}`
+      this.rememberTaskAction(task)
+    }
+    if (input.phase && task.status === 'running') task.phase = input.phase
+    task.lastHeartbeatAt = Date.now()
+    this.push()
+    return this.getTaskStatus(taskId)
+  }
+
+  /**
+   * A subagent shares an interface, decision, blocker or insight with the
+   * orchestrator and its parallel peers. Board entries are bounded and scoped:
+   * plan tasks see their plan (plus plan-less ad-hoc entries), everything is
+   * visible to the orchestrator.
+   */
+  postTaskFinding(
+    taskId: string,
+    input: { kind: SubagentFindingKind; title: string; detail: string; files?: string[] }
+  ): SubagentFinding {
+    const task = this.tasks.get(taskId)
+    if (!task) throw new Error('Task nicht gefunden.')
+    const clean = (value: string, max: number): string =>
+      value.replace(/\s+/g, ' ').trim().slice(0, max)
+    const title = clean(input.title, 160)
+    const detail = input.detail.trim().slice(0, 2_000)
+    if (!title || !detail) throw new Error('Finding benötigt Titel und Inhalt.')
+    this.findingSeq += 1
+    const finding: SubagentFinding = {
+      id: `finding-${this.findingSeq.toString(36)}`,
+      taskId,
+      planId: task.planId,
+      agentName: task.agentName,
+      role: task.role,
+      kind: input.kind,
+      title,
+      detail,
+      files: input.files
+        ?.map((file) => file.trim())
+        .filter(Boolean)
+        .slice(0, 32),
+      createdAt: Date.now()
+    }
+    this.findingsBoard.push(finding)
+    if (this.findingsBoard.length > MAX_BOARD_FINDINGS) {
+      this.findingsBoard.splice(0, this.findingsBoard.length - MAX_BOARD_FINDINGS)
+    }
+    task.lastAction = `Finding geteilt: ${title}`
+    this.rememberTaskAction(task)
+    task.lastHeartbeatAt = Date.now()
+    this.push()
+    return finding
+  }
+
+  /**
+   * Board entries visible to a task (same plan + plan-less entries), or the
+   * complete board when no task scope is given (orchestrator view).
+   */
+  listTaskFindings(taskId?: string): SubagentFinding[] {
+    const task = taskId ? this.tasks.get(taskId) : undefined
+    const planId = task?.planId
+    const visible = planId
+      ? this.findingsBoard.filter((finding) => finding.planId === planId || !finding.planId)
+      : [...this.findingsBoard]
+    return visible.slice(-MAX_FINDINGS_RESPONSE).map((finding) => ({
+      ...finding,
+      files: finding.files ? [...finding.files] : undefined
+    }))
   }
 
   /** Open a persistent interactive subagent in its own OS window. */

@@ -2359,6 +2359,76 @@ button {
   font-family: var(--font-mono);
   font-size: 9px;
 }
+/* ---------- Shared subagent findings board ---------- */
+.findings-board-head {
+  margin-top: 10px;
+}
+.findings-board {
+  display: grid;
+  gap: 6px;
+}
+.finding-entry {
+  padding: 8px 9px;
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+  background: var(--bg-card);
+}
+.finding-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+}
+.finding-kind {
+  padding: 1px 5px;
+  border: 1px solid var(--border-2);
+  border-radius: 5px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.finding-entry.kind-blocker {
+  border-color: color-mix(in srgb, var(--err) 45%, var(--border-2));
+}
+.finding-entry.kind-blocker .finding-kind {
+  border-color: color-mix(in srgb, var(--err) 45%, var(--border-2));
+  background: var(--err-soft);
+  color: var(--err-text);
+}
+.finding-entry.kind-interface .finding-kind {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border-2));
+  color: var(--accent-light);
+}
+.finding-entry.kind-decision .finding-kind {
+  border-color: color-mix(in srgb, #f5a524 38%, var(--border-2));
+  color: #f7c96b;
+}
+.finding-title {
+  color: var(--text-1);
+  font-size: 10.5px;
+}
+.finding-meta {
+  margin-left: auto;
+  color: var(--text-4);
+  font-size: 9px;
+}
+.finding-detail {
+  margin: 4px 0 0;
+  color: var(--text-3);
+  font-size: 9.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.finding-files {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-4);
+  font-size: 8.5px;
+  overflow-wrap: anywhere;
+}
 /* ---------- DAG task cards ---------- */
 .dag-item {
   display: flex;
