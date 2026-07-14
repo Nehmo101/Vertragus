@@ -1,3 +1,7 @@
+# Orca worktrees share preflight-managed node_modules with the repository root.
+# Their paths intentionally differ from pnpm's cached workspace state.
+verifyDepsBeforeRun: false
+
 # pnpm reads build-script permissions from here.
 # These packages run install/build scripts (Electron binary download, esbuild).
 allowBuilds:

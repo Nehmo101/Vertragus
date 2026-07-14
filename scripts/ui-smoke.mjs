@@ -1,9 +1,29 @@
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createRequire } from 'node:module'
+
+const mainEntry = join(process.cwd(), 'out', 'main', 'index.js')
+if (!existsSync(mainEntry)) {
+  const buildCommand = process.platform === 'win32' ? (process.env.ComSpec ?? 'cmd.exe') : 'corepack'
+  const buildArgs =
+    process.platform === 'win32'
+      ? ['/d', '/s', '/c', 'corepack pnpm exec electron-vite build']
+      : ['pnpm', 'exec', 'electron-vite', 'build']
+  const build = spawnSync(buildCommand, buildArgs, {
+    cwd: process.cwd(),
+    stdio: 'inherit'
+  })
+
+  if (build.error) {
+    throw new Error(`Electron UI smoke build could not start: ${build.error.message}`)
+  }
+  if (build.status !== 0) {
+    throw new Error(`Electron UI smoke build failed (exit ${build.status ?? 'unknown'}).`)
+  }
+}
 
 const require = createRequire(import.meta.url)
 const electron = require('electron')
