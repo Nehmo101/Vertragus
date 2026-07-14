@@ -16,8 +16,9 @@ import {
 } from '@renderer/orchestratorActivity'
 import type { OrcaTask, TaskStatus } from '@shared/orchestrator'
 import { resolveModel } from '@shared/models'
-import { summarizeUsage, summarizeUsageGroup } from '@shared/telemetry'
-import { formatTokenCount, formatUsd } from '@renderer/telemetryFormat'
+import type { AgentUsage } from '@shared/agents'
+import { summarizeUsage, TELEMETRY_STATUS_LABELS, TELEMETRY_STATUS_TITLES } from '@shared/telemetry'
+import { formatTokenBreakdown, formatTokenCount, formatUsd } from '@renderer/telemetryFormat'
 
 const STALE_HEARTBEAT_MS = 90_000
 
@@ -70,11 +71,13 @@ const TASK_PILL: Record<TaskStatus, { bg: string; fg: string; dot: string; label
 
 function TaskCard({
   task,
+  usage,
   profileId,
   workspaceSessionId,
   now
 }: {
   task: OrcaTask
+  usage?: AgentUsage
   profileId: string
   workspaceSessionId?: string
   now: number
@@ -84,6 +87,7 @@ function TaskCard({
   const [diffLoading, setDiffLoading] = useState(false)
   const telemetry = task as TaskWithTelemetry
   const pill = TASK_PILL[task.status]
+  const worker = summarizeUsage(usage)
   const chip = task.provider ? PROVIDER_THEME[task.provider] : undefined
   const heartbeatBase = telemetry.lastHeartbeatAt ?? task.createdAt
   const heartbeatAge = now - heartbeatBase
@@ -195,6 +199,26 @@ function TaskCard({
             )}
           </div>
         )}
+        {usage && worker.status !== 'absent' && (
+          <div className="task-usage" title="Telemetrie des Subagents">
+            {worker.steps != null && (
+              <span><span className="k">Schritte</span> <b>{worker.steps}</b></span>
+            )}
+            {worker.tokens != null && (
+              <span title={formatTokenBreakdown(usage.tokensIn, usage.tokensOut)}>
+                <span className="k">Tokens</span> <b>{formatTokenCount(worker.tokens)}</b>
+              </span>
+            )}
+            {worker.costUsd != null && (
+              <span><span className="k">Kosten</span> <b className="cost">{formatUsd(worker.costUsd)}</b></span>
+            )}
+            {worker.status === 'partial' && (
+              <span className="telemetry-status partial" title={TELEMETRY_STATUS_TITLES.partial}>
+                {TELEMETRY_STATUS_LABELS.partial}
+              </span>
+            )}
+          </div>
+        )}
         {task.note && (
           <div className={`task-note ${task.status === 'error' || task.status === 'needs-work' ? 'err' : ''}`}>{task.note}</div>
         )}
@@ -270,7 +294,9 @@ export default function OrchestratorPanel(): JSX.Element {
   const store = useAppStore()
   const now = useClock()
   const profile = activeProfile(store)
-  const orch = workspaceAgents(store).find((agent) => agent.kind === 'orchestrator')
+  const wsAgents = workspaceAgents(store)
+  const orch = wsAgents.find((agent) => agent.kind === 'orchestrator')
+  const usageByAgentId = new Map(wsAgents.map((agent) => [agent.id, agent.usage] as const))
   const events = workspaceEvents(store)
   const { goal, tasks, pendingPlan, reliability, engineId, lastRetro } = store.orchestrator
   const logRef = useRef<HTMLDivElement>(null)
@@ -521,6 +547,7 @@ export default function OrchestratorPanel(): JSX.Element {
               <TaskCard
                 key={task.id}
                 task={task}
+                usage={task.agentId ? usageByAgentId.get(task.agentId) : undefined}
                 profileId={store.activeProfileId}
                 workspaceSessionId={store.activeWorkspaceSessionId ?? undefined}
                 now={now}

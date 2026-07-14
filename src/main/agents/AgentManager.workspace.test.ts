@@ -14,8 +14,10 @@ const taskResult = vi.hoisted(() => ({
   status: 'succeeded' as 'succeeded' | 'failed',
   isError: false
 }))
+const rollbackWorktreeMock = vi.hoisted(() => vi.fn().mockResolvedValue(true))
 vi.mock('@main/agents/worktree', () => ({
-  createWorktree: vi.fn().mockResolvedValue(undefined)
+  createWorktree: vi.fn().mockResolvedValue(undefined),
+  rollbackWorktree: rollbackWorktreeMock
 }))
 vi.mock('@main/agents/headless', () => ({
   runHeadless: vi.fn((...args: unknown[]) => {
@@ -118,6 +120,43 @@ describe('AgentManager workspace isolation', () => {
     await manager.removeAll('alpha')
 
     expect(manager.list().map((agent) => agent.id)).toEqual(['beta-agent'])
+  })
+
+  it('rolls back the isolated worktree of every removed agent', async () => {
+    rollbackWorktreeMock.mockClear()
+    const manager = new AgentManager()
+    add(manager, {
+      ...info('alpha-agent', 'alpha'),
+      status: 'stopped',
+      worktree: '/repo/.orca-worktrees/session-alpha/alpha-agent',
+      branch: 'orca/session-alpha/alpha-agent'
+    })
+    // A pane without an isolated worktree must not trigger a rollback.
+    add(manager, { ...info('plain-agent', 'alpha'), status: 'stopped' })
+
+    await manager.removeAll('alpha')
+
+    expect(rollbackWorktreeMock).toHaveBeenCalledTimes(1)
+    expect(rollbackWorktreeMock).toHaveBeenCalledWith(
+      '/repo/.orca-worktrees/session-alpha/alpha-agent',
+      'orca/session-alpha/alpha-agent'
+    )
+    expect(manager.list('alpha')).toEqual([])
+  })
+
+  it('keeps removing agents even when a worktree rollback fails', async () => {
+    rollbackWorktreeMock.mockClear()
+    rollbackWorktreeMock.mockRejectedValueOnce(new Error('git busy'))
+    const manager = new AgentManager()
+    add(manager, {
+      ...info('alpha-agent', 'alpha'),
+      status: 'stopped',
+      worktree: '/repo/.orca-worktrees/session-alpha/alpha-agent',
+      branch: 'orca/session-alpha/alpha-agent'
+    })
+
+    await expect(manager.removeAll('alpha')).resolves.toBeUndefined()
+    expect(manager.list('alpha')).toEqual([])
   })
 
   it.each([

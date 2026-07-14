@@ -32,7 +32,7 @@ import {
 import { resolveModel, type ModelPreset } from '@shared/models'
 import { buildInteractiveLaunch } from '@main/providers/types'
 import { resolveLaunch } from '@main/agents/resolveCommand'
-import { createWorktree, currentBranch } from '@main/agents/worktree'
+import { createWorktree, currentBranch, rollbackWorktree } from '@main/agents/worktree'
 import { canonicalWorkspacePath, workspacePathKey } from '@main/agents/workspacePath'
 import {
   PanePreflightError,
@@ -47,8 +47,10 @@ import { getProfile, getSetting } from '@main/config/store'
 import {
   runHeadless,
   type HeadlessHandle,
+  type HeadlessLifecycleEvent,
   type HeadlessLifecycleOptions,
-  type HeadlessResult
+  type HeadlessResult,
+  type HeadlessUsageSnapshot
 } from '@main/agents/headless'
 import { buildOrchestratorSetup } from '@main/orchestrator/orchestratorLaunch'
 import { buildSubagentMcpArgs } from '@main/orchestrator/externalMcp'
@@ -189,6 +191,22 @@ export class AgentManager extends EventEmitter {
 
   private changed(): void {
     this.emit('changed', this.list())
+  }
+
+  /**
+   * Fold a streamed telemetry snapshot into the still-running task agent so the
+   * live pane shows tokens/cost as they accrue, not only once the run finishes.
+   */
+  private applyLiveUsage(id: string, snapshot: HeadlessUsageSnapshot): void {
+    const managed = this.agents.get(id)
+    if (!managed) return
+    managed.info.usage = {
+      costUsd: snapshot.costUsd,
+      tokensIn: snapshot.tokensIn,
+      tokensOut: snapshot.tokensOut,
+      steps: snapshot.steps
+    }
+    this.changed()
   }
 
   private releaseCapacity(managed: Managed): void {
@@ -781,6 +799,15 @@ export class AgentManager extends EventEmitter {
         })
       : undefined
 
+    // Always observe the run's lifecycle so streamed usage snapshots update the
+    // agent live; any caller-provided lifecycle is forwarded unchanged.
+    const taskLifecycle: HeadlessLifecycleOptions = {
+      heartbeatIntervalMs: lifecycle?.heartbeatIntervalMs,
+      onEvent: (event: HeadlessLifecycleEvent) => {
+        if (event.type === 'usage') this.applyLiveUsage(id, event)
+        lifecycle?.onEvent(event)
+      }
+    }
     const handle = runHeadless(
       req.provider,
       taskPrompt,
@@ -792,7 +819,7 @@ export class AgentManager extends EventEmitter {
         extraArgs: buildSubagentMcpArgs(req.provider, id)
       },
       (chunk) => this.pushData(active, chunk),
-      lifecycle
+      taskLifecycle
     )
     active.headless = handle
     info.pid = handle.pid
@@ -946,16 +973,49 @@ export class AgentManager extends EventEmitter {
         (!workspaceSessionId || managed.info.workspaceSessionId === workspaceSessionId)
     )
     const count = targets.length
+    const rollbacks: Array<{ name: string; worktree: string; branch?: string }> = []
     for (const [id, managed] of targets) {
       if (managed.waitAbort) managed.waitAbort.aborted = true
       this.terminate(managed)
       this.clearCursorWorkspaceTrustRetry(managed)
       this.releaseCapacity(managed)
       this.names.release(managed.info.name)
+      if (managed.info.worktree) {
+        rollbacks.push({
+          name: managed.info.name,
+          worktree: managed.info.worktree,
+          branch: managed.info.branch
+        })
+      }
       this.agents.delete(id)
     }
     this.emitEvent(`🧹 Workspace geleert · ${count} Agents entfernt`, 'muted', { profileId })
     this.changed()
+    // Roll the killed agents back: discard each isolated worktree + branch so a
+    // removed workspace run leaves no orphaned checkout behind. Best-effort.
+    await this.rollbackWorktrees(rollbacks, { profileId, workspaceSessionId })
+  }
+
+  /** Discard each agent's isolated worktree; failures never block the removal. */
+  private async rollbackWorktrees(
+    entries: Array<{ name: string; worktree: string; branch?: string }>,
+    context: Pick<AgentInstanceInfo, 'profileId' | 'workspaceSessionId'>
+  ): Promise<void> {
+    for (const entry of entries) {
+      try {
+        const rolledBack = await rollbackWorktree(entry.worktree, entry.branch)
+        if (rolledBack) {
+          this.emitEvent(`↩ ${entry.name} · Worktree zurückgedreht`, 'muted', context)
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        this.emitEvent(
+          `⚠ ${entry.name} · Worktree konnte nicht zurückgedreht werden: ${message}`,
+          'warn',
+          context
+        )
+      }
+    }
   }
 
   /** True while at least one agent process is alive. */

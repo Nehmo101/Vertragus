@@ -64,6 +64,7 @@ export type HeadlessLifecycleEvent =
       providerEvent: string
       pid?: number
     })
+  | (HeadlessLifecycleEventBase & { type: 'usage' } & HeadlessUsageSnapshot)
   | (HeadlessLifecycleEventBase & {
       type: 'usage'
       /** Latest provider-reported totals (tokens/cost/steps) for live display. */
@@ -93,6 +94,14 @@ export interface HeadlessResult {
   costUsd?: number
   /** Machine-readable cause used by the orchestrator's recovery policy. */
   failureKind?: HeadlessFailureKind
+  tokensIn?: number
+  tokensOut?: number
+  steps?: number
+}
+
+/** Accumulated provider telemetry, streamed as it accrues during a run. */
+export interface HeadlessUsageSnapshot {
+  costUsd?: number
   tokensIn?: number
   tokensOut?: number
   steps?: number
@@ -147,7 +156,7 @@ interface LifecycleReporter {
   phase(next: HeadlessLifecyclePhase): void
   output(chunk: string, source: 'stdout' | 'stderr' | 'system'): void
   progress(providerEvent: string): void
-  usage(usage: { costUsd?: number; tokensIn?: number; tokensOut?: number; steps?: number }): void
+  usage(snapshot: HeadlessUsageSnapshot): void
   finish(status: HeadlessStatus, result: HeadlessResult): void
 }
 
@@ -226,10 +235,10 @@ function createLifecycleReporter(
       activity()
       emit({ ...base(), type: 'progress', providerEvent, pid: getPid() })
     },
-    usage(usage) {
+    usage(snapshot) {
       if (finished) return
       activity()
-      emit({ ...base(), type: 'usage', usage: { ...usage } })
+      emit({ ...base(), type: 'usage', ...snapshot })
     },
     finish(status, result) {
       if (finished) return
@@ -568,16 +577,14 @@ export function runHeadless(
     if (typeof result.result === 'string' && result.result) acc.result = result.result
     if (result.isError) sawError = true
     if (result.log && obj['type'] !== 'result') lastText = result.log
-    if (result.costUsd != null) acc.costUsd = result.costUsd
-    if (result.tokensIn != null) acc.tokensIn = result.tokensIn
-    if (result.tokensOut != null) acc.tokensOut = result.tokensOut
-    if (result.steps != null) acc.steps = result.steps
-    if (
-      result.costUsd != null ||
-      result.tokensIn != null ||
-      result.tokensOut != null ||
-      result.steps != null
-    ) {
+    let usageChanged = false
+    if (result.costUsd != null) { acc.costUsd = result.costUsd; usageChanged = true }
+    if (result.tokensIn != null) { acc.tokensIn = result.tokensIn; usageChanged = true }
+    if (result.tokensOut != null) { acc.tokensOut = result.tokensOut; usageChanged = true }
+    if (result.steps != null) { acc.steps = result.steps; usageChanged = true }
+    // Stream telemetry as it accrues so the live pane fills in before the run
+    // ends, instead of only surfacing usage in the terminal result.
+    if (usageChanged) {
       lifecycle.usage({
         costUsd: acc.costUsd,
         tokensIn: acc.tokensIn,
