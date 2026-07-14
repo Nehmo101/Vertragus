@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784072594743,
+  "exportedAt": 1784072642667,
   "app": {
     "name": "orca-strator",
     "version": "0.1.29-main.1.gcfaf136"
@@ -14,7 +14,7 @@
     "planId": "plan-mrlajc1m-2",
     "goal": "Den bereits zentral verifizierten Workspace-UI-Commit 3e6e592aa2dc76f2abcf0550bfa075079eb9e06e sicher in den Remote-Branch DEV veröffentlichen. Vor jeder Mutation müssen Scope, Authentifizierung, Branch-Casing, Remote-Tip und Fast-forward-/Divergenzlage belegt sein. Kein Pull Request.",
     "status": "success",
-    "summary": "Lauf erfolgreich: 1 Modell(e), 1/1 Tasks erfolgreich.",
+    "summary": "Samweis führte einen gründlichen read-only Publish-Preflight durch und stoppte korrekt vor einem nicht-fast-forward Push. Der Live-Remote-Tip von DEV enthält sechs exklusive Commits und überschneidet sich in zwei Hotspot-Dateien mit dem Zielcommit.",
     "modelStats": [
       {
         "provider": "codex",
@@ -34,7 +34,36 @@
         "avgDurationMs": 373130
       }
     ],
-    "learnings": [],
+    "learnings": [
+      {
+        "id": "learning-mrlasda5-1-b1eeez",
+        "provider": "codex",
+        "model": "unspecified",
+        "role": "worker",
+        "kind": "strength",
+        "insight": "Sehr zuverlässig bei Live-Remote-, Branch-Casing-, Auth- und Divergenzprüfungen vor direkten Branch-Pushes.",
+        "evidence": "Samweis verifizierte origin/DEV live, gh-Auth, beide Ancestry-Richtungen und die 6:1-Divergenz und gab korrekt STOP statt Force-Push.",
+        "source": "orchestrator",
+        "profileId": "profile-mri86faq",
+        "observations": 1,
+        "createdAt": 1784072642621,
+        "updatedAt": 1784072642621
+      },
+      {
+        "id": "learning-mrlasda5-2-6dv7sk",
+        "provider": "codex",
+        "model": "unspecified",
+        "role": "worker",
+        "kind": "strength",
+        "insight": "Identifiziert Integrationshotspots präzise, ohne den Arbeitsbaum zu verändern.",
+        "evidence": "Die Überschneidung wurde auf Sidebar.tsx und useAppStore.ts eingegrenzt; Worktree und Index blieben sauber.",
+        "source": "orchestrator",
+        "profileId": "profile-mri86faq",
+        "observations": 1,
+        "createdAt": 1784072642621,
+        "updatedAt": 1784072642621
+      }
+    ],
     "createdAt": 1784072594695
   }
 }
