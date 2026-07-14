@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784072045505,
+  "exportedAt": 1784072099102,
   "app": {
     "name": "orca-strator",
     "version": "0.1.29-main.1.gcfaf136"
@@ -14,7 +14,7 @@
     "planId": "plan-mrl9o7nb-1",
     "goal": "Im Workspace-UI einen auffälligen Blinkindikator unten links anzeigen, sobald der Workspace-Orchestrator oder ersatzweise ein Subagent eine Rückmeldung vom Nutzer benötigt, und die linke Sidebar exakt in die Reihenfolge Workspace-Profile, Profil-Workspaces, Navigation, MCP, KI-Provider, Infrastruktur bringen. Bestehende Funktionalität muss erhalten bleiben und die Änderung muss durch relevante automatisierte Prüfungen belegt sein.",
     "status": "success",
-    "summary": "Lauf erfolgreich: 1 Modell(e), 1/1 Tasks erfolgreich.",
+    "summary": "Der Codex-Worker integrierte die Workspace-Aufmerksamkeitslogik und Sidebar-Neuordnung vollständig in bestehende Datenflüsse. Trotz Vitest-EPERM lieferte er nachvollziehbare Ersatzassertions sowie grüne Typecheck-, ESLint- und Diff-Gates. Der Lauf meldete keinen Modellnamen; deshalb wird das Modell als unspecified erfasst.",
     "modelStats": [
       {
         "provider": "codex",
@@ -34,7 +34,50 @@
         "avgDurationMs": 1259114
       }
     ],
-    "learnings": [],
+    "learnings": [
+      {
+        "id": "learning-mrlagpts-1-yfwzuo",
+        "provider": "codex",
+        "model": "unspecified",
+        "role": "worker",
+        "kind": "strength",
+        "insight": "Stark bei zusammenhängenden React/Store/CSS-Integrationen mit Barrierefreiheit und negativen Scope-Tests.",
+        "evidence": "Pippin änderte Sidebar, Store-Selector, Styles und Tests konsistent; 8/8 fokussierte Assertions, beide Typechecks, ESLint und git diff --check bestanden.",
+        "source": "orchestrator",
+        "profileId": "profile-mri86faq",
+        "observations": 1,
+        "createdAt": 1784072099008,
+        "updatedAt": 1784072099008
+      },
+      {
+        "id": "learning-mrlagpts-2-rstbru",
+        "provider": "codex",
+        "model": "unspecified",
+        "role": "worker",
+        "kind": "strength",
+        "insight": "Reagiert robust auf lokale Testinfrastruktur-Blocker und dokumentiert Ersatz-Gates transparent.",
+        "evidence": "Vitest scheiterte an spawn EPERM; der Worker bündelte dieselben Kernassertions direkt über die vorhandene Esbuild-Binary und wies den Vitest-Blocker separat aus.",
+        "source": "orchestrator",
+        "profileId": "profile-mri86faq",
+        "observations": 1,
+        "createdAt": 1784072099008,
+        "updatedAt": 1784072099008
+      },
+      {
+        "id": "learning-mrlagpts-3-kb510z",
+        "provider": "codex",
+        "model": "unspecified",
+        "role": "worker",
+        "kind": "weakness",
+        "insight": "Benötigt bei UI-Integrationsaufgaben eine lange Explorationsphase mit wenig frühen Findings.",
+        "evidence": "Konkrete Implementierungs- und Gate-Signale erschienen erst spät; das Findings-Board blieb während des langen Laufs leer.",
+        "source": "orchestrator",
+        "profileId": "profile-mri86faq",
+        "observations": 1,
+        "createdAt": 1784072099008,
+        "updatedAt": 1784072099008
+      }
+    ],
     "createdAt": 1784072045421
   }
 }
