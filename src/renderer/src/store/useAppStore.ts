@@ -24,7 +24,15 @@ import type { WorkspaceProfile } from '@shared/profile'
 import type { McpServerConfig } from '@shared/mcp'
 import type { OrchestratorSnapshot, WorkspaceSessionSummary } from '@shared/orchestrator'
 import type { AppInfo, GitInfo, GithubAuthStatus } from '@shared/ipc'
-import { profileRepoLocalPath } from '@shared/profile'
+import {
+  collectKnownRepos,
+  parseActiveRepo,
+  parseRecentRepos,
+  profileRepoRef,
+  repoRefKey,
+  resolveActiveRepoPath,
+  type RepoRef
+} from '@shared/repoSwitcher'
 import { normalizeModelCatalog, type ModelCatalog } from '@renderer/modelCatalog'
 import type { ModelPreset } from '@shared/models'
 
@@ -54,6 +62,10 @@ interface AppState {
   disabledModels: DisabledModels
   profiles: WorkspaceProfile[]
   activeProfileId: string
+  /** Soft app-level repository override; null = follow the active profile. */
+  activeRepo: RepoRef | null
+  /** Manually added repositories, most recent first. */
+  recentRepos: RepoRef[]
   workspaceSessions: WorkspaceSessionSummary[]
   activeWorkspaceSessionId: string | null
   /** User-configured external MCP servers attached to the launched agents. */
@@ -96,6 +108,10 @@ interface AppState {
   loginProvider(id: ProviderId): Promise<void>
   refreshGit(): Promise<void>
   switchGitBranch(branch: string): Promise<boolean>
+  /** Switch the active repository (null = follow the active profile default). */
+  selectRepo(ref: RepoRef | null): Promise<void>
+  /** Pick a folder from disk and switch the active repository to it. */
+  addRepoFromFolder(): Promise<void>
   selectProfile(id: string): Promise<boolean>
   selectWorkspaceSession(profileId: string, sessionId: string): Promise<boolean>
   removeWorkspaceSession(profileId: string, sessionId: string): Promise<void>
@@ -147,6 +163,25 @@ export function activeProfile(s: Pick<AppState, 'profiles' | 'activeProfileId'>)
   | WorkspaceProfile
   | undefined {
   return s.profiles.find((p) => p.id === s.activeProfileId)
+}
+
+type RepoState = Pick<AppState, 'profiles' | 'activeProfileId' | 'activeRepo' | 'recentRepos'>
+
+/** The effective repository: explicit override, else the active profile default. */
+export function effectiveRepoRef(s: RepoState): RepoRef | null {
+  if (s.activeRepo?.path?.trim()) return s.activeRepo
+  const profile = activeProfile(s)
+  return profile ? profileRepoRef(profile) : null
+}
+
+/** Effective repository working directory ('' when none is selected). */
+export function effectiveRepoPath(s: RepoState): string {
+  return resolveActiveRepoPath(s.activeRepo, activeProfile(s))
+}
+
+/** Ordered pick list for the title-bar repository switcher. */
+export function knownRepos(s: RepoState): RepoRef[] {
+  return collectKnownRepos(s.profiles, s.recentRepos, effectiveRepoRef(s))
 }
 
 export function workspaceAgents(
@@ -211,6 +246,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   disabledModels: DEFAULT_DISABLED_MODELS,
   profiles: [],
   activeProfileId: '',
+  activeRepo: null,
+  recentRepos: [],
   workspaceSessions: [],
   activeWorkspaceSessionId: null,
   mcpServers: [],
@@ -314,7 +351,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       workspaceSessions,
       providerEnabled,
       disabledModels,
-      cliReadable
+      cliReadable,
+      activeRepoRaw,
+      recentReposRaw
     ] =
       await Promise.all([
         window.orca.getAppInfo(),
@@ -332,12 +371,16 @@ export const useAppStore = create<AppState>((set, get) => ({
         window.orca.workspaceSessions.list(),
         window.orca.getConfig<Partial<ProviderEnabled>>('providerEnabled'),
         window.orca.getConfig<Partial<DisabledModels>>('disabledModels'),
-        window.orca.getConfig<boolean>('ui.cliReadable')
+        window.orca.getConfig<boolean>('ui.cliReadable'),
+        window.orca.getConfig<unknown>('workspaceRepo.active'),
+        window.orca.getConfig<unknown>('workspaceRepo.recent')
       ])
     set({
       appInfo,
       profiles,
       activeProfileId,
+      activeRepo: parseActiveRepo(activeRepoRaw),
+      recentRepos: parseRecentRepos(recentReposRaw),
       workspaceSessions,
       activeWorkspaceSessionId:
         snapshot.workspaceSessionId ??
@@ -464,15 +507,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   async refreshGit() {
-    const profile = activeProfile(get())
-    const dir = profile ? profileRepoLocalPath(profile) : ''
+    const dir = effectiveRepoPath(get())
     const gitInfo = dir ? await window.orca.gitInfo(dir) : { isRepo: false }
     set({ gitInfo })
   },
 
   async switchGitBranch(branch) {
-    const profile = activeProfile(get())
-    const dir = profile ? profileRepoLocalPath(profile) : ''
+    const dir = effectiveRepoPath(get())
     if (!dir) return false
 
     try {
@@ -485,6 +526,57 @@ export const useAppStore = create<AppState>((set, get) => ({
       await get().refreshGit().catch(() => undefined)
       return false
     }
+  },
+
+  async selectRepo(ref) {
+    const previous = get().activeRepo
+    if (ref && !ref.path.trim()) return
+
+    const previousRecents = get().recentRepos
+    let recentRepos = previousRecents
+    if (ref) {
+      const key = repoRefKey(ref.path)
+      const fromProfile = get().profiles.some((profile) => {
+        const profileRef = profileRepoRef(profile)
+        return profileRef ? repoRefKey(profileRef.path) === key : false
+      })
+      // Only manually chosen folders are remembered; profile repos already list.
+      if (!fromProfile) {
+        recentRepos = [
+          ref,
+          ...previousRecents.filter((entry) => repoRefKey(entry.path) !== key)
+        ].slice(0, 12)
+      }
+    }
+    const recentsChanged = recentRepos !== previousRecents
+
+    set({ activeRepo: ref, recentRepos })
+    try {
+      // Await the persist so the main process reads the same override before a
+      // subsequent team start resolves its working directory.
+      await window.orca.setConfig('workspaceRepo.active', ref)
+      if (recentsChanged) void window.orca.setConfig('workspaceRepo.recent', recentRepos)
+    } catch (error) {
+      set({ activeRepo: previous, recentRepos: previousRecents })
+      get().showToast(`Repository konnte nicht gewechselt werden: ${errorMessage(error)}`)
+      return
+    }
+
+    await get().refreshGit().catch((error) => {
+      get().showToast(`Git-Status nicht verfügbar: ${errorMessage(error)}`)
+    })
+    const path = effectiveRepoPath(get())
+    get().showToast(
+      ref
+        ? `Repository gewechselt: ${ref.label?.trim() || path || ref.path}`
+        : 'Repository folgt wieder dem aktiven Profil.'
+    )
+  },
+
+  async addRepoFromFolder() {
+    const dir = await window.orca.pickFolder()
+    if (!dir) return
+    await get().selectRepo({ path: dir })
   },
 
   async selectProfile(id) {
@@ -752,7 +844,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         modelPreset: selection.modelPreset,
         role: `Subagent · ${role}`,
         yolo: s.yoloMaster,
-        workingDir: profile ? profileRepoLocalPath(profile) : undefined,
+        workingDir: effectiveRepoPath(s) || undefined,
         profileId: profile?.id,
         workspaceSessionId: s.activeWorkspaceSessionId ?? undefined
       })

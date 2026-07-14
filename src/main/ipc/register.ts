@@ -68,6 +68,7 @@ import {
 } from '@main/inbox/store'
 import { retryIdeaTransfer, transferIdeaToProfile } from '@main/inbox/transferService'
 import { spawnProfileTeam } from '@main/agents/spawnProfile'
+import { getActiveRepoOverridePath } from '@main/config/workspaceRepo'
 import { generateProfileForRepo } from '@main/profiles/generateProfileForRepo'
 import {
   listBenchmarkRecords,
@@ -392,7 +393,9 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.agentsSpawnProfile, async (_e, profileId: string, yoloMaster: boolean) => {
     const profile = getProfile(profileId)
     if (!profile) return []
-    return spawnProfileTeam(profile, yoloMaster)
+    return spawnProfileTeam(profile, yoloMaster, {
+      workingDirOverride: getActiveRepoOverridePath()
+    })
   })
   ipcMain.on(IPC.agentWrite, (_e, id: string, data: string) => agentManager.write(id, data))
   ipcMain.on(IPC.agentMarkInteractiveUsed, (_e, id: string) =>

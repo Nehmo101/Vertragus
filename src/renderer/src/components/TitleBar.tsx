@@ -1,11 +1,17 @@
 import { useEffect, useState } from 'react'
-import { useAppStore, activeProfile } from '@renderer/store/useAppStore'
+import { useAppStore, effectiveRepoRef, knownRepos } from '@renderer/store/useAppStore'
 import type { WorkspaceProfile } from '@shared/profile'
 import { resolveModel } from '@shared/models'
+import { repoRefKey, repoRefLabel } from '@shared/repoSwitcher'
 import type { UpdateState } from '@shared/ipc'
 import WhaleLogo from '@renderer/components/WhaleLogo'
 import GitWorkspaceTree from '@renderer/components/GitWorkspaceTree'
 import styles from './responsiveGuards.module.css'
+
+/** Collapse the user's home directory to `~` for a compact repo-path display. */
+function compactHome(value: string): string {
+  return value.replace(/\\/g, '/').replace(/^([A-Za-z]:)?\/(Users|home)\/[^/]+/, '~')
+}
 
 function useClock(): string {
   const [now, setNow] = useState(() => new Date())
@@ -41,7 +47,11 @@ export default function TitleBar(): JSX.Element {
   const [update, setUpdate] = useState<UpdateState | null>(null)
   const [branchSwitching, setBranchSwitching] = useState(false)
 
-  const profile = activeProfile(store)
+  const repoRef = effectiveRepoRef(store)
+  const repoPath = repoRef?.path.trim() ?? ''
+  const repoLabel = repoRef ? repoRefLabel(repoRef) : 'Kein Repo'
+  const repos = knownRepos(store)
+  const activeRepoKey = repoPath ? repoRefKey(repoPath) : ''
   const running = store.agents.filter((a) => a.status === 'running').length
   const anyRunning = running > 0
   const updateVisible =
@@ -96,9 +106,6 @@ export default function TitleBar(): JSX.Element {
       window.removeEventListener('focus', refresh)
     }
   }, [activeProfileId, refreshGit])
-  const displayDir = (profile?.workingDir || '')
-    .replace(/\\/g, '/')
-    .replace(/^([A-Za-z]:)?\/(Users|home)\/[^/]+/, '~')
 
   const remoteLabel = store.gitInfo?.remote?.replace(/(https?:\/\/)[^/@]+@/i, '$1')
   const gitTitle = store.gitInfo?.isRepo
@@ -149,8 +156,8 @@ export default function TitleBar(): JSX.Element {
 
         <div className="tb-divider" />
         <div className="repo-path">
-          <span className="path" title={profile?.workingDir || undefined}>
-            {profile?.workingDir ? displayDir : 'kein Arbeitsverzeichnis'}
+          <span className="path" title={repoPath || undefined}>
+            {repoPath ? compactHome(repoPath) : 'kein Arbeitsverzeichnis'}
           </span>
           {store.gitInfo?.isRepo && (
             <label
@@ -181,7 +188,8 @@ export default function TitleBar(): JSX.Element {
             </label>
           )}
           <GitWorkspaceTree
-            profile={profile}
+            repoBound={Boolean(repoPath)}
+            repoLabel={repoLabel}
             gitInfo={store.gitInfo}
             githubAuth={store.githubAuth}
           />
@@ -273,57 +281,73 @@ export default function TitleBar(): JSX.Element {
 
         <div style={{ position: 'relative' }} className="no-drag">
           <button type="button"
-            className="profile-btn"
+            className="repo-btn"
             aria-haspopup="menu"
             aria-expanded={menuOpen}
-            aria-label="Workspace-Profil wählen"
+            aria-label="Repository wechseln"
+            title={repoPath || 'Kein Repository ausgewählt'}
             onClick={() => {
               setMenuOpen((v) => !v)
               setConfirmKill(false)
             }}
           >
-            <span className="profile-avatar">
-              {(profile?.name ?? 'OS').slice(0, 2).toUpperCase()}
-            </span>
-            <span className="name">{profile?.name ?? '—'}</span>
+            <span className="repo-btn-icon" aria-hidden="true">⑂</span>
+            <span className="name">{repoLabel}</span>
             <span className="caret">▾</span>
           </button>
           {menuOpen && (
             <>
               <div className="menu-backdrop" onClick={() => setMenuOpen(false)} />
-              <div className="profile-menu" role="menu" aria-label="Workspace-Profile">
-                <div className="menu-caption">Workspace-Profile</div>
-                {store.profiles.map((p) => (
-                  <button type="button"
-                    key={p.id}
-                    className="menu-item"
-                    onClick={() => {
-                      void store.selectProfile(p.id)
-                      setMenuOpen(false)
-                    }}
-                  >
-                    <span style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                      <span className="title">{p.name}</span>
-                      <span className="sub">{profileSummary(p)}</span>
-                    </span>
-                    <span
-                      className="check"
-                      style={{ opacity: p.id === store.activeProfileId ? 1 : 0 }}
+              <div className="profile-menu repo-menu" role="menu" aria-label="Repository wechseln">
+                <div className="menu-caption">Repository wechseln</div>
+                {repos.length === 0 && (
+                  <div className="repo-menu-empty">
+                    Noch kein Repository. Wähle unten einen Ordner.
+                  </div>
+                )}
+                {repos.map((repo) => {
+                  const active = repoRefKey(repo.path) === activeRepoKey
+                  return (
+                    <button type="button"
+                      key={repoRefKey(repo.path)}
+                      className="menu-item"
+                      title={repo.path}
+                      onClick={() => {
+                        void store.selectRepo(repo)
+                        setMenuOpen(false)
+                      }}
                     >
-                      ✓
-                    </span>
-                  </button>
-                ))}
+                      <span style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
+                        <span className="title">{repoRefLabel(repo)}</span>
+                        <span className="sub">{compactHome(repo.path)}</span>
+                      </span>
+                      <span className="check" style={{ opacity: active ? 1 : 0 }}>
+                        ✓
+                      </span>
+                    </button>
+                  )
+                })}
                 <div className="menu-sep" />
                 <button type="button"
                   className="menu-action"
                   onClick={() => {
                     setMenuOpen(false)
-                    if (profile) store.openEditor(profile)
+                    void store.addRepoFromFolder()
                   }}
                 >
-                  <span style={{ fontSize: 13 }}>⚙</span> Profil-Editor öffnen…
+                  <span style={{ fontSize: 13 }}>＋</span> Ordner wählen…
                 </button>
+                {store.activeRepo && (
+                  <button type="button"
+                    className="menu-action"
+                    onClick={() => {
+                      setMenuOpen(false)
+                      void store.selectRepo(null)
+                    }}
+                  >
+                    <span style={{ fontSize: 13 }}>↩</span> Dem aktiven Profil folgen
+                  </button>
+                )}
               </div>
             </>
           )}

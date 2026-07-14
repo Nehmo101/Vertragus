@@ -69,4 +69,32 @@ describe('adaptive profile team start', () => {
     expect(mocks.spawn).toHaveBeenCalledTimes(4)
     expect(mocks.spawn.mock.calls.filter(([request]) => request.kind !== 'orchestrator')).toHaveLength(3)
   })
+
+  it('routes the team into the active-repo override instead of the profile default', async () => {
+    const profile = {
+      ...DEFAULT_PROFILE,
+      workingDir: '/profile/repo',
+      planner: { ...DEFAULT_PROFILE.planner, routingMode: 'fixed' as const }
+    }
+
+    await spawnProfileTeam(profile, false, { workingDirOverride: '/override/repo' })
+
+    for (const [request] of mocks.spawn.mock.calls) {
+      expect(request.workingDir).toBe('/override/repo')
+    }
+  })
+
+  it('falls back to the profile default when no override is set', async () => {
+    const profile = {
+      ...DEFAULT_PROFILE,
+      workingDir: '/profile/repo',
+      planner: { ...DEFAULT_PROFILE.planner, routingMode: 'fixed' as const }
+    }
+
+    await spawnProfileTeam(profile, false, { workingDirOverride: '   ' })
+
+    for (const [request] of mocks.spawn.mock.calls) {
+      expect(request.workingDir).toBe('/profile/repo')
+    }
+  })
 })
