@@ -68,6 +68,33 @@ describe('headless prompt enhancement provider adapter', () => {
     expect(capacity.release).toHaveBeenCalledWith('codex')
   })
 
+  it('reports capacity-clear and streamed output as activity so the idle timeout resets', async () => {
+    let onLine: ((chunk: string) => void) | undefined
+    const runner = vi.fn<PromptHeadlessRunner>((_id, _prompt, _opts, line) => {
+      onLine = line
+      return {
+        done: Promise.resolve({ result: '{"ok":true}', isError: false, status: 'succeeded' }),
+        kill: vi.fn()
+      }
+    })
+    const activity = vi.fn()
+    const executor = createHeadlessPromptEnhancementExecutor(runner, availableCapacity())
+    const output = await executor({
+      provider: 'codex',
+      systemPrompt: 'rules',
+      userPrompt: 'data',
+      signal: new AbortController().signal,
+      onActivity: activity
+    })
+
+    expect(output).toBe('{"ok":true}')
+    // At least one ping fires once the capacity queue clears, before any output.
+    expect(activity).toHaveBeenCalled()
+    const beforeStream = activity.mock.calls.length
+    onLine?.('streamed chunk')
+    expect(activity.mock.calls.length).toBeGreaterThan(beforeStream)
+  })
+
   it('kills the headless provider when the injected abort signal fires', async () => {
     const done = deferred<HeadlessResult>()
     const kill = vi.fn()
