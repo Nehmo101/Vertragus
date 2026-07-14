@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "exportedAt": 1784072594743,
+  "app": {
+    "name": "orca-strator",
+    "version": "0.1.29-main.1.gcfaf136"
+  },
+  "machineId": "5087fc1f7b9d",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrlarcav-plan-mrlajc1m-2",
+    "profileId": "profile-mri86faq",
+    "workspaceSessionId": "5d21026f-4d65-40e7-ac04-ae693fb97232",
+    "planId": "plan-mrlajc1m-2",
+    "goal": "Den bereits zentral verifizierten Workspace-UI-Commit 3e6e592aa2dc76f2abcf0550bfa075079eb9e06e sicher in den Remote-Branch DEV veröffentlichen. Vor jeder Mutation müssen Scope, Authentifizierung, Branch-Casing, Remote-Tip und Fast-forward-/Divergenzlage belegt sein. Kein Pull Request.",
+    "status": "success",
+    "summary": "Lauf erfolgreich: 1 Modell(e), 1/1 Tasks erfolgreich.",
+    "modelStats": [
+      {
+        "provider": "codex",
+        "model": "",
+        "roles": [
+          "worker"
+        ],
+        "tasks": 1,
+        "succeeded": 1,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failedAttempts": 0,
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "avgDurationMs": 373130
+      }
+    ],
+    "learnings": [],
+    "createdAt": 1784072594695
+  }
+}
