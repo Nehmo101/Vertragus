@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784072971893,
+  "exportedAt": 1784072999909,
   "app": {
     "name": "orca-strator",
     "version": "0.1.29-main.1.gcfaf136"
@@ -14,7 +14,7 @@
     "planId": "plan-mrlae2ry-2",
     "goal": "Den bereits implementierten Workspace-Profil-Löschpfad sicher abnehmen: Der mutierende IPC-Handler besitzt eine repository-konforme Autorisierung, nicht autorisierte Aufrufe werden ohne Mutation abgewiesen, und die funktionale Löschung bleibt intakt.",
     "status": "success",
-    "summary": "Lauf erfolgreich: 1 Modell(e), 1/1 Tasks erfolgreich.",
+    "summary": "Éomer schloss die fehlende IPC-Autorisierung mit fail-closed Fenster-, Frame- und Origin-Prüfungen sowie grünen Security-/Negativtests. Das Ergebnis deckte zugleich ehrlich auf, dass Funktions- und Security-Commit auf divergierenden Basen liegen und vor der Endabnahme kombiniert werden müssen; ein Modellname wurde vom Slot weiterhin nicht geliefert.",
     "modelStats": [
       {
         "provider": "codex",
