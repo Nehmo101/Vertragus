@@ -21,9 +21,43 @@ describe('provider model argument passing', () => {
     const headless = buildHeadlessLaunch('codex', 'do work', opts)
 
     expect(interactive.args).toEqual(['--model', 'chosen-model'])
-    expect(headless.args.slice(0, 4)).toEqual(['exec', '--model', 'chosen-model', 'do work'])
+    expect(headless.args).toEqual([
+      'exec',
+      '--model',
+      'chosen-model',
+      '--sandbox',
+      'workspace-write',
+      '--ask-for-approval',
+      'never',
+      'do work'
+    ])
     expect([...interactive.args, ...headless.args]).not.toContain('model=chosen-model')
   })
+  it('keeps Codex standard and explicit Yolo execution mutually exclusive', () => {
+    const standard = buildHeadlessLaunch('codex', 'do work', {
+      ...opts,
+      extraArgs: ['-c', 'mcp_servers.demo.enabled=true']
+    }).args
+    const yolo = buildHeadlessLaunch('codex', 'do work', { ...opts, yolo: true }).args
+
+    expect(standard).toEqual([
+      'exec',
+      '--model',
+      'chosen-model',
+      '--sandbox',
+      'workspace-write',
+      '--ask-for-approval',
+      'never',
+      '-c',
+      'mcp_servers.demo.enabled=true',
+      'do work'
+    ])
+    expect(standard).not.toContain('--dangerously-bypass-approvals-and-sandbox')
+    expect(yolo).toContain('--dangerously-bypass-approvals-and-sandbox')
+    expect(yolo).not.toContain('--sandbox')
+    expect(yolo.at(-1)).toBe('do work')
+  })
+
 
   it('omits model flags for cloud provider CLI defaults', () => {
     const withoutModel = { ...opts, model: undefined }

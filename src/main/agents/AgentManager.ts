@@ -32,14 +32,17 @@ import {
 import { resolveModel, type ModelPreset } from '@shared/models'
 import { buildInteractiveLaunch } from '@main/providers/types'
 import { resolveLaunch } from '@main/agents/resolveCommand'
-import { createWorktree } from '@main/agents/worktree'
+import { createWorktree, currentBranch } from '@main/agents/worktree'
 import { canonicalWorkspacePath, workspacePathKey } from '@main/agents/workspacePath'
 import {
   PanePreflightError,
   runPanePreflight,
   type PanePreflightInput
 } from '@main/agents/panePreflight'
-import { cursorWorkspaceTrustPrompt } from '@main/agents/cursorWorkspaceTrust'
+import {
+  cursorWorkspaceTrustPrompt,
+  isExactOrcaWorktreePath
+} from '@main/agents/cursorWorkspaceTrust'
 import { getProfile, getSetting } from '@main/config/store'
 import {
   runHeadless,
@@ -101,6 +104,8 @@ export interface RunTaskRequest {
   profileId?: string
   workspaceSessionId?: string
   engineId?: string
+  /** Trusted failed-worker worktree to continue without losing partial files. */
+  recoveryWorktree?: string
 }
 
 export type PanePreflightRunner = (input: PanePreflightInput) => Promise<PanePreflightReport>
@@ -223,6 +228,28 @@ export class AgentManager extends EventEmitter {
     }
     return { workingDir, worktree, branch }
   }
+  private async prepareRecoveryWorktree(requested: string): Promise<{
+    workingDir: string
+    worktree: string
+    branch: string
+  }> {
+    if (!isExactOrcaWorktreePath(requested)) {
+      throw new Error('Recovery-Worktree wurde nicht von Orca erzeugt.')
+    }
+    const workingDir = await canonicalWorkspacePath(requested)
+    if (
+      !isExactOrcaWorktreePath(workingDir) ||
+      workspacePathKey(workingDir) !== workspacePathKey(requested)
+    ) {
+      throw new Error('Recovery-Worktree ist ein Alias oder wurde verschoben.')
+    }
+    const branch = await currentBranch(workingDir)
+    if (!branch || branch === 'HEAD' || !branch.startsWith('orca/')) {
+      throw new Error('Recovery-Worktree besitzt keinen sicheren Orca-Branch.')
+    }
+    return { workingDir, worktree: workingDir, branch }
+  }
+
 
   private pushData(managed: Managed, data: string): void {
     managed.buffer = (managed.buffer + data).slice(-BUFFER_LIMIT)
@@ -641,7 +668,7 @@ export class AgentManager extends EventEmitter {
     assertProviderSelection(req.provider, resolvedModel)
     assertModelSelection(req.provider, resolvedModel)
     const taskReq = { ...req, model: resolvedModel }
-    let managed = this.claimTeamMember(taskReq)
+    let managed = req.recoveryWorktree ? undefined : this.claimTeamMember(taskReq)
 
     if (managed) {
       const proc = managed.pty!
@@ -673,13 +700,15 @@ export class AgentManager extends EventEmitter {
     } else {
       const id = this.nextId('task')
       const name = this.names.allocate('sub')
-      const { workingDir, worktree, branch } = await this.prepareWorkingDir(
-        id,
-        req.workingDir,
-        undefined,
-        req.workspaceSessionId,
-        req.profileId
-      )
+      const { workingDir, worktree, branch } = req.recoveryWorktree
+        ? await this.prepareRecoveryWorktree(req.recoveryWorktree)
+        : await this.prepareWorkingDir(
+            id,
+            req.workingDir,
+            undefined,
+            req.workspaceSessionId,
+            req.profileId
+          )
       const info: AgentInstanceInfo = {
         id,
         name,
@@ -721,6 +750,7 @@ export class AgentManager extends EventEmitter {
         provider: req.provider,
         workingDir,
         worktree: info.worktree,
+        yolo: req.yolo,
         engineId: req.engineId,
         workspaceSessionId: req.workspaceSessionId
       })

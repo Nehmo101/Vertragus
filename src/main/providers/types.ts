@@ -105,9 +105,11 @@ export function buildHeadlessLaunch(
         args: [
           'exec',
           ...(opts.model ? ['--model', opts.model] : []),
-          prompt,
-          ...yolo,
-          ...extra
+          ...(opts.yolo
+            ? YOLO_FLAGS.codex
+            : ['--sandbox', 'workspace-write', '--ask-for-approval', 'never']),
+          ...extra,
+          prompt
         ]
       }
     case 'cursor':

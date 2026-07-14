@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { DEFAULT_PROFILE } from '@shared/profile'
 import type { AutoPrOutcome, PrepareTaskResult, RemoteCiOutcome } from '@main/integrations/autoPr'
+import type { TaskRecoveryArtifact } from '@shared/orchestrator'
 
 vi.mock('electron', () => ({
   app: { getPath: () => '.', getName: () => 'test', isPackaged: false },
@@ -16,7 +17,7 @@ vi.mock('@main/config/store', () => ({
   setSetting: vi.fn()
 }))
 
-const { runTask, prepareTaskChange, publishPreparedChanges } = vi.hoisted(() => ({
+const { runTask, prepareTaskChange, publishPreparedChanges, captureTaskRecoveryArtifact } = vi.hoisted(() => ({
   runTask: vi.fn(),
   prepareTaskChange: vi.fn<(input: unknown) => Promise<PrepareTaskResult>>(async () => ({
     status: 'skipped',
@@ -26,7 +27,8 @@ const { runTask, prepareTaskChange, publishPreparedChanges } = vi.hoisted(() => 
   })),
   publishPreparedChanges: vi.fn<(
     input: { onRemoteCiUpdate?: (outcome: RemoteCiOutcome) => void }
-  ) => Promise<AutoPrOutcome>>()
+  ) => Promise<AutoPrOutcome>>(),
+  captureTaskRecoveryArtifact: vi.fn<(input: unknown) => Promise<TaskRecoveryArtifact | undefined>>(async () => undefined)
 }))
 vi.mock('@main/agents/AgentManager', () => ({
   agentManager: { runTask, list: () => [] }
@@ -35,8 +37,11 @@ vi.mock('@main/integrations/autoPr', () => ({
   prepareTaskChange,
   publishPreparedChanges
 }))
+vi.mock('@main/orchestrator/recoveryArtifact', () => ({
+  captureTaskRecoveryArtifact
+}))
 
-import { OrchestratorEngine } from './Engine'
+import { OrchestratorEngine, platformExecutionGuidance } from './Engine'
 
 function info(taskId: string) {
   return {
@@ -57,6 +62,16 @@ function info(taskId: string) {
 }
 
 describe('asynchronous orchestration API', () => {
+  it('defines the PowerShell execution contract independently of the host running tests', () => {
+    const guidance = platformExecutionGuidance('win32').join('\n')
+
+    expect(guidance).toContain('kurzen Einzelbefehl')
+    expect(guidance).toContain("rg -g")
+    expect(guidance).toContain('Exit-Code 1')
+    expect(guidance).toContain('Quotingfehlern')
+    expect(platformExecutionGuidance('linux')).toEqual([])
+  })
+
   it('returns taskId immediately and exposes the final result through polling', async () => {
     let finish!: (value: { result: string; isError: boolean; status: 'succeeded' }) => void
     runTask.mockImplementationOnce(async (request) => ({
@@ -175,6 +190,14 @@ describe('asynchronous orchestration API', () => {
   })
 
   it('advertises routing knowledge and recovers with an untried role in adaptive mode', async () => {
+    const recoveryWorktree = 'C:\\repo\\.orca-worktrees\\session\\agent'
+    captureTaskRecoveryArtifact.mockResolvedValueOnce({
+      worktree: recoveryWorktree,
+      baseCommit: 'a'.repeat(40),
+      changedFiles: ['src/main/partial.ts'],
+      statusSummary: ' M src/main/partial.ts',
+      capturedAt: Date.now()
+    })
     runTask
       .mockImplementationOnce(async (request) => ({
         info: { ...info(request.taskId), provider: request.provider },
@@ -241,6 +264,12 @@ describe('asynchronous orchestration API', () => {
 
     expect(result.tasks[0]).toEqual(expect.objectContaining({ status: 'success' }))
     expect(runTask.mock.calls.slice(-2).map(([request]) => request.provider)).toEqual(['codex', 'cursor'])
+    const retryRequest = runTask.mock.calls.at(-1)?.[0]
+    expect(retryRequest).toEqual(expect.objectContaining({ recoveryWorktree }))
+    expect(retryRequest?.prompt).toContain('Recovery-Artefakt')
+    expect(captureTaskRecoveryArtifact).toHaveBeenCalledWith(
+      expect.objectContaining({ baseCommit: undefined, worktree: '.' })
+    )
   })
 
 
