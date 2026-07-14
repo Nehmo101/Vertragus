@@ -96,12 +96,19 @@ export function resolveExecutionPlan(
   fallbackRole = 'worker',
   fallbackPrompt?: string,
   allowedRoles?: readonly string[]
-): ResolvedExecutionPlan {
+): ResolvedExecutionPlan & { rejected: boolean } {
   const issues: PlanValidationIssue[] = []
   if (!isRecord(input)) {
     issues.push({ code: 'invalid_shape', message: 'Plan must be an object.' })
-    return { plan: fallbackPlan(input, fallbackRole, fallbackPrompt), usedFallback: true, issues }
+    return {
+      plan: fallbackPlan(input, fallbackRole, fallbackPrompt),
+      usedFallback: true,
+      rejected: false,
+      issues
+    }
   }
+
+  const isStructuredPlan = Array.isArray(input.tasks) && input.tasks.some(isRecord)
 
   if (input.version !== 1) {
     issues.push({ code: 'invalid_shape', message: 'version must be 1.' })
@@ -216,10 +223,13 @@ export function resolveExecutionPlan(
       ...integrator.advisoryDependsOn
     ])
     const missingDependencies = tasks.filter(
-      (task) => task.id !== integrator.id && !integrationDependencies.has(task.id)
+      (task) =>
+        task.id !== integrator.id &&
+        task.criticality === 'required' &&
+        !integrationDependencies.has(task.id)
     )
     if (missingDependencies.length > 0) {
-      issues.push({ code: 'invalid_ownership', message: 'The integrator must depend on every feature task.', taskId: integrator.id })
+      issues.push({ code: 'invalid_ownership', message: 'The integrator must depend on every required feature task.', taskId: integrator.id })
     }
   }
 
@@ -253,12 +263,14 @@ export function resolveExecutionPlan(
     return {
       plan: fallbackPlan(input, fallbackRole, fallbackPrompt),
       usedFallback: true,
+      rejected: isStructuredPlan,
       issues
     }
   }
   return {
     plan: { version: 1, goal, maxParallel, tasks },
     usedFallback: false,
+    rejected: false,
     issues: []
   }
 }
