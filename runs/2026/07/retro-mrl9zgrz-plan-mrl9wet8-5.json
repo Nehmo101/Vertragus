@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784071294158,
+  "exportedAt": 1784071312197,
   "app": {
     "name": "orca-strator",
     "version": "0.1.29-main.1.gcfaf136"
@@ -14,7 +14,7 @@
     "planId": "plan-mrl9wet8-5",
     "goal": "Nach erneuerter Authentifizierung final bestätigen, dass ein leerer Commit mit Nachricht `chore: verify renderer theme imports` sicher auf dem live `DEV`-Tip erstellt werden darf.",
     "status": "success",
-    "summary": "Lauf erfolgreich: 1 Modell(e), 1/1 Tasks erfolgreich.",
+    "summary": "Beorn 2 bestätigte erneut sauberen Scope und korrekt getrennte Worker-/Main-Netzwerkgrenzen; die Auth- und Remote-Wahrheit muss im Main-Prozess geprüft werden.",
     "modelStats": [
       {
         "provider": "codex",
@@ -34,7 +34,22 @@
         "avgDurationMs": 142058
       }
     ],
-    "learnings": [],
+    "learnings": [
+      {
+        "id": "learning-mrl9zuon-1-78c3he",
+        "provider": "codex",
+        "model": "unknown",
+        "role": "worker",
+        "kind": "strength",
+        "insight": "Trennt lokale Scope-Belege sauber von nicht verifizierbarer Remote-Wahrheit und gibt bei Worker-Netzwerkblockade ein bedingtes statt falsches Go.",
+        "evidence": "Beorn 2 belegte 0 Resttreffer und sauberen Status, kennzeichnete origin/DEV 56a6242 ausdrücklich nur als Cache und verlangte Main-Prozess-Verifikation; Orca lieferte keinen Modellnamen.",
+        "source": "orchestrator",
+        "profileId": "profile-mri86faq",
+        "observations": 1,
+        "createdAt": 1784071312151,
+        "updatedAt": 1784071312151
+      }
+    ],
     "createdAt": 1784071294127
   }
 }
