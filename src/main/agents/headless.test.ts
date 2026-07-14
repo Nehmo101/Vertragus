@@ -91,6 +91,50 @@ describe('runHeadless lifecycle', () => {
     await expect(handle.done).resolves.toMatchObject({ status: 'succeeded', isError: false })
   })
 
+  it('streams accumulating usage snapshots for live telemetry', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-13T00:00:00Z'))
+    const child = fakeChild()
+    const events: HeadlessLifecycleEvent[] = []
+    mocks.resolveLaunch.mockResolvedValueOnce({ file: 'claude', args: [] })
+    mocks.spawn.mockReturnValueOnce(child)
+
+    const handle = runHeadless('claude', 'task', opts, vi.fn(), {
+      heartbeatIntervalMs: 30_000,
+      onEvent: (event) => events.push(event)
+    })
+    await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce())
+
+    child.stdout?.emit(
+      'data',
+      Buffer.from(`${JSON.stringify({
+        type: 'result',
+        result: 'fertig',
+        is_error: false,
+        total_cost_usd: 0.02,
+        num_turns: 3,
+        usage: { input_tokens: 12, output_tokens: 8 }
+      })}\n`)
+    )
+
+    expect(events.find((event) => event.type === 'usage')).toMatchObject({
+      type: 'usage',
+      costUsd: 0.02,
+      tokensIn: 12,
+      tokensOut: 8,
+      steps: 3
+    })
+
+    child.emit('close', 0)
+    await expect(handle.done).resolves.toMatchObject({
+      status: 'succeeded',
+      costUsd: 0.02,
+      tokensIn: 12,
+      tokensOut: 8,
+      steps: 3
+    })
+  })
+
   it('emits structured phases, progress, output, heartbeats, and a terminal event', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-07-13T00:00:00Z'))

@@ -44,8 +44,10 @@ import { getProfile, getSetting } from '@main/config/store'
 import {
   runHeadless,
   type HeadlessHandle,
+  type HeadlessLifecycleEvent,
   type HeadlessLifecycleOptions,
-  type HeadlessResult
+  type HeadlessResult,
+  type HeadlessUsageSnapshot
 } from '@main/agents/headless'
 import { buildOrchestratorSetup } from '@main/orchestrator/orchestratorLaunch'
 import { buildSubagentMcpArgs } from '@main/orchestrator/externalMcp'
@@ -184,6 +186,22 @@ export class AgentManager extends EventEmitter {
 
   private changed(): void {
     this.emit('changed', this.list())
+  }
+
+  /**
+   * Fold a streamed telemetry snapshot into the still-running task agent so the
+   * live pane shows tokens/cost as they accrue, not only once the run finishes.
+   */
+  private applyLiveUsage(id: string, snapshot: HeadlessUsageSnapshot): void {
+    const managed = this.agents.get(id)
+    if (!managed) return
+    managed.info.usage = {
+      costUsd: snapshot.costUsd,
+      tokensIn: snapshot.tokensIn,
+      tokensOut: snapshot.tokensOut,
+      steps: snapshot.steps
+    }
+    this.changed()
   }
 
   private releaseCapacity(managed: Managed): void {
@@ -750,6 +768,15 @@ export class AgentManager extends EventEmitter {
         })
       : undefined
 
+    // Always observe the run's lifecycle so streamed usage snapshots update the
+    // agent live; any caller-provided lifecycle is forwarded unchanged.
+    const taskLifecycle: HeadlessLifecycleOptions = {
+      heartbeatIntervalMs: lifecycle?.heartbeatIntervalMs,
+      onEvent: (event: HeadlessLifecycleEvent) => {
+        if (event.type === 'usage') this.applyLiveUsage(id, event)
+        lifecycle?.onEvent(event)
+      }
+    }
     const handle = runHeadless(
       req.provider,
       taskPrompt,
@@ -761,7 +788,7 @@ export class AgentManager extends EventEmitter {
         extraArgs: buildSubagentMcpArgs(req.provider, id)
       },
       (chunk) => this.pushData(active, chunk),
-      lifecycle
+      taskLifecycle
     )
     active.headless = handle
     info.pid = handle.pid
