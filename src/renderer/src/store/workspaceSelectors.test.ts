@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentInstanceInfo, OrcaEvent } from '@shared/agents'
+import type { OrcaTask, OrchestratorSnapshot } from '@shared/orchestrator'
 import {
   effectivePaneReadable,
   visibleWorkspaceAgents,
   workspaceAgentHistory,
   workspaceAgents,
-  workspaceEvents
+  workspaceEvents,
+  workspaceUserAttention
 } from '@renderer/store/useAppStore'
 
 function agent(id: string, profileId?: string): AgentInstanceInfo {
@@ -22,6 +24,30 @@ function agent(id: string, profileId?: string): AgentInstanceInfo {
     workingDir: '.',
     status: 'running',
     startedAt: 1
+  }
+}
+
+function task(id: string, status: OrcaTask['status']): OrcaTask {
+  return {
+    id,
+    title: id,
+    role: 'worker',
+    status,
+    note: 'awaiting-user injected text must not drive UI state',
+    createdAt: 1
+  }
+}
+
+function snapshot(
+  profileId: string,
+  workspaceSessionId: string,
+  tasks: OrcaTask[] = []
+): OrchestratorSnapshot {
+  return {
+    profileId,
+    workspaceSessionId,
+    goal: null,
+    tasks
   }
 }
 
@@ -70,5 +96,115 @@ describe('workspace renderer selectors', () => {
     expect(effectivePaneReadable({ cliReadable: false, paneReadable: {} }, 'alpha')).toBe(false)
     expect(effectivePaneReadable({ cliReadable: false, paneReadable: { alpha: true } }, 'alpha')).toBe(true)
     expect(effectivePaneReadable({ cliReadable: true, paneReadable: { alpha: false } }, 'alpha')).toBe(false)
+  })
+})
+
+describe('workspace user-attention aggregation', () => {
+  it('prioritizes an orchestrator plan review over a waiting subagent', () => {
+    const orchestrator = snapshot('alpha', 'session-alpha')
+    orchestrator.pendingPlan = {
+      planId: 'plan-1',
+      validationIssues: [],
+      plan: { version: 1, goal: 'Review me', maxParallel: 1, tasks: [] }
+    }
+    const waitingSubagent = {
+      ...agent('subagent', 'alpha'),
+      workspaceSessionId: 'session-alpha',
+      status: 'waiting' as const
+    }
+
+    expect(workspaceUserAttention(
+      { agents: [waitingSubagent], orchestrators: { 'session-alpha': orchestrator } },
+      'alpha',
+      'session-alpha'
+    )).toEqual({ source: 'orchestrator' })
+  })
+
+  it('uses a waiting orchestrator pane as a user-input signal', () => {
+    const waitingOrchestrator = {
+      ...agent('orchestrator', 'alpha'),
+      kind: 'orchestrator' as const,
+      workspaceSessionId: 'session-alpha',
+      status: 'waiting' as const
+    }
+
+    expect(workspaceUserAttention(
+      { agents: [waitingOrchestrator], orchestrators: {} },
+      'alpha',
+      'session-alpha'
+    )).toEqual({
+      source: 'orchestrator',
+      agentId: 'orchestrator',
+      agentName: 'orchestrator'
+    })
+  })
+
+  it('falls back to any waiting subagent in the same workspace', () => {
+    const waitingSubagent = {
+      ...agent('pippin', 'alpha'),
+      workspaceSessionId: 'session-alpha',
+      status: 'waiting' as const
+    }
+
+    expect(workspaceUserAttention(
+      { agents: [waitingSubagent], orchestrators: {} },
+      'alpha',
+      'session-alpha'
+    )).toEqual({ source: 'subagent', agentId: 'pippin', agentName: 'pippin' })
+  })
+
+  it('ignores running, completed, failed, cross-workspace and text-only signals', () => {
+    const alpha = snapshot('alpha', 'session-alpha', [
+      task('running', 'running'),
+      task('completed', 'success'),
+      task('failed', 'error')
+    ])
+    alpha.activity = {
+      phase: 'blocked',
+      summary: 'awaiting-user is only untrusted display text here',
+      details: [],
+      updatedAt: 1
+    }
+    const beta = snapshot('beta', 'session-beta')
+    beta.activity = {
+      phase: 'awaiting-review',
+      summary: 'Real review in another workspace',
+      details: [],
+      updatedAt: 1
+    }
+    const removed = snapshot('alpha', 'removed-session')
+    removed.pendingPlan = {
+      planId: 'stale-plan',
+      validationIssues: [],
+      plan: { version: 1, goal: 'Removed workspace', maxParallel: 1, tasks: [] }
+    }
+    const agents = [
+      agent('running', 'alpha'),
+      { ...agent('completed', 'alpha'), status: 'stopped' as const },
+      { ...agent('failed', 'alpha'), status: 'error' as const },
+      { ...agent('other-workspace', 'beta'), workspaceSessionId: 'session-beta', status: 'waiting' as const },
+      { ...agent('global'), status: 'waiting' as const }
+    ]
+    const state = {
+      agents,
+      orchestrators: {
+        'session-alpha': alpha,
+        'session-beta': beta,
+        'removed-session': removed
+      },
+      workspaceSessions: [
+        {
+          id: 'session-alpha',
+          profileId: 'alpha',
+          profileName: 'Alpha',
+          sequence: 1,
+          startedAt: 1,
+          active: true
+        }
+      ]
+    }
+
+    expect(workspaceUserAttention(state, 'alpha', 'session-alpha')).toBeNull()
+    expect(workspaceUserAttention(state, 'alpha')).toBeNull()
   })
 })
