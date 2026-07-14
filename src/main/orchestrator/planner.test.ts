@@ -28,10 +28,111 @@ const validPlan = {
 }
 
 describe('auto subagent planner validation', () => {
-  it('accepts a bounded acyclic plan', () => {
+  it('accepts a bounded acyclic plan without changing the valid-plan contract', () => {
     const result = resolveExecutionPlan(validPlan, 'worker', undefined, ['worker'])
     expect(result.usedFallback).toBe(false)
+    expect(result.rejected).toBe(false)
+    expect(result.issues).toEqual([])
     expect(result.plan.tasks).toHaveLength(2)
+  })
+
+  it('accepts an advisory audit that runs after the integrator', () => {
+    const result = resolveExecutionPlan({
+      ...validPlan,
+      maxParallel: 3,
+      tasks: [
+        validPlan.tasks[0],
+        {
+          ...validPlan.tasks[1],
+          id: 'integrate',
+          title: 'Integrate',
+          dependsOn: ['inspect'],
+          ownership: 'integrator'
+        },
+        {
+          ...validPlan.tasks[1],
+          id: 'audit',
+          title: 'Audit',
+          dependsOn: [],
+          advisoryDependsOn: ['integrate'],
+          criticality: 'advisory'
+        }
+      ]
+    })
+
+    expect(result.usedFallback).toBe(false)
+    expect(result.rejected).toBe(false)
+    expect(result.issues).toEqual([])
+  })
+
+  it('rejects an integrator that omits a required feature dependency', () => {
+    const result = resolveExecutionPlan({
+      ...validPlan,
+      tasks: [
+        validPlan.tasks[0],
+        {
+          ...validPlan.tasks[1],
+          id: 'integrate',
+          title: 'Integrate',
+          dependsOn: [],
+          ownership: 'integrator'
+        }
+      ]
+    })
+
+    expect(result.rejected).toBe(true)
+    expect(result.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'invalid_ownership', taskId: 'integrate' })
+      ])
+    )
+  })
+
+  it('still requires integrator ownership for shared hotspots', () => {
+    const result = resolveExecutionPlan({
+      ...validPlan,
+      tasks: [
+        {
+          ...validPlan.tasks[0],
+          expectedFiles: ['src/shared/orchestrator.ts']
+        }
+      ]
+    })
+
+    expect(result.rejected).toBe(true)
+    expect(result.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'invalid_ownership', taskId: 'inspect' })
+      ])
+    )
+  })
+
+  it('marks a structured but invalid plan as rejected and preserves its issues', () => {
+    const result = resolveExecutionPlan({ ...validPlan, version: 2, maxParallel: 0 })
+
+    expect(result.usedFallback).toBe(true)
+    expect(result.rejected).toBe(true)
+    expect(result.issues).toHaveLength(2)
+    expect(result.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'invalid_shape' }),
+        expect.objectContaining({ code: 'invalid_parallelism' })
+      ])
+    )
+  })
+
+  it.each([
+    null,
+    'not a plan',
+    {},
+    { tasks: [] },
+    { tasks: ['not a task object'] }
+  ])('uses a non-rejected fallback for unparseable input %#', (input) => {
+    const result = resolveExecutionPlan(input)
+
+    expect(result.usedFallback).toBe(true)
+    expect(result.rejected).toBe(false)
+    expect(result.issues.length).toBeGreaterThan(0)
   })
 
   it('fails closed to one task for cycles or unknown roles', () => {
