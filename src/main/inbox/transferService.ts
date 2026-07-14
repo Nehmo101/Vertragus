@@ -195,7 +195,7 @@ function watchForPlanReview(
     failTransfer(
       ideaId,
       transfer,
-      'Orchestrator hat keinen Review-Plan innerhalb des Zeitlimits erstellt. Der Workspace bleibt fuer Diagnose und Fortsetzung erhalten.',
+      'Orchestrator hat keinen Review-Plan innerhalb des Zeitlimits erstellt. Der Workspace bleibt für Diagnose und Fortsetzung erhalten.',
       true
     )
   }, timeoutMs)
