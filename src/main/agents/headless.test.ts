@@ -116,6 +116,33 @@ describe('runHeadless lifecycle', () => {
     await expect(handle.done).resolves.toMatchObject({ status: 'succeeded', isError: false })
   })
 
+  it('keeps exit zero plus an explicit success result successful after an earlier provider error', async () => {
+    const child = fakeChild()
+    mocks.resolveLaunch.mockResolvedValueOnce({ file: 'codex', args: [] })
+    mocks.spawn.mockReturnValueOnce(child)
+    const handle = runHeadless('codex', 'task', opts, vi.fn())
+    await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce())
+
+    child.stdout?.emit('data', Buffer.from(`${JSON.stringify({
+      type: 'turn.failed',
+      error: { message: 'earlier provider error' }
+    })}\n${JSON.stringify({
+      type: 'item.completed',
+      item: {
+        type: 'agent_message',
+        text: 'Geänderte Dateien und grüne Gates geprüft.\nERGEBNIS: ERFOLG'
+      }
+    })}\n`))
+    child.emit('close', 0)
+
+    await expect(handle.done).resolves.toMatchObject({
+      status: 'succeeded',
+      isError: false,
+      exitCode: 0,
+      result: expect.stringContaining('ERGEBNIS: ERFOLG')
+    })
+  })
+
   it('streams accumulating usage snapshots for live telemetry', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-07-13T00:00:00Z'))

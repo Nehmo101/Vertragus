@@ -30,6 +30,7 @@ const ORCHESTRATOR_TOOLS = [
   'mcp__orca__get_task_status',
   'mcp__orca__list_tasks',
   'mcp__orca__get_plan_status',
+  'mcp__orca__cancel_plan',
   'mcp__orca__open_subwindow',
   'mcp__orca__execute_plan',
   'mcp__orca__record_retro',
@@ -199,9 +200,24 @@ function buildMcpServer(engine: OrchestratorEngine = orchestratorEngine): McpSer
   )
 
   register(
+    'cancel_plan',
+    'Stoppe einen Planlauf oder verwirf ohne runId den Plan, der gerade auf Review wartet. ' +
+      'Fehler werden als strukturierte Antwort geliefert und lösen keine Tool-Exception aus.',
+    {
+      runId: z.string().min(1).optional()
+        .describe('Optional: runId aus execute_plan; ohne runId wird der wartende Review-Plan verworfen')
+    },
+    async (args) => {
+      const result = await engine.cancelPlan(args.runId ? String(args.runId) : undefined)
+      return text(JSON.stringify(result, null, 2))
+    }
+  )
+
+  register(
     'execute_plan',
     'Validiere und starte einen kompletten Auto-Subagent-Plan asynchron als DAG. Die Antwort ' +
-      'enthält sofort runId; Status und Ergebnis werden mit get_plan_status abgefragt. ' +
+      'enthält sofort runId, usedFallback, rejected, validationIssues und planTaskIds. ' +
+      'Ein rejected-Plan endet ohne Task-Start; laufende Ergebnisse werden mit get_plan_status abgefragt. ' +
       'Bewerte danach das Gesamtziel und reiche bei Bedarf einen fokussierten Folgeplan ein.',
     {
       plan: z.object({
