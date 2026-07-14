@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784063589893,
+  "exportedAt": 1784063701717,
   "app": {
     "name": "orca-strator",
     "version": "0.1.29-main.1.gcfaf136"
@@ -14,7 +14,7 @@
     "planId": "plan-mrl4a34n-1",
     "goal": "Orca-Strator für macOS nutzbar machen: mac-Packaging/CI/Release, POSIX-Prozessterminierung, PATH-Discovery und darwin-Pfadbehandlung, sodass die App auf macOS installierbar und mit Kernfunktionen lauffähig ist.",
     "status": "error",
-    "summary": "Lauf mit Fehlern: 1 Modell(e), 0/1 Tasks erfolgreich.",
+    "summary": "Plan kollabierte wegen invalid_ownership (Integrator muss auch von Advisory-Feature-Tasks abhängen) zum Fallback; der Fallback-Einzeltask lieferte trotzdem die komplette macOS-Portierung, wurde aber trotz grüner Gates als Fehler gewertet und liegt als Recovery-Artefakt in task-02.",
     "modelStats": [
       {
         "provider": "codex",
@@ -48,6 +48,48 @@
         "observations": 1,
         "createdAt": 1784063589842,
         "updatedAt": 1784063589842
+      },
+      {
+        "id": "learning-mrl5gqdd-1-rjs235",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "main-orchestrator",
+        "kind": "strength",
+        "insight": "Sehr stark bei großen Querschnitts-Portierungen: komplette macOS-Unterstützung (Packaging, CI/Release, PATH-Discovery, Prozessgruppen-Kill, Updater) eigenständig aus einem Ziel-Prompt",
+        "evidence": "Fallback-Task plan-mrl4a34n-1: 15 Dateien, 416/416 Tests, Lint, Typecheck, Prod-Build und UI-Smoke grün in einem Durchlauf (Beorn)",
+        "source": "orchestrator",
+        "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+        "observations": 1,
+        "createdAt": 1784063701633,
+        "updatedAt": 1784063701633
+      },
+      {
+        "id": "learning-mrl5gqdd-2-fmj90p",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "main-orchestrator",
+        "kind": "weakness",
+        "insight": "Lange Einzeltasks können an Provider-Kapazität sterben (Selected model is at capacity); Attempt-Retry übernimmt Recovery-Artefakt aber sauber",
+        "evidence": "Attempt 1 (Ungoliant) brach nach ~14 Min mit Kapazitätsfehler ab; Attempt 2 (Beorn) führte die 8 quarantinierten Dateien fort",
+        "source": "orchestrator",
+        "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+        "observations": 1,
+        "createdAt": 1784063701633,
+        "updatedAt": 1784063701633
+      },
+      {
+        "id": "learning-mrl5gqdd-3-aez25h",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "main-orchestrator",
+        "kind": "weakness",
+        "insight": "Erfüllt Orcas Ergebnisvertrag nicht zuverlässig: Task endete trotz Erfolgsmeldung und grüner Gates als error (exit 0) — Ergebnisformat und Security-Gate-Anforderungen im Prompt explizit machen",
+        "evidence": "Fallback-Task wurde mit ✗ fehlgeschlagen (exit 0) gewertet, 15 Dateien quarantined statt übernommen",
+        "source": "orchestrator",
+        "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+        "observations": 1,
+        "createdAt": 1784063701633,
+        "updatedAt": 1784063701633
       }
     ],
     "createdAt": 1784063589858
