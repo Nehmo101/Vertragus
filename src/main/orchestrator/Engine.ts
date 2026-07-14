@@ -112,13 +112,20 @@ const MAX_DEPENDENCY_CONTEXT_CHARS = 4_000
 export function platformExecutionGuidance(
   platform: NodeJS.Platform = process.platform
 ): string[] {
-  if (platform !== 'win32') return []
-  return [
-    'Windows/PowerShell: Nutze pro Tool-Aufruf einen kurzen Einzelbefehl.',
-    "Windows/PowerShell: Nutze rg -g (z. B. rg -g '*.ts' Muster) statt Shell-Pfadglobs wie src/**/*.ts.",
-    "Windows/PowerShell: rg mit Exit-Code 1 und leerem stderr bedeutet 'keine Treffer', nicht Infrastrukturfehler.",
-    'Windows/PowerShell: Vereinfache nach Parser- oder Quotingfehlern den Aufruf; wiederhole ihn nicht unveraendert.'
-  ]
+  if (platform === 'win32') {
+    return [
+      'Windows/PowerShell: Nutze pro Tool-Aufruf einen kurzen Einzelbefehl.',
+      "Windows/PowerShell: Nutze rg -g (z. B. rg -g '*.ts' Muster) statt Shell-Pfadglobs wie src/**/*.ts.",
+      "Windows/PowerShell: rg mit Exit-Code 1 und leerem stderr bedeutet 'keine Treffer', nicht Infrastrukturfehler.",
+      'Windows/PowerShell: Vereinfache nach Parser- oder Quotingfehlern den Aufruf; wiederhole ihn nicht unveraendert.'
+    ]
+  }
+  if (platform === 'darwin') {
+    return [
+      'macOS/zsh: Nutze zsh-kompatible Befehle und beachte die BSD-Varianten von Tools wie sed, stat und date.'
+    ]
+  }
+  return []
 }
 
 

@@ -1,7 +1,7 @@
 {
   "name": "orca-strator",
   "version": "0.1.0",
-  "description": "Orchestrate and run multiple AI coding agents in parallel (cross-platform desktop: Windows + Linux)",
+  "description": "Orchestrate and run multiple AI coding agents in parallel (cross-platform desktop: Windows + macOS + Linux)",
   "main": "./out/main/index.js",
   "author": "Nehmo101",
   "license": "MIT",
@@ -26,6 +26,7 @@
     "retro:analyze": "tsx scripts/retro-analyze.ts",
     "test:ui-smoke": "node scripts/ui-smoke.mjs",
     "build:win": "pnpm run build && electron-builder --win",
+    "build:mac": "pnpm run build && electron-builder --mac --universal",
     "build:linux": "pnpm run build && electron-builder --linux",
     "ci": "pnpm run icons && pnpm run lint && pnpm run typecheck && pnpm run test && electron-vite build"
   },

@@ -5,11 +5,14 @@ function stripWindowsPrefix(value: string): string {
   return value.replace(/^\\\\\?\\/, '')
 }
 
-/** Stable comparison key for Windows aliases, slash variants and case differences. */
-export function workspacePathKey(value: string): string {
+/** Stable comparison key for aliases, slash variants and case-insensitive filesystems. */
+export function workspacePathKey(
+  value: string,
+  platform: NodeJS.Platform = process.platform
+): string {
   const absolute = isAbsolute(value) ? value : resolve(value)
   const normalized = stripWindowsPrefix(normalize(absolute)).replace(/[\\/]+$/, '')
-  return process.platform === 'win32' ? normalized.toLowerCase() : normalized
+  return platform === 'win32' || platform === 'darwin' ? normalized.toLowerCase() : normalized
 }
 
 /** Resolve junctions, symlinks and Windows short paths before a workspace is dispatched. */
