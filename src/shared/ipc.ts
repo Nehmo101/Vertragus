@@ -19,6 +19,7 @@ import type {
   SpawnAgentRequest
 } from './agents'
 import type { OrchestratorSnapshot, WorkspaceSessionSummary } from './orchestrator'
+import type { BenchmarkRecord, ModelLearning, RunRetro } from './retro'
 import type {
   AddArtifactInput,
   CreateIdeaInput,
@@ -108,6 +109,9 @@ export const IPC = {
   orchestratorReset: 'orchestrator:reset',
   orchestratorReviewPlan: 'orchestrator:reviewPlan',
   orchestratorTaskDiff: 'orchestrator:taskDiff',
+  retroListRetros: 'retro:listRetros',
+  retroListLearnings: 'retro:listLearnings',
+  retroListBenchmarks: 'retro:listBenchmarks',
   // main -> renderer push channels
   evAgentData: 'ev:agentData',
   evAgentsChanged: 'ev:agentsChanged',
@@ -397,6 +401,15 @@ export interface OrcaApi {
     onSnapshot(cb: (snap: OrchestratorSnapshot) => void): () => void
     /** Read a size-limited patch from the task's trusted Orca worktree. */
     taskDiff(profileId: string, taskId: string, workspaceSessionId?: string): Promise<TaskReviewDiff>
+  }
+
+  retro: {
+    /** Retrospectives of past runs, newest first (optionally per profile). */
+    listRetros(profileId?: string): Promise<RunRetro[]>
+    /** Accumulated per-model learnings from retros, orchestrator and benchmarks. */
+    listLearnings(): Promise<ModelLearning[]>
+    /** Scored benchmark records, newest first (optionally per profile). */
+    listBenchmarks(profileId?: string): Promise<BenchmarkRecord[]>
   }
 
   win: {

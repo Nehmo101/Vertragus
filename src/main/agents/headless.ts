@@ -63,6 +63,11 @@ export type HeadlessLifecycleEvent =
       pid?: number
     })
   | (HeadlessLifecycleEventBase & {
+      type: 'usage'
+      /** Latest provider-reported totals (tokens/cost/steps) for live display. */
+      usage: { costUsd?: number; tokensIn?: number; tokensOut?: number; steps?: number }
+    })
+  | (HeadlessLifecycleEventBase & {
       type: 'finished'
       status: HeadlessStatus
       result: HeadlessResult
@@ -102,6 +107,7 @@ interface LifecycleReporter {
   phase(next: HeadlessLifecyclePhase): void
   output(chunk: string, source: 'stdout' | 'stderr' | 'system'): void
   progress(providerEvent: string): void
+  usage(usage: { costUsd?: number; tokensIn?: number; tokensOut?: number; steps?: number }): void
   finish(status: HeadlessStatus, result: HeadlessResult): void
 }
 
@@ -115,6 +121,7 @@ function createLifecycleReporter(
       phase() {},
       output() {},
       progress() {},
+      usage() {},
       finish() {}
     }
   }
@@ -178,6 +185,11 @@ function createLifecycleReporter(
       if (finished) return
       activity()
       emit({ ...base(), type: 'progress', providerEvent, pid: getPid() })
+    },
+    usage(usage) {
+      if (finished) return
+      activity()
+      emit({ ...base(), type: 'usage', usage: { ...usage } })
     },
     finish(status, result) {
       if (finished) return
@@ -448,6 +460,19 @@ export function runHeadless(
     if (result.tokensIn != null) acc.tokensIn = result.tokensIn
     if (result.tokensOut != null) acc.tokensOut = result.tokensOut
     if (result.steps != null) acc.steps = result.steps
+    if (
+      result.costUsd != null ||
+      result.tokensIn != null ||
+      result.tokensOut != null ||
+      result.steps != null
+    ) {
+      lifecycle.usage({
+        costUsd: acc.costUsd,
+        tokensIn: acc.tokensIn,
+        tokensOut: acc.tokensOut,
+        steps: acc.steps
+      })
+    }
   }
 
   const done = new Promise<HeadlessResult>((resolve) => { resolveDone = resolve })

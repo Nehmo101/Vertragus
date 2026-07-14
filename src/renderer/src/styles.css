@@ -2095,6 +2095,28 @@ button {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.live-worker-history {
+  display: grid;
+  gap: 2px;
+  margin: 3px 0 0;
+  padding: 0;
+  color: var(--text-4);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  line-height: 1.35;
+  list-style: none;
+}
+.live-worker-history li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.live-worker-usage {
+  margin-top: 4px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
 /* ---------- DAG task cards ---------- */
 .dag-item {
   display: flex;
@@ -2277,6 +2299,12 @@ button {
   color: var(--text-2);
   font-family: var(--font-mono);
 }
+.task-usage {
+  margin-top: 3px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+}
 @keyframes indeterminate {
   0% {
     margin-left: -40%;
@@ -2340,6 +2368,86 @@ button {
 .reliability-strip .warn,
 .reliability-strip .warn strong {
   color: #f7c96b;
+}
+.usage-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.usage-strip span {
+  padding: 3px 6px;
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  color: var(--text-3);
+  font-size: 9px;
+}
+.usage-strip strong {
+  color: var(--text-1);
+}
+.retro-card {
+  margin-top: 8px;
+  padding: 7px 9px;
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+  background: var(--bg-card);
+}
+.retro-card summary {
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: 10.5px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.retro-caption {
+  margin-right: 4px;
+  color: var(--accent-light);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+.retro-body {
+  display: grid;
+  gap: 4px;
+  margin-top: 7px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-1);
+}
+.retro-model {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 9.5px;
+}
+.retro-model strong {
+  color: var(--text-1);
+  font-family: var(--font-mono);
+}
+.retro-model span {
+  color: var(--text-3);
+  text-align: right;
+}
+.retro-learnings {
+  display: grid;
+  gap: 3px;
+  margin: 4px 0 0;
+  padding: 0;
+  color: var(--text-2);
+  font-size: 9.5px;
+  line-height: 1.4;
+  list-style: none;
+}
+.retro-up {
+  margin-right: 4px;
+  color: var(--run);
+}
+.retro-down {
+  margin-right: 4px;
+  color: #f5a524;
 }
 .task-pr-row {
   display: flex;

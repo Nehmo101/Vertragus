@@ -5,6 +5,8 @@
  * subagent via the Orca MCP server. The engine tracks them as a simple DAG.
  */
 import type { AgentProviderId } from './providers'
+import type { AgentUsage } from './agents'
+import type { RunRetro } from './retro'
 
 export type TaskStatus = 'queued' | 'running' | 'success' | 'needs-work' | 'error' | 'stopped'
 
@@ -138,8 +140,12 @@ export interface OrcaTask {
   phase?: TaskPhase
   /** Last meaningful worker action, kept intentionally short for the DAG card. */
   lastAction?: string
+  /** Most recent distinct worker actions (newest first) for the live sidebar. */
+  recentActions?: string[]
   /** Updated by worker output and the periodic lifecycle heartbeat. */
   lastHeartbeatAt?: number
+  /** Provider-reported token/cost telemetry, updated live where available. */
+  usage?: AgentUsage
   /** One-line note (error text, block reason, result preview). */
   note?: string
   /** Runtime task ids that must finish successfully before this task may start. */
@@ -209,6 +215,8 @@ export interface OrchestratorSnapshot {
   capacity?: OrchestratorCapacitySnapshot
   reliability?: OrchestratorReliabilityMetrics
   pendingPlan?: PendingPlanReview
+  /** Retrospective of the most recent terminal plan run in this session. */
+  lastRetro?: RunRetro
 }
 
 export interface OrchestratorReliabilityMetrics {
@@ -252,7 +260,9 @@ export interface TaskStatusSnapshot {
   phase?: TaskPhase
   progress?: number
   lastAction?: string
+  recentActions?: string[]
   lastHeartbeatAt?: number
+  usage?: AgentUsage
   result?: string
   error?: string
   note?: string
@@ -295,6 +305,9 @@ export interface SubagentDescriptor {
   /** Routing knowledge exposed to the orchestrator. */
   strengths: string[]
   weaknesses: string[]
+  /** Knowledge accumulated from retros and benchmarks of earlier runs. */
+  learnedStrengths?: string[]
+  learnedWeaknesses?: string[]
   available: boolean
   preflight?: PanePreflightReport
 }
