@@ -3,7 +3,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import type { AgentInstanceInfo } from '@shared/agents'
 import { LIMIT_KIND_LABELS } from '@shared/agents'
-import { summarizeUsage, TELEMETRY_STATUS_LABELS, TELEMETRY_STATUS_TITLES } from '@shared/telemetry'
+import { absentTelemetryNotice, summarizeUsage, TELEMETRY_STATUS_LABELS, TELEMETRY_STATUS_TITLES } from '@shared/telemetry'
 import { PROVIDER_THEME, STATUS_THEME, XTERM_THEME } from '@renderer/ui/theme'
 import { formatTokenBreakdown, formatTokenCount, formatUsd } from '@renderer/telemetryFormat'
 import LoreName from '@renderer/components/LoreName'
@@ -180,6 +180,7 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
   const yoloLive = agent.yolo && agent.status === 'running'
   const usage = agent.usage
   const telemetry = summarizeUsage(usage)
+  const absence = absentTelemetryNotice(agent.mode)
   const limit = agent.limitWarning
 
   return (
@@ -272,8 +273,8 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
             )}
           </>
         ) : (
-          <span className="telemetry-status absent" title={TELEMETRY_STATUS_TITLES.absent}>
-            {TELEMETRY_STATUS_LABELS.absent}
+          <span className="telemetry-status absent" title={absence.title}>
+            {absence.label}
           </span>
         )}
         {usage && telemetry.status !== 'present' && (

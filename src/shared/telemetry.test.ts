@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { summarizeUsage, summarizeUsageGroup } from './telemetry'
+import {
+  absentTelemetryNotice,
+  summarizeUsage,
+  summarizeUsageGroup,
+  TELEMETRY_STATUS_LABELS,
+  TELEMETRY_STATUS_TITLES
+} from './telemetry'
 
 describe('summarizeUsage', () => {
   it('labels absent telemetry instead of turning it into zeroes', () => {
@@ -31,6 +37,21 @@ describe('summarizeUsage', () => {
       tokens: undefined,
       costUsd: undefined,
       steps: undefined
+    })
+  })
+})
+
+describe('absentTelemetryNotice', () => {
+  it('explains that interactive agents only report via tasks', () => {
+    const notice = absentTelemetryNotice('interactive')
+    expect(notice.label).toBe('Telemetrie nur für Tasks')
+    expect(notice.title).toMatch(/dispatchten Tasks/)
+  })
+
+  it('keeps the provider-oriented wording for task agents', () => {
+    expect(absentTelemetryNotice('task')).toEqual({
+      label: TELEMETRY_STATUS_LABELS.absent,
+      title: TELEMETRY_STATUS_TITLES.absent
     })
   })
 })
