@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784071767720,
+  "exportedAt": 1784072100948,
   "app": {
     "name": "orca-strator",
     "version": "0.1.29-main.1.gcfaf136"
@@ -8,6 +8,48 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrlagpts-1-yfwzuo",
+      "provider": "codex",
+      "model": "unspecified",
+      "role": "worker",
+      "kind": "strength",
+      "insight": "Stark bei zusammenhängenden React/Store/CSS-Integrationen mit Barrierefreiheit und negativen Scope-Tests.",
+      "evidence": "Pippin änderte Sidebar, Store-Selector, Styles und Tests konsistent; 8/8 fokussierte Assertions, beide Typechecks, ESLint und git diff --check bestanden.",
+      "source": "orchestrator",
+      "profileId": "profile-mri86faq",
+      "observations": 1,
+      "createdAt": 1784072099008,
+      "updatedAt": 1784072099008
+    },
+    {
+      "id": "learning-mrlagpts-2-rstbru",
+      "provider": "codex",
+      "model": "unspecified",
+      "role": "worker",
+      "kind": "strength",
+      "insight": "Reagiert robust auf lokale Testinfrastruktur-Blocker und dokumentiert Ersatz-Gates transparent.",
+      "evidence": "Vitest scheiterte an spawn EPERM; der Worker bündelte dieselben Kernassertions direkt über die vorhandene Esbuild-Binary und wies den Vitest-Blocker separat aus.",
+      "source": "orchestrator",
+      "profileId": "profile-mri86faq",
+      "observations": 1,
+      "createdAt": 1784072099008,
+      "updatedAt": 1784072099008
+    },
+    {
+      "id": "learning-mrlagpts-3-kb510z",
+      "provider": "codex",
+      "model": "unspecified",
+      "role": "worker",
+      "kind": "weakness",
+      "insight": "Benötigt bei UI-Integrationsaufgaben eine lange Explorationsphase mit wenig frühen Findings.",
+      "evidence": "Konkrete Implementierungs- und Gate-Signale erschienen erst spät; das Findings-Board blieb während des langen Laufs leer.",
+      "source": "orchestrator",
+      "profileId": "profile-mri86faq",
+      "observations": 1,
+      "createdAt": 1784072099008,
+      "updatedAt": 1784072099008
+    },
     {
       "id": "learning-mrla9l8c-1-qua21e",
       "provider": "codex",
