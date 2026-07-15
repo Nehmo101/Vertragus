@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "exportedAt": 1784115144712,
+  "app": {
+    "name": "orca-strator",
+    "version": "0.1.0"
+  },
+  "machineId": "5087fc1f7b9d",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrm03c2g-plan-mrm03by2-1",
+    "profileId": "default",
+    "workspaceSessionId": "remote-selftest",
+    "planId": "plan-mrm03by2-1",
+    "goal": "Remote approval selftest",
+    "status": "error",
+    "summary": "Lauf mit Fehlern: 1 Modell(e), 0/1 Tasks erfolgreich.",
+    "modelStats": [
+      {
+        "provider": "codex",
+        "model": "",
+        "roles": [
+          "codex"
+        ],
+        "tasks": 1,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 1,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 1
+        },
+        "failedAttempts": 1,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 1
+        },
+        "gateFindings": 0,
+        "avgDurationMs": 113,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrlx0joc-1-cdmr58",
+        "provider": "codex",
+        "model": "",
+        "role": "codex",
+        "kind": "weakness",
+        "insight": "fehleranfällig bei codex",
+        "evidence": "1/1 auswertbare Tasks inhaltlich fehlgeschlagen",
+        "source": "auto-retro",
+        "profileId": "default",
+        "observations": 5,
+        "createdAt": 1784109975708,
+        "updatedAt": 1784115144647
+      }
+    ],
+    "createdAt": 1784115144664
+  }
+}
