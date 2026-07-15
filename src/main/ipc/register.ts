@@ -401,7 +401,11 @@ export function registerIpcHandlers(): void {
     const profile = getProfile(req.profileId)
     if (!profile) throw new Error('Workspace-Profil nicht gefunden.')
     const session = workspaceSessions.ensure(profile)
-    return agentManager.spawn({ ...req, workspaceSessionId: session.id })
+    return agentManager.spawn({
+      ...req,
+      workspaceSessionId: session.id,
+      engineId: session.engine.engineId
+    })
   })
   ipcMain.handle(IPC.agentsSpawnProfile, async (_e, profileId: string, yoloMaster: boolean) => {
     const profile = getProfile(profileId)

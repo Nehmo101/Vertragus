@@ -153,7 +153,7 @@ export async function runSelfTest(): Promise<void> {
     const names = tools.tools.map((t) => t.name).sort()
     check(
       names.join(',') ===
-        'dispatch_batch,dispatch_subagent,execute_plan,get_benchmark_status,get_plan_status,get_task_status,list_findings,list_subagents,list_tasks,open_subwindow,record_benchmark,record_retro,report_activity,run_benchmark,set_goal',
+        'acknowledge_handoff,cancel_plan,dispatch_batch,dispatch_subagent,execute_plan,get_benchmark_status,get_handoff_context,get_plan_status,get_task_status,list_findings,list_subagents,list_tasks,open_subwindow,record_benchmark,record_retro,report_activity,revoke_learning,run_benchmark,set_goal',
       `tools/list returned: ${names.join(', ')}`
     )
 
