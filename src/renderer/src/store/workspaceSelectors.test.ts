@@ -115,6 +115,8 @@ describe('workspace user-attention aggregation', () => {
     const orchestrator = snapshot('alpha', 'session-alpha')
     orchestrator.pendingPlan = {
       planId: 'plan-1',
+      usedFallback: false,
+      rejected: false,
       validationIssues: [],
       plan: { version: 1, goal: 'Review me', maxParallel: 1, tasks: [] }
     }
@@ -186,6 +188,8 @@ describe('workspace user-attention aggregation', () => {
     const removed = snapshot('alpha', 'removed-session')
     removed.pendingPlan = {
       planId: 'stale-plan',
+      usedFallback: false,
+      rejected: false,
       validationIssues: [],
       plan: { version: 1, goal: 'Removed workspace', maxParallel: 1, tasks: [] }
     }
@@ -208,6 +212,7 @@ describe('workspace user-attention aggregation', () => {
           id: 'session-alpha',
           profileId: 'alpha',
           profileName: 'Alpha',
+          name: 'Rivendell',
           sequence: 1,
           startedAt: 1,
           active: true

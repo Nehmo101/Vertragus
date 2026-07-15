@@ -57,6 +57,7 @@ describe('Sidebar rendering', () => {
           id: 'session-alpha',
           profileId: profile.id,
           profileName: profile.name,
+          name: 'Rivendell',
           sequence: 1,
           startedAt: 1,
           active: true

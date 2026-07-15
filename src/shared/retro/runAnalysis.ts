@@ -17,7 +17,7 @@ const EMPTY_FAILURE_BREAKDOWN = (): RetroFailureBreakdown => ({
 
 const INFRA_FAILURE_PATTERNS = [
   /\bat capacity\b/i,
-  /\b(?:provider|service|server)\b.{0,100}\b(?:capacity|kapazit?t|overloaded|?berlastet|ausgelastet|unavailable|nicht verf?gbar)\b/i,
+  /\b(?:provider|service|server)\b.{0,100}\b(?:capacity|kapazit(?:\u00e4|ae)t|overloaded|(?:\u00fc|ue)berlastet|ausgelastet|unavailable|nicht verf(?:\u00fc|ue)gbar)\b/i,
   /\b(?:429|too many requests|rate[- ]?limit(?:ed)?)\b/i,
   /ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY/i,
   /\beslint\b.{0,120}\b(?:not found|nicht gefunden|not recognized|nicht als name erkannt|enoent)\b/i,
