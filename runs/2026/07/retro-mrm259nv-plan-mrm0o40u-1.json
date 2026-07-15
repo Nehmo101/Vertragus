@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784118594151,
+  "exportedAt": 1784118690579,
   "app": {
     "name": "orca-strator",
     "version": "0.1.40-main.2.g4fa9d28"
@@ -14,7 +14,7 @@
     "planId": "plan-mrm0o40u-1",
     "goal": "UWE Drei-Produkte-Split Foundation-Inkrement: Read-only-Inventar, ADR-Pack, Domain-Contracts-Entwurf, Guard-/Test-/CI-Pläne und reviewbarer Doku-PR-Schnitt — ohne apps/brain-Bau, ohne Routen-/Schema-/Cookie-/Deploy-Änderungen.",
     "status": "error",
-    "summary": "Lauf mit Fehlern: 4 Modell(e), 0/9 Tasks erfolgreich.",
+    "summary": "Foundation-Lauf O00–O08 endete auf error: O00 scheiterte in Attempt 1 (codex) am Whitespace-Commit-Gate und in Attempt 2 (sonnet) an einem Infrastruktur-Blocker (Write-Permission im Retry-Worktree task-18 komplett verweigert). Alle Folgetasks wurden gestoppt; kein Inhalt ging verloren — das Inventar ist fertig recherchiert, nur nicht persistiert.",
     "modelStats": [
       {
         "provider": "codex",
@@ -141,6 +141,48 @@
         "observations": 1,
         "createdAt": 1784118594080,
         "updatedAt": 1784118594080
+      },
+      {
+        "id": "learning-mrm27c1p-1-eter44",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "backend-services",
+        "kind": "weakness",
+        "insight": "Markdown-Doku-Tasks scheitern am zentralen Commit-Gate 'git diff --cached --check' (trailing whitespace/CRLF) — Whitespace-Hygiene im Prompt explizit fordern",
+        "evidence": "O00 Attempt 1 (Ungoliant): Audit inhaltlich vollständig, Abnahme blockiert mit 'Command failed: git diff --cached --check'",
+        "source": "orchestrator",
+        "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+        "observations": 1,
+        "createdAt": 1784118690493,
+        "updatedAt": 1784118690493
+      },
+      {
+        "id": "learning-mrm27c1p-2-8m151z",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "backend-services",
+        "kind": "strength",
+        "insight": "Liefert große Read-only-Audits (140 Prisma-Modelle, alle Routen/Navs/Jobs) inhaltlich vollständig und mit brauchbaren Architektur-Befunden aus einem einzigen Prompt",
+        "evidence": "O00 Attempt 1: Inventar inkl. Job-Runner-Trennnaht und Namenskollision packages/cookbook vs. /kitchen fertig recherchiert",
+        "source": "orchestrator",
+        "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+        "observations": 1,
+        "createdAt": 1784118690493,
+        "updatedAt": 1784118690493
+      },
+      {
+        "id": "learning-mrm27c1p-3-pl30ue",
+        "provider": "claude",
+        "model": "claude-sonnet-5",
+        "role": "orchestrator-integrator",
+        "kind": "strength",
+        "insight": "Meldet Infrastruktur-Blocker vertragskonform und präzise (Blocker, geprüfte Alternativen, Integrationsstand) statt Erfolg vorzutäuschen — der error war kein Modellversagen",
+        "evidence": "O00 Attempt 2 (Frodo): Write-Tool im Retry-Worktree task-18 hart verweigert ('you haven't granted it yet'); strukturierter BLOCKER-Report mit fertigem Inventar-Inhalt",
+        "source": "orchestrator",
+        "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+        "observations": 1,
+        "createdAt": 1784118690493,
+        "updatedAt": 1784118690493
       }
     ],
     "createdAt": 1784118594091
