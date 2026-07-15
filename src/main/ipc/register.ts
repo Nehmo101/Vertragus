@@ -42,7 +42,7 @@ import {
 import { agentManager } from '@main/agents/AgentManager'
 import { providerCapacity } from '@main/agents/providerCapacity'
 import { workspaceSessions } from '@main/orchestrator/WorkspaceSessionRegistry'
-import { broadcast, createPaneWindow } from '@main/windows'
+import { broadcast, createPaneWindow, isMainWindowSender } from '@main/windows'
 import { getPublicConfig, setPublicConfig } from '@main/config/configAccess'
 import {
   listProfiles,
@@ -70,6 +70,7 @@ import { retryIdeaTransfer, transferIdeaToProfile } from '@main/inbox/transferSe
 import { spawnProfileTeam } from '@main/agents/spawnProfile'
 import { getActiveRepoOverridePath } from '@main/config/workspaceRepo'
 import { generateProfileForRepo } from '@main/profiles/generateProfileForRepo'
+import { createProfileDeletionIpcController } from '@main/profiles/profileDeletionIpc'
 import {
   listBenchmarkRecords,
   listModelLearnings,
@@ -155,6 +156,22 @@ export function registerIpcHandlers(): void {
     getProfile,
     inspectWorkspace: inspectPromptWorkspaceContext,
     service: promptService
+  })
+  const profileDeletionController = createProfileDeletionIpcController({
+    authorization: {
+      developmentUrl: process.env['ELECTRON_RENDERER_URL'],
+      packagedRendererUrl: pathToFileURL(join(__dirname, '../renderer/index.html')).toString(),
+      isKnownSender: (sender) => isMainWindowSender(sender as Electron.WebContents)
+    },
+    deleteProfile: (id) => {
+      if (!getProfile(id)) throw new Error('Workspace-Profil nicht gefunden.')
+      if (agentManager.anyRunning(id)) {
+        throw new Error('Profil löschen ist während einer laufenden Agent-Session gesperrt.')
+      }
+      const profiles = deleteProfile(id)
+      workspaceSessions.remove(id)
+      return profiles
+    }
   })
   // ---- app / providers / config ----
   ipcMain.handle(IPC.appInfo, (): AppInfo => {
@@ -244,13 +261,9 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.profileGenerateForRepo, (_e, req: RepoProfileGenerationRequest) =>
     generateProfileForRepo(req)
   )
-  ipcMain.handle(IPC.profileDelete, (_e, id: string) => {
-    if (agentManager.anyRunning(id)) {
-      throw new Error('Profil löschen ist während einer laufenden Agent-Session gesperrt.')
-    }
-    workspaceSessions.remove(id)
-    return deleteProfile(id)
-  })
+  ipcMain.handle(IPC.profileDelete, (e, id: unknown) =>
+    profileDeletionController.delete(e, id)
+  )
   ipcMain.handle(IPC.profileGetActive, () => getActiveProfileId())
   ipcMain.handle(IPC.profileSetActive, (_e, id: string) => {
     if (!getProfile(id)) {
