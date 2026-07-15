@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784118691996,
+  "exportedAt": 1784120942937,
   "app": {
     "name": "orca-strator",
     "version": "0.1.40-main.2.g4fa9d28"
@@ -8,6 +8,20 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrm3jl30-1-ghnk87",
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "role": "orchestrator-integrator",
+      "kind": "weakness",
+      "insight": "Quality-Gates erfordern Nacharbeit bei orchestrator-integrator",
+      "evidence": "1 Task(s) mit 2 Gate-Finding(s)",
+      "source": "auto-retro",
+      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+      "observations": 1,
+      "createdAt": 1784120941692,
+      "updatedAt": 1784120941692
+    },
     {
       "id": "learning-mrm27c1p-2-8m151z",
       "provider": "codex",
