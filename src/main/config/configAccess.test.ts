@@ -37,13 +37,13 @@ describe('configAccess', () => {
 
     expect(setSetting).toHaveBeenLastCalledWith('providerLimits', {
       claude: 6,
-      codex: 0,
+      codex: 8,
       cursor: 2,
-      copilot: 0,
-      ollama: 0
+      copilot: 8,
+      ollama: 8
     })
-    expect(() => setPublicConfig('providerLimits', { cursor: 0 })).not.toThrow()
-    expect(() => setPublicConfig('providerLimits', { cursor: -1 })).toThrow(/zwischen 0 und/)
+    expect(() => setPublicConfig('providerLimits', { cursor: 0 })).toThrow(/zwischen 1 und/)
+    expect(() => setPublicConfig('providerLimits', { cursor: -1 })).toThrow(/zwischen 1 und/)
     expect(() => setPublicConfig('providerLimits', { claude: Number.NaN })).toThrow(/ganze Zahl/)
     expect(() => setPublicConfig('providerLimits', { injected: 4 })).toThrow(/Unbekanntes Orca-Gate/)
   })

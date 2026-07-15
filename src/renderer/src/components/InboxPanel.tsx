@@ -766,7 +766,7 @@ export default function InboxPanel(): JSX.Element {
 
               {draft.transfer && (
                 <div className={`inbox-transfer-status status-${draft.transfer.status}`}>
-                  Übergabe {TRANSFER_STATUS_LABEL[draft.transfer.status] ?? draft.transfer.status}
+                  {TRANSFER_STATUS_LABEL[draft.transfer.status] ?? draft.transfer.status}
                   {draft.transfer.error && ` — ${draft.transfer.error}`}
                   {draft.transfer.planId && ` · Plan ${draft.transfer.planId}`}
                   <button
@@ -775,7 +775,7 @@ export default function InboxPanel(): JSX.Element {
                     disabled={saving}
                     onClick={() => void resetTransfer()}
                   >
-                    Zuruecksetzen
+                    Zurücksetzen
                   </button>
                 </div>
               )}

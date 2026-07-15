@@ -31,6 +31,9 @@ vi.mock('@main/orchestrator/Engine', () => ({
     reviewPlan(): boolean {
       return true
     }
+    setPlannerMode(): boolean {
+      return true
+    }
     enableAutoMode(): boolean {
       return true
     }

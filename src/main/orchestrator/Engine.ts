@@ -370,23 +370,33 @@ export class OrchestratorEngine extends EventEmitter {
   }
 
   /**
-   * Promote only this live workspace session to automatic plan execution.
-   * A plan already waiting at the review gate is approved as part of the switch.
+   * Switch only this live workspace session to a planner mode. Switching to
+   * 'auto' also approves a plan already waiting at the review gate; switching
+   * away from 'auto' (back to 'review'/'manual') simply changes how the next
+   * plan is handled and never cancels work already running.
    */
-  enableAutoMode(): boolean {
+  setPlannerMode(mode: WorkspaceProfile['planner']['mode']): boolean {
     const profile = this.activeProfile()
     if (!profile) return false
     this.boundProfile = {
       ...profile,
       agents: profile.agents.map((slot) => ({ ...slot })),
-      planner: { ...profile.planner, mode: 'auto' }
+      planner: { ...profile.planner, mode }
     }
-    if (this.pendingPlanResolve) {
+    if (mode === 'auto' && this.pendingPlanResolve) {
       this.reviewPlan(true)
     } else {
       this.push()
     }
     return true
+  }
+
+  /**
+   * Promote only this live workspace session to automatic plan execution.
+   * A plan already waiting at the review gate is approved as part of the switch.
+   */
+  enableAutoMode(): boolean {
+    return this.setPlannerMode('auto')
   }
 
   private requestPlanReview(review: PendingPlanReview): Promise<boolean> {

@@ -134,9 +134,17 @@ export class WorkspaceSessionRegistry extends EventEmitter {
   }
 
   enableAutoMode(profile: WorkspaceProfile, sessionId?: string): boolean {
+    return this.setPlannerMode(profile, 'auto', sessionId)
+  }
+
+  setPlannerMode(
+    profile: WorkspaceProfile,
+    mode: WorkspaceProfile['planner']['mode'],
+    sessionId?: string
+  ): boolean {
     const session = this.ensure(profile, sessionId)
-    session.profile.planner = { ...session.profile.planner, mode: 'auto' }
-    return session.engine.enableAutoMode()
+    session.profile.planner = { ...session.profile.planner, mode }
+    return session.engine.setPlannerMode(mode)
   }
 
   reset(profile: WorkspaceProfile, sessionId?: string): void {

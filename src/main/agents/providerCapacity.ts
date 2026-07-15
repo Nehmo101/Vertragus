@@ -40,8 +40,9 @@ class ProviderCapacityGate {
   }
 
   private effectiveLimit(provider: AgentProviderId): number {
-    const configured = this.limitFor(provider)
-    return configured === 0 ? Number.MAX_SAFE_INTEGER : configured
+    // Gates are finite counts; normalizeProviderLimits already clamps to the
+    // safe range, so a defensive floor of 1 is all that is needed here.
+    return Math.max(1, this.limitFor(provider))
   }
   private gate(provider: AgentProviderId): Semaphore {
     let sem = this.gates.get(provider)

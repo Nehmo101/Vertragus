@@ -8,6 +8,7 @@ import {
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import LoreName from '@renderer/components/LoreName'
 import LimitsPanel from '@renderer/components/LimitsPanel'
+import InfoTip from '@renderer/components/InfoTip'
 import {
   liveOrchestratorTasks,
   ORCHESTRATOR_ACTIVITY_LABEL,
@@ -21,6 +22,31 @@ import { summarizeUsage, summarizeUsageGroup, TELEMETRY_STATUS_LABELS, TELEMETRY
 import { formatTokenBreakdown, formatTokenCount, formatUsd } from '@renderer/telemetryFormat'
 
 const STALE_HEARTBEAT_MS = 90_000
+
+type PlannerMode = 'auto' | 'review' | 'manual'
+const PLANNER_MODES: PlannerMode[] = ['auto', 'review', 'manual']
+const PLANNER_MODE_LABEL: Record<PlannerMode, string> = {
+  auto: 'Auto',
+  review: 'Review',
+  manual: 'Manuell'
+}
+const PLANNER_MODE_DESC: Record<PlannerMode, string> = {
+  auto: 'Auto – Pläne direkt ausführen',
+  review: 'Review – Plan bestätigen',
+  manual: 'Manuell – keine Auto-Planung'
+}
+const PLANNER_MODE_TITLE: Record<PlannerMode, string> = {
+  auto: 'Gültige Pläne sofort ausführen – keine Freigabe nötig.',
+  review: 'Jeden Plan erst nach deiner Freigabe starten.',
+  manual: 'Keine automatische Planung – du steuerst manuell.'
+}
+const PLANNER_MODE_HELP =
+  'Gilt nur für diesen laufenden Workspace und ist jederzeit umstellbar. ' +
+  'Auto führt gültige Pläne sofort aus, Review wartet auf deine Freigabe, ' +
+  'Manuell schaltet die automatische Planung ab. Ändert nichts an bereits laufenden Aufgaben.'
+const GOAL_ACTIVE_HELP =
+  'Statusanzeige – zeigt, ob der Orchestrator gerade ein aktives Ziel verfolgt. ' +
+  'Wird automatisch gesetzt, sobald ein Ziel läuft, und ist kein manueller Schalter.'
 
 type TaskWithTelemetry = OrcaTask & {
   lastHeartbeatAt?: number
@@ -318,21 +344,28 @@ export default function OrchestratorPanel(): JSX.Element {
     const el = logRef.current
     if (el) el.scrollTop = el.scrollHeight
   }, [events.length])
-  const autoModeActive = (plannerMode ?? profile?.planner.mode) === 'auto'
-  const enableAutoMode = async (): Promise<void> => {
-    if (autoModeBusy || autoModeActive || !store.activeWorkspaceSessionId) return
-    const startsPendingPlan = Boolean(pendingPlan)
+  const currentPlannerMode: PlannerMode =
+    (plannerMode ?? profile?.planner.mode ?? 'review') as PlannerMode
+  const autoModeActive = currentPlannerMode === 'auto'
+  const changePlannerMode = async (mode: PlannerMode): Promise<void> => {
+    if (autoModeBusy || mode === currentPlannerMode || !store.activeWorkspaceSessionId) return
+    const startsPendingPlan = mode === 'auto' && Boolean(pendingPlan)
     setAutoModeBusy(true)
     try {
-      const enabled = await window.orca.orchestrator.enableAutoMode(
+      const ok = await window.orca.orchestrator.setPlannerMode(
         store.activeProfileId,
+        mode,
         store.activeWorkspaceSessionId
       )
-      if (!enabled) throw new Error('Automodus konnte nicht aktiviert werden.')
+      if (!ok) throw new Error('Planungsmodus konnte nicht umgestellt werden.')
       store.showToast(
-        startsPendingPlan
-          ? 'Automodus aktiv \u2013 der wartende Plan wurde gestartet.'
-          : 'Automodus f\u00fcr diesen Workspace aktiviert.'
+        mode === 'auto'
+          ? startsPendingPlan
+            ? 'Automodus aktiv \u2013 der wartende Plan wurde gestartet.'
+            : 'Automodus f\u00fcr diesen Workspace aktiviert.'
+          : mode === 'review'
+            ? 'Review-Modus aktiv \u2013 neue Pl\u00e4ne warten auf deine Freigabe.'
+            : 'Manueller Modus aktiv \u2013 keine automatische Planung.'
       )
     } catch (error) {
       store.showToast(error instanceof Error ? error.message : String(error))
@@ -350,33 +383,43 @@ export default function OrchestratorPanel(): JSX.Element {
           <span className="orch-title">Orchestrator</span>
           <span className="orch-model">{displayedOrchestratorModel}</span>
           <div className="spacer" />
-          <span className="mini-toggle-label">{goal?.active ? 'aktiv' : 'inaktiv'}</span>
-          <span className={`mini-toggle ${goal?.active ? '' : 'off'}`}>
+          <span className="mini-toggle-label">
+            {goal?.active ? 'aktiv' : 'inaktiv'} <InfoTip text={GOAL_ACTIVE_HELP} />
+          </span>
+          <span
+            className={`mini-toggle status ${goal?.active ? '' : 'off'}`}
+            role="img"
+            aria-label={
+              goal?.active
+                ? 'Status: Orchestrator verfolgt ein aktives Ziel'
+                : 'Status: Orchestrator hat kein aktives Ziel'
+            }
+            title={GOAL_ACTIVE_HELP}
+          >
             <span className="knob" />
           </span>
         </div>
         {orch && store.activeWorkspaceSessionId && (
           <div className={`planner-mode-control ${autoModeActive ? 'auto' : ''}`}>
             <div className="planner-mode-copy">
-              <span>Planungsmodus</span>
-              <strong>
-                {autoModeActive
-                  ? 'Auto \u2013 Pl\u00e4ne direkt ausf\u00fchren'
-                  : plannerMode === 'manual'
-                    ? 'Manuell \u2013 keine Auto-Planung'
-                    : 'Review \u2013 Plan best\u00e4tigen'}
-              </strong>
+              <span>Planungsmodus <InfoTip text={PLANNER_MODE_HELP} /></span>
+              <strong>{PLANNER_MODE_DESC[currentPlannerMode]}</strong>
             </div>
-            <button
-              type="button"
-              className="planner-mode-btn"
-              disabled={autoModeActive || autoModeBusy}
-              aria-pressed={autoModeActive}
-              title={'Nur diesen laufenden Workspace auf direkte automatische Planausf\u00fchrung umstellen'}
-              onClick={() => void enableAutoMode()}
-            >
-              {autoModeActive ? 'Auto aktiv' : autoModeBusy ? 'Wird aktiviert\u2026' : 'Automodus starten'}
-            </button>
+            <div className="planner-mode-switch" role="group" aria-label="Planungsmodus w\u00e4hlen">
+              {PLANNER_MODES.map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className={`planner-mode-opt ${currentPlannerMode === mode ? 'active' : ''}`}
+                  aria-pressed={currentPlannerMode === mode}
+                  disabled={autoModeBusy || currentPlannerMode === mode}
+                  title={PLANNER_MODE_TITLE[mode]}
+                  onClick={() => void changePlannerMode(mode)}
+                >
+                  {PLANNER_MODE_LABEL[mode]}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
