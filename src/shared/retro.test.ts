@@ -148,6 +148,38 @@ describe('deriveModelStats', () => {
       failedAttempts: 0
     })
   })
+
+  it('classifies terminal failures and failed attempts by their actual cause', () => {
+    const infra = task({
+      id: 'infra',
+      status: 'error',
+      failureKind: 'worker',
+      attempts: [{
+        attempt: 1,
+        provider: 'codex',
+        model: 'gpt-5',
+        status: 'error',
+        failureKind: 'worker',
+        startedAt: 1_000,
+        note: 'Provider is at capacity'
+      }]
+    }) as OrcaTask & { judgeReason?: string }
+    infra.judgeReason = 'Der Provider bewertete den Worker-Abschluss als fehlgeschlagen.'
+
+    const [stats] = deriveModelStats([
+      infra,
+      task({ id: 'cancelled', status: 'stopped', failureKind: 'cancelled' }),
+      task({ id: 'model', status: 'error', failureKind: 'worker', note: 'Implementierung unvollständig' })
+    ])
+
+    expect(stats).toMatchObject({
+      failed: 2,
+      stopped: 1,
+      failuresByKind: { infra: 1, cancelled: 1, model: 1 },
+      failedAttempts: 1,
+      failedAttemptsByKind: { infra: 1, cancelled: 0, model: 0 }
+    })
+  })
 })
 
 describe('deriveHeuristicLearnings', () => {
@@ -177,6 +209,84 @@ describe('deriveHeuristicLearnings', () => {
         insight: expect.stringContaining('fehleranfällig')
       })
     )
+  })
+
+  it('does not derive a weakness from an infrastructure failure', () => {
+    const learnings = deriveHeuristicLearnings(
+      deriveModelStats([
+        task({
+          id: 'capacity',
+          role: 'renderer-ui',
+          status: 'error',
+          failureKind: 'worker',
+          note: 'Provider is at capacity'
+        })
+      ])
+    )
+
+    expect(learnings.some((entry) => entry.kind === 'weakness')).toBe(false)
+  })
+
+  it('continues to derive a weakness from a genuine model failure', () => {
+    const learnings = deriveHeuristicLearnings(
+      deriveModelStats([
+        task({
+          id: 'model-error',
+          role: 'renderer-ui',
+          status: 'error',
+          failureKind: 'worker',
+          note: 'Die Implementierung erfüllt die Akzeptanzkriterien nicht.'
+        })
+      ])
+    )
+
+    expect(learnings).toContainEqual(expect.objectContaining({
+      kind: 'weakness',
+      insight: expect.stringContaining('fehleranfällig bei renderer-ui')
+    }))
+  })
+
+  it('does not treat a gate infrastructure error as a code finding', () => {
+    const stats = deriveModelStats([
+      task({
+        id: 'gate-infra',
+        role: 'quality',
+        status: 'needs-work',
+        failureKind: 'gate',
+        findings: [{
+          gate: 'quality',
+          code: 'quality-gate-failed',
+          message: 'ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY: eslint nicht gefunden'
+        }]
+      })
+    ])
+    const learnings = deriveHeuristicLearnings(stats)
+
+    expect(stats[0].gateFindings).toBe(0)
+    expect(learnings.some((entry) => entry.insight.includes('Quality-Gates'))).toBe(false)
+  })
+
+  it('keeps the quality-gate learning for a genuine code finding', () => {
+    const learnings = deriveHeuristicLearnings(
+      deriveModelStats([
+        task({
+          id: 'gate-code',
+          role: 'quality',
+          status: 'needs-work',
+          failureKind: 'gate',
+          findings: [{
+            gate: 'quality',
+            code: 'eslint-failed',
+            message: 'src/main/example.ts: no-unused-vars'
+          }]
+        })
+      ])
+    )
+
+    expect(learnings).toContainEqual(expect.objectContaining({
+      kind: 'weakness',
+      insight: expect.stringContaining('Quality-Gates erfordern Nacharbeit')
+    }))
   })
 
   it('flags a clearly fastest model only with a real margin', () => {

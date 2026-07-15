@@ -25,6 +25,7 @@ import { orchestratorEngine, type OrchestratorEngine } from '@main/orchestrator/
 import type { OrchestratorActivityPhase, SubagentFindingKind } from '@shared/orchestrator'
 import { workspaceSessions } from '@main/orchestrator/WorkspaceSessionRegistry'
 import { setMcpHandle, type McpServerHandle } from '@main/orchestrator/mcpHandle'
+import { removeModelLearnings } from '@main/orchestrator/retroStore'
 
 const ORCHESTRATOR_TOOLS = [
   'mcp__orca__set_goal',
@@ -40,6 +41,7 @@ const ORCHESTRATOR_TOOLS = [
   'mcp__orca__open_subwindow',
   'mcp__orca__execute_plan',
   'mcp__orca__record_retro',
+  'mcp__orca__revoke_learning',
   'mcp__orca__run_benchmark',
   'mcp__orca__get_benchmark_status',
   'mcp__orca__record_benchmark'
@@ -319,6 +321,39 @@ function buildMcpServer(engine: OrchestratorEngine = orchestratorEngine): McpSer
           : []
       })
       return text(JSON.stringify(result, null, 2))
+    }
+  )
+
+  register(
+    'revoke_learning',
+    'Lösche nachweislich falsches Modellwissen. Provider und Modell müssen exakt passen; ' +
+      'insightContains wird als case-insensitiver Teilstring auf den Insight angewendet.',
+    {
+      provider: z.enum(AGENT_PROVIDERS).describe('Exakter Provider des zu löschenden Modellwissens'),
+      model: z.string().min(1).describe('Exakter Modellname des zu löschenden Modellwissens'),
+      insightContains: z.string().trim().min(5)
+        .describe('Mindestens fünf Zeichen aus dem zu löschenden Insight')
+    },
+    async (args) => {
+      const removed = removeModelLearnings(
+        String(args.provider ?? '') as (typeof AGENT_PROVIDERS)[number],
+        String(args.model ?? ''),
+        String(args.insightContains ?? '')
+      )
+      const deleted = removed.map(({ insight, evidence }) => ({
+        insight,
+        evidence: evidence ?? null
+      }))
+      if (deleted.length === 0) {
+        return text(JSON.stringify({
+          message: 'Kein passendes Modell-Learning gefunden; es wurde nichts gelöscht.',
+          deleted
+        }, null, 2))
+      }
+      return text(JSON.stringify({
+        message: `${deleted.length} Modell-Learning(s) gelöscht.`,
+        deleted
+      }, null, 2))
     }
   )
 

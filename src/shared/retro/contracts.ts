@@ -6,7 +6,12 @@
  * implementation module.
  */
 import type { AgentUsage } from '../agents'
-import type { TaskStatusSnapshot } from '../orchestrator'
+import type {
+  TaskBlocker,
+  TaskFailureKind,
+  TaskGateFinding,
+  TaskStatusSnapshot
+} from '../orchestrator'
 import type { AgentProviderId } from '../providers'
 
 export type LearningKind = 'strength' | 'weakness'
@@ -45,6 +50,15 @@ export interface NewModelLearning {
   profileId?: string
 }
 
+export type RetroFailureKind = 'infra' | 'cancelled' | 'model'
+
+/** Mutually exclusive causes for terminal failures in one plan run. */
+export interface RetroFailureBreakdown {
+  infra: number
+  cancelled: number
+  model: number
+}
+
 /** Aggregated per provider/model stats for one plan run. */
 export interface RetroModelStats {
   provider: AgentProviderId
@@ -55,8 +69,12 @@ export interface RetroModelStats {
   needsWork: number
   failed: number
   stopped: number
+  /** Error/stopped task outcomes split by their actual cause. */
+  failuresByKind: RetroFailureBreakdown
   /** Worker-attempt failures attributed to this model (incl. rerouted tasks). */
   failedAttempts: number
+  /** Failed worker attempts split independently from terminal task outcomes. */
+  failedAttemptsByKind: RetroFailureBreakdown
   gateFindings: number
   avgDurationMs?: number
   tokensIn?: number
@@ -90,14 +108,20 @@ export interface RetroTaskObservation {
   provider?: AgentProviderId
   model?: string
   status: 'queued' | 'running' | 'success' | 'needs-work' | 'error' | 'stopped'
+  failureKind?: TaskFailureKind
+  note?: string
+  judgeReason?: string
+  blocker?: TaskBlocker
   createdAt: number
   finishedAt?: number
   usage?: AgentUsage
-  findings?: readonly unknown[]
+  findings?: readonly TaskGateFinding[]
   attempts?: ReadonlyArray<{
     provider?: AgentProviderId
     model?: string
     status: 'running' | 'success' | 'needs-work' | 'error' | 'stopped'
+    failureKind?: TaskFailureKind
+    note?: string
   }>
 }
 
