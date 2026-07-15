@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784126995398,
+  "exportedAt": 1784135952496,
   "app": {
     "name": "orca-strator",
     "version": "0.1.40-main.2.g4fa9d28"
@@ -14,7 +14,7 @@
     "planId": "plan-mrm4qekw-3",
     "goal": "UWE Drei-Produkte-Split Foundation-Welle Teil 2: ADR-Pack, Masterplan, Domain-Contracts, Guard-/Test-/CI-Pläne, Security-Review, Integration und PR-Vorbereitung — aufbauend auf dem gelieferten Inventar (Commit 223ac6f1). Reine Doku; Gate-Vokabular-False-Positives sind einkalkuliert und blockieren den Fluss nicht.",
     "status": "needs-work",
-    "summary": "Lauf mit Nacharbeit: 4 Modell(e), 0/8 Tasks erfolgreich.",
+    "summary": "Foundation-Welle Teil 2 terminal (needs-work, aber alle 8/8 Tasks mit Commits geliefert; Opus-Review: BESTANDEN MIT AUFLAGEN, keine Invarianten-Blocker). Alle needs-work-Urteile stammen aus zwei Plattform-Problemen: Vokabular-Heuristik des Security-Gates und fehlendes prisma-Binary beim zentralen pnpm-test-Lauf im Worktree. Advisory-Kanten-Struktur hat Kaskadenabbrüche erfolgreich verhindert.",
     "modelStats": [
       {
         "provider": "codex",
@@ -185,6 +185,48 @@
         "observations": 1,
         "createdAt": 1784126995303,
         "updatedAt": 1784126995303
+      },
+      {
+        "id": "learning-mrmchbdm-1-hd72lm",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "backend-services",
+        "kind": "strength",
+        "insight": "Liefert mit expliziten Whitespace-/Temp-Datei-Auflagen im Prompt große Doku-Pakete sauber und vollständig (ADR-Pack 6 ADRs+Masterplan, Guards-Plan 439 Z., CI-Plan 467 Z., Contracts 711 Z.)",
+        "evidence": "O01 Glorfindel, O02 Grishnákh, O03 Dwalin, O05 Éowyn — alle Commits ohne Whitespace-Gate-Fehler und ohne Temp-Dateien",
+        "source": "orchestrator",
+        "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+        "observations": 1,
+        "createdAt": 1784135952346,
+        "updatedAt": 1784135952346
+      },
+      {
+        "id": "learning-mrmchbdm-2-r92tsd",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "security-privacy-review",
+        "kind": "strength",
+        "insight": "Sehr gründliches Invarianten-Review mit echter Code-Verifikation und differenziertem Urteil (unterscheidet Plattform-Gate-Fehler von inhaltlichen Problemen)",
+        "evidence": "O06 Bilbo: 157-Zeilen-Review, Urteil BESTANDEN MIT AUFLAGEN, erkannte Infrastruktur-Ursachen der needs-work-Stati korrekt",
+        "source": "orchestrator",
+        "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+        "observations": 1,
+        "createdAt": 1784135952346,
+        "updatedAt": 1784135952346
+      },
+      {
+        "id": "learning-mrmchbdm-3-smpgzy",
+        "provider": "claude",
+        "model": "claude-sonnet-5",
+        "role": "orchestrator-integrator",
+        "kind": "weakness",
+        "insight": "Hinterlässt trotz explizitem Temp-Datei-Verbot im Prompt Verifikations-Hilfsdateien im Commit (*.origcheck, *.check, *.c9check) — vor PR-Schnitt gezielt prüfen und entfernen lassen",
+        "evidence": "O07 Wurmzunge, Commit a48ddaf9: 4 Check-Dateien (ARCHITECTURE.md.origcheck, CURRENT_STATE.md.origcheck, 00-inventory.md.check/.c9check) neben den 19 echten Zieldateien",
+        "source": "orchestrator",
+        "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+        "observations": 1,
+        "createdAt": 1784135952346,
+        "updatedAt": 1784135952346
       }
     ],
     "createdAt": 1784126995313
