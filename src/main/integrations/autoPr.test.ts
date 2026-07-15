@@ -283,3 +283,74 @@ describe('autoPr quality gate environment', () => {
     for (const log of logs) expect(log).not.toHaveBeenCalled()
   })
 })
+
+describe('autoPr quality gate environment', () => {
+  it('prefixes the cwd binary directory and preserves the existing PATH', async () => {
+    await autoPrInternals.runQualityGates(
+      '/repo/worktree',
+      ['pnpm lint'],
+      '/repo/worktree',
+      { inheritedEnv: { PATH: '/system/bin' }, platform: 'linux' }
+    )
+
+    expect(normalizedPath(lastGateInvocation().env.PATH)).toBe(
+      '/repo/worktree/node_modules/.bin:/system/bin'
+    )
+  })
+
+  it('preserves the Windows Path key and uses semicolon separators', async () => {
+    await autoPrInternals.runQualityGates(
+      'C:/repo/worktree',
+      ['pnpm lint'],
+      'C:/repo/worktree',
+      { inheritedEnv: { Path: 'C:/system/bin' }, platform: 'win32' }
+    )
+
+    const gateEnv = lastGateInvocation().env
+    expect(normalizedPath(gateEnv.Path)).toBe(
+      'C:/repo/worktree/node_modules/.bin;C:/system/bin'
+    )
+    expect(gateEnv.PATH).toBeUndefined()
+  })
+
+  it('adds the main workspace binaries for a worktree without node_modules', async () => {
+    await autoPrInternals.runQualityGates(
+      '/repo/.orca-worktrees/integration/branch',
+      ['pnpm lint'],
+      '/repo',
+      { inheritedEnv: { PATH: '/system/bin' }, platform: 'linux' }
+    )
+
+    expect(normalizedPath(lastGateInvocation().env.PATH)).toBe(
+      '/repo/.orca-worktrees/integration/branch/node_modules/.bin:' +
+      '/repo/node_modules/.bin:/system/bin'
+    )
+  })
+
+  it('does not leak a secret through the command or logs and leaves other env values unchanged', async () => {
+    const privateMarker = 'private-marker-value'
+    const inheritedEnv = { PATH: '/system/bin', ORCA_PRIVATE_MARKER: privateMarker }
+    const originalEnv = { ...inheritedEnv }
+    const logs = [
+      vi.spyOn(console, 'log').mockImplementation(() => undefined),
+      vi.spyOn(console, 'info').mockImplementation(() => undefined),
+      vi.spyOn(console, 'warn').mockImplementation(() => undefined),
+      vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    ]
+
+    await autoPrInternals.runQualityGates(
+      '/repo/worktree',
+      ['pnpm lint'],
+      '/repo/worktree',
+      { inheritedEnv, platform: 'linux' }
+    )
+
+    const invocation = lastGateInvocation()
+    expect(inheritedEnv).toEqual(originalEnv)
+    expect(invocation.env).not.toBe(inheritedEnv)
+    expect(invocation.env.ORCA_PRIVATE_MARKER).toBe(privateMarker)
+    expect(invocation.command).toBe('pnpm lint')
+    expect(invocation.command).not.toContain(privateMarker)
+    for (const log of logs) expect(log).not.toHaveBeenCalled()
+  })
+})

@@ -14,6 +14,7 @@ import { middleEarthWorkspaceName } from '@shared/workspaceNames'
 const BG = '#080c15'
 const WINDOW_ICON = join(__dirname, '../renderer/favicon.png')
 const paneWindows = new Map<string, Set<BrowserWindow>>()
+let mainWindow: BrowserWindow | null = null
 
 /** Representative profile for headless ProfileEditor screenshots. */
 const DEMO_PROFILE = {
@@ -76,6 +77,10 @@ export function createMainWindow(): BrowserWindow {
     icon: WINDOW_ICON,
     title: 'Orca-Strator',
     webPreferences: baseWebPreferences()
+  })
+  mainWindow = win
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null
   })
   installEditContextMenu(win)
 
@@ -201,6 +206,11 @@ export function createMainWindow(): BrowserWindow {
   }
   loadRoute(win, '/')
   return win
+}
+
+/** Only the main application window may invoke privileged workspace mutations. */
+export function isMainWindowSender(sender: Electron.WebContents): boolean {
+  return Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents === sender)
 }
 
 /** Pop out a single agent pane into its own OS window (native frame). */

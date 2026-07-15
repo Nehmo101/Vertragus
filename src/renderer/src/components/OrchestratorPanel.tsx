@@ -15,13 +15,21 @@ import {
   resolveOrchestratorActivity,
   taskActivityText
 } from '@renderer/orchestratorActivity'
-import type { OrcaTask, TaskStatus } from '@shared/orchestrator'
+import type { OrcaTask, SubagentFindingKind, TaskStatus } from '@shared/orchestrator'
 import { resolveModel } from '@shared/models'
 import type { AgentUsage } from '@shared/agents'
 import { summarizeUsage, summarizeUsageGroup, TELEMETRY_STATUS_LABELS, TELEMETRY_STATUS_TITLES } from '@shared/telemetry'
 import { formatTokenBreakdown, formatTokenCount, formatUsd } from '@renderer/telemetryFormat'
 
 const STALE_HEARTBEAT_MS = 90_000
+const MAX_VISIBLE_FINDINGS = 6
+
+const FINDING_KIND_LABEL: Record<SubagentFindingKind, string> = {
+  interface: 'Schnittstelle',
+  decision: 'Entscheidung',
+  blocker: 'Blocker',
+  insight: 'Erkenntnis'
+}
 
 type PlannerMode = 'auto' | 'review' | 'manual'
 const PLANNER_MODES: PlannerMode[] = ['auto', 'review', 'manual']
@@ -325,7 +333,10 @@ export default function OrchestratorPanel(): JSX.Element {
   const orch = wsAgents.find((agent) => agent.kind === 'orchestrator')
   const usageByAgentId = new Map(wsAgents.map((agent) => [agent.id, agent.usage] as const))
   const events = workspaceEvents(store)
-  const { goal, tasks, pendingPlan, plannerMode, reliability, engineId, lastRetro } = store.orchestrator
+  const { goal, tasks, pendingPlan, plannerMode, reliability, engineId, lastRetro, findings } =
+    store.orchestrator
+  // The engine appends board entries in order; the panel shows the newest first.
+  const boardFindings = [...(findings ?? [])].reverse()
   const logRef = useRef<HTMLDivElement>(null)
   const activity = resolveOrchestratorActivity(store.orchestrator, now)
   const liveTasks = liveOrchestratorTasks(tasks)
@@ -584,6 +595,38 @@ export default function OrchestratorPanel(): JSX.Element {
             )
           })}
         </div>
+
+        {boardFindings.length > 0 && (
+          <>
+            <div className="live-workers-head findings-board-head">
+              <span>Findings-Board</span>
+              <span>
+                {boardFindings.length > MAX_VISIBLE_FINDINGS
+                  ? `${MAX_VISIBLE_FINDINGS} von ${boardFindings.length} Einträgen`
+                  : `${boardFindings.length} Eintrag${boardFindings.length === 1 ? '' : 'e'}`}
+              </span>
+            </div>
+            <div className="findings-board" title="Von Subagents live geteilte Schnittstellen, Entscheidungen und Blocker">
+              {boardFindings.slice(0, MAX_VISIBLE_FINDINGS).map((finding) => (
+                <div key={finding.id} className={`finding-entry kind-${finding.kind}`}>
+                  <div className="finding-head">
+                    <span className="finding-kind">{FINDING_KIND_LABEL[finding.kind]}</span>
+                    <strong className="finding-title">{finding.title}</strong>
+                    <span className="finding-meta">
+                      {finding.agentName ? <LoreName name={finding.agentName} /> : (finding.role ?? finding.taskId)}
+                      {' · vor '}
+                      {fmtAge(now - finding.createdAt)}
+                    </span>
+                  </div>
+                  <p className="finding-detail">{finding.detail}</p>
+                  {finding.files?.length ? (
+                    <code className="finding-files" title="Betroffene Dateien">{finding.files.join(', ')}</code>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
 
       <div className="orch-panel-body">

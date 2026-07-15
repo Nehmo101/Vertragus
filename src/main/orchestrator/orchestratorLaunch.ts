@@ -10,6 +10,7 @@ import type { OrchestratorProviderCapability } from '@shared/orchestrator'
 import { getMcpHandle } from '@main/orchestrator/mcpHandle'
 import { getOrchestratorAdapter } from '@main/orchestrator/providerAdapters'
 import { externalMcpSpecsFor } from '@main/orchestrator/externalMcp'
+import { getPromptOverlay } from '@main/orchestrator/promptOverlay'
 
 export interface OrchestratorPolicyOptions {
   adaptiveTeam?: boolean
@@ -17,6 +18,8 @@ export interface OrchestratorPolicyOptions {
   engineId?: string
   /** Auto-Benchmark profile: every slot gets the same task and is scored. */
   benchmarkMode?: boolean
+  /** Reviewed learnings overlay (retro branch) injected into the prompt. */
+  overlayText?: string
 }
 
 export const orchestratorSystemPrompt = (
@@ -65,6 +68,9 @@ export const orchestratorSystemPrompt = (
   '- Der Lagebericht sagt konkret, was du selbst gerade analysierst, delegierst, überwachst, prüfst oder zusammenfasst.',
   '- Nutze list_tasks/get_task_status für echte Daten. Sie liefern Titel, Rolle, Subagent-Name, Phase,',
   '  letzte Aktion, Heartbeat, Ergebnis und Fehler — erfinde keinen Fortschritt.',
+  '- Subagents melden eigene Zwischenstände (report_progress) und teilen Schnittstellen, Entscheidungen',
+  '  und Blocker auf einem gemeinsamen Findings-Board. list_findings zeigt dir diese Einträge live —',
+  '  nutze sie, um Konflikte zwischen parallelen Tasks früh zu erkennen, statt auf Terminalergebnisse zu warten.',
   '- Schreibe zusätzlich im Terminal verständliche Updates bei Dispatch, relevanten Phasenwechseln,',
   '  Blockern und Abschlüssen. Wiederhole unveränderte Heartbeats nicht als leere Statusmeldung.',
   '- Format jedes Update möglichst so: „Ich: …“; danach „Subagents:“ mit Name, Aufgabe, Phase,',
@@ -79,6 +85,13 @@ export const orchestratorSystemPrompt = (
   '   (provider, model, strength/weakness, Einsicht wie "sehr stark bei UI-Aufgaben" oder "Code-Review besonders präzise").',
   '- Halte Erkenntnisse ehrlich und spezifisch; sie machen künftige Orchestrierung messbar besser.',
   '',
+  ...(options.overlayText
+    ? [
+        'Gelerntes Teamwissen (aus geprüften Retros früherer Läufe; verbindlich zu berücksichtigen):',
+        options.overlayText,
+        ''
+      ]
+    : []),
   ...(options.benchmarkMode
     ? [
         'Auto-Benchmark-Modus (dieses Profil):',
@@ -140,12 +153,14 @@ export function buildOrchestratorSetup(
     : handle
 
 
+  const overlayText = getPromptOverlay()
+
   return {
     extraArgs: adapter.buildArgs({
       name,
       handle: scopedHandle,
       configDir: app.getPath('userData'),
-      systemPrompt: orchestratorSystemPrompt(name, policy),
+      systemPrompt: orchestratorSystemPrompt(name, { ...policy, overlayText }),
       externalServers: externalMcpSpecsFor('orchestrator', provider),
       fileTag: agentId
     }),

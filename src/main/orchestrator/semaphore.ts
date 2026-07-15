@@ -48,8 +48,12 @@ export class Semaphore {
   }
 
   release(): void {
-    const next = this.queue.shift()
-    if (next) next() // hand the slot straight to the next waiter
-    else this.active = Math.max(0, this.active - 1)
+    // While over a lowered limit, shrink instead of handing the slot on;
+    // waiters resume only once the active count fits the current limit again.
+    if (this.active <= this.limit && this.queue.length > 0) {
+      this.queue.shift()!() // hand the slot straight to the next waiter
+    } else {
+      this.active = Math.max(0, this.active - 1)
+    }
   }
 }

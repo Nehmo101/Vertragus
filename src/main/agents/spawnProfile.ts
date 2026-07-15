@@ -13,7 +13,7 @@ import { workspaceSessions } from '@main/orchestrator/WorkspaceSessionRegistry'
 export async function spawnProfileTeam(
   profile: WorkspaceProfile,
   yoloMaster: boolean,
-  options?: { resetOrchestrator?: boolean }
+  options?: { resetOrchestrator?: boolean; workingDirOverride?: string }
 ): Promise<AgentInstanceInfo[]> {
   // Adaptive profiles start their workers later through the orchestrator engine.
   // Persist the global switch in this run's profile snapshot so those delayed
@@ -27,7 +27,8 @@ export async function spawnProfileTeam(
       : workspaceSessions.start(sessionProfile)
   const engine = session.engine
   const runtimeProfile = session.profile
-  const workingDir = profileRepoLocalPath(runtimeProfile) || runtimeProfile.workingDir
+  const workingDir =
+    options?.workingDirOverride?.trim() || profileRepoLocalPath(runtimeProfile) || runtimeProfile.workingDir
   const spawned: AgentInstanceInfo[] = []
 
   const prewarmWorkers = runtimeProfile.planner.routingMode !== 'adaptive' || !runtimeProfile.orchestrator

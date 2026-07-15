@@ -4,11 +4,16 @@
  * agent processes live in the Electron main process, so tool calls route
  * directly into the OrchestratorEngine (no extra IPC hop).
  *
- * Tools:
+ * Orchestrator tools:
  *   set_goal(title)                     — report the current high-level goal
  *   list_subagents()                    — available subagent slots
  *   dispatch_subagent(role, prompt, …)  — run a subagent, return its result
  *   open_subwindow(role, prompt?)       — persistent interactive subagent window
+ *
+ * Subagent sessions (separate token, `subagentTask` query param) get a
+ * deliberately small surface: report_progress, post_finding, list_findings.
+ * The findings board is how parallel workers coordinate interfaces and
+ * decisions with each other without waiting for terminal task results.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { randomUUID } from 'node:crypto'
@@ -17,7 +22,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
 import { orchestratorEngine, type OrchestratorEngine } from '@main/orchestrator/Engine'
-import type { OrchestratorActivityPhase } from '@shared/orchestrator'
+import type { OrchestratorActivityPhase, SubagentFindingKind } from '@shared/orchestrator'
 import { workspaceSessions } from '@main/orchestrator/WorkspaceSessionRegistry'
 import { setMcpHandle, type McpServerHandle } from '@main/orchestrator/mcpHandle'
 
@@ -29,6 +34,7 @@ const ORCHESTRATOR_TOOLS = [
   'mcp__orca__dispatch_batch',
   'mcp__orca__get_task_status',
   'mcp__orca__list_tasks',
+  'mcp__orca__list_findings',
   'mcp__orca__get_plan_status',
   'mcp__orca__cancel_plan',
   'mcp__orca__open_subwindow',
@@ -38,6 +44,10 @@ const ORCHESTRATOR_TOOLS = [
   'mcp__orca__get_benchmark_status',
   'mcp__orca__record_benchmark'
 ]
+
+const FINDING_KINDS = ['interface', 'decision', 'blocker', 'insight'] as const
+const SUBAGENT_PROGRESS_PHASES = ['working', 'testing', 'committing'] as const
+const MAX_REQUEST_BODY_BYTES = 2 * 1024 * 1024
 
 const AGENT_PROVIDERS = ['claude', 'codex', 'cursor', 'copilot', 'ollama'] as const
 
@@ -186,6 +196,14 @@ function buildMcpServer(engine: OrchestratorEngine = orchestratorEngine): McpSer
     'Liste alle Tasks mit Titel, Rolle, Subagent-Name, aktuellem Status, Phase, Aktion, Heartbeat und Ergebnis.',
     {},
     async () => text(JSON.stringify(engine.listTaskStatuses(), null, 2))
+  )
+
+  register(
+    'list_findings',
+    'Liste die Einträge des gemeinsamen Findings-Boards: Schnittstellen, Entscheidungen, Blocker ' +
+      'und Erkenntnisse, die Subagents während laufender Tasks live geteilt haben.',
+    {},
+    async () => text(JSON.stringify(engine.listTaskFindings(), null, 2))
   )
 
   register(
@@ -390,9 +408,93 @@ function buildMcpServer(engine: OrchestratorEngine = orchestratorEngine): McpSer
   return server
 }
 
+/**
+ * The deliberately small MCP surface a headless worker gets: it can report its
+ * own progress and exchange findings with parallel tasks, nothing else. The
+ * task identity is fixed server-side from the session URL, so a worker can
+ * only ever report as itself.
+ */
+function buildSubagentMcpServer(engine: OrchestratorEngine, taskId: string): McpServer {
+  const server = new McpServer(
+    { name: 'orca-sub', version: '0.1.0' },
+    {
+      instructions: [
+        'Du bist ein Orca-Strator Subagent. Über diese Tools kommunizierst du mit dem Orchestrator und parallelen Subagents.',
+        'Melde wichtige Phasenwechsel und Zwischenstände knapp über report_progress.',
+        'Teile Schnittstellen, Entscheidungen und Blocker, die parallele Tasks betreffen, über post_finding.',
+        'Lies mit list_findings die Einträge anderer Subagents, bevor du gemeinsame Schnittstellen festlegst.'
+      ].join(' ')
+    }
+  )
+  const toolFn = server.tool.bind(server) as (
+    name: string,
+    description: string,
+    shape: z.ZodRawShape,
+    handler: (args: Record<string, unknown>) => Promise<ToolText>
+  ) => void
+
+  toolFn(
+    'report_progress',
+    'Melde dem Orchestrator deinen aktuellen Zwischenstand (kurzer Satz, optional Phase). ' +
+      'Der Eintrag erscheint live in der Task-Ansicht und in get_task_status.',
+    {
+      message: z.string().min(1).max(220).describe('Was du gerade konkret tust oder erreicht hast'),
+      phase: z.enum(SUBAGENT_PROGRESS_PHASES).optional().describe('Optionale Arbeitsphase')
+    },
+    async (args) => {
+      const status = engine.reportSubagentProgress(taskId, {
+        message: String(args.message ?? ''),
+        phase: args.phase as (typeof SUBAGENT_PROGRESS_PHASES)[number] | undefined
+      })
+      return text(status ? JSON.stringify({ ok: true, taskId, lastAction: status.lastAction, phase: status.phase }) : JSON.stringify({ ok: false, error: 'Task nicht gefunden.' }))
+    }
+  )
+
+  toolFn(
+    'post_finding',
+    'Teile eine Erkenntnis mit dem Orchestrator und parallelen Subagents: eine Schnittstelle, ' +
+      'die du festgelegt hast, eine Entscheidung, einen Blocker oder eine wichtige Einsicht.',
+    {
+      kind: z.enum(FINDING_KINDS).describe('Art des Eintrags'),
+      title: z.string().min(1).max(160).describe('Kurzer, eindeutiger Titel'),
+      detail: z.string().min(1).max(2_000).describe('Konkreter Inhalt, z.B. Signaturen, Pfade, Begründung'),
+      files: z.array(z.string().min(1).max(300)).max(32).optional().describe('Betroffene Dateien')
+    },
+    async (args) => {
+      try {
+        const finding = engine.postTaskFinding(taskId, {
+          kind: String(args.kind ?? 'insight') as SubagentFindingKind,
+          title: String(args.title ?? ''),
+          detail: String(args.detail ?? ''),
+          files: Array.isArray(args.files) ? args.files.map(String) : undefined
+        })
+        return text(JSON.stringify({ ok: true, findingId: finding.id }))
+      } catch (error) {
+        return text(JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) }))
+      }
+    }
+  )
+
+  toolFn(
+    'list_findings',
+    'Liste die für deinen Task sichtbaren Einträge des gemeinsamen Findings-Boards ' +
+      '(Schnittstellen, Entscheidungen, Blocker, Erkenntnisse anderer Subagents).',
+    {},
+    async () => text(JSON.stringify(engine.listTaskFindings(taskId), null, 2))
+  )
+
+  return server
+}
+
 async function readBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = []
-  for await (const chunk of req) chunks.push(chunk as Buffer)
+  let total = 0
+  for await (const chunk of req) {
+    const buffer = chunk as Buffer
+    total += buffer.length
+    if (total > MAX_REQUEST_BODY_BYTES) return undefined
+    chunks.push(buffer)
+  }
   if (chunks.length === 0) return undefined
   try {
     return JSON.parse(Buffer.concat(chunks).toString('utf8'))
@@ -410,6 +512,9 @@ export async function startMcpServer(): Promise<McpServerHandle> {
   // sessionId -> transport (stateful; one session per orchestrator client)
   const transports = new Map<string, StreamableHTTPServerTransport>()
   const authToken = randomUUID()
+  // Subagent sessions authenticate with their own token so a worker can never
+  // open an orchestrator session (dispatching, plans) with its launch config.
+  const subagentToken = randomUUID()
 
   const httpServer: Server = createServer((req, res) => {
     void handleRequest(req, res).catch((err) => {
@@ -424,7 +529,13 @@ export async function startMcpServer(): Promise<McpServerHandle> {
       res.writeHead(404).end()
       return
     }
-    if (url.searchParams.get('token') !== authToken) {
+    const token = url.searchParams.get('token')
+    const subagentTaskId = url.searchParams.get('subagentTask')
+    const isSubagentSession = Boolean(subagentTaskId)
+    const authorized = isSubagentSession
+      ? token === subagentToken || token === authToken
+      : token === authToken
+    if (!authorized) {
       res.writeHead(401).end()
       return
     }
@@ -453,7 +564,10 @@ export async function startMcpServer(): Promise<McpServerHandle> {
         if (requestedEngineId && requestedEngineId !== engine.engineId) {
           throw new Error('Orchestrator-Verbindung verweist auf eine veraltete Engine-Instanz.')
         }
-        await buildMcpServer(engine).connect(transport)
+        const server = isSubagentSession
+          ? buildSubagentMcpServer(engine, subagentTaskId!)
+          : buildMcpServer(engine)
+        await server.connect(transport)
       }
       if (!transport) {
         res.writeHead(400, { 'Content-Type': 'application/json' }).end(
@@ -488,6 +602,7 @@ export async function startMcpServer(): Promise<McpServerHandle> {
 
   started = {
     url: `http://127.0.0.1:${port}/mcp?token=${encodeURIComponent(authToken)}`,
+    subagentUrl: `http://127.0.0.1:${port}/mcp?token=${encodeURIComponent(subagentToken)}`,
     allowedTools: ORCHESTRATOR_TOOLS,
     close: () =>
       new Promise<void>((resolve) => {

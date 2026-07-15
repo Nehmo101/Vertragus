@@ -10,6 +10,7 @@ import HandoffModal from '@renderer/components/HandoffModal'
 import PaneWindow from '@renderer/components/PaneWindow'
 import InboxPanel from '@renderer/components/InboxPanel'
 import AddAgentModal from '@renderer/components/AddAgentModal'
+import SpeechSettingsModal from '@renderer/components/SpeechSettingsModal'
 
 function useHashRoute(): string {
   const [hash, setHash] = useState(() => window.location.hash)
@@ -69,6 +70,8 @@ export default function App(): JSX.Element {
       {store.editorProfile && <ProfileEditor key={store.editorProfile.id} />}
 
       {store.mcpEditorOpen && <McpServerEditor />}
+
+      {store.speechSettingsOpen && <SpeechSettingsModal />}
 
       {store.handoffSource && <HandoffModal key={store.handoffSource.id} />}
 

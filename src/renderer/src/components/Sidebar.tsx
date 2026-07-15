@@ -4,6 +4,8 @@ import { PROVIDER_THEME } from '@renderer/ui/theme'
 import { profileSummary, profileAgentCount } from '@renderer/components/TitleBar'
 import { githubAuthPresentation, hasUsableGithubAuth } from '@renderer/store/githubAuth'
 import type { AgentProviderId, ProviderHealth, ProviderId } from '@shared/providers'
+import type { RetroSyncStatus } from '@shared/retroSync'
+import type { InboxSpeechStatus } from '@shared/inboxSpeech'
 import { MCP_SCOPE_LABELS, MCP_TRANSPORT_LABELS } from '@shared/mcp'
 import { middleEarthWorkspaceName } from '@shared/workspaceNames'
 
@@ -153,6 +155,248 @@ function GithubRow(): JSX.Element {
 }
 
 
+function retroSyncDetail(status: RetroSyncStatus | undefined, error: string | undefined): string {
+  if (error) return error
+  if (!status) return '…'
+  if (status.lastError) return status.lastError
+  if (!status.enabled) return `Ziel: ${status.repoOwner}/${status.repoName}@${status.branch}`
+  const lastExport = status.lastExportAt
+    ? new Date(status.lastExportAt).toLocaleString('de-DE', {
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      })
+    : 'noch nie'
+  return `${status.queued} in Warteschlange · zuletzt ${lastExport}`
+}
+
+function RetroSyncRow(): JSX.Element {
+  const store = useAppStore()
+  const connected = hasUsableGithubAuth(store.githubAuth)
+  const [status, setStatus] = useState<RetroSyncStatus | undefined>()
+  const [draft, setDraft] = useState({ repoOwner: '', repoName: '', branch: '' })
+  const [editing, setEditing] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | undefined>()
+
+  const reload = async (): Promise<void> => {
+    try {
+      const next = await window.orca.retro.syncStatus()
+      setStatus(next)
+      setDraft({ repoOwner: next.repoOwner, repoName: next.repoName, branch: next.branch })
+    } catch {
+      // Status ist rein informativ; Fehler blockieren die Sidebar nicht.
+    }
+  }
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void reload()
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [])
+
+  const toggle = async (): Promise<void> => {
+    if (!status) return
+    setBusy(true)
+    setError(undefined)
+    try {
+      await window.orca.setConfig('retroSync.enabled', !status.enabled)
+      await reload()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const saveTarget = async (): Promise<void> => {
+    setBusy(true)
+    setError(undefined)
+    try {
+      await window.orca.setConfig('retroSync.repoOwner', draft.repoOwner)
+      await window.orca.setConfig('retroSync.repoName', draft.repoName)
+      await window.orca.setConfig('retroSync.branch', draft.branch)
+      setEditing(false)
+      await reload()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const flush = async (): Promise<void> => {
+    setBusy(true)
+    setError(undefined)
+    try {
+      setStatus(await window.orca.retro.syncFlush())
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const active = Boolean(status?.enabled)
+  const dot = active ? 'var(--run)' : 'var(--sage)'
+  const detail = retroSyncDetail(status, error)
+
+  return (
+    <>
+      <div className="provider-row">
+        <span className="chip sz-26" style={{ background: 'var(--sage)', color: '#10221a' }}>
+          ↻
+        </span>
+        <div className="info">
+          <div
+            className="name"
+            title="Retros nach jedem Lauf in den zentralen Retro-Branch exportieren · Doppelklick: Ziel bearbeiten"
+            onDoubleClick={() => setEditing((value) => !value)}
+          >
+            Retro-Sync
+          </div>
+          <div className="detail" title={detail}>
+            {detail}
+          </div>
+        </div>
+        <span className="status-wrap">
+          <span
+            className="status-dot"
+            style={{ background: dot, boxShadow: active ? `0 0 7px ${dot}` : 'none' }}
+          />
+          <span className="status-label" style={{ color: active ? 'var(--run-text)' : 'var(--sage-strong)' }}>
+            {active ? 'Aktiv' : 'Aus'}
+          </span>
+        </span>
+        <button
+          type="button"
+          className={`provider-enable-btn ${active ? 'enabled' : 'disabled'}`}
+          disabled={busy || !status || (!connected && !active)}
+          title={
+            connected || active
+              ? `Retro-Sync ${active ? 'deaktivieren' : 'aktivieren'}`
+              : 'Zuerst GitHub verbinden'
+          }
+          aria-pressed={active}
+          onClick={() => void toggle()}
+        >
+          {active ? 'An' : 'Aus'}
+        </button>
+        {active && (
+          <button
+            type="button"
+            className="provider-login-btn"
+            disabled={busy || !connected}
+            title={connected ? 'Warteschlange jetzt exportieren' : 'Zuerst GitHub verbinden'}
+            aria-label="Retro-Warteschlange jetzt exportieren"
+            onClick={() => void flush()}
+          >
+            Sync
+          </button>
+        )}
+      </div>
+      {editing && (
+        <div className="provider-row" style={{ flexWrap: 'wrap', gap: 6 }}>
+          <input
+            value={draft.repoOwner}
+            placeholder="Owner"
+            aria-label="Retro-Sync GitHub-Owner"
+            style={{ flex: '1 1 30%', minWidth: 0 }}
+            onChange={(event) => setDraft({ ...draft, repoOwner: event.target.value })}
+          />
+          <input
+            value={draft.repoName}
+            placeholder="Repo"
+            aria-label="Retro-Sync GitHub-Repository"
+            style={{ flex: '1 1 30%', minWidth: 0 }}
+            onChange={(event) => setDraft({ ...draft, repoName: event.target.value })}
+          />
+          <input
+            value={draft.branch}
+            placeholder="Branch"
+            aria-label="Retro-Sync Branch"
+            style={{ flex: '1 1 20%', minWidth: 0 }}
+            onChange={(event) => setDraft({ ...draft, branch: event.target.value })}
+          />
+          <button
+            type="button"
+            className="provider-login-btn"
+            disabled={busy}
+            onClick={() => void saveTarget()}
+          >
+            OK
+          </button>
+        </div>
+      )}
+    </>
+  )
+}
+
+function SpeechRow(): JSX.Element {
+  const store = useAppStore()
+  const revision = store.speechStatusRevision
+  const [status, setStatus] = useState<InboxSpeechStatus | undefined>()
+
+  useEffect(() => {
+    let cancelled = false
+    void window.orca.inboxSpeech
+      .status()
+      .then((next) => {
+        if (!cancelled) setStatus(next)
+      })
+      .catch(() => {
+        // Status ist rein informativ; Fehler blockieren die Sidebar nicht.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [revision])
+
+  const configured = Boolean(status?.configured)
+  const dot = configured ? 'var(--run)' : 'var(--wait)'
+  const detail = status
+    ? configured
+      ? `Modell ${status.model} · ${status.language}`
+      : 'Kein API-Schlüssel hinterlegt'
+    : '…'
+
+  return (
+    <div className="provider-row">
+      <span className="chip sz-26" style={{ background: 'var(--sage)', color: '#10221a' }}>
+        🎙
+      </span>
+      <div className="info">
+        <div className="name" title="Sprache-zu-Text für Voice-Leiste und Ideen-Inbox">
+          Sprachsteuerung
+        </div>
+        <div className="detail" title={detail}>
+          {detail}
+        </div>
+      </div>
+      <span className="status-wrap">
+        <span className="status-dot" style={{ background: dot, boxShadow: `0 0 7px ${dot}` }} />
+        <span
+          className="status-label"
+          style={{ color: configured ? 'var(--run-text)' : 'var(--wait-text)' }}
+        >
+          {configured ? 'Bereit' : 'Kein Schlüssel'}
+        </span>
+      </span>
+      <button
+        type="button"
+        className="provider-login-btn"
+        title="Sprache-zu-Text einrichten (API-Schlüssel, Modell, Sprache)"
+        aria-label="Sprache-zu-Text-Einstellungen öffnen"
+        onClick={() => store.openSpeechSettings()}
+      >
+        {configured ? 'Konto' : 'Einrichten'}
+      </button>
+    </div>
+  )
+}
+
 function useHashRoute(): string {
   const [hash, setHash] = useState(() => window.location.hash)
   useEffect(() => {
@@ -204,6 +448,8 @@ export default function Sidebar(): JSX.Element {
       </div>
       <div className="side-list">
         <GithubRow />
+        <RetroSyncRow />
+        <SpeechRow />
         <ProviderRow id="cloudflare" />
       </div>
 
