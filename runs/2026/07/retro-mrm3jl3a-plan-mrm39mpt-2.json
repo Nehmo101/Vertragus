@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "exportedAt": 1784120941754,
+  "app": {
+    "name": "orca-strator",
+    "version": "0.1.40-main.2.g4fa9d28"
+  },
+  "machineId": "5087fc1f7b9d",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrm3jl3a-plan-mrm39mpt-2",
+    "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+    "workspaceSessionId": "d1f5e827-4be3-430e-9f2c-cd3c2429edb7",
+    "planId": "plan-mrm39mpt-2",
+    "goal": "O00-Re-Run: Repo-Inventar für den UWE Drei-Produkte-Split aus dem Recovery-Artefakt wiederherstellen, validieren, whitespace-sauber persistieren — reine Doku, kein Produktionscode.",
+    "status": "needs-work",
+    "summary": "Lauf mit Nacharbeit: 1 Modell(e), 0/1 Tasks erfolgreich.",
+    "modelStats": [
+      {
+        "provider": "claude",
+        "model": "claude-sonnet-5",
+        "roles": [
+          "orchestrator-integrator"
+        ],
+        "tasks": 1,
+        "succeeded": 0,
+        "needsWork": 1,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 2,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "costUsd": 2.1801353999999997,
+        "avgDurationMs": 462938
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrm3jl30-1-ghnk87",
+        "provider": "claude",
+        "model": "claude-sonnet-5",
+        "role": "orchestrator-integrator",
+        "kind": "weakness",
+        "insight": "Quality-Gates erfordern Nacharbeit bei orchestrator-integrator",
+        "evidence": "1 Task(s) mit 2 Gate-Finding(s)",
+        "source": "auto-retro",
+        "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+        "observations": 1,
+        "createdAt": 1784120941692,
+        "updatedAt": 1784120941692
+      }
+    ],
+    "createdAt": 1784120941702
+  }
+}
