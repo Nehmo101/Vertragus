@@ -40,7 +40,7 @@ function classifyRetroFailure(
   failureKind: RetroTaskObservation['failureKind'],
   evidence: string
 ): RetroFailureKind {
-  if (failureKind === 'cancelled' || status === 'stopped') return 'cancelled'
+  if (failureKind === 'cancelled' || status === 'stopped' || status === 'paused' || status === 'waiting') return 'cancelled'
   if (failureKind === 'infrastructure' || matchesKnownInfrastructureFailure(evidence)) return 'infra'
   if (CANCELLED_FAILURE_PATTERN.test(evidence)) return 'cancelled'
   return 'model'

@@ -58,7 +58,7 @@ export const benchmarkConfigSchema = z.object({
 })
 
 export const autoPrConfigSchema = z.object({
-  mode: z.enum(['off', 'draft-after-checks', 'ready-after-checks']).default('off'),
+  mode: z.enum(['off', 'draft-after-checks', 'ready-after-checks', 'hold-for-approval']).default('off'),
   strategy: z.enum(['aggregate', 'per-task']).default('aggregate'),
   /** Empty = repository default branch. */
   baseBranch: z.string().default(''),

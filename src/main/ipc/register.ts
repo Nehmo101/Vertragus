@@ -9,6 +9,7 @@ import { pathToFileURL } from 'node:url'
 import { IPC, type AppInfo } from '@shared/ipc'
 import type { HandoffRequest, OrcaEvent, SpawnAgentRequest } from '@shared/agents'
 import type { OrchestratorSnapshot } from '@shared/orchestrator'
+import type { RemoteBudgetCaps } from '@shared/remote'
 import type { ProviderId } from '@shared/providers'
 import {
   profileRepoLocalPath,
@@ -100,6 +101,8 @@ import {
   createPromptEnhancementIpcController,
   type PromptIpcWebContentsLike
 } from '@main/inbox/promptEnhancementIpc'
+import { remoteService } from '@main/remote'
+import type { RemoteEnableRequest, RemotePairStartRequest } from '@shared/remote'
 
 function senderWindow(e: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent): BrowserWindow | null {
   return BrowserWindow.fromWebContents(e.sender)
@@ -173,6 +176,9 @@ export function registerIpcHandlers(): void {
       return profiles
     }
   })
+  const requireMainWindow = (event: Electron.IpcMainInvokeEvent): void => {
+    if (!isMainWindowSender(event.sender)) throw new Error('Remote-Verwaltung ist nur im Hauptfenster erlaubt.')
+  }
   // ---- app / providers / config ----
   ipcMain.handle(IPC.appInfo, (): AppInfo => {
     return {
@@ -394,6 +400,32 @@ export function registerIpcHandlers(): void {
     abortInboxTranscription()
   })
 
+  // ---- Mission Control (desktop administration only) ----
+  ipcMain.handle(IPC.remoteStatus, (event) => {
+    requireMainWindow(event)
+    return remoteService.status()
+  })
+  ipcMain.handle(IPC.remoteEnable, (event, request: RemoteEnableRequest) => {
+    requireMainWindow(event)
+    return remoteService.enable(request)
+  })
+  ipcMain.handle(IPC.remoteDisable, (event) => {
+    requireMainWindow(event)
+    return remoteService.disable()
+  })
+  ipcMain.handle(IPC.remoteListDevices, (event) => {
+    requireMainWindow(event)
+    return remoteService.listDevices()
+  })
+  ipcMain.handle(IPC.remoteRevokeDevice, (event, deviceId: string) => {
+    requireMainWindow(event)
+    return remoteService.revokeDevice(String(deviceId))
+  })
+  ipcMain.handle(IPC.remotePairStart, (event, request?: RemotePairStartRequest) => {
+    requireMainWindow(event)
+    return remoteService.startPairing(request)
+  })
+
   // ---- agents ----
   ipcMain.handle(IPC.agentsList, () => agentManager.list())
   ipcMain.handle(IPC.agentSpawn, (_e, req: SpawnAgentRequest) => {
@@ -477,6 +509,63 @@ export function registerIpcHandlers(): void {
     if (!task) throw new Error('Aufgabe nicht gefunden.')
     return loadTaskReviewDiff(task)
   })
+  ipcMain.handle(
+    IPC.orchestratorApprovePublication,
+    (_e, profileId: string, workspaceSessionId: string, planId?: string) => {
+      const profile = getProfile(profileId)
+      return profile ? workspaceSessions.approvePublication(profile, planId, workspaceSessionId) : false
+    }
+  )
+  ipcMain.handle(
+    IPC.orchestratorRejectPublication,
+    (_e, profileId: string, workspaceSessionId: string, planId?: string) => {
+      const profile = getProfile(profileId)
+      return profile ? workspaceSessions.rejectPublication(profile, planId, workspaceSessionId) : false
+    }
+  )
+  ipcMain.handle(
+    IPC.orchestratorResolvePermission,
+    (_e, profileId: string, workspaceSessionId: string, permissionId: string, allow: boolean) => {
+      const profile = getProfile(profileId)
+      if (!profile || !/^[0-9a-f-]{36}$/i.test(permissionId)) return false
+      return workspaceSessions.resolvePermission(profile, permissionId, Boolean(allow), workspaceSessionId)
+    }
+  )
+  ipcMain.handle(
+    IPC.orchestratorSetBudgetCaps,
+    (_e, profileId: string, workspaceSessionId: string, caps: RemoteBudgetCaps) => {
+      const profile = getProfile(profileId)
+      if (!profile) throw new Error('Workspace-Profil nicht gefunden.')
+      const maxTokens = caps?.maxTokens
+      const maxCostUsd = caps?.maxCostUsd
+      if (
+        (maxTokens != null && (!Number.isInteger(maxTokens) || maxTokens < 1_000 || maxTokens > 1_000_000_000)) ||
+        (maxCostUsd != null && (!Number.isFinite(maxCostUsd) || maxCostUsd < 0.01 || maxCostUsd > 1_000_000))
+      ) throw new Error('Ungültige Budget-Grenzen.')
+      return workspaceSessions.setBudgetCaps(profile, { maxTokens, maxCostUsd }, workspaceSessionId)
+    }
+  )
+  ipcMain.handle(
+    IPC.orchestratorPauseTask,
+    (_e, profileId: string, workspaceSessionId: string, taskId: string) => {
+      const profile = getProfile(profileId)
+      return profile ? workspaceSessions.pauseTask(profile, taskId, workspaceSessionId) : false
+    }
+  )
+  ipcMain.handle(
+    IPC.orchestratorResumeTask,
+    (_e, profileId: string, workspaceSessionId: string, taskId: string) => {
+      const profile = getProfile(profileId)
+      return profile ? workspaceSessions.resumeTask(profile, taskId, workspaceSessionId) : false
+    }
+  )
+  ipcMain.handle(
+    IPC.orchestratorFallbackTask,
+    (_e, profileId: string, workspaceSessionId: string, taskId: string) => {
+      const profile = getProfile(profileId)
+      return profile ? workspaceSessions.fallbackTask(profile, taskId, workspaceSessionId) : false
+    }
+  )
 
   // ---- retro / model learnings / benchmarks ----
   ipcMain.handle(IPC.retroListRetros, (_e, profileId?: string) =>
@@ -516,6 +605,9 @@ export function registerIpcHandlers(): void {
     broadcast(IPC.evWorkspaceSessions, workspaceSessions.list())
   })
   workspaceSessions.on('snapshot', (snap: OrchestratorSnapshot) => {
+    if (snap.workspaceSessionId) {
+      agentManager.setWorkspaceApprovalWaiting(snap.workspaceSessionId, Boolean(snap.pendingPlan))
+    }
     recordDiagnostic(runJournal, {
       kind: 'orchestrator-snapshot',
       profileId: snap.profileId,
@@ -524,6 +616,7 @@ export function registerIpcHandlers(): void {
     })
     broadcast(IPC.evOrchestrator, snap)
   })
+  remoteService.on('status', (status) => broadcast(IPC.evRemote, status))
   agentManager.on('provider-auth-complete', () => {
     void checkAllProviders()
       .then((health) => broadcast(IPC.evProvidersHealth, health))

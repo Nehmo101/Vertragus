@@ -5,7 +5,7 @@ import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
   {
-    ignores: ['node_modules/**', 'out/**', 'release/**', 'dist/**', 'coverage/**', '.orca-worktrees/**']
+    ignores: ['node_modules/**', 'out/**', 'release/**', 'dist/**', '**/dist/**', 'coverage/**', '.orca-worktrees/**']
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

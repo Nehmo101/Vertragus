@@ -13,6 +13,7 @@ import type { RetroSyncStatus } from '@shared/retroSync'
 import type { InboxSpeechStatus } from '@shared/inboxSpeech'
 import { MCP_SCOPE_LABELS, MCP_TRANSPORT_LABELS } from '@shared/mcp'
 import { middleEarthWorkspaceName } from '@shared/workspaceNames'
+import { deriveRemoteApprovals } from '@shared/remote'
 
 interface RowStatus {
   label: string
@@ -443,6 +444,7 @@ export function SidebarView({ store }: { store: SidebarStore }): JSX.Element {
     runningByProfile.set(agent.profileId, (runningByProfile.get(agent.profileId) ?? 0) + 1)
   }
   const agentHistory = workspaceAgentHistory(store)
+  const approvalCount = deriveRemoteApprovals(Object.values(store.orchestrators)).length
 
   const sections: Record<SidebarSectionId, JSX.Element> = {
     'workspace-profiles': (
@@ -619,7 +621,7 @@ export function SidebarView({ store }: { store: SidebarStore }): JSX.Element {
           </button>
           <button
             type="button"
-            className={`nav-row ${hash !== '#/inbox' ? 'active' : ''}`}
+            className={`nav-row ${hash === '' || hash === '#' ? 'active' : ''}`}
             onClick={() => {
               window.location.hash = ''
             }}
@@ -629,6 +631,30 @@ export function SidebarView({ store }: { store: SidebarStore }): JSX.Element {
             <div className="info">
               <div className="name">Workspace</div>
               <div className="summary">Agents &amp; Terminals</div>
+            </div>
+          </button>
+          <button
+            type="button"
+            className={`nav-row ${hash === '#/approvals' ? 'active' : ''}`}
+            onClick={() => { window.location.hash = '#/approvals' }}
+            title="Alle wartenden Entscheidungen und Laufbudgets"
+          >
+            <span className="nav-icon">✓</span>
+            <div className="info">
+              <div className="name">Approval-Inbox</div>
+              <div className="summary">{approvalCount ? `${approvalCount} offen` : 'Alles entschieden'}</div>
+            </div>
+          </button>
+          <button
+            type="button"
+            className={`nav-row ${hash === '#/changes' ? 'active' : ''}`}
+            onClick={() => { window.location.hash = '#/changes' }}
+            title="Verifizierte Diffs, Integrationsstatus und PR-Freigaben"
+          >
+            <span className="nav-icon">⇄</span>
+            <div className="info">
+              <div className="name">Diff &amp; Merge</div>
+              <div className="summary">Commits · Gates · PR</div>
             </div>
           </button>
           <button

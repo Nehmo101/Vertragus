@@ -1,3 +1,6 @@
+packages:
+  - apps/*
+
 # Orca worktrees share preflight-managed node_modules with the repository root.
 # Their paths intentionally differ from pnpm's cached workspace state.
 verifyDepsBeforeRun: false

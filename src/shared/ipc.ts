@@ -40,6 +40,15 @@ import type {
   PromptEnhancementIpcRequest,
   PromptEnhancementIpcResult
 } from './promptEnhancement'
+import type {
+  DeviceInfo,
+  PairingChallenge,
+  RemoteBudgetCaps,
+  RemoteBudgetSnapshot,
+  RemoteEnableRequest,
+  RemotePairStartRequest,
+  RemoteStatus
+} from './remote'
 
 export const IPC = {
   appInfo: 'app:info',
@@ -112,6 +121,19 @@ export const IPC = {
   orchestratorSetPlannerMode: 'orchestrator:setPlannerMode',
   orchestratorReviewPlan: 'orchestrator:reviewPlan',
   orchestratorTaskDiff: 'orchestrator:taskDiff',
+  orchestratorApprovePublication: 'orchestrator:approvePublication',
+  orchestratorRejectPublication: 'orchestrator:rejectPublication',
+  orchestratorResolvePermission: 'orchestrator:resolvePermission',
+  orchestratorSetBudgetCaps: 'orchestrator:setBudgetCaps',
+  orchestratorPauseTask: 'orchestrator:pauseTask',
+  orchestratorResumeTask: 'orchestrator:resumeTask',
+  orchestratorFallbackTask: 'orchestrator:fallbackTask',
+  remoteStatus: 'remote:status',
+  remoteEnable: 'remote:enable',
+  remoteDisable: 'remote:disable',
+  remoteListDevices: 'remote:listDevices',
+  remoteRevokeDevice: 'remote:revokeDevice',
+  remotePairStart: 'remote:pairStart',
   retroListRetros: 'retro:listRetros',
   retroListLearnings: 'retro:listLearnings',
   retroListBenchmarks: 'retro:listBenchmarks',
@@ -125,6 +147,7 @@ export const IPC = {
   evAppUpdateState: 'ev:appUpdateState',
   evOrchestrator: 'ev:orchestrator',
   evWorkspaceSessions: 'ev:workspaceSessions',
+  evRemote: 'ev:remote',
   // window controls (frameless title bar)
   winMinimize: 'win:minimize',
   winMaximizeToggle: 'win:maximizeToggle',
@@ -371,6 +394,18 @@ export interface OrcaApi {
     abort(): Promise<void>
   }
 
+  /** Desktop-only Mission Control administration. Mobile clients use HTTP/SSE. */
+  remote: {
+    status(): Promise<RemoteStatus>
+    enable(request: RemoteEnableRequest): Promise<RemoteStatus>
+    /** Master kill switch: persistently disables remote, revokes all devices and tears down transport. */
+    disable(): Promise<RemoteStatus>
+    listDevices(): Promise<DeviceInfo[]>
+    revokeDevice(deviceId: string): Promise<boolean>
+    pairStart(request?: RemotePairStartRequest): Promise<PairingChallenge>
+    onStatus(cb: (status: RemoteStatus) => void): () => void
+  }
+
   agents: {
     list(): Promise<AgentInstanceInfo[]>
     spawn(req: SpawnAgentRequest): Promise<AgentInstanceInfo>
@@ -414,6 +449,22 @@ export interface OrcaApi {
     onSnapshot(cb: (snap: OrchestratorSnapshot) => void): () => void
     /** Read a size-limited patch from the task's trusted Orca worktree. */
     taskDiff(profileId: string, taskId: string, workspaceSessionId?: string): Promise<TaskReviewDiff>
+    approvePublication(profileId: string, workspaceSessionId: string, planId?: string): Promise<boolean>
+    rejectPublication(profileId: string, workspaceSessionId: string, planId?: string): Promise<boolean>
+    resolvePermission(
+      profileId: string,
+      workspaceSessionId: string,
+      permissionId: string,
+      allow: boolean
+    ): Promise<boolean>
+    setBudgetCaps(
+      profileId: string,
+      workspaceSessionId: string,
+      caps: RemoteBudgetCaps
+    ): Promise<RemoteBudgetSnapshot>
+    pauseTask(profileId: string, workspaceSessionId: string, taskId: string): Promise<boolean>
+    resumeTask(profileId: string, workspaceSessionId: string, taskId: string): Promise<boolean>
+    fallbackTask(profileId: string, workspaceSessionId: string, taskId: string): Promise<boolean>
   }
 
   retro: {

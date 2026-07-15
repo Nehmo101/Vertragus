@@ -28,6 +28,8 @@ export interface SubagentMcpContext {
   taskId?: string
   engineId?: string
   workspaceSessionId?: string
+  /** Claude print-mode only: route unresolved tool prompts to Orca's broker. */
+  permissionPrompt?: boolean
 }
 
 /** Turn a stored config into a launch spec, dropping empty optional fields. */
@@ -85,7 +87,9 @@ function orcaSubagentSpec(context: SubagentMcpContext): McpServerSpec | undefine
     name: 'orca-sub',
     transport: 'http',
     url: url.toString(),
-    allowedTools: [...SUBAGENT_ALLOWED_TOOLS]
+    allowedTools: SUBAGENT_ALLOWED_TOOLS.filter(
+      (tool) => context.permissionPrompt || tool !== 'mcp__orca-sub__permission_prompt'
+    )
   }
 }
 
@@ -118,12 +122,16 @@ export function buildSubagentMcpArgs(
   if (servers.length === 0) return []
   if (provider === 'claude') {
     // strict=false so the subagent keeps its own personal .mcp.json servers too.
-    return buildClaudeMcpArgs(servers, {
+    const args = buildClaudeMcpArgs(servers, {
       configDir: app.getPath('userData'),
       fileTag: agentId,
       strict: false,
       includeReadonlyTools: false
     })
+    if (context.permissionPrompt && orcaSub) {
+      args.push('--permission-prompt-tool', 'mcp__orca-sub__permission_prompt')
+    }
+    return args
   }
   if (provider === 'codex') {
     return buildCodexMcpArgs(servers, {})

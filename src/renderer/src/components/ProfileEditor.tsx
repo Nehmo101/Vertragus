@@ -610,6 +610,7 @@ export default function ProfileEditor(): JSX.Element | null {
                   <option value="off">Aus</option>
                   <option value="draft-after-checks">Draft nach Checks</option>
                   <option value="ready-after-checks">Ready nach Checks</option>
+                  <option value="hold-for-approval">Vor Veröffentlichung freigeben</option>
                 </select>
               </label>
               <label>

@@ -96,6 +96,8 @@ function usageText(usage?: OrcaTask['usage']): string | null {
 
 const TASK_PILL: Record<TaskStatus, { bg: string; fg: string; dot: string; label: string }> = {
   queued: { bg: 'var(--stop-soft)', fg: 'var(--stop-text)', dot: 'var(--stop)', label: 'geplant' },
+  paused: { bg: 'color-mix(in srgb, #f5a524 18%, transparent)', fg: '#f7c96b', dot: '#f5a524', label: 'pausiert' },
+  waiting: { bg: 'color-mix(in srgb, #f5a524 18%, transparent)', fg: '#f7c96b', dot: '#f5a524', label: 'wartet' },
   running: { bg: 'color-mix(in srgb, var(--run) 18%, transparent)', fg: 'var(--run-text)', dot: 'var(--run)', label: 'läuft' },
   success: { bg: 'color-mix(in srgb, var(--run) 18%, transparent)', fg: 'var(--run-text)', dot: 'var(--run)', label: 'fertig' },
   'needs-work': { bg: 'color-mix(in srgb, #f5a524 18%, transparent)', fg: '#f7c96b', dot: '#f5a524', label: 'Nacharbeit' },
