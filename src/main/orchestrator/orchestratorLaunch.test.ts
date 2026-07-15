@@ -82,6 +82,20 @@ describe('orchestrator progress communication prompt', () => {
     expect(prompt).toContain('erfinde keinen Fortschritt')
   })
 
+  it('directs the orchestrator to block on await_* tools instead of polling', () => {
+    const prompt = orchestratorSystemPrompt('Gandalf', { adaptiveTeam: true })
+
+    expect(prompt).toContain('await_plan')
+    expect(prompt).toContain('await_task')
+    expect(prompt).toContain('await_any')
+    // The old poll-loop instructions must be gone.
+    expect(prompt).not.toContain('Poll get_plan_status until success/error')
+    expect(prompt).not.toContain('Poll get_plan_status bis zum Terminalstatus')
+    expect(prompt).not.toContain('Poll get_task_status oder list_tasks bis zum Terminalstatus')
+    // Dispatch calls still must not be held open; only await_* tools block.
+    expect(prompt).toContain('Halte keinen Dispatch-Aufruf bis zum Worker-Ende offen')
+  })
+
   it('binds the concrete agent, workspace session and engine to the MCP URL', () => {
     mcp.handle = {
       url: 'http://127.0.0.1:1234/mcp?token=server-secret',

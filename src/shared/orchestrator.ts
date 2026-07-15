@@ -348,6 +348,32 @@ export interface PlanRunStatusSnapshot {
   error?: string
 }
 
+/**
+ * Result of the blocking await_task tool: the orchestrator issues one call that
+ * settles when the task is terminal (`done`), or returns `stillRunning` on the
+ * long-poll timeout so it can re-await cheaply, or `unknown` for a missing id.
+ */
+export type AwaitTaskResult =
+  | { done: true; stillRunning: false; task: TaskStatusSnapshot }
+  | { done: false; stillRunning: true; reason: 'timeout'; task: TaskStatusSnapshot }
+  | { done: false; stillRunning: false; reason: 'unknown'; taskId: string }
+
+/** Result of the blocking await_plan tool (see {@link AwaitTaskResult}). */
+export type AwaitPlanResult =
+  | { done: true; stillRunning: false; plan: PlanRunStatusSnapshot }
+  | { done: false; stillRunning: true; reason: 'timeout'; plan: PlanRunStatusSnapshot }
+  | { done: false; stillRunning: false; reason: 'unknown'; runId: string }
+
+/**
+ * Result of the blocking await_any tool: settles with the first task to become
+ * terminal plus the still-open `pending` ids, or `stillRunning` on timeout, or
+ * `unknown` when none of the given ids are known.
+ */
+export type AwaitAnyResult =
+  | { done: true; stillRunning: false; task: TaskStatusSnapshot; pending: string[] }
+  | { done: false; stillRunning: true; reason: 'timeout'; tasks: TaskStatusSnapshot[] }
+  | { done: false; stillRunning: false; reason: 'unknown'; unknownTaskIds: string[] }
+
 /** A subagent slot as advertised to the orchestrator via list_subagents. */
 export interface SubagentDescriptor {
   role: string
