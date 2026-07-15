@@ -1,6 +1,6 @@
 import { exec, execFile } from 'node:child_process'
 import { mkdir } from 'node:fs/promises'
-import { isAbsolute, join, posix, relative, resolve, sep, win32 } from 'node:path'
+import { join, posix, win32 } from 'node:path'
 import { promisify } from 'node:util'
 import { ensureWorktreeDependencies } from '@main/agents/dependencyBootstrap'
 import type { AutoPrConfig } from '@shared/profile'
@@ -242,14 +242,17 @@ interface IntegrationQualityGateDeps {
 }
 
 function assertManagedIntegrationPath(repositoryRoot: string, integrationPath: string): void {
-  const integrationRoot = resolve(repositoryRoot, '.orca-worktrees', 'integration')
-  const candidate = resolve(integrationPath)
-  const relativePath = relative(integrationRoot, candidate)
+  const pathApi = win32.isAbsolute(repositoryRoot) || win32.isAbsolute(integrationPath)
+    ? win32
+    : posix
+  const integrationRoot = pathApi.resolve(repositoryRoot, '.orca-worktrees', 'integration')
+  const candidate = pathApi.resolve(integrationPath)
+  const relativePath = pathApi.relative(integrationRoot, candidate)
   if (
     !relativePath ||
     relativePath === '..' ||
-    relativePath.startsWith(`..${sep}`) ||
-    isAbsolute(relativePath)
+    relativePath.startsWith('..' + pathApi.sep) ||
+    pathApi.isAbsolute(relativePath)
   ) {
     throw new QualityGateError(
       'Dependency-Bootstrap',
