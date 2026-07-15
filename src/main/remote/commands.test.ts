@@ -4,7 +4,10 @@ import { REMOTE_COMMAND_IDS } from '@shared/remote'
 import { RemoteCommandRouter } from './commands'
 
 const steerDevice: DeviceInfo = {
-  id: 'device-1', name: 'Phone', capabilities: ['read', 'steer'], createdAt: 1
+  id: 'device-1', name: 'Phone', capabilities: ['read', 'steer'],
+  actor: { id: 'owner', displayName: 'Owner' },
+  scopes: [{ profileId: 'p', sessionIds: ['s'], allowGoalSubmit: true }],
+  createdAt: 1
 }
 
 function router(): RemoteCommandRouter {
@@ -16,6 +19,11 @@ function router(): RemoteCommandRouter {
     approvePublication: vi.fn(() => true),
     rejectPublication: vi.fn(() => true),
     taskDiff: vi.fn(() => ({ taskId: 'task', diff: 'safe', truncated: false })),
+    resolvePermission: vi.fn(() => true),
+    setBudgetCaps: vi.fn(() => ({ tokens: 0, costUsd: 0, caps: {}, exceeded: false })),
+    pauseTask: vi.fn(() => true),
+    resumeTask: vi.fn(() => true),
+    replanPending: vi.fn(() => true),
     activateKillSwitch: vi.fn()
   })
 }
@@ -52,5 +60,14 @@ describe('RemoteCommandRouter', () => {
       id: 'task.diff', args: { profileId: 'p', sessionId: 's', taskId: 'task' }
     }, { ...steerDevice, capabilities: [...steerDevice.capabilities, 'diff'] }))
       .resolves.toMatchObject({ taskId: 'task' })
+  })
+
+  it('keeps C capabilities default-off and enforces exact workspace scopes', async () => {
+    await expect(router().execute({
+      id: 'permission.allow', args: { profileId: 'p', sessionId: 's', permissionId: '00000000-0000-4000-8000-000000000000' }
+    }, steerDevice)).rejects.toMatchObject({ status: 403 })
+    await expect(router().execute({
+      id: 'plan.approve', args: { profileId: 'p', sessionId: 'other' }
+    }, steerDevice)).rejects.toMatchObject({ status: 403, code: 'scope_forbidden' })
   })
 })

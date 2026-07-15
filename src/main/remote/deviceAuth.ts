@@ -4,7 +4,9 @@ import type {
   DeviceInfo,
   PairingChallenge,
   PairingResult,
-  RemoteCapability
+  RemoteActor,
+  RemoteCapability,
+  RemoteScope
 } from '@shared/remote'
 import type { DeviceRecordStore, StoredDeviceRecord } from './deviceStore'
 
@@ -14,6 +16,8 @@ interface PendingPairing {
   digest: Buffer
   expiresAt: number
   capabilities: RemoteCapability[]
+  actor: RemoteActor
+  scopes: RemoteScope[]
   deviceNameHint?: string
 }
 
@@ -30,6 +34,8 @@ function publicDevice(record: StoredDeviceRecord): DeviceInfo {
     id: record.id,
     name: record.name,
     capabilities: [...record.capabilities],
+    actor: { ...record.actor },
+    scopes: record.scopes.map((scope) => ({ ...scope, sessionIds: [...scope.sessionIds] })),
     createdAt: record.createdAt,
     lastSeenAt: record.lastSeenAt,
     revokedAt: record.revokedAt
@@ -49,19 +55,35 @@ export class DeviceAuth extends EventEmitter {
 
   startPairing(
     capabilities: RemoteCapability[] = ['read', 'steer'],
-    deviceNameHint?: string
+    deviceNameHint?: string,
+    actor: RemoteActor = { id: 'owner', displayName: 'Owner' },
+    scopes: RemoteScope[] = []
   ): PairingChallenge {
     const code = this.bytes(16).toString('hex')
     const allowed = [...new Set(capabilities)].filter(
       (value): value is RemoteCapability =>
         value === 'read' || value === 'steer' || value === 'admin' || value === 'diff' ||
-        value === 'push' || value === 'speech'
+        value === 'push' || value === 'speech' || value === 'approve-tools' ||
+        value === 'budget' || value === 'task-control' || value === 'replan'
     )
     const expiresAt = this.now() + PAIRING_TTL_MS
     this.pending = {
       digest: digest(code),
       expiresAt,
       capabilities: allowed.length > 0 ? allowed : ['read'],
+      actor: {
+        id: actor.id.trim().toLowerCase().slice(0, 160) || 'owner',
+        displayName: actor.displayName.trim().slice(0, 160) || 'Owner'
+      },
+      scopes: scopes.flatMap((scope) => {
+        const profileId = scope.profileId.trim().slice(0, 128)
+        if (!profileId) return []
+        return [{
+          profileId,
+          sessionIds: [...new Set(scope.sessionIds.map((id) => id.trim()).filter(Boolean))].slice(0, 64),
+          allowGoalSubmit: scope.allowGoalSubmit === true
+        }]
+      }).slice(0, 32),
       deviceNameHint: deviceNameHint?.trim().slice(0, 80)
     }
     return { code, expiresAt }
@@ -82,6 +104,8 @@ export class DeviceAuth extends EventEmitter {
       name: deviceName.trim().slice(0, 80) || pending.deviceNameHint || 'Mobilgerät',
       tokenHash: digest(token).toString('hex'),
       capabilities: [...pending.capabilities],
+      actor: { ...pending.actor },
+      scopes: pending.scopes.map((scope) => ({ ...scope, sessionIds: [...scope.sessionIds] })),
       createdAt: this.now()
     }
     this.store.save([...this.store.load(), record])

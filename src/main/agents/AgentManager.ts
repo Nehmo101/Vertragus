@@ -71,6 +71,7 @@ import { providerCapacity } from '@main/agents/providerCapacity'
 import { seedWithReadyHandshake } from '@main/agents/interactiveReady'
 import { agentIdentityInstruction, isReusableTeamMember } from '@main/agents/teamReuse'
 import { closePaneWindows } from '@main/windows'
+import { permissionBroker } from '@main/permissions/PermissionBroker'
 
 const BUFFER_LIMIT = 200_000 // chars of scrollback kept per agent
 const CURSOR_TRUST_RETRY_DELAY_MS = 150
@@ -521,9 +522,41 @@ export class AgentManager extends EventEmitter {
     managed.buffer = (managed.buffer + data).slice(-BUFFER_LIMIT)
     managed.seq += 1
     this.emit('data', { id: managed.info.id, data, seq: managed.seq })
+    this.inspectPermissionPrompt(managed)
     this.scanForLimit(managed)
     this.autoTrustCursorWorktree(managed)
     this.monitorCursorWorkspaceTrust(managed)
+  }
+
+  /**
+   * Provider prompts are parsed locally and answered only through the owned PTY.
+   * Remote callers can choose allow/deny by request id, but can never supply bytes.
+   */
+  private inspectPermissionPrompt(managed: Managed): void {
+    const { info } = managed
+    if (
+      info.mode !== 'interactive' || !managed.pty || info.yolo ||
+      info.provider === 'github' || info.provider === 'cloudflare'
+    ) return
+    const request = permissionBroker.inspectOutput({
+      provider: info.provider,
+      agentId: info.id,
+      taskId: info.taskId,
+      profileId: info.profileId,
+      workspaceSessionId: info.workspaceSessionId,
+      engineId: info.engineId,
+      yolo: Boolean(info.yolo)
+    }, stripAnsi(managed.buffer.slice(-2_000)), (response) => {
+      const current = this.agents.get(info.id)
+      if (!current?.pty) return
+      if (current.info.status === 'waiting') current.info.status = 'running'
+      current.pty.write(response)
+      this.changed()
+    })
+    if (!request) return
+    info.status = 'waiting'
+    this.emitEvent(`${info.name} wartet auf Tool-Freigabe (${request.tool}).`, 'warn', info)
+    this.changed()
   }
 
 
@@ -1204,7 +1237,8 @@ export class AgentManager extends EventEmitter {
           extraArgs: buildSubagentMcpArgs(req.provider, id, {
             taskId: req.taskId,
             engineId: req.engineId,
-            workspaceSessionId: req.workspaceSessionId
+            workspaceSessionId: req.workspaceSessionId,
+            permissionPrompt: req.provider === 'claude' && !req.yolo
           })
         },
         (chunk) => this.pushData(active, chunk),

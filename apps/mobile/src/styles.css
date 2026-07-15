@@ -28,6 +28,12 @@ section { margin-bottom: 16px; }
 section > h2 { margin: 5px 0 10px; font-size: 22px; }
 .workspace { border: 1px solid rgba(90,100,94,.16); border-radius: 18px; padding: 17px; background: rgba(255,255,255,.68); box-shadow: 0 10px 32px rgba(54,62,58,.06); }
 .waiting { margin: 10px 0; border-radius: 10px; padding: 9px 11px; background: #f2dfb6; color: #765525; font-size: 12px; font-weight: 750; }
+.waiting button { display: block; width: 100%; margin-top: 8px; }
+.budget { display: grid; gap: 3px; margin: 10px 0; border: 1px solid #cad3c4; border-radius: 10px; padding: 10px; background: #edf2e7; }
+.budget.exceeded { border-color: #b85f55; background: #f4deda; }
+.budget small { color: #69736f; }
+.budget-form { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin: 10px 0; }
+.budget-form button { grid-column: 1 / -1; }
 .dag { display: grid; gap: 9px; margin-top: 14px; }
 .task { position: relative; border: 1px solid #d5d1c6; border-left: 4px solid #9ca49f; border-radius: 12px; padding: 11px; background: rgba(255,255,255,.88); overflow: hidden; }
 .task.status-running { border-left-color: #4c7a68; }
@@ -36,6 +42,7 @@ section > h2 { margin: 5px 0 10px; font-size: 22px; }
 .task-line { display: flex; justify-content: space-between; gap: 10px; }
 .task-line span { color: #69736f; font-size: 10px; font-weight: 750; text-transform: uppercase; }
 .task small { display: block; margin-top: 5px; color: #737c78; }
+.task-control { width: 100%; margin-top: 9px; padding: 7px; font-size: 11px; }
 .progress { height: 3px; margin: 10px -11px -11px; background: #e9e6de; }
 .progress i { display: block; height: 100%; background: #587d66; }
 .approval { margin-top: 12px; border: 1px solid rgba(90,100,94,.18); border-radius: 16px; padding: 15px; background: rgba(255,255,255,.78); }

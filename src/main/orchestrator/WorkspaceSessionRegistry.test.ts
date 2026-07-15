@@ -28,6 +28,9 @@ vi.mock('@main/orchestrator/Engine', () => ({
     }
 
     reset(): void {}
+    dispose(): void {
+      this.emit('disposed')
+    }
     reviewPlan(): boolean {
       return true
     }
@@ -70,7 +73,10 @@ describe('WorkspaceSessionRegistry', () => {
     expect(second.profile.planner.mode).toBe('review')
     expect(DEFAULT_PROFILE.planner.mode).toBe('review')
 
+    const disposed = vi.fn()
+    first.engine.once('disposed', disposed)
     registry.removeSession(first.id)
+    expect(disposed).toHaveBeenCalledOnce()
     expect(registry.getByProfile(DEFAULT_PROFILE.id)?.id).toBe(second.id)
     expect(registry.list(DEFAULT_PROFILE.id)).toEqual([
       expect.objectContaining({

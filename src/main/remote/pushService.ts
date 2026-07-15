@@ -17,13 +17,17 @@ export interface PushTransition {
   title: string
   body: string
   url: string
+  profileId?: string
+  workspaceSessionId?: string
 }
 
 function taskMap(snapshot: OrchestratorSnapshot | undefined): Map<string, OrcaTask> {
   return new Map((snapshot?.tasks ?? []).map((task) => [task.id, task]))
 }
 
-function isActive(task: OrcaTask): boolean { return task.status === 'queued' || task.status === 'running' }
+function isActive(task: OrcaTask): boolean {
+  return task.status === 'queued' || task.status === 'running' || task.status === 'waiting' || task.status === 'paused'
+}
 function isTerminal(task: OrcaTask): boolean { return !isActive(task) }
 
 /** Pure transition diff. Identical heartbeat snapshots produce no notifications. */
@@ -34,13 +38,15 @@ export function diffPushTransitions(
   if (!previous) return []
   const output: PushTransition[] = []
   const scope = current.workspaceSessionId ?? current.profileId ?? 'workspace'
+  const scoped = { profileId: current.profileId, workspaceSessionId: current.workspaceSessionId }
   const before = taskMap(previous)
   if (current.pendingPlan && previous.pendingPlan?.planId !== current.pendingPlan.planId) {
     output.push({
       key: `plan:${scope}:${current.pendingPlan.planId}`,
       title: 'Plan wartet auf Freigabe',
       body: `${current.pendingPlan.plan.tasks.length} Aufgabe(n) für ${current.pendingPlan.plan.goal}`,
-      url: '/#/approvals'
+      url: '/#/approvals',
+      ...scoped
     })
   }
   for (const task of current.tasks) {
@@ -50,7 +56,8 @@ export function diffPushTransitions(
         key: `blocked:${scope}:${task.id}:${task.status}`,
         title: 'Task benötigt Aufmerksamkeit',
         body: task.blocker?.summary ?? task.note ?? task.title,
-        url: '/#/approvals'
+        url: '/#/approvals',
+        ...scoped
       })
     }
     if (task.prUrl && task.prUrl !== prior?.prUrl) {
@@ -58,7 +65,8 @@ export function diffPushTransitions(
         key: `pr:${scope}:${task.id}:${task.prUrl}`,
         title: 'Pull Request geöffnet',
         body: task.title,
-        url: '/#/live'
+        url: '/#/live',
+        ...scoped
       })
     }
     const limitNow = /(?:nutzungslimit|rate.?limit|quota|5-stunden-limit|wochenlimit)/i.test(task.note ?? '')
@@ -68,7 +76,8 @@ export function diffPushTransitions(
         key: `limit:${scope}:${task.id}`,
         title: 'Provider-Nutzungslimit',
         body: task.note ?? task.title,
-        url: '/#/live'
+        url: '/#/live',
+        ...scoped
       })
     }
   }
@@ -79,7 +88,8 @@ export function diffPushTransitions(
       key: `finished:${scope}:${current.tasks.map((task) => `${task.id}:${task.status}`).join(',')}`,
       title: 'Orca-Lauf beendet',
       body: current.goal?.title ?? 'Alle Aufgaben sind terminal.',
-      url: '/#/live'
+      url: '/#/live',
+      ...scoped
     })
   }
   return output
@@ -120,7 +130,8 @@ export class PushService extends EventEmitter {
 
   constructor(
     private readonly readModel: RemoteReadModel,
-    private readonly dependencies: PushServiceDependencies = defaults
+    private readonly dependencies: PushServiceDependencies = defaults,
+    private readonly canRead: (deviceId: string, profileId?: string, sessionId?: string) => boolean = () => true
   ) { super() }
 
   start(): void {
@@ -175,7 +186,10 @@ export class PushService extends EventEmitter {
   }
 
   private async deliver(transition: PushTransition): Promise<void> {
-    const subscriptions = this.dependencies.loadSubscriptions()
+    const allSubscriptions = this.dependencies.loadSubscriptions()
+    const subscriptions = allSubscriptions.filter((subscription) =>
+      this.canRead(subscription.deviceId, transition.profileId, transition.workspaceSessionId)
+    )
     if (subscriptions.length === 0) return
     const keys = await this.ensureKeys()
     const webPush = await this.dependencies.loadWebPush()
@@ -207,7 +221,7 @@ export class PushService extends EventEmitter {
       }
     }))
     if (gone.size > 0) {
-      this.dependencies.saveSubscriptions(subscriptions.filter((subscription) => !gone.has(subscription.id)))
+      this.dependencies.saveSubscriptions(allSubscriptions.filter((subscription) => !gone.has(subscription.id)))
     }
   }
 }

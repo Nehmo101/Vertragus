@@ -1,7 +1,14 @@
 import { EventEmitter } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
 import type { OrchestratorSnapshot } from '@shared/orchestrator'
+import type { DeviceInfo } from '@shared/remote'
 import { deriveApprovals, RemoteReadModel } from './readModel'
+
+const scopedDevice: DeviceInfo = {
+  id: 'device', name: 'Phone', capabilities: ['read'], createdAt: 1,
+  actor: { id: 'owner', displayName: 'Owner' },
+  scopes: [{ profileId: 'profile-1', sessionIds: ['session-1'], allowGoalSubmit: false }]
+}
 
 function snapshot(): OrchestratorSnapshot {
   return {
@@ -35,6 +42,26 @@ describe('RemoteReadModel', () => {
       actions: ['publication.approve', 'publication.reject']
     }]
     expect(deriveApprovals([input])).toContainEqual(expect.objectContaining({ kind: 'pr-publication' }))
+  })
+
+  it('projects broker permissions and filters every frame by exact session scope', () => {
+    const input = snapshot()
+    input.pendingPermissions = [{
+      id: 'permission-1', provider: 'claude', agentId: 'agent-1',
+      profileId: 'profile-1', workspaceSessionId: 'session-1', engineId: 'engine-1',
+      tool: 'Bash', summary: 'Approval', createdAt: 20, expiresAt: 30
+    }]
+    expect(deriveApprovals([input])).toContainEqual(expect.objectContaining({ kind: 'tool-permission' }))
+    const bus = new EventEmitter()
+    const model = new RemoteReadModel(bus)
+    model.start()
+    bus.emit('snapshot', input)
+    bus.emit('snapshot', { ...input, workspaceSessionId: 'other' })
+    const frames = model.initialFrames(scopedDevice)
+    expect(frames.filter((frame) => frame.type === 'snapshot')).toHaveLength(1)
+    expect(frames.find((frame) => frame.type === 'approvals')).toMatchObject({
+      approvals: expect.arrayContaining([expect.objectContaining({ kind: 'tool-permission' })])
+    })
   })
 
   it('fans out the exact snapshot from the workspace snapshot bus', () => {

@@ -72,6 +72,12 @@ export async function runRemoteSelfTest(): Promise<void> {
       approvePublication: () => false,
       rejectPublication: () => false,
       taskDiff: () => ({ taskId: 'none', diff: '', truncated: false }),
+      resolvePermission: (_profileId, _sessionId, permissionId, allow) =>
+        engine.resolvePermission(permissionId, allow),
+      setBudgetCaps: (_profileId, _sessionId, caps) => engine.setBudgetCaps(caps),
+      pauseTask: (_profileId, _sessionId, taskId) => engine.pauseTask(taskId),
+      resumeTask: (_profileId, _sessionId, taskId) => engine.resumeTask(taskId),
+      replanPending: (_profileId, _sessionId, input) => engine.replanPending(input),
       activateKillSwitch: () => auth.revokeAll()
     })
     gateway = await startRemoteGateway({ auth, audit, commands, readModel })
@@ -79,7 +85,12 @@ export async function runRemoteSelfTest(): Promise<void> {
     const unauthorized = await fetch(`${gateway.origin}/stream`)
     check(unauthorized.status === 401, 'unauthenticated stream is rejected with 401')
 
-    const challenge = auth.startPairing(['read', 'steer'])
+    const challenge = auth.startPairing(
+      ['read', 'steer'],
+      undefined,
+      { id: 'selftest', displayName: 'Selftest' },
+      [{ profileId: DEFAULT_PROFILE.id, sessionIds: ['remote-selftest'], allowGoalSubmit: false }]
+    )
     const pairResponse = await fetch(`${gateway.origin}/pair`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code: challenge.code, deviceName: 'Selftest Phone' })

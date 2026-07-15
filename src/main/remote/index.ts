@@ -19,7 +19,9 @@ import { DeviceAuth } from './deviceAuth'
 import {
   EncryptedDeviceStore,
   isRemoteEncryptionAvailable,
+  readAccessConfig,
   readCloudflareCredential,
+  writeAccessConfig,
   writeCloudflareCredential
 } from './deviceStore'
 import { startRemoteGateway } from './RemoteGateway'
@@ -31,6 +33,7 @@ import { TunnelManager, tunnelStatusToRemote } from './tunnelManager'
 import { redactAndLimitRemoteDiff } from './remoteDiff'
 import { PushService } from './pushService'
 import { transcribeInboxAudio } from '@main/voice/InboxSpeechService'
+import { CloudflareAccessVerifier } from './accessIdentity'
 
 function mobileStaticDir(): string {
   return app.isPackaged
@@ -49,7 +52,13 @@ export class RemoteService extends EventEmitter {
   private readonly auth = new DeviceAuth(this.store)
   private readonly readModel = new RemoteReadModel(workspaceSessions)
   private readonly audit = new RemoteAuditLog(join(app.getPath('userData'), 'diagnostics', 'remote-audit.jsonl'))
-  private readonly push = new PushService(this.readModel)
+  private readonly push = new PushService(this.readModel, undefined, (deviceId, profileId, sessionId) => {
+    if (!profileId || !sessionId) return false
+    const device = this.auth.listDevices().find((entry) => entry.id === deviceId && !entry.revokedAt)
+    return Boolean(device?.scopes.find((scope) =>
+      scope.profileId === profileId && scope.sessionIds.includes(sessionId)
+    ))
+  })
   private readonly tunnel = new TunnelManager()
   private gateway: RemoteGatewayHandle | undefined
   private starting: Promise<void> | undefined
@@ -84,6 +93,16 @@ export class RemoteService extends EventEmitter {
       if (!task) throw new Error('Aufgabe nicht gefunden.')
       return redactAndLimitRemoteDiff(await loadTaskReviewDiff(task))
     },
+    resolvePermission: (profileId, sessionId, permissionId, allow) =>
+      workspaceSessions.resolvePermission(requireProfile(profileId), permissionId, allow, sessionId),
+    setBudgetCaps: (profileId, sessionId, caps) =>
+      workspaceSessions.setBudgetCaps(requireProfile(profileId), caps, sessionId),
+    pauseTask: (profileId, sessionId, taskId) =>
+      workspaceSessions.pauseTask(requireProfile(profileId), taskId, sessionId),
+    resumeTask: (profileId, sessionId, taskId) =>
+      workspaceSessions.resumeTask(requireProfile(profileId), taskId, sessionId),
+    replanPending: (profileId, sessionId, input) =>
+      workspaceSessions.replanPending(requireProfile(profileId), input, sessionId),
     activateKillSwitch: () => {
       setImmediate(() => { void this.disable() })
     }
@@ -143,6 +162,12 @@ export class RemoteService extends EventEmitter {
       }
       writeCloudflareCredential({ hostname: request.hostname, tunnelToken: request.tunnelToken })
     }
+    if (request.accessTeamDomain || request.accessAudience) {
+      if (!request.accessTeamDomain || !request.accessAudience) {
+        throw new Error('Access-Team-Domain und Audience mÃ¼ssen gemeinsam angegeben werden.')
+      }
+      writeAccessConfig({ teamDomain: request.accessTeamDomain, audience: request.accessAudience })
+    }
     const currentMode = getSetting<'named' | 'quick'>('remote.tunnelMode') ?? 'named'
     const mode = request.quickTunnel === true
       ? 'quick'
@@ -198,6 +223,9 @@ export class RemoteService extends EventEmitter {
       readModel: this.readModel,
       staticDir: mobileStaticDir(),
       allowedHosts: credential ? [credential.hostname] : [],
+      identityVerifier: readAccessConfig()
+        ? new CloudflareAccessVerifier(readAccessConfig()!)
+        : undefined,
       pushService: this.push,
       transcribeSpeech: transcribeInboxAudio
     })
@@ -254,7 +282,23 @@ export class RemoteService extends EventEmitter {
     if (!this.gateway || this.tunnel.status().state !== 'online') {
       throw new Error('Remote-Gateway und Tunnel müssen für das Pairing online sein.')
     }
-    const challenge = this.auth.startPairing(request.capabilities, request.deviceNameHint)
+    const actor = request.actor ?? { id: 'owner', displayName: 'Owner' }
+    const scopes = (request.scopes ?? []).map((scope) => {
+      requireProfile(scope.profileId)
+      for (const sessionId of scope.sessionIds) {
+        const session = workspaceSessions.getById(sessionId)
+        if (!session || session.profileId !== scope.profileId) {
+          throw new Error('Pairing-Scope enthÃ¤lt eine unbekannte Workspace-Session.')
+        }
+      }
+      return scope
+    })
+    const challenge = this.auth.startPairing(
+      request.capabilities,
+      request.deviceNameHint,
+      actor,
+      scopes
+    )
     const publicUrl = this.tunnel.status().publicUrl
     if (!publicUrl) throw new Error('Öffentliche Tunnel-URL fehlt.')
     const pairingUrl = `${publicUrl}/#/pair?code=${encodeURIComponent(challenge.code)}`

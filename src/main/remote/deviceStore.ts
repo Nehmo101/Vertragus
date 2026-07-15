@@ -1,11 +1,12 @@
 import { safeStorage } from 'electron'
 import { getSetting, setSetting } from '@main/config/store'
-import type { RemoteCapability } from '@shared/remote'
+import type { RemoteActor, RemoteCapability, RemoteScope } from '@shared/remote'
 
 const DEVICES_KEY = 'secrets.remote.devices'
 const CLOUDFLARE_KEY = 'secrets.remote.cloudflare'
 const PUSH_SUBSCRIPTIONS_KEY = 'secrets.remote.pushSubscriptions'
 const VAPID_KEY = 'secrets.remote.vapid'
+const ACCESS_KEY = 'secrets.remote.access'
 
 export interface StoredDeviceRecord {
   id: string
@@ -13,6 +14,8 @@ export interface StoredDeviceRecord {
   /** sha256 digest only. The raw bearer token is never persisted. */
   tokenHash: string
   capabilities: RemoteCapability[]
+  actor: RemoteActor
+  scopes: RemoteScope[]
   createdAt: number
   lastSeenAt?: number
   revokedAt?: number
@@ -35,6 +38,11 @@ export interface StoredPushSubscription {
 export interface StoredVapidKeys {
   publicKey: string
   privateKey: string
+}
+
+export interface StoredAccessConfig {
+  teamDomain: string
+  audience: string
 }
 
 export interface DeviceRecordStore {
@@ -76,13 +84,30 @@ function parseDevices(value: unknown): StoredDeviceRecord[] {
     const capabilities = item.capabilities.filter(
       (capability): capability is RemoteCapability =>
         capability === 'read' || capability === 'steer' || capability === 'admin' ||
-        capability === 'diff' || capability === 'push' || capability === 'speech'
+        capability === 'diff' || capability === 'push' || capability === 'speech' ||
+        capability === 'approve-tools' || capability === 'budget' ||
+        capability === 'task-control' || capability === 'replan'
     )
+    const actor = item.actor && typeof item.actor.id === 'string' && typeof item.actor.displayName === 'string'
+      ? { id: item.actor.id.slice(0, 160), displayName: item.actor.displayName.slice(0, 160) }
+      : { id: 'legacy-owner', displayName: 'Legacy owner' }
+    const scopes = Array.isArray(item.scopes) ? item.scopes.flatMap((scope) => {
+      if (!scope || typeof scope !== 'object') return []
+      const value = scope as Partial<RemoteScope>
+      if (typeof value.profileId !== 'string' || !Array.isArray(value.sessionIds)) return []
+      return [{
+        profileId: value.profileId.slice(0, 128),
+        sessionIds: value.sessionIds.filter((id): id is string => typeof id === 'string').map((id) => id.slice(0, 128)).slice(0, 64),
+        allowGoalSubmit: value.allowGoalSubmit === true
+      }]
+    }) : []
     return [{
       id: item.id,
       name: item.name,
       tokenHash: item.tokenHash,
       capabilities,
+      actor,
+      scopes,
       createdAt: item.createdAt,
       lastSeenAt: typeof item.lastSeenAt === 'number' ? item.lastSeenAt : undefined,
       revokedAt: typeof item.revokedAt === 'number' ? item.revokedAt : undefined
@@ -200,4 +225,19 @@ export function readVapidKeys(codec: SecretCodec = electronCodec): StoredVapidKe
 
 export function writeVapidKeys(keys: StoredVapidKeys, codec: SecretCodec = electronCodec): void {
   writeEncryptedJson(VAPID_KEY, keys, codec)
+}
+
+export function readAccessConfig(codec: SecretCodec = electronCodec): StoredAccessConfig | undefined {
+  const value = readEncryptedJson<Partial<StoredAccessConfig>>(ACCESS_KEY, codec)
+  if (!value || typeof value.teamDomain !== 'string' || typeof value.audience !== 'string') return undefined
+  const teamDomain = value.teamDomain.trim().replace(/\/$/, '')
+  const audience = value.audience.trim()
+  return teamDomain && audience ? { teamDomain, audience } : undefined
+}
+
+export function writeAccessConfig(config: StoredAccessConfig, codec: SecretCodec = electronCodec): void {
+  const teamDomain = config.teamDomain.trim().replace(/\/$/, '')
+  const audience = config.audience.trim()
+  if (!teamDomain || !audience) throw new Error('Access-Team-Domain und Audience sind erforderlich.')
+  writeEncryptedJson(ACCESS_KEY, { teamDomain, audience }, codec)
 }

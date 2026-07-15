@@ -31,7 +31,9 @@ describe('RemoteGateway hardening', () => {
       commands: new RemoteCommandRouter({
         reviewPlan: vi.fn(), enableAutoMode: vi.fn(), reset: vi.fn(),
         submitGoal: vi.fn(), approvePublication: vi.fn(), rejectPublication: vi.fn(),
-        taskDiff: vi.fn(), activateKillSwitch: vi.fn()
+        taskDiff: vi.fn(), resolvePermission: vi.fn(), setBudgetCaps: vi.fn(),
+        pauseTask: vi.fn(), resumeTask: vi.fn(), replanPending: vi.fn(),
+        activateKillSwitch: vi.fn()
       })
     })
     try {
@@ -56,6 +58,49 @@ describe('RemoteGateway hardening', () => {
         body: JSON.stringify({ code: 'x'.repeat(REMOTE_PAIR_BODY_CAP + 1), deviceName: 'Phone' })
       })
       expect(oversized.status).toBe(413)
+    } finally {
+      await gateway.close()
+    }
+  })
+
+  it('authenticates WebSocket upgrades with the same device bearer and rejects missing auth', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'orca-ws-test-'))
+    directories.push(directory)
+    const auth = new DeviceAuth(new MemoryStore())
+    const gateway = await startRemoteGateway({
+      auth,
+      readModel: new RemoteReadModel(new EventEmitter()),
+      audit: new RemoteAuditLog(join(directory, 'audit.jsonl')),
+      commands: new RemoteCommandRouter({
+        reviewPlan: vi.fn(), enableAutoMode: vi.fn(), reset: vi.fn(), submitGoal: vi.fn(),
+        approvePublication: vi.fn(), rejectPublication: vi.fn(), taskDiff: vi.fn(),
+        resolvePermission: vi.fn(), setBudgetCaps: vi.fn(), pauseTask: vi.fn(),
+        resumeTask: vi.fn(), replanPending: vi.fn(), activateKillSwitch: vi.fn()
+      })
+    })
+    const paired = auth.pair(auth.startPairing(
+      ['read'], undefined, { id: 'owner', displayName: 'Owner' },
+      [{ profileId: 'p', sessionIds: ['s'], allowGoalSubmit: false }]
+    ).code, 'Phone')!
+    const upgrade = (protocol?: string): Promise<number> => new Promise((resolveStatus, reject) => {
+      const target = new URL(gateway.origin)
+      const req = request({
+        hostname: target.hostname, port: target.port, path: '/ws',
+        headers: {
+          Connection: 'Upgrade', Upgrade: 'websocket',
+          'Sec-WebSocket-Version': '13',
+          'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
+          ...(protocol ? { 'Sec-WebSocket-Protocol': protocol } : {})
+        }
+      })
+      req.on('upgrade', (response, socket) => { socket.destroy(); resolveStatus(response.statusCode ?? 101) })
+      req.on('response', (response) => { response.resume(); resolveStatus(response.statusCode ?? 0) })
+      req.on('error', reject)
+      req.end()
+    })
+    try {
+      await expect(upgrade()).resolves.toBe(401)
+      await expect(upgrade(`orca-v1, orca-bearer.${paired.token}`)).resolves.toBe(101)
     } finally {
       await gateway.close()
     }

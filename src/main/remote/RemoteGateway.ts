@@ -7,7 +7,7 @@ import { RemoteAuditLog } from './auditLog'
 import { RemoteCommandError, RemoteCommandRouter } from './commands'
 import { DeviceAuth } from './deviceAuth'
 import type { RemoteGatewayHandle } from './gatewayHandle'
-import { RemoteReadModel } from './readModel'
+import { RemoteReadModel, scopeRemoteFrame } from './readModel'
 import { TokenBucketRateLimiter } from './rateLimit'
 import type { PushService } from './pushService'
 import {
@@ -29,6 +29,9 @@ interface GatewayOptions {
   staticDir?: string
   allowedHosts?: string[]
   pushService?: PushService
+  identityVerifier?: {
+    verify(assertion: string | undefined): Promise<import('@shared/remote').RemoteActor | undefined>
+  }
   transcribeSpeech?(payload: {
     mimeType: string
     bytes: Uint8Array
@@ -38,7 +41,6 @@ interface GatewayOptions {
 
 interface AuthenticatedRequest {
   device: DeviceInfo
-  token: string
 }
 
 class HttpError extends Error {
@@ -111,6 +113,15 @@ function bearer(req: IncomingMessage): string | undefined {
   return match?.[1]
 }
 
+function websocketBearer(req: IncomingMessage): string | undefined {
+  const header = req.headers['sec-websocket-protocol']
+  if (!header || Array.isArray(header)) return undefined
+  const protocol = header.split(',').map((value) => value.trim())
+    .find((value) => value.startsWith('orca-bearer.'))
+  const token = protocol?.slice('orca-bearer.'.length)
+  return token && /^[A-Za-z0-9_-]{32,512}$/.test(token) ? token : undefined
+}
+
 function requestHost(req: IncomingMessage): string | undefined {
   const raw = req.headers.host
   if (!raw || Array.isArray(raw) || raw.includes('@')) return undefined
@@ -129,8 +140,16 @@ export async function startRemoteGateway(options: GatewayOptions): Promise<Remot
   const allowedHosts = new Set(['127.0.0.1', 'localhost', ...(options.allowedHosts ?? [])].map((host) => host.toLowerCase()))
   const commandLimiter = new TokenBucketRateLimiter({ capacity: 30, refillTokens: 30, refillIntervalMs: 60_000 })
   const pairLimiter = new TokenBucketRateLimiter({ capacity: 5, refillTokens: 5, refillIntervalMs: 5 * 60_000 })
-  const streams = new Map<string, Set<ServerResponse>>()
+  const streams = new Map<string, Set<{ response: ServerResponse; device: DeviceInfo }>>()
+  const sockets = new Map<string, Set<import('ws').WebSocket>>()
   let unsubscribe = (): void => undefined
+  const wsRuntime = await import('ws').catch(() => undefined)
+  const webSocketServer = wsRuntime ? new wsRuntime.WebSocketServer({
+      noServer: true,
+      maxPayload: REMOTE_COMMAND_BODY_CAP,
+      handleProtocols: (protocols) => protocols.has('orca-v1') ? 'orca-v1' : false
+    }) : undefined
+  const wsOpen = wsRuntime?.WebSocket.OPEN ?? 1
 
   const server: Server = createServer((req, res) => {
     void handle(req, res).catch((error) => {
@@ -145,31 +164,52 @@ export async function startRemoteGateway(options: GatewayOptions): Promise<Remot
     return Boolean(host && allowedHosts.has(host))
   }
 
-  function authenticate(req: IncomingMessage, action: string): AuthenticatedRequest | undefined {
-    const token = bearer(req)
-    const device = token ? options.auth.authenticate(token) : undefined
+  async function authenticate(
+    req: IncomingMessage,
+    action: string,
+    suppliedToken?: string
+  ): Promise<AuthenticatedRequest | undefined> {
+    const token = suppliedToken ?? bearer(req)
+    let device = token ? options.auth.authenticate(token) : undefined
+    let actor = device?.actor
+    if (device && options.identityVerifier) {
+      const assertion = req.headers['cf-access-jwt-assertion']
+      const verified = await options.identityVerifier.verify(
+        typeof assertion === 'string' ? assertion : undefined
+      )
+      if (!verified || verified.id.toLowerCase() !== device.actor.id.toLowerCase()) device = undefined
+      else actor = verified
+    }
     options.audit.record({
       kind: 'auth',
       outcome: device ? 'accepted' : 'rejected',
       deviceId: device?.id,
+      actor: actor?.id,
       action
     })
-    return token && device ? { token, device } : undefined
+    return token && device ? { device } : undefined
   }
 
-  function addStream(deviceId: string, res: ServerResponse): void {
-    const bucket = streams.get(deviceId) ?? new Set<ServerResponse>()
-    bucket.add(res)
-    streams.set(deviceId, bucket)
+  function addStream(device: DeviceInfo, res: ServerResponse): void {
+    const bucket = streams.get(device.id) ?? new Set<{ response: ServerResponse; device: DeviceInfo }>()
+    const entry = { response: res, device }
+    bucket.add(entry)
+    streams.set(device.id, bucket)
     res.on('close', () => {
-      bucket.delete(res)
-      if (bucket.size === 0) streams.delete(deviceId)
+      bucket.delete(entry)
+      if (bucket.size === 0) streams.delete(device.id)
     })
   }
 
   function dropDevice(deviceId: string): void {
-    for (const res of streams.get(deviceId) ?? []) res.destroy()
+    for (const entry of streams.get(deviceId) ?? []) entry.response.destroy()
     streams.delete(deviceId)
+    for (const socket of sockets.get(deviceId) ?? []) socket.terminate()
+    sockets.delete(deviceId)
+  }
+
+  function dropAllDevices(): void {
+    for (const id of new Set([...streams.keys(), ...sockets.keys()])) dropDevice(id)
   }
 
   async function serveStatic(pathname: string, res: ServerResponse): Promise<boolean> {
@@ -219,7 +259,7 @@ export async function startRemoteGateway(options: GatewayOptions): Promise<Remot
       return
     }
     if (url.pathname === '/stream' && req.method === 'GET') {
-      const authenticated = authenticate(req, 'stream')
+      const authenticated = await authenticate(req, 'stream')
       if (!authenticated || !authenticated.device.capabilities.includes('read')) {
         json(res, authenticated ? 403 : 401, { error: 'Unauthorized.' })
         return
@@ -231,23 +271,33 @@ export async function startRemoteGateway(options: GatewayOptions): Promise<Remot
         'X-Accel-Buffering': 'no',
         'X-Content-Type-Options': 'nosniff'
       })
-      addStream(authenticated.device.id, res)
-      for (const frame of options.readModel.initialFrames()) res.write(sseFrame(frame))
-      options.audit.record({ kind: 'data-access', outcome: 'accepted', deviceId: authenticated.device.id, action: 'stream' })
+      addStream(authenticated.device, res)
+      for (const frame of options.readModel.initialFrames(authenticated.device)) res.write(sseFrame(frame))
+      options.audit.record({
+        kind: 'data-access', outcome: 'accepted', deviceId: authenticated.device.id,
+        actor: authenticated.device.actor.id, action: 'stream'
+      })
       return
     }
     if (url.pathname === '/devices' && req.method === 'GET') {
-      const authenticated = authenticate(req, 'devices.list')
+      const authenticated = await authenticate(req, 'devices.list')
       if (!authenticated || !authenticated.device.capabilities.includes('read')) {
         json(res, authenticated ? 403 : 401, { error: 'Unauthorized.' })
         return
       }
-      options.audit.record({ kind: 'data-access', outcome: 'accepted', deviceId: authenticated.device.id, action: 'devices.list' })
-      json(res, 200, { devices: options.auth.listDevices() })
+      options.audit.record({
+        kind: 'data-access', outcome: 'accepted', deviceId: authenticated.device.id,
+        actor: authenticated.device.actor.id, action: 'devices.list'
+      })
+      const devices = options.auth.listDevices().filter((device) =>
+        authenticated.device.capabilities.includes('admin') ||
+        device.actor.id === authenticated.device.actor.id
+      )
+      json(res, 200, { devices })
       return
     }
     if (url.pathname === '/push/vapid-key' && req.method === 'GET') {
-      const authenticated = authenticate(req, 'push.vapid-key')
+      const authenticated = await authenticate(req, 'push.vapid-key')
       if (!authenticated || !authenticated.device.capabilities.includes('push')) {
         json(res, authenticated ? 403 : 401, { error: 'Unauthorized.' })
         return
@@ -256,13 +306,14 @@ export async function startRemoteGateway(options: GatewayOptions): Promise<Remot
       const publicKey = await options.pushService.publicKey()
       options.audit.record({
         kind: 'data-access', outcome: 'accepted', deviceId: authenticated.device.id,
+        actor: authenticated.device.actor.id,
         action: 'push.vapid-key'
       })
       json(res, 200, { publicKey })
       return
     }
     if (url.pathname === '/push/subscribe' && req.method === 'POST') {
-      const authenticated = authenticate(req, 'push.subscribe')
+      const authenticated = await authenticate(req, 'push.subscribe')
       if (!authenticated || !authenticated.device.capabilities.includes('push')) {
         json(res, authenticated ? 403 : 401, { error: 'Unauthorized.' })
         return
@@ -273,13 +324,14 @@ export async function startRemoteGateway(options: GatewayOptions): Promise<Remot
       options.pushService.subscribe(authenticated.device.id, parsed.data)
       options.audit.record({
         kind: 'command', outcome: 'accepted', deviceId: authenticated.device.id,
+        actor: authenticated.device.actor.id,
         action: 'push.subscribe'
       })
       json(res, 200, { ok: true })
       return
     }
     if (url.pathname === '/speech/transcribe' && req.method === 'POST') {
-      const authenticated = authenticate(req, 'speech.transcribe')
+      const authenticated = await authenticate(req, 'speech.transcribe')
       if (!authenticated || !authenticated.device.capabilities.includes('speech')) {
         json(res, authenticated ? 403 : 401, { error: 'Unauthorized.' })
         return
@@ -298,13 +350,14 @@ export async function startRemoteGateway(options: GatewayOptions): Promise<Remot
       options.audit.record({
         kind: 'command', outcome: result.ok ? 'accepted' : 'error',
         deviceId: authenticated.device.id, action: 'speech.transcribe',
+        actor: authenticated.device.actor.id,
         detail: result.ok ? { transcriptLength: result.text.length } : { code: result.code }
       })
       json(res, 200, result)
       return
     }
     if (url.pathname === '/command' && req.method === 'POST') {
-      const authenticated = authenticate(req, 'command')
+      const authenticated = await authenticate(req, 'command')
       if (!authenticated) {
         json(res, 401, { error: 'Unauthorized.' })
         return
@@ -315,6 +368,7 @@ export async function startRemoteGateway(options: GatewayOptions): Promise<Remot
         const result = await options.commands.execute(envelope, authenticated.device)
         options.audit.record({
           kind: 'command', outcome: 'accepted', deviceId: authenticated.device.id,
+          actor: authenticated.device.actor.id,
           action: String(envelope?.id ?? ''), requestId: envelope?.requestId,
           detail: { args: envelope?.args }
         })
@@ -323,6 +377,7 @@ export async function startRemoteGateway(options: GatewayOptions): Promise<Remot
         options.audit.record({
           kind: 'command', outcome: error instanceof RemoteCommandError ? 'rejected' : 'error',
           deviceId: authenticated.device.id, action: String(envelope?.id ?? ''),
+          actor: authenticated.device.actor.id,
           requestId: envelope?.requestId,
           detail: { message: error instanceof Error ? error.message : String(error), args: envelope?.args }
         })
@@ -334,22 +389,108 @@ export async function startRemoteGateway(options: GatewayOptions): Promise<Remot
     json(res, 404, { error: 'Not found.' })
   }
 
+  server.on('upgrade', (req, socket, head) => {
+    void (async () => {
+      const url = new URL(req.url ?? '/', 'http://127.0.0.1')
+      const authenticated = hostAllowed(req) && url.pathname === '/ws'
+        ? await authenticate(req, 'ws.upgrade', websocketBearer(req))
+        : undefined
+      if (!authenticated || !authenticated.device.capabilities.includes('read')) {
+        socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
+        socket.destroy()
+        return
+      }
+      if (!webSocketServer) {
+        socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n')
+        socket.destroy()
+        return
+      }
+      webSocketServer.handleUpgrade(req, socket, head, (webSocket) => {
+        const device = authenticated.device
+        const bucket = sockets.get(device.id) ?? new Set<import('ws').WebSocket>()
+        bucket.add(webSocket)
+        sockets.set(device.id, bucket)
+        webSocket.on('close', () => {
+          bucket.delete(webSocket)
+          if (bucket.size === 0) sockets.delete(device.id)
+        })
+        webSocket.on('error', () => undefined)
+        for (const frame of options.readModel.initialFrames(device)) {
+          webSocket.send(JSON.stringify(frame))
+        }
+        options.audit.record({
+          kind: 'data-access', outcome: 'accepted', deviceId: device.id,
+          actor: device.actor.id, action: 'ws.connect'
+        })
+        webSocket.on('message', (data) => {
+          void (async () => {
+            let envelope: RemoteCommandEnvelope | undefined
+            try {
+              if (data.byteLength > REMOTE_COMMAND_BODY_CAP) throw new RemoteCommandError('Request body too large.', 413, 'too_large')
+              envelope = JSON.parse(data.toString('utf8')) as RemoteCommandEnvelope
+              if (!commandLimiter.consume(device.id)) throw new RemoteCommandError('Too many commands.', 429, 'rate_limited')
+              const result = await options.commands.execute(envelope, device)
+              options.audit.record({
+                kind: 'command', outcome: 'accepted', deviceId: device.id,
+                actor: device.actor.id, action: String(envelope.id ?? ''),
+                requestId: envelope.requestId, detail: { args: envelope.args, transport: 'ws' }
+              })
+              if (webSocket.readyState === wsOpen) {
+                webSocket.send(JSON.stringify({
+                  type: 'command-result', requestId: envelope.requestId, ok: true, result
+                }))
+              }
+            } catch (error) {
+              options.audit.record({
+                kind: 'command', outcome: error instanceof RemoteCommandError ? 'rejected' : 'error',
+                deviceId: device.id, actor: device.actor.id,
+                action: String(envelope?.id ?? ''), requestId: envelope?.requestId,
+                detail: { message: error instanceof Error ? error.message : String(error), transport: 'ws' }
+              })
+              if (webSocket.readyState === wsOpen) {
+                webSocket.send(JSON.stringify({
+                  type: 'command-result', requestId: envelope?.requestId, ok: false,
+                  error: error instanceof RemoteCommandError ? error.code : 'internal_error'
+                }))
+              }
+            }
+          })()
+        })
+      })
+    })().catch(() => socket.destroy())
+  })
+
   unsubscribe = options.readModel.subscribe((frame) => {
-    const encoded = sseFrame(frame)
     for (const responses of streams.values()) {
-      for (const res of responses) res.write(encoded)
+      for (const entry of responses) {
+        const scoped = scopeRemoteFrame(frame, entry.device)
+        if (scoped) entry.response.write(sseFrame(scoped))
+      }
+    }
+    for (const [deviceId, clients] of sockets) {
+      const device = options.auth.listDevices().find((entry) => entry.id === deviceId && !entry.revokedAt)
+      if (!device) continue
+      const scoped = scopeRemoteFrame(frame, device)
+      if (!scoped) continue
+      const encoded = JSON.stringify(scoped)
+      for (const socket of clients) if (socket.readyState === wsOpen) socket.send(encoded)
     }
   })
   const pingTimer = setInterval(() => {
-    const encoded = sseFrame({ type: 'ping', at: Date.now() })
-    for (const responses of streams.values()) for (const res of responses) res.write(encoded)
+    const frame: RemoteEventFrame = { type: 'ping', at: Date.now() }
+    const encoded = sseFrame(frame)
+    for (const responses of streams.values()) {
+      for (const entry of responses) entry.response.write(encoded)
+    }
+    const wsEncoded = JSON.stringify(frame)
+    for (const clients of sockets.values()) {
+      for (const socket of clients) if (socket.readyState === wsOpen) socket.send(wsEncoded)
+    }
   }, 25_000)
   pingTimer.unref()
 
   options.auth.on('revoked', dropDevice)
-  options.auth.on('revoke-all', () => {
-    for (const id of [...streams.keys()]) dropDevice(id)
-  })
+  options.auth.on('revoke-all', dropAllDevices)
 
   const port = await new Promise<number>((resolvePort, reject) => {
     server.once('error', reject)
@@ -368,7 +509,10 @@ export async function startRemoteGateway(options: GatewayOptions): Promise<Remot
     close: () => new Promise<void>((resolveClose) => {
       unsubscribe()
       clearInterval(pingTimer)
-      for (const id of [...streams.keys()]) dropDevice(id)
+      options.auth.off('revoked', dropDevice)
+      options.auth.off('revoke-all', dropAllDevices)
+      dropAllDevices()
+      webSocketServer?.close()
       server.close(() => resolveClose())
       server.closeAllConnections?.()
     })
@@ -376,5 +520,5 @@ export async function startRemoteGateway(options: GatewayOptions): Promise<Remot
 }
 
 export const remoteGatewayInternals = {
-  bearer, requestHost, readJson, sseFrame, pairSchema, pushSubscriptionSchema, speechSchema
+  bearer, websocketBearer, requestHost, readJson, sseFrame, pairSchema, pushSubscriptionSchema, speechSchema
 }

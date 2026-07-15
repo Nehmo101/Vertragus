@@ -51,5 +51,47 @@ describe('PushService transitions', () => {
     service.stop()
     model.stop()
   })
-})
 
+  it('delivers only inside the enrolled device scope without deleting denied subscriptions', async () => {
+    const bus = new EventEmitter()
+    const model = new RemoteReadModel(bus)
+    model.start()
+    let subscriptions: StoredPushSubscription[] = [
+      {
+        id: 'allowed', deviceId: 'allowed-device', endpoint: 'https://push.example/allowed',
+        keys: { p256dh: 'p', auth: 'a' }, createdAt: 1
+      },
+      {
+        id: 'denied', deviceId: 'denied-device', endpoint: 'https://push.example/denied',
+        keys: { p256dh: 'p', auth: 'a' }, createdAt: 1
+      }
+    ]
+    const sendNotification = vi.fn(async (
+      _subscription: { endpoint: string },
+      _payload: string,
+      _options: { TTL: number; urgency: 'normal' }
+    ) => undefined)
+    const dependencies: PushServiceDependencies = {
+      loadSubscriptions: () => subscriptions,
+      saveSubscriptions: (value) => { subscriptions = value },
+      loadKeys: () => ({ publicKey: 'public', privateKey: 'private' }),
+      saveKeys: vi.fn(),
+      loadWebPush: async () => ({ generateVAPIDKeys: vi.fn(), setVapidDetails: vi.fn(), sendNotification })
+    }
+    const service = new PushService(
+      model,
+      dependencies,
+      (deviceId, profileId, sessionId) => deviceId === 'allowed-device' && profileId === 'p' && sessionId === 's'
+    )
+    service.start()
+    bus.emit('snapshot', snapshot('running'))
+    bus.emit('snapshot', snapshot('needs-work'))
+    await vi.waitFor(() => expect(sendNotification).toHaveBeenCalledTimes(2))
+    expect(sendNotification.mock.calls.every(([subscription]) =>
+      subscription.endpoint === 'https://push.example/allowed'
+    )).toBe(true)
+    expect(subscriptions.map((subscription) => subscription.id)).toEqual(['allowed', 'denied'])
+    service.stop()
+    model.stop()
+  })
+})

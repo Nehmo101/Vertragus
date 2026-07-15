@@ -99,33 +99,106 @@ export default function App(): JSX.Element {
   const mediaChunks = useRef<Blob[]>([])
   const mediaStartedAt = useRef(0)
   const reconnect = useRef(0)
+  const socketRef = useRef<WebSocket>()
+  const commandWaiters = useRef(new Map<string, {
+    resolve(value: unknown): void
+    reject(error: Error): void
+    timer: number
+  }>())
 
-  const profiles = useMemo(() => [...new Set(Object.values(snapshots).map((snapshot) => snapshot.profileId).filter((id): id is string => Boolean(id)))], [snapshots])
+  const profiles = useMemo(() => {
+    let savedId = ''
+    try { savedId = (JSON.parse(localStorage.getItem(DEVICE_KEY) ?? '{}') as DeviceInfo).id ?? '' } catch { /* no saved device */ }
+    const scoped = devices.find((device) => device.id === savedId)?.scopes.map((scope) => scope.profileId) ?? []
+    return [...new Set([
+      ...Object.values(snapshots).map((snapshot) => snapshot.profileId).filter((id): id is string => Boolean(id)),
+      ...scoped
+    ])]
+  }, [devices, snapshots])
   const [profileId, setProfileId] = useState('')
   useEffect(() => { if (!profileId && profiles[0]) setProfileId(profiles[0]) }, [profileId, profiles])
 
   useEffect(() => {
     if (!token) return
-    const controller = new AbortController()
     let timer: number | undefined
-    const connect = (): void => {
-      void consumeSse(token, controller.signal, (frame) => {
-        setConnected(true)
-        reconnect.current = 0
-        if (frame.type === 'snapshot') {
-          const key = frame.snapshot.workspaceSessionId ?? frame.snapshot.profileId
-          if (key) setSnapshots((current) => ({ ...current, [key]: frame.snapshot }))
-        } else if (frame.type === 'approvals') setApprovals(frame.approvals)
-      }).catch((value) => {
-        if (controller.signal.aborted) return
+    let closed = false
+    let fallbackController: AbortController | undefined
+    let websocketFailures = 0
+    let usingSse = false
+    const handleFrame = (frame: RemoteEventFrame): void => {
+      setConnected(true)
+      reconnect.current = 0
+      if (frame.type === 'snapshot') {
+        const key = frame.snapshot.workspaceSessionId ?? frame.snapshot.profileId
+        if (key) setSnapshots((current) => ({ ...current, [key]: frame.snapshot }))
+      } else if (frame.type === 'approvals') setApprovals(frame.approvals)
+    }
+    const startSse = (): void => {
+      if (closed || usingSse) return
+      usingSse = true
+      socketRef.current = undefined
+      fallbackController = new AbortController()
+      void consumeSse(token, fallbackController.signal, handleFrame).catch((value) => {
+        if (closed || fallbackController?.signal.aborted) return
+        usingSse = false
         setConnected(false)
         setError(message(value))
         const delay = Math.min(30_000, 1_000 * 2 ** reconnect.current++)
-        timer = window.setTimeout(connect, delay)
+        timer = window.setTimeout(startSse, delay)
       })
     }
+    const connect = (): void => {
+      if (typeof WebSocket === 'undefined') return startSse()
+      const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+      const socket = new WebSocket(`${scheme}//${window.location.host}/ws`, [
+        'orca-v1', `orca-bearer.${token}`
+      ])
+      socketRef.current = socket
+      socket.onopen = () => {
+        setConnected(true)
+        reconnect.current = 0
+        websocketFailures = 0
+      }
+      socket.onmessage = (event) => {
+        try {
+          const value = JSON.parse(String(event.data)) as RemoteEventFrame | {
+            type: 'command-result'; requestId?: string; ok: boolean; result?: unknown; error?: string
+          }
+          if (value.type === 'command-result') {
+            const waiter = value.requestId ? commandWaiters.current.get(value.requestId) : undefined
+            if (!waiter) return
+            clearTimeout(waiter.timer)
+            commandWaiters.current.delete(value.requestId!)
+            if (value.ok) waiter.resolve(value.result)
+            else waiter.reject(new Error(value.error ?? 'Remote command failed.'))
+            return
+          }
+          handleFrame(value)
+        } catch { /* Ignore one malformed frame; the authenticated channel stays usable. */ }
+      }
+      socket.onclose = () => {
+        if (closed) return
+        if (socketRef.current === socket) socketRef.current = undefined
+        setConnected(false)
+        for (const waiter of commandWaiters.current.values()) {
+          clearTimeout(waiter.timer)
+          waiter.reject(new Error('Live-Kanal wurde getrennt.'))
+        }
+        commandWaiters.current.clear()
+        websocketFailures += 1
+        if (websocketFailures >= 2) return startSse()
+        const delay = Math.min(30_000, 1_000 * 2 ** reconnect.current++)
+        timer = window.setTimeout(connect, delay)
+      }
+      socket.onerror = () => setConnected(false)
+    }
     connect()
-    return () => { controller.abort(); if (timer) clearTimeout(timer) }
+    return () => {
+      closed = true
+      fallbackController?.abort()
+      socketRef.current?.close()
+      if (timer) clearTimeout(timer)
+    }
   }, [token])
 
   useEffect(() => {
@@ -142,6 +215,18 @@ export default function App(): JSX.Element {
 
   const command = async (id: RemoteCommandId, args: unknown): Promise<unknown> => {
     setError(undefined)
+    const socket = socketRef.current
+    if (socket?.readyState === WebSocket.OPEN) {
+      const requestId = crypto.randomUUID()
+      return new Promise<unknown>((resolve, reject) => {
+        const timer = window.setTimeout(() => {
+          commandWaiters.current.delete(requestId)
+          reject(new Error('Remote command timed out.'))
+        }, 15_000)
+        commandWaiters.current.set(requestId, { resolve, reject, timer })
+        socket.send(JSON.stringify({ id, args, requestId }))
+      })
+    }
     const response = await api<{ result: unknown }>('/command', token, {
       method: 'POST',
       body: JSON.stringify({ id, args, requestId: crypto.randomUUID() })
@@ -171,6 +256,12 @@ export default function App(): JSX.Element {
       return devices.find((device) => device.id === saved.id) ?? saved
     } catch { return undefined }
   }, [devices])
+  const goalProfiles = useMemo(() => profiles.filter((id) =>
+    currentDevice?.scopes.some((scope) => scope.profileId === id && scope.allowGoalSubmit)
+  ), [currentDevice, profiles])
+  useEffect(() => {
+    if (!goalProfiles.includes(profileId)) setProfileId(goalProfiles[0] ?? '')
+  }, [goalProfiles, profileId])
 
   const enablePush = async (): Promise<void> => {
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) throw new Error('Web-Push wird auf diesem Gerät nicht unterstützt.')
@@ -247,13 +338,17 @@ export default function App(): JSX.Element {
       {error && <div className="error" onClick={() => setError(undefined)}>{error}</div>}
 
       <main>
-        {view === 'live' && <Live snapshots={Object.values(snapshots)} />}
+        {view === 'live' && <Live
+          snapshots={Object.values(snapshots)}
+          command={command}
+          capabilities={currentDevice?.capabilities ?? []}
+        />}
         {view === 'approvals' && <Inbox approvals={approvals} command={command} />}
         {view === 'goal' && (
           <section>
             <span className="eyebrow">Neue Arbeit</span><h2>Ziel senden</h2>
             <p className="muted">Remote-Ziele werden immer mit <code>yoloMaster:false</code> über den vorhandenen Idea-Transfer gestartet.</p>
-            <label>Workspace<select value={profileId} onChange={(event) => setProfileId(event.target.value)}>{profiles.map((id) => <option key={id}>{id}</option>)}</select></label>
+            <label>Workspace<select value={profileId} onChange={(event) => setProfileId(event.target.value)}>{goalProfiles.map((id) => <option key={id}>{id}</option>)}</select></label>
             <label>Ziel<textarea value={goal} onChange={(event) => setGoal(event.target.value)} maxLength={8000} rows={9} placeholder="Was soll der Schwarm erreichen?" /></label>
             {currentDevice?.capabilities?.includes('speech') && <button className="secondary speech" onClick={() => void toggleSpeech().catch((value) => setError(message(value)))}>{recording ? 'Aufnahme stoppen' : 'Ziel sprechen'}</button>}
             <button disabled={!profileId || !goal.trim()} onClick={() => void command('goal.submit', { profileId, text: goal }).then(() => setGoal('')).catch((value) => setError(message(value)))}>Ziel sicher senden</button>
@@ -262,7 +357,7 @@ export default function App(): JSX.Element {
         {view === 'devices' && (
           <section>
             <span className="eyebrow">Sicherheit</span><h2>Geräte</h2>
-            {devices.map((device) => <article className="device" key={device.id}><div><strong>{device.name}</strong><small>{device.capabilities.join(' · ')}</small></div><span>{device.revokedAt ? 'widerrufen' : 'aktiv'}</span></article>)}
+            {devices.map((device) => <article className="device" key={device.id}><div><strong>{device.name} · {device.actor.displayName}</strong><small>{device.capabilities.join(' · ')} · {device.scopes.length} Scope(s)</small></div><span>{device.revokedAt ? 'widerrufen' : 'aktiv'}</span></article>)}
             {currentDevice?.capabilities?.includes('push') && <button onClick={() => void enablePush().catch((value) => setError(message(value)))}>Push-Benachrichtigungen aktivieren</button>}
             <p className="muted">Auf iOS funktioniert Web-Push nur für eine zum Home-Bildschirm hinzugefügte PWA. In-App-Badges bleiben immer aktiv.</p>
             <button className="danger" onClick={() => void command('killSwitch.activate', {}).catch((value) => setError(message(value)))}>Master-Not-Aus</button>
@@ -284,9 +379,51 @@ function Nav(props: { active: boolean; label: string; icon: string; onClick(): v
   return <button className={props.active ? 'active' : ''} onClick={props.onClick}><span>{props.icon}</span>{props.label}</button>
 }
 
-function Live({ snapshots }: { snapshots: OrchestratorSnapshot[] }): JSX.Element {
+function Live({ snapshots, command, capabilities }: {
+  snapshots: OrchestratorSnapshot[]
+  command(id: RemoteCommandId, args: unknown): Promise<unknown>
+  capabilities: DeviceInfo['capabilities']
+}): JSX.Element {
+  const [maxTokens, setMaxTokens] = useState('')
+  const [maxCost, setMaxCost] = useState('')
+  const [error, setError] = useState<string>()
   if (snapshots.length === 0) return <Empty title="Noch keine Live-Daten" text="Sobald ein Workspace läuft, erscheint sein DAG hier." />
-  return <>{snapshots.map((snapshot) => <section key={snapshot.workspaceSessionId ?? snapshot.profileId} className="workspace"><span className="eyebrow">{snapshot.profileId}</span><h2>{snapshot.goal?.title ?? 'Workspace bereit'}</h2>{snapshot.pendingPlan && <div className="waiting">Wartet auf Plan-Freigabe</div>}<div className="dag">{snapshot.tasks.map((task) => <article key={task.id} className={`task status-${task.status}`}><div className="task-line"><strong>{task.title}</strong><span>{task.status}</span></div><small>{task.agentName ?? task.role}{task.lastAction ? ` · ${task.lastAction}` : ''}</small>{typeof task.progress === 'number' && <div className="progress"><i style={{ width: `${task.progress}%` }} /></div>}</article>)}</div></section>)}</>
+  const run = (id: RemoteCommandId, args: unknown): void => {
+    setError(undefined)
+    void command(id, args).catch((value) => setError(message(value)))
+  }
+  return <>{error && <div className="error">{error}</div>}{snapshots.map((snapshot) => {
+    const scope = { profileId: snapshot.profileId!, sessionId: snapshot.workspaceSessionId! }
+    return <section key={snapshot.workspaceSessionId ?? snapshot.profileId} className="workspace">
+      <span className="eyebrow">{snapshot.profileId}</span><h2>{snapshot.goal?.title ?? 'Workspace bereit'}</h2>
+      {snapshot.budget && <div className={`budget ${snapshot.budget.exceeded ? 'exceeded' : ''}`}>
+        <strong>{snapshot.budget.tokens.toLocaleString()} Token · ${snapshot.budget.costUsd.toFixed(2)}</strong>
+        <small>Caps: {snapshot.budget.caps.maxTokens ?? '–'} Token · ${snapshot.budget.caps.maxCostUsd ?? '–'}</small>
+      </div>}
+      {capabilities.includes('budget') && <div className="budget-form">
+        <input inputMode="numeric" value={maxTokens} onChange={(event) => setMaxTokens(event.target.value)} placeholder="Token-Cap" />
+        <input inputMode="decimal" value={maxCost} onChange={(event) => setMaxCost(event.target.value)} placeholder="USD-Cap" />
+        <button onClick={() => run('budget.setCaps', {
+          ...scope,
+          maxTokens: maxTokens ? Number(maxTokens) : null,
+          maxCostUsd: maxCost ? Number(maxCost) : null
+        })}>Caps setzen</button>
+      </div>}
+      {snapshot.pendingPlan && <div className="waiting">Wartet auf Plan-Freigabe · {snapshot.pendingPlan.plan.tasks.length} Tasks
+        {capabilities.includes('replan') && snapshot.pendingPlan.plan.maxParallel > 1 &&
+          <button className="secondary" onClick={() => run('plan.replan', { ...scope, removeTaskIds: [], maxParallel: 1 })}>Parallelität auf 1</button>}
+      </div>}
+      <div className="dag">{snapshot.tasks.map((task) => <article key={task.id} className={`task status-${task.status}`}>
+        <div className="task-line"><strong>{task.title}</strong><span>{task.status}</span></div>
+        <small>{task.agentName ?? task.role}{task.lastAction ? ` · ${task.lastAction}` : ''}</small>
+        {capabilities.includes('task-control') && (task.status === 'running' || task.status === 'queued') &&
+          <button className="secondary task-control" onClick={() => run('task.pause', { ...scope, taskId: task.id })}>Pausieren</button>}
+        {capabilities.includes('task-control') && task.status === 'paused' &&
+          <button className="secondary task-control" onClick={() => run('task.resume', { ...scope, taskId: task.id })}>Fortsetzen</button>}
+        {typeof task.progress === 'number' && <div className="progress"><i style={{ width: `${task.progress}%` }} /></div>}
+      </article>)}</div>
+    </section>
+  })}</>
 }
 
 function Inbox({ approvals, command }: { approvals: ApprovalItem[]; command(id: RemoteCommandId, args: unknown): Promise<unknown> }): JSX.Element {
@@ -294,7 +431,9 @@ function Inbox({ approvals, command }: { approvals: ApprovalItem[]; command(id: 
   const [diff, setDiff] = useState<{ title: string; value: string }>()
   if (!approvals.length) return <Empty title="Alles entschieden" text="Es wartet derzeit kein Plan und keine blockierte Aufgabe." />
   const act = (id: RemoteCommandId, approval: ApprovalItem): void => {
-    const args = { profileId: approval.profileId, sessionId: approval.workspaceSessionId }
+    const args = approval.permission
+      ? { profileId: approval.profileId, sessionId: approval.workspaceSessionId, permissionId: approval.permission.id }
+      : { profileId: approval.profileId, sessionId: approval.workspaceSessionId }
     void command(id, args).catch((value) => setError(message(value)))
   }
   const showDiff = (approval: ApprovalItem): void => {
@@ -308,7 +447,7 @@ function Inbox({ approvals, command }: { approvals: ApprovalItem[]; command(id: 
       setDiff({ title: approval.task!.title, value: value.diff ?? 'Kein Diff.' })
     }).catch((value) => setError(message(value)))
   }
-  return <section><span className="eyebrow">Entscheidungen</span><h2>Approval-Inbox</h2>{error && <div className="error">{error}</div>}{diff && <article className="diff-view"><div><strong>{diff.title}</strong><button className="secondary" onClick={() => setDiff(undefined)}>Schließen</button></div><pre>{diff.value}</pre></article>}{approvals.map((approval) => <article className="approval" key={approval.id}><small>{approval.kind === 'plan-review' ? 'PLAN-REVIEW' : approval.kind === 'pr-publication' ? 'PR-VERÖFFENTLICHUNG' : 'BLOCKIERT'}</small><h3>{approval.title}</h3><p>{approval.summary}</p>{approval.task && <button className="secondary diff-button" onClick={() => showDiff(approval)}>Diff ansehen</button>}<div className="actions">{approval.kind === 'plan-review' ? <><button onClick={() => act('plan.approve', approval)}>Freigeben</button><button className="secondary" onClick={() => act('plan.reject', approval)}>Ablehnen</button></> : approval.kind === 'pr-publication' ? <><button onClick={() => act('publication.approve', approval)}>Veröffentlichen</button><button className="secondary" onClick={() => act('publication.reject', approval)}>Ablehnen</button></> : <><button onClick={() => act('mode.enableAuto', approval)}>Auto aktivieren</button><button className="secondary" onClick={() => act('run.reset', approval)}>Lauf zurücksetzen</button></>}</div></article>)}</section>
+  return <section><span className="eyebrow">Entscheidungen</span><h2>Approval-Inbox</h2>{error && <div className="error">{error}</div>}{diff && <article className="diff-view"><div><strong>{diff.title}</strong><button className="secondary" onClick={() => setDiff(undefined)}>Schließen</button></div><pre>{diff.value}</pre></article>}{approvals.map((approval) => <article className="approval" key={approval.id}><small>{approval.kind === 'plan-review' ? 'PLAN-REVIEW' : approval.kind === 'pr-publication' ? 'PR-VERÖFFENTLICHUNG' : approval.kind === 'tool-permission' ? 'TOOL-BERECHTIGUNG' : 'BLOCKIERT'}</small><h3>{approval.title}</h3><p>{approval.summary}</p>{approval.task && <button className="secondary diff-button" onClick={() => showDiff(approval)}>Diff ansehen</button>}<div className="actions">{approval.kind === 'tool-permission' ? <><button onClick={() => act('permission.allow', approval)}>Einmal erlauben</button><button className="secondary" onClick={() => act('permission.deny', approval)}>Ablehnen</button></> : approval.kind === 'plan-review' ? <><button onClick={() => act('plan.approve', approval)}>Freigeben</button><button className="secondary" onClick={() => act('plan.reject', approval)}>Ablehnen</button></> : approval.kind === 'pr-publication' ? <><button onClick={() => act('publication.approve', approval)}>Veröffentlichen</button><button className="secondary" onClick={() => act('publication.reject', approval)}>Ablehnen</button></> : <><button onClick={() => act('mode.enableAuto', approval)}>Auto aktivieren</button><button className="secondary" onClick={() => act('run.reset', approval)}>Lauf zurücksetzen</button></>}</div></article>)}</section>
 }
 
 function Empty({ title, text }: { title: string; text: string }): JSX.Element {

@@ -1,6 +1,6 @@
 import type { EventEmitter } from 'node:events'
 import type { OrchestratorSnapshot } from '@shared/orchestrator'
-import type { ApprovalItem, RemoteEventFrame } from '@shared/remote'
+import type { ApprovalItem, DeviceInfo, RemoteEventFrame } from '@shared/remote'
 
 export interface SnapshotBus extends EventEmitter {
   on(event: 'snapshot', listener: (snapshot: OrchestratorSnapshot) => void): this
@@ -18,6 +18,18 @@ export function deriveApprovals(snapshots: Iterable<OrchestratorSnapshot>): Appr
     const scope = approvalScope(snapshot)
     if (!scope) continue
     for (const pending of snapshot.pendingApprovals ?? []) approvals.push(pending)
+    for (const permission of snapshot.pendingPermissions ?? []) {
+      approvals.push({
+        id: `permission:${permission.id}`,
+        kind: 'tool-permission',
+        ...scope,
+        title: `${permission.provider}: ${permission.tool}`,
+        summary: permission.summary,
+        createdAt: permission.createdAt,
+        permission,
+        actions: ['permission.allow', 'permission.deny']
+      })
+    }
     if (snapshot.pendingPlan) {
       approvals.push({
         id: `plan:${scope.workspaceSessionId}:${snapshot.pendingPlan.planId}`,
@@ -46,6 +58,29 @@ export function deriveApprovals(snapshots: Iterable<OrchestratorSnapshot>): Appr
     }
   }
   return approvals.sort((a, b) => a.createdAt - b.createdAt)
+}
+
+function canReadSession(device: DeviceInfo, profileId?: string, sessionId?: string): boolean {
+  if (!profileId || !sessionId) return false
+  return Boolean(device.scopes.find((scope) =>
+    scope.profileId === profileId && scope.sessionIds.includes(sessionId)
+  ))
+}
+
+export function scopeRemoteFrame(frame: RemoteEventFrame, device: DeviceInfo): RemoteEventFrame | undefined {
+  if (frame.type === 'snapshot') {
+    return canReadSession(device, frame.snapshot.profileId, frame.snapshot.workspaceSessionId)
+      ? frame : undefined
+  }
+  if (frame.type === 'approvals') {
+    return {
+      ...frame,
+      approvals: frame.approvals.filter((approval) =>
+        canReadSession(device, approval.profileId, approval.workspaceSessionId)
+      )
+    }
+  }
+  return frame
 }
 
 export class RemoteReadModel {
@@ -79,12 +114,18 @@ export class RemoteReadModel {
     this.onSnapshot(snapshot)
   }
 
-  initialFrames(): RemoteEventFrame[] {
+  initialFrames(device?: DeviceInfo): RemoteEventFrame[] {
     const at = Date.now()
-    return [
+    const frames: RemoteEventFrame[] = [
       ...[...this.snapshots.values()].map((snapshot): RemoteEventFrame => ({ type: 'snapshot', at, snapshot })),
       { type: 'approvals', at, approvals: deriveApprovals(this.snapshots.values()) }
     ]
+    return device
+      ? frames.flatMap((frame) => {
+          const scoped = scopeRemoteFrame(frame, device)
+          return scoped ? [scoped] : []
+        })
+      : frames
   }
 
   subscribe(listener: (frame: RemoteEventFrame) => void): () => void {

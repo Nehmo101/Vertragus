@@ -43,6 +43,7 @@ vi.mock('@main/orchestrator/recoveryArtifact', () => ({
 }))
 
 import { OrchestratorEngine, platformExecutionGuidance } from './Engine'
+import { permissionBroker } from '@main/permissions/PermissionBroker'
 
 function info(taskId: string) {
   return {
@@ -99,6 +100,59 @@ describe('asynchronous orchestration API', () => {
       role: accepted.role
     }))
     expect(engine.snapshot().activity?.phase).toBe('summarizing')
+  })
+
+  it('pauses a running task, preserves the continuation boundary and resumes through a fresh worker', async () => {
+    let finish!: (value: { result: string; isError: boolean; status: 'cancelled' }) => void
+    const callsBefore = runTask.mock.calls.length
+    runTask
+      .mockImplementationOnce(async (request) => ({
+        info: info(request.taskId),
+        done: new Promise((resolve) => { finish = resolve })
+      }))
+      .mockImplementationOnce(async (request) => ({
+        info: info(request.taskId),
+        done: Promise.resolve({ result: 'Resumed safely', isError: false, status: 'succeeded' as const })
+      }))
+    const engine = new OrchestratorEngine({ profile: { ...DEFAULT_PROFILE } })
+    const accepted = engine.dispatchAsync('codex', 'Long task', 'Pausable')
+    await vi.waitFor(() => expect(runTask).toHaveBeenCalledTimes(callsBefore + 1))
+
+    await expect(engine.pauseTask(accepted.taskId)).resolves.toBe(true)
+    expect(engine.getTaskStatus(accepted.taskId)?.status).toBe('paused')
+    finish({ result: 'Paused by Orca', isError: true, status: 'cancelled' })
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(engine.resumeTask(accepted.taskId)).toBe(true)
+
+    await vi.waitFor(() => expect(runTask).toHaveBeenCalledTimes(callsBefore + 2))
+    await vi.waitFor(() => expect(engine.getTaskStatus(accepted.taskId)?.status).toBe('success'))
+    expect(engine.getTaskStatus(accepted.taskId)?.result).toContain('Resumed safely')
+  })
+
+  it('marks a task waiting while its native provider permission callback is unresolved', async () => {
+    let finish!: (value: { result: string; isError: boolean; status: 'succeeded' }) => void
+    runTask.mockImplementationOnce(async (request) => ({
+      info: info(request.taskId),
+      done: new Promise((resolve) => { finish = resolve })
+    }))
+    const engine = new OrchestratorEngine({
+      profile: { ...DEFAULT_PROFILE }, workspaceSessionId: 'permission-session'
+    })
+    const accepted = engine.dispatchAsync('codex', 'Permission task', 'Permission')
+    await vi.waitFor(() => expect(engine.getTaskStatus(accepted.taskId)?.status).toBe('running'))
+    const decision = permissionBroker.requestDecision({
+      provider: 'codex', agentId: `agent-${accepted.taskId}`, taskId: accepted.taskId,
+      profileId: DEFAULT_PROFILE.id, workspaceSessionId: 'permission-session',
+      engineId: engine.engineId, yolo: false
+    }, 'shell')
+    await vi.waitFor(() => expect(engine.getTaskStatus(accepted.taskId)?.status).toBe('waiting'))
+    const pending = engine.snapshot().pendingPermissions?.[0]
+    expect(pending).toEqual(expect.objectContaining({ tool: 'shell' }))
+    expect(engine.resolvePermission(pending!.id, true)).toBe(true)
+    await expect(decision).resolves.toBe('allow')
+    expect(engine.getTaskStatus(accepted.taskId)?.status).toBe('running')
+    finish({ result: 'Allowed safely', isError: false, status: 'succeeded' })
+    await vi.waitFor(() => expect(engine.getTaskStatus(accepted.taskId)?.status).toBe('success'))
   })
 
   it('passes the session Yolo default to adaptively dispatched workers', async () => {
@@ -691,5 +745,41 @@ describe('asynchronous orchestration API', () => {
       commit: 'b'.repeat(40),
       findings: [expect.objectContaining({ code: 'missing-ipc-controls' })]
     }))
+  })
+
+  it('switches provider on a rate limit even when normal routing is fixed', async () => {
+    const callsBefore = runTask.mock.calls.length
+    runTask
+      .mockImplementationOnce(async (request) => ({
+        info: { ...info(request.taskId), provider: request.provider },
+        done: Promise.resolve({ result: 'Provider rate limit hit', isError: true, status: 'failed' as const })
+      }))
+      .mockImplementationOnce(async (request) => ({
+        info: { ...info(request.taskId), provider: request.provider },
+        done: Promise.resolve({ result: 'Fallback completed', isError: false, status: 'succeeded' as const })
+      }))
+    const profile = {
+      ...DEFAULT_PROFILE,
+      agents: [
+        { ...DEFAULT_PROFILE.agents[0]!, role: 'primary', provider: 'codex' as const },
+        { ...DEFAULT_PROFILE.agents[0]!, role: 'fallback', provider: 'cursor' as const }
+      ],
+      planner: {
+        ...DEFAULT_PROFILE.planner,
+        mode: 'auto' as const,
+        routingMode: 'fixed' as const,
+        maxRetries: 0
+      }
+    }
+    const engine = new OrchestratorEngine({ profile })
+    const result = await engine.executePlan({
+      version: 1, goal: 'Survive provider limit', maxParallel: 1,
+      tasks: [{
+        id: 'limited', title: 'Limited', role: 'primary', prompt: 'Work',
+        dependsOn: [], conflictKeys: [], ownership: 'feature', expectedFiles: []
+      }]
+    })
+    expect(result.status).toBe('success')
+    expect(runTask.mock.calls.slice(callsBefore).map((call) => call[0].provider)).toEqual(['codex', 'cursor'])
   })
 })

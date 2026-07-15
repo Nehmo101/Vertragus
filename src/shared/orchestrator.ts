@@ -8,9 +8,9 @@ import type { AgentProviderId } from './providers'
 import type { AgentUsage } from './agents'
 import type { PlannerConfig } from './profile'
 import type { RunRetro } from './retro'
-import type { ApprovalItem } from './remote'
+import type { ApprovalItem, PermissionRequest, RemoteBudgetSnapshot } from './remote'
 
-export type TaskStatus = 'queued' | 'running' | 'success' | 'needs-work' | 'error' | 'stopped'
+export type TaskStatus = 'queued' | 'running' | 'waiting' | 'paused' | 'success' | 'needs-work' | 'error' | 'stopped'
 
 export type TaskCriticality = 'required' | 'advisory'
 export type TaskFailureKind = 'infrastructure' | 'worker' | 'gate' | 'cancelled'
@@ -260,6 +260,10 @@ export interface OrchestratorSnapshot {
   pendingPlan?: PendingPlanReview
   /** Unified approval projection; populated by Mission Control from the same snapshot bus. */
   pendingApprovals?: ApprovalItem[]
+  /** Provider tool prompts waiting in Orca's internal permission broker. */
+  pendingPermissions?: PermissionRequest[]
+  /** Aggregated provider telemetry plus restrictive remote caps for this session. */
+  budget?: RemoteBudgetSnapshot
   /** Retrospective of the most recent terminal plan run in this session. */
   lastRetro?: RunRetro
   /** Recent shared findings board entries (newest last), for the live UI. */
