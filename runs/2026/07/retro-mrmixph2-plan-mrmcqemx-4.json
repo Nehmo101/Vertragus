@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "exportedAt": 1784146795002,
+  "app": {
+    "name": "orca-strator",
+    "version": "0.1.40-main.2.g4fa9d28"
+  },
+  "machineId": "5087fc1f7b9d",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrmixph2-plan-mrmcqemx-4",
+    "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+    "workspaceSessionId": "d1f5e827-4be3-430e-9f2c-cd3c2429edb7",
+    "planId": "plan-mrmcqemx-4",
+    "goal": "PR-Welle Drei-Produkte-Split Foundation: sauberen finalen Doku-Stand ohne Temp-/Check-Dateien herstellen (Basis Commit a48ddaf9 + PR-Draft aus 522c54bb) und Release-Preflight für Push + Draft-PR gegen main liefern. Keine Implementierung, keine neuen Inhalte.",
+    "status": "needs-work",
+    "summary": "Lauf mit Nacharbeit: 2 Modell(e), 1/2 Tasks erfolgreich.",
+    "modelStats": [
+      {
+        "provider": "claude",
+        "model": "claude-sonnet-5",
+        "roles": [
+          "orchestrator-integrator"
+        ],
+        "tasks": 1,
+        "succeeded": 0,
+        "needsWork": 1,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 3,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "costUsd": 1.5364515,
+        "avgDurationMs": 9980432
+      },
+      {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "roles": [
+          "release-git-preflight"
+        ],
+        "tasks": 1,
+        "succeeded": 1,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "avgDurationMs": 10417849
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrm75c2v-3-ghnk87",
+        "provider": "claude",
+        "model": "claude-sonnet-5",
+        "role": "orchestrator-integrator",
+        "kind": "weakness",
+        "insight": "Quality-Gates erfordern Nacharbeit bei orchestrator-integrator",
+        "evidence": "1 Task(s) mit 3 Gate-Finding(s)",
+        "source": "auto-retro",
+        "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+        "observations": 2,
+        "createdAt": 1784126995303,
+        "updatedAt": 1784146794785
+      }
+    ],
+    "createdAt": 1784146794806
+  }
+}
