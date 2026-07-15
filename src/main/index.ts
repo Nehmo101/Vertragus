@@ -9,20 +9,23 @@ if (process.env['ORCA_UI_SMOKE'] && smokeUserData) {
 }
 
 let stopAgents: () => Promise<void> = async () => undefined
+let stopRemote: () => Promise<void> = async () => undefined
 
 app.whenReady().then(async () => {
   // Finder-launched macOS apps do not inherit the user's login-shell PATH.
   // Refresh before any provider, Git or MCP process can be discovered/spawned.
   await refreshProcessPathFromSystem()
-  const [ipc, agents, mcp, windows, updater] = await Promise.all([
+  const [ipc, agents, mcp, remote, windows, updater] = await Promise.all([
     import('@main/ipc/register'),
     import('@main/agents/AgentManager'),
     import('@main/orchestrator/OrcaMcpServer'),
+    import('@main/remote'),
     import('@main/windows'),
     import('@main/updater')
   ])
   const { agentManager } = agents
   stopAgents = () => agentManager.killAll()
+  stopRemote = () => remote.stopRemoteGateway()
   electronApp.setAppUserModelId('dev.nehmo.orca-strator')
   installEditMenu()
 
@@ -40,6 +43,16 @@ app.whenReady().then(async () => {
     await runSelfTest()
     return
   }
+
+  if (process.env['ORCA_REMOTE_SELFTEST']) {
+    const { runRemoteSelfTest } = await import('@main/remote/selftestRemote')
+    await runRemoteSelfTest()
+    return
+  }
+
+  await remote.startRemoteGatewayIfEnabled().catch((error) => {
+    console.error('[MissionControl] secure startup refused', error)
+  })
 
   ipc.registerIpcHandlers()
   windows.createMainWindow()
@@ -63,4 +76,5 @@ app.on('window-all-closed', () => {
 // Never leave orphaned agent PTYs behind.
 app.on('before-quit', () => {
   void stopAgents()
+  void stopRemote()
 })

@@ -1,0 +1,97 @@
+import type { EventEmitter } from 'node:events'
+import type { OrchestratorSnapshot } from '@shared/orchestrator'
+import type { ApprovalItem, RemoteEventFrame } from '@shared/remote'
+
+export interface SnapshotBus extends EventEmitter {
+  on(event: 'snapshot', listener: (snapshot: OrchestratorSnapshot) => void): this
+  off(event: 'snapshot', listener: (snapshot: OrchestratorSnapshot) => void): this
+}
+
+function approvalScope(snapshot: OrchestratorSnapshot): { profileId: string; workspaceSessionId: string } | undefined {
+  if (!snapshot.profileId || !snapshot.workspaceSessionId) return undefined
+  return { profileId: snapshot.profileId, workspaceSessionId: snapshot.workspaceSessionId }
+}
+
+export function deriveApprovals(snapshots: Iterable<OrchestratorSnapshot>): ApprovalItem[] {
+  const approvals: ApprovalItem[] = []
+  for (const snapshot of snapshots) {
+    const scope = approvalScope(snapshot)
+    if (!scope) continue
+    if (snapshot.pendingPlan) {
+      approvals.push({
+        id: `plan:${scope.workspaceSessionId}:${snapshot.pendingPlan.planId}`,
+        kind: 'plan-review',
+        ...scope,
+        title: 'Plan wartet auf Freigabe',
+        summary: `${snapshot.pendingPlan.plan.tasks.length} Aufgabe(n) · ${snapshot.pendingPlan.plan.goal}`,
+        createdAt: snapshot.activity?.updatedAt ?? Date.now(),
+        plan: snapshot.pendingPlan,
+        actions: ['plan.approve', 'plan.reject']
+      })
+    }
+    for (const task of snapshot.tasks) {
+      if (task.status !== 'needs-work' && task.status !== 'error') continue
+      if (!task.blocker && !task.recoveryArtifact) continue
+      approvals.push({
+        id: `task:${scope.workspaceSessionId}:${task.id}`,
+        kind: 'task-blocked',
+        ...scope,
+        title: task.title,
+        summary: task.blocker?.summary ?? task.note ?? 'Aufgabe benötigt eine Entscheidung.',
+        createdAt: task.finishedAt ?? task.createdAt,
+        task,
+        actions: ['mode.enableAuto', 'run.reset']
+      })
+    }
+  }
+  return approvals.sort((a, b) => a.createdAt - b.createdAt)
+}
+
+export class RemoteReadModel {
+  private readonly snapshots = new Map<string, OrchestratorSnapshot>()
+  private readonly listeners = new Set<(frame: RemoteEventFrame) => void>()
+  private started = false
+  private readonly onSnapshot = (snapshot: OrchestratorSnapshot): void => {
+    const key = snapshot.workspaceSessionId ?? snapshot.profileId
+    if (!key) return
+    this.snapshots.set(key, snapshot)
+    this.publish({ type: 'snapshot', at: Date.now(), snapshot })
+    this.publish({ type: 'approvals', at: Date.now(), approvals: deriveApprovals(this.snapshots.values()) })
+  }
+
+  constructor(private readonly bus: SnapshotBus) {}
+
+  start(): void {
+    if (this.started) return
+    this.started = true
+    this.bus.on('snapshot', this.onSnapshot)
+  }
+
+  stop(): void {
+    if (!this.started) return
+    this.started = false
+    this.bus.off('snapshot', this.onSnapshot)
+    this.listeners.clear()
+  }
+
+  seed(snapshot: OrchestratorSnapshot): void {
+    this.onSnapshot(snapshot)
+  }
+
+  initialFrames(): RemoteEventFrame[] {
+    const at = Date.now()
+    return [
+      ...[...this.snapshots.values()].map((snapshot): RemoteEventFrame => ({ type: 'snapshot', at, snapshot })),
+      { type: 'approvals', at, approvals: deriveApprovals(this.snapshots.values()) }
+    ]
+  }
+
+  subscribe(listener: (frame: RemoteEventFrame) => void): () => void {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
+  }
+
+  private publish(frame: RemoteEventFrame): void {
+    for (const listener of this.listeners) listener(frame)
+  }
+}

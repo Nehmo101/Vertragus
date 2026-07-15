@@ -100,6 +100,8 @@ import {
   createPromptEnhancementIpcController,
   type PromptIpcWebContentsLike
 } from '@main/inbox/promptEnhancementIpc'
+import { remoteService } from '@main/remote'
+import type { RemoteEnableRequest, RemotePairStartRequest } from '@shared/remote'
 
 function senderWindow(e: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent): BrowserWindow | null {
   return BrowserWindow.fromWebContents(e.sender)
@@ -173,6 +175,9 @@ export function registerIpcHandlers(): void {
       return profiles
     }
   })
+  const requireMainWindow = (event: Electron.IpcMainInvokeEvent): void => {
+    if (!isMainWindowSender(event.sender)) throw new Error('Remote-Verwaltung ist nur im Hauptfenster erlaubt.')
+  }
   // ---- app / providers / config ----
   ipcMain.handle(IPC.appInfo, (): AppInfo => {
     return {
@@ -394,6 +399,32 @@ export function registerIpcHandlers(): void {
     abortInboxTranscription()
   })
 
+  // ---- Mission Control (desktop administration only) ----
+  ipcMain.handle(IPC.remoteStatus, (event) => {
+    requireMainWindow(event)
+    return remoteService.status()
+  })
+  ipcMain.handle(IPC.remoteEnable, (event, request: RemoteEnableRequest) => {
+    requireMainWindow(event)
+    return remoteService.enable(request)
+  })
+  ipcMain.handle(IPC.remoteDisable, (event) => {
+    requireMainWindow(event)
+    return remoteService.disable()
+  })
+  ipcMain.handle(IPC.remoteListDevices, (event) => {
+    requireMainWindow(event)
+    return remoteService.listDevices()
+  })
+  ipcMain.handle(IPC.remoteRevokeDevice, (event, deviceId: string) => {
+    requireMainWindow(event)
+    return remoteService.revokeDevice(String(deviceId))
+  })
+  ipcMain.handle(IPC.remotePairStart, (event, request?: RemotePairStartRequest) => {
+    requireMainWindow(event)
+    return remoteService.startPairing(request)
+  })
+
   // ---- agents ----
   ipcMain.handle(IPC.agentsList, () => agentManager.list())
   ipcMain.handle(IPC.agentSpawn, (_e, req: SpawnAgentRequest) => {
@@ -516,6 +547,9 @@ export function registerIpcHandlers(): void {
     broadcast(IPC.evWorkspaceSessions, workspaceSessions.list())
   })
   workspaceSessions.on('snapshot', (snap: OrchestratorSnapshot) => {
+    if (snap.workspaceSessionId) {
+      agentManager.setWorkspaceApprovalWaiting(snap.workspaceSessionId, Boolean(snap.pendingPlan))
+    }
     recordDiagnostic(runJournal, {
       kind: 'orchestrator-snapshot',
       profileId: snap.profileId,
@@ -524,6 +558,7 @@ export function registerIpcHandlers(): void {
     })
     broadcast(IPC.evOrchestrator, snap)
   })
+  remoteService.on('status', (status) => broadcast(IPC.evRemote, status))
   agentManager.on('provider-auth-complete', () => {
     void checkAllProviders()
       .then((health) => broadcast(IPC.evProvidersHealth, health))

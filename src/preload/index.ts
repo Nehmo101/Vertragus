@@ -89,6 +89,16 @@ const orca: OrcaApi = {
     abort: () => ipcRenderer.invoke(IPC.inboxSpeechAbort)
   },
 
+  remote: {
+    status: () => ipcRenderer.invoke(IPC.remoteStatus),
+    enable: (request) => ipcRenderer.invoke(IPC.remoteEnable, request),
+    disable: () => ipcRenderer.invoke(IPC.remoteDisable),
+    listDevices: () => ipcRenderer.invoke(IPC.remoteListDevices),
+    revokeDevice: (deviceId) => ipcRenderer.invoke(IPC.remoteRevokeDevice, deviceId),
+    pairStart: (request) => ipcRenderer.invoke(IPC.remotePairStart, request),
+    onStatus: (cb) => subscribe(IPC.evRemote, cb)
+  },
+
   agents: {
     list: () => ipcRenderer.invoke(IPC.agentsList),
     spawn: (req) => ipcRenderer.invoke(IPC.agentSpawn, req),

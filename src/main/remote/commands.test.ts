@@ -1,0 +1,43 @@
+import { describe, expect, it, vi } from 'vitest'
+import type { DeviceInfo } from '@shared/remote'
+import { REMOTE_COMMAND_IDS } from '@shared/remote'
+import { RemoteCommandRouter } from './commands'
+
+const steerDevice: DeviceInfo = {
+  id: 'device-1', name: 'Phone', capabilities: ['read', 'steer'], createdAt: 1
+}
+
+function router(): RemoteCommandRouter {
+  return new RemoteCommandRouter({
+    reviewPlan: vi.fn(() => true),
+    enableAutoMode: vi.fn(() => true),
+    reset: vi.fn(),
+    submitGoal: vi.fn(() => ({ submitted: true })),
+    activateKillSwitch: vi.fn()
+  })
+}
+
+describe('RemoteCommandRouter', () => {
+  it('contains exactly the Phase-A whitelist and no dangerous regression routes', () => {
+    const value = router()
+    expect(value.ids().sort()).toEqual([...REMOTE_COMMAND_IDS].sort())
+    for (const denied of ['agent.write', 'spawn', 'agent.spawn', 'config.set', 'config:set', 'secrets.get']) {
+      expect(value.resolve(denied)).toBeUndefined()
+    }
+  })
+
+  it('returns 404 for unknown commands and rejects malformed extra arguments', async () => {
+    const value = router()
+    await expect(value.execute({ id: 'agent.write', args: {} }, steerDevice))
+      .rejects.toMatchObject({ status: 404 })
+    await expect(value.execute({
+      id: 'plan.approve', args: { profileId: 'p', sessionId: 's', command: 'rm -rf .' }
+    }, steerDevice)).rejects.toMatchObject({ status: 400 })
+  })
+
+  it('capability-gates admin commands', async () => {
+    await expect(router().execute({
+      id: 'run.reset', args: { profileId: 'p', sessionId: 's' }
+    }, steerDevice)).rejects.toMatchObject({ status: 403 })
+  })
+})

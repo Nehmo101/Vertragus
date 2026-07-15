@@ -40,6 +40,13 @@ import type {
   PromptEnhancementIpcRequest,
   PromptEnhancementIpcResult
 } from './promptEnhancement'
+import type {
+  DeviceInfo,
+  PairingChallenge,
+  RemoteEnableRequest,
+  RemotePairStartRequest,
+  RemoteStatus
+} from './remote'
 
 export const IPC = {
   appInfo: 'app:info',
@@ -112,6 +119,12 @@ export const IPC = {
   orchestratorSetPlannerMode: 'orchestrator:setPlannerMode',
   orchestratorReviewPlan: 'orchestrator:reviewPlan',
   orchestratorTaskDiff: 'orchestrator:taskDiff',
+  remoteStatus: 'remote:status',
+  remoteEnable: 'remote:enable',
+  remoteDisable: 'remote:disable',
+  remoteListDevices: 'remote:listDevices',
+  remoteRevokeDevice: 'remote:revokeDevice',
+  remotePairStart: 'remote:pairStart',
   retroListRetros: 'retro:listRetros',
   retroListLearnings: 'retro:listLearnings',
   retroListBenchmarks: 'retro:listBenchmarks',
@@ -125,6 +138,7 @@ export const IPC = {
   evAppUpdateState: 'ev:appUpdateState',
   evOrchestrator: 'ev:orchestrator',
   evWorkspaceSessions: 'ev:workspaceSessions',
+  evRemote: 'ev:remote',
   // window controls (frameless title bar)
   winMinimize: 'win:minimize',
   winMaximizeToggle: 'win:maximizeToggle',
@@ -369,6 +383,18 @@ export interface OrcaApi {
     setSettings(patch: InboxSpeechSettingsPatch): Promise<InboxSpeechSettings>
     transcribe(payload: TranscribeAudioPayload): Promise<TranscribeAudioResult>
     abort(): Promise<void>
+  }
+
+  /** Desktop-only Mission Control administration. Mobile clients use HTTP/SSE. */
+  remote: {
+    status(): Promise<RemoteStatus>
+    enable(request: RemoteEnableRequest): Promise<RemoteStatus>
+    /** Master kill switch: persistently disables remote, revokes all devices and tears down transport. */
+    disable(): Promise<RemoteStatus>
+    listDevices(): Promise<DeviceInfo[]>
+    revokeDevice(deviceId: string): Promise<boolean>
+    pairStart(request?: RemotePairStartRequest): Promise<PairingChallenge>
+    onStatus(cb: (status: RemoteStatus) => void): () => void
   }
 
   agents: {

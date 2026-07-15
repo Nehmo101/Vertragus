@@ -11,6 +11,7 @@ import PaneWindow from '@renderer/components/PaneWindow'
 import InboxPanel from '@renderer/components/InboxPanel'
 import AddAgentModal from '@renderer/components/AddAgentModal'
 import SpeechSettingsModal from '@renderer/components/SpeechSettingsModal'
+import RemotePanel from '@renderer/components/RemotePanel'
 
 function useHashRoute(): string {
   const [hash, setHash] = useState(() => window.location.hash)
@@ -63,8 +64,8 @@ export default function App(): JSX.Element {
 
       <div className={`body-row layout-${store.workspaceLayout}`}>
         <Sidebar />
-        {hash === '#/inbox' ? <InboxPanel /> : <Workspace />}
-        <OrchestratorPanel />
+        {hash === '#/inbox' ? <InboxPanel /> : hash === '#/remote' ? <RemotePanel /> : <Workspace />}
+        {hash !== '#/remote' && <OrchestratorPanel />}
       </div>
 
       {store.editorProfile && <ProfileEditor key={store.editorProfile.id} />}

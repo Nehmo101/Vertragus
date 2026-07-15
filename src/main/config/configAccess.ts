@@ -28,6 +28,7 @@ export const PUBLIC_CONFIG_GET_KEYS = new Set([
   'retroSync.repoOwner',
   'retroSync.repoName',
   'retroSync.branch',
+  'remote.enabled',
   'workspaceRepo.active',
   'workspaceRepo.recent'
 ])
@@ -46,6 +47,7 @@ export const PUBLIC_CONFIG_SET_KEYS = new Set([
   'retroSync.repoOwner',
   'retroSync.repoName',
   'retroSync.branch',
+  'remote.enabled',
   'workspaceRepo.active',
   'workspaceRepo.recent'
 ])
@@ -78,6 +80,14 @@ export function getPublicConfig<T = unknown>(key: string): T | undefined {
 
 export function setPublicConfig(key: string, value: unknown): void {
   assertConfigSetAllowed(key)
+  if (key === 'remote.enabled') {
+    if (typeof value !== 'boolean') throw new Error('remote.enabled erwartet true oder false.')
+    // Activation is deliberately exclusive to dedicated Remote IPC where safeStorage,
+    // credentials, gateway and tunnel are changed atomically. Generic config may stop it.
+    if (value) throw new Error('Remote-Zugriff muss über die sichere Remote-Aktivierung eingeschaltet werden.')
+    setSetting(key, false)
+    return
+  }
   if (key === 'providerLimits') {
     setSetting(key, parseProviderLimits(value))
     return

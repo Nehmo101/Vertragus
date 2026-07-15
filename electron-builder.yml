@@ -9,6 +9,7 @@ directories:
   output: release/${version}
 files:
   - out/**/*
+  - apps/mobile/dist/**/*
   - package.json
 asarUnpack:
   - resources/**

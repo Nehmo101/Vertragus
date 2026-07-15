@@ -168,6 +168,22 @@ export class AgentManager extends EventEmitter {
       .map((managed) => managed.info)
   }
 
+  /** Reflect an existing engine approval gate without exposing PTY input remotely. */
+  setWorkspaceApprovalWaiting(workspaceSessionId: string, waiting: boolean): void {
+    let changed = false
+    for (const managed of this.agents.values()) {
+      if (managed.info.kind !== 'orchestrator' || managed.info.workspaceSessionId !== workspaceSessionId) continue
+      if (waiting && managed.info.status === 'running') {
+        managed.info.status = 'waiting'
+        changed = true
+      } else if (!waiting && managed.info.status === 'waiting') {
+        managed.info.status = 'running'
+        changed = true
+      }
+    }
+    if (changed) this.changed()
+  }
+
   private preflightKey(provider: AgentProviderId, workingDir: string): string {
     return `${provider}:${workspacePathKey(workingDir)}`
   }

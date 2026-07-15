@@ -4,6 +4,7 @@ import type { WorkspaceProfile } from '@shared/profile'
 import { resolveModel } from '@shared/models'
 import { repoRefKey, repoRefLabel } from '@shared/repoSwitcher'
 import type { UpdateState } from '@shared/ipc'
+import type { RemoteStatus } from '@shared/remote'
 import WhaleLogo from '@renderer/components/WhaleLogo'
 import GitWorkspaceTree from '@renderer/components/GitWorkspaceTree'
 import styles from './responsiveGuards.module.css'
@@ -46,6 +47,7 @@ export default function TitleBar(): JSX.Element {
   const [confirmKill, setConfirmKill] = useState(false)
   const [update, setUpdate] = useState<UpdateState | null>(null)
   const [branchSwitching, setBranchSwitching] = useState(false)
+  const [remote, setRemote] = useState<RemoteStatus | null>(null)
 
   const repoRef = effectiveRepoRef(store)
   const repoPath = repoRef?.path.trim() ?? ''
@@ -82,6 +84,12 @@ export default function TitleBar(): JSX.Element {
     if (!window.orca?.updates) return
     const unsubscribe = window.orca.updates.onState(setUpdate)
     void window.orca.updates.state().then(setUpdate)
+    return unsubscribe
+  }, [])
+  useEffect(() => {
+    if (!window.orca?.remote) return
+    const unsubscribe = window.orca.remote.onStatus(setRemote)
+    void window.orca.remote.status().then(setRemote)
     return unsubscribe
   }, [])
   useEffect(() => {
@@ -223,6 +231,16 @@ export default function TitleBar(): JSX.Element {
             <span>{updateLabel}</span>
           </button>
         )}
+
+        <button
+          type="button"
+          className={`remote-title-badge no-drag ${remote?.enabled ? 'active' : ''}`}
+          title={remote?.enabled ? `Mission Control: ${remote.tunnel}` : 'Mission Control einrichten'}
+          onClick={() => { window.location.hash = '#/remote' }}
+        >
+          <span className="pulse-dot" />
+          Remote {remote?.enabled ? 'aktiv' : 'aus'}
+        </button>
 
         <button
           type="button"

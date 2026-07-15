@@ -8,6 +8,7 @@ import type { AgentProviderId } from './providers'
 import type { AgentUsage } from './agents'
 import type { PlannerConfig } from './profile'
 import type { RunRetro } from './retro'
+import type { ApprovalItem } from './remote'
 
 export type TaskStatus = 'queued' | 'running' | 'success' | 'needs-work' | 'error' | 'stopped'
 
@@ -257,6 +258,8 @@ export interface OrchestratorSnapshot {
   capacity?: OrchestratorCapacitySnapshot
   reliability?: OrchestratorReliabilityMetrics
   pendingPlan?: PendingPlanReview
+  /** Unified approval projection; populated by Mission Control from the same snapshot bus. */
+  pendingApprovals?: ApprovalItem[]
   /** Retrospective of the most recent terminal plan run in this session. */
   lastRetro?: RunRetro
   /** Recent shared findings board entries (newest last), for the live UI. */
