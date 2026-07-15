@@ -1,0 +1,192 @@
+{
+  "version": 1,
+  "exportedAt": 1784126995398,
+  "app": {
+    "name": "orca-strator",
+    "version": "0.1.40-main.2.g4fa9d28"
+  },
+  "machineId": "5087fc1f7b9d",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrm75c35-plan-mrm4qekw-3",
+    "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+    "workspaceSessionId": "d1f5e827-4be3-430e-9f2c-cd3c2429edb7",
+    "planId": "plan-mrm4qekw-3",
+    "goal": "UWE Drei-Produkte-Split Foundation-Welle Teil 2: ADR-Pack, Masterplan, Domain-Contracts, Guard-/Test-/CI-Pläne, Security-Review, Integration und PR-Vorbereitung — aufbauend auf dem gelieferten Inventar (Commit 223ac6f1). Reine Doku; Gate-Vokabular-False-Positives sind einkalkuliert und blockieren den Fluss nicht.",
+    "status": "needs-work",
+    "summary": "Lauf mit Nacharbeit: 4 Modell(e), 0/8 Tasks erfolgreich.",
+    "modelStats": [
+      {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "roles": [
+          "backend-services",
+          "database-schema"
+        ],
+        "tasks": 4,
+        "succeeded": 0,
+        "needsWork": 4,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 5,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "avgDurationMs": 1331393
+      },
+      {
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "roles": [
+          "security-privacy-review"
+        ],
+        "tasks": 2,
+        "succeeded": 0,
+        "needsWork": 2,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 4,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "costUsd": 8.7204665,
+        "avgDurationMs": 2430145
+      },
+      {
+        "provider": "claude",
+        "model": "claude-sonnet-5",
+        "roles": [
+          "orchestrator-integrator"
+        ],
+        "tasks": 1,
+        "succeeded": 0,
+        "needsWork": 1,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 3,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "costUsd": 8.275051499999995,
+        "avgDurationMs": 3899891
+      },
+      {
+        "provider": "claude",
+        "model": "claude-haiku-4-5",
+        "roles": [
+          "qa-gate-runner"
+        ],
+        "tasks": 1,
+        "succeeded": 0,
+        "needsWork": 1,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 2,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "costUsd": 0.16733150000000002,
+        "avgDurationMs": 4054380
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrm75c2v-1-qljpow",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "backend-services",
+        "kind": "weakness",
+        "insight": "Quality-Gates erfordern Nacharbeit bei backend-services, database-schema",
+        "evidence": "4 Task(s) mit 5 Gate-Finding(s)",
+        "source": "auto-retro",
+        "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+        "observations": 1,
+        "createdAt": 1784126995303,
+        "updatedAt": 1784126995303
+      },
+      {
+        "id": "learning-mrm75c2v-2-j4y6e1",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "security-privacy-review",
+        "kind": "weakness",
+        "insight": "Quality-Gates erfordern Nacharbeit bei security-privacy-review",
+        "evidence": "2 Task(s) mit 4 Gate-Finding(s)",
+        "source": "auto-retro",
+        "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+        "observations": 1,
+        "createdAt": 1784126995303,
+        "updatedAt": 1784126995303
+      },
+      {
+        "id": "learning-mrm75c2v-3-ghnk87",
+        "provider": "claude",
+        "model": "claude-sonnet-5",
+        "role": "orchestrator-integrator",
+        "kind": "weakness",
+        "insight": "Quality-Gates erfordern Nacharbeit bei orchestrator-integrator",
+        "evidence": "1 Task(s) mit 3 Gate-Finding(s)",
+        "source": "auto-retro",
+        "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+        "observations": 1,
+        "createdAt": 1784126995303,
+        "updatedAt": 1784126995303
+      },
+      {
+        "id": "learning-mrm75c2v-4-1vukpq",
+        "provider": "claude",
+        "model": "claude-haiku-4-5",
+        "role": "qa-gate-runner",
+        "kind": "weakness",
+        "insight": "Quality-Gates erfordern Nacharbeit bei qa-gate-runner",
+        "evidence": "1 Task(s) mit 2 Gate-Finding(s)",
+        "source": "auto-retro",
+        "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+        "observations": 1,
+        "createdAt": 1784126995303,
+        "updatedAt": 1784126995303
+      }
+    ],
+    "createdAt": 1784126995313
+  }
+}
