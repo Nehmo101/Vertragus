@@ -15,16 +15,23 @@ export async function spawnProfileTeam(
   yoloMaster: boolean,
   options?: { resetOrchestrator?: boolean }
 ): Promise<AgentInstanceInfo[]> {
+  // Adaptive profiles start their workers later through the orchestrator engine.
+  // Persist the global switch in this run's profile snapshot so those delayed
+  // workers inherit the same no-prompts policy as agents spawned right now.
+  const sessionProfile = yoloMaster && !profile.yoloDefault
+    ? { ...profile, yoloDefault: true }
+    : profile
   const session =
     options?.resetOrchestrator === false
-      ? workspaceSessions.ensure(profile)
-      : workspaceSessions.start(profile)
+      ? workspaceSessions.ensure(sessionProfile)
+      : workspaceSessions.start(sessionProfile)
   const engine = session.engine
-  const workingDir = profileRepoLocalPath(profile) || profile.workingDir
+  const runtimeProfile = session.profile
+  const workingDir = profileRepoLocalPath(runtimeProfile) || runtimeProfile.workingDir
   const spawned: AgentInstanceInfo[] = []
 
-  const prewarmWorkers = profile.planner.routingMode !== 'adaptive' || !profile.orchestrator
-  for (const { slot, role } of prewarmWorkers ? agentSlotsWithRoles(profile.agents) : []) {
+  const prewarmWorkers = runtimeProfile.planner.routingMode !== 'adaptive' || !runtimeProfile.orchestrator
+  for (const { slot, role } of prewarmWorkers ? agentSlotsWithRoles(runtimeProfile.agents) : []) {
     for (let i = 1; i <= slot.count; i++) {
       spawned.push(
         await agentManager.spawn({
@@ -35,7 +42,7 @@ export async function spawnProfileTeam(
           teamRole: role,
           yolo: slot.yolo || yoloMaster,
           workingDir: slot.workingDir || workingDir,
-          profileId: profile.id,
+          profileId: runtimeProfile.id,
           workspaceSessionId: session.id,
           engineId: engine.engineId
         })
@@ -43,22 +50,22 @@ export async function spawnProfileTeam(
     }
   }
 
-  if (profile.orchestrator) {
+  if (runtimeProfile.orchestrator) {
     spawned.unshift(
       await agentManager.spawn({
-        provider: profile.orchestrator.provider,
-        model: profile.orchestrator.model,
-        modelPreset: profile.orchestrator.modelPreset,
+        provider: runtimeProfile.orchestrator.provider,
+        model: runtimeProfile.orchestrator.model,
+        modelPreset: runtimeProfile.orchestrator.modelPreset,
         kind: 'orchestrator',
         role: 'Orchestrator · plant & verteilt',
         yolo: yoloMaster,
         workingDir,
-        profileId: profile.id,
+        profileId: runtimeProfile.id,
         workspaceSessionId: session.id,
         engineId: engine.engineId
       })
     )
-    engine.activate(session.profile)
+    engine.activate(runtimeProfile)
   }
 
   return spawned

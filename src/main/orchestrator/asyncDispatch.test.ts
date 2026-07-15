@@ -100,6 +100,23 @@ describe('asynchronous orchestration API', () => {
     expect(engine.snapshot().activity?.phase).toBe('summarizing')
   })
 
+  it('passes the session Yolo default to adaptively dispatched workers', async () => {
+    runTask.mockImplementationOnce(async (request) => ({
+      info: { ...info(request.taskId), yolo: request.yolo },
+      done: Promise.resolve({ result: 'Done', isError: false, status: 'succeeded' as const })
+    }))
+    const callsBeforeDispatch = runTask.mock.calls.length
+    const engine = new OrchestratorEngine({
+      profile: { ...DEFAULT_PROFILE, yoloDefault: true }
+    })
+
+    const accepted = engine.dispatchAsync('codex', 'Implement without prompts', 'Auto approve')
+
+    await vi.waitFor(() => expect(runTask).toHaveBeenCalledTimes(callsBeforeDispatch + 1))
+    expect(runTask.mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({ yolo: true }))
+    await vi.waitFor(() => expect(engine.getTaskStatus(accepted.taskId)?.status).toBe('success'))
+  })
+
   it('propagates remote CI failures without losing the published PR state', async () => {
     runTask.mockImplementationOnce(async (request) => ({
       info: info(request.taskId),
