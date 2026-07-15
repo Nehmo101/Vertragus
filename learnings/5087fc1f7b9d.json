@@ -1,13 +1,27 @@
 {
   "version": 1,
-  "exportedAt": 1784073329784,
+  "exportedAt": 1784110105388,
   "app": {
     "name": "orca-strator",
-    "version": "0.1.29-main.1.gcfaf136"
+    "version": "0.1.40-main.2.g4fa9d28"
   },
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrlx0joc-1-cdmr58",
+      "provider": "codex",
+      "model": "",
+      "role": "codex",
+      "kind": "weakness",
+      "insight": "fehleranfällig bei codex",
+      "evidence": "1/1 auswertbare Tasks inhaltlich fehlgeschlagen",
+      "source": "auto-retro",
+      "profileId": "default",
+      "observations": 1,
+      "createdAt": 1784109975708,
+      "updatedAt": 1784109975708
+    },
     {
       "id": "learning-mrla9l8c-1-qua21e",
       "provider": "codex",
