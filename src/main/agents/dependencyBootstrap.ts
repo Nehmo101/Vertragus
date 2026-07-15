@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { access, readFile, symlink } from 'node:fs/promises'
 import { constants } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 import { resolveLaunch } from '@main/agents/resolveCommand'
 
@@ -24,6 +24,20 @@ interface InstallCommand {
   command: string
   args: string[]
   label: string
+}
+
+function assertWorktreeContained(repositoryRoot: string, workingDir: string): void {
+  const resolvedRoot = resolve(repositoryRoot)
+  const resolvedWorkingDir = resolve(workingDir)
+  const normalize = (value: string): string => process.platform === 'win32'
+    ? value.toLowerCase()
+    : value
+  const normalizedRoot = normalize(resolvedRoot)
+  const normalizedWorkingDir = normalize(resolvedWorkingDir)
+  if (normalizedWorkingDir !== normalizedRoot
+    && !normalizedWorkingDir.startsWith(`${normalizedRoot}${sep}`)) {
+    throw new Error('Ungültiger Dependency-Bootstrap-Pfad außerhalb des Repository-Roots.')
+  }
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -99,6 +113,8 @@ export async function ensureWorktreeDependencies(
   repositoryRoot: string,
   workingDir: string
 ): Promise<DependencyBootstrapResult> {
+  assertWorktreeContained(repositoryRoot, workingDir)
+
   if (!await exists(join(repositoryRoot, 'package.json'))) {
     return { status: 'not-applicable', detail: 'Kein Node-Paket im Repository erkannt.' }
   }

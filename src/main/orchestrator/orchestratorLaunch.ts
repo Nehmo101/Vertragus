@@ -143,14 +143,14 @@ export function buildOrchestratorSetup(
   if (!handle || !adapter.capability.supported) {
     return { extraArgs: [], capability: adapter.capability }
   }
-  const scopedHandle = workspaceSessionId
-    ? (() => {
-        const url = new URL(handle.url)
-        url.searchParams.set('workspaceSession', workspaceSessionId)
-        if (policy.engineId) url.searchParams.set('engineId', policy.engineId)
-        return { ...handle, url: url.toString() }
-      })()
-    : handle
+  const url = new URL(handle.url)
+  // The server binds this immutable launch identity to the MCP transport. A
+  // handoff acknowledgement is therefore correlated to the concrete target
+  // process in addition to its one-time receipt token and knowledge digest.
+  url.searchParams.set('agentId', agentId)
+  if (workspaceSessionId) url.searchParams.set('workspaceSession', workspaceSessionId)
+  if (policy.engineId) url.searchParams.set('engineId', policy.engineId)
+  const scopedHandle = { ...handle, url: url.toString() }
 
 
   const overlayText = getPromptOverlay()

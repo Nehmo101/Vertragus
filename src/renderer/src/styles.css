@@ -107,6 +107,17 @@ button {
     opacity: 0.3;
   }
 }
+@keyframes workspace-attention-pulse {
+  0%,
+  100% {
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--wait) 38%, transparent);
+  }
+  50% {
+    box-shadow:
+      inset 0 0 0 2px var(--wait),
+      0 0 9px color-mix(in srgb, var(--wait) 42%, transparent);
+  }
+}
 @keyframes yolopulse {
   0%,
   100% {
@@ -1117,6 +1128,19 @@ button {
 .workspace-session-select small {
   color: var(--text-3);
   font-size: 9.5px;
+}
+.profile-row.workspace-needs-user-attention,
+.workspace-session-select.workspace-needs-user-attention {
+  animation: workspace-attention-pulse 1.45s ease-in-out infinite;
+}
+.workspace-attention-indicator {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--wait);
+  box-shadow: 0 0 7px color-mix(in srgb, var(--wait) 68%, transparent);
+  animation: dotpulse 1.45s ease-in-out infinite;
 }
 .workspace-session-remove:hover {
   border-color: var(--err);
@@ -3924,6 +3948,14 @@ textarea:focus-visible,
     scroll-behavior: auto !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+  }
+  .profile-row.workspace-needs-user-attention,
+  .workspace-session-select.workspace-needs-user-attention {
+    animation: none !important;
+    box-shadow: inset 0 0 0 2px var(--wait);
+  }
+  .workspace-attention-indicator {
+    animation: none !important;
   }
 }
 .branch-pill.dirty {

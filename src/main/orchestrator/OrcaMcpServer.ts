@@ -5,6 +5,8 @@
  * directly into the OrchestratorEngine (no extra IPC hop).
  *
  * Orchestrator tools:
+ *   get_handoff_context(...)            — receive correlated handoff knowledge
+ *   acknowledge_handoff(...)            — confirm knowledge before source shutdown
  *   set_goal(title)                     — report the current high-level goal
  *   list_subagents()                    — available subagent slots
  *   dispatch_subagent(role, prompt, …)  — run a subagent, return its result
@@ -23,10 +25,15 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
 import { orchestratorEngine, type OrchestratorEngine } from '@main/orchestrator/Engine'
 import type { OrchestratorActivityPhase, SubagentFindingKind } from '@shared/orchestrator'
+import { agentManager } from '@main/agents/AgentManager'
+import type { HandoffClientIdentity } from '@main/agents/handoffHandshake'
 import { workspaceSessions } from '@main/orchestrator/WorkspaceSessionRegistry'
 import { setMcpHandle, type McpServerHandle } from '@main/orchestrator/mcpHandle'
+import { removeModelLearnings } from '@main/orchestrator/retroStore'
 
 const ORCHESTRATOR_TOOLS = [
+  'mcp__orca__get_handoff_context',
+  'mcp__orca__acknowledge_handoff',
   'mcp__orca__set_goal',
   'mcp__orca__report_activity',
   'mcp__orca__list_subagents',
@@ -40,6 +47,7 @@ const ORCHESTRATOR_TOOLS = [
   'mcp__orca__open_subwindow',
   'mcp__orca__execute_plan',
   'mcp__orca__record_retro',
+  'mcp__orca__revoke_learning',
   'mcp__orca__run_benchmark',
   'mcp__orca__get_benchmark_status',
   'mcp__orca__record_benchmark'
@@ -61,7 +69,10 @@ function text(s: string): ToolText {
   return { content: [{ type: 'text', text: s }] }
 }
 
-function buildMcpServer(engine: OrchestratorEngine = orchestratorEngine): McpServer {
+function buildMcpServer(
+  engine: OrchestratorEngine = orchestratorEngine,
+  clientIdentity?: HandoffClientIdentity
+): McpServer {
   const server = new McpServer(
     { name: 'orca-strator', version: '0.1.0' },
     {
@@ -98,6 +109,68 @@ function buildMcpServer(engine: OrchestratorEngine = orchestratorEngine): McpSer
   ): void => {
     toolFn(name, description, shape, handler)
   }
+
+  register(
+    'get_handoff_context',
+    'Rufe als neu gestarteter Orchestrator den exakt korrelierten Übergabekontext ab. ' +
+      'Die Antwort enthält Briefing, aktuellen Engine-/Task-Zustand und den zu bestätigenden knowledgeDigest.',
+    {
+      handoffId: z.string().uuid().describe('handoffId aus dem Start-Prompt'),
+      receiptToken: z.string().regex(/^[a-f0-9]{64}$/).describe('Einmaliger receiptToken aus dem Start-Prompt')
+    },
+    async (args) => {
+      if (!clientIdentity) {
+        return text(JSON.stringify({
+          ok: false,
+          code: 'wrong-target',
+          message: 'Diese MCP-Verbindung ist keinem konkreten Orchestrator-Prozess zugeordnet.'
+        }, null, 2))
+      }
+      const result = agentManager.readOrchestratorHandoffContext(
+        {
+          handoffId: String(args.handoffId ?? ''),
+          receiptToken: String(args.receiptToken ?? '')
+        },
+        clientIdentity,
+        {
+          snapshot: engine.snapshot(),
+          tasks: engine.listTaskStatuses()
+        }
+      )
+      return text(JSON.stringify(result, null, 2))
+    }
+  )
+
+  register(
+    'acknowledge_handoff',
+    'Bestätige erst nach vollständiger Prüfung des mit get_handoff_context gelieferten Wissensstands. ' +
+      'Nur eine exakt korrelierte Bestätigung beendet den alten Orchestrator.',
+    {
+      handoffId: z.string().uuid().describe('handoffId des abgerufenen Kontexts'),
+      receiptToken: z.string().regex(/^[a-f0-9]{64}$/).describe('Einmaliger receiptToken'),
+      knowledgeDigest: z.string().regex(/^[a-f0-9]{64}$/).describe('knowledgeDigest aus get_handoff_context'),
+      summary: z.string().min(8).max(500).describe('Konkrete Kurzfassung des übernommenen Arbeitsstands')
+    },
+    async (args) => {
+      if (!clientIdentity) {
+        return text(JSON.stringify({
+          ok: false,
+          code: 'wrong-target',
+          message: 'Diese MCP-Verbindung ist keinem konkreten Orchestrator-Prozess zugeordnet.'
+        }, null, 2))
+      }
+      const result = await agentManager.acknowledgeOrchestratorHandoff(
+        {
+          handoffId: String(args.handoffId ?? ''),
+          receiptToken: String(args.receiptToken ?? ''),
+          knowledgeDigest: String(args.knowledgeDigest ?? ''),
+          summary: String(args.summary ?? '')
+        },
+        clientIdentity
+      )
+      return text(JSON.stringify(result, null, 2))
+    }
+  )
 
   register(
     'set_goal',
@@ -319,6 +392,39 @@ function buildMcpServer(engine: OrchestratorEngine = orchestratorEngine): McpSer
           : []
       })
       return text(JSON.stringify(result, null, 2))
+    }
+  )
+
+  register(
+    'revoke_learning',
+    'Lösche nachweislich falsches Modellwissen. Provider und Modell müssen exakt passen; ' +
+      'insightContains wird als case-insensitiver Teilstring auf den Insight angewendet.',
+    {
+      provider: z.enum(AGENT_PROVIDERS).describe('Exakter Provider des zu löschenden Modellwissens'),
+      model: z.string().min(1).describe('Exakter Modellname des zu löschenden Modellwissens'),
+      insightContains: z.string().trim().min(5)
+        .describe('Mindestens fünf Zeichen aus dem zu löschenden Insight')
+    },
+    async (args) => {
+      const removed = removeModelLearnings(
+        String(args.provider ?? '') as (typeof AGENT_PROVIDERS)[number],
+        String(args.model ?? ''),
+        String(args.insightContains ?? '')
+      )
+      const deleted = removed.map(({ insight, evidence }) => ({
+        insight,
+        evidence: evidence ?? null
+      }))
+      if (deleted.length === 0) {
+        return text(JSON.stringify({
+          message: 'Kein passendes Modell-Learning gefunden; es wurde nichts gelöscht.',
+          deleted
+        }, null, 2))
+      }
+      return text(JSON.stringify({
+        message: `${deleted.length} Modell-Learning(s) gelöscht.`,
+        deleted
+      }, null, 2))
     }
   )
 
@@ -564,9 +670,23 @@ export async function startMcpServer(): Promise<McpServerHandle> {
         if (requestedEngineId && requestedEngineId !== engine.engineId) {
           throw new Error('Orchestrator-Verbindung verweist auf eine veraltete Engine-Instanz.')
         }
+        const requestedAgentId = url.searchParams.get('agentId')
+        const clientIdentity = requestedAgentId
+          ? agentManager.orchestratorClientIdentity(requestedAgentId)
+          : undefined
+        if (requestedAgentId && !clientIdentity) {
+          throw new Error('Orchestrator-Verbindung verweist auf einen fremden oder beendeten Agent-Prozess.')
+        }
+        if (
+          clientIdentity &&
+          (clientIdentity.workspaceSessionId !== (workspaceSessionId ?? undefined) ||
+            clientIdentity.engineId !== (requestedEngineId ?? undefined))
+        ) {
+          throw new Error('Orchestrator-Verbindung besitzt eine falsche Agent-/Session-/Engine-Korrelation.')
+        }
         const server = isSubagentSession
           ? buildSubagentMcpServer(engine, subagentTaskId!)
-          : buildMcpServer(engine)
+          : buildMcpServer(engine, clientIdentity)
         await server.connect(transport)
       }
       if (!transport) {

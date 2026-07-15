@@ -204,6 +204,18 @@ export function workspaceAgents(
   )
 }
 
+/** Only agents belonging to the profile being deleted may block its deletion. */
+export function profileHasRunningAgents(
+  agents: AgentInstanceInfo[],
+  profileId: string
+): boolean {
+  return agents.some(
+    (agent) =>
+      agent.profileId === profileId &&
+      (agent.status === 'running' || agent.status === 'waiting')
+  )
+}
+
 export function isFinishedSubagent(agent: AgentInstanceInfo): boolean {
   return agent.kind === 'sub' && (agent.status === 'stopped' || agent.status === 'error')
 }
@@ -244,6 +256,73 @@ export function workspaceEvents(
       (!event.profileId || event.profileId === state.activeProfileId) &&
       (!state.activeWorkspaceSessionId || event.workspaceSessionId === state.activeWorkspaceSessionId)
   )
+}
+
+export type WorkspaceUserAttentionSource = 'orchestrator' | 'subagent'
+
+export interface WorkspaceUserAttention {
+  source: WorkspaceUserAttentionSource
+  agentId?: string
+  agentName?: string
+}
+
+/**
+ * Return the strongest canonical signal that a workspace is waiting for the
+ * user. Orchestrator review gates and waiting orchestrator panes take priority;
+ * a waiting subagent is the fallback. Task text and generic lifecycle states
+ * are intentionally ignored so running or failed work cannot spoof attention.
+ */
+export function workspaceUserAttention(
+  state: Pick<AppState, 'agents' | 'orchestrators'> &
+    Partial<Pick<AppState, 'workspaceSessions'>>,
+  profileId: string,
+  workspaceSessionId?: string
+): WorkspaceUserAttention | null {
+  const knownSessionIds = state.workspaceSessions
+    ? new Set(
+        state.workspaceSessions
+          .filter((session) => session.profileId === profileId)
+          .map((session) => session.id)
+      )
+    : undefined
+  const snapshots = Object.entries(state.orchestrators)
+    .filter(([key, snapshot]) => {
+      if (snapshot.profileId && snapshot.profileId !== profileId) return false
+      if (workspaceSessionId) {
+        return key === workspaceSessionId || snapshot.workspaceSessionId === workspaceSessionId
+      }
+      const matchesProfile = snapshot.profileId === profileId || (!snapshot.profileId && key === profileId)
+      return matchesProfile &&
+        (!snapshot.workspaceSessionId || !knownSessionIds || knownSessionIds.has(snapshot.workspaceSessionId))
+    })
+    .map(([, snapshot]) => snapshot)
+
+  if (
+    snapshots.some(
+      (snapshot) => snapshot.pendingPlan != null || snapshot.activity?.phase === 'awaiting-review'
+    )
+  ) {
+    return { source: 'orchestrator' }
+  }
+
+  const waitingAgents = state.agents.filter((agent) => {
+    if (agent.profileId !== profileId || agent.status !== 'waiting') return false
+    if (workspaceSessionId) return agent.workspaceSessionId === workspaceSessionId
+    return !agent.workspaceSessionId || !knownSessionIds || knownSessionIds.has(agent.workspaceSessionId)
+  })
+  const orchestrator = waitingAgents.find((agent) => agent.kind === 'orchestrator')
+  if (orchestrator) {
+    return {
+      source: 'orchestrator',
+      agentId: orchestrator.id,
+      agentName: orchestrator.name
+    }
+  }
+
+  const subagent = waitingAgents.find((agent) => agent.kind === 'sub')
+  return subagent
+    ? { source: 'subagent', agentId: subagent.id, agentName: subagent.name }
+    : null
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -939,7 +1018,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const target = await window.orca.agents.handoff(req)
       set({ handoffSource: null })
-      get().showToast(`↪ Übergabe: ${source?.name ?? 'Agent'} → ${target.name}`)
+      get().showToast(
+        source?.kind === 'orchestrator'
+          ? `↪ Orchestrator-Übergabe gestartet: ${source.name} bleibt bis zur Bestätigung aktiv → ${target.name}`
+          : `↪ Übergabe: ${source?.name ?? 'Agent'} → ${target.name}`
+      )
     } catch (error) {
       get().showToast(`Übergabe fehlgeschlagen: ${errorMessage(error)}`)
     }
@@ -1033,15 +1116,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   async deleteProfile(id) {
     const profile = get().profiles.find((item) => item.id === id)
     if (!profile) return
+    const wasLastProfile = get().profiles.length === 1
 
     try {
       const profiles = await window.orca.deleteProfile(id)
       const activeProfileId = await window.orca.getActiveProfileId()
       set({ profiles, activeProfileId, editorProfile: null })
       await get().refreshGit().catch(() => undefined)
-      const replacementCreated = !profiles.some((item) => item.id === id)
       get().showToast(
-        replacementCreated
+        wasLastProfile
           ? `Profil „${profile.name}" gelöscht. Das Standardprofil wurde wiederhergestellt.`
           : `Profil „${profile.name}" gelöscht.`
       )
