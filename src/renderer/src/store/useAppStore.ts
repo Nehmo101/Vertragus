@@ -60,6 +60,10 @@ interface AppState {
   mcpServers: McpServerConfig[]
   /** True while the MCP-server manager modal is open. */
   mcpEditorOpen: boolean
+  /** True while the global speech-to-text settings modal is open. */
+  speechSettingsOpen: boolean
+  /** Bumped whenever STT settings are saved so status consumers refetch. */
+  speechStatusRevision: number
   gitInfo: GitInfo | null
   githubAuth: GithubAuthStatus | null
   githubAuthBusy: boolean
@@ -135,6 +139,9 @@ interface AppState {
   openMcpEditor(): void
   closeMcpEditor(): void
   saveMcpServers(servers: McpServerConfig[]): Promise<void>
+  openSpeechSettings(): void
+  closeSpeechSettings(): void
+  bumpSpeechStatus(): void
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined
@@ -215,6 +222,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   activeWorkspaceSessionId: null,
   mcpServers: [],
   mcpEditorOpen: false,
+  speechSettingsOpen: false,
+  speechStatusRevision: 0,
   gitInfo: null,
   githubAuth: null,
   githubAuthBusy: false,
@@ -912,6 +921,18 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   closeMcpEditor() {
     set({ mcpEditorOpen: false })
+  },
+
+  openSpeechSettings() {
+    set({ speechSettingsOpen: true })
+  },
+
+  closeSpeechSettings() {
+    set({ speechSettingsOpen: false })
+  },
+
+  bumpSpeechStatus() {
+    set((state) => ({ speechStatusRevision: state.speechStatusRevision + 1 }))
   },
 
   async saveMcpServers(servers) {

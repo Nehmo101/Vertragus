@@ -5,6 +5,7 @@ import { profileSummary, profileAgentCount } from '@renderer/components/TitleBar
 import { githubAuthPresentation, hasUsableGithubAuth } from '@renderer/store/githubAuth'
 import type { AgentProviderId, ProviderHealth, ProviderId } from '@shared/providers'
 import type { RetroSyncStatus } from '@shared/retroSync'
+import type { InboxSpeechStatus } from '@shared/inboxSpeech'
 import { MCP_SCOPE_LABELS, MCP_TRANSPORT_LABELS } from '@shared/mcp'
 
 interface RowStatus {
@@ -332,6 +333,69 @@ function RetroSyncRow(): JSX.Element {
   )
 }
 
+function SpeechRow(): JSX.Element {
+  const store = useAppStore()
+  const revision = store.speechStatusRevision
+  const [status, setStatus] = useState<InboxSpeechStatus | undefined>()
+
+  useEffect(() => {
+    let cancelled = false
+    void window.orca.inboxSpeech
+      .status()
+      .then((next) => {
+        if (!cancelled) setStatus(next)
+      })
+      .catch(() => {
+        // Status ist rein informativ; Fehler blockieren die Sidebar nicht.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [revision])
+
+  const configured = Boolean(status?.configured)
+  const dot = configured ? 'var(--run)' : 'var(--wait)'
+  const detail = status
+    ? configured
+      ? `Modell ${status.model} · ${status.language}`
+      : 'Kein API-Schlüssel hinterlegt'
+    : '…'
+
+  return (
+    <div className="provider-row">
+      <span className="chip sz-26" style={{ background: 'var(--sage)', color: '#10221a' }}>
+        🎙
+      </span>
+      <div className="info">
+        <div className="name" title="Sprache-zu-Text für Voice-Leiste und Ideen-Inbox">
+          Sprachsteuerung
+        </div>
+        <div className="detail" title={detail}>
+          {detail}
+        </div>
+      </div>
+      <span className="status-wrap">
+        <span className="status-dot" style={{ background: dot, boxShadow: `0 0 7px ${dot}` }} />
+        <span
+          className="status-label"
+          style={{ color: configured ? 'var(--run-text)' : 'var(--wait-text)' }}
+        >
+          {configured ? 'Bereit' : 'Kein Schlüssel'}
+        </span>
+      </span>
+      <button
+        type="button"
+        className="provider-login-btn"
+        title="Sprache-zu-Text einrichten (API-Schlüssel, Modell, Sprache)"
+        aria-label="Sprache-zu-Text-Einstellungen öffnen"
+        onClick={() => store.openSpeechSettings()}
+      >
+        {configured ? 'Konto' : 'Einrichten'}
+      </button>
+    </div>
+  )
+}
+
 function useHashRoute(): string {
   const [hash, setHash] = useState(() => window.location.hash)
   useEffect(() => {
@@ -384,6 +448,7 @@ export default function Sidebar(): JSX.Element {
       <div className="side-list">
         <GithubRow />
         <RetroSyncRow />
+        <SpeechRow />
         <ProviderRow id="cloudflare" />
       </div>
 
