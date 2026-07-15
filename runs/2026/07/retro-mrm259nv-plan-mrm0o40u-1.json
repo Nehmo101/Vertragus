@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784118690579,
+  "exportedAt": 1784120570151,
   "app": {
     "name": "orca-strator",
     "version": "0.1.40-main.2.g4fa9d28"
@@ -14,7 +14,7 @@
     "planId": "plan-mrm0o40u-1",
     "goal": "UWE Drei-Produkte-Split Foundation-Inkrement: Read-only-Inventar, ADR-Pack, Domain-Contracts-Entwurf, Guard-/Test-/CI-Pläne und reviewbarer Doku-PR-Schnitt — ohne apps/brain-Bau, ohne Routen-/Schema-/Cookie-/Deploy-Änderungen.",
     "status": "error",
-    "summary": "Foundation-Lauf O00–O08 endete auf error: O00 scheiterte in Attempt 1 (codex) am Whitespace-Commit-Gate und in Attempt 2 (sonnet) an einem Infrastruktur-Blocker (Write-Permission im Retry-Worktree task-18 komplett verweigert). Alle Folgetasks wurden gestoppt; kein Inhalt ging verloren — das Inventar ist fertig recherchiert, nur nicht persistiert.",
+    "summary": "Prozess-Befund (Nutzer-Feedback): Panel-Freigaben werden dem Orchestrator immer noch nicht aktiv zurückgespiegelt — kein Event/Statuswechsel-Signal bei Approval; der Orchestrator muss die Freigabe durch Polling von list_tasks/get_plan_status selbst erkennen. Orca-UX-Lücke, kein Modellproblem.",
     "modelStats": [
       {
         "provider": "codex",
