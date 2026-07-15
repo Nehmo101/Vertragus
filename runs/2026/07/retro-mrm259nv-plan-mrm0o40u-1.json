@@ -1,0 +1,148 @@
+{
+  "version": 1,
+  "exportedAt": 1784118594151,
+  "app": {
+    "name": "orca-strator",
+    "version": "0.1.40-main.2.g4fa9d28"
+  },
+  "machineId": "5087fc1f7b9d",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrm259nv-plan-mrm0o40u-1",
+    "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+    "workspaceSessionId": "d1f5e827-4be3-430e-9f2c-cd3c2429edb7",
+    "planId": "plan-mrm0o40u-1",
+    "goal": "UWE Drei-Produkte-Split Foundation-Inkrement: Read-only-Inventar, ADR-Pack, Domain-Contracts-Entwurf, Guard-/Test-/CI-Pläne und reviewbarer Doku-PR-Schnitt — ohne apps/brain-Bau, ohne Routen-/Schema-/Cookie-/Deploy-Änderungen.",
+    "status": "error",
+    "summary": "Lauf mit Fehlern: 4 Modell(e), 0/9 Tasks erfolgreich.",
+    "modelStats": [
+      {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "roles": [
+          "backend-services",
+          "database-schema"
+        ],
+        "tasks": 4,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 4,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 4,
+          "model": 0
+        },
+        "failedAttempts": 1,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 1
+        },
+        "gateFindings": 0,
+        "avgDurationMs": 2350616,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      },
+      {
+        "provider": "claude",
+        "model": "claude-sonnet-5",
+        "roles": [
+          "orchestrator-integrator"
+        ],
+        "tasks": 2,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 1,
+        "stopped": 1,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 1,
+          "model": 1
+        },
+        "failedAttempts": 1,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 1
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "costUsd": 3.5001162,
+        "avgDurationMs": 2307411
+      },
+      {
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "roles": [
+          "security-privacy-review"
+        ],
+        "tasks": 2,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 2,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 2,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "avgDurationMs": 2307478,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      },
+      {
+        "provider": "claude",
+        "model": "claude-haiku-4-5",
+        "roles": [
+          "qa-gate-runner"
+        ],
+        "tasks": 1,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 1,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 1,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "avgDurationMs": 2307482,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrm259nk-1-8egms2",
+        "provider": "claude",
+        "model": "claude-sonnet-5",
+        "role": "orchestrator-integrator",
+        "kind": "weakness",
+        "insight": "fehleranfällig bei orchestrator-integrator",
+        "evidence": "1/1 auswertbare Tasks inhaltlich fehlgeschlagen",
+        "source": "auto-retro",
+        "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+        "observations": 1,
+        "createdAt": 1784118594080,
+        "updatedAt": 1784118594080
+      }
+    ],
+    "createdAt": 1784118594091
+  }
+}
