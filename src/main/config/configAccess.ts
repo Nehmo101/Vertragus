@@ -12,6 +12,7 @@ import {
   normalizeRetroSyncOwner,
   normalizeRetroSyncRepo
 } from '@shared/retroSync'
+import { parseActiveRepo, parseRecentRepos } from '@shared/repoSwitcher'
 
 /** Keys the renderer may read via config:get. */
 export const PUBLIC_CONFIG_GET_KEYS = new Set([
@@ -26,7 +27,9 @@ export const PUBLIC_CONFIG_GET_KEYS = new Set([
   'retroSync.enabled',
   'retroSync.repoOwner',
   'retroSync.repoName',
-  'retroSync.branch'
+  'retroSync.branch',
+  'workspaceRepo.active',
+  'workspaceRepo.recent'
 ])
 
 /** Keys the renderer may write via config:set. */
@@ -42,7 +45,9 @@ export const PUBLIC_CONFIG_SET_KEYS = new Set([
   'retroSync.enabled',
   'retroSync.repoOwner',
   'retroSync.repoName',
-  'retroSync.branch'
+  'retroSync.branch',
+  'workspaceRepo.active',
+  'workspaceRepo.recent'
 ])
 
 function rejectSecretsKey(key: string, action: 'read' | 'write'): void {
@@ -102,6 +107,15 @@ export function setPublicConfig(key: string, value: unknown): void {
   }
   if (key === 'retroSync.branch') {
     setSetting(key, assertSafeRetroBranch(value))
+    return
+  }
+  if (key === 'workspaceRepo.active') {
+    // A cleared override is stored as null so it never masks the profile default.
+    setSetting(key, parseActiveRepo(value))
+    return
+  }
+  if (key === 'workspaceRepo.recent') {
+    setSetting(key, parseRecentRepos(value))
     return
   }
   setSetting(key, value)

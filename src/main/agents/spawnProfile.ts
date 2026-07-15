@@ -13,14 +13,17 @@ import { workspaceSessions } from '@main/orchestrator/WorkspaceSessionRegistry'
 export async function spawnProfileTeam(
   profile: WorkspaceProfile,
   yoloMaster: boolean,
-  options?: { resetOrchestrator?: boolean }
+  options?: { resetOrchestrator?: boolean; workingDirOverride?: string }
 ): Promise<AgentInstanceInfo[]> {
   const session =
     options?.resetOrchestrator === false
       ? workspaceSessions.ensure(profile)
       : workspaceSessions.start(profile)
   const engine = session.engine
-  const workingDir = profileRepoLocalPath(profile) || profile.workingDir
+  // The active-repo override is a soft replacement for the profile default;
+  // per-slot working directories below still win over both.
+  const workingDir =
+    options?.workingDirOverride?.trim() || profileRepoLocalPath(profile) || profile.workingDir
   const spawned: AgentInstanceInfo[] = []
 
   const prewarmWorkers = profile.planner.routingMode !== 'adaptive' || !profile.orchestrator
