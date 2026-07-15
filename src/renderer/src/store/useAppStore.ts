@@ -258,6 +258,73 @@ export function workspaceEvents(
   )
 }
 
+export type WorkspaceUserAttentionSource = 'orchestrator' | 'subagent'
+
+export interface WorkspaceUserAttention {
+  source: WorkspaceUserAttentionSource
+  agentId?: string
+  agentName?: string
+}
+
+/**
+ * Return the strongest canonical signal that a workspace is waiting for the
+ * user. Orchestrator review gates and waiting orchestrator panes take priority;
+ * a waiting subagent is the fallback. Task text and generic lifecycle states
+ * are intentionally ignored so running or failed work cannot spoof attention.
+ */
+export function workspaceUserAttention(
+  state: Pick<AppState, 'agents' | 'orchestrators'> &
+    Partial<Pick<AppState, 'workspaceSessions'>>,
+  profileId: string,
+  workspaceSessionId?: string
+): WorkspaceUserAttention | null {
+  const knownSessionIds = state.workspaceSessions
+    ? new Set(
+        state.workspaceSessions
+          .filter((session) => session.profileId === profileId)
+          .map((session) => session.id)
+      )
+    : undefined
+  const snapshots = Object.entries(state.orchestrators)
+    .filter(([key, snapshot]) => {
+      if (snapshot.profileId && snapshot.profileId !== profileId) return false
+      if (workspaceSessionId) {
+        return key === workspaceSessionId || snapshot.workspaceSessionId === workspaceSessionId
+      }
+      const matchesProfile = snapshot.profileId === profileId || (!snapshot.profileId && key === profileId)
+      return matchesProfile &&
+        (!snapshot.workspaceSessionId || !knownSessionIds || knownSessionIds.has(snapshot.workspaceSessionId))
+    })
+    .map(([, snapshot]) => snapshot)
+
+  if (
+    snapshots.some(
+      (snapshot) => snapshot.pendingPlan != null || snapshot.activity?.phase === 'awaiting-review'
+    )
+  ) {
+    return { source: 'orchestrator' }
+  }
+
+  const waitingAgents = state.agents.filter((agent) => {
+    if (agent.profileId !== profileId || agent.status !== 'waiting') return false
+    if (workspaceSessionId) return agent.workspaceSessionId === workspaceSessionId
+    return !agent.workspaceSessionId || !knownSessionIds || knownSessionIds.has(agent.workspaceSessionId)
+  })
+  const orchestrator = waitingAgents.find((agent) => agent.kind === 'orchestrator')
+  if (orchestrator) {
+    return {
+      source: 'orchestrator',
+      agentId: orchestrator.id,
+      agentName: orchestrator.name
+    }
+  }
+
+  const subagent = waitingAgents.find((agent) => agent.kind === 'sub')
+  return subagent
+    ? { source: 'subagent', agentId: subagent.id, agentName: subagent.name }
+    : null
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   appInfo: null,
   health: [],
