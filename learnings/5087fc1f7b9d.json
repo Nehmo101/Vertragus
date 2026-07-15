@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784121928104,
+  "exportedAt": 1784126996624,
   "app": {
     "name": "orca-strator",
     "version": "0.1.40-main.2.g4fa9d28"
@@ -8,6 +8,62 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrm75c2v-3-ghnk87",
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "role": "orchestrator-integrator",
+      "kind": "weakness",
+      "insight": "Quality-Gates erfordern Nacharbeit bei orchestrator-integrator",
+      "evidence": "1 Task(s) mit 3 Gate-Finding(s)",
+      "source": "auto-retro",
+      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+      "observations": 1,
+      "createdAt": 1784126995303,
+      "updatedAt": 1784126995303
+    },
+    {
+      "id": "learning-mrm75c2v-1-qljpow",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "backend-services",
+      "kind": "weakness",
+      "insight": "Quality-Gates erfordern Nacharbeit bei backend-services, database-schema",
+      "evidence": "4 Task(s) mit 5 Gate-Finding(s)",
+      "source": "auto-retro",
+      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+      "observations": 1,
+      "createdAt": 1784126995303,
+      "updatedAt": 1784126995303
+    },
+    {
+      "id": "learning-mrm75c2v-2-j4y6e1",
+      "provider": "claude",
+      "model": "claude-opus-4-8",
+      "role": "security-privacy-review",
+      "kind": "weakness",
+      "insight": "Quality-Gates erfordern Nacharbeit bei security-privacy-review",
+      "evidence": "2 Task(s) mit 4 Gate-Finding(s)",
+      "source": "auto-retro",
+      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+      "observations": 1,
+      "createdAt": 1784126995303,
+      "updatedAt": 1784126995303
+    },
+    {
+      "id": "learning-mrm75c2v-4-1vukpq",
+      "provider": "claude",
+      "model": "claude-haiku-4-5",
+      "role": "qa-gate-runner",
+      "kind": "weakness",
+      "insight": "Quality-Gates erfordern Nacharbeit bei qa-gate-runner",
+      "evidence": "1 Task(s) mit 2 Gate-Finding(s)",
+      "source": "auto-retro",
+      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+      "observations": 1,
+      "createdAt": 1784126995303,
+      "updatedAt": 1784126995303
+    },
     {
       "id": "learning-mrm44ou4-1-zd3siy",
       "provider": "claude",
@@ -37,6 +93,20 @@
       "updatedAt": 1784121926332
     },
     {
+      "id": "learning-mrm27c1p-3-pl30ue",
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "role": "orchestrator-integrator",
+      "kind": "strength",
+      "insight": "Meldet Infrastruktur-Blocker vertragskonform und präzise (Blocker, geprüfte Alternativen, Integrationsstand) statt Erfolg vorzutäuschen — der error war kein Modellversagen",
+      "evidence": "O00 Attempt 2 (Frodo): Write-Tool im Retry-Worktree task-18 hart verweigert ('you haven't granted it yet'); strukturierter BLOCKER-Report mit fertigem Inventar-Inhalt",
+      "source": "orchestrator",
+      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+      "observations": 1,
+      "createdAt": 1784118690493,
+      "updatedAt": 1784118690493
+    },
+    {
       "id": "learning-mrm27c1p-2-8m151z",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -58,20 +128,6 @@
       "kind": "weakness",
       "insight": "Markdown-Doku-Tasks scheitern am zentralen Commit-Gate 'git diff --cached --check' (trailing whitespace/CRLF) — Whitespace-Hygiene im Prompt explizit fordern",
       "evidence": "O00 Attempt 1 (Ungoliant): Audit inhaltlich vollständig, Abnahme blockiert mit 'Command failed: git diff --cached --check'",
-      "source": "orchestrator",
-      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
-      "observations": 1,
-      "createdAt": 1784118690493,
-      "updatedAt": 1784118690493
-    },
-    {
-      "id": "learning-mrm27c1p-3-pl30ue",
-      "provider": "claude",
-      "model": "claude-sonnet-5",
-      "role": "orchestrator-integrator",
-      "kind": "strength",
-      "insight": "Meldet Infrastruktur-Blocker vertragskonform und präzise (Blocker, geprüfte Alternativen, Integrationsstand) statt Erfolg vorzutäuschen — der error war kein Modellversagen",
-      "evidence": "O00 Attempt 2 (Frodo): Write-Tool im Retry-Worktree task-18 hart verweigert ('you haven't granted it yet'); strukturierter BLOCKER-Report mit fertigem Inventar-Inhalt",
       "source": "orchestrator",
       "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
       "observations": 1,
@@ -539,20 +595,6 @@
       "observations": 1,
       "createdAt": 1784038129069,
       "updatedAt": 1784038129069
-    },
-    {
-      "id": "learning-mrkpq3dt-2-mtqr97",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "main-orchestrator",
-      "kind": "weakness",
-      "insight": "Kein Modellfehler, aber Gate-Falle: pnpm lint schlägt in Worker-Worktrees non-TTY fehl (pnpm Deps-Check will node_modules purgen) — needs-work kann falsch-negativ sein",
-      "evidence": "ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY bei pnpm lint in task-02; direkter eslint-Aufruf Exit 0",
-      "source": "orchestrator",
-      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
-      "observations": 1,
-      "createdAt": 1784037264545,
-      "updatedAt": 1784037264545
     },
     {
       "id": "learning-mrkhej75-1-pxoxx7",
