@@ -5,6 +5,7 @@ import { getProfile, getSetting, setSetting } from '@main/config/store'
 import { createIdea } from '@main/inbox/store'
 import { transferIdeaToProfile } from '@main/inbox/transferService'
 import { workspaceSessions } from '@main/orchestrator/WorkspaceSessionRegistry'
+import { loadTaskReviewDiff } from '@main/integrations/reviewDiff'
 import type {
   DeviceInfo,
   PairingChallenge,
@@ -27,6 +28,9 @@ import { setRemoteGatewayHandle } from './gatewayHandle'
 import { pairingQrDataUrl } from './qrcode'
 import { RemoteReadModel } from './readModel'
 import { TunnelManager, tunnelStatusToRemote } from './tunnelManager'
+import { redactAndLimitRemoteDiff } from './remoteDiff'
+import { PushService } from './pushService'
+import { transcribeInboxAudio } from '@main/voice/InboxSpeechService'
 
 function mobileStaticDir(): string {
   return app.isPackaged
@@ -45,6 +49,7 @@ export class RemoteService extends EventEmitter {
   private readonly auth = new DeviceAuth(this.store)
   private readonly readModel = new RemoteReadModel(workspaceSessions)
   private readonly audit = new RemoteAuditLog(join(app.getPath('userData'), 'diagnostics', 'remote-audit.jsonl'))
+  private readonly push = new PushService(this.readModel)
   private readonly tunnel = new TunnelManager()
   private gateway: RemoteGatewayHandle | undefined
   private starting: Promise<void> | undefined
@@ -69,6 +74,16 @@ export class RemoteService extends EventEmitter {
       const transfer = await transferIdeaToProfile({ ideaId: idea.id, profileId, yoloMaster: false })
       return { ideaId: idea.id, transfer: transfer.transfer }
     },
+    approvePublication: (profileId, sessionId, planId) =>
+      workspaceSessions.approvePublication(requireProfile(profileId), planId, sessionId),
+    rejectPublication: (profileId, sessionId, planId) =>
+      workspaceSessions.rejectPublication(requireProfile(profileId), planId, sessionId),
+    taskDiff: async (profileId, sessionId, taskId) => {
+      const profile = requireProfile(profileId)
+      const task = workspaceSessions.snapshot(profile, sessionId).tasks.find((entry) => entry.id === taskId)
+      if (!task) throw new Error('Aufgabe nicht gefunden.')
+      return redactAndLimitRemoteDiff(await loadTaskReviewDiff(task))
+    },
     activateKillSwitch: () => {
       setImmediate(() => { void this.disable() })
     }
@@ -76,12 +91,27 @@ export class RemoteService extends EventEmitter {
 
   constructor() {
     super()
-    this.tunnel.on('status', () => this.emitStatus())
-    this.auth.on('revoked', (deviceId: string) => {
-      this.gateway?.dropDevice(deviceId)
+    this.push.on('delivery', (transition, outcome) => {
+      this.audit.record({
+        kind: 'lifecycle', outcome: outcome === 'error' ? 'error' : 'accepted',
+        action: 'push.delivery', detail: { transition, outcome }
+      })
+    })
+    this.tunnel.on('status', (status) => {
+      if (status.publicUrl && this.gateway) {
+        try { this.gateway.addAllowedHost(new URL(status.publicUrl).hostname) } catch { /* validated upstream */ }
+      }
       this.emitStatus()
     })
-    this.auth.on('revoke-all', () => this.emitStatus())
+    this.auth.on('revoked', (deviceId: string) => {
+      this.gateway?.dropDevice(deviceId)
+      try { this.push.removeDevice(deviceId) } catch { /* Revocation itself already succeeded. */ }
+      this.emitStatus()
+    })
+    this.auth.on('revoke-all', () => {
+      try { this.push.removeAll() } catch { /* Gateway teardown still proceeds. */ }
+      this.emitStatus()
+    })
   }
 
   status(): RemoteStatus {
@@ -113,7 +143,16 @@ export class RemoteService extends EventEmitter {
       }
       writeCloudflareCredential({ hostname: request.hostname, tunnelToken: request.tunnelToken })
     }
-    if (!readCloudflareCredential()) throw new Error('Für Remote-Zugriff fehlt die Named-Tunnel-Konfiguration.')
+    const currentMode = getSetting<'named' | 'quick'>('remote.tunnelMode') ?? 'named'
+    const mode = request.quickTunnel === true
+      ? 'quick'
+      : request.quickTunnel === false || request.hostname || request.tunnelToken
+        ? 'named'
+        : currentMode
+    if (mode === 'named' && !readCloudflareCredential()) {
+      throw new Error('Für Remote-Zugriff fehlt die Named-Tunnel-Konfiguration.')
+    }
+    setSetting('remote.tunnelMode', mode)
     setSetting('remote.enabled', true)
     try {
       await this.start()
@@ -138,14 +177,16 @@ export class RemoteService extends EventEmitter {
       setSetting('remote.enabled', false)
       throw new Error('Remote-Aktivierung verweigert: Electron safeStorage ist nicht verfügbar.')
     }
-    const credential = readCloudflareCredential()
-    if (!credential) {
+    const mode = getSetting<'named' | 'quick'>('remote.tunnelMode') ?? 'named'
+    const credential = mode === 'named' ? readCloudflareCredential() : undefined
+    if (mode === 'named' && !credential) {
       this.lastError = 'Named-Tunnel-Konfiguration fehlt.'
       setSetting('remote.enabled', false)
       throw new Error(this.lastError)
     }
     this.lastError = undefined
     this.readModel.start()
+    this.push.start()
     for (const summary of workspaceSessions.list()) {
       const session = workspaceSessions.getById(summary.id)
       if (session) this.readModel.seed(session.engine.snapshot())
@@ -156,13 +197,16 @@ export class RemoteService extends EventEmitter {
       commands: this.commands,
       readModel: this.readModel,
       staticDir: mobileStaticDir(),
-      allowedHosts: [credential.hostname]
+      allowedHosts: credential ? [credential.hostname] : [],
+      pushService: this.push,
+      transcribeSpeech: transcribeInboxAudio
     })
     setRemoteGatewayHandle(this.gateway)
     await this.tunnel.start({
       origin: this.gateway.origin,
-      hostname: credential.hostname,
-      tunnelToken: credential.tunnelToken
+      mode,
+      hostname: credential?.hostname,
+      tunnelToken: credential?.tunnelToken
     })
     this.audit.record({ kind: 'lifecycle', outcome: 'accepted', action: 'remote.start' })
     this.emitStatus()
@@ -174,6 +218,7 @@ export class RemoteService extends EventEmitter {
     this.gateway = undefined
     setRemoteGatewayHandle(null)
     await gateway?.close()
+    this.push.stop()
     this.readModel.stop()
     this.emitStatus()
   }

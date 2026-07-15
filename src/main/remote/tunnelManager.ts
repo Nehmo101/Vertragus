@@ -5,13 +5,15 @@ import type { RemoteStatus, RemoteTunnelState } from '@shared/remote'
 
 export interface TunnelConfig {
   origin: string
-  hostname: string
-  tunnelToken: string
+  mode?: 'named' | 'quick'
+  hostname?: string
+  tunnelToken?: string
   startupTimeoutMs?: number
 }
 
 export interface TunnelStatus {
   state: RemoteTunnelState
+  mode?: 'named' | 'quick'
   publicUrl?: string
   error?: string
   reconnectAttempt: number
@@ -82,37 +84,57 @@ export class TunnelManager extends EventEmitter {
   async start(config: TunnelConfig): Promise<void> {
     await this.stop()
     this.stopping = false
-    this.config = { ...config, hostname: normalizeHostname(config.hostname) }
-    this.setStatus({ state: 'starting', publicUrl: `https://${this.config.hostname}`, reconnectAttempt: 0 })
+    const mode = config.mode ?? 'named'
+    if (mode === 'named' && (!config.hostname || !config.tunnelToken)) {
+      throw new Error('Named Tunnel benötigt Hostname und Token.')
+    }
+    this.config = {
+      ...config,
+      mode,
+      hostname: config.hostname ? normalizeHostname(config.hostname) : undefined
+    }
+    this.setStatus({
+      state: 'starting',
+      mode,
+      publicUrl: mode === 'named' ? `https://${this.config.hostname}` : undefined,
+      reconnectAttempt: 0
+    })
     await this.launch()
   }
 
   private async launch(): Promise<void> {
     const config = this.config
     if (!config || this.stopping) return
-    const launch = await this.resolve('cloudflared', [
-      'tunnel', '--no-autoupdate', '--url', config.origin, 'run'
-    ])
+    const mode = config.mode ?? 'named'
+    const launch = await this.resolve('cloudflared', mode === 'quick'
+      ? ['tunnel', '--no-autoupdate', '--url', config.origin]
+      : ['tunnel', '--no-autoupdate', '--url', config.origin, 'run'])
     const child = this.spawnProcess(launch.file, launch.args, {
       windowsHide: true,
-      env: { ...process.env, TUNNEL_TOKEN: config.tunnelToken },
+      env: mode === 'named'
+        ? { ...process.env, TUNNEL_TOKEN: config.tunnelToken }
+        : { ...process.env, TUNNEL_TOKEN: undefined },
       stdio: ['ignore', 'ignore', 'pipe']
     })
     this.child = child
     let settled = false
-    const online = (url = `https://${config.hostname}`): void => {
+    const online = (url?: string): void => {
       if (settled || this.stopping) return
+      if (!url) return
       settled = true
       if (this.startupTimer) clearTimeout(this.startupTimer)
-      this.setStatus({ state: 'online', publicUrl: url, reconnectAttempt: this.current.reconnectAttempt })
+      this.setStatus({ state: 'online', mode, publicUrl: url, reconnectAttempt: this.current.reconnectAttempt })
     }
     child.stderr?.on('data', (chunk: Buffer | string) => {
       const parsed = parseTunnelUrl(String(chunk))
-      // Named tunnels may log several Cloudflare API URLs. Only accept the configured host;
-      // quick-tunnel parsing is enabled explicitly in Phase B.
-      if (parsed && new URL(parsed).hostname === config.hostname) online(parsed)
+      if (!parsed) return
+      const hostname = new URL(parsed).hostname
+      if (mode === 'quick' && hostname.endsWith('.trycloudflare.com')) online(parsed)
+      if (mode === 'named' && hostname === config.hostname) online(parsed)
     })
-    child.once('spawn', () => online())
+    child.once('spawn', () => {
+      if (mode === 'named') online(`https://${config.hostname}`)
+    })
     child.once('error', (error) => this.onExit(child, error instanceof Error ? error.message : String(error)))
     child.once('exit', (code, signal) => this.onExit(child, `cloudflared beendet (${code ?? signal ?? 'unbekannt'}).`))
     this.startupTimer = setTimeout(() => {
@@ -133,7 +155,8 @@ export class TunnelManager extends EventEmitter {
     const attempt = this.current.reconnectAttempt + 1
     this.setStatus({
       state: 'degraded',
-      publicUrl: `https://${this.config.hostname}`,
+      mode: this.config.mode,
+      publicUrl: this.config.mode === 'named' ? `https://${this.config.hostname}` : this.current.publicUrl,
       error: message,
       reconnectAttempt: attempt
     })
@@ -158,8 +181,15 @@ export class TunnelManager extends EventEmitter {
   }
 }
 
-export function tunnelStatusToRemote(status: TunnelStatus): Pick<RemoteStatus, 'tunnel' | 'publicUrl' | 'error'> {
-  return { tunnel: status.state, publicUrl: status.publicUrl, error: status.error }
+export function tunnelStatusToRemote(
+  status: TunnelStatus
+): Pick<RemoteStatus, 'tunnel' | 'tunnelMode' | 'publicUrl' | 'error'> {
+  return {
+    tunnel: status.state,
+    tunnelMode: status.mode,
+    publicUrl: status.publicUrl,
+    error: status.error
+  }
 }
 
 export const tunnelManagerInternals = { normalizeHostname }

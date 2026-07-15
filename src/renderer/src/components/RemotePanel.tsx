@@ -19,6 +19,10 @@ export default function RemotePanel(): JSX.Element {
   const [hostname, setHostname] = useState('')
   const [tunnelToken, setTunnelToken] = useState('')
   const [admin, setAdmin] = useState(false)
+  const [diffAccess, setDiffAccess] = useState(false)
+  const [pushAccess, setPushAccess] = useState(false)
+  const [speechAccess, setSpeechAccess] = useState(false)
+  const [quickTunnel, setQuickTunnel] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
 
@@ -79,6 +83,10 @@ export default function RemotePanel(): JSX.Element {
         </div>
         {!status.enabled ? (
           <div className="remote-form">
+            <label className="remote-checkbox">
+              <input type="checkbox" checked={quickTunnel} onChange={(event) => setQuickTunnel(event.target.checked)} />
+              Ephemeren Quick Tunnel verwenden
+            </label>
             <label>
               Öffentlicher Hostname
               <input
@@ -86,6 +94,7 @@ export default function RemotePanel(): JSX.Element {
                 onChange={(event) => setHostname(event.target.value)}
                 placeholder="mission.example.com"
                 autoComplete="off"
+                disabled={quickTunnel}
               />
             </label>
             <label>
@@ -96,6 +105,7 @@ export default function RemotePanel(): JSX.Element {
                 type="password"
                 placeholder="Bereits gespeichert? Leer lassen"
                 autoComplete="new-password"
+                disabled={quickTunnel}
               />
             </label>
             <button
@@ -104,8 +114,9 @@ export default function RemotePanel(): JSX.Element {
               disabled={busy}
               onClick={() => void run(async () => {
                 await window.orca.remote.enable({
-                  hostname: hostname.trim() || undefined,
-                  tunnelToken: tunnelToken.trim() || undefined
+                  hostname: quickTunnel ? undefined : hostname.trim() || undefined,
+                  tunnelToken: quickTunnel ? undefined : tunnelToken.trim() || undefined,
+                  quickTunnel
                 })
                 setTunnelToken('')
               })}
@@ -139,6 +150,18 @@ export default function RemotePanel(): JSX.Element {
             <input type="checkbox" checked={admin} onChange={(event) => setAdmin(event.target.checked)} />
             Admin-Capability für Reset erlauben
           </label>
+          <label className="remote-checkbox">
+            <input type="checkbox" checked={diffAccess} onChange={(event) => setDiffAccess(event.target.checked)} />
+            Mobile Diff-Ansicht erlauben
+          </label>
+          <label className="remote-checkbox">
+            <input type="checkbox" checked={pushAccess} onChange={(event) => setPushAccess(event.target.checked)} />
+            Web-Push erlauben
+          </label>
+          <label className="remote-checkbox">
+            <input type="checkbox" checked={speechAccess} onChange={(event) => setSpeechAccess(event.target.checked)} />
+            Sprach-Transkription erlauben
+          </label>
           <button
             type="button"
             className="btn primary"
@@ -146,6 +169,9 @@ export default function RemotePanel(): JSX.Element {
             onClick={() => void run(async () => {
               const capabilities: RemoteCapability[] = ['read', 'steer']
               if (admin) capabilities.push('admin')
+              if (diffAccess) capabilities.push('diff')
+              if (pushAccess) capabilities.push('push')
+              if (speechAccess) capabilities.push('speech')
               setChallenge(await window.orca.remote.pairStart({ capabilities }))
             })}
           >

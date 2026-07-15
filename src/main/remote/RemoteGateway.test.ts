@@ -30,7 +30,8 @@ describe('RemoteGateway hardening', () => {
       audit: new RemoteAuditLog(join(directory, 'audit.jsonl')),
       commands: new RemoteCommandRouter({
         reviewPlan: vi.fn(), enableAutoMode: vi.fn(), reset: vi.fn(),
-        submitGoal: vi.fn(), activateKillSwitch: vi.fn()
+        submitGoal: vi.fn(), approvePublication: vi.fn(), rejectPublication: vi.fn(),
+        taskDiff: vi.fn(), activateKillSwitch: vi.fn()
       })
     })
     try {

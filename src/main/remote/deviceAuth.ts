@@ -53,7 +53,9 @@ export class DeviceAuth extends EventEmitter {
   ): PairingChallenge {
     const code = this.bytes(16).toString('hex')
     const allowed = [...new Set(capabilities)].filter(
-      (value): value is RemoteCapability => value === 'read' || value === 'steer' || value === 'admin'
+      (value): value is RemoteCapability =>
+        value === 'read' || value === 'steer' || value === 'admin' || value === 'diff' ||
+        value === 'push' || value === 'speech'
     )
     const expiresAt = this.now() + PAIRING_TTL_MS
     this.pending = {
@@ -126,4 +128,3 @@ export class DeviceAuth extends EventEmitter {
 }
 
 export const deviceAuthInternals = { digest, safeEqual, PAIRING_TTL_MS }
-

@@ -9,9 +9,17 @@ import { DeviceAuth } from './deviceAuth'
 import type { RemoteGatewayHandle } from './gatewayHandle'
 import { RemoteReadModel } from './readModel'
 import { TokenBucketRateLimiter } from './rateLimit'
+import type { PushService } from './pushService'
+import {
+  INBOX_SPEECH_MAX_BYTES,
+  INBOX_SPEECH_MAX_DURATION_MS,
+  type TranscribeAudioResult
+} from '@shared/inboxSpeech'
 
 export const REMOTE_COMMAND_BODY_CAP = 64 * 1024
 export const REMOTE_PAIR_BODY_CAP = 8 * 1024
+export const REMOTE_PUSH_BODY_CAP = 16 * 1024
+export const REMOTE_SPEECH_BODY_CAP = Math.ceil(INBOX_SPEECH_MAX_BYTES * 1.4) + 4 * 1024
 
 interface GatewayOptions {
   auth: DeviceAuth
@@ -20,6 +28,12 @@ interface GatewayOptions {
   readModel: RemoteReadModel
   staticDir?: string
   allowedHosts?: string[]
+  pushService?: PushService
+  transcribeSpeech?(payload: {
+    mimeType: string
+    bytes: Uint8Array
+    durationMs: number
+  }): Promise<TranscribeAudioResult>
 }
 
 interface AuthenticatedRequest {
@@ -34,6 +48,20 @@ class HttpError extends Error {
 const pairSchema = z.object({
   code: z.string().min(1).max(256),
   deviceName: z.string().trim().min(1).max(80)
+}).strict()
+const pushSubscriptionSchema = z.object({
+  endpoint: z.string().url().max(2_048).refine((value) => value.startsWith('https://')),
+  expirationTime: z.number().nullable().optional(),
+  keys: z.object({
+    p256dh: z.string().min(1).max(512),
+    auth: z.string().min(1).max(256)
+  }).strict()
+}).strict()
+const speechSchema = z.object({
+  mimeType: z.string().min(1).max(100),
+  durationMs: z.number().nonnegative().max(INBOX_SPEECH_MAX_DURATION_MS),
+  audioBase64: z.string().min(1).max(Math.ceil(INBOX_SPEECH_MAX_BYTES * 4 / 3) + 8)
+    .refine((value) => value.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(value))
 }).strict()
 
 const MIME: Record<string, string> = {
@@ -159,7 +187,7 @@ export async function startRemoteGateway(options: GatewayOptions): Promise<Remot
       'Content-Security-Policy': "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
       'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'no-referrer',
-      'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+      'Permissions-Policy': 'camera=(), microphone=(self), geolocation=()',
       'Cache-Control': path.endsWith('index.html') ? 'no-store' : 'public, max-age=3600'
     })
     createReadStream(path).pipe(res)
@@ -216,6 +244,63 @@ export async function startRemoteGateway(options: GatewayOptions): Promise<Remot
       }
       options.audit.record({ kind: 'data-access', outcome: 'accepted', deviceId: authenticated.device.id, action: 'devices.list' })
       json(res, 200, { devices: options.auth.listDevices() })
+      return
+    }
+    if (url.pathname === '/push/vapid-key' && req.method === 'GET') {
+      const authenticated = authenticate(req, 'push.vapid-key')
+      if (!authenticated || !authenticated.device.capabilities.includes('push')) {
+        json(res, authenticated ? 403 : 401, { error: 'Unauthorized.' })
+        return
+      }
+      if (!options.pushService) throw new HttpError(404, 'Push service unavailable.')
+      const publicKey = await options.pushService.publicKey()
+      options.audit.record({
+        kind: 'data-access', outcome: 'accepted', deviceId: authenticated.device.id,
+        action: 'push.vapid-key'
+      })
+      json(res, 200, { publicKey })
+      return
+    }
+    if (url.pathname === '/push/subscribe' && req.method === 'POST') {
+      const authenticated = authenticate(req, 'push.subscribe')
+      if (!authenticated || !authenticated.device.capabilities.includes('push')) {
+        json(res, authenticated ? 403 : 401, { error: 'Unauthorized.' })
+        return
+      }
+      if (!options.pushService) throw new HttpError(404, 'Push service unavailable.')
+      const parsed = pushSubscriptionSchema.safeParse(await readJson(req, REMOTE_PUSH_BODY_CAP))
+      if (!parsed.success) throw new HttpError(400, 'Invalid push subscription.')
+      options.pushService.subscribe(authenticated.device.id, parsed.data)
+      options.audit.record({
+        kind: 'command', outcome: 'accepted', deviceId: authenticated.device.id,
+        action: 'push.subscribe'
+      })
+      json(res, 200, { ok: true })
+      return
+    }
+    if (url.pathname === '/speech/transcribe' && req.method === 'POST') {
+      const authenticated = authenticate(req, 'speech.transcribe')
+      if (!authenticated || !authenticated.device.capabilities.includes('speech')) {
+        json(res, authenticated ? 403 : 401, { error: 'Unauthorized.' })
+        return
+      }
+      if (!options.transcribeSpeech) throw new HttpError(404, 'Speech service unavailable.')
+      if (!commandLimiter.consume(authenticated.device.id)) throw new HttpError(429, 'Too many commands.')
+      const parsed = speechSchema.safeParse(await readJson(req, REMOTE_SPEECH_BODY_CAP))
+      if (!parsed.success) throw new HttpError(400, 'Invalid speech request.')
+      const bytes = Buffer.from(parsed.data.audioBase64, 'base64')
+      if (bytes.byteLength > INBOX_SPEECH_MAX_BYTES) throw new HttpError(413, 'Audio payload too large.')
+      const result = await options.transcribeSpeech({
+        mimeType: parsed.data.mimeType,
+        durationMs: parsed.data.durationMs,
+        bytes
+      })
+      options.audit.record({
+        kind: 'command', outcome: result.ok ? 'accepted' : 'error',
+        deviceId: authenticated.device.id, action: 'speech.transcribe',
+        detail: result.ok ? { transcriptLength: result.text.length } : { code: result.code }
+      })
+      json(res, 200, result)
       return
     }
     if (url.pathname === '/command' && req.method === 'POST') {
@@ -290,4 +375,6 @@ export async function startRemoteGateway(options: GatewayOptions): Promise<Remot
   }
 }
 
-export const remoteGatewayInternals = { bearer, requestHost, readJson, sseFrame, pairSchema }
+export const remoteGatewayInternals = {
+  bearer, requestHost, readJson, sseFrame, pairSchema, pushSubscriptionSchema, speechSchema
+}

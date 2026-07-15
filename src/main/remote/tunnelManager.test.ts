@@ -31,6 +31,22 @@ describe('TunnelManager', () => {
     expect(manager.status().state).toBe('disabled')
   })
 
+  it('accepts only a parsed trycloudflare URL before marking a quick tunnel online', async () => {
+    const process = new FakeProcess()
+    const manager = new TunnelManager(
+      vi.fn<TunnelSpawner>(() => process),
+      async (_command, args) => ({ file: 'cloudflared', args })
+    )
+    await manager.start({ origin: 'http://127.0.0.1:1234', mode: 'quick' })
+    process.emit('spawn')
+    expect(manager.status().state).toBe('starting')
+    process.stderr.write('INF quick Tunnel https://mobile-test.trycloudflare.com ready')
+    expect(manager.status()).toMatchObject({
+      state: 'online', mode: 'quick', publicUrl: 'https://mobile-test.trycloudflare.com'
+    })
+    await manager.stop()
+  })
+
   it('reconnects with bounded backoff after an unexpected exit', async () => {
     vi.useFakeTimers()
     try {

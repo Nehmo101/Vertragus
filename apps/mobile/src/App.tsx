@@ -10,6 +10,7 @@ import type {
 
 type View = 'live' | 'approvals' | 'goal' | 'devices'
 const TOKEN_KEY = 'orca.remote.deviceToken'
+const DEVICE_KEY = 'orca.remote.device'
 
 function pairingCode(): string {
   const query = window.location.hash.includes('?') ? window.location.hash.split('?')[1] : ''
@@ -17,6 +18,29 @@ function pairingCode(): string {
 }
 
 function message(error: unknown): string { return error instanceof Error ? error.message : String(error) }
+
+function initialView(): View {
+  const route = window.location.hash.split('?')[0]
+  if (route === '#/approvals') return 'approvals'
+  if (route === '#/goal') return 'goal'
+  if (route === '#/devices') return 'devices'
+  return 'live'
+}
+
+function vapidBytes(value: string): ArrayBuffer {
+  const padding = '='.repeat((4 - value.length % 4) % 4)
+  const raw = atob((value + padding).replace(/-/g, '+').replace(/_/g, '/'))
+  const bytes = new Uint8Array(raw.length)
+  for (let index = 0; index < raw.length; index += 1) bytes[index] = raw.charCodeAt(index)
+  return bytes.buffer
+}
+
+async function blobBase64(blob: Blob): Promise<string> {
+  const bytes = new Uint8Array(await blob.arrayBuffer())
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary)
+}
 
 async function api<T>(path: string, token: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(path, {
@@ -63,13 +87,17 @@ export default function App(): JSX.Element {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY) ?? '')
   const [code, setCode] = useState(pairingCode)
   const [deviceName, setDeviceName] = useState(() => navigator.platform || 'Mobilgerät')
-  const [view, setView] = useState<View>('live')
+  const [view, setView] = useState<View>(initialView)
   const [snapshots, setSnapshots] = useState<Record<string, OrchestratorSnapshot>>({})
   const [approvals, setApprovals] = useState<ApprovalItem[]>([])
   const [devices, setDevices] = useState<DeviceInfo[]>([])
   const [connected, setConnected] = useState(false)
   const [error, setError] = useState<string>()
   const [goal, setGoal] = useState('')
+  const [recording, setRecording] = useState(false)
+  const mediaRecorder = useRef<MediaRecorder>()
+  const mediaChunks = useRef<Blob[]>([])
+  const mediaStartedAt = useRef(0)
   const reconnect = useRef(0)
 
   const profiles = useMemo(() => [...new Set(Object.values(snapshots).map((snapshot) => snapshot.profileId).filter((id): id is string => Boolean(id)))], [snapshots])
@@ -101,16 +129,24 @@ export default function App(): JSX.Element {
   }, [token])
 
   useEffect(() => {
+    if (!token) return
+    void api<{ devices: DeviceInfo[] }>('/devices', token)
+      .then((value) => setDevices(value.devices))
+      .catch((value) => setError(message(value)))
+  }, [token])
+
+  useEffect(() => {
     if (!token || view !== 'devices') return
     void api<{ devices: DeviceInfo[] }>('/devices', token).then((value) => setDevices(value.devices)).catch((value) => setError(message(value)))
   }, [token, view])
 
-  const command = async (id: RemoteCommandId, args: unknown): Promise<void> => {
+  const command = async (id: RemoteCommandId, args: unknown): Promise<unknown> => {
     setError(undefined)
-    await api('/command', token, {
+    const response = await api<{ result: unknown }>('/command', token, {
       method: 'POST',
       body: JSON.stringify({ id, args, requestId: crypto.randomUUID() })
     })
+    return response.result
   }
 
   const pair = async (): Promise<void> => {
@@ -123,9 +159,67 @@ export default function App(): JSX.Element {
       const result = await response.json() as PairingResult & { error?: string }
       if (!response.ok) throw new Error(result.error ?? 'Pairing fehlgeschlagen.')
       localStorage.setItem(TOKEN_KEY, result.token)
+      localStorage.setItem(DEVICE_KEY, JSON.stringify(result.device))
       setToken(result.token)
       window.location.hash = '#/live'
     } catch (value) { setError(message(value)) }
+  }
+
+  const currentDevice = useMemo(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(DEVICE_KEY) ?? '{}') as DeviceInfo
+      return devices.find((device) => device.id === saved.id) ?? saved
+    } catch { return undefined }
+  }, [devices])
+
+  const enablePush = async (): Promise<void> => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) throw new Error('Web-Push wird auf diesem Gerät nicht unterstützt.')
+    const permission = await Notification.requestPermission()
+    if (permission !== 'granted') throw new Error('Benachrichtigungen wurden nicht erlaubt.')
+    const { publicKey } = await api<{ publicKey: string }>('/push/vapid-key', token)
+    const registration = await navigator.serviceWorker.ready
+    const subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: vapidBytes(publicKey)
+    })
+    await api('/push/subscribe', token, {
+      method: 'POST', body: JSON.stringify(subscription.toJSON())
+    })
+  }
+
+  const toggleSpeech = async (): Promise<void> => {
+    if (recording) {
+      mediaRecorder.current?.stop()
+      return
+    }
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      throw new Error('Audioaufnahme wird auf diesem Gerät nicht unterstützt.')
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    const recorder = new MediaRecorder(stream)
+    mediaChunks.current = []
+    mediaStartedAt.current = Date.now()
+    recorder.ondataavailable = (event) => { if (event.data.size > 0) mediaChunks.current.push(event.data) }
+    recorder.onstop = () => {
+      const blob = new Blob(mediaChunks.current, { type: recorder.mimeType || 'audio/webm' })
+      const durationMs = Date.now() - mediaStartedAt.current
+      stream.getTracks().forEach((track) => track.stop())
+      setRecording(false)
+      void blobBase64(blob)
+        .then((audioBase64) => api<{ ok: boolean; text?: string; message?: string }>('/speech/transcribe', token, {
+          method: 'POST',
+          body: JSON.stringify({ mimeType: blob.type || 'audio/webm', durationMs, audioBase64 })
+        }))
+        .then((result) => {
+          if (!result.ok || !result.text) throw new Error(result.message ?? 'Transkription fehlgeschlagen.')
+          setGoal(result.text)
+        })
+        .catch((value) => setError(message(value)))
+    }
+    mediaRecorder.current = recorder
+    recorder.start()
+    setRecording(true)
+    window.setTimeout(() => { if (recorder.state === 'recording') recorder.stop() }, 120_000)
   }
 
   if (!token) {
@@ -161,6 +255,7 @@ export default function App(): JSX.Element {
             <p className="muted">Remote-Ziele werden immer mit <code>yoloMaster:false</code> über den vorhandenen Idea-Transfer gestartet.</p>
             <label>Workspace<select value={profileId} onChange={(event) => setProfileId(event.target.value)}>{profiles.map((id) => <option key={id}>{id}</option>)}</select></label>
             <label>Ziel<textarea value={goal} onChange={(event) => setGoal(event.target.value)} maxLength={8000} rows={9} placeholder="Was soll der Schwarm erreichen?" /></label>
+            {currentDevice?.capabilities?.includes('speech') && <button className="secondary speech" onClick={() => void toggleSpeech().catch((value) => setError(message(value)))}>{recording ? 'Aufnahme stoppen' : 'Ziel sprechen'}</button>}
             <button disabled={!profileId || !goal.trim()} onClick={() => void command('goal.submit', { profileId, text: goal }).then(() => setGoal('')).catch((value) => setError(message(value)))}>Ziel sicher senden</button>
           </section>
         )}
@@ -168,6 +263,8 @@ export default function App(): JSX.Element {
           <section>
             <span className="eyebrow">Sicherheit</span><h2>Geräte</h2>
             {devices.map((device) => <article className="device" key={device.id}><div><strong>{device.name}</strong><small>{device.capabilities.join(' · ')}</small></div><span>{device.revokedAt ? 'widerrufen' : 'aktiv'}</span></article>)}
+            {currentDevice?.capabilities?.includes('push') && <button onClick={() => void enablePush().catch((value) => setError(message(value)))}>Push-Benachrichtigungen aktivieren</button>}
+            <p className="muted">Auf iOS funktioniert Web-Push nur für eine zum Home-Bildschirm hinzugefügte PWA. In-App-Badges bleiben immer aktiv.</p>
             <button className="danger" onClick={() => void command('killSwitch.activate', {}).catch((value) => setError(message(value)))}>Master-Not-Aus</button>
           </section>
         )}
@@ -192,17 +289,28 @@ function Live({ snapshots }: { snapshots: OrchestratorSnapshot[] }): JSX.Element
   return <>{snapshots.map((snapshot) => <section key={snapshot.workspaceSessionId ?? snapshot.profileId} className="workspace"><span className="eyebrow">{snapshot.profileId}</span><h2>{snapshot.goal?.title ?? 'Workspace bereit'}</h2>{snapshot.pendingPlan && <div className="waiting">Wartet auf Plan-Freigabe</div>}<div className="dag">{snapshot.tasks.map((task) => <article key={task.id} className={`task status-${task.status}`}><div className="task-line"><strong>{task.title}</strong><span>{task.status}</span></div><small>{task.agentName ?? task.role}{task.lastAction ? ` · ${task.lastAction}` : ''}</small>{typeof task.progress === 'number' && <div className="progress"><i style={{ width: `${task.progress}%` }} /></div>}</article>)}</div></section>)}</>
 }
 
-function Inbox({ approvals, command }: { approvals: ApprovalItem[]; command(id: RemoteCommandId, args: unknown): Promise<void> }): JSX.Element {
+function Inbox({ approvals, command }: { approvals: ApprovalItem[]; command(id: RemoteCommandId, args: unknown): Promise<unknown> }): JSX.Element {
   const [error, setError] = useState<string>()
+  const [diff, setDiff] = useState<{ title: string; value: string }>()
   if (!approvals.length) return <Empty title="Alles entschieden" text="Es wartet derzeit kein Plan und keine blockierte Aufgabe." />
   const act = (id: RemoteCommandId, approval: ApprovalItem): void => {
     const args = { profileId: approval.profileId, sessionId: approval.workspaceSessionId }
     void command(id, args).catch((value) => setError(message(value)))
   }
-  return <section><span className="eyebrow">Entscheidungen</span><h2>Approval-Inbox</h2>{error && <div className="error">{error}</div>}{approvals.map((approval) => <article className="approval" key={approval.id}><small>{approval.kind === 'plan-review' ? 'PLAN-REVIEW' : 'BLOCKIERT'}</small><h3>{approval.title}</h3><p>{approval.summary}</p><div className="actions">{approval.kind === 'plan-review' ? <><button onClick={() => act('plan.approve', approval)}>Freigeben</button><button className="secondary" onClick={() => act('plan.reject', approval)}>Ablehnen</button></> : <><button onClick={() => act('mode.enableAuto', approval)}>Auto aktivieren</button><button className="secondary" onClick={() => act('run.reset', approval)}>Lauf zurücksetzen</button></>}</div></article>)}</section>
+  const showDiff = (approval: ApprovalItem): void => {
+    if (!approval.task) return
+    void command('task.diff', {
+      profileId: approval.profileId,
+      sessionId: approval.workspaceSessionId,
+      taskId: approval.task.id
+    }).then((result) => {
+      const value = result as { diff?: string }
+      setDiff({ title: approval.task!.title, value: value.diff ?? 'Kein Diff.' })
+    }).catch((value) => setError(message(value)))
+  }
+  return <section><span className="eyebrow">Entscheidungen</span><h2>Approval-Inbox</h2>{error && <div className="error">{error}</div>}{diff && <article className="diff-view"><div><strong>{diff.title}</strong><button className="secondary" onClick={() => setDiff(undefined)}>Schließen</button></div><pre>{diff.value}</pre></article>}{approvals.map((approval) => <article className="approval" key={approval.id}><small>{approval.kind === 'plan-review' ? 'PLAN-REVIEW' : approval.kind === 'pr-publication' ? 'PR-VERÖFFENTLICHUNG' : 'BLOCKIERT'}</small><h3>{approval.title}</h3><p>{approval.summary}</p>{approval.task && <button className="secondary diff-button" onClick={() => showDiff(approval)}>Diff ansehen</button>}<div className="actions">{approval.kind === 'plan-review' ? <><button onClick={() => act('plan.approve', approval)}>Freigeben</button><button className="secondary" onClick={() => act('plan.reject', approval)}>Ablehnen</button></> : approval.kind === 'pr-publication' ? <><button onClick={() => act('publication.approve', approval)}>Veröffentlichen</button><button className="secondary" onClick={() => act('publication.reject', approval)}>Ablehnen</button></> : <><button onClick={() => act('mode.enableAuto', approval)}>Auto aktivieren</button><button className="secondary" onClick={() => act('run.reset', approval)}>Lauf zurücksetzen</button></>}</div></article>)}</section>
 }
 
 function Empty({ title, text }: { title: string; text: string }): JSX.Element {
   return <section className="empty"><div>◌</div><h2>{title}</h2><p>{text}</p></section>
 }
-

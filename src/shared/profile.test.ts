@@ -26,6 +26,14 @@ describe('workspaceProfileSchema', () => {
     expect(workspaceProfileSchema.parse(DEFAULT_PROFILE)).toEqual(DEFAULT_PROFILE)
   })
 
+  it('accepts the review-gated Auto-PR publication mode', () => {
+    const profile = workspaceProfileSchema.parse({
+      ...DEFAULT_PROFILE,
+      autoPr: { ...DEFAULT_PROFILE.autoPr, mode: 'hold-for-approval' }
+    })
+    expect(profile.autoPr.mode).toBe('hold-for-approval')
+  })
+
   it('accepts optional githubRepo binding with defaults', () => {
     const profile = workspaceProfileSchema.parse({
       id: 'gh',

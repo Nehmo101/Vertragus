@@ -17,6 +17,7 @@ export function deriveApprovals(snapshots: Iterable<OrchestratorSnapshot>): Appr
   for (const snapshot of snapshots) {
     const scope = approvalScope(snapshot)
     if (!scope) continue
+    for (const pending of snapshot.pendingApprovals ?? []) approvals.push(pending)
     if (snapshot.pendingPlan) {
       approvals.push({
         id: `plan:${scope.workspaceSessionId}:${snapshot.pendingPlan.planId}`,

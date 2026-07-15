@@ -151,6 +151,14 @@ export class WorkspaceSessionRegistry extends EventEmitter {
     this.ensure(profile, sessionId).engine.reset()
   }
 
+  approvePublication(profile: WorkspaceProfile, planId?: string, sessionId?: string): Promise<boolean> {
+    return this.ensure(profile, sessionId).engine.approvePublication(planId)
+  }
+
+  rejectPublication(profile: WorkspaceProfile, planId?: string, sessionId?: string): boolean {
+    return this.ensure(profile, sessionId).engine.rejectPublication(planId)
+  }
+
   removeSession(sessionId: string): void {
     const session = this.byId.get(sessionId)
     if (!session) return

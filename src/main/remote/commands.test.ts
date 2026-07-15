@@ -13,6 +13,9 @@ function router(): RemoteCommandRouter {
     enableAutoMode: vi.fn(() => true),
     reset: vi.fn(),
     submitGoal: vi.fn(() => ({ submitted: true })),
+    approvePublication: vi.fn(() => true),
+    rejectPublication: vi.fn(() => true),
+    taskDiff: vi.fn(() => ({ taskId: 'task', diff: 'safe', truncated: false })),
     activateKillSwitch: vi.fn()
   })
 }
@@ -39,5 +42,15 @@ describe('RemoteCommandRouter', () => {
     await expect(router().execute({
       id: 'run.reset', args: { profileId: 'p', sessionId: 's' }
     }, steerDevice)).rejects.toMatchObject({ status: 403 })
+  })
+
+  it('keeps task.diff behind its own default-off capability', async () => {
+    await expect(router().execute({
+      id: 'task.diff', args: { profileId: 'p', sessionId: 's', taskId: 'task' }
+    }, steerDevice)).rejects.toMatchObject({ status: 403 })
+    await expect(router().execute({
+      id: 'task.diff', args: { profileId: 'p', sessionId: 's', taskId: 'task' }
+    }, { ...steerDevice, capabilities: [...steerDevice.capabilities, 'diff'] }))
+      .resolves.toMatchObject({ taskId: 'task' })
   })
 })

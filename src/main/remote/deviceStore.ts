@@ -4,6 +4,8 @@ import type { RemoteCapability } from '@shared/remote'
 
 const DEVICES_KEY = 'secrets.remote.devices'
 const CLOUDFLARE_KEY = 'secrets.remote.cloudflare'
+const PUSH_SUBSCRIPTIONS_KEY = 'secrets.remote.pushSubscriptions'
+const VAPID_KEY = 'secrets.remote.vapid'
 
 export interface StoredDeviceRecord {
   id: string
@@ -19,6 +21,20 @@ export interface StoredDeviceRecord {
 export interface StoredCloudflareCredential {
   hostname: string
   tunnelToken: string
+}
+
+export interface StoredPushSubscription {
+  id: string
+  deviceId: string
+  endpoint: string
+  expirationTime?: number | null
+  keys: { p256dh: string; auth: string }
+  createdAt: number
+}
+
+export interface StoredVapidKeys {
+  publicKey: string
+  privateKey: string
 }
 
 export interface DeviceRecordStore {
@@ -59,7 +75,8 @@ function parseDevices(value: unknown): StoredDeviceRecord[] {
     ) return []
     const capabilities = item.capabilities.filter(
       (capability): capability is RemoteCapability =>
-        capability === 'read' || capability === 'steer' || capability === 'admin'
+        capability === 'read' || capability === 'steer' || capability === 'admin' ||
+        capability === 'diff' || capability === 'push' || capability === 'speech'
     )
     return [{
       id: item.id,
@@ -132,3 +149,55 @@ export function writeCloudflareCredential(
   setSetting(CLOUDFLARE_KEY, codec.encrypt(JSON.stringify({ hostname, tunnelToken })))
 }
 
+function readEncryptedJson<T>(key: string, codec: SecretCodec = electronCodec): T | undefined {
+  const blob = getSetting<string>(key)
+  if (!blob || !codec.available()) return undefined
+  try { return JSON.parse(codec.decrypt(blob)) as T } catch { return undefined }
+}
+
+function writeEncryptedJson(key: string, value: unknown, codec: SecretCodec = electronCodec): void {
+  if (!codec.available()) {
+    throw new Error('Remote-Zugriff benötigt Electron safeStorage; Verschlüsselung ist nicht verfügbar.')
+  }
+  setSetting(key, codec.encrypt(JSON.stringify(value)))
+}
+
+export function readPushSubscriptions(codec: SecretCodec = electronCodec): StoredPushSubscription[] {
+  const value = readEncryptedJson<unknown>(PUSH_SUBSCRIPTIONS_KEY, codec)
+  if (!Array.isArray(value)) return []
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return []
+    const item = entry as Partial<StoredPushSubscription>
+    if (
+      typeof item.id !== 'string' || typeof item.deviceId !== 'string' ||
+      typeof item.endpoint !== 'string' || !item.endpoint.startsWith('https://') ||
+      !item.keys || typeof item.keys.p256dh !== 'string' || typeof item.keys.auth !== 'string' ||
+      typeof item.createdAt !== 'number'
+    ) return []
+    return [{
+      id: item.id, deviceId: item.deviceId, endpoint: item.endpoint,
+      expirationTime: typeof item.expirationTime === 'number' || item.expirationTime === null
+        ? item.expirationTime : undefined,
+      keys: { p256dh: item.keys.p256dh, auth: item.keys.auth },
+      createdAt: item.createdAt
+    }]
+  })
+}
+
+export function writePushSubscriptions(
+  subscriptions: StoredPushSubscription[],
+  codec: SecretCodec = electronCodec
+): void {
+  writeEncryptedJson(PUSH_SUBSCRIPTIONS_KEY, subscriptions, codec)
+}
+
+export function readVapidKeys(codec: SecretCodec = electronCodec): StoredVapidKeys | undefined {
+  const value = readEncryptedJson<Partial<StoredVapidKeys>>(VAPID_KEY, codec)
+  return value && typeof value.publicKey === 'string' && typeof value.privateKey === 'string'
+    ? { publicKey: value.publicKey, privateKey: value.privateKey }
+    : undefined
+}
+
+export function writeVapidKeys(keys: StoredVapidKeys, codec: SecretCodec = electronCodec): void {
+  writeEncryptedJson(VAPID_KEY, keys, codec)
+}

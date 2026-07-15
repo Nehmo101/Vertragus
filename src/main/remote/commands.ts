@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { DeviceInfo, RemoteCapability, RemoteCommandEnvelope, RemoteCommandId } from '@shared/remote'
 import { TokenBucketRateLimiter } from './rateLimit'
+import type { TaskReviewDiff } from '@shared/ipc'
 
 export class RemoteCommandError extends Error {
   constructor(message: string, readonly status: number, readonly code: string) {
@@ -13,6 +14,9 @@ export interface RemoteCommandDependencies {
   enableAutoMode(profileId: string, sessionId: string): boolean | Promise<boolean>
   reset(profileId: string, sessionId: string): void | Promise<void>
   submitGoal(profileId: string, text: string): unknown | Promise<unknown>
+  approvePublication(profileId: string, sessionId: string, planId?: string): boolean | Promise<boolean>
+  rejectPublication(profileId: string, sessionId: string, planId?: string): boolean | Promise<boolean>
+  taskDiff(profileId: string, sessionId: string, taskId: string): TaskReviewDiff | Promise<TaskReviewDiff>
   activateKillSwitch(): void | Promise<void>
 }
 
@@ -34,6 +38,8 @@ const goalSchema = z.object({
 }).strict()
 
 const emptySchema = z.object({}).strict()
+const publicationSchema = scopeSchema.extend({ planId: z.string().trim().min(1).max(128).optional() }).strict()
+const taskDiffSchema = scopeSchema.extend({ taskId: z.string().trim().min(1).max(160) }).strict()
 
 export class RemoteCommandRouter {
   private readonly routes = new Map<RemoteCommandId, RemoteCommandRoute>()
@@ -75,6 +81,22 @@ export class RemoteCommandRouter {
       }
     })
     this.register({
+      id: 'publication.approve', capability: 'steer', schema: publicationSchema,
+      handle: async (args) => ({
+        resolved: await dependencies.approvePublication(args.profileId, args.sessionId, args.planId)
+      })
+    })
+    this.register({
+      id: 'publication.reject', capability: 'steer', schema: publicationSchema,
+      handle: async (args) => ({
+        resolved: await dependencies.rejectPublication(args.profileId, args.sessionId, args.planId)
+      })
+    })
+    this.register({
+      id: 'task.diff', capability: 'diff', schema: taskDiffSchema,
+      handle: (args) => dependencies.taskDiff(args.profileId, args.sessionId, args.taskId)
+    })
+    this.register({
       id: 'killSwitch.activate', capability: 'read', schema: emptySchema,
       handle: async () => {
         await dependencies.activateKillSwitch()
@@ -109,4 +131,4 @@ export class RemoteCommandRouter {
   }
 }
 
-export const remoteCommandSchemas = { scopeSchema, goalSchema, emptySchema }
+export const remoteCommandSchemas = { scopeSchema, goalSchema, emptySchema, publicationSchema, taskDiffSchema }

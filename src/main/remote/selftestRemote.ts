@@ -69,6 +69,9 @@ export async function runRemoteSelfTest(): Promise<void> {
       enableAutoMode: () => engine.enableAutoMode(),
       reset: () => engine.reset(),
       submitGoal: () => ({ accepted: true, yoloMaster: false }),
+      approvePublication: () => false,
+      rejectPublication: () => false,
+      taskDiff: () => ({ taskId: 'none', diff: '', truncated: false }),
       activateKillSwitch: () => auth.revokeAll()
     })
     gateway = await startRemoteGateway({ auth, audit, commands, readModel })
@@ -135,4 +138,3 @@ export async function runRemoteSelfTest(): Promise<void> {
   console.log(`[REMOTE SELFTEST] ${allOk ? 'ALL PASSED' : 'FAILURES PRESENT'}`)
   app.exit(allOk ? 0 : 1)
 }
-

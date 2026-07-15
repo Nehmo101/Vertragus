@@ -1,7 +1,7 @@
 /** Node-free Mission Control contracts shared by Electron and the mobile PWA. */
 import type { OrchestratorSnapshot, OrcaTask, PendingPlanReview } from './orchestrator'
 
-export const REMOTE_CAPABILITIES = ['read', 'steer', 'admin'] as const
+export const REMOTE_CAPABILITIES = ['read', 'steer', 'admin', 'diff', 'push', 'speech'] as const
 export type RemoteCapability = (typeof REMOTE_CAPABILITIES)[number]
 
 export const REMOTE_COMMAND_IDS = [
@@ -10,6 +10,9 @@ export const REMOTE_COMMAND_IDS = [
   'mode.enableAuto',
   'run.reset',
   'goal.submit',
+  'publication.approve',
+  'publication.reject',
+  'task.diff',
   'killSwitch.activate'
 ] as const
 export type RemoteCommandId = (typeof REMOTE_COMMAND_IDS)[number]
@@ -20,7 +23,7 @@ export interface RemoteCommandEnvelope {
   requestId?: string
 }
 
-export type ApprovalKind = 'plan-review' | 'task-blocked'
+export type ApprovalKind = 'plan-review' | 'task-blocked' | 'pr-publication'
 
 export interface ApprovalItem {
   id: string
@@ -69,6 +72,7 @@ export interface RemoteStatus {
   gatewayRunning: boolean
   gatewayPort?: number
   tunnel: RemoteTunnelState
+  tunnelMode?: 'named' | 'quick'
   publicUrl?: string
   deviceCount: number
   error?: string
@@ -79,10 +83,11 @@ export interface RemoteEnableRequest {
   hostname?: string
   /** Named-tunnel token; accepted only by desktop IPC and encrypted immediately. */
   tunnelToken?: string
+  /** Explicit development/fallback mode. URL is ephemeral and still treated as public. */
+  quickTunnel?: boolean
 }
 
 export interface RemotePairStartRequest {
   capabilities?: RemoteCapability[]
   deviceNameHint?: string
 }
-

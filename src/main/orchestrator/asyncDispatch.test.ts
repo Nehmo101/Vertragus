@@ -187,6 +187,49 @@ describe('asynchronous orchestration API', () => {
     }))
   })
 
+  it('parks prepared changes in hold-for-approval mode and publishes only after resolve', async () => {
+    runTask.mockImplementationOnce(async (request) => ({
+      info: info(request.taskId),
+      done: Promise.resolve({ result: 'Done', isError: false, status: 'succeeded' as const })
+    }))
+    prepareTaskChange.mockResolvedValueOnce({
+      status: 'prepared',
+      result: 'committed',
+      noChanges: false,
+      message: 'Commit verified.',
+      branch: 'orca/held',
+      worktree: '.',
+      change: {
+        taskId: 'held', title: 'Held Feature', worktree: '.', branch: 'orca/held',
+        commit: 'b'.repeat(40), commits: ['b'.repeat(40)], files: ['held.ts']
+      }
+    })
+    publishPreparedChanges.mockResolvedValueOnce({
+      status: 'published', message: 'Published after approval.', url: 'https://github.test/pr/held'
+    })
+    const publishCallsBefore = publishPreparedChanges.mock.calls.length
+    const engine = new OrchestratorEngine({
+      profile: {
+        ...DEFAULT_PROFILE,
+        autoPr: { ...DEFAULT_PROFILE.autoPr, mode: 'hold-for-approval' as const }
+      },
+      workspaceSessionId: 'hold-session'
+    })
+    const accepted = engine.dispatchAsync('codex', 'Implement held feature', 'Held Feature')
+
+    await vi.waitFor(() => expect(engine.snapshot().pendingApprovals).toEqual([
+      expect.objectContaining({ kind: 'pr-publication', actions: ['publication.approve', 'publication.reject'] })
+    ]))
+    expect(publishPreparedChanges).toHaveBeenCalledTimes(publishCallsBefore)
+
+    await expect(engine.approvePublication()).resolves.toBe(true)
+    expect(publishPreparedChanges).toHaveBeenCalledTimes(publishCallsBefore + 1)
+    expect(engine.snapshot().pendingApprovals).toEqual([])
+    expect(engine.snapshot().tasks.find((task) => task.id === accepted.taskId)).toEqual(
+      expect.objectContaining({ autoPrStatus: 'published', prUrl: 'https://github.test/pr/held' })
+    )
+  })
+
   it('enables auto mode without approving the plan that is already waiting for review', async () => {
     runTask.mockImplementation(async (request) => ({
       info: info(request.taskId),

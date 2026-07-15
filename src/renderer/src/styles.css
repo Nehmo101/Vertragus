@@ -5239,6 +5239,7 @@ textarea:focus-visible,
 }
 
 .remote-form { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(220px, 1fr) auto; align-items: end; gap: 10px; min-width: min(680px, 60vw); }
+.remote-form > .remote-checkbox { grid-column: 1 / -1; }
 .remote-form label { display: grid; gap: 5px; color: var(--text-2); font-size: 11px; }
 .remote-form input { min-width: 0; }
 .remote-online-details code { max-width: 420px; overflow: hidden; text-overflow: ellipsis; }

@@ -43,6 +43,11 @@ section > h2 { margin: 5px 0 10px; font-size: 22px; }
 .approval h3 { margin: 6px 0; }
 .approval p { color: #69736f; font-size: 13px; line-height: 1.5; }
 .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
+.diff-button { width: 100%; margin-top: 7px; }
+.diff-view { margin: 12px 0; border: 1px solid #8da18d; border-radius: 14px; padding: 12px; background: #17201d; color: #e8eee9; }
+.diff-view > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.diff-view pre { max-height: 55vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 10px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.speech { width: 100%; margin: 12px 0 8px; }
 .device { display: flex; align-items: center; justify-content: space-between; margin-top: 9px; border: 1px solid rgba(90,100,94,.18); border-radius: 13px; padding: 12px; background: rgba(255,255,255,.72); }
 .device div { display: grid; gap: 3px; }
 .device small, .device > span { color: #737c78; font-size: 10px; }
@@ -55,4 +60,3 @@ nav button { display: grid; justify-items: center; gap: 2px; border-radius: 10px
 nav button span { font-size: 20px; line-height: 1; }
 nav button.active { background: #e2ead5; color: #294d3d; }
 @media (prefers-color-scheme: dark) { :root { background: #17201d; color: #e8e9e2; } body { background: radial-gradient(circle at 90% 0, #243b31 0, transparent 35%), #17201d; } .app > header { background: rgba(23,32,29,.9); } .workspace, .task, .approval, .device { background: rgba(35,46,42,.88); border-color: #3b4944; } input, textarea, select { background: #222e2a; border-color: #45534e; color: #eef0e9; } nav { background: rgba(25,34,31,.95); } .empty h2 { color: #eef0e9; } button.secondary { background: #3a4541; color: #eef0e9; } }
-

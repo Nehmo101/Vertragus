@@ -26,6 +26,17 @@ describe('RemoteReadModel', () => {
     ])
   })
 
+  it('preserves engine-owned publication approvals', () => {
+    const input = snapshot()
+    input.pendingApprovals = [{
+      id: 'publication:session-1:plan-1', kind: 'pr-publication',
+      profileId: 'profile-1', workspaceSessionId: 'session-1',
+      title: 'Publish', summary: 'Ready', createdAt: 12,
+      actions: ['publication.approve', 'publication.reject']
+    }]
+    expect(deriveApprovals([input])).toContainEqual(expect.objectContaining({ kind: 'pr-publication' }))
+  })
+
   it('fans out the exact snapshot from the workspace snapshot bus', () => {
     const bus = new EventEmitter()
     const model = new RemoteReadModel(bus)
@@ -39,4 +50,3 @@ describe('RemoteReadModel', () => {
     model.stop()
   })
 })
-

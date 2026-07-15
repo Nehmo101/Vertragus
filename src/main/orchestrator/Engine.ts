@@ -88,6 +88,7 @@ import {
 } from '@main/orchestrator/retroStore'
 import { enqueueBenchmarkExport, enqueueRetroExport } from '@main/orchestrator/retroExport'
 import { captureTaskRecoveryArtifact } from '@main/orchestrator/recoveryArtifact'
+import type { ApprovalItem } from '@shared/remote'
 
 interface DispatchOptions {
   taskId?: string
@@ -264,6 +265,8 @@ export class OrchestratorEngine extends EventEmitter {
   >()
   private pendingPlan: PendingPlanReview | undefined
   private pendingPlanResolve: ((approved: boolean) => void) | undefined
+  private pendingPublication: ApprovalItem | undefined
+  private publicationInFlight = false
   private firstPlanApproved = true
   /** Per-role capacity limiter — count = max parallel subagents of that role. */
   private boundProfile: WorkspaceProfile | undefined
@@ -359,6 +362,7 @@ export class OrchestratorEngine extends EventEmitter {
         waitingTasks: tasks.filter((task) => task.status === 'queued').length
       },
       pendingPlan: this.pendingPlan,
+      pendingApprovals: this.pendingPublication ? [this.pendingPublication] : [],
       lastRetro: this.lastRetro,
       findings: this.listTaskFindings()
     }
@@ -475,6 +479,8 @@ export class OrchestratorEngine extends EventEmitter {
     this.pendingPlanResolve?.(false)
     this.pendingPlanResolve = undefined
     this.pendingPlan = undefined
+    this.pendingPublication = undefined
+    this.publicationInFlight = false
     this.firstPlanApproved = true
     this.goal = null
     this.activity = undefined
@@ -1589,7 +1595,48 @@ export class OrchestratorEngine extends EventEmitter {
     }
   }
 
-  private async publishPendingChanges(planId?: string): Promise<void> {
+  async approvePublication(planId?: string): Promise<boolean> {
+    const pending = this.pendingPublication
+    if (!pending || this.publicationInFlight) return false
+    if (planId && pending.id !== `publication:${this.workspaceSessionId ?? 'workspace'}:${planId}`) return false
+    this.pendingPublication = undefined
+    this.publicationInFlight = true
+    this.push()
+    try {
+      await this.publishPendingChanges(planId ?? pending.task?.planId, true)
+      return true
+    } finally {
+      this.publicationInFlight = false
+      this.push()
+    }
+  }
+
+  rejectPublication(planId?: string): boolean {
+    const pending = this.pendingPublication
+    if (!pending || this.publicationInFlight) return false
+    if (planId && pending.id !== `publication:${this.workspaceSessionId ?? 'workspace'}:${planId}`) return false
+    const targetPlanId = planId ?? pending.task?.planId
+    for (const [taskId] of [...this.preparedChanges.entries()]) {
+      const task = this.tasks.get(taskId)
+      if (targetPlanId != null && task?.planId !== targetPlanId) continue
+      if (task) {
+        task.autoPrStatus = 'skipped'
+        task.note = `${task.note || 'Task fertig'} · Veröffentlichung abgelehnt.`
+      }
+      this.preparedChanges.delete(taskId)
+    }
+    this.pendingPublication = undefined
+    this.setActivityState(
+      'blocked',
+      'Die vorbereitete Pull-Request-Veröffentlichung wurde abgelehnt.',
+      [],
+      'Auf ein neues Ziel oder eine erneute lokale Vorbereitung warten.'
+    )
+    this.push()
+    return true
+  }
+
+  private async publishPendingChanges(planId?: string, publicationApproved = false): Promise<void> {
     const profile = this.activeProfile()
     if (!profile || profile.autoPr.mode === 'off') return
     const changes = [...this.preparedChanges.entries()]
@@ -1599,6 +1646,32 @@ export class OrchestratorEngine extends EventEmitter {
       })
       .map(([, change]) => change)
     if (changes.length === 0) return
+
+    if (profile.autoPr.mode === 'hold-for-approval' && !publicationApproved) {
+      const scope = this.workspaceSessionId ?? 'workspace'
+      const representative = [...this.tasks.values()].find((task) =>
+        task.autoPrStatus === 'prepared' && (planId == null || task.planId === planId)
+      )
+      this.pendingPublication = {
+        id: `publication:${scope}:${planId ?? 'current'}`,
+        kind: 'pr-publication',
+        profileId: profile.id,
+        workspaceSessionId: scope,
+        title: 'Pull Request zur Veröffentlichung bereit',
+        summary: `${changes.length} vorbereitete Änderung(en) haben die lokalen Gates bestanden.`,
+        createdAt: Date.now(),
+        task: representative,
+        actions: ['publication.approve', 'publication.reject']
+      }
+      this.setActivityState(
+        'awaiting-review',
+        'Die geprüften Änderungen sind vorbereitet und warten vor der PR-Veröffentlichung auf Freigabe.',
+        changes.slice(0, 4).map((change) => `${change.title}: ${change.commit.slice(0, 8)}`),
+        'Veröffentlichung freigeben oder ablehnen.'
+      )
+      this.push()
+      return
+    }
 
     const integrationId = 'integration-' + (planId ?? Date.now().toString(36))
     const integrationTask: OrcaTask = {
