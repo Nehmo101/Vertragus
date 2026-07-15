@@ -35,6 +35,7 @@ import {
 } from '@shared/repoSwitcher'
 import { normalizeModelCatalog, type ModelCatalog } from '@renderer/modelCatalog'
 import type { ModelPreset } from '@shared/models'
+import { middleEarthWorkspaceName } from '@shared/workspaceNames'
 
 const ADD_ROLES = ['Docs / Changelog', 'Refactor / Cleanup', 'Security-Review', 'Perf / Bench']
 
@@ -138,6 +139,7 @@ interface AppState {
   startAll(): Promise<void>
   stopAll(): Promise<void>
   cleanWorkspace(): Promise<void>
+  reviewPendingPlan(approved: boolean): Promise<void>
   openAddAgent(): void
   closeAddAgent(): void
   addAgent(selection: ManualAgentSelection): Promise<boolean>
@@ -322,11 +324,16 @@ export const useAppStore = create<AppState>((set, get) => ({
         const active = workspaceSessions.find(
           (session) => session.profileId === state.activeProfileId && session.active
         )
+        const activeWorkspaceSessionId = active?.id ?? (
+          currentStillExists ? state.activeWorkspaceSessionId : null
+        )
+        const cachedSnapshot = activeWorkspaceSessionId
+          ? state.orchestrators[activeWorkspaceSessionId]
+          : undefined
         return {
           workspaceSessions,
-          activeWorkspaceSessionId: currentStillExists
-            ? state.activeWorkspaceSessionId
-            : (active?.id ?? null)
+          activeWorkspaceSessionId,
+          ...(cachedSnapshot ? { orchestrator: cachedSnapshot } : {})
         }
       })
     )
@@ -796,7 +803,13 @@ export const useAppStore = create<AppState>((set, get) => ({
           orchestrators: { ...state.orchestrators, [workspaceSessionId]: snapshot },
           selectedAgentId: null
         }))
-        get().showToast(`Workspace ${workspaceSessions.find((item) => item.id === workspaceSessionId)?.sequence ?? ''} gestartet.`)
+        const startedSession = workspaceSessions.find((item) => item.id === workspaceSessionId)
+        if (startedSession) {
+          const name = startedSession.name || middleEarthWorkspaceName(startedSession.sequence)
+          get().showToast(`W${startedSession.sequence} ${name} gestartet.`)
+        } else {
+          get().showToast('Workspace gestartet.')
+        }
       }
     } catch (error) {
       get().showToast(`Workspace konnte nicht starten: ${errorMessage(error)}`)
@@ -832,6 +845,36 @@ export const useAppStore = create<AppState>((set, get) => ({
       selectedAgentId: null
     }))
     get().showToast('Workspace geleert — alle Agents entfernt.')
+  },
+
+  async reviewPendingPlan(approved) {
+    const state = get()
+    const workspaceSessionId = state.activeWorkspaceSessionId ?? undefined
+    try {
+      const resolved = await window.orca.orchestrator.reviewPlan(
+        state.activeProfileId,
+        approved,
+        workspaceSessionId
+      )
+      if (!resolved) {
+        state.showToast('Kein Plan wartet mehr auf Freigabe.')
+        return
+      }
+      const snapshot = await window.orca.orchestrator.snapshot(
+        state.activeProfileId,
+        workspaceSessionId
+      )
+      set((current) => ({
+        orchestrator: snapshot,
+        orchestrators: {
+          ...current.orchestrators,
+          [snapshot.workspaceSessionId ?? state.activeProfileId]: snapshot
+        }
+      }))
+      get().showToast(approved ? 'Plan freigegeben.' : 'Plan abgelehnt.')
+    } catch (error) {
+      state.showToast(`Planfreigabe fehlgeschlagen: ${errorMessage(error)}`)
+    }
   },
 
   openAddAgent() {

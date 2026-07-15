@@ -9,7 +9,6 @@ import {
   formatModelLabel,
   resolveModel
 } from '@shared/models'
-import type { GithubProjectSummary, GithubRepoSummary } from '@shared/ipc'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import InfoTip from '@renderer/components/InfoTip'
 import { githubAuthPresentation, hasUsableGithubAuth } from '@renderer/store/githubAuth'
@@ -21,15 +20,13 @@ const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'cursor', 'copilo
 const ORCHESTRATOR_PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'copilot']
 const HELP = {
   profileName: 'Frei wählbarer Name für diese Kombination aus Workspace, Orchestrator und Subagents.',
-  workingDir: 'Repository oder Ordner, in dem Agents arbeiten. Bei GitHub-Bindung wird der lokale Klon-Pfad verwendet.',
-  githubAuth: 'Browser-OAuth (Device Flow mit ORCA_GITHUB_OAUTH_CLIENT_ID) oder gh --web. Tokens werden verschlüsselt lokal gespeichert, nie im Profil oder in Logs.',
-  githubRepo: 'Owner/Repo binden, Standardbranch auflösen und optional in ein Zielverzeichnis klonen.',
-  githubClone: 'Leeres Zielverzeichnis wird per git clone befüllt. Bestehende Klone werden auf origin-Abweichungen geprüft.',
-  githubProject: 'Optionales GitHub Projects Board für diesen Workspace. Der Owner wird aus der Repository-Bindung oder origin erkannt.',
+  workingDir: 'Lokaler Repository- oder Projektordner, in dem die Agents arbeiten. Der Auto-PR-Basisbranch wird bei Bedarf aus dem git-origin dieses Ordners abgeleitet.',
+  githubAuth: 'Browser-OAuth (Device Flow mit ORCA_GITHUB_OAUTH_CLIENT_ID) oder gh --web. Tokens werden verschlüsselt lokal gespeichert, nie im Profil oder in Logs. Wird für Auto-PR benötigt.',
+  generateFromRepo: 'Das gewählte Analysemodell liest das Working-Directory-Repository read-only und schlägt Rollen, Modelle und Quality Gates vor. Kann je nach Repo-Größe ein bis mehrere Minuten dauern.',
   agentWorkingDir: 'Optionaler Pfad nur für diesen Slot. Leer übernimmt den Workspace-Basispfad.',
   mode: 'Orchestriert lässt Claude oder Codex planen und delegieren. Single startet nur die konfigurierten Slots.',
   orchestratorProvider: 'Nur Provider mit verifiziertem Orca-MCP-Adapter können orchestrieren.',
-  model: 'Leer verwendet Preset oder CLI-Standard. Freitext überschreibt das Preset.',
+  model: 'Leer verwendet Preset oder CLI-Standard. Freitext überschreibt das Preset. Über das Listen-Menü rechts wählst du jederzeit ein anderes Modell — auch wenn schon eines eingetragen ist.',
   modelPreset: 'Leistungs-Preset (schnell/ausgewogen/stark). Gilt nur wenn Modell leer ist — Freitext hat Vorrang.',
   plannerMode: 'Auto startet valide Pläne direkt. Review wartet auf Freigabe. Manuell deaktiviert execute_plan.',
   routingMode: 'Adaptiv startet zunächst nur den Orchestrator und aktiviert Task-Agents passend zum Plan. Vorgewärmt startet alle Slots sofort.',
@@ -59,32 +56,21 @@ function boundedNumber(value: number, min: number, max: number, fallback: number
 function parseCapabilityList(value: string): string[] {
   return [...new Set(value.split(',').map((item) => item.trim()).filter(Boolean))]
 }
-function projectKey(project: Pick<GithubProjectSummary, 'owner' | 'number'>): string {
-  return `${project.owner}#${project.number}`
-}
-
-function repoKey(repo: Pick<GithubRepoSummary, 'owner' | 'repo'>): string {
-  return `${repo.owner}/${repo.repo}`
+/** "m:ss" elapsed label for the long-running repo analysis. */
+function formatElapsed(seconds: number): string {
+  const mins = Math.floor(seconds / 60)
+  const secs = seconds % 60
+  return `${mins}:${secs.toString().padStart(2, '0')}`
 }
 
 export default function ProfileEditor(): JSX.Element | null {
   const store = useAppStore()
   const initial = store.editorProfile
   const [draft, setDraft] = useState<WorkspaceProfile | null>(initial)
-  const [repoQuery, setRepoQuery] = useState(
-    initial?.githubRepo ? `${initial.githubRepo.owner}/${initial.githubRepo.repo}` : ''
-  )
-  const [repoResults, setRepoResults] = useState<GithubRepoSummary[]>([])
-  const [repoStatus, setRepoStatus] = useState('')
-  const [projectOwner, setProjectOwner] = useState(
-    initial?.githubProject?.owner ?? initial?.githubRepo?.owner ?? ''
-  )
-  const [projects, setProjects] = useState<GithubProjectSummary[]>(
-    initial?.githubProject ? [{ ...initial.githubProject, closed: false }] : []
-  )
-  const [projectsStatus, setProjectsStatus] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [generatingProfile, setGeneratingProfile] = useState(false)
+  const [generateStatus, setGenerateStatus] = useState('')
+  const [generateElapsed, setGenerateElapsed] = useState(0)
   const [learningsStatus, setLearningsStatus] = useState('')
   const nameRef = useRef<HTMLInputElement>(null)
   const closeEditorRef = useRef(store.closeEditor)
@@ -100,6 +86,17 @@ export default function ProfileEditor(): JSX.Element | null {
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
+
+  // Live elapsed counter so the long-running repo analysis never looks frozen.
+  // The counter is reset to 0 when generation starts (see generateFromRepo).
+  useEffect(() => {
+    if (!generatingProfile) return
+    const startedAt = Date.now()
+    const timer = setInterval(() => {
+      setGenerateElapsed(Math.floor((Date.now() - startedAt) / 1000))
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [generatingProfile])
 
   if (!initial || !draft) return null
 
@@ -143,11 +140,12 @@ export default function ProfileEditor(): JSX.Element | null {
     const analyzer = draft.orchestrator ?? draft.agents[0]
     const workingDir = profileRepoLocalPath(draft)
     if (!analyzer || !workingDir) {
-      setRepoStatus('Bitte zuerst Repository-Pfad und Analysemodell auswaehlen.')
+      setGenerateStatus('Bitte zuerst ein Working Directory und ein Analysemodell auswählen.')
       return
     }
+    setGenerateElapsed(0)
     setGeneratingProfile(true)
-    setRepoStatus('Das ausgewaehlte Modell analysiert das Repository...')
+    setGenerateStatus('')
     try {
       const generated = await window.orca.generateProfileForRepo({
         workingDir,
@@ -160,9 +158,9 @@ export default function ProfileEditor(): JSX.Element | null {
         githubRepo: draft.githubRepo,
         githubProject: draft.githubProject
       })
-      setRepoStatus('Repo-Profil erzeugt. Rollen und Quality Gates bitte pruefen.')
+      setGenerateStatus('Repo-Profil erzeugt. Rollen und Quality Gates bitte prüfen.')
     } catch (error) {
-      setRepoStatus(error instanceof Error ? error.message : String(error))
+      setGenerateStatus(error instanceof Error ? error.message : String(error))
     } finally {
       setGeneratingProfile(false)
     }
@@ -216,113 +214,12 @@ export default function ProfileEditor(): JSX.Element | null {
       setLearningsStatus(error instanceof Error ? error.message : String(error))
     }
   }
-  const loadProjects = async (): Promise<void> => {
-    setProjectsStatus('GitHub-Boards werden geladen…')
-    try {
-      const dir = draft.githubRepo?.localPath || draft.workingDir
-      const ownerHint = projectOwner || draft.githubRepo?.owner
-      const result = await window.orca.githubProjects(dir, ownerHint || undefined)
-      setProjectOwner(result.owner)
-      setProjects(result.projects)
-      setProjectsStatus(
-        result.projects.length === 0
-          ? `Keine offenen Boards für ${result.owner} gefunden.`
-          : `${result.projects.length} Board(s) geladen.`
-      )
-    } catch (error) {
-      setProjectsStatus(error instanceof Error ? error.message : String(error))
-    }
-  }
-
-  const searchRepos = async (): Promise<void> => {
-    setRepoStatus('Repositories werden gesucht…')
-    try {
-      const result = await window.orca.githubRepoSearch(repoQuery, 30)
-      setRepoResults(result.repos)
-      setRepoStatus(
-        result.repos.length === 0
-          ? 'Keine Repositories gefunden.'
-          : `${result.repos.length} Repository(s) gefunden.`
-      )
-    } catch (error) {
-      setRepoStatus(error instanceof Error ? error.message : String(error))
-    }
-  }
-
-  const bindRepo = async (clone: boolean): Promise<void> => {
-    const binding = draft.githubRepo
-    if (!binding?.owner || !binding.repo) {
-      setRepoStatus('Bitte zuerst ein Repository auswählen.')
-      return
-    }
-    setRepoStatus(clone ? 'Repository wird geklont…' : 'Bindung wird geprüft…')
-    try {
-      const localPath = binding.localPath || draft.workingDir
-      const result = await window.orca.githubRepoBind({
-        owner: binding.owner,
-        repo: binding.repo,
-        defaultBranch: binding.defaultBranch || undefined,
-        localPath: localPath || undefined,
-        clone
-      })
-      setDraft({
-        ...draft,
-        workingDir: result.workingDir || draft.workingDir,
-        githubRepo: result.binding
-      })
-      if (result.binding.owner) setProjectOwner(result.binding.owner)
-      setRepoStatus(result.message)
-    } catch (error) {
-      setRepoStatus(error instanceof Error ? error.message : String(error))
-    }
-  }
-
-  const checkLocalRepo = async (): Promise<void> => {
-    const binding = draft.githubRepo
-    const localPath = binding?.localPath || draft.workingDir
-    if (!binding?.owner || !binding.repo || !localPath) {
-      setRepoStatus('Owner, Repo und lokaler Pfad werden für die Prüfung benötigt.')
-      return
-    }
-    setRepoStatus('Lokaler Remote wird geprüft…')
-    try {
-      const check = await window.orca.githubRepoCheckLocal(binding.owner, binding.repo, localPath)
-      patch({
-        githubRepo: { ...binding, localPath, cloneStatus: check.cloneStatus }
-      })
-      setRepoStatus(check.message)
-    } catch (error) {
-      setRepoStatus(error instanceof Error ? error.message : String(error))
-    }
-  }
-
-  const repoOptions =
-    draft.githubRepo &&
-    !repoResults.some((repo) => repoKey(repo) === repoKey(draft.githubRepo!))
-      ? [
-          {
-            owner: draft.githubRepo.owner,
-            repo: draft.githubRepo.repo,
-            fullName: `${draft.githubRepo.owner}/${draft.githubRepo.repo}`,
-            defaultBranch: draft.githubRepo.defaultBranch || 'main',
-            url: `https://github.com/${draft.githubRepo.owner}/${draft.githubRepo.repo}`,
-            private: false
-          },
-          ...repoResults
-        ]
-      : repoResults
-
   const githubAuth = store.githubAuth
   const githubAuthUsable = hasUsableGithubAuth(githubAuth)
   const githubAuthView = githubAuthPresentation(githubAuth)
   const githubTerminalLoginRunning = store.agents.some(
     (agent) => agent.taskId === 'auth:github' && agent.status === 'running'
   )
-
-  const projectOptions =
-    draft.githubProject && !projects.some((project) => projectKey(project) === projectKey(draft.githubProject!))
-      ? [{ ...draft.githubProject, closed: false }, ...projects]
-      : projects
 
   const subTotal = draft.agents.reduce((n, s) => n + s.count, 0)
   const hasOrch = Boolean(draft.orchestrator)
@@ -403,79 +300,6 @@ export default function ProfileEditor(): JSX.Element | null {
             </div>
           </section>
 
-          <section className="github-repo-field" aria-labelledby="github-repo-heading">
-            <div className="field-label" id="github-repo-heading">
-              GitHub-Repository <InfoTip text={HELP.githubRepo} />
-            </div>
-            <div className="github-project-owner-row">
-              <input
-                className="text-input mono"
-                placeholder="Suche oder owner/repo"
-                aria-label="Repository-Suche"
-                value={repoQuery}
-                onChange={(event) => setRepoQuery(event.target.value)}
-              />
-              <button type="button" className="btn-secondary browse-btn" onClick={() => void searchRepos()}>
-                Suchen
-              </button>
-            </div>
-            <select
-              className="select github-project-select"
-              aria-label="GitHub-Repository für Workspace"
-              value={draft.githubRepo ? repoKey(draft.githubRepo) : ''}
-              onChange={(event) => {
-                const selected = repoOptions.find((repo) => repoKey(repo) === event.target.value)
-                if (!selected) {
-                  patch({ githubRepo: undefined })
-                  return
-                }
-                patch({
-                  githubRepo: {
-                    owner: selected.owner,
-                    repo: selected.repo,
-                    defaultBranch: selected.defaultBranch,
-                    localPath: draft.githubRepo?.localPath || draft.workingDir,
-                    cloneStatus: draft.githubRepo?.cloneStatus ?? 'linked'
-                  }
-                })
-                setProjectOwner(selected.owner)
-                setRepoQuery(`${selected.owner}/${selected.repo}`)
-              }}
-            >
-              <option value="">Kein Repository</option>
-              {repoOptions.map((repo) => (
-                <option key={repoKey(repo)} value={repoKey(repo)}>
-                  {repo.fullName}
-                  {repo.description ? ` — ${repo.description}` : ''}
-                </option>
-              ))}
-            </select>
-            {draft.githubRepo && (
-              <>
-                <label className="field-label" htmlFor="profile-default-branch" style={{ marginTop: 10 }}>
-                  Standardbranch
-                </label>
-                <input
-                  id="profile-default-branch"
-                  className="text-input mono"
-                  placeholder="z. B. main"
-                  value={draft.githubRepo.defaultBranch}
-                  onChange={(event) =>
-                    patch({
-                      githubRepo: { ...draft.githubRepo!, defaultBranch: event.target.value }
-                    })
-                  }
-                />
-              </>
-            )}
-            <div className="github-project-status" aria-live="polite">
-              {repoStatus ||
-                (draft.githubRepo
-                  ? `${draft.githubRepo.owner}/${draft.githubRepo.repo} · ${draft.githubRepo.cloneStatus}`
-                  : 'Repository binden für Auto-PR-Basisbranch und Board-Owner.')}
-            </div>
-          </section>
-
           <label className="field-label" htmlFor="profile-working-dir">
             Working Directory (Repo) <InfoTip text={HELP.workingDir} />
           </label>
@@ -484,26 +308,14 @@ export default function ProfileEditor(): JSX.Element | null {
               id="profile-working-dir"
               className="text-input mono"
               placeholder="C:\git\mein-repo"
-              value={draft.githubRepo?.localPath || draft.workingDir}
-              onChange={(e) => {
-                const value = e.target.value
-                if (draft.githubRepo) {
-                  patch({ githubRepo: { ...draft.githubRepo, localPath: value }, workingDir: value })
-                } else {
-                  patch({ workingDir: value })
-                }
-              }}
+              value={draft.workingDir}
+              onChange={(e) => patch({ workingDir: e.target.value })}
             />
             <button type="button"
               className="btn-secondary browse-btn"
               onClick={async () => {
                 const dir = await window.orca.pickFolder()
-                if (!dir) return
-                if (draft.githubRepo) {
-                  patch({ githubRepo: { ...draft.githubRepo, localPath: dir }, workingDir: dir })
-                } else {
-                  patch({ workingDir: dir })
-                }
+                if (dir) patch({ workingDir: dir })
               }}
             >
               Durchsuchen…
@@ -513,9 +325,12 @@ export default function ProfileEditor(): JSX.Element | null {
             type="button"
             className="btn-secondary profile-generate-btn"
             disabled={generatingProfile || !profileRepoLocalPath(draft)}
+            title={HELP.generateFromRepo}
             onClick={() => void generateFromRepo()}
           >
-            {generatingProfile ? 'Repo wird analysiert...' : 'KI-Profil aus Git-Repo erzeugen'}
+            {generatingProfile
+              ? `Repo wird analysiert… ${formatElapsed(generateElapsed)}`
+              : 'KI-Profil aus Git-Repo erzeugen'}
           </button>
           <button
             type="button"
@@ -525,84 +340,18 @@ export default function ProfileEditor(): JSX.Element | null {
           >
             Retro-Erkenntnisse übernehmen
           </button>
-          {learningsStatus && (
-            <div className="github-project-status" aria-live="polite">
-              {learningsStatus}
+          {generatingProfile && (
+            <div className="profile-generate-progress" aria-live="polite">
+              <span className="profile-generate-spinner" aria-hidden="true" />
+              Das ausgewählte Modell liest das Repository read-only und entwirft ein Profil. Je
+              nach Repo-Größe dauert das ein bis mehrere Minuten — das Fenster kann offen bleiben.
             </div>
           )}
-          {draft.githubRepo && (
-            <div className="github-repo-actions">
-              <button type="button" className="btn-secondary browse-btn" onClick={() => void checkLocalRepo()}>
-                Remote prüfen
-              </button>
-              <button
-                type="button"
-                className="btn-secondary browse-btn"
-                title={HELP.githubClone}
-                onClick={() => void bindRepo(true)}
-              >
-                Klonen
-              </button>
-              <button type="button" className="btn-secondary browse-btn" onClick={() => void bindRepo(false)}>
-                Binden
-              </button>
+          {(generateStatus || learningsStatus) && (
+            <div className="github-project-status" aria-live="polite">
+              {generateStatus || learningsStatus}
             </div>
           )}
-          <section className="github-project-field" aria-labelledby="github-project-heading">
-            <div className="field-label" id="github-project-heading">
-              GitHub Board <InfoTip text={HELP.githubProject} />
-            </div>
-            <div className="github-project-owner-row">
-              <input
-                className="text-input mono"
-                placeholder="Owner automatisch aus origin"
-                aria-label="GitHub-Owner"
-                value={projectOwner}
-                onChange={(event) => setProjectOwner(event.target.value)}
-              />
-              <button
-                type="button"
-                className="btn-secondary browse-btn"
-                disabled={!draft.workingDir.trim() && !draft.githubRepo?.localPath?.trim() && !projectOwner.trim()}
-                onClick={() => void loadProjects()}
-              >
-                Boards laden
-              </button>
-            </div>
-            <select
-              className="select github-project-select"
-              aria-label="GitHub Board für Workspace"
-              value={draft.githubProject ? projectKey(draft.githubProject) : ''}
-              onChange={(event) => {
-                const selected = projectOptions.find(
-                  (project) => projectKey(project) === event.target.value
-                )
-                patch({
-                  githubProject: selected
-                    ? {
-                        owner: selected.owner,
-                        number: selected.number,
-                        title: selected.title,
-                        url: selected.url
-                      }
-                    : undefined
-                })
-              }}
-            >
-              <option value="">Kein Board</option>
-              {projectOptions.map((project) => (
-                <option key={projectKey(project)} value={projectKey(project)}>
-                  {project.title} (#{project.number})
-                </option>
-              ))}
-            </select>
-            <div className="github-project-status" aria-live="polite">
-              {projectsStatus ||
-                (draft.githubProject
-                  ? `${draft.githubProject.owner} · #${draft.githubProject.number}`
-                  : 'Owner leer lassen, um ihn aus dem GitHub-origin zu erkennen.')}
-            </div>
-          </section>
 
           <div className="field-label" style={{ marginBottom: 8 }}>
             Modus <InfoTip text={HELP.mode} />
@@ -703,15 +452,32 @@ export default function ProfileEditor(): JSX.Element | null {
                     {modelsFor(draft.orchestrator.provider).length}
                   </span>
                 </div>
-                <input
-                  className="select mono"
-                  list="orch-models"
-                  placeholder="CLI-Standard / Preset"
-                  value={draft.orchestrator.model}
-                  onChange={(e) =>
-                    patch({ orchestrator: { ...draft.orchestrator!, model: e.target.value } })
-                  }
-                />
+                <div className="model-combo">
+                  <input
+                    className="select mono"
+                    list="orch-models"
+                    placeholder="CLI-Standard / Preset"
+                    value={draft.orchestrator.model}
+                    onChange={(e) =>
+                      patch({ orchestrator: { ...draft.orchestrator!, model: e.target.value } })
+                    }
+                  />
+                  <select
+                    className="model-combo-picker"
+                    aria-label="Modell aus Liste wählen"
+                    title="Modell aus der vollständigen Liste wählen"
+                    value=""
+                    onChange={(e) => {
+                      if (e.target.value)
+                        patch({ orchestrator: { ...draft.orchestrator!, model: e.target.value } })
+                    }}
+                  >
+                    <option value="">Liste ▾</option>
+                    {modelsFor(draft.orchestrator.provider).map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                </div>
                 <datalist id="orch-models">
                   {modelsFor(draft.orchestrator.provider).map((m) => (
                     <option key={m} value={m} />
@@ -968,13 +734,29 @@ export default function ProfileEditor(): JSX.Element | null {
                       {modelsFor(slot.provider).length}
                     </span>
                   </div>
-                  <input
-                    className="slot-select-sm mono"
-                    list={`slot-models-${idx}`}
-                    placeholder="CLI-Standard / Preset"
-                    value={slot.model}
-                    onChange={(e) => patchSlot(idx, { model: e.target.value })}
-                  />
+                  <div className="model-combo">
+                    <input
+                      className="slot-select-sm mono"
+                      list={`slot-models-${idx}`}
+                      placeholder="CLI-Standard / Preset"
+                      value={slot.model}
+                      onChange={(e) => patchSlot(idx, { model: e.target.value })}
+                    />
+                    <select
+                      className="model-combo-picker"
+                      aria-label="Modell aus Liste wählen"
+                      title="Modell aus der vollständigen Liste wählen"
+                      value=""
+                      onChange={(e) => {
+                        if (e.target.value) patchSlot(idx, { model: e.target.value })
+                      }}
+                    >
+                      <option value="">Liste ▾</option>
+                      {modelsFor(slot.provider).map((m) => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  </div>
                   <datalist id={`slot-models-${idx}`}>
                     {modelsFor(slot.provider).map((m) => (
                       <option key={m} value={m} />

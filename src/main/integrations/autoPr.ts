@@ -1,7 +1,8 @@
 import { exec, execFile } from 'node:child_process'
 import { mkdir } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, posix, win32 } from 'node:path'
 import { promisify } from 'node:util'
+import { ensureWorktreeDependencies } from '@main/agents/dependencyBootstrap'
 import type { AutoPrConfig } from '@shared/profile'
 import type { RemoteCiStatus, TaskGateFinding } from '@shared/orchestrator'
 import { noTaskChanges, verifiedTaskCommit } from './commitContract'
@@ -167,6 +168,19 @@ function assertDiffLooksSafe(diff: string): void {
   assertSecurityGate(diff)
 }
 
+function qualityGateShellCommand(
+  cwd: string,
+  command: string,
+  platform: NodeJS.Platform = process.platform
+): string {
+  if (platform === 'win32') {
+    const localBin = win32.join(cwd, 'node_modules', '.bin').replace(/'/g, "''")
+    return `& { $env:PATH = '${localBin};' + $env:PATH; ${command} }`
+  }
+  const localBin = posix.join(cwd, 'node_modules', '.bin').replace(/'/g, "'\"'\"'")
+  return `export PATH='${localBin}':"$PATH"; ${command}`
+}
+
 interface QualityGateRuntime {
   inheritedEnv: NodeJS.ProcessEnv
   platform: NodeJS.Platform
@@ -220,6 +234,53 @@ async function runQualityGates(
       throw new QualityGateError(command, detail)
     }
   }
+}
+
+interface IntegrationQualityGateDeps {
+  bootstrap(repositoryRoot: string, workingDir: string): Promise<unknown>
+  runGates(cwd: string, gates: string[], workspaceRoot?: string): Promise<void>
+}
+
+function assertManagedIntegrationPath(repositoryRoot: string, integrationPath: string): void {
+  const pathApi = win32.isAbsolute(repositoryRoot) || win32.isAbsolute(integrationPath)
+    ? win32
+    : posix
+  const integrationRoot = pathApi.resolve(repositoryRoot, '.orca-worktrees', 'integration')
+  const candidate = pathApi.resolve(integrationPath)
+  const relativePath = pathApi.relative(integrationRoot, candidate)
+  if (
+    !relativePath ||
+    relativePath === '..' ||
+    relativePath.startsWith('..' + pathApi.sep) ||
+    pathApi.isAbsolute(relativePath)
+  ) {
+    throw new QualityGateError(
+      'Dependency-Bootstrap',
+      'Integration-Worktree liegt nicht innerhalb des verwalteten Integration-Verzeichnisses.'
+    )
+  }
+}
+
+async function runIntegrationQualityGates(
+  repositoryRoot: string,
+  integrationPath: string,
+  gates: string[],
+  deps: IntegrationQualityGateDeps = {
+    bootstrap: ensureWorktreeDependencies,
+    runGates: runQualityGates
+  }
+): Promise<void> {
+  assertManagedIntegrationPath(repositoryRoot, integrationPath)
+  try {
+    await deps.bootstrap(repositoryRoot, integrationPath)
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    throw new QualityGateError(
+      'Dependency-Bootstrap',
+      `Dependencies für den Integration-Worktree konnten nicht bereitgestellt werden: ${detail}`
+    )
+  }
+  await deps.runGates(integrationPath, gates, repositoryRoot)
 }
 
 export type PrepareTaskResult = AutoPrOutcome & {
@@ -796,7 +857,7 @@ async function publishAggregate(input: PublishInput): Promise<AutoPrOutcome> {
     }
     const integratedDiff = await git(integrationPath, ['diff', '--no-ext-diff', '--binary', `origin/${base}...HEAD`])
     assertSecurityGate(integratedDiff)
-    await runQualityGates(integrationPath, input.config.qualityGates, root)
+    await runIntegrationQualityGates(root, integrationPath, input.config.qualityGates)
     const body = [
       `Automatisch integriert von Orca-Strator für **${input.goalTitle}**.`,
       '',
@@ -865,5 +926,7 @@ export const autoPrInternals = {
   parseRemoteChecks,
   remoteCiFromChecks,
   combineRemoteCi,
-  monitorRemoteCi
+  monitorRemoteCi,
+  qualityGateShellCommand,
+  runIntegrationQualityGates
 }

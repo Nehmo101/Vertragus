@@ -447,6 +447,17 @@ export function registerIpcHandlers(): void {
       ? workspaceSessions.enableAutoMode(profile, workspaceSessionId)
       : false
   })
+  ipcMain.handle(
+    IPC.orchestratorSetPlannerMode,
+    (_e, profileId: string, mode: WorkspaceProfile['planner']['mode'], workspaceSessionId?: string) => {
+      const profile = getProfile(profileId)
+      if (!profile) return false
+      if (mode !== 'auto' && mode !== 'review' && mode !== 'manual') {
+        throw new Error(`Unbekannter Planungsmodus: ${String(mode)}`)
+      }
+      return workspaceSessions.setPlannerMode(profile, mode, workspaceSessionId)
+    }
+  )
   ipcMain.handle(IPC.orchestratorReviewPlan, (_e, profileId: string, approved: boolean, workspaceSessionId?: string) => {
     const profile = getProfile(profileId)
     return profile

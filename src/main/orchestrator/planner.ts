@@ -108,7 +108,7 @@ export function resolveExecutionPlan(
     }
   }
 
-  const hasStructuredTasks = Array.isArray(input.tasks) && input.tasks.some(isRecord)
+  const isStructuredPlan = Array.isArray(input.tasks) && input.tasks.some(isRecord)
 
   if (input.version !== 1) {
     issues.push({ code: 'invalid_shape', message: 'version must be 1.' })
@@ -229,7 +229,7 @@ export function resolveExecutionPlan(
         !integrationDependencies.has(task.id)
     )
     if (missingDependencies.length > 0) {
-      issues.push({ code: 'invalid_ownership', message: 'The integrator must depend on every required task.', taskId: integrator.id })
+      issues.push({ code: 'invalid_ownership', message: 'The integrator must depend on every required feature task.', taskId: integrator.id })
     }
   }
 
@@ -263,7 +263,7 @@ export function resolveExecutionPlan(
     return {
       plan: fallbackPlan(input, fallbackRole, fallbackPrompt),
       usedFallback: true,
-      rejected: hasStructuredTasks,
+      rejected: isStructuredPlan,
       issues
     }
   }

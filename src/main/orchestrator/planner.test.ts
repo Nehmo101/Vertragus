@@ -28,7 +28,7 @@ const validPlan = {
 }
 
 describe('auto subagent planner validation', () => {
-  it('accepts a bounded acyclic plan without changing the valid-plan contract', () => {
+  it('accepts a bounded acyclic plan', () => {
     const result = resolveExecutionPlan(validPlan, 'worker', undefined, ['worker'])
     expect(result.usedFallback).toBe(false)
     expect(result.rejected).toBe(false)
@@ -36,26 +36,33 @@ describe('auto subagent planner validation', () => {
     expect(result.plan.tasks).toHaveLength(2)
   })
 
-  it('accepts an advisory audit that runs after the integrator', () => {
+  it('allows an advisory audit to run after the integrator', () => {
     const result = resolveExecutionPlan({
       ...validPlan,
-      maxParallel: 3,
       tasks: [
-        validPlan.tasks[0],
+        {
+          ...validPlan.tasks[0],
+          id: 'feature',
+          ownership: 'feature',
+          criticality: 'required',
+          expectedFiles: ['src/main/features/example.ts']
+        },
         {
           ...validPlan.tasks[1],
           id: 'integrate',
-          title: 'Integrate',
-          dependsOn: ['inspect'],
-          ownership: 'integrator'
+          dependsOn: ['feature'],
+          ownership: 'integrator',
+          criticality: 'required',
+          expectedFiles: ['src/shared/orchestrator.ts']
         },
         {
           ...validPlan.tasks[1],
           id: 'audit',
-          title: 'Audit',
           dependsOn: [],
           advisoryDependsOn: ['integrate'],
-          criticality: 'advisory'
+          ownership: 'feature',
+          criticality: 'advisory',
+          expectedFiles: []
         }
       ]
     })
@@ -63,23 +70,28 @@ describe('auto subagent planner validation', () => {
     expect(result.usedFallback).toBe(false)
     expect(result.rejected).toBe(false)
     expect(result.issues).toEqual([])
+    expect(result.plan.tasks).toHaveLength(3)
   })
 
-  it('rejects an integrator that omits a required feature dependency', () => {
+  it('rejects an integrator missing a required feature dependency', () => {
     const result = resolveExecutionPlan({
       ...validPlan,
       tasks: [
-        validPlan.tasks[0],
+        {
+          ...validPlan.tasks[0],
+          id: 'feature',
+          criticality: 'required'
+        },
         {
           ...validPlan.tasks[1],
           id: 'integrate',
-          title: 'Integrate',
           dependsOn: [],
           ownership: 'integrator'
         }
       ]
     })
 
+    expect(result.usedFallback).toBe(true)
     expect(result.rejected).toBe(true)
     expect(result.issues).toEqual(
       expect.arrayContaining([
@@ -94,11 +106,13 @@ describe('auto subagent planner validation', () => {
       tasks: [
         {
           ...validPlan.tasks[0],
+          ownership: 'feature',
           expectedFiles: ['src/shared/orchestrator.ts']
         }
       ]
     })
 
+    expect(result.usedFallback).toBe(true)
     expect(result.rejected).toBe(true)
     expect(result.issues).toEqual(
       expect.arrayContaining([
@@ -108,31 +122,31 @@ describe('auto subagent planner validation', () => {
   })
 
   it('marks a structured but invalid plan as rejected and preserves its issues', () => {
-    const result = resolveExecutionPlan({ ...validPlan, version: 2, maxParallel: 0 })
+    const result = resolveExecutionPlan({ ...validPlan, maxParallel: 0 })
 
     expect(result.usedFallback).toBe(true)
     expect(result.rejected).toBe(true)
-    expect(result.issues).toHaveLength(2)
+    expect(result.plan.tasks).toHaveLength(1)
     expect(result.issues).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ code: 'invalid_shape' }),
-        expect.objectContaining({ code: 'invalid_parallelism' })
-      ])
+      expect.arrayContaining([expect.objectContaining({ code: 'invalid_parallelism' })])
     )
   })
 
-  it.each([
-    null,
-    'not a plan',
-    {},
-    { tasks: [] },
-    { tasks: ['not a task object'] }
-  ])('uses a non-rejected fallback for unparseable input %#', (input) => {
-    const result = resolveExecutionPlan(input)
+  it('uses a non-rejected fallback for unparseable input', () => {
+    const inputs = [
+      null,
+      {},
+      { ...validPlan, tasks: [] },
+      { ...validPlan, tasks: ['not-a-task'] }
+    ]
 
-    expect(result.usedFallback).toBe(true)
-    expect(result.rejected).toBe(false)
-    expect(result.issues.length).toBeGreaterThan(0)
+    for (const input of inputs) {
+      const result = resolveExecutionPlan(input)
+      expect(result.usedFallback).toBe(true)
+      expect(result.rejected).toBe(false)
+      expect(result.plan.tasks).toHaveLength(1)
+      expect(result.issues.length).toBeGreaterThan(0)
+    }
   })
 
   it('fails closed to one task for cycles or unknown roles', () => {

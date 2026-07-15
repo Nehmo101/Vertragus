@@ -9,6 +9,7 @@ import { pathToFileURL } from 'node:url'
 import { is } from '@electron-toolkit/utils'
 import { installEditContextMenu } from '@main/editMenu'
 import { protectWebContents } from '@main/security/navigation'
+import { middleEarthWorkspaceName } from '@shared/workspaceNames'
 
 const BG = '#080c15'
 const WINDOW_ICON = join(__dirname, '../renderer/favicon.png')
@@ -168,7 +169,18 @@ export function createMainWindow(): BrowserWindow {
               gateFindings: Boolean(document.querySelector('.task-findings')),
               preflight: [...document.querySelectorAll('.task-review dd')].some((node) => node.textContent?.includes('bestanden')),
               reliability: Boolean(document.querySelector('.reliability-strip')),
-              autoMode: document.querySelector('.planner-mode-btn')?.textContent?.trim() === 'Automodus starten'
+              autoMode: (() => {
+                const modeSwitch = document.querySelector('.planner-mode-switch')
+                if (!modeSwitch) return false
+                const options = [...modeSwitch.querySelectorAll('.planner-mode-opt')]
+                const activeOptions = options.filter(
+                  (node) => node.getAttribute('aria-pressed') === 'true'
+                )
+                return options.length === 3 &&
+                  activeOptions.length === 1 &&
+                  ['Auto', 'Review', 'Manuell'].every((label) =>
+                    options.some((node) => node.textContent?.trim() === label))
+              })()
             }
           })()`)
           const ok = Object.values(checks).every(Boolean)
@@ -302,6 +314,7 @@ function pushDemoState(win: BrowserWindow): void {
     profileId,
     profileName: 'UI Smoke',
     sequence: 1,
+    name: middleEarthWorkspaceName(1),
     startedAt: now,
     active: true
   }])

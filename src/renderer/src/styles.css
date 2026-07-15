@@ -1995,6 +1995,30 @@ button {
   font-family: var(--font-mono);
   vertical-align: middle;
 }
+.model-combo {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+.model-combo > input {
+  flex: 1;
+  min-width: 0;
+}
+.model-combo-picker {
+  flex: none;
+  width: 62px;
+  padding: 0 4px;
+  border: 1px solid var(--border-4);
+  border-radius: 6px;
+  background: var(--bg-input);
+  color: var(--text-2);
+  font-size: 10px;
+  cursor: pointer;
+}
+.model-combo-picker:hover {
+  border-color: var(--accent);
+  color: var(--text-1);
+}
 .model-effective {
   margin-top: 4px;
   font-size: 10px;
@@ -2074,6 +2098,10 @@ button {
   border: 0;
   cursor: pointer;
 }
+/* Read-only status indicator variant (not an interactive switch). */
+.mini-toggle.status {
+  cursor: default;
+}
 .mini-toggle .knob {
   position: absolute;
   top: 2px;
@@ -2125,28 +2153,40 @@ button {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.planner-mode-btn {
+.planner-mode-switch {
   flex: none;
-  min-height: 28px;
-  padding: 0 10px;
-  border: 1px solid color-mix(in srgb, var(--accent) 52%, transparent);
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border-2);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 13%, transparent);
-  color: var(--accent-light);
+  background: color-mix(in srgb, var(--bg-input) 80%, transparent);
+}
+.planner-mode-opt {
+  min-height: 24px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-2);
   font: 600 10px var(--font-body);
   cursor: pointer;
 }
-.planner-mode-btn:hover:not(:disabled) {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
+.planner-mode-opt:hover:not(:disabled):not(.active) {
+  color: var(--text-1);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
-.planner-mode-btn:disabled {
+.planner-mode-opt.active {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent-light);
   cursor: default;
-  opacity: 0.72;
 }
-.planner-mode-control.auto .planner-mode-btn {
-  border-color: color-mix(in srgb, var(--run) 42%, transparent);
-  background: color-mix(in srgb, var(--run) 12%, transparent);
+.planner-mode-opt:disabled:not(.active) {
+  opacity: 0.5;
+  cursor: default;
+}
+.planner-mode-control.auto .planner-mode-opt.active {
+  background: color-mix(in srgb, var(--run) 20%, transparent);
   color: var(--run-text);
 }
 .goal-card {
@@ -3301,6 +3341,33 @@ button {
 }
 .profile-generate-btn {
   margin: -10px 0 18px;
+}
+.profile-generate-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -12px 0 14px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.profile-generate-spinner {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  border: 2px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: orca-spin 0.8s linear infinite;
+}
+@keyframes orca-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .mode-toggle {
   display: flex;

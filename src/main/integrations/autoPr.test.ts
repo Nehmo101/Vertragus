@@ -136,6 +136,152 @@ describe('autoPr safety helpers', () => {
     expect(outcome.status).toBe('unavailable')
     expect(outcome.message).toMatch(/Authentifizierung/)
   })
+
+  it('bootstraps a fresh integration worktree before running its quality gates', async () => {
+    const calls: string[] = []
+    const bootstrap = vi.fn(async () => {
+      calls.push('bootstrap')
+      return { status: 'linked' as const, detail: 'shared dependencies linked' }
+    })
+    const runGates = vi.fn(async () => {
+      calls.push('gates')
+    })
+    const repositoryRoot = 'C:\\repo'
+    const integrationPath = 'C:\\repo\\.orca-worktrees\\integration\\orca-goal'
+
+    await autoPrInternals.runIntegrationQualityGates(
+      repositoryRoot,
+      integrationPath,
+      ['corepack pnpm lint'],
+      { bootstrap, runGates }
+    )
+
+    expect(calls).toEqual(['bootstrap', 'gates'])
+    expect(bootstrap).toHaveBeenCalledWith(repositoryRoot, integrationPath)
+    expect(runGates).toHaveBeenCalledWith(
+      integrationPath,
+      ['corepack pnpm lint'],
+      repositoryRoot
+    )
+  })
+
+  it('reports dependency bootstrap failures clearly and skips integration gates', async () => {
+    const runGates = vi.fn(async () => undefined)
+
+    await expect(autoPrInternals.runIntegrationQualityGates(
+      'C:\\repo',
+      'C:\\repo\\.orca-worktrees\\integration\\orca-goal',
+      ['corepack pnpm lint'],
+      {
+        bootstrap: vi.fn(async () => {
+          throw new Error('Junction konnte nicht erstellt werden')
+        }),
+        runGates
+      }
+    )).rejects.toThrow(
+      /Quality Gate fehlgeschlagen: Dependency-Bootstrap[\s\S]*Integration-Worktree[\s\S]*Junction konnte nicht erstellt werden/
+    )
+    expect(runGates).not.toHaveBeenCalled()
+  })
+
+  it('rejects path traversal outside the managed integration root before bootstrapping', async () => {
+    const bootstrap = vi.fn(async () => undefined)
+    const runGates = vi.fn(async () => undefined)
+
+    await expect(autoPrInternals.runIntegrationQualityGates(
+      '/repo',
+      '/repo/.orca-worktrees/integration/../../outside',
+      ['corepack pnpm lint'],
+      { bootstrap, runGates }
+    )).rejects.toThrow(/nicht innerhalb des verwalteten Integration-Verzeichnisses/)
+
+    expect(bootstrap).not.toHaveBeenCalled()
+    expect(runGates).not.toHaveBeenCalled()
+  })
+
+  it('adds the target worktree local binaries to the gate shell PATH', () => {
+    expect(autoPrInternals.qualityGateShellCommand(
+      "C:\\repo's copy",
+      'eslint .',
+      'win32'
+    )).toBe("& { $env:PATH = 'C:\\repo''s copy\\node_modules\\.bin;' + $env:PATH; eslint . }")
+    expect(autoPrInternals.qualityGateShellCommand(
+      "/repo's copy",
+      'eslint .',
+      'linux'
+    )).toBe("export PATH='/repo'\"'\"'s copy/node_modules/.bin':\"$PATH\"; eslint .")
+  })
+})
+
+describe('autoPr quality gate environment', () => {
+  it('prefixes the cwd binary directory and preserves the existing PATH', async () => {
+    await autoPrInternals.runQualityGates(
+      '/repo/worktree',
+      ['pnpm lint'],
+      '/repo/worktree',
+      { inheritedEnv: { PATH: '/system/bin' }, platform: 'linux' }
+    )
+
+    expect(normalizedPath(lastGateInvocation().env.PATH)).toBe(
+      '/repo/worktree/node_modules/.bin:/system/bin'
+    )
+  })
+
+  it('preserves the Windows Path key and uses semicolon separators', async () => {
+    await autoPrInternals.runQualityGates(
+      'C:/repo/worktree',
+      ['pnpm lint'],
+      'C:/repo/worktree',
+      { inheritedEnv: { Path: 'C:/system/bin' }, platform: 'win32' }
+    )
+
+    const gateEnv = lastGateInvocation().env
+    expect(normalizedPath(gateEnv.Path)).toBe(
+      'C:/repo/worktree/node_modules/.bin;C:/system/bin'
+    )
+    expect(gateEnv.PATH).toBeUndefined()
+  })
+
+  it('adds the main workspace binaries for a worktree without node_modules', async () => {
+    await autoPrInternals.runQualityGates(
+      '/repo/.orca-worktrees/integration/branch',
+      ['pnpm lint'],
+      '/repo',
+      { inheritedEnv: { PATH: '/system/bin' }, platform: 'linux' }
+    )
+
+    expect(normalizedPath(lastGateInvocation().env.PATH)).toBe(
+      '/repo/.orca-worktrees/integration/branch/node_modules/.bin:' +
+      '/repo/node_modules/.bin:/system/bin'
+    )
+  })
+
+  it('does not leak a secret through the command or logs and leaves other env values unchanged', async () => {
+    const privateMarker = 'private-marker-value'
+    const inheritedEnv = { PATH: '/system/bin', ORCA_PRIVATE_MARKER: privateMarker }
+    const originalEnv = { ...inheritedEnv }
+    const logs = [
+      vi.spyOn(console, 'log').mockImplementation(() => undefined),
+      vi.spyOn(console, 'info').mockImplementation(() => undefined),
+      vi.spyOn(console, 'warn').mockImplementation(() => undefined),
+      vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    ]
+
+    await autoPrInternals.runQualityGates(
+      '/repo/worktree',
+      ['pnpm lint'],
+      '/repo/worktree',
+      { inheritedEnv, platform: 'linux' }
+    )
+
+    const invocation = lastGateInvocation()
+    expect(inheritedEnv).toEqual(originalEnv)
+    expect(invocation.env).not.toBe(inheritedEnv)
+    expect(invocation.env.ORCA_PRIVATE_MARKER).toBe(privateMarker)
+    expect(invocation.command).toBe('pnpm lint')
+    expect(invocation.command).not.toContain(privateMarker)
+    for (const log of logs) expect(log).not.toHaveBeenCalled()
+  })
 })
 
 describe('autoPr quality gate environment', () => {

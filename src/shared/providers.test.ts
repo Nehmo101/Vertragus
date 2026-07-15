@@ -40,7 +40,7 @@ describe('model catalogue fallbacks', () => {
 })
 
 describe('provider gate limits', () => {
-  it('uses unlimited defaults and accepts a configurable Claude gate', () => {
+  it('uses finite defaults and accepts a configurable Claude gate', () => {
     expect(normalizeProviderLimits({ claude: 7 })).toEqual({
       ...DEFAULT_PROVIDER_LIMITS,
       claude: 7
@@ -53,10 +53,15 @@ describe('provider gate limits', () => {
     )
   })
 
+  it('migrates the legacy 0 (unlimited) sentinel to the finite default', () => {
+    expect(normalizeProviderLimits({ claude: 0, codex: 0 })).toEqual(DEFAULT_PROVIDER_LIMITS)
+  })
+
   it('rejects unsafe renderer updates', () => {
     expect(parseProviderLimits({ cursor: 17 }).cursor).toBe(17)
-    expect(parseProviderLimits({ cursor: 0 }).cursor).toBe(0)
-    expect(() => parseProviderLimits({ cursor: -1 })).toThrow(/zwischen 0 und/)
+    expect(() => parseProviderLimits({ cursor: 0 })).toThrow(/zwischen 1 und/)
+    expect(() => parseProviderLimits({ cursor: -1 })).toThrow(/zwischen 1 und/)
+    expect(() => parseProviderLimits({ cursor: 100 })).toThrow(/zwischen 1 und/)
     expect(() => parseProviderLimits({ claude: 1.5 })).toThrow(/ganze Zahl/)
     expect(() => parseProviderLimits({ quota: 4 })).toThrow(/Unbekanntes Orca-Gate/)
   })
