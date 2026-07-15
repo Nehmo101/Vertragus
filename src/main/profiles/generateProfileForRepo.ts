@@ -175,7 +175,13 @@ export async function generateProfileForRepo(
     planner: {
       mode: 'review',
       routingMode: 'adaptive',
-      maxParallel: generated.maxParallel ?? Math.max(1, Math.min(agents.length, 6)),
+      // Derive the default parallelism ceiling from the total worker capacity
+      // (sum of slot counts), not the number of role definitions. A single-role
+      // pool with count 3 must allow 3 concurrent workers, otherwise adaptive
+      // routing serializes every plan onto one subagent.
+      maxParallel:
+        generated.maxParallel ??
+        Math.max(1, Math.min(agents.reduce((sum, slot) => sum + slot.count, 0), 6)),
       maxRetries: generated.maxRetries ?? 1
     },
     autoPr: {
