@@ -70,6 +70,46 @@ describe('adaptive profile team start', () => {
     expect(mocks.spawn.mock.calls.filter(([request]) => request.kind !== 'orchestrator')).toHaveLength(3)
   })
 
+  it('creates the orchestrator first and survives a failing prewarmed worker in fixed mode', async () => {
+    const profile = {
+      ...DEFAULT_PROFILE,
+      planner: { ...DEFAULT_PROFILE.planner, routingMode: 'fixed' as const }
+    }
+
+    let workerCalls = 0
+    mocks.spawn.mockImplementation(async (request) => {
+      if (request.kind !== 'orchestrator') {
+        workerCalls += 1
+        // The first prewarmed worker fails hard (e.g. provider gate reached).
+        if (workerCalls === 1) throw new Error('Orca-Gate erreicht: codex')
+      }
+      return {
+        id: `agent-${mocks.spawn.mock.calls.length}`,
+        name: request.kind === 'orchestrator' ? 'Gandalf' : 'Legolas',
+        provider: request.provider,
+        model: request.model,
+        role: request.role,
+        kind: request.kind ?? 'sub',
+        mode: 'interactive',
+        yolo: request.yolo,
+        workingDir: request.workingDir ?? '.',
+        status: 'running',
+        startedAt: Date.now()
+      }
+    })
+
+    const agents = await spawnProfileTeam(profile, false)
+
+    // The orchestrator is spawned first and is always present, even though a
+    // prewarmed worker failed afterwards — the whole team spawn does not abort.
+    expect(mocks.spawn.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ kind: 'orchestrator' }))
+    expect(agents[0]).toEqual(expect.objectContaining({ kind: 'orchestrator' }))
+    expect(agents.filter((agent) => agent.kind === 'orchestrator')).toHaveLength(1)
+    // Three codex workers configured; one failed → two survive, plus orchestrator.
+    expect(agents).toHaveLength(3)
+    expect(mocks.activate).toHaveBeenCalledWith(profile)
+  })
+
   it('keeps global Yolo active for workers dispatched later by an adaptive session', async () => {
     const profile = {
       ...DEFAULT_PROFILE,
