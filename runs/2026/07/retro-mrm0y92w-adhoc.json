@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "exportedAt": 1784116587163,
+  "app": {
+    "name": "orca-strator",
+    "version": "33.4.11"
+  },
+  "machineId": "3a192ccb6434",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrm0y92w-adhoc",
+    "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+    "workspaceSessionId": "a7157277-c9a8-4476-800d-6cf5ca10f636",
+    "planId": "ad-hoc",
+    "goal": "Mission Control für Orca-Strator vollständig umsetzen",
+    "summary": "Mission Control A–D wurde vollständig, strikt phasenweise und sicherheitsorientiert umgesetzt; 114 Testdateien mit 667 Tests, Remote-Selftest 10/10 und CI sind grün. Gut liefen Security-Invarianten, Gate-Disziplin und Regressionserkennung. Schwächer waren große C/D-Commits, spät gefundene Mock-/Fallback-Lücken, Windows-Patch-Reibung und fehlende echte Cloud-/Browser-E2E-Validierung.",
+    "modelStats": [],
+    "learnings": [
+      {
+        "id": "learning-mrm0y92m-1-izscin",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "main-orchestrator",
+        "kind": "strength",
+        "insight": "Arbeitet sicherheitskritische Mehrphasen-Features systematisch entlang harter Invarianten und Qualitäts-Gates ab.",
+        "evidence": "Phasen A–D wurden strikt sequenziell abgeschlossen; jede Phase erhielt Tests und CI-Gates, am Ende waren 114 Testdateien/667 Tests und der Remote-Selftest 10/10 grün.",
+        "source": "orchestrator",
+        "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+        "observations": 1,
+        "createdAt": 1784116587118,
+        "updatedAt": 1784116587118
+      },
+      {
+        "id": "learning-mrm0y92m-2-2bkgaj",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "main-orchestrator",
+        "kind": "strength",
+        "insight": "Nutzt fehlschlagende Tests wirksam, um Integrations- und Sicherheitslücken gezielt zu schließen.",
+        "evidence": "Stale Registry-Mock, Provider-Limit-Erkennung, Push-Scope und WS/SSE-Fallback wurden durch gezielte Regressionstests entdeckt und abgesichert.",
+        "source": "orchestrator",
+        "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+        "observations": 1,
+        "createdAt": 1784116587118,
+        "updatedAt": 1784116587118
+      },
+      {
+        "id": "learning-mrm0y92m-3-omyk4r",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "main-orchestrator",
+        "kind": "weakness",
+        "insight": "Schneidet späte große Phasen in zu breite Commits, was Review und Fehlerlokalisierung erschwert.",
+        "evidence": "Phase C und besonders Phase D bündelten mehrere unabhängige Backend-, Transport-, Desktop- und Mobile-Änderungen in jeweils einem großen Commit.",
+        "source": "orchestrator",
+        "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+        "observations": 1,
+        "createdAt": 1784116587118,
+        "updatedAt": 1784116587118
+      },
+      {
+        "id": "learning-mrm0y92m-4-df9xhc",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "main-orchestrator",
+        "kind": "weakness",
+        "insight": "Validiert UI- und Cloud-Integrationen noch zu stark über Unit-Tests und Builds statt über reale End-to-End-Smokes.",
+        "evidence": "Cloudflared, Web Push, Cloudflare Access und neue Desktop/Mobile-Flows wurden vertraglich getestet, aber nicht gegen reale externe Dienste oder visuelle Browser-Screenshots.",
+        "source": "orchestrator",
+        "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+        "observations": 1,
+        "createdAt": 1784116587118,
+        "updatedAt": 1784116587118
+      },
+      {
+        "id": "learning-mrm0y92m-5-f0ghs0",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "main-orchestrator",
+        "kind": "weakness",
+        "insight": "PowerShell-/Windows-Patches brauchen engeren Kontext und frühere UTF-8-Prüfung.",
+        "evidence": "Breiter Patch-Kontext traf einmal den falschen Retry-Test; Encoding- und Pfadglob-Reibung verursachten vermeidbare Iterationen.",
+        "source": "orchestrator",
+        "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+        "observations": 1,
+        "createdAt": 1784116587118,
+        "updatedAt": 1784116587118
+      }
+    ],
+    "createdAt": 1784116587129
+  }
+}
