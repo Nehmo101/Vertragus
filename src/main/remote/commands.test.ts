@@ -23,6 +23,7 @@ function router(): RemoteCommandRouter {
     setBudgetCaps: vi.fn(() => ({ tokens: 0, costUsd: 0, caps: {}, exceeded: false })),
     pauseTask: vi.fn(() => true),
     resumeTask: vi.fn(() => true),
+    fallbackTask: vi.fn(() => true),
     replanPending: vi.fn(() => true),
     activateKillSwitch: vi.fn()
   })
@@ -69,5 +70,14 @@ describe('RemoteCommandRouter', () => {
     await expect(router().execute({
       id: 'plan.approve', args: { profileId: 'p', sessionId: 'other' }
     }, steerDevice)).rejects.toMatchObject({ status: 403, code: 'scope_forbidden' })
+  })
+
+  it('keeps provider fallback behind its own Phase-D capability', async () => {
+    const envelope = { id: 'task.fallback', args: { profileId: 'p', sessionId: 's', taskId: 'task' } }
+    await expect(router().execute(envelope, steerDevice)).rejects.toMatchObject({ status: 403 })
+    await expect(router().execute(envelope, {
+      ...steerDevice,
+      capabilities: [...steerDevice.capabilities, 'provider-fallback']
+    })).resolves.toEqual({ fallback: true })
   })
 })

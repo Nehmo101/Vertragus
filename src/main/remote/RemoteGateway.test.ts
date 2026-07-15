@@ -32,7 +32,7 @@ describe('RemoteGateway hardening', () => {
         reviewPlan: vi.fn(), enableAutoMode: vi.fn(), reset: vi.fn(),
         submitGoal: vi.fn(), approvePublication: vi.fn(), rejectPublication: vi.fn(),
         taskDiff: vi.fn(), resolvePermission: vi.fn(), setBudgetCaps: vi.fn(),
-        pauseTask: vi.fn(), resumeTask: vi.fn(), replanPending: vi.fn(),
+        pauseTask: vi.fn(), resumeTask: vi.fn(), fallbackTask: vi.fn(), replanPending: vi.fn(),
         activateKillSwitch: vi.fn()
       })
     })
@@ -75,7 +75,7 @@ describe('RemoteGateway hardening', () => {
         reviewPlan: vi.fn(), enableAutoMode: vi.fn(), reset: vi.fn(), submitGoal: vi.fn(),
         approvePublication: vi.fn(), rejectPublication: vi.fn(), taskDiff: vi.fn(),
         resolvePermission: vi.fn(), setBudgetCaps: vi.fn(), pauseTask: vi.fn(),
-        resumeTask: vi.fn(), replanPending: vi.fn(), activateKillSwitch: vi.fn()
+        resumeTask: vi.fn(), fallbackTask: vi.fn(), replanPending: vi.fn(), activateKillSwitch: vi.fn()
       })
     })
     const paired = auth.pair(auth.startPairing(

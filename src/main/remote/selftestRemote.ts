@@ -77,6 +77,7 @@ export async function runRemoteSelfTest(): Promise<void> {
       setBudgetCaps: (_profileId, _sessionId, caps) => engine.setBudgetCaps(caps),
       pauseTask: (_profileId, _sessionId, taskId) => engine.pauseTask(taskId),
       resumeTask: (_profileId, _sessionId, taskId) => engine.resumeTask(taskId),
+      fallbackTask: (_profileId, _sessionId, taskId) => engine.fallbackTask(taskId),
       replanPending: (_profileId, _sessionId, input) => engine.replanPending(input),
       activateKillSwitch: () => auth.revokeAll()
     })
@@ -86,7 +87,7 @@ export async function runRemoteSelfTest(): Promise<void> {
     check(unauthorized.status === 401, 'unauthenticated stream is rejected with 401')
 
     const challenge = auth.startPairing(
-      ['read', 'steer'],
+      ['read', 'steer', 'budget', 'diff'],
       undefined,
       { id: 'selftest', displayName: 'Selftest' },
       [{ profileId: DEFAULT_PROFILE.id, sessionIds: ['remote-selftest'], allowGoalSubmit: false }]
@@ -129,6 +130,33 @@ export async function runRemoteSelfTest(): Promise<void> {
       })
     })
     check(approval.status === 200 && !engine.snapshot().pendingPlan, 'plan.approve resolves the existing engine gate')
+
+    const budget = await fetch(`${gateway.origin}/command`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${paired.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: 'budget.setCaps',
+        args: { profileId: DEFAULT_PROFILE.id, sessionId: 'remote-selftest', maxTokens: 50_000 }
+      })
+    })
+    check(
+      budget.status === 200 && engine.snapshot().budget?.caps.maxTokens === 50_000,
+      'authenticated budget.setCaps reaches the existing session engine'
+    )
+
+    const remoteDiff = await fetch(`${gateway.origin}/command`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${paired.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: 'task.diff',
+        args: { profileId: DEFAULT_PROFILE.id, sessionId: 'remote-selftest', taskId: 'none' }
+      })
+    })
+    const remoteDiffBody = await remoteDiff.json() as { result?: { diff?: string } }
+    check(
+      remoteDiff.status === 200 && remoteDiffBody.result?.diff === '',
+      'capability-gated task.diff uses the fixed redacted diff route'
+    )
 
     auth.revoke(paired.device.id)
     const revoked = await fetch(`${gateway.origin}/devices`, { headers: { Authorization: `Bearer ${paired.token}` } })

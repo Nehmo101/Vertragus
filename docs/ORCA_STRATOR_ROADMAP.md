@@ -3,6 +3,18 @@
 Stand: 12. Juli 2026
 Audit-Basis: `main` bei Commit `d396a0a`
 
+## Mission-Control-Lieferstatus (15. Juli 2026)
+
+Die später ergänzte Mission-Control-Roadmap ist bis Phase D umgesetzt. Damit
+sind die zusätzlichen Features **Diff-/Merge-Center**, **Kosten-/Token-Budgets**,
+**providerübergreifende Approval-Inbox** und **Provider-Fallback bei Limits**
+über Desktop und den authentifizierten Remote-Kanal nutzbar. Sicherheits- und
+Providergrenzen sind in `docs/MISSION_CONTROL_PROVIDER_COVERAGE.md`, die
+Phase-D-Flächen in `docs/MISSION_CONTROL_PHASE_D.md` dokumentiert.
+
+Diese Statusnotiz aktualisiert den Lieferstand; die nachfolgende Audit-Historie
+vom 12. Juli bleibt als ursprüngliche Planungsbasis erhalten.
+
 ## Kurzfazit
 
 Orca-Strator ist kein Mock-up mehr. Die Anwendung besitzt einen funktionierenden

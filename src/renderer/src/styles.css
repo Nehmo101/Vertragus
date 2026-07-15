@@ -5261,3 +5261,48 @@ textarea:focus-visible,
   .remote-setup { align-items: stretch; flex-direction: column; }
   .remote-form { min-width: 0; grid-template-columns: 1fr; }
 }
+
+/* Mission Control Phase D: standalone approvals + integration surfaces. */
+.mission-surface { flex: 1; min-width: 0; overflow: auto; padding: 24px; background: var(--bg); }
+.mission-header,
+.mission-integration > header,
+.mission-diff-modal > div,
+.mission-change { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.mission-header h1 { margin: 4px 0 0; font-size: 26px; }
+.mission-header .eyebrow { color: var(--text-3); text-transform: uppercase; letter-spacing: .12em; font-size: 11px; }
+.mission-count { padding: 7px 11px; border-radius: 999px; background: var(--surface-2); color: var(--text-2); }
+.mission-count.attention { background: var(--wait-soft); color: var(--wait-text); }
+.mission-error { margin: 16px 0; padding: 12px; border: 1px solid var(--err); border-radius: 10px; color: var(--err-text); background: var(--err-soft); }
+.mission-budget-grid,
+.mission-approval-list,
+.mission-integration-list { display: grid; gap: 14px; margin-top: 20px; }
+.mission-budget-grid { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.mission-budget-card,
+.mission-approval,
+.mission-integration,
+.mission-diff-modal,
+.mission-empty { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); padding: 16px; }
+.mission-budget-card.exceeded { border-color: var(--err); }
+.mission-budget-card > div:first-child { display: flex; justify-content: space-between; }
+.mission-budget-card > p { font-size: 18px; margin: 12px 0 4px; }
+.mission-budget-card small,
+.mission-integration small,
+.mission-change small { display: block; color: var(--text-3); }
+.mission-budget-inputs { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; margin-top: 12px; }
+.mission-budget-inputs input { min-width: 0; }
+.mission-approval h2 { margin: 7px 0; font-size: 18px; }
+.mission-approval > small { text-transform: uppercase; letter-spacing: .08em; color: var(--text-3); }
+.mission-approval.kind-budget-exceeded,
+.mission-approval.kind-provider-limit { border-color: var(--wait); }
+.mission-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+.mission-diff-modal { margin-top: 20px; }
+.mission-diff-modal pre { max-height: 55vh; overflow: auto; white-space: pre-wrap; word-break: break-word; padding: 12px; border-radius: 10px; background: var(--surface-2); }
+.mission-integration > header { padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.mission-integration > header span { text-transform: uppercase; font-size: 11px; color: var(--text-3); }
+.mission-change { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.mission-change:last-of-type { border-bottom: 0; }
+.mission-empty { display: grid; place-items: center; gap: 6px; min-height: 140px; color: var(--text-3); }
+
+@media (max-width: 900px) {
+  .mission-budget-inputs { grid-template-columns: 1fr; }
+}

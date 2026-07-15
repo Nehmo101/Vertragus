@@ -1,63 +1,19 @@
 import type { EventEmitter } from 'node:events'
-import type { OrchestratorSnapshot } from '@shared/orchestrator'
-import type { ApprovalItem, DeviceInfo, RemoteEventFrame } from '@shared/remote'
+import type { OrcaTask, OrchestratorSnapshot } from '@shared/orchestrator'
+import {
+  deriveRemoteApprovals,
+  type ApprovalItem,
+  type DeviceInfo,
+  type RemoteEventFrame
+} from '@shared/remote'
 
 export interface SnapshotBus extends EventEmitter {
   on(event: 'snapshot', listener: (snapshot: OrchestratorSnapshot) => void): this
   off(event: 'snapshot', listener: (snapshot: OrchestratorSnapshot) => void): this
 }
 
-function approvalScope(snapshot: OrchestratorSnapshot): { profileId: string; workspaceSessionId: string } | undefined {
-  if (!snapshot.profileId || !snapshot.workspaceSessionId) return undefined
-  return { profileId: snapshot.profileId, workspaceSessionId: snapshot.workspaceSessionId }
-}
-
 export function deriveApprovals(snapshots: Iterable<OrchestratorSnapshot>): ApprovalItem[] {
-  const approvals: ApprovalItem[] = []
-  for (const snapshot of snapshots) {
-    const scope = approvalScope(snapshot)
-    if (!scope) continue
-    for (const pending of snapshot.pendingApprovals ?? []) approvals.push(pending)
-    for (const permission of snapshot.pendingPermissions ?? []) {
-      approvals.push({
-        id: `permission:${permission.id}`,
-        kind: 'tool-permission',
-        ...scope,
-        title: `${permission.provider}: ${permission.tool}`,
-        summary: permission.summary,
-        createdAt: permission.createdAt,
-        permission,
-        actions: ['permission.allow', 'permission.deny']
-      })
-    }
-    if (snapshot.pendingPlan) {
-      approvals.push({
-        id: `plan:${scope.workspaceSessionId}:${snapshot.pendingPlan.planId}`,
-        kind: 'plan-review',
-        ...scope,
-        title: 'Plan wartet auf Freigabe',
-        summary: `${snapshot.pendingPlan.plan.tasks.length} Aufgabe(n) · ${snapshot.pendingPlan.plan.goal}`,
-        createdAt: snapshot.activity?.updatedAt ?? Date.now(),
-        plan: snapshot.pendingPlan,
-        actions: ['plan.approve', 'plan.reject']
-      })
-    }
-    for (const task of snapshot.tasks) {
-      if (task.status !== 'needs-work' && task.status !== 'error') continue
-      if (!task.blocker && !task.recoveryArtifact) continue
-      approvals.push({
-        id: `task:${scope.workspaceSessionId}:${task.id}`,
-        kind: 'task-blocked',
-        ...scope,
-        title: task.title,
-        summary: task.blocker?.summary ?? task.note ?? 'Aufgabe benötigt eine Entscheidung.',
-        createdAt: task.finishedAt ?? task.createdAt,
-        task,
-        actions: ['mode.enableAuto', 'run.reset']
-      })
-    }
-  }
-  return approvals.sort((a, b) => a.createdAt - b.createdAt)
+  return deriveRemoteApprovals(snapshots)
 }
 
 function canReadSession(device: DeviceInfo, profileId?: string, sessionId?: string): boolean {
@@ -67,17 +23,36 @@ function canReadSession(device: DeviceInfo, profileId?: string, sessionId?: stri
   ))
 }
 
+function remoteTask(task: OrcaTask): OrcaTask {
+  return {
+    ...task,
+    worktree: undefined,
+    recoveryArtifact: task.recoveryArtifact
+      ? { ...task.recoveryArtifact, worktree: '[internal Orca worktree]' }
+      : undefined
+  }
+}
+
 export function scopeRemoteFrame(frame: RemoteEventFrame, device: DeviceInfo): RemoteEventFrame | undefined {
   if (frame.type === 'snapshot') {
-    return canReadSession(device, frame.snapshot.profileId, frame.snapshot.workspaceSessionId)
-      ? frame : undefined
+    if (!canReadSession(device, frame.snapshot.profileId, frame.snapshot.workspaceSessionId)) return undefined
+    return {
+      ...frame,
+      snapshot: {
+        ...frame.snapshot,
+        tasks: frame.snapshot.tasks.map(remoteTask)
+      }
+    }
   }
   if (frame.type === 'approvals') {
     return {
       ...frame,
-      approvals: frame.approvals.filter((approval) =>
-        canReadSession(device, approval.profileId, approval.workspaceSessionId)
-      )
+      approvals: frame.approvals
+        .filter((approval) => canReadSession(device, approval.profileId, approval.workspaceSessionId))
+        .map((approval) => ({
+          ...approval,
+          task: approval.task ? remoteTask(approval.task) : undefined
+        }))
     }
   }
   return frame

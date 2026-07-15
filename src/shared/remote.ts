@@ -11,7 +11,8 @@ export const REMOTE_CAPABILITIES = [
   'approve-tools',
   'budget',
   'task-control',
-  'replan'
+  'replan',
+  'provider-fallback'
 ] as const
 export type RemoteCapability = (typeof REMOTE_CAPABILITIES)[number]
 
@@ -29,6 +30,7 @@ export const REMOTE_COMMAND_IDS = [
   'budget.setCaps',
   'task.pause',
   'task.resume',
+  'task.fallback',
   'plan.replan',
   'killSwitch.activate'
 ] as const
@@ -40,7 +42,13 @@ export interface RemoteCommandEnvelope {
   requestId?: string
 }
 
-export type ApprovalKind = 'plan-review' | 'task-blocked' | 'pr-publication' | 'tool-permission'
+export type ApprovalKind =
+  | 'plan-review'
+  | 'task-blocked'
+  | 'pr-publication'
+  | 'tool-permission'
+  | 'budget-exceeded'
+  | 'provider-limit'
 
 export interface RemoteActor {
   /** Stable app-account id. For Cloudflare Access this is the verified lower-case email. */
@@ -80,6 +88,12 @@ export interface RemoteBudgetSnapshot {
   costUsd: number
   caps: RemoteBudgetCaps
   exceeded: boolean
+  /** Honest coverage: missing provider telemetry is never presented as measured zero usage. */
+  tasksReported?: number
+  tasksTotal?: number
+  tokenDataComplete?: boolean
+  costDataComplete?: boolean
+  exceededBy?: Array<'tokens' | 'cost'>
 }
 
 export interface ApprovalItem {
@@ -155,4 +169,86 @@ export interface RemotePairStartRequest {
   deviceNameHint?: string
   actor?: RemoteActor
   scopes?: RemoteScope[]
+}
+
+function approvalScope(snapshot: OrchestratorSnapshot): { profileId: string; workspaceSessionId: string } | undefined {
+  if (!snapshot.profileId || !snapshot.workspaceSessionId) return undefined
+  return { profileId: snapshot.profileId, workspaceSessionId: snapshot.workspaceSessionId }
+}
+
+/** Shared, node-free approval projection used by desktop and the authenticated remote read model. */
+export function deriveRemoteApprovals(snapshots: Iterable<OrchestratorSnapshot>): ApprovalItem[] {
+  const approvals: ApprovalItem[] = []
+  for (const snapshot of snapshots) {
+    const scope = approvalScope(snapshot)
+    if (!scope) continue
+    for (const pending of snapshot.pendingApprovals ?? []) approvals.push(pending)
+    for (const permission of snapshot.pendingPermissions ?? []) {
+      approvals.push({
+        id: `permission:${permission.id}`,
+        kind: 'tool-permission',
+        ...scope,
+        title: `${permission.provider}: ${permission.tool}`,
+        summary: permission.summary,
+        createdAt: permission.createdAt,
+        permission,
+        actions: ['permission.allow', 'permission.deny']
+      })
+    }
+    if (snapshot.pendingPlan) {
+      approvals.push({
+        id: `plan:${scope.workspaceSessionId}:${snapshot.pendingPlan.planId}`,
+        kind: 'plan-review',
+        ...scope,
+        title: 'Plan wartet auf Freigabe',
+        summary: `${snapshot.pendingPlan.plan.tasks.length} Aufgabe(n) · ${snapshot.pendingPlan.plan.goal}`,
+        createdAt: snapshot.activity?.updatedAt ?? Date.now(),
+        plan: snapshot.pendingPlan,
+        actions: ['plan.approve', 'plan.reject']
+      })
+    }
+    if (snapshot.budget?.exceeded) {
+      const exceeded = snapshot.budget.exceededBy?.join(' und ') || 'Budget'
+      approvals.push({
+        id: `budget:${scope.workspaceSessionId}`,
+        kind: 'budget-exceeded',
+        ...scope,
+        title: 'Lauf wegen Budget pausiert',
+        summary: `${exceeded} erreicht · ${snapshot.budget.tokens} Token · $${snapshot.budget.costUsd.toFixed(2)}`,
+        createdAt: snapshot.activity?.updatedAt ?? Date.now(),
+        actions: ['budget.setCaps']
+      })
+    }
+    for (const task of snapshot.tasks) {
+      if (task.status !== 'needs-work' && task.status !== 'error') continue
+      const limit = /(?:usage|rate|nutzungs|wochen|5.?stunden)[\s-]*(?:limit|quota)|quota/i.test(
+        [task.note, task.judgeReason, task.blocker?.summary].filter(Boolean).join(' ')
+      )
+      if (limit) {
+        approvals.push({
+          id: `limit:${scope.workspaceSessionId}:${task.id}`,
+          kind: 'provider-limit',
+          ...scope,
+          title: `${task.title}: Provider-Limit`,
+          summary: task.note ?? task.judgeReason ?? 'Provider-Limit erkannt.',
+          createdAt: task.finishedAt ?? task.createdAt,
+          task,
+          actions: ['task.fallback', 'run.reset']
+        })
+        continue
+      }
+      if (!task.blocker && !task.recoveryArtifact) continue
+      approvals.push({
+        id: `task:${scope.workspaceSessionId}:${task.id}`,
+        kind: 'task-blocked',
+        ...scope,
+        title: task.title,
+        summary: task.blocker?.summary ?? task.note ?? 'Aufgabe benötigt eine Entscheidung.',
+        createdAt: task.finishedAt ?? task.createdAt,
+        task,
+        actions: ['mode.enableAuto', 'run.reset']
+      })
+    }
+  }
+  return approvals.sort((a, b) => a.createdAt - b.createdAt)
 }

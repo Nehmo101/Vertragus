@@ -245,6 +245,26 @@ export interface WorkspaceSessionSummary {
   active: boolean
 }
 
+export interface IntegrationCenterItem {
+  taskId: string
+  title: string
+  status: NonNullable<OrcaTask['autoPrStatus']>
+  /** Commit/branch identifiers are display-only; host worktree paths are never projected remotely. */
+  commit?: string
+  branch?: string
+  prUrl?: string
+  remoteCiStatus?: RemoteCiStatus
+  remoteCiUrl?: string
+  remoteCiSummary?: string
+  findingCount: number
+}
+
+export interface IntegrationCenterSnapshot {
+  status: 'idle' | 'prepared' | 'awaiting-approval' | 'publishing' | 'published' | 'blocked'
+  pendingPublicationId?: string
+  items: IntegrationCenterItem[]
+}
+
 export interface OrchestratorSnapshot {
   /** Workspace ownership for multi-session renderer routing. */
   profileId?: string
@@ -264,6 +284,8 @@ export interface OrchestratorSnapshot {
   pendingPermissions?: PermissionRequest[]
   /** Aggregated provider telemetry plus restrictive remote caps for this session. */
   budget?: RemoteBudgetSnapshot
+  /** Path-free aggregation state for the desktop/mobile Diff & Merge Center. */
+  integration?: IntegrationCenterSnapshot
   /** Retrospective of the most recent terminal plan run in this session. */
   lastRetro?: RunRetro
   /** Recent shared findings board entries (newest last), for the live UI. */

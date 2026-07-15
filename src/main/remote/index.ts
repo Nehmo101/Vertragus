@@ -101,6 +101,8 @@ export class RemoteService extends EventEmitter {
       workspaceSessions.pauseTask(requireProfile(profileId), taskId, sessionId),
     resumeTask: (profileId, sessionId, taskId) =>
       workspaceSessions.resumeTask(requireProfile(profileId), taskId, sessionId),
+    fallbackTask: (profileId, sessionId, taskId) =>
+      workspaceSessions.fallbackTask(requireProfile(profileId), taskId, sessionId),
     replanPending: (profileId, sessionId, input) =>
       workspaceSessions.replanPending(requireProfile(profileId), input, sessionId),
     activateKillSwitch: () => {

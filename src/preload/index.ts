@@ -132,6 +132,26 @@ const orca: OrcaApi = {
       ipcRenderer.invoke(IPC.orchestratorReviewPlan, profileId, approved, workspaceSessionId),
     taskDiff: (profileId, taskId, workspaceSessionId) =>
       ipcRenderer.invoke(IPC.orchestratorTaskDiff, profileId, taskId, workspaceSessionId),
+    approvePublication: (profileId, workspaceSessionId, planId) =>
+      ipcRenderer.invoke(IPC.orchestratorApprovePublication, profileId, workspaceSessionId, planId),
+    rejectPublication: (profileId, workspaceSessionId, planId) =>
+      ipcRenderer.invoke(IPC.orchestratorRejectPublication, profileId, workspaceSessionId, planId),
+    resolvePermission: (profileId, workspaceSessionId, permissionId, allow) =>
+      ipcRenderer.invoke(
+        IPC.orchestratorResolvePermission,
+        profileId,
+        workspaceSessionId,
+        permissionId,
+        allow
+      ),
+    setBudgetCaps: (profileId, workspaceSessionId, caps) =>
+      ipcRenderer.invoke(IPC.orchestratorSetBudgetCaps, profileId, workspaceSessionId, caps),
+    pauseTask: (profileId, workspaceSessionId, taskId) =>
+      ipcRenderer.invoke(IPC.orchestratorPauseTask, profileId, workspaceSessionId, taskId),
+    resumeTask: (profileId, workspaceSessionId, taskId) =>
+      ipcRenderer.invoke(IPC.orchestratorResumeTask, profileId, workspaceSessionId, taskId),
+    fallbackTask: (profileId, workspaceSessionId, taskId) =>
+      ipcRenderer.invoke(IPC.orchestratorFallbackTask, profileId, workspaceSessionId, taskId),
     onSnapshot: (cb) => subscribe<OrchestratorSnapshot>(IPC.evOrchestrator, cb)
   },
 

@@ -274,6 +274,10 @@ describe('asynchronous orchestration API', () => {
     await vi.waitFor(() => expect(engine.snapshot().pendingApprovals).toEqual([
       expect.objectContaining({ kind: 'pr-publication', actions: ['publication.approve', 'publication.reject'] })
     ]))
+    expect(engine.snapshot().integration).toMatchObject({
+      status: 'awaiting-approval',
+      items: [expect.objectContaining({ title: 'Held Feature', status: 'prepared', commit: 'b'.repeat(40) })]
+    })
     expect(publishPreparedChanges).toHaveBeenCalledTimes(publishCallsBefore)
 
     await expect(engine.approvePublication()).resolves.toBe(true)
@@ -282,6 +286,7 @@ describe('asynchronous orchestration API', () => {
     expect(engine.snapshot().tasks.find((task) => task.id === accepted.taskId)).toEqual(
       expect.objectContaining({ autoPrStatus: 'published', prUrl: 'https://github.test/pr/held' })
     )
+    expect(engine.snapshot().integration?.status).toBe('published')
   })
 
   it('enables auto mode without approving the plan that is already waiting for review', async () => {
@@ -781,5 +786,37 @@ describe('asynchronous orchestration API', () => {
     })
     expect(result.status).toBe('success')
     expect(runTask.mock.calls.slice(callsBefore).map((call) => call[0].provider)).toEqual(['codex', 'cursor'])
+  })
+
+  it('allows a capability-gated manual fallback for a terminal rate-limited task', async () => {
+    const callsBefore = runTask.mock.calls.length
+    runTask
+      .mockImplementationOnce(async (request) => ({
+        info: { ...info(request.taskId), provider: request.provider },
+        done: Promise.resolve({ result: 'Provider rate limit hit', isError: true, status: 'failed' as const })
+      }))
+      .mockImplementationOnce(async (request) => ({
+        info: { ...info(request.taskId), provider: request.provider },
+        done: Promise.resolve({
+          result: 'Recovered on fallback', isError: false, status: 'succeeded' as const,
+          tokensIn: 12, tokensOut: 8, costUsd: 0.02
+        })
+      }))
+    const engine = new OrchestratorEngine({ profile: {
+      ...DEFAULT_PROFILE,
+      agents: [
+        { ...DEFAULT_PROFILE.agents[0]!, role: 'primary', provider: 'codex' as const },
+        { ...DEFAULT_PROFILE.agents[0]!, role: 'fallback', provider: 'cursor' as const }
+      ]
+    } })
+    const accepted = engine.dispatchAsync('primary', 'Safe internal prompt', 'Manual fallback')
+    await vi.waitFor(() => expect(engine.getTaskStatus(accepted.taskId)?.status).toBe('error'))
+    await expect(engine.fallbackTask(accepted.taskId)).resolves.toBe(true)
+    await vi.waitFor(() => expect(engine.getTaskStatus(accepted.taskId)?.status).toBe('success'))
+    expect(runTask.mock.calls.slice(callsBefore).map((call) => call[0].provider)).toEqual(['codex', 'cursor'])
+    expect(engine.snapshot().budget).toMatchObject({
+      tokens: 20, costUsd: 0.02, tasksReported: 1, tasksTotal: 1,
+      tokenDataComplete: true, costDataComplete: true
+    })
   })
 })

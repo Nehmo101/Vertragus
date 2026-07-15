@@ -19,6 +19,7 @@ Die Claude-Integration folgt dem dokumentierten `--permission-prompt-tool`-Vertr
 - Remote kennt nur `permission.allow` und `permission.deny` mit einer UUID. Es existiert keine Route für `agent.write`, Agent-stdin, Shelltext, Pfade oder Tool-Input.
 - Der Broker erzeugt die provider-spezifischen Antwortbytes intern. Nach 60 Sekunden wird automatisch abgelehnt.
 - Jede Capability (`approve-tools`, `budget`, `task-control`, `replan`) ist separat und beim Pairing standardmäßig aus.
+- Der Phase-D-Fallback besitzt zusätzlich `provider-fallback`; der Remote-Aufrufer liefert nur eine Task-ID, nie Provider-stdin, Prompt oder Pfad.
 - WebSocket-Upgrades verwenden denselben Hash-only-Geräte-Token über den `Sec-WebSocket-Protocol`-Header, dieselbe Command-Whitelist, Body-Caps, Rate-Limits, Scopes und Auditierung wie HTTP.
 
 ## Team-Identität und Scoping
@@ -33,3 +34,5 @@ Optional kann Cloudflare Access vorgeschaltet werden. Orca vertraut niemals eine
 - Pause/Resume: Der Worker wird beendet, partielle Arbeit bleibt im verifizierten Orca-Worktree und Resume startet einen neuen Worker an derselben Engine-Grenze.
 - Provider-Fallback: Ein erkanntes Rate-Limit darf auch bei sonst festem Routing auf einen anderen konfigurierten Provider wechseln; normale Fehler folgen weiterhin dem Profil-Routing.
 - Live-Replan: Remote darf nur vorhandene Task-IDs entfernen und `maxParallel` reduzieren/ändern. Neue Prompts, Commands, Pfade oder Tasks können über diese Route nicht eingeschleust werden; der geänderte Plan bleibt im Review-Gate.
+- Phase D: Desktop- und Mobile-Approval-Inbox nutzen dieselbe Snapshot-Projektion. Budget- und Provider-Limit-Entscheidungen erscheinen dort ohne zweite Zustandsquelle.
+- Phase D: Das Diff/Merge-Center projiziert Commit-, Gate-, PR- und CI-Status ohne absolute Host-Worktree-Pfade; Schreiben bleibt am vorhandenen PR-Veröffentlichungs-Gate.

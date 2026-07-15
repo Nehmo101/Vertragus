@@ -27,6 +27,7 @@ export default function RemotePanel(): JSX.Element {
   const [budgetAccess, setBudgetAccess] = useState(false)
   const [taskControl, setTaskControl] = useState(false)
   const [replanAccess, setReplanAccess] = useState(false)
+  const [fallbackAccess, setFallbackAccess] = useState(false)
   const [actorId, setActorId] = useState('owner')
   const [actorName, setActorName] = useState('Owner')
   const [profiles, setProfiles] = useState<Array<{ id: string; name: string }>>([])
@@ -207,6 +208,10 @@ export default function RemotePanel(): JSX.Element {
             <input type="checkbox" checked={replanAccess} onChange={(event) => setReplanAccess(event.target.checked)} />
             Restriktives Live-Replan erlauben
           </label>
+          <label className="remote-checkbox">
+            <input type="checkbox" checked={fallbackAccess} onChange={(event) => setFallbackAccess(event.target.checked)} />
+            Provider-Fallback bei erkanntem Limit erlauben
+          </label>
           <label>Account-ID oder Access-E-Mail<input value={actorId} onChange={(event) => setActorId(event.target.value)} maxLength={160} /></label>
           <label>Anzeigename<input value={actorName} onChange={(event) => setActorName(event.target.value)} maxLength={160} /></label>
           <div className="remote-scope-list">
@@ -254,6 +259,7 @@ export default function RemotePanel(): JSX.Element {
               if (budgetAccess) capabilities.push('budget')
               if (taskControl) capabilities.push('task-control')
               if (replanAccess) capabilities.push('replan')
+              if (fallbackAccess) capabilities.push('provider-fallback')
               const scopes = profiles.flatMap((profile) => {
                 const sessionIds = sessions
                   .filter((session) => session.profileId === profile.id && selectedSessions.includes(session.id))

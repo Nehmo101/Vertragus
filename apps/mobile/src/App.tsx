@@ -8,7 +8,7 @@ import type {
   RemoteEventFrame
 } from '@shared/remote'
 
-type View = 'live' | 'approvals' | 'goal' | 'devices'
+type View = 'live' | 'approvals' | 'changes' | 'goal' | 'devices'
 const TOKEN_KEY = 'orca.remote.deviceToken'
 const DEVICE_KEY = 'orca.remote.device'
 
@@ -22,6 +22,7 @@ function message(error: unknown): string { return error instanceof Error ? error
 function initialView(): View {
   const route = window.location.hash.split('?')[0]
   if (route === '#/approvals') return 'approvals'
+  if (route === '#/changes') return 'changes'
   if (route === '#/goal') return 'goal'
   if (route === '#/devices') return 'devices'
   return 'live'
@@ -344,6 +345,11 @@ export default function App(): JSX.Element {
           capabilities={currentDevice?.capabilities ?? []}
         />}
         {view === 'approvals' && <Inbox approvals={approvals} command={command} />}
+        {view === 'changes' && <Changes
+          snapshots={Object.values(snapshots)}
+          command={command}
+          capabilities={currentDevice?.capabilities ?? []}
+        />}
         {view === 'goal' && (
           <section>
             <span className="eyebrow">Neue Arbeit</span><h2>Ziel senden</h2>
@@ -368,6 +374,7 @@ export default function App(): JSX.Element {
       <nav>
         <Nav active={view === 'live'} label="Live" icon="⌁" onClick={() => setView('live')} />
         <Nav active={view === 'approvals'} label={`Inbox${approvals.length ? ` ${approvals.length}` : ''}`} icon="✓" onClick={() => setView('approvals')} />
+        <Nav active={view === 'changes'} label="Merge" icon="⇄" onClick={() => setView('changes')} />
         <Nav active={view === 'goal'} label="Ziel" icon="＋" onClick={() => setView('goal')} />
         <Nav active={view === 'devices'} label="Geräte" icon="⌾" onClick={() => setView('devices')} />
       </nav>
@@ -399,6 +406,7 @@ function Live({ snapshots, command, capabilities }: {
       {snapshot.budget && <div className={`budget ${snapshot.budget.exceeded ? 'exceeded' : ''}`}>
         <strong>{snapshot.budget.tokens.toLocaleString()} Token · ${snapshot.budget.costUsd.toFixed(2)}</strong>
         <small>Caps: {snapshot.budget.caps.maxTokens ?? '–'} Token · ${snapshot.budget.caps.maxCostUsd ?? '–'}</small>
+        <small>Telemetrie {snapshot.budget.tasksReported ?? 0}/{snapshot.budget.tasksTotal ?? snapshot.tasks.length} Tasks · Token {snapshot.budget.tokenDataComplete ? 'vollständig' : 'teilweise'} · Kosten {snapshot.budget.costDataComplete ? 'vollständig' : 'teilweise'}</small>
       </div>}
       {capabilities.includes('budget') && <div className="budget-form">
         <input inputMode="numeric" value={maxTokens} onChange={(event) => setMaxTokens(event.target.value)} placeholder="Token-Cap" />
@@ -420,6 +428,8 @@ function Live({ snapshots, command, capabilities }: {
           <button className="secondary task-control" onClick={() => run('task.pause', { ...scope, taskId: task.id })}>Pausieren</button>}
         {capabilities.includes('task-control') && task.status === 'paused' &&
           <button className="secondary task-control" onClick={() => run('task.resume', { ...scope, taskId: task.id })}>Fortsetzen</button>}
+        {capabilities.includes('provider-fallback') && /(?:usage|rate|nutzungs|quota|limit)/i.test([task.note, task.judgeReason].filter(Boolean).join(' ')) &&
+          <button className="secondary task-control" onClick={() => run('task.fallback', { ...scope, taskId: task.id })}>Provider-Fallback</button>}
         {typeof task.progress === 'number' && <div className="progress"><i style={{ width: `${task.progress}%` }} /></div>}
       </article>)}</div>
     </section>
@@ -433,7 +443,9 @@ function Inbox({ approvals, command }: { approvals: ApprovalItem[]; command(id: 
   const act = (id: RemoteCommandId, approval: ApprovalItem): void => {
     const args = approval.permission
       ? { profileId: approval.profileId, sessionId: approval.workspaceSessionId, permissionId: approval.permission.id }
-      : { profileId: approval.profileId, sessionId: approval.workspaceSessionId }
+      : approval.kind === 'provider-limit' && approval.task
+        ? { profileId: approval.profileId, sessionId: approval.workspaceSessionId, taskId: approval.task.id }
+        : { profileId: approval.profileId, sessionId: approval.workspaceSessionId }
     void command(id, args).catch((value) => setError(message(value)))
   }
   const showDiff = (approval: ApprovalItem): void => {
@@ -447,7 +459,59 @@ function Inbox({ approvals, command }: { approvals: ApprovalItem[]; command(id: 
       setDiff({ title: approval.task!.title, value: value.diff ?? 'Kein Diff.' })
     }).catch((value) => setError(message(value)))
   }
-  return <section><span className="eyebrow">Entscheidungen</span><h2>Approval-Inbox</h2>{error && <div className="error">{error}</div>}{diff && <article className="diff-view"><div><strong>{diff.title}</strong><button className="secondary" onClick={() => setDiff(undefined)}>Schließen</button></div><pre>{diff.value}</pre></article>}{approvals.map((approval) => <article className="approval" key={approval.id}><small>{approval.kind === 'plan-review' ? 'PLAN-REVIEW' : approval.kind === 'pr-publication' ? 'PR-VERÖFFENTLICHUNG' : approval.kind === 'tool-permission' ? 'TOOL-BERECHTIGUNG' : 'BLOCKIERT'}</small><h3>{approval.title}</h3><p>{approval.summary}</p>{approval.task && <button className="secondary diff-button" onClick={() => showDiff(approval)}>Diff ansehen</button>}<div className="actions">{approval.kind === 'tool-permission' ? <><button onClick={() => act('permission.allow', approval)}>Einmal erlauben</button><button className="secondary" onClick={() => act('permission.deny', approval)}>Ablehnen</button></> : approval.kind === 'plan-review' ? <><button onClick={() => act('plan.approve', approval)}>Freigeben</button><button className="secondary" onClick={() => act('plan.reject', approval)}>Ablehnen</button></> : approval.kind === 'pr-publication' ? <><button onClick={() => act('publication.approve', approval)}>Veröffentlichen</button><button className="secondary" onClick={() => act('publication.reject', approval)}>Ablehnen</button></> : <><button onClick={() => act('mode.enableAuto', approval)}>Auto aktivieren</button><button className="secondary" onClick={() => act('run.reset', approval)}>Lauf zurücksetzen</button></>}</div></article>)}</section>
+  return <section>
+    <span className="eyebrow">Entscheidungen</span><h2>Approval-Inbox</h2>
+    {error && <div className="error">{error}</div>}
+    {diff && <article className="diff-view"><div><strong>{diff.title}</strong><button className="secondary" onClick={() => setDiff(undefined)}>Schließen</button></div><pre>{diff.value}</pre></article>}
+    {approvals.map((approval) => <article className="approval" key={approval.id}>
+      <small>{approval.kind === 'plan-review' ? 'PLAN-REVIEW' : approval.kind === 'pr-publication' ? 'PR-VERÖFFENTLICHUNG' : approval.kind === 'tool-permission' ? 'TOOL-BERECHTIGUNG' : approval.kind === 'budget-exceeded' ? 'BUDGET ERREICHT' : approval.kind === 'provider-limit' ? 'PROVIDER-LIMIT' : 'BLOCKIERT'}</small>
+      <h3>{approval.title}</h3><p>{approval.summary}</p>
+      {approval.task && <button className="secondary diff-button" onClick={() => showDiff(approval)}>Diff ansehen</button>}
+      <div className="actions">
+        {approval.kind === 'tool-permission' ? <><button onClick={() => act('permission.allow', approval)}>Einmal erlauben</button><button className="secondary" onClick={() => act('permission.deny', approval)}>Ablehnen</button></> :
+          approval.kind === 'plan-review' ? <><button onClick={() => act('plan.approve', approval)}>Freigeben</button><button className="secondary" onClick={() => act('plan.reject', approval)}>Ablehnen</button></> :
+            approval.kind === 'pr-publication' ? <><button onClick={() => act('publication.approve', approval)}>Veröffentlichen</button><button className="secondary" onClick={() => act('publication.reject', approval)}>Ablehnen</button></> :
+              approval.kind === 'provider-limit' ? <><button onClick={() => act('task.fallback', approval)}>Sicherer Fallback</button><button className="secondary" onClick={() => act('run.reset', approval)}>Lauf zurücksetzen</button></> :
+                approval.kind === 'budget-exceeded' ? <p className="muted">Caps im Live-Tab anpassen und pausierte Tasks dort einzeln fortsetzen.</p> :
+                  <><button onClick={() => act('mode.enableAuto', approval)}>Auto aktivieren</button><button className="secondary" onClick={() => act('run.reset', approval)}>Lauf zurücksetzen</button></>}
+      </div>
+    </article>)}
+  </section>
+}
+
+function Changes({ snapshots, command, capabilities }: {
+  snapshots: OrchestratorSnapshot[]
+  command(id: RemoteCommandId, args: unknown): Promise<unknown>
+  capabilities: DeviceInfo['capabilities']
+}): JSX.Element {
+  const [diff, setDiff] = useState<{ title: string; value: string }>()
+  const [error, setError] = useState<string>()
+  const values = snapshots.filter((snapshot) =>
+    snapshot.integration && snapshot.workspaceSessionId && (
+      snapshot.integration.items.length > 0 || snapshot.integration.status !== 'idle'
+    )
+  )
+  if (!values.length) return <Empty title="Noch keine Integrationen" text="Verifizierte Commits erscheinen hier ohne Host-Worktree-Pfade." />
+  const run = (id: RemoteCommandId, args: unknown): void => {
+    void command(id, args).catch((value) => setError(message(value)))
+  }
+  return <section>
+    <span className="eyebrow">Integration</span><h2>Diff &amp; Merge Center</h2>
+    {error && <div className="error">{error}</div>}
+    {diff && <article className="diff-view"><div><strong>{diff.title}</strong><button className="secondary" onClick={() => setDiff(undefined)}>Schließen</button></div><pre>{diff.value}</pre></article>}
+    {values.map((snapshot) => {
+      const scope = { profileId: snapshot.profileId!, sessionId: snapshot.workspaceSessionId! }
+      const publication = snapshot.pendingApprovals?.find((approval) => approval.kind === 'pr-publication')
+      return <article className="approval" key={scope.sessionId}>
+        <small>{snapshot.integration!.status.toUpperCase()}</small><h3>{snapshot.goal?.title ?? snapshot.profileId}</h3>
+        {snapshot.integration!.items.map((item) => <div className="change-row" key={item.taskId}>
+          <div><strong>{item.title}</strong><small>{item.status} · {item.commit?.slice(0, 10) ?? 'kein Commit'}{item.remoteCiStatus ? ` · CI ${item.remoteCiStatus}` : ''}</small></div>
+          {capabilities.includes('diff') && <button className="secondary" onClick={() => void command('task.diff', { ...scope, taskId: item.taskId }).then((result) => setDiff({ title: item.title, value: (result as { diff?: string }).diff ?? 'Kein Diff.' })).catch((value) => setError(message(value)))}>Diff</button>}
+        </div>)}
+        {publication && <div className="actions"><button onClick={() => run('publication.approve', { ...scope, planId: publication.task?.planId })}>Geprüft veröffentlichen</button><button className="secondary" onClick={() => run('publication.reject', { ...scope, planId: publication.task?.planId })}>Ablehnen</button></div>}
+      </article>
+    })}
+  </section>
 }
 
 function Empty({ title, text }: { title: string; text: string }): JSX.Element {

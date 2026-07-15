@@ -28,6 +28,7 @@ export interface RemoteCommandDependencies {
   setBudgetCaps(profileId: string, sessionId: string, caps: RemoteBudgetCaps): RemoteBudgetSnapshot | Promise<RemoteBudgetSnapshot>
   pauseTask(profileId: string, sessionId: string, taskId: string): boolean | Promise<boolean>
   resumeTask(profileId: string, sessionId: string, taskId: string): boolean | Promise<boolean>
+  fallbackTask(profileId: string, sessionId: string, taskId: string): boolean | Promise<boolean>
   replanPending(
     profileId: string,
     sessionId: string,
@@ -148,6 +149,10 @@ export class RemoteCommandRouter {
     this.register({
       id: 'task.resume', capability: 'task-control', schema: taskControlSchema,
       handle: async (args) => ({ resumed: await dependencies.resumeTask(args.profileId, args.sessionId, args.taskId) })
+    })
+    this.register({
+      id: 'task.fallback', capability: 'provider-fallback', schema: taskControlSchema,
+      handle: async (args) => ({ fallback: await dependencies.fallbackTask(args.profileId, args.sessionId, args.taskId) })
     })
     this.register({
       id: 'plan.replan', capability: 'replan', schema: replanSchema,

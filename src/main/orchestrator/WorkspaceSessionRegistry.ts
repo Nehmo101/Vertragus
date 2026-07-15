@@ -179,6 +179,10 @@ export class WorkspaceSessionRegistry extends EventEmitter {
     return this.ensure(profile, sessionId).engine.resumeTask(taskId)
   }
 
+  fallbackTask(profile: WorkspaceProfile, taskId: string, sessionId?: string): Promise<boolean> {
+    return this.ensure(profile, sessionId).engine.fallbackTask(taskId)
+  }
+
   replanPending(
     profile: WorkspaceProfile,
     input: { removeTaskIds: string[]; maxParallel?: number },

@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
 import type { OrchestratorSnapshot } from '@shared/orchestrator'
 import type { DeviceInfo } from '@shared/remote'
-import { deriveApprovals, RemoteReadModel } from './readModel'
+import { deriveApprovals, RemoteReadModel, scopeRemoteFrame } from './readModel'
 
 const scopedDevice: DeviceInfo = {
   id: 'device', name: 'Phone', capabilities: ['read'], createdAt: 1,
@@ -75,5 +75,45 @@ describe('RemoteReadModel', () => {
     expect(listener).toHaveBeenCalledWith(expect.objectContaining({ type: 'snapshot', snapshot: input }))
     expect(model.initialFrames()).toContainEqual(expect.objectContaining({ type: 'snapshot', snapshot: input }))
     model.stop()
+  })
+
+  it('projects budget and provider-limit decisions from the shared snapshot truth', () => {
+    const input = snapshot()
+    input.pendingPlan = undefined
+    input.budget = {
+      tokens: 2_000, costUsd: 1.5, caps: { maxTokens: 2_000 }, exceeded: true,
+      exceededBy: ['tokens']
+    }
+    input.tasks = [{
+      id: 'limited', title: 'Limited task', role: 'worker', provider: 'codex',
+      status: 'error', note: 'Provider rate limit hit', createdAt: 10, finishedAt: 11
+    }]
+    expect(deriveApprovals([input])).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'budget-exceeded', actions: ['budget.setCaps'] }),
+      expect.objectContaining({ kind: 'provider-limit', actions: ['task.fallback', 'run.reset'] })
+    ]))
+  })
+
+  it('removes host worktree paths from authenticated remote snapshots', () => {
+    const input = snapshot()
+    input.tasks[0]!.worktree = 'C:\\secret\\orca-worktree'
+    input.tasks[0]!.recoveryArtifact = {
+      worktree: 'C:\\secret\\recovery', baseCommit: 'a'.repeat(40), changedFiles: ['src/a.ts'],
+      statusSummary: ' M src/a.ts', capturedAt: 1
+    }
+    const scoped = scopeRemoteFrame({ type: 'snapshot', at: 1, snapshot: input }, scopedDevice)
+    expect(scoped?.type).toBe('snapshot')
+    if (scoped?.type !== 'snapshot') return
+    expect(scoped.snapshot.tasks[0]?.worktree).toBeUndefined()
+    expect(scoped.snapshot.tasks[0]?.recoveryArtifact?.worktree).toBe('[internal Orca worktree]')
+    expect(JSON.stringify(scoped)).not.toContain('C:\\secret')
+    const approvalFrame = scopeRemoteFrame({
+      type: 'approvals', at: 1,
+      approvals: [{
+        id: 'task', kind: 'task-blocked', profileId: 'profile-1', workspaceSessionId: 'session-1',
+        title: 'Blocked', summary: 'Blocked', createdAt: 1, task: input.tasks[0], actions: ['run.reset']
+      }]
+    }, scopedDevice)
+    expect(JSON.stringify(approvalFrame)).not.toContain('C:\\secret')
   })
 })

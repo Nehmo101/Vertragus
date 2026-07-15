@@ -43,6 +43,8 @@ import type {
 import type {
   DeviceInfo,
   PairingChallenge,
+  RemoteBudgetCaps,
+  RemoteBudgetSnapshot,
   RemoteEnableRequest,
   RemotePairStartRequest,
   RemoteStatus
@@ -119,6 +121,13 @@ export const IPC = {
   orchestratorSetPlannerMode: 'orchestrator:setPlannerMode',
   orchestratorReviewPlan: 'orchestrator:reviewPlan',
   orchestratorTaskDiff: 'orchestrator:taskDiff',
+  orchestratorApprovePublication: 'orchestrator:approvePublication',
+  orchestratorRejectPublication: 'orchestrator:rejectPublication',
+  orchestratorResolvePermission: 'orchestrator:resolvePermission',
+  orchestratorSetBudgetCaps: 'orchestrator:setBudgetCaps',
+  orchestratorPauseTask: 'orchestrator:pauseTask',
+  orchestratorResumeTask: 'orchestrator:resumeTask',
+  orchestratorFallbackTask: 'orchestrator:fallbackTask',
   remoteStatus: 'remote:status',
   remoteEnable: 'remote:enable',
   remoteDisable: 'remote:disable',
@@ -440,6 +449,22 @@ export interface OrcaApi {
     onSnapshot(cb: (snap: OrchestratorSnapshot) => void): () => void
     /** Read a size-limited patch from the task's trusted Orca worktree. */
     taskDiff(profileId: string, taskId: string, workspaceSessionId?: string): Promise<TaskReviewDiff>
+    approvePublication(profileId: string, workspaceSessionId: string, planId?: string): Promise<boolean>
+    rejectPublication(profileId: string, workspaceSessionId: string, planId?: string): Promise<boolean>
+    resolvePermission(
+      profileId: string,
+      workspaceSessionId: string,
+      permissionId: string,
+      allow: boolean
+    ): Promise<boolean>
+    setBudgetCaps(
+      profileId: string,
+      workspaceSessionId: string,
+      caps: RemoteBudgetCaps
+    ): Promise<RemoteBudgetSnapshot>
+    pauseTask(profileId: string, workspaceSessionId: string, taskId: string): Promise<boolean>
+    resumeTask(profileId: string, workspaceSessionId: string, taskId: string): Promise<boolean>
+    fallbackTask(profileId: string, workspaceSessionId: string, taskId: string): Promise<boolean>
   }
 
   retro: {

@@ -19,6 +19,7 @@ import type {
   OrchestratorActivity,
   OrchestratorActivityPhase,
   OrchestratorGoal,
+  IntegrationCenterSnapshot,
   OrchestratorReliabilityMetrics,
   PendingPlanReview,
   OrchestratorSnapshot,
@@ -110,6 +111,13 @@ interface DispatchOptions {
   maxAttempts?: number
   /** Verified failed-worker worktree whose partial files may be resumed. */
   recoveryWorktree?: string
+}
+
+interface DispatchRecord {
+  role: string
+  prompt: string
+  title?: string
+  options: DispatchOptions
 }
 
 interface PreparedExecutionPlan {
@@ -278,6 +286,9 @@ export class OrchestratorEngine extends EventEmitter {
   private readonly pausedTasks = new Set<string>()
   private readonly resumeRequestedTasks = new Set<string>()
   private readonly resumeTaskWaiters = new Map<string, () => void>()
+  private readonly forcedFallbackRoles = new Map<string, string>()
+  private readonly fallbackInFlight = new Set<string>()
+  private readonly dispatchRecords = new Map<string, DispatchRecord>()
   private firstPlanApproved = true
   /** Per-role capacity limiter — count = max parallel subagents of that role. */
   private boundProfile: WorkspaceProfile | undefined
@@ -363,14 +374,60 @@ export class OrchestratorEngine extends EventEmitter {
   private budgetSnapshot(): RemoteBudgetSnapshot {
     let tokens = 0
     let costUsd = 0
-    for (const task of this.tasks.values()) {
+    const measuredTasks = [...this.tasks.values()].filter((task) => task.provider || task.usage)
+    for (const task of measuredTasks) {
       tokens += (task.usage?.tokensIn ?? 0) + (task.usage?.tokensOut ?? 0)
       costUsd += task.usage?.costUsd ?? 0
     }
-    const exceeded =
-      (this.budgetCaps.maxTokens != null && tokens >= this.budgetCaps.maxTokens) ||
-      (this.budgetCaps.maxCostUsd != null && costUsd >= this.budgetCaps.maxCostUsd)
-    return { tokens, costUsd, caps: { ...this.budgetCaps }, exceeded }
+    const exceededBy: Array<'tokens' | 'cost'> = []
+    if (this.budgetCaps.maxTokens != null && tokens >= this.budgetCaps.maxTokens) exceededBy.push('tokens')
+    if (this.budgetCaps.maxCostUsd != null && costUsd >= this.budgetCaps.maxCostUsd) exceededBy.push('cost')
+    const reported = measuredTasks.filter((task) => task.usage && Object.values(task.usage).some((value) => value != null))
+    return {
+      tokens,
+      costUsd,
+      caps: { ...this.budgetCaps },
+      exceeded: exceededBy.length > 0,
+      tasksReported: reported.length,
+      tasksTotal: measuredTasks.length,
+      tokenDataComplete: measuredTasks.length > 0 && measuredTasks.every((task) =>
+        task.usage?.tokensIn != null || task.usage?.tokensOut != null
+      ),
+      costDataComplete: measuredTasks.length > 0 && measuredTasks.every((task) => task.usage?.costUsd != null),
+      exceededBy
+    }
+  }
+
+  private integrationSnapshot(): IntegrationCenterSnapshot {
+    const items = [...this.tasks.values()]
+      .filter((task) => task.autoPrStatus != null && (
+        task.autoPrStatus !== 'skipped' || task.commit != null || task.prUrl != null
+      ))
+      .map((task) => ({
+        taskId: task.id,
+        title: task.title,
+        status: task.autoPrStatus!,
+        commit: task.commit,
+        branch: task.branch,
+        prUrl: task.prUrl,
+        remoteCiStatus: task.remoteCiStatus,
+        remoteCiUrl: task.remoteCiUrl,
+        remoteCiSummary: task.remoteCiSummary,
+        findingCount: task.findings?.length ?? 0
+      }))
+    let status: IntegrationCenterSnapshot['status'] = 'idle'
+    if (this.publicationInFlight) status = 'publishing'
+    else if (this.pendingPublication) status = 'awaiting-approval'
+    else if (items.some((item) =>
+      item.status === 'blocked' ||
+      item.remoteCiStatus === 'failed' ||
+      item.remoteCiStatus === 'cancelled' ||
+      item.remoteCiStatus === 'timed-out' ||
+      item.remoteCiStatus === 'unavailable'
+    )) status = 'blocked'
+    else if (items.some((item) => item.status === 'prepared')) status = 'prepared'
+    else if (items.some((item) => item.status === 'published')) status = 'published'
+    return { status, pendingPublicationId: this.pendingPublication?.id, items }
   }
 
   snapshot(): OrchestratorSnapshot {
@@ -413,6 +470,7 @@ export class OrchestratorEngine extends EventEmitter {
       pendingApprovals: this.pendingPublication ? [this.pendingPublication] : [],
       pendingPermissions: [...this.pendingPermissions.values()].map((request) => ({ ...request })),
       budget: this.budgetSnapshot(),
+      integration: this.integrationSnapshot(),
       lastRetro: this.lastRetro,
       findings: this.listTaskFindings()
     }
@@ -539,6 +597,9 @@ export class OrchestratorEngine extends EventEmitter {
     this.resumeTaskWaiters.clear()
     this.pausedTasks.clear()
     this.resumeRequestedTasks.clear()
+    this.forcedFallbackRoles.clear()
+    this.fallbackInFlight.clear()
+    this.dispatchRecords.clear()
     this.firstPlanApproved = true
     this.goal = null
     this.activity = undefined
@@ -645,6 +706,67 @@ export class OrchestratorEngine extends EventEmitter {
     }
     this.push()
     return true
+  }
+
+  /**
+   * Switch a rate-limited task to a different configured provider. The caller
+   * supplies only the task id; Orca chooses the provider and keeps all prompt,
+   * path and stdin details inside the engine boundary.
+   */
+  async fallbackTask(taskId: string): Promise<boolean> {
+    const task = this.tasks.get(taskId)
+    if (!task?.provider || this.fallbackInFlight.has(taskId)) return false
+    const agentLimit = task.agentId
+      ? agentManager.list().find((agent) => agent.id === task.agentId)?.limitWarning
+      : undefined
+    const limitText = [
+      task.note,
+      task.judgeReason,
+      task.blocker?.summary,
+      this.taskResults.get(taskId)
+    ].filter(Boolean).join(' ')
+    if (!agentLimit && !detectLimit(task.provider, limitText)) return false
+    const fallback = this.listSubagents()
+      .filter((agent) => agent.available && agent.provider !== task.provider && agent.role !== task.role)
+      .sort((left, right) => (left.busy / left.capacity) - (right.busy / right.capacity))[0]
+    if (!fallback) return false
+
+    if (task.status === 'running' || task.status === 'queued' || task.status === 'paused') {
+      this.forcedFallbackRoles.set(taskId, fallback.role)
+      const paused = await this.pauseTask(taskId)
+      if (!paused) {
+        this.forcedFallbackRoles.delete(taskId)
+        return false
+      }
+      return this.resumeTask(taskId)
+    }
+
+    const record = this.dispatchRecords.get(taskId)
+    if (!record || (task.status !== 'error' && task.status !== 'needs-work')) return false
+    this.fallbackInFlight.add(taskId)
+    task.status = 'queued'
+    task.finishedAt = undefined
+    task.lastAction = `Provider-Limit: sichere Fortsetzung mit ${fallback.provider}`
+    task.note = 'Orca startet einen Ersatz-Worker aus dem gesicherten Recovery-Artefakt.'
+    this.reliability.automaticRecoveries += 1
+    this.push()
+    void this.dispatch(
+      fallback.role,
+      record.prompt,
+      record.title,
+      {
+        ...record.options,
+        taskId,
+        recoveryWorktree: task.recoveryArtifact?.worktree
+      }
+    ).finally(() => this.fallbackInFlight.delete(taskId))
+    return true
+  }
+
+  private resumedRole(taskId: string, currentRole: string): string {
+    const forced = this.forcedFallbackRoles.get(taskId)
+    if (forced) this.forcedFallbackRoles.delete(taskId)
+    return forced ?? currentRole
   }
 
   private waitForTaskResume(taskId: string): Promise<void> {
@@ -912,6 +1034,20 @@ export class OrchestratorEngine extends EventEmitter {
     const { slot, role: slotRole } = this.pickSlot(role)
     const profile = this.activeProfile()
     const taskId = options.taskId ?? this.nextTaskId()
+    if (!this.dispatchRecords.has(taskId)) {
+      this.dispatchRecords.set(taskId, {
+        role,
+        prompt,
+        title,
+        options: {
+          ...options,
+          dependsOn: options.dependsOn ? [...options.dependsOn] : undefined,
+          advisoryDependsOn: options.advisoryDependsOn ? [...options.advisoryDependsOn] : undefined,
+          conflictKeys: options.conflictKeys ? [...options.conflictKeys] : undefined,
+          expectedFiles: options.expectedFiles ? [...options.expectedFiles] : undefined
+        }
+      })
+    }
     const yolo = slot.yolo || (profile?.yoloDefault ?? false)
 
     const task: OrcaTask = this.tasks.get(taskId) ?? {
@@ -974,7 +1110,7 @@ export class OrchestratorEngine extends EventEmitter {
       task.lastAction = 'Pausiert vor Worker-Start'
       releaseSlot()
       await this.waitForTaskResume(taskId)
-      return this.dispatch(role, prompt, title, { ...options, taskId })
+      return this.dispatch(this.resumedRole(taskId, role), prompt, title, { ...options, taskId })
     }
     task.status = 'running'
     task.phase = 'preflight'
@@ -1106,7 +1242,7 @@ export class OrchestratorEngine extends EventEmitter {
         }
         this.push()
         await this.waitForTaskResume(taskId)
-        return this.dispatch(role, prompt, title, {
+        return this.dispatch(this.resumedRole(taskId, role), prompt, title, {
           ...options,
           taskId,
           recoveryWorktree: recoveryArtifact?.worktree

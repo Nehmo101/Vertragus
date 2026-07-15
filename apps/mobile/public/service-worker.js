@@ -1,4 +1,4 @@
-const CACHE = 'orca-mission-control-c1'
+const CACHE = 'orca-mission-control-d1'
 const SHELL = ['/', '/manifest.webmanifest', '/icon.svg']
 
 self.addEventListener('install', (event) => {

@@ -9,6 +9,7 @@ import { pathToFileURL } from 'node:url'
 import { IPC, type AppInfo } from '@shared/ipc'
 import type { HandoffRequest, OrcaEvent, SpawnAgentRequest } from '@shared/agents'
 import type { OrchestratorSnapshot } from '@shared/orchestrator'
+import type { RemoteBudgetCaps } from '@shared/remote'
 import type { ProviderId } from '@shared/providers'
 import {
   profileRepoLocalPath,
@@ -508,6 +509,63 @@ export function registerIpcHandlers(): void {
     if (!task) throw new Error('Aufgabe nicht gefunden.')
     return loadTaskReviewDiff(task)
   })
+  ipcMain.handle(
+    IPC.orchestratorApprovePublication,
+    (_e, profileId: string, workspaceSessionId: string, planId?: string) => {
+      const profile = getProfile(profileId)
+      return profile ? workspaceSessions.approvePublication(profile, planId, workspaceSessionId) : false
+    }
+  )
+  ipcMain.handle(
+    IPC.orchestratorRejectPublication,
+    (_e, profileId: string, workspaceSessionId: string, planId?: string) => {
+      const profile = getProfile(profileId)
+      return profile ? workspaceSessions.rejectPublication(profile, planId, workspaceSessionId) : false
+    }
+  )
+  ipcMain.handle(
+    IPC.orchestratorResolvePermission,
+    (_e, profileId: string, workspaceSessionId: string, permissionId: string, allow: boolean) => {
+      const profile = getProfile(profileId)
+      if (!profile || !/^[0-9a-f-]{36}$/i.test(permissionId)) return false
+      return workspaceSessions.resolvePermission(profile, permissionId, Boolean(allow), workspaceSessionId)
+    }
+  )
+  ipcMain.handle(
+    IPC.orchestratorSetBudgetCaps,
+    (_e, profileId: string, workspaceSessionId: string, caps: RemoteBudgetCaps) => {
+      const profile = getProfile(profileId)
+      if (!profile) throw new Error('Workspace-Profil nicht gefunden.')
+      const maxTokens = caps?.maxTokens
+      const maxCostUsd = caps?.maxCostUsd
+      if (
+        (maxTokens != null && (!Number.isInteger(maxTokens) || maxTokens < 1_000 || maxTokens > 1_000_000_000)) ||
+        (maxCostUsd != null && (!Number.isFinite(maxCostUsd) || maxCostUsd < 0.01 || maxCostUsd > 1_000_000))
+      ) throw new Error('Ungültige Budget-Grenzen.')
+      return workspaceSessions.setBudgetCaps(profile, { maxTokens, maxCostUsd }, workspaceSessionId)
+    }
+  )
+  ipcMain.handle(
+    IPC.orchestratorPauseTask,
+    (_e, profileId: string, workspaceSessionId: string, taskId: string) => {
+      const profile = getProfile(profileId)
+      return profile ? workspaceSessions.pauseTask(profile, taskId, workspaceSessionId) : false
+    }
+  )
+  ipcMain.handle(
+    IPC.orchestratorResumeTask,
+    (_e, profileId: string, workspaceSessionId: string, taskId: string) => {
+      const profile = getProfile(profileId)
+      return profile ? workspaceSessions.resumeTask(profile, taskId, workspaceSessionId) : false
+    }
+  )
+  ipcMain.handle(
+    IPC.orchestratorFallbackTask,
+    (_e, profileId: string, workspaceSessionId: string, taskId: string) => {
+      const profile = getProfile(profileId)
+      return profile ? workspaceSessions.fallbackTask(profile, taskId, workspaceSessionId) : false
+    }
+  )
 
   // ---- retro / model learnings / benchmarks ----
   ipcMain.handle(IPC.retroListRetros, (_e, profileId?: string) =>
