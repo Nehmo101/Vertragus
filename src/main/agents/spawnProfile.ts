@@ -31,28 +31,15 @@ export async function spawnProfileTeam(
     options?.workingDirOverride?.trim() || profileRepoLocalPath(runtimeProfile) || runtimeProfile.workingDir
   const spawned: AgentInstanceInfo[] = []
 
-  const prewarmWorkers = runtimeProfile.planner.routingMode !== 'adaptive' || !runtimeProfile.orchestrator
-  for (const { slot, role } of prewarmWorkers ? agentSlotsWithRoles(runtimeProfile.agents) : []) {
-    for (let i = 1; i <= slot.count; i++) {
-      spawned.push(
-        await agentManager.spawn({
-          provider: slot.provider,
-          model: slot.model,
-          modelPreset: slot.modelPreset,
-          role: `Subagent · ${slot.role}${slot.count > 1 ? ` #${i}` : ''}`,
-          teamRole: role,
-          yolo: slot.yolo || yoloMaster,
-          workingDir: slot.workingDir || workingDir,
-          profileId: runtimeProfile.id,
-          workspaceSessionId: session.id,
-          engineId: engine.engineId
-        })
-      )
-    }
-  }
-
+  // Spawn the orchestrator FIRST. It is the coordinator, so it must come up
+  // reliably and independently of the prewarmed workers. Previously the workers
+  // were prewarmed first and the orchestrator last, so any failing worker slot
+  // (or an orchestrator spawn error after the workers) aborted the whole team
+  // spawn and left the workspace without its orchestrator — visible only in the
+  // prewarmed ("fixed") mode, because adaptive prewarms nothing and was already
+  // orchestrator-first.
   if (runtimeProfile.orchestrator) {
-    spawned.unshift(
+    spawned.push(
       await agentManager.spawn({
         provider: runtimeProfile.orchestrator.provider,
         model: runtimeProfile.orchestrator.model,
@@ -67,6 +54,33 @@ export async function spawnProfileTeam(
       })
     )
     engine.activate(runtimeProfile)
+  }
+
+  const prewarmWorkers = runtimeProfile.planner.routingMode !== 'adaptive' || !runtimeProfile.orchestrator
+  for (const { slot, role } of prewarmWorkers ? agentSlotsWithRoles(runtimeProfile.agents) : []) {
+    for (let i = 1; i <= slot.count; i++) {
+      try {
+        spawned.push(
+          await agentManager.spawn({
+            provider: slot.provider,
+            model: slot.model,
+            modelPreset: slot.modelPreset,
+            role: `Subagent · ${slot.role}${slot.count > 1 ? ` #${i}` : ''}`,
+            teamRole: role,
+            yolo: slot.yolo || yoloMaster,
+            workingDir: slot.workingDir || workingDir,
+            profileId: runtimeProfile.id,
+            workspaceSessionId: session.id,
+            engineId: engine.engineId
+          })
+        )
+      } catch (error) {
+        // A single failing prewarmed slot must never abort the whole team spawn
+        // or prevent the remaining workers from starting. The role stays part of
+        // the pool and can still be dispatched on demand later.
+        console.warn(`[spawnProfileTeam] Prewarm für Rolle "${role}" fehlgeschlagen`, error)
+      }
+    }
   }
 
   return spawned

@@ -14,6 +14,10 @@ npm-debug.log*
 pnpm-debug.log*
 .orca-runtime/
 
+# Runtime artifacts (agent handoff briefings; written to userData at runtime,
+# but tests that mock app.getPath emit them into the repo root)
+orca-handoffs/
+
 # Env / secrets
 .env
 .env.*

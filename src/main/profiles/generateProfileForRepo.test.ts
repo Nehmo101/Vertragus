@@ -110,4 +110,36 @@ describe('generateProfileForRepo', () => {
     ])
     expect(profile.autoPr.qualityGates).toEqual(['corepack pnpm typecheck'])
   })
+
+  it('derives maxParallel from total worker capacity, not the number of roles', async () => {
+    mocks.runHeadless.mockReturnValue({
+      kill: vi.fn(),
+      done: Promise.resolve({
+        isError: false,
+        result: JSON.stringify({
+          name: 'Single Role Team',
+          // No maxParallel supplied: the fallback must use total slot capacity.
+          agents: [
+            {
+              role: 'coder',
+              provider: 'codex',
+              model: 'gpt-5.6-sol',
+              count: 3,
+              strengths: ['implementation'],
+              weaknesses: []
+            }
+          ]
+        })
+      })
+    })
+
+    const profile = await generateProfileForRepo({
+      workingDir: 'C:\\git\\repo',
+      provider: 'claude',
+      model: 'fable-5'
+    })
+
+    // One role definition but three concurrent workers → maxParallel 3, not 1.
+    expect(profile.planner.maxParallel).toBe(3)
+  })
 })

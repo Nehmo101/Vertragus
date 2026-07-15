@@ -48,10 +48,27 @@ describe('orchestrator progress communication prompt', () => {
 
     expect(prompt).toContain('Zu Beginn läuft nur der Orchestrator')
     expect(prompt).toContain('Nicht ausgewählte Agents bleiben ausgeschaltet')
-    expect(prompt).toContain('Reiche auch Ein-Task-Pläne über execute_plan ein')
+    // Adaptive mode must actively push genuine parallel fan-out, not one task.
+    expect(prompt).toContain('unterprovisioniere nicht')
+    expect(prompt).toContain('unabhängige Teilaufgaben laufen gleichzeitig')
     expect(prompt).toContain('fokussierten Folgeplan')
     expect(prompt).toContain('konkrete Sackgasse')
     expect(prompt).toContain('höchstens 2 Re-Plan-Versuch')
+  })
+
+  it('right-sizes the team toward parallel fan-out in both routing modes', () => {
+    for (const adaptiveTeam of [true, false]) {
+      const prompt = orchestratorSystemPrompt('Gandalf', { adaptiveTeam })
+      // No single-task "smallest plan" default any more.
+      expect(prompt).not.toContain('möglichst kleinen')
+      expect(prompt).not.toContain('Prefer a small number of focused tasks')
+      // Explicit right-sizing and parallelism guidance.
+      expect(prompt).toContain('Right-size the team')
+      expect(prompt).toContain('Do not artificially serialize independent work')
+      expect(prompt).toContain('With N independent tasks, maxParallel=1 is wrong')
+      // Warn about the shared-hotspot trap that collapses a whole plan to one worker.
+      expect(prompt).toContain('collapses it to one worker')
+    }
   })
 
   it('requires detailed, truthful updates for coordinator and named workers', () => {
@@ -63,6 +80,20 @@ describe('orchestrator progress communication prompt', () => {
     expect(prompt).toContain('aktueller Aktion und Blocker')
     expect(prompt).toContain('Nächster Schritt')
     expect(prompt).toContain('erfinde keinen Fortschritt')
+  })
+
+  it('directs the orchestrator to block on await_* tools instead of polling', () => {
+    const prompt = orchestratorSystemPrompt('Gandalf', { adaptiveTeam: true })
+
+    expect(prompt).toContain('await_plan')
+    expect(prompt).toContain('await_task')
+    expect(prompt).toContain('await_any')
+    // The old poll-loop instructions must be gone.
+    expect(prompt).not.toContain('Poll get_plan_status until success/error')
+    expect(prompt).not.toContain('Poll get_plan_status bis zum Terminalstatus')
+    expect(prompt).not.toContain('Poll get_task_status oder list_tasks bis zum Terminalstatus')
+    // Dispatch calls still must not be held open; only await_* tools block.
+    expect(prompt).toContain('Halte keinen Dispatch-Aufruf bis zum Worker-Ende offen')
   })
 
   it('binds the concrete agent, workspace session and engine to the MCP URL', () => {

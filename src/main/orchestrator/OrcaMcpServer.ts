@@ -41,8 +41,11 @@ const ORCHESTRATOR_TOOLS = [
   'mcp__orca__dispatch_batch',
   'mcp__orca__get_task_status',
   'mcp__orca__list_tasks',
+  'mcp__orca__await_task',
+  'mcp__orca__await_any',
   'mcp__orca__list_findings',
   'mcp__orca__get_plan_status',
+  'mcp__orca__await_plan',
   'mcp__orca__cancel_plan',
   'mcp__orca__open_subwindow',
   'mcp__orca__execute_plan',
@@ -56,6 +59,10 @@ const ORCHESTRATOR_TOOLS = [
 const FINDING_KINDS = ['interface', 'decision', 'blocker', 'insight'] as const
 const SUBAGENT_PROGRESS_PHASES = ['working', 'testing', 'committing'] as const
 const MAX_REQUEST_BODY_BYTES = 2 * 1024 * 1024
+
+/** Optional long-poll window for the blocking await_* tools (engine clamps it too). */
+const AWAIT_TIMEOUT_SHAPE = z.number().int().min(1_000).max(55_000).optional()
+  .describe('Optionales serverseitiges Wartefenster in ms (Standard 25000, min 1000, max 55000).')
 
 const AGENT_PROVIDERS = ['claude', 'codex', 'cursor', 'copilot', 'ollama'] as const
 
@@ -81,10 +88,10 @@ function buildMcpServer(
         'For every new goal call set_goal first, report_activity for planning, then list_subagents and execute_plan.',
         'Use exactly the returned role values and choose only the roles the plan needs.',
         'Keep report_activity current so the user can see what you are doing, what workers are doing, and what happens next.',
-        'Poll each plan to a terminal result, evaluate it against the goal, and submit focused follow-up plans when needed.',
+        'Use await_plan(runId) to block until a plan reaches a terminal result instead of repeatedly polling; re-call await_plan whenever it returns stillRunning. Then evaluate it against the goal and submit focused follow-up plans when needed.',
         'After every terminal plan run call record_retro with concise per-model learnings (strengths/weaknesses); they feed back into list_subagents as learnedStrengths/learnedWeaknesses.',
         'Stop only when the goal is verified or a concrete dead end requires user input or an external change.',
-        'Poll task status at meaningful transitions. Identify a worker only by the exact agentName returned by get_task_status or list_tasks.',
+        'To wait for worker results use await_task(taskId) or await_any(taskIds) to block instead of polling; call get_task_status/list_tasks only for a one-off snapshot (e.g. to read the exact agentName). Identify a worker only by the exact agentName returned by get_task_status or list_tasks.',
         'If agentName is absent, use taskId and role until a later poll returns it; never infer or invent a worker name.',
         'Report each worker task, phase, current action, and blocker.',
         'Give every subagent a complete standalone prompt and summarize their results for the user.'
@@ -272,6 +279,40 @@ function buildMcpServer(
   )
 
   register(
+    'await_task',
+    'Blockiere serverseitig, bis eine Aufgabe einen Terminalstatus (success/needs-work/error/stopped) ' +
+      'erreicht, statt get_task_status wiederholt zu pollen. Kehrt sofort zurück, wenn die Aufgabe schon ' +
+      'terminal ist. Bei stillRunning:true (Timeout) sofort erneut aufrufen.',
+    {
+      taskId: z.string().describe('taskId aus dispatch_subagent oder dispatch_batch'),
+      timeoutMs: AWAIT_TIMEOUT_SHAPE
+    },
+    async (args) =>
+      text(JSON.stringify(
+        await engine.awaitTask(String(args.taskId ?? ''), args.timeoutMs as number | undefined),
+        null,
+        2
+      ))
+  )
+
+  register(
+    'await_any',
+    'Blockiere, bis EINE von mehreren Aufgaben terminal wird; liefert diese Aufgabe plus die noch offenen ' +
+      'taskIds (pending). Ersetzt das Rundum-Pollen paralleler Worker. Bei stillRunning:true erneut mit den ' +
+      'offenen taskIds aufrufen.',
+    {
+      taskIds: z.array(z.string()).min(1).max(64).describe('taskIds paralleler Aufgaben'),
+      timeoutMs: AWAIT_TIMEOUT_SHAPE
+    },
+    async (args) =>
+      text(JSON.stringify(
+        await engine.awaitAnyTask((args.taskIds as string[]) ?? [], args.timeoutMs as number | undefined),
+        null,
+        2
+      ))
+  )
+
+  register(
     'list_findings',
     'Liste die Einträge des gemeinsamen Findings-Boards: Schnittstellen, Entscheidungen, Blocker ' +
       'und Erkenntnisse, die Subagents während laufender Tasks live geteilt haben.',
@@ -288,6 +329,23 @@ function buildMcpServer(
       const result = engine.getPlanRunStatus(String(args.runId ?? ''))
       return text(JSON.stringify(result ?? { error: 'Planlauf nicht gefunden.' }, null, 2))
     }
+  )
+
+  register(
+    'await_plan',
+    'Blockiere, bis ein Planlauf terminal ist (success/needs-work/error/stopped), statt get_plan_status ' +
+      'wiederholt zu pollen. Kehrt sofort zurück, wenn der Lauf schon terminal ist. Wartet ein Plan auf ' +
+      'Freigabe, bleibt stillRunning:true, bis der Nutzer den Plan freigibt. Bei stillRunning:true erneut aufrufen.',
+    {
+      runId: z.string().describe('runId aus execute_plan'),
+      timeoutMs: AWAIT_TIMEOUT_SHAPE
+    },
+    async (args) =>
+      text(JSON.stringify(
+        await engine.awaitPlan(String(args.runId ?? ''), args.timeoutMs as number | undefined),
+        null,
+        2
+      ))
   )
 
   register(

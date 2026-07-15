@@ -11,6 +11,9 @@ import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import type {
+  AwaitAnyResult,
+  AwaitPlanResult,
+  AwaitTaskResult,
   ExecutionPlan,
   ExecutionPlanResult,
   ExecutionPlanTask,
@@ -30,6 +33,7 @@ import type {
   TaskAttemptSnapshot,
   TaskCriticality,
   TaskPhase,
+  TaskStatus,
   TaskStatusSnapshot
 } from '@shared/orchestrator'
 import type {
@@ -134,6 +138,16 @@ const MAX_BOARD_FINDINGS = 200
 const MAX_FINDINGS_RESPONSE = 50
 /** Cap each injected dependency result so chained prompts stay bounded. */
 const MAX_DEPENDENCY_CONTEXT_CHARS = 4_000
+/** Blocking await_* long-poll window: replaces the repeated status-poll loop. */
+const AWAIT_DEFAULT_TIMEOUT_MS = 25_000
+const AWAIT_MIN_TIMEOUT_MS = 1_000
+/** Stay safely below the common 60s MCP client request timeout. */
+const AWAIT_MAX_TIMEOUT_MS = 55_000
+
+/** A task status the orchestrator no longer needs to wait on. */
+function isTerminalTaskStatus(status: TaskStatus): boolean {
+  return status === 'success' || status === 'needs-work' || status === 'error' || status === 'stopped'
+}
 export function platformExecutionGuidance(
   platform: NodeJS.Platform = process.platform
 ): string[] {
@@ -1528,6 +1542,115 @@ export class OrchestratorEngine extends EventEmitter {
 
   listTaskStatuses(): TaskStatusSnapshot[] {
     return [...this.tasks.keys()].map((id) => this.getTaskStatus(id)!).filter(Boolean)
+  }
+
+  private clampAwaitTimeout(timeoutMs?: number): number {
+    if (typeof timeoutMs !== 'number' || Number.isNaN(timeoutMs)) return AWAIT_DEFAULT_TIMEOUT_MS
+    return Math.min(AWAIT_MAX_TIMEOUT_MS, Math.max(AWAIT_MIN_TIMEOUT_MS, Math.floor(timeoutMs)))
+  }
+
+  /**
+   * Race a settle-guarded promise against a bounded, self-cleaning timer.
+   * `settle` MUST already swallow rejections (`.then(() => undefined, () => undefined)`),
+   * so attaching this awaiter to a shared job future never triggers an
+   * unhandled rejection and multiple concurrent awaiters stay safe.
+   */
+  private async raceWithTimeout(settle: Promise<unknown>, timeoutMs: number): Promise<'settled' | 'timeout'> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<'timeout'>((resolve) => {
+      timer = setTimeout(() => resolve('timeout'), timeoutMs)
+      timer.unref?.()
+    })
+    try {
+      return await Promise.race([settle.then(() => 'settled' as const), timeout])
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
+  }
+
+  /**
+   * Block until a task reaches a terminal status instead of polling
+   * get_task_status. Returns immediately when the task is already terminal,
+   * `unknown` when the id is not known, and `stillRunning` on the long-poll
+   * timeout so the caller can cheaply re-await.
+   */
+  async awaitTask(taskId: string, timeoutMs?: number): Promise<AwaitTaskResult> {
+    const current = this.getTaskStatus(taskId)
+    if (!current) return { done: false, stillRunning: false, reason: 'unknown', taskId }
+    if (isTerminalTaskStatus(current.status)) {
+      return { done: true, stillRunning: false, task: current }
+    }
+    const future = this.taskRuns.get(taskId)
+    if (!future) return { done: false, stillRunning: true, reason: 'timeout', task: current }
+    const outcome = await this.raceWithTimeout(
+      future.then(() => undefined, () => undefined),
+      this.clampAwaitTimeout(timeoutMs)
+    )
+    const task = this.getTaskStatus(taskId) ?? current
+    if (outcome === 'settled' && isTerminalTaskStatus(task.status)) {
+      return { done: true, stillRunning: false, task }
+    }
+    return { done: false, stillRunning: true, reason: 'timeout', task }
+  }
+
+  /**
+   * Block until ONE of several tasks becomes terminal, returning it plus the
+   * still-open ids. Reuses the scheduler's wake-on-next-completion idiom
+   * (Promise.race over the job futures). Unknown ids are reported, not fatal.
+   */
+  async awaitAnyTask(taskIds: string[], timeoutMs?: number): Promise<AwaitAnyResult> {
+    const known = taskIds.filter((id) => this.tasks.has(id))
+    const unknownTaskIds = taskIds.filter((id) => !this.tasks.has(id))
+    if (known.length === 0) {
+      return { done: false, stillRunning: false, reason: 'unknown', unknownTaskIds }
+    }
+    const snapshotOf = (ids: string[]): TaskStatusSnapshot[] =>
+      ids.map((id) => this.getTaskStatus(id)).filter((t): t is TaskStatusSnapshot => Boolean(t))
+    const firstTerminal = (): TaskStatusSnapshot | undefined =>
+      snapshotOf(known).find((t) => isTerminalTaskStatus(t.status))
+
+    const alreadyDone = firstTerminal()
+    if (alreadyDone) {
+      return { done: true, stillRunning: false, task: alreadyDone, pending: known.filter((id) => id !== alreadyDone.taskId) }
+    }
+    const futures = known
+      .map((id) => this.taskRuns.get(id))
+      .filter((f): f is Promise<string> => Boolean(f))
+      .map((f) => f.then(() => undefined, () => undefined))
+    if (futures.length === 0) {
+      return { done: false, stillRunning: true, reason: 'timeout', tasks: snapshotOf(known) }
+    }
+    const outcome = await this.raceWithTimeout(Promise.race(futures), this.clampAwaitTimeout(timeoutMs))
+    if (outcome === 'settled') {
+      const done = firstTerminal()
+      if (done) {
+        return { done: true, stillRunning: false, task: done, pending: known.filter((id) => id !== done.taskId) }
+      }
+    }
+    return { done: false, stillRunning: true, reason: 'timeout', tasks: snapshotOf(known) }
+  }
+
+  /**
+   * Block until a plan run reaches a terminal status instead of polling
+   * get_plan_status. A plan still awaiting user review stays `stillRunning`
+   * until it is approved. `stillRunning` on timeout signals a cheap re-await.
+   */
+  async awaitPlan(runId: string, timeoutMs?: number): Promise<AwaitPlanResult> {
+    const current = this.getPlanRunStatus(runId)
+    if (!current) return { done: false, stillRunning: false, reason: 'unknown', runId }
+    if (current.status !== 'running') return { done: true, stillRunning: false, plan: current }
+    const future = this.planRuns.get(runId)
+    if (!future) return { done: false, stillRunning: true, reason: 'timeout', plan: current }
+    // The planRuns future rethrows on failure; the settle-guard neutralizes it.
+    const outcome = await this.raceWithTimeout(
+      future.then(() => undefined, () => undefined),
+      this.clampAwaitTimeout(timeoutMs)
+    )
+    const plan = this.getPlanRunStatus(runId) ?? current
+    if (outcome === 'settled' && plan.status !== 'running') {
+      return { done: true, stillRunning: false, plan }
+    }
+    return { done: false, stillRunning: true, reason: 'timeout', plan }
   }
 
   /**
