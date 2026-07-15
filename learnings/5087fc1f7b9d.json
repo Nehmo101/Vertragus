@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784113704854,
+  "exportedAt": 1784115504910,
   "app": {
     "name": "orca-strator",
     "version": "0.1.40-main.2.g4fa9d28"
@@ -18,9 +18,9 @@
       "evidence": "1/1 auswertbare Tasks inhaltlich fehlgeschlagen",
       "source": "auto-retro",
       "profileId": "default",
-      "observations": 4,
+      "observations": 5,
       "createdAt": 1784109975708,
-      "updatedAt": 1784112815520
+      "updatedAt": 1784115144647
     },
     {
       "id": "learning-mrla9l8c-1-qua21e",
