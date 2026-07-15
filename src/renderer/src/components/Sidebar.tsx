@@ -12,7 +12,8 @@ import type { AgentProviderId, ProviderHealth, ProviderId } from '@shared/provid
 import type { RetroSyncStatus } from '@shared/retroSync'
 import type { InboxSpeechStatus } from '@shared/inboxSpeech'
 import { MCP_SCOPE_LABELS, MCP_TRANSPORT_LABELS } from '@shared/mcp'
-import { middleEarthWorkspaceName } from '@shared/workspaceNames'
+import { middleEarthWorkspaceName, middleEarthWorkspaceBlurb } from '@shared/workspaceNames'
+import LoreName from '@renderer/components/LoreName'
 import { deriveRemoteApprovals } from '@shared/remote'
 
 interface RowStatus {
@@ -542,7 +543,12 @@ export function SidebarView({ store }: { store: SidebarStore }): JSX.Element {
                     aria-label={`${label}${attentionLabel ? `. ${attentionLabel}` : ''}`}
                     onClick={() => void store.selectWorkspaceSession(session.profileId, session.id)}
                   >
-                    <span>{label}</span>
+                    <LoreName
+                      name={name}
+                      label={label}
+                      blurb={middleEarthWorkspaceBlurb(name)}
+                      className="workspace-session-name"
+                    />
                     {attention && <span className="workspace-attention-indicator" aria-hidden="true" />}
                     <small>{running > 0 ? `${running} aktiv` : 'inaktiv'}</small>
                   </button>

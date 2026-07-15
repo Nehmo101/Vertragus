@@ -60,7 +60,7 @@ describe('WorkspaceSessionRegistry', () => {
 
     expect(first.id).not.toBe(second.id)
     expect(first.name).toBe('Minas Tirith')
-    expect(second.name).toBe('Minas Morgul')
+    expect(second.name).toBe('Düsterwald')
     expect(registry.list(DEFAULT_PROFILE.id)).toHaveLength(2)
     expect(registry.list(DEFAULT_PROFILE.id).find((session) => session.active)?.id).toBe(second.id)
 
@@ -82,7 +82,7 @@ describe('WorkspaceSessionRegistry', () => {
       expect.objectContaining({
         id: second.id,
         sequence: 2,
-        name: 'Minas Morgul',
+        name: 'Düsterwald',
         active: true
       })
     ])
