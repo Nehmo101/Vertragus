@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { AgentInstanceInfo, OrcaEvent } from '@shared/agents'
 import {
   effectivePaneReadable,
+  profileHasRunningAgents,
   visibleWorkspaceAgents,
   workspaceAgentHistory,
   workspaceAgents,
@@ -70,5 +71,15 @@ describe('workspace renderer selectors', () => {
     expect(effectivePaneReadable({ cliReadable: false, paneReadable: {} }, 'alpha')).toBe(false)
     expect(effectivePaneReadable({ cliReadable: false, paneReadable: { alpha: true } }, 'alpha')).toBe(true)
     expect(effectivePaneReadable({ cliReadable: true, paneReadable: { alpha: false } }, 'alpha')).toBe(false)
+  })
+
+  it('blocks profile deletion only for running or waiting agents of that profile', () => {
+    const stopped = { ...agent('stopped', 'alpha'), status: 'stopped' as const }
+    const waiting = { ...agent('waiting', 'alpha'), status: 'waiting' as const }
+
+    expect(profileHasRunningAgents([agent('beta', 'beta'), agent('global'), stopped], 'alpha'))
+      .toBe(false)
+    expect(profileHasRunningAgents([waiting, agent('beta', 'beta')], 'alpha')).toBe(true)
+    expect(profileHasRunningAgents([agent('running', 'alpha')], 'alpha')).toBe(true)
   })
 })

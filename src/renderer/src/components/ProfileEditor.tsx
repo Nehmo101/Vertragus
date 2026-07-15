@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useAppStore } from '@renderer/store/useAppStore'
+import { profileHasRunningAgents, useAppStore } from '@renderer/store/useAppStore'
 import { profileRepoLocalPath, type WorkspaceProfile, type AgentSlot } from '@shared/profile'
 import type { AgentProviderId } from '@shared/providers'
 import type { ModelPreset } from '@shared/models'
@@ -225,9 +225,7 @@ export default function ProfileEditor(): JSX.Element | null {
   const hasOrch = Boolean(draft.orchestrator)
   const grandTotal = subTotal + (hasOrch ? 1 : 0)
   const isSavedProfile = store.profiles.some((profile) => profile.id === draft.id)
-  const hasRunningAgents = store.agents.some(
-    (agent) => agent.status === 'running' || agent.status === 'waiting'
-  )
+  const hasRunningAgents = profileHasRunningAgents(store.agents, draft.id)
 
   return (
     <div className="modal-wrap">
