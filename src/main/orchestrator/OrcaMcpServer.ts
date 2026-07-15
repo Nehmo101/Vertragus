@@ -647,6 +647,24 @@ function buildSubagentMcpServer(engine: OrchestratorEngine, taskId: string): Mcp
     async () => text(JSON.stringify(engine.listTaskFindings(taskId), null, 2))
   )
 
+  toolFn(
+    'permission_prompt',
+    'Interner Claude-Permission-Callback. Die Tool-Eingabe bleibt in Orca und wird nie an Remote-Clients gesendet.',
+    {
+      tool_name: z.string().min(1).max(120),
+      input: z.record(z.unknown())
+    },
+    async (args) => {
+      const input = args.input && typeof args.input === 'object' && !Array.isArray(args.input)
+        ? args.input as Record<string, unknown>
+        : {}
+      const allowed = await engine.requestToolPermission(taskId, String(args.tool_name ?? 'provider-tool'))
+      return text(JSON.stringify(allowed
+        ? { behavior: 'allow', updatedInput: input }
+        : { behavior: 'deny', message: 'Orca permission denied or timed out.' }))
+    }
+  )
+
   return server
 }
 

@@ -107,7 +107,7 @@ export interface RetroTaskObservation {
   role: string
   provider?: AgentProviderId
   model?: string
-  status: 'queued' | 'running' | 'success' | 'needs-work' | 'error' | 'stopped'
+  status: 'queued' | 'running' | 'waiting' | 'paused' | 'success' | 'needs-work' | 'error' | 'stopped'
   failureKind?: TaskFailureKind
   note?: string
   judgeReason?: string

@@ -3,10 +3,17 @@ import { createPortal } from 'react-dom'
 import { tolkienBlurb } from '@shared/tolkien'
 
 interface Props {
-  /** The agent code-name, e.g. "Smaug". */
+  /** The code-name looked up for the tooltip and shown as its heading, e.g. "Smaug". */
   name: string
   /** Extra class(es) for the visible name span (e.g. "pane-name"). */
   className?: string
+  /** Visible text, if it differs from `name` (e.g. "W1 Minas Tirith"). Defaults to `name`. */
+  label?: string
+  /**
+   * Explicit tooltip text. When omitted the agent lore (`tolkienBlurb`) is used,
+   * so callers with their own lore source (e.g. workspace places) pass it here.
+   */
+  blurb?: string
 }
 
 /** Half of the tooltip's max-width (see `.lore-tip` in styles.css). */
@@ -18,8 +25,9 @@ const TIP_HALF = 130
  * <body> with fixed positioning, so the pane's `overflow: hidden` ancestors
  * never clip it. Names outside the cast simply render without a tooltip.
  */
-export default function LoreName({ name, className }: Props): JSX.Element {
-  const blurb = tolkienBlurb(name)
+export default function LoreName({ name, className, label, blurb: blurbProp }: Props): JSX.Element {
+  const blurb = blurbProp ?? tolkienBlurb(name)
+  const text = label ?? name
   const anchorRef = useRef<HTMLSpanElement>(null)
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
 
@@ -38,7 +46,7 @@ export default function LoreName({ name, className }: Props): JSX.Element {
   const hide = useCallback(() => setPos(null), [])
 
   if (!blurb) {
-    return <span className={className}>{name}</span>
+    return <span className={className}>{text}</span>
   }
 
   return (
@@ -47,13 +55,13 @@ export default function LoreName({ name, className }: Props): JSX.Element {
         ref={anchorRef}
         className={`lore-name ${className ?? ''}`.trim()}
         tabIndex={0}
-        aria-label={`${name} — ${blurb}`}
+        aria-label={`${text} — ${blurb}`}
         onMouseEnter={show}
         onMouseLeave={hide}
         onFocus={show}
         onBlur={hide}
       >
-        {name}
+        {text}
       </span>
       {pos &&
         createPortal(

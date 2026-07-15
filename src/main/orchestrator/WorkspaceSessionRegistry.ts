@@ -151,11 +151,50 @@ export class WorkspaceSessionRegistry extends EventEmitter {
     this.ensure(profile, sessionId).engine.reset()
   }
 
+  approvePublication(profile: WorkspaceProfile, planId?: string, sessionId?: string): Promise<boolean> {
+    return this.ensure(profile, sessionId).engine.approvePublication(planId)
+  }
+
+  rejectPublication(profile: WorkspaceProfile, planId?: string, sessionId?: string): boolean {
+    return this.ensure(profile, sessionId).engine.rejectPublication(planId)
+  }
+
+  resolvePermission(profile: WorkspaceProfile, permissionId: string, allow: boolean, sessionId?: string): boolean {
+    return this.ensure(profile, sessionId).engine.resolvePermission(permissionId, allow)
+  }
+
+  setBudgetCaps(
+    profile: WorkspaceProfile,
+    caps: import('@shared/remote').RemoteBudgetCaps,
+    sessionId?: string
+  ): import('@shared/remote').RemoteBudgetSnapshot {
+    return this.ensure(profile, sessionId).engine.setBudgetCaps(caps)
+  }
+
+  pauseTask(profile: WorkspaceProfile, taskId: string, sessionId?: string): Promise<boolean> {
+    return this.ensure(profile, sessionId).engine.pauseTask(taskId)
+  }
+
+  resumeTask(profile: WorkspaceProfile, taskId: string, sessionId?: string): boolean {
+    return this.ensure(profile, sessionId).engine.resumeTask(taskId)
+  }
+
+  fallbackTask(profile: WorkspaceProfile, taskId: string, sessionId?: string): Promise<boolean> {
+    return this.ensure(profile, sessionId).engine.fallbackTask(taskId)
+  }
+
+  replanPending(
+    profile: WorkspaceProfile,
+    input: { removeTaskIds: string[]; maxParallel?: number },
+    sessionId?: string
+  ): boolean {
+    return this.ensure(profile, sessionId).engine.replanPending(input)
+  }
+
   removeSession(sessionId: string): void {
     const session = this.byId.get(sessionId)
     if (!session) return
-    session.engine.removeAllListeners()
-    session.engine.reset()
+    session.engine.dispose()
     this.byId.delete(sessionId)
     const remaining = (this.byProfile.get(session.profileId) ?? []).filter((id) => id !== sessionId)
     if (remaining.length === 0) {

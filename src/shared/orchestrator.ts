@@ -8,8 +8,9 @@ import type { AgentProviderId } from './providers'
 import type { AgentUsage } from './agents'
 import type { PlannerConfig } from './profile'
 import type { RunRetro } from './retro'
+import type { ApprovalItem, PermissionRequest, RemoteBudgetSnapshot } from './remote'
 
-export type TaskStatus = 'queued' | 'running' | 'success' | 'needs-work' | 'error' | 'stopped'
+export type TaskStatus = 'queued' | 'running' | 'waiting' | 'paused' | 'success' | 'needs-work' | 'error' | 'stopped'
 
 export type TaskCriticality = 'required' | 'advisory'
 export type TaskFailureKind = 'infrastructure' | 'worker' | 'gate' | 'cancelled'
@@ -244,6 +245,26 @@ export interface WorkspaceSessionSummary {
   active: boolean
 }
 
+export interface IntegrationCenterItem {
+  taskId: string
+  title: string
+  status: NonNullable<OrcaTask['autoPrStatus']>
+  /** Commit/branch identifiers are display-only; host worktree paths are never projected remotely. */
+  commit?: string
+  branch?: string
+  prUrl?: string
+  remoteCiStatus?: RemoteCiStatus
+  remoteCiUrl?: string
+  remoteCiSummary?: string
+  findingCount: number
+}
+
+export interface IntegrationCenterSnapshot {
+  status: 'idle' | 'prepared' | 'awaiting-approval' | 'publishing' | 'published' | 'blocked'
+  pendingPublicationId?: string
+  items: IntegrationCenterItem[]
+}
+
 export interface OrchestratorSnapshot {
   /** Workspace ownership for multi-session renderer routing. */
   profileId?: string
@@ -257,6 +278,14 @@ export interface OrchestratorSnapshot {
   capacity?: OrchestratorCapacitySnapshot
   reliability?: OrchestratorReliabilityMetrics
   pendingPlan?: PendingPlanReview
+  /** Unified approval projection; populated by Mission Control from the same snapshot bus. */
+  pendingApprovals?: ApprovalItem[]
+  /** Provider tool prompts waiting in Orca's internal permission broker. */
+  pendingPermissions?: PermissionRequest[]
+  /** Aggregated provider telemetry plus restrictive remote caps for this session. */
+  budget?: RemoteBudgetSnapshot
+  /** Path-free aggregation state for the desktop/mobile Diff & Merge Center. */
+  integration?: IntegrationCenterSnapshot
   /** Retrospective of the most recent terminal plan run in this session. */
   lastRetro?: RunRetro
   /** Recent shared findings board entries (newest last), for the live UI. */

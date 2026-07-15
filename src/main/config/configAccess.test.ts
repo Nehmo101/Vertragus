@@ -32,6 +32,14 @@ describe('configAccess', () => {
     expect(() => assertConfigSetAllowed('github.oauthClientId')).toThrow(/nicht über IPC schreibbar/)
   })
 
+  it('exposes remote.enabled but refuses unsafe generic activation', () => {
+    expect(() => assertConfigGetAllowed('remote.enabled')).not.toThrow()
+    expect(() => assertConfigSetAllowed('remote.enabled')).not.toThrow()
+    expect(() => setPublicConfig('remote.enabled', true)).toThrow(/sichere Remote-Aktivierung/)
+    setPublicConfig('remote.enabled', false)
+    expect(setSetting).toHaveBeenLastCalledWith('remote.enabled', false)
+  })
+
   it('validates retroSync keys before persisting', () => {
     setPublicConfig('retroSync.enabled', true)
     expect(setSetting).toHaveBeenLastCalledWith('retroSync.enabled', true)

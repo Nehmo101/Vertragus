@@ -28,6 +28,9 @@ vi.mock('@main/orchestrator/Engine', () => ({
     }
 
     reset(): void {}
+    dispose(): void {
+      this.emit('disposed')
+    }
     reviewPlan(): boolean {
       return true
     }
@@ -57,7 +60,7 @@ describe('WorkspaceSessionRegistry', () => {
 
     expect(first.id).not.toBe(second.id)
     expect(first.name).toBe('Minas Tirith')
-    expect(second.name).toBe('Minas Morgul')
+    expect(second.name).toBe('Düsterwald')
     expect(registry.list(DEFAULT_PROFILE.id)).toHaveLength(2)
     expect(registry.list(DEFAULT_PROFILE.id).find((session) => session.active)?.id).toBe(second.id)
 
@@ -70,13 +73,16 @@ describe('WorkspaceSessionRegistry', () => {
     expect(second.profile.planner.mode).toBe('review')
     expect(DEFAULT_PROFILE.planner.mode).toBe('review')
 
+    const disposed = vi.fn()
+    first.engine.once('disposed', disposed)
     registry.removeSession(first.id)
+    expect(disposed).toHaveBeenCalledOnce()
     expect(registry.getByProfile(DEFAULT_PROFILE.id)?.id).toBe(second.id)
     expect(registry.list(DEFAULT_PROFILE.id)).toEqual([
       expect.objectContaining({
         id: second.id,
         sequence: 2,
-        name: 'Minas Morgul',
+        name: 'Düsterwald',
         active: true
       })
     ])

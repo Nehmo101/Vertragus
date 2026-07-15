@@ -22,6 +22,7 @@ import type {
   OrchestratorActivity,
   OrchestratorActivityPhase,
   OrchestratorGoal,
+  IntegrationCenterSnapshot,
   OrchestratorReliabilityMetrics,
   PendingPlanReview,
   OrchestratorSnapshot,
@@ -35,6 +36,12 @@ import type {
   TaskStatus,
   TaskStatusSnapshot
 } from '@shared/orchestrator'
+import type {
+  ApprovalItem,
+  PermissionRequest,
+  RemoteBudgetCaps,
+  RemoteBudgetSnapshot
+} from '@shared/remote'
 import {
   agentSlotsWithRoles,
   agentSlotCapabilities,
@@ -51,7 +58,7 @@ import {
 } from '@shared/providers'
 import { agentManager } from '@main/agents/AgentManager'
 import { PanePreflightError } from '@main/agents/panePreflight'
-import { stripAnsi } from '@main/agents/limitSignals'
+import { detectLimit, stripAnsi } from '@main/agents/limitSignals'
 import {
   hasExplicitWorkerBlocker,
   hasExplicitWorkerSuccess,
@@ -92,6 +99,7 @@ import {
 } from '@main/orchestrator/retroStore'
 import { enqueueBenchmarkExport, enqueueRetroExport } from '@main/orchestrator/retroExport'
 import { captureTaskRecoveryArtifact } from '@main/orchestrator/recoveryArtifact'
+import { permissionBroker } from '@main/permissions/PermissionBroker'
 
 interface DispatchOptions {
   taskId?: string
@@ -107,6 +115,13 @@ interface DispatchOptions {
   maxAttempts?: number
   /** Verified failed-worker worktree whose partial files may be resumed. */
   recoveryWorktree?: string
+}
+
+interface DispatchRecord {
+  role: string
+  prompt: string
+  title?: string
+  options: DispatchOptions
 }
 
 interface PreparedExecutionPlan {
@@ -278,6 +293,16 @@ export class OrchestratorEngine extends EventEmitter {
   >()
   private pendingPlan: PendingPlanReview | undefined
   private pendingPlanResolve: ((approved: boolean) => void) | undefined
+  private pendingPublication: ApprovalItem | undefined
+  private publicationInFlight = false
+  private readonly pendingPermissions = new Map<string, PermissionRequest>()
+  private budgetCaps: RemoteBudgetCaps = {}
+  private readonly pausedTasks = new Set<string>()
+  private readonly resumeRequestedTasks = new Set<string>()
+  private readonly resumeTaskWaiters = new Map<string, () => void>()
+  private readonly forcedFallbackRoles = new Map<string, string>()
+  private readonly fallbackInFlight = new Set<string>()
+  private readonly dispatchRecords = new Map<string, DispatchRecord>()
   private firstPlanApproved = true
   /** Per-role capacity limiter — count = max parallel subagents of that role. */
   private boundProfile: WorkspaceProfile | undefined
@@ -290,7 +315,10 @@ export class OrchestratorEngine extends EventEmitter {
       ? { ...options.profile, agents: options.profile.agents.map((slot) => ({ ...slot })) }
       : undefined
     this.workspaceSessionId = options.workspaceSessionId
+    permissionBroker.on('pending', this.onPermissionPending)
+    permissionBroker.on('resolved', this.onPermissionResolved)
     const restored = getSetting<OrchestratorSnapshot>(this.persistenceKey())
+    this.budgetCaps = restored?.budget?.caps ? { ...restored.budget.caps } : {}
     if (restored?.reliability) {
       Object.assign(this.reliability, restored.reliability, {
         failuresByProviderAndPlatform: { ...restored.reliability.failuresByProviderAndPlatform }
@@ -312,7 +340,7 @@ export class OrchestratorEngine extends EventEmitter {
       : null
     for (const task of restored.tasks) {
       if (!task || typeof task.id !== 'string') continue
-      const interrupted = task.status === 'queued' || task.status === 'running'
+      const interrupted = ['queued', 'running', 'waiting', 'paused'].includes(task.status)
       this.tasks.set(task.id, {
         ...task,
         status: interrupted ? 'stopped' : task.status,
@@ -335,6 +363,86 @@ export class OrchestratorEngine extends EventEmitter {
   }
 
   private readonly limiters = new Map<string, Semaphore>()
+
+  private readonly onPermissionPending = (request: PermissionRequest): void => {
+    if (request.engineId !== this.engineId) return
+    this.pendingPermissions.set(request.id, request)
+    const task = request.taskId ? this.tasks.get(request.taskId) : undefined
+    if (task?.status === 'running') {
+      task.status = 'waiting'
+      task.lastAction = `Wartet auf Tool-Freigabe: ${request.tool}`
+    }
+    this.push()
+  }
+
+  private readonly onPermissionResolved = (request: PermissionRequest): void => {
+    if (!this.pendingPermissions.delete(request.id)) return
+    const task = request.taskId ? this.tasks.get(request.taskId) : undefined
+    if (task?.status === 'waiting') {
+      task.status = 'running'
+      task.lastAction = 'Tool-Entscheidung erhalten; Worker setzt fort'
+    }
+    this.push()
+  }
+
+  private budgetSnapshot(): RemoteBudgetSnapshot {
+    let tokens = 0
+    let costUsd = 0
+    const measuredTasks = [...this.tasks.values()].filter((task) => task.provider || task.usage)
+    for (const task of measuredTasks) {
+      tokens += (task.usage?.tokensIn ?? 0) + (task.usage?.tokensOut ?? 0)
+      costUsd += task.usage?.costUsd ?? 0
+    }
+    const exceededBy: Array<'tokens' | 'cost'> = []
+    if (this.budgetCaps.maxTokens != null && tokens >= this.budgetCaps.maxTokens) exceededBy.push('tokens')
+    if (this.budgetCaps.maxCostUsd != null && costUsd >= this.budgetCaps.maxCostUsd) exceededBy.push('cost')
+    const reported = measuredTasks.filter((task) => task.usage && Object.values(task.usage).some((value) => value != null))
+    return {
+      tokens,
+      costUsd,
+      caps: { ...this.budgetCaps },
+      exceeded: exceededBy.length > 0,
+      tasksReported: reported.length,
+      tasksTotal: measuredTasks.length,
+      tokenDataComplete: measuredTasks.length > 0 && measuredTasks.every((task) =>
+        task.usage?.tokensIn != null || task.usage?.tokensOut != null
+      ),
+      costDataComplete: measuredTasks.length > 0 && measuredTasks.every((task) => task.usage?.costUsd != null),
+      exceededBy
+    }
+  }
+
+  private integrationSnapshot(): IntegrationCenterSnapshot {
+    const items = [...this.tasks.values()]
+      .filter((task) => task.autoPrStatus != null && (
+        task.autoPrStatus !== 'skipped' || task.commit != null || task.prUrl != null
+      ))
+      .map((task) => ({
+        taskId: task.id,
+        title: task.title,
+        status: task.autoPrStatus!,
+        commit: task.commit,
+        branch: task.branch,
+        prUrl: task.prUrl,
+        remoteCiStatus: task.remoteCiStatus,
+        remoteCiUrl: task.remoteCiUrl,
+        remoteCiSummary: task.remoteCiSummary,
+        findingCount: task.findings?.length ?? 0
+      }))
+    let status: IntegrationCenterSnapshot['status'] = 'idle'
+    if (this.publicationInFlight) status = 'publishing'
+    else if (this.pendingPublication) status = 'awaiting-approval'
+    else if (items.some((item) =>
+      item.status === 'blocked' ||
+      item.remoteCiStatus === 'failed' ||
+      item.remoteCiStatus === 'cancelled' ||
+      item.remoteCiStatus === 'timed-out' ||
+      item.remoteCiStatus === 'unavailable'
+    )) status = 'blocked'
+    else if (items.some((item) => item.status === 'prepared')) status = 'prepared'
+    else if (items.some((item) => item.status === 'published')) status = 'published'
+    return { status, pendingPublicationId: this.pendingPublication?.id, items }
+  }
 
   snapshot(): OrchestratorSnapshot {
     const profile = this.activeProfile()
@@ -370,9 +478,13 @@ export class OrchestratorEngine extends EventEmitter {
         maxTaskParallelism: profile?.planner.maxParallel ?? 1,
         configuredRoleCapacity: this.slotsWithRoles().reduce((sum, entry) => sum + entry.slot.count, 0),
         activeTasks: tasks.filter((task) => task.status === 'running').length,
-        waitingTasks: tasks.filter((task) => task.status === 'queued').length
+        waitingTasks: tasks.filter((task) => task.status === 'queued' || task.status === 'waiting' || task.status === 'paused').length
       },
       pendingPlan: this.pendingPlan,
+      pendingApprovals: this.pendingPublication ? [this.pendingPublication] : [],
+      pendingPermissions: [...this.pendingPermissions.values()].map((request) => ({ ...request })),
+      budget: this.budgetSnapshot(),
+      integration: this.integrationSnapshot(),
       lastRetro: this.lastRetro,
       findings: this.listTaskFindings()
     }
@@ -447,7 +559,7 @@ export class OrchestratorEngine extends EventEmitter {
   private syncActivityFromTasks(): void {
     const tasks = [...this.tasks.values()]
     const running = tasks.filter((task) => task.status === 'running')
-    const queued = tasks.filter((task) => task.status === 'queued')
+    const queued = tasks.filter((task) => task.status === 'queued' || task.status === 'waiting' || task.status === 'paused')
     const active = [...running, ...queued]
     const details = active.slice(0, 4).map((task) => {
       const owner = task.agentName ?? task.role
@@ -489,6 +601,19 @@ export class OrchestratorEngine extends EventEmitter {
     this.pendingPlanResolve?.(false)
     this.pendingPlanResolve = undefined
     this.pendingPlan = undefined
+    this.pendingPublication = undefined
+    this.publicationInFlight = false
+    for (const permissionId of [...this.pendingPermissions.keys()]) {
+      permissionBroker.resolve(permissionId, 'deny', 'engine-reset')
+    }
+    this.pendingPermissions.clear()
+    for (const resume of this.resumeTaskWaiters.values()) resume()
+    this.resumeTaskWaiters.clear()
+    this.pausedTasks.clear()
+    this.resumeRequestedTasks.clear()
+    this.forcedFallbackRoles.clear()
+    this.fallbackInFlight.clear()
+    this.dispatchRecords.clear()
     this.firstPlanApproved = true
     this.goal = null
     this.activity = undefined
@@ -511,6 +636,185 @@ export class OrchestratorEngine extends EventEmitter {
       this.persistTimer = undefined
     }
     this.persistPendingSnapshot()
+  }
+
+  dispose(): void {
+    this.reset()
+    permissionBroker.off('pending', this.onPermissionPending)
+    permissionBroker.off('resolved', this.onPermissionResolved)
+    this.removeAllListeners()
+  }
+
+  resolvePermission(permissionId: string, allow: boolean): boolean {
+    if (!this.pendingPermissions.has(permissionId)) return false
+    return permissionBroker.resolve(permissionId, allow ? 'allow' : 'deny')
+  }
+
+  async requestToolPermission(taskId: string, tool: string): Promise<boolean> {
+    const task = this.tasks.get(taskId)
+    if (
+      !task || task.status !== 'running' || !task.agentId || !task.provider || task.yolo
+    ) return false
+    const decision = await permissionBroker.requestDecision({
+      provider: task.provider,
+      agentId: task.agentId,
+      taskId,
+      profileId: this.boundProfile?.id,
+      workspaceSessionId: this.workspaceSessionId,
+      engineId: this.engineId,
+      yolo: Boolean(task.yolo)
+    }, tool)
+    return decision === 'allow'
+  }
+
+  setBudgetCaps(caps: RemoteBudgetCaps): RemoteBudgetSnapshot {
+    this.budgetCaps = {
+      maxTokens: caps.maxTokens,
+      maxCostUsd: caps.maxCostUsd
+    }
+    const budget = this.budgetSnapshot()
+    if (budget.exceeded) {
+      for (const task of this.tasks.values()) {
+        if (task.status === 'running') void this.pauseTask(task.id)
+      }
+    }
+    this.push()
+    return budget
+  }
+
+  async pauseTask(taskId: string): Promise<boolean> {
+    const task = this.tasks.get(taskId)
+    if (!task || !['queued', 'running', 'paused'].includes(task.status)) return false
+    if (this.pausedTasks.has(taskId)) {
+      this.resumeRequestedTasks.delete(taskId)
+      task.status = 'paused'
+      task.lastAction = 'Sicher pausiert'
+      this.push()
+      return true
+    }
+    this.pausedTasks.add(taskId)
+    task.status = 'paused'
+    task.lastAction = 'Sicher pausiert; Worker wird angehalten'
+    task.note = 'Remote-Pause aktiv. Fortsetzung startet kontrolliert aus dem Orca-Worktree.'
+    task.finishedAt = undefined
+    this.push()
+    if (task.agentId) await agentManager.kill(task.agentId)
+    return true
+  }
+
+  resumeTask(taskId: string): boolean {
+    const task = this.tasks.get(taskId)
+    if (!task || !this.pausedTasks.has(taskId)) return false
+    task.status = 'queued'
+    task.lastAction = 'Fortsetzung wird vorbereitet'
+    task.note = undefined
+    const resume = this.resumeTaskWaiters.get(taskId)
+    if (resume) {
+      this.resumeTaskWaiters.delete(taskId)
+      this.pausedTasks.delete(taskId)
+      resume()
+    } else {
+      // A process shutdown may still be settling. Remember the decision so the
+      // continuation cannot accidentally be judged as a cancelled final task.
+      this.resumeRequestedTasks.add(taskId)
+    }
+    this.push()
+    return true
+  }
+
+  /**
+   * Switch a rate-limited task to a different configured provider. The caller
+   * supplies only the task id; Orca chooses the provider and keeps all prompt,
+   * path and stdin details inside the engine boundary.
+   */
+  async fallbackTask(taskId: string): Promise<boolean> {
+    const task = this.tasks.get(taskId)
+    if (!task?.provider || this.fallbackInFlight.has(taskId)) return false
+    const agentLimit = task.agentId
+      ? agentManager.list().find((agent) => agent.id === task.agentId)?.limitWarning
+      : undefined
+    const limitText = [
+      task.note,
+      task.judgeReason,
+      task.blocker?.summary,
+      this.taskResults.get(taskId)
+    ].filter(Boolean).join(' ')
+    if (!agentLimit && !detectLimit(task.provider, limitText)) return false
+    const fallback = this.listSubagents()
+      .filter((agent) => agent.available && agent.provider !== task.provider && agent.role !== task.role)
+      .sort((left, right) => (left.busy / left.capacity) - (right.busy / right.capacity))[0]
+    if (!fallback) return false
+
+    if (task.status === 'running' || task.status === 'queued' || task.status === 'paused') {
+      this.forcedFallbackRoles.set(taskId, fallback.role)
+      const paused = await this.pauseTask(taskId)
+      if (!paused) {
+        this.forcedFallbackRoles.delete(taskId)
+        return false
+      }
+      return this.resumeTask(taskId)
+    }
+
+    const record = this.dispatchRecords.get(taskId)
+    if (!record || (task.status !== 'error' && task.status !== 'needs-work')) return false
+    this.fallbackInFlight.add(taskId)
+    task.status = 'queued'
+    task.finishedAt = undefined
+    task.lastAction = `Provider-Limit: sichere Fortsetzung mit ${fallback.provider}`
+    task.note = 'Orca startet einen Ersatz-Worker aus dem gesicherten Recovery-Artefakt.'
+    this.reliability.automaticRecoveries += 1
+    this.push()
+    void this.dispatch(
+      fallback.role,
+      record.prompt,
+      record.title,
+      {
+        ...record.options,
+        taskId,
+        recoveryWorktree: task.recoveryArtifact?.worktree
+      }
+    ).finally(() => this.fallbackInFlight.delete(taskId))
+    return true
+  }
+
+  private resumedRole(taskId: string, currentRole: string): string {
+    const forced = this.forcedFallbackRoles.get(taskId)
+    if (forced) this.forcedFallbackRoles.delete(taskId)
+    return forced ?? currentRole
+  }
+
+  private waitForTaskResume(taskId: string): Promise<void> {
+    if (!this.pausedTasks.has(taskId)) return Promise.resolve()
+    if (this.resumeRequestedTasks.delete(taskId)) {
+      this.pausedTasks.delete(taskId)
+      return Promise.resolve()
+    }
+    return new Promise<void>((resolve) => this.resumeTaskWaiters.set(taskId, resolve))
+  }
+
+  replanPending(input: { removeTaskIds: string[]; maxParallel?: number }): boolean {
+    const pending = this.pendingPlan
+    if (!pending) return false
+    const removed = new Set(input.removeTaskIds)
+    const tasks = pending.plan.tasks.filter((task) => !removed.has(task.id))
+    if (tasks.length === 0) return false
+    if (tasks.some((task) =>
+      task.dependsOn.some((id) => removed.has(id)) ||
+      (task.advisoryDependsOn ?? []).some((id) => removed.has(id))
+    )) return false
+    const maxParallel = input.maxParallel ?? pending.plan.maxParallel
+    if (!Number.isInteger(maxParallel) || maxParallel < 1 || maxParallel > 32) return false
+    this.pendingPlan = {
+      ...pending,
+      plan: { ...pending.plan, maxParallel, tasks }
+    }
+    this.setActivityState(
+      'awaiting-review',
+      `Plan-Vorschau wurde restriktiv angepasst und wartet erneut auf Freigabe.`,
+      [`${tasks.length} Aufgabe(n), maximal ${maxParallel} parallel.`]
+    )
+    this.push()
+    return true
   }
 
   private persistenceKey(): string {
@@ -744,6 +1048,20 @@ export class OrchestratorEngine extends EventEmitter {
     const { slot, role: slotRole } = this.pickSlot(role)
     const profile = this.activeProfile()
     const taskId = options.taskId ?? this.nextTaskId()
+    if (!this.dispatchRecords.has(taskId)) {
+      this.dispatchRecords.set(taskId, {
+        role,
+        prompt,
+        title,
+        options: {
+          ...options,
+          dependsOn: options.dependsOn ? [...options.dependsOn] : undefined,
+          advisoryDependsOn: options.advisoryDependsOn ? [...options.advisoryDependsOn] : undefined,
+          conflictKeys: options.conflictKeys ? [...options.conflictKeys] : undefined,
+          expectedFiles: options.expectedFiles ? [...options.expectedFiles] : undefined
+        }
+      })
+    }
     const yolo = slot.yolo || (profile?.yoloDefault ?? false)
 
     const task: OrcaTask = this.tasks.get(taskId) ?? {
@@ -801,6 +1119,13 @@ export class OrchestratorEngine extends EventEmitter {
       slotReleased = true
       sem.release()
     }
+    if (this.pausedTasks.has(taskId)) {
+      task.status = 'paused'
+      task.lastAction = 'Pausiert vor Worker-Start'
+      releaseSlot()
+      await this.waitForTaskResume(taskId)
+      return this.dispatch(this.resumedRole(taskId, role), prompt, title, { ...options, taskId })
+    }
     task.status = 'running'
     task.phase = 'preflight'
     task.lastAction = 'Pane-Preflight läuft'
@@ -852,6 +1177,7 @@ export class OrchestratorEngine extends EventEmitter {
           tokensOut: event.tokensOut,
           steps: event.steps
         }
+        if (this.budgetSnapshot().exceeded) void this.pauseTask(taskId)
       }
       if (event.type === 'output') {
         const clean = stripAnsi(event.chunk).replace(/\s+/g, ' ').trim()
@@ -910,6 +1236,32 @@ export class OrchestratorEngine extends EventEmitter {
 
       const result = await done
       releaseSlot()
+      if (this.pausedTasks.has(taskId)) {
+        const recoveryArtifact = await captureTaskRecoveryArtifact({
+          worktree: info.worktree,
+          baseCommit
+        })
+        task.recoveryArtifact = recoveryArtifact
+        task.status = 'paused'
+        task.lastAction = 'Pausiert; Teilarbeit sicher für Fortsetzung gehalten'
+        task.note = recoveryArtifact
+          ? `${recoveryArtifact.changedFiles.length} Datei(en) im Orca-Worktree gesichert.`
+          : 'Pausiert, bevor persistierbare Änderungen entstanden sind.'
+        task.finishedAt = undefined
+        if (activeAttempt) {
+          activeAttempt.status = 'stopped'
+          activeAttempt.failureKind = 'cancelled'
+          activeAttempt.finishedAt = Date.now()
+          activeAttempt.note = 'Durch sichere Remote-Pause unterbrochen.'
+        }
+        this.push()
+        await this.waitForTaskResume(taskId)
+        return this.dispatch(this.resumedRole(taskId, role), prompt, title, {
+          ...options,
+          taskId,
+          recoveryWorktree: recoveryArtifact?.worktree
+        })
+      }
       if (
         result.costUsd != null ||
         result.tokensIn != null ||
@@ -1509,12 +1861,13 @@ export class OrchestratorEngine extends EventEmitter {
         : task.prompt
       const running = (async (): Promise<void> => {
         const maxRetries = profile?.planner.maxRetries ?? 1
+        const maxRateLimitRetries = Math.max(maxRetries, 1)
         const attemptedRoles = new Set<string>()
         let requestedRole = task.role
         let recoveryContext = ''
         let recoveryWorktree: string | undefined
 
-        for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+        for (let attempt = 0; attempt <= maxRateLimitRetries; attempt += 1) {
           attemptedRoles.add(requestedRole)
           const output = await this.dispatch(
             requestedRole,
@@ -1533,7 +1886,7 @@ export class OrchestratorEngine extends EventEmitter {
               criticality: task.criticality,
               ownership: task.ownership,
               attempt: attempt + 1,
-              maxAttempts: maxRetries + 1,
+              maxAttempts: maxRateLimitRetries + 1,
               recoveryWorktree
             }
           )
@@ -1553,7 +1906,10 @@ export class OrchestratorEngine extends EventEmitter {
             return
           }
 
-          if (attempt >= maxRetries) {
+          const rateLimited = Boolean(
+            runtimeTask?.provider && detectLimit(runtimeTask.provider, output)
+          )
+          if (attempt >= (rateLimited ? maxRateLimitRetries : maxRetries)) {
             results.set(task.id, {
               id: task.id,
               status: 'error',
@@ -1569,9 +1925,12 @@ export class OrchestratorEngine extends EventEmitter {
           recoveryContext = output
           recoveryWorktree = runtimeTask?.recoveryArtifact?.worktree
           const alternatives = this.listSubagents()
-            .filter((agent) => agent.available && !attemptedRoles.has(agent.role))
+            .filter((agent) =>
+              agent.available && !attemptedRoles.has(agent.role) &&
+              (!rateLimited || agent.provider !== runtimeTask?.provider)
+            )
             .sort((a, b) => (a.busy / a.capacity) - (b.busy / b.capacity))
-          if (profile?.planner.routingMode !== 'adaptive' || alternatives.length === 0) {
+          if ((!rateLimited && profile?.planner.routingMode !== 'adaptive') || alternatives.length === 0) {
             results.set(task.id, {
               id: task.id,
               status: 'error',
@@ -1587,7 +1946,9 @@ export class OrchestratorEngine extends EventEmitter {
           this.reliability.automaticRecoveries += 1
           this.setActivityState(
             'delegating',
-            `Worker-/Pane-Fehler erkannt; Recovery ${attempt + 1}/${maxRetries} auf gesundem Slot.`,
+            rateLimited
+              ? `Provider-Limit erkannt; Recovery ${attempt + 1}/${maxRateLimitRetries} wechselt den Provider.`
+              : `Worker-/Pane-Fehler erkannt; Recovery ${attempt + 1}/${maxRetries} auf gesundem Slot.`,
             [`${task.title}: ${requestedRole}`],
             'Ersatz-Worker auswerten und erst danach abhängige Aufgaben freigeben.'
           )
@@ -1712,7 +2073,48 @@ export class OrchestratorEngine extends EventEmitter {
     }
   }
 
-  private async publishPendingChanges(planId?: string): Promise<void> {
+  async approvePublication(planId?: string): Promise<boolean> {
+    const pending = this.pendingPublication
+    if (!pending || this.publicationInFlight) return false
+    if (planId && pending.id !== `publication:${this.workspaceSessionId ?? 'workspace'}:${planId}`) return false
+    this.pendingPublication = undefined
+    this.publicationInFlight = true
+    this.push()
+    try {
+      await this.publishPendingChanges(planId ?? pending.task?.planId, true)
+      return true
+    } finally {
+      this.publicationInFlight = false
+      this.push()
+    }
+  }
+
+  rejectPublication(planId?: string): boolean {
+    const pending = this.pendingPublication
+    if (!pending || this.publicationInFlight) return false
+    if (planId && pending.id !== `publication:${this.workspaceSessionId ?? 'workspace'}:${planId}`) return false
+    const targetPlanId = planId ?? pending.task?.planId
+    for (const [taskId] of [...this.preparedChanges.entries()]) {
+      const task = this.tasks.get(taskId)
+      if (targetPlanId != null && task?.planId !== targetPlanId) continue
+      if (task) {
+        task.autoPrStatus = 'skipped'
+        task.note = `${task.note || 'Task fertig'} · Veröffentlichung abgelehnt.`
+      }
+      this.preparedChanges.delete(taskId)
+    }
+    this.pendingPublication = undefined
+    this.setActivityState(
+      'blocked',
+      'Die vorbereitete Pull-Request-Veröffentlichung wurde abgelehnt.',
+      [],
+      'Auf ein neues Ziel oder eine erneute lokale Vorbereitung warten.'
+    )
+    this.push()
+    return true
+  }
+
+  private async publishPendingChanges(planId?: string, publicationApproved = false): Promise<void> {
     const profile = this.activeProfile()
     if (!profile || profile.autoPr.mode === 'off') return
     const changes = [...this.preparedChanges.entries()]
@@ -1722,6 +2124,32 @@ export class OrchestratorEngine extends EventEmitter {
       })
       .map(([, change]) => change)
     if (changes.length === 0) return
+
+    if (profile.autoPr.mode === 'hold-for-approval' && !publicationApproved) {
+      const scope = this.workspaceSessionId ?? 'workspace'
+      const representative = [...this.tasks.values()].find((task) =>
+        task.autoPrStatus === 'prepared' && (planId == null || task.planId === planId)
+      )
+      this.pendingPublication = {
+        id: `publication:${scope}:${planId ?? 'current'}`,
+        kind: 'pr-publication',
+        profileId: profile.id,
+        workspaceSessionId: scope,
+        title: 'Pull Request zur Veröffentlichung bereit',
+        summary: `${changes.length} vorbereitete Änderung(en) haben die lokalen Gates bestanden.`,
+        createdAt: Date.now(),
+        task: representative,
+        actions: ['publication.approve', 'publication.reject']
+      }
+      this.setActivityState(
+        'awaiting-review',
+        'Die geprüften Änderungen sind vorbereitet und warten vor der PR-Veröffentlichung auf Freigabe.',
+        changes.slice(0, 4).map((change) => `${change.title}: ${change.commit.slice(0, 8)}`),
+        'Veröffentlichung freigeben oder ablehnen.'
+      )
+      this.push()
+      return
+    }
 
     const integrationId = 'integration-' + (planId ?? Date.now().toString(36))
     const integrationTask: OrcaTask = {
@@ -2176,8 +2604,8 @@ export class OrchestratorEngine extends EventEmitter {
     const reason = 'Planlauf wurde über cancel_plan gestoppt.'
     const runningAgentIds: string[] = []
     for (const task of this.tasks.values()) {
-      if (task.planId !== planId || (task.status !== 'queued' && task.status !== 'running')) continue
-      if (task.status === 'running' && task.agentId) runningAgentIds.push(task.agentId)
+      if (task.planId !== planId || !['queued', 'running', 'waiting', 'paused'].includes(task.status)) continue
+      if (task.status !== 'queued' && task.agentId) runningAgentIds.push(task.agentId)
       Object.assign(task, {
         status: 'stopped' as const,
         failureKind: 'cancelled' as const,
@@ -2226,7 +2654,7 @@ export class OrchestratorEngine extends EventEmitter {
       summary: {
         required: tasks.filter((task) => (task.criticality ?? 'required') === 'required').length,
         advisory: tasks.filter((task) => task.criticality === 'advisory').length,
-        running: tasks.filter((task) => task.status === 'queued' || task.status === 'running').length,
+        running: tasks.filter((task) => ['queued', 'running', 'waiting', 'paused'].includes(task.status)).length,
         succeeded: tasks.filter((task) => task.status === 'success').length,
         needsWork: tasks.filter((task) => task.status === 'needs-work').length,
         failed: tasks.filter((task) => task.status === 'error' || task.status === 'stopped').length

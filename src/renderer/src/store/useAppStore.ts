@@ -495,6 +495,22 @@ export const useAppStore = create<AppState>((set, get) => ({
       disabledModels: normalizeDisabledModels(disabledModels)
     })
 
+    // The desktop Approval/Diff centers cover every live workspace, not only
+    // the selected one. Hydrate the same authoritative per-session snapshots
+    // that subsequently arrive over ev:orchestrator.
+    void window.orca.workspaceSessions.list().then(async (currentSessions) => {
+      const allSnapshots = await Promise.all(currentSessions.map((session) =>
+        window.orca.orchestrator.snapshot(session.profileId, session.id)
+      ))
+      set((state) => ({
+        workspaceSessions: currentSessions,
+        orchestrators: Object.fromEntries([
+          ...Object.entries(state.orchestrators),
+          ...allSnapshots.map((item) => [item.workspaceSessionId ?? item.profileId!, item] as const)
+        ])
+      }))
+    }).catch((error) => get().showToast(`Workspace-Übersicht unvollständig: ${errorMessage(error)}`))
+
     void get().refreshGit()
     void get().refreshHealth()
     void get().refreshGithubAuth()
