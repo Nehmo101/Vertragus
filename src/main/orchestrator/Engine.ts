@@ -11,6 +11,7 @@ import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import type {
+  ExecutionPlan,
   ExecutionPlanResult,
   ExecutionPlanTask,
   ExecutionPlanTaskResult,
@@ -44,6 +45,11 @@ import {
 import { agentManager } from '@main/agents/AgentManager'
 import { PanePreflightError } from '@main/agents/panePreflight'
 import { stripAnsi } from '@main/agents/limitSignals'
+import {
+  hasExplicitWorkerBlocker,
+  hasExplicitWorkerSuccess,
+  type HeadlessResult
+} from '@main/agents/headless'
 import {
   getProfile,
   getActiveProfileId,
@@ -97,6 +103,12 @@ interface DispatchOptions {
   deferPublish?: boolean
 }
 
+interface PreparedExecutionPlan {
+  profile: WorkspaceProfile | undefined
+  resolved: ReturnType<typeof resolveExecutionPlan>
+  plan: ExecutionPlan
+}
+
 const RESULT_PREVIEW = 160
 export function platformExecutionGuidance(
   platform: NodeJS.Platform = process.platform
@@ -115,6 +127,74 @@ export function platformExecutionGuidance(
     ]
   }
   return []
+}
+
+export interface WorkerTerminalJudgement {
+  status: 'success' | 'error' | 'stopped'
+  failureKind?: 'infrastructure' | 'worker' | 'cancelled'
+  reason: string
+}
+
+export interface CancelPlanResult {
+  ok: boolean
+  message: string
+  runId?: string
+  planId?: string
+  status?: 'stopped'
+}
+
+/** Resolve contradictory provider flags using process outcome and the worker's explicit contract. */
+export function judgeWorkerTerminalResult(result: HeadlessResult): WorkerTerminalJudgement {
+  if (result.status === 'cancelled') {
+    return {
+      status: 'stopped',
+      failureKind: 'cancelled',
+      reason: 'Der Worker wurde durch den Stop-Mechanismus abgebrochen.'
+    }
+  }
+
+  const infrastructureFailure =
+    result.failureKind === 'provider-auth' ||
+    result.failureKind === 'sandbox' ||
+    result.failureKind === 'stalled'
+  if (infrastructureFailure) {
+    return {
+      status: 'error',
+      failureKind: 'infrastructure',
+      reason: result.error?.trim() ||
+        `Provider-Infrastruktur fehlgeschlagen (${result.failureKind}).`
+    }
+  }
+
+  if (hasExplicitWorkerBlocker(result.result)) {
+    return {
+      status: 'error',
+      failureKind: 'worker',
+      reason: 'Der Worker meldete explizit ERGEBNIS: BLOCKER.'
+    }
+  }
+
+  if (result.exitCode === 0 && hasExplicitWorkerSuccess(result.result)) {
+    return {
+      status: 'success',
+      reason: 'Provider-Prozess endete mit Exit-Code 0 und expliziter ERGEBNIS: ERFOLG-Meldung.'
+    }
+  }
+
+  if (result.status === 'succeeded' && !result.isError) {
+    return { status: 'success', reason: 'Der Provider meldete einen erfolgreichen Worker-Abschluss.' }
+  }
+  if (result.status == null && !result.isError) {
+    return { status: 'success', reason: 'Der kompatible Provider-Adapter meldete keinen Fehler.' }
+  }
+
+  const exitDetail = result.exitCode == null ? '' : ` (Exit-Code ${result.exitCode})`
+  return {
+    status: 'error',
+    failureKind: 'worker',
+    reason: result.error?.trim() ||
+      `Der Provider bewertete den Worker-Abschluss als fehlgeschlagen${exitDetail}.`
+  }
 }
 
 
@@ -138,6 +218,7 @@ function initialReliability(): OrchestratorReliabilityMetrics {
 export class OrchestratorEngine extends EventEmitter {
   readonly engineId: string
   private planSeq = 0
+  private planRunSeq = 0
   private goal: OrchestratorGoal | null = null
   private activity: OrchestratorActivity | undefined
   private readonly tasks = new Map<string, OrcaTask>()
@@ -147,6 +228,7 @@ export class OrchestratorEngine extends EventEmitter {
   private readonly planRuns = new Map<string, Promise<ExecutionPlanResult>>()
   private readonly planRunResults = new Map<string, PlanRunStatusSnapshot>()
   private readonly planRunPlanIds = new Map<string, string>()
+  private readonly cancelledPlanRuns = new Set<string>()
   private readonly reliability = initialReliability()
   private goalStartedAt?: number
   private taskSeq = 0
@@ -158,6 +240,7 @@ export class OrchestratorEngine extends EventEmitter {
   >()
   private pendingPlan: PendingPlanReview | undefined
   private pendingPlanResolve: ((approved: boolean) => void) | undefined
+  private firstPlanApproved = true
   /** Per-role capacity limiter — count = max parallel subagents of that role. */
   private boundProfile: WorkspaceProfile | undefined
   private readonly workspaceSessionId: string | undefined
@@ -328,6 +411,7 @@ export class OrchestratorEngine extends EventEmitter {
     this.pendingPlanResolve?.(false)
     this.pendingPlanResolve = undefined
     this.pendingPlan = undefined
+    this.firstPlanApproved = true
     this.goal = null
     this.activity = undefined
     this.tasks.clear()
@@ -338,6 +422,7 @@ export class OrchestratorEngine extends EventEmitter {
     this.planRuns.clear()
     this.planRunResults.clear()
     this.planRunPlanIds.clear()
+    this.cancelledPlanRuns.clear()
     this.benchmarkRuns.clear()
     this.lastRetro = undefined
     this.push()
@@ -354,8 +439,10 @@ export class OrchestratorEngine extends EventEmitter {
   reviewPlan(approved: boolean): boolean {
     const resolve = this.pendingPlanResolve
     if (!resolve) return false
+    const pending = this.pendingPlan
     this.pendingPlanResolve = undefined
     this.pendingPlan = undefined
+    this.firstPlanApproved = approved && pending?.rejected !== true
     this.setActivityState(
       approved ? 'delegating' : 'blocked',
       approved
@@ -371,9 +458,9 @@ export class OrchestratorEngine extends EventEmitter {
 
   /**
    * Switch only this live workspace session to a planner mode. Switching to
-   * 'auto' also approves a plan already waiting at the review gate; switching
-   * away from 'auto' (back to 'review'/'manual') simply changes how the next
-   * plan is handled and never cancels work already running.
+   * 'auto' keeps a plan already waiting at the review gate pending for an
+   * explicit decision. Switching away from 'auto' (back to 'review'/'manual')
+   * changes how the next plan is handled and never cancels work already running.
    */
   setPlannerMode(mode: WorkspaceProfile['planner']['mode']): boolean {
     const profile = this.activeProfile()
@@ -383,11 +470,7 @@ export class OrchestratorEngine extends EventEmitter {
       agents: profile.agents.map((slot) => ({ ...slot })),
       planner: { ...profile.planner, mode }
     }
-    if (mode === 'auto' && this.pendingPlanResolve) {
-      this.reviewPlan(true)
-    } else {
-      this.push()
-    }
+    this.push()
     return true
   }
 
@@ -444,6 +527,7 @@ export class OrchestratorEngine extends EventEmitter {
 
   setGoal(title: string): void {
     this.goalStartedAt = Date.now()
+    this.firstPlanApproved = false
     this.goal = { id: `epic-${Date.now().toString(36)}`, title, active: true }
     this.setActivityState(
       'planning',
@@ -608,6 +692,7 @@ export class OrchestratorEngine extends EventEmitter {
       blocker: undefined,
       findings: undefined,
       failureKind: undefined,
+      judgeReason: undefined,
       finishedAt: undefined
     })
     this.tasks.set(taskId, task)
@@ -635,6 +720,10 @@ export class OrchestratorEngine extends EventEmitter {
       '- Führe relevante Tests, Typecheck und Lint aus.',
       '- Führe kein git add, commit, cherry-pick oder push aus; Orcas Main-Prozess sichert Änderungen zentral.',
       '- Bei Infrastrukturblockern antworte strukturiert und knapp: Blocker, Alternativen, geplante Dateien, Schnittstellen.',
+      '- Ergebnisvertrag am Ende: (1) geänderte Dateien, (2) Tests mit grün/gesamt, (3) Typecheck-/Lint-Status, (4) Integrationshinweise.',
+      '- Schließe exakt mit ERGEBNIS: ERFOLG oder ERGEBNIS: BLOCKER samt konkreter Begründung.',
+      '- Automatisch injizierte Security-Negativfälle: securityGate.ts bewertet nur hinzugefügte Diff-Zeilen.',
+      '- Neue Zeilen mit process.env, Bearer, Authorization, Secret-Literalen, writeFileSync, appendFileSync, createWriteStream, rm oder child_process-Aufrufen brauchen passende Missbrauchs-/Injection-/Leak-Negativtests in Testdateien.',
       ...platformExecutionGuidance().map((item) => `- ${item}`),
       ...securityChecklist.map((item) => `- Security-Pflicht: ${item}`)
     ].join('\n')
@@ -738,23 +827,19 @@ export class OrchestratorEngine extends EventEmitter {
           steps: result.steps
         }
       }
-      const wasCancelled = result.status === 'cancelled'
-      const infrastructureFailure =
-        result.failureKind === 'provider-auth' ||
-        result.failureKind === 'sandbox' ||
-        result.failureKind === 'stalled'
-      task.status = wasCancelled ? 'stopped' : result.isError ? 'error' : 'success'
-      task.failureKind = wasCancelled
-        ? 'cancelled'
-        : infrastructureFailure
-          ? 'infrastructure'
-          : result.isError ? 'worker' : undefined
+      const judgement = judgeWorkerTerminalResult(result)
+      const wasCancelled = judgement.status === 'stopped'
+      const workerError = judgement.status === 'error'
+      const infrastructureFailure = judgement.failureKind === 'infrastructure'
+      task.status = judgement.status
+      task.failureKind = judgement.failureKind
+      task.judgeReason = judgement.reason
       task.progress = task.status === 'success' ? 100 : undefined
       task.phase = task.status === 'success' ? 'completed' : task.phase
       task.lastAction = wasCancelled
         ? 'Manuell gestoppt'
         : infrastructureFailure
-          ? 'Provider-Infrastruktur fehlgeschlagen' : result.isError ? 'Worker fehlgeschlagen' : 'Worker abgeschlossen'
+          ? 'Provider-Infrastruktur fehlgeschlagen' : workerError ? 'Worker fehlgeschlagen' : 'Worker abgeschlossen'
       if (activeAttempt) {
         activeAttempt.status = task.status
         activeAttempt.failureKind = task.failureKind
@@ -764,7 +849,7 @@ export class OrchestratorEngine extends EventEmitter {
       task.lastHeartbeatAt = Date.now()
       task.finishedAt = Date.now()
       const preview = result.result.replace(/\s+/g, ' ').trim().slice(0, RESULT_PREVIEW)
-      task.note = result.isError ? 'Fehler bei der Ausführung' : preview
+      task.note = workerError ? judgement.reason : preview
       task.worktree = info.worktree
       if (infrastructureFailure) {
         task.note = preview || 'Provider-Infrastruktur fehlgeschlagen'
@@ -780,7 +865,7 @@ export class OrchestratorEngine extends EventEmitter {
         this.reliability.failuresByProviderAndPlatform[metricKey] =
           (this.reliability.failuresByProviderAndPlatform[metricKey] ?? 0) + 1
       }
-      if (result.isError && !wasCancelled) {
+      if (workerError) {
         task.recoveryArtifact = await captureTaskRecoveryArtifact({
           worktree: info.worktree,
           baseCommit
@@ -793,7 +878,7 @@ export class OrchestratorEngine extends EventEmitter {
         task.recoveryArtifact = undefined
       }
       const autoPr = profile?.autoPr
-      if (!result.isError && !wasCancelled && autoPr) {
+      if (task.status === 'success' && autoPr) {
         task.phase = 'security-review'
         task.lastAction = 'Abnahme, Security und Commit-Vertrag laufen'
         task.lastHeartbeatAt = Date.now()
@@ -829,6 +914,7 @@ export class OrchestratorEngine extends EventEmitter {
           task.findings = prepared.findings
           task.failureKind = 'gate'
           task.note = prepared.message
+          task.judgeReason = prepared.message
           task.lastAction = 'Partieller Commit gesichert · Gates benötigen Nacharbeit'
           this.reliability.needsWorkTasks += 1
           this.reliability.rescuedNeedsWorkCommits += 1
@@ -841,9 +927,16 @@ export class OrchestratorEngine extends EventEmitter {
           task.completion = { kind: 'no-changes' }
         } else {
           task.status = 'error'
+          task.failureKind = 'gate'
           task.progress = undefined
           task.note = (task.note || 'Worker fertig') + ' · Abnahme blockiert: ' + prepared.message
+          task.judgeReason = `Commit-Vertrag oder Security-Gate fehlgeschlagen: ${prepared.message}`
           task.lastAction = 'Commit-Vertrag oder Security-Gate fehlgeschlagen'
+          if (activeAttempt) {
+            activeAttempt.status = 'error'
+            activeAttempt.failureKind = 'gate'
+            activeAttempt.note = task.judgeReason
+          }
         }
         if (
           task.status === 'success' && autoPr.mode !== 'off' && !options.deferPublish &&
@@ -860,7 +953,7 @@ export class OrchestratorEngine extends EventEmitter {
         const findings = task.findings?.map((finding) => finding.message).join('; ') || 'Gate-Nacharbeit erforderlich'
         return `${info.name} (${slotRole}) needs-work. Partieller Commit: ${task.commit}. Findings: ${findings}`
       }
-      if (task.status === 'error' && !result.isError) {
+      if (task.status === 'error' && !workerError) {
         return `${info.name} (${slotRole}) scheiterte an der Abnahme: ${task.note}`
       }
       const completion = task.completion?.kind === 'commit'
@@ -870,7 +963,7 @@ export class OrchestratorEngine extends EventEmitter {
       const recovery = recoveryArtifact
         ? `\n\nRecovery-Artefakt: ${recoveryArtifact.worktree}\nDateien: ${recoveryArtifact.changedFiles.join(', ')}`
         : ''
-      return result.isError
+      return workerError
         ? `${info.name} (${slotRole}) meldete einen Fehler. Ausgabe:\n${result.result}${recovery}`
         : `${info.name} (${slotRole}) meldet:\n${result.result || '(kein Textergebnis)'}${completion}`
     } catch (err) {
@@ -880,6 +973,7 @@ export class OrchestratorEngine extends EventEmitter {
       task.lastAction = err instanceof PanePreflightError ? 'Pane-Preflight fehlgeschlagen' : 'Dispatch fehlgeschlagen'
       task.lastHeartbeatAt = Date.now()
       task.note = err instanceof Error ? err.message : String(err)
+      task.judgeReason = `Dispatch-Infrastruktur fehlgeschlagen: ${task.note}`
       task.finishedAt = Date.now()
       this.reliability.infrastructureFailures += 1
       const metricKey = `${slot.provider}:${process.platform}`
@@ -986,7 +1080,8 @@ export class OrchestratorEngine extends EventEmitter {
         ? result ?? task.note
         : undefined,
       error: task.status === 'error' ? result ?? task.note : undefined,
-      note: task.note
+      note: task.note,
+      judgeReason: task.judgeReason
     }
   }
 
@@ -1014,6 +1109,14 @@ export class OrchestratorEngine extends EventEmitter {
    * concurrency, role capacity, dependencies and conflict keys.
    */
   async executePlan(input: unknown, runId?: string): Promise<ExecutionPlanResult> {
+    const prepared = this.prepareExecutionPlan(input)
+    if (prepared.resolved.rejected) {
+      return this.rejectedPlanResult(prepared, runId)
+    }
+    return this.executePreparedPlan(prepared, runId)
+  }
+
+  private prepareExecutionPlan(input: unknown): PreparedExecutionPlan {
     const profile = this.activeProfile()
     if (profile?.planner.mode === 'manual') {
       throw new Error('Auto-Planung ist für dieses Profil deaktiviert.')
@@ -1032,9 +1135,39 @@ export class OrchestratorEngine extends EventEmitter {
     )
     const configuredLimit = profile?.planner.maxParallel ?? resolved.plan.maxParallel
     const plan = { ...resolved.plan, maxParallel: Math.min(resolved.plan.maxParallel, configuredLimit) }
-    this.setGoal(plan.goal)
+    return { profile, resolved, plan }
+  }
+
+  private rejectedPlanResult(
+    prepared: PreparedExecutionPlan,
+    runId?: string
+  ): ExecutionPlanResult {
+    return {
+      planId: `rejected-${runId ?? Date.now().toString(36)}`,
+      status: 'error',
+      usedFallback: prepared.resolved.usedFallback,
+      rejected: true,
+      validationIssues: prepared.resolved.issues,
+      tasks: []
+    }
+  }
+
+  private nextPlanId(): string {
     this.planSeq += 1
-    const planId = `plan-${Date.now().toString(36)}-${this.planSeq.toString(36)}`
+    return `plan-${Date.now().toString(36)}-${this.planSeq.toString(36)}`
+  }
+
+  private async executePreparedPlan(
+    prepared: PreparedExecutionPlan,
+    runId?: string,
+    providedPlanId?: string
+  ): Promise<ExecutionPlanResult> {
+    const { profile, resolved, plan } = prepared
+    if (!this.goal) {
+      this.goalStartedAt = Date.now()
+      this.goal = { id: `epic-${Date.now().toString(36)}`, title: plan.goal, active: true }
+    }
+    const planId = providedPlanId ?? this.nextPlanId()
     if (runId) this.planRunPlanIds.set(runId, planId)
     const runtimeIds = new Map(
       plan.tasks.map((task) => [task.id, `${planId}-${task.id}`])
@@ -1043,6 +1176,8 @@ export class OrchestratorEngine extends EventEmitter {
     const advisoryDependencies = (task: ExecutionPlanTask): string[] => task.advisoryDependsOn
     const allDependencies = (task: ExecutionPlanTask): string[] =>
       [...requiredDependencies(task), ...advisoryDependencies(task)]
+    const requiresPlanReview = resolved.usedFallback || profile?.planner.mode === 'review' ||
+      (profile?.planner.mode === 'auto' && !this.firstPlanApproved)
 
     // Materialize every node before review/dispatch. list_tasks and
     // get_plan_status can therefore never claim a plan is running with no children.
@@ -1061,7 +1196,7 @@ export class OrchestratorEngine extends EventEmitter {
         criticality: planned.criticality,
         ownership: planned.ownership,
         note: planned.criticality === 'advisory' ? 'Advisory-Task' : undefined,
-        lastAction: profile?.planner.mode === 'review'
+        lastAction: requiresPlanReview
           ? 'Wartet auf Planfreigabe'
           : 'Wartet auf Abhängigkeiten und Kapazität',
         lastHeartbeatAt: Date.now(),
@@ -1076,8 +1211,14 @@ export class OrchestratorEngine extends EventEmitter {
     }
     this.push()
 
-    if (profile?.planner.mode === 'review') {
-      const approved = await this.requestPlanReview({ planId, plan, validationIssues: resolved.issues })
+    if (requiresPlanReview) {
+      const approved = await this.requestPlanReview({
+        planId,
+        plan,
+        usedFallback: resolved.usedFallback,
+        rejected: resolved.rejected,
+        validationIssues: resolved.issues
+      })
       if (!approved) {
         const reason = 'Plan wurde im Review abgelehnt.'
         for (const planned of plan.tasks) {
@@ -1095,6 +1236,7 @@ export class OrchestratorEngine extends EventEmitter {
           planId,
           status: 'stopped',
           usedFallback: resolved.usedFallback,
+          rejected: false,
           validationIssues: resolved.issues,
           tasks: plan.tasks.map((task) => ({
             id: task.id,
@@ -1122,13 +1264,14 @@ export class OrchestratorEngine extends EventEmitter {
     const active = new Map<string, Promise<void>>()
     const activeConflicts = new Set<string>()
     const results = new Map<string, ExecutionPlanTaskResult>()
+    const isCancelled = (): boolean => Boolean(runId && this.cancelledPlanRuns.has(runId))
 
     const stopTask = (task: ExecutionPlanTask, reason: string): void => {
       const runtimeId = runtimeIds.get(task.id)!
       const stopped = this.tasks.get(runtimeId)!
       Object.assign(stopped, {
         status: 'stopped' as const,
-        failureKind: 'worker' as const,
+        failureKind: isCancelled() ? 'cancelled' as const : 'worker' as const,
         note: reason,
         lastAction: reason,
         finishedAt: Date.now()
@@ -1201,7 +1344,8 @@ export class OrchestratorEngine extends EventEmitter {
               criticality: task.criticality,
               result: output,
               commit: runtimeTask?.commit,
-              findings: runtimeTask?.findings
+              findings: runtimeTask?.findings,
+              judgeReason: runtimeTask?.judgeReason
             })
             return
           }
@@ -1213,7 +1357,8 @@ export class OrchestratorEngine extends EventEmitter {
               criticality: task.criticality,
               result: output,
               commit: runtimeTask?.commit,
-              findings: runtimeTask?.findings
+              findings: runtimeTask?.findings,
+              judgeReason: runtimeTask?.judgeReason
             })
             return
           }
@@ -1230,7 +1375,8 @@ export class OrchestratorEngine extends EventEmitter {
               criticality: task.criticality,
               result: output,
               commit: runtimeTask?.commit,
-              findings: runtimeTask?.findings
+              findings: runtimeTask?.findings,
+              judgeReason: runtimeTask?.judgeReason
             })
             return
           }
@@ -1252,6 +1398,7 @@ export class OrchestratorEngine extends EventEmitter {
             runtimeTask.status = 'error'
             runtimeTask.failureKind = 'infrastructure'
             runtimeTask.note = message
+            runtimeTask.judgeReason = `Plan-Dispatch-Infrastruktur fehlgeschlagen: ${message}`
             runtimeTask.lastAction = 'Plan-Dispatch unerwartet fehlgeschlagen'
             runtimeTask.finishedAt = Date.now()
           }
@@ -1259,7 +1406,8 @@ export class OrchestratorEngine extends EventEmitter {
             id: task.id,
             status: 'error',
             criticality: task.criticality,
-            result: message
+            result: message,
+            judgeReason: runtimeTask?.judgeReason ?? `Plan-Dispatch-Infrastruktur fehlgeschlagen: ${message}`
           })
           this.taskResults.set(runtimeId, message)
         })
@@ -1271,6 +1419,11 @@ export class OrchestratorEngine extends EventEmitter {
     }
 
     while (pending.size > 0 || active.size > 0) {
+      if (isCancelled()) {
+        for (const task of [...pending.values()]) {
+          stopTask(task, 'Planlauf wurde über cancel_plan gestoppt.')
+        }
+      }
       let stoppedOne: boolean
       do {
         stoppedOne = false
@@ -1306,19 +1459,21 @@ export class OrchestratorEngine extends EventEmitter {
       if (active.size > 0) await Promise.race(active.values())
     }
 
-    await this.publishPendingChanges(planId)
+    if (!isCancelled()) await this.publishPendingChanges(planId)
     const planTasks = [...this.tasks.values()].filter((task) => task.planId === planId)
     const requiredTasks = planTasks.filter((task) => (task.criticality ?? 'required') === 'required')
     const requiredNeedsWork = requiredTasks.filter((task) => task.status === 'needs-work')
     const requiredErrors = requiredTasks.filter((task) => task.status === 'error')
     const requiredStopped = requiredTasks.filter((task) => task.status === 'stopped')
-    const planStatus: ExecutionPlanResult['status'] = requiredNeedsWork.length > 0
-      ? 'needs-work'
-      : requiredErrors.length > 0
-        ? 'error'
-        : requiredStopped.length > 0
-          ? 'stopped'
-          : 'success'
+    const planStatus: ExecutionPlanResult['status'] = isCancelled()
+      ? 'stopped'
+      : requiredNeedsWork.length > 0
+        ? 'needs-work'
+        : requiredErrors.length > 0
+          ? 'error'
+          : requiredStopped.length > 0
+            ? 'stopped'
+            : 'success'
     const attentionTasks = [...requiredNeedsWork, ...requiredErrors, ...requiredStopped]
     this.reliability.completedPlans += 1
     if (planStatus !== 'success') this.reliability.preventedFalseSuccesses += 1
@@ -1339,6 +1494,7 @@ export class OrchestratorEngine extends EventEmitter {
       planId,
       status: planStatus,
       usedFallback: resolved.usedFallback,
+      rejected: false,
       validationIssues: resolved.issues,
       tasks: plan.tasks.map(
         (task) =>
@@ -1429,6 +1585,12 @@ export class OrchestratorEngine extends EventEmitter {
     integrationTask.status = outcome.status === 'blocked' || remoteFailed
       ? 'error'
       : remoteIncomplete ? 'stopped' : 'success'
+    if (integrationTask.status === 'error') {
+      integrationTask.failureKind = 'gate'
+      integrationTask.judgeReason = remoteFailed
+        ? `Remote-CI bewertete die Integration als fehlgeschlagen: ${outcome.remoteCi?.message ?? outcome.message}`
+        : `Integrationsabnahme wurde blockiert: ${outcome.message}`
+    }
     integrationTask.phase = outcome.status === 'blocked'
       ? 'security-review'
       : remoteStatus && remoteStatus !== 'passed' ? 'testing' : 'completed'
@@ -1684,16 +1846,64 @@ export class OrchestratorEngine extends EventEmitter {
 
   /** Start a complete DAG without keeping the MCP request open. */
   executePlanAsync(input: unknown): PlanRunStatusSnapshot {
-    const runId = `plan-run-${Date.now().toString(36)}-${(this.planSeq + 1).toString(36)}`
+    this.planRunSeq += 1
+    const runId = `plan-run-${Date.now().toString(36)}-${this.planRunSeq.toString(36)}`
+    let prepared: PreparedExecutionPlan
+    try {
+      prepared = this.prepareExecutionPlan(input)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      const failed: PlanRunStatusSnapshot = {
+        runId,
+        status: 'error',
+        engineId: this.engineId,
+        workspaceSessionId: this.workspaceSessionId,
+        validationIssues: [],
+        planTaskIds: [],
+        error: message
+      }
+      this.planRunResults.set(runId, failed)
+      return failed
+    }
+
+    const validation = {
+      usedFallback: prepared.resolved.usedFallback,
+      rejected: prepared.resolved.rejected,
+      validationIssues: prepared.resolved.issues,
+      planTaskIds: prepared.resolved.rejected
+        ? []
+        : prepared.plan.tasks.map((task) => task.id)
+    }
+    if (prepared.resolved.rejected) {
+      const result = this.rejectedPlanResult(prepared, runId)
+      const rejected: PlanRunStatusSnapshot = {
+        runId,
+        status: 'error',
+        engineId: this.engineId,
+        workspaceSessionId: this.workspaceSessionId,
+        planId: result.planId,
+        goal: prepared.plan.goal,
+        ...validation,
+        result,
+        error: prepared.resolved.issues.map((issue) => issue.message).join(' ') ||
+          'Der strukturierte Plan wurde durch die Validierung abgelehnt.'
+      }
+      this.planRunResults.set(runId, rejected)
+      return rejected
+    }
+
+    const planId = this.nextPlanId()
     const initial: PlanRunStatusSnapshot = {
       runId,
       status: 'running',
       engineId: this.engineId,
       workspaceSessionId: this.workspaceSessionId,
-      goal: this.goal?.title
+      planId,
+      goal: prepared.plan.goal,
+      ...validation
     }
     this.planRunResults.set(runId, initial)
-    const run = this.executePlan(input, runId)
+    const run = this.executePreparedPlan(prepared, runId, planId)
       .then((result) => {
         this.planRunResults.set(runId, {
           ...initial,
@@ -1709,8 +1919,75 @@ export class OrchestratorEngine extends EventEmitter {
         throw error
       })
     this.planRuns.set(runId, run)
-    void run.catch(() => undefined).finally(() => this.planRuns.delete(runId))
+    void run.catch(() => undefined).finally(() => {
+      this.planRuns.delete(runId)
+      this.cancelledPlanRuns.delete(runId)
+    })
     return initial
+  }
+
+  async cancelPlan(runId?: string): Promise<CancelPlanResult> {
+    if (!runId) {
+      const pending = this.pendingPlan
+      if (!pending || !this.pendingPlanResolve) {
+        return { ok: false, message: 'Kein Plan wartet derzeit auf Freigabe.' }
+      }
+      this.reviewPlan(false)
+      return {
+        ok: true,
+        planId: pending.planId,
+        status: 'stopped',
+        message: `Review-Plan ${pending.planId} wurde verworfen; der Review-Slot ist frei.`
+      }
+    }
+
+    const stored = this.planRunResults.get(runId)
+    if (!stored) {
+      return { ok: false, runId, message: `Planlauf ${runId} ist unbekannt.` }
+    }
+    if (stored.status !== 'running') {
+      return {
+        ok: false,
+        runId,
+        planId: stored.planId,
+        message: `Planlauf ${runId} ist bereits terminal (${stored.status}).`
+      }
+    }
+
+    this.cancelledPlanRuns.add(runId)
+    const planId = stored.planId ?? this.planRunPlanIds.get(runId)
+    if (planId && this.pendingPlan?.planId === planId) this.reviewPlan(false)
+    const reason = 'Planlauf wurde über cancel_plan gestoppt.'
+    const runningAgentIds: string[] = []
+    for (const task of this.tasks.values()) {
+      if (task.planId !== planId || (task.status !== 'queued' && task.status !== 'running')) continue
+      if (task.status === 'running' && task.agentId) runningAgentIds.push(task.agentId)
+      Object.assign(task, {
+        status: 'stopped' as const,
+        failureKind: 'cancelled' as const,
+        note: reason,
+        judgeReason: reason,
+        lastAction: reason,
+        finishedAt: Date.now()
+      })
+      this.taskResults.set(task.id, reason)
+    }
+    await Promise.allSettled(runningAgentIds.map((agentId) => agentManager.kill(agentId)))
+    const latest = this.planRunResults.get(runId) ?? stored
+    this.planRunResults.set(runId, {
+      ...latest,
+      status: 'stopped',
+      planId,
+      error: undefined
+    })
+    this.setActivityState(
+      'blocked',
+      `Planlauf ${runId} wurde gestoppt.`,
+      [`${runningAgentIds.length} laufende Worker beendet; wartende Tasks verworfen.`],
+      'Bei Bedarf einen neuen oder angepassten Plan einreichen.'
+    )
+    this.push()
+    return { ok: true, runId, planId, status: 'stopped', message: reason }
   }
 
   getPlanRunStatus(runId: string): PlanRunStatusSnapshot | undefined {
@@ -1728,7 +2005,7 @@ export class OrchestratorEngine extends EventEmitter {
       engineId: this.engineId,
       workspaceSessionId: this.workspaceSessionId,
       planId,
-      goal: this.goal?.title,
+      goal: stored.goal ?? this.goal?.title,
       tasks,
       summary: {
         required: tasks.filter((task) => (task.criticality ?? 'required') === 'required').length,
