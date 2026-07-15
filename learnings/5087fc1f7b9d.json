@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784118595290,
+  "exportedAt": 1784118691996,
   "app": {
     "name": "orca-strator",
     "version": "0.1.40-main.2.g4fa9d28"
@@ -9,18 +9,46 @@
   "kind": "learnings",
   "payload": [
     {
-      "id": "learning-mrm259nk-1-8egms2",
+      "id": "learning-mrm27c1p-2-8m151z",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "backend-services",
+      "kind": "strength",
+      "insight": "Liefert große Read-only-Audits (140 Prisma-Modelle, alle Routen/Navs/Jobs) inhaltlich vollständig und mit brauchbaren Architektur-Befunden aus einem einzigen Prompt",
+      "evidence": "O00 Attempt 1: Inventar inkl. Job-Runner-Trennnaht und Namenskollision packages/cookbook vs. /kitchen fertig recherchiert",
+      "source": "orchestrator",
+      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+      "observations": 1,
+      "createdAt": 1784118690493,
+      "updatedAt": 1784118690493
+    },
+    {
+      "id": "learning-mrm27c1p-1-eter44",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "backend-services",
+      "kind": "weakness",
+      "insight": "Markdown-Doku-Tasks scheitern am zentralen Commit-Gate 'git diff --cached --check' (trailing whitespace/CRLF) — Whitespace-Hygiene im Prompt explizit fordern",
+      "evidence": "O00 Attempt 1 (Ungoliant): Audit inhaltlich vollständig, Abnahme blockiert mit 'Command failed: git diff --cached --check'",
+      "source": "orchestrator",
+      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+      "observations": 1,
+      "createdAt": 1784118690493,
+      "updatedAt": 1784118690493
+    },
+    {
+      "id": "learning-mrm27c1p-3-pl30ue",
       "provider": "claude",
       "model": "claude-sonnet-5",
       "role": "orchestrator-integrator",
-      "kind": "weakness",
-      "insight": "fehleranfällig bei orchestrator-integrator",
-      "evidence": "1/1 auswertbare Tasks inhaltlich fehlgeschlagen",
-      "source": "auto-retro",
+      "kind": "strength",
+      "insight": "Meldet Infrastruktur-Blocker vertragskonform und präzise (Blocker, geprüfte Alternativen, Integrationsstand) statt Erfolg vorzutäuschen — der error war kein Modellversagen",
+      "evidence": "O00 Attempt 2 (Frodo): Write-Tool im Retry-Worktree task-18 hart verweigert ('you haven't granted it yet'); strukturierter BLOCKER-Report mit fertigem Inventar-Inhalt",
+      "source": "orchestrator",
       "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
       "observations": 1,
-      "createdAt": 1784118594080,
-      "updatedAt": 1784118594080
+      "createdAt": 1784118690493,
+      "updatedAt": 1784118690493
     },
     {
       "id": "learning-mrm0y92m-1-izscin",
@@ -457,20 +485,6 @@
       "updatedAt": 1784063589842
     },
     {
-      "id": "learning-mrkr8n9d-1-b7zn4u",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "release-build-engineer",
-      "kind": "strength",
-      "insight": "Sehr stark bei Build-/Toolchain-Diagnose; liefert bei Sandbox-Blockern (spawn EPERM) präzise strukturierte Kurzresultate mit Alternativen statt Blindversuchen",
-      "evidence": "Samweis (t-2): Commit 96cca10a passierte alle Gates; Blocker-Report benannte spawn EPERM exakt, zentrale Verifikation bestätigte (out/ gebaut, ui-smoke grün)",
-      "source": "orchestrator",
-      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
-      "observations": 1,
-      "createdAt": 1784039809729,
-      "updatedAt": 1784039809729
-    },
-    {
       "id": "learning-mrkr8n9d-2-bcfmau",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -511,20 +525,6 @@
       "observations": 1,
       "createdAt": 1784037264545,
       "updatedAt": 1784037264545
-    },
-    {
-      "id": "learning-mrkpi3am-1-am653u",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "main-orchestrator",
-      "kind": "weakness",
-      "insight": "Quality-Gates erfordern Nacharbeit bei main-orchestrator",
-      "evidence": "1 Task(s) mit 1 Gate-Finding(s)",
-      "source": "auto-retro",
-      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
-      "observations": 1,
-      "createdAt": 1784036891182,
-      "updatedAt": 1784036891182
     },
     {
       "id": "learning-mrkhej75-1-pxoxx7",
