@@ -361,7 +361,7 @@ export default function OrchestratorPanel(): JSX.Element {
       store.showToast(
         mode === 'auto'
           ? startsPendingPlan
-            ? 'Automodus aktiv \u2013 der wartende Plan wurde gestartet.'
+            ? 'Automodus aktiv \u2013 der Erstplan wartet weiter auf deine Freigabe.'
             : 'Automodus f\u00fcr diesen Workspace aktiviert.'
           : mode === 'review'
             ? 'Review-Modus aktiv \u2013 neue Pl\u00e4ne warten auf deine Freigabe.'
@@ -613,14 +613,25 @@ export default function OrchestratorPanel(): JSX.Element {
             </ol>
             {pendingPlan.validationIssues.length > 0 && (
               <div className="plan-review-warning">
-                Der Vorschlag wurde sicher normalisiert. Bitte vor dem Start pruefen.
+                <strong>
+                  {pendingPlan.rejected
+                    ? 'Dieser Plan wurde durch die Validierung abgelehnt.'
+                    : 'Der Vorschlag wurde sicher normalisiert. Bitte vor dem Start prüfen.'}
+                </strong>
+                <div role="list">
+                  {pendingPlan.validationIssues.map((issue, index) => (
+                    <div role="listitem" key={`${issue.code}-${issue.taskId ?? index}`}>
+                      <code>{issue.code}</code>{issue.taskId ? ` · ${issue.taskId}` : ''}: {issue.message}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
             <div className="plan-review-actions">
-              <button type="button" className="btn ghost" onClick={() => void window.orca.orchestrator.reviewPlan(store.activeProfileId, false, store.activeWorkspaceSessionId ?? undefined)}>
+              <button type="button" className="btn ghost" onClick={() => void store.reviewPendingPlan(false)}>
                 Ablehnen
               </button>
-              <button type="button" className="btn primary" onClick={() => void window.orca.orchestrator.reviewPlan(store.activeProfileId, true, store.activeWorkspaceSessionId ?? undefined)}>
+              <button type="button" className="btn primary" disabled={pendingPlan.rejected} onClick={() => void store.reviewPendingPlan(true)}>
                 Plan starten
               </button>
             </div>
