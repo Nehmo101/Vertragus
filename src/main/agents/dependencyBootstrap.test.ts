@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ensureWorktreeDependencies } from './dependencyBootstrap'
@@ -35,5 +35,22 @@ describe('worktree dependency bootstrap', () => {
         toolchain: 'pnpm@11.6.0'
       })
     )
+  })
+
+  it('rejects an invalid path-traversal target outside the repository before linking', async () => {
+    const fixture = await mkdtemp(join(tmpdir(), 'orca-deps-boundary-'))
+    roots.push(fixture)
+    const root = join(fixture, 'repository')
+    const outsideTarget = join(root, '..', 'evil')
+    await mkdir(root)
+    await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'fixture' }))
+    await mkdir(join(root, 'node_modules'))
+
+    await expect(ensureWorktreeDependencies(root, outsideTarget)).rejects.toThrow(
+      /außerhalb des Repository-Roots/
+    )
+    await expect(lstat(join(outsideTarget, 'node_modules'))).rejects.toMatchObject({
+      code: 'ENOENT'
+    })
   })
 })

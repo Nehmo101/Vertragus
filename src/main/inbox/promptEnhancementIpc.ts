@@ -6,44 +6,29 @@ import {
   type PromptEnhancementIpcResult
 } from '@shared/promptEnhancement'
 import type { WorkspaceProfile } from '@shared/profile'
-import { isTrustedRendererUrl } from '@main/security/navigation'
+import {
+  assertAuthorizedRendererIpcSender,
+  type RendererIpcAuthorizationOptions,
+  type RendererIpcEventLike,
+  type RendererIpcWebContentsLike
+} from '@main/security/ipcAuthorization'
 import type { MainPromptEnhancementService } from './promptEnhancementProvider'
 import type { VerifiedPromptWorkspaceContext } from './promptEnhancement'
 
-export interface PromptIpcWebContentsLike {
-  id: number
-  isDestroyed(): boolean
-  getURL(): string
-  mainFrame: unknown
-}
-
-export interface PromptIpcEventLike {
-  sender: PromptIpcWebContentsLike
-  senderFrame: { url?: string } | null
-}
-
-export interface PromptIpcAuthorizationOptions {
-  developmentUrl?: string
-  packagedRendererUrl?: string
-  isKnownSender(sender: PromptIpcWebContentsLike): boolean
-}
+export type PromptIpcWebContentsLike = RendererIpcWebContentsLike
+export type PromptIpcEventLike = RendererIpcEventLike
+export type PromptIpcAuthorizationOptions = RendererIpcAuthorizationOptions
 
 /** Fail closed for unknown windows, subframes, destroyed senders and foreign origins. */
 export function assertAuthorizedPromptEnhancementSender(
   event: PromptIpcEventLike,
   options: PromptIpcAuthorizationOptions
 ): void {
-  const { sender, senderFrame } = event
-  const frameUrl = senderFrame?.url || sender.getURL()
-  const isMainFrame = Boolean(senderFrame) && senderFrame === sender.mainFrame
-  if (
-    sender.isDestroyed() ||
-    !options.isKnownSender(sender) ||
-    !isMainFrame ||
-    !isTrustedRendererUrl(frameUrl, options.developmentUrl, options.packagedRendererUrl)
-  ) {
-    throw new Error('Prompt-Verbesserungs-IPC: Zugriff verweigert (unauthorized).')
-  }
+  assertAuthorizedRendererIpcSender(
+    event,
+    options,
+    'Prompt-Verbesserungs-IPC: Zugriff verweigert (unauthorized).'
+  )
 }
 
 export interface PromptEnhancementIpcDependencies {

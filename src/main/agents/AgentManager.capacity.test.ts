@@ -62,10 +62,6 @@ function controllableHeadless(): Array<(result: HeadlessResult) => void> {
   return resolvers
 }
 
-async function settle(): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 0))
-}
-
 describe('provider capacity gate for headless tasks', () => {
   it('queues the second task at the gate and releases the slot when a run finishes', async () => {
     limits.codex = 1
@@ -78,11 +74,12 @@ describe('provider capacity gate for headless tasks', () => {
     expect(providerCapacity.stats('codex').active).toBe(1)
 
     const secondPromise = manager.runTask(taskRequest('t2'))
-    await settle()
-    // Still gated: no second provider process, one agent visibly waiting.
-    expect(runHeadless).toHaveBeenCalledTimes(1)
-    expect(manager.list().some((agent) => agent.status === 'waiting')).toBe(true)
-    expect(providerCapacity.stats('codex').waiting).toBe(1)
+    await vi.waitFor(() => {
+      // Still gated: no second provider process, one agent visibly waiting.
+      expect(runHeadless).toHaveBeenCalledTimes(1)
+      expect(manager.list().some((agent) => agent.status === 'waiting')).toBe(true)
+      expect(providerCapacity.stats('codex').waiting).toBe(1)
+    })
 
     resolvers[0]!({ result: 'fertig', isError: false, status: 'succeeded' })
     await first.done
@@ -103,7 +100,9 @@ describe('provider capacity gate for headless tasks', () => {
 
     const first = await manager.runTask(taskRequest('t1'))
     const secondPromise = manager.runTask(taskRequest('t2'))
-    await settle()
+    await vi.waitFor(() => {
+      expect(manager.list().some((agent) => agent.status === 'waiting')).toBe(true)
+    })
     const waiting = manager.list().find((agent) => agent.status === 'waiting')
     expect(waiting).toBeDefined()
 
@@ -115,9 +114,10 @@ describe('provider capacity gate for headless tasks', () => {
 
     resolvers[0]!({ result: 'fertig', isError: false, status: 'succeeded' })
     await first.done
-    await settle()
-    expect(providerCapacity.stats('codex').active).toBe(0)
-    expect(providerCapacity.stats('codex').waiting).toBe(0)
+    await vi.waitFor(() => {
+      expect(providerCapacity.stats('codex').active).toBe(0)
+      expect(providerCapacity.stats('codex').waiting).toBe(0)
+    })
   })
 
   it('spawn releases the held provider slot when launch preparation throws', async () => {

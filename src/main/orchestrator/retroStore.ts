@@ -59,6 +59,29 @@ export function recordModelLearnings(additions: NewModelLearning[]): ModelLearni
   return merged.applied
 }
 
+/** Remove exact provider/model learnings whose insight contains the given text. */
+export function removeModelLearnings(
+  provider: AgentProviderId,
+  model: string,
+  insightContains: string
+): ModelLearning[] {
+  const needle = insightContains.trim().toLowerCase()
+  if (!needle) return []
+
+  const existing = listModelLearnings()
+  const removed = existing.filter(
+    (entry) =>
+      entry.provider === provider &&
+      entry.model === model &&
+      entry.insight.toLowerCase().includes(needle)
+  )
+  if (removed.length === 0) return []
+
+  const removedIds = new Set(removed.map((entry) => entry.id))
+  setSetting(LEARNINGS_KEY, existing.filter((entry) => !removedIds.has(entry.id)))
+  return removed
+}
+
 /** Top learned strengths/weaknesses for one provider/model (router surface). */
 export function learningsForModel(
   provider: AgentProviderId,

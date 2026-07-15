@@ -24,9 +24,18 @@ import type { WorkspaceProfile } from '@shared/profile'
 import type { McpServerConfig } from '@shared/mcp'
 import type { OrchestratorSnapshot, WorkspaceSessionSummary } from '@shared/orchestrator'
 import type { AppInfo, GitInfo, GithubAuthStatus } from '@shared/ipc'
-import { profileRepoLocalPath } from '@shared/profile'
+import {
+  collectKnownRepos,
+  parseActiveRepo,
+  parseRecentRepos,
+  profileRepoRef,
+  repoRefKey,
+  resolveActiveRepoPath,
+  type RepoRef
+} from '@shared/repoSwitcher'
 import { normalizeModelCatalog, type ModelCatalog } from '@renderer/modelCatalog'
 import type { ModelPreset } from '@shared/models'
+import { middleEarthWorkspaceName } from '@shared/workspaceNames'
 
 const ADD_ROLES = ['Docs / Changelog', 'Refactor / Cleanup', 'Security-Review', 'Perf / Bench']
 
@@ -54,12 +63,20 @@ interface AppState {
   disabledModels: DisabledModels
   profiles: WorkspaceProfile[]
   activeProfileId: string
+  /** Soft app-level repository override; null = follow the active profile. */
+  activeRepo: RepoRef | null
+  /** Manually added repositories, most recent first. */
+  recentRepos: RepoRef[]
   workspaceSessions: WorkspaceSessionSummary[]
   activeWorkspaceSessionId: string | null
   /** User-configured external MCP servers attached to the launched agents. */
   mcpServers: McpServerConfig[]
   /** True while the MCP-server manager modal is open. */
   mcpEditorOpen: boolean
+  /** True while the global speech-to-text settings modal is open. */
+  speechSettingsOpen: boolean
+  /** Bumped whenever STT settings are saved so status consumers refetch. */
+  speechStatusRevision: number
   gitInfo: GitInfo | null
   githubAuth: GithubAuthStatus | null
   githubAuthBusy: boolean
@@ -96,6 +113,10 @@ interface AppState {
   loginProvider(id: ProviderId): Promise<void>
   refreshGit(): Promise<void>
   switchGitBranch(branch: string): Promise<boolean>
+  /** Switch the active repository (null = follow the active profile default). */
+  selectRepo(ref: RepoRef | null): Promise<void>
+  /** Pick a folder from disk and switch the active repository to it. */
+  addRepoFromFolder(): Promise<void>
   selectProfile(id: string): Promise<boolean>
   selectWorkspaceSession(profileId: string, sessionId: string): Promise<boolean>
   removeWorkspaceSession(profileId: string, sessionId: string): Promise<void>
@@ -118,6 +139,7 @@ interface AppState {
   startAll(): Promise<void>
   stopAll(): Promise<void>
   cleanWorkspace(): Promise<void>
+  reviewPendingPlan(approved: boolean): Promise<void>
   openAddAgent(): void
   closeAddAgent(): void
   addAgent(selection: ManualAgentSelection): Promise<boolean>
@@ -135,6 +157,9 @@ interface AppState {
   openMcpEditor(): void
   closeMcpEditor(): void
   saveMcpServers(servers: McpServerConfig[]): Promise<void>
+  openSpeechSettings(): void
+  closeSpeechSettings(): void
+  bumpSpeechStatus(): void
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined
@@ -149,6 +174,25 @@ export function activeProfile(s: Pick<AppState, 'profiles' | 'activeProfileId'>)
   return s.profiles.find((p) => p.id === s.activeProfileId)
 }
 
+type RepoState = Pick<AppState, 'profiles' | 'activeProfileId' | 'activeRepo' | 'recentRepos'>
+
+/** The effective repository: explicit override, else the active profile default. */
+export function effectiveRepoRef(s: RepoState): RepoRef | null {
+  if (s.activeRepo?.path?.trim()) return s.activeRepo
+  const profile = activeProfile(s)
+  return profile ? profileRepoRef(profile) : null
+}
+
+/** Effective repository working directory ('' when none is selected). */
+export function effectiveRepoPath(s: RepoState): string {
+  return resolveActiveRepoPath(s.activeRepo, activeProfile(s))
+}
+
+/** Ordered pick list for the title-bar repository switcher. */
+export function knownRepos(s: RepoState): RepoRef[] {
+  return collectKnownRepos(s.profiles, s.recentRepos, effectiveRepoRef(s))
+}
+
 export function workspaceAgents(
   state: Pick<AppState, 'agents' | 'activeProfileId'> &
     Partial<Pick<AppState, 'activeWorkspaceSessionId'>>
@@ -157,6 +201,18 @@ export function workspaceAgents(
     (agent) =>
       (!agent.profileId || agent.profileId === state.activeProfileId) &&
       (!state.activeWorkspaceSessionId || agent.workspaceSessionId === state.activeWorkspaceSessionId)
+  )
+}
+
+/** Only agents belonging to the profile being deleted may block its deletion. */
+export function profileHasRunningAgents(
+  agents: AgentInstanceInfo[],
+  profileId: string
+): boolean {
+  return agents.some(
+    (agent) =>
+      agent.profileId === profileId &&
+      (agent.status === 'running' || agent.status === 'waiting')
   )
 }
 
@@ -202,6 +258,73 @@ export function workspaceEvents(
   )
 }
 
+export type WorkspaceUserAttentionSource = 'orchestrator' | 'subagent'
+
+export interface WorkspaceUserAttention {
+  source: WorkspaceUserAttentionSource
+  agentId?: string
+  agentName?: string
+}
+
+/**
+ * Return the strongest canonical signal that a workspace is waiting for the
+ * user. Orchestrator review gates and waiting orchestrator panes take priority;
+ * a waiting subagent is the fallback. Task text and generic lifecycle states
+ * are intentionally ignored so running or failed work cannot spoof attention.
+ */
+export function workspaceUserAttention(
+  state: Pick<AppState, 'agents' | 'orchestrators'> &
+    Partial<Pick<AppState, 'workspaceSessions'>>,
+  profileId: string,
+  workspaceSessionId?: string
+): WorkspaceUserAttention | null {
+  const knownSessionIds = state.workspaceSessions
+    ? new Set(
+        state.workspaceSessions
+          .filter((session) => session.profileId === profileId)
+          .map((session) => session.id)
+      )
+    : undefined
+  const snapshots = Object.entries(state.orchestrators)
+    .filter(([key, snapshot]) => {
+      if (snapshot.profileId && snapshot.profileId !== profileId) return false
+      if (workspaceSessionId) {
+        return key === workspaceSessionId || snapshot.workspaceSessionId === workspaceSessionId
+      }
+      const matchesProfile = snapshot.profileId === profileId || (!snapshot.profileId && key === profileId)
+      return matchesProfile &&
+        (!snapshot.workspaceSessionId || !knownSessionIds || knownSessionIds.has(snapshot.workspaceSessionId))
+    })
+    .map(([, snapshot]) => snapshot)
+
+  if (
+    snapshots.some(
+      (snapshot) => snapshot.pendingPlan != null || snapshot.activity?.phase === 'awaiting-review'
+    )
+  ) {
+    return { source: 'orchestrator' }
+  }
+
+  const waitingAgents = state.agents.filter((agent) => {
+    if (agent.profileId !== profileId || agent.status !== 'waiting') return false
+    if (workspaceSessionId) return agent.workspaceSessionId === workspaceSessionId
+    return !agent.workspaceSessionId || !knownSessionIds || knownSessionIds.has(agent.workspaceSessionId)
+  })
+  const orchestrator = waitingAgents.find((agent) => agent.kind === 'orchestrator')
+  if (orchestrator) {
+    return {
+      source: 'orchestrator',
+      agentId: orchestrator.id,
+      agentName: orchestrator.name
+    }
+  }
+
+  const subagent = waitingAgents.find((agent) => agent.kind === 'sub')
+  return subagent
+    ? { source: 'subagent', agentId: subagent.id, agentName: subagent.name }
+    : null
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   appInfo: null,
   health: [],
@@ -211,10 +334,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   disabledModels: DEFAULT_DISABLED_MODELS,
   profiles: [],
   activeProfileId: '',
+  activeRepo: null,
+  recentRepos: [],
   workspaceSessions: [],
   activeWorkspaceSessionId: null,
   mcpServers: [],
   mcpEditorOpen: false,
+  speechSettingsOpen: false,
+  speechStatusRevision: 0,
   gitInfo: null,
   githubAuth: null,
   githubAuthBusy: false,
@@ -276,11 +403,16 @@ export const useAppStore = create<AppState>((set, get) => ({
         const active = workspaceSessions.find(
           (session) => session.profileId === state.activeProfileId && session.active
         )
+        const activeWorkspaceSessionId = active?.id ?? (
+          currentStillExists ? state.activeWorkspaceSessionId : null
+        )
+        const cachedSnapshot = activeWorkspaceSessionId
+          ? state.orchestrators[activeWorkspaceSessionId]
+          : undefined
         return {
           workspaceSessions,
-          activeWorkspaceSessionId: currentStillExists
-            ? state.activeWorkspaceSessionId
-            : (active?.id ?? null)
+          activeWorkspaceSessionId,
+          ...(cachedSnapshot ? { orchestrator: cachedSnapshot } : {})
         }
       })
     )
@@ -314,7 +446,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       workspaceSessions,
       providerEnabled,
       disabledModels,
-      cliReadable
+      cliReadable,
+      activeRepoRaw,
+      recentReposRaw
     ] =
       await Promise.all([
         window.orca.getAppInfo(),
@@ -332,12 +466,16 @@ export const useAppStore = create<AppState>((set, get) => ({
         window.orca.workspaceSessions.list(),
         window.orca.getConfig<Partial<ProviderEnabled>>('providerEnabled'),
         window.orca.getConfig<Partial<DisabledModels>>('disabledModels'),
-        window.orca.getConfig<boolean>('ui.cliReadable')
+        window.orca.getConfig<boolean>('ui.cliReadable'),
+        window.orca.getConfig<unknown>('workspaceRepo.active'),
+        window.orca.getConfig<unknown>('workspaceRepo.recent')
       ])
     set({
       appInfo,
       profiles,
       activeProfileId,
+      activeRepo: parseActiveRepo(activeRepoRaw),
+      recentRepos: parseRecentRepos(recentReposRaw),
       workspaceSessions,
       activeWorkspaceSessionId:
         snapshot.workspaceSessionId ??
@@ -464,15 +602,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   async refreshGit() {
-    const profile = activeProfile(get())
-    const dir = profile ? profileRepoLocalPath(profile) : ''
+    const dir = effectiveRepoPath(get())
     const gitInfo = dir ? await window.orca.gitInfo(dir) : { isRepo: false }
     set({ gitInfo })
   },
 
   async switchGitBranch(branch) {
-    const profile = activeProfile(get())
-    const dir = profile ? profileRepoLocalPath(profile) : ''
+    const dir = effectiveRepoPath(get())
     if (!dir) return false
 
     try {
@@ -485,6 +621,57 @@ export const useAppStore = create<AppState>((set, get) => ({
       await get().refreshGit().catch(() => undefined)
       return false
     }
+  },
+
+  async selectRepo(ref) {
+    const previous = get().activeRepo
+    if (ref && !ref.path.trim()) return
+
+    const previousRecents = get().recentRepos
+    let recentRepos = previousRecents
+    if (ref) {
+      const key = repoRefKey(ref.path)
+      const fromProfile = get().profiles.some((profile) => {
+        const profileRef = profileRepoRef(profile)
+        return profileRef ? repoRefKey(profileRef.path) === key : false
+      })
+      // Only manually chosen folders are remembered; profile repos already list.
+      if (!fromProfile) {
+        recentRepos = [
+          ref,
+          ...previousRecents.filter((entry) => repoRefKey(entry.path) !== key)
+        ].slice(0, 12)
+      }
+    }
+    const recentsChanged = recentRepos !== previousRecents
+
+    set({ activeRepo: ref, recentRepos })
+    try {
+      // Await the persist so the main process reads the same override before a
+      // subsequent team start resolves its working directory.
+      await window.orca.setConfig('workspaceRepo.active', ref)
+      if (recentsChanged) void window.orca.setConfig('workspaceRepo.recent', recentRepos)
+    } catch (error) {
+      set({ activeRepo: previous, recentRepos: previousRecents })
+      get().showToast(`Repository konnte nicht gewechselt werden: ${errorMessage(error)}`)
+      return
+    }
+
+    await get().refreshGit().catch((error) => {
+      get().showToast(`Git-Status nicht verfügbar: ${errorMessage(error)}`)
+    })
+    const path = effectiveRepoPath(get())
+    get().showToast(
+      ref
+        ? `Repository gewechselt: ${ref.label?.trim() || path || ref.path}`
+        : 'Repository folgt wieder dem aktiven Profil.'
+    )
+  },
+
+  async addRepoFromFolder() {
+    const dir = await window.orca.pickFolder()
+    if (!dir) return
+    await get().selectRepo({ path: dir })
   },
 
   async selectProfile(id) {
@@ -695,7 +882,13 @@ export const useAppStore = create<AppState>((set, get) => ({
           orchestrators: { ...state.orchestrators, [workspaceSessionId]: snapshot },
           selectedAgentId: null
         }))
-        get().showToast(`Workspace ${workspaceSessions.find((item) => item.id === workspaceSessionId)?.sequence ?? ''} gestartet.`)
+        const startedSession = workspaceSessions.find((item) => item.id === workspaceSessionId)
+        if (startedSession) {
+          const name = startedSession.name || middleEarthWorkspaceName(startedSession.sequence)
+          get().showToast(`W${startedSession.sequence} ${name} gestartet.`)
+        } else {
+          get().showToast('Workspace gestartet.')
+        }
       }
     } catch (error) {
       get().showToast(`Workspace konnte nicht starten: ${errorMessage(error)}`)
@@ -733,6 +926,36 @@ export const useAppStore = create<AppState>((set, get) => ({
     get().showToast('Workspace geleert — alle Agents entfernt.')
   },
 
+  async reviewPendingPlan(approved) {
+    const state = get()
+    const workspaceSessionId = state.activeWorkspaceSessionId ?? undefined
+    try {
+      const resolved = await window.orca.orchestrator.reviewPlan(
+        state.activeProfileId,
+        approved,
+        workspaceSessionId
+      )
+      if (!resolved) {
+        state.showToast('Kein Plan wartet mehr auf Freigabe.')
+        return
+      }
+      const snapshot = await window.orca.orchestrator.snapshot(
+        state.activeProfileId,
+        workspaceSessionId
+      )
+      set((current) => ({
+        orchestrator: snapshot,
+        orchestrators: {
+          ...current.orchestrators,
+          [snapshot.workspaceSessionId ?? state.activeProfileId]: snapshot
+        }
+      }))
+      get().showToast(approved ? 'Plan freigegeben.' : 'Plan abgelehnt.')
+    } catch (error) {
+      state.showToast(`Planfreigabe fehlgeschlagen: ${errorMessage(error)}`)
+    }
+  },
+
   openAddAgent() {
     set({ addAgentOpen: true })
   },
@@ -752,7 +975,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         modelPreset: selection.modelPreset,
         role: `Subagent · ${role}`,
         yolo: s.yoloMaster,
-        workingDir: profile ? profileRepoLocalPath(profile) : undefined,
+        workingDir: effectiveRepoPath(s) || undefined,
         profileId: profile?.id,
         workspaceSessionId: s.activeWorkspaceSessionId ?? undefined
       })
@@ -795,7 +1018,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const target = await window.orca.agents.handoff(req)
       set({ handoffSource: null })
-      get().showToast(`↪ Übergabe: ${source?.name ?? 'Agent'} → ${target.name}`)
+      get().showToast(
+        source?.kind === 'orchestrator'
+          ? `↪ Orchestrator-Übergabe gestartet: ${source.name} bleibt bis zur Bestätigung aktiv → ${target.name}`
+          : `↪ Übergabe: ${source?.name ?? 'Agent'} → ${target.name}`
+      )
     } catch (error) {
       get().showToast(`Übergabe fehlgeschlagen: ${errorMessage(error)}`)
     }
@@ -889,15 +1116,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   async deleteProfile(id) {
     const profile = get().profiles.find((item) => item.id === id)
     if (!profile) return
+    const wasLastProfile = get().profiles.length === 1
 
     try {
       const profiles = await window.orca.deleteProfile(id)
       const activeProfileId = await window.orca.getActiveProfileId()
       set({ profiles, activeProfileId, editorProfile: null })
       await get().refreshGit().catch(() => undefined)
-      const replacementCreated = !profiles.some((item) => item.id === id)
       get().showToast(
-        replacementCreated
+        wasLastProfile
           ? `Profil „${profile.name}" gelöscht. Das Standardprofil wurde wiederhergestellt.`
           : `Profil „${profile.name}" gelöscht.`
       )
@@ -912,6 +1139,18 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   closeMcpEditor() {
     set({ mcpEditorOpen: false })
+  },
+
+  openSpeechSettings() {
+    set({ speechSettingsOpen: true })
+  },
+
+  closeSpeechSettings() {
+    set({ speechSettingsOpen: false })
+  },
+
+  bumpSpeechStatus() {
+    set((state) => ({ speechStatusRevision: state.speechStatusRevision + 1 }))
   },
 
   async saveMcpServers(servers) {

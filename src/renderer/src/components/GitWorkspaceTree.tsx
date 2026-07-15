@@ -1,7 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { GithubAuthStatus, GitInfo, GitWorktreeInfo } from '@shared/ipc'
-import type { WorkspaceProfile } from '@shared/profile'
 import { githubAuthPresentation, hasUsableGithubAuth } from '@renderer/store/githubAuth'
 import {
   buildGitBranchTree,
@@ -11,7 +10,10 @@ import {
 } from '@renderer/gitWorkspaceTree'
 
 interface Props {
-  profile?: WorkspaceProfile
+  /** True once a repository (profile default or switcher override) is selected. */
+  repoBound: boolean
+  /** Label of the active repository shown in the popover header. */
+  repoLabel: string
   gitInfo: GitInfo | null
   githubAuth: GithubAuthStatus | null
 }
@@ -36,13 +38,13 @@ function emptyState(
     },
     'needs-binding': {
       icon: '⌁',
-      title: 'Repository noch nicht gebunden',
-      detail: 'Binde im Profil-Editor ein GitHub-Repository an dieses Workspace-Profil.'
+      title: 'Kein Repository ausgewählt',
+      detail: 'Wähle oben rechts im Repository-Umschalter ein Repository oder einen Ordner.'
     },
     'needs-repo': {
       icon: '⌂',
       title: 'Lokales Repository nicht verfügbar',
-      detail: 'Prüfe den gebundenen lokalen Pfad oder klone das Repository im Profil-Editor.'
+      detail: 'Prüfe den gewählten lokalen Pfad oder klone das Repository im Profil-Editor.'
     }
   }[gate]
 
@@ -84,11 +86,15 @@ function WorktreeRow({ worktree, root }: { worktree: GitWorktreeInfo; root?: str
   )
 }
 
-export default function GitWorkspaceTree({ profile, gitInfo, githubAuth }: Props): JSX.Element {
+export default function GitWorkspaceTree({
+  repoBound,
+  repoLabel,
+  gitInfo,
+  githubAuth
+}: Props): JSX.Element {
   const [open, setOpen] = useState(false)
   const [popoverPosition, setPopoverPosition] = useState({ left: 0, top: 0 })
   const anchorRef = useRef<HTMLDivElement>(null)
-  const repoBound = Boolean(profile?.githubRepo?.owner.trim() && profile.githubRepo.repo.trim())
   const gate = gitWorkspaceTreeGate({
     authResolved: githubAuth !== null,
     githubUsable: hasUsableGithubAuth(githubAuth),
@@ -167,11 +173,7 @@ export default function GitWorkspaceTree({ profile, gitInfo, githubAuth }: Props
             <header className="git-tree-headline">
               <span>
                 <strong>Branches &amp; Worktrees</strong>
-                <small>
-                  {profile?.githubRepo
-                    ? `${profile.githubRepo.owner}/${profile.githubRepo.repo}`
-                    : profile?.name ?? 'Workspace'}
-                </small>
+                <small>{repoLabel || 'Workspace'}</small>
               </span>
               <span className="git-tree-readonly">Nur Ansicht</span>
             </header>

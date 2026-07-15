@@ -4,6 +4,7 @@ import {
   INBOX_SPEECH_MAX_DURATION_MS,
   microphoneErrorMessage
 } from '@shared/inboxSpeech'
+import { useAppStore } from '@renderer/store/useAppStore'
 
 export interface VoiceIdeaDraft {
   title: string
@@ -40,6 +41,8 @@ export function useInboxSpeech(): UseInboxSpeechResult {
   const limitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const stopRecordingRef = useRef<() => Promise<void>>(async () => undefined)
 
+  const speechStatusRevision = useAppStore((state) => state.speechStatusRevision)
+
   const refreshStatus = useCallback(async (): Promise<void> => {
     const next = await window.orca.inboxSpeech.status()
     setStatus(next)
@@ -51,6 +54,15 @@ export function useInboxSpeech(): UseInboxSpeechResult {
     }, 0)
     return () => window.clearTimeout(timer)
   }, [refreshStatus])
+
+  // Refetch when settings are saved anywhere (sidebar, voice bar, inbox).
+  useEffect(() => {
+    if (speechStatusRevision === 0) return
+    const timer = window.setTimeout(() => {
+      void refreshStatus()
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [speechStatusRevision, refreshStatus])
 
   const cleanupStream = useCallback((): void => {
     if (limitTimerRef.current) {

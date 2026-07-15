@@ -1,11 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
 
+const mcp = vi.hoisted(() => ({
+  handle: null as null | { url: string; allowedTools: string[]; close(): Promise<void> }
+}))
+
 vi.mock('electron', () => ({ app: { getPath: () => '.' } }))
-vi.mock('@main/orchestrator/mcpHandle', () => ({ getMcpHandle: () => null }))
+vi.mock('@main/orchestrator/mcpHandle', () => ({ getMcpHandle: () => mcp.handle }))
 vi.mock('@main/orchestrator/externalMcp', () => ({ externalMcpSpecsFor: () => [] }))
 vi.mock('@main/orchestrator/promptOverlay', () => ({ getPromptOverlay: vi.fn(() => undefined) }))
 
-import { orchestratorSystemPrompt } from './orchestratorLaunch'
+import { buildOrchestratorSetup, orchestratorSystemPrompt } from './orchestratorLaunch'
 
 describe('orchestrator progress communication prompt', () => {
   it('requires detailed, truthful updates for coordinator and named workers', () => {
@@ -76,5 +80,27 @@ describe('orchestrator progress communication prompt', () => {
     expect(prompt).toContain('aktueller Aktion und Blocker')
     expect(prompt).toContain('Nächster Schritt')
     expect(prompt).toContain('erfinde keinen Fortschritt')
+  })
+
+  it('binds the concrete agent, workspace session and engine to the MCP URL', () => {
+    mcp.handle = {
+      url: 'http://127.0.0.1:1234/mcp?token=server-secret',
+      allowedTools: ['mcp__orca__get_handoff_context'],
+      close: async () => undefined
+    }
+
+    const setup = buildOrchestratorSetup(
+      'codex',
+      'Faramir',
+      'orch-target',
+      'session-1',
+      { engineId: 'engine-1' }
+    )
+    const args = setup.extraArgs.join(' ')
+
+    expect(args).toContain('agentId=orch-target')
+    expect(args).toContain('workspaceSession=session-1')
+    expect(args).toContain('engineId=engine-1')
+    mcp.handle = null
   })
 })

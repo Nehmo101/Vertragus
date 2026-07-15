@@ -224,10 +224,18 @@ export const DEFAULT_MODELS: Record<AgentProviderId, string[]> = {
   ]
 }
 
-/** Orca's safe range for its local, per-provider process gates. */
-export const PROVIDER_GATE_UNLIMITED = 0
-export const PROVIDER_GATE_MIN = PROVIDER_GATE_UNLIMITED
-export const PROVIDER_GATE_MAX = Number.MAX_SAFE_INTEGER
+/**
+ * Orca's safe range for its local, per-provider process gates. Gates are plain
+ * counts you raise/lower per provider — there is no "unlimited" sentinel. The
+ * minimum is 1 (a gate must allow at least one process); the maximum keeps the
+ * stepper in a sane range.
+ */
+export const PROVIDER_GATE_MIN = 1
+export const PROVIDER_GATE_MAX = 99
+
+/** Finite per-provider default gate. Generous enough for typical teams, and
+ * freely adjustable per provider in the Limits panel. */
+export const DEFAULT_PROVIDER_GATE = 8
 
 /**
  * Default per-provider concurrency gates — how many agents of a given provider
@@ -236,11 +244,11 @@ export const PROVIDER_GATE_MAX = Number.MAX_SAFE_INTEGER
  * the Limits panel, and persisted under the `providerLimits` config key.
  */
 export const DEFAULT_PROVIDER_LIMITS: Record<AgentProviderId, number> = {
-  claude: PROVIDER_GATE_UNLIMITED,
-  codex: PROVIDER_GATE_UNLIMITED,
-  cursor: PROVIDER_GATE_UNLIMITED,
-  copilot: PROVIDER_GATE_UNLIMITED,
-  ollama: PROVIDER_GATE_UNLIMITED
+  claude: DEFAULT_PROVIDER_GATE,
+  codex: DEFAULT_PROVIDER_GATE,
+  cursor: DEFAULT_PROVIDER_GATE,
+  copilot: DEFAULT_PROVIDER_GATE,
+  ollama: DEFAULT_PROVIDER_GATE
 }
 
 export type ProviderLimits = Record<AgentProviderId, number>

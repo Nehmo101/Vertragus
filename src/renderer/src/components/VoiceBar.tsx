@@ -1,5 +1,6 @@
 import type { AgentInstanceInfo } from '@shared/agents'
 import { useInboxSpeech } from '@renderer/hooks/useInboxSpeech'
+import { useAppStore } from '@renderer/store/useAppStore'
 
 const STATE_LABEL = {
   idle: 'Bereit',
@@ -11,6 +12,8 @@ const STATE_LABEL = {
 
 export default function VoiceBar({ agent }: { agent?: AgentInstanceInfo }): JSX.Element {
   const speech = useInboxSpeech()
+  const openSpeechSettings = useAppStore((state) => state.openSpeechSettings)
+  const configured = speech.status?.configured ?? false
   const available = Boolean(agent && (agent.status === 'running' || agent.status === 'waiting'))
   const text = speech.voiceDraft?.content ?? ''
 
@@ -34,8 +37,8 @@ export default function VoiceBar({ agent }: { agent?: AgentInstanceInfo }): JSX.
         disabled={!available || speech.state === 'review'}
         aria-pressed={speech.state === 'recording'}
         title={
-          !speech.status?.configured
-            ? 'STT-Zugang zuerst in der Ideen-Inbox konfigurieren'
+          !configured
+            ? 'STT-Zugang zuerst über ⚙ einrichten'
             : speech.state === 'recording'
               ? 'Aufnahme beenden'
               : 'Push-to-talk starten'
@@ -43,6 +46,15 @@ export default function VoiceBar({ agent }: { agent?: AgentInstanceInfo }): JSX.
         onClick={() => void speech.toggleRecording()}
       >
         {speech.state === 'recording' ? '■ Stop' : speech.state === 'transcribing' ? '× Abbrechen' : '● Aufnehmen'}
+      </button>
+      <button
+        type="button"
+        className={`voice-settings ${configured ? '' : 'unconfigured'}`}
+        title="Sprache-zu-Text einrichten (API-Schlüssel, Modell, Sprache)"
+        aria-label="Sprache-zu-Text-Einstellungen öffnen"
+        onClick={() => openSpeechSettings()}
+      >
+        ⚙
       </button>
       {speech.voiceDraft && (
         <div className="voice-review">
@@ -62,7 +74,20 @@ export default function VoiceBar({ agent }: { agent?: AgentInstanceInfo }): JSX.
           </button>
         </div>
       )}
-      {speech.error && <span className="voice-error" role="alert">{speech.error}</span>}
+      {speech.error &&
+        (configured ? (
+          <span className="voice-error" role="alert">{speech.error}</span>
+        ) : (
+          <button
+            type="button"
+            className="voice-error voice-error-action"
+            role="alert"
+            title="Einstellungen öffnen und API-Schlüssel hinterlegen"
+            onClick={() => openSpeechSettings()}
+          >
+            {speech.error} — jetzt einrichten
+          </button>
+        ))}
     </section>
   )
 }

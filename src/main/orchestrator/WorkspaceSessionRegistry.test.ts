@@ -31,6 +31,9 @@ vi.mock('@main/orchestrator/Engine', () => ({
     reviewPlan(): boolean {
       return true
     }
+    setPlannerMode(): boolean {
+      return true
+    }
     enableAutoMode(): boolean {
       return true
     }
@@ -53,6 +56,8 @@ describe('WorkspaceSessionRegistry', () => {
     const second = registry.start(DEFAULT_PROFILE)
 
     expect(first.id).not.toBe(second.id)
+    expect(first.name).toBe('Minas Tirith')
+    expect(second.name).toBe('Minas Morgul')
     expect(registry.list(DEFAULT_PROFILE.id)).toHaveLength(2)
     expect(registry.list(DEFAULT_PROFILE.id).find((session) => session.active)?.id).toBe(second.id)
 
@@ -68,7 +73,26 @@ describe('WorkspaceSessionRegistry', () => {
     registry.removeSession(first.id)
     expect(registry.getByProfile(DEFAULT_PROFILE.id)?.id).toBe(second.id)
     expect(registry.list(DEFAULT_PROFILE.id)).toEqual([
-      expect.objectContaining({ id: second.id, sequence: 2, active: true })
+      expect.objectContaining({
+        id: second.id,
+        sequence: 2,
+        name: 'Minas Morgul',
+        active: true
+      })
+    ])
+  })
+
+  it('derives a name when reading a legacy session without a persisted name', () => {
+    const registry = new WorkspaceSessionRegistry()
+    const legacySession = registry.start(DEFAULT_PROFILE)
+    delete (legacySession as { name?: string }).name
+
+    expect(registry.list(DEFAULT_PROFILE.id)).toEqual([
+      expect.objectContaining({
+        id: legacySession.id,
+        sequence: 1,
+        name: 'Minas Tirith'
+      })
     ])
   })
 })

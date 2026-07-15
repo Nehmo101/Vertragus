@@ -1,11 +1,18 @@
 import { useEffect, useState } from 'react'
-import { useAppStore, workspaceAgentHistory } from '@renderer/store/useAppStore'
+import {
+  useAppStore,
+  workspaceAgentHistory,
+  workspaceUserAttention,
+  type WorkspaceUserAttention
+} from '@renderer/store/useAppStore'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import { profileSummary, profileAgentCount } from '@renderer/components/TitleBar'
 import { githubAuthPresentation, hasUsableGithubAuth } from '@renderer/store/githubAuth'
 import type { AgentProviderId, ProviderHealth, ProviderId } from '@shared/providers'
 import type { RetroSyncStatus } from '@shared/retroSync'
+import type { InboxSpeechStatus } from '@shared/inboxSpeech'
 import { MCP_SCOPE_LABELS, MCP_TRANSPORT_LABELS } from '@shared/mcp'
+import { middleEarthWorkspaceName } from '@shared/workspaceNames'
 
 interface RowStatus {
   label: string
@@ -332,6 +339,69 @@ function RetroSyncRow(): JSX.Element {
   )
 }
 
+function SpeechRow(): JSX.Element {
+  const store = useAppStore()
+  const revision = store.speechStatusRevision
+  const [status, setStatus] = useState<InboxSpeechStatus | undefined>()
+
+  useEffect(() => {
+    let cancelled = false
+    void window.orca.inboxSpeech
+      .status()
+      .then((next) => {
+        if (!cancelled) setStatus(next)
+      })
+      .catch(() => {
+        // Status ist rein informativ; Fehler blockieren die Sidebar nicht.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [revision])
+
+  const configured = Boolean(status?.configured)
+  const dot = configured ? 'var(--run)' : 'var(--wait)'
+  const detail = status
+    ? configured
+      ? `Modell ${status.model} · ${status.language}`
+      : 'Kein API-Schlüssel hinterlegt'
+    : '…'
+
+  return (
+    <div className="provider-row">
+      <span className="chip sz-26" style={{ background: 'var(--sage)', color: '#10221a' }}>
+        🎙
+      </span>
+      <div className="info">
+        <div className="name" title="Sprache-zu-Text für Voice-Leiste und Ideen-Inbox">
+          Sprachsteuerung
+        </div>
+        <div className="detail" title={detail}>
+          {detail}
+        </div>
+      </div>
+      <span className="status-wrap">
+        <span className="status-dot" style={{ background: dot, boxShadow: `0 0 7px ${dot}` }} />
+        <span
+          className="status-label"
+          style={{ color: configured ? 'var(--run-text)' : 'var(--wait-text)' }}
+        >
+          {configured ? 'Bereit' : 'Kein Schlüssel'}
+        </span>
+      </span>
+      <button
+        type="button"
+        className="provider-login-btn"
+        title="Sprache-zu-Text einrichten (API-Schlüssel, Modell, Sprache)"
+        aria-label="Sprache-zu-Text-Einstellungen öffnen"
+        onClick={() => store.openSpeechSettings()}
+      >
+        {configured ? 'Konto' : 'Einrichten'}
+      </button>
+    </div>
+  )
+}
+
 function useHashRoute(): string {
   const [hash, setHash] = useState(() => window.location.hash)
   useEffect(() => {
@@ -342,8 +412,26 @@ function useHashRoute(): string {
   return hash
 }
 
-export default function Sidebar(): JSX.Element {
-  const store = useAppStore()
+export const SIDEBAR_SECTION_ORDER = [
+  'workspace-profiles',
+  'profile-workspaces',
+  'navigation',
+  'mcp',
+  'ai-providers',
+  'infrastructure'
+] as const
+
+type SidebarSectionId = (typeof SIDEBAR_SECTION_ORDER)[number]
+
+function attentionText(attention: WorkspaceUserAttention): string {
+  return attention.source === 'orchestrator'
+    ? 'Orchestrator wartet auf deine Rückmeldung.'
+    : `${attention.agentName ?? 'Ein Subagent'} wartet auf deine Rückmeldung.`
+}
+
+type SidebarStore = ReturnType<typeof useAppStore.getState>
+
+export function SidebarView({ store }: { store: SidebarStore }): JSX.Element {
   const hash = useHashRoute()
   const aiIds: ProviderId[] = ['claude', 'codex', 'cursor', 'copilot', 'ollama']
   const onlineCount = aiIds.filter(
@@ -356,264 +444,304 @@ export default function Sidebar(): JSX.Element {
   }
   const agentHistory = workspaceAgentHistory(store)
 
+  const sections: Record<SidebarSectionId, JSX.Element> = {
+    'workspace-profiles': (
+      <section key="workspace-profiles" data-sidebar-section="workspace-profiles">
+        <div className="side-caption" style={{ paddingTop: 10 }}>
+          <span>Workspace-Profile</span>
+          <button type="button" className="icon-btn-sm" title="Neues Profil" aria-label="Neues Workspace-Profil" onClick={store.openEditorNew}>
+            ＋
+          </button>
+          {store.profiles.find((profile) => profile.id === store.activeProfileId) && (
+            <>
+              <button
+                type="button"
+                className="icon-btn-sm"
+                title="Aktives Profil kopieren"
+                aria-label="Aktives Workspace-Profil kopieren"
+                onClick={() => {
+                  const profile = store.profiles.find((item) => item.id === store.activeProfileId)
+                  if (profile) store.openEditorCopy(profile)
+                }}
+              >
+                ⧉
+              </button>
+              <button
+                type="button"
+                className="icon-btn-sm"
+                title="Weiteren Workspace aus diesem Profil starten"
+                aria-label="Weiteren Workspace starten"
+                onClick={() => void store.startAll()}
+              >
+                ▶
+              </button>
+            </>
+          )}
+        </div>
+        <div className="side-list" style={{ paddingBottom: 14 }}>
+          {store.profiles.map((profile) => {
+            const attention = workspaceUserAttention(store, profile.id)
+            const attentionLabel = attention ? attentionText(attention) : undefined
+            return (
+              <button
+                type="button"
+                key={profile.id}
+                className={`profile-row ${profile.id === store.activeProfileId ? 'active' : ''} ${attention ? 'workspace-needs-user-attention' : ''}`}
+                data-user-attention={attention?.source}
+                onClick={() => void store.selectProfile(profile.id)}
+                onDoubleClick={() => store.openEditor(profile)}
+                title={`Klick: aktivieren · Doppelklick: bearbeiten${attentionLabel ? ` · ${attentionLabel}` : ''}`}
+                aria-label={attentionLabel ? `${profile.name}. ${attentionLabel}` : undefined}
+                aria-pressed={profile.id === store.activeProfileId}
+              >
+                <span className="profile-rail" />
+                <div className="info">
+                  <div className="name">{profile.name}</div>
+                  <div className="summary">{profileSummary(profile)}</div>
+                </div>
+                {attention && <span className="workspace-attention-indicator" aria-hidden="true" />}
+                <span className={`profile-count ${runningByProfile.has(profile.id) ? 'running' : ''}`}>
+                  {runningByProfile.has(profile.id)
+                    ? `${runningByProfile.get(profile.id)} aktiv`
+                    : profileAgentCount(profile)}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+        <div className="side-sep" />
+      </section>
+    ),
+    'profile-workspaces': (
+      <section key="profile-workspaces" data-sidebar-section="profile-workspaces">
+        <div className="side-caption workspace-session-caption">
+          <span>Profil-Workspaces</span>
+        </div>
+        <div className="side-list workspace-session-list">
+          {store.workspaceSessions
+            .filter((session) => session.profileId === store.activeProfileId)
+            .map((session) => {
+              const running = store.agents.filter(
+                (agent) =>
+                  agent.workspaceSessionId === session.id &&
+                  (agent.status === 'running' || agent.status === 'waiting')
+              ).length
+              const name = session.name || middleEarthWorkspaceName(session.sequence)
+              const label = `W${session.sequence} ${name}`
+              const attention = workspaceUserAttention(store, session.profileId, session.id)
+              const attentionLabel = attention ? attentionText(attention) : undefined
+              return (
+                <div className="workspace-session-row" key={session.id}>
+                  <button
+                    type="button"
+                    className={`workspace-session-select ${session.id === store.activeWorkspaceSessionId ? 'active' : ''} ${attention ? 'workspace-needs-user-attention' : ''}`}
+                    data-user-attention={attention?.source}
+                    title={attentionLabel}
+                    aria-label={`${label}${attentionLabel ? `. ${attentionLabel}` : ''}`}
+                    onClick={() => void store.selectWorkspaceSession(session.profileId, session.id)}
+                  >
+                    <span>{label}</span>
+                    {attention && <span className="workspace-attention-indicator" aria-hidden="true" />}
+                    <small>{running > 0 ? `${running} aktiv` : 'inaktiv'}</small>
+                  </button>
+                  <button
+                    type="button"
+                    className="workspace-session-remove"
+                    title="Diesen Workspace-Lauf entfernen"
+                    aria-label={`${label} entfernen`}
+                    onClick={() => void store.removeWorkspaceSession(session.profileId, session.id)}
+                  >
+                    ×
+                  </button>
+                </div>
+              )
+            })}
+        </div>
+        {agentHistory.length > 0 && (
+          <>
+            <div className="side-caption agent-history-caption" style={{ paddingTop: 10 }}>
+              <span>Agent-Verlauf</span>
+              <span className="agent-history-count">{agentHistory.length} gespeichert</span>
+            </div>
+            <div className="side-list agent-history-list">
+              {agentHistory.map((agent) => {
+                const provider = PROVIDER_THEME[agent.provider]
+                const failed = agent.status === 'error'
+                return (
+                  <button
+                    type="button"
+                    key={agent.id}
+                    className={`agent-history-row ${store.reopenedAgentIds.includes(agent.id) ? 'open' : ''}`}
+                    title={`${agent.role} - Chat wieder aufrufen`}
+                    onClick={() => {
+                      store.reopenAgent(agent.id)
+                      window.location.hash = ''
+                    }}
+                  >
+                    <span className="chip sz-26" style={{ background: provider.bg, color: provider.fg }}>
+                      {provider.mono}
+                    </span>
+                    <span className="agent-history-info">
+                      <span className="agent-history-name">{agent.name}</span>
+                      <span className="agent-history-role">{agent.role}</span>
+                    </span>
+                    <span className={`agent-history-status ${failed ? 'failed' : 'done'}`}>
+                      {failed ? 'Fehler' : 'Beendet'}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </>
+        )}
+        <div className="side-sep" />
+      </section>
+    ),
+    navigation: (
+      <section key="navigation" data-sidebar-section="navigation">
+        <div className="side-caption" style={{ paddingTop: 10 }}>
+          <span>Navigation</span>
+        </div>
+        <div className="side-list" style={{ paddingBottom: 8 }}>
+          <button
+            type="button"
+            className={`nav-row ${hash === '#/inbox' ? 'active' : ''}`}
+            onClick={() => {
+              window.location.hash = '#/inbox'
+            }}
+            title="Ideen und Artefakte verwalten"
+          >
+            <span className="nav-icon">📥</span>
+            <div className="info">
+              <div className="name">Ideen-Inbox</div>
+              <div className="summary">Notizen · Sprache · Dateien</div>
+            </div>
+          </button>
+          <button
+            type="button"
+            className={`nav-row ${hash !== '#/inbox' ? 'active' : ''}`}
+            onClick={() => {
+              window.location.hash = ''
+            }}
+            title="Agent-Workspace"
+          >
+            <span className="nav-icon">▦</span>
+            <div className="info">
+              <div className="name">Workspace</div>
+              <div className="summary">Agents &amp; Terminals</div>
+            </div>
+          </button>
+          <button
+            type="button"
+            className="nav-row"
+            onClick={() => void store.exportDiagnostics()}
+            title="Letzten redigierten Workspace-Run als JSONL exportieren"
+          >
+            <span className="nav-icon">⇩</span>
+            <div className="info">
+              <div className="name">Diagnose exportieren</div>
+              <div className="summary">Run-Historie · ohne Secrets</div>
+            </div>
+          </button>
+        </div>
+        <div className="side-sep" />
+      </section>
+    ),
+    mcp: (
+      <section key="mcp" data-sidebar-section="mcp">
+        <div className="side-caption" style={{ paddingTop: 14 }}>
+          <span>MCP-Server</span>
+          <button
+            type="button"
+            className="icon-btn-sm"
+            title="MCP-Server verwalten — für alle Agents sichtbar"
+            aria-label="MCP-Server verwalten"
+            onClick={store.openMcpEditor}
+          >
+            ⚙
+          </button>
+        </div>
+        <div className="side-list">
+          {store.mcpServers.length === 0 ? (
+            <button
+              type="button"
+              className="mcp-empty-row"
+              title="MCP-Server hinzufügen, die alle Agents sehen und nutzen können"
+              onClick={store.openMcpEditor}
+            >
+              ＋ MCP-Server anbinden
+            </button>
+          ) : (
+            store.mcpServers.map((server) => (
+              <button
+                type="button"
+                key={server.id}
+                className="mcp-row"
+                title={`${MCP_TRANSPORT_LABELS[server.transport]} · ${MCP_SCOPE_LABELS[server.scope]}${server.enabled ? '' : ' · inaktiv'}`}
+                onClick={store.openMcpEditor}
+              >
+                <span
+                  className="status-dot"
+                  style={{
+                    background: server.enabled ? '#3fd17a' : '#5a6b78',
+                    boxShadow: server.enabled ? '0 0 7px #3fd17a' : 'none'
+                  }}
+                />
+                <span className="mcp-row-name">{server.name}</span>
+                <span className="mcp-row-tag">{server.transport}</span>
+              </button>
+            ))
+          )}
+        </div>
+        <div className="side-sep" />
+      </section>
+    ),
+    'ai-providers': (
+      <section key="ai-providers" data-sidebar-section="ai-providers">
+        <div className="side-caption">
+          <span>KI-Provider</span>
+          <button
+            type="button"
+            className="provider-refresh-btn"
+            title="Installation und Login-Status aller Provider neu prüfen"
+            aria-label="Provider-Status aktualisieren"
+            onClick={() => void store.refreshHealth()}
+          >
+            ↻
+          </button>
+          <span className="online-pill">{onlineCount} online</span>
+        </div>
+        <div className="side-list">
+          {aiIds.map((id) => (
+            <ProviderRow key={id} id={id} />
+          ))}
+        </div>
+        <div className="side-sep" />
+      </section>
+    ),
+    infrastructure: (
+      <section key="infrastructure" data-sidebar-section="infrastructure">
+        <div className="side-caption" style={{ paddingTop: 14 }}>
+          <span>Infrastruktur</span>
+        </div>
+        <div className="side-list">
+          <GithubRow />
+          <RetroSyncRow />
+          <SpeechRow />
+          <ProviderRow id="cloudflare" />
+        </div>
+      </section>
+    )
+  }
 
   return (
     <aside className="sidebar">
-      <div className="side-caption">
-        <span>KI-Provider</span>
-        <button
-          type="button"
-          className="provider-refresh-btn"
-          title="Installation und Login-Status aller Provider neu prüfen"
-          aria-label="Provider-Status aktualisieren"
-          onClick={() => void store.refreshHealth()}
-        >
-          ↻
-        </button>
-        <span className="online-pill">{onlineCount} online</span>
-      </div>
-      <div className="side-list">
-        {aiIds.map((id) => (
-          <ProviderRow key={id} id={id} />
-        ))}
-      </div>
-
-      <div className="side-caption" style={{ paddingTop: 14 }}>
-        <span>Infrastruktur</span>
-      </div>
-      <div className="side-list">
-        <GithubRow />
-        <RetroSyncRow />
-        <ProviderRow id="cloudflare" />
-      </div>
-
-      <div className="side-caption" style={{ paddingTop: 14 }}>
-        <span>MCP-Server</span>
-        <button
-          type="button"
-          className="icon-btn-sm"
-          title="MCP-Server verwalten — für alle Agents sichtbar"
-          aria-label="MCP-Server verwalten"
-          onClick={store.openMcpEditor}
-        >
-          ⚙
-        </button>
-      </div>
-      <div className="side-list">
-        {store.mcpServers.length === 0 ? (
-          <button
-            type="button"
-            className="mcp-empty-row"
-            title="MCP-Server hinzufügen, die alle Agents sehen und nutzen können"
-            onClick={store.openMcpEditor}
-          >
-            ＋ MCP-Server anbinden
-          </button>
-        ) : (
-          store.mcpServers.map((server) => (
-            <button
-              type="button"
-              key={server.id}
-              className="mcp-row"
-              title={`${MCP_TRANSPORT_LABELS[server.transport]} · ${MCP_SCOPE_LABELS[server.scope]}${server.enabled ? '' : ' · inaktiv'}`}
-              onClick={store.openMcpEditor}
-            >
-              <span
-                className="status-dot"
-                style={{
-                  background: server.enabled ? '#3fd17a' : '#5a6b78',
-                  boxShadow: server.enabled ? '0 0 7px #3fd17a' : 'none'
-                }}
-              />
-              <span className="mcp-row-name">{server.name}</span>
-              <span className="mcp-row-tag">{server.transport}</span>
-            </button>
-          ))
-        )}
-      </div>
-
-      <div className="side-sep" />
-
-      <div className="side-caption" style={{ paddingTop: 10 }}>
-        <span>Navigation</span>
-      </div>
-      <div className="side-list" style={{ paddingBottom: 8 }}>
-        <button
-          type="button"
-          className={`nav-row ${hash === '#/inbox' ? 'active' : ''}`}
-          onClick={() => {
-            window.location.hash = '#/inbox'
-          }}
-          title="Ideen und Artefakte verwalten"
-        >
-          <span className="nav-icon">📥</span>
-          <div className="info">
-            <div className="name">Ideen-Inbox</div>
-            <div className="summary">Notizen · Sprache · Dateien</div>
-          </div>
-        </button>
-        <button
-          type="button"
-          className={`nav-row ${hash !== '#/inbox' ? 'active' : ''}`}
-          onClick={() => {
-            window.location.hash = ''
-          }}
-          title="Agent-Workspace"
-        >
-          <span className="nav-icon">▦</span>
-          <div className="info">
-            <div className="name">Workspace</div>
-            <div className="summary">Agents &amp; Terminals</div>
-          </div>
-        </button>
-        <button
-          type="button"
-          className="nav-row"
-          onClick={() => void store.exportDiagnostics()}
-          title="Letzten redigierten Workspace-Run als JSONL exportieren"
-        >
-          <span className="nav-icon">⇩</span>
-          <div className="info">
-            <div className="name">Diagnose exportieren</div>
-            <div className="summary">Run-Historie · ohne Secrets</div>
-          </div>
-        </button>
-      </div>
-
-      <div className="side-sep" />
-      {agentHistory.length > 0 && (
-        <>
-          <div className="side-caption agent-history-caption" style={{ paddingTop: 10 }}>
-            <span>Agent-Verlauf</span>
-            <span className="agent-history-count">{agentHistory.length} gespeichert</span>
-          </div>
-          <div className="side-list agent-history-list">
-            {agentHistory.map((agent) => {
-              const provider = PROVIDER_THEME[agent.provider]
-              const failed = agent.status === 'error'
-              return (
-                <button
-                  type="button"
-                  key={agent.id}
-                  className={`agent-history-row ${store.reopenedAgentIds.includes(agent.id) ? 'open' : ''}`}
-                  title={`${agent.role} - Chat wieder aufrufen`}
-                  onClick={() => {
-                    store.reopenAgent(agent.id)
-                    window.location.hash = ''
-                  }}
-                >
-                  <span className="chip sz-26" style={{ background: provider.bg, color: provider.fg }}>
-                    {provider.mono}
-                  </span>
-                  <span className="agent-history-info">
-                    <span className="agent-history-name">{agent.name}</span>
-                    <span className="agent-history-role">{agent.role}</span>
-                  </span>
-                  <span className={`agent-history-status ${failed ? 'failed' : 'done'}`}>
-                    {failed ? 'Fehler' : 'Beendet'}
-                  </span>
-                </button>
-              )
-            })}
-          </div>
-          <div className="side-sep" />
-        </>
-      )}
-
-      <div className="side-caption" style={{ paddingTop: 10 }}>
-        <span>Workspace-Profile</span>
-        <button type="button" className="icon-btn-sm" title="Neues Profil" aria-label="Neues Workspace-Profil" onClick={store.openEditorNew}>
-          ＋
-        </button>
-        {store.profiles.find((profile) => profile.id === store.activeProfileId) && (
-          <>
-            <button
-              type="button"
-              className="icon-btn-sm"
-              title="Aktives Profil kopieren"
-              aria-label="Aktives Workspace-Profil kopieren"
-              onClick={() => {
-                const profile = store.profiles.find((item) => item.id === store.activeProfileId)
-                if (profile) store.openEditorCopy(profile)
-              }}
-            >
-              ⧉
-            </button>
-            <button
-              type="button"
-              className="icon-btn-sm"
-              title="Weiteren Workspace aus diesem Profil starten"
-              aria-label="Weiteren Workspace starten"
-              onClick={() => void store.startAll()}
-            >
-              ▶
-            </button>
-          </>
-        )}
-      </div>
-      <div className="side-list" style={{ paddingBottom: 14 }}>
-        {store.profiles.map((p) => (
-          <button
-            type="button"
-            key={p.id}
-            className={`profile-row ${p.id === store.activeProfileId ? 'active' : ''}`}
-            onClick={() => void store.selectProfile(p.id)}
-            onDoubleClick={() => store.openEditor(p)}
-            title="Klick: aktivieren · Doppelklick: bearbeiten"
-            aria-pressed={p.id === store.activeProfileId}
-          >
-            <span className="profile-rail" />
-            <div className="info">
-              <div className="name">{p.name}</div>
-              <div className="summary">{profileSummary(p)}</div>
-            </div>
-            <span className={`profile-count ${runningByProfile.has(p.id) ? 'running' : ''}`}>
-              {runningByProfile.has(p.id)
-                ? `${runningByProfile.get(p.id)} aktiv`
-                : profileAgentCount(p)}
-            </span>
-          </button>
-        ))}
-      </div>
-      {store.workspaceSessions.some((session) => session.profileId === store.activeProfileId) && (
-        <>
-          <div className="side-caption workspace-session-caption">
-            <span>Profil-Workspaces</span>
-          </div>
-          <div className="side-list workspace-session-list">
-            {store.workspaceSessions
-              .filter((session) => session.profileId === store.activeProfileId)
-              .map((session) => {
-                const running = store.agents.filter(
-                  (agent) =>
-                    agent.workspaceSessionId === session.id &&
-                    (agent.status === 'running' || agent.status === 'waiting')
-                ).length
-                return (
-                  <div className="workspace-session-row" key={session.id}>
-                    <button
-                      type="button"
-                      className={`workspace-session-select ${session.id === store.activeWorkspaceSessionId ? 'active' : ''}`}
-                      onClick={() => void store.selectWorkspaceSession(session.profileId, session.id)}
-                    >
-                      <span>Workspace {session.sequence}</span>
-                      <small>{running > 0 ? `${running} aktiv` : 'inaktiv'}</small>
-                    </button>
-                    <button
-                      type="button"
-                      className="workspace-session-remove"
-                      title="Diesen Workspace-Lauf entfernen"
-                      aria-label={`Workspace ${session.sequence} entfernen`}
-                      onClick={() => void store.removeWorkspaceSession(session.profileId, session.id)}
-                    >
-                      ×
-                    </button>
-                  </div>
-                )
-              })}
-          </div>
-        </>
-      )}
+      {SIDEBAR_SECTION_ORDER.map((section) => sections[section])}
     </aside>
   )
+}
+
+export default function Sidebar(): JSX.Element {
+  const store = useAppStore()
+  return <SidebarView store={store} />
 }

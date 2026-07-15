@@ -2,9 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Idea, IdeaArtifact, IdeaStatus } from '@shared/inbox'
 import { IDEA_STATUSES } from '@shared/inbox'
 import { isTransferActive } from '@shared/inboxTransfer'
-import type { InboxSpeechSettings } from '@shared/inboxSpeech'
-import { DEFAULT_TRANSCRIPTION_ENDPOINT, DEFAULT_TRANSCRIPTION_MODEL } from '@shared/inboxSpeech'
 import { useInboxSpeech } from '@renderer/hooks/useInboxSpeech'
+import { useAppStore } from '@renderer/store/useAppStore'
 import IdeaTransferModal from '@renderer/components/IdeaTransferModal'
 import PromptEnhancementReview from '@renderer/components/PromptEnhancementReview'
 import type { PromptEnhancementIpcResult, PromptEnhancementSelection } from '@shared/promptEnhancement'
@@ -92,127 +91,9 @@ function ArtifactRow({
   )
 }
 
-function InboxSpeechSettingsPanel({
-  open,
-  onClose,
-  onSaved
-}: {
-  open: boolean
-  onClose: () => void
-  onSaved: () => void
-}): JSX.Element | null {
-  const [settings, setSettings] = useState<InboxSpeechSettings | null>(null)
-  const [model, setModel] = useState(DEFAULT_TRANSCRIPTION_MODEL)
-  const [language, setLanguage] = useState('de')
-  const [endpointUrl, setEndpointUrl] = useState(DEFAULT_TRANSCRIPTION_ENDPOINT)
-  const [apiKey, setApiKey] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    if (!open) return
-    void window.orca.inboxSpeech.getSettings().then((s) => {
-      setSettings(s)
-      setModel(s.model)
-      setLanguage(s.language)
-      setEndpointUrl(s.endpointUrl)
-      setApiKey('')
-      setError('')
-    })
-  }, [open])
-
-  if (!open) return null
-
-  const save = async (): Promise<void> => {
-    setSaving(true)
-    setError('')
-    try {
-      await window.orca.inboxSpeech.setSettings({
-        model,
-        language,
-        endpointUrl,
-        ...(apiKey ? { apiKey } : {})
-      })
-      setApiKey('')
-      onSaved()
-      onClose()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const clearKey = async (): Promise<void> => {
-    setSaving(true)
-    setError('')
-    try {
-      await window.orca.inboxSpeech.setSettings({ apiKey: '' })
-      setApiKey('')
-      onSaved()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <>
-      <div className="confirm-backdrop" onClick={onClose} />
-      <div className="confirm-pop inbox-speech-settings" role="dialog" aria-modal="true">
-        <div className="head">
-          <b>Sprache-zu-Text (Cloud)</b>
-        </div>
-        <div className="text">
-          API-Schlüssel wird verschlüsselt im Main-Prozess gespeichert und nie an den Renderer
-          zurückgegeben.
-        </div>
-        <label className="inbox-field">
-          <span>Modell</span>
-          <input value={model} onChange={(e) => setModel(e.target.value)} />
-        </label>
-        <label className="inbox-field">
-          <span>Sprache</span>
-          <input value={language} onChange={(e) => setLanguage(e.target.value)} />
-        </label>
-        <label className="inbox-field">
-          <span>Transcriptions-Endpunkt</span>
-          <input value={endpointUrl} onChange={(e) => setEndpointUrl(e.target.value)} />
-        </label>
-        <label className="inbox-field">
-          <span>
-            API-Schlüssel {settings?.hasApiKey ? '(gespeichert — leer lassen zum Behalten)' : ''}
-          </span>
-          <input
-            type="password"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder={settings?.hasApiKey ? '••••••••' : 'sk-…'}
-            autoComplete="off"
-          />
-        </label>
-        {error && <div className="inbox-error">{error}</div>}
-        <div className="actions">
-          {settings?.hasApiKey && (
-            <button type="button" className="btn-ghost" disabled={saving} onClick={() => void clearKey()}>
-              Schlüssel löschen
-            </button>
-          )}
-          <button type="button" className="btn-ghost" onClick={onClose}>
-            Abbrechen
-          </button>
-          <button type="button" className="btn-primary" disabled={saving} onClick={() => void save()}>
-            Speichern
-          </button>
-        </div>
-      </div>
-    </>
-  )
-}
-
 export default function InboxPanel(): JSX.Element {
   const speech = useInboxSpeech()
+  const openSpeechSettings = useAppStore((state) => state.openSpeechSettings)
   const [ideas, setIdeas] = useState<Idea[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [draft, setDraft] = useState<Idea | null>(null)
@@ -222,7 +103,6 @@ export default function InboxPanel(): JSX.Element {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [urlInput, setUrlInput] = useState('')
   const [textInput, setTextInput] = useState('')
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const [transferOpen, setTransferOpen] = useState(false)
   const [promptSession, setPromptSession] = useState<PromptEnhancementSession>(
     INITIAL_PROMPT_ENHANCEMENT_SESSION
@@ -601,7 +481,7 @@ export default function InboxPanel(): JSX.Element {
             type="button"
             className="inbox-btn ghost sm"
             title="Cloud-STT Einstellungen"
-            onClick={() => setSettingsOpen(true)}
+            onClick={() => openSpeechSettings()}
           >
             ⚙ STT
           </button>
@@ -766,7 +646,7 @@ export default function InboxPanel(): JSX.Element {
 
               {draft.transfer && (
                 <div className={`inbox-transfer-status status-${draft.transfer.status}`}>
-                  Übergabe {TRANSFER_STATUS_LABEL[draft.transfer.status] ?? draft.transfer.status}
+                  {TRANSFER_STATUS_LABEL[draft.transfer.status] ?? draft.transfer.status}
                   {draft.transfer.error && ` — ${draft.transfer.error}`}
                   {draft.transfer.planId && ` · Plan ${draft.transfer.planId}`}
                   <button
@@ -775,7 +655,7 @@ export default function InboxPanel(): JSX.Element {
                     disabled={saving}
                     onClick={() => void resetTransfer()}
                   >
-                    Zuruecksetzen
+                    Zurücksetzen
                   </button>
                 </div>
               )}
@@ -922,12 +802,6 @@ export default function InboxPanel(): JSX.Element {
           )}
         </section>
       </div>
-
-      <InboxSpeechSettingsPanel
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        onSaved={() => void speech.refreshStatus()}
-      />
 
       {transferOpen && draft && (
         <IdeaTransferModal

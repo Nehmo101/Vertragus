@@ -116,6 +116,8 @@ const orca: OrcaApi = {
       ipcRenderer.invoke(IPC.orchestratorReset, profileId, workspaceSessionId),
     enableAutoMode: (profileId, workspaceSessionId) =>
       ipcRenderer.invoke(IPC.orchestratorEnableAutoMode, profileId, workspaceSessionId),
+    setPlannerMode: (profileId, mode, workspaceSessionId) =>
+      ipcRenderer.invoke(IPC.orchestratorSetPlannerMode, profileId, mode, workspaceSessionId),
     reviewPlan: (profileId, approved, workspaceSessionId) =>
       ipcRenderer.invoke(IPC.orchestratorReviewPlan, profileId, approved, workspaceSessionId),
     taskDiff: (profileId, taskId, workspaceSessionId) =>

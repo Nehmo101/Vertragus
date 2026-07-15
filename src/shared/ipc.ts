@@ -109,6 +109,7 @@ export const IPC = {
   orchestratorSnapshot: 'orchestrator:snapshot',
   orchestratorReset: 'orchestrator:reset',
   orchestratorEnableAutoMode: 'orchestrator:enableAutoMode',
+  orchestratorSetPlannerMode: 'orchestrator:setPlannerMode',
   orchestratorReviewPlan: 'orchestrator:reviewPlan',
   orchestratorTaskDiff: 'orchestrator:taskDiff',
   retroListRetros: 'retro:listRetros',
@@ -402,6 +403,12 @@ export interface OrcaApi {
     reset(profileId: string, workspaceSessionId?: string): Promise<void>
     /** Switch this running workspace session to direct automatic plan execution. */
     enableAutoMode(profileId: string, workspaceSessionId?: string): Promise<boolean>
+    /** Switch this running workspace session to any planner mode (auto/review/manual). */
+    setPlannerMode(
+      profileId: string,
+      mode: WorkspaceProfile['planner']['mode'],
+      workspaceSessionId?: string
+    ): Promise<boolean>
     /** Resolve a plan waiting in review mode. */
     reviewPlan(profileId: string, approved: boolean, workspaceSessionId?: string): Promise<boolean>
     onSnapshot(cb: (snap: OrchestratorSnapshot) => void): () => void

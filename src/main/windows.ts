@@ -9,10 +9,12 @@ import { pathToFileURL } from 'node:url'
 import { is } from '@electron-toolkit/utils'
 import { installEditContextMenu } from '@main/editMenu'
 import { protectWebContents } from '@main/security/navigation'
+import { middleEarthWorkspaceName } from '@shared/workspaceNames'
 
 const BG = '#080c15'
 const WINDOW_ICON = join(__dirname, '../renderer/favicon.png')
 const paneWindows = new Map<string, Set<BrowserWindow>>()
+let mainWindow: BrowserWindow | null = null
 
 /** Representative profile for headless ProfileEditor screenshots. */
 const DEMO_PROFILE = {
@@ -75,6 +77,10 @@ export function createMainWindow(): BrowserWindow {
     icon: WINDOW_ICON,
     title: 'Orca-Strator',
     webPreferences: baseWebPreferences()
+  })
+  mainWindow = win
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null
   })
   installEditContextMenu(win)
 
@@ -163,7 +169,18 @@ export function createMainWindow(): BrowserWindow {
               gateFindings: Boolean(document.querySelector('.task-findings')),
               preflight: [...document.querySelectorAll('.task-review dd')].some((node) => node.textContent?.includes('bestanden')),
               reliability: Boolean(document.querySelector('.reliability-strip')),
-              autoMode: document.querySelector('.planner-mode-btn')?.textContent?.trim() === 'Automodus starten'
+              autoMode: (() => {
+                const modeSwitch = document.querySelector('.planner-mode-switch')
+                if (!modeSwitch) return false
+                const options = [...modeSwitch.querySelectorAll('.planner-mode-opt')]
+                const activeOptions = options.filter(
+                  (node) => node.getAttribute('aria-pressed') === 'true'
+                )
+                return options.length === 3 &&
+                  activeOptions.length === 1 &&
+                  ['Auto', 'Review', 'Manuell'].every((label) =>
+                    options.some((node) => node.textContent?.trim() === label))
+              })()
             }
           })()`)
           const ok = Object.values(checks).every(Boolean)
@@ -189,6 +206,11 @@ export function createMainWindow(): BrowserWindow {
   }
   loadRoute(win, '/')
   return win
+}
+
+/** Only the main application window may invoke privileged workspace mutations. */
+export function isMainWindowSender(sender: Electron.WebContents): boolean {
+  return Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents === sender)
 }
 
 /** Pop out a single agent pane into its own OS window (native frame). */
@@ -292,6 +314,7 @@ function pushDemoState(win: BrowserWindow): void {
     profileId,
     profileName: 'UI Smoke',
     sequence: 1,
+    name: middleEarthWorkspaceName(1),
     startedAt: now,
     active: true
   }])

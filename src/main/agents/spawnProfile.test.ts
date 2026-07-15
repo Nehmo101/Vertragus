@@ -109,4 +109,49 @@ describe('adaptive profile team start', () => {
     expect(agents).toHaveLength(3)
     expect(mocks.activate).toHaveBeenCalledWith(profile)
   })
+
+  it('keeps global Yolo active for workers dispatched later by an adaptive session', async () => {
+    const profile = {
+      ...DEFAULT_PROFILE,
+      planner: { ...DEFAULT_PROFILE.planner, routingMode: 'adaptive' as const }
+    }
+
+    await spawnProfileTeam(profile, true)
+
+    expect(profile.yoloDefault).toBe(false)
+    expect(mocks.start).toHaveBeenCalledWith(expect.objectContaining({ yoloDefault: true }))
+    expect(mocks.spawn).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'orchestrator',
+      yolo: true
+    }))
+    expect(mocks.activate).toHaveBeenCalledWith(expect.objectContaining({ yoloDefault: true }))
+  })
+
+  it('routes the team into the active-repo override instead of the profile default', async () => {
+    const profile = {
+      ...DEFAULT_PROFILE,
+      workingDir: '/profile/repo',
+      planner: { ...DEFAULT_PROFILE.planner, routingMode: 'fixed' as const }
+    }
+
+    await spawnProfileTeam(profile, false, { workingDirOverride: '/override/repo' })
+
+    for (const [request] of mocks.spawn.mock.calls) {
+      expect(request.workingDir).toBe('/override/repo')
+    }
+  })
+
+  it('falls back to the profile default when no override is set', async () => {
+    const profile = {
+      ...DEFAULT_PROFILE,
+      workingDir: '/profile/repo',
+      planner: { ...DEFAULT_PROFILE.planner, routingMode: 'fixed' as const }
+    }
+
+    await spawnProfileTeam(profile, false, { workingDirOverride: '   ' })
+
+    for (const [request] of mocks.spawn.mock.calls) {
+      expect(request.workingDir).toBe('/profile/repo')
+    }
+  })
 })

@@ -6,7 +6,7 @@ import {
 } from '@renderer/store/useAppStore'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import { formatTokenCount, formatUsd } from '@renderer/telemetryFormat'
-import { PROVIDER_GATE_MIN, PROVIDER_GATE_UNLIMITED, type AgentProviderId } from '@shared/providers'
+import { PROVIDER_GATE_MIN, PROVIDER_GATE_MAX, type AgentProviderId } from '@shared/providers'
 import type { ProviderCapacitySnapshot } from '@shared/ipc'
 import { summarizeUsageGroup, TELEMETRY_STATUS_LABELS, TELEMETRY_STATUS_TITLES, type TelemetrySummary } from '@shared/telemetry'
 
@@ -129,9 +129,9 @@ export default function LimitsPanel(): JSX.Element {
       <div className="limits-list">
         {rows.map((r) => {
           const theme = PROVIDER_THEME[r.id]
-          const unlimited = r.limit === PROVIDER_GATE_UNLIMITED
-          const pct = unlimited ? 0 : Math.min(100, Math.round((r.active / r.limit) * 100))
-          const over = !unlimited && r.active >= r.limit
+          const limit = Math.max(PROVIDER_GATE_MIN, r.limit)
+          const pct = Math.min(100, Math.round((r.active / limit) * 100))
+          const over = r.active >= limit
           return (
             <div className={`limit-row ${over ? 'over' : ''} ${r.enabled ? '' : 'disabled'}`} key={r.id}>
               <span className="chip sz-22" style={{ background: theme.bg, color: theme.fg }}>
@@ -192,19 +192,10 @@ export default function LimitsPanel(): JSX.Element {
                 </button>
                 <button
                   type="button"
-                  title={`${theme.label} ohne Orca-Prozesslimit`}
-                  aria-label={`${theme.label}-Orca-Gate unbegrenzt`}
-                  aria-pressed={unlimited}
-                  onClick={() => setProviderLimit(r.id, PROVIDER_GATE_UNLIMITED)}
-                >
-                  {'\u221e'}
-                </button>
-                <button
-                  type="button"
                   title={`${theme.label}-Orca-Gate verringern`}
                   aria-label={`${theme.label}-Orca-Gate verringern`}
-                  disabled={unlimited || r.limit <= Math.max(1, PROVIDER_GATE_MIN)}
-                  onClick={() => setProviderLimit(r.id, r.limit - 1)}
+                  disabled={limit <= PROVIDER_GATE_MIN}
+                  onClick={() => setProviderLimit(r.id, Math.max(PROVIDER_GATE_MIN, limit - 1))}
                 >
                   −
                 </button>
@@ -216,14 +207,15 @@ export default function LimitsPanel(): JSX.Element {
                       : 'aktiv / Orca-Gate (keine API-Quote)'
                   }
                 >
-                  {r.active}/{unlimited ? '\u221e' : r.limit}
+                  {r.active}/{limit}
                   {r.waiting > 0 ? ` (+${r.waiting})` : ''}
                 </span>
                 <button
                   type="button"
                   title={`${theme.label}-Orca-Gate erhöhen`}
                   aria-label={`${theme.label}-Orca-Gate erhöhen`}
-                  onClick={() => setProviderLimit(r.id, unlimited ? 4 : r.limit + 1)}
+                  disabled={limit >= PROVIDER_GATE_MAX}
+                  onClick={() => setProviderLimit(r.id, Math.min(PROVIDER_GATE_MAX, limit + 1))}
                 >
                   +
                 </button>
