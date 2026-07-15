@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784120942937,
+  "exportedAt": 1784121928104,
   "app": {
     "name": "orca-strator",
     "version": "0.1.40-main.2.g4fa9d28"
@@ -9,18 +9,32 @@
   "kind": "learnings",
   "payload": [
     {
-      "id": "learning-mrm3jl30-1-ghnk87",
+      "id": "learning-mrm44ou4-1-zd3siy",
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "role": "orchestrator-integrator",
+      "kind": "strength",
+      "insight": "Liefert Doku-Recovery-Tasks zuverlässig (Datei korrekt übernommen, validiert, whitespace-sauber, committet) — needs-work-Status stammte beide Male vom Gate-False-Positive, nicht vom Modell",
+      "evidence": "O00R (Tom Bombadil, Commit 223ac6f1) und t-1 (Beorn, Commit c9a520c6): identische Vokabular-Findings trotz verifiziert secret-freiem Inhalt",
+      "source": "orchestrator",
+      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+      "observations": 1,
+      "createdAt": 1784121926332,
+      "updatedAt": 1784121926332
+    },
+    {
+      "id": "learning-mrm44ou4-2-g8v8o",
       "provider": "claude",
       "model": "claude-sonnet-5",
       "role": "orchestrator-integrator",
       "kind": "weakness",
-      "insight": "Quality-Gates erfordern Nacharbeit bei orchestrator-integrator",
-      "evidence": "1 Task(s) mit 2 Gate-Finding(s)",
-      "source": "auto-retro",
+      "insight": "Lässt Temp-/Arbeitsdateien im Worktree zurück, die im partiellen Commit landen (.verify-*-tmp.md) — Aufräumen vor Abschluss explizit in den Prompt schreiben",
+      "evidence": "t-1 (Beorn): Commit c9a520c6 enthält .verify-new-body-tmp.md und .verify-orig-tmp.md",
+      "source": "orchestrator",
       "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
       "observations": 1,
-      "createdAt": 1784120941692,
-      "updatedAt": 1784120941692
+      "createdAt": 1784121926332,
+      "updatedAt": 1784121926332
     },
     {
       "id": "learning-mrm27c1p-2-8m151z",
