@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784115504910,
+  "exportedAt": 1784118595290,
   "app": {
     "name": "orca-strator",
     "version": "0.1.40-main.2.g4fa9d28"
@@ -8,6 +8,90 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrm259nk-1-8egms2",
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "role": "orchestrator-integrator",
+      "kind": "weakness",
+      "insight": "fehleranfällig bei orchestrator-integrator",
+      "evidence": "1/1 auswertbare Tasks inhaltlich fehlgeschlagen",
+      "source": "auto-retro",
+      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+      "observations": 1,
+      "createdAt": 1784118594080,
+      "updatedAt": 1784118594080
+    },
+    {
+      "id": "learning-mrm0y92m-1-izscin",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "main-orchestrator",
+      "kind": "strength",
+      "insight": "Arbeitet sicherheitskritische Mehrphasen-Features systematisch entlang harter Invarianten und Qualitäts-Gates ab.",
+      "evidence": "Phasen A–D wurden strikt sequenziell abgeschlossen; jede Phase erhielt Tests und CI-Gates, am Ende waren 114 Testdateien/667 Tests und der Remote-Selftest 10/10 grün.",
+      "source": "orchestrator",
+      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+      "observations": 1,
+      "createdAt": 1784116587118,
+      "updatedAt": 1784116587118
+    },
+    {
+      "id": "learning-mrm0y92m-2-2bkgaj",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "main-orchestrator",
+      "kind": "strength",
+      "insight": "Nutzt fehlschlagende Tests wirksam, um Integrations- und Sicherheitslücken gezielt zu schließen.",
+      "evidence": "Stale Registry-Mock, Provider-Limit-Erkennung, Push-Scope und WS/SSE-Fallback wurden durch gezielte Regressionstests entdeckt und abgesichert.",
+      "source": "orchestrator",
+      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+      "observations": 1,
+      "createdAt": 1784116587118,
+      "updatedAt": 1784116587118
+    },
+    {
+      "id": "learning-mrm0y92m-3-omyk4r",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "main-orchestrator",
+      "kind": "weakness",
+      "insight": "Schneidet späte große Phasen in zu breite Commits, was Review und Fehlerlokalisierung erschwert.",
+      "evidence": "Phase C und besonders Phase D bündelten mehrere unabhängige Backend-, Transport-, Desktop- und Mobile-Änderungen in jeweils einem großen Commit.",
+      "source": "orchestrator",
+      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+      "observations": 1,
+      "createdAt": 1784116587118,
+      "updatedAt": 1784116587118
+    },
+    {
+      "id": "learning-mrm0y92m-4-df9xhc",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "main-orchestrator",
+      "kind": "weakness",
+      "insight": "Validiert UI- und Cloud-Integrationen noch zu stark über Unit-Tests und Builds statt über reale End-to-End-Smokes.",
+      "evidence": "Cloudflared, Web Push, Cloudflare Access und neue Desktop/Mobile-Flows wurden vertraglich getestet, aber nicht gegen reale externe Dienste oder visuelle Browser-Screenshots.",
+      "source": "orchestrator",
+      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+      "observations": 1,
+      "createdAt": 1784116587118,
+      "updatedAt": 1784116587118
+    },
+    {
+      "id": "learning-mrm0y92m-5-f0ghs0",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "main-orchestrator",
+      "kind": "weakness",
+      "insight": "PowerShell-/Windows-Patches brauchen engeren Kontext und frühere UTF-8-Prüfung.",
+      "evidence": "Breiter Patch-Kontext traf einmal den falschen Retry-Test; Encoding- und Pfadglob-Reibung verursachten vermeidbare Iterationen.",
+      "source": "orchestrator",
+      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+      "observations": 1,
+      "createdAt": 1784116587118,
+      "updatedAt": 1784116587118
+    },
     {
       "id": "learning-mrlx0joc-1-cdmr58",
       "provider": "codex",
@@ -415,20 +499,6 @@
       "updatedAt": 1784038129069
     },
     {
-      "id": "learning-mrkpq3dt-1-u4wtv5",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "main-orchestrator",
-      "kind": "strength",
-      "insight": "Liefert kleine UI-Features auch aus minimalem Fallback-Prompt (nur Zieltitel) vollständig und sauber: korrekte Store-Anbindung, additive CSS-Klasse, Responsive-Guards mitgedacht",
-      "evidence": "Commit 146ca4e2: TitleBar.tsx nutzt store.appInfo?.version bedingt, neue .wordmark-version-Klasse, responsiveGuards.module.css konsistent; eslint/tsc/408 Tests grün",
-      "source": "orchestrator",
-      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
-      "observations": 1,
-      "createdAt": 1784037264545,
-      "updatedAt": 1784037264545
-    },
-    {
       "id": "learning-mrkpq3dt-2-mtqr97",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -499,20 +569,6 @@
       "updatedAt": 1784024110858
     },
     {
-      "id": "learning-mrkhfrkd-1-2a79j2",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "alle codex-Rollen",
-      "kind": "weakness",
-      "insight": "Dispatch aktuell komplett blockiert: codex-cli 0.144.3 lehnt Orcas Spawn-Flag --ask-for-approval bei codex exec ab (Launcher-Bug in src/main/providers/types.ts:110, kein Modellproblem)",
-      "evidence": "Beide Attempts von t1/t2 in plan-run-mrkhe47p-1 mit exit 2: \"error: unexpected argument '--ask-for-approval' found\"; Preflight war grün, da er das Flag nicht nutzt",
-      "source": "orchestrator",
-      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
-      "observations": 1,
-      "createdAt": 1784023345741,
-      "updatedAt": 1784023345741
-    },
-    {
       "id": "learning-mrkhfrkd-2-ezge2f",
       "provider": "codex",
       "model": "gpt-5.6-terra",
@@ -525,20 +581,6 @@
       "observations": 1,
       "createdAt": 1784023345741,
       "updatedAt": 1784023345741
-    },
-    {
-      "id": "learning-mrkhed82-1-61fzld",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "renderer-ui",
-      "kind": "weakness",
-      "insight": "fehleranfällig bei renderer-ui, main-orchestrator",
-      "evidence": "2/3 Tasks fehlgeschlagen",
-      "source": "auto-retro",
-      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
-      "observations": 1,
-      "createdAt": 1784023280498,
-      "updatedAt": 1784023280498
     }
   ]
 }
