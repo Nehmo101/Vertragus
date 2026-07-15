@@ -134,7 +134,9 @@ export default function HandoffModal(): JSX.Element | null {
           <div className="handoff-note">
             Der bisherige Terminal-Verlauf von {source.name} wird automatisch als Übergabe-Notiz
             angehängt. Der neue Agent startet in {source.name}s Arbeitsverzeichnis und macht dort
-            weiter. {source.name} läuft weiter und wird als „übergeben" markiert.
+            weiter. {source.kind === 'orchestrator'
+              ? ` ${source.name} bleibt aktiv, bis der neue Orchestrator Start, Kontext und Wissensstand eindeutig bestätigt hat, und wird erst dann automatisch beendet.`
+              : ` ${source.name} läuft weiter und wird als „übergeben" markiert.`}
           </div>
         </div>
 

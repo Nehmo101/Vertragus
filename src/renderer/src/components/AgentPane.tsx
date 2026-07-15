@@ -1,7 +1,7 @@
 import { memo, useEffect, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
-import type { AgentInstanceInfo } from '@shared/agents'
+import type { AgentInstanceInfo, HandoffLink } from '@shared/agents'
 import { LIMIT_KIND_LABELS } from '@shared/agents'
 import { absentTelemetryNotice, summarizeUsage, TELEMETRY_STATUS_LABELS, TELEMETRY_STATUS_TITLES } from '@shared/telemetry'
 import { PROVIDER_THEME, STATUS_THEME, XTERM_THEME } from '@renderer/ui/theme'
@@ -22,6 +22,17 @@ interface Props {
   onHandoff?: () => void
   focused?: boolean
   subdued?: boolean
+}
+
+function handoffState(link: HandoffLink): string {
+  switch (link.handshake?.phase) {
+    case 'awaiting-context': return ' · Start/Kontext ausstehend'
+    case 'awaiting-ack': return ' · Wissensbestätigung ausstehend'
+    case 'completing': return ' · bestätigt'
+    case 'completed': return ' · bestätigt'
+    case 'failed': return ' · fehlgeschlagen'
+    default: return ''
+  }
 }
 
 /**
@@ -210,13 +221,13 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
               </span>
             )}
             {agent.handoffTo && (
-              <span className="badge-handoff" title={`übergeben an ${agent.handoffTo.name}`}>
-                ↪ {agent.handoffTo.name}
+              <span className="badge-handoff" title={`übergeben an ${agent.handoffTo.name}${handoffState(agent.handoffTo)}`}>
+                ↪ {agent.handoffTo.name}{handoffState(agent.handoffTo)}
               </span>
             )}
             {agent.handoffFrom && (
-              <span className="badge-handoff from" title={`übernommen von ${agent.handoffFrom.name}`}>
-                ↩ {agent.handoffFrom.name}
+              <span className="badge-handoff from" title={`übernommen von ${agent.handoffFrom.name}${handoffState(agent.handoffFrom)}`}>
+                ↩ {agent.handoffFrom.name}{handoffState(agent.handoffFrom)}
               </span>
             )}
           </div>

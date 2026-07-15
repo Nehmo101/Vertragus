@@ -939,7 +939,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const target = await window.orca.agents.handoff(req)
       set({ handoffSource: null })
-      get().showToast(`↪ Übergabe: ${source?.name ?? 'Agent'} → ${target.name}`)
+      get().showToast(
+        source?.kind === 'orchestrator'
+          ? `↪ Orchestrator-Übergabe gestartet: ${source.name} bleibt bis zur Bestätigung aktiv → ${target.name}`
+          : `↪ Übergabe: ${source?.name ?? 'Agent'} → ${target.name}`
+      )
     } catch (error) {
       get().showToast(`Übergabe fehlgeschlagen: ${errorMessage(error)}`)
     }

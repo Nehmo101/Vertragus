@@ -5,6 +5,8 @@
  * directly into the OrchestratorEngine (no extra IPC hop).
  *
  * Orchestrator tools:
+ *   get_handoff_context(...)            — receive correlated handoff knowledge
+ *   acknowledge_handoff(...)            — confirm knowledge before source shutdown
  *   set_goal(title)                     — report the current high-level goal
  *   list_subagents()                    — available subagent slots
  *   dispatch_subagent(role, prompt, …)  — run a subagent, return its result
@@ -23,11 +25,15 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
 import { orchestratorEngine, type OrchestratorEngine } from '@main/orchestrator/Engine'
 import type { OrchestratorActivityPhase, SubagentFindingKind } from '@shared/orchestrator'
+import { agentManager } from '@main/agents/AgentManager'
+import type { HandoffClientIdentity } from '@main/agents/handoffHandshake'
 import { workspaceSessions } from '@main/orchestrator/WorkspaceSessionRegistry'
 import { setMcpHandle, type McpServerHandle } from '@main/orchestrator/mcpHandle'
 import { removeModelLearnings } from '@main/orchestrator/retroStore'
 
 const ORCHESTRATOR_TOOLS = [
+  'mcp__orca__get_handoff_context',
+  'mcp__orca__acknowledge_handoff',
   'mcp__orca__set_goal',
   'mcp__orca__report_activity',
   'mcp__orca__list_subagents',
@@ -63,7 +69,10 @@ function text(s: string): ToolText {
   return { content: [{ type: 'text', text: s }] }
 }
 
-function buildMcpServer(engine: OrchestratorEngine = orchestratorEngine): McpServer {
+function buildMcpServer(
+  engine: OrchestratorEngine = orchestratorEngine,
+  clientIdentity?: HandoffClientIdentity
+): McpServer {
   const server = new McpServer(
     { name: 'orca-strator', version: '0.1.0' },
     {
@@ -100,6 +109,68 @@ function buildMcpServer(engine: OrchestratorEngine = orchestratorEngine): McpSer
   ): void => {
     toolFn(name, description, shape, handler)
   }
+
+  register(
+    'get_handoff_context',
+    'Rufe als neu gestarteter Orchestrator den exakt korrelierten Übergabekontext ab. ' +
+      'Die Antwort enthält Briefing, aktuellen Engine-/Task-Zustand und den zu bestätigenden knowledgeDigest.',
+    {
+      handoffId: z.string().uuid().describe('handoffId aus dem Start-Prompt'),
+      receiptToken: z.string().regex(/^[a-f0-9]{64}$/).describe('Einmaliger receiptToken aus dem Start-Prompt')
+    },
+    async (args) => {
+      if (!clientIdentity) {
+        return text(JSON.stringify({
+          ok: false,
+          code: 'wrong-target',
+          message: 'Diese MCP-Verbindung ist keinem konkreten Orchestrator-Prozess zugeordnet.'
+        }, null, 2))
+      }
+      const result = agentManager.readOrchestratorHandoffContext(
+        {
+          handoffId: String(args.handoffId ?? ''),
+          receiptToken: String(args.receiptToken ?? '')
+        },
+        clientIdentity,
+        {
+          snapshot: engine.snapshot(),
+          tasks: engine.listTaskStatuses()
+        }
+      )
+      return text(JSON.stringify(result, null, 2))
+    }
+  )
+
+  register(
+    'acknowledge_handoff',
+    'Bestätige erst nach vollständiger Prüfung des mit get_handoff_context gelieferten Wissensstands. ' +
+      'Nur eine exakt korrelierte Bestätigung beendet den alten Orchestrator.',
+    {
+      handoffId: z.string().uuid().describe('handoffId des abgerufenen Kontexts'),
+      receiptToken: z.string().regex(/^[a-f0-9]{64}$/).describe('Einmaliger receiptToken'),
+      knowledgeDigest: z.string().regex(/^[a-f0-9]{64}$/).describe('knowledgeDigest aus get_handoff_context'),
+      summary: z.string().min(8).max(500).describe('Konkrete Kurzfassung des übernommenen Arbeitsstands')
+    },
+    async (args) => {
+      if (!clientIdentity) {
+        return text(JSON.stringify({
+          ok: false,
+          code: 'wrong-target',
+          message: 'Diese MCP-Verbindung ist keinem konkreten Orchestrator-Prozess zugeordnet.'
+        }, null, 2))
+      }
+      const result = await agentManager.acknowledgeOrchestratorHandoff(
+        {
+          handoffId: String(args.handoffId ?? ''),
+          receiptToken: String(args.receiptToken ?? ''),
+          knowledgeDigest: String(args.knowledgeDigest ?? ''),
+          summary: String(args.summary ?? '')
+        },
+        clientIdentity
+      )
+      return text(JSON.stringify(result, null, 2))
+    }
+  )
 
   register(
     'set_goal',
@@ -599,9 +670,23 @@ export async function startMcpServer(): Promise<McpServerHandle> {
         if (requestedEngineId && requestedEngineId !== engine.engineId) {
           throw new Error('Orchestrator-Verbindung verweist auf eine veraltete Engine-Instanz.')
         }
+        const requestedAgentId = url.searchParams.get('agentId')
+        const clientIdentity = requestedAgentId
+          ? agentManager.orchestratorClientIdentity(requestedAgentId)
+          : undefined
+        if (requestedAgentId && !clientIdentity) {
+          throw new Error('Orchestrator-Verbindung verweist auf einen fremden oder beendeten Agent-Prozess.')
+        }
+        if (
+          clientIdentity &&
+          (clientIdentity.workspaceSessionId !== (workspaceSessionId ?? undefined) ||
+            clientIdentity.engineId !== (requestedEngineId ?? undefined))
+        ) {
+          throw new Error('Orchestrator-Verbindung besitzt eine falsche Agent-/Session-/Engine-Korrelation.')
+        }
         const server = isSubagentSession
           ? buildSubagentMcpServer(engine, subagentTaskId!)
-          : buildMcpServer(engine)
+          : buildMcpServer(engine, clientIdentity)
         await server.connect(transport)
       }
       if (!transport) {

@@ -47,11 +47,29 @@ export interface LimitWarning {
   note?: string
 }
 
+export type HandoffHandshakePhase =
+  | 'awaiting-context'
+  | 'awaiting-ack'
+  | 'completing'
+  | 'completed'
+  | 'failed'
+
+export interface HandoffHandshakeInfo {
+  /** Opaque correlation id for this concrete handoff attempt. */
+  id: string
+  phase: HandoffHandshakePhase
+  updatedAt: number
+  /** Present only for a terminal failure; the source remains alive. */
+  error?: string
+}
+
 /** A handoff relationship end-point (the other agent involved). */
 export interface HandoffLink {
   id: string
   name: string
   at: number
+  /** Orchestrator-only explicit knowledge-transfer/shutdown handshake. */
+  handshake?: HandoffHandshakeInfo
 }
 
 export interface AgentInstanceInfo {
