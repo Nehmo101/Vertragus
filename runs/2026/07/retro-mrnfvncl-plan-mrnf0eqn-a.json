@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784202126120,
+  "exportedAt": 1784202361513,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -14,7 +14,7 @@
     "planId": "plan-mrnf0eqn-a",
     "goal": "liveStatus-Feature fertigstellen: sicherheitsgeprüfte Implementierung aus Commit 36de2203 auf HEAD materialisieren, inaktiven Fallback (neutraler Indikator statt alter Status-Labels) korrigieren und mit vollen Gates verifizieren. Via Claude-Worker (Codex durch 0.144.5-Canary blockiert).",
     "status": "error",
-    "summary": "Lauf mit Fehlern: 3 Modell(e), 0/2 Tasks erfolgreich.",
+    "summary": "Impl-Versuch via Claude scheiterte an fehlenden Schreibrechten: Claude-Worker laufen ohne skip-permissions, daher werden Write/Edit/Bash headless mit 'Orca permission denied or timed out' abgelehnt. Gwaihir (opus) las 36de2203 korrekt, konnte aber nichts materialisieren und meldete das präzise als Blocker. Codex-Worker (die headless schreiben können) bleiben durch den 0.144.5-Canary blockiert.",
     "modelStats": [
       {
         "provider": "cursor",
@@ -109,6 +109,34 @@
         "observations": 5,
         "createdAt": 1784186646785,
         "updatedAt": 1784202126055
+      },
+      {
+        "id": "learning-mrng0oyq-1-bdd7ps",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "security-review",
+        "kind": "weakness",
+        "insight": "Als Implementierer ungeeignet ohne skip-permissions: alle Write/Edit/Bash-Writes werden headless mit 'permission denied or timed out' abgelehnt",
+        "evidence": "Gwaihir (t-impl): Reads/git show liefen, aber Write/Edit/Bash-Redirect/git checkout -- alle abgelehnt; Blocker-Finding-8 gemeldet",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784202361442,
+        "updatedAt": 1784202361442
+      },
+      {
+        "id": "learning-mrng0oyq-2-jj9eau",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "security-review",
+        "kind": "strength",
+        "insight": "Meldet Schreibsperre ehrlich und präzise als Blocker (welche Tools, dauerhaft vs. transient) statt Fake-Erfolg",
+        "evidence": "Gwaihir Finding-8: exakte Auflistung abgelehnter Operationen + Zusage, nach Freigabe sofort 12 Dateien zu schreiben",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784202361442,
+        "updatedAt": 1784202361442
       }
     ],
     "createdAt": 1784202126069
