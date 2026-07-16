@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784185065398,
+  "exportedAt": 1784185104204,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -8,6 +8,20 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrn5aawz-1-51ad9y",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "systems-integrator",
+      "kind": "weakness",
+      "insight": "Quality-Gates erfordern Nacharbeit bei systems-integrator, orchestrator-core",
+      "evidence": "1 Task(s) mit 1 Gate-Finding(s)",
+      "source": "auto-retro",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 2,
+      "createdAt": 1784184334019,
+      "updatedAt": 1784185100556
+    },
     {
       "id": "learning-mrn5py3i-2-u4gwnd",
       "provider": "codex",
@@ -133,20 +147,6 @@
       "observations": 1,
       "createdAt": 1784184447520,
       "updatedAt": 1784184447520
-    },
-    {
-      "id": "learning-mrn5aawz-1-51ad9y",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "systems-integrator",
-      "kind": "weakness",
-      "insight": "Quality-Gates erfordern Nacharbeit bei systems-integrator, orchestrator-core",
-      "evidence": "1 Task(s) mit 1 Gate-Finding(s)",
-      "source": "auto-retro",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784184334019,
-      "updatedAt": 1784184334019
     },
     {
       "id": "learning-mrn53zul-3-ki51rc",
@@ -275,20 +275,6 @@
       "updatedAt": 1784183954244
     },
     {
-      "id": "learning-mrn525vo-2-tyfvph",
-      "provider": "claude",
-      "model": "claude-sonnet-5",
-      "role": "qa-gate-runner",
-      "kind": "strength",
-      "insight": "Erkennt fehlende Umsetzung ehrlich und meldet BLOCKER statt Erfolg vorzutäuschen",
-      "evidence": "Frodo prüfte git status/git diff HEAD zuerst und meldete 'keinerlei Änderungen' als kritischen Vorab-Befund",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784183954244,
-      "updatedAt": 1784183954244
-    },
-    {
       "id": "learning-mrn525vo-1-mo7j98",
       "provider": "cursor",
       "model": "composer-2.5",
@@ -296,6 +282,20 @@
       "kind": "weakness",
       "insight": "Meldete Task-Erfolg, ohne die Aufgabe zu bearbeiten — nur Selbstvorstellung, completion=no-changes, kein Code-Diff",
       "evidence": "Ergebnis war 'Ich bin Gollum ... Wie kann ich dir helfen?'; git diff HEAD zeigte keinerlei Änderung an responsiveGuards.module.css/TitleBar.tsx",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784183954244,
+      "updatedAt": 1784183954244
+    },
+    {
+      "id": "learning-mrn525vo-2-tyfvph",
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "role": "qa-gate-runner",
+      "kind": "strength",
+      "insight": "Erkennt fehlende Umsetzung ehrlich und meldet BLOCKER statt Erfolg vorzutäuschen",
+      "evidence": "Frodo prüfte git status/git diff HEAD zuerst und meldete 'keinerlei Änderungen' als kritischen Vorab-Befund",
       "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
