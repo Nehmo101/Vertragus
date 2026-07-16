@@ -80,7 +80,7 @@ Export durch die Secret-Redaction (`redactDiagnosticValue`).
 
   Unter `--min-new` (Default 3, env `ORCA_RETRO_MIN_NEW`) neuen Retros wird
   übersprungen. Das Modell ist per `ORCA_RETRO_MODEL` überschreibbar
-  (Default `claude-opus-4-8`).
+  (Default `claude-sonnet-5`).
 
 ### Bootstrap beim ersten Analyse-Lauf
 

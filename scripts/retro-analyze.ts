@@ -8,7 +8,7 @@
  *
  * Ohne --write ist der Lauf ein Dry-Run und druckt nur die geplanten
  * Änderungen. Benötigt ANTHROPIC_API_KEY; Modell via ORCA_RETRO_MODEL
- * überschreibbar (Default: claude-opus-4-8).
+ * überschreibbar (Default: claude-sonnet-5).
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -146,7 +146,7 @@ async function runSynthesis(input: SynthesisInput): Promise<SynthesisOutput> {
   }
   const client = new Anthropic()
   const response = await client.messages.parse({
-    model: process.env.ORCA_RETRO_MODEL ?? 'claude-opus-4-8',
+    model: process.env.ORCA_RETRO_MODEL ?? 'claude-sonnet-5',
     max_tokens: 16000,
     thinking: { type: 'adaptive' },
     system: SYNTHESIS_SYSTEM_PROMPT,
