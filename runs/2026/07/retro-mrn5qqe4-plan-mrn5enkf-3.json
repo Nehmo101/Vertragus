@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784185100754,
+  "exportedAt": 1784185258966,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -14,7 +14,7 @@
     "planId": "plan-mrn5enkf-3",
     "goal": "Folgeplan (Foundation-Modul src/shared/claudePermissionMode.ts bereits committet als 7feed018): Claude-Permission-Mode durch Provider-CLI, UI-Selector und Schema/Threading/ProfileEditor integrieren, sodass ein Claude-Orchestrator mit permissionMode='auto' real mit --permission-mode acceptEdits startet. Andere Provider unverändert.",
     "status": "needs-work",
-    "summary": "Lauf mit Nacharbeit: 4 Modell(e), 1/5 Tasks erfolgreich.",
+    "summary": "Folgeplan needs-work: Foundation-Modul lag nur auf isoliertem Task-Branch (7feed018), nicht im Arbeitsbranch orch-13. ff-t2 (dependsOn []) branchete ohne das Modul -> zentraler typecheck scheiterte am unauflösbaren @shared/claudePermissionMode-Import. ff-t3 (cursor) war erneut ein No-Op. Lehre: Consumer eines Task-Commits MÜSSEN dependsOn deklarieren, sonst fehlt das Modul im Base; besser self-contained in einem Worktree.",
     "modelStats": [
       {
         "provider": "codex",
@@ -140,6 +140,34 @@
         "observations": 2,
         "createdAt": 1784184334019,
         "updatedAt": 1784185100556
+      },
+      {
+        "id": "learning-mrn5u4k5-1-daavhb",
+        "provider": "cursor",
+        "model": "composer-2.5",
+        "role": "frontend-ui",
+        "kind": "weakness",
+        "insight": "Meldete 'success' mit 0 Änderungen (nur Identitäts-Echo 'Ich bin X, womit soll ich anfangen?'), ohne die geforderte React-Komponente zu implementieren — unzuverlässig für echte Implementierung.",
+        "evidence": "ff-t3: ClaudePermissionModeSelect.tsx nie erstellt, completion=no-changes, Judge wertete es fälschlich als success.",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784185258901,
+        "updatedAt": 1784185258901
+      },
+      {
+        "id": "learning-mrn5u4k5-2-m2sf7f",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "systems-integrator",
+        "kind": "weakness",
+        "insight": "Schreibt korrekten Code, aber zentraler typecheck scheitert, wenn ein importiertes Dependency-Modul nicht im Task-Base-Branch liegt — Scope-Disziplin entfernte die temporäre Kopie.",
+        "evidence": "ff-t2 commit 2b27a436: tsc -p tsconfig.node.json fail, @shared/claudePermissionMode fehlt im orch-13-Base (7feed018 nur auf t1-Branch).",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784185258901,
+        "updatedAt": 1784185258901
       }
     ],
     "createdAt": 1784185100572
