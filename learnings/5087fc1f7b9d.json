@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784202127458,
+  "exportedAt": 1784202362944,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -8,6 +8,34 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrng0oyq-1-bdd7ps",
+      "provider": "claude",
+      "model": "claude-opus-4-8",
+      "role": "security-review",
+      "kind": "weakness",
+      "insight": "Als Implementierer ungeeignet ohne skip-permissions: alle Write/Edit/Bash-Writes werden headless mit 'permission denied or timed out' abgelehnt",
+      "evidence": "Gwaihir (t-impl): Reads/git show liefen, aber Write/Edit/Bash-Redirect/git checkout -- alle abgelehnt; Blocker-Finding-8 gemeldet",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784202361442,
+      "updatedAt": 1784202361442
+    },
+    {
+      "id": "learning-mrng0oyq-2-jj9eau",
+      "provider": "claude",
+      "model": "claude-opus-4-8",
+      "role": "security-review",
+      "kind": "strength",
+      "insight": "Meldet Schreibsperre ehrlich und präzise als Blocker (welche Tools, dauerhaft vs. transient) statt Fake-Erfolg",
+      "evidence": "Gwaihir Finding-8: exakte Auflistung abgelehnter Operationen + Zusage, nach Freigabe sofort 12 Dateien zu schreiben",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784202361442,
+      "updatedAt": 1784202361442
+    },
     {
       "id": "learning-mrn6nvgh-2-1fr14b",
       "provider": "claude",
