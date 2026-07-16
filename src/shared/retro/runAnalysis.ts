@@ -1,8 +1,11 @@
 import type {
   AnalyzeRunRetroInput,
   NewModelLearning,
+  RetroDraftModel,
+  RetroDraftResult,
   RetroFailureBreakdown,
   RetroFailureKind,
+  RetroLearningTemplate,
   RetroModelStats,
   RetroTaskObservation,
   RunRetro,
@@ -114,6 +117,7 @@ export function deriveModelStats(tasks: readonly RetroTaskObservation[]): RetroM
     for (const attempt of task.attempts ?? []) {
       if (attempt.status !== 'error' || !attempt.provider) continue
       const attemptGroup = groupFor(attempt.provider, attempt.model ?? '')
+      if (!attemptGroup.roles.includes(task.role)) attemptGroup.roles.push(task.role)
       const attemptFailureKind = classifyRetroFailure(
         attempt.status,
         attempt.failureKind,
@@ -170,6 +174,99 @@ export function deriveModelStats(tasks: readonly RetroTaskObservation[]): RetroM
       costUsd: hasCost ? stats.costUsd : undefined
     }))
     .sort((a, b) => b.tasks - a.tasks)
+}
+
+/**
+ * Turn the shared run stats into a stable, copy-ready facts scaffold. Engine
+ * callers resolve configured model defaults first; the fallback label is a
+ * final guard for imported legacy observations with model:"".
+ */
+export function deriveRetroDraftModels(
+  tasks: readonly RetroTaskObservation[]
+): RetroDraftModel[] {
+  const stats = deriveModelStats(tasks)
+  const timed = stats
+    .filter((entry) => entry.avgDurationMs != null)
+    .sort((a, b) => a.avgDurationMs! - b.avgDurationMs!)
+  const speedRanks = new Map(timed.map((entry, index) => [entry, index + 1]))
+
+  return stats.map((entry) => {
+    const model = entry.model.trim() || `default (${entry.provider}-cli)`
+    const role = entry.roles[0] ?? 'worker'
+    const hasModelConcern =
+      entry.needsWork > 0 ||
+      entry.gateFindings > 0 ||
+      entry.failuresByKind.model > 0 ||
+      entry.failedAttemptsByKind.model > 0
+    const templateFor = (kind: RetroLearningTemplate['kind']): RetroLearningTemplate => ({
+      provider: entry.provider,
+      model,
+      role,
+      kind,
+      insight: '',
+      evidence: ''
+    })
+    const strengthTemplate = templateFor('strength')
+    const weaknessTemplate = templateFor('weakness')
+    return {
+      provider: entry.provider,
+      model,
+      roles: [...entry.roles],
+      taskBalance: {
+        total: entry.tasks,
+        success: entry.succeeded,
+        needsWork: entry.needsWork,
+        failed: entry.failed,
+        stopped: entry.stopped
+      },
+      failuresByKind: { ...entry.failuresByKind },
+      failedAttempts: entry.failedAttempts,
+      failedAttemptsByKind: { ...entry.failedAttemptsByKind },
+      gateFindings: entry.gateFindings,
+      avgDurationMs: entry.avgDurationMs ?? null,
+      speedRank: speedRanks.get(entry) ?? null,
+      tokensIn: entry.tokensIn ?? null,
+      tokensOut: entry.tokensOut ?? null,
+      costUsd: entry.costUsd ?? null,
+      // Single slot points at the more likely side; templates carry both.
+      learningTemplate: hasModelConcern ? weaknessTemplate : strengthTemplate,
+      learningTemplates: [strengthTemplate, weaknessTemplate]
+    }
+  })
+}
+
+/**
+ * Deterministic, human-readable rendering of a retro draft for the enforced
+ * retro gate. Lists per-model facts plus the symmetric strength/weakness
+ * fill-in slots so the orchestrator only supplies honest insight/evidence.
+ */
+export function renderRetroDraftForPrompt(draft: RetroDraftResult): string {
+  if (!draft.ok) {
+    return `Kein Retro-Gerüst verfügbar (${draft.code}): ${draft.message}`
+  }
+  const lines: string[] = [
+    `Retro-Gerüst für ${draft.planId} (${draft.status}): ${draft.summary}`,
+    'Fülle je Modell Stärke UND Schwäche aus, sofern belegbar — ein Slot darf leer bleiben; erfinde keine Schwäche.'
+  ]
+  for (const model of draft.models) {
+    const b = model.taskBalance
+    const facts = [
+      `${b.success}/${b.total} ok`,
+      `needsWork ${b.needsWork}`,
+      `failed ${b.failed}`,
+      `stopped ${b.stopped}`
+    ]
+    if (model.gateFindings > 0) facts.push(`${model.gateFindings} Gate-Finding(s)`)
+    if (model.speedRank != null) facts.push(`Speed-Rang ${model.speedRank}`)
+    lines.push(`- ${model.provider}/${model.model} [${model.roles.join(', ') || 'worker'}]: ${facts.join(', ')}`)
+    for (const template of model.learningTemplates) {
+      lines.push(
+        `    ${template.kind}: insight="" evidence=""  ` +
+          `(provider=${template.provider} model=${template.model} role=${template.role})`
+      )
+    }
+  }
+  return lines.join('\n')
 }
 
 /**

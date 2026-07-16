@@ -49,6 +49,7 @@ const ORCHESTRATOR_TOOLS = [
   'mcp__orca__cancel_plan',
   'mcp__orca__open_subwindow',
   'mcp__orca__execute_plan',
+  'mcp__orca__get_retro_draft',
   'mcp__orca__record_retro',
   'mcp__orca__revoke_learning',
   'mcp__orca__run_benchmark',
@@ -89,7 +90,7 @@ function buildMcpServer(
         'Use exactly the returned role values and choose only the roles the plan needs.',
         'Keep report_activity current so the user can see what you are doing, what workers are doing, and what happens next.',
         'Use await_plan(runId) to block until a plan reaches a terminal result instead of repeatedly polling; re-call await_plan whenever it returns stillRunning. Then evaluate it against the goal and submit focused follow-up plans when needed.',
-        'After every terminal plan run call record_retro with concise per-model learnings (strengths/weaknesses); they feed back into list_subagents as learnedStrengths/learnedWeaknesses.',
+        'After every terminal plan run call get_retro_draft, fill only the qualitative insight/evidence fields, then pass the completed templates to record_retro; they feed back into list_subagents as learnedStrengths/learnedWeaknesses.',
         'Stop only when the goal is verified or a concrete dead end requires user input or an external change.',
         'To wait for worker results use await_task(taskId) or await_any(taskIds) to block instead of polling; call get_task_status/list_tasks only for a one-off snapshot (e.g. to read the exact agentName). Identify a worker only by the exact agentName returned by get_task_status or list_tasks.',
         'If agentName is absent, use taskId and role until a later poll returns it; never infer or invent a worker name.',
@@ -185,8 +186,10 @@ function buildMcpServer(
     { title: z.string().describe('Kurzer Titel des Ziels, z.B. "Checkout-Flow v2"') },
     async (args) => {
       const title = String(args.title ?? '')
-      engine.setGoal(title)
-      return text(`Ziel gesetzt: ${title}`)
+      const { retroReminder } = engine.setGoal(title)
+      const lines = [`Ziel gesetzt: ${title}`]
+      if (retroReminder) lines.push(`⚠ Retro offen: ${retroReminder.message}`)
+      return text(lines.join('\n'))
     }
   )
 
@@ -335,7 +338,9 @@ function buildMcpServer(
     'await_plan',
     'Blockiere, bis ein Planlauf terminal ist (success/needs-work/error/stopped), statt get_plan_status ' +
       'wiederholt zu pollen. Kehrt sofort zurück, wenn der Lauf schon terminal ist. Wartet ein Plan auf ' +
-      'Freigabe, bleibt stillRunning:true, bis der Nutzer den Plan freigibt. Bei stillRunning:true erneut aufrufen.',
+      'Freigabe, bleibt stillRunning:true, bis der Nutzer den Plan freigibt. Bei stillRunning:true erneut aufrufen. ' +
+      'Bei einem terminalen Lauf ohne erfasstes qualitatives Retro enthält die Antwort retroPending:true und ' +
+      'ein ausfüllfertiges retroDraft — fülle je Modell strength UND weakness und rufe record_retro auf.',
     {
       runId: z.string().describe('runId aus execute_plan'),
       timeoutMs: AWAIT_TIMEOUT_SHAPE
@@ -430,6 +435,23 @@ function buildMcpServer(
         version: 1,
         tasks: rawTasks
       })
+      return text(JSON.stringify(result, null, 2))
+    }
+  )
+
+  register(
+    'get_retro_draft',
+    'Erzeuge nach einem terminalen Planlauf ein Fakten-Gerüst für record_retro. ' +
+      'Modellnamen, Task-Bilanz, Fehlerarten, Gate-Findings, Dauer-Rang und Nutzung sind vorausgefüllt; ' +
+      'ergänze danach nur insight/evidence in den Learning-Templates.',
+    {
+      planId: z.string().trim().min(1).optional()
+        .describe('Optionale Plan-ID; Standard ist der letzte terminale Planlauf')
+    },
+    async (args) => {
+      const result = engine.buildRetroDraft(
+        typeof args.planId === 'string' ? args.planId : undefined
+      )
       return text(JSON.stringify(result, null, 2))
     }
   )

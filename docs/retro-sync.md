@@ -100,3 +100,29 @@ Export durch die Secret-Redaction (`redactDiagnosticValue`).
   (`branches-ignore` in `ci.yml`); die Action schreibt nie auf Code-Branches.
 - Konservativitäts-Gate im Code: nur Learnings mit ≥ 2 Beobachtungen,
   ≥ 2 unabhängigen Vorkommen oder Benchmark-Beleg erreichen die Synthese.
+
+## Retro-Gate (in-Session)
+
+Damit qualitative Modell-Learnings nicht verloren gehen, ist das Retro ein
+Pflicht-Gate statt einer Prosa-Bitte im Systemprompt:
+
+- **Erfüllungs-Kriterium:** Eine Retro-Karte gilt erst als erledigt, wenn der
+  Orchestrator über `record_retro` eigene Learnings (`source: 'orchestrator'`)
+  eingetragen hat. Die automatische Heuristik-Retro (`source: 'auto-retro'`)
+  erfasst nur Zahlen und erfüllt das Gate **nicht**.
+- **await_plan:** Bei einem terminalen Lauf mit offenem Retro liefert
+  `await_plan` additiv `retroPending: true` und ein ausfüllfertiges
+  `retroDraft` (Ausgabe von `buildRetroDraft` für diesen `planId`). Ist das
+  Retro erfasst, ist `retroPending: false` und kein Gerüst enthalten.
+- **set_goal-Nudge:** Wird ein neues Ziel gesetzt, während der letzte
+  terminale Lauf noch offen ist, gibt `set_goal` einen nicht-blockierenden
+  `retroReminder` (mit `priorPlanId`) zurück.
+- **Symmetrisches Template (E):** `get_retro_draft`/das eingebettete Gerüst
+  liefert je Modell zwei Slots — `learningTemplates: [strength, weakness]` —
+  mit exaktem Modellnamen. `renderRetroDraftForPrompt` erzeugt daraus eine
+  deterministische, menschenlesbare Vorlage. Ehrlichkeit bleibt gewahrt: ein
+  Slot darf leer bleiben, wenn kein Beleg vorliegt — keine erfundene Schwäche.
+- Selftest-Läufe (`REMOTE_SELFTEST_SESSION_ID`) sind vom Gate und vom Nudge
+  ausgenommen.
+- Alle Felder sind **additiv** und optional; die Offline-Analyse-Pipeline
+  bleibt schema-tolerant.
