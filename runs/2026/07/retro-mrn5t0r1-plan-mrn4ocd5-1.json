@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784185207380,
+  "exportedAt": 1784185290952,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -14,7 +14,7 @@
     "planId": "plan-mrn4ocd5-1",
     "goal": "Unter jedem Profil-Workspace-Namen eine Mini-Zusammenfassung anzeigen, was die Aufgabe des dortigen Agents ist.",
     "status": "needs-work",
-    "summary": "Lauf mit Nacharbeit: 2 Modell(e), 1/2 Tasks erfolgreich.",
+    "summary": "Feature ist vollständig implementiert und als partieller Commit cb9ea044 gesichert (13 Dateien: shared taskSummary, IPC, Store, Selektor, WorkspaceTaskSummary.tsx, Sidebar.tsx, styles.css + Tests). Typecheck/Lint/Whitespace grün; der volle pnpm-test-Lauf bleibt rot wegen genau eines Tests im Inbox-Modul, das das Feature nicht anfasst. frontend-ui-Slot lieferte gar nichts, die UI kam vom Integrator.",
     "modelStats": [
       {
         "provider": "cursor",
@@ -85,6 +85,48 @@
         "observations": 3,
         "createdAt": 1784182938518,
         "updatedAt": 1784185207273
+      },
+      {
+        "id": "learning-mrn5ut8e-1-aak6ls",
+        "provider": "cursor",
+        "model": "composer-2.5",
+        "role": "frontend-ui",
+        "kind": "weakness",
+        "insight": "Lieferte bei klarer UI-Implementierungsaufgabe keine Arbeit (no-changes), nur Identitäts-Bestätigung, wurde aber als success gewertet",
+        "evidence": "t-ui: 'Verifizierter Status: keine Änderungen'; die UI (WorkspaceTaskSummary.tsx, Sidebar.tsx, styles.css) baute der Integrator",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784185290878,
+        "updatedAt": 1784185290878
+      },
+      {
+        "id": "learning-mrn5ut8e-2-6cmnn8",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "systems-integrator",
+        "kind": "strength",
+        "insight": "Setzt mehrschichtige Integration (shared Typ -> IPC -> Store -> Selektor -> Komponente) inkl. Tests vollständig aus einem Prompt um",
+        "evidence": "13-Datei-Recovery-Artefakt; Typecheck 2/2, Lint 1/1, Runtime-Smokes 12/12, git diff --check grün",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784185290878,
+        "updatedAt": 1784185290878
+      },
+      {
+        "id": "learning-mrn5ut8e-3-40ma12",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "systems-integrator",
+        "kind": "weakness",
+        "insight": "Erster Anlauf scheiterte am Vitest-Start (esbuild spawn EPERM in Codex-Sandbox); brauchte zweiten Anlauf für den vollen Testlauf",
+        "evidence": "Versuch 1 (Samweis) error spawn EPERM; Versuch 2 (Haldir 2) fuehrte Vitest aus, 1 realer Testfehler",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784185290878,
+        "updatedAt": 1784185290878
       }
     ],
     "createdAt": 1784185207310
