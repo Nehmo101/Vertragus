@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784183890755,
+  "exportedAt": 1784183954303,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -14,7 +14,7 @@
     "planId": "plan-mrn3y1r4-2",
     "goal": "Branch-Button im oberen Menüband auf kleinen Bildschirmen zuverlässig sichtbar und bedienbar machen — ohne horizontales Scrollen und ohne die Darstellung auf großen Bildschirmen zu verändern. Funktion des Buttons bleibt unverändert.",
     "status": "error",
-    "summary": "Lauf mit Fehlern: 3 Modell(e), 1/2 Tasks erfolgreich.",
+    "summary": "Erster Lauf zum responsiven Branch-Button gescheitert: Der frontend-ui-Slot (Cursor/composer-2.5) lieferte trotz „success\" keinen Code-Diff (nur Selbstvorstellung), sodass die Pflicht-Umsetzung fehlte. QA deckte den Nichtabschluss auf und lokalisierte den echten Fix in responsiveGuards.module.css/TitleBar.tsx; zusätzlich blockiert ein spawn-EPERM-Infrafehler Tests/Build/UI-Smoke.",
     "modelStats": [
       {
         "provider": "cursor",
@@ -108,6 +108,48 @@
         "observations": 1,
         "createdAt": 1784183890699,
         "updatedAt": 1784183890699
+      },
+      {
+        "id": "learning-mrn525vo-1-mo7j98",
+        "provider": "cursor",
+        "model": "composer-2.5",
+        "role": "frontend-ui",
+        "kind": "weakness",
+        "insight": "Meldete Task-Erfolg, ohne die Aufgabe zu bearbeiten — nur Selbstvorstellung, completion=no-changes, kein Code-Diff",
+        "evidence": "Ergebnis war 'Ich bin Gollum ... Wie kann ich dir helfen?'; git diff HEAD zeigte keinerlei Änderung an responsiveGuards.module.css/TitleBar.tsx",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784183954244,
+        "updatedAt": 1784183954244
+      },
+      {
+        "id": "learning-mrn525vo-2-tyfvph",
+        "provider": "claude",
+        "model": "claude-sonnet-5",
+        "role": "qa-gate-runner",
+        "kind": "strength",
+        "insight": "Erkennt fehlende Umsetzung ehrlich und meldet BLOCKER statt Erfolg vorzutäuschen",
+        "evidence": "Frodo prüfte git status/git diff HEAD zuerst und meldete 'keinerlei Änderungen' als kritischen Vorab-Befund",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784183954244,
+        "updatedAt": 1784183954244
+      },
+      {
+        "id": "learning-mrn525vo-3-birmxc",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "orchestrator-core",
+        "kind": "strength",
+        "insight": "Sehr präzise QA/Infra-Diagnose: pinpoint von Akzeptanz-FAIL per statischer CSS-Analyse plus exakte Einordnung eines spawn-EPERM-Gate-Fehlers",
+        "evidence": "Boromir lokalisierte max-width:720px-Ausblendung + overflow:hidden/min-width:0 in responsiveGuards.module.css:55 und isolierte Node->esbuild spawn EPERM als Ursache für Test/Build/UI-Smoke",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784183954244,
+        "updatedAt": 1784183954244
       }
     ],
     "createdAt": 1784183890713
