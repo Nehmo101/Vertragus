@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784184041181,
+  "exportedAt": 1784184335015,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -8,6 +8,20 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrn5aawz-1-51ad9y",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "systems-integrator",
+      "kind": "weakness",
+      "insight": "Quality-Gates erfordern Nacharbeit bei systems-integrator, orchestrator-core",
+      "evidence": "1 Task(s) mit 1 Gate-Finding(s)",
+      "source": "auto-retro",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784184334019,
+      "updatedAt": 1784184334019
+    },
     {
       "id": "learning-mrn53zul-5-oa5agj",
       "provider": "codex",
@@ -705,20 +719,6 @@
       "observations": 1,
       "createdAt": 1784069093072,
       "updatedAt": 1784069093072
-    },
-    {
-      "id": "learning-mrl5gqdd-2-fmj90p",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "main-orchestrator",
-      "kind": "weakness",
-      "insight": "Lange Einzeltasks können an Provider-Kapazität sterben (Selected model is at capacity); Attempt-Retry übernimmt Recovery-Artefakt aber sauber",
-      "evidence": "Attempt 1 (Ungoliant) brach nach ~14 Min mit Kapazitätsfehler ab; Attempt 2 (Beorn) führte die 8 quarantinierten Dateien fort",
-      "source": "orchestrator",
-      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
-      "observations": 1,
-      "createdAt": 1784063701633,
-      "updatedAt": 1784063701633
     },
     {
       "id": "learning-mrkhej75-1-pxoxx7",
