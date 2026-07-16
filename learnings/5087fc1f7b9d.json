@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784184449774,
+  "exportedAt": 1784184699667,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -8,6 +8,34 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrn5i3w8-1-tv8n9j",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "systems-integrator",
+      "kind": "strength",
+      "insight": "Zuverlässige, saubere First-Pass-Umsetzung eines responsiven CSS-Fix mit exaktem Scope (nur beauftragte Datei) und korrekter Erhaltung von Funktion/aria",
+      "evidence": "Umsetzung in responsiveGuards.module.css: Breakpoint-Staffel >1320/721-1320/≤720px, Branch-Select bleibt klickbar (64px), onChange/switchGitBranch/aria-label unverändert; Commit 6fb74e78",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784184698168,
+      "updatedAt": 1784184698168
+    },
+    {
+      "id": "learning-mrn5i3w8-2-jgnk4d",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "systems-integrator",
+      "kind": "strength",
+      "insight": "Behandelt bekannten Infrastruktur-Gate-Fehler (spawn EPERM) vertragskonform: kürzer Versuch, klare Dokumentation, Fortsetzung über typecheck+lint+statische Analyse statt Blockade",
+      "evidence": "Meldete test/build/ui-smoke als 0/3 wegen esbuild spawn EPERM (errno -4048), lieferte aber grüne typecheck/lint und 3/3 statische Breakpoint-Prüfung",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784184698168,
+      "updatedAt": 1784184698168
+    },
     {
       "id": "learning-mrn5cqhs-1-1a6hac",
       "provider": "codex",
@@ -651,20 +679,6 @@
       "updatedAt": 1784069920528
     },
     {
-      "id": "learning-mrl960wg-2-2pzrwd",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "main-orchestrator",
-      "kind": "strength",
-      "insight": "Hält No-Git-Vertrag und Namenskonventionen (camelCase-Module neben bestehenden shared-Modulen) auch ohne explizite Dateiliste im Prompt ein",
-      "evidence": "Worker meldete korrekt 'Kein Git-Commit oder Staging durchgeführt'; Orca-Main committete zentral",
-      "source": "orchestrator",
-      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
-      "observations": 1,
-      "createdAt": 1784069920528,
-      "updatedAt": 1784069920528
-    },
-    {
       "id": "learning-mrl8vu75-1-xyvfji",
       "provider": "codex",
       "model": "unknown",
@@ -677,20 +691,6 @@
       "observations": 1,
       "createdAt": 1784069445281,
       "updatedAt": 1784069445281
-    },
-    {
-      "id": "learning-mrl8tcte-1-ps1cf4",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "main-orchestrator",
-      "kind": "strength",
-      "insight": "Sehr stark bei kleinen Querschnitts-Features über shared/main/renderer: erfüllt expliziten Ergebnisvertrag (Dateiliste, Gate-Ausgaben, Integrationshinweise, kein git) vollständig",
-      "evidence": "Task me-names: 8 Dateien, Negativtests (NaN, negativ, 1e9), Legacy-Fallback, 8/8 vitest, typecheck+lint grün, Commit 50a413b",
-      "source": "orchestrator",
-      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
-      "observations": 1,
-      "createdAt": 1784069329442,
-      "updatedAt": 1784069329442
     },
     {
       "id": "learning-mrl8q5u0-1-fl7g8h",
