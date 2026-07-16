@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784196436947,
+  "exportedAt": 1784196641425,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -14,7 +14,7 @@
     "planId": "plan-mrnbvbsx-2",
     "goal": "Härtung + Testabdeckung für Profil-Duplizierung: Bindungs-/Auto-Approval-Felder beim Kopieren zurücksetzen und Kriterium 3 (Kopie bearbeiten/umbenennen lässt Original unberührt) per Integrationstest absichern.",
     "status": "error",
-    "summary": "Lauf mit Fehlern: 1 Modell(e), 0/1 Tasks erfolgreich.",
+    "summary": "Folgelauf „Duplizier-Härtung\" fehlgeschlagen — aber kein Modellfehler: Der Required-Basis-Commit 1fbaac46 (Erstlieferung) ist kein Ancestor des aktuellen HEAD (5c135cb), daher fehlt duplicateProfile im Worker-Worktree. Beide codex-Versuche (Éowyn, Radagast) meldeten korrekt einen strukturierten Blocker statt neu zu implementieren. Sackgasse braucht Integration des Feature-Commits in HEAD.",
     "modelStats": [
       {
         "provider": "codex",
@@ -44,7 +44,36 @@
         "avgDurationMs": 1044064
       }
     ],
-    "learnings": [],
+    "learnings": [
+      {
+        "id": "learning-mrncm3b1-1-i6ucy1",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "orchestrator-core",
+        "kind": "strength",
+        "insight": "Reagiert vorbildlich auf falsche Branch-Basis: kein Blind-Reimplement, sauberer Worktree, präziser strukturierter Blocker",
+        "evidence": "Éowyn+Radagast prüften rg duplicateProfile (0 Treffer), meldeten HEAD 5c135cb vs erwartete Basis 1fbaac46 (kein Ancestor) und stoppten vertragskonform statt neu zu bauen",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784196641341,
+        "updatedAt": 1784196641341
+      },
+      {
+        "id": "learning-mrncm3b1-2-e3hf0c",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "orchestrator-core",
+        "kind": "weakness",
+        "insight": "Folgeaufgaben scheitern, wenn der zentral verifizierte Vorlauf-Commit nicht in den HEAD der neuen Worktrees integriert wird",
+        "evidence": "Verifizierter Erstlieferungs-Commit 1fbaac46 ist kein Ancestor von HEAD 5c135cb; jeder Folge-Task ohne diese Integration blockiert zwangsläufig",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784196641341,
+        "updatedAt": 1784196641341
+      }
+    ],
     "createdAt": 1784196436898
   }
 }
