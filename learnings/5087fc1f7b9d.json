@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784196642863,
+  "exportedAt": 1784197382777,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -8,6 +8,19 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrn6nvgh-2-1fr14b",
+      "provider": "claude",
+      "model": "claude-opus-4-8",
+      "kind": "weakness",
+      "insight": "Worker-Versuche scheiterten; Aufgaben wurden auf andere Slots umgeleitet",
+      "evidence": "1 inhaltlich fehlgeschlagene(r) Versuch(e) in diesem Lauf",
+      "source": "auto-retro",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 2,
+      "createdAt": 1784186646785,
+      "updatedAt": 1784197381539
+    },
     {
       "id": "learning-mrncm3b1-1-i6ucy1",
       "provider": "codex",
@@ -359,19 +372,6 @@
       "kind": "strength",
       "insight": "zuverlässig im ersten Anlauf bei orchestrator-core",
       "evidence": "2/2 Tasks ohne Wiederholung erfolgreich",
-      "source": "auto-retro",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784186646785,
-      "updatedAt": 1784186646785
-    },
-    {
-      "id": "learning-mrn6nvgh-2-1fr14b",
-      "provider": "claude",
-      "model": "claude-opus-4-8",
-      "kind": "weakness",
-      "insight": "Worker-Versuche scheiterten; Aufgaben wurden auf andere Slots umgeleitet",
-      "evidence": "1 inhaltlich fehlgeschlagene(r) Versuch(e) in diesem Lauf",
       "source": "auto-retro",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
