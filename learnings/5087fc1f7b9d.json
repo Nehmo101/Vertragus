@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784183461692,
+  "exportedAt": 1784183827325,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -8,6 +8,20 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrn4ge52-1-1qp7x4",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "systems-integrator",
+      "kind": "weakness",
+      "insight": "Quality-Gates erfordern Nacharbeit bei systems-integrator",
+      "evidence": "1 Task(s) mit 1 Gate-Finding(s)",
+      "source": "auto-retro",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 2,
+      "createdAt": 1784182938518,
+      "updatedAt": 1784183826017
+    },
     {
       "id": "learning-mrn4rl0o-1-u5kgwa",
       "provider": "codex",
@@ -20,20 +34,6 @@
       "observations": 1,
       "createdAt": 1784183460648,
       "updatedAt": 1784183460648
-    },
-    {
-      "id": "learning-mrn4ge52-1-1qp7x4",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "systems-integrator",
-      "kind": "weakness",
-      "insight": "Quality-Gates erfordern Nacharbeit bei systems-integrator",
-      "evidence": "1 Task(s) mit 1 Gate-Finding(s)",
-      "source": "auto-retro",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784182938518,
-      "updatedAt": 1784182938518
     },
     {
       "id": "learning-mrm75c2v-3-ghnk87",
