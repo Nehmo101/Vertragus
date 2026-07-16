@@ -3,7 +3,8 @@ import {
   MIDDLE_EARTH_WORKSPACE_NAMES,
   MIDDLE_EARTH_WORKSPACES,
   middleEarthWorkspaceName,
-  middleEarthWorkspaceBlurb
+  middleEarthWorkspaceBlurb,
+  shuffleMiddleEarthWorkspaceNames
 } from './workspaceNames'
 
 describe('middleEarthWorkspaceName', () => {
@@ -11,6 +12,15 @@ describe('middleEarthWorkspaceName', () => {
     expect(new Set(MIDDLE_EARTH_WORKSPACE_NAMES).size).toBe(
       MIDDLE_EARTH_WORKSPACE_NAMES.length
     )
+  })
+
+  it('creates a deterministic, unique permutation with an injected random source', () => {
+    const names = shuffleMiddleEarthWorkspaceNames(() => 0)
+
+    expect(names).toHaveLength(MIDDLE_EARTH_WORKSPACE_NAMES.length)
+    expect(new Set(names).size).toBe(names.length)
+    expect(names[0]).not.toBe('Minas Tirith')
+    expect(MIDDLE_EARTH_WORKSPACE_NAMES[0]).toBe('Minas Tirith')
   })
 
   it('uses the fixed names for the first three workspace sessions', () => {
@@ -30,6 +40,13 @@ describe('middleEarthWorkspaceName', () => {
     const nextCycle = MIDDLE_EARTH_WORKSPACE_NAMES.length
     expect(middleEarthWorkspaceName(nextCycle + 1)).toBe('Minas Tirith II')
     expect(middleEarthWorkspaceName(nextCycle * 2 + 3)).toBe('Hobbingen III')
+  })
+
+  it('applies cycle suffixes to a shuffled name order', () => {
+    const names = shuffleMiddleEarthWorkspaceNames(() => 0)
+    const nextCycle = names.length
+
+    expect(middleEarthWorkspaceName(nextCycle + 1, names)).toBe(`${names[0]} II`)
   })
 
   it('falls back defensively for zero and negative sequences', () => {
@@ -61,9 +78,10 @@ describe('middleEarthWorkspaceBlurb', () => {
   })
 
   it('resolves the blurb through a Roman cycle suffix', () => {
-    expect(middleEarthWorkspaceBlurb('Minas Tirith II')).toBe(
-      middleEarthWorkspaceBlurb('Minas Tirith')
-    )
+    const names = shuffleMiddleEarthWorkspaceNames(() => 0)
+    const cycledName = middleEarthWorkspaceName(names.length + 1, names)
+
+    expect(middleEarthWorkspaceBlurb(cycledName)).toBe(middleEarthWorkspaceBlurb(names[0]!))
   })
 
   it('returns undefined for custom or unknown names', () => {

@@ -12,7 +12,11 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@main/agents/resolveCommand', () => ({ resolveLaunch: mocks.resolveLaunch }))
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>()
-  return { ...actual, spawn: mocks.spawn }
+  const execFile = vi.fn((...args: unknown[]) => {
+    const callback = args.at(-1)
+    if (typeof callback === 'function') callback(new Error('taskkill unavailable in unit test'))
+  })
+  return { ...actual, spawn: mocks.spawn, execFile }
 })
 vi.mock('@main/agents/ollamaHeadless', () => ({ runOllamaChat: mocks.runOllamaChat }))
 
@@ -134,6 +138,80 @@ describe('runHeadless lifecycle', () => {
     child.emit('close', 0)
 
     await expect(handle.done).resolves.toMatchObject({ status: 'succeeded', isError: false })
+  })
+
+  it('adds the non-Git override for Codex and parses its final answer', async () => {
+    const child = fakeChild()
+    mocks.resolveLaunch.mockImplementationOnce(async (file: string, args: string[]) => ({ file, args }))
+    mocks.spawn.mockReturnValueOnce(child)
+    const handle = runHeadless('codex', 'return structured JSON', opts, vi.fn())
+    await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce())
+
+    expect(mocks.resolveLaunch.mock.calls[0]?.[1]).toEqual(
+      expect.arrayContaining(['--skip-git-repo-check', '--json', '-o'])
+    )
+    child.stdout?.emit('data', Buffer.from(`${JSON.stringify({
+      type: 'item.completed',
+      item: { type: 'agent_message', text: '{"language":"de","title":"Geschärft"}' }
+    })}\n`))
+    child.emit('close', 0)
+
+    await expect(handle.done).resolves.toMatchObject({
+      status: 'succeeded',
+      isError: false,
+      result: '{"language":"de","title":"Geschärft"}'
+    })
+  })
+
+  it('keeps the Claude headless arguments unchanged', async () => {
+    const child = fakeChild()
+    mocks.resolveLaunch.mockImplementationOnce(async (file: string, args: string[]) => ({ file, args }))
+    mocks.spawn.mockReturnValueOnce(child)
+    const handle = runHeadless('claude', 'task', opts, vi.fn())
+    await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce())
+
+    expect(mocks.resolveLaunch).toHaveBeenCalledWith('claude', [
+      '-p',
+      'task',
+      '--output-format',
+      'stream-json',
+      '--model',
+      'test',
+      '--verbose'
+    ])
+    child.emit('close', 0)
+
+    await expect(handle.done).resolves.toMatchObject({ status: 'succeeded', isError: false })
+  })
+
+  it('reports every parsed Cursor stream event as progress even without a display log', async () => {
+    const child = fakeChild()
+    const output: string[] = []
+    const events: HeadlessLifecycleEvent[] = []
+    mocks.resolveLaunch.mockResolvedValueOnce({ file: 'cursor-agent', args: [] })
+    mocks.spawn.mockReturnValueOnce(child)
+    const handle = runHeadless('cursor', 'task', opts, (chunk) => output.push(chunk), {
+      onEvent: (event) => events.push(event)
+    })
+    await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce())
+
+    child.stdout?.emit('data', Buffer.from(`${JSON.stringify({ type: 'system', subtype: 'init' })}\n`))
+
+    expect(output).toHaveLength(0)
+    expect(events).toContainEqual(expect.objectContaining({
+      type: 'progress',
+      providerEvent: 'system',
+      pid: 42
+    }))
+
+    child.stdout?.emit('data', Buffer.from(`${JSON.stringify({
+      type: 'result',
+      result: 'fertig',
+      is_error: false
+    })}\n`))
+    child.emit('close', 0)
+
+    await expect(handle.done).resolves.toMatchObject({ status: 'succeeded', result: 'fertig' })
   })
 
   it('keeps exit zero plus an explicit success result successful after an earlier provider error', async () => {
