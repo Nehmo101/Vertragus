@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784195292395,
+  "exportedAt": 1784195338522,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -8,6 +8,48 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrnbu4qp-1-3euesy",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "systems-integrator",
+      "kind": "strength",
+      "insight": "Liefert eng gekoppelte vertikale Feature-Scheibe (Shared-Schema + Engine + Renderer + CSS) vollständig und verdrahtet dabei proaktiv echte Verifikation",
+      "evidence": "Commit bedb4cd8: startedAt idempotent in Engine.ts, Feld in OrcaTask+TaskStatusSnapshot, taskRuntime()-Badge in TaskCard, plus neue Unit-Tests (asyncDispatch.test.ts) und Electron-UI-Smoke (windows.ts) der live-hochzählenden Laufzeit",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784195336833,
+      "updatedAt": 1784195336833
+    },
+    {
+      "id": "learning-mrnbu4qp-2-rcx47e",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "systems-integrator",
+      "kind": "weakness",
+      "insight": "Meldet trotz grüner Gates und vollständiger Arbeit ERGEBNIS:BLOCKER wegen Infra-Blocker beim formalen Selbstabschluss → Task wird needs-work statt success",
+      "evidence": "Beide Attempts (Thorin 2, Gollum) endeten mit Infra-Blocker; Recovery-Artefakt bestand alle Gates und wurde als bedb4cd8 übernommen, Judge stufte dennoch needs-work ein",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784195336833,
+      "updatedAt": 1784195336833
+    },
+    {
+      "id": "learning-mrnbu4qp-3-fx2xb4",
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "role": "qa-gate-runner",
+      "kind": "weakness",
+      "insight": "Advisory-QA mit hartem dependsOn auf den Integrator wird bei dessen infra-bedingtem needs-work komplett gestoppt und liefert keinerlei Abnahme-Signal",
+      "evidence": "verify-runtime wurde mit 'Erforderliche Abhängigkeit impl-runtime ist fehlgeschlagen' gestoppt, obwohl der Commit grün integriert war — QA sollte nach zentraler Übernahme standalone laufen",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784195336833,
+      "updatedAt": 1784195336833
+    },
     {
       "id": "learning-mrnbt5o6-2-tt7lwp",
       "provider": "codex",
@@ -101,6 +143,20 @@
       "updatedAt": 1784195267018
     },
     {
+      "id": "learning-mrnbsmve-3-8jz57v",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "orchestrator-core",
+      "kind": "weakness",
+      "insight": "Gräbt bei blockiertem vitest tief in Framework-Internals, statt sofort config-frei zu testen",
+      "evidence": "Mehrere Minuten in cli-api.js/vite-Chunks; --config false wird von Vitest 2.1.9 zudem als Dateipfad fehlinterpretiert, Lösung erst über tsc-Emit + config-freie CLI",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784195267018,
+      "updatedAt": 1784195267018
+    },
+    {
       "id": "learning-mrnbsmve-5-pz0c1",
       "provider": "claude",
       "model": "claude-sonnet-5",
@@ -122,20 +178,6 @@
       "kind": "weakness",
       "insight": "Scheitert in dieser Session an Schreibrechten: Write/Bash/PowerShell werden abgelehnt oder laufen in Timeout",
       "evidence": "Task D Attempt 1 (Bard 2) meldete BLOCKER 'Orca permission denied or timeout' bei jedem Schreibversuch; Reroute auf codex nötig",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784195267018,
-      "updatedAt": 1784195267018
-    },
-    {
-      "id": "learning-mrnbsmve-3-8jz57v",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "orchestrator-core",
-      "kind": "weakness",
-      "insight": "Gräbt bei blockiertem vitest tief in Framework-Internals, statt sofort config-frei zu testen",
-      "evidence": "Mehrere Minuten in cli-api.js/vite-Chunks; --config false wird von Vitest 2.1.9 zudem als Dateipfad fehlinterpretiert, Lösung erst über tsc-Emit + config-freie CLI",
       "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
@@ -281,20 +323,6 @@
       "updatedAt": 1784185793331
     },
     {
-      "id": "learning-mrn65kxf-4-gdkn0y",
-      "provider": "claude",
-      "model": "claude-sonnet-5",
-      "role": "qa-gate-runner",
-      "kind": "strength",
-      "insight": "Meldet Infrastruktur-Blocker vertragskonform statt Erfolg zu faken",
-      "evidence": "Baumbart erkannte Sandbox-Blockade der Gates und Kriterium-3-Testlücke, meldete BLOCKER statt grün; Task wurde korrekt auf codex umgeleitet",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784185793331,
-      "updatedAt": 1784185793331
-    },
-    {
       "id": "learning-mrn65kxf-5-kuiuc7",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -302,6 +330,20 @@
       "kind": "weakness",
       "insight": "Advisory-Verifier laufen in isolierten Worktrees OHNE den zentral committeten Required-Commit — QA/Review verbrennen Aufwand am falschen Stand",
       "evidence": "HEAD in task-59 war 6fb74e7, 1fbaac46 kein Vorfahr; duplicateProfile fehlte, task-19-Worktree nicht lesbar → Gates rot obwohl Feature real grün",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784185793331,
+      "updatedAt": 1784185793331
+    },
+    {
+      "id": "learning-mrn65kxf-4-gdkn0y",
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "role": "qa-gate-runner",
+      "kind": "strength",
+      "insight": "Meldet Infrastruktur-Blocker vertragskonform statt Erfolg zu faken",
+      "evidence": "Baumbart erkannte Sandbox-Blockade der Gates und Kriterium-3-Testlücke, meldete BLOCKER statt grün; Task wurde korrekt auf codex umgeleitet",
       "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
@@ -393,13 +435,13 @@
       "updatedAt": 1784185745634
     },
     {
-      "id": "learning-mrn5v9vy-1-g9kuuj",
+      "id": "learning-mrn5v9vy-3-ie46ie",
       "provider": "codex",
       "model": "gpt-5.6-sol",
-      "role": "orchestrator-core",
-      "kind": "strength",
-      "insight": "Liefert kleine Shared-Modul-Features sauber mit injizierbarer Zufallsquelle für Testbarkeit",
-      "evidence": "Grishnákh: Fisher-Yates-Permutation + crypto.randomInt in workspaceNames.ts/Registry, 16/16 Tests, Typecheck/Lint/git diff --check grün, Commit 1575b5df",
+      "role": "qa-gate-runner",
+      "kind": "weakness",
+      "insight": "Eskaliert reinen Infra-Blocker zu Task-'error', obwohl Fachabnahme voll grün ist",
+      "evidence": "Bilbo 2 meldete ERGEBNIS: BLOCKER (Task error), obwohl Typecheck/Lint/relevante Tests grün und alle Abnahmekriterien erfüllt; nur nativer Build-Gate scheiterte an spawn EPERM",
       "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
@@ -435,20 +477,6 @@
       "updatedAt": 1784185312462
     },
     {
-      "id": "learning-mrn5v9vy-3-ie46ie",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "qa-gate-runner",
-      "kind": "weakness",
-      "insight": "Eskaliert reinen Infra-Blocker zu Task-'error', obwohl Fachabnahme voll grün ist",
-      "evidence": "Bilbo 2 meldete ERGEBNIS: BLOCKER (Task error), obwohl Typecheck/Lint/relevante Tests grün und alle Abnahmekriterien erfüllt; nur nativer Build-Gate scheiterte an spawn EPERM",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784185312462,
-      "updatedAt": 1784185312462
-    },
-    {
       "id": "learning-mrn5ut8e-3-40ma12",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -475,20 +503,6 @@
       "observations": 1,
       "createdAt": 1784185290878,
       "updatedAt": 1784185290878
-    },
-    {
-      "id": "learning-mrn5u4k5-2-m2sf7f",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "systems-integrator",
-      "kind": "weakness",
-      "insight": "Schreibt korrekten Code, aber zentraler typecheck scheitert, wenn ein importiertes Dependency-Modul nicht im Task-Base-Branch liegt — Scope-Disziplin entfernte die temporäre Kopie.",
-      "evidence": "ff-t2 commit 2b27a436: tsc -p tsconfig.node.json fail, @shared/claudePermissionMode fehlt im orch-13-Base (7feed018 nur auf t1-Branch).",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784185258901,
-      "updatedAt": 1784185258901
     },
     {
       "id": "learning-mrn5u4k5-1-daavhb",
