@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "exportedAt": 1784184674037,
+  "app": {
+    "name": "orca-strator",
+    "version": "0.1.47-main.1.gb3a336d"
+  },
+  "machineId": "5087fc1f7b9d",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrn5hl8k-plan-mrn53gcs-3",
+    "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+    "workspaceSessionId": "f769f675-db64-4095-a36d-71e88b1ce274",
+    "planId": "plan-mrn53gcs-3",
+    "goal": "Branch-Button im oberen Menüband (Titlebar) auf kleinen Bildschirmen zuverlässig sichtbar und bedienbar machen — Umsetzung der responsiven Korrektur, nachdem Lauf 1 keinen Code-Diff lieferte. Funktion/aria unverändert, große Bildschirme unverändert.",
+    "status": "success",
+    "summary": "Lauf erfolgreich: 1 Modell(e), 1/1 Tasks erfolgreich.",
+    "modelStats": [
+      {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "roles": [
+          "systems-integrator"
+        ],
+        "tasks": 1,
+        "succeeded": 1,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "avgDurationMs": 591782
+      }
+    ],
+    "learnings": [],
+    "createdAt": 1784184673988
+  }
+}
