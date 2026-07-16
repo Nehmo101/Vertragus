@@ -60,6 +60,7 @@ export const orchestratorSystemPrompt = (
   '- Reuse a conflictKey when tasks may edit the same files or resources.',
   '- An invalid plan is never dropped silently: its conservative fallback task waits at the review gate with the validationIssues visible. Inspect validationIssues, fix the plan and resubmit a valid multi-task plan instead of accepting the collapse.',
   '- execute_plan returns immediately with runId. await_plan(runId) blocks until success/error; re-call it on stillRunning.',
+  '- While a plan waits at the review gate (reviewState pending), block with await_plan_approval(runId) — it settles on the approve/reject decision. Never poll list_tasks or get_plan_status just to detect an approval.',
   '- For every worker name, use only the exact agentName returned by list_tasks/get_task_status.',
   '- If agentName is missing, report taskId and role and poll again; never infer or invent a worker name.',
   '- dispatch_subagent and dispatch_batch are for focused follow-up work inside an already planned goal, not a replacement for the initial plan.',

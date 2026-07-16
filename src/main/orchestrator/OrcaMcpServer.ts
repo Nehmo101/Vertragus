@@ -349,6 +349,23 @@ function buildMcpServer(
   )
 
   register(
+    'await_plan_approval',
+    'Blockiere, bis die Panel-Freigabe eines Planlaufs entschieden ist (reviewState approved/rejected), ' +
+      'statt list_tasks/get_plan_status zu pollen. Kehrt sofort zurück, wenn keine Freigabe nötig ist ' +
+      '(reviewState not-required) oder schon entschieden wurde. Bei stillRunning:true erneut aufrufen.',
+    {
+      runId: z.string().describe('runId aus execute_plan'),
+      timeoutMs: AWAIT_TIMEOUT_SHAPE
+    },
+    async (args) =>
+      text(JSON.stringify(
+        await engine.awaitPlanApproval(String(args.runId ?? ''), args.timeoutMs as number | undefined),
+        null,
+        2
+      ))
+  )
+
+  register(
     'cancel_plan',
     'Stoppe einen Planlauf oder verwirf ohne runId den Plan, der gerade auf Review wartet. ' +
       'Fehler werden als strukturierte Antwort geliefert und lösen keine Tool-Exception aus.',

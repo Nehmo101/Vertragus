@@ -12,7 +12,9 @@ import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import type {
   AwaitAnyResult,
+  AwaitPlanApprovalResult,
   AwaitPlanResult,
+  PlanReviewState,
   AwaitTaskResult,
   ExecutionPlan,
   ExecutionPlanResult,
@@ -313,6 +315,9 @@ export class OrchestratorEngine extends EventEmitter {
   >()
   private pendingPlan: PendingPlanReview | undefined
   private pendingPlanResolve: ((approved: boolean) => void) | undefined
+  /** Review-gate state per planId, so approvals are awaitable instead of polled. */
+  private readonly planReviewStates = new Map<string, Extract<PlanReviewState, 'pending' | 'approved' | 'rejected'>>()
+  private readonly planReviewWaiters = new Map<string, Promise<boolean>>()
   private pendingPublication: ApprovalItem | undefined
   private publicationInFlight = false
   private readonly pendingPermissions = new Map<string, PermissionRequest>()
@@ -852,6 +857,12 @@ export class OrchestratorEngine extends EventEmitter {
     this.pendingPlanResolve = undefined
     this.pendingPlan = undefined
     this.firstPlanApproved = approved && pending?.rejected !== true
+    if (pending) {
+      this.planReviewStates.set(pending.planId, approved ? 'approved' : 'rejected')
+      // Aktives Signal statt Polling: await_plan_approval und externe
+      // Konsumenten erfahren die Panel-Entscheidung sofort.
+      this.emit('plan-review', { planId: pending.planId, approved })
+    }
     this.setActivityState(
       approved ? 'delegating' : 'blocked',
       approved
@@ -893,7 +904,7 @@ export class OrchestratorEngine extends EventEmitter {
 
   private requestPlanReview(review: PendingPlanReview): Promise<boolean> {
     if (this.pendingPlanResolve) throw new Error('Ein anderer Plan wartet bereits auf Review.')
-    return new Promise<boolean>((resolve) => {
+    const waiter = new Promise<boolean>((resolve) => {
       this.pendingPlan = review
       this.pendingPlanResolve = resolve
       this.setActivityState(
@@ -909,6 +920,39 @@ export class OrchestratorEngine extends EventEmitter {
       )
       this.push()
     })
+    this.planReviewStates.set(review.planId, 'pending')
+    this.planReviewWaiters.set(review.planId, waiter)
+    void waiter.finally(() => this.planReviewWaiters.delete(review.planId))
+    return waiter
+  }
+
+  /**
+   * Block until the review gate of a plan run is decided, instead of polling
+   * get_plan_status/list_tasks for the approval side effect. Returns
+   * immediately for plans that never required a review.
+   */
+  async awaitPlanApproval(runId: string, timeoutMs?: number): Promise<AwaitPlanApprovalResult> {
+    const stored = this.planRunResults.get(runId)
+    if (!stored) return { done: false, stillRunning: false, reason: 'unknown', runId }
+    const planId = stored.planId ?? this.planRunPlanIds.get(runId)
+    const state = planId ? this.planReviewStates.get(planId) : undefined
+    const snapshot = (): PlanRunStatusSnapshot => this.getPlanRunStatus(runId) ?? stored
+    if (state !== 'pending') {
+      return { done: true, stillRunning: false, reviewState: state ?? 'not-required', plan: snapshot() }
+    }
+    const waiter = planId ? this.planReviewWaiters.get(planId) : undefined
+    if (!waiter) {
+      return { done: true, stillRunning: false, reviewState: state, plan: snapshot() }
+    }
+    const outcome = await this.raceWithTimeout(
+      waiter.then(() => undefined, () => undefined),
+      this.clampAwaitTimeout(timeoutMs)
+    )
+    if (outcome === 'settled') {
+      const decided = (planId ? this.planReviewStates.get(planId) : undefined) ?? 'not-required'
+      return { done: true, stillRunning: false, reviewState: decided, plan: snapshot() }
+    }
+    return { done: false, stillRunning: true, reason: 'timeout', reviewState: 'pending', plan: snapshot() }
   }
 
   private limiter(role: string, capacity: number): Semaphore {
@@ -2724,6 +2768,7 @@ export class OrchestratorEngine extends EventEmitter {
       workspaceSessionId: this.workspaceSessionId,
       planId,
       goal: stored.goal ?? this.goal?.title,
+      reviewState: (planId ? this.planReviewStates.get(planId) : undefined) ?? 'not-required',
       tasks,
       summary: {
         required: tasks.filter((task) => (task.criticality ?? 'required') === 'required').length,
