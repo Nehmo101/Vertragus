@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784201404996,
+  "exportedAt": 1784202127458,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -8,6 +8,19 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrn6nvgh-2-1fr14b",
+      "provider": "claude",
+      "model": "claude-opus-4-8",
+      "kind": "weakness",
+      "insight": "Worker-Versuche scheiterten; Aufgaben wurden auf andere Slots umgeleitet",
+      "evidence": "1 inhaltlich fehlgeschlagene(r) Versuch(e) in diesem Lauf",
+      "source": "auto-retro",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 5,
+      "createdAt": 1784186646785,
+      "updatedAt": 1784202126055
+    },
     {
       "id": "learning-mrnfg5oh-1-908t56",
       "provider": "codex",
@@ -21,19 +34,6 @@
       "observations": 1,
       "createdAt": 1784201403329,
       "updatedAt": 1784201403329
-    },
-    {
-      "id": "learning-mrn6nvgh-2-1fr14b",
-      "provider": "claude",
-      "model": "claude-opus-4-8",
-      "kind": "weakness",
-      "insight": "Worker-Versuche scheiterten; Aufgaben wurden auf andere Slots umgeleitet",
-      "evidence": "1 inhaltlich fehlgeschlagene(r) Versuch(e) in diesem Lauf",
-      "source": "auto-retro",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 4,
-      "createdAt": 1784186646785,
-      "updatedAt": 1784200243892
     },
     {
       "id": "learning-mrndipem-2-dhppdf",
@@ -78,20 +78,6 @@
       "updatedAt": 1784197914652
     },
     {
-      "id": "learning-mrncm3b1-1-i6ucy1",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "orchestrator-core",
-      "kind": "strength",
-      "insight": "Reagiert vorbildlich auf falsche Branch-Basis: kein Blind-Reimplement, sauberer Worktree, präziser strukturierter Blocker",
-      "evidence": "Éowyn+Radagast prüften rg duplicateProfile (0 Treffer), meldeten HEAD 5c135cb vs erwartete Basis 1fbaac46 (kein Ancestor) und stoppten vertragskonform statt neu zu bauen",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784196641341,
-      "updatedAt": 1784196641341
-    },
-    {
       "id": "learning-mrncm3b1-2-e3hf0c",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -106,18 +92,18 @@
       "updatedAt": 1784196641341
     },
     {
-      "id": "learning-mrnbuqgf-2-hs5xfa",
+      "id": "learning-mrncm3b1-1-i6ucy1",
       "provider": "codex",
       "model": "gpt-5.6-sol",
-      "role": "qa-gate-runner",
+      "role": "orchestrator-core",
       "kind": "strength",
-      "insight": "Sehr präzise, ehrliche QA: trennt Sandbox-Blocker von echten Fehlern und findet Integrations- UND Akzeptanzdefekte",
-      "evidence": "Wurmzunge 2: belegte esbuild spawn EPERM (esbuild.exe --version läuft, Node-Child blockiert), fand 36de2203 nicht Ancestor von HEAD 9b8ff84, und deckte auf, dass der inaktive liveStatus-Fallback weiter STATUS_LABEL rendert",
+      "insight": "Reagiert vorbildlich auf falsche Branch-Basis: kein Blind-Reimplement, sauberer Worktree, präziser strukturierter Blocker",
+      "evidence": "Éowyn+Radagast prüften rg duplicateProfile (0 Treffer), meldeten HEAD 5c135cb vs erwartete Basis 1fbaac46 (kein Ancestor) und stoppten vertragskonform statt neu zu bauen",
       "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
-      "createdAt": 1784195364975,
-      "updatedAt": 1784195364975
+      "createdAt": 1784196641341,
+      "updatedAt": 1784196641341
     },
     {
       "id": "learning-mrnbuqgf-3-4tnw28",
@@ -141,6 +127,20 @@
       "kind": "weakness",
       "insight": "esbuild spawn EPERM blockiert Vitest+Build in der Codex-Worker-Sandbox reproduzierbar (2. Bestätigung)",
       "evidence": "task-74: pnpm test bricht vor Test-Discovery mit spawn EPERM (ensureServiceIsRunning) ab; pnpm build scheitert am Mobile-Vite mit demselben EPERM",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784195364975,
+      "updatedAt": 1784195364975
+    },
+    {
+      "id": "learning-mrnbuqgf-2-hs5xfa",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "qa-gate-runner",
+      "kind": "strength",
+      "insight": "Sehr präzise, ehrliche QA: trennt Sandbox-Blocker von echten Fehlern und findet Integrations- UND Akzeptanzdefekte",
+      "evidence": "Wurmzunge 2: belegte esbuild spawn EPERM (esbuild.exe --version läuft, Node-Child blockiert), fand 36de2203 nicht Ancestor von HEAD 9b8ff84, und deckte auf, dass der inaktive liveStatus-Fallback weiter STATUS_LABEL rendert",
       "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
@@ -204,20 +204,6 @@
       "updatedAt": 1784195360025
     },
     {
-      "id": "learning-mrnbu4qp-1-3euesy",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "systems-integrator",
-      "kind": "strength",
-      "insight": "Liefert eng gekoppelte vertikale Feature-Scheibe (Shared-Schema + Engine + Renderer + CSS) vollständig und verdrahtet dabei proaktiv echte Verifikation",
-      "evidence": "Commit bedb4cd8: startedAt idempotent in Engine.ts, Feld in OrcaTask+TaskStatusSnapshot, taskRuntime()-Badge in TaskCard, plus neue Unit-Tests (asyncDispatch.test.ts) und Electron-UI-Smoke (windows.ts) der live-hochzählenden Laufzeit",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784195336833,
-      "updatedAt": 1784195336833
-    },
-    {
       "id": "learning-mrnbu4qp-2-rcx47e",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -225,6 +211,20 @@
       "kind": "weakness",
       "insight": "Meldet trotz grüner Gates und vollständiger Arbeit ERGEBNIS:BLOCKER wegen Infra-Blocker beim formalen Selbstabschluss → Task wird needs-work statt success",
       "evidence": "Beide Attempts (Thorin 2, Gollum) endeten mit Infra-Blocker; Recovery-Artefakt bestand alle Gates und wurde als bedb4cd8 übernommen, Judge stufte dennoch needs-work ein",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784195336833,
+      "updatedAt": 1784195336833
+    },
+    {
+      "id": "learning-mrnbu4qp-1-3euesy",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "systems-integrator",
+      "kind": "strength",
+      "insight": "Liefert eng gekoppelte vertikale Feature-Scheibe (Shared-Schema + Engine + Renderer + CSS) vollständig und verdrahtet dabei proaktiv echte Verifikation",
+      "evidence": "Commit bedb4cd8: startedAt idempotent in Engine.ts, Feld in OrcaTask+TaskStatusSnapshot, taskRuntime()-Badge in TaskCard, plus neue Unit-Tests (asyncDispatch.test.ts) und Electron-UI-Smoke (windows.ts) der live-hochzählenden Laufzeit",
       "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
@@ -246,6 +246,18 @@
       "updatedAt": 1784195336833
     },
     {
+      "id": "learning-mrnbt5o6-1-fxqqet",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "kind": "weakness",
+      "insight": "Integrator-Tasks auf IPC/Preload scheitern trotz Whitespace-Auflage im Prompt an git diff --cached --check und secret-leak-Control; erforderliche Controls je Datei explizit im Prompt benennen.",
+      "source": "orchestrator",
+      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+      "observations": 1,
+      "createdAt": 1784195291382,
+      "updatedAt": 1784195291382
+    },
+    {
       "id": "learning-mrnbt5o6-2-tt7lwp",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -263,18 +275,6 @@
       "model": "gpt-5.6-sol",
       "kind": "strength",
       "insight": "Security-Reviewer liefert präzise, nach Schweregrad differenzierte Audits, grenzt vorbestehende von neuen Risiken ab und postet hohe Befunde sofort aufs Board.",
-      "source": "orchestrator",
-      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
-      "observations": 1,
-      "createdAt": 1784195291382,
-      "updatedAt": 1784195291382
-    },
-    {
-      "id": "learning-mrnbt5o6-1-fxqqet",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "kind": "weakness",
-      "insight": "Integrator-Tasks auf IPC/Preload scheitern trotz Whitespace-Auflage im Prompt an git diff --cached --check und secret-leak-Control; erforderliche Controls je Datei explizit im Prompt benennen.",
       "source": "orchestrator",
       "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
       "observations": 1,
@@ -308,6 +308,20 @@
       "observations": 1,
       "createdAt": 1784195290673,
       "updatedAt": 1784195290673
+    },
+    {
+      "id": "learning-mrnbsmve-3-8jz57v",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "orchestrator-core",
+      "kind": "weakness",
+      "insight": "Gräbt bei blockiertem vitest tief in Framework-Internals, statt sofort config-frei zu testen",
+      "evidence": "Mehrere Minuten in cli-api.js/vite-Chunks; --config false wird von Vitest 2.1.9 zudem als Dateipfad fehlinterpretiert, Lösung erst über tsc-Emit + config-freie CLI",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784195267018,
+      "updatedAt": 1784195267018
     },
     {
       "id": "learning-mrnbsmve-1-hncg65",
@@ -345,20 +359,6 @@
       "kind": "strength",
       "insight": "Meldet Schreib-/Infra-Blocker ehrlich als BLOCKER statt Fake-Erfolg",
       "evidence": "Bard 2 gab strukturierten Blocker mit Ursache statt no-changes-Erfolg vorzutäuschen",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784195267018,
-      "updatedAt": 1784195267018
-    },
-    {
-      "id": "learning-mrnbsmve-3-8jz57v",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "orchestrator-core",
-      "kind": "weakness",
-      "insight": "Gräbt bei blockiertem vitest tief in Framework-Internals, statt sofort config-frei zu testen",
-      "evidence": "Mehrere Minuten in cli-api.js/vite-Chunks; --config false wird von Vitest 2.1.9 zudem als Dateipfad fehlinterpretiert, Lösung erst über tsc-Emit + config-freie CLI",
       "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
