@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "exportedAt": 1784185037452,
+  "app": {
+    "name": "orca-strator",
+    "version": "0.1.47-main.1.gb3a336d"
+  },
+  "machineId": "5087fc1f7b9d",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrn5pdnn-plan-mrn54ow6-2",
+    "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+    "workspaceSessionId": "65ce25e5-d1dd-4b32-93c1-5efc00c95fd3",
+    "planId": "plan-mrn54ow6-2",
+    "goal": "Integrationskonflikt auflösen: Die verifizierten Inhalte des Integrations-Commits d9f69ce7fa3a5fbf8353f14ccfdfc99830eb3076 (Sidebars resizable/einklappbar, Workspace responsiv) sauber in den aktuellen zentralen Branch-Stand einarbeiten, der bereits die Commits 24c2ae4 (Layout-Primitives) und 4ef2043 (QA-Testergänzungen) enthält. Ergebnis: alle Quality-Gates (Typecheck, Vitest, Lint, Build) grün, keine Merge-Artefakte.",
+    "status": "stopped",
+    "summary": "Lauf gestoppt: 1 Modell(e), 1/1 Tasks erfolgreich.",
+    "modelStats": [
+      {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "roles": [
+          "renderer-ui"
+        ],
+        "tasks": 1,
+        "succeeded": 1,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "avgDurationMs": 803865
+      }
+    ],
+    "learnings": [],
+    "createdAt": 1784185037411
+  }
+}
