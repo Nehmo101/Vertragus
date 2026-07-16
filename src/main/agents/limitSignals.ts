@@ -44,7 +44,11 @@ const COMMON_PATTERNS: LimitPattern[] = [
   { re: /\bapproaching\b[^.\n]{0,30}\blimit\b/i, kind: 'generic' },
   { re: /\byou(?:'ve|\s+have)?\s+(?:reached|hit)\b[^.\n]{0,24}\blimit\b/i, kind: 'generic' },
   { re: /\blimit\b[^.\n]{0,20}\breset/i, kind: 'generic' },
-  { re: /\bNutzungslimit\b/i, kind: 'generic' }
+  { re: /\bNutzungslimit\b/i, kind: 'generic' },
+  // "Selected model is at capacity" tötete lange Tasks, ohne dass der
+  // rateLimited-Retry mit Slot-Wechsel griff (Retros mrl5ec4i, mrl8oafq).
+  { re: /\b(?:model|provider|service)\b[^.\n]{0,40}\bat capacity\b/i, kind: 'generic' },
+  { re: /\bat capacity\b[^.\n]{0,40}\b(?:try again|retry|später|momentan)\b/i, kind: 'generic' }
 ]
 
 /** Room for provider-specific phrasings; the common list already covers most. */
