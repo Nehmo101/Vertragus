@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { profileHasRunningAgents, useAppStore } from '@renderer/store/useAppStore'
 import { profileRepoLocalPath, type WorkspaceProfile, type AgentSlot } from '@shared/profile'
+import { postProcessBranchValidationError } from '@shared/gitPostProcessing'
 import type { AgentProviderId } from '@shared/providers'
 import type { ModelPreset } from '@shared/models'
 import {
@@ -39,6 +40,8 @@ const HELP = {
   prStrategy: 'Aggregate kombiniert Task-Commits in einen Goal-PR. Per Task erzeugt getrennte PRs.',
   baseBranch: 'Zielbranch des PRs. Leer nutzt den gebundenen Standardbranch oder den des origin-Remotes.',
   qualityGates: 'Vertrauenswürdige Shell-Befehle, die im Task- und Integrations-Worktree erfolgreich laufen müssen.',
+  autoGitMode: 'Nach einem vollständig erfolgreichen Workspace-Lauf werden alle Änderungen im Workspace committet und zu origin gepusht. Bei Fehlern bleibt der Lauf rot.',
+  autoGitBranch: 'Expliziter Ziel-Branch auf origin. Optionen, Ref-Specs, Revisionen, Leerzeichen und Steuerzeichen werden abgewiesen.',
   role: 'Eindeutige Fähigkeit, die der Planner adressiert, etwa frontend, backend, tests oder review.',
   agentProvider: 'CLI, die diesen Slot ausführt. Der Login erfolgt separat in der Provider-Seitenleiste.',
   count: 'Maximale parallele Task-Kapazität dieser Rolle und Anzahl beim manuellen Teamstart.',
@@ -159,7 +162,8 @@ export default function ProfileEditor(): JSX.Element | null {
       setDraft({
         ...generated,
         githubRepo: draft.githubRepo,
-        githubProject: draft.githubProject
+        githubProject: draft.githubProject,
+        autoGit: draft.autoGit
       })
       setGenerateStatus('Repo-Profil erzeugt. Rollen und Quality Gates bitte prüfen.')
     } catch (error) {
@@ -229,6 +233,10 @@ export default function ProfileEditor(): JSX.Element | null {
   const grandTotal = subTotal + (hasOrch ? 1 : 0)
   const isSavedProfile = store.profiles.some((profile) => profile.id === draft.id)
   const hasRunningAgents = profileHasRunningAgents(store.agents, draft.id)
+  const autoGitBranchError = postProcessBranchValidationError(
+    draft.autoGit.targetBranch,
+    draft.autoGit.enabled
+  )
 
   return (
     <div className="modal-wrap">
@@ -699,6 +707,49 @@ export default function ProfileEditor(): JSX.Element | null {
               </label>
             </div>
           </section>
+          <section className="automation-section" aria-labelledby="auto-git-heading">
+            <div className="slots-caption compact-caption">
+              <span id="auto-git-heading">Auto-Commit &amp; Push</span>
+              <span className="count">nur nach vollständig erfolgreichem Lauf</span>
+            </div>
+            <div className="automation-grid auto-git-grid">
+              <label>
+                <span className="slot-col-label">
+                  Modus <InfoTip text={HELP.autoGitMode} />
+                </span>
+                <select
+                  className="slot-select-sm"
+                  value={draft.autoGit.enabled ? 'on' : 'off'}
+                  onChange={(event) => patch({
+                    autoGit: { ...draft.autoGit, enabled: event.target.value === 'on' }
+                  })}
+                >
+                  <option value="off">Aus</option>
+                  <option value="on">Nach Erfolg committen &amp; pushen</option>
+                </select>
+              </label>
+              <label>
+                <span className="slot-col-label">
+                  Ziel-Branch <InfoTip text={HELP.autoGitBranch} />
+                </span>
+                <input
+                  className={`slot-select-sm mono ${autoGitBranchError ? 'input-invalid' : ''}`}
+                  placeholder="z. B. orca/integrated"
+                  value={draft.autoGit.targetBranch}
+                  aria-invalid={Boolean(autoGitBranchError)}
+                  aria-describedby={autoGitBranchError ? 'auto-git-branch-error' : undefined}
+                  onChange={(event) => patch({
+                    autoGit: { ...draft.autoGit, targetBranch: event.target.value }
+                  })}
+                />
+              </label>
+            </div>
+            {autoGitBranchError && (
+              <div id="auto-git-branch-error" className="automation-validation-error" role="alert">
+                {autoGitBranchError}
+              </div>
+            )}
+          </section>
           <div className="slots-caption">
             <span>Subagent-Slots</span>
             <span className="count">
@@ -972,16 +1023,23 @@ export default function ProfileEditor(): JSX.Element | null {
               CLI-Standard oder ein explizites Modell.
             </div>
           )}
+          {autoGitBranchError && (
+            <div className="model-preset-warning" role="alert">
+              Auto-Commit &amp; Push: Ziel-Branch korrigieren.
+            </div>
+          )}
           <button type="button" className="btn-secondary" onClick={store.closeEditor}>
             Abbrechen
           </button>
           <button
             type="button"
             className="btn-primary"
-            disabled={unavailablePresetCount > 0}
+            disabled={unavailablePresetCount > 0 || Boolean(autoGitBranchError)}
             title={
               unavailablePresetCount > 0
                 ? 'Nicht verfügbare Modell-Presets zuerst korrigieren'
+                : autoGitBranchError
+                  ? autoGitBranchError
                 : undefined
             }
             onClick={() => void store.saveEditor(draft)}

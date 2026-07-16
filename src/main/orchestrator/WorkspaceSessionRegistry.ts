@@ -29,6 +29,7 @@ function cloneProfile(profile: WorkspaceProfile): WorkspaceProfile {
       weaknesses: [...slot.weaknesses]
     })),
     planner: { ...profile.planner },
+    autoGit: { ...profile.autoGit },
     autoPr: {
       ...profile.autoPr,
       qualityGates: [...profile.autoPr.qualityGates],

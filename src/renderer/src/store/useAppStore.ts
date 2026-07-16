@@ -1076,6 +1076,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         planner: { ...profile.planner },
         benchmark: { ...profile.benchmark },
         multiAgent: { ...profile.multiAgent },
+        autoGit: { ...profile.autoGit },
         autoPr: {
           ...profile.autoPr,
           qualityGates: [...profile.autoPr.qualityGates],
@@ -1117,6 +1118,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         planner: { mode: 'review', routingMode: 'adaptive', maxParallel: 6, maxRetries: 1 },
         benchmark: { enabled: false },
         multiAgent: { enabled: false, stopLosers: true },
+        autoGit: { enabled: false, targetBranch: '' },
         autoPr: {
           mode: 'off',
           strategy: 'aggregate',

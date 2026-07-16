@@ -17,6 +17,8 @@ import LoreName from '@renderer/components/LoreName'
 import { deriveRemoteApprovals } from '@shared/remote'
 import { ResizeHandle } from '@renderer/components/ResizeHandle'
 import { selectPanelLayout, useLayoutStore } from '@renderer/store/layoutStore'
+import styles from './Sidebar.module.css'
+import { workspaceRunPresentation } from './workspaceRunStatus'
 
 interface RowStatus {
   label: string
@@ -538,11 +540,26 @@ export function SidebarView({
           {store.workspaceSessions
             .filter((session) => session.profileId === store.activeProfileId)
             .map((session) => {
-              const running = store.agents.filter(
-                (agent) =>
-                  agent.workspaceSessionId === session.id &&
-                  (agent.status === 'running' || agent.status === 'waiting')
+              const sessionAgents = store.agents.filter(
+                (agent) => agent.workspaceSessionId === session.id
+              )
+              const running = sessionAgents.filter(
+                (agent) => agent.status === 'running' || agent.status === 'waiting'
               ).length
+              const orchestratorAgent = sessionAgents
+                .filter((agent) => agent.kind === 'orchestrator')
+                .sort((left, right) => right.startedAt - left.startedAt)[0]
+              const snapshot = store.orchestrators[session.id] ?? Object.values(store.orchestrators)
+                .find((item) =>
+                  item.workspaceSessionId === session.id &&
+                  (!item.profileId || item.profileId === session.profileId)
+                )
+              const runStatus = workspaceRunPresentation({
+                activeAgents: running,
+                terminalStatus: snapshot?.lastRetro?.status,
+                orchestratorAgentStatus: orchestratorAgent?.status,
+                gitPostProcessingStatus: snapshot?.gitPostProcessing?.status
+              })
               const name = session.name || middleEarthWorkspaceName(session.sequence)
               const label = `W${session.sequence} ${name}`
               const attention = workspaceUserAttention(store, session.profileId, session.id)
@@ -564,7 +581,18 @@ export function SidebarView({
                       className="workspace-session-name"
                     />
                     {attention && <span className="workspace-attention-indicator" aria-hidden="true" />}
-                    <small>{running > 0 ? `${running} aktiv` : 'inaktiv'}</small>
+                    <span
+                      className={styles.workspaceRunStatus}
+                      data-orchestrator-status={runStatus.state}
+                      data-tone={runStatus.tone}
+                      role="status"
+                      aria-label={runStatus.accessibleLabel}
+                    >
+                      <span className={styles.workspaceRunSymbol} aria-hidden="true">
+                        {runStatus.symbol}
+                      </span>
+                      <span>{runStatus.label}</span>
+                    </span>
                   </button>
                   <button
                     type="button"

@@ -20,6 +20,7 @@ describe('workspaceProfileSchema', () => {
     expect(profile.planner.mode).toBe('review')
     expect(profile.autoPr.mode).toBe('off')
     expect(profile.multiAgent).toEqual({ enabled: false, stopLosers: true })
+    expect(profile.autoGit).toEqual({ enabled: false, targetBranch: '' })
     expect(profile.orchestrator?.model).toBe('')
     expect(profile.orchestrator?.permissionMode).toBe('default')
   })
@@ -46,6 +47,29 @@ describe('workspaceProfileSchema', () => {
       autoPr: { ...DEFAULT_PROFILE.autoPr, mode: 'hold-for-approval' }
     })
     expect(profile.autoPr.mode).toBe('hold-for-approval')
+  })
+
+  it('validates Auto-Git settings and rejects branch/argument injection', () => {
+    expect(workspaceProfileSchema.parse({
+      ...DEFAULT_PROFILE,
+      autoGit: { enabled: true, targetBranch: 'orca/release-2026.07' }
+    }).autoGit.enabled).toBe(true)
+
+    for (const targetBranch of [
+      '',
+      '--force',
+      'main:refs/heads/injected',
+      'main\n--force',
+      'feature/../../main',
+      '$(touch-injected)',
+      'release.lock',
+      'HEAD'
+    ]) {
+      expect(workspaceProfileSchema.safeParse({
+        ...DEFAULT_PROFILE,
+        autoGit: { enabled: true, targetBranch }
+      }).success).toBe(false)
+    }
   })
 
   it('accepts optional githubRepo binding with defaults', () => {

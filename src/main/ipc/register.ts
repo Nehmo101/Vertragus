@@ -79,6 +79,7 @@ import { spawnProfileTeam } from '@main/agents/spawnProfile'
 import { getActiveRepoOverridePath } from '@main/config/workspaceRepo'
 import { generateProfileForRepo } from '@main/profiles/generateProfileForRepo'
 import { createProfileDeletionIpcController } from '@main/profiles/profileDeletionIpc'
+import { createProfileSaveIpcController } from '@main/profiles/profileSaveIpc'
 import {
   listBenchmarkRecords,
   listModelLearnings,
@@ -193,6 +194,13 @@ export function registerIpcHandlers(): void {
     removeAttribute: removeIdeaAttribute,
     restoreIdea
   })
+  const profileSaveController = createProfileSaveIpcController({
+    authorization: {
+      developmentUrl: process.env['ELECTRON_RENDERER_URL'],
+      packagedRendererUrl: pathToFileURL(join(__dirname, '../renderer/index.html')).toString(),
+      isKnownSender: (sender) => isMainWindowSender(sender as Electron.WebContents)
+    }
+  })
   const requireMainWindow = (event: Electron.IpcMainInvokeEvent): void => {
     if (!isMainWindowSender(event.sender)) throw new Error('Remote-Verwaltung ist nur im Hauptfenster erlaubt.')
   }
@@ -238,7 +246,8 @@ export function registerIpcHandlers(): void {
 
   // ---- profiles ----
   ipcMain.handle(IPC.profilesList, () => listProfiles())
-  ipcMain.handle(IPC.profileSave, async (_e, profile: WorkspaceProfile) => {
+  ipcMain.handle(IPC.profileSave, async (e, input: unknown) => {
+    const profile = profileSaveController.authorizeAndParse(e, input)
     let workingDir = profile.workingDir.trim()
     let githubRepo = profile.githubRepo
 

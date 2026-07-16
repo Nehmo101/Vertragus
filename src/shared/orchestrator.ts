@@ -9,6 +9,7 @@ import type { AgentUsage } from './agents'
 import type { PlannerConfig } from './profile'
 import type { RetroDraftResult, RunRetro } from './retro'
 import type { ApprovalItem, PermissionRequest, RemoteBudgetSnapshot } from './remote'
+import type { WorkspaceGitPostProcessingSnapshot } from './gitPostProcessing'
 
 export type TaskStatus = 'queued' | 'running' | 'waiting' | 'paused' | 'success' | 'needs-work' | 'error' | 'stopped'
 
@@ -318,6 +319,8 @@ export interface OrchestratorSnapshot {
   budget?: RemoteBudgetSnapshot
   /** Path-free aggregation state for the desktop/mobile Diff & Merge Center. */
   integration?: IntegrationCenterSnapshot
+  /** Optional commit/push step belonging to the terminal workspace lifecycle. */
+  gitPostProcessing?: WorkspaceGitPostProcessingSnapshot
   /** Retrospective of the most recent terminal plan run in this session. */
   lastRetro?: RunRetro
   /** Recent shared findings board entries (newest last), for the live UI. */
