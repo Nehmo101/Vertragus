@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784195338522,
+  "exportedAt": 1784195361739,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -8,6 +8,48 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrnbummx-1-cr8t9r",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "orchestrator-core",
+      "kind": "strength",
+      "insight": "Liefert eine komplette vertikale Feature-Scheibe (shared+main+renderer, 12 Dateien) self-contained in einem Worktree zuverlässig im ersten Anlauf, inkl. sauberem Abnahme-/Hygiene-Nachweis.",
+      "evidence": "impl-all: 12 Dateien, 44/44 Tests grün, typecheck/lint/diff-check grün, Commit edb6d665.",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784195360025,
+      "updatedAt": 1784195360025
+    },
+    {
+      "id": "learning-mrnbummx-2-aphiv7",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "orchestrator-core",
+      "kind": "strength",
+      "insight": "Umgeht die Sandbox-Restriktion 'esbuild spawn EPERM' korrekt über einen config-freien Vitest-Lauf mit In-Memory-TS-Transform, ohne Hilfsdateien oder Produktcode-Änderung — kein False-Blocker.",
+      "evidence": "impl-all + Grishnákh 2: config-freier Lauf 44/44 bzw. 40/40 grün statt BLOCKER.",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784195360025,
+      "updatedAt": 1784195360025
+    },
+    {
+      "id": "learning-mrnbummx-3-582uc7",
+      "provider": "claude",
+      "model": "claude-opus-4-8",
+      "role": "security-review",
+      "kind": "weakness",
+      "insight": "Fiel in diesem Lauf NICHT modellbedingt aus, sondern durch Account-Spend-Limit ('monthly spend limit') — Aufgabe wurde auf Codex umgeleitet. Kein Qualitätsdefekt.",
+      "evidence": "sec-review Versuch 1 (Frodo 2, opus) error: 'You've hit your monthly spend limit'; Versuch 2 (codex) erfolgreich.",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784195360025,
+      "updatedAt": 1784195360025
+    },
     {
       "id": "learning-mrnbu4qp-1-3euesy",
       "provider": "codex",
@@ -157,20 +199,6 @@
       "updatedAt": 1784195267018
     },
     {
-      "id": "learning-mrnbsmve-5-pz0c1",
-      "provider": "claude",
-      "model": "claude-sonnet-5",
-      "role": "docs-retro",
-      "kind": "strength",
-      "insight": "Meldet Schreib-/Infra-Blocker ehrlich als BLOCKER statt Fake-Erfolg",
-      "evidence": "Bard 2 gab strukturierten Blocker mit Ursache statt no-changes-Erfolg vorzutäuschen",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784195267018,
-      "updatedAt": 1784195267018
-    },
-    {
       "id": "learning-mrnbsmve-4-pbdmi3",
       "provider": "claude",
       "model": "claude-sonnet-5",
@@ -178,6 +206,20 @@
       "kind": "weakness",
       "insight": "Scheitert in dieser Session an Schreibrechten: Write/Bash/PowerShell werden abgelehnt oder laufen in Timeout",
       "evidence": "Task D Attempt 1 (Bard 2) meldete BLOCKER 'Orca permission denied or timeout' bei jedem Schreibversuch; Reroute auf codex nötig",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784195267018,
+      "updatedAt": 1784195267018
+    },
+    {
+      "id": "learning-mrnbsmve-5-pz0c1",
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "role": "docs-retro",
+      "kind": "strength",
+      "insight": "Meldet Schreib-/Infra-Blocker ehrlich als BLOCKER statt Fake-Erfolg",
+      "evidence": "Bard 2 gab strukturierten Blocker mit Ursache statt no-changes-Erfolg vorzutäuschen",
       "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
@@ -365,34 +407,6 @@
       "updatedAt": 1784185793331
     },
     {
-      "id": "learning-mrn65hxd-1-5xjknc",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "systems-integrator",
-      "kind": "strength",
-      "insight": "Sehr präzise statische Root-Cause-Analyse von Provider-CLI-Invokationspfaden",
-      "evidence": "diagnose-codex lokalisierte fehlendes --skip-git-repo-check über die volle Aufrufkette (promptEnhancementProvider→headless→types) mit Datei:Zeile und grenzte 5 Alternativhypothesen sauber ab",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784185789441,
-      "updatedAt": 1784185789441
-    },
-    {
-      "id": "learning-mrn65hxd-2-26fcd9",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "systems-integrator",
-      "kind": "strength",
-      "insight": "Minimal-invasive Integrator-Fixes mit belegter Invarianz des unberührten Pfads",
-      "evidence": "implement-fix (Thorin): 6 Dateien, provider-spezifischer Fix für Codex+Cursor, Claude-Args unverändert per Test belegt, 46/46 grün, Typecheck/Lint/whitespace sauber",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784185789441,
-      "updatedAt": 1784185789441
-    },
-    {
       "id": "learning-mrn65hxd-4-5r9pz7",
       "provider": "claude",
       "model": "claude-sonnet-5",
@@ -449,20 +463,6 @@
       "updatedAt": 1784185312462
     },
     {
-      "id": "learning-mrn5v9vy-5-qg90hy",
-      "provider": "claude",
-      "model": "claude-sonnet-5",
-      "role": "qa-gate-runner",
-      "kind": "strength",
-      "insight": "Meldet Sandbox-Blocker ehrlich statt Erfolg vorzutäuschen",
-      "evidence": "Pippin brach nach statischer Verifikation mit klarem Blocker-Bericht ab statt grün zu faken",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784185312462,
-      "updatedAt": 1784185312462
-    },
-    {
       "id": "learning-mrn5v9vy-4-chrluk",
       "provider": "claude",
       "model": "claude-sonnet-5",
@@ -470,6 +470,20 @@
       "kind": "weakness",
       "insight": "Kann in dieser gesperrten Sandbox pnpm/node-Gates gar nicht ausführen (spawn blockiert)",
       "evidence": "Pippin: Gate-Ausführung durchgehend blockiert, meldete ehrlich BLOCKER; Engine leitete QA an codex (Bilbo 2) um",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784185312462,
+      "updatedAt": 1784185312462
+    },
+    {
+      "id": "learning-mrn5v9vy-5-qg90hy",
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "role": "qa-gate-runner",
+      "kind": "strength",
+      "insight": "Meldet Sandbox-Blocker ehrlich statt Erfolg vorzutäuschen",
+      "evidence": "Pippin brach nach statischer Verifikation mit klarem Blocker-Bericht ab statt grün zu faken",
       "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
@@ -701,20 +715,6 @@
       "updatedAt": 1784126995303
     },
     {
-      "id": "learning-mrm44ou4-1-zd3siy",
-      "provider": "claude",
-      "model": "claude-sonnet-5",
-      "role": "orchestrator-integrator",
-      "kind": "strength",
-      "insight": "Liefert Doku-Recovery-Tasks zuverlässig (Datei korrekt übernommen, validiert, whitespace-sauber, committet) — needs-work-Status stammte beide Male vom Gate-False-Positive, nicht vom Modell",
-      "evidence": "O00R (Tom Bombadil, Commit 223ac6f1) und t-1 (Beorn, Commit c9a520c6): identische Vokabular-Findings trotz verifiziert secret-freiem Inhalt",
-      "source": "orchestrator",
-      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
-      "observations": 1,
-      "createdAt": 1784121926332,
-      "updatedAt": 1784121926332
-    },
-    {
       "id": "learning-mrm44ou4-2-g8v8o",
       "provider": "claude",
       "model": "claude-sonnet-5",
@@ -722,6 +722,20 @@
       "kind": "weakness",
       "insight": "Lässt Temp-/Arbeitsdateien im Worktree zurück, die im partiellen Commit landen (.verify-*-tmp.md) — Aufräumen vor Abschluss explizit in den Prompt schreiben",
       "evidence": "t-1 (Beorn): Commit c9a520c6 enthält .verify-new-body-tmp.md und .verify-orig-tmp.md",
+      "source": "orchestrator",
+      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+      "observations": 1,
+      "createdAt": 1784121926332,
+      "updatedAt": 1784121926332
+    },
+    {
+      "id": "learning-mrm44ou4-1-zd3siy",
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "role": "orchestrator-integrator",
+      "kind": "strength",
+      "insight": "Liefert Doku-Recovery-Tasks zuverlässig (Datei korrekt übernommen, validiert, whitespace-sauber, committet) — needs-work-Status stammte beide Male vom Gate-False-Positive, nicht vom Modell",
+      "evidence": "O00R (Tom Bombadil, Commit 223ac6f1) und t-1 (Beorn, Commit c9a520c6): identische Vokabular-Findings trotz verifiziert secret-freiem Inhalt",
       "source": "orchestrator",
       "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
       "observations": 1,
