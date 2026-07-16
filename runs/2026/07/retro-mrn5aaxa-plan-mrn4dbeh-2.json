@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784184334070,
+  "exportedAt": 1784184447601,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -14,7 +14,7 @@
     "planId": "plan-mrn4dbeh-2",
     "goal": "Mode-Vorgabe für Claude-Modelle im Orchestrator: Ein Permission-Mode (inkl. Auto-Mode) ist pro Orchestrator-Konfiguration wählbar und wird beim Claude-Orchestrator-Lauf als --permission-mode wirksam angewendet. Andere Provider bleiben unverändert (Nicht-Ziel).",
     "status": "needs-work",
-    "summary": "Lauf mit Nacharbeit: 4 Modell(e), 0/6 Tasks erfolgreich.",
+    "summary": "t1 (Foundation-Modul) landete trotz self-reported BLOCKER als grün geprüfter Commit 7feed018 — der Blocker war ein Infra-False-Positive (esbuild spawn EPERM beim Bündeln von vitest.config.ts unter der Codex-Sandbox + abgewiesene Orca-MCP-Board-Calls 'user cancelled'). t2–t6 wurden nur über die harte Abhängigkeit gestoppt.",
     "modelStats": [
       {
         "provider": "codex",
@@ -140,6 +140,34 @@
         "observations": 1,
         "createdAt": 1784184334019,
         "updatedAt": 1784184334019
+      },
+      {
+        "id": "learning-mrn5cqhs-1-1a6hac",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "systems-integrator",
+        "kind": "weakness",
+        "insight": "Meldet BLOCKER bei reinen Infra-Problemen (esbuild spawn EPERM beim vitest.config.ts-Bundle; MCP-Board-Calls 'user cancelled'), obwohl Code/Typecheck/Lint/config-freier Vitest grün sind.",
+        "evidence": "t1: Ancalagon+Smaug beide BLOCKER, aber Artefakt bestand alle Gates und wurde als Commit 7feed018 übernommen; 8/8 Tests grün.",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784184447520,
+        "updatedAt": 1784184447520
+      },
+      {
+        "id": "learning-mrn5cqhs-2-p5yps2",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "systems-integrator",
+        "kind": "weakness",
+        "insight": "Verrennt sich beim blockierten pnpm-test in die programmatische Vitest-API (startVitest), statt auf 'pnpm exec vitest run <datei> --config false' auszuweichen.",
+        "evidence": "Smaug durchsuchte vitest/dist/node.d.ts nach startVitest nach 'vitest not found' + esbuild EPERM.",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784184447520,
+        "updatedAt": 1784184447520
       }
     ],
     "createdAt": 1784184334030
