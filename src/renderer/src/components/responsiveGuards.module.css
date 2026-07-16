@@ -107,8 +107,7 @@
   .workspace :global(.layout-switch) {
     margin-left: auto;
   }
-  .workspace :global(.ws-grid.cols-2),
-  .workspace :global(.ws-grid.cols-3) {
+  .workspace :global(.ws-grid) {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -132,7 +131,7 @@
   }
 }
 
-/* Reachable at the BrowserWindow minimum width (1180px). */
+/* Keep the dense title bar usable down to the 900px main-window minimum. */
 @media (max-width: 1320px) {
   .titlebar {
     gap: 8px;

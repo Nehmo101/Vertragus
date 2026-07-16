@@ -15,6 +15,8 @@ import { MCP_SCOPE_LABELS, MCP_TRANSPORT_LABELS } from '@shared/mcp'
 import { middleEarthWorkspaceName, middleEarthWorkspaceBlurb } from '@shared/workspaceNames'
 import LoreName from '@renderer/components/LoreName'
 import { deriveRemoteApprovals } from '@shared/remote'
+import { ResizeHandle } from '@renderer/components/ResizeHandle'
+import { selectPanelLayout, useLayoutStore } from '@renderer/store/layoutStore'
 
 interface RowStatus {
   label: string
@@ -433,7 +435,19 @@ function attentionText(attention: WorkspaceUserAttention): string {
 
 type SidebarStore = ReturnType<typeof useAppStore.getState>
 
-export function SidebarView({ store }: { store: SidebarStore }): JSX.Element {
+interface SidebarViewProps {
+  store: SidebarStore
+  width?: number
+  collapsed?: boolean
+  onToggle?: () => void
+}
+
+export function SidebarView({
+  store,
+  width,
+  collapsed = false,
+  onToggle
+}: SidebarViewProps): JSX.Element {
   const hash = useHashRoute()
   const aiIds: ProviderId[] = ['claude', 'codex', 'cursor', 'copilot', 'ollama']
   const onlineCount = aiIds.filter(
@@ -767,13 +781,56 @@ export function SidebarView({ store }: { store: SidebarStore }): JSX.Element {
   }
 
   return (
-    <aside className="sidebar">
-      {SIDEBAR_SECTION_ORDER.map((section) => sections[section])}
+    <aside
+      id="sidebar-left-panel"
+      className={`sidebar layout-panel ${collapsed ? 'panel-collapsed' : ''}`}
+      style={collapsed ? undefined : { width }}
+      aria-label="Linke Seitenleiste"
+    >
+      {onToggle && (
+        <div className="panel-control-row panel-control-row-left">
+          <button
+            type="button"
+            className="panel-collapse-button"
+            aria-controls="sidebar-left-content"
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? 'Linke Seitenleiste ausklappen' : 'Linke Seitenleiste einklappen'}
+            title={collapsed ? 'Seitenleiste ausklappen' : 'Seitenleiste einklappen'}
+            onClick={onToggle}
+          >
+            {collapsed ? '›' : '‹'}
+          </button>
+        </div>
+      )}
+      {!collapsed && (
+        <div id="sidebar-left-content" className="panel-scroll-content">
+          {SIDEBAR_SECTION_ORDER.map((section) => sections[section])}
+        </div>
+      )}
     </aside>
   )
 }
 
 export default function Sidebar(): JSX.Element {
   const store = useAppStore()
-  return <SidebarView store={store} />
+  const layout = useLayoutStore(selectPanelLayout('sidebar-left'))
+  const toggleCollapsed = useLayoutStore((state) => state.toggleCollapsed)
+
+  return (
+    <>
+      <SidebarView
+        store={store}
+        width={layout.width}
+        collapsed={layout.collapsed}
+        onToggle={() => toggleCollapsed('sidebar-left')}
+      />
+      {!layout.collapsed && (
+        <ResizeHandle
+          panelId="sidebar-left"
+          direction="right"
+          ariaLabel="Breite der linken Seitenleiste ändern"
+        />
+      )}
+    </>
+  )
 }

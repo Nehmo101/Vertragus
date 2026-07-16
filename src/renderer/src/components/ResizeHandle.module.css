@@ -1,0 +1,28 @@
+.handle {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 6px;
+  align-self: stretch;
+  width: 6px;
+  min-width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+  outline: none;
+}
+
+.handle::after {
+  position: absolute;
+  inset: 0 2px;
+  content: '';
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.handle:hover::after,
+.handle:focus-visible::after,
+.handle[data-active='true']::after {
+  opacity: 0.42;
+}

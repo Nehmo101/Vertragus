@@ -50,6 +50,20 @@ export default function App(): JSX.Element {
     )
   }
 
+  const content =
+    hash === '#/inbox' ? (
+      <InboxPanel />
+    ) : hash === '#/remote' ? (
+      <RemotePanel />
+    ) : hash === '#/approvals' ? (
+      <MissionApprovalInbox />
+    ) : hash === '#/changes' ? (
+      <DiffMergeCenter />
+    ) : (
+      <Workspace />
+    )
+  const showOrchestrator = !['#/remote', '#/approvals', '#/changes'].includes(hash)
+
   return (
     <div className="app-root" data-theme={store.theme} data-density={store.uiDensity}>
       <TitleBar />
@@ -66,11 +80,8 @@ export default function App(): JSX.Element {
 
       <div className={`body-row layout-${store.workspaceLayout}`}>
         <Sidebar />
-        {hash === '#/inbox' ? <InboxPanel /> :
-          hash === '#/remote' ? <RemotePanel /> :
-            hash === '#/approvals' ? <MissionApprovalInbox /> :
-              hash === '#/changes' ? <DiffMergeCenter /> : <Workspace />}
-        {!['#/remote', '#/approvals', '#/changes'].includes(hash) && <OrchestratorPanel />}
+        <div className="app-content">{content}</div>
+        {showOrchestrator && <OrchestratorPanel />}
       </div>
 
       {store.editorProfile && <ProfileEditor key={store.editorProfile.id} />}
