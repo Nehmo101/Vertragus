@@ -7,7 +7,7 @@ vi.mock('node:child_process', async (importOriginal) => {
   return { ...actual, exec: mocks.exec }
 })
 
-import { autoPrInternals, type RemoteCiCommandResult } from './autoPr'
+import { autoPrInternals, scratchFiles, type RemoteCiCommandResult } from './autoPr'
 
 beforeEach(() => {
   mocks.exec.mockReset()
@@ -210,6 +210,52 @@ describe('autoPr safety helpers', () => {
       'eslint .',
       'linux'
     )).toBe("export PATH='/repo'\"'\"'s copy/node_modules/.bin':\"$PATH\"; eslint .")
+  })
+})
+
+describe('autoPr commit hygiene helpers', () => {
+  it('detects the scratch-file patterns seen in retros and spares real files', () => {
+    expect(scratchFiles([
+      'docs/00-inventory.md.check',
+      'docs/00-inventory.md.c9check',
+      'ARCHITECTURE.md.origcheck',
+      '.verify-new-body-tmp.md',
+      'notes/.verify-orig-tmp.md',
+      'src/feature.ts.orig',
+      'src/feature.ts.rej',
+      'backup.bak',
+      'draft.tmp',
+      'editor-swap.ts~'
+    ])).toHaveLength(10)
+    expect(scratchFiles([
+      'src/healthcheck.ts',
+      'src/check.spec.ts',
+      'docs/checklist.md',
+      'src/verify-command.ts',
+      'templates/report.md'
+    ])).toEqual([])
+  })
+
+  it('classifies missing gate tooling as infrastructure failure', async () => {
+    mocks.exec.mockImplementation((...args: unknown[]) => {
+      const callback = args[args.length - 1]
+      if (typeof callback === 'function') {
+        callback(new Error('/bin/sh: 1: eslint: command not found'), '', '')
+      }
+    })
+    await expect(
+      autoPrInternals.runQualityGates('/repo/worktree', ['eslint .'])
+    ).rejects.toMatchObject({ code: 'quality-gate-failed', infrastructure: true })
+
+    mocks.exec.mockImplementation((...args: unknown[]) => {
+      const callback = args[args.length - 1]
+      if (typeof callback === 'function') {
+        callback(new Error('3 tests failed'), '', '')
+      }
+    })
+    await expect(
+      autoPrInternals.runQualityGates('/repo/worktree', ['pnpm test'])
+    ).rejects.toMatchObject({ code: 'quality-gate-failed', infrastructure: false })
   })
 })
 

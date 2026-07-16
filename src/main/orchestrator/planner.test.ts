@@ -73,7 +73,7 @@ describe('auto subagent planner validation', () => {
     expect(result.plan.tasks).toHaveLength(3)
   })
 
-  it('rejects an integrator missing a required feature dependency', () => {
+  it('repairs an integrator missing a required feature dependency with an advisory edge', () => {
     const result = resolveExecutionPlan({
       ...validPlan,
       tasks: [
@@ -91,16 +91,18 @@ describe('auto subagent planner validation', () => {
       ]
     })
 
-    expect(result.usedFallback).toBe(true)
-    expect(result.rejected).toBe(true)
+    expect(result.usedFallback).toBe(false)
+    expect(result.rejected).toBe(false)
+    expect(result.plan.tasks.find((task) => task.id === 'integrate')?.advisoryDependsOn)
+      .toContain('feature')
     expect(result.issues).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ code: 'invalid_ownership', taskId: 'integrate' })
+        expect.objectContaining({ code: 'repaired_ownership', taskId: 'integrate' })
       ])
     )
   })
 
-  it('still requires integrator ownership for shared hotspots', () => {
+  it('repairs feature-owned shared hotspots by serializing the writer', () => {
     const result = resolveExecutionPlan({
       ...validPlan,
       tasks: [
@@ -112,11 +114,12 @@ describe('auto subagent planner validation', () => {
       ]
     })
 
-    expect(result.usedFallback).toBe(true)
-    expect(result.rejected).toBe(true)
+    expect(result.usedFallback).toBe(false)
+    expect(result.rejected).toBe(false)
+    expect(result.plan.tasks[0]?.conflictKeys).toContain('shared-hotspots')
     expect(result.issues).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ code: 'invalid_ownership', taskId: 'inspect' })
+        expect.objectContaining({ code: 'repaired_ownership', taskId: 'inspect' })
       ])
     )
   })

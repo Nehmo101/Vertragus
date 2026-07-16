@@ -12,7 +12,9 @@ import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import type {
   AwaitAnyResult,
+  AwaitPlanApprovalResult,
   AwaitPlanResult,
+  PlanReviewState,
   AwaitTaskResult,
   ExecutionPlan,
   ExecutionPlanResult,
@@ -50,6 +52,7 @@ import {
   type WorkspaceProfile
 } from '@shared/profile'
 import { resolveModel } from '@shared/models'
+import { resolveSlotModel } from '@main/agents/providerModelDefaults'
 import {
   isModelDisabled,
   normalizeDisabledModels,
@@ -130,6 +133,9 @@ interface PreparedExecutionPlan {
   plan: ExecutionPlan
 }
 
+/** Workspace-Session-Id des Remote-Selftests (siehe src/main/remote/selftestRemote.ts). */
+export const REMOTE_SELFTEST_SESSION_ID = 'remote-selftest'
+
 const RESULT_PREVIEW = 160
 /** Disk writes are throttled; the in-memory snapshot event stays immediate. */
 const SNAPSHOT_PERSIST_MIN_INTERVAL_MS = 2_000
@@ -170,6 +176,11 @@ export function platformExecutionGuidance(
 export interface WorkerTerminalJudgement {
   status: 'success' | 'error' | 'stopped'
   failureKind?: 'infrastructure' | 'worker' | 'cancelled'
+  /**
+   * Exit 0 without an explicit worker contract while the provider flagged an
+   * error: contradictory signals. The acceptance gates may overrule this error.
+   */
+  unconfirmed?: boolean
   reason: string
 }
 
@@ -226,6 +237,16 @@ export function judgeWorkerTerminalResult(result: HeadlessResult): WorkerTermina
     return { status: 'success', reason: 'Der kompatible Provider-Adapter meldete keinen Fehler.' }
   }
 
+  if (result.exitCode === 0) {
+    return {
+      status: 'error',
+      failureKind: 'worker',
+      unconfirmed: true,
+      reason: 'Der Provider meldete einen Fehler trotz Exit-Code 0 und ohne expliziten ' +
+        'Ergebnisvertrag; die Abnahme-Gates entscheiden über die Übernahme.'
+    }
+  }
+
   const exitDetail = result.exitCode == null ? '' : ` (Exit-Code ${result.exitCode})`
   return {
     status: 'error',
@@ -254,6 +275,7 @@ function initialReliability(): OrchestratorReliabilityMetrics {
     automaticRecoveries: 0,
     needsWorkTasks: 0,
     rescuedNeedsWorkCommits: 0,
+    adoptedRecoveryArtifacts: 0,
     completedPlans: 0,
     preventedFalseSuccesses: 0,
     lastSnapshotAt: Date.now(),
@@ -293,6 +315,9 @@ export class OrchestratorEngine extends EventEmitter {
   >()
   private pendingPlan: PendingPlanReview | undefined
   private pendingPlanResolve: ((approved: boolean) => void) | undefined
+  /** Review-gate state per planId, so approvals are awaitable instead of polled. */
+  private readonly planReviewStates = new Map<string, Extract<PlanReviewState, 'pending' | 'approved' | 'rejected'>>()
+  private readonly planReviewWaiters = new Map<string, Promise<boolean>>()
   private pendingPublication: ApprovalItem | undefined
   private publicationInFlight = false
   private readonly pendingPermissions = new Map<string, PermissionRequest>()
@@ -832,6 +857,12 @@ export class OrchestratorEngine extends EventEmitter {
     this.pendingPlanResolve = undefined
     this.pendingPlan = undefined
     this.firstPlanApproved = approved && pending?.rejected !== true
+    if (pending) {
+      this.planReviewStates.set(pending.planId, approved ? 'approved' : 'rejected')
+      // Aktives Signal statt Polling: await_plan_approval und externe
+      // Konsumenten erfahren die Panel-Entscheidung sofort.
+      this.emit('plan-review', { planId: pending.planId, approved })
+    }
     this.setActivityState(
       approved ? 'delegating' : 'blocked',
       approved
@@ -873,17 +904,55 @@ export class OrchestratorEngine extends EventEmitter {
 
   private requestPlanReview(review: PendingPlanReview): Promise<boolean> {
     if (this.pendingPlanResolve) throw new Error('Ein anderer Plan wartet bereits auf Review.')
-    return new Promise<boolean>((resolve) => {
+    const waiter = new Promise<boolean>((resolve) => {
       this.pendingPlan = review
       this.pendingPlanResolve = resolve
       this.setActivityState(
         'awaiting-review',
-        `Der Plan mit ${review.plan.tasks.length} Aufgabe(n) ist erstellt und wartet auf Freigabe.`,
-        review.plan.tasks.slice(0, 4).map((task) => `${task.role}: ${task.title}`),
+        review.rejected
+          ? 'Die Plan-Validierung ersetzte den strukturierten Plan durch einen konservativen Ersatz-Task; die Freigabe entscheidet über die Ausführung.'
+          : `Der Plan mit ${review.plan.tasks.length} Aufgabe(n) ist erstellt und wartet auf Freigabe.`,
+        [
+          ...review.validationIssues.slice(0, 2).map((issue) => `Validierung: ${issue.message}`),
+          ...review.plan.tasks.slice(0, 4).map((task) => `${task.role}: ${task.title}`)
+        ].slice(0, 4),
         'Nach Freigabe die DAG-Aufgaben gemäß Abhängigkeiten starten.'
       )
       this.push()
     })
+    this.planReviewStates.set(review.planId, 'pending')
+    this.planReviewWaiters.set(review.planId, waiter)
+    void waiter.finally(() => this.planReviewWaiters.delete(review.planId))
+    return waiter
+  }
+
+  /**
+   * Block until the review gate of a plan run is decided, instead of polling
+   * get_plan_status/list_tasks for the approval side effect. Returns
+   * immediately for plans that never required a review.
+   */
+  async awaitPlanApproval(runId: string, timeoutMs?: number): Promise<AwaitPlanApprovalResult> {
+    const stored = this.planRunResults.get(runId)
+    if (!stored) return { done: false, stillRunning: false, reason: 'unknown', runId }
+    const planId = stored.planId ?? this.planRunPlanIds.get(runId)
+    const state = planId ? this.planReviewStates.get(planId) : undefined
+    const snapshot = (): PlanRunStatusSnapshot => this.getPlanRunStatus(runId) ?? stored
+    if (state !== 'pending') {
+      return { done: true, stillRunning: false, reviewState: state ?? 'not-required', plan: snapshot() }
+    }
+    const waiter = planId ? this.planReviewWaiters.get(planId) : undefined
+    if (!waiter) {
+      return { done: true, stillRunning: false, reviewState: state, plan: snapshot() }
+    }
+    const outcome = await this.raceWithTimeout(
+      waiter.then(() => undefined, () => undefined),
+      this.clampAwaitTimeout(timeoutMs)
+    )
+    if (outcome === 'settled') {
+      const decided = (planId ? this.planReviewStates.get(planId) : undefined) ?? 'not-required'
+      return { done: true, stillRunning: false, reviewState: decided, plan: snapshot() }
+    }
+    return { done: false, stillRunning: true, reason: 'timeout', reviewState: 'pending', plan: snapshot() }
   }
 
   private limiter(role: string, capacity: number): Semaphore {
@@ -970,7 +1039,7 @@ export class OrchestratorEngine extends EventEmitter {
       const preflight = typeof agentManager.latestPreflight === 'function'
         ? agentManager.latestPreflight(slot.provider, workingDir)
         : undefined
-      const model = resolveModel(slot.provider, slot)
+      const model = resolveSlotModel(slot.provider, slot)
       // Knowledge accumulated from earlier retros/benchmarks; never allowed to
       // break routing when the store is unavailable.
       let learned: { strengths: string[]; weaknesses: string[] } = { strengths: [], weaknesses: [] }
@@ -1075,7 +1144,7 @@ export class OrchestratorEngine extends EventEmitter {
       title: title?.trim() || task.title,
       role: slotRole,
       provider: slot.provider,
-      model: resolveModel(slot.provider, slot),
+      model: resolveSlotModel(slot.provider, slot),
       status: 'queued' as const,
       phase: 'queued' as const,
       lastAction: 'Wartet auf freie Kapazität',
@@ -1326,9 +1395,28 @@ export class OrchestratorEngine extends EventEmitter {
         task.recoveryArtifact = undefined
       }
       const autoPr = profile?.autoPr
-      if (task.status === 'success' && autoPr) {
+      const attemptCount = options.attempt ?? 1
+      const finalAttempt = attemptCount >= (options.maxAttempts ?? attemptCount)
+      // Exit-Code 0 ohne Ergebnisvertrag bei gesetztem Provider-Fehlerflag:
+      // widersprüchliche Signale, die Abnahme-Gates entscheiden statt des Flags.
+      const gateArbitration =
+        workerError && judgement.unconfirmed === true && Boolean(autoPr) && Boolean(info.worktree)
+      // Letzter Versuch mit quarantänisierter Teilarbeit: bestehen alle Gates,
+      // wird das Artefakt als Commit übernommen statt verworfen.
+      const recoveryAdoption =
+        workerError && !gateArbitration && finalAttempt &&
+        Boolean(task.recoveryArtifact?.changedFiles.length) && Boolean(autoPr) && Boolean(info.worktree)
+      // Ohne Worktree gibt es nichts abzunehmen: bei deaktiviertem Auto-PR wird
+      // die Abnahme übersprungen statt als 'unavailable' zu blocken — der
+      // Remote-Selftest scheiterte hieran 5× in Folge und vergiftete die
+      // Learnings mit einem fabrizierten Modellfehler.
+      const acceptanceApplicable = Boolean(info.worktree) || autoPr?.mode !== 'off'
+      if (autoPr && acceptanceApplicable &&
+        (task.status === 'success' || gateArbitration || recoveryAdoption)) {
         task.phase = 'security-review'
-        task.lastAction = 'Abnahme, Security und Commit-Vertrag laufen'
+        task.lastAction = workerError
+          ? 'Abnahme-Gates prüfen das unbestätigte Worker-Ergebnis'
+          : 'Abnahme, Security und Commit-Vertrag laufen'
         task.lastHeartbeatAt = Date.now()
         this.setActivityState(
           'reviewing',
@@ -1350,41 +1438,101 @@ export class OrchestratorEngine extends EventEmitter {
         if (prepared.result === 'committed' && prepared.change) {
           task.commit = prepared.change.commit
           task.completion = { kind: 'commit', commit: prepared.change.commit }
+          if (prepared.findings?.length) {
+            task.findings = [...(task.findings ?? []), ...prepared.findings]
+          }
+          if (gateArbitration) {
+            task.status = 'success'
+            task.failureKind = undefined
+            task.progress = 100
+            task.phase = 'completed'
+            task.judgeReason =
+              'Abnahme-Gates und Commit-Vertrag bestätigten das Ergebnis trotz fehlendem Ergebnisvertrag (Exit-Code 0).'
+            task.note = prepared.message
+            task.lastAction = 'Gates bestätigten das Worker-Ergebnis'
+            task.recoveryArtifact = undefined
+            if (activeAttempt) {
+              activeAttempt.status = 'success'
+              activeAttempt.failureKind = undefined
+              activeAttempt.note = task.judgeReason
+            }
+          } else if (recoveryAdoption) {
+            task.status = 'needs-work'
+            task.progress = undefined
+            task.findings = [...(task.findings ?? []), {
+              gate: 'commit',
+              code: 'recovered-artifact-adopted',
+              message: 'Quarantänisierte Teilarbeit bestand alle Gates und wurde als Commit ' +
+                prepared.change.commit.slice(0, 8) + ' übernommen.'
+            }]
+            task.judgeReason = `${judgement.reason} Die Teilarbeit bestand alle Gates und wurde übernommen.`
+            task.note = `${task.note} · Recovery-Artefakt nach grünen Gates übernommen`
+            task.lastAction = 'Recovery-Artefakt nach grünen Gates übernommen'
+            task.recoveryArtifact = undefined
+            this.reliability.adoptedRecoveryArtifacts += 1
+            this.reliability.needsWorkTasks += 1
+            if (activeAttempt) {
+              activeAttempt.status = 'needs-work'
+              activeAttempt.note = task.judgeReason
+            }
+          }
           if (this.reliability.timeToFirstUsefulCommitMs == null && this.goalStartedAt) {
             this.reliability.timeToFirstUsefulCommitMs = Date.now() - this.goalStartedAt
           }
-          if (autoPr.mode !== 'off') this.preparedChanges.set(taskId, prepared.change)
+          if (autoPr.mode !== 'off' && task.status === 'success') {
+            this.preparedChanges.set(taskId, prepared.change)
+          }
         } else if (prepared.result === 'needs-work' && prepared.change) {
           task.status = 'needs-work'
           task.progress = undefined
           task.commit = prepared.change.commit
           task.completion = { kind: 'commit', commit: prepared.change.commit }
-          task.findings = prepared.findings
+          task.findings = recoveryAdoption
+            ? [...(prepared.findings ?? []), {
+                gate: 'commit',
+                code: 'recovered-artifact-adopted',
+                message: 'Quarantänisierte Teilarbeit wurde als partieller Commit ' +
+                  prepared.change.commit.slice(0, 8) + ' übernommen; Gates benötigen Nacharbeit.'
+              }]
+            : prepared.findings
           task.failureKind = 'gate'
           task.note = prepared.message
           task.judgeReason = prepared.message
           task.lastAction = 'Partieller Commit gesichert · Gates benötigen Nacharbeit'
+          task.recoveryArtifact = undefined
           this.reliability.needsWorkTasks += 1
           this.reliability.rescuedNeedsWorkCommits += 1
+          if (recoveryAdoption) this.reliability.adoptedRecoveryArtifacts += 1
           if (activeAttempt) {
             activeAttempt.status = 'needs-work'
             activeAttempt.failureKind = 'gate'
             activeAttempt.note = prepared.message
           }
         } else if (prepared.result === 'no-changes') {
-          task.completion = { kind: 'no-changes' }
-        } else {
+          // Ein Worker-Fehler ohne jegliche Änderungen liefert keinen Beleg für
+          // erledigte Arbeit; das Fehler-Urteil bleibt dann bestehen.
+          if (!workerError) task.completion = { kind: 'no-changes' }
+        } else if (!workerError) {
           task.status = 'error'
-          task.failureKind = 'gate'
+          // Fehlendes Gate-Tooling (eslint/prisma) ist ein Infrastruktur-, kein
+          // Modellproblem — Retros werteten solche Läufe fälschlich als Modellfehler.
+          task.failureKind = prepared.infrastructure ? 'infrastructure' : 'gate'
           task.progress = undefined
           task.note = (task.note || 'Worker fertig') + ' · Abnahme blockiert: ' + prepared.message
-          task.judgeReason = `Commit-Vertrag oder Security-Gate fehlgeschlagen: ${prepared.message}`
-          task.lastAction = 'Commit-Vertrag oder Security-Gate fehlgeschlagen'
+          task.judgeReason = prepared.infrastructure
+            ? `Gate-Infrastruktur fehlgeschlagen (kein Modellfehler): ${prepared.message}`
+            : `Commit-Vertrag oder Security-Gate fehlgeschlagen: ${prepared.message}`
+          task.lastAction = prepared.infrastructure
+            ? 'Gate-Infrastruktur fehlgeschlagen'
+            : 'Commit-Vertrag oder Security-Gate fehlgeschlagen'
+          if (prepared.infrastructure) this.reliability.infrastructureFailures += 1
           if (activeAttempt) {
             activeAttempt.status = 'error'
-            activeAttempt.failureKind = 'gate'
+            activeAttempt.failureKind = task.failureKind
             activeAttempt.note = task.judgeReason
           }
+        } else {
+          task.note = `${task.note} · Abnahme der Teilarbeit blockiert: ${prepared.message}`
         }
         if (task.status === 'success' && autoPr.mode !== 'off' && !options.planId && prepared.change) {
           await this.publishPendingChanges()
@@ -1408,7 +1556,7 @@ export class OrchestratorEngine extends EventEmitter {
       const recovery = recoveryArtifact
         ? `\n\nRecovery-Artefakt: ${recoveryArtifact.worktree}\nDateien: ${recoveryArtifact.changedFiles.join(', ')}`
         : ''
-      return workerError
+      return task.status === 'error'
         ? `${info.name} (${slotRole}) meldete einen Fehler. Ausgabe:\n${result.result}${recovery}`
         : `${info.name} (${slotRole}) meldet:\n${result.result || '(kein Textergebnis)'}${completion}`
     } catch (err) {
@@ -1440,7 +1588,7 @@ export class OrchestratorEngine extends EventEmitter {
         activeAttempt = {
           attempt: attemptNumber,
           provider: slot.provider,
-          model: resolveModel(slot.provider, slot),
+          model: resolveSlotModel(slot.provider, slot),
           status: 'error',
           startedAt: Date.now(),
           finishedAt: Date.now(),
@@ -1655,14 +1803,13 @@ export class OrchestratorEngine extends EventEmitter {
 
   /**
    * Validate and execute a model-authored DAG. The scheduler enforces global
-   * concurrency, role capacity, dependencies and conflict keys.
+   * concurrency, role capacity, dependencies and conflict keys. A structured
+   * plan that fails validation is never dropped silently: its conservative
+   * fallback task always runs through the review gate, so the user sees the
+   * validation issues and decides instead of the plan collapsing unnoticed.
    */
   async executePlan(input: unknown, runId?: string): Promise<ExecutionPlanResult> {
-    const prepared = this.prepareExecutionPlan(input)
-    if (prepared.resolved.rejected) {
-      return this.rejectedPlanResult(prepared, runId)
-    }
-    return this.executePreparedPlan(prepared, runId)
+    return this.executePreparedPlan(this.prepareExecutionPlan(input), runId)
   }
 
   private prepareExecutionPlan(input: unknown): PreparedExecutionPlan {
@@ -1685,20 +1832,6 @@ export class OrchestratorEngine extends EventEmitter {
     const configuredLimit = profile?.planner.maxParallel ?? resolved.plan.maxParallel
     const plan = { ...resolved.plan, maxParallel: Math.min(resolved.plan.maxParallel, configuredLimit) }
     return { profile, resolved, plan }
-  }
-
-  private rejectedPlanResult(
-    prepared: PreparedExecutionPlan,
-    runId?: string
-  ): ExecutionPlanResult {
-    return {
-      planId: `rejected-${runId ?? Date.now().toString(36)}`,
-      status: 'error',
-      usedFallback: prepared.resolved.usedFallback,
-      rejected: true,
-      validationIssues: prepared.resolved.issues,
-      tasks: []
-    }
   }
 
   private nextPlanId(): string {
@@ -1745,7 +1878,7 @@ export class OrchestratorEngine extends EventEmitter {
         title: planned.title,
         role: selected.role,
         provider: selected.slot.provider,
-        model: resolveModel(selected.slot.provider, selected.slot),
+        model: resolveSlotModel(selected.slot.provider, selected.slot),
         status: 'queued',
         phase: 'queued',
         criticality: planned.criticality,
@@ -1791,7 +1924,7 @@ export class OrchestratorEngine extends EventEmitter {
           planId,
           status: 'stopped',
           usedFallback: resolved.usedFallback,
-          rejected: false,
+          rejected: resolved.rejected,
           validationIssues: resolved.issues,
           tasks: plan.tasks.map((task) => ({
             id: task.id,
@@ -2058,7 +2191,7 @@ export class OrchestratorEngine extends EventEmitter {
       planId,
       status: planStatus,
       usedFallback: resolved.usedFallback,
-      rejected: false,
+      rejected: resolved.rejected,
       validationIssues: resolved.issues,
       retro,
       tasks: plan.tasks.map(
@@ -2276,6 +2409,9 @@ export class OrchestratorEngine extends EventEmitter {
     status: ExecutionPlanResult['status'],
     planTasks: OrcaTask[]
   ): RunRetro | undefined {
+    // Selbsttests sind keine Modellbeobachtungen: weder lokal lernen noch
+    // exportieren, sonst entstehen fabrizierte Weakness-Learnings.
+    if (this.workspaceSessionId === REMOTE_SELFTEST_SESSION_ID) return undefined
     try {
       const analysis = analyzeRunRetro({
         tasks: planTasks,
@@ -2387,7 +2523,7 @@ export class OrchestratorEngine extends EventEmitter {
     this.setActivityState(
       'delegating',
       `Benchmark „${benchTitle}“: dieselbe Aufgabe läuft parallel auf ${tasks.length} Slot(s).`,
-      entries.slice(0, 4).map(({ slot, role }) => `${role}: ${slot.provider}/${resolveModel(slot.provider, slot) || 'Standard'}`),
+      entries.slice(0, 4).map(({ slot, role }) => `${role}: ${slot.provider}/${resolveSlotModel(slot.provider, slot) || 'Standard'}`),
       'Alle Läufe bis zum Terminalstatus verfolgen und danach fair bewerten.'
     )
     this.push()
@@ -2506,32 +2642,14 @@ export class OrchestratorEngine extends EventEmitter {
       return failed
     }
 
+    // Ein abgelehnter strukturierter Plan läuft als konservativer Fallback
+    // durch das Review-Gate weiter, statt ohne Nutzer-Signal zu verschwinden.
     const validation = {
       usedFallback: prepared.resolved.usedFallback,
       rejected: prepared.resolved.rejected,
       validationIssues: prepared.resolved.issues,
-      planTaskIds: prepared.resolved.rejected
-        ? []
-        : prepared.plan.tasks.map((task) => task.id)
+      planTaskIds: prepared.plan.tasks.map((task) => task.id)
     }
-    if (prepared.resolved.rejected) {
-      const result = this.rejectedPlanResult(prepared, runId)
-      const rejected: PlanRunStatusSnapshot = {
-        runId,
-        status: 'error',
-        engineId: this.engineId,
-        workspaceSessionId: this.workspaceSessionId,
-        planId: result.planId,
-        goal: prepared.plan.goal,
-        ...validation,
-        result,
-        error: prepared.resolved.issues.map((issue) => issue.message).join(' ') ||
-          'Der strukturierte Plan wurde durch die Validierung abgelehnt.'
-      }
-      this.planRunResults.set(runId, rejected)
-      return rejected
-    }
-
     const planId = this.nextPlanId()
     const initial: PlanRunStatusSnapshot = {
       runId,
@@ -2650,6 +2768,7 @@ export class OrchestratorEngine extends EventEmitter {
       workspaceSessionId: this.workspaceSessionId,
       planId,
       goal: stored.goal ?? this.goal?.title,
+      reviewState: (planId ? this.planReviewStates.get(planId) : undefined) ?? 'not-required',
       tasks,
       summary: {
         required: tasks.filter((task) => (task.criticality ?? 'required') === 'required').length,

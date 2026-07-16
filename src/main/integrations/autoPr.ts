@@ -21,12 +21,51 @@ const REMOTE_CI_POLL_MS = 5_000
 const REMOTE_CI_READ_TIMEOUT_MS = 30_000
 const REMOTE_CHECK_FIELDS = 'bucket,link,name,state,workflow'
 
+/**
+ * A gate that fails because its TOOLING is missing (eslint/prisma not found in
+ * a fresh worktree) is an infrastructure problem, not a finding against the
+ * worker's code. Retros repeatedly graded such runs as model failures.
+ */
+const GATE_INFRASTRUCTURE_PATTERNS = [
+  /command not found/i,
+  /not recognized as an internal or external command/i,
+  /konnte nicht gefunden werden/i,
+  /cannot find module/i,
+  /\bENOENT\b/
+]
+
 class QualityGateError extends Error {
   readonly code = 'quality-gate-failed'
+  readonly infrastructure: boolean
   constructor(readonly command: string, detail: string) {
     super(`Quality Gate fehlgeschlagen: ${command}\n${detail}`)
     this.name = 'QualityGateError'
+    this.infrastructure = GATE_INFRASTRUCTURE_PATTERNS.some((pattern) => pattern.test(detail))
   }
+}
+
+/** Trailing whitespace/CRLF is fixable follow-up work, never a hard blocker. */
+class CommitHygieneError extends Error {
+  readonly code = 'commit-hygiene'
+  constructor(readonly check: string, detail: string) {
+    super(`Commit-Hygiene fehlgeschlagen (${check}): ${detail}`)
+    this.name = 'CommitHygieneError'
+  }
+}
+
+/**
+ * Worker scratch files that must never reach a commit. Retros show workers
+ * leaving *.origcheck/*.check/.verify-*-tmp.md droppings despite prompt-level
+ * prohibitions — enforcement has to live in the commit path.
+ */
+const SCRATCH_FILE_PATTERNS = [
+  /\.(?:origcheck|c9check|check|orig|rej|bak|tmp)$/i,
+  /(?:^|\/)\.verify-[^/]+$/i,
+  /~$/
+]
+
+export function scratchFiles(files: readonly string[]): string[] {
+  return files.filter((file) => SCRATCH_FILE_PATTERNS.some((pattern) => pattern.test(file)))
 }
 
 export interface PreparedTaskChange {
@@ -151,6 +190,38 @@ async function runFileResult(
 
 async function git(cwd: string, args: string[]): Promise<string> {
   return runFile(cwd, 'git', args)
+}
+
+/** git diff --cached --check als klassifizierbarer Hygiene-Fehler statt plain Error. */
+async function assertStagedHygiene(worktree: string): Promise<void> {
+  try {
+    await git(worktree, ['diff', '--cached', '--check'])
+  } catch (error) {
+    throw new CommitHygieneError(
+      'git diff --cached --check',
+      error instanceof Error ? error.message : String(error)
+    )
+  }
+}
+
+async function stagedFileList(worktree: string): Promise<string[]> {
+  return (await git(worktree, ['diff', '--cached', '--name-only']))
+    .split(/\r?\n/)
+    .map((file) => file.trim())
+    .filter(Boolean)
+}
+
+/** Entfernt Scratch-Dateien aus dem Staging (nicht aus dem Worktree) und meldet sie. */
+async function unstageScratchFiles(worktree: string): Promise<TaskGateFinding[]> {
+  const scratch = scratchFiles(await stagedFileList(worktree))
+  if (scratch.length === 0) return []
+  await git(worktree, ['reset', '-q', 'HEAD', '--', ...scratch])
+  return [{
+    gate: 'commit',
+    code: 'temp-files-removed',
+    message: `${scratch.length} Scratch-Datei(en) wurden vor dem Commit aus dem Staging entfernt.`,
+    files: scratch
+  }]
 }
 
 function safeSlug(value: string, max = 42): string {
@@ -288,6 +359,27 @@ export type PrepareTaskResult = AutoPrOutcome & {
   noChanges?: boolean
   change?: PreparedTaskChange
   findings?: TaskGateFinding[]
+  /** True when the block was caused by missing gate tooling, not by the change itself. */
+  infrastructure?: boolean
+}
+
+/**
+ * Infrastruktur-Gate-Fehler (fehlendes eslint/prisma im frischen Worktree)
+ * bekommen genau einen Bootstrap-Versuch, bevor sie als Blocker zählen.
+ */
+async function runGatesWithBootstrapRetry(worktree: string, gates: string[]): Promise<void> {
+  try {
+    await runQualityGates(worktree, gates)
+  } catch (error) {
+    if (!(error instanceof QualityGateError) || !error.infrastructure) throw error
+    try {
+      const root = await repositoryRoot(worktree)
+      await ensureWorktreeDependencies(root, worktree)
+    } catch {
+      throw error
+    }
+    await runQualityGates(worktree, gates)
+  }
 }
 
 function uniqueTaskFindings(findings: TaskGateFinding[]): TaskGateFinding[] {
@@ -315,9 +407,12 @@ async function captureNeedsWorkChange(
   const extraFindings: TaskGateFinding[] = []
   if (status) {
     await git(input.worktree!, ['add', '--all'])
-    await git(input.worktree!, ['diff', '--cached', '--check'])
+    // Kein Whitespace-Check hier: die Rettung partieller Arbeit darf nicht an
+    // Trailing-Whitespace scheitern (Retro mrm3jl3a); Scratch-Dateien bleiben
+    // trotzdem draußen.
+    extraFindings.push(...await unstageScratchFiles(input.worktree!))
     const stagedDiff = await git(input.worktree!, ['diff', '--cached', '--no-ext-diff', '--binary'])
-    const report = evaluateSecurityGate(stagedDiff)
+    const report = evaluateSecurityGate(stagedDiff, { excludePaths: input.config.securityGateExcludes })
     for (const finding of report.findings) {
       extraFindings.push({
         gate: 'security',
@@ -396,25 +491,30 @@ export async function prepareTaskChange(input: PrepareTaskInput): Promise<Prepar
     if (!initialStatus) {
       return { status: 'skipped', message: 'Keine Änderungen; expliziter No-op bestätigt.', ...noTaskChanges() }
     }
+    const hygieneFindings: TaskGateFinding[] = []
     if (initialStatus) {
       await git(input.worktree, ['add', '--all'])
       staged = true
-      await git(input.worktree, ['diff', '--cached', '--check'])
-      assertSecurityGate(await git(input.worktree, ['diff', '--cached', '--no-ext-diff', '--binary']))
+      hygieneFindings.push(...await unstageScratchFiles(input.worktree))
+      await assertStagedHygiene(input.worktree)
+      assertSecurityGate(
+        await git(input.worktree, ['diff', '--cached', '--no-ext-diff', '--binary']),
+        { excludePaths: input.config.securityGateExcludes }
+      )
     }
 
-    await runQualityGates(input.worktree, input.config.qualityGates)
+    await runGatesWithBootstrapRetry(input.worktree, input.config.qualityGates)
 
     // Gates may format or generate files. Stage and inspect their final output too.
     await git(input.worktree, ['add', '--all'])
     staged = true
-    await git(input.worktree, ['diff', '--cached', '--check'])
+    hygieneFindings.push(...await unstageScratchFiles(input.worktree))
+    await assertStagedHygiene(input.worktree)
     const stagedDiff = await git(input.worktree, ['diff', '--cached', '--no-ext-diff', '--binary'])
-    if (stagedDiff) assertSecurityGate(stagedDiff)
-    const stagedFiles = (await git(input.worktree, ['diff', '--cached', '--name-only']))
-      .split(/\r?\n/)
-      .map((file) => file.trim())
-      .filter(Boolean)
+    if (stagedDiff) {
+      assertSecurityGate(stagedDiff, { excludePaths: input.config.securityGateExcludes })
+    }
+    const stagedFiles = await stagedFileList(input.worktree)
 
     if (stagedFiles.length > 0) {
       await git(input.worktree, [
@@ -458,20 +558,49 @@ export async function prepareTaskChange(input: PrepareTaskInput): Promise<Prepar
       message: files.length + ' Datei(en) in ' + commits.length + ' Commit(s) verifiziert.',
       branch,
       worktree: input.worktree,
-      change
+      change,
+      findings: hygieneFindings.length > 0 ? uniqueTaskFindings(hygieneFindings) : undefined
     }
   } catch (error) {
-    if (error instanceof SecurityGateError || error instanceof QualityGateError) {
+    if (error instanceof QualityGateError && error.infrastructure) {
+      // Fehlendes Tooling ist kein Befund gegen die Änderung: kein needs-work,
+      // sondern ein als Infrastruktur klassifizierter Blocker für den Retry-Pfad.
+      if (staged) {
+        try {
+          await git(input.worktree, ['reset', '--mixed', 'HEAD'])
+        } catch {
+          // Preserve the original error and surface the worktree path below.
+        }
+      }
+      return {
+        status: 'blocked',
+        result: 'blocked',
+        infrastructure: true,
+        message: `Gate-Infrastruktur fehlgeschlagen: ${error.message}`,
+        worktree: input.worktree
+      }
+    }
+    if (
+      error instanceof SecurityGateError ||
+      error instanceof QualityGateError ||
+      error instanceof CommitHygieneError
+    ) {
       try {
         const captured = await captureNeedsWorkChange(input, baseCommit)
         if (captured.change) {
           const findings = uniqueTaskFindings(error instanceof SecurityGateError
             ? [...securityFindings(error), ...captured.extraFindings]
-            : [{
-                gate: 'quality' as const,
-                code: error.code,
-                message: error.message
-              }, ...captured.extraFindings])
+            : error instanceof CommitHygieneError
+              ? [{
+                  gate: 'commit' as const,
+                  code: 'whitespace',
+                  message: error.message
+                }, ...captured.extraFindings]
+              : [{
+                  gate: 'quality' as const,
+                  code: error.code,
+                  message: error.message
+                }, ...captured.extraFindings])
           return {
             status: 'blocked',
             result: 'needs-work',
@@ -856,7 +985,7 @@ async function publishAggregate(input: PublishInput): Promise<AutoPrOutcome> {
       }
     }
     const integratedDiff = await git(integrationPath, ['diff', '--no-ext-diff', '--binary', `origin/${base}...HEAD`])
-    assertSecurityGate(integratedDiff)
+    assertSecurityGate(integratedDiff, { excludePaths: input.config.securityGateExcludes })
     await runIntegrationQualityGates(root, integrationPath, input.config.qualityGates)
     const body = [
       `Automatisch integriert von Orca-Strator für **${input.goalTitle}**.`,

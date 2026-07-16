@@ -89,6 +89,28 @@ describe('parseBranchFiles', () => {
     expect(parsed.learnings).toHaveLength(1)
     expect(parsed.skipped).toEqual(['runs/2026/07/kaputt.json', 'runs/2026/07/garbage.json'])
   })
+
+  it('filters remote-selftest retros out of the analysis input', () => {
+    // Bestandsdaten: 5 identische Selftest-Retros liegen bereits auf dem Branch.
+    const parsed = parseBranchFiles([
+      envelope(
+        'run-retro',
+        retro({ id: 'retro-selftest-1', workspaceSessionId: 'remote-selftest' }),
+        'runs/2026/07/retro-selftest-1.json'
+      ),
+      envelope(
+        'run-retro',
+        retro({ id: 'retro-selftest-2', goal: 'Remote approval selftest' }),
+        'runs/2026/07/retro-selftest-2.json'
+      ),
+      envelope('run-retro', retro(), 'runs/2026/07/retro-real.json')
+    ])
+    expect(parsed.retros.map((entry) => entry.retro.id)).toEqual(['retro-1'])
+    expect(parsed.skipped).toEqual([
+      'runs/2026/07/retro-selftest-1.json',
+      'runs/2026/07/retro-selftest-2.json'
+    ])
+  })
 })
 
 describe('collectNew / state', () => {
@@ -221,6 +243,34 @@ describe('aggregateForSynthesis', () => {
       existingProposalSlugs: []
     })
     expect(input.learnings).toHaveLength(0)
+  })
+
+  it('drops generic 1/1 auto-retro failure counters even with inflated observations', () => {
+    // Der Selftest-Fall aus den Bestandsdaten: identische Läufe zählten
+    // observations auf 5 hoch, ohne je mehr als 1/1 Tasks zu belegen.
+    const input = aggregateForSynthesis({
+      retros: [],
+      benchmarks: [],
+      learningsSnapshots: [
+        learning({
+          kind: 'weakness',
+          insight: 'fehleranfällig bei codex',
+          evidence: '1/1 auswertbare Tasks inhaltlich fehlgeschlagen',
+          observations: 5
+        }),
+        learning({
+          kind: 'weakness',
+          insight: 'fehleranfällig bei renderer-ui',
+          evidence: '3/4 auswertbare Tasks inhaltlich fehlgeschlagen',
+          observations: 3
+        })
+      ],
+      currentOverlay: '',
+      existingProposalSlugs: []
+    })
+    const insights = input.learnings.map((entry) => entry.insight)
+    expect(insights).not.toContain('fehleranfällig bei codex')
+    expect(insights).toContain('fehleranfällig bei renderer-ui')
   })
 })
 

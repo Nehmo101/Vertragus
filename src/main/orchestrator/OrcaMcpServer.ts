@@ -349,6 +349,23 @@ function buildMcpServer(
   )
 
   register(
+    'await_plan_approval',
+    'Blockiere, bis die Panel-Freigabe eines Planlaufs entschieden ist (reviewState approved/rejected), ' +
+      'statt list_tasks/get_plan_status zu pollen. Kehrt sofort zurück, wenn keine Freigabe nötig ist ' +
+      '(reviewState not-required) oder schon entschieden wurde. Bei stillRunning:true erneut aufrufen.',
+    {
+      runId: z.string().describe('runId aus execute_plan'),
+      timeoutMs: AWAIT_TIMEOUT_SHAPE
+    },
+    async (args) =>
+      text(JSON.stringify(
+        await engine.awaitPlanApproval(String(args.runId ?? ''), args.timeoutMs as number | undefined),
+        null,
+        2
+      ))
+  )
+
+  register(
     'cancel_plan',
     'Stoppe einen Planlauf oder verwirf ohne runId den Plan, der gerade auf Review wartet. ' +
       'Fehler werden als strukturierte Antwort geliefert und lösen keine Tool-Exception aus.',
@@ -366,7 +383,10 @@ function buildMcpServer(
     'execute_plan',
     'Validiere und starte einen kompletten Auto-Subagent-Plan asynchron als DAG. Die Antwort ' +
       'enthält sofort runId, usedFallback, rejected, validationIssues und planTaskIds. ' +
-      'Ein rejected-Plan endet ohne Task-Start; laufende Ergebnisse werden mit get_plan_status abgefragt. ' +
+      'Reparierbare Ownership-Probleme werden automatisch korrigiert (repaired_ownership in validationIssues). ' +
+      'Ein rejected-Plan startet keine Tasks direkt: sein konservativer Ersatz-Task wartet am Review-Gate auf Freigabe — ' +
+      'prüfe validationIssues, reiche einen korrigierten Plan ein oder lass den Ersatz-Task freigeben. ' +
+      'Laufende Ergebnisse werden mit get_plan_status abgefragt. ' +
       'Bewerte danach das Gesamtziel und reiche bei Bedarf einen fokussierten Folgeplan ein.',
     {
       plan: z.object({

@@ -300,6 +300,8 @@ export interface OrchestratorReliabilityMetrics {
   automaticRecoveries: number
   needsWorkTasks: number
   rescuedNeedsWorkCommits: number
+  /** Quarantined worker results that passed every gate and were committed instead of discarded. */
+  adoptedRecoveryArtifacts: number
   completedPlans: number
   preventedFalseSuccesses: number
   lastSnapshotAt: number
@@ -358,12 +360,14 @@ export interface PlanRunStatusSnapshot {
   goal?: string
   /** True when validation replaced unparseable input with one conservative task. */
   usedFallback?: boolean
-  /** True when a structured but invalid plan was rejected without creating tasks. */
+  /** True when a structured but invalid plan was replaced by a review-gated fallback task. */
   rejected?: boolean
   /** Validation details are available on the initial execute_plan response. */
   validationIssues?: PlanValidationIssue[]
   /** Stable authored task ids, available before runtime task materialization. */
   planTaskIds?: string[]
+  /** Live state of the review gate; 'pending' means the plan waits for approval. */
+  reviewState?: PlanReviewState
   tasks?: TaskStatusSnapshot[]
   summary?: {
     required: number
@@ -391,6 +395,19 @@ export type AwaitTaskResult =
 export type AwaitPlanResult =
   | { done: true; stillRunning: false; plan: PlanRunStatusSnapshot }
   | { done: false; stillRunning: true; reason: 'timeout'; plan: PlanRunStatusSnapshot }
+  | { done: false; stillRunning: false; reason: 'unknown'; runId: string }
+
+/** Review-gate state of a plan run, exposed so nobody has to poll for approval. */
+export type PlanReviewState = 'pending' | 'approved' | 'rejected' | 'not-required'
+
+/**
+ * Result of the blocking await_plan_approval tool: settles on the panel
+ * decision (approve/reject) instead of forcing the orchestrator to poll
+ * list_tasks/get_plan_status until tasks start moving.
+ */
+export type AwaitPlanApprovalResult =
+  | { done: true; stillRunning: false; reviewState: PlanReviewState; plan: PlanRunStatusSnapshot }
+  | { done: false; stillRunning: true; reason: 'timeout'; reviewState: 'pending'; plan: PlanRunStatusSnapshot }
   | { done: false; stillRunning: false; reason: 'unknown'; runId: string }
 
 /**
@@ -465,6 +482,8 @@ export type PlanValidationCode =
   | 'invalid_parallelism'
   | 'invalid_task'
   | 'invalid_ownership'
+  /** Non-fatal: an ownership issue was fixed in place instead of collapsing the plan. */
+  | 'repaired_ownership'
   | 'too_many_tasks'
   | 'duplicate_task_id'
   | 'unknown_dependency'

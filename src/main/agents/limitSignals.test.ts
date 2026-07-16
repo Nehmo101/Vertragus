@@ -40,9 +40,19 @@ describe('detectLimit', () => {
     expect(match?.note).toContain('weekly limit')
   })
 
+  it('detects provider capacity exhaustion as a limit signal', () => {
+    // Retros mrl5ec4i/mrl8oafq: dieser Wortlaut beendete lange Tasks, ohne
+    // dass der Slot-Wechsel-Retry griff.
+    expect(detectLimit('codex', 'Selected model is at capacity. Please try again later.')?.kind)
+      .toBe('generic')
+    expect(detectLimit('codex', 'The provider is currently at capacity, retry shortly.')?.kind)
+      .toBe('generic')
+  })
+
   it('returns null for ordinary agent output', () => {
     expect(detectLimit('claude', 'Running tests... 12 passed, 0 failed')).toBeNull()
     expect(detectLimit('codex', 'git commit -m "fix"')).toBeNull()
     expect(detectLimit('claude', 'The rate of change is high')).toBeNull()
+    expect(detectLimit('codex', 'The venue was filled at capacity yesterday')).toBeNull()
   })
 })

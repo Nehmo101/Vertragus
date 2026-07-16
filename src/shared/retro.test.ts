@@ -188,7 +188,8 @@ describe('deriveHeuristicLearnings', () => {
       deriveModelStats([
         task({ id: 'a', role: 'frontend' }),
         task({ id: 'b', role: 'frontend' }),
-        task({ id: 'c', provider: 'ollama', model: 'llama3', status: 'error' })
+        task({ id: 'c', provider: 'ollama', model: 'llama3', status: 'error' }),
+        task({ id: 'd', provider: 'ollama', model: 'llama3', status: 'error' })
       ]),
       { profileId: 'p1' }
     )
@@ -227,15 +228,22 @@ describe('deriveHeuristicLearnings', () => {
     expect(learnings.some((entry) => entry.kind === 'weakness')).toBe(false)
   })
 
-  it('continues to derive a weakness from a genuine model failure', () => {
+  it('continues to derive a weakness from repeated genuine model failures', () => {
     const learnings = deriveHeuristicLearnings(
       deriveModelStats([
         task({
-          id: 'model-error',
+          id: 'model-error-1',
           role: 'renderer-ui',
           status: 'error',
           failureKind: 'worker',
           note: 'Die Implementierung erfüllt die Akzeptanzkriterien nicht.'
+        }),
+        task({
+          id: 'model-error-2',
+          role: 'renderer-ui',
+          status: 'error',
+          failureKind: 'worker',
+          note: 'Die Komponente rendert weiterhin fehlerhaft.'
         })
       ])
     )
@@ -244,6 +252,24 @@ describe('deriveHeuristicLearnings', () => {
       kind: 'weakness',
       insight: expect.stringContaining('fehleranfällig bei renderer-ui')
     }))
+  })
+
+  it('never mints a generic weakness from a single observation', () => {
+    // Retro-Serie remote-selftest: EIN fehlgeschlagener Task erzeugte sofort
+    // "fehleranfällig bei codex" (1/1) und wuchs per Merge auf observations 5.
+    const learnings = deriveHeuristicLearnings(
+      deriveModelStats([
+        task({
+          id: 'single-failure',
+          role: 'codex',
+          status: 'error',
+          failureKind: 'worker',
+          note: 'Die Implementierung erfüllt die Akzeptanzkriterien nicht.'
+        })
+      ])
+    )
+
+    expect(learnings.some((entry) => entry.insight.includes('fehleranfällig'))).toBe(false)
   })
 
   it('does not treat a gate infrastructure error as a code finding', () => {

@@ -64,6 +64,12 @@ export const autoPrConfigSchema = z.object({
   baseBranch: z.string().default(''),
   /** Trusted local shell commands executed inside the integration worktree. */
   qualityGates: z.array(z.string().min(1)).max(12).default(['corepack pnpm typecheck', 'corepack pnpm test', 'corepack pnpm lint']),
+  /**
+   * Additional path globs (e.g. "spec/fixtures/**") excluded from the
+   * Security-Gate SURFACE scan. Documentation paths are excluded by default;
+   * leaked-secret patterns always apply to every file.
+   */
+  securityGateExcludes: z.array(z.string().min(1).max(200)).max(32).default([]),
   labels: z.array(z.string().min(1)).max(20).default([]),
   reviewers: z.array(z.string().min(1)).max(20).default([])
 })
@@ -253,6 +259,7 @@ export const DEFAULT_PROFILE: WorkspaceProfile = {
     strategy: 'aggregate',
     baseBranch: '',
     qualityGates: ['corepack pnpm typecheck', 'corepack pnpm test', 'corepack pnpm lint'],
+    securityGateExcludes: [],
     labels: [],
     reviewers: []
   }

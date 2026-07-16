@@ -660,7 +660,7 @@ export default function OrchestratorPanel(): JSX.Element {
               <div className="plan-review-warning">
                 <strong>
                   {pendingPlan.rejected
-                    ? 'Dieser Plan wurde durch die Validierung abgelehnt.'
+                    ? 'Die Validierung ersetzte den strukturierten Plan durch einen konservativen Ersatz-Task. Freigeben startet den Ersatz-Task; Ablehnen verwirft ihn.'
                     : 'Der Vorschlag wurde sicher normalisiert. Bitte vor dem Start prüfen.'}
                 </strong>
                 <div role="list">
@@ -676,8 +676,8 @@ export default function OrchestratorPanel(): JSX.Element {
               <button type="button" className="btn ghost" onClick={() => void store.reviewPendingPlan(false)}>
                 Ablehnen
               </button>
-              <button type="button" className="btn primary" disabled={pendingPlan.rejected} onClick={() => void store.reviewPendingPlan(true)}>
-                Plan starten
+              <button type="button" className="btn primary" onClick={() => void store.reviewPendingPlan(true)}>
+                {pendingPlan.rejected ? 'Ersatz-Task starten' : 'Plan starten'}
               </button>
             </div>
           </div>

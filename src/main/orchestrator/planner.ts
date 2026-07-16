@@ -60,6 +60,25 @@ function fallbackPlan(input: unknown, role: string, prompt?: string): ExecutionP
   }
 }
 
+/** True when `fromId` reaches `targetId` through hard or advisory dependencies. */
+function dependsTransitively(tasks: ExecutionPlanTask[], fromId: string, targetId: string): boolean {
+  const byId = new Map(tasks.map((task) => [task.id, task]))
+  const queue = [fromId]
+  const seen = new Set<string>()
+  while (queue.length > 0) {
+    const current = byId.get(queue.shift()!)
+    if (!current) continue
+    for (const dependency of [...current.dependsOn, ...current.advisoryDependsOn]) {
+      if (dependency === targetId) return true
+      if (!seen.has(dependency)) {
+        seen.add(dependency)
+        queue.push(dependency)
+      }
+    }
+  }
+  return false
+}
+
 function hasCycle(tasks: ExecutionPlanTask[]): boolean {
   const allDependencies = (task: ExecutionPlanTask): string[] =>
     [...task.dependsOn, ...task.advisoryDependsOn]
@@ -88,8 +107,10 @@ function hasCycle(tasks: ExecutionPlanTask[]): boolean {
 }
 
 /**
- * Validate an untrusted, model-authored plan. Any issue replaces the entire
- * proposal with one conservative task; partially valid plans are never run.
+ * Validate an untrusted, model-authored plan. Repairable ownership issues are
+ * fixed in place and reported as non-fatal `repaired_ownership` issues; any
+ * remaining issue replaces the entire proposal with one conservative task —
+ * partially valid plans are never run.
  */
 export function resolveExecutionPlan(
   input: unknown,
@@ -204,6 +225,9 @@ export function resolveExecutionPlan(
     })
   }
 
+  // Ownership problems are repaired in place where a safe equivalent exists;
+  // only unrepairable constellations still collapse the plan (see fallback below).
+  const repairs: PlanValidationIssue[] = []
   const integrators = tasks.filter((task) => task.ownership === 'integrator')
   if (integrators.length > 1) {
     issues.push({ code: 'invalid_ownership', message: 'A plan may contain only one shared-file integrator.' })
@@ -213,10 +237,20 @@ export function resolveExecutionPlan(
   )
   for (const { task, file } of declaredSharedFiles) {
     if (task.ownership !== 'integrator') {
-      issues.push({ code: 'invalid_ownership', message: 'Shared hotspot ' + file + ' must be owned by the integrator task.', taskId: task.id })
+      // The protected property is "no concurrent writes to shared hotspots".
+      // Serializing the writer via the integrator conflict key preserves it
+      // without discarding the whole plan.
+      if (!task.conflictKeys.includes('shared-hotspots')) {
+        task.conflictKeys = [...task.conflictKeys, 'shared-hotspots']
+      }
+      repairs.push({
+        code: 'repaired_ownership',
+        message: 'Shared hotspot ' + file + ' is written by task ' + task.id + '; the task was serialized via the shared-hotspots conflict key.',
+        taskId: task.id
+      })
     }
   }
-  const integrator = integrators[0]
+  const integrator = integrators.length === 1 ? integrators[0] : undefined
   if (integrator) {
     const integrationDependencies = new Set([
       ...integrator.dependsOn,
@@ -229,7 +263,32 @@ export function resolveExecutionPlan(
         !integrationDependencies.has(task.id)
     )
     if (missingDependencies.length > 0) {
-      issues.push({ code: 'invalid_ownership', message: 'The integrator must depend on every required feature task.', taskId: integrator.id })
+      // Advisory edges keep the integrator waiting for every required task
+      // without cascading a single feature failure into an integrator stop.
+      // A task that already depends on the integrator cannot be repaired
+      // this way (the new edge would close a cycle).
+      const repairable = missingDependencies.filter(
+        (task) => !dependsTransitively(tasks, task.id, integrator.id)
+      )
+      const unrepairable = missingDependencies.filter((task) => !repairable.includes(task))
+      const repairedEdgeCount =
+        integrator.dependsOn.length + integrator.advisoryDependsOn.length + repairable.length
+      if (repairable.length > 0 && repairedEdgeCount <= MAX_PLAN_TASKS) {
+        integrator.advisoryDependsOn = [
+          ...integrator.advisoryDependsOn,
+          ...repairable.map((task) => task.id)
+        ]
+        repairs.push({
+          code: 'repaired_ownership',
+          message: 'The integrator was missing dependencies on required task(s) ' +
+            repairable.map((task) => task.id).join(', ') +
+            '; advisory dependencies were added automatically.',
+          taskId: integrator.id
+        })
+      }
+      if (unrepairable.length > 0 || repairedEdgeCount > MAX_PLAN_TASKS) {
+        issues.push({ code: 'invalid_ownership', message: 'The integrator must depend on every required feature task.', taskId: integrator.id })
+      }
     }
   }
 
@@ -264,13 +323,13 @@ export function resolveExecutionPlan(
       plan: fallbackPlan(input, fallbackRole, fallbackPrompt),
       usedFallback: true,
       rejected: isStructuredPlan,
-      issues
+      issues: [...issues, ...repairs]
     }
   }
   return {
     plan: { version: 1, goal, maxParallel, tasks },
     usedFallback: false,
     rejected: false,
-    issues: []
+    issues: repairs
   }
 }

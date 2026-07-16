@@ -120,12 +120,29 @@ const STALL_CHECK_INTERVAL_MS = 30_000
 const MIN_HEARTBEAT_INTERVAL_MS = 30_000
 const MAX_HEARTBEAT_INTERVAL_MS = 60_000
 
+/**
+ * The worker contract line, tolerant of Markdown decoration the models like to
+ * add ("**ERGEBNIS: ERFOLG**", "> ERGEBNIS : BLOCKER", "## ERGEBNIS: ERFOLG").
+ * The verdict must still start its own line so prose mentions never match.
+ */
+function resultMarker(verdict: 'ERFOLG' | 'BLOCKER'): RegExp {
+  const space = '[^\\S\\n]*'
+  const decoration = '(?:[*_`#>-]+' + space + ')*'
+  return new RegExp(
+    '(?:^|\\n)' + space + decoration + 'ERGEBNIS' + space + ':' + space + decoration + verdict + '\\b',
+    'i'
+  )
+}
+
+const WORKER_SUCCESS_MARKER = resultMarker('ERFOLG')
+const WORKER_BLOCKER_MARKER = resultMarker('BLOCKER')
+
 export function hasExplicitWorkerSuccess(text: string): boolean {
-  return /(?:^|\n)\s*ERGEBNIS:\s*ERFOLG\b/im.test(text)
+  return WORKER_SUCCESS_MARKER.test(text)
 }
 
 export function hasExplicitWorkerBlocker(text: string): boolean {
-  return /(?:^|\n)\s*ERGEBNIS:\s*BLOCKER\b/im.test(text)
+  return WORKER_BLOCKER_MARKER.test(text)
 }
 
 export interface FatalProviderFailure {

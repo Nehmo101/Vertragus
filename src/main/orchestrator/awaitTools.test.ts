@@ -313,6 +313,54 @@ describe('awaitPlan', () => {
     expect(approved).toMatchObject({ done: true, plan: { status: 'success' } })
   })
 
+  it('settles await_plan_approval on the panel decision instead of forcing polling', async () => {
+    runTask.mockImplementation(async (request) => ({
+      info: info(request.taskId),
+      done: Promise.resolve({ result: 'Done', isError: false, status: 'succeeded' as const })
+    }))
+    const engine = new OrchestratorEngine({ profile: autoProfile() })
+    engine.setGoal('Approval signal')
+    const started = engine.executePlanAsync(planInput('gated', 'Approval signal'))
+    expect(started.reviewState).toBeUndefined()
+    await vi.waitFor(() => expect(engine.snapshot().pendingPlan?.planId).toBe(started.planId))
+    expect(engine.getPlanRunStatus(started.runId)?.reviewState).toBe('pending')
+
+    const events: Array<{ planId: string; approved: boolean }> = []
+    engine.on('plan-review', (event: { planId: string; approved: boolean }) => events.push(event))
+    const waiting = engine.awaitPlanApproval(started.runId, 30_000)
+    setTimeout(() => engine.reviewPlan(true), 5)
+    const decided = await waiting
+
+    expect(decided).toMatchObject({ done: true, reviewState: 'approved' })
+    expect(events).toEqual([{ planId: started.planId, approved: true }])
+    await vi.waitFor(() => expect(engine.getPlanRunStatus(started.runId)?.status).toBe('success'))
+    expect(engine.getPlanRunStatus(started.runId)?.reviewState).toBe('approved')
+
+    // Zweiter Plan in Auto-Modus braucht kein Review: sofortige Antwort.
+    const second = engine.executePlanAsync(planInput('direct', 'Approval signal'))
+    await vi.waitFor(() => expect(engine.getPlanRunStatus(second.runId)?.status).toBe('success'))
+    await expect(engine.awaitPlanApproval(second.runId)).resolves.toMatchObject({
+      done: true,
+      reviewState: 'not-required'
+    })
+    await expect(engine.awaitPlanApproval('plan-run-unbekannt')).resolves.toMatchObject({
+      done: false,
+      reason: 'unknown'
+    })
+  })
+
+  it('reports a rejected review decision through await_plan_approval', async () => {
+    const engine = new OrchestratorEngine({ profile: autoProfile() })
+    engine.setGoal('Rejected plan')
+    const started = engine.executePlanAsync(planInput('vetoed', 'Rejected plan'))
+    await vi.waitFor(() => expect(engine.snapshot().pendingPlan?.planId).toBe(started.planId))
+
+    const waiting = engine.awaitPlanApproval(started.runId, 30_000)
+    setTimeout(() => engine.reviewPlan(false), 5)
+    await expect(waiting).resolves.toMatchObject({ done: true, reviewState: 'rejected' })
+    await vi.waitFor(() => expect(engine.getPlanRunStatus(started.runId)?.status).toBe('stopped'))
+  })
+
   it('lets concurrent awaiters of a failing plan both resolve without an unhandled rejection', async () => {
     const finishOf = manualWorker()
     const engine = new OrchestratorEngine({ profile: autoProfile() })
