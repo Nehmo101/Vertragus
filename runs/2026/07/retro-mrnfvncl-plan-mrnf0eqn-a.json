@@ -1,0 +1,116 @@
+{
+  "version": 1,
+  "exportedAt": 1784202126120,
+  "app": {
+    "name": "orca-strator",
+    "version": "0.1.47-main.1.gb3a336d"
+  },
+  "machineId": "5087fc1f7b9d",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrnfvncl-plan-mrnf0eqn-a",
+    "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+    "workspaceSessionId": "fde9e06e-ffd8-40e1-a743-5c6198ab6b40",
+    "planId": "plan-mrnf0eqn-a",
+    "goal": "liveStatus-Feature fertigstellen: sicherheitsgeprüfte Implementierung aus Commit 36de2203 auf HEAD materialisieren, inaktiven Fallback (neutraler Indikator statt alter Status-Labels) korrigieren und mit vollen Gates verifizieren. Via Claude-Worker (Codex durch 0.144.5-Canary blockiert).",
+    "status": "error",
+    "summary": "Lauf mit Fehlern: 3 Modell(e), 0/2 Tasks erfolgreich.",
+    "modelStats": [
+      {
+        "provider": "cursor",
+        "model": "composer-2.5",
+        "roles": [
+          "frontend-ui"
+        ],
+        "tasks": 1,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 1,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 1
+        },
+        "failedAttempts": 1,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 1
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "costUsd": 2.8674825000000004,
+        "avgDurationMs": 1457250
+      },
+      {
+        "provider": "claude",
+        "model": "claude-sonnet-5",
+        "roles": [
+          "qa-gate-runner"
+        ],
+        "tasks": 1,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 1,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 1,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "avgDurationMs": 1457456,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      },
+      {
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "roles": [],
+        "tasks": 0,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 1,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 1
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrn6nvgh-2-1fr14b",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "kind": "weakness",
+        "insight": "Worker-Versuche scheiterten; Aufgaben wurden auf andere Slots umgeleitet",
+        "evidence": "1 inhaltlich fehlgeschlagene(r) Versuch(e) in diesem Lauf",
+        "source": "auto-retro",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 5,
+        "createdAt": 1784186646785,
+        "updatedAt": 1784202126055
+      }
+    ],
+    "createdAt": 1784202126069
+  }
+}
