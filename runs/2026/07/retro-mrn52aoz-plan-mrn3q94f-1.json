@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784183960523,
+  "exportedAt": 1784184039808,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -14,7 +14,7 @@
     "planId": "plan-mrn3q94f-1",
     "goal": "Seitenleisten (links: Sidebar, rechts: OrchestratorPanel) per Drag in der Breite veränderbar und vollständig einklappbar machen; Workspace-/Agent-Ansicht responsiv und dynamisch an die Fenstergröße anpassen (Agent-Fenster dürfen kleiner werden). Größen und Einklapp-Zustand werden über Sitzungen hinweg persistiert (localStorage). Keine Änderungen an der Agent-Logik — nur Layout und Darstellung.",
     "status": "error",
-    "summary": "Lauf mit Fehlern: 2 Modell(e), 5/6 Tasks erfolgreich.",
+    "summary": "Feature inhaltlich vollständig geliefert (Primitives + Integration, Build/Tests/UI-Smoke grün), aber Lauf endete error: Cherry-Pick des Integrations-Commits d9f69ce kollidierte zentral mit dem QA-Commit 4ef2043. Alle 4 Cursor-Tasks waren hohle no-changes-Erfolge.",
     "modelStats": [
       {
         "provider": "codex",
@@ -114,6 +114,76 @@
         "observations": 1,
         "createdAt": 1784183960471,
         "updatedAt": 1784183960471
+      },
+      {
+        "id": "learning-mrn53zul-1-37yeb",
+        "provider": "cursor",
+        "model": "composer-2.5-fast",
+        "role": "worker - small and quick work-item",
+        "kind": "weakness",
+        "insight": "Beantwortet nur die Namens-Präambel und endet mit success/no-changes — Task-Prompt wird nicht ausgeführt; als success getarnter Totalausfall",
+        "evidence": "4/4 Tasks (Faramir, Glorfindel, Glaurung, Tom Bombadil) endeten in ~15-30s nur mit Selbstvorstellung, completion=no-changes",
+        "source": "orchestrator",
+        "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+        "observations": 1,
+        "createdAt": 1784184039741,
+        "updatedAt": 1784184039741
+      },
+      {
+        "id": "learning-mrn53zul-2-tzy9w1",
+        "provider": "cursor",
+        "model": "composer-2.5-fast",
+        "role": "worker - small and quick work-item",
+        "kind": "weakness",
+        "insight": "Auto-Retro-Metrik 'zuverlässig im ersten Anlauf' ist irreführend — Erfolgsstatus ohne jede Arbeitsleistung",
+        "evidence": "Judge akzeptierte Provider-Exit 0 trotz leerem Ergebnis; DoD (geänderte Dateien) nie erfüllt",
+        "source": "orchestrator",
+        "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+        "observations": 1,
+        "createdAt": 1784184039741,
+        "updatedAt": 1784184039741
+      },
+      {
+        "id": "learning-mrn53zul-3-ki51rc",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "renderer-ui",
+        "kind": "strength",
+        "insight": "Sehr stark bei UI-Layout inkl. echter E2E-Verifikation: kompensierte als Integrator 3 ausgefallene Feature-Tasks und belegte Abnahmekriterien per Electron-UI-Smoke",
+        "evidence": "Éowyn: Sidebar+Panel+Workspace+globales CSS komplett, pnpm build grün, 20/20 UI-Smoke, 726/726 Vitest, Commit d9f69ce",
+        "source": "orchestrator",
+        "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+        "observations": 1,
+        "createdAt": 1784184039741,
+        "updatedAt": 1784184039741
+      },
+      {
+        "id": "learning-mrn53zul-4-uvxapk",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "renderer-ui",
+        "kind": "strength",
+        "insight": "Liefert wiederverwendbare React/Zustand-Primitives mit Tests und sauberer API-Meldung aufs Findings-Board im ersten Anlauf",
+        "evidence": "Haldir: 6 neue Dateien (layoutStore/useResizablePanel/ResizeHandle), 721/721 Tests, Commit 24c2ae4, API-Finding früh",
+        "source": "orchestrator",
+        "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+        "observations": 1,
+        "createdAt": 1784184039741,
+        "updatedAt": 1784184039741
+      },
+      {
+        "id": "learning-mrn53zul-5-oa5agj",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "test-qa",
+        "kind": "weakness",
+        "insight": "QA-Tests gegen parallelen Integrator-Worktree brechen Typecheck-Gate und erzeugen Cherry-Pick-Konflikte — QA erst nach zentraler Übernahme des Integrator-Commits starten",
+        "evidence": "Radagast: Tests referenzierten Éowyns nicht übernommenen Code; pnpm typecheck rot, Commit 4ef2043 kollidierte mit d9f69ce",
+        "source": "orchestrator",
+        "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+        "observations": 1,
+        "createdAt": 1784184039741,
+        "updatedAt": 1784184039741
       }
     ],
     "createdAt": 1784183960483
