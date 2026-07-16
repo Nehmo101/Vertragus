@@ -150,7 +150,6 @@ interface AppState {
   handoff(req: HandoffRequest): Promise<void>
   bulkHandoff(req: BulkHandoffRequest): Promise<void>
   openEditor(profile: WorkspaceProfile): void
-  openEditorCopy(profile: WorkspaceProfile): void
   openEditorNew(): void
   closeEditor(): void
   saveEditor(profile: WorkspaceProfile): Promise<void>
@@ -1070,34 +1069,6 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   openEditor(profile) {
     set({ editorProfile: profile })
-  },
-
-  openEditorCopy(profile) {
-    set({
-      editorProfile: {
-        ...profile,
-        id: `profile-${Date.now().toString(36)}`,
-        name: `${profile.name} (Kopie)`,
-        orchestrator: profile.orchestrator ? { ...profile.orchestrator } : undefined,
-        githubRepo: profile.githubRepo ? { ...profile.githubRepo } : undefined,
-        agents: profile.agents.map((slot) => ({
-          ...slot,
-          strengths: [...slot.strengths],
-          weaknesses: [...slot.weaknesses]
-        })),
-        planner: { ...profile.planner },
-        benchmark: { ...profile.benchmark },
-        multiAgent: { ...profile.multiAgent },
-        autoGit: { ...profile.autoGit },
-        autoPr: {
-          ...profile.autoPr,
-          qualityGates: [...profile.autoPr.qualityGates],
-          securityGateExcludes: [...profile.autoPr.securityGateExcludes],
-          labels: [...profile.autoPr.labels],
-          reviewers: [...profile.autoPr.reviewers]
-        }
-      }
-    })
   },
 
   openEditorNew() {
