@@ -10,7 +10,7 @@ export type ModelCatalogSource = SharedModelCatalogSource
 export type ProviderModelCatalog = ProviderModelCatalogEntry
 export type ModelCatalog = SharedModelCatalog
 
-const PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'cursor', 'copilot', 'ollama']
+const PROVIDERS: AgentProviderId[] = ['claude', 'kimi', 'codex', 'cursor', 'copilot', 'ollama']
 const MAX_MODELS_PER_PROVIDER = 1_000
 const MAX_DETAIL_LENGTH = 300
 

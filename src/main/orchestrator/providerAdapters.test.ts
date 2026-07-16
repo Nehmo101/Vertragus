@@ -18,7 +18,7 @@ describe('orchestrator provider adapters', () => {
     const supported = listOrchestratorCapabilities()
       .filter((capability) => capability.supported)
       .map((capability) => capability.provider)
-    expect(supported).toEqual(['claude', 'codex', 'copilot'])
+    expect(supported).toEqual(['claude', 'kimi', 'codex', 'copilot'])
   })
 
   it('builds a process-local Copilot MCP configuration and tool allowlist', () => {

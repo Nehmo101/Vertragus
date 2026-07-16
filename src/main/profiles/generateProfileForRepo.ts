@@ -20,7 +20,7 @@ import { listModels } from '@main/providers/models'
 import { listModelLearnings } from '@main/orchestrator/retroStore'
 
 const GENERATION_TIMEOUT_MS = 300_000
-const ORCHESTRATOR_PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'copilot']
+const ORCHESTRATOR_PROVIDERS: AgentProviderId[] = ['claude', 'kimi', 'codex', 'copilot']
 
 const generatedProfileSchema = z.object({
   name: z.string().min(1).max(120).optional(),
@@ -29,7 +29,7 @@ const generatedProfileSchema = z.object({
   qualityGates: z.array(z.string().min(1)).max(12).optional(),
   agents: z.array(z.object({
     role: z.string().min(1).max(80),
-    provider: z.enum(['claude', 'codex', 'cursor', 'copilot', 'ollama']),
+    provider: z.enum(['claude', 'kimi', 'codex', 'cursor', 'copilot', 'ollama']),
     model: z.string().default(''),
     count: z.number().int().min(1).default(1),
     strengths: z.array(z.string().min(1)).max(24).default([]),

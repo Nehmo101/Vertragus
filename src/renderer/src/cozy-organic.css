@@ -58,6 +58,7 @@ body {
   --shadow-md: 0 4px 14px rgba(46, 43, 37, 0.14);
   --shadow-lg: 0 22px 52px -14px rgba(46, 43, 37, 0.34);
   --prov-claude: #b2622d;
+  --prov-kimi: #3f6f9e;
   --prov-codex: #5e7d3f;
   --prov-cursor: #8a6aa0;
   --prov-ollama: #7a6f5c;
@@ -152,6 +153,7 @@ body {
   --shadow-md: 0 6px 18px rgba(0, 0, 0, 0.42);
   --shadow-lg: 0 26px 60px -16px rgba(0, 0, 0, 0.62);
   --prov-claude: #f0a068;
+  --prov-kimi: #7fb0e0;
   --prov-codex: #a8c07f;
   --prov-cursor: #c6aad8;
   --prov-ollama: #c6b9a1;

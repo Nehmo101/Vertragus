@@ -15,9 +15,9 @@ import { githubAuthPresentation, hasUsableGithubAuth } from '@renderer/store/git
 import ModelCatalogStatus from '@renderer/components/ModelCatalogStatus'
 import { modelPresetAvailability } from '@renderer/modelCatalog'
 
-const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'cursor', 'copilot', 'ollama']
+const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'kimi', 'codex', 'cursor', 'copilot', 'ollama']
 
-const ORCHESTRATOR_PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'copilot']
+const ORCHESTRATOR_PROVIDERS: AgentProviderId[] = ['claude', 'kimi', 'codex', 'copilot']
 const HELP = {
   profileName: 'Frei wählbarer Name für diese Kombination aus Workspace, Orchestrator und Subagents.',
   workingDir: 'Lokaler Repository- oder Projektordner, in dem die Agents arbeiten. Der Auto-PR-Basisbranch wird bei Bedarf aus dem git-origin dieses Ordners abgeleitet.',

@@ -6,7 +6,7 @@ import { PROVIDER_THEME } from '@renderer/ui/theme'
 import ModelCatalogStatus from '@renderer/components/ModelCatalogStatus'
 import { defaultHandoffModel } from '@renderer/modelCatalog'
 
-const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'cursor', 'copilot', 'ollama']
+const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'kimi', 'codex', 'cursor', 'copilot', 'ollama']
 
 export default function HandoffModal(): JSX.Element | null {
   const store = useAppStore()

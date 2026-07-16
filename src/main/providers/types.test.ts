@@ -4,7 +4,7 @@ import { buildHeadlessLaunch, buildInteractiveLaunch } from './types'
 describe('provider model argument passing', () => {
   const opts = { model: 'chosen-model', workingDir: 'C:\\repo', yolo: false }
 
-  it.each(['claude', 'cursor', 'copilot'] as const)(
+  it.each(['claude', 'kimi', 'cursor', 'copilot'] as const)(
     'passes the selected model to %s interactive and headless launches',
     (provider) => {
       expect(buildInteractiveLaunch(provider, opts).args).toEqual(
@@ -94,10 +94,28 @@ describe('provider model argument passing', () => {
 
   it('omits model flags for cloud provider CLI defaults', () => {
     const withoutModel = { ...opts, model: undefined }
-    for (const provider of ['claude', 'codex', 'cursor', 'copilot'] as const) {
+    for (const provider of ['claude', 'kimi', 'codex', 'cursor', 'copilot'] as const) {
       expect(buildInteractiveLaunch(provider, withoutModel).args).not.toContain('--model')
       expect(buildHeadlessLaunch(provider, 'do work', withoutModel).args).not.toContain('--model')
     }
+  })
+
+  it('drives the Kimi CLI with Claude-style stream-json headless args', () => {
+    const interactive = buildInteractiveLaunch('kimi', opts)
+    const headless = buildHeadlessLaunch('kimi', 'do work', { ...opts, yolo: true })
+
+    expect(interactive.command).toBe('kimi')
+    expect(interactive.args).toEqual(['--model', 'chosen-model'])
+    expect(headless.command).toBe('kimi')
+    expect(headless.args).toEqual([
+      '-p',
+      'do work',
+      '--output-format',
+      'stream-json',
+      '--model',
+      'chosen-model',
+      '--dangerously-skip-permissions'
+    ])
   })
 
   it('never silently substitutes an uninstalled Ollama model', () => {

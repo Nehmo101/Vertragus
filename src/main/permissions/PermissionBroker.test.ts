@@ -4,13 +4,14 @@ import { PermissionBroker, providerPermissionAdapters } from './PermissionBroker
 
 const prompts: Record<Exclude<AgentProviderId, 'ollama'>, string> = {
   claude: 'Claude Code permission: Allow tool Bash? [y/n]',
+  kimi: 'Kimi Code permission: Allow tool Bash? [y/n]',
   codex: 'Codex sandbox approval: Allow tool shell? [y/n]',
   cursor: 'Cursor Agent permission: Allow tool terminal? [y/n]',
   copilot: 'GitHub Copilot permission: Allow tool edit? [y/n]'
 }
 
 describe('PermissionBroker provider contract', () => {
-  for (const provider of ['claude', 'codex', 'cursor', 'copilot'] as const) {
+  for (const provider of ['claude', 'kimi', 'codex', 'cursor', 'copilot'] as const) {
     it(`${provider}: prompt -> pending -> allow/deny stays internal`, () => {
       const broker = new PermissionBroker(5_000)
       const allow = vi.fn()

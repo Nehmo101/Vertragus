@@ -40,6 +40,8 @@ function requiredOllamaModel(model: string | undefined): string {
  */
 export const YOLO_FLAGS: Record<AgentProviderId, string[]> = {
   claude: ['--dangerously-skip-permissions'],
+  // Kimi Code CLI mirrors Claude Code's permission-bypass flag.
+  kimi: ['--dangerously-skip-permissions'],
   codex: ['--dangerously-bypass-approvals-and-sandbox'],
   cursor: ['--yolo'],
   copilot: ['--allow-all-tools'],
@@ -70,6 +72,12 @@ export function buildInteractiveLaunch(id: AgentProviderId, opts: SpawnOpts): La
     case 'claude':
       return {
         command: 'claude',
+        args: [...(opts.model ? ['--model', opts.model] : []), ...yolo, ...extra]
+      }
+    case 'kimi':
+      // Kimi Code CLI shares Claude Code's interactive launch surface.
+      return {
+        command: 'kimi',
         args: [...(opts.model ? ['--model', opts.model] : []), ...yolo, ...extra]
       }
     case 'codex':
@@ -110,6 +118,22 @@ export function buildHeadlessLaunch(
     case 'claude':
       return {
         command: 'claude',
+        args: [
+          '-p',
+          prompt,
+          '--output-format',
+          'stream-json',
+          ...(opts.model ? ['--model', opts.model] : []),
+          ...(opts.systemPrompt ? ['--append-system-prompt', opts.systemPrompt] : []),
+          ...yolo,
+          ...extra
+        ]
+      }
+    case 'kimi':
+      // Kimi Code CLI emits the same Anthropic-style stream-json envelope as
+      // Claude Code, so the claude interpreter in headless.ts parses it as-is.
+      return {
+        command: 'kimi',
         args: [
           '-p',
           prompt,

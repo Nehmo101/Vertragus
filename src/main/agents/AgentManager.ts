@@ -1263,7 +1263,7 @@ export class AgentManager extends EventEmitter {
             taskId: req.taskId,
             engineId: req.engineId,
             workspaceSessionId: req.workspaceSessionId,
-            permissionPrompt: req.provider === 'claude' && !req.yolo
+            permissionPrompt: (req.provider === 'claude' || req.provider === 'kimi') && !req.yolo
           })
         },
         (chunk) => this.pushData(active, chunk),

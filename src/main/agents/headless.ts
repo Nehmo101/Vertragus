@@ -1,6 +1,6 @@
 /**
  * Headless task runner: spawns a provider CLI non-interactively, parses its
- * stream-json (claude/cursor) or JSONL + last-message file (codex), extracts
+ * stream-json (claude/kimi/cursor) or JSONL + last-message file (codex), extracts
  * the final result, and emits pretty ANSI log lines for live pane display.
  *
  * Used by the orchestrator's dispatch_subagent tool — each dispatched task is
@@ -297,7 +297,7 @@ interface LineInterpretation {
   steps?: number
 }
 
-/** claude & cursor share the Anthropic-style stream-json envelope. */
+/** claude, kimi & cursor share the Anthropic-style stream-json envelope. */
 function interpretClaudeStyle(obj: Record<string, unknown>): LineInterpretation {
   const type = obj['type']
   if (type === 'assistant' || type === 'user') {
@@ -480,7 +480,8 @@ export function runHeadless(
   let tmpDir: string | undefined
   let runtimeRoot: string | undefined
   const extraArgs = [...(opts.extraArgs ?? [])]
-  if (id === 'claude') extraArgs.push('--verbose')
+  // Kimi Code CLI mirrors Claude Code's stream-json + --verbose surface.
+  if (id === 'claude' || id === 'kimi') extraArgs.push('--verbose')
   if (id === 'codex') {
     if (!extraArgs.includes('--skip-git-repo-check')) {
       extraArgs.push('--skip-git-repo-check')

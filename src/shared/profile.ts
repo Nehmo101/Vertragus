@@ -5,7 +5,7 @@
 import { z } from 'zod'
 import { modelPresetSchema } from './models'
 
-export const agentProviderId = z.enum(['claude', 'codex', 'cursor', 'copilot', 'ollama'])
+export const agentProviderId = z.enum(['claude', 'kimi', 'codex', 'cursor', 'copilot', 'ollama'])
 
 export const agentSlotSchema = z.object({
   /** Logical role, e.g. "worker", "reviewer". */
@@ -213,6 +213,18 @@ export function agentSlotCapabilities(slot: AgentSlot): AgentSlotCapabilities {
     return {
       strengths: ['Architektur', 'Review', 'komplexe Analyse'],
       weaknesses: ['sehr repetitive Massenaenderungen']
+    }
+  }
+  if (slot.provider === 'kimi' && model.includes('thinking')) {
+    return {
+      strengths: ['tiefes Reasoning', 'mehrstufige Tool-Ketten', 'sehr lange Kontexte'],
+      weaknesses: ['kleine mechanische Aenderungen mit engem Zeitbudget']
+    }
+  }
+  if (slot.provider === 'kimi') {
+    return {
+      strengths: ['agentische Implementierung', 'lange Kontexte', 'werkzeugorientierte Aufgaben'],
+      weaknesses: ['rein visuelle Entwurfsarbeit ohne Repo-Kontext']
     }
   }
   if (slot.provider === 'codex') {
