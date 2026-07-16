@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784214045233,
+  "exportedAt": 1784217450030,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -8,6 +8,19 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrnoluzt-1-e1bmve",
+      "provider": "cursor",
+      "model": "composer",
+      "role": "worker-2",
+      "kind": "strength",
+      "insight": "zuverlässig im ersten Anlauf bei worker-2",
+      "evidence": "3/3 Tasks ohne Wiederholung erfolgreich",
+      "source": "auto-retro",
+      "observations": 3,
+      "createdAt": 1784216785961,
+      "updatedAt": 1784217312274
+    },
     {
       "id": "learning-mrnmz2ym-2-j7a8ij",
       "provider": "codex",
@@ -148,20 +161,6 @@
       "updatedAt": 1784201403329
     },
     {
-      "id": "learning-mrndipem-2-dhppdf",
-      "provider": "claude",
-      "model": "claude-opus-4-8",
-      "role": "security-review",
-      "kind": "weakness",
-      "insight": "Als execute_plan-Fallback-Rolle blockiert der Reviewer den exklusiven Review-Slot, ohne die eigentliche Implementierung zu liefern",
-      "evidence": "Nach Plan-Kollaps zu Fallback lief Opus (Smaug) als security-review-Ersatz und schrieb keinen Härtungscode; Fortschritt kam erst über dispatch_subagent",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784198162974,
-      "updatedAt": 1784198162974
-    },
-    {
       "id": "learning-mrndipem-1-so25hm",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -169,6 +168,20 @@
       "kind": "strength",
       "insight": "Liefert kleine Härtungs-/Testaufgaben zügig und sauber, wählt sinnvolles Testdesign (echte Kette statt Overmock)",
       "evidence": "Hexenkönig: cloneStatus/localPath/yolo-Reset + githubProject-Deepclone + Kriterium-3-Store-Test (duplicateProfile→Editoränderung→saveEditor), 15/15 grün, typecheck+lint grün, Commit 65adffe",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784198162974,
+      "updatedAt": 1784198162974
+    },
+    {
+      "id": "learning-mrndipem-2-dhppdf",
+      "provider": "claude",
+      "model": "claude-opus-4-8",
+      "role": "security-review",
+      "kind": "weakness",
+      "insight": "Als execute_plan-Fallback-Rolle blockiert der Reviewer den exklusiven Review-Slot, ohne die eigentliche Implementierung zu liefern",
+      "evidence": "Nach Plan-Kollaps zu Fallback lief Opus (Smaug) als security-review-Ersatz und schrieb keinen Härtungscode; Fortschritt kam erst über dispatch_subagent",
       "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
@@ -274,20 +287,6 @@
       "updatedAt": 1784195364975
     },
     {
-      "id": "learning-mrnbummx-3-582uc7",
-      "provider": "claude",
-      "model": "claude-opus-4-8",
-      "role": "security-review",
-      "kind": "weakness",
-      "insight": "Fiel in diesem Lauf NICHT modellbedingt aus, sondern durch Account-Spend-Limit ('monthly spend limit') — Aufgabe wurde auf Codex umgeleitet. Kein Qualitätsdefekt.",
-      "evidence": "sec-review Versuch 1 (Frodo 2, opus) error: 'You've hit your monthly spend limit'; Versuch 2 (codex) erfolgreich.",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784195360025,
-      "updatedAt": 1784195360025
-    },
-    {
       "id": "learning-mrnbummx-1-cr8t9r",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -309,6 +308,20 @@
       "kind": "strength",
       "insight": "Umgeht die Sandbox-Restriktion 'esbuild spawn EPERM' korrekt über einen config-freien Vitest-Lauf mit In-Memory-TS-Transform, ohne Hilfsdateien oder Produktcode-Änderung — kein False-Blocker.",
       "evidence": "impl-all + Grishnákh 2: config-freier Lauf 44/44 bzw. 40/40 grün statt BLOCKER.",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784195360025,
+      "updatedAt": 1784195360025
+    },
+    {
+      "id": "learning-mrnbummx-3-582uc7",
+      "provider": "claude",
+      "model": "claude-opus-4-8",
+      "role": "security-review",
+      "kind": "weakness",
+      "insight": "Fiel in diesem Lauf NICHT modellbedingt aus, sondern durch Account-Spend-Limit ('monthly spend limit') — Aufgabe wurde auf Codex umgeleitet. Kein Qualitätsdefekt.",
+      "evidence": "sec-review Versuch 1 (Frodo 2, opus) error: 'You've hit your monthly spend limit'; Versuch 2 (codex) erfolgreich.",
       "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
