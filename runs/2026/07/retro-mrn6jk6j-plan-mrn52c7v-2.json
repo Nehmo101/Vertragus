@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "exportedAt": 1784186445596,
+  "app": {
+    "name": "orca-strator",
+    "version": "0.1.47-main.1.gb3a336d"
+  },
+  "machineId": "5087fc1f7b9d",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrn6jk6j-plan-mrn52c7v-2",
+    "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+    "workspaceSessionId": "433260cf-29a6-43b9-98fc-6a0bce844995",
+    "planId": "plan-mrn52c7v-2",
+    "goal": "Ideen-Archiv: Ideen mit Status 'done' automatisch aus der Inbox ins Archiv verschieben (Telemetrie, Historie und Workspace-Verknüpfung bleiben erhalten), Inbox und Archiv als getrennte, absteigend nach Datum sortierte Ansichten, Attribute (Tags, Profil-/Workspace-/Plan-/Task-ID) in der Inbox entfernbar, Wiederherstellen aus dem Archiv möglich.",
+    "status": "needs-work",
+    "summary": "Lauf mit Nacharbeit: 1 Modell(e), 3/5 Tasks erfolgreich.",
+    "modelStats": [
+      {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "roles": [
+          "main-orchestrator",
+          "renderer-ui",
+          "test-qa",
+          "security-reviewer"
+        ],
+        "tasks": 5,
+        "succeeded": 3,
+        "needsWork": 2,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 3,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "avgDurationMs": 1512638
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrn6jk62-1-pwft0z",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "main-orchestrator",
+        "kind": "weakness",
+        "insight": "Quality-Gates erfordern Nacharbeit bei main-orchestrator, renderer-ui, test-qa",
+        "evidence": "2 Task(s) mit 3 Gate-Finding(s)",
+        "source": "auto-retro",
+        "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+        "observations": 1,
+        "createdAt": 1784186445530,
+        "updatedAt": 1784186445530
+      }
+    ],
+    "createdAt": 1784186445547
+  }
+}
