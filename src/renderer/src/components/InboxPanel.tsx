@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { IdeaArtifact, IdeaStatus } from '@shared/inbox'
-import { IDEA_STATUSES } from '@shared/inbox'
+import type {
+  Idea,
+  IdeaArchiveView,
+  IdeaArtifact,
+  IdeaStatus,
+  RemovableIdeaAttribute
+} from '@shared/inbox'
+import { IDEA_INPUT_STATUSES } from '@shared/inbox'
 import { isTransferActive } from '@shared/inboxTransfer'
 import { useInboxSpeech } from '@renderer/hooks/useInboxSpeech'
 import { useAppStore } from '@renderer/store/useAppStore'
@@ -23,16 +29,12 @@ import {
 } from '@renderer/inboxPrompt'
 import {
   formatIdeaDate,
-  getInboxArchiveBridge,
   ideaTimestamp,
   ideaTimestampLabel,
   ideasForView,
   listRemovableIdeaAttributes,
   sortedIdeaHistory,
-  workspaceReferences,
-  type ArchiveIdea,
-  type IdeaArchiveView,
-  type RemovableIdeaAttribute
+  workspaceReferences
 } from './inboxArchive'
 import styles from './responsiveGuards.module.css'
 import archiveStyles from './InboxPanel.module.css'
@@ -43,7 +45,6 @@ const STATUS_LABEL: Record<IdeaStatus, string> = {
   archived: 'Archiv',
   done: 'Erledigt'
 }
-
 const TRANSFER_STATUS_LABEL: Record<string, string> = {
   pending: 'Übergabe wartet',
   running: 'Planung läuft',
@@ -108,7 +109,7 @@ function ArchiveDetail({
   saving,
   onRestore
 }: {
-  idea: ArchiveIdea
+  idea: Idea
   saving: boolean
   onRestore: () => void
 }): JSX.Element {
@@ -222,10 +223,10 @@ function ArchiveDetail({
 export default function InboxPanel(): JSX.Element {
   const speech = useInboxSpeech()
   const openSpeechSettings = useAppStore((state) => state.openSpeechSettings)
-  const [ideas, setIdeas] = useState<ArchiveIdea[]>([])
+  const [ideas, setIdeas] = useState<Idea[]>([])
   const [view, setView] = useState<IdeaArchiveView>('inbox')
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [draft, setDraft] = useState<ArchiveIdea | null>(null)
+  const [draft, setDraft] = useState<Idea | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -247,7 +248,7 @@ export default function InboxPanel(): JSX.Element {
   }
 
   const reconcileIdeas = useCallback((
-    list: ArchiveIdea[],
+    list: Idea[],
     preferredId: string | null = selectedId,
     targetView: IdeaArchiveView = view
   ): void => {
@@ -262,7 +263,7 @@ export default function InboxPanel(): JSX.Element {
     setLoading(true)
     setError('')
     try {
-      const list = await getInboxArchiveBridge().list()
+      const list = await window.orca.inbox.list()
       reconcileIdeas(list)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -395,7 +396,7 @@ export default function InboxPanel(): JSX.Element {
     window.setTimeout(() => titleInputRef.current?.focus(), 0)
   }
 
-  const selectIdea = (idea: ArchiveIdea): void => {
+  const selectIdea = (idea: Idea): void => {
     closePromptReview(false)
     setSelectedId(idea.id)
     setDraft({ ...idea })
@@ -421,7 +422,7 @@ export default function InboxPanel(): JSX.Element {
     setError('')
     try {
       const idea = await window.orca.inbox.create()
-      const list = await getInboxArchiveBridge().list()
+      const list = await window.orca.inbox.list()
       setIdeas(list)
       setView('inbox')
       selectIdea(idea)
@@ -434,6 +435,10 @@ export default function InboxPanel(): JSX.Element {
 
   const saveDraft = async (openTransferAfterSave = false): Promise<void> => {
     if (!draft) return
+    if (draft.status === 'archived') {
+      setError('Archivierte Ideen muessen vor dem Bearbeiten wiederhergestellt werden.')
+      return
+    }
     setSaving(true)
     setError('')
     try {
@@ -445,7 +450,7 @@ export default function InboxPanel(): JSX.Element {
         tags: draft.tags,
         refs: draft.refs
       })
-      const list = await getInboxArchiveBridge().list()
+      const list = await window.orca.inbox.list()
       reconcileIdeas(list, updated.id)
       if (openTransferAfterSave && updated.status !== 'archived') setTransferOpen(true)
     } catch (err) {
@@ -466,7 +471,7 @@ export default function InboxPanel(): JSX.Element {
         status: 'draft',
         tags: ['sprache']
       })
-      const list = await getInboxArchiveBridge().list()
+      const list = await window.orca.inbox.list()
       setIdeas(list)
       setView('inbox')
       selectIdea(idea)
@@ -519,7 +524,7 @@ export default function InboxPanel(): JSX.Element {
       })
       setTextInput('')
       setDraft({ ...updated })
-      const list = await getInboxArchiveBridge().list()
+      const list = await window.orca.inbox.list()
       setIdeas(list)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -539,7 +544,7 @@ export default function InboxPanel(): JSX.Element {
       })
       setUrlInput('')
       setDraft({ ...updated })
-      const list = await getInboxArchiveBridge().list()
+      const list = await window.orca.inbox.list()
       setIdeas(list)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -561,7 +566,7 @@ export default function InboxPanel(): JSX.Element {
         label: picked.fileName
       })
       setDraft({ ...updated })
-      const list = await getInboxArchiveBridge().list()
+      const list = await window.orca.inbox.list()
       setIdeas(list)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -577,7 +582,7 @@ export default function InboxPanel(): JSX.Element {
     try {
       const updated = await window.orca.inbox.removeArtifact(draft.id, artifactId)
       setDraft({ ...updated })
-      const list = await getInboxArchiveBridge().list()
+      const list = await window.orca.inbox.list()
       setIdeas(list)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -591,8 +596,8 @@ export default function InboxPanel(): JSX.Element {
     setSaving(true)
     setError('')
     try {
-      const updated = await getInboxArchiveBridge().removeAttribute(draft.id, attribute)
-      const list = await getInboxArchiveBridge().list()
+      const updated = await window.orca.inbox.removeAttribute(draft.id, attribute)
+      const list = await window.orca.inbox.list()
       reconcileIdeas(list, updated.id)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -606,8 +611,8 @@ export default function InboxPanel(): JSX.Element {
     setSaving(true)
     setError('')
     try {
-      const restored = await getInboxArchiveBridge().restoreIdea(draft.id)
-      const list = await getInboxArchiveBridge().list()
+      const restored = await window.orca.inbox.restoreIdea(draft.id)
+      const list = await window.orca.inbox.list()
       setView('inbox')
       reconcileIdeas(list, restored.id, 'inbox')
     } catch (err) {
@@ -807,7 +812,7 @@ export default function InboxPanel(): JSX.Element {
                   }
                   aria-label="Status"
                 >
-                  {IDEA_STATUSES.map((s) => (
+                  {IDEA_INPUT_STATUSES.map((s) => (
                     <option key={s} value={s}>
                       {STATUS_LABEL[s]}
                     </option>
