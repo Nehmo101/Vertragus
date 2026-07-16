@@ -50,6 +50,7 @@ import {
   type WorkspaceProfile
 } from '@shared/profile'
 import { resolveModel } from '@shared/models'
+import { resolveSlotModel } from '@main/agents/providerModelDefaults'
 import {
   isModelDisabled,
   normalizeDisabledModels,
@@ -129,6 +130,9 @@ interface PreparedExecutionPlan {
   resolved: ReturnType<typeof resolveExecutionPlan>
   plan: ExecutionPlan
 }
+
+/** Workspace-Session-Id des Remote-Selftests (siehe src/main/remote/selftestRemote.ts). */
+export const REMOTE_SELFTEST_SESSION_ID = 'remote-selftest'
 
 const RESULT_PREVIEW = 160
 /** Disk writes are throttled; the in-memory snapshot event stays immediate. */
@@ -991,7 +995,7 @@ export class OrchestratorEngine extends EventEmitter {
       const preflight = typeof agentManager.latestPreflight === 'function'
         ? agentManager.latestPreflight(slot.provider, workingDir)
         : undefined
-      const model = resolveModel(slot.provider, slot)
+      const model = resolveSlotModel(slot.provider, slot)
       // Knowledge accumulated from earlier retros/benchmarks; never allowed to
       // break routing when the store is unavailable.
       let learned: { strengths: string[]; weaknesses: string[] } = { strengths: [], weaknesses: [] }
@@ -1096,7 +1100,7 @@ export class OrchestratorEngine extends EventEmitter {
       title: title?.trim() || task.title,
       role: slotRole,
       provider: slot.provider,
-      model: resolveModel(slot.provider, slot),
+      model: resolveSlotModel(slot.provider, slot),
       status: 'queued' as const,
       phase: 'queued' as const,
       lastAction: 'Wartet auf freie Kapazität',
@@ -1358,7 +1362,13 @@ export class OrchestratorEngine extends EventEmitter {
       const recoveryAdoption =
         workerError && !gateArbitration && finalAttempt &&
         Boolean(task.recoveryArtifact?.changedFiles.length) && Boolean(autoPr) && Boolean(info.worktree)
-      if (autoPr && (task.status === 'success' || gateArbitration || recoveryAdoption)) {
+      // Ohne Worktree gibt es nichts abzunehmen: bei deaktiviertem Auto-PR wird
+      // die Abnahme übersprungen statt als 'unavailable' zu blocken — der
+      // Remote-Selftest scheiterte hieran 5× in Folge und vergiftete die
+      // Learnings mit einem fabrizierten Modellfehler.
+      const acceptanceApplicable = Boolean(info.worktree) || autoPr?.mode !== 'off'
+      if (autoPr && acceptanceApplicable &&
+        (task.status === 'success' || gateArbitration || recoveryAdoption)) {
         task.phase = 'security-review'
         task.lastAction = workerError
           ? 'Abnahme-Gates prüfen das unbestätigte Worker-Ergebnis'
@@ -1534,7 +1544,7 @@ export class OrchestratorEngine extends EventEmitter {
         activeAttempt = {
           attempt: attemptNumber,
           provider: slot.provider,
-          model: resolveModel(slot.provider, slot),
+          model: resolveSlotModel(slot.provider, slot),
           status: 'error',
           startedAt: Date.now(),
           finishedAt: Date.now(),
@@ -1824,7 +1834,7 @@ export class OrchestratorEngine extends EventEmitter {
         title: planned.title,
         role: selected.role,
         provider: selected.slot.provider,
-        model: resolveModel(selected.slot.provider, selected.slot),
+        model: resolveSlotModel(selected.slot.provider, selected.slot),
         status: 'queued',
         phase: 'queued',
         criticality: planned.criticality,
@@ -2355,6 +2365,9 @@ export class OrchestratorEngine extends EventEmitter {
     status: ExecutionPlanResult['status'],
     planTasks: OrcaTask[]
   ): RunRetro | undefined {
+    // Selbsttests sind keine Modellbeobachtungen: weder lokal lernen noch
+    // exportieren, sonst entstehen fabrizierte Weakness-Learnings.
+    if (this.workspaceSessionId === REMOTE_SELFTEST_SESSION_ID) return undefined
     try {
       const analysis = analyzeRunRetro({
         tasks: planTasks,
@@ -2466,7 +2479,7 @@ export class OrchestratorEngine extends EventEmitter {
     this.setActivityState(
       'delegating',
       `Benchmark „${benchTitle}“: dieselbe Aufgabe läuft parallel auf ${tasks.length} Slot(s).`,
-      entries.slice(0, 4).map(({ slot, role }) => `${role}: ${slot.provider}/${resolveModel(slot.provider, slot) || 'Standard'}`),
+      entries.slice(0, 4).map(({ slot, role }) => `${role}: ${slot.provider}/${resolveSlotModel(slot.provider, slot) || 'Standard'}`),
       'Alle Läufe bis zum Terminalstatus verfolgen und danach fair bewerten.'
     )
     this.push()

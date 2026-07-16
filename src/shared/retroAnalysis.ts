@@ -86,6 +86,16 @@ function isModelLearning(value: unknown): value is ModelLearning {
   )
 }
 
+/**
+ * Selbsttest-Läufe sind keine Modellbeobachtungen. Neuere Orca-Versionen
+ * exportieren sie gar nicht mehr; Bestandsdaten auf dem Branch werden hier
+ * ausgefiltert, damit sie nie in Overlay/Proposals einfließen.
+ */
+function isSelftestRetro(retro: RunRetro): boolean {
+  return retro.workspaceSessionId === 'remote-selftest' ||
+    retro.goal === 'Remote approval selftest'
+}
+
 /** Tolerant parse of all branch files: bad entries land in `skipped`. */
 export function parseBranchFiles(files: BranchFile[]): ParsedBranch {
   const result: ParsedBranch = { retros: [], benchmarks: [], learnings: [], skipped: [] }
@@ -97,6 +107,10 @@ export function parseBranchFiles(files: BranchFile[]): ParsedBranch {
     }
     const { kind, payload, machineId } = envelope.data
     if (kind === 'run-retro' && isRunRetro(payload)) {
+      if (isSelftestRetro(payload)) {
+        result.skipped.push(file.path)
+        continue
+      }
       result.retros.push({ path: file.path, machineId, retro: payload })
     } else if (kind === 'benchmark' && isBenchmarkRecord(payload)) {
       result.benchmarks.push({ path: file.path, machineId, record: payload })
@@ -290,11 +304,19 @@ function gatedLearnings(all: ModelLearning[]): AggregatedLearning[] {
       })
     }
   }
+  // Generische auto-retro-Zähler auf 1/1-Basis sind Rauschen, auch wenn
+  // wiederholte identische Läufe (z. B. Selbsttests) die observations
+  // hochgezählt haben — sie beweisen keine Modelleigenschaft.
+  const isGenericSingleTaskCounter = (entry: AggregatedLearning): boolean =>
+    entry.source === 'auto-retro' &&
+    /^fehleranfällig bei\b/i.test(entry.insight) &&
+    /\b1\/1\b/.test(entry.evidence ?? '')
   return [...byKey.values()]
     .filter(
       (entry) =>
         entry.observations >= 2 || entry.occurrences >= 2 || entry.source === 'benchmark'
     )
+    .filter((entry) => !isGenericSingleTaskCounter(entry))
     .sort((a, b) => b.observations - a.observations)
     .slice(0, MAX_LEARNINGS_FOR_SYNTHESIS)
     .map(({ occurrences: _occurrences, ...entry }) => entry)

@@ -211,8 +211,11 @@ export function deriveHeuristicLearnings(
         evidence: `${entry.succeeded}/${entry.tasks} Tasks ohne Wiederholung erfolgreich`
       })
     }
+    // Mindestens zwei auswertbare Beobachtungen: eine einzelne Task-Pleite
+    // prägte sonst sofort ein generisches "fehleranfällig"-Learning
+    // (Retro-Serie remote-selftest: observations 1→5 aus demselben Artefakt).
     if (
-      eligibleTasks > 0 &&
+      eligibleTasks >= 2 &&
       failuresByKind.model > 0 &&
       failuresByKind.model * 2 >= eligibleTasks
     ) {

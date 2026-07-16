@@ -30,6 +30,7 @@ import {
   type ProviderId
 } from '@shared/providers'
 import { resolveModel, type ModelPreset } from '@shared/models'
+import { resolveSlotModel } from '@main/agents/providerModelDefaults'
 import { buildInteractiveLaunch } from '@main/providers/types'
 import { resolveLaunch } from '@main/agents/resolveCommand'
 import { terminateProcessTreeWithEscalation } from '@main/agents/processTermination'
@@ -1058,6 +1059,9 @@ export class AgentManager extends EventEmitter {
     const resolvedModel = resolveModel(req.provider, req)
     assertProviderSelection(req.provider, resolvedModel)
     assertModelSelection(req.provider, resolvedModel)
+    // Nur für Telemetrie/Retros: nie '' als Modellname; das funktionale Modell
+    // (CLI-Argument, Team-Reuse-Matching) bleibt resolvedModel.
+    const telemetryModel = resolveSlotModel(req.provider, req)
     const taskReq = { ...req, model: resolvedModel }
     let managed = req.recoveryWorktree ? undefined : this.claimTeamMember(taskReq)
 
@@ -1072,7 +1076,7 @@ export class AgentManager extends EventEmitter {
       info.mode = 'task'
       info.taskId = req.taskId
       info.yolo = req.yolo
-      info.model = resolvedModel
+      info.model = telemetryModel
       info.profileId = req.profileId ?? info.profileId
       info.workspaceSessionId = req.workspaceSessionId ?? info.workspaceSessionId
       info.engineId = req.engineId ?? info.engineId
@@ -1107,7 +1111,7 @@ export class AgentManager extends EventEmitter {
         profileId: req.profileId,
         workspaceSessionId: req.workspaceSessionId,
         engineId: req.engineId,
-        model: resolvedModel,
+        model: telemetryModel,
         role: `Task · ${req.role}`,
         kind: 'sub',
         mode: 'task',

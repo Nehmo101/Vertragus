@@ -827,6 +827,33 @@ describe('asynchronous orchestration API', () => {
     })
   })
 
+  it('keeps a worktree-less stub task green with disabled auto-PR and records no selftest retro', async () => {
+    // Der Remote-Selftest scheiterte 5× in Folge: Abnahme lief trotz
+    // autoPr.mode='off' gegen den Worktree-losen Stub und der error wurde
+    // als Modell-Learning exportiert.
+    runTask.mockImplementationOnce(async (request) => ({
+      info: { ...info(request.taskId), worktree: undefined },
+      done: Promise.resolve({ result: 'REMOTE-STUB', isError: false })
+    }))
+    const profile = { ...DEFAULT_PROFILE, planner: { ...DEFAULT_PROFILE.planner, mode: 'auto' as const } }
+    const engine = new OrchestratorEngine({ profile, workspaceSessionId: 'remote-selftest' })
+    const prepareCallsBefore = prepareTaskChange.mock.calls.length
+
+    const started = engine.executePlanAsync({
+      version: 1,
+      goal: 'Remote approval selftest',
+      maxParallel: 1,
+      tasks: [{
+        id: 'probe', title: 'Probe', role: 'codex', prompt: 'Stub', dependsOn: [], conflictKeys: [],
+        ownership: 'feature', expectedFiles: []
+      }]
+    })
+
+    await vi.waitFor(() => expect(engine.getPlanRunStatus(started.runId)?.status).toBe('success'))
+    expect(prepareTaskChange.mock.calls.length).toBe(prepareCallsBefore)
+    expect(engine.snapshot().lastRetro).toBeUndefined()
+  })
+
   it('lets green acceptance gates overrule a contradictory provider error on exit code 0', async () => {
     runTask.mockImplementationOnce(async (request) => ({
       info: info(request.taskId),
