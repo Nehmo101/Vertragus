@@ -29,6 +29,8 @@ import type {
   PendingPlanReview,
   OrchestratorSnapshot,
   PlanRunStatusSnapshot,
+  RetroReminder,
+  SetGoalResult,
   SubagentDescriptor,
   SubagentFinding,
   SubagentFindingKind,
@@ -986,7 +988,8 @@ export class OrchestratorEngine extends EventEmitter {
     this.push()
   }
 
-  setGoal(title: string): void {
+  setGoal(title: string): SetGoalResult {
+    const retroReminder = this.pendingRetroReminder()
     this.goalStartedAt = Date.now()
     this.firstPlanApproved = false
     this.goal = { id: `epic-${Date.now().toString(36)}`, title, active: true }
@@ -997,6 +1000,7 @@ export class OrchestratorEngine extends EventEmitter {
       'Verfügbare Subagent-Rollen prüfen und den Ausführungsplan erstellen.'
     )
     this.push()
+    return retroReminder ? { retroReminder } : {}
   }
 
   private activeProfile(): WorkspaceProfile | undefined {
@@ -1789,7 +1793,7 @@ export class OrchestratorEngine extends EventEmitter {
   async awaitPlan(runId: string, timeoutMs?: number): Promise<AwaitPlanResult> {
     const current = this.getPlanRunStatus(runId)
     if (!current) return { done: false, stillRunning: false, reason: 'unknown', runId }
-    if (current.status !== 'running') return { done: true, stillRunning: false, plan: current }
+    if (current.status !== 'running') return this.terminalAwaitResult(runId, current)
     const future = this.planRuns.get(runId)
     if (!future) return { done: false, stillRunning: true, reason: 'timeout', plan: current }
     // The planRuns future rethrows on failure; the settle-guard neutralizes it.
@@ -1799,7 +1803,7 @@ export class OrchestratorEngine extends EventEmitter {
     )
     const plan = this.getPlanRunStatus(runId) ?? current
     if (outcome === 'settled' && plan.status !== 'running') {
-      return { done: true, stillRunning: false, plan }
+      return this.terminalAwaitResult(runId, plan)
     }
     return { done: false, stillRunning: true, reason: 'timeout', plan }
   }
@@ -2463,6 +2467,50 @@ export class OrchestratorEngine extends EventEmitter {
         retro.workspaceSessionId === this.workspaceSessionId
       )
     )
+  }
+
+  /**
+   * A retro card satisfies the qualitative gate once the orchestrator has
+   * merged its own learnings via record_retro. Auto-retro (heuristic, source
+   * 'auto-retro') alone does NOT count — the numbers are captured, the
+   * qualitative judgement is not.
+   */
+  private retroHasQualitativeLearnings(retro: RunRetro | undefined): boolean {
+    return retro?.learnings.some((learning) => learning.source === 'orchestrator') ?? false
+  }
+
+  /** True when the latest terminal plan run still lacks a qualitative retro. */
+  private isRetroPending(planId: string | undefined): boolean {
+    if (!planId) return false
+    if (this.workspaceSessionId === REMOTE_SELFTEST_SESSION_ID) return false
+    return !this.retroHasQualitativeLearnings(this.retroForPlan(planId))
+  }
+
+  /** Non-blocking reminder for set_goal when the prior run's retro is open. */
+  private pendingRetroReminder(): RetroReminder | undefined {
+    const planId = this.latestTerminalPlanId()
+    if (!this.isRetroPending(planId) || !planId) return undefined
+    return {
+      priorPlanId: planId,
+      message:
+        `Für den letzten terminalen Planlauf (${planId}) wurde noch kein qualitatives Retro erfasst. ` +
+        'Rufe get_retro_draft/record_retro nach, damit die Modell-Learnings dieses Laufs nicht verloren gehen.'
+    }
+  }
+
+  /**
+   * Assemble the terminal await_plan payload and surface the retro gate: when
+   * the run's qualitative retro is still open, embed retroPending plus the
+   * ready-to-fill draft so the next natural step is recording the retro — no
+   * separate get_retro_draft round-trip required.
+   */
+  private terminalAwaitResult(runId: string, plan: PlanRunStatusSnapshot): AwaitPlanResult {
+    const base = { done: true as const, stillRunning: false as const, plan }
+    const planId = this.planRunPlanIds.get(runId)
+    if (!this.isRetroPending(planId)) {
+      return planId ? { ...base, retroPending: false } : base
+    }
+    return { ...base, retroPending: true, retroDraft: this.buildRetroDraft(planId) }
   }
 
   private latestTerminalPlanId(): string | undefined {

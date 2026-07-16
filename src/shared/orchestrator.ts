@@ -7,7 +7,7 @@
 import type { AgentProviderId } from './providers'
 import type { AgentUsage } from './agents'
 import type { PlannerConfig } from './profile'
-import type { RunRetro } from './retro'
+import type { RetroDraftResult, RunRetro } from './retro'
 import type { ApprovalItem, PermissionRequest, RemoteBudgetSnapshot } from './remote'
 
 export type TaskStatus = 'queued' | 'running' | 'waiting' | 'paused' | 'success' | 'needs-work' | 'error' | 'stopped'
@@ -391,9 +391,35 @@ export type AwaitTaskResult =
   | { done: false; stillRunning: true; reason: 'timeout'; task: TaskStatusSnapshot }
   | { done: false; stillRunning: false; reason: 'unknown'; taskId: string }
 
-/** Result of the blocking await_plan tool (see {@link AwaitTaskResult}). */
+/**
+ * Non-blocking reminder that the previous terminal plan run still has no
+ * qualitative retro. Surfaced by set_goal so a new goal does not silently
+ * drop the last run's model learnings.
+ */
+export interface RetroReminder {
+  priorPlanId: string
+  message: string
+}
+
+/** Result of the set_goal tool: carries an optional pending-retro reminder. */
+export interface SetGoalResult {
+  retroReminder?: RetroReminder
+}
+
+/**
+ * Result of the blocking await_plan tool (see {@link AwaitTaskResult}).
+ * On a terminal result the retro gate is surfaced: `retroPending` is true and
+ * `retroDraft` carries the ready-to-fill scaffold until a qualitative retro has
+ * been recorded for this run via record_retro.
+ */
 export type AwaitPlanResult =
-  | { done: true; stillRunning: false; plan: PlanRunStatusSnapshot }
+  | {
+      done: true
+      stillRunning: false
+      plan: PlanRunStatusSnapshot
+      retroPending?: boolean
+      retroDraft?: RetroDraftResult
+    }
   | { done: false; stillRunning: true; reason: 'timeout'; plan: PlanRunStatusSnapshot }
   | { done: false; stillRunning: false; reason: 'unknown'; runId: string }
 

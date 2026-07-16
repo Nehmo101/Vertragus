@@ -119,7 +119,14 @@ export interface RetroDraftModel {
   tokensIn: number | null
   tokensOut: number | null
   costUsd: number | null
+  /** Single best-guess slot (kept for backward compatibility). */
   learningTemplate: RetroLearningTemplate
+  /**
+   * Symmetric fill-in slots — one strength and one weakness per model — so the
+   * orchestrator is prompted to weigh both sides. A slot may stay empty when no
+   * evidence supports it; never invent a weakness.
+   */
+  learningTemplates: RetroLearningTemplate[]
 }
 
 export type RetroDraftUnavailableCode =

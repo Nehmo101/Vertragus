@@ -959,6 +959,79 @@ describe('asynchronous orchestration API', () => {
     expect(engine.snapshot().lastRetro?.planId).not.toBe('ad-hoc')
   })
 
+  it('gates the qualitative retro: await_plan embeds the draft and set_goal nudges until recorded', async () => {
+    runTask.mockImplementationOnce(async (request) => ({
+      info: info(request.taskId),
+      done: Promise.resolve({
+        result: 'Implementierung und Tests erfolgreich.',
+        isError: false,
+        status: 'succeeded' as const
+      })
+    }))
+    const profile = {
+      ...DEFAULT_PROFILE,
+      agents: [{
+        ...DEFAULT_PROFILE.agents[0]!,
+        role: 'worker',
+        provider: 'codex' as const,
+        model: 'gpt-5.6-sol',
+        modelPreset: undefined
+      }],
+      planner: { ...DEFAULT_PROFILE.planner, mode: 'auto' as const },
+      autoPr: { ...DEFAULT_PROFILE.autoPr, mode: 'off' as const }
+    }
+    const engine = new OrchestratorEngine({ profile, workspaceSessionId: 'retro-gate' })
+    const started = engine.executePlanAsync({
+      version: 1,
+      goal: 'Retro-Gate prüfen',
+      maxParallel: 1,
+      tasks: [{
+        id: 'feature',
+        title: 'Feature',
+        role: 'worker',
+        prompt: 'Implementiere das Feature',
+        dependsOn: [],
+        conflictKeys: [],
+        ownership: 'feature',
+        expectedFiles: []
+      }]
+    })
+    await vi.waitFor(() => expect(engine.getPlanRunStatus(started.runId)?.status).toBe('success'))
+
+    // await_plan surfaces the open gate plus the ready-to-fill draft.
+    const pending = await engine.awaitPlan(started.runId)
+    if (!pending.done) throw new Error('erwartete terminale await_plan-Antwort')
+    expect(pending.retroPending).toBe(true)
+    expect(pending.retroDraft?.ok).toBe(true)
+    if (pending.retroDraft?.ok) {
+      expect(pending.retroDraft.models[0].learningTemplates).toHaveLength(2)
+    }
+
+    // set_goal nudges about the still-open prior retro.
+    expect(engine.setGoal('Neues Ziel')).toEqual({
+      retroReminder: expect.objectContaining({ priorPlanId: started.planId })
+    })
+
+    engine.recordOrchestratorRetro({
+      summary: 'Qualitative Retro ergänzt.',
+      learnings: [{
+        provider: 'codex',
+        model: 'gpt-5.6-sol',
+        role: 'worker',
+        kind: 'strength',
+        insight: 'liefert robuste Implementierungen',
+        evidence: 'Feature und Tests im ersten Lauf erfolgreich'
+      }]
+    })
+
+    // Gate satisfied: no more pending flag, no embedded draft, no nudge.
+    const settled = await engine.awaitPlan(started.runId)
+    if (!settled.done) throw new Error('erwartete terminale await_plan-Antwort')
+    expect(settled.retroPending).toBe(false)
+    expect(settled.retroDraft).toBeUndefined()
+    expect(engine.setGoal('Drittes Ziel')).toEqual({})
+  })
+
   it('lets green acceptance gates overrule a contradictory provider error on exit code 0', async () => {
     runTask.mockImplementationOnce(async (request) => ({
       info: info(request.taskId),

@@ -2,8 +2,10 @@ import type {
   AnalyzeRunRetroInput,
   NewModelLearning,
   RetroDraftModel,
+  RetroDraftResult,
   RetroFailureBreakdown,
   RetroFailureKind,
+  RetroLearningTemplate,
   RetroModelStats,
   RetroTaskObservation,
   RunRetro,
@@ -190,11 +192,22 @@ export function deriveRetroDraftModels(
 
   return stats.map((entry) => {
     const model = entry.model.trim() || `default (${entry.provider}-cli)`
+    const role = entry.roles[0] ?? 'worker'
     const hasModelConcern =
       entry.needsWork > 0 ||
       entry.gateFindings > 0 ||
       entry.failuresByKind.model > 0 ||
       entry.failedAttemptsByKind.model > 0
+    const templateFor = (kind: RetroLearningTemplate['kind']): RetroLearningTemplate => ({
+      provider: entry.provider,
+      model,
+      role,
+      kind,
+      insight: '',
+      evidence: ''
+    })
+    const strengthTemplate = templateFor('strength')
+    const weaknessTemplate = templateFor('weakness')
     return {
       provider: entry.provider,
       model,
@@ -215,16 +228,45 @@ export function deriveRetroDraftModels(
       tokensIn: entry.tokensIn ?? null,
       tokensOut: entry.tokensOut ?? null,
       costUsd: entry.costUsd ?? null,
-      learningTemplate: {
-        provider: entry.provider,
-        model,
-        role: entry.roles[0] ?? 'worker',
-        kind: hasModelConcern ? 'weakness' : 'strength',
-        insight: '',
-        evidence: ''
-      }
+      // Single slot points at the more likely side; templates carry both.
+      learningTemplate: hasModelConcern ? weaknessTemplate : strengthTemplate,
+      learningTemplates: [strengthTemplate, weaknessTemplate]
     }
   })
+}
+
+/**
+ * Deterministic, human-readable rendering of a retro draft for the enforced
+ * retro gate. Lists per-model facts plus the symmetric strength/weakness
+ * fill-in slots so the orchestrator only supplies honest insight/evidence.
+ */
+export function renderRetroDraftForPrompt(draft: RetroDraftResult): string {
+  if (!draft.ok) {
+    return `Kein Retro-Gerüst verfügbar (${draft.code}): ${draft.message}`
+  }
+  const lines: string[] = [
+    `Retro-Gerüst für ${draft.planId} (${draft.status}): ${draft.summary}`,
+    'Fülle je Modell Stärke UND Schwäche aus, sofern belegbar — ein Slot darf leer bleiben; erfinde keine Schwäche.'
+  ]
+  for (const model of draft.models) {
+    const b = model.taskBalance
+    const facts = [
+      `${b.success}/${b.total} ok`,
+      `needsWork ${b.needsWork}`,
+      `failed ${b.failed}`,
+      `stopped ${b.stopped}`
+    ]
+    if (model.gateFindings > 0) facts.push(`${model.gateFindings} Gate-Finding(s)`)
+    if (model.speedRank != null) facts.push(`Speed-Rang ${model.speedRank}`)
+    lines.push(`- ${model.provider}/${model.model} [${model.roles.join(', ') || 'worker'}]: ${facts.join(', ')}`)
+    for (const template of model.learningTemplates) {
+      lines.push(
+        `    ${template.kind}: insight="" evidence=""  ` +
+          `(provider=${template.provider} model=${template.model} role=${template.role})`
+      )
+    }
+  }
+  return lines.join('\n')
 }
 
 /**

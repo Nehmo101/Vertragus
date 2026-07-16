@@ -8,6 +8,7 @@ import {
   deriveRetroDraftModels,
   learningKey,
   mergeModelLearnings,
+  renderRetroDraftForPrompt,
   selectLearningTexts,
   summarizeRetro,
   type ModelLearning,
@@ -231,13 +232,55 @@ describe('deriveRetroDraftModels', () => {
         kind: 'weakness',
         insight: '',
         evidence: ''
-      }
+      },
+      learningTemplates: [
+        { provider: 'codex', model: 'gpt-5.6-sol', role: 'worker', kind: 'strength', insight: '', evidence: '' },
+        { provider: 'codex', model: 'gpt-5.6-sol', role: 'worker', kind: 'weakness', insight: '', evidence: '' }
+      ]
     })
     expect(models.find((entry) => entry.provider === 'claude')).toMatchObject({
       model: 'claude-opus-4-8',
       speedRank: 1,
       learningTemplate: { model: 'claude-opus-4-8', kind: 'strength' }
     })
+  })
+
+  it('emits a symmetric strength/weakness template per model with the exact name', () => {
+    const [model] = deriveRetroDraftModels([task({ id: 'ok', model: 'gpt-5.6-sol' })])
+    expect(model.learningTemplates).toHaveLength(2)
+    expect(model.learningTemplates.map((tpl) => tpl.kind)).toEqual(['strength', 'weakness'])
+    expect(model.learningTemplates.every((tpl) => tpl.model === 'gpt-5.6-sol')).toBe(true)
+    expect(model.learningTemplates.every((tpl) => tpl.insight === '' && tpl.evidence === '')).toBe(true)
+    // The single-slot hint points at strength for a clean run.
+    expect(model.learningTemplate.kind).toBe('strength')
+  })
+})
+
+describe('renderRetroDraftForPrompt', () => {
+  it('renders per-model facts plus both fill-in slots deterministically', () => {
+    const models = deriveRetroDraftModels([task({ id: 'ok', model: 'gpt-5.6-sol' })])
+    const text = renderRetroDraftForPrompt({
+      ok: true,
+      planId: 'plan-1',
+      goal: 'Ziel',
+      status: 'success',
+      summary: 'Lauf erfolgreich',
+      models
+    })
+    expect(text).toContain('Retro-Gerüst für plan-1 (success)')
+    expect(text).toContain('codex/gpt-5.6-sol')
+    expect(text).toContain('strength: insight=""')
+    expect(text).toContain('weakness: insight=""')
+  })
+
+  it('reports the reason when no draft is available', () => {
+    const text = renderRetroDraftForPrompt({
+      ok: false,
+      code: 'no-terminal-plan',
+      message: 'kein Lauf'
+    })
+    expect(text).toContain('no-terminal-plan')
+    expect(text).toContain('kein Lauf')
   })
 })
 

@@ -186,8 +186,10 @@ function buildMcpServer(
     { title: z.string().describe('Kurzer Titel des Ziels, z.B. "Checkout-Flow v2"') },
     async (args) => {
       const title = String(args.title ?? '')
-      engine.setGoal(title)
-      return text(`Ziel gesetzt: ${title}`)
+      const { retroReminder } = engine.setGoal(title)
+      const lines = [`Ziel gesetzt: ${title}`]
+      if (retroReminder) lines.push(`⚠ Retro offen: ${retroReminder.message}`)
+      return text(lines.join('\n'))
     }
   )
 
@@ -336,7 +338,9 @@ function buildMcpServer(
     'await_plan',
     'Blockiere, bis ein Planlauf terminal ist (success/needs-work/error/stopped), statt get_plan_status ' +
       'wiederholt zu pollen. Kehrt sofort zurück, wenn der Lauf schon terminal ist. Wartet ein Plan auf ' +
-      'Freigabe, bleibt stillRunning:true, bis der Nutzer den Plan freigibt. Bei stillRunning:true erneut aufrufen.',
+      'Freigabe, bleibt stillRunning:true, bis der Nutzer den Plan freigibt. Bei stillRunning:true erneut aufrufen. ' +
+      'Bei einem terminalen Lauf ohne erfasstes qualitatives Retro enthält die Antwort retroPending:true und ' +
+      'ein ausfüllfertiges retroDraft — fülle je Modell strength UND weakness und rufe record_retro auf.',
     {
       runId: z.string().describe('runId aus execute_plan'),
       timeoutMs: AWAIT_TIMEOUT_SHAPE
