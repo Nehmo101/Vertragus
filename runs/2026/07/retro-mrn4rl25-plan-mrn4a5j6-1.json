@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784183460739,
+  "exportedAt": 1784185789520,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -14,7 +14,7 @@
     "planId": "plan-mrn4a5j6-1",
     "goal": "Prompt schärfen liefert nicht nur mit Claude, sondern auch mit Codex (kein Fehlschlag) und Cursor (kein Timeout) eine gültige Rückmeldung; Fehler/Timeout werden nutzbar gemeldet, Claude-Verhalten bleibt unverändert.",
     "status": "success",
-    "summary": "Lauf erfolgreich: 2 Modell(e), 1/1 Tasks erfolgreich.",
+    "summary": "Plan „Prompt schärfen für Codex & Cursor\": zwei parallele read-only Diagnosen lokalisierten die Ursachen präzise (Codex: fehlendes --skip-git-repo-check im Nicht-Git-Temp-CWD; Cursor: Idle-Timer nur an Anzeige-Log statt Lifecycle-Progress gekoppelt), Integrator setzte beide minimal-invasiv um (46/46 Unit grün, Claude invariant). Fix als 3a849b6 nach DEV cherry-gepickt und gepusht.",
     "modelStats": [
       {
         "provider": "cursor",
@@ -81,6 +81,62 @@
         "observations": 1,
         "createdAt": 1784183460648,
         "updatedAt": 1784183460648
+      },
+      {
+        "id": "learning-mrn65hxd-1-5xjknc",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "systems-integrator",
+        "kind": "strength",
+        "insight": "Sehr präzise statische Root-Cause-Analyse von Provider-CLI-Invokationspfaden",
+        "evidence": "diagnose-codex lokalisierte fehlendes --skip-git-repo-check über die volle Aufrufkette (promptEnhancementProvider→headless→types) mit Datei:Zeile und grenzte 5 Alternativhypothesen sauber ab",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784185789441,
+        "updatedAt": 1784185789441
+      },
+      {
+        "id": "learning-mrn65hxd-2-26fcd9",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "systems-integrator",
+        "kind": "strength",
+        "insight": "Minimal-invasive Integrator-Fixes mit belegter Invarianz des unberührten Pfads",
+        "evidence": "implement-fix (Thorin): 6 Dateien, provider-spezifischer Fix für Codex+Cursor, Claude-Args unverändert per Test belegt, 46/46 grün, Typecheck/Lint/whitespace sauber",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784185789441,
+        "updatedAt": 1784185789441
+      },
+      {
+        "id": "learning-mrn65hxd-3-6hwvke",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "security-review",
+        "kind": "strength",
+        "insight": "Sehr gründliche Diagnose komplexer Timing-/Streaming-Kopplungen mit Ausschluss von Scheinursachen",
+        "evidence": "diagnose-cursor (Beorn) fand die onActivity↔onLine-Kopplung als Idle-Timeout-Ursache und schloss Trust-Prompt/Flags/Kapazität mit Belegzitaten als Nebeneffekte aus",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784185789441,
+        "updatedAt": 1784185789441
+      },
+      {
+        "id": "learning-mrn65hxd-4-5r9pz7",
+        "provider": "claude",
+        "model": "claude-sonnet-5",
+        "role": "qa-gate-runner",
+        "kind": "weakness",
+        "insight": "QA-Gate-Läufe blockieren an interaktiven Bash-Tool-Freigaben und hängen ohne Panel-Approval",
+        "evidence": "verify-acceptance (Éomer 2) blieb im Status 'Wartet auf Tool-Freigabe: Bash' hängen und wurde nicht terminal, während die required-Kette längst grün war",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784185789441,
+        "updatedAt": 1784185789441
       }
     ],
     "createdAt": 1784183460701
