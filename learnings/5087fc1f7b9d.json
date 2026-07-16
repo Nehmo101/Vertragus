@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784195366625,
+  "exportedAt": 1784196642863,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -8,6 +8,34 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrncm3b1-1-i6ucy1",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "orchestrator-core",
+      "kind": "strength",
+      "insight": "Reagiert vorbildlich auf falsche Branch-Basis: kein Blind-Reimplement, sauberer Worktree, präziser strukturierter Blocker",
+      "evidence": "Éowyn+Radagast prüften rg duplicateProfile (0 Treffer), meldeten HEAD 5c135cb vs erwartete Basis 1fbaac46 (kein Ancestor) und stoppten vertragskonform statt neu zu bauen",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784196641341,
+      "updatedAt": 1784196641341
+    },
+    {
+      "id": "learning-mrncm3b1-2-e3hf0c",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "orchestrator-core",
+      "kind": "weakness",
+      "insight": "Folgeaufgaben scheitern, wenn der zentral verifizierte Vorlauf-Commit nicht in den HEAD der neuen Worktrees integriert wird",
+      "evidence": "Verifizierter Erstlieferungs-Commit 1fbaac46 ist kein Ancestor von HEAD 5c135cb; jeder Folge-Task ohne diese Integration blockiert zwangsläufig",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784196641341,
+      "updatedAt": 1784196641341
+    },
     {
       "id": "learning-mrnbuqgf-2-hs5xfa",
       "provider": "codex",
@@ -393,20 +421,6 @@
       "updatedAt": 1784186076195
     },
     {
-      "id": "learning-mrn65kxf-1-5uch2k",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "systems-integrator",
-      "kind": "strength",
-      "insight": "Liefert kompaktes Shared-Logik+UI-Feature vollständig und sauber aus einem Prompt",
-      "evidence": "duplicateProfile-Helper (neue id, eindeutiger Name, Deep-Clone, zod-parse) + 5 Unit-Tests + Store-Action + Sidebar/Editor-Aktion; Commit 1fbaac46, 720/720 Tests, typecheck+lint grün",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784185793331,
-      "updatedAt": 1784185793331
-    },
-    {
       "id": "learning-mrn65kxf-5-kuiuc7",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -475,20 +489,6 @@
       "observations": 1,
       "createdAt": 1784185789441,
       "updatedAt": 1784185789441
-    },
-    {
-      "id": "learning-mrn64k4i-1-5u7mwl",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "systems-integrator",
-      "kind": "weakness",
-      "insight": "fehleranfällig bei systems-integrator, orchestrator-core",
-      "evidence": "1/2 auswertbare Tasks inhaltlich fehlgeschlagen",
-      "source": "auto-retro",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784185745634,
-      "updatedAt": 1784185745634
     },
     {
       "id": "learning-mrn5v9vy-4-chrluk",
