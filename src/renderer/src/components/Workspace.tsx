@@ -44,8 +44,6 @@ export default function Workspace(): JSX.Element {
     ? selectedAgentId
     : (sortedAgents[0]?.id ?? null)
   const selectedAgent = sortedAgents.find((agent) => agent.id === focusedId)
-  const cols = sortedAgents.length + 1 > 5 ? 3 : 2
-
 
   return (
     <main className={`workspace ${styles.workspace} workspace-${workspaceLayout}`} aria-label="Agent-Workspace">
@@ -131,7 +129,7 @@ export default function Workspace(): JSX.Element {
             <span>Der Aufgaben-DAG ist vergrößert; Terminals bleiben rechts interaktiv.</span>
           </div>
         )}
-        <div className={`ws-grid cols-${cols}`}>
+        <div className="ws-grid">
           {sortedAgents.length === 0 && (
             <div className="ws-empty">
               <div className="big">Keine Agents aktiv</div>

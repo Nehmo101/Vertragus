@@ -27,9 +27,27 @@ beforeEach(() => {
     githubAuth: null,
     reopenedAgentIds: []
   })
+
 })
 
 describe('Sidebar rendering', () => {
+  it('replaces all sidebar content with an accessible expand control when collapsed', () => {
+    const markup = renderToStaticMarkup(
+      createElement(SidebarView, {
+        store: useAppStore.getState(),
+        width: 420,
+        collapsed: true,
+        onToggle: (): void => undefined
+      })
+    )
+
+    expect(markup).toContain('panel-collapsed')
+    expect(markup).toContain('aria-expanded="false"')
+    expect(markup).toContain('aria-label="Linke Seitenleiste ausklappen"')
+    expect(markup).not.toContain('data-sidebar-section=')
+    expect(markup).not.toContain('style="width:420px"')
+  })
+
   it('renders the six product sections in the required order', () => {
     const markup = renderToStaticMarkup(
       createElement(SidebarView, { store: useAppStore.getState() })

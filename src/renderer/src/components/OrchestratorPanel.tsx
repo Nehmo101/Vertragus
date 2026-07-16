@@ -20,6 +20,8 @@ import { resolveModel } from '@shared/models'
 import type { AgentUsage } from '@shared/agents'
 import { summarizeUsage, summarizeUsageGroup, TELEMETRY_STATUS_LABELS, TELEMETRY_STATUS_TITLES } from '@shared/telemetry'
 import { formatTokenBreakdown, formatTokenCount, formatUsd } from '@renderer/telemetryFormat'
+import { ResizeHandle } from '@renderer/components/ResizeHandle'
+import { selectPanelLayout, useLayoutStore } from '@renderer/store/layoutStore'
 
 const STALE_HEARTBEAT_MS = 90_000
 const MAX_VISIBLE_FINDINGS = 6
@@ -326,7 +328,13 @@ function TaskCard({
   )
 }
 
-export default function OrchestratorPanel(): JSX.Element {
+function OrchestratorPanelContent({
+  width,
+  onCollapse
+}: {
+  width: number
+  onCollapse: () => void
+}): JSX.Element {
   const store = useAppStore()
   const [autoModeBusy, setAutoModeBusy] = useState(false)
   const now = useClock()
@@ -388,7 +396,26 @@ export default function OrchestratorPanel(): JSX.Element {
   }
 
   return (
-    <section className="orch-panel">
+    <section
+      id="orchestrator-right-panel"
+      className="orch-panel layout-panel"
+      style={{ width }}
+      aria-label="Orchestrator-Seitenleiste"
+    >
+      <div className="panel-control-row panel-control-row-right">
+        <button
+          type="button"
+          className="panel-collapse-button"
+          aria-controls="orchestrator-right-content"
+          aria-expanded="true"
+          aria-label="Orchestrator-Seitenleiste einklappen"
+          title="Orchestrator-Seitenleiste einklappen"
+          onClick={onCollapse}
+        >
+          ›
+        </button>
+      </div>
+      <div id="orchestrator-right-content" className="panel-scroll-content">
       <LimitsPanel />
       <div className="orch-head">
         <div className="orch-head-row">
@@ -721,6 +748,52 @@ export default function OrchestratorPanel(): JSX.Element {
           </div>
         </div>
       </div>
+      </div>
     </section>
+  )
+}
+
+export function CollapsedOrchestratorPanel({ onToggle }: { onToggle: () => void }): JSX.Element {
+  return (
+    <aside
+      id="orchestrator-right-panel"
+      className="orch-panel layout-panel panel-collapsed"
+      aria-label="Orchestrator-Seitenleiste"
+    >
+      <div className="panel-control-row panel-control-row-right">
+        <button
+          type="button"
+          className="panel-collapse-button"
+          aria-controls="orchestrator-right-content"
+          aria-expanded="false"
+          aria-label="Orchestrator-Seitenleiste ausklappen"
+          title="Orchestrator-Seitenleiste ausklappen"
+          onClick={onToggle}
+        >
+          ‹
+        </button>
+      </div>
+    </aside>
+  )
+}
+
+export default function OrchestratorPanel(): JSX.Element {
+  const layout = useLayoutStore(selectPanelLayout('orchestrator-right'))
+  const toggleCollapsed = useLayoutStore((state) => state.toggleCollapsed)
+  const toggle = (): void => toggleCollapsed('orchestrator-right')
+
+  if (layout.collapsed) {
+    return <CollapsedOrchestratorPanel onToggle={toggle} />
+  }
+
+  return (
+    <>
+      <ResizeHandle
+        panelId="orchestrator-right"
+        direction="left"
+        ariaLabel="Breite der Orchestrator-Seitenleiste ändern"
+      />
+      <OrchestratorPanelContent width={layout.width} onCollapse={toggle} />
+    </>
   )
 }

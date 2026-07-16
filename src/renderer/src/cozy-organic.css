@@ -363,9 +363,23 @@ body {
 
 /* Sidebar */
 .sidebar {
-  width: 270px;
   border-right: 1px solid var(--divider);
   background: var(--panel);
+}
+.panel-control-row {
+  border-bottom-color: var(--divider);
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+}
+.panel-collapse-button {
+  border-color: var(--border-2);
+  border-radius: 10px;
+  color: var(--text-3);
+}
+.panel-collapse-button:hover,
+.panel-collapse-button:focus-visible {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent-soft-text);
 }
 .side-caption {
   padding: 16px 16px 6px;
@@ -570,7 +584,6 @@ body {
 
 /* Orchestrator / DAG */
 .orch-panel {
-  width: 386px;
   border-left: 1px solid var(--divider);
   background: var(--panel);
 }
@@ -639,12 +652,18 @@ body {
 .dispatch-line.tone-yolo { color: #e79a86; }
 .dispatch-line.tone-muted { color: var(--term-dim); }
 
-.body-row.layout-dag .orch-panel { width: clamp(460px, 44vw, 720px); border-right: 1px solid var(--divider); }
+.body-row.layout-dag .orch-panel { border-left: 1px solid var(--divider); }
 .workspace-dag .dag-layout-note { border-color: var(--accent-line); border-radius: 16px; background: var(--accent-soft); color: var(--text-2); }
 .workspace-dag .dag-layout-note b { color: var(--accent-soft-text); font-family: var(--font-heading); font-weight: 400; }
 .workspace-focus .pane.focused { border-color: var(--accent-line); box-shadow: var(--shadow-md); }
 .workspace-focus .pane.subdued { min-height: 62px; opacity: 0.82; }
 .workspace-focus .add-tile { min-height: 62px; }
+
+@media (max-width: 1050px) {
+  .ws-grid { grid-auto-rows: minmax(240px, 1fr); }
+  .pane,
+  .add-tile { min-height: 240px; }
+}
 
 /* Dialogs and overlays */
 .profile-menu,
