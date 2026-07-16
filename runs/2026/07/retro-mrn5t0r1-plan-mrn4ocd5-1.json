@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "exportedAt": 1784185207380,
+  "app": {
+    "name": "orca-strator",
+    "version": "0.1.47-main.1.gb3a336d"
+  },
+  "machineId": "5087fc1f7b9d",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrn5t0r1-plan-mrn4ocd5-1",
+    "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+    "workspaceSessionId": "caa9a096-d8f3-41d4-8c52-75e00319dc87",
+    "planId": "plan-mrn4ocd5-1",
+    "goal": "Unter jedem Profil-Workspace-Namen eine Mini-Zusammenfassung anzeigen, was die Aufgabe des dortigen Agents ist.",
+    "status": "needs-work",
+    "summary": "Lauf mit Nacharbeit: 2 Modell(e), 1/2 Tasks erfolgreich.",
+    "modelStats": [
+      {
+        "provider": "cursor",
+        "model": "composer-2.5",
+        "roles": [
+          "frontend-ui"
+        ],
+        "tasks": 1,
+        "succeeded": 1,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "avgDurationMs": 344796,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      },
+      {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "roles": [
+          "systems-integrator"
+        ],
+        "tasks": 1,
+        "succeeded": 0,
+        "needsWork": 1,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 1,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 1
+        },
+        "gateFindings": 2,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "avgDurationMs": 1809837
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrn4ge52-1-1qp7x4",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "systems-integrator",
+        "kind": "weakness",
+        "insight": "Quality-Gates erfordern Nacharbeit bei systems-integrator",
+        "evidence": "1 Task(s) mit 2 Gate-Finding(s)",
+        "source": "auto-retro",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 3,
+        "createdAt": 1784182938518,
+        "updatedAt": 1784185207273
+      }
+    ],
+    "createdAt": 1784185207310
+  }
+}
