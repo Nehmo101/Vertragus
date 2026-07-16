@@ -241,8 +241,55 @@ export interface WorkspaceSessionSummary {
   profileName: string
   sequence: number
   name: string
+  /** Concise description of the active work in this workspace session. */
+  taskSummary: string | undefined
   startedAt: number
   active: boolean
+}
+
+export const TASK_SUMMARY_MAX_LENGTH = 120
+
+const TASK_SUMMARY_ACTIVE_STATUSES = new Set<TaskStatus>([
+  'queued',
+  'running',
+  'waiting',
+  'paused'
+])
+
+function normalizeTaskSummary(value: string | undefined): string {
+  return value?.replace(/\s+/g, ' ').trim() ?? ''
+}
+
+function truncateTaskSummary(value: string): string {
+  if (value.length <= TASK_SUMMARY_MAX_LENGTH) return value
+  return `${value.slice(0, TASK_SUMMARY_MAX_LENGTH - 1).trimEnd()}…`
+}
+
+/** Derive one bounded display line from authoritative workspace orchestration state. */
+export function deriveTaskSummary(
+  snapshot: Pick<OrchestratorSnapshot, 'goal' | 'activity' | 'tasks'>
+): string | undefined {
+  const activeTask = snapshot.tasks.find((task) => TASK_SUMMARY_ACTIVE_STATUSES.has(task.status))
+  const goalTitle = snapshot.goal?.active
+    ? normalizeTaskSummary(snapshot.goal.title)
+    : ''
+  const activitySummary = normalizeTaskSummary(snapshot.activity?.summary)
+  const activityIsActive = Boolean(
+    snapshot.activity && snapshot.activity.phase !== 'idle' && snapshot.activity.phase !== 'completed'
+  )
+  const meaningfulGoalIsActive = Boolean(
+    goalTitle &&
+    goalTitle !== 'Orchestrator aktiv' &&
+    snapshot.activity?.phase !== 'idle' &&
+    snapshot.activity?.phase !== 'completed'
+  )
+
+  if (!activeTask && !activityIsActive && !meaningfulGoalIsActive) return undefined
+
+  const summary = meaningfulGoalIsActive
+    ? goalTitle
+    : normalizeTaskSummary(activeTask?.title) || activitySummary
+  return summary ? truncateTaskSummary(summary) : undefined
 }
 
 export interface IntegrationCenterItem {

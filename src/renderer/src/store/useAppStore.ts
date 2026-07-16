@@ -258,6 +258,17 @@ export function workspaceEvents(
   )
 }
 
+/** Select only the task summary owned by the requested profile/session pair. */
+export function workspaceTaskSummary(
+  state: Pick<AppState, 'workspaceSessions'>,
+  profileId: string,
+  workspaceSessionId: string
+): string | undefined {
+  return state.workspaceSessions.find(
+    (session) => session.profileId === profileId && session.id === workspaceSessionId
+  )?.taskSummary
+}
+
 export type WorkspaceUserAttentionSource = 'orchestrator' | 'subagent'
 
 export interface WorkspaceUserAttention {

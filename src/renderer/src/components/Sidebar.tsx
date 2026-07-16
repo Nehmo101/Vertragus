@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   useAppStore,
   workspaceAgentHistory,
+  workspaceTaskSummary,
   workspaceUserAttention,
   type WorkspaceUserAttention
 } from '@renderer/store/useAppStore'
@@ -14,6 +15,7 @@ import type { InboxSpeechStatus } from '@shared/inboxSpeech'
 import { MCP_SCOPE_LABELS, MCP_TRANSPORT_LABELS } from '@shared/mcp'
 import { middleEarthWorkspaceName, middleEarthWorkspaceBlurb } from '@shared/workspaceNames'
 import LoreName from '@renderer/components/LoreName'
+import WorkspaceTaskSummary from '@renderer/components/WorkspaceTaskSummary'
 import { deriveRemoteApprovals } from '@shared/remote'
 
 interface RowStatus {
@@ -531,6 +533,7 @@ export function SidebarView({ store }: { store: SidebarStore }): JSX.Element {
               ).length
               const name = session.name || middleEarthWorkspaceName(session.sequence)
               const label = `W${session.sequence} ${name}`
+              const taskSummary = workspaceTaskSummary(store, session.profileId, session.id)
               const attention = workspaceUserAttention(store, session.profileId, session.id)
               const attentionLabel = attention ? attentionText(attention) : undefined
               return (
@@ -540,15 +543,18 @@ export function SidebarView({ store }: { store: SidebarStore }): JSX.Element {
                     className={`workspace-session-select ${session.id === store.activeWorkspaceSessionId ? 'active' : ''} ${attention ? 'workspace-needs-user-attention' : ''}`}
                     data-user-attention={attention?.source}
                     title={attentionLabel}
-                    aria-label={`${label}${attentionLabel ? `. ${attentionLabel}` : ''}`}
+                    aria-label={`${label}${taskSummary ? `. Aktuelle Aufgabe: ${taskSummary}` : ''}${attentionLabel ? `. ${attentionLabel}` : ''}`}
                     onClick={() => void store.selectWorkspaceSession(session.profileId, session.id)}
                   >
-                    <LoreName
-                      name={name}
-                      label={label}
-                      blurb={middleEarthWorkspaceBlurb(name)}
-                      className="workspace-session-name"
-                    />
+                    <span className="workspace-session-main">
+                      <LoreName
+                        name={name}
+                        label={label}
+                        blurb={middleEarthWorkspaceBlurb(name)}
+                        className="workspace-session-name"
+                      />
+                      <WorkspaceTaskSummary taskSummary={taskSummary} />
+                    </span>
                     {attention && <span className="workspace-attention-indicator" aria-hidden="true" />}
                     <small>{running > 0 ? `${running} aktiv` : 'inaktiv'}</small>
                   </button>

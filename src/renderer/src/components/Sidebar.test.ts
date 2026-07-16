@@ -58,6 +58,7 @@ describe('Sidebar rendering', () => {
           profileId: profile.id,
           profileName: profile.name,
           name: 'Rivendell',
+          taskSummary: 'Schema, IPC und Store verbinden',
           sequence: 1,
           startedAt: 1,
           active: true
@@ -89,6 +90,8 @@ describe('Sidebar rendering', () => {
 
     expect(markup).toContain('data-user-attention="subagent"')
     expect(markup).toContain('workspace-attention-indicator')
+    expect(markup).toContain('workspace-task-summary')
+    expect(markup).toContain('Schema, IPC und Store verbinden')
     expect(markup).toContain('Pippin wartet auf deine Rückmeldung.')
   })
 })

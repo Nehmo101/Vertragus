@@ -101,4 +101,44 @@ describe('WorkspaceSessionRegistry', () => {
       })
     ])
   })
+
+  it('updates the session task summary when the orchestrator snapshot changes', () => {
+    const registry = new WorkspaceSessionRegistry()
+    const session = registry.start(DEFAULT_PROFILE)
+    const changed = vi.fn()
+    registry.on('changed', changed)
+
+    session.engine.emit('snapshot', {
+      profileId: DEFAULT_PROFILE.id,
+      workspaceSessionId: session.id,
+      goal: { id: 'goal-1', title: 'Workspace-Summary integrieren', active: true },
+      activity: {
+        phase: 'monitoring',
+        summary: 'Verdrahtet den Datenfluss.',
+        details: [],
+        updatedAt: 1
+      },
+      tasks: []
+    })
+    expect(registry.list(DEFAULT_PROFILE.id)[0]?.taskSummary)
+      .toBe('Workspace-Summary integrieren')
+    expect(changed).toHaveBeenLastCalledWith([
+      expect.objectContaining({
+        id: session.id,
+        taskSummary: 'Workspace-Summary integrieren'
+      })
+    ])
+
+    session.engine.emit('snapshot', {
+      profileId: DEFAULT_PROFILE.id,
+      workspaceSessionId: session.id,
+      goal: null,
+      tasks: []
+    })
+    expect(registry.list(DEFAULT_PROFILE.id)[0]?.taskSummary).toBeUndefined()
+    expect(changed).toHaveBeenCalledTimes(2)
+    expect(changed).toHaveBeenLastCalledWith([
+      expect.objectContaining({ id: session.id, taskSummary: undefined })
+    ])
+  })
 })

@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
-import type { OrchestratorSnapshot, WorkspaceSessionSummary } from '@shared/orchestrator'
+import {
+  deriveTaskSummary,
+  type OrchestratorSnapshot,
+  type WorkspaceSessionSummary
+} from '@shared/orchestrator'
 import type { WorkspaceProfile } from '@shared/profile'
 import { middleEarthWorkspaceName } from '@shared/workspaceNames'
 import { OrchestratorEngine } from '@main/orchestrator/Engine'
@@ -11,6 +15,7 @@ export interface WorkspaceSession {
   profile: WorkspaceProfile
   sequence: number
   name: string
+  taskSummary: string | undefined
   startedAt: number
   engine: OrchestratorEngine
 }
@@ -41,6 +46,7 @@ function summary(session: WorkspaceSession, active: boolean): WorkspaceSessionSu
     profileName: session.profile.name,
     sequence: session.sequence,
     name: session.name || middleEarthWorkspaceName(session.sequence),
+    taskSummary: session.taskSummary,
     startedAt: session.startedAt,
     active
   }
@@ -63,11 +69,17 @@ export class WorkspaceSessionRegistry extends EventEmitter {
       profile: snapshot,
       sequence,
       name: middleEarthWorkspaceName(sequence),
+      taskSummary: deriveTaskSummary(engine.snapshot()),
       startedAt: Date.now(),
       engine
     }
     engine.on('snapshot', (value: OrchestratorSnapshot) => {
       this.emit('snapshot', value)
+      const taskSummary = deriveTaskSummary(value)
+      if (taskSummary !== session.taskSummary) {
+        session.taskSummary = taskSummary
+        this.emit('changed', this.list())
+      }
     })
     sessions.push(session.id)
     this.byProfile.set(snapshot.id, sessions)
