@@ -11,7 +11,7 @@ import type { ProviderCapacitySnapshot } from '@shared/ipc'
 import { summarizeUsageGroup, TELEMETRY_STATUS_LABELS, TELEMETRY_STATUS_TITLES, type TelemetrySummary } from '@shared/telemetry'
 
 /** All agent providers surfaced in the Limits panel (integrations excluded). */
-const PANEL_PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'cursor', 'copilot', 'ollama']
+const PANEL_PROVIDERS: AgentProviderId[] = ['claude', 'kimi', 'codex', 'cursor', 'copilot', 'ollama']
 
 interface ProviderUsage {
   id: AgentProviderId

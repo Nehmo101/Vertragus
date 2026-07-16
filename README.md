@@ -76,6 +76,7 @@ any process starts.
 | Provider | Command | Role |
 |---|---|---|
 | **Claude Code** | `claude` | agent / orchestrator (CLI aliases and account options) |
+| **Kimi K3** | `kimi` | agent / subagent / orchestrator (Moonshot Kimi Code CLI, MCP-native) |
 | **Codex** | `codex` | agent / orchestrator (CLI-configured model) |
 | **Cursor Agent** | `cursor-agent` | agent (account-exposed CLI models) |
 | **GitHub Copilot** | `copilot` | agent / subagent / orchestrator (`@github/copilot` CLI) |
@@ -128,7 +129,7 @@ any process starts.
   (filesystem, web search, database, …) once in Orca; they attach to every
   launched agent — the orchestrator **and** each subagent — over `stdio`, `http`
   or `sse`, with a per-server scope (all / orchestrator / subagents) and an
-  enable switch. Wired for the Claude, Codex and GitHub Copilot CLIs.
+  enable switch. Wired for the Claude, Kimi, Codex and GitHub Copilot CLIs.
 - **Provider connections** — shows real account state and opens each provider's
   official CLI login in a visible terminal; Orca never receives or stores
   credentials.
@@ -275,7 +276,7 @@ auto-update channel.
 ## Project status
 
 - Multi-agent terminals, profiles, worktrees and pop-outs: **complete**.
-- Claude, Codex and GitHub Copilot orchestration with MCP: **complete**.
+- Claude, Kimi, Codex and GitHub Copilot orchestration with MCP: **complete**.
 - Adaptive DAG planning, review mode, session binding and Auto-PR: **complete**.
 - Read-only task review, redacted diagnostics and selected-agent STT: **available**.
 - Electron hardening, config migrations and UI smoke: **available**.

@@ -69,7 +69,7 @@ const MAX_REQUEST_BODY_BYTES = 2 * 1024 * 1024
 const AWAIT_TIMEOUT_SHAPE = z.number().int().min(1_000).max(55_000).optional()
   .describe('Optionales serverseitiges Wartefenster in ms (Standard 25000, min 1000, max 55000).')
 
-const AGENT_PROVIDERS = ['claude', 'codex', 'cursor', 'copilot', 'ollama'] as const
+const AGENT_PROVIDERS = ['claude', 'kimi', 'codex', 'cursor', 'copilot', 'ollama'] as const
 
 const ACTIVITY_PHASES = [
   'idle', 'planning', 'awaiting-review', 'delegating', 'monitoring',

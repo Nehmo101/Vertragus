@@ -15,7 +15,7 @@ import {
 } from '@shared/models'
 import type { AgentProviderId } from '@shared/providers'
 
-const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'cursor', 'copilot', 'ollama']
+const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'kimi', 'codex', 'cursor', 'copilot', 'ollama']
 
 function availablePreset(
   provider: AgentProviderId,

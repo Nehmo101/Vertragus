@@ -449,7 +449,7 @@ export function SidebarView({
   onToggle
 }: SidebarViewProps): JSX.Element {
   const hash = useHashRoute()
-  const aiIds: ProviderId[] = ['claude', 'codex', 'cursor', 'copilot', 'ollama']
+  const aiIds: ProviderId[] = ['claude', 'kimi', 'codex', 'cursor', 'copilot', 'ollama']
   const onlineCount = aiIds.filter(
     (id) => store.providerEnabled[id as AgentProviderId] && store.health.find((h) => h.id === id)?.available
   ).length

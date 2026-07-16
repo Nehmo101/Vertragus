@@ -26,13 +26,14 @@ describe('generateProfileForRepo', () => {
     vi.clearAllMocks()
     mocks.getSetting.mockImplementation((key: string) => {
       if (key === 'providerEnabled') {
-        return { claude: true, codex: true, cursor: true, copilot: true, ollama: false }
+        return { claude: true, kimi: true, codex: true, cursor: true, copilot: true, ollama: false }
       }
       if (key === 'disabledModels') return {}
       return undefined
     })
     mocks.listModels.mockResolvedValue({
       claude: { models: ['fable-5'] },
+      kimi: { models: ['kimi-k3'] },
       codex: { models: ['gpt-5.6-sol'] },
       cursor: { models: ['composer-2.5-fast'] },
       copilot: { models: ['gpt-5-mini'] },
