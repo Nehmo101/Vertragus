@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
 import { DEFAULT_PROFILE } from '@shared/profile'
+import { MIDDLE_EARTH_WORKSPACE_NAMES } from '@shared/workspaceNames'
 
 vi.mock('@main/orchestrator/Engine', () => ({
   OrchestratorEngine: class extends EventEmitter {
@@ -47,7 +48,7 @@ import { WorkspaceSessionRegistry } from './WorkspaceSessionRegistry'
 
 describe('WorkspaceSessionRegistry', () => {
   it('keeps multiple independent runs for one profile and switches the active run', () => {
-    const registry = new WorkspaceSessionRegistry()
+    const registry = new WorkspaceSessionRegistry(() => 0)
 
     expect(registry.snapshot(DEFAULT_PROFILE)).toEqual({
       profileId: DEFAULT_PROFILE.id,
@@ -59,8 +60,8 @@ describe('WorkspaceSessionRegistry', () => {
     const second = registry.start(DEFAULT_PROFILE)
 
     expect(first.id).not.toBe(second.id)
-    expect(first.name).toBe('Minas Tirith')
-    expect(second.name).toBe('Düsterwald')
+    expect(first.name).toBe('Düsterwald')
+    expect(second.name).toBe('Hobbingen')
     expect(registry.list(DEFAULT_PROFILE.id)).toHaveLength(2)
     expect(registry.list(DEFAULT_PROFILE.id).find((session) => session.active)?.id).toBe(second.id)
 
@@ -82,14 +83,37 @@ describe('WorkspaceSessionRegistry', () => {
       expect.objectContaining({
         id: second.id,
         sequence: 2,
-        name: 'Düsterwald',
+        name: second.name,
         active: true
       })
     ])
   })
 
+  it('assigns one unique random place per profile cycle before adding a suffix', () => {
+    const registry = new WorkspaceSessionRegistry(() => 0)
+    const firstCycleNames = Array.from(
+      { length: MIDDLE_EARTH_WORKSPACE_NAMES.length },
+      () => registry.start(DEFAULT_PROFILE).name
+    )
+
+    expect(firstCycleNames[0]).not.toBe('Minas Tirith')
+    expect(new Set(firstCycleNames).size).toBe(MIDDLE_EARTH_WORKSPACE_NAMES.length)
+    expect(registry.start(DEFAULT_PROFILE).name).toBe(`${firstCycleNames[0]} II`)
+  })
+
+  it('does not reuse an assigned place when an earlier session is removed', () => {
+    const registry = new WorkspaceSessionRegistry(() => 0)
+    const first = registry.start(DEFAULT_PROFILE)
+    const second = registry.start(DEFAULT_PROFILE)
+
+    registry.removeSession(first.id)
+    const third = registry.start(DEFAULT_PROFILE)
+
+    expect(new Set([first.name, second.name, third.name]).size).toBe(3)
+  })
+
   it('derives a name when reading a legacy session without a persisted name', () => {
-    const registry = new WorkspaceSessionRegistry()
+    const registry = new WorkspaceSessionRegistry(() => 0)
     const legacySession = registry.start(DEFAULT_PROFILE)
     delete (legacySession as { name?: string }).name
 

@@ -1,8 +1,12 @@
-import { randomUUID } from 'node:crypto'
+import { randomInt, randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import type { OrchestratorSnapshot, WorkspaceSessionSummary } from '@shared/orchestrator'
 import type { WorkspaceProfile } from '@shared/profile'
-import { middleEarthWorkspaceName } from '@shared/workspaceNames'
+import {
+  MIDDLE_EARTH_WORKSPACE_NAMES,
+  middleEarthWorkspaceName,
+  shuffleMiddleEarthWorkspaceNames
+} from '@shared/workspaceNames'
 import { OrchestratorEngine } from '@main/orchestrator/Engine'
 
 export interface WorkspaceSession {
@@ -50,6 +54,26 @@ export class WorkspaceSessionRegistry extends EventEmitter {
   private readonly byProfile = new Map<string, string[]>()
   private readonly activeByProfile = new Map<string, string>()
   private readonly byId = new Map<string, WorkspaceSession>()
+  private readonly workspaceNameCyclesByProfile = new Map<string, string[][]>()
+  private readonly workspaceNameAssignmentCountsByProfile = new Map<string, number>()
+
+  constructor(
+    private readonly randomWorkspaceNameIndex: (maxExclusive: number) => number = randomInt
+  ) {
+    super()
+  }
+
+  private nextWorkspaceName(profileId: string): string {
+    const assignment = (this.workspaceNameAssignmentCountsByProfile.get(profileId) ?? 0) + 1
+    const cycleIndex = Math.floor((assignment - 1) / MIDDLE_EARTH_WORKSPACE_NAMES.length)
+    const cycles = this.workspaceNameCyclesByProfile.get(profileId) ?? []
+    while (cycles.length <= cycleIndex) {
+      cycles.push(shuffleMiddleEarthWorkspaceNames(this.randomWorkspaceNameIndex))
+    }
+    this.workspaceNameCyclesByProfile.set(profileId, cycles)
+    this.workspaceNameAssignmentCountsByProfile.set(profileId, assignment)
+    return middleEarthWorkspaceName(assignment, cycles[cycleIndex])
+  }
 
   private create(profile: WorkspaceProfile, reset: boolean): WorkspaceSession {
     const snapshot = cloneProfile(profile)
@@ -62,7 +86,7 @@ export class WorkspaceSessionRegistry extends EventEmitter {
       profileId: snapshot.id,
       profile: snapshot,
       sequence,
-      name: middleEarthWorkspaceName(sequence),
+      name: this.nextWorkspaceName(snapshot.id),
       startedAt: Date.now(),
       engine
     }
@@ -200,6 +224,8 @@ export class WorkspaceSessionRegistry extends EventEmitter {
     if (remaining.length === 0) {
       this.byProfile.delete(session.profileId)
       this.activeByProfile.delete(session.profileId)
+      this.workspaceNameCyclesByProfile.delete(session.profileId)
+      this.workspaceNameAssignmentCountsByProfile.delete(session.profileId)
     } else {
       this.byProfile.set(session.profileId, remaining)
       if (this.activeByProfile.get(session.profileId) === sessionId) {

@@ -65,6 +65,21 @@ export const MIDDLE_EARTH_WORKSPACE_NAMES = MIDDLE_EARTH_WORKSPACES.map(
   (place) => place.name
 )
 
+/** Return a newly shuffled roster without mutating the curated source list. */
+export function shuffleMiddleEarthWorkspaceNames(
+  randomIndex: (maxExclusive: number) => number
+): string[] {
+  const names = [...MIDDLE_EARTH_WORKSPACE_NAMES]
+  for (let index = names.length - 1; index > 0; index -= 1) {
+    const swapIndex = randomIndex(index + 1)
+    if (!Number.isSafeInteger(swapIndex) || swapIndex < 0 || swapIndex > index) {
+      throw new RangeError(`Random workspace-name index ${swapIndex} is outside 0..${index}.`)
+    }
+    ;[names[index], names[swapIndex]] = [names[swapIndex]!, names[index]!]
+  }
+  return names
+}
+
 const PLACE_LORE: ReadonlyMap<string, string> = new Map(
   MIDDLE_EARTH_WORKSPACES.map((place) => [place.name, place.blurb])
 )
@@ -108,13 +123,17 @@ function compactRoman(value: number): string {
   return `(${compactRoman(thousands)})${romanBelow4000(remainder)}`
 }
 
-/** Return the deterministic Middle-earth place assigned to a workspace sequence. */
-export function middleEarthWorkspaceName(sequence: number): string {
+/** Return the Middle-earth place at a sequence position in the supplied name order. */
+export function middleEarthWorkspaceName(
+  sequence: number,
+  names: readonly string[] = MIDDLE_EARTH_WORKSPACE_NAMES
+): string {
   if (!Number.isSafeInteger(sequence) || sequence <= 0) return `Workspace ${sequence}`
+  if (names.length === 0) return `Workspace ${sequence}`
 
-  const index = (sequence - 1) % MIDDLE_EARTH_WORKSPACE_NAMES.length
-  const cycle = Math.floor((sequence - 1) / MIDDLE_EARTH_WORKSPACE_NAMES.length) + 1
-  const name = MIDDLE_EARTH_WORKSPACE_NAMES[index]!
+  const index = (sequence - 1) % names.length
+  const cycle = Math.floor((sequence - 1) / names.length) + 1
+  const name = names[index]!
   return cycle === 1 ? name : `${name} ${compactRoman(cycle)}`
 }
 
