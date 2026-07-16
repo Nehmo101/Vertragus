@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "exportedAt": 1784223592744,
+  "app": {
+    "name": "orca-strator",
+    "version": "0.1.47-main.1.gb3a336d"
+  },
+  "machineId": "5087fc1f7b9d",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrnsnr45-plan-mrnooicu-d",
+    "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+    "workspaceSessionId": "fde9e06e-ffd8-40e1-a743-5c6198ab6b40",
+    "planId": "plan-mrnooicu-d",
+    "goal": "esbuild 'spawn EPERM' in der Codex-Windows-Worker-Sandbox beheben, damit Vitest/Build (die derzeit am Config-Load scheitern) wieder laufen. Root Cause laut Findings-Board: esbuild.exe ist ein pnpm-Hardlink in den globalen Store und erbt dessen ACL (keine ACE für die Sandbox-SID) statt der Worktree-ACL. Fix ohne Yolo: Worktree-Installs als COPY importieren (--package-import-method=copy), nur win32.",
+    "status": "success",
+    "summary": "Lauf erfolgreich: 2 Modell(e), 2/2 Tasks erfolgreich.",
+    "modelStats": [
+      {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "roles": [
+          "systems-integrator"
+        ],
+        "tasks": 1,
+        "succeeded": 1,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "avgDurationMs": 6444165
+      },
+      {
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "roles": [
+          "security-review"
+        ],
+        "tasks": 1,
+        "succeeded": 1,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "costUsd": 0.4834045,
+        "avgDurationMs": 6682807
+      }
+    ],
+    "learnings": [],
+    "createdAt": 1784223592709
+  }
+}
