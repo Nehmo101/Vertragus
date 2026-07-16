@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784185241732,
+  "exportedAt": 1784185260516,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -8,6 +8,34 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrn5u4k5-2-m2sf7f",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "systems-integrator",
+      "kind": "weakness",
+      "insight": "Schreibt korrekten Code, aber zentraler typecheck scheitert, wenn ein importiertes Dependency-Modul nicht im Task-Base-Branch liegt — Scope-Disziplin entfernte die temporäre Kopie.",
+      "evidence": "ff-t2 commit 2b27a436: tsc -p tsconfig.node.json fail, @shared/claudePermissionMode fehlt im orch-13-Base (7feed018 nur auf t1-Branch).",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784185258901,
+      "updatedAt": 1784185258901
+    },
+    {
+      "id": "learning-mrn5u4k5-1-daavhb",
+      "provider": "cursor",
+      "model": "composer-2.5",
+      "role": "frontend-ui",
+      "kind": "weakness",
+      "insight": "Meldete 'success' mit 0 Änderungen (nur Identitäts-Echo 'Ich bin X, womit soll ich anfangen?'), ohne die geforderte React-Komponente zu implementieren — unzuverlässig für echte Implementierung.",
+      "evidence": "ff-t3: ClaudePermissionModeSelect.tsx nie erstellt, completion=no-changes, Judge wertete es fälschlich als success.",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784185258901,
+      "updatedAt": 1784185258901
+    },
     {
       "id": "learning-mrn5tqgt-1-xsp8bl",
       "provider": "codex",
@@ -371,20 +399,6 @@
       "updatedAt": 1784146794785
     },
     {
-      "id": "learning-mrmchbdm-1-hd72lm",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "backend-services",
-      "kind": "strength",
-      "insight": "Liefert mit expliziten Whitespace-/Temp-Datei-Auflagen im Prompt große Doku-Pakete sauber und vollständig (ADR-Pack 6 ADRs+Masterplan, Guards-Plan 439 Z., CI-Plan 467 Z., Contracts 711 Z.)",
-      "evidence": "O01 Glorfindel, O02 Grishnákh, O03 Dwalin, O05 Éowyn — alle Commits ohne Whitespace-Gate-Fehler und ohne Temp-Dateien",
-      "source": "orchestrator",
-      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
-      "observations": 1,
-      "createdAt": 1784135952346,
-      "updatedAt": 1784135952346
-    },
-    {
       "id": "learning-mrmchbdm-3-smpgzy",
       "provider": "claude",
       "model": "claude-sonnet-5",
@@ -392,6 +406,20 @@
       "kind": "weakness",
       "insight": "Hinterlässt trotz explizitem Temp-Datei-Verbot im Prompt Verifikations-Hilfsdateien im Commit (*.origcheck, *.check, *.c9check) — vor PR-Schnitt gezielt prüfen und entfernen lassen",
       "evidence": "O07 Wurmzunge, Commit a48ddaf9: 4 Check-Dateien (ARCHITECTURE.md.origcheck, CURRENT_STATE.md.origcheck, 00-inventory.md.check/.c9check) neben den 19 echten Zieldateien",
+      "source": "orchestrator",
+      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+      "observations": 1,
+      "createdAt": 1784135952346,
+      "updatedAt": 1784135952346
+    },
+    {
+      "id": "learning-mrmchbdm-1-hd72lm",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "backend-services",
+      "kind": "strength",
+      "insight": "Liefert mit expliziten Whitespace-/Temp-Datei-Auflagen im Prompt große Doku-Pakete sauber und vollständig (ADR-Pack 6 ADRs+Masterplan, Guards-Plan 439 Z., CI-Plan 467 Z., Contracts 711 Z.)",
+      "evidence": "O01 Glorfindel, O02 Grishnákh, O03 Dwalin, O05 Éowyn — alle Commits ohne Whitespace-Gate-Fehler und ohne Temp-Dateien",
       "source": "orchestrator",
       "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
       "observations": 1,
@@ -411,20 +439,6 @@
       "observations": 1,
       "createdAt": 1784135952346,
       "updatedAt": 1784135952346
-    },
-    {
-      "id": "learning-mrm75c2v-1-qljpow",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "backend-services",
-      "kind": "weakness",
-      "insight": "Quality-Gates erfordern Nacharbeit bei backend-services, database-schema",
-      "evidence": "4 Task(s) mit 5 Gate-Finding(s)",
-      "source": "auto-retro",
-      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
-      "observations": 1,
-      "createdAt": 1784126995303,
-      "updatedAt": 1784126995303
     },
     {
       "id": "learning-mrm75c2v-2-j4y6e1",
@@ -455,20 +469,6 @@
       "updatedAt": 1784126995303
     },
     {
-      "id": "learning-mrm44ou4-1-zd3siy",
-      "provider": "claude",
-      "model": "claude-sonnet-5",
-      "role": "orchestrator-integrator",
-      "kind": "strength",
-      "insight": "Liefert Doku-Recovery-Tasks zuverlässig (Datei korrekt übernommen, validiert, whitespace-sauber, committet) — needs-work-Status stammte beide Male vom Gate-False-Positive, nicht vom Modell",
-      "evidence": "O00R (Tom Bombadil, Commit 223ac6f1) und t-1 (Beorn, Commit c9a520c6): identische Vokabular-Findings trotz verifiziert secret-freiem Inhalt",
-      "source": "orchestrator",
-      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
-      "observations": 1,
-      "createdAt": 1784121926332,
-      "updatedAt": 1784121926332
-    },
-    {
       "id": "learning-mrm44ou4-2-g8v8o",
       "provider": "claude",
       "model": "claude-sonnet-5",
@@ -476,6 +476,20 @@
       "kind": "weakness",
       "insight": "Lässt Temp-/Arbeitsdateien im Worktree zurück, die im partiellen Commit landen (.verify-*-tmp.md) — Aufräumen vor Abschluss explizit in den Prompt schreiben",
       "evidence": "t-1 (Beorn): Commit c9a520c6 enthält .verify-new-body-tmp.md und .verify-orig-tmp.md",
+      "source": "orchestrator",
+      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+      "observations": 1,
+      "createdAt": 1784121926332,
+      "updatedAt": 1784121926332
+    },
+    {
+      "id": "learning-mrm44ou4-1-zd3siy",
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "role": "orchestrator-integrator",
+      "kind": "strength",
+      "insight": "Liefert Doku-Recovery-Tasks zuverlässig (Datei korrekt übernommen, validiert, whitespace-sauber, committet) — needs-work-Status stammte beide Male vom Gate-False-Positive, nicht vom Modell",
+      "evidence": "O00R (Tom Bombadil, Commit 223ac6f1) und t-1 (Beorn, Commit c9a520c6): identische Vokabular-Findings trotz verifiziert secret-freiem Inhalt",
       "source": "orchestrator",
       "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
       "observations": 1,
