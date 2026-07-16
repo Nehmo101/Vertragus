@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784197940871,
+  "exportedAt": 1784198163027,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -14,7 +14,7 @@
     "planId": "plan-mrncqor0-3",
     "goal": "Härtung + Testabdeckung für Profil-Duplizierung: Bindungs-/Auto-Approval-Felder beim Kopieren zurücksetzen und Kriterium 3 (Kopie bearbeiten/umbenennen lässt Original unberührt) per Integrationstest absichern.",
     "status": "success",
-    "summary": "Lauf erfolgreich: 2 Modell(e), 1/1 Tasks erfolgreich.",
+    "summary": "Härtung + Kriterium-3-Test erfolgreich geliefert (Commit 65adffe, 15/15 Tests + typecheck + lint grün) — via dispatch_subagent, nachdem execute_plan reproduzierbar zum Fallback kollabierte und den Review-Slot verstopfte. Beide Feature-Commits per Cherry-Pick in DEV integriert (cda618c, d5a49d0).",
     "modelStats": [
       {
         "provider": "cursor",
@@ -82,6 +82,34 @@
         "observations": 3,
         "createdAt": 1784186646785,
         "updatedAt": 1784197940817
+      },
+      {
+        "id": "learning-mrndipem-1-so25hm",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "systems-integrator",
+        "kind": "strength",
+        "insight": "Liefert kleine Härtungs-/Testaufgaben zügig und sauber, wählt sinnvolles Testdesign (echte Kette statt Overmock)",
+        "evidence": "Hexenkönig: cloneStatus/localPath/yolo-Reset + githubProject-Deepclone + Kriterium-3-Store-Test (duplicateProfile→Editoränderung→saveEditor), 15/15 grün, typecheck+lint grün, Commit 65adffe",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784198162974,
+        "updatedAt": 1784198162974
+      },
+      {
+        "id": "learning-mrndipem-2-dhppdf",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "security-review",
+        "kind": "weakness",
+        "insight": "Als execute_plan-Fallback-Rolle blockiert der Reviewer den exklusiven Review-Slot, ohne die eigentliche Implementierung zu liefern",
+        "evidence": "Nach Plan-Kollaps zu Fallback lief Opus (Smaug) als security-review-Ersatz und schrieb keinen Härtungscode; Fortschritt kam erst über dispatch_subagent",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784198162974,
+        "updatedAt": 1784198162974
       }
     ],
     "createdAt": 1784197940829
