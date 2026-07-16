@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784186672188,
+  "exportedAt": 1784195290743,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -14,7 +14,7 @@
     "planId": "plan-mrn5vnvv-2",
     "goal": "Den einzigen roten Test (src/main/inbox/store.test.ts) triagieren und den vollen pnpm-Testlauf für das taskSummary-Feature (Commit cb9ea044) grün machen oder Vorbestehen belegen.",
     "status": "needs-work",
-    "summary": "Lauf mit Nacharbeit: 2 Modell(e), 0/1 Tasks erfolgreich.",
+    "summary": "Triage-Folgeplan: Der einzige rote Test (inbox store 'updateIdea ignores transfer payloads') ist NICHT durch das taskSummary-Feature verursacht, sondern eine vorbestehende Test-Isolations-/Dateisystem-Schwäche der On-Disk-Ideen-Persistenz (electron-store/atomically). Legolas 2 lieferte einen 1-Datei-Fix (Commit e52e4ba5), der alle Gates inkl. vollem pnpm test bestand. Kern-Hindernis: frische Verifier-Worktrees enthalten den Required-Feature-Commit cb9ea044 nicht (Worktree-Isolation).",
     "modelStats": [
       {
         "provider": "codex",
@@ -95,6 +95,34 @@
         "observations": 6,
         "createdAt": 1784183890699,
         "updatedAt": 1784186672117
+      },
+      {
+        "id": "learning-mrnbt54h-1-q189a3",
+        "provider": "claude",
+        "model": "claude-sonnet-5",
+        "role": "qa-gate-runner",
+        "kind": "strength",
+        "insight": "Erkennt Worktree-Isolation korrekt und meldet vertragskonform Blocker, statt einen nicht sichtbaren Commit zu erfinden",
+        "evidence": "Frodo: 'kein Fix möglich in diesem Worktree; HEAD enthält Feature-Dateien nicht, liegen in task-39' — Finding gepostet",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784195290673,
+        "updatedAt": 1784195290673
+      },
+      {
+        "id": "learning-mrnbt54h-2-r7g6xn",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "orchestrator-core",
+        "kind": "strength",
+        "insight": "Findet bei Test-Triage die echte Ursache (electron-store/atomically On-Disk-Persistenz) und liefert einen gate-grünen 1-Datei-Fix",
+        "evidence": "Legolas 2: Commit e52e4ba5 bestand alle Gates inkl. vollem pnpm test; Ursache war vorbestehende Test-Isolation, nicht das Feature",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784195290673,
+        "updatedAt": 1784195290673
       }
     ],
     "createdAt": 1784186672136
