@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784197941699,
+  "exportedAt": 1784198164423,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -8,6 +8,34 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrndipem-2-dhppdf",
+      "provider": "claude",
+      "model": "claude-opus-4-8",
+      "role": "security-review",
+      "kind": "weakness",
+      "insight": "Als execute_plan-Fallback-Rolle blockiert der Reviewer den exklusiven Review-Slot, ohne die eigentliche Implementierung zu liefern",
+      "evidence": "Nach Plan-Kollaps zu Fallback lief Opus (Smaug) als security-review-Ersatz und schrieb keinen Härtungscode; Fortschritt kam erst über dispatch_subagent",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784198162974,
+      "updatedAt": 1784198162974
+    },
+    {
+      "id": "learning-mrndipem-1-so25hm",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "systems-integrator",
+      "kind": "strength",
+      "insight": "Liefert kleine Härtungs-/Testaufgaben zügig und sauber, wählt sinnvolles Testdesign (echte Kette statt Overmock)",
+      "evidence": "Hexenkönig: cloneStatus/localPath/yolo-Reset + githubProject-Deepclone + Kriterium-3-Store-Test (duplicateProfile→Editoränderung→saveEditor), 15/15 grün, typecheck+lint grün, Commit 65adffe",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784198162974,
+      "updatedAt": 1784198162974
+    },
     {
       "id": "learning-mrn6nvgh-2-1fr14b",
       "provider": "claude",
@@ -377,20 +405,6 @@
       "observations": 2,
       "createdAt": 1784184955362,
       "updatedAt": 1784186672117
-    },
-    {
-      "id": "learning-mrn6nvgh-1-1ietwq",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "orchestrator-core",
-      "kind": "strength",
-      "insight": "zuverlässig im ersten Anlauf bei orchestrator-core",
-      "evidence": "2/2 Tasks ohne Wiederholung erfolgreich",
-      "source": "auto-retro",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784186646785,
-      "updatedAt": 1784186646785
     },
     {
       "id": "learning-mrn6jk62-1-pwft0z",
