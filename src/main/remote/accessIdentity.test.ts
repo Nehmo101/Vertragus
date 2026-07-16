@@ -23,11 +23,18 @@ describe('CloudflareAccessVerifier', () => {
       email: 'Team@Example.com', exp: Math.floor(now / 1_000) + 60
     })
     const privatePem = pair.privateKey.export({ format: 'pem', type: 'pkcs8' })
-    const signature = sign('RSA-SHA256', Buffer.from(`${header}.${claims}`), privatePem)
-      .toString('base64url')
+    const signatureBytes = sign('RSA-SHA256', Buffer.from(`${header}.${claims}`), privatePem)
+    const signature = signatureBytes.toString('base64url')
     await expect(verifier.verify(`${header}.${claims}.${signature}`)).resolves.toEqual({
       id: 'team@example.com', displayName: 'Team@Example.com'
     })
-    await expect(verifier.verify(`${header}.${claims}.${signature.slice(0, -2)}xx`)).resolves.toBeUndefined()
+    // Flip a real signature byte so the tamper always changes the decoded bytes.
+    // (Replacing the last base64url group could collide with the original byte —
+    // it encodes a single byte with 4 ignored bits — and pass ~1/256 of runs.)
+    const tampered = Buffer.from(signatureBytes)
+    tampered[0] ^= 0xff
+    await expect(
+      verifier.verify(`${header}.${claims}.${tampered.toString('base64url')}`)
+    ).resolves.toBeUndefined()
   })
 })
