@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784185746746,
+  "exportedAt": 1784185791115,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -8,6 +8,62 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrn65hxd-4-5r9pz7",
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "role": "qa-gate-runner",
+      "kind": "weakness",
+      "insight": "QA-Gate-Läufe blockieren an interaktiven Bash-Tool-Freigaben und hängen ohne Panel-Approval",
+      "evidence": "verify-acceptance (Éomer 2) blieb im Status 'Wartet auf Tool-Freigabe: Bash' hängen und wurde nicht terminal, während die required-Kette längst grün war",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784185789441,
+      "updatedAt": 1784185789441
+    },
+    {
+      "id": "learning-mrn65hxd-1-5xjknc",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "systems-integrator",
+      "kind": "strength",
+      "insight": "Sehr präzise statische Root-Cause-Analyse von Provider-CLI-Invokationspfaden",
+      "evidence": "diagnose-codex lokalisierte fehlendes --skip-git-repo-check über die volle Aufrufkette (promptEnhancementProvider→headless→types) mit Datei:Zeile und grenzte 5 Alternativhypothesen sauber ab",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784185789441,
+      "updatedAt": 1784185789441
+    },
+    {
+      "id": "learning-mrn65hxd-2-26fcd9",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "systems-integrator",
+      "kind": "strength",
+      "insight": "Minimal-invasive Integrator-Fixes mit belegter Invarianz des unberührten Pfads",
+      "evidence": "implement-fix (Thorin): 6 Dateien, provider-spezifischer Fix für Codex+Cursor, Claude-Args unverändert per Test belegt, 46/46 grün, Typecheck/Lint/whitespace sauber",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784185789441,
+      "updatedAt": 1784185789441
+    },
+    {
+      "id": "learning-mrn65hxd-3-6hwvke",
+      "provider": "claude",
+      "model": "claude-opus-4-8",
+      "role": "security-review",
+      "kind": "strength",
+      "insight": "Sehr gründliche Diagnose komplexer Timing-/Streaming-Kopplungen mit Ausschluss von Scheinursachen",
+      "evidence": "diagnose-cursor (Beorn) fand die onActivity↔onLine-Kopplung als Idle-Timeout-Ursache und schloss Trust-Prompt/Flags/Kapazität mit Belegzitaten als Nebeneffekte aus",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784185789441,
+      "updatedAt": 1784185789441
+    },
     {
       "id": "learning-mrn64k4i-1-5u7mwl",
       "provider": "codex",
@@ -50,6 +106,20 @@
       "updatedAt": 1784185312462
     },
     {
+      "id": "learning-mrn5v9vy-4-chrluk",
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "role": "qa-gate-runner",
+      "kind": "weakness",
+      "insight": "Kann in dieser gesperrten Sandbox pnpm/node-Gates gar nicht ausführen (spawn blockiert)",
+      "evidence": "Pippin: Gate-Ausführung durchgehend blockiert, meldete ehrlich BLOCKER; Engine leitete QA an codex (Bilbo 2) um",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784185312462,
+      "updatedAt": 1784185312462
+    },
+    {
       "id": "learning-mrn5v9vy-1-g9kuuj",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -71,20 +141,6 @@
       "kind": "strength",
       "insight": "Außerordentlich findig beim Umgehen von Sandbox-Grenzen zur echten Verifikation",
       "evidence": "Bilbo 2: rekonstruierte Impl-Commit, patchte child_process, ließ Vitest programmatisch laufen und belegte alle 3 Abnahmekriterien empirisch (reale Namen: Cair Andros/Mordor/Helms Klamm/Schicksalsberg)",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784185312462,
-      "updatedAt": 1784185312462
-    },
-    {
-      "id": "learning-mrn5v9vy-4-chrluk",
-      "provider": "claude",
-      "model": "claude-sonnet-5",
-      "role": "qa-gate-runner",
-      "kind": "weakness",
-      "insight": "Kann in dieser gesperrten Sandbox pnpm/node-Gates gar nicht ausführen (spawn blockiert)",
-      "evidence": "Pippin: Gate-Ausführung durchgehend blockiert, meldete ehrlich BLOCKER; Engine leitete QA an codex (Bilbo 2) um",
       "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
@@ -484,20 +540,6 @@
       "updatedAt": 1784146794785
     },
     {
-      "id": "learning-mrmchbdm-1-hd72lm",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "backend-services",
-      "kind": "strength",
-      "insight": "Liefert mit expliziten Whitespace-/Temp-Datei-Auflagen im Prompt große Doku-Pakete sauber und vollständig (ADR-Pack 6 ADRs+Masterplan, Guards-Plan 439 Z., CI-Plan 467 Z., Contracts 711 Z.)",
-      "evidence": "O01 Glorfindel, O02 Grishnákh, O03 Dwalin, O05 Éowyn — alle Commits ohne Whitespace-Gate-Fehler und ohne Temp-Dateien",
-      "source": "orchestrator",
-      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
-      "observations": 1,
-      "createdAt": 1784135952346,
-      "updatedAt": 1784135952346
-    },
-    {
       "id": "learning-mrmchbdm-3-smpgzy",
       "provider": "claude",
       "model": "claude-sonnet-5",
@@ -580,20 +622,6 @@
       "observations": 1,
       "createdAt": 1784121926332,
       "updatedAt": 1784121926332
-    },
-    {
-      "id": "learning-mrm27c1p-2-8m151z",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "backend-services",
-      "kind": "strength",
-      "insight": "Liefert große Read-only-Audits (140 Prisma-Modelle, alle Routen/Navs/Jobs) inhaltlich vollständig und mit brauchbaren Architektur-Befunden aus einem einzigen Prompt",
-      "evidence": "O00 Attempt 1: Inventar inkl. Job-Runner-Trennnaht und Namenskollision packages/cookbook vs. /kitchen fertig recherchiert",
-      "source": "orchestrator",
-      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
-      "observations": 1,
-      "createdAt": 1784118690493,
-      "updatedAt": 1784118690493
     },
     {
       "id": "learning-mrm27c1p-3-pl30ue",
