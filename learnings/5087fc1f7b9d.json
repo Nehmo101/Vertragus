@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784198164423,
+  "exportedAt": 1784200245036,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -8,6 +8,19 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrn6nvgh-2-1fr14b",
+      "provider": "claude",
+      "model": "claude-opus-4-8",
+      "kind": "weakness",
+      "insight": "Worker-Versuche scheiterten; Aufgaben wurden auf andere Slots umgeleitet",
+      "evidence": "1 inhaltlich fehlgeschlagene(r) Versuch(e) in diesem Lauf",
+      "source": "auto-retro",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 4,
+      "createdAt": 1784186646785,
+      "updatedAt": 1784200243892
+    },
     {
       "id": "learning-mrndipem-2-dhppdf",
       "provider": "claude",
@@ -35,19 +48,6 @@
       "observations": 1,
       "createdAt": 1784198162974,
       "updatedAt": 1784198162974
-    },
-    {
-      "id": "learning-mrn6nvgh-2-1fr14b",
-      "provider": "claude",
-      "model": "claude-opus-4-8",
-      "kind": "weakness",
-      "insight": "Worker-Versuche scheiterten; Aufgaben wurden auf andere Slots umgeleitet",
-      "evidence": "1 inhaltlich fehlgeschlagene(r) Versuch(e) in diesem Lauf",
-      "source": "auto-retro",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 3,
-      "createdAt": 1784186646785,
-      "updatedAt": 1784197940817
     },
     {
       "id": "learning-mrndddss-1-ltza68",
@@ -268,20 +268,6 @@
       "updatedAt": 1784195291382
     },
     {
-      "id": "learning-mrnbt54h-1-q189a3",
-      "provider": "claude",
-      "model": "claude-sonnet-5",
-      "role": "qa-gate-runner",
-      "kind": "strength",
-      "insight": "Erkennt Worktree-Isolation korrekt und meldet vertragskonform Blocker, statt einen nicht sichtbaren Commit zu erfinden",
-      "evidence": "Frodo: 'kein Fix möglich in diesem Worktree; HEAD enthält Feature-Dateien nicht, liegen in task-39' — Finding gepostet",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784195290673,
-      "updatedAt": 1784195290673
-    },
-    {
       "id": "learning-mrnbt54h-2-r7g6xn",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -296,18 +282,18 @@
       "updatedAt": 1784195290673
     },
     {
-      "id": "learning-mrnbsmve-5-pz0c1",
+      "id": "learning-mrnbt54h-1-q189a3",
       "provider": "claude",
       "model": "claude-sonnet-5",
-      "role": "docs-retro",
+      "role": "qa-gate-runner",
       "kind": "strength",
-      "insight": "Meldet Schreib-/Infra-Blocker ehrlich als BLOCKER statt Fake-Erfolg",
-      "evidence": "Bard 2 gab strukturierten Blocker mit Ursache statt no-changes-Erfolg vorzutäuschen",
+      "insight": "Erkennt Worktree-Isolation korrekt und meldet vertragskonform Blocker, statt einen nicht sichtbaren Commit zu erfinden",
+      "evidence": "Frodo: 'kein Fix möglich in diesem Worktree; HEAD enthält Feature-Dateien nicht, liegen in task-39' — Finding gepostet",
       "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
-      "createdAt": 1784195267018,
-      "updatedAt": 1784195267018
+      "createdAt": 1784195290673,
+      "updatedAt": 1784195290673
     },
     {
       "id": "learning-mrnbsmve-1-hncg65",
@@ -331,6 +317,20 @@
       "kind": "strength",
       "insight": "Übernimmt umgeleitete Tasks zuverlässig und liefert Skript+CI+Docs mit Security-Abdeckung",
       "evidence": "Track D nach Reroute: retroSeed.ts mit Path-Traversal-Schutz, Workflow scharfgeschaltet, 4/4 Tests grün, Security-Gate ohne Findings, Commit ecbce46",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784195267018,
+      "updatedAt": 1784195267018
+    },
+    {
+      "id": "learning-mrnbsmve-5-pz0c1",
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "role": "docs-retro",
+      "kind": "strength",
+      "insight": "Meldet Schreib-/Infra-Blocker ehrlich als BLOCKER statt Fake-Erfolg",
+      "evidence": "Bard 2 gab strukturierten Blocker mit Ursache statt no-changes-Erfolg vorzutäuschen",
       "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
