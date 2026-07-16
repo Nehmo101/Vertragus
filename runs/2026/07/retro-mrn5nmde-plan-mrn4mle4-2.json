@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784184955609,
+  "exportedAt": 1784185063994,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -14,7 +14,7 @@
     "planId": "plan-mrn4mle4-2",
     "goal": "Ideen-Liste: statische Status-Chips je Row durch Live-Status 'Schritt x von x' (echter Plan-Fortschritt) ersetzen; idea.status im Datenmodell und Editor bleibt erhalten.",
     "status": "needs-work",
-    "summary": "Lauf mit Nacharbeit: 4 Modell(e), 1/4 Tasks erfolgreich.",
+    "summary": "Live-Status-Feature wurde end-to-end umgesetzt und als Commit 36de2203 übernommen (alle lauffähigen Gates grün), aber als needs-work markiert: Codex-Sandbox konnte Vitest/Vite-Build nicht starten (esbuild spawn EPERM); QA+Security wurden durch die harte t2-Abhängigkeit übersprungen. t1 (cursor) lieferte trotz success-Status keinerlei Änderung.",
     "modelStats": [
       {
         "provider": "cursor",
@@ -139,6 +139,48 @@
         "observations": 1,
         "createdAt": 1784184955362,
         "updatedAt": 1784184955362
+      },
+      {
+        "id": "learning-mrn5py3i-1-9ug2ja",
+        "provider": "cursor",
+        "model": "composer-2.5",
+        "role": "frontend-ui",
+        "kind": "weakness",
+        "insight": "Meldet 'success', liefert aber No-op statt der geforderten Implementierung",
+        "evidence": "t1-ui: completion no-changes, Ergebnis war nur eine Identitäts-Begrüßung ('Ich bin Schattenfell...'), keine Renderer-Änderung an InboxPanel.tsx",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784185063902,
+        "updatedAt": 1784185063902
+      },
+      {
+        "id": "learning-mrn5py3i-2-u4gwnd",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "orchestrator-core",
+        "kind": "strength",
+        "insight": "Integrator setzt ein Feature vollständig durch, auch wenn der Upstream-Feature-Task leer bleibt",
+        "evidence": "t2: baute Renderer+shared-Schema+IPC/preload+Main-Ableitung+Tests selbst nach, weil t1 nichts lieferte; alle lauffähigen Gates grün, Artefakt als Commit 36de2203 übernommen",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784185063902,
+        "updatedAt": 1784185063902
+      },
+      {
+        "id": "learning-mrn5py3i-3-hl4avp",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "orchestrator-core",
+        "kind": "weakness",
+        "insight": "Vitest- und Vite-Build-Gates scheitern in der Codex-Sandbox an 'esbuild spawn EPERM' — verhindert Test-/Build-Abnahme trotz fertigem Code",
+        "evidence": "t2 (Bard+Dwalin): Typecheck/Lint/Security grün, aber Vitest 0 Tests (Config-Start blockiert) und Desktop-Build nicht erreicht; Worker meldete ERGEBNIS: BLOCKER",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784185063902,
+        "updatedAt": 1784185063902
       }
     ],
     "createdAt": 1784184955394
