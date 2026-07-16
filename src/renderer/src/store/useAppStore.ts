@@ -20,7 +20,7 @@ import {
   normalizeProviderEnabled,
   normalizeProviderLimits
 } from '@shared/providers'
-import type { WorkspaceProfile } from '@shared/profile'
+import { duplicateProfile as createDuplicateProfile, type WorkspaceProfile } from '@shared/profile'
 import type { McpServerConfig } from '@shared/mcp'
 import type { OrchestratorSnapshot, WorkspaceSessionSummary } from '@shared/orchestrator'
 import type { AppInfo, GitInfo, GithubAuthStatus } from '@shared/ipc'
@@ -154,6 +154,7 @@ interface AppState {
   openEditorNew(): void
   closeEditor(): void
   saveEditor(profile: WorkspaceProfile): Promise<void>
+  duplicateProfile(id: string): Promise<void>
   deleteProfile(id: string): Promise<void>
   openMcpEditor(): void
   closeMcpEditor(): void
@@ -1155,6 +1156,22 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (selected) get().showToast(`Profil „${profile.name}" gespeichert.`)
     } catch (error) {
       get().showToast(`Profil konnte nicht gespeichert werden: ${errorMessage(error)}`)
+    }
+  },
+
+  async duplicateProfile(id) {
+    try {
+      const currentProfiles = get().profiles
+      const source = currentProfiles.find((profile) => profile.id === id)
+      if (!source) throw new Error('Quellprofil wurde nicht gefunden.')
+
+      const duplicate = createDuplicateProfile(source, currentProfiles)
+      const profiles = await window.orca.saveProfile(duplicate)
+      const savedDuplicate = profiles.find((profile) => profile.id === duplicate.id) ?? duplicate
+      set({ profiles, editorProfile: savedDuplicate })
+      get().showToast(`Profil "${source.name}" als "${duplicate.name}" dupliziert.`)
+    } catch (error) {
+      get().showToast(`Profil konnte nicht dupliziert werden: ${errorMessage(error)}`)
     }
   },
 

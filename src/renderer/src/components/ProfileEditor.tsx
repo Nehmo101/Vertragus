@@ -1009,6 +1009,15 @@ export default function ProfileEditor(): JSX.Element | null {
           {isSavedProfile && (
             <button
               type="button"
+              className="btn-secondary"
+              onClick={() => void store.duplicateProfile(draft.id)}
+            >
+              Profil duplizieren
+            </button>
+          )}
+          {isSavedProfile && (
+            <button
+              type="button"
               className="btn-danger modal-delete-btn"
               disabled={hasRunningAgents}
               title={hasRunningAgents ? 'Während einer laufenden Agent-Session nicht verfügbar' : 'Profil löschen'}

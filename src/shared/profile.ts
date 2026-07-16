@@ -165,6 +165,45 @@ export type WorkspaceProfile = Omit<ParsedWorkspaceProfile, 'orchestrator'> & {
   orchestrator?: OrchestratorConfig
 }
 
+/** Create an independent, uniquely identified copy of a workspace profile. */
+export function duplicateProfile(
+  source: WorkspaceProfile,
+  existingProfiles: WorkspaceProfile[]
+): WorkspaceProfile {
+  const existingIds = new Set([source.id, ...existingProfiles.map((profile) => profile.id)])
+  const baseId = `profile-${Date.now().toString(36)}`
+  let id = baseId
+  let idSuffix = 2
+  while (existingIds.has(id)) {
+    id = `${baseId}-${idSuffix}`
+    idSuffix += 1
+  }
+
+  const existingNames = new Set(
+    existingProfiles.map((profile) => profile.name.trim().toLowerCase())
+  )
+  const sourceName = source.name.trim()
+  let name = `${sourceName} (Kopie)`
+  let nameSuffix = 2
+  while (existingNames.has(name.trim().toLowerCase())) {
+    name = `${sourceName} (Kopie ${nameSuffix})`
+    nameSuffix += 1
+  }
+
+  const clonedSource = structuredClone(source)
+  return workspaceProfileSchema.parse({
+    ...clonedSource,
+    id,
+    name,
+    githubRepo: source.githubRepo
+      ? { ...source.githubRepo, cloneStatus: 'unbound', localPath: '' }
+      : undefined,
+    githubProject: source.githubProject ? { ...source.githubProject } : undefined,
+    agents: clonedSource.agents.map((slot) => ({ ...slot, yolo: false })),
+    yoloDefault: false
+  })
+}
+
 export interface RepoProfileGenerationRequest {
   workingDir: string
   /** Provider/model that performs the repository analysis. */
