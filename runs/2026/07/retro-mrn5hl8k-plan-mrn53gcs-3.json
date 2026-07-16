@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784184674037,
+  "exportedAt": 1784184698228,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -14,7 +14,7 @@
     "planId": "plan-mrn53gcs-3",
     "goal": "Branch-Button im oberen Menüband (Titlebar) auf kleinen Bildschirmen zuverlässig sichtbar und bedienbar machen — Umsetzung der responsiven Korrektur, nachdem Lauf 1 keinen Code-Diff lieferte. Funktion/aria unverändert, große Bildschirme unverändert.",
     "status": "success",
-    "summary": "Lauf erfolgreich: 1 Modell(e), 1/1 Tasks erfolgreich.",
+    "summary": "Folgeplan erfolgreich: systems-integrator (Codex/gpt-5.6-sol) setzte den responsiven Branch-Selector-Fix in responsiveGuards.module.css tatsächlich um (verifizierter Commit 6fb74e78), nachdem Cursor im Erstlauf keinen Diff lieferte. Typecheck/Lint/statische Breakpoint-Analyse grün; test/build/ui-smoke blieben durch bekannten spawn-EPERM-Infrablocker unausführbar.",
     "modelStats": [
       {
         "provider": "codex",
@@ -44,7 +44,36 @@
         "avgDurationMs": 591782
       }
     ],
-    "learnings": [],
+    "learnings": [
+      {
+        "id": "learning-mrn5i3w8-1-tv8n9j",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "systems-integrator",
+        "kind": "strength",
+        "insight": "Zuverlässige, saubere First-Pass-Umsetzung eines responsiven CSS-Fix mit exaktem Scope (nur beauftragte Datei) und korrekter Erhaltung von Funktion/aria",
+        "evidence": "Umsetzung in responsiveGuards.module.css: Breakpoint-Staffel >1320/721-1320/≤720px, Branch-Select bleibt klickbar (64px), onChange/switchGitBranch/aria-label unverändert; Commit 6fb74e78",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784184698168,
+        "updatedAt": 1784184698168
+      },
+      {
+        "id": "learning-mrn5i3w8-2-jgnk4d",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "systems-integrator",
+        "kind": "strength",
+        "insight": "Behandelt bekannten Infrastruktur-Gate-Fehler (spawn EPERM) vertragskonform: kürzer Versuch, klare Dokumentation, Fortsetzung über typecheck+lint+statische Analyse statt Blockade",
+        "evidence": "Meldete test/build/ui-smoke als 0/3 wegen esbuild spawn EPERM (errno -4048), lieferte aber grüne typecheck/lint und 3/3 statische Breakpoint-Prüfung",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784184698168,
+        "updatedAt": 1784184698168
+      }
+    ],
     "createdAt": 1784184673988
   }
 }
