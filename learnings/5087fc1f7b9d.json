@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784197382777,
+  "exportedAt": 1784197916657,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -8,6 +8,20 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrndddss-1-ltza68",
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "role": "qa-gate-runner",
+      "kind": "strength",
+      "insight": "Prüft die Auftragsprämisse selbst und fängt eine falsche 'ist-integriert'-Annahme per git-Ancestry-Check ab, statt hohle Gates am falschen Stand zu fahren",
+      "evidence": "Belegte per merge-base --is-ancestor + branch --contains, dass bedb4cd8 nur auf task-54 liegt und weder in HEAD/main/origin-main noch im QA-Worktree vorhanden ist; meldete ehrlich BLOCKER statt Schein-PASS",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784197914652,
+      "updatedAt": 1784197914652
+    },
     {
       "id": "learning-mrn6nvgh-2-1fr14b",
       "provider": "claude",
@@ -106,6 +120,20 @@
       "updatedAt": 1784195364975
     },
     {
+      "id": "learning-mrnbummx-3-582uc7",
+      "provider": "claude",
+      "model": "claude-opus-4-8",
+      "role": "security-review",
+      "kind": "weakness",
+      "insight": "Fiel in diesem Lauf NICHT modellbedingt aus, sondern durch Account-Spend-Limit ('monthly spend limit') — Aufgabe wurde auf Codex umgeleitet. Kein Qualitätsdefekt.",
+      "evidence": "sec-review Versuch 1 (Frodo 2, opus) error: 'You've hit your monthly spend limit'; Versuch 2 (codex) erfolgreich.",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784195360025,
+      "updatedAt": 1784195360025
+    },
+    {
       "id": "learning-mrnbummx-1-cr8t9r",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -127,20 +155,6 @@
       "kind": "strength",
       "insight": "Umgeht die Sandbox-Restriktion 'esbuild spawn EPERM' korrekt über einen config-freien Vitest-Lauf mit In-Memory-TS-Transform, ohne Hilfsdateien oder Produktcode-Änderung — kein False-Blocker.",
       "evidence": "impl-all + Grishnákh 2: config-freier Lauf 44/44 bzw. 40/40 grün statt BLOCKER.",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784195360025,
-      "updatedAt": 1784195360025
-    },
-    {
-      "id": "learning-mrnbummx-3-582uc7",
-      "provider": "claude",
-      "model": "claude-opus-4-8",
-      "role": "security-review",
-      "kind": "weakness",
-      "insight": "Fiel in diesem Lauf NICHT modellbedingt aus, sondern durch Account-Spend-Limit ('monthly spend limit') — Aufgabe wurde auf Codex umgeleitet. Kein Qualitätsdefekt.",
-      "evidence": "sec-review Versuch 1 (Frodo 2, opus) error: 'You've hit your monthly spend limit'; Versuch 2 (codex) erfolgreich.",
       "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
