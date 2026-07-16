@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784185208487,
+  "exportedAt": 1784185241732,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -8,6 +8,33 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrn5tqgt-1-xsp8bl",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "orchestrator-core",
+      "kind": "weakness",
+      "insight": "fehleranfällig bei orchestrator-core",
+      "evidence": "1/2 auswertbare Tasks inhaltlich fehlgeschlagen",
+      "source": "auto-retro",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784185240637,
+      "updatedAt": 1784185240637
+    },
+    {
+      "id": "learning-mrn50suj-1-re1u19",
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "kind": "weakness",
+      "insight": "Worker-Versuche scheiterten; Aufgaben wurden auf andere Slots umgeleitet",
+      "evidence": "1 inhaltlich fehlgeschlagene(r) Versuch(e) in diesem Lauf",
+      "source": "auto-retro",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 2,
+      "createdAt": 1784183890699,
+      "updatedAt": 1784185240637
+    },
     {
       "id": "learning-mrn4ge52-1-1qp7x4",
       "provider": "codex",
@@ -317,19 +344,6 @@
       "updatedAt": 1784183954244
     },
     {
-      "id": "learning-mrn50suj-1-re1u19",
-      "provider": "claude",
-      "model": "claude-sonnet-5",
-      "kind": "weakness",
-      "insight": "Worker-Versuche scheiterten; Aufgaben wurden auf andere Slots umgeleitet",
-      "evidence": "1 inhaltlich fehlgeschlagene(r) Versuch(e) in diesem Lauf",
-      "source": "auto-retro",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784183890699,
-      "updatedAt": 1784183890699
-    },
-    {
       "id": "learning-mrn4rl0o-1-u5kgwa",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -467,20 +481,6 @@
       "observations": 1,
       "createdAt": 1784121926332,
       "updatedAt": 1784121926332
-    },
-    {
-      "id": "learning-mrm27c1p-1-eter44",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "backend-services",
-      "kind": "weakness",
-      "insight": "Markdown-Doku-Tasks scheitern am zentralen Commit-Gate 'git diff --cached --check' (trailing whitespace/CRLF) — Whitespace-Hygiene im Prompt explizit fordern",
-      "evidence": "O00 Attempt 1 (Ungoliant): Audit inhaltlich vollständig, Abnahme blockiert mit 'Command failed: git diff --cached --check'",
-      "source": "orchestrator",
-      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
-      "observations": 1,
-      "createdAt": 1784118690493,
-      "updatedAt": 1784118690493
     },
     {
       "id": "learning-mrm27c1p-2-8m151z",
