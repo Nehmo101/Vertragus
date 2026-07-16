@@ -1,0 +1,115 @@
+{
+  "version": 1,
+  "exportedAt": 1784183890755,
+  "app": {
+    "name": "orca-strator",
+    "version": "0.1.47-main.1.gb3a336d"
+  },
+  "machineId": "5087fc1f7b9d",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrn50sux-plan-mrn3y1r4-2",
+    "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+    "workspaceSessionId": "f769f675-db64-4095-a36d-71e88b1ce274",
+    "planId": "plan-mrn3y1r4-2",
+    "goal": "Branch-Button im oberen Menüband auf kleinen Bildschirmen zuverlässig sichtbar und bedienbar machen — ohne horizontales Scrollen und ohne die Darstellung auf großen Bildschirmen zu verändern. Funktion des Buttons bleibt unverändert.",
+    "status": "error",
+    "summary": "Lauf mit Fehlern: 3 Modell(e), 1/2 Tasks erfolgreich.",
+    "modelStats": [
+      {
+        "provider": "cursor",
+        "model": "composer-2.5",
+        "roles": [
+          "frontend-ui"
+        ],
+        "tasks": 1,
+        "succeeded": 1,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "avgDurationMs": 42524,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      },
+      {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "roles": [
+          "orchestrator-core"
+        ],
+        "tasks": 1,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 1,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 1
+        },
+        "failedAttempts": 1,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 1
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "avgDurationMs": 1807879
+      },
+      {
+        "provider": "claude",
+        "model": "claude-sonnet-5",
+        "roles": [],
+        "tasks": 0,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 1,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 1
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrn50suj-1-re1u19",
+        "provider": "claude",
+        "model": "claude-sonnet-5",
+        "kind": "weakness",
+        "insight": "Worker-Versuche scheiterten; Aufgaben wurden auf andere Slots umgeleitet",
+        "evidence": "1 inhaltlich fehlgeschlagene(r) Versuch(e) in diesem Lauf",
+        "source": "auto-retro",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784183890699,
+        "updatedAt": 1784183890699
+      }
+    ],
+    "createdAt": 1784183890713
+  }
+}
