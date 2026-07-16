@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784204703054,
+  "exportedAt": 1784214045233,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -8,6 +8,48 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrnmz2ym-2-j7a8ij",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "orchestrator-core",
+      "kind": "weakness",
+      "insight": "Kein Task erreicht 'success' solange Vitest/Build am esbuild spawn EPERM scheitern → needs-work → Quarantäne-Commit, nicht in Arbeitsbranch gemergt",
+      "evidence": "b60f0ebb nicht Ancestor von orch-22-HEAD 5c135cb; EPERM 3× (task-28/74/111)",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784214043582,
+      "updatedAt": 1784214043582
+    },
+    {
+      "id": "learning-mrnmz2ym-3-aesda6",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "orchestrator-core",
+      "kind": "weakness",
+      "insight": "Plan-Worker liefen trotz profile.yoloDefault UND yoloMaster in der Restricted-Token-Sandbox — Yolo erreicht den Worker-Launch nicht",
+      "evidence": "task-111: git checkout scheiterte an index.lock, vitest an spawn EPERM",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784214043582,
+      "updatedAt": 1784214043582
+    },
+    {
+      "id": "learning-mrnmz2ym-1-654613",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "orchestrator-core",
+      "kind": "strength",
+      "insight": "Setzt gekoppelte 14-Datei-Feature-Scheibe korrekt um, materialisiert per apply_patch wenn git checkout an .git-index.lock scheitert, behebt Kontraktdefekt exakt",
+      "evidence": "task-111: 36de2203 reconciled, Fallback auf neutralen '—' gefixt, Referenz-Blobs verifiziert, Security-Gate findings:[]; als b60f0ebb übernommen",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784214043582,
+      "updatedAt": 1784214043582
+    },
     {
       "id": "learning-mrn5nmci-1-ojqmi",
       "provider": "codex",
@@ -380,20 +422,6 @@
       "updatedAt": 1784195290673
     },
     {
-      "id": "learning-mrnbsmve-3-8jz57v",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "orchestrator-core",
-      "kind": "weakness",
-      "insight": "Gräbt bei blockiertem vitest tief in Framework-Internals, statt sofort config-frei zu testen",
-      "evidence": "Mehrere Minuten in cli-api.js/vite-Chunks; --config false wird von Vitest 2.1.9 zudem als Dateipfad fehlinterpretiert, Lösung erst über tsc-Emit + config-freie CLI",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784195267018,
-      "updatedAt": 1784195267018
-    },
-    {
       "id": "learning-mrnbsmve-1-hncg65",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -450,20 +478,6 @@
       "updatedAt": 1784195267018
     },
     {
-      "id": "learning-mrn6oz5y-1-r7hlsm",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "orchestrator-core",
-      "kind": "strength",
-      "insight": "zuverlässig im ersten Anlauf bei orchestrator-core, systems-integrator",
-      "evidence": "2/2 Tasks ohne Wiederholung erfolgreich",
-      "source": "auto-retro",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784186698246,
-      "updatedAt": 1784186698246
-    },
-    {
       "id": "learning-mrn50suj-1-re1u19",
       "provider": "claude",
       "model": "claude-sonnet-5",
@@ -475,20 +489,6 @@
       "observations": 7,
       "createdAt": 1784183890699,
       "updatedAt": 1784186698246
-    },
-    {
-      "id": "learning-mrn6jk62-1-pwft0z",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "main-orchestrator",
-      "kind": "weakness",
-      "insight": "Quality-Gates erfordern Nacharbeit bei main-orchestrator, renderer-ui, test-qa",
-      "evidence": "2 Task(s) mit 3 Gate-Finding(s)",
-      "source": "auto-retro",
-      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
-      "observations": 1,
-      "createdAt": 1784186445530,
-      "updatedAt": 1784186445530
     },
     {
       "id": "learning-mrn6iu80-1-ymumvi",
