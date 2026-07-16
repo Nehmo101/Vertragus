@@ -1,0 +1,146 @@
+{
+  "version": 1,
+  "exportedAt": 1784184955609,
+  "app": {
+    "name": "orca-strator",
+    "version": "0.1.47-main.1.gb3a336d"
+  },
+  "machineId": "5087fc1f7b9d",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrn5nmde-plan-mrn4mle4-2",
+    "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+    "workspaceSessionId": "fde9e06e-ffd8-40e1-a743-5c6198ab6b40",
+    "planId": "plan-mrn4mle4-2",
+    "goal": "Ideen-Liste: statische Status-Chips je Row durch Live-Status 'Schritt x von x' (echter Plan-Fortschritt) ersetzen; idea.status im Datenmodell und Editor bleibt erhalten.",
+    "status": "needs-work",
+    "summary": "Lauf mit Nacharbeit: 4 Modell(e), 1/4 Tasks erfolgreich.",
+    "modelStats": [
+      {
+        "provider": "cursor",
+        "model": "composer-2.5",
+        "roles": [
+          "frontend-ui"
+        ],
+        "tasks": 1,
+        "succeeded": 1,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "avgDurationMs": 55135,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      },
+      {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "roles": [
+          "orchestrator-core"
+        ],
+        "tasks": 1,
+        "succeeded": 0,
+        "needsWork": 1,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 1,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 1
+        },
+        "gateFindings": 1,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "avgDurationMs": 1660499
+      },
+      {
+        "provider": "claude",
+        "model": "claude-sonnet-5",
+        "roles": [
+          "qa-gate-runner"
+        ],
+        "tasks": 1,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 1,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 1,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "avgDurationMs": 1727396,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      },
+      {
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "roles": [
+          "security-review"
+        ],
+        "tasks": 1,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 1,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 1,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "avgDurationMs": 1727472,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrn5nmci-1-ojqmi",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "orchestrator-core",
+        "kind": "weakness",
+        "insight": "Quality-Gates erfordern Nacharbeit bei orchestrator-core",
+        "evidence": "1 Task(s) mit 1 Gate-Finding(s)",
+        "source": "auto-retro",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784184955362,
+        "updatedAt": 1784184955362
+      }
+    ],
+    "createdAt": 1784184955394
+  }
+}
