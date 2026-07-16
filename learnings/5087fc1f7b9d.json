@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784186413020,
+  "exportedAt": 1784186446726,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -8,6 +8,20 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrn6jk62-1-pwft0z",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "main-orchestrator",
+      "kind": "weakness",
+      "insight": "Quality-Gates erfordern Nacharbeit bei main-orchestrator, renderer-ui, test-qa",
+      "evidence": "2 Task(s) mit 3 Gate-Finding(s)",
+      "source": "auto-retro",
+      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+      "observations": 1,
+      "createdAt": 1784186445530,
+      "updatedAt": 1784186445530
+    },
     {
       "id": "learning-mrn50suj-1-re1u19",
       "provider": "claude",
@@ -48,6 +62,20 @@
       "observations": 4,
       "createdAt": 1784182938518,
       "updatedAt": 1784186076195
+    },
+    {
+      "id": "learning-mrn65kxf-3-2grohn",
+      "provider": "claude",
+      "model": "claude-opus-4-8",
+      "role": "security-review",
+      "kind": "strength",
+      "insight": "Exzellentes Urteil: trennt 'nicht verifizierbar' klar von 'fehlerhaft' und liefert korrekt eingeordnete Härtungsbefunde",
+      "evidence": "Erkannte fehlenden Commit im eigenen Worktree, prüfte die zugängliche Variante, fand medium-Härtung (githubRepo.localPath/cloneStatus + yolo werden mitkopiert) mit sauberer Go/No-Go-Einordnung",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784185793331,
+      "updatedAt": 1784185793331
     },
     {
       "id": "learning-mrn65kxf-5-kuiuc7",
@@ -92,20 +120,6 @@
       "updatedAt": 1784185793331
     },
     {
-      "id": "learning-mrn65kxf-3-2grohn",
-      "provider": "claude",
-      "model": "claude-opus-4-8",
-      "role": "security-review",
-      "kind": "strength",
-      "insight": "Exzellentes Urteil: trennt 'nicht verifizierbar' klar von 'fehlerhaft' und liefert korrekt eingeordnete Härtungsbefunde",
-      "evidence": "Erkannte fehlenden Commit im eigenen Worktree, prüfte die zugängliche Variante, fand medium-Härtung (githubRepo.localPath/cloneStatus + yolo werden mitkopiert) mit sauberer Go/No-Go-Einordnung",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784185793331,
-      "updatedAt": 1784185793331
-    },
-    {
       "id": "learning-mrn65kxf-4-gdkn0y",
       "provider": "claude",
       "model": "claude-sonnet-5",
@@ -134,6 +148,20 @@
       "updatedAt": 1784185789441
     },
     {
+      "id": "learning-mrn65hxd-3-6hwvke",
+      "provider": "claude",
+      "model": "claude-opus-4-8",
+      "role": "security-review",
+      "kind": "strength",
+      "insight": "Sehr gründliche Diagnose komplexer Timing-/Streaming-Kopplungen mit Ausschluss von Scheinursachen",
+      "evidence": "diagnose-cursor (Beorn) fand die onActivity↔onLine-Kopplung als Idle-Timeout-Ursache und schloss Trust-Prompt/Flags/Kapazität mit Belegzitaten als Nebeneffekte aus",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784185789441,
+      "updatedAt": 1784185789441
+    },
+    {
       "id": "learning-mrn65hxd-1-5xjknc",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -155,20 +183,6 @@
       "kind": "strength",
       "insight": "Minimal-invasive Integrator-Fixes mit belegter Invarianz des unberührten Pfads",
       "evidence": "implement-fix (Thorin): 6 Dateien, provider-spezifischer Fix für Codex+Cursor, Claude-Args unverändert per Test belegt, 46/46 grün, Typecheck/Lint/whitespace sauber",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784185789441,
-      "updatedAt": 1784185789441
-    },
-    {
-      "id": "learning-mrn65hxd-3-6hwvke",
-      "provider": "claude",
-      "model": "claude-opus-4-8",
-      "role": "security-review",
-      "kind": "strength",
-      "insight": "Sehr gründliche Diagnose komplexer Timing-/Streaming-Kopplungen mit Ausschluss von Scheinursachen",
-      "evidence": "diagnose-cursor (Beorn) fand die onActivity↔onLine-Kopplung als Idle-Timeout-Ursache und schloss Trust-Prompt/Flags/Kapazität mit Belegzitaten als Nebeneffekte aus",
       "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
@@ -454,20 +468,6 @@
       "observations": 1,
       "createdAt": 1784184698168,
       "updatedAt": 1784184698168
-    },
-    {
-      "id": "learning-mrn5cqhs-1-1a6hac",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "systems-integrator",
-      "kind": "weakness",
-      "insight": "Meldet BLOCKER bei reinen Infra-Problemen (esbuild spawn EPERM beim vitest.config.ts-Bundle; MCP-Board-Calls 'user cancelled'), obwohl Code/Typecheck/Lint/config-freier Vitest grün sind.",
-      "evidence": "t1: Ancalagon+Smaug beide BLOCKER, aber Artefakt bestand alle Gates und wurde als Commit 7feed018 übernommen; 8/8 Tests grün.",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784184447520,
-      "updatedAt": 1784184447520
     },
     {
       "id": "learning-mrn53zul-3-ki51rc",
