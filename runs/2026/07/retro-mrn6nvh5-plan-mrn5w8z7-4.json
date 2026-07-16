@@ -1,0 +1,102 @@
+{
+  "version": 1,
+  "exportedAt": 1784186646885,
+  "app": {
+    "name": "orca-strator",
+    "version": "0.1.47-main.1.gb3a336d"
+  },
+  "machineId": "5087fc1f7b9d",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrn6nvh5-plan-mrn5w8z7-4",
+    "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+    "workspaceSessionId": "24aee9d3-6156-4432-b2bb-8692553b11f3",
+    "planId": "plan-mrn5w8z7-4",
+    "goal": "Mode-Vorgabe für Claude-Modelle im Orchestrator, KOMPLETT in EINER self-contained Aufgabe (ein Worktree, ein Commit): neues Shared-Modul + Provider-CLI-Flag + UI-Selector + Schema-Feld + Spawn-Threading + ProfileEditor. Ziel: Claude-Orchestrator mit permissionMode='auto' startet real mit --permission-mode acceptEdits (nicht bei Yolo). Andere Provider unverändert.",
+    "status": "success",
+    "summary": "Lauf erfolgreich: 2 Modell(e), 2/2 Tasks erfolgreich.",
+    "modelStats": [
+      {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "roles": [
+          "orchestrator-core"
+        ],
+        "tasks": 2,
+        "succeeded": 2,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "avgDurationMs": 1001869
+      },
+      {
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "roles": [],
+        "tasks": 0,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 1,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 1
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrn6nvgh-1-1ietwq",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "orchestrator-core",
+        "kind": "strength",
+        "insight": "zuverlässig im ersten Anlauf bei orchestrator-core",
+        "evidence": "2/2 Tasks ohne Wiederholung erfolgreich",
+        "source": "auto-retro",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784186646785,
+        "updatedAt": 1784186646785
+      },
+      {
+        "id": "learning-mrn6nvgh-2-1fr14b",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "kind": "weakness",
+        "insight": "Worker-Versuche scheiterten; Aufgaben wurden auf andere Slots umgeleitet",
+        "evidence": "1 inhaltlich fehlgeschlagene(r) Versuch(e) in diesem Lauf",
+        "source": "auto-retro",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784186646785,
+        "updatedAt": 1784186646785
+      }
+    ],
+    "createdAt": 1784186646809
+  }
+}
