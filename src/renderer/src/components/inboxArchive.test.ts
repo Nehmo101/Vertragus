@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Idea } from '@shared/inbox'
+import type { Idea, IdeaHistoryEntry } from '@shared/inbox'
 import {
   formatIdeaDate,
   ideaTimestamp,
@@ -7,11 +7,10 @@ import {
   ideasForView,
   listRemovableIdeaAttributes,
   sortedIdeaHistory,
-  workspaceReferences,
-  type ArchiveIdea
+  workspaceReferences
 } from './inboxArchive'
 
-function idea(overrides: Partial<ArchiveIdea>): ArchiveIdea {
+function idea(overrides: Partial<Idea>): Idea {
   return {
     id: 'idea-1',
     title: 'Idee',
@@ -85,7 +84,7 @@ describe('listRemovableIdeaAttributes', () => {
 
 describe('archive metadata', () => {
   it('sorts history newest first without mutating it and exposes both workspace links', () => {
-    const history = [
+    const history: IdeaHistoryEntry[] = [
       { at: 10, kind: 'created' },
       { at: 30, kind: 'archived', detail: 'Manuell' }
     ]

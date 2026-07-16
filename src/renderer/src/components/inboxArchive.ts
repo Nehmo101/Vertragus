@@ -1,28 +1,16 @@
-import type { Idea } from '@shared/inbox'
+import {
+  REMOVABLE_IDEA_ATTRIBUTES,
+  type Idea,
+  type IdeaArchiveView,
+  type IdeaHistoryEntry,
+  type RemovableIdeaAttribute
+} from '@shared/inbox'
 
-export interface IdeaHistoryEntry {
-  at: number
-  kind: string
-  detail?: string
-}
+type RemovableRefKey = Exclude<RemovableIdeaAttribute, 'tags'>
 
-export type ArchiveIdea = Idea & {
-  archivedAt?: number
-  history?: IdeaHistoryEntry[]
-}
-
-export type IdeaArchiveView = 'inbox' | 'archive'
-
-export const REMOVABLE_REF_KEYS = [
-  'profileId',
-  'workspaceId',
-  'planId',
-  'taskId'
-] as const
-
-export type RemovableRefKey = (typeof REMOVABLE_REF_KEYS)[number]
-
-export type RemovableIdeaAttribute = 'tags' | RemovableRefKey
+export const REMOVABLE_REF_KEYS: RemovableRefKey[] = REMOVABLE_IDEA_ATTRIBUTES.filter(
+  (attribute): attribute is RemovableRefKey => attribute !== 'tags'
+)
 
 export interface RemovableIdeaAttributeOption {
   id: string
@@ -50,24 +38,7 @@ const DATE_FORMATTER = new Intl.DateTimeFormat('de-DE', {
   minute: '2-digit'
 })
 
-/**
- * Integration point for the archive IPC work. The renderer intentionally keeps
- * these pending preload signatures local until the shared contract lands.
- */
-export interface InboxArchiveBridge {
-  list(): Promise<ArchiveIdea[]>
-  removeAttribute(
-    ideaId: string,
-    attribute: RemovableIdeaAttribute
-  ): Promise<ArchiveIdea>
-  restoreIdea(ideaId: string): Promise<ArchiveIdea>
-}
-
-export function getInboxArchiveBridge(): InboxArchiveBridge {
-  return window.orca.inbox as unknown as InboxArchiveBridge
-}
-
-export function ideaTimestamp(idea: ArchiveIdea, view: IdeaArchiveView): number {
+export function ideaTimestamp(idea: Idea, view: IdeaArchiveView): number {
   return view === 'archive' ? (idea.archivedAt ?? idea.updatedAt) : idea.updatedAt
 }
 
@@ -79,10 +50,7 @@ export function formatIdeaDate(timestamp: number): string {
   return Number.isFinite(timestamp) ? DATE_FORMATTER.format(timestamp) : '—'
 }
 
-export function ideasForView(
-  ideas: ArchiveIdea[],
-  view: IdeaArchiveView
-): ArchiveIdea[] {
+export function ideasForView(ideas: Idea[], view: IdeaArchiveView): Idea[] {
   return ideas
     .filter((idea) =>
       view === 'archive' ? idea.status === 'archived' : idea.status !== 'archived'
@@ -90,9 +58,7 @@ export function ideasForView(
     .sort((left, right) => ideaTimestamp(right, view) - ideaTimestamp(left, view))
 }
 
-export function listRemovableIdeaAttributes(
-  idea: ArchiveIdea
-): RemovableIdeaAttributeOption[] {
+export function listRemovableIdeaAttributes(idea: Idea): RemovableIdeaAttributeOption[] {
   const tags = idea.tags.filter(Boolean)
   const tagOption = tags.length > 0
     ? [{
@@ -117,11 +83,11 @@ export function listRemovableIdeaAttributes(
   return [...tagOption, ...refs]
 }
 
-export function sortedIdeaHistory(idea: ArchiveIdea): IdeaHistoryEntry[] {
+export function sortedIdeaHistory(idea: Idea): IdeaHistoryEntry[] {
   return [...(idea.history ?? [])].sort((left, right) => right.at - left.at)
 }
 
-export function workspaceReferences(idea: ArchiveIdea): WorkspaceReference[] {
+export function workspaceReferences(idea: Idea): WorkspaceReference[] {
   return [
     idea.refs?.workspaceId
       ? { label: 'Workspace-ID', value: idea.refs.workspaceId }

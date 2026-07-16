@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Idea } from '@shared/inbox'
+import type { Idea, IdeaHistoryEntry, RemovableIdeaAttribute } from '@shared/inbox'
 import {
   appendHistory,
   archiveIdea,
@@ -9,12 +9,10 @@ import {
   listInboxIdeas,
   removeIdeaAttribute,
   restoreIdea,
-  sortNewestFirst,
-  type ArchiveIdea,
-  type RemovableIdeaAttribute
+  sortNewestFirst
 } from './archive'
 
-function makeIdea(overrides: Partial<ArchiveIdea> = {}): ArchiveIdea {
+function makeIdea(overrides: Partial<Idea> = {}): Idea {
   const idea: Idea = {
     id: 'idea-1',
     title: 'Archive feature',
@@ -70,6 +68,24 @@ describe('idea archive helpers', () => {
     expect(result.history).toEqual([...history, entry])
     expect(result.history).not.toBe(history)
     expect(idea.history).toBe(history)
+  })
+
+  it('keeps only the newest 100 history entries', () => {
+    const history: IdeaHistoryEntry[] = Array.from({ length: 100 }, (_, at) => ({
+      at,
+      kind: 'statusChanged'
+    }))
+
+    const result = appendHistory(makeIdea({ history }), {
+      at: 100,
+      kind: 'archived'
+    })
+
+    expect(result.history).toHaveLength(100)
+    expect(result.history?.[0]).toMatchObject({ at: 1 })
+    expect(result.history?.at(-1)).toEqual({ at: 100, kind: 'archived' })
+    expect(history).toHaveLength(100)
+    expect(history[0]).toMatchObject({ at: 0 })
   })
 
   it('archives an idea and preserves refs, tags, artifacts, and transfer telemetry', () => {
@@ -191,6 +207,23 @@ describe('idea archive helpers', () => {
 
     expect(result.refs).toBeUndefined()
   })
+
+  it.each([
+    ['tags', makeIdea({ tags: [], history: [{ at: 1, kind: 'created' }] })],
+    [
+      'workspaceId',
+      makeIdea({ refs: { profileId: 'profile-1' }, history: [{ at: 1, kind: 'created' }] })
+    ]
+  ] as const)(
+    'keeps timestamps and history unchanged when removing an absent %s attribute',
+    (attribute, idea) => {
+      const result = removeIdeaAttribute(idea, attribute, 999)
+
+      expect(result).toBe(idea)
+      expect(result.updatedAt).toBe(100)
+      expect(result.history).toEqual([{ at: 1, kind: 'created' }])
+    }
+  )
 
   it('rejects attributes outside the runtime allowlist', () => {
     const unknownAttribute = 'transfer' as RemovableIdeaAttribute

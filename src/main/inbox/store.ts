@@ -13,11 +13,19 @@ import {
   type CreateIdeaInput,
   type Idea,
   type IdeaArtifact,
+  type RemovableIdeaAttribute,
   type UpdateIdeaInput
 } from '@shared/inbox'
 import { fileExists, tryCopyArtifactFile } from '@main/inbox/files'
 import { consumePickerGrant } from '@main/inbox/pickerGrants'
 import type { IdeaTransfer } from '@shared/inboxTransfer'
+import {
+  appendHistory,
+  autoArchiveProcessed,
+  removeIdeaAttribute as removeIdeaAttributeValue,
+  restoreIdea as restoreIdeaValue,
+  sortNewestFirst
+} from '@main/inbox/archive'
 
 interface InboxStoreShape {
   ideas: Idea[]
@@ -32,8 +40,25 @@ function now(): number {
   return Date.now()
 }
 
+function assertRendererStatusAllowed(status: unknown): void {
+  if (status === 'archived') {
+    throw new Error('Archivierung ist nur ueber die Main-Archivoperation erlaubt.')
+  }
+}
+
+function normalizeArchiveMetadata(idea: Idea): Idea {
+  if (idea.status === 'archived') {
+    return idea.archivedAt === undefined ? { ...idea, archivedAt: idea.updatedAt } : idea
+  }
+  if (idea.archivedAt === undefined) return idea
+
+  const normalized = { ...idea }
+  delete normalized.archivedAt
+  return normalized
+}
+
 function parseIdeas(): Idea[] {
-  return store.get('ideas').map((idea) => ideaSchema.parse(idea))
+  return store.get('ideas').map((idea) => normalizeArchiveMetadata(ideaSchema.parse(idea)))
 }
 
 function saveIdeas(ideas: Idea[]): Idea[] {
@@ -46,7 +71,7 @@ function enrichAll(ideas: Idea[]): Idea[] {
 }
 
 export function listIdeas(): Idea[] {
-  return enrichAll(parseIdeas().sort((a, b) => b.updatedAt - a.updatedAt))
+  return enrichAll(sortNewestFirst(parseIdeas(), 'inbox'))
 }
 
 export function getIdea(id: string): Idea | undefined {
@@ -55,8 +80,9 @@ export function getIdea(id: string): Idea | undefined {
 }
 
 export function createIdea(input: CreateIdeaInput = {}): Idea {
+  assertRendererStatusAllowed((input as { status?: unknown }).status)
   const ts = now()
-  const idea: Idea = ideaSchema.parse({
+  let idea: Idea = ideaSchema.parse({
     id: randomUUID(),
     title: input.title?.trim() || 'Neue Idee',
     content: input.content ?? '',
@@ -64,9 +90,13 @@ export function createIdea(input: CreateIdeaInput = {}): Idea {
     tags: normalizeTags(input.tags),
     refs: input.refs,
     artifacts: [],
+    history: [{ at: ts, kind: 'created' }],
     createdAt: ts,
     updatedAt: ts
   })
+  if (input.status === 'done') {
+    idea = autoArchiveProcessed([idea], ts).ideas[0]
+  }
   const ideas = parseIdeas()
   ideas.push(idea)
   saveIdeas(ideas)
@@ -74,20 +104,38 @@ export function createIdea(input: CreateIdeaInput = {}): Idea {
 }
 
 export function updateIdea(input: UpdateIdeaInput): Idea {
+  assertRendererStatusAllowed((input as { status?: unknown }).status)
   const ideas = parseIdeas()
   const idx = ideas.findIndex((i) => i.id === input.id)
   if (idx < 0) throw new Error('Idee nicht gefunden.')
   const current = ideas[idx]
-  const updated: Idea = ideaSchema.parse({
+  if (current.status === 'archived' && input.status !== undefined) {
+    throw new Error('Archivierte Ideen koennen nur ueber die Main-Operation wiederhergestellt werden.')
+  }
+  const ts = now()
+  const nextStatus = input.status ?? current.status
+  let updated: Idea = ideaSchema.parse({
     ...current,
     title: input.title !== undefined ? input.title.trim() || 'Ohne Titel' : current.title,
     content: input.content !== undefined ? input.content : current.content,
-    status: input.status ?? current.status,
+    status: nextStatus,
     tags: input.tags !== undefined ? normalizeTags(input.tags) : current.tags,
     refs: input.refs !== undefined ? input.refs : current.refs,
     transfer: current.transfer,
-    updatedAt: now()
+    updatedAt: ts
   })
+
+  if (nextStatus !== current.status) {
+    updated = appendHistory(updated, {
+      at: ts,
+      kind: 'statusChanged',
+      detail: `${current.status} -> ${nextStatus}`
+    })
+  }
+  if (input.status === 'done') {
+    updated = autoArchiveProcessed([updated], ts).ideas[0]
+  }
+  updated = ideaSchema.parse(updated)
   ideas[idx] = updated
   saveIdeas(ideas)
   return enrichIdea(updated, fileExists)
@@ -103,12 +151,22 @@ export function applyIdeaTransfer(
   const idx = ideas.findIndex((i) => i.id === ideaId)
   if (idx < 0) throw new Error('Idee nicht gefunden.')
   const current = ideas[idx]
-  const updated: Idea = ideaSchema.parse({
-    ...current,
-    refs: refs !== undefined ? refs : current.refs,
-    transfer,
-    updatedAt: now()
-  })
+  const ts = now()
+  const updated: Idea = ideaSchema.parse(
+    appendHistory(
+      {
+        ...current,
+        refs: refs !== undefined ? refs : current.refs,
+        transfer,
+        updatedAt: ts
+      },
+      {
+        at: ts,
+        kind: current.transfer ? 'transferUpdated' : 'transferStarted',
+        detail: transfer.status
+      }
+    )
+  )
   ideas[idx] = updated
   saveIdeas(ideas)
   return enrichIdea(updated, fileExists)
@@ -126,6 +184,32 @@ export function resetIdeaTransfer(ideaId: string): Idea {
     transfer: undefined,
     updatedAt: now()
   })
+  ideas[idx] = updated
+  saveIdeas(ideas)
+  return enrichIdea(updated, fileExists)
+}
+
+export function removeIdeaAttribute(
+  ideaId: string,
+  attribute: RemovableIdeaAttribute
+): Idea {
+  const ideas = parseIdeas()
+  const idx = ideas.findIndex((idea) => idea.id === ideaId)
+  if (idx < 0) throw new Error('Idee nicht gefunden.')
+  const candidate = removeIdeaAttributeValue(ideas[idx], attribute, now())
+  if (candidate === ideas[idx]) return enrichIdea(ideas[idx], fileExists)
+
+  const updated = ideaSchema.parse(candidate)
+  ideas[idx] = updated
+  saveIdeas(ideas)
+  return enrichIdea(updated, fileExists)
+}
+
+export function restoreIdea(ideaId: string): Idea {
+  const ideas = parseIdeas()
+  const idx = ideas.findIndex((idea) => idea.id === ideaId)
+  if (idx < 0) throw new Error('Idee nicht gefunden.')
+  const updated = ideaSchema.parse(restoreIdeaValue(ideas[idx], now()))
   ideas[idx] = updated
   saveIdeas(ideas)
   return enrichIdea(updated, fileExists)

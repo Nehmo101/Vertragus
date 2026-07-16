@@ -29,6 +29,7 @@ import type {
   Idea,
   IdeaTransferRequest,
   IdeaTransferResult,
+  RemovableIdeaAttribute,
   UpdateIdeaInput
 } from './inbox'
 import type {
@@ -95,6 +96,8 @@ export const IPC = {
   ideasDelete: 'ideas:delete',
   ideasAddArtifact: 'ideas:addArtifact',
   ideasRemoveArtifact: 'ideas:removeArtifact',
+  ideasRemoveAttribute: 'ideas:remove-attribute',
+  ideasRestore: 'ideas:restore',
   ideasTransferToProfile: 'ideas:transferToProfile',
   ideasTransferRetry: 'ideas:transferRetry',
   ideasEnhancePrompt: 'ideas:enhancePrompt',
@@ -377,6 +380,8 @@ export interface OrcaApi {
     delete(id: string): Promise<Idea[]>
     addArtifact(ideaId: string, input: AddArtifactInput): Promise<Idea>
     removeArtifact(ideaId: string, artifactId: string): Promise<Idea>
+    removeAttribute(ideaId: string, attribute: RemovableIdeaAttribute): Promise<Idea>
+    restoreIdea(ideaId: string): Promise<Idea>
     /** Hand idea + artifacts to a workspace profile and start orchestrator planning. */
     transferToProfile(req: IdeaTransferRequest): Promise<IdeaTransferResult>
     /** Retry a failed, retryable transfer for the same profile. */

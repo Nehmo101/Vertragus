@@ -65,8 +65,15 @@ import {
   deleteIdea,
   addArtifact,
   removeArtifact,
+  removeIdeaAttribute,
+  restoreIdea,
   resetIdeaTransfer
 } from '@main/inbox/store'
+import {
+  assertAuthorizedInboxArchiveSender,
+  createInboxArchiveIpcController,
+  type ArchiveIpcEventLike
+} from '@main/inbox/archiveIpc'
 import { retryIdeaTransfer, transferIdeaToProfile } from '@main/inbox/transferService'
 import { spawnProfileTeam } from '@main/agents/spawnProfile'
 import { getActiveRepoOverridePath } from '@main/config/workspaceRepo'
@@ -175,6 +182,16 @@ export function registerIpcHandlers(): void {
       workspaceSessions.remove(id)
       return profiles
     }
+  })
+  const inboxArchiveController = createInboxArchiveIpcController({
+    authorize: (event) =>
+      assertAuthorizedInboxArchiveSender(event, {
+        developmentUrl: process.env['ELECTRON_RENDERER_URL'],
+        packagedRendererUrl: pathToFileURL(join(__dirname, '../renderer/index.html')).toString(),
+        isKnownSender: (sender) => isMainWindowSender(sender as Electron.WebContents)
+      }),
+    removeAttribute: removeIdeaAttribute,
+    restoreIdea
   })
   const requireMainWindow = (event: Electron.IpcMainInvokeEvent): void => {
     if (!isMainWindowSender(event.sender)) throw new Error('Remote-Verwaltung ist nur im Hauptfenster erlaubt.')
@@ -372,6 +389,12 @@ export function registerIpcHandlers(): void {
   )
   ipcMain.handle(IPC.ideasRemoveArtifact, (_e, ideaId: string, artifactId: string) =>
     removeArtifact(ideaId, artifactId)
+  )
+  ipcMain.handle(IPC.ideasRemoveAttribute, (event, ideaId: unknown, attribute: unknown) =>
+    inboxArchiveController.removeAttribute(event as ArchiveIpcEventLike, ideaId, attribute)
+  )
+  ipcMain.handle(IPC.ideasRestore, (event, ideaId: unknown) =>
+    inboxArchiveController.restoreIdea(event as ArchiveIpcEventLike, ideaId)
   )
   ipcMain.handle(IPC.ideasTransferToProfile, (_e, req: IdeaTransferRequest) =>
     transferIdeaToProfile(req)

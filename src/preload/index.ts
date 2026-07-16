@@ -72,6 +72,9 @@ const orca: OrcaApi = {
     addArtifact: (ideaId, input) => ipcRenderer.invoke(IPC.ideasAddArtifact, ideaId, input),
     removeArtifact: (ideaId, artifactId) =>
       ipcRenderer.invoke(IPC.ideasRemoveArtifact, ideaId, artifactId),
+    removeAttribute: (ideaId, attribute) =>
+      ipcRenderer.invoke(IPC.ideasRemoveAttribute, ideaId, attribute),
+    restoreIdea: (ideaId) => ipcRenderer.invoke(IPC.ideasRestore, ideaId),
     transferToProfile: (req) => ipcRenderer.invoke(IPC.ideasTransferToProfile, req),
     transferRetry: (ideaId, yoloMaster) =>
       ipcRenderer.invoke(IPC.ideasTransferRetry, ideaId, yoloMaster),

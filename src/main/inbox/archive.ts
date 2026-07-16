@@ -1,33 +1,10 @@
-import type { Idea } from '@shared/inbox'
-
-export type IdeaHistoryEntry = {
-  at: number
-  kind:
-    | 'created'
-    | 'statusChanged'
-    | 'transferStarted'
-    | 'transferUpdated'
-    | 'archived'
-    | 'restored'
-    | 'attributeRemoved'
-  detail?: string
-}
-
-export type ArchiveIdea = Idea & {
-  archivedAt?: number
-  history?: IdeaHistoryEntry[]
-}
-
-export const REMOVABLE_IDEA_ATTRIBUTES = [
-  'tags',
-  'profileId',
-  'workspaceId',
-  'planId',
-  'taskId'
-] as const
-
-export type RemovableIdeaAttribute = (typeof REMOVABLE_IDEA_ATTRIBUTES)[number]
-export type IdeaArchiveView = 'inbox' | 'archive'
+import {
+  REMOVABLE_IDEA_ATTRIBUTES,
+  type Idea,
+  type IdeaArchiveView,
+  type IdeaHistoryEntry,
+  type RemovableIdeaAttribute
+} from '@shared/inbox'
 
 const REF_ATTRIBUTES: Exclude<RemovableIdeaAttribute, 'tags'>[] = [
   'profileId',
@@ -35,6 +12,7 @@ const REF_ATTRIBUTES: Exclude<RemovableIdeaAttribute, 'tags'>[] = [
   'planId',
   'taskId'
 ]
+const MAX_HISTORY_ENTRIES = 100
 
 function assertRemovableAttribute(attribute: string): asserts attribute is RemovableIdeaAttribute {
   if (!REMOVABLE_IDEA_ATTRIBUTES.some((allowed) => allowed === attribute)) {
@@ -42,10 +20,11 @@ function assertRemovableAttribute(attribute: string): asserts attribute is Remov
   }
 }
 
-export function appendHistory(idea: ArchiveIdea, entry: IdeaHistoryEntry): ArchiveIdea {
+export function appendHistory(idea: Idea, entry: IdeaHistoryEntry): Idea {
+  const history = [...(idea.history ?? []), entry]
   return {
     ...idea,
-    history: [...(idea.history ?? []), entry]
+    history: history.slice(-MAX_HISTORY_ENTRIES)
   }
 }
 
@@ -53,7 +32,7 @@ export function isProcessed(idea: Idea): boolean {
   return idea.status === 'done'
 }
 
-export function archiveIdea(idea: ArchiveIdea, now: number): ArchiveIdea {
+export function archiveIdea(idea: Idea, now: number): Idea {
   if (idea.status === 'archived') {
     throw new Error('Idea is already archived.')
   }
@@ -68,14 +47,15 @@ export function archiveIdea(idea: ArchiveIdea, now: number): ArchiveIdea {
   )
 }
 
-export function restoreIdea(idea: ArchiveIdea, now: number): ArchiveIdea {
+export function restoreIdea(idea: Idea, now: number): Idea {
   if (idea.status !== 'archived') {
     throw new Error('Only archived ideas can be restored.')
   }
 
-  const restored: ArchiveIdea = {
+  const restored: Idea = {
     ...idea,
-    status: 'ready'
+    status: 'ready',
+    updatedAt: now
   }
   delete restored.archivedAt
 
@@ -83,9 +63,9 @@ export function restoreIdea(idea: ArchiveIdea, now: number): ArchiveIdea {
 }
 
 export function autoArchiveProcessed(
-  ideas: readonly ArchiveIdea[],
+  ideas: readonly Idea[],
   now: number
-): { ideas: ArchiveIdea[]; archivedIds: string[] } {
+): { ideas: Idea[]; archivedIds: string[] } {
   const archivedIds: string[] = []
   const archivedIdeas = ideas.map((idea) => {
     if (!isProcessed(idea)) return idea
@@ -97,19 +77,21 @@ export function autoArchiveProcessed(
 }
 
 export function removeIdeaAttribute(
-  idea: ArchiveIdea,
+  idea: Idea,
   attribute: RemovableIdeaAttribute,
   now: number
-): ArchiveIdea {
+): Idea {
   assertRemovableAttribute(attribute)
 
   if (attribute === 'tags') {
+    if (idea.tags.length === 0) return idea
     return appendHistory(
       { ...idea, tags: [], updatedAt: now },
       { at: now, kind: 'attributeRemoved', detail: attribute }
     )
   }
 
+  if (idea.refs?.[attribute] === undefined) return idea
   const refs = { ...idea.refs }
   delete refs[attribute]
   for (const key of REF_ATTRIBUTES) {
@@ -126,10 +108,7 @@ export function removeIdeaAttribute(
   )
 }
 
-export function sortNewestFirst(
-  ideas: readonly ArchiveIdea[],
-  view: IdeaArchiveView
-): ArchiveIdea[] {
+export function sortNewestFirst(ideas: readonly Idea[], view: IdeaArchiveView): Idea[] {
   return [...ideas].sort((left, right) => {
     const leftAt = view === 'archive' ? (left.archivedAt ?? left.updatedAt) : left.updatedAt
     const rightAt = view === 'archive' ? (right.archivedAt ?? right.updatedAt) : right.updatedAt
@@ -137,10 +116,10 @@ export function sortNewestFirst(
   })
 }
 
-export function listInboxIdeas(ideas: readonly ArchiveIdea[]): ArchiveIdea[] {
+export function listInboxIdeas(ideas: readonly Idea[]): Idea[] {
   return ideas.filter((idea) => idea.status !== 'archived')
 }
 
-export function listArchivedIdeas(ideas: readonly ArchiveIdea[]): ArchiveIdea[] {
+export function listArchivedIdeas(ideas: readonly Idea[]): Idea[] {
   return ideas.filter((idea) => idea.status === 'archived')
 }
