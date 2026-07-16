@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784202941826,
+  "exportedAt": 1784204703054,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -8,6 +8,20 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrn5nmci-1-ojqmi",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "orchestrator-core",
+      "kind": "weakness",
+      "insight": "Quality-Gates erfordern Nacharbeit bei orchestrator-core",
+      "evidence": "1 Task(s) mit 1 Gate-Finding(s)",
+      "source": "auto-retro",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 3,
+      "createdAt": 1784184955362,
+      "updatedAt": 1784204701801
+    },
     {
       "id": "learning-mrngd3o6-2-xpw4qq",
       "provider": "claude",
@@ -461,20 +475,6 @@
       "observations": 7,
       "createdAt": 1784183890699,
       "updatedAt": 1784186698246
-    },
-    {
-      "id": "learning-mrn5nmci-1-ojqmi",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "orchestrator-core",
-      "kind": "weakness",
-      "insight": "Quality-Gates erfordern Nacharbeit bei orchestrator-core",
-      "evidence": "1 Task(s) mit 1 Gate-Finding(s)",
-      "source": "auto-retro",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 2,
-      "createdAt": 1784184955362,
-      "updatedAt": 1784186672117
     },
     {
       "id": "learning-mrn6jk62-1-pwft0z",
