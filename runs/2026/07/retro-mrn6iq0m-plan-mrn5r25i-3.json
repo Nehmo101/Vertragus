@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784186406527,
+  "exportedAt": 1784195365078,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -14,7 +14,7 @@
     "planId": "plan-mrn5r25i-3",
     "goal": "Committeten Live-Status-Stand (Commit 36de2203) unabhängig verifizieren: Vitest + voller Build + Akzeptanzkriterien via Claude-Worker (statt Codex-Sandbox mit EPERM-Blocker), plus Security-Review der neuen IPC/liveStatus-Fläche.",
     "status": "error",
-    "summary": "Lauf mit Fehlern: 3 Modell(e), 1/2 Tasks erfolgreich.",
+    "summary": "Verifikations-Folgeplan terminal mit Blocker: Claude-QA (Merry) starb am Claude-Monats-Spend-Limit; Codex-Fallback (Wurmzunge 2) bestätigte Typecheck/Lint grün, aber Vitest+Build erneut durch esbuild spawn EPERM blockiert. Zusätzlich zwei harte Befunde: (1) Feature-Commit 36de2203 ist nicht in den Arbeitsbranch integriert (nur auf task-28), (2) echter Akzeptanz-Defekt: inaktiver liveStatus-Fallback rendert weiter STATUS_LABEL[idea.status] statt neutralem Indikator. Gimli (Security) war sauber.",
     "modelStats": [
       {
         "provider": "codex",
@@ -109,6 +109,62 @@
         "observations": 4,
         "createdAt": 1784183890699,
         "updatedAt": 1784186406427
+      },
+      {
+        "id": "learning-mrnbuqgf-1-ris9ra",
+        "provider": "claude",
+        "model": "claude-sonnet-5",
+        "role": "qa-gate-runner",
+        "kind": "weakness",
+        "insight": "Claude-Worker aktuell durch Monats-Spend-Limit blockiert — Tasks sterben mitten im Lauf; nicht auf Claude routen, bis Limit erhöht",
+        "evidence": "t-verify Attempt 1 (Merry): error 'You've hit your monthly spend limit · raise it at claude.ai/settings/usage' nach längerer Rate-Limit-Drosselung",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784195364975,
+        "updatedAt": 1784195364975
+      },
+      {
+        "id": "learning-mrnbuqgf-2-hs5xfa",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "qa-gate-runner",
+        "kind": "strength",
+        "insight": "Sehr präzise, ehrliche QA: trennt Sandbox-Blocker von echten Fehlern und findet Integrations- UND Akzeptanzdefekte",
+        "evidence": "Wurmzunge 2: belegte esbuild spawn EPERM (esbuild.exe --version läuft, Node-Child blockiert), fand 36de2203 nicht Ancestor von HEAD 9b8ff84, und deckte auf, dass der inaktive liveStatus-Fallback weiter STATUS_LABEL rendert",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784195364975,
+        "updatedAt": 1784195364975
+      },
+      {
+        "id": "learning-mrnbuqgf-3-4tnw28",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "orchestrator-core",
+        "kind": "weakness",
+        "insight": "Integrator-Implementierung verletzt explizite Kontrakt-Vorgabe im inaktiven UI-Zweig",
+        "evidence": "In 36de2203 zeigt die List-Row bei fehlendem/inaktivem liveStatus weiterhin STATUS_LABEL[idea.status] statt des vorgegebenen neutralen Indikators — Akzeptanzkriterium (a) verletzt",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784195364975,
+        "updatedAt": 1784195364975
+      },
+      {
+        "id": "learning-mrnbuqgf-4-ygs79o",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "qa-gate-runner",
+        "kind": "weakness",
+        "insight": "esbuild spawn EPERM blockiert Vitest+Build in der Codex-Worker-Sandbox reproduzierbar (2. Bestätigung)",
+        "evidence": "task-74: pnpm test bricht vor Test-Discovery mit spawn EPERM (ensureServiceIsRunning) ab; pnpm build scheitert am Mobile-Vite mit demselben EPERM",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784195364975,
+        "updatedAt": 1784195364975
       }
     ],
     "createdAt": 1784186406454
