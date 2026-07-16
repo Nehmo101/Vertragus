@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784185795053,
+  "exportedAt": 1784186077603,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -8,6 +8,20 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrn4ge52-1-1qp7x4",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "systems-integrator",
+      "kind": "weakness",
+      "insight": "Quality-Gates erfordern Nacharbeit bei systems-integrator",
+      "evidence": "1 Task(s) mit 1 Gate-Finding(s)",
+      "source": "auto-retro",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 4,
+      "createdAt": 1784182938518,
+      "updatedAt": 1784186076195
+    },
     {
       "id": "learning-mrn65kxf-1-5uch2k",
       "provider": "codex",
@@ -79,20 +93,6 @@
       "updatedAt": 1784185793331
     },
     {
-      "id": "learning-mrn65hxd-4-5r9pz7",
-      "provider": "claude",
-      "model": "claude-sonnet-5",
-      "role": "qa-gate-runner",
-      "kind": "weakness",
-      "insight": "QA-Gate-Läufe blockieren an interaktiven Bash-Tool-Freigaben und hängen ohne Panel-Approval",
-      "evidence": "verify-acceptance (Éomer 2) blieb im Status 'Wartet auf Tool-Freigabe: Bash' hängen und wurde nicht terminal, während die required-Kette längst grün war",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784185789441,
-      "updatedAt": 1784185789441
-    },
-    {
       "id": "learning-mrn65hxd-1-5xjknc",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -135,17 +135,18 @@
       "updatedAt": 1784185789441
     },
     {
-      "id": "learning-mrn50suj-1-re1u19",
+      "id": "learning-mrn65hxd-4-5r9pz7",
       "provider": "claude",
       "model": "claude-sonnet-5",
+      "role": "qa-gate-runner",
       "kind": "weakness",
-      "insight": "Worker-Versuche scheiterten; Aufgaben wurden auf andere Slots umgeleitet",
-      "evidence": "1 inhaltlich fehlgeschlagene(r) Versuch(e) in diesem Lauf",
-      "source": "auto-retro",
+      "insight": "QA-Gate-Läufe blockieren an interaktiven Bash-Tool-Freigaben und hängen ohne Panel-Approval",
+      "evidence": "verify-acceptance (Éomer 2) blieb im Status 'Wartet auf Tool-Freigabe: Bash' hängen und wurde nicht terminal, während die required-Kette längst grün war",
+      "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 3,
-      "createdAt": 1784183890699,
-      "updatedAt": 1784185745634
+      "observations": 1,
+      "createdAt": 1784185789441,
+      "updatedAt": 1784185789441
     },
     {
       "id": "learning-mrn64k4i-1-5u7mwl",
@@ -162,18 +163,17 @@
       "updatedAt": 1784185745634
     },
     {
-      "id": "learning-mrn5v9vy-4-chrluk",
+      "id": "learning-mrn50suj-1-re1u19",
       "provider": "claude",
       "model": "claude-sonnet-5",
-      "role": "qa-gate-runner",
       "kind": "weakness",
-      "insight": "Kann in dieser gesperrten Sandbox pnpm/node-Gates gar nicht ausführen (spawn blockiert)",
-      "evidence": "Pippin: Gate-Ausführung durchgehend blockiert, meldete ehrlich BLOCKER; Engine leitete QA an codex (Bilbo 2) um",
-      "source": "orchestrator",
+      "insight": "Worker-Versuche scheiterten; Aufgaben wurden auf andere Slots umgeleitet",
+      "evidence": "1 inhaltlich fehlgeschlagene(r) Versuch(e) in diesem Lauf",
+      "source": "auto-retro",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784185312462,
-      "updatedAt": 1784185312462
+      "observations": 3,
+      "createdAt": 1784183890699,
+      "updatedAt": 1784185745634
     },
     {
       "id": "learning-mrn5v9vy-1-g9kuuj",
@@ -225,6 +225,20 @@
       "kind": "strength",
       "insight": "Meldet Sandbox-Blocker ehrlich statt Erfolg vorzutäuschen",
       "evidence": "Pippin brach nach statischer Verifikation mit klarem Blocker-Bericht ab statt grün zu faken",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784185312462,
+      "updatedAt": 1784185312462
+    },
+    {
+      "id": "learning-mrn5v9vy-4-chrluk",
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "role": "qa-gate-runner",
+      "kind": "weakness",
+      "insight": "Kann in dieser gesperrten Sandbox pnpm/node-Gates gar nicht ausführen (spawn blockiert)",
+      "evidence": "Pippin: Gate-Ausführung durchgehend blockiert, meldete ehrlich BLOCKER; Engine leitete QA an codex (Bilbo 2) um",
       "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
@@ -314,20 +328,6 @@
       "observations": 1,
       "createdAt": 1784185240637,
       "updatedAt": 1784185240637
-    },
-    {
-      "id": "learning-mrn4ge52-1-1qp7x4",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "systems-integrator",
-      "kind": "weakness",
-      "insight": "Quality-Gates erfordern Nacharbeit bei systems-integrator",
-      "evidence": "1 Task(s) mit 2 Gate-Finding(s)",
-      "source": "auto-retro",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 3,
-      "createdAt": 1784182938518,
-      "updatedAt": 1784185207273
     },
     {
       "id": "learning-mrn5aawz-1-51ad9y",
@@ -568,20 +568,6 @@
       "updatedAt": 1784146794785
     },
     {
-      "id": "learning-mrmchbdm-3-smpgzy",
-      "provider": "claude",
-      "model": "claude-sonnet-5",
-      "role": "orchestrator-integrator",
-      "kind": "weakness",
-      "insight": "Hinterlässt trotz explizitem Temp-Datei-Verbot im Prompt Verifikations-Hilfsdateien im Commit (*.origcheck, *.check, *.c9check) — vor PR-Schnitt gezielt prüfen und entfernen lassen",
-      "evidence": "O07 Wurmzunge, Commit a48ddaf9: 4 Check-Dateien (ARCHITECTURE.md.origcheck, CURRENT_STATE.md.origcheck, 00-inventory.md.check/.c9check) neben den 19 echten Zieldateien",
-      "source": "orchestrator",
-      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
-      "observations": 1,
-      "createdAt": 1784135952346,
-      "updatedAt": 1784135952346
-    },
-    {
       "id": "learning-mrmchbdm-2-r92tsd",
       "provider": "claude",
       "model": "claude-opus-4-8",
@@ -589,6 +575,20 @@
       "kind": "strength",
       "insight": "Sehr gründliches Invarianten-Review mit echter Code-Verifikation und differenziertem Urteil (unterscheidet Plattform-Gate-Fehler von inhaltlichen Problemen)",
       "evidence": "O06 Bilbo: 157-Zeilen-Review, Urteil BESTANDEN MIT AUFLAGEN, erkannte Infrastruktur-Ursachen der needs-work-Stati korrekt",
+      "source": "orchestrator",
+      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+      "observations": 1,
+      "createdAt": 1784135952346,
+      "updatedAt": 1784135952346
+    },
+    {
+      "id": "learning-mrmchbdm-3-smpgzy",
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "role": "orchestrator-integrator",
+      "kind": "weakness",
+      "insight": "Hinterlässt trotz explizitem Temp-Datei-Verbot im Prompt Verifikations-Hilfsdateien im Commit (*.origcheck, *.check, *.c9check) — vor PR-Schnitt gezielt prüfen und entfernen lassen",
+      "evidence": "O07 Wurmzunge, Commit a48ddaf9: 4 Check-Dateien (ARCHITECTURE.md.origcheck, CURRENT_STATE.md.origcheck, 00-inventory.md.check/.c9check) neben den 19 echten Zieldateien",
       "source": "orchestrator",
       "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
       "observations": 1,
@@ -624,20 +624,6 @@
       "updatedAt": 1784126995303
     },
     {
-      "id": "learning-mrm44ou4-2-g8v8o",
-      "provider": "claude",
-      "model": "claude-sonnet-5",
-      "role": "orchestrator-integrator",
-      "kind": "weakness",
-      "insight": "Lässt Temp-/Arbeitsdateien im Worktree zurück, die im partiellen Commit landen (.verify-*-tmp.md) — Aufräumen vor Abschluss explizit in den Prompt schreiben",
-      "evidence": "t-1 (Beorn): Commit c9a520c6 enthält .verify-new-body-tmp.md und .verify-orig-tmp.md",
-      "source": "orchestrator",
-      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
-      "observations": 1,
-      "createdAt": 1784121926332,
-      "updatedAt": 1784121926332
-    },
-    {
       "id": "learning-mrm44ou4-1-zd3siy",
       "provider": "claude",
       "model": "claude-sonnet-5",
@@ -645,6 +631,20 @@
       "kind": "strength",
       "insight": "Liefert Doku-Recovery-Tasks zuverlässig (Datei korrekt übernommen, validiert, whitespace-sauber, committet) — needs-work-Status stammte beide Male vom Gate-False-Positive, nicht vom Modell",
       "evidence": "O00R (Tom Bombadil, Commit 223ac6f1) und t-1 (Beorn, Commit c9a520c6): identische Vokabular-Findings trotz verifiziert secret-freiem Inhalt",
+      "source": "orchestrator",
+      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+      "observations": 1,
+      "createdAt": 1784121926332,
+      "updatedAt": 1784121926332
+    },
+    {
+      "id": "learning-mrm44ou4-2-g8v8o",
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "role": "orchestrator-integrator",
+      "kind": "weakness",
+      "insight": "Lässt Temp-/Arbeitsdateien im Worktree zurück, die im partiellen Commit landen (.verify-*-tmp.md) — Aufräumen vor Abschluss explizit in den Prompt schreiben",
+      "evidence": "t-1 (Beorn): Commit c9a520c6 enthält .verify-new-body-tmp.md und .verify-orig-tmp.md",
       "source": "orchestrator",
       "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
       "observations": 1,
