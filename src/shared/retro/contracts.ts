@@ -82,6 +82,69 @@ export interface RetroModelStats {
   costUsd?: number
 }
 
+/** Copy-ready qualitative learning entry emitted by get_retro_draft. */
+export interface RetroLearningTemplate {
+  provider: AgentProviderId
+  /** Resolved telemetry model name; never empty in a generated draft. */
+  model: string
+  role: string
+  kind: LearningKind
+  insight: string
+  evidence: string
+}
+
+/** Stable task outcome counters for one model in a retro draft. */
+export interface RetroTaskBalance {
+  total: number
+  success: number
+  needsWork: number
+  failed: number
+  stopped: number
+}
+
+/** Facts and a copy-ready qualitative learning template for one model. */
+export interface RetroDraftModel {
+  provider: AgentProviderId
+  /** Resolved telemetry model name; never empty in a generated draft. */
+  model: string
+  roles: string[]
+  taskBalance: RetroTaskBalance
+  failuresByKind: RetroFailureBreakdown
+  failedAttempts: number
+  failedAttemptsByKind: RetroFailureBreakdown
+  gateFindings: number
+  avgDurationMs: number | null
+  /** 1 = fastest model with timing data; null when no duration was reported. */
+  speedRank: number | null
+  tokensIn: number | null
+  tokensOut: number | null
+  costUsd: number | null
+  learningTemplate: RetroLearningTemplate
+}
+
+export type RetroDraftUnavailableCode =
+  | 'no-terminal-plan'
+  | 'plan-not-found'
+  | 'plan-not-terminal'
+  | 'no-model-stats'
+
+/** Facts scaffold returned to the orchestrator before it calls record_retro. */
+export type RetroDraftResult =
+  | {
+      ok: true
+      planId: string
+      goal: string
+      status: NonNullable<RunRetro['status']>
+      summary: string
+      models: RetroDraftModel[]
+    }
+  | {
+      ok: false
+      code: RetroDraftUnavailableCode
+      message: string
+      planId?: string
+    }
+
 /** Retrospective of one plan run (or an ad-hoc orchestrator retro). */
 export interface RunRetro {
   id: string
@@ -95,6 +158,8 @@ export interface RunRetro {
   modelStats: RetroModelStats[]
   /** Learnings recorded for this run (heuristic + orchestrator). */
   learnings: ModelLearning[]
+  /** Set when this card has been handed to the export queue. */
+  exportQueuedAt?: number
   createdAt: number
 }
 

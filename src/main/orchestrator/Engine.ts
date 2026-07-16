@@ -87,15 +87,18 @@ import { securityChecklistForFiles } from '@main/integrations/securityGate'
 import {
   analyzeRunRetro,
   benchmarkLearnings,
+  deriveRetroDraftModels,
   type BenchmarkRanking,
   type BenchmarkRecord,
   type BenchmarkRunStatus,
   type LearningKind,
   type ModelLearning,
+  type RetroDraftResult,
   type RunRetro
 } from '@shared/retro'
 import {
   learningsForModel,
+  listRunRetros,
   recordBenchmarkRecord,
   recordModelLearnings,
   recordRunRetro
@@ -2434,11 +2437,141 @@ export class OrchestratorEngine extends EventEmitter {
       }
       recordRunRetro(retro)
       this.lastRetro = retro
-      enqueueRetroExport(retro)
       return retro
     } catch (error) {
       console.warn('[Orchestrator] Automatische Retro fehlgeschlagen', error)
       return undefined
+    }
+  }
+
+  private storedRetros(): RunRetro[] {
+    try {
+      return listRunRetros(this.boundProfile?.id)
+    } catch (error) {
+      console.warn('[Orchestrator] Retros nicht lesbar', error)
+      return []
+    }
+  }
+
+  private retroForPlan(planId: string): RunRetro | undefined {
+    if (this.lastRetro?.planId === planId) return this.lastRetro
+    return this.storedRetros().find((retro) =>
+      retro.planId === planId &&
+      (
+        this.workspaceSessionId == null ||
+        retro.workspaceSessionId == null ||
+        retro.workspaceSessionId === this.workspaceSessionId
+      )
+    )
+  }
+
+  private latestTerminalPlanId(): string | undefined {
+    const latestRun = [...this.planRunResults.values()].reverse().find(
+      (run) => run.planId && run.status !== 'running'
+    )
+    if (latestRun?.planId) return latestRun.planId
+    if (this.lastRetro?.planId && this.lastRetro.planId !== 'ad-hoc' && this.lastRetro.status) {
+      return this.lastRetro.planId
+    }
+    return this.storedRetros().find((retro) =>
+      retro.planId !== 'ad-hoc' &&
+      retro.status != null &&
+      (
+        this.workspaceSessionId == null ||
+        retro.workspaceSessionId == null ||
+        retro.workspaceSessionId === this.workspaceSessionId
+      )
+    )?.planId
+  }
+
+  private resolveRetroModel(provider: AgentProviderId, model?: string, role?: string): string {
+    const configured = this.slotsWithRoles().find(
+      (entry) => entry.slot.provider === provider && (role == null || entry.role === role)
+    )?.slot
+    return resolveSlotModel(provider, model?.trim() ? { model } : (configured ?? { model: '' }))
+  }
+
+  private resolvedRetroTasks(planId: string): OrcaTask[] {
+    return [...this.tasks.values()]
+      .filter((task) => task.planId === planId)
+      .map((task) => ({
+        ...task,
+        model: task.provider
+          ? this.resolveRetroModel(task.provider, task.model, task.role)
+          : task.model,
+        attempts: task.attempts?.map((attempt) => ({
+          ...attempt,
+          model: attempt.provider
+            ? this.resolveRetroModel(attempt.provider, attempt.model, task.role)
+            : attempt.model
+        }))
+      }))
+  }
+
+  /** Facts scaffold for the latest terminal plan (or an explicitly selected one). */
+  buildRetroDraft(requestedPlanId?: string): RetroDraftResult {
+    const planId = requestedPlanId?.trim() || this.latestTerminalPlanId()
+    if (!planId) {
+      return {
+        ok: false,
+        code: 'no-terminal-plan',
+        message: 'Es liegt noch kein terminaler Planlauf für eine Retrospektive vor.'
+      }
+    }
+
+    const run = [...this.planRunResults.values()].reverse().find((entry) => entry.planId === planId)
+    const retro = this.retroForPlan(planId)
+    const tasks = this.resolvedRetroTasks(planId)
+    if (!run && !retro && tasks.length === 0) {
+      return {
+        ok: false,
+        code: 'plan-not-found',
+        planId,
+        message: `Planlauf ${planId} ist unbekannt.`
+      }
+    }
+    if (
+      run?.status === 'running' ||
+      tasks.some((task) => !isTerminalTaskStatus(task.status))
+    ) {
+      return {
+        ok: false,
+        code: 'plan-not-terminal',
+        planId,
+        message: `Planlauf ${planId} ist noch nicht terminal.`
+      }
+    }
+
+    const status = retro?.status ?? run?.status
+    if (!status) {
+      return {
+        ok: false,
+        code: 'plan-not-terminal',
+        planId,
+        message: `Für Planlauf ${planId} liegt noch kein terminaler Status vor.`
+      }
+    }
+    const models = deriveRetroDraftModels(tasks)
+    if (models.length === 0) {
+      return {
+        ok: false,
+        code: 'no-model-stats',
+        planId,
+        message: `Planlauf ${planId} enthält keine auswertbaren Modellbeobachtungen.`
+      }
+    }
+    const analysis = analyzeRunRetro({
+      tasks,
+      status,
+      profileId: this.boundProfile?.id
+    })
+    return {
+      ok: true,
+      planId,
+      goal: run?.goal ?? retro?.goal ?? this.goal?.title ?? '',
+      status,
+      summary: retro?.summary ?? analysis.summary,
+      models
     }
   }
 
@@ -2458,28 +2591,41 @@ export class OrchestratorEngine extends EventEmitter {
       evidence?: string
     }>
   }): { summary: string; storedLearnings: ModelLearning[] } {
+    const summary = input.summary.replace(/\s+/g, ' ').trim().slice(0, 500)
+    if (this.workspaceSessionId === REMOTE_SELFTEST_SESSION_ID) {
+      return { summary, storedLearnings: [] }
+    }
     const applied = recordModelLearnings(
       input.learnings.map((learning) => ({
         ...learning,
+        model: this.resolveRetroModel(learning.provider, learning.model, learning.role),
         source: 'orchestrator' as const,
         profileId: this.boundProfile?.id
       }))
     )
-    const summary = input.summary.replace(/\s+/g, ' ').trim().slice(0, 500)
-    if (this.lastRetro) {
-      const known = new Set(this.lastRetro.learnings.map((entry) => entry.id))
-      this.lastRetro = {
-        ...this.lastRetro,
-        summary: summary || this.lastRetro.summary,
-        learnings: [
-          ...this.lastRetro.learnings,
-          ...applied.filter((entry) => !known.has(entry.id))
-        ]
+    const planId = this.latestTerminalPlanId()
+    const existing = planId ? this.retroForPlan(planId) : this.lastRetro
+    let base = existing
+    if (!base && planId) {
+      const run = [...this.planRunResults.values()].reverse().find((entry) => entry.planId === planId)
+      const tasks = this.resolvedRetroTasks(planId)
+      const status = run?.status === 'running' ? undefined : run?.status
+      const analysis = analyzeRunRetro({ tasks, status, profileId: this.boundProfile?.id })
+      base = {
+        id: `retro-${Date.now().toString(36)}-${planId}`,
+        profileId: this.boundProfile?.id,
+        workspaceSessionId: this.workspaceSessionId,
+        planId,
+        goal: run?.goal ?? this.goal?.title ?? '',
+        status,
+        summary: analysis.summary,
+        modelStats: analysis.modelStats,
+        learnings: recordModelLearnings(analysis.learnings),
+        createdAt: Date.now()
       }
-      recordRunRetro(this.lastRetro)
-      enqueueRetroExport(this.lastRetro)
-    } else {
-      this.lastRetro = {
+    }
+    if (!base) {
+      base = {
         id: `retro-${Date.now().toString(36)}-adhoc`,
         profileId: this.boundProfile?.id,
         workspaceSessionId: this.workspaceSessionId,
@@ -2490,9 +2636,18 @@ export class OrchestratorEngine extends EventEmitter {
         learnings: applied,
         createdAt: Date.now()
       }
-      recordRunRetro(this.lastRetro)
-      enqueueRetroExport(this.lastRetro)
     }
+    const learningsById = new Map(base.learnings.map((entry) => [entry.id, entry]))
+    for (const learning of applied) learningsById.set(learning.id, learning)
+    const shouldQueueExport = base.exportQueuedAt == null
+    this.lastRetro = {
+      ...base,
+      summary: summary || base.summary,
+      learnings: [...learningsById.values()],
+      exportQueuedAt: base.exportQueuedAt ?? Date.now()
+    }
+    recordRunRetro(this.lastRetro)
+    if (shouldQueueExport) enqueueRetroExport(this.lastRetro)
     this.push()
     return { summary: this.lastRetro.summary, storedLearnings: applied }
   }

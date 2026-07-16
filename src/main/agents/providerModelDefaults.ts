@@ -41,5 +41,5 @@ export function resolveSlotModel(provider: AgentProviderId, sel: ModelSelection)
   const explicit = resolveModel(provider, sel)
   if (explicit) return explicit
   if (provider === 'codex') return detectCodexDefaultModel() ?? CODEX_CONFIG_DEFAULT_LABEL
-  return explicit
+  return `default (${provider}-cli)`
 }

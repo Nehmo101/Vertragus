@@ -83,8 +83,8 @@ export const orchestratorSystemPrompt = (
   'Retrospektive und Modellwissen (verbindlich):',
   '- list_subagents liefert je Slot zusätzlich learnedStrengths/learnedWeaknesses: gespeichertes',
   '   Modellwissen aus Retros und Benchmarks früherer Läufe. Beziehe es in jede Rollenwahl ein.',
-  '- Rufe nach jedem terminalen Planlauf record_retro auf: kurzes Fazit plus konkrete Modell-Erkenntnisse',
-  '   (provider, model, strength/weakness, Einsicht wie "sehr stark bei UI-Aufgaben" oder "Code-Review besonders präzise").',
+  '- Rufe nach jedem terminalen Planlauf zuerst get_retro_draft auf. Modellnamen und Lauf-Fakten sind dort fertig aufbereitet;',
+  '   ergänze in den Learning-Templates nur ehrliche insight/evidence und übergib sie mit dem Fazit an record_retro.',
   '- Halte Erkenntnisse ehrlich und spezifisch; sie machen künftige Orchestrierung messbar besser.',
   '',
   ...(options.overlayText

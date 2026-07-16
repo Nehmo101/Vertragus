@@ -131,7 +131,8 @@ function enqueue(kind: RetroExportKind, path: string, payload: unknown): void {
       setSetting(LAST_ERROR_KEY, `Export übersprungen: ${path} überschreitet das Größenlimit.`)
       return
     }
-    // Dedup by target path: a record_retro update replaces the queued auto-retro.
+    // Defensive queue idempotency for retries/legacy callers. The Engine
+    // itself queues each completed retro card only once.
     const queue = readQueue().filter((item) => item.path !== path)
     queue.push({
       kind,

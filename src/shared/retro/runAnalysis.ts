@@ -1,6 +1,7 @@
 import type {
   AnalyzeRunRetroInput,
   NewModelLearning,
+  RetroDraftModel,
   RetroFailureBreakdown,
   RetroFailureKind,
   RetroModelStats,
@@ -114,6 +115,7 @@ export function deriveModelStats(tasks: readonly RetroTaskObservation[]): RetroM
     for (const attempt of task.attempts ?? []) {
       if (attempt.status !== 'error' || !attempt.provider) continue
       const attemptGroup = groupFor(attempt.provider, attempt.model ?? '')
+      if (!attemptGroup.roles.includes(task.role)) attemptGroup.roles.push(task.role)
       const attemptFailureKind = classifyRetroFailure(
         attempt.status,
         attempt.failureKind,
@@ -170,6 +172,59 @@ export function deriveModelStats(tasks: readonly RetroTaskObservation[]): RetroM
       costUsd: hasCost ? stats.costUsd : undefined
     }))
     .sort((a, b) => b.tasks - a.tasks)
+}
+
+/**
+ * Turn the shared run stats into a stable, copy-ready facts scaffold. Engine
+ * callers resolve configured model defaults first; the fallback label is a
+ * final guard for imported legacy observations with model:"".
+ */
+export function deriveRetroDraftModels(
+  tasks: readonly RetroTaskObservation[]
+): RetroDraftModel[] {
+  const stats = deriveModelStats(tasks)
+  const timed = stats
+    .filter((entry) => entry.avgDurationMs != null)
+    .sort((a, b) => a.avgDurationMs! - b.avgDurationMs!)
+  const speedRanks = new Map(timed.map((entry, index) => [entry, index + 1]))
+
+  return stats.map((entry) => {
+    const model = entry.model.trim() || `default (${entry.provider}-cli)`
+    const hasModelConcern =
+      entry.needsWork > 0 ||
+      entry.gateFindings > 0 ||
+      entry.failuresByKind.model > 0 ||
+      entry.failedAttemptsByKind.model > 0
+    return {
+      provider: entry.provider,
+      model,
+      roles: [...entry.roles],
+      taskBalance: {
+        total: entry.tasks,
+        success: entry.succeeded,
+        needsWork: entry.needsWork,
+        failed: entry.failed,
+        stopped: entry.stopped
+      },
+      failuresByKind: { ...entry.failuresByKind },
+      failedAttempts: entry.failedAttempts,
+      failedAttemptsByKind: { ...entry.failedAttemptsByKind },
+      gateFindings: entry.gateFindings,
+      avgDurationMs: entry.avgDurationMs ?? null,
+      speedRank: speedRanks.get(entry) ?? null,
+      tokensIn: entry.tokensIn ?? null,
+      tokensOut: entry.tokensOut ?? null,
+      costUsd: entry.costUsd ?? null,
+      learningTemplate: {
+        provider: entry.provider,
+        model,
+        role: entry.roles[0] ?? 'worker',
+        kind: hasModelConcern ? 'weakness' : 'strength',
+        insight: '',
+        evidence: ''
+      }
+    }
+  })
 }
 
 /**

@@ -5,6 +5,7 @@ import {
   benchmarkLearnings,
   deriveHeuristicLearnings,
   deriveModelStats,
+  deriveRetroDraftModels,
   learningKey,
   mergeModelLearnings,
   selectLearningTexts,
@@ -178,6 +179,64 @@ describe('deriveModelStats', () => {
       failuresByKind: { infra: 1, cancelled: 1, model: 1 },
       failedAttempts: 1,
       failedAttemptsByKind: { infra: 1, cancelled: 0, model: 0 }
+    })
+  })
+})
+
+describe('deriveRetroDraftModels', () => {
+  it('builds exact per-model facts and never emits an empty model name', () => {
+    const models = deriveRetroDraftModels([
+      task({
+        id: 'success',
+        model: 'gpt-5.6-sol',
+        usage: { tokensIn: 1_000, tokensOut: 250, costUsd: 0.4 }
+      }),
+      task({
+        id: 'needs-work',
+        model: 'gpt-5.6-sol',
+        status: 'needs-work',
+        findings: [{ gate: 'quality', code: 'lint', message: 'Nacharbeit' }]
+      }),
+      task({ id: 'failed', model: 'gpt-5.6-sol', status: 'error' }),
+      task({ id: 'stopped', model: 'gpt-5.6-sol', status: 'stopped' }),
+      task({
+        id: 'claude',
+        provider: 'claude',
+        model: 'claude-opus-4-8',
+        role: 'review',
+        createdAt: 1_000,
+        finishedAt: 31_000
+      })
+    ])
+
+    expect(models.every((entry) => entry.model.trim().length > 0)).toBe(true)
+    expect(models.find((entry) => entry.provider === 'codex')).toEqual({
+      provider: 'codex',
+      model: 'gpt-5.6-sol',
+      roles: ['worker'],
+      taskBalance: { total: 4, success: 1, needsWork: 1, failed: 1, stopped: 1 },
+      failuresByKind: { infra: 0, cancelled: 1, model: 1 },
+      failedAttempts: 0,
+      failedAttemptsByKind: { infra: 0, cancelled: 0, model: 0 },
+      gateFindings: 1,
+      avgDurationMs: 60_000,
+      speedRank: 2,
+      tokensIn: 1_000,
+      tokensOut: 250,
+      costUsd: 0.4,
+      learningTemplate: {
+        provider: 'codex',
+        model: 'gpt-5.6-sol',
+        role: 'worker',
+        kind: 'weakness',
+        insight: '',
+        evidence: ''
+      }
+    })
+    expect(models.find((entry) => entry.provider === 'claude')).toMatchObject({
+      model: 'claude-opus-4-8',
+      speedRank: 1,
+      learningTemplate: { model: 'claude-opus-4-8', kind: 'strength' }
     })
   })
 })

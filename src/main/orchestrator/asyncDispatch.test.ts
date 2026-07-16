@@ -17,7 +17,15 @@ vi.mock('@main/config/store', () => ({
   setSetting: vi.fn()
 }))
 
-const { runTask, kill, prepareTaskChange, publishPreparedChanges, captureTaskRecoveryArtifact } = vi.hoisted(() => ({
+const {
+  runTask,
+  kill,
+  prepareTaskChange,
+  publishPreparedChanges,
+  captureTaskRecoveryArtifact,
+  enqueueRetroExport,
+  enqueueBenchmarkExport
+} = vi.hoisted(() => ({
   runTask: vi.fn(),
   kill: vi.fn(async () => undefined),
   prepareTaskChange: vi.fn<(input: unknown) => Promise<PrepareTaskResult>>(async () => ({
@@ -29,7 +37,9 @@ const { runTask, kill, prepareTaskChange, publishPreparedChanges, captureTaskRec
   publishPreparedChanges: vi.fn<(
     input: { onRemoteCiUpdate?: (outcome: RemoteCiOutcome) => void }
   ) => Promise<AutoPrOutcome>>(),
-  captureTaskRecoveryArtifact: vi.fn<(input: unknown) => Promise<TaskRecoveryArtifact | undefined>>(async () => undefined)
+  captureTaskRecoveryArtifact: vi.fn<(input: unknown) => Promise<TaskRecoveryArtifact | undefined>>(async () => undefined),
+  enqueueRetroExport: vi.fn(),
+  enqueueBenchmarkExport: vi.fn()
 }))
 vi.mock('@main/agents/AgentManager', () => ({
   agentManager: { runTask, kill, list: () => [] }
@@ -40,6 +50,10 @@ vi.mock('@main/integrations/autoPr', () => ({
 }))
 vi.mock('@main/orchestrator/recoveryArtifact', () => ({
   captureTaskRecoveryArtifact
+}))
+vi.mock('@main/orchestrator/retroExport', () => ({
+  enqueueRetroExport,
+  enqueueBenchmarkExport
 }))
 
 import { OrchestratorEngine, platformExecutionGuidance } from './Engine'
@@ -852,6 +866,97 @@ describe('asynchronous orchestration API', () => {
     await vi.waitFor(() => expect(engine.getPlanRunStatus(started.runId)?.status).toBe('success'))
     expect(prepareTaskChange.mock.calls.length).toBe(prepareCallsBefore)
     expect(engine.snapshot().lastRetro).toBeUndefined()
+    const exportsBefore = enqueueRetroExport.mock.calls.length
+    expect(engine.recordOrchestratorRetro({
+      summary: 'Selftest-Retro darf nicht persistieren.',
+      learnings: [{
+        provider: 'codex',
+        model: 'test-model',
+        kind: 'weakness',
+        insight: 'synthetische Beobachtung'
+      }]
+    }).storedLearnings).toEqual([])
+    expect(engine.snapshot().lastRetro).toBeUndefined()
+    expect(enqueueRetroExport.mock.calls.length).toBe(exportsBefore)
+  })
+
+  it('builds an attributable retro draft and exports one merged plan card idempotently', async () => {
+    runTask.mockImplementationOnce(async (request) => ({
+      info: { ...info(request.taskId), model: '' },
+      done: Promise.resolve({
+        result: 'Implementierung und Tests erfolgreich.',
+        isError: false,
+        status: 'succeeded' as const,
+        tokensIn: 120,
+        tokensOut: 30,
+        costUsd: 0.05
+      })
+    }))
+    const profile = {
+      ...DEFAULT_PROFILE,
+      agents: [{
+        ...DEFAULT_PROFILE.agents[0]!,
+        role: 'worker',
+        provider: 'codex' as const,
+        model: '',
+        modelPreset: undefined
+      }],
+      planner: { ...DEFAULT_PROFILE.planner, mode: 'auto' as const },
+      autoPr: { ...DEFAULT_PROFILE.autoPr, mode: 'off' as const }
+    }
+    const engine = new OrchestratorEngine({ profile, workspaceSessionId: 'retro-integration' })
+    expect(engine.buildRetroDraft()).toEqual({
+      ok: false,
+      code: 'no-terminal-plan',
+      message: 'Es liegt noch kein terminaler Planlauf für eine Retrospektive vor.'
+    })
+    const exportsBefore = enqueueRetroExport.mock.calls.length
+    const started = engine.executePlanAsync({
+      version: 1,
+      goal: 'Qualitative Retro integrieren',
+      maxParallel: 1,
+      tasks: [{
+        id: 'feature',
+        title: 'Feature',
+        role: 'worker',
+        prompt: 'Implementiere das Feature',
+        dependsOn: [],
+        conflictKeys: [],
+        ownership: 'feature',
+        expectedFiles: []
+      }]
+    })
+
+    await vi.waitFor(() => expect(engine.getPlanRunStatus(started.runId)?.status).toBe('success'))
+    const draft = engine.buildRetroDraft(started.planId)
+    expect(draft.ok).toBe(true)
+    if (!draft.ok) throw new Error(draft.message)
+    expect(draft.models).toHaveLength(1)
+    expect(draft.models[0].model).not.toBe('')
+    expect(draft.models[0]).toMatchObject({
+      taskBalance: { total: 1, success: 1, needsWork: 0, failed: 0, stopped: 0 },
+      tokensIn: 120,
+      tokensOut: 30,
+      costUsd: 0.05,
+      learningTemplate: { model: draft.models[0].model, insight: '', evidence: '' }
+    })
+
+    const learning = {
+      ...draft.models[0].learningTemplate,
+      insight: 'liefert robuste Implementierungen',
+      evidence: 'Feature und Tests im ersten Lauf erfolgreich'
+    }
+    engine.recordOrchestratorRetro({ summary: 'Qualitative Retro ergänzt.', learnings: [learning] })
+    engine.recordOrchestratorRetro({ summary: 'Qualitative Retro ergänzt.', learnings: [] })
+
+    expect(enqueueRetroExport.mock.calls.length - exportsBefore).toBe(1)
+    expect(engine.snapshot().lastRetro).toMatchObject({
+      planId: started.planId,
+      summary: 'Qualitative Retro ergänzt.',
+      exportQueuedAt: expect.any(Number),
+      learnings: [expect.objectContaining({ source: 'orchestrator', model: draft.models[0].model })]
+    })
+    expect(engine.snapshot().lastRetro?.planId).not.toBe('ad-hoc')
   })
 
   it('lets green acceptance gates overrule a contradictory provider error on exit code 0', async () => {
