@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784186446726,
+  "exportedAt": 1784186647834,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -8,6 +8,33 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrn6nvgh-1-1ietwq",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "orchestrator-core",
+      "kind": "strength",
+      "insight": "zuverlässig im ersten Anlauf bei orchestrator-core",
+      "evidence": "2/2 Tasks ohne Wiederholung erfolgreich",
+      "source": "auto-retro",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784186646785,
+      "updatedAt": 1784186646785
+    },
+    {
+      "id": "learning-mrn6nvgh-2-1fr14b",
+      "provider": "claude",
+      "model": "claude-opus-4-8",
+      "kind": "weakness",
+      "insight": "Worker-Versuche scheiterten; Aufgaben wurden auf andere Slots umgeleitet",
+      "evidence": "1 inhaltlich fehlgeschlagene(r) Versuch(e) in diesem Lauf",
+      "source": "auto-retro",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784186646785,
+      "updatedAt": 1784186646785
+    },
     {
       "id": "learning-mrn6jk62-1-pwft0z",
       "provider": "codex",
@@ -64,20 +91,6 @@
       "updatedAt": 1784186076195
     },
     {
-      "id": "learning-mrn65kxf-3-2grohn",
-      "provider": "claude",
-      "model": "claude-opus-4-8",
-      "role": "security-review",
-      "kind": "strength",
-      "insight": "Exzellentes Urteil: trennt 'nicht verifizierbar' klar von 'fehlerhaft' und liefert korrekt eingeordnete Härtungsbefunde",
-      "evidence": "Erkannte fehlenden Commit im eigenen Worktree, prüfte die zugängliche Variante, fand medium-Härtung (githubRepo.localPath/cloneStatus + yolo werden mitkopiert) mit sauberer Go/No-Go-Einordnung",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784185793331,
-      "updatedAt": 1784185793331
-    },
-    {
       "id": "learning-mrn65kxf-5-kuiuc7",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -85,6 +98,20 @@
       "kind": "weakness",
       "insight": "Advisory-Verifier laufen in isolierten Worktrees OHNE den zentral committeten Required-Commit — QA/Review verbrennen Aufwand am falschen Stand",
       "evidence": "HEAD in task-59 war 6fb74e7, 1fbaac46 kein Vorfahr; duplicateProfile fehlte, task-19-Worktree nicht lesbar → Gates rot obwohl Feature real grün",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784185793331,
+      "updatedAt": 1784185793331
+    },
+    {
+      "id": "learning-mrn65kxf-3-2grohn",
+      "provider": "claude",
+      "model": "claude-opus-4-8",
+      "role": "security-review",
+      "kind": "strength",
+      "insight": "Exzellentes Urteil: trennt 'nicht verifizierbar' klar von 'fehlerhaft' und liefert korrekt eingeordnete Härtungsbefunde",
+      "evidence": "Erkannte fehlenden Commit im eigenen Worktree, prüfte die zugängliche Variante, fand medium-Härtung (githubRepo.localPath/cloneStatus + yolo werden mitkopiert) mit sauberer Go/No-Go-Einordnung",
       "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
@@ -204,20 +231,6 @@
       "updatedAt": 1784185745634
     },
     {
-      "id": "learning-mrn5v9vy-4-chrluk",
-      "provider": "claude",
-      "model": "claude-sonnet-5",
-      "role": "qa-gate-runner",
-      "kind": "weakness",
-      "insight": "Kann in dieser gesperrten Sandbox pnpm/node-Gates gar nicht ausführen (spawn blockiert)",
-      "evidence": "Pippin: Gate-Ausführung durchgehend blockiert, meldete ehrlich BLOCKER; Engine leitete QA an codex (Bilbo 2) um",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784185312462,
-      "updatedAt": 1784185312462
-    },
-    {
       "id": "learning-mrn5v9vy-3-ie46ie",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -225,6 +238,20 @@
       "kind": "weakness",
       "insight": "Eskaliert reinen Infra-Blocker zu Task-'error', obwohl Fachabnahme voll grün ist",
       "evidence": "Bilbo 2 meldete ERGEBNIS: BLOCKER (Task error), obwohl Typecheck/Lint/relevante Tests grün und alle Abnahmekriterien erfüllt; nur nativer Build-Gate scheiterte an spawn EPERM",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784185312462,
+      "updatedAt": 1784185312462
+    },
+    {
+      "id": "learning-mrn5v9vy-4-chrluk",
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "role": "qa-gate-runner",
+      "kind": "weakness",
+      "insight": "Kann in dieser gesperrten Sandbox pnpm/node-Gates gar nicht ausführen (spawn blockiert)",
+      "evidence": "Pippin: Gate-Ausführung durchgehend blockiert, meldete ehrlich BLOCKER; Engine leitete QA an codex (Bilbo 2) um",
       "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
@@ -468,20 +495,6 @@
       "observations": 1,
       "createdAt": 1784184698168,
       "updatedAt": 1784184698168
-    },
-    {
-      "id": "learning-mrn53zul-3-ki51rc",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "renderer-ui",
-      "kind": "strength",
-      "insight": "Sehr stark bei UI-Layout inkl. echter E2E-Verifikation: kompensierte als Integrator 3 ausgefallene Feature-Tasks und belegte Abnahmekriterien per Electron-UI-Smoke",
-      "evidence": "Éowyn: Sidebar+Panel+Workspace+globales CSS komplett, pnpm build grün, 20/20 UI-Smoke, 726/726 Vitest, Commit d9f69ce",
-      "source": "orchestrator",
-      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
-      "observations": 1,
-      "createdAt": 1784184039741,
-      "updatedAt": 1784184039741
     },
     {
       "id": "learning-mrn53zul-1-37yeb",
