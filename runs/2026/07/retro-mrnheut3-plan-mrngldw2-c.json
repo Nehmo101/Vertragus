@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784204701860,
+  "exportedAt": 1784214043653,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -14,7 +14,7 @@
     "planId": "plan-mrngldw2-c",
     "goal": "liveStatus-Feature fertigstellen (Yolo aktiv, Codex verfügbar): sicherheitsgeprüfte Implementierung aus Commit 36de2203 auf HEAD materialisieren, inaktiven Fallback (neutraler Indikator statt alter Status-Labels) korrigieren, mit vollen Gates (typecheck/lint/vitest/build) verifizieren.",
     "status": "needs-work",
-    "summary": "Lauf mit Nacharbeit: 2 Modell(e), 0/2 Tasks erfolgreich.",
+    "summary": "liveStatus-Feature korrekt umgesetzt + als Commit b60f0ebb übernommen (14 Dateien, Fallback-Defekt behoben: inaktiv '—', aktiv 'Schritt x von x'; typecheck/lint/security grün). Beide Codex-Versuche needs-work, weil Vitest/Build am esbuild spawn EPERM scheitern. Folge: b60f0ebb NICHT in orch-22-HEAD gemergt (Quarantäne-Commit).",
     "modelStats": [
       {
         "provider": "codex",
@@ -85,6 +85,48 @@
         "observations": 3,
         "createdAt": 1784184955362,
         "updatedAt": 1784204701801
+      },
+      {
+        "id": "learning-mrnmz2ym-1-654613",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "orchestrator-core",
+        "kind": "strength",
+        "insight": "Setzt gekoppelte 14-Datei-Feature-Scheibe korrekt um, materialisiert per apply_patch wenn git checkout an .git-index.lock scheitert, behebt Kontraktdefekt exakt",
+        "evidence": "task-111: 36de2203 reconciled, Fallback auf neutralen '—' gefixt, Referenz-Blobs verifiziert, Security-Gate findings:[]; als b60f0ebb übernommen",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784214043582,
+        "updatedAt": 1784214043582
+      },
+      {
+        "id": "learning-mrnmz2ym-2-j7a8ij",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "orchestrator-core",
+        "kind": "weakness",
+        "insight": "Kein Task erreicht 'success' solange Vitest/Build am esbuild spawn EPERM scheitern → needs-work → Quarantäne-Commit, nicht in Arbeitsbranch gemergt",
+        "evidence": "b60f0ebb nicht Ancestor von orch-22-HEAD 5c135cb; EPERM 3× (task-28/74/111)",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784214043582,
+        "updatedAt": 1784214043582
+      },
+      {
+        "id": "learning-mrnmz2ym-3-aesda6",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "orchestrator-core",
+        "kind": "weakness",
+        "insight": "Plan-Worker liefen trotz profile.yoloDefault UND yoloMaster in der Restricted-Token-Sandbox — Yolo erreicht den Worker-Launch nicht",
+        "evidence": "task-111: git checkout scheiterte an index.lock, vitest an spawn EPERM",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784214043582,
+        "updatedAt": 1784214043582
       }
     ],
     "createdAt": 1784204701815
