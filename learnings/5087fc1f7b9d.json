@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784183827325,
+  "exportedAt": 1784183891609,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -8,6 +8,19 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrn50suj-1-re1u19",
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "kind": "weakness",
+      "insight": "Worker-Versuche scheiterten; Aufgaben wurden auf andere Slots umgeleitet",
+      "evidence": "1 inhaltlich fehlgeschlagene(r) Versuch(e) in diesem Lauf",
+      "source": "auto-retro",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784183890699,
+      "updatedAt": 1784183890699
+    },
     {
       "id": "learning-mrn4ge52-1-1qp7x4",
       "provider": "codex",
