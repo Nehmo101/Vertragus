@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784186077603,
+  "exportedAt": 1784186407647,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -8,6 +8,19 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrn50suj-1-re1u19",
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "kind": "weakness",
+      "insight": "Worker-Versuche scheiterten; Aufgaben wurden auf andere Slots umgeleitet",
+      "evidence": "1 inhaltlich fehlgeschlagene(r) Versuch(e) in diesem Lauf",
+      "source": "auto-retro",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 4,
+      "createdAt": 1784183890699,
+      "updatedAt": 1784186406427
+    },
     {
       "id": "learning-mrn4ge52-1-1qp7x4",
       "provider": "codex",
@@ -21,6 +34,20 @@
       "observations": 4,
       "createdAt": 1784182938518,
       "updatedAt": 1784186076195
+    },
+    {
+      "id": "learning-mrn65kxf-5-kuiuc7",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "orchestrator-core",
+      "kind": "weakness",
+      "insight": "Advisory-Verifier laufen in isolierten Worktrees OHNE den zentral committeten Required-Commit — QA/Review verbrennen Aufwand am falschen Stand",
+      "evidence": "HEAD in task-59 war 6fb74e7, 1fbaac46 kein Vorfahr; duplicateProfile fehlte, task-19-Worktree nicht lesbar → Gates rot obwohl Feature real grün",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784185793331,
+      "updatedAt": 1784185793331
     },
     {
       "id": "learning-mrn65kxf-1-5uch2k",
@@ -58,20 +85,6 @@
       "kind": "strength",
       "insight": "Exzellentes Urteil: trennt 'nicht verifizierbar' klar von 'fehlerhaft' und liefert korrekt eingeordnete Härtungsbefunde",
       "evidence": "Erkannte fehlenden Commit im eigenen Worktree, prüfte die zugängliche Variante, fand medium-Härtung (githubRepo.localPath/cloneStatus + yolo werden mitkopiert) mit sauberer Go/No-Go-Einordnung",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784185793331,
-      "updatedAt": 1784185793331
-    },
-    {
-      "id": "learning-mrn65kxf-5-kuiuc7",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "orchestrator-core",
-      "kind": "weakness",
-      "insight": "Advisory-Verifier laufen in isolierten Worktrees OHNE den zentral committeten Required-Commit — QA/Review verbrennen Aufwand am falschen Stand",
-      "evidence": "HEAD in task-59 war 6fb74e7, 1fbaac46 kein Vorfahr; duplicateProfile fehlte, task-19-Worktree nicht lesbar → Gates rot obwohl Feature real grün",
       "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
@@ -163,17 +176,18 @@
       "updatedAt": 1784185745634
     },
     {
-      "id": "learning-mrn50suj-1-re1u19",
-      "provider": "claude",
-      "model": "claude-sonnet-5",
+      "id": "learning-mrn5v9vy-3-ie46ie",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "qa-gate-runner",
       "kind": "weakness",
-      "insight": "Worker-Versuche scheiterten; Aufgaben wurden auf andere Slots umgeleitet",
-      "evidence": "1 inhaltlich fehlgeschlagene(r) Versuch(e) in diesem Lauf",
-      "source": "auto-retro",
+      "insight": "Eskaliert reinen Infra-Blocker zu Task-'error', obwohl Fachabnahme voll grün ist",
+      "evidence": "Bilbo 2 meldete ERGEBNIS: BLOCKER (Task error), obwohl Typecheck/Lint/relevante Tests grün und alle Abnahmekriterien erfüllt; nur nativer Build-Gate scheiterte an spawn EPERM",
+      "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 3,
-      "createdAt": 1784183890699,
-      "updatedAt": 1784185745634
+      "observations": 1,
+      "createdAt": 1784185312462,
+      "updatedAt": 1784185312462
     },
     {
       "id": "learning-mrn5v9vy-1-g9kuuj",
@@ -197,20 +211,6 @@
       "kind": "strength",
       "insight": "Außerordentlich findig beim Umgehen von Sandbox-Grenzen zur echten Verifikation",
       "evidence": "Bilbo 2: rekonstruierte Impl-Commit, patchte child_process, ließ Vitest programmatisch laufen und belegte alle 3 Abnahmekriterien empirisch (reale Namen: Cair Andros/Mordor/Helms Klamm/Schicksalsberg)",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784185312462,
-      "updatedAt": 1784185312462
-    },
-    {
-      "id": "learning-mrn5v9vy-3-ie46ie",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "qa-gate-runner",
-      "kind": "weakness",
-      "insight": "Eskaliert reinen Infra-Blocker zu Task-'error', obwohl Fachabnahme voll grün ist",
-      "evidence": "Bilbo 2 meldete ERGEBNIS: BLOCKER (Task error), obwohl Typecheck/Lint/relevante Tests grün und alle Abnahmekriterien erfüllt; nur nativer Build-Gate scheiterte an spawn EPERM",
       "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
@@ -246,20 +246,6 @@
       "updatedAt": 1784185312462
     },
     {
-      "id": "learning-mrn5ut8e-2-6cmnn8",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "systems-integrator",
-      "kind": "strength",
-      "insight": "Setzt mehrschichtige Integration (shared Typ -> IPC -> Store -> Selektor -> Komponente) inkl. Tests vollständig aus einem Prompt um",
-      "evidence": "13-Datei-Recovery-Artefakt; Typecheck 2/2, Lint 1/1, Runtime-Smokes 12/12, git diff --check grün",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784185290878,
-      "updatedAt": 1784185290878
-    },
-    {
       "id": "learning-mrn5ut8e-3-40ma12",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -267,6 +253,20 @@
       "kind": "weakness",
       "insight": "Erster Anlauf scheiterte am Vitest-Start (esbuild spawn EPERM in Codex-Sandbox); brauchte zweiten Anlauf für den vollen Testlauf",
       "evidence": "Versuch 1 (Samweis) error spawn EPERM; Versuch 2 (Haldir 2) fuehrte Vitest aus, 1 realer Testfehler",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784185290878,
+      "updatedAt": 1784185290878
+    },
+    {
+      "id": "learning-mrn5ut8e-2-6cmnn8",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "systems-integrator",
+      "kind": "strength",
+      "insight": "Setzt mehrschichtige Integration (shared Typ -> IPC -> Store -> Selektor -> Komponente) inkl. Tests vollständig aus einem Prompt um",
+      "evidence": "13-Datei-Recovery-Artefakt; Typecheck 2/2, Lint 1/1, Runtime-Smokes 12/12, git diff --check grün",
       "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
@@ -344,20 +344,6 @@
       "updatedAt": 1784185100556
     },
     {
-      "id": "learning-mrn5py3i-2-u4gwnd",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "orchestrator-core",
-      "kind": "strength",
-      "insight": "Integrator setzt ein Feature vollständig durch, auch wenn der Upstream-Feature-Task leer bleibt",
-      "evidence": "t2: baute Renderer+shared-Schema+IPC/preload+Main-Ableitung+Tests selbst nach, weil t1 nichts lieferte; alle lauffähigen Gates grün, Artefakt als Commit 36de2203 übernommen",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784185063902,
-      "updatedAt": 1784185063902
-    },
-    {
       "id": "learning-mrn5py3i-3-hl4avp",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -365,6 +351,20 @@
       "kind": "weakness",
       "insight": "Vitest- und Vite-Build-Gates scheitern in der Codex-Sandbox an 'esbuild spawn EPERM' — verhindert Test-/Build-Abnahme trotz fertigem Code",
       "evidence": "t2 (Bard+Dwalin): Typecheck/Lint/Security grün, aber Vitest 0 Tests (Config-Start blockiert) und Desktop-Build nicht erreicht; Worker meldete ERGEBNIS: BLOCKER",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784185063902,
+      "updatedAt": 1784185063902
+    },
+    {
+      "id": "learning-mrn5py3i-2-u4gwnd",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "orchestrator-core",
+      "kind": "strength",
+      "insight": "Integrator setzt ein Feature vollständig durch, auch wenn der Upstream-Feature-Task leer bleibt",
+      "evidence": "t2: baute Renderer+shared-Schema+IPC/preload+Main-Ableitung+Tests selbst nach, weil t1 nichts lieferte; alle lauffähigen Gates grün, Artefakt als Commit 36de2203 übernommen",
       "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
