@@ -29,6 +29,7 @@ import {
   type SynthesisInput,
   type SynthesisOutput
 } from '../src/shared/retroAnalysis'
+import { planRetroAnalysisSeed, seedRetroAnalysisArtifacts } from './retroSeed'
 
 const OVERLAY_PATH = 'overlay/learnings.md'
 const STATE_PATH = 'state/last-analysis.json'
@@ -186,6 +187,19 @@ function buildSummary(
 async function main(): Promise<void> {
   const options = readCliOptions()
   const root = options.dir
+
+  const seedPaths = planRetroAnalysisSeed(root)
+  if (seedPaths.length > 0) {
+    if (options.write) {
+      for (const path of seedRetroAnalysisArtifacts(root)) {
+        console.log(`Bootstrap angelegt: ${path}`)
+      }
+    } else {
+      console.log(
+        `::notice::Bootstrap erforderlich (Dry-Run, nicht geschrieben): ${seedPaths.join(', ')}`
+      )
+    }
+  }
 
   const stateJson = existsSync(join(root, STATE_PATH))
     ? JSON.parse(readFileSync(join(root, STATE_PATH), 'utf8'))

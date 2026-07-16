@@ -80,7 +80,7 @@ No-Git) wirken nachweislich.
 - „at capacity" wird als Limit-Signal erkannt → vorhandener
   rateLimited-Retry mit Slot-Wechsel greift.
 
-## Backlog (bewusst nicht in dieser Welle)
+## Backlog und nachgelagerte Aktivierung
 
 1. **Modell-Fallback-Liste pro Slot** — bei Kapazitäts-/Limit-Signalen auf
    ein konfiguriertes Ausweichmodell desselben Providers wechseln, nicht nur
@@ -97,7 +97,12 @@ No-Git) wirken nachweislich.
 5. **Publish-Preflight als Main-Prozess-Feature** — Live-Remote-Wahrheit
    (Branch-Casing, Divergenz, Auth) zentral prüfen statt über mehrere
    Worker-Preflight-Pläne (mrl9*-Serie: 5 Plan-Iterationen für einen Push).
-6. **Overlay-/Proposals-Pipeline aktivieren** — `overlay/learnings.md`,
-   `proposals/`, `state/last-analysis.json` existieren auf dem
-   `retros`-Branch noch nicht; die Analyse (`scripts/retro-analyze.ts` +
-   Workflow) ist code-komplett und sollte regelmäßig laufen.
+6. **Overlay-/Proposals-Pipeline aktivieren — umgesetzt (2026-07-16).**
+   `scripts/retro-analyze.ts` seedet beim ersten schreibenden Lauf vor dem
+   Mindestmengen-Gate ein leeres `overlay/learnings.md`,
+   `proposals/.gitkeep` und den initialen `state/last-analysis.json`, ohne
+   vorhandene Inhalte zu überschreiben. Der aktive Wochen-Cron läuft montags
+   06:00 UTC mit `contents: write`/`pull-requests: write` und öffnet einen
+   menschlich zu prüfenden PR gegen `retros`. Benötigt wird nur das Repo-Secret
+   `ANTHROPIC_API_KEY`; `GITHUB_TOKEN` stellt Actions bereit. Erst der Merge
+   des Bootstrap-/Analyse-PRs macht das Overlay für Installationen sichtbar.
