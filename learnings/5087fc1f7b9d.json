@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784185260516,
+  "exportedAt": 1784185292781,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -8,6 +8,48 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrn5ut8e-3-40ma12",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "systems-integrator",
+      "kind": "weakness",
+      "insight": "Erster Anlauf scheiterte am Vitest-Start (esbuild spawn EPERM in Codex-Sandbox); brauchte zweiten Anlauf für den vollen Testlauf",
+      "evidence": "Versuch 1 (Samweis) error spawn EPERM; Versuch 2 (Haldir 2) fuehrte Vitest aus, 1 realer Testfehler",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784185290878,
+      "updatedAt": 1784185290878
+    },
+    {
+      "id": "learning-mrn5ut8e-1-aak6ls",
+      "provider": "cursor",
+      "model": "composer-2.5",
+      "role": "frontend-ui",
+      "kind": "weakness",
+      "insight": "Lieferte bei klarer UI-Implementierungsaufgabe keine Arbeit (no-changes), nur Identitäts-Bestätigung, wurde aber als success gewertet",
+      "evidence": "t-ui: 'Verifizierter Status: keine Änderungen'; die UI (WorkspaceTaskSummary.tsx, Sidebar.tsx, styles.css) baute der Integrator",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784185290878,
+      "updatedAt": 1784185290878
+    },
+    {
+      "id": "learning-mrn5ut8e-2-6cmnn8",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "systems-integrator",
+      "kind": "strength",
+      "insight": "Setzt mehrschichtige Integration (shared Typ -> IPC -> Store -> Selektor -> Komponente) inkl. Tests vollständig aus einem Prompt um",
+      "evidence": "13-Datei-Recovery-Artefakt; Typecheck 2/2, Lint 1/1, Runtime-Smokes 12/12, git diff --check grün",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784185290878,
+      "updatedAt": 1784185290878
+    },
     {
       "id": "learning-mrn5u4k5-2-m2sf7f",
       "provider": "codex",
@@ -106,20 +148,6 @@
       "updatedAt": 1784185063902
     },
     {
-      "id": "learning-mrn5py3i-2-u4gwnd",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "orchestrator-core",
-      "kind": "strength",
-      "insight": "Integrator setzt ein Feature vollständig durch, auch wenn der Upstream-Feature-Task leer bleibt",
-      "evidence": "t2: baute Renderer+shared-Schema+IPC/preload+Main-Ableitung+Tests selbst nach, weil t1 nichts lieferte; alle lauffähigen Gates grün, Artefakt als Commit 36de2203 übernommen",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784185063902,
-      "updatedAt": 1784185063902
-    },
-    {
       "id": "learning-mrn5py3i-1-9ug2ja",
       "provider": "cursor",
       "model": "composer-2.5",
@@ -127,6 +155,20 @@
       "kind": "weakness",
       "insight": "Meldet 'success', liefert aber No-op statt der geforderten Implementierung",
       "evidence": "t1-ui: completion no-changes, Ergebnis war nur eine Identitäts-Begrüßung ('Ich bin Schattenfell...'), keine Renderer-Änderung an InboxPanel.tsx",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784185063902,
+      "updatedAt": 1784185063902
+    },
+    {
+      "id": "learning-mrn5py3i-2-u4gwnd",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "orchestrator-core",
+      "kind": "strength",
+      "insight": "Integrator setzt ein Feature vollständig durch, auch wenn der Upstream-Feature-Task leer bleibt",
+      "evidence": "t2: baute Renderer+shared-Schema+IPC/preload+Main-Ableitung+Tests selbst nach, weil t1 nichts lieferte; alle lauffähigen Gates grün, Artefakt als Commit 36de2203 übernommen",
       "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
@@ -330,20 +372,6 @@
       "updatedAt": 1784183960471
     },
     {
-      "id": "learning-mrn525vo-3-birmxc",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "orchestrator-core",
-      "kind": "strength",
-      "insight": "Sehr präzise QA/Infra-Diagnose: pinpoint von Akzeptanz-FAIL per statischer CSS-Analyse plus exakte Einordnung eines spawn-EPERM-Gate-Fehlers",
-      "evidence": "Boromir lokalisierte max-width:720px-Ausblendung + overflow:hidden/min-width:0 in responsiveGuards.module.css:55 und isolierte Node->esbuild spawn EPERM als Ursache für Test/Build/UI-Smoke",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784183954244,
-      "updatedAt": 1784183954244
-    },
-    {
       "id": "learning-mrn525vo-1-mo7j98",
       "provider": "cursor",
       "model": "composer-2.5",
@@ -351,6 +379,20 @@
       "kind": "weakness",
       "insight": "Meldete Task-Erfolg, ohne die Aufgabe zu bearbeiten — nur Selbstvorstellung, completion=no-changes, kein Code-Diff",
       "evidence": "Ergebnis war 'Ich bin Gollum ... Wie kann ich dir helfen?'; git diff HEAD zeigte keinerlei Änderung an responsiveGuards.module.css/TitleBar.tsx",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784183954244,
+      "updatedAt": 1784183954244
+    },
+    {
+      "id": "learning-mrn525vo-3-birmxc",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "orchestrator-core",
+      "kind": "strength",
+      "insight": "Sehr präzise QA/Infra-Diagnose: pinpoint von Akzeptanz-FAIL per statischer CSS-Analyse plus exakte Einordnung eines spawn-EPERM-Gate-Fehlers",
+      "evidence": "Boromir lokalisierte max-width:720px-Ausblendung + overflow:hidden/min-width:0 in responsiveGuards.module.css:55 und isolierte Node->esbuild spawn EPERM als Ursache für Test/Build/UI-Smoke",
       "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
@@ -370,19 +412,6 @@
       "observations": 1,
       "createdAt": 1784183954244,
       "updatedAt": 1784183954244
-    },
-    {
-      "id": "learning-mrn4rl0o-1-u5kgwa",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "kind": "weakness",
-      "insight": "Worker-Versuche scheiterten; Aufgaben wurden auf andere Slots umgeleitet",
-      "evidence": "1 inhaltlich fehlgeschlagene(r) Versuch(e) in diesem Lauf",
-      "source": "auto-retro",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784183460648,
-      "updatedAt": 1784183460648
     },
     {
       "id": "learning-mrm75c2v-3-ghnk87",
@@ -691,20 +720,6 @@
       "observations": 1,
       "createdAt": 1784070557184,
       "updatedAt": 1784070557184
-    },
-    {
-      "id": "learning-mrl9d4go-1-z8q3se",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "main-orchestrator",
-      "kind": "strength",
-      "insight": "Liefert auch große Refactorings (4-Modul-Subsystem + Schema-Integration) vollständig aus reinem Ziel-Fallback-Prompt: sauberer Modulschnitt, rückwärtskompatible Fassade, eigene Findings-Meldung",
-      "evidence": "Fallback-Task plan-mrl8gwri-1: src/shared/retro/ in contracts/learnings/runAnalysis/benchmarkAnalysis zerlegt, ExecutionPlanResult.retro ergänzt, 410/410 Tests, Typecheck+ESLint grün, Commit 86f3e5b",
-      "source": "orchestrator",
-      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
-      "observations": 1,
-      "createdAt": 1784070251736,
-      "updatedAt": 1784070251736
     },
     {
       "id": "learning-mrl8vu75-1-xyvfji",
