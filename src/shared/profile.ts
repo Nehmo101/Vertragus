@@ -158,10 +158,17 @@ export function duplicateProfile(
     nameSuffix += 1
   }
 
+  const clonedSource = structuredClone(source)
   return workspaceProfileSchema.parse({
-    ...structuredClone(source),
+    ...clonedSource,
     id,
-    name
+    name,
+    githubRepo: source.githubRepo
+      ? { ...source.githubRepo, cloneStatus: 'unbound', localPath: '' }
+      : undefined,
+    githubProject: source.githubProject ? { ...source.githubProject } : undefined,
+    agents: clonedSource.agents.map((slot) => ({ ...slot, yolo: false })),
+    yoloDefault: false
   })
 }
 

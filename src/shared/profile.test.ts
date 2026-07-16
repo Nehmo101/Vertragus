@@ -180,13 +180,19 @@ describe('workspaceProfileSchema', () => {
 })
 
 describe('duplicateProfile', () => {
-  it('copies every configurable setting from the source profile', () => {
+  it('copies every configurable setting except the intentional safety resets', () => {
     const source = completeProfile()
     const copy = duplicateProfile(source, [source])
     const { id: copyId, name: copyName, ...copySettings } = copy
     const { id: sourceId, name: sourceName, ...sourceSettings } = source
 
-    expect(copySettings).toEqual(sourceSettings)
+    expect(copySettings).toEqual({
+      ...sourceSettings,
+      githubRepo: { ...source.githubRepo, cloneStatus: 'unbound', localPath: '' },
+      githubProject: { ...source.githubProject },
+      agents: source.agents.map((slot) => ({ ...slot, yolo: false })),
+      yoloDefault: false
+    })
     expect(copyId).not.toBe(sourceId)
     expect(copyName).not.toBe(sourceName)
   })
@@ -214,7 +220,42 @@ describe('duplicateProfile', () => {
     expect(duplicateProfile(source, existingProfiles).name).toBe('Projekt (Kopie 2)')
   })
 
-  it('does not mutate or share nested references with the source profile', () => {
+  it('clears the local repository binding while preserving remote metadata', () => {
+    const source = completeProfile()
+    const copy = duplicateProfile(source, [source])
+
+    expect(copy.githubRepo).toEqual({
+      owner: source.githubRepo!.owner,
+      repo: source.githubRepo!.repo,
+      defaultBranch: source.githubRepo!.defaultBranch,
+      cloneStatus: 'unbound',
+      localPath: ''
+    })
+  })
+
+  it('resets the profile default and every agent slot from yolo to safe mode', () => {
+    const source = completeProfile()
+    source.agents = source.agents.map((slot) => ({ ...slot, yolo: true }))
+
+    const copy = duplicateProfile(source, [source])
+
+    expect(source.yoloDefault).toBe(true)
+    expect(source.agents.every((slot) => slot.yolo)).toBe(true)
+    expect(copy.yoloDefault).toBe(false)
+    expect(copy.agents.every((slot) => !slot.yolo)).toBe(true)
+  })
+
+  it('deep-clones the GitHub project configuration', () => {
+    const source = completeProfile()
+    const copy = duplicateProfile(source, [source])
+
+    expect(copy.githubProject).not.toBe(source.githubProject)
+    copy.githubProject!.title = 'Changed'
+
+    expect(source.githubProject!.title).toBe('Projektplanung')
+  })
+
+  it('leaves the original deeply unchanged and shares no nested references', () => {
     const source = completeProfile()
     const original = structuredClone(source)
     const copy = duplicateProfile(source, [source])
