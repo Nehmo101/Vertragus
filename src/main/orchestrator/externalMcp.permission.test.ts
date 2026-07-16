@@ -24,6 +24,8 @@ describe('Claude native permission callback launch', () => {
       close: async () => undefined
     })
     expect(SUBAGENT_ALLOWED_TOOLS).toContain('mcp__orca-sub__permission_prompt')
+    expect(SUBAGENT_ALLOWED_TOOLS).toContain('mcp__orca-sub__ask_orchestrator')
+    expect(SUBAGENT_ALLOWED_TOOLS).toContain('mcp__orca-sub__await_orchestrator_response')
     const args = buildSubagentMcpArgs('claude', 'agent-1', {
       taskId: 'task-1', engineId: 'engine-1', workspaceSessionId: 'session-1',
       permissionPrompt: true

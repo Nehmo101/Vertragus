@@ -114,6 +114,7 @@ const orca: OrcaApi = {
     buffer: (id) => ipcRenderer.invoke(IPC.agentBuffer, id),
     popout: (id) => ipcRenderer.invoke(IPC.agentPopout, id),
     handoff: (req) => ipcRenderer.invoke(IPC.agentHandoff, req),
+    bulkHandoff: (req) => ipcRenderer.invoke(IPC.agentsBulkHandoff, req),
     onData: (cb) => subscribe<AgentDataChunk>(IPC.evAgentData, cb),
     onChanged: (cb) => subscribe<AgentInstanceInfo[]>(IPC.evAgentsChanged, cb),
     onEvent: (cb) => subscribe<OrcaEvent>(IPC.evOrcaEvent, cb)

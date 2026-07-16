@@ -25,6 +25,7 @@ import type {
   OrchestratorActivityPhase,
   OrchestratorGoal,
   IntegrationCenterSnapshot,
+  MultiAgentRunSnapshot,
   OrchestratorReliabilityMetrics,
   PendingPlanReview,
   OrchestratorSnapshot,
@@ -34,6 +35,7 @@ import type {
   SubagentDescriptor,
   SubagentFinding,
   SubagentFindingKind,
+  SubagentSupportRequest,
   TaskAttemptSnapshot,
   TaskCriticality,
   TaskPhase,
@@ -123,6 +125,10 @@ interface DispatchOptions {
   maxAttempts?: number
   /** Verified failed-worker worktree whose partial files may be resumed. */
   recoveryWorktree?: string
+  /** Internal marker that prevents a candidate from recursively opening another group. */
+  multiAgentRunId?: string
+  multiAgentParentTaskId?: string
+  multiAgentCandidate?: number
 }
 
 interface DispatchRecord {
@@ -130,6 +136,18 @@ interface DispatchRecord {
   prompt: string
   title?: string
   options: DispatchOptions
+}
+
+interface MultiAgentOutcome {
+  action: 'accepted' | 'rejected'
+  message: string
+}
+
+interface MultiAgentRuntime extends MultiAgentRunSnapshot {
+  prompt: string
+  options: DispatchOptions
+  nextCandidate: number
+  resolve: (outcome: MultiAgentOutcome) => void
 }
 
 interface PreparedExecutionPlan {
@@ -323,6 +341,11 @@ export class OrchestratorEngine extends EventEmitter {
   /** Live coordination board written by subagents (post_finding). */
   private readonly findingsBoard: SubagentFinding[] = []
   private findingSeq = 0
+  private multiAgentSeq = 0
+  private readonly multiAgentRuns = new Map<string, MultiAgentRuntime>()
+  private supportSeq = 0
+  private readonly subagentRequests = new Map<string, SubagentSupportRequest>()
+  private readonly supportWaiters = new Map<string, Set<(request: SubagentSupportRequest) => void>>()
   private persistTimer: ReturnType<typeof setTimeout> | undefined
   private lastPersistedAt = 0
   private pendingSnapshot: OrchestratorSnapshot | undefined
@@ -528,7 +551,9 @@ export class OrchestratorEngine extends EventEmitter {
       budget: this.budgetSnapshot(),
       integration: this.integrationSnapshot(),
       lastRetro: this.lastRetro,
-      findings: this.listTaskFindings()
+      findings: this.listTaskFindings(),
+      multiAgentRuns: this.listMultiAgentRuns(),
+      subagentRequests: this.listSubagentSupportRequests()
     }
   }
 
@@ -669,6 +694,20 @@ export class OrchestratorEngine extends EventEmitter {
     this.planRunPlanIds.clear()
     this.cancelledPlanRuns.clear()
     this.benchmarkRuns.clear()
+    for (const run of this.multiAgentRuns.values()) {
+      run.resolve({ action: 'rejected', message: 'Multiagent-Lauf durch Engine-Reset beendet.' })
+    }
+    this.multiAgentRuns.clear()
+    for (const request of this.subagentRequests.values()) {
+      if (request.status === 'pending') {
+        request.status = 'stopped'
+        request.response = 'Orchestrator wurde zurückgesetzt.'
+        request.respondedAt = Date.now()
+        this.notifySupportWaiters(request)
+      }
+    }
+    this.subagentRequests.clear()
+    this.supportWaiters.clear()
     this.findingsBoard.length = 0
     this.lastRetro = undefined
     this.push()
@@ -1122,6 +1161,237 @@ export class OrchestratorEngine extends EventEmitter {
     return selected
   }
 
+  private multiAgentSnapshot(run: MultiAgentRuntime): MultiAgentRunSnapshot {
+    return {
+      id: run.id, parentTaskId: run.parentTaskId, title: run.title, role: run.role,
+      status: run.status, candidateTaskIds: [...run.candidateTaskIds],
+      winnerTaskId: run.winnerTaskId, feedback: run.feedback,
+      startedAt: run.startedAt, decidedAt: run.decidedAt
+    }
+  }
+
+  listMultiAgentRuns(): MultiAgentRunSnapshot[] {
+    return [...this.multiAgentRuns.values()]
+      .sort((a, b) => a.startedAt - b.startedAt)
+      .map((run) => this.multiAgentSnapshot(run))
+  }
+
+  private startMultiAgentCandidate(
+    run: MultiAgentRuntime,
+    input: { prompt: string; recoveryWorktree?: string }
+  ): string {
+    run.nextCandidate += 1
+    const candidate = run.nextCandidate
+    const taskId = `${run.parentTaskId}-m${candidate}`
+    run.candidateTaskIds.push(taskId)
+    const candidatePrompt = [
+      input.prompt,
+      '',
+      `Multiagent-Kandidat ${candidate} in Gruppe ${run.id}: Entwickle eine eigenständige Lösung.`,
+      'Kommuniziere Zwischenstände früh, teile Entscheidungen/Blocker und frage den Orchestrator direkt, wenn Unterstützung oder eine Richtungsentscheidung nötig ist.',
+      'Änderungen anderer Kandidaten dürfen nicht übernommen oder zusammengeführt werden.'
+    ].join('\n')
+    const work = this.dispatch(run.role, candidatePrompt, `${run.title} · Kandidat ${candidate}`, {
+      ...run.options,
+      taskId,
+      recoveryWorktree: input.recoveryWorktree,
+      multiAgentRunId: run.id,
+      multiAgentParentTaskId: run.parentTaskId,
+      multiAgentCandidate: candidate
+    })
+      .then((result) => {
+        this.taskResults.set(taskId, result)
+        return result
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error)
+        this.taskResults.set(taskId, message)
+        return message
+      })
+    this.taskRuns.set(taskId, work)
+    void work.finally(() => {
+      this.taskRuns.delete(taskId)
+      const current = this.multiAgentRuns.get(run.id)
+      if (!current || current.status === 'accepted' || current.status === 'rejected') return
+      const complete = current.candidateTaskIds.every((id) => {
+        const task = this.tasks.get(id)
+        return task ? isTerminalTaskStatus(task.status) : false
+      })
+      if (!complete) return
+      current.status = 'awaiting-review'
+      const parent = this.tasks.get(current.parentTaskId)
+      if (parent) {
+        parent.status = 'waiting'
+        parent.phase = 'security-review'
+        parent.lastAction = `${current.candidateTaskIds.length} Kandidaten warten auf Orchestrator-Review`
+        parent.lastHeartbeatAt = Date.now()
+      }
+      this.setActivityState(
+        'reviewing',
+        `Vergleicht ${current.candidateTaskIds.length} Kandidaten für „${current.title}“.`,
+        ['Diffs, Tests, Findings und Worker-Ergebnisse bewerten.'],
+        'Einen Kandidaten übernehmen, gezielt überarbeiten lassen oder die Gruppe verwerfen.'
+      )
+      this.push()
+    })
+    return taskId
+  }
+
+  private async dispatchMultiAgent(
+    role: string,
+    slotRole: string,
+    prompt: string,
+    title: string | undefined,
+    options: DispatchOptions,
+    candidateCount: number
+  ): Promise<string> {
+    const { slot } = this.pickSlot(role)
+    const profile = this.activeProfile()
+    const parentTaskId = options.taskId ?? this.nextTaskId()
+    const runId = `multi-${++this.multiAgentSeq}`
+    const taskTitle = title?.trim() || prompt.split('\n')[0].slice(0, 60)
+    const parent: OrcaTask = this.tasks.get(parentTaskId) ?? {
+      id: parentTaskId, title: taskTitle, role: slotRole, status: 'running', createdAt: Date.now()
+    }
+    Object.assign(parent, {
+      title: taskTitle, role: slotRole, provider: slot.provider, model: resolveSlotModel(slot.provider, slot),
+      status: 'running' as const, phase: 'working' as const,
+      lastAction: `Startet ${candidateCount} parallele Kandidaten`, lastHeartbeatAt: Date.now(),
+      yolo: slot.yolo || (profile?.yoloDefault ?? false),
+      dependsOn: options.dependsOn, advisoryDependsOn: options.advisoryDependsOn,
+      conflictKeys: options.conflictKeys, expectedFiles: options.expectedFiles,
+      planId: options.planId, planTaskId: options.planTaskId, engineId: this.engineId,
+      criticality: options.criticality ?? 'required', ownership: options.ownership ?? 'feature',
+      multiAgentRunId: runId, agentId: undefined, agentName: undefined, finishedAt: undefined
+    })
+    this.tasks.set(parentTaskId, parent)
+    if (!this.dispatchRecords.has(parentTaskId)) {
+      this.dispatchRecords.set(parentTaskId, { role, prompt, title, options: { ...options } })
+    }
+
+    let resolve!: (outcome: MultiAgentOutcome) => void
+    const decided = new Promise<MultiAgentOutcome>((done) => { resolve = done })
+    const run: MultiAgentRuntime = {
+      id: runId, parentTaskId, title: taskTitle, role: slotRole, status: 'running',
+      candidateTaskIds: [], startedAt: Date.now(), prompt, options: { ...options },
+      nextCandidate: 0, resolve
+    }
+    this.multiAgentRuns.set(runId, run)
+    this.setActivityState(
+      'delegating',
+      `Startet ${candidateCount} konkurrierende Kandidaten für „${taskTitle}“.`,
+      [`Rolle ${slotRole}; jeder Kandidat arbeitet in einem isolierten Worktree.`],
+      'Live-Findings beobachten und Kandidaten anschließend reviewen.'
+    )
+    for (let index = 0; index < candidateCount; index += 1) {
+      this.startMultiAgentCandidate(run, { prompt })
+    }
+    this.push()
+    const outcome = await decided
+    return outcome.message
+  }
+
+  async reviewMultiAgentRun(input: {
+    runId: string
+    action: 'accept' | 'revise' | 'reject'
+    candidateTaskId?: string
+    feedback: string
+  }): Promise<MultiAgentRunSnapshot> {
+    const run = this.multiAgentRuns.get(input.runId)
+    if (!run) throw new Error('Multiagent-Lauf nicht gefunden.')
+    if (run.status === 'accepted' || run.status === 'rejected') return this.multiAgentSnapshot(run)
+    const feedback = input.feedback.replace(/\s+/g, ' ').trim().slice(0, 2_000)
+    if (!feedback) throw new Error('Die Orchestrator-Entscheidung benötigt eine konkrete Begründung.')
+    const selected = input.candidateTaskId ? this.tasks.get(input.candidateTaskId) : undefined
+    const selectedBelongs = Boolean(selected && run.candidateTaskIds.includes(selected.id))
+
+    if (input.action !== 'reject' && !selectedBelongs) {
+      throw new Error('Für Übernahme oder Überarbeitung muss ein Kandidat aus dieser Gruppe gewählt werden.')
+    }
+    if (input.action !== 'reject' && selected && !isTerminalTaskStatus(selected.status)) {
+      throw new Error('Der gewählte Kandidat ist noch nicht fertig und kann noch nicht bewertet werden.')
+    }
+
+    const stopAlternatives = async (keepTaskId?: string): Promise<void> => {
+      const shouldStop = input.action !== 'accept' || (this.activeProfile()?.multiAgent.stopLosers ?? true)
+      if (!shouldStop) return
+      await Promise.all(run.candidateTaskIds.map(async (taskId) => {
+        if (taskId === keepTaskId) return
+        const task = this.tasks.get(taskId)
+        if (task?.agentId && !isTerminalTaskStatus(task.status)) await agentManager.kill(task.agentId)
+      }))
+    }
+
+    if (input.action === 'revise') {
+      await stopAlternatives(selected!.id)
+      for (const taskId of run.candidateTaskIds) {
+        this.preparedChanges.delete(taskId)
+        const candidate = this.tasks.get(taskId)
+        if (candidate) candidate.autoPrStatus = undefined
+      }
+      run.status = 'running'
+      run.feedback = feedback
+      const parent = this.tasks.get(run.parentTaskId)!
+      parent.status = 'running'
+      parent.phase = 'working'
+      parent.lastAction = `Überarbeitung für ${selected!.agentName ?? selected!.id} angefordert`
+      parent.lastHeartbeatAt = Date.now()
+      const previous = this.taskResults.get(selected!.id) ?? selected!.note ?? '(kein Ergebnistext)'
+      this.startMultiAgentCandidate(run, {
+        prompt: `${run.prompt}\n\nOrchestrator-Review: ${feedback}\n\nVorheriges Ergebnis:\n${previous}`,
+        recoveryWorktree: selected!.worktree
+      })
+      this.push()
+      return this.multiAgentSnapshot(run)
+    }
+
+    await stopAlternatives(input.action === 'accept' ? selected?.id : undefined)
+    const parent = this.tasks.get(run.parentTaskId)!
+    const selectedPrepared = selected ? this.preparedChanges.get(selected.id) : undefined
+    const selectedAutoPrStatus = selected?.autoPrStatus
+    for (const taskId of run.candidateTaskIds) {
+      this.preparedChanges.delete(taskId)
+      const candidate = this.tasks.get(taskId)
+      if (candidate) candidate.autoPrStatus = undefined
+    }
+
+    if (input.action === 'accept') {
+      if (selected!.status !== 'success' && selected!.status !== 'needs-work') {
+        throw new Error('Nur ein erfolgreicher oder als nacharbeitsfähig bewerteter Kandidat kann übernommen werden.')
+      }
+      if (selectedPrepared) this.preparedChanges.set(parent.id, selectedPrepared)
+      Object.assign(parent, {
+        agentId: selected!.agentId, agentName: selected!.agentName, provider: selected!.provider,
+        model: selected!.model, status: selected!.status, phase: selected!.phase,
+        progress: selected!.progress, lastHeartbeatAt: Date.now(), usage: selected!.usage,
+        note: feedback, judgeReason: feedback, worktree: selected!.worktree, branch: selected!.branch,
+        commit: selected!.commit, completion: selected!.completion, findings: selected!.findings,
+        blocker: selected!.blocker, failureKind: selected!.failureKind, preflight: selected!.preflight,
+        attempts: selected!.attempts, autoPrStatus: selectedAutoPrStatus, finishedAt: Date.now(),
+        lastAction: `Kandidat ${selected!.agentName ?? selected!.id} vom Orchestrator übernommen`
+      })
+      run.status = 'accepted'
+      run.winnerTaskId = selected!.id
+      run.feedback = feedback
+      run.decidedAt = Date.now()
+      const message = `Multiagent-Gewinner ${selected!.agentName ?? selected!.id}: ${feedback}\n\n${this.taskResults.get(selected!.id) ?? selected!.note ?? ''}`
+      run.resolve({ action: 'accepted', message })
+    } else {
+      Object.assign(parent, {
+        status: 'stopped' as const, phase: 'completed' as const, failureKind: 'cancelled' as const,
+        note: feedback, judgeReason: feedback, lastAction: 'Alle Multiagent-Kandidaten verworfen',
+        finishedAt: Date.now(), lastHeartbeatAt: Date.now()
+      })
+      run.status = 'rejected'
+      run.feedback = feedback
+      run.decidedAt = Date.now()
+      run.resolve({ action: 'rejected', message: `Multiagent-Gruppe verworfen: ${feedback}` })
+    }
+    this.syncActivityFromTasks()
+    this.push()
+    return this.multiAgentSnapshot(run)
+  }
+
   /**
    * Dispatch a subtask to a subagent and wait for its result.
    * Returns the subagent's final message (fed back to the orchestrator).
@@ -1135,6 +1405,9 @@ export class OrchestratorEngine extends EventEmitter {
   ): Promise<string> {
     const { slot, role: slotRole } = this.pickSlot(role)
     const profile = this.activeProfile()
+    if (!options.multiAgentRunId && profile?.multiAgent?.enabled && slot.count > 1) {
+      return this.dispatchMultiAgent(role, slotRole, prompt, title, options, Math.min(slot.count, 16))
+    }
     const taskId = options.taskId ?? this.nextTaskId()
     if (!this.dispatchRecords.has(taskId)) {
       this.dispatchRecords.set(taskId, {
@@ -1178,6 +1451,9 @@ export class OrchestratorEngine extends EventEmitter {
       criticality: options.criticality ?? task.criticality ?? 'required',
       ownership: options.ownership ?? task.ownership ?? 'feature',
       planTaskId: options.planTaskId ?? task.planTaskId,
+      multiAgentRunId: options.multiAgentRunId,
+      multiAgentParentTaskId: options.multiAgentParentTaskId,
+      multiAgentCandidate: options.multiAgentCandidate,
       agentId: undefined,
       agentName: undefined,
       blocker: undefined,
@@ -1236,7 +1512,8 @@ export class OrchestratorEngine extends EventEmitter {
       ...(orcaSubTools
         ? [
             '- Live-Status: Melde wichtige Phasenwechsel und Zwischenstände knapp über das MCP-Tool report_progress (Server orca-sub).',
-            '- Team-Board: Teile Schnittstellen, Entscheidungen und Blocker, die parallele Tasks betreffen, über post_finding; prüfe mit list_findings die Einträge anderer Subagents, bevor du gemeinsame Schnittstellen festlegst.'
+            '- Team-Board: Teile Schnittstellen, Entscheidungen und Blocker, die parallele Tasks betreffen, über post_finding; prüfe mit list_findings die Einträge anderer Subagents, bevor du gemeinsame Schnittstellen festlegst.',
+            '- Direkte Hilfe: Wenn eine Richtungsentscheidung, Freigabe oder Unterstützung fehlt, nutze ask_orchestrator und warte mit await_orchestrator_response auf die konkrete Antwort.'
           ]
         : []),
       ...providerExecutionGuidance(slot.provider, yolo).map((item) => `- ${item}`),
@@ -3080,6 +3357,103 @@ export class OrchestratorEngine extends EventEmitter {
   }
 
   /** Open a persistent interactive subagent in its own OS window. */
+  requestSubagentSupport(
+    taskId: string,
+    input: { question: string; context?: string }
+  ): SubagentSupportRequest {
+    const task = this.tasks.get(taskId)
+    if (!task) throw new Error('Task nicht gefunden.')
+    const question = input.question.replace(/\s+/g, ' ').trim().slice(0, 1_000)
+    if (!question) throw new Error('Die Rückfrage darf nicht leer sein.')
+    this.supportSeq += 1
+    const request: SubagentSupportRequest = {
+      id: `support-${this.supportSeq.toString(36)}`,
+      taskId, agentName: task.agentName, role: task.role, question,
+      context: input.context?.trim().slice(0, 2_000) || undefined,
+      status: 'pending', createdAt: Date.now()
+    }
+    this.subagentRequests.set(request.id, request)
+    task.lastAction = `Rückfrage an Orchestrator: ${question.slice(0, 120)}`
+    task.lastHeartbeatAt = Date.now()
+    this.rememberTaskAction(task)
+    this.setActivityState(
+      'monitoring',
+      `${task.agentName ?? task.role} benötigt eine Orchestrator-Entscheidung.`,
+      [question.slice(0, 220)],
+      'Rückfrage beantworten oder den Task gezielt stoppen.'
+    )
+    this.push()
+    return { ...request }
+  }
+
+  listSubagentSupportRequests(pendingOnly = false): SubagentSupportRequest[] {
+    return [...this.subagentRequests.values()]
+      .filter((request) => !pendingOnly || request.status === 'pending')
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .slice(-100)
+      .map((request) => ({ ...request }))
+  }
+
+  private notifySupportWaiters(request: SubagentSupportRequest): void {
+    const waiters = this.supportWaiters.get(request.id)
+    if (!waiters) return
+    this.supportWaiters.delete(request.id)
+    for (const resolve of waiters) resolve({ ...request })
+  }
+
+  async awaitSubagentSupportResponse(requestId: string, timeoutMs = AWAIT_DEFAULT_TIMEOUT_MS): Promise<
+    { done: true; request: SubagentSupportRequest } |
+    { done: false; stillWaiting: true; request: SubagentSupportRequest }
+  > {
+    const request = this.subagentRequests.get(requestId)
+    if (!request) throw new Error('Rückfrage nicht gefunden.')
+    if (request.status !== 'pending') return { done: true, request: { ...request } }
+    const wait = Math.min(AWAIT_MAX_TIMEOUT_MS, Math.max(AWAIT_MIN_TIMEOUT_MS, timeoutMs))
+    return new Promise((resolve) => {
+      const callback = (resolved: SubagentSupportRequest): void => {
+        clearTimeout(timer)
+        resolve({ done: true, request: resolved })
+      }
+      const listeners = this.supportWaiters.get(requestId) ?? new Set()
+      listeners.add(callback)
+      this.supportWaiters.set(requestId, listeners)
+      const timer = setTimeout(() => {
+        listeners.delete(callback)
+        if (listeners.size === 0) this.supportWaiters.delete(requestId)
+        resolve({ done: false, stillWaiting: true, request: { ...request } })
+      }, wait)
+    })
+  }
+
+  async respondSubagentSupport(
+    requestId: string,
+    response: string,
+    action: 'continue' | 'stop' = 'continue'
+  ): Promise<SubagentSupportRequest> {
+    const request = this.subagentRequests.get(requestId)
+    if (!request) throw new Error('Rückfrage nicht gefunden.')
+    if (request.status !== 'pending') return { ...request }
+    const clean = response.replace(/\s+/g, ' ').trim().slice(0, 2_000)
+    if (!clean) throw new Error('Die Antwort darf nicht leer sein.')
+    request.response = clean
+    request.respondedAt = Date.now()
+    request.status = action === 'stop' ? 'stopped' : 'answered'
+    const task = this.tasks.get(request.taskId)
+    if (task) {
+      task.lastAction = action === 'stop'
+        ? `Orchestrator stoppte den Task: ${clean.slice(0, 120)}`
+        : `Orchestrator antwortete: ${clean.slice(0, 120)}`
+      task.lastHeartbeatAt = Date.now()
+      this.rememberTaskAction(task)
+      if (action === 'stop' && task.agentId && !isTerminalTaskStatus(task.status)) {
+        await agentManager.kill(task.agentId)
+      }
+    }
+    this.notifySupportWaiters(request)
+    this.push()
+    return { ...request }
+  }
+
   async openSubwindow(role: string, prompt?: string): Promise<string> {
     const { slot, role: slotRole } = this.pickSlot(role)
     const profile = this.activeProfile()

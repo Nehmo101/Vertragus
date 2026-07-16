@@ -246,4 +246,28 @@ describe('AgentManager orchestrator handoff lifecycle', () => {
     expect(source.handoffTo?.handshake).toBeUndefined()
     expect(manager.list().map((agent) => agent.id)).toEqual([source.id, target.id])
   })
+
+  it('hands several interactive agents to one target provider and isolates per-source failures', async () => {
+    const manager = new AgentManager()
+    const first = await spawnSource(manager, 'sub')
+    const second = await spawnSource(manager, 'sub')
+
+    const result = await manager.bulkHandoff({
+      sourceIds: [first.id, 'missing-source', second.id],
+      provider: 'cursor',
+      model: 'grok',
+      task: 'Arbeite am bisherigen Ziel weiter.',
+      stopSources: true
+    })
+
+    expect(result.requested).toBe(3)
+    expect(result.transferred).toHaveLength(2)
+    expect(result.transferred.every((agent) => agent.provider === 'cursor')).toBe(true)
+    expect(result.failures).toEqual([
+      expect.objectContaining({ sourceId: 'missing-source', error: expect.stringContaining('nicht gefunden') })
+    ])
+    expect(manager.list().map((agent) => agent.id)).toEqual(
+      result.transferred.map((agent) => agent.id)
+    )
+  })
 })

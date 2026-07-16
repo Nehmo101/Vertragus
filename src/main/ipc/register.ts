@@ -7,7 +7,7 @@ import { stat } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { IPC, type AppInfo } from '@shared/ipc'
-import type { HandoffRequest, OrcaEvent, SpawnAgentRequest } from '@shared/agents'
+import type { BulkHandoffRequest, HandoffRequest, OrcaEvent, SpawnAgentRequest } from '@shared/agents'
 import type { OrchestratorSnapshot } from '@shared/orchestrator'
 import type { RemoteBudgetCaps } from '@shared/remote'
 import type { ProviderId } from '@shared/providers'
@@ -465,6 +465,7 @@ export function registerIpcHandlers(): void {
     createPaneWindow(id)
   })
   ipcMain.handle(IPC.agentHandoff, (_e, req: HandoffRequest) => agentManager.handoff(req))
+  ipcMain.handle(IPC.agentsBulkHandoff, (_e, req: BulkHandoffRequest) => agentManager.bulkHandoff(req))
 
   // ---- orchestrator ----
   ipcMain.handle(IPC.orchestratorSnapshot, (_e, profileId: string, workspaceSessionId?: string) => {

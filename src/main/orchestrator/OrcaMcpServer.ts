@@ -44,6 +44,10 @@ const ORCHESTRATOR_TOOLS = [
   'mcp__orca__await_task',
   'mcp__orca__await_any',
   'mcp__orca__list_findings',
+  'mcp__orca__list_multiagent_runs',
+  'mcp__orca__review_multiagent',
+  'mcp__orca__list_subagent_requests',
+  'mcp__orca__respond_subagent',
   'mcp__orca__get_plan_status',
   'mcp__orca__await_plan',
   'mcp__orca__cancel_plan',
@@ -95,6 +99,8 @@ function buildMcpServer(
         'To wait for worker results use await_task(taskId) or await_any(taskIds) to block instead of polling; call get_task_status/list_tasks only for a one-off snapshot (e.g. to read the exact agentName). Identify a worker only by the exact agentName returned by get_task_status or list_tasks.',
         'If agentName is absent, use taskId and role until a later poll returns it; never infer or invent a worker name.',
         'Report each worker task, phase, current action, and blocker.',
+        'Check list_subagent_requests regularly and answer pending worker questions with respond_subagent; use stop only when that worker must not continue.',
+        'After dispatching in Multiagent mode, inspect list_multiagent_runs. For every awaiting-review group compare task results, diffs, tests and findings, then call review_multiagent with accept, revise or reject. Accept exactly one candidate; never integrate competing candidates together.',
         'Give every subagent a complete standalone prompt and summarize their results for the user.'
       ].join(' ')
     }
@@ -321,6 +327,55 @@ function buildMcpServer(
       'und Erkenntnisse, die Subagents während laufender Tasks live geteilt haben.',
     {},
     async () => text(JSON.stringify(engine.listTaskFindings(), null, 2))
+  )
+
+  register(
+    'list_multiagent_runs',
+    'Liste konkurrierende Kandidatengruppen samt Kandidaten-Task-IDs und Reviewstatus. ' +
+      'Bei awaiting-review müssen Ergebnisse, Diffs, Tests und Findings bewertet werden.',
+    {},
+    async () => text(JSON.stringify(engine.listMultiAgentRuns(), null, 2))
+  )
+
+  register(
+    'review_multiagent',
+    'Triff die verbindliche Reviewentscheidung für eine Multiagent-Gruppe: genau einen Kandidaten ' +
+      'übernehmen, einen Kandidaten mit konkretem Feedback überarbeiten lassen oder alle verwerfen.',
+    {
+      runId: z.string().min(1),
+      action: z.enum(['accept', 'revise', 'reject']),
+      candidateTaskId: z.string().min(1).optional(),
+      feedback: z.string().min(8).max(2_000).describe('Konkrete Code-Review-Begründung oder Überarbeitungsanweisung')
+    },
+    async (args) => text(JSON.stringify(await engine.reviewMultiAgentRun({
+      runId: String(args.runId ?? ''),
+      action: String(args.action ?? 'reject') as 'accept' | 'revise' | 'reject',
+      candidateTaskId: args.candidateTaskId ? String(args.candidateTaskId) : undefined,
+      feedback: String(args.feedback ?? '')
+    }), null, 2))
+  )
+
+  register(
+    'list_subagent_requests',
+    'Liste direkte Rückfragen und Unterstützungsanfragen laufender Subagents. Standardmäßig nur offene Anfragen.',
+    { pendingOnly: z.boolean().optional() },
+    async (args) => text(JSON.stringify(engine.listSubagentSupportRequests(args.pendingOnly !== false), null, 2))
+  )
+
+  register(
+    'respond_subagent',
+    'Antworte einer Subagent-Rückfrage konkret. continue liefert die Antwort an den wartenden Worker; ' +
+      'stop beendet den Worker, wenn er an diesem Task nicht weiterarbeiten darf.',
+    {
+      requestId: z.string().min(1),
+      response: z.string().min(1).max(2_000),
+      action: z.enum(['continue', 'stop']).default('continue')
+    },
+    async (args) => text(JSON.stringify(await engine.respondSubagentSupport(
+      String(args.requestId ?? ''),
+      String(args.response ?? ''),
+      String(args.action ?? 'continue') as 'continue' | 'stop'
+    ), null, 2))
   )
 
   register(
@@ -628,7 +683,8 @@ function buildSubagentMcpServer(engine: OrchestratorEngine, taskId: string): Mcp
         'Du bist ein Orca-Strator Subagent. Über diese Tools kommunizierst du mit dem Orchestrator und parallelen Subagents.',
         'Melde wichtige Phasenwechsel und Zwischenstände knapp über report_progress.',
         'Teile Schnittstellen, Entscheidungen und Blocker, die parallele Tasks betreffen, über post_finding.',
-        'Lies mit list_findings die Einträge anderer Subagents, bevor du gemeinsame Schnittstellen festlegst.'
+        'Lies mit list_findings die Einträge anderer Subagents, bevor du gemeinsame Schnittstellen festlegst.',
+        'Wenn dir eine Richtungsentscheidung, Freigabe oder Hilfe fehlt, stelle eine konkrete Frage mit ask_orchestrator und warte mit await_orchestrator_response auf die Antwort.'
       ].join(' ')
     }
   )
@@ -687,6 +743,47 @@ function buildSubagentMcpServer(engine: OrchestratorEngine, taskId: string): Mcp
       '(Schnittstellen, Entscheidungen, Blocker, Erkenntnisse anderer Subagents).',
     {},
     async () => text(JSON.stringify(engine.listTaskFindings(taskId), null, 2))
+  )
+
+  toolFn(
+    'ask_orchestrator',
+    'Stelle dem Orchestrator eine konkrete Rückfrage oder fordere Unterstützung an. ' +
+      'Die Antwort enthält requestId; warte anschließend mit await_orchestrator_response.',
+    {
+      question: z.string().min(1).max(1_000),
+      context: z.string().min(1).max(2_000).optional()
+    },
+    async (args) => {
+      try {
+        const request = engine.requestSubagentSupport(taskId, {
+          question: String(args.question ?? ''),
+          context: args.context ? String(args.context) : undefined
+        })
+        return text(JSON.stringify({ ok: true, requestId: request.id }))
+      } catch (error) {
+        return text(JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) }))
+      }
+    }
+  )
+
+  toolFn(
+    'await_orchestrator_response',
+    'Warte serverseitig auf die Antwort zu einer vorherigen ask_orchestrator-Rückfrage. ' +
+      'Bei stillWaiting:true mit derselben requestId erneut aufrufen.',
+    {
+      requestId: z.string().min(1),
+      timeoutMs: AWAIT_TIMEOUT_SHAPE
+    },
+    async (args) => {
+      try {
+        return text(JSON.stringify(await engine.awaitSubagentSupportResponse(
+          String(args.requestId ?? ''),
+          args.timeoutMs as number | undefined
+        ), null, 2))
+      } catch (error) {
+        return text(JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) }))
+      }
+    }
   )
 
   toolFn(

@@ -187,6 +187,10 @@ export interface OrcaTask {
   prUrl?: string
   /** Auto-PR is independent from the agent execution status. */
   autoPrStatus?: 'skipped' | 'prepared' | 'published' | 'blocked'
+  /** Competing-candidate group metadata for Multiagent mode. */
+  multiAgentRunId?: string
+  multiAgentParentTaskId?: string
+  multiAgentCandidate?: number
   /** Remote GitHub checks are tracked separately from successful PR publication. */
   remoteCiStatus?: RemoteCiStatus
   /** Best available check or pull-request URL for remote CI. */
@@ -196,6 +200,34 @@ export interface OrcaTask {
   yolo?: boolean
   createdAt: number
   finishedAt?: number
+}
+
+export type MultiAgentRunStatus = 'running' | 'awaiting-review' | 'accepted' | 'rejected'
+
+export interface MultiAgentRunSnapshot {
+  id: string
+  parentTaskId: string
+  title: string
+  role: string
+  status: MultiAgentRunStatus
+  candidateTaskIds: string[]
+  winnerTaskId?: string
+  feedback?: string
+  startedAt: number
+  decidedAt?: number
+}
+
+export interface SubagentSupportRequest {
+  id: string
+  taskId: string
+  agentName?: string
+  role?: string
+  question: string
+  context?: string
+  status: 'pending' | 'answered' | 'stopped'
+  response?: string
+  createdAt: number
+  respondedAt?: number
 }
 
 export type SubagentFindingKind = 'interface' | 'decision' | 'blocker' | 'insight'
@@ -290,6 +322,10 @@ export interface OrchestratorSnapshot {
   lastRetro?: RunRetro
   /** Recent shared findings board entries (newest last), for the live UI. */
   findings?: SubagentFinding[]
+  /** Competing candidate groups waiting for or carrying an orchestrator decision. */
+  multiAgentRuns?: MultiAgentRunSnapshot[]
+  /** Direct subagent questions/support requests, including answered history. */
+  subagentRequests?: SubagentSupportRequest[]
 }
 
 export interface OrchestratorReliabilityMetrics {

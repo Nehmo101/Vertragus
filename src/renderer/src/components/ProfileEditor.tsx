@@ -32,6 +32,7 @@ const HELP = {
   routingMode: 'Adaptiv startet zunächst nur den Orchestrator und aktiviert Task-Agents passend zum Plan. Vorgewärmt startet alle Slots sofort.',
   maxParallel: 'Globales Oberlimit gleichzeitig laufender Plan-Tasks; Rollen-Kapazitäten können es weiter reduzieren.',
   maxRetries: 'Wie oft der Orchestrator nach einem fehlgeschlagenen Plan ohne neue Nutzerinformation fokussiert nachplanen darf.',
+  multiAgent: 'Startet für jede delegierte Aufgabe alle Instanzen des gewählten Slots parallel. Der Orchestrator vergleicht Ergebnisse und Diffs, fordert Nacharbeit an, verwirft die Gruppe oder übernimmt genau einen Gewinner.',
   autoPrMode: 'PRs entstehen nur nach erfolgreichen Gates. Draft ist der empfohlene sichere Startmodus.',
   prStrategy: 'Aggregate kombiniert Task-Commits in einen Goal-PR. Per Task erzeugt getrennte PRs.',
   baseBranch: 'Zielbranch des PRs. Leer nutzt den gebundenen Standardbranch oder den des origin-Remotes.',
@@ -585,6 +586,23 @@ export default function ProfileEditor(): JSX.Element | null {
                 >
                   <option value="off">Aus</option>
                   <option value="on">Aktiv — gleiche Aufgabe für alle Slots</option>
+                </select>
+              </label>
+              <label>
+                <span className="slot-col-label">
+                  Multiagent-Modus <InfoTip text={HELP.multiAgent} />
+                </span>
+                <select
+                  className="slot-select-sm"
+                  value={draft.multiAgent.enabled ? 'on' : 'off'}
+                  disabled={!draft.orchestrator}
+                  title={!draft.orchestrator ? 'Multiagent-Modus benötigt einen Orchestrator.' : undefined}
+                  onChange={(event) => patch({
+                    multiAgent: { ...draft.multiAgent, enabled: event.target.value === 'on' }
+                  })}
+                >
+                  <option value="off">Aus — ein Agent je Task</option>
+                  <option value="on">Aktiv — Slot-Anzahl als Kandidaten</option>
                 </select>
               </label>
             </div>

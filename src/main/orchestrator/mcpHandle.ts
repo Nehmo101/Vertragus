@@ -19,6 +19,8 @@ export const SUBAGENT_ALLOWED_TOOLS = [
   'mcp__orca-sub__report_progress',
   'mcp__orca-sub__post_finding',
   'mcp__orca-sub__list_findings',
+  'mcp__orca-sub__ask_orchestrator',
+  'mcp__orca-sub__await_orchestrator_response',
   'mcp__orca-sub__permission_prompt'
 ]
 

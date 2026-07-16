@@ -157,6 +157,32 @@ export interface HandoffRequest {
   summary?: string
 }
 
+/** Request to hand several live interactive agents to the same provider/model. */
+export interface BulkHandoffRequest {
+  /** Explicit source ids selected by the renderer. Every source is handled independently. */
+  sourceIds: string[]
+  provider: AgentProviderId
+  model: string
+  role?: string
+  yolo?: boolean
+  task?: string
+  summary?: string
+  /** Stop successfully transferred subagents. Orchestrators still use their acknowledgement handshake. */
+  stopSources?: boolean
+}
+
+export interface BulkHandoffFailure {
+  sourceId: string
+  sourceName?: string
+  error: string
+}
+
+export interface BulkHandoffResult {
+  requested: number
+  transferred: AgentInstanceInfo[]
+  failures: BulkHandoffFailure[]
+}
+
 /** Lifecycle/dispatch feed entry (right panel "Dispatch-Protokoll"). */
 export interface OrcaEvent {
   time: number

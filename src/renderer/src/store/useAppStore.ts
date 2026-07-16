@@ -2,7 +2,7 @@
  * Central renderer state (zustand), wired to the real main-process API.
  */
 import { create } from 'zustand'
-import type { AgentInstanceInfo, HandoffRequest, OrcaEvent } from '@shared/agents'
+import type { AgentInstanceInfo, BulkHandoffRequest, HandoffRequest, OrcaEvent } from '@shared/agents'
 import { LIMIT_KIND_LABELS } from '@shared/agents'
 import type {
   AgentProviderId,
@@ -148,6 +148,7 @@ interface AppState {
   openHandoff(id: string): void
   closeHandoff(): void
   handoff(req: HandoffRequest): Promise<void>
+  bulkHandoff(req: BulkHandoffRequest): Promise<void>
   openEditor(profile: WorkspaceProfile): void
   openEditorCopy(profile: WorkspaceProfile): void
   openEditorNew(): void
@@ -1044,6 +1045,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  async bulkHandoff(req) {
+    try {
+      const result = await window.orca.agents.bulkHandoff(req)
+      set({ handoffSource: null })
+      const suffix = result.failures.length > 0 ? ` · ${result.failures.length} fehlgeschlagen` : ''
+      get().showToast(`Massenübergabe: ${result.transferred.length}/${result.requested} übernommen${suffix}`)
+    } catch (error) {
+      get().showToast(`Massenübergabe fehlgeschlagen: ${errorMessage(error)}`)
+    }
+  },
+
   openEditor(profile) {
     set({ editorProfile: profile })
   },
@@ -1063,6 +1075,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         })),
         planner: { ...profile.planner },
         benchmark: { ...profile.benchmark },
+        multiAgent: { ...profile.multiAgent },
         autoPr: {
           ...profile.autoPr,
           qualityGates: [...profile.autoPr.qualityGates],
@@ -1103,6 +1116,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         yoloDefault: false,
         planner: { mode: 'review', routingMode: 'adaptive', maxParallel: 6, maxRetries: 1 },
         benchmark: { enabled: false },
+        multiAgent: { enabled: false, stopLosers: true },
         autoPr: {
           mode: 'off',
           strategy: 'aggregate',

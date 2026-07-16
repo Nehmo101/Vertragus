@@ -19,6 +19,7 @@ describe('workspaceProfileSchema', () => {
     })
     expect(profile.planner.mode).toBe('review')
     expect(profile.autoPr.mode).toBe('off')
+    expect(profile.multiAgent).toEqual({ enabled: false, stopLosers: true })
     expect(profile.orchestrator?.model).toBe('')
   })
 

@@ -57,6 +57,13 @@ export const benchmarkConfigSchema = z.object({
   enabled: z.boolean().default(false)
 })
 
+/** Competing workers solve the same task; only an orchestrator-approved candidate is integrated. */
+export const multiAgentConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  /** Stop unfinished alternatives as soon as the orchestrator accepts or rejects a candidate. */
+  stopLosers: z.boolean().default(true)
+})
+
 export const autoPrConfigSchema = z.object({
   mode: z.enum(['off', 'draft-after-checks', 'ready-after-checks', 'hold-for-approval']).default('off'),
   strategy: z.enum(['aggregate', 'per-task']).default('aggregate'),
@@ -120,6 +127,7 @@ export const workspaceProfileSchema = z.object({
   yoloDefault: z.boolean().default(false),
   planner: plannerConfigSchema.default({}),
   benchmark: benchmarkConfigSchema.default({}),
+  multiAgent: multiAgentConfigSchema.default({}),
   autoPr: autoPrConfigSchema.default({})
 })
 
@@ -127,6 +135,7 @@ export type AgentSlot = z.infer<typeof agentSlotSchema>
 export type OrchestratorConfig = z.infer<typeof orchestratorSchema>
 export type PlannerConfig = z.infer<typeof plannerConfigSchema>
 export type BenchmarkConfig = z.infer<typeof benchmarkConfigSchema>
+export type MultiAgentConfig = z.infer<typeof multiAgentConfigSchema>
 export type AutoPrConfig = z.infer<typeof autoPrConfigSchema>
 export type GithubProjectConfig = z.infer<typeof githubProjectSchema>
 export type ProfileCloneStatus = z.infer<typeof profileCloneStatusSchema>
@@ -254,6 +263,7 @@ export const DEFAULT_PROFILE: WorkspaceProfile = {
   yoloDefault: false,
   planner: { mode: 'review', routingMode: 'adaptive', maxParallel: 6, maxRetries: 1 },
   benchmark: { enabled: false },
+  multiAgent: { enabled: false, stopLosers: true },
   autoPr: {
     mode: 'off',
     strategy: 'aggregate',

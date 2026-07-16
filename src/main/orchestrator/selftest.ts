@@ -153,7 +153,7 @@ export async function runSelfTest(): Promise<void> {
     const names = tools.tools.map((t) => t.name).sort()
     check(
       names.join(',') ===
-        'acknowledge_handoff,cancel_plan,dispatch_batch,dispatch_subagent,execute_plan,get_benchmark_status,get_handoff_context,get_plan_status,get_retro_draft,get_task_status,list_findings,list_subagents,list_tasks,open_subwindow,record_benchmark,record_retro,report_activity,revoke_learning,run_benchmark,set_goal',
+        'acknowledge_handoff,await_any,await_plan,await_plan_approval,await_task,cancel_plan,dispatch_batch,dispatch_subagent,execute_plan,get_benchmark_status,get_handoff_context,get_plan_status,get_retro_draft,get_task_status,list_findings,list_multiagent_runs,list_subagent_requests,list_subagents,list_tasks,open_subwindow,record_benchmark,record_retro,report_activity,respond_subagent,review_multiagent,revoke_learning,run_benchmark,set_goal',
       `tools/list returned: ${names.join(', ')}`
     )
 
@@ -317,6 +317,12 @@ export async function runSelfTest(): Promise<void> {
         }
       })) as { content: Array<{ text: string }> }
       const planAccepted = JSON.parse(planResponse.content[0].text) as { runId: string }
+      let planApproved = false
+      for (let attempt = 0; attempt < 100 && !planApproved; attempt += 1) {
+        planApproved = orchestratorEngine.reviewPlan(true)
+        if (!planApproved) await new Promise((resolve) => setTimeout(resolve, 10))
+      }
+      check(planApproved, 'first auto plan enters and passes the review gate')
       const planRun = await pollJson<{ status: string; result?: { usedFallback: boolean; tasks: Array<{ status: string }> } }>(
         'get_plan_status', { runId: planAccepted.runId }, (value) => value.status !== 'running'
       )
@@ -334,7 +340,7 @@ export async function runSelfTest(): Promise<void> {
         'execute_plan runs prerequisites before dependent DAG nodes'
       )
 
-      const fallback = await orchestratorEngine.executePlan({
+      const fallbackRun = orchestratorEngine.executePlan({
         version: 1,
         goal: 'Cycle fallback',
         maxParallel: 2,
@@ -343,6 +349,13 @@ export async function runSelfTest(): Promise<void> {
           { id: 'y', title: 'Y', role: cursorRole, prompt: 'Y', dependsOn: ['x'], conflictKeys: [] }
         ]
       })
+      let fallbackApproved = false
+      for (let attempt = 0; attempt < 100 && !fallbackApproved; attempt += 1) {
+        fallbackApproved = orchestratorEngine.reviewPlan(true)
+        if (!fallbackApproved) await new Promise((resolve) => setTimeout(resolve, 10))
+      }
+      check(fallbackApproved, 'validated fallback enters and passes the review gate')
+      const fallback = await fallbackRun
       check(
         fallback.usedFallback &&
           fallback.tasks.length === 1 &&

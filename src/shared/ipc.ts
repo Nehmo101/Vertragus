@@ -14,6 +14,8 @@ import type {
   AgentBufferSnapshot,
   AgentDataChunk,
   AgentInstanceInfo,
+  BulkHandoffRequest,
+  BulkHandoffResult,
   HandoffRequest,
   OrcaEvent,
   SpawnAgentRequest
@@ -115,6 +117,7 @@ export const IPC = {
   agentBuffer: 'agent:buffer',
   agentPopout: 'agent:popout',
   agentHandoff: 'agent:handoff',
+  agentsBulkHandoff: 'agents:bulkHandoff',
   orchestratorSnapshot: 'orchestrator:snapshot',
   orchestratorReset: 'orchestrator:reset',
   orchestratorEnableAutoMode: 'orchestrator:enableAutoMode',
@@ -427,6 +430,8 @@ export interface OrcaApi {
      * with a handoff briefing. Returns the new (taking-over) agent.
      */
     handoff(req: HandoffRequest): Promise<AgentInstanceInfo>
+    /** Hand several selected live agents to one provider/model. */
+    bulkHandoff(req: BulkHandoffRequest): Promise<BulkHandoffResult>
     onData(cb: (chunk: AgentDataChunk) => void): () => void
     onChanged(cb: (list: AgentInstanceInfo[]) => void): () => void
     onEvent(cb: (evt: OrcaEvent) => void): () => void
