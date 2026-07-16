@@ -1,0 +1,121 @@
+{
+  "version": 1,
+  "exportedAt": 1784183960523,
+  "app": {
+    "name": "orca-strator",
+    "version": "0.1.47-main.1.gb3a336d"
+  },
+  "machineId": "5087fc1f7b9d",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrn52aoz-plan-mrn3q94f-1",
+    "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+    "workspaceSessionId": "65ce25e5-d1dd-4b32-93c1-5efc00c95fd3",
+    "planId": "plan-mrn3q94f-1",
+    "goal": "Seitenleisten (links: Sidebar, rechts: OrchestratorPanel) per Drag in der Breite veränderbar und vollständig einklappbar machen; Workspace-/Agent-Ansicht responsiv und dynamisch an die Fenstergröße anpassen (Agent-Fenster dürfen kleiner werden). Größen und Einklapp-Zustand werden über Sitzungen hinweg persistiert (localStorage). Keine Änderungen an der Agent-Logik — nur Layout und Darstellung.",
+    "status": "error",
+    "summary": "Lauf mit Fehlern: 2 Modell(e), 5/6 Tasks erfolgreich.",
+    "modelStats": [
+      {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "roles": [
+          "renderer-ui",
+          "test-qa"
+        ],
+        "tasks": 3,
+        "succeeded": 2,
+        "needsWork": 1,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 1,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "avgDurationMs": 1408038
+      },
+      {
+        "provider": "cursor",
+        "model": "composer-2.5-fast",
+        "roles": [
+          "worker - small and quick work-item"
+        ],
+        "tasks": 3,
+        "succeeded": 3,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "avgDurationMs": 383246,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrn52aon-1-f20967",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "renderer-ui",
+        "kind": "weakness",
+        "insight": "Quality-Gates erfordern Nacharbeit bei renderer-ui, test-qa",
+        "evidence": "1 Task(s) mit 1 Gate-Finding(s)",
+        "source": "auto-retro",
+        "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+        "observations": 1,
+        "createdAt": 1784183960471,
+        "updatedAt": 1784183960471
+      },
+      {
+        "id": "learning-mrn52aon-2-in7gvt",
+        "provider": "cursor",
+        "model": "composer-2.5-fast",
+        "role": "worker - small and quick work-item",
+        "kind": "strength",
+        "insight": "zuverlässig im ersten Anlauf bei worker - small and quick work-item",
+        "evidence": "3/3 Tasks ohne Wiederholung erfolgreich",
+        "source": "auto-retro",
+        "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+        "observations": 1,
+        "createdAt": 1784183960471,
+        "updatedAt": 1784183960471
+      },
+      {
+        "id": "learning-mrn52aon-3-eget4d",
+        "provider": "cursor",
+        "model": "composer-2.5-fast",
+        "role": "worker - small and quick work-item",
+        "kind": "strength",
+        "insight": "deutlich schnellstes Modell dieses Laufs (Ø 383s)",
+        "evidence": "Ø-Dauer 383s gegenüber 1408s (codex/gpt-5.6-sol)",
+        "source": "auto-retro",
+        "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+        "observations": 1,
+        "createdAt": 1784183960471,
+        "updatedAt": 1784183960471
+      }
+    ],
+    "createdAt": 1784183960483
+  }
+}
