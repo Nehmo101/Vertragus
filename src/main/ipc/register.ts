@@ -43,6 +43,7 @@ import {
 import { agentManager } from '@main/agents/AgentManager'
 import { providerCapacity } from '@main/agents/providerCapacity'
 import { workspaceSessions } from '@main/orchestrator/WorkspaceSessionRegistry'
+import { createWorkspaceSessionIpcController } from '@main/orchestrator/workspaceSessionIpc'
 import { broadcast, createPaneWindow, isMainWindowSender } from '@main/windows'
 import { getPublicConfig, setPublicConfig } from '@main/config/configAccess'
 import {
@@ -168,12 +169,14 @@ export function registerIpcHandlers(): void {
     inspectWorkspace: inspectPromptWorkspaceContext,
     service: promptService
   })
+  const rendererAuthorization = {
+    developmentUrl: process.env['ELECTRON_RENDERER_URL'],
+    packagedRendererUrl: pathToFileURL(join(__dirname, '../renderer/index.html')).toString(),
+    isKnownSender: (sender: import('@main/security/ipcAuthorization').RendererIpcWebContentsLike) =>
+      isMainWindowSender(sender as Electron.WebContents)
+  }
   const profileDeletionController = createProfileDeletionIpcController({
-    authorization: {
-      developmentUrl: process.env['ELECTRON_RENDERER_URL'],
-      packagedRendererUrl: pathToFileURL(join(__dirname, '../renderer/index.html')).toString(),
-      isKnownSender: (sender) => isMainWindowSender(sender as Electron.WebContents)
-    },
+    authorization: rendererAuthorization,
     deleteProfile: (id) => {
       if (!getProfile(id)) throw new Error('Workspace-Profil nicht gefunden.')
       if (agentManager.anyRunning(id)) {
@@ -199,6 +202,20 @@ export function registerIpcHandlers(): void {
       developmentUrl: process.env['ELECTRON_RENDERER_URL'],
       packagedRendererUrl: pathToFileURL(join(__dirname, '../renderer/index.html')).toString(),
       isKnownSender: (sender) => isMainWindowSender(sender as Electron.WebContents)
+    }
+  })
+  const workspaceSessionController = createWorkspaceSessionIpcController({
+    authorization: rendererAuthorization,
+    list: (profileId) => workspaceSessions.list(profileId),
+    setActive: (profileId, sessionId) => {
+      const profile = getProfile(profileId)
+      if (!profile) throw new Error('Workspace-Profil nicht gefunden.')
+      return workspaceSessions.setActive(profileId, sessionId).engine.snapshot()
+    },
+    remove: async (profileId, sessionId) => {
+      await agentManager.removeAll(profileId, sessionId)
+      workspaceSessions.removeSession(sessionId)
+      return workspaceSessions.list(profileId)
     }
   })
   const requireMainWindow = (event: Electron.IpcMainInvokeEvent): void => {
@@ -303,19 +320,15 @@ export function registerIpcHandlers(): void {
     }
     setActiveProfileId(id)
   })
-  ipcMain.handle(IPC.workspaceSessionsList, (_e, profileId?: string) =>
-    workspaceSessions.list(profileId)
+  ipcMain.handle(IPC.workspaceSessionsList, (e, profileId?: unknown) =>
+    workspaceSessionController.list(e, profileId)
   )
-  ipcMain.handle(IPC.workspaceSessionSetActive, (_e, profileId: string, sessionId: string) => {
-    const profile = getProfile(profileId)
-    if (!profile) throw new Error('Workspace-Profil nicht gefunden.')
-    return workspaceSessions.setActive(profileId, sessionId).engine.snapshot()
-  })
-  ipcMain.handle(IPC.workspaceSessionRemove, async (_e, profileId: string, sessionId: string) => {
-    await agentManager.removeAll(profileId, sessionId)
-    workspaceSessions.removeSession(sessionId)
-    return workspaceSessions.list(profileId)
-  })
+  ipcMain.handle(IPC.workspaceSessionSetActive, (e, profileId: unknown, sessionId: unknown) =>
+    workspaceSessionController.setActive(e, profileId, sessionId)
+  )
+  ipcMain.handle(IPC.workspaceSessionRemove, (e, profileId: unknown, sessionId: unknown) =>
+    workspaceSessionController.remove(e, profileId, sessionId)
+  )
 
   // ---- external MCP servers ----
   ipcMain.handle(IPC.mcpList, () => listMcpServers())

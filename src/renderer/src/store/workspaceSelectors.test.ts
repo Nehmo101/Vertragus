@@ -8,6 +8,7 @@ import {
   workspaceAgentHistory,
   workspaceAgents,
   workspaceEvents,
+  workspaceTaskSummary,
   workspaceUserAttention
 } from '@renderer/store/useAppStore'
 
@@ -213,6 +214,7 @@ describe('workspace user-attention aggregation', () => {
           profileId: 'alpha',
           profileName: 'Alpha',
           name: 'Rivendell',
+          taskSummary: undefined,
           sequence: 1,
           startedAt: 1,
           active: true
@@ -222,5 +224,42 @@ describe('workspace user-attention aggregation', () => {
 
     expect(workspaceUserAttention(state, 'alpha', 'session-alpha')).toBeNull()
     expect(workspaceUserAttention(state, 'alpha')).toBeNull()
+  })
+})
+
+describe('workspace task-summary selection', () => {
+  const workspaceSessions = [
+    {
+      id: 'session-alpha',
+      profileId: 'alpha',
+      profileName: 'Alpha',
+      name: 'Rivendell',
+      taskSummary: 'Alpha-Aufgabe',
+      sequence: 1,
+      startedAt: 1,
+      active: true
+    },
+    {
+      id: 'session-beta',
+      profileId: 'beta',
+      profileName: 'Beta',
+      name: 'Moria',
+      taskSummary: 'Beta-Aufgabe',
+      sequence: 1,
+      startedAt: 2,
+      active: true
+    }
+  ]
+
+  it('returns only the summary owned by the requested workspace', () => {
+    expect(workspaceTaskSummary({ workspaceSessions }, 'alpha', 'session-alpha'))
+      .toBe('Alpha-Aufgabe')
+    expect(workspaceTaskSummary({ workspaceSessions }, 'beta', 'session-beta'))
+      .toBe('Beta-Aufgabe')
+  })
+
+  it('does not expose another profile or a missing session summary', () => {
+    expect(workspaceTaskSummary({ workspaceSessions }, 'alpha', 'session-beta')).toBeUndefined()
+    expect(workspaceTaskSummary({ workspaceSessions }, 'alpha', 'missing')).toBeUndefined()
   })
 })

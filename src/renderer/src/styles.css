@@ -1203,7 +1203,27 @@ button {
   background: rgba(45, 212, 191, 0.09);
   color: var(--accent-light);
 }
+.workspace-session-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.workspace-session-name,
+.workspace-task-summary {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-task-summary {
+  margin-top: 2px;
+  color: var(--text-3);
+  font-size: 9.5px;
+  line-height: 1.25;
+}
 .workspace-session-select small {
+  flex: none;
   color: var(--text-3);
   font-size: 9.5px;
 }
