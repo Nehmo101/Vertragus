@@ -62,6 +62,40 @@ function isTestFile(path: string): boolean {
   return /(?:^|\/)(?:__tests__\/.*|[^/]+\.(?:test|spec)\.[cm]?[jt]sx?)$/i.test(path)
 }
 
+/**
+ * Documentation is no executable attack surface: a Markdown file that merely
+ * CATALOGS security vocabulary (OAuth routes, token entities) must not demand
+ * negative tests. Leaked-secret patterns still apply to documentation.
+ */
+function isDocumentationFile(path: string): boolean {
+  return /(?:^|\/)(?:docs?|documentation)\//i.test(path) ||
+    /\.(?:md|mdx|markdown|rst|adoc|txt)$/i.test(path)
+}
+
+/** Minimal glob support for configured excludes: `**` crosses directories, `*` does not. */
+function globToRegExp(glob: string): RegExp {
+  const escaped = glob
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*\*/g, '\u0000')
+    .replace(/\*/g, '[^/]*')
+    .replace(/\?/g, '[^/]')
+    .split('\u0000')
+    .join('.*')
+  return new RegExp(`^${escaped}$`, 'i')
+}
+
+export interface SecurityGateOptions {
+  /**
+   * Additional path globs excluded from the surface scan (never from the
+   * leaked-secret scan). Sourced from AutoPrConfig.securityGateExcludes.
+   */
+  excludePaths?: readonly string[]
+}
+
+function surfaceScanExclusions(options?: SecurityGateOptions): RegExp[] {
+  return (options?.excludePaths ?? []).map(globToRegExp)
+}
+
 function addedLinesByFile(diff: string): Map<string, string[]> {
   const files = new Map<string, string[]>()
   let currentFile: string | undefined
@@ -91,7 +125,7 @@ function addedLinesByFile(diff: string): Map<string, string[]> {
   return files
 }
 
-export function evaluateSecurityGate(diff: string): SecurityGateReport {
+export function evaluateSecurityGate(diff: string, options?: SecurityGateOptions): SecurityGateReport {
   if (Buffer.byteLength(diff, 'utf8') > MAX_DIFF_BYTES) {
     throw new Error('Diff ist groesser als 5 MiB; Security Gate wurde sicherheitshalber blockiert.')
   }
@@ -110,9 +144,11 @@ export function evaluateSecurityGate(diff: string): SecurityGateReport {
     controlEvidence[control].test(testEvidence)
   )
 
+  const exclusions = surfaceScanExclusions(options)
   const filesBySurface = new Map<SecuritySurface, Set<string>>()
   for (const [path, lines] of files) {
-    if (path === '<diff>' || isTestFile(path)) continue
+    if (path === '<diff>' || isTestFile(path) || isDocumentationFile(path)) continue
+    if (exclusions.some((pattern) => pattern.test(path))) continue
     const addedSource = `${path}\n${lines.join('\n')}`
     for (const surface of Object.keys(surfacePatterns) as SecuritySurface[]) {
       if (surfacePatterns[surface].test(addedSource)) {
@@ -167,8 +203,8 @@ export function securityChecklistForFiles(files: readonly string[]): string[] {
   return [...controls].map((control) => labels[control])
 }
 
-export function assertSecurityGate(diff: string): SecurityGateReport {
-  const report = evaluateSecurityGate(diff)
+export function assertSecurityGate(diff: string, options?: SecurityGateOptions): SecurityGateReport {
+  const report = evaluateSecurityGate(diff, options)
   if (report.findings.length === 0) return report
 
   const details = report.findings

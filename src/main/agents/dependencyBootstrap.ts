@@ -8,6 +8,9 @@ import { resolveLaunch } from '@main/agents/resolveCommand'
 const execFileAsync = promisify(execFile)
 const installs = new Map<string, Promise<void>>()
 
+/** Full installs must fit CI-sized repos; pnpm reuses its content store anyway. */
+const INSTALL_TIMEOUT_MS = 10 * 60_000
+
 export type DependencyBootstrapStatus =
   | 'not-applicable'
   | 'present'
@@ -49,28 +52,33 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
+/**
+ * Lifecycle scripts stay enabled: the quality gates execute repository code
+ * (tests, lint) anyway, and skipping postinstall breaks generated toolchains
+ * such as prisma clients in freshly bootstrapped worktrees.
+ */
 async function installCommand(root: string): Promise<InstallCommand | undefined> {
   if (await exists(join(root, 'pnpm-lock.yaml'))) {
     return {
       command: 'corepack',
-      args: ['pnpm', 'install', '--frozen-lockfile', '--ignore-scripts'],
+      args: ['pnpm', 'install', '--frozen-lockfile'],
       label: 'pnpm'
     }
   }
   if (await exists(join(root, 'yarn.lock'))) {
     return {
       command: 'corepack',
-      args: ['yarn', 'install', '--immutable', '--mode=skip-build'],
+      args: ['yarn', 'install', '--immutable'],
       label: 'yarn'
     }
   }
   if (await exists(join(root, 'package-lock.json'))) {
-    return { command: 'npm', args: ['ci', '--ignore-scripts'], label: 'npm' }
+    return { command: 'npm', args: ['ci'], label: 'npm' }
   }
   if (await exists(join(root, 'bun.lock')) || await exists(join(root, 'bun.lockb'))) {
     return {
       command: 'bun',
-      args: ['install', '--frozen-lockfile', '--ignore-scripts'],
+      args: ['install', '--frozen-lockfile'],
       label: 'bun'
     }
   }
@@ -88,26 +96,29 @@ async function declaredPackageManager(root: string): Promise<string | undefined>
   }
 }
 
-async function installDependencies(root: string, command: InstallCommand): Promise<void> {
-  let pending = installs.get(root)
+async function installDependencies(installDir: string, command: InstallCommand): Promise<void> {
+  let pending = installs.get(installDir)
   if (!pending) {
     pending = resolveLaunch(command.command, command.args)
       .then((launch) => execFileAsync(launch.file, launch.args, {
-        cwd: root,
+        cwd: installDir,
         windowsHide: true,
-        timeout: 180_000,
+        timeout: INSTALL_TIMEOUT_MS,
         maxBuffer: 8 * 1024 * 1024
       }))
       .then(() => undefined)
-    installs.set(root, pending)
-    void pending.finally(() => installs.delete(root)).catch(() => undefined)
+    installs.set(installDir, pending)
+    void pending.finally(() => installs.delete(installDir)).catch(() => undefined)
   }
   await pending
 }
 
 /**
- * Every worktree shares the dependency tree of the primary checkout. If it is
- * missing, Orca performs one immutable, script-free bootstrap before linking it.
+ * Provide a complete dependency tree for a worktree. A real package-manager
+ * install runs directly in the worktree so that monorepo workspace packages
+ * get their own node_modules/.bin (eslint) and lifecycle-generated artifacts
+ * (prisma client) exist — a top-level symlink to the primary checkout covers
+ * neither. The symlink remains only as fallback for unknown toolchains.
  */
 export async function ensureWorktreeDependencies(
   repositoryRoot: string,
@@ -126,33 +137,31 @@ export async function ensureWorktreeDependencies(
     return { status: 'present', toolchain, detail: 'Dependencies sind im Workspace vorhanden.' }
   }
 
-  let installed = false
-  if (!await exists(rootModules)) {
-    const command = await installCommand(repositoryRoot)
-    if (!command) {
-      throw new Error('Dependencies fehlen und es wurde kein unterstützter Lockfile-Toolchain erkannt.')
+  const command = await installCommand(
+    await exists(join(workingDir, 'package.json')) ? workingDir : repositoryRoot
+  )
+  if (command) {
+    await installDependencies(workingDir, command)
+    if (!await exists(workerModules)) {
+      throw new Error('Dependency-Bootstrap lief durch, aber node_modules fehlt weiterhin.')
     }
-    await installDependencies(repositoryRoot, command)
-    installed = true
-  }
-  if (!await exists(rootModules)) {
-    throw new Error('Dependency-Bootstrap lief durch, aber node_modules fehlt weiterhin.')
+    return {
+      status: 'installed',
+      toolchain,
+      detail: `Dependencies wurden mit ${command.label} direkt im Worktree installiert.`
+    }
   }
 
   if (repositoryRoot === workingDir) {
-    return {
-      status: installed ? 'installed' : 'present',
-      toolchain,
-      detail: installed ? 'Dependencies wurden unveränderlich installiert.' : 'Dependencies sind vorhanden.'
-    }
+    throw new Error('Dependencies fehlen und es wurde kein unterstützter Lockfile-Toolchain erkannt.')
   }
-
+  if (!await exists(rootModules)) {
+    throw new Error('Dependencies fehlen und es wurde kein unterstützter Lockfile-Toolchain erkannt.')
+  }
   await symlink(rootModules, workerModules, process.platform === 'win32' ? 'junction' : 'dir')
   return {
-    status: installed ? 'installed' : 'linked',
+    status: 'linked',
     toolchain,
-    detail: installed
-      ? 'Dependencies wurden installiert und als gemeinsamer Cache verknüpft.'
-      : 'Worktree verwendet den gemeinsamen Dependency-/Build-Cache.'
+    detail: 'Worktree verwendet den gemeinsamen Dependency-/Build-Cache (kein Lockfile-Toolchain erkannt).'
   }
 }

@@ -13,6 +13,7 @@ const config: AutoPrConfig = {
   strategy: 'aggregate',
   baseBranch: '',
   qualityGates: [],
+  securityGateExcludes: [],
   labels: [],
   reviewers: []
 }
@@ -102,5 +103,56 @@ describe('Auto-PR worker commit contract', () => {
     }))
     expect(await git(dir, 'show', '-s', '--format=%s', 'HEAD')).toMatch(/needs work/)
     expect(await git(dir, 'rev-parse', 'HEAD^')).toBe(base)
+  }, 20_000)
+
+  it('rescues whitespace-dirty documentation as needs-work instead of blocking it', async () => {
+    // Retro mrm3jl3a: Trailing Whitespace in Doku beendete den Lauf hart als error.
+    const { dir, base } = await repo()
+    await writeFile(join(dir, 'inventory.md'), '# Inventar \nZeile mit Trailing Space \n')
+
+    const result = await prepareTaskChange({
+      config,
+      commitOnly: true,
+      baseCommit: base,
+      taskId: 'worker-docs',
+      title: 'Doku-Inventar',
+      worktree: dir
+    })
+
+    expect(result).toEqual(expect.objectContaining({
+      result: 'needs-work',
+      findings: expect.arrayContaining([
+        expect.objectContaining({ gate: 'commit', code: 'whitespace' })
+      ])
+    }))
+    expect(result.change?.files).toContain('inventory.md')
+  }, 20_000)
+
+  it('keeps worker scratch files out of the central commit and reports them', async () => {
+    const { dir, base } = await repo()
+    await writeFile(join(dir, 'feature.ts'), 'export const feature = true\n')
+    await writeFile(join(dir, 'feature.ts.origcheck'), 'scratch\n')
+    await writeFile(join(dir, '.verify-new-body-tmp.md'), 'scratch\n')
+
+    const result = await prepareTaskChange({
+      config,
+      commitOnly: true,
+      baseCommit: base,
+      taskId: 'worker-scratch',
+      title: 'Feature ohne Scratch',
+      worktree: dir
+    })
+
+    expect(result.result).toBe('committed')
+    expect(result.change?.files).toEqual(['feature.ts'])
+    expect(result.findings).toEqual([
+      expect.objectContaining({
+        gate: 'commit',
+        code: 'temp-files-removed',
+        files: expect.arrayContaining(['feature.ts.origcheck', '.verify-new-body-tmp.md'])
+      })
+    ])
+    const committedFiles = await git(dir, 'diff', '--name-only', `${base}..HEAD`)
+    expect(committedFiles.trim()).toBe('feature.ts')
   }, 20_000)
 })

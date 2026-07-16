@@ -87,6 +87,39 @@ describe('security gate', () => {
   })
 
 
+  it('never demands negative tests for documentation that catalogs security vocabulary', () => {
+    // Retro mrm3jl3a/mrm75c35: Doku-Inventare mit ApiToken/OAuth-Begriffen
+    // wurden deterministisch geflaggt, obwohl kein Code geändert wurde.
+    const docsDiff = diffFile('docs/architecture/00-inventory.md', [
+      '## Security-Entitäten',
+      '- ApiToken, TwoFactorSecret, OAuth-Routen (authorizationEndpoint, redirectUri)',
+      '- Authorization: Bearer <token> für process.env-basierte Secrets'
+    ])
+    expect(assertSecurityGate(docsDiff).findings).toEqual([])
+
+    const markdownOutsideDocs = diffFile('ARCHITECTURE.md', [
+      'OAuth-Flow mit clientSecret und accessToken dokumentiert.'
+    ])
+    expect(assertSecurityGate(markdownOutsideDocs).findings).toEqual([])
+  })
+
+  it('still blocks leaked credentials inside documentation', () => {
+    const leakedToken = `ghp_${'a'.repeat(32)}`
+    expect(() =>
+      assertSecurityGate(diffFile('docs/setup.md', [`token: ${leakedToken}`]))
+    ).toThrow(/Secret/i)
+  })
+
+  it('skips configured exclude globs for the surface scan only', () => {
+    const fixtureDiff = diffFile('spec/fixtures/oauth-sample.ts', [
+      'export const sample = { oauth: true, clientSecret: "redacted" }'
+    ])
+    expect(evaluateSecurityGate(fixtureDiff).findings.length).toBeGreaterThan(0)
+    expect(
+      evaluateSecurityGate(fixtureDiff, { excludePaths: ['spec/fixtures/**'] }).findings
+    ).toEqual([])
+  })
+
   it('derives task DoD checks from expected security-sensitive files', () => {
     expect(securityChecklistForFiles([
       'src/main/ipc/accounts.ts',

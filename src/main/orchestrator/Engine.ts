@@ -1384,6 +1384,9 @@ export class OrchestratorEngine extends EventEmitter {
         if (prepared.result === 'committed' && prepared.change) {
           task.commit = prepared.change.commit
           task.completion = { kind: 'commit', commit: prepared.change.commit }
+          if (prepared.findings?.length) {
+            task.findings = [...(task.findings ?? []), ...prepared.findings]
+          }
           if (gateArbitration) {
             task.status = 'success'
             task.failureKind = undefined
@@ -1457,14 +1460,21 @@ export class OrchestratorEngine extends EventEmitter {
           if (!workerError) task.completion = { kind: 'no-changes' }
         } else if (!workerError) {
           task.status = 'error'
-          task.failureKind = 'gate'
+          // Fehlendes Gate-Tooling (eslint/prisma) ist ein Infrastruktur-, kein
+          // Modellproblem — Retros werteten solche Läufe fälschlich als Modellfehler.
+          task.failureKind = prepared.infrastructure ? 'infrastructure' : 'gate'
           task.progress = undefined
           task.note = (task.note || 'Worker fertig') + ' · Abnahme blockiert: ' + prepared.message
-          task.judgeReason = `Commit-Vertrag oder Security-Gate fehlgeschlagen: ${prepared.message}`
-          task.lastAction = 'Commit-Vertrag oder Security-Gate fehlgeschlagen'
+          task.judgeReason = prepared.infrastructure
+            ? `Gate-Infrastruktur fehlgeschlagen (kein Modellfehler): ${prepared.message}`
+            : `Commit-Vertrag oder Security-Gate fehlgeschlagen: ${prepared.message}`
+          task.lastAction = prepared.infrastructure
+            ? 'Gate-Infrastruktur fehlgeschlagen'
+            : 'Commit-Vertrag oder Security-Gate fehlgeschlagen'
+          if (prepared.infrastructure) this.reliability.infrastructureFailures += 1
           if (activeAttempt) {
             activeAttempt.status = 'error'
-            activeAttempt.failureKind = 'gate'
+            activeAttempt.failureKind = task.failureKind
             activeAttempt.note = task.judgeReason
           }
         } else {

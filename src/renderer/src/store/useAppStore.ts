@@ -1066,6 +1066,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         autoPr: {
           ...profile.autoPr,
           qualityGates: [...profile.autoPr.qualityGates],
+          securityGateExcludes: [...profile.autoPr.securityGateExcludes],
           labels: [...profile.autoPr.labels],
           reviewers: [...profile.autoPr.reviewers]
         }
@@ -1107,6 +1108,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           strategy: 'aggregate',
           baseBranch: '',
           qualityGates: ['corepack pnpm typecheck', 'corepack pnpm test', 'corepack pnpm lint'],
+          securityGateExcludes: [],
           labels: [],
           reviewers: []
         }
