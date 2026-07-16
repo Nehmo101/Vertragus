@@ -74,7 +74,11 @@ jobs:
           git config user.name "orca-retro-bot"
           git config user.email "actions@github.com"
           git switch -c "$BRANCH"
-          git add overlay proposals state
+          for path in overlay proposals state; do
+            if [ -e "$path" ]; then
+              git add -- "$path"
+            fi
+          done
           git commit -m "Retro-Analyse $(date -u +%Y-%m-%d)"
           git push origin "$BRANCH"
           if [ ! -f "$GITHUB_WORKSPACE/summary.md" ]; then
