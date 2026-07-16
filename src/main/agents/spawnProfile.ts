@@ -44,6 +44,7 @@ export async function spawnProfileTeam(
         provider: runtimeProfile.orchestrator.provider,
         model: runtimeProfile.orchestrator.model,
         modelPreset: runtimeProfile.orchestrator.modelPreset,
+        permissionMode: runtimeProfile.orchestrator.permissionMode,
         kind: 'orchestrator',
         role: 'Orchestrator · plant & verteilt',
         yolo: yoloMaster,

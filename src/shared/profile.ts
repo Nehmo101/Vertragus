@@ -3,6 +3,7 @@
  * A profile describes which agents to open, who orchestrates whom, and Yolo settings.
  */
 import { z } from 'zod'
+import { claudePermissionModeSchema } from './claudePermissionMode'
 import { modelPresetSchema } from './models'
 
 export const agentProviderId = z.enum(['claude', 'kimi', 'codex', 'cursor', 'copilot', 'ollama'])
@@ -35,6 +36,8 @@ export const orchestratorSchema = z.object({
   model: z.string().default(''),
   /** Performance preset when model is empty. Omitted = legacy CLI default. */
   modelPreset: modelPresetSchema.optional(),
+  /** Claude CLI permission behavior; ignored by other providers. */
+  permissionMode: claudePermissionModeSchema.default('default'),
   /** Orchestrator may open sub-windows on demand. */
   autoOpenSubwindows: z.boolean().default(true)
 })
@@ -132,7 +135,11 @@ export const workspaceProfileSchema = z.object({
 })
 
 export type AgentSlot = z.infer<typeof agentSlotSchema>
-export type OrchestratorConfig = z.infer<typeof orchestratorSchema>
+type ParsedOrchestratorConfig = z.infer<typeof orchestratorSchema>
+/** Legacy in-memory profile drafts may not have passed through the schema yet. */
+export type OrchestratorConfig = Omit<ParsedOrchestratorConfig, 'permissionMode'> & {
+  permissionMode?: ParsedOrchestratorConfig['permissionMode']
+}
 export type PlannerConfig = z.infer<typeof plannerConfigSchema>
 export type BenchmarkConfig = z.infer<typeof benchmarkConfigSchema>
 export type MultiAgentConfig = z.infer<typeof multiAgentConfigSchema>
@@ -140,7 +147,10 @@ export type AutoPrConfig = z.infer<typeof autoPrConfigSchema>
 export type GithubProjectConfig = z.infer<typeof githubProjectSchema>
 export type ProfileCloneStatus = z.infer<typeof profileCloneStatusSchema>
 export type ProfileGithubRepo = z.infer<typeof profileGithubRepoSchema>
-export type WorkspaceProfile = z.infer<typeof workspaceProfileSchema>
+type ParsedWorkspaceProfile = z.infer<typeof workspaceProfileSchema>
+export type WorkspaceProfile = Omit<ParsedWorkspaceProfile, 'orchestrator'> & {
+  orchestrator?: OrchestratorConfig
+}
 
 export interface RepoProfileGenerationRequest {
   workingDir: string
@@ -258,6 +268,7 @@ export const DEFAULT_PROFILE: WorkspaceProfile = {
     provider: 'claude',
     model: '',
     modelPreset: 'balanced',
+    permissionMode: 'default',
     autoOpenSubwindows: true
   },
   agents: [

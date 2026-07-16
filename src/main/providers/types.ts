@@ -6,11 +6,16 @@
  * runHeadless() to stream-json parsing.
  */
 import type { AgentProviderId } from '@shared/providers'
+import {
+  claudePermissionModeArgs,
+  type ClaudePermissionMode
+} from '@shared/claudePermissionMode'
 
 export interface SpawnOpts {
   model?: string
   workingDir: string
   yolo: boolean
+  permissionMode?: ClaudePermissionMode
   /** Extra provider-specific args appended verbatim. */
   extraArgs?: string[]
 }
@@ -72,7 +77,12 @@ export function buildInteractiveLaunch(id: AgentProviderId, opts: SpawnOpts): La
     case 'claude':
       return {
         command: 'claude',
-        args: [...(opts.model ? ['--model', opts.model] : []), ...yolo, ...extra]
+        args: [
+          ...(opts.model ? ['--model', opts.model] : []),
+          ...(opts.yolo ? [] : claudePermissionModeArgs(opts.permissionMode)),
+          ...yolo,
+          ...extra
+        ]
       }
     case 'kimi':
       // Kimi Code CLI shares Claude Code's interactive launch surface.
@@ -124,6 +134,7 @@ export function buildHeadlessLaunch(
           '--output-format',
           'stream-json',
           ...(opts.model ? ['--model', opts.model] : []),
+          ...(opts.yolo ? [] : claudePermissionModeArgs(opts.permissionMode)),
           ...(opts.systemPrompt ? ['--append-system-prompt', opts.systemPrompt] : []),
           ...yolo,
           ...extra

@@ -23,6 +23,7 @@ import type {
   SpawnAgentRequest
 } from '@shared/agents'
 import type { PanePreflightReport } from '@shared/orchestrator'
+import type { ClaudePermissionMode } from '@shared/claudePermissionMode'
 import {
   getProvider,
   isModelDisabled,
@@ -81,6 +82,8 @@ const CURSOR_TRUST_RETRY_DELAY_MS = 150
 const CURSOR_TRUST_MAX_RETRIES = 3
 const CURSOR_TRUST_WATCHDOG_MS = 8_000
 const HANDOFF_SHUTDOWN_TIMEOUT_MS = 5_000
+
+type SpawnRequest = SpawnAgentRequest & { permissionMode?: ClaudePermissionMode }
 
 interface Managed {
   info: AgentInstanceInfo
@@ -649,7 +652,7 @@ export class AgentManager extends EventEmitter {
     this.changed()
   }
 
-  async spawn(req: SpawnAgentRequest): Promise<AgentInstanceInfo> {
+  async spawn(req: SpawnRequest): Promise<AgentInstanceInfo> {
     const resolvedModel = resolveModel(req.provider, req)
     assertProviderSelection(req.provider, resolvedModel)
     assertModelSelection(req.provider, resolvedModel)
@@ -702,6 +705,7 @@ export class AgentManager extends EventEmitter {
         model: resolvedModel || undefined,
         workingDir,
         yolo,
+        permissionMode: req.permissionMode,
         extraArgs
       })
       resolved = await resolveLaunch(launch.command, launch.args)

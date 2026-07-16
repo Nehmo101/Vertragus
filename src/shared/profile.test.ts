@@ -21,7 +21,20 @@ describe('workspaceProfileSchema', () => {
     expect(profile.autoPr.mode).toBe('off')
     expect(profile.multiAgent).toEqual({ enabled: false, stopLosers: true })
     expect(profile.orchestrator?.model).toBe('')
+    expect(profile.orchestrator?.permissionMode).toBe('default')
   })
+
+  it.each(['default', 'auto', 'plan'] as const)(
+    'round-trips the Claude permission mode %s',
+    (permissionMode) => {
+      const profile = workspaceProfileSchema.parse({
+        ...DEFAULT_PROFILE,
+        orchestrator: { ...DEFAULT_PROFILE.orchestrator!, permissionMode }
+      })
+
+      expect(profile.orchestrator?.permissionMode).toBe(permissionMode)
+    }
+  )
 
   it('keeps the default profile valid', () => {
     expect(workspaceProfileSchema.parse(DEFAULT_PROFILE)).toEqual(DEFAULT_PROFILE)

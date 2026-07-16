@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_PROFILE } from '@shared/profile'
+import { resolveModel } from '@shared/models'
+import { buildInteractiveLaunch } from '@main/providers/types'
 
 const mocks = vi.hoisted(() => ({
   spawn: vi.fn(),
   start: vi.fn(),
   ensure: vi.fn(),
-  activate: vi.fn()
+  activate: vi.fn(),
+  launchArgs: [] as string[][]
 }))
 
 vi.mock('@main/agents/AgentManager', () => ({
@@ -20,24 +23,57 @@ import { spawnProfileTeam } from './spawnProfile'
 describe('adaptive profile team start', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.launchArgs.length = 0
     const sessionFor = (profile = DEFAULT_PROFILE) => (
       { id: 'session-1', profile, engine: { activate: mocks.activate } }
     )
     mocks.start.mockImplementation(sessionFor)
     mocks.ensure.mockImplementation(sessionFor)
-    mocks.spawn.mockImplementation(async (request) => ({
-      id: `agent-${mocks.spawn.mock.calls.length}`,
-      name: request.kind === 'orchestrator' ? 'Gandalf' : 'Legolas',
-      provider: request.provider,
-      model: request.model,
-      role: request.role,
-      kind: request.kind ?? 'sub',
-      mode: 'interactive',
-      yolo: request.yolo,
-      workingDir: request.workingDir ?? '.',
-      status: 'running',
-      startedAt: Date.now()
-    }))
+    mocks.spawn.mockImplementation(async (request) => {
+      mocks.launchArgs.push(
+        buildInteractiveLaunch(request.provider, {
+          model: resolveModel(request.provider, request) || undefined,
+          workingDir: request.workingDir ?? '.',
+          yolo: request.yolo ?? false,
+          permissionMode: request.permissionMode
+        }).args
+      )
+      return {
+        id: `agent-${mocks.spawn.mock.calls.length}`,
+        name: request.kind === 'orchestrator' ? 'Gandalf' : 'Legolas',
+        provider: request.provider,
+        model: request.model,
+        role: request.role,
+        kind: request.kind ?? 'sub',
+        mode: 'interactive',
+        yolo: request.yolo,
+        workingDir: request.workingDir ?? '.',
+        status: 'running',
+        startedAt: Date.now()
+      }
+    })
+  })
+
+  it('launches a non-Yolo Claude orchestrator in auto permission mode', async () => {
+    const profile = {
+      ...DEFAULT_PROFILE,
+      orchestrator: { ...DEFAULT_PROFILE.orchestrator!, permissionMode: 'auto' as const }
+    }
+
+    await spawnProfileTeam(profile, false)
+
+    expect(mocks.launchArgs[0]).toEqual([
+      '--model',
+      'sonnet',
+      '--permission-mode',
+      'acceptEdits'
+    ])
+  })
+
+  it('adds no permission flag for the default Claude orchestrator mode', async () => {
+    await spawnProfileTeam(DEFAULT_PROFILE, false)
+
+    expect(mocks.launchArgs[0]).not.toContain('--permission-mode')
   })
 
   it('starts only the orchestrator and leaves unselected workers off in adaptive mode', async () => {
