@@ -32,6 +32,7 @@ describe('provider model argument passing', () => {
     expect(headless.args).not.toContain('--ask-for-approval')
     expect([...interactive.args, ...headless.args]).not.toContain('model=chosen-model')
   })
+
   it('keeps Codex standard and explicit Yolo execution mutually exclusive', () => {
     const standard = buildHeadlessLaunch('codex', 'do work', {
       ...opts,
@@ -57,7 +58,6 @@ describe('provider model argument passing', () => {
     expect(yolo.at(-1)).toBe('do work')
   })
 
-
   it('omits model flags for cloud provider CLI defaults', () => {
     const withoutModel = { ...opts, model: undefined }
     for (const provider of ['claude', 'codex', 'cursor', 'copilot'] as const) {
@@ -72,10 +72,72 @@ describe('provider model argument passing', () => {
     expect(() => buildHeadlessLaunch('ollama', 'do work', withoutModel)).toThrow(/Modell/)
   })
 
-
   it('trusts Cursor workspaces noninteractively for headless tasks', () => {
     const args = buildHeadlessLaunch('cursor', 'do work', opts).args
     expect(args).toContain('--trust')
     expect(args.indexOf('--trust')).toBeLessThan(args.indexOf('--model'))
+  })
+})
+
+const baseOpts = {
+  model: 'sonnet',
+  workingDir: '/repo',
+  yolo: false
+}
+
+describe('buildInteractiveLaunch Claude permission mode', () => {
+  it('adds acceptEdits for auto mode', () => {
+    expect(
+      buildInteractiveLaunch('claude', { ...baseOpts, permissionMode: 'auto' }).args
+    ).toEqual(['--model', 'sonnet', '--permission-mode', 'acceptEdits'])
+  })
+
+  it('adds plan mode', () => {
+    expect(
+      buildInteractiveLaunch('claude', { ...baseOpts, permissionMode: 'plan' }).args
+    ).toEqual(['--model', 'sonnet', '--permission-mode', 'plan'])
+  })
+
+  it.each([undefined, 'default'] as const)('adds no flag for %s', (permissionMode) => {
+    expect(
+      buildInteractiveLaunch('claude', { ...baseOpts, permissionMode }).args
+    ).toEqual(['--model', 'sonnet'])
+  })
+
+  it('lets Yolo override the configured permission mode', () => {
+    const args = buildInteractiveLaunch('claude', {
+      ...baseOpts,
+      yolo: true,
+      permissionMode: 'auto'
+    }).args
+
+    expect(args).toContain('--dangerously-skip-permissions')
+    expect(args).not.toContain('--permission-mode')
+  })
+
+  it('does not change other providers', () => {
+    expect(
+      buildInteractiveLaunch('codex', { ...baseOpts, permissionMode: 'auto' }).args
+    ).toEqual(['--model', 'sonnet'])
+  })
+})
+
+describe('buildHeadlessLaunch Claude permission mode', () => {
+  it('adds acceptEdits for auto mode', () => {
+    expect(
+      buildHeadlessLaunch('claude', 'Do the task', {
+        ...baseOpts,
+        permissionMode: 'auto'
+      }).args
+    ).toEqual([
+      '-p',
+      'Do the task',
+      '--output-format',
+      'stream-json',
+      '--model',
+      'sonnet',
+      '--permission-mode',
+      'acceptEdits'
+    ])
   })
 })

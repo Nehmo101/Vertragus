@@ -14,6 +14,7 @@ import InfoTip from '@renderer/components/InfoTip'
 import { githubAuthPresentation, hasUsableGithubAuth } from '@renderer/store/githubAuth'
 import ModelCatalogStatus from '@renderer/components/ModelCatalogStatus'
 import { modelPresetAvailability } from '@renderer/modelCatalog'
+import ClaudePermissionModeSelect from '@renderer/components/ClaudePermissionModeSelect'
 
 const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'cursor', 'copilot', 'ollama']
 
@@ -26,6 +27,7 @@ const HELP = {
   agentWorkingDir: 'Optionaler Pfad nur für diesen Slot. Leer übernimmt den Workspace-Basispfad.',
   mode: 'Orchestriert lässt Claude oder Codex planen und delegieren. Single startet nur die konfigurierten Slots.',
   orchestratorProvider: 'Nur Provider mit verifiziertem Orca-MCP-Adapter können orchestrieren.',
+  permissionMode: 'Auto-Mode bestätigt Edits automatisch. Plan-Mode erlaubt Claude nur zu planen.',
   model: 'Leer verwendet Preset oder CLI-Standard. Freitext überschreibt das Preset. Über das Listen-Menü rechts wählst du jederzeit ein anderes Modell — auch wenn schon eines eingetragen ist.',
   modelPreset: 'Leistungs-Preset (schnell/ausgewogen/stark). Gilt nur wenn Modell leer ist — Freitext hat Vorrang.',
   plannerMode: 'Auto startet valide Pläne direkt. Review wartet auf Freigabe. Manuell deaktiviert execute_plan.',
@@ -366,6 +368,7 @@ export default function ProfileEditor(): JSX.Element | null {
                     // intentional, provider-specific override.
                     model: '',
                     modelPreset: 'balanced',
+                    permissionMode: 'default',
                     autoOpenSubwindows: true
                   }
                 })
@@ -415,6 +418,22 @@ export default function ProfileEditor(): JSX.Element | null {
                   ))}
                 </select>
               </div>
+              {draft.orchestrator.provider === 'claude' && (
+                <div style={{ flex: 1.4 }}>
+                  <div className="select-label">
+                    Claude-Modus <InfoTip text={HELP.permissionMode} />
+                  </div>
+                  <ClaudePermissionModeSelect
+                    id="orchestrator-permission-mode"
+                    value={draft.orchestrator.permissionMode ?? 'default'}
+                    onChange={(permissionMode) =>
+                      patch({
+                        orchestrator: { ...draft.orchestrator!, permissionMode }
+                      })
+                    }
+                  />
+                </div>
+              )}
               <div style={{ flex: 0.9 }}>
                 <div className="select-label">
                   Preset <InfoTip text={HELP.modelPreset} />
