@@ -366,7 +366,10 @@ function buildMcpServer(
     'execute_plan',
     'Validiere und starte einen kompletten Auto-Subagent-Plan asynchron als DAG. Die Antwort ' +
       'enthält sofort runId, usedFallback, rejected, validationIssues und planTaskIds. ' +
-      'Ein rejected-Plan endet ohne Task-Start; laufende Ergebnisse werden mit get_plan_status abgefragt. ' +
+      'Reparierbare Ownership-Probleme werden automatisch korrigiert (repaired_ownership in validationIssues). ' +
+      'Ein rejected-Plan startet keine Tasks direkt: sein konservativer Ersatz-Task wartet am Review-Gate auf Freigabe — ' +
+      'prüfe validationIssues, reiche einen korrigierten Plan ein oder lass den Ersatz-Task freigeben. ' +
+      'Laufende Ergebnisse werden mit get_plan_status abgefragt. ' +
       'Bewerte danach das Gesamtziel und reiche bei Bedarf einen fokussierten Folgeplan ein.',
     {
       plan: z.object({

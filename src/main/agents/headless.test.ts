@@ -18,6 +18,8 @@ vi.mock('@main/agents/ollamaHeadless', () => ({ runOllamaChat: mocks.runOllamaCh
 
 import {
   classifyFatalProviderStderr,
+  hasExplicitWorkerBlocker,
+  hasExplicitWorkerSuccess,
   runHeadless,
   type HeadlessLifecycleEvent
 } from './headless'
@@ -44,6 +46,24 @@ function fakeChild(): ChildProcess {
 afterEach(() => {
   vi.useRealTimers()
   vi.clearAllMocks()
+})
+
+describe('worker result contract markers', () => {
+  it('accepts the plain contract line and common Markdown decorations', () => {
+    expect(hasExplicitWorkerSuccess('Alles geprüft.\nERGEBNIS: ERFOLG')).toBe(true)
+    expect(hasExplicitWorkerSuccess('Alles geprüft.\n**ERGEBNIS: ERFOLG**')).toBe(true)
+    expect(hasExplicitWorkerSuccess('Bericht:\n## ERGEBNIS: ERFOLG')).toBe(true)
+    expect(hasExplicitWorkerSuccess('Bericht:\n> ERGEBNIS : **ERFOLG**')).toBe(true)
+    expect(hasExplicitWorkerSuccess('- ERGEBNIS: ERFOLG')).toBe(true)
+    expect(hasExplicitWorkerBlocker('Kein Zugriff.\n**ERGEBNIS: BLOCKER** – Details folgen')).toBe(true)
+  })
+
+  it('rejects prose mentions and negated verdicts', () => {
+    expect(hasExplicitWorkerSuccess('Das ERGEBNIS: ERFOLG wäre schön gewesen.')).toBe(false)
+    expect(hasExplicitWorkerSuccess('ERGEBNIS: KEIN ERFOLG')).toBe(false)
+    expect(hasExplicitWorkerSuccess('ERGEBNIS: TEILERFOLG')).toBe(false)
+    expect(hasExplicitWorkerBlocker('ERGEBNIS: ERFOLG')).toBe(false)
+  })
 })
 
 describe('fatal provider stderr classification', () => {

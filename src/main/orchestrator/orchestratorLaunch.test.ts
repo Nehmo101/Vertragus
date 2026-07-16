@@ -66,8 +66,9 @@ describe('orchestrator progress communication prompt', () => {
       expect(prompt).toContain('Right-size the team')
       expect(prompt).toContain('Do not artificially serialize independent work')
       expect(prompt).toContain('With N independent tasks, maxParallel=1 is wrong')
-      // Warn about the shared-hotspot trap that collapses a whole plan to one worker.
-      expect(prompt).toContain('collapses it to one worker')
+      // Shared-hotspot declarations on feature tasks are repaired, not collapsed.
+      expect(prompt).toContain('repaired_ownership')
+      expect(prompt).toContain('never dropped silently')
     }
   })
 

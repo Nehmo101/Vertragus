@@ -359,7 +359,7 @@ describe('asynchronous orchestration API', () => {
     expect(engine.getPlanRunStatus(started.runId)?.result?.tasks[0]?.status).toBe('success')
   })
 
-  it('returns validation rejection details synchronously without materializing tasks', () => {
+  it('keeps a rejected structured plan visible behind the review gate instead of collapsing silently', async () => {
     const profile = { ...DEFAULT_PROFILE, planner: { ...DEFAULT_PROFILE.planner, mode: 'auto' as const } }
     const engine = new OrchestratorEngine({ profile })
     const callsBefore = runTask.mock.calls.length
@@ -376,15 +376,22 @@ describe('asynchronous orchestration API', () => {
     })
 
     expect(started).toEqual(expect.objectContaining({
-      status: 'error',
+      status: 'running',
       usedFallback: true,
       rejected: true,
       validationIssues: [expect.objectContaining({ code: 'invalid_task' })],
-      planTaskIds: []
+      planTaskIds: ['fallback']
     }))
-    expect(engine.snapshot().tasks).toEqual([])
-    expect(engine.getPlanRunStatus(started.runId)).toEqual(expect.objectContaining({
-      status: 'error',
+    await vi.waitFor(() => expect(engine.snapshot().pendingPlan).toEqual(expect.objectContaining({
+      rejected: true,
+      validationIssues: [expect.objectContaining({ code: 'invalid_task' })]
+    })))
+    expect(engine.snapshot().activity?.phase).toBe('awaiting-review')
+    expect(runTask).toHaveBeenCalledTimes(callsBefore)
+
+    expect(engine.reviewPlan(false)).toBe(true)
+    await vi.waitFor(() => expect(engine.getPlanRunStatus(started.runId)?.status).toBe('stopped'))
+    expect(engine.getPlanRunStatus(started.runId)?.result).toEqual(expect.objectContaining({
       rejected: true,
       validationIssues: [expect.objectContaining({ code: 'invalid_task' })]
     }))
@@ -818,5 +825,100 @@ describe('asynchronous orchestration API', () => {
       tokens: 20, costUsd: 0.02, tasksReported: 1, tasksTotal: 1,
       tokenDataComplete: true, costDataComplete: true
     })
+  })
+
+  it('lets green acceptance gates overrule a contradictory provider error on exit code 0', async () => {
+    runTask.mockImplementationOnce(async (request) => ({
+      info: info(request.taskId),
+      done: Promise.resolve({
+        result: 'Implementierung fertig, alle Tests gruen (ohne Vertragszeile).',
+        isError: true,
+        exitCode: 0
+      })
+    }))
+    prepareTaskChange.mockResolvedValueOnce({
+      status: 'prepared',
+      result: 'committed',
+      noChanges: false,
+      message: '3 Datei(en) in 1 Commit(s) verifiziert.',
+      branch: 'orca/arbitrated',
+      worktree: '.',
+      change: {
+        taskId: 'worker', title: 'Arbitrated', worktree: '.', branch: 'orca/arbitrated',
+        commit: 'b'.repeat(40), commits: ['b'.repeat(40)], files: ['feature.ts']
+      }
+    })
+    const engine = new OrchestratorEngine({ profile: { ...DEFAULT_PROFILE } })
+
+    const accepted = engine.dispatchAsync('codex', 'Implement feature', 'Arbitrated')
+
+    await vi.waitFor(() => expect(engine.getTaskStatus(accepted.taskId)?.status).toBe('success'))
+    expect(engine.getTaskStatus(accepted.taskId)).toEqual(expect.objectContaining({
+      completion: { kind: 'commit', commit: 'b'.repeat(40) },
+      judgeReason: expect.stringContaining('Abnahme-Gates')
+    }))
+  })
+
+  it('keeps the error verdict when arbitration gates cannot verify any work', async () => {
+    runTask.mockImplementationOnce(async (request) => ({
+      info: info(request.taskId),
+      done: Promise.resolve({ result: 'Behauptet fertig, nichts geliefert.', isError: true, exitCode: 0 })
+    }))
+    prepareTaskChange.mockResolvedValueOnce({
+      status: 'skipped',
+      result: 'no-changes',
+      noChanges: true,
+      message: 'Keine Änderungen; expliziter No-op bestätigt.'
+    })
+    const engine = new OrchestratorEngine({ profile: { ...DEFAULT_PROFILE } })
+
+    const accepted = engine.dispatchAsync('codex', 'Implement feature', 'Empty claim')
+
+    await vi.waitFor(() => expect(engine.getTaskStatus(accepted.taskId)?.status).toBe('error'))
+    expect(engine.getTaskStatus(accepted.taskId)?.completion).toBeUndefined()
+  })
+
+  it('adopts a quarantined recovery artifact as needs-work commit when every gate passes', async () => {
+    runTask.mockImplementationOnce(async (request) => ({
+      info: info(request.taskId),
+      done: Promise.resolve({
+        result: 'Worker starb an Provider-Kapazität.',
+        isError: true,
+        exitCode: 1,
+        status: 'failed' as const
+      })
+    }))
+    captureTaskRecoveryArtifact.mockResolvedValueOnce({
+      worktree: '.',
+      changedFiles: ['feature.ts', 'feature.test.ts'],
+      statusSummary: 'M feature.ts',
+      capturedAt: Date.now()
+    })
+    prepareTaskChange.mockResolvedValueOnce({
+      status: 'prepared',
+      result: 'committed',
+      noChanges: false,
+      message: '2 Datei(en) in 1 Commit(s) verifiziert.',
+      branch: 'orca/adopted',
+      worktree: '.',
+      change: {
+        taskId: 'worker', title: 'Adopted', worktree: '.', branch: 'orca/adopted',
+        commit: 'c'.repeat(40), commits: ['c'.repeat(40)], files: ['feature.ts']
+      }
+    })
+    const engine = new OrchestratorEngine({ profile: { ...DEFAULT_PROFILE } })
+    const adoptedBefore = engine.snapshot().reliability?.adoptedRecoveryArtifacts ?? 0
+
+    const accepted = engine.dispatchAsync('codex', 'Long task', 'Adopted')
+
+    await vi.waitFor(() => expect(engine.getTaskStatus(accepted.taskId)?.status).toBe('needs-work'))
+    expect(engine.getTaskStatus(accepted.taskId)).toEqual(expect.objectContaining({
+      completion: { kind: 'commit', commit: 'c'.repeat(40) },
+      findings: expect.arrayContaining([
+        expect.objectContaining({ gate: 'commit', code: 'recovered-artifact-adopted' })
+      ]),
+      recoveryArtifact: undefined
+    }))
+    expect(engine.snapshot().reliability?.adoptedRecoveryArtifacts).toBe(adoptedBefore + 1)
   })
 })
