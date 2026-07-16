@@ -1,11 +1,80 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   agentSlotsWithRoles,
   DEFAULT_PROFILE,
+  duplicateProfile,
   profileDefaultBaseBranch,
   profileRepoLocalPath,
+  type WorkspaceProfile,
   workspaceProfileSchema
 } from './profile'
+
+function completeProfile(): WorkspaceProfile {
+  return workspaceProfileSchema.parse({
+    id: 'source-profile',
+    name: 'Projekt',
+    workingDir: 'C:\\git\\projekt',
+    githubRepo: {
+      owner: 'acme',
+      repo: 'projekt',
+      defaultBranch: 'develop',
+      localPath: 'C:\\git\\projekt',
+      cloneStatus: 'linked'
+    },
+    githubProject: {
+      owner: 'acme',
+      number: 42,
+      title: 'Projektplanung',
+      url: 'https://github.com/orgs/acme/projects/42'
+    },
+    orchestrator: {
+      provider: 'claude',
+      model: 'claude-opus',
+      modelPreset: 'strong',
+      autoOpenSubwindows: false
+    },
+    agents: [
+      {
+        role: 'worker',
+        provider: 'codex',
+        model: 'gpt-codex',
+        modelPreset: 'balanced',
+        count: 2,
+        orchestrated: true,
+        yolo: true,
+        workingDir: 'C:\\git\\projekt\\worker',
+        strengths: ['Tests', 'Debugging'],
+        weaknesses: ['Grafikdesign']
+      },
+      {
+        role: 'reviewer',
+        provider: 'cursor',
+        model: 'composer',
+        count: 1,
+        orchestrated: false,
+        yolo: false,
+        strengths: ['Review'],
+        weaknesses: []
+      }
+    ],
+    yoloDefault: true,
+    planner: { mode: 'manual', routingMode: 'fixed', maxParallel: 3, maxRetries: 2 },
+    benchmark: { enabled: true },
+    autoPr: {
+      mode: 'hold-for-approval',
+      strategy: 'per-task',
+      baseBranch: 'develop',
+      qualityGates: ['corepack pnpm test', 'corepack pnpm lint'],
+      securityGateExcludes: ['fixtures/**'],
+      labels: ['automation', 'review'],
+      reviewers: ['octocat']
+    }
+  })
+}
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 describe('workspaceProfileSchema', () => {
   it('migrates legacy profiles with planner and Auto-PR defaults', () => {
@@ -107,5 +176,83 @@ describe('workspaceProfileSchema', () => {
         .filter(({ slot }) => slot.orchestrated)
         .map(({ role }) => role)
     ).toEqual(['worker-2'])
+  })
+})
+
+describe('duplicateProfile', () => {
+  it('copies every configurable setting from the source profile', () => {
+    const source = completeProfile()
+    const copy = duplicateProfile(source, [source])
+    const { id: copyId, name: copyName, ...copySettings } = copy
+    const { id: sourceId, name: sourceName, ...sourceSettings } = source
+
+    expect(copySettings).toEqual(sourceSettings)
+    expect(copyId).not.toBe(sourceId)
+    expect(copyName).not.toBe(sourceName)
+  })
+
+  it('creates a new id and appends a suffix when the timestamp id already exists', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_234_567_890)
+    const source = completeProfile()
+    const baseId = `profile-${Date.now().toString(36)}`
+    const existingProfiles = [
+      source,
+      { ...source, id: baseId, name: 'Anderes Profil' },
+      { ...source, id: `${baseId}-2`, name: 'Noch ein Profil' }
+    ]
+
+    expect(duplicateProfile(source, existingProfiles).id).toBe(`${baseId}-3`)
+  })
+
+  it('derives a unique copy name using trimmed, case-insensitive comparison', () => {
+    const source = completeProfile()
+    const existingProfiles = [
+      source,
+      { ...source, id: 'existing-copy', name: '  PROJEKT (kopie)  ' }
+    ]
+
+    expect(duplicateProfile(source, existingProfiles).name).toBe('Projekt (Kopie 2)')
+  })
+
+  it('does not mutate or share nested references with the source profile', () => {
+    const source = completeProfile()
+    const original = structuredClone(source)
+    const copy = duplicateProfile(source, [source])
+
+    expect(copy.githubRepo).not.toBe(source.githubRepo)
+    expect(copy.githubProject).not.toBe(source.githubProject)
+    expect(copy.orchestrator).not.toBe(source.orchestrator)
+    expect(copy.agents).not.toBe(source.agents)
+    expect(copy.agents[0]).not.toBe(source.agents[0])
+    expect(copy.agents[0].strengths).not.toBe(source.agents[0].strengths)
+    expect(copy.agents[0].weaknesses).not.toBe(source.agents[0].weaknesses)
+    expect(copy.planner).not.toBe(source.planner)
+    expect(copy.benchmark).not.toBe(source.benchmark)
+    expect(copy.autoPr).not.toBe(source.autoPr)
+    expect(copy.autoPr.qualityGates).not.toBe(source.autoPr.qualityGates)
+    expect(copy.autoPr.securityGateExcludes).not.toBe(source.autoPr.securityGateExcludes)
+    expect(copy.autoPr.labels).not.toBe(source.autoPr.labels)
+    expect(copy.autoPr.reviewers).not.toBe(source.autoPr.reviewers)
+
+    copy.githubRepo!.owner = 'changed'
+    copy.githubProject!.title = 'Changed'
+    copy.orchestrator!.model = 'changed'
+    copy.agents[0].strengths.push('Changed')
+    copy.agents[0].weaknesses.push('Changed')
+    copy.planner.maxParallel = 1
+    copy.benchmark.enabled = false
+    copy.autoPr.qualityGates.push('changed')
+    copy.autoPr.securityGateExcludes.push('changed/**')
+    copy.autoPr.labels.push('changed')
+    copy.autoPr.reviewers.push('changed')
+
+    expect(source).toEqual(original)
+  })
+
+  it('returns a profile accepted by workspaceProfileSchema', () => {
+    const source = completeProfile()
+    const copy = duplicateProfile(source, [source])
+
+    expect(workspaceProfileSchema.parse(copy)).toEqual(copy)
   })
 })

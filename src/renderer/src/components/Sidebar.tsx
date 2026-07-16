@@ -474,11 +474,11 @@ export function SidebarView({
               <button
                 type="button"
                 className="icon-btn-sm"
-                title="Aktives Profil kopieren"
-                aria-label="Aktives Workspace-Profil kopieren"
+                title="Aktives Profil duplizieren"
+                aria-label="Aktives Workspace-Profil duplizieren"
                 onClick={() => {
                   const profile = store.profiles.find((item) => item.id === store.activeProfileId)
-                  if (profile) store.openEditorCopy(profile)
+                  if (profile) void store.duplicateProfile(profile.id)
                 }}
               >
                 ⧉
@@ -500,29 +500,39 @@ export function SidebarView({
             const attention = workspaceUserAttention(store, profile.id)
             const attentionLabel = attention ? attentionText(attention) : undefined
             return (
-              <button
-                type="button"
-                key={profile.id}
-                className={`profile-row ${profile.id === store.activeProfileId ? 'active' : ''} ${attention ? 'workspace-needs-user-attention' : ''}`}
-                data-user-attention={attention?.source}
-                onClick={() => void store.selectProfile(profile.id)}
-                onDoubleClick={() => store.openEditor(profile)}
-                title={`Klick: aktivieren · Doppelklick: bearbeiten${attentionLabel ? ` · ${attentionLabel}` : ''}`}
-                aria-label={attentionLabel ? `${profile.name}. ${attentionLabel}` : undefined}
-                aria-pressed={profile.id === store.activeProfileId}
-              >
-                <span className="profile-rail" />
-                <div className="info">
-                  <div className="name">{profile.name}</div>
-                  <div className="summary">{profileSummary(profile)}</div>
-                </div>
-                {attention && <span className="workspace-attention-indicator" aria-hidden="true" />}
-                <span className={`profile-count ${runningByProfile.has(profile.id) ? 'running' : ''}`}>
-                  {runningByProfile.has(profile.id)
-                    ? `${runningByProfile.get(profile.id)} aktiv`
-                    : profileAgentCount(profile)}
-                </span>
-              </button>
+              <div className="profile-row-item" key={profile.id}>
+                <button
+                  type="button"
+                  className={`profile-row ${profile.id === store.activeProfileId ? 'active' : ''} ${attention ? 'workspace-needs-user-attention' : ''}`}
+                  data-user-attention={attention?.source}
+                  onClick={() => void store.selectProfile(profile.id)}
+                  onDoubleClick={() => store.openEditor(profile)}
+                  title={`Klick: aktivieren · Doppelklick: bearbeiten${attentionLabel ? ` · ${attentionLabel}` : ''}`}
+                  aria-label={attentionLabel ? `${profile.name}. ${attentionLabel}` : undefined}
+                  aria-pressed={profile.id === store.activeProfileId}
+                >
+                  <span className="profile-rail" />
+                  <div className="info">
+                    <div className="name">{profile.name}</div>
+                    <div className="summary">{profileSummary(profile)}</div>
+                  </div>
+                  {attention && <span className="workspace-attention-indicator" aria-hidden="true" />}
+                  <span className={`profile-count ${runningByProfile.has(profile.id) ? 'running' : ''}`}>
+                    {runningByProfile.has(profile.id)
+                      ? `${runningByProfile.get(profile.id)} aktiv`
+                      : profileAgentCount(profile)}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="icon-btn-sm profile-duplicate-action"
+                  title={`Profil „${profile.name}“ duplizieren`}
+                  aria-label={`Workspace-Profil „${profile.name}“ duplizieren`}
+                  onClick={() => void store.duplicateProfile(profile.id)}
+                >
+                  ⧉
+                </button>
+              </div>
             )
           })}
         </div>

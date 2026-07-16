@@ -1104,6 +1104,20 @@ button {
   cursor: pointer;
   transition: background 0.1s;
 }
+.profile-row-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.profile-row-item .profile-row {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+.profile-duplicate-action {
+  flex: none;
+  margin-right: 4px;
+}
 .profile-row:hover {
   background: rgba(255, 255, 255, 0.05);
 }

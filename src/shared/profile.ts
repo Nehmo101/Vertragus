@@ -133,6 +133,38 @@ export type ProfileCloneStatus = z.infer<typeof profileCloneStatusSchema>
 export type ProfileGithubRepo = z.infer<typeof profileGithubRepoSchema>
 export type WorkspaceProfile = z.infer<typeof workspaceProfileSchema>
 
+/** Create an independent, uniquely identified copy of a workspace profile. */
+export function duplicateProfile(
+  source: WorkspaceProfile,
+  existingProfiles: WorkspaceProfile[]
+): WorkspaceProfile {
+  const existingIds = new Set([source.id, ...existingProfiles.map((profile) => profile.id)])
+  const baseId = `profile-${Date.now().toString(36)}`
+  let id = baseId
+  let idSuffix = 2
+  while (existingIds.has(id)) {
+    id = `${baseId}-${idSuffix}`
+    idSuffix += 1
+  }
+
+  const existingNames = new Set(
+    existingProfiles.map((profile) => profile.name.trim().toLowerCase())
+  )
+  const sourceName = source.name.trim()
+  let name = `${sourceName} (Kopie)`
+  let nameSuffix = 2
+  while (existingNames.has(name.trim().toLowerCase())) {
+    name = `${sourceName} (Kopie ${nameSuffix})`
+    nameSuffix += 1
+  }
+
+  return workspaceProfileSchema.parse({
+    ...structuredClone(source),
+    id,
+    name
+  })
+}
+
 export interface RepoProfileGenerationRequest {
   workingDir: string
   /** Provider/model that performs the repository analysis. */
