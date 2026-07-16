@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784183955666,
+  "exportedAt": 1784183961326,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -8,6 +8,48 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrn52aon-1-f20967",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "renderer-ui",
+      "kind": "weakness",
+      "insight": "Quality-Gates erfordern Nacharbeit bei renderer-ui, test-qa",
+      "evidence": "1 Task(s) mit 1 Gate-Finding(s)",
+      "source": "auto-retro",
+      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+      "observations": 1,
+      "createdAt": 1784183960471,
+      "updatedAt": 1784183960471
+    },
+    {
+      "id": "learning-mrn52aon-2-in7gvt",
+      "provider": "cursor",
+      "model": "composer-2.5-fast",
+      "role": "worker - small and quick work-item",
+      "kind": "strength",
+      "insight": "zuverlässig im ersten Anlauf bei worker - small and quick work-item",
+      "evidence": "3/3 Tasks ohne Wiederholung erfolgreich",
+      "source": "auto-retro",
+      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+      "observations": 1,
+      "createdAt": 1784183960471,
+      "updatedAt": 1784183960471
+    },
+    {
+      "id": "learning-mrn52aon-3-eget4d",
+      "provider": "cursor",
+      "model": "composer-2.5-fast",
+      "role": "worker - small and quick work-item",
+      "kind": "strength",
+      "insight": "deutlich schnellstes Modell dieses Laufs (Ø 383s)",
+      "evidence": "Ø-Dauer 383s gegenüber 1408s (codex/gpt-5.6-sol)",
+      "source": "auto-retro",
+      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+      "observations": 1,
+      "createdAt": 1784183960471,
+      "updatedAt": 1784183960471
+    },
     {
       "id": "learning-mrn525vo-3-birmxc",
       "provider": "codex",
@@ -105,20 +147,6 @@
       "updatedAt": 1784146794785
     },
     {
-      "id": "learning-mrmchbdm-3-smpgzy",
-      "provider": "claude",
-      "model": "claude-sonnet-5",
-      "role": "orchestrator-integrator",
-      "kind": "weakness",
-      "insight": "Hinterlässt trotz explizitem Temp-Datei-Verbot im Prompt Verifikations-Hilfsdateien im Commit (*.origcheck, *.check, *.c9check) — vor PR-Schnitt gezielt prüfen und entfernen lassen",
-      "evidence": "O07 Wurmzunge, Commit a48ddaf9: 4 Check-Dateien (ARCHITECTURE.md.origcheck, CURRENT_STATE.md.origcheck, 00-inventory.md.check/.c9check) neben den 19 echten Zieldateien",
-      "source": "orchestrator",
-      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
-      "observations": 1,
-      "createdAt": 1784135952346,
-      "updatedAt": 1784135952346
-    },
-    {
       "id": "learning-mrmchbdm-1-hd72lm",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -126,6 +154,20 @@
       "kind": "strength",
       "insight": "Liefert mit expliziten Whitespace-/Temp-Datei-Auflagen im Prompt große Doku-Pakete sauber und vollständig (ADR-Pack 6 ADRs+Masterplan, Guards-Plan 439 Z., CI-Plan 467 Z., Contracts 711 Z.)",
       "evidence": "O01 Glorfindel, O02 Grishnákh, O03 Dwalin, O05 Éowyn — alle Commits ohne Whitespace-Gate-Fehler und ohne Temp-Dateien",
+      "source": "orchestrator",
+      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+      "observations": 1,
+      "createdAt": 1784135952346,
+      "updatedAt": 1784135952346
+    },
+    {
+      "id": "learning-mrmchbdm-3-smpgzy",
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "role": "orchestrator-integrator",
+      "kind": "weakness",
+      "insight": "Hinterlässt trotz explizitem Temp-Datei-Verbot im Prompt Verifikations-Hilfsdateien im Commit (*.origcheck, *.check, *.c9check) — vor PR-Schnitt gezielt prüfen und entfernen lassen",
+      "evidence": "O07 Wurmzunge, Commit a48ddaf9: 4 Check-Dateien (ARCHITECTURE.md.origcheck, CURRENT_STATE.md.origcheck, 00-inventory.md.check/.c9check) neben den 19 echten Zieldateien",
       "source": "orchestrator",
       "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
       "observations": 1,
@@ -189,20 +231,6 @@
       "updatedAt": 1784126995303
     },
     {
-      "id": "learning-mrm44ou4-2-g8v8o",
-      "provider": "claude",
-      "model": "claude-sonnet-5",
-      "role": "orchestrator-integrator",
-      "kind": "weakness",
-      "insight": "Lässt Temp-/Arbeitsdateien im Worktree zurück, die im partiellen Commit landen (.verify-*-tmp.md) — Aufräumen vor Abschluss explizit in den Prompt schreiben",
-      "evidence": "t-1 (Beorn): Commit c9a520c6 enthält .verify-new-body-tmp.md und .verify-orig-tmp.md",
-      "source": "orchestrator",
-      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
-      "observations": 1,
-      "createdAt": 1784121926332,
-      "updatedAt": 1784121926332
-    },
-    {
       "id": "learning-mrm44ou4-1-zd3siy",
       "provider": "claude",
       "model": "claude-sonnet-5",
@@ -217,18 +245,18 @@
       "updatedAt": 1784121926332
     },
     {
-      "id": "learning-mrm27c1p-1-eter44",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "backend-services",
+      "id": "learning-mrm44ou4-2-g8v8o",
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "role": "orchestrator-integrator",
       "kind": "weakness",
-      "insight": "Markdown-Doku-Tasks scheitern am zentralen Commit-Gate 'git diff --cached --check' (trailing whitespace/CRLF) — Whitespace-Hygiene im Prompt explizit fordern",
-      "evidence": "O00 Attempt 1 (Ungoliant): Audit inhaltlich vollständig, Abnahme blockiert mit 'Command failed: git diff --cached --check'",
+      "insight": "Lässt Temp-/Arbeitsdateien im Worktree zurück, die im partiellen Commit landen (.verify-*-tmp.md) — Aufräumen vor Abschluss explizit in den Prompt schreiben",
+      "evidence": "t-1 (Beorn): Commit c9a520c6 enthält .verify-new-body-tmp.md und .verify-orig-tmp.md",
       "source": "orchestrator",
       "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
       "observations": 1,
-      "createdAt": 1784118690493,
-      "updatedAt": 1784118690493
+      "createdAt": 1784121926332,
+      "updatedAt": 1784121926332
     },
     {
       "id": "learning-mrm27c1p-2-8m151z",
@@ -257,6 +285,48 @@
       "observations": 1,
       "createdAt": 1784118690493,
       "updatedAt": 1784118690493
+    },
+    {
+      "id": "learning-mrm27c1p-1-eter44",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "backend-services",
+      "kind": "weakness",
+      "insight": "Markdown-Doku-Tasks scheitern am zentralen Commit-Gate 'git diff --cached --check' (trailing whitespace/CRLF) — Whitespace-Hygiene im Prompt explizit fordern",
+      "evidence": "O00 Attempt 1 (Ungoliant): Audit inhaltlich vollständig, Abnahme blockiert mit 'Command failed: git diff --cached --check'",
+      "source": "orchestrator",
+      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+      "observations": 1,
+      "createdAt": 1784118690493,
+      "updatedAt": 1784118690493
+    },
+    {
+      "id": "learning-mrm0y92m-1-izscin",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "main-orchestrator",
+      "kind": "strength",
+      "insight": "Arbeitet sicherheitskritische Mehrphasen-Features systematisch entlang harter Invarianten und Qualitäts-Gates ab.",
+      "evidence": "Phasen A–D wurden strikt sequenziell abgeschlossen; jede Phase erhielt Tests und CI-Gates, am Ende waren 114 Testdateien/667 Tests und der Remote-Selftest 10/10 grün.",
+      "source": "orchestrator",
+      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+      "observations": 1,
+      "createdAt": 1784116587118,
+      "updatedAt": 1784116587118
+    },
+    {
+      "id": "learning-mrm0y92m-2-2bkgaj",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "main-orchestrator",
+      "kind": "strength",
+      "insight": "Nutzt fehlschlagende Tests wirksam, um Integrations- und Sicherheitslücken gezielt zu schließen.",
+      "evidence": "Stale Registry-Mock, Provider-Limit-Erkennung, Push-Scope und WS/SSE-Fallback wurden durch gezielte Regressionstests entdeckt und abgesichert.",
+      "source": "orchestrator",
+      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+      "observations": 1,
+      "createdAt": 1784116587118,
+      "updatedAt": 1784116587118
     },
     {
       "id": "learning-mrm0y92m-3-omyk4r",
@@ -294,34 +364,6 @@
       "kind": "weakness",
       "insight": "PowerShell-/Windows-Patches brauchen engeren Kontext und frühere UTF-8-Prüfung.",
       "evidence": "Breiter Patch-Kontext traf einmal den falschen Retry-Test; Encoding- und Pfadglob-Reibung verursachten vermeidbare Iterationen.",
-      "source": "orchestrator",
-      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
-      "observations": 1,
-      "createdAt": 1784116587118,
-      "updatedAt": 1784116587118
-    },
-    {
-      "id": "learning-mrm0y92m-1-izscin",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "main-orchestrator",
-      "kind": "strength",
-      "insight": "Arbeitet sicherheitskritische Mehrphasen-Features systematisch entlang harter Invarianten und Qualitäts-Gates ab.",
-      "evidence": "Phasen A–D wurden strikt sequenziell abgeschlossen; jede Phase erhielt Tests und CI-Gates, am Ende waren 114 Testdateien/667 Tests und der Remote-Selftest 10/10 grün.",
-      "source": "orchestrator",
-      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
-      "observations": 1,
-      "createdAt": 1784116587118,
-      "updatedAt": 1784116587118
-    },
-    {
-      "id": "learning-mrm0y92m-2-2bkgaj",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "main-orchestrator",
-      "kind": "strength",
-      "insight": "Nutzt fehlschlagende Tests wirksam, um Integrations- und Sicherheitslücken gezielt zu schließen.",
-      "evidence": "Stale Registry-Mock, Provider-Limit-Erkennung, Push-Scope und WS/SSE-Fallback wurden durch gezielte Regressionstests entdeckt und abgesichert.",
       "source": "orchestrator",
       "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
       "observations": 1,
@@ -539,20 +581,6 @@
       "updatedAt": 1784069445281
     },
     {
-      "id": "learning-mrl8tcte-2-4i7sy7",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "main-orchestrator",
-      "kind": "weakness",
-      "insight": "Lauf-Erkenntnis: grüne Worker-Gates garantieren keinen grünen Plan — zentrales Integrations-Gate kann an fehlendem eslint scheitern und blockiert den Auto-PR",
-      "evidence": "Integration-Node: pnpm lint → 'eslint ... konnte nicht gefunden werden', obwohl lint im Worker-Worktree task-13 grün war",
-      "source": "orchestrator",
-      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
-      "observations": 1,
-      "createdAt": 1784069329442,
-      "updatedAt": 1784069329442
-    },
-    {
       "id": "learning-mrl8tcte-1-ps1cf4",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -560,6 +588,20 @@
       "kind": "strength",
       "insight": "Sehr stark bei kleinen Querschnitts-Features über shared/main/renderer: erfüllt expliziten Ergebnisvertrag (Dateiliste, Gate-Ausgaben, Integrationshinweise, kein git) vollständig",
       "evidence": "Task me-names: 8 Dateien, Negativtests (NaN, negativ, 1e9), Legacy-Fallback, 8/8 vitest, typecheck+lint grün, Commit 50a413b",
+      "source": "orchestrator",
+      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+      "observations": 1,
+      "createdAt": 1784069329442,
+      "updatedAt": 1784069329442
+    },
+    {
+      "id": "learning-mrl8tcte-2-4i7sy7",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "main-orchestrator",
+      "kind": "weakness",
+      "insight": "Lauf-Erkenntnis: grüne Worker-Gates garantieren keinen grünen Plan — zentrales Integrations-Gate kann an fehlendem eslint scheitern und blockiert den Auto-PR",
+      "evidence": "Integration-Node: pnpm lint → 'eslint ... konnte nicht gefunden werden', obwohl lint im Worker-Worktree task-13 grün war",
       "source": "orchestrator",
       "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
       "observations": 1,
@@ -649,20 +691,6 @@
       "observations": 1,
       "createdAt": 1784063701633,
       "updatedAt": 1784063701633
-    },
-    {
-      "id": "learning-mrl5ec42-1-48gbwb",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "renderer-ui",
-      "kind": "weakness",
-      "insight": "fehleranfällig bei renderer-ui",
-      "evidence": "1/1 Tasks fehlgeschlagen",
-      "source": "auto-retro",
-      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
-      "observations": 1,
-      "createdAt": 1784063589842,
-      "updatedAt": 1784063589842
     },
     {
       "id": "learning-mrkhej75-1-pxoxx7",
