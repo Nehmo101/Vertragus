@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784217450030,
+  "exportedAt": 1784232252360,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -8,6 +8,48 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrnxtbfk-1-yehh16",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "systems-integrator",
+      "kind": "strength",
+      "insight": "Liefert präzisen minimalen Infra-Fix mit sauberer Ursachenanalyse und verwirft plausible Alternativen begründet",
+      "evidence": "Beorn (task-114): package-import-method=copy in codexSandbox.ts/dependencyBootstrap.ts+Tests; verwarf Treebeards exclude_tmpdir_env_var mit korrekter Begründung; typecheck/lint grün; Commit 42b468d",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784232250400,
+      "updatedAt": 1784232250400
+    },
+    {
+      "id": "learning-mrnxtbfk-2-xmk0p",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "systems-integrator",
+      "kind": "strength",
+      "insight": "Erreicht bei infra-blockiertem Gate SUCCESS statt needs-work, wenn der erwartete Blocker im Prompt als 'erwartet, kein Fehlschlag' deklariert ist — Commit wird normal integriert statt quarantänisiert",
+      "evidence": "t-fix meldete Vitest/Build-EPERM als erwartet → ERGEBNIS: ERFOLG; Judge akzeptierte; im Gegensatz zu t-impl (BLOCKER → needs-work/Quarantäne)",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784232250400,
+      "updatedAt": 1784232250400
+    },
+    {
+      "id": "learning-mrnxtbfk-3-o92dgf",
+      "provider": "claude",
+      "model": "claude-opus-4-8",
+      "role": "security-review",
+      "kind": "strength",
+      "insight": "Sehr präzises read-only Sandbox-Review: reviewt über Commit-Objekt wenn Worktree pre-fix ist, belegt Invarianten (keine Bypass-Flags, execFile ohne Shell, statisches Arg)",
+      "evidence": "Thorin (task-115): reviewte 42b468d via git show, bestätigte win32-only/least-privilege, 3 korrekt eingeordnete Low-Hinweise, keine echten Defekte",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784232250400,
+      "updatedAt": 1784232250400
+    },
     {
       "id": "learning-mrnoluzt-1-e1bmve",
       "provider": "cursor",
@@ -433,34 +475,6 @@
       "observations": 1,
       "createdAt": 1784195290673,
       "updatedAt": 1784195290673
-    },
-    {
-      "id": "learning-mrnbsmve-1-hncg65",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "orchestrator-core",
-      "kind": "strength",
-      "insight": "Setzt komplexe Engine/MCP/Schema-Änderungen inkl. neuem Tool im ersten Anlauf sauber um",
-      "evidence": "get_retro_draft + idempotenter Merge in Engine.ts/OrcaMcpServer.ts/contracts.ts, 56/56 Vitest grün, Typecheck+ESLint grün, additive RunRetro-Erweiterung",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784195267018,
-      "updatedAt": 1784195267018
-    },
-    {
-      "id": "learning-mrnbsmve-2-4ovh71",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "systems-integrator",
-      "kind": "strength",
-      "insight": "Übernimmt umgeleitete Tasks zuverlässig und liefert Skript+CI+Docs mit Security-Abdeckung",
-      "evidence": "Track D nach Reroute: retroSeed.ts mit Path-Traversal-Schutz, Workflow scharfgeschaltet, 4/4 Tests grün, Security-Gate ohne Findings, Commit ecbce46",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784195267018,
-      "updatedAt": 1784195267018
     },
     {
       "id": "learning-mrnbsmve-5-pz0c1",
