@@ -131,9 +131,13 @@
   }
 }
 
-/* Keep the dense title bar usable down to the 900px main-window minimum. */
+/* Keep the dense title bar usable down to the 900px main-window minimum.
+   The doubled class raises specificity to (0,2,0) so the compact gap wins over
+   the theme's global `.titlebar { gap: 13px }` (cozy-organic.css, loaded last):
+   at equal specificity the theme won and the 13px gaps overflowed the 900px
+   minimum by ~10px, pushing the window controls past the right edge. */
 @media (max-width: 1320px) {
-  .titlebar {
+  .titlebar:global(.titlebar) {
     gap: 8px;
   }
   .titlebar :global(.repo-path) {
