@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784186076257,
+  "exportedAt": 1784195336938,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -14,7 +14,7 @@
     "planId": "plan-mrn5dhdw-1",
     "goal": "Agent-Laufzeit (Runtime) pro Task im DAG anzeigen: live für laufende Tasks, Gesamtdauer für terminale Tasks.",
     "status": "needs-work",
-    "summary": "Lauf mit Nacharbeit: 2 Modell(e), 0/2 Tasks erfolgreich.",
+    "summary": "Laufzeit-im-DAG wurde funktional vollständig geliefert (Commit bedb4cd8, alle Gates grün, inkl. Unit-Tests + Electron-E2E-Smoke), aber ein Infra-Blocker beim formalen Worker-Abschluss erzeugte needs-work und stoppte die hart abhängige Advisory-QA. Ziel inhaltlich erfüllt; QA-Kaskadenstopp ist ein Planungs-Learning.",
     "modelStats": [
       {
         "provider": "codex",
@@ -85,6 +85,48 @@
         "observations": 4,
         "createdAt": 1784182938518,
         "updatedAt": 1784186076195
+      },
+      {
+        "id": "learning-mrnbu4qp-1-3euesy",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "systems-integrator",
+        "kind": "strength",
+        "insight": "Liefert eng gekoppelte vertikale Feature-Scheibe (Shared-Schema + Engine + Renderer + CSS) vollständig und verdrahtet dabei proaktiv echte Verifikation",
+        "evidence": "Commit bedb4cd8: startedAt idempotent in Engine.ts, Feld in OrcaTask+TaskStatusSnapshot, taskRuntime()-Badge in TaskCard, plus neue Unit-Tests (asyncDispatch.test.ts) und Electron-UI-Smoke (windows.ts) der live-hochzählenden Laufzeit",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784195336833,
+        "updatedAt": 1784195336833
+      },
+      {
+        "id": "learning-mrnbu4qp-2-rcx47e",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "systems-integrator",
+        "kind": "weakness",
+        "insight": "Meldet trotz grüner Gates und vollständiger Arbeit ERGEBNIS:BLOCKER wegen Infra-Blocker beim formalen Selbstabschluss → Task wird needs-work statt success",
+        "evidence": "Beide Attempts (Thorin 2, Gollum) endeten mit Infra-Blocker; Recovery-Artefakt bestand alle Gates und wurde als bedb4cd8 übernommen, Judge stufte dennoch needs-work ein",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784195336833,
+        "updatedAt": 1784195336833
+      },
+      {
+        "id": "learning-mrnbu4qp-3-fx2xb4",
+        "provider": "claude",
+        "model": "claude-sonnet-5",
+        "role": "qa-gate-runner",
+        "kind": "weakness",
+        "insight": "Advisory-QA mit hartem dependsOn auf den Integrator wird bei dessen infra-bedingtem needs-work komplett gestoppt und liefert keinerlei Abnahme-Signal",
+        "evidence": "verify-runtime wurde mit 'Erforderliche Abhängigkeit impl-runtime ist fehlgeschlagen' gestoppt, obwohl der Commit grün integriert war — QA sollte nach zentraler Übernahme standalone laufen",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784195336833,
+        "updatedAt": 1784195336833
       }
     ],
     "createdAt": 1784186076209
