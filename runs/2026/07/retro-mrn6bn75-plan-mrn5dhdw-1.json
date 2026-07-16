@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784197914737,
+  "exportedAt": 1784201403386,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -14,7 +14,7 @@
     "planId": "plan-mrn5dhdw-1",
     "goal": "Agent-Laufzeit (Runtime) pro Task im DAG anzeigen: live für laufende Tasks, Gesamtdauer für terminale Tasks.",
     "status": "needs-work",
-    "summary": "Standalone-QA (claude-sonnet-5) deckte einen echten Integrationslücken-Blocker auf: der als 'zentral übernommen' gemeldete Feature-Commit bedb4cd8 ist tatsächlich nur auf dem ungemergten Task-Branch task-54 und fehlt in main/DEV. Orchestrator hatte 'übernommen' fälschlich als 'in main integriert' gewertet.",
+    "summary": "Root-Cause der wiederholten Fallback-Kollapse: codex-Slots (orchestrator-core, systems-integrator) fielen mitten in der Session auf available:false, weil der Codex-Sandbox-Runtime-Preflight fehlschlägt. Jeder auf codex geroutete Task wird dadurch nicht dispatchbar und der Plan kollabiert mit 'invalid_task'. Kein Feld-/Prompt-Fehler, sondern Infrastruktur.",
     "modelStats": [
       {
         "provider": "codex",
@@ -141,6 +141,20 @@
         "observations": 1,
         "createdAt": 1784197914652,
         "updatedAt": 1784197914652
+      },
+      {
+        "id": "learning-mrnfg5oh-1-908t56",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "orchestrator-core",
+        "kind": "weakness",
+        "insight": "INFRA (kein Modelldefekt): codex-Slots können mitten in der Session auf available:false fallen; dann kollabiert jeder codex-Task zu 'invalid_task/Fallback'. Vor Impl-Plänen Slot-Verfügbarkeit prüfen.",
+        "evidence": "list_subagents: orchestrator-core & systems-integrator available:false, preflight provider-runtime 'failed' (Codex-Sandbox-Canary, 12s); zu Sessionbeginn passed. 8 execute_plan-Submits kollabierten.",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784201403329,
+        "updatedAt": 1784201403329
       }
     ],
     "createdAt": 1784186076209
