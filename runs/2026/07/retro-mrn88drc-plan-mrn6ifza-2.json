@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "exportedAt": 1784189283285,
+  "app": {
+    "name": "orca-strator",
+    "version": "0.1.47-main.1.gb3a336d"
+  },
+  "machineId": "5087fc1f7b9d",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrn88drc-plan-mrn6ifza-2",
+    "profileId": "profile-faf958c4-bea8-4eed-bf8e-99da95f8db61",
+    "workspaceSessionId": "0efd0458-487e-4a8f-b605-918a4bfae9c0",
+    "planId": "plan-mrn6ifza-2",
+    "goal": "Profil-Workspaces zeigen Orchestrator-Erfolg grün und Fehlschlag rot; optional committen und pushen sie nach erfolgreicher Bearbeitung in einen konfigurierten Branch.",
+    "status": "success",
+    "summary": "Lauf erfolgreich: 1 Modell(e), 4/4 Tasks erfolgreich.",
+    "modelStats": [
+      {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "roles": [
+          "renderer-ui",
+          "agent-integrations",
+          "qa-gate-runner"
+        ],
+        "tasks": 4,
+        "succeeded": 4,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 1,
+        "failedAttemptsByKind": {
+          "infra": 1,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "avgDurationMs": 1793603
+      }
+    ],
+    "learnings": [],
+    "createdAt": 1784189283240
+  }
+}
