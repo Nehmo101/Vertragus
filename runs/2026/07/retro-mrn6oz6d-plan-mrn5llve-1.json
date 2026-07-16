@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784186698318,
+  "exportedAt": 1784195267081,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -14,7 +14,7 @@
     "planId": "plan-mrn5llve-1",
     "goal": "Retro-Erstellung verbessern & beschleunigen: (A+B) vorberechnetes Run-Fakten-Gerüst für record_retro + idempotenter Merge/ein Export pro Lauf; (D) Overlay-/Analyse-Pipeline scharfschalten (Selbst-Seed + Workflow).",
     "status": "success",
-    "summary": "Lauf erfolgreich: 2 Modell(e), 2/2 Tasks erfolgreich.",
+    "summary": "Retro-Verbesserung (A+B + D) in 2 parallelen Tasks erfolgreich: get_retro_draft-Gerüst + idempotenter Retro-Merge (Commit 531e32a) und selbst-bootstrappende Analyse-Pipeline (Commit ecbce46). codex trug beide Tracks, nachdem der claude-Task D an Schreibrechten scheiterte und auf codex umgeleitet wurde.",
     "modelStats": [
       {
         "provider": "codex",
@@ -96,6 +96,76 @@
         "observations": 7,
         "createdAt": 1784183890699,
         "updatedAt": 1784186698246
+      },
+      {
+        "id": "learning-mrnbsmve-1-hncg65",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "orchestrator-core",
+        "kind": "strength",
+        "insight": "Setzt komplexe Engine/MCP/Schema-Änderungen inkl. neuem Tool im ersten Anlauf sauber um",
+        "evidence": "get_retro_draft + idempotenter Merge in Engine.ts/OrcaMcpServer.ts/contracts.ts, 56/56 Vitest grün, Typecheck+ESLint grün, additive RunRetro-Erweiterung",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784195267018,
+        "updatedAt": 1784195267018
+      },
+      {
+        "id": "learning-mrnbsmve-2-4ovh71",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "systems-integrator",
+        "kind": "strength",
+        "insight": "Übernimmt umgeleitete Tasks zuverlässig und liefert Skript+CI+Docs mit Security-Abdeckung",
+        "evidence": "Track D nach Reroute: retroSeed.ts mit Path-Traversal-Schutz, Workflow scharfgeschaltet, 4/4 Tests grün, Security-Gate ohne Findings, Commit ecbce46",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784195267018,
+        "updatedAt": 1784195267018
+      },
+      {
+        "id": "learning-mrnbsmve-3-8jz57v",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "orchestrator-core",
+        "kind": "weakness",
+        "insight": "Gräbt bei blockiertem vitest tief in Framework-Internals, statt sofort config-frei zu testen",
+        "evidence": "Mehrere Minuten in cli-api.js/vite-Chunks; --config false wird von Vitest 2.1.9 zudem als Dateipfad fehlinterpretiert, Lösung erst über tsc-Emit + config-freie CLI",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784195267018,
+        "updatedAt": 1784195267018
+      },
+      {
+        "id": "learning-mrnbsmve-4-pbdmi3",
+        "provider": "claude",
+        "model": "claude-sonnet-5",
+        "role": "docs-retro",
+        "kind": "weakness",
+        "insight": "Scheitert in dieser Session an Schreibrechten: Write/Bash/PowerShell werden abgelehnt oder laufen in Timeout",
+        "evidence": "Task D Attempt 1 (Bard 2) meldete BLOCKER 'Orca permission denied or timeout' bei jedem Schreibversuch; Reroute auf codex nötig",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784195267018,
+        "updatedAt": 1784195267018
+      },
+      {
+        "id": "learning-mrnbsmve-5-pz0c1",
+        "provider": "claude",
+        "model": "claude-sonnet-5",
+        "role": "docs-retro",
+        "kind": "strength",
+        "insight": "Meldet Schreib-/Infra-Blocker ehrlich als BLOCKER statt Fake-Erfolg",
+        "evidence": "Bard 2 gab strukturierten Blocker mit Ursache statt no-changes-Erfolg vorzutäuschen",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784195267018,
+        "updatedAt": 1784195267018
       }
     ],
     "createdAt": 1784186698261
