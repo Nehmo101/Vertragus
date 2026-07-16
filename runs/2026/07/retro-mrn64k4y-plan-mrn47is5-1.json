@@ -1,0 +1,131 @@
+{
+  "version": 1,
+  "exportedAt": 1784185745700,
+  "app": {
+    "name": "orca-strator",
+    "version": "0.1.47-main.1.gb3a336d"
+  },
+  "machineId": "5087fc1f7b9d",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrn64k4y-plan-mrn47is5-1",
+    "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+    "workspaceSessionId": "4a360ef2-b261-4b57-957b-f22bdb1aa454",
+    "planId": "plan-mrn47is5-1",
+    "goal": "Kopierfunktion für Workspace-Profile: aus einem bestehenden Profil ein eigenständiges neues Profil mit eindeutigem Namen erzeugen; das Ausgangsprofil bleibt unverändert.",
+    "status": "success",
+    "summary": "Lauf erfolgreich: 3 Modell(e), 2/3 Tasks erfolgreich.",
+    "modelStats": [
+      {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "roles": [
+          "systems-integrator",
+          "orchestrator-core"
+        ],
+        "tasks": 2,
+        "succeeded": 1,
+        "needsWork": 0,
+        "failed": 1,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 1
+        },
+        "failedAttempts": 1,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 1
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "avgDurationMs": 2031679
+      },
+      {
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "roles": [
+          "security-review"
+        ],
+        "tasks": 1,
+        "succeeded": 1,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "costUsd": 1.0221055,
+        "avgDurationMs": 1581628
+      },
+      {
+        "provider": "claude",
+        "model": "claude-sonnet-5",
+        "roles": [],
+        "tasks": 0,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 1,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 1
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrn64k4i-1-5u7mwl",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "systems-integrator",
+        "kind": "weakness",
+        "insight": "fehleranfällig bei systems-integrator, orchestrator-core",
+        "evidence": "1/2 auswertbare Tasks inhaltlich fehlgeschlagen",
+        "source": "auto-retro",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784185745634,
+        "updatedAt": 1784185745634
+      },
+      {
+        "id": "learning-mrn50suj-1-re1u19",
+        "provider": "claude",
+        "model": "claude-sonnet-5",
+        "kind": "weakness",
+        "insight": "Worker-Versuche scheiterten; Aufgaben wurden auf andere Slots umgeleitet",
+        "evidence": "1 inhaltlich fehlgeschlagene(r) Versuch(e) in diesem Lauf",
+        "source": "auto-retro",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 3,
+        "createdAt": 1784183890699,
+        "updatedAt": 1784185745634
+      }
+    ],
+    "createdAt": 1784185745650
+  }
+}
