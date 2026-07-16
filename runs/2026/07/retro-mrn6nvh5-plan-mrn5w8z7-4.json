@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784186646885,
+  "exportedAt": 1784195360104,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -14,7 +14,7 @@
     "planId": "plan-mrn5w8z7-4",
     "goal": "Mode-Vorgabe für Claude-Modelle im Orchestrator, KOMPLETT in EINER self-contained Aufgabe (ein Worktree, ein Commit): neues Shared-Modul + Provider-CLI-Flag + UI-Selector + Schema-Feld + Spawn-Threading + ProfileEditor. Ziel: Claude-Orchestrator mit permissionMode='auto' startet real mit --permission-mode acceptEdits (nicht bei Yolo). Andere Provider unverändert.",
     "status": "success",
-    "summary": "Lauf erfolgreich: 2 Modell(e), 2/2 Tasks erfolgreich.",
+    "summary": "Erfolg: Konsolidierung des gesamten Features in EINE self-contained Codex-Aufgabe (ein Worktree) beseitigte die Branch-Propagations-Lücke der vorherigen Wellen. Ungoliant lieferte alle 12 Dateien, 44/44 Tests grün, typecheck/lint/diff-check grün; Abnahme (auto->acceptEdits, default->kein Flag) belegt; Security-Review ohne Befund. Commit edb6d665 auf Task-Branch.",
     "modelStats": [
       {
         "provider": "codex",
@@ -95,6 +95,48 @@
         "observations": 1,
         "createdAt": 1784186646785,
         "updatedAt": 1784186646785
+      },
+      {
+        "id": "learning-mrnbummx-1-cr8t9r",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "orchestrator-core",
+        "kind": "strength",
+        "insight": "Liefert eine komplette vertikale Feature-Scheibe (shared+main+renderer, 12 Dateien) self-contained in einem Worktree zuverlässig im ersten Anlauf, inkl. sauberem Abnahme-/Hygiene-Nachweis.",
+        "evidence": "impl-all: 12 Dateien, 44/44 Tests grün, typecheck/lint/diff-check grün, Commit edb6d665.",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784195360025,
+        "updatedAt": 1784195360025
+      },
+      {
+        "id": "learning-mrnbummx-2-aphiv7",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "orchestrator-core",
+        "kind": "strength",
+        "insight": "Umgeht die Sandbox-Restriktion 'esbuild spawn EPERM' korrekt über einen config-freien Vitest-Lauf mit In-Memory-TS-Transform, ohne Hilfsdateien oder Produktcode-Änderung — kein False-Blocker.",
+        "evidence": "impl-all + Grishnákh 2: config-freier Lauf 44/44 bzw. 40/40 grün statt BLOCKER.",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784195360025,
+        "updatedAt": 1784195360025
+      },
+      {
+        "id": "learning-mrnbummx-3-582uc7",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "security-review",
+        "kind": "weakness",
+        "insight": "Fiel in diesem Lauf NICHT modellbedingt aus, sondern durch Account-Spend-Limit ('monthly spend limit') — Aufgabe wurde auf Codex umgeleitet. Kein Qualitätsdefekt.",
+        "evidence": "sec-review Versuch 1 (Frodo 2, opus) error: 'You've hit your monthly spend limit'; Versuch 2 (codex) erfolgreich.",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784195360025,
+        "updatedAt": 1784195360025
       }
     ],
     "createdAt": 1784186646809
