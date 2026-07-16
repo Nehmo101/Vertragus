@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "exportedAt": 1784197940871,
+  "app": {
+    "name": "orca-strator",
+    "version": "0.1.47-main.1.gb3a336d"
+  },
+  "machineId": "5087fc1f7b9d",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrnddxzx-plan-mrncqor0-3",
+    "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+    "workspaceSessionId": "4a360ef2-b261-4b57-957b-f22bdb1aa454",
+    "planId": "plan-mrncqor0-3",
+    "goal": "Härtung + Testabdeckung für Profil-Duplizierung: Bindungs-/Auto-Approval-Felder beim Kopieren zurücksetzen und Kriterium 3 (Kopie bearbeiten/umbenennen lässt Original unberührt) per Integrationstest absichern.",
+    "status": "success",
+    "summary": "Lauf erfolgreich: 2 Modell(e), 1/1 Tasks erfolgreich.",
+    "modelStats": [
+      {
+        "provider": "cursor",
+        "model": "composer-2.5",
+        "roles": [
+          "frontend-ui"
+        ],
+        "tasks": 1,
+        "succeeded": 1,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "costUsd": 2.3488054999999997,
+        "avgDurationMs": 1084738
+      },
+      {
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "roles": [],
+        "tasks": 0,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 1,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 1
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrn6nvgh-2-1fr14b",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "kind": "weakness",
+        "insight": "Worker-Versuche scheiterten; Aufgaben wurden auf andere Slots umgeleitet",
+        "evidence": "1 inhaltlich fehlgeschlagene(r) Versuch(e) in diesem Lauf",
+        "source": "auto-retro",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 3,
+        "createdAt": 1784186646785,
+        "updatedAt": 1784197940817
+      }
+    ],
+    "createdAt": 1784197940829
+  }
+}
