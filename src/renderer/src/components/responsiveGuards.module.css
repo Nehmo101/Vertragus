@@ -137,6 +137,22 @@
   .titlebar {
     gap: 8px;
   }
+  .titlebar :global(.repo-path) {
+    flex-basis: 154px;
+    min-width: 154px;
+  }
+  .titlebar :global(.branch-picker) {
+    flex: 0 0 154px;
+    min-width: 154px;
+    max-width: 154px;
+    min-height: 28px;
+  }
+  .titlebar :global(.branch-picker select) {
+    flex: 1 1 80px;
+    min-width: 80px;
+    max-width: 80px;
+    min-height: 24px;
+  }
   .titlebar :global(.wordmark-sub-label),
   .titlebar :global(.wordmark-sub-separator),
   .titlebar :global(.repo-path .path),
@@ -162,7 +178,31 @@
 
 @media (max-width: 720px) {
   .titlebar :global(.repo-path) {
+    display: flex;
+    flex: 0 0 104px;
+    min-width: 104px;
+    max-width: 104px;
+  }
+  .titlebar :global(.repo-path .git-tree-anchor),
+  .titlebar :global(.branch-picker > span:first-child),
+  .titlebar :global(.branch-picker .dirty-mark) {
     display: none;
+  }
+  .titlebar :global(.branch-picker) {
+    flex-basis: 104px;
+    min-width: 104px;
+    max-width: 104px;
+  }
+  .titlebar :global(.branch-picker::before) {
+    content: '⑂';
+    flex: none;
+    font-size: 12px;
+  }
+  .titlebar :global(.branch-picker select) {
+    flex-basis: 64px;
+    width: 64px;
+    min-width: 64px;
+    max-width: 64px;
   }
   .inboxPanel :global(.inbox-body) {
     grid-template-columns: minmax(150px, 38%) minmax(0, 1fr);
