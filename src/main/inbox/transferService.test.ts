@@ -121,7 +121,10 @@ vi.mock('@main/orchestrator/WorkspaceSessionRegistry', () => ({
 }))
 
 vi.mock('electron', () => ({
-  app: { getPath: () => 'C:\\tmp\\orca-test' }
+  // Ein Windows-Literal wie 'C:\\tmp' legt auf POSIX-Hosts ein reales
+  // Verzeichnis namens "C:\tmp" im Repository an; deshalb ein POSIX-Pfad
+  // wie in den übrigen Suiten.
+  app: { getPath: () => '/tmp/orca-test-transfers' }
 }))
 
 import { __resetIdeasForTest } from '@main/inbox/store'
