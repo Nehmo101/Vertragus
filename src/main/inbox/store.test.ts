@@ -10,8 +10,24 @@ import {
 } from './store'
 
 vi.mock('electron', () => ({
-  app: { getPath: () => '/tmp/orca-test-userdata' }
+  app: { getPath: () => `/tmp/orca-test-userdata-${process.pid}` }
 }))
+
+vi.mock('electron-store', async (importOriginal) => {
+  const [{ default: ElectronStore }, { tmpdir }, { join }] = await Promise.all([
+    importOriginal<{ default: typeof import('electron-store') }>(),
+    import('node:os'),
+    import('node:path')
+  ])
+  const testCwd = join(tmpdir(), `orca-test-userdata-${process.pid}`)
+  return {
+    default: class TestElectronStore extends ElectronStore {
+      constructor(options: ConstructorParameters<typeof ElectronStore>[0]) {
+        super({ ...options, cwd: testCwd })
+      }
+    }
+  }
+})
 
 describe('inbox store security', () => {
   beforeEach(() => {
