@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784202362944,
+  "exportedAt": 1784202941826,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -8,6 +8,34 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrngd3o6-2-xpw4qq",
+      "provider": "claude",
+      "model": "claude-opus-4-8",
+      "role": "security-review",
+      "kind": "weakness",
+      "insight": "Hängt bei mutierenden Bash-Ops an Tool-Freigabe, wenn Worker nicht echt im Yolo/skip-permissions läuft (read-only-git läuft, git checkout --/Write blockiert)",
+      "evidence": "Éomer: nach mehreren erfolgreichen git-show/diff-Reads Dauer-Hang bei 'Wartet auf Tool-Freigabe: Bash'; profile.yoloDefault war nicht gesetzt",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784202940374,
+      "updatedAt": 1784202940374
+    },
+    {
+      "id": "learning-mrngd3o6-1-y32ut3",
+      "provider": "claude",
+      "model": "claude-opus-4-8",
+      "role": "security-review",
+      "kind": "strength",
+      "insight": "Als Implementierer inhaltlich stark: holt Referenz-Diff, plant Reconcile gegen HEAD methodisch statt blind zu überschreiben",
+      "evidence": "Éomer (t-impl): 'Ich habe den vollständigen Referenz-Diff. Jetzt prüfe ich, welche Zieldateien seit c39ee7f auf HEAD verändert wurden' — sauberes Vorgehen vor dem Permission-Hang",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784202940374,
+      "updatedAt": 1784202940374
+    },
     {
       "id": "learning-mrng0oyq-1-bdd7ps",
       "provider": "claude",
@@ -491,20 +519,6 @@
       "updatedAt": 1784186076195
     },
     {
-      "id": "learning-mrn65kxf-4-gdkn0y",
-      "provider": "claude",
-      "model": "claude-sonnet-5",
-      "role": "qa-gate-runner",
-      "kind": "strength",
-      "insight": "Meldet Infrastruktur-Blocker vertragskonform statt Erfolg zu faken",
-      "evidence": "Baumbart erkannte Sandbox-Blockade der Gates und Kriterium-3-Testlücke, meldete BLOCKER statt grün; Task wurde korrekt auf codex umgeleitet",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784185793331,
-      "updatedAt": 1784185793331
-    },
-    {
       "id": "learning-mrn65kxf-3-2grohn",
       "provider": "claude",
       "model": "claude-opus-4-8",
@@ -519,18 +533,18 @@
       "updatedAt": 1784185793331
     },
     {
-      "id": "learning-mrn65hxd-4-5r9pz7",
+      "id": "learning-mrn65kxf-4-gdkn0y",
       "provider": "claude",
       "model": "claude-sonnet-5",
       "role": "qa-gate-runner",
-      "kind": "weakness",
-      "insight": "QA-Gate-Läufe blockieren an interaktiven Bash-Tool-Freigaben und hängen ohne Panel-Approval",
-      "evidence": "verify-acceptance (Éomer 2) blieb im Status 'Wartet auf Tool-Freigabe: Bash' hängen und wurde nicht terminal, während die required-Kette längst grün war",
+      "kind": "strength",
+      "insight": "Meldet Infrastruktur-Blocker vertragskonform statt Erfolg zu faken",
+      "evidence": "Baumbart erkannte Sandbox-Blockade der Gates und Kriterium-3-Testlücke, meldete BLOCKER statt grün; Task wurde korrekt auf codex umgeleitet",
       "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
-      "createdAt": 1784185789441,
-      "updatedAt": 1784185789441
+      "createdAt": 1784185793331,
+      "updatedAt": 1784185793331
     },
     {
       "id": "learning-mrn65hxd-3-6hwvke",
@@ -540,6 +554,20 @@
       "kind": "strength",
       "insight": "Sehr gründliche Diagnose komplexer Timing-/Streaming-Kopplungen mit Ausschluss von Scheinursachen",
       "evidence": "diagnose-cursor (Beorn) fand die onActivity↔onLine-Kopplung als Idle-Timeout-Ursache und schloss Trust-Prompt/Flags/Kapazität mit Belegzitaten als Nebeneffekte aus",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784185789441,
+      "updatedAt": 1784185789441
+    },
+    {
+      "id": "learning-mrn65hxd-4-5r9pz7",
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "role": "qa-gate-runner",
+      "kind": "weakness",
+      "insight": "QA-Gate-Läufe blockieren an interaktiven Bash-Tool-Freigaben und hängen ohne Panel-Approval",
+      "evidence": "verify-acceptance (Éomer 2) blieb im Status 'Wartet auf Tool-Freigabe: Bash' hängen und wurde nicht terminal, während die required-Kette längst grün war",
       "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
@@ -729,20 +757,6 @@
       "updatedAt": 1784146794785
     },
     {
-      "id": "learning-mrmchbdm-3-smpgzy",
-      "provider": "claude",
-      "model": "claude-sonnet-5",
-      "role": "orchestrator-integrator",
-      "kind": "weakness",
-      "insight": "Hinterlässt trotz explizitem Temp-Datei-Verbot im Prompt Verifikations-Hilfsdateien im Commit (*.origcheck, *.check, *.c9check) — vor PR-Schnitt gezielt prüfen und entfernen lassen",
-      "evidence": "O07 Wurmzunge, Commit a48ddaf9: 4 Check-Dateien (ARCHITECTURE.md.origcheck, CURRENT_STATE.md.origcheck, 00-inventory.md.check/.c9check) neben den 19 echten Zieldateien",
-      "source": "orchestrator",
-      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
-      "observations": 1,
-      "createdAt": 1784135952346,
-      "updatedAt": 1784135952346
-    },
-    {
       "id": "learning-mrmchbdm-2-r92tsd",
       "provider": "claude",
       "model": "claude-opus-4-8",
@@ -750,6 +764,20 @@
       "kind": "strength",
       "insight": "Sehr gründliches Invarianten-Review mit echter Code-Verifikation und differenziertem Urteil (unterscheidet Plattform-Gate-Fehler von inhaltlichen Problemen)",
       "evidence": "O06 Bilbo: 157-Zeilen-Review, Urteil BESTANDEN MIT AUFLAGEN, erkannte Infrastruktur-Ursachen der needs-work-Stati korrekt",
+      "source": "orchestrator",
+      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+      "observations": 1,
+      "createdAt": 1784135952346,
+      "updatedAt": 1784135952346
+    },
+    {
+      "id": "learning-mrmchbdm-3-smpgzy",
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "role": "orchestrator-integrator",
+      "kind": "weakness",
+      "insight": "Hinterlässt trotz explizitem Temp-Datei-Verbot im Prompt Verifikations-Hilfsdateien im Commit (*.origcheck, *.check, *.c9check) — vor PR-Schnitt gezielt prüfen und entfernen lassen",
+      "evidence": "O07 Wurmzunge, Commit a48ddaf9: 4 Check-Dateien (ARCHITECTURE.md.origcheck, CURRENT_STATE.md.origcheck, 00-inventory.md.check/.c9check) neben den 19 echten Zieldateien",
       "source": "orchestrator",
       "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
       "observations": 1,
