@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784200245036,
+  "exportedAt": 1784201404996,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -8,6 +8,20 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrnfg5oh-1-908t56",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "orchestrator-core",
+      "kind": "weakness",
+      "insight": "INFRA (kein Modelldefekt): codex-Slots können mitten in der Session auf available:false fallen; dann kollabiert jeder codex-Task zu 'invalid_task/Fallback'. Vor Impl-Plänen Slot-Verfügbarkeit prüfen.",
+      "evidence": "list_subagents: orchestrator-core & systems-integrator available:false, preflight provider-runtime 'failed' (Codex-Sandbox-Canary, 12s); zu Sessionbeginn passed. 8 execute_plan-Submits kollabierten.",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784201403329,
+      "updatedAt": 1784201403329
+    },
     {
       "id": "learning-mrn6nvgh-2-1fr14b",
       "provider": "claude",
@@ -456,20 +470,6 @@
       "kind": "strength",
       "insight": "Meldet Infrastruktur-Blocker vertragskonform statt Erfolg zu faken",
       "evidence": "Baumbart erkannte Sandbox-Blockade der Gates und Kriterium-3-Testlücke, meldete BLOCKER statt grün; Task wurde korrekt auf codex umgeleitet",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784185793331,
-      "updatedAt": 1784185793331
-    },
-    {
-      "id": "learning-mrn65kxf-5-kuiuc7",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "orchestrator-core",
-      "kind": "weakness",
-      "insight": "Advisory-Verifier laufen in isolierten Worktrees OHNE den zentral committeten Required-Commit — QA/Review verbrennen Aufwand am falschen Stand",
-      "evidence": "HEAD in task-59 war 6fb74e7, 1fbaac46 kein Vorfahr; duplicateProfile fehlte, task-19-Worktree nicht lesbar → Gates rot obwohl Feature real grün",
       "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
