@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784195361739,
+  "exportedAt": 1784195366625,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -8,6 +8,62 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrnbuqgf-2-hs5xfa",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "qa-gate-runner",
+      "kind": "strength",
+      "insight": "Sehr präzise, ehrliche QA: trennt Sandbox-Blocker von echten Fehlern und findet Integrations- UND Akzeptanzdefekte",
+      "evidence": "Wurmzunge 2: belegte esbuild spawn EPERM (esbuild.exe --version läuft, Node-Child blockiert), fand 36de2203 nicht Ancestor von HEAD 9b8ff84, und deckte auf, dass der inaktive liveStatus-Fallback weiter STATUS_LABEL rendert",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784195364975,
+      "updatedAt": 1784195364975
+    },
+    {
+      "id": "learning-mrnbuqgf-3-4tnw28",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "orchestrator-core",
+      "kind": "weakness",
+      "insight": "Integrator-Implementierung verletzt explizite Kontrakt-Vorgabe im inaktiven UI-Zweig",
+      "evidence": "In 36de2203 zeigt die List-Row bei fehlendem/inaktivem liveStatus weiterhin STATUS_LABEL[idea.status] statt des vorgegebenen neutralen Indikators — Akzeptanzkriterium (a) verletzt",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784195364975,
+      "updatedAt": 1784195364975
+    },
+    {
+      "id": "learning-mrnbuqgf-4-ygs79o",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "qa-gate-runner",
+      "kind": "weakness",
+      "insight": "esbuild spawn EPERM blockiert Vitest+Build in der Codex-Worker-Sandbox reproduzierbar (2. Bestätigung)",
+      "evidence": "task-74: pnpm test bricht vor Test-Discovery mit spawn EPERM (ensureServiceIsRunning) ab; pnpm build scheitert am Mobile-Vite mit demselben EPERM",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784195364975,
+      "updatedAt": 1784195364975
+    },
+    {
+      "id": "learning-mrnbuqgf-1-ris9ra",
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "role": "qa-gate-runner",
+      "kind": "weakness",
+      "insight": "Claude-Worker aktuell durch Monats-Spend-Limit blockiert — Tasks sterben mitten im Lauf; nicht auf Claude routen, bis Limit erhöht",
+      "evidence": "t-verify Attempt 1 (Merry): error 'You've hit your monthly spend limit · raise it at claude.ai/settings/usage' nach längerer Rate-Limit-Drosselung",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784195364975,
+      "updatedAt": 1784195364975
+    },
     {
       "id": "learning-mrnbummx-1-cr8t9r",
       "provider": "codex",
@@ -351,20 +407,6 @@
       "updatedAt": 1784185793331
     },
     {
-      "id": "learning-mrn65kxf-2-m0k1b2",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "orchestrator-core",
-      "kind": "strength",
-      "insight": "Sehr hartnäckig und ehrlich bei Verifikation trotz Sandbox-Grenzen",
-      "evidence": "Baute Junction-basierte Verify-Umgebung, führte typecheck/lint real grün aus, meldete verbleibende test/build-Blocker als spawn-EPERM statt Erfolg vorzutäuschen (ERGEBNIS: BLOCKER)",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784185793331,
-      "updatedAt": 1784185793331
-    },
-    {
       "id": "learning-mrn65kxf-5-kuiuc7",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -449,20 +491,6 @@
       "updatedAt": 1784185745634
     },
     {
-      "id": "learning-mrn5v9vy-3-ie46ie",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "qa-gate-runner",
-      "kind": "weakness",
-      "insight": "Eskaliert reinen Infra-Blocker zu Task-'error', obwohl Fachabnahme voll grün ist",
-      "evidence": "Bilbo 2 meldete ERGEBNIS: BLOCKER (Task error), obwohl Typecheck/Lint/relevante Tests grün und alle Abnahmekriterien erfüllt; nur nativer Build-Gate scheiterte an spawn EPERM",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784185312462,
-      "updatedAt": 1784185312462
-    },
-    {
       "id": "learning-mrn5v9vy-4-chrluk",
       "provider": "claude",
       "model": "claude-sonnet-5",
@@ -489,20 +517,6 @@
       "observations": 1,
       "createdAt": 1784185312462,
       "updatedAt": 1784185312462
-    },
-    {
-      "id": "learning-mrn5ut8e-3-40ma12",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "systems-integrator",
-      "kind": "weakness",
-      "insight": "Erster Anlauf scheiterte am Vitest-Start (esbuild spawn EPERM in Codex-Sandbox); brauchte zweiten Anlauf für den vollen Testlauf",
-      "evidence": "Versuch 1 (Samweis) error spawn EPERM; Versuch 2 (Haldir 2) fuehrte Vitest aus, 1 realer Testfehler",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784185290878,
-      "updatedAt": 1784185290878
     },
     {
       "id": "learning-mrn5ut8e-1-aak6ls",
