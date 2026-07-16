@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784184335015,
+  "exportedAt": 1784184449774,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -8,6 +8,34 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrn5cqhs-1-1a6hac",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "systems-integrator",
+      "kind": "weakness",
+      "insight": "Meldet BLOCKER bei reinen Infra-Problemen (esbuild spawn EPERM beim vitest.config.ts-Bundle; MCP-Board-Calls 'user cancelled'), obwohl Code/Typecheck/Lint/config-freier Vitest grün sind.",
+      "evidence": "t1: Ancalagon+Smaug beide BLOCKER, aber Artefakt bestand alle Gates und wurde als Commit 7feed018 übernommen; 8/8 Tests grün.",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784184447520,
+      "updatedAt": 1784184447520
+    },
+    {
+      "id": "learning-mrn5cqhs-2-p5yps2",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "systems-integrator",
+      "kind": "weakness",
+      "insight": "Verrennt sich beim blockierten pnpm-test in die programmatische Vitest-API (startVitest), statt auf 'pnpm exec vitest run <datei> --config false' auszuweichen.",
+      "evidence": "Smaug durchsuchte vitest/dist/node.d.ts nach startVitest nach 'vitest not found' + esbuild EPERM.",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784184447520,
+      "updatedAt": 1784184447520
+    },
     {
       "id": "learning-mrn5aawz-1-51ad9y",
       "provider": "codex",
@@ -413,20 +441,6 @@
       "updatedAt": 1784116587118
     },
     {
-      "id": "learning-mrm0y92m-5-f0ghs0",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "main-orchestrator",
-      "kind": "weakness",
-      "insight": "PowerShell-/Windows-Patches brauchen engeren Kontext und frühere UTF-8-Prüfung.",
-      "evidence": "Breiter Patch-Kontext traf einmal den falschen Retry-Test; Encoding- und Pfadglob-Reibung verursachten vermeidbare Iterationen.",
-      "source": "orchestrator",
-      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
-      "observations": 1,
-      "createdAt": 1784116587118,
-      "updatedAt": 1784116587118
-    },
-    {
       "id": "learning-mrm0y92m-1-izscin",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -663,20 +677,6 @@
       "observations": 1,
       "createdAt": 1784069445281,
       "updatedAt": 1784069445281
-    },
-    {
-      "id": "learning-mrl8tcte-2-4i7sy7",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "main-orchestrator",
-      "kind": "weakness",
-      "insight": "Lauf-Erkenntnis: grüne Worker-Gates garantieren keinen grünen Plan — zentrales Integrations-Gate kann an fehlendem eslint scheitern und blockiert den Auto-PR",
-      "evidence": "Integration-Node: pnpm lint → 'eslint ... konnte nicht gefunden werden', obwohl lint im Worker-Worktree task-13 grün war",
-      "source": "orchestrator",
-      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
-      "observations": 1,
-      "createdAt": 1784069329442,
-      "updatedAt": 1784069329442
     },
     {
       "id": "learning-mrl8tcte-1-ps1cf4",
