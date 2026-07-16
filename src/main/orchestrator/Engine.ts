@@ -103,6 +103,8 @@ import {
 import { enqueueBenchmarkExport, enqueueRetroExport } from '@main/orchestrator/retroExport'
 import { captureTaskRecoveryArtifact } from '@main/orchestrator/recoveryArtifact'
 import { permissionBroker } from '@main/permissions/PermissionBroker'
+import { finalizeWorkspaceRun } from '@main/orchestrator/workspaceRunLifecycle'
+import type { WorkspaceGitPostProcessingSnapshot } from '@shared/gitPostProcessing'
 
 interface DispatchOptions {
   taskId?: string
@@ -303,6 +305,7 @@ export class OrchestratorEngine extends EventEmitter {
   private taskSeq = 0
   private benchSeq = 0
   private lastRetro: RunRetro | undefined
+  private gitPostProcessing: WorkspaceGitPostProcessingSnapshot | undefined
   /** Live coordination board written by subagents (post_finding). */
   private readonly findingsBoard: SubagentFinding[] = []
   private findingSeq = 0
@@ -351,6 +354,19 @@ export class OrchestratorEngine extends EventEmitter {
     }
     if (!restored || !Array.isArray(restored.tasks)) return
     this.lastRetro = restored.lastRetro
+    this.gitPostProcessing = restored.gitPostProcessing?.status === 'running'
+      ? {
+          ...restored.gitPostProcessing,
+          status: 'failed',
+          finishedAt: Date.now(),
+          error: {
+            code: 'INTERRUPTED_GIT_POST_PROCESSING',
+            phase: 'unexpected',
+            message: 'Git-Post-Processing wurde durch den App-Neustart unterbrochen.',
+            mutation: 'unknown'
+          }
+        }
+      : restored.gitPostProcessing
     this.activity = restored.activity
       ? {
           phase: 'idle',
@@ -510,6 +526,7 @@ export class OrchestratorEngine extends EventEmitter {
       pendingPermissions: [...this.pendingPermissions.values()].map((request) => ({ ...request })),
       budget: this.budgetSnapshot(),
       integration: this.integrationSnapshot(),
+      gitPostProcessing: this.gitPostProcessing,
       lastRetro: this.lastRetro,
       findings: this.listTaskFindings()
     }
@@ -654,6 +671,7 @@ export class OrchestratorEngine extends EventEmitter {
     this.benchmarkRuns.clear()
     this.findingsBoard.length = 0
     this.lastRetro = undefined
+    this.gitPostProcessing = undefined
     this.push()
     // A reset must survive an immediate app restart; skip the throttle window.
     if (this.persistTimer) {
@@ -1850,6 +1868,9 @@ export class OrchestratorEngine extends EventEmitter {
       this.goal = { id: `epic-${Date.now().toString(36)}`, title: plan.goal, active: true }
     }
     const planId = providedPlanId ?? this.nextPlanId()
+    // A new plan owns the next terminal badge; never let a prior Git result
+    // override this run's eventual domain outcome in the renderer.
+    this.gitPostProcessing = undefined
     if (runId) {
       this.planRunPlanIds.set(runId, planId)
       // Pin this run's goal so concurrent plans cannot rewrite each other's
@@ -2157,12 +2178,12 @@ export class OrchestratorEngine extends EventEmitter {
     }
 
     if (!isCancelled()) await this.publishPendingChanges(planId)
-    const planTasks = [...this.tasks.values()].filter((task) => task.planId === planId)
-    const requiredTasks = planTasks.filter((task) => (task.criticality ?? 'required') === 'required')
-    const requiredNeedsWork = requiredTasks.filter((task) => task.status === 'needs-work')
-    const requiredErrors = requiredTasks.filter((task) => task.status === 'error')
-    const requiredStopped = requiredTasks.filter((task) => task.status === 'stopped')
-    const planStatus: ExecutionPlanResult['status'] = isCancelled()
+    let planTasks = [...this.tasks.values()].filter((task) => task.planId === planId)
+    let requiredTasks = planTasks.filter((task) => (task.criticality ?? 'required') === 'required')
+    let requiredNeedsWork = requiredTasks.filter((task) => task.status === 'needs-work')
+    let requiredErrors = requiredTasks.filter((task) => task.status === 'error')
+    let requiredStopped = requiredTasks.filter((task) => task.status === 'stopped')
+    const domainStatus: ExecutionPlanResult['status'] = isCancelled()
       ? 'stopped'
       : requiredNeedsWork.length > 0
         ? 'needs-work'
@@ -2171,6 +2192,81 @@ export class OrchestratorEngine extends EventEmitter {
           : requiredStopped.length > 0
             ? 'stopped'
             : 'success'
+    const lifecycle = await finalizeWorkspaceRun({
+      planId,
+      status: domainStatus,
+      goal: plan.goal,
+      profile,
+      onGitState: (state) => {
+        this.gitPostProcessing = state
+        this.setActivityState(
+          state.status === 'running' ? 'integrating' : state.status === 'failed' ? 'blocked' : 'summarizing',
+          state.status === 'running'
+            ? `Fachliche Bearbeitung erfolgreich; Auto-Commit & Push nach ${state.targetBranch} läuft.`
+            : state.status === 'failed'
+              ? state.error?.message ?? 'Git-Post-Processing ist fehlgeschlagen.'
+              : state.status === 'clean'
+                ? 'Fachliche Bearbeitung erfolgreich; der Workspace enthält keine neuen Git-Änderungen.'
+                : `Auto-Commit & Push nach ${state.targetBranch} ist erfolgreich.`,
+          state.changedFiles.slice(0, 4),
+          state.status === 'failed'
+            ? 'Git-Fehler und gegebenenfalls den lokalen Commit für die Wiederherstellung prüfen.'
+            : undefined
+        )
+        this.push()
+      }
+    })
+    let planStatus = lifecycle.status
+    let gitTaskResult: ExecutionPlanTaskResult | undefined
+    if (lifecycle.gitPostProcessing?.status === 'failed') {
+      const gitState = lifecycle.gitPostProcessing
+      const error = gitState.error!
+      let runtimeId = `${planId}-orca-git-post-processing`
+      while (this.tasks.has(runtimeId)) runtimeId += '-retry'
+      const resultText = `${error.message} [${error.code}/${error.phase}]`
+      this.tasks.set(runtimeId, {
+        id: runtimeId,
+        title: 'Auto-Commit & Push',
+        role: 'integrator',
+        status: 'error',
+        phase: 'committing',
+        criticality: 'required',
+        ownership: 'integrator',
+        failureKind: 'infrastructure',
+        note: resultText,
+        judgeReason: resultText,
+        lastAction: resultText,
+        branch: gitState.targetBranch,
+        commit: gitState.commit,
+        planId,
+        engineId: this.engineId,
+        createdAt: gitState.startedAt,
+        finishedAt: gitState.finishedAt ?? Date.now()
+      })
+      this.taskResults.set(runtimeId, resultText)
+      gitTaskResult = {
+        id: 'orca-git-post-processing',
+        status: 'error',
+        criticality: 'required',
+        result: resultText,
+        commit: gitState.commit,
+        judgeReason: resultText
+      }
+      console.error('[Orchestrator] Git post-processing failed', {
+        planId,
+        code: error.code,
+        phase: error.phase,
+        mutation: error.mutation,
+        commit: gitState.commit,
+        detail: error.detail
+      })
+      planTasks = [...this.tasks.values()].filter((task) => task.planId === planId)
+      requiredTasks = planTasks.filter((task) => (task.criticality ?? 'required') === 'required')
+      requiredNeedsWork = requiredTasks.filter((task) => task.status === 'needs-work')
+      requiredErrors = requiredTasks.filter((task) => task.status === 'error')
+      requiredStopped = requiredTasks.filter((task) => task.status === 'stopped')
+      planStatus = 'error'
+    }
     const attentionTasks = [...requiredNeedsWork, ...requiredErrors, ...requiredStopped]
     this.reliability.completedPlans += 1
     if (planStatus !== 'success') this.reliability.preventedFalseSuccesses += 1
@@ -2186,6 +2282,16 @@ export class OrchestratorEngine extends EventEmitter {
         : 'Gesamtergebnis, Prüfstatus und advisory Hinweise berichten.'
     )
     this.push()
+    const executionResults = plan.tasks.map<ExecutionPlanTaskResult>(
+      (task) =>
+        results.get(task.id) ?? {
+          id: task.id,
+          status: 'stopped',
+          criticality: task.criticality,
+          result: 'Kein Ergebnis.'
+        }
+    )
+    if (gitTaskResult) executionResults.push(gitTaskResult)
 
     return {
       planId,
@@ -2194,15 +2300,7 @@ export class OrchestratorEngine extends EventEmitter {
       rejected: resolved.rejected,
       validationIssues: resolved.issues,
       retro,
-      tasks: plan.tasks.map(
-        (task) =>
-          results.get(task.id) ?? {
-            id: task.id,
-            status: 'stopped',
-            criticality: task.criticality,
-            result: 'Kein Ergebnis.'
-          }
-      )
+      tasks: executionResults
     }
   }
 

@@ -1063,6 +1063,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         })),
         planner: { ...profile.planner },
         benchmark: { ...profile.benchmark },
+        autoGit: { ...profile.autoGit },
         autoPr: {
           ...profile.autoPr,
           qualityGates: [...profile.autoPr.qualityGates],
@@ -1103,6 +1104,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         yoloDefault: false,
         planner: { mode: 'review', routingMode: 'adaptive', maxParallel: 6, maxRetries: 1 },
         benchmark: { enabled: false },
+        autoGit: { enabled: false, targetBranch: '' },
         autoPr: {
           mode: 'off',
           strategy: 'aggregate',

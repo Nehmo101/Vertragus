@@ -4,6 +4,7 @@
  */
 import { z } from 'zod'
 import { modelPresetSchema } from './models'
+import { postProcessBranchValidationError } from './gitPostProcessing'
 
 export const agentProviderId = z.enum(['claude', 'codex', 'cursor', 'copilot', 'ollama'])
 
@@ -74,6 +75,16 @@ export const autoPrConfigSchema = z.object({
   reviewers: z.array(z.string().min(1)).max(20).default([])
 })
 
+export const autoGitConfigSchema = z.object({
+  /** Commit and push only after the complete workspace run succeeded. */
+  enabled: z.boolean().default(false),
+  /** Explicit origin branch. Empty is allowed only while the feature is disabled. */
+  targetBranch: z.string().max(200).default('')
+}).superRefine((value, context) => {
+  const message = postProcessBranchValidationError(value.targetBranch, value.enabled)
+  if (message) context.addIssue({ code: z.ZodIssueCode.custom, path: ['targetBranch'], message })
+})
+
 export const githubProjectSchema = z.object({
   owner: z.string().min(1),
   number: z.number().int().positive(),
@@ -120,7 +131,8 @@ export const workspaceProfileSchema = z.object({
   yoloDefault: z.boolean().default(false),
   planner: plannerConfigSchema.default({}),
   benchmark: benchmarkConfigSchema.default({}),
-  autoPr: autoPrConfigSchema.default({})
+  autoPr: autoPrConfigSchema.default({}),
+  autoGit: autoGitConfigSchema.default({})
 })
 
 export type AgentSlot = z.infer<typeof agentSlotSchema>
@@ -128,6 +140,7 @@ export type OrchestratorConfig = z.infer<typeof orchestratorSchema>
 export type PlannerConfig = z.infer<typeof plannerConfigSchema>
 export type BenchmarkConfig = z.infer<typeof benchmarkConfigSchema>
 export type AutoPrConfig = z.infer<typeof autoPrConfigSchema>
+export type AutoGitConfig = z.infer<typeof autoGitConfigSchema>
 export type GithubProjectConfig = z.infer<typeof githubProjectSchema>
 export type ProfileCloneStatus = z.infer<typeof profileCloneStatusSchema>
 export type ProfileGithubRepo = z.infer<typeof profileGithubRepoSchema>
@@ -262,5 +275,6 @@ export const DEFAULT_PROFILE: WorkspaceProfile = {
     securityGateExcludes: [],
     labels: [],
     reviewers: []
-  }
+  },
+  autoGit: { enabled: false, targetBranch: '' }
 }

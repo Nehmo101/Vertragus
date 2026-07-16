@@ -3918,6 +3918,18 @@ button {
 .auto-pr-grid {
   grid-template-columns: 1fr 1fr 0.8fr;
 }
+.auto-git-grid {
+  grid-template-columns: minmax(180px, 0.8fr) minmax(240px, 1.2fr);
+}
+.input-invalid {
+  border-color: var(--err) !important;
+}
+.automation-validation-error {
+  margin-top: 8px;
+  color: var(--err-text);
+  font-size: 11px;
+  line-height: 1.35;
+}
 .automation-grid label {
   min-width: 0;
 }
