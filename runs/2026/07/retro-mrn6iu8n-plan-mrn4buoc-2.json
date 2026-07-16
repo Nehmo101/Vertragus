@@ -1,0 +1,131 @@
+{
+  "version": 1,
+  "exportedAt": 1784186412002,
+  "app": {
+    "name": "orca-strator",
+    "version": "0.1.47-main.1.gb3a336d"
+  },
+  "machineId": "5087fc1f7b9d",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrn6iu8n-plan-mrn4buoc-2",
+    "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+    "workspaceSessionId": "25f6374e-65d4-4032-a959-ed8bebc5db7c",
+    "planId": "plan-mrn4buoc-2",
+    "goal": "Prompt schärfen liefert nicht nur mit Claude, sondern auch mit Codex (kein Fehlschlag) und Cursor (kein Timeout) eine gültige Rückmeldung; Fehler/Timeout werden nutzbar gemeldet, Claude-Verhalten bleibt unverändert.",
+    "status": "success",
+    "summary": "Lauf erfolgreich: 3 Modell(e), 3/4 Tasks erfolgreich.",
+    "modelStats": [
+      {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "roles": [
+          "systems-integrator",
+          "orchestrator-core"
+        ],
+        "tasks": 3,
+        "succeeded": 2,
+        "needsWork": 0,
+        "failed": 1,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 1
+        },
+        "failedAttempts": 1,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 1
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "avgDurationMs": 1950182
+      },
+      {
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "roles": [
+          "security-review"
+        ],
+        "tasks": 1,
+        "succeeded": 1,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "costUsd": 1.5597054999999997,
+        "avgDurationMs": 678752
+      },
+      {
+        "provider": "claude",
+        "model": "claude-sonnet-5",
+        "roles": [],
+        "tasks": 0,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 1,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 1
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrn50suj-1-re1u19",
+        "provider": "claude",
+        "model": "claude-sonnet-5",
+        "kind": "weakness",
+        "insight": "Worker-Versuche scheiterten; Aufgaben wurden auf andere Slots umgeleitet",
+        "evidence": "1 inhaltlich fehlgeschlagene(r) Versuch(e) in diesem Lauf",
+        "source": "auto-retro",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 5,
+        "createdAt": 1784183890699,
+        "updatedAt": 1784186411904
+      },
+      {
+        "id": "learning-mrn6iu80-1-ymumvi",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "security-review",
+        "kind": "strength",
+        "insight": "deutlich schnellstes Modell dieses Laufs (Ø 679s)",
+        "evidence": "Ø-Dauer 679s gegenüber 1950s (codex/gpt-5.6-sol)",
+        "source": "auto-retro",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784186411904,
+        "updatedAt": 1784186411904
+      }
+    ],
+    "createdAt": 1784186411927
+  }
+}
