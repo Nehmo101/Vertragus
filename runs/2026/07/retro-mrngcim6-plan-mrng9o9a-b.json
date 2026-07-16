@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784202913121,
+  "exportedAt": 1784202940434,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -14,7 +14,7 @@
     "planId": "plan-mrng9o9a-b",
     "goal": "liveStatus-Feature fertigstellen (Yolo aktiv): sicherheitsgeprüfte Implementierung aus Commit 36de2203 auf HEAD materialisieren, inaktiven Fallback (neutraler Indikator statt alter Status-Labels) korrigieren, mit vollen Gates verifizieren. Via Claude-Worker (Codex durch 0.144.5-Canary blockiert).",
     "status": "stopped",
-    "summary": "Lauf gestoppt: 2 Modell(e), 0/2 Tasks erfolgreich.",
+    "summary": "Impl unter vermeintlichem Yolo erneut an Tool-Freigabe für mutierende Bash-Ops gescheitert: Éomer (opus) las Referenz-Diff und plante Reconcile korrekt, hing dann aber beim ersten mutierenden Schritt an 'Wartet auf Tool-Freigabe: Bash'. Ursache: Plan-Worker-Yolo kommt aus profile.yoloDefault (Engine.ts:1134/2876), nicht aus dem vom Nutzer gesetzten globalen yoloMaster/Pane-Toggle — daher nicht propagiert (auch Codex-Canary blieb ungeskippt).",
     "modelStats": [
       {
         "provider": "claude",
@@ -71,7 +71,36 @@
         "tokensOut": "[redacted]"
       }
     ],
-    "learnings": [],
+    "learnings": [
+      {
+        "id": "learning-mrngd3o6-1-y32ut3",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "security-review",
+        "kind": "strength",
+        "insight": "Als Implementierer inhaltlich stark: holt Referenz-Diff, plant Reconcile gegen HEAD methodisch statt blind zu überschreiben",
+        "evidence": "Éomer (t-impl): 'Ich habe den vollständigen Referenz-Diff. Jetzt prüfe ich, welche Zieldateien seit c39ee7f auf HEAD verändert wurden' — sauberes Vorgehen vor dem Permission-Hang",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784202940374,
+        "updatedAt": 1784202940374
+      },
+      {
+        "id": "learning-mrngd3o6-2-xpw4qq",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "security-review",
+        "kind": "weakness",
+        "insight": "Hängt bei mutierenden Bash-Ops an Tool-Freigabe, wenn Worker nicht echt im Yolo/skip-permissions läuft (read-only-git läuft, git checkout --/Write blockiert)",
+        "evidence": "Éomer: nach mehreren erfolgreichen git-show/diff-Reads Dauer-Hang bei 'Wartet auf Tool-Freigabe: Bash'; profile.yoloDefault war nicht gesetzt",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784202940374,
+        "updatedAt": 1784202940374
+      }
+    ],
     "createdAt": 1784202913086
   }
 }
