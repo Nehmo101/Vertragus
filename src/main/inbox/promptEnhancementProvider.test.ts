@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { HeadlessHandle, HeadlessResult } from '@main/agents/headless'
+import type {
+  HeadlessHandle,
+  HeadlessLifecycleOptions,
+  HeadlessResult
+} from '@main/agents/headless'
 import {
   assertDisposablePromptWorkingDirectory,
   createHeadlessPromptEnhancementExecutor,
@@ -68,10 +72,12 @@ describe('headless prompt enhancement provider adapter', () => {
     expect(capacity.release).toHaveBeenCalledWith('codex')
   })
 
-  it('reports capacity-clear and streamed output as activity so the idle timeout resets', async () => {
+  it('reports capacity-clear, provider progress, and streamed output as activity', async () => {
     let onLine: ((chunk: string) => void) | undefined
-    const runner = vi.fn<PromptHeadlessRunner>((_id, _prompt, _opts, line) => {
+    let lifecycle: HeadlessLifecycleOptions | undefined
+    const runner = vi.fn<PromptHeadlessRunner>((_id, _prompt, _opts, line, options) => {
       onLine = line
+      lifecycle = options
       return {
         done: Promise.resolve({ result: '{"ok":true}', isError: false, status: 'succeeded' }),
         kill: vi.fn()
@@ -80,7 +86,7 @@ describe('headless prompt enhancement provider adapter', () => {
     const activity = vi.fn()
     const executor = createHeadlessPromptEnhancementExecutor(runner, availableCapacity())
     const output = await executor({
-      provider: 'codex',
+      provider: 'cursor',
       systemPrompt: 'rules',
       userPrompt: 'data',
       signal: new AbortController().signal,
@@ -91,8 +97,18 @@ describe('headless prompt enhancement provider adapter', () => {
     // At least one ping fires once the capacity queue clears, before any output.
     expect(activity).toHaveBeenCalled()
     const beforeStream = activity.mock.calls.length
-    onLine?.('streamed chunk')
+    lifecycle?.onEvent({
+      type: 'progress',
+      providerEvent: 'system',
+      pid: 42,
+      phase: 'running',
+      timestamp: 1,
+      elapsedMs: 1
+    })
     expect(activity.mock.calls.length).toBeGreaterThan(beforeStream)
+    const beforeVisibleOutput = activity.mock.calls.length
+    onLine?.('streamed chunk')
+    expect(activity.mock.calls.length).toBeGreaterThan(beforeVisibleOutput)
   })
 
   it('kills the headless provider when the injected abort signal fires', async () => {

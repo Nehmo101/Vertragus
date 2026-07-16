@@ -839,13 +839,25 @@ function deterministicFallback(
   selection: ResolvedPromptProvider,
   reason: PromptEnhancementFailureCode,
   warnings: string[],
-  maxOutputChars: number
+  maxOutputChars: number,
+  providerError?: unknown
 ): Extract<PromptEnhancementResult, { status: 'fallback' }> {
   const preview = previewIdeaTransferBriefing(source, 'Prompt-Fallback')
   const briefing = preview.ok
     ? preview.briefing
     : '# Prompt-Fallback\n\nDer deterministische Briefingpfad konnte die Eingabe nicht aufbereiten.'
-  const message = fallbackReasonMessage(reason)
+  const baseMessage = fallbackReasonMessage(reason)
+  const rawProviderDetail = providerError instanceof Error
+    ? providerError.message
+    : typeof providerError === 'string'
+      ? providerError
+      : ''
+  const providerDetail = reason === 'provider-error'
+    ? compactInline(rawProviderDetail, 400)
+    : ''
+  const message = providerDetail
+    ? `${baseMessage} Details: ${providerDetail}`
+    : baseMessage
   const safePrompt = redactPromptSecrets(
     [
       '# Deterministischer Fallback – keine KI-Verbesserung',
@@ -952,7 +964,14 @@ export async function enhanceInboxPrompt(
     return deterministicFallback(built.value.source, selection, 'timeout', warnings, maxOutputChars)
   }
   if (outcome.status === 'failed') {
-    return deterministicFallback(built.value.source, selection, 'provider-error', warnings, maxOutputChars)
+    return deterministicFallback(
+      built.value.source,
+      selection,
+      'provider-error',
+      warnings,
+      maxOutputChars,
+      outcome.error
+    )
   }
 
   const prepared = preparePromptEnhancementResponse(outcome.output, maxOutputChars)

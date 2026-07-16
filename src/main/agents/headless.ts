@@ -482,6 +482,9 @@ export function runHeadless(
   const extraArgs = [...(opts.extraArgs ?? [])]
   if (id === 'claude') extraArgs.push('--verbose')
   if (id === 'codex') {
+    if (!extraArgs.includes('--skip-git-repo-check')) {
+      extraArgs.push('--skip-git-repo-check')
+    }
     const useSingleRootSandbox = process.platform === 'win32' && !opts.yolo
     if (useSingleRootSandbox) {
       runtimeRoot = join(opts.workingDir, CODEX_RUNTIME_DIR_NAME)
@@ -724,7 +727,11 @@ export function runHeadless(
         const failed = code !== 0 || explicitBlocker ||
           ((finalProviderResultIsError ?? sawError) && !explicitSuccess)
         if (failed) {
-          const detail = code == null ? 'Prozess ohne Exit-Code beendet' : `Prozess beendet (exit ${code})`
+          const processDetail = code == null
+            ? 'Prozess ohne Exit-Code beendet'
+            : `Prozess beendet (exit ${code})`
+          const providerDetail = id === 'codex' ? stderrTail.trim() : ''
+          const detail = providerDetail ? `${processDetail}: ${providerDetail}` : processDetail
           emitLine(line(C.red, `✗ fehlgeschlagen${code != null ? ` (exit ${code})` : ''}`)); finish('failed', detail, detail)
         } else { emitLine(line(C.green, '✓ fertig')); finish('succeeded') }
       })

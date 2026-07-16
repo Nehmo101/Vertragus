@@ -397,6 +397,29 @@ describe('prompt enhancement execution', () => {
     expect(executor.mock.calls[0]?.[0]).toMatchObject({ provider: 'claude', model: 'sonnet' })
   })
 
+  it('accepts a valid structured response from Codex', async () => {
+    const executor = vi.fn<PromptEnhancementProviderExecutor>(async () =>
+      JSON.stringify(germanDocument)
+    )
+    const result = await enhanceInboxPrompt(
+      {
+        source: source(),
+        explicitSelection: { provider: 'codex' },
+        providerHealth: [health('codex')]
+      },
+      executor
+    )
+
+    expect(result).toMatchObject({
+      status: 'enhanced',
+      mode: 'ai',
+      provider: 'codex',
+      selectionSource: 'explicit-selection'
+    })
+    expect(executor).toHaveBeenCalledOnce()
+    expect(executor.mock.calls[0]?.[0]).toMatchObject({ provider: 'codex' })
+  })
+
   it('maps an invalid response to a clearly labelled deterministic fallback', async () => {
     const result = await enhanceInboxPrompt(
       {
@@ -420,7 +443,7 @@ describe('prompt enhancement execution', () => {
     expect(result.prompt.length).toBeLessThanOrEqual(1_000)
   })
 
-  it('times out, aborts provider execution, and returns a typed fallback', async () => {
+  it('keeps the existing Claude idle-timeout behavior and returns a typed fallback', async () => {
     vi.useFakeTimers()
     let providerSignal: AbortSignal | undefined
     const pending = new Promise<string>(() => undefined)
@@ -446,7 +469,7 @@ describe('prompt enhancement execution', () => {
     }
   })
 
-  it('keeps running while the provider reports steady progress past the idle budget', async () => {
+  it('keeps Cursor running while streamed progress resets the idle budget', async () => {
     vi.useFakeTimers()
     const executor: PromptEnhancementProviderExecutor = (request) =>
       new Promise<string>((resolve) => {
@@ -458,8 +481,8 @@ describe('prompt enhancement execution', () => {
     const resultPromise = enhanceInboxPrompt(
       {
         source: source(),
-        profile: DEFAULT_PROFILE,
-        providerHealth: [health('claude')],
+        explicitSelection: { provider: 'cursor' },
+        providerHealth: [health('cursor')],
         timeoutMs: 1_000
       },
       executor
@@ -533,6 +556,7 @@ describe('prompt enhancement execution', () => {
       }
     )
     expect(failed).toMatchObject({ status: 'fallback', reason: 'provider-error' })
+    if (failed.status === 'fallback') expect(failed.message).toContain('CLI unavailable')
 
     const executor = vi.fn<PromptEnhancementProviderExecutor>()
     await expect(

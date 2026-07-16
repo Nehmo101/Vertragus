@@ -77,7 +77,17 @@ export function createHeadlessPromptEnhancementExecutor(
         },
         // Each streamed line is progress; reset the caller's idle timeout so a
         // slow-but-advancing model is not aborted mid-generation.
-        () => request.onActivity?.()
+        () => request.onActivity?.(),
+        request.provider === 'cursor'
+          ? {
+              // Cursor also emits JSON events (for example system/init and deltas)
+              // that intentionally have no display log. They still prove that the
+              // provider is advancing and must reset the idle timeout.
+              onEvent(event) {
+                if (event.type === 'progress') request.onActivity?.()
+              }
+            }
+          : undefined
       )
       const result = await handle.done
       if (result.status === 'cancelled' || request.signal.aborted) {
