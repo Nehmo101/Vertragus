@@ -59,9 +59,17 @@ export interface SeedWithReadyOptions {
   ready?: WaitForReadyOptions
   maxAttempts?: number
   retryDelayMs?: number
+  /** Poll interval while waiting for the CLI to react to a seed write. */
+  acceptancePollMs?: number
 }
 
-/** Wait for CLI readiness, then write the prompt with bounded retries. */
+/**
+ * Wait for CLI readiness, then write the prompt with bounded retries.
+ *
+ * A retry is only needed when the PTY stays completely unchanged. Interactive
+ * CLIs normally echo or render immediately after accepting the prompt; sending
+ * again after that creates duplicate turns or queued input.
+ */
 export async function seedWithReadyHandshake(
   write: (text: string) => void,
   getSnapshot: () => InteractiveSnapshot,
@@ -72,12 +80,22 @@ export async function seedWithReadyHandshake(
   if (!ready) return false
   const maxAttempts = options.maxAttempts ?? 3
   const retryDelayMs = options.retryDelayMs ?? 600
+  const acceptancePollMs = options.acceptancePollMs ?? 50
   const text = prompt.endsWith('\r') ? prompt : `${prompt}\r`
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    if (!getSnapshot().alive) return false
+    const before = getSnapshot()
+    if (!before.alive) return false
     write(text)
-    if (attempt < maxAttempts - 1) await sleep(retryDelayMs)
+    if (attempt === maxAttempts - 1) return true
+
+    const deadline = Date.now() + retryDelayMs
+    while (Date.now() < deadline) {
+      await sleep(Math.min(acceptancePollMs, Math.max(1, deadline - Date.now())))
+      const after = getSnapshot()
+      if (!after.alive) return false
+      if (after.buffer !== before.buffer) return true
+    }
   }
   return true
 }

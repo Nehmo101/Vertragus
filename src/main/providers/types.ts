@@ -46,6 +46,23 @@ export const YOLO_FLAGS: Record<AgentProviderId, string[]> = {
   ollama: []
 }
 
+/** Keep Codex' full-screen TUI stable inside Orca's embedded terminal. */
+export const CODEX_EMBEDDED_TUI_FLAGS = [
+  '--no-alt-screen',
+  '-c',
+  'tui.animations=false'
+] as const
+
+/** Explicit safe-mode defaults instead of inheriting a potentially noisy user policy. */
+export const CODEX_SAFE_INTERACTIVE_FLAGS = [
+  '--sandbox',
+  'workspace-write',
+  '--ask-for-approval',
+  'on-request',
+  '-c',
+  'approvals_reviewer=' + JSON.stringify('auto_review')
+] as const
+
 export function buildInteractiveLaunch(id: AgentProviderId, opts: SpawnOpts): Launch {
   const yolo = opts.yolo ? YOLO_FLAGS[id] : []
   const extra = opts.extraArgs ?? []
@@ -58,7 +75,12 @@ export function buildInteractiveLaunch(id: AgentProviderId, opts: SpawnOpts): La
     case 'codex':
       return {
         command: 'codex',
-        args: [...(opts.model ? ['--model', opts.model] : []), ...yolo, ...extra]
+        args: [
+          ...(opts.model ? ['--model', opts.model] : []),
+          ...(opts.yolo ? yolo : CODEX_SAFE_INTERACTIVE_FLAGS),
+          ...CODEX_EMBEDDED_TUI_FLAGS,
+          ...extra
+        ]
       }
     case 'cursor':
       return {
@@ -106,7 +128,16 @@ export function buildHeadlessLaunch(
           'exec',
           ...(opts.model ? ['--model', opts.model] : []),
           // codex exec läuft immer non-interaktiv; --ask-for-approval wird ab codex-cli 0.144.x abgelehnt (exit 2)
-          ...(opts.yolo ? YOLO_FLAGS.codex : ['--sandbox', 'workspace-write']),
+          ...(opts.yolo
+            ? YOLO_FLAGS.codex
+            : [
+                '--sandbox',
+                'workspace-write',
+                '-c',
+                'approval_policy=' + JSON.stringify('never')
+              ]),
+          // Orchestrator workers are disposable; do not persist hundreds of one-shot chats.
+          '--ephemeral',
           ...extra,
           prompt
         ]

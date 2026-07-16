@@ -56,7 +56,11 @@ vi.mock('@main/orchestrator/retroExport', () => ({
   enqueueBenchmarkExport
 }))
 
-import { OrchestratorEngine, platformExecutionGuidance } from './Engine'
+import {
+  OrchestratorEngine,
+  platformExecutionGuidance,
+  providerExecutionGuidance
+} from './Engine'
 import { permissionBroker } from '@main/permissions/PermissionBroker'
 
 function info(taskId: string) {
@@ -87,6 +91,17 @@ describe('asynchronous orchestration API', () => {
     expect(guidance).toContain('Quotingfehlern')
     expect(platformExecutionGuidance('darwin').join('\n')).toMatch(/zsh.*BSD/i)
     expect(platformExecutionGuidance('linux')).toEqual([])
+  })
+
+  it('delegates only the known safe-mode Codex Node spawn failure to central gates', () => {
+    const guidance = providerExecutionGuidance('codex', false, 'win32').join('\n')
+
+    expect(guidance).toContain('spawn EPERM')
+    expect(guidance).toContain('kein fachlicher BLOCKER')
+    expect(guidance).toContain('zentralen Abnahme-Gates')
+    expect(providerExecutionGuidance('codex', true, 'win32')).toEqual([])
+    expect(providerExecutionGuidance('claude', false, 'win32')).toEqual([])
+    expect(providerExecutionGuidance('codex', false, 'linux')).toEqual([])
   })
 
   it('returns taskId immediately and exposes the final result through polling', async () => {

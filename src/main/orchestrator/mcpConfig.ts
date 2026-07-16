@@ -29,6 +29,8 @@ export interface McpServerSpec {
   allowedTools?: string[]
   /** Codex only: mark the server as required (startup fails if unreachable). */
   required?: boolean
+  /** Codex only: process-local approval policy for tools exposed by this server. */
+  approvalMode?: 'auto' | 'prompt' | 'writes' | 'approve'
 }
 
 export interface ClaudeMcpOptions {
@@ -120,6 +122,9 @@ export function codexServerArgs(spec: McpServerSpec): string[] {
     args.push('-c', `${key}.url=${tomlString(spec.url ?? '')}`)
   }
   if (spec.required) args.push('-c', `${key}.required=true`)
+  if (spec.approvalMode) {
+    args.push('-c', `${key}.default_tools_approval_mode=${tomlString(spec.approvalMode)}`)
+  }
   if (spec.allowedTools) {
     const bare = spec.allowedTools.map((tool) => bareToolName(spec.name, tool))
     args.push('-c', `${key}.enabled_tools=${JSON.stringify(bare)}`)

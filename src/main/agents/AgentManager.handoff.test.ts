@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 type ExitHandler = (event: { exitCode: number; signal?: number }) => void
+type DataHandler = (data: string) => void
 
 const mocks = vi.hoisted(() => ({
   ptySpawn: vi.fn(),
@@ -43,6 +44,7 @@ import { AgentManager } from './AgentManager'
 interface FakePty {
   pid: number
   emitExit(event: { exitCode: number; signal?: number }): void
+  emitData(data: string): void
   write: ReturnType<typeof vi.fn>
 }
 
@@ -81,23 +83,31 @@ describe('AgentManager orchestrator handoff lifecycle', () => {
     )
     mocks.ptySpawn.mockImplementation(() => {
       const exitHandlers: ExitHandler[] = []
+      const dataHandlers: DataHandler[] = []
       const emitExit = (event: { exitCode: number; signal?: number }): void => {
         for (const handler of exitHandlers) handler(event)
       }
+      const emitData = (data: string): void => {
+        for (const handler of dataHandlers) handler(data)
+      }
       const process = {
         pid: 100 + processes.length,
-        onData: vi.fn(),
+        onData: vi.fn((handler: DataHandler) => {
+          dataHandlers.push(handler)
+        }),
         onExit: vi.fn((handler: ExitHandler) => {
           exitHandlers.push(handler)
         }),
         kill: vi.fn(() => emitExit({ exitCode: 0 })),
         resize: vi.fn(),
         write: vi.fn(),
+        emitData,
         emitExit
       }
       processes.push({
         pid: process.pid,
         write: process.write,
+        emitData: (data) => process.emitData(data),
         emitExit: (event) => process.emitExit(event)
       })
       return process
@@ -135,6 +145,31 @@ describe('AgentManager orchestrator handoff lifecycle', () => {
     expect(manager.list().map((agent) => agent.id)).toEqual([target.id])
     expect(manager.list()[0]?.handoffFrom?.handshake?.phase).toBe('completed')
     expect(mocks.closePaneWindows).toHaveBeenCalledWith(source.id)
+  })
+
+  it('does not invalidate the delivered handoff when the source TUI redraws', async () => {
+    const manager = new AgentManager()
+    const source = await spawnSource(manager)
+    processes[0]?.emitData('source ready')
+    const target = await manager.handoff({ sourceId: source.id, provider: 'codex', model: '' })
+    const challenge = promptChallenge()
+    const identity = manager.orchestratorClientIdentity(target.id)!
+    const context = manager.readOrchestratorHandoffContext(challenge, identity, {})
+    expect(context.ok).toBe(true)
+    if (!context.ok) throw new Error(context.message)
+
+    processes[0]?.emitData('\u001b[2K\r⠋ redrawing\u001b[2K\r')
+
+    await expect(
+      manager.acknowledgeOrchestratorHandoff(
+        {
+          ...challenge,
+          knowledgeDigest: context.knowledgeDigest,
+          summary: 'Der eingefrorene Übergabestand wurde vollständig übernommen.'
+        },
+        identity
+      )
+    ).resolves.toMatchObject({ ok: true, duplicate: false })
   })
 
   it('does not stop the source when the target process exits before acknowledgement', async () => {

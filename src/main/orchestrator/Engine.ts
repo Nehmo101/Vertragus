@@ -178,6 +178,18 @@ export function platformExecutionGuidance(
   return []
 }
 
+export function providerExecutionGuidance(
+  provider: AgentProviderId,
+  yolo: boolean,
+  platform: NodeJS.Platform = process.platform
+): string[] {
+  if (provider !== 'codex' || yolo || platform !== 'win32') return []
+  return [
+    'Codex/Windows-Safe-Sandbox: Wenn ausschliesslich ein Node-Unterprozess mit spawn EPERM scheitert, ist das ein bekannter Sandbox-Gate-Fehler und kein fachlicher BLOCKER.',
+    'Codex/Windows-Safe-Sandbox: Arbeite in diesem Fall weiter, kennzeichne nur den betroffenen Test/Build als nicht ausfuehrbar und schliesse bei fachlich vollstaendiger Arbeit mit ERGEBNIS: ERFOLG; Orcas Main-Prozess wiederholt die zentralen Abnahme-Gates ausserhalb der Worker-Sandbox.'
+  ]
+}
+
 export interface WorkerTerminalJudgement {
   status: 'success' | 'error' | 'stopped'
   failureKind?: 'infrastructure' | 'worker' | 'cancelled'
@@ -1227,6 +1239,7 @@ export class OrchestratorEngine extends EventEmitter {
             '- Team-Board: Teile Schnittstellen, Entscheidungen und Blocker, die parallele Tasks betreffen, über post_finding; prüfe mit list_findings die Einträge anderer Subagents, bevor du gemeinsame Schnittstellen festlegst.'
           ]
         : []),
+      ...providerExecutionGuidance(slot.provider, yolo).map((item) => `- ${item}`),
       ...platformExecutionGuidance().map((item) => `- ${item}`),
       ...securityChecklist.map((item) => `- Security-Pflicht: ${item}`)
     ].join('\n')

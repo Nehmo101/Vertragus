@@ -150,7 +150,7 @@ export class AgentManager extends EventEmitter {
   private readonly handoffStarts = new Set<string>()
   private readonly handoffBriefings = new Map<
     string,
-    { path: string; targetName: string; task?: string; summary?: string; timestamp: number }
+    { briefing: string; sourceContinuity: string }
   >()
   private readonly handoffHandshakes = new HandoffHandshakeRegistry({
     onTransition: (snapshot) => this.applyHandoffTransition(snapshot),
@@ -242,34 +242,11 @@ export class AgentManager extends EventEmitter {
   }
 
   private handoffSourceContinuity(handoffId: string): string | undefined {
-    const snapshot = this.handoffHandshakes.snapshot(handoffId)
-    const source = snapshot ? this.agents.get(snapshot.source.agentId) : undefined
-    return source
-      ? createHash('sha256').update(source.buffer).digest('hex')
-      : undefined
+    return this.handoffBriefings.get(handoffId)?.sourceContinuity
   }
 
   private latestHandoffBriefing(handoffId: string): string | undefined {
-    const snapshot = this.handoffHandshakes.snapshot(handoffId)
-    const metadata = this.handoffBriefings.get(handoffId)
-    const source = snapshot ? this.agents.get(snapshot.source.agentId) : undefined
-    if (!source || !metadata) return undefined
-    const briefing = buildBriefing({
-      source: source.info,
-      targetName: metadata.targetName,
-      task: metadata.task,
-      summary: metadata.summary,
-      scrollback: source.buffer,
-      scrollbackChars: getSetting<number>('handoff.scrollbackChars'),
-      timestamp: metadata.timestamp
-    })
-    try {
-      writeFileSync(metadata.path, briefing, 'utf8')
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      this.emitEvent(`Übergabe-Notiz konnte nicht aktualisiert werden: ${message}`, 'warn', source.info)
-    }
-    return briefing
+    return this.handoffBriefings.get(handoffId)?.briefing
   }
 
   /** Live identity bound to an orchestrator MCP connection at initialization. */
@@ -896,11 +873,10 @@ export class AgentManager extends EventEmitter {
         })
         handshakeBegan = true
         this.handoffBriefings.set(challenge.handoffId, {
-          path: briefingPath,
-          targetName: target.name,
-          task: req.task,
-          summary: req.summary,
-          timestamp: at
+          briefing,
+          // Freeze the semantic handoff snapshot. TUI redraw bytes must not
+          // invalidate acknowledgement while both orchestrators are alive.
+          sourceContinuity: createHash('sha256').update(briefing).digest('hex')
         })
         const handshake = {
           id: challenge.handoffId,

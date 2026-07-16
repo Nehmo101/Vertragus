@@ -18,7 +18,8 @@ const orca: McpServerSpec = {
   transport: 'http',
   url: 'http://127.0.0.1:1234/mcp',
   allowedTools: ['mcp__orca__execute_plan', 'mcp__orca__set_goal'],
-  required: true
+  required: true,
+  approvalMode: 'approve'
 }
 
 const filesystem: McpServerSpec = {
@@ -119,6 +120,9 @@ describe('codexServerArgs', () => {
     const args = codexServerArgs(orca)
     expect(args).toContain('mcp_servers.orca.url="http://127.0.0.1:1234/mcp"')
     expect(args).toContain('mcp_servers.orca.required=true')
+    expect(args).toContain(
+      'mcp_servers.orca.default_tools_approval_mode=' + JSON.stringify('approve')
+    )
     // enabled_tools are the bare names (mcp__orca__ prefix stripped)
     expect(args).toContain('mcp_servers.orca.enabled_tools=["execute_plan","set_goal"]')
   })

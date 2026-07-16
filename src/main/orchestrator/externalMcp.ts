@@ -89,7 +89,9 @@ function orcaSubagentSpec(context: SubagentMcpContext): McpServerSpec | undefine
     url: url.toString(),
     allowedTools: SUBAGENT_ALLOWED_TOOLS.filter(
       (tool) => context.permissionPrompt || tool !== 'mcp__orca-sub__permission_prompt'
-    )
+    ),
+    // These status/reporting tools are Orca-owned and task-scoped.
+    approvalMode: 'approve'
   }
 }
 

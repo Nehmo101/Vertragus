@@ -20,13 +20,28 @@ describe('provider model argument passing', () => {
     const interactive = buildInteractiveLaunch('codex', opts)
     const headless = buildHeadlessLaunch('codex', 'do work', opts)
 
-    expect(interactive.args).toEqual(['--model', 'chosen-model'])
+    expect(interactive.args).toEqual([
+      '--model',
+      'chosen-model',
+      '--sandbox',
+      'workspace-write',
+      '--ask-for-approval',
+      'on-request',
+      '-c',
+      'approvals_reviewer=' + JSON.stringify('auto_review'),
+      '--no-alt-screen',
+      '-c',
+      'tui.animations=false'
+    ])
     expect(headless.args).toEqual([
       'exec',
       '--model',
       'chosen-model',
       '--sandbox',
       'workspace-write',
+      '-c',
+      'approval_policy=' + JSON.stringify('never'),
+      '--ephemeral',
       'do work'
     ])
     expect(headless.args).not.toContain('--ask-for-approval')
@@ -46,6 +61,9 @@ describe('provider model argument passing', () => {
       '--sandbox',
       'workspace-write',
       '-c',
+      'approval_policy=' + JSON.stringify('never'),
+      '--ephemeral',
+      '-c',
       'mcp_servers.demo.enabled=true',
       'do work'
     ])
@@ -53,8 +71,24 @@ describe('provider model argument passing', () => {
     expect(yolo).not.toContain('--ask-for-approval')
     expect(standard).not.toContain('--dangerously-bypass-approvals-and-sandbox')
     expect(yolo).toContain('--dangerously-bypass-approvals-and-sandbox')
+    expect(yolo).toContain('--ephemeral')
     expect(yolo).not.toContain('--sandbox')
     expect(yolo.at(-1)).toBe('do work')
+  })
+
+  it('stabilizes Codex interactive rendering in both safe and Yolo mode', () => {
+    const standard = buildInteractiveLaunch('codex', opts).args
+    const yolo = buildInteractiveLaunch('codex', { ...opts, yolo: true }).args
+
+    for (const args of [standard, yolo]) {
+      expect(args).toContain('--no-alt-screen')
+      expect(args).toContain('tui.animations=false')
+    }
+    expect(standard).toEqual(expect.arrayContaining(['--ask-for-approval', 'on-request']))
+    expect(standard).toContain('approvals_reviewer=' + JSON.stringify('auto_review'))
+    expect(yolo).toContain('--dangerously-bypass-approvals-and-sandbox')
+    expect(yolo.join(' ')).not.toContain('approvals_reviewer')
+    expect(yolo).not.toContain('--ask-for-approval')
   })
 
 

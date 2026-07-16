@@ -35,7 +35,9 @@ function orcaSpec(handle: McpServerHandle): McpServerSpec {
     transport: 'http',
     url: handle.url,
     allowedTools: handle.allowedTools,
-    required: true
+    required: true,
+    // This loopback server is created and narrowly scoped by Orca itself.
+    approvalMode: 'approve'
   }
 }
 

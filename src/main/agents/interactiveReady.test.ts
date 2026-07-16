@@ -33,10 +33,32 @@ describe('interactiveReady', () => {
       write,
       () => ({ buffer, alive: true }),
       'seed prompt',
-      { ready: { timeoutMs: 500, idleMs: 20, minChars: 8, pollMs: 10 }, maxAttempts: 2 }
+      {
+        ready: { timeoutMs: 500, idleMs: 20, minChars: 8, pollMs: 10 },
+        maxAttempts: 2,
+        retryDelayMs: 20,
+        acceptancePollMs: 5
+      }
     )).resolves.toBe(true)
     expect(write).toHaveBeenCalledTimes(2)
     expect(write.mock.calls[0]?.[0]).toBe('seed prompt\r')
+  })
+
+  it('does not send the seed again after the interactive CLI reacts', async () => {
+    let buffer = 'interactive cli ready'
+    const write = vi.fn(() => {
+      buffer += '\nseed accepted'
+    })
+
+    await expect(
+      seedWithReadyHandshake(write, () => ({ buffer, alive: true }), 'seed prompt', {
+        ready: { timeoutMs: 500, idleMs: 20, minChars: 8, pollMs: 10 },
+        maxAttempts: 3,
+        retryDelayMs: 50,
+        acceptancePollMs: 5
+      })
+    ).resolves.toBe(true)
+    expect(write).toHaveBeenCalledTimes(1)
   })
 
   it('does not seed a process that exited before becoming ready', async () => {
