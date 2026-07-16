@@ -1,0 +1,198 @@
+.viewSwitch {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--border-2);
+  border-radius: 7px;
+  background: var(--bg-input);
+}
+
+.viewTab {
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.viewTab:hover {
+  color: var(--text-1);
+}
+
+.viewTabActive {
+  background: rgba(45, 212, 191, 0.14);
+  color: var(--accent-light);
+}
+
+.attributeSection {
+  margin-bottom: 14px;
+  padding: 10px;
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+  background: var(--bg-card);
+}
+
+.sectionLabel {
+  margin-bottom: 8px;
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.attributeList,
+.chipList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.attributeChip,
+.readOnlyChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 3px 7px;
+  border: 1px solid var(--border-2);
+  border-radius: 999px;
+  background: var(--bg-pane);
+  color: var(--text-2);
+  font-size: 10.5px;
+}
+
+.attributeValue {
+  overflow-wrap: anywhere;
+}
+
+.attributeRemove {
+  display: inline-grid;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.attributeRemove:hover:not(:disabled) {
+  background: rgba(242, 85, 90, 0.15);
+  color: var(--err-text);
+}
+
+.attributeRemove:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.archiveHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.archiveTitle {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  color: var(--text-1);
+  font-size: 17px;
+  overflow-wrap: anywhere;
+}
+
+.archiveStatus {
+  padding: 3px 7px;
+  border: 1px solid var(--border-3);
+  border-radius: 999px;
+  color: var(--text-3);
+  font-size: 10.5px;
+}
+
+.archiveSection {
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+  background: var(--bg-card);
+}
+
+.readOnlyContent {
+  margin: 0;
+  color: var(--text-2);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.factList {
+  display: grid;
+  gap: 7px;
+}
+
+.factRow {
+  display: grid;
+  grid-template-columns: minmax(110px, 150px) minmax(0, 1fr);
+  gap: 8px;
+  color: var(--text-2);
+  font-size: 11px;
+}
+
+.factLabel {
+  color: var(--text-3);
+}
+
+.factValue {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.historyList {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.historyItem {
+  display: grid;
+  grid-template-columns: auto minmax(90px, auto) minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+  color: var(--text-2);
+  font-size: 11px;
+}
+
+.historyTime {
+  color: var(--text-4);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.historyKind {
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+.historyDetail {
+  overflow-wrap: anywhere;
+}
+
+.muted {
+  color: var(--text-4);
+  font-size: 11px;
+}
+
+@media (max-width: 760px) {
+  .factRow,
+  .historyItem {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
