@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784186445596,
+  "exportedAt": 1784195291444,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -14,7 +14,7 @@
     "planId": "plan-mrn52c7v-2",
     "goal": "Ideen-Archiv: Ideen mit Status 'done' automatisch aus der Inbox ins Archiv verschieben (Telemetrie, Historie und Workspace-Verknüpfung bleiben erhalten), Inbox und Archiv als getrennte, absteigend nach Datum sortierte Ansichten, Attribute (Tags, Profil-/Workspace-/Plan-/Task-ID) in der Inbox entfernbar, Wiederherstellen aus dem Archiv möglich.",
     "status": "needs-work",
-    "summary": "Lauf mit Nacharbeit: 1 Modell(e), 3/5 Tasks erfolgreich.",
+    "summary": "Ideen-Archiv-Plan endete needs-work: Core-Modul (Legolas) und UI (Gwaihir) sauber geliefert (18/18 bzw. 720/720 Tests, verifizierte Commits), Integrator (Durins Fluch 2) integrierte vollständig, scheiterte aber an Whitespace-Commit-Gate und secret-leak-Security-Control in src/main/ipc/register.ts. QA-Abnahmetests scheiterten am Typecheck-Gate. Security-Audit lieferte 2 hohe (vorbestehende) und 2 mittlere (feature-relevante) Befunde. Fokussierter Fix-Folgetask nötig.",
     "modelStats": [
       {
         "provider": "codex",
@@ -61,6 +61,42 @@
         "observations": 1,
         "createdAt": 1784186445530,
         "updatedAt": 1784186445530
+      },
+      {
+        "id": "learning-mrnbt5o6-1-fxqqet",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "kind": "weakness",
+        "insight": "Integrator-Tasks auf IPC/Preload scheitern trotz Whitespace-Auflage im Prompt an git diff --cached --check und secret-leak-Control; erforderliche Controls je Datei explizit im Prompt benennen.",
+        "source": "orchestrator",
+        "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+        "observations": 1,
+        "createdAt": 1784195291382,
+        "updatedAt": 1784195291382
+      },
+      {
+        "id": "learning-mrnbt5o6-2-tt7lwp",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "kind": "strength",
+        "insight": "Feature-Worker koordinieren Schnittstellen stark via Findings-Board: UI übernahm Core-Allowlist eigenständig, publizierte finalen IPC-Vertrag, Integrator verdrahtete ohne Rückfragen.",
+        "source": "orchestrator",
+        "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+        "observations": 1,
+        "createdAt": 1784195291382,
+        "updatedAt": 1784195291382
+      },
+      {
+        "id": "learning-mrnbt5o6-3-xb0b7w",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "kind": "strength",
+        "insight": "Security-Reviewer liefert präzise, nach Schweregrad differenzierte Audits, grenzt vorbestehende von neuen Risiken ab und postet hohe Befunde sofort aufs Board.",
+        "source": "orchestrator",
+        "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+        "observations": 1,
+        "createdAt": 1784195291382,
+        "updatedAt": 1784195291382
       }
     ],
     "createdAt": 1784186445547
