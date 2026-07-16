@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "exportedAt": 1784186698318,
+  "app": {
+    "name": "orca-strator",
+    "version": "0.1.47-main.1.gb3a336d"
+  },
+  "machineId": "5087fc1f7b9d",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrn6oz6d-plan-mrn5llve-1",
+    "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+    "workspaceSessionId": "8ff7ac80-78bd-4ebd-b61d-4943e6893add",
+    "planId": "plan-mrn5llve-1",
+    "goal": "Retro-Erstellung verbessern & beschleunigen: (A+B) vorberechnetes Run-Fakten-Gerüst für record_retro + idempotenter Merge/ein Export pro Lauf; (D) Overlay-/Analyse-Pipeline scharfschalten (Selbst-Seed + Workflow).",
+    "status": "success",
+    "summary": "Lauf erfolgreich: 2 Modell(e), 2/2 Tasks erfolgreich.",
+    "modelStats": [
+      {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "roles": [
+          "orchestrator-core",
+          "systems-integrator"
+        ],
+        "tasks": 2,
+        "succeeded": 2,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "avgDurationMs": 1690880
+      },
+      {
+        "provider": "claude",
+        "model": "claude-sonnet-5",
+        "roles": [],
+        "tasks": 0,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 1,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 1
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrn6oz5y-1-r7hlsm",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "orchestrator-core",
+        "kind": "strength",
+        "insight": "zuverlässig im ersten Anlauf bei orchestrator-core, systems-integrator",
+        "evidence": "2/2 Tasks ohne Wiederholung erfolgreich",
+        "source": "auto-retro",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784186698246,
+        "updatedAt": 1784186698246
+      },
+      {
+        "id": "learning-mrn50suj-1-re1u19",
+        "provider": "claude",
+        "model": "claude-sonnet-5",
+        "kind": "weakness",
+        "insight": "Worker-Versuche scheiterten; Aufgaben wurden auf andere Slots umgeleitet",
+        "evidence": "1 inhaltlich fehlgeschlagene(r) Versuch(e) in diesem Lauf",
+        "source": "auto-retro",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 7,
+        "createdAt": 1784183890699,
+        "updatedAt": 1784186698246
+      }
+    ],
+    "createdAt": 1784186698261
+  }
+}
