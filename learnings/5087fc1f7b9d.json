@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784184699667,
+  "exportedAt": 1784184956935,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -8,6 +8,20 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrn5nmci-1-ojqmi",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "orchestrator-core",
+      "kind": "weakness",
+      "insight": "Quality-Gates erfordern Nacharbeit bei orchestrator-core",
+      "evidence": "1 Task(s) mit 1 Gate-Finding(s)",
+      "source": "auto-retro",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784184955362,
+      "updatedAt": 1784184955362
+    },
     {
       "id": "learning-mrn5i3w8-1-tv8n9j",
       "provider": "codex",
@@ -79,20 +93,6 @@
       "updatedAt": 1784184334019
     },
     {
-      "id": "learning-mrn53zul-5-oa5agj",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "test-qa",
-      "kind": "weakness",
-      "insight": "QA-Tests gegen parallelen Integrator-Worktree brechen Typecheck-Gate und erzeugen Cherry-Pick-Konflikte — QA erst nach zentraler Übernahme des Integrator-Commits starten",
-      "evidence": "Radagast: Tests referenzierten Éowyns nicht übernommenen Code; pnpm typecheck rot, Commit 4ef2043 kollidierte mit d9f69ce",
-      "source": "orchestrator",
-      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
-      "observations": 1,
-      "createdAt": 1784184039741,
-      "updatedAt": 1784184039741
-    },
-    {
       "id": "learning-mrn53zul-3-ki51rc",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -114,6 +114,20 @@
       "kind": "strength",
       "insight": "Liefert wiederverwendbare React/Zustand-Primitives mit Tests und sauberer API-Meldung aufs Findings-Board im ersten Anlauf",
       "evidence": "Haldir: 6 neue Dateien (layoutStore/useResizablePanel/ResizeHandle), 721/721 Tests, Commit 24c2ae4, API-Finding früh",
+      "source": "orchestrator",
+      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+      "observations": 1,
+      "createdAt": 1784184039741,
+      "updatedAt": 1784184039741
+    },
+    {
+      "id": "learning-mrn53zul-5-oa5agj",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "test-qa",
+      "kind": "weakness",
+      "insight": "QA-Tests gegen parallelen Integrator-Worktree brechen Typecheck-Gate und erzeugen Cherry-Pick-Konflikte — QA erst nach zentraler Übernahme des Integrator-Commits starten",
+      "evidence": "Radagast: Tests referenzierten Éowyns nicht übernommenen Code; pnpm typecheck rot, Commit 4ef2043 kollidierte mit d9f69ce",
       "source": "orchestrator",
       "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
       "observations": 1,
@@ -399,20 +413,6 @@
       "updatedAt": 1784121926332
     },
     {
-      "id": "learning-mrm27c1p-1-eter44",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "backend-services",
-      "kind": "weakness",
-      "insight": "Markdown-Doku-Tasks scheitern am zentralen Commit-Gate 'git diff --cached --check' (trailing whitespace/CRLF) — Whitespace-Hygiene im Prompt explizit fordern",
-      "evidence": "O00 Attempt 1 (Ungoliant): Audit inhaltlich vollständig, Abnahme blockiert mit 'Command failed: git diff --cached --check'",
-      "source": "orchestrator",
-      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
-      "observations": 1,
-      "createdAt": 1784118690493,
-      "updatedAt": 1784118690493
-    },
-    {
       "id": "learning-mrm27c1p-2-8m151z",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -420,6 +420,20 @@
       "kind": "strength",
       "insight": "Liefert große Read-only-Audits (140 Prisma-Modelle, alle Routen/Navs/Jobs) inhaltlich vollständig und mit brauchbaren Architektur-Befunden aus einem einzigen Prompt",
       "evidence": "O00 Attempt 1: Inventar inkl. Job-Runner-Trennnaht und Namenskollision packages/cookbook vs. /kitchen fertig recherchiert",
+      "source": "orchestrator",
+      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+      "observations": 1,
+      "createdAt": 1784118690493,
+      "updatedAt": 1784118690493
+    },
+    {
+      "id": "learning-mrm27c1p-1-eter44",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "backend-services",
+      "kind": "weakness",
+      "insight": "Markdown-Doku-Tasks scheitern am zentralen Commit-Gate 'git diff --cached --check' (trailing whitespace/CRLF) — Whitespace-Hygiene im Prompt explizit fordern",
+      "evidence": "O00 Attempt 1 (Ungoliant): Audit inhaltlich vollständig, Abnahme blockiert mit 'Command failed: git diff --cached --check'",
       "source": "orchestrator",
       "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
       "observations": 1,
@@ -439,34 +453,6 @@
       "observations": 1,
       "createdAt": 1784118690493,
       "updatedAt": 1784118690493
-    },
-    {
-      "id": "learning-mrm0y92m-3-omyk4r",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "main-orchestrator",
-      "kind": "weakness",
-      "insight": "Schneidet späte große Phasen in zu breite Commits, was Review und Fehlerlokalisierung erschwert.",
-      "evidence": "Phase C und besonders Phase D bündelten mehrere unabhängige Backend-, Transport-, Desktop- und Mobile-Änderungen in jeweils einem großen Commit.",
-      "source": "orchestrator",
-      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
-      "observations": 1,
-      "createdAt": 1784116587118,
-      "updatedAt": 1784116587118
-    },
-    {
-      "id": "learning-mrm0y92m-4-df9xhc",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "main-orchestrator",
-      "kind": "weakness",
-      "insight": "Validiert UI- und Cloud-Integrationen noch zu stark über Unit-Tests und Builds statt über reale End-to-End-Smokes.",
-      "evidence": "Cloudflared, Web Push, Cloudflare Access und neue Desktop/Mobile-Flows wurden vertraglich getestet, aber nicht gegen reale externe Dienste oder visuelle Browser-Screenshots.",
-      "source": "orchestrator",
-      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
-      "observations": 1,
-      "createdAt": 1784116587118,
-      "updatedAt": 1784116587118
     },
     {
       "id": "learning-mrm0y92m-1-izscin",
@@ -490,6 +476,20 @@
       "kind": "strength",
       "insight": "Nutzt fehlschlagende Tests wirksam, um Integrations- und Sicherheitslücken gezielt zu schließen.",
       "evidence": "Stale Registry-Mock, Provider-Limit-Erkennung, Push-Scope und WS/SSE-Fallback wurden durch gezielte Regressionstests entdeckt und abgesichert.",
+      "source": "orchestrator",
+      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+      "observations": 1,
+      "createdAt": 1784116587118,
+      "updatedAt": 1784116587118
+    },
+    {
+      "id": "learning-mrm0y92m-3-omyk4r",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "main-orchestrator",
+      "kind": "weakness",
+      "insight": "Schneidet späte große Phasen in zu breite Commits, was Review und Fehlerlokalisierung erschwert.",
+      "evidence": "Phase C und besonders Phase D bündelten mehrere unabhängige Backend-, Transport-, Desktop- und Mobile-Änderungen in jeweils einem großen Commit.",
       "source": "orchestrator",
       "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
       "observations": 1,
