@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784185059493,
+  "exportedAt": 1784185065398,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -8,6 +8,48 @@
   "machineId": "5087fc1f7b9d",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrn5py3i-2-u4gwnd",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "orchestrator-core",
+      "kind": "strength",
+      "insight": "Integrator setzt ein Feature vollständig durch, auch wenn der Upstream-Feature-Task leer bleibt",
+      "evidence": "t2: baute Renderer+shared-Schema+IPC/preload+Main-Ableitung+Tests selbst nach, weil t1 nichts lieferte; alle lauffähigen Gates grün, Artefakt als Commit 36de2203 übernommen",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784185063902,
+      "updatedAt": 1784185063902
+    },
+    {
+      "id": "learning-mrn5py3i-3-hl4avp",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "orchestrator-core",
+      "kind": "weakness",
+      "insight": "Vitest- und Vite-Build-Gates scheitern in der Codex-Sandbox an 'esbuild spawn EPERM' — verhindert Test-/Build-Abnahme trotz fertigem Code",
+      "evidence": "t2 (Bard+Dwalin): Typecheck/Lint/Security grün, aber Vitest 0 Tests (Config-Start blockiert) und Desktop-Build nicht erreicht; Worker meldete ERGEBNIS: BLOCKER",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784185063902,
+      "updatedAt": 1784185063902
+    },
+    {
+      "id": "learning-mrn5py3i-1-9ug2ja",
+      "provider": "cursor",
+      "model": "composer-2.5",
+      "role": "frontend-ui",
+      "kind": "weakness",
+      "insight": "Meldet 'success', liefert aber No-op statt der geforderten Implementierung",
+      "evidence": "t1-ui: completion no-changes, Ergebnis war nur eine Identitäts-Begrüßung ('Ich bin Schattenfell...'), keine Renderer-Änderung an InboxPanel.tsx",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784185063902,
+      "updatedAt": 1784185063902
+    },
     {
       "id": "learning-mrn5ptmb-1-ov59kj",
       "provider": "codex",
@@ -107,20 +149,6 @@
       "updatedAt": 1784184334019
     },
     {
-      "id": "learning-mrn53zul-5-oa5agj",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "test-qa",
-      "kind": "weakness",
-      "insight": "QA-Tests gegen parallelen Integrator-Worktree brechen Typecheck-Gate und erzeugen Cherry-Pick-Konflikte — QA erst nach zentraler Übernahme des Integrator-Commits starten",
-      "evidence": "Radagast: Tests referenzierten Éowyns nicht übernommenen Code; pnpm typecheck rot, Commit 4ef2043 kollidierte mit d9f69ce",
-      "source": "orchestrator",
-      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
-      "observations": 1,
-      "createdAt": 1784184039741,
-      "updatedAt": 1784184039741
-    },
-    {
       "id": "learning-mrn53zul-3-ki51rc",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -142,6 +170,20 @@
       "kind": "strength",
       "insight": "Liefert wiederverwendbare React/Zustand-Primitives mit Tests und sauberer API-Meldung aufs Findings-Board im ersten Anlauf",
       "evidence": "Haldir: 6 neue Dateien (layoutStore/useResizablePanel/ResizeHandle), 721/721 Tests, Commit 24c2ae4, API-Finding früh",
+      "source": "orchestrator",
+      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+      "observations": 1,
+      "createdAt": 1784184039741,
+      "updatedAt": 1784184039741
+    },
+    {
+      "id": "learning-mrn53zul-5-oa5agj",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "test-qa",
+      "kind": "weakness",
+      "insight": "QA-Tests gegen parallelen Integrator-Worktree brechen Typecheck-Gate und erzeugen Cherry-Pick-Konflikte — QA erst nach zentraler Übernahme des Integrator-Commits starten",
+      "evidence": "Radagast: Tests referenzierten Éowyns nicht übernommenen Code; pnpm typecheck rot, Commit 4ef2043 kollidierte mit d9f69ce",
       "source": "orchestrator",
       "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
       "observations": 1,
@@ -427,20 +469,6 @@
       "updatedAt": 1784121926332
     },
     {
-      "id": "learning-mrm27c1p-1-eter44",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "backend-services",
-      "kind": "weakness",
-      "insight": "Markdown-Doku-Tasks scheitern am zentralen Commit-Gate 'git diff --cached --check' (trailing whitespace/CRLF) — Whitespace-Hygiene im Prompt explizit fordern",
-      "evidence": "O00 Attempt 1 (Ungoliant): Audit inhaltlich vollständig, Abnahme blockiert mit 'Command failed: git diff --cached --check'",
-      "source": "orchestrator",
-      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
-      "observations": 1,
-      "createdAt": 1784118690493,
-      "updatedAt": 1784118690493
-    },
-    {
       "id": "learning-mrm27c1p-2-8m151z",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -448,6 +476,20 @@
       "kind": "strength",
       "insight": "Liefert große Read-only-Audits (140 Prisma-Modelle, alle Routen/Navs/Jobs) inhaltlich vollständig und mit brauchbaren Architektur-Befunden aus einem einzigen Prompt",
       "evidence": "O00 Attempt 1: Inventar inkl. Job-Runner-Trennnaht und Namenskollision packages/cookbook vs. /kitchen fertig recherchiert",
+      "source": "orchestrator",
+      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+      "observations": 1,
+      "createdAt": 1784118690493,
+      "updatedAt": 1784118690493
+    },
+    {
+      "id": "learning-mrm27c1p-1-eter44",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "backend-services",
+      "kind": "weakness",
+      "insight": "Markdown-Doku-Tasks scheitern am zentralen Commit-Gate 'git diff --cached --check' (trailing whitespace/CRLF) — Whitespace-Hygiene im Prompt explizit fordern",
+      "evidence": "O00 Attempt 1 (Ungoliant): Audit inhaltlich vollständig, Abnahme blockiert mit 'Command failed: git diff --cached --check'",
       "source": "orchestrator",
       "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
       "observations": 1,
@@ -467,20 +509,6 @@
       "observations": 1,
       "createdAt": 1784118690493,
       "updatedAt": 1784118690493
-    },
-    {
-      "id": "learning-mrm0y92m-3-omyk4r",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "main-orchestrator",
-      "kind": "weakness",
-      "insight": "Schneidet späte große Phasen in zu breite Commits, was Review und Fehlerlokalisierung erschwert.",
-      "evidence": "Phase C und besonders Phase D bündelten mehrere unabhängige Backend-, Transport-, Desktop- und Mobile-Änderungen in jeweils einem großen Commit.",
-      "source": "orchestrator",
-      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
-      "observations": 1,
-      "createdAt": 1784116587118,
-      "updatedAt": 1784116587118
     },
     {
       "id": "learning-mrm0y92m-1-izscin",
@@ -658,20 +686,6 @@
       "kind": "strength",
       "insight": "Liefert auch große Refactorings (4-Modul-Subsystem + Schema-Integration) vollständig aus reinem Ziel-Fallback-Prompt: sauberer Modulschnitt, rückwärtskompatible Fassade, eigene Findings-Meldung",
       "evidence": "Fallback-Task plan-mrl8gwri-1: src/shared/retro/ in contracts/learnings/runAnalysis/benchmarkAnalysis zerlegt, ExecutionPlanResult.retro ergänzt, 410/410 Tests, Typecheck+ESLint grün, Commit 86f3e5b",
-      "source": "orchestrator",
-      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
-      "observations": 1,
-      "createdAt": 1784070251736,
-      "updatedAt": 1784070251736
-    },
-    {
-      "id": "learning-mrl9d4go-2-iujth6",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "main-orchestrator",
-      "kind": "strength",
-      "insight": "Meldet Schnittstellenentscheidungen frühzeitig aufs Findings-Board (Modulgrenzen, öffentliche API), was Live-Koordination ohne Terminal-Warten ermöglicht",
-      "evidence": "finding-1 mit komplettem Modulschnitt und Schema-Entscheidung nach ~2 Minuten Laufzeit",
       "source": "orchestrator",
       "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
       "observations": 1,
