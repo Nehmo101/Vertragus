@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784195268981,
+  "exportedAt": 1784195292395,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -9,18 +9,68 @@
   "kind": "learnings",
   "payload": [
     {
-      "id": "learning-mrnbsmve-4-pbdmi3",
-      "provider": "claude",
-      "model": "claude-sonnet-5",
-      "role": "docs-retro",
+      "id": "learning-mrnbt5o6-2-tt7lwp",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "kind": "strength",
+      "insight": "Feature-Worker koordinieren Schnittstellen stark via Findings-Board: UI übernahm Core-Allowlist eigenständig, publizierte finalen IPC-Vertrag, Integrator verdrahtete ohne Rückfragen.",
+      "source": "orchestrator",
+      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+      "observations": 1,
+      "createdAt": 1784195291382,
+      "updatedAt": 1784195291382
+    },
+    {
+      "id": "learning-mrnbt5o6-3-xb0b7w",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "kind": "strength",
+      "insight": "Security-Reviewer liefert präzise, nach Schweregrad differenzierte Audits, grenzt vorbestehende von neuen Risiken ab und postet hohe Befunde sofort aufs Board.",
+      "source": "orchestrator",
+      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+      "observations": 1,
+      "createdAt": 1784195291382,
+      "updatedAt": 1784195291382
+    },
+    {
+      "id": "learning-mrnbt5o6-1-fxqqet",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
       "kind": "weakness",
-      "insight": "Scheitert in dieser Session an Schreibrechten: Write/Bash/PowerShell werden abgelehnt oder laufen in Timeout",
-      "evidence": "Task D Attempt 1 (Bard 2) meldete BLOCKER 'Orca permission denied or timeout' bei jedem Schreibversuch; Reroute auf codex nötig",
+      "insight": "Integrator-Tasks auf IPC/Preload scheitern trotz Whitespace-Auflage im Prompt an git diff --cached --check und secret-leak-Control; erforderliche Controls je Datei explizit im Prompt benennen.",
+      "source": "orchestrator",
+      "profileId": "profile-73cb20ae-4804-45c8-86ad-41228ef11e70",
+      "observations": 1,
+      "createdAt": 1784195291382,
+      "updatedAt": 1784195291382
+    },
+    {
+      "id": "learning-mrnbt54h-2-r7g6xn",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "orchestrator-core",
+      "kind": "strength",
+      "insight": "Findet bei Test-Triage die echte Ursache (electron-store/atomically On-Disk-Persistenz) und liefert einen gate-grünen 1-Datei-Fix",
+      "evidence": "Legolas 2: Commit e52e4ba5 bestand alle Gates inkl. vollem pnpm test; Ursache war vorbestehende Test-Isolation, nicht das Feature",
       "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
-      "createdAt": 1784195267018,
-      "updatedAt": 1784195267018
+      "createdAt": 1784195290673,
+      "updatedAt": 1784195290673
+    },
+    {
+      "id": "learning-mrnbt54h-1-q189a3",
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "role": "qa-gate-runner",
+      "kind": "strength",
+      "insight": "Erkennt Worktree-Isolation korrekt und meldet vertragskonform Blocker, statt einen nicht sichtbaren Commit zu erfinden",
+      "evidence": "Frodo: 'kein Fix möglich in diesem Worktree; HEAD enthält Feature-Dateien nicht, liegen in task-39' — Finding gepostet",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784195290673,
+      "updatedAt": 1784195290673
     },
     {
       "id": "learning-mrnbsmve-1-hncg65",
@@ -51,20 +101,6 @@
       "updatedAt": 1784195267018
     },
     {
-      "id": "learning-mrnbsmve-3-8jz57v",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "orchestrator-core",
-      "kind": "weakness",
-      "insight": "Gräbt bei blockiertem vitest tief in Framework-Internals, statt sofort config-frei zu testen",
-      "evidence": "Mehrere Minuten in cli-api.js/vite-Chunks; --config false wird von Vitest 2.1.9 zudem als Dateipfad fehlinterpretiert, Lösung erst über tsc-Emit + config-freie CLI",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784195267018,
-      "updatedAt": 1784195267018
-    },
-    {
       "id": "learning-mrnbsmve-5-pz0c1",
       "provider": "claude",
       "model": "claude-sonnet-5",
@@ -79,17 +115,32 @@
       "updatedAt": 1784195267018
     },
     {
-      "id": "learning-mrn50suj-1-re1u19",
+      "id": "learning-mrnbsmve-4-pbdmi3",
       "provider": "claude",
       "model": "claude-sonnet-5",
+      "role": "docs-retro",
       "kind": "weakness",
-      "insight": "Worker-Versuche scheiterten; Aufgaben wurden auf andere Slots umgeleitet",
-      "evidence": "1 inhaltlich fehlgeschlagene(r) Versuch(e) in diesem Lauf",
-      "source": "auto-retro",
+      "insight": "Scheitert in dieser Session an Schreibrechten: Write/Bash/PowerShell werden abgelehnt oder laufen in Timeout",
+      "evidence": "Task D Attempt 1 (Bard 2) meldete BLOCKER 'Orca permission denied or timeout' bei jedem Schreibversuch; Reroute auf codex nötig",
+      "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 7,
-      "createdAt": 1784183890699,
-      "updatedAt": 1784186698246
+      "observations": 1,
+      "createdAt": 1784195267018,
+      "updatedAt": 1784195267018
+    },
+    {
+      "id": "learning-mrnbsmve-3-8jz57v",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "orchestrator-core",
+      "kind": "weakness",
+      "insight": "Gräbt bei blockiertem vitest tief in Framework-Internals, statt sofort config-frei zu testen",
+      "evidence": "Mehrere Minuten in cli-api.js/vite-Chunks; --config false wird von Vitest 2.1.9 zudem als Dateipfad fehlinterpretiert, Lösung erst über tsc-Emit + config-freie CLI",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784195267018,
+      "updatedAt": 1784195267018
     },
     {
       "id": "learning-mrn6oz5y-1-r7hlsm",
@@ -103,6 +154,19 @@
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
       "createdAt": 1784186698246,
+      "updatedAt": 1784186698246
+    },
+    {
+      "id": "learning-mrn50suj-1-re1u19",
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "kind": "weakness",
+      "insight": "Worker-Versuche scheiterten; Aufgaben wurden auf andere Slots umgeleitet",
+      "evidence": "1 inhaltlich fehlgeschlagene(r) Versuch(e) in diesem Lauf",
+      "source": "auto-retro",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 7,
+      "createdAt": 1784183890699,
       "updatedAt": 1784186698246
     },
     {
@@ -217,6 +281,20 @@
       "updatedAt": 1784185793331
     },
     {
+      "id": "learning-mrn65kxf-4-gdkn0y",
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "role": "qa-gate-runner",
+      "kind": "strength",
+      "insight": "Meldet Infrastruktur-Blocker vertragskonform statt Erfolg zu faken",
+      "evidence": "Baumbart erkannte Sandbox-Blockade der Gates und Kriterium-3-Testlücke, meldete BLOCKER statt grün; Task wurde korrekt auf codex umgeleitet",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784185793331,
+      "updatedAt": 1784185793331
+    },
+    {
       "id": "learning-mrn65kxf-5-kuiuc7",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -245,34 +323,6 @@
       "updatedAt": 1784185793331
     },
     {
-      "id": "learning-mrn65kxf-4-gdkn0y",
-      "provider": "claude",
-      "model": "claude-sonnet-5",
-      "role": "qa-gate-runner",
-      "kind": "strength",
-      "insight": "Meldet Infrastruktur-Blocker vertragskonform statt Erfolg zu faken",
-      "evidence": "Baumbart erkannte Sandbox-Blockade der Gates und Kriterium-3-Testlücke, meldete BLOCKER statt grün; Task wurde korrekt auf codex umgeleitet",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784185793331,
-      "updatedAt": 1784185793331
-    },
-    {
-      "id": "learning-mrn65hxd-4-5r9pz7",
-      "provider": "claude",
-      "model": "claude-sonnet-5",
-      "role": "qa-gate-runner",
-      "kind": "weakness",
-      "insight": "QA-Gate-Läufe blockieren an interaktiven Bash-Tool-Freigaben und hängen ohne Panel-Approval",
-      "evidence": "verify-acceptance (Éomer 2) blieb im Status 'Wartet auf Tool-Freigabe: Bash' hängen und wurde nicht terminal, während die required-Kette längst grün war",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784185789441,
-      "updatedAt": 1784185789441
-    },
-    {
       "id": "learning-mrn65hxd-1-5xjknc",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -294,6 +344,20 @@
       "kind": "strength",
       "insight": "Minimal-invasive Integrator-Fixes mit belegter Invarianz des unberührten Pfads",
       "evidence": "implement-fix (Thorin): 6 Dateien, provider-spezifischer Fix für Codex+Cursor, Claude-Args unverändert per Test belegt, 46/46 grün, Typecheck/Lint/whitespace sauber",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784185789441,
+      "updatedAt": 1784185789441
+    },
+    {
+      "id": "learning-mrn65hxd-4-5r9pz7",
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "role": "qa-gate-runner",
+      "kind": "weakness",
+      "insight": "QA-Gate-Läufe blockieren an interaktiven Bash-Tool-Freigaben und hängen ohne Panel-Approval",
+      "evidence": "verify-acceptance (Éomer 2) blieb im Status 'Wartet auf Tool-Freigabe: Bash' hängen und wurde nicht terminal, während die required-Kette längst grün war",
       "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
@@ -329,20 +393,6 @@
       "updatedAt": 1784185745634
     },
     {
-      "id": "learning-mrn5v9vy-4-chrluk",
-      "provider": "claude",
-      "model": "claude-sonnet-5",
-      "role": "qa-gate-runner",
-      "kind": "weakness",
-      "insight": "Kann in dieser gesperrten Sandbox pnpm/node-Gates gar nicht ausführen (spawn blockiert)",
-      "evidence": "Pippin: Gate-Ausführung durchgehend blockiert, meldete ehrlich BLOCKER; Engine leitete QA an codex (Bilbo 2) um",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784185312462,
-      "updatedAt": 1784185312462
-    },
-    {
       "id": "learning-mrn5v9vy-1-g9kuuj",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -350,34 +400,6 @@
       "kind": "strength",
       "insight": "Liefert kleine Shared-Modul-Features sauber mit injizierbarer Zufallsquelle für Testbarkeit",
       "evidence": "Grishnákh: Fisher-Yates-Permutation + crypto.randomInt in workspaceNames.ts/Registry, 16/16 Tests, Typecheck/Lint/git diff --check grün, Commit 1575b5df",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784185312462,
-      "updatedAt": 1784185312462
-    },
-    {
-      "id": "learning-mrn5v9vy-2-jw12fs",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "qa-gate-runner",
-      "kind": "strength",
-      "insight": "Außerordentlich findig beim Umgehen von Sandbox-Grenzen zur echten Verifikation",
-      "evidence": "Bilbo 2: rekonstruierte Impl-Commit, patchte child_process, ließ Vitest programmatisch laufen und belegte alle 3 Abnahmekriterien empirisch (reale Namen: Cair Andros/Mordor/Helms Klamm/Schicksalsberg)",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784185312462,
-      "updatedAt": 1784185312462
-    },
-    {
-      "id": "learning-mrn5v9vy-3-ie46ie",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "qa-gate-runner",
-      "kind": "weakness",
-      "insight": "Eskaliert reinen Infra-Blocker zu Task-'error', obwohl Fachabnahme voll grün ist",
-      "evidence": "Bilbo 2 meldete ERGEBNIS: BLOCKER (Task error), obwohl Typecheck/Lint/relevante Tests grün und alle Abnahmekriterien erfüllt; nur nativer Build-Gate scheiterte an spawn EPERM",
       "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
@@ -399,18 +421,32 @@
       "updatedAt": 1784185312462
     },
     {
-      "id": "learning-mrn5ut8e-2-6cmnn8",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "systems-integrator",
-      "kind": "strength",
-      "insight": "Setzt mehrschichtige Integration (shared Typ -> IPC -> Store -> Selektor -> Komponente) inkl. Tests vollständig aus einem Prompt um",
-      "evidence": "13-Datei-Recovery-Artefakt; Typecheck 2/2, Lint 1/1, Runtime-Smokes 12/12, git diff --check grün",
+      "id": "learning-mrn5v9vy-4-chrluk",
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "role": "qa-gate-runner",
+      "kind": "weakness",
+      "insight": "Kann in dieser gesperrten Sandbox pnpm/node-Gates gar nicht ausführen (spawn blockiert)",
+      "evidence": "Pippin: Gate-Ausführung durchgehend blockiert, meldete ehrlich BLOCKER; Engine leitete QA an codex (Bilbo 2) um",
       "source": "orchestrator",
       "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
       "observations": 1,
-      "createdAt": 1784185290878,
-      "updatedAt": 1784185290878
+      "createdAt": 1784185312462,
+      "updatedAt": 1784185312462
+    },
+    {
+      "id": "learning-mrn5v9vy-3-ie46ie",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "qa-gate-runner",
+      "kind": "weakness",
+      "insight": "Eskaliert reinen Infra-Blocker zu Task-'error', obwohl Fachabnahme voll grün ist",
+      "evidence": "Bilbo 2 meldete ERGEBNIS: BLOCKER (Task error), obwohl Typecheck/Lint/relevante Tests grün und alle Abnahmekriterien erfüllt; nur nativer Build-Gate scheiterte an spawn EPERM",
+      "source": "orchestrator",
+      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+      "observations": 1,
+      "createdAt": 1784185312462,
+      "updatedAt": 1784185312462
     },
     {
       "id": "learning-mrn5ut8e-3-40ma12",
@@ -469,20 +505,6 @@
       "updatedAt": 1784185258901
     },
     {
-      "id": "learning-mrn5tqgt-1-xsp8bl",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "orchestrator-core",
-      "kind": "weakness",
-      "insight": "fehleranfällig bei orchestrator-core",
-      "evidence": "1/2 auswertbare Tasks inhaltlich fehlgeschlagen",
-      "source": "auto-retro",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784185240637,
-      "updatedAt": 1784185240637
-    },
-    {
       "id": "learning-mrn5aawz-1-51ad9y",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -495,20 +517,6 @@
       "observations": 2,
       "createdAt": 1784184334019,
       "updatedAt": 1784185100556
-    },
-    {
-      "id": "learning-mrn5py3i-2-u4gwnd",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "orchestrator-core",
-      "kind": "strength",
-      "insight": "Integrator setzt ein Feature vollständig durch, auch wenn der Upstream-Feature-Task leer bleibt",
-      "evidence": "t2: baute Renderer+shared-Schema+IPC/preload+Main-Ableitung+Tests selbst nach, weil t1 nichts lieferte; alle lauffähigen Gates grün, Artefakt als Commit 36de2203 übernommen",
-      "source": "orchestrator",
-      "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
-      "observations": 1,
-      "createdAt": 1784185063902,
-      "updatedAt": 1784185063902
     },
     {
       "id": "learning-mrn5py3i-1-9ug2ja",
@@ -679,20 +687,6 @@
       "updatedAt": 1784126995303
     },
     {
-      "id": "learning-mrm44ou4-2-g8v8o",
-      "provider": "claude",
-      "model": "claude-sonnet-5",
-      "role": "orchestrator-integrator",
-      "kind": "weakness",
-      "insight": "Lässt Temp-/Arbeitsdateien im Worktree zurück, die im partiellen Commit landen (.verify-*-tmp.md) — Aufräumen vor Abschluss explizit in den Prompt schreiben",
-      "evidence": "t-1 (Beorn): Commit c9a520c6 enthält .verify-new-body-tmp.md und .verify-orig-tmp.md",
-      "source": "orchestrator",
-      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
-      "observations": 1,
-      "createdAt": 1784121926332,
-      "updatedAt": 1784121926332
-    },
-    {
       "id": "learning-mrm44ou4-1-zd3siy",
       "provider": "claude",
       "model": "claude-sonnet-5",
@@ -700,6 +694,20 @@
       "kind": "strength",
       "insight": "Liefert Doku-Recovery-Tasks zuverlässig (Datei korrekt übernommen, validiert, whitespace-sauber, committet) — needs-work-Status stammte beide Male vom Gate-False-Positive, nicht vom Modell",
       "evidence": "O00R (Tom Bombadil, Commit 223ac6f1) und t-1 (Beorn, Commit c9a520c6): identische Vokabular-Findings trotz verifiziert secret-freiem Inhalt",
+      "source": "orchestrator",
+      "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
+      "observations": 1,
+      "createdAt": 1784121926332,
+      "updatedAt": 1784121926332
+    },
+    {
+      "id": "learning-mrm44ou4-2-g8v8o",
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "role": "orchestrator-integrator",
+      "kind": "weakness",
+      "insight": "Lässt Temp-/Arbeitsdateien im Worktree zurück, die im partiellen Commit landen (.verify-*-tmp.md) — Aufräumen vor Abschluss explizit in den Prompt schreiben",
+      "evidence": "t-1 (Beorn): Commit c9a520c6 enthält .verify-new-body-tmp.md und .verify-orig-tmp.md",
       "source": "orchestrator",
       "profileId": "profile-1fc32cb4-1389-4b47-91a4-69ba9c4c0e34",
       "observations": 1,
