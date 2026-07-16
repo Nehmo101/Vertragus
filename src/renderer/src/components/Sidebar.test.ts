@@ -202,7 +202,8 @@ describe('workspace run status', () => {
           name: 'Rivendell',
           sequence: 1,
           startedAt: 1,
-          active: true
+          active: true,
+          taskSummary: undefined
         }
       ],
       activeWorkspaceSessionId: 'session-alpha',
