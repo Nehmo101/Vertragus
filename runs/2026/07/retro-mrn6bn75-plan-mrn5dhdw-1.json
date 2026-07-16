@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784195336938,
+  "exportedAt": 1784197914737,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -14,7 +14,7 @@
     "planId": "plan-mrn5dhdw-1",
     "goal": "Agent-Laufzeit (Runtime) pro Task im DAG anzeigen: live für laufende Tasks, Gesamtdauer für terminale Tasks.",
     "status": "needs-work",
-    "summary": "Laufzeit-im-DAG wurde funktional vollständig geliefert (Commit bedb4cd8, alle Gates grün, inkl. Unit-Tests + Electron-E2E-Smoke), aber ein Infra-Blocker beim formalen Worker-Abschluss erzeugte needs-work und stoppte die hart abhängige Advisory-QA. Ziel inhaltlich erfüllt; QA-Kaskadenstopp ist ein Planungs-Learning.",
+    "summary": "Standalone-QA (claude-sonnet-5) deckte einen echten Integrationslücken-Blocker auf: der als 'zentral übernommen' gemeldete Feature-Commit bedb4cd8 ist tatsächlich nur auf dem ungemergten Task-Branch task-54 und fehlt in main/DEV. Orchestrator hatte 'übernommen' fälschlich als 'in main integriert' gewertet.",
     "modelStats": [
       {
         "provider": "codex",
@@ -127,6 +127,20 @@
         "observations": 1,
         "createdAt": 1784195336833,
         "updatedAt": 1784195336833
+      },
+      {
+        "id": "learning-mrndddss-1-ltza68",
+        "provider": "claude",
+        "model": "claude-sonnet-5",
+        "role": "qa-gate-runner",
+        "kind": "strength",
+        "insight": "Prüft die Auftragsprämisse selbst und fängt eine falsche 'ist-integriert'-Annahme per git-Ancestry-Check ab, statt hohle Gates am falschen Stand zu fahren",
+        "evidence": "Belegte per merge-base --is-ancestor + branch --contains, dass bedb4cd8 nur auf task-54 liegt und weder in HEAD/main/origin-main noch im QA-Worktree vorhanden ist; meldete ehrlich BLOCKER statt Schein-PASS",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784197914652,
+        "updatedAt": 1784197914652
       }
     ],
     "createdAt": 1784186076209
