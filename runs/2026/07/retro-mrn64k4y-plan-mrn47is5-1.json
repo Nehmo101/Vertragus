@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784185745700,
+  "exportedAt": 1784185793418,
   "app": {
     "name": "orca-strator",
     "version": "0.1.47-main.1.gb3a336d"
@@ -14,7 +14,7 @@
     "planId": "plan-mrn47is5-1",
     "goal": "Kopierfunktion für Workspace-Profile: aus einem bestehenden Profil ein eigenständiges neues Profil mit eindeutigem Namen erzeugen; das Ausgangsprofil bleibt unverändert.",
     "status": "success",
-    "summary": "Lauf erfolgreich: 3 Modell(e), 2/3 Tasks erfolgreich.",
+    "summary": "Feature „Workspace-Profil kopieren\" erfolgreich geliefert: Required-Task (codex/Beregond) implementierte duplicateProfile + Store-Action + Sidebar/Editor-UI, verifizierter Commit 1fbaac46, 720/720 Tests + Typecheck + Lint grün. Security-Review (Opus/Balin) gab GO mit Härtungsempfehlungen. QA-Advisory scheiterte NICHT am Modell, sondern an Worktree-Isolation + Sandbox-spawn-EPERM.",
     "modelStats": [
       {
         "provider": "codex",
@@ -124,6 +124,76 @@
         "observations": 3,
         "createdAt": 1784183890699,
         "updatedAt": 1784185745634
+      },
+      {
+        "id": "learning-mrn65kxf-1-5uch2k",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "systems-integrator",
+        "kind": "strength",
+        "insight": "Liefert kompaktes Shared-Logik+UI-Feature vollständig und sauber aus einem Prompt",
+        "evidence": "duplicateProfile-Helper (neue id, eindeutiger Name, Deep-Clone, zod-parse) + 5 Unit-Tests + Store-Action + Sidebar/Editor-Aktion; Commit 1fbaac46, 720/720 Tests, typecheck+lint grün",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784185793331,
+        "updatedAt": 1784185793331
+      },
+      {
+        "id": "learning-mrn65kxf-2-m0k1b2",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "orchestrator-core",
+        "kind": "strength",
+        "insight": "Sehr hartnäckig und ehrlich bei Verifikation trotz Sandbox-Grenzen",
+        "evidence": "Baute Junction-basierte Verify-Umgebung, führte typecheck/lint real grün aus, meldete verbleibende test/build-Blocker als spawn-EPERM statt Erfolg vorzutäuschen (ERGEBNIS: BLOCKER)",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784185793331,
+        "updatedAt": 1784185793331
+      },
+      {
+        "id": "learning-mrn65kxf-3-2grohn",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "security-review",
+        "kind": "strength",
+        "insight": "Exzellentes Urteil: trennt 'nicht verifizierbar' klar von 'fehlerhaft' und liefert korrekt eingeordnete Härtungsbefunde",
+        "evidence": "Erkannte fehlenden Commit im eigenen Worktree, prüfte die zugängliche Variante, fand medium-Härtung (githubRepo.localPath/cloneStatus + yolo werden mitkopiert) mit sauberer Go/No-Go-Einordnung",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784185793331,
+        "updatedAt": 1784185793331
+      },
+      {
+        "id": "learning-mrn65kxf-4-gdkn0y",
+        "provider": "claude",
+        "model": "claude-sonnet-5",
+        "role": "qa-gate-runner",
+        "kind": "strength",
+        "insight": "Meldet Infrastruktur-Blocker vertragskonform statt Erfolg zu faken",
+        "evidence": "Baumbart erkannte Sandbox-Blockade der Gates und Kriterium-3-Testlücke, meldete BLOCKER statt grün; Task wurde korrekt auf codex umgeleitet",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784185793331,
+        "updatedAt": 1784185793331
+      },
+      {
+        "id": "learning-mrn65kxf-5-kuiuc7",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "orchestrator-core",
+        "kind": "weakness",
+        "insight": "Advisory-Verifier laufen in isolierten Worktrees OHNE den zentral committeten Required-Commit — QA/Review verbrennen Aufwand am falschen Stand",
+        "evidence": "HEAD in task-59 war 6fb74e7, 1fbaac46 kein Vorfahr; duplicateProfile fehlte, task-19-Worktree nicht lesbar → Gates rot obwohl Feature real grün",
+        "source": "orchestrator",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 1,
+        "createdAt": 1784185793331,
+        "updatedAt": 1784185793331
       }
     ],
     "createdAt": 1784185745650
