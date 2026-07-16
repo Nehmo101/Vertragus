@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "exportedAt": 1784183826075,
+  "app": {
+    "name": "orca-strator",
+    "version": "0.1.47-main.1.gb3a336d"
+  },
+  "machineId": "5087fc1f7b9d",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrn4zey5-plan-mrn4am0f-1",
+    "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+    "workspaceSessionId": "24aee9d3-6156-4432-b2bb-8692553b11f3",
+    "planId": "plan-mrn4am0f-1",
+    "goal": "Mode-Vorgabe für Claude-Modelle im Orchestrator: Ein Permission-Mode (inkl. Auto-Mode) ist pro Orchestrator-Konfiguration wählbar und wird beim Claude-Orchestrator-Lauf als --permission-mode wirksam angewendet. Andere Provider bleiben unverändert (Nicht-Ziel).",
+    "status": "needs-work",
+    "summary": "Lauf mit Nacharbeit: 1 Modell(e), 0/1 Tasks erfolgreich.",
+    "modelStats": [
+      {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "roles": [
+          "systems-integrator"
+        ],
+        "tasks": 1,
+        "succeeded": 0,
+        "needsWork": 1,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 1,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 1
+        },
+        "gateFindings": 1,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "avgDurationMs": 1108040
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrn4ge52-1-1qp7x4",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "systems-integrator",
+        "kind": "weakness",
+        "insight": "Quality-Gates erfordern Nacharbeit bei systems-integrator",
+        "evidence": "1 Task(s) mit 1 Gate-Finding(s)",
+        "source": "auto-retro",
+        "profileId": "profile-ab12f41f-61e7-4e22-8b7f-cb96cd4b669a",
+        "observations": 2,
+        "createdAt": 1784182938518,
+        "updatedAt": 1784183826017
+      }
+    ],
+    "createdAt": 1784183826029
+  }
+}
