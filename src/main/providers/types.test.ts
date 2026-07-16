@@ -168,9 +168,10 @@ describe('buildInteractiveLaunch Claude permission mode', () => {
   })
 
   it('does not change other providers', () => {
-    expect(
-      buildInteractiveLaunch('codex', { ...baseOpts, permissionMode: 'auto' }).args
-    ).toEqual(['--model', 'sonnet'])
+    // permissionMode is Claude-only: codex args must be identical with or without it.
+    expect(buildInteractiveLaunch('codex', { ...baseOpts, permissionMode: 'auto' }).args).toEqual(
+      buildInteractiveLaunch('codex', baseOpts).args
+    )
   })
 })
 
