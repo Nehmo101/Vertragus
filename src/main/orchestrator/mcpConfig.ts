@@ -29,6 +29,8 @@ export interface McpServerSpec {
   allowedTools?: string[]
   /** Codex only: mark the server as required (startup fails if unreachable). */
   required?: boolean
+  /** Codex only: process-local approval policy for tools exposed by this server. */
+  approvalMode?: 'auto' | 'prompt' | 'writes' | 'approve'
 }
 
 export interface ClaudeMcpOptions {
@@ -91,19 +93,42 @@ export function claudeAllowedTools(servers: McpServerSpec[], includeReadonly: bo
   return includeReadonly ? [...tools, ...READONLY_CLAUDE_TOOLS] : tools
 }
 
-/** Build Claude CLI args, writing the merged `--mcp-config` file as a side effect. */
-export function buildClaudeMcpArgs(servers: McpServerSpec[], opts: ClaudeMcpOptions): string[] {
+/**
+ * Shared Anthropic-style arg builder for Claude Code and the Kimi Code CLI,
+ * which differ only in the flag that points at the merged MCP config file.
+ * Writes that file into a caller-provided directory as the single side effect.
+ */
+function buildAnthropicStyleMcpArgs(
+  servers: McpServerSpec[],
+  opts: ClaudeMcpOptions,
+  configFlag: string
+): string[] {
   if (servers.length === 0) return []
   const dir = join(opts.configDir, 'orca-mcp')
   mkdirSync(dir, { recursive: true })
   const configPath = join(dir, `${opts.fileTag}.json`)
   writeFileSync(configPath, JSON.stringify(toClaudeMcpConfig(servers), null, 2))
 
-  const args = ['--mcp-config', configPath]
+  const args = [configFlag, configPath]
   if (opts.strict) args.push('--strict-mcp-config')
   if (opts.systemPrompt) args.push('--append-system-prompt', opts.systemPrompt)
   args.push('--allowedTools', claudeAllowedTools(servers, opts.includeReadonlyTools ?? false).join(','))
   return args
+}
+
+/** Build Claude CLI args, writing the merged `--mcp-config` file as a side effect. */
+export function buildClaudeMcpArgs(servers: McpServerSpec[], opts: ClaudeMcpOptions): string[] {
+  return buildAnthropicStyleMcpArgs(servers, opts, '--mcp-config')
+}
+
+/**
+ * Build Kimi Code CLI args. Kimi accepts the merged MCP config through
+ * `--mcp-config-file` and otherwise mirrors Claude Code's flag surface
+ * (`--strict-mcp-config`, `--append-system-prompt`, `--allowedTools`), so it
+ * reuses the same config writer, allow-list helper and options type.
+ */
+export function buildKimiMcpArgs(servers: McpServerSpec[], opts: ClaudeMcpOptions): string[] {
+  return buildAnthropicStyleMcpArgs(servers, opts, '--mcp-config-file')
 }
 
 /** Build the process-local `-c` overrides Codex needs for one server. */
@@ -120,6 +145,9 @@ export function codexServerArgs(spec: McpServerSpec): string[] {
     args.push('-c', `${key}.url=${tomlString(spec.url ?? '')}`)
   }
   if (spec.required) args.push('-c', `${key}.required=true`)
+  if (spec.approvalMode) {
+    args.push('-c', `${key}.default_tools_approval_mode=${tomlString(spec.approvalMode)}`)
+  }
   if (spec.allowedTools) {
     const bare = spec.allowedTools.map((tool) => bareToolName(spec.name, tool))
     args.push('-c', `${key}.enabled_tools=${JSON.stringify(bare)}`)

@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -24,7 +25,7 @@ afterEach(async () => {
 })
 
 async function homeWithCodexConfig(toml: string): Promise<string> {
-  const home = await mkdtemp('/tmp/orca-codex-home-')
+  const home = await mkdtemp(join(tmpdir(), 'orca-codex-home-'))
   created.push(home)
   await mkdir(join(home, '.codex'), { recursive: true })
   await writeFile(join(home, '.codex', 'config.toml'), toml)
@@ -51,6 +52,6 @@ describe('providerModelDefaults', () => {
   it('keeps explicit models and presets untouched', () => {
     expect(resolveSlotModel('codex', { model: 'gpt-5.4-mini' })).toBe('gpt-5.4-mini')
     expect(resolveSlotModel('codex', { modelPreset: 'strong' })).toBe('gpt-5.6-sol')
-    expect(resolveSlotModel('claude', {})).toBe('')
+    expect(resolveSlotModel('claude', {})).toBe('default (claude-cli)')
   })
 })

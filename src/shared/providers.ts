@@ -3,7 +3,7 @@
  * Pure data + types only — no Node.js imports so the renderer can use it too.
  */
 
-export type AgentProviderId = 'claude' | 'codex' | 'cursor' | 'copilot' | 'ollama'
+export type AgentProviderId = 'claude' | 'kimi' | 'codex' | 'cursor' | 'copilot' | 'ollama'
 export type IntegrationProviderId = 'github' | 'cloudflare'
 export type ProviderId = AgentProviderId | IntegrationProviderId
 
@@ -76,6 +76,23 @@ export const PROVIDERS: readonly ProviderDef[] = [
       loginLabel: 'Claude verbinden'
     },
     docsUrl: 'https://docs.claude.com/en/docs/claude-code'
+  },
+  {
+    id: 'kimi',
+    // Moonshot AI's Kimi Code CLI — a terminal coding agent with native MCP and
+    // subagent support, wired here alongside Claude as a full orchestrator/worker.
+    label: 'Kimi K3',
+    command: 'kimi',
+    versionArgs: ['--version'],
+    kind: 'agent',
+    supportsYolo: true,
+    auth: {
+      // Kimi Code CLI authenticates through its in-terminal /login flow and
+      // exposes no documented non-interactive status command, so no statusArgs.
+      loginArgs: ['login'],
+      loginLabel: 'Kimi verbinden'
+    },
+    docsUrl: 'https://github.com/MoonshotAI/kimi-cli'
   },
   {
     id: 'codex',
@@ -184,6 +201,14 @@ export const DEFAULT_MODELS: Record<AgentProviderId, string[]> = {
     'claude-haiku-4-5',
     'claude-fable-5'
   ],
+  kimi: [
+    'kimi-k3',
+    'kimi-k3-turbo',
+    'kimi-k3-thinking',
+    'kimi-k2.7',
+    'kimi-k2.6',
+    'kimi-k2'
+  ],
   codex: [
     'gpt-5.6-sol',
     'gpt-5.6-terra',
@@ -245,6 +270,7 @@ export const DEFAULT_PROVIDER_GATE = 8
  */
 export const DEFAULT_PROVIDER_LIMITS: Record<AgentProviderId, number> = {
   claude: DEFAULT_PROVIDER_GATE,
+  kimi: DEFAULT_PROVIDER_GATE,
   codex: DEFAULT_PROVIDER_GATE,
   cursor: DEFAULT_PROVIDER_GATE,
   copilot: DEFAULT_PROVIDER_GATE,
@@ -309,6 +335,7 @@ export type DisabledModels = Record<AgentProviderId, string[]>
 
 export const DEFAULT_PROVIDER_ENABLED: ProviderEnabled = {
   claude: true,
+  kimi: true,
   codex: true,
   cursor: true,
   copilot: true,
@@ -317,6 +344,7 @@ export const DEFAULT_PROVIDER_ENABLED: ProviderEnabled = {
 
 export const DEFAULT_DISABLED_MODELS: DisabledModels = {
   claude: [],
+  kimi: [],
   codex: [],
   cursor: [],
   copilot: [],
@@ -348,6 +376,7 @@ export function parseProviderEnabled(value: unknown): ProviderEnabled {
 export function normalizeDisabledModels(value: unknown): DisabledModels {
   const disabled: DisabledModels = {
     claude: [],
+    kimi: [],
     codex: [],
     cursor: [],
     copilot: [],

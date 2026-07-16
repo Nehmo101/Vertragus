@@ -3,9 +3,11 @@
  * A profile describes which agents to open, who orchestrates whom, and Yolo settings.
  */
 import { z } from 'zod'
+import { claudePermissionModeSchema } from './claudePermissionMode'
 import { modelPresetSchema } from './models'
+import { postProcessBranchValidationError } from './gitPostProcessing'
 
-export const agentProviderId = z.enum(['claude', 'codex', 'cursor', 'copilot', 'ollama'])
+export const agentProviderId = z.enum(['claude', 'kimi', 'codex', 'cursor', 'copilot', 'ollama'])
 
 export const agentSlotSchema = z.object({
   /** Logical role, e.g. "worker", "reviewer". */
@@ -35,6 +37,8 @@ export const orchestratorSchema = z.object({
   model: z.string().default(''),
   /** Performance preset when model is empty. Omitted = legacy CLI default. */
   modelPreset: modelPresetSchema.optional(),
+  /** Claude CLI permission behavior; ignored by other providers. */
+  permissionMode: claudePermissionModeSchema.default('default'),
   /** Orchestrator may open sub-windows on demand. */
   autoOpenSubwindows: z.boolean().default(true)
 })
@@ -57,6 +61,13 @@ export const benchmarkConfigSchema = z.object({
   enabled: z.boolean().default(false)
 })
 
+/** Competing workers solve the same task; only an orchestrator-approved candidate is integrated. */
+export const multiAgentConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  /** Stop unfinished alternatives as soon as the orchestrator accepts or rejects a candidate. */
+  stopLosers: z.boolean().default(true)
+})
+
 export const autoPrConfigSchema = z.object({
   mode: z.enum(['off', 'draft-after-checks', 'ready-after-checks', 'hold-for-approval']).default('off'),
   strategy: z.enum(['aggregate', 'per-task']).default('aggregate'),
@@ -72,6 +83,16 @@ export const autoPrConfigSchema = z.object({
   securityGateExcludes: z.array(z.string().min(1).max(200)).max(32).default([]),
   labels: z.array(z.string().min(1)).max(20).default([]),
   reviewers: z.array(z.string().min(1)).max(20).default([])
+})
+
+export const autoGitConfigSchema = z.object({
+  /** Commit and push only after the complete workspace run succeeded. */
+  enabled: z.boolean().default(false),
+  /** Explicit origin branch. Empty is allowed only while the feature is disabled. */
+  targetBranch: z.string().max(200).default('')
+}).superRefine((value, context) => {
+  const message = postProcessBranchValidationError(value.targetBranch, value.enabled)
+  if (message) context.addIssue({ code: z.ZodIssueCode.custom, path: ['targetBranch'], message })
 })
 
 export const githubProjectSchema = z.object({
@@ -120,18 +141,68 @@ export const workspaceProfileSchema = z.object({
   yoloDefault: z.boolean().default(false),
   planner: plannerConfigSchema.default({}),
   benchmark: benchmarkConfigSchema.default({}),
-  autoPr: autoPrConfigSchema.default({})
+  multiAgent: multiAgentConfigSchema.default({}),
+  autoPr: autoPrConfigSchema.default({}),
+  autoGit: autoGitConfigSchema.default({})
 })
 
 export type AgentSlot = z.infer<typeof agentSlotSchema>
-export type OrchestratorConfig = z.infer<typeof orchestratorSchema>
+type ParsedOrchestratorConfig = z.infer<typeof orchestratorSchema>
+/** Legacy in-memory profile drafts may not have passed through the schema yet. */
+export type OrchestratorConfig = Omit<ParsedOrchestratorConfig, 'permissionMode'> & {
+  permissionMode?: ParsedOrchestratorConfig['permissionMode']
+}
 export type PlannerConfig = z.infer<typeof plannerConfigSchema>
 export type BenchmarkConfig = z.infer<typeof benchmarkConfigSchema>
+export type MultiAgentConfig = z.infer<typeof multiAgentConfigSchema>
 export type AutoPrConfig = z.infer<typeof autoPrConfigSchema>
+export type AutoGitConfig = z.infer<typeof autoGitConfigSchema>
 export type GithubProjectConfig = z.infer<typeof githubProjectSchema>
 export type ProfileCloneStatus = z.infer<typeof profileCloneStatusSchema>
 export type ProfileGithubRepo = z.infer<typeof profileGithubRepoSchema>
-export type WorkspaceProfile = z.infer<typeof workspaceProfileSchema>
+type ParsedWorkspaceProfile = z.infer<typeof workspaceProfileSchema>
+export type WorkspaceProfile = Omit<ParsedWorkspaceProfile, 'orchestrator'> & {
+  orchestrator?: OrchestratorConfig
+}
+
+/** Create an independent, uniquely identified copy of a workspace profile. */
+export function duplicateProfile(
+  source: WorkspaceProfile,
+  existingProfiles: WorkspaceProfile[]
+): WorkspaceProfile {
+  const existingIds = new Set([source.id, ...existingProfiles.map((profile) => profile.id)])
+  const baseId = `profile-${Date.now().toString(36)}`
+  let id = baseId
+  let idSuffix = 2
+  while (existingIds.has(id)) {
+    id = `${baseId}-${idSuffix}`
+    idSuffix += 1
+  }
+
+  const existingNames = new Set(
+    existingProfiles.map((profile) => profile.name.trim().toLowerCase())
+  )
+  const sourceName = source.name.trim()
+  let name = `${sourceName} (Kopie)`
+  let nameSuffix = 2
+  while (existingNames.has(name.trim().toLowerCase())) {
+    name = `${sourceName} (Kopie ${nameSuffix})`
+    nameSuffix += 1
+  }
+
+  const clonedSource = structuredClone(source)
+  return workspaceProfileSchema.parse({
+    ...clonedSource,
+    id,
+    name,
+    githubRepo: source.githubRepo
+      ? { ...source.githubRepo, cloneStatus: 'unbound', localPath: '' }
+      : undefined,
+    githubProject: source.githubProject ? { ...source.githubProject } : undefined,
+    agents: clonedSource.agents.map((slot) => ({ ...slot, yolo: false })),
+    yoloDefault: false
+  })
+}
 
 export interface RepoProfileGenerationRequest {
   workingDir: string
@@ -206,6 +277,18 @@ export function agentSlotCapabilities(slot: AgentSlot): AgentSlotCapabilities {
       weaknesses: ['sehr repetitive Massenaenderungen']
     }
   }
+  if (slot.provider === 'kimi' && model.includes('thinking')) {
+    return {
+      strengths: ['tiefes Reasoning', 'mehrstufige Tool-Ketten', 'sehr lange Kontexte'],
+      weaknesses: ['kleine mechanische Aenderungen mit engem Zeitbudget']
+    }
+  }
+  if (slot.provider === 'kimi') {
+    return {
+      strengths: ['agentische Implementierung', 'lange Kontexte', 'werkzeugorientierte Aufgaben'],
+      weaknesses: ['rein visuelle Entwurfsarbeit ohne Repo-Kontext']
+    }
+  }
   if (slot.provider === 'codex') {
     return {
       strengths: ['repo-nahe Implementierung', 'Tests und Debugging', 'praezise Code-Reviews'],
@@ -237,6 +320,7 @@ export const DEFAULT_PROFILE: WorkspaceProfile = {
     provider: 'claude',
     model: '',
     modelPreset: 'balanced',
+    permissionMode: 'default',
     autoOpenSubwindows: true
   },
   agents: [
@@ -254,6 +338,7 @@ export const DEFAULT_PROFILE: WorkspaceProfile = {
   yoloDefault: false,
   planner: { mode: 'review', routingMode: 'adaptive', maxParallel: 6, maxRetries: 1 },
   benchmark: { enabled: false },
+  multiAgent: { enabled: false, stopLosers: true },
   autoPr: {
     mode: 'off',
     strategy: 'aggregate',
@@ -262,5 +347,6 @@ export const DEFAULT_PROFILE: WorkspaceProfile = {
     securityGateExcludes: [],
     labels: [],
     reviewers: []
-  }
+  },
+  autoGit: { enabled: false, targetBranch: '' }
 }

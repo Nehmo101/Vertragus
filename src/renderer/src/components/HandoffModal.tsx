@@ -6,7 +6,7 @@ import { PROVIDER_THEME } from '@renderer/ui/theme'
 import ModelCatalogStatus from '@renderer/components/ModelCatalogStatus'
 import { defaultHandoffModel } from '@renderer/modelCatalog'
 
-const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'cursor', 'copilot', 'ollama']
+const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'kimi', 'codex', 'cursor', 'copilot', 'ollama']
 
 export default function HandoffModal(): JSX.Element | null {
   const store = useAppStore()
@@ -24,12 +24,16 @@ export default function HandoffModal(): JSX.Element | null {
   const [model, setModel] = useState<string>(defaultModelFor('codex'))
   const [task, setTask] = useState<string>(store.orchestrator.goal?.title ?? '')
   const [summary, setSummary] = useState<string>('')
+  const [bulk, setBulk] = useState(false)
   const taskRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     taskRef.current?.focus()
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') closeHandoff()
+      if (event.key === 'Escape') {
+        setBulk(false)
+        closeHandoff()
+      }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
@@ -39,14 +43,30 @@ export default function HandoffModal(): JSX.Element | null {
 
   const limit = source.limitWarning
   const srcTheme = PROVIDER_THEME[source.provider]
+  const eligibleSources = store.agents.filter((agent) =>
+    agent.provider === source.provider &&
+    agent.profileId === source.profileId &&
+    agent.workspaceSessionId === source.workspaceSessionId &&
+    agent.mode === 'interactive' &&
+    agent.status === 'running' &&
+    !agent.handoffTo
+  )
 
   const submit = (): void => {
+    setBulk(false)
+    if (bulk) {
+      void store.bulkHandoff({
+        sourceIds: eligibleSources.map((agent) => agent.id),
+        provider, model, task, summary, stopSources: true
+      })
+      return
+    }
     void store.handoff({ sourceId: source.id, provider, model, task, summary })
   }
 
   return (
     <div className="modal-wrap">
-      <div className="modal-scrim" onClick={closeHandoff} />
+      <div className="modal-scrim" onClick={() => { setBulk(false); closeHandoff() }} />
       <div className="modal handoff-modal" role="dialog" aria-modal="true" aria-labelledby="handoff-title">
         <div className="modal-head">
           <span className="modal-gear">⇄</span>
@@ -54,7 +74,7 @@ export default function HandoffModal(): JSX.Element | null {
             <div className="modal-title" id="handoff-title">Agent-Übergabe</div>
             <div className="modal-sub">Laufende Arbeit an einen neuen Agent vererben</div>
           </div>
-          <button type="button" className="modal-close" aria-label="Übergabe schließen" onClick={closeHandoff}>
+          <button type="button" className="modal-close" aria-label="Übergabe schließen" onClick={() => { setBulk(false); closeHandoff() }}>
             ✕
           </button>
         </div>
@@ -74,6 +94,21 @@ export default function HandoffModal(): JSX.Element | null {
               </div>
             </div>
           </div>
+
+          {eligibleSources.length > 1 ? (
+            <label className="handoff-note" style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+              <input
+                type="checkbox"
+                checked={bulk}
+                onChange={(event) => setBulk(event.target.checked)}
+              />
+              <span>
+                Alle {eligibleSources.length} laufenden {srcTheme.label}-Agents in diesem Workspace
+                gemeinsam übergeben. Erfolgreich übernommene Subagents werden gestoppt; Orchestratoren
+                erst nach dem sicheren Wissens-Handshake.
+              </span>
+            </label>
+          ) : null}
 
           <div className="handoff-target-row">
             <div style={{ flex: 1 }}>
@@ -132,21 +167,22 @@ export default function HandoffModal(): JSX.Element | null {
           />
 
           <div className="handoff-note">
-            Der bisherige Terminal-Verlauf von {source.name} wird automatisch als Übergabe-Notiz
-            angehängt. Der neue Agent startet in {source.name}s Arbeitsverzeichnis und macht dort
-            weiter. {source.kind === 'orchestrator'
+            {bulk ? `Für jeden der ${eligibleSources.length} Agents` : `Der bisherige Terminal-Verlauf von ${source.name}`}
+            {bulk ? ' wird der jeweilige Terminal-Verlauf als eigene Übergabe-Notiz angehängt. ' : ' wird automatisch als Übergabe-Notiz angehängt. '}
+            Der jeweilige neue Agent startet im bisherigen Arbeitsverzeichnis und macht dort weiter.
+            {!bulk && source.kind === 'orchestrator'
               ? ` ${source.name} bleibt aktiv, bis der neue Orchestrator Start, Kontext und Wissensstand eindeutig bestätigt hat, und wird erst dann automatisch beendet.`
-              : ` ${source.name} läuft weiter und wird als „übergeben" markiert.`}
+              : !bulk ? ` ${source.name} läuft weiter und wird als „übergeben" markiert.` : ''}
           </div>
         </div>
 
         <div className="modal-foot">
           <div className="spacer" />
-          <button type="button" className="btn-secondary" onClick={closeHandoff}>
+          <button type="button" className="btn-secondary" onClick={() => { setBulk(false); closeHandoff() }}>
             Abbrechen
           </button>
           <button type="button" className="btn-primary" onClick={submit}>
-            ⇄ Übergeben
+            ⇄ {bulk ? `${eligibleSources.length} Agents übergeben` : 'Übergeben'}
           </button>
         </div>
       </div>

@@ -24,6 +24,8 @@ describe('Claude native permission callback launch', () => {
       close: async () => undefined
     })
     expect(SUBAGENT_ALLOWED_TOOLS).toContain('mcp__orca-sub__permission_prompt')
+    expect(SUBAGENT_ALLOWED_TOOLS).toContain('mcp__orca-sub__ask_orchestrator')
+    expect(SUBAGENT_ALLOWED_TOOLS).toContain('mcp__orca-sub__await_orchestrator_response')
     const args = buildSubagentMcpArgs('claude', 'agent-1', {
       taskId: 'task-1', engineId: 'engine-1', workspaceSessionId: 'session-1',
       permissionPrompt: true
@@ -37,5 +39,30 @@ describe('Claude native permission callback launch', () => {
     })
     expect(yoloArgs).not.toContain('--permission-prompt-tool')
     expect(yoloArgs.join(' ')).not.toContain('mcp__orca-sub__permission_prompt')
+  })
+})
+
+describe('Codex Orca subagent tool approvals', () => {
+  it('pre-approves the task-scoped Orca reporting tools', () => {
+    setMcpHandle({
+      url: 'http://127.0.0.1:1/mcp',
+      subagentUrl: 'http://127.0.0.1:1/mcp?token=fixed',
+      allowedTools: [],
+      close: async () => undefined
+    })
+
+    const args = buildSubagentMcpArgs('codex', 'agent-1', {
+      taskId: 'task-1',
+      engineId: 'engine-1',
+      workspaceSessionId: 'session-1'
+    })
+    expect(args).toContain(
+      'mcp_servers.orca-sub.default_tools_approval_mode=' + JSON.stringify('approve')
+    )
+    expect(SUBAGENT_ALLOWED_TOOLS).toContain('mcp__orca-sub__report_progress')
+    expect(SUBAGENT_ALLOWED_TOOLS).toContain('mcp__orca-sub__post_finding')
+    expect(args.join(' ')).toContain('report_progress')
+    expect(args.join(' ')).toContain('post_finding')
+    expect(args.join(' ')).not.toContain('permission_prompt')
   })
 })

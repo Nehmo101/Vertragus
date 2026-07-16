@@ -59,9 +59,9 @@ export type McpServerConfig = z.infer<typeof mcpServerSchema>
 
 export const mcpServersSchema = z.array(mcpServerSchema)
 
-/** Only Claude and Codex have verified per-agent MCP wiring today. */
+/** Claude, Kimi and Codex have verified per-agent MCP wiring today. */
 export function providerSupportsExternalMcp(provider: AgentProviderId): boolean {
-  return provider === 'claude' || provider === 'codex'
+  return provider === 'claude' || provider === 'kimi' || provider === 'codex'
 }
 
 /** Does a server's scope include the given agent kind? */

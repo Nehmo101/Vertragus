@@ -248,6 +248,17 @@ async function claudeCatalog(deps: ModelDiscoveryDependencies): Promise<Provider
   )
 }
 
+async function kimiCatalog(): Promise<ProviderModelCatalogEntry> {
+  // Kimi Code CLI exposes no documented machine-readable model list, so — like
+  // Copilot — we surface curated K3/K2 suggestions instead of probing a
+  // nonexistent subcommand. Swap in live discovery once the CLI offers one.
+  return fallback(
+    'kimi',
+    DEFAULT_MODELS.kimi,
+    'Kuratierte Kimi-K3/K2-Vorschläge; Konto-Verfügbarkeit nicht verifiziert.'
+  )
+}
+
 async function copilotCatalog(deps: ModelDiscoveryDependencies): Promise<ProviderModelCatalogEntry> {
   const root = join(deps.homeDir(), '.copilot')
   let configured: string | undefined
@@ -300,12 +311,13 @@ export async function listModels(
   overrides: Partial<ModelDiscoveryDependencies> = {}
 ): Promise<ProviderModelCatalog> {
   const deps = { ...defaultDependencies, ...overrides }
-  const [claude, codex, cursor, copilot, ollama] = await Promise.all([
+  const [claude, kimi, codex, cursor, copilot, ollama] = await Promise.all([
     claudeCatalog(deps),
+    kimiCatalog(),
     codexCatalog(deps),
     cursorCatalog(deps),
     copilotCatalog(deps),
     ollamaCatalog(deps)
   ])
-  return { claude, codex, cursor, copilot, ollama }
+  return { claude, kimi, codex, cursor, copilot, ollama }
 }

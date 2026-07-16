@@ -6,11 +6,16 @@
  * runHeadless() to stream-json parsing.
  */
 import type { AgentProviderId } from '@shared/providers'
+import {
+  claudePermissionModeArgs,
+  type ClaudePermissionMode
+} from '@shared/claudePermissionMode'
 
 export interface SpawnOpts {
   model?: string
   workingDir: string
   yolo: boolean
+  permissionMode?: ClaudePermissionMode
   /** Extra provider-specific args appended verbatim. */
   extraArgs?: string[]
 }
@@ -40,11 +45,30 @@ function requiredOllamaModel(model: string | undefined): string {
  */
 export const YOLO_FLAGS: Record<AgentProviderId, string[]> = {
   claude: ['--dangerously-skip-permissions'],
+  // Kimi Code CLI mirrors Claude Code's permission-bypass flag.
+  kimi: ['--dangerously-skip-permissions'],
   codex: ['--dangerously-bypass-approvals-and-sandbox'],
   cursor: ['--yolo'],
   copilot: ['--allow-all-tools'],
   ollama: []
 }
+
+/** Keep Codex' full-screen TUI stable inside Orca's embedded terminal. */
+export const CODEX_EMBEDDED_TUI_FLAGS = [
+  '--no-alt-screen',
+  '-c',
+  'tui.animations=false'
+] as const
+
+/** Explicit safe-mode defaults instead of inheriting a potentially noisy user policy. */
+export const CODEX_SAFE_INTERACTIVE_FLAGS = [
+  '--sandbox',
+  'workspace-write',
+  '--ask-for-approval',
+  'on-request',
+  '-c',
+  'approvals_reviewer=' + JSON.stringify('auto_review')
+] as const
 
 export function buildInteractiveLaunch(id: AgentProviderId, opts: SpawnOpts): Launch {
   const yolo = opts.yolo ? YOLO_FLAGS[id] : []
@@ -53,12 +77,28 @@ export function buildInteractiveLaunch(id: AgentProviderId, opts: SpawnOpts): La
     case 'claude':
       return {
         command: 'claude',
+        args: [
+          ...(opts.model ? ['--model', opts.model] : []),
+          ...(opts.yolo ? [] : claudePermissionModeArgs(opts.permissionMode)),
+          ...yolo,
+          ...extra
+        ]
+      }
+    case 'kimi':
+      // Kimi Code CLI shares Claude Code's interactive launch surface.
+      return {
+        command: 'kimi',
         args: [...(opts.model ? ['--model', opts.model] : []), ...yolo, ...extra]
       }
     case 'codex':
       return {
         command: 'codex',
-        args: [...(opts.model ? ['--model', opts.model] : []), ...yolo, ...extra]
+        args: [
+          ...(opts.model ? ['--model', opts.model] : []),
+          ...(opts.yolo ? yolo : CODEX_SAFE_INTERACTIVE_FLAGS),
+          ...CODEX_EMBEDDED_TUI_FLAGS,
+          ...extra
+        ]
       }
     case 'cursor':
       return {
@@ -94,6 +134,23 @@ export function buildHeadlessLaunch(
           '--output-format',
           'stream-json',
           ...(opts.model ? ['--model', opts.model] : []),
+          ...(opts.yolo ? [] : claudePermissionModeArgs(opts.permissionMode)),
+          ...(opts.systemPrompt ? ['--append-system-prompt', opts.systemPrompt] : []),
+          ...yolo,
+          ...extra
+        ]
+      }
+    case 'kimi':
+      // Kimi Code CLI emits the same Anthropic-style stream-json envelope as
+      // Claude Code, so the claude interpreter in headless.ts parses it as-is.
+      return {
+        command: 'kimi',
+        args: [
+          '-p',
+          prompt,
+          '--output-format',
+          'stream-json',
+          ...(opts.model ? ['--model', opts.model] : []),
           ...(opts.systemPrompt ? ['--append-system-prompt', opts.systemPrompt] : []),
           ...yolo,
           ...extra
@@ -106,7 +163,16 @@ export function buildHeadlessLaunch(
           'exec',
           ...(opts.model ? ['--model', opts.model] : []),
           // codex exec läuft immer non-interaktiv; --ask-for-approval wird ab codex-cli 0.144.x abgelehnt (exit 2)
-          ...(opts.yolo ? YOLO_FLAGS.codex : ['--sandbox', 'workspace-write']),
+          ...(opts.yolo
+            ? YOLO_FLAGS.codex
+            : [
+                '--sandbox',
+                'workspace-write',
+                '-c',
+                'approval_policy=' + JSON.stringify('never')
+              ]),
+          // Orchestrator workers are disposable; do not persist hundreds of one-shot chats.
+          '--ephemeral',
           ...extra,
           prompt
         ]

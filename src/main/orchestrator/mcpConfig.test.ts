@@ -6,6 +6,7 @@ import {
   buildClaudeMcpArgs,
   buildCodexMcpArgs,
   buildCopilotMcpArgs,
+  buildKimiMcpArgs,
   claudeAllowedTools,
   codexServerArgs,
   toClaudeMcpConfig,
@@ -18,7 +19,8 @@ const orca: McpServerSpec = {
   transport: 'http',
   url: 'http://127.0.0.1:1234/mcp',
   allowedTools: ['mcp__orca__execute_plan', 'mcp__orca__set_goal'],
-  required: true
+  required: true,
+  approvalMode: 'approve'
 }
 
 const filesystem: McpServerSpec = {
@@ -114,11 +116,46 @@ describe('buildClaudeMcpArgs', () => {
   })
 })
 
+describe('buildKimiMcpArgs', () => {
+  it('mirrors Claude args but points Kimi at --mcp-config-file', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orca-mcp-test-'))
+    try {
+      const args = buildKimiMcpArgs([orca, filesystem], {
+        configDir: dir,
+        fileTag: 'orch-kimi',
+        strict: true,
+        systemPrompt: 'Delegate.',
+        includeReadonlyTools: true
+      })
+      // Kimi Code CLI uses --mcp-config-file, never Claude's --mcp-config.
+      expect(args).toContain('--mcp-config-file')
+      expect(args).not.toContain('--mcp-config')
+      expect(args).toContain('--strict-mcp-config')
+      expect(args).toContain('--append-system-prompt')
+      const configIdx = args.indexOf('--mcp-config-file')
+      const path = args[configIdx + 1]
+      expect(path.endsWith(join('orca-mcp', 'orch-kimi.json'))).toBe(true)
+      // The written config shape is shared with Claude.
+      const written = JSON.parse(readFileSync(path, 'utf8'))
+      expect(written.mcpServers.orca).toEqual({ type: 'http', url: 'http://127.0.0.1:1234/mcp' })
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('returns no args when there are no servers', () => {
+    expect(buildKimiMcpArgs([], { configDir: '.', fileTag: 'x', strict: false })).toEqual([])
+  })
+})
+
 describe('codexServerArgs', () => {
   it('builds process-local overrides for an http server with an allowlist', () => {
     const args = codexServerArgs(orca)
     expect(args).toContain('mcp_servers.orca.url="http://127.0.0.1:1234/mcp"')
     expect(args).toContain('mcp_servers.orca.required=true')
+    expect(args).toContain(
+      'mcp_servers.orca.default_tools_approval_mode=' + JSON.stringify('approve')
+    )
     // enabled_tools are the bare names (mcp__orca__ prefix stripped)
     expect(args).toContain('mcp_servers.orca.enabled_tools=["execute_plan","set_goal"]')
   })

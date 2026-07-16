@@ -11,6 +11,7 @@ describe('config migrations', () => {
     })
     expect(result.schemaVersion).toBe(CURRENT_CONFIG_SCHEMA_VERSION)
     expect(result.profiles[0].planner.mode).toBe('review')
+    expect(result.profiles[0].autoGit).toEqual({ enabled: false, targetBranch: '' })
     expect(result.activeProfileId).toBe('one')
     expect(result.settings).toEqual({ 'ui.theme': 'dark' })
   })
@@ -67,5 +68,24 @@ describe('config migrations', () => {
     expect(result.profiles[1].orchestrator?.model).toBe('fable')
     expect(result.profiles[1].orchestrator?.modelPreset).toBeUndefined()
     expect(result.profiles[2].orchestrator).toMatchObject({ model: '', modelPreset: 'balanced' })
+  })
+
+  it('preserves an enabled Auto-Git target while migrating older config snapshots', () => {
+    const result = migrateConfigSnapshot({
+      schemaVersion: 2,
+      profiles: [{
+        id: 'git-enabled',
+        name: 'Git enabled',
+        agents: [],
+        autoGit: { enabled: true, targetBranch: 'orca/integrated' }
+      }],
+      activeProfileId: 'git-enabled'
+    })
+
+    expect(result.schemaVersion).toBe(3)
+    expect(result.profiles[0].autoGit).toEqual({
+      enabled: true,
+      targetBranch: 'orca/integrated'
+    })
   })
 })

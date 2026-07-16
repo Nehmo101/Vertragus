@@ -14,6 +14,8 @@ import type {
   AgentBufferSnapshot,
   AgentDataChunk,
   AgentInstanceInfo,
+  BulkHandoffRequest,
+  BulkHandoffResult,
   HandoffRequest,
   OrcaEvent,
   SpawnAgentRequest
@@ -27,6 +29,7 @@ import type {
   Idea,
   IdeaTransferRequest,
   IdeaTransferResult,
+  RemovableIdeaAttribute,
   UpdateIdeaInput
 } from './inbox'
 import type {
@@ -93,6 +96,8 @@ export const IPC = {
   ideasDelete: 'ideas:delete',
   ideasAddArtifact: 'ideas:addArtifact',
   ideasRemoveArtifact: 'ideas:removeArtifact',
+  ideasRemoveAttribute: 'ideas:remove-attribute',
+  ideasRestore: 'ideas:restore',
   ideasTransferToProfile: 'ideas:transferToProfile',
   ideasTransferRetry: 'ideas:transferRetry',
   ideasEnhancePrompt: 'ideas:enhancePrompt',
@@ -115,6 +120,7 @@ export const IPC = {
   agentBuffer: 'agent:buffer',
   agentPopout: 'agent:popout',
   agentHandoff: 'agent:handoff',
+  agentsBulkHandoff: 'agents:bulkHandoff',
   orchestratorSnapshot: 'orchestrator:snapshot',
   orchestratorReset: 'orchestrator:reset',
   orchestratorEnableAutoMode: 'orchestrator:enableAutoMode',
@@ -374,6 +380,8 @@ export interface OrcaApi {
     delete(id: string): Promise<Idea[]>
     addArtifact(ideaId: string, input: AddArtifactInput): Promise<Idea>
     removeArtifact(ideaId: string, artifactId: string): Promise<Idea>
+    removeAttribute(ideaId: string, attribute: RemovableIdeaAttribute): Promise<Idea>
+    restoreIdea(ideaId: string): Promise<Idea>
     /** Hand idea + artifacts to a workspace profile and start orchestrator planning. */
     transferToProfile(req: IdeaTransferRequest): Promise<IdeaTransferResult>
     /** Retry a failed, retryable transfer for the same profile. */
@@ -427,6 +435,8 @@ export interface OrcaApi {
      * with a handoff briefing. Returns the new (taking-over) agent.
      */
     handoff(req: HandoffRequest): Promise<AgentInstanceInfo>
+    /** Hand several selected live agents to one provider/model. */
+    bulkHandoff(req: BulkHandoffRequest): Promise<BulkHandoffResult>
     onData(cb: (chunk: AgentDataChunk) => void): () => void
     onChanged(cb: (list: AgentInstanceInfo[]) => void): () => void
     onEvent(cb: (evt: OrcaEvent) => void): () => void

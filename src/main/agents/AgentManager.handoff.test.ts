@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 type ExitHandler = (event: { exitCode: number; signal?: number }) => void
+type DataHandler = (data: string) => void
 
 const mocks = vi.hoisted(() => ({
   ptySpawn: vi.fn(),
@@ -43,6 +44,7 @@ import { AgentManager } from './AgentManager'
 interface FakePty {
   pid: number
   emitExit(event: { exitCode: number; signal?: number }): void
+  emitData(data: string): void
   write: ReturnType<typeof vi.fn>
 }
 
@@ -81,23 +83,31 @@ describe('AgentManager orchestrator handoff lifecycle', () => {
     )
     mocks.ptySpawn.mockImplementation(() => {
       const exitHandlers: ExitHandler[] = []
+      const dataHandlers: DataHandler[] = []
       const emitExit = (event: { exitCode: number; signal?: number }): void => {
         for (const handler of exitHandlers) handler(event)
       }
+      const emitData = (data: string): void => {
+        for (const handler of dataHandlers) handler(data)
+      }
       const process = {
         pid: 100 + processes.length,
-        onData: vi.fn(),
+        onData: vi.fn((handler: DataHandler) => {
+          dataHandlers.push(handler)
+        }),
         onExit: vi.fn((handler: ExitHandler) => {
           exitHandlers.push(handler)
         }),
         kill: vi.fn(() => emitExit({ exitCode: 0 })),
         resize: vi.fn(),
         write: vi.fn(),
+        emitData,
         emitExit
       }
       processes.push({
         pid: process.pid,
         write: process.write,
+        emitData: (data) => process.emitData(data),
         emitExit: (event) => process.emitExit(event)
       })
       return process
@@ -135,6 +145,31 @@ describe('AgentManager orchestrator handoff lifecycle', () => {
     expect(manager.list().map((agent) => agent.id)).toEqual([target.id])
     expect(manager.list()[0]?.handoffFrom?.handshake?.phase).toBe('completed')
     expect(mocks.closePaneWindows).toHaveBeenCalledWith(source.id)
+  })
+
+  it('does not invalidate the delivered handoff when the source TUI redraws', async () => {
+    const manager = new AgentManager()
+    const source = await spawnSource(manager)
+    processes[0]?.emitData('source ready')
+    const target = await manager.handoff({ sourceId: source.id, provider: 'codex', model: '' })
+    const challenge = promptChallenge()
+    const identity = manager.orchestratorClientIdentity(target.id)!
+    const context = manager.readOrchestratorHandoffContext(challenge, identity, {})
+    expect(context.ok).toBe(true)
+    if (!context.ok) throw new Error(context.message)
+
+    processes[0]?.emitData('\u001b[2K\r⠋ redrawing\u001b[2K\r')
+
+    await expect(
+      manager.acknowledgeOrchestratorHandoff(
+        {
+          ...challenge,
+          knowledgeDigest: context.knowledgeDigest,
+          summary: 'Der eingefrorene Übergabestand wurde vollständig übernommen.'
+        },
+        identity
+      )
+    ).resolves.toMatchObject({ ok: true, duplicate: false })
   })
 
   it('does not stop the source when the target process exits before acknowledgement', async () => {
@@ -210,5 +245,29 @@ describe('AgentManager orchestrator handoff lifecycle', () => {
     expect(target.kind).toBe('sub')
     expect(source.handoffTo?.handshake).toBeUndefined()
     expect(manager.list().map((agent) => agent.id)).toEqual([source.id, target.id])
+  })
+
+  it('hands several interactive agents to one target provider and isolates per-source failures', async () => {
+    const manager = new AgentManager()
+    const first = await spawnSource(manager, 'sub')
+    const second = await spawnSource(manager, 'sub')
+
+    const result = await manager.bulkHandoff({
+      sourceIds: [first.id, 'missing-source', second.id],
+      provider: 'cursor',
+      model: 'grok',
+      task: 'Arbeite am bisherigen Ziel weiter.',
+      stopSources: true
+    })
+
+    expect(result.requested).toBe(3)
+    expect(result.transferred).toHaveLength(2)
+    expect(result.transferred.every((agent) => agent.provider === 'cursor')).toBe(true)
+    expect(result.failures).toEqual([
+      expect.objectContaining({ sourceId: 'missing-source', error: expect.stringContaining('nicht gefunden') })
+    ])
+    expect(manager.list().map((agent) => agent.id)).toEqual(
+      result.transferred.map((agent) => agent.id)
+    )
   })
 })

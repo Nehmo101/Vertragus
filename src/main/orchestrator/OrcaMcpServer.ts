@@ -44,11 +44,16 @@ const ORCHESTRATOR_TOOLS = [
   'mcp__orca__await_task',
   'mcp__orca__await_any',
   'mcp__orca__list_findings',
+  'mcp__orca__list_multiagent_runs',
+  'mcp__orca__review_multiagent',
+  'mcp__orca__list_subagent_requests',
+  'mcp__orca__respond_subagent',
   'mcp__orca__get_plan_status',
   'mcp__orca__await_plan',
   'mcp__orca__cancel_plan',
   'mcp__orca__open_subwindow',
   'mcp__orca__execute_plan',
+  'mcp__orca__get_retro_draft',
   'mcp__orca__record_retro',
   'mcp__orca__revoke_learning',
   'mcp__orca__run_benchmark',
@@ -64,7 +69,7 @@ const MAX_REQUEST_BODY_BYTES = 2 * 1024 * 1024
 const AWAIT_TIMEOUT_SHAPE = z.number().int().min(1_000).max(55_000).optional()
   .describe('Optionales serverseitiges Wartefenster in ms (Standard 25000, min 1000, max 55000).')
 
-const AGENT_PROVIDERS = ['claude', 'codex', 'cursor', 'copilot', 'ollama'] as const
+const AGENT_PROVIDERS = ['claude', 'kimi', 'codex', 'cursor', 'copilot', 'ollama'] as const
 
 const ACTIVITY_PHASES = [
   'idle', 'planning', 'awaiting-review', 'delegating', 'monitoring',
@@ -89,11 +94,13 @@ function buildMcpServer(
         'Use exactly the returned role values and choose only the roles the plan needs.',
         'Keep report_activity current so the user can see what you are doing, what workers are doing, and what happens next.',
         'Use await_plan(runId) to block until a plan reaches a terminal result instead of repeatedly polling; re-call await_plan whenever it returns stillRunning. Then evaluate it against the goal and submit focused follow-up plans when needed.',
-        'After every terminal plan run call record_retro with concise per-model learnings (strengths/weaknesses); they feed back into list_subagents as learnedStrengths/learnedWeaknesses.',
+        'After every terminal plan run call get_retro_draft, fill only the qualitative insight/evidence fields, then pass the completed templates to record_retro; they feed back into list_subagents as learnedStrengths/learnedWeaknesses.',
         'Stop only when the goal is verified or a concrete dead end requires user input or an external change.',
         'To wait for worker results use await_task(taskId) or await_any(taskIds) to block instead of polling; call get_task_status/list_tasks only for a one-off snapshot (e.g. to read the exact agentName). Identify a worker only by the exact agentName returned by get_task_status or list_tasks.',
         'If agentName is absent, use taskId and role until a later poll returns it; never infer or invent a worker name.',
         'Report each worker task, phase, current action, and blocker.',
+        'Check list_subagent_requests regularly and answer pending worker questions with respond_subagent; use stop only when that worker must not continue.',
+        'After dispatching in Multiagent mode, inspect list_multiagent_runs. For every awaiting-review group compare task results, diffs, tests and findings, then call review_multiagent with accept, revise or reject. Accept exactly one candidate; never integrate competing candidates together.',
         'Give every subagent a complete standalone prompt and summarize their results for the user.'
       ].join(' ')
     }
@@ -185,8 +192,10 @@ function buildMcpServer(
     { title: z.string().describe('Kurzer Titel des Ziels, z.B. "Checkout-Flow v2"') },
     async (args) => {
       const title = String(args.title ?? '')
-      engine.setGoal(title)
-      return text(`Ziel gesetzt: ${title}`)
+      const { retroReminder } = engine.setGoal(title)
+      const lines = [`Ziel gesetzt: ${title}`]
+      if (retroReminder) lines.push(`⚠ Retro offen: ${retroReminder.message}`)
+      return text(lines.join('\n'))
     }
   )
 
@@ -321,6 +330,55 @@ function buildMcpServer(
   )
 
   register(
+    'list_multiagent_runs',
+    'Liste konkurrierende Kandidatengruppen samt Kandidaten-Task-IDs und Reviewstatus. ' +
+      'Bei awaiting-review müssen Ergebnisse, Diffs, Tests und Findings bewertet werden.',
+    {},
+    async () => text(JSON.stringify(engine.listMultiAgentRuns(), null, 2))
+  )
+
+  register(
+    'review_multiagent',
+    'Triff die verbindliche Reviewentscheidung für eine Multiagent-Gruppe: genau einen Kandidaten ' +
+      'übernehmen, einen Kandidaten mit konkretem Feedback überarbeiten lassen oder alle verwerfen.',
+    {
+      runId: z.string().min(1),
+      action: z.enum(['accept', 'revise', 'reject']),
+      candidateTaskId: z.string().min(1).optional(),
+      feedback: z.string().min(8).max(2_000).describe('Konkrete Code-Review-Begründung oder Überarbeitungsanweisung')
+    },
+    async (args) => text(JSON.stringify(await engine.reviewMultiAgentRun({
+      runId: String(args.runId ?? ''),
+      action: String(args.action ?? 'reject') as 'accept' | 'revise' | 'reject',
+      candidateTaskId: args.candidateTaskId ? String(args.candidateTaskId) : undefined,
+      feedback: String(args.feedback ?? '')
+    }), null, 2))
+  )
+
+  register(
+    'list_subagent_requests',
+    'Liste direkte Rückfragen und Unterstützungsanfragen laufender Subagents. Standardmäßig nur offene Anfragen.',
+    { pendingOnly: z.boolean().optional() },
+    async (args) => text(JSON.stringify(engine.listSubagentSupportRequests(args.pendingOnly !== false), null, 2))
+  )
+
+  register(
+    'respond_subagent',
+    'Antworte einer Subagent-Rückfrage konkret. continue liefert die Antwort an den wartenden Worker; ' +
+      'stop beendet den Worker, wenn er an diesem Task nicht weiterarbeiten darf.',
+    {
+      requestId: z.string().min(1),
+      response: z.string().min(1).max(2_000),
+      action: z.enum(['continue', 'stop']).default('continue')
+    },
+    async (args) => text(JSON.stringify(await engine.respondSubagentSupport(
+      String(args.requestId ?? ''),
+      String(args.response ?? ''),
+      String(args.action ?? 'continue') as 'continue' | 'stop'
+    ), null, 2))
+  )
+
+  register(
     'get_plan_status',
     'Liefere den wahrheitsgetreuen Gesamtstatus sowie jeden Knoten mit Phase, Heartbeat, ' +
       'letzter Aktion, Findings und Engine-/Workspace-Identität.',
@@ -335,7 +393,9 @@ function buildMcpServer(
     'await_plan',
     'Blockiere, bis ein Planlauf terminal ist (success/needs-work/error/stopped), statt get_plan_status ' +
       'wiederholt zu pollen. Kehrt sofort zurück, wenn der Lauf schon terminal ist. Wartet ein Plan auf ' +
-      'Freigabe, bleibt stillRunning:true, bis der Nutzer den Plan freigibt. Bei stillRunning:true erneut aufrufen.',
+      'Freigabe, bleibt stillRunning:true, bis der Nutzer den Plan freigibt. Bei stillRunning:true erneut aufrufen. ' +
+      'Bei einem terminalen Lauf ohne erfasstes qualitatives Retro enthält die Antwort retroPending:true und ' +
+      'ein ausfüllfertiges retroDraft — fülle je Modell strength UND weakness und rufe record_retro auf.',
     {
       runId: z.string().describe('runId aus execute_plan'),
       timeoutMs: AWAIT_TIMEOUT_SHAPE
@@ -430,6 +490,23 @@ function buildMcpServer(
         version: 1,
         tasks: rawTasks
       })
+      return text(JSON.stringify(result, null, 2))
+    }
+  )
+
+  register(
+    'get_retro_draft',
+    'Erzeuge nach einem terminalen Planlauf ein Fakten-Gerüst für record_retro. ' +
+      'Modellnamen, Task-Bilanz, Fehlerarten, Gate-Findings, Dauer-Rang und Nutzung sind vorausgefüllt; ' +
+      'ergänze danach nur insight/evidence in den Learning-Templates.',
+    {
+      planId: z.string().trim().min(1).optional()
+        .describe('Optionale Plan-ID; Standard ist der letzte terminale Planlauf')
+    },
+    async (args) => {
+      const result = engine.buildRetroDraft(
+        typeof args.planId === 'string' ? args.planId : undefined
+      )
       return text(JSON.stringify(result, null, 2))
     }
   )
@@ -606,7 +683,8 @@ function buildSubagentMcpServer(engine: OrchestratorEngine, taskId: string): Mcp
         'Du bist ein Orca-Strator Subagent. Über diese Tools kommunizierst du mit dem Orchestrator und parallelen Subagents.',
         'Melde wichtige Phasenwechsel und Zwischenstände knapp über report_progress.',
         'Teile Schnittstellen, Entscheidungen und Blocker, die parallele Tasks betreffen, über post_finding.',
-        'Lies mit list_findings die Einträge anderer Subagents, bevor du gemeinsame Schnittstellen festlegst.'
+        'Lies mit list_findings die Einträge anderer Subagents, bevor du gemeinsame Schnittstellen festlegst.',
+        'Wenn dir eine Richtungsentscheidung, Freigabe oder Hilfe fehlt, stelle eine konkrete Frage mit ask_orchestrator und warte mit await_orchestrator_response auf die Antwort.'
       ].join(' ')
     }
   )
@@ -665,6 +743,47 @@ function buildSubagentMcpServer(engine: OrchestratorEngine, taskId: string): Mcp
       '(Schnittstellen, Entscheidungen, Blocker, Erkenntnisse anderer Subagents).',
     {},
     async () => text(JSON.stringify(engine.listTaskFindings(taskId), null, 2))
+  )
+
+  toolFn(
+    'ask_orchestrator',
+    'Stelle dem Orchestrator eine konkrete Rückfrage oder fordere Unterstützung an. ' +
+      'Die Antwort enthält requestId; warte anschließend mit await_orchestrator_response.',
+    {
+      question: z.string().min(1).max(1_000),
+      context: z.string().min(1).max(2_000).optional()
+    },
+    async (args) => {
+      try {
+        const request = engine.requestSubagentSupport(taskId, {
+          question: String(args.question ?? ''),
+          context: args.context ? String(args.context) : undefined
+        })
+        return text(JSON.stringify({ ok: true, requestId: request.id }))
+      } catch (error) {
+        return text(JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) }))
+      }
+    }
+  )
+
+  toolFn(
+    'await_orchestrator_response',
+    'Warte serverseitig auf die Antwort zu einer vorherigen ask_orchestrator-Rückfrage. ' +
+      'Bei stillWaiting:true mit derselben requestId erneut aufrufen.',
+    {
+      requestId: z.string().min(1),
+      timeoutMs: AWAIT_TIMEOUT_SHAPE
+    },
+    async (args) => {
+      try {
+        return text(JSON.stringify(await engine.awaitSubagentSupportResponse(
+          String(args.requestId ?? ''),
+          args.timeoutMs as number | undefined
+        ), null, 2))
+      } catch (error) {
+        return text(JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) }))
+      }
+    }
   )
 
   toolFn(

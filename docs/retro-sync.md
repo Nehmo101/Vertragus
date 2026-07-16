@@ -51,7 +51,12 @@ Export durch die Secret-Redaction (`redactDiagnosticValue`).
    Eintrag anpassen; Default ist `Nehmo101/Orca-Strator@retros`. Der Branch
    wird beim ersten Export automatisch als Orphan angelegt.
 2. **Im Repo:** Secret `ANTHROPIC_API_KEY` anlegen
-   (Settings → Secrets and variables → Actions) — nötig für die Analyse.
+   (Settings → Secrets and variables → Actions) — nötig, sobald mindestens
+   `ORCA_RETRO_MIN_NEW` neue Retros synthetisiert werden. Der vom Workflow
+   bereitgestellte `GITHUB_TOKEN` braucht keine manuelle Secret-Konfiguration;
+   der Workflow fordert dafür `contents: write` und `pull-requests: write` an.
+   In den Actions-Einstellungen muss das Erstellen von Pull Requests durch
+   GitHub Actions erlaubt sein.
 3. **Hinweis:** `schedule`-Workflows laufen nur vom Default-Branch (`main`).
    Bis `retro-analysis.yml` dort angekommen ist, den Workflow per
    `workflow_dispatch` manuell starten.
@@ -75,7 +80,44 @@ Export durch die Secret-Redaction (`redactDiagnosticValue`).
 
   Unter `--min-new` (Default 3, env `ORCA_RETRO_MIN_NEW`) neuen Retros wird
   übersprungen. Das Modell ist per `ORCA_RETRO_MODEL` überschreibbar
-  (Default `claude-opus-4-8`).
+  (Default `claude-sonnet-5`).
+
+### Bootstrap beim ersten Analyse-Lauf
+
+Ein schreibender Lauf (`--write`, wie im wöchentlichen Workflow) prüft vor
+dem Mindestmengen-Gate, ob die drei langlebigen Analyse-Artefakte vorhanden
+sind. Fehlende Artefakte werden einzeln und ohne Überschreiben bestehender
+Inhalte angelegt:
+
+- `overlay/learnings.md` als leeres, schema-konformes Overlay (0 Regeln,
+  damit deutlich unter 80 Zeilen / 16 KB),
+- `proposals/.gitkeep`, damit das anfänglich leere Verzeichnis auf Git
+  erhalten bleibt,
+- `state/last-analysis.json` mit Version 1, leeren `analyzedPaths` und
+  Zeitmarken `0`.
+
+Das passiert auch bei weniger als `--min-new` neuen Retros. In diesem Fall
+ruft der Lauf kein Modell auf und der Review-PR enthält nur den Bootstrap.
+Sind bereits genug Retros vorhanden, ersetzt dieselbe Analyse das leere
+Overlay sofort durch das validierte Synthese-Ergebnis und schreibt den neuen
+Fortschrittsstand. Dry-Runs melden fehlende Seed-Artefakte, verändern aber
+keine Dateien.
+
+Unbekannte zusätzliche Envelope- oder Payload-Felder werden ignoriert; die
+Analyse selektiert nur ihre benötigten Pflichtfelder. Erweiterungen anderer
+Tracks müssen deshalb additiv und optional bleiben.
+
+### Aktivierung verifizieren
+
+1. Sicherstellen, dass der `retros`-Branch durch mindestens einen App-Export
+   existiert und `retro-analysis.yml` auf dem Default-Branch liegt.
+2. Unter Actions → **Retro Analysis** einen `workflow_dispatch` starten.
+3. Im Log die Zeilen `Bootstrap angelegt:` oder den normalen Analysebericht
+   prüfen und den erzeugten PR mit Basis `retros` kontrollieren.
+4. Nach menschlicher Prüfung den PR mergen und auf `retros` verifizieren,
+   dass `overlay/learnings.md`, `proposals/.gitkeep` und
+   `state/last-analysis.json` vorhanden sind. Ab dann läuft der Cron montags
+   um 06:00 UTC; bestehende Artefakte bleiben beim nächsten Lauf erhalten.
 
 ## Review-Prozess
 
@@ -100,3 +142,29 @@ Export durch die Secret-Redaction (`redactDiagnosticValue`).
   (`branches-ignore` in `ci.yml`); die Action schreibt nie auf Code-Branches.
 - Konservativitäts-Gate im Code: nur Learnings mit ≥ 2 Beobachtungen,
   ≥ 2 unabhängigen Vorkommen oder Benchmark-Beleg erreichen die Synthese.
+
+## Retro-Gate (in-Session)
+
+Damit qualitative Modell-Learnings nicht verloren gehen, ist das Retro ein
+Pflicht-Gate statt einer Prosa-Bitte im Systemprompt:
+
+- **Erfüllungs-Kriterium:** Eine Retro-Karte gilt erst als erledigt, wenn der
+  Orchestrator über `record_retro` eigene Learnings (`source: 'orchestrator'`)
+  eingetragen hat. Die automatische Heuristik-Retro (`source: 'auto-retro'`)
+  erfasst nur Zahlen und erfüllt das Gate **nicht**.
+- **await_plan:** Bei einem terminalen Lauf mit offenem Retro liefert
+  `await_plan` additiv `retroPending: true` und ein ausfüllfertiges
+  `retroDraft` (Ausgabe von `buildRetroDraft` für diesen `planId`). Ist das
+  Retro erfasst, ist `retroPending: false` und kein Gerüst enthalten.
+- **set_goal-Nudge:** Wird ein neues Ziel gesetzt, während der letzte
+  terminale Lauf noch offen ist, gibt `set_goal` einen nicht-blockierenden
+  `retroReminder` (mit `priorPlanId`) zurück.
+- **Symmetrisches Template (E):** `get_retro_draft`/das eingebettete Gerüst
+  liefert je Modell zwei Slots — `learningTemplates: [strength, weakness]` —
+  mit exaktem Modellnamen. `renderRetroDraftForPrompt` erzeugt daraus eine
+  deterministische, menschenlesbare Vorlage. Ehrlichkeit bleibt gewahrt: ein
+  Slot darf leer bleiben, wenn kein Beleg vorliegt — keine erfundene Schwäche.
+- Selftest-Läufe (`REMOTE_SELFTEST_SESSION_ID`) sind vom Gate und vom Nudge
+  ausgenommen.
+- Alle Felder sind **additiv** und optional; die Offline-Analyse-Pipeline
+  bleibt schema-tolerant.

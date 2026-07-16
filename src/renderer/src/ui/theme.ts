@@ -14,6 +14,7 @@ export interface ProviderTheme {
 
 export const PROVIDER_THEME: Record<ProviderId, ProviderTheme> = {
   claude: { label: 'Claude', mono: 'CL', fg: 'var(--prov-claude)', bg: 'color-mix(in srgb, var(--prov-claude) 17%, transparent)' },
+  kimi: { label: 'Kimi K3', mono: 'Ki', fg: 'var(--prov-kimi)', bg: 'color-mix(in srgb, var(--prov-kimi) 17%, transparent)' },
   codex: { label: 'Codex', mono: 'Cx', fg: 'var(--prov-codex)', bg: 'color-mix(in srgb, var(--prov-codex) 17%, transparent)' },
   cursor: { label: 'Cursor', mono: 'Cu', fg: 'var(--prov-cursor)', bg: 'color-mix(in srgb, var(--prov-cursor) 17%, transparent)' },
   copilot: { label: 'GitHub Copilot', mono: 'Co', fg: 'var(--prov-github)', bg: 'color-mix(in srgb, var(--prov-github) 17%, transparent)' },

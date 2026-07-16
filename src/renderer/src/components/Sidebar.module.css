@@ -1,0 +1,40 @@
+.workspaceRunStatus {
+  display: inline-flex;
+  min-width: 0;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 5px;
+  border: 1px solid var(--border-3);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-3) 8%, transparent);
+  color: var(--text-3);
+  font-size: 9.5px;
+  font-weight: 650;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.workspaceRunStatus[data-tone='success'] {
+  border-color: color-mix(in srgb, var(--ok) 48%, transparent);
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+  color: var(--ok-text);
+}
+
+.workspaceRunStatus[data-tone='failure'] {
+  border-color: color-mix(in srgb, var(--err) 55%, transparent);
+  background: color-mix(in srgb, var(--err) 13%, transparent);
+  color: var(--err-text);
+}
+
+.workspaceRunSymbol {
+  width: 1em;
+  flex: none;
+  text-align: center;
+}
+
+@media (prefers-contrast: more) {
+  .workspaceRunStatus {
+    border-width: 2px;
+  }
+}

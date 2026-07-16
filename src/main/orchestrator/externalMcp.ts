@@ -20,6 +20,7 @@ import { getMcpHandle, SUBAGENT_ALLOWED_TOOLS } from '@main/orchestrator/mcpHand
 import {
   buildClaudeMcpArgs,
   buildCodexMcpArgs,
+  buildKimiMcpArgs,
   type McpServerSpec
 } from '@main/orchestrator/mcpConfig'
 
@@ -28,7 +29,7 @@ export interface SubagentMcpContext {
   taskId?: string
   engineId?: string
   workspaceSessionId?: string
-  /** Claude print-mode only: route unresolved tool prompts to Orca's broker. */
+  /** Claude/Kimi print-mode only: route unresolved tool prompts to Orca's broker. */
   permissionPrompt?: boolean
 }
 
@@ -89,7 +90,9 @@ function orcaSubagentSpec(context: SubagentMcpContext): McpServerSpec | undefine
     url: url.toString(),
     allowedTools: SUBAGENT_ALLOWED_TOOLS.filter(
       (tool) => context.permissionPrompt || tool !== 'mcp__orca-sub__permission_prompt'
-    )
+    ),
+    // These status/reporting tools are Orca-owned and task-scoped.
+    approvalMode: 'approve'
   }
 }
 
@@ -120,9 +123,12 @@ export function buildSubagentMcpArgs(
     ...externalMcpSpecsFor('subagent', provider)
   ]
   if (servers.length === 0) return []
-  if (provider === 'claude') {
+  if (provider === 'claude' || provider === 'kimi') {
     // strict=false so the subagent keeps its own personal .mcp.json servers too.
-    const args = buildClaudeMcpArgs(servers, {
+    // Kimi Code CLI mirrors Claude's per-subagent MCP + permission-prompt wiring,
+    // differing only in the config-file flag handled by the builder.
+    const build = provider === 'kimi' ? buildKimiMcpArgs : buildClaudeMcpArgs
+    const args = build(servers, {
       configDir: app.getPath('userData'),
       fileTag: agentId,
       strict: false,

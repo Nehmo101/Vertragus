@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   useAppStore,
   workspaceAgentHistory,
+  workspaceTaskSummary,
   workspaceUserAttention,
   type WorkspaceUserAttention
 } from '@renderer/store/useAppStore'
@@ -14,7 +15,12 @@ import type { InboxSpeechStatus } from '@shared/inboxSpeech'
 import { MCP_SCOPE_LABELS, MCP_TRANSPORT_LABELS } from '@shared/mcp'
 import { middleEarthWorkspaceName, middleEarthWorkspaceBlurb } from '@shared/workspaceNames'
 import LoreName from '@renderer/components/LoreName'
+import WorkspaceTaskSummary from '@renderer/components/WorkspaceTaskSummary'
 import { deriveRemoteApprovals } from '@shared/remote'
+import { ResizeHandle } from '@renderer/components/ResizeHandle'
+import { selectPanelLayout, useLayoutStore } from '@renderer/store/layoutStore'
+import styles from './Sidebar.module.css'
+import { workspaceRunPresentation } from './workspaceRunStatus'
 
 interface RowStatus {
   label: string
@@ -433,9 +439,21 @@ function attentionText(attention: WorkspaceUserAttention): string {
 
 type SidebarStore = ReturnType<typeof useAppStore.getState>
 
-export function SidebarView({ store }: { store: SidebarStore }): JSX.Element {
+interface SidebarViewProps {
+  store: SidebarStore
+  width?: number
+  collapsed?: boolean
+  onToggle?: () => void
+}
+
+export function SidebarView({
+  store,
+  width,
+  collapsed = false,
+  onToggle
+}: SidebarViewProps): JSX.Element {
   const hash = useHashRoute()
-  const aiIds: ProviderId[] = ['claude', 'codex', 'cursor', 'copilot', 'ollama']
+  const aiIds: ProviderId[] = ['claude', 'kimi', 'codex', 'cursor', 'copilot', 'ollama']
   const onlineCount = aiIds.filter(
     (id) => store.providerEnabled[id as AgentProviderId] && store.health.find((h) => h.id === id)?.available
   ).length
@@ -460,11 +478,11 @@ export function SidebarView({ store }: { store: SidebarStore }): JSX.Element {
               <button
                 type="button"
                 className="icon-btn-sm"
-                title="Aktives Profil kopieren"
-                aria-label="Aktives Workspace-Profil kopieren"
+                title="Aktives Profil duplizieren"
+                aria-label="Aktives Workspace-Profil duplizieren"
                 onClick={() => {
                   const profile = store.profiles.find((item) => item.id === store.activeProfileId)
-                  if (profile) store.openEditorCopy(profile)
+                  if (profile) void store.duplicateProfile(profile.id)
                 }}
               >
                 ⧉
@@ -486,29 +504,39 @@ export function SidebarView({ store }: { store: SidebarStore }): JSX.Element {
             const attention = workspaceUserAttention(store, profile.id)
             const attentionLabel = attention ? attentionText(attention) : undefined
             return (
-              <button
-                type="button"
-                key={profile.id}
-                className={`profile-row ${profile.id === store.activeProfileId ? 'active' : ''} ${attention ? 'workspace-needs-user-attention' : ''}`}
-                data-user-attention={attention?.source}
-                onClick={() => void store.selectProfile(profile.id)}
-                onDoubleClick={() => store.openEditor(profile)}
-                title={`Klick: aktivieren · Doppelklick: bearbeiten${attentionLabel ? ` · ${attentionLabel}` : ''}`}
-                aria-label={attentionLabel ? `${profile.name}. ${attentionLabel}` : undefined}
-                aria-pressed={profile.id === store.activeProfileId}
-              >
-                <span className="profile-rail" />
-                <div className="info">
-                  <div className="name">{profile.name}</div>
-                  <div className="summary">{profileSummary(profile)}</div>
-                </div>
-                {attention && <span className="workspace-attention-indicator" aria-hidden="true" />}
-                <span className={`profile-count ${runningByProfile.has(profile.id) ? 'running' : ''}`}>
-                  {runningByProfile.has(profile.id)
-                    ? `${runningByProfile.get(profile.id)} aktiv`
-                    : profileAgentCount(profile)}
-                </span>
-              </button>
+              <div className="profile-row-item" key={profile.id}>
+                <button
+                  type="button"
+                  className={`profile-row ${profile.id === store.activeProfileId ? 'active' : ''} ${attention ? 'workspace-needs-user-attention' : ''}`}
+                  data-user-attention={attention?.source}
+                  onClick={() => void store.selectProfile(profile.id)}
+                  onDoubleClick={() => store.openEditor(profile)}
+                  title={`Klick: aktivieren · Doppelklick: bearbeiten${attentionLabel ? ` · ${attentionLabel}` : ''}`}
+                  aria-label={attentionLabel ? `${profile.name}. ${attentionLabel}` : undefined}
+                  aria-pressed={profile.id === store.activeProfileId}
+                >
+                  <span className="profile-rail" />
+                  <div className="info">
+                    <div className="name">{profile.name}</div>
+                    <div className="summary">{profileSummary(profile)}</div>
+                  </div>
+                  {attention && <span className="workspace-attention-indicator" aria-hidden="true" />}
+                  <span className={`profile-count ${runningByProfile.has(profile.id) ? 'running' : ''}`}>
+                    {runningByProfile.has(profile.id)
+                      ? `${runningByProfile.get(profile.id)} aktiv`
+                      : profileAgentCount(profile)}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="icon-btn-sm profile-duplicate-action"
+                  title={`Profil „${profile.name}“ duplizieren`}
+                  aria-label={`Workspace-Profil „${profile.name}“ duplizieren`}
+                  onClick={() => void store.duplicateProfile(profile.id)}
+                >
+                  ⧉
+                </button>
+              </div>
             )
           })}
         </div>
@@ -524,13 +552,29 @@ export function SidebarView({ store }: { store: SidebarStore }): JSX.Element {
           {store.workspaceSessions
             .filter((session) => session.profileId === store.activeProfileId)
             .map((session) => {
-              const running = store.agents.filter(
-                (agent) =>
-                  agent.workspaceSessionId === session.id &&
-                  (agent.status === 'running' || agent.status === 'waiting')
+              const sessionAgents = store.agents.filter(
+                (agent) => agent.workspaceSessionId === session.id
+              )
+              const running = sessionAgents.filter(
+                (agent) => agent.status === 'running' || agent.status === 'waiting'
               ).length
+              const orchestratorAgent = sessionAgents
+                .filter((agent) => agent.kind === 'orchestrator')
+                .sort((left, right) => right.startedAt - left.startedAt)[0]
+              const snapshot = store.orchestrators[session.id] ?? Object.values(store.orchestrators)
+                .find((item) =>
+                  item.workspaceSessionId === session.id &&
+                  (!item.profileId || item.profileId === session.profileId)
+                )
+              const runStatus = workspaceRunPresentation({
+                activeAgents: running,
+                terminalStatus: snapshot?.lastRetro?.status,
+                orchestratorAgentStatus: orchestratorAgent?.status,
+                gitPostProcessingStatus: snapshot?.gitPostProcessing?.status
+              })
               const name = session.name || middleEarthWorkspaceName(session.sequence)
               const label = `W${session.sequence} ${name}`
+              const taskSummary = workspaceTaskSummary(store, session.profileId, session.id)
               const attention = workspaceUserAttention(store, session.profileId, session.id)
               const attentionLabel = attention ? attentionText(attention) : undefined
               return (
@@ -540,17 +584,31 @@ export function SidebarView({ store }: { store: SidebarStore }): JSX.Element {
                     className={`workspace-session-select ${session.id === store.activeWorkspaceSessionId ? 'active' : ''} ${attention ? 'workspace-needs-user-attention' : ''}`}
                     data-user-attention={attention?.source}
                     title={attentionLabel}
-                    aria-label={`${label}${attentionLabel ? `. ${attentionLabel}` : ''}`}
+                    aria-label={`${label}${taskSummary ? `. Aktuelle Aufgabe: ${taskSummary}` : ''}${attentionLabel ? `. ${attentionLabel}` : ''}`}
                     onClick={() => void store.selectWorkspaceSession(session.profileId, session.id)}
                   >
-                    <LoreName
-                      name={name}
-                      label={label}
-                      blurb={middleEarthWorkspaceBlurb(name)}
-                      className="workspace-session-name"
-                    />
+                    <span className="workspace-session-main">
+                      <LoreName
+                        name={name}
+                        label={label}
+                        blurb={middleEarthWorkspaceBlurb(name)}
+                        className="workspace-session-name"
+                      />
+                      <WorkspaceTaskSummary taskSummary={taskSummary} />
+                    </span>
                     {attention && <span className="workspace-attention-indicator" aria-hidden="true" />}
-                    <small>{running > 0 ? `${running} aktiv` : 'inaktiv'}</small>
+                    <span
+                      className={styles.workspaceRunStatus}
+                      data-orchestrator-status={runStatus.state}
+                      data-tone={runStatus.tone}
+                      role="status"
+                      aria-label={runStatus.accessibleLabel}
+                    >
+                      <span className={styles.workspaceRunSymbol} aria-hidden="true">
+                        {runStatus.symbol}
+                      </span>
+                      <span>{runStatus.label}</span>
+                    </span>
                   </button>
                   <button
                     type="button"
@@ -767,13 +825,56 @@ export function SidebarView({ store }: { store: SidebarStore }): JSX.Element {
   }
 
   return (
-    <aside className="sidebar">
-      {SIDEBAR_SECTION_ORDER.map((section) => sections[section])}
+    <aside
+      id="sidebar-left-panel"
+      className={`sidebar layout-panel ${collapsed ? 'panel-collapsed' : ''}`}
+      style={collapsed ? undefined : { width }}
+      aria-label="Linke Seitenleiste"
+    >
+      {onToggle && (
+        <div className="panel-control-row panel-control-row-left">
+          <button
+            type="button"
+            className="panel-collapse-button"
+            aria-controls="sidebar-left-content"
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? 'Linke Seitenleiste ausklappen' : 'Linke Seitenleiste einklappen'}
+            title={collapsed ? 'Seitenleiste ausklappen' : 'Seitenleiste einklappen'}
+            onClick={onToggle}
+          >
+            {collapsed ? '›' : '‹'}
+          </button>
+        </div>
+      )}
+      {!collapsed && (
+        <div id="sidebar-left-content" className="panel-scroll-content">
+          {SIDEBAR_SECTION_ORDER.map((section) => sections[section])}
+        </div>
+      )}
     </aside>
   )
 }
 
 export default function Sidebar(): JSX.Element {
   const store = useAppStore()
-  return <SidebarView store={store} />
+  const layout = useLayoutStore(selectPanelLayout('sidebar-left'))
+  const toggleCollapsed = useLayoutStore((state) => state.toggleCollapsed)
+
+  return (
+    <>
+      <SidebarView
+        store={store}
+        width={layout.width}
+        collapsed={layout.collapsed}
+        onToggle={() => toggleCollapsed('sidebar-left')}
+      />
+      {!layout.collapsed && (
+        <ResizeHandle
+          panelId="sidebar-left"
+          direction="right"
+          ariaLabel="Breite der linken Seitenleiste ändern"
+        />
+      )}
+    </>
+  )
 }

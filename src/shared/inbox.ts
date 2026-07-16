@@ -7,6 +7,40 @@ import { ideaTransferSchema } from './inboxTransfer'
 export const IDEA_STATUSES = ['draft', 'ready', 'archived', 'done'] as const
 export type IdeaStatus = (typeof IDEA_STATUSES)[number]
 
+/** Status values accepted from inbox create/update calls; archive transitions stay main-only. */
+export const IDEA_INPUT_STATUSES = ['draft', 'ready', 'done'] as const
+export type IdeaInputStatus = (typeof IDEA_INPUT_STATUSES)[number]
+
+export const IDEA_HISTORY_KINDS = [
+  'created',
+  'statusChanged',
+  'transferStarted',
+  'transferUpdated',
+  'archived',
+  'restored',
+  'attributeRemoved'
+] as const
+
+export const ideaHistoryEntrySchema = z.object({
+  at: z.number(),
+  kind: z.enum(IDEA_HISTORY_KINDS),
+  detail: z.string().optional()
+})
+
+export type IdeaHistoryEntry = z.infer<typeof ideaHistoryEntrySchema>
+
+export const REMOVABLE_IDEA_ATTRIBUTES = [
+  'tags',
+  'profileId',
+  'workspaceId',
+  'planId',
+  'taskId'
+] as const
+
+export const removableIdeaAttributeSchema = z.enum(REMOVABLE_IDEA_ATTRIBUTES)
+export type RemovableIdeaAttribute = z.infer<typeof removableIdeaAttributeSchema>
+export type IdeaArchiveView = 'inbox' | 'archive'
+
 export const ARTIFACT_KINDS = ['text', 'file', 'url'] as const
 export type ArtifactKind = (typeof ARTIFACT_KINDS)[number]
 
@@ -42,6 +76,8 @@ export const ideaSchema = z.object({
   artifacts: z.array(ideaArtifactSchema),
   /** Latest inbox → workspace transfer state (stable transfer id per idea). */
   transfer: ideaTransferSchema.optional(),
+  archivedAt: z.number().optional(),
+  history: z.array(ideaHistoryEntrySchema).optional(),
   createdAt: z.number(),
   updatedAt: z.number()
 })
@@ -55,7 +91,7 @@ export type { IdeaTransfer, IdeaTransferRequest, IdeaTransferResult } from './in
 export interface CreateIdeaInput {
   title?: string
   content?: string
-  status?: IdeaStatus
+  status?: IdeaInputStatus
   tags?: string[]
   refs?: IdeaRefs
 }
@@ -64,7 +100,7 @@ export interface UpdateIdeaInput {
   id: string
   title?: string
   content?: string
-  status?: IdeaStatus
+  status?: IdeaInputStatus
   tags?: string[]
   refs?: IdeaRefs
 }

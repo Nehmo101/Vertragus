@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { profileHasRunningAgents, useAppStore } from '@renderer/store/useAppStore'
 import { profileRepoLocalPath, type WorkspaceProfile, type AgentSlot } from '@shared/profile'
+import { postProcessBranchValidationError } from '@shared/gitPostProcessing'
 import type { AgentProviderId } from '@shared/providers'
 import type { ModelPreset } from '@shared/models'
 import {
@@ -14,10 +15,11 @@ import InfoTip from '@renderer/components/InfoTip'
 import { githubAuthPresentation, hasUsableGithubAuth } from '@renderer/store/githubAuth'
 import ModelCatalogStatus from '@renderer/components/ModelCatalogStatus'
 import { modelPresetAvailability } from '@renderer/modelCatalog'
+import ClaudePermissionModeSelect from '@renderer/components/ClaudePermissionModeSelect'
 
-const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'cursor', 'copilot', 'ollama']
+const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'kimi', 'codex', 'cursor', 'copilot', 'ollama']
 
-const ORCHESTRATOR_PROVIDERS: AgentProviderId[] = ['claude', 'codex', 'copilot']
+const ORCHESTRATOR_PROVIDERS: AgentProviderId[] = ['claude', 'kimi', 'codex', 'copilot']
 const HELP = {
   profileName: 'Frei wählbarer Name für diese Kombination aus Workspace, Orchestrator und Subagents.',
   workingDir: 'Lokaler Repository- oder Projektordner, in dem die Agents arbeiten. Der Auto-PR-Basisbranch wird bei Bedarf aus dem git-origin dieses Ordners abgeleitet.',
@@ -26,16 +28,20 @@ const HELP = {
   agentWorkingDir: 'Optionaler Pfad nur für diesen Slot. Leer übernimmt den Workspace-Basispfad.',
   mode: 'Orchestriert lässt Claude oder Codex planen und delegieren. Single startet nur die konfigurierten Slots.',
   orchestratorProvider: 'Nur Provider mit verifiziertem Orca-MCP-Adapter können orchestrieren.',
+  permissionMode: 'Auto-Mode bestätigt Edits automatisch. Plan-Mode erlaubt Claude nur zu planen.',
   model: 'Leer verwendet Preset oder CLI-Standard. Freitext überschreibt das Preset. Über das Listen-Menü rechts wählst du jederzeit ein anderes Modell — auch wenn schon eines eingetragen ist.',
   modelPreset: 'Leistungs-Preset (schnell/ausgewogen/stark). Gilt nur wenn Modell leer ist — Freitext hat Vorrang.',
   plannerMode: 'Auto startet valide Pläne direkt. Review wartet auf Freigabe. Manuell deaktiviert execute_plan.',
   routingMode: 'Adaptiv startet zunächst nur den Orchestrator und aktiviert Task-Agents passend zum Plan. Vorgewärmt startet alle Slots sofort.',
   maxParallel: 'Globales Oberlimit gleichzeitig laufender Plan-Tasks; Rollen-Kapazitäten können es weiter reduzieren.',
   maxRetries: 'Wie oft der Orchestrator nach einem fehlgeschlagenen Plan ohne neue Nutzerinformation fokussiert nachplanen darf.',
+  multiAgent: 'Startet für jede delegierte Aufgabe alle Instanzen des gewählten Slots parallel. Der Orchestrator vergleicht Ergebnisse und Diffs, fordert Nacharbeit an, verwirft die Gruppe oder übernimmt genau einen Gewinner.',
   autoPrMode: 'PRs entstehen nur nach erfolgreichen Gates. Draft ist der empfohlene sichere Startmodus.',
   prStrategy: 'Aggregate kombiniert Task-Commits in einen Goal-PR. Per Task erzeugt getrennte PRs.',
   baseBranch: 'Zielbranch des PRs. Leer nutzt den gebundenen Standardbranch oder den des origin-Remotes.',
   qualityGates: 'Vertrauenswürdige Shell-Befehle, die im Task- und Integrations-Worktree erfolgreich laufen müssen.',
+  autoGitMode: 'Nach einem vollständig erfolgreichen Workspace-Lauf werden alle Änderungen im Workspace committet und zu origin gepusht. Bei Fehlern bleibt der Lauf rot.',
+  autoGitBranch: 'Expliziter Ziel-Branch auf origin. Optionen, Ref-Specs, Revisionen, Leerzeichen und Steuerzeichen werden abgewiesen.',
   role: 'Eindeutige Fähigkeit, die der Planner adressiert, etwa frontend, backend, tests oder review.',
   agentProvider: 'CLI, die diesen Slot ausführt. Der Login erfolgt separat in der Provider-Seitenleiste.',
   count: 'Maximale parallele Task-Kapazität dieser Rolle und Anzahl beim manuellen Teamstart.',
@@ -156,7 +162,8 @@ export default function ProfileEditor(): JSX.Element | null {
       setDraft({
         ...generated,
         githubRepo: draft.githubRepo,
-        githubProject: draft.githubProject
+        githubProject: draft.githubProject,
+        autoGit: draft.autoGit
       })
       setGenerateStatus('Repo-Profil erzeugt. Rollen und Quality Gates bitte prüfen.')
     } catch (error) {
@@ -226,6 +233,10 @@ export default function ProfileEditor(): JSX.Element | null {
   const grandTotal = subTotal + (hasOrch ? 1 : 0)
   const isSavedProfile = store.profiles.some((profile) => profile.id === draft.id)
   const hasRunningAgents = profileHasRunningAgents(store.agents, draft.id)
+  const autoGitBranchError = postProcessBranchValidationError(
+    draft.autoGit.targetBranch,
+    draft.autoGit.enabled
+  )
 
   return (
     <div className="modal-wrap">
@@ -366,6 +377,7 @@ export default function ProfileEditor(): JSX.Element | null {
                     // intentional, provider-specific override.
                     model: '',
                     modelPreset: 'balanced',
+                    permissionMode: 'default',
                     autoOpenSubwindows: true
                   }
                 })
@@ -415,6 +427,22 @@ export default function ProfileEditor(): JSX.Element | null {
                   ))}
                 </select>
               </div>
+              {draft.orchestrator.provider === 'claude' && (
+                <div style={{ flex: 1.4 }}>
+                  <div className="select-label">
+                    Claude-Modus <InfoTip text={HELP.permissionMode} />
+                  </div>
+                  <ClaudePermissionModeSelect
+                    id="orchestrator-permission-mode"
+                    value={draft.orchestrator.permissionMode ?? 'default'}
+                    onChange={(permissionMode) =>
+                      patch({
+                        orchestrator: { ...draft.orchestrator!, permissionMode }
+                      })
+                    }
+                  />
+                </div>
+              )}
               <div style={{ flex: 0.9 }}>
                 <div className="select-label">
                   Preset <InfoTip text={HELP.modelPreset} />
@@ -587,6 +615,23 @@ export default function ProfileEditor(): JSX.Element | null {
                   <option value="on">Aktiv — gleiche Aufgabe für alle Slots</option>
                 </select>
               </label>
+              <label>
+                <span className="slot-col-label">
+                  Multiagent-Modus <InfoTip text={HELP.multiAgent} />
+                </span>
+                <select
+                  className="slot-select-sm"
+                  value={draft.multiAgent.enabled ? 'on' : 'off'}
+                  disabled={!draft.orchestrator}
+                  title={!draft.orchestrator ? 'Multiagent-Modus benötigt einen Orchestrator.' : undefined}
+                  onChange={(event) => patch({
+                    multiAgent: { ...draft.multiAgent, enabled: event.target.value === 'on' }
+                  })}
+                >
+                  <option value="off">Aus — ein Agent je Task</option>
+                  <option value="on">Aktiv — Slot-Anzahl als Kandidaten</option>
+                </select>
+              </label>
             </div>
           </section>
 
@@ -661,6 +706,49 @@ export default function ProfileEditor(): JSX.Element | null {
                 />
               </label>
             </div>
+          </section>
+          <section className="automation-section" aria-labelledby="auto-git-heading">
+            <div className="slots-caption compact-caption">
+              <span id="auto-git-heading">Auto-Commit &amp; Push</span>
+              <span className="count">nur nach vollständig erfolgreichem Lauf</span>
+            </div>
+            <div className="automation-grid auto-git-grid">
+              <label>
+                <span className="slot-col-label">
+                  Modus <InfoTip text={HELP.autoGitMode} />
+                </span>
+                <select
+                  className="slot-select-sm"
+                  value={draft.autoGit.enabled ? 'on' : 'off'}
+                  onChange={(event) => patch({
+                    autoGit: { ...draft.autoGit, enabled: event.target.value === 'on' }
+                  })}
+                >
+                  <option value="off">Aus</option>
+                  <option value="on">Nach Erfolg committen &amp; pushen</option>
+                </select>
+              </label>
+              <label>
+                <span className="slot-col-label">
+                  Ziel-Branch <InfoTip text={HELP.autoGitBranch} />
+                </span>
+                <input
+                  className={`slot-select-sm mono ${autoGitBranchError ? 'input-invalid' : ''}`}
+                  placeholder="z. B. orca/integrated"
+                  value={draft.autoGit.targetBranch}
+                  aria-invalid={Boolean(autoGitBranchError)}
+                  aria-describedby={autoGitBranchError ? 'auto-git-branch-error' : undefined}
+                  onChange={(event) => patch({
+                    autoGit: { ...draft.autoGit, targetBranch: event.target.value }
+                  })}
+                />
+              </label>
+            </div>
+            {autoGitBranchError && (
+              <div id="auto-git-branch-error" className="automation-validation-error" role="alert">
+                {autoGitBranchError}
+              </div>
+            )}
           </section>
           <div className="slots-caption">
             <span>Subagent-Slots</span>
@@ -921,6 +1009,15 @@ export default function ProfileEditor(): JSX.Element | null {
           {isSavedProfile && (
             <button
               type="button"
+              className="btn-secondary"
+              onClick={() => void store.duplicateProfile(draft.id)}
+            >
+              Profil duplizieren
+            </button>
+          )}
+          {isSavedProfile && (
+            <button
+              type="button"
               className="btn-danger modal-delete-btn"
               disabled={hasRunningAgents}
               title={hasRunningAgents ? 'Während einer laufenden Agent-Session nicht verfügbar' : 'Profil löschen'}
@@ -935,16 +1032,23 @@ export default function ProfileEditor(): JSX.Element | null {
               CLI-Standard oder ein explizites Modell.
             </div>
           )}
+          {autoGitBranchError && (
+            <div className="model-preset-warning" role="alert">
+              Auto-Commit &amp; Push: Ziel-Branch korrigieren.
+            </div>
+          )}
           <button type="button" className="btn-secondary" onClick={store.closeEditor}>
             Abbrechen
           </button>
           <button
             type="button"
             className="btn-primary"
-            disabled={unavailablePresetCount > 0}
+            disabled={unavailablePresetCount > 0 || Boolean(autoGitBranchError)}
             title={
               unavailablePresetCount > 0
                 ? 'Nicht verfügbare Modell-Presets zuerst korrigieren'
+                : autoGitBranchError
+                  ? autoGitBranchError
                 : undefined
             }
             onClick={() => void store.saveEditor(draft)}

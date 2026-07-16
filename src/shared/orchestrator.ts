@@ -7,8 +7,9 @@
 import type { AgentProviderId } from './providers'
 import type { AgentUsage } from './agents'
 import type { PlannerConfig } from './profile'
-import type { RunRetro } from './retro'
+import type { RetroDraftResult, RunRetro } from './retro'
 import type { ApprovalItem, PermissionRequest, RemoteBudgetSnapshot } from './remote'
+import type { WorkspaceGitPostProcessingSnapshot } from './gitPostProcessing'
 
 export type TaskStatus = 'queued' | 'running' | 'waiting' | 'paused' | 'success' | 'needs-work' | 'error' | 'stopped'
 
@@ -187,6 +188,10 @@ export interface OrcaTask {
   prUrl?: string
   /** Auto-PR is independent from the agent execution status. */
   autoPrStatus?: 'skipped' | 'prepared' | 'published' | 'blocked'
+  /** Competing-candidate group metadata for Multiagent mode. */
+  multiAgentRunId?: string
+  multiAgentParentTaskId?: string
+  multiAgentCandidate?: number
   /** Remote GitHub checks are tracked separately from successful PR publication. */
   remoteCiStatus?: RemoteCiStatus
   /** Best available check or pull-request URL for remote CI. */
@@ -196,6 +201,34 @@ export interface OrcaTask {
   yolo?: boolean
   createdAt: number
   finishedAt?: number
+}
+
+export type MultiAgentRunStatus = 'running' | 'awaiting-review' | 'accepted' | 'rejected'
+
+export interface MultiAgentRunSnapshot {
+  id: string
+  parentTaskId: string
+  title: string
+  role: string
+  status: MultiAgentRunStatus
+  candidateTaskIds: string[]
+  winnerTaskId?: string
+  feedback?: string
+  startedAt: number
+  decidedAt?: number
+}
+
+export interface SubagentSupportRequest {
+  id: string
+  taskId: string
+  agentName?: string
+  role?: string
+  question: string
+  context?: string
+  status: 'pending' | 'answered' | 'stopped'
+  response?: string
+  createdAt: number
+  respondedAt?: number
 }
 
 export type SubagentFindingKind = 'interface' | 'decision' | 'blocker' | 'insight'
@@ -241,8 +274,55 @@ export interface WorkspaceSessionSummary {
   profileName: string
   sequence: number
   name: string
+  /** Concise description of the active work in this workspace session. */
+  taskSummary: string | undefined
   startedAt: number
   active: boolean
+}
+
+export const TASK_SUMMARY_MAX_LENGTH = 120
+
+const TASK_SUMMARY_ACTIVE_STATUSES = new Set<TaskStatus>([
+  'queued',
+  'running',
+  'waiting',
+  'paused'
+])
+
+function normalizeTaskSummary(value: string | undefined): string {
+  return value?.replace(/\s+/g, ' ').trim() ?? ''
+}
+
+function truncateTaskSummary(value: string): string {
+  if (value.length <= TASK_SUMMARY_MAX_LENGTH) return value
+  return `${value.slice(0, TASK_SUMMARY_MAX_LENGTH - 1).trimEnd()}…`
+}
+
+/** Derive one bounded display line from authoritative workspace orchestration state. */
+export function deriveTaskSummary(
+  snapshot: Pick<OrchestratorSnapshot, 'goal' | 'activity' | 'tasks'>
+): string | undefined {
+  const activeTask = snapshot.tasks.find((task) => TASK_SUMMARY_ACTIVE_STATUSES.has(task.status))
+  const goalTitle = snapshot.goal?.active
+    ? normalizeTaskSummary(snapshot.goal.title)
+    : ''
+  const activitySummary = normalizeTaskSummary(snapshot.activity?.summary)
+  const activityIsActive = Boolean(
+    snapshot.activity && snapshot.activity.phase !== 'idle' && snapshot.activity.phase !== 'completed'
+  )
+  const meaningfulGoalIsActive = Boolean(
+    goalTitle &&
+    goalTitle !== 'Orchestrator aktiv' &&
+    snapshot.activity?.phase !== 'idle' &&
+    snapshot.activity?.phase !== 'completed'
+  )
+
+  if (!activeTask && !activityIsActive && !meaningfulGoalIsActive) return undefined
+
+  const summary = meaningfulGoalIsActive
+    ? goalTitle
+    : normalizeTaskSummary(activeTask?.title) || activitySummary
+  return summary ? truncateTaskSummary(summary) : undefined
 }
 
 export interface IntegrationCenterItem {
@@ -286,10 +366,16 @@ export interface OrchestratorSnapshot {
   budget?: RemoteBudgetSnapshot
   /** Path-free aggregation state for the desktop/mobile Diff & Merge Center. */
   integration?: IntegrationCenterSnapshot
+  /** Optional commit/push step belonging to the terminal workspace lifecycle. */
+  gitPostProcessing?: WorkspaceGitPostProcessingSnapshot
   /** Retrospective of the most recent terminal plan run in this session. */
   lastRetro?: RunRetro
   /** Recent shared findings board entries (newest last), for the live UI. */
   findings?: SubagentFinding[]
+  /** Competing candidate groups waiting for or carrying an orchestrator decision. */
+  multiAgentRuns?: MultiAgentRunSnapshot[]
+  /** Direct subagent questions/support requests, including answered history. */
+  subagentRequests?: SubagentSupportRequest[]
 }
 
 export interface OrchestratorReliabilityMetrics {
@@ -391,9 +477,35 @@ export type AwaitTaskResult =
   | { done: false; stillRunning: true; reason: 'timeout'; task: TaskStatusSnapshot }
   | { done: false; stillRunning: false; reason: 'unknown'; taskId: string }
 
-/** Result of the blocking await_plan tool (see {@link AwaitTaskResult}). */
+/**
+ * Non-blocking reminder that the previous terminal plan run still has no
+ * qualitative retro. Surfaced by set_goal so a new goal does not silently
+ * drop the last run's model learnings.
+ */
+export interface RetroReminder {
+  priorPlanId: string
+  message: string
+}
+
+/** Result of the set_goal tool: carries an optional pending-retro reminder. */
+export interface SetGoalResult {
+  retroReminder?: RetroReminder
+}
+
+/**
+ * Result of the blocking await_plan tool (see {@link AwaitTaskResult}).
+ * On a terminal result the retro gate is surfaced: `retroPending` is true and
+ * `retroDraft` carries the ready-to-fill scaffold until a qualitative retro has
+ * been recorded for this run via record_retro.
+ */
 export type AwaitPlanResult =
-  | { done: true; stillRunning: false; plan: PlanRunStatusSnapshot }
+  | {
+      done: true
+      stillRunning: false
+      plan: PlanRunStatusSnapshot
+      retroPending?: boolean
+      retroDraft?: RetroDraftResult
+    }
   | { done: false; stillRunning: true; reason: 'timeout'; plan: PlanRunStatusSnapshot }
   | { done: false; stillRunning: false; reason: 'unknown'; runId: string }
 

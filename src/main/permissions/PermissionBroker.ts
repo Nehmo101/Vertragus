@@ -45,6 +45,18 @@ const claudeAdapter: ProviderPermissionAdapter = {
   response: (decision) => decision === 'allow' ? 'y\r' : 'n\r'
 }
 
+const kimiAdapter: ProviderPermissionAdapter = {
+  provider: 'kimi',
+  // Kimi Code CLI resolves tool permissions through the same MCP callback path
+  // as Claude; this PTY matcher is the interactive fallback.
+  coverage: 'native-callback',
+  parsePrompt: (tail) => {
+    const match = /Kimi(?: Code)? permission\s*:\s*Allow tool\s+([a-zA-Z0-9_.:-]+)\?\s*\[y\/n\]\s*$/i.exec(tail)
+    return match ? { tool: cleanTool(match[1]!) } : undefined
+  },
+  response: (decision) => decision === 'allow' ? 'y\r' : 'n\r'
+}
+
 const codexAdapter: ProviderPermissionAdapter = {
   provider: 'codex',
   coverage: 'sandbox-prompt',
@@ -78,6 +90,7 @@ const ollamaAdapter: ProviderPermissionAdapter = {
 
 const ADAPTERS: Record<AgentProviderId, ProviderPermissionAdapter> = {
   claude: claudeAdapter,
+  kimi: kimiAdapter,
   codex: codexAdapter,
   cursor: coarseAdapter('cursor'),
   copilot: coarseAdapter('copilot'),

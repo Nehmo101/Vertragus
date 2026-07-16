@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Idea, IdeaArtifact, IdeaStatus } from '@shared/inbox'
-import { IDEA_STATUSES } from '@shared/inbox'
+import type {
+  Idea,
+  IdeaArchiveView,
+  IdeaArtifact,
+  IdeaStatus,
+  RemovableIdeaAttribute
+} from '@shared/inbox'
+import { IDEA_INPUT_STATUSES } from '@shared/inbox'
 import { isTransferActive } from '@shared/inboxTransfer'
 import { useInboxSpeech } from '@renderer/hooks/useInboxSpeech'
 import { useAppStore } from '@renderer/store/useAppStore'
@@ -21,7 +27,17 @@ import {
   startPromptEnhancementSession,
   type PromptEnhancementSession
 } from '@renderer/inboxPrompt'
+import {
+  formatIdeaDate,
+  ideaTimestamp,
+  ideaTimestampLabel,
+  ideasForView,
+  listRemovableIdeaAttributes,
+  sortedIdeaHistory,
+  workspaceReferences
+} from './inboxArchive'
 import styles from './responsiveGuards.module.css'
+import archiveStyles from './InboxPanel.module.css'
 
 const STATUS_LABEL: Record<IdeaStatus, string> = {
   draft: 'Entwurf',
@@ -29,7 +45,6 @@ const STATUS_LABEL: Record<IdeaStatus, string> = {
   archived: 'Archiv',
   done: 'Erledigt'
 }
-
 const TRANSFER_STATUS_LABEL: Record<string, string> = {
   pending: 'Übergabe wartet',
   running: 'Planung läuft',
@@ -45,13 +60,9 @@ const SPEECH_STATE_LABEL: Record<string, string> = {
   failed: 'Fehler'
 }
 
-function fmtDate(ts: number): string {
-  return new Date(ts).toLocaleString('de-DE', {
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
+function createPromptRequestId(): string {
+  return globalThis.crypto?.randomUUID?.() ??
+    `prompt-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
 function ArtifactRow({
@@ -59,7 +70,7 @@ function ArtifactRow({
   onRemove
 }: {
   artifact: IdeaArtifact
-  onRemove: () => void
+  onRemove?: () => void
 }): JSX.Element {
   let detail = ''
   let warn = ''
@@ -79,9 +90,11 @@ function ArtifactRow({
       <div className="inbox-artifact-head">
         <span className="kind">{artifact.kind}</span>
         <span className="label">{artifact.label}</span>
-        <button type="button" className="icon-btn-sm" title="Artefakt entfernen" onClick={onRemove}>
-          ✕
-        </button>
+        {onRemove && (
+          <button type="button" className="icon-btn-sm" title="Artefakt entfernen" onClick={onRemove}>
+            ✕
+          </button>
+        )}
       </div>
       <div className="inbox-artifact-body" title={detail}>
         {detail || '—'}
@@ -91,10 +104,127 @@ function ArtifactRow({
   )
 }
 
+function ArchiveDetail({
+  idea,
+  saving,
+  onRestore
+}: {
+  idea: Idea
+  saving: boolean
+  onRestore: () => void
+}): JSX.Element {
+  const attributes = listRemovableIdeaAttributes(idea)
+  const history = sortedIdeaHistory(idea)
+  const workspaces = workspaceReferences(idea)
+
+  return (
+    <>
+      <div className={archiveStyles.archiveHead}>
+        <h2 className={archiveStyles.archiveTitle}>{idea.title || 'Unbenannte Idee'}</h2>
+        <span className={archiveStyles.archiveStatus}>{STATUS_LABEL[idea.status]}</span>
+        <button
+          type="button"
+          className="inbox-btn"
+          disabled={saving}
+          onClick={onRestore}
+        >
+          Wiederherstellen
+        </button>
+      </div>
+
+      <section className={archiveStyles.archiveSection} aria-label="Inhalt">
+        <div className={archiveStyles.sectionLabel}>Inhalt</div>
+        <p className={archiveStyles.readOnlyContent}>{idea.content || '—'}</p>
+      </section>
+
+      <section className={archiveStyles.archiveSection} aria-label="Attribute">
+        <div className={archiveStyles.sectionLabel}>Attribute</div>
+        {attributes.length > 0 ? (
+          <div className={archiveStyles.chipList}>
+            {attributes.map((attribute) => (
+              <span key={attribute.id} className={archiveStyles.readOnlyChip}>
+                {attribute.label}: {attribute.value}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <div className={archiveStyles.muted}>Keine Tags oder Verknüpfungsattribute.</div>
+        )}
+      </section>
+
+      <section className={archiveStyles.archiveSection} aria-label="Workspace-Verknüpfung">
+        <div className={archiveStyles.sectionLabel}>Workspace-Verknüpfung</div>
+        {workspaces.length > 0 ? (
+          <div className={archiveStyles.factList}>
+            {workspaces.map((reference) => (
+              <div key={reference.label} className={archiveStyles.factRow}>
+                <span className={archiveStyles.factLabel}>{reference.label}</span>
+                <span className={archiveStyles.factValue}>{reference.value}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className={archiveStyles.muted}>Keine Workspace-Verknüpfung erhalten.</div>
+        )}
+      </section>
+
+      <section className={archiveStyles.archiveSection} aria-label="Übergabe-Telemetrie">
+        <div className={archiveStyles.sectionLabel}>Übergabe-Telemetrie</div>
+        {idea.transfer ? (
+          <div className={`inbox-transfer-status status-${idea.transfer.status}`}>
+            {TRANSFER_STATUS_LABEL[idea.transfer.status] ?? idea.transfer.status}
+            {idea.transfer.error && ` — ${idea.transfer.error}`}
+            {idea.transfer.planId && ` · Plan ${idea.transfer.planId}`}
+          </div>
+        ) : (
+          <div className={archiveStyles.muted}>Keine Übergabe-Telemetrie vorhanden.</div>
+        )}
+      </section>
+
+      <section className={archiveStyles.archiveSection} aria-label="Artefakte">
+        <div className={archiveStyles.sectionLabel}>Artefakte ({idea.artifacts.length})</div>
+        <div className="inbox-artifact-list">
+          {idea.artifacts.map((artifact) => (
+            <ArtifactRow key={artifact.id} artifact={artifact} />
+          ))}
+          {idea.artifacts.length === 0 && (
+            <div className={archiveStyles.muted}>Keine Artefakte.</div>
+          )}
+        </div>
+      </section>
+
+      <section className={archiveStyles.archiveSection} aria-label="Verarbeitungshistorie">
+        <div className={archiveStyles.sectionLabel}>Verarbeitungshistorie</div>
+        {history.length > 0 ? (
+          <ol className={archiveStyles.historyList}>
+            {history.map((entry, index) => (
+              <li key={`${entry.at}:${entry.kind}:${index}`} className={archiveStyles.historyItem}>
+                <time className={archiveStyles.historyTime} dateTime={new Date(entry.at).toISOString()}>
+                  {formatIdeaDate(entry.at)}
+                </time>
+                <span className={archiveStyles.historyKind}>{entry.kind}</span>
+                <span className={archiveStyles.historyDetail}>{entry.detail || '—'}</span>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <div className={archiveStyles.muted}>Keine Verarbeitungshistorie vorhanden.</div>
+        )}
+      </section>
+
+      <div className="inbox-meta">
+        ID: {idea.id} · erstellt {formatIdeaDate(idea.createdAt)} · archiviert{' '}
+        {formatIdeaDate(ideaTimestamp(idea, 'archive'))}
+      </div>
+    </>
+  )
+}
+
 export default function InboxPanel(): JSX.Element {
   const speech = useInboxSpeech()
   const openSpeechSettings = useAppStore((state) => state.openSpeechSettings)
   const [ideas, setIdeas] = useState<Idea[]>([])
+  const [view, setView] = useState<IdeaArchiveView>('inbox')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [draft, setDraft] = useState<Idea | null>(null)
   const [loading, setLoading] = useState(true)
@@ -110,35 +240,37 @@ export default function InboxPanel(): JSX.Element {
   const promptSessionRef = useRef(promptSession)
   const activePromptRef = useRef<{ requestId: string; generation: number }>()
   const titleInputRef = useRef<HTMLInputElement>(null)
+  const visibleIdeas = ideasForView(ideas, view)
 
   const commitPromptSession = (next: PromptEnhancementSession): void => {
     promptSessionRef.current = next
     setPromptSession(next)
   }
 
+  const reconcileIdeas = useCallback((
+    list: Idea[],
+    preferredId: string | null = selectedId,
+    targetView: IdeaArchiveView = view
+  ): void => {
+    const candidates = ideasForView(list, targetView)
+    const selected = candidates.find((idea) => idea.id === preferredId) ?? candidates[0]
+    setIdeas(list)
+    setSelectedId(selected?.id ?? null)
+    setDraft(selected ? { ...selected } : null)
+  }, [selectedId, view])
+
   const refresh = useCallback(async (): Promise<void> => {
     setLoading(true)
     setError('')
     try {
       const list = await window.orca.inbox.list()
-      setIdeas(list)
-      if (selectedId) {
-        const current = list.find((i) => i.id === selectedId)
-        if (current) setDraft({ ...current })
-        else {
-          setSelectedId(list[0]?.id ?? null)
-          setDraft(list[0] ? { ...list[0] } : null)
-        }
-      } else if (list[0]) {
-        setSelectedId(list[0].id)
-        setDraft({ ...list[0] })
-      }
+      reconcileIdeas(list)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setLoading(false)
     }
-  }, [selectedId])
+  }, [reconcileIdeas])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -175,8 +307,7 @@ export default function InboxPanel(): JSX.Element {
   ): Promise<void> => {
     if (!draft || promptSessionRef.current.phase === 'loading') return
     const source = promptEnhancementSourceFromIdea(draft)
-    const requestId = globalThis.crypto?.randomUUID?.() ??
-      `prompt-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const requestId = createPromptRequestId()
     const started = startPromptEnhancementSession(
       promptSessionRef.current,
       requestId,
@@ -274,6 +405,18 @@ export default function InboxPanel(): JSX.Element {
     setTextInput('')
   }
 
+  const selectView = (nextView: IdeaArchiveView): void => {
+    if (nextView === view) return
+    closePromptReview(false)
+    const first = ideasForView(ideas, nextView)[0]
+    setView(nextView)
+    setSelectedId(first?.id ?? null)
+    setDraft(first ? { ...first } : null)
+    setConfirmDelete(false)
+    setUrlInput('')
+    setTextInput('')
+  }
+
   const createIdea = async (): Promise<void> => {
     setSaving(true)
     setError('')
@@ -281,6 +424,7 @@ export default function InboxPanel(): JSX.Element {
       const idea = await window.orca.inbox.create()
       const list = await window.orca.inbox.list()
       setIdeas(list)
+      setView('inbox')
       selectIdea(idea)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -291,6 +435,10 @@ export default function InboxPanel(): JSX.Element {
 
   const saveDraft = async (openTransferAfterSave = false): Promise<void> => {
     if (!draft) return
+    if (draft.status === 'archived') {
+      setError('Archivierte Ideen muessen vor dem Bearbeiten wiederhergestellt werden.')
+      return
+    }
     setSaving(true)
     setError('')
     try {
@@ -303,9 +451,8 @@ export default function InboxPanel(): JSX.Element {
         refs: draft.refs
       })
       const list = await window.orca.inbox.list()
-      setIdeas(list)
-      setDraft({ ...updated })
-      if (openTransferAfterSave) setTransferOpen(true)
+      reconcileIdeas(list, updated.id)
+      if (openTransferAfterSave && updated.status !== 'archived') setTransferOpen(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -326,6 +473,7 @@ export default function InboxPanel(): JSX.Element {
       })
       const list = await window.orca.inbox.list()
       setIdeas(list)
+      setView('inbox')
       selectIdea(idea)
       speech.discardVoiceDraft()
     } catch (err) {
@@ -341,13 +489,8 @@ export default function InboxPanel(): JSX.Element {
     setError('')
     try {
       const list = await window.orca.inbox.delete(draft.id)
-      setIdeas(list)
+      reconcileIdeas(list, null)
       setConfirmDelete(false)
-      if (list[0]) selectIdea(list[0])
-      else {
-        setSelectedId(null)
-        setDraft(null)
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -448,14 +591,70 @@ export default function InboxPanel(): JSX.Element {
     }
   }
 
+  const removeAttribute = async (attribute: RemovableIdeaAttribute): Promise<void> => {
+    if (!draft || view !== 'inbox') return
+    setSaving(true)
+    setError('')
+    try {
+      const updated = await window.orca.inbox.removeAttribute(draft.id, attribute)
+      const list = await window.orca.inbox.list()
+      reconcileIdeas(list, updated.id)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const restoreIdea = async (): Promise<void> => {
+    if (!draft || view !== 'archive') return
+    setSaving(true)
+    setError('')
+    try {
+      const restored = await window.orca.inbox.restoreIdea(draft.id)
+      const list = await window.orca.inbox.list()
+      setView('inbox')
+      reconcileIdeas(list, restored.id, 'inbox')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const speechBusy = speech.state === 'recording' || speech.state === 'transcribing'
   const showVoiceReview = speech.state === 'review' && speech.voiceDraft
   return (
-    <main className={`inbox-panel ${styles.inboxPanel}`} aria-label="Ideen-Inbox">
+    <main
+      className={`inbox-panel ${styles.inboxPanel}`}
+      aria-label={view === 'archive' ? 'Ideen-Archiv' : 'Ideen-Inbox'}
+    >
       <div className="inbox-header">
         <div>
-          <div className="inbox-title">Ideen-Inbox</div>
-          <div className="inbox-sub">Ideen, Notizen und Spracheingabe — unabhängig vom Workspace</div>
+          <div className="inbox-title">
+            {view === 'archive' ? 'Ideen-Archiv' : 'Ideen-Inbox'}
+          </div>
+          <div className="inbox-sub">
+            {view === 'archive'
+              ? 'Archivierte Ideen mit ihrer Verarbeitungshistorie'
+              : 'Ideen, Notizen und Spracheingabe — unabhängig vom Workspace'}
+          </div>
+        </div>
+        <div className={archiveStyles.viewSwitch} role="tablist" aria-label="Ideenansicht">
+          {(['inbox', 'archive'] as const).map((item) => (
+            <button
+              key={item}
+              type="button"
+              role="tab"
+              aria-selected={view === item}
+              className={`${archiveStyles.viewTab} ${
+                view === item ? archiveStyles.viewTabActive : ''
+              }`}
+              onClick={() => selectView(item)}
+            >
+              {item === 'inbox' ? 'Inbox' : 'Archiv'}
+            </button>
+          ))}
         </div>
         <div className="inbox-speech-bar">
           <span className={`inbox-speech-status state-${speech.state}`}>
@@ -553,10 +752,14 @@ export default function InboxPanel(): JSX.Element {
       <div className="inbox-body">
         <aside className="inbox-list">
           {loading && <div className="inbox-empty">Lade…</div>}
-          {!loading && ideas.length === 0 && (
-            <div className="inbox-empty">Noch keine Ideen. Erstelle die erste oder nutze 🎙.</div>
+          {!loading && visibleIdeas.length === 0 && (
+            <div className="inbox-empty">
+              {view === 'archive'
+                ? 'Noch keine archivierten Ideen.'
+                : 'Noch keine Ideen. Erstelle die erste oder nutze 🎙.'}
+            </div>
           )}
-          {ideas.map((idea) => (
+          {visibleIdeas.map((idea) => (
             <button
               type="button"
               key={idea.id}
@@ -566,7 +769,9 @@ export default function InboxPanel(): JSX.Element {
               <div className="row-title">{idea.title}</div>
               <div className="row-meta">
                 <span className="status">{STATUS_LABEL[idea.status]}</span>
-                <span>{fmtDate(idea.updatedAt)}</span>
+                <span>
+                  {ideaTimestampLabel(view)} {formatIdeaDate(ideaTimestamp(idea, view))}
+                </span>
               </div>
               {idea.tags.length > 0 && (
                 <div className="row-tags">
@@ -583,7 +788,13 @@ export default function InboxPanel(): JSX.Element {
 
         <section className="inbox-editor">
           {!draft ? (
-            <div className="inbox-empty">Wähle oder erstelle eine Idee.</div>
+            <div className="inbox-empty">
+              {view === 'archive'
+                ? 'Wähle eine archivierte Idee.'
+                : 'Wähle oder erstelle eine Idee.'}
+            </div>
+          ) : view === 'archive' ? (
+            <ArchiveDetail idea={draft} saving={saving} onRestore={() => void restoreIdea()} />
           ) : (
             <>
               <div className="inbox-editor-head">
@@ -601,7 +812,7 @@ export default function InboxPanel(): JSX.Element {
                   }
                   aria-label="Status"
                 >
-                  {IDEA_STATUSES.map((s) => (
+                  {IDEA_INPUT_STATUSES.map((s) => (
                     <option key={s} value={s}>
                       {STATUS_LABEL[s]}
                     </option>
@@ -748,6 +959,33 @@ export default function InboxPanel(): JSX.Element {
                 </label>
               </div>
 
+              <section className={archiveStyles.attributeSection} aria-label="Attribute entfernen">
+                <div className={archiveStyles.sectionLabel}>Attribute entfernen</div>
+                {listRemovableIdeaAttributes(draft).length > 0 ? (
+                  <div className={archiveStyles.attributeList}>
+                    {listRemovableIdeaAttributes(draft).map((option) => (
+                      <span key={option.id} className={archiveStyles.attributeChip}>
+                        <span className={archiveStyles.attributeValue}>
+                          {option.label}: {option.value}
+                        </span>
+                        <button
+                          type="button"
+                          className={archiveStyles.attributeRemove}
+                          disabled={saving}
+                          aria-label={`${option.label} ${option.value} entfernen`}
+                          title={`${option.label} entfernen`}
+                          onClick={() => void removeAttribute(option.attribute)}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <div className={archiveStyles.muted}>Keine entfernbaren Attribute.</div>
+                )}
+              </section>
+
               <div className="inbox-artifacts">
                 <div className="inbox-artifacts-head">
                   <span>Artefakte ({draft.artifacts.length})</span>
@@ -795,8 +1033,8 @@ export default function InboxPanel(): JSX.Element {
               </div>
 
               <div className="inbox-meta">
-                ID: {draft.id} · erstellt {fmtDate(draft.createdAt)} · aktualisiert{' '}
-                {fmtDate(draft.updatedAt)}
+                ID: {draft.id} · erstellt {formatIdeaDate(draft.createdAt)} · aktualisiert{' '}
+                {formatIdeaDate(draft.updatedAt)}
               </div>
             </>
           )}

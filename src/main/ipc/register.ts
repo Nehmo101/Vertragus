@@ -7,7 +7,7 @@ import { stat } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { IPC, type AppInfo } from '@shared/ipc'
-import type { HandoffRequest, OrcaEvent, SpawnAgentRequest } from '@shared/agents'
+import type { BulkHandoffRequest, HandoffRequest, OrcaEvent, SpawnAgentRequest } from '@shared/agents'
 import type { OrchestratorSnapshot } from '@shared/orchestrator'
 import type { RemoteBudgetCaps } from '@shared/remote'
 import type { ProviderId } from '@shared/providers'
@@ -43,6 +43,7 @@ import {
 import { agentManager } from '@main/agents/AgentManager'
 import { providerCapacity } from '@main/agents/providerCapacity'
 import { workspaceSessions } from '@main/orchestrator/WorkspaceSessionRegistry'
+import { createWorkspaceSessionIpcController } from '@main/orchestrator/workspaceSessionIpc'
 import { broadcast, createPaneWindow, isMainWindowSender } from '@main/windows'
 import { getPublicConfig, setPublicConfig } from '@main/config/configAccess'
 import {
@@ -65,13 +66,21 @@ import {
   deleteIdea,
   addArtifact,
   removeArtifact,
+  removeIdeaAttribute,
+  restoreIdea,
   resetIdeaTransfer
 } from '@main/inbox/store'
+import {
+  assertAuthorizedInboxArchiveSender,
+  createInboxArchiveIpcController,
+  type ArchiveIpcEventLike
+} from '@main/inbox/archiveIpc'
 import { retryIdeaTransfer, transferIdeaToProfile } from '@main/inbox/transferService'
 import { spawnProfileTeam } from '@main/agents/spawnProfile'
 import { getActiveRepoOverridePath } from '@main/config/workspaceRepo'
 import { generateProfileForRepo } from '@main/profiles/generateProfileForRepo'
 import { createProfileDeletionIpcController } from '@main/profiles/profileDeletionIpc'
+import { createProfileSaveIpcController } from '@main/profiles/profileSaveIpc'
 import {
   listBenchmarkRecords,
   listModelLearnings,
@@ -160,12 +169,14 @@ export function registerIpcHandlers(): void {
     inspectWorkspace: inspectPromptWorkspaceContext,
     service: promptService
   })
+  const rendererAuthorization = {
+    developmentUrl: process.env['ELECTRON_RENDERER_URL'],
+    packagedRendererUrl: pathToFileURL(join(__dirname, '../renderer/index.html')).toString(),
+    isKnownSender: (sender: import('@main/security/ipcAuthorization').RendererIpcWebContentsLike) =>
+      isMainWindowSender(sender as Electron.WebContents)
+  }
   const profileDeletionController = createProfileDeletionIpcController({
-    authorization: {
-      developmentUrl: process.env['ELECTRON_RENDERER_URL'],
-      packagedRendererUrl: pathToFileURL(join(__dirname, '../renderer/index.html')).toString(),
-      isKnownSender: (sender) => isMainWindowSender(sender as Electron.WebContents)
-    },
+    authorization: rendererAuthorization,
     deleteProfile: (id) => {
       if (!getProfile(id)) throw new Error('Workspace-Profil nicht gefunden.')
       if (agentManager.anyRunning(id)) {
@@ -174,6 +185,37 @@ export function registerIpcHandlers(): void {
       const profiles = deleteProfile(id)
       workspaceSessions.remove(id)
       return profiles
+    }
+  })
+  const inboxArchiveController = createInboxArchiveIpcController({
+    authorize: (event) =>
+      assertAuthorizedInboxArchiveSender(event, {
+        developmentUrl: process.env['ELECTRON_RENDERER_URL'],
+        packagedRendererUrl: pathToFileURL(join(__dirname, '../renderer/index.html')).toString(),
+        isKnownSender: (sender) => isMainWindowSender(sender as Electron.WebContents)
+      }),
+    removeAttribute: removeIdeaAttribute,
+    restoreIdea
+  })
+  const profileSaveController = createProfileSaveIpcController({
+    authorization: {
+      developmentUrl: process.env['ELECTRON_RENDERER_URL'],
+      packagedRendererUrl: pathToFileURL(join(__dirname, '../renderer/index.html')).toString(),
+      isKnownSender: (sender) => isMainWindowSender(sender as Electron.WebContents)
+    }
+  })
+  const workspaceSessionController = createWorkspaceSessionIpcController({
+    authorization: rendererAuthorization,
+    list: (profileId) => workspaceSessions.list(profileId),
+    setActive: (profileId, sessionId) => {
+      const profile = getProfile(profileId)
+      if (!profile) throw new Error('Workspace-Profil nicht gefunden.')
+      return workspaceSessions.setActive(profileId, sessionId).engine.snapshot()
+    },
+    remove: async (profileId, sessionId) => {
+      await agentManager.removeAll(profileId, sessionId)
+      workspaceSessions.removeSession(sessionId)
+      return workspaceSessions.list(profileId)
     }
   })
   const requireMainWindow = (event: Electron.IpcMainInvokeEvent): void => {
@@ -221,7 +263,8 @@ export function registerIpcHandlers(): void {
 
   // ---- profiles ----
   ipcMain.handle(IPC.profilesList, () => listProfiles())
-  ipcMain.handle(IPC.profileSave, async (_e, profile: WorkspaceProfile) => {
+  ipcMain.handle(IPC.profileSave, async (e, input: unknown) => {
+    const profile = profileSaveController.authorizeAndParse(e, input)
     let workingDir = profile.workingDir.trim()
     let githubRepo = profile.githubRepo
 
@@ -277,19 +320,15 @@ export function registerIpcHandlers(): void {
     }
     setActiveProfileId(id)
   })
-  ipcMain.handle(IPC.workspaceSessionsList, (_e, profileId?: string) =>
-    workspaceSessions.list(profileId)
+  ipcMain.handle(IPC.workspaceSessionsList, (e, profileId?: unknown) =>
+    workspaceSessionController.list(e, profileId)
   )
-  ipcMain.handle(IPC.workspaceSessionSetActive, (_e, profileId: string, sessionId: string) => {
-    const profile = getProfile(profileId)
-    if (!profile) throw new Error('Workspace-Profil nicht gefunden.')
-    return workspaceSessions.setActive(profileId, sessionId).engine.snapshot()
-  })
-  ipcMain.handle(IPC.workspaceSessionRemove, async (_e, profileId: string, sessionId: string) => {
-    await agentManager.removeAll(profileId, sessionId)
-    workspaceSessions.removeSession(sessionId)
-    return workspaceSessions.list(profileId)
-  })
+  ipcMain.handle(IPC.workspaceSessionSetActive, (e, profileId: unknown, sessionId: unknown) =>
+    workspaceSessionController.setActive(e, profileId, sessionId)
+  )
+  ipcMain.handle(IPC.workspaceSessionRemove, (e, profileId: unknown, sessionId: unknown) =>
+    workspaceSessionController.remove(e, profileId, sessionId)
+  )
 
   // ---- external MCP servers ----
   ipcMain.handle(IPC.mcpList, () => listMcpServers())
@@ -372,6 +411,12 @@ export function registerIpcHandlers(): void {
   )
   ipcMain.handle(IPC.ideasRemoveArtifact, (_e, ideaId: string, artifactId: string) =>
     removeArtifact(ideaId, artifactId)
+  )
+  ipcMain.handle(IPC.ideasRemoveAttribute, (event, ideaId: unknown, attribute: unknown) =>
+    inboxArchiveController.removeAttribute(event as ArchiveIpcEventLike, ideaId, attribute)
+  )
+  ipcMain.handle(IPC.ideasRestore, (event, ideaId: unknown) =>
+    inboxArchiveController.restoreIdea(event as ArchiveIpcEventLike, ideaId)
   )
   ipcMain.handle(IPC.ideasTransferToProfile, (_e, req: IdeaTransferRequest) =>
     transferIdeaToProfile(req)
@@ -465,6 +510,7 @@ export function registerIpcHandlers(): void {
     createPaneWindow(id)
   })
   ipcMain.handle(IPC.agentHandoff, (_e, req: HandoffRequest) => agentManager.handoff(req))
+  ipcMain.handle(IPC.agentsBulkHandoff, (_e, req: BulkHandoffRequest) => agentManager.bulkHandoff(req))
 
   // ---- orchestrator ----
   ipcMain.handle(IPC.orchestratorSnapshot, (_e, profileId: string, workspaceSessionId?: string) => {

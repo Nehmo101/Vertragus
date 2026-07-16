@@ -3,7 +3,11 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { workspaceProfileSchema } from '@shared/profile'
 import { useAppStore } from '@renderer/store/useAppStore'
-import { SIDEBAR_SECTION_ORDER, SidebarView } from '@renderer/components/Sidebar'
+import {
+  SIDEBAR_SECTION_ORDER,
+  SidebarView
+} from '@renderer/components/Sidebar'
+import { workspaceRunPresentation } from '@renderer/components/workspaceRunStatus'
 
 Object.defineProperty(globalThis, 'window', {
   configurable: true,
@@ -27,9 +31,27 @@ beforeEach(() => {
     githubAuth: null,
     reopenedAgentIds: []
   })
+
 })
 
 describe('Sidebar rendering', () => {
+  it('replaces all sidebar content with an accessible expand control when collapsed', () => {
+    const markup = renderToStaticMarkup(
+      createElement(SidebarView, {
+        store: useAppStore.getState(),
+        width: 420,
+        collapsed: true,
+        onToggle: (): void => undefined
+      })
+    )
+
+    expect(markup).toContain('panel-collapsed')
+    expect(markup).toContain('aria-expanded="false"')
+    expect(markup).toContain('aria-label="Linke Seitenleiste ausklappen"')
+    expect(markup).not.toContain('data-sidebar-section=')
+    expect(markup).not.toContain('style="width:420px"')
+  })
+
   it('renders the six product sections in the required order', () => {
     const markup = renderToStaticMarkup(
       createElement(SidebarView, { store: useAppStore.getState() })
@@ -58,6 +80,7 @@ describe('Sidebar rendering', () => {
           profileId: profile.id,
           profileName: profile.name,
           name: 'Rivendell',
+          taskSummary: 'Schema, IPC und Store verbinden',
           sequence: 1,
           startedAt: 1,
           active: true
@@ -89,6 +112,131 @@ describe('Sidebar rendering', () => {
 
     expect(markup).toContain('data-user-attention="subagent"')
     expect(markup).toContain('workspace-attention-indicator')
+    expect(markup).toContain('workspace-task-summary')
+    expect(markup).toContain('Schema, IPC und Store verbinden')
     expect(markup).toContain('Pippin wartet auf deine Rückmeldung.')
+  })
+})
+
+describe('workspace run status', () => {
+  it.each([
+    ['success', 'success', 'success', 'Erfolgreich'],
+    ['needs-work', 'incomplete', 'failure', 'Unvollständig'],
+    ['error', 'failed', 'failure', 'Fehlgeschlagen'],
+    ['stopped', 'stopped', 'neutral', 'Abgebrochen']
+  ])(
+    'maps terminal status %s to a visible %s presentation',
+    (terminalStatus, state, tone, label) => {
+      expect(workspaceRunPresentation({ activeAgents: 0, terminalStatus })).toMatchObject({
+        state,
+        tone,
+        label
+      })
+    }
+  )
+
+  it('keeps running and never-started workspaces neutral', () => {
+    expect(workspaceRunPresentation({ activeAgents: 2, terminalStatus: 'error' })).toMatchObject({
+      state: 'running',
+      tone: 'neutral',
+      label: '2 aktiv'
+    })
+    expect(workspaceRunPresentation({ activeAgents: 0 })).toMatchObject({
+      state: 'not-started',
+      tone: 'neutral',
+      label: 'Nicht gestartet'
+    })
+    expect(workspaceRunPresentation({
+      activeAgents: 0,
+      terminalStatus: 'success',
+      gitPostProcessingStatus: 'running'
+    })).toMatchObject({
+      state: 'running',
+      tone: 'neutral',
+      label: 'Git wird verarbeitet'
+    })
+  })
+
+  it('lets Git post-processing override a stale prior terminal result', () => {
+    expect(workspaceRunPresentation({
+      activeAgents: 0,
+      terminalStatus: 'success',
+      gitPostProcessingStatus: 'failed'
+    })).toMatchObject({ state: 'failed', tone: 'failure', label: 'Git fehlgeschlagen' })
+    expect(workspaceRunPresentation({
+      activeAgents: 0,
+      terminalStatus: 'error',
+      gitPostProcessingStatus: 'pushed'
+    })).toMatchObject({ state: 'success', tone: 'success' })
+  })
+
+  it('keeps cancellations and unknown status values neutral without reflecting input', () => {
+    const unknown = workspaceRunPresentation({
+      activeAgents: 0,
+      terminalStatus: '<img src=x onerror=alert(1)>'
+    })
+
+    expect(unknown).toMatchObject({
+      state: 'unknown',
+      tone: 'neutral',
+      label: 'Status unbekannt'
+    })
+    expect(unknown.label).not.toContain('img')
+    expect(workspaceRunPresentation({
+      activeAgents: 0,
+      terminalStatus: 'stopped',
+      orchestratorAgentStatus: 'error'
+    }).tone).toBe('neutral')
+  })
+
+  it('renders a terminal result with redundant text, symbol and accessible status', () => {
+    const profile = workspaceProfileSchema.parse({ id: 'alpha', name: 'Alpha' })
+    useAppStore.setState({
+      profiles: [profile],
+      activeProfileId: profile.id,
+      workspaceSessions: [
+        {
+          id: 'session-alpha',
+          profileId: profile.id,
+          profileName: profile.name,
+          name: 'Rivendell',
+          sequence: 1,
+          startedAt: 1,
+          active: true,
+          taskSummary: undefined
+        }
+      ],
+      activeWorkspaceSessionId: 'session-alpha',
+      orchestrators: {
+        'session-alpha': {
+          profileId: profile.id,
+          workspaceSessionId: 'session-alpha',
+          goal: null,
+          tasks: [],
+          lastRetro: {
+            id: 'retro-1',
+            profileId: profile.id,
+            workspaceSessionId: 'session-alpha',
+            planId: 'plan-1',
+            goal: 'Test goal',
+            status: 'success',
+            summary: 'Done',
+            modelStats: [],
+            learnings: [],
+            createdAt: 2
+          }
+        }
+      }
+    })
+
+    const markup = renderToStaticMarkup(
+      createElement(SidebarView, { store: useAppStore.getState() })
+    )
+
+    expect(markup).toContain('data-orchestrator-status="success"')
+    expect(markup).toContain('data-tone="success"')
+    expect(markup).toContain('aria-label="Orchestrator-Lauf erfolgreich"')
+    expect(markup).toContain('✓')
+    expect(markup).toContain('Erfolgreich')
   })
 })

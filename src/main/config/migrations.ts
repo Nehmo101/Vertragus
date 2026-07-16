@@ -1,6 +1,6 @@
 import { DEFAULT_PROFILE, workspaceProfileSchema, type WorkspaceProfile } from '@shared/profile'
 
-export const CURRENT_CONFIG_SCHEMA_VERSION = 2
+export const CURRENT_CONFIG_SCHEMA_VERSION = 3
 
 export interface MigratedConfig {
   schemaVersion: number

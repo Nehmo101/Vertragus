@@ -63,6 +63,7 @@ describe('configAccess', () => {
 
     expect(setSetting).toHaveBeenLastCalledWith('providerLimits', {
       claude: 6,
+      kimi: 8,
       codex: 8,
       cursor: 2,
       copilot: 8,

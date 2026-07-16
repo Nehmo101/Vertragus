@@ -16,11 +16,14 @@ import { app } from 'electron'
 import * as pty from '@lydell/node-pty'
 import type {
   AgentInstanceInfo,
+  BulkHandoffRequest,
+  BulkHandoffResult,
   HandoffRequest,
   OrcaEvent,
   SpawnAgentRequest
 } from '@shared/agents'
 import type { PanePreflightReport } from '@shared/orchestrator'
+import type { ClaudePermissionMode } from '@shared/claudePermissionMode'
 import {
   getProvider,
   isModelDisabled,
@@ -79,6 +82,8 @@ const CURSOR_TRUST_RETRY_DELAY_MS = 150
 const CURSOR_TRUST_MAX_RETRIES = 3
 const CURSOR_TRUST_WATCHDOG_MS = 8_000
 const HANDOFF_SHUTDOWN_TIMEOUT_MS = 5_000
+
+type SpawnRequest = SpawnAgentRequest & { permissionMode?: ClaudePermissionMode }
 
 interface Managed {
   info: AgentInstanceInfo
@@ -150,7 +155,7 @@ export class AgentManager extends EventEmitter {
   private readonly handoffStarts = new Set<string>()
   private readonly handoffBriefings = new Map<
     string,
-    { path: string; targetName: string; task?: string; summary?: string; timestamp: number }
+    { briefing: string; sourceContinuity: string }
   >()
   private readonly handoffHandshakes = new HandoffHandshakeRegistry({
     onTransition: (snapshot) => this.applyHandoffTransition(snapshot),
@@ -242,34 +247,11 @@ export class AgentManager extends EventEmitter {
   }
 
   private handoffSourceContinuity(handoffId: string): string | undefined {
-    const snapshot = this.handoffHandshakes.snapshot(handoffId)
-    const source = snapshot ? this.agents.get(snapshot.source.agentId) : undefined
-    return source
-      ? createHash('sha256').update(source.buffer).digest('hex')
-      : undefined
+    return this.handoffBriefings.get(handoffId)?.sourceContinuity
   }
 
   private latestHandoffBriefing(handoffId: string): string | undefined {
-    const snapshot = this.handoffHandshakes.snapshot(handoffId)
-    const metadata = this.handoffBriefings.get(handoffId)
-    const source = snapshot ? this.agents.get(snapshot.source.agentId) : undefined
-    if (!source || !metadata) return undefined
-    const briefing = buildBriefing({
-      source: source.info,
-      targetName: metadata.targetName,
-      task: metadata.task,
-      summary: metadata.summary,
-      scrollback: source.buffer,
-      scrollbackChars: getSetting<number>('handoff.scrollbackChars'),
-      timestamp: metadata.timestamp
-    })
-    try {
-      writeFileSync(metadata.path, briefing, 'utf8')
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      this.emitEvent(`Übergabe-Notiz konnte nicht aktualisiert werden: ${message}`, 'warn', source.info)
-    }
-    return briefing
+    return this.handoffBriefings.get(handoffId)?.briefing
   }
 
   /** Live identity bound to an orchestrator MCP connection at initialization. */
@@ -670,7 +652,7 @@ export class AgentManager extends EventEmitter {
     this.changed()
   }
 
-  async spawn(req: SpawnAgentRequest): Promise<AgentInstanceInfo> {
+  async spawn(req: SpawnRequest): Promise<AgentInstanceInfo> {
     const resolvedModel = resolveModel(req.provider, req)
     assertProviderSelection(req.provider, resolvedModel)
     assertModelSelection(req.provider, resolvedModel)
@@ -723,6 +705,7 @@ export class AgentManager extends EventEmitter {
         model: resolvedModel || undefined,
         workingDir,
         yolo,
+        permissionMode: req.permissionMode,
         extraArgs
       })
       resolved = await resolveLaunch(launch.command, launch.args)
@@ -896,11 +879,10 @@ export class AgentManager extends EventEmitter {
         })
         handshakeBegan = true
         this.handoffBriefings.set(challenge.handoffId, {
-          path: briefingPath,
-          targetName: target.name,
-          task: req.task,
-          summary: req.summary,
-          timestamp: at
+          briefing,
+          // Freeze the semantic handoff snapshot. TUI redraw bytes must not
+          // invalidate acknowledgement while both orchestrators are alive.
+          sourceContinuity: createHash('sha256').update(briefing).digest('hex')
         })
         const handshake = {
           id: challenge.handoffId,
@@ -938,7 +920,10 @@ export class AgentManager extends EventEmitter {
         const seed =
           `Du übernimmst die Arbeit von ${src.info.name}. Lies die Übergabe-Notiz unter "${briefingPath}" ` +
           `und mach genau dort weiter, wo ${src.info.name} aufgehört hat. Bestätige zuerst kurz dein Verständnis der Aufgabe.`
-        void this.seedInteractive(target.id, seed)
+        const seeded = await this.seedInteractive(target.id, seed)
+        if (!seeded || !this.isAlive(targetManaged)) {
+          throw new Error(`Ziel-Agent ${target.name} wurde nicht rechtzeitig interaktiv arbeitsfähig.`)
+        }
       }
 
       this.emitEvent(`↪ Übergabe: ${src.info.name} → ${target.name}`, 'dispatch', src.info)
@@ -948,10 +933,50 @@ export class AgentManager extends EventEmitter {
       if (orchestratorHandoff && target && !handshakeBegan && this.agents.has(target.id)) {
         await this.kill(target.id)
       }
+      if (!orchestratorHandoff && target && this.agents.has(target.id)) {
+        await this.kill(target.id)
+      }
       throw error
     } finally {
       if (orchestratorHandoff) this.handoffStarts.delete(src.info.id)
     }
+  }
+
+  /** Transfer selected live interactive agents to one provider/model. */
+  async bulkHandoff(req: BulkHandoffRequest): Promise<BulkHandoffResult> {
+    const sourceIds = [...new Set(req.sourceIds.map((id) => id.trim()).filter(Boolean))]
+    if (sourceIds.length === 0) throw new Error('Keine Quell-Agents für die Massenübergabe ausgewählt.')
+
+    const result: BulkHandoffResult = { requested: sourceIds.length, transferred: [], failures: [] }
+    await Promise.all(sourceIds.map(async (sourceId) => {
+      const source = this.agents.get(sourceId)
+      const sourceName = source?.info.name
+      try {
+        if (!source) throw new Error(`Quell-Agent ${sourceId} nicht gefunden.`)
+        if (source.info.mode !== 'interactive') {
+          throw new Error('Task-Agents werden über den Orchestrator neu geroutet, nicht als Sitzung übergeben.')
+        }
+        const target = await this.handoff({
+          sourceId, provider: req.provider, model: req.model, role: req.role,
+          yolo: req.yolo, task: req.task, summary: req.summary
+        })
+        result.transferred.push(target)
+        if (req.stopSources !== false && source.info.kind !== 'orchestrator' && this.isAlive(source)) {
+          await this.kill(sourceId)
+        }
+      } catch (error) {
+        result.failures.push({
+          sourceId, sourceName, error: error instanceof Error ? error.message : String(error)
+        })
+      }
+    }))
+    result.transferred.sort((a, b) => a.startedAt - b.startedAt)
+    result.failures.sort((a, b) => sourceIds.indexOf(a.sourceId) - sourceIds.indexOf(b.sourceId))
+    this.emitEvent(
+      `Massenübergabe: ${result.transferred.length}/${result.requested} Agent(s) übernommen`,
+      result.failures.length > 0 ? 'warn' : 'success'
+    )
+    return result
   }
 
   /** Open the provider-owned interactive login flow in a normal Orca terminal. */
@@ -1242,7 +1267,7 @@ export class AgentManager extends EventEmitter {
             taskId: req.taskId,
             engineId: req.engineId,
             workspaceSessionId: req.workspaceSessionId,
-            permissionPrompt: req.provider === 'claude' && !req.yolo
+            permissionPrompt: (req.provider === 'claude' || req.provider === 'kimi') && !req.yolo
           })
         },
         (chunk) => this.pushData(active, chunk),

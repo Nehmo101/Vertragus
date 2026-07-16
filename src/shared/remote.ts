@@ -66,7 +66,7 @@ export interface RemoteScope {
 
 export interface PermissionRequest {
   id: string
-  provider: 'claude' | 'codex' | 'cursor' | 'copilot' | 'ollama'
+  provider: 'claude' | 'kimi' | 'codex' | 'cursor' | 'copilot' | 'ollama'
   agentId: string
   taskId?: string
   profileId?: string

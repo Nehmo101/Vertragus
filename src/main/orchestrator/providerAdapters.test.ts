@@ -18,7 +18,7 @@ describe('orchestrator provider adapters', () => {
     const supported = listOrchestratorCapabilities()
       .filter((capability) => capability.supported)
       .map((capability) => capability.provider)
-    expect(supported).toEqual(['claude', 'codex', 'copilot'])
+    expect(supported).toEqual(['claude', 'kimi', 'codex', 'copilot'])
   })
 
   it('builds a process-local Copilot MCP configuration and tool allowlist', () => {
@@ -38,6 +38,16 @@ describe('orchestrator provider adapters', () => {
     })
     expect(args).toContain('--allow-all-mcp-server-instructions')
     expect(args).toContain('orca(set_goal),orca(execute_plan)')
+  })
+
+  it('pre-approves only Orca-owned orchestration tools for Codex', () => {
+    const args = getOrchestratorAdapter('codex').buildArgs(context)
+    expect(args).toContain(
+      'mcp_servers.orca.default_tools_approval_mode=' + JSON.stringify('approve')
+    )
+    expect(args).toContain(
+      'mcp_servers.orca.enabled_tools=' + JSON.stringify(['set_goal', 'execute_plan'])
+    )
   })
 
   it('keeps unsupported providers closed', () => {

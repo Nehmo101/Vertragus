@@ -25,6 +25,12 @@ describe('model catalogue fallbacks', () => {
     )
   })
 
+  it('exposes the curated Kimi K3/K2 model line', () => {
+    expect(DEFAULT_MODELS.kimi).toEqual(
+      expect.arrayContaining(['kimi-k3', 'kimi-k3-turbo', 'kimi-k3-thinking'])
+    )
+  })
+
   it('uses current standalone Copilot CLI model identifiers', () => {
     expect(DEFAULT_MODELS.copilot).toEqual(
       expect.arrayContaining([

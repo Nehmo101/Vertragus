@@ -30,6 +30,11 @@ export const PRESET_MODELS: Record<AgentProviderId, Record<ModelPreset, string>>
     balanced: 'sonnet',
     strong: 'opus'
   },
+  kimi: {
+    fast: 'kimi-k3-turbo',
+    balanced: 'kimi-k3',
+    strong: 'kimi-k3-thinking'
+  },
   codex: {
     fast: 'gpt-5.4-mini',
     balanced: 'gpt-5.6-terra',

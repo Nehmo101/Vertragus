@@ -2,7 +2,7 @@
  * Central renderer state (zustand), wired to the real main-process API.
  */
 import { create } from 'zustand'
-import type { AgentInstanceInfo, HandoffRequest, OrcaEvent } from '@shared/agents'
+import type { AgentInstanceInfo, BulkHandoffRequest, HandoffRequest, OrcaEvent } from '@shared/agents'
 import { LIMIT_KIND_LABELS } from '@shared/agents'
 import type {
   AgentProviderId,
@@ -20,7 +20,7 @@ import {
   normalizeProviderEnabled,
   normalizeProviderLimits
 } from '@shared/providers'
-import type { WorkspaceProfile } from '@shared/profile'
+import { duplicateProfile as createDuplicateProfile, type WorkspaceProfile } from '@shared/profile'
 import type { McpServerConfig } from '@shared/mcp'
 import type { OrchestratorSnapshot, WorkspaceSessionSummary } from '@shared/orchestrator'
 import type { AppInfo, GitInfo, GithubAuthStatus } from '@shared/ipc'
@@ -148,11 +148,13 @@ interface AppState {
   openHandoff(id: string): void
   closeHandoff(): void
   handoff(req: HandoffRequest): Promise<void>
+  bulkHandoff(req: BulkHandoffRequest): Promise<void>
   openEditor(profile: WorkspaceProfile): void
   openEditorCopy(profile: WorkspaceProfile): void
   openEditorNew(): void
   closeEditor(): void
   saveEditor(profile: WorkspaceProfile): Promise<void>
+  duplicateProfile(id: string): Promise<void>
   deleteProfile(id: string): Promise<void>
   openMcpEditor(): void
   closeMcpEditor(): void
@@ -256,6 +258,17 @@ export function workspaceEvents(
       (!event.profileId || event.profileId === state.activeProfileId) &&
       (!state.activeWorkspaceSessionId || event.workspaceSessionId === state.activeWorkspaceSessionId)
   )
+}
+
+/** Select only the task summary owned by the requested profile/session pair. */
+export function workspaceTaskSummary(
+  state: Pick<AppState, 'workspaceSessions'>,
+  profileId: string,
+  workspaceSessionId: string
+): string | undefined {
+  return state.workspaceSessions.find(
+    (session) => session.profileId === profileId && session.id === workspaceSessionId
+  )?.taskSummary
 }
 
 export type WorkspaceUserAttentionSource = 'orchestrator' | 'subagent'
@@ -1044,6 +1057,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  async bulkHandoff(req) {
+    try {
+      const result = await window.orca.agents.bulkHandoff(req)
+      set({ handoffSource: null })
+      const suffix = result.failures.length > 0 ? ` · ${result.failures.length} fehlgeschlagen` : ''
+      get().showToast(`Massenübergabe: ${result.transferred.length}/${result.requested} übernommen${suffix}`)
+    } catch (error) {
+      get().showToast(`Massenübergabe fehlgeschlagen: ${errorMessage(error)}`)
+    }
+  },
+
   openEditor(profile) {
     set({ editorProfile: profile })
   },
@@ -1063,6 +1087,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         })),
         planner: { ...profile.planner },
         benchmark: { ...profile.benchmark },
+        multiAgent: { ...profile.multiAgent },
+        autoGit: { ...profile.autoGit },
         autoPr: {
           ...profile.autoPr,
           qualityGates: [...profile.autoPr.qualityGates],
@@ -1103,6 +1129,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         yoloDefault: false,
         planner: { mode: 'review', routingMode: 'adaptive', maxParallel: 6, maxRetries: 1 },
         benchmark: { enabled: false },
+        multiAgent: { enabled: false, stopLosers: true },
+        autoGit: { enabled: false, targetBranch: '' },
         autoPr: {
           mode: 'off',
           strategy: 'aggregate',
@@ -1128,6 +1156,22 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (selected) get().showToast(`Profil „${profile.name}" gespeichert.`)
     } catch (error) {
       get().showToast(`Profil konnte nicht gespeichert werden: ${errorMessage(error)}`)
+    }
+  },
+
+  async duplicateProfile(id) {
+    try {
+      const currentProfiles = get().profiles
+      const source = currentProfiles.find((profile) => profile.id === id)
+      if (!source) throw new Error('Quellprofil wurde nicht gefunden.')
+
+      const duplicate = createDuplicateProfile(source, currentProfiles)
+      const profiles = await window.orca.saveProfile(duplicate)
+      const savedDuplicate = profiles.find((profile) => profile.id === duplicate.id) ?? duplicate
+      set({ profiles, editorProfile: savedDuplicate })
+      get().showToast(`Profil "${source.name}" als "${duplicate.name}" dupliziert.`)
+    } catch (error) {
+      get().showToast(`Profil konnte nicht dupliziert werden: ${errorMessage(error)}`)
     }
   },
 

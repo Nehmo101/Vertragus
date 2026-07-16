@@ -8,7 +8,7 @@
  *
  * Ohne --write ist der Lauf ein Dry-Run und druckt nur die geplanten
  * Änderungen. Benötigt ANTHROPIC_API_KEY; Modell via ORCA_RETRO_MODEL
- * überschreibbar (Default: claude-opus-4-8).
+ * überschreibbar (Default: claude-sonnet-5).
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -29,6 +29,7 @@ import {
   type SynthesisInput,
   type SynthesisOutput
 } from '../src/shared/retroAnalysis'
+import { planRetroAnalysisSeed, seedRetroAnalysisArtifacts } from './retroSeed'
 
 const OVERLAY_PATH = 'overlay/learnings.md'
 const STATE_PATH = 'state/last-analysis.json'
@@ -145,7 +146,7 @@ async function runSynthesis(input: SynthesisInput): Promise<SynthesisOutput> {
   }
   const client = new Anthropic()
   const response = await client.messages.parse({
-    model: process.env.ORCA_RETRO_MODEL ?? 'claude-opus-4-8',
+    model: process.env.ORCA_RETRO_MODEL ?? 'claude-sonnet-5',
     max_tokens: 16000,
     thinking: { type: 'adaptive' },
     system: SYNTHESIS_SYSTEM_PROMPT,
@@ -186,6 +187,19 @@ function buildSummary(
 async function main(): Promise<void> {
   const options = readCliOptions()
   const root = options.dir
+
+  const seedPaths = planRetroAnalysisSeed(root)
+  if (seedPaths.length > 0) {
+    if (options.write) {
+      for (const path of seedRetroAnalysisArtifacts(root)) {
+        console.log(`Bootstrap angelegt: ${path}`)
+      }
+    } else {
+      console.log(
+        `::notice::Bootstrap erforderlich (Dry-Run, nicht geschrieben): ${seedPaths.join(', ')}`
+      )
+    }
+  }
 
   const stateJson = existsSync(join(root, STATE_PATH))
     ? JSON.parse(readFileSync(join(root, STATE_PATH), 'utf8'))

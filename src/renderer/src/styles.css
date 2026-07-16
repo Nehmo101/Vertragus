@@ -146,7 +146,7 @@ button {
 .app-root {
   height: 100vh;
   min-height: 720px;
-  min-width: 1180px;
+  min-width: min(900px, 100vw);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -159,8 +159,87 @@ button {
 .body-row {
   flex: 1;
   display: flex;
+  min-width: 0;
   min-height: 0;
   overflow: hidden;
+}
+
+.app-content {
+  flex: 1 1 0;
+  display: flex;
+  min-width: min(220px, 30vw);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.layout-panel {
+  position: relative;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.layout-panel.panel-collapsed {
+  width: 38px;
+  flex: 0 0 38px;
+  overflow: hidden;
+}
+
+.panel-scroll-content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.panel-control-row {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  flex: none;
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border-1);
+  background: color-mix(in srgb, var(--bg-panel) 94%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.panel-control-row-left {
+  justify-content: flex-end;
+}
+
+.panel-control-row-right {
+  justify-content: flex-start;
+}
+
+.panel-collapsed .panel-control-row {
+  width: 100%;
+  justify-content: center;
+  padding-inline: 0;
+  border-bottom: 0;
+}
+
+.panel-collapse-button {
+  display: inline-grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--border-3);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-3);
+  font: 600 18px/1 var(--font-ui);
+  cursor: pointer;
+}
+
+.panel-collapse-button:hover,
+.panel-collapse-button:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+  background: color-mix(in srgb, var(--accent) 11%, transparent);
+  color: var(--accent-light);
+  outline: none;
 }
 
 .mono {
@@ -902,13 +981,12 @@ button {
 
 /* ---------- sidebar ---------- */
 .sidebar {
-  width: 266px;
-  flex: none;
+  flex: 0 1 auto;
   display: flex;
   flex-direction: column;
   background: var(--bg-panel);
   border-right: 1px solid var(--border-2);
-  overflow-y: auto;
+  overflow: hidden;
 }
 .side-caption {
   padding: 14px 14px 6px;
@@ -1026,6 +1104,20 @@ button {
   cursor: pointer;
   transition: background 0.1s;
 }
+.profile-row-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.profile-row-item .profile-row {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+.profile-duplicate-action {
+  flex: none;
+  margin-right: 4px;
+}
 .profile-row:hover {
   background: rgba(255, 255, 255, 0.05);
 }
@@ -1125,7 +1217,27 @@ button {
   background: rgba(45, 212, 191, 0.09);
   color: var(--accent-light);
 }
+.workspace-session-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.workspace-session-name,
+.workspace-task-summary {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-task-summary {
+  margin-top: 2px;
+  color: var(--text-3);
+  font-size: 9.5px;
+  line-height: 1.25;
+}
 .workspace-session-select small {
+  flex: none;
   color: var(--text-3);
   font-size: 9.5px;
 }
@@ -1295,14 +1407,9 @@ button {
 .ws-grid {
   display: grid;
   gap: 13px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
   grid-auto-rows: minmax(280px, 1fr);
   min-height: 100%;
-}
-.ws-grid.cols-2 {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-.ws-grid.cols-3 {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .ws-empty {
@@ -1780,14 +1887,13 @@ button {
 
 /* ---------- right panel (orchestrator) ---------- */
 .orch-panel {
-  width: 376px;
-  flex: none;
+  flex: 0 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--bg-panel);
   border-left: 1px solid var(--border-2);
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 /* ---------- limits & usage panel ---------- */
@@ -3837,13 +3943,7 @@ button {
 }
 
 .body-row.layout-dag .orch-panel {
-  order: 1;
-  width: clamp(480px, 46vw, 760px);
-  border-left: 0;
-  border-right: 1px solid var(--border-2);
-}
-.body-row.layout-dag .workspace {
-  order: 2;
+  border-left: 1px solid var(--border-2);
 }
 .body-row.layout-dag .workspace .ws-grid {
   grid-template-columns: 1fr;
@@ -3917,6 +4017,18 @@ button {
 }
 .auto-pr-grid {
   grid-template-columns: 1fr 1fr 0.8fr;
+}
+.auto-git-grid {
+  grid-template-columns: minmax(180px, 0.8fr) minmax(240px, 1.2fr);
+}
+.input-invalid {
+  border-color: var(--err) !important;
+}
+.automation-validation-error {
+  margin-top: 8px;
+  color: var(--err-text);
+  font-size: 11px;
+  line-height: 1.35;
 }
 .automation-grid label {
   min-width: 0;

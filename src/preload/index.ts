@@ -72,6 +72,9 @@ const orca: OrcaApi = {
     addArtifact: (ideaId, input) => ipcRenderer.invoke(IPC.ideasAddArtifact, ideaId, input),
     removeArtifact: (ideaId, artifactId) =>
       ipcRenderer.invoke(IPC.ideasRemoveArtifact, ideaId, artifactId),
+    removeAttribute: (ideaId, attribute) =>
+      ipcRenderer.invoke(IPC.ideasRemoveAttribute, ideaId, attribute),
+    restoreIdea: (ideaId) => ipcRenderer.invoke(IPC.ideasRestore, ideaId),
     transferToProfile: (req) => ipcRenderer.invoke(IPC.ideasTransferToProfile, req),
     transferRetry: (ideaId, yoloMaster) =>
       ipcRenderer.invoke(IPC.ideasTransferRetry, ideaId, yoloMaster),
@@ -114,6 +117,7 @@ const orca: OrcaApi = {
     buffer: (id) => ipcRenderer.invoke(IPC.agentBuffer, id),
     popout: (id) => ipcRenderer.invoke(IPC.agentPopout, id),
     handoff: (req) => ipcRenderer.invoke(IPC.agentHandoff, req),
+    bulkHandoff: (req) => ipcRenderer.invoke(IPC.agentsBulkHandoff, req),
     onData: (cb) => subscribe<AgentDataChunk>(IPC.evAgentData, cb),
     onChanged: (cb) => subscribe<AgentInstanceInfo[]>(IPC.evAgentsChanged, cb),
     onEvent: (cb) => subscribe<OrcaEvent>(IPC.evOrcaEvent, cb)

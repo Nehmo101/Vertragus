@@ -5,6 +5,7 @@ import {
   buildClaudeMcpArgs,
   buildCodexMcpArgs,
   buildCopilotMcpArgs,
+  buildKimiMcpArgs,
   type McpServerSpec
 } from '@main/orchestrator/mcpConfig'
 
@@ -35,7 +36,9 @@ function orcaSpec(handle: McpServerHandle): McpServerSpec {
     transport: 'http',
     url: handle.url,
     allowedTools: handle.allowedTools,
-    required: true
+    required: true,
+    // This loopback server is created and narrowly scoped by Orca itself.
+    approvalMode: 'approve'
   }
 }
 
@@ -49,6 +52,27 @@ const claudeAdapter: OrchestratorAdapter = {
   buildArgs({ handle, configDir, systemPrompt, externalServers, fileTag }) {
     const servers = [orcaSpec(handle), ...(externalServers ?? [])]
     return buildClaudeMcpArgs(servers, {
+      configDir,
+      fileTag: fileTag ?? 'orchestrator',
+      strict: true,
+      systemPrompt,
+      includeReadonlyTools: true
+    })
+  }
+}
+
+const kimiAdapter: OrchestratorAdapter = {
+  capability: {
+    provider: 'kimi',
+    supported: true,
+    transport: 'mcp-http',
+    transientConfig: true
+  },
+  buildArgs({ handle, configDir, systemPrompt, externalServers, fileTag }) {
+    // Kimi Code CLI attaches the Orca MCP server exactly like Claude, differing
+    // only in the config-file flag handled by buildKimiMcpArgs.
+    const servers = [orcaSpec(handle), ...(externalServers ?? [])]
+    return buildKimiMcpArgs(servers, {
       configDir,
       fileTag: fileTag ?? 'orchestrator',
       strict: true,
@@ -100,6 +124,7 @@ function unsupported(provider: AgentProviderId): OrchestratorAdapter {
 
 const ADAPTERS: Record<AgentProviderId, OrchestratorAdapter> = {
   claude: claudeAdapter,
+  kimi: kimiAdapter,
   codex: codexAdapter,
   cursor: unsupported('cursor'),
   copilot: copilotAdapter,

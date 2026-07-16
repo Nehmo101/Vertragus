@@ -68,7 +68,7 @@ export function createMainWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1440,
     height: 900,
-    minWidth: 1180,
+    minWidth: 900,
     minHeight: 720,
     show: false,
     frame: false, // custom title bar (design: window controls in-app)
@@ -141,6 +141,7 @@ export function createMainWindow(): BrowserWindow {
           })`)
 
           pushDemoState(win)
+          win.setSize(900, 800)
           await new Promise((resolve) => setTimeout(resolve, 250))
 
           const checks = await win.webContents.executeJavaScript(`(async () => {
@@ -150,6 +151,64 @@ export function createMainWindow(): BrowserWindow {
             const gitTreePopover = document.querySelector('.git-tree-popover')
             const titlebarBottom = document.querySelector('.titlebar')?.getBoundingClientRect().bottom ?? 0
             const popoverRect = gitTreePopover?.getBoundingClientRect()
+            const appRoot = document.querySelector('.app-root')
+            const workspace = document.querySelector('.workspace')
+            const grid = document.querySelector('.ws-grid')
+            const pane = document.querySelector('.pane')
+            const leftResizeHandle = document.querySelector(
+              '[role="separator"][aria-label="Breite der linken Seitenleiste ändern"]'
+            )
+            const rightResizeHandle = document.querySelector(
+              '[role="separator"][aria-label="Breite der Orchestrator-Seitenleiste ändern"]'
+            )
+            const workspaceWidthBeforeCollapse = workspace?.getBoundingClientRect().width ?? 0
+            const paneWidthBeforeCollapse = pane?.getBoundingClientRect().width ?? 0
+            const columnsBeforeCollapse = grid
+              ? getComputedStyle(grid).gridTemplateColumns.split(' ').length
+              : 0
+            const hasNeedsWork = [...document.querySelectorAll('.task-pill')]
+              .some((node) => node.textContent?.includes('Nacharbeit'))
+            const hasGateFindings = Boolean(document.querySelector('.task-findings'))
+            const hasPreflight = [...document.querySelectorAll('.task-review dd')]
+              .some((node) => node.textContent?.includes('bestanden'))
+            const hasReliability = Boolean(document.querySelector('.reliability-strip'))
+            const hasAutoMode = (() => {
+              const modeSwitch = document.querySelector('.planner-mode-switch')
+              if (!modeSwitch) return false
+              const options = [...modeSwitch.querySelectorAll('.planner-mode-opt')]
+              const activeOptions = options.filter(
+                (node) => node.getAttribute('aria-pressed') === 'true'
+              )
+              return options.length === 3 &&
+                activeOptions.length === 1 &&
+                ['Auto', 'Review', 'Manuell'].every((label) =>
+                  options.some((node) => node.textContent?.trim() === label))
+            })()
+
+            leftResizeHandle?.dispatchEvent(
+              new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })
+            )
+            await new Promise((resolve) => requestAnimationFrame(resolve))
+            const keyboardWidth = JSON.parse(localStorage.getItem('orca.layout.v1') ?? '{}')
+              .panels?.['sidebar-left']?.width
+
+            leftResizeHandle?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+            await new Promise((resolve) => requestAnimationFrame(resolve))
+            const resetWidth = JSON.parse(localStorage.getItem('orca.layout.v1') ?? '{}')
+              .panels?.['sidebar-left']?.width
+
+            document.querySelector('[aria-label="Linke Seitenleiste einklappen"]')?.click()
+            document.querySelector('[aria-label="Orchestrator-Seitenleiste einklappen"]')?.click()
+            await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+
+            const workspaceWidthAfterCollapse = workspace?.getBoundingClientRect().width ?? 0
+            const paneWidthAfterCollapse = pane?.getBoundingClientRect().width ?? 0
+            const columnsAfterCollapse = grid
+              ? getComputedStyle(grid).gridTemplateColumns.split(' ').length
+              : 0
+            const remainingResizeHandles = document.querySelectorAll(
+              '[role="separator"][aria-orientation="vertical"]'
+            )
 
             return {
               preload: typeof window.orca === 'object',
@@ -165,22 +224,35 @@ export function createMainWindow(): BrowserWindow {
               ),
               language: document.documentElement.lang === 'de',
               csp: Boolean(document.querySelector('meta[http-equiv="Content-Security-Policy"]')),
-              needsWork: [...document.querySelectorAll('.task-pill')].some((node) => node.textContent?.includes('Nacharbeit')),
-              gateFindings: Boolean(document.querySelector('.task-findings')),
-              preflight: [...document.querySelectorAll('.task-review dd')].some((node) => node.textContent?.includes('bestanden')),
-              reliability: Boolean(document.querySelector('.reliability-strip')),
-              autoMode: (() => {
-                const modeSwitch = document.querySelector('.planner-mode-switch')
-                if (!modeSwitch) return false
-                const options = [...modeSwitch.querySelectorAll('.planner-mode-opt')]
-                const activeOptions = options.filter(
-                  (node) => node.getAttribute('aria-pressed') === 'true'
-                )
-                return options.length === 3 &&
-                  activeOptions.length === 1 &&
-                  ['Auto', 'Review', 'Manuell'].every((label) =>
-                    options.some((node) => node.textContent?.trim() === label))
-              })()
+              needsWork: hasNeedsWork,
+              gateFindings: hasGateFindings,
+              preflight: hasPreflight,
+              reliability: hasReliability,
+              responsive900: Boolean(
+                appRoot &&
+                appRoot.clientWidth <= 900 &&
+                appRoot.scrollWidth <= appRoot.clientWidth &&
+                workspaceWidthBeforeCollapse >= 200
+              ),
+              resizablePanels: Boolean(
+                leftResizeHandle &&
+                rightResizeHandle &&
+                leftResizeHandle.getAttribute('aria-valuemin') === '200' &&
+                rightResizeHandle.getAttribute('aria-valuemax') === '560'
+              ),
+              keyboardResize: keyboardWidth === 316,
+              doubleClickReset: resetWidth === 300,
+              collapsiblePanels: Boolean(
+                document.querySelector('[aria-label="Linke Seitenleiste ausklappen"]') &&
+                document.querySelector('[aria-label="Orchestrator-Seitenleiste ausklappen"]') &&
+                remainingResizeHandles.length === 0
+              ),
+              workspaceFreed: workspaceWidthAfterCollapse > workspaceWidthBeforeCollapse + 400,
+              dynamicGrid: columnsBeforeCollapse === 1 && columnsAfterCollapse >= 2,
+              responsivePanes: Boolean(
+                paneWidthBeforeCollapse > 0 && paneWidthAfterCollapse > paneWidthBeforeCollapse
+              ),
+              autoMode: hasAutoMode
             }
           })()`)
           const ok = Object.values(checks).every(Boolean)

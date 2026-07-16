@@ -25,13 +25,17 @@ import type {
   OrchestratorActivityPhase,
   OrchestratorGoal,
   IntegrationCenterSnapshot,
+  MultiAgentRunSnapshot,
   OrchestratorReliabilityMetrics,
   PendingPlanReview,
   OrchestratorSnapshot,
   PlanRunStatusSnapshot,
+  RetroReminder,
+  SetGoalResult,
   SubagentDescriptor,
   SubagentFinding,
   SubagentFindingKind,
+  SubagentSupportRequest,
   TaskAttemptSnapshot,
   TaskCriticality,
   TaskPhase,
@@ -87,15 +91,18 @@ import { securityChecklistForFiles } from '@main/integrations/securityGate'
 import {
   analyzeRunRetro,
   benchmarkLearnings,
+  deriveRetroDraftModels,
   type BenchmarkRanking,
   type BenchmarkRecord,
   type BenchmarkRunStatus,
   type LearningKind,
   type ModelLearning,
+  type RetroDraftResult,
   type RunRetro
 } from '@shared/retro'
 import {
   learningsForModel,
+  listRunRetros,
   recordBenchmarkRecord,
   recordModelLearnings,
   recordRunRetro
@@ -103,6 +110,8 @@ import {
 import { enqueueBenchmarkExport, enqueueRetroExport } from '@main/orchestrator/retroExport'
 import { captureTaskRecoveryArtifact } from '@main/orchestrator/recoveryArtifact'
 import { permissionBroker } from '@main/permissions/PermissionBroker'
+import { finalizeWorkspaceRun } from '@main/orchestrator/workspaceRunLifecycle'
+import type { WorkspaceGitPostProcessingSnapshot } from '@shared/gitPostProcessing'
 
 interface DispatchOptions {
   taskId?: string
@@ -118,6 +127,10 @@ interface DispatchOptions {
   maxAttempts?: number
   /** Verified failed-worker worktree whose partial files may be resumed. */
   recoveryWorktree?: string
+  /** Internal marker that prevents a candidate from recursively opening another group. */
+  multiAgentRunId?: string
+  multiAgentParentTaskId?: string
+  multiAgentCandidate?: number
 }
 
 interface DispatchRecord {
@@ -125,6 +138,18 @@ interface DispatchRecord {
   prompt: string
   title?: string
   options: DispatchOptions
+}
+
+interface MultiAgentOutcome {
+  action: 'accepted' | 'rejected'
+  message: string
+}
+
+interface MultiAgentRuntime extends MultiAgentRunSnapshot {
+  prompt: string
+  options: DispatchOptions
+  nextCandidate: number
+  resolve: (outcome: MultiAgentOutcome) => void
 }
 
 interface PreparedExecutionPlan {
@@ -171,6 +196,18 @@ export function platformExecutionGuidance(
     ]
   }
   return []
+}
+
+export function providerExecutionGuidance(
+  provider: AgentProviderId,
+  yolo: boolean,
+  platform: NodeJS.Platform = process.platform
+): string[] {
+  if (provider !== 'codex' || yolo || platform !== 'win32') return []
+  return [
+    'Codex/Windows-Safe-Sandbox: Wenn ausschliesslich ein Node-Unterprozess mit spawn EPERM scheitert, ist das ein bekannter Sandbox-Gate-Fehler und kein fachlicher BLOCKER.',
+    'Codex/Windows-Safe-Sandbox: Arbeite in diesem Fall weiter, kennzeichne nur den betroffenen Test/Build als nicht ausfuehrbar und schliesse bei fachlich vollstaendiger Arbeit mit ERGEBNIS: ERFOLG; Orcas Main-Prozess wiederholt die zentralen Abnahme-Gates ausserhalb der Worker-Sandbox.'
+  ]
 }
 
 export interface WorkerTerminalJudgement {
@@ -303,9 +340,15 @@ export class OrchestratorEngine extends EventEmitter {
   private taskSeq = 0
   private benchSeq = 0
   private lastRetro: RunRetro | undefined
+  private gitPostProcessing: WorkspaceGitPostProcessingSnapshot | undefined
   /** Live coordination board written by subagents (post_finding). */
   private readonly findingsBoard: SubagentFinding[] = []
   private findingSeq = 0
+  private multiAgentSeq = 0
+  private readonly multiAgentRuns = new Map<string, MultiAgentRuntime>()
+  private supportSeq = 0
+  private readonly subagentRequests = new Map<string, SubagentSupportRequest>()
+  private readonly supportWaiters = new Map<string, Set<(request: SubagentSupportRequest) => void>>()
   private persistTimer: ReturnType<typeof setTimeout> | undefined
   private lastPersistedAt = 0
   private pendingSnapshot: OrchestratorSnapshot | undefined
@@ -351,6 +394,19 @@ export class OrchestratorEngine extends EventEmitter {
     }
     if (!restored || !Array.isArray(restored.tasks)) return
     this.lastRetro = restored.lastRetro
+    this.gitPostProcessing = restored.gitPostProcessing?.status === 'running'
+      ? {
+          ...restored.gitPostProcessing,
+          status: 'failed',
+          finishedAt: Date.now(),
+          error: {
+            code: 'INTERRUPTED_GIT_POST_PROCESSING',
+            phase: 'unexpected',
+            message: 'Git-Post-Processing wurde durch den App-Neustart unterbrochen.',
+            mutation: 'unknown'
+          }
+        }
+      : restored.gitPostProcessing
     this.activity = restored.activity
       ? {
           phase: 'idle',
@@ -510,8 +566,11 @@ export class OrchestratorEngine extends EventEmitter {
       pendingPermissions: [...this.pendingPermissions.values()].map((request) => ({ ...request })),
       budget: this.budgetSnapshot(),
       integration: this.integrationSnapshot(),
+      gitPostProcessing: this.gitPostProcessing,
       lastRetro: this.lastRetro,
-      findings: this.listTaskFindings()
+      findings: this.listTaskFindings(),
+      multiAgentRuns: this.listMultiAgentRuns(),
+      subagentRequests: this.listSubagentSupportRequests()
     }
   }
 
@@ -652,8 +711,23 @@ export class OrchestratorEngine extends EventEmitter {
     this.planRunPlanIds.clear()
     this.cancelledPlanRuns.clear()
     this.benchmarkRuns.clear()
+    for (const run of this.multiAgentRuns.values()) {
+      run.resolve({ action: 'rejected', message: 'Multiagent-Lauf durch Engine-Reset beendet.' })
+    }
+    this.multiAgentRuns.clear()
+    for (const request of this.subagentRequests.values()) {
+      if (request.status === 'pending') {
+        request.status = 'stopped'
+        request.response = 'Orchestrator wurde zurückgesetzt.'
+        request.respondedAt = Date.now()
+        this.notifySupportWaiters(request)
+      }
+    }
+    this.subagentRequests.clear()
+    this.supportWaiters.clear()
     this.findingsBoard.length = 0
     this.lastRetro = undefined
+    this.gitPostProcessing = undefined
     this.push()
     // A reset must survive an immediate app restart; skip the throttle window.
     if (this.persistTimer) {
@@ -983,7 +1057,8 @@ export class OrchestratorEngine extends EventEmitter {
     this.push()
   }
 
-  setGoal(title: string): void {
+  setGoal(title: string): SetGoalResult {
+    const retroReminder = this.pendingRetroReminder()
     this.goalStartedAt = Date.now()
     this.firstPlanApproved = false
     this.goal = { id: `epic-${Date.now().toString(36)}`, title, active: true }
@@ -994,6 +1069,7 @@ export class OrchestratorEngine extends EventEmitter {
       'Verfügbare Subagent-Rollen prüfen und den Ausführungsplan erstellen.'
     )
     this.push()
+    return retroReminder ? { retroReminder } : {}
   }
 
   private activeProfile(): WorkspaceProfile | undefined {
@@ -1103,6 +1179,237 @@ export class OrchestratorEngine extends EventEmitter {
     return selected
   }
 
+  private multiAgentSnapshot(run: MultiAgentRuntime): MultiAgentRunSnapshot {
+    return {
+      id: run.id, parentTaskId: run.parentTaskId, title: run.title, role: run.role,
+      status: run.status, candidateTaskIds: [...run.candidateTaskIds],
+      winnerTaskId: run.winnerTaskId, feedback: run.feedback,
+      startedAt: run.startedAt, decidedAt: run.decidedAt
+    }
+  }
+
+  listMultiAgentRuns(): MultiAgentRunSnapshot[] {
+    return [...this.multiAgentRuns.values()]
+      .sort((a, b) => a.startedAt - b.startedAt)
+      .map((run) => this.multiAgentSnapshot(run))
+  }
+
+  private startMultiAgentCandidate(
+    run: MultiAgentRuntime,
+    input: { prompt: string; recoveryWorktree?: string }
+  ): string {
+    run.nextCandidate += 1
+    const candidate = run.nextCandidate
+    const taskId = `${run.parentTaskId}-m${candidate}`
+    run.candidateTaskIds.push(taskId)
+    const candidatePrompt = [
+      input.prompt,
+      '',
+      `Multiagent-Kandidat ${candidate} in Gruppe ${run.id}: Entwickle eine eigenständige Lösung.`,
+      'Kommuniziere Zwischenstände früh, teile Entscheidungen/Blocker und frage den Orchestrator direkt, wenn Unterstützung oder eine Richtungsentscheidung nötig ist.',
+      'Änderungen anderer Kandidaten dürfen nicht übernommen oder zusammengeführt werden.'
+    ].join('\n')
+    const work = this.dispatch(run.role, candidatePrompt, `${run.title} · Kandidat ${candidate}`, {
+      ...run.options,
+      taskId,
+      recoveryWorktree: input.recoveryWorktree,
+      multiAgentRunId: run.id,
+      multiAgentParentTaskId: run.parentTaskId,
+      multiAgentCandidate: candidate
+    })
+      .then((result) => {
+        this.taskResults.set(taskId, result)
+        return result
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error)
+        this.taskResults.set(taskId, message)
+        return message
+      })
+    this.taskRuns.set(taskId, work)
+    void work.finally(() => {
+      this.taskRuns.delete(taskId)
+      const current = this.multiAgentRuns.get(run.id)
+      if (!current || current.status === 'accepted' || current.status === 'rejected') return
+      const complete = current.candidateTaskIds.every((id) => {
+        const task = this.tasks.get(id)
+        return task ? isTerminalTaskStatus(task.status) : false
+      })
+      if (!complete) return
+      current.status = 'awaiting-review'
+      const parent = this.tasks.get(current.parentTaskId)
+      if (parent) {
+        parent.status = 'waiting'
+        parent.phase = 'security-review'
+        parent.lastAction = `${current.candidateTaskIds.length} Kandidaten warten auf Orchestrator-Review`
+        parent.lastHeartbeatAt = Date.now()
+      }
+      this.setActivityState(
+        'reviewing',
+        `Vergleicht ${current.candidateTaskIds.length} Kandidaten für „${current.title}“.`,
+        ['Diffs, Tests, Findings und Worker-Ergebnisse bewerten.'],
+        'Einen Kandidaten übernehmen, gezielt überarbeiten lassen oder die Gruppe verwerfen.'
+      )
+      this.push()
+    })
+    return taskId
+  }
+
+  private async dispatchMultiAgent(
+    role: string,
+    slotRole: string,
+    prompt: string,
+    title: string | undefined,
+    options: DispatchOptions,
+    candidateCount: number
+  ): Promise<string> {
+    const { slot } = this.pickSlot(role)
+    const profile = this.activeProfile()
+    const parentTaskId = options.taskId ?? this.nextTaskId()
+    const runId = `multi-${++this.multiAgentSeq}`
+    const taskTitle = title?.trim() || prompt.split('\n')[0].slice(0, 60)
+    const parent: OrcaTask = this.tasks.get(parentTaskId) ?? {
+      id: parentTaskId, title: taskTitle, role: slotRole, status: 'running', createdAt: Date.now()
+    }
+    Object.assign(parent, {
+      title: taskTitle, role: slotRole, provider: slot.provider, model: resolveSlotModel(slot.provider, slot),
+      status: 'running' as const, phase: 'working' as const,
+      lastAction: `Startet ${candidateCount} parallele Kandidaten`, lastHeartbeatAt: Date.now(),
+      yolo: slot.yolo || (profile?.yoloDefault ?? false),
+      dependsOn: options.dependsOn, advisoryDependsOn: options.advisoryDependsOn,
+      conflictKeys: options.conflictKeys, expectedFiles: options.expectedFiles,
+      planId: options.planId, planTaskId: options.planTaskId, engineId: this.engineId,
+      criticality: options.criticality ?? 'required', ownership: options.ownership ?? 'feature',
+      multiAgentRunId: runId, agentId: undefined, agentName: undefined, finishedAt: undefined
+    })
+    this.tasks.set(parentTaskId, parent)
+    if (!this.dispatchRecords.has(parentTaskId)) {
+      this.dispatchRecords.set(parentTaskId, { role, prompt, title, options: { ...options } })
+    }
+
+    let resolve!: (outcome: MultiAgentOutcome) => void
+    const decided = new Promise<MultiAgentOutcome>((done) => { resolve = done })
+    const run: MultiAgentRuntime = {
+      id: runId, parentTaskId, title: taskTitle, role: slotRole, status: 'running',
+      candidateTaskIds: [], startedAt: Date.now(), prompt, options: { ...options },
+      nextCandidate: 0, resolve
+    }
+    this.multiAgentRuns.set(runId, run)
+    this.setActivityState(
+      'delegating',
+      `Startet ${candidateCount} konkurrierende Kandidaten für „${taskTitle}“.`,
+      [`Rolle ${slotRole}; jeder Kandidat arbeitet in einem isolierten Worktree.`],
+      'Live-Findings beobachten und Kandidaten anschließend reviewen.'
+    )
+    for (let index = 0; index < candidateCount; index += 1) {
+      this.startMultiAgentCandidate(run, { prompt })
+    }
+    this.push()
+    const outcome = await decided
+    return outcome.message
+  }
+
+  async reviewMultiAgentRun(input: {
+    runId: string
+    action: 'accept' | 'revise' | 'reject'
+    candidateTaskId?: string
+    feedback: string
+  }): Promise<MultiAgentRunSnapshot> {
+    const run = this.multiAgentRuns.get(input.runId)
+    if (!run) throw new Error('Multiagent-Lauf nicht gefunden.')
+    if (run.status === 'accepted' || run.status === 'rejected') return this.multiAgentSnapshot(run)
+    const feedback = input.feedback.replace(/\s+/g, ' ').trim().slice(0, 2_000)
+    if (!feedback) throw new Error('Die Orchestrator-Entscheidung benötigt eine konkrete Begründung.')
+    const selected = input.candidateTaskId ? this.tasks.get(input.candidateTaskId) : undefined
+    const selectedBelongs = Boolean(selected && run.candidateTaskIds.includes(selected.id))
+
+    if (input.action !== 'reject' && !selectedBelongs) {
+      throw new Error('Für Übernahme oder Überarbeitung muss ein Kandidat aus dieser Gruppe gewählt werden.')
+    }
+    if (input.action !== 'reject' && selected && !isTerminalTaskStatus(selected.status)) {
+      throw new Error('Der gewählte Kandidat ist noch nicht fertig und kann noch nicht bewertet werden.')
+    }
+
+    const stopAlternatives = async (keepTaskId?: string): Promise<void> => {
+      const shouldStop = input.action !== 'accept' || (this.activeProfile()?.multiAgent.stopLosers ?? true)
+      if (!shouldStop) return
+      await Promise.all(run.candidateTaskIds.map(async (taskId) => {
+        if (taskId === keepTaskId) return
+        const task = this.tasks.get(taskId)
+        if (task?.agentId && !isTerminalTaskStatus(task.status)) await agentManager.kill(task.agentId)
+      }))
+    }
+
+    if (input.action === 'revise') {
+      await stopAlternatives(selected!.id)
+      for (const taskId of run.candidateTaskIds) {
+        this.preparedChanges.delete(taskId)
+        const candidate = this.tasks.get(taskId)
+        if (candidate) candidate.autoPrStatus = undefined
+      }
+      run.status = 'running'
+      run.feedback = feedback
+      const parent = this.tasks.get(run.parentTaskId)!
+      parent.status = 'running'
+      parent.phase = 'working'
+      parent.lastAction = `Überarbeitung für ${selected!.agentName ?? selected!.id} angefordert`
+      parent.lastHeartbeatAt = Date.now()
+      const previous = this.taskResults.get(selected!.id) ?? selected!.note ?? '(kein Ergebnistext)'
+      this.startMultiAgentCandidate(run, {
+        prompt: `${run.prompt}\n\nOrchestrator-Review: ${feedback}\n\nVorheriges Ergebnis:\n${previous}`,
+        recoveryWorktree: selected!.worktree
+      })
+      this.push()
+      return this.multiAgentSnapshot(run)
+    }
+
+    await stopAlternatives(input.action === 'accept' ? selected?.id : undefined)
+    const parent = this.tasks.get(run.parentTaskId)!
+    const selectedPrepared = selected ? this.preparedChanges.get(selected.id) : undefined
+    const selectedAutoPrStatus = selected?.autoPrStatus
+    for (const taskId of run.candidateTaskIds) {
+      this.preparedChanges.delete(taskId)
+      const candidate = this.tasks.get(taskId)
+      if (candidate) candidate.autoPrStatus = undefined
+    }
+
+    if (input.action === 'accept') {
+      if (selected!.status !== 'success' && selected!.status !== 'needs-work') {
+        throw new Error('Nur ein erfolgreicher oder als nacharbeitsfähig bewerteter Kandidat kann übernommen werden.')
+      }
+      if (selectedPrepared) this.preparedChanges.set(parent.id, selectedPrepared)
+      Object.assign(parent, {
+        agentId: selected!.agentId, agentName: selected!.agentName, provider: selected!.provider,
+        model: selected!.model, status: selected!.status, phase: selected!.phase,
+        progress: selected!.progress, lastHeartbeatAt: Date.now(), usage: selected!.usage,
+        note: feedback, judgeReason: feedback, worktree: selected!.worktree, branch: selected!.branch,
+        commit: selected!.commit, completion: selected!.completion, findings: selected!.findings,
+        blocker: selected!.blocker, failureKind: selected!.failureKind, preflight: selected!.preflight,
+        attempts: selected!.attempts, autoPrStatus: selectedAutoPrStatus, finishedAt: Date.now(),
+        lastAction: `Kandidat ${selected!.agentName ?? selected!.id} vom Orchestrator übernommen`
+      })
+      run.status = 'accepted'
+      run.winnerTaskId = selected!.id
+      run.feedback = feedback
+      run.decidedAt = Date.now()
+      const message = `Multiagent-Gewinner ${selected!.agentName ?? selected!.id}: ${feedback}\n\n${this.taskResults.get(selected!.id) ?? selected!.note ?? ''}`
+      run.resolve({ action: 'accepted', message })
+    } else {
+      Object.assign(parent, {
+        status: 'stopped' as const, phase: 'completed' as const, failureKind: 'cancelled' as const,
+        note: feedback, judgeReason: feedback, lastAction: 'Alle Multiagent-Kandidaten verworfen',
+        finishedAt: Date.now(), lastHeartbeatAt: Date.now()
+      })
+      run.status = 'rejected'
+      run.feedback = feedback
+      run.decidedAt = Date.now()
+      run.resolve({ action: 'rejected', message: `Multiagent-Gruppe verworfen: ${feedback}` })
+    }
+    this.syncActivityFromTasks()
+    this.push()
+    return this.multiAgentSnapshot(run)
+  }
+
   /**
    * Dispatch a subtask to a subagent and wait for its result.
    * Returns the subagent's final message (fed back to the orchestrator).
@@ -1116,6 +1423,9 @@ export class OrchestratorEngine extends EventEmitter {
   ): Promise<string> {
     const { slot, role: slotRole } = this.pickSlot(role)
     const profile = this.activeProfile()
+    if (!options.multiAgentRunId && profile?.multiAgent?.enabled && slot.count > 1) {
+      return this.dispatchMultiAgent(role, slotRole, prompt, title, options, Math.min(slot.count, 16))
+    }
     const taskId = options.taskId ?? this.nextTaskId()
     if (!this.dispatchRecords.has(taskId)) {
       this.dispatchRecords.set(taskId, {
@@ -1159,6 +1469,9 @@ export class OrchestratorEngine extends EventEmitter {
       criticality: options.criticality ?? task.criticality ?? 'required',
       ownership: options.ownership ?? task.ownership ?? 'feature',
       planTaskId: options.planTaskId ?? task.planTaskId,
+      multiAgentRunId: options.multiAgentRunId,
+      multiAgentParentTaskId: options.multiAgentParentTaskId,
+      multiAgentCandidate: options.multiAgentCandidate,
       agentId: undefined,
       agentName: undefined,
       blocker: undefined,
@@ -1217,9 +1530,11 @@ export class OrchestratorEngine extends EventEmitter {
       ...(orcaSubTools
         ? [
             '- Live-Status: Melde wichtige Phasenwechsel und Zwischenstände knapp über das MCP-Tool report_progress (Server orca-sub).',
-            '- Team-Board: Teile Schnittstellen, Entscheidungen und Blocker, die parallele Tasks betreffen, über post_finding; prüfe mit list_findings die Einträge anderer Subagents, bevor du gemeinsame Schnittstellen festlegst.'
+            '- Team-Board: Teile Schnittstellen, Entscheidungen und Blocker, die parallele Tasks betreffen, über post_finding; prüfe mit list_findings die Einträge anderer Subagents, bevor du gemeinsame Schnittstellen festlegst.',
+            '- Direkte Hilfe: Wenn eine Richtungsentscheidung, Freigabe oder Unterstützung fehlt, nutze ask_orchestrator und warte mit await_orchestrator_response auf die konkrete Antwort.'
           ]
         : []),
+      ...providerExecutionGuidance(slot.provider, yolo).map((item) => `- ${item}`),
       ...platformExecutionGuidance().map((item) => `- ${item}`),
       ...securityChecklist.map((item) => `- Security-Pflicht: ${item}`)
     ].join('\n')
@@ -1786,7 +2101,7 @@ export class OrchestratorEngine extends EventEmitter {
   async awaitPlan(runId: string, timeoutMs?: number): Promise<AwaitPlanResult> {
     const current = this.getPlanRunStatus(runId)
     if (!current) return { done: false, stillRunning: false, reason: 'unknown', runId }
-    if (current.status !== 'running') return { done: true, stillRunning: false, plan: current }
+    if (current.status !== 'running') return this.terminalAwaitResult(runId, current)
     const future = this.planRuns.get(runId)
     if (!future) return { done: false, stillRunning: true, reason: 'timeout', plan: current }
     // The planRuns future rethrows on failure; the settle-guard neutralizes it.
@@ -1796,7 +2111,7 @@ export class OrchestratorEngine extends EventEmitter {
     )
     const plan = this.getPlanRunStatus(runId) ?? current
     if (outcome === 'settled' && plan.status !== 'running') {
-      return { done: true, stillRunning: false, plan }
+      return this.terminalAwaitResult(runId, plan)
     }
     return { done: false, stillRunning: true, reason: 'timeout', plan }
   }
@@ -1850,6 +2165,9 @@ export class OrchestratorEngine extends EventEmitter {
       this.goal = { id: `epic-${Date.now().toString(36)}`, title: plan.goal, active: true }
     }
     const planId = providedPlanId ?? this.nextPlanId()
+    // A new plan owns the next terminal badge; never let a prior Git result
+    // override this run's eventual domain outcome in the renderer.
+    this.gitPostProcessing = undefined
     if (runId) {
       this.planRunPlanIds.set(runId, planId)
       // Pin this run's goal so concurrent plans cannot rewrite each other's
@@ -2157,12 +2475,12 @@ export class OrchestratorEngine extends EventEmitter {
     }
 
     if (!isCancelled()) await this.publishPendingChanges(planId)
-    const planTasks = [...this.tasks.values()].filter((task) => task.planId === planId)
-    const requiredTasks = planTasks.filter((task) => (task.criticality ?? 'required') === 'required')
-    const requiredNeedsWork = requiredTasks.filter((task) => task.status === 'needs-work')
-    const requiredErrors = requiredTasks.filter((task) => task.status === 'error')
-    const requiredStopped = requiredTasks.filter((task) => task.status === 'stopped')
-    const planStatus: ExecutionPlanResult['status'] = isCancelled()
+    let planTasks = [...this.tasks.values()].filter((task) => task.planId === planId)
+    let requiredTasks = planTasks.filter((task) => (task.criticality ?? 'required') === 'required')
+    let requiredNeedsWork = requiredTasks.filter((task) => task.status === 'needs-work')
+    let requiredErrors = requiredTasks.filter((task) => task.status === 'error')
+    let requiredStopped = requiredTasks.filter((task) => task.status === 'stopped')
+    const domainStatus: ExecutionPlanResult['status'] = isCancelled()
       ? 'stopped'
       : requiredNeedsWork.length > 0
         ? 'needs-work'
@@ -2171,6 +2489,81 @@ export class OrchestratorEngine extends EventEmitter {
           : requiredStopped.length > 0
             ? 'stopped'
             : 'success'
+    const lifecycle = await finalizeWorkspaceRun({
+      planId,
+      status: domainStatus,
+      goal: plan.goal,
+      profile,
+      onGitState: (state) => {
+        this.gitPostProcessing = state
+        this.setActivityState(
+          state.status === 'running' ? 'integrating' : state.status === 'failed' ? 'blocked' : 'summarizing',
+          state.status === 'running'
+            ? `Fachliche Bearbeitung erfolgreich; Auto-Commit & Push nach ${state.targetBranch} läuft.`
+            : state.status === 'failed'
+              ? state.error?.message ?? 'Git-Post-Processing ist fehlgeschlagen.'
+              : state.status === 'clean'
+                ? 'Fachliche Bearbeitung erfolgreich; der Workspace enthält keine neuen Git-Änderungen.'
+                : `Auto-Commit & Push nach ${state.targetBranch} ist erfolgreich.`,
+          state.changedFiles.slice(0, 4),
+          state.status === 'failed'
+            ? 'Git-Fehler und gegebenenfalls den lokalen Commit für die Wiederherstellung prüfen.'
+            : undefined
+        )
+        this.push()
+      }
+    })
+    let planStatus = lifecycle.status
+    let gitTaskResult: ExecutionPlanTaskResult | undefined
+    if (lifecycle.gitPostProcessing?.status === 'failed') {
+      const gitState = lifecycle.gitPostProcessing
+      const error = gitState.error!
+      let runtimeId = `${planId}-orca-git-post-processing`
+      while (this.tasks.has(runtimeId)) runtimeId += '-retry'
+      const resultText = `${error.message} [${error.code}/${error.phase}]`
+      this.tasks.set(runtimeId, {
+        id: runtimeId,
+        title: 'Auto-Commit & Push',
+        role: 'integrator',
+        status: 'error',
+        phase: 'committing',
+        criticality: 'required',
+        ownership: 'integrator',
+        failureKind: 'infrastructure',
+        note: resultText,
+        judgeReason: resultText,
+        lastAction: resultText,
+        branch: gitState.targetBranch,
+        commit: gitState.commit,
+        planId,
+        engineId: this.engineId,
+        createdAt: gitState.startedAt,
+        finishedAt: gitState.finishedAt ?? Date.now()
+      })
+      this.taskResults.set(runtimeId, resultText)
+      gitTaskResult = {
+        id: 'orca-git-post-processing',
+        status: 'error',
+        criticality: 'required',
+        result: resultText,
+        commit: gitState.commit,
+        judgeReason: resultText
+      }
+      console.error('[Orchestrator] Git post-processing failed', {
+        planId,
+        code: error.code,
+        phase: error.phase,
+        mutation: error.mutation,
+        commit: gitState.commit,
+        detail: error.detail
+      })
+      planTasks = [...this.tasks.values()].filter((task) => task.planId === planId)
+      requiredTasks = planTasks.filter((task) => (task.criticality ?? 'required') === 'required')
+      requiredNeedsWork = requiredTasks.filter((task) => task.status === 'needs-work')
+      requiredErrors = requiredTasks.filter((task) => task.status === 'error')
+      requiredStopped = requiredTasks.filter((task) => task.status === 'stopped')
+      planStatus = 'error'
+    }
     const attentionTasks = [...requiredNeedsWork, ...requiredErrors, ...requiredStopped]
     this.reliability.completedPlans += 1
     if (planStatus !== 'success') this.reliability.preventedFalseSuccesses += 1
@@ -2186,6 +2579,16 @@ export class OrchestratorEngine extends EventEmitter {
         : 'Gesamtergebnis, Prüfstatus und advisory Hinweise berichten.'
     )
     this.push()
+    const executionResults = plan.tasks.map<ExecutionPlanTaskResult>(
+      (task) =>
+        results.get(task.id) ?? {
+          id: task.id,
+          status: 'stopped',
+          criticality: task.criticality,
+          result: 'Kein Ergebnis.'
+        }
+    )
+    if (gitTaskResult) executionResults.push(gitTaskResult)
 
     return {
       planId,
@@ -2194,15 +2597,7 @@ export class OrchestratorEngine extends EventEmitter {
       rejected: resolved.rejected,
       validationIssues: resolved.issues,
       retro,
-      tasks: plan.tasks.map(
-        (task) =>
-          results.get(task.id) ?? {
-            id: task.id,
-            status: 'stopped',
-            criticality: task.criticality,
-            result: 'Kein Ergebnis.'
-          }
-      )
+      tasks: executionResults
     }
   }
 
@@ -2434,11 +2829,185 @@ export class OrchestratorEngine extends EventEmitter {
       }
       recordRunRetro(retro)
       this.lastRetro = retro
-      enqueueRetroExport(retro)
       return retro
     } catch (error) {
       console.warn('[Orchestrator] Automatische Retro fehlgeschlagen', error)
       return undefined
+    }
+  }
+
+  private storedRetros(): RunRetro[] {
+    try {
+      return listRunRetros(this.boundProfile?.id)
+    } catch (error) {
+      console.warn('[Orchestrator] Retros nicht lesbar', error)
+      return []
+    }
+  }
+
+  private retroForPlan(planId: string): RunRetro | undefined {
+    if (this.lastRetro?.planId === planId) return this.lastRetro
+    return this.storedRetros().find((retro) =>
+      retro.planId === planId &&
+      (
+        this.workspaceSessionId == null ||
+        retro.workspaceSessionId == null ||
+        retro.workspaceSessionId === this.workspaceSessionId
+      )
+    )
+  }
+
+  /**
+   * A retro card satisfies the qualitative gate once the orchestrator has
+   * merged its own learnings via record_retro. Auto-retro (heuristic, source
+   * 'auto-retro') alone does NOT count — the numbers are captured, the
+   * qualitative judgement is not.
+   */
+  private retroHasQualitativeLearnings(retro: RunRetro | undefined): boolean {
+    return retro?.learnings.some((learning) => learning.source === 'orchestrator') ?? false
+  }
+
+  /** True when the latest terminal plan run still lacks a qualitative retro. */
+  private isRetroPending(planId: string | undefined): boolean {
+    if (!planId) return false
+    if (this.workspaceSessionId === REMOTE_SELFTEST_SESSION_ID) return false
+    return !this.retroHasQualitativeLearnings(this.retroForPlan(planId))
+  }
+
+  /** Non-blocking reminder for set_goal when the prior run's retro is open. */
+  private pendingRetroReminder(): RetroReminder | undefined {
+    const planId = this.latestTerminalPlanId()
+    if (!this.isRetroPending(planId) || !planId) return undefined
+    return {
+      priorPlanId: planId,
+      message:
+        `Für den letzten terminalen Planlauf (${planId}) wurde noch kein qualitatives Retro erfasst. ` +
+        'Rufe get_retro_draft/record_retro nach, damit die Modell-Learnings dieses Laufs nicht verloren gehen.'
+    }
+  }
+
+  /**
+   * Assemble the terminal await_plan payload and surface the retro gate: when
+   * the run's qualitative retro is still open, embed retroPending plus the
+   * ready-to-fill draft so the next natural step is recording the retro — no
+   * separate get_retro_draft round-trip required.
+   */
+  private terminalAwaitResult(runId: string, plan: PlanRunStatusSnapshot): AwaitPlanResult {
+    const base = { done: true as const, stillRunning: false as const, plan }
+    const planId = this.planRunPlanIds.get(runId)
+    if (!this.isRetroPending(planId)) {
+      return planId ? { ...base, retroPending: false } : base
+    }
+    return { ...base, retroPending: true, retroDraft: this.buildRetroDraft(planId) }
+  }
+
+  private latestTerminalPlanId(): string | undefined {
+    const latestRun = [...this.planRunResults.values()].reverse().find(
+      (run) => run.planId && run.status !== 'running'
+    )
+    if (latestRun?.planId) return latestRun.planId
+    if (this.lastRetro?.planId && this.lastRetro.planId !== 'ad-hoc' && this.lastRetro.status) {
+      return this.lastRetro.planId
+    }
+    return this.storedRetros().find((retro) =>
+      retro.planId !== 'ad-hoc' &&
+      retro.status != null &&
+      (
+        this.workspaceSessionId == null ||
+        retro.workspaceSessionId == null ||
+        retro.workspaceSessionId === this.workspaceSessionId
+      )
+    )?.planId
+  }
+
+  private resolveRetroModel(provider: AgentProviderId, model?: string, role?: string): string {
+    const configured = this.slotsWithRoles().find(
+      (entry) => entry.slot.provider === provider && (role == null || entry.role === role)
+    )?.slot
+    return resolveSlotModel(provider, model?.trim() ? { model } : (configured ?? { model: '' }))
+  }
+
+  private resolvedRetroTasks(planId: string): OrcaTask[] {
+    return [...this.tasks.values()]
+      .filter((task) => task.planId === planId)
+      .map((task) => ({
+        ...task,
+        model: task.provider
+          ? this.resolveRetroModel(task.provider, task.model, task.role)
+          : task.model,
+        attempts: task.attempts?.map((attempt) => ({
+          ...attempt,
+          model: attempt.provider
+            ? this.resolveRetroModel(attempt.provider, attempt.model, task.role)
+            : attempt.model
+        }))
+      }))
+  }
+
+  /** Facts scaffold for the latest terminal plan (or an explicitly selected one). */
+  buildRetroDraft(requestedPlanId?: string): RetroDraftResult {
+    const planId = requestedPlanId?.trim() || this.latestTerminalPlanId()
+    if (!planId) {
+      return {
+        ok: false,
+        code: 'no-terminal-plan',
+        message: 'Es liegt noch kein terminaler Planlauf für eine Retrospektive vor.'
+      }
+    }
+
+    const run = [...this.planRunResults.values()].reverse().find((entry) => entry.planId === planId)
+    const retro = this.retroForPlan(planId)
+    const tasks = this.resolvedRetroTasks(planId)
+    if (!run && !retro && tasks.length === 0) {
+      return {
+        ok: false,
+        code: 'plan-not-found',
+        planId,
+        message: `Planlauf ${planId} ist unbekannt.`
+      }
+    }
+    if (
+      run?.status === 'running' ||
+      tasks.some((task) => !isTerminalTaskStatus(task.status))
+    ) {
+      return {
+        ok: false,
+        code: 'plan-not-terminal',
+        planId,
+        message: `Planlauf ${planId} ist noch nicht terminal.`
+      }
+    }
+
+    const status = retro?.status ?? run?.status
+    if (!status) {
+      return {
+        ok: false,
+        code: 'plan-not-terminal',
+        planId,
+        message: `Für Planlauf ${planId} liegt noch kein terminaler Status vor.`
+      }
+    }
+    const models = deriveRetroDraftModels(tasks)
+    if (models.length === 0) {
+      return {
+        ok: false,
+        code: 'no-model-stats',
+        planId,
+        message: `Planlauf ${planId} enthält keine auswertbaren Modellbeobachtungen.`
+      }
+    }
+    const analysis = analyzeRunRetro({
+      tasks,
+      status,
+      profileId: this.boundProfile?.id
+    })
+    return {
+      ok: true,
+      planId,
+      goal: run?.goal ?? retro?.goal ?? this.goal?.title ?? '',
+      status,
+      summary: retro?.summary ?? analysis.summary,
+      models
     }
   }
 
@@ -2458,28 +3027,41 @@ export class OrchestratorEngine extends EventEmitter {
       evidence?: string
     }>
   }): { summary: string; storedLearnings: ModelLearning[] } {
+    const summary = input.summary.replace(/\s+/g, ' ').trim().slice(0, 500)
+    if (this.workspaceSessionId === REMOTE_SELFTEST_SESSION_ID) {
+      return { summary, storedLearnings: [] }
+    }
     const applied = recordModelLearnings(
       input.learnings.map((learning) => ({
         ...learning,
+        model: this.resolveRetroModel(learning.provider, learning.model, learning.role),
         source: 'orchestrator' as const,
         profileId: this.boundProfile?.id
       }))
     )
-    const summary = input.summary.replace(/\s+/g, ' ').trim().slice(0, 500)
-    if (this.lastRetro) {
-      const known = new Set(this.lastRetro.learnings.map((entry) => entry.id))
-      this.lastRetro = {
-        ...this.lastRetro,
-        summary: summary || this.lastRetro.summary,
-        learnings: [
-          ...this.lastRetro.learnings,
-          ...applied.filter((entry) => !known.has(entry.id))
-        ]
+    const planId = this.latestTerminalPlanId()
+    const existing = planId ? this.retroForPlan(planId) : this.lastRetro
+    let base = existing
+    if (!base && planId) {
+      const run = [...this.planRunResults.values()].reverse().find((entry) => entry.planId === planId)
+      const tasks = this.resolvedRetroTasks(planId)
+      const status = run?.status === 'running' ? undefined : run?.status
+      const analysis = analyzeRunRetro({ tasks, status, profileId: this.boundProfile?.id })
+      base = {
+        id: `retro-${Date.now().toString(36)}-${planId}`,
+        profileId: this.boundProfile?.id,
+        workspaceSessionId: this.workspaceSessionId,
+        planId,
+        goal: run?.goal ?? this.goal?.title ?? '',
+        status,
+        summary: analysis.summary,
+        modelStats: analysis.modelStats,
+        learnings: recordModelLearnings(analysis.learnings),
+        createdAt: Date.now()
       }
-      recordRunRetro(this.lastRetro)
-      enqueueRetroExport(this.lastRetro)
-    } else {
-      this.lastRetro = {
+    }
+    if (!base) {
+      base = {
         id: `retro-${Date.now().toString(36)}-adhoc`,
         profileId: this.boundProfile?.id,
         workspaceSessionId: this.workspaceSessionId,
@@ -2490,9 +3072,18 @@ export class OrchestratorEngine extends EventEmitter {
         learnings: applied,
         createdAt: Date.now()
       }
-      recordRunRetro(this.lastRetro)
-      enqueueRetroExport(this.lastRetro)
     }
+    const learningsById = new Map(base.learnings.map((entry) => [entry.id, entry]))
+    for (const learning of applied) learningsById.set(learning.id, learning)
+    const shouldQueueExport = base.exportQueuedAt == null
+    this.lastRetro = {
+      ...base,
+      summary: summary || base.summary,
+      learnings: [...learningsById.values()],
+      exportQueuedAt: base.exportQueuedAt ?? Date.now()
+    }
+    recordRunRetro(this.lastRetro)
+    if (shouldQueueExport) enqueueRetroExport(this.lastRetro)
     this.push()
     return { summary: this.lastRetro.summary, storedLearnings: applied }
   }
@@ -2864,6 +3455,103 @@ export class OrchestratorEngine extends EventEmitter {
   }
 
   /** Open a persistent interactive subagent in its own OS window. */
+  requestSubagentSupport(
+    taskId: string,
+    input: { question: string; context?: string }
+  ): SubagentSupportRequest {
+    const task = this.tasks.get(taskId)
+    if (!task) throw new Error('Task nicht gefunden.')
+    const question = input.question.replace(/\s+/g, ' ').trim().slice(0, 1_000)
+    if (!question) throw new Error('Die Rückfrage darf nicht leer sein.')
+    this.supportSeq += 1
+    const request: SubagentSupportRequest = {
+      id: `support-${this.supportSeq.toString(36)}`,
+      taskId, agentName: task.agentName, role: task.role, question,
+      context: input.context?.trim().slice(0, 2_000) || undefined,
+      status: 'pending', createdAt: Date.now()
+    }
+    this.subagentRequests.set(request.id, request)
+    task.lastAction = `Rückfrage an Orchestrator: ${question.slice(0, 120)}`
+    task.lastHeartbeatAt = Date.now()
+    this.rememberTaskAction(task)
+    this.setActivityState(
+      'monitoring',
+      `${task.agentName ?? task.role} benötigt eine Orchestrator-Entscheidung.`,
+      [question.slice(0, 220)],
+      'Rückfrage beantworten oder den Task gezielt stoppen.'
+    )
+    this.push()
+    return { ...request }
+  }
+
+  listSubagentSupportRequests(pendingOnly = false): SubagentSupportRequest[] {
+    return [...this.subagentRequests.values()]
+      .filter((request) => !pendingOnly || request.status === 'pending')
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .slice(-100)
+      .map((request) => ({ ...request }))
+  }
+
+  private notifySupportWaiters(request: SubagentSupportRequest): void {
+    const waiters = this.supportWaiters.get(request.id)
+    if (!waiters) return
+    this.supportWaiters.delete(request.id)
+    for (const resolve of waiters) resolve({ ...request })
+  }
+
+  async awaitSubagentSupportResponse(requestId: string, timeoutMs = AWAIT_DEFAULT_TIMEOUT_MS): Promise<
+    { done: true; request: SubagentSupportRequest } |
+    { done: false; stillWaiting: true; request: SubagentSupportRequest }
+  > {
+    const request = this.subagentRequests.get(requestId)
+    if (!request) throw new Error('Rückfrage nicht gefunden.')
+    if (request.status !== 'pending') return { done: true, request: { ...request } }
+    const wait = Math.min(AWAIT_MAX_TIMEOUT_MS, Math.max(AWAIT_MIN_TIMEOUT_MS, timeoutMs))
+    return new Promise((resolve) => {
+      const callback = (resolved: SubagentSupportRequest): void => {
+        clearTimeout(timer)
+        resolve({ done: true, request: resolved })
+      }
+      const listeners = this.supportWaiters.get(requestId) ?? new Set()
+      listeners.add(callback)
+      this.supportWaiters.set(requestId, listeners)
+      const timer = setTimeout(() => {
+        listeners.delete(callback)
+        if (listeners.size === 0) this.supportWaiters.delete(requestId)
+        resolve({ done: false, stillWaiting: true, request: { ...request } })
+      }, wait)
+    })
+  }
+
+  async respondSubagentSupport(
+    requestId: string,
+    response: string,
+    action: 'continue' | 'stop' = 'continue'
+  ): Promise<SubagentSupportRequest> {
+    const request = this.subagentRequests.get(requestId)
+    if (!request) throw new Error('Rückfrage nicht gefunden.')
+    if (request.status !== 'pending') return { ...request }
+    const clean = response.replace(/\s+/g, ' ').trim().slice(0, 2_000)
+    if (!clean) throw new Error('Die Antwort darf nicht leer sein.')
+    request.response = clean
+    request.respondedAt = Date.now()
+    request.status = action === 'stop' ? 'stopped' : 'answered'
+    const task = this.tasks.get(request.taskId)
+    if (task) {
+      task.lastAction = action === 'stop'
+        ? `Orchestrator stoppte den Task: ${clean.slice(0, 120)}`
+        : `Orchestrator antwortete: ${clean.slice(0, 120)}`
+      task.lastHeartbeatAt = Date.now()
+      this.rememberTaskAction(task)
+      if (action === 'stop' && task.agentId && !isTerminalTaskStatus(task.status)) {
+        await agentManager.kill(task.agentId)
+      }
+    }
+    this.notifySupportWaiters(request)
+    this.push()
+    return { ...request }
+  }
+
   async openSubwindow(role: string, prompt?: string): Promise<string> {
     const { slot, role: slotRole } = this.pickSlot(role)
     const profile = this.activeProfile()
