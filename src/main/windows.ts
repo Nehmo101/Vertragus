@@ -9,10 +9,14 @@ import { pathToFileURL } from 'node:url'
 import { is } from '@electron-toolkit/utils'
 import { installEditContextMenu } from '@main/editMenu'
 import { brandEnv } from '@main/env'
+import { getSetting } from '@main/config/store'
 import { protectWebContents } from '@main/security/navigation'
 import { workspacePlaceName } from '@shared/workspaceNames'
 
-const BG = '#080c15'
+/** Pre-paint window color matching the renderer themes (cozy-organic.css ambient). */
+function windowBackground(): string {
+  return getSetting<string>('ui.theme') === 'dark' ? '#0e1013' : '#e2dbcb'
+}
 const WINDOW_ICON = join(__dirname, '../renderer/favicon.png')
 const paneWindows = new Map<string, Set<BrowserWindow>>()
 let mainWindow: BrowserWindow | null = null
@@ -74,7 +78,7 @@ export function createMainWindow(): BrowserWindow {
     show: false,
     frame: false, // custom title bar (design: window controls in-app)
     autoHideMenuBar: true,
-    backgroundColor: BG,
+    backgroundColor: windowBackground(),
     icon: WINDOW_ICON,
     title: 'Vertragus',
     webPreferences: baseWebPreferences()
@@ -298,7 +302,7 @@ export function createPaneWindow(agentId: string): BrowserWindow {
     minWidth: 420,
     minHeight: 300,
     autoHideMenuBar: true,
-    backgroundColor: BG,
+    backgroundColor: windowBackground(),
     icon: WINDOW_ICON,
     title: `Vertragus — ${agentId}`,
     webPreferences: baseWebPreferences()

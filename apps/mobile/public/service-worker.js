@@ -1,4 +1,4 @@
-const CACHE = 'vertragus-mission-control-d1'
+const CACHE = 'vertragus-mission-control-d2'
 const SHELL = ['/', '/manifest.webmanifest', '/icon.svg']
 
 self.addEventListener('install', (event) => {

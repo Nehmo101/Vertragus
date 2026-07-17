@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { loreBlurb } from '@shared/lore'
+import { useAppRootPortalTarget } from '../hooks/useAppRootPortalTarget'
 
 interface Props {
   /** The code-name looked up for the tooltip and shown as its heading, e.g. "Caronte". */
@@ -21,14 +22,16 @@ const TIP_HALF = 130
 
 /**
  * Renders an agent's Commedia code-name. Hovering (or focusing) reveals a small
- * tooltip that explains who the character is. The tooltip is portalled to
- * <body> with fixed positioning, so the pane's `overflow: hidden` ancestors
- * never clip it. Names outside the cast simply render without a tooltip.
+ * tooltip that explains who the character is. The tooltip is portalled into the
+ * themed `.app-root` with fixed positioning, so the pane's `overflow: hidden`
+ * ancestors never clip it while the design tokens (light/dark) still apply.
+ * Names outside the cast simply render without a tooltip.
  */
 export default function LoreName({ name, className, label, blurb: blurbProp }: Props): JSX.Element {
   const blurb = blurbProp ?? loreBlurb(name)
   const text = label ?? name
   const anchorRef = useRef<HTMLSpanElement>(null)
+  const portalTarget = useAppRootPortalTarget(anchorRef)
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
 
   const show = useCallback(() => {
@@ -64,12 +67,13 @@ export default function LoreName({ name, className, label, blurb: blurbProp }: P
         {text}
       </span>
       {pos &&
+        portalTarget &&
         createPortal(
           <div className="lore-tip" role="tooltip" style={{ left: pos.left, top: pos.top }}>
             <span className="lore-tip-name">{name}</span>
             <span className="lore-tip-text">{blurb}</span>
           </div>,
-          document.body
+          portalTarget
         )}
     </>
   )

@@ -4,8 +4,8 @@
   "description": "Sichere Remote-Kommandozentrale für Vertragus",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f4f1e8",
-  "theme_color": "#15342f",
+  "background_color": "#ede8dd",
+  "theme_color": "#0c2925",
   "icons": [
     { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
   ]
