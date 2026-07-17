@@ -9,7 +9,7 @@
  */
 import dagre from 'dagre'
 import type { Edge, Node } from '@xyflow/react'
-import type { OrcaTask } from '@shared/orchestrator'
+import type { OrcaTask, SubagentFinding } from '@shared/orchestrator'
 
 export const ORCHESTRATOR_NODE_ID = 'orchestrator'
 
@@ -17,6 +17,10 @@ export const TASK_NODE_WIDTH = 260
 export const TASK_NODE_HEIGHT = 118
 export const ORCH_NODE_WIDTH = 236
 export const ORCH_NODE_HEIGHT = 108
+export const NOTE_NODE_WIDTH = 220
+export const NOTE_NODE_HEIGHT = 122
+/** The canvas shows the newest findings as sticky notes; older ones stay in the side panel. */
+export const MAX_CANVAS_NOTES = 8
 
 export interface CanvasOrchestratorInfo {
   /** Pane id of the orchestrator agent (used for double-click focus). */
@@ -34,9 +38,15 @@ export interface TaskNodeData {
   [key: string]: unknown
 }
 
+export interface NoteNodeData {
+  finding: SubagentFinding
+  [key: string]: unknown
+}
+
 export type TaskCanvasNode = Node<TaskNodeData, 'task'>
 export type OrchestratorCanvasNode = Node<CanvasOrchestratorInfo, 'orchestrator'>
-export type CanvasNode = TaskCanvasNode | OrchestratorCanvasNode
+export type NoteCanvasNode = Node<NoteNodeData, 'note'>
+export type CanvasNode = TaskCanvasNode | OrchestratorCanvasNode | NoteCanvasNode
 
 export type NodePosition = { x: number; y: number }
 export type NodePositions = Record<string, NodePosition>
@@ -121,13 +131,20 @@ function autoLayout(
   return resolved
 }
 
-/** Build the full canvas graph; `positions` wins over the dagre auto-layout. */
+/**
+ * Build the full canvas graph; `positions` wins over the dagre auto-layout.
+ * The newest findings render as sticky notes in a row beneath the graph,
+ * each linked to its originating task with a faint dotted edge — this is the
+ * bidirectional half of the canvas: subagents write onto the board mid-run.
+ */
 export function buildCanvasGraph(
   tasks: readonly OrcaTask[],
   orchestrator: CanvasOrchestratorInfo | null,
+  findings: readonly SubagentFinding[] = [],
   positions: NodePositions = {}
 ): CanvasGraph {
   const edges = taskEdges(tasks, orchestrator !== null)
+  const known = new Set(tasks.map((task) => task.id))
 
   const bare: CanvasNode[] = []
   if (orchestrator) {
@@ -149,13 +166,46 @@ export function buildCanvasGraph(
     })
   }
 
+  const notes = [...findings]
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, MAX_CANVAS_NOTES)
+  // Note edges stay out of the dagre pass — their nodes are placed manually.
+  const noteEdges: Edge[] = notes
+    .filter((finding) => known.has(finding.taskId))
+    .map((finding) => ({
+      id: `note-${finding.taskId}-${finding.id}`,
+      source: finding.taskId,
+      target: `note-${finding.id}`,
+      className: 'canvas-edge-note'
+    }))
+
   const layout = autoLayout(bare, edges, positions)
-  const nodes = bare.map((node) => ({
+  const laidOut = bare.map((node) => ({
     ...node,
     position: layout.get(node.id) ?? node.position
   })) as CanvasNode[]
 
-  return { nodes, edges }
+  // Notes sit in a row beneath the laid-out graph unless the user moved them.
+  const bottom = laidOut.reduce(
+    (max, node) => Math.max(max, node.position.y + TASK_NODE_HEIGHT),
+    0
+  )
+  const noteNodes: CanvasNode[] = notes.map((finding, index) => {
+    const id = `note-${finding.id}`
+    const stored = positions[id]
+    return {
+      id,
+      type: 'note',
+      position:
+        stored && Number.isFinite(stored.x) && Number.isFinite(stored.y)
+          ? { x: stored.x, y: stored.y }
+          : { x: 24 + index * (NOTE_NODE_WIDTH + 18), y: bottom + 56 },
+      data: { finding },
+      draggable: true
+    }
+  })
+
+  return { nodes: [...laidOut, ...noteNodes], edges: [...edges, ...noteEdges] }
 }
 
 /**

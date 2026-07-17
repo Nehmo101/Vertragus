@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import type { OrcaTask } from '@shared/orchestrator'
+import type { OrcaTask, SubagentFinding } from '@shared/orchestrator'
 import {
+  MAX_CANVAS_NOTES,
   ORCHESTRATOR_NODE_ID,
   buildCanvasGraph,
   mergeNodePositions,
@@ -85,8 +86,61 @@ describe('buildCanvasGraph', () => {
   })
 
   it('prefers stored positions over the auto-layout', () => {
-    const graph = buildCanvasGraph([task({ id: 'a' })], null, { a: { x: 421, y: 77 } })
+    const graph = buildCanvasGraph([task({ id: 'a' })], null, [], { a: { x: 421, y: 77 } })
     expect(graph.nodes[0]!.position).toEqual({ x: 421, y: 77 })
+  })
+})
+
+function finding(overrides: Partial<SubagentFinding> & { id: string }): SubagentFinding {
+  return {
+    taskId: 't1',
+    kind: 'insight',
+    title: overrides.id,
+    detail: 'Detail',
+    createdAt: 1,
+    ...overrides
+  }
+}
+
+describe('buildCanvasGraph · findings as sticky notes', () => {
+  it('renders a finding as a note node linked to its task with a dotted edge', () => {
+    const graph = buildCanvasGraph(
+      [task({ id: 't1' })],
+      null,
+      [finding({ id: 'f1', agentName: 'Caronte' })]
+    )
+
+    const note = graph.nodes.find((n) => n.id === 'note-f1')
+    expect(note?.type).toBe('note')
+    expect(graph.edges).toContainEqual(
+      expect.objectContaining({ source: 't1', target: 'note-f1', className: 'canvas-edge-note' })
+    )
+  })
+
+  it('places notes beneath the graph but honours a stored note position', () => {
+    const graph = buildCanvasGraph(
+      [task({ id: 't1' })],
+      null,
+      [finding({ id: 'f1' }), finding({ id: 'f2', createdAt: 2 })],
+      { 'note-f2': { x: 3, y: 4 } }
+    )
+
+    const taskNode = graph.nodes.find((n) => n.id === 't1')!
+    const autoNote = graph.nodes.find((n) => n.id === 'note-f1')!
+    expect(autoNote.position.y).toBeGreaterThan(taskNode.position.y)
+    expect(graph.nodes.find((n) => n.id === 'note-f2')!.position).toEqual({ x: 3, y: 4 })
+  })
+
+  it('caps the board at the newest MAX_CANVAS_NOTES findings and skips unknown-task edges', () => {
+    const many = Array.from({ length: MAX_CANVAS_NOTES + 3 }, (_, i) =>
+      finding({ id: `f${i}`, taskId: 'missing', createdAt: i })
+    )
+    const graph = buildCanvasGraph([task({ id: 't1' })], null, many)
+
+    const notes = graph.nodes.filter((n) => n.type === 'note')
+    expect(notes).toHaveLength(MAX_CANVAS_NOTES)
+    expect(notes.some((n) => n.id === 'f0')).toBe(false)
+    expect(graph.edges.filter((e) => e.className === 'canvas-edge-note')).toHaveLength(0)
   })
 })
 

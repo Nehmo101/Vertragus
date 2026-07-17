@@ -149,6 +149,55 @@
   color: var(--text-2);
 }
 
+/* Sticky notes — the bidirectional half of the board. Deliberately vellum in
+   both themes: agents "write on paper" regardless of the app theme. */
+.canvas-node--note {
+  width: 220px;
+  background: #ede6d2;
+  border-color: #d8ceb4;
+  color: #3a382e;
+  transform: rotate(-0.6deg);
+  font-size: 11.5px;
+}
+.canvas-node--note .canvas-node__title {
+  color: #4a462f;
+}
+.canvas-note__kind {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: color-mix(in srgb, #4a462f 12%, transparent);
+  color: #4a462f;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.canvas-node--note.kind-blocker .canvas-note__kind {
+  background: color-mix(in srgb, #bb4b3a 18%, transparent);
+  color: #8f3123;
+}
+.canvas-node--note.kind-decision .canvas-note__kind {
+  background: color-mix(in srgb, #936c2b 18%, transparent);
+  color: #5f4416;
+}
+.canvas-node--note.kind-interface .canvas-note__kind {
+  background: color-mix(in srgb, #1e5148 16%, transparent);
+  color: #143a33;
+}
+.canvas-note__detail {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: #55503f;
+  line-height: 1.45;
+}
+.canvas-node--note .canvas-node__foot span,
+.canvas-node--note .canvas-node__agent {
+  color: #6b6550;
+}
+
 .canvas-handle {
   width: 7px;
   height: 7px;
@@ -173,6 +222,11 @@
 .vertragus-canvas .canvas-edge-root.running .react-flow__edge-path {
   stroke: var(--sage);
   stroke-width: 2;
+}
+.vertragus-canvas .canvas-edge-note .react-flow__edge-path {
+  stroke: color-mix(in srgb, var(--text) 22%, transparent);
+  stroke-dasharray: 2 5;
+  stroke-width: 1.2;
 }
 
 /* --- chrome (controls, minimap, background) ---------------------------- */

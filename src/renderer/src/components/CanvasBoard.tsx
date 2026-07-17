@@ -26,12 +26,20 @@ import {
   mergeNodePositions,
   type CanvasNode,
   type CanvasOrchestratorInfo,
+  type NoteNodeData,
   type TaskNodeData
 } from '@renderer/canvasGraph'
 import LoreName from '@renderer/components/LoreName'
 import { summarizeUsage } from '@shared/telemetry'
 import { formatTokenCount, formatUsd } from '@renderer/telemetryFormat'
-import type { TaskStatus } from '@shared/orchestrator'
+import type { SubagentFindingKind, TaskStatus } from '@shared/orchestrator'
+
+const NOTE_KIND_LABEL: Record<SubagentFindingKind, string> = {
+  interface: 'Schnittstelle',
+  decision: 'Entscheidung',
+  blocker: 'Blocker',
+  insight: 'Erkenntnis'
+}
 
 const STATUS_LABEL: Record<TaskStatus, string> = {
   queued: 'geplant',
@@ -134,7 +142,32 @@ function OrchestratorNode({ data }: NodeProps<Node<CanvasOrchestratorInfo, 'orch
   )
 }
 
-const NODE_TYPES = { task: TaskNode, orchestrator: OrchestratorNode }
+function NoteNode({ data }: NodeProps<Node<NoteNodeData, 'note'>>): JSX.Element {
+  const { finding } = data
+  return (
+    <div className={`canvas-node canvas-node--note kind-${finding.kind}`}>
+      <Handle type="target" position={Position.Left} className="canvas-handle" />
+      <div className="canvas-node__head">
+        <span className="canvas-note__kind">{NOTE_KIND_LABEL[finding.kind]}</span>
+        <span className="canvas-node__title" title={finding.title}>
+          {finding.title}
+        </span>
+      </div>
+      <div className="canvas-note__detail" title={finding.detail}>
+        {finding.detail}
+      </div>
+      {finding.agentName && (
+        <div className="canvas-node__foot">
+          <span>
+            ✎ <LoreName name={finding.agentName} className="canvas-node__agent" />
+          </span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+const NODE_TYPES = { task: TaskNode, orchestrator: OrchestratorNode, note: NoteNode }
 
 export default function CanvasBoard(): JSX.Element {
   const store = useAppStore()
@@ -156,12 +189,13 @@ export default function CanvasBoard(): JSX.Element {
       }
     : null
 
+  const findings = store.orchestrator.findings
   const graph = useMemo(
-    () => buildCanvasGraph(tasks, orchestrator, positions),
+    () => buildCanvasGraph(tasks, orchestrator, findings ?? [], positions),
     // Positions are intentionally applied only on rebuilds; live drags update
     // the store on drag-stop and survive via mergeNodePositions below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tasks, orchAgent?.id, orchAgent?.name, orchAgent?.model, goal?.title, goal?.active]
+    [tasks, findings, orchAgent?.id, orchAgent?.name, orchAgent?.model, goal?.title, goal?.active]
   )
 
   const [nodes, setNodes, onNodesChange] = useNodesState<CanvasNode>([])
@@ -175,8 +209,12 @@ export default function CanvasBoard(): JSX.Element {
 
   const onNodeDoubleClick: NodeMouseHandler<CanvasNode> = (_event, node) => {
     const agentId =
-      node.type === 'task' ? node.data.task.agentId : node.type === 'orchestrator' ? node.data.agentId : undefined
-    if (agentId) store.setSelectedAgent(agentId)
+      node.type === 'task'
+        ? node.data.task.agentId
+        : node.type === 'orchestrator'
+          ? node.data.agentId
+          : undefined
+    if (typeof agentId === 'string' && agentId) store.setSelectedAgent(agentId)
   }
 
   if (tasks.length === 0 && !orchestrator) {
