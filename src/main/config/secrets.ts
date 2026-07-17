@@ -4,6 +4,7 @@
  */
 import { safeStorage } from 'electron'
 import { getSetting, setSetting } from '@main/config/store'
+import { brandEnv } from '@main/env'
 
 const GITHUB_TOKEN_KEY = 'secrets.github.oauth'
 const TRANSCRIPTION_KEY = 'secrets.openai.transcription'
@@ -56,7 +57,7 @@ export function clearGithubOAuthToken(): void {
 }
 
 export function githubOAuthClientId(): string | undefined {
-  const fromEnv = process.env.ORCA_GITHUB_OAUTH_CLIENT_ID?.trim()
+  const fromEnv = brandEnv('GITHUB_OAUTH_CLIENT_ID')?.trim()
   if (fromEnv) return fromEnv
   const fromConfig = getSetting<string>('github.oauthClientId')?.trim()
   return fromConfig || undefined

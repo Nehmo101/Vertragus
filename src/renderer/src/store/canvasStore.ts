@@ -6,7 +6,9 @@
 import { create } from 'zustand'
 import type { NodePosition, NodePositions } from '@renderer/canvasGraph'
 
-export const CANVAS_STORAGE_KEY = 'orca.canvas.v1'
+export const CANVAS_STORAGE_KEY = 'vertragus.canvas.v1'
+/** Pre-rebrand key; read once as a fallback so stored positions survive. */
+export const LEGACY_CANVAS_STORAGE_KEY = 'orca.canvas.v1'
 
 type Boards = Record<string, NodePositions>
 
@@ -65,7 +67,9 @@ function loadBoards(): Boards {
   const storage = getStorage()
   if (!storage) return {}
   try {
-    return parsePersistedBoards(storage.getItem(CANVAS_STORAGE_KEY))
+    return parsePersistedBoards(
+      storage.getItem(CANVAS_STORAGE_KEY) ?? storage.getItem(LEGACY_CANVAS_STORAGE_KEY)
+    )
   } catch {
     return {}
   }

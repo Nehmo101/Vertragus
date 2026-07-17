@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { is } from '@electron-toolkit/utils'
 import { installEditContextMenu } from '@main/editMenu'
+import { brandEnv } from '@main/env'
 import { protectWebContents } from '@main/security/navigation'
 import { workspacePlaceName } from '@shared/workspaceNames'
 
@@ -84,17 +85,17 @@ export function createMainWindow(): BrowserWindow {
   })
   installEditContextMenu(win)
 
-  if (!process.env['ORCA_UI_SMOKE']) {
+  if (!brandEnv('UI_SMOKE')) {
     win.on('ready-to-show', () => win.show())
   }
   secureWindow(win)
 
   // Headless UI capture for verification/CI: ORCA_SCREENSHOT=<file.png>.
   // ORCA_DEMO_DAG=1 pushes demo agents + task graph through the real render path.
-  const shotPath = process.env['ORCA_SCREENSHOT']
+  const shotPath = brandEnv('SCREENSHOT')
   if (shotPath) {
     win.webContents.once('did-finish-load', () => {
-      if (process.env['ORCA_DEMO_DAG']) {
+      if (brandEnv('DEMO_DAG')) {
         setTimeout(() => pushDemoState(win), 2500)
       }
       if (process.env['ORCA_DEMO_EDITOR']) {
@@ -118,7 +119,7 @@ export function createMainWindow(): BrowserWindow {
     })
   }
 
-  const smokePath = process.env['ORCA_UI_SMOKE']
+  const smokePath = brandEnv('UI_SMOKE')
   if (smokePath) {
     win.webContents.once('did-finish-load', () => {
       void (async () => {
