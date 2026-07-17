@@ -60,8 +60,8 @@ describe('WorkspaceSessionRegistry', () => {
     const second = registry.start(DEFAULT_PROFILE)
 
     expect(first.id).not.toBe(second.id)
-    expect(first.name).toBe('Düsterwald')
-    expect(second.name).toBe('Hobbingen')
+    expect(first.name).toBe('Purgatorio')
+    expect(second.name).toBe('Inferno')
     expect(registry.list(DEFAULT_PROFILE.id)).toHaveLength(2)
     expect(registry.list(DEFAULT_PROFILE.id).find((session) => session.active)?.id).toBe(second.id)
 

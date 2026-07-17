@@ -1,4 +1,4 @@
-# Orca-Strator – Handbuch für Nutzung, Entwicklung und Betrieb
+# Vertragus – Handbuch für Nutzung, Entwicklung und Betrieb
 
 Stand: 12. Juli 2026
 
@@ -6,13 +6,13 @@ Dieses Handbuch trennt **heute verfügbar** und **geplant**. Die detaillierte
 Weiterentwicklung steht in der
 [Produkt- und Technik-Roadmap](./ORCA_STRATOR_ROADMAP.md).
 
-## 1. Was Orca-Strator macht
+## 1. Was Vertragus macht
 
-Orca-Strator startet bereits installierte Coding-Agent-CLIs in einer gemeinsamen
+Vertragus startet bereits installierte Coding-Agent-CLIs in einer gemeinsamen
 Desktop-Oberfläche. Jeder Agent erhält ein Terminal und – bei aktiviertem
 Worktree-Modus – einen eigenen Git-Worktree. In einem orchestrierten Profil
 zerlegt ein Orchestrator ein Ziel und delegiert Teilaufgaben über den lokalen
-Orca-MCP-Server.
+Vertragus-MCP-Server.
 
 Heute belastbar verfügbar:
 
@@ -56,7 +56,7 @@ gh --version
 ```
 
 Nur die tatsächlich verwendeten Provider müssen installiert sein. Die CLIs
-verwalten ihre Anmeldung selbst; Orca-Strator speichert keine API-Schlüssel.
+verwalten ihre Anmeldung selbst; Vertragus speichert keine API-Schlüssel.
 
 ### Repository einrichten
 
@@ -71,7 +71,7 @@ Unter Linux sind dieselben `corepack pnpm ...`-Befehle nutzbar.
 
 ## 3. Erster Start
 
-1. Orca-Strator öffnen.
+1. Vertragus öffnen.
 2. Links prüfen, welche Provider als verfügbar angezeigt werden.
 3. Über **Workspace-Profile** ein neues Profil anlegen oder ein bestehendes
    doppelklicken.
@@ -85,7 +85,7 @@ Unter Linux sind dieselben `corepack pnpm ...`-Befehle nutzbar.
 Der Pfad in der Titelzeile und der Branch-Chip kontrollieren, welcher Workspace
 aktiv ist.
 
-Ein Profilwechsel stoppt keine laufenden Agents. Orca-Strator schaltet nur die
+Ein Profilwechsel stoppt keine laufenden Agents. Vertragus schaltet nur die
 sichtbaren Terminals, den DAG und das Dispatch-Protokoll um; andere Workspaces
 laufen im Hintergrund weiter. Die Profilleiste zeigt deren laufende Agentzahl
 als **n aktiv** an.
@@ -95,11 +95,11 @@ als **n aktiv** an.
 ### Orchestriert
 
 Ein interaktiver Orchestrator erhält ein Ziel im Terminal und delegiert über
-Orca-MCP an die freigegebenen Slots. Der aktuelle Team-Start öffnet zusätzlich
+Vertragus-MCP an die freigegebenen Slots. Der aktuelle Team-Start öffnet zusätzlich
 die konfigurierten Slots als interaktive Panes; MCP-Dispatches erscheinen als
 weitere Headless-Task-Panes.
 
-**Wichtiger aktueller Stand:** Nur Claude wird mit Orca-MCP und dem
+**Wichtiger aktueller Stand:** Nur Claude wird mit Vertragus-MCP und dem
 Orchestrator-Prompt gestartet. Andere Provider sind im Auswahlfeld sichtbar,
 arbeiten derzeit aber wie normale interaktive Agents. Bis Phase B der Roadmap
 sollte für reale Orchestrierung Claude verwendet werden.
@@ -160,7 +160,9 @@ Die Fußzeilenwerte für Schritte, Tokens und Kosten sind aktuell Platzhalter.
 
 ## 7. Workspace und Git-Worktrees
 
-Standardmäßig versucht Orca-Strator für jeden Agent einen Worktree anzulegen:
+Standardmäßig versucht Vertragus für jeden Agent einen Worktree anzulegen
+(Verzeichnis- und Branch-Name behalten das `orca`-Präfix als internen
+Bezeichner, Migration geplant):
 
 ```text
 <repo>/.orca-worktrees/<agent-id>
@@ -316,7 +318,7 @@ ist.
 ### Orchestrator delegiert nicht
 
 - Aktuell Claude als Orchestrator verwenden.
-- Prüfen, ob der Orca-MCP-Selbsttest grün ist.
+- Prüfen, ob der Vertragus-MCP-Selbsttest grün ist.
 - Prüfen, ob mindestens ein Slot „steuerbar“ ist.
 - Rollen aus der Profilkonfiguration verwenden.
 
@@ -331,7 +333,7 @@ Auto-PR ist noch nicht implementiert. Der sichere Zielablauf:
 5. Aggregation in Goal-Branch
 6. Push eines neuen Branches
 7. genau ein Draft-PR über `gh`
-8. PR-Link und Checks zurück in Orca-Strator
+8. PR-Link und Checks zurück in Vertragus
 
 Bis diese Pipeline umgesetzt ist, müssen Diff, Integration, Commit, Push und PR
 manuell erfolgen.

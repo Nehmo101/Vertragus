@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="build/icon.png" width="128" alt="Orca-Strator logo — a warm terracotta whale in the Cozy Organic palette" />
+  <img src="build/icon.png" width="128" alt="Vertragus logo — a greyhound in full sprint with verdigris speed lines (Fusione)" />
 </p>
 
-<h1 align="center">Orca-Strator</h1>
+<h1 align="center">Vertragus</h1>
 
 <p align="center">
   <b>Orchestrate and run multiple AI coding agents in parallel</b><br />
@@ -16,12 +16,13 @@
   <a href="https://github.com/Nehmo101/Orca-Strator/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Nehmo101/Orca-Strator/actions/workflows/ci.yml/badge.svg" /></a>
 </p>
 
-Orca-Strator drives the agent CLIs you already have installed — each in its own
+Vertragus drives the agent CLIs you already have installed — each in its own
 live terminal — and lets one configurable **orchestrator** delegate work to
-**subagents** across tools. The name is a pun: an **orca** that **orchestrates**.
+**subagents** across tools. The name is *vertragus*, the ancient Gaulish-Latin
+word for a **greyhound** — a hound built for **speed**.
 
 Instead of juggling several agent CLIs by hand, you configure a team of agents
-once, hand a high-level goal to an orchestrator, and Orca coordinates the
+once, hand a high-level goal to an orchestrator, and Vertragus coordinates the
 delegation, git-worktree isolation, adaptive DAG planning, and (optionally)
 opening pull requests.
 
@@ -44,7 +45,7 @@ opening pull requests.
 
 You give a goal to one **orchestrator** agent. The orchestrator does not edit
 code itself — it plans and delegates through an in-app **MCP server** that runs
-locally inside Orca. Each delegated task becomes a real headless **subagent**
+locally inside Vertragus. Each delegated task becomes a real headless **subagent**
 running in its own **git worktree**, so parallel agents never clobber each
 other. Progress, dependencies and results stream into a live **task-DAG** panel,
 and finished work can flow into a **safe Auto-PR**.
@@ -85,7 +86,7 @@ any process starts.
 | **Cloudflare Tunnel** | `cloudflared` | remote access (planned) |
 
 > [!NOTE]
-> The CLIs authenticate through their own subscriptions. Orca-Strator invokes
+> The CLIs authenticate through their own subscriptions. Vertragus invokes
 > the already-authenticated tools and does **not** manage, transmit or store
 > their API keys, passwords or tokens.
 
@@ -99,8 +100,9 @@ any process starts.
   and tiles / focus / DAG layout controls; honours reduced-motion and keyboard
   focus.
 - **Session-safe worktree isolation** — each agent works in
-  `<repo>/.orca-worktrees/<agent-id>` on branch `orca/<agent-id>`; old worktrees
-  are never silently reused or deleted.
+  `<repo>/.orca-worktrees/<agent-id>` on branch `orca/<agent-id>` (internal
+  identifiers, migration planned); old worktrees are never silently reused or
+  deleted.
 
 **Orchestration**
 
@@ -126,12 +128,12 @@ any process starts.
   push to `main`/`master`**, then tracks GitHub checks as a separate remote-CI
   state.
 - **External MCP servers** — connect your own Model-Context-Protocol servers
-  (filesystem, web search, database, …) once in Orca; they attach to every
+  (filesystem, web search, database, …) once in Vertragus; they attach to every
   launched agent — the orchestrator **and** each subagent — over `stdio`, `http`
   or `sse`, with a per-server scope (all / orchestrator / subagents) and an
   enable switch. Wired for the Claude, Kimi, Codex and GitHub Copilot CLIs.
 - **Provider connections** — shows real account state and opens each provider's
-  official CLI login in a visible terminal; Orca never receives or stores
+  official CLI login in a visible terminal; Vertragus never receives or stores
   credentials.
 - **Yolo Mode** — per-agent and global auto-approve so agents work without
   prompts (`--dangerously-skip-permissions` /
@@ -162,7 +164,7 @@ any process starts.
 - **Optional:** [Ollama](https://ollama.com) for local models (HTTP on `:11434`),
   and the GitHub CLI (`gh`) for repo/PR context and Auto-PR.
 
-Orca-Strator does not ask for API keys — every provider signs in through its own
+Vertragus does not ask for API keys — every provider signs in through its own
 CLI and subscription.
 
 ### Run from source

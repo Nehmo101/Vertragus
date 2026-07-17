@@ -1,16 +1,16 @@
-# Mission Control — die sichere Remote-Kommandozentrale für Orca-Strator
+# Mission Control — die sichere Remote-Kommandozentrale für Vertragus
 
 > Gesamt-Plan / Architektur-Blueprint über alle Phasen (A–C + Ausblick).
 > Status: Phase A freigegeben und umsetzbereit; Phase B/C detailliert vorgeplant.
 
 ## Context
 
-Orca-Strator ist heute eine reine Desktop-App (Electron), die mehrere KI-Coding-CLIs
+Vertragus ist heute eine reine Desktop-App (Electron), die mehrere KI-Coding-CLIs
 vendor-neutral orchestriert, Arbeit in Git-Worktrees isoliert und Auto-PRs öffnet. Sobald
 ein Lauf minuten- bis stundenlang autonom arbeitet, ist der Nutzer an den Rechner
-gefesselt, an dem Orca läuft. **Mission Control** hebt das Tool in eine neue Dimension: den
+gefesselt, an dem Vertragus läuft. **Mission Control** hebt das Tool in eine neue Dimension: den
 Agenten-Schwarm **von überall vom Handy aus** live beobachten, an genau den Stellen
-eingreifen, an denen Orca ohnehin auf eine Entscheidung wartet (Plan-Review, blockierte
+eingreifen, an denen Vertragus ohnehin auf eine Entscheidung wartet (Plan-Review, blockierte
 Tasks, PR-Freigabe), und neue Ziele unterwegs diktieren — abgesichert durch Geräte-Pairing,
 widerrufbare Tokens, Audit-Log und Not-Aus.
 
@@ -20,7 +20,8 @@ Das Fundament liegt bereits im Code, ist aber bewusst zurückgestellt:
 - Der Agent-Status **`waiting`** ist „reserved for approval detection (later)"
   (`src/shared/agents.ts:17`).
 - Ein token-authentifizierter `node:http`-Server existiert schon
-  (`src/main/orchestrator/OrcaMcpServer.ts`) — das exakte Vorbild fürs Gateway.
+  (`src/main/orchestrator/OrcaMcpServer.ts`; `Orca*`-Klassennamen bleiben
+  interne Bezeichner, Migration geplant) — das exakte Vorbild fürs Gateway.
 - `OrchestratorSnapshot` (`src/shared/orchestrator.ts:242`) ist der fertige, Node-freie
   Read-Model-Typ, den der Browser-Client direkt importiert.
 
@@ -259,7 +260,7 @@ Die Tiefen-Variante der Approval-Inbox: den **eigenen** Tool-Prompt jedes Agente
 
 - **Wo kein strukturierter Callback existiert:** entweder (a) non-yolo laufen lassen und den
   PTY-Prompt je Provider parsen und die Antwort **intern** via `agent.write` zurückschreiben
-  (die Antwort-Keystroke ist Orca-intern, **nie** vom Remote-Client direkt steuerbar), oder
+  (die Antwort-Keystroke ist Vertragus-intern, **nie** vom Remote-Client direkt steuerbar), oder
   (b) klar gekennzeichneter Fallback auf blanket-yolo/deny.
 - **Transport:** bidirektional & latenzarm → **`ws`** (WebSocket) hinter derselben Auth-Middleware
   (SSE + POST wäre zu träge). Neue Whitelist-Commands `permission.allow`/`permission.deny`
@@ -305,7 +306,7 @@ Diese müssen in **jeder** Phase gelten — Review-Checkliste:
 1. Standardmäßig aus; expliziter Opt-in; safeStorage-Pflicht (sonst Verweigerung).
 2. Token-Auth (Header-Bearer, Hash-only, `timingSafeEqual`) bei **jedem** Daten-/Command-Request.
 3. Whitelist-only: keine Roh-Shell, kein direkter Agent-stdin remote steuerbar (auch nicht in C —
-   die Broker-Antwort ist Orca-intern), kein `config:set`/`secrets.*`, kein Command-String/Pfad.
+   die Broker-Antwort ist Vertragus-intern), kein `config:set`/`secrets.*`, kein Command-String/Pfad.
 4. Alles auditiert & redigiert; nie Token/Klartext-Secrets im Log.
 5. Widerruf pro Gerät + Master-Not-Aus, der Tunnel & Gateway sofort niederreißt.
 6. Body-Caps, Rate-Limits, Host-Header-Allowlist, `127.0.0.1`-Bind.

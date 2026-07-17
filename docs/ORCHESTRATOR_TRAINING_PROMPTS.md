@@ -3,7 +3,7 @@
 Stand: 14. Juli 2026
 
 Dieses Dokument ist ein **Trainings- und Bewertungskatalog** für den
-Orca-Strator-Orchestrator. Die Szenarien üben die Kernfähigkeit des
+Vertragus-Orchestrator. Die Szenarien üben die Kernfähigkeit des
 Koordinators: ein Nutzerziel in einen **möglichst kleinen, vollständigen und
 validen Plan** zu zerlegen und ihn an die **richtige Zahl an Subagents** zu
 delegieren.

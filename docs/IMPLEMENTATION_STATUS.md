@@ -1,4 +1,4 @@
-# Orca-Strator – Umsetzungsstand auf `DEV`
+# Vertragus – Umsetzungsstand auf `DEV`
 
 Stand: 13. Juli 2026
 
@@ -11,10 +11,10 @@ Ausgangsbasis erhalten.
 ### Claude, Codex und GitHub Copilot als Orchestrator
 
 - Claude und Codex besitzen getrennte, verifizierte Provider-Adapter.
-- Beide erhalten den lokalen Orca-MCP-Server und dieselbe Orchestrator-Policy.
+- Beide erhalten den lokalen Vertragus-MCP-Server und dieselbe Orchestrator-Policy.
 - Die Codex-Konfiguration wird nur über prozesslokale `-c`-Overrides gesetzt;
   die persönliche Codex-Konfiguration wird nicht verändert.
-- GitHub Copilot erhält Orca ausschließlich über `--additional-mcp-config` und
+- GitHub Copilot erhält Vertragus ausschließlich über `--additional-mcp-config` und
   eine enge Tool-Allowlist. Persönliche Copilot-Konfigurationen bleiben unverändert.
 - Cursor und Ollama bleiben Worker. Ein Start als scheinbarer Orchestrator ohne
   Delegationswerkzeuge wird sowohl in der UI als auch in der Runtime verhindert.
@@ -23,7 +23,7 @@ Ausgangsbasis erhalten.
 
 - Der Orchestrator kann einen strukturierten `ExecutionPlan` über
   `execute_plan` einreichen.
-- Orca validiert Task-IDs, Rollen, Abhängigkeiten, Zyklen, Parallelitätsgrenzen
+- Vertragus validiert Task-IDs, Rollen, Abhängigkeiten, Zyklen, Parallelitätsgrenzen
   und Konflikt-Keys, bevor ein Prozess startet.
 - Ungültige Pläne werden vollständig verworfen und sicher auf genau einen Task
   zurückgestuft.
@@ -70,13 +70,13 @@ Ausgangsbasis erhalten.
 - Fehlende `gh`-Authentifizierung, Konflikte oder rote Gates werden sichtbar als
   `blocked` zurückgegeben; der Arbeitsstand bleibt zur Prüfung erhalten.
 - PR-Status und URL werden an Task-DAG und Session-Snapshot zurückgegeben.
-- Nach der Veröffentlichung wartet Orca auf GitHub-Checks und zeigt Remote-CI
+- Nach der Veröffentlichung wartet Vertragus auf GitHub-Checks und zeigt Remote-CI
   separat als wartend, laufend, grün, fehlgeschlagen, abgebrochen, zeitlich
   begrenzt oder wegen Authentifizierung nicht verfügbar an.
 
 ### Externe MCP-Server
 
-- Eigene Model-Context-Protocol-Server werden einmal in Orca gepflegt und dann
+- Eigene Model-Context-Protocol-Server werden einmal in Vertragus gepflegt und dann
   an jeden gestarteten Agent angebunden — an den Orchestrator **und** an jeden
   einzelnen Subagenten (interaktiv wie headless), sodass alle deren Tools direkt
   sehen und nutzen.
@@ -133,10 +133,10 @@ Ausgangsbasis erhalten.
 
 - Die Sidebar unterscheidet Installation und Kontoverbindung.
 - Login startet ausschließlich den offiziellen CLI-Flow in einem sichtbaren,
-  interaktiven Orca-Terminal.
+  interaktiven Vertragus-Terminal.
 - Unterstützte Flows: Claude, Codex/ChatGPT, Cursor, Ollama Cloud, GitHub und
   Cloudflare Tunnel, sofern die jeweilige CLI installiert ist.
-- Orca überträgt keine Tokens über IPC und speichert keine Zugangsdaten.
+- Vertragus überträgt keine Tokens über IPC und speichert keine Zugangsdaten.
 - Der Profil-Editor erklärt Workspace-, Planner-, Auto-PR-, Orchestrator- und
   Slot-Felder über tastaturerreichbare Tooltips.
 
@@ -177,6 +177,7 @@ $env:ORCA_MCP_SELFTEST = '1'
 Remove-Item Env:ORCA_MCP_SELFTEST
 ```
 
-Der MCP-Selbsttest deckt Adapter-Capabilities, Toolliste, Einzeldispatch,
+Der MCP-Selbsttest (`ORCA_MCP_SELFTEST` bleibt interner Bezeichner, Migration
+geplant) deckt Adapter-Capabilities, Toolliste, Einzeldispatch,
 Batch-Parallelität, validierte DAG-Ausführung, Abhängigkeiten und den sicheren
 Fallback für zyklische Pläne ab.

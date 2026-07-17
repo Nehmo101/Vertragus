@@ -4,7 +4,7 @@ Stand: 12. Juli 2026
 
 ## Ziel
 
-Orca-Strator erhält oben im Workspace eine Voice-Leiste, die immer den aktuell
+Vertragus erhält oben im Workspace eine Voice-Leiste, die immer den aktuell
 angeklickten Agent adressiert. Der erste Lieferumfang ist bewusst
 **Speech-to-Text mit Push-to-talk**. Der erkannte Text wird vor dem Absenden
 sichtbar bestätigt und niemals ungefragt an den Agent geschickt.
@@ -36,12 +36,12 @@ Für kurze, abgeschlossene Push-to-talk-Aufnahmen ist
 [`gpt-4o-transcribe`](https://developers.openai.com/api/docs/models/gpt-4o-transcribe)
 der Startkandidat. OpenAI beschreibt gegenüber den ursprünglichen
 Whisper-Modellen eine niedrigere Wortfehlerrate sowie bessere Sprach- und
-Erkennungsgenauigkeit. Für Orca werden Deutsch als Sprache und ein
+Erkennungsgenauigkeit. Für Vertragus werden Deutsch als Sprache und ein
 workspace-spezifisches Vokabular mit Repo-, Agent-, Branch- und Technologietermen
 mitgegeben.
 
 Diese Entscheidung ist kein Blindflug: Vor Freigabe wird das Modell gegen einen
-kleinen Orca-Deutschkorpus gemessen. Der Provider bleibt austauschbar, falls ein
+kleinen Vertragus-Deutschkorpus gemessen. Der Provider bleibt austauschbar, falls ein
 anderer Dienst oder eine lokale Lösung bei deutschen technischen Diktaten besser
 abschneidet.
 
@@ -112,7 +112,7 @@ Deutsch“ live; dann folgen Vokabular-, Mikrofon- und Provider-Evaluationen.
 
 TTS kommt nach STT. Rohes Terminal-Scrollback ist wegen ANSI-Sequenzen,
 Fortschrittsanzeigen und Toollogs keine brauchbare Vorlesequelle. Zuerst braucht
-Orca ein strukturiertes „letzte Agent-Antwort“-Signal. Dann kann die Voice-Leiste
+Vertragus ein strukturiertes „letzte Agent-Antwort“-Signal. Dann kann die Voice-Leiste
 die letzte Antwort des ausgewählten Agents vorlesen.
 
 Der TTS-Provider wird ebenfalls austauschbar. Der MVP vergleicht eine lokale

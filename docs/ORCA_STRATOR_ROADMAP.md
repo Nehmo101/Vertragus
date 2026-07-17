@@ -1,4 +1,4 @@
-# Orca-Strator – Produkt- und Technik-Roadmap
+# Vertragus – Produkt- und Technik-Roadmap
 
 Stand: 12. Juli 2026
 Audit-Basis: `main` bei Commit `d396a0a`
@@ -17,7 +17,7 @@ vom 12. Juli bleibt als ursprüngliche Planungsbasis erhalten.
 
 ## Kurzfazit
 
-Orca-Strator ist kein Mock-up mehr. Die Anwendung besitzt einen funktionierenden
+Vertragus ist kein Mock-up mehr. Die Anwendung besitzt einen funktionierenden
 Electron-Unterbau, echte PTY-Terminals, Profile, einen nativen Workspace-Picker,
 Git-Worktrees, einen lokalen MCP-Server und paralleles Subagent-Dispatching mit
 Kapazitätsgrenzen.
@@ -44,7 +44,7 @@ Die Zielrichtung:
 | Profile und Workspace-Auswahl | vorhanden | Freitext plus nativer Ordnerdialog. |
 | Interaktive Agents | vorhanden | PTYs, xterm.js, Scrollback, Resize und Pop-outs. |
 | Team-/Parallelstart | vorhanden | Orchestrator und konfigurierte Slots starten als Team; MCP kann weitere Task-Runs erzeugen. |
-| Claude als Orchestrator | vorhanden | Claude erhält MCP-Konfiguration, System-Prompt und Orca-Tools. |
+| Claude als Orchestrator | vorhanden | Claude erhält MCP-Konfiguration, System-Prompt und Vertragus-Tools. |
 | Codex/Cursor/Ollama als Orchestrator | nur UI | Auswahl möglich, Tools werden nicht angebunden. |
 | Paralleles Dispatching | vorhanden | `dispatch_batch` plus Semaphoren je Rolle. |
 | Auto-Subagent-Planung | teilweise | LLM zerlegt frei; kein validierter Planer oder adaptiver Scheduler. |
@@ -75,7 +75,7 @@ Die Zielrichtung:
    kann einen alten Branch/Worktree mit alten Änderungen erneut einhängen.
 
 4. **Nicht-Claude-Orchestratoren sind irreführend auswählbar.**
-   Codex, Cursor und Ollama erhalten weder Orca-MCP noch äquivalente
+   Codex, Cursor und Ollama erhalten weder Vertragus-MCP noch äquivalente
    Orchestrator-Instruktionen.
 
 ### P1 – Stabilität und sichere Bedienung
@@ -119,7 +119,7 @@ flowchart LR
 
 Planung, Ausführung und Veröffentlichung bleiben getrennt. Provider-Adapter
 liefern Fähigkeiten und Startargumente; Scheduler, Worktree-Lifecycle und
-PR-Policy sind zentrale Orca-Dienste.
+PR-Policy sind zentrale Vertragus-Dienste.
 
 ## Pflichtfeature 1: Providerneutrale Orchestratoren
 
@@ -129,7 +129,8 @@ PR-Policy sind zentrale Orca-Dienste.
   `structuredPlan`, `resumeSession` und `toolApprovalPolicy` einführen.
 - Claude-Logik aus `orchestratorLaunch.ts` in einen Adapter verschieben.
 - Codex ohne globale Konfigurationsänderung pro Prozess anbinden:
-  `mcp_servers.orca.url`, `mcp_servers.orca.required`, `enabled_tools` und
+  `mcp_servers.orca.url`, `mcp_servers.orca.required` (interner
+  Server-Bezeichner, Migration geplant), `enabled_tools` und
   `developer_instructions` als flüchtige `-c key=value`-Overrides übergeben.
 - Cursor erst als orchestrierbar markieren, wenn ein Integrationstest die
   Tool-Bridge belegt.
@@ -140,13 +141,13 @@ PR-Policy sind zentrale Orca-Dienste.
 ### Abnahmekriterien
 
 - Dasselbe Szenario lässt sich mit Claude und Codex orchestrieren.
-- Beide sehen ausschließlich die Tools ihrer Orca-Session.
+- Beide sehen ausschließlich die Tools ihrer Vertragus-Session.
 - Nicht unterstützte Provider sind erklärt deaktiviert.
 - Providerwechsel verändert weder Planformat noch Task-DAG.
 
 ## Pflichtfeature 2: Auto Subagent Planner
 
-Nach Eingang eines Prompts entscheidet Orca, ob null, ein oder mehrere
+Nach Eingang eines Prompts entscheidet Vertragus, ob null, ein oder mehrere
 Subagents sinnvoll sind. Abhängigkeiten, Dateikonflikte, Provider-Health,
 Nutzerlimits und Budgets beeinflussen Anzahl und Parallelität.
 

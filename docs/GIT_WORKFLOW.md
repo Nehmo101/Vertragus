@@ -1,4 +1,4 @@
-# Git-Handbuch für Orca-Strator
+# Git-Handbuch für Vertragus
 
 Dieses Handbuch beschreibt einen sicheren, nachvollziehbaren Workflow für
 Entwicklung, parallele Agent-Arbeit, Pull Requests und Wiederherstellung. Alle
@@ -6,7 +6,7 @@ Beispiele funktionieren in PowerShell; die Git-Befehle sind unter Linux gleich.
 
 ## 1. Das Arbeitsmodell
 
-Orca-Strator verwendet drei Ebenen:
+Vertragus verwendet drei Ebenen:
 
 1. Der Hauptcheckout ist der Ort, an dem du Branches vergleichst und PRs
    vorbereitest.
@@ -156,9 +156,10 @@ gh pr ready
 gh pr checks --watch
 ```
 
-## 9. Parallel mit Orca-Worktrees arbeiten
+## 9. Parallel mit Vertragus-Worktrees arbeiten
 
-Anzeigen:
+Anzeigen (das `orca/`-Branch-Präfix und `.orca-worktrees/` bleiben interne
+Bezeichner, Migration geplant):
 
 ```powershell
 git worktree list

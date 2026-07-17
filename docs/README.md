@@ -1,4 +1,4 @@
-# Orca-Strator-Dokumentation
+# Vertragus-Dokumentation
 
 - [Aktueller Umsetzungsstand auf DEV](./IMPLEMENTATION_STATUS.md)
 - [Git-Handbuch für Branches, Worktrees und Pull Requests](./GIT_WORKFLOW.md)

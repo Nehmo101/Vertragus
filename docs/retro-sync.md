@@ -1,6 +1,6 @@
 # Retro-Sync & Selbstverbesserungs-Loop
 
-Orca-Strator sammelt am Ende jedes Orchestrator-Laufs eine Retrospektive
+Vertragus sammelt am Ende jedes Orchestrator-Laufs eine Retrospektive
 (automatisch aus dem Task-Graphen plus qualitativ via `record_retro`). Der
 Retro-Sync macht daraus einen geschlossenen Verbesserungs-Loop:
 
@@ -52,7 +52,8 @@ Export durch die Secret-Redaction (`redactDiagnosticValue`).
    wird beim ersten Export automatisch als Orphan angelegt.
 2. **Im Repo:** Secret `ANTHROPIC_API_KEY` anlegen
    (Settings → Secrets and variables → Actions) — nötig, sobald mindestens
-   `ORCA_RETRO_MIN_NEW` neue Retros synthetisiert werden. Der vom Workflow
+   `ORCA_RETRO_MIN_NEW` (interner Bezeichner, Migration geplant) neue Retros
+   synthetisiert werden. Der vom Workflow
    bereitgestellte `GITHUB_TOKEN` braucht keine manuelle Secret-Konfiguration;
    der Workflow fordert dafür `contents: write` und `pull-requests: write` an.
    In den Actions-Einstellungen muss das Erstellen von Pull Requests durch

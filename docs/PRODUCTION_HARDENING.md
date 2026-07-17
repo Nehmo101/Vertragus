@@ -17,7 +17,7 @@ Verifizierte Orchestratoren:
 
 - Claude Code über eine temporäre MCP-Konfigurationsdatei,
 - Codex über prozesslokale `-c`-Overrides,
-- GitHub Copilot CLI über `--additional-mcp-config` und eine enge Orca-Toolliste.
+- GitHub Copilot CLI über `--additional-mcp-config` und eine enge Vertragus-Toolliste.
 
 Cursor und Ollama bleiben als Orchestrator deaktiviert. Eine Auswahl in der UI
 wird erst ergänzt, wenn prozesslokale Instruktionen, MCP-Anbindung und Tool-
