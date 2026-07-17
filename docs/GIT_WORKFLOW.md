@@ -4,9 +4,20 @@ Dieses Handbuch beschreibt einen sicheren, nachvollziehbaren Workflow für
 Entwicklung, parallele Agent-Arbeit, Pull Requests und Wiederherstellung. Alle
 Beispiele funktionieren in PowerShell; die Git-Befehle sind unter Linux gleich.
 
-## 1. Das Arbeitsmodell
+> **Modell-Umstellung:** Vertragus verwendet seit Juli 2026 ein
+> **Ein-Branch-Modell**. Der frühere Integrationsbranch `DEV` existiert nicht
+> mehr; alles läuft über kurzlebige Branches direkt in `main`.
 
-Vertragus verwendet drei Ebenen:
+## 1. Das Branch-Modell
+
+| Branch | Zweck |
+|---|---|
+| `main` | **Der Trunk.** Immer releasefähig; jeder Push läuft durch die volle CI und triggert `release.yml` (Prerelease-Kanal). Änderungen kommen ausschließlich über grüne Pull Requests an. |
+| `retros` | **Daten-Branch** des Retro-Sync-Features (exportierte Run-Retros/Learnings). Niemals Anwendungscode hierhin committen. |
+| `feature/*`, `fix/*`, `claude/*` | **Kurzlebige Arbeitsbranches.** Einer pro Änderung, von `main` abgezweigt, per Pull Request zurück, nach dem Merge gelöscht. |
+| `orca/*` | **Laufzeit-Branches** der Agent-Worktrees (interner Bezeichner, Migration geplant). Nicht für Menschen; die App räumt sie auf. |
+
+Dazu kommen drei Arbeitsebenen:
 
 1. Der Hauptcheckout ist der Ort, an dem du Branches vergleichst und PRs
    vorbereitest.
@@ -36,48 +47,34 @@ gh auth login
 gh auth status
 ```
 
-## 3. DEV aktuell halten
+## 3. main aktuell halten
 
 Wechsle nur mit sauberem oder bewusst gesichertem Arbeitsstand:
 
 ```powershell
 git status --short
 git fetch origin --prune
-git switch DEV
-git pull --ff-only origin DEV
+git switch main
+git pull --ff-only origin main
 ```
 
-`--ff-only` verhindert einen unbeabsichtigten Merge-Commit beim Pull. Existiert
-`DEV` lokal noch nicht:
+`--ff-only` verhindert einen unbeabsichtigten Merge-Commit beim Pull.
+
+## 4. Arbeitsbranch erstellen
+
+Beginne jede Einzelaufgabe auf einem kleinen Branch von `main` aus:
 
 ```powershell
-git fetch origin
-git switch --track -c DEV origin/DEV
-```
-
-Existiert der Remote-Branch noch nicht:
-
-```powershell
-git switch -c DEV
-git push -u origin DEV
-```
-
-## 4. Feature-Branch erstellen
-
-Für normale Änderungen bleibt `DEV` der Integrationsbranch. Beginne eine
-Einzelaufgabe auf einem kleinen Branch:
-
-```powershell
-git switch DEV
+git switch main
 git pull --ff-only
-git switch -c codex/kurzer-feature-name
+git switch -c feature/kurzer-feature-name   # oder fix/…, claude/…
 ```
 
 Gute Branch-Namen beschreiben das Ergebnis:
 
-- `codex/auto-planner-review`
-- `codex/fix-headless-timeout`
-- `codex/polar-theme`
+- `feature/auto-planner-review`
+- `fix/headless-timeout`
+- `feature/polar-theme`
 
 Keine Modellnamen, Personennamen oder Ticketromane im Branch-Namen.
 
@@ -134,7 +131,7 @@ blockiert war und warum. Niemals einen nicht ausgeführten Test als grün melden
 ```powershell
 git push -u origin HEAD
 gh pr create `
-  --base DEV `
+  --base main `
   --head (git branch --show-current) `
   --draft `
   --title "feat: kurze Ergebnisbeschreibung" `
@@ -156,7 +153,27 @@ gh pr ready
 gh pr checks --watch
 ```
 
-## 9. Parallel mit Vertragus-Worktrees arbeiten
+Nach dem Merge den Arbeitsbranch löschen:
+
+```powershell
+git push origin --delete feature/kurzer-feature-name
+git branch -d feature/kurzer-feature-name
+```
+
+## 9. Schutzregeln
+
+- **Kein Force-Push auf `main` und `retros` — ausnahmslos.** Nach einem Rebase
+  eines bereits veröffentlichten persönlichen Arbeitsbranches ist höchstens
+  `git push --force-with-lease` auf diesem eigenen Branch vertretbar.
+- **Kein Direkt-Commit auf `main`.** Jede Änderung geht über einen Pull Request
+  mit grüner CI.
+- Auto-PR pusht nie mit Force und nie auf den Default-Branch; es arbeitet
+  ausschließlich auf eigenen Integrations-Branches.
+- Empfohlen: ein GitHub-**Ruleset** für `main` (PR-Pflicht, Status-Checks,
+  Bypass verboten), damit die Regeln von der Plattform erzwungen werden —
+  siehe CONTRIBUTING.md.
+
+## 10. Parallel mit Vertragus-Worktrees arbeiten
 
 Anzeigen (das `orca/`-Branch-Präfix und `.orca-worktrees/` bleiben interne
 Bezeichner, Migration geplant):
@@ -185,12 +202,12 @@ Zwei Agents dürfen nicht gleichzeitig dieselben Dateien bearbeiten. Der Planner
 verwendet dafür `conflictKeys`; bei manueller Planung muss diese Trennung im
 Prompt stehen.
 
-## 10. Änderungen aus einem Task übernehmen
+## 11. Änderungen aus einem Task übernehmen
 
 Wenn der Task bereits committed hat:
 
 ```powershell
-git switch codex/mein-integrationsbranch
+git switch feature/mein-integrationsbranch
 git cherry-pick <commit-sha>
 ```
 
@@ -212,13 +229,13 @@ git cherry-pick --abort
 Das stellt den Zustand vor dem Cherry-Pick wieder her und ist sicherer als ein
 Hard Reset.
 
-## 11. Auto-PR sicher konfigurieren
+## 12. Auto-PR sicher konfigurieren
 
 Empfohlener Start:
 
 - Modus: `draft-after-checks`
 - Strategie: `aggregate`
-- Basisbranch: `DEV`
+- Basisbranch: `main`
 - Gate: `corepack pnpm run ci`
 - keine automatische Zusammenführung
 
@@ -232,14 +249,14 @@ Auto-PR benötigt einen Git-Workspace mit `origin`, Push-Berechtigung und eine
 gültige `gh`-Anmeldung. Bei Konflikten, Secret-Verdacht oder roten Gates bleibt
 der Worktree erhalten und wird als blockiert angezeigt.
 
-## 12. Sicher auf DEV aktualisieren
+## 13. Sicher auf main aktualisieren
 
 Vor dem Rebase:
 
 ```powershell
 git status --short
 git fetch origin
-git rebase origin/DEV
+git rebase origin/main
 ```
 
 Bei Konflikten gilt dieselbe Regel: lösen, gezielt stagen, fortsetzen.
@@ -255,11 +272,7 @@ Abbrechen:
 git rebase --abort
 ```
 
-Nach einem Rebase eines bereits veröffentlichten persönlichen Feature-Branches
-ist höchstens `git push --force-with-lease` vertretbar. Auf `DEV`, `main` und
-gemeinsam genutzten Branches ist Force-Push tabu.
-
-## 13. Arbeitsstand zwischenparken
+## 14. Arbeitsstand zwischenparken
 
 Bevorzugt ist ein kleiner WIP-Commit auf dem eigenen Branch. Wenn das nicht
 passt:
@@ -274,7 +287,7 @@ git stash apply stash@{0}
 Nutze zunächst `apply`, nicht `pop`; so bleibt der Stash erhalten, bis du das
 Ergebnis geprüft hast.
 
-## 14. Fehler sicher rückgängig machen
+## 15. Fehler sicher rückgängig machen
 
 Noch nicht gestagte Änderung einer einzelnen Datei verwerfen:
 
@@ -298,7 +311,7 @@ git revert <commit-sha>
 unbekannter `orca/*`-Branches sind keine normale Fehlerbehebung. Prüfe vorher
 Status, Diff und Commit-Verlauf.
 
-## 15. Worktrees kontrolliert aufräumen
+## 16. Worktrees kontrolliert aufräumen
 
 Erst prüfen:
 
@@ -319,11 +332,25 @@ Den zugehörigen Branch erst löschen, wenn sein Commit integriert oder bewusst
 verworfen wurde:
 
 ```powershell
-git branch --merged DEV
+git branch --merged main
 git branch -d <branch-name>
 ```
 
-## 16. Tägliche Kurzroutine
+## 17. Releases
+
+Releases entstehen durch Tags auf `main`:
+
+```powershell
+git switch main
+git pull --ff-only
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+
+Jeder Push auf `main` erzeugt zusätzlich automatisch einen Prerelease-Build
+über `release.yml`.
+
+## 18. Tägliche Kurzroutine
 
 ```powershell
 git fetch origin --prune

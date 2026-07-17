@@ -304,7 +304,7 @@ See [implementation status](docs/IMPLEMENTATION_STATUS.md) and
 
 Additional docs live in [`docs/`](docs/). Most are written in **German**:
 
-- [Implementation status (`DEV`)](docs/IMPLEMENTATION_STATUS.md) — verified feature boundaries.
+- [Implementation status](docs/IMPLEMENTATION_STATUS.md) — verified feature boundaries.
 - [Reliable Agent Lifecycle](docs/RELIABLE_AGENT_LIFECYCLE.md) — async dispatch, gates and integration phase.
 - [Production hardening](docs/PRODUCTION_HARDENING.md) — sandboxing, CSP, diagnostics.
 - [Handbook](docs/VERTRAGUS_HANDBUCH.md) — usage, development and operations (DE).
@@ -315,9 +315,10 @@ Additional docs live in [`docs/`](docs/). Most are written in **German**:
 
 ## Contributing
 
-Every change flows **`feature/*` → `DEV` → `main`** (never commit directly to
-`main`). Run `corepack pnpm run ci` before opening a PR into `DEV`. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for the full branching model and conventions.
+Every change reaches **`main`** only through a pull request with green CI
+(never commit directly to `main`). Run `corepack pnpm run ci` before opening a
+PR. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full branching model and
+conventions.
 
 ## License
 

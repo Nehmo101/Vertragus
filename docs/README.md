@@ -1,6 +1,6 @@
 # Vertragus-Dokumentation
 
-- [Aktueller Umsetzungsstand auf DEV](./IMPLEMENTATION_STATUS.md)
+- [Aktueller Umsetzungsstand](./IMPLEMENTATION_STATUS.md)
 - [Git-Handbuch für Branches, Worktrees und Pull Requests](./GIT_WORKFLOW.md)
 - [Handbuch für Nutzung, Entwicklung und Betrieb](./VERTRAGUS_HANDBUCH.md)
 - [Orchestrator-Training-Prompts (Trainings- und Bewertungskatalog)](./ORCHESTRATOR_TRAINING_PROMPTS.md)

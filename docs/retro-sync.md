@@ -128,7 +128,7 @@ Tracks müssen deshalb additiv und optional bleiben.
 3. **Proposals prüfen:** Jeder Brief unter `proposals/` ist ein
    eigenständiger Claude-Code-Auftrag (Kontext, Evidenz, Auftrag,
    Abnahmekriterien). Umsetzen heißt: Brief als Prompt in eine Claude-Code-
-   Session gegen `DEV` geben; der resultierende Code-PR durchläuft die
+   Session gegen `main` geben; der resultierende Code-PR durchläuft die
    normale CI. Danach den Proposal-Status im Front-Matter pflegen
    (`proposed` → `accepted`/`done`/`rejected`).
 4. Merge des Analyse-PRs aktiviert das neue Overlay für alle Installationen.

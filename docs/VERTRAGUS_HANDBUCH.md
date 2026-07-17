@@ -267,7 +267,7 @@ dem Neustart gestoppt werden.
 
 ## 10. Release-Ablauf
 
-1. Änderungen über `DEV` prüfen und nach `main` übernehmen.
+1. Änderungen per Pull Request mit grüner CI nach `main` übernehmen.
 2. GitHub Actions baut bei jedem Push auf `main` Windows- und Linux-Installer.
 3. Der Build erhält eine fortlaufende `main`-Kanal-Version und wird als
    GitHub-Prerelease mit Update-Metadaten veröffentlicht.

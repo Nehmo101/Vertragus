@@ -32,7 +32,7 @@ const DEMO_PROFILE = {
   autoPr: {
     mode: 'draft-after-checks',
     strategy: 'aggregate',
-    baseBranch: 'DEV',
+    baseBranch: 'main',
     qualityGates: ['corepack pnpm lint', 'corepack pnpm test'],
     labels: [],
     reviewers: []

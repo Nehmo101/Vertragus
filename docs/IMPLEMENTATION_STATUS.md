@@ -1,4 +1,4 @@
-# Vertragus – Umsetzungsstand auf `DEV`
+# Vertragus – Umsetzungsstand
 
 Stand: 13. Juli 2026
 
