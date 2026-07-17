@@ -50,7 +50,7 @@ function errorMessage(error: unknown): string {
 }
 
 export type UiTheme = 'light' | 'dark'
-export type WorkspaceLayout = 'tiles' | 'focus' | 'dag'
+export type WorkspaceLayout = 'tiles' | 'focus' | 'canvas'
 export type UiDensity = 'comfortable' | 'compact'
 
 interface AppState {
@@ -500,7 +500,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       orchestrator: snapshot,
       orchestrators: { [snapshot.workspaceSessionId ?? activeProfileId]: snapshot },
       theme: theme === 'dark' ? 'dark' : 'light',
-      workspaceLayout: layout === 'focus' || layout === 'dag' ? layout : 'tiles',
+      // Legacy persisted value: the old 'dag' list layout became the canvas.
+      workspaceLayout:
+        layout === 'focus' || layout === 'canvas'
+          ? layout
+          : (layout as string) === 'dag'
+            ? 'canvas'
+            : 'tiles',
       uiDensity: density === 'compact' ? density : 'comfortable',
       cliReadable: cliReadable ?? false,
       providerLimits: normalizeProviderLimits(limits),

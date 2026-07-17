@@ -654,9 +654,7 @@ body {
 .dispatch-line.tone-yolo { color: #e79a86; }
 .dispatch-line.tone-muted { color: var(--term-dim); }
 
-.body-row.layout-dag .orch-panel { border-left: 1px solid var(--divider); }
-.workspace-dag .dag-layout-note { border-color: var(--accent-line); border-radius: 16px; background: var(--accent-soft); color: var(--text-2); }
-.workspace-dag .dag-layout-note b { color: var(--accent-soft-text); font-family: var(--font-heading); font-weight: 400; }
+.body-row.layout-canvas .orch-panel { border-left: 1px solid var(--divider); }
 .workspace-focus .pane.focused { border-color: var(--accent-line); box-shadow: var(--shadow-md); }
 .workspace-focus .pane.subdued { min-height: 62px; opacity: 0.82; }
 .workspace-focus .add-tile { min-height: 62px; }

@@ -7,13 +7,14 @@ import {
   type WorkspaceLayout
 } from '@renderer/store/useAppStore'
 import AgentPane from '@renderer/components/AgentPane'
+import CanvasBoard from '@renderer/components/CanvasBoard'
 import VoiceBar from '@renderer/components/VoiceBar'
 import styles from './responsiveGuards.module.css'
 
 const LAYOUTS: Array<{ id: WorkspaceLayout; icon: string; label: string }> = [
   { id: 'tiles', icon: '▦', label: 'Kacheln' },
   { id: 'focus', icon: '▭', label: 'Fokus' },
-  { id: 'dag', icon: '◇', label: 'DAG' }
+  { id: 'canvas', icon: '✦', label: 'Canvas' }
 ]
 
 export default function Workspace(): JSX.Element {
@@ -123,12 +124,9 @@ export default function Workspace(): JSX.Element {
 
       <VoiceBar key={selectedAgent?.id ?? 'no-agent'} agent={selectedAgent} />
       <div className="ws-scroll">
-        {workspaceLayout === 'dag' && (
-          <div className="dag-layout-note">
-            <b>Planungsansicht</b>
-            <span>Der Aufgaben-DAG ist vergrößert; Terminals bleiben rechts interaktiv.</span>
-          </div>
-        )}
+        {workspaceLayout === 'canvas' ? (
+          <CanvasBoard />
+        ) : (
         <div className="ws-grid">
           {sortedAgents.length === 0 && (
             <div className="ws-empty">
@@ -161,6 +159,7 @@ export default function Workspace(): JSX.Element {
             <span className="t2">Provider &amp; Modell wählen</span>
           </button>
         </div>
+        )}
       </div>
     </main>
   )

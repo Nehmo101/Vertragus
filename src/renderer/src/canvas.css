@@ -1,0 +1,234 @@
+/* Vertragus canvas layout — spatial task board (React Flow).
+   Tokens come from cozy-organic.css; verdigris (--sage) marks running work,
+   bronze (--accent) marks the orchestrator and advisory edges. */
+
+.vertragus-canvas {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border: 1px solid var(--border-2);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--inset);
+}
+
+.workspace-canvas .ws-scroll {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.workspace-canvas .vertragus-canvas {
+  flex: 1;
+}
+
+.canvas-empty {
+  flex: 1;
+  display: grid;
+  place-content: center;
+  gap: 6px;
+  text-align: center;
+  color: var(--text-3);
+  border: 1px dashed var(--border-2);
+  border-radius: 14px;
+}
+.canvas-empty .big {
+  color: var(--text-2);
+  font-family: var(--font-heading);
+  font-size: 18px;
+}
+
+/* --- nodes ------------------------------------------------------------- */
+.canvas-node {
+  width: 260px;
+  padding: 11px 13px;
+  border: 1px solid var(--border-2);
+  border-radius: 12px;
+  background: var(--pane);
+  color: var(--text);
+  box-shadow: var(--shadow-md);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.canvas-node--orchestrator {
+  width: 236px;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent), var(--shadow-md);
+}
+.canvas-node--task.running {
+  border-color: var(--sage);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--sage) 26%, transparent), var(--shadow-md);
+}
+.canvas-node--task.error {
+  border-color: var(--err-line);
+}
+
+.canvas-node__head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 4px;
+}
+.canvas-node__dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--stop);
+}
+.canvas-node__dot.running {
+  background: var(--sage);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--sage) 70%, transparent);
+}
+.canvas-node__dot.success {
+  background: var(--run);
+}
+.canvas-node__dot.error {
+  background: var(--err);
+}
+.canvas-node__dot.orchestrator {
+  background: var(--accent);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+.canvas-node__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-weight: 600;
+}
+.canvas-node__status {
+  flex: 0 0 auto;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+.canvas-node__meta {
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.canvas-node__agent {
+  color: var(--text-2);
+}
+.canvas-node__bar {
+  height: 4px;
+  margin: 8px 0 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+}
+.canvas-node__bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--sage), var(--sage-strong));
+}
+.canvas-node__bar-fill.indeterminate {
+  width: 40%;
+}
+.canvas-node__foot {
+  display: flex;
+  gap: 10px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  overflow: hidden;
+}
+.canvas-node__foot span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.canvas-node__goal,
+.canvas-node__note {
+  color: var(--text-2);
+}
+
+.canvas-handle {
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--border-2);
+  background: var(--surface-2);
+}
+
+/* --- edges ------------------------------------------------------------- */
+.vertragus-canvas .react-flow__edge-path {
+  stroke: color-mix(in srgb, var(--text) 34%, transparent);
+  stroke-width: 1.6;
+}
+.vertragus-canvas .canvas-edge-advisory .react-flow__edge-path {
+  stroke: var(--accent);
+  stroke-dasharray: 3 6;
+  opacity: 0.75;
+}
+.vertragus-canvas .canvas-edge-root .react-flow__edge-path {
+  stroke: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.vertragus-canvas .canvas-edge-hard.running .react-flow__edge-path,
+.vertragus-canvas .canvas-edge-root.running .react-flow__edge-path {
+  stroke: var(--sage);
+  stroke-width: 2;
+}
+
+/* --- chrome (controls, minimap, background) ---------------------------- */
+.vertragus-canvas .canvas-bg {
+  color: color-mix(in srgb, var(--text) 20%, transparent);
+}
+.vertragus-canvas .react-flow__controls {
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+.vertragus-canvas .react-flow__controls-button {
+  border-bottom: 1px solid var(--divider);
+  background: var(--surface-2);
+  color: var(--text-2);
+  fill: var(--text-2);
+}
+.vertragus-canvas .react-flow__controls-button:hover {
+  background: var(--surface);
+}
+.vertragus-canvas .canvas-minimap {
+  border: 1px solid var(--border-2);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.vertragus-canvas .react-flow__minimap-mask {
+  fill: color-mix(in srgb, var(--text) 10%, transparent);
+}
+.vertragus-canvas .react-flow__minimap-node {
+  fill: color-mix(in srgb, var(--text) 32%, transparent);
+}
+
+/* running pulse — deliberately subtle, disabled for reduced motion */
+@media (prefers-reduced-motion: no-preference) {
+  .canvas-node__dot.running {
+    animation: canvas-pulse 2.2s ease-in-out infinite;
+  }
+  .canvas-node__bar-fill.indeterminate {
+    animation: canvas-slide 1.6s ease-in-out infinite alternate;
+  }
+  @keyframes canvas-pulse {
+    0%,
+    100% {
+      opacity: 0.55;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+  @keyframes canvas-slide {
+    from {
+      margin-left: 0;
+    }
+    to {
+      margin-left: 60%;
+    }
+  }
+}
