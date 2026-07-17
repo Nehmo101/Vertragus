@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   activeProfile,
   useAppStore,
@@ -29,6 +30,7 @@ interface ProviderUsage {
  * gate, not from provider API quota data; token/cost comes from agents.
  */
 export default function LimitsPanel(): JSX.Element {
+  const { t } = useTranslation()
   const store = useAppStore()
   const {
     agents,
@@ -90,41 +92,41 @@ export default function LimitsPanel(): JSX.Element {
   const taskParallelism = profile?.planner.maxParallel ?? 0
 
   return (
-    <section className="limits-panel" aria-label="Vertragus-interne Provider-Gates">
+    <section className="limits-panel" aria-label={t('limits.aria')}>
       <div className="limits-head">
-        <span className="limits-title">Vertragus-Gates</span>
+        <span className="limits-title">{t('limits.title')}</span>
         <span className="limits-total">
-          {totalActive} aktiv{hasCost ? ` · ${formatUsd(totalCost)}` : ''}
+          {t('limits.activeCount', { n: totalActive })}{hasCost ? ` · ${formatUsd(totalCost)}` : ''}
         </span>
       </div>
       <p className="limits-gate-note">
-        Lokale Parallelitätsgrenzen für Vertragus-Prozesse · keine API- oder Nutzungsquoten.
+        {t('limits.gateNote')}
       </p>
-      <div className="capacity-grid" aria-label="Einheitliches Kapazitätsmodell">
-        <div className="capacity-item" title="Vorgewärmte, interaktive Team-Agents im aktuellen Workspace">
-          <span className="capacity-label">Vorgewärmt</span>
+      <div className="capacity-grid" aria-label={t('limits.capacityAria')}>
+        <div className="capacity-item" title={t('limits.prewarmedTitle')}>
+          <span className="capacity-label">{t('limits.prewarmed')}</span>
           <strong>{prewarmed}/{configuredPrewarmed}</strong>
-          <small>interaktiv · Workspace</small>
+          <small>{t('limits.prewarmedSub')}</small>
         </div>
-        <div className="capacity-item" title="Maximale parallele Tasks laut Planner-Profil">
-          <span className="capacity-label">Task-Parallelität</span>
+        <div className="capacity-item" title={t('limits.parallelTitle')}>
+          <span className="capacity-label">{t('limits.parallel')}</span>
           <strong>{taskParallelism || '—'}</strong>
-          <small>Maximum · Workspace</small>
+          <small>{t('limits.parallelSub')}</small>
         </div>
-        <div className="capacity-item" title="Prozesse, die aktuell einen Provider-Slot belegen">
-          <span className="capacity-label">Aktive Prozesse</span>
+        <div className="capacity-item" title={t('limits.activeTitle')}>
+          <span className="capacity-label">{t('limits.activeProcesses')}</span>
           <strong>{totalActive}</strong>
-          <small>global · alle Provider</small>
+          <small>{t('limits.activeSub')}</small>
         </div>
-        <div className={`capacity-item ${totalWaiting > 0 ? 'waiting' : ''}`} title="Prozesse in der globalen Provider-Warteschlange">
-          <span className="capacity-label">Wartende Prozesse</span>
+        <div className={`capacity-item ${totalWaiting > 0 ? 'waiting' : ''}`} title={t('limits.waitingTitle')}>
+          <span className="capacity-label">{t('limits.waitingProcesses')}</span>
           <strong>{totalWaiting}</strong>
-          <small>global · Provider-Gate</small>
+          <small>{t('limits.waitingSub')}</small>
         </div>
       </div>
       <div className="limits-subhead">
-        <span>Konfigurierbare Provider-Gates</span>
-        <span>aktiv / Gate (+ wartend)</span>
+        <span>{t('limits.subhead')}</span>
+        <span>{t('limits.subheadRight')}</span>
       </div>
       <div className="limits-list">
         {rows.map((r) => {
@@ -142,8 +144,8 @@ export default function LimitsPanel(): JSX.Element {
                   <span className="limit-name">{theme.label}</span>
                   <span className="limit-usage">
                     {r.telemetry.tokens != null && (
-                      <span title={`${formatTokenCount(r.telemetry.tokens)} Tokens (Eingabe + Ausgabe)`}>
-                        {formatTokenCount(r.telemetry.tokens)} Tokens
+                      <span title={t('limits.tokensTitle', { tokens: formatTokenCount(r.telemetry.tokens) })}>
+                        {t('limits.tokens', { tokens: formatTokenCount(r.telemetry.tokens) })}
                       </span>
                     )}
                     {r.telemetry.costUsd != null && <span className="cost">{formatUsd(r.telemetry.costUsd)}</span>}
@@ -161,7 +163,7 @@ export default function LimitsPanel(): JSX.Element {
                   />
                 </div>
                 <details className="limit-model-gates">
-                  <summary>Modelle global schalten</summary>
+                  <summary>{t('limits.modelGates')}</summary>
                   <div className="limit-model-grid">
                     {store.models[r.id].models.map((model) => {
                       const enabled = !store.disabledModels[r.id].some(
@@ -184,16 +186,20 @@ export default function LimitsPanel(): JSX.Element {
               <div className="limit-count">
                 <button
                   type="button"
-                  title={`${theme.label} global ${r.enabled ? 'deaktivieren' : 'aktivieren'}`}
+                  title={
+                    r.enabled
+                      ? t('limits.disableProvider', { name: theme.label })
+                      : t('limits.enableProvider', { name: theme.label })
+                  }
                   aria-pressed={r.enabled}
                   onClick={() => setProviderEnabled(r.id, !r.enabled)}
                 >
-                  {r.enabled ? 'An' : 'Aus'}
+                  {r.enabled ? t('limits.on') : t('limits.off')}
                 </button>
                 <button
                   type="button"
-                  title={`${theme.label}-Vertragus-Gate verringern`}
-                  aria-label={`${theme.label}-Vertragus-Gate verringern`}
+                  title={t('limits.decreaseGate', { name: theme.label })}
+                  aria-label={t('limits.decreaseGate', { name: theme.label })}
                   disabled={limit <= PROVIDER_GATE_MIN}
                   onClick={() => setProviderLimit(r.id, Math.max(PROVIDER_GATE_MIN, limit - 1))}
                 >
@@ -203,8 +209,8 @@ export default function LimitsPanel(): JSX.Element {
                   className={`limit-count-val ${over ? 'over' : ''}`}
                   title={
                     r.waiting > 0
-                      ? `${r.waiting} wartend · aktiv / Vertragus-Gate (keine API-Quote)`
-                      : 'aktiv / Vertragus-Gate (keine API-Quote)'
+                      ? t('limits.countTitleWaiting', { n: r.waiting })
+                      : t('limits.countTitle')
                   }
                 >
                   {r.active}/{limit}
@@ -212,8 +218,8 @@ export default function LimitsPanel(): JSX.Element {
                 </span>
                 <button
                   type="button"
-                  title={`${theme.label}-Vertragus-Gate erhöhen`}
-                  aria-label={`${theme.label}-Vertragus-Gate erhöhen`}
+                  title={t('limits.increaseGate', { name: theme.label })}
+                  aria-label={t('limits.increaseGate', { name: theme.label })}
                   disabled={limit >= PROVIDER_GATE_MAX}
                   onClick={() => setProviderLimit(r.id, Math.min(PROVIDER_GATE_MAX, limit + 1))}
                 >

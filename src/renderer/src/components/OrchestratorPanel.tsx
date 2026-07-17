@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import {
   useAppStore,
   activeProfile,
@@ -15,7 +17,7 @@ import {
   resolveOrchestratorActivity,
   taskActivityText
 } from '@renderer/orchestratorActivity'
-import type { OrcaTask, SubagentFindingKind, TaskStatus } from '@shared/orchestrator'
+import type { OrcaTask, TaskStatus } from '@shared/orchestrator'
 import { resolveModel } from '@shared/models'
 import type { AgentUsage } from '@shared/agents'
 import { summarizeUsage, summarizeUsageGroup, TELEMETRY_STATUS_LABELS, TELEMETRY_STATUS_TITLES } from '@shared/telemetry'
@@ -26,37 +28,8 @@ import { selectPanelLayout, useLayoutStore } from '@renderer/store/layoutStore'
 const STALE_HEARTBEAT_MS = 90_000
 const MAX_VISIBLE_FINDINGS = 6
 
-const FINDING_KIND_LABEL: Record<SubagentFindingKind, string> = {
-  interface: 'Schnittstelle',
-  decision: 'Entscheidung',
-  blocker: 'Blocker',
-  insight: 'Erkenntnis'
-}
-
 type PlannerMode = 'auto' | 'review' | 'manual'
 const PLANNER_MODES: PlannerMode[] = ['auto', 'review', 'manual']
-const PLANNER_MODE_LABEL: Record<PlannerMode, string> = {
-  auto: 'Auto',
-  review: 'Review',
-  manual: 'Manuell'
-}
-const PLANNER_MODE_DESC: Record<PlannerMode, string> = {
-  auto: 'Auto – Pläne direkt ausführen',
-  review: 'Review – Plan bestätigen',
-  manual: 'Manuell – keine Auto-Planung'
-}
-const PLANNER_MODE_TITLE: Record<PlannerMode, string> = {
-  auto: 'Gültige Pläne sofort ausführen – keine Freigabe nötig.',
-  review: 'Jeden Plan erst nach deiner Freigabe starten.',
-  manual: 'Keine automatische Planung – du steuerst manuell.'
-}
-const PLANNER_MODE_HELP =
-  'Gilt nur für diesen laufenden Workspace und ist jederzeit umstellbar. ' +
-  'Auto führt gültige Pläne sofort aus, Review wartet auf deine Freigabe, ' +
-  'Manuell schaltet die automatische Planung ab. Ändert nichts an bereits laufenden Aufgaben.'
-const GOAL_ACTIVE_HELP =
-  'Statusanzeige – zeigt, ob der Orchestrator gerade ein aktives Ziel verfolgt. ' +
-  'Wird automatisch gesetzt, sobald ein Ziel läuft, und ist kein manueller Schalter.'
 
 type TaskWithTelemetry = OrcaTask & {
   lastHeartbeatAt?: number
@@ -86,25 +59,27 @@ function fmtAge(ms: number): string {
 }
 
 /** Compact "12k Token · $0.12" line; null when the provider reported nothing. */
-function usageText(usage?: OrcaTask['usage']): string | null {
+function usageText(t: TFunction, usage?: OrcaTask['usage']): string | null {
   const summary = summarizeUsage(usage)
   if (summary.status === 'absent') return null
   const parts: string[] = []
-  if (summary.tokens != null) parts.push(`${formatTokenCount(summary.tokens)} Token`)
+  if (summary.tokens != null)
+    parts.push(t('orch.usage.tokens', { value: formatTokenCount(summary.tokens) }))
   if (summary.costUsd != null) parts.push(formatUsd(summary.costUsd))
-  if (parts.length === 0 && summary.steps != null) parts.push(`${summary.steps} Schritte`)
+  if (parts.length === 0 && summary.steps != null)
+    parts.push(t('orch.usage.steps', { value: summary.steps }))
   return parts.length > 0 ? parts.join(' · ') : null
 }
 
-const TASK_PILL: Record<TaskStatus, { bg: string; fg: string; dot: string; label: string }> = {
-  queued: { bg: 'var(--stop-soft)', fg: 'var(--stop-text)', dot: 'var(--stop)', label: 'geplant' },
-  paused: { bg: 'color-mix(in srgb, #f5a524 18%, transparent)', fg: '#f7c96b', dot: '#f5a524', label: 'pausiert' },
-  waiting: { bg: 'color-mix(in srgb, #f5a524 18%, transparent)', fg: '#f7c96b', dot: '#f5a524', label: 'wartet' },
-  running: { bg: 'color-mix(in srgb, var(--run) 18%, transparent)', fg: 'var(--run-text)', dot: 'var(--run)', label: 'läuft' },
-  success: { bg: 'color-mix(in srgb, var(--run) 18%, transparent)', fg: 'var(--run-text)', dot: 'var(--run)', label: 'fertig' },
-  'needs-work': { bg: 'color-mix(in srgb, #f5a524 18%, transparent)', fg: '#f7c96b', dot: '#f5a524', label: 'Nacharbeit' },
-  error: { bg: 'var(--err-soft)', fg: 'var(--err-text)', dot: 'var(--err)', label: 'Fehler' },
-  stopped: { bg: 'var(--stop-soft)', fg: 'var(--stop-text)', dot: 'var(--stop)', label: 'gestoppt' }
+const TASK_PILL: Record<TaskStatus, { bg: string; fg: string; dot: string }> = {
+  queued: { bg: 'var(--stop-soft)', fg: 'var(--stop-text)', dot: 'var(--stop)' },
+  paused: { bg: 'color-mix(in srgb, #f5a524 18%, transparent)', fg: '#f7c96b', dot: '#f5a524' },
+  waiting: { bg: 'color-mix(in srgb, #f5a524 18%, transparent)', fg: '#f7c96b', dot: '#f5a524' },
+  running: { bg: 'color-mix(in srgb, var(--run) 18%, transparent)', fg: 'var(--run-text)', dot: 'var(--run)' },
+  success: { bg: 'color-mix(in srgb, var(--run) 18%, transparent)', fg: 'var(--run-text)', dot: 'var(--run)' },
+  'needs-work': { bg: 'color-mix(in srgb, #f5a524 18%, transparent)', fg: '#f7c96b', dot: '#f5a524' },
+  error: { bg: 'var(--err-soft)', fg: 'var(--err-text)', dot: 'var(--err)' },
+  stopped: { bg: 'var(--stop-soft)', fg: 'var(--stop-text)', dot: 'var(--stop)' }
 }
 
 function TaskCard({
@@ -120,6 +95,7 @@ function TaskCard({
   workspaceSessionId?: string
   now: number
 }): JSX.Element {
+  const { t } = useTranslation()
   const [diff, setDiff] = useState<string | null>(null)
   const [diffError, setDiffError] = useState<string | null>(null)
   const [diffLoading, setDiffLoading] = useState(false)
@@ -132,7 +108,10 @@ function TaskCard({
   const heartbeatMissing = task.status === 'running' && telemetry.lastHeartbeatAt == null
   const heartbeatStale = task.status === 'running' && heartbeatAge > STALE_HEARTBEAT_MS
   const showTelemetry = task.status === 'running' || Boolean(telemetry.phase || telemetry.lastAction)
-  const label = task.status === 'running' && task.yolo ? 'läuft · yolo' : pill.label
+  const label =
+    task.status === 'running' && task.yolo
+      ? t('orch.task.runningYolo')
+      : t(`orch.status.${task.status}`)
   const hasReview = Boolean(
     task.worktree || task.branch || task.commit || task.autoPrStatus || task.remoteCiStatus ||
     task.findings?.length || task.blocker || task.preflight || task.attempts?.length
@@ -166,7 +145,9 @@ function TaskCard({
             style={{ background: pill.dot, boxShadow: `0 0 6px ${pill.dot}` }}
           />
           <span className="task-title">{task.title}</span>
-          {task.criticality === 'advisory' && <span className="task-criticality">advisory</span>}
+          {task.criticality === 'advisory' && (
+            <span className="task-criticality">{t('orch.task.advisory')}</span>
+          )}
           <span className="task-id">{task.id}</span>
         </div>
         <div className="task-row2">
@@ -205,50 +186,52 @@ function TaskCard({
         {showTelemetry && (
           <div className={`task-telemetry ${heartbeatStale ? 'stale' : ''}`}>
             <div className="task-telemetry-row">
-              <span className="task-phase">{telemetry.phase?.trim() || 'In Arbeit'}</span>
+              <span className="task-phase">{telemetry.phase?.trim() || t('orch.task.inProgress')}</span>
               {task.progress != null && <span>{Math.round(task.progress)}%</span>}
               {task.status === 'running' && (
                 <span
                   className="task-heartbeat"
                   title={
                     telemetry.lastHeartbeatAt
-                      ? `Letzter Heartbeat: ${new Date(telemetry.lastHeartbeatAt).toLocaleString()}`
-                      : 'Noch kein expliziter Heartbeat empfangen'
+                      ? t('orch.task.lastHeartbeat', {
+                          time: new Date(telemetry.lastHeartbeatAt).toLocaleString()
+                        })
+                      : t('orch.task.noHeartbeat')
                   }
                 >
                   <span className="heartbeat-dot" />
                   {heartbeatStale
-                    ? `Heartbeat veraltet · ${fmtAge(heartbeatAge)}`
+                    ? t('orch.task.heartbeatStale', { age: fmtAge(heartbeatAge) })
                     : heartbeatMissing
-                      ? `Heartbeat ausstehend · ${fmtAge(heartbeatAge)}`
-                      : `Heartbeat · vor ${fmtAge(heartbeatAge)}`}
+                      ? t('orch.task.heartbeatPending', { age: fmtAge(heartbeatAge) })
+                      : t('orch.task.heartbeatAgo', { age: fmtAge(heartbeatAge) })}
                 </span>
               )}
             </div>
             {telemetry.lastAction?.trim() && (
               <div className="task-last-action" title={telemetry.lastAction}>
-                Zuletzt: {telemetry.lastAction}
+                {t('orch.task.lastAction', { action: telemetry.lastAction })}
               </div>
             )}
-            {usageText(task.usage) && (
-              <div className="task-usage" title="Vom Provider gemeldeter Verbrauch dieses Tasks">
-                Verbrauch: {usageText(task.usage)}
+            {usageText(t, task.usage) && (
+              <div className="task-usage" title={t('orch.task.usageTitle')}>
+                {t('orch.task.usage', { value: usageText(t, task.usage) })}
               </div>
             )}
           </div>
         )}
         {usage && worker.status !== 'absent' && (
-          <div className="task-usage" title="Telemetrie des Subagents">
+          <div className="task-usage" title={t('orch.task.subagentTelemetry')}>
             {worker.steps != null && (
-              <span><span className="k">Schritte</span> <b>{worker.steps}</b></span>
+              <span><span className="k">{t('orch.usageLabels.steps')}</span> <b>{worker.steps}</b></span>
             )}
             {worker.tokens != null && (
               <span title={formatTokenBreakdown(usage.tokensIn, usage.tokensOut)}>
-                <span className="k">Tokens</span> <b>{formatTokenCount(worker.tokens)}</b>
+                <span className="k">{t('orch.usageLabels.tokens')}</span> <b>{formatTokenCount(worker.tokens)}</b>
               </span>
             )}
             {worker.costUsd != null && (
-              <span><span className="k">Kosten</span> <b className="cost">{formatUsd(worker.costUsd)}</b></span>
+              <span><span className="k">{t('orch.usageLabels.cost')}</span> <b className="cost">{formatUsd(worker.costUsd)}</b></span>
             )}
             {worker.status === 'partial' && (
               <span className="telemetry-status partial" title={TELEMETRY_STATUS_TITLES.partial}>
@@ -262,7 +245,7 @@ function TaskCard({
         )}
         {task.findings?.length ? (
           <div className="task-findings" role="status">
-            <strong>Gate-Findings</strong>
+            <strong>{t('orch.task.gateFindings')}</strong>
             {task.findings.map((finding, index) => (
               <div key={`${finding.gate}-${index}`}>
                 <span>{finding.gate} · {finding.code}</span>
@@ -280,34 +263,34 @@ function TaskCard({
         )}
         {(task.prUrl || task.autoPrStatus || task.remoteCiStatus) && (
           <div className="task-pr-row">
-            <span>Auto-PR: {task.autoPrStatus ?? 'unbekannt'}</span>
+            <span>{t('orch.task.autoPr', { status: task.autoPrStatus ?? t('orch.task.unknown') })}</span>
             {task.remoteCiStatus && (
-              <span title={task.remoteCiSummary}>Remote-CI: {task.remoteCiStatus}</span>
+              <span title={task.remoteCiSummary}>{t('orch.task.remoteCi', { status: task.remoteCiStatus })}</span>
             )}
             {task.prUrl && (
               <a href={task.prUrl} target="_blank" rel="noreferrer">
-                Pull Request oeffnen
+                {t('orch.task.openPr')}
               </a>
             )}
             {task.remoteCiUrl && task.remoteCiUrl !== task.prUrl && (
               <a href={task.remoteCiUrl} target="_blank" rel="noreferrer">
-                CI-Check oeffnen
+                {t('orch.task.openCi')}
               </a>
             )}
           </div>
         )}
         {hasReview && (
           <details className="task-review">
-            <summary>Review-Details</summary>
+            <summary>{t('orch.task.reviewDetails')}</summary>
             <dl>
-              {task.branch && <><dt>Branch</dt><dd><code>{task.branch}</code></dd></>}
-              {task.commit && <><dt>Commit</dt><dd><code>{task.commit}</code></dd></>}
-              {task.worktree && <><dt>Worktree</dt><dd title={task.worktree}>{task.worktree}</dd></>}
-              {task.dependsOn?.length ? <><dt>Harte Abhängigkeiten</dt><dd>{task.dependsOn.join(', ')}</dd></> : null}
-              {task.advisoryDependsOn?.length ? <><dt>Advisory-Abhängigkeiten</dt><dd>{task.advisoryDependsOn.join(', ')}</dd></> : null}
-              {task.conflictKeys?.length ? <><dt>Konfliktbereiche</dt><dd>{task.conflictKeys.join(', ')}</dd></> : null}
-              {task.preflight ? <><dt>Preflight</dt><dd>{task.preflight.status === 'passed' ? 'bestanden' : 'fehlgeschlagen'} · {task.preflight.checks.filter((check) => check.status === 'passed').length}/{task.preflight.checks.length} Checks</dd></> : null}
-              {task.attempts?.length ? <><dt>Versuche</dt><dd>{task.attempts.map((attempt) => `${attempt.agentName ?? attempt.agentId}: ${attempt.status}`).join(' · ')}</dd></> : null}
+              {task.branch && <><dt>{t('orch.task.branch')}</dt><dd><code>{task.branch}</code></dd></>}
+              {task.commit && <><dt>{t('orch.task.commit')}</dt><dd><code>{task.commit}</code></dd></>}
+              {task.worktree && <><dt>{t('orch.task.worktree')}</dt><dd title={task.worktree}>{task.worktree}</dd></>}
+              {task.dependsOn?.length ? <><dt>{t('orch.task.hardDeps')}</dt><dd>{task.dependsOn.join(', ')}</dd></> : null}
+              {task.advisoryDependsOn?.length ? <><dt>{t('orch.task.advisoryDeps')}</dt><dd>{task.advisoryDependsOn.join(', ')}</dd></> : null}
+              {task.conflictKeys?.length ? <><dt>{t('orch.task.conflictKeys')}</dt><dd>{task.conflictKeys.join(', ')}</dd></> : null}
+              {task.preflight ? <><dt>{t('orch.task.preflight')}</dt><dd>{task.preflight.status === 'passed' ? t('orch.task.passed') : t('orch.task.failed')} · {t('orch.task.checks', { passed: task.preflight.checks.filter((check) => check.status === 'passed').length, total: task.preflight.checks.length })}</dd></> : null}
+              {task.attempts?.length ? <><dt>{t('orch.task.attempts')}</dt><dd>{task.attempts.map((attempt) => `${attempt.agentName ?? attempt.agentId}: ${attempt.status}`).join(' · ')}</dd></> : null}
             </dl>
             {task.worktree && (
               <button
@@ -316,7 +299,11 @@ function TaskCard({
                 disabled={diffLoading}
                 onClick={() => void loadDiff()}
               >
-                {diffLoading ? 'Diff wird geladen…' : diff ? 'Diff aktualisieren' : 'Git-Diff anzeigen'}
+                {diffLoading
+                  ? t('orch.task.diffLoading')
+                  : diff
+                    ? t('orch.task.diffRefresh')
+                    : t('orch.task.diffShow')}
               </button>
             )}
             {diffError && <div className="task-note err">{diffError}</div>}
@@ -335,6 +322,7 @@ function OrchestratorPanelContent({
   width: number
   onCollapse: () => void
 }): JSX.Element {
+  const { t } = useTranslation()
   const store = useAppStore()
   const [autoModeBusy, setAutoModeBusy] = useState(false)
   const now = useClock()
@@ -357,7 +345,7 @@ function OrchestratorPanelContent({
   const assigned = tasks.filter((t) => t.agentId).length
   const runUsage = summarizeUsageGroup(tasks.map((task) => task.usage))
   const configuredOrchestratorModel = profile?.orchestrator
-    ? resolveModel(profile.orchestrator.provider, profile.orchestrator) || 'CLI-Standard'
+    ? resolveModel(profile.orchestrator.provider, profile.orchestrator) || t('orch.cliDefault')
     : '—'
   const displayedOrchestratorModel = orch?.model || configuredOrchestratorModel
 
@@ -378,15 +366,15 @@ function OrchestratorPanelContent({
         mode,
         store.activeWorkspaceSessionId
       )
-      if (!ok) throw new Error('Planungsmodus konnte nicht umgestellt werden.')
+      if (!ok) throw new Error(t('orch.plannerMode.switchFailed'))
       store.showToast(
         mode === 'auto'
           ? startsPendingPlan
-            ? 'Automodus aktiv \u2013 der Erstplan wartet weiter auf deine Freigabe.'
-            : 'Automodus f\u00fcr diesen Workspace aktiviert.'
+            ? t('orch.plannerMode.toastAutoPending')
+            : t('orch.plannerMode.toastAuto')
           : mode === 'review'
-            ? 'Review-Modus aktiv \u2013 neue Pl\u00e4ne warten auf deine Freigabe.'
-            : 'Manueller Modus aktiv \u2013 keine automatische Planung.'
+            ? t('orch.plannerMode.toastReview')
+            : t('orch.plannerMode.toastManual')
       )
     } catch (error) {
       store.showToast(error instanceof Error ? error.message : String(error))
@@ -400,7 +388,7 @@ function OrchestratorPanelContent({
       id="orchestrator-right-panel"
       className="orch-panel layout-panel"
       style={{ width }}
-      aria-label="Orchestrator-Seitenleiste"
+      aria-label={t('orch.panelAria')}
     >
       <div className="panel-control-row panel-control-row-right">
         <button
@@ -408,8 +396,8 @@ function OrchestratorPanelContent({
           className="panel-collapse-button"
           aria-controls="orchestrator-right-content"
           aria-expanded="true"
-          aria-label="Orchestrator-Seitenleiste einklappen"
-          title="Orchestrator-Seitenleiste einklappen"
+          aria-label={t('orch.collapse')}
+          title={t('orch.collapse')}
           onClick={onCollapse}
         >
           ›
@@ -420,21 +408,18 @@ function OrchestratorPanelContent({
       <div className="orch-head">
         <div className="orch-head-row">
           <span className="orch-diamond">◇</span>
-          <span className="orch-title">Orchestrator</span>
+          <span className="orch-title">{t('orch.title')}</span>
           <span className="orch-model">{displayedOrchestratorModel}</span>
           <div className="spacer" />
           <span className="mini-toggle-label">
-            {goal?.active ? 'aktiv' : 'inaktiv'} <InfoTip text={GOAL_ACTIVE_HELP} />
+            {goal?.active ? t('orch.active') : t('orch.inactive')}{' '}
+            <InfoTip text={t('orch.goalActiveHelp')} />
           </span>
           <span
             className={`mini-toggle status ${goal?.active ? '' : 'off'}`}
             role="img"
-            aria-label={
-              goal?.active
-                ? 'Status: Orchestrator verfolgt ein aktives Ziel'
-                : 'Status: Orchestrator hat kein aktives Ziel'
-            }
-            title={GOAL_ACTIVE_HELP}
+            aria-label={goal?.active ? t('orch.goalActiveAria') : t('orch.goalInactiveAria')}
+            title={t('orch.goalActiveHelp')}
           >
             <span className="knob" />
           </span>
@@ -442,10 +427,10 @@ function OrchestratorPanelContent({
         {orch && store.activeWorkspaceSessionId && (
           <div className={`planner-mode-control ${autoModeActive ? 'auto' : ''}`}>
             <div className="planner-mode-copy">
-              <span>Planungsmodus <InfoTip text={PLANNER_MODE_HELP} /></span>
-              <strong>{PLANNER_MODE_DESC[currentPlannerMode]}</strong>
+              <span>{t('orch.plannerMode.caption')} <InfoTip text={t('orch.plannerMode.help')} /></span>
+              <strong>{t(`orch.plannerMode.desc.${currentPlannerMode}`)}</strong>
             </div>
-            <div className="planner-mode-switch" role="group" aria-label="Planungsmodus w\u00e4hlen">
+            <div className="planner-mode-switch" role="group" aria-label={t('orch.plannerMode.choose')}>
               {PLANNER_MODES.map((mode) => (
                 <button
                   key={mode}
@@ -453,10 +438,10 @@ function OrchestratorPanelContent({
                   className={`planner-mode-opt ${currentPlannerMode === mode ? 'active' : ''}`}
                   aria-pressed={currentPlannerMode === mode}
                   disabled={autoModeBusy || currentPlannerMode === mode}
-                  title={PLANNER_MODE_TITLE[mode]}
+                  title={t(`orch.plannerMode.title.${mode}`)}
                   onClick={() => void changePlannerMode(mode)}
                 >
-                  {PLANNER_MODE_LABEL[mode]}
+                  {t(`orch.plannerMode.label.${mode}`)}
                 </button>
               ))}
             </div>
@@ -465,7 +450,7 @@ function OrchestratorPanelContent({
 
         <div className="goal-card">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span className="goal-caption">Aktuelles Ziel</span>
+            <span className="goal-caption">{t('orch.goal.caption')}</span>
             <span className="goal-id">{goal?.id ?? '—'}</span>
           </div>
           {goal ? (
@@ -476,54 +461,55 @@ function OrchestratorPanelContent({
               </div>
               <div className="goal-stats">
                 <span>
-                  {tasks.length} Subtasks · {assigned} zugewiesen
+                  {t('orch.goal.stats', { total: tasks.length, assigned })}
                 </span>
                 <span className="pct">{pct}%</span>
               </div>
             </>
           ) : (
             <>
-              <div className="goal-title">Kein aktives Ziel</div>
+              <div className="goal-title">{t('orch.goal.none')}</div>
               <div className="goal-note">
-                „▶ Alle starten" aktiviert den Orchestrator ({profile?.orchestrator?.provider ?? '—'}
-                /{configuredOrchestratorModel}). Gib ihm im Terminal ein Ziel — er zerlegt es
-                und delegiert an Subagents.
+                {t('orch.goal.note', {
+                  provider: profile?.orchestrator?.provider ?? '—',
+                  model: configuredOrchestratorModel
+                })}
               </div>
             </>
           )}
         </div>
         {reliability && (
           <div className="reliability-strip" title={engineId}>
-            <span><strong>{reliability.preflightPassed}</strong> Preflights ok</span>
-            <span className={reliability.preflightFailed > 0 ? 'warn' : ''}><strong>{reliability.preflightFailed}</strong> blockiert</span>
-            <span><strong>{reliability.automaticRecoveries}</strong> Auto-Recoveries</span>
-            <span><strong>{reliability.preventedFalseSuccesses}</strong> False-Success verhindert</span>
-            <span><strong>{fmtAge(reliability.maxRunningStatusAgeMs)}</strong> max. Statusalter</span>
+            <span><strong>{reliability.preflightPassed}</strong> {t('orch.reliability.preflightOk')}</span>
+            <span className={reliability.preflightFailed > 0 ? 'warn' : ''}><strong>{reliability.preflightFailed}</strong> {t('orch.reliability.blocked')}</span>
+            <span><strong>{reliability.automaticRecoveries}</strong> {t('orch.reliability.autoRecoveries')}</span>
+            <span><strong>{reliability.preventedFalseSuccesses}</strong> {t('orch.reliability.falseSuccess')}</span>
+            <span><strong>{fmtAge(reliability.maxRunningStatusAgeMs)}</strong> {t('orch.reliability.maxStatusAge')}</span>
           </div>
         )}
         {runUsage.status !== 'absent' && (
-          <div className="usage-strip" title="Vom Provider gemeldeter Verbrauch aller Tasks dieses Laufs">
-            <span>Token gesamt: <strong>{runUsage.tokens != null ? formatTokenCount(runUsage.tokens) : '—'}</strong></span>
-            <span>Kosten: <strong>{runUsage.costUsd != null ? formatUsd(runUsage.costUsd) : '—'}</strong></span>
-            <span>Schritte: <strong>{runUsage.steps ?? '—'}</strong></span>
+          <div className="usage-strip" title={t('orch.run.usageTitle')}>
+            <span>{t('orch.run.tokens')}: <strong>{runUsage.tokens != null ? formatTokenCount(runUsage.tokens) : '—'}</strong></span>
+            <span>{t('orch.run.cost')}: <strong>{runUsage.costUsd != null ? formatUsd(runUsage.costUsd) : '—'}</strong></span>
+            <span>{t('orch.run.steps')}: <strong>{runUsage.steps ?? '—'}</strong></span>
           </div>
         )}
         {lastRetro && (
           <details className="retro-card">
             <summary title={lastRetro.goal}>
-              <span className="retro-caption">Retro</span> {lastRetro.summary}
+              <span className="retro-caption">{t('orch.retro.caption')}</span> {lastRetro.summary}
             </summary>
             <div className="retro-body">
               {lastRetro.modelStats.map((stat) => (
                 <div key={`${stat.provider}/${stat.model}`} className="retro-model">
-                  <strong>{stat.provider}/{stat.model || 'Standard'}</strong>
+                  <strong>{stat.provider}/{stat.model || t('orch.retro.default')}</strong>
                   <span>
-                    {stat.succeeded}/{stat.tasks} ok
-                    {stat.needsWork > 0 ? ` · ${stat.needsWork} Nacharbeit` : ''}
-                    {stat.failed > 0 ? ` · ${stat.failed} Fehler` : ''}
-                    {stat.avgDurationMs != null ? ` · Ø ${fmtAge(stat.avgDurationMs)}` : ''}
+                    {t('orch.retro.ok', { succeeded: stat.succeeded, total: stat.tasks })}
+                    {stat.needsWork > 0 ? ` · ${t('orch.retro.needsWork', { n: stat.needsWork })}` : ''}
+                    {stat.failed > 0 ? ` · ${t('orch.retro.failed', { n: stat.failed })}` : ''}
+                    {stat.avgDurationMs != null ? ` · ${t('orch.retro.avg', { value: fmtAge(stat.avgDurationMs) })}` : ''}
                     {stat.tokensIn != null || stat.tokensOut != null
-                      ? ` · ${formatTokenCount((stat.tokensIn ?? 0) + (stat.tokensOut ?? 0))} Token`
+                      ? ` · ${t('orch.usage.tokens', { value: formatTokenCount((stat.tokensIn ?? 0) + (stat.tokensOut ?? 0)) })}`
                       : ''}
                   </span>
                 </div>
@@ -535,7 +521,7 @@ function OrchestratorPanelContent({
                       <span className={learning.kind === 'strength' ? 'retro-up' : 'retro-down'}>
                         {learning.kind === 'strength' ? '▲' : '▼'}
                       </span>
-                      {learning.provider}/{learning.model || 'Standard'}: {learning.insight}
+                      {learning.provider}/{learning.model || t('orch.retro.default')}: {learning.insight}
                     </li>
                   ))}
                 </ul>
@@ -547,15 +533,15 @@ function OrchestratorPanelContent({
 
       <div className="live-activity">
         <div className="live-activity-caption">
-          <span>Live-Lagebericht</span>
-          <span>aktualisiert vor {fmtAge(now - activity.updatedAt)}</span>
+          <span>{t('orch.live.caption')}</span>
+          <span>{t('orch.live.updated', { age: fmtAge(now - activity.updatedAt) })}</span>
         </div>
         <div className="coordinator-status">
           <span className="coordinator-mark">ORCH</span>
           <div className="coordinator-status-copy">
             <div className="coordinator-status-head">
               <strong>
-                {orch?.name ? <LoreName name={orch.name} /> : 'Orchestrator'}
+                {orch?.name ? <LoreName name={orch.name} /> : t('orch.title')}
               </strong>
               <span className={`activity-phase phase-${activity.phase}`}>
                 {ORCHESTRATOR_ACTIVITY_LABEL[activity.phase]}
@@ -568,21 +554,19 @@ function OrchestratorPanelContent({
               </ul>
             )}
             {activity.nextStep && (
-              <div className="coordinator-next"><span>Als Nächstes</span>{activity.nextStep}</div>
+              <div className="coordinator-next"><span>{t('orch.live.nextStep')}</span>{activity.nextStep}</div>
             )}
           </div>
         </div>
 
         <div className="live-workers-head">
-          <span>Subagents gerade</span>
-          <span>{liveTasks.length} aktiv / wartend</span>
+          <span>{t('orch.live.subagents')}</span>
+          <span>{t('orch.live.activeWaiting', { n: liveTasks.length })}</span>
         </div>
         <div className="live-workers">
           {liveTasks.length === 0 ? (
             <div className="live-workers-empty">
-              {pendingPlan
-                ? 'Noch nicht gestartet — der Plan wartet auf Freigabe.'
-                : 'Keine Subagents aktiv. Der Orchestrator plant oder fasst Ergebnisse zusammen.'}
+              {pendingPlan ? t('orch.live.notStarted') : t('orch.live.empty')}
             </div>
           ) : liveTasks.map((task) => {
             const heartbeatAt = task.lastHeartbeatAt ?? task.createdAt
@@ -594,14 +578,20 @@ function OrchestratorPanelContent({
                   <strong>
                     {task.agentName ? <LoreName name={task.agentName} /> : task.role}
                   </strong>
-                  <span>{task.status === 'queued' ? 'wartet' : stale ? 'ohne neues Signal' : 'arbeitet'}</span>
+                  <span>
+                    {task.status === 'queued'
+                      ? t('orch.live.waiting')
+                      : stale
+                        ? t('orch.live.noSignal')
+                        : t('orch.live.working')}
+                  </span>
                 </div>
                 <div className="live-worker-task">{task.title}</div>
                 <div className="live-worker-action" title={task.lastAction}>
                   {taskActivityText(task)}
                 </div>
                 {task.recentActions && task.recentActions.length > 1 && (
-                  <ul className="live-worker-history" title="Vorherige Aktionen dieses Workers">
+                  <ul className="live-worker-history" title={t('orch.live.historyTitle')}>
                     {task.recentActions.slice(1).map((action, index) => (
                       <li key={`${index}-${action}`}>{action}</li>
                     ))}
@@ -611,13 +601,13 @@ function OrchestratorPanelContent({
                   <span>{task.role}{task.model ? ` · ${task.model}` : ''}</span>
                   <span>
                     {task.status === 'queued'
-                      ? `wartet seit ${fmtAge(now - task.createdAt)}`
-                      : `Update vor ${fmtAge(heartbeatAge)}`}
+                      ? t('orch.live.waitingSince', { age: fmtAge(now - task.createdAt) })
+                      : t('orch.live.updateAgo', { age: fmtAge(heartbeatAge) })}
                   </span>
                 </div>
-                {usageText(task.usage) && (
-                  <div className="live-worker-usage" title="Vom Provider gemeldeter Verbrauch dieses Tasks">
-                    {usageText(task.usage)}
+                {usageText(t, task.usage) && (
+                  <div className="live-worker-usage" title={t('orch.task.usageTitle')}>
+                    {usageText(t, task.usage)}
                   </div>
                 )}
               </div>
@@ -628,28 +618,30 @@ function OrchestratorPanelContent({
         {boardFindings.length > 0 && (
           <>
             <div className="live-workers-head findings-board-head">
-              <span>Findings-Board</span>
+              <span>{t('orch.findings.caption')}</span>
               <span>
                 {boardFindings.length > MAX_VISIBLE_FINDINGS
-                  ? `${MAX_VISIBLE_FINDINGS} von ${boardFindings.length} Einträgen`
-                  : `${boardFindings.length} Eintrag${boardFindings.length === 1 ? '' : 'e'}`}
+                  ? t('orch.findings.showing', { shown: MAX_VISIBLE_FINDINGS, total: boardFindings.length })
+                  : boardFindings.length === 1
+                    ? t('orch.findings.entryOne', { n: boardFindings.length })
+                    : t('orch.findings.entryMany', { n: boardFindings.length })}
               </span>
             </div>
-            <div className="findings-board" title="Von Subagents live geteilte Schnittstellen, Entscheidungen und Blocker">
+            <div className="findings-board" title={t('orch.findings.boardTitle')}>
               {boardFindings.slice(0, MAX_VISIBLE_FINDINGS).map((finding) => (
                 <div key={finding.id} className={`finding-entry kind-${finding.kind}`}>
                   <div className="finding-head">
-                    <span className="finding-kind">{FINDING_KIND_LABEL[finding.kind]}</span>
+                    <span className="finding-kind">{t(`orch.kind.${finding.kind}`)}</span>
                     <strong className="finding-title">{finding.title}</strong>
                     <span className="finding-meta">
                       {finding.agentName ? <LoreName name={finding.agentName} /> : (finding.role ?? finding.taskId)}
-                      {' · vor '}
-                      {fmtAge(now - finding.createdAt)}
+                      {' · '}
+                      {t('orch.findings.ago', { age: fmtAge(now - finding.createdAt) })}
                     </span>
                   </div>
                   <p className="finding-detail">{finding.detail}</p>
                   {finding.files?.length ? (
-                    <code className="finding-files" title="Betroffene Dateien">{finding.files.join(', ')}</code>
+                    <code className="finding-files" title={t('orch.findings.filesTitle')}>{finding.files.join(', ')}</code>
                   ) : null}
                 </div>
               ))}
@@ -660,17 +652,19 @@ function OrchestratorPanelContent({
 
       <div className="orch-panel-body">
         <div className="dag-caption">
-          <span>Aufgaben-Zerlegung</span>
+          <span>{t('orch.dag.caption')}</span>
           <span className="tag">DAG</span>
         </div>
         {pendingPlan && (
           <div className="plan-review" role="status" aria-live="polite">
             <div className="plan-review-head">
               <div>
-                <strong>Plan wartet auf Freigabe</strong>
+                <strong>{t('orch.plan.waiting')}</strong>
                 <span>
-                  {pendingPlan.plan.tasks.length} Aufgaben, maximal{' '}
-                  {pendingPlan.plan.maxParallel} parallel
+                  {t('orch.plan.stats', {
+                    tasks: pendingPlan.plan.tasks.length,
+                    parallel: pendingPlan.plan.maxParallel
+                  })}
                 </span>
               </div>
               <code>{pendingPlan.planId}</code>
@@ -687,8 +681,8 @@ function OrchestratorPanelContent({
               <div className="plan-review-warning">
                 <strong>
                   {pendingPlan.rejected
-                    ? 'Die Validierung ersetzte den strukturierten Plan durch einen konservativen Ersatz-Task. Freigeben startet den Ersatz-Task; Ablehnen verwirft ihn.'
-                    : 'Der Vorschlag wurde sicher normalisiert. Bitte vor dem Start prüfen.'}
+                    ? t('orch.plan.rejectedWarning')
+                    : t('orch.plan.normalizedWarning')}
                 </strong>
                 <div role="list">
                   {pendingPlan.validationIssues.map((issue, index) => (
@@ -701,10 +695,10 @@ function OrchestratorPanelContent({
             )}
             <div className="plan-review-actions">
               <button type="button" className="btn ghost" onClick={() => void store.reviewPendingPlan(false)}>
-                Ablehnen
+                {t('orch.plan.reject')}
               </button>
               <button type="button" className="btn primary" onClick={() => void store.reviewPendingPlan(true)}>
-                {pendingPlan.rejected ? 'Ersatz-Task starten' : 'Plan starten'}
+                {pendingPlan.rejected ? t('orch.plan.startFallback') : t('orch.plan.start')}
               </button>
             </div>
           </div>
@@ -712,8 +706,7 @@ function OrchestratorPanelContent({
         <div className="dag-scroll">
           {tasks.length === 0 ? (
             <div className="dag-empty">
-              Noch keine Aufgaben. Sobald der Orchestrator <code>dispatch_subagent</code> aufruft,
-              erscheinen hier die Teilaufgaben live — jede läuft als echter Subagent im Grid.
+              {t('orch.dag.emptyLead')} <code>dispatch_subagent</code> {t('orch.dag.emptyTail')}
             </div>
           ) : (
             tasks.map((task) => (
@@ -731,14 +724,14 @@ function OrchestratorPanelContent({
 
         <div className="dispatch">
           <div className="dispatch-head">
-            <span className="caption">Dispatch-Protokoll</span>
+            <span className="caption">{t('orch.dispatch.caption')}</span>
             <span className="dot" />
             <div className="spacer" />
             <span className="clock">{fmtTime(now)}</span>
           </div>
           <div className="dispatch-body" ref={logRef}>
             {events.length === 0 && (
-              <div className="dispatch-line tone-muted">— bereit —</div>
+              <div className="dispatch-line tone-muted">{t('orch.dispatch.ready')}</div>
             )}
             {events.map((evt, i) => (
               <div key={i} className={`dispatch-line tone-${evt.tone}`}>
@@ -754,11 +747,12 @@ function OrchestratorPanelContent({
 }
 
 export function CollapsedOrchestratorPanel({ onToggle }: { onToggle: () => void }): JSX.Element {
+  const { t } = useTranslation()
   return (
     <aside
       id="orchestrator-right-panel"
       className="orch-panel layout-panel panel-collapsed"
-      aria-label="Orchestrator-Seitenleiste"
+      aria-label={t('orch.panelAria')}
     >
       <div className="panel-control-row panel-control-row-right">
         <button
@@ -766,8 +760,8 @@ export function CollapsedOrchestratorPanel({ onToggle }: { onToggle: () => void 
           className="panel-collapse-button"
           aria-controls="orchestrator-right-content"
           aria-expanded="false"
-          aria-label="Orchestrator-Seitenleiste ausklappen"
-          title="Orchestrator-Seitenleiste ausklappen"
+          aria-label={t('orch.expand')}
+          title={t('orch.expand')}
           onClick={onToggle}
         >
           ‹
@@ -778,6 +772,7 @@ export function CollapsedOrchestratorPanel({ onToggle }: { onToggle: () => void 
 }
 
 export default function OrchestratorPanel(): JSX.Element {
+  const { t } = useTranslation()
   const layout = useLayoutStore(selectPanelLayout('orchestrator-right'))
   const toggleCollapsed = useLayoutStore((state) => state.toggleCollapsed)
   const toggle = (): void => toggleCollapsed('orchestrator-right')
@@ -791,7 +786,7 @@ export default function OrchestratorPanel(): JSX.Element {
       <ResizeHandle
         panelId="orchestrator-right"
         direction="left"
-        ariaLabel="Breite der Orchestrator-Seitenleiste ändern"
+        ariaLabel={t('orch.resize')}
       />
       <OrchestratorPanelContent width={layout.width} onCollapse={toggle} />
     </>

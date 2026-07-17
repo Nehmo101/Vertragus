@@ -91,5 +91,515 @@
   "titlebar": {
     "languageGroup": "Choose language",
     "versionTitle": "Vertragus version {{version}}"
+  },
+  "orch": {
+    "panelAria": "Orchestrator side panel",
+    "collapse": "Collapse the orchestrator side panel",
+    "expand": "Expand the orchestrator side panel",
+    "resize": "Resize the orchestrator side panel",
+    "title": "Orchestrator",
+    "cliDefault": "CLI default",
+    "active": "active",
+    "inactive": "inactive",
+    "goalActiveHelp": "Status indicator – shows whether the orchestrator is currently pursuing an active goal. Set automatically once a goal is running; it is not a manual switch.",
+    "goalActiveAria": "Status: the orchestrator is pursuing an active goal",
+    "goalInactiveAria": "Status: the orchestrator has no active goal",
+    "status": {
+      "queued": "queued",
+      "paused": "paused",
+      "waiting": "waiting",
+      "running": "running",
+      "success": "done",
+      "needs-work": "needs work",
+      "error": "error",
+      "stopped": "stopped"
+    },
+    "kind": {
+      "interface": "Interface",
+      "decision": "Decision",
+      "blocker": "Blocker",
+      "insight": "Insight"
+    },
+    "plannerMode": {
+      "caption": "Planning mode",
+      "choose": "Choose the planning mode",
+      "help": "Applies only to this running workspace and can be changed at any time. Auto executes valid plans immediately, Review waits for your approval, Manual turns automatic planning off. It does not affect tasks that are already running.",
+      "label": {
+        "auto": "Auto",
+        "review": "Review",
+        "manual": "Manual"
+      },
+      "desc": {
+        "auto": "Auto – execute plans immediately",
+        "review": "Review – confirm each plan",
+        "manual": "Manual – no auto planning"
+      },
+      "title": {
+        "auto": "Execute valid plans immediately – no approval needed.",
+        "review": "Start each plan only after your approval.",
+        "manual": "No automatic planning – you steer manually."
+      },
+      "switchFailed": "The planning mode could not be changed.",
+      "toastAutoPending": "Auto mode active – the initial plan still waits for your approval.",
+      "toastAuto": "Auto mode enabled for this workspace.",
+      "toastReview": "Review mode active – new plans wait for your approval.",
+      "toastManual": "Manual mode active – no automatic planning."
+    },
+    "goal": {
+      "caption": "Current goal",
+      "stats": "{{total}} subtasks · {{assigned}} assigned",
+      "none": "No active goal",
+      "note": "“▶ Start all” activates the orchestrator ({{provider}}/{{model}}). Give it a goal in the terminal — it breaks the goal down and delegates to subagents."
+    },
+    "reliability": {
+      "preflightOk": "preflights ok",
+      "blocked": "blocked",
+      "autoRecoveries": "auto recoveries",
+      "falseSuccess": "false successes prevented",
+      "maxStatusAge": "max status age"
+    },
+    "run": {
+      "usageTitle": "Provider-reported usage of all tasks in this run",
+      "tokens": "Total tokens",
+      "cost": "Cost",
+      "steps": "Steps"
+    },
+    "retro": {
+      "caption": "Retro",
+      "default": "default",
+      "ok": "{{succeeded}}/{{total}} ok",
+      "needsWork": "{{n}} needs work",
+      "failed": "{{n}} failed",
+      "avg": "Ø {{value}}"
+    },
+    "usage": {
+      "tokens": "{{value}} tokens",
+      "steps": "{{value}} steps"
+    },
+    "usageLabels": {
+      "steps": "Steps",
+      "tokens": "Tokens",
+      "cost": "Cost"
+    },
+    "live": {
+      "caption": "Live situation report",
+      "updated": "updated {{age}} ago",
+      "nextStep": "Up next",
+      "subagents": "Subagents right now",
+      "activeWaiting": "{{n}} active / waiting",
+      "notStarted": "Not started yet — the plan is waiting for approval.",
+      "empty": "No subagents active. The orchestrator is planning or summarising results.",
+      "waiting": "waiting",
+      "noSignal": "no fresh signal",
+      "working": "working",
+      "historyTitle": "Previous actions of this worker",
+      "waitingSince": "waiting for {{age}}",
+      "updateAgo": "update {{age}} ago"
+    },
+    "findings": {
+      "caption": "Findings board",
+      "showing": "{{shown}} of {{total}} entries",
+      "entryOne": "{{n}} entry",
+      "entryMany": "{{n}} entries",
+      "boardTitle": "Interfaces, decisions and blockers shared live by subagents",
+      "ago": "{{age}} ago",
+      "filesTitle": "Affected files"
+    },
+    "dag": {
+      "caption": "Task breakdown",
+      "emptyLead": "No tasks yet. Once the orchestrator calls",
+      "emptyTail": "the subtasks appear here live — each one runs as a real subagent in the grid."
+    },
+    "plan": {
+      "waiting": "Plan awaiting approval",
+      "stats": "{{tasks}} tasks, at most {{parallel}} in parallel",
+      "rejectedWarning": "Validation replaced the structured plan with a conservative fallback task. Approving starts the fallback task; rejecting discards it.",
+      "normalizedWarning": "The proposal was safely normalised. Please review before starting.",
+      "reject": "Reject",
+      "startFallback": "Start fallback task",
+      "start": "Start plan"
+    },
+    "dispatch": {
+      "caption": "Dispatch log",
+      "ready": "— ready —"
+    },
+    "task": {
+      "runningYolo": "running · yolo",
+      "advisory": "advisory",
+      "inProgress": "In progress",
+      "lastHeartbeat": "Last heartbeat: {{time}}",
+      "noHeartbeat": "No explicit heartbeat received yet",
+      "heartbeatStale": "Heartbeat stale · {{age}}",
+      "heartbeatPending": "Heartbeat pending · {{age}}",
+      "heartbeatAgo": "Heartbeat · {{age}} ago",
+      "lastAction": "Last: {{action}}",
+      "usageTitle": "Provider-reported usage of this task",
+      "usage": "Usage: {{value}}",
+      "subagentTelemetry": "Telemetry of the subagent",
+      "gateFindings": "Gate findings",
+      "autoPr": "Auto PR: {{status}}",
+      "unknown": "unknown",
+      "remoteCi": "Remote CI: {{status}}",
+      "openPr": "Open pull request",
+      "openCi": "Open CI check",
+      "reviewDetails": "Review details",
+      "branch": "Branch",
+      "commit": "Commit",
+      "worktree": "Worktree",
+      "hardDeps": "Hard dependencies",
+      "advisoryDeps": "Advisory dependencies",
+      "conflictKeys": "Conflict areas",
+      "preflight": "Preflight",
+      "passed": "passed",
+      "failed": "failed",
+      "checks": "{{passed}}/{{total}} checks",
+      "attempts": "Attempts",
+      "diffLoading": "Loading diff…",
+      "diffRefresh": "Refresh diff",
+      "diffShow": "Show Git diff"
+    }
+  },
+  "sidebar": {
+    "aria": "Left side panel",
+    "expandAria": "Expand the left side panel",
+    "collapseAria": "Collapse the left side panel",
+    "expandTitle": "Expand side panel",
+    "collapseTitle": "Collapse side panel",
+    "resize": "Resize the left side panel",
+    "on": "On",
+    "off": "Off",
+    "ok": "OK",
+    "provider": {
+      "checking": "Checking…",
+      "missing": "Missing",
+      "connected": "Connected",
+      "login": "Login",
+      "local": "Local",
+      "ready": "Ready",
+      "installed": "Installed",
+      "notInstalled": "not installed",
+      "installedDetail": "installed",
+      "enableGlobal": "Enable {{name}} globally",
+      "disableGlobal": "Disable {{name}} globally",
+      "loginRunning": "A login is already running in the provider terminal",
+      "loginTitle": "{{label}}. Vertragus does not store any credentials.",
+      "connect": "Connect {{name}}",
+      "open": "Open",
+      "account": "Account",
+      "cloud": "Cloud"
+    },
+    "github": {
+      "logoutTitle": "Sign out of the GitHub connection",
+      "reauth": "Renew GitHub permissions",
+      "connect": "Connect GitHub",
+      "logoutAria": "Sign out of GitHub",
+      "logout": "Sign out",
+      "renew": "Renew"
+    },
+    "retro": {
+      "target": "Target: {{target}}",
+      "never": "never",
+      "queue": "{{queued}} queued · last {{last}}",
+      "nameTitle": "Export retros to the central retro branch after every run · double-click: edit target",
+      "name": "Retro sync",
+      "active": "Active",
+      "enable": "Enable retro sync",
+      "disable": "Disable retro sync",
+      "githubFirst": "Connect GitHub first",
+      "flushTitle": "Export the queue now",
+      "flushAria": "Export the retro queue now",
+      "sync": "Sync",
+      "owner": "Owner",
+      "ownerAria": "Retro sync GitHub owner",
+      "repo": "Repo",
+      "repoAria": "Retro sync GitHub repository",
+      "branch": "Branch",
+      "branchAria": "Retro sync branch"
+    },
+    "speech": {
+      "model": "Model {{model}} · {{language}}",
+      "noKey": "No API key stored",
+      "nameTitle": "Speech-to-text for the voice bar and the ideas inbox",
+      "name": "Voice control",
+      "keyMissing": "No key",
+      "setupTitle": "Set up speech-to-text (API key, model, language)",
+      "openAria": "Open speech-to-text settings",
+      "setup": "Set up"
+    },
+    "attention": {
+      "orchestrator": "The orchestrator is waiting for your feedback.",
+      "agent": "{{name}} is waiting for your feedback.",
+      "someAgent": "A subagent"
+    },
+    "profiles": {
+      "caption": "Workspace profiles",
+      "newTitle": "New profile",
+      "newAria": "New workspace profile",
+      "duplicateActiveTitle": "Duplicate the active profile",
+      "duplicateActiveAria": "Duplicate the active workspace profile",
+      "startAnotherTitle": "Start another workspace from this profile",
+      "startAnotherAria": "Start another workspace",
+      "rowTitle": "Click: activate · double-click: edit",
+      "activeCount": "{{n}} active",
+      "duplicateTitle": "Duplicate profile “{{name}}”",
+      "duplicateAria": "Duplicate workspace profile “{{name}}”"
+    },
+    "sessions": {
+      "caption": "Profile workspaces",
+      "currentTask": "Current task: {{summary}}",
+      "removeTitle": "Remove this workspace run",
+      "removeAria": "Remove {{label}}"
+    },
+    "history": {
+      "caption": "Agent history",
+      "stored": "{{n}} stored",
+      "reopenTitle": "{{role}} - reopen chat",
+      "failed": "Error",
+      "done": "Finished"
+    },
+    "nav": {
+      "caption": "Navigation",
+      "inboxTitle": "Manage ideas and artifacts",
+      "inbox": "Ideas inbox",
+      "inboxSub": "Notes · Voice · Files",
+      "workspaceTitle": "Agent workspace",
+      "workspace": "Workspace",
+      "workspaceSub": "Agents & terminals",
+      "approvalsTitle": "All pending decisions and run budgets",
+      "approvals": "Approval inbox",
+      "openCount": "{{n}} open",
+      "allDecided": "All decided",
+      "changesTitle": "Verified diffs, integration status and PR approvals",
+      "changes": "Diff & Merge",
+      "changesSub": "Commits · Gates · PR",
+      "diagTitle": "Export the last redacted workspace run as JSONL",
+      "diag": "Export diagnostics",
+      "diagSub": "Run history · no secrets"
+    },
+    "mcp": {
+      "caption": "MCP servers",
+      "manageTitle": "Manage MCP servers — visible to all agents",
+      "manageAria": "Manage MCP servers",
+      "addTitle": "Add MCP servers that all agents can see and use",
+      "add": "＋ Connect MCP server",
+      "inactive": "inactive"
+    },
+    "ai": {
+      "caption": "AI providers",
+      "refreshTitle": "Re-check installation and login status of all providers",
+      "refreshAria": "Refresh provider status",
+      "online": "{{n}} online"
+    },
+    "infra": {
+      "caption": "Infrastructure"
+    }
+  },
+  "limits": {
+    "aria": "Vertragus-internal provider gates",
+    "title": "Vertragus gates",
+    "activeCount": "{{n}} active",
+    "gateNote": "Local parallelism limits for Vertragus processes · no API or usage quotas.",
+    "capacityAria": "Unified capacity model",
+    "prewarmedTitle": "Prewarmed, interactive team agents in the current workspace",
+    "prewarmed": "Prewarmed",
+    "prewarmedSub": "interactive · workspace",
+    "parallelTitle": "Maximum parallel tasks according to the planner profile",
+    "parallel": "Task parallelism",
+    "parallelSub": "maximum · workspace",
+    "activeTitle": "Processes currently occupying a provider slot",
+    "activeProcesses": "Active processes",
+    "activeSub": "global · all providers",
+    "waitingTitle": "Processes in the global provider queue",
+    "waitingProcesses": "Waiting processes",
+    "waitingSub": "global · provider gate",
+    "subhead": "Configurable provider gates",
+    "subheadRight": "active / gate (+ waiting)",
+    "tokensTitle": "{{tokens}} tokens (input + output)",
+    "tokens": "{{tokens}} tokens",
+    "modelGates": "Toggle models globally",
+    "enableProvider": "Enable {{name}} globally",
+    "disableProvider": "Disable {{name}} globally",
+    "on": "On",
+    "off": "Off",
+    "decreaseGate": "Decrease the {{name}} Vertragus gate",
+    "increaseGate": "Increase the {{name}} Vertragus gate",
+    "countTitleWaiting": "{{n}} waiting · active / Vertragus gate (no API quota)",
+    "countTitle": "active / Vertragus gate (no API quota)"
+  },
+  "modals": {
+    "addAgent": {
+      "title": "Add agent",
+      "sub": "Choose provider, model and capability level",
+      "closeAria": "Close dialog",
+      "provider": "Provider",
+      "strength": "Strength",
+      "cliDefault": "CLI default",
+      "unavailable": "(not available)",
+      "model": "Model",
+      "modelPlaceholder": "Use CLI default / strength",
+      "effective": "Will start with",
+      "hint": "An explicit model choice takes precedence over the selected strength.",
+      "cancel": "Cancel",
+      "starting": "Starting…",
+      "start": "Start agent"
+    },
+    "handoff": {
+      "title": "Agent handoff",
+      "sub": "Pass ongoing work to a new agent",
+      "closeAria": "Close handoff",
+      "cliDefault": "CLI default",
+      "limitDetected": "⚠ {{kind}} detected",
+      "manual": "manual handoff",
+      "bulkLabel": "Hand over all {{n}} running {{provider}} agents in this workspace together. Successfully adopted subagents are stopped; orchestrators only after the safe knowledge handshake.",
+      "targetProvider": "Target provider",
+      "model": "Model",
+      "taskLabel": "Task (for the new agent)",
+      "taskPlaceholder": "What should the new agent finish?",
+      "summaryLabel": "Current state (optional)",
+      "summaryPlaceholder": "Short note on what is already done / where to continue.",
+      "noteBulk": "For each of the {{n}} agents, its terminal history is attached as its own handoff note.",
+      "noteSingle": "The previous terminal history of {{name}} is attached automatically as a handoff note.",
+      "noteCwd": "Each new agent starts in the previous working directory and continues there.",
+      "noteOrchestrator": "{{name}} stays active until the new orchestrator has clearly confirmed start, context and knowledge state, and is only then stopped automatically.",
+      "noteMarked": "{{name}} keeps running and is marked as “handed off”.",
+      "cancel": "Cancel",
+      "submitBulk": "Hand over {{n}} agents",
+      "submit": "Hand over"
+    },
+    "approvals": {
+      "aria": "Approval inbox",
+      "eyebrow": "Mission Control",
+      "title": "Approval inbox",
+      "openCount": "{{n}} open",
+      "budgetsAria": "Run budgets",
+      "budgetLine": "{{tokens}} tokens · ${{cost}}",
+      "telemetry": "Telemetry {{reported}}/{{total}} tasks · tokens {{tokens}} · cost {{cost}}",
+      "complete": "complete",
+      "partial": "partial",
+      "tokenCap": "Token cap",
+      "usdCap": "USD cap",
+      "setCaps": "Set caps",
+      "resume": "Resume {{title}}",
+      "close": "Close",
+      "truncated": "The view was safely truncated.",
+      "allDecided": "All decided",
+      "empty": "No session is waiting for an approval.",
+      "viewDiff": "View diff",
+      "kind": {
+        "planReview": "Plan review",
+        "prPublication": "PR publication",
+        "toolPermission": "Tool permission",
+        "budgetExceeded": "Budget reached",
+        "providerLimit": "Provider limit",
+        "blockedTask": "Blocked task"
+      },
+      "actions": {
+        "planApprove": "Approve plan",
+        "planReject": "Reject",
+        "publicationApprove": "Publish PR",
+        "publicationReject": "Do not publish",
+        "permissionAllow": "Allow once",
+        "permissionDeny": "Deny",
+        "taskFallback": "Safe provider fallback",
+        "modeEnableAuto": "Enable auto mode",
+        "runReset": "Reset run"
+      }
+    }
+  },
+  "remote": {
+    "eyebrow": "Mission Control",
+    "title": "Secure remote command center",
+    "sub": "Watch live, approve existing gates and send non-yolo goals.",
+    "stateActive": "Remote active · {{tunnel}}",
+    "stateOff": "Remote off",
+    "tunnel": {
+      "title": "Named Cloudflare Tunnel",
+      "desc": "Off by default. The tunnel binds exclusively to the local gateway on 127.0.0.1; every data and command access additionally requires a device token.",
+      "quick": "Use an ephemeral quick tunnel",
+      "hostname": "Public hostname",
+      "token": "Named tunnel token",
+      "tokenPlaceholder": "Already stored? Leave empty",
+      "enable": "Enable securely",
+      "accessTeamDomain": "Cloudflare Access team domain (optional)",
+      "accessAudience": "Access audience tag (optional, always together)",
+      "kill": "Master kill switch"
+    },
+    "pairing": {
+      "title": "Pair device",
+      "desc": "The one-time code expires after five minutes and can only be redeemed once.",
+      "admin": "Allow admin capability for reset",
+      "diff": "Allow mobile diff view",
+      "push": "Allow web push",
+      "speech": "Allow speech transcription",
+      "tools": "Allow tool approvals (approve-tools)",
+      "budget": "Allow remote budget caps",
+      "taskControl": "Allow task pause/resume",
+      "replan": "Allow restrictive live replan",
+      "fallback": "Allow provider fallback on a detected limit",
+      "actorId": "Account ID or Access email",
+      "actorName": "Display name",
+      "scopes": "Workspace scopes (none by default)",
+      "session": "Session {{name}}",
+      "allowGoals": "Allow new goals for this profile",
+      "generate": "Generate pairing QR",
+      "qrAlt": "Mission Control pairing QR",
+      "validUntil": "Valid until {{time}}"
+    },
+    "devices": {
+      "title": "Paired devices",
+      "empty": "No active device yet.",
+      "meta": "{{n}} session scope(s) · paired {{date}}",
+      "revoke": "Revoke"
+    }
+  },
+  "git": {
+    "empty": {
+      "checkingAuth": {
+        "title": "Checking GitHub status",
+        "detail": "The branch tree appears once the connection status is known."
+      },
+      "needsAuth": {
+        "renew": "Renew GitHub permissions",
+        "connect": "Connect GitHub",
+        "detail": "The workspace view requires a fully authenticated GitHub connection."
+      },
+      "needsBinding": {
+        "title": "No repository selected",
+        "detail": "Choose a repository or a folder in the repository switcher at the top right."
+      },
+      "needsRepo": {
+        "title": "Local repository not available",
+        "detail": "Check the selected local path or clone the repository in the profile editor."
+      }
+    },
+    "noHead": "no HEAD",
+    "locked": "locked",
+    "prunable": "prunable",
+    "triggerAria": "Git worktree and branch tree",
+    "triggerTitle": "Read-only overview of the local branches and worktrees",
+    "worktreeOne": "{{n}} worktree",
+    "worktreeMany": "{{n}} worktrees",
+    "tree": "Git tree",
+    "closeAria": "Close the Git tree",
+    "dialogAria": "Workspace Git tree",
+    "headline": "Branches & worktrees",
+    "repoFallback": "Workspace",
+    "readonly": "View only",
+    "current": "current",
+    "default": "default",
+    "noBranches": "No local branches found",
+    "detached": "Detached worktrees"
+  },
+  "speech": {
+    "title": "Speech-to-text (cloud)",
+    "note": "The API key is stored encrypted in the main process and is never returned to the renderer.",
+    "model": "Model",
+    "language": "Language",
+    "endpoint": "Transcription endpoint",
+    "apiKey": "API key",
+    "apiKeyStored": "(stored — leave empty to keep it)",
+    "deleteKey": "Delete key",
+    "cancel": "Cancel",
+    "save": "Save"
   }
 }

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import ModelCatalogStatus from '@renderer/components/ModelCatalogStatus'
 import {
   modelPresetAvailability,
@@ -30,6 +31,7 @@ function initialPreset(provider: AgentProviderId, catalog: ProviderModelCatalog)
 }
 
 export default function AddAgentModal(): JSX.Element | null {
+  const { t } = useTranslation()
   const open = useAppStore((state) => state.addAgentOpen)
   const models = useAppStore((state) => state.models)
   const close = useAppStore((state) => state.closeAddAgent)
@@ -81,14 +83,14 @@ export default function AddAgentModal(): JSX.Element | null {
           <span className="modal-gear">＋</span>
           <div style={{ flex: 1 }}>
             <div className="modal-title" id="add-agent-title">
-              Agent hinzufügen
+              {t('modals.addAgent.title')}
             </div>
-            <div className="modal-sub">Provider, Modell und Leistungsstärke festlegen</div>
+            <div className="modal-sub">{t('modals.addAgent.sub')}</div>
           </div>
           <button
             type="button"
             className="modal-close"
-            aria-label="Dialog schließen"
+            aria-label={t('modals.addAgent.closeAria')}
             disabled={submitting}
             onClick={close}
           >
@@ -98,7 +100,7 @@ export default function AddAgentModal(): JSX.Element | null {
 
         <div className="modal-body add-agent-body">
           <label>
-            <span className="field-label">Provider</span>
+            <span className="field-label">{t('modals.addAgent.provider')}</span>
             <select
               className="slot-select-sm"
               autoFocus
@@ -119,7 +121,7 @@ export default function AddAgentModal(): JSX.Element | null {
           </label>
 
           <label>
-            <span className="field-label">Stärke</span>
+            <span className="field-label">{t('modals.addAgent.strength')}</span>
             <select
               className="slot-select-sm"
               value={modelPreset ?? ''}
@@ -127,13 +129,13 @@ export default function AddAgentModal(): JSX.Element | null {
                 setModelPreset((event.target.value || undefined) as ModelPreset | undefined)
               }
             >
-              <option value="">CLI-Standard</option>
+              <option value="">{t('modals.addAgent.cliDefault')}</option>
               {MODEL_PRESETS.map((preset) => {
                 const available = availablePreset(provider, preset, catalog)
                 return (
                   <option key={preset} value={preset} disabled={!available}>
                     {MODEL_PRESET_LABELS[preset]}
-                    {!available ? ' (nicht verfügbar)' : ''}
+                    {!available ? ` ${t('modals.addAgent.unavailable')}` : ''}
                   </option>
                 )
               })}
@@ -141,11 +143,11 @@ export default function AddAgentModal(): JSX.Element | null {
           </label>
 
           <label>
-            <span className="field-label">Modell</span>
+            <span className="field-label">{t('modals.addAgent.model')}</span>
             <input
               className="slot-select-sm mono"
               list="add-agent-models"
-              placeholder="CLI-Standard / Stärke verwenden"
+              placeholder={t('modals.addAgent.modelPlaceholder')}
               value={model}
               onChange={(event) => setModel(event.target.value)}
             />
@@ -158,14 +160,14 @@ export default function AddAgentModal(): JSX.Element | null {
           <ModelCatalogStatus provider={provider} catalog={catalog} />
 
           <div className="add-agent-effective" aria-live="polite">
-            <span>Wird gestartet mit</span>
+            <span>{t('modals.addAgent.effective')}</span>
             <b>{PROVIDER_THEME[provider].label}</b>
             <span>·</span>
             <b>{formatModelLabel(effectiveModel, { model, modelPreset })}</b>
           </div>
           {model.trim() && modelPreset && (
             <div className="add-agent-hint">
-              Die explizite Modellwahl hat Vorrang vor der gewählten Stärke.
+              {t('modals.addAgent.hint')}
             </div>
           )}
         </div>
@@ -173,10 +175,10 @@ export default function AddAgentModal(): JSX.Element | null {
         <div className="modal-foot">
           <div className="spacer" />
           <button type="button" className="btn-secondary" disabled={submitting} onClick={close}>
-            Abbrechen
+            {t('modals.addAgent.cancel')}
           </button>
           <button type="button" className="btn-primary" disabled={submitting} onClick={() => void submit()}>
-            {submitting ? 'Startet…' : 'Agent starten'}
+            {submitting ? t('modals.addAgent.starting') : t('modals.addAgent.start')}
           </button>
         </div>
       </div>
