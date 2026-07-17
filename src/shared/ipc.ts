@@ -372,6 +372,14 @@ export interface OrcaApi {
   /** Open a native file picker for inbox artifacts; returns a short-lived grant. */
   pickFile(): Promise<PickedFileGrant | null>
 
+  files: {
+    /**
+     * Absolute filesystem path of a dropped/selected renderer File
+     * (Electron webUtils.getPathForFile), e.g. for canvas drag-and-drop.
+     */
+    pathForFile(file: File): string
+  }
+
   inbox: {
     list(): Promise<Idea[]>
     get(id: string): Promise<Idea | undefined>

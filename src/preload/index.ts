@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import { IPC, type OrcaApi, type UpdateState } from '@shared/ipc'
 import type { AgentDataChunk, AgentInstanceInfo, OrcaEvent } from '@shared/agents'
@@ -62,6 +62,9 @@ const orca: OrcaApi = {
     ipcRenderer.invoke(IPC.githubRepoCheckLocal, owner, repo, localPath),
   pickFolder: () => ipcRenderer.invoke(IPC.dialogPickFolder),
   pickFile: () => ipcRenderer.invoke(IPC.dialogPickFile),
+  files: {
+    pathForFile: (file) => webUtils.getPathForFile(file)
+  },
 
   inbox: {
     list: () => ipcRenderer.invoke(IPC.ideasList),

@@ -4,7 +4,7 @@
  * dependent task runs, advisory dependencies render dashed bronze.
  * Node positions persist per profile + workspace session.
  */
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState, type DragEvent } from 'react'
 import {
   Background,
   BackgroundVariant,
@@ -32,6 +32,7 @@ import {
 import LoreName from '@renderer/components/LoreName'
 import { summarizeUsage } from '@shared/telemetry'
 import { formatTokenCount, formatUsd } from '@renderer/telemetryFormat'
+import { terminalTail } from '@renderer/terminalText'
 import type { TaskStatus } from '@shared/orchestrator'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
@@ -55,9 +56,73 @@ function heartbeatText(
   return t('canvas.heartbeatMinutes', { minutes: Math.floor(seconds / 60) })
 }
 
+/** Live plain-text tail of the agent's PTY inside the canvas card. */
+function TerminalPeek({ agentId, name }: { agentId: string; name: string }): JSX.Element {
+  const { t } = useTranslation()
+  const [lines, setLines] = useState<string[]>([])
+
+  useEffect(() => {
+    let live = true
+    const refresh = (): void => {
+      void window.orca.agents
+        .buffer(agentId)
+        .then((snapshot) => {
+          if (live) setLines(terminalTail(snapshot.data, 6, 60))
+        })
+        .catch(() => undefined)
+    }
+    refresh()
+    const timer = setInterval(refresh, 1200)
+    return () => {
+      live = false
+      clearInterval(timer)
+    }
+  }, [agentId])
+
+  return (
+    <pre
+      className="canvas-term"
+      aria-label={t('canvas.terminalAria', { name })}
+      title={t('canvas.terminalOpen')}
+    >
+      {lines.length > 0 ? lines.join('\n') : '…'}
+      <span className="canvas-term-cursor" aria-hidden="true">
+        █
+      </span>
+    </pre>
+  )
+}
+
 function TaskNode({ data }: NodeProps<Node<TaskNodeData, 'task'>>): JSX.Element {
   const { t } = useTranslation()
   const { task } = data
+  const showToast = useAppStore((state) => state.showToast)
+  const [dropActive, setDropActive] = useState(false)
+
+  const onDragOver = (event: DragEvent<HTMLDivElement>): void => {
+    if (!task.agentId || !event.dataTransfer.types.includes('Files')) return
+    event.preventDefault()
+    setDropActive(true)
+  }
+  const onDrop = (event: DragEvent<HTMLDivElement>): void => {
+    event.preventDefault()
+    setDropActive(false)
+    const file = event.dataTransfer.files[0]
+    if (!file) return
+    if (!task.agentId) {
+      showToast(t('canvas.dropNoAgent'))
+      return
+    }
+    try {
+      const path = window.orca.files.pathForFile(file)
+      if (!path) return
+      window.orca.agents.write(task.agentId, ` ${path} `)
+      showToast(t('canvas.dropSent', { name: task.agentName ?? task.role }))
+    } catch {
+      // A non-filesystem drop (e.g. browser image) has no path — ignore silently.
+    }
+  }
+
   const usage = summarizeUsage(task.usage)
   const usageParts: string[] = []
   if (usage.tokens != null) usageParts.push(`${formatTokenCount(usage.tokens)} Tok`)
@@ -65,7 +130,13 @@ function TaskNode({ data }: NodeProps<Node<TaskNodeData, 'task'>>): JSX.Element 
   const running = task.status === 'running'
 
   return (
-    <div className={`canvas-node canvas-node--task ${statusClass(task.status)}`}>
+    <div
+      className={`canvas-node canvas-node--task ${statusClass(task.status)} ${dropActive ? 'drop-target' : ''}`}
+      title={task.agentId ? t('canvas.dropHint', { name: task.agentName ?? task.role }) : undefined}
+      onDragOver={onDragOver}
+      onDragLeave={() => setDropActive(false)}
+      onDrop={onDrop}
+    >
       <Handle type="target" position={Position.Left} className="canvas-handle" />
       <div className="canvas-node__head">
         <span className={`canvas-node__dot ${statusClass(task.status)}`} />
@@ -92,6 +163,9 @@ function TaskNode({ data }: NodeProps<Node<TaskNodeData, 'task'>>): JSX.Element 
             style={task.progress == null ? undefined : { width: `${Math.min(100, Math.max(0, task.progress))}%` }}
           />
         </div>
+      )}
+      {running && task.agentId && (
+        <TerminalPeek agentId={task.agentId} name={task.agentName ?? task.role} />
       )}
       <div className="canvas-node__foot">
         {running && <span>{heartbeatText(t, task.lastHeartbeatAt, task.createdAt)}</span>}
