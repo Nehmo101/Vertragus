@@ -10,7 +10,7 @@
 import { z } from 'zod'
 import type { AgentProviderId } from './providers'
 
-/** How Orca talks to the MCP server. */
+/** How Vertragus talks to the MCP server. */
 export const MCP_TRANSPORTS = ['stdio', 'http', 'sse'] as const
 export type McpTransport = (typeof MCP_TRANSPORTS)[number]
 

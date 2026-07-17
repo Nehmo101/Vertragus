@@ -8,7 +8,7 @@ import type { AgentProviderId } from '@shared/providers'
  * Telemetry fallback label when a codex slot relies on ~/.codex/config.toml
  * and the config does not name a model either. Never an empty string: retros
  * grouped every unattributed codex task under model:"" and made the stored
- * learnings unusable ("Orca lieferte keinen Modellnamen").
+ * learnings unusable ("Vertragus lieferte keinen Modellnamen").
  */
 export const CODEX_CONFIG_DEFAULT_LABEL = 'default (codex-config)'
 

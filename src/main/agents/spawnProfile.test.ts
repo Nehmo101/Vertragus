@@ -117,7 +117,7 @@ describe('adaptive profile team start', () => {
       if (request.kind !== 'orchestrator') {
         workerCalls += 1
         // The first prewarmed worker fails hard (e.g. provider gate reached).
-        if (workerCalls === 1) throw new Error('Orca-Gate erreicht: codex')
+        if (workerCalls === 1) throw new Error('Vertragus-Gate erreicht: codex')
       }
       return {
         id: `agent-${mocks.spawn.mock.calls.length}`,

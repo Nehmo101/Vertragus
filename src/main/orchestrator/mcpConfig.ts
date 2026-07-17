@@ -2,7 +2,7 @@
  * Provider-specific MCP launch-argument builders.
  *
  * A single normalized {@link McpServerSpec} list drives both the orchestrator's
- * Orca server and any user-configured external servers, for both Claude and
+ * Vertragus server and any user-configured external servers, for both Claude and
  * Codex. Kept free of Electron imports so it stays unit-testable — the only
  * side effect is writing Claude's `--mcp-config` file into a caller-provided
  * directory.
@@ -187,7 +187,7 @@ export function toCopilotMcpConfig(servers: McpServerSpec[]): {
 
 /**
  * Copilot CLI accepts a JSON object through --additional-mcp-config for one
- * process only. Explicit Orca tools are pre-approved without enabling every
+ * process only. Explicit Vertragus tools are pre-approved without enabling every
  * built-in tool or URL.
  */
 export function buildCopilotMcpArgs(servers: McpServerSpec[]): string[] {

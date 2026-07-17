@@ -1,6 +1,6 @@
 /**
  * Integration self-test for the orchestration core. Enabled with
- * ORCA_MCP_SELFTEST=1. Connects a real MCP client to the running Orca MCP
+ * VERTRAGUS_MCP_SELFTEST=1. Connects a real MCP client to the running MCP
  * server and exercises the tools end-to-end, stubbing agentManager.runTask so
  * no real (paid) CLI is spawned. Logs [SELFTEST] lines and quits.
  *

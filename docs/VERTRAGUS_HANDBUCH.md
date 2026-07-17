@@ -227,15 +227,15 @@ corepack pnpm build
 PowerShell:
 
 ```powershell
-$env:ORCA_MCP_SELFTEST = '1'
+$env:VERTRAGUS_MCP_SELFTEST = '1'
 corepack pnpm start
-Remove-Item Env:ORCA_MCP_SELFTEST
+Remove-Item Env:VERTRAGUS_MCP_SELFTEST
 ```
 
 Bash:
 
 ```bash
-ORCA_MCP_SELFTEST=1 pnpm start
+VERTRAGUS_MCP_SELFTEST=1 pnpm start
 ```
 
 Der Selbsttest prüft MCP-Verbindung, Toolliste, eindeutige Rollen,

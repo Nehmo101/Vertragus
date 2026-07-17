@@ -11,12 +11,12 @@ describe('mergePathValues', () => {
     expect(
       mergePathValues(
         ';',
-        'C:\\Orca\\bin;C:\\Windows\\System32',
+        'C:\\Vertragus\\bin;C:\\Windows\\System32',
         'C:\\Windows\\System32;C:\\Program Files (x86)\\cloudflared\\',
         'C:\\Users\\test\\bin'
       )
     ).toBe(
-      'C:\\Orca\\bin;C:\\Windows\\System32;C:\\Program Files (x86)\\cloudflared\\;C:\\Users\\test\\bin'
+      'C:\\Vertragus\\bin;C:\\Windows\\System32;C:\\Program Files (x86)\\cloudflared\\;C:\\Users\\test\\bin'
     )
   })
 
@@ -49,7 +49,7 @@ describe('darwinLoginShellPath', () => {
 
 describe('darwin PATH security', () => {
   it('does not interpolate or execute a shell value injected through the environment', () => {
-    const executable = darwinLoginShellExecutable('/bin/zsh; touch /tmp/orca-shell-injection')
+    const executable = darwinLoginShellExecutable('/bin/zsh; touch /tmp/vertragus-shell-injection')
 
     expect(executable).toBe('/bin/zsh')
     expect(executable).not.toContain('touch')
@@ -58,12 +58,12 @@ describe('darwin PATH security', () => {
 
   it('rejects relative, temporary and path traversal entries outside trusted PATH roots', () => {
     const value = darwinProcessPath(
-      '/Applications/Orca/bin:/usr/bin',
+      '/Applications/Vertragus/bin:/usr/bin',
       '/tmp/attacker:relative/bin:/Users/test/../escape:/Users/test/.local/bin'
     )
 
     expect(value).toBe(
-      '/usr/bin:/bin:/usr/sbin:/sbin:/Applications/Orca/bin:/opt/homebrew/bin:/usr/local/bin:/Users/test/.local/bin'
+      '/usr/bin:/bin:/usr/sbin:/sbin:/Applications/Vertragus/bin:/opt/homebrew/bin:/usr/local/bin:/Users/test/.local/bin'
     )
     expect(value).not.toContain('/tmp/attacker')
     expect(value).not.toContain('relative/bin')

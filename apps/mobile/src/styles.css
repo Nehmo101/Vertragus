@@ -17,7 +17,7 @@ code { font-size: .9em; }
 .pair-screen p { color: #69736f; line-height: 1.55; }
 .pair-screen button { width: 100%; margin-top: 18px; }
 .pair-screen small { display: block; margin-top: 14px; color: #7a837f; line-height: 1.4; text-align: center; }
-.orca-mark { display: grid; place-items: center; width: 52px; height: 52px; margin-bottom: 20px; border-radius: 16px; background: #15342f; color: #dce8c4; font-family: Georgia, serif; font-size: 31px; font-weight: 900; }
+.brand-mark { display: grid; place-items: center; width: 52px; height: 52px; margin-bottom: 20px; border-radius: 16px; background: #15342f; color: #dce8c4; font-family: Georgia, serif; font-size: 31px; font-weight: 900; }
 .app { min-height: 100vh; padding-bottom: calc(82px + env(safe-area-inset-bottom)); }
 .app > header { position: sticky; z-index: 5; top: 0; display: flex; align-items: center; justify-content: space-between; padding: max(16px, env(safe-area-inset-top)) 18px 13px; border-bottom: 1px solid rgba(90,100,94,.16); background: rgba(244,241,232,.88); backdrop-filter: blur(18px); }
 .app > header h1 { margin: 1px 0 0; font-size: 20px; }

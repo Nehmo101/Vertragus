@@ -122,7 +122,7 @@ async function saveRunDialog(
   defaultPath: string
 ): Promise<Electron.SaveDialogReturnValue> {
   const options: Electron.SaveDialogOptions = {
-    title: 'Redigierte Orca-Diagnose exportieren',
+    title: 'Redigierte Vertragus-Diagnose exportieren',
     defaultPath,
     filters: [{ name: 'JSON Lines', extensions: ['jsonl'] }]
   }

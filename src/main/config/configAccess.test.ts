@@ -58,7 +58,7 @@ describe('configAccess', () => {
     expect(() => setPublicConfig('retroSync.branch', 'main')).toThrow(/geschützten Branch/)
   })
 
-  it('persists only validated Orca process gates', () => {
+  it('persists only validated Vertragus process gates', () => {
     setPublicConfig('providerLimits', { cursor: 2, claude: 6 })
 
     expect(setSetting).toHaveBeenLastCalledWith('providerLimits', {
@@ -72,6 +72,6 @@ describe('configAccess', () => {
     expect(() => setPublicConfig('providerLimits', { cursor: 0 })).toThrow(/zwischen 1 und/)
     expect(() => setPublicConfig('providerLimits', { cursor: -1 })).toThrow(/zwischen 1 und/)
     expect(() => setPublicConfig('providerLimits', { claude: Number.NaN })).toThrow(/ganze Zahl/)
-    expect(() => setPublicConfig('providerLimits', { injected: 4 })).toThrow(/Unbekanntes Orca-Gate/)
+    expect(() => setPublicConfig('providerLimits', { injected: 4 })).toThrow(/Unbekanntes Vertragus-Gate/)
   })
 })

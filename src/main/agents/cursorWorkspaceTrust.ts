@@ -63,7 +63,7 @@ export function isExactOrcaWorktreePath(value: string): boolean {
   )
 }
 
-/** Backward-compatible alias for callers that need Orca worktree ownership. */
+/** Backward-compatible alias for callers that need Vertragus worktree ownership. */
 export function isOrcaWorktreePath(value: string): boolean {
   return isExactOrcaWorktreePath(value)
 }
@@ -120,7 +120,7 @@ function hasOrcaWorktreeOwnership(input: {
 
 /**
  * Classify Cursor's interactive trust screen. `partial` is deliberately
- * limited to a verified Orca worktree, so retrying terminal output cannot
+ * limited to a verified Vertragus worktree, so retrying terminal output cannot
  * affect a user-selected workspace.
  */
 export function cursorWorkspaceTrustPrompt(input: {
@@ -138,7 +138,7 @@ export function cursorWorkspaceTrustPrompt(input: {
   return 'ready'
 }
 
-/** Detect a verified, complete Cursor trust prompt for the active Orca worktree. */
+/** Detect a verified, complete Cursor trust prompt for the active Vertragus worktree. */
 export function shouldAutoTrustCursorWorktree(input: {
   output: string
   workingDir: string

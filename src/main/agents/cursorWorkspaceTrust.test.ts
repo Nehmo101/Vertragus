@@ -10,7 +10,7 @@ import {
 const worktree = 'C:\\git\\demo-app\\.orca-worktrees\\session-a\\sub-01'
 
 describe('shouldAutoTrustCursorWorktree', () => {
-  it('confirms Cursor trust only for an Orca-created worktree', () => {
+  it('confirms Cursor trust only for a Vertragus-created worktree', () => {
     expect(
       shouldAutoTrustCursorWorktree({
         output: `\x1b[33mWorkspace Trust Required\x1b[0m\n${worktree}\n[a] Trust this workspace`,
@@ -136,7 +136,7 @@ describe('shouldAutoTrustCursorWorktree', () => {
     ['nested path', `${worktree}\\nested`],
     ['traversal after the worktree', `${worktree}\\..\\sub-01`],
     ['symlink-like traversal alias', `${worktree}\\link\\..\\sub-01`],
-    ['traversal before the Orca directory', 'C:\\git\\demo-app\\..\\UWE\\.orca-worktrees\\session-a\\sub-01'],
+    ['traversal before the Vertragus directory', 'C:\\git\\demo-app\\..\\UWE\\.orca-worktrees\\session-a\\sub-01'],
     ['current-directory alias', `${worktree}\\.`],
     ['trailing separator alias', `${worktree}\\`],
     ['duplicate-separator alias', 'C:\\git\\demo-app\\.orca-worktrees\\session-a\\\\sub-01'],
@@ -155,7 +155,7 @@ describe('shouldAutoTrustCursorWorktree', () => {
     ).toBe(false)
   })
 
-  it('waits for split output, then accepts the complete ANSI-styled Orca prompt', () => {
+  it('waits for split output, then accepts the complete ANSI-styled Vertragus prompt', () => {
     const firstChunk = '\x1b[33mWorkspace Trust Required\x1b[0m\r\n'
     expect(
       shouldAutoTrustCursorWorktree({
@@ -177,7 +177,7 @@ describe('shouldAutoTrustCursorWorktree', () => {
     ).toBe(true)
   })
 
-  it('rejects a manipulated working directory even with a valid Orca worktree record', () => {
+  it('rejects a manipulated working directory even with a valid Vertragus worktree record', () => {
     const manipulatedDir = `${worktree}\\nested`
     expect(
       shouldAutoTrustCursorWorktree({
