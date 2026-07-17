@@ -37,7 +37,7 @@ import { setMcpHandle } from './mcpHandle'
 function agentInfo(taskId: string) {
   return {
     id: `agent-${taskId}`,
-    name: 'Gimli',
+    name: 'Nesso',
     provider: 'codex' as const,
     model: '',
     role: 'Task · worker',
@@ -116,7 +116,7 @@ describe('subagent communication channel', () => {
       expect.objectContaining({
         kind: 'interface',
         title: 'API-Vertrag Modul A',
-        agentName: 'Gimli',
+        agentName: 'Nesso',
         files: ['src/moduleA.ts']
       })
     ])

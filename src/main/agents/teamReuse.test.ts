@@ -4,7 +4,7 @@ import { agentIdentityInstruction, isReusableTeamMember } from './teamReuse'
 
 const teamAgent: AgentInstanceInfo = {
   id: 'sub-02',
-  name: 'Gimli',
+  name: 'Nesso',
   provider: 'cursor',
   profileId: 'profile-a',
   workspaceSessionId: 'session-a',
@@ -66,7 +66,7 @@ describe('profile team reuse', () => {
     ).toBe(false)
   })
 
-  it('binds the runtime prompt to the same Tolkien name shown in the pane header', () => {
-    expect(agentIdentityInstruction('Gimli')).toContain('Dein Name in Orca-Strator ist Gimli.')
+  it('binds the runtime prompt to the same Commedia name shown in the pane header', () => {
+    expect(agentIdentityInstruction('Nesso')).toContain('Dein Name in Vertragus ist Nesso.')
   })
 })

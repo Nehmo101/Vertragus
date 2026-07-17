@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { deriveRemoteApprovals, type ApprovalItem } from '@shared/remote'
 import type { OrchestratorSnapshot } from '@shared/orchestrator'
 import type { TaskReviewDiff } from '@shared/ipc'
@@ -8,14 +10,14 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-function approvalLabel(item: ApprovalItem): string {
+function approvalLabel(t: TFunction, item: ApprovalItem): string {
   switch (item.kind) {
-    case 'plan-review': return 'Plan-Review'
-    case 'pr-publication': return 'PR-Veröffentlichung'
-    case 'tool-permission': return 'Tool-Berechtigung'
-    case 'budget-exceeded': return 'Budget erreicht'
-    case 'provider-limit': return 'Provider-Limit'
-    default: return 'Blockierte Aufgabe'
+    case 'plan-review': return t('modals.approvals.kind.planReview')
+    case 'pr-publication': return t('modals.approvals.kind.prPublication')
+    case 'tool-permission': return t('modals.approvals.kind.toolPermission')
+    case 'budget-exceeded': return t('modals.approvals.kind.budgetExceeded')
+    case 'provider-limit': return t('modals.approvals.kind.providerLimit')
+    default: return t('modals.approvals.kind.blockedTask')
   }
 }
 
@@ -24,6 +26,7 @@ function sessionSnapshots(values: Record<string, OrchestratorSnapshot>): Orchest
 }
 
 export default function MissionApprovalInbox(): JSX.Element {
+  const { t } = useTranslation()
   const snapshots = useAppStore((state) => state.orchestrators)
   const sessions = useAppStore((state) => state.workspaceSessions)
   const approvals = useMemo(() => deriveRemoteApprovals(sessionSnapshots(snapshots)), [snapshots])
@@ -70,14 +73,14 @@ export default function MissionApprovalInbox(): JSX.Element {
   }
 
   return (
-    <main className="mission-surface" aria-label="Approval-Inbox">
+    <main className="mission-surface" aria-label={t('modals.approvals.aria')}>
       <header className="mission-header">
-        <div><span className="eyebrow">Mission Control</span><h1>Approval-Inbox</h1></div>
-        <span className={`mission-count ${approvals.length ? 'attention' : ''}`}>{approvals.length} offen</span>
+        <div><span className="eyebrow">{t('modals.approvals.eyebrow')}</span><h1>{t('modals.approvals.title')}</h1></div>
+        <span className={`mission-count ${approvals.length ? 'attention' : ''}`}>{t('modals.approvals.openCount', { n: approvals.length })}</span>
       </header>
       {error && <div className="mission-error" role="alert">{error}</div>}
 
-      <section className="mission-budget-grid" aria-label="Laufbudgets">
+      <section className="mission-budget-grid" aria-label={t('modals.approvals.budgetsAria')}>
         {sessionSnapshots(snapshots).map((snapshot) => {
           const sessionId = snapshot.workspaceSessionId!
           const draft = budgetDrafts[sessionId] ?? { tokens: '', cost: '' }
@@ -86,16 +89,24 @@ export default function MissionApprovalInbox(): JSX.Element {
           return (
             <article className={`mission-budget-card ${budget?.exceeded ? 'exceeded' : ''}`} key={sessionId}>
               <div><strong>{sessionName}</strong><small>{snapshot.profileId}</small></div>
-              <p>{budget?.tokens.toLocaleString() ?? '—'} Token · ${budget?.costUsd.toFixed(2) ?? '—'}</p>
+              <p>{t('modals.approvals.budgetLine', { tokens: budget?.tokens.toLocaleString() ?? '—', cost: budget?.costUsd.toFixed(2) ?? '—' })}</p>
               <small>
-                Telemetrie {budget?.tasksReported ?? 0}/{budget?.tasksTotal ?? snapshot.tasks.length} Tasks ·
-                Token {budget?.tokenDataComplete ? 'vollständig' : 'teilweise'} · Kosten {budget?.costDataComplete ? 'vollständig' : 'teilweise'}
+                {t('modals.approvals.telemetry', {
+                  reported: budget?.tasksReported ?? 0,
+                  total: budget?.tasksTotal ?? snapshot.tasks.length,
+                  tokens: budget?.tokenDataComplete
+                    ? t('modals.approvals.complete')
+                    : t('modals.approvals.partial'),
+                  cost: budget?.costDataComplete
+                    ? t('modals.approvals.complete')
+                    : t('modals.approvals.partial')
+                })}
               </small>
               <div className="mission-budget-inputs">
                 <input
                   inputMode="numeric"
                   value={draft.tokens}
-                  placeholder={String(budget?.caps.maxTokens ?? 'Token-Cap')}
+                  placeholder={String(budget?.caps.maxTokens ?? t('modals.approvals.tokenCap'))}
                   onChange={(event) => setBudgetDrafts((current) => ({
                     ...current, [sessionId]: { ...draft, tokens: event.target.value }
                   }))}
@@ -103,7 +114,7 @@ export default function MissionApprovalInbox(): JSX.Element {
                 <input
                   inputMode="decimal"
                   value={draft.cost}
-                  placeholder={String(budget?.caps.maxCostUsd ?? 'USD-Cap')}
+                  placeholder={String(budget?.caps.maxCostUsd ?? t('modals.approvals.usdCap'))}
                   onChange={(event) => setBudgetDrafts((current) => ({
                     ...current, [sessionId]: { ...draft, cost: event.target.value }
                   }))}
@@ -117,7 +128,7 @@ export default function MissionApprovalInbox(): JSX.Element {
                       maxCostUsd: draft.cost ? Number(draft.cost) : undefined
                     }
                   ))}
-                >Caps setzen</button>
+                >{t('modals.approvals.setCaps')}</button>
               </div>
               {snapshot.tasks.filter((task) => task.status === 'paused').map((task) => (
                 <button
@@ -126,7 +137,7 @@ export default function MissionApprovalInbox(): JSX.Element {
                   key={task.id}
                   onClick={() => void run(`resume:${task.id}`, () =>
                     window.orca.orchestrator.resumeTask(snapshot.profileId!, sessionId, task.id))}
-                >{task.title} fortsetzen</button>
+                >{t('modals.approvals.resume', { title: task.title })}</button>
               ))}
             </article>
           )
@@ -135,20 +146,20 @@ export default function MissionApprovalInbox(): JSX.Element {
 
       {diff && (
         <section className="mission-diff-modal">
-          <div><strong>{diff.title}</strong><button type="button" onClick={() => setDiff(undefined)}>Schließen</button></div>
+          <div><strong>{diff.title}</strong><button type="button" onClick={() => setDiff(undefined)}>{t('modals.approvals.close')}</button></div>
           <pre>{diff.diff}</pre>
-          {diff.truncated && <small>Die Anzeige wurde sicher gekürzt.</small>}
+          {diff.truncated && <small>{t('modals.approvals.truncated')}</small>}
         </section>
       )}
 
       <section className="mission-approval-list">
-        {approvals.length === 0 && <div className="mission-empty"><strong>Alles entschieden</strong><span>Keine Session wartet auf eine Freigabe.</span></div>}
+        {approvals.length === 0 && <div className="mission-empty"><strong>{t('modals.approvals.allDecided')}</strong><span>{t('modals.approvals.empty')}</span></div>}
         {approvals.map((approval) => (
           <article className={`mission-approval kind-${approval.kind}`} key={approval.id}>
-            <small>{approvalLabel(approval)} · {approval.profileId}</small>
+            <small>{approvalLabel(t, approval)} · {approval.profileId}</small>
             <h2>{approval.title}</h2>
             <p>{approval.summary}</p>
-            {approval.task && <button type="button" className="secondary" onClick={() => showDiff(approval)}>Diff ansehen</button>}
+            {approval.task && <button type="button" className="secondary" onClick={() => showDiff(approval)}>{t('modals.approvals.viewDiff')}</button>}
             <div className="mission-actions">
               {approval.actions.filter((action) => action !== 'budget.setCaps').map((action) => (
                 <button
@@ -158,14 +169,14 @@ export default function MissionApprovalInbox(): JSX.Element {
                   key={action}
                   onClick={() => act(approval, action)}
                 >{
-                  action === 'plan.approve' ? 'Plan freigeben' :
-                    action === 'plan.reject' ? 'Ablehnen' :
-                      action === 'publication.approve' ? 'PR veröffentlichen' :
-                        action === 'publication.reject' ? 'Nicht veröffentlichen' :
-                          action === 'permission.allow' ? 'Einmal erlauben' :
-                            action === 'permission.deny' ? 'Verweigern' :
-                              action === 'task.fallback' ? 'Sicherer Provider-Fallback' :
-                                action === 'mode.enableAuto' ? 'Auto-Modus aktivieren' : 'Lauf zurücksetzen'
+                  action === 'plan.approve' ? t('modals.approvals.actions.planApprove') :
+                    action === 'plan.reject' ? t('modals.approvals.actions.planReject') :
+                      action === 'publication.approve' ? t('modals.approvals.actions.publicationApprove') :
+                        action === 'publication.reject' ? t('modals.approvals.actions.publicationReject') :
+                          action === 'permission.allow' ? t('modals.approvals.actions.permissionAllow') :
+                            action === 'permission.deny' ? t('modals.approvals.actions.permissionDeny') :
+                              action === 'task.fallback' ? t('modals.approvals.actions.taskFallback') :
+                                action === 'mode.enableAuto' ? t('modals.approvals.actions.modeEnableAuto') : t('modals.approvals.actions.runReset')
                 }</button>
               ))}
             </div>

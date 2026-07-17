@@ -9,7 +9,7 @@ ohne eine Profilübergabe, Planung oder Agent-Ausführung zu starten. Die besteh
 - `src/shared/promptEnhancement.ts` definiert strikt validierte Zod-Schemas für Draft, Request,
   Abort und Response. Renderer-Payloads können keine Dateipfade, Transferdaten oder
   Workspace-Fakten transportieren.
-- `src/main/inbox/promptEnhancementIpc.ts` autorisiert ausschließlich bekannte Orca-Hauptframes
+- `src/main/inbox/promptEnhancementIpc.ts` autorisiert ausschließlich bekannte Vertragus-Hauptframes
   mit vertrauenswürdiger Renderer-URL. Request-IDs sind an den jeweiligen Sender gebunden;
   fremde Fenster können einen Request nicht abbrechen.
 - Eine im Draft referenzierte Profil-ID wird im Main-Konfigurationsstore aufgelöst. Ein vorhandener

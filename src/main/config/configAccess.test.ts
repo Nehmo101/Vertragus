@@ -49,8 +49,8 @@ describe('configAccess', () => {
     expect(setSetting).toHaveBeenLastCalledWith('retroSync.repoOwner', 'Nehmo101')
     expect(() => setPublicConfig('retroSync.repoOwner', '-x')).toThrow(/Ungültiger GitHub-Owner/)
 
-    setPublicConfig('retroSync.repoName', 'Orca-Strator')
-    expect(setSetting).toHaveBeenLastCalledWith('retroSync.repoName', 'Orca-Strator')
+    setPublicConfig('retroSync.repoName', 'Vertragus')
+    expect(setSetting).toHaveBeenLastCalledWith('retroSync.repoName', 'Vertragus')
     expect(() => setPublicConfig('retroSync.repoName', 'a/b')).toThrow(/Repo-Name/)
 
     setPublicConfig('retroSync.branch', ' retros ')

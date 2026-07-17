@@ -1,6 +1,12 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import i18n from '@renderer/i18n'
+
+// The suite asserts the authored German strings; force the de locale.
+beforeAll(async () => {
+  await i18n.changeLanguage('de')
+})
 import { workspaceProfileSchema } from '@shared/profile'
 import { useAppStore } from '@renderer/store/useAppStore'
 import {

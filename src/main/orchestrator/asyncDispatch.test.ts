@@ -66,7 +66,7 @@ import { permissionBroker } from '@main/permissions/PermissionBroker'
 function info(taskId: string) {
   return {
     id: `agent-${taskId}`,
-    name: 'Legolas',
+    name: 'Caronte',
     provider: 'codex' as const,
     model: '',
     role: 'Task · worker',
@@ -124,7 +124,7 @@ describe('asynchronous orchestration API', () => {
       expect.objectContaining({ result: expect.stringContaining('Committed abc'), completion: { kind: 'no-changes' } })
     )
     expect(engine.getTaskStatus(accepted.taskId)).toEqual(expect.objectContaining({
-      agentName: 'Legolas',
+      agentName: 'Caronte',
       title: 'Feature',
       role: accepted.role
     }))
@@ -149,7 +149,7 @@ describe('asynchronous orchestration API', () => {
 
     await expect(engine.pauseTask(accepted.taskId)).resolves.toBe(true)
     expect(engine.getTaskStatus(accepted.taskId)?.status).toBe('paused')
-    finish({ result: 'Paused by Orca', isError: true, status: 'cancelled' })
+    finish({ result: 'Paused by Vertragus', isError: true, status: 'cancelled' })
     await new Promise((resolve) => setImmediate(resolve))
     expect(engine.resumeTask(accepted.taskId)).toBe(true)
 
@@ -543,7 +543,7 @@ describe('asynchronous orchestration API', () => {
     await vi.waitFor(() => expect(engine.getTaskStatus(accepted.taskId)?.status).toBe('success'))
 
     const injectedPrompt = runTask.mock.calls.at(-1)?.[0]?.prompt as string
-    expect(injectedPrompt.indexOf('Orca-Ausführungsvertrag:')).toBeGreaterThan(
+    expect(injectedPrompt.indexOf('Vertragus-Ausführungsvertrag:')).toBeGreaterThan(
       injectedPrompt.indexOf(untrustedPrompt)
     )
     expect(injectedPrompt).toContain('ERGEBNIS: ERFOLG')

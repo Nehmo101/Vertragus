@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { setAppLanguage, type ResolvedLanguage } from '@renderer/i18n'
 import { useAppStore, effectiveRepoRef, knownRepos } from '@renderer/store/useAppStore'
 import type { WorkspaceProfile } from '@shared/profile'
 import { resolveModel } from '@shared/models'
 import { repoRefKey, repoRefLabel } from '@shared/repoSwitcher'
 import type { UpdateState } from '@shared/ipc'
 import type { RemoteStatus } from '@shared/remote'
-import WhaleLogo from '@renderer/components/WhaleLogo'
+import HoundLogo from '@renderer/components/HoundLogo'
 import GitWorkspaceTree from '@renderer/components/GitWorkspaceTree'
 import styles from './responsiveGuards.module.css'
 
@@ -42,6 +44,8 @@ function profileAgentCount(p: WorkspaceProfile): number {
 
 export default function TitleBar(): JSX.Element {
   const store = useAppStore()
+  const { t, i18n } = useTranslation()
+  const activeLanguage: ResolvedLanguage = i18n.language.startsWith('de') ? 'de' : 'en'
   const clock = useClock()
   const [menuOpen, setMenuOpen] = useState(false)
   const [confirmKill, setConfirmKill] = useState(false)
@@ -140,19 +144,19 @@ export default function TitleBar(): JSX.Element {
     <>
       <header className={`titlebar ${styles.titlebar}`}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <WhaleLogo size={34} />
+          <HoundLogo size={34} />
           <div style={{ lineHeight: 1.05 }}>
             <div className="wordmark">
-              Orca<span className="dash">-</span>Strator
+              VERTRAG<span className="dash">V</span>S
             </div>
             <div className="wordmark-sub">
-              <span className="wordmark-sub-label">Agent Control Center</span>
+              <span className="wordmark-sub-label">Agent Orchestration</span>
               {store.appInfo?.version && (
                 <>
                   <span className="wordmark-sub-separator" aria-hidden="true">{'\u00b7'}</span>
                   <span
                     className="wordmark-version"
-                    title={`Orca-Strator Version ${store.appInfo.version}`}
+                    title={t('titlebar.versionTitle', { version: store.appInfo.version })}
                   >
                     v{store.appInfo.version}
                   </span>
@@ -204,6 +208,20 @@ export default function TitleBar(): JSX.Element {
         </div>
 
         <div className="spacer" />
+
+        <div className="lang-switch no-drag" role="group" aria-label={t('titlebar.languageGroup')}>
+          {(['de', 'en'] as const).map((language) => (
+            <button
+              key={language}
+              type="button"
+              className={`lang-btn ${activeLanguage === language ? 'active' : ''}`}
+              aria-pressed={activeLanguage === language}
+              onClick={() => void setAppLanguage(language)}
+            >
+              {language.toUpperCase()}
+            </button>
+          ))}
+        </div>
 
         <div className="live-counter no-drag">
           <span className="pulse-dot" />

@@ -42,7 +42,7 @@ import { OrchestratorEngine } from './Engine'
 function info(taskId: string) {
   return {
     id: `agent-${taskId}`,
-    name: 'Legolas',
+    name: 'Caronte',
     provider: 'codex' as const,
     model: '',
     role: 'Task · worker',

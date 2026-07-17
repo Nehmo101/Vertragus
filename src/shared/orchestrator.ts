@@ -137,7 +137,7 @@ export interface OrcaTask {
   role: string
   /** The agent instance the task was dispatched to (pane id), if any. */
   agentId?: string
-  /** Code-name of the subagent handling it, e.g. "Legolas". */
+  /** Code-name of the subagent handling it, e.g. "Caronte". */
   agentName?: string
   provider?: AgentProviderId
   model?: string

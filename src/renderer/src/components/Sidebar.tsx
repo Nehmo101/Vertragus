@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import {
   useAppStore,
   workspaceAgentHistory,
@@ -13,7 +15,7 @@ import type { AgentProviderId, ProviderHealth, ProviderId } from '@shared/provid
 import type { RetroSyncStatus } from '@shared/retroSync'
 import type { InboxSpeechStatus } from '@shared/inboxSpeech'
 import { MCP_SCOPE_LABELS, MCP_TRANSPORT_LABELS } from '@shared/mcp'
-import { middleEarthWorkspaceName, middleEarthWorkspaceBlurb } from '@shared/workspaceNames'
+import { workspacePlaceName, workspacePlaceBlurb } from '@shared/workspaceNames'
 import LoreName from '@renderer/components/LoreName'
 import WorkspaceTaskSummary from '@renderer/components/WorkspaceTaskSummary'
 import { deriveRemoteApprovals } from '@shared/remote'
@@ -23,37 +25,39 @@ import styles from './Sidebar.module.css'
 import { workspaceRunPresentation } from './workspaceRunStatus'
 
 interface RowStatus {
+  /** i18n key of the status label. */
   label: string
   dot: string
   text: string
 }
 
 function statusFor(id: ProviderId, h: ProviderHealth | undefined): RowStatus {
-  if (!h) return { label: 'Prüfe…', dot: 'var(--wait)', text: 'var(--wait-text)' }
-  if (!h.available) return { label: 'Fehlt', dot: 'var(--err)', text: 'var(--err-text)' }
+  if (!h) return { label: 'sidebar.provider.checking', dot: 'var(--wait)', text: 'var(--wait-text)' }
+  if (!h.available) return { label: 'sidebar.provider.missing', dot: 'var(--err)', text: 'var(--err-text)' }
   switch (h.connection) {
     case 'connected':
-      return { label: 'Verbunden', dot: 'var(--run)', text: 'var(--run-text)' }
+      return { label: 'sidebar.provider.connected', dot: 'var(--run)', text: 'var(--run-text)' }
     case 'disconnected':
-      return { label: 'Login', dot: 'var(--wait)', text: 'var(--wait-text)' }
+      return { label: 'sidebar.provider.login', dot: 'var(--wait)', text: 'var(--wait-text)' }
     case 'local':
-      return { label: 'Lokal', dot: 'var(--run)', text: 'var(--run-text)' }
+      return { label: 'sidebar.provider.local', dot: 'var(--run)', text: 'var(--run-text)' }
     default:
       return {
-        label: id === 'cloudflare' ? 'Bereit' : 'Installiert',
+        label: id === 'cloudflare' ? 'sidebar.provider.ready' : 'sidebar.provider.installed',
         dot: 'var(--sage)',
         text: 'var(--sage-strong)'
       }
   }
 }
 
-function detailFor(h: ProviderHealth | undefined): string {
+function detailFor(t: TFunction, h: ProviderHealth | undefined): string {
   if (!h) return '…'
-  if (!h.available) return 'nicht installiert'
-  return h.detail ?? h.version ?? 'installiert'
+  if (!h.available) return t('sidebar.provider.notInstalled')
+  return h.detail ?? h.version ?? t('sidebar.provider.installedDetail')
 }
 
 function ProviderRow({ id }: { id: ProviderId }): JSX.Element {
+  const { t } = useTranslation()
   const store = useAppStore()
   const theme = PROVIDER_THEME[id]
   const h = store.health.find((x) => x.id === id)
@@ -71,8 +75,8 @@ function ProviderRow({ id }: { id: ProviderId }): JSX.Element {
       </span>
       <div className="info">
         <div className="name">{theme.label}</div>
-        <div className="detail" title={detailFor(h)}>
-          {detailFor(h)}
+        <div className="detail" title={detailFor(t, h)}>
+          {detailFor(t, h)}
         </div>
       </div>
       <span className="status-wrap">
@@ -81,18 +85,22 @@ function ProviderRow({ id }: { id: ProviderId }): JSX.Element {
           style={{ background: st.dot, boxShadow: `0 0 7px ${st.dot}` }}
         />
         <span className="status-label" style={{ color: st.text }}>
-          {st.label}
+          {t(st.label)}
         </span>
       </span>
       {providerId && (
         <button
           type="button"
           className={`provider-enable-btn ${enabled ? 'enabled' : 'disabled'}`}
-          title={`${theme.label} global ${enabled ? 'deaktivieren' : 'aktivieren'}`}
+          title={
+            enabled
+              ? t('sidebar.provider.disableGlobal', { name: theme.label })
+              : t('sidebar.provider.enableGlobal', { name: theme.label })
+          }
           aria-pressed={enabled}
           onClick={() => store.setProviderEnabled(providerId, !enabled)}
         >
-          {enabled ? 'An' : 'Aus'}
+          {enabled ? t('sidebar.on') : t('sidebar.off')}
         </button>
       )}
       {h?.available && h.canLogin && (
@@ -102,13 +110,19 @@ function ProviderRow({ id }: { id: ProviderId }): JSX.Element {
           disabled={loginRunning}
           title={
             loginRunning
-              ? 'Login läuft bereits im Provider-Terminal'
-              : `${h.loginLabel}. Orca speichert keine Zugangsdaten.`
+              ? t('sidebar.provider.loginRunning')
+              : t('sidebar.provider.loginTitle', { label: h.loginLabel })
           }
-          aria-label={h.loginLabel ?? `${theme.label} verbinden`}
+          aria-label={h.loginLabel ?? t('sidebar.provider.connect', { name: theme.label })}
           onClick={() => void store.loginProvider(id)}
         >
-          {loginRunning ? 'Offen' : h.connection === 'connected' ? 'Konto' : id === 'ollama' ? 'Cloud' : 'Login'}
+          {loginRunning
+            ? t('sidebar.provider.open')
+            : h.connection === 'connected'
+              ? t('sidebar.provider.account')
+              : id === 'ollama'
+                ? t('sidebar.provider.cloud')
+                : t('sidebar.provider.login')}
         </button>
       )}
     </div>
@@ -116,6 +130,7 @@ function ProviderRow({ id }: { id: ProviderId }): JSX.Element {
 }
 
 function GithubRow(): JSX.Element {
+  const { t } = useTranslation()
   const store = useAppStore()
   const theme = PROVIDER_THEME.github
   const auth = store.githubAuth
@@ -151,28 +166,47 @@ function GithubRow(): JSX.Element {
         disabled={busy}
         title={
           loginRunning
-            ? 'Login läuft bereits im Provider-Terminal'
+            ? t('sidebar.provider.loginRunning')
             : connected
-              ? 'GitHub-Verbindung abmelden'
+              ? t('sidebar.github.logoutTitle')
               : reauth
-                ? 'GitHub-Berechtigungen erneuern'
-                : 'GitHub verbinden'
+                ? t('sidebar.github.reauth')
+                : t('sidebar.github.connect')
         }
-        aria-label={connected ? 'GitHub abmelden' : reauth ? 'GitHub-Berechtigungen erneuern' : 'GitHub verbinden'}
+        aria-label={
+          connected
+            ? t('sidebar.github.logoutAria')
+            : reauth
+              ? t('sidebar.github.reauth')
+              : t('sidebar.github.connect')
+        }
         onClick={() => void (connected ? store.githubLogout() : store.githubLogin())}
       >
-        {busy ? 'Offen' : connected ? 'Abmelden' : reauth ? 'Erneuern' : 'Login'}
+        {busy
+          ? t('sidebar.provider.open')
+          : connected
+            ? t('sidebar.github.logout')
+            : reauth
+              ? t('sidebar.github.renew')
+              : t('sidebar.provider.login')}
       </button>
     </div>
   )
 }
 
 
-function retroSyncDetail(status: RetroSyncStatus | undefined, error: string | undefined): string {
+function retroSyncDetail(
+  t: TFunction,
+  status: RetroSyncStatus | undefined,
+  error: string | undefined
+): string {
   if (error) return error
   if (!status) return '…'
   if (status.lastError) return status.lastError
-  if (!status.enabled) return `Ziel: ${status.repoOwner}/${status.repoName}@${status.branch}`
+  if (!status.enabled)
+    return t('sidebar.retro.target', {
+      target: `${status.repoOwner}/${status.repoName}@${status.branch}`
+    })
   const lastExport = status.lastExportAt
     ? new Date(status.lastExportAt).toLocaleString('de-DE', {
         day: '2-digit',
@@ -180,11 +214,12 @@ function retroSyncDetail(status: RetroSyncStatus | undefined, error: string | un
         hour: '2-digit',
         minute: '2-digit'
       })
-    : 'noch nie'
-  return `${status.queued} in Warteschlange · zuletzt ${lastExport}`
+    : t('sidebar.retro.never')
+  return t('sidebar.retro.queue', { queued: status.queued, last: lastExport })
 }
 
 function RetroSyncRow(): JSX.Element {
+  const { t } = useTranslation()
   const store = useAppStore()
   const connected = hasUsableGithubAuth(store.githubAuth)
   const [status, setStatus] = useState<RetroSyncStatus | undefined>()
@@ -254,7 +289,7 @@ function RetroSyncRow(): JSX.Element {
 
   const active = Boolean(status?.enabled)
   const dot = active ? 'var(--run)' : 'var(--sage)'
-  const detail = retroSyncDetail(status, error)
+  const detail = retroSyncDetail(t, status, error)
 
   return (
     <>
@@ -265,10 +300,10 @@ function RetroSyncRow(): JSX.Element {
         <div className="info">
           <div
             className="name"
-            title="Retros nach jedem Lauf in den zentralen Retro-Branch exportieren · Doppelklick: Ziel bearbeiten"
+            title={t('sidebar.retro.nameTitle')}
             onDoubleClick={() => setEditing((value) => !value)}
           >
-            Retro-Sync
+            {t('sidebar.retro.name')}
           </div>
           <div className="detail" title={detail}>
             {detail}
@@ -280,7 +315,7 @@ function RetroSyncRow(): JSX.Element {
             style={{ background: dot, boxShadow: active ? `0 0 7px ${dot}` : 'none' }}
           />
           <span className="status-label" style={{ color: active ? 'var(--run-text)' : 'var(--sage-strong)' }}>
-            {active ? 'Aktiv' : 'Aus'}
+            {active ? t('sidebar.retro.active') : t('sidebar.off')}
           </span>
         </span>
         <button
@@ -289,24 +324,26 @@ function RetroSyncRow(): JSX.Element {
           disabled={busy || !status || (!connected && !active)}
           title={
             connected || active
-              ? `Retro-Sync ${active ? 'deaktivieren' : 'aktivieren'}`
-              : 'Zuerst GitHub verbinden'
+              ? active
+                ? t('sidebar.retro.disable')
+                : t('sidebar.retro.enable')
+              : t('sidebar.retro.githubFirst')
           }
           aria-pressed={active}
           onClick={() => void toggle()}
         >
-          {active ? 'An' : 'Aus'}
+          {active ? t('sidebar.on') : t('sidebar.off')}
         </button>
         {active && (
           <button
             type="button"
             className="provider-login-btn"
             disabled={busy || !connected}
-            title={connected ? 'Warteschlange jetzt exportieren' : 'Zuerst GitHub verbinden'}
-            aria-label="Retro-Warteschlange jetzt exportieren"
+            title={connected ? t('sidebar.retro.flushTitle') : t('sidebar.retro.githubFirst')}
+            aria-label={t('sidebar.retro.flushAria')}
             onClick={() => void flush()}
           >
-            Sync
+            {t('sidebar.retro.sync')}
           </button>
         )}
       </div>
@@ -314,22 +351,22 @@ function RetroSyncRow(): JSX.Element {
         <div className="provider-row" style={{ flexWrap: 'wrap', gap: 6 }}>
           <input
             value={draft.repoOwner}
-            placeholder="Owner"
-            aria-label="Retro-Sync GitHub-Owner"
+            placeholder={t('sidebar.retro.owner')}
+            aria-label={t('sidebar.retro.ownerAria')}
             style={{ flex: '1 1 30%', minWidth: 0 }}
             onChange={(event) => setDraft({ ...draft, repoOwner: event.target.value })}
           />
           <input
             value={draft.repoName}
-            placeholder="Repo"
-            aria-label="Retro-Sync GitHub-Repository"
+            placeholder={t('sidebar.retro.repo')}
+            aria-label={t('sidebar.retro.repoAria')}
             style={{ flex: '1 1 30%', minWidth: 0 }}
             onChange={(event) => setDraft({ ...draft, repoName: event.target.value })}
           />
           <input
             value={draft.branch}
-            placeholder="Branch"
-            aria-label="Retro-Sync Branch"
+            placeholder={t('sidebar.retro.branch')}
+            aria-label={t('sidebar.retro.branchAria')}
             style={{ flex: '1 1 20%', minWidth: 0 }}
             onChange={(event) => setDraft({ ...draft, branch: event.target.value })}
           />
@@ -339,7 +376,7 @@ function RetroSyncRow(): JSX.Element {
             disabled={busy}
             onClick={() => void saveTarget()}
           >
-            OK
+            {t('sidebar.ok')}
           </button>
         </div>
       )}
@@ -348,6 +385,7 @@ function RetroSyncRow(): JSX.Element {
 }
 
 function SpeechRow(): JSX.Element {
+  const { t } = useTranslation()
   const store = useAppStore()
   const revision = store.speechStatusRevision
   const [status, setStatus] = useState<InboxSpeechStatus | undefined>()
@@ -371,8 +409,8 @@ function SpeechRow(): JSX.Element {
   const dot = configured ? 'var(--run)' : 'var(--wait)'
   const detail = status
     ? configured
-      ? `Modell ${status.model} · ${status.language}`
-      : 'Kein API-Schlüssel hinterlegt'
+      ? t('sidebar.speech.model', { model: status.model, language: status.language })
+      : t('sidebar.speech.noKey')
     : '…'
 
   return (
@@ -381,8 +419,8 @@ function SpeechRow(): JSX.Element {
         🎙
       </span>
       <div className="info">
-        <div className="name" title="Sprache-zu-Text für Voice-Leiste und Ideen-Inbox">
-          Sprachsteuerung
+        <div className="name" title={t('sidebar.speech.nameTitle')}>
+          {t('sidebar.speech.name')}
         </div>
         <div className="detail" title={detail}>
           {detail}
@@ -394,17 +432,17 @@ function SpeechRow(): JSX.Element {
           className="status-label"
           style={{ color: configured ? 'var(--run-text)' : 'var(--wait-text)' }}
         >
-          {configured ? 'Bereit' : 'Kein Schlüssel'}
+          {configured ? t('sidebar.provider.ready') : t('sidebar.speech.keyMissing')}
         </span>
       </span>
       <button
         type="button"
         className="provider-login-btn"
-        title="Sprache-zu-Text einrichten (API-Schlüssel, Modell, Sprache)"
-        aria-label="Sprache-zu-Text-Einstellungen öffnen"
+        title={t('sidebar.speech.setupTitle')}
+        aria-label={t('sidebar.speech.openAria')}
         onClick={() => store.openSpeechSettings()}
       >
-        {configured ? 'Konto' : 'Einrichten'}
+        {configured ? t('sidebar.provider.account') : t('sidebar.speech.setup')}
       </button>
     </div>
   )
@@ -431,10 +469,12 @@ export const SIDEBAR_SECTION_ORDER = [
 
 type SidebarSectionId = (typeof SIDEBAR_SECTION_ORDER)[number]
 
-function attentionText(attention: WorkspaceUserAttention): string {
+function attentionText(t: TFunction, attention: WorkspaceUserAttention): string {
   return attention.source === 'orchestrator'
-    ? 'Orchestrator wartet auf deine Rückmeldung.'
-    : `${attention.agentName ?? 'Ein Subagent'} wartet auf deine Rückmeldung.`
+    ? t('sidebar.attention.orchestrator')
+    : t('sidebar.attention.agent', {
+        name: attention.agentName ?? t('sidebar.attention.someAgent')
+      })
 }
 
 type SidebarStore = ReturnType<typeof useAppStore.getState>
@@ -452,6 +492,7 @@ export function SidebarView({
   collapsed = false,
   onToggle
 }: SidebarViewProps): JSX.Element {
+  const { t } = useTranslation()
   const hash = useHashRoute()
   const aiIds: ProviderId[] = ['claude', 'kimi', 'codex', 'cursor', 'copilot', 'ollama']
   const onlineCount = aiIds.filter(
@@ -469,8 +510,8 @@ export function SidebarView({
     'workspace-profiles': (
       <section key="workspace-profiles" data-sidebar-section="workspace-profiles">
         <div className="side-caption" style={{ paddingTop: 10 }}>
-          <span>Workspace-Profile</span>
-          <button type="button" className="icon-btn-sm" title="Neues Profil" aria-label="Neues Workspace-Profil" onClick={store.openEditorNew}>
+          <span>{t('sidebar.profiles.caption')}</span>
+          <button type="button" className="icon-btn-sm" title={t('sidebar.profiles.newTitle')} aria-label={t('sidebar.profiles.newAria')} onClick={store.openEditorNew}>
             ＋
           </button>
           {store.profiles.find((profile) => profile.id === store.activeProfileId) && (
@@ -478,8 +519,8 @@ export function SidebarView({
               <button
                 type="button"
                 className="icon-btn-sm"
-                title="Aktives Profil duplizieren"
-                aria-label="Aktives Workspace-Profil duplizieren"
+                title={t('sidebar.profiles.duplicateActiveTitle')}
+                aria-label={t('sidebar.profiles.duplicateActiveAria')}
                 onClick={() => {
                   const profile = store.profiles.find((item) => item.id === store.activeProfileId)
                   if (profile) void store.duplicateProfile(profile.id)
@@ -490,8 +531,8 @@ export function SidebarView({
               <button
                 type="button"
                 className="icon-btn-sm"
-                title="Weiteren Workspace aus diesem Profil starten"
-                aria-label="Weiteren Workspace starten"
+                title={t('sidebar.profiles.startAnotherTitle')}
+                aria-label={t('sidebar.profiles.startAnotherAria')}
                 onClick={() => void store.startAll()}
               >
                 ▶
@@ -502,7 +543,7 @@ export function SidebarView({
         <div className="side-list" style={{ paddingBottom: 14 }}>
           {store.profiles.map((profile) => {
             const attention = workspaceUserAttention(store, profile.id)
-            const attentionLabel = attention ? attentionText(attention) : undefined
+            const attentionLabel = attention ? attentionText(t, attention) : undefined
             return (
               <div className="profile-row-item" key={profile.id}>
                 <button
@@ -511,7 +552,7 @@ export function SidebarView({
                   data-user-attention={attention?.source}
                   onClick={() => void store.selectProfile(profile.id)}
                   onDoubleClick={() => store.openEditor(profile)}
-                  title={`Klick: aktivieren · Doppelklick: bearbeiten${attentionLabel ? ` · ${attentionLabel}` : ''}`}
+                  title={`${t('sidebar.profiles.rowTitle')}${attentionLabel ? ` · ${attentionLabel}` : ''}`}
                   aria-label={attentionLabel ? `${profile.name}. ${attentionLabel}` : undefined}
                   aria-pressed={profile.id === store.activeProfileId}
                 >
@@ -523,15 +564,15 @@ export function SidebarView({
                   {attention && <span className="workspace-attention-indicator" aria-hidden="true" />}
                   <span className={`profile-count ${runningByProfile.has(profile.id) ? 'running' : ''}`}>
                     {runningByProfile.has(profile.id)
-                      ? `${runningByProfile.get(profile.id)} aktiv`
+                      ? t('sidebar.profiles.activeCount', { n: runningByProfile.get(profile.id) })
                       : profileAgentCount(profile)}
                   </span>
                 </button>
                 <button
                   type="button"
                   className="icon-btn-sm profile-duplicate-action"
-                  title={`Profil „${profile.name}“ duplizieren`}
-                  aria-label={`Workspace-Profil „${profile.name}“ duplizieren`}
+                  title={t('sidebar.profiles.duplicateTitle', { name: profile.name })}
+                  aria-label={t('sidebar.profiles.duplicateAria', { name: profile.name })}
                   onClick={() => void store.duplicateProfile(profile.id)}
                 >
                   ⧉
@@ -546,7 +587,7 @@ export function SidebarView({
     'profile-workspaces': (
       <section key="profile-workspaces" data-sidebar-section="profile-workspaces">
         <div className="side-caption workspace-session-caption">
-          <span>Profil-Workspaces</span>
+          <span>{t('sidebar.sessions.caption')}</span>
         </div>
         <div className="side-list workspace-session-list">
           {store.workspaceSessions
@@ -572,11 +613,11 @@ export function SidebarView({
                 orchestratorAgentStatus: orchestratorAgent?.status,
                 gitPostProcessingStatus: snapshot?.gitPostProcessing?.status
               })
-              const name = session.name || middleEarthWorkspaceName(session.sequence)
+              const name = session.name || workspacePlaceName(session.sequence)
               const label = `W${session.sequence} ${name}`
               const taskSummary = workspaceTaskSummary(store, session.profileId, session.id)
               const attention = workspaceUserAttention(store, session.profileId, session.id)
-              const attentionLabel = attention ? attentionText(attention) : undefined
+              const attentionLabel = attention ? attentionText(t, attention) : undefined
               return (
                 <div className="workspace-session-row" key={session.id}>
                   <button
@@ -584,14 +625,14 @@ export function SidebarView({
                     className={`workspace-session-select ${session.id === store.activeWorkspaceSessionId ? 'active' : ''} ${attention ? 'workspace-needs-user-attention' : ''}`}
                     data-user-attention={attention?.source}
                     title={attentionLabel}
-                    aria-label={`${label}${taskSummary ? `. Aktuelle Aufgabe: ${taskSummary}` : ''}${attentionLabel ? `. ${attentionLabel}` : ''}`}
+                    aria-label={`${label}${taskSummary ? `. ${t('sidebar.sessions.currentTask', { summary: taskSummary })}` : ''}${attentionLabel ? `. ${attentionLabel}` : ''}`}
                     onClick={() => void store.selectWorkspaceSession(session.profileId, session.id)}
                   >
                     <span className="workspace-session-main">
                       <LoreName
                         name={name}
                         label={label}
-                        blurb={middleEarthWorkspaceBlurb(name)}
+                        blurb={workspacePlaceBlurb(name)}
                         className="workspace-session-name"
                       />
                       <WorkspaceTaskSummary taskSummary={taskSummary} />
@@ -613,8 +654,8 @@ export function SidebarView({
                   <button
                     type="button"
                     className="workspace-session-remove"
-                    title="Diesen Workspace-Lauf entfernen"
-                    aria-label={`${label} entfernen`}
+                    title={t('sidebar.sessions.removeTitle')}
+                    aria-label={t('sidebar.sessions.removeAria', { label })}
                     onClick={() => void store.removeWorkspaceSession(session.profileId, session.id)}
                   >
                     ×
@@ -626,8 +667,8 @@ export function SidebarView({
         {agentHistory.length > 0 && (
           <>
             <div className="side-caption agent-history-caption" style={{ paddingTop: 10 }}>
-              <span>Agent-Verlauf</span>
-              <span className="agent-history-count">{agentHistory.length} gespeichert</span>
+              <span>{t('sidebar.history.caption')}</span>
+              <span className="agent-history-count">{t('sidebar.history.stored', { n: agentHistory.length })}</span>
             </div>
             <div className="side-list agent-history-list">
               {agentHistory.map((agent) => {
@@ -638,7 +679,7 @@ export function SidebarView({
                     type="button"
                     key={agent.id}
                     className={`agent-history-row ${store.reopenedAgentIds.includes(agent.id) ? 'open' : ''}`}
-                    title={`${agent.role} - Chat wieder aufrufen`}
+                    title={t('sidebar.history.reopenTitle', { role: agent.role })}
                     onClick={() => {
                       store.reopenAgent(agent.id)
                       window.location.hash = ''
@@ -652,7 +693,7 @@ export function SidebarView({
                       <span className="agent-history-role">{agent.role}</span>
                     </span>
                     <span className={`agent-history-status ${failed ? 'failed' : 'done'}`}>
-                      {failed ? 'Fehler' : 'Beendet'}
+                      {failed ? t('sidebar.history.failed') : t('sidebar.history.done')}
                     </span>
                   </button>
                 )
@@ -666,7 +707,7 @@ export function SidebarView({
     navigation: (
       <section key="navigation" data-sidebar-section="navigation">
         <div className="side-caption" style={{ paddingTop: 10 }}>
-          <span>Navigation</span>
+          <span>{t('sidebar.nav.caption')}</span>
         </div>
         <div className="side-list" style={{ paddingBottom: 8 }}>
           <button
@@ -675,12 +716,12 @@ export function SidebarView({
             onClick={() => {
               window.location.hash = '#/inbox'
             }}
-            title="Ideen und Artefakte verwalten"
+            title={t('sidebar.nav.inboxTitle')}
           >
             <span className="nav-icon">📥</span>
             <div className="info">
-              <div className="name">Ideen-Inbox</div>
-              <div className="summary">Notizen · Sprache · Dateien</div>
+              <div className="name">{t('sidebar.nav.inbox')}</div>
+              <div className="summary">{t('sidebar.nav.inboxSub')}</div>
             </div>
           </button>
           <button
@@ -689,48 +730,52 @@ export function SidebarView({
             onClick={() => {
               window.location.hash = ''
             }}
-            title="Agent-Workspace"
+            title={t('sidebar.nav.workspaceTitle')}
           >
             <span className="nav-icon">▦</span>
             <div className="info">
-              <div className="name">Workspace</div>
-              <div className="summary">Agents &amp; Terminals</div>
+              <div className="name">{t('sidebar.nav.workspace')}</div>
+              <div className="summary">{t('sidebar.nav.workspaceSub')}</div>
             </div>
           </button>
           <button
             type="button"
             className={`nav-row ${hash === '#/approvals' ? 'active' : ''}`}
             onClick={() => { window.location.hash = '#/approvals' }}
-            title="Alle wartenden Entscheidungen und Laufbudgets"
+            title={t('sidebar.nav.approvalsTitle')}
           >
             <span className="nav-icon">✓</span>
             <div className="info">
-              <div className="name">Approval-Inbox</div>
-              <div className="summary">{approvalCount ? `${approvalCount} offen` : 'Alles entschieden'}</div>
+              <div className="name">{t('sidebar.nav.approvals')}</div>
+              <div className="summary">
+                {approvalCount
+                  ? t('sidebar.nav.openCount', { n: approvalCount })
+                  : t('sidebar.nav.allDecided')}
+              </div>
             </div>
           </button>
           <button
             type="button"
             className={`nav-row ${hash === '#/changes' ? 'active' : ''}`}
             onClick={() => { window.location.hash = '#/changes' }}
-            title="Verifizierte Diffs, Integrationsstatus und PR-Freigaben"
+            title={t('sidebar.nav.changesTitle')}
           >
             <span className="nav-icon">⇄</span>
             <div className="info">
-              <div className="name">Diff &amp; Merge</div>
-              <div className="summary">Commits · Gates · PR</div>
+              <div className="name">{t('sidebar.nav.changes')}</div>
+              <div className="summary">{t('sidebar.nav.changesSub')}</div>
             </div>
           </button>
           <button
             type="button"
             className="nav-row"
             onClick={() => void store.exportDiagnostics()}
-            title="Letzten redigierten Workspace-Run als JSONL exportieren"
+            title={t('sidebar.nav.diagTitle')}
           >
             <span className="nav-icon">⇩</span>
             <div className="info">
-              <div className="name">Diagnose exportieren</div>
-              <div className="summary">Run-Historie · ohne Secrets</div>
+              <div className="name">{t('sidebar.nav.diag')}</div>
+              <div className="summary">{t('sidebar.nav.diagSub')}</div>
             </div>
           </button>
         </div>
@@ -740,12 +785,12 @@ export function SidebarView({
     mcp: (
       <section key="mcp" data-sidebar-section="mcp">
         <div className="side-caption" style={{ paddingTop: 14 }}>
-          <span>MCP-Server</span>
+          <span>{t('sidebar.mcp.caption')}</span>
           <button
             type="button"
             className="icon-btn-sm"
-            title="MCP-Server verwalten — für alle Agents sichtbar"
-            aria-label="MCP-Server verwalten"
+            title={t('sidebar.mcp.manageTitle')}
+            aria-label={t('sidebar.mcp.manageAria')}
             onClick={store.openMcpEditor}
           >
             ⚙
@@ -756,10 +801,10 @@ export function SidebarView({
             <button
               type="button"
               className="mcp-empty-row"
-              title="MCP-Server hinzufügen, die alle Agents sehen und nutzen können"
+              title={t('sidebar.mcp.addTitle')}
               onClick={store.openMcpEditor}
             >
-              ＋ MCP-Server anbinden
+              {t('sidebar.mcp.add')}
             </button>
           ) : (
             store.mcpServers.map((server) => (
@@ -767,7 +812,7 @@ export function SidebarView({
                 type="button"
                 key={server.id}
                 className="mcp-row"
-                title={`${MCP_TRANSPORT_LABELS[server.transport]} · ${MCP_SCOPE_LABELS[server.scope]}${server.enabled ? '' : ' · inaktiv'}`}
+                title={`${MCP_TRANSPORT_LABELS[server.transport]} · ${MCP_SCOPE_LABELS[server.scope]}${server.enabled ? '' : ` · ${t('sidebar.mcp.inactive')}`}`}
                 onClick={store.openMcpEditor}
               >
                 <span
@@ -789,17 +834,17 @@ export function SidebarView({
     'ai-providers': (
       <section key="ai-providers" data-sidebar-section="ai-providers">
         <div className="side-caption">
-          <span>KI-Provider</span>
+          <span>{t('sidebar.ai.caption')}</span>
           <button
             type="button"
             className="provider-refresh-btn"
-            title="Installation und Login-Status aller Provider neu prüfen"
-            aria-label="Provider-Status aktualisieren"
+            title={t('sidebar.ai.refreshTitle')}
+            aria-label={t('sidebar.ai.refreshAria')}
             onClick={() => void store.refreshHealth()}
           >
             ↻
           </button>
-          <span className="online-pill">{onlineCount} online</span>
+          <span className="online-pill">{t('sidebar.ai.online', { n: onlineCount })}</span>
         </div>
         <div className="side-list">
           {aiIds.map((id) => (
@@ -812,7 +857,7 @@ export function SidebarView({
     infrastructure: (
       <section key="infrastructure" data-sidebar-section="infrastructure">
         <div className="side-caption" style={{ paddingTop: 14 }}>
-          <span>Infrastruktur</span>
+          <span>{t('sidebar.infra.caption')}</span>
         </div>
         <div className="side-list">
           <GithubRow />
@@ -829,7 +874,7 @@ export function SidebarView({
       id="sidebar-left-panel"
       className={`sidebar layout-panel ${collapsed ? 'panel-collapsed' : ''}`}
       style={collapsed ? undefined : { width }}
-      aria-label="Linke Seitenleiste"
+      aria-label={t('sidebar.aria')}
     >
       {onToggle && (
         <div className="panel-control-row panel-control-row-left">
@@ -838,8 +883,8 @@ export function SidebarView({
             className="panel-collapse-button"
             aria-controls="sidebar-left-content"
             aria-expanded={!collapsed}
-            aria-label={collapsed ? 'Linke Seitenleiste ausklappen' : 'Linke Seitenleiste einklappen'}
-            title={collapsed ? 'Seitenleiste ausklappen' : 'Seitenleiste einklappen'}
+            aria-label={collapsed ? t('sidebar.expandAria') : t('sidebar.collapseAria')}
+            title={collapsed ? t('sidebar.expandTitle') : t('sidebar.collapseTitle')}
             onClick={onToggle}
           >
             {collapsed ? '›' : '‹'}
@@ -856,6 +901,7 @@ export function SidebarView({
 }
 
 export default function Sidebar(): JSX.Element {
+  const { t } = useTranslation()
   const store = useAppStore()
   const layout = useLayoutStore(selectPanelLayout('sidebar-left'))
   const toggleCollapsed = useLayoutStore((state) => state.toggleCollapsed)
@@ -872,7 +918,7 @@ export default function Sidebar(): JSX.Element {
         <ResizeHandle
           panelId="sidebar-left"
           direction="right"
-          ariaLabel="Breite der linken Seitenleiste ändern"
+          ariaLabel={t('sidebar.resize')}
         />
       )}
     </>

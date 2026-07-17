@@ -1,6 +1,6 @@
 import type { AgentMode, AgentUsage } from './agents'
 
-/** Availability of the metrics Orca-Strator can display for an agent/provider. */
+/** Availability of the metrics Vertragus can display for an agent/provider. */
 export type TelemetryStatus = 'absent' | 'partial' | 'present'
 
 export interface TelemetrySummary {
@@ -16,8 +16,8 @@ export const TELEMETRY_STATUS_LABELS: Record<Exclude<TelemetryStatus, 'present'>
 }
 
 export const TELEMETRY_STATUS_TITLES: Record<Exclude<TelemetryStatus, 'present'>, string> = {
-  absent: 'Dieser Provider liefert derzeit keine Telemetrie an Orca-Strator.',
-  partial: 'Dieser Provider liefert nur einen Teil der Telemetrie an Orca-Strator.'
+  absent: 'Dieser Provider liefert derzeit keine Telemetrie an Vertragus.',
+  partial: 'Dieser Provider liefert nur einen Teil der Telemetrie an Vertragus.'
 }
 
 export interface TelemetryAbsence {
@@ -35,7 +35,7 @@ export function absentTelemetryNotice(mode: AgentMode): TelemetryAbsence {
     return {
       label: 'Telemetrie nur für Tasks',
       title:
-        'Interaktive Agents liefern keine strukturierte Nutzungstelemetrie an Orca-Strator. ' +
+        'Interaktive Agents liefern keine strukturierte Nutzungstelemetrie an Vertragus. ' +
         'Tokens und Kosten erscheinen nur bei vom Orchestrator dispatchten Tasks.'
     }
   }

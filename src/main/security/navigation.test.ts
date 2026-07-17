@@ -3,7 +3,7 @@ import { isAllowedExternalUrl, isTrustedRendererUrl, protectWebContents } from '
 
 describe('desktop navigation policy', () => {
   it('only allows explicit external schemes', () => {
-    expect(isAllowedExternalUrl('https://github.com/Nehmo101/Orca-Strator')).toBe(true)
+    expect(isAllowedExternalUrl('https://github.com/Nehmo101/Vertragus')).toBe(true)
     expect(isAllowedExternalUrl('mailto:security@example.com')).toBe(true)
     expect(isAllowedExternalUrl('http://example.com')).toBe(false)
     expect(isAllowedExternalUrl('file:///C:/Users/example/secret.txt')).toBe(false)

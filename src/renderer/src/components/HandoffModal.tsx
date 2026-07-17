@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useAppStore } from '@renderer/store/useAppStore'
 import { LIMIT_KIND_LABELS } from '@shared/agents'
 import type { AgentProviderId } from '@shared/providers'
@@ -9,6 +10,7 @@ import { defaultHandoffModel } from '@renderer/modelCatalog'
 const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'kimi', 'codex', 'cursor', 'copilot', 'ollama']
 
 export default function HandoffModal(): JSX.Element | null {
+  const { t } = useTranslation()
   const store = useAppStore()
   const source = store.handoffSource
   const closeHandoff = store.closeHandoff
@@ -71,10 +73,10 @@ export default function HandoffModal(): JSX.Element | null {
         <div className="modal-head">
           <span className="modal-gear">⇄</span>
           <div style={{ flex: 1 }}>
-            <div className="modal-title" id="handoff-title">Agent-Übergabe</div>
-            <div className="modal-sub">Laufende Arbeit an einen neuen Agent vererben</div>
+            <div className="modal-title" id="handoff-title">{t('modals.handoff.title')}</div>
+            <div className="modal-sub">{t('modals.handoff.sub')}</div>
           </div>
-          <button type="button" className="modal-close" aria-label="Übergabe schließen" onClick={() => { setBulk(false); closeHandoff() }}>
+          <button type="button" className="modal-close" aria-label={t('modals.handoff.closeAria')} onClick={() => { setBulk(false); closeHandoff() }}>
             ✕
           </button>
         </div>
@@ -87,10 +89,12 @@ export default function HandoffModal(): JSX.Element | null {
             <div className="info">
               <div className="name">
                 {source.name}
-                <span className="sub"> · {srcTheme.label}/{source.model || 'CLI-Standard'}</span>
+                <span className="sub"> · {srcTheme.label}/{source.model || t('modals.handoff.cliDefault')}</span>
               </div>
               <div className="reason">
-                {limit ? `⚠ ${LIMIT_KIND_LABELS[limit.kind]} erkannt` : 'manuelle Übergabe'} — {source.role}
+                {limit
+                  ? t('modals.handoff.limitDetected', { kind: LIMIT_KIND_LABELS[limit.kind] })
+                  : t('modals.handoff.manual')} — {source.role}
               </div>
             </div>
           </div>
@@ -103,16 +107,17 @@ export default function HandoffModal(): JSX.Element | null {
                 onChange={(event) => setBulk(event.target.checked)}
               />
               <span>
-                Alle {eligibleSources.length} laufenden {srcTheme.label}-Agents in diesem Workspace
-                gemeinsam übergeben. Erfolgreich übernommene Subagents werden gestoppt; Orchestratoren
-                erst nach dem sicheren Wissens-Handshake.
+                {t('modals.handoff.bulkLabel', {
+                  n: eligibleSources.length,
+                  provider: srcTheme.label
+                })}
               </span>
             </label>
           ) : null}
 
           <div className="handoff-target-row">
             <div style={{ flex: 1 }}>
-              <div className="select-label">Ziel-Provider</div>
+              <div className="select-label">{t('modals.handoff.targetProvider')}</div>
               <select
                 className="slot-select-sm"
                 value={provider}
@@ -130,11 +135,11 @@ export default function HandoffModal(): JSX.Element | null {
               </select>
             </div>
             <div style={{ flex: 1.4 }}>
-              <div className="select-label">Modell</div>
+              <div className="select-label">{t('modals.handoff.model')}</div>
               <input
                 className="slot-select-sm mono"
                 list="handoff-models"
-                placeholder="CLI-Standard"
+                placeholder={t('modals.handoff.cliDefault')}
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
               />
@@ -147,42 +152,45 @@ export default function HandoffModal(): JSX.Element | null {
             </div>
           </div>
 
-          <label className="field-label" htmlFor="handoff-task">Aufgabe (für den neuen Agent)</label>
+          <label className="field-label" htmlFor="handoff-task">{t('modals.handoff.taskLabel')}</label>
           <textarea
             id="handoff-task"
             ref={taskRef}
             className="text-input handoff-text"
-            placeholder="Was soll der neue Agent fertigstellen?"
+            placeholder={t('modals.handoff.taskPlaceholder')}
             value={task}
             onChange={(e) => setTask(e.target.value)}
           />
 
-          <label className="field-label" htmlFor="handoff-summary">Aktueller Stand (optional)</label>
+          <label className="field-label" htmlFor="handoff-summary">{t('modals.handoff.summaryLabel')}</label>
           <textarea
             id="handoff-summary"
             className="text-input handoff-text"
-            placeholder="Kurzer Vermerk, was schon erledigt ist / wo weitergemacht werden soll."
+            placeholder={t('modals.handoff.summaryPlaceholder')}
             value={summary}
             onChange={(e) => setSummary(e.target.value)}
           />
 
           <div className="handoff-note">
-            {bulk ? `Für jeden der ${eligibleSources.length} Agents` : `Der bisherige Terminal-Verlauf von ${source.name}`}
-            {bulk ? ' wird der jeweilige Terminal-Verlauf als eigene Übergabe-Notiz angehängt. ' : ' wird automatisch als Übergabe-Notiz angehängt. '}
-            Der jeweilige neue Agent startet im bisherigen Arbeitsverzeichnis und macht dort weiter.
+            {bulk
+              ? t('modals.handoff.noteBulk', { n: eligibleSources.length })
+              : t('modals.handoff.noteSingle', { name: source.name })}{' '}
+            {t('modals.handoff.noteCwd')}
             {!bulk && source.kind === 'orchestrator'
-              ? ` ${source.name} bleibt aktiv, bis der neue Orchestrator Start, Kontext und Wissensstand eindeutig bestätigt hat, und wird erst dann automatisch beendet.`
-              : !bulk ? ` ${source.name} läuft weiter und wird als „übergeben" markiert.` : ''}
+              ? ` ${t('modals.handoff.noteOrchestrator', { name: source.name })}`
+              : !bulk ? ` ${t('modals.handoff.noteMarked', { name: source.name })}` : ''}
           </div>
         </div>
 
         <div className="modal-foot">
           <div className="spacer" />
           <button type="button" className="btn-secondary" onClick={() => { setBulk(false); closeHandoff() }}>
-            Abbrechen
+            {t('modals.handoff.cancel')}
           </button>
           <button type="button" className="btn-primary" onClick={submit}>
-            ⇄ {bulk ? `${eligibleSources.length} Agents übergeben` : 'Übergeben'}
+            ⇄ {bulk
+              ? t('modals.handoff.submitBulk', { n: eligibleSources.length })
+              : t('modals.handoff.submit')}
           </button>
         </div>
       </div>

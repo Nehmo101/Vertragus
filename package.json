@@ -1,15 +1,15 @@
 {
-  "name": "orca-strator",
+  "name": "vertragus",
   "version": "0.1.0",
-  "description": "Orchestrate and run multiple AI coding agents in parallel (cross-platform desktop: Windows + macOS + Linux)",
+  "description": "Vertragus — orchestrate and run multiple AI coding agents in parallel (cross-platform desktop: Windows + macOS + Linux)",
   "main": "./out/main/index.js",
   "author": "Nehmo101",
   "license": "MIT",
   "packageManager": "pnpm@11.6.0",
-  "homepage": "https://github.com/Nehmo101/Orca-Strator",
+  "homepage": "https://github.com/Nehmo101/Vertragus",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Nehmo101/Orca-Strator.git"
+    "url": "https://github.com/Nehmo101/Vertragus.git"
   },
   "scripts": {
     "dev": "electron-vite dev",
@@ -38,18 +38,23 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "electron-store": "^8.2.0",
     "electron-updater": "^6.8.9",
+    "i18next": "^26.3.6",
+    "react-i18next": "^17.0.10",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.111.0",
     "@electron-toolkit/tsconfig": "^1.0.1",
     "@eslint/js": "^9.39.1",
+    "@types/dagre": "^0.7.54",
     "@types/node": "^20.16.10",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.2",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
+    "@xyflow/react": "^12.11.2",
+    "dagre": "^0.8.5",
     "electron": "^33.2.1",
     "electron-builder": "^25.1.8",
     "electron-vite": "^2.3.0",

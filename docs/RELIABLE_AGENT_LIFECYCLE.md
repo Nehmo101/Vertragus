@@ -1,6 +1,6 @@
 # Reliable Agent Lifecycle
 
-Orca-Strator treats long-running workers as asynchronous jobs. MCP calls no
+Vertragus treats long-running workers as asynchronous jobs. MCP calls no
 longer need to stay open until an agent finishes:
 
 1. `dispatch_subagent` returns a `taskId` immediately.
@@ -14,13 +14,13 @@ timers are cleaned up on success, error, cancellation, and provider rejection.
 
 ## Worker contract
 
-A successful implementation task is accepted only when Orca can verify one of
+A successful implementation task is accepted only when Vertragus can verify one of
 these outcomes in the isolated worktree:
 
 - a full, unambiguous Git commit hash; or
 - an explicit, verified `no-changes` result.
 
-Before the commit, Orca runs the configured quality commands, `git diff
+Before the commit, Vertragus runs the configured quality commands, `git diff
 --check`, a staged-diff size/secret scan, and the security gate. Files generated
 or formatted by a gate are staged and checked again before the commit.
 
@@ -34,13 +34,13 @@ tasks remain modular and isolated.
 
 ## Integration and acceptance
 
-For aggregate Auto-PR, Orca creates a visible system-owned `Integration &
+For aggregate Auto-PR, Vertragus creates a visible system-owned `Integration &
 Abnahme` task. It verifies every worker commit, cherry-picks the commits into a
 dedicated integration worktree, scans the aggregate diff, reruns all configured
 quality gates, and only then publishes the PR. Conflicts and red gates remain
-blocked for inspection; Orca does not force-push or guess a conflict resolution.
+blocked for inspection; Vertragus does not force-push or guess a conflict resolution.
 
-After publication, Orca waits up to 90 seconds for GitHub checks to appear and
+After publication, Vertragus waits up to 90 seconds for GitHub checks to appear and
 follows them with a bounded 20-minute `gh pr checks --watch` run. PR publication
 and remote-CI are separate states, so failed, cancelled, timed-out, or unavailable
 checks remain visible without pretending that the PR itself was not created.

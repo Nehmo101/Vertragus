@@ -47,10 +47,10 @@ export interface RetroExportItem {
 }
 
 const RETRO_BRANCH_README = [
-  '# Orca-Strator Retros',
+  '# Vertragus Retros',
   '',
   'Dieser Branch enthält ausschließlich Retro-Daten des Orchestrators — keinen Code.',
-  'Er wird automatisch von Orca-Strator-Installationen befüllt (Retro-Sync) und',
+  'Er wird automatisch von Vertragus-Installationen befüllt (Retro-Sync) und',
   'periodisch von der Retro-Analyse ausgewertet (siehe docs/retro-sync.md im Code-Branch).',
   '',
   '- `runs/JJJJ/MM/<retro-id>.json` — eine Retrospektive pro Planlauf',
@@ -116,7 +116,7 @@ export function buildEnvelope(kind: RetroExportKind, payload: unknown): RetroExp
   return {
     version: 1,
     exportedAt: Date.now(),
-    app: { name: 'orca-strator', version: app.getVersion() },
+    app: { name: 'vertragus', version: app.getVersion() },
     machineId: machineId(),
     kind,
     payload: redactDiagnosticValue(payload)

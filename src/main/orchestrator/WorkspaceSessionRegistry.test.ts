@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
 import { DEFAULT_PROFILE } from '@shared/profile'
-import { MIDDLE_EARTH_WORKSPACE_NAMES } from '@shared/workspaceNames'
+import { WORKSPACE_PLACE_NAMES } from '@shared/workspaceNames'
 
 vi.mock('@main/orchestrator/Engine', () => ({
   OrchestratorEngine: class extends EventEmitter {
@@ -60,8 +60,8 @@ describe('WorkspaceSessionRegistry', () => {
     const second = registry.start(DEFAULT_PROFILE)
 
     expect(first.id).not.toBe(second.id)
-    expect(first.name).toBe('Düsterwald')
-    expect(second.name).toBe('Hobbingen')
+    expect(first.name).toBe('Purgatorio')
+    expect(second.name).toBe('Inferno')
     expect(registry.list(DEFAULT_PROFILE.id)).toHaveLength(2)
     expect(registry.list(DEFAULT_PROFILE.id).find((session) => session.active)?.id).toBe(second.id)
 
@@ -92,12 +92,12 @@ describe('WorkspaceSessionRegistry', () => {
   it('assigns one unique random place per profile cycle before adding a suffix', () => {
     const registry = new WorkspaceSessionRegistry(() => 0)
     const firstCycleNames = Array.from(
-      { length: MIDDLE_EARTH_WORKSPACE_NAMES.length },
+      { length: WORKSPACE_PLACE_NAMES.length },
       () => registry.start(DEFAULT_PROFILE).name
     )
 
-    expect(firstCycleNames[0]).not.toBe('Minas Tirith')
-    expect(new Set(firstCycleNames).size).toBe(MIDDLE_EARTH_WORKSPACE_NAMES.length)
+    expect(firstCycleNames[0]).not.toBe('Paradiso')
+    expect(new Set(firstCycleNames).size).toBe(WORKSPACE_PLACE_NAMES.length)
     expect(registry.start(DEFAULT_PROFILE).name).toBe(`${firstCycleNames[0]} II`)
   })
 
@@ -121,7 +121,7 @@ describe('WorkspaceSessionRegistry', () => {
       expect.objectContaining({
         id: legacySession.id,
         sequence: 1,
-        name: 'Minas Tirith'
+        name: 'Paradiso'
       })
     ])
   })

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { DeviceInfo, PairingChallenge, RemoteCapability, RemoteStatus } from '@shared/remote'
 import type { WorkspaceSessionSummary } from '@shared/orchestrator'
 
@@ -14,6 +15,7 @@ function errorMessage(error: unknown): string {
 }
 
 export default function RemotePanel(): JSX.Element {
+  const { t } = useTranslation()
   const [status, setStatus] = useState<RemoteStatus>(INITIAL_STATUS)
   const [devices, setDevices] = useState<DeviceInfo[]>([])
   const [challenge, setChallenge] = useState<PairingChallenge>()
@@ -82,12 +84,12 @@ export default function RemotePanel(): JSX.Element {
     <main className="remote-panel">
       <header className="remote-panel-head">
         <div>
-          <span className="eyebrow">Mission Control</span>
-          <h1>Sichere Remote-Kommandozentrale</h1>
-          <p>Live beobachten, vorhandene Gates freigeben und non-yolo Ziele senden.</p>
+          <span className="eyebrow">{t('remote.eyebrow')}</span>
+          <h1>{t('remote.title')}</h1>
+          <p>{t('remote.sub')}</p>
         </div>
         <span className={`remote-state state-${status.tunnel}`}>
-          {status.enabled ? `Remote aktiv · ${status.tunnel}` : 'Remote aus'}
+          {status.enabled ? t('remote.stateActive', { tunnel: status.tunnel }) : t('remote.stateOff')}
         </span>
       </header>
 
@@ -95,20 +97,19 @@ export default function RemotePanel(): JSX.Element {
 
       <section className="remote-card remote-setup">
         <div>
-          <h2>Named Cloudflare Tunnel</h2>
+          <h2>{t('remote.tunnel.title')}</h2>
           <p>
-            Standardmäßig aus. Der Tunnel bindet ausschließlich an das lokale Gateway auf
-            127.0.0.1; jeder Daten- und Befehlszugriff benötigt zusätzlich ein Geräte-Token.
+            {t('remote.tunnel.desc')}
           </p>
         </div>
         {!status.enabled ? (
           <div className="remote-form">
             <label className="remote-checkbox">
               <input type="checkbox" checked={quickTunnel} onChange={(event) => setQuickTunnel(event.target.checked)} />
-              Ephemeren Quick Tunnel verwenden
+              {t('remote.tunnel.quick')}
             </label>
             <label>
-              Öffentlicher Hostname
+              {t('remote.tunnel.hostname')}
               <input
                 value={hostname}
                 onChange={(event) => setHostname(event.target.value)}
@@ -118,12 +119,12 @@ export default function RemotePanel(): JSX.Element {
               />
             </label>
             <label>
-              Named-Tunnel-Token
+              {t('remote.tunnel.token')}
               <input
                 value={tunnelToken}
                 onChange={(event) => setTunnelToken(event.target.value)}
                 type="password"
-                placeholder="Bereits gespeichert? Leer lassen"
+                placeholder={t('remote.tunnel.tokenPlaceholder')}
                 autoComplete="new-password"
                 disabled={quickTunnel}
               />
@@ -143,14 +144,14 @@ export default function RemotePanel(): JSX.Element {
                 setTunnelToken('')
               })}
             >
-              Sicher aktivieren
+              {t('remote.tunnel.enable')}
             </button>
             <label>
-              Cloudflare-Access-Team-Domain (optional)
+              {t('remote.tunnel.accessTeamDomain')}
               <input value={accessTeamDomain} onChange={(event) => setAccessTeamDomain(event.target.value)} placeholder="https://team.cloudflareaccess.com" autoComplete="off" />
             </label>
             <label>
-              Access-Audience-Tag (optional, immer gemeinsam)
+              {t('remote.tunnel.accessAudience')}
               <input value={accessAudience} onChange={(event) => setAccessAudience(event.target.value)} autoComplete="off" />
             </label>
           </div>
@@ -166,7 +167,7 @@ export default function RemotePanel(): JSX.Element {
                 setChallenge(undefined)
               })}
             >
-              Master-Not-Aus
+              {t('remote.tunnel.kill')}
             </button>
           </div>
         )}
@@ -174,48 +175,48 @@ export default function RemotePanel(): JSX.Element {
 
       <div className="remote-grid">
         <section className="remote-card">
-          <h2>Gerät koppeln</h2>
-          <p>Der Einmal-Code läuft nach fünf Minuten ab und kann nur einmal eingelöst werden.</p>
+          <h2>{t('remote.pairing.title')}</h2>
+          <p>{t('remote.pairing.desc')}</p>
           <label className="remote-checkbox">
             <input type="checkbox" checked={admin} onChange={(event) => setAdmin(event.target.checked)} />
-            Admin-Capability für Reset erlauben
+            {t('remote.pairing.admin')}
           </label>
           <label className="remote-checkbox">
             <input type="checkbox" checked={diffAccess} onChange={(event) => setDiffAccess(event.target.checked)} />
-            Mobile Diff-Ansicht erlauben
+            {t('remote.pairing.diff')}
           </label>
           <label className="remote-checkbox">
             <input type="checkbox" checked={pushAccess} onChange={(event) => setPushAccess(event.target.checked)} />
-            Web-Push erlauben
+            {t('remote.pairing.push')}
           </label>
           <label className="remote-checkbox">
             <input type="checkbox" checked={speechAccess} onChange={(event) => setSpeechAccess(event.target.checked)} />
-            Sprach-Transkription erlauben
+            {t('remote.pairing.speech')}
           </label>
           <label className="remote-checkbox">
             <input type="checkbox" checked={toolApproval} onChange={(event) => setToolApproval(event.target.checked)} />
-            Tool-Freigaben erlauben (approve-tools)
+            {t('remote.pairing.tools')}
           </label>
           <label className="remote-checkbox">
             <input type="checkbox" checked={budgetAccess} onChange={(event) => setBudgetAccess(event.target.checked)} />
-            Fern-Budget-Caps erlauben
+            {t('remote.pairing.budget')}
           </label>
           <label className="remote-checkbox">
             <input type="checkbox" checked={taskControl} onChange={(event) => setTaskControl(event.target.checked)} />
-            Task Pause/Resume erlauben
+            {t('remote.pairing.taskControl')}
           </label>
           <label className="remote-checkbox">
             <input type="checkbox" checked={replanAccess} onChange={(event) => setReplanAccess(event.target.checked)} />
-            Restriktives Live-Replan erlauben
+            {t('remote.pairing.replan')}
           </label>
           <label className="remote-checkbox">
             <input type="checkbox" checked={fallbackAccess} onChange={(event) => setFallbackAccess(event.target.checked)} />
-            Provider-Fallback bei erkanntem Limit erlauben
+            {t('remote.pairing.fallback')}
           </label>
-          <label>Account-ID oder Access-E-Mail<input value={actorId} onChange={(event) => setActorId(event.target.value)} maxLength={160} /></label>
-          <label>Anzeigename<input value={actorName} onChange={(event) => setActorName(event.target.value)} maxLength={160} /></label>
+          <label>{t('remote.pairing.actorId')}<input value={actorId} onChange={(event) => setActorId(event.target.value)} maxLength={160} /></label>
+          <label>{t('remote.pairing.actorName')}<input value={actorName} onChange={(event) => setActorName(event.target.value)} maxLength={160} /></label>
           <div className="remote-scope-list">
-            <strong>Workspace-Scopes (standardmÃ¤ÃŸig keiner)</strong>
+            <strong>{t('remote.pairing.scopes')}</strong>
             {profiles.map((profile) => (
               <div key={profile.id} className="remote-scope">
                 <span>{profile.name}</span>
@@ -227,7 +228,7 @@ export default function RemotePanel(): JSX.Element {
                       onChange={(event) => setSelectedSessions((current) => event.target.checked
                         ? [...current, session.id] : current.filter((id) => id !== session.id))}
                     />
-                    Session {session.name}
+                    {t('remote.pairing.session', { name: session.name })}
                   </label>
                 ))}
                 <label className="remote-checkbox">
@@ -237,7 +238,7 @@ export default function RemotePanel(): JSX.Element {
                     onChange={(event) => setGoalProfiles((current) => event.target.checked
                       ? [...current, profile.id] : current.filter((id) => id !== profile.id))}
                   />
-                  Neue Ziele fÃ¼r dieses Profil erlauben
+                  {t('remote.pairing.allowGoals')}
                 </label>
               </div>
             ))}
@@ -276,28 +277,28 @@ export default function RemotePanel(): JSX.Element {
               }))
             })}
           >
-            Pairing-QR erzeugen
+            {t('remote.pairing.generate')}
           </button>
           {challenge && (
             <div className="remote-pairing">
-              {challenge.qrDataUrl && <img src={challenge.qrDataUrl} alt="Mission-Control Pairing-QR" />}
+              {challenge.qrDataUrl && <img src={challenge.qrDataUrl} alt={t('remote.pairing.qrAlt')} />}
               <strong>{challenge.code}</strong>
-              <small>Gültig bis {new Date(challenge.expiresAt).toLocaleTimeString()}</small>
+              <small>{t('remote.pairing.validUntil', { time: new Date(challenge.expiresAt).toLocaleTimeString() })}</small>
               {challenge.pairingUrl && <code>{challenge.pairingUrl}</code>}
             </div>
           )}
         </section>
 
         <section className="remote-card">
-          <h2>Gekoppelte Geräte</h2>
+          <h2>{t('remote.devices.title')}</h2>
           {activeDevices.length === 0 ? (
-            <p>Noch kein aktives Gerät.</p>
+            <p>{t('remote.devices.empty')}</p>
           ) : activeDevices.map((device) => (
             <div className="remote-device" key={device.id}>
               <div>
                 <strong>{device.name}</strong>
                 <small>{device.actor.displayName} · {device.capabilities.join(' · ')}</small>
-                <small>{device.scopes.reduce((sum, scope) => sum + scope.sessionIds.length, 0)} Session-Scope(s) · gekoppelt {new Date(device.createdAt).toLocaleDateString()}</small>
+                <small>{t('remote.devices.meta', { n: device.scopes.reduce((sum, scope) => sum + scope.sessionIds.length, 0), date: new Date(device.createdAt).toLocaleDateString() })}</small>
               </div>
               <button
                 type="button"
@@ -305,7 +306,7 @@ export default function RemotePanel(): JSX.Element {
                 disabled={busy}
                 onClick={() => void run(async () => { await window.orca.remote.revokeDevice(device.id) })}
               >
-                Widerrufen
+                {t('remote.devices.revoke')}
               </button>
             </div>
           ))}

@@ -1,5 +1,5 @@
 /* ============================================================
-   Orca-Strator — design tokens & component styles
+   Vertragus — design tokens & component styles
    Source of truth: design_handoff_orca_strator (hifi prototype)
    ============================================================ */
 
@@ -3908,10 +3908,6 @@ button {
   display: flex;
   gap: 4px;
 }
-.dag-layout-note {
-  display: none;
-}
-
 .workspace-focus .ws-grid {
   display: flex;
   flex-direction: column;
@@ -3942,27 +3938,8 @@ button {
   flex: 0 0 80px;
 }
 
-.body-row.layout-dag .orch-panel {
+.body-row.layout-canvas .orch-panel {
   border-left: 1px solid var(--border-2);
-}
-.body-row.layout-dag .workspace .ws-grid {
-  grid-template-columns: 1fr;
-  grid-auto-rows: minmax(190px, 0.55fr);
-}
-.workspace-dag .dag-layout-note {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
-  padding: 9px 11px;
-  border: 1px solid color-mix(in srgb, var(--accent) 26%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--accent) 7%, transparent);
-  color: var(--text-3);
-  font-size: 11px;
-}
-.workspace-dag .dag-layout-note b {
-  color: var(--accent-light);
 }
 
 .app-root[data-density='compact'] .provider-row,
@@ -4083,7 +4060,7 @@ textarea:focus-visible,
 }
 
 /* ============================================================
-   Tolkien code-name lore tooltip
+   Commedia code-name lore tooltip
    ============================================================ */
 .lore-name {
   cursor: help;

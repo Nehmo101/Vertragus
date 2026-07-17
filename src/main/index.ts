@@ -1,10 +1,11 @@
 import { app, BrowserWindow } from 'electron'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { installEditMenu } from '@main/editMenu'
+import { brandEnv } from '@main/env'
 import { refreshProcessPathFromSystem } from '@main/providers/processPath'
 
-const smokeUserData = process.env['ORCA_UI_SMOKE_DATA']
-if (process.env['ORCA_UI_SMOKE'] && smokeUserData) {
+const smokeUserData = brandEnv('UI_SMOKE_DATA')
+if (brandEnv('UI_SMOKE') && smokeUserData) {
   app.setPath('userData', smokeUserData)
 }
 
@@ -26,7 +27,7 @@ app.whenReady().then(async () => {
   const { agentManager } = agents
   stopAgents = () => agentManager.killAll()
   stopRemote = () => remote.stopRemoteGateway()
-  electronApp.setAppUserModelId('dev.nehmo.orca-strator')
+  electronApp.setAppUserModelId('dev.nehmo.vertragus')
   installEditMenu()
 
   app.on('browser-window-created', (_, window) => {
@@ -38,7 +39,7 @@ app.whenReady().then(async () => {
 
   // Integration self-test (ORCA_MCP_SELFTEST=1): exercise the MCP tools + engine
   // end-to-end with a stubbed runTask, then exit.
-  if (process.env['ORCA_MCP_SELFTEST']) {
+  if (brandEnv('MCP_SELFTEST')) {
     const { runSelfTest } = await import('@main/orchestrator/selftest')
     await runSelfTest()
     return
@@ -59,7 +60,7 @@ app.whenReady().then(async () => {
   updater.initializeUpdater()
 
   // Retro-Sync: drain queued retro exports on start + coarse retry interval.
-  if (!process.env['ORCA_UI_SMOKE']) {
+  if (!brandEnv('UI_SMOKE')) {
     const retroExport = await import('@main/orchestrator/retroExport')
     retroExport.startRetroSyncScheduler()
   }

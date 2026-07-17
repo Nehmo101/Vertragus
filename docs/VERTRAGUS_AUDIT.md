@@ -1,4 +1,4 @@
-# Orca-Strator – technischer Auditbericht
+# Vertragus – technischer Auditbericht
 
 Stand: 12. Juli 2026
 Geprüfter Commit: `d396a0a`

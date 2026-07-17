@@ -1,6 +1,6 @@
 # Retro-Sync & Selbstverbesserungs-Loop
 
-Orca-Strator sammelt am Ende jedes Orchestrator-Laufs eine Retrospektive
+Vertragus sammelt am Ende jedes Orchestrator-Laufs eine Retrospektive
 (automatisch aus dem Task-Graphen plus qualitativ via `record_retro`). Der
 Retro-Sync macht daraus einen geschlossenen Verbesserungs-Loop:
 
@@ -48,11 +48,12 @@ Export durch die Secret-Redaction (`redactDiagnosticValue`).
 
 1. **In der App:** Sidebar → Infrastruktur → „Retro-Sync“ aktivieren
    (GitHub-Verbindung vorausgesetzt). Ziel-Repo/Branch per Doppelklick auf den
-   Eintrag anpassen; Default ist `Nehmo101/Orca-Strator@retros`. Der Branch
+   Eintrag anpassen; Default ist `Nehmo101/Vertragus@retros`. Der Branch
    wird beim ersten Export automatisch als Orphan angelegt.
 2. **Im Repo:** Secret `ANTHROPIC_API_KEY` anlegen
    (Settings → Secrets and variables → Actions) — nötig, sobald mindestens
-   `ORCA_RETRO_MIN_NEW` neue Retros synthetisiert werden. Der vom Workflow
+   `ORCA_RETRO_MIN_NEW` (interner Bezeichner, Migration geplant) neue Retros
+   synthetisiert werden. Der vom Workflow
    bereitgestellte `GITHUB_TOKEN` braucht keine manuelle Secret-Konfiguration;
    der Workflow fordert dafür `contents: write` und `pull-requests: write` an.
    In den Actions-Einstellungen muss das Erstellen von Pull Requests durch
@@ -127,7 +128,7 @@ Tracks müssen deshalb additiv und optional bleiben.
 3. **Proposals prüfen:** Jeder Brief unter `proposals/` ist ein
    eigenständiger Claude-Code-Auftrag (Kontext, Evidenz, Auftrag,
    Abnahmekriterien). Umsetzen heißt: Brief als Prompt in eine Claude-Code-
-   Session gegen `DEV` geben; der resultierende Code-PR durchläuft die
+   Session gegen `main` geben; der resultierende Code-PR durchläuft die
    normale CI. Danach den Proposal-Status im Front-Matter pflegen
    (`proposed` → `accepted`/`done`/`rejected`).
 4. Merge des Analyse-PRs aktiviert das neue Overlay für alle Installationen.

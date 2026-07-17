@@ -36,7 +36,7 @@ export function isReusableTeamMember(
 
 export function agentIdentityInstruction(name: string): string {
   return (
-    `Dein Name in Orca-Strator ist ${name}. Verwende genau diesen Namen, damit deine ` +
+    `Dein Name in Vertragus ist ${name}. Verwende genau diesen Namen, damit deine ` +
     'Identität mit dem Namen im Pane-Kopf übereinstimmt.'
   )
 }

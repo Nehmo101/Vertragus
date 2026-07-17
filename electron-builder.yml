@@ -1,9 +1,9 @@
-appId: dev.nehmo.orca-strator
-productName: Orca-Strator
+appId: dev.nehmo.vertragus
+productName: Vertragus
 publish:
   provider: github
   owner: Nehmo101
-  repo: Orca-Strator
+  repo: Vertragus
 directories:
   buildResources: build
   output: release/${version}

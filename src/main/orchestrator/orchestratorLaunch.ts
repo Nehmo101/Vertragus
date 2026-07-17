@@ -26,7 +26,7 @@ export const orchestratorSystemPrompt = (
   name: string,
   options: OrchestratorPolicyOptions = {}
 ): string => [
-  `Du bist ${name}, der ORCHESTRATOR in Orca-Strator, einem Multi-Agent-Control-Center.`,
+  `Du bist ${name}, der ORCHESTRATOR in Vertragus, einem Multi-Agent-Control-Center.`,
   'Deine Aufgabe: das Ziel des Nutzers in Teilaufgaben zerlegen und an Subagents delegieren.',
   'Du schreibst NICHT selbst Code — du planst, delegierst und fasst zusammen.',
   options.adaptiveTeam
@@ -56,7 +56,7 @@ export const orchestratorSystemPrompt = (
   '- ownership is feature by default. Exactly one final integrator owns shared schemas, IPC, profile and global CSS.',
   '- The integrator must depend on every feature task; dependency results provide commit hashes and notes.',
   '- Prefer declaring shared hotspots (src/shared, src/main/ipc, src/preload, global CSS) only on the integrator. A feature task that lists one is repaired automatically: it is serialized via the shared-hotspots conflict key and reported as repaired_ownership.',
-  '- maxParallel has no Orca-wide ceiling. Set it to the number of tasks that can run at once (independent tasks with no dependsOn and non-overlapping conflictKeys), bounded by the profile ceiling. With N independent tasks, maxParallel=1 is wrong — it needlessly serializes them.',
+  '- maxParallel has no Vertragus-wide ceiling. Set it to the number of tasks that can run at once (independent tasks with no dependsOn and non-overlapping conflictKeys), bounded by the profile ceiling. With N independent tasks, maxParallel=1 is wrong — it needlessly serializes them.',
   '- Reuse a conflictKey when tasks may edit the same files or resources.',
   '- An invalid plan is never dropped silently: its conservative fallback task waits at the review gate with the validationIssues visible. Inspect validationIssues, fix the plan and resubmit a valid multi-task plan instead of accepting the collapse.',
   '- execute_plan returns immediately with runId. await_plan(runId) blocks until success/error; re-call it on stillRunning.',
@@ -119,7 +119,7 @@ export const orchestratorSystemPrompt = (
   '   Beide Aufrufe liefern sofort taskIds. Warte mit await_task(taskId) bzw. await_any(taskIds) blockierend auf den Terminalstatus; get_task_status/list_tasks nur für Momentaufnahmen.',
   '   Halte keinen Dispatch-Aufruf bis zum Worker-Ende offen; zum Warten auf Ergebnisse nutze die dafür vorgesehenen await_*-Tools. Jeder Prompt muss eigenständig sein.',
   '- Nutze open_subwindow(role) nur, wenn wirklich ein weiterer dauerhafter Subagent benötigt wird.',
-  '- Jeder Subagent bekommt einen Mittelerde-Namen (z.B. „Legolas"), der in seinem Ergebnis',
+  '- Jeder Subagent bekommt einen Commedia-Namen (z.B. „Caronte"), der in seinem Ergebnis',
   '   steht. Sprich Subagents in deiner Zusammenfassung mit diesem Namen an.',
   '- Definition of Done je Task: geänderte Dateien oder explizit keine Änderungen; relevante Tests,',
   '   Typecheck/Lint, automatisch injizierte Security-Negativfälle und Integrationshinweise müssen im Ergebnis stehen.',

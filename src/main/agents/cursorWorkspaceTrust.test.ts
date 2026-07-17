@@ -7,7 +7,7 @@ import {
   shouldAutoTrustCursorWorktree
 } from './cursorWorkspaceTrust'
 
-const worktree = 'C:\\git\\UWE\\.orca-worktrees\\session-a\\sub-01'
+const worktree = 'C:\\git\\demo-app\\.orca-worktrees\\session-a\\sub-01'
 
 describe('shouldAutoTrustCursorWorktree', () => {
   it('confirms Cursor trust only for an Orca-created worktree', () => {
@@ -40,7 +40,7 @@ describe('shouldAutoTrustCursorWorktree', () => {
   })
 
   it('does not let canonicalization turn a path alias into trusted ownership', () => {
-    expect(normalizeWorkspacePath(worktree)).toBe('c:/git/uwe/.orca-worktrees/session-a/sub-01')
+    expect(normalizeWorkspacePath(worktree)).toBe('c:/git/demo-app/.orca-worktrees/session-a/sub-01')
     const alias = 'C:/git/UWE/.orca-worktrees/session-a/./sub-01'
     expect(isExactOrcaWorktreePath(alias)).toBe(false)
     expect(
@@ -120,14 +120,14 @@ describe('shouldAutoTrustCursorWorktree', () => {
     ).toBe(false)
     expect(
       shouldAutoTrustCursorWorktree({
-        output: `C:\\git\\UWE\\.orca-worktrees\\session-a\\sub-01\\nested\n[a] Trust this workspace`,
-        workingDir: 'C:\\git\\UWE\\.orca-worktrees\\session-a\\sub-01\\nested',
-        worktree: 'C:\\git\\UWE\\.orca-worktrees\\session-a\\sub-01\\nested',
+        output: `C:\\git\\demo-app\\.orca-worktrees\\session-a\\sub-01\\nested\n[a] Trust this workspace`,
+        workingDir: 'C:\\git\\demo-app\\.orca-worktrees\\session-a\\sub-01\\nested',
+        worktree: 'C:\\git\\demo-app\\.orca-worktrees\\session-a\\sub-01\\nested',
         alreadyHandled: false,
         interactiveUsed: false
       })
     ).toBe(false)
-    expect(isOrcaWorktreePath('C:\\git\\UWE\\.orca-worktrees\\session-a\\sub-01\\nested')).toBe(false)
+    expect(isOrcaWorktreePath('C:\\git\\demo-app\\.orca-worktrees\\session-a\\sub-01\\nested')).toBe(false)
   })
 
   it.each([
@@ -136,11 +136,11 @@ describe('shouldAutoTrustCursorWorktree', () => {
     ['nested path', `${worktree}\\nested`],
     ['traversal after the worktree', `${worktree}\\..\\sub-01`],
     ['symlink-like traversal alias', `${worktree}\\link\\..\\sub-01`],
-    ['traversal before the Orca directory', 'C:\\git\\UWE\\..\\UWE\\.orca-worktrees\\session-a\\sub-01'],
+    ['traversal before the Orca directory', 'C:\\git\\demo-app\\..\\UWE\\.orca-worktrees\\session-a\\sub-01'],
     ['current-directory alias', `${worktree}\\.`],
     ['trailing separator alias', `${worktree}\\`],
-    ['duplicate-separator alias', 'C:\\git\\UWE\\.orca-worktrees\\session-a\\\\sub-01'],
-    ['Windows device path', '\\\\?\\C:\\git\\UWE\\.orca-worktrees\\session-a\\sub-01'],
+    ['duplicate-separator alias', 'C:\\git\\demo-app\\.orca-worktrees\\session-a\\\\sub-01'],
+    ['Windows device path', '\\\\?\\C:\\git\\demo-app\\.orca-worktrees\\session-a\\sub-01'],
     ['network path', '\\\\server\\share\\.orca-worktrees\\session-a\\sub-01']
   ])('rejects %s even when Cursor renders a trust prompt', (_name, unsafePath) => {
     expect(isExactOrcaWorktreePath(unsafePath)).toBe(false)

@@ -16,7 +16,7 @@ describe('retroSync validation', () => {
   })
 
   it('normalizes valid repo names and rejects invalid ones', () => {
-    expect(normalizeRetroSyncRepo('Orca-Strator')).toBe('Orca-Strator')
+    expect(normalizeRetroSyncRepo('Vertragus')).toBe('Vertragus')
     expect(normalizeRetroSyncRepo(' my.repo_1 ')).toBe('my.repo_1')
     expect(() => normalizeRetroSyncRepo('')).toThrow(/Ungültiger GitHub-Repo-Name/)
     expect(() => normalizeRetroSyncRepo('owner/repo')).toThrow(/Ungültiger GitHub-Repo-Name/)

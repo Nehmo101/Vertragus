@@ -18,7 +18,9 @@ export const PANEL_LIMITS = {
   'orchestrator-right': { minWidth: 240, maxWidth: 560, defaultWidth: 360 }
 } as const satisfies Record<PanelId, PanelLimits>
 
-export const LAYOUT_STORAGE_KEY = 'orca.layout.v1'
+export const LAYOUT_STORAGE_KEY = 'vertragus.layout.v1'
+/** Pre-rebrand key; read once as a fallback so existing layouts survive. */
+export const LEGACY_LAYOUT_STORAGE_KEY = 'orca.layout.v1'
 
 export type PanelLayouts = Record<PanelId, PanelLayout>
 
@@ -94,7 +96,9 @@ function loadLayouts(): PanelLayouts {
   if (!storage) return createDefaultLayouts()
 
   try {
-    return parsePersistedLayout(storage.getItem(LAYOUT_STORAGE_KEY))
+    return parsePersistedLayout(
+      storage.getItem(LAYOUT_STORAGE_KEY) ?? storage.getItem(LEGACY_LAYOUT_STORAGE_KEY)
+    )
   } catch {
     return createDefaultLayouts()
   }

@@ -94,7 +94,7 @@ describe('retroExport', () => {
     })
     expect(envelope.version).toBe(1)
     expect(envelope.kind).toBe('run-retro')
-    expect(envelope.app).toEqual({ name: 'orca-strator', version: '0.0.0-test' })
+    expect(envelope.app).toEqual({ name: 'vertragus', version: '0.0.0-test' })
     expect(envelope.machineId).toMatch(/^[a-f0-9]{12}$/)
     const payload = envelope.payload as { goal: string; apiKey: string }
     expect(payload.goal).toContain('[redacted]')
@@ -119,7 +119,7 @@ describe('retroExport', () => {
     expect(putRepoFile).toHaveBeenCalledWith(
       expect.objectContaining({
         path: 'runs/2026/07/retro-abc-plan1.json',
-        ref: { owner: 'Nehmo101', repo: 'Orca-Strator', branch: 'retros' }
+        ref: { owner: 'Nehmo101', repo: 'Vertragus', branch: 'retros' }
       })
     )
     const status = retroSyncStatus()

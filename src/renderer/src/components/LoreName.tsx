@@ -1,16 +1,16 @@
 import { useCallback, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { tolkienBlurb } from '@shared/tolkien'
+import { loreBlurb } from '@shared/lore'
 
 interface Props {
-  /** The code-name looked up for the tooltip and shown as its heading, e.g. "Smaug". */
+  /** The code-name looked up for the tooltip and shown as its heading, e.g. "Caronte". */
   name: string
   /** Extra class(es) for the visible name span (e.g. "pane-name"). */
   className?: string
-  /** Visible text, if it differs from `name` (e.g. "W1 Minas Tirith"). Defaults to `name`. */
+  /** Visible text, if it differs from `name` (e.g. "W1 Paradiso"). Defaults to `name`. */
   label?: string
   /**
-   * Explicit tooltip text. When omitted the agent lore (`tolkienBlurb`) is used,
+   * Explicit tooltip text. When omitted the agent lore (`loreBlurb`) is used,
    * so callers with their own lore source (e.g. workspace places) pass it here.
    */
   blurb?: string
@@ -20,13 +20,13 @@ interface Props {
 const TIP_HALF = 130
 
 /**
- * Renders an agent's Tolkien code-name. Hovering (or focusing) reveals a small
+ * Renders an agent's Commedia code-name. Hovering (or focusing) reveals a small
  * tooltip that explains who the character is. The tooltip is portalled to
  * <body> with fixed positioning, so the pane's `overflow: hidden` ancestors
  * never clip it. Names outside the cast simply render without a tooltip.
  */
 export default function LoreName({ name, className, label, blurb: blurbProp }: Props): JSX.Element {
-  const blurb = blurbProp ?? tolkienBlurb(name)
+  const blurb = blurbProp ?? loreBlurb(name)
   const text = label ?? name
   const anchorRef = useRef<HTMLSpanElement>(null)
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)

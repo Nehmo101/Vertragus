@@ -1,0 +1,630 @@
+{
+  "workspace": {
+    "aria": "Agent-Workspace",
+    "picker": "Workspace",
+    "pickProfile": "Aktives Workspace-Profil wählen",
+    "noFolder": "kein Ordner",
+    "context": "Workspace-Kontext",
+    "branch": "Branch",
+    "unknown": "unbekannt",
+    "board": "Board",
+    "agents": "Agents",
+    "start": "Workspace starten",
+    "clean": "🧹 Leeren",
+    "cleanTitle": "Workspace leeren: alle Agents stoppen und entfernen",
+    "layoutGroup": "Workspace-Layout",
+    "layoutTitle": "{{label}}-Layout",
+    "layoutActivate": "{{label}}-Layout aktivieren",
+    "empty": "Keine Agents aktiv",
+    "emptyHintLead": "„▶ Alle starten“ startet das Profil",
+    "emptyHintTail": "— oder unten einen einzelnen Agent hinzufügen.",
+    "addAgent": "Agent hinzufügen",
+    "addAgentSub": "Provider & Modell wählen",
+    "playground": "✦ Playground ansehen",
+    "playgroundHint": "Demo-Team ohne Provider-Login erkunden",
+    "layouts": {
+      "tiles": "Kacheln",
+      "focus": "Fokus",
+      "canvas": "Canvas"
+    }
+  },
+  "canvas": {
+    "aria": "Aufgaben-Canvas",
+    "emptyTitle": "Canvas ist bereit",
+    "emptyHint": "Starte den Workspace oder gib dem Orchestrator ein Ziel — Tasks erscheinen hier als Knoten.",
+    "orchestrator": "Orchestrator",
+    "planning": "plant · {{count}} Tasks",
+    "noGoal": "kein aktives Ziel",
+    "goal": "Ziel: „{{title}}“",
+    "heartbeatPending": "Heartbeat ausstehend",
+    "heartbeatSeconds": "Heartbeat vor {{seconds}}s",
+    "heartbeatMinutes": "Heartbeat vor {{minutes}}m",
+    "status": {
+      "queued": "geplant",
+      "paused": "pausiert",
+      "waiting": "wartet",
+      "running": "läuft",
+      "success": "fertig",
+      "needs-work": "Nacharbeit",
+      "error": "Fehler",
+      "stopped": "gestoppt"
+    },
+    "kind": {
+      "interface": "Schnittstelle",
+      "decision": "Entscheidung",
+      "blocker": "Blocker",
+      "insight": "Erkenntnis"
+    },
+    "terminalAria": "Terminal-Vorschau von {{name}}",
+    "terminalOpen": "Doppelklick: Terminal-Pane fokussieren",
+    "dropHint": "Datei hier ablegen → Pfad an {{name}}",
+    "dropSent": "Pfad an {{name}} eingefügt — im Terminal mit Enter absenden",
+    "dropNoAgent": "Diesem Task ist noch kein Agent zugewiesen",
+    "menu": {
+      "pause": "Task pausieren",
+      "resume": "Task fortsetzen",
+      "fallback": "Ersatz-Task starten",
+      "focus": "Terminal-Pane fokussieren",
+      "failed": "Aktion fehlgeschlagen"
+    },
+    "gate": {
+      "ok": "Belegt fertig — Commit vorhanden, keine offenen Gates",
+      "warn": "Prüfen — offene Gate-Findings oder Nacharbeit",
+      "err": "Blockiert oder fehlgeschlagen",
+      "idle": "Noch ohne Beleg"
+    },
+    "evidence": {
+      "summary": "Beleg",
+      "commit": "Commit",
+      "judge": "Judge",
+      "preflight": "Preflight",
+      "autoPr": "Auto-PR",
+      "remoteCi": "Remote-CI",
+      "findings": "Offene Gate-Findings",
+      "none": "Noch keine Belege — der Task hat kein verifiziertes Ergebnis."
+    }
+  },
+  "voice": {
+    "aria": "Sprachsteuerung",
+    "sendTo": "Sprache an",
+    "targetGroup": "Sprachziel wählen",
+    "noAgent": "kein Agent ausgewählt",
+    "orchestrator": "Orchestrator",
+    "noOrchestrator": "Kein Orchestrator im Workspace aktiv",
+    "state": {
+      "idle": "Bereit",
+      "recording": "Aufnahme läuft",
+      "transcribing": "Transkribiere…",
+      "review": "Vorschau prüfen",
+      "failed": "Fehler"
+    },
+    "record": "Aufnehmen",
+    "stop": "Stop",
+    "cancel": "Abbrechen",
+    "recordTitle": "Push-to-talk starten",
+    "stopTitle": "Aufnahme beenden",
+    "configureFirst": "STT-Zugang zuerst über ⚙ einrichten",
+    "settingsTitle": "Sprache-zu-Text einrichten (API-Schlüssel, Modell, Sprache)",
+    "settingsAria": "Sprache-zu-Text-Einstellungen öffnen",
+    "reviewAria": "Transkript vor dem Senden bearbeiten",
+    "discard": "Verwerfen",
+    "insert": "Einfügen",
+    "send": "Senden",
+    "errorSetupTitle": "Einstellungen öffnen und API-Schlüssel hinterlegen",
+    "errorSetupAction": "jetzt einrichten"
+  },
+  "titlebar": {
+    "languageGroup": "Sprache wählen",
+    "versionTitle": "Vertragus Version {{version}}"
+  },
+  "orch": {
+    "panelAria": "Orchestrator-Seitenleiste",
+    "collapse": "Orchestrator-Seitenleiste einklappen",
+    "expand": "Orchestrator-Seitenleiste ausklappen",
+    "resize": "Breite der Orchestrator-Seitenleiste ändern",
+    "title": "Orchestrator",
+    "cliDefault": "CLI-Standard",
+    "active": "aktiv",
+    "inactive": "inaktiv",
+    "goalActiveHelp": "Statusanzeige – zeigt, ob der Orchestrator gerade ein aktives Ziel verfolgt. Wird automatisch gesetzt, sobald ein Ziel läuft, und ist kein manueller Schalter.",
+    "goalActiveAria": "Status: Orchestrator verfolgt ein aktives Ziel",
+    "goalInactiveAria": "Status: Orchestrator hat kein aktives Ziel",
+    "status": {
+      "queued": "geplant",
+      "paused": "pausiert",
+      "waiting": "wartet",
+      "running": "läuft",
+      "success": "fertig",
+      "needs-work": "Nacharbeit",
+      "error": "Fehler",
+      "stopped": "gestoppt"
+    },
+    "kind": {
+      "interface": "Schnittstelle",
+      "decision": "Entscheidung",
+      "blocker": "Blocker",
+      "insight": "Erkenntnis"
+    },
+    "plannerMode": {
+      "caption": "Planungsmodus",
+      "choose": "Planungsmodus wählen",
+      "help": "Gilt nur für diesen laufenden Workspace und ist jederzeit umstellbar. Auto führt gültige Pläne sofort aus, Review wartet auf deine Freigabe, Manuell schaltet die automatische Planung ab. Ändert nichts an bereits laufenden Aufgaben.",
+      "label": {
+        "auto": "Auto",
+        "review": "Review",
+        "manual": "Manuell"
+      },
+      "desc": {
+        "auto": "Auto – Pläne direkt ausführen",
+        "review": "Review – Plan bestätigen",
+        "manual": "Manuell – keine Auto-Planung"
+      },
+      "title": {
+        "auto": "Gültige Pläne sofort ausführen – keine Freigabe nötig.",
+        "review": "Jeden Plan erst nach deiner Freigabe starten.",
+        "manual": "Keine automatische Planung – du steuerst manuell."
+      },
+      "switchFailed": "Planungsmodus konnte nicht umgestellt werden.",
+      "toastAutoPending": "Automodus aktiv – der Erstplan wartet weiter auf deine Freigabe.",
+      "toastAuto": "Automodus für diesen Workspace aktiviert.",
+      "toastReview": "Review-Modus aktiv – neue Pläne warten auf deine Freigabe.",
+      "toastManual": "Manueller Modus aktiv – keine automatische Planung."
+    },
+    "goal": {
+      "caption": "Aktuelles Ziel",
+      "stats": "{{total}} Subtasks · {{assigned}} zugewiesen",
+      "none": "Kein aktives Ziel",
+      "note": "„▶ Alle starten“ aktiviert den Orchestrator ({{provider}}/{{model}}). Gib ihm im Terminal ein Ziel — er zerlegt es und delegiert an Subagents."
+    },
+    "reliability": {
+      "preflightOk": "Preflights ok",
+      "blocked": "blockiert",
+      "autoRecoveries": "Auto-Recoveries",
+      "falseSuccess": "False-Success verhindert",
+      "maxStatusAge": "max. Statusalter"
+    },
+    "run": {
+      "usageTitle": "Vom Provider gemeldeter Verbrauch aller Tasks dieses Laufs",
+      "tokens": "Token gesamt",
+      "cost": "Kosten",
+      "steps": "Schritte"
+    },
+    "retro": {
+      "caption": "Retro",
+      "default": "Standard",
+      "ok": "{{succeeded}}/{{total}} ok",
+      "needsWork": "{{n}} Nacharbeit",
+      "failed": "{{n}} Fehler",
+      "avg": "Ø {{value}}"
+    },
+    "usage": {
+      "tokens": "{{value}} Token",
+      "steps": "{{value}} Schritte"
+    },
+    "usageLabels": {
+      "steps": "Schritte",
+      "tokens": "Tokens",
+      "cost": "Kosten"
+    },
+    "live": {
+      "caption": "Live-Lagebericht",
+      "updated": "aktualisiert vor {{age}}",
+      "nextStep": "Als Nächstes",
+      "subagents": "Subagents gerade",
+      "activeWaiting": "{{n}} aktiv / wartend",
+      "notStarted": "Noch nicht gestartet — der Plan wartet auf Freigabe.",
+      "empty": "Keine Subagents aktiv. Der Orchestrator plant oder fasst Ergebnisse zusammen.",
+      "waiting": "wartet",
+      "noSignal": "ohne neues Signal",
+      "working": "arbeitet",
+      "historyTitle": "Vorherige Aktionen dieses Workers",
+      "waitingSince": "wartet seit {{age}}",
+      "updateAgo": "Update vor {{age}}"
+    },
+    "findings": {
+      "caption": "Findings-Board",
+      "showing": "{{shown}} von {{total}} Einträgen",
+      "entryOne": "{{n}} Eintrag",
+      "entryMany": "{{n}} Einträge",
+      "boardTitle": "Von Subagents live geteilte Schnittstellen, Entscheidungen und Blocker",
+      "ago": "vor {{age}}",
+      "filesTitle": "Betroffene Dateien"
+    },
+    "dag": {
+      "caption": "Aufgaben-Zerlegung",
+      "emptyLead": "Noch keine Aufgaben. Sobald der Orchestrator",
+      "emptyTail": "aufruft, erscheinen hier die Teilaufgaben live — jede läuft als echter Subagent im Grid."
+    },
+    "plan": {
+      "waiting": "Plan wartet auf Freigabe",
+      "stats": "{{tasks}} Aufgaben, maximal {{parallel}} parallel",
+      "rejectedWarning": "Die Validierung ersetzte den strukturierten Plan durch einen konservativen Ersatz-Task. Freigeben startet den Ersatz-Task; Ablehnen verwirft ihn.",
+      "normalizedWarning": "Der Vorschlag wurde sicher normalisiert. Bitte vor dem Start prüfen.",
+      "reject": "Ablehnen",
+      "startFallback": "Ersatz-Task starten",
+      "start": "Plan starten"
+    },
+    "dispatch": {
+      "caption": "Dispatch-Protokoll",
+      "ready": "— bereit —"
+    },
+    "task": {
+      "runningYolo": "läuft · yolo",
+      "advisory": "advisory",
+      "inProgress": "In Arbeit",
+      "lastHeartbeat": "Letzter Heartbeat: {{time}}",
+      "noHeartbeat": "Noch kein expliziter Heartbeat empfangen",
+      "heartbeatStale": "Heartbeat veraltet · {{age}}",
+      "heartbeatPending": "Heartbeat ausstehend · {{age}}",
+      "heartbeatAgo": "Heartbeat · vor {{age}}",
+      "lastAction": "Zuletzt: {{action}}",
+      "usageTitle": "Vom Provider gemeldeter Verbrauch dieses Tasks",
+      "usage": "Verbrauch: {{value}}",
+      "subagentTelemetry": "Telemetrie des Subagents",
+      "gateFindings": "Gate-Findings",
+      "autoPr": "Auto-PR: {{status}}",
+      "unknown": "unbekannt",
+      "remoteCi": "Remote-CI: {{status}}",
+      "openPr": "Pull Request öffnen",
+      "openCi": "CI-Check öffnen",
+      "reviewDetails": "Review-Details",
+      "branch": "Branch",
+      "commit": "Commit",
+      "worktree": "Worktree",
+      "hardDeps": "Harte Abhängigkeiten",
+      "advisoryDeps": "Advisory-Abhängigkeiten",
+      "conflictKeys": "Konfliktbereiche",
+      "preflight": "Preflight",
+      "passed": "bestanden",
+      "failed": "fehlgeschlagen",
+      "checks": "{{passed}}/{{total}} Checks",
+      "attempts": "Versuche",
+      "diffLoading": "Diff wird geladen…",
+      "diffRefresh": "Diff aktualisieren",
+      "diffShow": "Git-Diff anzeigen"
+    }
+  },
+  "sidebar": {
+    "aria": "Linke Seitenleiste",
+    "expandAria": "Linke Seitenleiste ausklappen",
+    "collapseAria": "Linke Seitenleiste einklappen",
+    "expandTitle": "Seitenleiste ausklappen",
+    "collapseTitle": "Seitenleiste einklappen",
+    "resize": "Breite der linken Seitenleiste ändern",
+    "on": "An",
+    "off": "Aus",
+    "ok": "OK",
+    "provider": {
+      "checking": "Prüfe…",
+      "missing": "Fehlt",
+      "connected": "Verbunden",
+      "login": "Login",
+      "local": "Lokal",
+      "ready": "Bereit",
+      "installed": "Installiert",
+      "notInstalled": "nicht installiert",
+      "installedDetail": "installiert",
+      "enableGlobal": "{{name}} global aktivieren",
+      "disableGlobal": "{{name}} global deaktivieren",
+      "loginRunning": "Login läuft bereits im Provider-Terminal",
+      "loginTitle": "{{label}}. Vertragus speichert keine Zugangsdaten.",
+      "connect": "{{name}} verbinden",
+      "open": "Offen",
+      "account": "Konto",
+      "cloud": "Cloud"
+    },
+    "github": {
+      "logoutTitle": "GitHub-Verbindung abmelden",
+      "reauth": "GitHub-Berechtigungen erneuern",
+      "connect": "GitHub verbinden",
+      "logoutAria": "GitHub abmelden",
+      "logout": "Abmelden",
+      "renew": "Erneuern"
+    },
+    "retro": {
+      "target": "Ziel: {{target}}",
+      "never": "noch nie",
+      "queue": "{{queued}} in Warteschlange · zuletzt {{last}}",
+      "nameTitle": "Retros nach jedem Lauf in den zentralen Retro-Branch exportieren · Doppelklick: Ziel bearbeiten",
+      "name": "Retro-Sync",
+      "active": "Aktiv",
+      "enable": "Retro-Sync aktivieren",
+      "disable": "Retro-Sync deaktivieren",
+      "githubFirst": "Zuerst GitHub verbinden",
+      "flushTitle": "Warteschlange jetzt exportieren",
+      "flushAria": "Retro-Warteschlange jetzt exportieren",
+      "sync": "Sync",
+      "owner": "Owner",
+      "ownerAria": "Retro-Sync GitHub-Owner",
+      "repo": "Repo",
+      "repoAria": "Retro-Sync GitHub-Repository",
+      "branch": "Branch",
+      "branchAria": "Retro-Sync Branch"
+    },
+    "speech": {
+      "model": "Modell {{model}} · {{language}}",
+      "noKey": "Kein API-Schlüssel hinterlegt",
+      "nameTitle": "Sprache-zu-Text für Voice-Leiste und Ideen-Inbox",
+      "name": "Sprachsteuerung",
+      "keyMissing": "Kein Schlüssel",
+      "setupTitle": "Sprache-zu-Text einrichten (API-Schlüssel, Modell, Sprache)",
+      "openAria": "Sprache-zu-Text-Einstellungen öffnen",
+      "setup": "Einrichten"
+    },
+    "attention": {
+      "orchestrator": "Orchestrator wartet auf deine Rückmeldung.",
+      "agent": "{{name}} wartet auf deine Rückmeldung.",
+      "someAgent": "Ein Subagent"
+    },
+    "profiles": {
+      "caption": "Workspace-Profile",
+      "newTitle": "Neues Profil",
+      "newAria": "Neues Workspace-Profil",
+      "duplicateActiveTitle": "Aktives Profil duplizieren",
+      "duplicateActiveAria": "Aktives Workspace-Profil duplizieren",
+      "startAnotherTitle": "Weiteren Workspace aus diesem Profil starten",
+      "startAnotherAria": "Weiteren Workspace starten",
+      "rowTitle": "Klick: aktivieren · Doppelklick: bearbeiten",
+      "activeCount": "{{n}} aktiv",
+      "duplicateTitle": "Profil „{{name}}“ duplizieren",
+      "duplicateAria": "Workspace-Profil „{{name}}“ duplizieren"
+    },
+    "sessions": {
+      "caption": "Profil-Workspaces",
+      "currentTask": "Aktuelle Aufgabe: {{summary}}",
+      "removeTitle": "Diesen Workspace-Lauf entfernen",
+      "removeAria": "{{label}} entfernen"
+    },
+    "history": {
+      "caption": "Agent-Verlauf",
+      "stored": "{{n}} gespeichert",
+      "reopenTitle": "{{role}} - Chat wieder aufrufen",
+      "failed": "Fehler",
+      "done": "Beendet"
+    },
+    "nav": {
+      "caption": "Navigation",
+      "inboxTitle": "Ideen und Artefakte verwalten",
+      "inbox": "Ideen-Inbox",
+      "inboxSub": "Notizen · Sprache · Dateien",
+      "workspaceTitle": "Agent-Workspace",
+      "workspace": "Workspace",
+      "workspaceSub": "Agents & Terminals",
+      "approvalsTitle": "Alle wartenden Entscheidungen und Laufbudgets",
+      "approvals": "Approval-Inbox",
+      "openCount": "{{n}} offen",
+      "allDecided": "Alles entschieden",
+      "changesTitle": "Verifizierte Diffs, Integrationsstatus und PR-Freigaben",
+      "changes": "Diff & Merge",
+      "changesSub": "Commits · Gates · PR",
+      "diagTitle": "Letzten redigierten Workspace-Run als JSONL exportieren",
+      "diag": "Diagnose exportieren",
+      "diagSub": "Run-Historie · ohne Secrets"
+    },
+    "mcp": {
+      "caption": "MCP-Server",
+      "manageTitle": "MCP-Server verwalten — für alle Agents sichtbar",
+      "manageAria": "MCP-Server verwalten",
+      "addTitle": "MCP-Server hinzufügen, die alle Agents sehen und nutzen können",
+      "add": "＋ MCP-Server anbinden",
+      "inactive": "inaktiv"
+    },
+    "ai": {
+      "caption": "KI-Provider",
+      "refreshTitle": "Installation und Login-Status aller Provider neu prüfen",
+      "refreshAria": "Provider-Status aktualisieren",
+      "online": "{{n}} online"
+    },
+    "infra": {
+      "caption": "Infrastruktur"
+    }
+  },
+  "limits": {
+    "aria": "Vertragus-interne Provider-Gates",
+    "title": "Vertragus-Gates",
+    "activeCount": "{{n}} aktiv",
+    "gateNote": "Lokale Parallelitätsgrenzen für Vertragus-Prozesse · keine API- oder Nutzungsquoten.",
+    "capacityAria": "Einheitliches Kapazitätsmodell",
+    "prewarmedTitle": "Vorgewärmte, interaktive Team-Agents im aktuellen Workspace",
+    "prewarmed": "Vorgewärmt",
+    "prewarmedSub": "interaktiv · Workspace",
+    "parallelTitle": "Maximale parallele Tasks laut Planner-Profil",
+    "parallel": "Task-Parallelität",
+    "parallelSub": "Maximum · Workspace",
+    "activeTitle": "Prozesse, die aktuell einen Provider-Slot belegen",
+    "activeProcesses": "Aktive Prozesse",
+    "activeSub": "global · alle Provider",
+    "waitingTitle": "Prozesse in der globalen Provider-Warteschlange",
+    "waitingProcesses": "Wartende Prozesse",
+    "waitingSub": "global · Provider-Gate",
+    "subhead": "Konfigurierbare Provider-Gates",
+    "subheadRight": "aktiv / Gate (+ wartend)",
+    "tokensTitle": "{{tokens}} Tokens (Eingabe + Ausgabe)",
+    "tokens": "{{tokens}} Tokens",
+    "modelGates": "Modelle global schalten",
+    "enableProvider": "{{name}} global aktivieren",
+    "disableProvider": "{{name}} global deaktivieren",
+    "on": "An",
+    "off": "Aus",
+    "decreaseGate": "{{name}}-Vertragus-Gate verringern",
+    "increaseGate": "{{name}}-Vertragus-Gate erhöhen",
+    "countTitleWaiting": "{{n}} wartend · aktiv / Vertragus-Gate (keine API-Quote)",
+    "countTitle": "aktiv / Vertragus-Gate (keine API-Quote)"
+  },
+  "modals": {
+    "addAgent": {
+      "title": "Agent hinzufügen",
+      "sub": "Provider, Modell und Leistungsstärke festlegen",
+      "closeAria": "Dialog schließen",
+      "provider": "Provider",
+      "strength": "Stärke",
+      "cliDefault": "CLI-Standard",
+      "unavailable": "(nicht verfügbar)",
+      "model": "Modell",
+      "modelPlaceholder": "CLI-Standard / Stärke verwenden",
+      "effective": "Wird gestartet mit",
+      "hint": "Die explizite Modellwahl hat Vorrang vor der gewählten Stärke.",
+      "cancel": "Abbrechen",
+      "starting": "Startet…",
+      "start": "Agent starten"
+    },
+    "handoff": {
+      "title": "Agent-Übergabe",
+      "sub": "Laufende Arbeit an einen neuen Agent vererben",
+      "closeAria": "Übergabe schließen",
+      "cliDefault": "CLI-Standard",
+      "limitDetected": "⚠ {{kind}} erkannt",
+      "manual": "manuelle Übergabe",
+      "bulkLabel": "Alle {{n}} laufenden {{provider}}-Agents in diesem Workspace gemeinsam übergeben. Erfolgreich übernommene Subagents werden gestoppt; Orchestratoren erst nach dem sicheren Wissens-Handshake.",
+      "targetProvider": "Ziel-Provider",
+      "model": "Modell",
+      "taskLabel": "Aufgabe (für den neuen Agent)",
+      "taskPlaceholder": "Was soll der neue Agent fertigstellen?",
+      "summaryLabel": "Aktueller Stand (optional)",
+      "summaryPlaceholder": "Kurzer Vermerk, was schon erledigt ist / wo weitergemacht werden soll.",
+      "noteBulk": "Für jeden der {{n}} Agents wird der jeweilige Terminal-Verlauf als eigene Übergabe-Notiz angehängt.",
+      "noteSingle": "Der bisherige Terminal-Verlauf von {{name}} wird automatisch als Übergabe-Notiz angehängt.",
+      "noteCwd": "Der jeweilige neue Agent startet im bisherigen Arbeitsverzeichnis und macht dort weiter.",
+      "noteOrchestrator": "{{name}} bleibt aktiv, bis der neue Orchestrator Start, Kontext und Wissensstand eindeutig bestätigt hat, und wird erst dann automatisch beendet.",
+      "noteMarked": "{{name}} läuft weiter und wird als „übergeben“ markiert.",
+      "cancel": "Abbrechen",
+      "submitBulk": "{{n}} Agents übergeben",
+      "submit": "Übergeben"
+    },
+    "approvals": {
+      "aria": "Approval-Inbox",
+      "eyebrow": "Mission Control",
+      "title": "Approval-Inbox",
+      "openCount": "{{n}} offen",
+      "budgetsAria": "Laufbudgets",
+      "budgetLine": "{{tokens}} Token · ${{cost}}",
+      "telemetry": "Telemetrie {{reported}}/{{total}} Tasks · Token {{tokens}} · Kosten {{cost}}",
+      "complete": "vollständig",
+      "partial": "teilweise",
+      "tokenCap": "Token-Cap",
+      "usdCap": "USD-Cap",
+      "setCaps": "Caps setzen",
+      "resume": "{{title}} fortsetzen",
+      "close": "Schließen",
+      "truncated": "Die Anzeige wurde sicher gekürzt.",
+      "allDecided": "Alles entschieden",
+      "empty": "Keine Session wartet auf eine Freigabe.",
+      "viewDiff": "Diff ansehen",
+      "kind": {
+        "planReview": "Plan-Review",
+        "prPublication": "PR-Veröffentlichung",
+        "toolPermission": "Tool-Berechtigung",
+        "budgetExceeded": "Budget erreicht",
+        "providerLimit": "Provider-Limit",
+        "blockedTask": "Blockierte Aufgabe"
+      },
+      "actions": {
+        "planApprove": "Plan freigeben",
+        "planReject": "Ablehnen",
+        "publicationApprove": "PR veröffentlichen",
+        "publicationReject": "Nicht veröffentlichen",
+        "permissionAllow": "Einmal erlauben",
+        "permissionDeny": "Verweigern",
+        "taskFallback": "Sicherer Provider-Fallback",
+        "modeEnableAuto": "Auto-Modus aktivieren",
+        "runReset": "Lauf zurücksetzen"
+      }
+    }
+  },
+  "remote": {
+    "eyebrow": "Mission Control",
+    "title": "Sichere Remote-Kommandozentrale",
+    "sub": "Live beobachten, vorhandene Gates freigeben und non-yolo Ziele senden.",
+    "stateActive": "Remote aktiv · {{tunnel}}",
+    "stateOff": "Remote aus",
+    "tunnel": {
+      "title": "Named Cloudflare Tunnel",
+      "desc": "Standardmäßig aus. Der Tunnel bindet ausschließlich an das lokale Gateway auf 127.0.0.1; jeder Daten- und Befehlszugriff benötigt zusätzlich ein Geräte-Token.",
+      "quick": "Ephemeren Quick Tunnel verwenden",
+      "hostname": "Öffentlicher Hostname",
+      "token": "Named-Tunnel-Token",
+      "tokenPlaceholder": "Bereits gespeichert? Leer lassen",
+      "enable": "Sicher aktivieren",
+      "accessTeamDomain": "Cloudflare-Access-Team-Domain (optional)",
+      "accessAudience": "Access-Audience-Tag (optional, immer gemeinsam)",
+      "kill": "Master-Not-Aus"
+    },
+    "pairing": {
+      "title": "Gerät koppeln",
+      "desc": "Der Einmal-Code läuft nach fünf Minuten ab und kann nur einmal eingelöst werden.",
+      "admin": "Admin-Capability für Reset erlauben",
+      "diff": "Mobile Diff-Ansicht erlauben",
+      "push": "Web-Push erlauben",
+      "speech": "Sprach-Transkription erlauben",
+      "tools": "Tool-Freigaben erlauben (approve-tools)",
+      "budget": "Fern-Budget-Caps erlauben",
+      "taskControl": "Task Pause/Resume erlauben",
+      "replan": "Restriktives Live-Replan erlauben",
+      "fallback": "Provider-Fallback bei erkanntem Limit erlauben",
+      "actorId": "Account-ID oder Access-E-Mail",
+      "actorName": "Anzeigename",
+      "scopes": "Workspace-Scopes (standardmäßig keiner)",
+      "session": "Session {{name}}",
+      "allowGoals": "Neue Ziele für dieses Profil erlauben",
+      "generate": "Pairing-QR erzeugen",
+      "qrAlt": "Mission-Control Pairing-QR",
+      "validUntil": "Gültig bis {{time}}"
+    },
+    "devices": {
+      "title": "Gekoppelte Geräte",
+      "empty": "Noch kein aktives Gerät.",
+      "meta": "{{n}} Session-Scope(s) · gekoppelt {{date}}",
+      "revoke": "Widerrufen"
+    }
+  },
+  "git": {
+    "empty": {
+      "checkingAuth": {
+        "title": "GitHub-Status wird geprüft",
+        "detail": "Der Branch-Baum erscheint, sobald der Verbindungsstatus feststeht."
+      },
+      "needsAuth": {
+        "renew": "GitHub-Berechtigungen erneuern",
+        "connect": "GitHub verbinden",
+        "detail": "Für die Workspace-Ansicht ist eine vollständig authentifizierte GitHub-Verbindung nötig."
+      },
+      "needsBinding": {
+        "title": "Kein Repository ausgewählt",
+        "detail": "Wähle oben rechts im Repository-Umschalter ein Repository oder einen Ordner."
+      },
+      "needsRepo": {
+        "title": "Lokales Repository nicht verfügbar",
+        "detail": "Prüfe den gewählten lokalen Pfad oder klone das Repository im Profil-Editor."
+      }
+    },
+    "noHead": "kein HEAD",
+    "locked": "gesperrt",
+    "prunable": "entfernbar",
+    "triggerAria": "Git-Worktree- und Branch-Baum",
+    "triggerTitle": "Read-only Übersicht der lokalen Branches und Worktrees",
+    "worktreeOne": "{{n}} Worktree",
+    "worktreeMany": "{{n}} Worktrees",
+    "tree": "Git-Baum",
+    "closeAria": "Git-Baum schließen",
+    "dialogAria": "Workspace Git-Baum",
+    "headline": "Branches & Worktrees",
+    "repoFallback": "Workspace",
+    "readonly": "Nur Ansicht",
+    "current": "aktuell",
+    "default": "Standard",
+    "noBranches": "Keine lokalen Branches gefunden",
+    "detached": "Detached Worktrees"
+  },
+  "speech": {
+    "title": "Sprache-zu-Text (Cloud)",
+    "note": "API-Schlüssel wird verschlüsselt im Main-Prozess gespeichert und nie an den Renderer zurückgegeben.",
+    "model": "Modell",
+    "language": "Sprache",
+    "endpoint": "Transcriptions-Endpunkt",
+    "apiKey": "API-Schlüssel",
+    "apiKeyStored": "(gespeichert — leer lassen zum Behalten)",
+    "deleteKey": "Schlüssel löschen",
+    "cancel": "Abbrechen",
+    "save": "Speichern"
+  }
+}

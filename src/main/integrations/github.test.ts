@@ -3,9 +3,9 @@ import { githubOwnerFromRemote, parseGithubProjects } from './github'
 
 describe('githubOwnerFromRemote', () => {
   it.each([
-    ['https://github.com/Nehmo101/Orca-Strator.git', 'Nehmo101'],
-    ['git@github.com:Nehmo101/Orca-Strator.git', 'Nehmo101'],
-    ['ssh://git@github.com/Nehmo101/Orca-Strator.git', 'Nehmo101']
+    ['https://github.com/Nehmo101/Vertragus.git', 'Nehmo101'],
+    ['git@github.com:Nehmo101/Vertragus.git', 'Nehmo101'],
+    ['ssh://git@github.com/Nehmo101/Vertragus.git', 'Nehmo101']
   ])('extracts the owner from %s', (remote, expected) => {
     expect(githubOwnerFromRemote(remote)).toBe(expected)
   })

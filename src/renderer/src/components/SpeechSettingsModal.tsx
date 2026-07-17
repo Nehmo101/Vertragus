@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { InboxSpeechSettings } from '@shared/inboxSpeech'
 import { DEFAULT_TRANSCRIPTION_ENDPOINT, DEFAULT_TRANSCRIPTION_MODEL } from '@shared/inboxSpeech'
 import { useAppStore } from '@renderer/store/useAppStore'
@@ -11,6 +12,7 @@ import { useAppStore } from '@renderer/store/useAppStore'
  * returned to the renderer.
  */
 export default function SpeechSettingsModal(): JSX.Element {
+  const { t } = useTranslation()
   const close = useAppStore((state) => state.closeSpeechSettings)
   const bumpSpeechStatus = useAppStore((state) => state.bumpSpeechStatus)
 
@@ -81,27 +83,26 @@ export default function SpeechSettingsModal(): JSX.Element {
       <div className="confirm-backdrop" onClick={close} />
       <div className="confirm-pop inbox-speech-settings" role="dialog" aria-modal="true">
         <div className="head">
-          <b>Sprache-zu-Text (Cloud)</b>
+          <b>{t('speech.title')}</b>
         </div>
         <div className="text">
-          API-Schlüssel wird verschlüsselt im Main-Prozess gespeichert und nie an den Renderer
-          zurückgegeben.
+          {t('speech.note')}
         </div>
         <label className="inbox-field">
-          <span>Modell</span>
+          <span>{t('speech.model')}</span>
           <input value={model} onChange={(e) => setModel(e.target.value)} />
         </label>
         <label className="inbox-field">
-          <span>Sprache</span>
+          <span>{t('speech.language')}</span>
           <input value={language} onChange={(e) => setLanguage(e.target.value)} />
         </label>
         <label className="inbox-field">
-          <span>Transcriptions-Endpunkt</span>
+          <span>{t('speech.endpoint')}</span>
           <input value={endpointUrl} onChange={(e) => setEndpointUrl(e.target.value)} />
         </label>
         <label className="inbox-field">
           <span>
-            API-Schlüssel {settings?.hasApiKey ? '(gespeichert — leer lassen zum Behalten)' : ''}
+            {t('speech.apiKey')} {settings?.hasApiKey ? t('speech.apiKeyStored') : ''}
           </span>
           <input
             type="password"
@@ -115,14 +116,14 @@ export default function SpeechSettingsModal(): JSX.Element {
         <div className="actions">
           {settings?.hasApiKey && (
             <button type="button" className="btn-ghost" disabled={saving} onClick={() => void clearKey()}>
-              Schlüssel löschen
+              {t('speech.deleteKey')}
             </button>
           )}
           <button type="button" className="btn-ghost" onClick={close}>
-            Abbrechen
+            {t('speech.cancel')}
           </button>
           <button type="button" className="btn-primary" disabled={saving} onClick={() => void save()}>
-            Speichern
+            {t('speech.save')}
           </button>
         </div>
       </div>

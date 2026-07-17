@@ -15,7 +15,7 @@ export interface RetroSyncConfig {
 export const RETRO_SYNC_DEFAULTS: RetroSyncConfig = {
   enabled: false,
   repoOwner: 'Nehmo101',
-  repoName: 'Orca-Strator',
+  repoName: 'Vertragus',
   branch: 'retros'
 }
 

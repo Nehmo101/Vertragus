@@ -2,7 +2,7 @@
  * External MCP server definitions shared across main / preload / renderer.
  *
  * These are user-configured Model-Context-Protocol servers (e.g. a filesystem,
- * database or web-search server) that Orca-Strator attaches to the agents it
+ * database or web-search server) that Vertragus attaches to the agents it
  * launches, so every agent — the orchestrator and the individual subagents —
  * can see and use their tools. Pure data + zod only; no Node.js imports so the
  * renderer can import it too.

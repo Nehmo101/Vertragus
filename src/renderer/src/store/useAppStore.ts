@@ -35,7 +35,7 @@ import {
 } from '@shared/repoSwitcher'
 import { normalizeModelCatalog, type ModelCatalog } from '@renderer/modelCatalog'
 import type { ModelPreset } from '@shared/models'
-import { middleEarthWorkspaceName } from '@shared/workspaceNames'
+import { workspacePlaceName } from '@shared/workspaceNames'
 
 const ADD_ROLES = ['Docs / Changelog', 'Refactor / Cleanup', 'Security-Review', 'Perf / Bench']
 
@@ -50,7 +50,7 @@ function errorMessage(error: unknown): string {
 }
 
 export type UiTheme = 'light' | 'dark'
-export type WorkspaceLayout = 'tiles' | 'focus' | 'dag'
+export type WorkspaceLayout = 'tiles' | 'focus' | 'canvas'
 export type UiDensity = 'comfortable' | 'compact'
 
 interface AppState {
@@ -499,7 +499,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       orchestrator: snapshot,
       orchestrators: { [snapshot.workspaceSessionId ?? activeProfileId]: snapshot },
       theme: theme === 'dark' ? 'dark' : 'light',
-      workspaceLayout: layout === 'focus' || layout === 'dag' ? layout : 'tiles',
+      // Legacy persisted value: the old 'dag' list layout became the canvas.
+      workspaceLayout:
+        layout === 'focus' || layout === 'canvas'
+          ? layout
+          : (layout as string) === 'dag'
+            ? 'canvas'
+            : 'tiles',
       uiDensity: density === 'compact' ? density : 'comfortable',
       cliReadable: cliReadable ?? false,
       providerLimits: normalizeProviderLimits(limits),
@@ -912,7 +918,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         }))
         const startedSession = workspaceSessions.find((item) => item.id === workspaceSessionId)
         if (startedSession) {
-          const name = startedSession.name || middleEarthWorkspaceName(startedSession.sequence)
+          const name = startedSession.name || workspacePlaceName(startedSession.sequence)
           get().showToast(`W${startedSession.sequence} ${name} gestartet.`)
         } else {
           get().showToast('Workspace gestartet.')

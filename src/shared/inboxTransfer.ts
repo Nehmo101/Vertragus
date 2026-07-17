@@ -233,7 +233,7 @@ export function previewIdeaTransferBriefing(
   const artifactBlock = artifacts.length > 0 ? artifacts.join('\n') : '_Keine verwertbaren Artefakte._'
 
   const briefing = [
-    '# Orca-Strator — Inbox-Briefing',
+    '# Vertragus — Inbox-Briefing',
     '',
     `- **Transfer-ID:** ${transferId}`,
     `- **Ziel:** ${title || 'Aus Rohkontext ableiten'}`,

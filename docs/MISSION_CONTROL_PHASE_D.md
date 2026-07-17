@@ -35,7 +35,7 @@ dieselben Engine-Methoden über die authentifizierte Command-Whitelist.
 ## Provider-Fallback
 
 `task.fallback` akzeptiert ausschließlich eine Task-ID und benötigt die eigene,
-standardmäßig deaktivierte Capability `provider-fallback`. Orca prüft intern ein
+standardmäßig deaktivierte Capability `provider-fallback`. Vertragus prüft intern ein
 echtes Limit-Signal, wählt selbst einen anderen konfigurierten Provider und setzt
 aus dem gesicherten Recovery-Worktree fort. Prompt, Provider-stdin und Pfad
 verlassen den Main-Prozess nicht.

@@ -4,7 +4,7 @@ import { resolveGithubLocalPath } from '@main/security/localPath'
 
 describe('githubRepo helpers', () => {
   it.each([
-    ['https://github.com/Nehmo101/Orca-Strator.git', 'Nehmo101', 'Orca-Strator'],
+    ['https://github.com/Nehmo101/Vertragus.git', 'Nehmo101', 'Vertragus'],
     ['git@github.com:acme/demo.git', 'acme', 'demo']
   ])('parses owner/repo from %s', (remote, owner, repo) => {
     expect(githubRepoInternals.parseRepoFromRemote(remote)).toEqual({ owner, repo })
@@ -15,14 +15,14 @@ describe('githubRepo helpers', () => {
       githubRepoInternals.remotesMatchBoundRepo(
         'https://github.com/other/repo.git',
         'Nehmo101',
-        'Orca-Strator'
+        'Vertragus'
       )
     ).toBe(false)
     expect(
       githubRepoInternals.remotesMatchBoundRepo(
-        'git@github.com:Nehmo101/Orca-Strator.git',
+        'git@github.com:Nehmo101/Vertragus.git',
         'Nehmo101',
-        'Orca-Strator'
+        'Vertragus'
       )
     ).toBe(true)
   })

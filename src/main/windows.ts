@@ -8,8 +8,9 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { is } from '@electron-toolkit/utils'
 import { installEditContextMenu } from '@main/editMenu'
+import { brandEnv } from '@main/env'
 import { protectWebContents } from '@main/security/navigation'
-import { middleEarthWorkspaceName } from '@shared/workspaceNames'
+import { workspacePlaceName } from '@shared/workspaceNames'
 
 const BG = '#080c15'
 const WINDOW_ICON = join(__dirname, '../renderer/favicon.png')
@@ -19,8 +20,8 @@ let mainWindow: BrowserWindow | null = null
 /** Representative profile for headless ProfileEditor screenshots. */
 const DEMO_PROFILE = {
   id: 'demo',
-  name: 'Uwe',
-  workingDir: 'C:\\git\\UWE',
+  name: 'Demo',
+  workingDir: 'C:\\git\\demo-app',
   orchestrator: { provider: 'claude', model: '', modelPreset: 'balanced', autoOpenSubwindows: true },
   agents: [
     { role: 'backend', provider: 'codex', model: '', count: 2, orchestrated: true, yolo: true },
@@ -31,7 +32,7 @@ const DEMO_PROFILE = {
   autoPr: {
     mode: 'draft-after-checks',
     strategy: 'aggregate',
-    baseBranch: 'DEV',
+    baseBranch: 'main',
     qualityGates: ['corepack pnpm lint', 'corepack pnpm test'],
     labels: [],
     reviewers: []
@@ -75,7 +76,7 @@ export function createMainWindow(): BrowserWindow {
     autoHideMenuBar: true,
     backgroundColor: BG,
     icon: WINDOW_ICON,
-    title: 'Orca-Strator',
+    title: 'Vertragus',
     webPreferences: baseWebPreferences()
   })
   mainWindow = win
@@ -84,17 +85,17 @@ export function createMainWindow(): BrowserWindow {
   })
   installEditContextMenu(win)
 
-  if (!process.env['ORCA_UI_SMOKE']) {
+  if (!brandEnv('UI_SMOKE')) {
     win.on('ready-to-show', () => win.show())
   }
   secureWindow(win)
 
   // Headless UI capture for verification/CI: ORCA_SCREENSHOT=<file.png>.
   // ORCA_DEMO_DAG=1 pushes demo agents + task graph through the real render path.
-  const shotPath = process.env['ORCA_SCREENSHOT']
+  const shotPath = brandEnv('SCREENSHOT')
   if (shotPath) {
     win.webContents.once('did-finish-load', () => {
-      if (process.env['ORCA_DEMO_DAG']) {
+      if (brandEnv('DEMO_DAG')) {
         setTimeout(() => pushDemoState(win), 2500)
       }
       if (process.env['ORCA_DEMO_EDITOR']) {
@@ -118,7 +119,7 @@ export function createMainWindow(): BrowserWindow {
     })
   }
 
-  const smokePath = process.env['ORCA_UI_SMOKE']
+  const smokePath = brandEnv('UI_SMOKE')
   if (smokePath) {
     win.webContents.once('did-finish-load', () => {
       void (async () => {
@@ -140,6 +141,10 @@ export function createMainWindow(): BrowserWindow {
             waitForReady()
           })`)
 
+          // The smoke checks assert the authored German labels; force de.
+          await win.webContents.executeJavaScript(
+            "window.__setAppLanguage ? window.__setAppLanguage('de') : Promise.resolve()"
+          )
           pushDemoState(win)
           win.setSize(900, 800)
           await new Promise((resolve) => setTimeout(resolve, 250))
@@ -189,12 +194,12 @@ export function createMainWindow(): BrowserWindow {
               new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })
             )
             await new Promise((resolve) => requestAnimationFrame(resolve))
-            const keyboardWidth = JSON.parse(localStorage.getItem('orca.layout.v1') ?? '{}')
+            const keyboardWidth = JSON.parse(localStorage.getItem('vertragus.layout.v1') ?? '{}')
               .panels?.['sidebar-left']?.width
 
             leftResizeHandle?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
             await new Promise((resolve) => requestAnimationFrame(resolve))
-            const resetWidth = JSON.parse(localStorage.getItem('orca.layout.v1') ?? '{}')
+            const resetWidth = JSON.parse(localStorage.getItem('vertragus.layout.v1') ?? '{}')
               .panels?.['sidebar-left']?.width
 
             document.querySelector('[aria-label="Linke Seitenleiste einklappen"]')?.click()
@@ -295,7 +300,7 @@ export function createPaneWindow(agentId: string): BrowserWindow {
     autoHideMenuBar: true,
     backgroundColor: BG,
     icon: WINDOW_ICON,
-    title: `Orca-Strator — ${agentId}`,
+    title: `Vertragus — ${agentId}`,
     webPreferences: baseWebPreferences()
   })
   installEditContextMenu(win)
@@ -331,15 +336,15 @@ export function broadcast(channel: string, payload: unknown): void {
 }
 
 /** Dev/CI only: feed representative Phase-2 state through the normal push channels. */
-function pushDemoState(win: BrowserWindow): void {
+export function pushDemoState(win: BrowserWindow): void {
   const profileId = 'default'
   const workspaceSessionId = 'session-demo'
   const now = Date.now()
   const agents = [
     { id: 'orch-01', name: 'Boromir', provider: 'claude', model: 'sonnet', role: 'Orchestrator · plant & verteilt', kind: 'orchestrator', mode: 'interactive', yolo: false, workingDir: '~/repos/checkout', status: 'running', startedAt: now },
-    { id: 'task-02', name: 'Legolas', provider: 'codex', model: 'gpt-5.6', role: 'Task · worker', kind: 'sub', mode: 'task', taskId: 't-1', yolo: false, workingDir: '.', worktree: '.', status: 'running', startedAt: now },
-    { id: 'task-03', name: 'Gimli', provider: 'codex', model: 'gpt-5.6', role: 'Task · worker', kind: 'sub', mode: 'task', taskId: 't-2', yolo: true, workingDir: '.', worktree: '.', status: 'running', startedAt: now },
-    { id: 'task-04', name: 'Frodo', provider: 'codex', model: 'gpt-5.6', role: 'Task · worker', kind: 'sub', mode: 'task', taskId: 't-3', yolo: false, workingDir: '.', status: 'stopped', startedAt: now }
+    { id: 'task-02', name: 'Caronte', provider: 'codex', model: 'gpt-5.6', role: 'Task · worker', kind: 'sub', mode: 'task', taskId: 't-1', yolo: false, workingDir: '.', worktree: '.', status: 'running', startedAt: now },
+    { id: 'task-03', name: 'Nesso', provider: 'codex', model: 'gpt-5.6', role: 'Task · worker', kind: 'sub', mode: 'task', taskId: 't-2', yolo: true, workingDir: '.', worktree: '.', status: 'running', startedAt: now },
+    { id: 'task-04', name: 'Ulisse', provider: 'codex', model: 'gpt-5.6', role: 'Task · worker', kind: 'sub', mode: 'task', taskId: 't-3', yolo: false, workingDir: '.', status: 'stopped', startedAt: now }
   ].map((agent) => ({ ...agent, profileId, workspaceSessionId, engineId: 'engine-demo' }))
   const snapshot = {
     profileId,
@@ -362,10 +367,10 @@ function pushDemoState(win: BrowserWindow): void {
       failuresByProviderAndPlatform: { 'cursor:win32': 1 }
     },
     tasks: [
-      { id: 't-1', title: 'API · POST /checkout', role: 'worker', agentId: 'task-02', agentName: 'Legolas', provider: 'codex', model: 'gpt-5.6', status: 'running', createdAt: now },
-      { id: 't-2', title: 'E2E · Checkout-Spec', role: 'worker', agentId: 'task-03', agentName: 'Gimli', provider: 'codex', model: 'gpt-5.6', status: 'running', yolo: true, createdAt: now + 1 },
+      { id: 't-1', title: 'API · POST /checkout', role: 'worker', agentId: 'task-02', agentName: 'Caronte', provider: 'codex', model: 'gpt-5.6', status: 'running', createdAt: now },
+      { id: 't-2', title: 'E2E · Checkout-Spec', role: 'worker', agentId: 'task-03', agentName: 'Nesso', provider: 'codex', model: 'gpt-5.6', status: 'running', yolo: true, createdAt: now + 1 },
       {
-        id: 't-3', title: 'DB · Migration', role: 'worker', agentId: 'task-04', agentName: 'Frodo',
+        id: 't-3', title: 'DB · Migration', role: 'worker', agentId: 'task-04', agentName: 'Ulisse',
         provider: 'codex', model: 'gpt-5.6', status: 'needs-work', criticality: 'required',
         phase: 'security-review', commit: 'abcdef0123456789',
         note: 'Partieller Commit gesichert; ein Security-Negativtest fehlt.',
@@ -375,7 +380,7 @@ function pushDemoState(win: BrowserWindow): void {
           startedAt: now - 2000, completedAt: now - 1800,
           checks: [{ id: 'workspace', status: 'passed', detail: 'Workspace schreibbar', durationMs: 2 }]
         },
-        attempts: [{ attempt: 1, agentId: 'task-04', agentName: 'Frodo', provider: 'codex', model: 'gpt-5.6', status: 'needs-work', startedAt: now - 5000, finishedAt: now - 1000 }],
+        attempts: [{ attempt: 1, agentId: 'task-04', agentName: 'Ulisse', provider: 'codex', model: 'gpt-5.6', status: 'needs-work', startedAt: now - 5000, finishedAt: now - 1000 }],
         createdAt: now + 2, finishedAt: now + 3
       },
       { id: 't-4', title: 'Review · PR #482', role: 'worker', provider: 'codex', model: 'gpt-5.6', status: 'queued', criticality: 'advisory', createdAt: now + 3 }
@@ -386,7 +391,7 @@ function pushDemoState(win: BrowserWindow): void {
     profileId,
     profileName: 'UI Smoke',
     sequence: 1,
-    name: middleEarthWorkspaceName(1),
+    name: workspacePlaceName(1),
     startedAt: now,
     active: true
   }])

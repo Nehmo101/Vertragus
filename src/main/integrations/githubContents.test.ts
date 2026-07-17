@@ -26,7 +26,7 @@ function jsonResponse(status: number, body: unknown): Response {
   } as unknown as Response
 }
 
-const REF = { owner: 'Nehmo101', repo: 'Orca-Strator', branch: 'retros' }
+const REF = { owner: 'Nehmo101', repo: 'Vertragus', branch: 'retros' }
 
 describe('githubContents', () => {
   const calls: FakeCall[] = []
@@ -89,7 +89,7 @@ describe('githubContents', () => {
     })
     expect(calls).toHaveLength(1)
     expect(calls[0].method).toBe('PUT')
-    expect(calls[0].url).toContain('/repos/Nehmo101/Orca-Strator/contents/runs/2026/07/retro-1.json')
+    expect(calls[0].url).toContain('/repos/Nehmo101/Vertragus/contents/runs/2026/07/retro-1.json')
     expect(calls[0].body).toMatchObject({
       branch: 'retros',
       message: 'Retro retro-1',

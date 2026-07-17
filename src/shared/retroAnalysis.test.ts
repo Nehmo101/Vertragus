@@ -63,7 +63,7 @@ function envelope(kind: string, payload: unknown, path: string): BranchFile {
     json: {
       version: 1,
       exportedAt: NOW,
-      app: { name: 'orca-strator', version: '0.0.0' },
+      app: { name: 'vertragus', version: '0.0.0' },
       machineId: 'abc123def456',
       kind,
       payload

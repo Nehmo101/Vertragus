@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import type { GithubAuthStatus, GitInfo, GitWorktreeInfo } from '@shared/ipc'
 import { githubAuthPresentation, hasUsableGithubAuth } from '@renderer/store/githubAuth'
 import {
@@ -19,6 +21,7 @@ interface Props {
 }
 
 function emptyState(
+  t: TFunction,
   gate: Exclude<GitWorkspaceTreeGate, 'ready'>,
   auth: GithubAuthStatus | null
 ): JSX.Element {
@@ -26,25 +29,25 @@ function emptyState(
   const copy = {
     'checking-auth': {
       icon: '…',
-      title: 'GitHub-Status wird geprüft',
-      detail: 'Der Branch-Baum erscheint, sobald der Verbindungsstatus feststeht.'
+      title: t('git.empty.checkingAuth.title'),
+      detail: t('git.empty.checkingAuth.detail')
     },
     'needs-auth': {
       icon: '◇',
-      title: auth?.needsReauth ? 'GitHub-Berechtigungen erneuern' : 'GitHub verbinden',
+      title: auth?.needsReauth ? t('git.empty.needsAuth.renew') : t('git.empty.needsAuth.connect'),
       detail: auth?.needsReauth
         ? presentation.detail
-        : 'Für die Workspace-Ansicht ist eine vollständig authentifizierte GitHub-Verbindung nötig.'
+        : t('git.empty.needsAuth.detail')
     },
     'needs-binding': {
       icon: '⌁',
-      title: 'Kein Repository ausgewählt',
-      detail: 'Wähle oben rechts im Repository-Umschalter ein Repository oder einen Ordner.'
+      title: t('git.empty.needsBinding.title'),
+      detail: t('git.empty.needsBinding.detail')
     },
     'needs-repo': {
       icon: '⌂',
-      title: 'Lokales Repository nicht verfügbar',
-      detail: 'Prüfe den gewählten lokalen Pfad oder klone das Repository im Profil-Editor.'
+      title: t('git.empty.needsRepo.title'),
+      detail: t('git.empty.needsRepo.detail')
     }
   }[gate]
 
@@ -60,6 +63,7 @@ function emptyState(
 }
 
 function WorktreeRow({ worktree, root }: { worktree: GitWorktreeInfo; root?: string }): JSX.Element {
+  const { t } = useTranslation()
   return (
     <li className="git-tree-worktree" title={worktree.path}>
       <span className="git-tree-rail" aria-hidden="true">
@@ -67,18 +71,18 @@ function WorktreeRow({ worktree, root }: { worktree: GitWorktreeInfo; root?: str
       </span>
       <span className="git-tree-worktree-main">
         <span className="git-tree-path">{compactWorktreePath(worktree.path, root)}</span>
-        <span className="git-tree-head">{worktree.head?.slice(0, 7) ?? 'kein HEAD'}</span>
+        <span className="git-tree-head">{worktree.head?.slice(0, 7) ?? t('git.noHead')}</span>
       </span>
       <span className="git-tree-tags">
         {worktree.bare && <span className="git-tree-tag">bare</span>}
         {worktree.locked && (
           <span className="git-tree-tag warn" title={worktree.locked}>
-            gesperrt
+            {t('git.locked')}
           </span>
         )}
         {worktree.prunable && (
           <span className="git-tree-tag danger" title={worktree.prunable}>
-            entfernbar
+            {t('git.prunable')}
           </span>
         )}
       </span>
@@ -92,6 +96,7 @@ export default function GitWorkspaceTree({
   gitInfo,
   githubAuth
 }: Props): JSX.Element {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [popoverPosition, setPopoverPosition] = useState({ left: 0, top: 0 })
   const anchorRef = useRef<HTMLDivElement>(null)
@@ -143,17 +148,19 @@ export default function GitWorkspaceTree({
       <button
         type="button"
         className={`git-tree-trigger ${gate === 'ready' ? 'ready' : 'locked'}`}
-        aria-label="Git-Worktree- und Branch-Baum"
+        aria-label={t('git.triggerAria')}
         aria-haspopup="dialog"
         aria-expanded={open}
-        title="Read-only Übersicht der lokalen Branches und Worktrees"
+        title={t('git.triggerTitle')}
         onClick={() => setOpen((value) => !value)}
       >
         <span aria-hidden="true">⑂</span>
         <span>
           {gate === 'ready'
-            ? `${worktreeCount} Worktree${worktreeCount === 1 ? '' : 's'}`
-            : 'Git-Baum'}
+            ? worktreeCount === 1
+              ? t('git.worktreeOne', { n: worktreeCount })
+              : t('git.worktreeMany', { n: worktreeCount })
+            : t('git.tree')}
         </span>
       </button>
       {open && createPortal(
@@ -161,25 +168,25 @@ export default function GitWorkspaceTree({
           <button
             type="button"
             className="git-tree-backdrop"
-            aria-label="Git-Baum schließen"
+            aria-label={t('git.closeAria')}
             onClick={() => setOpen(false)}
           />
           <section
             className="git-tree-popover"
             role="dialog"
-            aria-label="Workspace Git-Baum"
+            aria-label={t('git.dialogAria')}
             style={popoverPosition}
           >
             <header className="git-tree-headline">
               <span>
-                <strong>Branches &amp; Worktrees</strong>
-                <small>{repoLabel || 'Workspace'}</small>
+                <strong>{t('git.headline')}</strong>
+                <small>{repoLabel || t('git.repoFallback')}</small>
               </span>
-              <span className="git-tree-readonly">Nur Ansicht</span>
+              <span className="git-tree-readonly">{t('git.readonly')}</span>
             </header>
 
             {gate !== 'ready' ? (
-              emptyState(gate, githubAuth)
+              emptyState(t, gate, githubAuth)
             ) : (
               <div className="git-tree-scroll">
                 {tree && tree.branches.length > 0 ? (
@@ -192,10 +199,10 @@ export default function GitWorkspaceTree({
                           </span>
                           <span className="git-tree-branch-name">{branch.name}</span>
                           {branch.current && (
-                            <span className="git-tree-tag active">aktuell</span>
+                            <span className="git-tree-tag active">{t('git.current')}</span>
                           )}
                           {branch.defaultBranch && !branch.current && (
-                            <span className="git-tree-tag">Standard</span>
+                            <span className="git-tree-tag">{t('git.default')}</span>
                           )}
                         </div>
                         {branch.worktrees.length > 0 && (
@@ -214,13 +221,13 @@ export default function GitWorkspaceTree({
                   </ul>
                 ) : (
                   <div className="git-tree-empty compact">
-                    <strong>Keine lokalen Branches gefunden</strong>
+                    <strong>{t('git.noBranches')}</strong>
                   </div>
                 )}
 
                 {tree && tree.detachedWorktrees.length > 0 && (
                   <section className="git-tree-detached">
-                    <div className="git-tree-section-label">Detached Worktrees</div>
+                    <div className="git-tree-section-label">{t('git.detached')}</div>
                     <ul className="git-tree-worktrees">
                       {tree.detachedWorktrees.map((worktree) => (
                         <WorktreeRow
