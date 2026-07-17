@@ -116,7 +116,7 @@ export function buildEnvelope(kind: RetroExportKind, payload: unknown): RetroExp
   return {
     version: 1,
     exportedAt: Date.now(),
-    app: { name: 'orca-strator', version: app.getVersion() },
+    app: { name: 'vertragus', version: app.getVersion() },
     machineId: machineId(),
     kind,
     payload: redactDiagnosticValue(payload)

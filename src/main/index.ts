@@ -27,7 +27,7 @@ app.whenReady().then(async () => {
   const { agentManager } = agents
   stopAgents = () => agentManager.killAll()
   stopRemote = () => remote.stopRemoteGateway()
-  electronApp.setAppUserModelId('dev.nehmo.orca-strator')
+  electronApp.setAppUserModelId('dev.nehmo.vertragus')
   installEditMenu()
 
   app.on('browser-window-created', (_, window) => {

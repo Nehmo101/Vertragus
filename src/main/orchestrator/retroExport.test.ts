@@ -94,7 +94,7 @@ describe('retroExport', () => {
     })
     expect(envelope.version).toBe(1)
     expect(envelope.kind).toBe('run-retro')
-    expect(envelope.app).toEqual({ name: 'orca-strator', version: '0.0.0-test' })
+    expect(envelope.app).toEqual({ name: 'vertragus', version: '0.0.0-test' })
     expect(envelope.machineId).toMatch(/^[a-f0-9]{12}$/)
     const payload = envelope.payload as { goal: string; apiKey: string }
     expect(payload.goal).toContain('[redacted]')

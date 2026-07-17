@@ -86,7 +86,7 @@ function buildMcpServer(
   clientIdentity?: HandoffClientIdentity
 ): McpServer {
   const server = new McpServer(
-    { name: 'orca-strator', version: '0.1.0' },
+    { name: 'vertragus', version: '0.1.0' },
     {
       instructions: [
         'You are the Vertragus orchestrator. Plan and delegate instead of editing code yourself.',
