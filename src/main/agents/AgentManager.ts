@@ -1013,7 +1013,7 @@ export class AgentManager extends EventEmitter {
     this.pushData(
       managed,
       `\x1b[36m▶ Sicherer ${def.label}-Login über die offizielle CLI\x1b[0m\r\n` +
-        '\x1b[90mOrca speichert keine Tokens oder Passwörter. Folge den Hinweisen der CLI.\x1b[0m\r\n\r\n'
+        '\x1b[90mVertragus speichert keine Tokens oder Passwörter. Folge den Hinweisen der CLI.\x1b[0m\r\n\r\n'
     )
 
     try {
