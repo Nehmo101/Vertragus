@@ -318,7 +318,7 @@ export default function App(): JSX.Element {
     return (
       <main className="pair-screen">
         <div className="orca-mark">O</div>
-        <span className="eyebrow">Orca-Strator</span>
+        <span className="eyebrow">VERTRAGVS</span>
         <h1>Mission Control koppeln</h1>
         <p>Scanne den QR-Code im Desktop oder trage den einmaligen Pairing-Code ein.</p>
         {error && <div className="error">{error}</div>}
@@ -333,7 +333,7 @@ export default function App(): JSX.Element {
   return (
     <div className="app">
       <header>
-        <div><span className="eyebrow">Orca-Strator</span><h1>Mission Control</h1></div>
+        <div><span className="eyebrow">VERTRAGVS</span><h1>Mission Control</h1></div>
         <span className={`connection ${connected ? 'online' : ''}`}>{connected ? 'Live' : 'Verbinde…'}</span>
       </header>
       {error && <div className="error" onClick={() => setError(undefined)}>{error}</div>}
