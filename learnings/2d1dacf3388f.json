@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784327932000,
+  "exportedAt": 1784329470012,
   "app": {
     "name": "vertragus",
     "version": "0.1.50-main.1.g17e5313"
@@ -8,6 +8,34 @@
   "machineId": "2d1dacf3388f",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrpjp1z8-1-mm7fpm",
+      "provider": "claude",
+      "model": "claude-opus-4-8",
+      "role": "electron-core",
+      "kind": "strength",
+      "insight": "Diagnostiziert Umgebungs-/Permission-Blocker methodisch und eskaliert korrekt statt zu raten",
+      "evidence": "Argenti isolierte in Lauf 3 präzise, dass Worktree-Writes vom Permission-Hook abgelehnt werden, während Memory-Writes funktionieren, und verifizierte mit gezielten Minimal-Writes ('Orca permission denied or timed out')",
+      "source": "orchestrator",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 1,
+      "createdAt": 1784329469252,
+      "updatedAt": 1784329469252
+    },
+    {
+      "id": "learning-mrpjp1z8-2-3j5en1",
+      "provider": "claude",
+      "model": "claude-opus-4-8",
+      "role": "electron-core",
+      "kind": "weakness",
+      "insight": "Verbrennt bei blockiertem Schreibzugriff viel Budget in Retry-Diagnostik statt früh das strukturierte Blocker-Kurzresultat zu liefern",
+      "evidence": "In Lauf 3 ~33k Output-Tokens / ~3,9 USD über 22 Minuten ohne eine einzige geschriebene Datei; das angewiesene Blocker-Kurzresultat kam bis zum manuellen Stopp nicht",
+      "source": "orchestrator",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 1,
+      "createdAt": 1784329469252,
+      "updatedAt": 1784329469252
+    },
     {
       "id": "learning-mrpis2uy-1-vuo5km",
       "provider": "claude",
