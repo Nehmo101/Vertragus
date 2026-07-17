@@ -36,27 +36,32 @@ export const STATUS_THEME: Record<AgentStatus, StatusTheme> = {
   stopped: { dot: 'var(--stop)', text: 'var(--stop-text)', label: 'gestoppt' }
 }
 
-/** xterm.js theme matching the terminal design tokens. */
+/**
+ * xterm.js theme mirroring the dark design tokens in cozy-organic.css
+ * (xterm needs concrete values, not CSS variables). Palette-Regel aus
+ * docs/BRAND.md: Bronze für Akzente, Verdigris für Lauf-Zustände; die
+ * ANSI-Slots blau/magenta bleiben bewusst in der warmen Farbwelt.
+ */
 export const XTERM_THEME = {
-  background: '#22190f',
-  foreground: '#ece0cb',
-  cursor: '#f0a86a',
-  cursorAccent: '#22190f',
-  selectionBackground: 'rgba(240,168,106,0.28)',
-  black: '#140f0a',
+  background: '#14171c',
+  foreground: '#eae6db',
+  cursor: '#cba35a',
+  cursorAccent: '#14171c',
+  selectionBackground: 'rgba(203,163,90,0.28)',
+  black: '#0d1015',
   red: '#d9735c',
-  green: '#a9c483',
-  yellow: '#e6b45f',
-  blue: '#f0a86a',
-  magenta: '#e79a58',
-  cyan: '#a9c483',
-  white: '#ece0cb',
-  brightBlack: '#93856b',
+  green: '#3e9d82',
+  yellow: '#e29b4b',
+  blue: '#cba35a',
+  magenta: '#f0a068',
+  cyan: '#7fb8a6',
+  white: '#eae6db',
+  brightBlack: '#7c7a70',
   brightRed: '#f0a08c',
-  brightGreen: '#b6d38f',
-  brightYellow: '#f0c885',
-  brightBlue: '#ffca9f',
-  brightMagenta: '#f0a86a',
-  brightCyan: '#cbdbb1',
-  brightWhite: '#f3e8d5'
+  brightGreen: '#8fd0ba',
+  brightYellow: '#f0c08a',
+  brightBlue: '#e4c888',
+  brightMagenta: '#f0dcaf',
+  brightCyan: '#a9d6c9',
+  brightWhite: '#f5f1e6'
 }
