@@ -1,0 +1,136 @@
+{
+  "version": 1,
+  "exportedAt": 1784329469265,
+  "app": {
+    "name": "vertragus",
+    "version": "0.1.50-main.1.g17e5313"
+  },
+  "machineId": "2d1dacf3388f",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrpjohl2-plan-mrpiv8io-3",
+    "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+    "workspaceSessionId": "58b732e9-403f-4984-9687-90a3fa71fbf6",
+    "planId": "plan-mrpiv8io-3",
+    "goal": "Canvas-First UI-Overhaul: Canvas als Default-Control-Center, Orchestrator-Chat in der Canvas, frei schwebendes Voice-Overlay mit App-Wissen und Sprachaktionen (Pipeline STT→LLM→TTS im Main-Prozess), plus UI-Polish (Command-Palette, A11y, Dark-Theme)",
+    "status": "stopped",
+    "summary": "Lauf 3 manuell gestoppt (0/9 Tasks): Der Orca-Permission-Broker verweigerte allen Nicht-YOLO-Workern jede Schreiboperation (60s-Timeout → deny). YOLO-Master der UI wirkt nur auf neu gespawnte Teams (spawnProfileTeam), nicht auf Plan-Worker einer laufenden Session — deren yolo kommt aus dem beim Session-Start geklonten boundProfile (slot.yolo || yoloDefault). Codex- und Cursor-Worker kamen nie zum Zug (nur queued). Plan und Blocker-Analyse wurden im Repo dokumentiert.",
+    "modelStats": [
+      {
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "roles": [
+          "electron-core",
+          "security-reviewer"
+        ],
+        "tasks": 5,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 5,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 5,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "costUsd": 3.926821499999999,
+        "avgDurationMs": 1364763
+      },
+      {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "roles": [
+          "renderer-ui"
+        ],
+        "tasks": 3,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 3,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 3,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "avgDurationMs": 1364761,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      },
+      {
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "roles": [
+          "test-writer"
+        ],
+        "tasks": 1,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 1,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 1,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "avgDurationMs": 1364765,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrpjp1z8-1-mm7fpm",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "electron-core",
+        "kind": "strength",
+        "insight": "Diagnostiziert Umgebungs-/Permission-Blocker methodisch und eskaliert korrekt statt zu raten",
+        "evidence": "Argenti isolierte in Lauf 3 präzise, dass Worktree-Writes vom Permission-Hook abgelehnt werden, während Memory-Writes funktionieren, und verifizierte mit gezielten Minimal-Writes ('Orca permission denied or timed out')",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784329469252,
+        "updatedAt": 1784329469252
+      },
+      {
+        "id": "learning-mrpjp1z8-2-3j5en1",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "electron-core",
+        "kind": "weakness",
+        "insight": "Verbrennt bei blockiertem Schreibzugriff viel Budget in Retry-Diagnostik statt früh das strukturierte Blocker-Kurzresultat zu liefern",
+        "evidence": "In Lauf 3 ~33k Output-Tokens / ~3,9 USD über 22 Minuten ohne eine einzige geschriebene Datei; das angewiesene Blocker-Kurzresultat kam bis zum manuellen Stopp nicht",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784329469252,
+        "updatedAt": 1784329469252
+      }
+    ],
+    "createdAt": 1784329442822,
+    "exportQueuedAt": 1784329469258
+  }
+}
