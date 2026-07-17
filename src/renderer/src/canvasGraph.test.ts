@@ -50,7 +50,8 @@ describe('buildCanvasGraph', () => {
         source: 'a',
         target: 'b',
         animated: true,
-        className: 'canvas-edge-hard running'
+        className: 'canvas-edge-hard running',
+        markerEnd: expect.objectContaining({ type: 'arrowclosed' })
       })
     ])
   })

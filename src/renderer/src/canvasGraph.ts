@@ -8,8 +8,18 @@
  * Nodes without a stored position are laid out left-to-right with dagre.
  */
 import dagre from 'dagre'
-import type { Edge, Node } from '@xyflow/react'
+import { MarkerType, type Edge, type Node } from '@xyflow/react'
 import type { OrcaTask, SubagentFinding } from '@shared/orchestrator'
+
+/* Arrowhead colors are fixed midtones that read on both themes — SVG marker
+   fills cannot resolve CSS custom properties. */
+const ARROW_NEUTRAL = '#8a8b84'
+const ARROW_VERDIGRIS = '#2f7d6d'
+const ARROW_BRONZE = '#b08a3e'
+
+function arrow(color: string): Edge['markerEnd'] {
+  return { type: MarkerType.ArrowClosed, width: 15, height: 15, color }
+}
 
 export const ORCHESTRATOR_NODE_ID = 'orchestrator'
 
@@ -69,7 +79,8 @@ function taskEdges(tasks: readonly OrcaTask[], hasOrchestrator: boolean): Edge[]
         source: dep,
         target: task.id,
         animated: running,
-        className: running ? 'canvas-edge-hard running' : 'canvas-edge-hard'
+        className: running ? 'canvas-edge-hard running' : 'canvas-edge-hard',
+        markerEnd: arrow(running ? ARROW_VERDIGRIS : ARROW_NEUTRAL)
       })
     }
     for (const dep of (task.advisoryDependsOn ?? []).filter((d) => known.has(d))) {
@@ -77,7 +88,8 @@ function taskEdges(tasks: readonly OrcaTask[], hasOrchestrator: boolean): Edge[]
         id: `adv-${dep}-${task.id}`,
         source: dep,
         target: task.id,
-        className: 'canvas-edge-advisory'
+        className: 'canvas-edge-advisory',
+        markerEnd: arrow(ARROW_BRONZE)
       })
     }
     if (hasOrchestrator && hardDeps.length === 0) {
@@ -86,7 +98,8 @@ function taskEdges(tasks: readonly OrcaTask[], hasOrchestrator: boolean): Edge[]
         source: ORCHESTRATOR_NODE_ID,
         target: task.id,
         animated: running,
-        className: running ? 'canvas-edge-root running' : 'canvas-edge-root'
+        className: running ? 'canvas-edge-root running' : 'canvas-edge-root',
+        markerEnd: arrow(running ? ARROW_VERDIGRIS : ARROW_BRONZE)
       })
     }
   }
