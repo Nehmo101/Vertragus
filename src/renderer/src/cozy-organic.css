@@ -219,6 +219,60 @@ body {
   font-size: 9.5px;
   letter-spacing: 0.14em;
 }
+.voice-target-switch {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+}
+.voice-target-btn {
+  padding: 3px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 12px;
+  cursor: pointer;
+}
+.voice-target-btn.active {
+  background: var(--sage);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+.voice-target-btn.orchestrator.active {
+  background: var(--accent);
+}
+.voice-target-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.vwave {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 18px;
+}
+.vwave i {
+  width: 3px;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--sage);
+  transform: scaleY(0.35);
+  transform-origin: center;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .vwave i {
+    animation: vwave 1s ease-in-out infinite;
+  }
+  .vwave i:nth-child(2) { animation-delay: 0.12s; }
+  .vwave i:nth-child(3) { animation-delay: 0.24s; }
+  .vwave i:nth-child(4) { animation-delay: 0.36s; }
+  .vwave i:nth-child(5) { animation-delay: 0.48s; }
+  @keyframes vwave {
+    0%, 100% { transform: scaleY(0.35); }
+    50% { transform: scaleY(1); }
+  }
+}
+
 .lang-switch {
   display: flex;
   overflow: hidden;

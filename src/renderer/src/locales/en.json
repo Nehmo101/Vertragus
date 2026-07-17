@@ -52,7 +52,41 @@
       "decision": "Decision",
       "blocker": "Blocker",
       "insight": "Insight"
-    }
+    },
+    "terminalAria": "Terminal preview of {{name}}",
+    "terminalOpen": "Double-click: focus the terminal pane",
+    "dropHint": "Drop a file here → path goes to {{name}}",
+    "dropSent": "Path inserted for {{name}} — press Enter in the terminal to send",
+    "dropNoAgent": "No agent assigned to this task yet"
+  },
+  "voice": {
+    "aria": "Voice control",
+    "sendTo": "Speak to",
+    "targetGroup": "Choose the voice target",
+    "noAgent": "no agent selected",
+    "orchestrator": "Orchestrator",
+    "noOrchestrator": "No orchestrator active in this workspace",
+    "state": {
+      "idle": "Ready",
+      "recording": "Recording",
+      "transcribing": "Transcribing…",
+      "review": "Review draft",
+      "failed": "Error"
+    },
+    "record": "Record",
+    "stop": "Stop",
+    "cancel": "Cancel",
+    "recordTitle": "Start push-to-talk",
+    "stopTitle": "Stop recording",
+    "configureFirst": "Set up STT access via ⚙ first",
+    "settingsTitle": "Set up speech-to-text (API key, model, language)",
+    "settingsAria": "Open speech-to-text settings",
+    "reviewAria": "Edit the transcript before sending",
+    "discard": "Discard",
+    "insert": "Insert",
+    "send": "Send",
+    "errorSetupTitle": "Open settings and add an API key",
+    "errorSetupAction": "set up now"
   },
   "titlebar": {
     "languageGroup": "Choose language",
