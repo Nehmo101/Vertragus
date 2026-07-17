@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { setAppLanguage, type ResolvedLanguage } from '@renderer/i18n'
 import { useAppStore, effectiveRepoRef, knownRepos } from '@renderer/store/useAppStore'
 import type { WorkspaceProfile } from '@shared/profile'
 import { resolveModel } from '@shared/models'
@@ -42,6 +44,8 @@ function profileAgentCount(p: WorkspaceProfile): number {
 
 export default function TitleBar(): JSX.Element {
   const store = useAppStore()
+  const { t, i18n } = useTranslation()
+  const activeLanguage: ResolvedLanguage = i18n.language.startsWith('de') ? 'de' : 'en'
   const clock = useClock()
   const [menuOpen, setMenuOpen] = useState(false)
   const [confirmKill, setConfirmKill] = useState(false)
@@ -152,7 +156,7 @@ export default function TitleBar(): JSX.Element {
                   <span className="wordmark-sub-separator" aria-hidden="true">{'\u00b7'}</span>
                   <span
                     className="wordmark-version"
-                    title={`Vertragus Version ${store.appInfo.version}`}
+                    title={t('titlebar.versionTitle', { version: store.appInfo.version })}
                   >
                     v{store.appInfo.version}
                   </span>
@@ -204,6 +208,20 @@ export default function TitleBar(): JSX.Element {
         </div>
 
         <div className="spacer" />
+
+        <div className="lang-switch no-drag" role="group" aria-label={t('titlebar.languageGroup')}>
+          {(['de', 'en'] as const).map((language) => (
+            <button
+              key={language}
+              type="button"
+              className={`lang-btn ${activeLanguage === language ? 'active' : ''}`}
+              aria-pressed={activeLanguage === language}
+              onClick={() => void setAppLanguage(language)}
+            >
+              {language.toUpperCase()}
+            </button>
+          ))}
+        </div>
 
         <div className="live-counter no-drag">
           <span className="pulse-dot" />

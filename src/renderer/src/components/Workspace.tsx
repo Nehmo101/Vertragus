@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import {
   useAppStore,
   activeProfile,
@@ -11,13 +12,14 @@ import CanvasBoard from '@renderer/components/CanvasBoard'
 import VoiceBar from '@renderer/components/VoiceBar'
 import styles from './responsiveGuards.module.css'
 
-const LAYOUTS: Array<{ id: WorkspaceLayout; icon: string; label: string }> = [
-  { id: 'tiles', icon: '▦', label: 'Kacheln' },
-  { id: 'focus', icon: '▭', label: 'Fokus' },
-  { id: 'canvas', icon: '✦', label: 'Canvas' }
+const LAYOUTS: Array<{ id: WorkspaceLayout; icon: string }> = [
+  { id: 'tiles', icon: '▦' },
+  { id: 'focus', icon: '▭' },
+  { id: 'canvas', icon: '✦' }
 ]
 
 export default function Workspace(): JSX.Element {
+  const { t } = useTranslation()
   const profiles = useAppStore((state) => state.profiles)
   const activeProfileId = useAppStore((state) => state.activeProfileId)
   const activeWorkspaceSessionId = useAppStore((state) => state.activeWorkspaceSessionId)
@@ -45,42 +47,46 @@ export default function Workspace(): JSX.Element {
     ? selectedAgentId
     : (sortedAgents[0]?.id ?? null)
   const selectedAgent = sortedAgents.find((agent) => agent.id === focusedId)
+  const layoutLabel = (id: WorkspaceLayout): string => t(`workspace.layouts.${id}`)
 
   return (
-    <main className={`workspace ${styles.workspace} workspace-${workspaceLayout}`} aria-label="Agent-Workspace">
+    <main
+      className={`workspace ${styles.workspace} workspace-${workspaceLayout}`}
+      aria-label={t('workspace.aria')}
+    >
       <div className="ws-header">
         <label className="workspace-picker">
-          <span>Workspace</span>
+          <span>{t('workspace.picker')}</span>
           <select
             value={activeProfileId}
             onChange={(event) => void actions.selectProfile(event.target.value)}
-            aria-label="Aktives Workspace-Profil wählen"
+            aria-label={t('workspace.pickProfile')}
           >
             {profiles.map((item) => (
               <option key={item.id} value={item.id}>
-                {item.name} — {item.workingDir || 'kein Ordner'}
+                {item.name} — {item.workingDir || t('workspace.noFolder')}
               </option>
             ))}
           </select>
         </label>
-        <div className="workspace-context" aria-label="Workspace-Kontext">
+        <div className="workspace-context" aria-label={t('workspace.context')}>
           {gitInfo?.isRepo && (
             <span
               className={`workspace-context-chip ${gitInfo.dirty ? 'dirty' : ''}`}
               title={gitInfo.root}
             >
-              Branch: {gitInfo.branch ?? 'unbekannt'}
+              {t('workspace.branch')}: {gitInfo.branch ?? t('workspace.unknown')}
             </span>
           )}
           {profile?.githubProject && (
             <span className="workspace-context-chip board" title={profile.githubProject.url}>
-              Board: {profile.githubProject.title} · #{profile.githubProject.number}
+              {t('workspace.board')}: {profile.githubProject.title} · #{profile.githubProject.number}
             </span>
           )}
         </div>
         <div className="spacer" />
         <span className="ws-count">
-          {allAgents.length} Agents · {LAYOUTS.find((item) => item.id === workspaceLayout)?.label}
+          {allAgents.length} {t('workspace.agents')} · {layoutLabel(workspaceLayout)}
         </span>
         {!activeRunning && (
           <button
@@ -88,7 +94,7 @@ export default function Workspace(): JSX.Element {
             className="clean-btn workspace-start-btn"
             onClick={() => void actions.startAll()}
           >
-            Workspace starten
+            {t('workspace.start')}
           </button>
         )}
         {allAgents.length > 0 && (
@@ -97,22 +103,22 @@ export default function Workspace(): JSX.Element {
             <button
               type="button"
               className="clean-btn"
-              title="Workspace leeren: alle Agents stoppen und entfernen"
+              title={t('workspace.cleanTitle')}
               onClick={() => void actions.cleanWorkspace()}
             >
-              🧹 Leeren
+              {t('workspace.clean')}
             </button>
           </>
         )}
         <div className="ws-divider" />
-        <div className="layout-switch" role="group" aria-label="Workspace-Layout">
+        <div className="layout-switch" role="group" aria-label={t('workspace.layoutGroup')}>
           {LAYOUTS.map((layout) => (
             <button
               key={layout.id}
               type="button"
               className={`layout-btn ${workspaceLayout === layout.id ? 'active' : ''}`}
-              title={`${layout.label}-Layout`}
-              aria-label={`${layout.label}-Layout aktivieren`}
+              title={t('workspace.layoutTitle', { label: layoutLabel(layout.id) })}
+              aria-label={t('workspace.layoutActivate', { label: layoutLabel(layout.id) })}
               aria-pressed={workspaceLayout === layout.id}
               onClick={() => actions.setWorkspaceLayout(layout.id)}
             >
@@ -130,11 +136,11 @@ export default function Workspace(): JSX.Element {
         <div className="ws-grid">
           {sortedAgents.length === 0 && (
             <div className="ws-empty">
-              <div className="big">Keine Agents aktiv</div>
+              <div className="big">{t('workspace.empty')}</div>
               <div>
-                „▶ Alle starten“ startet das Profil{' '}
-                <b style={{ color: 'var(--text-2)' }}>{profile?.name ?? '—'}</b> — oder unten
-                einen einzelnen Agent hinzufügen.
+                {t('workspace.emptyHintLead')}{' '}
+                <b style={{ color: 'var(--text-2)' }}>{profile?.name ?? '—'}</b>{' '}
+                {t('workspace.emptyHintTail')}
               </div>
             </div>
           )}
@@ -155,8 +161,8 @@ export default function Workspace(): JSX.Element {
           ))}
           <button type="button" className="add-tile" onClick={() => actions.openAddAgent()}>
             <span className="plus">＋</span>
-            <span className="t1">Agent hinzufügen</span>
-            <span className="t2">Provider &amp; Modell wählen</span>
+            <span className="t1">{t('workspace.addAgent')}</span>
+            <span className="t2">{t('workspace.addAgentSub')}</span>
           </button>
         </div>
         )}

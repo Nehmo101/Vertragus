@@ -1,0 +1,61 @@
+{
+  "workspace": {
+    "aria": "Agent workspace",
+    "picker": "Workspace",
+    "pickProfile": "Choose the active workspace profile",
+    "noFolder": "no folder",
+    "context": "Workspace context",
+    "branch": "Branch",
+    "unknown": "unknown",
+    "board": "Board",
+    "agents": "agents",
+    "start": "Start workspace",
+    "clean": "🧹 Clear",
+    "cleanTitle": "Clear workspace: stop and remove all agents",
+    "layoutGroup": "Workspace layout",
+    "layoutTitle": "{{label}} layout",
+    "layoutActivate": "Activate the {{label}} layout",
+    "empty": "No agents active",
+    "emptyHintLead": "“▶ Start all” launches the profile",
+    "emptyHintTail": "— or add a single agent below.",
+    "addAgent": "Add agent",
+    "addAgentSub": "Choose provider & model",
+    "layouts": {
+      "tiles": "Tiles",
+      "focus": "Focus",
+      "canvas": "Canvas"
+    }
+  },
+  "canvas": {
+    "aria": "Task canvas",
+    "emptyTitle": "The canvas is ready",
+    "emptyHint": "Start the workspace or give the orchestrator a goal — tasks will appear here as nodes.",
+    "orchestrator": "Orchestrator",
+    "planning": "planning · {{count}} tasks",
+    "noGoal": "no active goal",
+    "goal": "Goal: “{{title}}”",
+    "heartbeatPending": "Heartbeat pending",
+    "heartbeatSeconds": "Heartbeat {{seconds}}s ago",
+    "heartbeatMinutes": "Heartbeat {{minutes}}m ago",
+    "status": {
+      "queued": "queued",
+      "paused": "paused",
+      "waiting": "waiting",
+      "running": "running",
+      "success": "done",
+      "needs-work": "needs work",
+      "error": "error",
+      "stopped": "stopped"
+    },
+    "kind": {
+      "interface": "Interface",
+      "decision": "Decision",
+      "blocker": "Blocker",
+      "insight": "Insight"
+    }
+  },
+  "titlebar": {
+    "languageGroup": "Choose language",
+    "versionTitle": "Vertragus version {{version}}"
+  }
+}

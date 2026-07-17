@@ -219,6 +219,27 @@ body {
   font-size: 9.5px;
   letter-spacing: 0.14em;
 }
+.lang-switch {
+  display: flex;
+  overflow: hidden;
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+}
+.lang-btn {
+  padding: 3px 9px;
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+.lang-btn.active {
+  background: var(--sage);
+  color: var(--on-accent);
+  font-weight: 600;
+}
 .tb-divider {
   height: 26px;
   margin: 0 3px;

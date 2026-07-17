@@ -1,0 +1,61 @@
+{
+  "workspace": {
+    "aria": "Agent-Workspace",
+    "picker": "Workspace",
+    "pickProfile": "Aktives Workspace-Profil wählen",
+    "noFolder": "kein Ordner",
+    "context": "Workspace-Kontext",
+    "branch": "Branch",
+    "unknown": "unbekannt",
+    "board": "Board",
+    "agents": "Agents",
+    "start": "Workspace starten",
+    "clean": "🧹 Leeren",
+    "cleanTitle": "Workspace leeren: alle Agents stoppen und entfernen",
+    "layoutGroup": "Workspace-Layout",
+    "layoutTitle": "{{label}}-Layout",
+    "layoutActivate": "{{label}}-Layout aktivieren",
+    "empty": "Keine Agents aktiv",
+    "emptyHintLead": "„▶ Alle starten“ startet das Profil",
+    "emptyHintTail": "— oder unten einen einzelnen Agent hinzufügen.",
+    "addAgent": "Agent hinzufügen",
+    "addAgentSub": "Provider & Modell wählen",
+    "layouts": {
+      "tiles": "Kacheln",
+      "focus": "Fokus",
+      "canvas": "Canvas"
+    }
+  },
+  "canvas": {
+    "aria": "Aufgaben-Canvas",
+    "emptyTitle": "Canvas ist bereit",
+    "emptyHint": "Starte den Workspace oder gib dem Orchestrator ein Ziel — Tasks erscheinen hier als Knoten.",
+    "orchestrator": "Orchestrator",
+    "planning": "plant · {{count}} Tasks",
+    "noGoal": "kein aktives Ziel",
+    "goal": "Ziel: „{{title}}“",
+    "heartbeatPending": "Heartbeat ausstehend",
+    "heartbeatSeconds": "Heartbeat vor {{seconds}}s",
+    "heartbeatMinutes": "Heartbeat vor {{minutes}}m",
+    "status": {
+      "queued": "geplant",
+      "paused": "pausiert",
+      "waiting": "wartet",
+      "running": "läuft",
+      "success": "fertig",
+      "needs-work": "Nacharbeit",
+      "error": "Fehler",
+      "stopped": "gestoppt"
+    },
+    "kind": {
+      "interface": "Schnittstelle",
+      "decision": "Entscheidung",
+      "blocker": "Blocker",
+      "insight": "Erkenntnis"
+    }
+  },
+  "titlebar": {
+    "languageGroup": "Sprache wählen",
+    "versionTitle": "Vertragus Version {{version}}"
+  }
+}

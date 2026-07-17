@@ -32,25 +32,9 @@ import {
 import LoreName from '@renderer/components/LoreName'
 import { summarizeUsage } from '@shared/telemetry'
 import { formatTokenCount, formatUsd } from '@renderer/telemetryFormat'
-import type { SubagentFindingKind, TaskStatus } from '@shared/orchestrator'
-
-const NOTE_KIND_LABEL: Record<SubagentFindingKind, string> = {
-  interface: 'Schnittstelle',
-  decision: 'Entscheidung',
-  blocker: 'Blocker',
-  insight: 'Erkenntnis'
-}
-
-const STATUS_LABEL: Record<TaskStatus, string> = {
-  queued: 'geplant',
-  paused: 'pausiert',
-  waiting: 'wartet',
-  running: 'läuft',
-  success: 'fertig',
-  'needs-work': 'Nacharbeit',
-  error: 'Fehler',
-  stopped: 'gestoppt'
-}
+import type { TaskStatus } from '@shared/orchestrator'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 
 function statusClass(status: TaskStatus): string {
   if (status === 'running') return 'running'
@@ -59,15 +43,20 @@ function statusClass(status: TaskStatus): string {
   return 'idle'
 }
 
-function heartbeatText(lastHeartbeatAt: number | undefined, createdAt: number): string | null {
+function heartbeatText(
+  t: TFunction,
+  lastHeartbeatAt: number | undefined,
+  createdAt: number
+): string {
   const base = lastHeartbeatAt ?? createdAt
   const seconds = Math.max(0, Math.floor((Date.now() - base) / 1000))
-  if (lastHeartbeatAt == null) return 'Heartbeat ausstehend'
-  if (seconds < 60) return `Heartbeat vor ${seconds}s`
-  return `Heartbeat vor ${Math.floor(seconds / 60)}m`
+  if (lastHeartbeatAt == null) return t('canvas.heartbeatPending')
+  if (seconds < 60) return t('canvas.heartbeatSeconds', { seconds })
+  return t('canvas.heartbeatMinutes', { minutes: Math.floor(seconds / 60) })
 }
 
 function TaskNode({ data }: NodeProps<Node<TaskNodeData, 'task'>>): JSX.Element {
+  const { t } = useTranslation()
   const { task } = data
   const usage = summarizeUsage(task.usage)
   const usageParts: string[] = []
@@ -83,7 +72,7 @@ function TaskNode({ data }: NodeProps<Node<TaskNodeData, 'task'>>): JSX.Element 
         <span className="canvas-node__title" title={task.title}>
           {task.title}
         </span>
-        <span className="canvas-node__status">{STATUS_LABEL[task.status]}</span>
+        <span className="canvas-node__status">{t(`canvas.status.${task.status}`)}</span>
       </div>
       <div className="canvas-node__meta">
         {task.agentName ? (
@@ -105,7 +94,7 @@ function TaskNode({ data }: NodeProps<Node<TaskNodeData, 'task'>>): JSX.Element 
         </div>
       )}
       <div className="canvas-node__foot">
-        {running && <span>{heartbeatText(task.lastHeartbeatAt, task.createdAt)}</span>}
+        {running && <span>{heartbeatText(t, task.lastHeartbeatAt, task.createdAt)}</span>}
         {usageParts.length > 0 && <span>{usageParts.join(' · ')}</span>}
         {!running && task.note && (
           <span className="canvas-node__note" title={task.note}>
@@ -119,21 +108,22 @@ function TaskNode({ data }: NodeProps<Node<TaskNodeData, 'task'>>): JSX.Element 
 }
 
 function OrchestratorNode({ data }: NodeProps<Node<CanvasOrchestratorInfo, 'orchestrator'>>): JSX.Element {
+  const { t } = useTranslation()
   return (
     <div className="canvas-node canvas-node--orchestrator">
       <div className="canvas-node__head">
         <span className={`canvas-node__dot orchestrator ${data.goalActive ? 'running' : ''}`} />
         <LoreName name={data.name} className="canvas-node__title" />
-        <span className="canvas-node__status">Orchestrator</span>
+        <span className="canvas-node__status">{t('canvas.orchestrator')}</span>
       </div>
       <div className="canvas-node__meta">
-        {data.goalActive ? `plant · ${data.taskCount} Tasks` : 'kein aktives Ziel'}
+        {data.goalActive ? t('canvas.planning', { count: data.taskCount }) : t('canvas.noGoal')}
         {data.model ? ` · ${data.model}` : ''}
       </div>
       {data.goalTitle && (
         <div className="canvas-node__foot">
           <span className="canvas-node__goal" title={data.goalTitle}>
-            Ziel: „{data.goalTitle}“
+            {t('canvas.goal', { title: data.goalTitle })}
           </span>
         </div>
       )}
@@ -143,12 +133,13 @@ function OrchestratorNode({ data }: NodeProps<Node<CanvasOrchestratorInfo, 'orch
 }
 
 function NoteNode({ data }: NodeProps<Node<NoteNodeData, 'note'>>): JSX.Element {
+  const { t } = useTranslation()
   const { finding } = data
   return (
     <div className={`canvas-node canvas-node--note kind-${finding.kind}`}>
       <Handle type="target" position={Position.Left} className="canvas-handle" />
       <div className="canvas-node__head">
-        <span className="canvas-note__kind">{NOTE_KIND_LABEL[finding.kind]}</span>
+        <span className="canvas-note__kind">{t(`canvas.kind.${finding.kind}`)}</span>
         <span className="canvas-node__title" title={finding.title}>
           {finding.title}
         </span>
@@ -170,6 +161,7 @@ function NoteNode({ data }: NodeProps<Node<NoteNodeData, 'note'>>): JSX.Element 
 const NODE_TYPES = { task: TaskNode, orchestrator: OrchestratorNode, note: NoteNode }
 
 export default function CanvasBoard(): JSX.Element {
+  const { t } = useTranslation()
   const store = useAppStore()
   const tasks = store.orchestrator.tasks
   const goal = store.orchestrator.goal
@@ -220,14 +212,14 @@ export default function CanvasBoard(): JSX.Element {
   if (tasks.length === 0 && !orchestrator) {
     return (
       <div className="canvas-empty" role="status">
-        <div className="big">Canvas ist bereit</div>
-        <div>Starte den Workspace oder gib dem Orchestrator ein Ziel — Tasks erscheinen hier als Knoten.</div>
+        <div className="big">{t('canvas.emptyTitle')}</div>
+        <div>{t('canvas.emptyHint')}</div>
       </div>
     )
   }
 
   return (
-    <div className="vertragus-canvas" aria-label="Aufgaben-Canvas">
+    <div className="vertragus-canvas" aria-label={t('canvas.aria')}>
       <ReactFlow
         nodes={nodes}
         edges={graph.edges}
