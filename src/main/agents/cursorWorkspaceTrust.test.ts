@@ -40,7 +40,7 @@ describe('shouldAutoTrustCursorWorktree', () => {
   })
 
   it('does not let canonicalization turn a path alias into trusted ownership', () => {
-    expect(normalizeWorkspacePath(worktree)).toBe('c:/git/uwe/.orca-worktrees/session-a/sub-01')
+    expect(normalizeWorkspacePath(worktree)).toBe('c:/git/demo-app/.orca-worktrees/session-a/sub-01')
     const alias = 'C:/git/UWE/.orca-worktrees/session-a/./sub-01'
     expect(isExactOrcaWorktreePath(alias)).toBe(false)
     expect(
