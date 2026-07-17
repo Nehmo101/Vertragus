@@ -27,7 +27,7 @@ const HELP = {
   generateFromRepo: 'Das gewählte Analysemodell liest das Working-Directory-Repository read-only und schlägt Rollen, Modelle und Quality Gates vor. Kann je nach Repo-Größe ein bis mehrere Minuten dauern.',
   agentWorkingDir: 'Optionaler Pfad nur für diesen Slot. Leer übernimmt den Workspace-Basispfad.',
   mode: 'Orchestriert lässt Claude oder Codex planen und delegieren. Single startet nur die konfigurierten Slots.',
-  orchestratorProvider: 'Nur Provider mit verifiziertem Orca-MCP-Adapter können orchestrieren.',
+  orchestratorProvider: 'Nur Provider mit verifiziertem Vertragus-MCP-Adapter können orchestrieren.',
   permissionMode: 'Auto-Mode bestätigt Edits automatisch. Plan-Mode erlaubt Claude nur zu planen.',
   model: 'Leer verwendet Preset oder CLI-Standard. Freitext überschreibt das Preset. Über das Listen-Menü rechts wählst du jederzeit ein anderes Modell — auch wenn schon eines eingetragen ist.',
   modelPreset: 'Leistungs-Preset (schnell/ausgewogen/stark). Gilt nur wenn Modell leer ist — Freitext hat Vorrang.',

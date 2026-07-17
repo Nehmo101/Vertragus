@@ -5,26 +5,26 @@
 }
 
 body {
-  background: #e3d4b6;
+  background: #e2dbcb;
   font-family: var(--font-body);
 }
 
 .app-root {
-  --ambient: #e3d4b6;
-  --bg: #f5ead8;
-  --panel: #efe3cd;
-  --surface: #ebddc5;
-  --surface-2: #f2e8d6;
-  --pane: #f1e6d1;
-  --inset: #e5d6bb;
-  --terminal: #2a2018;
-  --term-text: #ece0cb;
-  --term-dim: #9b8e76;
-  --term-cmd: #f0a86a;
-  --term-ok: #a9c483;
-  --term-run: #e6b45f;
-  --term-meta: #93856b;
-  --term-warn: #e79a58;
+  --ambient: #e2dbcb;
+  --bg: #ede8dd;
+  --panel: #e7e1d2;
+  --surface: #e3dccc;
+  --surface-2: #f1ede2;
+  --pane: #eae5d6;
+  --inset: #dfd8c6;
+  --terminal: #14171c;
+  --term-text: #e7e3d7;
+  --term-dim: #8b8a7e;
+  --term-cmd: #d9b36a;
+  --term-ok: #6fae9b;
+  --term-run: #e4c888;
+  --term-meta: #8e8c80;
+  --term-warn: #d08a45;
   --text: #201e1d;
   --text-2: #6b6152;
   --text-3: #8a7f6b;
@@ -32,21 +32,21 @@ body {
   --divider: rgba(32, 30, 29, 0.13);
   --border: rgba(32, 30, 29, 0.08);
   --border-2: rgba(32, 30, 29, 0.16);
-  --accent: #c67139;
-  --accent-hover: #b2622d;
-  --accent-strong: #8c491a;
-  --on-accent: #fdf6ec;
-  --accent-soft: #ffe1d0;
-  --accent-soft-text: #8c491a;
-  --accent-line: rgba(198, 113, 57, 0.3);
-  --sage: #7a8a5e;
-  --sage-strong: #56633f;
-  --sage-soft: #e1eecc;
-  --run: #6f9150;
-  --run-text: #4c6a34;
-  --wait: #c98a2e;
-  --wait-text: #8a5c15;
-  --wait-soft: #fbecca;
+  --accent: #936c2b;
+  --accent-hover: #7e5b21;
+  --accent-strong: #5f4416;
+  --on-accent: #fbf6ea;
+  --accent-soft: #ebdfc2;
+  --accent-soft-text: #5f4416;
+  --accent-line: rgba(147, 108, 43, 0.35);
+  --sage: #1e5148;
+  --sage-strong: #143a33;
+  --sage-soft: #d7e5de;
+  --run: #2f7d6d;
+  --run-text: #1e5148;
+  --wait: #b8862b;
+  --wait-text: #7e5b21;
+  --wait-soft: #f3e7c8;
   --err: #bb4b3a;
   --err-text: #8f3123;
   --err-soft: #f7ddd4;
@@ -70,7 +70,7 @@ body {
   --bg-panel: var(--panel);
   --bg-pane: var(--pane);
   --bg-term-a: var(--terminal);
-  --bg-term-b: #22190f;
+  --bg-term-b: #10131a;
   --bg-input: var(--inset);
   --bg-modal: var(--surface-2);
   --bg-slot: var(--surface);
@@ -113,35 +113,35 @@ body {
 }
 
 .app-root[data-theme='dark'] {
-  --ambient: #120d09;
-  --bg: #221a14;
-  --panel: #1a130d;
-  --surface: #2c2318;
-  --surface-2: #352b1e;
-  --pane: #281f16;
-  --inset: #15100b;
-  --text: #f3e8d5;
-  --text-2: #b8ab93;
-  --text-3: #948872;
-  --text-faint: #6d6350;
-  --divider: rgba(244, 233, 214, 0.12);
-  --border: rgba(244, 233, 214, 0.07);
-  --border-2: rgba(244, 233, 214, 0.16);
-  --accent: #e78d4f;
-  --accent-hover: #f2a064;
-  --accent-strong: #ffc9a3;
-  --on-accent: #241a12;
-  --accent-soft: rgba(214, 127, 72, 0.2);
-  --accent-soft-text: #ffca9f;
-  --accent-line: rgba(231, 141, 79, 0.36);
-  --sage: #a4b884;
-  --sage-strong: #cbdbb1;
-  --sage-soft: rgba(142, 160, 115, 0.22);
-  --run: #8db962;
-  --run-text: #b6d38f;
-  --wait: #e2ad57;
-  --wait-text: #f0c885;
-  --wait-soft: rgba(201, 138, 46, 0.2);
+  --ambient: #0e1013;
+  --bg: #14171c;
+  --panel: #101319;
+  --surface: #1c2027;
+  --surface-2: #232833;
+  --pane: #181c23;
+  --inset: #0d1015;
+  --text: #eae6db;
+  --text-2: #9a968b;
+  --text-3: #7c7a70;
+  --text-faint: #5d5c55;
+  --divider: rgba(234, 230, 219, 0.12);
+  --border: rgba(234, 230, 219, 0.07);
+  --border-2: rgba(234, 230, 219, 0.16);
+  --accent: #cba35a;
+  --accent-hover: #e4c888;
+  --accent-strong: #f0dcaf;
+  --on-accent: #1d1a12;
+  --accent-soft: rgba(203, 163, 90, 0.18);
+  --accent-soft-text: #f0dcaf;
+  --accent-line: rgba(203, 163, 90, 0.36);
+  --sage: #2f7d6d;
+  --sage-strong: #7fb8a6;
+  --sage-soft: rgba(47, 125, 109, 0.22);
+  --run: #3e9d82;
+  --run-text: #8fd0ba;
+  --wait: #e29b4b;
+  --wait-text: #f0c08a;
+  --wait-soft: rgba(226, 155, 75, 0.18);
   --err: #d9735c;
   --err-text: #f0a08c;
   --err-soft: rgba(187, 75, 58, 0.24);
@@ -207,10 +207,10 @@ body {
 }
 .wordmark {
   color: var(--text);
-  font-family: var(--font-heading);
-  font-size: 19px;
-  font-weight: 400;
-  letter-spacing: -0.01em;
+  font-family: 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, serif;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
 }
 .wordmark .dash { color: var(--accent); }
 .wordmark-sub {

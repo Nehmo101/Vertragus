@@ -31,7 +31,7 @@ const {
   spawnMock: vi.fn(async () => [
     {
       id: 'orch-1',
-      name: 'Aragorn',
+      name: 'Beatrice',
       provider: 'claude',
       model: 'fable',
       kind: 'orchestrator',
@@ -45,7 +45,7 @@ const {
     },
     {
       id: 'sub-1',
-      name: 'Legolas',
+      name: 'Caronte',
       provider: 'codex',
       model: '',
       kind: 'sub',

@@ -1,5 +1,5 @@
 /* ============================================================
-   Orca-Strator — design tokens & component styles
+   Vertragus — design tokens & component styles
    Source of truth: design_handoff_orca_strator (hifi prototype)
    ============================================================ */
 
@@ -4083,7 +4083,7 @@ textarea:focus-visible,
 }
 
 /* ============================================================
-   Tolkien code-name lore tooltip
+   Commedia code-name lore tooltip
    ============================================================ */
 .lore-name {
   cursor: help;

@@ -63,7 +63,7 @@ describe('workspace run lifecycle', () => {
     expect(postProcess).toHaveBeenCalledWith({
       workspaceDir: enabledProfile.workingDir,
       targetBranch: 'orca/integrated',
-      commitMessage: 'Orca-Strator: Implement feature'
+      commitMessage: 'Vertragus: Implement feature'
     })
   })
 
@@ -102,7 +102,7 @@ describe('workspace run lifecycle', () => {
 
   it('normalizes control characters in generated commit subjects', () => {
     expect(workspaceCommitMessage('  Feature\n--amend\tready  ')).toBe(
-      'Orca-Strator: Feature --amend ready'
+      'Vertragus: Feature --amend ready'
     )
   })
 })

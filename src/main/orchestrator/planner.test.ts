@@ -186,7 +186,7 @@ describe('orchestrator provider adapters', () => {
     }
     const adapter = getOrchestratorAdapter('codex')
     const args = adapter.buildArgs({
-      name: 'Gandalf',
+      name: 'Virgilio',
       handle,
       configDir: '.',
       systemPrompt: 'Delegate work.'

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { getOrchestratorAdapter, listOrchestratorCapabilities } from './providerAdapters'
 
 const context = {
-  name: 'Gandalf',
+  name: 'Virgilio',
   handle: {
     url: 'http://127.0.0.1:39123/mcp?token=test',
     allowedTools: ['mcp__orca__set_goal', 'mcp__orca__execute_plan'],

@@ -61,7 +61,7 @@ export interface ProviderModelCatalogEntry {
 
 export type ProviderModelCatalog = Record<AgentProviderId, ProviderModelCatalogEntry>
 
-/** Canonical registry of everything Orca-Strator can talk to. */
+/** Canonical registry of everything Vertragus can talk to. */
 export const PROVIDERS: readonly ProviderDef[] = [
   {
     id: 'claude',
@@ -264,7 +264,7 @@ export const DEFAULT_PROVIDER_GATE = 8
 
 /**
  * Default per-provider concurrency gates — how many agents of a given provider
- * Orca-Strator may run at once. These are local Orca process gates, not provider
+ * Vertragus may run at once. These are local Orca process gates, not provider
  * API quotas. They are enforced for agent spawns and headless tasks, editable in
  * the Limits panel, and persisted under the `providerLimits` config key.
  */

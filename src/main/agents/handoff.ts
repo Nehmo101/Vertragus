@@ -1,8 +1,8 @@
 /**
  * Pure composition of an agent-handoff briefing.
  *
- * When a source agent (e.g. "Gandalf") hits a usage limit, its live work is
- * handed to a fresh agent (e.g. "Frodo"). The briefing is a Markdown note that
+ * When a source agent (e.g. "Virgilio") hits a usage limit, its live work is
+ * handed to a fresh agent (e.g. "Ulisse"). The briefing is a Markdown note that
  * tells the new agent what the task is, what already happened, and to continue
  * exactly where the source left off. It embeds a bounded, ANSI-stripped tail of
  * the source's terminal scrollback as the record of "how far it got".
@@ -17,7 +17,7 @@ export const DEFAULT_HANDOFF_SCROLLBACK_CHARS = 24_000
 
 export interface BriefingInput {
   source: AgentInstanceInfo
-  /** Name of the taking-over agent (e.g. "Frodo"). */
+  /** Name of the taking-over agent (e.g. "Ulisse"). */
   targetName: string
   /** The task the new agent should continue (may be empty). */
   task?: string
@@ -60,7 +60,7 @@ export function buildBriefing(input: BriefingInput): string {
     : source.workingDir
 
   return [
-    '# Orca-Strator — Agent-Übergabe',
+    '# Vertragus — Agent-Übergabe',
     '',
     `- **Von:** ${source.name} (${source.provider}/${model}) — Rolle: ${source.role}`,
     `- **An:** ${targetName}`,

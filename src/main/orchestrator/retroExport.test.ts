@@ -119,7 +119,7 @@ describe('retroExport', () => {
     expect(putRepoFile).toHaveBeenCalledWith(
       expect.objectContaining({
         path: 'runs/2026/07/retro-abc-plan1.json',
-        ref: { owner: 'Nehmo101', repo: 'Orca-Strator', branch: 'retros' }
+        ref: { owner: 'Nehmo101', repo: 'Vertragus', branch: 'retros' }
       })
     )
     const status = retroSyncStatus()

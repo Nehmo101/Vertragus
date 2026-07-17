@@ -1,5 +1,5 @@
-appId: dev.nehmo.orca-strator
-productName: Orca-Strator
+appId: dev.nehmo.vertragus
+productName: Vertragus
 publish:
   provider: github
   owner: Nehmo101

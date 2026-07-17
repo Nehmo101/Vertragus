@@ -32,7 +32,7 @@ export function workspaceCommitMessage(goal: string): string {
   const normalized = withoutControls
     .replace(/\s+/g, ' ')
     .trim()
-  return `Orca-Strator: ${normalized || 'Workspace-Bearbeitung abgeschlossen'}`
+  return `Vertragus: ${normalized || 'Workspace-Bearbeitung abgeschlossen'}`
     .slice(0, 500)
     .trim()
 }

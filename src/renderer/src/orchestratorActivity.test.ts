@@ -59,7 +59,7 @@ describe('orchestrator live activity', () => {
     const snapshot: OrchestratorSnapshot = {
       goal: { id: 'goal', title: 'Improve status', active: true },
       tasks: [
-        task({ agentName: 'Legolas' }),
+        task({ agentName: 'Caronte' }),
         task({ id: 'task-2', title: 'Tests', status: 'queued', phase: 'queued', role: 'review' })
       ]
     }
@@ -68,7 +68,7 @@ describe('orchestrator live activity', () => {
 
     expect(activity.phase).toBe('monitoring')
     expect(activity.summary).toContain('1 laufende Subagents')
-    expect(activity.details[0]).toContain('Legolas: Status UI')
+    expect(activity.details[0]).toContain('Caronte: Status UI')
     expect(liveOrchestratorTasks(snapshot.tasks)).toHaveLength(2)
   })
 
@@ -85,7 +85,7 @@ describe('paneReadableSummary', () => {
       activity: {
         phase: 'monitoring',
         summary: 'Überwacht 2 laufende Subagents.',
-        details: ['Legolas: Backend'],
+        details: ['Caronte: Backend'],
         nextStep: 'Blocker prüfen.',
         updatedAt: 500
       },
@@ -97,7 +97,7 @@ describe('paneReadableSummary', () => {
     expect(summary.phaseLabel).toBe('überwacht')
     expect(summary.headline).toBe('Überwacht 2 laufende Subagents.')
     expect(summary.nextStep).toBe('Blocker prüfen.')
-    expect(summary.lines).toEqual(['Legolas: Backend'])
+    expect(summary.lines).toEqual(['Caronte: Backend'])
   })
 
   it('maps a task-bound subagent to its task phase and last action', () => {

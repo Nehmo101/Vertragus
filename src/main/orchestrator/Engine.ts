@@ -794,7 +794,7 @@ export class OrchestratorEngine extends EventEmitter {
     this.pausedTasks.add(taskId)
     task.status = 'paused'
     task.lastAction = 'Sicher pausiert; Worker wird angehalten'
-    task.note = 'Remote-Pause aktiv. Fortsetzung startet kontrolliert aus dem Orca-Worktree.'
+    task.note = 'Remote-Pause aktiv. Fortsetzung startet kontrolliert aus dem Vertragus-Worktree.'
     task.finishedAt = undefined
     this.push()
     if (task.agentId) await agentManager.kill(task.agentId)
@@ -860,7 +860,7 @@ export class OrchestratorEngine extends EventEmitter {
     task.status = 'queued'
     task.finishedAt = undefined
     task.lastAction = `Provider-Limit: sichere Fortsetzung mit ${fallback.provider}`
-    task.note = 'Orca startet einen Ersatz-Worker aus dem gesicherten Recovery-Artefakt.'
+    task.note = 'Vertragus startet einen Ersatz-Worker aus dem gesicherten Recovery-Artefakt.'
     this.reliability.automaticRecoveries += 1
     this.push()
     void this.dispatch(
@@ -1518,7 +1518,7 @@ export class OrchestratorEngine extends EventEmitter {
     const securityChecklist = securityChecklistForFiles(options.expectedFiles ?? [])
     const orcaSubTools = subagentOrcaToolsAvailable(slot.provider)
     const executionContract = [
-      'Orca-Ausführungsvertrag:',
+      'Vertragus-Ausführungsvertrag:',
       '- Bearbeite nur die beauftragte Fachaufgabe und die erwarteten Dateien.',
       '- Führe relevante Tests, Typecheck und Lint aus.',
       '- Führe kein git add, commit, cherry-pick oder push aus; Orcas Main-Prozess sichert Änderungen zentral.',
@@ -1540,7 +1540,7 @@ export class OrchestratorEngine extends EventEmitter {
     ].join('\n')
     const taskPrompt = `${prompt}\n\n${executionContract}`
     const subSystemPrompt =
-      'Du bist ein namentlich gekennzeichneter Subagent in Orca-Strator, beauftragt vom Orchestrator. ' +
+      'Du bist ein namentlich gekennzeichneter Subagent in Vertragus, beauftragt vom Orchestrator. ' +
       'Erledige die Aufgabe eigenständig und fasse das Ergebnis am Ende knapp zusammen. ' +
       'Git-Schreiboperationen werden ausschließlich von Orcas Main-Prozess ausgeführt.'
 
@@ -1629,7 +1629,7 @@ export class OrchestratorEngine extends EventEmitter {
         task.status = 'paused'
         task.lastAction = 'Pausiert; Teilarbeit sicher für Fortsetzung gehalten'
         task.note = recoveryArtifact
-          ? `${recoveryArtifact.changedFiles.length} Datei(en) im Orca-Worktree gesichert.`
+          ? `${recoveryArtifact.changedFiles.length} Datei(en) im Vertragus-Worktree gesichert.`
           : 'Pausiert, bevor persistierbare Änderungen entstanden sind.'
         task.finishedAt = undefined
         if (activeAttempt) {
@@ -2734,7 +2734,7 @@ export class OrchestratorEngine extends EventEmitter {
     const outcome = await publishPreparedChanges({
       config: profile.autoPr,
       goalId: this.goal?.id ?? planId ?? 'goal',
-      goalTitle: this.goal?.title ?? 'Orca-Strator Aufgabe',
+      goalTitle: this.goal?.title ?? 'Vertragus Aufgabe',
       changes,
       profileDefaultBranch: profileDefaultBaseBranch(profile),
       onRemoteCiUpdate: applyRemoteCi

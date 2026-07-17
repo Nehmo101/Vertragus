@@ -13,7 +13,7 @@ import type { AgentProviderId, ProviderHealth, ProviderId } from '@shared/provid
 import type { RetroSyncStatus } from '@shared/retroSync'
 import type { InboxSpeechStatus } from '@shared/inboxSpeech'
 import { MCP_SCOPE_LABELS, MCP_TRANSPORT_LABELS } from '@shared/mcp'
-import { middleEarthWorkspaceName, middleEarthWorkspaceBlurb } from '@shared/workspaceNames'
+import { workspacePlaceName, workspacePlaceBlurb } from '@shared/workspaceNames'
 import LoreName from '@renderer/components/LoreName'
 import WorkspaceTaskSummary from '@renderer/components/WorkspaceTaskSummary'
 import { deriveRemoteApprovals } from '@shared/remote'
@@ -103,7 +103,7 @@ function ProviderRow({ id }: { id: ProviderId }): JSX.Element {
           title={
             loginRunning
               ? 'Login läuft bereits im Provider-Terminal'
-              : `${h.loginLabel}. Orca speichert keine Zugangsdaten.`
+              : `${h.loginLabel}. Vertragus speichert keine Zugangsdaten.`
           }
           aria-label={h.loginLabel ?? `${theme.label} verbinden`}
           onClick={() => void store.loginProvider(id)}
@@ -572,7 +572,7 @@ export function SidebarView({
                 orchestratorAgentStatus: orchestratorAgent?.status,
                 gitPostProcessingStatus: snapshot?.gitPostProcessing?.status
               })
-              const name = session.name || middleEarthWorkspaceName(session.sequence)
+              const name = session.name || workspacePlaceName(session.sequence)
               const label = `W${session.sequence} ${name}`
               const taskSummary = workspaceTaskSummary(store, session.profileId, session.id)
               const attention = workspaceUserAttention(store, session.profileId, session.id)
@@ -591,7 +591,7 @@ export function SidebarView({
                       <LoreName
                         name={name}
                         label={label}
-                        blurb={middleEarthWorkspaceBlurb(name)}
+                        blurb={workspacePlaceBlurb(name)}
                         className="workspace-session-name"
                       />
                       <WorkspaceTaskSummary taskSummary={taskSummary} />

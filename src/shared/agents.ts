@@ -142,7 +142,7 @@ export interface SpawnAgentRequest {
 
 /** Request to hand an interactive agent's live work over to a fresh agent. */
 export interface HandoffRequest {
-  /** The agent whose work is being handed off (e.g. "Gandalf"). */
+  /** The agent whose work is being handed off (e.g. "Virgilio"). */
   sourceId: string
   /** Provider of the taking-over agent (e.g. "codex"). */
   provider: AgentProviderId

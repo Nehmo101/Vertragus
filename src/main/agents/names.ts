@@ -1,19 +1,19 @@
 /**
- * Middle-earth code-names for agents, so each has a memorable identity you can
- * refer to ("Boromir hat den Endpoint gebaut"). Orchestrators draw from a
- * leaders pool, subagents from a wilder fellowship pool.
+ * Commedia code-names for agents, so each has a memorable identity you can
+ * refer to ("Caronte hat den Endpoint gebaut"). Orchestrators draw from a
+ * guides pool, subagents from a wilder cast pool.
  *
  * Each pool is shuffled as a bag: every name gets a turn in a random order
  * before the bag is refilled. Names remain unique among currently live agents.
  */
-import { LEADER_NAMES, FELLOWSHIP_NAMES } from '@shared/tolkien'
+import { GUIDE_NAMES, CAST_NAMES } from '@shared/lore'
 
 type AgentNameKind = 'orchestrator' | 'sub'
 type RandomSource = () => number
 
 const POOLS: Record<AgentNameKind, readonly string[]> = {
-  orchestrator: LEADER_NAMES,
-  sub: FELLOWSHIP_NAMES
+  orchestrator: GUIDE_NAMES,
+  sub: CAST_NAMES
 }
 
 export class NameAllocator {

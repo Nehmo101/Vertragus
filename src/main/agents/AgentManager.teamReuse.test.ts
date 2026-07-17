@@ -18,7 +18,7 @@ describe('AgentManager team reuse intent', () => {
     const manager = new AgentManager()
     const agent: AgentInstanceInfo = {
       id: 'sub-01',
-      name: 'Gimli',
+      name: 'Nesso',
       provider: 'cursor',
       model: 'composer',
       role: 'Subagent',

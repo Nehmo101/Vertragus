@@ -89,7 +89,7 @@ function buildMcpServer(
     { name: 'orca-strator', version: '0.1.0' },
     {
       instructions: [
-        'You are the Orca-Strator orchestrator. Plan and delegate instead of editing code yourself.',
+        'You are the Vertragus orchestrator. Plan and delegate instead of editing code yourself.',
         'For every new goal call set_goal first, report_activity for planning, then list_subagents and execute_plan.',
         'Use exactly the returned role values and choose only the roles the plan needs.',
         'Keep report_activity current so the user can see what you are doing, what workers are doing, and what happens next.',
@@ -680,7 +680,7 @@ function buildSubagentMcpServer(engine: OrchestratorEngine, taskId: string): Mcp
     { name: 'orca-sub', version: '0.1.0' },
     {
       instructions: [
-        'Du bist ein Orca-Strator Subagent. Über diese Tools kommunizierst du mit dem Orchestrator und parallelen Subagents.',
+        'Du bist ein Vertragus Subagent. Über diese Tools kommunizierst du mit dem Orchestrator und parallelen Subagents.',
         'Melde wichtige Phasenwechsel und Zwischenstände knapp über report_progress.',
         'Teile Schnittstellen, Entscheidungen und Blocker, die parallele Tasks betreffen, über post_finding.',
         'Lies mit list_findings die Einträge anderer Subagents, bevor du gemeinsame Schnittstellen festlegst.',

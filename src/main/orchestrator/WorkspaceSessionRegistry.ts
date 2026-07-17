@@ -7,9 +7,9 @@ import {
 } from '@shared/orchestrator'
 import type { WorkspaceProfile } from '@shared/profile'
 import {
-  MIDDLE_EARTH_WORKSPACE_NAMES,
-  middleEarthWorkspaceName,
-  shuffleMiddleEarthWorkspaceNames
+  WORKSPACE_PLACE_NAMES,
+  workspacePlaceName,
+  shuffleWorkspacePlaceNames
 } from '@shared/workspaceNames'
 import { OrchestratorEngine } from '@main/orchestrator/Engine'
 
@@ -50,7 +50,7 @@ function summary(session: WorkspaceSession, active: boolean): WorkspaceSessionSu
     profileId: session.profileId,
     profileName: session.profile.name,
     sequence: session.sequence,
-    name: session.name || middleEarthWorkspaceName(session.sequence),
+    name: session.name || workspacePlaceName(session.sequence),
     taskSummary: session.taskSummary,
     startedAt: session.startedAt,
     active
@@ -72,14 +72,14 @@ export class WorkspaceSessionRegistry extends EventEmitter {
 
   private nextWorkspaceName(profileId: string): string {
     const assignment = (this.workspaceNameAssignmentCountsByProfile.get(profileId) ?? 0) + 1
-    const cycleIndex = Math.floor((assignment - 1) / MIDDLE_EARTH_WORKSPACE_NAMES.length)
+    const cycleIndex = Math.floor((assignment - 1) / WORKSPACE_PLACE_NAMES.length)
     const cycles = this.workspaceNameCyclesByProfile.get(profileId) ?? []
     while (cycles.length <= cycleIndex) {
-      cycles.push(shuffleMiddleEarthWorkspaceNames(this.randomWorkspaceNameIndex))
+      cycles.push(shuffleWorkspacePlaceNames(this.randomWorkspaceNameIndex))
     }
     this.workspaceNameCyclesByProfile.set(profileId, cycles)
     this.workspaceNameAssignmentCountsByProfile.set(profileId, assignment)
-    return middleEarthWorkspaceName(assignment, cycles[cycleIndex])
+    return workspacePlaceName(assignment, cycles[cycleIndex])
   }
 
   private create(profile: WorkspaceProfile, reset: boolean): WorkspaceSession {

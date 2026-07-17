@@ -40,7 +40,7 @@ describe('adaptive profile team start', () => {
       )
       return {
         id: `agent-${mocks.spawn.mock.calls.length}`,
-        name: request.kind === 'orchestrator' ? 'Gandalf' : 'Legolas',
+        name: request.kind === 'orchestrator' ? 'Virgilio' : 'Caronte',
         provider: request.provider,
         model: request.model,
         role: request.role,
@@ -121,7 +121,7 @@ describe('adaptive profile team start', () => {
       }
       return {
         id: `agent-${mocks.spawn.mock.calls.length}`,
-        name: request.kind === 'orchestrator' ? 'Gandalf' : 'Legolas',
+        name: request.kind === 'orchestrator' ? 'Virgilio' : 'Caronte',
         provider: request.provider,
         model: request.model,
         role: request.role,

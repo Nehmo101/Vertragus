@@ -46,7 +46,7 @@ export async function runSelfTest(): Promise<void> {
   try {
     selftestWorktree = await mkdtemp(join(tmpdir(), 'orca-mcp-selftest-'))
     await execFileAsync('git', ['init'], { cwd: selftestWorktree, windowsHide: true })
-    await execFileAsync('git', ['config', 'user.name', 'Orca Selftest'], { cwd: selftestWorktree, windowsHide: true })
+    await execFileAsync('git', ['config', 'user.name', 'Vertragus Selftest'], { cwd: selftestWorktree, windowsHide: true })
     await execFileAsync('git', ['config', 'user.email', 'orca@example.invalid'], { cwd: selftestWorktree, windowsHide: true })
     await writeFile(join(selftestWorktree, 'README.md'), 'selftest\n')
     await execFileAsync('git', ['add', '--all'], { cwd: selftestWorktree, windowsHide: true })
@@ -62,7 +62,7 @@ export async function runSelfTest(): Promise<void> {
 
     const codexAdapter = getOrchestratorAdapter('codex')
     const codexArgs = codexAdapter.buildArgs({
-      name: 'Gandalf',
+      name: 'Virgilio',
       handle,
       configDir: app.getPath('userData'),
       systemPrompt: 'Orchestrate this session.'

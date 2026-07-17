@@ -6,7 +6,7 @@ const ESC = String.fromCharCode(27)
 
 const source: AgentInstanceInfo = {
   id: 'sub-01',
-  name: 'Gandalf',
+  name: 'Virgilio',
   provider: 'claude',
   model: 'fable',
   role: 'Subagent · Backend / API',
@@ -39,7 +39,7 @@ describe('tailScrollback', () => {
 describe('buildBriefing', () => {
   const briefing = buildBriefing({
     source,
-    targetName: 'Frodo',
+    targetName: 'Ulisse',
     task: 'Implementiere den /users Endpoint',
     summary: 'Route angelegt, Validierung fehlt noch',
     scrollback: 'line A\nline B\nlast line',
@@ -47,8 +47,8 @@ describe('buildBriefing', () => {
   })
 
   it('names both agents and the reason', () => {
-    expect(briefing).toContain('Gandalf')
-    expect(briefing).toContain('Frodo')
+    expect(briefing).toContain('Virgilio')
+    expect(briefing).toContain('Ulisse')
     expect(briefing).toContain('Fable-Wochenlimit')
   })
 
@@ -61,7 +61,7 @@ describe('buildBriefing', () => {
   it('bounds the embedded scrollback', () => {
     const big = buildBriefing({
       source,
-      targetName: 'Frodo',
+      targetName: 'Ulisse',
       scrollback: 'A'.repeat(100_000),
       scrollbackChars: 500,
       timestamp: 0
@@ -72,7 +72,7 @@ describe('buildBriefing', () => {
   })
 
   it('falls back gracefully when task/summary are omitted', () => {
-    const b = buildBriefing({ source, targetName: 'Frodo', scrollback: '', timestamp: 0 })
+    const b = buildBriefing({ source, targetName: 'Ulisse', scrollback: '', timestamp: 0 })
     expect(b).toContain('Keine explizite Aufgabe')
     expect(b).toContain('(kein Verlauf erfasst)')
   })

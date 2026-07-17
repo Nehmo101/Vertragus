@@ -42,7 +42,7 @@ function request(overrides: Record<string, unknown> = {}): Record<string, unknow
   return {
     requestId: 'request_123456789',
     source: {
-      title: 'Orca-Strator soll für MacOS nutzbar sein',
+      title: 'Vertragus soll für MacOS nutzbar sein',
       content: 'Bitte konkretisieren.',
       status: 'draft',
       tags: ['desktop'],

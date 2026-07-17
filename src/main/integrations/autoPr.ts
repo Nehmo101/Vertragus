@@ -925,7 +925,7 @@ async function publishPerTask(input: PublishInput): Promise<AutoPrOutcome> {
   const published: Array<{ cwd: string; url: string }> = []
   for (const change of input.changes) {
     const body = [
-      `Automatisch vorbereitet von Orca-Strator für **${input.goalTitle}**.`,
+      `Automatisch vorbereitet von Vertragus für **${input.goalTitle}**.`,
       '',
       `Task: ${change.taskId} – ${change.title}`,
       '',
@@ -988,7 +988,7 @@ async function publishAggregate(input: PublishInput): Promise<AutoPrOutcome> {
     assertSecurityGate(integratedDiff, { excludePaths: input.config.securityGateExcludes })
     await runIntegrationQualityGates(root, integrationPath, input.config.qualityGates)
     const body = [
-      `Automatisch integriert von Orca-Strator für **${input.goalTitle}**.`,
+      `Automatisch integriert von Vertragus für **${input.goalTitle}**.`,
       '',
       'Enthaltene Tasks:',
       ...input.changes.map((change) => `- ${change.taskId}: ${change.title}`),

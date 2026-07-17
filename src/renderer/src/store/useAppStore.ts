@@ -35,7 +35,7 @@ import {
 } from '@shared/repoSwitcher'
 import { normalizeModelCatalog, type ModelCatalog } from '@renderer/modelCatalog'
 import type { ModelPreset } from '@shared/models'
-import { middleEarthWorkspaceName } from '@shared/workspaceNames'
+import { workspacePlaceName } from '@shared/workspaceNames'
 
 const ADD_ROLES = ['Docs / Changelog', 'Refactor / Cleanup', 'Security-Review', 'Perf / Bench']
 
@@ -913,7 +913,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         }))
         const startedSession = workspaceSessions.find((item) => item.id === workspaceSessionId)
         if (startedSession) {
-          const name = startedSession.name || middleEarthWorkspaceName(startedSession.sequence)
+          const name = startedSession.name || workspacePlaceName(startedSession.sequence)
           get().showToast(`W${startedSession.sequence} ${name} gestartet.`)
         } else {
           get().showToast('Workspace gestartet.')

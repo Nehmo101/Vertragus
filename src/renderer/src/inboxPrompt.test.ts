@@ -23,7 +23,7 @@ import {
 function idea(overrides: Partial<Idea> = {}): Idea {
   return {
     id: 'idea-1',
-    title: 'Orca-Strator soll für MacOS nutzbar sein',
+    title: 'Vertragus soll für MacOS nutzbar sein',
     content: 'Bitte konkretisieren.',
     status: 'draft',
     tags: ['desktop'],

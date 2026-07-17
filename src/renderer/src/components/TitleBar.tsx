@@ -5,7 +5,7 @@ import { resolveModel } from '@shared/models'
 import { repoRefKey, repoRefLabel } from '@shared/repoSwitcher'
 import type { UpdateState } from '@shared/ipc'
 import type { RemoteStatus } from '@shared/remote'
-import WhaleLogo from '@renderer/components/WhaleLogo'
+import HoundLogo from '@renderer/components/HoundLogo'
 import GitWorkspaceTree from '@renderer/components/GitWorkspaceTree'
 import styles from './responsiveGuards.module.css'
 
@@ -140,19 +140,19 @@ export default function TitleBar(): JSX.Element {
     <>
       <header className={`titlebar ${styles.titlebar}`}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <WhaleLogo size={34} />
+          <HoundLogo size={34} />
           <div style={{ lineHeight: 1.05 }}>
             <div className="wordmark">
-              Orca<span className="dash">-</span>Strator
+              VERTRAG<span className="dash">V</span>S
             </div>
             <div className="wordmark-sub">
-              <span className="wordmark-sub-label">Agent Control Center</span>
+              <span className="wordmark-sub-label">Agent Orchestration</span>
               {store.appInfo?.version && (
                 <>
                   <span className="wordmark-sub-separator" aria-hidden="true">{'\u00b7'}</span>
                   <span
                     className="wordmark-version"
-                    title={`Orca-Strator Version ${store.appInfo.version}`}
+                    title={`Vertragus Version ${store.appInfo.version}`}
                   >
                     v{store.appInfo.version}
                   </span>

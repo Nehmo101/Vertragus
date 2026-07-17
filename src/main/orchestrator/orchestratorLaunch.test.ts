@@ -13,7 +13,7 @@ import { buildOrchestratorSetup, orchestratorSystemPrompt } from './orchestrator
 
 describe('orchestrator progress communication prompt', () => {
   it('requires detailed, truthful updates for coordinator and named workers', () => {
-    const prompt = orchestratorSystemPrompt('Gandalf')
+    const prompt = orchestratorSystemPrompt('Virgilio')
 
     expect(prompt).toContain('report_activity')
     expect(prompt).toContain('exact agentName returned by list_tasks/get_task_status')
@@ -27,7 +27,7 @@ describe('orchestrator progress communication prompt', () => {
 
   it('injects the learnings overlay between retro block and role rules', () => {
     const overlay = '- Bevorzuge kleine, fokussierte Pläne.\n- UI-Aufgaben an Modell X delegieren.'
-    const prompt = orchestratorSystemPrompt('Gandalf', { overlayText: overlay })
+    const prompt = orchestratorSystemPrompt('Virgilio', { overlayText: overlay })
 
     expect(prompt).toContain('Gelerntes Teamwissen')
     expect(prompt).toContain(overlay)
@@ -37,14 +37,14 @@ describe('orchestrator progress communication prompt', () => {
   })
 
   it('emits no overlay section without overlay text', () => {
-    expect(orchestratorSystemPrompt('Gandalf')).not.toContain('Gelerntes Teamwissen')
-    expect(orchestratorSystemPrompt('Gandalf', { overlayText: '' })).not.toContain(
+    expect(orchestratorSystemPrompt('Virgilio')).not.toContain('Gelerntes Teamwissen')
+    expect(orchestratorSystemPrompt('Virgilio', { overlayText: '' })).not.toContain(
       'Gelerntes Teamwissen'
     )
   })
 
   it('requires adaptive plan-first routing and a terminal success-or-dead-end loop', () => {
-    const prompt = orchestratorSystemPrompt('Gandalf', { adaptiveTeam: true, maxRetries: 2 })
+    const prompt = orchestratorSystemPrompt('Virgilio', { adaptiveTeam: true, maxRetries: 2 })
 
     expect(prompt).toContain('Zu Beginn läuft nur der Orchestrator')
     expect(prompt).toContain('Nicht ausgewählte Agents bleiben ausgeschaltet')
@@ -58,7 +58,7 @@ describe('orchestrator progress communication prompt', () => {
 
   it('right-sizes the team toward parallel fan-out in both routing modes', () => {
     for (const adaptiveTeam of [true, false]) {
-      const prompt = orchestratorSystemPrompt('Gandalf', { adaptiveTeam })
+      const prompt = orchestratorSystemPrompt('Virgilio', { adaptiveTeam })
       // No single-task "smallest plan" default any more.
       expect(prompt).not.toContain('möglichst kleinen')
       expect(prompt).not.toContain('Prefer a small number of focused tasks')
@@ -73,7 +73,7 @@ describe('orchestrator progress communication prompt', () => {
   })
 
   it('requires detailed, truthful updates for coordinator and named workers', () => {
-    const prompt = orchestratorSystemPrompt('Gandalf')
+    const prompt = orchestratorSystemPrompt('Virgilio')
 
     expect(prompt).toContain('report_activity')
     expect(prompt).toContain('was du selbst gerade')
@@ -84,7 +84,7 @@ describe('orchestrator progress communication prompt', () => {
   })
 
   it('directs the orchestrator to block on await_* tools instead of polling', () => {
-    const prompt = orchestratorSystemPrompt('Gandalf', { adaptiveTeam: true })
+    const prompt = orchestratorSystemPrompt('Virgilio', { adaptiveTeam: true })
 
     expect(prompt).toContain('await_plan')
     expect(prompt).toContain('await_task')

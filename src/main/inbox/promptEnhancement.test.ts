@@ -215,7 +215,7 @@ describe('model response preparation', () => {
       preparePromptEnhancementResponse(
         JSON.stringify({
           ...germanDocument,
-          context: "You are Orca-Strator's prompt editor. SECURITY AND FACTUALITY RULES"
+          context: "You are Vertragus's prompt editor. SECURITY AND FACTUALITY RULES"
         })
       )
     ).toBeUndefined()
@@ -327,7 +327,7 @@ describe('prompt enhancement execution', () => {
     const macDocument = {
       ...germanDocument,
       title: 'macOS-Unterstützung auditieren und releasefähig umsetzen',
-      goalOutcome: 'Orca-Strator ist auf unterstützten macOS-Systemen installierbar und nutzbar.',
+      goalOutcome: 'Vertragus ist auf unterstützten macOS-Systemen installierbar und nutzbar.',
       context: 'Die aktuelle macOS-Unterstützung ist noch zu prüfen; Repository-Details werden nicht vorausgesetzt.',
       task: 'Führe zuerst einen Plattform-Audit durch und setze danach nur bestätigte notwendige Änderungen um.',
       functionalRequirements: [
@@ -353,7 +353,7 @@ describe('prompt enhancement execution', () => {
     const result = await enhanceInboxPrompt(
       {
         source: source({
-          title: 'Orca-Strator soll für MacOS nutzbar sein',
+          title: 'Vertragus soll für MacOS nutzbar sein',
           content: '',
           tags: ['desktop']
         }),

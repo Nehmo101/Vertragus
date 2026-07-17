@@ -23,7 +23,7 @@ interface ProviderUsage {
 }
 
 /**
- * Live view of Orca's per-provider process gates — "wie viele Agents laufen
+ * Live view of Vertragus's per-provider process gates — "wie viele Agents laufen
  * gerade je Provider". Always visible on the right while a mixed team (Claude
  * + Codex + Cursor …) runs. Active/waiting counts come from the main-process
  * gate, not from provider API quota data; token/cost comes from agents.
@@ -90,15 +90,15 @@ export default function LimitsPanel(): JSX.Element {
   const taskParallelism = profile?.planner.maxParallel ?? 0
 
   return (
-    <section className="limits-panel" aria-label="Orca-interne Provider-Gates">
+    <section className="limits-panel" aria-label="Vertragus-interne Provider-Gates">
       <div className="limits-head">
-        <span className="limits-title">Orca-Gates</span>
+        <span className="limits-title">Vertragus-Gates</span>
         <span className="limits-total">
           {totalActive} aktiv{hasCost ? ` · ${formatUsd(totalCost)}` : ''}
         </span>
       </div>
       <p className="limits-gate-note">
-        Lokale Parallelitätsgrenzen für Orca-Prozesse · keine API- oder Nutzungsquoten.
+        Lokale Parallelitätsgrenzen für Vertragus-Prozesse · keine API- oder Nutzungsquoten.
       </p>
       <div className="capacity-grid" aria-label="Einheitliches Kapazitätsmodell">
         <div className="capacity-item" title="Vorgewärmte, interaktive Team-Agents im aktuellen Workspace">
@@ -192,8 +192,8 @@ export default function LimitsPanel(): JSX.Element {
                 </button>
                 <button
                   type="button"
-                  title={`${theme.label}-Orca-Gate verringern`}
-                  aria-label={`${theme.label}-Orca-Gate verringern`}
+                  title={`${theme.label}-Vertragus-Gate verringern`}
+                  aria-label={`${theme.label}-Vertragus-Gate verringern`}
                   disabled={limit <= PROVIDER_GATE_MIN}
                   onClick={() => setProviderLimit(r.id, Math.max(PROVIDER_GATE_MIN, limit - 1))}
                 >
@@ -203,8 +203,8 @@ export default function LimitsPanel(): JSX.Element {
                   className={`limit-count-val ${over ? 'over' : ''}`}
                   title={
                     r.waiting > 0
-                      ? `${r.waiting} wartend · aktiv / Orca-Gate (keine API-Quote)`
-                      : 'aktiv / Orca-Gate (keine API-Quote)'
+                      ? `${r.waiting} wartend · aktiv / Vertragus-Gate (keine API-Quote)`
+                      : 'aktiv / Vertragus-Gate (keine API-Quote)'
                   }
                 >
                   {r.active}/{limit}
@@ -212,8 +212,8 @@ export default function LimitsPanel(): JSX.Element {
                 </span>
                 <button
                   type="button"
-                  title={`${theme.label}-Orca-Gate erhöhen`}
-                  aria-label={`${theme.label}-Orca-Gate erhöhen`}
+                  title={`${theme.label}-Vertragus-Gate erhöhen`}
+                  aria-label={`${theme.label}-Vertragus-Gate erhöhen`}
                   disabled={limit >= PROVIDER_GATE_MAX}
                   onClick={() => setProviderLimit(r.id, Math.min(PROVIDER_GATE_MAX, limit + 1))}
                 >
