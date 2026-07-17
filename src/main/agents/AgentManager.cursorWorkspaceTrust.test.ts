@@ -13,7 +13,7 @@ vi.mock('@main/config/store', () => ({
 import type { AgentInstanceInfo } from '@shared/agents'
 import { AgentManager } from '@main/agents/AgentManager'
 
-const worktree = 'C:\\git\\UWE\\.orca-worktrees\\session-a\\sub-01'
+const worktree = 'C:\\git\\demo-app\\.orca-worktrees\\session-a\\sub-01'
 
 function addCursorAgent(manager: AgentManager): {
   write: ReturnType<typeof vi.fn>

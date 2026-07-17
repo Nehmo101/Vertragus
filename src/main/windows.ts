@@ -20,8 +20,8 @@ let mainWindow: BrowserWindow | null = null
 /** Representative profile for headless ProfileEditor screenshots. */
 const DEMO_PROFILE = {
   id: 'demo',
-  name: 'Uwe',
-  workingDir: 'C:\\git\\UWE',
+  name: 'Demo',
+  workingDir: 'C:\\git\\demo-app',
   orchestrator: { provider: 'claude', model: '', modelPreset: 'balanced', autoOpenSubwindows: true },
   agents: [
     { role: 'backend', provider: 'codex', model: '', count: 2, orchestrated: true, yolo: true },
