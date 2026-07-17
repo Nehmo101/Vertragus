@@ -28,7 +28,7 @@ function remoteTask(task: OrcaTask): OrcaTask {
     ...task,
     worktree: undefined,
     recoveryArtifact: task.recoveryArtifact
-      ? { ...task.recoveryArtifact, worktree: '[internal Orca worktree]' }
+      ? { ...task.recoveryArtifact, worktree: '[internal Vertragus worktree]' }
       : undefined
   }
 }

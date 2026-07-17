@@ -18,7 +18,7 @@ describe('workspace branch selection', () => {
     dir = await mkdtemp(join(tmpdir(), 'orca-git-'))
     await git(dir, 'init')
     await git(dir, 'config', 'user.email', 'test@orca.local')
-    await git(dir, 'config', 'user.name', 'Orca Test')
+    await git(dir, 'config', 'user.name', 'Vertragus Test')
     await writeFile(join(dir, 'README.md'), '# test\n', 'utf8')
     await git(dir, 'add', 'README.md')
     await git(dir, 'commit', '-m', 'initial')

@@ -57,7 +57,7 @@ interface AppState {
   appInfo: AppInfo | null
   health: ProviderHealth[]
   models: ModelCatalog
-  /** Per-provider Orca process gates shown live in the Limits panel. */
+  /** Per-provider Vertragus process gates shown live in the Limits panel. */
   providerLimits: Record<AgentProviderId, number>
   providerEnabled: ProviderEnabled
   disabledModels: DisabledModels

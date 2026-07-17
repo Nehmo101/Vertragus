@@ -2,6 +2,7 @@
  * Persistent config store (electron-store). Holds workspace profiles and app settings.
  * Secrets (e.g. Cloudflare token) will be encrypted via Electron safeStorage in Phase 3.
  */
+import { app } from 'electron'
 import Store from 'electron-store'
 import { copyFileSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -17,8 +18,27 @@ interface OrcaConfigShape {
   settings: Record<string, unknown>
 }
 
+// Adopt the pre-rebrand config file exactly once, before electron-store
+// materializes vertragus.json with defaults — otherwise existing installs
+// would silently lose their profiles.
+let userDataDir: string | undefined
+try {
+  userDataDir = app.getPath('userData')
+} catch {
+  // Outside a real Electron runtime (vitest importing main-process modules)
+  // `app` is undefined — skip the adoption, electron-store falls back too.
+  userDataDir = undefined
+}
+if (userDataDir) {
+  const legacyConfigPath = join(userDataDir, 'orca-strator.json')
+  const configPath = join(userDataDir, 'vertragus.json')
+  if (existsSync(legacyConfigPath) && !existsSync(configPath)) {
+    copyFileSync(legacyConfigPath, configPath)
+  }
+}
+
 const store = new Store<OrcaConfigShape>({
-  name: 'orca-strator',
+  name: 'vertragus',
   defaults: {
     schemaVersion: 0,
     profiles: [DEFAULT_PROFILE],
@@ -35,7 +55,7 @@ function migrateStore(): void {
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')
     copyFileSync(
       store.path,
-      join(dirname(store.path), `orca-strator.pre-v${CURRENT_CONFIG_SCHEMA_VERSION}.${stamp}.json`)
+      join(dirname(store.path), `vertragus.pre-v${CURRENT_CONFIG_SCHEMA_VERSION}.${stamp}.json`)
     )
   }
   const migrated = migrateConfigSnapshot({

@@ -36,7 +36,7 @@ function stringArray(value: unknown): string[] | undefined {
 
 function fallbackPlan(input: unknown, role: string, prompt?: string): ExecutionPlan {
   const rawGoal = isRecord(input) ? cleanString(input.goal, MAX_GOAL_LENGTH) : undefined
-  const goal = rawGoal ?? 'Orca-Aufgabe bearbeiten'
+  const goal = rawGoal ?? 'Vertragus-Aufgabe bearbeiten'
   const safeRole = cleanString(role, MAX_ROLE_LENGTH) ?? 'worker'
   const safePrompt = cleanString(prompt, MAX_PROMPT_LENGTH) ?? goal
   return {

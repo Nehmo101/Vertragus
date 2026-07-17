@@ -3,7 +3,7 @@
  * MCP tool calls into real subagent runs.
  *
  * Flow: the orchestrator agent (e.g. Claude/Fable) calls dispatch_subagent via
- * the Orca MCP server; the engine picks a matching profile slot, runs a
+ * the Vertragus MCP server; the engine picks a matching profile slot, runs a
  * headless task agent (which shows up as a pane), waits for the result, updates
  * the DAG, and returns the result text to the orchestrator.
  */
@@ -823,7 +823,7 @@ export class OrchestratorEngine extends EventEmitter {
 
   /**
    * Switch a rate-limited task to a different configured provider. The caller
-   * supplies only the task id; Orca chooses the provider and keeps all prompt,
+   * supplies only the task id; Vertragus chooses the provider and keeps all prompt,
    * path and stdin details inside the engine boundary.
    */
   async fallbackTask(taskId: string): Promise<boolean> {

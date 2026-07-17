@@ -19,7 +19,7 @@ export interface PromptEnhancementCapacity {
   release(provider: AgentProviderId): void
 }
 
-/** Defense in depth: the editing-capable CLI must remain in Orca's disposable temp root. */
+/** Defense in depth: the editing-capable CLI must remain in Vertragus' disposable temp root. */
 export function assertDisposablePromptWorkingDirectory(
   workingDir: string,
   temporaryRoot: string = tmpdir()
@@ -34,7 +34,7 @@ export function assertDisposablePromptWorkingDirectory(
 
 /**
  * Uses the existing provider CLIs and their existing account sessions. It never
- * reads API keys, enables Yolo, or attaches Orca/external MCP tools.
+ * reads API keys, enables Yolo, or attaches Vertragus/external MCP tools.
  */
 export function createHeadlessPromptEnhancementExecutor(
   runner: PromptHeadlessRunner = runHeadless,

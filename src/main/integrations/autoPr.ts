@@ -937,7 +937,7 @@ async function publishPerTask(input: PublishInput): Promise<AutoPrOutcome> {
       change.worktree,
       input.config,
       change.branch,
-      `[Orca ${change.taskId}] ${change.title}`,
+      `[Vertragus ${change.taskId}] ${change.title}`,
       body,
       input.profileDefaultBranch
     )
@@ -1001,7 +1001,7 @@ async function publishAggregate(input: PublishInput): Promise<AutoPrOutcome> {
       integrationPath,
       input.config,
       branch,
-      `[Orca] ${input.goalTitle}`,
+      `[Vertragus] ${input.goalTitle}`,
       body,
       input.profileDefaultBranch
     )

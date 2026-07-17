@@ -16,8 +16,8 @@ export interface OrchestratorAdapterContext {
   systemPrompt: string
   /**
    * User-configured external MCP servers scoped to the orchestrator. Merged
-   * alongside the Orca server so the orchestrator sees them too. Optional for
-   * backward compatibility with callers that only wire the Orca server.
+   * alongside the Vertragus server so the orchestrator sees them too. Optional for
+   * backward compatibility with callers that only wire the Vertragus server.
    */
   externalServers?: McpServerSpec[]
   /** Unique config-file suffix (Claude). Defaults to a stable orchestrator tag. */
@@ -29,7 +29,7 @@ export interface OrchestratorAdapter {
   buildArgs(context: OrchestratorAdapterContext): string[]
 }
 
-/** The Orca MCP server as a normalized spec (explicit tool allowlist). */
+/** The Vertragus MCP server as a normalized spec (explicit tool allowlist). */
 function orcaSpec(handle: McpServerHandle): McpServerSpec {
   return {
     name: 'orca',
@@ -37,7 +37,7 @@ function orcaSpec(handle: McpServerHandle): McpServerSpec {
     url: handle.url,
     allowedTools: handle.allowedTools,
     required: true,
-    // This loopback server is created and narrowly scoped by Orca itself.
+    // This loopback server is created and narrowly scoped by Vertragus itself.
     approvalMode: 'approve'
   }
 }
@@ -69,7 +69,7 @@ const kimiAdapter: OrchestratorAdapter = {
     transientConfig: true
   },
   buildArgs({ handle, configDir, systemPrompt, externalServers, fileTag }) {
-    // Kimi Code CLI attaches the Orca MCP server exactly like Claude, differing
+    // Kimi Code CLI attaches the Vertragus MCP server exactly like Claude, differing
     // only in the config-file flag handled by buildKimiMcpArgs.
     const servers = [orcaSpec(handle), ...(externalServers ?? [])]
     return buildKimiMcpArgs(servers, {

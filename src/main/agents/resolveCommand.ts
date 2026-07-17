@@ -66,7 +66,7 @@ async function resolvePath(command: string): Promise<string> {
     }
   } catch {
     // Leave unresolved; the PTY spawn will surface a clear error. Do not cache
-    // this miss, because the CLI may be installed while Orca keeps running.
+    // this miss, because the CLI may be installed while Vertragus keeps running.
     return resolved
   }
   cache.set(command, resolved)

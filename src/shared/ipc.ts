@@ -326,7 +326,7 @@ export interface OrcaApi {
   /** Authoritative per-provider concurrency usage from the main process gate. */
   getProviderCapacity(): Promise<Record<AgentProviderId, ProviderCapacitySnapshot>>
   /** Model options per agent provider (ollama live when reachable). */
-  /** Open the provider's official CLI login flow in an interactive Orca terminal. */
+  /** Open the provider's official CLI login flow in an interactive Vertragus terminal. */
   loginProvider(id: ProviderId): Promise<AgentInstanceInfo>
   /** Receive refreshed connection state after an interactive login exits. */
   onProvidersChanged(cb: (health: ProviderHealth[]) => void): () => void
@@ -471,7 +471,7 @@ export interface OrcaApi {
     /** Resolve a plan waiting in review mode. */
     reviewPlan(profileId: string, approved: boolean, workspaceSessionId?: string): Promise<boolean>
     onSnapshot(cb: (snap: OrchestratorSnapshot) => void): () => void
-    /** Read a size-limited patch from the task's trusted Orca worktree. */
+    /** Read a size-limited patch from the task's trusted Vertragus worktree. */
     taskDiff(profileId: string, taskId: string, workspaceSessionId?: string): Promise<TaskReviewDiff>
     approvePublication(profileId: string, workspaceSessionId: string, planId?: string): Promise<boolean>
     rejectPublication(profileId: string, workspaceSessionId: string, planId?: string): Promise<boolean>
