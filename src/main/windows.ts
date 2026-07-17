@@ -226,7 +226,9 @@ export function createMainWindow(): BrowserWindow {
               titlebar: Boolean(document.querySelector('.titlebar')),
               gitTreePopover: Boolean(
                 gitTreePopover &&
-                gitTreePopover.parentElement === document.body &&
+                // Portalled into .app-root (not the clipping anchor) so the
+                // design tokens and data-theme apply; see useAppRootPortalTarget.
+                gitTreePopover.parentElement === appRoot &&
                 popoverRect &&
                 popoverRect.height > 0 &&
                 popoverRect.bottom > titlebarBottom
