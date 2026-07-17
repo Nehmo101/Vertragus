@@ -1,0 +1,136 @@
+{
+  "version": 1,
+  "exportedAt": 1784327930754,
+  "app": {
+    "name": "vertragus",
+    "version": "0.1.50-main.1.g17e5313"
+  },
+  "machineId": "2d1dacf3388f",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrpirnc8-plan-mrpi45yi-2",
+    "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+    "workspaceSessionId": "58b732e9-403f-4984-9687-90a3fa71fbf6",
+    "planId": "plan-mrpi45yi-2",
+    "goal": "Canvas-First UI-Overhaul: Canvas als Default-Control-Center, Orchestrator-Chat in der Canvas, frei schwebendes Voice-Overlay mit App-Wissen und Sprachaktionen (Pipeline STT→LLM→TTS im Main-Prozess), plus UI-Polish (Command-Palette, A11y, Dark-Theme)",
+    "status": "stopped",
+    "summary": "Lauf 2 gestoppt: Permission-Gate blockierte alle Writes (YOLO aus, Prompts liefen in Timeout). Francesca lieferte saubere Blocker-Analyse und Support-Anfrage, beendete aber ihren Zug mit \"Timer läuft\" — der Judge wertete das fälschlich als success/no-changes, wodurch Phase-1-Worker ohne Contracts starteten. Abbruch und Neustart mit aktiviertem YOLO.",
+    "modelStats": [
+      {
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "roles": [
+          "electron-core",
+          "security-reviewer"
+        ],
+        "tasks": 5,
+        "succeeded": 1,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 4,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 4,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "costUsd": 3.5755484999999996,
+        "avgDurationMs": 1083230
+      },
+      {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "roles": [
+          "renderer-ui"
+        ],
+        "tasks": 3,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 3,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 3,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "avgDurationMs": 1095390,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      },
+      {
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "roles": [
+          "test-writer"
+        ],
+        "tasks": 1,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 1,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 1,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "avgDurationMs": 1095388,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrpis2uy-1-vuo5km",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "electron-core",
+        "kind": "strength",
+        "insight": "Sehr gute strukturierte Blocker-Diagnose bei Infrastrukturproblemen",
+        "evidence": "Francesca isolierte das Permission-Gate präzise (Read/MCP ok, alle Writes 'denied or timed out'), verifizierte mit Minimal-Edit und stellte eine klare Support-Anfrage mit fertiger Contract-Spezifikation",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784327930746,
+        "updatedAt": 1784327930746
+      },
+      {
+        "id": "learning-mrpis2uy-2-posnki",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "electron-core",
+        "kind": "weakness",
+        "insight": "Beendet bei Warteanweisungen den Zug statt aktiv zu warten — Ergebnis 'Timer läuft' wurde als Erfolg fehlgewertet",
+        "evidence": "t0-contracts endete mit 'Timer läuft — teste Schreibzugriff erneut' als Finaltext; Provider meldete finished, Gate wertete success/no-changes und startete Phase 1 ohne Contracts",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784327930746,
+        "updatedAt": 1784327930746
+      }
+    ],
+    "createdAt": 1784327910632,
+    "exportQueuedAt": 1784327930751
+  }
+}
