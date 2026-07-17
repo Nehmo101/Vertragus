@@ -21,10 +21,20 @@ interface OrcaConfigShape {
 // Adopt the pre-rebrand config file exactly once, before electron-store
 // materializes vertragus.json with defaults — otherwise existing installs
 // would silently lose their profiles.
-const legacyConfigPath = join(app.getPath('userData'), 'orca-strator.json')
-const configPath = join(app.getPath('userData'), 'vertragus.json')
-if (existsSync(legacyConfigPath) && !existsSync(configPath)) {
-  copyFileSync(legacyConfigPath, configPath)
+let userDataDir: string | undefined
+try {
+  userDataDir = app.getPath('userData')
+} catch {
+  // Outside a real Electron runtime (vitest importing main-process modules)
+  // `app` is undefined — skip the adoption, electron-store falls back too.
+  userDataDir = undefined
+}
+if (userDataDir) {
+  const legacyConfigPath = join(userDataDir, 'orca-strator.json')
+  const configPath = join(userDataDir, 'vertragus.json')
+  if (existsSync(legacyConfigPath) && !existsSync(configPath)) {
+    copyFileSync(legacyConfigPath, configPath)
+  }
 }
 
 const store = new Store<OrcaConfigShape>({
