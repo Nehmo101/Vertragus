@@ -1,0 +1,106 @@
+{
+  "version": 1,
+  "exportedAt": 1784326629956,
+  "app": {
+    "name": "vertragus",
+    "version": "0.1.50-main.1.g17e5313"
+  },
+  "machineId": "2d1dacf3388f",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrphz4dw-plan-mrphyzau-1",
+    "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+    "workspaceSessionId": "58b732e9-403f-4984-9687-90a3fa71fbf6",
+    "planId": "plan-mrphyzau-1",
+    "goal": "Canvas-First UI-Overhaul: Canvas als Default-Control-Center, Orchestrator-Chat in der Canvas, frei schwebendes Voice-Overlay mit App-Wissen und Sprachaktionen (Pipeline STT→LLM→TTS im Main-Prozess), plus UI-Polish (Command-Palette, A11y, Dark-Theme)",
+    "status": "error",
+    "summary": "Lauf plan-run-mrphyzat-1 scheiterte vollständig an Infrastruktur: corepack fehlt im PATH, daher Pane-Preflight (dependencies) im frischen Task-Worktree fehlgeschlagen; alle 9 Tasks error/stopped, bevor ein Modell Arbeit leisten konnte. Keine Modell-Erkenntnisse ableitbar.",
+    "modelStats": [
+      {
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "roles": [
+          "security-reviewer",
+          "electron-core"
+        ],
+        "tasks": 5,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 1,
+        "stopped": 4,
+        "failuresByKind": {
+          "infra": 1,
+          "cancelled": 4,
+          "model": 0
+        },
+        "failedAttempts": 2,
+        "failedAttemptsByKind": {
+          "infra": 2,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "avgDurationMs": 6585,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      },
+      {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "roles": [
+          "renderer-ui"
+        ],
+        "tasks": 3,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 3,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 3,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "avgDurationMs": 6584,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      },
+      {
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "roles": [
+          "test-writer"
+        ],
+        "tasks": 1,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 1,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 1,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "avgDurationMs": 6586,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      }
+    ],
+    "learnings": [],
+    "createdAt": 1784326579700,
+    "exportQueuedAt": 1784326629936
+  }
+}
