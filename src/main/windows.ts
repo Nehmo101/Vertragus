@@ -194,12 +194,12 @@ export function createMainWindow(): BrowserWindow {
               new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })
             )
             await new Promise((resolve) => requestAnimationFrame(resolve))
-            const keyboardWidth = JSON.parse(localStorage.getItem('orca.layout.v1') ?? '{}')
+            const keyboardWidth = JSON.parse(localStorage.getItem('vertragus.layout.v1') ?? '{}')
               .panels?.['sidebar-left']?.width
 
             leftResizeHandle?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
             await new Promise((resolve) => requestAnimationFrame(resolve))
-            const resetWidth = JSON.parse(localStorage.getItem('orca.layout.v1') ?? '{}')
+            const resetWidth = JSON.parse(localStorage.getItem('vertragus.layout.v1') ?? '{}')
               .panels?.['sidebar-left']?.width
 
             document.querySelector('[aria-label="Linke Seitenleiste einklappen"]')?.click()

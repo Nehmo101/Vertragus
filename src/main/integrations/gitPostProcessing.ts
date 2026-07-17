@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { realpathSync } from 'node:fs'
 import { isAbsolute, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { isValidPostProcessBranch } from '@shared/gitPostProcessing'
@@ -109,7 +110,16 @@ async function defaultRunGit(cwd: string, args: readonly string[]): Promise<GitC
 }
 
 function workspaceKey(path: string): string {
-  const normalized = resolve(path).replace(/\\/g, '/')
+  let canonical = resolve(path)
+  try {
+    // `git rev-parse --show-toplevel` reports the canonical root. Symlinked
+    // tmpdirs (macOS: /var -> /private/var) and Windows 8.3 short paths
+    // (RUNNER~1) must compare equal to it, so canonicalize before comparing.
+    canonical = (realpathSync.native ?? realpathSync)(canonical)
+  } catch {
+    // A nonexistent path keeps its resolved form; git fails on it first anyway.
+  }
+  const normalized = canonical.replace(/\\/g, '/')
   return process.platform === 'win32' ? normalized.toLowerCase() : normalized
 }
 

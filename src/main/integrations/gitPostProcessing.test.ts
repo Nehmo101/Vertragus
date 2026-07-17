@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -300,6 +300,27 @@ describe('orchestrator Git post-processing', () => {
     expect(await git(fixtureRoot, '--git-dir', remoteDir, 'rev-parse', 'refs/heads/main'))
       .toBe(remoteBefore)
   }, 20_000)
+
+  // macOS tmpdirs live behind a symlink (/var -> /private/var) and Windows
+  // uses 8.3 short paths; the root guard must compare canonical paths.
+  it.skipIf(process.platform === 'win32')(
+    'accepts a symlinked alias of the workspace root instead of rejecting it as non-root',
+    async () => {
+      const alias = join(fixtureRoot, 'workspace-alias')
+      await symlink(workspaceDir, alias, 'dir')
+      await writeFile(join(alias, 'README.md'), '# via alias\n', 'utf8')
+
+      const result = await postProcessWorkspaceGit({
+        workspaceDir: alias,
+        targetBranch: 'main',
+        commitMessage: 'Committed through a path alias'
+      })
+
+      expect(result.ok).toBe(true)
+      expect(result.status).toBe('pushed')
+    },
+    20_000
+  )
 
   it('redacts credentials from structured Git error details without leaking a secret', async () => {
     const privateValue = 'very-private-value'
