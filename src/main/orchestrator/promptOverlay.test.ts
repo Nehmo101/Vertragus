@@ -24,7 +24,7 @@ vi.mock('@main/orchestrator/retroSyncConfig', () => ({
   retroSyncConfig: vi.fn(() => ({
     enabled: true,
     repoOwner: 'Nehmo101',
-    repoName: 'Orca-Strator',
+    repoName: 'Vertragus',
     branch: 'retros'
   }))
 }))
@@ -61,7 +61,7 @@ describe('promptOverlay cache', () => {
     vi.mocked(retroSyncConfig).mockReset().mockReturnValue({
       enabled: true,
       repoOwner: 'Nehmo101',
-      repoName: 'Orca-Strator',
+      repoName: 'Vertragus',
       branch: 'retros'
     })
   })

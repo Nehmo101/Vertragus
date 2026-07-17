@@ -13,7 +13,7 @@
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
   <img alt="Platform: Windows | Linux" src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-6c8ebf.svg" />
   <img alt="Built with Electron, TypeScript and React" src="https://img.shields.io/badge/built%20with-Electron%20%C2%B7%20TypeScript%20%C2%B7%20React-c9704b.svg" />
-  <a href="https://github.com/Nehmo101/Orca-Strator/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Nehmo101/Orca-Strator/actions/workflows/ci.yml/badge.svg" /></a>
+  <a href="https://github.com/Nehmo101/Vertragus/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Nehmo101/Vertragus/actions/workflows/ci.yml/badge.svg" /></a>
 </p>
 
 Vertragus drives the agent CLIs you already have installed — each in its own
@@ -170,8 +170,8 @@ CLI and subscription.
 ### Run from source
 
 ```bash
-git clone https://github.com/Nehmo101/Orca-Strator.git
-cd Orca-Strator
+git clone https://github.com/Nehmo101/Vertragus.git
+cd Vertragus
 corepack pnpm install --frozen-lockfile   # flat node_modules via .npmrc
 corepack pnpm dev                          # launch the app with HMR
 ```
@@ -179,7 +179,7 @@ corepack pnpm dev                          # launch the app with HMR
 ### Or install a packaged build
 
 Download the latest build from
-[GitHub Releases](https://github.com/Nehmo101/Orca-Strator/releases) — a Windows
+[GitHub Releases](https://github.com/Nehmo101/Vertragus/releases) — a Windows
 NSIS installer (`.exe`) or a Linux `AppImage` / `.deb`. Installed builds follow
 the `main` update channel and offer an in-app update when a newer build exists.
 
@@ -200,7 +200,7 @@ the `main` update channel and offer an in-app update when a newer build exists.
    `set_goal`, inspect the team with `list_subagents`, and dispatch work.
 
 A full walkthrough lives in the German
-[handbook](docs/ORCA_STRATOR_HANDBUCH.md).
+[handbook](docs/VERTRAGUS_HANDBUCH.md).
 
 ## Configuration
 
@@ -300,9 +300,9 @@ Additional docs live in [`docs/`](docs/). Most are written in **German**:
 - [Implementation status (`DEV`)](docs/IMPLEMENTATION_STATUS.md) — verified feature boundaries.
 - [Reliable Agent Lifecycle](docs/RELIABLE_AGENT_LIFECYCLE.md) — async dispatch, gates and integration phase.
 - [Production hardening](docs/PRODUCTION_HARDENING.md) — sandboxing, CSP, diagnostics.
-- [Handbook](docs/ORCA_STRATOR_HANDBUCH.md) — usage, development and operations (DE).
+- [Handbook](docs/VERTRAGUS_HANDBUCH.md) — usage, development and operations (DE).
 - [Git workflow](docs/GIT_WORKFLOW.md) — branches, worktrees and pull requests.
-- [Roadmap](docs/ORCA_STRATOR_ROADMAP.md) — product & technical roadmap (DE).
+- [Roadmap](docs/VERTRAGUS_ROADMAP.md) — product & technical roadmap (DE).
 - [Orchestrator training prompts](docs/ORCHESTRATOR_TRAINING_PROMPTS.md) — training & evaluation catalog.
 - [Voice interface plan](docs/VOICE_INTERFACE_PLAN.md) — speech-to-text design.
 

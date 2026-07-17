@@ -4,7 +4,7 @@ Stand: 12. Juli 2026
 
 Dieses Handbuch trennt **heute verfügbar** und **geplant**. Die detaillierte
 Weiterentwicklung steht in der
-[Produkt- und Technik-Roadmap](./ORCA_STRATOR_ROADMAP.md).
+[Produkt- und Technik-Roadmap](./VERTRAGUS_ROADMAP.md).
 
 ## 1. Was Vertragus macht
 
@@ -61,8 +61,8 @@ verwalten ihre Anmeldung selbst; Vertragus speichert keine API-Schlüssel.
 ### Repository einrichten
 
 ```powershell
-git clone https://github.com/Nehmo101/Orca-Strator.git
-Set-Location Orca-Strator
+git clone https://github.com/Nehmo101/Vertragus.git
+Set-Location Vertragus
 corepack pnpm install --frozen-lockfile
 corepack pnpm dev
 ```

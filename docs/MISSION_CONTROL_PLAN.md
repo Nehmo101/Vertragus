@@ -292,7 +292,7 @@ Die Tiefen-Variante der Approval-Inbox: den **eigenen** Tool-Prompt jedes Agente
 
 ## Phase D — Ausblick (optional, an bestehende Roadmap angedockt)
 
-Aus `docs/ORCA_STRATOR_ROADMAP.md` / `IMPLEMENTATION_STATUS.md` bereits als „weitere sinnvolle
+Aus `docs/VERTRAGUS_ROADMAP.md` / `IMPLEMENTATION_STATUS.md` bereits als „weitere sinnvolle
 Features" vorgemerkt und über Mission Control fernbedienbar: Kosten-/Token-Budgets end-to-end,
 Approval-Inbox als eigenständiges Desktop-Feature, Provider-Fallbacks bei Limit, Diff/Merge-
 Center. Diese sind **nicht** Mission-Control-exklusiv, profitieren aber direkt vom Remote-Kanal

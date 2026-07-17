@@ -35,7 +35,7 @@ describe('repoRefLabel', () => {
 
   it('falls back to owner/repo then folder name', () => {
     expect(repoRefLabel({ path: '/x/y', owner: 'acme', repo: 'thing' })).toBe('acme/thing')
-    expect(repoRefLabel({ path: 'C:\\git\\Orca-Strator' })).toBe('Orca-Strator')
+    expect(repoRefLabel({ path: 'C:\\git\\Vertragus' })).toBe('Vertragus')
   })
 })
 

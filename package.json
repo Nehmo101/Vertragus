@@ -6,10 +6,10 @@
   "author": "Nehmo101",
   "license": "MIT",
   "packageManager": "pnpm@11.6.0",
-  "homepage": "https://github.com/Nehmo101/Orca-Strator",
+  "homepage": "https://github.com/Nehmo101/Vertragus",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Nehmo101/Orca-Strator.git"
+    "url": "https://github.com/Nehmo101/Vertragus.git"
   },
   "scripts": {
     "dev": "electron-vite dev",

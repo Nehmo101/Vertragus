@@ -48,7 +48,7 @@ Export durch die Secret-Redaction (`redactDiagnosticValue`).
 
 1. **In der App:** Sidebar → Infrastruktur → „Retro-Sync“ aktivieren
    (GitHub-Verbindung vorausgesetzt). Ziel-Repo/Branch per Doppelklick auf den
-   Eintrag anpassen; Default ist `Nehmo101/Orca-Strator@retros`. Der Branch
+   Eintrag anpassen; Default ist `Nehmo101/Vertragus@retros`. Der Branch
    wird beim ersten Export automatisch als Orphan angelegt.
 2. **Im Repo:** Secret `ANTHROPIC_API_KEY` anlegen
    (Settings → Secrets and variables → Actions) — nötig, sobald mindestens

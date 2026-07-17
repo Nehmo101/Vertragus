@@ -2,6 +2,6 @@ extends: ./electron-builder.yml
 publish:
   provider: github
   owner: Nehmo101
-  repo: Orca-Strator
+  repo: Vertragus
   channel: main
   releaseType: prerelease

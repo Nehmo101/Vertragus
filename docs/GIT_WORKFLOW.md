@@ -20,8 +20,8 @@ Git-Repository, haben aber jeweils einen eigenen Branch und Arbeitsstand.
 ## 2. Repository einmalig einrichten
 
 ```powershell
-git clone https://github.com/Nehmo101/Orca-Strator.git
-Set-Location Orca-Strator
+git clone https://github.com/Nehmo101/Vertragus.git
+Set-Location Vertragus
 corepack pnpm install --frozen-lockfile
 git remote -v
 git status --short --branch

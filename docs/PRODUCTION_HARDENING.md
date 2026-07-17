@@ -104,7 +104,7 @@ keine verfügbare Provenance-Zusage. Nach einer expliziten Aktivierung können
 veröffentlichte Artefakte so geprüft werden:
 
 ```bash
-gh attestation verify <installer> -R Nehmo101/Orca-Strator
+gh attestation verify <installer> -R Nehmo101/Vertragus
 ```
 
 Für einen signierten Installer ist zusätzlich auf einem Windows-Rechner zu

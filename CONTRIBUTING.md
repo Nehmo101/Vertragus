@@ -1,11 +1,11 @@
-# Contributing to Orca-Strator
+# Contributing to Vertragus
 
-Thanks for helping build Orca-Strator. This document describes the **branching
+Thanks for helping build Vertragus. This document describes the **branching
 model** every change must follow.
 
 ## Branching model
 
-Orca-Strator uses a two-tier integration flow:
+Vertragus uses a two-tier integration flow:
 
 ```
 feature branch  ──PR──▶  DEV  ──merge──▶  main
