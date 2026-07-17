@@ -20,6 +20,8 @@
     "emptyHintTail": "— or add a single agent below.",
     "addAgent": "Add agent",
     "addAgentSub": "Choose provider & model",
+    "playground": "✦ Explore the playground",
+    "playgroundHint": "Try a demo team without any provider login",
     "layouts": {
       "tiles": "Tiles",
       "focus": "Focus",
@@ -57,7 +59,30 @@
     "terminalOpen": "Double-click: focus the terminal pane",
     "dropHint": "Drop a file here → path goes to {{name}}",
     "dropSent": "Path inserted for {{name}} — press Enter in the terminal to send",
-    "dropNoAgent": "No agent assigned to this task yet"
+    "dropNoAgent": "No agent assigned to this task yet",
+    "menu": {
+      "pause": "Pause task",
+      "resume": "Resume task",
+      "fallback": "Start fallback task",
+      "focus": "Focus terminal pane",
+      "failed": "Action failed"
+    },
+    "gate": {
+      "ok": "Verified done — commit present, no open gates",
+      "warn": "Review — open gate findings or rework",
+      "err": "Blocked or failed",
+      "idle": "No evidence yet"
+    },
+    "evidence": {
+      "summary": "Evidence",
+      "commit": "Commit",
+      "judge": "Judge",
+      "preflight": "Preflight",
+      "autoPr": "Auto PR",
+      "remoteCi": "Remote CI",
+      "findings": "Open gate findings",
+      "none": "No evidence yet — the task has no verified result."
+    }
   },
   "voice": {
     "aria": "Voice control",

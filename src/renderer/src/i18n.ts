@@ -54,4 +54,14 @@ export async function setAppLanguage(language: ResolvedLanguage): Promise<void> 
   }
 }
 
+// Deterministic language for headless checks (ui-smoke asserts German labels).
+declare global {
+  interface Window {
+    __setAppLanguage?: (language: ResolvedLanguage) => Promise<void>
+  }
+}
+if (typeof window !== 'undefined') {
+  window.__setAppLanguage = (language) => i18n.changeLanguage(language).then(() => undefined)
+}
+
 export default i18n

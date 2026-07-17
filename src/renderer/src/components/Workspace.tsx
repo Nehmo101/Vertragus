@@ -142,6 +142,17 @@ export default function Workspace(): JSX.Element {
                 <b style={{ color: 'var(--text-2)' }}>{profile?.name ?? '—'}</b>{' '}
                 {t('workspace.emptyHintTail')}
               </div>
+              <button
+                type="button"
+                className="clean-btn ws-playground-btn"
+                title={t('workspace.playgroundHint')}
+                onClick={() => {
+                  actions.setWorkspaceLayout('canvas')
+                  void window.orca.demo.play()
+                }}
+              >
+                {t('workspace.playground')}
+              </button>
             </div>
           )}
           {sortedAgents.map((agent) => (

@@ -89,6 +89,7 @@ export const IPC = {
   githubRepoCheckLocal: 'github:repoCheckLocal',
   dialogPickFolder: 'dialog:pickFolder',
   dialogPickFile: 'dialog:pickFile',
+  demoPlay: 'demo:play',
   ideasList: 'ideas:list',
   ideasGet: 'ideas:get',
   ideasCreate: 'ideas:create',
@@ -378,6 +379,11 @@ export interface OrcaApi {
      * (Electron webUtils.getPathForFile), e.g. for canvas drag-and-drop.
      */
     pathForFile(file: File): string
+  }
+
+  demo: {
+    /** Fill the calling window with the guided playground demo state. */
+    play(): Promise<void>
   }
 
   inbox: {

@@ -24,11 +24,13 @@ import { canvasBoardKey, selectBoardPositions, useCanvasStore } from '@renderer/
 import {
   buildCanvasGraph,
   mergeNodePositions,
+  trustSignal,
   type CanvasNode,
   type CanvasOrchestratorInfo,
   type NoteNodeData,
   type TaskNodeData
 } from '@renderer/canvasGraph'
+import type { OrcaTask } from '@shared/orchestrator'
 import LoreName from '@renderer/components/LoreName'
 import { summarizeUsage } from '@shared/telemetry'
 import { formatTokenCount, formatUsd } from '@renderer/telemetryFormat'
@@ -143,6 +145,12 @@ function TaskNode({ data }: NodeProps<Node<TaskNodeData, 'task'>>): JSX.Element 
         <span className="canvas-node__title" title={task.title}>
           {task.title}
         </span>
+        <span
+          className={`canvas-node__gate ${trustSignal(task)}`}
+          role="img"
+          aria-label={t(`canvas.gate.${trustSignal(task)}`)}
+          title={t(`canvas.gate.${trustSignal(task)}`)}
+        />
         <span className="canvas-node__status">{t(`canvas.status.${task.status}`)}</span>
       </div>
       <div className="canvas-node__meta">
@@ -176,6 +184,59 @@ function TaskNode({ data }: NodeProps<Node<TaskNodeData, 'task'>>): JSX.Element 
           </span>
         )}
       </div>
+      {(task.commit ||
+        task.judgeReason ||
+        task.preflight ||
+        task.autoPrStatus ||
+        task.remoteCiStatus ||
+        (task.findings?.length ?? 0) > 0) && (
+        <details className="canvas-evidence" onPointerDown={(event) => event.stopPropagation()}>
+          <summary>{t('canvas.evidence.summary')}</summary>
+          <dl>
+            {task.commit && (
+              <>
+                <dt>{t('canvas.evidence.commit')}</dt>
+                <dd>
+                  <code>{task.commit.slice(0, 10)}</code>
+                </dd>
+              </>
+            )}
+            {task.preflight && (
+              <>
+                <dt>{t('canvas.evidence.preflight')}</dt>
+                <dd>
+                  {task.preflight.checks.filter((check) => check.status === 'passed').length}/
+                  {task.preflight.checks.length}
+                </dd>
+              </>
+            )}
+            {task.judgeReason && (
+              <>
+                <dt>{t('canvas.evidence.judge')}</dt>
+                <dd title={task.judgeReason}>{task.judgeReason}</dd>
+              </>
+            )}
+            {task.autoPrStatus && (
+              <>
+                <dt>{t('canvas.evidence.autoPr')}</dt>
+                <dd>{task.autoPrStatus}</dd>
+              </>
+            )}
+            {task.remoteCiStatus && (
+              <>
+                <dt>{t('canvas.evidence.remoteCi')}</dt>
+                <dd>{task.remoteCiStatus}</dd>
+              </>
+            )}
+            {(task.findings?.length ?? 0) > 0 && (
+              <>
+                <dt>{t('canvas.evidence.findings')}</dt>
+                <dd>{task.findings!.length}</dd>
+              </>
+            )}
+          </dl>
+        </details>
+      )}
       <Handle type="source" position={Position.Right} className="canvas-handle" />
     </div>
   )
@@ -273,6 +334,29 @@ export default function CanvasBoard(): JSX.Element {
     setPosition(boardKey, node.id, { x: node.position.x, y: node.position.y })
   }
 
+  const [menu, setMenu] = useState<{ x: number; y: number; task: OrcaTask } | null>(null)
+
+  const onNodeContextMenu: NodeMouseHandler<CanvasNode> = (event, node) => {
+    if (node.type !== 'task') return
+    event.preventDefault()
+    const host = (event.currentTarget as HTMLElement | null)
+      ?.closest('.vertragus-canvas')
+      ?.getBoundingClientRect()
+    setMenu({
+      x: event.clientX - (host?.left ?? 0),
+      y: event.clientY - (host?.top ?? 0),
+      task: node.data.task
+    })
+  }
+
+  const runMenuAction = (action: () => Promise<unknown>): void => {
+    setMenu(null)
+    void action().catch(() => store.showToast(t('canvas.menu.failed')))
+  }
+
+  const sessionId = store.activeWorkspaceSessionId
+  const menuTask = menu?.task
+
   const onNodeDoubleClick: NodeMouseHandler<CanvasNode> = (_event, node) => {
     const agentId =
       node.type === 'task'
@@ -301,6 +385,9 @@ export default function CanvasBoard(): JSX.Element {
         onNodesChange={onNodesChange}
         onNodeDragStop={onNodeDragStop}
         onNodeDoubleClick={onNodeDoubleClick}
+        onNodeContextMenu={onNodeContextMenu}
+        onPaneClick={() => setMenu(null)}
+        onMoveStart={() => setMenu(null)}
         fitView
         minZoom={0.25}
         maxZoom={1.75}
@@ -312,6 +399,63 @@ export default function CanvasBoard(): JSX.Element {
         <Controls position="bottom-left" showInteractive={false} />
         <MiniMap position="bottom-right" pannable zoomable className="canvas-minimap" />
       </ReactFlow>
+      {menu && menuTask && sessionId && (
+        <div className="canvas-menu" role="menu" style={{ left: menu.x, top: menu.y }}>
+          {menuTask.status === 'running' && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() =>
+                runMenuAction(() =>
+                  window.orca.orchestrator.pauseTask(store.activeProfileId, sessionId, menuTask.id)
+                )
+              }
+            >
+              ⏸ {t('canvas.menu.pause')}
+            </button>
+          )}
+          {menuTask.status === 'paused' && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() =>
+                runMenuAction(() =>
+                  window.orca.orchestrator.resumeTask(store.activeProfileId, sessionId, menuTask.id)
+                )
+              }
+            >
+              ▶ {t('canvas.menu.resume')}
+            </button>
+          )}
+          {(menuTask.status === 'running' ||
+            menuTask.status === 'paused' ||
+            menuTask.status === 'error') && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() =>
+                runMenuAction(() =>
+                  window.orca.orchestrator.fallbackTask(store.activeProfileId, sessionId, menuTask.id)
+                )
+              }
+            >
+              ♻ {t('canvas.menu.fallback')}
+            </button>
+          )}
+          {menuTask.agentId && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setMenu(null)
+                store.setSelectedAgent(menuTask.agentId!)
+              }}
+            >
+              ⌨ {t('canvas.menu.focus')}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }

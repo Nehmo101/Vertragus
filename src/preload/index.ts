@@ -65,6 +65,9 @@ const orca: OrcaApi = {
   files: {
     pathForFile: (file) => webUtils.getPathForFile(file)
   },
+  demo: {
+    play: () => ipcRenderer.invoke(IPC.demoPlay)
+  },
 
   inbox: {
     list: () => ipcRenderer.invoke(IPC.ideasList),

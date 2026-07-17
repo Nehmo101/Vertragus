@@ -21,6 +21,13 @@ live terminal — and lets one configurable **orchestrator** delegate work to
 **subagents** across tools. The name is *vertragus*, the ancient Gaulish-Latin
 word for a **greyhound** — a hound built for **speed**.
 
+> **Open core.** The entire core is and stays MIT-licensed. Others let you
+> start ten agents — Vertragus tells you **which results you can trust**
+> (preflight gates, result judge, evidence per task) and **learns** which
+> model to send next time. Possible commercial layers (detached/VPS
+> persistence, team features) would sit on top later; the core stays free.
+> Roadmap: [docs/ROADMAP_OPEN_CORE.md](docs/ROADMAP_OPEN_CORE.md).
+
 Instead of juggling several agent CLIs by hand, you configure a team of agents
 once, hand a high-level goal to an orchestrator, and Vertragus coordinates the
 delegation, git-worktree isolation, adaptive DAG planning, and (optionally)

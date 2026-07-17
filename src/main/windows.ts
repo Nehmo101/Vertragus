@@ -141,6 +141,10 @@ export function createMainWindow(): BrowserWindow {
             waitForReady()
           })`)
 
+          // The smoke checks assert the authored German labels; force de.
+          await win.webContents.executeJavaScript(
+            "window.__setAppLanguage ? window.__setAppLanguage('de') : Promise.resolve()"
+          )
           pushDemoState(win)
           win.setSize(900, 800)
           await new Promise((resolve) => setTimeout(resolve, 250))
@@ -332,7 +336,7 @@ export function broadcast(channel: string, payload: unknown): void {
 }
 
 /** Dev/CI only: feed representative Phase-2 state through the normal push channels. */
-function pushDemoState(win: BrowserWindow): void {
+export function pushDemoState(win: BrowserWindow): void {
   const profileId = 'default'
   const workspaceSessionId = 'session-demo'
   const now = Date.now()

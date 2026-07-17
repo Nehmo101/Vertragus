@@ -20,6 +20,8 @@
     "emptyHintTail": "— oder unten einen einzelnen Agent hinzufügen.",
     "addAgent": "Agent hinzufügen",
     "addAgentSub": "Provider & Modell wählen",
+    "playground": "✦ Playground ansehen",
+    "playgroundHint": "Demo-Team ohne Provider-Login erkunden",
     "layouts": {
       "tiles": "Kacheln",
       "focus": "Fokus",
@@ -57,7 +59,30 @@
     "terminalOpen": "Doppelklick: Terminal-Pane fokussieren",
     "dropHint": "Datei hier ablegen → Pfad an {{name}}",
     "dropSent": "Pfad an {{name}} eingefügt — im Terminal mit Enter absenden",
-    "dropNoAgent": "Diesem Task ist noch kein Agent zugewiesen"
+    "dropNoAgent": "Diesem Task ist noch kein Agent zugewiesen",
+    "menu": {
+      "pause": "Task pausieren",
+      "resume": "Task fortsetzen",
+      "fallback": "Ersatz-Task starten",
+      "focus": "Terminal-Pane fokussieren",
+      "failed": "Aktion fehlgeschlagen"
+    },
+    "gate": {
+      "ok": "Belegt fertig — Commit vorhanden, keine offenen Gates",
+      "warn": "Prüfen — offene Gate-Findings oder Nacharbeit",
+      "err": "Blockiert oder fehlgeschlagen",
+      "idle": "Noch ohne Beleg"
+    },
+    "evidence": {
+      "summary": "Beleg",
+      "commit": "Commit",
+      "judge": "Judge",
+      "preflight": "Preflight",
+      "autoPr": "Auto-PR",
+      "remoteCi": "Remote-CI",
+      "findings": "Offene Gate-Findings",
+      "none": "Noch keine Belege — der Task hat kein verifiziertes Ergebnis."
+    }
   },
   "voice": {
     "aria": "Sprachsteuerung",

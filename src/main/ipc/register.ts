@@ -44,7 +44,7 @@ import { agentManager } from '@main/agents/AgentManager'
 import { providerCapacity } from '@main/agents/providerCapacity'
 import { workspaceSessions } from '@main/orchestrator/WorkspaceSessionRegistry'
 import { createWorkspaceSessionIpcController } from '@main/orchestrator/workspaceSessionIpc'
-import { broadcast, createPaneWindow, isMainWindowSender } from '@main/windows'
+import { broadcast, createPaneWindow, isMainWindowSender, pushDemoState } from '@main/windows'
 import { getPublicConfig, setPublicConfig } from '@main/config/configAccess'
 import {
   listProfiles,
@@ -374,6 +374,11 @@ export function registerIpcHandlers(): void {
   )
 
   // ---- native folder picker ----
+  ipcMain.handle(IPC.demoPlay, (e) => {
+    const win = senderWindow(e)
+    if (win) pushDemoState(win)
+  })
+
   ipcMain.handle(IPC.dialogPickFolder, async (e) => {
     const win = senderWindow(e)
     const opts: Electron.OpenDialogOptions = {

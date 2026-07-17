@@ -221,6 +221,27 @@ export function buildCanvasGraph(
   return { nodes: [...laidOut, ...noteNodes], edges: [...edges, ...noteEdges] }
 }
 
+export type TrustSignal = 'ok' | 'warn' | 'err' | 'idle'
+
+/**
+ * Trust-Ampel for a task — the canvas answer to "why is this green?".
+ * err: failed or actively blocked; warn: rework, failed preflight or open
+ * gate findings; ok: verified success (terminal status AND a completion
+ * proof); idle: nothing to verify yet.
+ */
+export function trustSignal(task: OrcaTask): TrustSignal {
+  if (task.status === 'error' || task.blocker) return 'err'
+  if (
+    task.status === 'needs-work' ||
+    (task.findings?.length ?? 0) > 0 ||
+    task.preflight?.status === 'failed'
+  ) {
+    return 'warn'
+  }
+  if (task.status === 'success') return task.completion ? 'ok' : 'warn'
+  return 'idle'
+}
+
 /**
  * Carry live drag positions across graph rebuilds: a node that already exists
  * keeps its current position; brand-new nodes take the freshly computed one.

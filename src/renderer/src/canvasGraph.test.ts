@@ -5,6 +5,7 @@ import {
   ORCHESTRATOR_NODE_ID,
   buildCanvasGraph,
   mergeNodePositions,
+  trustSignal,
   type CanvasOrchestratorInfo
 } from './canvasGraph'
 
@@ -142,6 +143,46 @@ describe('buildCanvasGraph · findings as sticky notes', () => {
     expect(notes).toHaveLength(MAX_CANVAS_NOTES)
     expect(notes.some((n) => n.id === 'f0')).toBe(false)
     expect(graph.edges.filter((e) => e.className === 'canvas-edge-note')).toHaveLength(0)
+  })
+})
+
+describe('trustSignal', () => {
+  const completion = { commit: 'abc1234' } as unknown as OrcaTask['completion']
+
+  it('flags errors and active blockers red', () => {
+    expect(trustSignal(task({ id: 'a', status: 'error' }))).toBe('err')
+    expect(
+      trustSignal(
+        task({
+          id: 'a',
+          status: 'running',
+          blocker: { code: 'X', summary: 's', details: [] } as unknown as OrcaTask['blocker']
+        })
+      )
+    ).toBe('err')
+  })
+
+  it('flags rework, failed preflight and open gate findings amber', () => {
+    expect(trustSignal(task({ id: 'a', status: 'needs-work' }))).toBe('warn')
+    expect(
+      trustSignal(
+        task({
+          id: 'a',
+          status: 'running',
+          findings: [{ gate: 'security', code: 'S1', message: 'm' }] as OrcaTask['findings']
+        })
+      )
+    ).toBe('warn')
+  })
+
+  it('is only green for success with a completion proof', () => {
+    expect(trustSignal(task({ id: 'a', status: 'success', completion }))).toBe('ok')
+    expect(trustSignal(task({ id: 'a', status: 'success' }))).toBe('warn')
+  })
+
+  it('stays idle while nothing is verifiable yet', () => {
+    expect(trustSignal(task({ id: 'a', status: 'queued' }))).toBe('idle')
+    expect(trustSignal(task({ id: 'a', status: 'running' }))).toBe('idle')
   })
 })
 
