@@ -1,0 +1,233 @@
+{
+  "version": 1,
+  "exportedAt": 1784388841462,
+  "app": {
+    "name": "vertragus",
+    "version": "0.1.54-main.1.g8ffb696"
+  },
+  "machineId": "2d1dacf3388f",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrqiyrxx-plan-mrqgrxhf-2",
+    "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+    "workspaceSessionId": "1f0c28d5-0ad5-4385-a213-a23e38563d10",
+    "planId": "plan-mrqgrxhf-2",
+    "goal": "Canvas-First UI Overhaul: Phase 1 plus zentrale Integration als lauffähigen, getesteten vertikalen Schnitt umsetzen (Canvas-Default, Orchestrator-Chat, freies Voice-Overlay, Main-Prozess-Assistent).",
+    "status": "error",
+    "summary": "Alle sechs Aufgaben lieferten fachlich erfolgreiche Ergebnisse und umfangreiche Tests; der automatische PR-Schritt scheiterte ausschließlich beim Cherry-Pick des Integrator-Commits wegen eines Merge-Konflikts. Renderer- und Main-Core-Modelle waren zuverlässig, die abschließende Integrationsübernahme bleibt der manuelle Nacharbeitsbedarf.",
+    "modelStats": [
+      {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "roles": [
+          "renderer-ui"
+        ],
+        "tasks": 3,
+        "succeeded": 3,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "avgDurationMs": 449558
+      },
+      {
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "roles": [
+          "electron-core"
+        ],
+        "tasks": 2,
+        "succeeded": 2,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "costUsd": 25.79264724999999,
+        "avgDurationMs": 2262815
+      },
+      {
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "roles": [
+          "test-writer"
+        ],
+        "tasks": 1,
+        "succeeded": 1,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "avgDurationMs": 3651327,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrqh8tut-1-gvxa8e",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "renderer-ui",
+        "kind": "strength",
+        "insight": "zuverlässig im ersten Anlauf bei renderer-ui",
+        "evidence": "3/3 Tasks ohne Wiederholung erfolgreich",
+        "source": "auto-retro",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 2,
+        "createdAt": 1784385819173,
+        "updatedAt": 1784388709360
+      },
+      {
+        "id": "learning-mrqiyrxs-1-x87hfx",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "electron-core",
+        "kind": "strength",
+        "insight": "zuverlässig im ersten Anlauf bei electron-core",
+        "evidence": "2/2 Tasks ohne Wiederholung erfolgreich",
+        "source": "auto-retro",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784388709360,
+        "updatedAt": 1784388709360
+      },
+      {
+        "id": "learning-mrqiyrxs-2-va3vy6",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "renderer-ui",
+        "kind": "strength",
+        "insight": "deutlich schnellstes Modell dieses Laufs (Ø 450s)",
+        "evidence": "Ø-Dauer 450s gegenüber 3651s (cursor/cursor-grok-4.5-high-fast)",
+        "source": "auto-retro",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784388709360,
+        "updatedAt": 1784388709360
+      },
+      {
+        "id": "learning-mrqj1luy-1-bv6los",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "renderer-ui",
+        "kind": "strength",
+        "insight": "zuverlässig bei parallelen Renderer-UI-Features im ersten Anlauf",
+        "evidence": "Canvas, Chat und Overlay: 3/3 Tasks erfolgreich; Typecheck/Lint und fokussierte Suiten grün",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784388841450,
+        "updatedAt": 1784388841450
+      },
+      {
+        "id": "learning-mrqj1luy-2-abbop8",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "renderer-ui",
+        "kind": "weakness",
+        "insight": "Integrationsverträge müssen trotz isolierter Feature-Erfolge manuell im Hotspot geprüft werden",
+        "evidence": "Feature-Commits waren disjunkt, aber der automatische Gesamtdiff benötigte zentrale Mount-/Locale-/Bridge-Übernahme",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784388841450,
+        "updatedAt": 1784388841450
+      },
+      {
+        "id": "learning-mrqj1luy-3-5xk1fn",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "electron-core",
+        "kind": "strength",
+        "insight": "stark bei umfangreichen Main-Prozess- und IPC-Implementierungen",
+        "evidence": "Voice-Assistent und Integrator fachlich erfolgreich; 1009/1009 bzw. 1028/1028 Tests in den jeweiligen Berichten",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784388841450,
+        "updatedAt": 1784388841450
+      },
+      {
+        "id": "learning-mrqj1luy-4-kjby2t",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "electron-core",
+        "kind": "weakness",
+        "insight": "große Integrationsläufe brauchen explizite Konfliktprüfung vor dem automatischen Cherry-Pick",
+        "evidence": "Integrations-Commit 67455bb war erfolgreich erstellt, aber der anschließende Auto-Cherry-Pick in den Haupt-Worktree scheiterte am Konflikt-Gate",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784388841450,
+        "updatedAt": 1784388841450
+      },
+      {
+        "id": "learning-mrqj1luy-5-ky71z3",
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "role": "test-writer",
+        "kind": "strength",
+        "insight": "findet gezielte Sicherheits- und Vertragsregressionen",
+        "evidence": "95/95 relevante Tests, 1028/1028 Vollsuite, 20/20 UI-Smoke; drei advisory Findings dokumentiert",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784388841450,
+        "updatedAt": 1784388841450
+      },
+      {
+        "id": "learning-mrqj1luy-6-49h85e",
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "role": "test-writer",
+        "kind": "weakness",
+        "insight": "Audit kann Integrationsstand nur über Worktree-Übernahme prüfen",
+        "evidence": "Audit musste den Integrationsstand aus task-15 übernehmen, weil sein eigener Worktree zunächst auf dem Basis-Commit stand",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784388841450,
+        "updatedAt": 1784388841450
+      }
+    ],
+    "createdAt": 1784388709365,
+    "exportQueuedAt": 1784388841455
+  }
+}
