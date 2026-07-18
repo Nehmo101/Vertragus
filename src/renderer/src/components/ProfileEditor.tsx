@@ -16,6 +16,7 @@ import { githubAuthPresentation, hasUsableGithubAuth } from '@renderer/store/git
 import ModelCatalogStatus from '@renderer/components/ModelCatalogStatus'
 import { modelPresetAvailability } from '@renderer/modelCatalog'
 import ClaudePermissionModeSelect from '@renderer/components/ClaudePermissionModeSelect'
+import ModelCombo from '@renderer/components/ModelCombo'
 
 const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'kimi', 'codex', 'cursor', 'copilot', 'ollama']
 
@@ -478,37 +479,15 @@ export default function ProfileEditor(): JSX.Element | null {
                     {modelsFor(draft.orchestrator.provider).length}
                   </span>
                 </div>
-                <div className="model-combo">
-                  <input
-                    className="select mono"
-                    list="orch-models"
-                    placeholder="CLI-Standard / Preset"
-                    value={draft.orchestrator.model}
-                    onChange={(e) =>
-                      patch({ orchestrator: { ...draft.orchestrator!, model: e.target.value } })
-                    }
-                  />
-                  <select
-                    className="model-combo-picker"
-                    aria-label="Modell aus Liste wählen"
-                    title="Modell aus der vollständigen Liste wählen"
-                    value=""
-                    onChange={(e) => {
-                      if (e.target.value)
-                        patch({ orchestrator: { ...draft.orchestrator!, model: e.target.value } })
-                    }}
-                  >
-                    <option value="">Liste ▾</option>
-                    {modelsFor(draft.orchestrator.provider).map((m) => (
-                      <option key={m} value={m}>{m}</option>
-                    ))}
-                  </select>
-                </div>
-                <datalist id="orch-models">
-                  {modelsFor(draft.orchestrator.provider).map((m) => (
-                    <option key={m} value={m} />
-                  ))}
-                </datalist>
+                <ModelCombo
+                  className="select mono"
+                  datalistId="orch-models"
+                  models={modelsFor(draft.orchestrator.provider)}
+                  value={draft.orchestrator.model}
+                  onChange={(model) =>
+                    patch({ orchestrator: { ...draft.orchestrator!, model } })
+                  }
+                />
                 <ModelCatalogStatus
                   provider={draft.orchestrator.provider}
                   catalog={catalogFor(draft.orchestrator.provider)}
@@ -821,34 +800,13 @@ export default function ProfileEditor(): JSX.Element | null {
                       {modelsFor(slot.provider).length}
                     </span>
                   </div>
-                  <div className="model-combo">
-                    <input
-                      className="slot-select-sm mono"
-                      list={`slot-models-${idx}`}
-                      placeholder="CLI-Standard / Preset"
-                      value={slot.model}
-                      onChange={(e) => patchSlot(idx, { model: e.target.value })}
-                    />
-                    <select
-                      className="model-combo-picker"
-                      aria-label="Modell aus Liste wählen"
-                      title="Modell aus der vollständigen Liste wählen"
-                      value=""
-                      onChange={(e) => {
-                        if (e.target.value) patchSlot(idx, { model: e.target.value })
-                      }}
-                    >
-                      <option value="">Liste ▾</option>
-                      {modelsFor(slot.provider).map((m) => (
-                        <option key={m} value={m}>{m}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <datalist id={`slot-models-${idx}`}>
-                    {modelsFor(slot.provider).map((m) => (
-                      <option key={m} value={m} />
-                    ))}
-                  </datalist>
+                  <ModelCombo
+                    className="slot-select-sm mono"
+                    datalistId={`slot-models-${idx}`}
+                    models={modelsFor(slot.provider)}
+                    value={slot.model}
+                    onChange={(model) => patchSlot(idx, { model })}
+                  />
                   <ModelCatalogStatus provider={slot.provider} catalog={catalogFor(slot.provider)} />
                   <div className="model-effective" aria-live="polite">
                     Effektiv: {formatModelLabel(resolveModel(slot.provider, slot), slot)}
