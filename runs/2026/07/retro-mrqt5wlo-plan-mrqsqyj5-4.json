@@ -1,0 +1,148 @@
+{
+  "version": 1,
+  "exportedAt": 1784406040044,
+  "app": {
+    "name": "vertragus",
+    "version": "0.1.54-main.1.g8ffb696"
+  },
+  "machineId": "2d1dacf3388f",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrqt5wlo-plan-mrqsqyj5-4",
+    "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+    "workspaceSessionId": "394d2123-07fc-4cbc-9888-7e151d814811",
+    "planId": "plan-mrqsqyj5-4",
+    "goal": "Den tatsächlichen lokalen Rebranding-Stand, GitHub-Zugang und PR-Veröffentlichungsumfang verbindlich prüfen, bevor der Orchestrator Commit, Push und Draft-PR erstellt.",
+    "status": "error",
+    "summary": "PR-Publishing-Lauf ergänzt: Vor dem Push müssen Branchspitze, Base-Divergenz und tatsächlicher Working-Tree-Scope geprüft werden. Bei 23 parallelen main-Commits ist ein Draft-PR vom verifizierten Gesamtcommit ehrlicher als eine blinde Konfliktauflösung; der PR muss den CONFLICTING-Status explizit dokumentieren.",
+    "modelStats": [
+      {
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "roles": [
+          "electron-core"
+        ],
+        "tasks": 1,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 1,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 1
+        },
+        "failedAttempts": 1,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 1
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "costUsd": 0.6052164999999999,
+        "avgDurationMs": 697305
+      },
+      {
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "roles": [
+          "electron-core"
+        ],
+        "tasks": 0,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 1,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 1
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrqjgjj6-1-vgz6uh",
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "kind": "weakness",
+        "insight": "Worker-Versuche scheiterten; Aufgaben wurden auf andere Slots umgeleitet",
+        "evidence": "1 inhaltlich fehlgeschlagene(r) Versuch(e) in diesem Lauf",
+        "source": "auto-retro",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 2,
+        "createdAt": 1784389538274,
+        "updatedAt": 1784405838151
+      },
+      {
+        "id": "learning-mrqta8db-1-3q59j1",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "electron-core",
+        "kind": "strength",
+        "insight": "Ein konsolidierter, vollständig geprüfter Commit ist eine belastbare Publish-Basis, selbst wenn der ursprüngliche Orchestrator-Branch den Commit nicht referenziert.",
+        "evidence": "Der verifizierte Commit b59c66df konnte direkt auf den neuen Branch agent/complete-vertragus-rebrand gesetzt, gepusht und als Draft-PR #107 veröffentlicht werden.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784406040031,
+        "updatedAt": 1784406040031
+      },
+      {
+        "id": "learning-mrqta8db-2-21hk2t",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "electron-core",
+        "kind": "weakness",
+        "insight": "Vor einem PR-Replay gegen main muss die Base-Divergenz zwingend geprüft werden; ein fachlich grüner Commit kann durch parallele main-Entwicklung breit konfliktbehaftet sein.",
+        "evidence": "origin/main lag 23 Commits voraus; der Cherry-pick von b59c66df erzeugte Konflikte in zahlreichen Main-, Renderer-, Mobile- und Doku-Dateien.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784406040031,
+        "updatedAt": 1784406040031
+      },
+      {
+        "id": "learning-mrqta8db-3-rbky7n",
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "role": "electron-core",
+        "kind": "strength",
+        "insight": "Für diesen abgebrochenen read-only PR-Preflight wurde keine eigenständige Modellstärke belegt.",
+        "evidence": "Der geplante Cursor-Preflight wurde auf ausdrücklichen Nutzerwunsch zugunsten direkter Orchestrator-Ausführung nicht genutzt.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784406040031,
+        "updatedAt": 1784406040031
+      },
+      {
+        "id": "learning-mrqta8db-4-143r5p",
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "role": "electron-core",
+        "kind": "weakness",
+        "insight": "Ein zusätzlicher Subagent-Preflight ist bei einem expliziten Wunsch nach direkter PR-Erstellung unnötiger Prozessaufwand.",
+        "evidence": "Der Nutzer brach das Review-Gate ab und verlangte ausdrücklich die direkte PR-Erstellung ohne Subagent; die Veröffentlichung gelang anschließend unmittelbar.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784406040031,
+        "updatedAt": 1784406040031
+      }
+    ],
+    "createdAt": 1784405838156,
+    "exportQueuedAt": 1784406040036
+  }
+}
