@@ -1,0 +1,231 @@
+{
+  "version": 1,
+  "exportedAt": 1784411321684,
+  "app": {
+    "name": "vertragus",
+    "version": "0.1.56-main.1.g4b28a5b"
+  },
+  "machineId": "2d1dacf3388f",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrqw7eq3-plan-mrqvd647-1",
+    "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+    "workspaceSessionId": "61f4d1b3-99f9-4c46-b0db-4789b54ae7d1",
+    "planId": "plan-mrqvd647-1",
+    "goal": "PR #107 vollständig verstehen, seine beabsichtigte Funktion auf der aktuellen Vertragus-Basis neu implementieren, regressionssicher prüfen und einen zentral integrierten, veröffentlichungsreifen Stand erzeugen. Keine Worker führen git add/commit/push aus.",
+    "status": "needs-work",
+    "summary": "Die parallelen Analysen waren belastbar und grün; die umfangreiche Integration erreichte einen fachlich weitgehend fertigen Commit, benötigt aber gezielte Security-Validierungsnachweise vor Veröffentlichung.",
+    "modelStats": [
+      {
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "roles": [
+          "electron-core"
+        ],
+        "tasks": 2,
+        "succeeded": 1,
+        "needsWork": 1,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 2,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "costUsd": 6.879510999999998,
+        "avgDurationMs": 920815
+      },
+      {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "roles": [
+          "renderer-ui"
+        ],
+        "tasks": 1,
+        "succeeded": 1,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "avgDurationMs": 316877
+      },
+      {
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "roles": [
+          "electron-core"
+        ],
+        "tasks": 0,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 1,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 1
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrqw7epz-1-fueqft",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "electron-core",
+        "kind": "weakness",
+        "insight": "Quality-Gates erfordern Nacharbeit bei electron-core",
+        "evidence": "1 Task(s) mit 2 Gate-Finding(s)",
+        "source": "auto-retro",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784410947143,
+        "updatedAt": 1784410947143
+      },
+      {
+        "id": "learning-mrqjgjj6-1-vgz6uh",
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "kind": "weakness",
+        "insight": "Worker-Versuche scheiterten; Aufgaben wurden auf andere Slots umgeleitet",
+        "evidence": "1 inhaltlich fehlgeschlagene(r) Versuch(e) in diesem Lauf",
+        "source": "auto-retro",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 3,
+        "createdAt": 1784389538274,
+        "updatedAt": 1784410947143
+      },
+      {
+        "id": "learning-mrqw7epz-2-v9holk",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "renderer-ui",
+        "kind": "strength",
+        "insight": "deutlich schnellstes Modell dieses Laufs (Ø 317s)",
+        "evidence": "Ø-Dauer 317s gegenüber 921s (claude/claude-opus-4-8)",
+        "source": "auto-retro",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784410947143,
+        "updatedAt": 1784410947143
+      },
+      {
+        "id": "learning-mrqwffov-1-jq4blb",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "electron-core",
+        "kind": "strength",
+        "insight": "Sehr gründlich bei PR-Archäologie und umfangreicher Cross-Layer-Neuentwicklung auf divergierter Basis.",
+        "evidence": "Read-only-Audit identifizierte 20 konkrete Konflikte und der Integrator erzeugte den partiellen Commit 0251eeb8 mit der relevanten Rebranding-Funktion.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784411321647,
+        "updatedAt": 1784411321647
+      },
+      {
+        "id": "learning-mrqwffov-2-2hkfgq",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "electron-core",
+        "kind": "weakness",
+        "insight": "Security-Gate-Anforderungen an Validierung müssen bereits während umfangreicher IPC- und OAuth-Änderungen explizit eingeplant werden.",
+        "evidence": "Der Integrations-Task blieb wegen missing-ipc-controls und missing-oauth-controls auf needs-work.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784411321647,
+        "updatedAt": 1784411321647
+      },
+      {
+        "id": "learning-mrqwffov-3-8y230j",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "renderer-ui",
+        "kind": "strength",
+        "insight": "Schnell und präzise bei aktueller Renderer-Architekturanalyse und Legacy-Kompatibilitätsabgrenzung.",
+        "evidence": "Flegias lieferte in 317 Sekunden ein grünes Audit mit 33/33 Tests sowie klarer atomarer Bridge-Migrationsstrategie.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784411321647,
+        "updatedAt": 1784411321647
+      },
+      {
+        "id": "learning-mrqwffov-4-hleml2",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "renderer-ui",
+        "kind": "weakness",
+        "insight": "Für diesen read-only Renderer-Audit wurde keine konkrete modellbezogene Schwäche belegt.",
+        "evidence": "Der einzige Task war vollständig erfolgreich und hatte keine Gate-Findings.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784411321647,
+        "updatedAt": 1784411321647
+      },
+      {
+        "id": "learning-mrqwffov-5-tlhdo3",
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "role": "electron-core",
+        "kind": "strength",
+        "insight": "Für diesen Lauf wurde keine belastbare Stärke im vorgesehenen Electron-Core-Einsatz belegt.",
+        "evidence": "Der einzige Versuch endete vor einem verwertbaren Task-Ergebnis; die Aufgabe wurde erfolgreich auf Claude umgeleitet.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784411321647,
+        "updatedAt": 1784411321647
+      },
+      {
+        "id": "learning-mrqwffov-6-dmm207",
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "role": "electron-core",
+        "kind": "weakness",
+        "insight": "Im Electron-Core-Fallback war der Worker in diesem Lauf nicht zuverlässig ausführbar.",
+        "evidence": "Ein inhaltlich fehlgeschlagener Versuch ohne abgeschlossenes Task-Ergebnis erforderte Provider-Umleitung.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784411321647,
+        "updatedAt": 1784411321647
+      }
+    ],
+    "createdAt": 1784410947147,
+    "exportQueuedAt": 1784411321676
+  }
+}
