@@ -4,6 +4,7 @@ import { IPC, type OrcaApi, type UpdateState } from '@shared/ipc'
 import type { AgentDataChunk, AgentInstanceInfo, OrcaEvent } from '@shared/agents'
 import type { OrchestratorSnapshot, WorkspaceSessionSummary } from '@shared/orchestrator'
 import type { ProviderHealth } from '@shared/providers'
+import type { VoiceAssistantProgressEvent, VoiceUiCommand } from '@shared/voiceAssistant'
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
   const listener = (_e: Electron.IpcRendererEvent, payload: T): void => cb(payload)
@@ -164,7 +165,27 @@ const orca: OrcaApi = {
       ipcRenderer.invoke(IPC.orchestratorResumeTask, profileId, workspaceSessionId, taskId),
     fallbackTask: (profileId, workspaceSessionId, taskId) =>
       ipcRenderer.invoke(IPC.orchestratorFallbackTask, profileId, workspaceSessionId, taskId),
+    send: (profileId, workspaceSessionId, text) =>
+      ipcRenderer.invoke(IPC.orchestratorSend, profileId, workspaceSessionId, text),
     onSnapshot: (cb) => subscribe<OrchestratorSnapshot>(IPC.evOrchestrator, cb)
+  },
+
+  voiceAssistant: {
+    turn: (request) => ipcRenderer.invoke(IPC.voiceAssistantTurn, request),
+    onProgress: (cb) => subscribe<VoiceAssistantProgressEvent>(IPC.evVoiceAssistant, cb),
+    getSettings: () => ipcRenderer.invoke(IPC.voiceAssistantGetSettings),
+    setSettings: (patch) => ipcRenderer.invoke(IPC.voiceAssistantSetSettings, patch)
+  },
+
+  voiceOverlay: {
+    toggle: () => ipcRenderer.invoke(IPC.voiceOverlayToggle),
+    hide: () => ipcRenderer.invoke(IPC.voiceOverlayHide),
+    moved: (x, y) => ipcRenderer.send(IPC.voiceOverlayMoved, x, y)
+  },
+
+  events: {
+    onVoiceAssistant: (cb) => subscribe<VoiceAssistantProgressEvent>(IPC.evVoiceAssistant, cb),
+    onUiCommand: (cb) => subscribe<VoiceUiCommand>(IPC.evUiCommand, cb)
   },
 
   retro: {

@@ -25,8 +25,8 @@ export const ORCHESTRATOR_NODE_ID = 'orchestrator'
 
 export const TASK_NODE_WIDTH = 260
 export const TASK_NODE_HEIGHT = 118
-export const ORCH_NODE_WIDTH = 236
-export const ORCH_NODE_HEIGHT = 108
+export const ORCH_NODE_WIDTH = 380
+export const ORCH_NODE_HEIGHT = 178
 export const NOTE_NODE_WIDTH = 220
 export const NOTE_NODE_HEIGHT = 122
 /** The canvas shows the newest findings as sticky notes; older ones stay in the side panel. */
@@ -40,6 +40,8 @@ export interface CanvasOrchestratorInfo {
   goalTitle?: string
   goalActive: boolean
   taskCount: number
+  activity?: string
+  status?: string
   [key: string]: unknown
 }
 

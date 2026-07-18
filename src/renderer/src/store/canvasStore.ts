@@ -18,7 +18,15 @@ export interface CanvasStore {
 }
 
 export function canvasBoardKey(profileId: string, workspaceSessionId?: string): string {
+  if (!isSafeCanvasIdentifier(profileId) || (workspaceSessionId != null && !isSafeCanvasIdentifier(workspaceSessionId))) {
+    throw new Error('Invalid canvas board identifier')
+  }
   return `${profileId}::${workspaceSessionId ?? 'default'}`
+}
+
+/** Canvas persistence accepts opaque ids, never path-shaped input. */
+export function isSafeCanvasIdentifier(value: string): boolean {
+  return value.length > 0 && value.length <= 160 && !value.includes('/') && !value.includes('\\') && value !== '.' && value !== '..'
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

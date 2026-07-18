@@ -37,4 +37,30 @@ describe('locale resources', () => {
       }
     }
   })
+
+  it('keeps canvas composer + voice overlay surface keys in DE/EN parity', () => {
+    const required = [
+      'canvas.composer.startMode',
+      'canvas.composer.label',
+      'canvas.composer.placeholder',
+      'canvas.composer.startPlaceholder',
+      'canvas.composer.voice',
+      'canvas.composer.send',
+      'canvas.thread.label',
+      'voiceOverlay.toggle',
+      'voiceOverlay.hide',
+      'voiceOverlay.confirmation',
+      'voiceOverlay.yesValue',
+      'voiceOverlay.noValue',
+      'voiceOverlay.state.listening',
+      'voiceOverlay.state.thinking',
+      'voiceOverlay.state.speaking'
+    ]
+    const deKeys = new Set(keysOf(de))
+    const enKeys = new Set(keysOf(en))
+    for (const key of required) {
+      expect(deKeys.has(key), `missing DE key ${key}`).toBe(true)
+      expect(enKeys.has(key), `missing EN key ${key}`).toBe(true)
+    }
+  })
 })
