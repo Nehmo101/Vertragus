@@ -52,6 +52,15 @@ import type {
   RemotePairStartRequest,
   RemoteStatus
 } from './remote'
+import type {
+  OrchestratorSendResult,
+  VoiceAssistantProgressEvent,
+  VoiceAssistantSettings,
+  VoiceAssistantSettingsPatch,
+  VoiceOverlayTurnRequest,
+  VoiceOverlayTurnResult,
+  VoiceUiCommand
+} from './voiceAssistant'
 
 export const IPC = {
   appInfo: 'app:info',
@@ -135,6 +144,14 @@ export const IPC = {
   orchestratorPauseTask: 'orchestrator:pauseTask',
   orchestratorResumeTask: 'orchestrator:resumeTask',
   orchestratorFallbackTask: 'orchestrator:fallbackTask',
+  orchestratorSend: 'orchestrator:send',
+  // voice assistant + overlay
+  voiceAssistantTurn: 'voiceAssistant:turn',
+  voiceAssistantGetSettings: 'voiceAssistant:getSettings',
+  voiceAssistantSetSettings: 'voiceAssistant:setSettings',
+  voiceOverlayToggle: 'voiceOverlay:toggle',
+  voiceOverlayHide: 'voiceOverlay:hide',
+  voiceOverlayMoved: 'voiceOverlay:moved',
   remoteStatus: 'remote:status',
   remoteEnable: 'remote:enable',
   remoteDisable: 'remote:disable',
@@ -155,6 +172,8 @@ export const IPC = {
   evOrchestrator: 'ev:orchestrator',
   evWorkspaceSessions: 'ev:workspaceSessions',
   evRemote: 'ev:remote',
+  evVoiceAssistant: 'ev:voiceAssistant',
+  evUiCommand: 'ev:uiCommand',
   // window controls (frameless title bar)
   winMinimize: 'win:minimize',
   winMaximizeToggle: 'win:maximizeToggle',
@@ -489,6 +508,46 @@ export interface OrcaApi {
     pauseTask(profileId: string, workspaceSessionId: string, taskId: string): Promise<boolean>
     resumeTask(profileId: string, workspaceSessionId: string, taskId: string): Promise<boolean>
     fallbackTask(profileId: string, workspaceSessionId: string, taskId: string): Promise<boolean>
+    /**
+     * Seed a free-text message to the orchestrator agent of the given session
+     * (canvas composer). When `workspaceSessionId` is omitted the profile's
+     * active session is used. Main-window only.
+     */
+    send(
+      profileId: string,
+      workspaceSessionId: string | undefined,
+      text: string
+    ): Promise<OrchestratorSendResult>
+  }
+
+  /**
+   * Free voice assistant. `turn` runs one STT→chat(tool-loop)→TTS turn in the
+   * main process and is callable only from the voice overlay window. Settings
+   * expose key presence as booleans; raw keys never cross this bridge.
+   */
+  voiceAssistant: {
+    turn(request: VoiceOverlayTurnRequest): Promise<VoiceOverlayTurnResult>
+    /** Subscribe to per-turn progress (alias of `events.onVoiceAssistant`). */
+    onProgress(cb: (event: VoiceAssistantProgressEvent) => void): () => void
+    getSettings(): Promise<VoiceAssistantSettings>
+    setSettings(patch: VoiceAssistantSettingsPatch): Promise<VoiceAssistantSettings>
+  }
+
+  /** Show/hide + reposition the frameless voice overlay window. */
+  voiceOverlay: {
+    /** Toggle the overlay window visibility (creates it on first use). */
+    toggle(): Promise<void>
+    /** Hide the overlay (self-hide from the overlay window). */
+    hide(): Promise<void>
+    /** Persist the overlay window position after a native drag. */
+    moved(x: number, y: number): void
+  }
+
+  /** Main → renderer push feeds for the voice assistant. */
+  events: {
+    onVoiceAssistant(cb: (event: VoiceAssistantProgressEvent) => void): () => void
+    /** UI navigation commands emitted by assistant tools (layout/view/session). */
+    onUiCommand(cb: (command: VoiceUiCommand) => void): () => void
   }
 
   retro: {

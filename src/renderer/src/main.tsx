@@ -8,6 +8,7 @@ import './styles.css'
 
 import './cozy-organic.css'
 import './canvas.css'
+import './assets/canvas-chat.css'
 
 void initLanguageFromConfig()
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(

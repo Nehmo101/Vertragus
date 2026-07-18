@@ -44,7 +44,16 @@ import { agentManager } from '@main/agents/AgentManager'
 import { providerCapacity } from '@main/agents/providerCapacity'
 import { workspaceSessions } from '@main/orchestrator/WorkspaceSessionRegistry'
 import { createWorkspaceSessionIpcController } from '@main/orchestrator/workspaceSessionIpc'
-import { broadcast, createPaneWindow, isMainWindowSender, pushDemoState } from '@main/windows'
+import {
+  broadcast,
+  createPaneWindow,
+  hideVoiceOverlay,
+  isMainWindowSender,
+  isVoiceWindowSender,
+  moveVoiceOverlay,
+  pushDemoState,
+  toggleVoiceOverlay
+} from '@main/windows'
 import { getPublicConfig, setPublicConfig } from '@main/config/configAccess'
 import {
   listProfiles,
@@ -101,6 +110,26 @@ import {
   setInboxSpeechSettings,
   transcribeInboxAudio
 } from '@main/voice/InboxSpeechService'
+import {
+  getVoiceAssistantSettings,
+  runVoiceAssistantTurn,
+  setVoiceAssistantSettings
+} from '@main/voice/VoiceAssistantService'
+import {
+  adaptVoiceTurnRequest,
+  adaptVoiceTurnResult,
+  guardNotVoiceWindow,
+  guardOverlayControl,
+  guardVoiceTurnAllowed,
+  resolveOrchestratorSend
+} from '@main/voice/voiceIpc'
+import type {
+  OrchestratorSendResult,
+  VoiceAssistantProgressEvent,
+  VoiceAssistantSettingsPatch,
+  VoiceOverlayTurnRequest,
+  VoiceOverlayTurnResult
+} from '@shared/voiceAssistant'
 import { RunJournal } from '@main/diagnostics/runJournal'
 import { loadTaskReviewDiff } from '@main/integrations/reviewDiff'
 import { createMainPromptEnhancementService } from '@main/inbox/promptEnhancementProvider'
@@ -220,6 +249,14 @@ export function registerIpcHandlers(): void {
   })
   const requireMainWindow = (event: Electron.IpcMainInvokeEvent): void => {
     if (!isMainWindowSender(event.sender)) throw new Error('Remote-Verwaltung ist nur im Hauptfenster erlaubt.')
+  }
+  // The voice overlay window shares the renderer preload, so every privileged
+  // agent/spawn/orchestrator channel must explicitly refuse it. Its only path to
+  // mutate the workspace is the gated voiceAssistant:turn tool loop.
+  const assertNotVoiceWindow = (
+    event: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent
+  ): void => {
+    guardNotVoiceWindow(isVoiceWindowSender(event.sender))
   }
   // ---- app / providers / config ----
   ipcMain.handle(IPC.appInfo, (): AppInfo => {
@@ -478,7 +515,8 @@ export function registerIpcHandlers(): void {
 
   // ---- agents ----
   ipcMain.handle(IPC.agentsList, () => agentManager.list())
-  ipcMain.handle(IPC.agentSpawn, (_e, req: SpawnAgentRequest) => {
+  ipcMain.handle(IPC.agentSpawn, (e, req: SpawnAgentRequest) => {
+    assertNotVoiceWindow(e)
     if (!req.profileId) return agentManager.spawn(req)
     const profile = getProfile(req.profileId)
     if (!profile) throw new Error('Workspace-Profil nicht gefunden.')
@@ -489,33 +527,53 @@ export function registerIpcHandlers(): void {
       engineId: session.engine.engineId
     })
   })
-  ipcMain.handle(IPC.agentsSpawnProfile, async (_e, profileId: string, yoloMaster: boolean) => {
+  ipcMain.handle(IPC.agentsSpawnProfile, async (e, profileId: string, yoloMaster: boolean) => {
+    assertNotVoiceWindow(e)
     const profile = getProfile(profileId)
     if (!profile) return []
     return spawnProfileTeam(profile, yoloMaster, {
       workingDirOverride: getActiveRepoOverridePath()
     })
   })
-  ipcMain.on(IPC.agentWrite, (_e, id: string, data: string) => agentManager.write(id, data))
-  ipcMain.on(IPC.agentMarkInteractiveUsed, (_e, id: string) =>
+  ipcMain.on(IPC.agentWrite, (e, id: string, data: string) => {
+    if (isVoiceWindowSender(e.sender)) return
+    agentManager.write(id, data)
+  })
+  ipcMain.on(IPC.agentMarkInteractiveUsed, (e, id: string) => {
+    if (isVoiceWindowSender(e.sender)) return
     agentManager.markInteractiveUsed(id)
-  )
-  ipcMain.on(IPC.agentResize, (_e, id: string, cols: number, rows: number) =>
+  })
+  ipcMain.on(IPC.agentResize, (e, id: string, cols: number, rows: number) => {
+    if (isVoiceWindowSender(e.sender)) return
     agentManager.resize(id, cols, rows)
-  )
-  ipcMain.handle(IPC.agentKill, (_e, id: string) => agentManager.kill(id))
-  ipcMain.handle(IPC.agentsKillAll, () => agentManager.killAll())
-  ipcMain.handle(IPC.agentsClean, async (_e, profileId: string, workspaceSessionId?: string) => {
+  })
+  ipcMain.handle(IPC.agentKill, (e, id: string) => {
+    assertNotVoiceWindow(e)
+    return agentManager.kill(id)
+  })
+  ipcMain.handle(IPC.agentsKillAll, (e) => {
+    assertNotVoiceWindow(e)
+    return agentManager.killAll()
+  })
+  ipcMain.handle(IPC.agentsClean, async (e, profileId: string, workspaceSessionId?: string) => {
+    assertNotVoiceWindow(e)
     await agentManager.removeAll(profileId, workspaceSessionId)
     if (workspaceSessionId) workspaceSessions.removeSession(workspaceSessionId)
     else workspaceSessions.remove(profileId)
   })
   ipcMain.handle(IPC.agentBuffer, (_e, id: string) => agentManager.buffer(id))
-  ipcMain.handle(IPC.agentPopout, (_e, id: string) => {
+  ipcMain.handle(IPC.agentPopout, (e, id: string) => {
+    assertNotVoiceWindow(e)
     createPaneWindow(id)
   })
-  ipcMain.handle(IPC.agentHandoff, (_e, req: HandoffRequest) => agentManager.handoff(req))
-  ipcMain.handle(IPC.agentsBulkHandoff, (_e, req: BulkHandoffRequest) => agentManager.bulkHandoff(req))
+  ipcMain.handle(IPC.agentHandoff, (e, req: HandoffRequest) => {
+    assertNotVoiceWindow(e)
+    return agentManager.handoff(req)
+  })
+  ipcMain.handle(IPC.agentsBulkHandoff, (e, req: BulkHandoffRequest) => {
+    assertNotVoiceWindow(e)
+    return agentManager.bulkHandoff(req)
+  })
 
   // ---- orchestrator ----
   ipcMain.handle(IPC.orchestratorSnapshot, (_e, profileId: string, workspaceSessionId?: string) => {
@@ -617,6 +675,79 @@ export function registerIpcHandlers(): void {
       return profile ? workspaceSessions.fallbackTask(profile, taskId, workspaceSessionId) : false
     }
   )
+  // Canvas composer → seed a free-text message to the session's orchestrator agent.
+  // Main-window only; the voice window has its own gated tool for this.
+  ipcMain.handle(
+    IPC.orchestratorSend,
+    async (
+      event,
+      profileId: unknown,
+      workspaceSessionId: unknown,
+      text: unknown
+    ): Promise<OrchestratorSendResult> => {
+      requireMainWindow(event)
+      return resolveOrchestratorSend(
+        {
+          hasProfile: (id) => Boolean(getProfile(id)),
+          activeSessionId: (id) => workspaceSessions.list(id).find((session) => session.active)?.id,
+          findOrchestratorId: (sessionId) =>
+            agentManager
+              .list()
+              .find((agent) => agent.workspaceSessionId === sessionId && agent.kind === 'orchestrator')?.id,
+          seed: (agentId, message) => agentManager.seedInteractive(agentId, message)
+        },
+        profileId,
+        workspaceSessionId,
+        text
+      )
+    }
+  )
+
+  // ---- voice assistant + overlay ----
+  ipcMain.handle(
+    IPC.voiceAssistantTurn,
+    async (event, request: VoiceOverlayTurnRequest): Promise<VoiceOverlayTurnResult> => {
+      // Only the overlay window (or the main window as a fallback host) may run a
+      // turn. The turn itself runs the bounded tool loop entirely in the main
+      // process; API keys never leave it.
+      guardVoiceTurnAllowed(isVoiceWindowSender(event.sender), isMainWindowSender(event.sender))
+      const turnRequest = adaptVoiceTurnRequest(request)
+      const sender = event.sender
+      const emitProgress = (progress: VoiceAssistantProgressEvent): void => {
+        if (sender.isDestroyed()) return
+        const enriched: VoiceAssistantProgressEvent =
+          progress.stage === 'error'
+            ? { ...progress, error: progress.error ?? progress.detail }
+            : progress
+        sender.send(IPC.evVoiceAssistant, enriched)
+      }
+      const result = await runVoiceAssistantTurn(turnRequest, emitProgress)
+      for (const command of result.uiCommands) {
+        broadcast(IPC.evUiCommand, command)
+      }
+      return adaptVoiceTurnResult(result)
+    }
+  )
+  ipcMain.handle(IPC.voiceAssistantGetSettings, (event) => {
+    requireMainWindow(event)
+    return getVoiceAssistantSettings()
+  })
+  ipcMain.handle(IPC.voiceAssistantSetSettings, (event, patch: VoiceAssistantSettingsPatch) => {
+    requireMainWindow(event)
+    return setVoiceAssistantSettings(patch)
+  })
+  ipcMain.handle(IPC.voiceOverlayToggle, (event) => {
+    requireMainWindow(event)
+    toggleVoiceOverlay()
+  })
+  ipcMain.handle(IPC.voiceOverlayHide, (event) => {
+    guardOverlayControl(isVoiceWindowSender(event.sender), isMainWindowSender(event.sender))
+    hideVoiceOverlay()
+  })
+  ipcMain.on(IPC.voiceOverlayMoved, (event, x: number, y: number) => {
+    if (!isVoiceWindowSender(event.sender)) return
+    moveVoiceOverlay(Number(x), Number(y))
+  })
 
   // ---- retro / model learnings / benchmarks ----
   ipcMain.handle(IPC.retroListRetros, (_e, profileId?: string) =>

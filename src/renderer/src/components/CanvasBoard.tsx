@@ -39,6 +39,8 @@ import type { TaskStatus } from '@shared/orchestrator'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import CanvasTerminalDrawer from './CanvasTerminalDrawer'
+import { CanvasComposer } from './CanvasComposer'
+import { OrchestratorThread } from './OrchestratorThread'
 
 function statusClass(status: TaskStatus): string {
   if (status === 'running') return 'running'
@@ -394,7 +396,7 @@ export default function CanvasBoard(): JSX.Element {
             <li>{t('canvas.empty.chat', { defaultValue: 'Unten mit Caronte chatten' })}</li>
           </ol>
         </div>
-        <div className="canvas-composer-slot" />
+        <CanvasComposerMount />
       </div>
     )
   }
@@ -500,5 +502,40 @@ function SessionChips(): JSX.Element {
       ))}
       <button type="button" className="canvas-session-add" onClick={() => void store.startAll()} aria-label={t('canvas.sessions.add', { defaultValue: 'Weitere Session starten' })}>＋</button>
     </nav>
+  )
+}
+
+/**
+ * Integrator mount for the WS-B canvas chat: the orchestrator thread + composer
+ * live in the canvas' bottom-centre slot (`.canvas-composer-slot`). Props are
+ * sourced from the app store so the slot works in both the empty-state and the
+ * populated board.
+ */
+function CanvasComposerMount(): JSX.Element {
+  const store = useAppStore()
+  const profileId = store.activeProfileId
+  const workspaceSessionId = store.activeWorkspaceSessionId ?? undefined
+  const orchestratorRunning = store.agents.some(
+    (agent) =>
+      agent.kind === 'orchestrator' &&
+      (agent.status === 'running' || agent.status === 'waiting') &&
+      (!agent.profileId || agent.profileId === profileId) &&
+      (!workspaceSessionId || agent.workspaceSessionId === workspaceSessionId)
+  )
+  return (
+    <div className="canvas-composer-slot">
+      <OrchestratorThread
+        profileId={profileId}
+        workspaceSessionId={workspaceSessionId}
+        snapshot={store.orchestrator}
+        reviewPendingPlan={store.reviewPendingPlan}
+      />
+      <CanvasComposer
+        profileId={profileId}
+        workspaceSessionId={workspaceSessionId}
+        orchestratorRunning={orchestratorRunning}
+        startAll={store.startAll}
+      />
+    </div>
   )
 }
