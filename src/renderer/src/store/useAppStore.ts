@@ -24,6 +24,7 @@ import { duplicateProfile as createDuplicateProfile, type WorkspaceProfile } fro
 import type { McpServerConfig } from '@shared/mcp'
 import type { OrchestratorSnapshot, WorkspaceSessionSummary } from '@shared/orchestrator'
 import type { AppInfo, GitInfo, GithubAuthStatus } from '@shared/ipc'
+import type { VoiceUiCommand } from '@shared/voiceAssistant'
 import {
   collectKnownRepos,
   parseActiveRepo,
@@ -136,10 +137,12 @@ interface AppState {
   setSelectedAgent(id: string | null): void
   reopenAgent(id: string): void
   hideAgent(id: string): void
-  startAll(): Promise<void>
+  startAll(): Promise<string | void>
   stopAll(): Promise<void>
   cleanWorkspace(): Promise<void>
   reviewPendingPlan(approved: boolean): Promise<void>
+  /** Apply a voice-assistant UI navigation command (layout/view/session). */
+  applyUiCommand(command: VoiceUiCommand): void
   openAddAgent(): void
   closeAddAgent(): void
   addAgent(selection: ManualAgentSelection): Promise<boolean>
@@ -337,6 +340,56 @@ export function workspaceUserAttention(
     : null
 }
 
+/**
+ * One-time canvas-default migration (D1). Existing installs defaulted to the
+ * `tiles` layout; the spatial canvas is now the intended entry surface. The
+ * first time this runs (before `ui.canvasDefaultApplied` is persisted) the
+ * layout is forced to `canvas` exactly once — afterwards the user's stored
+ * choice is always respected. The legacy `dag` list layout still folds to canvas.
+ */
+export function resolveInitialLayout(
+  rawLayout: unknown,
+  canvasDefaultApplied: boolean | undefined
+): { layout: WorkspaceLayout; applyCanvasDefault: boolean } {
+  const stored: WorkspaceLayout =
+    rawLayout === 'focus' || rawLayout === 'canvas'
+      ? rawLayout
+      : (rawLayout as string) === 'dag'
+        ? 'canvas'
+        : 'tiles'
+  if (!canvasDefaultApplied) {
+    return { layout: 'canvas', applyCanvasDefault: true }
+  }
+  return { layout: stored, applyCanvasDefault: false }
+}
+
+/** Map a voice-assistant `open_view` target to an app hash route ('' = main workspace). */
+export function uiCommandViewToHash(view: string | undefined): string {
+  switch ((view ?? '').trim().toLowerCase()) {
+    case 'inbox':
+    case 'ideas':
+      return '#/inbox'
+    case 'remote':
+    case 'mission':
+    case 'missioncontrol':
+      return '#/remote'
+    case 'approvals':
+    case 'approval':
+      return '#/approvals'
+    case 'changes':
+    case 'diff':
+    case 'diffs':
+      return '#/changes'
+    case 'canvas':
+    case 'workspace':
+    case 'board':
+    case 'home':
+      return '#/'
+    default:
+      return '#/'
+  }
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   appInfo: null,
   health: [],
@@ -460,7 +513,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       disabledModels,
       cliReadable,
       activeRepoRaw,
-      recentReposRaw
+      recentReposRaw,
+      canvasDefaultApplied
     ] =
       await Promise.all([
         window.orca.getAppInfo(),
@@ -480,8 +534,18 @@ export const useAppStore = create<AppState>((set, get) => ({
         window.orca.getConfig<Partial<DisabledModels>>('disabledModels'),
         window.orca.getConfig<boolean>('ui.cliReadable'),
         window.orca.getConfig<unknown>('workspaceRepo.active'),
-        window.orca.getConfig<unknown>('workspaceRepo.recent')
+        window.orca.getConfig<unknown>('workspaceRepo.recent'),
+        window.orca.getConfig<boolean>('ui.canvasDefaultApplied')
       ])
+    // One-time canvas-default migration (D1): force canvas on first run only.
+    const { layout: initialLayout, applyCanvasDefault } = resolveInitialLayout(
+      layout,
+      canvasDefaultApplied
+    )
+    if (applyCanvasDefault) {
+      void window.orca.setConfig('ui.workspaceLayout', 'canvas')
+      void window.orca.setConfig('ui.canvasDefaultApplied', true)
+    }
     set({
       appInfo,
       profiles,
@@ -499,13 +563,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       orchestrator: snapshot,
       orchestrators: { [snapshot.workspaceSessionId ?? activeProfileId]: snapshot },
       theme: theme === 'dark' ? 'dark' : 'light',
-      // Legacy persisted value: the old 'dag' list layout became the canvas.
-      workspaceLayout:
-        layout === 'focus' || layout === 'canvas'
-          ? layout
-          : (layout as string) === 'dag'
-            ? 'canvas'
-            : 'tiles',
+      workspaceLayout: initialLayout,
       uiDensity: density === 'compact' ? density : 'comfortable',
       cliReadable: cliReadable ?? false,
       providerLimits: normalizeProviderLimits(limits),
@@ -908,6 +966,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       const spawned = await window.orca.agents.spawnProfile(profile.id, s.yoloMaster)
       const workspaceSessionId = spawned.find((agent) => agent.workspaceSessionId)?.workspaceSessionId
       if (workspaceSessionId) {
+        // Falls through below to hydrate state; the id is returned to callers
+        // (canvas composer) so they can target the freshly started session.
         const [workspaceSessions, snapshot] = await Promise.all([
           window.orca.workspaceSessions.list(),
           window.orca.orchestrator.snapshot(profile.id, workspaceSessionId)
@@ -926,10 +986,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         } else {
           get().showToast('Workspace gestartet.')
         }
+        return workspaceSessionId
       }
     } catch (error) {
       get().showToast(`Workspace konnte nicht starten: ${errorMessage(error)}`)
     }
+    return undefined
   },
 
   async stopAll() {
@@ -990,6 +1052,36 @@ export const useAppStore = create<AppState>((set, get) => ({
       get().showToast(approved ? 'Plan freigegeben.' : 'Plan abgelehnt.')
     } catch (error) {
       state.showToast(`Planfreigabe fehlgeschlagen: ${errorMessage(error)}`)
+    }
+  },
+
+  applyUiCommand(command) {
+    if (!command || typeof command !== 'object') return
+    switch (command.kind) {
+      case 'switch_layout': {
+        const layout = command.layout
+        if (layout === 'canvas' || layout === 'tiles' || layout === 'focus') {
+          get().setWorkspaceLayout(layout)
+        }
+        return
+      }
+      case 'open_view': {
+        const hash = uiCommandViewToHash(command.view)
+        // A canvas/workspace target also implies the spatial layout.
+        if (command.view && ['canvas', 'workspace', 'board', 'home'].includes(command.view.trim().toLowerCase())) {
+          get().setWorkspaceLayout('canvas')
+        }
+        if (window.location.hash !== hash) window.location.hash = hash
+        return
+      }
+      case 'set_active_session': {
+        if (command.profileId && command.sessionId) {
+          void get().selectWorkspaceSession(command.profileId, command.sessionId)
+        }
+        return
+      }
+      default:
+        return
     }
   },
 

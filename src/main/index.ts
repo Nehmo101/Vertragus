@@ -1,8 +1,13 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, globalShortcut, Menu, nativeImage, Tray } from 'electron'
+import { join } from 'node:path'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { installEditMenu } from '@main/editMenu'
 import { brandEnv } from '@main/env'
 import { refreshProcessPathFromSystem } from '@main/providers/processPath'
+
+/** Global shortcut that toggles the free voice overlay from anywhere. */
+const VOICE_OVERLAY_SHORTCUT = 'CommandOrControl+Shift+Space'
+let voiceTray: Tray | null = null
 
 const smokeUserData = brandEnv('UI_SMOKE_DATA')
 if (brandEnv('UI_SMOKE') && smokeUserData) {
@@ -59,6 +64,31 @@ app.whenReady().then(async () => {
   windows.createMainWindow()
   updater.initializeUpdater()
 
+  // Voice overlay: reachable from anywhere via a global shortcut and a tray icon.
+  // Both just toggle the overlay window; the overlay owns no privileged rights.
+  if (!brandEnv('UI_SMOKE')) {
+    try {
+      globalShortcut.register(VOICE_OVERLAY_SHORTCUT, () => windows.toggleVoiceOverlay())
+    } catch (error) {
+      console.warn('[Voice] global shortcut registration failed', error)
+    }
+    try {
+      const trayIcon = nativeImage.createFromPath(join(__dirname, '../renderer/favicon.png'))
+      voiceTray = new Tray(trayIcon.isEmpty() ? nativeImage.createEmpty() : trayIcon)
+      voiceTray.setToolTip('Vertragus')
+      voiceTray.setContextMenu(
+        Menu.buildFromTemplate([
+          { label: 'Sprachassistent umschalten', click: () => windows.toggleVoiceOverlay() },
+          { type: 'separator' },
+          { label: 'Beenden', click: () => app.quit() }
+        ])
+      )
+      voiceTray.on('click', () => windows.toggleVoiceOverlay())
+    } catch (error) {
+      console.warn('[Voice] tray setup failed', error)
+    }
+  }
+
   // Retro-Sync: drain queued retro exports on start + coarse retry interval.
   if (!brandEnv('UI_SMOKE')) {
     const retroExport = await import('@main/orchestrator/retroExport')
@@ -78,4 +108,10 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   void stopAgents()
   void stopRemote()
+})
+
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll()
+  voiceTray?.destroy()
+  voiceTray = null
 })

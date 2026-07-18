@@ -82,6 +82,48 @@
       "remoteCi": "Remote CI",
       "findings": "Open gate findings",
       "none": "No evidence yet — the task has no verified result."
+    },
+    "layout": {
+      "canvas": "Hub",
+      "tiles": "Terminals",
+      "focus": "Focus"
+    },
+    "orchestratorToggle": "Caronte",
+    "empty": {
+      "start": "Start team",
+      "playground": "Playground",
+      "drag": "Arrange cards freely",
+      "doubleClick": "Double-click opens the terminal",
+      "chat": "Chat with Caronte below"
+    },
+    "sessions": {
+      "aria": "Workspace sessions",
+      "add": "Start another session"
+    },
+    "composer": {
+      "startMode": "Start",
+      "label": "Message Caronte",
+      "placeholder": "Message the orchestrator…",
+      "startPlaceholder": "Describe a goal and start the team…",
+      "voice": "Voice assistant",
+      "send": "Send"
+    },
+    "thread": {
+      "label": "Orchestrator thread",
+      "title": "Caronte",
+      "unread": "new",
+      "empty": "No activity yet — start the team or set a goal.",
+      "message": {
+        "sending": "sending…",
+        "sent": "sent",
+        "failed": "failed"
+      },
+      "plan": {
+        "title": "Plan awaiting approval",
+        "stats": "{{count}} tasks",
+        "reject": "Reject",
+        "approve": "Approve"
+      }
     }
   },
   "voice": {
@@ -626,5 +668,26 @@
     "deleteKey": "Delete key",
     "cancel": "Cancel",
     "save": "Save"
+  },
+  "voiceOverlay": {
+    "toggle": "Voice assistant",
+    "hide": "Hide",
+    "you": "You",
+    "assistant": "Assistant",
+    "confirmation": "Confirmation required",
+    "no": "No",
+    "yes": "Yes",
+    "noValue": "no",
+    "yesValue": "yes",
+    "textLabel": "Type a message",
+    "textPlaceholder": "Type a message…",
+    "send": "Send",
+    "state": {
+      "idle": "Ready",
+      "listening": "Listening…",
+      "thinking": "Thinking…",
+      "speaking": "Speaking…",
+      "error": "Error"
+    }
   }
 }

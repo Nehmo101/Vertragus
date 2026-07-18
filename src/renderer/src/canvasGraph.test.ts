@@ -47,6 +47,9 @@ describe('buildCanvasGraph', () => {
     ])
     const t1 = graph.nodes.find((n) => n.id === 't1')
     expect(t1?.type === 'task' && t1.data.task.id).toBe('t1')
+    expect(ORCH_NODE_WIDTH).toBeGreaterThan(350)
+    const hub = graph.nodes.find((node) => node.id === ORCHESTRATOR_NODE_ID)
+    expect(hub?.type === 'orchestrator' && hub.data.goalTitle).toBe('Canvas bauen')
   })
 
   it('renders hard dependencies as hard edges and animates them while the dependent runs', () => {
