@@ -1,0 +1,163 @@
+{
+  "version": 1,
+  "exportedAt": 1784409001841,
+  "app": {
+    "name": "vertragus",
+    "version": "0.1.56-main.1.g4b28a5b"
+  },
+  "machineId": "2d1dacf3388f",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrqv1blp-plan-mrqutve3-3",
+    "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+    "workspaceSessionId": "e6bb3946-664d-45a0-91db-249fe5d396fe",
+    "planId": "plan-mrqutve3-3",
+    "goal": "Die drei partiellen Shortcut-Commits gezielt bereinigen und integrieren. Anschließend Ctrl/Cmd+Shift+M für die aktive Spracheingabe vollständig verdrahten, DE/EN auffindbar machen und mit Tests, Typecheck, Lint, Commit-Hygiene sowie Security-Audit abnehmen.",
+    "status": "needs-work",
+    "summary": "Die Produktions-Recovery war vollständig grün. Der Lauf scheiterte, weil ein absichtlich isolierter Teststand ohne das parallel erzeugte Produktionsmodul als harte Abhängigkeit behandelt wurde; künftig müssen solche Tests erst im Integrationsstand verbindlich gegatet werden.",
+    "modelStats": [
+      {
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "roles": [
+          "electron-core",
+          "security-reviewer"
+        ],
+        "tasks": 2,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 2,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 2,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "avgDurationMs": 291346,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      },
+      {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "roles": [
+          "renderer-ui"
+        ],
+        "tasks": 1,
+        "succeeded": 1,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "avgDurationMs": 221971
+      },
+      {
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "roles": [
+          "test-writer"
+        ],
+        "tasks": 1,
+        "succeeded": 0,
+        "needsWork": 1,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 1,
+        "avgDurationMs": 264578,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrqunuzt-1-dzx9zd",
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "role": "test-writer",
+        "kind": "weakness",
+        "insight": "Quality-Gates erfordern Nacharbeit bei test-writer",
+        "evidence": "1 Task(s) mit 1 Gate-Finding(s)",
+        "source": "auto-retro",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 2,
+        "createdAt": 1784408355497,
+        "updatedAt": 1784408983542
+      },
+      {
+        "id": "learning-mrqv1ppd-1-xhx5nm",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "renderer-ui",
+        "kind": "strength",
+        "insight": "Bereinigt und harmonisiert mehrere partielle Renderer-Produktionsstände inklusive vollständiger lokaler Gates zuverlässig.",
+        "evidence": "Commit 62a14e74: 10/10 Tests sowie Typecheck, Lint und git diff --check erfolgreich.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784409001825,
+        "updatedAt": 1784409001825
+      },
+      {
+        "id": "learning-mrqv1ppd-2-hsw3ju",
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "role": "test-writer",
+        "kind": "strength",
+        "insight": "Liefert einen klar abgegrenzten Teststand zur späteren gemeinsamen Integration.",
+        "evidence": "Partieller Testcommit 5b16a700 enthält die zwei fokussierten Shortcut-/Speech-Testdateien.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784409001825,
+        "updatedAt": 1784409001825
+      },
+      {
+        "id": "learning-mrqv1ppd-3-hg811w",
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "role": "test-writer",
+        "kind": "weakness",
+        "insight": "Ein isolierter Test-Task darf nicht als hartes Gate dienen, wenn seine Produktionsimporte bewusst in einem parallelen Commit liegen.",
+        "evidence": "pnpm test scheiterte ausschließlich an fehlendem ./index; dadurch wurden Integrator und Audit gestoppt.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784409001825,
+        "updatedAt": 1784409001825
+      }
+    ],
+    "createdAt": 1784408983549,
+    "exportQueuedAt": 1784409001830
+  }
+}
