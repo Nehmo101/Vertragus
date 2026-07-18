@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "exportedAt": 1784388861459,
+  "app": {
+    "name": "vertragus",
+    "version": "0.1.54-main.1.g8ffb696"
+  },
+  "machineId": "2d1dacf3388f",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrqit6iv-plan-mrqha1na-2",
+    "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+    "workspaceSessionId": "bd9dd23a-8410-4e28-9f1a-b3b79ae3ffb9",
+    "planId": "plan-mrqha1na-2",
+    "goal": "Den bereits fachlich verifizierten, kollisionsfreien Canvas-Stand konfliktfrei in den Ziel-Worktree übernehmen und erneut abnehmen.",
+    "status": "stopped",
+    "summary": "Der fokussierte Recovery-Task rekonstruierte den konsolidierten Canvas-Stand erfolgreich; der Plan wurde anschließend außerhalb des Worker-Ergebnisses gestoppt.",
+    "modelStats": [
+      {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "roles": [
+          "renderer-ui"
+        ],
+        "tasks": 1,
+        "succeeded": 1,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "avgDurationMs": 2474931
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrqj21ae-1-cnm188",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "renderer-ui",
+        "kind": "strength",
+        "insight": "Kann einen konsolidierten Renderer-Stand aus mehreren verifizierten Commits konfliktfrei rekonstruieren.",
+        "evidence": "Recovery-Task 1/1 erfolgreich, ohne Modell- oder Infrastrukturfehler.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784388861446,
+        "updatedAt": 1784388861446
+      },
+      {
+        "id": "learning-mrqj21ae-2-kvr5pw",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "renderer-ui",
+        "kind": "weakness",
+        "insight": "In diesem Recovery-Lauf keine modellbezogene Schwäche belegt.",
+        "evidence": "Der Task selbst war erfolgreich; der Planstatus stopped entstand außerhalb des Worker-Ergebnisses.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784388861446,
+        "updatedAt": 1784388861446
+      }
+    ],
+    "createdAt": 1784388448327,
+    "exportQueuedAt": 1784388861451
+  }
+}
