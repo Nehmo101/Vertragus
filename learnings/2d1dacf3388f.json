@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784408595403,
+  "exportedAt": 1784409002575,
   "app": {
     "name": "vertragus",
     "version": "0.1.56-main.1.g4b28a5b"
@@ -8,6 +8,62 @@
   "machineId": "2d1dacf3388f",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrqv1ppd-3-hg811w",
+      "provider": "cursor",
+      "model": "cursor-grok-4.5-high-fast",
+      "role": "test-writer",
+      "kind": "weakness",
+      "insight": "Ein isolierter Test-Task darf nicht als hartes Gate dienen, wenn seine Produktionsimporte bewusst in einem parallelen Commit liegen.",
+      "evidence": "pnpm test scheiterte ausschließlich an fehlendem ./index; dadurch wurden Integrator und Audit gestoppt.",
+      "source": "orchestrator",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 1,
+      "createdAt": 1784409001825,
+      "updatedAt": 1784409001825
+    },
+    {
+      "id": "learning-mrqv1ppd-2-hsw3ju",
+      "provider": "cursor",
+      "model": "cursor-grok-4.5-high-fast",
+      "role": "test-writer",
+      "kind": "strength",
+      "insight": "Liefert einen klar abgegrenzten Teststand zur späteren gemeinsamen Integration.",
+      "evidence": "Partieller Testcommit 5b16a700 enthält die zwei fokussierten Shortcut-/Speech-Testdateien.",
+      "source": "orchestrator",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 1,
+      "createdAt": 1784409001825,
+      "updatedAt": 1784409001825
+    },
+    {
+      "id": "learning-mrqv1ppd-1-xhx5nm",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "renderer-ui",
+      "kind": "strength",
+      "insight": "Bereinigt und harmonisiert mehrere partielle Renderer-Produktionsstände inklusive vollständiger lokaler Gates zuverlässig.",
+      "evidence": "Commit 62a14e74: 10/10 Tests sowie Typecheck, Lint und git diff --check erfolgreich.",
+      "source": "orchestrator",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 1,
+      "createdAt": 1784409001825,
+      "updatedAt": 1784409001825
+    },
+    {
+      "id": "learning-mrqunuzt-1-dzx9zd",
+      "provider": "cursor",
+      "model": "cursor-grok-4.5-high-fast",
+      "role": "test-writer",
+      "kind": "weakness",
+      "insight": "Quality-Gates erfordern Nacharbeit bei test-writer",
+      "evidence": "1 Task(s) mit 1 Gate-Finding(s)",
+      "source": "auto-retro",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 2,
+      "createdAt": 1784408355497,
+      "updatedAt": 1784408983542
+    },
     {
       "id": "learning-mrquszho-4-6xsgr1",
       "provider": "cursor",
@@ -93,20 +149,6 @@
       "updatedAt": 1784408550767
     },
     {
-      "id": "learning-mrqunuzt-1-dzx9zd",
-      "provider": "cursor",
-      "model": "cursor-grok-4.5-high-fast",
-      "role": "test-writer",
-      "kind": "weakness",
-      "insight": "Quality-Gates erfordern Nacharbeit bei test-writer",
-      "evidence": "1 Task(s) mit 1 Gate-Finding(s)",
-      "source": "auto-retro",
-      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
-      "observations": 1,
-      "createdAt": 1784408355497,
-      "updatedAt": 1784408355497
-    },
-    {
       "id": "learning-mrqhyxtb-2-58w5ly",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -163,6 +205,20 @@
       "updatedAt": 1784408292010
     },
     {
+      "id": "learning-mrqumi0a-1-euxyzw",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "renderer-ui",
+      "kind": "strength",
+      "insight": "Sehr stark bei gezielter Renderer-UI-Fehleranalyse und vollständiger Regressionstest-Absicherung.",
+      "evidence": "Identifizierte Chromium-Datalist-Filterung, implementierte einen gemeinsamen ModelCombo und erreichte 925/925 grüne Tests plus Typecheck, Lint und SecurityGate.",
+      "source": "orchestrator",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 1,
+      "createdAt": 1784408292010,
+      "updatedAt": 1784408292010
+    },
+    {
       "id": "learning-mrqumi0a-5-j08y7w",
       "provider": "claude",
       "model": "claude-opus-4-8",
@@ -184,20 +240,6 @@
       "kind": "weakness",
       "insight": "Die umfassende Integrationsprüfung war deutlich langsamer als die spezialisierten Vorarbeiten.",
       "evidence": "Durchschnittsdauer 608 Sekunden gegenüber 241 Sekunden für renderer-ui und 99 Sekunden für test-writer.",
-      "source": "orchestrator",
-      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
-      "observations": 1,
-      "createdAt": 1784408292010,
-      "updatedAt": 1784408292010
-    },
-    {
-      "id": "learning-mrqumi0a-1-euxyzw",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "renderer-ui",
-      "kind": "strength",
-      "insight": "Sehr stark bei gezielter Renderer-UI-Fehleranalyse und vollständiger Regressionstest-Absicherung.",
-      "evidence": "Identifizierte Chromium-Datalist-Filterung, implementierte einen gemeinsamen ModelCombo und erreichte 925/925 grüne Tests plus Typecheck, Lint und SecurityGate.",
       "source": "orchestrator",
       "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
       "observations": 1,
@@ -470,6 +512,20 @@
       "updatedAt": 1784388841450
     },
     {
+      "id": "learning-mrqj1luy-1-bv6los",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "renderer-ui",
+      "kind": "strength",
+      "insight": "zuverlässig bei parallelen Renderer-UI-Features im ersten Anlauf",
+      "evidence": "Canvas, Chat und Overlay: 3/3 Tasks erfolgreich; Typecheck/Lint und fokussierte Suiten grün",
+      "source": "orchestrator",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 1,
+      "createdAt": 1784388841450,
+      "updatedAt": 1784388841450
+    },
+    {
       "id": "learning-mrqj1luy-3-5xk1fn",
       "provider": "claude",
       "model": "claude-opus-4-8",
@@ -498,34 +554,6 @@
       "updatedAt": 1784388841450
     },
     {
-      "id": "learning-mrqj1luy-1-bv6los",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "renderer-ui",
-      "kind": "strength",
-      "insight": "zuverlässig bei parallelen Renderer-UI-Features im ersten Anlauf",
-      "evidence": "Canvas, Chat und Overlay: 3/3 Tasks erfolgreich; Typecheck/Lint und fokussierte Suiten grün",
-      "source": "orchestrator",
-      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
-      "observations": 1,
-      "createdAt": 1784388841450,
-      "updatedAt": 1784388841450
-    },
-    {
-      "id": "learning-mrqiyrxs-1-x87hfx",
-      "provider": "claude",
-      "model": "claude-opus-4-8",
-      "role": "electron-core",
-      "kind": "strength",
-      "insight": "zuverlässig im ersten Anlauf bei electron-core",
-      "evidence": "2/2 Tasks ohne Wiederholung erfolgreich",
-      "source": "auto-retro",
-      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
-      "observations": 1,
-      "createdAt": 1784388709360,
-      "updatedAt": 1784388709360
-    },
-    {
       "id": "learning-mrqh8tut-1-gvxa8e",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -547,6 +575,20 @@
       "kind": "strength",
       "insight": "deutlich schnellstes Modell dieses Laufs (Ø 450s)",
       "evidence": "Ø-Dauer 450s gegenüber 3651s (cursor/cursor-grok-4.5-high-fast)",
+      "source": "auto-retro",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 1,
+      "createdAt": 1784388709360,
+      "updatedAt": 1784388709360
+    },
+    {
+      "id": "learning-mrqiyrxs-1-x87hfx",
+      "provider": "claude",
+      "model": "claude-opus-4-8",
+      "role": "electron-core",
+      "kind": "strength",
+      "insight": "zuverlässig im ersten Anlauf bei electron-core",
+      "evidence": "2/2 Tasks ohne Wiederholung erfolgreich",
       "source": "auto-retro",
       "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
       "observations": 1,
@@ -596,6 +638,20 @@
       "updatedAt": 1784387056681
     },
     {
+      "id": "learning-mrqhzcq1-3-x4759r",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "renderer-ui",
+      "kind": "strength",
+      "insight": "Schnell und teststark bei sichtbarem Renderer-Rebranding.",
+      "evidence": "Folco schloss UI-Anpassungen mit 926 Tests, Typecheck, Lint und Mobile-Build grün ab.",
+      "source": "orchestrator",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 1,
+      "createdAt": 1784387056681,
+      "updatedAt": 1784387056681
+    },
+    {
       "id": "learning-mrqhzcq1-1-73rpao",
       "provider": "claude",
       "model": "claude-opus-4-8",
@@ -617,20 +673,6 @@
       "kind": "weakness",
       "insight": "Bei übernommenen Recovery-Artefakten muss Commit-Hygiene vor Abschluss explizit bereinigt werden.",
       "evidence": "Oderisis Teilcommit wurde trotz fachlicher Nacharbeit vom git diff --cached --check Whitespace-Gate gestoppt.",
-      "source": "orchestrator",
-      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
-      "observations": 1,
-      "createdAt": 1784387056681,
-      "updatedAt": 1784387056681
-    },
-    {
-      "id": "learning-mrqhzcq1-3-x4759r",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "renderer-ui",
-      "kind": "strength",
-      "insight": "Schnell und teststark bei sichtbarem Renderer-Rebranding.",
-      "evidence": "Folco schloss UI-Anpassungen mit 926 Tests, Typecheck, Lint und Mobile-Build grün ab.",
       "source": "orchestrator",
       "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
       "observations": 1,
