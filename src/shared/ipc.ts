@@ -17,8 +17,8 @@ import type {
   BulkHandoffRequest,
   BulkHandoffResult,
   HandoffRequest,
-  OrcaEvent,
-  SpawnAgentRequest
+  SpawnAgentRequest,
+  VertragusEvent
 } from './agents'
 import type { OrchestratorSnapshot, WorkspaceSessionSummary } from './orchestrator'
 import type { BenchmarkRecord, ModelLearning, RunRetro } from './retro'
@@ -325,10 +325,10 @@ export interface TaskReviewDiff {
 }
 
 /**
- * The API bridged onto `window.orca` in the renderer. Every method maps 1:1
- * onto an ipcMain handler (or push channel) registered in the main process.
+ * The API bridged onto `window.vertragus` in the renderer. Every method maps
+ * 1:1 onto an ipcMain handler (or push channel) registered in the main process.
  */
-export interface OrcaApi {
+export interface VertragusApi {
   getAppInfo(): Promise<AppInfo>
   updates: {
     state(): Promise<UpdateState>
@@ -473,7 +473,7 @@ export interface OrcaApi {
     bulkHandoff(req: BulkHandoffRequest): Promise<BulkHandoffResult>
     onData(cb: (chunk: AgentDataChunk) => void): () => void
     onChanged(cb: (list: AgentInstanceInfo[]) => void): () => void
-    onEvent(cb: (evt: OrcaEvent) => void): () => void
+    onEvent(cb: (evt: VertragusEvent) => void): () => void
   }
 
   orchestrator: {

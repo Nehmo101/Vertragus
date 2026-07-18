@@ -1,7 +1,8 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import { IPC, type OrcaApi, type UpdateState } from '@shared/ipc'
-import type { AgentDataChunk, AgentInstanceInfo, OrcaEvent } from '@shared/agents'
+import { IPC, type UpdateState, type VertragusApi } from '@shared/ipc'
+import { assertValidConfigKey } from '@shared/ipcValidation'
+import type { AgentDataChunk, AgentInstanceInfo, VertragusEvent } from '@shared/agents'
 import type { OrchestratorSnapshot, WorkspaceSessionSummary } from '@shared/orchestrator'
 import type { ProviderHealth } from '@shared/providers'
 import type { VoiceAssistantProgressEvent, VoiceUiCommand } from '@shared/voiceAssistant'
@@ -12,7 +13,7 @@ function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
   return () => ipcRenderer.removeListener(channel, listener)
 }
 
-const orca: OrcaApi = {
+const vertragus: VertragusApi = {
   getAppInfo: () => ipcRenderer.invoke(IPC.appInfo),
   updates: {
     state: () => ipcRenderer.invoke(IPC.appUpdateState),
@@ -29,8 +30,8 @@ const orca: OrcaApi = {
   loginProvider: (id) => ipcRenderer.invoke(IPC.providerLogin, id),
   onProvidersChanged: (cb) => subscribe<ProviderHealth[]>(IPC.evProvidersHealth, cb),
   listModels: () => ipcRenderer.invoke(IPC.providersModels),
-  getConfig: (key) => ipcRenderer.invoke(IPC.configGet, key),
-  setConfig: (key, value) => ipcRenderer.invoke(IPC.configSet, key, value),
+  getConfig: (key) => ipcRenderer.invoke(IPC.configGet, assertValidConfigKey(key)),
+  setConfig: (key, value) => ipcRenderer.invoke(IPC.configSet, assertValidConfigKey(key), value),
 
   listProfiles: () => ipcRenderer.invoke(IPC.profilesList),
   saveProfile: (profile) => ipcRenderer.invoke(IPC.profileSave, profile),
@@ -127,7 +128,7 @@ const orca: OrcaApi = {
     bulkHandoff: (req) => ipcRenderer.invoke(IPC.agentsBulkHandoff, req),
     onData: (cb) => subscribe<AgentDataChunk>(IPC.evAgentData, cb),
     onChanged: (cb) => subscribe<AgentInstanceInfo[]>(IPC.evAgentsChanged, cb),
-    onEvent: (cb) => subscribe<OrcaEvent>(IPC.evOrcaEvent, cb)
+    onEvent: (cb) => subscribe<VertragusEvent>(IPC.evOrcaEvent, cb)
   },
 
   orchestrator: {
@@ -206,7 +207,7 @@ const orca: OrcaApi = {
 if (process.contextIsolated) {
   try {
     contextBridge.exposeInMainWorld('electron', electronAPI)
-    contextBridge.exposeInMainWorld('orca', orca)
+    contextBridge.exposeInMainWorld('vertragus', vertragus)
   } catch (error) {
     console.error(error)
   }
@@ -214,5 +215,5 @@ if (process.contextIsolated) {
   // @ts-expect-error fallback when context isolation is disabled
   window.electron = electronAPI
   // @ts-expect-error fallback when context isolation is disabled
-  window.orca = orca
+  window.vertragus = vertragus
 }

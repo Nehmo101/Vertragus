@@ -34,7 +34,7 @@ export default function App(): JSX.Element {
     const ready = store.init()
     void ready
     // Dev/CI affordance for headless screenshots of modal UI.
-    ;(window as unknown as { __orca?: unknown }).__orca = {
+    ;(window as unknown as { __vertragus?: unknown }).__vertragus = {
       ready,
       openEditor: (p: Parameters<typeof store.openEditor>[0]) => store.openEditor(p),
       openAddAgent: () => store.openAddAgent()

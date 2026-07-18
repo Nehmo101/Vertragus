@@ -48,7 +48,7 @@ export default function LimitsPanel(): JSX.Element {
   useEffect(() => {
     let cancelled = false
     const refresh = (): void => {
-      void window.orca.getProviderCapacity().then((stats) => {
+      void window.vertragus.getProviderCapacity().then((stats) => {
         if (!cancelled) setCapacity(stats)
       }).catch(() => undefined)
     }

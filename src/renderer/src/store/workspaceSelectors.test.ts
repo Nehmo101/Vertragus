@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { AgentInstanceInfo, OrcaEvent } from '@shared/agents'
+import type { AgentInstanceInfo, VertragusEvent } from '@shared/agents'
 import type { OrcaTask, OrchestratorSnapshot } from '@shared/orchestrator'
 import {
   effectivePaneReadable,
@@ -63,7 +63,7 @@ describe('workspace renderer selectors', () => {
   })
 
   it('keeps event logs separated per workspace', () => {
-    const events: OrcaEvent[] = [
+    const events: VertragusEvent[] = [
       { time: 1, text: 'alpha', tone: 'info', profileId: 'alpha' },
       { time: 2, text: 'beta', tone: 'info', profileId: 'beta' },
       { time: 3, text: 'global', tone: 'info' }

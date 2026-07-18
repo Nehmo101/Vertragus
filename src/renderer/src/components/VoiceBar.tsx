@@ -27,7 +27,7 @@ export default function VoiceBar({ agent }: { agent?: AgentInstanceInfo }): JSX.
 
   const deliver = (send: boolean): void => {
     if (!effectiveTarget || !text.trim()) return
-    window.orca.agents.write(effectiveTarget.id, `${text.trim()}${send ? '\r' : ''}`)
+    window.vertragus.agents.write(effectiveTarget.id, `${text.trim()}${send ? '\r' : ''}`)
     speech.discardVoiceDraft()
   }
 

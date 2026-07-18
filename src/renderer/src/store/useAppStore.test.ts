@@ -50,7 +50,7 @@ describe('useAppStore profile duplication', () => {
     })
     const selectProfile = vi.fn(async () => true)
 
-    vi.stubGlobal('window', { orca: { saveProfile } })
+    vi.stubGlobal('window', { vertragus: { saveProfile } })
     useAppStore.setState({
       profiles: [source],
       activeProfileId: source.id,

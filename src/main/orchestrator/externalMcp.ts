@@ -16,7 +16,12 @@ import {
   type McpServerConfig
 } from '@shared/mcp'
 import { listMcpServers } from '@main/config/store'
-import { getMcpHandle, SUBAGENT_ALLOWED_TOOLS } from '@main/orchestrator/mcpHandle'
+import {
+  getMcpHandle,
+  SUBAGENT_ALLOWED_TOOLS,
+  SUBAGENT_MCP_SERVER_NAME,
+  SUBAGENT_PERMISSION_PROMPT_TOOL
+} from '@main/orchestrator/mcpHandle'
 import {
   buildClaudeMcpArgs,
   buildCodexMcpArgs,
@@ -85,11 +90,11 @@ function orcaSubagentSpec(context: SubagentMcpContext): McpServerSpec | undefine
   if (context.workspaceSessionId) url.searchParams.set('workspaceSession', context.workspaceSessionId)
   if (context.engineId) url.searchParams.set('engineId', context.engineId)
   return {
-    name: 'orca-sub',
+    name: SUBAGENT_MCP_SERVER_NAME,
     transport: 'http',
     url: url.toString(),
     allowedTools: SUBAGENT_ALLOWED_TOOLS.filter(
-      (tool) => context.permissionPrompt || tool !== 'mcp__orca-sub__permission_prompt'
+      (tool) => context.permissionPrompt || tool !== SUBAGENT_PERMISSION_PROMPT_TOOL
     ),
     // These status/reporting tools are Vertragus-owned and task-scoped.
     approvalMode: 'approve'
@@ -135,7 +140,7 @@ export function buildSubagentMcpArgs(
       includeReadonlyTools: false
     })
     if (context.permissionPrompt && orcaSub) {
-      args.push('--permission-prompt-tool', 'mcp__orca-sub__permission_prompt')
+      args.push('--permission-prompt-tool', SUBAGENT_PERMISSION_PROMPT_TOOL)
     }
     return args
   }

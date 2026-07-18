@@ -14,15 +14,31 @@ export interface McpServerHandle {
   close(): Promise<void>
 }
 
-/** Tools exposed to headless subagents (namespaced under the `orca-sub` key). */
-export const SUBAGENT_ALLOWED_TOOLS = [
-  'mcp__orca-sub__report_progress',
-  'mcp__orca-sub__post_finding',
-  'mcp__orca-sub__list_findings',
-  'mcp__orca-sub__ask_orchestrator',
-  'mcp__orca-sub__await_orchestrator_response',
-  'mcp__orca-sub__permission_prompt'
-]
+/**
+ * MCP config key the per-worker subagent server is attached under. The CLI
+ * namespaces every tool as `mcp__<serverName>__<tool>`, so this single constant
+ * drives both the launch spec name and the allow-list below. The label is
+ * purely client-side (the server matches bare tool names), so renaming it from
+ * the legacy `orca-sub` needs no runtime alias.
+ */
+export const SUBAGENT_MCP_SERVER_NAME = 'vertragus-sub'
+
+const SUBAGENT_TOOL_NAMES = [
+  'report_progress',
+  'post_finding',
+  'list_findings',
+  'ask_orchestrator',
+  'await_orchestrator_response',
+  'permission_prompt'
+] as const
+
+/** Tools exposed to headless subagents (namespaced under `vertragus-sub`). */
+export const SUBAGENT_ALLOWED_TOOLS = SUBAGENT_TOOL_NAMES.map(
+  (tool) => `mcp__${SUBAGENT_MCP_SERVER_NAME}__${tool}`
+)
+
+/** Fully-qualified name of the permission-prompt tool for print-mode launches. */
+export const SUBAGENT_PERMISSION_PROMPT_TOOL = `mcp__${SUBAGENT_MCP_SERVER_NAME}__permission_prompt`
 
 let handle: McpServerHandle | null = null
 
