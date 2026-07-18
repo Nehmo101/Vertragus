@@ -1,0 +1,88 @@
+:root {
+  background: transparent;
+}
+
+body:has(.voice-overlay) {
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+.voice-overlay {
+  --voice-bronze: var(--accent, #936c2b);
+  --voice-verdigris: var(--sage, #1e5148);
+  box-sizing: border-box;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  color: var(--text, #2a241c);
+  font-family: var(--font-sans, system-ui, sans-serif);
+}
+
+.voice-orb {
+  -webkit-app-region: drag;
+  position: relative;
+  flex: 0 0 72px;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  cursor: grab;
+  user-select: none;
+  outline: none;
+  background: linear-gradient(145deg, var(--voice-bronze), var(--voice-verdigris));
+  box-shadow: 0 10px 28px rgb(20 31 27 / 35%), inset 0 1px 1px rgb(255 255 255 / 35%);
+}
+
+.voice-orb:focus-visible { box-shadow: 0 0 0 3px var(--bg, #faf7f0), 0 0 0 6px var(--voice-bronze); }
+.voice-orb-core { color: #fff8e8; font-size: 24px; filter: drop-shadow(0 2px 3px rgb(0 0 0 / 30%)); }
+.state-listening .voice-orb { animation: voice-pulse 1.25s ease-in-out infinite; }
+.state-thinking .voice-orb-core { animation: voice-spin 1.4s linear infinite; }
+.state-speaking .voice-orb { box-shadow: 0 0 0 7px rgb(30 81 72 / 18%), 0 10px 28px rgb(20 31 27 / 35%); }
+.state-error .voice-orb { background: linear-gradient(145deg, #a64236, #6f2923); }
+
+.voice-orb .vwave { position: absolute; bottom: 10px; display: flex; align-items: center; gap: 2px; height: 13px; }
+.voice-orb .vwave i { width: 2px; height: 5px; border-radius: 2px; background: #fff8e8; animation: voice-wave .7s ease-in-out infinite alternate; }
+.voice-orb .vwave i:nth-child(2), .voice-orb .vwave i:nth-child(4) { animation-delay: .16s; }
+.voice-orb .vwave i:nth-child(3) { animation-delay: .3s; }
+
+.voice-card {
+  -webkit-app-region: no-drag;
+  min-width: 0;
+  flex: 1;
+  max-height: 116px;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--voice-bronze) 35%, transparent);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--bg, #faf7f0) 94%, transparent);
+  box-shadow: 0 10px 30px rgb(20 31 27 / 22%);
+  backdrop-filter: blur(16px);
+}
+
+.voice-card header, .voice-card form, .voice-confirmation > div { display: flex; align-items: center; gap: 7px; }
+.voice-card header { justify-content: space-between; }
+.voice-status { color: var(--voice-verdigris); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+.voice-close { border: 0; background: transparent; color: inherit; font-size: 18px; cursor: pointer; }
+.voice-card p { margin: 5px 0; font-size: 12px; line-height: 1.35; }
+.voice-transcript { opacity: .72; }
+.voice-overlay-error { color: var(--danger, #9d3028); }
+.voice-card form input { min-width: 0; flex: 1; padding: 6px 9px; border: 1px solid color-mix(in srgb, currentColor 18%, transparent); border-radius: 10px; background: rgb(255 255 255 / 48%); color: inherit; }
+.voice-card button { border: 1px solid color-mix(in srgb, var(--voice-bronze) 36%, transparent); border-radius: 9px; padding: 5px 8px; background: transparent; color: inherit; cursor: pointer; }
+.voice-card button.primary, .voice-card form button { background: var(--voice-verdigris); color: white; }
+.voice-card button:disabled { cursor: default; opacity: .45; }
+.voice-confirmation { margin-top: 7px; padding: 7px; border-radius: 11px; background: color-mix(in srgb, var(--voice-bronze) 12%, transparent); }
+.no-drag, button, input { -webkit-app-region: no-drag; }
+
+@media (prefers-reduced-motion: reduce) { .voice-overlay * { animation: none !important; } }
+@media (prefers-contrast: more) { .voice-card { background: var(--bg, #faf7f0); border-width: 2px; } }
+
+@keyframes voice-pulse { 50% { transform: scale(1.055); } }
+@keyframes voice-spin { to { transform: rotate(360deg); } }
+@keyframes voice-wave { to { height: 13px; } }
+
+/* Opaque Wayland windows retain the same rounded shell and manual pointer-drag API. */
+body.voice-overlay-opaque, body[data-voice-overlay-opaque='true'] { background: var(--bg, #faf7f0); }
