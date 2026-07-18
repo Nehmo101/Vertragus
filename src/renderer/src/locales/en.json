@@ -103,6 +103,7 @@
     "cancel": "Cancel",
     "recordTitle": "Start push-to-talk",
     "stopTitle": "Stop recording",
+    "shortcutHint": "Shortcut {{keys}}",
     "configureFirst": "Set up STT access via ⚙ first",
     "settingsTitle": "Set up speech-to-text (API key, model, language)",
     "settingsAria": "Open speech-to-text settings",

@@ -14,6 +14,7 @@ import SpeechSettingsModal from '@renderer/components/SpeechSettingsModal'
 import RemotePanel from '@renderer/components/RemotePanel'
 import MissionApprovalInbox from '@renderer/components/MissionApprovalInbox'
 import DiffMergeCenter from '@renderer/components/DiffMergeCenter'
+import { SpeechShortcutProvider } from '@renderer/features/speechShortcut/SpeechShortcutProvider'
 
 function useHashRoute(): string {
   const [hash, setHash] = useState(() => window.location.hash)
@@ -65,6 +66,7 @@ export default function App(): JSX.Element {
   const showOrchestrator = !['#/remote', '#/approvals', '#/changes'].includes(hash)
 
   return (
+    <SpeechShortcutProvider>
     <div className="app-root" data-theme={store.theme} data-density={store.uiDensity}>
       <TitleBar />
 
@@ -101,5 +103,6 @@ export default function App(): JSX.Element {
         </div>
       )}
     </div>
+    </SpeechShortcutProvider>
   )
 }

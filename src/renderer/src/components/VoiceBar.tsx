@@ -1,8 +1,13 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { AgentInstanceInfo } from '@shared/agents'
 import { useInboxSpeech } from '@renderer/hooks/useInboxSpeech'
 import { useAppStore, workspaceAgents } from '@renderer/store/useAppStore'
+import {
+  speechShortcutAriaKeys,
+  speechShortcutKeys,
+  useSpeechShortcutContext
+} from '@renderer/features/speechShortcut/SpeechShortcutProvider'
 
 type VoiceTarget = 'agent' | 'orchestrator'
 
@@ -24,6 +29,15 @@ export default function VoiceBar({ agent }: { agent?: AgentInstanceInfo }): JSX.
       (effectiveTarget.status === 'running' || effectiveTarget.status === 'waiting')
   )
   const text = speech.voiceDraft?.content ?? ''
+
+  // Ctrl/Cmd+Shift+M → speech.toggle routes here while the VoiceBar is mounted (active context).
+  const shortcutContext = useMemo(
+    () => ({ configured, state: speech.state, toggleRecording: speech.toggleRecording }),
+    [configured, speech.state, speech.toggleRecording]
+  )
+  useSpeechShortcutContext('voice-bar', shortcutContext)
+  const shortcutKeys = speechShortcutKeys()
+  const shortcutAriaKeys = speechShortcutAriaKeys()
 
   const deliver = (send: boolean): void => {
     if (!effectiveTarget || !text.trim()) return
@@ -70,13 +84,14 @@ export default function VoiceBar({ agent }: { agent?: AgentInstanceInfo }): JSX.
         className={`voice-record ${speech.state === 'recording' ? 'active' : ''}`}
         disabled={!available || speech.state === 'review'}
         aria-pressed={speech.state === 'recording'}
-        title={
+        aria-keyshortcuts={shortcutAriaKeys}
+        title={`${
           !configured
             ? t('voice.configureFirst')
             : speech.state === 'recording'
               ? t('voice.stopTitle')
               : t('voice.recordTitle')
-        }
+        } · ${t('voice.shortcutHint', { keys: shortcutKeys })}`}
         onClick={() => void speech.toggleRecording()}
       >
         {speech.state === 'recording'
@@ -85,6 +100,9 @@ export default function VoiceBar({ agent }: { agent?: AgentInstanceInfo }): JSX.
             ? `× ${t('voice.cancel')}`
             : `● ${t('voice.record')}`}
       </button>
+      <kbd className="voice-shortcut" title={t('voice.shortcutHint', { keys: shortcutKeys })}>
+        {shortcutKeys}
+      </kbd>
       <button
         type="button"
         className={`voice-settings ${configured ? '' : 'unconfigured'}`}
