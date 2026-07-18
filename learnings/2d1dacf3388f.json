@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784388842700,
+  "exportedAt": 1784388862209,
   "app": {
     "name": "vertragus",
     "version": "0.1.54-main.1.g8ffb696"
@@ -8,6 +8,34 @@
   "machineId": "2d1dacf3388f",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrqj21ae-1-cnm188",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "renderer-ui",
+      "kind": "strength",
+      "insight": "Kann einen konsolidierten Renderer-Stand aus mehreren verifizierten Commits konfliktfrei rekonstruieren.",
+      "evidence": "Recovery-Task 1/1 erfolgreich, ohne Modell- oder Infrastrukturfehler.",
+      "source": "orchestrator",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 1,
+      "createdAt": 1784388861446,
+      "updatedAt": 1784388861446
+    },
+    {
+      "id": "learning-mrqj21ae-2-kvr5pw",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "renderer-ui",
+      "kind": "weakness",
+      "insight": "In diesem Recovery-Lauf keine modellbezogene Schwäche belegt.",
+      "evidence": "Der Task selbst war erfolgreich; der Planstatus stopped entstand außerhalb des Worker-Ergebnisses.",
+      "source": "orchestrator",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 1,
+      "createdAt": 1784388861446,
+      "updatedAt": 1784388861446
+    },
     {
       "id": "learning-mrqj1luy-1-bv6los",
       "provider": "codex",
