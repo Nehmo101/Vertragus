@@ -1,0 +1,191 @@
+{
+  "version": 1,
+  "exportedAt": 1784408594615,
+  "app": {
+    "name": "vertragus",
+    "version": "0.1.56-main.1.g4b28a5b"
+  },
+  "machineId": "2d1dacf3388f",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrqunuzv-plan-mrquijzm-2",
+    "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+    "workspaceSessionId": "e6bb3946-664d-45a0-91db-249fe5d396fe",
+    "planId": "plan-mrquijzm-2",
+    "goal": "App-lokales, erweiterbares Shortcut-System einführen: Ctrl/Cmd+Shift+M startet oder stoppt die Spracheingabe im aktiven Desktop-Kontext. Editierbare Felder, IME, Wiederholungen und unsichere Sprachzustände werden nicht unbeabsichtigt ausgelöst. Shortcut-Hinweise sind DE/EN auffindbar; Tests, Typecheck, Lint und Security-Audit sichern die Integration ab.",
+    "status": "needs-work",
+    "summary": "Der erste Lauf erzeugte verwertbare Teilstände, scheiterte aber vor der Integration an Commit-Hygiene und Typecheck. Der Folgeplan muss die vorhandenen Commits gezielt übernehmen und alle Gates zentral verifizieren; für die gestoppten Claude-Tasks liegt keine belastbare Modellbeobachtung vor.",
+    "modelStats": [
+      {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "roles": [
+          "renderer-ui"
+        ],
+        "tasks": 2,
+        "succeeded": 0,
+        "needsWork": 2,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 2,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "avgDurationMs": 204145
+      },
+      {
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "roles": [
+          "electron-core",
+          "security-reviewer"
+        ],
+        "tasks": 2,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 2,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 2,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "avgDurationMs": 175575,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      },
+      {
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "roles": [
+          "test-writer"
+        ],
+        "tasks": 1,
+        "succeeded": 0,
+        "needsWork": 1,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 1,
+        "avgDurationMs": 234930,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrqhyxtb-2-58w5ly",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "renderer-ui",
+        "kind": "weakness",
+        "insight": "Quality-Gates erfordern Nacharbeit bei renderer-ui",
+        "evidence": "2 Task(s) mit 2 Gate-Finding(s)",
+        "source": "auto-retro",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 2,
+        "createdAt": 1784387037359,
+        "updatedAt": 1784408355497
+      },
+      {
+        "id": "learning-mrqunuzt-1-dzx9zd",
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "role": "test-writer",
+        "kind": "weakness",
+        "insight": "Quality-Gates erfordern Nacharbeit bei test-writer",
+        "evidence": "1 Task(s) mit 1 Gate-Finding(s)",
+        "source": "auto-retro",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784408355497,
+        "updatedAt": 1784408355497
+      },
+      {
+        "id": "learning-mrquszho-1-6i7ekx",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "renderer-ui",
+        "kind": "strength",
+        "insight": "Erzeugt in parallelen Renderer-Aufgaben verwertbare, klar abgegrenzte Teilcommits.",
+        "evidence": "Shortcut-Kern d8ef6ddb und Speech-Adapter 6dd19d10 wurden als partielle Commits gesichert.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784408594604,
+        "updatedAt": 1784408594604
+      },
+      {
+        "id": "learning-mrquszho-2-erekfd",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "renderer-ui",
+        "kind": "weakness",
+        "insight": "Commit-Hygiene muss bei isolierten Renderer-Features vor Abschluss explizit geprüft werden.",
+        "evidence": "Beide Renderer-Tasks scheiterten am Gate git diff --cached --check.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784408594604,
+        "updatedAt": 1784408594604
+      },
+      {
+        "id": "learning-mrquszho-3-xvjjz1",
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "role": "test-writer",
+        "kind": "strength",
+        "insight": "Erstellt einen eigenständigen partiellen Regressionstest-Commit für eine noch parallel entstehende Produktions-API.",
+        "evidence": "Teststand 3d780682 wurde trotz fehlender integrierter Produktionsmodule gesichert.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784408594604,
+        "updatedAt": 1784408594604
+      },
+      {
+        "id": "learning-mrquszho-4-6xsgr1",
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "role": "test-writer",
+        "kind": "weakness",
+        "insight": "Tests gegen parallel entworfene APIs benötigen vor Abschluss einen integrierten Typecheck.",
+        "evidence": "Der Test-Task scheiterte an pnpm typecheck; die Produktions-API lag isoliert in anderen Task-Commits.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784408594604,
+        "updatedAt": 1784408594604
+      }
+    ],
+    "createdAt": 1784408355499,
+    "exportQueuedAt": 1784408594609
+  }
+}
