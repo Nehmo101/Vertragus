@@ -1,0 +1,219 @@
+{
+  "version": 1,
+  "exportedAt": 1784387056713,
+  "app": {
+    "name": "vertragus",
+    "version": "0.1.54-main.1.g8ffb696"
+  },
+  "machineId": "2d1dacf3388f",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrqhyxtg-plan-mrqgww0x-1",
+    "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+    "workspaceSessionId": "394d2123-07fc-4cbc-9888-7e151d814811",
+    "planId": "plan-mrqgww0x-1",
+    "goal": "Alle produktrelevanten ORCA/Orca/orca-Bezeichnungen vollständig und sinnvoll auf Vertragus umstellen, insbesondere sichtbare Subagent-Informationen sowie .orca-worktrees auf .vertragus-worktrees; notwendige Legacy-Kompatibilität explizit dokumentieren und testen.",
+    "status": "needs-work",
+    "summary": "Core-Rebranding war fachlich stark und vollständig getestet; UI und Release-Artefakte benötigen gezielte Gate-Nacharbeit, zudem zeigte ein Cursor-Lauf einen reproduzierbaren Fortschrittsstillstand mit erfolgreicher Quarantäne/Recovery.",
+    "modelStats": [
+      {
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "roles": [
+          "electron-core",
+          "security-reviewer"
+        ],
+        "tasks": 3,
+        "succeeded": 1,
+        "needsWork": 1,
+        "failed": 0,
+        "stopped": 1,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 1,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 1,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "costUsd": 10.79956,
+        "avgDurationMs": 1117596
+      },
+      {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "roles": [
+          "renderer-ui"
+        ],
+        "tasks": 1,
+        "succeeded": 0,
+        "needsWork": 1,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 1,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "avgDurationMs": 266114
+      },
+      {
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "roles": [
+          "security-reviewer"
+        ],
+        "tasks": 0,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 1,
+        "failedAttemptsByKind": {
+          "infra": 1,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrqhyxtb-1-c8x7nt",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "electron-core",
+        "kind": "weakness",
+        "insight": "Quality-Gates erfordern Nacharbeit bei electron-core, security-reviewer",
+        "evidence": "1 Task(s) mit 1 Gate-Finding(s)",
+        "source": "auto-retro",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784387037359,
+        "updatedAt": 1784387037359
+      },
+      {
+        "id": "learning-mrqhyxtb-2-58w5ly",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "renderer-ui",
+        "kind": "weakness",
+        "insight": "Quality-Gates erfordern Nacharbeit bei renderer-ui",
+        "evidence": "1 Task(s) mit 1 Gate-Finding(s)",
+        "source": "auto-retro",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784387037359,
+        "updatedAt": 1784387037359
+      },
+      {
+        "id": "learning-mrqhzcq1-1-73rpao",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "electron-core",
+        "kind": "strength",
+        "insight": "Sehr stark bei repo-weiten Electron-Core-Rebrandings mit sicherer Legacy-Migration und Negativtests.",
+        "evidence": "Pluto änderte 22 Dateien, führte 934/934 Tests sowie Typecheck/Lint erfolgreich aus und implementierte .vertragus-worktrees mit sicherem Legacy-Fallback.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784387056681,
+        "updatedAt": 1784387056681
+      },
+      {
+        "id": "learning-mrqhzcq1-2-evdust",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "security-reviewer",
+        "kind": "weakness",
+        "insight": "Bei übernommenen Recovery-Artefakten muss Commit-Hygiene vor Abschluss explizit bereinigt werden.",
+        "evidence": "Oderisis Teilcommit wurde trotz fachlicher Nacharbeit vom git diff --cached --check Whitespace-Gate gestoppt.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784387056681,
+        "updatedAt": 1784387056681
+      },
+      {
+        "id": "learning-mrqhzcq1-3-x4759r",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "renderer-ui",
+        "kind": "strength",
+        "insight": "Schnell und teststark bei sichtbarem Renderer-Rebranding.",
+        "evidence": "Folco schloss UI-Anpassungen mit 926 Tests, Typecheck, Lint und Mobile-Build grün ab.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784387056681,
+        "updatedAt": 1784387056681
+      },
+      {
+        "id": "learning-mrqhzcq1-4-z8pxmh",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "renderer-ui",
+        "kind": "weakness",
+        "insight": "Security-Gate-Anforderungen an berührte OAuth-Oberflächen müssen schon während der UI-Implementierung berücksichtigt werden.",
+        "evidence": "Der Task wurde wegen fehlender Authorization-, Validation- und Secret-Leak-Abdeckung in ProfileEditor.tsx als needs-work bewertet.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784387056681,
+        "updatedAt": 1784387056681
+      },
+      {
+        "id": "learning-mrqhzcq1-5-w010sb",
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "role": "security-reviewer",
+        "kind": "strength",
+        "insight": "Hinterließ trotz Infrastrukturstillstand ein umfangreiches, automatisch sicherbares Recovery-Artefakt.",
+        "evidence": "28 geänderte Dateien konnten quarantined und an den Recovery-Worker übergeben werden.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784387056681,
+        "updatedAt": 1784387056681
+      },
+      {
+        "id": "learning-mrqhzcq1-6-h7a21t",
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "role": "security-reviewer",
+        "kind": "weakness",
+        "insight": "Lange Toolaufrufe können ohne sinnvollen Provider-Fortschritt hängen bleiben.",
+        "evidence": "Nesso wurde nach 905 Sekunden ohne sinnvollen Fortschritt als Infrastrukturfehler beendet und automatisch ersetzt.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784387056681,
+        "updatedAt": 1784387056681
+      }
+    ],
+    "createdAt": 1784387037364,
+    "exportQueuedAt": 1784387056702
+  }
+}
