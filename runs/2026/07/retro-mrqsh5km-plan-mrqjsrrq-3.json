@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "exportedAt": 1784404767345,
+  "app": {
+    "name": "vertragus",
+    "version": "0.1.54-main.1.g8ffb696"
+  },
+  "machineId": "2d1dacf3388f",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrqsh5km-plan-mrqjsrrq-3",
+    "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+    "workspaceSessionId": "394d2123-07fc-4cbc-9888-7e151d814811",
+    "planId": "plan-mrqjsrrq-3",
+    "goal": "Den bereits vollständig geprüften konsolidierten Rebranding-Commit ab8673adade103b07b060a98d312a4541f55e544 konfliktfrei in den Ziel-Worktree übernehmen und dort final verifizieren.",
+    "status": "error",
+    "summary": "Der Übergabe-Worker materialisierte und verifizierte den Gesamtstand erfolgreich; die zentrale automatische Integration scheiterte zum dritten Mal am erneuten Cherry-pick eines bereits im Arbeitsbaum materialisierten Commits.",
+    "modelStats": [
+      {
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "roles": [
+          "electron-core"
+        ],
+        "tasks": 1,
+        "succeeded": 1,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "costUsd": 1.424906,
+        "avgDurationMs": 14551924
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrqsiyck-1-n1ayt3",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "electron-core",
+        "kind": "strength",
+        "insight": "Kann einen konsolidierten Zielbaum sicher materialisieren und umfassend gegen Rebranding-Anforderungen verifizieren.",
+        "evidence": "Minotauro stellte 80 modifizierte und 4 neue Dateien her, 945/945 Tests sowie Typecheck, Lint und git diff --check waren grün.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784404767332,
+        "updatedAt": 1784404767332
+      },
+      {
+        "id": "learning-mrqsiyck-2-l7rah",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "electron-core",
+        "kind": "weakness",
+        "insight": "Die Worker-Erfolgsstrategie kann die nachgelagerte zentrale Auto-Cherry-pick-Phase nicht verhindern, wodurch ein fachlich fertiger Lauf technisch rot bleibt.",
+        "evidence": "Nach erfolgreicher Materialisierung versuchte Orcas Main-Prozess b59c66df erneut zu cherry-picken und erzeugte denselben Integrationsfehler wie in den beiden Vorläufen.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784404767332,
+        "updatedAt": 1784404767332
+      }
+    ],
+    "createdAt": 1784404683382,
+    "exportQueuedAt": 1784404767337
+  }
+}
