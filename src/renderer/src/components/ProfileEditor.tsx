@@ -8,6 +8,7 @@ import {
   MODEL_PRESETS,
   MODEL_PRESET_LABELS,
   formatModelLabel,
+  modelAfterProviderChange,
   resolveModel
 } from '@shared/models'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
@@ -412,9 +413,14 @@ export default function ProfileEditor(): JSX.Element | null {
                         ...draft.orchestrator!,
                         provider,
                         // An explicit model takes priority over a preset.
-                        // Do not carry an incompatible old-provider model
-                        // across a provider switch.
-                        model: ''
+                        // Clear it only on a real provider switch so a stale,
+                        // incompatible id never carries over — a same-provider
+                        // reselect must keep the saved model.
+                        model: modelAfterProviderChange(
+                          draft.orchestrator!.provider,
+                          provider,
+                          draft.orchestrator!.model
+                        )
                       }
                     })
                   }}
@@ -758,9 +764,13 @@ export default function ProfileEditor(): JSX.Element | null {
                     value={slot.provider}
                     onChange={(e) => {
                       const provider = e.target.value as AgentProviderId
-                      // Clear the explicit override, so the current preset is
-                      // resolved against the newly selected provider.
-                      patchSlot(idx, { provider, model: '' })
+                      // Clear the explicit override only on a real provider
+                      // switch, so the preset resolves against the new provider.
+                      // A same-provider reselect keeps the saved model.
+                      patchSlot(idx, {
+                        provider,
+                        model: modelAfterProviderChange(slot.provider, provider, slot.model)
+                      })
                     }}
                   >
                     {AGENT_PROVIDERS

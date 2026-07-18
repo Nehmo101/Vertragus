@@ -4,6 +4,7 @@ import {
   MODEL_PRESETS,
   PRESET_MODELS,
   formatModelLabel,
+  modelAfterProviderChange,
   modelPresetSchema,
   resolveModel
 } from './models'
@@ -93,5 +94,42 @@ describe('profile schema presets', () => {
     })
     expect(slot.modelPreset).toBe('fast')
     expect(resolveModel('ollama', slot)).toBe('qwen2.5-coder:14b')
+  })
+})
+
+describe('modelAfterProviderChange', () => {
+  // Same shared helper is used by the orchestrator and every subagent slot,
+  // so these cases guard both call sites identically (regression: a same-value
+  // provider reselect used to wipe a saved model and persist model: '').
+  it('keeps an explicit model when the provider is unchanged (main regression)', () => {
+    expect(modelAfterProviderChange('claude', 'claude', 'opus')).toBe('opus')
+  })
+
+  it('clears the model on a real provider switch', () => {
+    expect(modelAfterProviderChange('claude', 'codex', 'opus')).toBe('')
+  })
+
+  it('leaves an already-empty model empty on a same-provider reselect', () => {
+    expect(modelAfterProviderChange('claude', 'claude', '')).toBe('')
+  })
+
+  it('does not restore an old model after A→B→A', () => {
+    // switch away clears, switching back does not resurrect the previous id
+    const afterSwitch = modelAfterProviderChange('claude', 'codex', 'opus')
+    expect(afterSwitch).toBe('')
+    expect(modelAfterProviderChange('codex', 'claude', afterSwitch)).toBe('')
+  })
+
+  it('preserves a free-text model outside the catalogue on same-provider reselect', () => {
+    expect(modelAfterProviderChange('claude', 'claude', 'my-custom-experimental')).toBe(
+      'my-custom-experimental'
+    )
+  })
+
+  it('resolveModel keeps the saved model after a same-provider reselect (persistence)', () => {
+    const sel = { model: 'opus', modelPreset: 'balanced' as const }
+    const model = modelAfterProviderChange('claude', 'claude', sel.model)
+    // preset stays balanced, but the explicit model must still win in resolveModel
+    expect(resolveModel('claude', { model, modelPreset: sel.modelPreset })).toBe('opus')
   })
 })

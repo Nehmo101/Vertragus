@@ -70,6 +70,23 @@ export function resolveModel(provider: AgentProviderId, sel: ModelSelection): st
   return ''
 }
 
+/**
+ * Value the model field must hold after a provider `<select>` change.
+ *
+ * A same-value reselect (or any onChange where the provider is unchanged) must
+ * keep an explicitly chosen model — clearing it would let the preset/CLI default
+ * silently override a saved id and persist an empty `model` to the store. Only a
+ * real provider switch clears the field so a stale, incompatible id never carries
+ * over; `modelPreset` is handled separately and is intentionally preserved.
+ */
+export function modelAfterProviderChange(
+  prev: AgentProviderId,
+  next: AgentProviderId,
+  currentModel: string
+): string {
+  return prev === next ? currentModel : ''
+}
+
 /** UI label for the effective model (resolved or CLI default). */
 export function formatModelLabel(resolved: string, sel?: ModelSelection): string {
   if (resolved) return resolved
