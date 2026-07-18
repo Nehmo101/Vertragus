@@ -822,6 +822,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     const next = !get().yoloMaster
     set({ yoloMaster: next })
     void window.orca.setConfig('yoloMaster', next)
+    // Laufende Sessions binden ihr Profil beim Start; ohne Laufzeit-Propagation
+    // erreicht der Master-Toggle nur neu gespawnte Teams (Retro Lauf 3).
+    void window.orca.orchestrator.setYoloMaster(next).catch(() => undefined)
   },
 
   toggleTheme() {
