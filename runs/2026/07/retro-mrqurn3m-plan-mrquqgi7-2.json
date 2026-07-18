@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "exportedAt": 1784408550779,
+  "app": {
+    "name": "vertragus",
+    "version": "0.1.56-main.1.g4b28a5b"
+  },
+  "machineId": "2d1dacf3388f",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrqurn3m-plan-mrquqgi7-2",
+    "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+    "workspaceSessionId": "7047280d-ce9e-4a2e-9bec-1dbc676ba351",
+    "planId": "plan-mrquqgi7-2",
+    "goal": "Für den vollständig verifizierten Modellauswahl-Fix einen einzelnen Draft-Pull-Request gegen den Default-Branch sicherstellen und die PR-URL liefern, ohne doppelte PRs oder fremde Änderungen.",
+    "status": "success",
+    "summary": "Der Publish-Check identifizierte den bereits vorhandenen einzigen Draft-PR, verifizierte Head/Base, Authentifizierung und alle Remote-CI-Gates und vermied einen Duplikat-PR.",
+    "modelStats": [
+      {
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "roles": [
+          "release-ops"
+        ],
+        "tasks": 1,
+        "succeeded": 1,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "avgDurationMs": 55128,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrqus1nz-1-9rd4sh",
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "role": "release-ops",
+        "kind": "strength",
+        "insight": "Zuverlässig bei der Auflösung zentral integrierter Branches und der Vermeidung doppelter Pull Requests.",
+        "evidence": "Identifizierte PR #108 trotz abweichendem Worker-Branch, bestätigte genau einen Draft-PR und drei grüne CI-Gates in rund 55 Sekunden.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784408550767,
+        "updatedAt": 1784408550767
+      },
+      {
+        "id": "learning-mrqus1nz-2-mb2qtj",
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "role": "release-ops",
+        "kind": "weakness",
+        "insight": "In diesem erfolgreichen Publish-Check wurde keine eigenständige modellbezogene Schwäche belegt.",
+        "evidence": "Der Task endete im ersten Versuch erfolgreich, ohne Fehlversuch oder Gate-Finding.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784408550767,
+        "updatedAt": 1784408550767
+      }
+    ],
+    "createdAt": 1784408531890,
+    "exportQueuedAt": 1784408550772
+  }
+}
