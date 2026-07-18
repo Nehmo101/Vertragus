@@ -1,0 +1,120 @@
+{
+  "version": 1,
+  "exportedAt": 1784412353242,
+  "app": {
+    "name": "vertragus",
+    "version": "0.1.56-main.1.g4b28a5b"
+  },
+  "machineId": "2d1dacf3388f",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrqx0n9l-plan-mrqwrnhr-5",
+    "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+    "workspaceSessionId": "e6bb3946-664d-45a0-91db-249fe5d396fe",
+    "planId": "plan-mrqwrnhr-5",
+    "goal": "Den vollständig verifizierten Shortcut-Commit 497fcd1a sicher auf einen dedizierten Remote-Branch veröffentlichen und einen Draft-PR gegen den Standardbranch erstellen. Scope, GitHub-Authentifizierung, Remote, Branch, Diff und bestehende PRs werden vorher geprüft.",
+    "status": "success",
+    "summary": "Der Publish-Lauf bereitete Scope, Auth, Branch und PR-Inhalt belastbar vor; nach zentral autorisiertem Push wurde Draft-PR #110 erfolgreich gegen main eröffnet. Der Cursor-Erstversuch musste auf Claude umgeleitet werden.",
+    "modelStats": [
+      {
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "roles": [
+          "electron-core"
+        ],
+        "tasks": 1,
+        "succeeded": 1,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "costUsd": 1.0071685,
+        "avgDurationMs": 419525
+      },
+      {
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "roles": [
+          "electron-core"
+        ],
+        "tasks": 0,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 1,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 1
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrqjgjj6-1-vgz6uh",
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "kind": "weakness",
+        "insight": "Worker-Versuche scheiterten; Aufgaben wurden auf andere Slots umgeleitet",
+        "evidence": "1 inhaltlich fehlgeschlagene(r) Versuch(e) in diesem Lauf",
+        "source": "auto-retro",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 4,
+        "createdAt": 1784389538274,
+        "updatedAt": 1784412311235
+      },
+      {
+        "id": "learning-mrqx1jnu-1-m8040i",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "electron-core",
+        "kind": "strength",
+        "insight": "Bereitet nach einem fehlgeschlagenen Release-Ops-Versuch vollständige, überprüfbare GitHub-Publish-Metadaten einschließlich Scope, Auth, Base und PR-Body zuverlässig auf.",
+        "evidence": "Nesso verifizierte Commit 497fcd1a, 16-Dateien-Scope, origin/main, fehlenden Duplikat-PR und lieferte alle Metadaten für Draft-PR #110.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784412353226,
+        "updatedAt": 1784412353226
+      },
+      {
+        "id": "learning-mrqx1jnu-2-hsi2la",
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "role": "electron-core",
+        "kind": "weakness",
+        "insight": "Der Publish-Preflight konnte im Electron-Core-Fallback nicht terminal abgeschlossen werden und erforderte eine Modellumleitung.",
+        "evidence": "Fortunas erster Versuch endete als Worker-Fehler; Nesso übernahm im zweiten Versuch erfolgreich.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784412353226,
+        "updatedAt": 1784412353226
+      }
+    ],
+    "createdAt": 1784412311241,
+    "exportQueuedAt": 1784412353233
+  }
+}
