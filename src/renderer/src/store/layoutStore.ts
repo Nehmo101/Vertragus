@@ -26,9 +26,14 @@ export type PanelLayouts = Record<PanelId, PanelLayout>
 
 export interface LayoutStore {
   panels: PanelLayouts
+  orchDrawerOpen: boolean
+  terminalDrawerHeight: number
   setWidth: (id: PanelId, width: number) => void
   toggleCollapsed: (id: PanelId) => void
   collapse: (id: PanelId, collapsed: boolean) => void
+  setOrchDrawerOpen: (open: boolean) => void
+  toggleOrchDrawer: () => void
+  setTerminalDrawerHeight: (height: number) => void
 }
 
 function createDefaultLayouts(): PanelLayouts {
@@ -114,6 +119,8 @@ function persistLayouts(panels: PanelLayouts): void {
 
 export const useLayoutStore = create<LayoutStore>((set, get) => ({
   panels: loadLayouts(),
+  orchDrawerOpen: false,
+  terminalDrawerHeight: 45,
   setWidth: (id, width) => {
     set((state) => ({
       panels: {
@@ -140,7 +147,11 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
       }
     }))
     persistLayouts(get().panels)
-  }
+  },
+  setOrchDrawerOpen: (orchDrawerOpen) => set({ orchDrawerOpen }),
+  toggleOrchDrawer: () => set((state) => ({ orchDrawerOpen: !state.orchDrawerOpen })),
+  setTerminalDrawerHeight: (height) =>
+    set({ terminalDrawerHeight: Math.min(75, Math.max(28, Number.isFinite(height) ? height : 45)) })
 }))
 
 export const selectPanelLayout =

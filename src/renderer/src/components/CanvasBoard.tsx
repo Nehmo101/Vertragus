@@ -38,6 +38,7 @@ import { terminalTail } from '@renderer/terminalText'
 import type { TaskStatus } from '@shared/orchestrator'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
+import CanvasTerminalDrawer from './CanvasTerminalDrawer'
 
 function statusClass(status: TaskStatus): string {
   if (status === 'running') return 'running'
@@ -262,6 +263,8 @@ function OrchestratorNode({ data }: NodeProps<Node<CanvasOrchestratorInfo, 'orch
           </span>
         </div>
       )}
+      {data.activity && <div className="canvas-hub-activity" aria-live="polite">{data.activity}</div>}
+      {data.agentId && <TerminalPeek agentId={data.agentId} name={data.name} />}
       <Handle type="source" position={Position.Right} className="canvas-handle" />
     </div>
   )
@@ -303,6 +306,7 @@ export default function CanvasBoard(): JSX.Element {
   const boardKey = canvasBoardKey(store.activeProfileId, store.activeWorkspaceSessionId ?? undefined)
   const positions = useCanvasStore(selectBoardPositions(boardKey))
   const setPosition = useCanvasStore((state) => state.setPosition)
+  const [drawerAgentId, setDrawerAgentId] = useState<string | null>(null)
 
   const orchAgent = workspaceAgents(store).find((agent) => agent.kind === 'orchestrator')
   const orchestrator: CanvasOrchestratorInfo | null = orchAgent
@@ -312,7 +316,9 @@ export default function CanvasBoard(): JSX.Element {
         model: orchAgent.model,
         goalTitle: goal?.title,
         goalActive: Boolean(goal?.active),
-        taskCount: tasks.length
+        taskCount: tasks.length,
+        activity: store.orchestrator.activity?.summary,
+        status: store.orchestrator.activity?.phase
       }
     : null
 
@@ -364,20 +370,38 @@ export default function CanvasBoard(): JSX.Element {
         : node.type === 'orchestrator'
           ? node.data.agentId
           : undefined
-    if (typeof agentId === 'string' && agentId) store.setSelectedAgent(agentId)
+    if (typeof agentId === 'string' && agentId) {
+      store.setSelectedAgent(agentId)
+      setDrawerAgentId(agentId)
+    }
   }
 
   if (tasks.length === 0 && !orchestrator) {
     return (
       <div className="canvas-empty" role="status">
-        <div className="big">{t('canvas.emptyTitle')}</div>
-        <div>{t('canvas.emptyHint')}</div>
+        <SessionChips />
+        <div className="canvas-empty-hero">
+          <div className="big">{t('canvas.emptyTitle')}</div>
+          <div className="canvas-empty-profile">{store.profiles.find((p) => p.id === store.activeProfileId)?.name ?? '—'}</div>
+          <div>{t('canvas.emptyHint')}</div>
+          <div className="canvas-empty-actions">
+            <button type="button" className="clean-btn workspace-start-btn" onClick={() => void store.startAll()}>{t('canvas.empty.start', { defaultValue: 'Team starten' })}</button>
+            <button type="button" className="clean-btn" onClick={() => void window.orca.demo.play()}>{t('canvas.empty.playground', { defaultValue: 'Playground' })}</button>
+          </div>
+          <ol className="canvas-onboarding">
+            <li>{t('canvas.empty.drag', { defaultValue: 'Karten frei anordnen' })}</li>
+            <li>{t('canvas.empty.doubleClick', { defaultValue: 'Doppelklick öffnet das Terminal' })}</li>
+            <li>{t('canvas.empty.chat', { defaultValue: 'Unten mit Caronte chatten' })}</li>
+          </ol>
+        </div>
+        <div className="canvas-composer-slot" />
       </div>
     )
   }
 
   return (
     <div className="vertragus-canvas" aria-label={t('canvas.aria')}>
+      <SessionChips />
       <ReactFlow
         nodes={nodes}
         edges={graph.edges}
@@ -449,6 +473,7 @@ export default function CanvasBoard(): JSX.Element {
               onClick={() => {
                 setMenu(null)
                 store.setSelectedAgent(menuTask.agentId!)
+                setDrawerAgentId(menuTask.agentId!)
               }}
             >
               ⌨ {t('canvas.menu.focus')}
@@ -456,6 +481,24 @@ export default function CanvasBoard(): JSX.Element {
           )}
         </div>
       )}
+      <CanvasTerminalDrawer agent={store.agents.find((agent) => agent.id === drawerAgentId) ?? null} onClose={() => setDrawerAgentId(null)} />
+      <div className="canvas-composer-slot" />
     </div>
+  )
+}
+
+function SessionChips(): JSX.Element {
+  const { t } = useTranslation()
+  const store = useAppStore()
+  const sessions = store.workspaceSessions.filter((session) => session.profileId === store.activeProfileId)
+  return (
+    <nav className="canvas-sessions" aria-label={t('canvas.sessions.aria', { defaultValue: 'Workspace-Sessions' })}>
+      {sessions.map((session) => (
+        <button key={session.id} type="button" className={session.id === store.activeWorkspaceSessionId ? 'active' : ''} onClick={() => void store.selectWorkspaceSession(session.profileId, session.id)} title={session.taskSummary}>
+          W{session.sequence} · {session.name}
+        </button>
+      ))}
+      <button type="button" className="canvas-session-add" onClick={() => void store.startAll()} aria-label={t('canvas.sessions.add', { defaultValue: 'Weitere Session starten' })}>＋</button>
+    </nav>
   )
 }
