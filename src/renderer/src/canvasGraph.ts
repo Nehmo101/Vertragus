@@ -29,6 +29,8 @@ export const ORCH_NODE_WIDTH = 380
 export const ORCH_NODE_HEIGHT = 178
 export const NOTE_NODE_WIDTH = 220
 export const NOTE_NODE_HEIGHT = 122
+/** Minimum free canvas space around a newly inserted node. */
+export const NODE_INSERT_GAP = 24
 /** The canvas shows the newest findings as sticky notes; older ones stay in the side panel. */
 export const MAX_CANVAS_NOTES = 8
 
@@ -253,8 +255,61 @@ export function mergeNodePositions(
   next: readonly CanvasNode[]
 ): CanvasNode[] {
   const prevById = new Map(previous.map((node) => [node.id, node]))
+  // Seed all retained rectangles up front: task ordering can put a new task
+  // before an existing one, but insertion order must not affect collisions.
+  const occupied: CanvasNode[] = next.flatMap((node) => {
+    const prev = prevById.get(node.id)
+    return prev ? [{ ...node, position: prev.position } as CanvasNode] : []
+  })
+
   return next.map((node) => {
     const prev = prevById.get(node.id)
-    return prev ? ({ ...node, position: prev.position } as CanvasNode) : node
+    if (prev) {
+      const retained = { ...node, position: prev.position } as CanvasNode
+      return retained
+    }
+
+    const inserted = { ...node, position: freePosition(node, occupied) } as CanvasNode
+    occupied.push(inserted)
+    return inserted
   })
+}
+
+function nodeSize(node: CanvasNode): { width: number; height: number } {
+  if (node.type === 'orchestrator') return { width: ORCH_NODE_WIDTH, height: ORCH_NODE_HEIGHT }
+  if (node.type === 'note') return { width: NOTE_NODE_WIDTH, height: NOTE_NODE_HEIGHT }
+  return { width: TASK_NODE_WIDTH, height: TASK_NODE_HEIGHT }
+}
+
+function overlapsWithGap(a: CanvasNode, b: CanvasNode): boolean {
+  const aSize = nodeSize(a)
+  const bSize = nodeSize(b)
+  return (
+    a.position.x < b.position.x + bSize.width + NODE_INSERT_GAP &&
+    a.position.x + aSize.width + NODE_INSERT_GAP > b.position.x &&
+    a.position.y < b.position.y + bSize.height + NODE_INSERT_GAP &&
+    a.position.y + aSize.height + NODE_INSERT_GAP > b.position.y
+  )
+}
+
+/**
+ * Keep the layout/stored x coordinate and move a brand-new node only as far
+ * down as necessary. Each pass clears every currently intersecting rectangle;
+ * the monotonically increasing canvas y coordinate also makes rapid batches
+ * deterministic and guarantees termination.
+ */
+function freePosition(node: CanvasNode, occupied: readonly CanvasNode[]): NodePosition {
+  const candidate = { ...node, position: { ...node.position } } as CanvasNode
+
+  while (true) {
+    const collisions = occupied.filter((other) => overlapsWithGap(candidate, other))
+    if (collisions.length === 0) return candidate.position
+
+    candidate.position = {
+      x: candidate.position.x,
+      y: Math.max(
+        ...collisions.map((other) => other.position.y + nodeSize(other).height + NODE_INSERT_GAP)
+      )
+    }
+  }
 }

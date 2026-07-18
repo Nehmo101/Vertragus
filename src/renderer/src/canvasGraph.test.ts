@@ -2,13 +2,21 @@ import { describe, expect, it } from 'vitest'
 import type { OrcaTask, SubagentFinding } from '@shared/orchestrator'
 import {
   MAX_CANVAS_NOTES,
-  ORCHESTRATOR_NODE_ID,
+  NODE_INSERT_GAP,
+  NOTE_NODE_HEIGHT,
+  NOTE_NODE_WIDTH,
+  ORCH_NODE_HEIGHT,
   ORCH_NODE_WIDTH,
+  ORCHESTRATOR_NODE_ID,
+  TASK_NODE_HEIGHT,
+  TASK_NODE_WIDTH,
   buildCanvasGraph,
   mergeNodePositions,
   trustSignal,
+  type CanvasNode,
   type CanvasOrchestratorInfo
 } from './canvasGraph'
+import { rectsOverlap, type CanvasRect } from './canvasSlots'
 
 function task(overrides: Partial<OrcaTask> & { id: string }): OrcaTask {
   return {
@@ -199,5 +207,137 @@ describe('mergeNodePositions', () => {
     const merged = mergeNodePositions(dragged, rebuilt)
     expect(merged.find((n) => n.id === 'a')!.position).toEqual({ x: 9, y: 9 })
     expect(merged.find((n) => n.id === 'b')!.position).not.toEqual({ x: 9, y: 9 })
+  })
+
+  it('moves a newly added task clear of a live-positioned existing task', () => {
+    const existing = buildCanvasGraph([task({ id: 'a' })], null).nodes.map((node) => ({
+      ...node,
+      position: { x: 100, y: 100 }
+    }))
+    const added = buildCanvasGraph([task({ id: 'a' }), task({ id: 'b' })], null).nodes.map(
+      (node) => (node.id === 'b' ? { ...node, position: { x: 100, y: 100 } } : node)
+    )
+
+    const merged = mergeNodePositions(existing, added)
+    expect(merged.find((node) => node.id === 'a')!.position).toEqual({ x: 100, y: 100 })
+    expect(merged.find((node) => node.id === 'b')!.position).toEqual({
+      x: 100,
+      y: 100 + TASK_NODE_HEIGHT + NODE_INSERT_GAP
+    })
+  })
+
+  it('avoids existing slots even when a new task precedes them in task order', () => {
+    const existing = buildCanvasGraph([task({ id: 'existing' })], null).nodes.map((node) => ({
+      ...node,
+      position: { x: 0, y: 0 }
+    }))
+    const reordered = buildCanvasGraph(
+      [task({ id: 'new' }), task({ id: 'existing' })],
+      null
+    ).nodes.map((node) => ({ ...node, position: { x: 0, y: 0 } }))
+
+    const merged = mergeNodePositions(existing, reordered)
+    expect(merged.find((node) => node.id === 'existing')!.position).toEqual({ x: 0, y: 0 })
+    expect(merged.find((node) => node.id === 'new')!.position.y).toBe(
+      TASK_NODE_HEIGHT + NODE_INSERT_GAP
+    )
+  })
+
+  it('resolves several rapid insertions against earlier nodes in the same batch', () => {
+    const next = buildCanvasGraph(
+      [task({ id: 'a' }), task({ id: 'b' }), task({ id: 'c' })],
+      null
+    ).nodes.map((node) => ({ ...node, position: { x: -40, y: 25 } }))
+
+    const merged = mergeNodePositions([], next)
+    expect(merged.map((node) => node.position)).toEqual([
+      { x: -40, y: 25 },
+      { x: -40, y: 25 + TASK_NODE_HEIGHT + NODE_INSERT_GAP },
+      { x: -40, y: 25 + 2 * (TASK_NODE_HEIGHT + NODE_INSERT_GAP) }
+    ])
+  })
+
+  it('accounts for different slot dimensions and relocates a colliding stored position', () => {
+    const note = buildCanvasGraph(
+      [],
+      null,
+      [finding({ id: 'f1' })],
+      { 'note-f1': { x: 10, y: 10 } }
+    ).nodes[0]!
+    const newTask = buildCanvasGraph([task({ id: 'task' })], null, [], {
+      task: { x: 10 + NOTE_NODE_WIDTH - 1, y: 10 + NOTE_NODE_HEIGHT - 1 }
+    }).nodes[0]!
+
+    const merged = mergeNodePositions([note], [note, newTask])
+    expect(merged[0]!.position).toEqual({ x: 10, y: 10 })
+    expect(merged[1]!.position).toEqual({
+      x: 10 + NOTE_NODE_WIDTH - 1,
+      y: 10 + NOTE_NODE_HEIGHT + NODE_INSERT_GAP
+    })
+    expect(TASK_NODE_WIDTH).toBeGreaterThan(NOTE_NODE_WIDTH)
+  })
+})
+
+function nodeRect(node: CanvasNode): CanvasRect {
+  if (node.type === 'orchestrator') {
+    return { ...node.position, width: ORCH_NODE_WIDTH, height: ORCH_NODE_HEIGHT }
+  }
+  if (node.type === 'note') {
+    return { ...node.position, width: NOTE_NODE_WIDTH, height: NOTE_NODE_HEIGHT }
+  }
+  return { ...node.position, width: TASK_NODE_WIDTH, height: TASK_NODE_HEIGHT }
+}
+
+function assertNodesDoNotOverlap(nodes: readonly CanvasNode[]): void {
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      expect(
+        rectsOverlap(nodeRect(nodes[i]!), nodeRect(nodes[j]!)),
+        `overlap between ${nodes[i]!.id} and ${nodes[j]!.id}`
+      ).toBe(false)
+    }
+  }
+}
+
+describe('buildCanvasGraph · auto-layout slots do not overlap', () => {
+  it('keeps independent and dependent task cards non-overlapping', () => {
+    const graph = buildCanvasGraph(
+      [
+        task({ id: 'a' }),
+        task({ id: 'b' }),
+        task({ id: 'c', dependsOn: ['a'] }),
+        task({ id: 'd', dependsOn: ['a', 'b'] })
+      ],
+      ORCH
+    )
+    assertNodesDoNotOverlap(graph.nodes)
+  })
+
+  it('places sticky-note slots beneath tasks without mutual overlap', () => {
+    const findings = [1, 2, 3, 4].map((n) =>
+      finding({ id: `f${n}`, taskId: 't1', createdAt: n })
+    )
+    const graph = buildCanvasGraph([task({ id: 't1' }), task({ id: 't2' })], ORCH, findings)
+    assertNodesDoNotOverlap(graph.nodes)
+
+    const notes = graph.nodes.filter((n) => n.type === 'note')
+    expect(notes).toHaveLength(4)
+    for (let i = 1; i < notes.length; i++) {
+      expect(notes[i]!.position.x - notes[i - 1]!.position.x).toBe(NOTE_NODE_WIDTH + 18)
+    }
+  })
+
+  it('is deterministic across repeated builds of the same graph', () => {
+    const tasks = [
+      task({ id: 'a' }),
+      task({ id: 'b', dependsOn: ['a'] }),
+      task({ id: 'c', dependsOn: ['a'] })
+    ]
+    const first = buildCanvasGraph(tasks, ORCH)
+    const second = buildCanvasGraph(tasks, ORCH)
+    expect(second.nodes.map((n) => [n.id, n.position])).toEqual(
+      first.nodes.map((n) => [n.id, n.position])
+    )
+    assertNodesDoNotOverlap(first.nodes)
   })
 })
