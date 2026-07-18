@@ -1,0 +1,205 @@
+{
+  "version": 1,
+  "exportedAt": 1784408292022,
+  "app": {
+    "name": "vertragus",
+    "version": "0.1.56-main.1.g4b28a5b"
+  },
+  "machineId": "2d1dacf3388f",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrqulr14-plan-mrqu6mfw-1",
+    "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+    "workspaceSessionId": "7047280d-ce9e-4a2e-9bec-1dbc676ba351",
+    "planId": "plan-mrqu6mfw-1",
+    "goal": "Im Workspace-Profil sollen die Modell-Dropdowns für Orchestrator und Subagents beim aktiven Provider stets alle verfügbaren Modelle dieses Providers anzeigen, ohne Provider-Wechsel; Ursache beheben und regressionssicher verifizieren.",
+    "status": "stopped",
+    "summary": "Alle drei Fachaufgaben waren erfolgreich: Anzeige- und Persistenzursache wurden gemeinsam behoben und mit 931 Tests sowie Typecheck, Lint und SecurityGate verifiziert. Nur der nachgelagerte Remote-CI-Watch lieferte keinen terminalen Status.",
+    "modelStats": [
+      {
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "roles": [
+          "renderer-ui"
+        ],
+        "tasks": 1,
+        "succeeded": 1,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "avgDurationMs": 241080
+      },
+      {
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "roles": [
+          "test-writer"
+        ],
+        "tasks": 1,
+        "succeeded": 1,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "avgDurationMs": 98819,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      },
+      {
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "roles": [
+          "electron-core"
+        ],
+        "tasks": 1,
+        "succeeded": 1,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "costUsd": 1.9786080000000004,
+        "avgDurationMs": 608222
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrqulr10-1-qw0ii8",
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "role": "test-writer",
+        "kind": "strength",
+        "insight": "deutlich schnellstes Modell dieses Laufs (Ø 99s)",
+        "evidence": "Ø-Dauer 99s gegenüber 608s (claude/claude-opus-4-8)",
+        "source": "auto-retro",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784408257044,
+        "updatedAt": 1784408257044
+      },
+      {
+        "id": "learning-mrqumi0a-1-euxyzw",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "renderer-ui",
+        "kind": "strength",
+        "insight": "Sehr stark bei gezielter Renderer-UI-Fehleranalyse und vollständiger Regressionstest-Absicherung.",
+        "evidence": "Identifizierte Chromium-Datalist-Filterung, implementierte einen gemeinsamen ModelCombo und erreichte 925/925 grüne Tests plus Typecheck, Lint und SecurityGate.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784408292010,
+        "updatedAt": 1784408292010
+      },
+      {
+        "id": "learning-mrqumi0a-2-h8h929",
+        "provider": "codex",
+        "model": "gpt-5.6-sol",
+        "role": "renderer-ui",
+        "kind": "weakness",
+        "insight": "Die erste Lösung deckte das sichtbare UI-Symptom ab, aber nicht den unabhängigen Same-Provider-Persistenzfehler.",
+        "evidence": "Der Integrator musste anschließend zusätzlich modelAfterProviderChange ergänzen; zudem war der Token-Einsatz mit 748746 Tokens sehr hoch.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784408292010,
+        "updatedAt": 1784408292010
+      },
+      {
+        "id": "learning-mrqumi0a-3-mrbikt",
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "role": "test-writer",
+        "kind": "strength",
+        "insight": "Schnell und präzise beim Auffinden eines unabhängigen Persistenzfehlers und relevanter Testlücken.",
+        "evidence": "Fand in rund 99 Sekunden die ungeschützte Same-Provider-onChange-Semantik und lieferte konkrete Randfälle; 32/32 fokussierte Bestandstests waren grün.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784408292010,
+        "updatedAt": 1784408292010
+      },
+      {
+        "id": "learning-mrqumi0a-4-c7u6ug",
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "role": "test-writer",
+        "kind": "weakness",
+        "insight": "Die read-only Analyse erklärte nicht allein das vom Nutzer beschriebene Dropdown-Anzeigesymptom.",
+        "evidence": "Die primäre sichtbare Ursache war Chromium-Datalist-Filterung; der gefundene Persistenzbug war zusätzlich relevant, aber nicht die vollständige Erklärung.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784408292010,
+        "updatedAt": 1784408292010
+      },
+      {
+        "id": "learning-mrqumi0a-5-j08y7w",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "electron-core",
+        "kind": "strength",
+        "insight": "Sehr gründlich bei semantischer Integration komplementärer Ursachen und vollständiger lokaler Abnahme.",
+        "evidence": "Vereinte ModelCombo und Same-Provider-Persistenzfix, bestätigte 931/931 Tests, Typechecks, ESLint und SecurityGate ohne Schnittstellenänderungen.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784408292010,
+        "updatedAt": 1784408292010
+      },
+      {
+        "id": "learning-mrqumi0a-6-xasuwj",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "electron-core",
+        "kind": "weakness",
+        "insight": "Die umfassende Integrationsprüfung war deutlich langsamer als die spezialisierten Vorarbeiten.",
+        "evidence": "Durchschnittsdauer 608 Sekunden gegenüber 241 Sekunden für renderer-ui und 99 Sekunden für test-writer.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784408292010,
+        "updatedAt": 1784408292010
+      }
+    ],
+    "createdAt": 1784408257048,
+    "exportQueuedAt": 1784408292015
+  }
+}
