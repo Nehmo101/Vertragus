@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   Idea,
   IdeaArchiveView,
@@ -10,6 +10,11 @@ import { IDEA_INPUT_STATUSES } from '@shared/inbox'
 import { isTransferActive } from '@shared/inboxTransfer'
 import { useInboxSpeech } from '@renderer/hooks/useInboxSpeech'
 import { useAppStore } from '@renderer/store/useAppStore'
+import {
+  speechShortcutAriaKeys,
+  speechShortcutKeys,
+  useSpeechShortcutContext
+} from '@renderer/features/speechShortcut/SpeechShortcutProvider'
 import IdeaTransferModal from '@renderer/components/IdeaTransferModal'
 import PromptEnhancementReview from '@renderer/components/PromptEnhancementReview'
 import type { PromptEnhancementIpcResult, PromptEnhancementSelection } from '@shared/promptEnhancement'
@@ -624,6 +629,17 @@ export default function InboxPanel(): JSX.Element {
 
   const speechBusy = speech.state === 'recording' || speech.state === 'transcribing'
   const showVoiceReview = speech.state === 'review' && speech.voiceDraft
+
+  // Ctrl/Cmd+Shift+M → speech.toggle routes here while the Inbox is mounted (active context).
+  const speechConfigured = speech.status?.configured ?? false
+  const shortcutContext = useMemo(
+    () => ({ configured: speechConfigured, state: speech.state, toggleRecording: speech.toggleRecording }),
+    [speechConfigured, speech.state, speech.toggleRecording]
+  )
+  useSpeechShortcutContext('inbox', shortcutContext)
+  const shortcutKeys = speechShortcutKeys()
+  const shortcutAriaKeys = speechShortcutAriaKeys()
+
   return (
     <main
       className={`inbox-panel ${styles.inboxPanel}`}
@@ -663,19 +679,23 @@ export default function InboxPanel(): JSX.Element {
           <button
             type="button"
             className={`inbox-speech-mic ${speech.state === 'recording' ? 'recording' : ''}`}
-            title={
+            title={`${
               speech.state === 'recording'
                 ? 'Aufnahme stoppen'
                 : speech.state === 'transcribing'
                   ? 'Abbrechen'
                   : 'Spracheingabe starten/stoppen'
-            }
+            } · Kürzel ${shortcutKeys} · Shortcut ${shortcutKeys}`}
             disabled={speech.state === 'review' || saving}
             aria-pressed={speech.state === 'recording'}
+            aria-keyshortcuts={shortcutAriaKeys}
             onClick={() => void speech.toggleRecording()}
           >
             {speech.state === 'recording' ? '■' : '🎙'}
           </button>
+          <kbd className="inbox-speech-shortcut" title={`Kürzel ${shortcutKeys} · Shortcut ${shortcutKeys}`}>
+            {shortcutKeys}
+          </kbd>
           <button
             type="button"
             className="inbox-btn ghost sm"

@@ -145,6 +145,7 @@
     "cancel": "Abbrechen",
     "recordTitle": "Push-to-talk starten",
     "stopTitle": "Aufnahme beenden",
+    "shortcutHint": "Kürzel {{keys}}",
     "configureFirst": "STT-Zugang zuerst über ⚙ einrichten",
     "settingsTitle": "Sprache-zu-Text einrichten (API-Schlüssel, Modell, Sprache)",
     "settingsAria": "Sprache-zu-Text-Einstellungen öffnen",
