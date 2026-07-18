@@ -1,5 +1,5 @@
 /**
- * Per-provider concurrency gate — enforces Orca's user-configured local
+ * Per-provider concurrency gate — enforces Vertragus' user-configured local
  * `providerLimits` process gates in the main process. Interactive spawns fail
  * when full; headless tasks wait. Lowering a gate never stops running agents.
  */
@@ -16,7 +16,7 @@ export class ProviderLimitError extends Error {
   readonly limit: number
 
   constructor(provider: AgentProviderId, limit: number) {
-    super(`Orca-Gate erreicht: ${provider} (${limit} parallel, keine API-Quote).`)
+    super(`Vertragus-Gate erreicht: ${provider} (${limit} parallel, keine API-Quote).`)
     this.name = 'ProviderLimitError'
     this.provider = provider
     this.limit = limit

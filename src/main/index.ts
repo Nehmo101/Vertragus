@@ -39,10 +39,10 @@ app.whenReady().then(async () => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  // Start the Orca MCP server before any orchestrator can spawn.
+  // Start the Vertragus MCP server before any orchestrator can spawn.
   await mcp.startMcpServer().catch((err) => console.error('[OrcaMcp] failed to start', err))
 
-  // Integration self-test (ORCA_MCP_SELFTEST=1): exercise the MCP tools + engine
+  // Integration self-test (VERTRAGUS_MCP_SELFTEST=1): exercise the MCP tools + engine
   // end-to-end with a stubbed runTask, then exit.
   if (brandEnv('MCP_SELFTEST')) {
     const { runSelfTest } = await import('@main/orchestrator/selftest')
@@ -50,7 +50,7 @@ app.whenReady().then(async () => {
     return
   }
 
-  if (process.env['ORCA_REMOTE_SELFTEST']) {
+  if (brandEnv('REMOTE_SELFTEST')) {
     const { runRemoteSelfTest } = await import('@main/remote/selftestRemote')
     await runRemoteSelfTest()
     return

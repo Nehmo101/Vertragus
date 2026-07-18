@@ -71,7 +71,7 @@ jobs:
             exit 0
           fi
           BRANCH="retro-analysis/$(date -u +%Y-%m-%d)"
-          git config user.name "orca-retro-bot"
+          git config user.name "vertragus-retro-bot"
           git config user.email "actions@github.com"
           git switch -c "$BRANCH"
           for path in overlay proposals state; do

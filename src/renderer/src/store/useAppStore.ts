@@ -58,7 +58,7 @@ interface AppState {
   appInfo: AppInfo | null
   health: ProviderHealth[]
   models: ModelCatalog
-  /** Per-provider Orca process gates shown live in the Limits panel. */
+  /** Per-provider Vertragus process gates shown live in the Limits panel. */
   providerLimits: Record<AgentProviderId, number>
   providerEnabled: ProviderEnabled
   disabledModels: DisabledModels
@@ -880,6 +880,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     const next = !get().yoloMaster
     set({ yoloMaster: next })
     void window.orca.setConfig('yoloMaster', next)
+    // Laufende Sessions binden ihr Profil beim Start; ohne Laufzeit-Propagation
+    // erreicht der Master-Toggle nur neu gespawnte Teams (Retro Lauf 3).
+    void window.orca.orchestrator.setYoloMaster(next).catch(() => undefined)
   },
 
   toggleTheme() {

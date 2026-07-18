@@ -184,6 +184,20 @@ export class WorkspaceSessionRegistry extends EventEmitter {
     return session.engine.setPlannerMode(mode)
   }
 
+  /**
+   * Propagate the global YOLO master to every live session. Bound profiles are
+   * session-start clones, so a UI toggle would otherwise never reach a running
+   * engine (Retro Lauf 3). Returns the number of updated sessions.
+   */
+  setYoloMaster(enabled: boolean): number {
+    let updated = 0
+    for (const session of this.byId.values()) {
+      session.profile.yoloDefault = enabled
+      if (session.engine.setYolo(enabled)) updated += 1
+    }
+    return updated
+  }
+
   reset(profile: WorkspaceProfile, sessionId?: string): void {
     this.ensure(profile, sessionId).engine.reset()
   }

@@ -105,7 +105,7 @@ describe('RemoteReadModel', () => {
     expect(scoped?.type).toBe('snapshot')
     if (scoped?.type !== 'snapshot') return
     expect(scoped.snapshot.tasks[0]?.worktree).toBeUndefined()
-    expect(scoped.snapshot.tasks[0]?.recoveryArtifact?.worktree).toBe('[internal Orca worktree]')
+    expect(scoped.snapshot.tasks[0]?.recoveryArtifact?.worktree).toBe('[internal Vertragus worktree]')
     expect(JSON.stringify(scoped)).not.toContain('C:\\secret')
     const approvalFrame = scopeRemoteFrame({
       type: 'approvals', at: 1,

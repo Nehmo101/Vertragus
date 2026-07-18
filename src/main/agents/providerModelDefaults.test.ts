@@ -44,7 +44,7 @@ describe('providerModelDefaults', () => {
   })
 
   it('falls back to a stable label instead of an empty string', () => {
-    // Retros: model:"" machte Learnings unattribuierbar ("Orca lieferte
+    // Retros: model:"" machte Learnings unattribuierbar ("Vertragus lieferte
     // keinen Modellnamen"); der Slot-Name muss immer befüllt sein.
     expect(resolveSlotModel('codex', {})).toBe(CODEX_CONFIG_DEFAULT_LABEL)
   })

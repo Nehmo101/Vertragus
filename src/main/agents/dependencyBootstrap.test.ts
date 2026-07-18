@@ -85,6 +85,22 @@ describe('worktree dependency bootstrap', () => {
     expect((await lstat(join(worktree, 'node_modules'))).isSymbolicLink()).toBe(true)
   })
 
+  it('maps a missing package-manager binary to a clear PATH hint', async () => {
+    const fixture = await mkdtemp(join(tmpdir(), 'orca-deps-enoent-'))
+    roots.push(fixture)
+    const root = join(fixture, 'repo')
+    const worktree = join(root, '.orca-worktrees', 'task-3')
+    await mkdir(worktree, { recursive: true })
+    await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'fixture' }))
+    await writeFile(join(root, 'pnpm-lock.yaml'), '')
+    await writeFile(join(worktree, 'package.json'), JSON.stringify({ name: 'fixture' }))
+    await writeFile(join(worktree, 'pnpm-lock.yaml'), '')
+    // Retro Lauf 1: corepack fehlte im PATH des App-Prozesses (spawn ENOENT).
+    resolveLaunchMock.mockResolvedValueOnce({ file: join(fixture, 'missing', 'corepack'), args: [] })
+
+    await expect(ensureWorktreeDependencies(root, worktree)).rejects.toThrow(/fnm\/nvm/)
+  })
+
   it('rejects an invalid path-traversal target outside the repository before linking', async () => {
     const fixture = await mkdtemp(join(tmpdir(), 'orca-deps-boundary-'))
     roots.push(fixture)

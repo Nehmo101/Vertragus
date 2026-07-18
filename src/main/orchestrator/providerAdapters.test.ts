@@ -40,7 +40,7 @@ describe('orchestrator provider adapters', () => {
     expect(args).toContain('orca(set_goal),orca(execute_plan)')
   })
 
-  it('pre-approves only Orca-owned orchestration tools for Codex', () => {
+  it('pre-approves only Vertragus-owned orchestration tools for Codex', () => {
     const args = getOrchestratorAdapter('codex').buildArgs(context)
     expect(args).toContain(
       'mcp_servers.orca.default_tools_approval_mode=' + JSON.stringify('approve')

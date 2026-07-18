@@ -1,7 +1,7 @@
 import { Menu, type BrowserWindow, type MenuItemConstructorOptions } from 'electron'
 
 /**
- * Keep native edit accelerators available even though Orca hides the menu bar.
+ * Keep native edit accelerators available even though Vertragus hides the menu bar.
  * Without an application menu Electron does not reliably dispatch Ctrl/Cmd+C
  * in packaged frameless windows.
  */

@@ -29,7 +29,7 @@ describe('orchestrator Git post-processing', () => {
     await mkdir(workspaceDir)
     await git(workspaceDir, 'init')
     await git(workspaceDir, 'config', 'user.email', 'test@orca.local')
-    await git(workspaceDir, 'config', 'user.name', 'Orca Test')
+    await git(workspaceDir, 'config', 'user.name', 'Vertragus Test')
     await writeFile(join(workspaceDir, 'README.md'), '# initial\n', 'utf8')
     await writeFile(join(workspaceDir, 'obsolete.txt'), 'remove me\n', 'utf8')
     await git(workspaceDir, 'add', '--all')
@@ -53,7 +53,7 @@ describe('orchestrator Git post-processing', () => {
     const result = await postProcessWorkspaceGit({
       workspaceDir,
       targetBranch: 'orca/result',
-      commitMessage: 'Orca result'
+      commitMessage: 'Vertragus result'
     })
 
     expect(result).toEqual(expect.objectContaining({

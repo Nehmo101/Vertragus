@@ -135,6 +135,7 @@ export const IPC = {
   orchestratorReset: 'orchestrator:reset',
   orchestratorEnableAutoMode: 'orchestrator:enableAutoMode',
   orchestratorSetPlannerMode: 'orchestrator:setPlannerMode',
+  orchestratorSetYoloMaster: 'orchestrator:setYoloMaster',
   orchestratorReviewPlan: 'orchestrator:reviewPlan',
   orchestratorTaskDiff: 'orchestrator:taskDiff',
   orchestratorApprovePublication: 'orchestrator:approvePublication',
@@ -345,7 +346,7 @@ export interface OrcaApi {
   /** Authoritative per-provider concurrency usage from the main process gate. */
   getProviderCapacity(): Promise<Record<AgentProviderId, ProviderCapacitySnapshot>>
   /** Model options per agent provider (ollama live when reachable). */
-  /** Open the provider's official CLI login flow in an interactive Orca terminal. */
+  /** Open the provider's official CLI login flow in an interactive Vertragus terminal. */
   loginProvider(id: ProviderId): Promise<AgentInstanceInfo>
   /** Receive refreshed connection state after an interactive login exits. */
   onProvidersChanged(cb: (health: ProviderHealth[]) => void): () => void
@@ -487,10 +488,16 @@ export interface OrcaApi {
       mode: WorkspaceProfile['planner']['mode'],
       workspaceSessionId?: string
     ): Promise<boolean>
+    /**
+     * Propagate the global YOLO master to all live sessions: pending permission
+     * prompts auto-allow and future dispatches run YOLO. Returns the number of
+     * updated sessions.
+     */
+    setYoloMaster(enabled: boolean): Promise<number>
     /** Resolve a plan waiting in review mode. */
     reviewPlan(profileId: string, approved: boolean, workspaceSessionId?: string): Promise<boolean>
     onSnapshot(cb: (snap: OrchestratorSnapshot) => void): () => void
-    /** Read a size-limited patch from the task's trusted Orca worktree. */
+    /** Read a size-limited patch from the task's trusted Vertragus worktree. */
     taskDiff(profileId: string, taskId: string, workspaceSessionId?: string): Promise<TaskReviewDiff>
     approvePublication(profileId: string, workspaceSessionId: string, planId?: string): Promise<boolean>
     rejectPublication(profileId: string, workspaceSessionId: string, planId?: string): Promise<boolean>

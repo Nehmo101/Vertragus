@@ -1,7 +1,7 @@
 /**
  * Orchestrator-Trainingskatalog.
  *
- * Diese Szenarien trainieren die KERNFÄHIGKEIT des Orca-Orchestrators:
+ * Diese Szenarien trainieren die KERNFÄHIGKEIT des Vertragus-Orchestrators:
  * ein Nutzerziel in einen möglichst kleinen, vollständigen und VALIDEN Plan
  * zu zerlegen und ihn über execute_plan an die richtige Zahl an Subagents zu
  * delegieren. Am Ende muss kein echtes Produkt entstehen — bewertet wird die

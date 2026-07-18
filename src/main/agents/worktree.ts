@@ -100,12 +100,12 @@ export async function createWorktree(
   }
 }
 
-/** Only ever touch paths Orca created under `.orca-worktrees/`. */
+/** Only ever touch paths Vertragus created under `.orca-worktrees/`. */
 export function isOrcaWorktreePath(path: string): boolean {
   return /[\\/]\.orca-worktrees[\\/]/.test(path.trim())
 }
 
-/** Only ever delete branches Orca created under the `orca/` namespace. */
+/** Only ever delete branches Vertragus created under the `orca/` namespace. */
 export function isOrcaBranch(branch: string): boolean {
   return /^orca\//.test(branch.trim())
 }
@@ -130,7 +130,7 @@ async function mainWorktreeRoot(worktreePath: string): Promise<string | null> {
 }
 
 /**
- * Roll back (discard) an Orca-managed isolated worktree and its branch.
+ * Roll back (discard) a Vertragus-managed isolated worktree and its branch.
  *
  * Rolling back a killed workspace deliberately throws away the agent's
  * uncommitted, unmerged work, so removal is forced. As a hard safety net only

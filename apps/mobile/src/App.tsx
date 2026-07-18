@@ -317,7 +317,7 @@ export default function App(): JSX.Element {
   if (!token) {
     return (
       <main className="pair-screen">
-        <div className="orca-mark">O</div>
+        <div className="brand-mark">V</div>
         <span className="eyebrow">VERTRAGVS</span>
         <h1>Mission Control koppeln</h1>
         <p>Scanne den QR-Code im Desktop oder trage den einmaligen Pairing-Code ein.</p>

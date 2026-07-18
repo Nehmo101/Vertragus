@@ -7,7 +7,7 @@
  *     [--min-new 3] [--summary-file summary.md]
  *
  * Ohne --write ist der Lauf ein Dry-Run und druckt nur die geplanten
- * Änderungen. Benötigt ANTHROPIC_API_KEY; Modell via ORCA_RETRO_MODEL
+ * Änderungen. Benötigt ANTHROPIC_API_KEY; Modell via VERTRAGUS_RETRO_MODEL
  * überschreibbar (Default: claude-sonnet-5).
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -35,7 +35,7 @@ const OVERLAY_PATH = 'overlay/learnings.md'
 const STATE_PATH = 'state/last-analysis.json'
 
 const SYNTHESIS_SYSTEM_PROMPT = [
-  'Du analysierst Retrospektiven des Multi-Agent-Orchestrators Orca-Strator und pflegst',
+  'Du analysierst Retrospektiven des Multi-Agent-Orchestrators Vertragus und pflegst',
   'dessen Overlay-Regelwerk. Das Overlay wird wörtlich in den System-Prompt des',
   'Orchestrators injiziert und steuert künftige Läufe (Rollenwahl, Delegation,',
   'Planungs- und Prüfstrategie).',
@@ -61,7 +61,7 @@ const SYNTHESIS_SYSTEM_PROMPT = [
   '  (z. B. Prompt-Template in src/main/orchestrator/orchestratorLaunch.ts, MCP-Tools in',
   '  src/main/orchestrator/OrcaMcpServer.ts, Engine-/Scheduler-Logik).',
   '- Jedes prompt-Feld ist ein eigenständiger, direkt ausführbarer Claude-Code-Auftrag',
-  '  gegen das Orca-Strator-Repository: konkrete Dateipfade, gewünschtes Verhalten,',
+  '  gegen das Vertragus-Repository: konkrete Dateipfade, gewünschtes Verhalten,',
   '  Abnahmekriterium "pnpm run ci grün".',
   '- Keine Duplikate zu existingProposalSlugs. Lieber kein Proposal als ein spekulatives.',
   '',
@@ -92,7 +92,9 @@ function readCliOptions(): CliOptions {
     console.error('Fehler: --dir <retros-checkout> ist erforderlich.')
     process.exit(2)
   }
-  const minNew = Number(values['min-new'] ?? process.env.ORCA_RETRO_MIN_NEW ?? 3)
+  const minNew = Number(
+    values['min-new'] ?? process.env.VERTRAGUS_RETRO_MIN_NEW ?? process.env.ORCA_RETRO_MIN_NEW ?? 3
+  )
   return {
     dir: values.dir,
     write: Boolean(values.write),
@@ -146,7 +148,7 @@ async function runSynthesis(input: SynthesisInput): Promise<SynthesisOutput> {
   }
   const client = new Anthropic()
   const response = await client.messages.parse({
-    model: process.env.ORCA_RETRO_MODEL ?? 'claude-sonnet-5',
+    model: process.env.VERTRAGUS_RETRO_MODEL ?? process.env.ORCA_RETRO_MODEL ?? 'claude-sonnet-5',
     max_tokens: 16000,
     thinking: { type: 'adaptive' },
     system: SYNTHESIS_SYSTEM_PROMPT,

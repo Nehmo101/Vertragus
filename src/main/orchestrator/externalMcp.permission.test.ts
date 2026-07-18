@@ -16,7 +16,7 @@ afterAll(() => {
 })
 
 describe('Claude native permission callback launch', () => {
-  it('attaches only the fixed Orca permission MCP tool to non-yolo Claude tasks', () => {
+  it('attaches only the fixed Vertragus permission MCP tool to non-yolo Claude tasks', () => {
     setMcpHandle({
       url: 'http://127.0.0.1:1/mcp',
       subagentUrl: 'http://127.0.0.1:1/mcp?token=fixed',
@@ -42,8 +42,8 @@ describe('Claude native permission callback launch', () => {
   })
 })
 
-describe('Codex Orca subagent tool approvals', () => {
-  it('pre-approves the task-scoped Orca reporting tools', () => {
+describe('Codex Vertragus subagent tool approvals', () => {
+  it('pre-approves the task-scoped Vertragus reporting tools', () => {
     setMcpHandle({
       url: 'http://127.0.0.1:1/mcp',
       subagentUrl: 'http://127.0.0.1:1/mcp?token=fixed',

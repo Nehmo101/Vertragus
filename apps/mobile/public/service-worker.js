@@ -1,4 +1,4 @@
-const CACHE = 'orca-mission-control-d1'
+const CACHE = 'vertragus-mission-control-d2'
 const SHELL = ['/', '/manifest.webmanifest', '/icon.svg']
 
 self.addEventListener('install', (event) => {
@@ -17,14 +17,14 @@ self.addEventListener('fetch', (event) => {
 })
 
 self.addEventListener('push', (event) => {
-  let payload = { title: 'Orca Mission Control', body: 'Eine Entscheidung wartet.', url: '/#/approvals' }
+  let payload = { title: 'Vertragus Mission Control', body: 'Eine Entscheidung wartet.', url: '/#/approvals' }
   try { payload = { ...payload, ...event.data.json() } } catch { /* Use safe fallback copy. */ }
   event.waitUntil(self.registration.showNotification(payload.title, {
     body: payload.body,
     icon: '/icon.svg',
     badge: '/icon.svg',
     data: { url: payload.url || '/#/live' },
-    tag: payload.key || 'orca-remote',
+    tag: payload.key || 'vertragus-remote',
     renotify: false
   }))
 })
