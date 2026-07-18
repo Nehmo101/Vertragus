@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784404768239,
+  "exportedAt": 1784406040759,
   "app": {
     "name": "vertragus",
     "version": "0.1.54-main.1.g8ffb696"
@@ -8,6 +8,75 @@
   "machineId": "2d1dacf3388f",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrqta8db-4-143r5p",
+      "provider": "cursor",
+      "model": "cursor-grok-4.5-high-fast",
+      "role": "electron-core",
+      "kind": "weakness",
+      "insight": "Ein zusätzlicher Subagent-Preflight ist bei einem expliziten Wunsch nach direkter PR-Erstellung unnötiger Prozessaufwand.",
+      "evidence": "Der Nutzer brach das Review-Gate ab und verlangte ausdrücklich die direkte PR-Erstellung ohne Subagent; die Veröffentlichung gelang anschließend unmittelbar.",
+      "source": "orchestrator",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 1,
+      "createdAt": 1784406040031,
+      "updatedAt": 1784406040031
+    },
+    {
+      "id": "learning-mrqta8db-1-3q59j1",
+      "provider": "claude",
+      "model": "claude-opus-4-8",
+      "role": "electron-core",
+      "kind": "strength",
+      "insight": "Ein konsolidierter, vollständig geprüfter Commit ist eine belastbare Publish-Basis, selbst wenn der ursprüngliche Orchestrator-Branch den Commit nicht referenziert.",
+      "evidence": "Der verifizierte Commit b59c66df konnte direkt auf den neuen Branch agent/complete-vertragus-rebrand gesetzt, gepusht und als Draft-PR #107 veröffentlicht werden.",
+      "source": "orchestrator",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 1,
+      "createdAt": 1784406040031,
+      "updatedAt": 1784406040031
+    },
+    {
+      "id": "learning-mrqta8db-2-21hk2t",
+      "provider": "claude",
+      "model": "claude-opus-4-8",
+      "role": "electron-core",
+      "kind": "weakness",
+      "insight": "Vor einem PR-Replay gegen main muss die Base-Divergenz zwingend geprüft werden; ein fachlich grüner Commit kann durch parallele main-Entwicklung breit konfliktbehaftet sein.",
+      "evidence": "origin/main lag 23 Commits voraus; der Cherry-pick von b59c66df erzeugte Konflikte in zahlreichen Main-, Renderer-, Mobile- und Doku-Dateien.",
+      "source": "orchestrator",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 1,
+      "createdAt": 1784406040031,
+      "updatedAt": 1784406040031
+    },
+    {
+      "id": "learning-mrqta8db-3-rbky7n",
+      "provider": "cursor",
+      "model": "cursor-grok-4.5-high-fast",
+      "role": "electron-core",
+      "kind": "strength",
+      "insight": "Für diesen abgebrochenen read-only PR-Preflight wurde keine eigenständige Modellstärke belegt.",
+      "evidence": "Der geplante Cursor-Preflight wurde auf ausdrücklichen Nutzerwunsch zugunsten direkter Orchestrator-Ausführung nicht genutzt.",
+      "source": "orchestrator",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 1,
+      "createdAt": 1784406040031,
+      "updatedAt": 1784406040031
+    },
+    {
+      "id": "learning-mrqjgjj6-1-vgz6uh",
+      "provider": "cursor",
+      "model": "cursor-grok-4.5-high-fast",
+      "kind": "weakness",
+      "insight": "Worker-Versuche scheiterten; Aufgaben wurden auf andere Slots umgeleitet",
+      "evidence": "1 inhaltlich fehlgeschlagene(r) Versuch(e) in diesem Lauf",
+      "source": "auto-retro",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 2,
+      "createdAt": 1784389538274,
+      "updatedAt": 1784405838151
+    },
     {
       "id": "learning-mrqsiyck-1-n1ayt3",
       "provider": "claude",
@@ -37,34 +106,6 @@
       "updatedAt": 1784404767332
     },
     {
-      "id": "learning-mrqjsdo4-1-7i6xgy",
-      "provider": "claude",
-      "model": "claude-opus-4-8",
-      "role": "electron-core",
-      "kind": "strength",
-      "insight": "Sehr stark bei manueller semantischer Integration großer, disjunkter Rebranding-Diffs inklusive vollständiger Abnahme.",
-      "evidence": "Ulisse integrierte 84 Dateien, migrierte Bridge-Bezeichner und bestand 945/945 Tests, Security-Gate, Typecheck, Lint und Builds.",
-      "source": "orchestrator",
-      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
-      "observations": 1,
-      "createdAt": 1784390090548,
-      "updatedAt": 1784390090548
-    },
-    {
-      "id": "learning-mrqjsdo4-3-cptm8y",
-      "provider": "cursor",
-      "model": "cursor-grok-4.5-high-fast",
-      "role": "release-ops",
-      "kind": "strength",
-      "insight": "Behebt eng umrissene Release-Hygieneprobleme zuverlässig und prüft Mobile/Docs konsistent.",
-      "evidence": "Arnaut beseitigte den Whitespace-Blocker, lieferte 11/11 Tests, Mobile-Build, Typecheck, Lint und git diff --check grün.",
-      "source": "orchestrator",
-      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
-      "observations": 1,
-      "createdAt": 1784390090548,
-      "updatedAt": 1784390090548
-    },
-    {
       "id": "learning-mrqjsdo4-4-nvijv1",
       "provider": "cursor",
       "model": "cursor-grok-4.5-high-fast",
@@ -79,6 +120,20 @@
       "updatedAt": 1784390090548
     },
     {
+      "id": "learning-mrqjsdo4-1-7i6xgy",
+      "provider": "claude",
+      "model": "claude-opus-4-8",
+      "role": "electron-core",
+      "kind": "strength",
+      "insight": "Sehr stark bei manueller semantischer Integration großer, disjunkter Rebranding-Diffs inklusive vollständiger Abnahme.",
+      "evidence": "Ulisse integrierte 84 Dateien, migrierte Bridge-Bezeichner und bestand 945/945 Tests, Security-Gate, Typecheck, Lint und Builds.",
+      "source": "orchestrator",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 1,
+      "createdAt": 1784390090548,
+      "updatedAt": 1784390090548
+    },
+    {
       "id": "learning-mrqjsdo4-2-tv24p5",
       "provider": "claude",
       "model": "claude-opus-4-8",
@@ -86,6 +141,20 @@
       "kind": "weakness",
       "insight": "Lange umfassende Integrationsaufgaben benötigen viel Laufzeit.",
       "evidence": "Claude-Tasks lagen im Mittel bei rund 1976 Sekunden, obwohl sie fachlich im ersten Versuch erfolgreich waren.",
+      "source": "orchestrator",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 1,
+      "createdAt": 1784390090548,
+      "updatedAt": 1784390090548
+    },
+    {
+      "id": "learning-mrqjsdo4-3-cptm8y",
+      "provider": "cursor",
+      "model": "cursor-grok-4.5-high-fast",
+      "role": "release-ops",
+      "kind": "strength",
+      "insight": "Behebt eng umrissene Release-Hygieneprobleme zuverlässig und prüft Mobile/Docs konsistent.",
+      "evidence": "Arnaut beseitigte den Whitespace-Blocker, lieferte 11/11 Tests, Mobile-Build, Typecheck, Lint und git diff --check grün.",
       "source": "orchestrator",
       "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
       "observations": 1,
@@ -121,19 +190,6 @@
       "updatedAt": 1784389638808
     },
     {
-      "id": "learning-mrqjgjj6-1-vgz6uh",
-      "provider": "cursor",
-      "model": "cursor-grok-4.5-high-fast",
-      "kind": "weakness",
-      "insight": "Worker-Versuche scheiterten; Aufgaben wurden auf andere Slots umgeleitet",
-      "evidence": "1 inhaltlich fehlgeschlagene(r) Versuch(e) in diesem Lauf",
-      "source": "auto-retro",
-      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
-      "observations": 1,
-      "createdAt": 1784389538274,
-      "updatedAt": 1784389538274
-    },
-    {
       "id": "learning-mrqj21ae-1-cnm188",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -162,34 +218,6 @@
       "updatedAt": 1784388861446
     },
     {
-      "id": "learning-mrqj1luy-3-5xk1fn",
-      "provider": "claude",
-      "model": "claude-opus-4-8",
-      "role": "electron-core",
-      "kind": "strength",
-      "insight": "stark bei umfangreichen Main-Prozess- und IPC-Implementierungen",
-      "evidence": "Voice-Assistent und Integrator fachlich erfolgreich; 1009/1009 bzw. 1028/1028 Tests in den jeweiligen Berichten",
-      "source": "orchestrator",
-      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
-      "observations": 1,
-      "createdAt": 1784388841450,
-      "updatedAt": 1784388841450
-    },
-    {
-      "id": "learning-mrqj1luy-5-ky71z3",
-      "provider": "cursor",
-      "model": "cursor-grok-4.5-high-fast",
-      "role": "test-writer",
-      "kind": "strength",
-      "insight": "findet gezielte Sicherheits- und Vertragsregressionen",
-      "evidence": "95/95 relevante Tests, 1028/1028 Vollsuite, 20/20 UI-Smoke; drei advisory Findings dokumentiert",
-      "source": "orchestrator",
-      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
-      "observations": 1,
-      "createdAt": 1784388841450,
-      "updatedAt": 1784388841450
-    },
-    {
       "id": "learning-mrqj1luy-6-49h85e",
       "provider": "cursor",
       "model": "cursor-grok-4.5-high-fast",
@@ -204,6 +232,20 @@
       "updatedAt": 1784388841450
     },
     {
+      "id": "learning-mrqj1luy-3-5xk1fn",
+      "provider": "claude",
+      "model": "claude-opus-4-8",
+      "role": "electron-core",
+      "kind": "strength",
+      "insight": "stark bei umfangreichen Main-Prozess- und IPC-Implementierungen",
+      "evidence": "Voice-Assistent und Integrator fachlich erfolgreich; 1009/1009 bzw. 1028/1028 Tests in den jeweiligen Berichten",
+      "source": "orchestrator",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 1,
+      "createdAt": 1784388841450,
+      "updatedAt": 1784388841450
+    },
+    {
       "id": "learning-mrqj1luy-4-kjby2t",
       "provider": "claude",
       "model": "claude-opus-4-8",
@@ -211,6 +253,20 @@
       "kind": "weakness",
       "insight": "große Integrationsläufe brauchen explizite Konfliktprüfung vor dem automatischen Cherry-Pick",
       "evidence": "Integrations-Commit 67455bb war erfolgreich erstellt, aber der anschließende Auto-Cherry-Pick in den Haupt-Worktree scheiterte am Konflikt-Gate",
+      "source": "orchestrator",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 1,
+      "createdAt": 1784388841450,
+      "updatedAt": 1784388841450
+    },
+    {
+      "id": "learning-mrqj1luy-5-ky71z3",
+      "provider": "cursor",
+      "model": "cursor-grok-4.5-high-fast",
+      "role": "test-writer",
+      "kind": "strength",
+      "insight": "findet gezielte Sicherheits- und Vertragsregressionen",
+      "evidence": "95/95 relevante Tests, 1028/1028 Vollsuite, 20/20 UI-Smoke; drei advisory Findings dokumentiert",
       "source": "orchestrator",
       "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
       "observations": 1,
@@ -288,34 +344,6 @@
       "updatedAt": 1784388709360
     },
     {
-      "id": "learning-mrqhzcq1-1-73rpao",
-      "provider": "claude",
-      "model": "claude-opus-4-8",
-      "role": "electron-core",
-      "kind": "strength",
-      "insight": "Sehr stark bei repo-weiten Electron-Core-Rebrandings mit sicherer Legacy-Migration und Negativtests.",
-      "evidence": "Pluto änderte 22 Dateien, führte 934/934 Tests sowie Typecheck/Lint erfolgreich aus und implementierte .vertragus-worktrees mit sicherem Legacy-Fallback.",
-      "source": "orchestrator",
-      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
-      "observations": 1,
-      "createdAt": 1784387056681,
-      "updatedAt": 1784387056681
-    },
-    {
-      "id": "learning-mrqhzcq1-5-w010sb",
-      "provider": "cursor",
-      "model": "cursor-grok-4.5-high-fast",
-      "role": "security-reviewer",
-      "kind": "strength",
-      "insight": "Hinterließ trotz Infrastrukturstillstand ein umfangreiches, automatisch sicherbares Recovery-Artefakt.",
-      "evidence": "28 geänderte Dateien konnten quarantined und an den Recovery-Worker übergeben werden.",
-      "source": "orchestrator",
-      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
-      "observations": 1,
-      "createdAt": 1784387056681,
-      "updatedAt": 1784387056681
-    },
-    {
       "id": "learning-mrqhzcq1-6-h7a21t",
       "provider": "cursor",
       "model": "cursor-grok-4.5-high-fast",
@@ -330,6 +358,20 @@
       "updatedAt": 1784387056681
     },
     {
+      "id": "learning-mrqhzcq1-1-73rpao",
+      "provider": "claude",
+      "model": "claude-opus-4-8",
+      "role": "electron-core",
+      "kind": "strength",
+      "insight": "Sehr stark bei repo-weiten Electron-Core-Rebrandings mit sicherer Legacy-Migration und Negativtests.",
+      "evidence": "Pluto änderte 22 Dateien, führte 934/934 Tests sowie Typecheck/Lint erfolgreich aus und implementierte .vertragus-worktrees mit sicherem Legacy-Fallback.",
+      "source": "orchestrator",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 1,
+      "createdAt": 1784387056681,
+      "updatedAt": 1784387056681
+    },
+    {
       "id": "learning-mrqhzcq1-2-evdust",
       "provider": "claude",
       "model": "claude-opus-4-8",
@@ -337,6 +379,20 @@
       "kind": "weakness",
       "insight": "Bei übernommenen Recovery-Artefakten muss Commit-Hygiene vor Abschluss explizit bereinigt werden.",
       "evidence": "Oderisis Teilcommit wurde trotz fachlicher Nacharbeit vom git diff --cached --check Whitespace-Gate gestoppt.",
+      "source": "orchestrator",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 1,
+      "createdAt": 1784387056681,
+      "updatedAt": 1784387056681
+    },
+    {
+      "id": "learning-mrqhzcq1-5-w010sb",
+      "provider": "cursor",
+      "model": "cursor-grok-4.5-high-fast",
+      "role": "security-reviewer",
+      "kind": "strength",
+      "insight": "Hinterließ trotz Infrastrukturstillstand ein umfangreiches, automatisch sicherbares Recovery-Artefakt.",
+      "evidence": "28 geänderte Dateien konnten quarantined und an den Recovery-Worker übergeben werden.",
       "source": "orchestrator",
       "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
       "observations": 1,
@@ -400,20 +456,6 @@
       "updatedAt": 1784387037359
     },
     {
-      "id": "learning-mrqh9kg9-3-pvboq",
-      "provider": "cursor",
-      "model": "cursor-grok-4.5-high-fast",
-      "role": "test-writer",
-      "kind": "strength",
-      "insight": "Entwickelt schnell breite, deterministische Regressionstests für Canvas-Kollisionen.",
-      "evidence": "26/26 Fokustests grün; Randfälle für Größen, Batches, Startpositionen und Determinismus in deutlich kürzerer Laufzeit.",
-      "source": "orchestrator",
-      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
-      "observations": 1,
-      "createdAt": 1784385853641,
-      "updatedAt": 1784385853641
-    },
-    {
       "id": "learning-mrqh9kg9-4-p6s89",
       "provider": "cursor",
       "model": "cursor-grok-4.5-high-fast",
@@ -421,6 +463,20 @@
       "kind": "weakness",
       "insight": "In diesem Lauf keine modellbezogene Schwäche belegt.",
       "evidence": "Die Testaufgabe war vollständig erfolgreich; der spätere Fehler lag außerhalb dieser Aufgabe im Integrations-Gate.",
+      "source": "orchestrator",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 1,
+      "createdAt": 1784385853641,
+      "updatedAt": 1784385853641
+    },
+    {
+      "id": "learning-mrqh9kg9-3-pvboq",
+      "provider": "cursor",
+      "model": "cursor-grok-4.5-high-fast",
+      "role": "test-writer",
+      "kind": "strength",
+      "insight": "Entwickelt schnell breite, deterministische Regressionstests für Canvas-Kollisionen.",
+      "evidence": "26/26 Fokustests grün; Randfälle für Größen, Batches, Startpositionen und Determinismus in deutlich kürzerer Laufzeit.",
       "source": "orchestrator",
       "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
       "observations": 1,
