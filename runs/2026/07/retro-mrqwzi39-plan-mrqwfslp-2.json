@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "exportedAt": 1784412270514,
+  "app": {
+    "name": "vertragus",
+    "version": "0.1.56-main.1.g4b28a5b"
+  },
+  "machineId": "2d1dacf3388f",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrqwzi39-plan-mrqwfslp-2",
+    "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+    "workspaceSessionId": "61f4d1b3-99f9-4c46-b0db-4789b54ae7d1",
+    "planId": "plan-mrqwfslp-2",
+    "goal": "Den partiellen Integrationsstand 0251eeb82915ef6998fbc70094b58b1f1163e76b gezielt fertigstellen: fehlende IPC- und OAuth-Validierung implementieren/nachweisen, alle Security- und Quality-Gates grün bekommen und einen veröffentlichungsreifen zentralen Commit erzeugen.",
+    "status": "error",
+    "summary": "Romeo behob beide Security-Gates vollständig und verifizierte 948 Tests sowie alle Builds. Der Lauf wurde ausschließlich durch die nachgelagerte zentrale Cherry-pick-Integration rot, weil der Folgecommit den vorherigen materialisierten Commitstand voraussetzt.",
+    "modelStats": [
+      {
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "roles": [
+          "electron-core"
+        ],
+        "tasks": 1,
+        "succeeded": 1,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "costUsd": 4.8871,
+        "avgDurationMs": 888335
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrqwzrtt-1-c9h0tu",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "electron-core",
+        "kind": "strength",
+        "insight": "Sehr stark bei gezielter Security-Gate-Remediation mit echter Laufzeitvalidierung und vollständiger Abnahme.",
+        "evidence": "Romeo erreichte Security findings=[], 948/948 Tests, grüne Typechecks/Lint sowie Mobile- und Electron-Build.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784412270497,
+        "updatedAt": 1784412270497
+      },
+      {
+        "id": "learning-mrqwzrtt-2-uf2d3v",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "electron-core",
+        "kind": "weakness",
+        "insight": "Folgecommits auf materialisiertem Vorgängerstand müssen als zusammenhängende Commitkette integriert werden; ein isolierter Auto-Cherry-pick ist konfliktanfällig.",
+        "evidence": "af2d8761 war fachlich grün, konnte aber ohne explizite Berücksichtigung des Vorgängercommits 0251eeb8 nicht zentral gecherry-pickt werden.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784412270497,
+        "updatedAt": 1784412270497
+      }
+    ],
+    "createdAt": 1784412257877,
+    "exportQueuedAt": 1784412270506
+  }
+}
