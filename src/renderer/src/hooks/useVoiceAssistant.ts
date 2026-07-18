@@ -83,7 +83,7 @@ export function pickVoiceMimeType(): string {
 }
 
 function bridge(): VoiceBridge {
-  return window.orca as unknown as VoiceBridge
+  return window.vertragus as unknown as VoiceBridge
 }
 
 function confirmationFrom(result: VoiceTurnResult): VoiceConfirmation | null {

@@ -9,7 +9,7 @@ interface CanvasBridge {
 }
 
 function canvasBridge(): CanvasBridge {
-  return window.orca as typeof window.orca & CanvasBridge
+  return window.vertragus as typeof window.vertragus & CanvasBridge
 }
 
 export interface CanvasComposerProps {

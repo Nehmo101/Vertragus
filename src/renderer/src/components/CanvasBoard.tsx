@@ -388,7 +388,7 @@ export default function CanvasBoard(): JSX.Element {
           <div>{t('canvas.emptyHint')}</div>
           <div className="canvas-empty-actions">
             <button type="button" className="clean-btn workspace-start-btn" onClick={() => void store.startAll()}>{t('canvas.empty.start', { defaultValue: 'Team starten' })}</button>
-            <button type="button" className="clean-btn" onClick={() => void window.orca.demo.play()}>{t('canvas.empty.playground', { defaultValue: 'Playground' })}</button>
+            <button type="button" className="clean-btn" onClick={() => void window.vertragus.demo.play()}>{t('canvas.empty.playground', { defaultValue: 'Playground' })}</button>
           </div>
           <ol className="canvas-onboarding">
             <li>{t('canvas.empty.drag', { defaultValue: 'Karten frei anordnen' })}</li>

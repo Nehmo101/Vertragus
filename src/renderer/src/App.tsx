@@ -45,7 +45,7 @@ export default function App(): JSX.Element {
   // Voice-assistant UI navigation commands are broadcast to every window; only
   // the main application window (not the overlay or pop-outs) should apply them.
   useEffect(() => {
-    const unsubscribe = window.orca.events.onUiCommand((command) => {
+    const unsubscribe = window.vertragus.events.onUiCommand((command) => {
       const route = window.location.hash
       if (route.startsWith('#/voice') || route.startsWith('#/pane')) return
       store.applyUiCommand(command)
