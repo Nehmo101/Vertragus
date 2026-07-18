@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "exportedAt": 1784413140935,
+  "app": {
+    "name": "vertragus",
+    "version": "0.1.56-main.1.g4b28a5b"
+  },
+  "machineId": "2d1dacf3388f",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrqxapm5-plan-mrqx0a9j-3",
+    "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+    "workspaceSessionId": "61f4d1b3-99f9-4c46-b0db-4789b54ae7d1",
+    "planId": "plan-mrqx0a9j-3",
+    "goal": "Den vollständig verifizierten Endstand aus der Commitkette 0251eeb82915ef6998fbc70094b58b1f1163e76b -> af2d876163a2eeff68bbf013eb7e993c7977ecd6 konfliktfrei auf den aktuellen zentralen Vertragus-Stand integrieren, ohne Inhalte doppelt anzuwenden, und einen publishfähigen Commit mit grünen Gates erzeugen.",
+    "status": "error",
+    "summary": "Erfolgreich veröffentlicht, aber mit Fehlern: Review-Wartezeiten; stale Base e3c5fa0 statt origin/main; fehlende IPC/OAuth-Validierung; zwei gescheiterte Auto-Cherry-picks durch Snapshot-Commits; Rebase-Konflikte; fehlende node_modules; Lint/Build-Tempdatei-Race; vier erst nach Rebase entdeckte window.orca-Reste. Behoben: PR #111 basiert auf main, 1085 Tests und alle Gates grün; #107 geschlossen.",
+    "modelStats": [
+      {
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "roles": [
+          "electron-core"
+        ],
+        "tasks": 1,
+        "succeeded": 1,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "costUsd": 1.3545265,
+        "avgDurationMs": 455176
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrqxifgb-1-2ygtp",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "electron-core",
+        "kind": "strength",
+        "insight": "Kann Snapshot-Endstände fachlich rekonstruieren und umfassend absichern.",
+        "evidence": "Security-Gate, vollständige Tests, Typecheck, Lint sowie Mobile- und Electron-Build wurden grün geliefert.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784413140923,
+        "updatedAt": 1784413140923
+      },
+      {
+        "id": "learning-mrqxifgb-2-63l9gv",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "electron-core",
+        "kind": "weakness",
+        "insight": "Basisaktualität und Commit-Topologie müssen vor Implementierung und zentraler Integration zwingend verifiziert werden.",
+        "evidence": "e3c5fa0 lag 28 Commits hinter main; zwei Snapshot-Commits scheiterten beim Auto-Cherry-pick. Der Rebase erzeugte Konflikte und deckte vier zusätzliche window.orca-Reste auf; fehlende Dependencies und paralleler Lint/Build verursachten weitere Fehlstarts.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784413140923,
+        "updatedAt": 1784413140923
+      }
+    ],
+    "createdAt": 1784412780845,
+    "exportQueuedAt": 1784413140928
+  }
+}
