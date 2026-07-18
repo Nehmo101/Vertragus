@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "exportedAt": 1784411306232,
+  "app": {
+    "name": "vertragus",
+    "version": "0.1.56-main.1.g4b28a5b"
+  },
+  "machineId": "2d1dacf3388f",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrqvv924-plan-mrqv23jc-4",
+    "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+    "workspaceSessionId": "e6bb3946-664d-45a0-91db-249fe5d396fe",
+    "planId": "plan-mrqv23jc-4",
+    "goal": "Die verifizierten Produktions- und Testcommits 62a14e74 und 5b16a700 gemeinsam integrieren, Ctrl/Cmd+Shift+M vollständig an die aktive Spracheingabe anbinden und den kombinierten Stand mit Tests, Typecheck, Lint, Diff-Hygiene und Security-Audit abnehmen.",
+    "status": "error",
+    "summary": "Feature-Implementierung und Security-Audit waren vollständig erfolgreich; einzig die zentrale automatische Übernahme scheiterte an Zielbranch-Konflikten. Die nächste Recovery muss semantisch gegen den aktuellen Branch integrieren statt denselben Cherry-pick blind zu wiederholen.",
+    "modelStats": [
+      {
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "roles": [
+          "electron-core",
+          "security-reviewer"
+        ],
+        "tasks": 2,
+        "succeeded": 2,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "costUsd": 6.115821,
+        "avgDurationMs": 1159898
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrqvv91z-1-2248ut",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "electron-core",
+        "kind": "strength",
+        "insight": "zuverlässig im ersten Anlauf bei electron-core, security-reviewer",
+        "evidence": "2/2 Tasks ohne Wiederholung erfolgreich",
+        "source": "auto-retro",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784410379927,
+        "updatedAt": 1784410379927
+      },
+      {
+        "id": "learning-mrqwf3sa-1-7p8kz7",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "electron-core",
+        "kind": "strength",
+        "insight": "Liefert eine vollständig verifizierte Renderer-Integration und einen belastbaren read-only Security-Audit im ersten Anlauf.",
+        "evidence": "Commit 53158a60: 962/962 Tests, Typecheck, Lint und Diff-Hygiene grün; Audit empfiehlt Abnahme.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784411306218,
+        "updatedAt": 1784411306218
+      },
+      {
+        "id": "learning-mrqwf3sa-2-3d7zrv",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "electron-core",
+        "kind": "weakness",
+        "insight": "Ein fachlich grüner Integrationscommit kann bei automatischer Übernahme gegen einen divergierten Zielbranch konfliktbedingt scheitern.",
+        "evidence": "Zentrale cherry-pick-Phase für 53158a60 endete mit Konflikten, obwohl beide Worker-Tasks erfolgreich waren.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784411306218,
+        "updatedAt": 1784411306218
+      }
+    ],
+    "createdAt": 1784410379932,
+    "exportQueuedAt": 1784411306225
+  }
+}
