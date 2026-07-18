@@ -1,7 +1,7 @@
 /**
  * Bridges the user-configured external MCP servers (persisted in the config
  * store) into the per-agent launch arguments. The orchestrator merges its
- * scoped servers into the Orca adapter; subagents (interactive + headless) get
+ * scoped servers into the Vertragus adapter; subagents (interactive + headless) get
  * their scoped servers attached directly here.
  *
  * When no servers are configured, every function returns an empty result so
@@ -24,12 +24,12 @@ import {
   type McpServerSpec
 } from '@main/orchestrator/mcpConfig'
 
-/** Task scope for the per-worker Orca subagent MCP session. */
+/** Task scope for the per-worker Vertragus subagent MCP session. */
 export interface SubagentMcpContext {
   taskId?: string
   engineId?: string
   workspaceSessionId?: string
-  /** Claude/Kimi print-mode only: route unresolved tool prompts to Orca's broker. */
+  /** Claude/Kimi print-mode only: route unresolved tool prompts to Vertragus' broker. */
   permissionPrompt?: boolean
 }
 
@@ -73,8 +73,8 @@ export function externalMcpSpecsFor(
 }
 
 /**
- * The Orca subagent server (report_progress / post_finding / list_findings)
- * scoped to one running task, or undefined when the Orca MCP server is not up
+ * The Vertragus subagent server (report_progress / post_finding / list_findings)
+ * scoped to one running task, or undefined when the Vertragus MCP server is not up
  * or no task scope was provided.
  */
 function orcaSubagentSpec(context: SubagentMcpContext): McpServerSpec | undefined {
@@ -91,13 +91,13 @@ function orcaSubagentSpec(context: SubagentMcpContext): McpServerSpec | undefine
     allowedTools: SUBAGENT_ALLOWED_TOOLS.filter(
       (tool) => context.permissionPrompt || tool !== 'mcp__orca-sub__permission_prompt'
     ),
-    // These status/reporting tools are Orca-owned and task-scoped.
+    // These status/reporting tools are Vertragus-owned and task-scoped.
     approvalMode: 'approve'
   }
 }
 
 /**
- * True when a dispatched worker of this provider will get the Orca subagent
+ * True when a dispatched worker of this provider will get the Vertragus subagent
  * tools attached — used to decide whether the execution contract should
  * mention them.
  */
@@ -108,7 +108,7 @@ export function subagentOrcaToolsAvailable(provider: AgentProviderId): boolean {
 /**
  * Extra CLI args that attach the external MCP servers scoped to a subagent
  * (interactive subwindow or headless dispatch), plus — for headless tasks with
- * a task scope — the Orca subagent report/finding tools. Returns `[]` for
+ * a task scope — the Vertragus subagent report/finding tools. Returns `[]` for
  * providers without MCP support or when nothing is configured.
  */
 export function buildSubagentMcpArgs(

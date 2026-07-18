@@ -2,7 +2,7 @@
  * Orchestrator / task-graph types shared across processes.
  *
  * The orchestrator agent decomposes a goal into tasks and dispatches each to a
- * subagent via the Orca MCP server. The engine tracks them as a simple DAG.
+ * subagent via the Vertragus MCP server. The engine tracks them as a simple DAG.
  */
 import type { AgentProviderId } from './providers'
 import type { AgentUsage } from './agents'
@@ -72,7 +72,7 @@ export interface TaskBlocker {
 }
 
 export interface TaskRecoveryArtifact {
-  /** Verified Orca worktree whose files remain available for audit or retry. */
+  /** Verified Vertragus worktree whose files remain available for audit or retry. */
   worktree: string
   baseCommit?: string
   changedFiles: string[]
@@ -183,6 +183,8 @@ export interface OrcaTask {
   findings?: TaskGateFinding[]
   blocker?: TaskBlocker
   failureKind?: TaskFailureKind
+  /** Denied tool-permission requests during this task; no-changes plus denials is never a success. */
+  permissionDenials?: number
   preflight?: PanePreflightReport
   attempts?: TaskAttemptSnapshot[]
   prUrl?: string
@@ -360,7 +362,7 @@ export interface OrchestratorSnapshot {
   pendingPlan?: PendingPlanReview
   /** Unified approval projection; populated by Mission Control from the same snapshot bus. */
   pendingApprovals?: ApprovalItem[]
-  /** Provider tool prompts waiting in Orca's internal permission broker. */
+  /** Provider tool prompts waiting in Vertragus' internal permission broker. */
   pendingPermissions?: PermissionRequest[]
   /** Aggregated provider telemetry plus restrictive remote caps for this session. */
   budget?: RemoteBudgetSnapshot
@@ -550,7 +552,7 @@ export interface SubagentDescriptor {
   preflight?: PanePreflightReport
 }
 
-/** Provider features needed to act as Orca's top-level orchestrator. */
+/** Provider features needed to act as Vertragus' top-level orchestrator. */
 export interface OrchestratorProviderCapability {
   provider: AgentProviderId
   supported: boolean

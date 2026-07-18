@@ -15,7 +15,7 @@ Orchestrator-Engine, GitHub-Integration, UI sowie Build- und Release-Skripte.
 |---|---|
 | `corepack pnpm typecheck` | grün |
 | Produktions-Build mit `electron-vite build` | grün |
-| `ORCA_MCP_SELFTEST=1` | alle Checks grün |
+| `VERTRAGUS_MCP_SELFTEST=1` | alle Checks grün |
 | `corepack pnpm lint` | rot: `eslint` fehlt |
 | Unit-/Komponenten-/E2E-Tests | nicht vorhanden |
 | PR-CI | nicht vorhanden; nur Release-Workflow |

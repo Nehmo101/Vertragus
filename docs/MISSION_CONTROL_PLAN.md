@@ -113,7 +113,7 @@ kann `src/renderer/src/orchestratorActivity.ts` wiederverwenden (mobile-first ge
 ### Geänderte Dateien (klein, additiv)
 
 - `src/main/index.ts` — nach `startMcpServer()` ein guarded `startRemoteGatewayIfEnabled()`
-  (nur wenn `remote.enabled === true`); `ORCA_REMOTE_SELFTEST`-Zweig neben `ORCA_MCP_SELFTEST`;
+  (nur wenn `remote.enabled === true`); `VERTRAGUS_REMOTE_SELFTEST`-Zweig neben `VERTRAGUS_MCP_SELFTEST`;
   Gateway-/Tunnel-Teardown im `before-quit`.
 - `src/shared/ipc.ts` + `src/main/ipc/register.ts` + Preload — **desktop-only** `remote`-API:
   `remoteStatus`, `remoteEnable`, `remoteDisable` (Not-Aus), `remoteListDevices`,
@@ -175,7 +175,7 @@ Beim Parken erhält der Task/Agent den `waiting`-Status → im DAG (Desktop **un
   `agent.write`/`spawn`/`config.set` haben KEINE Route; zod lehnt Malformed ab); `auditLog`
   (Redaktion); `readModel` (Approval-Projektion, SSE-Frame == Input-Snapshot); `rateLimit`;
   `tunnelManager` (URL-Parse, Backoff); `configAccess` (`secrets.remote.*` bleibt blockiert).
-- **Integration:** `ORCA_REMOTE_SELFTEST=1` — unauth → 401, pairen → 200, `pendingPlan` über SSE
+- **Integration:** `VERTRAGUS_REMOTE_SELFTEST=1` — unauth → 401, pairen → 200, `pendingPlan` über SSE
   → `plan.approve` löst auf, widerrufenes Gerät gedroppt, Audit redigiert.
 - **E2E:** `pnpm dev` → Remote an → QR am Handy → Live-DAG spiegelt Desktop → Plan freigeben →
   Ziel senden → Not-Aus → Stream weg binnen Sekunden.

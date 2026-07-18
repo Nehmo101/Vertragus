@@ -53,7 +53,7 @@ export const YOLO_FLAGS: Record<AgentProviderId, string[]> = {
   ollama: []
 }
 
-/** Keep Codex' full-screen TUI stable inside Orca's embedded terminal. */
+/** Keep Codex' full-screen TUI stable inside Vertragus' embedded terminal. */
 export const CODEX_EMBEDDED_TUI_FLAGS = [
   '--no-alt-screen',
   '-c',

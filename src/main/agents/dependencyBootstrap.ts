@@ -107,6 +107,16 @@ async function installDependencies(installDir: string, command: InstallCommand):
         maxBuffer: 8 * 1024 * 1024
       }))
       .then(() => undefined)
+      .catch((error: unknown) => {
+        if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+          throw new Error(
+            `Dependency-Bootstrap (${command.label}) fehlgeschlagen: '${command.command}' wurde nicht ` +
+            'gefunden. PATH des App-Prozesses prüfen — Versionsmanager wie fnm/nvm verlinken oft nur ' +
+            'node; corepack/npm müssen daneben verfügbar sein.'
+          )
+        }
+        throw error
+      })
     installs.set(installDir, pending)
     void pending.finally(() => installs.delete(installDir)).catch(() => undefined)
   }

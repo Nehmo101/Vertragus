@@ -69,6 +69,6 @@ describe('provider gate limits', () => {
     expect(() => parseProviderLimits({ cursor: -1 })).toThrow(/zwischen 1 und/)
     expect(() => parseProviderLimits({ cursor: 100 })).toThrow(/zwischen 1 und/)
     expect(() => parseProviderLimits({ claude: 1.5 })).toThrow(/ganze Zahl/)
-    expect(() => parseProviderLimits({ quota: 4 })).toThrow(/Unbekanntes Orca-Gate/)
+    expect(() => parseProviderLimits({ quota: 4 })).toThrow(/Unbekanntes Vertragus-Gate/)
   })
 })

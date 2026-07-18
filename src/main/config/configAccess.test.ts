@@ -20,6 +20,12 @@ describe('configAccess', () => {
     expect(() => setPublicConfig('yoloMaster', false)).not.toThrow()
   })
 
+  it('allows ui.canvasDefaultApplied so the one-time canvas migration can persist', () => {
+    // Regression: without this allowlist entry the D1 migration fails at the IPC gate.
+    expect(() => assertConfigGetAllowed('ui.canvasDefaultApplied')).not.toThrow()
+    expect(() => assertConfigSetAllowed('ui.canvasDefaultApplied')).not.toThrow()
+  })
+
   it('blocks secrets.* keys for get and set', () => {
     expect(() => assertConfigGetAllowed('secrets.github.oauth')).toThrow(/per IPC lesen/)
     expect(() => assertConfigSetAllowed('secrets.openai.transcription')).toThrow(/per IPC schreiben/)
@@ -58,7 +64,7 @@ describe('configAccess', () => {
     expect(() => setPublicConfig('retroSync.branch', 'main')).toThrow(/geschützten Branch/)
   })
 
-  it('persists only validated Orca process gates', () => {
+  it('persists only validated Vertragus process gates', () => {
     setPublicConfig('providerLimits', { cursor: 2, claude: 6 })
 
     expect(setSetting).toHaveBeenLastCalledWith('providerLimits', {
@@ -72,6 +78,6 @@ describe('configAccess', () => {
     expect(() => setPublicConfig('providerLimits', { cursor: 0 })).toThrow(/zwischen 1 und/)
     expect(() => setPublicConfig('providerLimits', { cursor: -1 })).toThrow(/zwischen 1 und/)
     expect(() => setPublicConfig('providerLimits', { claude: Number.NaN })).toThrow(/ganze Zahl/)
-    expect(() => setPublicConfig('providerLimits', { injected: 4 })).toThrow(/Unbekanntes Orca-Gate/)
+    expect(() => setPublicConfig('providerLimits', { injected: 4 })).toThrow(/Unbekanntes Vertragus-Gate/)
   })
 })

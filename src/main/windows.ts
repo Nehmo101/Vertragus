@@ -9,13 +9,18 @@ import { pathToFileURL } from 'node:url'
 import { is } from '@electron-toolkit/utils'
 import { installEditContextMenu } from '@main/editMenu'
 import { brandEnv } from '@main/env'
+import { getSetting, setSetting } from '@main/config/store'
 import { protectWebContents } from '@main/security/navigation'
 import { workspacePlaceName } from '@shared/workspaceNames'
 
-const BG = '#080c15'
+/** Pre-paint window color matching the renderer themes (cozy-organic.css ambient). */
+function windowBackground(): string {
+  return getSetting<string>('ui.theme') === 'dark' ? '#0e1013' : '#e2dbcb'
+}
 const WINDOW_ICON = join(__dirname, '../renderer/favicon.png')
 const paneWindows = new Map<string, Set<BrowserWindow>>()
 let mainWindow: BrowserWindow | null = null
+let voiceWindow: BrowserWindow | null = null
 
 /** Representative profile for headless ProfileEditor screenshots. */
 const DEMO_PROFILE = {
@@ -66,6 +71,13 @@ function secureWindow(win: BrowserWindow): void {
 }
 
 export function createMainWindow(): BrowserWindow {
+  if (brandEnv('UI_SMOKE')) {
+    // The tiles-grid smoke asserts the tiles layout with an expanded left
+    // sidebar. Seed the config so the fresh smoke profile skips the one-time
+    // canvas-default migration (D1) and boots straight into tiles.
+    setSetting('ui.canvasDefaultApplied', true)
+    setSetting('ui.workspaceLayout', 'tiles')
+  }
   const win = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -74,7 +86,7 @@ export function createMainWindow(): BrowserWindow {
     show: false,
     frame: false, // custom title bar (design: window controls in-app)
     autoHideMenuBar: true,
-    backgroundColor: BG,
+    backgroundColor: windowBackground(),
     icon: WINDOW_ICON,
     title: 'Vertragus',
     webPreferences: baseWebPreferences()
@@ -222,7 +234,9 @@ export function createMainWindow(): BrowserWindow {
               titlebar: Boolean(document.querySelector('.titlebar')),
               gitTreePopover: Boolean(
                 gitTreePopover &&
-                gitTreePopover.parentElement === document.body &&
+                // Portalled into .app-root (not the clipping anchor) so the
+                // design tokens and data-theme apply; see useAppRootPortalTarget.
+                gitTreePopover.parentElement === appRoot &&
                 popoverRect &&
                 popoverRect.height > 0 &&
                 popoverRect.bottom > titlebarBottom
@@ -290,6 +304,79 @@ export function isMainWindowSender(sender: Electron.WebContents): boolean {
   return Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents === sender)
 }
 
+/**
+ * The frameless voice overlay window. It shares the renderer preload but is
+ * deliberately denied every privileged agent/spawn/orchestrator channel: its
+ * only sanctioned path to act on the workspace is `voiceAssistant:turn`, whose
+ * bounded tool loop runs entirely in the main process. See the IPC hardening in
+ * `ipc/register.ts` (`assertNotVoiceWindow`).
+ */
+export function isVoiceWindowSender(sender: Electron.WebContents): boolean {
+  return Boolean(voiceWindow && !voiceWindow.isDestroyed() && voiceWindow.webContents === sender)
+}
+
+function createVoiceWindow(): BrowserWindow {
+  const win = new BrowserWindow({
+    width: 380,
+    height: 560,
+    minWidth: 320,
+    minHeight: 420,
+    show: false,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    backgroundColor: '#00000000',
+    icon: WINDOW_ICON,
+    title: 'Vertragus — Voice',
+    webPreferences: baseWebPreferences()
+  })
+  voiceWindow = win
+  win.setAlwaysOnTop(true, 'floating')
+  win.on('closed', () => {
+    if (voiceWindow === win) voiceWindow = null
+  })
+  installEditContextMenu(win)
+  secureWindow(win)
+  win.on('ready-to-show', () => {
+    win.showInactive()
+    win.focus()
+  })
+  loadRoute(win, '/voice')
+  return win
+}
+
+/** Show the overlay (creating it on first use), or hide it if already visible. */
+export function toggleVoiceOverlay(): void {
+  if (voiceWindow && !voiceWindow.isDestroyed()) {
+    if (voiceWindow.isVisible()) {
+      voiceWindow.hide()
+    } else {
+      voiceWindow.show()
+      voiceWindow.focus()
+    }
+    return
+  }
+  createVoiceWindow()
+}
+
+/** Hide the overlay window without destroying it (self-hide from the overlay). */
+export function hideVoiceOverlay(): void {
+  if (voiceWindow && !voiceWindow.isDestroyed() && voiceWindow.isVisible()) {
+    voiceWindow.hide()
+  }
+}
+
+/** Persist the overlay window position after a native drag from the overlay. */
+export function moveVoiceOverlay(x: number, y: number): void {
+  if (!voiceWindow || voiceWindow.isDestroyed()) return
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return
+  voiceWindow.setPosition(Math.round(x), Math.round(y))
+}
+
 /** Pop out a single agent pane into its own OS window (native frame). */
 export function createPaneWindow(agentId: string): BrowserWindow {
   const win = new BrowserWindow({
@@ -298,7 +385,7 @@ export function createPaneWindow(agentId: string): BrowserWindow {
     minWidth: 420,
     minHeight: 300,
     autoHideMenuBar: true,
-    backgroundColor: BG,
+    backgroundColor: windowBackground(),
     icon: WINDOW_ICON,
     title: `Vertragus — ${agentId}`,
     webPreferences: baseWebPreferences()

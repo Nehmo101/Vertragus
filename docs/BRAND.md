@@ -65,7 +65,12 @@ Weiß/Blau.
 ## Interne Bezeichner (bewusst noch alt)
 
 `orca/`-Branch-Präfix, `.orca-worktrees/`, `OrcaMcpServer`/`OrcaTask`,
-`window.orca`, `mcp__orca__*`-Toolnamen bleiben bis zu einem eigenen
-Migrations-Release stabil (Bruchgefahr für bestehende Workspaces).
+`window.orca`, `mcp__orca__*`-Toolnamen sowie persistierte Schlüssel
+(`orca.layout.v1` im localStorage, `orca.remote.*` in der PWA, die
+WebSocket-Subprotokolle `orca-v1`/`orca-bearer.*`) bleiben bis zu einem
+eigenen Migrations-Release stabil (Bruchgefahr für bestehende Workspaces
+und gekoppelte Geräte).
 Env-Flags sind bereits migriert: kanonisch `VERTRAGUS_*`, `ORCA_*` wirkt
-als Fallback (`src/main/env.ts`).
+als Fallback (`src/main/env.ts`). Die Konfigurationsdatei heißt jetzt
+`vertragus.json`; eine vorhandene `orca-strator.json` wird beim ersten
+Start einmalig übernommen (`src/main/config/store.ts`).

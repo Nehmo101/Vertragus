@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import type { GithubAuthStatus, GitInfo, GitWorktreeInfo } from '@shared/ipc'
 import { githubAuthPresentation, hasUsableGithubAuth } from '@renderer/store/githubAuth'
+import { useAppRootPortalTarget } from '../hooks/useAppRootPortalTarget'
 import {
   buildGitBranchTree,
   compactWorktreePath,
@@ -100,6 +101,7 @@ export default function GitWorkspaceTree({
   const [open, setOpen] = useState(false)
   const [popoverPosition, setPopoverPosition] = useState({ left: 0, top: 0 })
   const anchorRef = useRef<HTMLDivElement>(null)
+  const portalTarget = useAppRootPortalTarget(anchorRef)
   const gate = gitWorkspaceTreeGate({
     authResolved: githubAuth !== null,
     githubUsable: hasUsableGithubAuth(githubAuth),
@@ -163,7 +165,7 @@ export default function GitWorkspaceTree({
             : t('git.tree')}
         </span>
       </button>
-      {open && createPortal(
+      {open && portalTarget && createPortal(
         <>
           <button
             type="button"
@@ -243,7 +245,7 @@ export default function GitWorkspaceTree({
             )}
           </section>
         </>,
-        document.body
+        portalTarget
       )}
     </div>
   )

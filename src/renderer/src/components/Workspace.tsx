@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next'
+import { useEffect } from 'react'
 import {
   useAppStore,
   activeProfile,
@@ -9,13 +10,13 @@ import {
 } from '@renderer/store/useAppStore'
 import AgentPane from '@renderer/components/AgentPane'
 import CanvasBoard from '@renderer/components/CanvasBoard'
-import VoiceBar from '@renderer/components/VoiceBar'
+import { useLayoutStore } from '@renderer/store/layoutStore'
 import styles from './responsiveGuards.module.css'
 
-const LAYOUTS: Array<{ id: WorkspaceLayout; icon: string }> = [
-  { id: 'tiles', icon: '▦' },
-  { id: 'focus', icon: '▭' },
-  { id: 'canvas', icon: '✦' }
+const LAYOUTS: Array<{ id: WorkspaceLayout; icon: string; fallback: string }> = [
+  { id: 'canvas', icon: '⌘', fallback: 'Zentrale' },
+  { id: 'tiles', icon: '▦', fallback: 'Terminals' },
+  { id: 'focus', icon: '▣', fallback: 'Fokus' }
 ]
 
 export default function Workspace(): JSX.Element {
@@ -46,8 +47,13 @@ export default function Workspace(): JSX.Element {
   const focusedId = sortedAgents.some((agent) => agent.id === selectedAgentId)
     ? selectedAgentId
     : (sortedAgents[0]?.id ?? null)
-  const selectedAgent = sortedAgents.find((agent) => agent.id === focusedId)
   const layoutLabel = (id: WorkspaceLayout): string => t(`workspace.layouts.${id}`)
+  const collapseSidebar = useLayoutStore((state) => state.collapse)
+  const orchDrawerOpen = useLayoutStore((state) => state.orchDrawerOpen)
+  const toggleOrchDrawer = useLayoutStore((state) => state.toggleOrchDrawer)
+  useEffect(() => {
+    if (workspaceLayout === 'canvas') collapseSidebar('sidebar-left', true)
+  }, [workspaceLayout, collapseSidebar])
 
   return (
     <main
@@ -55,6 +61,11 @@ export default function Workspace(): JSX.Element {
       aria-label={t('workspace.aria')}
     >
       <div className="ws-header">
+        {workspaceLayout === 'canvas' && (
+          <button type="button" className="clean-btn canvas-orch-toggle" data-open={orchDrawerOpen} aria-pressed={orchDrawerOpen} onClick={toggleOrchDrawer}>
+            {t('canvas.orchestratorToggle', { defaultValue: 'Caronte' })}
+          </button>
+        )}
         <label className="workspace-picker">
           <span>{t('workspace.picker')}</span>
           <select
@@ -122,13 +133,13 @@ export default function Workspace(): JSX.Element {
               aria-pressed={workspaceLayout === layout.id}
               onClick={() => actions.setWorkspaceLayout(layout.id)}
             >
-              {layout.icon}
+              <span aria-hidden="true">{layout.icon}</span>
+              <span>{t(`canvas.layout.${layout.id}`, { defaultValue: layout.fallback })}</span>
             </button>
           ))}
         </div>
       </div>
 
-      <VoiceBar key={selectedAgent?.id ?? 'no-agent'} agent={selectedAgent} />
       <div className="ws-scroll">
         {workspaceLayout === 'canvas' ? (
           <CanvasBoard />

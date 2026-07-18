@@ -106,3 +106,25 @@ No-Git) wirken nachweislich.
    menschlich zu prüfenden PR gegen `retros`. Benötigt wird nur das Repo-Secret
    `ANTHROPIC_API_KEY`; `GITHUB_TOKEN` stellt Actions bereit. Erst der Merge
    des Bootstrap-/Analyse-PRs macht das Overlay für Installationen sichtbar.
+
+## Nachtrag: Canvas-Overhaul-Blocker (Retros mrphz4dw/mrpirnc8/mrpjohl2, 2026-07-18)
+
+Drei aufeinanderfolgende Läufe des Canvas-First-Plans scheiterten an
+Plattform-Blockern (Details in
+`docs/plans/CANVAS_FIRST_UI_OVERHAUL.md#ausführungs-blocker-stand-2026-07-18`).
+Umgesetzte Produktfixes (2026-07-18):
+
+1. **YOLO-Master wirkt jetzt zur Laufzeit** — `Engine.setYolo` rebindet das
+   Session-Profil, löst offene Permission-Prompts als allow auf und gewährt
+   laufenden Nicht-YOLO-Workern Auto-Allow; der UI-Toggle propagiert über
+   `orchestrator:setYoloMaster` an alle Live-Sessions (Lauf 3).
+2. **Judge-Härtung** — ein Abschluss ohne Änderungen mit abgelehnten
+   Tool-Freigaben wird als `error/infrastructure` mit Blocker
+   `permission-denied-no-changes` gewertet statt als success/no-changes;
+   abhängige Tasks starten nicht mehr ohne ihre Vorarbeit (Lauf 2).
+3. **Fail-fast bei Denial-Stürmen** — nach 3 Timeout-Denials in Folge stoppt
+   die Engine den Worker mit Blocker `permission-starved`, statt Budget in
+   Retry-Diagnostik zu verbrennen (Lauf 3: ~22 min / ~4 USD ohne Write).
+4. **Corepack/PATH-Härtung** — `resolveLaunch` löst Node-Toolchain-Kommandos
+   (corepack/npm/pnpm/…) notfalls neben dem realen node-Binary auf;
+   Dependency-Bootstrap meldet ENOENT mit klarem fnm/nvm-Hinweis (Lauf 1).

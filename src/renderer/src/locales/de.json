@@ -82,6 +82,48 @@
       "remoteCi": "Remote-CI",
       "findings": "Offene Gate-Findings",
       "none": "Noch keine Belege — der Task hat kein verifiziertes Ergebnis."
+    },
+    "layout": {
+      "canvas": "Zentrale",
+      "tiles": "Terminals",
+      "focus": "Fokus"
+    },
+    "orchestratorToggle": "Caronte",
+    "empty": {
+      "start": "Team starten",
+      "playground": "Playground",
+      "drag": "Karten frei anordnen",
+      "doubleClick": "Doppelklick öffnet das Terminal",
+      "chat": "Unten mit Caronte chatten"
+    },
+    "sessions": {
+      "aria": "Workspace-Sessions",
+      "add": "Weitere Session starten"
+    },
+    "composer": {
+      "startMode": "Start",
+      "label": "Nachricht an Caronte",
+      "placeholder": "Nachricht an den Orchestrator…",
+      "startPlaceholder": "Ziel beschreiben und Team starten…",
+      "voice": "Sprachassistent",
+      "send": "Senden"
+    },
+    "thread": {
+      "label": "Orchestrator-Verlauf",
+      "title": "Caronte",
+      "unread": "neu",
+      "empty": "Noch keine Aktivität — starte das Team oder gib ein Ziel vor.",
+      "message": {
+        "sending": "wird gesendet…",
+        "sent": "gesendet",
+        "failed": "fehlgeschlagen"
+      },
+      "plan": {
+        "title": "Plan zur Freigabe",
+        "stats": "{{count}} Tasks",
+        "reject": "Ablehnen",
+        "approve": "Freigeben"
+      }
     }
   },
   "voice": {
@@ -627,5 +669,26 @@
     "deleteKey": "Schlüssel löschen",
     "cancel": "Abbrechen",
     "save": "Speichern"
+  },
+  "voiceOverlay": {
+    "toggle": "Sprachassistent",
+    "hide": "Ausblenden",
+    "you": "Du",
+    "assistant": "Assistent",
+    "confirmation": "Bestätigung erforderlich",
+    "no": "Nein",
+    "yes": "Ja",
+    "noValue": "nein",
+    "yesValue": "ja",
+    "textLabel": "Text eingeben",
+    "textPlaceholder": "Nachricht eingeben…",
+    "send": "Senden",
+    "state": {
+      "idle": "Bereit",
+      "listening": "Hört zu…",
+      "thinking": "Denkt nach…",
+      "speaking": "Spricht…",
+      "error": "Fehler"
+    }
   }
 }

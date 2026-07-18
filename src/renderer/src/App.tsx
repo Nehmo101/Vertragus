@@ -15,6 +15,7 @@ import RemotePanel from '@renderer/components/RemotePanel'
 import MissionApprovalInbox from '@renderer/components/MissionApprovalInbox'
 import DiffMergeCenter from '@renderer/components/DiffMergeCenter'
 import { SpeechShortcutProvider } from '@renderer/features/speechShortcut/SpeechShortcutProvider'
+import VoiceOverlay from '@renderer/components/VoiceOverlay'
 
 function useHashRoute(): string {
   const [hash, setHash] = useState(() => window.location.hash)
@@ -41,6 +42,26 @@ export default function App(): JSX.Element {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Voice-assistant UI navigation commands are broadcast to every window; only
+  // the main application window (not the overlay or pop-outs) should apply them.
+  useEffect(() => {
+    const unsubscribe = window.orca.events.onUiCommand((command) => {
+      const route = window.location.hash
+      if (route.startsWith('#/voice') || route.startsWith('#/pane')) return
+      store.applyUiCommand(command)
+    })
+    return unsubscribe
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  if (hash === '#/voice') {
+    return (
+      <div className="app-root voice-window-root" data-theme={store.theme}>
+        <VoiceOverlay />
+      </div>
+    )
+  }
 
   const paneMatch = hash.match(/^#\/pane\/(.+)$/)
   if (paneMatch) {

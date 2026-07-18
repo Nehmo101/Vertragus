@@ -26,7 +26,7 @@ async function repo(): Promise<{ dir: string; base: string }> {
   const dir = await mkdtemp(join(tmpdir(), 'orca-contract-'))
   created.push(dir)
   await git(dir, 'init')
-  await git(dir, 'config', 'user.name', 'Orca Test')
+  await git(dir, 'config', 'user.name', 'Vertragus Test')
   await git(dir, 'config', 'user.email', 'orca@example.invalid')
   await writeFile(join(dir, 'README.md'), 'base\n')
   await git(dir, 'add', '--all')

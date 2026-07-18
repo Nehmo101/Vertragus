@@ -63,6 +63,14 @@ describe('layoutStore persistence', () => {
     })
   })
 
+  it('keeps canvas drawer state bounded and session-local', async () => {
+    const { useLayoutStore } = await import('./layoutStore')
+    useLayoutStore.getState().setOrchDrawerOpen(true)
+    useLayoutStore.getState().setTerminalDrawerHeight(99)
+    expect(useLayoutStore.getState().orchDrawerOpen).toBe(true)
+    expect(useLayoutStore.getState().terminalDrawerHeight).toBe(75)
+  })
+
   it('clamps persisted widths to each panel limit while loading', async () => {
     storage.setItem(
       'orca.layout.v1',

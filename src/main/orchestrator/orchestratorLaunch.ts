@@ -1,6 +1,6 @@
 /**
- * Builds transient CLI args that turn a supported provider into an Orca
- * orchestrator: attaches the Orca MCP server and injects the orchestrator
+ * Builds transient CLI args that turn a supported provider into a Vertragus
+ * orchestrator: attaches the Vertragus MCP server and injects the orchestrator
  * system prompt. Unsupported providers fail closed instead of starting without
  * delegation tools.
  */

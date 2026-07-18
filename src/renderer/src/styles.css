@@ -1,6 +1,6 @@
 /* ============================================================
    Vertragus — design tokens & component styles
-   Source of truth: design_handoff_orca_strator (hifi prototype)
+   Source of truth: Vertragus design handoff (hifi prototype)
    ============================================================ */
 
 :root {
@@ -154,6 +154,16 @@ button {
     radial-gradient(1200px 600px at 78% -8%, rgba(45, 212, 191, 0.06), transparent 60%),
     radial-gradient(900px 500px at 0% 100%, rgba(34, 102, 168, 0.08), transparent 55%),
     var(--bg-app);
+}
+
+/* The frameless voice overlay window is small and transparent; drop the main
+   window's min-size floor and opaque background so voice-overlay.css governs it. */
+.app-root.voice-window-root {
+  min-width: 0;
+  min-height: 0;
+  width: 100vw;
+  height: 100vh;
+  background: transparent;
 }
 
 .body-row {

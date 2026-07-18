@@ -99,7 +99,7 @@ interface Managed {
   waitAbort?: { aborted: boolean; onAbort?: () => void }
   /** Protect a team pane from automatic reuse after the user typed into it. */
   interactiveUsed?: boolean
-  /** Cursor's startup trust confirmation was handled for an Orca worktree. */
+  /** Cursor's startup trust confirmation was handled for a Vertragus worktree. */
   workspaceTrustHandled?: boolean
   /** A bounded retry while Cursor renders its trust screen across PTY chunks. */
   workspaceTrustRetry?: ReturnType<typeof setTimeout>
@@ -484,7 +484,7 @@ export class AgentManager extends EventEmitter {
     branch: string
   }> {
     if (!isExactOrcaWorktreePath(requested)) {
-      throw new Error('Recovery-Worktree wurde nicht von Orca erzeugt.')
+      throw new Error('Recovery-Worktree wurde nicht von Vertragus erzeugt.')
     }
     const workingDir = await canonicalWorkspacePath(requested)
     if (
@@ -495,7 +495,7 @@ export class AgentManager extends EventEmitter {
     }
     const branch = await currentBranch(workingDir)
     if (!branch || branch === 'HEAD' || !branch.startsWith('orca/')) {
-      throw new Error('Recovery-Worktree besitzt keinen sicheren Orca-Branch.')
+      throw new Error('Recovery-Worktree besitzt keinen sicheren Vertragus-Branch.')
     }
     return { workingDir, worktree: workingDir, branch }
   }
@@ -628,7 +628,7 @@ export class AgentManager extends EventEmitter {
     this.clearCursorWorkspaceTrustRetry(managed)
     managed.workspaceTrustHandled = true
     managed.pty.write('a\r')
-    this.emitEvent(`${info.name} · Cursor-Trust für Orca-Worktree bestätigt (a gesendet)`, 'dispatch', info)
+    this.emitEvent(`${info.name} · Cursor-Trust für Vertragus-Worktree bestätigt (a gesendet)`, 'dispatch', info)
   }
   /**
    * Best-effort scan of an interactive agent's output for a usage-limit banner.
@@ -679,7 +679,7 @@ export class AgentManager extends EventEmitter {
       worktree = preparedDir.worktree
       branch = preparedDir.branch
 
-      // Orchestrators get the Orca MCP server + orchestrator system prompt (which
+      // Orchestrators get the Vertragus MCP server + orchestrator system prompt (which
       // also merges in any orchestrator-scoped external MCP servers). Every other
       // interactive agent gets its subagent-scoped external MCP servers attached
       // so it can see and use them directly.
@@ -741,7 +741,7 @@ export class AgentManager extends EventEmitter {
     if (req.teamRole) {
       this.pushData(
         managed,
-        `\x1b[36m▶ Orca-Identität: ${name} · Team ${req.teamRole} · ${req.provider}/${resolvedModel || 'CLI-Standard'}\x1b[0m\r\n`
+        `\x1b[36m▶ Vertragus-Identität: ${name} · Team ${req.teamRole} · ${req.provider}/${resolvedModel || 'CLI-Standard'}\x1b[0m\r\n`
       )
     }
 
@@ -894,7 +894,7 @@ export class AgentManager extends EventEmitter {
 
         const seed = [
           `Du übernimmst die laufende Orchestrierung von ${src.info.name}.`,
-          'Rufe zuerst das Orca-MCP-Tool get_handoff_context mit diesen exakten Werten auf:',
+          'Rufe zuerst das Vertragus-MCP-Tool get_handoff_context mit diesen exakten Werten auf:',
           `handoffId=${challenge.handoffId}`,
           `receiptToken=${challenge.receiptToken}`,
           'Prüfe den vollständigen Briefing- und Orchestrator-Zustand in der Antwort.',
@@ -979,7 +979,7 @@ export class AgentManager extends EventEmitter {
     return result
   }
 
-  /** Open the provider-owned interactive login flow in a normal Orca terminal. */
+  /** Open the provider-owned interactive login flow in a normal Vertragus terminal. */
   async loginProvider(provider: ProviderId): Promise<AgentInstanceInfo> {
     const def = getProvider(provider)
     if (!def?.auth) throw new Error(`Für ${provider} ist kein Login-Flow registriert.`)
@@ -1182,7 +1182,7 @@ export class AgentManager extends EventEmitter {
         info.status = 'waiting'
         this.pushData(
           active,
-          `\x1b[90m… wartet auf freie ${req.provider}-Kapazität (Orca-Gate: ${stats.active}/${stats.limit} belegt)\x1b[0m\r\n`
+          `\x1b[90m… wartet auf freie ${req.provider}-Kapazität (Vertragus-Gate: ${stats.active}/${stats.limit} belegt)\x1b[0m\r\n`
         )
         this.changed()
       }
@@ -1261,7 +1261,7 @@ export class AgentManager extends EventEmitter {
           workingDir,
           yolo: req.yolo,
           systemPrompt,
-          // The task scope attaches Orca's subagent tools (report_progress,
+          // The task scope attaches Vertragus' subagent tools (report_progress,
           // post_finding, list_findings) alongside external MCP servers.
           extraArgs: buildSubagentMcpArgs(req.provider, id, {
             taskId: req.taskId,

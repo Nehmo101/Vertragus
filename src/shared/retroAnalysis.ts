@@ -87,7 +87,7 @@ function isModelLearning(value: unknown): value is ModelLearning {
 }
 
 /**
- * Selbsttest-Läufe sind keine Modellbeobachtungen. Neuere Orca-Versionen
+ * Selbsttest-Läufe sind keine Modellbeobachtungen. Neuere Vertragus-Versionen
  * exportieren sie gar nicht mehr; Bestandsdaten auf dem Branch werden hier
  * ausgefiltert, damit sie nie in Overlay/Proposals einfließen.
  */
