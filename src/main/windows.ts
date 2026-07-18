@@ -100,12 +100,12 @@ export function createMainWindow(): BrowserWindow {
       }
       if (process.env['ORCA_DEMO_EDITOR']) {
         setTimeout(() => {
-          void win.webContents.executeJavaScript(`window.__orca && window.__orca.openEditor(${JSON.stringify(DEMO_PROFILE)})`)
+          void win.webContents.executeJavaScript(`window.__vertragus && window.__vertragus.openEditor(${JSON.stringify(DEMO_PROFILE)})`)
         }, 2500)
       }
       if (process.env['ORCA_DEMO_ADD_AGENT']) {
         setTimeout(() => {
-          void win.webContents.executeJavaScript('window.__orca && window.__orca.openAddAgent()')
+          void win.webContents.executeJavaScript('window.__vertragus && window.__vertragus.openAddAgent()')
         }, 2500)
       }
       setTimeout(async () => {
@@ -127,7 +127,7 @@ export function createMainWindow(): BrowserWindow {
           await win.webContents.executeJavaScript(`new Promise((resolve, reject) => {
             const deadline = Date.now() + 10000
             const waitForReady = () => {
-              const ready = window.__orca?.ready
+              const ready = window.__vertragus?.ready
               if (ready) {
                 Promise.resolve(ready).then(resolve, reject)
                 return
@@ -216,7 +216,7 @@ export function createMainWindow(): BrowserWindow {
             )
 
             return {
-              preload: typeof window.orca === 'object',
+              preload: typeof window.vertragus === 'object',
               sidebar: Boolean(document.querySelector('.sidebar')),
               workspace: Boolean(document.querySelector('.workspace')),
               titlebar: Boolean(document.querySelector('.titlebar')),

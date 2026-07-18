@@ -39,7 +39,7 @@ export interface ProviderHealth {
   detail?: string
   /** Account/session state. Ollama remains usable locally without cloud login. */
   connection?: 'connected' | 'disconnected' | 'local' | 'unknown'
-  /** True when Orca can open the provider's official CLI login flow. */
+  /** True when Vertragus can open the provider's official CLI login flow. */
   canLogin?: boolean
   /** Provider-specific button text, e.g. "Mit ChatGPT verbinden". */
   loginLabel?: string
@@ -250,7 +250,7 @@ export const DEFAULT_MODELS: Record<AgentProviderId, string[]> = {
 }
 
 /**
- * Orca's safe range for its local, per-provider process gates. Gates are plain
+ * Vertragus's safe range for its local, per-provider process gates. Gates are plain
  * counts you raise/lower per provider — there is no "unlimited" sentinel. The
  * minimum is 1 (a gate must allow at least one process); the maximum keeps the
  * stepper in a sane range.
@@ -264,7 +264,7 @@ export const DEFAULT_PROVIDER_GATE = 8
 
 /**
  * Default per-provider concurrency gates — how many agents of a given provider
- * Vertragus may run at once. These are local Orca process gates, not provider
+ * Vertragus may run at once. These are local Vertragus process gates, not provider
  * API quotas. They are enforced for agent spawns and headless tasks, editable in
  * the Limits panel, and persisted under the `providerLimits` config key.
  */
@@ -312,17 +312,17 @@ export function normalizeProviderLimits(value: unknown): ProviderLimits {
  */
 export function parseProviderLimits(value: unknown): ProviderLimits {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('Orca-Gates müssen als Objekt angegeben werden.')
+    throw new Error('Vertragus-Gates müssen als Objekt angegeben werden.')
   }
 
   const candidate = value as Record<string, unknown>
   for (const [provider, limit] of Object.entries(candidate)) {
     if (!AGENT_PROVIDER_IDS.includes(provider as AgentProviderId)) {
-      throw new Error(`Unbekanntes Orca-Gate: ${provider}`)
+      throw new Error(`Unbekanntes Vertragus-Gate: ${provider}`)
     }
     if (!isProviderGateLimit(limit)) {
       throw new Error(
-        `Orca-Gate für ${provider} muss eine ganze Zahl zwischen ${PROVIDER_GATE_MIN} und ${PROVIDER_GATE_MAX} sein.`
+        `Vertragus-Gate für ${provider} muss eine ganze Zahl zwischen ${PROVIDER_GATE_MIN} und ${PROVIDER_GATE_MAX} sein.`
       )
     }
   }

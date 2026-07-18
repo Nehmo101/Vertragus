@@ -62,10 +62,24 @@ Weiß/Blau.
       der Pfoten — die aktuelle Kurve ist eine Konzept-Skizze.
 - [ ] Icon-Sonderformate: macOS-Squircle-Feinschliff, Windows-Kachelfarben.
 
-## Interne Bezeichner (bewusst noch alt)
+## Interne Bezeichner (Migration & Legacy)
 
-`orca/`-Branch-Präfix, `.orca-worktrees/`, `OrcaMcpServer`/`OrcaTask`,
-`window.orca`, `mcp__orca__*`-Toolnamen bleiben bis zu einem eigenen
-Migrations-Release stabil (Bruchgefahr für bestehende Workspaces).
-Env-Flags sind bereits migriert: kanonisch `VERTRAGUS_*`, `ORCA_*` wirkt
-als Fallback (`src/main/env.ts`).
+Migriert, Legacy weiter erkannt: das Worktree-Verzeichnis `.vertragus-worktrees/`
+und das Branch-Präfix `vertragus/` sowie der Subagent-MCP-Server `vertragus-sub`
+(`mcp__vertragus-sub__*`) sind kanonisch; die Alt-Namen `.orca-worktrees/`,
+`orca/` und `mcp__orca-sub__*` werden für bestehende Workspaces weiterhin
+erkannt und aufgeräumt (kein Datenverlust, keine physische Migration). Die
+In-Process-Renderer-Bridge ist migriert: `window.vertragus` mit den Typen
+`VertragusApi` / `VertragusEvent` (Preload + Renderer werden gemeinsam gebaut
+und die Bridge bei jedem Start neu aufgebaut, daher kein Legacy-Fallback nötig).
+
+Bewusst noch alt (Bruchgefahr für bestehende Workspaces und bereits gekoppelte
+PWAs): die persistenten Verzeichnisse `.orca-runtime/` und `orca-handoffs/`, die
+Klassennamen `OrcaMcpServer`/`OrcaTask`, die electron-store-Namen
+`orca-strator` / `orca-inbox`, die
+`mcp__orca__*`-Toolnamen, die WebSocket-Protokolle `orca-v1` / `orca-bearer.*`,
+die Push-Tag-Legacy `orca-remote` und die `orca.*`-localStorage-Fallbacks der
+PWA bleiben bis zu einem eigenen Migrations-Release stabil.
+
+Env-Flags sind migriert: kanonisch `VERTRAGUS_*`, `ORCA_*` wirkt als
+Fallback (`src/main/env.ts`, `scripts/brandEnv.ts`).

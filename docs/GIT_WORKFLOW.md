@@ -15,7 +15,7 @@ Beispiele funktionieren in PowerShell; die Git-Befehle sind unter Linux gleich.
 | `main` | **Der Trunk.** Immer releasefähig; jeder Push läuft durch die volle CI und triggert `release.yml` (Prerelease-Kanal). Änderungen kommen ausschließlich über grüne Pull Requests an. |
 | `retros` | **Daten-Branch** des Retro-Sync-Features (exportierte Run-Retros/Learnings). Niemals Anwendungscode hierhin committen. |
 | `feature/*`, `fix/*`, `claude/*` | **Kurzlebige Arbeitsbranches.** Einer pro Änderung, von `main` abgezweigt, per Pull Request zurück, nach dem Merge gelöscht. |
-| `orca/*` | **Laufzeit-Branches** der Agent-Worktrees (interner Bezeichner, Migration geplant). Nicht für Menschen; die App räumt sie auf. |
+| `vertragus/*` | **Laufzeit-Branches** der Agent-Worktrees (kanonisch; Legacy-Präfix `orca/*` wird weiterhin erkannt und aufgeräumt). Nicht für Menschen; die App räumt sie auf. |
 
 Dazu kommen drei Arbeitsebenen:
 
@@ -175,27 +175,29 @@ git branch -d feature/kurzer-feature-name
 
 ## 10. Parallel mit Vertragus-Worktrees arbeiten
 
-Anzeigen (das `orca/`-Branch-Präfix und `.orca-worktrees/` bleiben interne
-Bezeichner, Migration geplant):
+Anzeigen (kanonisch sind das Branch-Präfix `vertragus/` und
+`.vertragus-worktrees/`; die Legacy-Namen `orca/` / `.orca-worktrees/` aus der
+Zeit vor der Umbenennung werden weiterhin erkannt und aufgeräumt):
 
 ```powershell
 git worktree list
-git branch --list 'orca/*'
+git branch --list 'vertragus/*'   # kanonisch
+git branch --list 'orca/*'        # Legacy-Worktrees vor der Umbenennung
 ```
 
 Der aktuelle Pfadaufbau ist:
 
 ```text
-.orca-worktrees/<session-id>/<agent-id>
-orca/<session-id>/<agent-id>
+.vertragus-worktrees/<session-id>/<agent-id>
+vertragus/<session-id>/<agent-id>
 ```
 
 Prüfe einen Task ohne den Ordner zu wechseln:
 
 ```powershell
-git -C .orca-worktrees/<session-id>/<agent-id> status --short
-git -C .orca-worktrees/<session-id>/<agent-id> diff
-git -C .orca-worktrees/<session-id>/<agent-id> log -1 --oneline
+git -C .vertragus-worktrees/<session-id>/<agent-id> status --short
+git -C .vertragus-worktrees/<session-id>/<agent-id> diff
+git -C .vertragus-worktrees/<session-id>/<agent-id> log -1 --oneline
 ```
 
 Zwei Agents dürfen nicht gleichzeitig dieselben Dateien bearbeiten. Der Planner
@@ -308,7 +310,8 @@ git revert <commit-sha>
 ```
 
 `git reset --hard`, das rekursive Löschen von Worktrees und das Löschen
-unbekannter `orca/*`-Branches sind keine normale Fehlerbehebung. Prüfe vorher
+unbekannter `vertragus/*`- oder `orca/*`-Branches sind keine normale
+Fehlerbehebung. Prüfe vorher
 Status, Diff und Commit-Verlauf.
 
 ## 16. Worktrees kontrolliert aufräumen

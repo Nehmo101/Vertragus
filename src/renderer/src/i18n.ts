@@ -36,7 +36,7 @@ void i18n.use(initReactI18next).init({
 /** Apply the persisted preference once the preload bridge is available. */
 export async function initLanguageFromConfig(): Promise<void> {
   try {
-    const stored = await window.orca?.getConfig<AppLanguage>('ui.language')
+    const stored = await window.vertragus?.getConfig<AppLanguage>('ui.language')
     const next = resolveLanguage(stored === 'de' || stored === 'en' ? stored : 'system')
     if (next !== i18n.language) await i18n.changeLanguage(next)
   } catch {
@@ -48,7 +48,7 @@ export async function initLanguageFromConfig(): Promise<void> {
 export async function setAppLanguage(language: ResolvedLanguage): Promise<void> {
   await i18n.changeLanguage(language)
   try {
-    await window.orca?.setConfig('ui.language', language)
+    await window.vertragus?.setConfig('ui.language', language)
   } catch {
     // Persistence is best-effort; the live switch already happened.
   }

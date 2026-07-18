@@ -160,13 +160,14 @@ Die Fußzeilenwerte für Schritte, Tokens und Kosten sind aktuell Platzhalter.
 
 ## 7. Workspace und Git-Worktrees
 
-Standardmäßig versucht Vertragus für jeden Agent einen Worktree anzulegen
-(Verzeichnis- und Branch-Name behalten das `orca`-Präfix als internen
-Bezeichner, Migration geplant):
+Standardmäßig versucht Vertragus für jeden Agent einen Worktree anzulegen.
+Kanonisch sind das Verzeichnis `.vertragus-worktrees/` und das Branch-Präfix
+`vertragus/`; ältere `.orca-worktrees/` / `orca/`-Worktrees aus der Zeit vor der
+Umbenennung werden weiterhin erkannt und aufgeräumt:
 
 ```text
-<repo>/.orca-worktrees/<agent-id>
-Branch: orca/<agent-id>
+<repo>/.vertragus-worktrees/<agent-id>
+Branch: vertragus/<agent-id>
 ```
 
 Vorteil: Parallele Agents überschreiben nicht dieselben Dateien im
@@ -183,9 +184,9 @@ Worktrees manuell prüfen:
 
 ```powershell
 git worktree list
-git branch --list 'orca/*'
-git -C .orca-worktrees/task-02 status
-git -C .orca-worktrees/task-02 diff
+git branch --list 'vertragus/*'   # kanonisch; 'orca/*' für Legacy-Worktrees
+git -C .vertragus-worktrees/task-02 status
+git -C .vertragus-worktrees/task-02 diff
 ```
 
 Nicht blind löschen. Erst Status und Diff jedes Worktrees prüfen. Die zukünftige
@@ -227,15 +228,15 @@ corepack pnpm build
 PowerShell:
 
 ```powershell
-$env:ORCA_MCP_SELFTEST = '1'
+$env:VERTRAGUS_MCP_SELFTEST = '1'   # Legacy-Alias: ORCA_MCP_SELFTEST
 corepack pnpm start
-Remove-Item Env:ORCA_MCP_SELFTEST
+Remove-Item Env:VERTRAGUS_MCP_SELFTEST
 ```
 
 Bash:
 
 ```bash
-ORCA_MCP_SELFTEST=1 pnpm start
+VERTRAGUS_MCP_SELFTEST=1 pnpm start
 ```
 
 Der Selbsttest prüft MCP-Verbindung, Toolliste, eindeutige Rollen,
@@ -308,7 +309,7 @@ Fix ist P0 in Phase A.
 
 ```powershell
 git worktree list
-git branch --list 'orca/*'
+git branch --list 'vertragus/*'   # kanonisch; 'orca/*' für Legacy-Worktrees
 ```
 
 Den betroffenen Worktree zuerst auf Änderungen prüfen. Nicht mit `git reset

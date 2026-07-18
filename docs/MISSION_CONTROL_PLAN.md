@@ -96,7 +96,7 @@ Das Fundament liegt bereits im Code, ist aber bewusst zurückgestellt:
 | `auditLog.ts` | Append-only JSONL jeder Auth/Command; über `redactDiagnosticValue`. | `diagnostics/runJournal.ts` |
 | `rateLimit.ts` | Token-Buckets: strenger Pre-Auth-Bucket auf `/pair`, per-Gerät-Bucket auf Commands. | — |
 | `tunnelManager.ts` | Named-Tunnel-Lebenszyklus über `cloudflared` (login/create/run), URL-Parse, Restart-Backoff, Stop am Toggle. | `agents/resolveCommand.ts`, `providers.ts` |
-| `selftestRemote.ts` | `ORCA_REMOTE_SELFTEST=1`-Integrationstest. | `orchestrator/selftest.ts` |
+| `selftestRemote.ts` | `VERTRAGUS_REMOTE_SELFTEST=1`-Integrationstest (Legacy: `ORCA_REMOTE_SELFTEST`). | `orchestrator/selftest.ts` |
 | `qrcode.ts` | QR-Matrix (Pairing) als SVG/Data-URL. | — |
 
 **Neu (Shared):** `src/shared/remote.ts` — pure Typen (kein Node-Import), vom PWA direkt
@@ -113,7 +113,8 @@ kann `src/renderer/src/orchestratorActivity.ts` wiederverwenden (mobile-first ge
 ### Geänderte Dateien (klein, additiv)
 
 - `src/main/index.ts` — nach `startMcpServer()` ein guarded `startRemoteGatewayIfEnabled()`
-  (nur wenn `remote.enabled === true`); `ORCA_REMOTE_SELFTEST`-Zweig neben `ORCA_MCP_SELFTEST`;
+  (nur wenn `remote.enabled === true`); `VERTRAGUS_REMOTE_SELFTEST`-Zweig neben
+  `VERTRAGUS_MCP_SELFTEST` (jeweils mit Legacy-`ORCA_*`-Fallback);
   Gateway-/Tunnel-Teardown im `before-quit`.
 - `src/shared/ipc.ts` + `src/main/ipc/register.ts` + Preload — **desktop-only** `remote`-API:
   `remoteStatus`, `remoteEnable`, `remoteDisable` (Not-Aus), `remoteListDevices`,
@@ -175,7 +176,7 @@ Beim Parken erhält der Task/Agent den `waiting`-Status → im DAG (Desktop **un
   `agent.write`/`spawn`/`config.set` haben KEINE Route; zod lehnt Malformed ab); `auditLog`
   (Redaktion); `readModel` (Approval-Projektion, SSE-Frame == Input-Snapshot); `rateLimit`;
   `tunnelManager` (URL-Parse, Backoff); `configAccess` (`secrets.remote.*` bleibt blockiert).
-- **Integration:** `ORCA_REMOTE_SELFTEST=1` — unauth → 401, pairen → 200, `pendingPlan` über SSE
+- **Integration:** `VERTRAGUS_REMOTE_SELFTEST=1` (Legacy: `ORCA_REMOTE_SELFTEST`) — unauth → 401, pairen → 200, `pendingPlan` über SSE
   → `plan.approve` löst auf, widerrufenes Gerät gedroppt, Audit redigiert.
 - **E2E:** `pnpm dev` → Remote an → QR am Handy → Live-DAG spiegelt Desktop → Plan freigeben →
   Ziel senden → Not-Aus → Stream weg binnen Sekunden.

@@ -43,17 +43,17 @@ export default function RemotePanel(): JSX.Element {
   const [error, setError] = useState<string>()
 
   const refresh = async (): Promise<void> => {
-    const next = await window.orca.remote.status()
+    const next = await window.vertragus.remote.status()
     setStatus(next)
-    setDevices(await window.orca.remote.listDevices())
+    setDevices(await window.vertragus.remote.listDevices())
   }
 
   useEffect(() => {
-    const unsubscribe = window.orca.remote.onStatus(setStatus)
-    const unsubscribeSessions = window.orca.workspaceSessions.onChanged(setSessions)
+    const unsubscribe = window.vertragus.remote.onStatus(setStatus)
+    const unsubscribeSessions = window.vertragus.workspaceSessions.onChanged(setSessions)
     void Promise.all([
-      window.orca.remote.status(), window.orca.remote.listDevices(),
-      window.orca.listProfiles(), window.orca.workspaceSessions.list()
+      window.vertragus.remote.status(), window.vertragus.remote.listDevices(),
+      window.vertragus.listProfiles(), window.vertragus.workspaceSessions.list()
     ])
       .then(([nextStatus, nextDevices, nextProfiles, nextSessions]) => {
         setStatus(nextStatus)
@@ -134,7 +134,7 @@ export default function RemotePanel(): JSX.Element {
               className="btn primary"
               disabled={busy}
               onClick={() => void run(async () => {
-                await window.orca.remote.enable({
+                await window.vertragus.remote.enable({
                   hostname: quickTunnel ? undefined : hostname.trim() || undefined,
                   tunnelToken: quickTunnel ? undefined : tunnelToken.trim() || undefined,
                   quickTunnel,
@@ -163,7 +163,7 @@ export default function RemotePanel(): JSX.Element {
               className="btn danger"
               disabled={busy}
               onClick={() => void run(async () => {
-                await window.orca.remote.disable()
+                await window.vertragus.remote.disable()
                 setChallenge(undefined)
               })}
             >
@@ -270,7 +270,7 @@ export default function RemotePanel(): JSX.Element {
                   ? [{ profileId: profile.id, sessionIds, allowGoalSubmit }]
                   : []
               })
-              setChallenge(await window.orca.remote.pairStart({
+              setChallenge(await window.vertragus.remote.pairStart({
                 capabilities,
                 actor: { id: actorId.trim(), displayName: actorName.trim() || actorId.trim() },
                 scopes
@@ -304,7 +304,7 @@ export default function RemotePanel(): JSX.Element {
                 type="button"
                 className="btn"
                 disabled={busy}
-                onClick={() => void run(async () => { await window.orca.remote.revokeDevice(device.id) })}
+                onClick={() => void run(async () => { await window.vertragus.remote.revokeDevice(device.id) })}
               >
                 {t('remote.devices.revoke')}
               </button>

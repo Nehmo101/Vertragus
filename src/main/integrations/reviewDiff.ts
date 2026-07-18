@@ -24,7 +24,7 @@ export function limitReviewDiff(value: string): { diff: string; truncated: boole
 
 export async function loadTaskReviewDiff(task: OrcaTask): Promise<TaskReviewDiff> {
   if (!task.worktree || !isAbsolute(task.worktree)) {
-    throw new Error('Für diese Aufgabe ist kein gültiger Orca-Worktree verfügbar.')
+    throw new Error('Für diese Aufgabe ist kein gültiger Vertragus-Worktree verfügbar.')
   }
   try {
     const { stdout, stderr } = await execFileAsync('git', reviewArgs(task), {

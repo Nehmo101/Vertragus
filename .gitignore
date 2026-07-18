@@ -12,10 +12,12 @@ release/
 *.log
 npm-debug.log*
 pnpm-debug.log*
+# Legacy persistent runtime dir name (CODEX_RUNTIME_DIR_NAME in main); keep.
 .orca-runtime/
 
 # Runtime artifacts (agent handoff briefings; written to userData at runtime,
-# but tests that mock app.getPath emit them into the repo root)
+# but tests that mock app.getPath emit them into the repo root).
+# Legacy directory name kept for compatibility with main process paths.
 orca-handoffs/
 
 # Env / secrets

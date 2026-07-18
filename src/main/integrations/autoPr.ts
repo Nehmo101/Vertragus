@@ -3,6 +3,7 @@ import { mkdir } from 'node:fs/promises'
 import { join, posix, win32 } from 'node:path'
 import { promisify } from 'node:util'
 import { ensureWorktreeDependencies } from '@main/agents/dependencyBootstrap'
+import { WORKTREE_DIR_NAME } from '@main/agents/worktree'
 import type { AutoPrConfig } from '@shared/profile'
 import type { RemoteCiStatus, TaskGateFinding } from '@shared/orchestrator'
 import { noTaskChanges, verifiedTaskCommit } from './commitContract'
@@ -231,7 +232,7 @@ function safeSlug(value: string, max = 42): string {
       .replace(/[^a-zA-Z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '')
       .toLowerCase()
-      .slice(0, max) || 'orca-task'
+      .slice(0, max) || 'vertragus-task'
   )
 }
 
@@ -316,7 +317,7 @@ function assertManagedIntegrationPath(repositoryRoot: string, integrationPath: s
   const pathApi = win32.isAbsolute(repositoryRoot) || win32.isAbsolute(integrationPath)
     ? win32
     : posix
-  const integrationRoot = pathApi.resolve(repositoryRoot, '.orca-worktrees', 'integration')
+  const integrationRoot = pathApi.resolve(repositoryRoot, WORKTREE_DIR_NAME, 'integration')
   const candidate = pathApi.resolve(integrationPath)
   const relativePath = pathApi.relative(integrationRoot, candidate)
   if (
@@ -425,7 +426,7 @@ async function captureNeedsWorkChange(
     const stagedFiles = (await git(input.worktree!, ['diff', '--cached', '--name-only'])).trim()
     if (stagedFiles) {
       await git(input.worktree!, [
-        'commit', '-m', `orca(${input.taskId}): needs work - ${input.title.trim().slice(0, 60)}`
+        'commit', '-m', `vertragus(${input.taskId}): needs work - ${input.title.trim().slice(0, 60)}`
       ])
     }
   }
@@ -518,7 +519,7 @@ export async function prepareTaskChange(input: PrepareTaskInput): Promise<Prepar
 
     if (stagedFiles.length > 0) {
       await git(input.worktree, [
-        'commit', '-m', 'orca(' + input.taskId + '): ' + input.title.trim().slice(0, 72)
+        'commit', '-m', 'vertragus(' + input.taskId + '): ' + input.title.trim().slice(0, 72)
       ])
     }
     const branch = await git(input.worktree, ['branch', '--show-current'])
@@ -937,7 +938,7 @@ async function publishPerTask(input: PublishInput): Promise<AutoPrOutcome> {
       change.worktree,
       input.config,
       change.branch,
-      `[Orca ${change.taskId}] ${change.title}`,
+      `[Vertragus ${change.taskId}] ${change.title}`,
       body,
       input.profileDefaultBranch
     )
@@ -970,9 +971,9 @@ async function publishPerTask(input: PublishInput): Promise<AutoPrOutcome> {
 async function publishAggregate(input: PublishInput): Promise<AutoPrOutcome> {
   const first = input.changes[0]
   const root = await repositoryRoot(first.worktree)
-  const branch = `orca/goal-${safeSlug(input.goalId)}-${Date.now().toString(36)}`
-  const integrationPath = join(root, '.orca-worktrees', 'integration', safeSlug(branch, 60))
-  await mkdir(join(root, '.orca-worktrees', 'integration'), { recursive: true })
+  const branch = `vertragus/goal-${safeSlug(input.goalId)}-${Date.now().toString(36)}`
+  const integrationPath = join(root, WORKTREE_DIR_NAME, 'integration', safeSlug(branch, 60))
+  await mkdir(join(root, WORKTREE_DIR_NAME, 'integration'), { recursive: true })
   const base = await defaultBase(root, input.config.baseBranch, input.profileDefaultBranch)
   await git(root, ['worktree', 'add', '-b', branch, integrationPath, `origin/${base}`])
 
@@ -1001,7 +1002,7 @@ async function publishAggregate(input: PublishInput): Promise<AutoPrOutcome> {
       integrationPath,
       input.config,
       branch,
-      `[Orca] ${input.goalTitle}`,
+      `[Vertragus] ${input.goalTitle}`,
       body,
       input.profileDefaultBranch
     )

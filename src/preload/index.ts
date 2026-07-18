@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import { IPC, type OrcaApi, type UpdateState } from '@shared/ipc'
-import type { AgentDataChunk, AgentInstanceInfo, OrcaEvent } from '@shared/agents'
+import { IPC, type VertragusApi, type UpdateState } from '@shared/ipc'
+import type { AgentDataChunk, AgentInstanceInfo, VertragusEvent } from '@shared/agents'
 import type { OrchestratorSnapshot, WorkspaceSessionSummary } from '@shared/orchestrator'
 import type { ProviderHealth } from '@shared/providers'
 
@@ -11,7 +11,7 @@ function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
   return () => ipcRenderer.removeListener(channel, listener)
 }
 
-const orca: OrcaApi = {
+const vertragus: VertragusApi = {
   getAppInfo: () => ipcRenderer.invoke(IPC.appInfo),
   updates: {
     state: () => ipcRenderer.invoke(IPC.appUpdateState),
@@ -126,7 +126,7 @@ const orca: OrcaApi = {
     bulkHandoff: (req) => ipcRenderer.invoke(IPC.agentsBulkHandoff, req),
     onData: (cb) => subscribe<AgentDataChunk>(IPC.evAgentData, cb),
     onChanged: (cb) => subscribe<AgentInstanceInfo[]>(IPC.evAgentsChanged, cb),
-    onEvent: (cb) => subscribe<OrcaEvent>(IPC.evOrcaEvent, cb)
+    onEvent: (cb) => subscribe<VertragusEvent>(IPC.evVertragusEvent, cb)
   },
 
   orchestrator: {
@@ -183,7 +183,7 @@ const orca: OrcaApi = {
 if (process.contextIsolated) {
   try {
     contextBridge.exposeInMainWorld('electron', electronAPI)
-    contextBridge.exposeInMainWorld('orca', orca)
+    contextBridge.exposeInMainWorld('vertragus', vertragus)
   } catch (error) {
     console.error(error)
   }
@@ -191,5 +191,5 @@ if (process.contextIsolated) {
   // @ts-expect-error fallback when context isolation is disabled
   window.electron = electronAPI
   // @ts-expect-error fallback when context isolation is disabled
-  window.orca = orca
+  window.vertragus = vertragus
 }

@@ -7,10 +7,10 @@ export default function PaneWindow({ agentId }: { agentId: string }): JSX.Elemen
   const [agent, setAgent] = useState<AgentInstanceInfo | null>(null)
 
   useEffect(() => {
-    void window.orca.agents.list().then((list) => {
+    void window.vertragus.agents.list().then((list) => {
       setAgent(list.find((a) => a.id === agentId) ?? null)
     })
-    return window.orca.agents.onChanged((list) => {
+    return window.vertragus.agents.onChanged((list) => {
       setAgent(list.find((a) => a.id === agentId) ?? null)
     })
   }, [agentId])

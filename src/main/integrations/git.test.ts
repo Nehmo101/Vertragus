@@ -50,7 +50,7 @@ describe('workspace branch selection', () => {
 HEAD 1111111111111111111111111111111111111111
 branch refs/heads/main
 
-worktree C:/repo/.orca-worktrees/session/sub-01
+worktree C:/repo/.vertragus-worktrees/session/sub-01
 HEAD 2222222222222222222222222222222222222222
 detached
 locked cleanup pending
@@ -64,7 +64,7 @@ prunable
         bare: false
       },
       {
-        path: 'C:/repo/.orca-worktrees/session/sub-01',
+        path: 'C:/repo/.vertragus-worktrees/session/sub-01',
         head: '2222222222222222222222222222222222222222',
         detached: true,
         bare: false,

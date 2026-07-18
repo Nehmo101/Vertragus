@@ -16,7 +16,7 @@ short-lived branch  ──PR──▶  main
 | `main` | **The trunk.** Always releasable; every push runs the full CI. Changes arrive only through green pull requests. |
 | `retros` | **Data branch** used by the retro-sync feature (exported run retros/learnings). Never commit application code here. |
 | `feature/*`, `fix/*`, `claude/*` | **Short-lived working branches.** One per change, branched off `main`, merged back via pull request, deleted after merge. |
-| `orca/*` | **Runtime branches** created automatically by agent worktrees. Not for humans; cleaned up by the app. |
+| `vertragus/*` | **Runtime branches** (canonical; legacy prefix `orca/*` still recognized and cleaned up) created automatically by agent worktrees. Not for humans; cleaned up by the app. |
 
 ### The rule
 

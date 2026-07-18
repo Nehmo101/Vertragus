@@ -44,7 +44,7 @@ Daily-Driver-Adoption und später die kommerzielle Schicht.
 
 **Basis im Code:** Mission-Control-Gateway (`src/main/remote/`, WS/SSE,
 Pairing, Push), Engine läuft bereits headless-fähig im Main-Prozess,
-`ORCA_UI_SMOKE` zeigt: App startet ohne sichtbares Fenster.
+`VERTRAGUS_UI_SMOKE` (Legacy: `ORCA_UI_SMOKE`) zeigt: App startet ohne sichtbares Fenster.
 
 **Schritte (📋, eigenes Arbeitspaket, ~Wochen):**
 1. `vertragus-headless`-Einstieg: Electron (oder langfristig Node-only) ohne

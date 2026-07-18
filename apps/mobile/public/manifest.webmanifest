@@ -1,7 +1,7 @@
 {
-  "name": "Orca-Strator Mission Control",
-  "short_name": "Orca Control",
-  "description": "Sichere Remote-Kommandozentrale für Orca-Strator",
+  "name": "Vertragus Mission Control",
+  "short_name": "Vertragus",
+  "description": "Sichere Remote-Kommandozentrale für Vertragus",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f4f1e8",
@@ -10,4 +10,3 @@
     { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
   ]
 }
-

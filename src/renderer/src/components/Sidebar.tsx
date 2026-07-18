@@ -230,7 +230,7 @@ function RetroSyncRow(): JSX.Element {
 
   const reload = async (): Promise<void> => {
     try {
-      const next = await window.orca.retro.syncStatus()
+      const next = await window.vertragus.retro.syncStatus()
       setStatus(next)
       setDraft({ repoOwner: next.repoOwner, repoName: next.repoName, branch: next.branch })
     } catch {
@@ -250,7 +250,7 @@ function RetroSyncRow(): JSX.Element {
     setBusy(true)
     setError(undefined)
     try {
-      await window.orca.setConfig('retroSync.enabled', !status.enabled)
+      await window.vertragus.setConfig('retroSync.enabled', !status.enabled)
       await reload()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -263,9 +263,9 @@ function RetroSyncRow(): JSX.Element {
     setBusy(true)
     setError(undefined)
     try {
-      await window.orca.setConfig('retroSync.repoOwner', draft.repoOwner)
-      await window.orca.setConfig('retroSync.repoName', draft.repoName)
-      await window.orca.setConfig('retroSync.branch', draft.branch)
+      await window.vertragus.setConfig('retroSync.repoOwner', draft.repoOwner)
+      await window.vertragus.setConfig('retroSync.repoName', draft.repoName)
+      await window.vertragus.setConfig('retroSync.branch', draft.branch)
       setEditing(false)
       await reload()
     } catch (err) {
@@ -279,7 +279,7 @@ function RetroSyncRow(): JSX.Element {
     setBusy(true)
     setError(undefined)
     try {
-      setStatus(await window.orca.retro.syncFlush())
+      setStatus(await window.vertragus.retro.syncFlush())
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -392,7 +392,7 @@ function SpeechRow(): JSX.Element {
 
   useEffect(() => {
     let cancelled = false
-    void window.orca.inboxSpeech
+    void window.vertragus.inboxSpeech
       .status()
       .then((next) => {
         if (!cancelled) setStatus(next)

@@ -3492,9 +3492,9 @@ button {
   border: 2px solid color-mix(in srgb, var(--accent) 30%, transparent);
   border-top-color: var(--accent);
   border-radius: 50%;
-  animation: orca-spin 0.8s linear infinite;
+  animation: vertragus-spin 0.8s linear infinite;
 }
-@keyframes orca-spin {
+@keyframes vertragus-spin {
   to {
     transform: rotate(360deg);
   }

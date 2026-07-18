@@ -44,7 +44,7 @@ export function useInboxSpeech(): UseInboxSpeechResult {
   const speechStatusRevision = useAppStore((state) => state.speechStatusRevision)
 
   const refreshStatus = useCallback(async (): Promise<void> => {
-    const next = await window.orca.inboxSpeech.status()
+    const next = await window.vertragus.inboxSpeech.status()
     setStatus(next)
   }, [])
 
@@ -107,7 +107,7 @@ export function useInboxSpeech(): UseInboxSpeechResult {
 
     try {
       const bytes = new Uint8Array(await blob.arrayBuffer())
-      const result = await window.orca.inboxSpeech.transcribe({
+      const result = await window.vertragus.inboxSpeech.transcribe({
         mimeType,
         bytes,
         durationMs
@@ -175,7 +175,7 @@ export function useInboxSpeech(): UseInboxSpeechResult {
       return
     }
     if (state === 'transcribing') {
-      await window.orca.inboxSpeech.abort()
+      await window.vertragus.inboxSpeech.abort()
       setState('idle')
       setError('')
       return
@@ -188,7 +188,7 @@ export function useInboxSpeech(): UseInboxSpeechResult {
     setVoiceDraft(null)
     setError('')
     setState('idle')
-    void window.orca.inboxSpeech.abort()
+    void window.vertragus.inboxSpeech.abort()
   }, [])
 
   const updateVoiceDraft = useCallback((patch: Partial<VoiceIdeaDraft>): void => {
@@ -196,7 +196,7 @@ export function useInboxSpeech(): UseInboxSpeechResult {
   }, [])
 
   useEffect(() => () => {
-    void window.orca.inboxSpeech.abort()
+    void window.vertragus.inboxSpeech.abort()
     cleanupStream()
   }, [cleanupStream])
 

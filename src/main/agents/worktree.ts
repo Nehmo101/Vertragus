@@ -2,11 +2,17 @@
  * Git worktree isolation: each agent gets its own worktree + branch so
  * parallel (especially Yolo) agents never collide in the same checkout.
  *
- * Worktrees live under <repoRoot>/.orca-worktrees/<sessionId>/<agentId> on
- * branch orca/<sessionId>/<agentId>. Stopping a single agent keeps its worktree
- * so its work can still be inspected; killing (removing) a whole workspace run
- * rolls the agents back via `rollbackWorktree`, discarding the isolated
- * checkout and its branch.
+ * Worktrees live under <repoRoot>/.vertragus-worktrees/<sessionId>/<agentId> on
+ * branch vertragus/<sessionId>/<agentId>. Stopping a single agent keeps its
+ * worktree so its work can still be inspected; killing (removing) a whole
+ * workspace run rolls the agents back via `rollbackWorktree`, discarding the
+ * isolated checkout and its branch.
+ *
+ * Legacy note: worktrees created by earlier builds live under `.orca-worktrees`
+ * on `orca/…` branches. The ownership guards below deliberately accept both the
+ * current `vertragus` namespace and the legacy `orca` one, so pre-existing
+ * checkouts keep being recognised and cleaned up without any migration or data
+ * loss. New worktrees are only ever created under the current namespace.
  */
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
@@ -16,6 +22,15 @@ import { dirname, join } from 'node:path'
 import { canonicalWorkspacePath } from '@main/agents/workspacePath'
 
 const execFileAsync = promisify(execFile)
+
+/** Directory that holds the isolated worktrees created by current builds. */
+export const WORKTREE_DIR_NAME = '.vertragus-worktrees'
+/** Directory used by earlier builds; still recognised for cleanup only. */
+export const LEGACY_WORKTREE_DIR_NAME = '.orca-worktrees'
+/** Branch namespace for worktrees created by current builds. */
+export const WORKTREE_BRANCH_PREFIX = 'vertragus/'
+/** Branch namespace used by earlier builds; still recognised for cleanup only. */
+export const LEGACY_WORKTREE_BRANCH_PREFIX = 'orca/'
 
 async function git(cwd: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync('git', ['-C', cwd, ...args], {
@@ -69,8 +84,8 @@ export function worktreeIdentity(
   const safeSession = safeIdentityPart(sessionId, 'Session-ID')
   const safeAgent = safeIdentityPart(agentId, 'Agent-ID')
   return {
-    path: join(root, '.orca-worktrees', safeSession, safeAgent),
-    branch: `orca/${safeSession}/${safeAgent}`
+    path: join(root, WORKTREE_DIR_NAME, safeSession, safeAgent),
+    branch: `${WORKTREE_BRANCH_PREFIX}${safeSession}/${safeAgent}`
   }
 }
 
@@ -100,14 +115,21 @@ export async function createWorktree(
   }
 }
 
-/** Only ever touch paths Orca created under `.orca-worktrees/`. */
-export function isOrcaWorktreePath(path: string): boolean {
-  return /[\\/]\.orca-worktrees[\\/]/.test(path.trim())
+/**
+ * Only ever touch paths Vertragus created under its managed worktree dir.
+ * Legacy `.orca-worktrees` checkouts are still matched so pre-existing runs can
+ * be cleaned up without a migration step.
+ */
+export function isManagedWorktreePath(path: string): boolean {
+  return /[\\/]\.(?:vertragus|orca)-worktrees[\\/]/.test(path.trim())
 }
 
-/** Only ever delete branches Orca created under the `orca/` namespace. */
-export function isOrcaBranch(branch: string): boolean {
-  return /^orca\//.test(branch.trim())
+/**
+ * Only ever delete branches Vertragus created under its managed namespace.
+ * Legacy `orca/…` branches are still matched for cleanup of pre-existing runs.
+ */
+export function isManagedBranch(branch: string): boolean {
+  return /^(?:vertragus|orca)\//.test(branch.trim())
 }
 
 /**
@@ -130,21 +152,22 @@ async function mainWorktreeRoot(worktreePath: string): Promise<string | null> {
 }
 
 /**
- * Roll back (discard) an Orca-managed isolated worktree and its branch.
+ * Roll back (discard) a Vertragus-managed isolated worktree and its branch.
  *
  * Rolling back a killed workspace deliberately throws away the agent's
  * uncommitted, unmerged work, so removal is forced. As a hard safety net only
- * worktrees under `.orca-worktrees/` and branches under `orca/` are ever
- * touched — the main checkout and user branches are never affected. Every Git
- * failure is swallowed (best-effort cleanup); returns true when the worktree or
- * its branch was actually removed.
+ * managed worktrees (`.vertragus-worktrees/` or legacy `.orca-worktrees/`) and
+ * managed branches (`vertragus/` or legacy `orca/`) are ever touched — the main
+ * checkout and user branches are never affected. Every Git failure is swallowed
+ * (best-effort cleanup); returns true when the worktree or its branch was
+ * actually removed.
  */
 export async function rollbackWorktree(
   worktreePath: string,
   branch?: string
 ): Promise<boolean> {
   const path = worktreePath.trim()
-  if (!path || !isOrcaWorktreePath(path)) return false
+  if (!path || !isManagedWorktreePath(path)) return false
 
   const root = await mainWorktreeRoot(path)
   if (!root) return false
@@ -157,7 +180,7 @@ export async function rollbackWorktree(
     // The checkout may already be gone or locked; still try the branch + prune.
   }
 
-  if (branch && isOrcaBranch(branch)) {
+  if (branch && isManagedBranch(branch)) {
     try {
       await git(root, ['branch', '-D', branch])
       removed = true

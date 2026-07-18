@@ -23,8 +23,8 @@ if (!existsSync(mainEntry)) {
 
 const require = createRequire(import.meta.url)
 const electron = require('electron')
-const resultPath = join(tmpdir(), `orca-ui-smoke-${randomUUID()}.json`)
-const dataPath = join(tmpdir(), `orca-ui-smoke-data-${randomUUID()}`)
+const resultPath = join(tmpdir(), `vertragus-ui-smoke-${randomUUID()}.json`)
+const dataPath = join(tmpdir(), `vertragus-ui-smoke-data-${randomUUID()}`)
 mkdirSync(dataPath, { recursive: true })
 const timeoutMs = 30_000
 
@@ -35,12 +35,13 @@ if (process.platform === 'linux' && process.env.CI) {
 }
 electronArgs.push(`--user-data-dir=${dataPath}`)
 
+// Canonical VERTRAGUS_*; main still accepts legacy ORCA_* via brandEnv().
 const child = spawn(electron, electronArgs, {
   cwd: process.cwd(),
   env: {
     ...process.env,
-    ORCA_UI_SMOKE: resultPath,
-    ORCA_UI_SMOKE_DATA: dataPath,
+    VERTRAGUS_UI_SMOKE: resultPath,
+    VERTRAGUS_UI_SMOKE_DATA: dataPath,
     ELECTRON_DISABLE_SECURITY_WARNINGS: 'true'
   },
   stdio: 'inherit',

@@ -13,7 +13,7 @@ import {
 const roots: string[] = []
 
 function tempRoot(): string {
-  const root = mkdtempSync(join(tmpdir(), 'orca-retro-seed-'))
+  const root = mkdtempSync(join(tmpdir(), 'vertragus-retro-seed-'))
   roots.push(root)
   return root
 }

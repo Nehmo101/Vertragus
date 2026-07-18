@@ -121,7 +121,7 @@ function TaskCard({
     setDiffLoading(true)
     setDiffError(null)
     try {
-      const result = await window.orca.orchestrator.taskDiff(profileId, task.id, workspaceSessionId)
+      const result = await window.vertragus.orchestrator.taskDiff(profileId, task.id, workspaceSessionId)
       setDiff(result.diff)
     } catch (error) {
       setDiffError(error instanceof Error ? error.message : String(error))
@@ -361,7 +361,7 @@ function OrchestratorPanelContent({
     const startsPendingPlan = mode === 'auto' && Boolean(pendingPlan)
     setAutoModeBusy(true)
     try {
-      const ok = await window.orca.orchestrator.setPlannerMode(
+      const ok = await window.vertragus.orchestrator.setPlannerMode(
         store.activeProfileId,
         mode,
         store.activeWorkspaceSessionId

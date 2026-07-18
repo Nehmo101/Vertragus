@@ -86,7 +86,7 @@ export function diffPushTransitions(
   if (wasRunning && finished) {
     output.push({
       key: `finished:${scope}:${current.tasks.map((task) => `${task.id}:${task.status}`).join(',')}`,
-      title: 'Orca-Lauf beendet',
+      title: 'Vertragus-Lauf beendet',
       body: current.goal?.title ?? 'Alle Aufgaben sind terminal.',
       url: '/#/live',
       ...scoped

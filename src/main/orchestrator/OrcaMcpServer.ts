@@ -28,7 +28,11 @@ import type { OrchestratorActivityPhase, SubagentFindingKind } from '@shared/orc
 import { agentManager } from '@main/agents/AgentManager'
 import type { HandoffClientIdentity } from '@main/agents/handoffHandshake'
 import { workspaceSessions } from '@main/orchestrator/WorkspaceSessionRegistry'
-import { setMcpHandle, type McpServerHandle } from '@main/orchestrator/mcpHandle'
+import {
+  setMcpHandle,
+  SUBAGENT_MCP_SERVER_NAME,
+  type McpServerHandle
+} from '@main/orchestrator/mcpHandle'
 import { removeModelLearnings } from '@main/orchestrator/retroStore'
 
 const ORCHESTRATOR_TOOLS = [
@@ -677,7 +681,7 @@ function buildMcpServer(
  */
 function buildSubagentMcpServer(engine: OrchestratorEngine, taskId: string): McpServer {
   const server = new McpServer(
-    { name: 'orca-sub', version: '0.1.0' },
+    { name: SUBAGENT_MCP_SERVER_NAME, version: '0.1.0' },
     {
       instructions: [
         'Du bist ein Vertragus Subagent. Über diese Tools kommunizierst du mit dem Orchestrator und parallelen Subagents.',

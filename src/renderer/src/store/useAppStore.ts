@@ -2,7 +2,7 @@
  * Central renderer state (zustand), wired to the real main-process API.
  */
 import { create } from 'zustand'
-import type { AgentInstanceInfo, BulkHandoffRequest, HandoffRequest, OrcaEvent } from '@shared/agents'
+import type { AgentInstanceInfo, BulkHandoffRequest, HandoffRequest, VertragusEvent } from '@shared/agents'
 import { LIMIT_KIND_LABELS } from '@shared/agents'
 import type {
   AgentProviderId,
@@ -81,7 +81,7 @@ interface AppState {
   githubAuth: GithubAuthStatus | null
   githubAuthBusy: boolean
   agents: AgentInstanceInfo[]
-  events: OrcaEvent[]
+  events: VertragusEvent[]
   orchestrator: OrchestratorSnapshot
   orchestrators: Record<string, OrchestratorSnapshot>
   selectedAgentId: string | null
@@ -251,7 +251,7 @@ export function visibleWorkspaceAgents(
 export function workspaceEvents(
   state: Pick<AppState, 'events' | 'activeProfileId'> &
     Partial<Pick<AppState, 'activeWorkspaceSessionId'>>
-): OrcaEvent[] {
+): VertragusEvent[] {
   return state.events.filter(
     (event) =>
       (!event.profileId || event.profileId === state.activeProfileId) &&
@@ -379,7 +379,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (initialized) return
     initialized = true
 
-    window.orca.agents.onChanged((agents) => {
+    window.vertragus.agents.onChanged((agents) => {
       // Surface a toast the first time an agent trips a usage-limit signal.
       const prev = get().agents
       for (const a of agents) {
@@ -398,16 +398,16 @@ export const useAppStore = create<AppState>((set, get) => ({
         )
       }))
     })
-    window.orca.agents.onEvent((evt) =>
+    window.vertragus.agents.onEvent((evt) =>
       set((s) => ({ events: [...s.events.slice(-199), evt] }))
     )
-    window.orca.onProvidersChanged((health) => {
+    window.vertragus.onProvidersChanged((health) => {
       set({ health })
       // The account-visible catalogue may change when the interactive login closes.
       void get().refreshModels()
       if (health.some((provider) => provider.id === 'github')) void get().refreshGithubAuth()
     })
-    window.orca.workspaceSessions.onChanged((workspaceSessions) =>
+    window.vertragus.workspaceSessions.onChanged((workspaceSessions) =>
       set((state) => {
         const currentStillExists = workspaceSessions.some(
           (session) => session.id === state.activeWorkspaceSessionId
@@ -428,7 +428,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
       })
     )
-    window.orca.orchestrator.onSnapshot((snap) =>
+    window.vertragus.orchestrator.onSnapshot((snap) =>
       set((state) => {
         const profileId = snap.profileId
         if (!profileId) return { orchestrator: snap }
@@ -463,24 +463,24 @@ export const useAppStore = create<AppState>((set, get) => ({
       recentReposRaw
     ] =
       await Promise.all([
-        window.orca.getAppInfo(),
-        window.orca.listProfiles(),
-        window.orca.getActiveProfileId(),
-        window.orca.listMcpServers(),
-        window.orca.agents.list(),
-        window.orca.getConfig<boolean>('yoloMaster'),
-        window.orca.getActiveProfileId().then((profileId) =>
-          window.orca.orchestrator.snapshot(profileId)),
-        window.orca.getConfig<UiTheme>('ui.theme'),
-        window.orca.getConfig<WorkspaceLayout>('ui.workspaceLayout'),
-        window.orca.getConfig<UiDensity>('ui.density'),
-        window.orca.getConfig<Partial<Record<AgentProviderId, number>>>('providerLimits'),
-        window.orca.workspaceSessions.list(),
-        window.orca.getConfig<Partial<ProviderEnabled>>('providerEnabled'),
-        window.orca.getConfig<Partial<DisabledModels>>('disabledModels'),
-        window.orca.getConfig<boolean>('ui.cliReadable'),
-        window.orca.getConfig<unknown>('workspaceRepo.active'),
-        window.orca.getConfig<unknown>('workspaceRepo.recent')
+        window.vertragus.getAppInfo(),
+        window.vertragus.listProfiles(),
+        window.vertragus.getActiveProfileId(),
+        window.vertragus.listMcpServers(),
+        window.vertragus.agents.list(),
+        window.vertragus.getConfig<boolean>('yoloMaster'),
+        window.vertragus.getActiveProfileId().then((profileId) =>
+          window.vertragus.orchestrator.snapshot(profileId)),
+        window.vertragus.getConfig<UiTheme>('ui.theme'),
+        window.vertragus.getConfig<WorkspaceLayout>('ui.workspaceLayout'),
+        window.vertragus.getConfig<UiDensity>('ui.density'),
+        window.vertragus.getConfig<Partial<Record<AgentProviderId, number>>>('providerLimits'),
+        window.vertragus.workspaceSessions.list(),
+        window.vertragus.getConfig<Partial<ProviderEnabled>>('providerEnabled'),
+        window.vertragus.getConfig<Partial<DisabledModels>>('disabledModels'),
+        window.vertragus.getConfig<boolean>('ui.cliReadable'),
+        window.vertragus.getConfig<unknown>('workspaceRepo.active'),
+        window.vertragus.getConfig<unknown>('workspaceRepo.recent')
       ])
     set({
       appInfo,
@@ -516,9 +516,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     // The desktop Approval/Diff centers cover every live workspace, not only
     // the selected one. Hydrate the same authoritative per-session snapshots
     // that subsequently arrive over ev:orchestrator.
-    void window.orca.workspaceSessions.list().then(async (currentSessions) => {
+    void window.vertragus.workspaceSessions.list().then(async (currentSessions) => {
       const allSnapshots = await Promise.all(currentSessions.map((session) =>
-        window.orca.orchestrator.snapshot(session.profileId, session.id)
+        window.vertragus.orchestrator.snapshot(session.profileId, session.id)
       ))
       set((state) => ({
         workspaceSessions: currentSessions,
@@ -538,7 +538,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   async refreshGithubAuth() {
     const request = ++githubAuthRequest
     try {
-      const githubAuth = await window.orca.githubAuthStatus()
+      const githubAuth = await window.vertragus.githubAuthStatus()
       if (request === githubAuthRequest) set({ githubAuth })
     } catch (error) {
       // Do not keep displaying an old authenticated session when its status
@@ -556,7 +556,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const request = ++githubAuthRequest
     set({ githubAuthBusy: true })
     try {
-      const githubAuth = await window.orca.githubAuthLogin()
+      const githubAuth = await window.vertragus.githubAuthLogin()
       if (request === githubAuthRequest) set({ githubAuth })
       void get().refreshHealth()
       get().showToast(
@@ -581,7 +581,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const request = ++githubAuthRequest
     set({ githubAuthBusy: true })
     try {
-      const githubAuth = await window.orca.githubAuthLogout()
+      const githubAuth = await window.vertragus.githubAuthLogout()
       if (request === githubAuthRequest) set({ githubAuth })
       void get().refreshHealth()
       get().showToast('GitHub abgemeldet.')
@@ -600,7 +600,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   async refreshHealth() {
     try {
-      const health = await window.orca.checkProviders()
+      const health = await window.vertragus.checkProviders()
       set({ health })
       if (health.some((provider) => provider.id === 'github')) void get().refreshGithubAuth()
     } finally {
@@ -612,7 +612,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   async refreshModels() {
     const sequence = ++modelRefreshSequence
     try {
-      const models = await window.orca.listModels()
+      const models = await window.vertragus.listModels()
       if (sequence !== modelRefreshSequence) return
       set({ models: normalizeModelCatalog(models) })
     } catch {
@@ -626,7 +626,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const provider = get().health.find((item) => item.id === id)
     if (!provider?.available || !provider.canLogin) return
     try {
-      await window.orca.loginProvider(id)
+      await window.vertragus.loginProvider(id)
       // The completion event triggers a second reload after the CLI closes.
       void get().refreshModels()
       get().showToast(`${provider.loginLabel ?? 'Provider-Login'} im sicheren Terminal geöffnet.`)
@@ -637,7 +637,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   async refreshGit() {
     const dir = effectiveRepoPath(get())
-    const gitInfo = dir ? await window.orca.gitInfo(dir) : { isRepo: false }
+    const gitInfo = dir ? await window.vertragus.gitInfo(dir) : { isRepo: false }
     set({ gitInfo })
   },
 
@@ -646,7 +646,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!dir) return false
 
     try {
-      const gitInfo = await window.orca.gitSwitchBranch(dir, branch)
+      const gitInfo = await window.vertragus.gitSwitchBranch(dir, branch)
       set({ gitInfo })
       get().showToast(`Branch gewechselt: ${gitInfo.branch ?? branch}`)
       return true
@@ -683,8 +683,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       // Await the persist so the main process reads the same override before a
       // subsequent team start resolves its working directory.
-      await window.orca.setConfig('workspaceRepo.active', ref)
-      if (recentsChanged) void window.orca.setConfig('workspaceRepo.recent', recentRepos)
+      await window.vertragus.setConfig('workspaceRepo.active', ref)
+      if (recentsChanged) void window.vertragus.setConfig('workspaceRepo.recent', recentRepos)
     } catch (error) {
       set({ activeRepo: previous, recentRepos: previousRecents })
       get().showToast(`Repository konnte nicht gewechselt werden: ${errorMessage(error)}`)
@@ -703,7 +703,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   async addRepoFromFolder() {
-    const dir = await window.orca.pickFolder()
+    const dir = await window.vertragus.pickFolder()
     if (!dir) return
     await get().selectRepo({ path: dir })
   },
@@ -716,12 +716,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       return true
     }
     try {
-      await window.orca.setActiveProfileId(id)
-      const workspaceSessions = await window.orca.workspaceSessions.list()
+      await window.vertragus.setActiveProfileId(id)
+      const workspaceSessions = await window.vertragus.workspaceSessions.list()
       const activeSession = workspaceSessions.find(
         (session) => session.profileId === id && session.active
       )
-      const snapshot = await window.orca.orchestrator.snapshot(id, activeSession?.id)
+      const snapshot = await window.vertragus.orchestrator.snapshot(id, activeSession?.id)
       set((state) => ({
         activeProfileId: id,
         workspaceSessions,
@@ -745,10 +745,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   async selectWorkspaceSession(profileId, sessionId) {
     try {
       if (profileId !== get().activeProfileId) {
-        await window.orca.setActiveProfileId(profileId)
+        await window.vertragus.setActiveProfileId(profileId)
       }
-      const snapshot = await window.orca.workspaceSessions.setActive(profileId, sessionId)
-      const workspaceSessions = await window.orca.workspaceSessions.list()
+      const snapshot = await window.vertragus.workspaceSessions.setActive(profileId, sessionId)
+      const workspaceSessions = await window.vertragus.workspaceSessions.list()
       set((state) => ({
         activeProfileId: profileId,
         activeWorkspaceSessionId: sessionId,
@@ -767,11 +767,11 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   async removeWorkspaceSession(profileId, sessionId) {
     try {
-      const workspaceSessions = await window.orca.workspaceSessions.remove(profileId, sessionId)
+      const workspaceSessions = await window.vertragus.workspaceSessions.remove(profileId, sessionId)
       const activeSession = workspaceSessions.find(
         (session) => session.profileId === profileId && session.active
       )
-      const snapshot = await window.orca.orchestrator.snapshot(profileId, activeSession?.id)
+      const snapshot = await window.vertragus.orchestrator.snapshot(profileId, activeSession?.id)
       set((state) => ({
         workspaceSessions,
         activeWorkspaceSessionId: activeSession?.id ?? null,
@@ -791,7 +791,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setProviderLimit(provider, value) {
     const providerLimits = normalizeProviderLimits({ ...get().providerLimits, [provider]: value })
     set({ providerLimits })
-    void window.orca.setConfig('providerLimits', providerLimits)
+    void window.vertragus.setConfig('providerLimits', providerLimits)
   },
 
   setProviderEnabled(provider, enabled) {
@@ -800,7 +800,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       [provider]: enabled
     })
     set({ providerEnabled })
-    void window.orca.setConfig('providerEnabled', providerEnabled)
+    void window.vertragus.setConfig('providerEnabled', providerEnabled)
   },
 
   setModelEnabled(provider, model, enabled) {
@@ -815,25 +815,25 @@ export const useAppStore = create<AppState>((set, get) => ({
       [provider]: disabled
     })
     set({ disabledModels })
-    void window.orca.setConfig('disabledModels', disabledModels)
+    void window.vertragus.setConfig('disabledModels', disabledModels)
   },
 
   toggleYolo() {
     const next = !get().yoloMaster
     set({ yoloMaster: next })
-    void window.orca.setConfig('yoloMaster', next)
+    void window.vertragus.setConfig('yoloMaster', next)
   },
 
   toggleTheme() {
     const next = get().theme === 'light' ? 'dark' : 'light'
     set({ theme: next })
-    void window.orca.setConfig('ui.theme', next)
+    void window.vertragus.setConfig('ui.theme', next)
   },
 
   toggleCliReadable() {
     const next = !get().cliReadable
     set({ cliReadable: next })
-    void window.orca.setConfig('ui.cliReadable', next)
+    void window.vertragus.setConfig('ui.cliReadable', next)
   },
 
   togglePaneReadable(agentId) {
@@ -847,12 +847,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setWorkspaceLayout(layout) {
     set({ workspaceLayout: layout })
-    void window.orca.setConfig('ui.workspaceLayout', layout)
+    void window.vertragus.setConfig('ui.workspaceLayout', layout)
   },
 
   setUiDensity(density) {
     set({ uiDensity: density })
-    void window.orca.setConfig('ui.density', density)
+    void window.vertragus.setConfig('ui.density', density)
   },
 
   showToast(msg) {
@@ -863,7 +863,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   async exportDiagnostics() {
     try {
-      const path = await window.orca.diagnostics.exportLatest(get().activeProfileId)
+      const path = await window.vertragus.diagnostics.exportLatest(get().activeProfileId)
       get().showToast(
         path ? `Diagnose exportiert: ${path}` : 'Für dieses Workspace-Profil gibt es noch keinen Run.'
       )
@@ -902,12 +902,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     s.showToast(`Workspace „${profile.name}" startet…`)
     try {
-      const spawned = await window.orca.agents.spawnProfile(profile.id, s.yoloMaster)
+      const spawned = await window.vertragus.agents.spawnProfile(profile.id, s.yoloMaster)
       const workspaceSessionId = spawned.find((agent) => agent.workspaceSessionId)?.workspaceSessionId
       if (workspaceSessionId) {
         const [workspaceSessions, snapshot] = await Promise.all([
-          window.orca.workspaceSessions.list(),
-          window.orca.orchestrator.snapshot(profile.id, workspaceSessionId)
+          window.vertragus.workspaceSessions.list(),
+          window.vertragus.orchestrator.snapshot(profile.id, workspaceSessionId)
         ])
         set((state) => ({
           workspaceSessions,
@@ -930,20 +930,20 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   async stopAll() {
-    await window.orca.agents.killAll()
+    await window.vertragus.agents.killAll()
     get().showToast('Alle Agents gestoppt.')
   },
 
   async cleanWorkspace() {
-    await window.orca.agents.clean(
+    await window.vertragus.agents.clean(
       get().activeProfileId,
       get().activeWorkspaceSessionId ?? undefined
     )
-    const workspaceSessions = await window.orca.workspaceSessions.list()
+    const workspaceSessions = await window.vertragus.workspaceSessions.list()
     const activeSession = workspaceSessions.find(
       (session) => session.profileId === get().activeProfileId && session.active
     )
-    const snapshot = await window.orca.orchestrator.snapshot(
+    const snapshot = await window.vertragus.orchestrator.snapshot(
       get().activeProfileId,
       activeSession?.id
     )
@@ -964,7 +964,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const state = get()
     const workspaceSessionId = state.activeWorkspaceSessionId ?? undefined
     try {
-      const resolved = await window.orca.orchestrator.reviewPlan(
+      const resolved = await window.vertragus.orchestrator.reviewPlan(
         state.activeProfileId,
         approved,
         workspaceSessionId
@@ -973,7 +973,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         state.showToast('Kein Plan wartet mehr auf Freigabe.')
         return
       }
-      const snapshot = await window.orca.orchestrator.snapshot(
+      const snapshot = await window.vertragus.orchestrator.snapshot(
         state.activeProfileId,
         workspaceSessionId
       )
@@ -1003,7 +1003,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const profile = activeProfile(s)
     const role = ADD_ROLES[s.addSeq % ADD_ROLES.length]
     try {
-      const agent = await window.orca.agents.spawn({
+      const agent = await window.vertragus.agents.spawn({
         provider: selection.provider,
         model: selection.model,
         modelPreset: selection.modelPreset,
@@ -1025,12 +1025,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   async killAgent(id) {
-    await window.orca.agents.kill(id)
+    await window.vertragus.agents.kill(id)
   },
 
   async popout(id) {
     const agent = get().agents.find((a) => a.id === id)
-    await window.orca.agents.popout(id)
+    await window.vertragus.agents.popout(id)
     if (agent) {
       get().showToast(
         `„${agent.model || 'CLI-Standard'} · ${agent.role.split('·').pop()?.trim()}" als eigenes Fenster geöffnet ⧉`
@@ -1050,7 +1050,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   async handoff(req) {
     const source = get().agents.find((a) => a.id === req.sourceId)
     try {
-      const target = await window.orca.agents.handoff(req)
+      const target = await window.vertragus.agents.handoff(req)
       set({ handoffSource: null })
       get().showToast(
         source?.kind === 'orchestrator'
@@ -1064,7 +1064,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   async bulkHandoff(req) {
     try {
-      const result = await window.orca.agents.bulkHandoff(req)
+      const result = await window.vertragus.agents.bulkHandoff(req)
       set({ handoffSource: null })
       const suffix = result.failures.length > 0 ? ` · ${result.failures.length} fehlgeschlagen` : ''
       get().showToast(`Massenübergabe: ${result.transferred.length}/${result.requested} übernommen${suffix}`)
@@ -1127,7 +1127,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   async saveEditor(profile) {
     try {
-      const profiles = await window.orca.saveProfile(profile)
+      const profiles = await window.vertragus.saveProfile(profile)
       set({ profiles, editorProfile: null })
       const selected = await get().selectProfile(profile.id)
       if (selected) get().showToast(`Profil „${profile.name}" gespeichert.`)
@@ -1143,7 +1143,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (!source) throw new Error('Quellprofil wurde nicht gefunden.')
 
       const duplicate = createDuplicateProfile(source, currentProfiles)
-      const profiles = await window.orca.saveProfile(duplicate)
+      const profiles = await window.vertragus.saveProfile(duplicate)
       const savedDuplicate = profiles.find((profile) => profile.id === duplicate.id) ?? duplicate
       set({ profiles, editorProfile: savedDuplicate })
       get().showToast(`Profil "${source.name}" als "${duplicate.name}" dupliziert.`)
@@ -1158,8 +1158,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     const wasLastProfile = get().profiles.length === 1
 
     try {
-      const profiles = await window.orca.deleteProfile(id)
-      const activeProfileId = await window.orca.getActiveProfileId()
+      const profiles = await window.vertragus.deleteProfile(id)
+      const activeProfileId = await window.vertragus.getActiveProfileId()
       set({ profiles, activeProfileId, editorProfile: null })
       await get().refreshGit().catch(() => undefined)
       get().showToast(
@@ -1194,7 +1194,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   async saveMcpServers(servers) {
     try {
-      const saved = await window.orca.saveMcpServers(servers)
+      const saved = await window.vertragus.saveMcpServers(servers)
       set({ mcpServers: saved, mcpEditorOpen: false })
       get().showToast(`MCP-Server gespeichert (${saved.length}).`)
     } catch (error) {

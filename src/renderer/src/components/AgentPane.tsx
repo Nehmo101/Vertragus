@@ -80,8 +80,8 @@ export function useAgentTerminal(agentId: string, inputEnabled: boolean): React.
       const enterData = terminalEnterData(event)
       if (enterData) {
         if (inputEnabledRef.current) {
-          window.orca.agents.markInteractiveUsed(agentId)
-          window.orca.agents.write(agentId, enterData)
+          window.vertragus.agents.markInteractiveUsed(agentId)
+          window.vertragus.agents.write(agentId, enterData)
         }
         return false
       }
@@ -96,7 +96,7 @@ export function useAgentTerminal(agentId: string, inputEnabled: boolean): React.
     let ready = false
     const queue: Array<{ data: string; seq: number }> = []
 
-    const unsubscribe = window.orca.agents.onData((chunk) => {
+    const unsubscribe = window.vertragus.agents.onData((chunk) => {
       if (!isAgentTerminalChunk(agentId, chunk.id)) return
       if (!ready) {
         queue.push(chunk)
@@ -107,7 +107,7 @@ export function useAgentTerminal(agentId: string, inputEnabled: boolean): React.
       frameWriter.write(chunk.data)
     })
 
-    void window.orca.agents.buffer(agentId).then((snap) => {
+    void window.vertragus.agents.buffer(agentId).then((snap) => {
       if (disposed) return
       let initialData = snap.data
       lastSeq = snap.seq
@@ -123,12 +123,12 @@ export function useAgentTerminal(agentId: string, inputEnabled: boolean): React.
     })
 
     const onInput = term.onData((data) => {
-      if (inputEnabledRef.current) window.orca.agents.write(agentId, data)
+      if (inputEnabledRef.current) window.vertragus.agents.write(agentId, data)
     })
     // onData also carries automatic terminal protocol replies. Only real user
     // keyboard/paste actions reserve a warm team pane from orchestrator reuse.
-    const onKey = term.onKey(() => window.orca.agents.markInteractiveUsed(agentId))
-    const onPaste = (): void => window.orca.agents.markInteractiveUsed(agentId)
+    const onKey = term.onKey(() => window.vertragus.agents.markInteractiveUsed(agentId))
+    const onPaste = (): void => window.vertragus.agents.markInteractiveUsed(agentId)
     host.addEventListener('paste', onPaste, true)
 
     let lastSize = ''
@@ -138,7 +138,7 @@ export function useAgentTerminal(agentId: string, inputEnabled: boolean): React.
         const size = `${term.cols}x${term.rows}`
         if (size === lastSize) return
         lastSize = size
-        window.orca.agents.resize(agentId, term.cols, term.rows)
+        window.vertragus.agents.resize(agentId, term.cols, term.rows)
       } catch {
         // host not laid out yet
       }

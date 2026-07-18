@@ -23,7 +23,7 @@ const ORCHESTRATOR_PROVIDERS: AgentProviderId[] = ['claude', 'kimi', 'codex', 'c
 const HELP = {
   profileName: 'Frei wählbarer Name für diese Kombination aus Workspace, Orchestrator und Subagents.',
   workingDir: 'Lokaler Repository- oder Projektordner, in dem die Agents arbeiten. Der Auto-PR-Basisbranch wird bei Bedarf aus dem git-origin dieses Ordners abgeleitet.',
-  githubAuth: 'Browser-OAuth (Device Flow mit ORCA_GITHUB_OAUTH_CLIENT_ID) oder gh --web. Tokens werden verschlüsselt lokal gespeichert, nie im Profil oder in Logs. Wird für Auto-PR benötigt.',
+  githubAuth: 'Browser-OAuth (Device Flow mit VERTRAGUS_GITHUB_OAUTH_CLIENT_ID) oder gh --web. Tokens werden verschlüsselt lokal gespeichert, nie im Profil oder in Logs. Wird für Auto-PR benötigt.',
   generateFromRepo: 'Das gewählte Analysemodell liest das Working-Directory-Repository read-only und schlägt Rollen, Modelle und Quality Gates vor. Kann je nach Repo-Größe ein bis mehrere Minuten dauern.',
   agentWorkingDir: 'Optionaler Pfad nur für diesen Slot. Leer übernimmt den Workspace-Basispfad.',
   mode: 'Orchestriert lässt Claude oder Codex planen und delegieren. Single startet nur die konfigurierten Slots.',
@@ -153,7 +153,7 @@ export default function ProfileEditor(): JSX.Element | null {
     setGeneratingProfile(true)
     setGenerateStatus('')
     try {
-      const generated = await window.orca.generateProfileForRepo({
+      const generated = await window.vertragus.generateProfileForRepo({
         workingDir,
         provider: analyzer.provider,
         model: analyzer.model,
@@ -174,7 +174,7 @@ export default function ProfileEditor(): JSX.Element | null {
   }
   const applyLearnings = async (): Promise<void> => {
     try {
-      const learnings = await window.orca.retro.listLearnings()
+      const learnings = await window.vertragus.retro.listLearnings()
       if (learnings.length === 0) {
         setLearningsStatus('Noch keine gespeicherten Retro-/Benchmark-Erkenntnisse vorhanden.')
         return
@@ -323,7 +323,7 @@ export default function ProfileEditor(): JSX.Element | null {
             <button type="button"
               className="btn-secondary browse-btn"
               onClick={async () => {
-                const dir = await window.orca.pickFolder()
+                const dir = await window.vertragus.pickFolder()
                 if (dir) patch({ workingDir: dir })
               }}
             >
@@ -734,7 +734,7 @@ export default function ProfileEditor(): JSX.Element | null {
                 </span>
                 <input
                   className={`slot-select-sm mono ${autoGitBranchError ? 'input-invalid' : ''}`}
-                  placeholder="z. B. orca/integrated"
+                  placeholder="z. B. vertragus/integrated"
                   value={draft.autoGit.targetBranch}
                   aria-invalid={Boolean(autoGitBranchError)}
                   aria-describedby={autoGitBranchError ? 'auto-git-branch-error' : undefined}
@@ -916,7 +916,7 @@ export default function ProfileEditor(): JSX.Element | null {
                     type="button"
                     className="btn-secondary slot-browse-btn"
                     onClick={async () => {
-                      const dir = await window.orca.pickFolder()
+                      const dir = await window.vertragus.pickFolder()
                       if (dir) patchSlot(idx, { workingDir: dir })
                     }}
                   >

@@ -172,12 +172,12 @@ der fünf Kernfeatures:
 ```powershell
 corepack pnpm run ci
 
-$env:ORCA_MCP_SELFTEST = '1'
+$env:VERTRAGUS_MCP_SELFTEST = '1'   # Legacy-Alias: ORCA_MCP_SELFTEST
 .\node_modules\.bin\electron-vite.CMD preview
-Remove-Item Env:ORCA_MCP_SELFTEST
+Remove-Item Env:VERTRAGUS_MCP_SELFTEST
 ```
 
-Der MCP-Selbsttest (`ORCA_MCP_SELFTEST` bleibt interner Bezeichner, Migration
-geplant) deckt Adapter-Capabilities, Toolliste, Einzeldispatch,
-Batch-Parallelität, validierte DAG-Ausführung, Abhängigkeiten und den sicheren
-Fallback für zyklische Pläne ab.
+Der MCP-Selbsttest (`VERTRAGUS_MCP_SELFTEST`, Legacy-Fallback `ORCA_MCP_SELFTEST`)
+deckt Adapter-Capabilities, Toolliste, Einzeldispatch, Batch-Parallelität,
+validierte DAG-Ausführung, Abhängigkeiten und den sicheren Fallback für
+zyklische Pläne ab.

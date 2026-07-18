@@ -16,7 +16,12 @@ import {
   type McpServerConfig
 } from '@shared/mcp'
 import { listMcpServers } from '@main/config/store'
-import { getMcpHandle, SUBAGENT_ALLOWED_TOOLS } from '@main/orchestrator/mcpHandle'
+import {
+  getMcpHandle,
+  SUBAGENT_ALLOWED_TOOLS,
+  SUBAGENT_MCP_SERVER_NAME,
+  subagentToolName
+} from '@main/orchestrator/mcpHandle'
 import {
   buildClaudeMcpArgs,
   buildCodexMcpArgs,
@@ -73,11 +78,11 @@ export function externalMcpSpecsFor(
 }
 
 /**
- * The Orca subagent server (report_progress / post_finding / list_findings)
- * scoped to one running task, or undefined when the Orca MCP server is not up
- * or no task scope was provided.
+ * The Vertragus subagent server (report_progress / post_finding / list_findings)
+ * scoped to one running task, or undefined when the Vertragus MCP server is not
+ * up or no task scope was provided.
  */
-function orcaSubagentSpec(context: SubagentMcpContext): McpServerSpec | undefined {
+function subagentServerSpec(context: SubagentMcpContext): McpServerSpec | undefined {
   const base = getMcpHandle()?.subagentUrl
   if (!base || !context.taskId) return undefined
   const url = new URL(base)
@@ -85,19 +90,19 @@ function orcaSubagentSpec(context: SubagentMcpContext): McpServerSpec | undefine
   if (context.workspaceSessionId) url.searchParams.set('workspaceSession', context.workspaceSessionId)
   if (context.engineId) url.searchParams.set('engineId', context.engineId)
   return {
-    name: 'orca-sub',
+    name: SUBAGENT_MCP_SERVER_NAME,
     transport: 'http',
     url: url.toString(),
     allowedTools: SUBAGENT_ALLOWED_TOOLS.filter(
-      (tool) => context.permissionPrompt || tool !== 'mcp__orca-sub__permission_prompt'
+      (tool) => context.permissionPrompt || tool !== subagentToolName('permission_prompt')
     ),
-    // These status/reporting tools are Orca-owned and task-scoped.
+    // These status/reporting tools are Vertragus-owned and task-scoped.
     approvalMode: 'approve'
   }
 }
 
 /**
- * True when a dispatched worker of this provider will get the Orca subagent
+ * True when a dispatched worker of this provider will get the Vertragus subagent
  * tools attached — used to decide whether the execution contract should
  * mention them.
  */
@@ -108,7 +113,7 @@ export function subagentOrcaToolsAvailable(provider: AgentProviderId): boolean {
 /**
  * Extra CLI args that attach the external MCP servers scoped to a subagent
  * (interactive subwindow or headless dispatch), plus — for headless tasks with
- * a task scope — the Orca subagent report/finding tools. Returns `[]` for
+ * a task scope — the Vertragus subagent report/finding tools. Returns `[]` for
  * providers without MCP support or when nothing is configured.
  */
 export function buildSubagentMcpArgs(
@@ -117,9 +122,9 @@ export function buildSubagentMcpArgs(
   context: SubagentMcpContext = {}
 ): string[] {
   if (!providerSupportsExternalMcp(provider)) return []
-  const orcaSub = orcaSubagentSpec(context)
+  const subagentServer = subagentServerSpec(context)
   const servers = [
-    ...(orcaSub ? [orcaSub] : []),
+    ...(subagentServer ? [subagentServer] : []),
     ...externalMcpSpecsFor('subagent', provider)
   ]
   if (servers.length === 0) return []
@@ -134,8 +139,8 @@ export function buildSubagentMcpArgs(
       strict: false,
       includeReadonlyTools: false
     })
-    if (context.permissionPrompt && orcaSub) {
-      args.push('--permission-prompt-tool', 'mcp__orca-sub__permission_prompt')
+    if (context.permissionPrompt && subagentServer) {
+      args.push('--permission-prompt-tool', subagentToolName('permission_prompt'))
     }
     return args
   }

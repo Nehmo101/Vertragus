@@ -1,13 +1,13 @@
 /**
- * Registers all ipcMain handlers. Each maps 1:1 onto a method in OrcaApi
- * (src/shared/ipc.ts) which the preload bridge exposes on window.orca.
+ * Registers all ipcMain handlers. Each maps 1:1 onto a method in VertragusApi
+ * (src/shared/ipc.ts) which the preload bridge exposes on window.vertragus.
  */
 import { app, dialog, ipcMain, BrowserWindow } from 'electron'
 import { stat } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { IPC, type AppInfo } from '@shared/ipc'
-import type { BulkHandoffRequest, HandoffRequest, OrcaEvent, SpawnAgentRequest } from '@shared/agents'
+import type { BulkHandoffRequest, HandoffRequest, VertragusEvent, SpawnAgentRequest } from '@shared/agents'
 import type { OrchestratorSnapshot } from '@shared/orchestrator'
 import type { RemoteBudgetCaps } from '@shared/remote'
 import type { ProviderId } from '@shared/providers'
@@ -122,7 +122,7 @@ async function saveRunDialog(
   defaultPath: string
 ): Promise<Electron.SaveDialogReturnValue> {
   const options: Electron.SaveDialogOptions = {
-    title: 'Redigierte Orca-Diagnose exportieren',
+    title: 'Redigierte Vertragus-Diagnose exportieren',
     defaultPath,
     filters: [{ name: 'JSON Lines', extensions: ['jsonl'] }]
   }
@@ -243,7 +243,7 @@ export function registerIpcHandlers(): void {
     if (!latest) return null
     const result = await saveRunDialog(
       senderWindow(e),
-      `orca-run-${latest.runId}-${new Date(latest.updatedAt).toISOString().slice(0, 10)}.jsonl`
+      `vertragus-run-${latest.runId}-${new Date(latest.updatedAt).toISOString().slice(0, 10)}.jsonl`
     )
     if (result.canceled || !result.filePath) return null
     runJournal.export(latest.runId, result.filePath)
@@ -642,7 +642,7 @@ export function registerIpcHandlers(): void {
   // ---- push events: agent output / state / dispatch feed ----
   agentManager.on('data', (chunk) => broadcast(IPC.evAgentData, chunk))
   agentManager.on('changed', (list) => broadcast(IPC.evAgentsChanged, list))
-  agentManager.on('event', (evt: OrcaEvent) => {
+  agentManager.on('event', (evt: VertragusEvent) => {
     recordDiagnostic(runJournal, {
       kind: 'agent-event',
       profileId: evt.profileId,
@@ -650,7 +650,7 @@ export function registerIpcHandlers(): void {
       at: evt.time,
       payload: evt
     })
-    broadcast(IPC.evOrcaEvent, evt)
+    broadcast(IPC.evVertragusEvent, evt)
   })
   workspaceSessions.on('changed', () => {
     broadcast(IPC.evWorkspaceSessions, workspaceSessions.list())

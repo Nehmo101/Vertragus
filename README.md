@@ -107,9 +107,9 @@ any process starts.
   and tiles / focus / DAG layout controls; honours reduced-motion and keyboard
   focus.
 - **Session-safe worktree isolation** — each agent works in
-  `<repo>/.orca-worktrees/<agent-id>` on branch `orca/<agent-id>` (internal
-  identifiers, migration planned); old worktrees are never silently reused or
-  deleted.
+  `<repo>/.vertragus-worktrees/<agent-id>` on branch `vertragus/<agent-id>`
+  (legacy `.orca-worktrees/` / `orca/` still recognized); old worktrees are
+  never silently reused or deleted.
 
 **Orchestration**
 
@@ -250,8 +250,9 @@ corepack pnpm run test:ui-smoke            # verify critical Electron UI surface
 | `src/shared` | types & logic shared across processes (agents, MCP, orchestrator, profiles, providers, telemetry, retro) |
 
 Tests are co-located next to their sources as `*.test.ts`. Setting
-`ORCA_MCP_SELFTEST=1` runs an end-to-end self-test of the MCP tools and engine,
-then exits (useful for CI and local sanity checks).
+`VERTRAGUS_MCP_SELFTEST=1` (legacy alias: `ORCA_MCP_SELFTEST=1`) runs an
+end-to-end self-test of the MCP tools and engine, then exits (useful for CI
+and local sanity checks).
 
 ## Testing
 
@@ -265,7 +266,7 @@ single dispatch, batch parallelism, validated DAG execution, dependencies and
 the safe fallback for cyclic plans:
 
 ```bash
-ORCA_MCP_SELFTEST=1 corepack pnpm start
+VERTRAGUS_MCP_SELFTEST=1 corepack pnpm start
 ```
 
 ## Packaging & releases

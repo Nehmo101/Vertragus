@@ -46,15 +46,15 @@ export default function MissionApprovalInbox(): JSX.Element {
     const sessionId = approval.workspaceSessionId
     void run(`${approval.id}:${action}`, async () => {
       switch (action) {
-        case 'plan.approve': return window.orca.orchestrator.reviewPlan(profileId, true, sessionId)
-        case 'plan.reject': return window.orca.orchestrator.reviewPlan(profileId, false, sessionId)
-        case 'publication.approve': return window.orca.orchestrator.approvePublication(profileId, sessionId, approval.task?.planId)
-        case 'publication.reject': return window.orca.orchestrator.rejectPublication(profileId, sessionId, approval.task?.planId)
-        case 'permission.allow': return window.orca.orchestrator.resolvePermission(profileId, sessionId, approval.permission!.id, true)
-        case 'permission.deny': return window.orca.orchestrator.resolvePermission(profileId, sessionId, approval.permission!.id, false)
-        case 'task.fallback': return window.orca.orchestrator.fallbackTask(profileId, sessionId, approval.task!.id)
-        case 'mode.enableAuto': return window.orca.orchestrator.enableAutoMode(profileId, sessionId)
-        case 'run.reset': return window.orca.orchestrator.reset(profileId, sessionId)
+        case 'plan.approve': return window.vertragus.orchestrator.reviewPlan(profileId, true, sessionId)
+        case 'plan.reject': return window.vertragus.orchestrator.reviewPlan(profileId, false, sessionId)
+        case 'publication.approve': return window.vertragus.orchestrator.approvePublication(profileId, sessionId, approval.task?.planId)
+        case 'publication.reject': return window.vertragus.orchestrator.rejectPublication(profileId, sessionId, approval.task?.planId)
+        case 'permission.allow': return window.vertragus.orchestrator.resolvePermission(profileId, sessionId, approval.permission!.id, true)
+        case 'permission.deny': return window.vertragus.orchestrator.resolvePermission(profileId, sessionId, approval.permission!.id, false)
+        case 'task.fallback': return window.vertragus.orchestrator.fallbackTask(profileId, sessionId, approval.task!.id)
+        case 'mode.enableAuto': return window.vertragus.orchestrator.enableAutoMode(profileId, sessionId)
+        case 'run.reset': return window.vertragus.orchestrator.reset(profileId, sessionId)
         default: return false
       }
     })
@@ -63,7 +63,7 @@ export default function MissionApprovalInbox(): JSX.Element {
   const showDiff = (approval: ApprovalItem): void => {
     if (!approval.task) return
     void run(`diff:${approval.id}`, async () => {
-      const value = await window.orca.orchestrator.taskDiff(
+      const value = await window.vertragus.orchestrator.taskDiff(
         approval.profileId,
         approval.task!.id,
         approval.workspaceSessionId
@@ -122,7 +122,7 @@ export default function MissionApprovalInbox(): JSX.Element {
                 <button
                   type="button"
                   disabled={busy === `budget:${sessionId}`}
-                  onClick={() => void run(`budget:${sessionId}`, () => window.orca.orchestrator.setBudgetCaps(
+                  onClick={() => void run(`budget:${sessionId}`, () => window.vertragus.orchestrator.setBudgetCaps(
                     snapshot.profileId!, sessionId, {
                       maxTokens: draft.tokens ? Number(draft.tokens) : undefined,
                       maxCostUsd: draft.cost ? Number(draft.cost) : undefined
@@ -136,7 +136,7 @@ export default function MissionApprovalInbox(): JSX.Element {
                   className="secondary"
                   key={task.id}
                   onClick={() => void run(`resume:${task.id}`, () =>
-                    window.orca.orchestrator.resumeTask(snapshot.profileId!, sessionId, task.id))}
+                    window.vertragus.orchestrator.resumeTask(snapshot.profileId!, sessionId, task.id))}
                 >{t('modals.approvals.resume', { title: task.title })}</button>
               ))}
             </article>

@@ -334,7 +334,7 @@ export async function githubAuthStatus(): Promise<GithubAuthStatus> {
 }
 
 export async function githubAuthLogin(options?: {
-  /** Open gh login in a visible Orca PTY instead of a headless gh --web process. */
+  /** Open gh login in a visible Vertragus PTY instead of a headless gh --web process. */
   useTerminalLogin?: () => Promise<void>
 }): Promise<GithubAuthStatus> {
   const clientId = githubOAuthClientId()
@@ -352,7 +352,7 @@ export async function githubAuthLogin(options?: {
     return {
       ...status,
       detail:
-        'GitHub-Login im Orca-Terminal geöffnet — folge den Anweisungen der gh CLI im sichtbaren Fenster.'
+        'GitHub-Login im Vertragus-Terminal geöffnet — folge den Anweisungen der gh CLI im sichtbaren Fenster.'
     }
   }
   try {

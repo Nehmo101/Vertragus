@@ -52,7 +52,7 @@ Export durch die Secret-Redaction (`redactDiagnosticValue`).
    wird beim ersten Export automatisch als Orphan angelegt.
 2. **Im Repo:** Secret `ANTHROPIC_API_KEY` anlegen
    (Settings → Secrets and variables → Actions) — nötig, sobald mindestens
-   `ORCA_RETRO_MIN_NEW` (interner Bezeichner, Migration geplant) neue Retros
+   `VERTRAGUS_RETRO_MIN_NEW` (Legacy-Fallback: `ORCA_RETRO_MIN_NEW`) neue Retros
    synthetisiert werden. Der vom Workflow
    bereitgestellte `GITHUB_TOKEN` braucht keine manuelle Secret-Konfiguration;
    der Workflow fordert dafür `contents: write` und `pull-requests: write` an.
@@ -79,8 +79,9 @@ Export durch die Secret-Redaction (`redactDiagnosticValue`).
   ANTHROPIC_API_KEY=… pnpm run retro:analyze -- --dir /tmp/retros --write    # schreiben
   ```
 
-  Unter `--min-new` (Default 3, env `ORCA_RETRO_MIN_NEW`) neuen Retros wird
-  übersprungen. Das Modell ist per `ORCA_RETRO_MODEL` überschreibbar
+  Unter `--min-new` (Default 3, env `VERTRAGUS_RETRO_MIN_NEW`, Legacy
+  `ORCA_RETRO_MIN_NEW`) neuen Retros wird übersprungen. Das Modell ist per
+  `VERTRAGUS_RETRO_MODEL` (Legacy: `ORCA_RETRO_MODEL`) überschreibbar
   (Default `claude-sonnet-5`).
 
 ### Bootstrap beim ersten Analyse-Lauf

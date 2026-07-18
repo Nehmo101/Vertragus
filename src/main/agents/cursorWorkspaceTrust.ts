@@ -1,8 +1,10 @@
 import { posix, win32 } from 'node:path'
 import { stripAnsi } from '@main/agents/limitSignals'
 
-const ORCA_WORKTREE_DIR = '.orca-worktrees'
-const ORCA_WORKTREE_PART = /^[a-z0-9._-]+$/i
+// Accept both the current managed dir and the legacy one, so isolated worktrees
+// created by earlier builds keep the same verified ownership (no migration).
+const MANAGED_WORKTREE_DIRS = ['.vertragus-worktrees', '.orca-worktrees']
+const WORKTREE_PART = /^[a-z0-9._-]+$/i
 const TRAVERSAL_OR_ALIAS_SEGMENT = /(?:^|[\\/])\.\.?(?:[\\/]|$)/
 const WINDOWS_DEVICE_OR_NETWORK_PATH = /^(?:\\\\|\\\\[?.]\\)/
 
@@ -33,10 +35,11 @@ export function normalizeWorkspacePath(value: string): string | undefined {
 
 /**
  * Accept only the unaliased path shape emitted by worktreeIdentity:
- * <repo>/.orca-worktrees/<session>/<agent>. Do not resolve this value before
- * checking it: resolution could turn a traversal or alias into a trusted path.
+ * <repo>/.vertragus-worktrees/<session>/<agent> (or the legacy
+ * <repo>/.orca-worktrees/… shape). Do not resolve this value before checking
+ * it: resolution could turn a traversal or alias into a trusted path.
  */
-export function isExactOrcaWorktreePath(value: string): boolean {
+export function isExactManagedWorktreePath(value: string): boolean {
   if (
     !value ||
     value !== value.trim() ||
@@ -56,16 +59,11 @@ export function isExactOrcaWorktreePath(value: string): boolean {
 
   const [marker, session, agent] = parts.slice(-3)
   return (
-    marker === ORCA_WORKTREE_DIR &&
+    MANAGED_WORKTREE_DIRS.includes(marker ?? '') &&
     parts.length >= 3 &&
-    ORCA_WORKTREE_PART.test(session ?? '') &&
-    ORCA_WORKTREE_PART.test(agent ?? '')
+    WORKTREE_PART.test(session ?? '') &&
+    WORKTREE_PART.test(agent ?? '')
   )
-}
-
-/** Backward-compatible alias for callers that need Orca worktree ownership. */
-export function isOrcaWorktreePath(value: string): boolean {
-  return isExactOrcaWorktreePath(value)
 }
 
 function visibleTerminalText(output: string): string {
@@ -102,7 +100,7 @@ const TRUST_THIS_WORKSPACE_RE = /\btrust\s+(?:this\s+)?workspace\b/i
 const TRUST_WITH_A_RE =
   /(?:\[\s*a\s*\]|\(\s*a\s*\)|\ba\s*[.)\-:])\s*(?:trust\s+(?:this\s+)?workspace)\b|\btrust\s+(?:this\s+)?workspace\b\s*(?:\[\s*a\s*\]|\(\s*a\s*\)|\ba\s*[.)\-:])|\b(?:press|type)\s+(?:the\s+)?(?:key\s+)?["'`[]?a["'`\]]?\s+to\s+trust\s+(?:this\s+)?workspace\b/i
 
-function hasOrcaWorktreeOwnership(input: {
+function hasManagedWorktreeOwnership(input: {
   workingDir: string
   worktree?: string
   alreadyHandled: boolean
@@ -113,14 +111,14 @@ function hasOrcaWorktreeOwnership(input: {
       !input.interactiveUsed &&
       input.worktree &&
       input.worktree === input.workingDir &&
-      isExactOrcaWorktreePath(input.worktree) &&
-      isExactOrcaWorktreePath(input.workingDir)
+      isExactManagedWorktreePath(input.worktree) &&
+      isExactManagedWorktreePath(input.workingDir)
   )
 }
 
 /**
  * Classify Cursor's interactive trust screen. `partial` is deliberately
- * limited to a verified Orca worktree, so retrying terminal output cannot
+ * limited to a verified managed worktree, so retrying terminal output cannot
  * affect a user-selected workspace.
  */
 export function cursorWorkspaceTrustPrompt(input: {
@@ -130,7 +128,7 @@ export function cursorWorkspaceTrustPrompt(input: {
   alreadyHandled: boolean
   interactiveUsed: boolean
 }): CursorWorkspaceTrustPrompt {
-  if (!hasOrcaWorktreeOwnership(input)) return 'none'
+  if (!hasManagedWorktreeOwnership(input)) return 'none'
 
   const text = visibleTerminalText(input.output)
   if (!TRUST_THIS_WORKSPACE_RE.test(text)) return 'none'
@@ -138,7 +136,7 @@ export function cursorWorkspaceTrustPrompt(input: {
   return 'ready'
 }
 
-/** Detect a verified, complete Cursor trust prompt for the active Orca worktree. */
+/** Detect a verified, complete Cursor trust prompt for the active managed worktree. */
 export function shouldAutoTrustCursorWorktree(input: {
   output: string
   workingDir: string

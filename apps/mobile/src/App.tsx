@@ -7,10 +7,13 @@ import type {
   RemoteCommandId,
   RemoteEventFrame
 } from '@shared/remote'
+import { readDeviceInfoJson, readDeviceToken, writeDeviceSession } from './storageKeys'
 
 type View = 'live' | 'approvals' | 'changes' | 'goal' | 'devices'
-const TOKEN_KEY = 'orca.remote.deviceToken'
-const DEVICE_KEY = 'orca.remote.device'
+
+/** Legacy wire protocol required by RemoteGateway until a protocol migration. */
+const REMOTE_WS_PROTOCOL = 'orca-v1'
+const REMOTE_WS_BEARER_PREFIX = 'orca-bearer.'
 
 function pairingCode(): string {
   const query = window.location.hash.includes('?') ? window.location.hash.split('?')[1] : ''
@@ -85,7 +88,7 @@ async function consumeSse(
 }
 
 export default function App(): JSX.Element {
-  const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY) ?? '')
+  const [token, setToken] = useState(() => readDeviceToken(localStorage))
   const [code, setCode] = useState(pairingCode)
   const [deviceName, setDeviceName] = useState(() => navigator.platform || 'Mobilgerät')
   const [view, setView] = useState<View>(initialView)
@@ -109,7 +112,10 @@ export default function App(): JSX.Element {
 
   const profiles = useMemo(() => {
     let savedId = ''
-    try { savedId = (JSON.parse(localStorage.getItem(DEVICE_KEY) ?? '{}') as DeviceInfo).id ?? '' } catch { /* no saved device */ }
+    try {
+      const raw = readDeviceInfoJson(localStorage)
+      savedId = (JSON.parse(raw || '{}') as DeviceInfo).id ?? ''
+    } catch { /* no saved device */ }
     const scoped = devices.find((device) => device.id === savedId)?.scopes.map((scope) => scope.profileId) ?? []
     return [...new Set([
       ...Object.values(snapshots).map((snapshot) => snapshot.profileId).filter((id): id is string => Boolean(id)),
@@ -152,7 +158,7 @@ export default function App(): JSX.Element {
       if (typeof WebSocket === 'undefined') return startSse()
       const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
       const socket = new WebSocket(`${scheme}//${window.location.host}/ws`, [
-        'orca-v1', `orca-bearer.${token}`
+        REMOTE_WS_PROTOCOL, `${REMOTE_WS_BEARER_PREFIX}${token}`
       ])
       socketRef.current = socket
       socket.onopen = () => {
@@ -244,8 +250,7 @@ export default function App(): JSX.Element {
       })
       const result = await response.json() as PairingResult & { error?: string }
       if (!response.ok) throw new Error(result.error ?? 'Pairing fehlgeschlagen.')
-      localStorage.setItem(TOKEN_KEY, result.token)
-      localStorage.setItem(DEVICE_KEY, JSON.stringify(result.device))
+      writeDeviceSession(localStorage, result.token, JSON.stringify(result.device))
       setToken(result.token)
       window.location.hash = '#/live'
     } catch (value) { setError(message(value)) }
@@ -253,7 +258,7 @@ export default function App(): JSX.Element {
 
   const currentDevice = useMemo(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(DEVICE_KEY) ?? '{}') as DeviceInfo
+      const saved = JSON.parse(readDeviceInfoJson(localStorage) || '{}') as DeviceInfo
       return devices.find((device) => device.id === saved.id) ?? saved
     } catch { return undefined }
   }, [devices])
@@ -317,7 +322,7 @@ export default function App(): JSX.Element {
   if (!token) {
     return (
       <main className="pair-screen">
-        <div className="orca-mark">O</div>
+        <div className="vertragus-mark">V</div>
         <span className="eyebrow">VERTRAGVS</span>
         <h1>Mission Control koppeln</h1>
         <p>Scanne den QR-Code im Desktop oder trage den einmaligen Pairing-Code ein.</p>

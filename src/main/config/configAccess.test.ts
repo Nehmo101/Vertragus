@@ -72,6 +72,6 @@ describe('configAccess', () => {
     expect(() => setPublicConfig('providerLimits', { cursor: 0 })).toThrow(/zwischen 1 und/)
     expect(() => setPublicConfig('providerLimits', { cursor: -1 })).toThrow(/zwischen 1 und/)
     expect(() => setPublicConfig('providerLimits', { claude: Number.NaN })).toThrow(/ganze Zahl/)
-    expect(() => setPublicConfig('providerLimits', { injected: 4 })).toThrow(/Unbekanntes Orca-Gate/)
+    expect(() => setPublicConfig('providerLimits', { injected: 4 })).toThrow(/Unbekanntes Vertragus-Gate/)
   })
 })

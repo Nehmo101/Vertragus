@@ -263,7 +263,7 @@ export default function InboxPanel(): JSX.Element {
     setLoading(true)
     setError('')
     try {
-      const list = await window.orca.inbox.list()
+      const list = await window.vertragus.inbox.list()
       reconcileIdeas(list)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -285,7 +285,7 @@ export default function InboxPanel(): JSX.Element {
       const active = activePromptRef.current
       activePromptRef.current = undefined
       promptSessionRef.current = closePromptEnhancementSession(promptSessionRef.current)
-      if (active) void window.orca.inbox.abortPromptEnhancement(active.requestId).catch(() => undefined)
+      if (active) void window.vertragus.inbox.abortPromptEnhancement(active.requestId).catch(() => undefined)
     }
   }, [])
 
@@ -293,7 +293,7 @@ export default function InboxPanel(): JSX.Element {
     const active = activePromptRef.current
     activePromptRef.current = undefined
     if (active) {
-      void window.orca.inbox.abortPromptEnhancement(active.requestId).catch(() => undefined)
+      void window.vertragus.inbox.abortPromptEnhancement(active.requestId).catch(() => undefined)
     }
     commitPromptSession(
       active && showAborted
@@ -320,7 +320,7 @@ export default function InboxPanel(): JSX.Element {
     commitPromptSession(started)
 
     try {
-      const result = await window.orca.inbox.enhancePrompt({
+      const result = await window.vertragus.inbox.enhancePrompt({
         requestId,
         source,
         explicitSelection
@@ -421,8 +421,8 @@ export default function InboxPanel(): JSX.Element {
     setSaving(true)
     setError('')
     try {
-      const idea = await window.orca.inbox.create()
-      const list = await window.orca.inbox.list()
+      const idea = await window.vertragus.inbox.create()
+      const list = await window.vertragus.inbox.list()
       setIdeas(list)
       setView('inbox')
       selectIdea(idea)
@@ -442,7 +442,7 @@ export default function InboxPanel(): JSX.Element {
     setSaving(true)
     setError('')
     try {
-      const updated = await window.orca.inbox.update({
+      const updated = await window.vertragus.inbox.update({
         id: draft.id,
         title: draft.title,
         content: draft.content,
@@ -450,7 +450,7 @@ export default function InboxPanel(): JSX.Element {
         tags: draft.tags,
         refs: draft.refs
       })
-      const list = await window.orca.inbox.list()
+      const list = await window.vertragus.inbox.list()
       reconcileIdeas(list, updated.id)
       if (openTransferAfterSave && updated.status !== 'archived') setTransferOpen(true)
     } catch (err) {
@@ -465,13 +465,13 @@ export default function InboxPanel(): JSX.Element {
     setSaving(true)
     setError('')
     try {
-      const idea = await window.orca.inbox.create({
+      const idea = await window.vertragus.inbox.create({
         title: speech.voiceDraft.title.trim() || 'Sprachnotiz',
         content: speech.voiceDraft.content,
         status: 'draft',
         tags: ['sprache']
       })
-      const list = await window.orca.inbox.list()
+      const list = await window.vertragus.inbox.list()
       setIdeas(list)
       setView('inbox')
       selectIdea(idea)
@@ -488,7 +488,7 @@ export default function InboxPanel(): JSX.Element {
     setSaving(true)
     setError('')
     try {
-      const list = await window.orca.inbox.delete(draft.id)
+      const list = await window.vertragus.inbox.delete(draft.id)
       reconcileIdeas(list, null)
       setConfirmDelete(false)
     } catch (err) {
@@ -503,7 +503,7 @@ export default function InboxPanel(): JSX.Element {
     setSaving(true)
     setError('')
     try {
-      const updated = await window.orca.inbox.transferReset(draft.id)
+      const updated = await window.vertragus.inbox.transferReset(draft.id)
       setDraft({ ...updated })
       setIdeas((current) => current.map((idea) => (idea.id === updated.id ? updated : idea)))
     } catch (err) {
@@ -518,13 +518,13 @@ export default function InboxPanel(): JSX.Element {
     setSaving(true)
     setError('')
     try {
-      const updated = await window.orca.inbox.addArtifact(draft.id, {
+      const updated = await window.vertragus.inbox.addArtifact(draft.id, {
         kind: 'text',
         text: textInput.trim()
       })
       setTextInput('')
       setDraft({ ...updated })
-      const list = await window.orca.inbox.list()
+      const list = await window.vertragus.inbox.list()
       setIdeas(list)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -538,13 +538,13 @@ export default function InboxPanel(): JSX.Element {
     setSaving(true)
     setError('')
     try {
-      const updated = await window.orca.inbox.addArtifact(draft.id, {
+      const updated = await window.vertragus.inbox.addArtifact(draft.id, {
         kind: 'url',
         url: urlInput.trim()
       })
       setUrlInput('')
       setDraft({ ...updated })
-      const list = await window.orca.inbox.list()
+      const list = await window.vertragus.inbox.list()
       setIdeas(list)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -555,18 +555,18 @@ export default function InboxPanel(): JSX.Element {
 
   const addFile = async (): Promise<void> => {
     if (!draft) return
-    const picked = await window.orca.pickFile()
+    const picked = await window.vertragus.pickFile()
     if (!picked) return
     setSaving(true)
     setError('')
     try {
-      const updated = await window.orca.inbox.addArtifact(draft.id, {
+      const updated = await window.vertragus.inbox.addArtifact(draft.id, {
         kind: 'file',
         grantId: picked.grantId,
         label: picked.fileName
       })
       setDraft({ ...updated })
-      const list = await window.orca.inbox.list()
+      const list = await window.vertragus.inbox.list()
       setIdeas(list)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -580,9 +580,9 @@ export default function InboxPanel(): JSX.Element {
     setSaving(true)
     setError('')
     try {
-      const updated = await window.orca.inbox.removeArtifact(draft.id, artifactId)
+      const updated = await window.vertragus.inbox.removeArtifact(draft.id, artifactId)
       setDraft({ ...updated })
-      const list = await window.orca.inbox.list()
+      const list = await window.vertragus.inbox.list()
       setIdeas(list)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -596,8 +596,8 @@ export default function InboxPanel(): JSX.Element {
     setSaving(true)
     setError('')
     try {
-      const updated = await window.orca.inbox.removeAttribute(draft.id, attribute)
-      const list = await window.orca.inbox.list()
+      const updated = await window.vertragus.inbox.removeAttribute(draft.id, attribute)
+      const list = await window.vertragus.inbox.list()
       reconcileIdeas(list, updated.id)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -611,8 +611,8 @@ export default function InboxPanel(): JSX.Element {
     setSaving(true)
     setError('')
     try {
-      const restored = await window.orca.inbox.restoreIdea(draft.id)
-      const list = await window.orca.inbox.list()
+      const restored = await window.vertragus.inbox.restoreIdea(draft.id)
+      const list = await window.vertragus.inbox.list()
       setView('inbox')
       reconcileIdeas(list, restored.id, 'inbox')
     } catch (err) {
