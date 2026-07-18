@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784411322433,
+  "exportedAt": 1784412271317,
   "app": {
     "name": "vertragus",
     "version": "0.1.56-main.1.g4b28a5b"
@@ -8,6 +8,62 @@
   "machineId": "2d1dacf3388f",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrqwzrtt-2-uf2d3v",
+      "provider": "claude",
+      "model": "claude-opus-4-8",
+      "role": "electron-core",
+      "kind": "weakness",
+      "insight": "Folgecommits auf materialisiertem Vorgängerstand müssen als zusammenhängende Commitkette integriert werden; ein isolierter Auto-Cherry-pick ist konfliktanfällig.",
+      "evidence": "af2d8761 war fachlich grün, konnte aber ohne explizite Berücksichtigung des Vorgängercommits 0251eeb8 nicht zentral gecherry-pickt werden.",
+      "source": "orchestrator",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 1,
+      "createdAt": 1784412270497,
+      "updatedAt": 1784412270497
+    },
+    {
+      "id": "learning-mrqwzrtt-1-c9h0tu",
+      "provider": "claude",
+      "model": "claude-opus-4-8",
+      "role": "electron-core",
+      "kind": "strength",
+      "insight": "Sehr stark bei gezielter Security-Gate-Remediation mit echter Laufzeitvalidierung und vollständiger Abnahme.",
+      "evidence": "Romeo erreichte Security findings=[], 948/948 Tests, grüne Typechecks/Lint sowie Mobile- und Electron-Build.",
+      "source": "orchestrator",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 1,
+      "createdAt": 1784412270497,
+      "updatedAt": 1784412270497
+    },
+    {
+      "id": "learning-mrqwqy95-2-qzvt2i",
+      "provider": "claude",
+      "model": "claude-opus-4-8",
+      "role": "electron-core",
+      "kind": "weakness",
+      "insight": "Auch ein fachlich konfliktfreier Recovery-Commit kann durch Orcas veralteten zentralen Auto-Cherry-pick-Zwischenstand nicht automatisch übernommen werden.",
+      "evidence": "Nach dem ersten Fehler bei 53158a60 scheiterte auch die verifizierte Recovery 497fcd1a zentral, obwohl deren Parent exakt dem geprüften HEAD entsprach.",
+      "source": "orchestrator",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 1,
+      "createdAt": 1784411858921,
+      "updatedAt": 1784411858921
+    },
+    {
+      "id": "learning-mrqwqy95-1-5mz3dn",
+      "provider": "claude",
+      "model": "claude-opus-4-8",
+      "role": "electron-core",
+      "kind": "strength",
+      "insight": "Kann einen bereits auditierten Commit gegen den aktuellen Branch semantisch rekonstruieren und Nulldivergenz bis auf Blob-Ebene belegen.",
+      "evidence": "Capaneo erzeugte Commit 497fcd1a; 16/16 Dateien byte-identisch, 962/962 Tests sowie Typecheck, Lint und Diff-Hygiene grün.",
+      "source": "orchestrator",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 1,
+      "createdAt": 1784411858921,
+      "updatedAt": 1784411858921
+    },
     {
       "id": "learning-mrqwffov-2-2hkfgq",
       "provider": "claude",
@@ -764,20 +820,6 @@
       "updatedAt": 1784387056681
     },
     {
-      "id": "learning-mrqhzcq1-1-73rpao",
-      "provider": "claude",
-      "model": "claude-opus-4-8",
-      "role": "electron-core",
-      "kind": "strength",
-      "insight": "Sehr stark bei repo-weiten Electron-Core-Rebrandings mit sicherer Legacy-Migration und Negativtests.",
-      "evidence": "Pluto änderte 22 Dateien, führte 934/934 Tests sowie Typecheck/Lint erfolgreich aus und implementierte .vertragus-worktrees mit sicherem Legacy-Fallback.",
-      "source": "orchestrator",
-      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
-      "observations": 1,
-      "createdAt": 1784387056681,
-      "updatedAt": 1784387056681
-    },
-    {
       "id": "learning-mrqhzcq1-6-h7a21t",
       "provider": "cursor",
       "model": "cursor-grok-4.5-high-fast",
@@ -902,48 +944,6 @@
       "observations": 1,
       "createdAt": 1784385853641,
       "updatedAt": 1784385853641
-    },
-    {
-      "id": "learning-mrpjp1z8-2-3j5en1",
-      "provider": "claude",
-      "model": "claude-opus-4-8",
-      "role": "electron-core",
-      "kind": "weakness",
-      "insight": "Verbrennt bei blockiertem Schreibzugriff viel Budget in Retry-Diagnostik statt früh das strukturierte Blocker-Kurzresultat zu liefern",
-      "evidence": "In Lauf 3 ~33k Output-Tokens / ~3,9 USD über 22 Minuten ohne eine einzige geschriebene Datei; das angewiesene Blocker-Kurzresultat kam bis zum manuellen Stopp nicht",
-      "source": "orchestrator",
-      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
-      "observations": 1,
-      "createdAt": 1784329469252,
-      "updatedAt": 1784329469252
-    },
-    {
-      "id": "learning-mrpjp1z8-1-mm7fpm",
-      "provider": "claude",
-      "model": "claude-opus-4-8",
-      "role": "electron-core",
-      "kind": "strength",
-      "insight": "Diagnostiziert Umgebungs-/Permission-Blocker methodisch und eskaliert korrekt statt zu raten",
-      "evidence": "Argenti isolierte in Lauf 3 präzise, dass Worktree-Writes vom Permission-Hook abgelehnt werden, während Memory-Writes funktionieren, und verifizierte mit gezielten Minimal-Writes ('Orca permission denied or timed out')",
-      "source": "orchestrator",
-      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
-      "observations": 1,
-      "createdAt": 1784329469252,
-      "updatedAt": 1784329469252
-    },
-    {
-      "id": "learning-mrpis2uy-2-posnki",
-      "provider": "claude",
-      "model": "claude-opus-4-8",
-      "role": "electron-core",
-      "kind": "weakness",
-      "insight": "Beendet bei Warteanweisungen den Zug statt aktiv zu warten — Ergebnis 'Timer läuft' wurde als Erfolg fehlgewertet",
-      "evidence": "t0-contracts endete mit 'Timer läuft — teste Schreibzugriff erneut' als Finaltext; Provider meldete finished, Gate wertete success/no-changes und startete Phase 1 ohne Contracts",
-      "source": "orchestrator",
-      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
-      "observations": 1,
-      "createdAt": 1784327930746,
-      "updatedAt": 1784327930746
     }
   ]
 }
