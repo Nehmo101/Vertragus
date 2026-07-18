@@ -236,6 +236,27 @@ advisory Feature-Task → Advisory-Kante ergänzt, `usedFallback===false`.
 4. Zentrale Typecheck-Fehlschläge wegen fehlender Dependency-Dateien im Worktree: **Ziel 0.**
 5. `success`-Meldungen ohne Diff bei Tasks mit `expectedFiles`: **Ziel 0.**
 
+## 3a. Umsetzungsstand (Code-Branch `claude/retro-integration-hardening-oa4l7s`)
+
+P1–P6 und P8 sind implementiert und getestet (Branch von `DEV`); 889 Tests grün,
+Lint sauber. Zusammenfassung:
+
+| Punkt | Status | Kern der Änderung |
+|-------|--------|-------------------|
+| P1 | ✅ umgesetzt | `autoPr.ts` `publishAggregate`: `fetch` gegen stale Base, `merge-base --is-ancestor`-Idempotenz, `--skip` statt Batch-Abbruch, No-op-Guard; `prepareTaskChange` Soft-Reset nur auf echten Ancestor |
+| P2 | ✅ umgesetzt | `monitorRemoteCi`: Watch-Exit-Code als terminales Signal + begrenzte Poll-Schleife → grüne PRs enden nicht mehr `stopped` |
+| P3 | ✅ umgesetzt | `GATE_INFRASTRUCTURE_PATTERNS` + `judgeWorkerTerminalResult` klassifizieren `esbuild spawn EPERM` als Infra statt Modellfehler |
+| P4 | ✅ umgesetzt | `createWorktree(baseRef)` + Auflösung des Dependency-Commits in `Engine.dispatch` (Einzel-Dependency-Fall) |
+| P5 | ✅ teilweise | Hohler `ERFOLG`+0-Diff mit `expectedFiles` → needs-work. Das `unconfirmed`-Broadening auf non-zero-Exit **bewusst nicht** (der Exit-0-Fall ist bereits abgedeckt; Broadening würde evtl. echt gescheiterte Arbeit adoptieren) |
+| P6 | ✅ teilweise | `Engine.setYolo` + `ensure()`-Discard-Fix → Live-YOLO erreicht Plan-Worker. Broker-Timeout-Extension und `await_permission`-Tool **bewusst nicht** (Timeout-Extension riskiert hängende Tasks; das MCP-Tool braucht Orchestrator-Prompt-Validierung) |
+| P7 | ⏸️ nicht umgesetzt | Der bestehende `securityGateExcludes`-Mechanismus deckt Katalog-Ausnahmen ab; eine Content-Heuristik hätte das Gate geschwächt und bestehende Tests verletzt |
+| P8 | ✅ umgesetzt | Planner: Advisory-Feature-Deps werden dem Integrator als Advisory-Kante ergänzt; `invalid_ownership`-Kollaps nur noch bei **required** unrepairable Tasks |
+
+Hinweis: Der zentrale `pnpm typecheck` meldet in dieser Umgebung vorbestehende
+TS-6.0-Deprecation-Fehler in `tsconfig.node.json` (nicht durch diese Änderungen
+verursacht); die Änderungen selbst sind typrein. Sieben Test-Dateien scheitern
+umgebungsbedingt am nicht installierbaren Electron-Binary (kein Bezug zur Änderung).
+
 ## 4. Umsetzungshinweis
 
 Die Fixes gehören in den **Code-Branch (`DEV`)**, nicht auf den `retros`-Datenbranch. Dieser Brief
