@@ -6,6 +6,9 @@
  * resolves via PATH and runs as-is.
  */
 import { execFile } from 'node:child_process'
+import { access, realpath } from 'node:fs/promises'
+import { constants as fsConstants } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import { refreshProcessPathFromSystem } from '@main/providers/processPath'
 
@@ -20,6 +23,43 @@ const cache = new Map<string, string>()
 
 /** Order matters: prefer real executables over script shims. */
 const WIN_EXT_PRIORITY = ['.exe', '.com', '.cmd', '.bat', '.ps1']
+
+/**
+ * Version managers such as fnm/nvm often expose only `node` on the app PATH;
+ * pane preflight then dies with `spawn corepack ENOENT` although the toolchain
+ * is installed. These commands ship next to the node binary, so the real
+ * directory of `node` is a reliable fallback location.
+ */
+const NODE_SIBLING_COMMANDS = new Set(['corepack', 'npm', 'npx', 'pnpm', 'pnpx', 'yarn'])
+
+async function nodeSiblingFallback(command: string): Promise<string | undefined> {
+  if (!NODE_SIBLING_COMMANDS.has(command)) return undefined
+  try {
+    const node = process.platform === 'win32'
+      ? (await execFileAsync('where.exe', ['node'], { windowsHide: true })).stdout
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .find(Boolean)
+      : await resolvePosixCommand('node')
+    if (!node || node === 'node') return undefined
+    const binDir = dirname(await realpath(node))
+    const names = process.platform === 'win32'
+      ? WIN_EXT_PRIORITY.map((ext) => `${command}${ext}`)
+      : [command]
+    for (const name of names) {
+      const candidate = join(binDir, name)
+      try {
+        await access(candidate, process.platform === 'win32' ? fsConstants.F_OK : fsConstants.X_OK)
+        return candidate
+      } catch {
+        // next extension candidate
+      }
+    }
+  } catch {
+    // node itself is unresolved — nothing to fall back to
+  }
+  return undefined
+}
 
 async function resolvePosixCommand(command: string): Promise<string> {
   const { stdout } = await execFileAsync(
@@ -65,9 +105,21 @@ async function resolvePath(command: string): Promise<string> {
       }
     }
   } catch {
+    const fallback = await nodeSiblingFallback(command)
+    if (fallback) {
+      cache.set(command, fallback)
+      return fallback
+    }
     // Leave unresolved; the PTY spawn will surface a clear error. Do not cache
     // this miss, because the CLI may be installed while Vertragus keeps running.
     return resolved
+  }
+  if (resolved === command) {
+    const fallback = await nodeSiblingFallback(command)
+    if (fallback) {
+      cache.set(command, fallback)
+      return fallback
+    }
   }
   cache.set(command, resolved)
   return resolved
