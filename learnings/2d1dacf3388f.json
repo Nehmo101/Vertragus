@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784409002575,
+  "exportedAt": 1784410761940,
   "app": {
     "name": "vertragus",
     "version": "0.1.56-main.1.g4b28a5b"
@@ -8,6 +8,20 @@
   "machineId": "2d1dacf3388f",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrqvv91z-1-2248ut",
+      "provider": "claude",
+      "model": "claude-opus-4-8",
+      "role": "electron-core",
+      "kind": "strength",
+      "insight": "zuverlässig im ersten Anlauf bei electron-core, security-reviewer",
+      "evidence": "2/2 Tasks ohne Wiederholung erfolgreich",
+      "source": "auto-retro",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 1,
+      "createdAt": 1784410379927,
+      "updatedAt": 1784410379927
+    },
     {
       "id": "learning-mrqv1ppd-3-hg811w",
       "provider": "cursor",
@@ -93,20 +107,6 @@
       "updatedAt": 1784408594604
     },
     {
-      "id": "learning-mrquszho-2-erekfd",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "renderer-ui",
-      "kind": "weakness",
-      "insight": "Commit-Hygiene muss bei isolierten Renderer-Features vor Abschluss explizit geprüft werden.",
-      "evidence": "Beide Renderer-Tasks scheiterten am Gate git diff --cached --check.",
-      "source": "orchestrator",
-      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
-      "observations": 1,
-      "createdAt": 1784408594604,
-      "updatedAt": 1784408594604
-    },
-    {
       "id": "learning-mrquszho-1-6i7ekx",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -114,6 +114,20 @@
       "kind": "strength",
       "insight": "Erzeugt in parallelen Renderer-Aufgaben verwertbare, klar abgegrenzte Teilcommits.",
       "evidence": "Shortcut-Kern d8ef6ddb und Speech-Adapter 6dd19d10 wurden als partielle Commits gesichert.",
+      "source": "orchestrator",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 1,
+      "createdAt": 1784408594604,
+      "updatedAt": 1784408594604
+    },
+    {
+      "id": "learning-mrquszho-2-erekfd",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "renderer-ui",
+      "kind": "weakness",
+      "insight": "Commit-Hygiene muss bei isolierten Renderer-Features vor Abschluss explizit geprüft werden.",
+      "evidence": "Beide Renderer-Tasks scheiterten am Gate git diff --cached --check.",
       "source": "orchestrator",
       "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
       "observations": 1,
@@ -191,20 +205,6 @@
       "updatedAt": 1784408292010
     },
     {
-      "id": "learning-mrqumi0a-2-h8h929",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "renderer-ui",
-      "kind": "weakness",
-      "insight": "Die erste Lösung deckte das sichtbare UI-Symptom ab, aber nicht den unabhängigen Same-Provider-Persistenzfehler.",
-      "evidence": "Der Integrator musste anschließend zusätzlich modelAfterProviderChange ergänzen; zudem war der Token-Einsatz mit 748746 Tokens sehr hoch.",
-      "source": "orchestrator",
-      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
-      "observations": 1,
-      "createdAt": 1784408292010,
-      "updatedAt": 1784408292010
-    },
-    {
       "id": "learning-mrqumi0a-1-euxyzw",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -212,6 +212,20 @@
       "kind": "strength",
       "insight": "Sehr stark bei gezielter Renderer-UI-Fehleranalyse und vollständiger Regressionstest-Absicherung.",
       "evidence": "Identifizierte Chromium-Datalist-Filterung, implementierte einen gemeinsamen ModelCombo und erreichte 925/925 grüne Tests plus Typecheck, Lint und SecurityGate.",
+      "source": "orchestrator",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 1,
+      "createdAt": 1784408292010,
+      "updatedAt": 1784408292010
+    },
+    {
+      "id": "learning-mrqumi0a-2-h8h929",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "renderer-ui",
+      "kind": "weakness",
+      "insight": "Die erste Lösung deckte das sichtbare UI-Symptom ab, aber nicht den unabhängigen Same-Provider-Persistenzfehler.",
+      "evidence": "Der Integrator musste anschließend zusätzlich modelAfterProviderChange ergänzen; zudem war der Token-Einsatz mit 748746 Tokens sehr hoch.",
       "source": "orchestrator",
       "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
       "observations": 1,
@@ -442,20 +456,6 @@
       "updatedAt": 1784389638808
     },
     {
-      "id": "learning-mrqj21ae-2-kvr5pw",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "renderer-ui",
-      "kind": "weakness",
-      "insight": "In diesem Recovery-Lauf keine modellbezogene Schwäche belegt.",
-      "evidence": "Der Task selbst war erfolgreich; der Planstatus stopped entstand außerhalb des Worker-Ergebnisses.",
-      "source": "orchestrator",
-      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
-      "observations": 1,
-      "createdAt": 1784388861446,
-      "updatedAt": 1784388861446
-    },
-    {
       "id": "learning-mrqj21ae-1-cnm188",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -463,6 +463,20 @@
       "kind": "strength",
       "insight": "Kann einen konsolidierten Renderer-Stand aus mehreren verifizierten Commits konfliktfrei rekonstruieren.",
       "evidence": "Recovery-Task 1/1 erfolgreich, ohne Modell- oder Infrastrukturfehler.",
+      "source": "orchestrator",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 1,
+      "createdAt": 1784388861446,
+      "updatedAt": 1784388861446
+    },
+    {
+      "id": "learning-mrqj21ae-2-kvr5pw",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "renderer-ui",
+      "kind": "weakness",
+      "insight": "In diesem Recovery-Lauf keine modellbezogene Schwäche belegt.",
+      "evidence": "Der Task selbst war erfolgreich; der Planstatus stopped entstand außerhalb des Worker-Ergebnisses.",
       "source": "orchestrator",
       "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
       "observations": 1,
@@ -498,20 +512,6 @@
       "updatedAt": 1784388841450
     },
     {
-      "id": "learning-mrqj1luy-2-abbop8",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "renderer-ui",
-      "kind": "weakness",
-      "insight": "Integrationsverträge müssen trotz isolierter Feature-Erfolge manuell im Hotspot geprüft werden",
-      "evidence": "Feature-Commits waren disjunkt, aber der automatische Gesamtdiff benötigte zentrale Mount-/Locale-/Bridge-Übernahme",
-      "source": "orchestrator",
-      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
-      "observations": 1,
-      "createdAt": 1784388841450,
-      "updatedAt": 1784388841450
-    },
-    {
       "id": "learning-mrqj1luy-1-bv6los",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -519,6 +519,20 @@
       "kind": "strength",
       "insight": "zuverlässig bei parallelen Renderer-UI-Features im ersten Anlauf",
       "evidence": "Canvas, Chat und Overlay: 3/3 Tasks erfolgreich; Typecheck/Lint und fokussierte Suiten grün",
+      "source": "orchestrator",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 1,
+      "createdAt": 1784388841450,
+      "updatedAt": 1784388841450
+    },
+    {
+      "id": "learning-mrqj1luy-2-abbop8",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "renderer-ui",
+      "kind": "weakness",
+      "insight": "Integrationsverträge müssen trotz isolierter Feature-Erfolge manuell im Hotspot geprüft werden",
+      "evidence": "Feature-Commits waren disjunkt, aber der automatische Gesamtdiff benötigte zentrale Mount-/Locale-/Bridge-Übernahme",
       "source": "orchestrator",
       "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
       "observations": 1,
@@ -624,20 +638,6 @@
       "updatedAt": 1784387056681
     },
     {
-      "id": "learning-mrqhzcq1-4-z8pxmh",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "renderer-ui",
-      "kind": "weakness",
-      "insight": "Security-Gate-Anforderungen an berührte OAuth-Oberflächen müssen schon während der UI-Implementierung berücksichtigt werden.",
-      "evidence": "Der Task wurde wegen fehlender Authorization-, Validation- und Secret-Leak-Abdeckung in ProfileEditor.tsx als needs-work bewertet.",
-      "source": "orchestrator",
-      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
-      "observations": 1,
-      "createdAt": 1784387056681,
-      "updatedAt": 1784387056681
-    },
-    {
       "id": "learning-mrqhzcq1-3-x4759r",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -645,6 +645,20 @@
       "kind": "strength",
       "insight": "Schnell und teststark bei sichtbarem Renderer-Rebranding.",
       "evidence": "Folco schloss UI-Anpassungen mit 926 Tests, Typecheck, Lint und Mobile-Build grün ab.",
+      "source": "orchestrator",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 1,
+      "createdAt": 1784387056681,
+      "updatedAt": 1784387056681
+    },
+    {
+      "id": "learning-mrqhzcq1-4-z8pxmh",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "renderer-ui",
+      "kind": "weakness",
+      "insight": "Security-Gate-Anforderungen an berührte OAuth-Oberflächen müssen schon während der UI-Implementierung berücksichtigt werden.",
+      "evidence": "Der Task wurde wegen fehlender Authorization-, Validation- und Secret-Leak-Abdeckung in ProfileEditor.tsx als needs-work bewertet.",
       "source": "orchestrator",
       "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
       "observations": 1,
@@ -722,20 +736,6 @@
       "updatedAt": 1784385853641
     },
     {
-      "id": "learning-mrqh9kg9-2-90eml8",
-      "provider": "codex",
-      "model": "gpt-5.6-sol",
-      "role": "renderer-ui",
-      "kind": "weakness",
-      "insight": "In diesem Lauf keine modellbezogene Schwäche belegt.",
-      "evidence": "Beide Modellaufgaben waren erfolgreich; der einzige Fehler entstand im zentralen Cherry-pick-Gate.",
-      "source": "orchestrator",
-      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
-      "observations": 1,
-      "createdAt": 1784385853641,
-      "updatedAt": 1784385853641
-    },
-    {
       "id": "learning-mrqh9kg9-1-duw1u0",
       "provider": "codex",
       "model": "gpt-5.6-sol",
@@ -743,6 +743,20 @@
       "kind": "strength",
       "insight": "Integriert komplexe Canvas-Layoutänderungen zuverlässig mit vollständiger Projektverifikation.",
       "evidence": "Beide Renderer-Tasks erfolgreich; Integrator meldete 939/939 Tests sowie Typecheck und Lint grün.",
+      "source": "orchestrator",
+      "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+      "observations": 1,
+      "createdAt": 1784385853641,
+      "updatedAt": 1784385853641
+    },
+    {
+      "id": "learning-mrqh9kg9-2-90eml8",
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "role": "renderer-ui",
+      "kind": "weakness",
+      "insight": "In diesem Lauf keine modellbezogene Schwäche belegt.",
+      "evidence": "Beide Modellaufgaben waren erfolgreich; der einzige Fehler entstand im zentralen Cherry-pick-Gate.",
       "source": "orchestrator",
       "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
       "observations": 1,
