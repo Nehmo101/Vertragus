@@ -1,144 +1,245 @@
 # Maßnahmenplan: Beseitigung der wiederkehrenden Probleme aus den Retros
 
-**Datenbasis:** 80 Run-Retros (`runs/2026/07/`), 3 Learnings-Snapshots (`learnings/`), Stand 2026-07-18.
+**Datenbasis:** 80 Run-Retros (`runs/2026/07/`, 14.–18.07.2026), 3 Learnings-Snapshots,
+abgeglichen gegen den Code-Stand `origin/DEV` (Commit `17e5313`, 17.07.) und den bereits
+existierenden `docs/RETRO_IMPROVEMENT_PLAN.md` (Stand 15.07.).
 
-**Gesamtbild:** 19 × success, 27 × error, 19 × needs-work, 14 × stopped (1 × ohne Status).
-Der überwiegende Teil der 60 nicht-erfolgreichen Läufe scheiterte **nicht an der fachlichen
-Modellarbeit**, sondern an Plattform- und Infrastrukturproblemen des Orchestrators: In vielen
-error-Retros ist das Feature nachweislich vollständig geliefert und verifiziert (grüne Gates,
-Commits vorhanden), der Lauf wurde aber durch nachgelagerte Schritte rot gewertet.
+> Diese Fassung ersetzt den ersten, allein aus den Retros abgeleiteten Wurf. Der Abgleich mit
+> dem echten Code zeigt: Ein Großteil der dort genannten Cluster ist **bereits behoben**. Dieser
+> Brief konzentriert sich daher auf die **nachweislich noch offenen** Probleme — verankert an
+> konkreten Datei-/Zeilenstellen mit minimalem Fix und deckendem Test. Datei-/Zeilenangaben
+> beziehen sich auf `origin/DEV`.
 
----
-
-## Problemcluster (nach Häufigkeit und Wirkung)
-
-### P0-1 — Permission-Broker/YOLO erreicht Plan-Worker nicht (≥ 19 Retros, Hauptursache der stopped-Läufe)
-
-**Symptome:**
-- `profile.yoloDefault` **und** `yoloMaster` gesetzt, trotzdem laufen Plan-Worker in der Restricted-Token-Sandbox; YOLO wirkt nur auf neu gespawnte Teams (`spawnProfileTeam`), nicht auf Plan-Worker einer laufenden Session (retro-mrpjohl2, retro-mrngcim6).
-- Claude-Worker laufen ohne skip-permissions: Write/Edit/Bash werden headless mit „Orca permission denied or timed out" abgelehnt (retro-mrnfvncl).
-- Permission-Broker: 60s-Timeout → deny für alle Nicht-YOLO-Worker (retro-mrpjohl2, 0/9 Tasks).
-- Panel-Freigaben werden dem Orchestrator nicht aktiv zurückgemeldet — kein Event bei Approval, nur Polling über `list_tasks`/`get_plan_status` (retro-mrm259nv).
-- QA-Gate-Läufe hängen an interaktiven Bash-Tool-Freigaben ohne Panel-Approval.
-
-**Maßnahmen:**
-1. YOLO-Konfiguration (`yoloDefault`/`yoloMaster`) in den Launch-Pfad der **Plan-Worker** durchreichen — nicht nur in `spawnProfileTeam`. Regressionstest: Plan-Worker unter YOLO darf keinen Permission-Prompt erzeugen.
-2. Claude-Worker headless grundsätzlich mit passendem Permission-Mode starten (skip-permissions bzw. vorab genehmigte Allowlist), solange sie in einer isolierten Worktree-Sandbox arbeiten.
-3. Approval-Events aktiv in den Orchestrator pushen (Event/Statuswechsel statt Polling); bis dahin dokumentiertes Polling-Intervall als Workaround.
-4. Broker-Timeout konfigurierbar machen und bei ausstehender Freigabe den Task in einen sichtbaren `waiting-approval`-Zustand versetzen statt still in deny/Timeout laufen zu lassen.
-
-**Erfolgskriterium:** Kein Lauf endet mehr als stopped/error allein wegen verweigerter Schreibrechte bei aktivem YOLO.
-
-### P0-2 — Codex-Sandbox: `esbuild spawn EPERM` blockiert Vitest/Vite-Build (16 Retros)
-
-**Symptome:** Vitest- und Vite-Build-Gates scheitern reproduzierbar in der Codex-Worker-Sandbox an `esbuild spawn EPERM` — fertiger, fachlich grüner Code endet als needs-work/Quarantäne-Commit (u. a. retro-mrn5nmde, retro-mrn5aaxa, retro-mrnheut3, retro-mrn6iq0m). Folgeeffekt: Worker melden BLOCKER trotz grünem Typecheck/Lint.
-
-**Maßnahmen:**
-1. Sandbox-Profil so anpassen, dass esbuild sein Binary spawnen darf, oder `ESBUILD_BINARY_PATH` auf ein vorinstalliertes Binary setzen (kein Spawn über den blockierten Pfad).
-2. Fallback im Gate-Runner: bei EPERM automatisch `pnpm exec vitest run <datei> --config false` (config-freier Lauf ohne esbuild-Bundling) versuchen, bevor das Gate als rot gilt.
-3. Infra-Fehler klassifizieren: Gate-Ergebnis `infra-blocked` einführen, das **nicht** als needs-work/Modellschwäche gewertet wird und die Auto-Retro-Learnings nicht verfälscht.
-4. Sandbox-Preflight vor Plan-Dispatch: einmaliger esbuild/vitest-Smoke pro Slot; bei Fehlschlag Slot markieren und Tests zentral (außerhalb der Sandbox) ausführen.
-
-**Erfolgskriterium:** Kein needs-work-Urteil mehr, dessen einzige Ursache `esbuild spawn EPERM` ist.
-
-### P0-3 — Zentrale Auto-Integration: Cherry-Pick-Kollisionen und Base-Divergenz (≥ 8 Retros, dominiert die jüngsten Läufe)
-
-**Symptome:**
-- Erneuter Cherry-Pick eines bereits im Arbeitsbaum materialisierten Commits schlägt fehl — drei Läufe in Folge (retro-mrqsh5km, retro-mrqwzi39, retro-mrqjip3y).
-- Integrations-Commit kollidiert zentral mit parallel erzeugtem QA-Commit (retro-mrn52aoz, retro-mrqh8tux).
-- Stale Base / Base-Divergenz vor PR-Replay nicht geprüft: fachlich grüner Commit ist gegen 23 parallele main-Commits breit konfliktbehaftet (retro-mrqt5wlo, retro-mrqxapm5).
-- Required-Basis-Commit ist kein Ancestor des aktuellen HEAD → Folgeplan findet gelieferten Code nicht vor (retro-mrnchpk2).
-
-**Maßnahmen:**
-1. Idempotenz-Check vor jedem Cherry-Pick: `git merge-base --is-ancestor` bzw. `git patch-id`-Vergleich — bereits enthaltene/materialisierte Commits überspringen statt erneut anwenden.
-2. Semantisch gegen den **aktuellen** Zielbranch integrieren (rebase/merge des Integrator-Stands) statt blindem Replay der ursprünglichen Commit-SHA.
-3. Reihenfolge fixieren: Integrator-Commit zuerst zentral übernehmen, **danach** QA/Follow-up-Tasks auf diesem Stand starten (QA gegen parallelen Integrator-Worktree hat Typecheck-Gate und Cherry-Picks gebrochen, retro-mrn5qqe4).
-4. Preflight vor Folgeplänen und PR-Publishing: Branchspitze, Base-Divergenz (`git rev-list --count base..origin/main`) und „required commit ist Ancestor" prüfen; bei starker Divergenz Draft-PR vom verifizierten Gesamtcommit statt blinder Konfliktauflösung.
-
-**Erfolgskriterium:** Kein Lauf endet mehr als error, dessen Tasks alle fachlich erfolgreich waren.
-
-### P1-4 — Hohle Erfolge und verletzter Ergebnisvertrag (7 Retros)
-
-**Symptome:**
-- Cursor/composer-Worker melden „success" mit 0 Änderungen — nur Selbstvorstellung („Ich bin X, womit soll ich anfangen?"), kein Diff (retro-mrn50sux, retro-mrn52aoz: alle 4 Cursor-Tasks hohl).
-- Judge wertet Blocker-Analyse mit „Timer läuft" fälschlich als success/no-changes (retro-mrpirnc8).
-- Umgekehrt: Task mit grünen Gates und Erfolgsmeldung wird als error (exit 0) gewertet, 15 Dateien landen in Quarantäne statt Übernahme (retro-mrl5ec4i); `ERGEBNIS:BLOCKER` trotz vollständiger Arbeit wegen Infra-Blockern beim formalen Selbstabschluss (retro-mrn5aaxa).
-
-**Maßnahmen:**
-1. Judge härten: `success` erfordert nicht-leeren Diff gegenüber der Task-Base **oder** eine explizite, geprüfte No-op-Begründung; „success + no-changes" bei Implementierungsauftrag automatisch als failed werten und den Task re-dispatchen.
-2. Ergebnisvertrag maschinell validieren: `ERGEBNIS:`-Format prüfen; bei Widerspruch zwischen Selbstmeldung und Gate-Realität gewinnt die Gate-Realität (grüne Gates + Diff ⇒ kein BLOCKER; leerer Diff ⇒ kein success).
-3. Ergebnisformat- und Gate-Anforderungen standardmäßig in jeden Worker-Prompt injizieren (mehrere Retros fordern das explizit).
-
-**Erfolgskriterium:** Kein „success" ohne Diff mehr in den Retros; keine Quarantäne von Ständen mit grünen Gates.
-
-### P1-5 — Gate-Heuristiken mit False Positives: Security-Vokabular & Whitespace (≥ 8 Retros)
-
-**Symptome:**
-- Security-Gate (`missing-oauth-controls`/`missing-secret-controls`) flaggt deterministisch jede Doku, die legitime Security-Entitätsnamen katalogisiert (ApiToken, TwoFactorSecret, OAuth-Routen) (retro-mrm3jl3a, retro-mrm75c35: alle needs-work-Urteile aus zwei Plattformproblemen).
-- Commit-Gate `git diff --cached --check` lässt Markdown-/Integrator-Tasks an trailing whitespace/CRLF scheitern — selbst wenn der Prompt Whitespace-Hygiene bereits vorschreibt (retro-mrn6jk6j).
-- Temp-/Arbeitsdateien (`.verify-*-tmp.md`) landen im partiellen Commit.
-
-**Maßnahmen:**
-1. Security-Heuristik kontextsensitiv machen: Doku-/Katalog-Kontexte (z. B. `docs/`, Markdown ohne Code-Änderung) von der Vokabular-Heuristik ausnehmen oder einen geprüften Kontroll-Nachweis-Mechanismus (Allowlist je Datei) anbieten.
-2. Whitespace vor dem Commit automatisch normalisieren (trailing whitespace/CRLF-Fix als Pre-Commit-Schritt im Gate-Runner) statt hart zu scheitern.
-3. Erforderliche Security-Controls je berührter Datei automatisch in den Task-Prompt aufnehmen (IPC/OAuth-Oberflächen), damit sie während der Implementierung berücksichtigt werden, nicht erst im Gate.
-4. Aufräum-Schritt vor Commit: bekannte Temp-Muster (`.verify-*-tmp.md` u. ä.) ausschließen.
-
-### P1-6 — Plan-Validierung & Task-Branch-Topologie (≥ 5 Retros)
-
-**Symptome:**
-- Pläne kollabieren wegen `invalid_ownership` zum Fallback: Integrator muss auch von Advisory-Feature-Tasks abhängen; `src/shared/*` ist komplett Shared-Hotspot (retro-mrl5ec4i, retro-mrl8oij8, retro-mrl8sb6e). Die Fallback-Worker liefern dann zwar, aber der Plan gilt als kollabiert.
-- Abhängige Tasks branchen ohne den Foundation-Commit: Modul lag nur auf isoliertem Task-Branch, `dependsOn []` → zentraler Typecheck scheitert am unauflösbaren Import (retro-mrn5qqe4, retro-mrqv1blp).
-
-**Maßnahmen:**
-1. Planner-Autokorrektur: fehlende Integrator-Abhängigkeiten auf Advisory-Tasks automatisch ergänzen statt den Plan zu invalidieren; Ownership-Validierung **vor** Dispatch mit klarer Fehlermeldung an den Planer.
-2. Hotspot-Regeln (`src/shared/*` ⇒ Integrator) im Plan-Schema dokumentieren und im Planner-Prompt mitgeben, damit gar keine invaliden Pläne entstehen.
-3. Worktree-Basis abhängiger Tasks muss die Commits aller `dependsOn`-Tasks enthalten; Preflight: „alle Dependency-Commits sind Ancestor der Task-Base", sonst Dispatch verweigern.
-4. Isoliert entworfene Tests erst im Integrationsstand verbindlich machen (nicht als harte Abhängigkeit gegen fehlendes Parallelmodul laufen lassen).
-
-### P2-7 — Slot-Verfügbarkeit und Provider-Kapazität (≥ 4 Retros)
-
-**Symptome:** codex-Slots fallen mitten in der Session auf `available:false` (Sandbox-Runtime-Preflight schlägt fehl) — jeder codex-Task kollabiert zu `invalid_task`/Fallback (retro-mrn6bn75); „Selected model is at capacity" tötet lange Einzeltasks (retro-mrl5ec4i); Claude-QA stirbt am Monats-Spend-Limit (retro-mrn6iq0m).
-
-**Maßnahmen:**
-1. Slot-Verfügbarkeits-Preflight unmittelbar vor Plan-Dispatch; bei `available:false` sofortiges Re-Routing auf definierte Ausweich-Slots statt Plan-Kollaps.
-2. Kapazitäts-/Spend-Limit-Fehler als transient klassifizieren: Retry mit Backoff bzw. Slot-Wechsel, Recovery-Artefakte (Quarantäne-Übernahme) beibehalten — das funktionierte bereits sauber.
-
-### P2-8 — Zentrale Gate-Umgebung unvollständig (3 Retros)
-
-**Symptome:** `corepack` fehlt im PATH → Pane-Preflight schlägt für alle 9 Tasks fehl, bevor ein Modell arbeitet (retro-mrphz4dw); zentrales Integrations-Gate scheitert an fehlendem eslint/node_modules, obwohl alle Worker-Gates grün waren (retro-mrl8o9dg, retro-mrqxapm5).
-
-**Maßnahmen:**
-1. Environment-Preflight für die zentrale Gate-Umgebung (corepack, pnpm install, eslint auflösbar) beim Start jedes Planlaufs; fehlende Werkzeuge automatisch provisionieren.
-2. Gate-Parität sicherstellen: zentral laufen exakt dieselben Kommandos in einer Umgebung, die der Worker-Umgebung entspricht.
-
-### P2-9 — Remote-CI-Watch ohne terminalen Status (3 Retros)
-
-**Symptome:** Nach erfolgreichem PR bleibt der Remote-CI-Watch ohne terminales Ergebnis hängen; sonst grüne Läufe enden als stopped (retro-mrn5pdnn, retro-mrqulr14).
-
-**Maßnahmen:** Timeout + Polling-Fallback für den CI-Watch; CI-Status sauber auf terminale Plan-Zustände mappen (CI grün ⇒ success, auch wenn der Watch-Kanal abbricht).
+**Gesamtbild:** 19 × success, 27 × error, 19 × needs-work, 14 × stopped. Wie schon im
+`RETRO_IMPROVEMENT_PLAN` festgehalten: Die meisten nicht-erfolgreichen Läufe scheiterten
+**nicht an der Modellarbeit**, sondern an nachgelagerten Plattform-Schritten — das Feature war
+oft fertig, verifiziert und committet, der Lauf wurde trotzdem rot/gestoppt gewertet.
 
 ---
 
-## Umsetzungsreihenfolge
+## 0. Bereits erledigt (Abgleich mit dem Code — nicht erneut angehen)
 
-| Welle | Maßnahmen | Begründung |
-|-------|-----------|------------|
-| 1 (sofort) | P0-1 (YOLO/Permissions), P0-2 (esbuild EPERM), P0-3 (Cherry-Pick-Idempotenz + Base-Check) | Beseitigt die Ursachen von grob 2/3 aller nicht-erfolgreichen Läufe; alles Plattformfehler, kein Modellverhalten. |
-| 2 | P1-4 (Judge/Ergebnisvertrag), P1-5 (Gate-False-Positives), P1-6 (Planner-Autokorrektur/Branch-Topologie) | Stellt die Verlässlichkeit der Bewertungen und Learnings wieder her — aktuell verfälschen Infra-Fehler die Auto-Retro-Learnings („fehleranfällig bei codex" ist überwiegend ein Sandbox-Artefakt). |
-| 3 | P2-7 (Slot-Preflight), P2-8 (Gate-Umgebung), P2-9 (CI-Watch) | Härtung; jeweils wenige, klar lokalisierte Vorfälle. |
+Die folgenden Punkte meines ersten Wurfs sind in `DEV` **schon umgesetzt** und in den frischesten
+Retros (18.07.) **nicht mehr aufgetreten**:
 
-## Messbare Zielgrößen (Review nach ~4 Wochen anhand neuer Retros)
+| Ehemaliger Cluster | Status im Code | Beleg / Fundstelle |
+|---|---|---|
+| Ownership-Kollaps `invalid_ownership` → Fallback | **behoben** (Reparatur statt Kollaps: Shared-Hotspot-Serialisierung + Advisory-Kanten) | `planner.ts:231-293`, `repaired_ownership`; Tests `plannerOwnership.test.ts` |
+| Security-Gate flaggt Doku deterministisch | **behoben** (Doku-Pfade + konfigurierbare Excludes ausgenommen; Secret-Patterns weiter überall) | `securityGate.ts:70-73,87-97,150-151`; `profile.ts:83` |
+| Whitespace-Gate blockiert hart | **entschärft** (als needs-work-Finding gerettet statt `blocked`) | `autoPr.ts:583-612`, `captureNeedsWorkChange` |
+| Temp-/Scratch-Dateien im Commit | **behoben** (Entstaging + Finding `temp-files-removed`) | `autoPr.ts:214-225`; `workspaceRunLifecycle.ts:61-69` |
+| „at capacity" killt lange Tasks | **behoben** (als Limit-Signal → Slot-Wechsel-Retry) | 0 Vorkommen am 18.07. |
+| Hohle No-changes-„Erfolge" (Grundfall) | **teilweise behoben** (Recovery-Adoption, Gate-Arbitration) | siehe P5 (Restlücke) |
+| Approval nur per Polling | **teilweise behoben** (`plan-review`-Event, `await_plan_approval` für das **Plan**-Review) | siehe P6 (Tool-Permission-Restlücke) |
+| Fehlende Gate-Tools (eslint/prisma) zentral | **teilweise behoben** (Worktree-Install ohne `--ignore-scripts`; `command not found`/`ENOENT` = Infra) | `autoPr.ts:29-35`; siehe P3/corepack-Restlücke |
 
-1. Anteil der Läufe, die trotz vollständig erfolgreicher Tasks terminal error/stopped enden: **aktuell ≥ 15 von 80 → Ziel 0**.
-2. needs-work-Urteile mit alleiniger Ursache `esbuild spawn EPERM`: **aktuell 16 Retros betroffen → Ziel 0**.
-3. Läufe, die an Permission-Timeouts scheitern, obwohl YOLO aktiv ist: **Ziel 0**.
-4. „success"-Meldungen ohne Code-Diff bei Implementierungsaufträgen: **Ziel 0** (werden als failed re-dispatcht).
-5. Auto-Retro-Learnings enthalten keine Modell-„weakness" mehr, deren Ursache als Infra klassifiziert wurde.
+**Konsequenz:** Der Fokus verschiebt sich klar auf die **zentrale Integration** und einige eng
+umrissene Restlücken.
 
-## Hinweis zur Datenqualität der Learnings
+---
 
-Die konsolidierten Learnings (`learnings/*.json`) schreiben derzeit Plattformfehler den Modellen zu
-(z. B. 16 × „Worker-Versuche scheiterten; Aufgaben wurden auf andere Slots umgeleitet", 5 × „fehleranfällig
-bei codex"). Nach Umsetzung von P0-2/P1-4 sollten die betroffenen Einträge neu bewertet oder mit einem
-Infra-Flag versehen werden, damit das Modell-Routing nicht auf verzerrten Daten optimiert.
+## 1. Verbleibende offene Probleme (priorisiert nach Hebel × Aktualität)
+
+### P1 — Zentrale Auto-Integration per Cherry-Pick (DOMINANT, verschärft sich)
+
+**Evidenz:** 7 der 9 Cherry-Pick-Fehlschläge im gesamten Zeitraum fallen auf den **18.07.** — also
+*nach* allen bisherigen Fixes: retro-mrqsh5km („dritter Fehlschlag in Folge"), mrqh8tux, mrqjip3y,
+mrqiyrxx, mrqvv924, mrqwzi39; Base-Divergenz: mrqt5wlo, mrqxapm5. In allen Fällen waren die Tasks
+fachlich grün — nur die zentrale Übernahme wurde rot.
+
+**Code-Ursache** (`src/main/integrations/autoPr.ts`): `publishAggregate` (`:970-1027`) baut ein
+frisches Integrations-Worktree aus `origin/${base}` und cherry-pickt jeden Task-Commit
+(`:980-984`). Jeder Fehler bricht den **gesamten Batch** ab → `status:'blocked'` (`:1021-1027`).
+Es gibt **nirgends** eine Idempotenz-/Ancestor-Prüfung (`git merge-base --is-ancestor`, `patch-id`)
+— per grep null Treffer in `src/`. Folgen:
+- Ein bereits im Baum materialisierter Commit lässt `cherry-pick` an „empty/nothing to commit"
+  scheitern → Abbruch (die „dreimal in Folge"-Kollision).
+- Vor `worktree add … origin/${base}` (`:977`) steht **kein `git fetch`** → stale Base; die
+  Cherry-Picks passen gegen ein veraltetes `origin/main` und GitHub meldet danach den Konflikt.
+- `prepareTaskChange` (`:460`) macht `git reset --soft baseCommit` (`:486`) **ohne** zu prüfen, ob
+  `baseCommit` Ancestor von HEAD ist → bei divergiertem Folgeplan werden gelieferte Commits still
+  fallengelassen („Folgeplan sieht den Code nicht", retro-mrnchpk2).
+
+**Fix (eine `publishAggregate`-Härtung):**
+1. Neuer Helfer `isAncestor(cwd, a, b)` = `git merge-base --is-ancestor a b` (exit 0/1 → bool; benötigt
+   einen exit-code-fähigen Runner neben dem werfenden `git()` bei `:191`).
+2. In der Cherry-Pick-Schleife (`:983`): `if (await isAncestor(integrationPath, commit, 'HEAD')) continue;`
+   sonst cherry-picken; bei „empty" `--skip`/`--allow-empty` statt Batch-Abbruch. Optional patch-id-
+   Vorabgleich gegen `origin/base..HEAD` für rebasede Duplikate.
+3. Vor `:977`: `git fetch origin ${base}`; danach Divergenz messen
+   (`git rev-list --count <taskBase>..origin/${base}`) und bei Divergenz das Integrations-Branch auf
+   `origin/${base}` rebasen bzw. mit klarer „stale base"-Begründung blocken.
+4. In `prepareTaskChange` (`:486`) vor dem Soft-Reset: `isAncestor(worktree, baseCommit, 'HEAD')`
+   prüfen; bei false auf echten `merge-base` zurückfallen statt gelieferte Commits zu verlieren.
+
+**Test:** `GitTestHarness`-Integrationstest (Basis enthält Commit X bereits → `publishAggregate`
+überspringt X und öffnet trotzdem den PR statt `blocked`); zweiter Fall: `origin/main` nach
+Base-Erfassung vorgerückt → stale Base wird erkannt (rebased/blocked), nicht blind ge-PRt.
+Hinweis: `publishAggregate` ist derzeit **nicht** in `autoPrInternals` exportiert (`:1048`) — für
+den Test entweder exportieren oder `GitTestHarness` gegen ein Temp-Repo nutzen.
+
+### P2 — Remote-CI-Watch endet ohne terminalen Status → grüne PRs werden `stopped` (höchster Einzel-Hebel)
+
+**Evidenz:** retro-mrqulr14, mrn5pdnn — alle Fachaufgaben grün, nur der nachgelagerte CI-Watch
+lieferte keinen terminalen Status → Lauf `stopped`.
+
+**Code-Ursache:** `monitorRemoteCi` (`autoPr.ts:814`) verwirft den Exit-Code des `gh pr checks
+--watch` (`:856`) und macht stattdessen **eine** Nachlese (`:877`). Liefert diese im Rennen direkt
+nach `--watch` leer/`pending`, fällt der Code auf `timed-out` (`:895`). `Engine.ts:2744-2747` mappt
+`timed-out`/`unavailable` → **`stopped`**. Ein tatsächlich grüner PR endet so als `stopped`.
+
+**Fix (`autoPr.ts:877-900`):** (a) `watched.exitCode === 0 && !watched.timedOut` → `passed`
+(der Watch-Exit ist bereits ein terminales Signal); non-zero → einmal nachlesen, um `failed` vs
+`cancelled` zu unterscheiden, aber bei grünem Exit **nicht** auf `timed-out` durchfallen. (b) Die
+einzelne Nachlese durch eine kurze, begrenzte Poll-Schleife ersetzen (`REMOTE_CI_POLL_MS`/`deps.delay`
+sind schon importiert), die bis „nicht-`pending`" oder ein kleines Deadline pollt.
+
+**Test:** `autoPr.test.ts` (`monitorRemoteCi`-Deps-Mock, vorhandenes Muster bei `:74`): `watch`
+liefert `exitCode:0`, danach `pending`/leer → Assertion `passed` statt `timed-out`. Engine-Ebene:
+`remoteCi.status='passed'` ⇒ Integrations-Task `success`.
+
+### P3 — `esbuild spawn EPERM` wird als needs-work / Modellfehler gewertet (Klassifikations-Lücke)
+
+**Evidenz:** 16 der 80 Retros (v. a. mrn-Serie, 16.–17.07.): fertiger grüner Code endet als
+needs-work/Quarantäne, Worker melden BLOCKER. Am 18.07. nicht aufgetreten (die Läufe waren
+integrations-, nicht build-lastig) — bleibt aber Backlog-Punkt #4 des bestehenden Plans.
+
+**Code-Ursache:** `GATE_INFRASTRUCTURE_PATTERNS` (`autoPr.ts:29-35`) enthält `command not found`,
+`ENOENT`, `cannot find module` — aber **nicht** `EPERM`/`esbuild`. Ein esbuild-EPERM läuft daher
+nicht in den Infra-Zweig (`:565-581`), sondern in den needs-work-Zweig (`:583-613`). Zugleich
+wertet `judgeWorkerTerminalResult` (`Engine.ts:255-261`) ein selbstgemeldetes `ERGEBNIS: BLOCKER`
+als `failureKind:'worker'` (= Modellfehler). **Widerspruch:** Die Retro-Analyse behandelt EPERM
+längst als Infra (`src/shared/retro/runAnalysis.ts:28`, `INFRA_FAILURE_PATTERNS`) — die Gate- und
+Judge-Schicht aber nicht, sodass die Tasks den infra-ausnehmenden Retro-Zweig nie sauber erreichen.
+
+**Fix:**
+1. `autoPr.ts:29-35`: `/(?:^|\W)EPERM\b/i` (und `/esbuild/i`) zu `GATE_INFRASTRUCTURE_PATTERNS`
+   hinzufügen → `QualityGateError.infrastructure=true` → Infra-Retry, dann `result:'blocked',
+   infrastructure:true` → `Engine.ts:1834` setzt `failureKind:'infrastructure'`.
+2. `Engine.ts:233-261` `judgeWorkerTerminalResult`: vor dem BLOCKER-Zweig (`:255`) eine
+   esbuild-`spawn EPERM`-Signatur im Worker-Output als `failureKind:'infrastructure'` (recoverable)
+   klassifizieren statt `'worker'`. (Alternativ in `headless.ts:155-177` `FATAL_SANDBOX_PATTERN`
+   erweitern, das bereits nach `'sandbox'` mappt.)
+3. Optionaler Kausal-Fix: `pnpm exec vitest run <datei> --config false`-Fallback im
+   `runGatesWithBootstrapRetry` (`autoPr.ts:370-383`), eng auf vitest-Kommandos begrenzt.
+
+**Test:** `autoPr.test.ts:239-258` (vorhandener Infra-Klassifikationstest) um einen
+`esbuild … spawn EPERM`-Fall mit `infrastructure:true` erweitern; Gegenprobe: echte Lint-Meldung
+bleibt `infrastructure:false`. `asyncDispatch.test.ts` (nahe `:96-105`): BLOCKER + `spawn EPERM`
+→ `failureKind:'infrastructure'`.
+
+### P4 — `dependsOn` seedet nicht die Worktree-Base (bestätigter Topologie-Bug)
+
+**Evidenz:** retro-mrqv1blp (18.07.), mrn5qqe4 — abhängige Tasks branchen ohne den
+Foundation-Commit; zentraler Typecheck scheitert am unauflösbaren Import.
+
+**Code-Ursache:** `worktree.ts:82-101` (`:93`): `git worktree add -b <branch> <path>` **ohne Base-Ref**
+→ jeder Task branched von HEAD, nie vom Dependency-Commit. `dependsOn` steuert nur die
+*Scheduling-Reihenfolge* (`Engine.ts:2181-2217`); die Dependency-Commits (`preparedChanges`) werden
+erst am Ende zusammengeführt (`Engine.ts:2648`), nie in die abhängigen Worktrees geseedet.
+`AgentManager` berechnet `baseCommit` nur als eigenes Worktree-HEAD (`:1235-1240`).
+
+**Fix:** Optionalen Base-Ref durch `createWorktree`/`worktreeIdentity` (`worktree.ts:82`) reichen →
+`git worktree add -b <branch> <path> <baseRef>`; im `Engine`/`AgentManager.runTask`
+(`AgentManager.ts:455-479`) den Merge-Punkt der Dependency-`preparedChanges` als `baseRef` auflösen.
+
+**Test:** `worktree.test.ts` — `worktree add` wird mit dem übergebenen Base-Ref aufgerufen; plus
+Engine-Integrationstest: das Worktree eines abhängigen Tasks enthält die Vorgänger-Datei.
+
+### P5 — Restlücke „hohler Erfolg": `ERGEBNIS: ERFOLG` + 0 Diff bleibt `success`
+
+**Code-Ursache:** `judgeWorkerTerminalResult` bewertet allein anhand des Markers (`Engine.ts:263-267`);
+`headless.ts:128-146` matcht nur den String. Die Leer-Diff-Erkennung existiert
+(`autoPr.ts:490-493,538-540`; `commitContract.ts:5-7`), stuft aber nicht herab: der
+`no-changes`-Zweig (`Engine.ts:1826-1829`) lässt den bereits gesetzten `success` unangetastet.
+Zweite Restlücke: bei **non-zero Exit** wird `unconfirmed` nicht gesetzt (`:288-293`), sodass
+`gateArbitration` (`:1717`) nicht greift und grüne Gates trotz fertigem Code nicht adoptiert werden
+(Quarantäne statt Übernahme).
+
+**Fix:** (a) Im `no-changes`-Zweig (`Engine.ts:1826-1829`): wenn der Erfolg nur über den Marker kam
+**und** der Task `expectedFiles` trägt (gesetzt `:2212`), auf `needs-work` mit Finding
+`result-contract` herabstufen. (b) `unconfirmed` auch im finalen `error/worker`-Return (`:288-293`)
+setzen, wenn `autoPr` + Worktree vorhanden — damit `gateArbitration` unabhängig vom Exit-Code
+entscheidet.
+
+**Test:** `multiAgentMode.test.ts` (treibt `ERGEBNIS: ERFOLG` bereits, `:105/:173`) um ein Worktree
+ohne Staging erweitern → Task ist **nicht** `success`. Unit: `judgeWorkerTerminalResult` mit
+`exitCode:1, isError:true` → `unconfirmed:true`.
+
+### P6 — Permission-Restlücken (der Normalpfad funktioniert bereits)
+
+**Klarstellung:** Die pauschale Retro-These „YOLO erreicht Plan-Worker nicht" ist für den
+Frisch-Start **widerlegt** — beide Produktions-Caller (`ipc/register.ts:495`,
+`inbox/transferService.ts:287`) starten via `spawnProfileTeam`; `yoloMaster` wird als
+`yoloDefault:true` in den `boundProfile` gehoben (`spawnProfile.ts:21-23`) und `Engine.dispatch`
+gibt Plan-Workern `yolo=true` (`Engine.ts:1444`). Echte, eng umrissene Restlücken:
+
+1. **Live-Toggle friert ein:** `yoloMaster` wird nur von `spawnProfileTeam` konsumiert; eine
+   laufende Session aktualisiert `boundProfile.yoloDefault` nie. → Setter
+   `OrchestratorEngine.setYolo(enabled)` (mutiert `boundProfile`), aus dem Spawn-IPC bei
+   bestehender Engine aufrufen. Zusätzlich `ensure()`-Discard beheben (`spawnProfile.ts:24-27`;
+   `WorkspaceSessionRegistry.ts:118-127` ignoriert das übergebene Profil).
+2. **60s-Broker-Deny trifft Non-YOLO-Headless-Worker hart:** Das Singleton
+   (`PermissionBroker.ts:209`, Default `timeoutMs=60_000`, `:105`) denyt nach 60s
+   (`:181`) und liefert „Orca permission denied or timed out." (`OrcaMcpServer.ts:803`). → `timeoutMs`
+   pro Kontext durch `requestDecision`→`open` reichen; 60s nur für interaktive PTY-Prompts,
+   Headless länger/deaktiviert.
+3. **Kein Push der Tool-Freigabe an den Orchestrator:** `await_plan_approval` deckt nur das
+   *Plan*-Review, nicht Tool-Permissions; der LLM erkennt Freigaben nur per Polling. → MCP-Tool
+   `await_permission(taskId)` ergänzen, das auf das `'resolved'`-Event des Brokers auflöst
+   (`Engine.ts:459-467`).
+
+**Test:** `spawnProfile.test.ts:155` (yoloMaster) um „nachfolgend dispatchter Task erbt yolo=true"
+erweitern; Broker-Test mit injiziertem `now` → kein Deny vor konfiguriertem Fenster;
+`await_permission`-Test analog `awaitTools.test.ts`.
+
+### P7 — Security-Gate: Entitäts-Kataloge in Nicht-Doku-Quelldateien (schmaler Rest)
+
+**Code-Ursache:** Die Doku-Ausnahme (`securityGate.ts:150-151`, `isDocumentationFile:70-73`) ist rein
+pfad-/endungsbasiert. Ein Katalog legitimer Entitätsnamen (`ApiToken`, `TwoFactorSecret`,
+OAuth-Routen) in einer `.ts`-Registry/`schema.prisma` ist nicht ausgenommen, matcht die
+Surface-Regex (`:35-42`) und fordert Negativtests, die eine reine Inventar-Datei nie liefern kann.
+
+**Fix:** Im Continue-Guard (`:149-160`) zusätzlich (a) konfigurierbare `securityCatalogPaths` (Glob,
+`globToRegExp:76-85` existiert) oder (b) rein deklarative Added-Lines (kein `import`/Call/`=>`) als
+katalog-ausgenommen behandeln. Secret-Leak-Patterns (`:28-33`) bleiben überall aktiv.
+
+**Test:** `securityGate.test.ts` — `.ts`-Katalog ohne Tests → `findings` leer nach Ausnahme.
+
+### P8 — Planner: Advisory-Feature-Deps werden dem Integrator nicht ergänzt (schmaler Rest)
+
+**Code-Ursache:** Die Auto-Ergänzung fehlender Integrator-Kanten existiert (`planner.ts:253-293`),
+`missingDependencies` (`:259-264`) filtert aber auf `criticality === 'required'` — hängt der
+Integrator an einer **advisory** Feature-Task, repariert nichts und der Plan kann zu
+`invalid_ownership` kollabieren.
+
+**Fix:** `missingDependencies` (`:259-264`) optional auch Advisory-Tasks einschließen (gleicher
+`dependsTransitively`-Zyklus-Guard). **Test:** `plannerOwnership.test.ts` analog `:59-82` mit
+advisory Feature-Task → Advisory-Kante ergänzt, `usedFallback===false`.
+
+---
+
+## 2. Umsetzungsreihenfolge
+
+| Welle | Punkte | Begründung |
+|-------|--------|------------|
+| **1 (sofort)** | **P1** (Cherry-Pick-Härtung: fetch + ancestor-skip + Divergenz-Guard), **P2** (CI-Watch-Exit-Code) | Genau die Fehler, die am 18.07. dominieren; P2 ist der billigste Einzelfix mit sofortiger Wirkung (grün statt `stopped`). |
+| **2** | **P3** (EPERM-Klassifikation), **P4** (Worktree-Base-Seed) | Beseitigt die zweitgrößte Fehlklassifikation und einen bestätigten Typecheck-Blocker. |
+| **3** | **P5** (hohler Erfolg), **P6** (Permission-Restlücken), **P7** (Security-Katalog), **P8** (Advisory-Deps) | Enge Restlücken; je wenige, klar lokalisierte Vorfälle. |
+
+## 3. Messbare Zielgrößen (Review nach ~4 Wochen anhand neuer Retros)
+
+1. Läufe, die trotz vollständig grüner Tasks terminal `error` enden (Cherry-Pick/Integration):
+   **18.07.: ≥ 6 → Ziel 0.**
+2. Grüne PRs, die als `stopped` enden (CI-Watch ohne terminalen Status): **Ziel 0.**
+3. needs-work/Modellfehler mit alleiniger Ursache `esbuild spawn EPERM`: **16/80 → Ziel 0.**
+4. Zentrale Typecheck-Fehlschläge wegen fehlender Dependency-Dateien im Worktree: **Ziel 0.**
+5. `success`-Meldungen ohne Diff bei Tasks mit `expectedFiles`: **Ziel 0.**
+
+## 4. Umsetzungshinweis
+
+Die Fixes gehören in den **Code-Branch (`DEV`)**, nicht auf den `retros`-Datenbranch. Dieser Brief
+liegt bewusst unter `proposals/` (geprüfter Verbesserungs-Brief, der über die Retro-Sync-Pipeline
+zurückfließt). Jeder Punkt ist auf minimalen, testbaren Umfang zugeschnitten; die genannten
+`file:line`-Anker beziehen sich auf `origin/DEV` @ `17e5313` und sind vor der Umsetzung gegen die
+dann aktuelle Spitze zu verifizieren.
