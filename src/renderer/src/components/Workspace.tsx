@@ -159,7 +159,7 @@ export default function Workspace(): JSX.Element {
                 title={t('workspace.playgroundHint')}
                 onClick={() => {
                   actions.setWorkspaceLayout('canvas')
-                  void window.orca.demo.play()
+                  void window.vertragus.demo.play()
                 }}
               >
                 {t('workspace.playground')}

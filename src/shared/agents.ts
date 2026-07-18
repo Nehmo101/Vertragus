@@ -184,7 +184,7 @@ export interface BulkHandoffResult {
 }
 
 /** Lifecycle/dispatch feed entry (right panel "Dispatch-Protokoll"). */
-export interface OrcaEvent {
+export interface VertragusEvent {
   time: number
   text: string
   tone: 'dispatch' | 'info' | 'warn' | 'error' | 'success' | 'yolo' | 'muted'

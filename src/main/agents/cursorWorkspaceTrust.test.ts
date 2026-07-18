@@ -190,3 +190,42 @@ describe('shouldAutoTrustCursorWorktree', () => {
     ).toBe(false)
   })
 })
+
+describe('vertragus worktree namespace ownership', () => {
+  const newWorktree = 'C:\\git\\demo-app\\.vertragus-worktrees\\session-a\\sub-01'
+
+  it('grants auto-trust for a new .vertragus-worktrees checkout', () => {
+    expect(isExactOrcaWorktreePath(newWorktree)).toBe(true)
+    expect(isOrcaWorktreePath(newWorktree)).toBe(true)
+    expect(
+      shouldAutoTrustCursorWorktree({
+        output: `\x1b[33mWorkspace Trust Required\x1b[0m\n${newWorktree}\n[a] Trust this workspace`,
+        workingDir: newWorktree,
+        worktree: newWorktree,
+        alreadyHandled: false,
+        interactiveUsed: false
+      })
+    ).toBe(true)
+  })
+
+  it.each([
+    ['lookalike without the leading dot', 'C:\\git\\demo-app\\vertragus-worktrees\\session-a\\sub-01'],
+    ['nested path', `${newWorktree}\\nested`],
+    ['traversal after the worktree', `${newWorktree}\\..\\sub-01`],
+    ['current-directory alias', `${newWorktree}\\.`],
+    ['trailing separator alias', `${newWorktree}\\`],
+    ['traversal before the marker', 'C:\\git\\demo-app\\..\\UWE\\.vertragus-worktrees\\session-a\\sub-01'],
+    ['Windows device path', '\\\\?\\C:\\git\\demo-app\\.vertragus-worktrees\\session-a\\sub-01']
+  ])('never auto-trusts %s under the new marker', (_name, unsafePath) => {
+    expect(isExactOrcaWorktreePath(unsafePath)).toBe(false)
+    expect(
+      shouldAutoTrustCursorWorktree({
+        output: `Workspace Trust Required\n${unsafePath}\n[a] Trust this workspace`,
+        workingDir: unsafePath,
+        worktree: unsafePath,
+        alreadyHandled: false,
+        interactiveUsed: false
+      })
+    ).toBe(false)
+  })
+})

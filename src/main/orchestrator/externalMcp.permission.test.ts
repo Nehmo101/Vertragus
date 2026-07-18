@@ -23,22 +23,25 @@ describe('Claude native permission callback launch', () => {
       allowedTools: [],
       close: async () => undefined
     })
-    expect(SUBAGENT_ALLOWED_TOOLS).toContain('mcp__orca-sub__permission_prompt')
-    expect(SUBAGENT_ALLOWED_TOOLS).toContain('mcp__orca-sub__ask_orchestrator')
-    expect(SUBAGENT_ALLOWED_TOOLS).toContain('mcp__orca-sub__await_orchestrator_response')
+    expect(SUBAGENT_ALLOWED_TOOLS).toContain('mcp__vertragus-sub__permission_prompt')
+    expect(SUBAGENT_ALLOWED_TOOLS).toContain('mcp__vertragus-sub__ask_orchestrator')
+    expect(SUBAGENT_ALLOWED_TOOLS).toContain('mcp__vertragus-sub__await_orchestrator_response')
+    // Rebrand regression: the legacy label must not leak into any tool name.
+    expect(SUBAGENT_ALLOWED_TOOLS.some((tool) => tool.includes('orca-sub'))).toBe(false)
     const args = buildSubagentMcpArgs('claude', 'agent-1', {
       taskId: 'task-1', engineId: 'engine-1', workspaceSessionId: 'session-1',
       permissionPrompt: true
     })
     const flag = args.indexOf('--permission-prompt-tool')
-    expect(args[flag + 1]).toBe('mcp__orca-sub__permission_prompt')
+    expect(args[flag + 1]).toBe('mcp__vertragus-sub__permission_prompt')
     expect(args.join(' ')).not.toContain('agent.write')
+    expect(args.join(' ')).not.toContain('orca-sub')
 
     const yoloArgs = buildSubagentMcpArgs('claude', 'agent-2', {
       taskId: 'task-2', permissionPrompt: false
     })
     expect(yoloArgs).not.toContain('--permission-prompt-tool')
-    expect(yoloArgs.join(' ')).not.toContain('mcp__orca-sub__permission_prompt')
+    expect(yoloArgs.join(' ')).not.toContain('mcp__vertragus-sub__permission_prompt')
   })
 })
 
@@ -57,10 +60,10 @@ describe('Codex Vertragus subagent tool approvals', () => {
       workspaceSessionId: 'session-1'
     })
     expect(args).toContain(
-      'mcp_servers.orca-sub.default_tools_approval_mode=' + JSON.stringify('approve')
+      'mcp_servers.vertragus-sub.default_tools_approval_mode=' + JSON.stringify('approve')
     )
-    expect(SUBAGENT_ALLOWED_TOOLS).toContain('mcp__orca-sub__report_progress')
-    expect(SUBAGENT_ALLOWED_TOOLS).toContain('mcp__orca-sub__post_finding')
+    expect(SUBAGENT_ALLOWED_TOOLS).toContain('mcp__vertragus-sub__report_progress')
+    expect(SUBAGENT_ALLOWED_TOOLS).toContain('mcp__vertragus-sub__post_finding')
     expect(args.join(' ')).toContain('report_progress')
     expect(args.join(' ')).toContain('post_finding')
     expect(args.join(' ')).not.toContain('permission_prompt')

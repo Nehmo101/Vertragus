@@ -69,7 +69,7 @@ function TerminalPeek({ agentId, name }: { agentId: string; name: string }): JSX
   useEffect(() => {
     let live = true
     const refresh = (): void => {
-      void window.orca.agents
+      void window.vertragus.agents
         .buffer(agentId)
         .then((snapshot) => {
           if (live) setLines(terminalTail(snapshot.data, 6, 60))
@@ -119,9 +119,9 @@ function TaskNode({ data }: NodeProps<Node<TaskNodeData, 'task'>>): JSX.Element 
       return
     }
     try {
-      const path = window.orca.files.pathForFile(file)
+      const path = window.vertragus.files.pathForFile(file)
       if (!path) return
-      window.orca.agents.write(task.agentId, ` ${path} `)
+      window.vertragus.agents.write(task.agentId, ` ${path} `)
       showToast(t('canvas.dropSent', { name: task.agentName ?? task.role }))
     } catch {
       // A non-filesystem drop (e.g. browser image) has no path — ignore silently.
@@ -388,7 +388,7 @@ export default function CanvasBoard(): JSX.Element {
           <div>{t('canvas.emptyHint')}</div>
           <div className="canvas-empty-actions">
             <button type="button" className="clean-btn workspace-start-btn" onClick={() => void store.startAll()}>{t('canvas.empty.start', { defaultValue: 'Team starten' })}</button>
-            <button type="button" className="clean-btn" onClick={() => void window.orca.demo.play()}>{t('canvas.empty.playground', { defaultValue: 'Playground' })}</button>
+            <button type="button" className="clean-btn" onClick={() => void window.vertragus.demo.play()}>{t('canvas.empty.playground', { defaultValue: 'Playground' })}</button>
           </div>
           <ol className="canvas-onboarding">
             <li>{t('canvas.empty.drag', { defaultValue: 'Karten frei anordnen' })}</li>
@@ -433,7 +433,7 @@ export default function CanvasBoard(): JSX.Element {
               role="menuitem"
               onClick={() =>
                 runMenuAction(() =>
-                  window.orca.orchestrator.pauseTask(store.activeProfileId, sessionId, menuTask.id)
+                  window.vertragus.orchestrator.pauseTask(store.activeProfileId, sessionId, menuTask.id)
                 )
               }
             >
@@ -446,7 +446,7 @@ export default function CanvasBoard(): JSX.Element {
               role="menuitem"
               onClick={() =>
                 runMenuAction(() =>
-                  window.orca.orchestrator.resumeTask(store.activeProfileId, sessionId, menuTask.id)
+                  window.vertragus.orchestrator.resumeTask(store.activeProfileId, sessionId, menuTask.id)
                 )
               }
             >
@@ -461,7 +461,7 @@ export default function CanvasBoard(): JSX.Element {
               role="menuitem"
               onClick={() =>
                 runMenuAction(() =>
-                  window.orca.orchestrator.fallbackTask(store.activeProfileId, sessionId, menuTask.id)
+                  window.vertragus.orchestrator.fallbackTask(store.activeProfileId, sessionId, menuTask.id)
                 )
               }
             >

@@ -1,13 +1,14 @@
 /**
- * Registers all ipcMain handlers. Each maps 1:1 onto a method in OrcaApi
- * (src/shared/ipc.ts) which the preload bridge exposes on window.orca.
+ * Registers all ipcMain handlers. Each maps 1:1 onto a method in VertragusApi
+ * (src/shared/ipc.ts) which the preload bridge exposes on window.vertragus.
  */
 import { app, dialog, ipcMain, BrowserWindow } from 'electron'
 import { stat } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { IPC, type AppInfo } from '@shared/ipc'
-import type { BulkHandoffRequest, HandoffRequest, OrcaEvent, SpawnAgentRequest } from '@shared/agents'
+import { assertValidConfigKey } from '@shared/ipcValidation'
+import type { BulkHandoffRequest, HandoffRequest, SpawnAgentRequest, VertragusEvent } from '@shared/agents'
 import type { OrchestratorSnapshot } from '@shared/orchestrator'
 import type { RemoteBudgetCaps } from '@shared/remote'
 import type { ProviderId } from '@shared/providers'
@@ -292,10 +293,11 @@ export function registerIpcHandlers(): void {
     return info
   })
   ipcMain.handle(IPC.providersModels, () => listModels())
-  ipcMain.handle(IPC.configGet, (_e, key: string) => getPublicConfig(key))
-  ipcMain.handle(IPC.configSet, (_e, key: string, value: unknown) => {
-    setPublicConfig(key, value)
-    if (key === 'providerLimits') providerCapacity.refreshLimits()
+  ipcMain.handle(IPC.configGet, (_e, key: unknown) => getPublicConfig(assertValidConfigKey(key)))
+  ipcMain.handle(IPC.configSet, (_e, key: unknown, value: unknown) => {
+    const configKey = assertValidConfigKey(key)
+    setPublicConfig(configKey, value)
+    if (configKey === 'providerLimits') providerCapacity.refreshLimits()
   })
 
   // ---- profiles ----
@@ -776,7 +778,7 @@ export function registerIpcHandlers(): void {
   // ---- push events: agent output / state / dispatch feed ----
   agentManager.on('data', (chunk) => broadcast(IPC.evAgentData, chunk))
   agentManager.on('changed', (list) => broadcast(IPC.evAgentsChanged, list))
-  agentManager.on('event', (evt: OrcaEvent) => {
+  agentManager.on('event', (evt: VertragusEvent) => {
     recordDiagnostic(runJournal, {
       kind: 'agent-event',
       profileId: evt.profileId,

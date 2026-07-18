@@ -34,7 +34,7 @@ export default function App(): JSX.Element {
     const ready = store.init()
     void ready
     // Dev/CI affordance for headless screenshots of modal UI.
-    ;(window as unknown as { __orca?: unknown }).__orca = {
+    ;(window as unknown as { __vertragus?: unknown }).__vertragus = {
       ready,
       openEditor: (p: Parameters<typeof store.openEditor>[0]) => store.openEditor(p),
       openAddAgent: () => store.openAddAgent()
@@ -45,7 +45,7 @@ export default function App(): JSX.Element {
   // Voice-assistant UI navigation commands are broadcast to every window; only
   // the main application window (not the overlay or pop-outs) should apply them.
   useEffect(() => {
-    const unsubscribe = window.orca.events.onUiCommand((command) => {
+    const unsubscribe = window.vertragus.events.onUiCommand((command) => {
       const route = window.location.hash
       if (route.startsWith('#/voice') || route.startsWith('#/pane')) return
       store.applyUiCommand(command)

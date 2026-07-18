@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { GithubAuthStatus } from '@shared/ipc'
-import { githubAuthPresentation, hasUsableGithubAuth } from './githubAuth'
+import {
+  assertValidGithubAuthStatus,
+  githubAuthPresentation,
+  hasUsableGithubAuth,
+  isValidGithubAuthStatus
+} from './githubAuth'
 
 function status(overrides: Partial<GithubAuthStatus> = {}): GithubAuthStatus {
   return {
@@ -66,5 +71,33 @@ describe('GitHub auth presentation', () => {
     })
 
     expect(githubAuthPresentation(auth).label).toBe('Erneuern')
+  })
+})
+
+describe('GitHub OAuth status validation', () => {
+  it('accepts a well-formed OAuth status', () => {
+    const auth = status({ authenticated: true, method: 'oauth', scopes: ['repo'], missingScopes: [] })
+
+    expect(isValidGithubAuthStatus(auth)).toBe(true)
+    expect(assertValidGithubAuthStatus(auth)).toBe(auth)
+  })
+
+  it('rejects a null or non-object payload', () => {
+    expect(isValidGithubAuthStatus(null)).toBe(false)
+    expect(isValidGithubAuthStatus(undefined)).toBe(false)
+    expect(isValidGithubAuthStatus('oauth' as unknown as GithubAuthStatus)).toBe(false)
+  })
+
+  it('rejects a malformed OAuth response and never treats it as usable', () => {
+    const invalidMethod = { ...status({ authenticated: true }), method: 'saml' } as unknown as GithubAuthStatus
+    const invalidScopes = { ...status({ authenticated: true }), scopes: 'repo' } as unknown as GithubAuthStatus
+    const invalidFlag = { ...status({ authenticated: true }), needsReauth: 'no' } as unknown as GithubAuthStatus
+
+    for (const bad of [invalidMethod, invalidScopes, invalidFlag]) {
+      expect(isValidGithubAuthStatus(bad)).toBe(false)
+      expect(() => assertValidGithubAuthStatus(bad)).toThrow(/Ungültige GitHub-OAuth-Antwort/)
+      // A bogus payload must not unlock GitHub actions.
+      expect(hasUsableGithubAuth(bad)).toBe(false)
+    }
   })
 })

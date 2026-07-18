@@ -59,7 +59,7 @@ export default function IdeaTransferModal({
     setBusy(true)
     setError('')
     try {
-      const result = await window.orca.inbox.transferToProfile({
+      const result = await window.vertragus.inbox.transferToProfile({
         ideaId: idea.id,
         profileId: resolvedProfileId,
         clone,
@@ -99,7 +99,7 @@ export default function IdeaTransferModal({
     setBusy(true)
     setError('')
     try {
-      const result = await window.orca.inbox.transferRetry(idea.id, store.yoloMaster)
+      const result = await window.vertragus.inbox.transferRetry(idea.id, store.yoloMaster)
       setLastResult(result.transfer)
       if (result.transfer.status === 'failed') {
         setError(result.transfer.error ?? 'Wiederholung fehlgeschlagen.')

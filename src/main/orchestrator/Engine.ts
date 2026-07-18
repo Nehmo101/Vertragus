@@ -1600,7 +1600,7 @@ export class OrchestratorEngine extends EventEmitter {
       '- Neue Zeilen mit process.env, Bearer, Authorization, Secret-Literalen, writeFileSync, appendFileSync, createWriteStream, rm oder child_process-Aufrufen brauchen passende Missbrauchs-/Injection-/Leak-Negativtests in Testdateien.',
       ...(orcaSubTools
         ? [
-            '- Live-Status: Melde wichtige Phasenwechsel und Zwischenstände knapp über das MCP-Tool report_progress (Server orca-sub).',
+            '- Live-Status: Melde wichtige Phasenwechsel und Zwischenstände knapp über das MCP-Tool report_progress (Server vertragus-sub).',
             '- Team-Board: Teile Schnittstellen, Entscheidungen und Blocker, die parallele Tasks betreffen, über post_finding; prüfe mit list_findings die Einträge anderer Subagents, bevor du gemeinsame Schnittstellen festlegst.',
             '- Direkte Hilfe: Wenn eine Richtungsentscheidung, Freigabe oder Unterstützung fehlt, nutze ask_orchestrator und warte mit await_orchestrator_response auf die konkrete Antwort.'
           ]

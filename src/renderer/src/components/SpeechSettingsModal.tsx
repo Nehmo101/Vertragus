@@ -25,7 +25,7 @@ export default function SpeechSettingsModal(): JSX.Element {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    void window.orca.inboxSpeech.getSettings().then((s) => {
+    void window.vertragus.inboxSpeech.getSettings().then((s) => {
       setSettings(s)
       setModel(s.model)
       setLanguage(s.language)
@@ -47,7 +47,7 @@ export default function SpeechSettingsModal(): JSX.Element {
     setSaving(true)
     setError('')
     try {
-      await window.orca.inboxSpeech.setSettings({
+      await window.vertragus.inboxSpeech.setSettings({
         model,
         language,
         endpointUrl,
@@ -67,7 +67,7 @@ export default function SpeechSettingsModal(): JSX.Element {
     setSaving(true)
     setError('')
     try {
-      await window.orca.inboxSpeech.setSettings({ apiKey: '' })
+      await window.vertragus.inboxSpeech.setSettings({ apiKey: '' })
       setApiKey('')
       setSettings((current) => (current ? { ...current, hasApiKey: false } : current))
       bumpSpeechStatus()

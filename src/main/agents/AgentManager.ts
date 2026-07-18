@@ -19,8 +19,8 @@ import type {
   BulkHandoffRequest,
   BulkHandoffResult,
   HandoffRequest,
-  OrcaEvent,
-  SpawnAgentRequest
+  SpawnAgentRequest,
+  VertragusEvent
 } from '@shared/agents'
 import type { PanePreflightReport } from '@shared/orchestrator'
 import type { ClaudePermissionMode } from '@shared/claudePermissionMode'
@@ -219,10 +219,10 @@ export class AgentManager extends EventEmitter {
 
   private emitEvent(
     text: string,
-    tone: OrcaEvent['tone'] = 'info',
+    tone: VertragusEvent['tone'] = 'info',
     context?: Pick<AgentInstanceInfo, 'profileId' | 'workspaceSessionId'>
   ): void {
-    const evt: OrcaEvent = {
+    const evt: VertragusEvent = {
       time: Date.now(),
       text,
       tone,

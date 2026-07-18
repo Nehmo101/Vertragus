@@ -1,7 +1,9 @@
 import { posix, win32 } from 'node:path'
 import { stripAnsi } from '@main/agents/limitSignals'
 
-const ORCA_WORKTREE_DIR = '.orca-worktrees'
+// New checkouts live under `.vertragus-worktrees`; the legacy `.orca-worktrees`
+// marker stays trusted so pre-rebrand worktrees keep auto-trust ownership.
+const WORKTREE_DIR_MARKERS = ['.vertragus-worktrees', '.orca-worktrees']
 const ORCA_WORKTREE_PART = /^[a-z0-9._-]+$/i
 const TRAVERSAL_OR_ALIAS_SEGMENT = /(?:^|[\\/])\.\.?(?:[\\/]|$)/
 const WINDOWS_DEVICE_OR_NETWORK_PATH = /^(?:\\\\|\\\\[?.]\\)/
@@ -33,7 +35,8 @@ export function normalizeWorkspacePath(value: string): string | undefined {
 
 /**
  * Accept only the unaliased path shape emitted by worktreeIdentity:
- * <repo>/.orca-worktrees/<session>/<agent>. Do not resolve this value before
+ * <repo>/.vertragus-worktrees/<session>/<agent> (or the legacy
+ * <repo>/.orca-worktrees/<session>/<agent>). Do not resolve this value before
  * checking it: resolution could turn a traversal or alias into a trusted path.
  */
 export function isExactOrcaWorktreePath(value: string): boolean {
@@ -56,7 +59,7 @@ export function isExactOrcaWorktreePath(value: string): boolean {
 
   const [marker, session, agent] = parts.slice(-3)
   return (
-    marker === ORCA_WORKTREE_DIR &&
+    WORKTREE_DIR_MARKERS.includes(marker) &&
     parts.length >= 3 &&
     ORCA_WORKTREE_PART.test(session ?? '') &&
     ORCA_WORKTREE_PART.test(agent ?? '')

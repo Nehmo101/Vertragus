@@ -85,15 +85,15 @@ export default function TitleBar(): JSX.Element {
   const activeProfileId = store.activeProfileId
   const refreshGit = store.refreshGit
   useEffect(() => {
-    if (!window.orca?.updates) return
-    const unsubscribe = window.orca.updates.onState(setUpdate)
-    void window.orca.updates.state().then(setUpdate)
+    if (!window.vertragus?.updates) return
+    const unsubscribe = window.vertragus.updates.onState(setUpdate)
+    void window.vertragus.updates.state().then(setUpdate)
     return unsubscribe
   }, [])
   useEffect(() => {
-    if (!window.orca?.remote) return
-    const unsubscribe = window.orca.remote.onStatus(setRemote)
-    void window.orca.remote.status().then(setRemote)
+    if (!window.vertragus?.remote) return
+    const unsubscribe = window.vertragus.remote.onStatus(setRemote)
+    void window.vertragus.remote.status().then(setRemote)
     return unsubscribe
   }, [])
   useEffect(() => {
@@ -240,9 +240,9 @@ export default function TitleBar(): JSX.Element {
             aria-live="polite"
             disabled={update?.status === 'downloading' || (update?.status === 'downloaded' && anyRunning)}
             onClick={() => {
-              if (update?.status === 'available') void window.orca.updates.download()
-              else if (update?.status === 'downloaded') void window.orca.updates.install()
-              else void window.orca.updates.check()
+              if (update?.status === 'available') void window.vertragus.updates.download()
+              else if (update?.status === 'downloaded') void window.vertragus.updates.install()
+              else void window.vertragus.updates.check()
             }}
           >
             <span aria-hidden="true">↻</span>
@@ -391,18 +391,18 @@ export default function TitleBar(): JSX.Element {
 
         <div className="tb-divider" />
         <div className="win-controls no-drag">
-          <button type="button" className="win-btn" title="Minimieren" onClick={() => window.orca.win.minimize()}>
+          <button type="button" className="win-btn" title="Minimieren" onClick={() => window.vertragus.win.minimize()}>
             ─
           </button>
           <button type="button"
             className="win-btn"
             title="Maximieren"
             style={{ fontSize: 11 }}
-            onClick={() => window.orca.win.maximizeToggle()}
+            onClick={() => window.vertragus.win.maximizeToggle()}
           >
             ▢
           </button>
-          <button type="button" className="win-btn close" title="Schließen" onClick={() => window.orca.win.close()}>
+          <button type="button" className="win-btn close" title="Schließen" onClick={() => window.vertragus.win.close()}>
             ✕
           </button>
         </div>

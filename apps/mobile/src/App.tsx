@@ -8,9 +8,14 @@ import type {
   RemoteEventFrame
 } from '@shared/remote'
 
+import {
+  readRemoteDevice,
+  readRemoteToken,
+  writeRemoteDevice,
+  writeRemoteToken
+} from './storageKeys'
+
 type View = 'live' | 'approvals' | 'changes' | 'goal' | 'devices'
-const TOKEN_KEY = 'orca.remote.deviceToken'
-const DEVICE_KEY = 'orca.remote.device'
 
 function pairingCode(): string {
   const query = window.location.hash.includes('?') ? window.location.hash.split('?')[1] : ''
@@ -85,7 +90,7 @@ async function consumeSse(
 }
 
 export default function App(): JSX.Element {
-  const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY) ?? '')
+  const [token, setToken] = useState(() => readRemoteToken(localStorage))
   const [code, setCode] = useState(pairingCode)
   const [deviceName, setDeviceName] = useState(() => navigator.platform || 'Mobilgerät')
   const [view, setView] = useState<View>(initialView)
@@ -109,7 +114,7 @@ export default function App(): JSX.Element {
 
   const profiles = useMemo(() => {
     let savedId = ''
-    try { savedId = (JSON.parse(localStorage.getItem(DEVICE_KEY) ?? '{}') as DeviceInfo).id ?? '' } catch { /* no saved device */ }
+    try { savedId = (JSON.parse(readRemoteDevice(localStorage) || '{}') as DeviceInfo).id ?? '' } catch { /* no saved device */ }
     const scoped = devices.find((device) => device.id === savedId)?.scopes.map((scope) => scope.profileId) ?? []
     return [...new Set([
       ...Object.values(snapshots).map((snapshot) => snapshot.profileId).filter((id): id is string => Boolean(id)),
@@ -244,8 +249,8 @@ export default function App(): JSX.Element {
       })
       const result = await response.json() as PairingResult & { error?: string }
       if (!response.ok) throw new Error(result.error ?? 'Pairing fehlgeschlagen.')
-      localStorage.setItem(TOKEN_KEY, result.token)
-      localStorage.setItem(DEVICE_KEY, JSON.stringify(result.device))
+      writeRemoteToken(localStorage, result.token)
+      writeRemoteDevice(localStorage, JSON.stringify(result.device))
       setToken(result.token)
       window.location.hash = '#/live'
     } catch (value) { setError(message(value)) }
@@ -253,7 +258,7 @@ export default function App(): JSX.Element {
 
   const currentDevice = useMemo(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(DEVICE_KEY) ?? '{}') as DeviceInfo
+      const saved = JSON.parse(readRemoteDevice(localStorage) || '{}') as DeviceInfo
       return devices.find((device) => device.id === saved.id) ?? saved
     } catch { return undefined }
   }, [devices])

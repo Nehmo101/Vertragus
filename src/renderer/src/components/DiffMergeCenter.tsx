@@ -43,14 +43,14 @@ export default function DiffMergeCenter(): JSX.Element {
               return <div className="mission-change" key={item.taskId}>
                 <div><strong>{item.title}</strong><small>{item.status} · {item.commit?.slice(0, 10) ?? 'kein Commit'}{item.remoteCiStatus ? ` · CI ${item.remoteCiStatus}` : ''}</small></div>
                 <button type="button" className="secondary" disabled={!task?.commit && !task?.branch} onClick={() => void run(`diff:${item.taskId}`, async () => {
-                  const value = await window.orca.orchestrator.taskDiff(snapshot.profileId!, item.taskId, sessionId)
+                  const value = await window.vertragus.orchestrator.taskDiff(snapshot.profileId!, item.taskId, sessionId)
                   setDiff({ ...value, title: item.title })
                 })}>Diff</button>
               </div>
             })}
             {publication && <div className="mission-actions">
-              <button type="button" disabled={Boolean(busy)} onClick={() => void run(`publish:${sessionId}`, () => window.orca.orchestrator.approvePublication(snapshot.profileId!, sessionId, publication.task?.planId))}>Geprüft veröffentlichen</button>
-              <button type="button" className="secondary" disabled={Boolean(busy)} onClick={() => void run(`reject:${sessionId}`, () => window.orca.orchestrator.rejectPublication(snapshot.profileId!, sessionId, publication.task?.planId))}>Ablehnen</button>
+              <button type="button" disabled={Boolean(busy)} onClick={() => void run(`publish:${sessionId}`, () => window.vertragus.orchestrator.approvePublication(snapshot.profileId!, sessionId, publication.task?.planId))}>Geprüft veröffentlichen</button>
+              <button type="button" className="secondary" disabled={Boolean(busy)} onClick={() => void run(`reject:${sessionId}`, () => window.vertragus.orchestrator.rejectPublication(snapshot.profileId!, sessionId, publication.task?.planId))}>Ablehnen</button>
             </div>}
           </article>
         })}
