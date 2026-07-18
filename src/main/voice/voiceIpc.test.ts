@@ -160,4 +160,14 @@ describe('resolveOrchestratorSend', () => {
     const deps = { ...baseDeps(), seed: vi.fn(async () => false) }
     expect(await resolveOrchestratorSend(deps, 'p1', 's1', 'hi')).toEqual({ ok: false, reason: 'seed_failed' })
   })
+
+  it('prefers an explicit boot session id over the active session (composer cold start)', async () => {
+    const deps = {
+      ...baseDeps(),
+      activeSessionId: () => 'stale',
+      findOrchestratorId: (sessionId: string) => (sessionId === 'fresh' ? 'orch-fresh' : 'orch-stale')
+    }
+    expect(await resolveOrchestratorSend(deps, 'p1', 'fresh', 'boot goal')).toEqual({ ok: true })
+    expect(deps.seed).toHaveBeenCalledWith('orch-fresh', 'boot goal')
+  })
 })

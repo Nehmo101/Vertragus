@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { resolveInitialLayout, uiCommandViewToHash } from '@renderer/store/useAppStore'
 
@@ -26,6 +29,13 @@ describe('resolveInitialLayout — canvas-default one-time migration (D1)', () =
     expect(resolveInitialLayout('dag', true)).toEqual({ layout: 'canvas', applyCanvasDefault: false })
     expect(resolveInitialLayout('bogus', true)).toEqual({ layout: 'tiles', applyCanvasDefault: false })
     expect(resolveInitialLayout(null, true)).toEqual({ layout: 'tiles', applyCanvasDefault: false })
+  })
+
+  it('persists the migration flag via ui.canvasDefaultApplied in init()', () => {
+    const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'useAppStore.ts'), 'utf8')
+    expect(source).toMatch(/ui\.canvasDefaultApplied/)
+    expect(source).toMatch(/resolveInitialLayout\s*\(/)
+    expect(source).toMatch(/setConfig\(\s*['"]ui\.canvasDefaultApplied['"]\s*,\s*true\s*\)/)
   })
 })
 

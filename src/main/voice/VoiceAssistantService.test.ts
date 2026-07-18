@@ -165,6 +165,25 @@ describe('runVoiceAssistantTurn', () => {
     expect(capturedRequests[4].tools).toBeUndefined()
   })
 
+  it('never executes stop_agents while confirmation is pending (even across tool rounds)', async () => {
+    const deps = makeDeps()
+    let toolRounds = 0
+    chatHandler = async (req) => {
+      if (req.tools) {
+        toolRounds += 1
+        return call('stop_agents', {}, `c${toolRounds}`)
+      }
+      return text('Bestätigung nötig.')
+    }
+    const result = await runVoiceAssistantTurn({ text: 'Stoppe alles' }, undefined, deps)
+    expect(result.confirmationRequired?.tool).toBe('stop_agents')
+    expect(deps.stopAgents).not.toHaveBeenCalled()
+    // Finding F-voice-confirm-loop: confirmation is surfaced but the loop still
+    // consumes the remaining tool-iteration budget when the model keeps calling.
+    expect(toolRounds).toBeGreaterThan(0)
+    expect(toolRounds).toBeLessThanOrEqual(4)
+  })
+
   it('surfaces a confirmation instead of executing stop_agents (D9)', async () => {
     const deps = makeDeps()
     let calls = 0

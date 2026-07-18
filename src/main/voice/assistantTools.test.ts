@@ -84,6 +84,12 @@ describe('resolveProfile', () => {
     expect(resolveProfile('Vertragis', PROFILES)).toEqual({ status: 'ok', profile: PROFILES[0] })
   })
 
+  it('rejects fuzzy matches beyond the Levenshtein≤2 tolerance (negative)', () => {
+    // "Vertragus" → distance 3+ must not resolve; a one-edit typo still resolves.
+    expect(resolveProfile('Vertxxxgus', PROFILES)).toEqual({ status: 'none' })
+    expect(resolveProfile('Vertragis', PROFILES)).toEqual({ status: 'ok', profile: PROFILES[0] })
+  })
+
   it('reports ambiguous matches', () => {
     const result = resolveProfile('Backend', PROFILES)
     expect(result.status).toBe('ambiguous')

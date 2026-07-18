@@ -20,6 +20,12 @@ describe('configAccess', () => {
     expect(() => setPublicConfig('yoloMaster', false)).not.toThrow()
   })
 
+  it('allows ui.canvasDefaultApplied so the one-time canvas migration can persist', () => {
+    // Regression: without this allowlist entry the D1 migration fails at the IPC gate.
+    expect(() => assertConfigGetAllowed('ui.canvasDefaultApplied')).not.toThrow()
+    expect(() => assertConfigSetAllowed('ui.canvasDefaultApplied')).not.toThrow()
+  })
+
   it('blocks secrets.* keys for get and set', () => {
     expect(() => assertConfigGetAllowed('secrets.github.oauth')).toThrow(/per IPC lesen/)
     expect(() => assertConfigSetAllowed('secrets.openai.transcription')).toThrow(/per IPC schreiben/)
