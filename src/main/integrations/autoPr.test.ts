@@ -102,6 +102,49 @@ describe('autoPr safety helpers', () => {
     expect(runChecks.mock.calls[2]?.[0]).toEqual(expect.objectContaining({ watch: true }))
   })
 
+  it('trusts the watch exit code when the follow-up read stays pending', async () => {
+    let now = 0
+    // Registration read -> pending; --watch exits 0 (all green); every follow-up
+    // read still races as pending. The old code returned timed-out here; now the
+    // green watch exit code decides.
+    const responses: RemoteCiCommandResult[] = [
+      commandResult({ stdout: JSON.stringify([{ bucket: 'pending', name: 'quality', link: 'https://checks' }]) }),
+      commandResult({ exitCode: 0 })
+    ]
+    const runChecks = vi.fn(async (_command: { watch?: boolean }) => {
+      if (responses.length > 0) return responses.shift()!
+      // All later follow-up reads keep reporting pending.
+      return commandResult({ stdout: JSON.stringify([{ bucket: 'pending', name: 'quality', link: 'https://checks' }]) })
+    })
+
+    const outcome = await autoPrInternals.monitorRemoteCi({
+      cwd: 'C:/repo',
+      prUrl: 'https://pr'
+    }, {
+      now: () => now,
+      delay: async (ms) => { now += ms },
+      runChecks
+    })
+
+    expect(outcome.status).toBe('passed')
+    expect(runChecks.mock.calls.some(([command]) => (command as { watch?: boolean }).watch === true)).toBe(true)
+  })
+
+  it('still reports a genuine failure surfaced by the follow-up read', async () => {
+    let now = 0
+    const responses: RemoteCiCommandResult[] = [
+      commandResult({ stdout: JSON.stringify([{ bucket: 'pending', name: 'quality', link: 'https://checks' }]) }),
+      commandResult({ exitCode: 8 }),
+      commandResult({ stdout: JSON.stringify([{ bucket: 'fail', name: 'quality', link: 'https://checks/fail' }]) })
+    ]
+    const runChecks = vi.fn(async () => responses.shift() ?? commandResult())
+    const outcome = await autoPrInternals.monitorRemoteCi({
+      cwd: 'C:/repo',
+      prUrl: 'https://pr'
+    }, { now: () => now, delay: async (ms) => { now += ms }, runChecks })
+    expect(outcome.status).toBe('failed')
+  })
+
   it('reports a bounded timeout when GitHub never registers checks', async () => {
     let now = 0
     const outcome = await autoPrInternals.monitorRemoteCi({
@@ -256,6 +299,18 @@ describe('autoPr commit hygiene helpers', () => {
     await expect(
       autoPrInternals.runQualityGates('/repo/worktree', ['pnpm test'])
     ).rejects.toMatchObject({ code: 'quality-gate-failed', infrastructure: false })
+  })
+
+  it('classifies an esbuild spawn EPERM gate failure as infrastructure', async () => {
+    mocks.exec.mockImplementation((...args: unknown[]) => {
+      const callback = args[args.length - 1]
+      if (typeof callback === 'function') {
+        callback(new Error('Error: spawn /repo/node_modules/@esbuild/linux-x64/bin/esbuild EPERM'), '', '')
+      }
+    })
+    await expect(
+      autoPrInternals.runQualityGates('/repo/worktree', ['pnpm test'])
+    ).rejects.toMatchObject({ code: 'quality-gate-failed', infrastructure: true })
   })
 })
 

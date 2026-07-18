@@ -31,7 +31,13 @@ const GATE_INFRASTRUCTURE_PATTERNS = [
   /not recognized as an internal or external command/i,
   /konnte nicht gefunden werden/i,
   /cannot find module/i,
-  /\bENOENT\b/
+  /\bENOENT\b/,
+  // esbuild fails to spawn its native child under the codex restricted-token
+  // sandbox. The retro analysis already treats EPERM as infra (runAnalysis.ts),
+  // so the gate must classify it the same way instead of grading green code as
+  // a model failure.
+  /\bEPERM\b/,
+  /esbuild.*(?:spawn|EPERM)/i
 ]
 
 class QualityGateError extends Error {
@@ -190,6 +196,27 @@ async function runFileResult(
 
 async function git(cwd: string, args: string[]): Promise<string> {
   return runFile(cwd, 'git', args)
+}
+
+/**
+ * `git merge-base --is-ancestor a b` exits 0 when `a` is an ancestor of `b`,
+ * 1 when it is not, and >1 on a real error. The plain `git()` helper throws on
+ * any non-zero exit, so the ancestor question needs an exit-code-aware runner.
+ */
+async function isAncestor(cwd: string, ancestor: string, descendant: string): Promise<boolean> {
+  try {
+    await execFileAsync('git', ['merge-base', '--is-ancestor', ancestor, descendant], {
+      cwd,
+      windowsHide: true,
+      timeout: 120_000,
+      maxBuffer: MAX_OUTPUT
+    })
+    return true
+  } catch (error) {
+    const code = (error as { code?: number | string }).code
+    if (code === 1) return false
+    throw error
+  }
 }
 
 /** git diff --cached --check als klassifizierbarer Hygiene-Fehler statt plain Error. */
@@ -483,8 +510,24 @@ export async function prepareTaskChange(input: PrepareTaskInput): Promise<Prepar
 
     // A worker may have ignored the no-Git contract. Preserve its file result,
     // but rewrite every worker-authored commit into one centrally owned commit.
+    // Only soft-reset onto the recorded base when it is genuinely an ancestor of
+    // HEAD. A diverged follow-up plan (HEAD moved past/beside the base) would
+    // otherwise drop the delivered commits — the retro "follow-up plan cannot see
+    // delivered code" (mrnchpk2). In that case fall back to the real merge-base.
     if (baseCommit && initialHead !== baseCommit) {
-      await git(input.worktree, ['reset', '--soft', baseCommit])
+      let resetTarget = baseCommit
+      if (!(await isAncestor(input.worktree, baseCommit, initialHead))) {
+        const mergeBase = (await git(input.worktree, ['merge-base', baseCommit, initialHead])).trim()
+        if (!mergeBase) {
+          throw new Error(
+            `Commit-Vertrag verletzt: Basis ${baseCommit.slice(0, 8)} ist kein Vorfahre von HEAD und ` +
+              'besitzt keinen gemeinsamen Merge-Base — gelieferte Commits würden verloren gehen.'
+          )
+        }
+        baseCommit = mergeBase
+        resetTarget = mergeBase
+      }
+      await git(input.worktree, ['reset', '--soft', resetTarget])
       staged = true
     }
     const initialStatus = await git(input.worktree, ['status', '--porcelain=v1'])
@@ -874,28 +917,54 @@ async function monitorRemoteCi(
         })
       }
 
-      const finalResult = await deps.runChecks({
-        cwd: input.cwd,
-        prUrl: input.prUrl,
-        watch: false,
-        timeoutMs: REMOTE_CI_READ_TIMEOUT_MS
-      })
-      if (hasAuthFailure(finalResult)) {
-        return report({
-          status: 'unavailable',
-          message: 'Remote-CI-Ergebnis konnte wegen GitHub-Authentifizierung nicht gelesen werden.',
-          url: input.prUrl
+      // `gh pr checks --watch` is itself a terminal signal: it exits 0 when
+      // every check passed and non-zero (--fail-fast) once one failed. The old
+      // code discarded that exit code and did a single follow-up read, which
+      // races GitHub's eventual-consistency window right after --watch returns
+      // and mislabels green PRs as timed-out -> stopped (retros mrqulr14,
+      // mrn5pdnn). Re-poll briefly for a detailed terminal read, then fall back
+      // to the watch exit code instead of declaring a timeout.
+      const finalDeadline = Math.min(
+        deps.now() + REMOTE_CI_READ_TIMEOUT_MS,
+        startedAt + REMOTE_CI_TOTAL_TIMEOUT_MS
+      )
+      let lastFinalUrl = current.url || input.prUrl
+      let reads = 0
+      while (deps.now() <= finalDeadline || reads === 0) {
+        reads += 1
+        const finalResult = await deps.runChecks({
+          cwd: input.cwd,
+          prUrl: input.prUrl,
+          watch: false,
+          timeoutMs: REMOTE_CI_READ_TIMEOUT_MS
         })
+        if (hasAuthFailure(finalResult)) {
+          return report({
+            status: 'unavailable',
+            message: 'Remote-CI-Ergebnis konnte wegen GitHub-Authentifizierung nicht gelesen werden.',
+            url: input.prUrl
+          })
+        }
+        const finalChecks = parseRemoteChecks(finalResult.stdout)
+        if (finalChecks.length > 0) {
+          const finalOutcome = remoteCiFromChecks(finalChecks, input.prUrl)
+          if (finalOutcome.status !== 'pending') return report(finalOutcome)
+          lastFinalUrl = finalOutcome.url || lastFinalUrl
+        }
+        if (deps.now() > finalDeadline) break
+        await deps.delay(REMOTE_CI_POLL_MS)
       }
-      const finalChecks = parseRemoteChecks(finalResult.stdout)
-      if (finalChecks.length > 0) {
-        const finalOutcome = remoteCiFromChecks(finalChecks, input.prUrl)
-        if (finalOutcome.status !== 'pending') return report(finalOutcome)
+      if (watched.exitCode === 0) {
+        return report({
+          status: 'passed',
+          message: 'Remote-CI grün (über gh --watch bestätigt).',
+          url: lastFinalUrl
+        })
       }
       return report({
         status: 'timed-out',
         message: 'Remote-CI-Watch endete ohne terminales Ergebnis.',
-        url: current.url || input.prUrl
+        url: lastFinalUrl
       })
     }
 
@@ -974,14 +1043,59 @@ async function publishAggregate(input: PublishInput): Promise<AutoPrOutcome> {
   const integrationPath = join(root, '.orca-worktrees', 'integration', safeSlug(branch, 60))
   await mkdir(join(root, '.orca-worktrees', 'integration'), { recursive: true })
   const base = await defaultBase(root, input.config.baseBranch, input.profileDefaultBranch)
+  // Refresh the base first so cherry-picks land on the current tip instead of a
+  // stale origin/<base>. A green commit built against a stale base is broadly
+  // conflicting once parallel main commits land (retros mrqt5wlo, mrqxapm5).
+  // Best-effort: a local test origin may not support fetching a single branch.
+  try {
+    await git(root, ['fetch', 'origin', base])
+  } catch {
+    // Continue with whatever origin/<base> is already known locally.
+  }
   await git(root, ['worktree', 'add', '-b', branch, integrationPath, `origin/${base}`])
 
+  const skippedCommits: string[] = []
   try {
     for (const change of input.changes) {
       for (const commit of change.commits) {
         const candidate = await git(change.worktree, ['rev-parse', '--verify', commit + '^{commit}'])
         const contract = verifiedTaskCommit(commit, candidate)
-        await git(integrationPath, ['cherry-pick', contract.commit])
+        // Idempotency guard. A commit already reachable from the integration
+        // HEAD (the base already contains it, or an earlier task in this batch
+        // delivered the same history) must not be replayed — re-cherry-picking
+        // a commit that is already materialized is exactly what blocked the
+        // integration three runs in a row (retro mrqsh5km).
+        if (await isAncestor(integrationPath, contract.commit, 'HEAD')) {
+          skippedCommits.push(contract.commit)
+          continue
+        }
+        try {
+          await git(integrationPath, ['cherry-pick', contract.commit])
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error)
+          if (/nothing to commit|previous cherry-pick is now empty|--allow-empty/i.test(detail)) {
+            // The change is already present under a different SHA (rebased or
+            // squashed onto the refreshed base). Drop the redundant pick and
+            // keep integrating instead of aborting the whole batch.
+            await git(integrationPath, ['cherry-pick', '--skip'])
+            skippedCommits.push(contract.commit)
+            continue
+          }
+          throw error
+        }
+      }
+    }
+    const newCommitCount = Number(
+      (await git(integrationPath, ['rev-list', '--count', `origin/${base}..HEAD`])).trim()
+    )
+    if (!Number.isFinite(newCommitCount) || newCommitCount === 0) {
+      // Every task commit was already reachable from the refreshed base — there
+      // is nothing left to integrate. That is a clean no-op, not a conflict.
+      return {
+        status: 'skipped',
+        message: `Alle ${skippedCommits.length} Task-Commit(s) sind bereits in origin/${base} enthalten; keine Integration nötig.`,
+        branch,
+        worktree: integrationPath
       }
     }
     const integratedDiff = await git(integrationPath, ['diff', '--no-ext-diff', '--binary', `origin/${base}...HEAD`])
@@ -1010,9 +1124,12 @@ async function publishAggregate(input: PublishInput): Promise<AutoPrOutcome> {
       prUrl: url,
       onUpdate: input.onRemoteCiUpdate
     })
+    const skipNote = skippedCommits.length > 0
+      ? ` ${skippedCommits.length} bereits vorhandene(r) Commit(s) übersprungen.`
+      : ''
     return {
       status: 'published',
-      message: `${input.changes.length} Tasks in einen Pull Request integriert. ${remoteCi.message}`,
+      message: `${input.changes.length} Tasks in einen Pull Request integriert.${skipNote} ${remoteCi.message}`,
       url,
       branch,
       worktree: integrationPath,
