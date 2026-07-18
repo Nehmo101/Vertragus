@@ -1,0 +1,165 @@
+{
+  "version": 1,
+  "exportedAt": 1784390090561,
+  "app": {
+    "name": "vertragus",
+    "version": "0.1.54-main.1.g8ffb696"
+  },
+  "machineId": "2d1dacf3388f",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrqjip3y-plan-mrqi05jv-2",
+    "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+    "workspaceSessionId": "394d2123-07fc-4cbc-9888-7e151d814811",
+    "planId": "plan-mrqi05jv-2",
+    "goal": "Die drei gesicherten Rebranding-Teilcommits konfliktfrei integrieren, OAuth- und Whitespace-Gates beheben, Shared/Preload/Renderer-ORCA-Bezeichner samt kompatibler Persistenzmigration abschließen und repo-weit abnehmen.",
+    "status": "error",
+    "summary": "Alle drei fachlichen Tasks waren erfolgreich; der Lauf wurde ausschließlich durch die automatische Cherry-pick-Integration rot, obwohl der Integrator bereits einen vollständig getesteten konsolidierten Commit erzeugt hatte.",
+    "modelStats": [
+      {
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "roles": [
+          "security-reviewer",
+          "electron-core"
+        ],
+        "tasks": 2,
+        "succeeded": 2,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "costUsd": 6.426034000000001,
+        "avgDurationMs": 1975889
+      },
+      {
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "roles": [
+          "release-ops"
+        ],
+        "tasks": 1,
+        "succeeded": 1,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 0,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "avgDurationMs": 1246713,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrqjip3s-1-dwuzyz",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "security-reviewer",
+        "kind": "strength",
+        "insight": "zuverlässig im ersten Anlauf bei security-reviewer, electron-core",
+        "evidence": "2/2 Tasks ohne Wiederholung erfolgreich",
+        "source": "auto-retro",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784389638808,
+        "updatedAt": 1784389638808
+      },
+      {
+        "id": "learning-mrqjip3s-2-iklcwc",
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "role": "release-ops",
+        "kind": "strength",
+        "insight": "deutlich schnellstes Modell dieses Laufs (Ø 1247s)",
+        "evidence": "Ø-Dauer 1247s gegenüber 1976s (claude/claude-opus-4-8)",
+        "source": "auto-retro",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784389638808,
+        "updatedAt": 1784389638808
+      },
+      {
+        "id": "learning-mrqjsdo4-1-7i6xgy",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "electron-core",
+        "kind": "strength",
+        "insight": "Sehr stark bei manueller semantischer Integration großer, disjunkter Rebranding-Diffs inklusive vollständiger Abnahme.",
+        "evidence": "Ulisse integrierte 84 Dateien, migrierte Bridge-Bezeichner und bestand 945/945 Tests, Security-Gate, Typecheck, Lint und Builds.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784390090548,
+        "updatedAt": 1784390090548
+      },
+      {
+        "id": "learning-mrqjsdo4-2-tv24p5",
+        "provider": "claude",
+        "model": "claude-opus-4-8",
+        "role": "electron-core",
+        "kind": "weakness",
+        "insight": "Lange umfassende Integrationsaufgaben benötigen viel Laufzeit.",
+        "evidence": "Claude-Tasks lagen im Mittel bei rund 1976 Sekunden, obwohl sie fachlich im ersten Versuch erfolgreich waren.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784390090548,
+        "updatedAt": 1784390090548
+      },
+      {
+        "id": "learning-mrqjsdo4-3-cptm8y",
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "role": "release-ops",
+        "kind": "strength",
+        "insight": "Behebt eng umrissene Release-Hygieneprobleme zuverlässig und prüft Mobile/Docs konsistent.",
+        "evidence": "Arnaut beseitigte den Whitespace-Blocker, lieferte 11/11 Tests, Mobile-Build, Typecheck, Lint und git diff --check grün.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784390090548,
+        "updatedAt": 1784390090548
+      },
+      {
+        "id": "learning-mrqjsdo4-4-nvijv1",
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "role": "release-ops",
+        "kind": "weakness",
+        "insight": "Automatische nachgelagerte Cherry-pick-Integration kann trotz erfolgreichem Feature-Commit an bereits überlappender Integration scheitern.",
+        "evidence": "Der Task war erfolgreich, aber das zentrale Auto-PR-Cherry-pick von 5c443bdb kollidierte mit dem bereits semantisch integrierten Stand.",
+        "source": "orchestrator",
+        "profileId": "profile-4bf379ed-c86b-4251-bf9f-1e642e83f605",
+        "observations": 1,
+        "createdAt": 1784390090548,
+        "updatedAt": 1784390090548
+      }
+    ],
+    "createdAt": 1784389638814,
+    "exportQueuedAt": 1784390090553
+  }
+}
