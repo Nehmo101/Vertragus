@@ -164,4 +164,14 @@ Drei Orchestrierungs-Läufe wurden abgebrochen. Ursachen (verifiziert im Code di
 - **Empfohlen:** Im Profil (ProfileEditor) `yoloDefault` bzw. per-Slot `yolo` aktivieren, dann den Workspace **neu starten** (neue Session bindet das aktualisierte Profil) und den Plan erneut dispatchen. Alternativ mit aktivem YOLO-Master „Start" drücken (erzwingt YOLO im Session-Profil).
 - Oder (Produktfix, empfehlenswert unabhängig davon): YOLO-Master-Änderungen zur Laufzeit an laufende Engines propagieren (z.B. `Engine.setYolo(master)` analog `setPlannerMode`, das `boundProfile.yoloDefault` rebindet), und/oder Judge-Härtung: ein Worker-Abschluss mit `no-changes` und ausstehenden Permission-Denials darf nicht als success gewertet werden.
 
+**Status (2026-07-18, Produktfixes umgesetzt):** Alle drei Blocker sind produktseitig behoben —
+(1) `Engine.setYolo` + `orchestrator:setYoloMaster` propagieren den UI-YOLO-Master sofort an laufende
+Sessions (offene Prompts lösen als allow auf, laufende Worker bekommen Auto-Allow, neue Dispatches
+binden YOLO); (2) der Judge wertet `no-changes` mit Permission-Denials als `error/infrastructure`
+(`permission-denied-no-changes`) statt als success, wodurch Phase-1-Worker nicht mehr ohne Contracts
+starten; (3) nach 3 Timeout-Denials in Folge stoppt die Engine den Worker mit Blocker
+`permission-starved` statt Budget zu verbrennen; (4) `resolveLaunch` findet corepack/npm/pnpm
+notfalls neben dem realen node-Binary (fnm/nvm-PATH-Lücke). Der nächste Anlauf braucht damit keine
+manuelle Vorbedingung mehr; YOLO kann jederzeit — auch mitten im Lauf — aktiviert werden.
+
 Der genehmigte Plan oben ist davon unberührt und direkt wiederverwendbar (identischer 9-Task-DAG: t0-contracts → WS-A/B/C1/C2 parallel → Tests/Audit → Integrator).

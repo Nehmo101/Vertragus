@@ -183,6 +183,8 @@ export interface OrcaTask {
   findings?: TaskGateFinding[]
   blocker?: TaskBlocker
   failureKind?: TaskFailureKind
+  /** Denied tool-permission requests during this task; no-changes plus denials is never a success. */
+  permissionDenials?: number
   preflight?: PanePreflightReport
   attempts?: TaskAttemptSnapshot[]
   prUrl?: string

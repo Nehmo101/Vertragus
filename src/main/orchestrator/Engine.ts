@@ -109,7 +109,7 @@ import {
 } from '@main/orchestrator/retroStore'
 import { enqueueBenchmarkExport, enqueueRetroExport } from '@main/orchestrator/retroExport'
 import { captureTaskRecoveryArtifact } from '@main/orchestrator/recoveryArtifact'
-import { permissionBroker } from '@main/permissions/PermissionBroker'
+import { permissionBroker, type PermissionDecision } from '@main/permissions/PermissionBroker'
 import { finalizeWorkspaceRun } from '@main/orchestrator/workspaceRunLifecycle'
 import type { WorkspaceGitPostProcessingSnapshot } from '@shared/gitPostProcessing'
 
@@ -209,6 +209,9 @@ export function providerExecutionGuidance(
     'Codex/Windows-Safe-Sandbox: Arbeite in diesem Fall weiter, kennzeichne nur den betroffenen Test/Build als nicht ausfuehrbar und schliesse bei fachlich vollstaendiger Arbeit mit ERGEBNIS: ERFOLG; Orcas Main-Prozess wiederholt die zentralen Abnahme-Gates ausserhalb der Worker-Sandbox.'
   ]
 }
+
+/** Consecutive permission-prompt timeouts before a task is failed fast as permission-starved. */
+const PERMISSION_TIMEOUT_DENIAL_LIMIT = 3
 
 export interface WorkerTerminalJudgement {
   status: 'success' | 'error' | 'stopped'
@@ -364,6 +367,12 @@ export class OrchestratorEngine extends EventEmitter {
   private pendingPublication: ApprovalItem | undefined
   private publicationInFlight = false
   private readonly pendingPermissions = new Map<string, PermissionRequest>()
+  /** Runtime YOLO master; unblocks running non-YOLO workers without touching their spawn config. */
+  private yoloOverride = false
+  /** Consecutive timeout-denied permission prompts per task (explicit answers reset the streak). */
+  private readonly timeoutDenialStreaks = new Map<string, number>()
+  /** Tasks failed fast because permission prompts starved; value is the blocker reason. */
+  private readonly permissionBlockedTasks = new Map<string, string>()
   private budgetCaps: RemoteBudgetCaps = {}
   private readonly pausedTasks = new Set<string>()
   private readonly resumeRequestedTasks = new Set<string>()
@@ -456,14 +465,46 @@ export class OrchestratorEngine extends EventEmitter {
     this.push()
   }
 
-  private readonly onPermissionResolved = (request: PermissionRequest): void => {
+  private readonly onPermissionResolved = (
+    request: PermissionRequest,
+    decision: PermissionDecision,
+    reason: string
+  ): void => {
     if (!this.pendingPermissions.delete(request.id)) return
     const task = request.taskId ? this.tasks.get(request.taskId) : undefined
     if (task?.status === 'waiting') {
       task.status = 'running'
       task.lastAction = 'Tool-Entscheidung erhalten; Worker setzt fort'
     }
+    if (task && decision === 'deny') {
+      task.permissionDenials = (task.permissionDenials ?? 0) + 1
+      if (reason === 'timeout') this.registerTimeoutDenial(task)
+      else this.timeoutDenialStreaks.delete(task.id)
+    } else if (task) {
+      this.timeoutDenialStreaks.delete(task.id)
+    }
     this.push()
+  }
+
+  /**
+   * Fail fast on permission starvation: repeated prompt timeouts mean nobody is
+   * answering while the worker burns budget in retry diagnostics (Retro Lauf 3:
+   * ~22 min / ~4 USD ohne eine geschriebene Datei). The worker is stopped with a
+   * structured blocker instead of letting the run bleed out.
+   */
+  private registerTimeoutDenial(task: OrcaTask): void {
+    const streak = (this.timeoutDenialStreaks.get(task.id) ?? 0) + 1
+    this.timeoutDenialStreaks.set(task.id, streak)
+    if (this.yoloOverride || streak < PERMISSION_TIMEOUT_DENIAL_LIMIT) return
+    if (this.permissionBlockedTasks.has(task.id)) return
+    const reason = `Permission-Blocker: ${streak} Tool-Freigaben in Folge liefen unbeantwortet ins ` +
+      'Timeout (deny); der Worker kann nicht schreiben. YOLO aktivieren oder Freigaben beantworten, ' +
+      'dann erneut dispatchen.'
+    this.permissionBlockedTasks.set(task.id, reason)
+    this.timeoutDenialStreaks.delete(task.id)
+    task.note = reason
+    task.lastAction = 'Permission-Blocker erkannt; Worker wird gestoppt'
+    if (task.agentId) void agentManager.kill(task.agentId)
   }
 
   private budgetSnapshot(): RemoteBudgetSnapshot {
@@ -691,6 +732,8 @@ export class OrchestratorEngine extends EventEmitter {
       permissionBroker.resolve(permissionId, 'deny', 'engine-reset')
     }
     this.pendingPermissions.clear()
+    this.timeoutDenialStreaks.clear()
+    this.permissionBlockedTasks.clear()
     for (const resume of this.resumeTaskWaiters.values()) resume()
     this.resumeTaskWaiters.clear()
     this.pausedTasks.clear()
@@ -754,6 +797,9 @@ export class OrchestratorEngine extends EventEmitter {
     if (
       !task || task.status !== 'running' || !task.agentId || !task.provider || task.yolo
     ) return false
+    // Runtime YOLO master: workers that were spawned non-YOLO keep their
+    // permission hook, so their requests are auto-allowed here instead.
+    if (this.yoloOverride) return true
     const decision = await permissionBroker.requestDecision({
       provider: task.provider,
       agentId: task.agentId,
@@ -974,6 +1020,31 @@ export class OrchestratorEngine extends EventEmitter {
    */
   enableAutoMode(): boolean {
     return this.setPlannerMode('auto')
+  }
+
+  /**
+   * Propagate the YOLO master to this live workspace session. Future dispatches
+   * bind YOLO from the rebound profile; already running non-YOLO workers are
+   * unblocked immediately because pending and future permission prompts
+   * auto-allow. Per-slot yolo flags keep working when the master turns off.
+   */
+  setYolo(enabled: boolean): boolean {
+    this.yoloOverride = enabled
+    const profile = this.activeProfile()
+    if (profile) {
+      this.boundProfile = {
+        ...profile,
+        agents: profile.agents.map((slot) => ({ ...slot })),
+        yoloDefault: enabled
+      }
+    }
+    if (enabled) {
+      for (const permissionId of [...this.pendingPermissions.keys()]) {
+        permissionBroker.resolve(permissionId, 'allow', 'yolo-master')
+      }
+    }
+    this.push()
+    return true
   }
 
   private requestPlanReview(review: PendingPlanReview): Promise<boolean> {
@@ -1660,6 +1731,16 @@ export class OrchestratorEngine extends EventEmitter {
         }
       }
       const judgement = judgeWorkerTerminalResult(result)
+      // A permission-starved task was stopped by the engine itself; that is an
+      // infrastructure blocker, never a neutral manual stop or a model failure.
+      const permissionBlock = this.permissionBlockedTasks.get(taskId)
+      if (permissionBlock) {
+        this.permissionBlockedTasks.delete(taskId)
+        judgement.status = 'error'
+        judgement.failureKind = 'infrastructure'
+        judgement.unconfirmed = undefined
+        judgement.reason = permissionBlock
+      }
       const wasCancelled = judgement.status === 'stopped'
       const workerError = judgement.status === 'error'
       const infrastructureFailure = judgement.failureKind === 'infrastructure'
@@ -1696,6 +1777,17 @@ export class OrchestratorEngine extends EventEmitter {
         const metricKey = `${slot.provider}:${process.platform}`
         this.reliability.failuresByProviderAndPlatform[metricKey] =
           (this.reliability.failuresByProviderAndPlatform[metricKey] ?? 0) + 1
+      }
+      if (permissionBlock) {
+        task.note = permissionBlock
+        task.lastAction = 'Permission-Blocker: Tool-Freigaben ohne Antwort'
+        task.blocker = {
+          kind: 'infrastructure',
+          code: 'permission-starved',
+          summary: 'Tool-Freigaben liefen wiederholt ins Timeout; der Worker konnte nicht schreiben.',
+          details: [permissionBlock],
+          recoverable: true
+        }
       }
       if (workerError) {
         task.recoveryArtifact = await captureTaskRecoveryArtifact({
@@ -1826,7 +1918,34 @@ export class OrchestratorEngine extends EventEmitter {
         } else if (prepared.result === 'no-changes') {
           // Ein Worker-Fehler ohne jegliche Änderungen liefert keinen Beleg für
           // erledigte Arbeit; das Fehler-Urteil bleibt dann bestehen.
-          if (!workerError) task.completion = { kind: 'no-changes' }
+          if (!workerError && !task.yolo && (task.permissionDenials ?? 0) > 0) {
+            // Keine Änderungen plus abgelehnte Tool-Freigaben: Der Worker KONNTE
+            // nicht schreiben. Das ist ein Plattform-Blocker und kein Erfolg —
+            // abhängige Tasks dürfen nicht ohne diese Vorarbeit starten.
+            task.status = 'error'
+            task.failureKind = 'infrastructure'
+            task.progress = undefined
+            task.completion = undefined
+            task.judgeReason = `Abschluss ohne Änderungen bei ${task.permissionDenials} abgelehnten ` +
+              'Tool-Freigaben — als Permission-Blocker gewertet, nicht als Erfolg.'
+            task.note = task.judgeReason
+            task.lastAction = 'Keine Änderungen wegen verweigerter Tool-Freigaben'
+            task.blocker = {
+              kind: 'infrastructure',
+              code: 'permission-denied-no-changes',
+              summary: 'Worker endete ohne Änderungen, nachdem Tool-Freigaben abgelehnt wurden.',
+              details: [`${task.permissionDenials} Freigabe(n) abgelehnt oder ins Timeout gelaufen.`],
+              recoverable: true
+            }
+            this.reliability.infrastructureFailures += 1
+            if (activeAttempt) {
+              activeAttempt.status = 'error'
+              activeAttempt.failureKind = 'infrastructure'
+              activeAttempt.note = task.judgeReason
+            }
+          } else if (!workerError) {
+            task.completion = { kind: 'no-changes' }
+          }
         } else if (!workerError) {
           task.status = 'error'
           // Fehlendes Gate-Tooling (eslint/prisma) ist ein Infrastruktur-, kein

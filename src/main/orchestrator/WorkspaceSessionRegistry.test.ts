@@ -41,6 +41,9 @@ vi.mock('@main/orchestrator/Engine', () => ({
     enableAutoMode(): boolean {
       return true
     }
+    setYolo(): boolean {
+      return true
+    }
   }
 }))
 
@@ -87,6 +90,20 @@ describe('WorkspaceSessionRegistry', () => {
         active: true
       })
     ])
+  })
+
+  it('propagates the yolo master to every live session without touching the source profile', () => {
+    const registry = new WorkspaceSessionRegistry(() => 0)
+    const first = registry.start(DEFAULT_PROFILE)
+    const second = registry.start(DEFAULT_PROFILE)
+
+    expect(registry.setYoloMaster(true)).toBe(2)
+    expect(first.profile.yoloDefault).toBe(true)
+    expect(second.profile.yoloDefault).toBe(true)
+    expect(DEFAULT_PROFILE.yoloDefault).toBe(false)
+
+    expect(registry.setYoloMaster(false)).toBe(2)
+    expect(first.profile.yoloDefault).toBe(false)
   })
 
   it('assigns one unique random place per profile cycle before adding a suffix', () => {

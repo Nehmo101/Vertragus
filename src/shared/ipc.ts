@@ -126,6 +126,7 @@ export const IPC = {
   orchestratorReset: 'orchestrator:reset',
   orchestratorEnableAutoMode: 'orchestrator:enableAutoMode',
   orchestratorSetPlannerMode: 'orchestrator:setPlannerMode',
+  orchestratorSetYoloMaster: 'orchestrator:setYoloMaster',
   orchestratorReviewPlan: 'orchestrator:reviewPlan',
   orchestratorTaskDiff: 'orchestrator:taskDiff',
   orchestratorApprovePublication: 'orchestrator:approvePublication',
@@ -468,6 +469,12 @@ export interface OrcaApi {
       mode: WorkspaceProfile['planner']['mode'],
       workspaceSessionId?: string
     ): Promise<boolean>
+    /**
+     * Propagate the global YOLO master to all live sessions: pending permission
+     * prompts auto-allow and future dispatches run YOLO. Returns the number of
+     * updated sessions.
+     */
+    setYoloMaster(enabled: boolean): Promise<number>
     /** Resolve a plan waiting in review mode. */
     reviewPlan(profileId: string, approved: boolean, workspaceSessionId?: string): Promise<boolean>
     onSnapshot(cb: (snap: OrchestratorSnapshot) => void): () => void

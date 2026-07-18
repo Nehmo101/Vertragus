@@ -545,6 +545,9 @@ export function registerIpcHandlers(): void {
       return workspaceSessions.setPlannerMode(profile, mode, workspaceSessionId)
     }
   )
+  ipcMain.handle(IPC.orchestratorSetYoloMaster, (_e, enabled: boolean) =>
+    workspaceSessions.setYoloMaster(Boolean(enabled))
+  )
   ipcMain.handle(IPC.orchestratorReviewPlan, (_e, profileId: string, approved: boolean, workspaceSessionId?: string) => {
     const profile = getProfile(profileId)
     return profile
