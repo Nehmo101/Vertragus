@@ -46,6 +46,10 @@ Abbruch-Races oder UI-Flows ab.
 - `src/main/agents/worktree.ts:48-56` leitet Pfad/Branch direkt aus dieser ID ab
   und hängt bei Kollision einen alten Branch wieder ein.
 - Folge: Wiederverwendung alter Sessions nach App-Neustart.
+- **Behoben:** Worktrees hängen an der persistierten `workspaceSessionId`;
+  belegte Identitäten werden nach einem Neustart per `-r<n>`-Suffix übersprungen
+  statt wiederverwendet, und `inventoryWorktrees` weist verwaiste Checkouts rein
+  lesend aus (`docs/plans/SESSION_PERSISTENCE_RESUME.md`).
 
 ### Orchestrator-Capabilities
 

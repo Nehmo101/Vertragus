@@ -52,6 +52,23 @@ New profiles default to this acceptance sequence:
 3. `corepack pnpm lint`
 4. mandatory diff and security gates
 
+## Restart recovery
+
+Closing or crashing the app no longer loses session progress. The orchestrator
+snapshot (goal, task DAG, findings, budget, dispatch prompts) is written to a
+per-session file under `userData/sessions/` — throttled during the run, flushed
+synchronously in the ordered `before-quit` sequence, bounded by a hard
+deadline. A clean-shutdown marker distinguishes crashes from normal exits.
+
+On the next start the session registry rehydrates every persisted session under
+its original id, so the restored DAG and goal appear in the existing UI without
+starting any agent process. Tasks that were running are marked *interrupted*;
+a single action re-dispatches them with their original prompt into their
+preserved worktree (the same recovery-worktree path used for failure retries),
+so partial files are never lost. Terminal scrollback tails and agent metadata
+are additionally persisted as redacted resume states — periodically while
+agents run and once more at shutdown.
+
 ## Capacity model
 
 The UI separates four values that previously looked interchangeable:
