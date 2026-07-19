@@ -25,6 +25,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
 import { orchestratorEngine, type OrchestratorEngine } from '@main/orchestrator/Engine'
 import type { OrchestratorActivityPhase, SubagentFindingKind } from '@shared/orchestrator'
+import type { DelegationRecommendation, EstimateConfidence } from '@shared/planEstimate'
 import { agentManager } from '@main/agents/AgentManager'
 import type { HandoffClientIdentity } from '@main/agents/handoffHandshake'
 import { workspaceSessions } from '@main/orchestrator/WorkspaceSessionRegistry'
@@ -41,6 +42,7 @@ const ORCHESTRATOR_TOOLS = [
   'mcp__orca__set_goal',
   'mcp__orca__report_activity',
   'mcp__orca__list_subagents',
+  'mcp__orca__estimate_delegation',
   'mcp__orca__dispatch_subagent',
   'mcp__orca__dispatch_batch',
   'mcp__orca__get_task_status',
@@ -94,7 +96,7 @@ function buildMcpServer(
     {
       instructions: [
         'You are the Vertragus orchestrator. Plan and delegate instead of editing code yourself.',
-        'For every new goal call set_goal first, report_activity for planning, then list_subagents and execute_plan.',
+        'For every new goal call set_goal first, report_activity for planning, then list_subagents, estimate_delegation (your own solo/delegate call) and execute_plan.',
         'Use exactly the returned role values and choose only the roles the plan needs.',
         'Keep report_activity current so the user can see what you are doing, what workers are doing, and what happens next.',
         'Use await_plan(runId) to block until a plan reaches a terminal result instead of repeatedly polling; re-call await_plan whenever it returns stillRunning. Then evaluate it against the goal and submit focused follow-up plans when needed.',
@@ -196,9 +198,10 @@ function buildMcpServer(
     { title: z.string().describe('Kurzer Titel des Ziels, z.B. "Checkout-Flow v2"') },
     async (args) => {
       const title = String(args.title ?? '')
-      const { retroReminder } = engine.setGoal(title)
+      const { retroReminder, calibrationHint } = engine.setGoal(title)
       const lines = [`Ziel gesetzt: ${title}`]
       if (retroReminder) lines.push(`⚠ Retro offen: ${retroReminder.message}`)
+      if (calibrationHint) lines.push(`⚖ ${calibrationHint}`)
       return text(lines.join('\n'))
     }
   )
@@ -232,6 +235,32 @@ function buildMcpServer(
       'Die Rollen sind nicht zwingend bereits gestartet; ein Plan startet nur die ausgewählten Agents.',
     {},
     async () => text(JSON.stringify(await engine.listSubagentsWithHealth(), null, 2))
+  )
+
+  register(
+    'estimate_delegation',
+    'Optionaler, empfohlener Vor-Schritt VOR execute_plan: gib deine EIGENE Einschätzung ab, ob dieses ' +
+      'Ziel überhaupt ein paralleles Subagent-Team braucht. execute_plan liefert danach die strukturelle ' +
+      'Gegenprobe (recommendation solo/delegate); weichen beide ab, überdenke den Plan. Die Retro vergleicht ' +
+      'deine Einschätzung mit dem echten Ergebnis und meldet bei set_goal eine Kalibrier-Warnung, wenn du ' +
+      'wiederholt daneben liegst.',
+    {
+      recommendation: z.enum(['solo', 'delegate'])
+        .describe('Deine Einschätzung: genügt ein einzelner Agent (solo) oder braucht es ein paralleles Team (delegate)?'),
+      expectedParallelTasks: z.number().int().min(1).max(64)
+        .describe('Wie viele Tasks erwartest du gleichzeitig? 1 = solo.'),
+      confidence: z.enum(['low', 'medium', 'high']).describe('Wie sicher bist du dir?'),
+      rationale: z.string().min(1).max(400).describe('Kurze Begründung deiner Einschätzung')
+    },
+    async (args) => {
+      const result = engine.recordDelegationSelfEstimate({
+        recommendation: String(args.recommendation ?? 'solo') as DelegationRecommendation,
+        expectedParallelTasks: Number(args.expectedParallelTasks ?? 1),
+        confidence: String(args.confidence ?? 'medium') as EstimateConfidence,
+        rationale: String(args.rationale ?? '')
+      })
+      return text(JSON.stringify(result, null, 2))
+    }
   )
 
   register(

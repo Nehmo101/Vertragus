@@ -10,8 +10,13 @@ import type {
   TaskBlocker,
   TaskFailureKind,
   TaskGateFinding,
+  TaskStatus,
   TaskStatusSnapshot
 } from '../orchestrator'
+import type {
+  OrchestratorDelegationEstimate,
+  PlanDelegationEstimate
+} from '../planEstimate'
 import type { AgentProviderId } from '../providers'
 
 export type LearningKind = 'strength' | 'weakness'
@@ -144,6 +149,8 @@ export type RetroDraftResult =
       status: NonNullable<RunRetro['status']>
       summary: string
       models: RetroDraftModel[]
+      /** Estimate-vs-actual delegation scorecard for this run, when available. */
+      delegation?: DelegationRetro
     }
   | {
       ok: false
@@ -151,6 +158,65 @@ export type RetroDraftResult =
       message: string
       planId?: string
     }
+
+/** Minimal per-task shape the delegation analysis consumes. */
+export interface DelegationTaskObservation {
+  status: TaskStatus
+  /** The task produced a real commit (completion.kind === 'commit'). */
+  committed: boolean
+  /** The task explicitly reported that it changed nothing. */
+  noChanges: boolean
+  startedAt?: number
+  finishedAt?: number
+}
+
+/** What actually happened to the delegated team in one plan run. */
+export interface DelegationOutcome {
+  /** Subagent tasks that reached a terminal state. */
+  dispatchedTasks: number
+  /** Tasks that produced a real commit. */
+  committedTasks: number
+  /** Terminal tasks that reported no changes. */
+  noChangeTasks: number
+  /** Tasks that failed or were stopped. */
+  failedTasks: number
+  /** Best-effort peak of tasks observed running at the same time. */
+  observedPeakParallel: number
+}
+
+/** Was the estimated delegation decision borne out by what the run did? */
+export type DelegationVerdict = 'justified' | 'overhead' | 'inconclusive'
+
+/** How the orchestrator's own prediction held up against reality. */
+export type CalibrationGrade = 'accurate' | 'over-delegated' | 'under-delegated' | 'unclear'
+
+/** Calibration of the orchestrator's self-estimate against structure + outcome. */
+export interface SelfCalibration {
+  /** Did the self-estimate agree with the deterministic structural estimate? */
+  agreedWithStructure: boolean
+  /** Was the self-estimate borne out by the real outcome? */
+  grade: CalibrationGrade
+  note: string
+}
+
+/**
+ * The estimate the engine derived from the plan, paired with the actual run
+ * outcome and a verdict. Recorded on the retro so the solo-vs-team decision
+ * becomes measurable over time instead of staying a matter of prompt vibes.
+ * When the orchestrator recorded its own pre-plan estimate, the calibration of
+ * that self-judgement against structure and outcome is captured too.
+ */
+export interface DelegationRetro {
+  estimate: PlanDelegationEstimate
+  /** The orchestrator's own pre-plan prediction, when it recorded one. */
+  selfEstimate?: OrchestratorDelegationEstimate
+  outcome: DelegationOutcome
+  verdict: DelegationVerdict
+  /** How the orchestrator's own prediction held up against reality. */
+  selfCalibration?: SelfCalibration
+  /** Concise German explanation comparing estimate to outcome. */
+  note: string
+}
 
 /** Retrospective of one plan run (or an ad-hoc orchestrator retro). */
 export interface RunRetro {
@@ -165,6 +231,8 @@ export interface RunRetro {
   modelStats: RetroModelStats[]
   /** Learnings recorded for this run (heuristic + orchestrator). */
   learnings: ModelLearning[]
+  /** Estimate-vs-actual on whether delegating a team was warranted. */
+  delegation?: DelegationRetro
   /** Set when this card has been handed to the export queue. */
   exportQueuedAt?: number
   createdAt: number

@@ -947,6 +947,14 @@ describe('asynchronous orchestration API', () => {
       message: 'Es liegt noch kein terminaler Planlauf für eine Retrospektive vor.'
     })
     const exportsBefore = enqueueRetroExport.mock.calls.length
+    // The orchestrator records its own pre-plan estimate; the retro later
+    // calibrates it against structure and outcome.
+    engine.recordDelegationSelfEstimate({
+      recommendation: 'solo',
+      expectedParallelTasks: 1,
+      confidence: 'high',
+      rationale: 'Nur ein Feature-Task.'
+    })
     const started = engine.executePlanAsync({
       version: 1,
       goal: 'Qualitative Retro integrieren',
@@ -964,9 +972,20 @@ describe('asynchronous orchestration API', () => {
     })
 
     await vi.waitFor(() => expect(engine.getPlanRunStatus(started.runId)?.status).toBe('success'))
+    // The delegation estimate is captured at execute time (a single task is a
+    // solo case) and scored against the real outcome in the retro draft.
+    expect(started.estimate?.recommendation).toBe('solo')
+    expect(started.selfEstimate?.recommendation).toBe('solo')
     const draft = engine.buildRetroDraft(started.planId)
     expect(draft.ok).toBe(true)
     if (!draft.ok) throw new Error(draft.message)
+    expect(draft.delegation).toMatchObject({
+      estimate: { recommendation: 'solo' },
+      outcome: { dispatchedTasks: 1 },
+      verdict: 'justified',
+      selfEstimate: { recommendation: 'solo' },
+      selfCalibration: { grade: 'accurate', agreedWithStructure: true }
+    })
     expect(draft.models).toHaveLength(1)
     expect(draft.models[0].model).not.toBe('')
     expect(draft.models[0]).toMatchObject({

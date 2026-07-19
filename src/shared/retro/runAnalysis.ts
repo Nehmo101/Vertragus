@@ -248,6 +248,16 @@ export function renderRetroDraftForPrompt(draft: RetroDraftResult): string {
     `Retro-Gerüst für ${draft.planId} (${draft.status}): ${draft.summary}`,
     'Fülle je Modell Stärke UND Schwäche aus, sofern belegbar — ein Slot darf leer bleiben; erfinde keine Schwäche.'
   ]
+  if (draft.delegation) {
+    const { estimate, outcome, verdict, note, selfCalibration } = draft.delegation
+    lines.push(
+      `Delegations-Bilanz: Einschätzung "${estimate.recommendation}" → Ergebnis "${verdict}" ` +
+        `(${outcome.committedTasks}/${outcome.dispatchedTasks} Tasks mit echten Änderungen). ${note}`
+    )
+    if (selfCalibration) {
+      lines.push(`Selbst-Kalibrierung: ${selfCalibration.grade} — ${selfCalibration.note}`)
+    }
+  }
   for (const model of draft.models) {
     const b = model.taskBalance
     const facts = [

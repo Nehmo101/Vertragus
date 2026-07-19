@@ -89,17 +89,28 @@ import { Semaphore } from '@main/orchestrator/semaphore'
 import { subagentOrcaToolsAvailable } from '@main/orchestrator/externalMcp'
 import { securityChecklistForFiles } from '@main/integrations/securityGate'
 import {
+  analyzeDelegation,
   analyzeRunRetro,
   benchmarkLearnings,
   deriveRetroDraftModels,
+  summarizeDelegationCalibration,
   type BenchmarkRanking,
   type BenchmarkRecord,
   type BenchmarkRunStatus,
+  type DelegationRetro,
+  type DelegationTaskObservation,
   type LearningKind,
   type ModelLearning,
   type RetroDraftResult,
   type RunRetro
 } from '@shared/retro'
+import {
+  estimatePlanDelegation,
+  type DelegationRecommendation,
+  type EstimateConfidence,
+  type OrchestratorDelegationEstimate,
+  type PlanDelegationEstimate
+} from '@shared/planEstimate'
 import {
   learningsForModel,
   listRunRetros,
@@ -362,6 +373,12 @@ export class OrchestratorEngine extends EventEmitter {
   private readonly planRuns = new Map<string, Promise<ExecutionPlanResult>>()
   private readonly planRunResults = new Map<string, PlanRunStatusSnapshot>()
   private readonly planRunPlanIds = new Map<string, string>()
+  /** Delegation estimate per planId, captured at execute time for the retro. */
+  private readonly planEstimates = new Map<string, PlanDelegationEstimate>()
+  /** The orchestrator's own pre-plan estimate for the current goal, if recorded. */
+  private pendingSelfEstimate: OrchestratorDelegationEstimate | undefined
+  /** Self-estimate per planId, snapshotted at execute time for calibration. */
+  private readonly planSelfEstimates = new Map<string, OrchestratorDelegationEstimate>()
   private readonly cancelledPlanRuns = new Set<string>()
   private readonly reliability = initialReliability()
   private goalStartedAt?: number
@@ -777,6 +794,9 @@ export class OrchestratorEngine extends EventEmitter {
     this.planRuns.clear()
     this.planRunResults.clear()
     this.planRunPlanIds.clear()
+    this.planEstimates.clear()
+    this.planSelfEstimates.clear()
+    this.pendingSelfEstimate = undefined
     this.cancelledPlanRuns.clear()
     this.benchmarkRuns.clear()
     for (const run of this.multiAgentRuns.values()) {
@@ -1155,8 +1175,12 @@ export class OrchestratorEngine extends EventEmitter {
 
   setGoal(title: string): SetGoalResult {
     const retroReminder = this.pendingRetroReminder()
+    const calibrationHint = this.delegationCalibrationHint()
     this.goalStartedAt = Date.now()
     this.firstPlanApproved = false
+    // A new goal starts a fresh delegation self-estimate; the prior one belonged
+    // to the previous goal.
+    this.pendingSelfEstimate = undefined
     this.goal = { id: `epic-${Date.now().toString(36)}`, title, active: true }
     this.setActivityState(
       'planning',
@@ -1165,7 +1189,40 @@ export class OrchestratorEngine extends EventEmitter {
       'Verfügbare Subagent-Rollen prüfen und den Ausführungsplan erstellen.'
     )
     this.push()
-    return retroReminder ? { retroReminder } : {}
+    const result: SetGoalResult = {}
+    if (retroReminder) result.retroReminder = retroReminder
+    if (calibrationHint) result.calibrationHint = calibrationHint
+    return result
+  }
+
+  /**
+   * Record the orchestrator's own solo-vs-team prediction before it plans. Held
+   * until execute_plan snapshots it, then scored in the retro against the
+   * structural estimate and the real outcome (self-calibration).
+   */
+  recordDelegationSelfEstimate(input: {
+    recommendation: DelegationRecommendation
+    expectedParallelTasks: number
+    confidence: EstimateConfidence
+    rationale: string
+  }): { estimate: OrchestratorDelegationEstimate } {
+    const estimate: OrchestratorDelegationEstimate = {
+      recommendation: input.recommendation,
+      expectedParallelTasks: Math.max(
+        1,
+        Math.round(Number.isFinite(input.expectedParallelTasks) ? input.expectedParallelTasks : 1)
+      ),
+      confidence: input.confidence,
+      rationale: input.rationale.trim(),
+      createdAt: Date.now()
+    }
+    this.pendingSelfEstimate = estimate
+    return { estimate }
+  }
+
+  /** German nudge when recent runs show a systematic delegation bias. */
+  private delegationCalibrationHint(): string | undefined {
+    return summarizeDelegationCalibration(this.storedRetros()).hint
   }
 
   private activeProfile(): WorkspaceProfile | undefined {
@@ -3015,6 +3072,7 @@ export class OrchestratorEngine extends EventEmitter {
         summary: analysis.summary,
         modelStats: analysis.modelStats,
         learnings,
+        delegation: this.buildDelegationRetro(planId, planTasks),
         createdAt: Date.now()
       }
       recordRunRetro(retro)
@@ -3024,6 +3082,27 @@ export class OrchestratorEngine extends EventEmitter {
       console.warn('[Orchestrator] Automatische Retro fehlgeschlagen', error)
       return undefined
     }
+  }
+
+  /**
+   * Score the delegation estimate captured at execute time against the run's
+   * terminal tasks. Undefined when no estimate was recorded (e.g. a plan that
+   * predated this feature or a restored session).
+   */
+  private buildDelegationRetro(
+    planId: string,
+    planTasks: OrcaTask[]
+  ): DelegationRetro | undefined {
+    const estimate = this.planEstimates.get(planId)
+    if (!estimate) return undefined
+    const observations: DelegationTaskObservation[] = planTasks.map((task) => ({
+      status: task.status,
+      committed: task.completion?.kind === 'commit',
+      noChanges: task.completion?.kind === 'no-changes',
+      startedAt: task.createdAt,
+      finishedAt: task.finishedAt
+    }))
+    return analyzeDelegation(estimate, observations, this.planSelfEstimates.get(planId))
   }
 
   private storedRetros(): RunRetro[] {
@@ -3197,7 +3276,8 @@ export class OrchestratorEngine extends EventEmitter {
       goal: run?.goal ?? retro?.goal ?? this.goal?.title ?? '',
       status,
       summary: retro?.summary ?? analysis.summary,
-      models
+      models,
+      delegation: retro?.delegation
     }
   }
 
@@ -3432,6 +3512,13 @@ export class OrchestratorEngine extends EventEmitter {
       planTaskIds: prepared.plan.tasks.map((task) => task.id)
     }
     const planId = this.nextPlanId()
+    // Deterministic solo-vs-team estimate from the plan structure. Returned to
+    // the orchestrator immediately so it can self-correct before workers start,
+    // and stored for the retro to score against the real outcome.
+    const estimate = estimatePlanDelegation(prepared.plan)
+    this.planEstimates.set(planId, estimate)
+    const selfEstimate = this.pendingSelfEstimate
+    if (selfEstimate) this.planSelfEstimates.set(planId, selfEstimate)
     const initial: PlanRunStatusSnapshot = {
       runId,
       status: 'running',
@@ -3439,6 +3526,8 @@ export class OrchestratorEngine extends EventEmitter {
       workspaceSessionId: this.workspaceSessionId,
       planId,
       goal: prepared.plan.goal,
+      estimate,
+      selfEstimate,
       ...validation
     }
     this.planRunResults.set(runId, initial)
