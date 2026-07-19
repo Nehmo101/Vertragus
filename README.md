@@ -312,6 +312,7 @@ Additional docs live in [`docs/`](docs/). Most are written in **German**:
 - [Roadmap](docs/VERTRAGUS_ROADMAP.md) — product & technical roadmap (DE).
 - [Orchestrator training prompts](docs/ORCHESTRATOR_TRAINING_PROMPTS.md) — training & evaluation catalog.
 - [Voice interface plan](docs/VOICE_INTERFACE_PLAN.md) — speech-to-text design.
+- [Changelog](CHANGELOG.md) — detailed release history back to the first commit (DE).
 
 ## Contributing
 
