@@ -58,6 +58,7 @@ vi.mock('@main/orchestrator/retroExport', () => ({
 
 import {
   OrchestratorEngine,
+  judgeWorkerTerminalResult,
   platformExecutionGuidance,
   providerExecutionGuidance
 } from './Engine'
@@ -102,6 +103,26 @@ describe('asynchronous orchestration API', () => {
     expect(providerExecutionGuidance('codex', true, 'win32')).toEqual([])
     expect(providerExecutionGuidance('claude', false, 'win32')).toEqual([])
     expect(providerExecutionGuidance('codex', false, 'linux')).toEqual([])
+  })
+
+  it('treats an esbuild spawn EPERM as infrastructure even when the worker self-reports BLOCKER', () => {
+    const judged = judgeWorkerTerminalResult({
+      result: 'Typecheck grün, Lint grün.\nvitest: Error: spawn esbuild EPERM\nERGEBNIS: BLOCKER',
+      isError: true,
+      exitCode: 1
+    })
+    expect(judged.status).toBe('error')
+    expect(judged.failureKind).toBe('infrastructure')
+  })
+
+  it('still honors a genuine worker BLOCKER without a sandbox spawn failure', () => {
+    const judged = judgeWorkerTerminalResult({
+      result: 'Konnte die Kontraktvorgabe nicht erfüllen.\nERGEBNIS: BLOCKER',
+      isError: true,
+      exitCode: 1
+    })
+    expect(judged.status).toBe('error')
+    expect(judged.failureKind).toBe('worker')
   })
 
   it('returns taskId immediately and exposes the final result through polling', async () => {
