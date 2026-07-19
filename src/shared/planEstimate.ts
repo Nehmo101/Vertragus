@@ -14,6 +14,24 @@ import type { ExecutionPlan, ExecutionPlanTask } from './orchestrator'
 
 export type DelegationRecommendation = 'solo' | 'delegate'
 
+export type EstimateConfidence = 'low' | 'medium' | 'high'
+
+/**
+ * The orchestrator's OWN pre-plan prediction, recorded via the
+ * estimate_delegation tool before execute_plan. Kept on the same
+ * `recommendation` axis as {@link PlanDelegationEstimate} so the retro can
+ * calibrate the model's judgement against the structural anchor and the real
+ * outcome.
+ */
+export interface OrchestratorDelegationEstimate {
+  recommendation: DelegationRecommendation
+  /** How many tasks the orchestrator expects to run at once (1 = solo). */
+  expectedParallelTasks: number
+  confidence: EstimateConfidence
+  rationale: string
+  createdAt: number
+}
+
 export interface PlanDelegationEstimate {
   /** solo = one agent suffices; delegate = a parallel team buys something. */
   recommendation: DelegationRecommendation

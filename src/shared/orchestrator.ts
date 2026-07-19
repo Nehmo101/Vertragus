@@ -6,7 +6,7 @@
  */
 import type { AgentProviderId } from './providers'
 import type { AgentUsage } from './agents'
-import type { PlanDelegationEstimate } from './planEstimate'
+import type { OrchestratorDelegationEstimate, PlanDelegationEstimate } from './planEstimate'
 import type { PlannerConfig } from './profile'
 import type { RetroDraftResult, RunRetro } from './retro'
 import type { ApprovalItem, PermissionRequest, RemoteBudgetSnapshot } from './remote'
@@ -457,6 +457,8 @@ export interface PlanRunStatusSnapshot {
   planTaskIds?: string[]
   /** Deterministic solo-vs-team estimate derived from the plan structure. */
   estimate?: PlanDelegationEstimate
+  /** The orchestrator's own pre-plan estimate for this goal, when recorded. */
+  selfEstimate?: OrchestratorDelegationEstimate
   /** Live state of the review gate; 'pending' means the plan waits for approval. */
   reviewState?: PlanReviewState
   tasks?: TaskStatusSnapshot[]
@@ -495,6 +497,8 @@ export interface RetroReminder {
 /** Result of the set_goal tool: carries an optional pending-retro reminder. */
 export interface SetGoalResult {
   retroReminder?: RetroReminder
+  /** Nudge when recent runs show a systematic over-/under-delegation bias. */
+  calibrationHint?: string
 }
 
 /**

@@ -7,12 +7,17 @@
  * it pure means the whole solo-vs-team feedback loop is unit-testable without
  * the orchestration engine.
  */
-import type { PlanDelegationEstimate } from '../planEstimate'
 import type {
+  OrchestratorDelegationEstimate,
+  PlanDelegationEstimate
+} from '../planEstimate'
+import type {
+  CalibrationGrade,
   DelegationOutcome,
   DelegationRetro,
   DelegationTaskObservation,
-  DelegationVerdict
+  DelegationVerdict,
+  SelfCalibration
 } from './contracts'
 
 /** Peak number of tasks whose [startedAt, finishedAt] intervals overlap. */
@@ -103,12 +108,107 @@ function judge(
   }
 }
 
+/**
+ * Calibrate the orchestrator's OWN prediction against the structural anchor and
+ * the real outcome. "Warranted" means the run actually produced parallel work
+ * (two or more subagents committed real changes); the grade tells the
+ * orchestrator whether it tends to over- or under-delegate.
+ */
+function calibrate(
+  selfEstimate: OrchestratorDelegationEstimate,
+  estimate: PlanDelegationEstimate,
+  outcome: DelegationOutcome
+): SelfCalibration {
+  const agreedWithStructure = selfEstimate.recommendation === estimate.recommendation
+  const warranted = outcome.committedTasks >= 2
+  let grade: CalibrationGrade
+  if (outcome.dispatchedTasks === 0) {
+    grade = 'unclear'
+  } else if (selfEstimate.recommendation === 'delegate') {
+    grade = warranted ? 'accurate' : 'over-delegated'
+  } else {
+    grade = warranted ? 'under-delegated' : 'accurate'
+  }
+  const structure = agreedWithStructure
+    ? 'deckt sich mit der Struktur'
+    : `weicht von der Struktur-Einschätzung "${estimate.recommendation}" ab`
+  return {
+    agreedWithStructure,
+    grade,
+    note:
+      `Selbst-Einschätzung "${selfEstimate.recommendation}" (${selfEstimate.confidence}) ${structure}; ` +
+      `real ${outcome.committedTasks}/${outcome.dispatchedTasks} Tasks mit Änderungen → ${grade}.`
+  }
+}
+
 /** Compare a plan's delegation estimate to what the run actually produced. */
 export function analyzeDelegation(
   estimate: PlanDelegationEstimate,
-  observations: readonly DelegationTaskObservation[]
+  observations: readonly DelegationTaskObservation[],
+  selfEstimate?: OrchestratorDelegationEstimate
 ): DelegationRetro {
   const outcome = deriveDelegationOutcome(observations)
   const { verdict, note } = judge(estimate, outcome)
-  return { estimate, outcome, verdict, note }
+  return {
+    estimate,
+    selfEstimate,
+    outcome,
+    verdict,
+    selfCalibration: selfEstimate ? calibrate(selfEstimate, estimate, outcome) : undefined,
+    note
+  }
+}
+
+export type DelegationBias = 'over-delegating' | 'under-delegating'
+
+/** Rolling calibration trend across recent runs, used to nudge the next goal. */
+export interface DelegationCalibrationTrend {
+  runs: number
+  overDelegated: number
+  underDelegated: number
+  accurate: number
+  bias?: DelegationBias
+  /** German one-liner surfaced at set_goal when a systematic bias shows up. */
+  hint?: string
+}
+
+/**
+ * Summarize the orchestrator's self-calibration over its most recent runs so a
+ * systematic over- or under-delegation bias can be surfaced when it sets the
+ * next goal — closing the loop exactly when the next estimate is about to be
+ * made. Retros are expected newest-first (as the store returns them).
+ */
+export function summarizeDelegationCalibration(
+  retros: ReadonlyArray<{ delegation?: DelegationRetro }>,
+  options: { window?: number; minRuns?: number } = {}
+): DelegationCalibrationTrend {
+  const window = options.window ?? 6
+  const minRuns = options.minRuns ?? 3
+  const grades: CalibrationGrade[] = []
+  for (const retro of retros) {
+    const grade = retro.delegation?.selfCalibration?.grade
+    if (grade && grade !== 'unclear') grades.push(grade)
+    if (grades.length >= window) break
+  }
+  const runs = grades.length
+  const overDelegated = grades.filter((grade) => grade === 'over-delegated').length
+  const underDelegated = grades.filter((grade) => grade === 'under-delegated').length
+  const accurate = grades.filter((grade) => grade === 'accurate').length
+
+  let bias: DelegationBias | undefined
+  let hint: string | undefined
+  if (runs >= minRuns) {
+    if (overDelegated >= underDelegated && overDelegated * 2 > runs) {
+      bias = 'over-delegating'
+      hint =
+        `Kalibrier-Hinweis: In ${overDelegated}/${runs} der letzten Läufe hast du ein Team gestartet, ` +
+        'obwohl solo gereicht hätte. Prüfe kritisch, ob dieses Ziel wirklich parallelisierbar ist.'
+    } else if (underDelegated * 2 > runs) {
+      bias = 'under-delegating'
+      hint =
+        `Kalibrier-Hinweis: In ${underDelegated}/${runs} der letzten Läufe hättest du delegieren sollen, ` +
+        'hast aber solo geplant. Erwäge ein paralleles Team, wo Teilaufgaben unabhängig sind.'
+    }
+  }
+  return { runs, overDelegated, underDelegated, accurate, bias, hint }
 }

@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { analyzeDelegation, deriveDelegationOutcome } from './delegationAnalysis'
-import type { DelegationTaskObservation } from './contracts'
-import type { PlanDelegationEstimate } from '../planEstimate'
+import {
+  analyzeDelegation,
+  deriveDelegationOutcome,
+  summarizeDelegationCalibration
+} from './delegationAnalysis'
+import type { DelegationRetro, DelegationTaskObservation } from './contracts'
+import type { OrchestratorDelegationEstimate, PlanDelegationEstimate } from '../planEstimate'
 
 function estimate(partial: Partial<PlanDelegationEstimate> = {}): PlanDelegationEstimate {
   return {
@@ -14,6 +18,19 @@ function estimate(partial: Partial<PlanDelegationEstimate> = {}): PlanDelegation
     declaredMaxParallel: 3,
     underParallelized: false,
     reason: 'test',
+    ...partial
+  }
+}
+
+function selfEstimate(
+  partial: Partial<OrchestratorDelegationEstimate> = {}
+): OrchestratorDelegationEstimate {
+  return {
+    recommendation: 'delegate',
+    expectedParallelTasks: 3,
+    confidence: 'medium',
+    rationale: 'test',
+    createdAt: 0,
     ...partial
   }
 }
@@ -104,5 +121,118 @@ describe('analyzeDelegation', () => {
   it('is inconclusive without terminal tasks', () => {
     const result = analyzeDelegation(estimate(), [])
     expect(result.verdict).toBe('inconclusive')
+  })
+
+  it('omits self-calibration when no self-estimate was recorded', () => {
+    const result = analyzeDelegation(estimate(), [obs({ committed: true })])
+    expect(result.selfEstimate).toBeUndefined()
+    expect(result.selfCalibration).toBeUndefined()
+  })
+})
+
+describe('analyzeDelegation self-calibration', () => {
+  it('grades a delegate prediction that paid off as accurate', () => {
+    const result = analyzeDelegation(
+      estimate({ recommendation: 'delegate' }),
+      [obs({ committed: true }), obs({ committed: true })],
+      selfEstimate({ recommendation: 'delegate' })
+    )
+    expect(result.selfCalibration).toMatchObject({ agreedWithStructure: true, grade: 'accurate' })
+  })
+
+  it('grades a delegate prediction that produced no parallel work as over-delegated', () => {
+    const result = analyzeDelegation(
+      estimate({ recommendation: 'solo', effectiveParallelWidth: 1 }),
+      [obs({ committed: true }), obs({ noChanges: true }), obs({ status: 'error' })],
+      selfEstimate({ recommendation: 'delegate' })
+    )
+    expect(result.selfCalibration).toMatchObject({
+      agreedWithStructure: false,
+      grade: 'over-delegated'
+    })
+  })
+
+  it('grades a solo prediction that should have been a team as under-delegated', () => {
+    const result = analyzeDelegation(
+      estimate({ recommendation: 'delegate' }),
+      [obs({ committed: true }), obs({ committed: true }), obs({ committed: true })],
+      selfEstimate({ recommendation: 'solo', expectedParallelTasks: 1 })
+    )
+    expect(result.selfCalibration).toMatchObject({
+      agreedWithStructure: false,
+      grade: 'under-delegated'
+    })
+  })
+
+  it('grades a solo prediction with no parallel work as accurate', () => {
+    const result = analyzeDelegation(
+      estimate({ recommendation: 'solo', effectiveParallelWidth: 1 }),
+      [obs({ committed: true })],
+      selfEstimate({ recommendation: 'solo', expectedParallelTasks: 1 })
+    )
+    expect(result.selfCalibration).toMatchObject({ agreedWithStructure: true, grade: 'accurate' })
+  })
+})
+
+describe('summarizeDelegationCalibration', () => {
+  function retro(grade: 'accurate' | 'over-delegated' | 'under-delegated' | 'unclear'): {
+    delegation?: DelegationRetro
+  } {
+    return {
+      delegation: {
+        estimate: estimate(),
+        outcome: {
+          dispatchedTasks: 3,
+          committedTasks: 1,
+          noChangeTasks: 2,
+          failedTasks: 0,
+          observedPeakParallel: 1
+        },
+        verdict: 'overhead',
+        selfCalibration: { agreedWithStructure: false, grade, note: 'x' },
+        note: 'x'
+      }
+    }
+  }
+
+  it('stays silent below the minimum run count', () => {
+    const trend = summarizeDelegationCalibration([retro('over-delegated'), retro('over-delegated')])
+    expect(trend.bias).toBeUndefined()
+    expect(trend.hint).toBeUndefined()
+  })
+
+  it('flags a systematic over-delegation bias', () => {
+    const trend = summarizeDelegationCalibration([
+      retro('over-delegated'),
+      retro('over-delegated'),
+      retro('over-delegated'),
+      retro('accurate')
+    ])
+    expect(trend.bias).toBe('over-delegating')
+    expect(trend.hint).toContain('solo gereicht')
+  })
+
+  it('flags a systematic under-delegation bias', () => {
+    const trend = summarizeDelegationCalibration([
+      retro('under-delegated'),
+      retro('under-delegated'),
+      retro('under-delegated'),
+      retro('accurate')
+    ])
+    expect(trend.bias).toBe('under-delegating')
+    expect(trend.hint).toContain('delegieren')
+  })
+
+  it('ignores unclear grades and stays silent when well-calibrated', () => {
+    const trend = summarizeDelegationCalibration([
+      retro('accurate'),
+      retro('accurate'),
+      retro('accurate'),
+      retro('unclear'),
+      retro('over-delegated')
+    ])
+    expect(trend.runs).toBe(4)
+    expect(trend.accurate).toBe(3)
+    expect(trend.bias).toBeUndefined()
   })
 })

@@ -13,7 +13,10 @@ import type {
   TaskStatus,
   TaskStatusSnapshot
 } from '../orchestrator'
-import type { PlanDelegationEstimate } from '../planEstimate'
+import type {
+  OrchestratorDelegationEstimate,
+  PlanDelegationEstimate
+} from '../planEstimate'
 import type { AgentProviderId } from '../providers'
 
 export type LearningKind = 'strength' | 'weakness'
@@ -184,15 +187,33 @@ export interface DelegationOutcome {
 /** Was the estimated delegation decision borne out by what the run did? */
 export type DelegationVerdict = 'justified' | 'overhead' | 'inconclusive'
 
+/** How the orchestrator's own prediction held up against reality. */
+export type CalibrationGrade = 'accurate' | 'over-delegated' | 'under-delegated' | 'unclear'
+
+/** Calibration of the orchestrator's self-estimate against structure + outcome. */
+export interface SelfCalibration {
+  /** Did the self-estimate agree with the deterministic structural estimate? */
+  agreedWithStructure: boolean
+  /** Was the self-estimate borne out by the real outcome? */
+  grade: CalibrationGrade
+  note: string
+}
+
 /**
  * The estimate the engine derived from the plan, paired with the actual run
  * outcome and a verdict. Recorded on the retro so the solo-vs-team decision
  * becomes measurable over time instead of staying a matter of prompt vibes.
+ * When the orchestrator recorded its own pre-plan estimate, the calibration of
+ * that self-judgement against structure and outcome is captured too.
  */
 export interface DelegationRetro {
   estimate: PlanDelegationEstimate
+  /** The orchestrator's own pre-plan prediction, when it recorded one. */
+  selfEstimate?: OrchestratorDelegationEstimate
   outcome: DelegationOutcome
   verdict: DelegationVerdict
+  /** How the orchestrator's own prediction held up against reality. */
+  selfCalibration?: SelfCalibration
   /** Concise German explanation comparing estimate to outcome. */
   note: string
 }
