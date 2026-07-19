@@ -37,7 +37,9 @@ import { resolveSlotModel } from '@main/agents/providerModelDefaults'
 import { buildInteractiveLaunch } from '@main/providers/types'
 import { resolveLaunch } from '@main/agents/resolveCommand'
 import { terminateProcessTreeWithEscalation } from '@main/agents/processTermination'
-import { createWorktree, currentBranch, rollbackWorktree } from '@main/agents/worktree'
+import { createWorktree, currentBranch, isOrcaBranch, rollbackWorktree } from '@main/agents/worktree'
+import { buildAgentResumeState } from '@main/agents/resumeState'
+import { sessionStore, type AgentStatePersistence } from '@main/config/sessionStore'
 import { canonicalWorkspacePath, workspacePathKey } from '@main/agents/workspacePath'
 import {
   PanePreflightError,
@@ -494,7 +496,7 @@ export class AgentManager extends EventEmitter {
       throw new Error('Recovery-Worktree ist ein Alias oder wurde verschoben.')
     }
     const branch = await currentBranch(workingDir)
-    if (!branch || branch === 'HEAD' || !branch.startsWith('orca/')) {
+    if (!branch || branch === 'HEAD' || !isOrcaBranch(branch)) {
       throw new Error('Recovery-Worktree besitzt keinen sicheren Vertragus-Branch.')
     }
     return { workingDir, worktree: workingDir, branch }
@@ -1477,6 +1479,40 @@ export class AgentManager extends EventEmitter {
     closePaneWindows(id)
     this.emitEvent(`${managed.info.name} geschlossen`, 'muted', managed.info)
     this.changed()
+  }
+
+  private resumeSweepTimer: ReturnType<typeof setInterval> | undefined
+
+  /**
+   * Persist the last-known state (info + scrollback tail) of every
+   * session-bound agent, grouped per workspace session. Called periodically by
+   * the sweep and once more during the ordered shutdown, so a crash loses at
+   * most one sweep interval of terminal history.
+   */
+  persistResumeStates(store: AgentStatePersistence = sessionStore): void {
+    const bySession = new Map<string, ReturnType<typeof buildAgentResumeState>[]>()
+    const capturedAt = Date.now()
+    for (const managed of this.agents.values()) {
+      const sessionId = managed.info.workspaceSessionId
+      if (!sessionId) continue
+      const states = bySession.get(sessionId) ?? []
+      states.push(buildAgentResumeState(managed.info, managed.buffer, capturedAt))
+      bySession.set(sessionId, states)
+    }
+    for (const [sessionId, agents] of bySession) {
+      try {
+        store.writeAgentResumeStates(sessionId, agents)
+      } catch (error) {
+        console.warn('[Agents] resume-state persistence failed', sessionId, error)
+      }
+    }
+  }
+
+  /** Start the periodic resume-state sweep (idempotent; runtime only). */
+  startResumeStateSweep(intervalMs = 30_000): void {
+    if (this.resumeSweepTimer) return
+    this.resumeSweepTimer = setInterval(() => this.persistResumeStates(), intervalMs)
+    this.resumeSweepTimer.unref?.()
   }
 
   async killAll(profileId?: string): Promise<void> {

@@ -6,6 +6,7 @@
 import { getProfile } from '@main/config/store'
 import { migrateLegacySettingsSnapshots, sessionStore } from '@main/config/sessionStore'
 import { workspaceSessions } from '@main/orchestrator/WorkspaceSessionRegistry'
+import { agentManager } from '@main/agents/AgentManager'
 
 let lastShutdownClean = true
 
@@ -23,6 +24,8 @@ export function prepareSessionPersistence(): SessionRestoreResult {
   migrateLegacySettingsSnapshots()
   lastShutdownClean = sessionStore.consumeCleanShutdownFlag()
   const restoredSessions = workspaceSessions.rehydrate((profileId) => getProfile(profileId))
+  // Crash protection for terminal history: at most one interval is lost.
+  agentManager.startResumeStateSweep()
   return { cleanShutdown: lastShutdownClean, restoredSessions }
 }
 
@@ -37,6 +40,7 @@ export function lastShutdownWasClean(): boolean {
  * shutdown-deadline overrun cannot lose orchestrator state.
  */
 export function finalizeSessionPersistence(): void {
+  agentManager.persistResumeStates()
   workspaceSessions.flushSnapshots()
   sessionStore.markCleanShutdown()
 }

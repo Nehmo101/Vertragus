@@ -93,6 +93,25 @@ describe('SessionStore', () => {
     expect(store.readSnapshot(second.snapshotKey)).toBeUndefined()
   })
 
+  it('stores agent resume states per session and removes them with the session', () => {
+    const store = tempStore()
+    const state = {
+      info: { id: 'codex-01' },
+      scrollbackTail: 'letzter Stand',
+      capturedAt: 1
+    } as never
+    store.upsertSession(entry())
+    store.writeAgentResumeStates('session-1', [state])
+
+    expect(store.readAgentResumeStates('session-1')).toEqual([
+      expect.objectContaining({ scrollbackTail: 'letzter Stand' })
+    ])
+    expect(store.readAgentResumeStates('andere-session')).toEqual([])
+
+    store.removeSession('session-1')
+    expect(store.readAgentResumeStates('session-1')).toEqual([])
+  })
+
   it('tracks the clean-shutdown marker across consume/mark cycles', () => {
     const store = tempStore()
     // First launch: no index yet counts as clean, and arms the crash marker.

@@ -12,7 +12,8 @@
  */
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdir } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { mkdir, readdir } from 'node:fs/promises'
 import { promisify } from 'node:util'
 import { dirname, join } from 'node:path'
 import { canonicalWorkspacePath } from '@main/agents/workspacePath'
@@ -76,10 +77,29 @@ export function worktreeIdentity(
   }
 }
 
+async function branchExists(root: string, branch: string): Promise<boolean> {
+  try {
+    await git(root, ['show-ref', '--verify', '--quiet', `refs/heads/${branch}`])
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Max slot probes per agent identity before giving up (defensive bound). */
+const WORKTREE_SLOT_ATTEMPTS = 20
+
 /**
  * Create a fresh isolated worktree for the given agent and app session.
  * A non-Git directory returns null. Git failures are surfaced to the caller;
  * falling back to a shared checkout would silently disable isolation.
+ *
+ * Session ids are persisted and survive app restarts, while agent-id sequences
+ * start over — a resumed session would collide with its previous run's
+ * worktrees. Existing checkouts are deliberately never reused (an unrelated
+ * fresh task must not see foreign uncommitted changes; continuing old work
+ * goes through the explicit recovery-worktree path), so occupied identities
+ * are skipped with an `-r<n>` suffix instead.
  */
 export async function createWorktree(
   dir: string,
@@ -89,7 +109,11 @@ export async function createWorktree(
   const discoveredRoot = await repoRoot(dir)
   if (!discoveredRoot) return null
   const root = await canonicalWorkspacePath(discoveredRoot)
-  const identity = worktreeIdentity(root, agentId, sessionId)
+  let identity = worktreeIdentity(root, agentId, sessionId)
+  for (let attempt = 2; attempt <= WORKTREE_SLOT_ATTEMPTS; attempt += 1) {
+    if (!existsSync(identity.path) && !(await branchExists(root, identity.branch))) break
+    identity = worktreeIdentity(root, `${agentId}-r${attempt}`, sessionId)
+  }
   await mkdir(dirname(identity.path), { recursive: true })
   try {
     await git(root, ['worktree', 'add', '-b', identity.branch, identity.path])
@@ -149,6 +173,74 @@ async function mainWorktreeRoot(worktreePath: string): Promise<string | null> {
  * swallowed (best-effort cleanup); returns true when the worktree or its branch
  * was actually removed.
  */
+export interface WorktreeInventoryEntry {
+  path: string
+  sessionId: string
+  agentId: string
+  /** True for pre-rebrand `.orca-worktrees` checkouts. */
+  legacy: boolean
+  /** True when the session id is still known to the session index. */
+  owned: boolean
+  /** Uncommitted changes (git status entries); undefined when git failed. */
+  changedFiles?: number
+}
+
+/**
+ * List every Vertragus-managed worktree under a repository and classify it
+ * against the currently known session ids. Never mutates anything — orphaned
+ * checkouts (from removed or pre-persistence sessions) are only reported, so
+ * uncommitted work is preserved until the user explicitly discards it.
+ */
+export async function inventoryWorktrees(
+  dir: string,
+  knownSessionIds: ReadonlySet<string>
+): Promise<WorktreeInventoryEntry[]> {
+  const discoveredRoot = await repoRoot(dir)
+  if (!discoveredRoot) return []
+  const root = await canonicalWorkspacePath(discoveredRoot)
+  // Directory names carry the sanitized identity; compare like for like.
+  const known = new Set(
+    [...knownSessionIds].flatMap((id) => {
+      try {
+        return [safeIdentityPart(id, 'Session-ID')]
+      } catch {
+        return []
+      }
+    })
+  )
+  const entries: WorktreeInventoryEntry[] = []
+  for (const container of ['.vertragus-worktrees', '.orca-worktrees'] as const) {
+    const containerPath = join(root, container)
+    const sessions = await readdir(containerPath, { withFileTypes: true }).catch(() => [])
+    for (const session of sessions) {
+      if (!session.isDirectory()) continue
+      const agents = await readdir(join(containerPath, session.name), {
+        withFileTypes: true
+      }).catch(() => [])
+      for (const agent of agents) {
+        if (!agent.isDirectory()) continue
+        const path = join(containerPath, session.name, agent.name)
+        let changedFiles: number | undefined
+        try {
+          const status = await git(path, ['status', '--porcelain'])
+          changedFiles = status ? status.split('\n').length : 0
+        } catch {
+          changedFiles = undefined
+        }
+        entries.push({
+          path,
+          sessionId: session.name,
+          agentId: agent.name,
+          legacy: container === '.orca-worktrees',
+          owned: known.has(session.name),
+          changedFiles
+        })
+      }
+    }
+  }
+  return entries
+}
+
 export async function rollbackWorktree(
   worktreePath: string,
   branch?: string

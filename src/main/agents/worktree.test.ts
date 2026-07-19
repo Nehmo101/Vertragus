@@ -1,5 +1,15 @@
-import { describe, expect, it } from 'vitest'
-import { isOrcaBranch, isOrcaWorktreePath, worktreeIdentity } from './worktree'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterAll, describe, expect, it } from 'vitest'
+import {
+  createWorktree,
+  inventoryWorktrees,
+  isOrcaBranch,
+  isOrcaWorktreePath,
+  worktreeIdentity
+} from './worktree'
 
 describe('worktreeIdentity', () => {
   it('isolates identical agent ids across app sessions', () => {
@@ -54,5 +64,59 @@ describe('rollback safety guards', () => {
     expect(isOrcaBranch('feature/vertragus')).toBe(false)
     expect(isOrcaBranch('my-vertragus/x')).toBe(false)
     expect(isOrcaBranch('')).toBe(false)
+  })
+})
+
+describe('createWorktree + inventory against a real repository', () => {
+  const repos: string[] = []
+
+  function initRepo(): string {
+    const repo = mkdtempSync(join(tmpdir(), 'vertragus-worktree-'))
+    repos.push(repo)
+    const git = (...args: string[]): void => {
+      execFileSync('git', ['-C', repo, ...args], { stdio: 'ignore' })
+    }
+    git('init')
+    git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+      'commit', '--allow-empty', '-m', 'init')
+    return repo
+  }
+
+  afterAll(() => {
+    while (repos.length > 0) rmSync(repos.pop()!, { recursive: true, force: true })
+  })
+
+  it('skips occupied identities after a restart instead of failing or reusing them', async () => {
+    const repo = initRepo()
+
+    const first = await createWorktree(repo, 'codex-01', 'session-stable')
+    expect(first?.branch).toBe('vertragus/session-stable/codex-01')
+
+    // Same session id + same agent id (restarted app, reset sequence): the
+    // existing checkout must stay untouched and the new agent gets a free slot.
+    const second = await createWorktree(repo, 'codex-01', 'session-stable')
+    expect(second?.branch).toBe('vertragus/session-stable/codex-01-r2')
+    expect(second?.path).not.toBe(first?.path)
+  })
+
+  it('classifies worktrees as owned or orphaned and reports uncommitted changes', async () => {
+    const repo = initRepo()
+    const kept = await createWorktree(repo, 'codex-01', 'session-kept')
+    await createWorktree(repo, 'codex-01', 'session-gone')
+    writeFileSync(join(kept!.path, 'wip.txt'), 'uncommitted work')
+
+    const inventory = await inventoryWorktrees(repo, new Set(['session-kept']))
+
+    expect(inventory).toHaveLength(2)
+    const owned = inventory.find((entry) => entry.sessionId === 'session-kept')
+    const orphaned = inventory.find((entry) => entry.sessionId === 'session-gone')
+    expect(owned).toMatchObject({ owned: true, legacy: false, changedFiles: 1 })
+    expect(orphaned).toMatchObject({ owned: false, changedFiles: 0 })
+  })
+
+  it('returns an empty inventory for a directory that is no git repository', async () => {
+    const plain = mkdtempSync(join(tmpdir(), 'vertragus-plain-'))
+    repos.push(plain)
+    await expect(inventoryWorktrees(plain, new Set())).resolves.toEqual([])
   })
 })

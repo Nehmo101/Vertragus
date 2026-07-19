@@ -9,6 +9,10 @@ const registry = vi.hoisted(() => ({
   flushSnapshots: vi.fn()
 }))
 const migrate = vi.hoisted(() => vi.fn(() => 0))
+const agents = vi.hoisted(() => ({
+  startResumeStateSweep: vi.fn(),
+  persistResumeStates: vi.fn()
+}))
 
 vi.mock('@main/config/store', () => ({ getProfile: vi.fn() }))
 vi.mock('@main/config/sessionStore', () => ({
@@ -18,6 +22,7 @@ vi.mock('@main/config/sessionStore', () => ({
 vi.mock('@main/orchestrator/WorkspaceSessionRegistry', () => ({
   workspaceSessions: registry
 }))
+vi.mock('@main/agents/AgentManager', () => ({ agentManager: agents }))
 
 import {
   finalizeSessionPersistence,
@@ -38,13 +43,18 @@ describe('sessionRestore', () => {
     )
     expect(result).toEqual({ cleanShutdown: false, restoredSessions: 2 })
     expect(lastShutdownWasClean()).toBe(false)
+    expect(agents.startResumeStateSweep).toHaveBeenCalledOnce()
   })
 
-  it('flushes every engine before marking the shutdown clean', () => {
+  it('persists agent states and flushes every engine before marking the shutdown clean', () => {
     finalizeSessionPersistence()
 
+    expect(agents.persistResumeStates).toHaveBeenCalledOnce()
     expect(registry.flushSnapshots).toHaveBeenCalledOnce()
     expect(store.markCleanShutdown).toHaveBeenCalledOnce()
+    expect(agents.persistResumeStates.mock.invocationCallOrder[0]!).toBeLessThan(
+      store.markCleanShutdown.mock.invocationCallOrder[0]!
+    )
     expect(registry.flushSnapshots.mock.invocationCallOrder[0]!).toBeLessThan(
       store.markCleanShutdown.mock.invocationCallOrder[0]!
     )

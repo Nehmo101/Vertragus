@@ -4,10 +4,15 @@
 > (atomare Writes, Legacy-Migration aus dem Settings-Bag), Engine-`flushSnapshot`, geordneter
 > Shutdown mit 8-s-Deadline und Clean-Shutdown-Marker, Registry-Rehydration beim Boot (Sessions
 > mit Fortschritt erscheinen nach Neustart wieder in der bestehenden UI; leere/verwaiste Einträge
-> werden bereinigt). Abweichung: die `sessions:*`-IPC-Contracts aus Phase 0.4/0.5 sind bewusst in
-> Phase 2 verschoben, bis der Resume-Dialog sie konsumiert. Offen: WS-B (AgentResumeState +
-> Scrollback), WS-C (Worktree-Stabilität + Verwaisten-Inventar), Phase 2 (Resume-Flow,
-> `interrupted`-Status), Phase 3.
+> werden bereinigt). WS-B umgesetzt: `AgentResumeState` (Info + redigierter 64-KB-Scrollback-Tail)
+> pro Session, periodischer 30-s-Sweep + finaler Sweep im Shutdown. WS-C umgesetzt:
+> `createWorktree` weicht nach Neustart belegten Identitäten per `-r<n>`-Suffix aus (nie stille
+> Übernahme fremder Checkouts), `inventoryWorktrees` klassifiziert owned/orphaned inkl.
+> Änderungszähler, und der Recovery-Pfad akzeptiert `vertragus/`-Branches (vorher lehnte
+> `prepareRecoveryWorktree` alle Nach-Rebrand-Worktrees ab — Bug). Abweichung: die
+> `sessions:*`-IPC-Contracts aus Phase 0.4/0.5 sind bewusst in Phase 2 verschoben, bis der
+> Resume-Dialog sie konsumiert. Offen: Phase 2 (Resume-Flow/UI, `interrupted`-Status,
+> Briefing-Seed aus ResumeStates), Phase 3 (natives Provider-Resume, Crash-Härtung/GC).
 > Ziel: Wird Vertragus geschlossen (bewusst, Crash, Stromausfall, Update-Neustart), können alle
 > offenen Workspace-Sessions nach dem nächsten Start **weitergeführt** werden — Task-DAG, Ziel,
 > Terminal-Historie, Worktrees mit uncommitteten Änderungen und (wo der Provider es kann) sogar

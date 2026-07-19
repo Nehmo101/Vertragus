@@ -21,6 +21,7 @@ import {
 } from 'node:fs'
 import { join } from 'node:path'
 import type { OrchestratorSnapshot } from '@shared/orchestrator'
+import type { AgentResumeState } from '@shared/agents'
 import * as configStore from '@main/config/store'
 
 export interface SessionIndexEntry {
@@ -45,6 +46,18 @@ interface PersistedSnapshotFile {
   key: string
   updatedAt: number
   snapshot: OrchestratorSnapshot
+}
+
+interface PersistedAgentStatesFile {
+  version: 1
+  sessionId: string
+  updatedAt: number
+  agents: AgentResumeState[]
+}
+
+/** The subset the AgentManager persists through (injectable in tests). */
+export interface AgentStatePersistence {
+  writeAgentResumeStates(sessionId: string, agents: AgentResumeState[]): void
 }
 
 /** The subset the OrchestratorEngine persists through (injectable in tests). */
@@ -126,6 +139,35 @@ export class SessionStore implements SessionPersistence {
     if (path) rmSync(path, { force: true })
   }
 
+  private agentStatesPath(sessionId: string): string | undefined {
+    return this.directory ? join(this.directory, `agents_${sanitizeKey(sessionId)}.json`) : undefined
+  }
+
+  readAgentResumeStates(sessionId: string): AgentResumeState[] {
+    const path = this.agentStatesPath(sessionId)
+    if (!path) return []
+    const file = this.readJson<PersistedAgentStatesFile>(path)
+    if (!file || file.sessionId !== sessionId || !Array.isArray(file.agents)) return []
+    return file.agents
+  }
+
+  writeAgentResumeStates(sessionId: string, agents: AgentResumeState[]): void {
+    const path = this.agentStatesPath(sessionId)
+    if (!path) return
+    const file: PersistedAgentStatesFile = {
+      version: 1,
+      sessionId,
+      updatedAt: Date.now(),
+      agents
+    }
+    this.writeFileAtomic(path, JSON.stringify(file))
+  }
+
+  deleteAgentResumeStates(sessionId: string): void {
+    const path = this.agentStatesPath(sessionId)
+    if (path) rmSync(path, { force: true })
+  }
+
   private readIndex(): SessionIndexFile {
     if (!this.directory) return { ...EMPTY_INDEX, sessions: [] }
     const file = this.readJson<SessionIndexFile>(join(this.directory, 'index.json'))
@@ -167,6 +209,7 @@ export class SessionStore implements SessionPersistence {
     if (removed.length === 0) return
     this.writeIndex({ ...index, sessions: index.sessions.filter((entry) => entry.id !== id) })
     for (const entry of removed) this.deleteSnapshot(entry.snapshotKey)
+    this.deleteAgentResumeStates(id)
   }
 
   /**

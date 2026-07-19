@@ -114,6 +114,20 @@ export interface AgentInstanceInfo {
   handoffFrom?: HandoffLink
 }
 
+/**
+ * Persisted last-known state of a session-bound agent, captured periodically
+ * and during the ordered shutdown. After a restart it seeds handoff briefings
+ * ("continue exactly where the previous agent stopped") and lets the UI show
+ * the frozen terminal history. Never contains a live process handle.
+ */
+export interface AgentResumeState {
+  /** Redacted copy of the agent's public info (without the bulky preflight report). */
+  info: AgentInstanceInfo
+  /** ANSI-stripped, secret-redacted tail of the terminal scrollback. */
+  scrollbackTail: string
+  capturedAt: number
+}
+
 export interface SpawnAgentRequest {
   provider: AgentProviderId
   /** Free-text override; empty uses modelPreset or CLI default. */
