@@ -26,6 +26,12 @@ export async function spawnProfileTeam(
       ? workspaceSessions.ensure(sessionProfile)
       : workspaceSessions.start(sessionProfile)
   const engine = session.engine
+  // `ensure()` returns a pre-existing session and ignores the passed profile, so
+  // the yoloDefault bump computed above would be dropped for an already-running
+  // engine — its plan-workers would keep prompting. Apply it to the live engine
+  // directly so later plan-workers inherit the same no-prompts policy as the
+  // agents spawned right now. Idempotent for the fresh-start path.
+  if (yoloMaster) engine.setYolo(true)
   const runtimeProfile = session.profile
   const workingDir =
     options?.workingDirOverride?.trim() || profileRepoLocalPath(runtimeProfile) || runtimeProfile.workingDir

@@ -232,6 +232,18 @@ export interface CancelPlanResult {
   status?: 'stopped'
 }
 
+/**
+ * esbuild (and other native build helpers) fail to spawn their child process
+ * under the codex restricted-token sandbox with `spawn EPERM`. This is an
+ * infrastructure limit, not a code defect — detect it in the worker's output.
+ */
+function isSandboxSpawnFailure(text: string | undefined): boolean {
+  if (!text) return false
+  return /\bspawn\b[^\n]*\bEPERM\b/i.test(text) ||
+    /\bEPERM\b[^\n]*\bspawn\b/i.test(text) ||
+    /esbuild[^\n]*\bEPERM\b/i.test(text)
+}
+
 /** Resolve contradictory provider flags using process outcome and the worker's explicit contract. */
 export function judgeWorkerTerminalResult(result: HeadlessResult): WorkerTerminalJudgement {
   if (result.status === 'cancelled') {
@@ -252,6 +264,19 @@ export function judgeWorkerTerminalResult(result: HeadlessResult): WorkerTermina
       failureKind: 'infrastructure',
       reason: result.error?.trim() ||
         `Provider-Infrastruktur fehlgeschlagen (${result.failureKind}).`
+    }
+  }
+
+  // A worker that only fails because esbuild cannot spawn its native child in
+  // the codex restricted-token sandbox is hitting an infrastructure limit, not
+  // producing bad code. The retro analysis already treats EPERM as infra
+  // (runAnalysis.ts); classify it here too so such a run does not count as a
+  // model/worker failure — even when the worker mistakenly self-reports BLOCKER.
+  if (isSandboxSpawnFailure(result.result) || isSandboxSpawnFailure(result.error)) {
+    return {
+      status: 'error',
+      failureKind: 'infrastructure',
+      reason: 'Sandbox-Gate-Fehler: esbuild/Node-Unterprozess scheiterte an spawn EPERM (kein fachlicher BLOCKER).'
     }
   }
 
@@ -1653,6 +1678,12 @@ export class OrchestratorEngine extends EventEmitter {
       }
     }
 
+    // Seed a dependent task's worktree from its dependency's central commit so
+    // the foundation files are present. Without this the worktree branches from
+    // HEAD and the central typecheck fails on unresolvable imports (retros
+    // mrqv1blp, mrn5qqe4). Only the unambiguous single-dependency case is seeded;
+    // multiple dependencies would need a merge and safely fall back to HEAD.
+    const dependencyBaseRef = this.resolveDependencyBaseRef(options.dependsOn)
     try {
       const { info, done, baseCommit } = await agentManager.runTask({
         provider: slot.provider,
@@ -1667,6 +1698,7 @@ export class OrchestratorEngine extends EventEmitter {
         profileId: profile?.id,
         workspaceSessionId: this.workspaceSessionId,
         recoveryWorktree: options.recoveryWorktree,
+        baseRef: dependencyBaseRef,
         engineId: this.engineId
       }, { onEvent: onLifecycleEvent, heartbeatIntervalMs: 45_000 })
       task.agentId = info.id
@@ -1944,7 +1976,31 @@ export class OrchestratorEngine extends EventEmitter {
               activeAttempt.note = task.judgeReason
             }
           } else if (!workerError) {
-            task.completion = { kind: 'no-changes' }
+            if (task.expectedFiles && task.expectedFiles.length > 0) {
+              // Erfolgsmeldung ohne Diff, obwohl der Task konkrete Deliverables
+              // deklarierte: verletzter Ergebnisvertrag (Retros mrn50sux,
+              // mrn52aoz — Cursor-Worker lieferten nur eine Selbstvorstellung).
+              // Herabstufen statt grün werten.
+              task.status = 'needs-work'
+              task.failureKind = 'gate'
+              task.progress = undefined
+              task.completion = { kind: 'no-changes' }
+              task.findings = [...(task.findings ?? []), {
+                gate: 'commit',
+                code: 'result-contract',
+                message: `Worker meldete Erfolg, lieferte aber keine Änderung — erwartet waren: ${task.expectedFiles.join(', ')}.`
+              }]
+              task.judgeReason = 'Ergebnisvertrag verletzt: ERFOLG ohne Diff trotz erwarteter Dateien.'
+              task.lastAction = 'Ergebnisvertrag verletzt: kein Diff trotz erwarteter Dateien'
+              this.reliability.needsWorkTasks += 1
+              if (activeAttempt) {
+                activeAttempt.status = 'needs-work'
+                activeAttempt.failureKind = 'gate'
+                activeAttempt.note = task.judgeReason
+              }
+            } else {
+              task.completion = { kind: 'no-changes' }
+            }
           }
         } else if (!workerError) {
           task.status = 'error'
@@ -2042,6 +2098,21 @@ export class OrchestratorEngine extends EventEmitter {
     } finally {
       releaseSlot()
     }
+  }
+
+  /**
+   * The commit a dependent task should branch from: the central commit of its
+   * single required dependency. Multiple distinct dependency commits would need
+   * a merge and are left to branch from HEAD (no regression) rather than
+   * picking one arbitrarily.
+   */
+  private resolveDependencyBaseRef(dependsOn?: string[]): string | undefined {
+    if (!dependsOn || dependsOn.length === 0) return undefined
+    const commits = dependsOn
+      .map((id) => this.preparedChanges.get(id)?.commit)
+      .filter((commit): commit is string => Boolean(commit))
+    const distinct = [...new Set(commits)]
+    return distinct.length === 1 ? distinct[0] : undefined
   }
 
   /** Keep a short, distinct history of what the worker actually did. */
