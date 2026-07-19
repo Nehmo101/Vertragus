@@ -81,6 +81,55 @@ describe('planner shared hotspot ownership', () => {
     )
   })
 
+  it('adds an advisory edge for a missing advisory feature task instead of skipping it', () => {
+    const withAdvisoryFeature = resolveExecutionPlan(
+      plan([
+        feature,
+        { ...feature, id: 'feature-adv', criticality: 'advisory' },
+        {
+          ...feature,
+          id: 'integrate',
+          ownership: 'integrator',
+          dependsOn: ['feature'],
+          expectedFiles: ['src/renderer/src/styles.css']
+        }
+      ]),
+      'worker',
+      undefined,
+      ['worker']
+    )
+    expect(withAdvisoryFeature.usedFallback).toBe(false)
+    const integrator = withAdvisoryFeature.plan.tasks.find((task) => task.id === 'integrate')
+    expect(integrator?.advisoryDependsOn).toContain('feature-adv')
+    expect(withAdvisoryFeature.issues).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'invalid_ownership' })])
+    )
+  })
+
+  it('does not collapse when only a non-repairable advisory task is missing', () => {
+    const advisoryCycle = resolveExecutionPlan(
+      plan([
+        { ...feature, id: 'feature-adv', criticality: 'advisory', dependsOn: ['integrate'] },
+        {
+          ...feature,
+          id: 'integrate',
+          ownership: 'integrator',
+          dependsOn: [],
+          expectedFiles: ['src/shared/profile.ts']
+        }
+      ]),
+      'worker',
+      undefined,
+      ['worker']
+    )
+    // The advisory task depends on the integrator (a cycle), so it cannot be
+    // repaired — but a non-repairable *advisory* task must not sink the plan.
+    expect(advisoryCycle.usedFallback).toBe(false)
+    expect(advisoryCycle.issues).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'invalid_ownership' })])
+    )
+  })
+
   it('still collapses when the repair edge would close a dependency cycle', () => {
     const cyclic = resolveExecutionPlan(
       plan([
