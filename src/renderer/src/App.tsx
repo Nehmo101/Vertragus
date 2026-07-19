@@ -12,6 +12,7 @@ import InboxPanel from '@renderer/components/InboxPanel'
 import AddAgentModal from '@renderer/components/AddAgentModal'
 import SpeechSettingsModal from '@renderer/components/SpeechSettingsModal'
 import RemotePanel from '@renderer/components/RemotePanel'
+import SessionRestoreBanner from '@renderer/components/SessionRestoreBanner'
 import MissionApprovalInbox from '@renderer/components/MissionApprovalInbox'
 import DiffMergeCenter from '@renderer/components/DiffMergeCenter'
 import { SpeechShortcutProvider } from '@renderer/features/speechShortcut/SpeechShortcutProvider'
@@ -90,6 +91,8 @@ export default function App(): JSX.Element {
     <SpeechShortcutProvider>
     <div className="app-root" data-theme={store.theme} data-density={store.uiDensity}>
       <TitleBar />
+
+      <SessionRestoreBanner />
 
       {store.yoloMaster && (
         <div className="yolo-strip">

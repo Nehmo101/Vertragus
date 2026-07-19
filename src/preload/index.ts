@@ -48,6 +48,14 @@ const vertragus: VertragusApi = {
     onChanged: (cb) => subscribe<WorkspaceSessionSummary[]>(IPC.evWorkspaceSessions, cb)
   },
 
+  sessions: {
+    restoreStatus: () => ipcRenderer.invoke(IPC.sessionsRestoreStatus),
+    restartAgents: (profileId, sessionId) =>
+      ipcRenderer.invoke(IPC.sessionsRestartAgents, profileId, sessionId),
+    discardOrphanWorktree: (path) =>
+      ipcRenderer.invoke(IPC.sessionsDiscardOrphanWorktree, path)
+  },
+
   listMcpServers: () => ipcRenderer.invoke(IPC.mcpList),
   saveMcpServers: (servers) => ipcRenderer.invoke(IPC.mcpSave, servers),
 
@@ -164,6 +172,8 @@ const vertragus: VertragusApi = {
       ipcRenderer.invoke(IPC.orchestratorPauseTask, profileId, workspaceSessionId, taskId),
     resumeTask: (profileId, workspaceSessionId, taskId) =>
       ipcRenderer.invoke(IPC.orchestratorResumeTask, profileId, workspaceSessionId, taskId),
+    resumeInterruptedTask: (profileId, workspaceSessionId, taskId) =>
+      ipcRenderer.invoke(IPC.orchestratorResumeInterruptedTask, profileId, workspaceSessionId, taskId),
     fallbackTask: (profileId, workspaceSessionId, taskId) =>
       ipcRenderer.invoke(IPC.orchestratorFallbackTask, profileId, workspaceSessionId, taskId),
     send: (profileId, workspaceSessionId, text) =>

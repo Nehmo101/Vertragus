@@ -111,7 +111,9 @@ function TaskCard({
   const label =
     task.status === 'running' && task.yolo
       ? t('orch.task.runningYolo')
-      : t(`orch.status.${task.status}`)
+      : task.interrupted
+        ? t('orch.status.interrupted')
+        : t(`orch.status.${task.status}`)
   const hasReview = Boolean(
     task.worktree || task.branch || task.commit || task.autoPrStatus || task.remoteCiStatus ||
     task.findings?.length || task.blocker || task.preflight || task.attempts?.length
@@ -167,6 +169,22 @@ function TaskCard({
             {task.model ? ` · ${task.model}` : ''}
           </span>
           <span className="spacer" />
+          {task.interrupted && (
+            <button
+              type="button"
+              className="btn ghost task-resume-btn"
+              title={t('orch.task.resumeInterruptedHint')}
+              onClick={() =>
+                void window.vertragus.orchestrator.resumeInterruptedTask(
+                  profileId,
+                  workspaceSessionId ?? '',
+                  task.id
+                )
+              }
+            >
+              ▶ {t('orch.task.resumeInterrupted')}
+            </button>
+          )}
           <span className="task-pill" style={{ background: pill.bg, color: pill.fg }}>
             {label}
           </span>

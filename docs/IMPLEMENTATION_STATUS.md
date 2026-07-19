@@ -121,8 +121,13 @@ Ausgangsbasis erhalten.
 - Fehlende CLI, Spawn-Fehler und manuelle Abbrüche lösen den Task immer
   deterministisch auf.
 - Zustände unterscheiden `succeeded`, `failed` und `cancelled`.
-- Session-Ziel und Task-DAG werden wiederhergestellt; unterbrochene Tasks werden
-  nach Neustart als gestoppt markiert.
+- Workspace-Sessions überleben App-Neustart und Crash: Session-Index und
+  Snapshots liegen als eigene Dateien unter `userData/sessions/`, die Registry
+  rehydriert sie beim Boot mit derselben Session-ID, und die Shutdown-Sequenz
+  flusht alle Zustände unter einer Deadline (Clean-Shutdown-Marker erkennt
+  Crashes). Unterbrochene Tasks werden als „unterbrochen" markiert und lassen
+  sich per Klick im erhaltenen Worktree weiterführen; Terminal-Verläufe werden
+  periodisch als redigierte Resume-States gesichert.
 - Echte Provider-Nutzungswerte werden angezeigt, sofern die CLI sie liefert;
   andernfalls zeigt die UI bewusst „nicht verfügbar“.
 - ESLint, Vitest und Pull-Request-CI für Linux und Windows sind eingerichtet.

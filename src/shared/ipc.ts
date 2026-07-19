@@ -21,6 +21,7 @@ import type {
   VertragusEvent
 } from './agents'
 import type { OrchestratorSnapshot, WorkspaceSessionSummary } from './orchestrator'
+import type { SessionRestoreStatus } from './sessions'
 import type { BenchmarkRecord, ModelLearning, RunRetro } from './retro'
 import type { RetroSyncStatus } from './retroSync'
 import type {
@@ -84,6 +85,9 @@ export const IPC = {
   workspaceSessionsList: 'workspaceSessions:list',
   workspaceSessionSetActive: 'workspaceSessions:setActive',
   workspaceSessionRemove: 'workspaceSessions:remove',
+  sessionsRestoreStatus: 'sessions:restoreStatus',
+  sessionsRestartAgents: 'sessions:restartAgents',
+  sessionsDiscardOrphanWorktree: 'sessions:discardOrphanWorktree',
   mcpList: 'mcp:list',
   mcpSave: 'mcp:save',
   gitSwitchBranch: 'git:switchBranch',
@@ -144,6 +148,7 @@ export const IPC = {
   orchestratorSetBudgetCaps: 'orchestrator:setBudgetCaps',
   orchestratorPauseTask: 'orchestrator:pauseTask',
   orchestratorResumeTask: 'orchestrator:resumeTask',
+  orchestratorResumeInterruptedTask: 'orchestrator:resumeInterruptedTask',
   orchestratorFallbackTask: 'orchestrator:fallbackTask',
   orchestratorSend: 'orchestrator:send',
   // voice assistant + overlay
@@ -367,6 +372,15 @@ export interface VertragusApi {
     onChanged(cb: (sessions: WorkspaceSessionSummary[]) => void): () => void
   }
 
+  /** Restart recovery: startup status + explicit continuation/cleanup actions. */
+  sessions: {
+    restoreStatus(): Promise<SessionRestoreStatus>
+    /** Restart a restored session's interactive team from its resume states. */
+    restartAgents(profileId: string, sessionId: string): Promise<AgentInstanceInfo[]>
+    /** Discard one orphaned Vertragus worktree (uncommitted work is lost). */
+    discardOrphanWorktree(path: string): Promise<boolean>
+  }
+
   /** External MCP servers attached to the launched agents. */
   listMcpServers(): Promise<McpServerConfig[]>
   /** Validate + persist the full MCP server list; returns the stored result. */
@@ -514,6 +528,12 @@ export interface VertragusApi {
     ): Promise<RemoteBudgetSnapshot>
     pauseTask(profileId: string, workspaceSessionId: string, taskId: string): Promise<boolean>
     resumeTask(profileId: string, workspaceSessionId: string, taskId: string): Promise<boolean>
+    /** Continue a restart-interrupted task in its preserved worktree. */
+    resumeInterruptedTask(
+      profileId: string,
+      workspaceSessionId: string,
+      taskId: string
+    ): Promise<boolean>
     fallbackTask(profileId: string, workspaceSessionId: string, taskId: string): Promise<boolean>
     /**
      * Seed a free-text message to the orchestrator agent of the given session

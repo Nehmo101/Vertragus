@@ -14,8 +14,13 @@ if (brandEnv('UI_SMOKE') && smokeUserData) {
   app.setPath('userData', smokeUserData)
 }
 
+/** Hard ceiling for the ordered quit sequence before app.exit() forces the end. */
+const SHUTDOWN_DEADLINE_MS = 8_000
+
 let stopAgents: () => Promise<void> = async () => undefined
 let stopRemote: () => Promise<void> = async () => undefined
+let flushSessionState: () => void = () => undefined
+let shutdownStarted = false
 
 app.whenReady().then(async () => {
   // Finder-launched macOS apps do not inherit the user's login-shell PATH.
@@ -55,6 +60,23 @@ app.whenReady().then(async () => {
     await runRemoteSelfTest()
     return
   }
+
+  // Rehydrate persisted workspace sessions before the remote gateway seeds its
+  // read model and before IPC + window exist, so every consumer's first look at
+  // the registry already contains them. Spawns no agent processes.
+  const sessionRestore = await import('@main/orchestrator/sessionRestore')
+  try {
+    const restore = sessionRestore.prepareSessionPersistence()
+    if (restore.restoredSessions > 0) {
+      console.info(
+        `[Sessions] ${restore.restoredSessions} Workspace-Session(s) wiederhergestellt` +
+          (restore.cleanShutdown ? '' : ' (letzter Lauf endete unerwartet)')
+      )
+    }
+  } catch (error) {
+    console.error('[Sessions] restore failed', error)
+  }
+  flushSessionState = () => sessionRestore.finalizeSessionPersistence()
 
   await remote.startRemoteGatewayIfEnabled().catch((error) => {
     console.error('[MissionControl] secure startup refused', error)
@@ -104,10 +126,27 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-// Never leave orphaned agent PTYs behind.
-app.on('before-quit', () => {
-  void stopAgents()
-  void stopRemote()
+// Ordered shutdown: persist session state first (synchronous local writes),
+// then terminate agent PTYs and the remote gateway, bounded by a hard
+// deadline. Without preventDefault the process would exit before the
+// fire-and-forget cleanup ever ran — losing up to 2 s of orchestrator state.
+app.on('before-quit', (event) => {
+  if (shutdownStarted) return
+  shutdownStarted = true
+  event.preventDefault()
+  try {
+    flushSessionState()
+  } catch (error) {
+    console.warn('[Shutdown] session flush failed', error)
+  }
+  const shutdown = (async () => {
+    await stopAgents().catch((error) => console.warn('[Shutdown] agent stop failed', error))
+    await stopRemote().catch((error) => console.warn('[Shutdown] remote stop failed', error))
+  })()
+  const deadline = new Promise<void>((resolve) => {
+    setTimeout(resolve, SHUTDOWN_DEADLINE_MS)
+  })
+  void Promise.race([shutdown, deadline]).finally(() => app.exit(0))
 })
 
 app.on('will-quit', () => {

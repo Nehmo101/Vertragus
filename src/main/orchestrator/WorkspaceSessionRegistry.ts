@@ -12,6 +12,12 @@ import {
   shuffleWorkspacePlaceNames
 } from '@shared/workspaceNames'
 import { OrchestratorEngine } from '@main/orchestrator/Engine'
+import {
+  hasPersistedProgress,
+  orchestratorSnapshotKey,
+  sessionStore,
+  type SessionPersistence
+} from '@main/config/sessionStore'
 
 export interface WorkspaceSession {
   id: string
@@ -65,7 +71,8 @@ export class WorkspaceSessionRegistry extends EventEmitter {
   private readonly workspaceNameAssignmentCountsByProfile = new Map<string, number>()
 
   constructor(
-    private readonly randomWorkspaceNameIndex: (maxExclusive: number) => number = randomInt
+    private readonly randomWorkspaceNameIndex: (maxExclusive: number) => number = randomInt,
+    private readonly store: SessionPersistence = sessionStore
   ) {
     super()
   }
@@ -82,20 +89,35 @@ export class WorkspaceSessionRegistry extends EventEmitter {
     return workspacePlaceName(assignment, cycles[cycleIndex])
   }
 
-  private create(profile: WorkspaceProfile, reset: boolean): WorkspaceSession {
-    const snapshot = cloneProfile(profile)
-    const sessionId = randomUUID()
-    const sessions = this.byProfile.get(snapshot.id) ?? []
-    const sequence = sessions.length + 1
-    const engine = new OrchestratorEngine({ profile: snapshot, workspaceSessionId: sessionId })
+  /** Next free sequence for a profile — rehydrated sessions may exceed the list length. */
+  private nextSequence(profileId: string): number {
+    const sessions = this.byProfile.get(profileId) ?? []
+    return sessions.reduce(
+      (max, id) => Math.max(max, this.byId.get(id)?.sequence ?? 0),
+      sessions.length
+    ) + 1
+  }
+
+  private register(input: {
+    id: string
+    profile: WorkspaceProfile
+    sequence: number
+    name: string
+    startedAt: number
+  }): WorkspaceSession {
+    const engine = new OrchestratorEngine({
+      profile: input.profile,
+      workspaceSessionId: input.id,
+      persistence: this.store
+    })
     const session: WorkspaceSession = {
-      id: sessionId,
-      profileId: snapshot.id,
-      profile: snapshot,
-      sequence,
-      name: this.nextWorkspaceName(snapshot.id),
+      id: input.id,
+      profileId: input.profile.id,
+      profile: input.profile,
+      sequence: input.sequence,
+      name: input.name,
       taskSummary: deriveTaskSummary(engine.snapshot()),
-      startedAt: Date.now(),
+      startedAt: input.startedAt,
       engine
     }
     engine.on('snapshot', (value: OrchestratorSnapshot) => {
@@ -103,16 +125,75 @@ export class WorkspaceSessionRegistry extends EventEmitter {
       const taskSummary = deriveTaskSummary(value)
       if (taskSummary !== session.taskSummary) {
         session.taskSummary = taskSummary
+        this.store.touchSession(session.id)
         this.emit('changed', this.list())
       }
     })
+    const sessions = this.byProfile.get(session.profileId) ?? []
     sessions.push(session.id)
-    this.byProfile.set(snapshot.id, sessions)
-    this.activeByProfile.set(snapshot.id, session.id)
+    this.byProfile.set(session.profileId, sessions)
+    this.activeByProfile.set(session.profileId, session.id)
     this.byId.set(session.id, session)
-    if (reset) engine.reset()
+    this.store.upsertSession({
+      id: session.id,
+      profileId: session.profileId,
+      name: session.name,
+      sequence: session.sequence,
+      snapshotKey: orchestratorSnapshotKey(session.profileId, session.id),
+      startedAt: session.startedAt,
+      updatedAt: session.startedAt
+    })
+    return session
+  }
+
+  private create(profile: WorkspaceProfile, reset: boolean): WorkspaceSession {
+    const snapshot = cloneProfile(profile)
+    const session = this.register({
+      id: randomUUID(),
+      profile: snapshot,
+      sequence: this.nextSequence(snapshot.id),
+      name: this.nextWorkspaceName(snapshot.id),
+      startedAt: Date.now()
+    })
+    if (reset) session.engine.reset()
     this.emit('changed', this.list())
     return session
+  }
+
+  /**
+   * Recreate persisted sessions at boot so each engine's constructor restore
+   * finds its snapshot again (the persistence key embeds the session id).
+   * Only sessions with real progress come back; empty or orphaned entries are
+   * dropped from the store. No agent process is started here — restarting
+   * agents stays an explicit user action.
+   */
+  rehydrate(resolveProfile: (profileId: string) => WorkspaceProfile | undefined): number {
+    let restored = 0
+    for (const entry of this.store.listSessions()) {
+      if (this.byId.has(entry.id)) continue
+      const profile = resolveProfile(entry.profileId)
+      const snapshot = this.store.readSnapshot(entry.snapshotKey)
+      if (!profile || !hasPersistedProgress(snapshot)) {
+        this.store.removeSession(entry.id)
+        continue
+      }
+      this.register({
+        id: entry.id,
+        profile: cloneProfile(profile),
+        sequence: entry.sequence > 0 ? entry.sequence : this.nextSequence(entry.profileId),
+        // Migrated legacy entries carry no name; assign one like a fresh session.
+        name: entry.name || this.nextWorkspaceName(entry.profileId),
+        startedAt: entry.startedAt || Date.now()
+      })
+      restored += 1
+    }
+    if (restored > 0) this.emit('changed', this.list())
+    return restored
+  }
+
+  /** Drain every engine's pending throttled snapshot (ordered shutdown). */
+  flushSnapshots(): void {
+    for (const session of this.byId.values()) session.engine.flushSnapshot()
   }
 
   ensure(profile: WorkspaceProfile, sessionId?: string): WorkspaceSession {
@@ -230,6 +311,10 @@ export class WorkspaceSessionRegistry extends EventEmitter {
     return this.ensure(profile, sessionId).engine.resumeTask(taskId)
   }
 
+  resumeInterruptedTask(profile: WorkspaceProfile, taskId: string, sessionId?: string): boolean {
+    return this.ensure(profile, sessionId).engine.resumeInterruptedTask(taskId)
+  }
+
   fallbackTask(profile: WorkspaceProfile, taskId: string, sessionId?: string): Promise<boolean> {
     return this.ensure(profile, sessionId).engine.fallbackTask(taskId)
   }
@@ -246,6 +331,7 @@ export class WorkspaceSessionRegistry extends EventEmitter {
     const session = this.byId.get(sessionId)
     if (!session) return
     session.engine.dispose()
+    this.store.removeSession(sessionId)
     this.byId.delete(sessionId)
     const remaining = (this.byProfile.get(session.profileId) ?? []).filter((id) => id !== sessionId)
     if (remaining.length === 0) {

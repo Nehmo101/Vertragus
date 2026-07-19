@@ -174,6 +174,12 @@ export interface OrcaTask {
   planId?: string
   engineId?: string
   expectedFiles?: string[]
+  /**
+   * True when an app shutdown/crash interrupted this task mid-run. The task is
+   * terminal (`stopped`), but its worktree survived on disk, so it can be
+   * continued explicitly via resumeInterruptedTask.
+   */
+  interrupted?: boolean
   /** Quarantined partial work from a failed worker; never auto-integrated. */
   recoveryArtifact?: TaskRecoveryArtifact
   worktree?: string
@@ -379,6 +385,20 @@ export interface OrchestratorSnapshot {
   multiAgentRuns?: MultiAgentRunSnapshot[]
   /** Direct subagent questions/support requests, including answered history. */
   subagentRequests?: SubagentSupportRequest[]
+  /**
+   * Persisted-only replay data (prompt per task) so interrupted tasks can be
+   * continued after an app restart. Written to the session store, never
+   * included in live snapshot pushes.
+   */
+  dispatchRecords?: Record<string, PersistedDispatchRecord>
+}
+
+/** Replay data for one dispatched task, kept for restart continuation. */
+export interface PersistedDispatchRecord {
+  role: string
+  prompt: string
+  title?: string
+  options?: Record<string, unknown>
 }
 
 export interface OrchestratorReliabilityMetrics {

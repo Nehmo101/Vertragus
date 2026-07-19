@@ -28,6 +28,7 @@ import type {
   MultiAgentRunSnapshot,
   OrchestratorReliabilityMetrics,
   PendingPlanReview,
+  PersistedDispatchRecord,
   OrchestratorSnapshot,
   PlanRunStatusSnapshot,
   RetroReminder,
@@ -74,9 +75,13 @@ import {
 import {
   getProfile,
   getActiveProfileId,
-  getSetting,
-  setSetting
+  getSetting
 } from '@main/config/store'
+import {
+  orchestratorSnapshotKey,
+  sessionStore,
+  type SnapshotPersistence
+} from '@main/config/sessionStore'
 import { createPaneWindow } from '@main/windows'
 import {
   prepareTaskChange,
@@ -426,17 +431,25 @@ export class OrchestratorEngine extends EventEmitter {
   /** Per-role capacity limiter — count = max parallel subagents of that role. */
   private boundProfile: WorkspaceProfile | undefined
   private readonly workspaceSessionId: string | undefined
+  private readonly persistence: SnapshotPersistence
 
-  constructor(options: { profile?: WorkspaceProfile; workspaceSessionId?: string } = {}) {
+  constructor(
+    options: {
+      profile?: WorkspaceProfile
+      workspaceSessionId?: string
+      persistence?: SnapshotPersistence
+    } = {}
+  ) {
     super()
     this.engineId = `engine-${options.workspaceSessionId ?? randomUUID()}`
     this.boundProfile = options.profile
       ? { ...options.profile, agents: options.profile.agents.map((slot) => ({ ...slot })) }
       : undefined
     this.workspaceSessionId = options.workspaceSessionId
+    this.persistence = options.persistence ?? sessionStore
     permissionBroker.on('pending', this.onPermissionPending)
     permissionBroker.on('resolved', this.onPermissionResolved)
-    const restored = getSetting<OrchestratorSnapshot>(this.persistenceKey())
+    const restored = this.persistence.readSnapshot(this.persistenceKey())
     this.budgetCaps = restored?.budget?.caps ? { ...restored.budget.caps } : {}
     if (restored?.reliability) {
       Object.assign(this.reliability, restored.reliability, {
@@ -476,6 +489,8 @@ export class OrchestratorEngine extends EventEmitter {
       this.tasks.set(task.id, {
         ...task,
         status: interrupted ? 'stopped' : task.status,
+        // The flag survives repeated restarts until the task is continued.
+        interrupted: interrupted ? true : task.interrupted,
         note: interrupted ? 'Durch App-Neustart unterbrochen.' : task.note,
         finishedAt: interrupted ? Date.now() : task.finishedAt
       })
@@ -483,6 +498,17 @@ export class OrchestratorEngine extends EventEmitter {
       // dispatch would silently overwrite restored history under the same id.
       const taskSeq = parseSequenceId(task.id, 't-')
       if (taskSeq != null) this.taskSeq = Math.max(this.taskSeq, taskSeq)
+    }
+    if (restored.dispatchRecords) {
+      for (const [taskId, record] of Object.entries(restored.dispatchRecords)) {
+        if (!record || typeof record.prompt !== 'string' || typeof record.role !== 'string') continue
+        this.dispatchRecords.set(taskId, {
+          role: record.role,
+          prompt: record.prompt,
+          title: record.title,
+          options: { ...(record.options as DispatchOptions | undefined) }
+        })
+      }
     }
     if (Array.isArray(restored.findings)) {
       for (const finding of restored.findings) {
@@ -689,10 +715,42 @@ export class OrchestratorEngine extends EventEmitter {
     if (!snapshot) return
     this.lastPersistedAt = Date.now()
     try {
-      setSetting(this.persistenceKey(), snapshot)
+      // Dispatch prompts ride along in the persisted file only (never in live
+      // pushes) so interrupted tasks stay continuable after a restart.
+      this.persistence.writeSnapshot(this.persistenceKey(), {
+        ...snapshot,
+        dispatchRecords: this.persistableDispatchRecords()
+      })
     } catch (error) {
       console.warn('[Orchestrator] snapshot persistence failed', error)
     }
+  }
+
+  private persistableDispatchRecords(): Record<string, PersistedDispatchRecord> | undefined {
+    if (this.dispatchRecords.size === 0) return undefined
+    const records: Record<string, PersistedDispatchRecord> = {}
+    for (const [taskId, record] of this.dispatchRecords) {
+      records[taskId] = {
+        role: record.role,
+        prompt: record.prompt,
+        title: record.title,
+        options: { ...record.options } as Record<string, unknown>
+      }
+    }
+    return records
+  }
+
+  /**
+   * Drain a pending throttled snapshot immediately. Called from the ordered
+   * shutdown sequence so up to SNAPSHOT_PERSIST_MIN_INTERVAL_MS of state is
+   * not lost with the unref'd throttle timer.
+   */
+  flushSnapshot(): void {
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer)
+      this.persistTimer = undefined
+    }
+    this.persistPendingSnapshot()
   }
 
   private setActivityState(
@@ -913,6 +971,43 @@ export class OrchestratorEngine extends EventEmitter {
   }
 
   /**
+   * Continue a task that an app shutdown/crash interrupted mid-run. The
+   * persisted dispatch record supplies the original prompt; the preserved
+   * worktree (recovery artifact or the task's own worktree, both survive a
+   * restart on disk) lets the fresh worker keep every partial file. Explicit
+   * user action only — never called automatically on boot.
+   */
+  resumeInterruptedTask(taskId: string): boolean {
+    const task = this.tasks.get(taskId)
+    const record = this.dispatchRecords.get(taskId)
+    if (!task || !task.interrupted || task.status !== 'stopped' || !record) return false
+    if (this.taskRuns.has(taskId) || this.fallbackInFlight.has(taskId)) return false
+    const recoveryWorktree = task.recoveryArtifact?.worktree ?? task.worktree
+    task.interrupted = false
+    task.status = 'queued'
+    task.finishedAt = undefined
+    task.failureKind = undefined
+    task.lastAction = 'Fortsetzung nach App-Neustart'
+    task.note = recoveryWorktree
+      ? 'Vertragus setzt die Arbeit im gesicherten Worktree fort.'
+      : 'Vertragus startet die Aufgabe neu; es lag kein gesicherter Worktree vor.'
+    this.push()
+    void this.dispatch(this.resumedRole(taskId, record.role), record.prompt, record.title, {
+      ...record.options,
+      taskId,
+      recoveryWorktree
+    }).catch((error: unknown) => {
+      const current = this.tasks.get(taskId)
+      if (!current || isTerminalTaskStatus(current.status)) return
+      current.status = 'error'
+      current.note = error instanceof Error ? error.message : String(error)
+      current.finishedAt = Date.now()
+      this.push()
+    })
+    return true
+  }
+
+  /**
    * Switch a rate-limited task to a different configured provider. The caller
    * supplies only the task id; Vertragus chooses the provider and keeps all prompt,
    * path and stdin details inside the engine boundary.
@@ -1008,11 +1103,7 @@ export class OrchestratorEngine extends EventEmitter {
   }
 
   private persistenceKey(): string {
-    if (this.boundProfile?.id && this.workspaceSessionId) {
-      return `orchestratorSnapshot:${this.boundProfile.id}:${this.workspaceSessionId}`
-    }
-    if (this.boundProfile?.id) return `orchestratorSnapshot:${this.boundProfile.id}`
-    return 'orchestratorSnapshot'
+    return orchestratorSnapshotKey(this.boundProfile?.id, this.workspaceSessionId)
   }
 
   reviewPlan(approved: boolean): boolean {

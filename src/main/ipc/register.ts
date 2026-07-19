@@ -44,6 +44,7 @@ import {
 import { agentManager } from '@main/agents/AgentManager'
 import { providerCapacity } from '@main/agents/providerCapacity'
 import { workspaceSessions } from '@main/orchestrator/WorkspaceSessionRegistry'
+import * as sessionRestore from '@main/orchestrator/sessionRestore'
 import { createWorkspaceSessionIpcController } from '@main/orchestrator/workspaceSessionIpc'
 import {
   broadcast,
@@ -369,6 +370,24 @@ export function registerIpcHandlers(): void {
     workspaceSessionController.remove(e, profileId, sessionId)
   )
 
+  // ---- restart recovery (startup banner) ----
+  ipcMain.handle(IPC.sessionsRestoreStatus, (e) => {
+    assertNotVoiceWindow(e)
+    return sessionRestore.getRestoreStatus()
+  })
+  ipcMain.handle(IPC.sessionsRestartAgents, (e, profileId: unknown, sessionId: unknown) => {
+    assertNotVoiceWindow(e)
+    if (typeof profileId !== 'string' || typeof sessionId !== 'string') {
+      throw new Error('Ungültige Session-Angabe.')
+    }
+    return sessionRestore.restartSessionAgents(profileId, sessionId)
+  })
+  ipcMain.handle(IPC.sessionsDiscardOrphanWorktree, (e, path: unknown) => {
+    assertNotVoiceWindow(e)
+    if (typeof path !== 'string') throw new Error('Ungültiger Worktree-Pfad.')
+    return sessionRestore.discardOrphanWorktree(path)
+  })
+
   // ---- external MCP servers ----
   ipcMain.handle(IPC.mcpList, () => listMcpServers())
   ipcMain.handle(IPC.mcpSave, (_e, servers: McpServerConfig[]) => saveMcpServers(servers))
@@ -671,6 +690,15 @@ export function registerIpcHandlers(): void {
     (_e, profileId: string, workspaceSessionId: string, taskId: string) => {
       const profile = getProfile(profileId)
       return profile ? workspaceSessions.resumeTask(profile, taskId, workspaceSessionId) : false
+    }
+  )
+  ipcMain.handle(
+    IPC.orchestratorResumeInterruptedTask,
+    (_e, profileId: string, workspaceSessionId: string, taskId: string) => {
+      const profile = getProfile(profileId)
+      return profile
+        ? workspaceSessions.resumeInterruptedTask(profile, taskId, workspaceSessionId)
+        : false
     }
   )
   ipcMain.handle(

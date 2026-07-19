@@ -74,13 +74,14 @@ function info(id: string, profileId: string): AgentInstanceInfo {
 function add(
   manager: AgentManager,
   agent: AgentInstanceInfo,
-  process?: { kill(): void }
+  process?: { kill(): void },
+  buffer = ''
 ): void {
   const records = (manager as unknown as { agents: Map<string, unknown> }).agents
   records.set(agent.id, {
     info: agent,
     pty: process,
-    buffer: '',
+    buffer,
     seq: 0
   })
 }
@@ -157,6 +158,26 @@ describe('AgentManager workspace isolation', () => {
 
     await expect(manager.removeAll('alpha')).resolves.toBeUndefined()
     expect(manager.list('alpha')).toEqual([])
+  })
+
+  it('persists resume states grouped per workspace session, skipping unbound panes', () => {
+    const manager = new AgentManager()
+    add(manager, info('alpha-agent', 'alpha'), undefined, 'alpha terminal output')
+    add(manager, info('beta-agent', 'beta'))
+    add(manager, { ...info('login-pane', 'alpha'), workspaceSessionId: undefined })
+
+    const writes = new Map<string, unknown[]>()
+    manager.persistResumeStates({
+      writeAgentResumeStates: (sessionId, agents) => writes.set(sessionId, agents)
+    })
+
+    expect([...writes.keys()].sort()).toEqual(['session-alpha', 'session-beta'])
+    expect(writes.get('session-alpha')).toEqual([
+      expect.objectContaining({
+        info: expect.objectContaining({ id: 'alpha-agent' }),
+        scrollbackTail: 'alpha terminal output'
+      })
+    ])
   })
 
   it.each([
