@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="1024" height="1024" role="img" aria-label="Facet — STL & 3D print library">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1B2A31"/>
+      <stop offset="1" stop-color="#0D181C"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.30" cy="0.16" r="0.9">
+      <stop offset="0" stop-color="rgba(43,179,163,0.28)"/>
+      <stop offset="1" stop-color="rgba(43,179,163,0)"/>
+    </radialGradient>
+    <linearGradient id="tealHi" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3ED0BE"/>
+      <stop offset="1" stop-color="#209386"/>
+    </linearGradient>
+    <linearGradient id="tealLo" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1E8C7E"/>
+      <stop offset="1" stop-color="#0F5C52"/>
+    </linearGradient>
+    <linearGradient id="amberHi" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F6B56A"/>
+      <stop offset="1" stop-color="#E88B39"/>
+    </linearGradient>
+    <linearGradient id="amberLo" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#DC7C2A"/>
+      <stop offset="1" stop-color="#A9531A"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Tile -->
+  <rect x="2" y="2" width="116" height="116" rx="27" fill="url(#tile)"/>
+  <rect x="2" y="2" width="116" height="116" rx="27" fill="url(#glow)"/>
+  <rect x="3.6" y="3.6" width="112.8" height="112.8" rx="25.6" fill="none" stroke="rgba(62,208,190,0.38)" stroke-width="2.1"/>
+
+  <!-- Faceted octahedron: cool (analysis) on the left, warm (print) on the right -->
+  <g stroke="rgba(255,255,255,0.55)" stroke-width="0.9" stroke-linejoin="round">
+    <!-- upper-left facet: T, UL, F -->
+    <polygon points="60,26 36,50 60,62" fill="url(#tealHi)"/>
+    <!-- lower-left facet: UL, F, B -->
+    <polygon points="36,50 60,62 60,98" fill="url(#tealLo)"/>
+    <!-- upper-right facet: T, F, UR -->
+    <polygon points="60,26 60,62 84,50" fill="url(#amberHi)"/>
+    <!-- lower-right facet: F, UR, B -->
+    <polygon points="60,62 84,50 60,98" fill="url(#amberLo)"/>
+  </g>
+  <!-- Outer silhouette highlight -->
+  <polygon points="60,26 84,50 60,98 36,50" fill="none" stroke="rgba(255,255,255,0.28)" stroke-width="1.4" stroke-linejoin="round"/>
+
+  <!-- Build plate with subtle layer ticks -->
+  <line x1="28" y1="104" x2="92" y2="104" stroke="rgba(62,208,190,0.7)" stroke-width="2" stroke-linecap="round"/>
+  <g stroke="rgba(62,208,190,0.35)" stroke-width="1.4" stroke-linecap="round">
+    <line x1="34" y1="106" x2="34" y2="109"/>
+    <line x1="44" y1="106" x2="44" y2="109"/>
+    <line x1="54" y1="106" x2="54" y2="109"/>
+    <line x1="64" y1="106" x2="64" y2="109"/>
+    <line x1="74" y1="106" x2="74" y2="109"/>
+    <line x1="84" y1="106" x2="84" y2="109"/>
+  </g>
+</svg>
