@@ -5,11 +5,10 @@ vi.mock('electron', () => ({
   app: { getPath: () => '.', getName: () => 'test', isPackaged: false }
 }))
 vi.mock('@main/windows', () => ({ createPaneWindow: vi.fn(), broadcast: vi.fn() }))
-const persisted = vi.hoisted(() => ({ snapshot: undefined as unknown }))
 vi.mock('@main/config/store', () => ({
   getProfile: () => DEFAULT_PROFILE,
   getActiveProfileId: () => 'default',
-  getSetting: (key: string) => (key.startsWith('orchestratorSnapshot') ? persisted.snapshot : undefined),
+  getSetting: () => undefined,
   setSetting: vi.fn(),
   listMcpServers: () => []
 }))
@@ -66,7 +65,6 @@ function pendingRun(): { finish: (result: { result: string; isError: boolean; st
 afterEach(() => {
   setMcpHandle(null)
   runTask.mockReset()
-  persisted.snapshot = undefined
 })
 
 describe('subagent communication channel', () => {
@@ -163,7 +161,7 @@ describe('subagent communication channel', () => {
   })
 
   it('restores the findings board and resumes id sequences after a restart', async () => {
-    persisted.snapshot = {
+    const persistedSnapshot = {
       goal: null,
       tasks: [
         { id: 't-3', title: 'Alte Aufgabe', role: 'codex', status: 'success', createdAt: 1 }
@@ -178,9 +176,12 @@ describe('subagent communication channel', () => {
           createdAt: 1
         }
       ]
-    }
+    } as unknown as import('@shared/orchestrator').OrchestratorSnapshot
     const run = pendingRun()
-    const engine = new OrchestratorEngine({ profile: { ...DEFAULT_PROFILE } })
+    const engine = new OrchestratorEngine({
+      profile: { ...DEFAULT_PROFILE },
+      persistence: { readSnapshot: () => persistedSnapshot, writeSnapshot: vi.fn() }
+    })
 
     expect(engine.listTaskFindings()).toEqual([
       expect.objectContaining({ id: 'finding-5', title: 'Alt-API' })

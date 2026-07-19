@@ -1,6 +1,13 @@
 # Vertragus Session-Persistenz & Wiederaufnahme: Kein Fortschrittsverlust bei App-Schließen, Crash oder Stromausfall
 
-> Status (2026-07-18): Plan erstellt, Umsetzung offen.
+> Status (2026-07-19): Phase 0 + WS-A umgesetzt — eigener Session-Store unter `userData/sessions/`
+> (atomare Writes, Legacy-Migration aus dem Settings-Bag), Engine-`flushSnapshot`, geordneter
+> Shutdown mit 8-s-Deadline und Clean-Shutdown-Marker, Registry-Rehydration beim Boot (Sessions
+> mit Fortschritt erscheinen nach Neustart wieder in der bestehenden UI; leere/verwaiste Einträge
+> werden bereinigt). Abweichung: die `sessions:*`-IPC-Contracts aus Phase 0.4/0.5 sind bewusst in
+> Phase 2 verschoben, bis der Resume-Dialog sie konsumiert. Offen: WS-B (AgentResumeState +
+> Scrollback), WS-C (Worktree-Stabilität + Verwaisten-Inventar), Phase 2 (Resume-Flow,
+> `interrupted`-Status), Phase 3.
 > Ziel: Wird Vertragus geschlossen (bewusst, Crash, Stromausfall, Update-Neustart), können alle
 > offenen Workspace-Sessions nach dem nächsten Start **weitergeführt** werden — Task-DAG, Ziel,
 > Terminal-Historie, Worktrees mit uncommitteten Änderungen und (wo der Provider es kann) sogar

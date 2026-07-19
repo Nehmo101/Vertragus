@@ -74,9 +74,13 @@ import {
 import {
   getProfile,
   getActiveProfileId,
-  getSetting,
-  setSetting
+  getSetting
 } from '@main/config/store'
+import {
+  orchestratorSnapshotKey,
+  sessionStore,
+  type SnapshotPersistence
+} from '@main/config/sessionStore'
 import { createPaneWindow } from '@main/windows'
 import {
   prepareTaskChange,
@@ -384,17 +388,25 @@ export class OrchestratorEngine extends EventEmitter {
   /** Per-role capacity limiter — count = max parallel subagents of that role. */
   private boundProfile: WorkspaceProfile | undefined
   private readonly workspaceSessionId: string | undefined
+  private readonly persistence: SnapshotPersistence
 
-  constructor(options: { profile?: WorkspaceProfile; workspaceSessionId?: string } = {}) {
+  constructor(
+    options: {
+      profile?: WorkspaceProfile
+      workspaceSessionId?: string
+      persistence?: SnapshotPersistence
+    } = {}
+  ) {
     super()
     this.engineId = `engine-${options.workspaceSessionId ?? randomUUID()}`
     this.boundProfile = options.profile
       ? { ...options.profile, agents: options.profile.agents.map((slot) => ({ ...slot })) }
       : undefined
     this.workspaceSessionId = options.workspaceSessionId
+    this.persistence = options.persistence ?? sessionStore
     permissionBroker.on('pending', this.onPermissionPending)
     permissionBroker.on('resolved', this.onPermissionResolved)
-    const restored = getSetting<OrchestratorSnapshot>(this.persistenceKey())
+    const restored = this.persistence.readSnapshot(this.persistenceKey())
     this.budgetCaps = restored?.budget?.caps ? { ...restored.budget.caps } : {}
     if (restored?.reliability) {
       Object.assign(this.reliability, restored.reliability, {
@@ -647,10 +659,23 @@ export class OrchestratorEngine extends EventEmitter {
     if (!snapshot) return
     this.lastPersistedAt = Date.now()
     try {
-      setSetting(this.persistenceKey(), snapshot)
+      this.persistence.writeSnapshot(this.persistenceKey(), snapshot)
     } catch (error) {
       console.warn('[Orchestrator] snapshot persistence failed', error)
     }
+  }
+
+  /**
+   * Drain a pending throttled snapshot immediately. Called from the ordered
+   * shutdown sequence so up to SNAPSHOT_PERSIST_MIN_INTERVAL_MS of state is
+   * not lost with the unref'd throttle timer.
+   */
+  flushSnapshot(): void {
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer)
+      this.persistTimer = undefined
+    }
+    this.persistPendingSnapshot()
   }
 
   private setActivityState(
@@ -963,11 +988,7 @@ export class OrchestratorEngine extends EventEmitter {
   }
 
   private persistenceKey(): string {
-    if (this.boundProfile?.id && this.workspaceSessionId) {
-      return `orchestratorSnapshot:${this.boundProfile.id}:${this.workspaceSessionId}`
-    }
-    if (this.boundProfile?.id) return `orchestratorSnapshot:${this.boundProfile.id}`
-    return 'orchestratorSnapshot'
+    return orchestratorSnapshotKey(this.boundProfile?.id, this.workspaceSessionId)
   }
 
   reviewPlan(approved: boolean): boolean {

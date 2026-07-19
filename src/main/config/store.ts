@@ -83,6 +83,17 @@ export function setSetting(key: string, value: unknown): void {
   store.set('settings', settings)
 }
 
+export function listSettingKeys(prefix = ''): string[] {
+  const settings = store.get('settings') ?? {}
+  return Object.keys(settings).filter((key) => key.startsWith(prefix))
+}
+
+export function deleteSetting(key: string): void {
+  const settings = { ...store.get('settings') }
+  delete settings[key]
+  store.set('settings', settings)
+}
+
 export function listProfiles(): WorkspaceProfile[] {
   const parsed = store.get('profiles').map((profile) => workspaceProfileSchema.parse(profile))
   // Persist schema defaults so older installations migrate once and every
