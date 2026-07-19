@@ -130,6 +130,11 @@ export interface RunTaskRequest {
   engineId?: string
   /** Trusted failed-worker worktree to continue without losing partial files. */
   recoveryWorktree?: string
+  /**
+   * Commit the isolated worktree should branch from instead of HEAD, so a
+   * dependent task starts with its `dependsOn` files already present.
+   */
+  baseRef?: string
 }
 
 export type PanePreflightRunner = (input: PanePreflightInput) => Promise<PanePreflightReport>
@@ -462,14 +467,15 @@ export class AgentManager extends EventEmitter {
     requested: string | undefined,
     isolateOverride?: boolean,
     workspaceSessionId?: string,
-    profileId?: string
+    profileId?: string,
+    baseRef?: string
   ): Promise<{ workingDir: string; worktree?: string; branch?: string }> {
     let workingDir = await canonicalWorkspacePath(requested?.trim() || homedir())
     let worktree: string | undefined
     let branch: string | undefined
     const isolate = isolateOverride ?? getSetting<boolean>('worktreeIsolation') ?? true
     if (isolate) {
-      const wt = await createWorktree(workingDir, id, workspaceSessionId ?? this.sessionId)
+      const wt = await createWorktree(workingDir, id, workspaceSessionId ?? this.sessionId, baseRef)
       if (wt) {
         workingDir = wt.path
         worktree = wt.path
@@ -1133,7 +1139,8 @@ export class AgentManager extends EventEmitter {
             req.workingDir,
             undefined,
             req.workspaceSessionId,
-            req.profileId
+            req.profileId,
+            req.baseRef
           )
       const info: AgentInstanceInfo = {
         id,

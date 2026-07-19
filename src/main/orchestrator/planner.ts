@@ -259,14 +259,15 @@ export function resolveExecutionPlan(
     const missingDependencies = tasks.filter(
       (task) =>
         task.id !== integrator.id &&
-        task.criticality === 'required' &&
         !integrationDependencies.has(task.id)
     )
     if (missingDependencies.length > 0) {
-      // Advisory edges keep the integrator waiting for every required task
-      // without cascading a single feature failure into an integrator stop.
-      // A task that already depends on the integrator cannot be repaired
-      // this way (the new edge would close a cycle).
+      // Advisory edges keep the integrator waiting for every feature task —
+      // required AND advisory — without cascading a single feature failure into
+      // an integrator stop. Advisory feature tasks were previously skipped, so a
+      // plan whose integrator needed one collapsed to fallback (retro cluster).
+      // A task that already depends on the integrator cannot be repaired this
+      // way (the new edge would close a cycle).
       const repairable = missingDependencies.filter(
         (task) => !dependsTransitively(tasks, task.id, integrator.id)
       )
@@ -280,13 +281,18 @@ export function resolveExecutionPlan(
         ]
         repairs.push({
           code: 'repaired_ownership',
-          message: 'The integrator was missing dependencies on required task(s) ' +
+          message: 'The integrator was missing dependencies on task(s) ' +
             repairable.map((task) => task.id).join(', ') +
             '; advisory dependencies were added automatically.',
           taskId: integrator.id
         })
       }
-      if (unrepairable.length > 0 || repairedEdgeCount > MAX_PLAN_TASKS) {
+      // Only a *required* task that cannot be repaired (or a required task lost
+      // to the edge budget) collapses the plan. A non-repairable advisory task
+      // must not — advisory ordering is optional by definition.
+      const requiredUnrepairable = unrepairable.some((task) => task.criticality === 'required')
+      const requiredMissing = missingDependencies.some((task) => task.criticality === 'required')
+      if (requiredUnrepairable || (repairedEdgeCount > MAX_PLAN_TASKS && requiredMissing)) {
         issues.push({ code: 'invalid_ownership', message: 'The integrator must depend on every required feature task.', taskId: integrator.id })
       }
     }

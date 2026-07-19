@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   start: vi.fn(),
   ensure: vi.fn(),
   activate: vi.fn(),
+  setYolo: vi.fn(),
   launchArgs: [] as string[][]
 }))
 
@@ -25,7 +26,7 @@ describe('adaptive profile team start', () => {
     vi.clearAllMocks()
     mocks.launchArgs.length = 0
     const sessionFor = (profile = DEFAULT_PROFILE) => (
-      { id: 'session-1', profile, engine: { activate: mocks.activate } }
+      { id: 'session-1', profile, engine: { activate: mocks.activate, setYolo: mocks.setYolo } }
     )
     mocks.start.mockImplementation(sessionFor)
     mocks.ensure.mockImplementation(sessionFor)
@@ -161,6 +162,9 @@ describe('adaptive profile team start', () => {
       yolo: true
     }))
     expect(mocks.activate).toHaveBeenCalledWith(expect.objectContaining({ yoloDefault: true }))
+    // The live engine is told to honor Yolo too, so later plan-workers of an
+    // already-running session inherit the no-prompts policy (not just spawn-time).
+    expect(mocks.setYolo).toHaveBeenCalledWith(true)
   })
 
   it('routes the team into the active-repo override instead of the profile default', async () => {

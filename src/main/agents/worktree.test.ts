@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import {
   createWorktree,
   inventoryWorktrees,
@@ -10,6 +10,18 @@ import {
   isOrcaWorktreePath,
   worktreeIdentity
 } from './worktree'
+
+const GIT_ENV = {
+  ...process.env,
+  GIT_AUTHOR_NAME: 'orca-test',
+  GIT_AUTHOR_EMAIL: 'orca@test',
+  GIT_COMMITTER_NAME: 'orca-test',
+  GIT_COMMITTER_EMAIL: 'orca@test'
+}
+
+function gitIn(cwd: string, args: string[]): string {
+  return execFileSync('git', args, { cwd, encoding: 'utf8', env: GIT_ENV }).trim()
+}
 
 describe('worktreeIdentity', () => {
   it('isolates identical agent ids across app sessions', () => {
@@ -118,5 +130,49 @@ describe('createWorktree + inventory against a real repository', () => {
     const plain = mkdtempSync(join(tmpdir(), 'vertragus-plain-'))
     repos.push(plain)
     await expect(inventoryWorktrees(plain, new Set())).resolves.toEqual([])
+  })
+})
+
+describe('createWorktree dependency base', () => {
+  const created: string[] = []
+  afterEach(() => {
+    for (const dir of created.splice(0)) rmSync(dir, { recursive: true, force: true })
+  })
+
+  function initRepo(): string {
+    const root = mkdtempSync(join(tmpdir(), 'orca-wt-'))
+    created.push(root)
+    gitIn(root, ['init', '-q', '-b', 'main'])
+    return root
+  }
+
+  it('branches a dependent worktree from the given base commit, not HEAD', async () => {
+    const root = initRepo()
+    writeFileSync(join(root, 'foundation.txt'), 'base\n')
+    gitIn(root, ['add', '-A'])
+    gitIn(root, ['commit', '-qm', 'foundation'])
+    const foundation = gitIn(root, ['rev-parse', 'HEAD'])
+    writeFileSync(join(root, 'later.txt'), 'later\n')
+    gitIn(root, ['add', '-A'])
+    gitIn(root, ['commit', '-qm', 'later'])
+
+    const wt = await createWorktree(root, 'task-dep', 'session-x', foundation)
+    expect(wt).not.toBeNull()
+    expect(gitIn(wt!.path, ['rev-parse', 'HEAD'])).toBe(foundation)
+    const tracked = gitIn(wt!.path, ['ls-files'])
+    expect(tracked).toContain('foundation.txt')
+    expect(tracked).not.toContain('later.txt')
+  })
+
+  it('falls back to HEAD when the base ref cannot be resolved', async () => {
+    const root = initRepo()
+    writeFileSync(join(root, 'a.txt'), 'a\n')
+    gitIn(root, ['add', '-A'])
+    gitIn(root, ['commit', '-qm', 'a'])
+    const head = gitIn(root, ['rev-parse', 'HEAD'])
+
+    const wt = await createWorktree(root, 'task-x', 'session-y', '0'.repeat(40))
+    expect(wt).not.toBeNull()
+    expect(gitIn(wt!.path, ['rev-parse', 'HEAD'])).toBe(head)
   })
 })

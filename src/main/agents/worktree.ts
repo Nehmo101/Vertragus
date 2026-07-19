@@ -109,11 +109,19 @@ const WORKTREE_SLOT_ATTEMPTS = 20
  * fresh task must not see foreign uncommitted changes; continuing old work
  * goes through the explicit recovery-worktree path), so occupied identities
  * are skipped with an `-r<n>` suffix instead.
+ *
+ * When `baseRef` is given, the worktree branches from that commit instead of
+ * the repository's current HEAD. This lets a dependent task start from the
+ * merge point of its `dependsOn` tasks so their delivered files are present —
+ * without it a dependent worktree branches from HEAD and the central typecheck
+ * fails on unresolvable imports (retros mrqv1blp, mrn5qqe4). An unresolvable
+ * `baseRef` falls back to HEAD rather than failing the task outright.
  */
 export async function createWorktree(
   dir: string,
   agentId: string,
-  sessionId: string = randomUUID()
+  sessionId: string = randomUUID(),
+  baseRef?: string
 ): Promise<WorktreeResult | null> {
   const discoveredRoot = await repoRoot(dir)
   if (!discoveredRoot) return null
@@ -124,8 +132,20 @@ export async function createWorktree(
     identity = worktreeIdentity(root, `${agentId}-r${attempt}`, sessionId)
   }
   await mkdir(dirname(identity.path), { recursive: true })
+  let resolvedBase: string | undefined
+  if (baseRef?.trim()) {
+    try {
+      resolvedBase = await git(root, ['rev-parse', '--verify', baseRef.trim() + '^{commit}'])
+    } catch {
+      // A base that no longer resolves (pruned worktree branch) must not sink
+      // the task; branch from HEAD instead.
+      resolvedBase = undefined
+    }
+  }
   try {
-    await git(root, ['worktree', 'add', '-b', identity.branch, identity.path])
+    const addArgs = ['worktree', 'add', '-b', identity.branch, identity.path]
+    if (resolvedBase) addArgs.push(resolvedBase)
+    await git(root, addArgs)
     return { ...identity, path: await canonicalWorkspacePath(identity.path) }
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err)
