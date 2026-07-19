@@ -164,6 +164,8 @@ const vertragus: VertragusApi = {
       ipcRenderer.invoke(IPC.orchestratorPauseTask, profileId, workspaceSessionId, taskId),
     resumeTask: (profileId, workspaceSessionId, taskId) =>
       ipcRenderer.invoke(IPC.orchestratorResumeTask, profileId, workspaceSessionId, taskId),
+    resumeInterruptedTask: (profileId, workspaceSessionId, taskId) =>
+      ipcRenderer.invoke(IPC.orchestratorResumeInterruptedTask, profileId, workspaceSessionId, taskId),
     fallbackTask: (profileId, workspaceSessionId, taskId) =>
       ipcRenderer.invoke(IPC.orchestratorFallbackTask, profileId, workspaceSessionId, taskId),
     send: (profileId, workspaceSessionId, text) =>

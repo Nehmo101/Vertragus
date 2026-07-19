@@ -144,6 +144,7 @@ export const IPC = {
   orchestratorSetBudgetCaps: 'orchestrator:setBudgetCaps',
   orchestratorPauseTask: 'orchestrator:pauseTask',
   orchestratorResumeTask: 'orchestrator:resumeTask',
+  orchestratorResumeInterruptedTask: 'orchestrator:resumeInterruptedTask',
   orchestratorFallbackTask: 'orchestrator:fallbackTask',
   orchestratorSend: 'orchestrator:send',
   // voice assistant + overlay
@@ -514,6 +515,12 @@ export interface VertragusApi {
     ): Promise<RemoteBudgetSnapshot>
     pauseTask(profileId: string, workspaceSessionId: string, taskId: string): Promise<boolean>
     resumeTask(profileId: string, workspaceSessionId: string, taskId: string): Promise<boolean>
+    /** Continue a restart-interrupted task in its preserved worktree. */
+    resumeInterruptedTask(
+      profileId: string,
+      workspaceSessionId: string,
+      taskId: string
+    ): Promise<boolean>
     fallbackTask(profileId: string, workspaceSessionId: string, taskId: string): Promise<boolean>
     /**
      * Seed a free-text message to the orchestrator agent of the given session

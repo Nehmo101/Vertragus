@@ -47,7 +47,8 @@
       "success": "done",
       "needs-work": "needs work",
       "error": "error",
-      "stopped": "stopped"
+      "stopped": "stopped",
+      "interrupted": "interrupted"
     },
     "kind": {
       "interface": "Interface",
@@ -65,7 +66,8 @@
       "resume": "Resume task",
       "fallback": "Start fallback task",
       "focus": "Focus terminal pane",
-      "failed": "Action failed"
+      "failed": "Action failed",
+      "resumeInterrupted": "Continue interrupted task"
     },
     "gate": {
       "ok": "Verified done — commit present, no open gates",
@@ -180,7 +182,8 @@
       "success": "done",
       "needs-work": "needs work",
       "error": "error",
-      "stopped": "stopped"
+      "stopped": "stopped",
+      "interrupted": "interrupted"
     },
     "kind": {
       "interface": "Interface",
@@ -324,7 +327,9 @@
       "attempts": "Attempts",
       "diffLoading": "Loading diff…",
       "diffRefresh": "Refresh diff",
-      "diffShow": "Show Git diff"
+      "diffShow": "Show Git diff",
+      "resumeInterrupted": "Continue",
+      "resumeInterruptedHint": "Continues the task in its preserved worktree — no partial work is lost."
     }
   },
   "sidebar": {

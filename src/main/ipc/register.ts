@@ -674,6 +674,15 @@ export function registerIpcHandlers(): void {
     }
   )
   ipcMain.handle(
+    IPC.orchestratorResumeInterruptedTask,
+    (_e, profileId: string, workspaceSessionId: string, taskId: string) => {
+      const profile = getProfile(profileId)
+      return profile
+        ? workspaceSessions.resumeInterruptedTask(profile, taskId, workspaceSessionId)
+        : false
+    }
+  )
+  ipcMain.handle(
     IPC.orchestratorFallbackTask,
     (_e, profileId: string, workspaceSessionId: string, taskId: string) => {
       const profile = getProfile(profileId)

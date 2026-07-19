@@ -5115,6 +5115,12 @@ textarea:focus-visible,
   font-size: 10px;
 }
 
+.task-resume-btn {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  font-size: 10px;
+}
+
 .task-diff {
   max-height: 320px;
   margin: 8px 0 0;

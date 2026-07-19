@@ -311,6 +311,10 @@ export class WorkspaceSessionRegistry extends EventEmitter {
     return this.ensure(profile, sessionId).engine.resumeTask(taskId)
   }
 
+  resumeInterruptedTask(profile: WorkspaceProfile, taskId: string, sessionId?: string): boolean {
+    return this.ensure(profile, sessionId).engine.resumeInterruptedTask(taskId)
+  }
+
   fallbackTask(profile: WorkspaceProfile, taskId: string, sessionId?: string): Promise<boolean> {
     return this.ensure(profile, sessionId).engine.fallbackTask(taskId)
   }

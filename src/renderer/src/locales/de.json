@@ -47,7 +47,8 @@
       "success": "fertig",
       "needs-work": "Nacharbeit",
       "error": "Fehler",
-      "stopped": "gestoppt"
+      "stopped": "gestoppt",
+      "interrupted": "unterbrochen"
     },
     "kind": {
       "interface": "Schnittstelle",
@@ -65,7 +66,8 @@
       "resume": "Task fortsetzen",
       "fallback": "Ersatz-Task starten",
       "focus": "Terminal-Pane fokussieren",
-      "failed": "Aktion fehlgeschlagen"
+      "failed": "Aktion fehlgeschlagen",
+      "resumeInterrupted": "Unterbrochenen Task weiterführen"
     },
     "gate": {
       "ok": "Belegt fertig — Commit vorhanden, keine offenen Gates",
@@ -180,7 +182,8 @@
       "success": "fertig",
       "needs-work": "Nacharbeit",
       "error": "Fehler",
-      "stopped": "gestoppt"
+      "stopped": "gestoppt",
+      "interrupted": "unterbrochen"
     },
     "kind": {
       "interface": "Schnittstelle",
@@ -324,7 +327,9 @@
       "attempts": "Versuche",
       "diffLoading": "Diff wird geladen…",
       "diffRefresh": "Diff aktualisieren",
-      "diffShow": "Git-Diff anzeigen"
+      "diffShow": "Git-Diff anzeigen",
+      "resumeInterrupted": "Weiterführen",
+      "resumeInterruptedHint": "Setzt die Aufgabe im gesicherten Worktree fort — kein Zwischenstand geht verloren."
     }
   },
   "sidebar": {

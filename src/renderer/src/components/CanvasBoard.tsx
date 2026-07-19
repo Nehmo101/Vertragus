@@ -453,6 +453,23 @@ export default function CanvasBoard(): JSX.Element {
               ▶ {t('canvas.menu.resume')}
             </button>
           )}
+          {menuTask.interrupted && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() =>
+                runMenuAction(() =>
+                  window.vertragus.orchestrator.resumeInterruptedTask(
+                    store.activeProfileId,
+                    sessionId,
+                    menuTask.id
+                  )
+                )
+              }
+            >
+              ▶ {t('canvas.menu.resumeInterrupted')}
+            </button>
+          )}
           {(menuTask.status === 'running' ||
             menuTask.status === 'paused' ||
             menuTask.status === 'error') && (

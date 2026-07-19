@@ -10,9 +10,15 @@
 > Übernahme fremder Checkouts), `inventoryWorktrees` klassifiziert owned/orphaned inkl.
 > Änderungszähler, und der Recovery-Pfad akzeptiert `vertragus/`-Branches (vorher lehnte
 > `prepareRecoveryWorktree` alle Nach-Rebrand-Worktrees ab — Bug). Abweichung: die
-> `sessions:*`-IPC-Contracts aus Phase 0.4/0.5 sind bewusst in Phase 2 verschoben, bis der
-> Resume-Dialog sie konsumiert. Offen: Phase 2 (Resume-Flow/UI, `interrupted`-Status,
-> Briefing-Seed aus ResumeStates), Phase 3 (natives Provider-Resume, Crash-Härtung/GC).
+> Phase-2-Kern umgesetzt: Unterbrochene Tasks tragen ein `interrupted`-Flag (statt neuem
+> Status-Union-Member — D7 ließ beides zu; das Flag vermeidet Eingriffe in die komplette
+> Status-Maschinerie), die Dispatch-Prompts werden nur in der persistierten Snapshot-Datei
+> mitgeführt (`dispatchRecords`, nie in Live-Pushes), und `resumeInterruptedTask` setzt die
+> Aufgabe per Klick (Task-Karte + Canvas-Kontextmenü, „Weiterführen") im erhaltenen Worktree
+> fort — über den bestehenden `recoveryWorktree`-Pfad. Offen: Rest von Phase 2
+> (Startup-Banner „Vertragus wurde unerwartet beendet", Briefing-Seed interaktiver Agenten aus
+> den AgentResumeStates, Verwaisten-Worktree-UI), Phase 3 (natives Provider-Resume,
+> Session-GC).
 > Ziel: Wird Vertragus geschlossen (bewusst, Crash, Stromausfall, Update-Neustart), können alle
 > offenen Workspace-Sessions nach dem nächsten Start **weitergeführt** werden — Task-DAG, Ziel,
 > Terminal-Historie, Worktrees mit uncommitteten Änderungen und (wo der Provider es kann) sogar
