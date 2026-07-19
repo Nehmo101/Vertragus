@@ -964,9 +964,17 @@ describe('asynchronous orchestration API', () => {
     })
 
     await vi.waitFor(() => expect(engine.getPlanRunStatus(started.runId)?.status).toBe('success'))
+    // The delegation estimate is captured at execute time (a single task is a
+    // solo case) and scored against the real outcome in the retro draft.
+    expect(started.estimate?.recommendation).toBe('solo')
     const draft = engine.buildRetroDraft(started.planId)
     expect(draft.ok).toBe(true)
     if (!draft.ok) throw new Error(draft.message)
+    expect(draft.delegation).toMatchObject({
+      estimate: { recommendation: 'solo' },
+      outcome: { dispatchedTasks: 1 },
+      verdict: 'justified'
+    })
     expect(draft.models).toHaveLength(1)
     expect(draft.models[0].model).not.toBe('')
     expect(draft.models[0]).toMatchObject({

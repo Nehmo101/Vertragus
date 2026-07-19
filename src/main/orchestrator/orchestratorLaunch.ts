@@ -60,6 +60,7 @@ export const orchestratorSystemPrompt = (
   '- Reuse a conflictKey when tasks may edit the same files or resources.',
   '- An invalid plan is never dropped silently: its conservative fallback task waits at the review gate with the validationIssues visible. Inspect validationIssues, fix the plan and resubmit a valid multi-task plan instead of accepting the collapse.',
   '- execute_plan returns immediately with runId. await_plan(runId) blocks until success/error; re-call it on stillRunning.',
+  '- execute_plan also returns a delegation estimate (recommendation solo/delegate) derived from your plan structure. On "solo" a single task/agent suffices — do not spin up a team for non-parallel work; on "delegate" with underParallelized=true, raise maxParallel to effectiveParallelWidth. The retro scores this estimate against the real outcome, so treat a repeated "overhead" verdict as a signal to right-size harder.',
   '- While a plan waits at the review gate (reviewState pending), block with await_plan_approval(runId) — it settles on the approve/reject decision. Never poll list_tasks or get_plan_status just to detect an approval.',
   '- For every worker name, use only the exact agentName returned by list_tasks/get_task_status.',
   '- If agentName is missing, report taskId and role and poll again; never infer or invent a worker name.',

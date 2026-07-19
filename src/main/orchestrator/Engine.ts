@@ -89,17 +89,21 @@ import { Semaphore } from '@main/orchestrator/semaphore'
 import { subagentOrcaToolsAvailable } from '@main/orchestrator/externalMcp'
 import { securityChecklistForFiles } from '@main/integrations/securityGate'
 import {
+  analyzeDelegation,
   analyzeRunRetro,
   benchmarkLearnings,
   deriveRetroDraftModels,
   type BenchmarkRanking,
   type BenchmarkRecord,
   type BenchmarkRunStatus,
+  type DelegationRetro,
+  type DelegationTaskObservation,
   type LearningKind,
   type ModelLearning,
   type RetroDraftResult,
   type RunRetro
 } from '@shared/retro'
+import { estimatePlanDelegation, type PlanDelegationEstimate } from '@shared/planEstimate'
 import {
   learningsForModel,
   listRunRetros,
@@ -362,6 +366,8 @@ export class OrchestratorEngine extends EventEmitter {
   private readonly planRuns = new Map<string, Promise<ExecutionPlanResult>>()
   private readonly planRunResults = new Map<string, PlanRunStatusSnapshot>()
   private readonly planRunPlanIds = new Map<string, string>()
+  /** Delegation estimate per planId, captured at execute time for the retro. */
+  private readonly planEstimates = new Map<string, PlanDelegationEstimate>()
   private readonly cancelledPlanRuns = new Set<string>()
   private readonly reliability = initialReliability()
   private goalStartedAt?: number
@@ -777,6 +783,7 @@ export class OrchestratorEngine extends EventEmitter {
     this.planRuns.clear()
     this.planRunResults.clear()
     this.planRunPlanIds.clear()
+    this.planEstimates.clear()
     this.cancelledPlanRuns.clear()
     this.benchmarkRuns.clear()
     for (const run of this.multiAgentRuns.values()) {
@@ -3015,6 +3022,7 @@ export class OrchestratorEngine extends EventEmitter {
         summary: analysis.summary,
         modelStats: analysis.modelStats,
         learnings,
+        delegation: this.buildDelegationRetro(planId, planTasks),
         createdAt: Date.now()
       }
       recordRunRetro(retro)
@@ -3024,6 +3032,27 @@ export class OrchestratorEngine extends EventEmitter {
       console.warn('[Orchestrator] Automatische Retro fehlgeschlagen', error)
       return undefined
     }
+  }
+
+  /**
+   * Score the delegation estimate captured at execute time against the run's
+   * terminal tasks. Undefined when no estimate was recorded (e.g. a plan that
+   * predated this feature or a restored session).
+   */
+  private buildDelegationRetro(
+    planId: string,
+    planTasks: OrcaTask[]
+  ): DelegationRetro | undefined {
+    const estimate = this.planEstimates.get(planId)
+    if (!estimate) return undefined
+    const observations: DelegationTaskObservation[] = planTasks.map((task) => ({
+      status: task.status,
+      committed: task.completion?.kind === 'commit',
+      noChanges: task.completion?.kind === 'no-changes',
+      startedAt: task.createdAt,
+      finishedAt: task.finishedAt
+    }))
+    return analyzeDelegation(estimate, observations)
   }
 
   private storedRetros(): RunRetro[] {
@@ -3197,7 +3226,8 @@ export class OrchestratorEngine extends EventEmitter {
       goal: run?.goal ?? retro?.goal ?? this.goal?.title ?? '',
       status,
       summary: retro?.summary ?? analysis.summary,
-      models
+      models,
+      delegation: retro?.delegation
     }
   }
 
@@ -3432,6 +3462,11 @@ export class OrchestratorEngine extends EventEmitter {
       planTaskIds: prepared.plan.tasks.map((task) => task.id)
     }
     const planId = this.nextPlanId()
+    // Deterministic solo-vs-team estimate from the plan structure. Returned to
+    // the orchestrator immediately so it can self-correct before workers start,
+    // and stored for the retro to score against the real outcome.
+    const estimate = estimatePlanDelegation(prepared.plan)
+    this.planEstimates.set(planId, estimate)
     const initial: PlanRunStatusSnapshot = {
       runId,
       status: 'running',
@@ -3439,6 +3474,7 @@ export class OrchestratorEngine extends EventEmitter {
       workspaceSessionId: this.workspaceSessionId,
       planId,
       goal: prepared.plan.goal,
+      estimate,
       ...validation
     }
     this.planRunResults.set(runId, initial)

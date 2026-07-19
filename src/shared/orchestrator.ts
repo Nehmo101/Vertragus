@@ -6,6 +6,7 @@
  */
 import type { AgentProviderId } from './providers'
 import type { AgentUsage } from './agents'
+import type { PlanDelegationEstimate } from './planEstimate'
 import type { PlannerConfig } from './profile'
 import type { RetroDraftResult, RunRetro } from './retro'
 import type { ApprovalItem, PermissionRequest, RemoteBudgetSnapshot } from './remote'
@@ -454,6 +455,8 @@ export interface PlanRunStatusSnapshot {
   validationIssues?: PlanValidationIssue[]
   /** Stable authored task ids, available before runtime task materialization. */
   planTaskIds?: string[]
+  /** Deterministic solo-vs-team estimate derived from the plan structure. */
+  estimate?: PlanDelegationEstimate
   /** Live state of the review gate; 'pending' means the plan waits for approval. */
   reviewState?: PlanReviewState
   tasks?: TaskStatusSnapshot[]
