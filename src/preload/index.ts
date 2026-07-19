@@ -48,6 +48,14 @@ const vertragus: VertragusApi = {
     onChanged: (cb) => subscribe<WorkspaceSessionSummary[]>(IPC.evWorkspaceSessions, cb)
   },
 
+  sessions: {
+    restoreStatus: () => ipcRenderer.invoke(IPC.sessionsRestoreStatus),
+    restartAgents: (profileId, sessionId) =>
+      ipcRenderer.invoke(IPC.sessionsRestartAgents, profileId, sessionId),
+    discardOrphanWorktree: (path) =>
+      ipcRenderer.invoke(IPC.sessionsDiscardOrphanWorktree, path)
+  },
+
   listMcpServers: () => ipcRenderer.invoke(IPC.mcpList),
   saveMcpServers: (servers) => ipcRenderer.invoke(IPC.mcpSave, servers),
 

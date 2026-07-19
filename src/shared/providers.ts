@@ -27,8 +27,23 @@ export interface ProviderDef {
   kind: ProviderKind
   /** Whether Yolo/auto-approve is a meaningful concept for this provider. */
   supportsYolo: boolean
+  /**
+   * Interactive-CLI args that natively resume the most recent conversation of
+   * the CURRENT working directory. Only set when the CLI scopes its history by
+   * cwd — each Vertragus agent runs in its own worktree, so "latest in this
+   * directory" is exactly the interrupted conversation. Globally scoped resume
+   * commands (e.g. `codex resume --last`) are deliberately not declared: with
+   * parallel agents they could reattach a foreign conversation.
+   */
+  resumeArgs?: string[]
   auth?: ProviderAuthDef
   docsUrl?: string
+}
+
+/** Native conversation-resume args for a provider, if its CLI supports it safely. */
+export function providerResumeArgs(id: ProviderId): string[] | undefined {
+  const def = PROVIDERS.find((provider) => provider.id === id)
+  return def?.resumeArgs && def.resumeArgs.length > 0 ? [...def.resumeArgs] : undefined
 }
 
 export interface ProviderHealth {
@@ -70,6 +85,8 @@ export const PROVIDERS: readonly ProviderDef[] = [
     versionArgs: ['--version'],
     kind: 'agent',
     supportsYolo: true,
+    // `--continue` resumes the latest conversation of the cwd (worktree-scoped).
+    resumeArgs: ['--continue'],
     auth: {
       loginArgs: ['auth', 'login'],
       statusArgs: ['auth', 'status'],

@@ -695,5 +695,21 @@
       "speaking": "Spricht…",
       "error": "Fehler"
     }
+  },
+  "restore": {
+    "title": "Sitzung wiederhergestellt",
+    "titleCrash": "Vertragus wurde unerwartet beendet",
+    "summary": "{{count}} Workspace-Session(s) mit Fortschritt wiederhergestellt.",
+    "summaryNone": "Es liegen Reste früherer Läufe vor.",
+    "dismiss": "Ausblenden",
+    "resumable": "Team neu starten:",
+    "restart": "Team starten ({{count}} Agenten)",
+    "restarting": "Startet…",
+    "orphans": "{{count}} verwaiste(r) Worktree(s):",
+    "changedFiles": "{{count}} uncommittete Datei(en)",
+    "discard": "Verwerfen",
+    "discardConfirm": "Diesen Worktree endgültig verwerfen? Uncommittete Arbeit geht verloren:\n{{path}}",
+    "stale": "{{count}} alte Session(s) ohne Aktivität:",
+    "staleConfirm": "Diese Session samt gesichertem Verlauf entfernen?"
   }
 }

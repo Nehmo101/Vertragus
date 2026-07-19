@@ -21,6 +21,7 @@ import type {
   VertragusEvent
 } from './agents'
 import type { OrchestratorSnapshot, WorkspaceSessionSummary } from './orchestrator'
+import type { SessionRestoreStatus } from './sessions'
 import type { BenchmarkRecord, ModelLearning, RunRetro } from './retro'
 import type { RetroSyncStatus } from './retroSync'
 import type {
@@ -84,6 +85,9 @@ export const IPC = {
   workspaceSessionsList: 'workspaceSessions:list',
   workspaceSessionSetActive: 'workspaceSessions:setActive',
   workspaceSessionRemove: 'workspaceSessions:remove',
+  sessionsRestoreStatus: 'sessions:restoreStatus',
+  sessionsRestartAgents: 'sessions:restartAgents',
+  sessionsDiscardOrphanWorktree: 'sessions:discardOrphanWorktree',
   mcpList: 'mcp:list',
   mcpSave: 'mcp:save',
   gitSwitchBranch: 'git:switchBranch',
@@ -366,6 +370,15 @@ export interface VertragusApi {
     setActive(profileId: string, sessionId: string): Promise<OrchestratorSnapshot>
     remove(profileId: string, sessionId: string): Promise<WorkspaceSessionSummary[]>
     onChanged(cb: (sessions: WorkspaceSessionSummary[]) => void): () => void
+  }
+
+  /** Restart recovery: startup status + explicit continuation/cleanup actions. */
+  sessions: {
+    restoreStatus(): Promise<SessionRestoreStatus>
+    /** Restart a restored session's interactive team from its resume states. */
+    restartAgents(profileId: string, sessionId: string): Promise<AgentInstanceInfo[]>
+    /** Discard one orphaned Vertragus worktree (uncommitted work is lost). */
+    discardOrphanWorktree(path: string): Promise<boolean>
   }
 
   /** External MCP servers attached to the launched agents. */

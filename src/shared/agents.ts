@@ -152,6 +152,12 @@ export interface SpawnAgentRequest {
    * over agent continues in the source agent's existing working tree.
    */
   isolateWorktree?: boolean
+  /**
+   * Ask the provider CLI to natively resume the working directory's most
+   * recent conversation (restart recovery). Ignored for providers without a
+   * safe, cwd-scoped resume capability.
+   */
+  resumeConversation?: boolean
 }
 
 /** Request to hand an interactive agent's live work over to a fresh agent. */

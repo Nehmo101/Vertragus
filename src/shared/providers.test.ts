@@ -3,8 +3,22 @@ import {
   DEFAULT_MODELS,
   DEFAULT_PROVIDER_LIMITS,
   normalizeProviderLimits,
-  parseProviderLimits
+  parseProviderLimits,
+  providerResumeArgs
 } from './providers'
+
+describe('native conversation resume capability', () => {
+  it('declares the cwd-scoped continue flag for Claude only', () => {
+    expect(providerResumeArgs('claude')).toEqual(['--continue'])
+    // Codex' `resume --last` is globally scoped — with parallel agents it could
+    // reattach a foreign conversation, so it must stay undeclared.
+    expect(providerResumeArgs('codex')).toBeUndefined()
+    expect(providerResumeArgs('cursor')).toBeUndefined()
+    expect(providerResumeArgs('copilot')).toBeUndefined()
+    expect(providerResumeArgs('kimi')).toBeUndefined()
+    expect(providerResumeArgs('ollama')).toBeUndefined()
+  })
+})
 
 describe('model catalogue fallbacks', () => {
   it('keeps stable Claude aliases and useful Cursor fallback suggestions visible', () => {

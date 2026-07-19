@@ -15,10 +15,16 @@
 > Status-Maschinerie), die Dispatch-Prompts werden nur in der persistierten Snapshot-Datei
 > mitgeführt (`dispatchRecords`, nie in Live-Pushes), und `resumeInterruptedTask` setzt die
 > Aufgabe per Klick (Task-Karte + Canvas-Kontextmenü, „Weiterführen") im erhaltenen Worktree
-> fort — über den bestehenden `recoveryWorktree`-Pfad. Offen: Rest von Phase 2
-> (Startup-Banner „Vertragus wurde unerwartet beendet", Briefing-Seed interaktiver Agenten aus
-> den AgentResumeStates, Verwaisten-Worktree-UI), Phase 3 (natives Provider-Resume,
-> Session-GC).
+> fort — über den bestehenden `recoveryWorktree`-Pfad. Phase 2 Rest + Phase 3 umgesetzt:
+> Startup-Banner (`SessionRestoreBanner`) zeigt Crash-Erkennung, wiederherstellbare Teams,
+> verwaiste Worktrees (Verwerfen nur nach Bestätigung, nie automatisch) und GC-Vorschläge für
+> Sessions älter als `sessions.gcDays` (Default 30 Tage). `respawnSessionAgents` startet das
+> interaktive Team einer Session explizit neu — im erhaltenen Worktree, mit Handoff-Briefing
+> aus dem gesicherten Scrollback-Tail. Natives Provider-Resume via `ProviderDef.resumeArgs`:
+> nur Claude (`--continue`, cwd-scoped = worktree-scoped, daher parallel-sicher); Codex'
+> `resume --last` ist global und bleibt bewusst undeklariert, Fallback ist immer das Briefing.
+> Damit ist der Plan vollständig umgesetzt; offen bleibt nur optionales Feintuning
+> (z. B. Session-Import verwaister Worktrees).
 > Ziel: Wird Vertragus geschlossen (bewusst, Crash, Stromausfall, Update-Neustart), können alle
 > offenen Workspace-Sessions nach dem nächsten Start **weitergeführt** werden — Task-DAG, Ziel,
 > Terminal-Historie, Worktrees mit uncommitteten Änderungen und (wo der Provider es kann) sogar

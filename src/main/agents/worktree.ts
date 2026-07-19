@@ -49,6 +49,15 @@ export interface WorktreeResult {
   branch: string
 }
 
+/** Directory name a session id gets under `.vertragus-worktrees/`; null if unsafe. */
+export function worktreeSessionDirName(sessionId: string): string | null {
+  try {
+    return safeIdentityPart(sessionId, 'Session-ID')
+  } catch {
+    return null
+  }
+}
+
 function safeIdentityPart(value: string, label: string): string {
   const safe = value
     .trim()

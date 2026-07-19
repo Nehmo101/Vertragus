@@ -695,5 +695,21 @@
       "speaking": "Speaking…",
       "error": "Error"
     }
+  },
+  "restore": {
+    "title": "Session restored",
+    "titleCrash": "Vertragus ended unexpectedly",
+    "summary": "Restored {{count}} workspace session(s) with progress.",
+    "summaryNone": "Leftovers from earlier runs were found.",
+    "dismiss": "Dismiss",
+    "resumable": "Restart team:",
+    "restart": "Start team ({{count}} agents)",
+    "restarting": "Starting…",
+    "orphans": "{{count}} orphaned worktree(s):",
+    "changedFiles": "{{count}} uncommitted file(s)",
+    "discard": "Discard",
+    "discardConfirm": "Discard this worktree permanently? Uncommitted work will be lost:\n{{path}}",
+    "stale": "{{count}} old session(s) without activity:",
+    "staleConfirm": "Remove this session including its saved history?"
   }
 }

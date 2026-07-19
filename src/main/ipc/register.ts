@@ -44,6 +44,7 @@ import {
 import { agentManager } from '@main/agents/AgentManager'
 import { providerCapacity } from '@main/agents/providerCapacity'
 import { workspaceSessions } from '@main/orchestrator/WorkspaceSessionRegistry'
+import * as sessionRestore from '@main/orchestrator/sessionRestore'
 import { createWorkspaceSessionIpcController } from '@main/orchestrator/workspaceSessionIpc'
 import {
   broadcast,
@@ -368,6 +369,24 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.workspaceSessionRemove, (e, profileId: unknown, sessionId: unknown) =>
     workspaceSessionController.remove(e, profileId, sessionId)
   )
+
+  // ---- restart recovery (startup banner) ----
+  ipcMain.handle(IPC.sessionsRestoreStatus, (e) => {
+    assertNotVoiceWindow(e)
+    return sessionRestore.getRestoreStatus()
+  })
+  ipcMain.handle(IPC.sessionsRestartAgents, (e, profileId: unknown, sessionId: unknown) => {
+    assertNotVoiceWindow(e)
+    if (typeof profileId !== 'string' || typeof sessionId !== 'string') {
+      throw new Error('Ungültige Session-Angabe.')
+    }
+    return sessionRestore.restartSessionAgents(profileId, sessionId)
+  })
+  ipcMain.handle(IPC.sessionsDiscardOrphanWorktree, (e, path: unknown) => {
+    assertNotVoiceWindow(e)
+    if (typeof path !== 'string') throw new Error('Ungültiger Worktree-Pfad.')
+    return sessionRestore.discardOrphanWorktree(path)
+  })
 
   // ---- external MCP servers ----
   ipcMain.handle(IPC.mcpList, () => listMcpServers())

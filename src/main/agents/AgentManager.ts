@@ -10,12 +10,13 @@ import { EventEmitter } from 'node:events'
 import { createHash, randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { execFile } from 'node:child_process'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
 import * as pty from '@lydell/node-pty'
 import type {
   AgentInstanceInfo,
+  AgentResumeState,
   BulkHandoffRequest,
   BulkHandoffResult,
   HandoffRequest,
@@ -29,6 +30,7 @@ import {
   isModelDisabled,
   normalizeDisabledModels,
   normalizeProviderEnabled,
+  providerResumeArgs,
   type AgentProviderId,
   type ProviderId
 } from '@shared/providers'
@@ -699,9 +701,11 @@ export class AgentManager extends EventEmitter {
       if (orchestratorSetup && !orchestratorSetup.capability.supported) {
         throw new Error(orchestratorSetup.capability.reason ?? `${req.provider} cannot orchestrate.`)
       }
-      const extraArgs = orchestratorSetup
-        ? orchestratorSetup.extraArgs
-        : buildSubagentMcpArgs(req.provider, id)
+      const resumeArgs = req.resumeConversation ? providerResumeArgs(req.provider) : undefined
+      const extraArgs = [
+        ...(orchestratorSetup ? orchestratorSetup.extraArgs : buildSubagentMcpArgs(req.provider, id)),
+        ...(resumeArgs ?? [])
+      ]
 
       const launch = buildInteractiveLaunch(req.provider, {
         model: resolvedModel || undefined,
@@ -1513,6 +1517,102 @@ export class AgentManager extends EventEmitter {
     if (this.resumeSweepTimer) return
     this.resumeSweepTimer = setInterval(() => this.persistResumeStates(), intervalMs)
     this.resumeSweepTimer.unref?.()
+  }
+
+  /** True when the session already has a live agent (guards double restarts). */
+  hasAliveSessionAgents(workspaceSessionId: string): boolean {
+    return [...this.agents.values()].some(
+      (managed) => managed.info.workspaceSessionId === workspaceSessionId && this.isAlive(managed)
+    )
+  }
+
+  /**
+   * Restart a restored session's interactive team from its persisted resume
+   * states — explicit user action after an app restart, never automatic.
+   *
+   * Each fresh agent starts in its predecessor's preserved working tree (no new
+   * worktree, so uncommitted work stays visible). Providers with a safe,
+   * cwd-scoped native resume continue the actual conversation; everyone else is
+   * seeded with a handoff briefing built from the persisted scrollback tail.
+   * One failing slot never aborts the rest of the team.
+   */
+  async respawnSessionAgents(input: {
+    profileId: string
+    workspaceSessionId: string
+    engineId?: string
+    states: AgentResumeState[]
+  }): Promise<AgentInstanceInfo[]> {
+    if (this.hasAliveSessionAgents(input.workspaceSessionId)) {
+      throw new Error('Diese Session hat bereits laufende Agenten.')
+    }
+    const interactive = input.states
+      .filter(
+        (state) =>
+          state.info.mode === 'interactive' && getProvider(state.info.provider)?.kind === 'agent'
+      )
+      // The orchestrator is the coordinator — bring it up first (see spawnProfileTeam).
+      .sort((a, b) =>
+        (a.info.kind === 'orchestrator' ? 0 : 1) - (b.info.kind === 'orchestrator' ? 0 : 1)
+      )
+    const spawned: AgentInstanceInfo[] = []
+    for (const state of interactive) {
+      const source = state.info
+      const preservedDir = [source.worktree, source.workingDir].find(
+        (dir) => dir && existsSync(dir)
+      )
+      const nativeResume = Boolean(
+        preservedDir && providerResumeArgs(source.provider) !== undefined
+      )
+      try {
+        const target = await this.spawn({
+          provider: source.provider as AgentProviderId,
+          model: source.model,
+          role: source.role,
+          kind: source.kind === 'orchestrator' ? 'orchestrator' : 'sub',
+          teamRole: source.teamRole,
+          yolo: source.yolo,
+          workingDir: preservedDir ?? source.workingDir,
+          // Continue in the preserved tree instead of nesting a fresh worktree.
+          isolateWorktree: preservedDir ? false : undefined,
+          profileId: input.profileId,
+          workspaceSessionId: input.workspaceSessionId,
+          engineId: input.engineId,
+          resumeConversation: nativeResume
+        })
+        if (target.status !== 'running') {
+          console.warn('[Agents] respawn slot failed', source.id, target.exitCode)
+          continue
+        }
+        if (!nativeResume) {
+          const at = Date.now()
+          const briefing = buildBriefing({
+            source,
+            targetName: target.name,
+            summary: 'Automatische Wiederaufnahme nach einem Neustart von Vertragus.',
+            scrollback: state.scrollbackTail,
+            timestamp: at
+          })
+          const briefingPath = this.writeBriefing(source.id, target.id, at, briefing)
+          const seed =
+            `Vertragus wurde neu gestartet. Du übernimmst die Arbeit von ${source.name}. ` +
+            `Lies die Übergabe-Notiz unter "${briefingPath}" und mach genau dort weiter, ` +
+            `wo ${source.name} aufgehört hat. Bestätige zuerst kurz dein Verständnis der Aufgabe.`
+          const seeded = await this.seedInteractive(target.id, seed).catch(() => false)
+          if (!seeded) console.warn('[Agents] respawn briefing seed failed', target.id)
+        }
+        spawned.push(target)
+      } catch (error) {
+        console.warn('[Agents] respawn slot failed', source.id, error)
+      }
+    }
+    if (spawned.length > 0) {
+      this.emitEvent(
+        `↻ Session-Team nach Neustart wieder gestartet · ${spawned.length} Agent(en)`,
+        'dispatch',
+        { profileId: input.profileId, workspaceSessionId: input.workspaceSessionId }
+      )
+    }
+    return spawned
   }
 
   async killAll(profileId?: string): Promise<void> {
