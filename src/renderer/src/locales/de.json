@@ -723,6 +723,7 @@
     "discardConfirm": "Diesen Worktree endgültig verwerfen? Uncommittete Arbeit geht verloren:\n{{path}}",
     "discardCleanConfirm": "{{count}} saubere Worktrees ohne lokale Änderungen verwerfen?",
     "discardAllConfirm": "{{count}} verwaiste Worktrees endgültig verwerfen? Uncommittete Arbeit geht verloren.\nBeispiel: {{path}}",
+    "discardResult": "{{discarded}} verworfen, {{failed}} fehlgeschlagen.",
     "stale": "{{count}} alte Session(s) ohne Aktivität",
     "staleConfirm": "Diese Session samt gesichertem Verlauf entfernen?"
   }
