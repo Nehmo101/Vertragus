@@ -22,6 +22,7 @@ import {
 
 const execFileAsync = promisify(execFile)
 const PREFLIGHT_TIMEOUT_MS = 12_000
+const CANARY_DIAGNOSTIC_LIMIT = 2_000
 
 export interface PanePreflightInput {
   provider: AgentProviderId
@@ -108,9 +109,9 @@ async function writeProbe(directory: string): Promise<void> {
 }
 
 /**
- * Exercise Codex's real Windows sandbox bootstrap inside the exact worker
- * workspace. A host-process write probe alone cannot detect restricted-token
- * or split-writable-root failures that only happen in a nested Codex process.
+ * Exercise Codex's real Windows sandbox bootstrap without a model call. A
+ * host-process write probe alone cannot detect restricted-token or
+ * split-writable-root failures that only happen in a nested Codex process.
  */
 export function codexRuntimeCanaryArgs(workingDir: string): string[] {
   return [
@@ -129,7 +130,45 @@ export function codexRuntimeCanaryArgs(workingDir: string): string[] {
   ]
 }
 
-async function providerRuntimeCanary(input: PanePreflightInput, workingDir: string): Promise<{
+async function canonicalPreflightPaths(input: PanePreflightInput): Promise<{
+  profileWorkspace: string
+  workerWorkspace?: string
+}> {
+  const profileWorkspace = await canonicalWorkspacePath(input.workingDir)
+  const workerWorkspace = input.worktree
+    ? await canonicalWorkspacePath(input.worktree)
+    : undefined
+  return { profileWorkspace, workerWorkspace }
+}
+
+function canaryFailure(error: unknown, workingDir: string): Error {
+  const failure = error as {
+    message?: unknown
+    stderr?: unknown
+    killed?: unknown
+    code?: unknown
+  }
+  const timedOut = failure.killed === true || failure.code === 'ETIMEDOUT'
+  const reason = timedOut
+    ? `Timeout nach ${PREFLIGHT_TIMEOUT_MS} ms`
+    : typeof failure.message === 'string'
+      ? failure.message
+      : String(error)
+  const stderr =
+    typeof failure.stderr === 'string' || Buffer.isBuffer(failure.stderr)
+      ? String(failure.stderr).trim().slice(0, CANARY_DIAGNOSTIC_LIMIT)
+      : ''
+  return new Error(
+    `Codex-Sandbox-Canary fehlgeschlagen in ${workingDir}: ${reason}${stderr ? `; stderr: ${stderr}` : ''}`
+  )
+}
+
+async function providerRuntimeCanary(
+  input: PanePreflightInput,
+  profileWorkspace: string,
+  workerWorkspace?: string,
+  platform: NodeJS.Platform = process.platform
+): Promise<{
   status?: PanePreflightCheck['status']
   detail: string
 }> {
@@ -142,40 +181,59 @@ async function providerRuntimeCanary(input: PanePreflightInput, workingDir: stri
       detail: 'Expliziter Yolo-Modus: Codex umgeht Approval- und Sandbox-Pruefungen.'
     }
   }
-  if (process.platform !== 'win32') {
+  if (platform !== 'win32') {
     return {
       status: 'warning',
       detail: 'Der Codex-Runtime-Canary ist derzeit auf den Windows-Sandboxfehler zugeschnitten.'
     }
   }
 
-  const markerPath = join(workingDir, `.orca-codex-runtime-${randomUUID()}.tmp`)
-  const runtimeRoot = join(workingDir, CODEX_RUNTIME_DIR_NAME)
+  const runtimeRoot = join(workerWorkspace ?? profileWorkspace, CODEX_RUNTIME_DIR_NAME)
   await mkdir(runtimeRoot, { recursive: true })
+  let canaryWorkspace = workerWorkspace
+  let poolWorkspace: string | undefined
+  let markerPath: string | undefined
   let runtimeDir: string | undefined
   try {
-    runtimeDir = await mkdtemp(join(runtimeRoot, 'preflight-'))
-    const launch = await resolveLaunch('codex', codexRuntimeCanaryArgs(workingDir))
-    await execFileAsync(launch.file, launch.args, {
-      cwd: workingDir,
-      env: codexSingleRootEnvironment(runtimeDir, {
-        ...process.env,
-        ORCA_CODEX_CANARY_PATH: markerPath
-      }),
-      windowsHide: true,
-      timeout: PREFLIGHT_TIMEOUT_MS
-    })
+    if (!canaryWorkspace) {
+      poolWorkspace = await mkdtemp(join(runtimeRoot, 'preflight-workspace-'))
+      canaryWorkspace = poolWorkspace
+    }
+    markerPath = join(canaryWorkspace, `.orca-codex-runtime-${randomUUID()}.tmp`)
+    runtimeDir = await mkdtemp(
+      join(workerWorkspace ? runtimeRoot : canaryWorkspace, 'preflight-runtime-')
+    )
+    const launch = await resolveLaunch('codex', codexRuntimeCanaryArgs(canaryWorkspace))
+    try {
+      await execFileAsync(launch.file, launch.args, {
+        cwd: canaryWorkspace,
+        env: codexSingleRootEnvironment(runtimeDir, {
+          ...process.env,
+          ORCA_CODEX_CANARY_PATH: markerPath
+        }, platform),
+        windowsHide: true,
+        timeout: PREFLIGHT_TIMEOUT_MS
+      })
+    } catch (error) {
+      throw canaryFailure(error, canaryWorkspace)
+    }
   } finally {
-    await rm(markerPath, { force: true })
+    if (markerPath) await rm(markerPath, { force: true })
     if (runtimeDir) await rm(runtimeDir, { recursive: true, force: true })
+    if (poolWorkspace) await rm(poolWorkspace, { recursive: true, force: true })
     await rmdir(runtimeRoot).catch(() => undefined)
   }
-  return { detail: `Codex-Sandbox startet und schreibt im Worker-Worktree: ${workingDir}` }
+  return {
+    detail: workerWorkspace
+      ? `Codex-Sandbox startet und schreibt im Worker-Worktree: ${workerWorkspace}`
+      : `Codex-Sandbox startet und schreibt im isolierten Pool-Arbeitsverzeichnis: ${canaryWorkspace}`
+  }
 }
 
 export async function runPanePreflight(input: PanePreflightInput): Promise<PanePreflightReport> {
   const startedAt = Date.now()
-  const canonicalWorkspace = await canonicalWorkspacePath(input.workingDir)
+  const { profileWorkspace: canonicalWorkspace, workerWorkspace: canonicalWorker } =
+    await canonicalPreflightPaths(input)
   const repositoryRoot = await primaryWorktree(canonicalWorkspace)
 
   const checks = await Promise.all([
@@ -191,7 +249,9 @@ export async function runPanePreflight(input: PanePreflightInput): Promise<PaneP
       const version = (stdout || stderr || '').split(/\r?\n/).find(Boolean)?.trim() ?? 'bereit'
       return { detail: `${provider.label} startet noninteraktiv: ${version}` }
     }),
-    check('provider-runtime', () => providerRuntimeCanary(input, canonicalWorkspace)),
+    check('provider-runtime', () =>
+      providerRuntimeCanary(input, canonicalWorkspace, canonicalWorker)
+    ),
     check('workspace', async () => {
       await access(canonicalWorkspace, constants.R_OK | constants.W_OK)
       await writeProbe(canonicalWorkspace)
@@ -251,3 +311,5 @@ export async function runPanePreflight(input: PanePreflightInput): Promise<PaneP
   }
   return report
 }
+
+export const panePreflightInternals = { canonicalPreflightPaths, providerRuntimeCanary }
