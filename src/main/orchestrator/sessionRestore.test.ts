@@ -21,7 +21,8 @@ const agents = vi.hoisted(() => ({
 }))
 const worktree = vi.hoisted(() => ({
   inventoryWorktrees: vi.fn(async () => [] as unknown[]),
-  rollbackWorktree: vi.fn(async () => true)
+  rollbackWorktree: vi.fn(async () => true),
+  discardManagedOrphans: vi.fn(async () => ({ discarded: 0, failed: 0 }))
 }))
 const migrate = vi.hoisted(() => vi.fn(() => 0))
 
@@ -41,6 +42,7 @@ vi.mock('@main/agents/AgentManager', () => ({ agentManager: agents }))
 vi.mock('@main/agents/worktree', () => ({
   inventoryWorktrees: worktree.inventoryWorktrees,
   rollbackWorktree: worktree.rollbackWorktree,
+  discardManagedOrphans: worktree.discardManagedOrphans,
   isOrcaWorktreePath: (path: string) => /[\\/]\.(?:vertragus|orca)-worktrees[\\/]/.test(path),
   managedWorktreeParts: (path: string) => {
     const match = path
@@ -193,20 +195,27 @@ describe('sessionRestore', () => {
     )
   })
 
-  it('discards many orphan worktrees and reports per-path failures', async () => {
-    store.listSessions.mockReturnValue([])
-    worktree.rollbackWorktree
-      .mockResolvedValueOnce(true)
-      .mockResolvedValueOnce(false)
-      .mockRejectedValueOnce(new Error('boom'))
+  it('bulk-discards via the serialized managed-orphan helper with owned-session filter', async () => {
+    store.listSessions.mockReturnValue([{ id: 'Kept', profileId: 'default', name: '', updatedAt: 1 }])
+    worktree.discardManagedOrphans.mockResolvedValueOnce({ discarded: 3, failed: 1 })
 
     await expect(
       discardOrphanWorktrees([
         '/repo/.vertragus-worktrees/gone-a/task-01',
-        '/repo/.vertragus-worktrees/gone-b/task-02',
-        '/repo/src',
-        '/repo/.vertragus-worktrees/gone-a/task-01'
+        '/repo/.vertragus-worktrees/gone-b/task-02'
       ])
-    ).resolves.toEqual({ discarded: 1, failed: 2 })
+    ).resolves.toEqual({ discarded: 3, failed: 1 })
+
+    expect(worktree.discardManagedOrphans).toHaveBeenCalledOnce()
+    const call = worktree.discardManagedOrphans.mock.calls[0] as unknown as [
+      string[],
+      (sessionId: string) => boolean
+    ]
+    expect(call[0]).toEqual([
+      '/repo/.vertragus-worktrees/gone-a/task-01',
+      '/repo/.vertragus-worktrees/gone-b/task-02'
+    ])
+    expect(call[1]('kept')).toBe(true)
+    expect(call[1]('gone-a')).toBe(false)
   })
 })

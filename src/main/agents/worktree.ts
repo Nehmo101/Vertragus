@@ -20,12 +20,40 @@ import { canonicalWorkspacePath } from '@main/agents/workspacePath'
 
 const execFileAsync = promisify(execFile)
 
-async function git(cwd: string, args: string[]): Promise<string> {
+/** Default Git command budget. Discard/status paths use shorter timeouts. */
+const GIT_TIMEOUT_MS = 15_000
+const GIT_STATUS_TIMEOUT_MS = 3_000
+const GIT_DISCARD_TIMEOUT_MS = 8_000
+/** Bound concurrent `git status` probes during inventory. */
+const INVENTORY_STATUS_CONCURRENCY = 8
+
+async function git(cwd: string, args: string[], timeoutMs = GIT_TIMEOUT_MS): Promise<string> {
   const { stdout } = await execFileAsync('git', ['-C', cwd, ...args], {
     windowsHide: true,
-    timeout: 15000
+    timeout: timeoutMs
   })
   return stdout.trim()
+}
+
+async function mapPool<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  worker: (item: T) => Promise<R>
+): Promise<R[]> {
+  if (items.length === 0) return []
+  const results = new Array<R>(items.length)
+  let next = 0
+  const run = async (): Promise<void> => {
+    while (next < items.length) {
+      const index = next
+      next += 1
+      results[index] = await worker(items[index]!)
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, () => run())
+  )
+  return results
 }
 
 export async function repoRoot(dir: string): Promise<string | null> {
@@ -244,7 +272,7 @@ async function removeManagedWorktreeDir(worktreePath: string): Promise<boolean> 
   try {
     await rm(worktreePath, { recursive: true, force: true })
   } catch {
-    return false
+    return existsSync(worktreePath) === false
   }
   // Drop the empty session container so inventory stops reporting the group.
   const sessionDir = dirname(worktreePath)
@@ -256,7 +284,27 @@ async function removeManagedWorktreeDir(worktreePath: string): Promise<boolean> 
   } catch {
     // Best-effort; the agent checkout itself is already gone.
   }
-  return true
+  return existsSync(worktreePath) === false
+}
+
+/** Best-effort `git worktree prune` for a repository root. */
+export async function pruneWorktrees(root: string): Promise<void> {
+  const trimmed = root.trim()
+  if (!trimmed || !existsSync(trimmed)) return
+  try {
+    await git(trimmed, ['worktree', 'prune'], GIT_DISCARD_TIMEOUT_MS)
+  } catch {
+    // Prune is metadata cleanup only.
+  }
+}
+
+async function deleteManagedBranch(root: string, branch: string): Promise<void> {
+  if (!isOrcaBranch(branch)) return
+  try {
+    await git(root, ['branch', '-D', branch], GIT_DISCARD_TIMEOUT_MS)
+  } catch {
+    // Branch may already be gone or never created.
+  }
 }
 
 /**
@@ -283,6 +331,11 @@ export interface WorktreeInventoryEntry {
   changedFiles?: number
 }
 
+export interface InventoryWorktreesOptions {
+  /** When false, skip `git status` (much faster after bulk discard). Default true. */
+  includeChangeCounts?: boolean
+}
+
 /**
  * List every Vertragus-managed worktree under a repository and classify it
  * against the currently known session ids. Never mutates anything — orphaned
@@ -291,8 +344,10 @@ export interface WorktreeInventoryEntry {
  */
 export async function inventoryWorktrees(
   dir: string,
-  knownSessionIds: ReadonlySet<string>
+  knownSessionIds: ReadonlySet<string>,
+  options: InventoryWorktreesOptions = {}
 ): Promise<WorktreeInventoryEntry[]> {
+  const includeChangeCounts = options.includeChangeCounts !== false
   const discoveredRoot = await repoRoot(dir)
   if (!discoveredRoot) return []
   const root = await canonicalWorkspacePath(discoveredRoot)
@@ -306,7 +361,8 @@ export async function inventoryWorktrees(
       }
     })
   )
-  const entries: WorktreeInventoryEntry[] = []
+  const discovered: Array<Omit<WorktreeInventoryEntry, 'changedFiles' | 'owned'> & { owned: boolean }> =
+    []
   for (const container of ['.vertragus-worktrees', '.orca-worktrees'] as const) {
     const containerPath = join(root, container)
     const sessions = await readdir(containerPath, { withFileTypes: true }).catch(() => [])
@@ -317,31 +373,55 @@ export async function inventoryWorktrees(
       }).catch(() => [])
       for (const agent of agents) {
         if (!agent.isDirectory()) continue
-        const path = join(containerPath, session.name, agent.name)
-        let changedFiles: number | undefined
-        try {
-          const status = await git(path, ['status', '--porcelain'])
-          changedFiles = status ? status.split('\n').length : 0
-        } catch {
-          changedFiles = undefined
-        }
-        entries.push({
-          path,
+        discovered.push({
+          path: join(containerPath, session.name, agent.name),
           sessionId: session.name,
           agentId: agent.name,
           legacy: container === '.orca-worktrees',
-          owned: known.has(session.name),
-          changedFiles
+          owned: known.has(session.name)
         })
       }
     }
   }
-  return entries
+
+  if (!includeChangeCounts || discovered.length === 0) {
+    return discovered.map((entry) => ({ ...entry }))
+  }
+
+  const changed = await mapPool(discovered, INVENTORY_STATUS_CONCURRENCY, async (entry) => {
+    try {
+      const status = await git(entry.path, ['status', '--porcelain'], GIT_STATUS_TIMEOUT_MS)
+      return status ? status.split('\n').filter(Boolean).length : 0
+    } catch {
+      return undefined
+    }
+  })
+
+  return discovered.map((entry, index) => ({
+    ...entry,
+    changedFiles: changed[index]
+  }))
 }
 
+export interface RollbackWorktreeOptions {
+  /**
+   * Run `git worktree prune` after this single rollback. Bulk orphan discard
+   * sets this to false and prunes once per repository instead.
+   */
+  prune?: boolean
+}
+
+/**
+ * Roll back (discard) a Vertragus-managed isolated worktree and its branch.
+ *
+ * Success means the checkout directory is gone — deleting only the branch is
+ * not enough, because inventory scans the filesystem. Broken / unregistered
+ * leftovers fall back to a direct directory delete under the managed namespace.
+ */
 export async function rollbackWorktree(
   worktreePath: string,
-  branch?: string
+  branch?: string,
+  options: RollbackWorktreeOptions = {}
 ): Promise<boolean> {
   const path = worktreePath.trim()
   if (!path || !isOrcaWorktreePath(path)) return false
@@ -354,41 +434,116 @@ export async function rollbackWorktree(
       : parts
         ? inferredManagedBranch(parts)
         : undefined
+  const shouldPrune = options.prune !== false
 
-  let removed = false
-  if (root) {
+  if (root && existsSync(path)) {
     try {
-      await git(root, ['worktree', 'remove', '--force', path])
-      removed = true
+      await git(root, ['worktree', 'remove', '--force', path], GIT_DISCARD_TIMEOUT_MS)
     } catch {
-      // The checkout may already be gone, locked, or never registered.
+      // Locked, corrupt, or never registered — fall through to FS delete.
     }
+  }
 
-    if (targetBranch && isOrcaBranch(targetBranch)) {
+  if (existsSync(path)) {
+    await removeManagedWorktreeDir(path)
+  }
+
+  if (root && targetBranch) {
+    await deleteManagedBranch(root, targetBranch)
+  }
+
+  if (root && shouldPrune) {
+    await pruneWorktrees(root)
+  }
+
+  return !existsSync(path)
+}
+
+export interface DiscardManagedOrphansResult {
+  discarded: number
+  failed: number
+}
+
+/**
+ * Discard many managed orphan checkouts safely.
+ *
+ * Parallel Git mutations on one repository race on locks and were the main
+ * reason bulk "Verwerfen" hung or left ghosts. This path:
+ * - refuses owned session dirs
+ * - deletes checkouts one-by-one per repository (filesystem-first)
+ * - deletes inferred branches afterward
+ * - runs `git worktree prune` once per repository
+ */
+export async function discardManagedOrphans(
+  paths: readonly string[],
+  isOwnedSession: (sessionId: string) => boolean
+): Promise<DiscardManagedOrphansResult> {
+  const unique = [
+    ...new Set(paths.map((path) => (typeof path === 'string' ? path.trim() : '')).filter(Boolean))
+  ]
+
+  type Item = { path: string; parts: ManagedWorktreeParts }
+  const byRoot = new Map<string, Item[]>()
+  let failed = 0
+
+  for (const path of unique) {
+    const parts = managedWorktreeParts(path)
+    if (!parts || !isOrcaWorktreePath(path)) {
+      failed += 1
+      continue
+    }
+    if (isOwnedSession(parts.sessionId)) {
+      failed += 1
+      continue
+    }
+    const group = byRoot.get(parts.root) ?? []
+    group.push({ path, parts })
+    byRoot.set(parts.root, group)
+  }
+
+  let discarded = 0
+  for (const [rootHint, items] of byRoot) {
+    const root = existsSync(rootHint) ? await canonicalWorkspacePath(rootHint) : rootHint
+    const branches = new Set<string>()
+
+    for (const item of items) {
       try {
-        await git(root, ['branch', '-D', targetBranch])
-        removed = true
+        // Filesystem-first: crash leftovers are often not registered as linked
+        // worktrees, so `git worktree remove` only burns timeout budget.
+        let gone = !existsSync(item.path)
+        if (!gone) {
+          gone = await removeManagedWorktreeDir(item.path)
+        }
+        if (!gone && existsSync(item.path) && existsSync(root)) {
+          try {
+            await git(root, ['worktree', 'remove', '--force', item.path], GIT_DISCARD_TIMEOUT_MS)
+          } catch {
+            // still try one more FS pass below
+          }
+          if (existsSync(item.path)) {
+            gone = await removeManagedWorktreeDir(item.path)
+          } else {
+            gone = true
+          }
+        }
+        if (gone) {
+          discarded += 1
+          branches.add(inferredManagedBranch(item.parts))
+        } else {
+          failed += 1
+        }
       } catch {
-        // The branch may never have been created (failed `worktree add`).
+        failed += 1
       }
     }
 
-    try {
-      await git(root, ['worktree', 'prune'])
-    } catch {
-      // Prune is best-effort metadata cleanup.
+    if (existsSync(root)) {
+      for (const branch of branches) {
+        await deleteManagedBranch(root, branch)
+      }
+      await pruneWorktrees(root)
     }
   }
 
-  // Broken leftovers (corrupt gitdir, unregistered dirs) still show up in the
-  // filesystem inventory. Delete them directly so "Verwerfen" actually clears
-  // the restore banner instead of silently failing.
-  if (existsSync(path)) {
-    if (await removeManagedWorktreeDir(path)) removed = true
-  } else if (!removed && parts) {
-    // Already absent on disk after a successful git remove / prior cleanup.
-    removed = true
-  }
-
-  return removed
+  return { discarded, failed }
 }

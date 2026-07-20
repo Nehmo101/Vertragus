@@ -17,6 +17,7 @@ import { migrateLegacySettingsSnapshots, sessionStore } from '@main/config/sessi
 import { workspaceSessions } from '@main/orchestrator/WorkspaceSessionRegistry'
 import { agentManager } from '@main/agents/AgentManager'
 import {
+  discardManagedOrphans,
   inventoryWorktrees,
   isOrcaWorktreePath,
   managedWorktreeParts,
@@ -165,6 +166,12 @@ export async function restartSessionAgents(
   return spawned
 }
 
+function isOwnedOrphanSession(sessionDir: string): boolean {
+  return sessionStore
+    .listSessions()
+    .some((entry) => worktreeSessionDirName(entry.id) === sessionDir)
+}
+
 /**
  * Discard one orphaned Vertragus worktree (explicit user decision — this
  * throws away uncommitted work). Refuses paths outside the managed namespaces
@@ -179,10 +186,9 @@ export async function discardOrphanWorktree(path: string): Promise<boolean> {
   if (!trimmed || !parts || !isOrcaWorktreePath(trimmed)) {
     throw new Error('Pfad ist kein Vertragus-Worktree.')
   }
-  const owned = sessionStore
-    .listSessions()
-    .some((entry) => worktreeSessionDirName(entry.id) === parts.sessionId)
-  if (owned) throw new Error('Dieser Worktree gehört zu einer bekannten Session.')
+  if (isOwnedOrphanSession(parts.sessionId)) {
+    throw new Error('Dieser Worktree gehört zu einer bekannten Session.')
+  }
   return rollbackWorktree(trimmed)
 }
 
@@ -191,36 +197,18 @@ export interface DiscardOrphansResult {
   failed: number
 }
 
-/** Parallelism for bulk orphan discard; keeps Git contention bounded. */
-const DISCARD_ORPHAN_CONCURRENCY = 6
-
 /**
- * Discard many orphaned worktrees in one explicit user action. Continues after
- * individual failures so a single bad path cannot block a bulk cleanup.
+ * Discard many orphaned worktrees in one explicit user action.
+ *
+ * Serialized per repository (filesystem-first, one prune at the end) so bulk
+ * "Verwerfen" cannot wedge itself on Git locks the way concurrent workers did.
  */
 export async function discardOrphanWorktrees(paths: string[]): Promise<DiscardOrphansResult> {
-  const unique = [
-    ...new Set(paths.map((path) => (typeof path === 'string' ? path.trim() : '')).filter(Boolean))
-  ]
-  let discarded = 0
-  let failed = 0
-  let next = 0
-  const workers = Array.from(
-    { length: Math.min(DISCARD_ORPHAN_CONCURRENCY, Math.max(unique.length, 1)) },
-    async () => {
-      while (next < unique.length) {
-        const index = next
-        next += 1
-        const path = unique[index]!
-        try {
-          if (await discardOrphanWorktree(path)) discarded += 1
-          else failed += 1
-        } catch {
-          failed += 1
-        }
-      }
-    }
+  const owned = new Set(
+    sessionStore
+      .listSessions()
+      .map((entry) => worktreeSessionDirName(entry.id))
+      .filter((id): id is string => Boolean(id))
   )
-  await Promise.all(workers)
-  return { discarded, failed }
+  return discardManagedOrphans(paths, (sessionId) => owned.has(sessionId))
 }
