@@ -21,6 +21,8 @@ export const agentSlotSchema = z.object({
   count: z.number().int().min(1).default(1),
   /** May the orchestrator dispatch tasks to this slot? */
   orchestrated: z.boolean().default(true),
+  /** Per-slot Multiagent override. Omitted means inherit the profile setting. */
+  multiAgent: z.boolean().optional(),
   /** Run without approval prompts (see Yolo Mode). */
   yolo: z.boolean().default(false),
   /** Optional per-slot working directory override. */

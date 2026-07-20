@@ -22,6 +22,29 @@ import ModelCombo from '@renderer/components/ModelCombo'
 const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'kimi', 'codex', 'cursor', 'copilot', 'ollama']
 
 const ORCHESTRATOR_PROVIDERS: AgentProviderId[] = ['claude', 'kimi', 'codex', 'copilot']
+export type MultiAgentOverrideChoice = 'inherit' | 'on' | 'off'
+
+export function multiAgentOverrideChoice(value: boolean | undefined): MultiAgentOverrideChoice {
+  return value === undefined ? 'inherit' : value ? 'on' : 'off'
+}
+
+export function slotWithMultiAgentOverride(
+  slot: AgentSlot,
+  choice: MultiAgentOverrideChoice
+): AgentSlot {
+  const next = { ...slot }
+  if (choice === 'inherit') {
+    delete next.multiAgent
+  } else {
+    next.multiAgent = choice === 'on'
+  }
+  return next
+}
+
+export function effectiveMultiAgentEnabled(slot: AgentSlot, globalEnabled: boolean): boolean {
+  return slot.multiAgent ?? globalEnabled
+}
+
 const HELP = {
   profileName: 'Frei wählbarer Name für diese Kombination aus Workspace, Orchestrator und Subagents.',
   workingDir: 'Lokaler Repository- oder Projektordner, in dem die Agents arbeiten. Der Auto-PR-Basisbranch wird bei Bedarf aus dem git-origin dieses Ordners abgeleitet.',
@@ -37,7 +60,7 @@ const HELP = {
   routingMode: 'Adaptiv startet zunächst nur den Orchestrator und aktiviert Task-Agents passend zum Plan. Vorgewärmt startet alle Slots sofort.',
   maxParallel: 'Globales Oberlimit gleichzeitig laufender Plan-Tasks; Rollen-Kapazitäten können es weiter reduzieren.',
   maxRetries: 'Wie oft der Orchestrator nach einem fehlgeschlagenen Plan ohne neue Nutzerinformation fokussiert nachplanen darf.',
-  multiAgent: 'Startet für jede delegierte Aufgabe alle Instanzen des gewählten Slots parallel. Der Orchestrator vergleicht Ergebnisse und Diffs, fordert Nacharbeit an, verwirft die Gruppe oder übernimmt genau einen Gewinner.',
+  multiAgent: 'Startet für jede delegierte Aufgabe alle Instanzen des gewählten Slots parallel. Ein Slot-Override hat Vorrang; „Global erben“ übernimmt diese globale Einstellung. Die Runtime bildet weiterhin nur bei orchestriertem Einsatz und Anzahl > 1 eine Kandidatengruppe, speichert den Override aber unabhängig davon.',
   autoPrMode: 'PRs entstehen nur nach erfolgreichen Gates. Draft ist der empfohlene sichere Startmodus.',
   prStrategy: 'Aggregate kombiniert Task-Commits in einen Goal-PR. Per Task erzeugt getrennte PRs.',
   baseBranch: 'Zielbranch des PRs. Leer nutzt den gebundenen Standardbranch oder den des origin-Remotes.',
@@ -58,6 +81,54 @@ const HELP = {
     'Übernimmt gespeicherte Retro- und Benchmark-Erkenntnisse passend zu Provider und Modell ' +
     'in die Stärken/Schwächen der Slots. Die Erkenntnisse entstehen automatisch nach jedem Lauf.'
 } as const
+
+interface MultiAgentOverrideSelectProps {
+  id: string
+  value: boolean | undefined
+  globalEnabled: boolean
+  onChange: (choice: MultiAgentOverrideChoice) => void
+}
+
+export function MultiAgentOverrideSelect({
+  id,
+  value,
+  globalEnabled,
+  onChange
+}: MultiAgentOverrideSelectProps): JSX.Element {
+  const statusId = `${id}-status`
+  const effectiveEnabled = value ?? globalEnabled
+
+  return (
+    <div className="slot-path-row">
+      <div className="slot-path-field">
+        <label className="field-label slot-col-label" htmlFor={id}>
+          Multiagent-Modus <InfoTip text={HELP.multiAgent} />
+        </label>
+        <select
+          id={id}
+          className="slot-select-sm"
+          value={multiAgentOverrideChoice(value)}
+          aria-describedby={statusId}
+          onChange={(event) => onChange(event.currentTarget.value as MultiAgentOverrideChoice)}
+        >
+          <option value="inherit">
+            Global erben — aktuell {globalEnabled ? 'Aktiv' : 'Aus'}
+          </option>
+          <option value="on">Aktiv</option>
+          <option value="off">Aus</option>
+        </select>
+        <div className="model-effective" id={statusId} aria-live="polite">
+          Effektiv: {effectiveEnabled ? 'Aktiv' : 'Aus'}
+          {' · '}
+          {value === undefined
+            ? 'globale Einstellung geerbt'
+            : `Slot-Override · global ${globalEnabled ? 'Aktiv' : 'Aus'}`}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function boundedNumber(value: number, min: number, max: number, fallback: number): number {
   return Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback
 }
@@ -142,6 +213,12 @@ export default function ProfileEditor(): JSX.Element | null {
   const patch = (p: Partial<WorkspaceProfile>): void => setDraft({ ...draft, ...p })
   const patchSlot = (idx: number, p: Partial<AgentSlot>): void => {
     const agents = draft.agents.map((s, i) => (i === idx ? { ...s, ...p } : s))
+    setDraft({ ...draft, agents })
+  }
+  const patchSlotMultiAgent = (idx: number, choice: MultiAgentOverrideChoice): void => {
+    const agents = draft.agents.map((slot, i) =>
+      i === idx ? slotWithMultiAgentOverride(slot, choice) : slot
+    )
     setDraft({ ...draft, agents })
   }
   const generateFromRepo = async (): Promise<void> => {
@@ -881,6 +958,12 @@ export default function ProfileEditor(): JSX.Element | null {
                   ✕
                 </button>
                 </div>
+                <MultiAgentOverrideSelect
+                  id={`slot-multi-agent-${idx}`}
+                  value={slot.multiAgent}
+                  globalEnabled={draft.multiAgent.enabled}
+                  onChange={(choice) => patchSlotMultiAgent(idx, choice)}
+                />
                 <div className="slot-path-row">
                   <div className="slot-path-field">
                     <div className="slot-col-label">
