@@ -1,6 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { DeviceInfo, PairingChallenge, RemoteCapability, RemoteStatus } from '@shared/remote'
+import type {
+  ApnsConfigStatus,
+  ApnsEnvironment,
+  DeviceInfo,
+  PairingChallenge,
+  RemoteCapability,
+  RemoteStatus
+} from '@shared/remote'
 import type { WorkspaceSessionSummary } from '@shared/orchestrator'
 
 const INITIAL_STATUS: RemoteStatus = {
@@ -41,6 +48,12 @@ export default function RemotePanel(): JSX.Element {
   const [quickTunnel, setQuickTunnel] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
+  const [apnsStatus, setApnsStatus] = useState<ApnsConfigStatus>({ configured: false })
+  const [apnsTeamId, setApnsTeamId] = useState('')
+  const [apnsKeyId, setApnsKeyId] = useState('')
+  const [apnsBundleId, setApnsBundleId] = useState('')
+  const [apnsEnvironment, setApnsEnvironment] = useState<ApnsEnvironment>('production')
+  const [apnsP8, setApnsP8] = useState('')
 
   const refresh = async (): Promise<void> => {
     const next = await window.vertragus.remote.status()
@@ -63,6 +76,20 @@ export default function RemotePanel(): JSX.Element {
       })
       .catch((value) => setError(errorMessage(value)))
     return () => { unsubscribe(); unsubscribeSessions() }
+  }, [])
+
+  const applyApnsStatus = (status: ApnsConfigStatus): void => {
+    setApnsStatus(status)
+    if (status.configured) {
+      setApnsTeamId(status.teamId ?? '')
+      setApnsKeyId(status.keyId ?? '')
+      setApnsBundleId(status.bundleId ?? '')
+      setApnsEnvironment(status.environment ?? 'production')
+    }
+  }
+
+  useEffect(() => {
+    window.vertragus.remote.getApnsConfigStatus().then(applyApnsStatus).catch(() => undefined)
   }, [])
 
   const run = async (operation: () => Promise<void>): Promise<void> => {
@@ -172,6 +199,114 @@ export default function RemotePanel(): JSX.Element {
           </div>
         )}
       </section>
+
+      <details className="remote-card remote-apns">
+        <summary>
+          <h2>APNs Push (iOS)</h2>
+          <span className={`remote-state state-${apnsStatus.configured ? 'online' : 'disabled'}`}>
+            {apnsStatus.configured ? 'Konfiguriert' : 'Nicht konfiguriert'}
+          </span>
+        </summary>
+        <p>
+          Signierschlüssel für native iOS-Push. Wird verschlüsselt auf diesem Gerät gespeichert
+          (safeStorage) und nie im Klartext zurückgegeben. Ohne Konfiguration bleibt Web-Push aktiv.
+        </p>
+        {apnsStatus.configured && (
+          <small className="remote-apns-status">
+            Aktiv · Team {apnsStatus.teamId} · Key {apnsStatus.keyId} · {apnsStatus.bundleId} · {apnsStatus.environment}
+          </small>
+        )}
+        <div className="remote-form">
+          <label>
+            Team ID
+            <input
+              value={apnsTeamId}
+              onChange={(event) => setApnsTeamId(event.target.value)}
+              placeholder="ABCDE12345"
+              autoComplete="off"
+              maxLength={64}
+            />
+          </label>
+          <label>
+            Key ID
+            <input
+              value={apnsKeyId}
+              onChange={(event) => setApnsKeyId(event.target.value)}
+              placeholder="KEY1234567"
+              autoComplete="off"
+              maxLength={64}
+            />
+          </label>
+          <label>
+            Bundle ID
+            <input
+              value={apnsBundleId}
+              onChange={(event) => setApnsBundleId(event.target.value)}
+              placeholder="com.example.MissionControl"
+              autoComplete="off"
+              maxLength={200}
+            />
+          </label>
+          <label>
+            Umgebung
+            <select
+              value={apnsEnvironment}
+              onChange={(event) => setApnsEnvironment(event.target.value as ApnsEnvironment)}
+            >
+              <option value="production">Production</option>
+              <option value="sandbox">Sandbox</option>
+            </select>
+          </label>
+          <label>
+            .p8-Schlüssel
+            <textarea
+              value={apnsP8}
+              onChange={(event) => setApnsP8(event.target.value)}
+              placeholder={apnsStatus.configured
+                ? 'Gespeichert · nur zum Ersetzen erneut einfügen'
+                : '-----BEGIN PRIVATE KEY-----'}
+              autoComplete="off"
+              rows={4}
+              spellCheck={false}
+            />
+          </label>
+          <div className="remote-apns-actions">
+            <button
+              type="button"
+              className="btn primary"
+              disabled={
+                busy || !apnsTeamId.trim() || !apnsKeyId.trim() || !apnsBundleId.trim() || !apnsP8.trim()
+              }
+              onClick={() => void run(async () => {
+                const status = await window.vertragus.remote.setApnsConfig({
+                  teamId: apnsTeamId.trim(),
+                  keyId: apnsKeyId.trim(),
+                  p8: apnsP8.trim(),
+                  bundleId: apnsBundleId.trim(),
+                  environment: apnsEnvironment
+                })
+                applyApnsStatus(status)
+                setApnsP8('')
+              })}
+            >
+              Speichern
+            </button>
+            {apnsStatus.configured && (
+              <button
+                type="button"
+                className="btn danger"
+                disabled={busy}
+                onClick={() => void run(async () => {
+                  applyApnsStatus(await window.vertragus.remote.clearApnsConfig())
+                  setApnsP8('')
+                })}
+              >
+                Entfernen
+              </button>
+            )}
+          </div>
+        </div>
+      </details>
 
       <div className="remote-grid">
         <section className="remote-card">

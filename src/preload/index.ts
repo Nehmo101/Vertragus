@@ -115,6 +115,9 @@ const vertragus: VertragusApi = {
     listDevices: () => ipcRenderer.invoke(IPC.remoteListDevices),
     revokeDevice: (deviceId) => ipcRenderer.invoke(IPC.remoteRevokeDevice, deviceId),
     pairStart: (request) => ipcRenderer.invoke(IPC.remotePairStart, request),
+    setApnsConfig: (config) => ipcRenderer.invoke(IPC.remoteSetApnsConfig, config),
+    getApnsConfigStatus: () => ipcRenderer.invoke(IPC.remoteGetApnsConfigStatus),
+    clearApnsConfig: () => ipcRenderer.invoke(IPC.remoteClearApnsConfig),
     onStatus: (cb) => subscribe(IPC.evRemote, cb)
   },
 
