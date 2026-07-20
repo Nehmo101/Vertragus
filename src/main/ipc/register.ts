@@ -387,6 +387,13 @@ export function registerIpcHandlers(): void {
     if (typeof path !== 'string') throw new Error('Ungültiger Worktree-Pfad.')
     return sessionRestore.discardOrphanWorktree(path)
   })
+  ipcMain.handle(IPC.sessionsDiscardOrphanWorktrees, (e, paths: unknown) => {
+    assertNotVoiceWindow(e)
+    if (!Array.isArray(paths) || paths.some((path) => typeof path !== 'string')) {
+      throw new Error('Ungültige Worktree-Pfade.')
+    }
+    return sessionRestore.discardOrphanWorktrees(paths)
+  })
 
   // ---- external MCP servers ----
   ipcMain.handle(IPC.mcpList, () => listMcpServers())

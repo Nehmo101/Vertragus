@@ -188,3 +188,27 @@ export async function discardOrphanWorktree(path: string): Promise<boolean> {
   const branch = await currentBranch(trimmed)
   return rollbackWorktree(trimmed, branch && isOrcaBranch(branch) ? branch : undefined)
 }
+
+export interface DiscardOrphansResult {
+  discarded: number
+  failed: number
+}
+
+/**
+ * Discard many orphaned worktrees in one explicit user action. Continues after
+ * individual failures so a single bad path cannot block a bulk cleanup.
+ */
+export async function discardOrphanWorktrees(paths: string[]): Promise<DiscardOrphansResult> {
+  const unique = [...new Set(paths.map((path) => (typeof path === 'string' ? path.trim() : '')).filter(Boolean))]
+  let discarded = 0
+  let failed = 0
+  for (const path of unique) {
+    try {
+      if (await discardOrphanWorktree(path)) discarded += 1
+      else failed += 1
+    } catch {
+      failed += 1
+    }
+  }
+  return { discarded, failed }
+}

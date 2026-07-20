@@ -53,7 +53,9 @@ const vertragus: VertragusApi = {
     restartAgents: (profileId, sessionId) =>
       ipcRenderer.invoke(IPC.sessionsRestartAgents, profileId, sessionId),
     discardOrphanWorktree: (path) =>
-      ipcRenderer.invoke(IPC.sessionsDiscardOrphanWorktree, path)
+      ipcRenderer.invoke(IPC.sessionsDiscardOrphanWorktree, path),
+    discardOrphanWorktrees: (paths) =>
+      ipcRenderer.invoke(IPC.sessionsDiscardOrphanWorktrees, paths)
   },
 
   listMcpServers: () => ipcRenderer.invoke(IPC.mcpList),
