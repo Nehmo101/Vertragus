@@ -17,10 +17,9 @@ import { migrateLegacySettingsSnapshots, sessionStore } from '@main/config/sessi
 import { workspaceSessions } from '@main/orchestrator/WorkspaceSessionRegistry'
 import { agentManager } from '@main/agents/AgentManager'
 import {
-  currentBranch,
   inventoryWorktrees,
-  isOrcaBranch,
   isOrcaWorktreePath,
+  managedWorktreeParts,
   rollbackWorktree,
   worktreeSessionDirName
 } from '@main/agents/worktree'
@@ -170,23 +169,21 @@ export async function restartSessionAgents(
  * Discard one orphaned Vertragus worktree (explicit user decision — this
  * throws away uncommitted work). Refuses paths outside the managed namespaces
  * and worktrees that still belong to an indexed session.
+ *
+ * Branch identity is inferred from the managed path so broken leftovers do not
+ * hang on `git rev-parse` inside a corrupt checkout before cleanup starts.
  */
 export async function discardOrphanWorktree(path: string): Promise<boolean> {
   const trimmed = typeof path === 'string' ? path.trim() : ''
-  if (!trimmed || !isOrcaWorktreePath(trimmed)) {
+  const parts = managedWorktreeParts(trimmed)
+  if (!trimmed || !parts || !isOrcaWorktreePath(trimmed)) {
     throw new Error('Pfad ist kein Vertragus-Worktree.')
   }
-  const match = trimmed
-    .replace(/\\/g, '/')
-    .match(/\.(?:vertragus|orca)-worktrees\/([^/]+)\/([^/]+)\/?$/)
-  if (!match) throw new Error('Pfad ist kein Vertragus-Worktree.')
-  const sessionDir = match[1]
   const owned = sessionStore
     .listSessions()
-    .some((entry) => worktreeSessionDirName(entry.id) === sessionDir)
+    .some((entry) => worktreeSessionDirName(entry.id) === parts.sessionId)
   if (owned) throw new Error('Dieser Worktree gehört zu einer bekannten Session.')
-  const branch = await currentBranch(trimmed)
-  return rollbackWorktree(trimmed, branch && isOrcaBranch(branch) ? branch : undefined)
+  return rollbackWorktree(trimmed)
 }
 
 export interface DiscardOrphansResult {
@@ -194,21 +191,36 @@ export interface DiscardOrphansResult {
   failed: number
 }
 
+/** Parallelism for bulk orphan discard; keeps Git contention bounded. */
+const DISCARD_ORPHAN_CONCURRENCY = 6
+
 /**
  * Discard many orphaned worktrees in one explicit user action. Continues after
  * individual failures so a single bad path cannot block a bulk cleanup.
  */
 export async function discardOrphanWorktrees(paths: string[]): Promise<DiscardOrphansResult> {
-  const unique = [...new Set(paths.map((path) => (typeof path === 'string' ? path.trim() : '')).filter(Boolean))]
+  const unique = [
+    ...new Set(paths.map((path) => (typeof path === 'string' ? path.trim() : '')).filter(Boolean))
+  ]
   let discarded = 0
   let failed = 0
-  for (const path of unique) {
-    try {
-      if (await discardOrphanWorktree(path)) discarded += 1
-      else failed += 1
-    } catch {
-      failed += 1
+  let next = 0
+  const workers = Array.from(
+    { length: Math.min(DISCARD_ORPHAN_CONCURRENCY, Math.max(unique.length, 1)) },
+    async () => {
+      while (next < unique.length) {
+        const index = next
+        next += 1
+        const path = unique[index]!
+        try {
+          if (await discardOrphanWorktree(path)) discarded += 1
+          else failed += 1
+        } catch {
+          failed += 1
+        }
+      }
     }
-  }
+  )
+  await Promise.all(workers)
   return { discarded, failed }
 }

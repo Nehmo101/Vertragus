@@ -13,7 +13,7 @@
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdir, readdir } from 'node:fs/promises'
+import { mkdir, readdir, rm } from 'node:fs/promises'
 import { promisify } from 'node:util'
 import { dirname, join } from 'node:path'
 import { canonicalWorkspacePath } from '@main/agents/workspacePath'
@@ -171,6 +171,36 @@ export function isOrcaBranch(branch: string): boolean {
   return /^(?:vertragus|orca)\//.test(branch.trim())
 }
 
+export interface ManagedWorktreeParts {
+  /** Repository root that owns `.vertragus-worktrees` / `.orca-worktrees`. */
+  root: string
+  sessionId: string
+  agentId: string
+  /** True for pre-rebrand `.orca-worktrees` checkouts. */
+  legacy: boolean
+}
+
+/**
+ * Parse a managed agent worktree path into repo root + identity parts.
+ * Works from the path alone — no Git calls — so broken leftovers still match.
+ */
+export function managedWorktreeParts(worktreePath: string): ManagedWorktreeParts | null {
+  const normalized = worktreePath.trim().replace(/\\/g, '/').replace(/\/+$/, '')
+  const match = normalized.match(/^(.*)\/\.(vertragus|orca)-worktrees\/([^/]+)\/([^/]+)$/)
+  if (!match?.[1] || !match[2] || !match[3] || !match[4]) return null
+  return {
+    root: match[1],
+    legacy: match[2] === 'orca',
+    sessionId: match[3],
+    agentId: match[4]
+  }
+}
+
+/** Branch name that `createWorktree` would have used for this checkout path. */
+export function inferredManagedBranch(parts: ManagedWorktreeParts): string {
+  return `${parts.legacy ? 'orca' : 'vertragus'}/${parts.sessionId}/${parts.agentId}`
+}
+
 /**
  * Resolve the main working tree that owns a linked worktree, so
  * `git worktree remove` runs from the repository root instead of from inside
@@ -188,6 +218,45 @@ async function mainWorktreeRoot(worktreePath: string): Promise<string | null> {
   } catch {
     return null
   }
+}
+
+/**
+ * Prefer a path-derived repo root so discard still works when the worktree's
+ * gitdir is corrupt or the checkout is no longer registered with Git.
+ */
+async function resolveRollbackRoot(worktreePath: string): Promise<string | null> {
+  const parts = managedWorktreeParts(worktreePath)
+  if (parts?.root && existsSync(parts.root)) {
+    return canonicalWorkspacePath(parts.root)
+  }
+  const fromGit = await mainWorktreeRoot(worktreePath)
+  return fromGit ? canonicalWorkspacePath(fromGit) : null
+}
+
+/**
+ * Delete a managed worktree directory from disk when Git cannot remove it.
+ * Only paths under `.vertragus-worktrees/` / `.orca-worktrees/` are touched.
+ */
+async function removeManagedWorktreeDir(worktreePath: string): Promise<boolean> {
+  const parts = managedWorktreeParts(worktreePath)
+  if (!parts || !isOrcaWorktreePath(worktreePath)) return false
+  if (!existsSync(worktreePath)) return true
+  try {
+    await rm(worktreePath, { recursive: true, force: true })
+  } catch {
+    return false
+  }
+  // Drop the empty session container so inventory stops reporting the group.
+  const sessionDir = dirname(worktreePath)
+  try {
+    const leftover = await readdir(sessionDir)
+    if (leftover.length === 0) {
+      await rm(sessionDir, { recursive: true, force: true })
+    }
+  } catch {
+    // Best-effort; the agent checkout itself is already gone.
+  }
+  return true
 }
 
 /**
@@ -277,30 +346,48 @@ export async function rollbackWorktree(
   const path = worktreePath.trim()
   if (!path || !isOrcaWorktreePath(path)) return false
 
-  const root = await mainWorktreeRoot(path)
-  if (!root) return false
+  const parts = managedWorktreeParts(path)
+  const root = await resolveRollbackRoot(path)
+  const targetBranch =
+    branch && isOrcaBranch(branch)
+      ? branch
+      : parts
+        ? inferredManagedBranch(parts)
+        : undefined
 
   let removed = false
-  try {
-    await git(root, ['worktree', 'remove', '--force', path])
-    removed = true
-  } catch {
-    // The checkout may already be gone or locked; still try the branch + prune.
-  }
-
-  if (branch && isOrcaBranch(branch)) {
+  if (root) {
     try {
-      await git(root, ['branch', '-D', branch])
+      await git(root, ['worktree', 'remove', '--force', path])
       removed = true
     } catch {
-      // The branch may never have been created (failed `worktree add`).
+      // The checkout may already be gone, locked, or never registered.
+    }
+
+    if (targetBranch && isOrcaBranch(targetBranch)) {
+      try {
+        await git(root, ['branch', '-D', targetBranch])
+        removed = true
+      } catch {
+        // The branch may never have been created (failed `worktree add`).
+      }
+    }
+
+    try {
+      await git(root, ['worktree', 'prune'])
+    } catch {
+      // Prune is best-effort metadata cleanup.
     }
   }
 
-  try {
-    await git(root, ['worktree', 'prune'])
-  } catch {
-    // Prune is best-effort metadata cleanup.
+  // Broken leftovers (corrupt gitdir, unregistered dirs) still show up in the
+  // filesystem inventory. Delete them directly so "Verwerfen" actually clears
+  // the restore banner instead of silently failing.
+  if (existsSync(path)) {
+    if (await removeManagedWorktreeDir(path)) removed = true
+  } else if (!removed && parts) {
+    // Already absent on disk after a successful git remove / prior cleanup.
+    removed = true
   }
 
   return removed

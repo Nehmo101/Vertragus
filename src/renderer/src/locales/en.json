@@ -723,6 +723,7 @@
     "discardConfirm": "Discard this worktree permanently? Uncommitted work will be lost:\n{{path}}",
     "discardCleanConfirm": "Discard {{count}} clean worktrees with no local changes?",
     "discardAllConfirm": "Discard {{count}} orphaned worktrees permanently? Uncommitted work will be lost.\nExample: {{path}}",
+    "discardResult": "Discarded {{discarded}}, failed {{failed}}.",
     "stale": "{{count}} old session(s) without activity",
     "staleConfirm": "Remove this session including its saved history?"
   }

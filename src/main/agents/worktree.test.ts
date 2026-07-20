@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
@@ -8,6 +8,8 @@ import {
   inventoryWorktrees,
   isOrcaBranch,
   isOrcaWorktreePath,
+  managedWorktreeParts,
+  rollbackWorktree,
   worktreeIdentity
 } from './worktree'
 
@@ -77,6 +79,22 @@ describe('rollback safety guards', () => {
     expect(isOrcaBranch('my-vertragus/x')).toBe(false)
     expect(isOrcaBranch('')).toBe(false)
   })
+
+  it('parses managed worktree paths into root + identity parts', () => {
+    expect(managedWorktreeParts('/repo/.vertragus-worktrees/session-a/task-01')).toEqual({
+      root: '/repo',
+      legacy: false,
+      sessionId: 'session-a',
+      agentId: 'task-01'
+    })
+    expect(managedWorktreeParts('C:\\repo\\.orca-worktrees\\session-b\\codex-01')).toEqual({
+      root: 'C:/repo',
+      legacy: true,
+      sessionId: 'session-b',
+      agentId: 'codex-01'
+    })
+    expect(managedWorktreeParts('/repo/src')).toBeNull()
+  })
 })
 
 describe('createWorktree + inventory against a real repository', () => {
@@ -130,6 +148,22 @@ describe('createWorktree + inventory against a real repository', () => {
     const plain = mkdtempSync(join(tmpdir(), 'vertragus-plain-'))
     repos.push(plain)
     await expect(inventoryWorktrees(plain, new Set())).resolves.toEqual([])
+  })
+
+  it('discards broken leftover worktree directories that Git can no longer remove', async () => {
+    const repo = initRepo()
+    const orphan = join(repo, '.vertragus-worktrees', 'session-broken', 'codex-01')
+    // Simulate a crash leftover: directory exists, but it is not a linked worktree.
+    mkdirSync(orphan, { recursive: true })
+    writeFileSync(join(orphan, 'wip.txt'), 'orphaned work')
+
+    await expect(rollbackWorktree(orphan)).resolves.toBe(true)
+    expect(existsSync(orphan)).toBe(false)
+    // Empty session container should go away with the last agent checkout.
+    expect(existsSync(join(repo, '.vertragus-worktrees', 'session-broken'))).toBe(false)
+
+    const inventory = await inventoryWorktrees(repo, new Set())
+    expect(inventory).toEqual([])
   })
 })
 

@@ -75,19 +75,34 @@ export default function SessionRestoreBanner(): JSX.Element | null {
     setError(null)
     try {
       await action()
-      refresh()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
     } finally {
+      // Always re-read status so partial discards still shrink the orphan list.
+      refresh()
       setBusy(null)
     }
   }
 
-  const discardPaths = (key: string, paths: string[], confirmKey: 'discardConfirm' | 'discardCleanConfirm' | 'discardAllConfirm'): void => {
+  const discardPaths = (
+    key: string,
+    paths: string[],
+    confirmKey: 'discardConfirm' | 'discardCleanConfirm' | 'discardAllConfirm'
+  ): void => {
     if (paths.length === 0) return
     const sample = paths[0] ?? ''
     if (!window.confirm(t(`restore.${confirmKey}`, { count: paths.length, path: sample }))) return
-    void run(key, () => window.vertragus.sessions.discardOrphanWorktrees(paths))
+    void run(key, async () => {
+      const result = await window.vertragus.sessions.discardOrphanWorktrees(paths)
+      if (result.failed > 0) {
+        throw new Error(
+          t('restore.discardResult', {
+            discarded: result.discarded,
+            failed: result.failed
+          })
+        )
+      }
+    })
   }
 
   const toggleSession = (sessionId: string): void => {
@@ -312,12 +327,21 @@ export default function SessionRestoreBanner(): JSX.Element | null {
                                 if (!window.confirm(t('restore.discardConfirm', { count: 1, path: worktree.path }))) {
                                   return
                                 }
-                                void run(`orphan-${worktree.path}`, () =>
-                                  window.vertragus.sessions.discardOrphanWorktree(worktree.path)
-                                )
+                                void run(`orphan-${worktree.path}`, async () => {
+                                  const ok = await window.vertragus.sessions.discardOrphanWorktree(
+                                    worktree.path
+                                  )
+                                  if (!ok) {
+                                    throw new Error(
+                                      t('restore.discardResult', { discarded: 0, failed: 1 })
+                                    )
+                                  }
+                                })
                               }}
                             >
-                              {t('restore.discard')}
+                              {busy === `orphan-${worktree.path}`
+                                ? t('restore.discarding')
+                                : t('restore.discard')}
                             </button>
                           </li>
                         ))}
