@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import {
   createWorktree,
+  discardManagedOrphans,
   inventoryWorktrees,
   isOrcaBranch,
   isOrcaWorktreePath,
@@ -164,6 +165,35 @@ describe('createWorktree + inventory against a real repository', () => {
 
     const inventory = await inventoryWorktrees(repo, new Set())
     expect(inventory).toEqual([])
+  })
+
+  it('bulk-discards many unregistered leftovers without leaving ghosts', async () => {
+    const repo = initRepo()
+    const paths: string[] = []
+    for (let session = 0; session < 5; session += 1) {
+      for (let agent = 0; agent < 4; agent += 1) {
+        const path = join(
+          repo,
+          '.vertragus-worktrees',
+          `session-${session}`,
+          `agent-${agent}`
+        )
+        mkdirSync(path, { recursive: true })
+        writeFileSync(join(path, 'wip.txt'), `leftover ${session}/${agent}`)
+        paths.push(path)
+      }
+    }
+    // One owned session must be refused.
+    const owned = join(repo, '.vertragus-worktrees', 'session-owned', 'agent-0')
+    mkdirSync(owned, { recursive: true })
+    paths.push(owned)
+
+    const result = await discardManagedOrphans(paths, (sessionId) => sessionId === 'session-owned')
+    expect(result).toEqual({ discarded: 20, failed: 1 })
+    expect(existsSync(owned)).toBe(true)
+    expect(await inventoryWorktrees(repo, new Set(['session-owned']))).toEqual([
+      expect.objectContaining({ sessionId: 'session-owned', owned: true })
+    ])
   })
 })
 
