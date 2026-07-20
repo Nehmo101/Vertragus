@@ -88,6 +88,7 @@ export const IPC = {
   sessionsRestoreStatus: 'sessions:restoreStatus',
   sessionsRestartAgents: 'sessions:restartAgents',
   sessionsDiscardOrphanWorktree: 'sessions:discardOrphanWorktree',
+  sessionsDiscardOrphanWorktrees: 'sessions:discardOrphanWorktrees',
   mcpList: 'mcp:list',
   mcpSave: 'mcp:save',
   gitSwitchBranch: 'git:switchBranch',
@@ -379,6 +380,8 @@ export interface VertragusApi {
     restartAgents(profileId: string, sessionId: string): Promise<AgentInstanceInfo[]>
     /** Discard one orphaned Vertragus worktree (uncommitted work is lost). */
     discardOrphanWorktree(path: string): Promise<boolean>
+    /** Discard many orphaned worktrees; continues after individual failures. */
+    discardOrphanWorktrees(paths: string[]): Promise<{ discarded: number; failed: number }>
   }
 
   /** External MCP servers attached to the launched agents. */

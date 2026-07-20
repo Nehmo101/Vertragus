@@ -51,6 +51,7 @@ vi.mock('@shared/profile', () => ({ profileRepoLocalPath: () => undefined }))
 
 import {
   discardOrphanWorktree,
+  discardOrphanWorktrees,
   finalizeSessionPersistence,
   getRestoreStatus,
   lastShutdownWasClean,
@@ -181,5 +182,22 @@ describe('sessionRestore', () => {
       '/repo/.vertragus-worktrees/session-gone/codex-01',
       'vertragus/session-gone/codex-01'
     )
+  })
+
+  it('discards many orphan worktrees and reports per-path failures', async () => {
+    store.listSessions.mockReturnValue([])
+    worktree.rollbackWorktree
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false)
+      .mockRejectedValueOnce(new Error('boom'))
+
+    await expect(
+      discardOrphanWorktrees([
+        '/repo/.vertragus-worktrees/gone-a/task-01',
+        '/repo/.vertragus-worktrees/gone-b/task-02',
+        '/repo/src',
+        '/repo/.vertragus-worktrees/gone-a/task-01'
+      ])
+    ).resolves.toEqual({ discarded: 1, failed: 2 })
   })
 })
