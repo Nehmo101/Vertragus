@@ -39,14 +39,19 @@ export default function SessionRestoreBanner(): JSX.Element | null {
   const [staleOpen, setStaleOpen] = useState(false)
   const [expandedSessions, setExpandedSessions] = useState<Set<string>>(() => new Set())
 
-  const refresh = (): void => {
+  const refresh = (): Promise<void> =>
+    window.vertragus.sessions
+      .restoreStatus()
+      .then(setStatus)
+      .catch(() => setStatus(null))
+
+  useEffect(() => {
+    // Load once on mount via the promise callback (not a sync setState-in-effect).
     void window.vertragus.sessions
       .restoreStatus()
       .then(setStatus)
       .catch(() => setStatus(null))
-  }
-
-  useEffect(refresh, [])
+  }, [])
 
   const orphanGroups = useMemo(
     () => (status ? groupOrphans(status.orphanedWorktrees) : []),
@@ -68,7 +73,9 @@ export default function SessionRestoreBanner(): JSX.Element | null {
     status.resumableSessions.length > 0 ||
     status.orphanedWorktrees.length > 0 ||
     status.staleSessions.length > 0
-  if (!hasContent) return null
+  // Keep the banner mounted while a discard/restart is in flight — optimistic
+  // orphan removal can clear hasContent before the main process finishes.
+  if (!hasContent && busy == null) return null
 
   const run = async (key: string, action: () => Promise<unknown>): Promise<void> => {
     setBusy(key)
@@ -78,9 +85,13 @@ export default function SessionRestoreBanner(): JSX.Element | null {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
     } finally {
-      // Always re-read status so partial discards still shrink the orphan list.
-      refresh()
-      setBusy(null)
+      // Wait for the re-scan before unlocking actions — otherwise a second
+      // "Verwerfen" starts while inventory is still walking the old leftovers.
+      try {
+        await refresh()
+      } finally {
+        setBusy(null)
+      }
     }
   }
 
@@ -92,6 +103,16 @@ export default function SessionRestoreBanner(): JSX.Element | null {
     if (paths.length === 0) return
     const sample = paths[0] ?? ''
     if (!window.confirm(t(`restore.${confirmKey}`, { count: paths.length, path: sample }))) return
+    // Optimistically clear the targets so the banner shrinks immediately while
+    // the main process finishes filesystem + git cleanup.
+    setStatus((prev) =>
+      prev
+        ? {
+            ...prev,
+            orphanedWorktrees: prev.orphanedWorktrees.filter((item) => !paths.includes(item.path))
+          }
+        : prev
+    )
     void run(key, async () => {
       const result = await window.vertragus.sessions.discardOrphanWorktrees(paths)
       if (result.failed > 0) {
@@ -121,11 +142,14 @@ export default function SessionRestoreBanner(): JSX.Element | null {
       for (const session of status.resumableSessions) {
         await window.vertragus.sessions.restartAgents(session.profileId, session.id)
       }
-      refresh()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
     } finally {
-      setBusy(null)
+      try {
+        await refresh()
+      } finally {
+        setBusy(null)
+      }
     }
   }
 
@@ -137,9 +161,11 @@ export default function SessionRestoreBanner(): JSX.Element | null {
             {status.cleanShutdown ? t('restore.title') : t('restore.titleCrash')}
           </span>
           <span className="rest">
-            {status.restoredSessions > 0
-              ? t('restore.summary', { count: status.restoredSessions })
-              : t('restore.summaryNone')}
+            {busy != null && (busy === 'orphans-all' || busy === 'orphans-clean' || busy.startsWith('orphan-'))
+              ? t('restore.discarding')
+              : status.restoredSessions > 0
+                ? t('restore.summary', { count: status.restoredSessions })
+                : t('restore.summaryNone')}
           </span>
         </div>
         <div className="restore-head-actions">
