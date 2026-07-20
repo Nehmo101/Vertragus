@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CODEX_RUNTIME_DIR_NAME } from './codexSandbox'
+import { sameWorkspacePath } from './workspacePath'
 import {
   codexRuntimeCanaryArgs,
   panePreflightInternals,
@@ -134,22 +135,24 @@ describe('Codex runtime preflight', () => {
     const paths = await panePreflightInternals.canonicalPreflightPaths(
       codexInput(profile, join(worker, 'nested', '..'))
     )
+    const canonicalWorker = paths.workerWorkspace!
+    const canonicalRuntimeRoot = join(canonicalWorker, CODEX_RUNTIME_DIR_NAME)
     await panePreflightInternals.providerRuntimeCanary(
-      codexInput(profile, paths.workerWorkspace),
+      codexInput(profile, canonicalWorker),
       paths.profileWorkspace,
-      paths.workerWorkspace,
+      canonicalWorker,
       'win32'
     )
 
-    expect(paths.workerWorkspace).toBe(worker)
+    expect(await sameWorkspacePath(canonicalWorker, worker)).toBe(true)
     expect(childProcess.invocations).toHaveLength(1)
     const invocation = childProcess.invocations[0]!
     const markerPath = invocation.options.env?.ORCA_CODEX_CANARY_PATH
     const runtimeDir = invocation.options.env?.TEMP
-    expect(invocation.options.cwd).toBe(worker)
-    expect(invocation.args).toContain(worker)
-    expect(markerPath && dirname(markerPath)).toBe(worker)
-    expect(runtimeDir && dirname(runtimeDir)).toBe(runtimeRoot)
+    expect(invocation.options.cwd).toBe(canonicalWorker)
+    expect(invocation.args).toContain(canonicalWorker)
+    expect(markerPath && dirname(markerPath)).toBe(canonicalWorker)
+    expect(runtimeDir && dirname(runtimeDir)).toBe(canonicalRuntimeRoot)
     await expect(access(markerPath!)).rejects.toThrow()
     await expect(access(runtimeDir!)).rejects.toThrow()
     await expect(readFile(sentinel, 'utf8')).resolves.toBe('keep')
