@@ -125,6 +125,27 @@ Rollen sollten eindeutig und fachlich sein. Zwei Slots mit `worker` werden
 intern zwar zu `worker` und `worker-2`, sprechende Rollen ergeben aber bessere
 Pläne und verständlichere Logs.
 
+### Multiagent-Modus pro Slot
+
+Die globale Multiagent-Einstellung des Profils ist die Vorgabe für alle Slots.
+Jeder Slot kann sie mit der Drei-Zustands-Auswahl **Multiagent-Modus** gezielt
+übersteuern:
+
+- **Global erben:** Im Slot wird kein eigener Wert gespeichert; die globale
+  Einstellung wirkt. Das ist zugleich das Verhalten alter Profile ohne
+  Slot-Feld.
+- **Aktiv:** Der Slot speichert `true` und aktiviert Multiagent unabhängig von
+  der globalen Vorgabe.
+- **Aus:** Der Slot speichert `false` und deaktiviert Multiagent unabhängig von
+  der globalen Vorgabe.
+
+Der Editor zeigt neben der Auswahl immer den effektiven Zustand. Eine
+Kandidatengruppe entsteht nur bei einem orchestrierten Dispatch an einen Slot
+mit **Anzahl > 1**; der Rekursionsschutz verhindert, dass ein bereits gestarteter
+Multiagent-Kandidat erneut auffächert. Bei jedem Dispatch, auch bei
+verschachtelten Delegationen, wird der tatsächlich adressierte Ziel-Slot
+ausgewertet und nicht der Slot des Parent-Agents.
+
 ## 5. Ein gutes Orchestrator-Ziel
 
 Ein Ziel sollte Ergebnis, Grenzen und Prüfungen nennen:

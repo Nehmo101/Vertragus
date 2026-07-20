@@ -174,6 +174,13 @@ interface PreparedExecutionPlan {
   plan: ExecutionPlan
 }
 
+function multiAgentEnabledForSlot(
+  slot: AgentSlot,
+  profile: WorkspaceProfile | undefined
+): boolean {
+  return slot.multiAgent ?? profile?.multiAgent?.enabled ?? false
+}
+
 /** Workspace-Session-Id des Remote-Selftests (siehe src/main/remote/selftestRemote.ts). */
 export const REMOTE_SELFTEST_SESSION_ID = 'remote-selftest'
 
@@ -1667,7 +1674,7 @@ export class OrchestratorEngine extends EventEmitter {
   ): Promise<string> {
     const { slot, role: slotRole } = this.pickSlot(role)
     const profile = this.activeProfile()
-    if (!options.multiAgentRunId && profile?.multiAgent?.enabled && slot.count > 1) {
+    if (!options.multiAgentRunId && multiAgentEnabledForSlot(slot, profile) && slot.count > 1) {
       return this.dispatchMultiAgent(role, slotRole, prompt, title, options, Math.min(slot.count, 16))
     }
     const taskId = options.taskId ?? this.nextTaskId()
