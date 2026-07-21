@@ -2,11 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { tmpdir } from 'node:os'
 import { join, parse as parsePath } from 'node:path'
 
-const { execFileMock, accessMock, readFileMock, realpathMock } = vi.hoisted(() => ({
+const { execFileMock, accessMock, readFileMock, realpathMock, readdirMock } = vi.hoisted(() => ({
   execFileMock: vi.fn(),
   accessMock: vi.fn(),
   readFileMock: vi.fn(),
-  realpathMock: vi.fn()
+  realpathMock: vi.fn(),
+  readdirMock: vi.fn()
 }))
 vi.mock('node:child_process', () => ({
   execFile: (...args: unknown[]) => execFileMock(...args)
@@ -14,7 +15,8 @@ vi.mock('node:child_process', () => ({
 vi.mock('node:fs/promises', () => ({
   access: accessMock,
   readFile: readFileMock,
-  realpath: realpathMock
+  realpath: realpathMock,
+  readdir: readdirMock
 }))
 vi.mock('@main/providers/processPath', () => ({
   refreshProcessPathFromSystem: vi.fn(async () => undefined)
@@ -130,7 +132,12 @@ const setShim = (path: string, content: string): void => {
 }
 
 /** In-memory FS wiring for the Windows resolution unit tests (path-portable). */
-function mockWindowsFs(options: { where: Record<string, string>; files: Set<string> }): void {
+function mockWindowsFs(options: {
+  where: Record<string, string>
+  files: Set<string>
+  /** Directory listings for the versioned-layout fallback (normalized path → names). */
+  dirs?: Record<string, string[]>
+}): void {
   execFileMock.mockImplementation(
     (_file: string, args: string[], _opts: unknown, cb: ExecCallback) => {
       const target = Array.isArray(args) ? args[args.length - 1] : ''
@@ -147,6 +154,15 @@ function mockWindowsFs(options: { where: Record<string, string>; files: Set<stri
     const key = normalize(candidate)
     if (!normFiles.has(key)) throw new Error('ENOENT')
     return SHIM_CONTENT.get(key) ?? ''
+  })
+  const normDirs = Object.fromEntries(
+    Object.entries(options.dirs ?? {}).map(([path, names]) => [normalize(path), names])
+  )
+  readdirMock.mockImplementation(async (candidate: string) => {
+    const names = normDirs[normalize(candidate)]
+    if (!names) throw new Error('ENOENT')
+    // Dirent-like shape as returned by readdir({ withFileTypes: true }).
+    return names.map((name) => ({ name, isDirectory: () => true }))
   })
 }
 
@@ -220,6 +236,171 @@ describe('resolveLaunch faithful Windows shim resolution', () => {
     })
 
     expect(launch).toEqual({ file: exe, args: ['PROMPT'] })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Versioned CLI layout fallback (cursor-agent Windows install: the .cmd only
+// forwards to a .ps1 that picks node.exe/index.js dynamically, so nothing
+// parseable is inside the shim text).
+// ---------------------------------------------------------------------------
+
+describe('resolveFaithfulShimLaunch versioned layout fallback', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    SHIM_CONTENT.clear()
+  })
+
+  const shimDir = abs('users', 'lasse', 'cursor-agent')
+  const shim = join(shimDir, 'cursor-agent.cmd')
+  // The real shim shape: no quoted .js/.exe token parseShimEntrypoint can use.
+  const opaqueShim =
+    '@echo off\r\npowershell.exe -ExecutionPolicy Bypass -File "%~dp0\\cursor-agent.ps1" %*\r\n'
+
+  /** Deps-injected in-memory layout so the tests run off-Windows too. */
+  function layoutDeps(options: { files: string[]; dirs?: Record<string, string[]> }) {
+    const files = new Set(options.files.map(normalize))
+    const dirs = Object.fromEntries(
+      Object.entries(options.dirs ?? {}).map(([path, names]) => [normalize(path), names])
+    )
+    return {
+      readShim: async () => opaqueShim,
+      pathExists: async (path: string) => files.has(normalize(path)),
+      resolveNode: async () => abs('system', 'node'),
+      listDir: async (path: string) => {
+        const names = dirs[normalize(path)]
+        if (!names) throw new Error('ENOENT')
+        return names
+      }
+    }
+  }
+
+  it('falls back to the bundled node.exe + index.js next to the shim', async () => {
+    const deps = layoutDeps({
+      files: [shim, join(shimDir, 'node.exe'), join(shimDir, 'index.js')]
+    })
+
+    const launch = await resolveFaithfulShimLaunch(shim, ['--print', 'PROMPT'], deps)
+
+    expect(launch).toEqual({
+      file: join(shimDir, 'node.exe'),
+      args: [join(shimDir, 'index.js'), '--print', 'PROMPT']
+    })
+  })
+
+  it('scans versions/ and picks the newest valid install, skipping incomplete ones', async () => {
+    const versions = join(shimDir, 'versions')
+    const deps = layoutDeps({
+      files: [
+        shim,
+        // Newest by date but incomplete (no index.js) — must be skipped.
+        join(versions, '2026.07.19-fff000', 'node.exe'),
+        // Two complete installs with the same date: legacy and timestamp form.
+        join(versions, '2026.07.17-3e2a980', 'node.exe'),
+        join(versions, '2026.07.17-3e2a980', 'index.js'),
+        join(versions, '2026.07.17-10-30-00-aaa111', 'node.exe'),
+        join(versions, '2026.07.17-10-30-00-aaa111', 'index.js'),
+        // Older complete install.
+        join(versions, '2025.12.31-abc123', 'node.exe'),
+        join(versions, '2025.12.31-abc123', 'index.js')
+      ],
+      dirs: {
+        [versions]: [
+          '2025.12.31-abc123',
+          '2026.07.17-10-30-00-aaa111',
+          '2026.07.17-3e2a980',
+          '2026.07.19-fff000',
+          'not-a-version',
+          'v1.2.3'
+        ]
+      }
+    })
+
+    const launch = await resolveFaithfulShimLaunch(shim, ['PROMPT'], deps)
+
+    // 2026.07.19 is skipped (incomplete); on the 2026.07.17 tie the name
+    // descending tiebreak picks the legacy form ('3…' > '1…').
+    expect(launch).toEqual({
+      file: join(versions, '2026.07.17-3e2a980', 'node.exe'),
+      args: [join(versions, '2026.07.17-3e2a980', 'index.js'), 'PROMPT']
+    })
+  })
+
+  it('sorts single-digit month/day numerically, not lexically (2026.7.9 < 2026.07.17)', async () => {
+    const versions = join(shimDir, 'versions')
+    const deps = layoutDeps({
+      files: [
+        shim,
+        join(versions, '2026.7.9-abc123', 'node.exe'),
+        join(versions, '2026.7.9-abc123', 'index.js'),
+        join(versions, '2026.07.17-def456', 'node.exe'),
+        join(versions, '2026.07.17-def456', 'index.js')
+      ],
+      dirs: { [versions]: ['2026.7.9-abc123', '2026.07.17-def456'] }
+    })
+
+    const launch = await resolveFaithfulShimLaunch(shim, [], deps)
+
+    expect(launch?.file).toBe(join(versions, '2026.07.17-def456', 'node.exe'))
+  })
+
+  it('returns undefined when neither bundled files nor a valid versions/ install exist', async () => {
+    const deps = layoutDeps({
+      files: [shim, join(shimDir, 'node.exe')], // index.js missing
+      dirs: { [join(shimDir, 'versions')]: ['not-a-version', '2026.07.17-XYZ'] }
+    })
+
+    expect(await resolveFaithfulShimLaunch(shim, ['PROMPT'], deps)).toBeUndefined()
+  })
+
+  it('keeps the sibling .exe precedence over the versioned layout', async () => {
+    const deps = layoutDeps({
+      files: [
+        shim,
+        join(shimDir, 'cursor-agent.exe'),
+        join(shimDir, 'node.exe'),
+        join(shimDir, 'index.js')
+      ]
+    })
+
+    const launch = await resolveFaithfulShimLaunch(shim, ['PROMPT'], deps)
+
+    expect(launch).toEqual({ file: join(shimDir, 'cursor-agent.exe'), args: ['PROMPT'] })
+  })
+
+  it('keeps the parsed shim entrypoint precedence over the versioned layout', async () => {
+    const cli = join(shimDir, 'dist', 'cli.js')
+    const deps = {
+      ...layoutDeps({
+        files: [shim, cli, join(shimDir, 'node.exe'), join(shimDir, 'index.js')]
+      }),
+      readShim: async () => '"%dp0%\\node.exe"  "%dp0%\\dist\\cli.js" %*\r\n'
+    }
+
+    const launch = await resolveFaithfulShimLaunch(shim, ['PROMPT'], deps)
+
+    expect(launch).toEqual({ file: abs('system', 'node'), args: [cli, 'PROMPT'] })
+  })
+
+  it('resolves the real cursor-agent layout end-to-end via resolveLaunch default deps', async () => {
+    const versions = join(shimDir, 'versions')
+    const ver = join(versions, '2026.07.17-3e2a980')
+    setShim(shim, opaqueShim)
+    mockWindowsFs({
+      where: { 'cursor-agent': shim },
+      files: new Set([shim, join(ver, 'node.exe'), join(ver, 'index.js')]),
+      dirs: { [versions]: ['2026.07.17-3e2a980'] }
+    })
+
+    const launch = await resolveLaunch('cursor-agent', ['--print', 'PROMPT'], {
+      requireFaithfulArgs: true,
+      platform: 'win32'
+    })
+
+    expect(launch).toEqual({
+      file: join(ver, 'node.exe'),
+      args: [join(ver, 'index.js'), '--print', 'PROMPT']
+    })
   })
 })
 
