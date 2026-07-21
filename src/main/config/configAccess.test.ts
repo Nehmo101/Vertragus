@@ -38,6 +38,20 @@ describe('configAccess', () => {
     expect(() => assertConfigSetAllowed('github.oauthClientId')).toThrow(/nicht über IPC schreibbar/)
   })
 
+  it('rejects prototype-pollution keys end-to-end (allowlist never contains them)', () => {
+    for (const bad of [
+      'ui.__proto__.polluted',
+      '__proto__',
+      'a.constructor.b',
+      'constructor',
+      'constructor.prototype.x',
+      'prototype'
+    ]) {
+      expect(() => getPublicConfig(bad), bad).toThrow()
+      expect(() => setPublicConfig(bad, 'x'), bad).toThrow()
+    }
+  })
+
   it('exposes remote.enabled but refuses unsafe generic activation', () => {
     expect(() => assertConfigGetAllowed('remote.enabled')).not.toThrow()
     expect(() => assertConfigSetAllowed('remote.enabled')).not.toThrow()

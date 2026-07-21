@@ -79,10 +79,11 @@ function visibleTerminalText(output: string): string {
     .replace(/[ \t]+/g, ' ')
 }
 
-function outputMentionsWorkspace(output: string, workspace: string): boolean {
+// `terminal` must already be flattened via visibleTerminalText — the sole caller
+// passes the text it computed once, so this does not re-flatten the buffer.
+function outputMentionsWorkspace(terminal: string, workspace: string): boolean {
   const normalizedWorkspace = normalizeWorkspacePath(workspace)
   if (!normalizedWorkspace) return false
-  const terminal = visibleTerminalText(output)
   const normalizedTerminal = usesWindowsPath(workspace)
     ? terminal.replace(/\\/g, '/').toLowerCase()
     : terminal

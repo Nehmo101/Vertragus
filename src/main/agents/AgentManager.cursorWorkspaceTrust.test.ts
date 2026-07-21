@@ -11,7 +11,7 @@ vi.mock('@main/config/store', () => ({
 }))
 
 import type { AgentInstanceInfo } from '@shared/agents'
-import { AgentManager } from '@main/agents/AgentManager'
+import { AgentManager, ScrollbackBuffer } from '@main/agents/AgentManager'
 
 const worktree = 'C:\\git\\demo-app\\.orca-worktrees\\session-a\\sub-01'
 
@@ -36,7 +36,7 @@ function addCursorAgent(manager: AgentManager): {
     status: 'running',
     startedAt: 1
   }
-  const managed = { info, pty: { write, kill }, buffer: '', seq: 0 }
+  const managed = { info, pty: { write, kill }, buffer: new ScrollbackBuffer(), seq: 0 }
   const agents = (manager as unknown as { agents: Map<string, unknown> }).agents
   agents.set(info.id, managed)
   return { write, kill, managed }
