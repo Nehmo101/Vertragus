@@ -187,6 +187,8 @@ export const REMOTE_SELFTEST_SESSION_ID = 'remote-selftest'
 const RESULT_PREVIEW = 160
 /** Disk writes are throttled; the in-memory snapshot event stays immediate. */
 const SNAPSHOT_PERSIST_MIN_INTERVAL_MS = 2_000
+// Max cadence for coalesced live snapshot pushes across all running tasks.
+const PUSH_COALESCE_MS = 250
 /** Bounded shared findings board (oldest entries are dropped first). */
 const MAX_BOARD_FINDINGS = 200
 const MAX_FINDINGS_RESPONSE = 50
@@ -409,6 +411,9 @@ export class OrchestratorEngine extends EventEmitter {
   private persistTimer: ReturnType<typeof setTimeout> | undefined
   private lastPersistedAt = 0
   private pendingSnapshot: OrchestratorSnapshot | undefined
+  private pushTimer: ReturnType<typeof setTimeout> | undefined
+  private pushPending = false
+  private lastPushAt = 0
   private readonly benchmarkRuns = new Map<
     string,
     { benchmarkId: string; title: string; prompt: string; taskIds: string[]; startedAt: number }
@@ -690,6 +695,37 @@ export class OrchestratorEngine extends EventEmitter {
     }
   }
 
+  /**
+   * Coalesce high-frequency lifecycle pushes. With N running workers each firing
+   * up to ~1/s, calling push() per task rebuilt and fanned out N full snapshots
+   * per second. requestPush() collapses those to at most one trailing push per
+   * PUSH_COALESCE_MS across ALL tasks; meaningful transitions pass immediate=true
+   * so plan/finished/error state still surfaces without delay.
+   */
+  private requestPush(immediate = false): void {
+    if (immediate) {
+      if (this.pushTimer) {
+        clearTimeout(this.pushTimer)
+        this.pushTimer = undefined
+      }
+      this.pushPending = false
+      this.lastPushAt = Date.now()
+      this.push()
+      return
+    }
+    this.pushPending = true
+    if (this.pushTimer) return
+    const wait = Math.max(0, this.lastPushAt + PUSH_COALESCE_MS - Date.now())
+    this.pushTimer = setTimeout(() => {
+      this.pushTimer = undefined
+      if (!this.pushPending) return
+      this.pushPending = false
+      this.lastPushAt = Date.now()
+      this.push()
+    }, wait)
+    this.pushTimer.unref?.()
+  }
+
   private push(): void {
     this.reliability.lastSnapshotAt = Date.now()
     const snapshot = this.snapshot()
@@ -892,6 +928,11 @@ export class OrchestratorEngine extends EventEmitter {
 
   dispose(): void {
     this.reset()
+    if (this.pushTimer) {
+      clearTimeout(this.pushTimer)
+      this.pushTimer = undefined
+    }
+    this.pushPending = false
     permissionBroker.off('pending', this.onPermissionPending)
     permissionBroker.off('resolved', this.onPermissionResolved)
     this.removeAllListeners()
@@ -1826,10 +1867,12 @@ export class OrchestratorEngine extends EventEmitter {
       if (event.type === 'phase' || event.type === 'progress' || event.type === 'output') {
         rememberAction()
       }
-      const force = event.type === 'heartbeat' || event.type === 'phase' || event.type === 'finished'
-      if (force || event.timestamp - lastLifecyclePush >= 1_000) {
+      // Transitions (phase/finished) surface immediately; high-frequency output/
+      // progress/usage/heartbeat ticks are coalesced across all tasks by requestPush.
+      const immediate = event.type === 'phase' || event.type === 'finished'
+      if (immediate || event.timestamp - lastLifecyclePush >= 1_000) {
         lastLifecyclePush = event.timestamp
-        this.push()
+        this.requestPush(immediate)
       }
     }
 

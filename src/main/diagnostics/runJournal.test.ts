@@ -19,7 +19,7 @@ describe('RunJournal', () => {
     })
   })
 
-  it('persists, filters and exports sanitized run history', () => {
+  it('persists, filters and exports sanitized run history', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'orca-journal-'))
     const exported = join(dir, 'export.jsonl')
     try {
@@ -45,6 +45,7 @@ describe('RunJournal', () => {
         at: 30,
         payload: { text: 'other' }
       })
+      await journal.flush()
 
       expect(journal.list('alpha')).toEqual([
         expect.objectContaining({ runId: first.runId, eventCount: 2, startedAt: 10, updatedAt: 20 })
@@ -67,26 +68,30 @@ describe('RunJournal', () => {
     }
   })
 
-  it('rotates a run journal before it can grow without bounds', () => {
+  it('rotates a run journal before it can grow without bounds', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'orca-journal-'))
     try {
       const runs = join(dir, 'runs')
-      const journal = new RunJournal(runs)
-      const first = journal.record({
+      const seed = new RunJournal(runs)
+      const first = seed.record({
         kind: 'agent-event',
         workspaceSessionId: 'session-rotation',
         at: 10,
         payload: { text: 'first' }
       })
+      await seed.flush()
       const path = join(runs, `${first.runId}.jsonl`)
       writeFileSync(path, 'x'.repeat(RUN_JOURNAL_MAX_BYTES), 'utf8')
 
+      // A fresh instance (cold size cache) stats the oversized file and rotates.
+      const journal = new RunJournal(runs)
       journal.record({
         kind: 'agent-event',
         workspaceSessionId: 'session-rotation',
         at: 20,
         payload: { text: 'after rotation' }
       })
+      await journal.flush()
 
       const entries = readFileSync(path, 'utf8').trim().split(/\r?\n/)
       expect(entries).toHaveLength(1)

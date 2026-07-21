@@ -171,6 +171,24 @@ function recordDiagnostic(
     console.warn('[Diagnostics] run journal write failed', error)
   }
 }
+
+// Orchestrator snapshots are emitted up to ~1/s per running task, dominated by
+// output/usage ticks that do not change task state. Journaling every one meant a
+// full recursive redaction walk + write per tick. Instead journal only when the
+// meaningful state actually transitions (task set/status, pending plan/approvals/
+// permissions, budget-exceeded), which is all the run history needs to capture.
+function orchestratorSnapshotSignature(snap: OrchestratorSnapshot): string {
+  const tasks = (snap.tasks ?? []).map((task) => `${task.id}:${task.status}`).join(',')
+  return [
+    tasks,
+    `plan:${snap.pendingPlan?.planId ?? ''}:${snap.pendingPlan?.rejected ?? ''}`,
+    `appr:${snap.pendingApprovals?.length ?? 0}`,
+    `perm:${(snap.pendingPermissions ?? []).map((p) => p.id).join('+')}`,
+    `budget:${snap.budget?.exceeded ?? false}`,
+    `goal:${snap.goal ? 'set' : 'none'}`
+  ].join('|')
+}
+const lastJournaledSnapshotSig = new Map<string, string>()
 async function normalizeDirectory(raw: string, label: string): Promise<string> {
   const directory = resolve(raw.trim())
   try {
@@ -278,6 +296,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.providersHealth, () => checkAllProviders())
   ipcMain.handle(IPC.providersCapacity, () => providerCapacity.statsAll())
   ipcMain.handle(IPC.diagnosticsExportLatest, async (e, profileId: string) => {
+    await runJournal.flush()
     const latest = runJournal.list(String(profileId ?? ''))[0]
     if (!latest) return null
     const result = await saveRunDialog(
@@ -856,12 +875,17 @@ export function registerIpcHandlers(): void {
     if (snap.workspaceSessionId) {
       agentManager.setWorkspaceApprovalWaiting(snap.workspaceSessionId, Boolean(snap.pendingPlan))
     }
-    recordDiagnostic(runJournal, {
-      kind: 'orchestrator-snapshot',
-      profileId: snap.profileId,
-      workspaceSessionId: snap.workspaceSessionId,
-      payload: snap
-    })
+    const journalKey = snap.workspaceSessionId ?? snap.profileId ?? 'app'
+    const signature = orchestratorSnapshotSignature(snap)
+    if (lastJournaledSnapshotSig.get(journalKey) !== signature) {
+      lastJournaledSnapshotSig.set(journalKey, signature)
+      recordDiagnostic(runJournal, {
+        kind: 'orchestrator-snapshot',
+        profileId: snap.profileId,
+        workspaceSessionId: snap.workspaceSessionId,
+        payload: snap
+      })
+    }
     broadcast(IPC.evOrchestrator, snap)
   })
   remoteService.on('status', (status) => broadcast(IPC.evRemote, status))
