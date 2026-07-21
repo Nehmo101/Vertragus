@@ -696,6 +696,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   async refreshGit() {
     const dir = effectiveRepoPath(get())
     const gitInfo = dir ? await window.vertragus.gitInfo(dir) : { isRepo: false }
+    // This runs on a 10s poll. Skip the store write when nothing changed so the
+    // (widely, store-wide subscribed) app tree does not re-render every 10s while idle.
+    const current = get().gitInfo
+    if (current && JSON.stringify(current) === JSON.stringify(gitInfo)) return
     set({ gitInfo })
   },
 

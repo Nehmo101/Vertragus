@@ -49,10 +49,6 @@ export function writeGithubOAuthToken(token: string, meta: Omit<StoredGithubOAut
   setSetting('secrets.github.meta', { ...meta, obtainedAt: Date.now() } satisfies StoredGithubOAuth)
 }
 
-export function readGithubOAuthMeta(): StoredGithubOAuth | undefined {
-  return getSetting<StoredGithubOAuth>('secrets.github.meta')
-}
-
 export function clearGithubOAuthToken(): void {
   setSetting(GITHUB_TOKEN_KEY, undefined)
   setSetting('secrets.github.meta', undefined)

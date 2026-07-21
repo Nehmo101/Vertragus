@@ -77,6 +77,25 @@ describe('RemoteReadModel', () => {
     model.stop()
   })
 
+  it('evicts snapshots for workspace sessions that no longer exist', () => {
+    const bus = new EventEmitter()
+    const model = new RemoteReadModel(bus)
+    model.start()
+    bus.emit('snapshot', snapshot())
+    bus.emit('snapshot', { ...snapshot(), workspaceSessionId: 'session-2' })
+    expect(model.initialFrames().filter((frame) => frame.type === 'snapshot')).toHaveLength(2)
+
+    // session-2 was closed; the registry re-broadcasts the surviving sessions.
+    bus.emit('changed', [
+      { id: 'session-1', profileId: 'profile-1', profileName: 'P', sequence: 1, name: 'A', taskSummary: undefined, startedAt: 1, active: true }
+    ])
+    const frames = model.initialFrames()
+    const snapshots = frames.filter((frame) => frame.type === 'snapshot')
+    expect(snapshots).toHaveLength(1)
+    expect(snapshots[0]).toMatchObject({ snapshot: { workspaceSessionId: 'session-1' } })
+    model.stop()
+  })
+
   it('projects budget and provider-limit decisions from the shared snapshot truth', () => {
     const input = snapshot()
     input.pendingPlan = undefined

@@ -347,9 +347,10 @@ export function registerIpcHandlers(): void {
     const effectiveWorkingDir = profileRepoLocalPath({ workingDir, githubRepo }) || workingDir
     return saveProfile({ ...profile, workingDir: effectiveWorkingDir, githubRepo, agents })
   })
-  ipcMain.handle(IPC.profileGenerateForRepo, (_e, req: RepoProfileGenerationRequest) =>
-    generateProfileForRepo(req)
-  )
+  ipcMain.handle(IPC.profileGenerateForRepo, (e, req: RepoProfileGenerationRequest) => {
+    assertNotVoiceWindow(e)
+    return generateProfileForRepo(req)
+  })
   ipcMain.handle(IPC.profileDelete, (e, id: unknown) =>
     profileDeletionController.delete(e, id)
   )
@@ -397,18 +398,25 @@ export function registerIpcHandlers(): void {
 
   // ---- external MCP servers ----
   ipcMain.handle(IPC.mcpList, () => listMcpServers())
-  ipcMain.handle(IPC.mcpSave, (_e, servers: McpServerConfig[]) => saveMcpServers(servers))
+  // mcpSave persists an arbitrary stdio command that is launched on the next agent
+  // spawn — a code-execution primitive that must never be reachable from the voice overlay.
+  ipcMain.handle(IPC.mcpSave, (e, servers: McpServerConfig[]) => {
+    assertNotVoiceWindow(e)
+    return saveMcpServers(servers)
+  })
 
   // ---- git ----
-  ipcMain.handle(IPC.gitSwitchBranch, (_e, dir: string, branch: string) =>
-    switchBranch(dir, branch)
-  )
+  ipcMain.handle(IPC.gitSwitchBranch, (e, dir: string, branch: string) => {
+    assertNotVoiceWindow(e)
+    return switchBranch(dir, branch)
+  })
   ipcMain.handle(IPC.gitInfo, (_e, dir: string) => gitInfo(dir))
   ipcMain.handle(IPC.githubProjects, (_e, dir: string, owner?: string) =>
     listGithubProjects(dir, owner)
   )
   ipcMain.handle(IPC.githubAuthStatus, () => githubAuthStatus())
-  ipcMain.handle(IPC.githubAuthLogin, async () => {
+  ipcMain.handle(IPC.githubAuthLogin, async (e) => {
+    assertNotVoiceWindow(e)
     const status = await githubAuthLogin({
       useTerminalLogin: async () => {
         const info = await agentManager.loginProvider('github')
@@ -420,20 +428,25 @@ export function registerIpcHandlers(): void {
       .catch((error) => console.warn('[GitHub] refresh after login failed', error))
     return status
   })
-  ipcMain.handle(IPC.githubAuthLogout, async () => {
+  ipcMain.handle(IPC.githubAuthLogout, async (e) => {
+    assertNotVoiceWindow(e)
     const status = await githubAuthLogout()
     void checkAllProviders()
       .then((health) => broadcast(IPC.evProvidersHealth, health))
       .catch((error) => console.warn('[GitHub] refresh after logout failed', error))
     return status
   })
-  ipcMain.handle(IPC.githubRepoSearch, (_e, query: string, limit?: number) =>
-    searchGithubRepos(query, limit)
-  )
+  ipcMain.handle(IPC.githubRepoSearch, (e, query: string, limit?: number) => {
+    assertNotVoiceWindow(e)
+    return searchGithubRepos(query, limit)
+  })
   ipcMain.handle(IPC.githubRepoResolve, (_e, owner: string, repo: string) =>
     resolveGithubRepo(owner, repo)
   )
-  ipcMain.handle(IPC.githubRepoBind, (_e, req: GithubRepoBindRequest) => bindGithubRepo(req))
+  ipcMain.handle(IPC.githubRepoBind, (e, req: GithubRepoBindRequest) => {
+    assertNotVoiceWindow(e)
+    return bindGithubRepo(req)
+  })
   ipcMain.handle(IPC.githubRepoCheckLocal, (_e, owner: string, repo: string, localPath: string) =>
     checkGithubRepoLocal(owner, repo, localPath)
   )
@@ -610,11 +623,13 @@ export function registerIpcHandlers(): void {
       ? workspaceSessions.snapshot(profile, workspaceSessionId)
       : { profileId, workspaceSessionId, goal: null, tasks: [] }
   })
-  ipcMain.handle(IPC.orchestratorReset, (_e, profileId: string, workspaceSessionId?: string) => {
+  ipcMain.handle(IPC.orchestratorReset, (e, profileId: string, workspaceSessionId?: string) => {
+    assertNotVoiceWindow(e)
     const profile = getProfile(profileId)
     if (profile) workspaceSessions.reset(profile, workspaceSessionId)
   })
-  ipcMain.handle(IPC.orchestratorEnableAutoMode, (_e, profileId: string, workspaceSessionId?: string) => {
+  ipcMain.handle(IPC.orchestratorEnableAutoMode, (e, profileId: string, workspaceSessionId?: string) => {
+    assertNotVoiceWindow(e)
     const profile = getProfile(profileId)
     return profile
       ? workspaceSessions.enableAutoMode(profile, workspaceSessionId)
@@ -622,7 +637,8 @@ export function registerIpcHandlers(): void {
   })
   ipcMain.handle(
     IPC.orchestratorSetPlannerMode,
-    (_e, profileId: string, mode: WorkspaceProfile['planner']['mode'], workspaceSessionId?: string) => {
+    (e, profileId: string, mode: WorkspaceProfile['planner']['mode'], workspaceSessionId?: string) => {
+      assertNotVoiceWindow(e)
       const profile = getProfile(profileId)
       if (!profile) return false
       if (mode !== 'auto' && mode !== 'review' && mode !== 'manual') {
@@ -631,10 +647,12 @@ export function registerIpcHandlers(): void {
       return workspaceSessions.setPlannerMode(profile, mode, workspaceSessionId)
     }
   )
-  ipcMain.handle(IPC.orchestratorSetYoloMaster, (_e, enabled: boolean) =>
-    workspaceSessions.setYoloMaster(Boolean(enabled))
-  )
-  ipcMain.handle(IPC.orchestratorReviewPlan, (_e, profileId: string, approved: boolean, workspaceSessionId?: string) => {
+  ipcMain.handle(IPC.orchestratorSetYoloMaster, (e, enabled: boolean) => {
+    assertNotVoiceWindow(e)
+    return workspaceSessions.setYoloMaster(Boolean(enabled))
+  })
+  ipcMain.handle(IPC.orchestratorReviewPlan, (e, profileId: string, approved: boolean, workspaceSessionId?: string) => {
+    assertNotVoiceWindow(e)
     const profile = getProfile(profileId)
     return profile
       ? workspaceSessions.reviewPlan(profile, Boolean(approved), workspaceSessionId)
@@ -651,21 +669,24 @@ export function registerIpcHandlers(): void {
   })
   ipcMain.handle(
     IPC.orchestratorApprovePublication,
-    (_e, profileId: string, workspaceSessionId: string, planId?: string) => {
+    (e, profileId: string, workspaceSessionId: string, planId?: string) => {
+      assertNotVoiceWindow(e)
       const profile = getProfile(profileId)
       return profile ? workspaceSessions.approvePublication(profile, planId, workspaceSessionId) : false
     }
   )
   ipcMain.handle(
     IPC.orchestratorRejectPublication,
-    (_e, profileId: string, workspaceSessionId: string, planId?: string) => {
+    (e, profileId: string, workspaceSessionId: string, planId?: string) => {
+      assertNotVoiceWindow(e)
       const profile = getProfile(profileId)
       return profile ? workspaceSessions.rejectPublication(profile, planId, workspaceSessionId) : false
     }
   )
   ipcMain.handle(
     IPC.orchestratorResolvePermission,
-    (_e, profileId: string, workspaceSessionId: string, permissionId: string, allow: boolean) => {
+    (e, profileId: string, workspaceSessionId: string, permissionId: string, allow: boolean) => {
+      assertNotVoiceWindow(e)
       const profile = getProfile(profileId)
       if (!profile || !/^[0-9a-f-]{36}$/i.test(permissionId)) return false
       return workspaceSessions.resolvePermission(profile, permissionId, Boolean(allow), workspaceSessionId)
@@ -673,7 +694,8 @@ export function registerIpcHandlers(): void {
   )
   ipcMain.handle(
     IPC.orchestratorSetBudgetCaps,
-    (_e, profileId: string, workspaceSessionId: string, caps: RemoteBudgetCaps) => {
+    (e, profileId: string, workspaceSessionId: string, caps: RemoteBudgetCaps) => {
+      assertNotVoiceWindow(e)
       const profile = getProfile(profileId)
       if (!profile) throw new Error('Workspace-Profil nicht gefunden.')
       const maxTokens = caps?.maxTokens
@@ -687,21 +709,24 @@ export function registerIpcHandlers(): void {
   )
   ipcMain.handle(
     IPC.orchestratorPauseTask,
-    (_e, profileId: string, workspaceSessionId: string, taskId: string) => {
+    (e, profileId: string, workspaceSessionId: string, taskId: string) => {
+      assertNotVoiceWindow(e)
       const profile = getProfile(profileId)
       return profile ? workspaceSessions.pauseTask(profile, taskId, workspaceSessionId) : false
     }
   )
   ipcMain.handle(
     IPC.orchestratorResumeTask,
-    (_e, profileId: string, workspaceSessionId: string, taskId: string) => {
+    (e, profileId: string, workspaceSessionId: string, taskId: string) => {
+      assertNotVoiceWindow(e)
       const profile = getProfile(profileId)
       return profile ? workspaceSessions.resumeTask(profile, taskId, workspaceSessionId) : false
     }
   )
   ipcMain.handle(
     IPC.orchestratorResumeInterruptedTask,
-    (_e, profileId: string, workspaceSessionId: string, taskId: string) => {
+    (e, profileId: string, workspaceSessionId: string, taskId: string) => {
+      assertNotVoiceWindow(e)
       const profile = getProfile(profileId)
       return profile
         ? workspaceSessions.resumeInterruptedTask(profile, taskId, workspaceSessionId)
@@ -710,7 +735,8 @@ export function registerIpcHandlers(): void {
   )
   ipcMain.handle(
     IPC.orchestratorFallbackTask,
-    (_e, profileId: string, workspaceSessionId: string, taskId: string) => {
+    (e, profileId: string, workspaceSessionId: string, taskId: string) => {
+      assertNotVoiceWindow(e)
       const profile = getProfile(profileId)
       return profile ? workspaceSessions.fallbackTask(profile, taskId, workspaceSessionId) : false
     }
