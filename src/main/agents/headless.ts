@@ -657,7 +657,12 @@ export function runHeadless(
 
   const done = new Promise<HeadlessResult>((resolve) => { resolveDone = resolve })
 
-  void resolveLaunch(launch.command, launch.args)
+  // Cursor is launched through a script shim (cursor-agent.cmd) on Windows.
+  // Its prompt is a multiline positional argument, so it must reach the process
+  // byte-faithfully — the cmd.exe wrapper would truncate it at the first newline
+  // and expose shell metacharacters. resolveLaunch rewrites the shim to a direct
+  // Node/exe entrypoint for this provider instead.
+  void resolveLaunch(launch.command, launch.args, { requireFaithfulArgs: id === 'cursor' })
     .then((resolved) => {
       if (settled || stopStatus) return
       lifecycle.phase('starting-process')

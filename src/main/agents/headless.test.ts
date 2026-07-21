@@ -170,18 +170,34 @@ describe('runHeadless lifecycle', () => {
     const handle = runHeadless('claude', 'task', opts, vi.fn())
     await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce())
 
-    expect(mocks.resolveLaunch).toHaveBeenCalledWith('claude', [
-      '-p',
-      'task',
-      '--output-format',
-      'stream-json',
-      '--model',
-      'test',
-      '--verbose'
-    ])
+    expect(mocks.resolveLaunch).toHaveBeenCalledWith(
+      'claude',
+      ['-p', 'task', '--output-format', 'stream-json', '--model', 'test', '--verbose'],
+      // Non-cursor providers keep the default (shell-wrapped) resolution.
+      { requireFaithfulArgs: false }
+    )
     child.emit('close', 0)
 
     await expect(handle.done).resolves.toMatchObject({ status: 'succeeded', isError: false })
+  })
+
+  it('resolves Cursor through the argument-faithful launch path', async () => {
+    const child = fakeChild()
+    mocks.resolveLaunch.mockImplementationOnce(async (file: string, args: string[]) => ({ file, args }))
+    mocks.spawn.mockReturnValueOnce(child)
+    // The multiline prompt that failed in the real run must transit faithfully.
+    const handle = runHeadless('cursor', 'IDENTITY\n\nTASK-FINGERPRINT', opts, vi.fn())
+    await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce())
+
+    const call = mocks.resolveLaunch.mock.calls.at(-1)
+    expect(call?.[0]).toBe('cursor-agent')
+    // The full multiline prompt is one positional argument, and cursor uses the
+    // faithful (non-cmd.exe) resolution so it is not truncated at the newline.
+    expect(call?.[1]).toContain('IDENTITY\n\nTASK-FINGERPRINT')
+    expect(call?.[2]).toEqual({ requireFaithfulArgs: true })
+    child.emit('close', 0)
+
+    await expect(handle.done).resolves.toMatchObject({ status: 'succeeded' })
   })
 
   it('reports every parsed Cursor stream event as progress even without a display log', async () => {

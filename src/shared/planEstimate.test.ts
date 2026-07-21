@@ -31,6 +31,17 @@ describe('estimatePlanDelegation', () => {
     expect(estimate.reason).toContain('kein Subagent-Team')
   })
 
+  it('keeps a single logical task structurally solo even with maxParallel=1 (multiagent fan-out is a runtime concern)', () => {
+    // A single logical task whose multiagent mode fans it out into five competing
+    // candidates is still structurally solo: maxParallel=1 stays correct, and the
+    // fan-out is measured on the run outcome (multiAgentCandidates), not here.
+    const estimate = estimatePlanDelegation(plan([task({ id: 'logical' })], 1))
+    expect(estimate.recommendation).toBe('solo')
+    expect(estimate.taskCount).toBe(1)
+    expect(estimate.effectiveParallelWidth).toBe(1)
+    expect(estimate.declaredMaxParallel).toBe(1)
+  })
+
   it('recommends solo for a purely serial multi-task plan', () => {
     const estimate = estimatePlanDelegation(
       plan(

@@ -60,7 +60,8 @@ import {
   OrchestratorEngine,
   judgeWorkerTerminalResult,
   platformExecutionGuidance,
-  providerExecutionGuidance
+  providerExecutionGuidance,
+  subagentExecutionContract
 } from './Engine'
 import { permissionBroker } from '@main/permissions/PermissionBroker'
 
@@ -103,6 +104,50 @@ describe('asynchronous orchestration API', () => {
     expect(providerExecutionGuidance('codex', true, 'win32')).toEqual([])
     expect(providerExecutionGuidance('claude', false, 'win32')).toEqual([])
     expect(providerExecutionGuidance('codex', false, 'linux')).toEqual([])
+  })
+
+  it('only demands the Vertragus subagent reporting tools when the worker actually has them', () => {
+    // Cursor: no MCP channel → the contract never names report_progress etc.,
+    // so a Cursor worker is not asked to call tools it does not have.
+    const cursor = subagentExecutionContract({
+      provider: 'cursor',
+      yolo: false,
+      orcaSubTools: false,
+      securityChecklist: [],
+      platform: 'linux'
+    }).join('\n')
+    expect(cursor).toContain('Vertragus-Ausführungsvertrag')
+    expect(cursor).toContain('ERGEBNIS: ERFOLG')
+    expect(cursor).not.toContain('report_progress')
+    expect(cursor).not.toContain('post_finding')
+    expect(cursor).not.toContain('list_findings')
+    expect(cursor).not.toContain('ask_orchestrator')
+
+    // Claude with the MCP channel up → the reporting tools ARE part of the contract.
+    const claude = subagentExecutionContract({
+      provider: 'claude',
+      yolo: false,
+      orcaSubTools: true,
+      securityChecklist: [],
+      platform: 'linux'
+    }).join('\n')
+    expect(claude).toContain('report_progress')
+    expect(claude).toContain('post_finding')
+    expect(claude).toContain('list_findings')
+    expect(claude).toContain('ask_orchestrator')
+  })
+
+  it('appends provider, platform and security guidance to the contract', () => {
+    const contract = subagentExecutionContract({
+      provider: 'codex',
+      yolo: false,
+      orcaSubTools: false,
+      securityChecklist: ['Prüfe Eingabevalidierung'],
+      platform: 'win32'
+    }).join('\n')
+    expect(contract).toContain('spawn EPERM') // codex/win32 provider guidance
+    expect(contract).toContain('kurzen Einzelbefehl') // win32 platform guidance
+    expect(contract).toContain('Security-Pflicht: Prüfe Eingabevalidierung')
   })
 
   it('treats an esbuild spawn EPERM as infrastructure even when the worker self-reports BLOCKER', () => {

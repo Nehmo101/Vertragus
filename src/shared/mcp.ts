@@ -64,6 +64,19 @@ export function providerSupportsExternalMcp(provider: AgentProviderId): boolean 
   return provider === 'claude' || provider === 'kimi' || provider === 'codex'
 }
 
+/**
+ * Whether a dispatched worker of this provider can receive the Vertragus subagent
+ * reporting tools (report_progress / post_finding / list_findings /
+ * ask_orchestrator). These ride the same per-agent MCP channel, so support is
+ * currently identical to {@link providerSupportsExternalMcp}. Cursor, Copilot
+ * and Ollama have no verified, transient per-process MCP config, so they return
+ * false — the orchestrator must not require these tools from those workers, and
+ * their absence is a known capability gap, not a model failure.
+ */
+export function providerSupportsSubagentReporting(provider: AgentProviderId): boolean {
+  return providerSupportsExternalMcp(provider)
+}
+
 /** Does a server's scope include the given agent kind? */
 export function mcpScopeMatches(scope: McpScope, kind: 'orchestrator' | 'subagent'): boolean {
   if (scope === 'all') return true

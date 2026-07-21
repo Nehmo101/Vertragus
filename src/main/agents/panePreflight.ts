@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { access, mkdir, mkdtemp, open, rm, rmdir } from 'node:fs/promises'
 import { constants } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import type {
@@ -13,7 +14,7 @@ import type {
 import { getProvider, type AgentProviderId } from '@shared/providers'
 import { ensureWorktreeDependencies } from '@main/agents/dependencyBootstrap'
 import { canonicalWorkspacePath, workspacePathKey } from '@main/agents/workspacePath'
-import { resolveLaunch } from '@main/agents/resolveCommand'
+import { resolveFaithfulShimLaunch, resolveLaunch } from '@main/agents/resolveCommand'
 import {
   CODEX_RUNTIME_DIR_NAME,
   codexSingleRootEnvironment,
@@ -163,6 +164,163 @@ function canaryFailure(error: unknown, workingDir: string): Error {
   )
 }
 
+type RuntimeCanaryResult = { status?: PanePreflightCheck['status']; detail: string }
+
+/**
+ * Injectable seams for the Cursor transport canary so the positive/negative
+ * cases (including the historical cmd.exe truncation) are testable without a
+ * real Cursor install or a paid model call.
+ */
+export interface CursorCanaryDeps {
+  /** Launch cursor-agent --version through the faithful (non-shell) path; returns the first version line. Throws when no argument-faithful entrypoint exists. */
+  probeVersion: () => Promise<string>
+  /** Send a multiline fingerprint through exactly the worker's argument transport and return what the target process received. */
+  transportRoundtrip: (fingerprint: string) => Promise<string>
+}
+
+/** First non-empty line of a CLI's stdout/stderr. */
+function firstLine(text: string): string {
+  return text.split(/\r?\n/).find(Boolean)?.trim() ?? ''
+}
+
+function defaultCursorCanaryDeps(): CursorCanaryDeps {
+  return {
+    async probeVersion() {
+      // Empty, controlled working directory — never the repository.
+      const dir = await mkdtemp(join(tmpdir(), 'orca-cursor-version-'))
+      try {
+        // requireFaithfulArgs throws instead of returning a cmd.exe wrapper, so
+        // a Cursor install that can only be reached through a truncating shell
+        // fails the canary here instead of silently shipping broken prompts.
+        const launch = await resolveLaunch('cursor-agent', ['--version'], {
+          requireFaithfulArgs: true
+        })
+        const { stdout, stderr } = await execFileAsync(launch.file, launch.args, {
+          cwd: dir,
+          windowsHide: true,
+          timeout: PREFLIGHT_TIMEOUT_MS
+        })
+        return firstLine(stdout || stderr) || 'startet'
+      } finally {
+        await rm(dir, { recursive: true, force: true })
+      }
+    },
+    async transportRoundtrip(fingerprint) {
+      // Reproduce the exact worker transport: a Windows script shim rewritten to
+      // a direct Node entrypoint, then spawned without a shell. The echo target
+      // prints back the positional argument it actually received.
+      const dir = await mkdtemp(join(tmpdir(), 'orca-cursor-transport-'))
+      try {
+        await open(join(dir, 'orca-echo.mjs'), 'w', 0o600).then(async (handle) => {
+          await handle.writeFile('process.stdout.write(process.argv[2] ?? "")', 'utf8')
+          await handle.close()
+        })
+        const shim = join(dir, 'cursor-agent.cmd')
+        await open(shim, 'w', 0o600).then(async (handle) => {
+          await handle.writeFile(
+            '@ECHO off\r\nSETLOCAL\r\n"%~dp0\\node.exe"  "%~dp0\\orca-echo.mjs" %*\r\n',
+            'utf8'
+          )
+          await handle.close()
+        })
+        const launch = await resolveFaithfulShimLaunch(shim, [fingerprint])
+        if (!launch) {
+          throw new Error('Shim liess sich nicht auf einen argumenttreuen Entrypoint aufloesen.')
+        }
+        const { stdout } = await execFileAsync(launch.file, launch.args, {
+          cwd: dir,
+          windowsHide: true,
+          timeout: PREFLIGHT_TIMEOUT_MS,
+          maxBuffer: 1024 * 1024,
+          // The resolved interpreter may be the Electron binary when no standalone
+          // node is on PATH; run it as plain Node so the echo cannot spuriously
+          // fail the transport canary.
+          env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }
+        })
+        return stdout
+      } finally {
+        await rm(dir, { recursive: true, force: true })
+      }
+    }
+  }
+}
+
+async function runCursorRuntimeCanary(deps: CursorCanaryDeps): Promise<RuntimeCanaryResult> {
+  let version: string
+  try {
+    version = await deps.probeVersion()
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    return {
+      status: 'failed',
+      detail:
+        'Cursor-Preflight: kein argumenttreuer Startpfad fuer cursor-agent verifizierbar ' +
+        `(${detail}). Ein cmd.exe/PowerShell-Wrapper wuerde mehrzeilige Prompts abschneiden.`
+    }
+  }
+
+  // Two distinct lines separated by a blank line — the exact shape whose second
+  // half was lost in the real multiagent run (only ["IDENTITY"] arrived).
+  const identity = 'ORCA-CURSOR-CANARY-IDENTITAET'
+  const fingerprint = 'ORCA-CURSOR-CANARY-FINGERPRINT'
+  const probe = `${identity}\n\n${fingerprint}`
+  let received: string
+  try {
+    received = await deps.transportRoundtrip(probe)
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    return { status: 'failed', detail: `Cursor-Argumenttransport nicht verifizierbar: ${detail}` }
+  }
+
+  if (!received.includes(fingerprint)) {
+    return {
+      status: 'failed',
+      detail:
+        `Cursor-Argumenttransport gekuerzt: nur "${firstLine(received)}" statt der vollstaendigen ` +
+        `mehrzeiligen Eingabe angekommen — der Fingerprint hinter dem Zeilenumbruch fehlt ` +
+        '(cmd.exe-Truncation-Regression, exakt der reale Multiagent-Fehler).'
+    }
+  }
+  if (received !== probe) {
+    return {
+      status: 'failed',
+      detail:
+        `Cursor-Argumenttransport verfaelscht: empfangen ${JSON.stringify(received)}, ` +
+        `erwartet ${JSON.stringify(probe)}.`
+    }
+  }
+
+  return {
+    detail:
+      `Cursor-Version: ${version}. Argumenttransport verifiziert — mehrzeiliger Fingerprint ` +
+      `(${Buffer.byteLength(probe)} Bytes, ${probe.split('\n').length} Zeilen) kommt byte-treu an. ` +
+      'Kein Modell-Roundtrip ausgefuehrt (deterministischer Transport-Canary).'
+  }
+}
+
+/**
+ * A model-free Cursor canary is deterministic per (provider, installed version,
+ * platform, app session): the installed CLI and the transport code do not change
+ * within one app process. Cache the in-flight promise so five concurrent
+ * candidates share one preparation instead of repeating it; evict on an
+ * unexpected rejection so a transient error never poisons the session.
+ */
+const cursorCanaryCache = new Map<string, Promise<RuntimeCanaryResult>>()
+
+function cursorRuntimeCanary(
+  platform: NodeJS.Platform,
+  deps: CursorCanaryDeps = defaultCursorCanaryDeps()
+): Promise<RuntimeCanaryResult> {
+  const key = `cursor:${platform}`
+  let pending = cursorCanaryCache.get(key)
+  if (!pending) {
+    pending = runCursorRuntimeCanary(deps)
+    cursorCanaryCache.set(key, pending)
+    void pending.catch(() => cursorCanaryCache.delete(key))
+  }
+  return pending
+}
+
 async function providerRuntimeCanary(
   input: PanePreflightInput,
   profileWorkspace: string,
@@ -172,6 +330,9 @@ async function providerRuntimeCanary(
   status?: PanePreflightCheck['status']
   detail: string
 }> {
+  if (input.provider === 'cursor') {
+    return cursorRuntimeCanary(platform)
+  }
   if (input.provider !== 'codex') {
     return { detail: 'Fuer diesen Provider ist kein separater Runtime-Canary erforderlich.' }
   }
@@ -312,4 +473,9 @@ export async function runPanePreflight(input: PanePreflightInput): Promise<PaneP
   return report
 }
 
-export const panePreflightInternals = { canonicalPreflightPaths, providerRuntimeCanary }
+export const panePreflightInternals = {
+  canonicalPreflightPaths,
+  providerRuntimeCanary,
+  cursorRuntimeCanary,
+  resetCursorCanaryCache: (): void => cursorCanaryCache.clear()
+}
