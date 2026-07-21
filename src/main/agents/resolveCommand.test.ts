@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, parse as parsePath } from 'node:path'
 
 const { execFileMock, accessMock, readFileMock, realpathMock } = vi.hoisted(() => ({
   execFileMock: vi.fn(),
@@ -30,6 +30,12 @@ import {
 type ExecCallback = (error: Error | null, value?: { stdout: string; stderr: string }) => void
 
 const normalize = (value: string): string => value.replace(/\\/g, '/')
+
+// A platform-absolute path (drive-prefixed on Windows, root-prefixed on POSIX)
+// so path.resolve/join in the production code produce comparable results on
+// every OS the CI matrix runs on.
+const ROOT = parsePath(process.cwd()).root
+const abs = (...segments: string[]): string => join(ROOT, ...segments)
 
 describe('node toolchain fallback (Retro Lauf 1: spawn corepack ENOENT)', () => {
   beforeEach(() => {
@@ -73,13 +79,18 @@ describe('node toolchain fallback (Retro Lauf 1: spawn corepack ENOENT)', () => 
 // ---------------------------------------------------------------------------
 
 describe('parseShimEntrypoint / resolveShimReference', () => {
+  const binDir = abs('opt', 'bin')
+
   it('extracts the Node CLI entry from an npm/cmd-shim .cmd wrapper', () => {
     const shim =
       '@ECHO off\r\nSETLOCAL\r\n' +
       'IF EXIST "%dp0%\\node.exe" (SET "_prog=%dp0%\\node.exe") ELSE (SET "_prog=node")\r\n' +
       '"%_prog%"  "%dp0%\\node_modules\\cursor-agent\\bin\\cli.js" %*\r\n'
-    const entry = parseShimEntrypoint(shim, '/opt/bin')
-    expect(entry).toEqual({ kind: 'node', path: '/opt/bin/node_modules/cursor-agent/bin/cli.js' })
+    const entry = parseShimEntrypoint(shim, binDir)
+    expect(entry).toEqual({
+      kind: 'node',
+      path: join(binDir, 'node_modules', 'cursor-agent', 'bin', 'cli.js')
+    })
   })
 
   it('extracts the Node CLI entry from a cmd-shim .ps1 wrapper', () => {
@@ -88,26 +99,37 @@ describe('parseShimEntrypoint / resolveShimReference', () => {
       'if (Test-Path "$basedir/node$exe") {\n' +
       '  & "$basedir/node$exe"  "$basedir/node_modules/cursor-agent/bin/cli.js" $args\n} else {\n' +
       '  & "node$exe"  "$basedir/node_modules/cursor-agent/bin/cli.js" $args\n}\n'
-    const entry = parseShimEntrypoint(shim, '/opt/bin')
-    expect(entry).toEqual({ kind: 'node', path: '/opt/bin/node_modules/cursor-agent/bin/cli.js' })
+    const entry = parseShimEntrypoint(shim, binDir)
+    expect(entry).toEqual({
+      kind: 'node',
+      path: join(binDir, 'node_modules', 'cursor-agent', 'bin', 'cli.js')
+    })
   })
 
   it('extracts a wrapped native executable (not the node interpreter)', () => {
     const shim = '@"%~dp0\\cursor-agent-core.exe" %*\r\n'
-    const entry = parseShimEntrypoint(shim, '/opt/bin')
-    expect(entry).toEqual({ kind: 'exe', path: '/opt/bin/cursor-agent-core.exe' })
+    const entry = parseShimEntrypoint(shim, binDir)
+    expect(entry).toEqual({ kind: 'exe', path: join(binDir, 'cursor-agent-core.exe') })
   })
 
   it('returns undefined when no direct target can be identified', () => {
-    expect(parseShimEntrypoint('@echo just a batch file\r\n', '/opt/bin')).toBeUndefined()
+    expect(parseShimEntrypoint('@echo just a batch file\r\n', binDir)).toBeUndefined()
   })
 
   it('resolves drive-absolute references verbatim', () => {
-    expect(resolveShimReference('"C:\\tools\\cli.js"', '/ignored')).toBe('C:/tools/cli.js')
+    // Drive-absolute references are used as-is (only separators normalized).
+    const resolved = resolveShimReference('"C:\\tools\\cli.js"', binDir)
+    expect(resolved).toBeDefined()
+    expect(normalize(resolved!)).toBe('C:/tools/cli.js')
   })
 })
 
-/** In-memory FS wiring for the Windows resolution unit tests. */
+const SHIM_CONTENT = new Map<string, string>()
+const setShim = (path: string, content: string): void => {
+  SHIM_CONTENT.set(normalize(path), content)
+}
+
+/** In-memory FS wiring for the Windows resolution unit tests (path-portable). */
 function mockWindowsFs(options: { where: Record<string, string>; files: Set<string> }): void {
   execFileMock.mockImplementation(
     (_file: string, args: string[], _opts: unknown, cb: ExecCallback) => {
@@ -117,18 +139,16 @@ function mockWindowsFs(options: { where: Record<string, string>; files: Set<stri
       else cb(new Error('not found'))
     }
   )
-  const has = (p: string): boolean => options.files.has(normalize(p))
+  const normFiles = new Set([...options.files].map(normalize))
   accessMock.mockImplementation(async (candidate: string) => {
-    if (!has(candidate)) throw new Error('ENOENT')
+    if (!normFiles.has(normalize(candidate))) throw new Error('ENOENT')
   })
   readFileMock.mockImplementation(async (candidate: string) => {
     const key = normalize(candidate)
-    if (!options.files.has(key)) throw new Error('ENOENT')
+    if (!normFiles.has(key)) throw new Error('ENOENT')
     return SHIM_CONTENT.get(key) ?? ''
   })
 }
-
-const SHIM_CONTENT = new Map<string, string>()
 
 describe('resolveLaunch faithful Windows shim resolution', () => {
   beforeEach(() => {
@@ -137,13 +157,12 @@ describe('resolveLaunch faithful Windows shim resolution', () => {
   })
 
   it('rewrites a cursor-agent.cmd shim to a direct node entrypoint under Windows', async () => {
-    SHIM_CONTENT.set(
-      '/fake/bin/cursor-alpha.cmd',
-      '"%dp0%\\node.exe"  "%dp0%\\node_modules\\cursor-agent\\dist\\cli.js" %*'
-    )
+    const shim = abs('fake', 'bin', 'cursor-alpha.cmd')
+    const cli = abs('fake', 'bin', 'node_modules', 'cursor-agent', 'dist', 'cli.js')
+    setShim(shim, '"%dp0%\\node.exe"  "%dp0%\\node_modules\\cursor-agent\\dist\\cli.js" %*')
     mockWindowsFs({
-      where: { 'cursor-alpha': '/fake/bin/cursor-alpha.cmd', node: '/fake/node' },
-      files: new Set(['/fake/bin/cursor-alpha.cmd', '/fake/bin/node_modules/cursor-agent/dist/cli.js'])
+      where: { 'cursor-alpha': shim, node: abs('fake', 'node') },
+      files: new Set([shim, cli])
     })
 
     const launch = await resolveLaunch('cursor-alpha', ['--print', '--trust', 'PROMPT'], {
@@ -151,20 +170,16 @@ describe('resolveLaunch faithful Windows shim resolution', () => {
       platform: 'win32'
     })
 
-    expect(normalize(launch.file)).toBe('/fake/node')
-    expect(launch.args.map(normalize)).toEqual([
-      '/fake/bin/node_modules/cursor-agent/dist/cli.js',
-      '--print',
-      '--trust',
-      'PROMPT'
-    ])
+    expect(launch.file).toBe(abs('fake', 'node'))
+    expect(launch.args).toEqual([cli, '--print', '--trust', 'PROMPT'])
   })
 
   it('prefers a sibling real .exe over parsing the shim', async () => {
-    SHIM_CONTENT.set('/fake/bin/cursor-beta.cmd', '"%dp0%\\node.exe" "%dp0%\\cli.js" %*')
+    const shim = abs('fake', 'bin', 'cursor-beta.cmd')
+    setShim(shim, '"%dp0%\\node.exe" "%dp0%\\cli.js" %*')
     mockWindowsFs({
-      where: { 'cursor-beta': '/fake/bin/cursor-beta.cmd', node: '/fake/node' },
-      files: new Set(['/fake/bin/cursor-beta.cmd', '/fake/bin/cursor-beta.exe', '/fake/bin/cli.js'])
+      where: { 'cursor-beta': shim, node: abs('fake', 'node') },
+      files: new Set([shim, abs('fake', 'bin', 'cursor-beta.exe'), abs('fake', 'bin', 'cli.js')])
     })
 
     const launch = await resolveLaunch('cursor-beta', ['PROMPT'], {
@@ -172,16 +187,14 @@ describe('resolveLaunch faithful Windows shim resolution', () => {
       platform: 'win32'
     })
 
-    expect(normalize(launch.file)).toBe('/fake/bin/cursor-beta.exe')
+    expect(launch.file).toBe(abs('fake', 'bin', 'cursor-beta.exe'))
     expect(launch.args).toEqual(['PROMPT'])
   })
 
   it('refuses to fall back to cmd.exe when no faithful entrypoint exists', async () => {
-    SHIM_CONTENT.set('/fake/bin/cursor-gamma.cmd', '@echo opaque native wrapper\r\n')
-    mockWindowsFs({
-      where: { 'cursor-gamma': '/fake/bin/cursor-gamma.cmd' },
-      files: new Set(['/fake/bin/cursor-gamma.cmd'])
-    })
+    const shim = abs('fake', 'bin', 'cursor-gamma.cmd')
+    setShim(shim, '@echo opaque native wrapper\r\n')
+    mockWindowsFs({ where: { 'cursor-gamma': shim }, files: new Set([shim]) })
 
     await expect(
       resolveLaunch('cursor-gamma', ['PROMPT'], { requireFaithfulArgs: true, platform: 'win32' })
@@ -189,28 +202,24 @@ describe('resolveLaunch faithful Windows shim resolution', () => {
   })
 
   it('leaves .cmd handling for other CLIs unchanged when faithful args are not required', async () => {
-    mockWindowsFs({
-      where: { 'other-cli': '/fake/bin/other-cli.cmd' },
-      files: new Set(['/fake/bin/other-cli.cmd'])
-    })
+    const shim = abs('fake', 'bin', 'other-cli.cmd')
+    mockWindowsFs({ where: { 'other-cli': shim }, files: new Set([shim]) })
 
     const launch = await resolveLaunch('other-cli', ['--version'], { platform: 'win32' })
 
-    expect(launch).toEqual({ file: 'cmd.exe', args: ['/c', '/fake/bin/other-cli.cmd', '--version'] })
+    expect(launch).toEqual({ file: 'cmd.exe', args: ['/c', shim, '--version'] })
   })
 
   it('leaves a real .exe launch untouched under faithful mode', async () => {
-    mockWindowsFs({
-      where: { 'cursor-real': '/fake/bin/cursor-real.exe' },
-      files: new Set(['/fake/bin/cursor-real.exe'])
-    })
+    const exe = abs('fake', 'bin', 'cursor-real.exe')
+    mockWindowsFs({ where: { 'cursor-real': exe }, files: new Set([exe]) })
 
     const launch = await resolveLaunch('cursor-real', ['PROMPT'], {
       requireFaithfulArgs: true,
       platform: 'win32'
     })
 
-    expect(launch).toEqual({ file: '/fake/bin/cursor-real.exe', args: ['PROMPT'] })
+    expect(launch).toEqual({ file: exe, args: ['PROMPT'] })
   })
 })
 
