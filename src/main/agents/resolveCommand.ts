@@ -15,7 +15,7 @@
  * byte-for-byte.
  */
 import { execFile } from 'node:child_process'
-import { access, readFile, realpath } from 'node:fs/promises'
+import { access, readdir, readFile, realpath } from 'node:fs/promises'
 import { constants as fsConstants } from 'node:fs'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
@@ -218,6 +218,8 @@ interface FaithfulShimDeps {
   readShim: (path: string) => Promise<string>
   pathExists: (path: string) => Promise<boolean>
   resolveNode: () => Promise<string>
+  /** List sub-directory names of a directory; rejects when it does not exist. */
+  listDir: (path: string) => Promise<string[]>
 }
 
 const defaultFaithfulShimDeps: FaithfulShimDeps = {
@@ -230,7 +232,11 @@ const defaultFaithfulShimDeps: FaithfulShimDeps = {
       return false
     }
   },
-  resolveNode: () => resolveNodeExecutable()
+  resolveNode: () => resolveNodeExecutable(),
+  listDir: async (path) => {
+    const entries = await readdir(path, { withFileTypes: true })
+    return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name)
+  }
 }
 
 async function resolveNodeExecutable(): Promise<string> {
@@ -241,17 +247,74 @@ async function resolveNodeExecutable(): Promise<string> {
 }
 
 /**
+ * Directory-name shape used by versioned CLI installs (e.g. cursor-agent):
+ * `2026.7.9-<hash>` or `2026.07.17-10-30-00-<hash>`. Mirrors the pattern the
+ * install's own launcher script matches before picking the newest version.
+ */
+const VERSIONED_DIR_PATTERN = /^(\d{4})\.(\d{1,2})\.(\d{1,2})(?:-\d{2}-\d{2}-\d{2})?-[a-f0-9]+$/
+
+/** Zero-padded YYYYMMDD sort key, or undefined for non-matching names. */
+function versionedDirSortKey(name: string): string | undefined {
+  const match = VERSIONED_DIR_PATTERN.exec(name)
+  if (!match) return undefined
+  return `${match[1]}${match[2].padStart(2, '0')}${match[3].padStart(2, '0')}`
+}
+
+/**
+ * Layout-aware fallback for shims whose launcher script picks its Node
+ * entrypoint dynamically, so nothing parseable appears in the shim text
+ * itself: a bundled `node.exe` + `index.js` next to the shim, otherwise the
+ * newest matching install under `<shimDir>/versions/`. The bundled node.exe
+ * is used deliberately (not the system Node) because the entry may only run
+ * on the Node version it ships with.
+ */
+async function resolveVersionedLayoutLaunch(
+  shimDir: string,
+  args: string[],
+  deps: Pick<FaithfulShimDeps, 'pathExists' | 'listDir'>
+): Promise<ResolvedLaunch | undefined> {
+  const localNode = join(shimDir, 'node.exe')
+  const localEntry = join(shimDir, 'index.js')
+  if ((await deps.pathExists(localNode)) && (await deps.pathExists(localEntry))) {
+    return { file: localNode, args: [localEntry, ...args] }
+  }
+
+  const versionsDir = join(shimDir, 'versions')
+  let names: string[]
+  try {
+    names = await deps.listDir(versionsDir)
+  } catch {
+    return undefined
+  }
+  const candidates = names
+    .map((name) => ({ name, key: versionedDirSortKey(name) }))
+    .filter((c): c is { name: string; key: string } => c.key !== undefined)
+    // Newest date first; equal dates use the name descending as a deterministic tiebreak.
+    .sort((a, b) => (a.key === b.key ? b.name.localeCompare(a.name) : b.key.localeCompare(a.key)))
+  for (const { name } of candidates) {
+    const node = join(versionsDir, name, 'node.exe')
+    const entry = join(versionsDir, name, 'index.js')
+    if ((await deps.pathExists(node)) && (await deps.pathExists(entry))) {
+      return { file: node, args: [entry, ...args] }
+    }
+  }
+  return undefined
+}
+
+/**
  * Resolve a Windows script shim to a directly spawnable, argument-faithful
  * launch. Prefers a sibling real executable (cursor-agent.exe next to
- * cursor-agent.cmd), then the Node/exe entrypoint the shim wraps. Returns
- * undefined when neither can be found.
+ * cursor-agent.cmd), then the Node/exe entrypoint the shim wraps, then a
+ * versioned CLI layout next to the shim (bundled node.exe + index.js or the
+ * newest `versions/<date>-<hash>` install). Returns undefined when none can
+ * be found.
  */
 export async function resolveFaithfulShimLaunch(
   shimPath: string,
   args: string[],
   deps: Partial<FaithfulShimDeps> = {}
 ): Promise<ResolvedLaunch | undefined> {
-  const { readShim, pathExists, resolveNode } = { ...defaultFaithfulShimDeps, ...deps }
+  const { readShim, pathExists, resolveNode, listDir } = { ...defaultFaithfulShimDeps, ...deps }
   const dir = dirname(shimPath)
   const base = basename(shimPath).replace(/\.[^.]+$/, '')
 
@@ -262,18 +325,20 @@ export async function resolveFaithfulShimLaunch(
   }
 
   // 2) Parse the shim for the Node/exe entry it wraps.
-  let shimText: string
   try {
-    shimText = await readShim(shimPath)
+    const shimText = await readShim(shimPath)
+    const entry = parseShimEntrypoint(shimText, dir)
+    if (entry && (await pathExists(entry.path))) {
+      if (entry.kind === 'exe') return { file: entry.path, args }
+      const node = await resolveNode()
+      return { file: node, args: [entry.path, ...args] }
+    }
   } catch {
-    return undefined
+    // Unreadable shim — fall through to the layout-aware fallback below.
   }
-  const entry = parseShimEntrypoint(shimText, dir)
-  if (!entry) return undefined
-  if (!(await pathExists(entry.path))) return undefined
-  if (entry.kind === 'exe') return { file: entry.path, args }
-  const node = await resolveNode()
-  return { file: node, args: [entry.path, ...args] }
+
+  // 3) Versioned CLI layout (launcher picks the entrypoint dynamically).
+  return resolveVersionedLayoutLaunch(dir, args, { pathExists, listDir })
 }
 
 export async function resolveLaunch(
