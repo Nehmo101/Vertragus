@@ -217,6 +217,11 @@ const vertragus: VertragusApi = {
     minimize: () => ipcRenderer.send(IPC.winMinimize),
     maximizeToggle: () => ipcRenderer.send(IPC.winMaximizeToggle),
     close: () => ipcRenderer.send(IPC.winClose)
+  },
+
+  attention: {
+    setPendingFeedbackCount: (count) =>
+      ipcRenderer.send(IPC.attentionSetPendingFeedbackCount, count)
   }
 }
 

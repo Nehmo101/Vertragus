@@ -18,6 +18,7 @@ import MissionApprovalInbox from '@renderer/components/MissionApprovalInbox'
 import DiffMergeCenter from '@renderer/components/DiffMergeCenter'
 import { SpeechShortcutProvider } from '@renderer/features/speechShortcut/SpeechShortcutProvider'
 import VoiceOverlay from '@renderer/components/VoiceOverlay'
+import { useAttentionSignal } from '@renderer/hooks/useAttentionSignal'
 
 function useHashRoute(): string {
   const [hash, setHash] = useState(() => window.location.hash)
@@ -30,6 +31,7 @@ function useHashRoute(): string {
 }
 
 export default function App(): JSX.Element {
+  useAttentionSignal()
   // The root only reads low-frequency UI state (theme, layout, open modals,
   // toast). Selecting exactly those with a shallow comparison keeps App — and
   // therefore the whole tree it renders — from reconciling on every high-frequency

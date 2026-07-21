@@ -190,7 +190,9 @@ export const IPC = {
   // window controls (frameless title bar)
   winMinimize: 'win:minimize',
   winMaximizeToggle: 'win:maximizeToggle',
-  winClose: 'win:close'
+  winClose: 'win:close',
+  /** Renderer → main: aggregated pending-feedback count for taskbar/dock attention. */
+  attentionSetPendingFeedbackCount: 'attention:setPendingFeedbackCount'
 } as const
 
 export interface AppInfo {
@@ -614,5 +616,13 @@ export interface VertragusApi {
     minimize(): void
     maximizeToggle(): void
     close(): void
+  }
+
+  /**
+   * Taskbar / dock attention signal. One-way only (preload send → main on);
+   * the main process validates and clamps the count before flashing/bouncing.
+   */
+  attention: {
+    setPendingFeedbackCount(count: number): void
   }
 }

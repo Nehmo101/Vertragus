@@ -143,6 +143,7 @@ import {
 } from '@main/inbox/promptEnhancementIpc'
 import { remoteService } from '@main/remote'
 import type { RemoteEnableRequest, RemotePairStartRequest } from '@shared/remote'
+import { createAttentionIpcController } from '@main/attention/attentionIpc'
 
 function senderWindow(e: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent): BrowserWindow | null {
   return BrowserWindow.fromWebContents(e.sender)
@@ -276,6 +277,9 @@ export function registerIpcHandlers(): void {
       workspaceSessions.removeSession(sessionId)
       return workspaceSessions.list(profileId)
     }
+  })
+  const attentionController = createAttentionIpcController({
+    authorization: rendererAuthorization
   })
   const requireMainWindow = (event: Electron.IpcMainInvokeEvent): void => {
     if (!isMainWindowSender(event.sender)) throw new Error('Remote-Verwaltung ist nur im Hauptfenster erlaubt.')
@@ -851,6 +855,15 @@ export function registerIpcHandlers(): void {
   )
   ipcMain.handle(IPC.retroSyncStatus, () => retroSyncStatus())
   ipcMain.handle(IPC.retroSyncFlush, () => flushRetroExportQueue())
+
+  // ---- attention (taskbar / dock flash) — one-way only ----
+  ipcMain.on(IPC.attentionSetPendingFeedbackCount, (e, count: unknown) => {
+    try {
+      attentionController.setPendingFeedbackCount(e, count)
+    } catch {
+      // One-way channel: drop unauthorized / invalid payloads without a reply.
+    }
+  })
 
   // ---- window controls (frameless title bar) ----
   ipcMain.on(IPC.winMinimize, (e) => senderWindow(e)?.minimize())
