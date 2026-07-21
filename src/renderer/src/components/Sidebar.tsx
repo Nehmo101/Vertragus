@@ -502,8 +502,36 @@ function attentionText(t: TFunction, attention: WorkspaceUserAttention): string 
 
 type SidebarStore = ReturnType<typeof useAppStore.getState>
 
+// Exactly the store fields SidebarView (and the helpers it calls) reads. Narrowing
+// the prop from the full store lets the parent subscribe via a shallow selector, so
+// SidebarView no longer re-renders on unrelated store changes (toast, gitInfo, theme…).
+export type SidebarViewState = Pick<
+  SidebarStore,
+  | 'activeProfileId'
+  | 'activeWorkspaceSessionId'
+  | 'agents'
+  | 'duplicateProfile'
+  | 'exportDiagnostics'
+  | 'health'
+  | 'mcpServers'
+  | 'openEditor'
+  | 'openEditorNew'
+  | 'openMcpEditor'
+  | 'orchestrators'
+  | 'profiles'
+  | 'providerEnabled'
+  | 'refreshHealth'
+  | 'removeWorkspaceSession'
+  | 'reopenAgent'
+  | 'reopenedAgentIds'
+  | 'selectProfile'
+  | 'selectWorkspaceSession'
+  | 'startAll'
+  | 'workspaceSessions'
+>
+
 interface SidebarViewProps {
-  store: SidebarStore
+  store: SidebarViewState
   width?: number
   collapsed?: boolean
   onToggle?: () => void
@@ -925,7 +953,31 @@ export function SidebarView({
 
 export default function Sidebar(): JSX.Element {
   const { t } = useTranslation()
-  const store = useAppStore()
+  const store = useAppStore(
+    useShallow((s): SidebarViewState => ({
+      activeProfileId: s.activeProfileId,
+      activeWorkspaceSessionId: s.activeWorkspaceSessionId,
+      agents: s.agents,
+      duplicateProfile: s.duplicateProfile,
+      exportDiagnostics: s.exportDiagnostics,
+      health: s.health,
+      mcpServers: s.mcpServers,
+      openEditor: s.openEditor,
+      openEditorNew: s.openEditorNew,
+      openMcpEditor: s.openMcpEditor,
+      orchestrators: s.orchestrators,
+      profiles: s.profiles,
+      providerEnabled: s.providerEnabled,
+      refreshHealth: s.refreshHealth,
+      removeWorkspaceSession: s.removeWorkspaceSession,
+      reopenAgent: s.reopenAgent,
+      reopenedAgentIds: s.reopenedAgentIds,
+      selectProfile: s.selectProfile,
+      selectWorkspaceSession: s.selectWorkspaceSession,
+      startAll: s.startAll,
+      workspaceSessions: s.workspaceSessions
+    }))
+  )
   const layout = useLayoutStore(selectPanelLayout('sidebar-left'))
   const toggleCollapsed = useLayoutStore((state) => state.toggleCollapsed)
 
