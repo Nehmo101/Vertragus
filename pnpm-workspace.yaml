@@ -17,4 +17,7 @@ supportedArchitectures:
 # These packages run install/build scripts (Electron binary download, esbuild).
 allowBuilds:
   electron: true
+  # Windows-only installer tooling (electron-builder 26); its install scripts are
+  # only needed on a Windows packaging host, so disabled for cross-platform installs.
+  electron-winstaller: false
   esbuild: true
