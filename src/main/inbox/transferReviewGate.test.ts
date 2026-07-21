@@ -1,6 +1,16 @@
 import { describe, expect, it, vi } from 'vitest'
 import { DEFAULT_PROFILE } from '@shared/profile'
 
+// Poll for a condition instead of guessing a fixed real-time delay (which is
+// flaky under load — the engine may not have reached the pending-plan gate in 10ms).
+async function waitFor(condition: () => boolean, timeoutMs = 2_000): Promise<void> {
+  const start = Date.now()
+  while (!condition()) {
+    if (Date.now() - start > timeoutMs) throw new Error('waitFor: condition not met in time')
+    await new Promise((r) => setTimeout(r, 2))
+  }
+}
+
 vi.mock('electron', () => ({
   app: { getPath: () => '.', getName: () => 'test', isPackaged: false },
   BrowserWindow: class {},
@@ -50,7 +60,7 @@ describe('transfer review gate', () => {
 
     const reviewPromise = engine.executePlan(planInput)
 
-    await new Promise((r) => setTimeout(r, 10))
+    await waitFor(() => engine.snapshot().pendingPlan !== undefined)
     const snap = engine.snapshot()
     expect(snap.pendingPlan).toBeDefined()
     expect(snap.pendingPlan?.planId).toBeTruthy()
