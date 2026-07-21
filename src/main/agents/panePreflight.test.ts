@@ -202,3 +202,92 @@ describe('Codex runtime preflight', () => {
     expect(childProcess.execFile).not.toHaveBeenCalled()
   })
 })
+
+describe('Cursor transport preflight canary', () => {
+  const cursorInput = (workingDir: string): PanePreflightInput => ({ provider: 'cursor', workingDir })
+
+  afterEach(() => {
+    panePreflightInternals.resetCursorCanaryCache()
+  })
+
+  it('passes when a multiline fingerprint survives the argument transport', async () => {
+    const profile = await fixtureRoot()
+    const probeVersion = vi.fn(async () => 'cursor-agent 1.2.3')
+    // Faithful transport echoes the full multiline probe back.
+    const transportRoundtrip = vi.fn(async (fingerprint: string) => fingerprint)
+
+    const result = await panePreflightInternals.cursorRuntimeCanary('win32', {
+      probeVersion,
+      transportRoundtrip
+    })
+
+    expect(result.status).toBeUndefined()
+    expect(result.detail).toContain('cursor-agent 1.2.3')
+    expect(result.detail).toContain('Argumenttransport verifiziert')
+    expect(result.detail).toContain('Kein Modell-Roundtrip')
+    // The probe that was sent through the transport was genuinely multiline.
+    expect(transportRoundtrip).toHaveBeenCalledWith(expect.stringContaining('\n\n'))
+    expect(cursorInput(profile).provider).toBe('cursor')
+  })
+
+  it('fails when only the first line arrives (historical cmd.exe truncation)', async () => {
+    const probeVersion = vi.fn(async () => 'cursor-agent 1.2.3')
+    // Exactly the observed bug: cmd.exe treats the newline as a command boundary,
+    // so the target process receives only the identity line.
+    const transportRoundtrip = vi.fn(async (fingerprint: string) => fingerprint.split('\n')[0]!)
+
+    const result = await panePreflightInternals.cursorRuntimeCanary('win32', {
+      probeVersion,
+      transportRoundtrip
+    })
+
+    expect(result.status).toBe('failed')
+    expect(result.detail).toContain('gekuerzt')
+    expect(result.detail).toMatch(/Truncation/i)
+  })
+
+  it('fails when the CLI cannot be reached through an argument-faithful entrypoint', async () => {
+    const probeVersion = vi.fn(async () => {
+      throw new Error('Kein argumenttreuer Startpfad')
+    })
+    const transportRoundtrip = vi.fn(async (fingerprint: string) => fingerprint)
+
+    const result = await panePreflightInternals.cursorRuntimeCanary('win32', {
+      probeVersion,
+      transportRoundtrip
+    })
+
+    expect(result.status).toBe('failed')
+    expect(result.detail).toContain('kein argumenttreuer Startpfad')
+    // The transport probe is skipped once the launch itself is unusable.
+    expect(transportRoundtrip).not.toHaveBeenCalled()
+  })
+
+  it('fails on a corrupted (non-truncated) transport', async () => {
+    const probeVersion = vi.fn(async () => 'cursor-agent 1.2.3')
+    const transportRoundtrip = vi.fn(async (fingerprint: string) => `${fingerprint} EXTRA`)
+
+    const result = await panePreflightInternals.cursorRuntimeCanary('win32', {
+      probeVersion,
+      transportRoundtrip
+    })
+
+    expect(result.status).toBe('failed')
+    expect(result.detail).toContain('verfaelscht')
+  })
+
+  it('caches the canary so five concurrent candidates share one preparation', async () => {
+    const probeVersion = vi.fn(async () => 'cursor-agent 1.2.3')
+    const transportRoundtrip = vi.fn(async (fingerprint: string) => fingerprint)
+    const deps = { probeVersion, transportRoundtrip }
+
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => panePreflightInternals.cursorRuntimeCanary('win32', deps))
+    )
+
+    expect(results.every((r) => r.status === undefined)).toBe(true)
+    // The potentially expensive preparation ran exactly once for all candidates.
+    expect(probeVersion).toHaveBeenCalledTimes(1)
+    expect(transportRoundtrip).toHaveBeenCalledTimes(1)
+  })
+})

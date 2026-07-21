@@ -92,6 +92,7 @@ import {
 import { resolveExecutionPlan } from '@main/orchestrator/planner'
 import { Semaphore } from '@main/orchestrator/semaphore'
 import { subagentOrcaToolsAvailable } from '@main/orchestrator/externalMcp'
+import { providerSupportsSubagentReporting } from '@shared/mcp'
 import { securityChecklistForFiles } from '@main/integrations/securityGate'
 import {
   analyzeDelegation,
@@ -99,6 +100,7 @@ import {
   benchmarkLearnings,
   deriveRetroDraftModels,
   summarizeDelegationCalibration,
+  toDelegationObservation,
   type BenchmarkRanking,
   type BenchmarkRecord,
   type BenchmarkRunStatus,
@@ -230,6 +232,47 @@ export function providerExecutionGuidance(
   return [
     'Codex/Windows-Safe-Sandbox: Wenn ausschliesslich ein Node-Unterprozess mit spawn EPERM scheitert, ist das ein bekannter Sandbox-Gate-Fehler und kein fachlicher BLOCKER.',
     'Codex/Windows-Safe-Sandbox: Arbeite in diesem Fall weiter, kennzeichne nur den betroffenen Test/Build als nicht ausfuehrbar und schliesse bei fachlich vollstaendiger Arbeit mit ERGEBNIS: ERFOLG; Orcas Main-Prozess wiederholt die zentralen Abnahme-Gates ausserhalb der Worker-Sandbox.'
+  ]
+}
+
+/**
+ * The per-worker execution contract appended to a dispatched task's prompt.
+ *
+ * The Vertragus subagent reporting tools (report_progress / post_finding /
+ * list_findings / ask_orchestrator) are only demanded when the worker's provider
+ * actually receives them (`orcaSubTools`). Providers without a verified per-agent
+ * MCP channel — Cursor today — are never asked to call tools they do not have,
+ * so a missing progress/finding stream is an expected capability gap rather than
+ * a contract violation. Pure and side-effect-free for direct unit testing.
+ */
+export function subagentExecutionContract(input: {
+  provider: AgentProviderId
+  yolo: boolean
+  orcaSubTools: boolean
+  securityChecklist: readonly string[]
+  platform?: NodeJS.Platform
+}): string[] {
+  const { provider, yolo, orcaSubTools, securityChecklist, platform } = input
+  return [
+    'Vertragus-Ausführungsvertrag:',
+    '- Bearbeite nur die beauftragte Fachaufgabe und die erwarteten Dateien.',
+    '- Führe relevante Tests, Typecheck und Lint aus.',
+    '- Führe kein git add, commit, cherry-pick oder push aus; Orcas Main-Prozess sichert Änderungen zentral.',
+    '- Bei Infrastrukturblockern antworte strukturiert und knapp: Blocker, Alternativen, geplante Dateien, Schnittstellen.',
+    '- Ergebnisvertrag am Ende: (1) geänderte Dateien, (2) Tests mit grün/gesamt, (3) Typecheck-/Lint-Status, (4) Integrationshinweise.',
+    '- Schließe exakt mit ERGEBNIS: ERFOLG oder ERGEBNIS: BLOCKER samt konkreter Begründung.',
+    '- Automatisch injizierte Security-Negativfälle: securityGate.ts bewertet nur hinzugefügte Diff-Zeilen.',
+    '- Neue Zeilen mit process.env, Bearer, Authorization, Secret-Literalen, writeFileSync, appendFileSync, createWriteStream, rm oder child_process-Aufrufen brauchen passende Missbrauchs-/Injection-/Leak-Negativtests in Testdateien.',
+    ...(orcaSubTools
+      ? [
+          '- Live-Status: Melde wichtige Phasenwechsel und Zwischenstände knapp über das MCP-Tool report_progress (Server vertragus-sub).',
+          '- Team-Board: Teile Schnittstellen, Entscheidungen und Blocker, die parallele Tasks betreffen, über post_finding; prüfe mit list_findings die Einträge anderer Subagents, bevor du gemeinsame Schnittstellen festlegst.',
+          '- Direkte Hilfe: Wenn eine Richtungsentscheidung, Freigabe oder Unterstützung fehlt, nutze ask_orchestrator und warte mit await_orchestrator_response auf die konkrete Antwort.'
+        ]
+      : []),
+    ...providerExecutionGuidance(provider, yolo, platform).map((item) => `- ${item}`),
+    ...platformExecutionGuidance(platform).map((item) => `- ${item}`),
+    ...securityChecklist.map((item) => `- Security-Pflicht: ${item}`)
   ]
 }
 
@@ -1386,6 +1429,7 @@ export class OrchestratorEngine extends EventEmitter {
         learnedStrengths: learned.strengths,
         learnedWeaknesses: learned.weaknesses,
         available: preflight?.status !== 'failed',
+        subagentReporting: providerSupportsSubagentReporting(slot.provider),
         preflight
       }
     })
@@ -1768,27 +1812,12 @@ export class OrchestratorEngine extends EventEmitter {
 
     const securityChecklist = securityChecklistForFiles(options.expectedFiles ?? [])
     const orcaSubTools = subagentOrcaToolsAvailable(slot.provider)
-    const executionContract = [
-      'Vertragus-Ausführungsvertrag:',
-      '- Bearbeite nur die beauftragte Fachaufgabe und die erwarteten Dateien.',
-      '- Führe relevante Tests, Typecheck und Lint aus.',
-      '- Führe kein git add, commit, cherry-pick oder push aus; Orcas Main-Prozess sichert Änderungen zentral.',
-      '- Bei Infrastrukturblockern antworte strukturiert und knapp: Blocker, Alternativen, geplante Dateien, Schnittstellen.',
-      '- Ergebnisvertrag am Ende: (1) geänderte Dateien, (2) Tests mit grün/gesamt, (3) Typecheck-/Lint-Status, (4) Integrationshinweise.',
-      '- Schließe exakt mit ERGEBNIS: ERFOLG oder ERGEBNIS: BLOCKER samt konkreter Begründung.',
-      '- Automatisch injizierte Security-Negativfälle: securityGate.ts bewertet nur hinzugefügte Diff-Zeilen.',
-      '- Neue Zeilen mit process.env, Bearer, Authorization, Secret-Literalen, writeFileSync, appendFileSync, createWriteStream, rm oder child_process-Aufrufen brauchen passende Missbrauchs-/Injection-/Leak-Negativtests in Testdateien.',
-      ...(orcaSubTools
-        ? [
-            '- Live-Status: Melde wichtige Phasenwechsel und Zwischenstände knapp über das MCP-Tool report_progress (Server vertragus-sub).',
-            '- Team-Board: Teile Schnittstellen, Entscheidungen und Blocker, die parallele Tasks betreffen, über post_finding; prüfe mit list_findings die Einträge anderer Subagents, bevor du gemeinsame Schnittstellen festlegst.',
-            '- Direkte Hilfe: Wenn eine Richtungsentscheidung, Freigabe oder Unterstützung fehlt, nutze ask_orchestrator und warte mit await_orchestrator_response auf die konkrete Antwort.'
-          ]
-        : []),
-      ...providerExecutionGuidance(slot.provider, yolo).map((item) => `- ${item}`),
-      ...platformExecutionGuidance().map((item) => `- ${item}`),
-      ...securityChecklist.map((item) => `- Security-Pflicht: ${item}`)
-    ].join('\n')
+    const executionContract = subagentExecutionContract({
+      provider: slot.provider,
+      yolo,
+      orcaSubTools,
+      securityChecklist
+    }).join('\n')
     const taskPrompt = `${prompt}\n\n${executionContract}`
     const subSystemPrompt =
       'Du bist ein namentlich gekennzeichneter Subagent in Vertragus, beauftragt vom Orchestrator. ' +
@@ -3193,13 +3222,10 @@ export class OrchestratorEngine extends EventEmitter {
   ): DelegationRetro | undefined {
     const estimate = this.planEstimates.get(planId)
     if (!estimate) return undefined
-    const observations: DelegationTaskObservation[] = planTasks.map((task) => ({
-      status: task.status,
-      committed: task.completion?.kind === 'commit',
-      noChanges: task.completion?.kind === 'no-changes',
-      startedAt: task.createdAt,
-      finishedAt: task.finishedAt
-    }))
+    // toDelegationObservation classifies each task as a real worker, a
+    // multiagent candidate, or a purely logical multiagent parent, so the retro
+    // never counts the fan-out parent as a sixth concurrent worker.
+    const observations: DelegationTaskObservation[] = planTasks.map(toDelegationObservation)
     return analyzeDelegation(estimate, observations, this.planSelfEstimates.get(planId))
   }
 

@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   analyzeDelegation,
   deriveDelegationOutcome,
-  summarizeDelegationCalibration
+  summarizeDelegationCalibration,
+  toDelegationObservation
 } from './delegationAnalysis'
 import type { DelegationRetro, DelegationTaskObservation } from './contracts'
 import type { OrchestratorDelegationEstimate, PlanDelegationEstimate } from '../planEstimate'
@@ -186,7 +187,9 @@ describe('summarizeDelegationCalibration', () => {
           committedTasks: 1,
           noChangeTasks: 2,
           failedTasks: 0,
-          observedPeakParallel: 1
+          observedPeakParallel: 1,
+          multiAgentCandidates: 0,
+          infraFailedTasks: 0
         },
         verdict: 'overhead',
         selfCalibration: { agreedWithStructure: false, grade, note: 'x' },
@@ -234,5 +237,114 @@ describe('summarizeDelegationCalibration', () => {
     expect(trend.runs).toBe(4)
     expect(trend.accurate).toBe(3)
     expect(trend.bias).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// P1.4 — multiagent fan-out vs. logical parent vs. real team
+// ---------------------------------------------------------------------------
+
+describe('toDelegationObservation classification', () => {
+  it('separates logical parents, candidates and plain workers', () => {
+    expect(
+      toDelegationObservation({ status: 'running', multiAgentRunId: 'm1', createdAt: 0, finishedAt: 9 })
+    ).toMatchObject({ multiAgentParent: true, multiAgentCandidate: false })
+    expect(
+      toDelegationObservation({
+        status: 'success',
+        multiAgentRunId: 'm1',
+        multiAgentParentTaskId: 'p',
+        multiAgentCandidate: 3
+      })
+    ).toMatchObject({ multiAgentParent: false, multiAgentCandidate: true })
+    expect(toDelegationObservation({ status: 'success' })).toMatchObject({
+      multiAgentParent: false,
+      multiAgentCandidate: false
+    })
+    expect(
+      toDelegationObservation({ status: 'error', failureKind: 'infrastructure' })
+    ).toMatchObject({ failureKind: 'infrastructure' })
+    expect(
+      toDelegationObservation({ status: 'success', completion: { kind: 'commit' } })
+    ).toMatchObject({ committed: true })
+  })
+})
+
+describe('multiagent fan-out calibration (P1.4)', () => {
+  const soloEstimate = estimate({ recommendation: 'solo', effectiveParallelWidth: 1, taskCount: 1 })
+
+  function candidate(partial: Partial<DelegationTaskObservation> = {}): DelegationTaskObservation {
+    return obs({ multiAgentCandidate: true, startedAt: 10, finishedAt: 150, ...partial })
+  }
+
+  it('1) a normal single-task solo run stays justified/solo', () => {
+    const result = analyzeDelegation(soloEstimate, [
+      obs({ committed: true, startedAt: 0, finishedAt: 20 })
+    ])
+    expect(result.verdict).toBe('justified')
+    expect(result.outcome.dispatchedTasks).toBe(1)
+    expect(result.outcome.multiAgentCandidates).toBe(0)
+    expect(result.outcome.observedPeakParallel).toBe(1)
+  })
+
+  it('2) one logical task fanned out to five candidates is NOT solo overhead', () => {
+    // Four losers report no changes, the reviewed winner commits.
+    const candidates = [
+      candidate({ committed: true }),
+      candidate({ noChanges: true }),
+      candidate({ noChanges: true }),
+      candidate({ noChanges: true }),
+      candidate({ noChanges: true })
+    ]
+    const result = analyzeDelegation(soloEstimate, candidates)
+    expect(result.outcome.multiAgentCandidates).toBe(5)
+    expect(result.verdict).not.toBe('overhead')
+    expect(result.verdict).toBe('justified')
+    expect(result.note).toContain('Multiagent-Wettbewerb')
+  })
+
+  it('3) five candidates plus the logical parent keep observedPeakParallel at 5, not 6', () => {
+    const parent = obs({ multiAgentParent: true, startedAt: 0, finishedAt: 200 })
+    const candidates = Array.from({ length: 5 }, () => candidate())
+    const outcome = deriveDelegationOutcome([parent, ...candidates])
+
+    expect(outcome.observedPeakParallel).toBe(5)
+    expect(outcome.dispatchedTasks).toBe(5) // the logical parent is not a dispatched worker
+    expect(outcome.multiAgentCandidates).toBe(5)
+  })
+
+  it('4) a shared infrastructure/transport wipeout is inconclusive, not over-delegated', () => {
+    // Exactly the real run: every candidate died on the same prompt-transport bug.
+    const candidates = Array.from({ length: 5 }, () =>
+      candidate({ status: 'error', failureKind: 'infrastructure', finishedAt: 15 })
+    )
+    const result = analyzeDelegation(soloEstimate, candidates, selfEstimate({ recommendation: 'delegate' }))
+
+    expect(result.outcome.infraFailedTasks).toBe(5)
+    expect(result.verdict).toBe('inconclusive')
+    // The orchestrator's delegate call must not be graded over-delegated here.
+    expect(result.selfCalibration?.grade).toBe('unclear')
+    expect(result.selfCalibration?.grade).not.toBe('over-delegated')
+  })
+
+  it('5) a genuine unnecessary team (distinct logical tasks) is still overhead', () => {
+    // No candidates: three separate logical tasks spun up despite a solo need.
+    const result = analyzeDelegation(soloEstimate, [
+      obs({ committed: true }),
+      obs({ noChanges: true }),
+      obs({ noChanges: true })
+    ])
+    expect(result.outcome.multiAgentCandidates).toBe(0)
+    expect(result.verdict).toBe('overhead')
+  })
+
+  it('grades a fan-out that produced an integrable winner as accurate, not over-delegated', () => {
+    const candidates = [
+      candidate({ committed: true }),
+      candidate({ noChanges: true }),
+      candidate({ status: 'stopped' })
+    ]
+    const result = analyzeDelegation(soloEstimate, candidates, selfEstimate({ recommendation: 'delegate' }))
+    expect(result.selfCalibration?.grade).toBe('accurate')
   })
 })

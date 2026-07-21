@@ -232,6 +232,9 @@ function buildMcpServer(
     'list_subagents',
     'Liste den verfügbaren Fähigkeiten-Pool mit Rollen, Provider, Modell, Kapazität, Stärken und Schwächen. ' +
       'learnedStrengths/learnedWeaknesses sind aus Retros und Benchmarks früherer Läufe gelerntes Modellwissen — nutze es bei der Rollenwahl. ' +
+      'subagentReporting=false bedeutet: dieser Provider (z. B. Cursor) erhält KEINE Vertragus-Subagent-Tools ' +
+      '(report_progress/post_finding/list_findings/ask_orchestrator). Verlange von solchen Workern keine Live-Progress- ' +
+      'oder Finding-Ereignisse und werte deren Fehlen nicht als Modellversagen. ' +
       'Die Rollen sind nicht zwingend bereits gestartet; ein Plan startet nur die ausgewählten Agents.',
     {},
     async () => text(JSON.stringify(await engine.listSubagentsWithHealth(), null, 2))

@@ -40,7 +40,7 @@ export async function runRemoteSelfTest(): Promise<void> {
   try {
     mutableEngine.listSubagents = () => [{
       role: 'codex', provider: 'codex', model: '', capacity: 1, busy: 0,
-      strengths: [], weaknesses: [], available: true
+      strengths: [], weaknesses: [], available: true, subagentReporting: true
     }]
     agentManager.runTask = async (request) => {
       const info: AgentInstanceInfo = {

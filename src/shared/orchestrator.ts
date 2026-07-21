@@ -576,6 +576,15 @@ export interface SubagentDescriptor {
   learnedStrengths?: string[]
   learnedWeaknesses?: string[]
   available: boolean
+  /**
+   * True when a dispatched worker of this provider receives the Vertragus subagent
+   * reporting tools (report_progress / post_finding / list_findings /
+   * ask_orchestrator). False for providers without a verified per-process MCP
+   * channel (e.g. Cursor): plan and prompt these workers WITHOUT requiring those
+   * tools, and treat missing progress/finding events as expected, not as a
+   * model failure.
+   */
+  subagentReporting: boolean
   preflight?: PanePreflightReport
 }
 
