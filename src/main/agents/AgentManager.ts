@@ -293,6 +293,13 @@ export class AgentManager extends EventEmitter {
     return { data: m ? m.buffer.toString() : '', seq: m?.seq ?? 0 }
   }
 
+  /** Last `maxChars` of scrollback, sliced in-process to keep IPC payloads small. */
+  bufferTail(id: string, maxChars: number): { data: string; seq: number } {
+    const m = this.agents.get(id)
+    const cap = Number.isFinite(maxChars) && maxChars > 0 ? Math.min(maxChars, BUFFER_LIMIT) : 4_000
+    return { data: m ? m.buffer.tail(cap) : '', seq: m?.seq ?? 0 }
+  }
+
   private emitEvent(
     text: string,
     tone: VertragusEvent['tone'] = 'info',

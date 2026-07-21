@@ -133,6 +133,7 @@ export const IPC = {
   agentsKillAll: 'agents:killAll',
   agentsClean: 'agents:clean',
   agentBuffer: 'agent:buffer',
+  agentBufferTail: 'agent:bufferTail',
   agentPopout: 'agent:popout',
   agentHandoff: 'agent:handoff',
   agentsBulkHandoff: 'agents:bulkHandoff',
@@ -480,6 +481,12 @@ export interface VertragusApi {
     clean(profileId: string, workspaceSessionId?: string): Promise<void>
     /** Scrollback replay for late-mounting terminals (pop-outs, reloads). */
     buffer(id: string): Promise<AgentBufferSnapshot>
+    /**
+     * Like buffer(), but slices to the last `maxChars` in the main process so
+     * small periodic peeks (e.g. canvas node previews) don't serialize the whole
+     * ~200 KB scrollback over IPC on every poll.
+     */
+    bufferTail(id: string, maxChars: number): Promise<AgentBufferSnapshot>
     popout(id: string): Promise<void>
     /**
      * Hand a source agent's live work over to a freshly spawned agent, seeded

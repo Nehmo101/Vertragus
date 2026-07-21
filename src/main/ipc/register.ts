@@ -8,7 +8,7 @@ import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { IPC, type AppInfo } from '@shared/ipc'
 import { assertValidConfigKey } from '@shared/ipcValidation'
-import type { BulkHandoffRequest, HandoffRequest, SpawnAgentRequest, VertragusEvent } from '@shared/agents'
+import type { AgentInstanceInfo, BulkHandoffRequest, HandoffRequest, SpawnAgentRequest, VertragusEvent } from '@shared/agents'
 import type { OrchestratorSnapshot } from '@shared/orchestrator'
 import type { RemoteBudgetCaps } from '@shared/remote'
 import type { ProviderId } from '@shared/providers'
@@ -170,6 +170,16 @@ function recordDiagnostic(
   } catch (error) {
     console.warn('[Diagnostics] run journal write failed', error)
   }
+}
+
+// Consistent handling for a profileId that resolves to no profile. Mutations
+// throw (a deleted-profile race is a real error the renderer can surface),
+// distinguishing it from a legitimate false/decline returned by the engine; the
+// read-only snapshot handler stays lenient. Mirrors the remote path's requireProfile.
+function requireProfile(profileId: string): WorkspaceProfile {
+  const profile = getProfile(profileId)
+  if (!profile) throw new Error('Workspace-Profil nicht gefunden.')
+  return profile
 }
 
 // Orchestrator snapshots are emitted up to ~1/s per running task, dominated by
@@ -622,6 +632,9 @@ export function registerIpcHandlers(): void {
     else workspaceSessions.remove(profileId)
   })
   ipcMain.handle(IPC.agentBuffer, (_e, id: string) => agentManager.buffer(id))
+  ipcMain.handle(IPC.agentBufferTail, (_e, id: string, maxChars: number) =>
+    agentManager.bufferTail(id, maxChars)
+  )
   ipcMain.handle(IPC.agentPopout, (e, id: string) => {
     assertNotVoiceWindow(e)
     createPaneWindow(id)
@@ -644,26 +657,20 @@ export function registerIpcHandlers(): void {
   })
   ipcMain.handle(IPC.orchestratorReset, (e, profileId: string, workspaceSessionId?: string) => {
     assertNotVoiceWindow(e)
-    const profile = getProfile(profileId)
-    if (profile) workspaceSessions.reset(profile, workspaceSessionId)
+    workspaceSessions.reset(requireProfile(profileId), workspaceSessionId)
   })
   ipcMain.handle(IPC.orchestratorEnableAutoMode, (e, profileId: string, workspaceSessionId?: string) => {
     assertNotVoiceWindow(e)
-    const profile = getProfile(profileId)
-    return profile
-      ? workspaceSessions.enableAutoMode(profile, workspaceSessionId)
-      : false
+    return workspaceSessions.enableAutoMode(requireProfile(profileId), workspaceSessionId)
   })
   ipcMain.handle(
     IPC.orchestratorSetPlannerMode,
     (e, profileId: string, mode: WorkspaceProfile['planner']['mode'], workspaceSessionId?: string) => {
       assertNotVoiceWindow(e)
-      const profile = getProfile(profileId)
-      if (!profile) return false
       if (mode !== 'auto' && mode !== 'review' && mode !== 'manual') {
         throw new Error(`Unbekannter Planungsmodus: ${String(mode)}`)
       }
-      return workspaceSessions.setPlannerMode(profile, mode, workspaceSessionId)
+      return workspaceSessions.setPlannerMode(requireProfile(profileId), mode, workspaceSessionId)
     }
   )
   ipcMain.handle(IPC.orchestratorSetYoloMaster, (e, enabled: boolean) => {
@@ -672,10 +679,7 @@ export function registerIpcHandlers(): void {
   })
   ipcMain.handle(IPC.orchestratorReviewPlan, (e, profileId: string, approved: boolean, workspaceSessionId?: string) => {
     assertNotVoiceWindow(e)
-    const profile = getProfile(profileId)
-    return profile
-      ? workspaceSessions.reviewPlan(profile, Boolean(approved), workspaceSessionId)
-      : false
+    return workspaceSessions.reviewPlan(requireProfile(profileId), Boolean(approved), workspaceSessionId)
   })
   ipcMain.handle(IPC.orchestratorTaskDiff, async (_e, profileId: string, taskId: string, workspaceSessionId?: string) => {
     const profile = getProfile(profileId)
@@ -690,24 +694,22 @@ export function registerIpcHandlers(): void {
     IPC.orchestratorApprovePublication,
     (e, profileId: string, workspaceSessionId: string, planId?: string) => {
       assertNotVoiceWindow(e)
-      const profile = getProfile(profileId)
-      return profile ? workspaceSessions.approvePublication(profile, planId, workspaceSessionId) : false
+      return workspaceSessions.approvePublication(requireProfile(profileId), planId, workspaceSessionId)
     }
   )
   ipcMain.handle(
     IPC.orchestratorRejectPublication,
     (e, profileId: string, workspaceSessionId: string, planId?: string) => {
       assertNotVoiceWindow(e)
-      const profile = getProfile(profileId)
-      return profile ? workspaceSessions.rejectPublication(profile, planId, workspaceSessionId) : false
+      return workspaceSessions.rejectPublication(requireProfile(profileId), planId, workspaceSessionId)
     }
   )
   ipcMain.handle(
     IPC.orchestratorResolvePermission,
     (e, profileId: string, workspaceSessionId: string, permissionId: string, allow: boolean) => {
       assertNotVoiceWindow(e)
-      const profile = getProfile(profileId)
-      if (!profile || !/^[0-9a-f-]{36}$/i.test(permissionId)) return false
+      const profile = requireProfile(profileId)
+      if (!/^[0-9a-f-]{36}$/i.test(permissionId)) return false
       return workspaceSessions.resolvePermission(profile, permissionId, Boolean(allow), workspaceSessionId)
     }
   )
@@ -715,8 +717,7 @@ export function registerIpcHandlers(): void {
     IPC.orchestratorSetBudgetCaps,
     (e, profileId: string, workspaceSessionId: string, caps: RemoteBudgetCaps) => {
       assertNotVoiceWindow(e)
-      const profile = getProfile(profileId)
-      if (!profile) throw new Error('Workspace-Profil nicht gefunden.')
+      const profile = requireProfile(profileId)
       const maxTokens = caps?.maxTokens
       const maxCostUsd = caps?.maxCostUsd
       if (
@@ -730,34 +731,28 @@ export function registerIpcHandlers(): void {
     IPC.orchestratorPauseTask,
     (e, profileId: string, workspaceSessionId: string, taskId: string) => {
       assertNotVoiceWindow(e)
-      const profile = getProfile(profileId)
-      return profile ? workspaceSessions.pauseTask(profile, taskId, workspaceSessionId) : false
+      return workspaceSessions.pauseTask(requireProfile(profileId), taskId, workspaceSessionId)
     }
   )
   ipcMain.handle(
     IPC.orchestratorResumeTask,
     (e, profileId: string, workspaceSessionId: string, taskId: string) => {
       assertNotVoiceWindow(e)
-      const profile = getProfile(profileId)
-      return profile ? workspaceSessions.resumeTask(profile, taskId, workspaceSessionId) : false
+      return workspaceSessions.resumeTask(requireProfile(profileId), taskId, workspaceSessionId)
     }
   )
   ipcMain.handle(
     IPC.orchestratorResumeInterruptedTask,
     (e, profileId: string, workspaceSessionId: string, taskId: string) => {
       assertNotVoiceWindow(e)
-      const profile = getProfile(profileId)
-      return profile
-        ? workspaceSessions.resumeInterruptedTask(profile, taskId, workspaceSessionId)
-        : false
+      return workspaceSessions.resumeInterruptedTask(requireProfile(profileId), taskId, workspaceSessionId)
     }
   )
   ipcMain.handle(
     IPC.orchestratorFallbackTask,
     (e, profileId: string, workspaceSessionId: string, taskId: string) => {
       assertNotVoiceWindow(e)
-      const profile = getProfile(profileId)
-      return profile ? workspaceSessions.fallbackTask(profile, taskId, workspaceSessionId) : false
+      return workspaceSessions.fallbackTask(requireProfile(profileId), taskId, workspaceSessionId)
     }
   )
   // Canvas composer → seed a free-text message to the session's orchestrator agent.
@@ -857,7 +852,20 @@ export function registerIpcHandlers(): void {
 
   // ---- push events: agent output / state / dispatch feed ----
   agentManager.on('data', (chunk) => broadcast(IPC.evAgentData, chunk))
-  agentManager.on('changed', (list) => broadcast(IPC.evAgentsChanged, list))
+  // changed() fires per usage snapshot / status flip / permission transition —
+  // bursty during active runs. Coalesce to one trailing broadcast so the full
+  // agent list isn't re-serialized to every window on every sub-second tick.
+  let agentsChangedTimer: ReturnType<typeof setTimeout> | undefined
+  let latestAgentList: AgentInstanceInfo[] = []
+  agentManager.on('changed', (list: AgentInstanceInfo[]) => {
+    latestAgentList = list
+    if (agentsChangedTimer) return
+    agentsChangedTimer = setTimeout(() => {
+      agentsChangedTimer = undefined
+      broadcast(IPC.evAgentsChanged, latestAgentList)
+    }, 120)
+    agentsChangedTimer.unref?.()
+  })
   agentManager.on('event', (evt: VertragusEvent) => {
     recordDiagnostic(runJournal, {
       kind: 'agent-event',
