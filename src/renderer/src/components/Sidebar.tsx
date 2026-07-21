@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import {
@@ -58,16 +59,25 @@ function detailFor(t: TFunction, h: ProviderHealth | undefined): string {
 
 function ProviderRow({ id }: { id: ProviderId }): JSX.Element {
   const { t } = useTranslation()
-  const store = useAppStore()
+  const store = useAppStore(
+    useShallow((s) => ({
+      health: s.health,
+      providerEnabled: s.providerEnabled,
+      setProviderEnabled: s.setProviderEnabled,
+      loginProvider: s.loginProvider,
+      // Derive the boolean so usage-only agent ticks don't re-render the row.
+      loginRunning: s.agents.some(
+        (agent) => agent.taskId === `auth:${id}` && agent.status === 'running'
+      )
+    }))
+  )
   const theme = PROVIDER_THEME[id]
   const h = store.health.find((x) => x.id === id)
   const st = statusFor(id, h)
   const configurable = id !== 'github' && id !== 'cloudflare'
   const providerId = configurable ? (id as AgentProviderId) : undefined
   const enabled = providerId ? store.providerEnabled[providerId] : true
-  const loginRunning = store.agents.some(
-    (agent) => agent.taskId === `auth:${id}` && agent.status === 'running'
-  )
+  const loginRunning = store.loginRunning
   return (
     <div className={`provider-row ${enabled ? '' : 'disabled'}`}>
       <span className="chip sz-26" style={{ background: theme.bg, color: theme.fg }}>
@@ -131,13 +141,21 @@ function ProviderRow({ id }: { id: ProviderId }): JSX.Element {
 
 function GithubRow(): JSX.Element {
   const { t } = useTranslation()
-  const store = useAppStore()
+  const store = useAppStore(
+    useShallow((s) => ({
+      githubAuth: s.githubAuth,
+      githubAuthBusy: s.githubAuthBusy,
+      githubLogin: s.githubLogin,
+      githubLogout: s.githubLogout,
+      loginRunning: s.agents.some(
+        (agent) => agent.taskId === 'auth:github' && agent.status === 'running'
+      )
+    }))
+  )
   const theme = PROVIDER_THEME.github
   const auth = store.githubAuth
   const presentation = githubAuthPresentation(auth)
-  const loginRunning = store.agents.some(
-    (agent) => agent.taskId === 'auth:github' && agent.status === 'running'
-  )
+  const loginRunning = store.loginRunning
   const connected = hasUsableGithubAuth(auth)
   const reauth = Boolean(auth?.needsReauth)
   const busy = store.githubAuthBusy || loginRunning
@@ -220,7 +238,7 @@ function retroSyncDetail(
 
 function RetroSyncRow(): JSX.Element {
   const { t } = useTranslation()
-  const store = useAppStore()
+  const store = useAppStore(useShallow((s) => ({ githubAuth: s.githubAuth })))
   const connected = hasUsableGithubAuth(store.githubAuth)
   const [status, setStatus] = useState<RetroSyncStatus | undefined>()
   const [draft, setDraft] = useState({ repoOwner: '', repoName: '', branch: '' })
@@ -386,7 +404,12 @@ function RetroSyncRow(): JSX.Element {
 
 function SpeechRow(): JSX.Element {
   const { t } = useTranslation()
-  const store = useAppStore()
+  const store = useAppStore(
+    useShallow((s) => ({
+      openSpeechSettings: s.openSpeechSettings,
+      speechStatusRevision: s.speechStatusRevision
+    }))
+  )
   const revision = store.speechStatusRevision
   const [status, setStatus] = useState<InboxSpeechStatus | undefined>()
 
