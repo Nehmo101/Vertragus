@@ -7,6 +7,8 @@ import { transferIdeaToProfile } from '@main/inbox/transferService'
 import { workspaceSessions } from '@main/orchestrator/WorkspaceSessionRegistry'
 import { loadTaskReviewDiff } from '@main/integrations/reviewDiff'
 import type {
+  ApnsConfigInput,
+  ApnsConfigStatus,
   DeviceInfo,
   PairingChallenge,
   RemoteEnableRequest,
@@ -18,11 +20,15 @@ import { RemoteCommandRouter } from './commands'
 import { DeviceAuth } from './deviceAuth'
 import {
   EncryptedDeviceStore,
+  clearApnsCredential,
   isRemoteEncryptionAvailable,
   readAccessConfig,
+  readApnsCredential,
   readCloudflareCredential,
   writeAccessConfig,
-  writeCloudflareCredential
+  writeApnsCredential,
+  writeCloudflareCredential,
+  type StoredApnsCredential
 } from './deviceStore'
 import { startRemoteGateway } from './RemoteGateway'
 import type { RemoteGatewayHandle } from './gatewayHandle'
@@ -45,6 +51,23 @@ function requireProfile(profileId: string) {
   const profile = getProfile(profileId)
   if (!profile) throw new Error('Workspace-Profil nicht gefunden.')
   return profile
+}
+
+/** Validate untrusted APNs config from desktop IPC before it is encrypted at rest. */
+function parseApnsConfigInput(input: unknown): StoredApnsCredential {
+  if (!input || typeof input !== 'object') throw new Error('Ungültige APNs-Konfiguration.')
+  const value = input as Partial<ApnsConfigInput>
+  const teamId = typeof value.teamId === 'string' ? value.teamId.trim() : ''
+  const keyId = typeof value.keyId === 'string' ? value.keyId.trim() : ''
+  const p8 = typeof value.p8 === 'string' ? value.p8.trim() : ''
+  const bundleId = typeof value.bundleId === 'string' ? value.bundleId.trim() : ''
+  const environment = value.environment === 'sandbox' || value.environment === 'production'
+    ? value.environment
+    : undefined
+  if (!teamId || !keyId || !p8 || !bundleId || !environment) {
+    throw new Error('Team-ID, Key-ID, .p8-Schlüssel, Bundle-ID und Umgebung sind erforderlich.')
+  }
+  return { teamId, keyId, p8, bundleId, environment }
 }
 
 export class RemoteService extends EventEmitter {
@@ -278,6 +301,35 @@ export class RemoteService extends EventEmitter {
     const revoked = this.auth.revoke(deviceId)
     if (revoked) this.audit.record({ kind: 'lifecycle', outcome: 'accepted', action: 'device.revoke', deviceId })
     return revoked
+  }
+
+  /** Desktop-only: persist encrypted APNs signing credentials. Never echoes the .p8 back. */
+  setApnsConfig(input: unknown): ApnsConfigStatus {
+    if (!isRemoteEncryptionAvailable()) {
+      throw new Error('APNs-Konfiguration verweigert: Electron safeStorage ist nicht verfügbar.')
+    }
+    writeApnsCredential(parseApnsConfigInput(input))
+    this.audit.record({ kind: 'lifecycle', outcome: 'accepted', action: 'push.apns-config.set' })
+    return this.getApnsConfigStatus()
+  }
+
+  /** Non-secret APNs status for the desktop UI. The .p8 key is never returned. */
+  getApnsConfigStatus(): ApnsConfigStatus {
+    const credential = readApnsCredential()
+    if (!credential) return { configured: false }
+    return {
+      configured: true,
+      teamId: credential.teamId,
+      keyId: credential.keyId,
+      bundleId: credential.bundleId,
+      environment: credential.environment
+    }
+  }
+
+  clearApnsConfig(): ApnsConfigStatus {
+    clearApnsCredential()
+    this.audit.record({ kind: 'lifecycle', outcome: 'accepted', action: 'push.apns-config.clear' })
+    return { configured: false }
   }
 
   async startPairing(request: RemotePairStartRequest = {}): Promise<PairingChallenge> {

@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { setSetting } from '@main/config/store'
 import {
+  PUBLIC_CONFIG_GET_KEYS,
+  PUBLIC_CONFIG_SET_KEYS,
   assertConfigGetAllowed,
   assertConfigSetAllowed,
   getPublicConfig,
@@ -31,6 +33,17 @@ describe('configAccess', () => {
     expect(() => assertConfigSetAllowed('secrets.openai.transcription')).toThrow(/per IPC schreiben/)
     expect(() => getPublicConfig('secrets.github.meta')).toThrow()
     expect(() => setPublicConfig('secrets.github.oauth', 'x')).toThrow()
+  })
+
+  it('keeps APNs secrets (credential + device tokens) out of public config', () => {
+    // Regression: APNs signing keys and device tokens must never be reachable via the
+    // generic config IPC. They live under secrets.remote.* and are not on the allowlists.
+    for (const key of ['secrets.remote.apns', 'secrets.remote.apnsTokens']) {
+      expect(() => assertConfigGetAllowed(key)).toThrow(/per IPC lesen/)
+      expect(() => assertConfigSetAllowed(key)).toThrow(/per IPC schreiben/)
+      expect(PUBLIC_CONFIG_GET_KEYS.has(key)).toBe(false)
+      expect(PUBLIC_CONFIG_SET_KEYS.has(key)).toBe(false)
+    }
   })
 
   it('rejects unknown keys', () => {

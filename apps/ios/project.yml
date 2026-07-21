@@ -1,0 +1,62 @@
+# XcodeGen project definition — run `xcodegen generate` (brew install xcodegen) to
+# produce MissionControl.xcodeproj. The .xcodeproj itself is gitignored so reviews
+# stay text-based. See README.md.
+name: MissionControl
+options:
+  bundleIdPrefix: com.vertragus
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.9"
+    # Set your Apple Developer Team ID here (or via Xcode > Signing & Capabilities).
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+
+targets:
+  MissionControl:
+    type: application
+    platform: iOS
+    sources:
+      - path: MissionControl
+        excludes:
+          - "Resources/Info.plist"
+          - "Resources/MissionControl.entitlements"
+    settings:
+      base:
+        INFOPLIST_FILE: MissionControl/Resources/Info.plist
+        # aps-environment is `development` for local/dev builds; App Store / TestFlight
+        # distribution automatically maps the push capability to production.
+        CODE_SIGN_ENTITLEMENTS: MissionControl/Resources/MissionControl.entitlements
+        PRODUCT_BUNDLE_IDENTIFIER: com.vertragus.missioncontrol
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        TARGETED_DEVICE_FAMILY: "1"
+        ENABLE_USER_SCRIPT_SANDBOXING: "YES"
+
+  MissionControlTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: MissionControlTests
+    dependencies:
+      - target: MissionControl
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.vertragus.missioncontrol.tests
+        GENERATE_INFOPLIST_FILE: "YES"
+
+schemes:
+  MissionControl:
+    build:
+      targets:
+        MissionControl: all
+        MissionControlTests: [test]
+    test:
+      targets:
+        - MissionControlTests

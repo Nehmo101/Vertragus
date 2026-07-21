@@ -59,6 +59,11 @@ const pushSubscriptionSchema = z.object({
     auth: z.string().min(1).max(256)
   }).strict()
 }).strict()
+const apnsSubscriptionSchema = z.object({
+  token: z.string().regex(/^[a-fA-F0-9]{64,200}$/),
+  environment: z.enum(['sandbox', 'production']),
+  bundleId: z.string().regex(/^[A-Za-z0-9.-]{1,200}$/)
+}).strict()
 const speechSchema = z.object({
   mimeType: z.string().min(1).max(100),
   durationMs: z.number().nonnegative().max(INBOX_SPEECH_MAX_DURATION_MS),
@@ -330,6 +335,25 @@ export async function startRemoteGateway(options: GatewayOptions): Promise<Remot
       json(res, 200, { ok: true })
       return
     }
+    if (url.pathname === '/push/apns' && req.method === 'POST') {
+      const authenticated = await authenticate(req, 'push.apns-subscribe')
+      if (!authenticated || !authenticated.device.capabilities.includes('push')) {
+        json(res, authenticated ? 403 : 401, { error: 'Unauthorized.' })
+        return
+      }
+      if (!options.pushService) throw new HttpError(404, 'Push service unavailable.')
+      const parsed = apnsSubscriptionSchema.safeParse(await readJson(req, REMOTE_PUSH_BODY_CAP))
+      if (!parsed.success) throw new HttpError(400, 'Invalid APNs subscription.')
+      options.pushService.subscribeApns(authenticated.device.id, parsed.data)
+      // The device token is never written to the audit trail (only the action + device id).
+      options.audit.record({
+        kind: 'command', outcome: 'accepted', deviceId: authenticated.device.id,
+        actor: authenticated.device.actor.id,
+        action: 'push.apns-subscribe'
+      })
+      json(res, 200, { ok: true })
+      return
+    }
     if (url.pathname === '/speech/transcribe' && req.method === 'POST') {
       const authenticated = await authenticate(req, 'speech.transcribe')
       if (!authenticated || !authenticated.device.capabilities.includes('speech')) {
@@ -520,5 +544,6 @@ export async function startRemoteGateway(options: GatewayOptions): Promise<Remot
 }
 
 export const remoteGatewayInternals = {
-  bearer, websocketBearer, requestHost, readJson, sseFrame, pairSchema, pushSubscriptionSchema, speechSchema
+  bearer, websocketBearer, requestHost, readJson, sseFrame, pairSchema, pushSubscriptionSchema,
+  apnsSubscriptionSchema, speechSchema
 }

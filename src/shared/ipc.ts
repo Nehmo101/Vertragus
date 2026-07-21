@@ -45,6 +45,8 @@ import type {
   PromptEnhancementIpcResult
 } from './promptEnhancement'
 import type {
+  ApnsConfigInput,
+  ApnsConfigStatus,
   DeviceInfo,
   PairingChallenge,
   RemoteBudgetCaps,
@@ -165,6 +167,9 @@ export const IPC = {
   remoteListDevices: 'remote:listDevices',
   remoteRevokeDevice: 'remote:revokeDevice',
   remotePairStart: 'remote:pairStart',
+  remoteSetApnsConfig: 'remote:setApnsConfig',
+  remoteGetApnsConfigStatus: 'remote:getApnsConfigStatus',
+  remoteClearApnsConfig: 'remote:clearApnsConfig',
   retroListRetros: 'retro:listRetros',
   retroListLearnings: 'retro:listLearnings',
   retroListBenchmarks: 'retro:listBenchmarks',
@@ -462,6 +467,11 @@ export interface VertragusApi {
     listDevices(): Promise<DeviceInfo[]>
     revokeDevice(deviceId: string): Promise<boolean>
     pairStart(request?: RemotePairStartRequest): Promise<PairingChallenge>
+    /** Desktop-only: persist encrypted APNs signing credentials for native iOS push. */
+    setApnsConfig(config: ApnsConfigInput): Promise<ApnsConfigStatus>
+    /** Non-secret APNs status; never returns the .p8 key. */
+    getApnsConfigStatus(): Promise<ApnsConfigStatus>
+    clearApnsConfig(): Promise<ApnsConfigStatus>
     onStatus(cb: (status: RemoteStatus) => void): () => void
   }
 

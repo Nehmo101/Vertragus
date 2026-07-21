@@ -540,6 +540,18 @@ export function registerIpcHandlers(): void {
     requireMainWindow(event)
     return remoteService.startPairing(request)
   })
+  ipcMain.handle(IPC.remoteSetApnsConfig, (event, config: unknown) => {
+    requireMainWindow(event)
+    return remoteService.setApnsConfig(config)
+  })
+  ipcMain.handle(IPC.remoteGetApnsConfigStatus, (event) => {
+    requireMainWindow(event)
+    return remoteService.getApnsConfigStatus()
+  })
+  ipcMain.handle(IPC.remoteClearApnsConfig, (event) => {
+    requireMainWindow(event)
+    return remoteService.clearApnsConfig()
+  })
 
   // ---- agents ----
   ipcMain.handle(IPC.agentsList, () => agentManager.list())

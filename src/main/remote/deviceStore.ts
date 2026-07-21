@@ -7,6 +7,8 @@ const CLOUDFLARE_KEY = 'secrets.remote.cloudflare'
 const PUSH_SUBSCRIPTIONS_KEY = 'secrets.remote.pushSubscriptions'
 const VAPID_KEY = 'secrets.remote.vapid'
 const ACCESS_KEY = 'secrets.remote.access'
+const APNS_TOKENS_KEY = 'secrets.remote.apnsTokens'
+const APNS_CREDENTIAL_KEY = 'secrets.remote.apns'
 
 export interface StoredDeviceRecord {
   id: string
@@ -38,6 +40,25 @@ export interface StoredPushSubscription {
 export interface StoredVapidKeys {
   publicKey: string
   privateKey: string
+}
+
+export interface StoredApnsToken {
+  id: string
+  deviceId: string
+  /** Hex APNs device token as registered by the native client. */
+  token: string
+  environment: 'sandbox' | 'production'
+  bundleId: string
+  createdAt: number
+}
+
+export interface StoredApnsCredential {
+  teamId: string
+  keyId: string
+  /** PEM-encoded `.p8` signing key. Encrypted at rest; never returned via public config. */
+  p8: string
+  bundleId: string
+  environment: 'sandbox' | 'production'
 }
 
 export interface StoredAccessConfig {
@@ -225,6 +246,79 @@ export function readVapidKeys(codec: SecretCodec = electronCodec): StoredVapidKe
 
 export function writeVapidKeys(keys: StoredVapidKeys, codec: SecretCodec = electronCodec): void {
   writeEncryptedJson(VAPID_KEY, keys, codec)
+}
+
+export function readApnsTokens(codec: SecretCodec = electronCodec): StoredApnsToken[] {
+  const value = readEncryptedJson<unknown>(APNS_TOKENS_KEY, codec)
+  if (!Array.isArray(value)) return []
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return []
+    const item = entry as Partial<StoredApnsToken>
+    if (
+      typeof item.id !== 'string' || typeof item.deviceId !== 'string' ||
+      typeof item.token !== 'string' || !/^[a-fA-F0-9]{64,200}$/.test(item.token) ||
+      (item.environment !== 'sandbox' && item.environment !== 'production') ||
+      typeof item.bundleId !== 'string' || !item.bundleId.trim() ||
+      typeof item.createdAt !== 'number'
+    ) return []
+    return [{
+      id: item.id, deviceId: item.deviceId, token: item.token,
+      environment: item.environment, bundleId: item.bundleId, createdAt: item.createdAt
+    }]
+  })
+}
+
+export function writeApnsTokens(tokens: StoredApnsToken[], codec: SecretCodec = electronCodec): void {
+  writeEncryptedJson(APNS_TOKENS_KEY, tokens, codec)
+}
+
+export function readApnsCredential(codec: SecretCodec = electronCodec): StoredApnsCredential | undefined {
+  const blob = getSetting<string>(APNS_CREDENTIAL_KEY)
+  if (!blob || !codec.available()) return undefined
+  try {
+    const value = JSON.parse(codec.decrypt(blob)) as Partial<StoredApnsCredential>
+    if (
+      typeof value.teamId !== 'string' || typeof value.keyId !== 'string' ||
+      typeof value.p8 !== 'string' || typeof value.bundleId !== 'string' ||
+      (value.environment !== 'sandbox' && value.environment !== 'production')
+    ) return undefined
+    const teamId = value.teamId.trim()
+    const keyId = value.keyId.trim()
+    const p8 = value.p8.trim()
+    const bundleId = value.bundleId.trim()
+    if (!teamId || !keyId || !p8 || !bundleId) return undefined
+    return { teamId, keyId, p8, bundleId, environment: value.environment }
+  } catch {
+    return undefined
+  }
+}
+
+export function writeApnsCredential(
+  credential: StoredApnsCredential,
+  codec: SecretCodec = electronCodec
+): void {
+  if (!codec.available()) {
+    throw new Error('Remote-Zugriff benötigt Electron safeStorage; Verschlüsselung ist nicht verfügbar.')
+  }
+  const teamId = credential.teamId.trim()
+  const keyId = credential.keyId.trim()
+  const p8 = credential.p8.trim()
+  const bundleId = credential.bundleId.trim()
+  const environment = credential.environment
+  if (!teamId || !keyId || !p8 || !bundleId) {
+    throw new Error('Team-ID, Key-ID, .p8-Schlüssel und Bundle-ID sind erforderlich.')
+  }
+  if (environment !== 'sandbox' && environment !== 'production') {
+    throw new Error('APNs-Umgebung muss sandbox oder production sein.')
+  }
+  if (teamId.length > 64 || keyId.length > 64 || bundleId.length > 200 || p8.length > 8192) {
+    throw new Error('APNs-Konfigurationswerte überschreiten die zulässige Länge.')
+  }
+  writeEncryptedJson(APNS_CREDENTIAL_KEY, { teamId, keyId, p8, bundleId, environment }, codec)
+}
+
+export function clearApnsCredential(): void {
+  setSetting(APNS_CREDENTIAL_KEY, undefined)
 }
 
 export function readAccessConfig(codec: SecretCodec = electronCodec): StoredAccessConfig | undefined {

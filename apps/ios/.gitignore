@@ -1,0 +1,14 @@
+# Xcode / build artifacts — the .xcodeproj is generated from project.yml via XcodeGen.
+MissionControl.xcodeproj/
+build/
+DerivedData/
+*.xcuserstate
+*.xcuserdatad/
+xcuserdata/
+.DS_Store
+*.ipa
+*.dSYM.zip
+*.dSYM
+# CocoaPods/SPM caches (unused today, guarded for the future)
+Pods/
+.swiftpm/

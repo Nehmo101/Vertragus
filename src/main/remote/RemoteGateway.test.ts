@@ -105,4 +105,58 @@ describe('RemoteGateway hardening', () => {
       await gateway.close()
     }
   })
+
+  it('registers native APNs tokens on /push/apns and rejects malformed ones', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'orca-apns-test-'))
+    directories.push(directory)
+    const auth = new DeviceAuth(new MemoryStore())
+    const apnsCalls: Array<{ deviceId: string; input: unknown }> = []
+    const pushService = {
+      subscribeApns: (deviceId: string, input: unknown) => { apnsCalls.push({ deviceId, input }) }
+    } as unknown as import('./pushService').PushService
+    const gateway = await startRemoteGateway({
+      auth,
+      readModel: new RemoteReadModel(new EventEmitter()),
+      audit: new RemoteAuditLog(join(directory, 'audit.jsonl')),
+      commands: new RemoteCommandRouter({
+        reviewPlan: vi.fn(), enableAutoMode: vi.fn(), reset: vi.fn(), submitGoal: vi.fn(),
+        approvePublication: vi.fn(), rejectPublication: vi.fn(), taskDiff: vi.fn(),
+        resolvePermission: vi.fn(), setBudgetCaps: vi.fn(), pauseTask: vi.fn(),
+        resumeTask: vi.fn(), fallbackTask: vi.fn(), replanPending: vi.fn(), activateKillSwitch: vi.fn()
+      }),
+      pushService
+    })
+    const pushDevice = auth.pair(auth.startPairing(
+      ['read', 'push'], undefined, { id: 'owner', displayName: 'Owner' },
+      [{ profileId: 'p', sessionIds: ['s'], allowGoalSubmit: false }]
+    ).code, 'Phone')!
+    const readOnly = auth.pair(auth.startPairing(
+      ['read'], undefined, { id: 'owner', displayName: 'Owner' }, []
+    ).code, 'Reader')!
+    const post = (token: string, body: unknown): Promise<Response> => fetch(`${gateway.origin}/push/apns`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body)
+    })
+    try {
+      const ok = await post(pushDevice.token, {
+        token: 'a'.repeat(64), environment: 'production', bundleId: 'com.example.App'
+      })
+      expect(ok.status).toBe(200)
+      expect(apnsCalls).toHaveLength(1)
+      expect(apnsCalls[0]!.input).toEqual({
+        token: 'a'.repeat(64), environment: 'production', bundleId: 'com.example.App'
+      })
+
+      const malformed = await post(pushDevice.token, { token: 'nothex', environment: 'production', bundleId: 'com.example.App' })
+      expect(malformed.status).toBe(400)
+
+      const forbidden = await post(readOnly.token, { token: 'b'.repeat(64), environment: 'sandbox', bundleId: 'com.example.App' })
+      expect(forbidden.status).toBe(403)
+
+      expect(apnsCalls).toHaveLength(1)
+    } finally {
+      await gateway.close()
+    }
+  })
 })
