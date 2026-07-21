@@ -21,6 +21,10 @@ win:
 mac:
   icon: build/icon.icns
   category: public.app-category.developer-tools
+  # @lydell/node-pty ships prebuilt per-arch packages; the darwin binaries are
+  # byte-identical across the x64 and arm64 sub-builds, which @electron/universal
+  # rejects unless declared here. node-pty picks the correct sub-binary at runtime.
+  x64ArchFiles: "**/@lydell/**"
   target:
     - target: dmg
       arch:
