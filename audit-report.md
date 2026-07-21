@@ -25,10 +25,19 @@ Vertragus is a structurally sound Electron desktop app (main / preload / rendere
 >
 > **Still required before release:** a manual smoke-test of the *packaged* app (`build:win`/`build:mac`/`build:linux` + launch), since the 10-major Electron jump can change runtime behavior that typecheck/unit-tests don't exercise, and Windows packaging (`electron-winstaller`) can't be validated on this Linux host.
 >
-> **Remaining (in progress / deliberate):**
-> - **A1/A2/A3/A5/A8 (god-class + store splits):** being done as behavior-preserving structural extractions, one module at a time, each verified against the full suite. **A5 (autoPr) in progress.**
-> - **D6** (ws/web-push/qrcode stay `optionalDependencies` — the remote feature degrades gracefully via guarded dynamic import) and **D7** (electron-store 8, zod 3 — no CVE; ESM/breaking-change migrations left as dedicated work).
-> - **L7** kept (`canvasSlots`'s `rectsOverlap` backs a live auto-layout test — the "dead" claim was only partly right).
+> **Architecture — done so far:** **A5** (autoPr split into gitPlumbing/ciMonitor/gates/prPublish/types — 1178 → 335 lines); **A2 partial** (`ScrollbackBuffer` extracted to its own file, re-exported); **A9 verified benign** (all four `src/shared` import cycles are `import type`-only, erased at compile time — no runtime impact; the project already handles them correctly, so structural elimination would be pure churn).
+>
+> **Remaining OPEN — blocked by the monthly API spend limit** (which killed the parallel refactor agents mid-run; the large splits can't be safely completed solo without risking a mid-refactor break of the green build):
+> - **A1** — split `Engine.ts` (3,998 lines) into cohesive modules.
+> - **A2 remainder** — extract the Cursor-trust monitor, resume-state sweep, and preflight bookkeeping from `AgentManager.ts` (1,741 lines).
+> - **A3** — slice the `useAppStore.ts` store (1,303 lines) into per-domain slice creators.
+> - **A8** — consolidate scattered provider behavior into a single descriptor.
+> - **A6/A7** — per-window PTY-broadcast fanout; per-window config mirror without change notification.
+> - **M5** — standardize the three IPC-validation styles onto the authorize+zod-parse controller pattern.
+> - **L5** (low value, mostly refuted) — move `orchestratorTraining.ts` out of `src/shared` into a fixtures location.
+> Each is a behavior-preserving structural refactor with no active bug; they should be done one module at a time, each verified against the full suite, when budget allows.
+>
+> **Deliberate (not bugs):** **D6** (ws/web-push/qrcode stay `optionalDependencies` — the remote feature degrades gracefully via guarded dynamic import); **D7** (electron-store 8, zod 3 — no CVE; ESM/breaking-change migrations left as dedicated work); **L7** kept (`canvasSlots`'s `rectsOverlap` backs a live auto-layout test).
 >
 > **A note on completeness:** the audit fan-out completed all 6 category scans, but the adversarial verification pass was cut off partway by an API monthly-spend limit. The **security, performance, and code-quality** findings below are **fully verified**. The **dependencies** and **architecture** findings, plus 8 **test-coverage** findings, reached the verifier but it could not run — those are in the *"Collected, not adversarially verified"* section, where I have manually spot-checked the objective claims (versions, line counts) against the repo and noted what remains unconfirmed.
 
