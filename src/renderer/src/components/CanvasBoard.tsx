@@ -69,8 +69,10 @@ function TerminalPeek({ agentId, name }: { agentId: string; name: string }): JSX
   useEffect(() => {
     let live = true
     const refresh = (): void => {
+      // The peek shows only 6×60 chars; fetch a small tail so the 1.2s poll never
+      // serializes the full ~200 KB scrollback over IPC per visible node.
       void window.vertragus.agents
-        .buffer(agentId)
+        .bufferTail(agentId, 4_000)
         .then((snapshot) => {
           if (live) setLines(terminalTail(snapshot.data, 6, 60))
         })

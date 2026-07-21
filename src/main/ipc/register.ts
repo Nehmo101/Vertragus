@@ -8,7 +8,7 @@ import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { IPC, type AppInfo } from '@shared/ipc'
 import { assertValidConfigKey } from '@shared/ipcValidation'
-import type { BulkHandoffRequest, HandoffRequest, SpawnAgentRequest, VertragusEvent } from '@shared/agents'
+import type { AgentInstanceInfo, BulkHandoffRequest, HandoffRequest, SpawnAgentRequest, VertragusEvent } from '@shared/agents'
 import type { OrchestratorSnapshot } from '@shared/orchestrator'
 import type { RemoteBudgetCaps } from '@shared/remote'
 import type { ProviderId } from '@shared/providers'
@@ -171,6 +171,34 @@ function recordDiagnostic(
     console.warn('[Diagnostics] run journal write failed', error)
   }
 }
+
+// Consistent handling for a profileId that resolves to no profile. Mutations
+// throw (a deleted-profile race is a real error the renderer can surface),
+// distinguishing it from a legitimate false/decline returned by the engine; the
+// read-only snapshot handler stays lenient. Mirrors the remote path's requireProfile.
+function requireProfile(profileId: string): WorkspaceProfile {
+  const profile = getProfile(profileId)
+  if (!profile) throw new Error('Workspace-Profil nicht gefunden.')
+  return profile
+}
+
+// Orchestrator snapshots are emitted up to ~1/s per running task, dominated by
+// output/usage ticks that do not change task state. Journaling every one meant a
+// full recursive redaction walk + write per tick. Instead journal only when the
+// meaningful state actually transitions (task set/status, pending plan/approvals/
+// permissions, budget-exceeded), which is all the run history needs to capture.
+function orchestratorSnapshotSignature(snap: OrchestratorSnapshot): string {
+  const tasks = (snap.tasks ?? []).map((task) => `${task.id}:${task.status}`).join(',')
+  return [
+    tasks,
+    `plan:${snap.pendingPlan?.planId ?? ''}:${snap.pendingPlan?.rejected ?? ''}`,
+    `appr:${snap.pendingApprovals?.length ?? 0}`,
+    `perm:${(snap.pendingPermissions ?? []).map((p) => p.id).join('+')}`,
+    `budget:${snap.budget?.exceeded ?? false}`,
+    `goal:${snap.goal ? 'set' : 'none'}`
+  ].join('|')
+}
+const lastJournaledSnapshotSig = new Map<string, string>()
 async function normalizeDirectory(raw: string, label: string): Promise<string> {
   const directory = resolve(raw.trim())
   try {
@@ -278,6 +306,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.providersHealth, () => checkAllProviders())
   ipcMain.handle(IPC.providersCapacity, () => providerCapacity.statsAll())
   ipcMain.handle(IPC.diagnosticsExportLatest, async (e, profileId: string) => {
+    await runJournal.flush()
     const latest = runJournal.list(String(profileId ?? ''))[0]
     if (!latest) return null
     const result = await saveRunDialog(
@@ -347,9 +376,10 @@ export function registerIpcHandlers(): void {
     const effectiveWorkingDir = profileRepoLocalPath({ workingDir, githubRepo }) || workingDir
     return saveProfile({ ...profile, workingDir: effectiveWorkingDir, githubRepo, agents })
   })
-  ipcMain.handle(IPC.profileGenerateForRepo, (_e, req: RepoProfileGenerationRequest) =>
-    generateProfileForRepo(req)
-  )
+  ipcMain.handle(IPC.profileGenerateForRepo, (e, req: RepoProfileGenerationRequest) => {
+    assertNotVoiceWindow(e)
+    return generateProfileForRepo(req)
+  })
   ipcMain.handle(IPC.profileDelete, (e, id: unknown) =>
     profileDeletionController.delete(e, id)
   )
@@ -397,18 +427,25 @@ export function registerIpcHandlers(): void {
 
   // ---- external MCP servers ----
   ipcMain.handle(IPC.mcpList, () => listMcpServers())
-  ipcMain.handle(IPC.mcpSave, (_e, servers: McpServerConfig[]) => saveMcpServers(servers))
+  // mcpSave persists an arbitrary stdio command that is launched on the next agent
+  // spawn — a code-execution primitive that must never be reachable from the voice overlay.
+  ipcMain.handle(IPC.mcpSave, (e, servers: McpServerConfig[]) => {
+    assertNotVoiceWindow(e)
+    return saveMcpServers(servers)
+  })
 
   // ---- git ----
-  ipcMain.handle(IPC.gitSwitchBranch, (_e, dir: string, branch: string) =>
-    switchBranch(dir, branch)
-  )
+  ipcMain.handle(IPC.gitSwitchBranch, (e, dir: string, branch: string) => {
+    assertNotVoiceWindow(e)
+    return switchBranch(dir, branch)
+  })
   ipcMain.handle(IPC.gitInfo, (_e, dir: string) => gitInfo(dir))
   ipcMain.handle(IPC.githubProjects, (_e, dir: string, owner?: string) =>
     listGithubProjects(dir, owner)
   )
   ipcMain.handle(IPC.githubAuthStatus, () => githubAuthStatus())
-  ipcMain.handle(IPC.githubAuthLogin, async () => {
+  ipcMain.handle(IPC.githubAuthLogin, async (e) => {
+    assertNotVoiceWindow(e)
     const status = await githubAuthLogin({
       useTerminalLogin: async () => {
         const info = await agentManager.loginProvider('github')
@@ -420,20 +457,25 @@ export function registerIpcHandlers(): void {
       .catch((error) => console.warn('[GitHub] refresh after login failed', error))
     return status
   })
-  ipcMain.handle(IPC.githubAuthLogout, async () => {
+  ipcMain.handle(IPC.githubAuthLogout, async (e) => {
+    assertNotVoiceWindow(e)
     const status = await githubAuthLogout()
     void checkAllProviders()
       .then((health) => broadcast(IPC.evProvidersHealth, health))
       .catch((error) => console.warn('[GitHub] refresh after logout failed', error))
     return status
   })
-  ipcMain.handle(IPC.githubRepoSearch, (_e, query: string, limit?: number) =>
-    searchGithubRepos(query, limit)
-  )
+  ipcMain.handle(IPC.githubRepoSearch, (e, query: string, limit?: number) => {
+    assertNotVoiceWindow(e)
+    return searchGithubRepos(query, limit)
+  })
   ipcMain.handle(IPC.githubRepoResolve, (_e, owner: string, repo: string) =>
     resolveGithubRepo(owner, repo)
   )
-  ipcMain.handle(IPC.githubRepoBind, (_e, req: GithubRepoBindRequest) => bindGithubRepo(req))
+  ipcMain.handle(IPC.githubRepoBind, (e, req: GithubRepoBindRequest) => {
+    assertNotVoiceWindow(e)
+    return bindGithubRepo(req)
+  })
   ipcMain.handle(IPC.githubRepoCheckLocal, (_e, owner: string, repo: string, localPath: string) =>
     checkGithubRepoLocal(owner, repo, localPath)
   )
@@ -602,6 +644,9 @@ export function registerIpcHandlers(): void {
     else workspaceSessions.remove(profileId)
   })
   ipcMain.handle(IPC.agentBuffer, (_e, id: string) => agentManager.buffer(id))
+  ipcMain.handle(IPC.agentBufferTail, (_e, id: string, maxChars: number) =>
+    agentManager.bufferTail(id, maxChars)
+  )
   ipcMain.handle(IPC.agentPopout, (e, id: string) => {
     assertNotVoiceWindow(e)
     createPaneWindow(id)
@@ -622,35 +667,31 @@ export function registerIpcHandlers(): void {
       ? workspaceSessions.snapshot(profile, workspaceSessionId)
       : { profileId, workspaceSessionId, goal: null, tasks: [] }
   })
-  ipcMain.handle(IPC.orchestratorReset, (_e, profileId: string, workspaceSessionId?: string) => {
-    const profile = getProfile(profileId)
-    if (profile) workspaceSessions.reset(profile, workspaceSessionId)
+  ipcMain.handle(IPC.orchestratorReset, (e, profileId: string, workspaceSessionId?: string) => {
+    assertNotVoiceWindow(e)
+    workspaceSessions.reset(requireProfile(profileId), workspaceSessionId)
   })
-  ipcMain.handle(IPC.orchestratorEnableAutoMode, (_e, profileId: string, workspaceSessionId?: string) => {
-    const profile = getProfile(profileId)
-    return profile
-      ? workspaceSessions.enableAutoMode(profile, workspaceSessionId)
-      : false
+  ipcMain.handle(IPC.orchestratorEnableAutoMode, (e, profileId: string, workspaceSessionId?: string) => {
+    assertNotVoiceWindow(e)
+    return workspaceSessions.enableAutoMode(requireProfile(profileId), workspaceSessionId)
   })
   ipcMain.handle(
     IPC.orchestratorSetPlannerMode,
-    (_e, profileId: string, mode: WorkspaceProfile['planner']['mode'], workspaceSessionId?: string) => {
-      const profile = getProfile(profileId)
-      if (!profile) return false
+    (e, profileId: string, mode: WorkspaceProfile['planner']['mode'], workspaceSessionId?: string) => {
+      assertNotVoiceWindow(e)
       if (mode !== 'auto' && mode !== 'review' && mode !== 'manual') {
         throw new Error(`Unbekannter Planungsmodus: ${String(mode)}`)
       }
-      return workspaceSessions.setPlannerMode(profile, mode, workspaceSessionId)
+      return workspaceSessions.setPlannerMode(requireProfile(profileId), mode, workspaceSessionId)
     }
   )
-  ipcMain.handle(IPC.orchestratorSetYoloMaster, (_e, enabled: boolean) =>
-    workspaceSessions.setYoloMaster(Boolean(enabled))
-  )
-  ipcMain.handle(IPC.orchestratorReviewPlan, (_e, profileId: string, approved: boolean, workspaceSessionId?: string) => {
-    const profile = getProfile(profileId)
-    return profile
-      ? workspaceSessions.reviewPlan(profile, Boolean(approved), workspaceSessionId)
-      : false
+  ipcMain.handle(IPC.orchestratorSetYoloMaster, (e, enabled: boolean) => {
+    assertNotVoiceWindow(e)
+    return workspaceSessions.setYoloMaster(Boolean(enabled))
+  })
+  ipcMain.handle(IPC.orchestratorReviewPlan, (e, profileId: string, approved: boolean, workspaceSessionId?: string) => {
+    assertNotVoiceWindow(e)
+    return workspaceSessions.reviewPlan(requireProfile(profileId), Boolean(approved), workspaceSessionId)
   })
   ipcMain.handle(IPC.orchestratorTaskDiff, async (_e, profileId: string, taskId: string, workspaceSessionId?: string) => {
     const profile = getProfile(profileId)
@@ -663,31 +704,32 @@ export function registerIpcHandlers(): void {
   })
   ipcMain.handle(
     IPC.orchestratorApprovePublication,
-    (_e, profileId: string, workspaceSessionId: string, planId?: string) => {
-      const profile = getProfile(profileId)
-      return profile ? workspaceSessions.approvePublication(profile, planId, workspaceSessionId) : false
+    (e, profileId: string, workspaceSessionId: string, planId?: string) => {
+      assertNotVoiceWindow(e)
+      return workspaceSessions.approvePublication(requireProfile(profileId), planId, workspaceSessionId)
     }
   )
   ipcMain.handle(
     IPC.orchestratorRejectPublication,
-    (_e, profileId: string, workspaceSessionId: string, planId?: string) => {
-      const profile = getProfile(profileId)
-      return profile ? workspaceSessions.rejectPublication(profile, planId, workspaceSessionId) : false
+    (e, profileId: string, workspaceSessionId: string, planId?: string) => {
+      assertNotVoiceWindow(e)
+      return workspaceSessions.rejectPublication(requireProfile(profileId), planId, workspaceSessionId)
     }
   )
   ipcMain.handle(
     IPC.orchestratorResolvePermission,
-    (_e, profileId: string, workspaceSessionId: string, permissionId: string, allow: boolean) => {
-      const profile = getProfile(profileId)
-      if (!profile || !/^[0-9a-f-]{36}$/i.test(permissionId)) return false
+    (e, profileId: string, workspaceSessionId: string, permissionId: string, allow: boolean) => {
+      assertNotVoiceWindow(e)
+      const profile = requireProfile(profileId)
+      if (!/^[0-9a-f-]{36}$/i.test(permissionId)) return false
       return workspaceSessions.resolvePermission(profile, permissionId, Boolean(allow), workspaceSessionId)
     }
   )
   ipcMain.handle(
     IPC.orchestratorSetBudgetCaps,
-    (_e, profileId: string, workspaceSessionId: string, caps: RemoteBudgetCaps) => {
-      const profile = getProfile(profileId)
-      if (!profile) throw new Error('Workspace-Profil nicht gefunden.')
+    (e, profileId: string, workspaceSessionId: string, caps: RemoteBudgetCaps) => {
+      assertNotVoiceWindow(e)
+      const profile = requireProfile(profileId)
       const maxTokens = caps?.maxTokens
       const maxCostUsd = caps?.maxCostUsd
       if (
@@ -699,32 +741,30 @@ export function registerIpcHandlers(): void {
   )
   ipcMain.handle(
     IPC.orchestratorPauseTask,
-    (_e, profileId: string, workspaceSessionId: string, taskId: string) => {
-      const profile = getProfile(profileId)
-      return profile ? workspaceSessions.pauseTask(profile, taskId, workspaceSessionId) : false
+    (e, profileId: string, workspaceSessionId: string, taskId: string) => {
+      assertNotVoiceWindow(e)
+      return workspaceSessions.pauseTask(requireProfile(profileId), taskId, workspaceSessionId)
     }
   )
   ipcMain.handle(
     IPC.orchestratorResumeTask,
-    (_e, profileId: string, workspaceSessionId: string, taskId: string) => {
-      const profile = getProfile(profileId)
-      return profile ? workspaceSessions.resumeTask(profile, taskId, workspaceSessionId) : false
+    (e, profileId: string, workspaceSessionId: string, taskId: string) => {
+      assertNotVoiceWindow(e)
+      return workspaceSessions.resumeTask(requireProfile(profileId), taskId, workspaceSessionId)
     }
   )
   ipcMain.handle(
     IPC.orchestratorResumeInterruptedTask,
-    (_e, profileId: string, workspaceSessionId: string, taskId: string) => {
-      const profile = getProfile(profileId)
-      return profile
-        ? workspaceSessions.resumeInterruptedTask(profile, taskId, workspaceSessionId)
-        : false
+    (e, profileId: string, workspaceSessionId: string, taskId: string) => {
+      assertNotVoiceWindow(e)
+      return workspaceSessions.resumeInterruptedTask(requireProfile(profileId), taskId, workspaceSessionId)
     }
   )
   ipcMain.handle(
     IPC.orchestratorFallbackTask,
-    (_e, profileId: string, workspaceSessionId: string, taskId: string) => {
-      const profile = getProfile(profileId)
-      return profile ? workspaceSessions.fallbackTask(profile, taskId, workspaceSessionId) : false
+    (e, profileId: string, workspaceSessionId: string, taskId: string) => {
+      assertNotVoiceWindow(e)
+      return workspaceSessions.fallbackTask(requireProfile(profileId), taskId, workspaceSessionId)
     }
   )
   // Canvas composer → seed a free-text message to the session's orchestrator agent.
@@ -824,7 +864,20 @@ export function registerIpcHandlers(): void {
 
   // ---- push events: agent output / state / dispatch feed ----
   agentManager.on('data', (chunk) => broadcast(IPC.evAgentData, chunk))
-  agentManager.on('changed', (list) => broadcast(IPC.evAgentsChanged, list))
+  // changed() fires per usage snapshot / status flip / permission transition —
+  // bursty during active runs. Coalesce to one trailing broadcast so the full
+  // agent list isn't re-serialized to every window on every sub-second tick.
+  let agentsChangedTimer: ReturnType<typeof setTimeout> | undefined
+  let latestAgentList: AgentInstanceInfo[] = []
+  agentManager.on('changed', (list: AgentInstanceInfo[]) => {
+    latestAgentList = list
+    if (agentsChangedTimer) return
+    agentsChangedTimer = setTimeout(() => {
+      agentsChangedTimer = undefined
+      broadcast(IPC.evAgentsChanged, latestAgentList)
+    }, 120)
+    agentsChangedTimer.unref?.()
+  })
   agentManager.on('event', (evt: VertragusEvent) => {
     recordDiagnostic(runJournal, {
       kind: 'agent-event',
@@ -842,12 +895,17 @@ export function registerIpcHandlers(): void {
     if (snap.workspaceSessionId) {
       agentManager.setWorkspaceApprovalWaiting(snap.workspaceSessionId, Boolean(snap.pendingPlan))
     }
-    recordDiagnostic(runJournal, {
-      kind: 'orchestrator-snapshot',
-      profileId: snap.profileId,
-      workspaceSessionId: snap.workspaceSessionId,
-      payload: snap
-    })
+    const journalKey = snap.workspaceSessionId ?? snap.profileId ?? 'app'
+    const signature = orchestratorSnapshotSignature(snap)
+    if (lastJournaledSnapshotSig.get(journalKey) !== signature) {
+      lastJournaledSnapshotSig.set(journalKey, signature)
+      recordDiagnostic(runJournal, {
+        kind: 'orchestrator-snapshot',
+        profileId: snap.profileId,
+        workspaceSessionId: snap.workspaceSessionId,
+        payload: snap
+      })
+    }
     broadcast(IPC.evOrchestrator, snap)
   })
   remoteService.on('status', (status) => broadcast(IPC.evRemote, status))

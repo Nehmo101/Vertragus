@@ -9,11 +9,19 @@
   ],
   "compilerOptions": {
     "composite": true,
-    "types": ["electron-vite/node", "node"],
+    "types": [
+      "electron-vite/node",
+      "node"
+    ],
     "baseUrl": ".",
     "paths": {
-      "@main/*": ["src/main/*"],
-      "@shared/*": ["src/shared/*"]
-    }
+      "@main/*": [
+        "src/main/*"
+      ],
+      "@shared/*": [
+        "src/shared/*"
+      ]
+    },
+    "moduleResolution": "bundler"
   }
 }

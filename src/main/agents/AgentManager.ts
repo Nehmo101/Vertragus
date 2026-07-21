@@ -48,6 +48,7 @@ import {
   runPanePreflight,
   type PanePreflightInput
 } from '@main/agents/panePreflight'
+import { BUFFER_LIMIT, ScrollbackBuffer } from '@main/agents/scrollbackBuffer'
 import {
   cursorWorkspaceTrustPrompt,
   isExactOrcaWorktreePath
@@ -81,11 +82,19 @@ import { agentIdentityInstruction, isReusableTeamMember } from '@main/agents/tea
 import { closePaneWindows } from '@main/windows'
 import { permissionBroker } from '@main/permissions/PermissionBroker'
 
-const BUFFER_LIMIT = 200_000 // chars of scrollback kept per agent
+// Cursor's interactive trust screen fits in a few KB and is only on-screen at
+// startup; scanning a bounded tail (not the whole 200 KB buffer on every chunk)
+// keeps the per-chunk trust check cheap.
+const CURSOR_TRUST_SCAN_CHARS = 8_000
 const CURSOR_TRUST_RETRY_DELAY_MS = 150
 const CURSOR_TRUST_MAX_RETRIES = 3
 const CURSOR_TRUST_WATCHDOG_MS = 8_000
 const HANDOFF_SHUTDOWN_TIMEOUT_MS = 5_000
+
+// ScrollbackBuffer + BUFFER_LIMIT now live in ./scrollbackBuffer (extracted for
+// independent testing); re-exported so the `@main/agents/AgentManager` import
+// surface used by tests stays unchanged.
+export { ScrollbackBuffer }
 
 type SpawnRequest = SpawnAgentRequest & { permissionMode?: ClaudePermissionMode }
 
@@ -93,7 +102,7 @@ interface Managed {
   info: AgentInstanceInfo
   pty?: pty.IPty
   headless?: HeadlessHandle
-  buffer: string
+  buffer: ScrollbackBuffer
   seq: number
   /** True once a usage-limit signal fired for this agent (debounce). */
   limitWarned?: boolean
@@ -223,7 +232,14 @@ export class AgentManager extends EventEmitter {
 
   buffer(id: string): { data: string; seq: number } {
     const m = this.agents.get(id)
-    return { data: m?.buffer ?? '', seq: m?.seq ?? 0 }
+    return { data: m ? m.buffer.toString() : '', seq: m?.seq ?? 0 }
+  }
+
+  /** Last `maxChars` of scrollback, sliced in-process to keep IPC payloads small. */
+  bufferTail(id: string, maxChars: number): { data: string; seq: number } {
+    const m = this.agents.get(id)
+    const cap = Number.isFinite(maxChars) && maxChars > 0 ? Math.min(maxChars, BUFFER_LIMIT) : 4_000
+    return { data: m ? m.buffer.tail(cap) : '', seq: m?.seq ?? 0 }
   }
 
   private emitEvent(
@@ -512,7 +528,7 @@ export class AgentManager extends EventEmitter {
 
 
   private pushData(managed: Managed, data: string): void {
-    managed.buffer = (managed.buffer + data).slice(-BUFFER_LIMIT)
+    managed.buffer.append(data)
     managed.seq += 1
     this.emit('data', { id: managed.info.id, data, seq: managed.seq })
     this.inspectPermissionPrompt(managed)
@@ -539,7 +555,7 @@ export class AgentManager extends EventEmitter {
       workspaceSessionId: info.workspaceSessionId,
       engineId: info.engineId,
       yolo: Boolean(info.yolo)
-    }, stripAnsi(managed.buffer.slice(-2_000)), (response) => {
+    }, stripAnsi(managed.buffer.tail(2_000)), (response) => {
       const current = this.agents.get(info.id)
       if (!current?.pty) return
       if (current.info.status === 'waiting') current.info.status = 'running'
@@ -569,7 +585,7 @@ export class AgentManager extends EventEmitter {
   }
 
   private cursorTrustProgressVisible(managed: Managed): boolean {
-    const tail = stripAnsi(managed.buffer.slice(-800)).replace(/\r/g, '\n').trimEnd()
+    const tail = stripAnsi(managed.buffer.tail(800)).replace(/\r/g, '\n').trimEnd()
     return /Trusting workspace(?:\.{3})?\s*$/i.test(tail)
   }
 
@@ -623,7 +639,7 @@ export class AgentManager extends EventEmitter {
     const { info } = managed
     if (info.provider !== 'cursor' || !managed.pty) return
     const prompt = cursorWorkspaceTrustPrompt({
-      output: managed.buffer,
+      output: managed.buffer.tail(CURSOR_TRUST_SCAN_CHARS),
       workingDir: info.workingDir,
       worktree: info.worktree,
       alreadyHandled: Boolean(managed.workspaceTrustHandled),
@@ -651,7 +667,7 @@ export class AgentManager extends EventEmitter {
     // but only executable agent providers can emit model usage-limit signals.
     if (managed.info.provider === 'github' || managed.info.provider === 'cloudflare') return
     // Match against a short tail so phrases split across chunks are still caught.
-    const hit = detectLimit(managed.info.provider, managed.buffer.slice(-2000))
+    const hit = detectLimit(managed.info.provider, managed.buffer.tail(2000))
     if (!hit) return
     managed.limitWarned = true
     managed.info.limitWarning = { kind: hit.kind, detectedAt: Date.now(), note: hit.note }
@@ -747,7 +763,7 @@ export class AgentManager extends EventEmitter {
       status: 'running',
       startedAt: Date.now()
     }
-    const managed: Managed = { info, buffer: '', seq: 0, capacityProvider: req.provider }
+    const managed: Managed = { info, buffer: new ScrollbackBuffer(), seq: 0, capacityProvider: req.provider }
     capacityHeld = false
     this.agents.set(id, managed)
     if (req.teamRole) {
@@ -805,7 +821,7 @@ export class AgentManager extends EventEmitter {
       else this.releaseCapacity(managed)
       info.status = 'error'
       const msg = err instanceof Error ? err.message : String(err)
-      managed.buffer = `Spawn fehlgeschlagen: ${msg}\r\n`
+      managed.buffer.reset(`Spawn fehlgeschlagen: ${msg}\r\n`)
       this.emitEvent(`${id} Spawn fehlgeschlagen: ${msg}`, 'error', info)
     }
 
@@ -876,7 +892,7 @@ export class AgentManager extends EventEmitter {
         targetName: target.name,
         task: req.task,
         summary: req.summary,
-        scrollback: src.buffer,
+        scrollback: src.buffer.toString(),
         scrollbackChars: getSetting<number>('handoff.scrollbackChars'),
         timestamp: at
       })
@@ -1020,7 +1036,7 @@ export class AgentManager extends EventEmitter {
       status: 'running',
       startedAt: Date.now()
     }
-    const managed: Managed = { info, buffer: '', seq: 0 }
+    const managed: Managed = { info, buffer: new ScrollbackBuffer(), seq: 0 }
     this.agents.set(id, managed)
     this.pushData(
       managed,
@@ -1161,7 +1177,7 @@ export class AgentManager extends EventEmitter {
         status: 'running',
         startedAt: Date.now()
       }
-      managed = { info, buffer: '', seq: 0 }
+      managed = { info, buffer: new ScrollbackBuffer(), seq: 0 }
       this.agents.set(id, managed)
       this.pushData(
         managed,
@@ -1365,7 +1381,7 @@ export class AgentManager extends EventEmitter {
       () => {
         const managed = this.agents.get(id)
         return {
-          buffer: managed?.buffer ?? '',
+          buffer: managed ? managed.buffer.toString() : '',
           alive: managed ? this.isAlive(managed) : false
         }
       },
@@ -1507,7 +1523,7 @@ export class AgentManager extends EventEmitter {
       const sessionId = managed.info.workspaceSessionId
       if (!sessionId) continue
       const states = bySession.get(sessionId) ?? []
-      states.push(buildAgentResumeState(managed.info, managed.buffer, capturedAt))
+      states.push(buildAgentResumeState(managed.info, managed.buffer.toString(), capturedAt))
       bySession.set(sessionId, states)
     }
     for (const [sessionId, agents] of bySession) {

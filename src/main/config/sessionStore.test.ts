@@ -61,39 +61,67 @@ afterEach(() => {
 })
 
 describe('SessionStore', () => {
-  it('round-trips snapshots without leaving temp files behind', () => {
+  it('round-trips snapshots without leaving temp files behind', async () => {
     const store = tempStore()
     const key = orchestratorSnapshotKey('default', 'session-1')
     store.writeSnapshot(key, snapshot())
     store.writeSnapshot(key, snapshot({ goal: { id: 'goal-2', title: 'Neu', active: false } }))
 
+    // Latest write is observable immediately, before the async queue drains.
+    expect(store.readSnapshot(key)?.goal?.id).toBe('goal-2')
+
+    await store.whenIdle()
+
+    // And it is durable on disk once the queue is idle, with no temp left over.
     expect(store.readSnapshot(key)?.goal?.id).toBe('goal-2')
     expect(readdirSync(dirs[0]!).filter((name) => name.endsWith('.tmp'))).toEqual([])
   })
 
-  it('refuses a file whose embedded key does not match (sanitize collision)', () => {
+  it('serializes racing writes to one key with last-write-wins', async () => {
+    const store = tempStore()
+    const key = orchestratorSnapshotKey('default', 'session-1')
+    // Fire a burst without awaiting between them: they coalesce onto one chain.
+    for (let i = 1; i <= 5; i += 1) {
+      store.writeSnapshot(key, snapshot({ goal: { id: `goal-${i}`, title: `T${i}`, active: true } }))
+    }
+
+    await store.whenIdle()
+
+    const raw = readdirSync(dirs[0]!)
+    expect(raw.filter((name) => name.endsWith('.tmp'))).toEqual([])
+    // Exactly one snapshot file remains, and it holds the final payload.
+    expect(raw.filter((name) => name.endsWith('.json'))).toHaveLength(1)
+    expect(store.readSnapshot(key)?.goal?.id).toBe('goal-5')
+  })
+
+  it('refuses a file whose embedded key does not match (sanitize collision)', async () => {
     const store = tempStore()
     // 'a:b' and 'a_b' sanitize to the same file name.
     store.writeSnapshot('orchestratorSnapshot:a_b', snapshot())
+    await store.whenIdle()
     expect(store.readSnapshot('orchestratorSnapshot:a:b')).toBeUndefined()
     expect(store.readSnapshot('orchestratorSnapshot:a_b')).toBeDefined()
   })
 
-  it('indexes sessions sorted by startedAt and removes their snapshots with the entry', () => {
+  it('indexes sessions sorted by startedAt and removes their snapshots with the entry', async () => {
     const store = tempStore()
     const second = entry({ id: 'session-2', startedAt: 200, snapshotKey: orchestratorSnapshotKey('default', 'session-2') })
     store.upsertSession(second)
     store.upsertSession(entry())
     store.writeSnapshot(second.snapshotKey, snapshot())
+    await store.whenIdle()
 
     expect(store.listSessions().map((session) => session.id)).toEqual(['session-1', 'session-2'])
 
     store.removeSession('session-2')
+    await store.whenIdle()
     expect(store.listSessions().map((session) => session.id)).toEqual(['session-1'])
     expect(store.readSnapshot(second.snapshotKey)).toBeUndefined()
+    // The removed session's snapshot file is gone from disk, not just the cache.
+    expect(readdirSync(dirs[0]!).some((name) => name.includes('session-2'))).toBe(false)
   })
 
-  it('stores agent resume states per session and removes them with the session', () => {
+  it('stores agent resume states per session and removes them with the session', async () => {
     const store = tempStore()
     const state = {
       info: { id: 'codex-01' },
@@ -102,6 +130,7 @@ describe('SessionStore', () => {
     } as never
     store.upsertSession(entry())
     store.writeAgentResumeStates('session-1', [state])
+    await store.whenIdle()
 
     expect(store.readAgentResumeStates('session-1')).toEqual([
       expect.objectContaining({ scrollbackTail: 'letzter Stand' })
@@ -109,6 +138,7 @@ describe('SessionStore', () => {
     expect(store.readAgentResumeStates('andere-session')).toEqual([])
 
     store.removeSession('session-1')
+    await store.whenIdle()
     expect(store.readAgentResumeStates('session-1')).toEqual([])
   })
 
@@ -141,7 +171,7 @@ describe('SessionStore', () => {
 })
 
 describe('migrateLegacySettingsSnapshots', () => {
-  it('moves settings-bag snapshots into files and indexes fully qualified sessions', () => {
+  it('moves settings-bag snapshots into files and indexes fully qualified sessions', async () => {
     const store = tempStore()
     const qualified = orchestratorSnapshotKey('default', 'session-legacy')
     settings.set(qualified, snapshot())
@@ -150,6 +180,7 @@ describe('migrateLegacySettingsSnapshots', () => {
     settings.set('unrelated', 42)
 
     expect(migrateLegacySettingsSnapshots(store)).toBe(2)
+    await store.whenIdle()
 
     expect(store.readSnapshot(qualified)?.goal?.id).toBe('goal-1')
     expect(store.readSnapshot(orchestratorSnapshotKey('default'))).toBeDefined()
@@ -160,7 +191,7 @@ describe('migrateLegacySettingsSnapshots', () => {
     expect([...settings.keys()]).toEqual(['unrelated'])
   })
 
-  it('does not index empty legacy sessions', () => {
+  it('does not index empty legacy sessions', async () => {
     const store = tempStore()
     settings.set(
       orchestratorSnapshotKey('default', 'session-empty'),
@@ -168,6 +199,7 @@ describe('migrateLegacySettingsSnapshots', () => {
     )
 
     expect(migrateLegacySettingsSnapshots(store)).toBe(1)
+    await store.whenIdle()
     expect(store.listSessions()).toEqual([])
   })
 })

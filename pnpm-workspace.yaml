@@ -19,4 +19,13 @@ supportedArchitectures:
 # These packages run install/build scripts (Electron binary download, esbuild).
 allowBuilds:
   electron: true
+  # Windows-only installer tooling (electron-builder 26); its install scripts are
+  # only needed on a Windows packaging host, so disabled for cross-platform installs.
+  electron-winstaller: false
   esbuild: true
+
+# Force transitively-pulled dev tooling (e.g. vitest's bundled vite/esbuild) to
+# patched versions that clear dev-server advisories (GHSA vite fs.deny / esbuild).
+overrides:
+  vite: '>=6.4.3'
+  esbuild: '>=0.25.0'

@@ -37,12 +37,16 @@ type TaskWithTelemetry = OrcaTask & {
   lastAction?: string
 }
 
-function useClock(): number {
+// Ticks once per second only while there is active work to time (running/waiting
+// agents). When idle the interval is torn down, so the panel no longer re-renders
+// every second just to advance clocks nobody is watching.
+function useClock(active: boolean): number {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
+    if (!active) return
     const t = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(t)
-  }, [])
+  }, [active])
   return now
 }
 
@@ -343,7 +347,10 @@ function OrchestratorPanelContent({
   const { t } = useTranslation()
   const store = useAppStore()
   const [autoModeBusy, setAutoModeBusy] = useState(false)
-  const now = useClock()
+  const hasActiveWork = store.agents.some(
+    (agent) => agent.status === 'running' || agent.status === 'waiting'
+  )
+  const now = useClock(hasActiveWork)
   const profile = activeProfile(store)
   const wsAgents = workspaceAgents(store)
   const orch = wsAgents.find((agent) => agent.kind === 'orchestrator')

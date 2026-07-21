@@ -137,6 +137,24 @@ function requestHost(req: IncomingMessage): string | undefined {
   }
 }
 
+// Rate-limit key for a pairing attempt. The gateway binds to 127.0.0.1 only and
+// the sole internet ingress is the Cloudflare tunnel, so `req.socket.remoteAddress`
+// is always 127.0.0.1 for real remote clients — keying on it would put every
+// internet client (and the owner) in one shared bucket, letting an attacker lock
+// the owner out of pairing. Cloudflare overwrites `cf-connecting-ip` with the
+// edge-observed client IP (a client cannot spoof it through the tunnel), so prefer
+// it, then the first `x-forwarded-for` hop, and only fall back to the socket
+// address for genuinely local (non-tunneled) requests.
+function pairingClientKey(req: IncomingMessage): string {
+  const cf = req.headers['cf-connecting-ip']
+  if (typeof cf === 'string' && cf.trim()) return `cf:${cf.trim()}`
+  const xff = req.headers['x-forwarded-for']
+  const forwarded = Array.isArray(xff) ? xff[0] : xff
+  const firstHop = forwarded?.split(',')[0]?.trim()
+  if (firstHop) return `xff:${firstHop}`
+  return `ip:${req.socket.remoteAddress ?? 'unknown'}`
+}
+
 function sseFrame(frame: RemoteEventFrame): string {
   return `event: ${frame.type}\ndata: ${JSON.stringify(frame)}\n\n`
 }
@@ -250,7 +268,7 @@ export async function startRemoteGateway(options: GatewayOptions): Promise<Remot
       return
     }
     if (url.pathname === '/pair' && req.method === 'POST') {
-      const remoteKey = req.socket.remoteAddress ?? 'unknown'
+      const remoteKey = pairingClientKey(req)
       if (!pairLimiter.consume(remoteKey)) throw new HttpError(429, 'Too many pairing attempts.')
       const parsed = pairSchema.safeParse(await readJson(req, REMOTE_PAIR_BODY_CAP))
       if (!parsed.success) throw new HttpError(400, 'Invalid pairing request.')

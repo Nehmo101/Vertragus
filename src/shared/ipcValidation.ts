@@ -18,6 +18,14 @@ export class IpcValidationError extends Error {
 const CONFIG_KEY_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,126}[A-Za-z0-9])?$/
 
 /**
+ * Dot-separated segments that must never appear in a config key: these are the
+ * JavaScript prototype-pollution vectors. The shape pattern already blocks a
+ * leading `__proto__`, but it happily accepts them mid-key (`ui.__proto__.x`)
+ * or as bare `constructor` / `prototype`, so they are rejected explicitly.
+ */
+const FORBIDDEN_KEY_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype'])
+
+/**
  * Validate a `config:get` / `config:set` key. Rejects non-strings, empty or
  * whitespace-only keys, over-long keys and keys with unexpected characters
  * (path separators, control characters, prototype-pollution probes).
@@ -28,6 +36,9 @@ export function assertValidConfigKey(key: unknown): string {
   }
   const trimmed = key.trim()
   if (!CONFIG_KEY_PATTERN.test(trimmed)) {
+    throw new IpcValidationError(`Ungültiger Config-Schlüssel: ${JSON.stringify(key)}`)
+  }
+  if (trimmed.split('.').some((segment) => FORBIDDEN_KEY_SEGMENTS.has(segment))) {
     throw new IpcValidationError(`Ungültiger Config-Schlüssel: ${JSON.stringify(key)}`)
   }
   return trimmed

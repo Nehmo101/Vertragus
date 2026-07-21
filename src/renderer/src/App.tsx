@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '@renderer/store/useAppStore'
 import TitleBar from '@renderer/components/TitleBar'
 import Sidebar from '@renderer/components/Sidebar'
@@ -29,7 +30,28 @@ function useHashRoute(): string {
 }
 
 export default function App(): JSX.Element {
-  const store = useAppStore()
+  // The root only reads low-frequency UI state (theme, layout, open modals,
+  // toast). Selecting exactly those with a shallow comparison keeps App — and
+  // therefore the whole tree it renders — from reconciling on every high-frequency
+  // agent/orchestrator/git tick, which a bare useAppStore() would trigger.
+  const store = useAppStore(
+    useShallow((s) => ({
+      theme: s.theme,
+      uiDensity: s.uiDensity,
+      yoloMaster: s.yoloMaster,
+      workspaceLayout: s.workspaceLayout,
+      editorProfile: s.editorProfile,
+      mcpEditorOpen: s.mcpEditorOpen,
+      speechSettingsOpen: s.speechSettingsOpen,
+      handoffSource: s.handoffSource,
+      addAgentOpen: s.addAgentOpen,
+      toast: s.toast,
+      init: s.init,
+      openEditor: s.openEditor,
+      openAddAgent: s.openAddAgent,
+      applyUiCommand: s.applyUiCommand
+    }))
+  )
   const hash = useHashRoute()
 
   useEffect(() => {

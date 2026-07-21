@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { useTranslation } from 'react-i18next'
 import { setAppLanguage, type ResolvedLanguage } from '@renderer/i18n'
 import { useAppStore, effectiveRepoRef, knownRepos } from '@renderer/store/useAppStore'
@@ -43,7 +44,33 @@ function profileAgentCount(p: WorkspaceProfile): number {
 }
 
 export default function TitleBar(): JSX.Element {
-  const store = useAppStore()
+  // Select only the fields TitleBar reads (deriving the running-agent count so
+  // usage-only ticks that don't change the count don't re-render the bar). The
+  // repo fields feed effectiveRepoRef/knownRepos, which take a RepoState slice.
+  const store = useAppStore(
+    useShallow((s) => ({
+      profiles: s.profiles,
+      activeProfileId: s.activeProfileId,
+      activeRepo: s.activeRepo,
+      recentRepos: s.recentRepos,
+      appInfo: s.appInfo,
+      cliReadable: s.cliReadable,
+      gitInfo: s.gitInfo,
+      githubAuth: s.githubAuth,
+      theme: s.theme,
+      yoloMaster: s.yoloMaster,
+      running: s.agents.filter((a) => a.status === 'running').length,
+      addRepoFromFolder: s.addRepoFromFolder,
+      refreshGit: s.refreshGit,
+      selectRepo: s.selectRepo,
+      startAll: s.startAll,
+      stopAll: s.stopAll,
+      switchGitBranch: s.switchGitBranch,
+      toggleCliReadable: s.toggleCliReadable,
+      toggleTheme: s.toggleTheme,
+      toggleYolo: s.toggleYolo
+    }))
+  )
   const { t, i18n } = useTranslation()
   const activeLanguage: ResolvedLanguage = i18n.language.startsWith('de') ? 'de' : 'en'
   const clock = useClock()
@@ -58,7 +85,7 @@ export default function TitleBar(): JSX.Element {
   const repoLabel = repoRef ? repoRefLabel(repoRef) : 'Kein Repo'
   const repos = knownRepos(store)
   const activeRepoKey = repoPath ? repoRefKey(repoPath) : ''
-  const running = store.agents.filter((a) => a.status === 'running').length
+  const running = store.running
   const anyRunning = running > 0
   const updateVisible =
     update?.status === 'available' ||

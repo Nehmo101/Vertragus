@@ -136,6 +136,7 @@ const vertragus: VertragusApi = {
     clean: (profileId, workspaceSessionId) =>
       ipcRenderer.invoke(IPC.agentsClean, profileId, workspaceSessionId),
     buffer: (id) => ipcRenderer.invoke(IPC.agentBuffer, id),
+    bufferTail: (id, maxChars) => ipcRenderer.invoke(IPC.agentBufferTail, id, maxChars),
     popout: (id) => ipcRenderer.invoke(IPC.agentPopout, id),
     handoff: (req) => ipcRenderer.invoke(IPC.agentHandoff, req),
     bulkHandoff: (req) => ipcRenderer.invoke(IPC.agentsBulkHandoff, req),
