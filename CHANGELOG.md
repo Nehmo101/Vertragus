@@ -6,6 +6,20 @@ Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1
 
 ---
 
+## 2026-07-21 — Taskleisten-Hinweis bei Nutzer-Rückmeldung
+
+### Hinzugefügt
+
+- **Taskleisten-/Dock-Hinweis bei ausstehender Rückmeldung:** Solange mindestens ein Profil-Workspace eine Nutzer-Rückmeldung braucht (offenes Plan-Review, offene Subagent-Rückfrage, Multiagent-Lauf im Review; zusätzlich offene Mission-Approvals laut Store-Aggregation), signalisiert Vertragus das am Betriebssystem: unter Windows und Linux blinkt das Taskleistensymbol (`flashFrame`), unter macOS bounce’t das Dock-Icon (`critical`). Der Hinweis startet nur beim Übergang „keine ausstehende Rückmeldung → mindestens eine“ und nur, wenn das Hauptfenster nicht fokussiert ist. Mehrere Auslöser über distinkte Workspaces zählen als **ein** aggregierter Blinkzustand; solange der Zähler > 0 bleibt, startet kein zweites Blinken. Beendet wird der Hinweis durch Fokussieren des Hauptfensters oder wenn der Zähler wieder 0 ist. Ein erneuter 0→>0-Übergang löst danach wieder aus.
+  - *Offen:* zugehörige PR-Nummer und Tag-Spanne für die Changelog-Überschrift (Feature noch nicht als Release getaggt; aktueller Stand der Integration: Commit `897f7a77`).
+  - *Offen:* Dock-Bounce unter macOS im Integrations-Worktree nicht manuell verifiziert (Implementierung und Unit-Tests vorhanden; Laufzeit unter Windows geprüft).
+
+### Dokumentation
+
+- Handbuch-Abschnitt zum Taskleisten-/Dock-Hinweis (Verhalten, Beendigung, Mehrfach-Auslöser, OS-Unterschied).
+
+---
+
 ## 2026-07-19 — Retro-Härtung & Security-Gate-Nacharbeit (v0.1.59 – v0.1.61)
 
 ### Behoben
