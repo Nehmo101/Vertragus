@@ -11,6 +11,7 @@ import { installEditContextMenu } from '@main/editMenu'
 import { brandEnv } from '@main/env'
 import { getSetting, setSetting } from '@main/config/store'
 import { protectWebContents } from '@main/security/navigation'
+import { initAttentionService } from '@main/attention/attentionService'
 import { workspacePlaceName } from '@shared/workspaceNames'
 
 /** Pre-paint window color matching the renderer themes (cozy-organic.css ambient). */
@@ -296,6 +297,8 @@ export function createMainWindow(): BrowserWindow {
     })
   }
   loadRoute(win, '/')
+  // Re-bind on every create (including macOS activate recreate).
+  initAttentionService({ getMainWindow: () => mainWindow })
   return win
 }
 
