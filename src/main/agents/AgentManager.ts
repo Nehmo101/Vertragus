@@ -40,8 +40,10 @@ import { buildInteractiveLaunch } from '@main/providers/types'
 import { resolveLaunch } from '@main/agents/resolveCommand'
 import { terminateProcessTreeWithEscalation } from '@main/agents/processTermination'
 import { adoptLegacyDir } from '@main/config/legacyAdoption'
+import { CursorTrustMonitor } from '@main/agents/cursorTrustMonitor'
+import { PreflightCache, type PanePreflightRunner } from '@main/agents/preflightCache'
+import { ResumeSweep } from '@main/agents/resumeSweep'
 import { createWorktree, currentBranch, isManagedBranch, rollbackWorktree } from '@main/agents/worktree'
-import { buildAgentResumeState } from '@main/agents/resumeState'
 import { sessionStore, type AgentStatePersistence } from '@main/config/sessionStore'
 import { canonicalWorkspacePath, workspacePathKey } from '@main/agents/workspacePath'
 import {
@@ -50,10 +52,7 @@ import {
   type PanePreflightInput
 } from '@main/agents/panePreflight'
 import { BUFFER_LIMIT, ScrollbackBuffer } from '@main/agents/scrollbackBuffer'
-import {
-  cursorWorkspaceTrustPrompt,
-  isExactManagedWorktreePath
-} from '@main/agents/cursorWorkspaceTrust'
+import { isExactManagedWorktreePath } from '@main/agents/cursorWorkspaceTrust'
 import { getProfile, getSetting } from '@main/config/store'
 import {
   runHeadless,
@@ -87,10 +86,6 @@ import { permissionBroker } from '@main/permissions/PermissionBroker'
 // Cursor's interactive trust screen fits in a few KB and is only on-screen at
 // startup; scanning a bounded tail (not the whole 200 KB buffer on every chunk)
 // keeps the per-chunk trust check cheap.
-const CURSOR_TRUST_SCAN_CHARS = 8_000
-const CURSOR_TRUST_RETRY_DELAY_MS = 150
-const CURSOR_TRUST_MAX_RETRIES = 3
-const CURSOR_TRUST_WATCHDOG_MS = 8_000
 const HANDOFF_SHUTDOWN_TIMEOUT_MS = 5_000
 
 // ScrollbackBuffer + BUFFER_LIMIT now live in ./scrollbackBuffer (extracted for
@@ -115,13 +110,8 @@ interface Managed {
   /** Protect a team pane from automatic reuse after the user typed into it. */
   interactiveUsed?: boolean
   /** Cursor's startup trust confirmation was handled for a Vertragus worktree. */
-  workspaceTrustHandled?: boolean
   /** A bounded retry while Cursor renders its trust screen across PTY chunks. */
-  workspaceTrustRetry?: ReturnType<typeof setTimeout>
-  workspaceTrustRetryCount?: number
   /** Detect and recover when Cursor stays on "Trusting workspace..." indefinitely. */
-  workspaceTrustWatchdog?: ReturnType<typeof setTimeout>
-  workspaceTrustNudged?: boolean
   /** Ignore the interactive PTY exit while converting this pane into a task. */
   reassigning?: boolean
 }
@@ -148,7 +138,7 @@ export interface RunTaskRequest {
   baseRef?: string
 }
 
-export type PanePreflightRunner = (input: PanePreflightInput) => Promise<PanePreflightReport>
+export type { PanePreflightRunner } from '@main/agents/preflightCache'
 
 function assertModelSelection(provider: AgentProviderId, model: string): void {
   if (provider === 'ollama' && !model) {
@@ -171,7 +161,7 @@ function assertProviderSelection(provider: AgentProviderId, model: string): void
 
 export class AgentManager extends EventEmitter {
   private readonly agents = new Map<string, Managed>()
-  private readonly preflightReports = new Map<string, PanePreflightReport>()
+  private readonly preflightCache = new PreflightCache((input) => this.preflightRunner(input))
   private readonly handoffStarts = new Set<string>()
   private readonly handoffBriefings = new Map<
     string,
@@ -211,25 +201,12 @@ export class AgentManager extends EventEmitter {
     if (changed) this.changed()
   }
 
-  private preflightKey(provider: AgentProviderId, workingDir: string): string {
-    return `${provider}:${workspacePathKey(workingDir)}`
-  }
-
   latestPreflight(provider: AgentProviderId, workingDir: string): PanePreflightReport | undefined {
-    return this.preflightReports.get(this.preflightKey(provider, workingDir))
+    return this.preflightCache.latest(provider, workingDir)
   }
 
   async preflightSlot(input: PanePreflightInput): Promise<PanePreflightReport> {
-    try {
-      const report = await this.preflightRunner(input)
-      this.preflightReports.set(this.preflightKey(input.provider, input.workingDir), report)
-      return report
-    } catch (error) {
-      if (error instanceof PanePreflightError) {
-        this.preflightReports.set(this.preflightKey(input.provider, input.workingDir), error.report)
-      }
-      throw error
-    }
+    return this.preflightCache.run(input)
   }
 
   buffer(id: string): { data: string; seq: number } {
@@ -535,8 +512,8 @@ export class AgentManager extends EventEmitter {
     this.emit('data', { id: managed.info.id, data, seq: managed.seq })
     this.inspectPermissionPrompt(managed)
     this.scanForLimit(managed)
-    this.autoTrustCursorWorktree(managed)
-    this.monitorCursorWorkspaceTrust(managed)
+    this.cursorTrust.autoTrust(managed.info.id)
+    this.cursorTrust.monitor(managed.info.id)
   }
 
   /**
@@ -575,39 +552,32 @@ export class AgentManager extends EventEmitter {
    * Cursor's --trust flag is headless-only. In interactive mode, confirm its
    * initial prompt only when this manager created the isolated worktree.
    */
-  private clearCursorWorkspaceTrustRetry(managed: Managed): void {
-    if (managed.workspaceTrustRetry) {
-      clearTimeout(managed.workspaceTrustRetry)
-      managed.workspaceTrustRetry = undefined
-    }
-    if (managed.workspaceTrustWatchdog) {
-      clearTimeout(managed.workspaceTrustWatchdog)
-      managed.workspaceTrustWatchdog = undefined
-    }
-  }
-
-  private cursorTrustProgressVisible(managed: Managed): boolean {
-    const tail = stripAnsi(managed.buffer.tail(800)).replace(/\r/g, '\n').trimEnd()
-    return /Trusting workspace(?:\.{3})?\s*$/i.test(tail)
-  }
-
-  private monitorCursorWorkspaceTrust(managed: Managed): void {
-    if (!managed.workspaceTrustHandled || !managed.pty || managed.info.provider !== 'cursor') return
-    if (!this.cursorTrustProgressVisible(managed)) {
-      if (managed.workspaceTrustWatchdog) this.clearCursorWorkspaceTrustRetry(managed)
-      return
-    }
-    if (managed.workspaceTrustWatchdog) return
-    managed.workspaceTrustWatchdog = setTimeout(() => {
-      managed.workspaceTrustWatchdog = undefined
-      if (!this.agents.has(managed.info.id) || !managed.pty || !this.cursorTrustProgressVisible(managed)) return
-      if (!managed.workspaceTrustNudged) {
-        managed.workspaceTrustNudged = true
-        managed.pty.write('\r')
-        this.emitEvent(`${managed.info.name} - Cursor-Trust reagiert nicht; Enter wird erneut gesendet.`, 'warn', managed.info)
-        this.monitorCursorWorkspaceTrust(managed)
-        return
+  /** Stateful Cursor-trust retry/watchdog layer (extracted, audit A2). */
+  private readonly cursorTrust = new CursorTrustMonitor({
+    isPresent: (id) => this.agents.has(id),
+    hasPty: (id) => Boolean(this.agents.get(id)?.pty),
+    writePty: (id, data) => {
+      this.agents.get(id)?.pty?.write(data)
+    },
+    bufferTail: (id, chars) => this.agents.get(id)?.buffer.tail(chars) ?? '',
+    trustView: (id) => {
+      const managed = this.agents.get(id)
+      if (!managed) return undefined
+      return {
+        name: managed.info.name,
+        provider: managed.info.provider,
+        workingDir: managed.info.workingDir,
+        worktree: managed.info.worktree,
+        interactiveUsed: Boolean(managed.interactiveUsed)
       }
+    },
+    emitEvent: (id, text, tone) => {
+      const managed = this.agents.get(id)
+      this.emitEvent(text, tone, managed?.info)
+    },
+    failTrustStuckAgent: (id, message) => {
+      const managed = this.agents.get(id)
+      if (!managed) return
       managed.reassigning = true
       this.terminate(managed)
       this.releaseCapacity(managed)
@@ -616,48 +586,15 @@ export class AgentManager extends EventEmitter {
         managed,
         '\r\n\x1b[31mCursor blieb bei der Workspace-Trust-Bestaetigung haengen. Der Agent wurde beendet und kann vom Orchestrator ersetzt werden.\x1b[0m\r\n'
       )
-      this.emitEvent(`${managed.info.name} - Cursor Workspace-Trust fehlgeschlagen`, 'error', managed.info)
+      this.emitEvent(message, 'error', managed.info)
       this.changed()
-    }, CURSOR_TRUST_WATCHDOG_MS)
-  }
-
-  private retryCursorWorkspaceTrust(managed: Managed): void {
-    if (
-      managed.workspaceTrustRetry ||
-      managed.workspaceTrustHandled ||
-      (managed.workspaceTrustRetryCount ?? 0) >= CURSOR_TRUST_MAX_RETRIES
-    ) {
-      return
     }
-    managed.workspaceTrustRetryCount = (managed.workspaceTrustRetryCount ?? 0) + 1
-    managed.workspaceTrustRetry = setTimeout(() => {
-      managed.workspaceTrustRetry = undefined
-      if (!this.agents.has(managed.info.id) || !managed.pty) return
-      this.autoTrustCursorWorktree(managed)
-    }, CURSOR_TRUST_RETRY_DELAY_MS)
+  })
+
+  private clearCursorWorkspaceTrustRetry(managed: Managed): void {
+    this.cursorTrust.clear(managed.info.id)
   }
 
-  private autoTrustCursorWorktree(managed: Managed): void {
-    const { info } = managed
-    if (info.provider !== 'cursor' || !managed.pty) return
-    const prompt = cursorWorkspaceTrustPrompt({
-      output: managed.buffer.tail(CURSOR_TRUST_SCAN_CHARS),
-      workingDir: info.workingDir,
-      worktree: info.worktree,
-      alreadyHandled: Boolean(managed.workspaceTrustHandled),
-      interactiveUsed: Boolean(managed.interactiveUsed)
-    })
-    if (prompt === 'none') return
-    if (prompt === 'partial') {
-      this.retryCursorWorkspaceTrust(managed)
-      return
-    }
-
-    this.clearCursorWorkspaceTrustRetry(managed)
-    managed.workspaceTrustHandled = true
-    managed.pty.write('a\r')
-    this.emitEvent(`${info.name} · Cursor-Trust für Vertragus-Worktree bestätigt (a gesendet)`, 'dispatch', info)
-  }
   /**
    * Best-effort scan of an interactive agent's output for a usage-limit banner.
    * Fires once per agent (debounced). Marks `info.limitWarning` and emits a warn
@@ -1525,38 +1462,25 @@ export class AgentManager extends EventEmitter {
     this.changed()
   }
 
-  private resumeSweepTimer: ReturnType<typeof setInterval> | undefined
+  /** Periodic resume-state persistence (extracted, audit A2). */
+  private readonly resumeSweep = new ResumeSweep(
+    {
+      listSessionAgents: () =>
+        [...this.agents.values()].map((managed) => ({
+          info: managed.info,
+          scrollback: managed.buffer.toString()
+        }))
+    },
+    sessionStore
+  )
 
-  /**
-   * Persist the last-known state (info + scrollback tail) of every
-   * session-bound agent, grouped per workspace session. Called periodically by
-   * the sweep and once more during the ordered shutdown, so a crash loses at
-   * most one sweep interval of terminal history.
-   */
-  persistResumeStates(store: AgentStatePersistence = sessionStore): void {
-    const bySession = new Map<string, ReturnType<typeof buildAgentResumeState>[]>()
-    const capturedAt = Date.now()
-    for (const managed of this.agents.values()) {
-      const sessionId = managed.info.workspaceSessionId
-      if (!sessionId) continue
-      const states = bySession.get(sessionId) ?? []
-      states.push(buildAgentResumeState(managed.info, managed.buffer.toString(), capturedAt))
-      bySession.set(sessionId, states)
-    }
-    for (const [sessionId, agents] of bySession) {
-      try {
-        store.writeAgentResumeStates(sessionId, agents)
-      } catch (error) {
-        console.warn('[Agents] resume-state persistence failed', sessionId, error)
-      }
-    }
+  persistResumeStates(store?: AgentStatePersistence): void {
+    this.resumeSweep.persist(store)
   }
 
   /** Start the periodic resume-state sweep (idempotent; runtime only). */
   startResumeStateSweep(intervalMs = 30_000): void {
-    if (this.resumeSweepTimer) return
-    this.resumeSweepTimer = setInterval(() => this.persistResumeStates(), intervalMs)
-    this.resumeSweepTimer.unref?.()
+    this.resumeSweep.start(intervalMs)
   }
 
   /** True when the session already has a live agent (guards double restarts). */
