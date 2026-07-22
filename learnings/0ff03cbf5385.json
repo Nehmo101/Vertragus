@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1784756964307,
+  "exportedAt": 1784758534739,
   "app": {
     "name": "vertragus",
     "version": "0.1.77-main.1.g278b8cb"
@@ -8,6 +8,48 @@
   "machineId": "0ff03cbf5385",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-mrwn5e4z-2-mq6h4t",
+      "provider": "cursor",
+      "model": "cursor-grok-4.5-high-fast",
+      "role": "renderer-ui",
+      "kind": "weakness",
+      "insight": "Neigt teils zu invasiverem Umbau als nötig",
+      "evidence": "provider-select-Kandidat Belacqua ersetzte das native <select> durch eine Button-Radiogroup (UX-Änderung), obwohl der minimale selektive-Subscription-Fix dieselbe Ursache ohne Interaktionsänderung behob.",
+      "source": "orchestrator",
+      "profileId": "profile-mrtpx9c6",
+      "observations": 1,
+      "createdAt": 1784758533587,
+      "updatedAt": 1784758533587
+    },
+    {
+      "id": "learning-mrwn5e4z-1-nz6l3j",
+      "provider": "cursor",
+      "model": "cursor-grok-4.5-high-fast",
+      "role": "renderer-ui",
+      "kind": "strength",
+      "insight": "Starke Ursachenanalyse bei Renderer-State-Bugs statt Symptom-Fixes",
+      "evidence": "3 provider-select-Kandidaten fanden die echte Ursache (HandoffModal abonniert ganzen useAppStore → Remount klappt natives <select> zu), verwarfen CSS/disabled-Hypothesen; Fortuna-Fix 22/22 grün (9375de5). session-restore: window.confirm als Discard-Blocker erkannt (5ef66a3).",
+      "source": "orchestrator",
+      "profileId": "profile-mrtpx9c6",
+      "observations": 1,
+      "createdAt": 1784758533587,
+      "updatedAt": 1784758533587
+    },
+    {
+      "id": "learning-mrwn3yro-1-10yll3",
+      "provider": "cursor",
+      "model": "cursor-grok-4.5-high-fast",
+      "role": "renderer-ui",
+      "kind": "weakness",
+      "insight": "Quality-Gates erfordern Nacharbeit bei renderer-ui, integration-specialist, security-reviewer",
+      "evidence": "1 Task(s) mit 1 Gate-Finding(s)",
+      "source": "auto-retro",
+      "profileId": "profile-mrtpx9c6",
+      "observations": 1,
+      "createdAt": 1784758467012,
+      "updatedAt": 1784758467012
+    },
     {
       "id": "learning-mrv54hgp-2-8rnecu",
       "provider": "cursor",
