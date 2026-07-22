@@ -30,6 +30,28 @@ const FORBIDDEN_KEY_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']
  * whitespace-only keys, over-long keys and keys with unexpected characters
  * (path separators, control characters, prototype-pollution probes).
  */
+/**
+ * Validate a required string identifier argument (profile id, task id, path,
+ * branch, …) crossing the IPC boundary: non-empty, bounded, a real string.
+ * The message shape matches the established workspace-session controller.
+ */
+export function assertIpcId(value: unknown, label: string, maxLength = 256): string {
+  if (typeof value !== 'string' || value.trim().length === 0 || value.length > maxLength) {
+    throw new IpcValidationError(`Ungültige ${label} (invalid payload).`)
+  }
+  return value
+}
+
+/** Like {@link assertIpcId}, but `undefined` passes through untouched. */
+export function assertIpcOptionalId(
+  value: unknown,
+  label: string,
+  maxLength = 256
+): string | undefined {
+  if (value === undefined) return undefined
+  return assertIpcId(value, label, maxLength)
+}
+
 export function assertValidConfigKey(key: unknown): string {
   if (typeof key !== 'string') {
     throw new IpcValidationError('Ungültiger Config-Schlüssel: keine Zeichenkette.')

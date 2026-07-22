@@ -41,6 +41,17 @@ export interface IdeaTransferRequest {
   yoloMaster?: boolean
 }
 
+/**
+ * Boundary schema for the transfer IPC request (audit M5). Distinct from the
+ * stored-state ideaTransferSchema below — do not conflate the two shapes.
+ */
+export const ideaTransferRequestSchema = z.object({
+  ideaId: z.string().min(1).max(256),
+  profileId: z.string().min(1).max(256),
+  clone: z.boolean().optional(),
+  yoloMaster: z.boolean().optional()
+})
+
 export interface IdeaTransferResult {
   idea: Idea
   transfer: IdeaTransfer
