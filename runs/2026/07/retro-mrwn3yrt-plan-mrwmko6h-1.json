@@ -1,0 +1,132 @@
+{
+  "version": 1,
+  "exportedAt": 1784758533637,
+  "app": {
+    "name": "vertragus",
+    "version": "0.1.77-main.1.g278b8cb"
+  },
+  "machineId": "0ff03cbf5385",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-mrwn3yrt-plan-mrwmko6h-1",
+    "profileId": "profile-mrtpx9c6",
+    "workspaceSessionId": "42c5fbe9-a659-46eb-9f70-15e8c6aced4f",
+    "planId": "plan-mrwmko6h-1",
+    "goal": "Vertragus UI-Fixes: Provider-Auswahl bei Übergabe, Sitzung-wiederherstellen schließen+verwerfen, Massenübergabe-Button unter Vertragus-Gates, Plan-Freigabe prominenter, Bild-Paste in die Eingabe.",
+    "status": "needs-work",
+    "summary": "2 von 4 Feature-Tasks geliefert und zentral committet (Provider-Auswahl-Fix, Sitzung-wiederherstellen); 2 Tasks (rechtes Panel, Bild-Paste) sowie Integrator/Security blieben ohne Ergebnis, weil der Cursor-CLI mitten im Lauf auf eine kaputte Version (2026.07.20-8cc9c0b, MODULE_NOT_FOUND) wechselte — alle 15 Kandidaten-Fehler waren Infrastruktur, 0 Modellfehler.",
+    "modelStats": [
+      {
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "roles": [
+          "renderer-ui",
+          "integration-specialist",
+          "security-reviewer"
+        ],
+        "tasks": 26,
+        "succeeded": 6,
+        "needsWork": 1,
+        "failed": 15,
+        "stopped": 4,
+        "failuresByKind": {
+          "infra": 15,
+          "cancelled": 4,
+          "model": 0
+        },
+        "failedAttempts": 15,
+        "failedAttemptsByKind": {
+          "infra": 15,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 1,
+        "avgDurationMs": 436273,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-mrwn3yro-1-10yll3",
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "role": "renderer-ui",
+        "kind": "weakness",
+        "insight": "Quality-Gates erfordern Nacharbeit bei renderer-ui, integration-specialist, security-reviewer",
+        "evidence": "1 Task(s) mit 1 Gate-Finding(s)",
+        "source": "auto-retro",
+        "profileId": "profile-mrtpx9c6",
+        "observations": 1,
+        "createdAt": 1784758467012,
+        "updatedAt": 1784758467012
+      },
+      {
+        "id": "learning-mrwn5e4z-1-nz6l3j",
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "role": "renderer-ui",
+        "kind": "strength",
+        "insight": "Starke Ursachenanalyse bei Renderer-State-Bugs statt Symptom-Fixes",
+        "evidence": "3 provider-select-Kandidaten fanden die echte Ursache (HandoffModal abonniert ganzen useAppStore → Remount klappt natives <select> zu), verwarfen CSS/disabled-Hypothesen; Fortuna-Fix 22/22 grün (9375de5). session-restore: window.confirm als Discard-Blocker erkannt (5ef66a3).",
+        "source": "orchestrator",
+        "profileId": "profile-mrtpx9c6",
+        "observations": 1,
+        "createdAt": 1784758533587,
+        "updatedAt": 1784758533587
+      },
+      {
+        "id": "learning-mrwn5e4z-2-mq6h4t",
+        "provider": "cursor",
+        "model": "cursor-grok-4.5-high-fast",
+        "role": "renderer-ui",
+        "kind": "weakness",
+        "insight": "Neigt teils zu invasiverem Umbau als nötig",
+        "evidence": "provider-select-Kandidat Belacqua ersetzte das native <select> durch eine Button-Radiogroup (UX-Änderung), obwohl der minimale selektive-Subscription-Fix dieselbe Ursache ohne Interaktionsänderung behob.",
+        "source": "orchestrator",
+        "profileId": "profile-mrtpx9c6",
+        "observations": 1,
+        "createdAt": 1784758533587,
+        "updatedAt": 1784758533587
+      }
+    ],
+    "delegation": {
+      "estimate": {
+        "recommendation": "delegate",
+        "taskCount": 6,
+        "requiredTaskCount": 5,
+        "parallelWidth": 4,
+        "effectiveParallelWidth": 4,
+        "hasIntegrator": true,
+        "declaredMaxParallel": 4,
+        "underParallelized": false,
+        "reason": "Delegation lohnt: bis zu 4 Tasks können gleichzeitig laufen (mit einem Integrator als Trichter)."
+      },
+      "selfEstimate": {
+        "recommendation": "delegate",
+        "expectedParallelTasks": 4,
+        "confidence": "high",
+        "rationale": "Vier unabhängige Renderer-Komponenten (HandoffModal, SessionRestoreBanner, OrchestratorPanel/LimitsPanel, InboxPanel) mit disjunkten Dateien laufen parallel; ein Integrator bündelt alle geteilten Hotspots (globales CSS, i18n, Store, Preload/IPC/Main-Bild-Backend) und verifiziert. Klarer Delegate-Fall.",
+        "createdAt": 1784757431356
+      },
+      "outcome": {
+        "dispatchedTasks": 23,
+        "committedTasks": 5,
+        "noChangeTasks": 1,
+        "failedTasks": 18,
+        "observedPeakParallel": 22,
+        "multiAgentCandidates": 20,
+        "infraFailedTasks": 13
+      },
+      "verdict": "justified",
+      "selfCalibration": {
+        "agreedWithStructure": true,
+        "grade": "accurate",
+        "note": "Selbst-Einschätzung \"delegate\" (high) deckt sich mit der Struktur; real 5/23 Tasks mit Änderungen → accurate."
+      },
+      "note": "Delegation gerechtfertigt: 5 Subagents lieferten echte Änderungen."
+    },
+    "createdAt": 1784758467017,
+    "exportQueuedAt": 1784758533594
+  }
+}
