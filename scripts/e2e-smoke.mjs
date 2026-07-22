@@ -445,6 +445,13 @@ for (const view of report.views) {
       (view.overlaps.length ? ` overlaps=${view.overlaps.length}` : '') +
       (view.duplicates.length ? ` duplicates=${view.duplicates.length}` : '')
   )
+  // Details inline: on CI the report artifact is not always reachable.
+  for (const overlap of view.overlaps) {
+    console.log(`    overlap ${overlap.ratio}: ${overlap.a}  <->  ${overlap.b}`)
+  }
+  for (const duplicate of view.duplicates) {
+    console.log(`    duplicate x${duplicate.count}: "${duplicate.text}" @ ${duplicate.selectors.join(' | ')}`)
+  }
 }
 if (report.violations > 0) {
   console.error(`E2E smoke: ${report.violations} Layout-/Duplikat-Verstöße — Details im Report.`)
