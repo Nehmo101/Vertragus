@@ -7,13 +7,21 @@ import type { SessionRestoreStatus } from '@shared/sessions'
  * unexpectedly, offers to restart restored session teams from their saved
  * states, and surfaces orphaned worktrees / stale sessions for explicit
  * cleanup. Every action is opt-in; dismissing the banner changes nothing.
+ *
+ * Dismiss is kept for the renderer lifetime (module flag) so a remount /
+ * Strict-Mode cycle cannot bring the banner back until the next app start.
+ * Destructive actions use an in-banner two-click confirm — never window.confirm,
+ * which is unreliable / blocked in many Electron renderer setups.
  */
+let dismissedForLaunch = false
+
 export default function SessionRestoreBanner(): JSX.Element | null {
   const { t } = useTranslation()
   const [status, setStatus] = useState<SessionRestoreStatus | null>(null)
-  const [dismissed, setDismissed] = useState(false)
+  const [dismissed, setDismissed] = useState(dismissedForLaunch)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState<string | null>(null)
 
   const refresh = (): void => {
     void window.vertragus.sessions
@@ -23,6 +31,12 @@ export default function SessionRestoreBanner(): JSX.Element | null {
   }
 
   useEffect(refresh, [])
+
+  const dismiss = (): void => {
+    dismissedForLaunch = true
+    setConfirming(null)
+    setDismissed(true)
+  }
 
   if (dismissed || !status) return null
   const hasContent =
@@ -35,6 +49,7 @@ export default function SessionRestoreBanner(): JSX.Element | null {
   const run = async (key: string, action: () => Promise<unknown>): Promise<void> => {
     setBusy(key)
     setError(null)
+    setConfirming(null)
     try {
       await action()
       refresh()
@@ -43,6 +58,15 @@ export default function SessionRestoreBanner(): JSX.Element | null {
     } finally {
       setBusy(null)
     }
+  }
+
+  /** First click arms confirm; second click on the same key runs the action. */
+  const requestOrConfirm = (key: string, action: () => Promise<unknown>): void => {
+    if (confirming !== key) {
+      setConfirming(key)
+      return
+    }
+    void run(key, action)
   }
 
   return (
@@ -56,7 +80,12 @@ export default function SessionRestoreBanner(): JSX.Element | null {
             ? t('restore.summary', { count: status.restoredSessions })
             : t('restore.summaryNone')}
         </span>
-        <button type="button" className="btn ghost restore-dismiss" onClick={() => setDismissed(true)}>
+        <button
+          type="button"
+          className="btn ghost restore-dismiss"
+          onClick={dismiss}
+          aria-label={t('restore.dismiss')}
+        >
           {t('restore.dismiss')}
         </button>
       </div>
@@ -90,27 +119,43 @@ export default function SessionRestoreBanner(): JSX.Element | null {
           <span className="restore-label">
             {t('restore.orphans', { count: status.orphanedWorktrees.length })}
           </span>
-          {status.orphanedWorktrees.map((worktree) => (
-            <span key={worktree.path} className="restore-item" title={worktree.path}>
-              {worktree.sessionId}/{worktree.agentId}
-              {worktree.changedFiles != null && worktree.changedFiles > 0 && (
-                <em> · {t('restore.changedFiles', { count: worktree.changedFiles })}</em>
-              )}
-              <button
-                type="button"
-                className="btn ghost"
-                disabled={busy != null}
-                onClick={() => {
-                  if (!window.confirm(t('restore.discardConfirm', { path: worktree.path }))) return
-                  void run(`orphan-${worktree.path}`, () =>
-                    window.vertragus.sessions.discardOrphanWorktree(worktree.path)
-                  )
-                }}
-              >
-                {t('restore.discard')}
-              </button>
-            </span>
-          ))}
+          {status.orphanedWorktrees.map((worktree) => {
+            const key = `orphan-${worktree.path}`
+            const armed = confirming === key
+            return (
+              <span key={worktree.path} className="restore-item" title={worktree.path}>
+                {worktree.sessionId}/{worktree.agentId}
+                {worktree.changedFiles != null && worktree.changedFiles > 0 && (
+                  <em> · {t('restore.changedFiles', { count: worktree.changedFiles })}</em>
+                )}
+                <button
+                  type="button"
+                  className="btn ghost"
+                  disabled={busy != null}
+                  title={armed ? worktree.path : undefined}
+                  onClick={() =>
+                    requestOrConfirm(key, () =>
+                      window.vertragus.sessions.discardOrphanWorktree(worktree.path)
+                    )
+                  }
+                >
+                  {armed
+                    ? t('restore.discardConfirm', { path: worktree.path })
+                    : t('restore.discard')}
+                </button>
+                {armed && (
+                  <button
+                    type="button"
+                    className="btn ghost"
+                    disabled={busy != null}
+                    onClick={() => setConfirming(null)}
+                  >
+                    {t('restore.dismiss')}
+                  </button>
+                )}
+              </span>
+            )
+          })}
         </div>
       )}
       {status.staleSessions.length > 0 && (
@@ -118,27 +163,45 @@ export default function SessionRestoreBanner(): JSX.Element | null {
           <span className="restore-label">
             {t('restore.stale', { count: status.staleSessions.length })}
           </span>
-          {status.staleSessions.map((session) => (
-            <span key={session.id} className="restore-item">
-              {session.name || session.id.slice(0, 8)}
-              <em> · {new Date(session.updatedAt).toLocaleDateString()}</em>
-              <button
-                type="button"
-                className="btn ghost"
-                disabled={busy != null}
-                onClick={() => {
-                  if (!window.confirm(t('restore.staleConfirm'))) return
-                  void run(`stale-${session.id}`, () =>
-                    window.vertragus.workspaceSessions.remove(session.profileId, session.id)
-                  )
-                }}
-              >
-                {t('restore.discard')}
-              </button>
-            </span>
-          ))}
+          {status.staleSessions.map((session) => {
+            const key = `stale-${session.id}`
+            const armed = confirming === key
+            return (
+              <span key={session.id} className="restore-item">
+                {session.name || session.id.slice(0, 8)}
+                <em> · {new Date(session.updatedAt).toLocaleDateString()}</em>
+                <button
+                  type="button"
+                  className="btn ghost"
+                  disabled={busy != null}
+                  onClick={() =>
+                    requestOrConfirm(key, () =>
+                      window.vertragus.workspaceSessions.remove(session.profileId, session.id)
+                    )
+                  }
+                >
+                  {armed ? t('restore.staleConfirm') : t('restore.discard')}
+                </button>
+                {armed && (
+                  <button
+                    type="button"
+                    className="btn ghost"
+                    disabled={busy != null}
+                    onClick={() => setConfirming(null)}
+                  >
+                    {t('restore.dismiss')}
+                  </button>
+                )}
+              </span>
+            )
+          })}
         </div>
       )}
+      <div className="restore-row">
+        <button type="button" className="btn ghost restore-dismiss" onClick={dismiss}>
+          {t('restore.dismiss')}
+        </button>
+      </div>
     </div>
   )
 }
