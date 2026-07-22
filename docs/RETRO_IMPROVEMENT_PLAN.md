@@ -125,6 +125,37 @@ No-Git) wirken nachweislich.
    `ANTHROPIC_API_KEY`; `GITHUB_TOKEN` stellt Actions bereit. Erst der Merge
    des Bootstrap-/Analyse-PRs macht das Overlay für Installationen sichtbar.
 
+## Nachtrag: Verbleibende Audit-Architekturpunkte (2026-07-22)
+
+Nach der ersten Retro-Umsetzung (PR #127: L5, M5, A2-Rest, A3, A1-partiell)
+wurden die noch offenen Architekturbefunde aus `audit-report.md` gezielt und
+verhaltensneutral abgearbeitet:
+
+- **A8 — Provider-Verhalten konsolidiert (umgesetzt).** Die deklarativen
+  Provider-Fakten (Stream-Envelope, `--verbose`, Lokal-Betrieb) liegen jetzt
+  als `ProviderDef.headless`/`ProviderDef.runsLocally` auf dem bestehenden
+  Deskriptor statt als verstreute `id === 'x'`-Literale in `headless.ts`/
+  `auth.ts`. Genuin bespoken Pfade (Codex-Sandbox, Ollama-Ausführung,
+  Auth-Status-Parsing) bleiben bewusst als Strategie-Funktionen.
+- **A7 — Per-Window-Config-Staleness behoben (umgesetzt).** `config:set`
+  broadcastet den gespeicherten Wert als `ev:configChanged`; Sekundärfenster
+  (Agenten-Panes, Voice-Overlay) spiegeln geteilte UI-Settings
+  (Theme/Density/lesbare Panes) live statt bis zum Reload zu veralten.
+  Schleifensicher, da Empfänger nur spiegeln.
+- **A6 — Gezielter PTY-Fanout (umgesetzt).** Agenten-Terminal-Chunks gehen nur
+  noch an das Hauptfenster und die Pop-out-Pane(s) des jeweiligen Agenten
+  (`agentDataTargetWindows`), nicht mehr als Broadcast an alle Fenster.
+
+**Bewusst zurückgestellt — A1-Rest (Engine `dispatch`/`executePreparedPlan`).**
+`Engine.ts` hat 105 private Felder; `executePreparedPlan` (~313 Zeilen) und
+`dispatch`/`publishPendingChanges` sind zustandsbehaftete Kontrollfluss-Methoden,
+die eng an diese privaten Felder gekoppelt sind. Eine Extraktion hätte eine
+breitere Schnittstelle als der herausgelöste Code und ließe sich ohne laufende
+App (nur mit Unit-Tests) nicht risikoarm gegen den grünen Build absichern — genau
+die Warnung des Audits. Die sicheren, puren Cluster wurden bereits in PR #127
+extrahiert (`workerContract`, `engineSnapshots`). Der verbleibende Kern sollte
+nur mit lauffähiger App und beobachtbarem Verhalten geteilt werden.
+
 ## Nachtrag: Canvas-Overhaul-Blocker (Retros mrphz4dw/mrpirnc8/mrpjohl2, 2026-07-18)
 
 Drei aufeinanderfolgende Läufe des Canvas-First-Plans scheiterten an
