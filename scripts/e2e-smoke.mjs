@@ -209,10 +209,11 @@ function buildStubInitScript(seedDir) {
     const SEED = ${JSON.stringify(seed)};
     const ok = (value) => Promise.resolve(value);
     const noopOff = () => () => {};
+    // No 'ui.canvasDefaultApplied': like the seeded store, so the renderer
+    // runs the one-time canvas-default migration exactly as the real app does.
     const CONFIG = {
       'ui.theme': 'light',
-      'yoloMaster': false,
-      'ui.canvasDefaultApplied': true
+      'yoloMaster': false
     };
     // Deep stub: any endpoint not explicitly overridden resolves to null;
     // subscription endpoints (on*) synchronously return an unsubscribe fn.
@@ -367,6 +368,14 @@ const report = {
 
 async function walkRoutes(page) {
   await page.waitForSelector('.app-root', { timeout: 30_000 })
+  // Measurements must never catch an in-flight transition (e.g. the canvas
+  // orchestrator drawer sliding out over its resize handle for 180ms after
+  // the one-time canvas-default migration flips the layout). Disable all
+  // transitions/animations so every analysis sees the settled end state.
+  await page.addStyleTag({
+    content:
+      '*, *::before, *::after { transition: none !important; animation: none !important; }'
+  })
   for (const viewport of VIEWPORTS) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height })
     for (const route of ROUTES) {
