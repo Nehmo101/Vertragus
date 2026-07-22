@@ -18,6 +18,7 @@
  * Usage: node scripts/e2e-smoke.mjs   (pnpm run test:e2e; use xvfb-run on headless Linux)
  */
 import { spawnSync } from 'node:child_process'
+import { createRequire } from 'node:module'
 import { createServer } from 'node:http'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -334,12 +335,17 @@ function serveRenderer(dir) {
   })
 }
 
+// require('electron') returns the binary path and lazily downloads the dist
+// on first use (node_modules/electron/index.js). On CI the download succeeds;
+// in restricted networks it throws and we fall back to the Chromium engine.
 const electronBinary = (() => {
   try {
     const pathTxt = join(cwd, 'node_modules', 'electron', 'path.txt')
-    if (!existsSync(pathTxt)) return undefined
-    const binary = join(cwd, 'node_modules', 'electron', 'dist', readFileSync(pathTxt, 'utf8').trim())
-    return existsSync(binary) ? binary : undefined
+    if (existsSync(pathTxt)) {
+      const binary = join(cwd, 'node_modules', 'electron', 'dist', readFileSync(pathTxt, 'utf8').trim())
+      if (existsSync(binary)) return binary
+    }
+    return createRequire(import.meta.url)('electron')
   } catch {
     return undefined
   }
@@ -385,6 +391,7 @@ const playwright = await import('playwright-core')
 try {
   if (electronBinary) {
     const app = await playwright._electron.launch({
+      executablePath: electronBinary,
       args: ['.', ...(process.platform === 'linux' ? ['--no-sandbox'] : [])],
       cwd,
       env: {
@@ -402,8 +409,14 @@ try {
     console.warn('Electron-Binary nicht verfügbar — Chromium-Renderer-Fallback mit gestubbter Preload-API.')
     const { server, port } = await serveRenderer(rendererDir)
     const executablePath = process.env.VERTRAGUS_E2E_CHROMIUM ?? '/opt/pw-browsers/chromium'
+    if (!existsSync(executablePath)) {
+      throw new Error(
+        'Weder Electron (Download fehlgeschlagen) noch ein Chromium-Fallback verfügbar — ' +
+          'VERTRAGUS_E2E_CHROMIUM auf einen Chromium-Pfad setzen oder den Electron-Download zulassen.'
+      )
+    }
     const browser = await playwright.chromium.launch({
-      executablePath: existsSync(executablePath) ? executablePath : undefined,
+      executablePath,
       args: ['--no-sandbox']
     })
     try {

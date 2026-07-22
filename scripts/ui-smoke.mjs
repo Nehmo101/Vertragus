@@ -26,7 +26,9 @@ const electron = require('electron')
 const resultPath = join(tmpdir(), `vertragus-ui-smoke-${randomUUID()}.json`)
 const dataPath = join(tmpdir(), `vertragus-ui-smoke-data-${randomUUID()}`)
 mkdirSync(dataPath, { recursive: true })
-const timeoutMs = 30_000
+// Generous: a fresh CI runner first launches a just-downloaded Electron
+// (Windows needed >26s to boot once); the smoke itself finishes in seconds.
+const timeoutMs = 120_000
 
 const electronArgs = ['.']
 if (process.platform === 'linux' && process.env.CI) {
@@ -47,7 +49,9 @@ const child = spawn(electron, electronArgs, {
   windowsHide: true
 })
 
+let timedOut = false
 const timeout = setTimeout(() => {
+  timedOut = true
   child.kill()
 }, timeoutMs)
 
@@ -58,7 +62,11 @@ const exitCode = await new Promise((resolve, reject) => {
 
 try {
   if (!existsSync(resultPath)) {
-    throw new Error(`Electron UI smoke produced no result (exit ${exitCode}).`)
+    throw new Error(
+      `Electron UI smoke produced no result (exit ${exitCode}${
+        timedOut ? `, killed after ${timeoutMs / 1000}s timeout` : ''
+      }).`
+    )
   }
   const result = JSON.parse(readFileSync(resultPath, 'utf8'))
   if (!result.ok || exitCode !== 0) {
