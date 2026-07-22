@@ -28,15 +28,25 @@ export default function IdeaTransferModal({
   onClose: () => void
   onTransferred: (idea: Idea) => void
 }): JSX.Element {
-  const store = useAppStore()
+  // Narrow store slices so agent stream ticks do not remount/collapse the profile <select>.
+  const profiles = useAppStore((s) => s.profiles)
+  const activeProfileId = useAppStore((s) => s.activeProfileId)
+  const yoloMaster = useAppStore((s) => s.yoloMaster)
+  const selectWorkspaceSession = useAppStore((s) => s.selectWorkspaceSession)
+  const selectProfile = useAppStore((s) => s.selectProfile)
+  const showToast = useAppStore((s) => s.showToast)
+  const githubAuth = useAppStore((s) => s.githubAuth)
+  const githubLogin = useAppStore((s) => s.githubLogin)
+  const githubTerminalLogin = useAppStore((s) => s.githubTerminalLogin)
+
   const eligibleProfiles = useMemo(
-    () => store.profiles.filter((profile) => profileHasOrchestrator(profile)),
-    [store.profiles]
+    () => profiles.filter((profile) => profileHasOrchestrator(profile)),
+    [profiles]
   )
   const defaultProfileId =
-    eligibleProfiles.find((p) => p.id === store.activeProfileId)?.id ??
+    eligibleProfiles.find((p) => p.id === activeProfileId)?.id ??
     eligibleProfiles[0]?.id ??
-    store.activeProfileId
+    activeProfileId
   const [profileId, setProfileId] = useState(defaultProfileId)
   const resolvedProfileId = eligibleProfiles.some((p) => p.id === profileId)
     ? profileId
@@ -63,7 +73,7 @@ export default function IdeaTransferModal({
         ideaId: idea.id,
         profileId: resolvedProfileId,
         clone,
-        yoloMaster: store.yoloMaster
+        yoloMaster
       })
       setLastResult(result.transfer)
       if (result.duplicate) {
@@ -80,13 +90,13 @@ export default function IdeaTransferModal({
         return
       }
       if (result.workspaceSessionId) {
-        await store.selectWorkspaceSession(resolvedProfileId, result.workspaceSessionId)
+        await selectWorkspaceSession(resolvedProfileId, result.workspaceSessionId)
       } else {
-        await store.selectProfile(resolvedProfileId)
+        await selectProfile(resolvedProfileId)
       }
       onTransferred(result.idea)
       window.location.hash = ''
-      store.showToast(`Idee „${idea.title}" an Workspace übergeben — Planung läuft.`)
+      showToast(`Idee „${idea.title}" an Workspace übergeben — Planung läuft.`)
       onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -99,7 +109,7 @@ export default function IdeaTransferModal({
     setBusy(true)
     setError('')
     try {
-      const result = await window.vertragus.inbox.transferRetry(idea.id, store.yoloMaster)
+      const result = await window.vertragus.inbox.transferRetry(idea.id, yoloMaster)
       setLastResult(result.transfer)
       if (result.transfer.status === 'failed') {
         setError(result.transfer.error ?? 'Wiederholung fehlgeschlagen.')
@@ -107,13 +117,13 @@ export default function IdeaTransferModal({
         return
       }
       if (result.workspaceSessionId) {
-        await store.selectWorkspaceSession(resolvedProfileId, result.workspaceSessionId)
+        await selectWorkspaceSession(resolvedProfileId, result.workspaceSessionId)
       } else {
-        await store.selectProfile(resolvedProfileId)
+        await selectProfile(resolvedProfileId)
       }
       onTransferred(result.idea)
       window.location.hash = ''
-      store.showToast('Übergabe wiederholt — Workspace geöffnet.')
+      showToast('Übergabe wiederholt — Workspace geöffnet.')
       onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -130,11 +140,11 @@ export default function IdeaTransferModal({
   const selectedEligible = eligibleProfiles.some((p) => p.id === resolvedProfileId)
   const noEligibleProfiles = eligibleProfiles.length === 0
 
-  const githubLogin = (): void => {
-    if (store.githubAuth?.oauthConfigured) {
-      void store.githubLogin()
+  const githubLoginClick = (): void => {
+    if (githubAuth?.oauthConfigured) {
+      void githubLogin()
     } else {
-      void store.githubTerminalLogin()
+      void githubTerminalLogin()
     }
   }
 
@@ -169,10 +179,11 @@ export default function IdeaTransferModal({
             <span>Workspace-Profil</span>
             <select
               value={resolvedProfileId}
-              disabled={busy || blocking || noEligibleProfiles}
+              // Submit stays blocked via `blocking`; the target profile must remain choosable.
+              disabled={busy || noEligibleProfiles}
               onChange={(e) => setProfileId(e.target.value)}
             >
-              {store.profiles.map((p) => {
+              {profiles.map((p) => {
                 const ok = profileHasOrchestrator(p)
                 return (
                   <option key={p.id} value={p.id} disabled={!ok}>
@@ -240,9 +251,9 @@ export default function IdeaTransferModal({
                 className="btn-secondary"
                 style={{ marginTop: 8 }}
                 disabled={busy}
-                onClick={githubLogin}
+                onClick={githubLoginClick}
               >
-                {store.githubAuth?.oauthConfigured
+                {githubAuth?.oauthConfigured
                   ? 'GitHub verbinden (Browser)'
                   : 'GitHub im Terminal verbinden'}
               </button>
@@ -260,7 +271,7 @@ export default function IdeaTransferModal({
             </button>
           )}
           {needsAuth ? (
-            <button type="button" className="btn-primary" disabled={busy} onClick={githubLogin}>
+            <button type="button" className="btn-primary" disabled={busy} onClick={githubLoginClick}>
               GitHub verbinden
             </button>
           ) : needsClone ? (
