@@ -10,7 +10,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AgentProviderId } from '@shared/providers'
+import { providerHeadlessDef, type AgentProviderId } from '@shared/providers'
 import { buildHeadlessLaunch, type HeadlessOpts } from '@main/providers/types'
 import { resolveLaunch } from '@main/agents/resolveCommand'
 import { runOllamaChat } from '@main/agents/ollamaHeadless'
@@ -394,7 +394,9 @@ function interpretCodex(
 }
 
 function interpreterFor(id: AgentProviderId): (o: Record<string, unknown>) => LineInterpretation {
-  if (id !== 'codex') return interpretClaudeStyle
+  // Every non-codex agent uses the Anthropic-style envelope (see ProviderDef.
+  // headless.streamFormat); codex has its own event shapes.
+  if (providerHeadlessDef(id)?.streamFormat !== 'codex') return interpretClaudeStyle
   const activeCommands = new Map<string, number>()
   return (event) => interpretCodex(event, activeCommands)
 }
@@ -480,8 +482,9 @@ export function runHeadless(
   let tmpDir: string | undefined
   let runtimeRoot: string | undefined
   const extraArgs = [...(opts.extraArgs ?? [])]
-  // Kimi Code CLI mirrors Claude Code's stream-json + --verbose surface.
-  if (id === 'claude' || id === 'kimi') extraArgs.push('--verbose')
+  // Claude Code and the Kimi CLI that mirrors it emit the full stream-json
+  // envelope only under --verbose (see ProviderDef.headless.verbose).
+  if (providerHeadlessDef(id)?.verbose) extraArgs.push('--verbose')
   if (id === 'codex') {
     if (!extraArgs.includes('--skip-git-repo-check')) {
       extraArgs.push('--skip-git-repo-check')

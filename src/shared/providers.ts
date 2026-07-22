@@ -17,6 +17,27 @@ export interface ProviderAuthDef {
   loginLabel: string
 }
 
+/**
+ * Declarative headless-run capabilities. Consolidates the per-provider facts
+ * that were previously inline literals in the launch/parse hot path
+ * (`agents/headless.ts`) so the descriptor is the single source of truth for
+ * "how does this provider stream its output".
+ */
+export interface ProviderHeadlessDef {
+  /**
+   * Stream-envelope family, which selects the output interpreter. 'anthropic'
+   * is the Claude Code stream-json surface that Kimi/Cursor/Copilot also emit;
+   * 'codex' is `codex exec --json`'s own event shapes; 'ollama' is the local
+   * chat stream handled by the dedicated Ollama path.
+   */
+  streamFormat: 'anthropic' | 'codex' | 'ollama'
+  /**
+   * Append `--verbose` so the CLI emits the full stream-json envelope (Claude
+   * Code and the Kimi CLI that mirrors its surface).
+   */
+  verbose?: boolean
+}
+
 export interface ProviderDef {
   id: ProviderId
   label: string
@@ -27,6 +48,13 @@ export interface ProviderDef {
   kind: ProviderKind
   /** Whether Yolo/auto-approve is a meaningful concept for this provider. */
   supportsYolo: boolean
+  /**
+   * The provider runs as a local service and stays usable without a cloud
+   * login (Ollama). Drives the "local" connection semantics in auth probing.
+   */
+  runsLocally?: boolean
+  /** Headless streaming/launch capabilities; omitted for non-agent providers. */
+  headless?: ProviderHeadlessDef
   /**
    * Interactive-CLI args that natively resume the most recent conversation of
    * the CURRENT working directory. Only set when the CLI scopes its history by
@@ -44,6 +72,11 @@ export interface ProviderDef {
 export function providerResumeArgs(id: ProviderId): string[] | undefined {
   const def = PROVIDERS.find((provider) => provider.id === id)
   return def?.resumeArgs && def.resumeArgs.length > 0 ? [...def.resumeArgs] : undefined
+}
+
+/** Headless streaming capabilities for a provider, if it runs headless. */
+export function providerHeadlessDef(id: ProviderId): ProviderHeadlessDef | undefined {
+  return PROVIDERS.find((provider) => provider.id === id)?.headless
 }
 
 export interface ProviderHealth {
@@ -85,6 +118,7 @@ export const PROVIDERS: readonly ProviderDef[] = [
     versionArgs: ['--version'],
     kind: 'agent',
     supportsYolo: true,
+    headless: { streamFormat: 'anthropic', verbose: true },
     // `--continue` resumes the latest conversation of the cwd (worktree-scoped).
     resumeArgs: ['--continue'],
     auth: {
@@ -103,6 +137,7 @@ export const PROVIDERS: readonly ProviderDef[] = [
     versionArgs: ['--version'],
     kind: 'agent',
     supportsYolo: true,
+    headless: { streamFormat: 'anthropic', verbose: true },
     auth: {
       // Kimi Code CLI authenticates through its in-terminal /login flow and
       // exposes no documented non-interactive status command, so no statusArgs.
@@ -118,6 +153,7 @@ export const PROVIDERS: readonly ProviderDef[] = [
     versionArgs: ['--version'],
     kind: 'agent',
     supportsYolo: true,
+    headless: { streamFormat: 'codex' },
     auth: {
       loginArgs: ['login'],
       statusArgs: ['login', 'status'],
@@ -131,6 +167,7 @@ export const PROVIDERS: readonly ProviderDef[] = [
     versionArgs: ['--version'],
     kind: 'agent',
     supportsYolo: true,
+    headless: { streamFormat: 'anthropic' },
     auth: {
       loginArgs: ['login'],
       statusArgs: ['status'],
@@ -146,6 +183,8 @@ export const PROVIDERS: readonly ProviderDef[] = [
     versionArgs: ['--version'],
     kind: 'agent',
     supportsYolo: true,
+    // The Copilot CLI emits the same Claude Code stream-json envelope.
+    headless: { streamFormat: 'anthropic' },
     docsUrl: 'https://www.npmjs.com/package/@github/copilot'
   },
   {
@@ -155,6 +194,8 @@ export const PROVIDERS: readonly ProviderDef[] = [
     versionArgs: ['--version'],
     kind: 'llm',
     supportsYolo: false,
+    runsLocally: true,
+    headless: { streamFormat: 'ollama' },
     auth: {
       loginArgs: ['signin'],
       loginLabel: 'Ollama Cloud verbinden'

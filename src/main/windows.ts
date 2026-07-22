@@ -13,6 +13,7 @@ import { getSetting, setSetting } from '@main/config/store'
 import { protectWebContents } from '@main/security/navigation'
 import { initAttentionService } from '@main/attention/attentionService'
 import { workspacePlaceName } from '@shared/workspaceNames'
+import { agentDataTargetWindows } from '@main/agentDataFanout'
 
 /** Pre-paint window color matching the renderer themes (cozy-organic.css ambient). */
 function windowBackground(): string {
@@ -421,6 +422,17 @@ export function closePaneWindows(agentId: string): void {
 
 export function broadcast(channel: string, payload: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send(channel, payload)
+  }
+}
+
+/**
+ * Send one agent's PTY chunk only to the windows that render its terminal —
+ * the main window plus that agent's pop-out pane(s) — instead of broadcasting
+ * to every window (Audit A6). Target selection lives in agentDataFanout.ts.
+ */
+export function broadcastAgentData(channel: string, agentId: string, payload: unknown): void {
+  for (const win of agentDataTargetWindows(agentId, mainWindow, paneWindows)) {
     if (!win.isDestroyed()) win.webContents.send(channel, payload)
   }
 }

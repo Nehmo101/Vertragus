@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_MODELS,
   DEFAULT_PROVIDER_LIMITS,
+  getProvider,
   normalizeProviderLimits,
   parseProviderLimits,
-  providerResumeArgs
+  providerHeadlessDef,
+  providerResumeArgs,
+  PROVIDERS
 } from './providers'
 
 describe('native conversation resume capability', () => {
@@ -17,6 +20,36 @@ describe('native conversation resume capability', () => {
     expect(providerResumeArgs('copilot')).toBeUndefined()
     expect(providerResumeArgs('kimi')).toBeUndefined()
     expect(providerResumeArgs('ollama')).toBeUndefined()
+  })
+})
+
+describe('headless capability descriptor (A8)', () => {
+  it('captures the exact stream-format + verbose behavior headless.ts relied on', () => {
+    // Anthropic-style stream-json: claude/kimi/cursor/copilot; codex + ollama own.
+    expect(providerHeadlessDef('claude')).toEqual({ streamFormat: 'anthropic', verbose: true })
+    expect(providerHeadlessDef('kimi')).toEqual({ streamFormat: 'anthropic', verbose: true })
+    expect(providerHeadlessDef('cursor')?.streamFormat).toBe('anthropic')
+    expect(providerHeadlessDef('copilot')?.streamFormat).toBe('anthropic')
+    expect(providerHeadlessDef('codex')?.streamFormat).toBe('codex')
+    expect(providerHeadlessDef('ollama')?.streamFormat).toBe('ollama')
+    // Only Claude Code and the Kimi mirror pass --verbose.
+    for (const id of ['cursor', 'copilot', 'codex', 'ollama'] as const) {
+      expect(providerHeadlessDef(id)?.verbose ?? false).toBe(false)
+    }
+  })
+
+  it('marks Ollama as the only locally-run agent provider', () => {
+    expect(getProvider('ollama')?.runsLocally).toBe(true)
+    for (const def of PROVIDERS) {
+      if (def.id !== 'ollama') expect(def.runsLocally ?? false).toBe(false)
+    }
+  })
+
+  it('gives every agent provider a headless descriptor', () => {
+    for (const def of PROVIDERS) {
+      if (def.kind === 'agent' || def.kind === 'llm') expect(def.headless).toBeDefined()
+      if (def.kind === 'integration') expect(def.headless).toBeUndefined()
+    }
   })
 })
 

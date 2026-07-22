@@ -252,6 +252,23 @@ export function resolveInitialLayout(
   return { layout: stored, applyCanvasDefault: false }
 }
 
+/**
+ * A7: translate a broadcast config change (from any window persisting a value)
+ * into the local store patch that mirrors shared UI settings. Returns null for
+ * keys the renderer does not mirror. Pure, so the key/value normalization is
+ * unit-tested without standing up a full `init()`. The receiver only mirrors —
+ * it never writes back — so the broadcast cannot loop.
+ */
+export function remoteConfigPatch(
+  key: string,
+  value: unknown
+): { theme: UiTheme } | { uiDensity: UiDensity } | { cliReadable: boolean } | null {
+  if (key === 'ui.theme') return { theme: value === 'dark' ? 'dark' : 'light' }
+  if (key === 'ui.density') return { uiDensity: value === 'compact' ? 'compact' : 'comfortable' }
+  if (key === 'ui.cliReadable') return { cliReadable: value === true }
+  return null
+}
+
 /** Map a voice-assistant `open_view` target to an app hash route ('' = main workspace). */
 export function uiCommandViewToHash(view: string | undefined): string {
   switch ((view ?? '').trim().toLowerCase()) {
@@ -318,6 +335,14 @@ export const useAppStore = create<AppState>()((set, get, api) => ({
       // The account-visible catalogue may change when the interactive login closes.
       void get().refreshModels()
       if (health.some((provider) => provider.id === 'github')) void get().refreshGithubAuth()
+    })
+    // A7: mirror shared UI settings the moment any window persists them, so a
+    // theme/density/readable-panes change in the main window updates open agent
+    // panes and the voice overlay live. Receivers only mirror (no setConfig),
+    // so the broadcast can never loop back.
+    window.vertragus.onConfigChanged(({ key, value }) => {
+      const patch = remoteConfigPatch(key, value)
+      if (patch) set(patch)
     })
     window.vertragus.workspaceSessions.onChanged((workspaceSessions) =>
       set((state) => {

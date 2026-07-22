@@ -32,6 +32,8 @@ const vertragus: VertragusApi = {
   listModels: () => ipcRenderer.invoke(IPC.providersModels),
   getConfig: (key) => ipcRenderer.invoke(IPC.configGet, assertValidConfigKey(key)),
   setConfig: (key, value) => ipcRenderer.invoke(IPC.configSet, assertValidConfigKey(key), value),
+  onConfigChanged: (cb) =>
+    subscribe<{ key: string; value: unknown }>(IPC.evConfigChanged, cb),
 
   listProfiles: () => ipcRenderer.invoke(IPC.profilesList),
   saveProfile: (profile) => ipcRenderer.invoke(IPC.profileSave, profile),

@@ -187,6 +187,7 @@ export const IPC = {
   evRemote: 'ev:remote',
   evVoiceAssistant: 'ev:voiceAssistant',
   evUiCommand: 'ev:uiCommand',
+  evConfigChanged: 'ev:configChanged',
   // window controls (frameless title bar)
   winMinimize: 'win:minimize',
   winMaximizeToggle: 'win:maximizeToggle',
@@ -367,6 +368,12 @@ export interface VertragusApi {
   listModels(): Promise<ProviderModelCatalog>
   getConfig<T = unknown>(key: string): Promise<T | undefined>
   setConfig(key: string, value: unknown): Promise<void>
+  /**
+   * Fires in every window whenever any window persists a config value, so
+   * secondary windows (agent panes, voice overlay) mirror shared UI settings
+   * (theme, density, readable panes) live instead of going stale until reload.
+   */
+  onConfigChanged(cb: (change: { key: string; value: unknown }) => void): () => void
 
   listProfiles(): Promise<WorkspaceProfile[]>
   saveProfile(profile: WorkspaceProfile): Promise<WorkspaceProfile[]>

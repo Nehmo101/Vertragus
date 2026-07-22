@@ -55,6 +55,7 @@ import * as sessionRestore from '@main/orchestrator/sessionRestore'
 import { createWorkspaceSessionIpcController } from '@main/orchestrator/workspaceSessionIpc'
 import {
   broadcast,
+  broadcastAgentData,
   createPaneWindow,
   hideVoiceOverlay,
   isMainWindowSender,
@@ -341,6 +342,11 @@ export function registerIpcHandlers(): void {
     const configKey = assertValidConfigKey(key)
     setPublicConfig(configKey, value)
     if (configKey === 'providerLimits') providerCapacity.refreshLimits()
+    // Mirror the persisted value into every window so secondary windows
+    // (agent panes, voice overlay) don't render stale shared UI settings.
+    // Broadcasting the stored value (not the raw input) keeps receivers
+    // canonical; receivers only mirror it, so there is no write-back loop.
+    broadcast(IPC.evConfigChanged, { key: configKey, value: getPublicConfig(configKey) })
   })
 
   // ---- profiles ----
@@ -931,7 +937,9 @@ export function registerIpcHandlers(): void {
   ipcMain.on(IPC.winClose, (e) => senderWindow(e)?.close())
 
   // ---- push events: agent output / state / dispatch feed ----
-  agentManager.on('data', (chunk) => broadcast(IPC.evAgentData, chunk))
+  // Targeted fanout: only the main window and this agent's pop-out pane(s)
+  // render its terminal (Audit A6); every other window just discarded it.
+  agentManager.on('data', (chunk) => broadcastAgentData(IPC.evAgentData, chunk.id, chunk))
   // changed() fires per usage snapshot / status flip / permission transition —
   // bursty during active runs. Coalesce to one trailing broadcast so the full
   // agent list isn't re-serialized to every window on every sub-second tick.
