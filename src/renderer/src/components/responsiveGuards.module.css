@@ -93,18 +93,6 @@
     display: none;
   }
 }
-@media (max-width: 1020px) {
-  .titlebar {
-    gap: 8px;
-  }
-  .titlebar :global(.wordmark-sub) {
-    display: none;
-  }
-  /* Dot-only live indicator; the exact count stays available on wider windows. */
-  .titlebar :global(.live-counter span:not(.pulse-dot)) {
-    display: none;
-  }
-}
 
 @container workspace (max-width: 760px) {
   .workspace :global(.ws-header) {
@@ -235,5 +223,37 @@
   }
   .inboxPanel :global(.inbox-body) {
     grid-template-columns: minmax(150px, 38%) minmax(0, 1fr);
+  }
+}
+
+/* Compact stage below 1020px. Placed AFTER the 1320px block: at equal
+   specificity the later declaration wins, so the tighter gap and paddings
+   override the 1320px stage. The right-hand clusters are flex:none (a cluster
+   that shrinks below min-content paints its children over its neighbors), so
+   width must come out of gaps/paddings/hidden labels instead. */
+@media (max-width: 1020px) {
+  .titlebar:global(.titlebar) {
+    gap: 5px;
+  }
+  .titlebar :global(.remote-title-badge) {
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+  .titlebar :global(.wordmark-sub) {
+    display: none;
+  }
+  /* Dot-only live indicator; the exact count stays available on wider windows. */
+  .titlebar :global(.live-counter span:not(.pulse-dot)) {
+    display: none;
+  }
+  .titlebar :global(.live-counter) {
+    padding: 5px 6px;
+  }
+  .titlebar :global(.lang-btn) {
+    padding: 3px 6px;
+  }
+  .titlebar :global(.yolo-btn) {
+    padding-left: 8px;
+    padding-right: 8px;
   }
 }

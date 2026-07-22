@@ -39,14 +39,27 @@ function run(command, args) {
   }
 }
 
+// CI installs pnpm directly (pnpm/action-setup); corepack there may try to
+// fetch its own pnpm and die on the known signature-verification issue. Use
+// plain pnpm when it exists and fall back to corepack for bare environments.
+const pnpmRunner = (() => {
+  const probe = spawnSync('pnpm', ['--version'], { cwd, shell: process.platform === 'win32' })
+  return probe.status === 0 ? ['pnpm'] : ['corepack', 'pnpm']
+})()
+
+function runPnpm(args) {
+  const [command, ...prefix] = pnpmRunner
+  run(command, [...prefix, ...args])
+}
+
 if (!existsSync(mainEntry) || !existsSync(join(rendererDir, 'index.html'))) {
-  run('corepack', ['pnpm', 'exec', 'electron-vite', 'build'])
+  runPnpm(['exec', 'electron-vite', 'build'])
 }
 
 // Fresh seeded userData per run so results are deterministic.
 const userData = join(tmpdir(), `vertragus-e2e-${Date.now().toString(36)}`)
 mkdirSync(userData, { recursive: true })
-run('corepack', ['pnpm', 'exec', 'tsx', '--tsconfig', 'tsconfig.node.json', 'scripts/testStore/seed.ts', userData])
+runPnpm(['exec', 'tsx', '--tsconfig', 'tsconfig.node.json', 'scripts/testStore/seed.ts', userData])
 mkdirSync(artifactsDir, { recursive: true })
 
 const ROUTES = [
