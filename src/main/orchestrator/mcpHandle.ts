@@ -15,6 +15,14 @@ export interface McpServerHandle {
 }
 
 /**
+ * MCP config key the orchestrator server is attached under. Like the subagent
+ * name below, the label is purely client-side (Vertragus regenerates the launch
+ * config and the prompts that teach the tool names on every start), so the
+ * rename from the legacy `orca` needs no runtime alias.
+ */
+export const ORCHESTRATOR_MCP_SERVER_NAME = 'vertragus'
+
+/**
  * MCP config key the per-worker subagent server is attached under. The CLI
  * namespaces every tool as `mcp__<serverName>__<tool>`, so this single constant
  * drives both the launch spec name and the allow-list below. The label is

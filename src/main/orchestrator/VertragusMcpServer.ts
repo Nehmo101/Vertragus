@@ -30,42 +30,55 @@ import { agentManager } from '@main/agents/AgentManager'
 import type { HandoffClientIdentity } from '@main/agents/handoffHandshake'
 import { workspaceSessions } from '@main/orchestrator/WorkspaceSessionRegistry'
 import {
+  ORCHESTRATOR_MCP_SERVER_NAME,
   setMcpHandle,
   SUBAGENT_MCP_SERVER_NAME,
   type McpServerHandle
 } from '@main/orchestrator/mcpHandle'
 import { removeModelLearnings } from '@main/orchestrator/retroStore'
 
-const ORCHESTRATOR_TOOLS = [
-  'mcp__orca__get_handoff_context',
-  'mcp__orca__acknowledge_handoff',
-  'mcp__orca__set_goal',
-  'mcp__orca__report_activity',
-  'mcp__orca__list_subagents',
-  'mcp__orca__estimate_delegation',
-  'mcp__orca__dispatch_subagent',
-  'mcp__orca__dispatch_batch',
-  'mcp__orca__get_task_status',
-  'mcp__orca__list_tasks',
-  'mcp__orca__await_task',
-  'mcp__orca__await_any',
-  'mcp__orca__list_findings',
-  'mcp__orca__list_multiagent_runs',
-  'mcp__orca__review_multiagent',
-  'mcp__orca__list_subagent_requests',
-  'mcp__orca__respond_subagent',
-  'mcp__orca__get_plan_status',
-  'mcp__orca__await_plan',
-  'mcp__orca__cancel_plan',
-  'mcp__orca__open_subwindow',
-  'mcp__orca__execute_plan',
-  'mcp__orca__get_retro_draft',
-  'mcp__orca__record_retro',
-  'mcp__orca__revoke_learning',
-  'mcp__orca__run_benchmark',
-  'mcp__orca__get_benchmark_status',
-  'mcp__orca__record_benchmark'
-]
+/**
+ * Bare names of every orchestrator-session tool this server registers. The
+ * launch allowlist and the prompts are derived from this list, so a tool that
+ * is registered but missing here would be invisible to strict-allowlist
+ * providers (Claude/Kimi) — an invariant test asserts set-equality with the
+ * actual registrations.
+ */
+export const ORCHESTRATOR_TOOL_NAMES = [
+  'get_handoff_context',
+  'acknowledge_handoff',
+  'set_goal',
+  'report_activity',
+  'list_subagents',
+  'estimate_delegation',
+  'dispatch_subagent',
+  'dispatch_batch',
+  'get_task_status',
+  'list_tasks',
+  'await_task',
+  'await_any',
+  'list_findings',
+  'list_multiagent_runs',
+  'review_multiagent',
+  'list_subagent_requests',
+  'respond_subagent',
+  'get_plan_status',
+  'await_plan',
+  'await_plan_approval',
+  'cancel_plan',
+  'open_subwindow',
+  'execute_plan',
+  'get_retro_draft',
+  'record_retro',
+  'revoke_learning',
+  'run_benchmark',
+  'get_benchmark_status',
+  'record_benchmark'
+] as const
+
+const ORCHESTRATOR_TOOLS = ORCHESTRATOR_TOOL_NAMES.map(
+  (tool) => `mcp__${ORCHESTRATOR_MCP_SERVER_NAME}__${tool}`
+)
 
 const FINDING_KINDS = ['interface', 'decision', 'blocker', 'insight'] as const
 const SUBAGENT_PROGRESS_PHASES = ['working', 'testing', 'committing'] as const
@@ -87,7 +100,7 @@ function text(s: string): ToolText {
   return { content: [{ type: 'text', text: s }] }
 }
 
-function buildMcpServer(
+export function buildMcpServer(
   engine: OrchestratorEngine = orchestratorEngine,
   clientIdentity?: HandoffClientIdentity
 ): McpServer {

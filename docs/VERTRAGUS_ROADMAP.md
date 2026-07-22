@@ -129,7 +129,7 @@ PR-Policy sind zentrale Vertragus-Dienste.
   `structuredPlan`, `resumeSession` und `toolApprovalPolicy` einführen.
 - Claude-Logik aus `orchestratorLaunch.ts` in einen Adapter verschieben.
 - Codex ohne globale Konfigurationsänderung pro Prozess anbinden:
-  `mcp_servers.orca.url`, `mcp_servers.orca.required` (interner
+  `mcp_servers.vertragus.url`, `mcp_servers.vertragus.required` (interner
   Server-Bezeichner, Migration geplant), `enabled_tools` und
   `developer_instructions` als flüchtige `-c key=value`-Overrides übergeben.
 - Cursor erst als orchestrierbar markieren, wenn ein Integrationstest die

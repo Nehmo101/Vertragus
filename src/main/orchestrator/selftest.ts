@@ -71,8 +71,8 @@ export async function runSelfTest(): Promise<void> {
       codexAdapter.capability.supported &&
         codexAdapter.capability.transientConfig &&
         codexArgs.some((arg) => arg.startsWith('developer_instructions=')) &&
-        codexArgs.some((arg) => arg.startsWith('mcp_servers.orca.url=')) &&
-        codexArgs.some((arg) => arg.startsWith('mcp_servers.orca.enabled_tools=')),
+        codexArgs.some((arg) => arg.startsWith('mcp_servers.vertragus.url=')) &&
+        codexArgs.some((arg) => arg.startsWith('mcp_servers.vertragus.enabled_tools=')),
       'Codex adapter uses transient developer instructions and MCP overrides'
     )
     check(

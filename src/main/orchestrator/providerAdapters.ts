@@ -1,6 +1,6 @@
 import type { AgentProviderId } from '@shared/providers'
 import type { OrchestratorProviderCapability } from '@shared/orchestrator'
-import type { McpServerHandle } from '@main/orchestrator/mcpHandle'
+import { ORCHESTRATOR_MCP_SERVER_NAME, type McpServerHandle } from '@main/orchestrator/mcpHandle'
 import {
   buildClaudeMcpArgs,
   buildCodexMcpArgs,
@@ -30,9 +30,9 @@ export interface OrchestratorAdapter {
 }
 
 /** The Vertragus MCP server as a normalized spec (explicit tool allowlist). */
-function orcaSpec(handle: McpServerHandle): McpServerSpec {
+function vertragusSpec(handle: McpServerHandle): McpServerSpec {
   return {
-    name: 'orca',
+    name: ORCHESTRATOR_MCP_SERVER_NAME,
     transport: 'http',
     url: handle.url,
     allowedTools: handle.allowedTools,
@@ -50,7 +50,7 @@ const claudeAdapter: OrchestratorAdapter = {
     transientConfig: true
   },
   buildArgs({ handle, configDir, systemPrompt, externalServers, fileTag }) {
-    const servers = [orcaSpec(handle), ...(externalServers ?? [])]
+    const servers = [vertragusSpec(handle), ...(externalServers ?? [])]
     return buildClaudeMcpArgs(servers, {
       configDir,
       fileTag: fileTag ?? 'orchestrator',
@@ -71,7 +71,7 @@ const kimiAdapter: OrchestratorAdapter = {
   buildArgs({ handle, configDir, systemPrompt, externalServers, fileTag }) {
     // Kimi Code CLI attaches the Vertragus MCP server exactly like Claude, differing
     // only in the config-file flag handled by buildKimiMcpArgs.
-    const servers = [orcaSpec(handle), ...(externalServers ?? [])]
+    const servers = [vertragusSpec(handle), ...(externalServers ?? [])]
     return buildKimiMcpArgs(servers, {
       configDir,
       fileTag: fileTag ?? 'orchestrator',
@@ -91,7 +91,7 @@ const codexAdapter: OrchestratorAdapter = {
   },
   buildArgs({ handle, systemPrompt, externalServers }) {
     // Every override is process-local. Nothing is written to ~/.codex/config.toml.
-    const servers = [orcaSpec(handle), ...(externalServers ?? [])]
+    const servers = [vertragusSpec(handle), ...(externalServers ?? [])]
     return buildCodexMcpArgs(servers, { systemPrompt })
   }
 }
@@ -104,7 +104,7 @@ const copilotAdapter: OrchestratorAdapter = {
     transientConfig: true
   },
   buildArgs({ handle, externalServers }) {
-    const servers = [orcaSpec(handle), ...(externalServers ?? [])]
+    const servers = [vertragusSpec(handle), ...(externalServers ?? [])]
     return buildCopilotMcpArgs(servers)
   }
 }

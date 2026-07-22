@@ -5,7 +5,7 @@ const context = {
   name: 'Virgilio',
   handle: {
     url: 'http://127.0.0.1:39123/mcp?token=test',
-    allowedTools: ['mcp__orca__set_goal', 'mcp__orca__execute_plan'],
+    allowedTools: ['mcp__vertragus__set_goal', 'mcp__vertragus__execute_plan'],
     close: async () => undefined,
   },
   configDir: '.',
@@ -31,22 +31,22 @@ describe('orchestrator provider adapters', () => {
     })
     const configIndex = args.indexOf('--additional-mcp-config')
     const config = JSON.parse(args[configIndex + 1])
-    expect(config.mcpServers.orca).toEqual({
+    expect(config.mcpServers.vertragus).toEqual({
       type: 'http',
       url: context.handle.url,
       tools: ['set_goal', 'execute_plan']
     })
     expect(args).toContain('--allow-all-mcp-server-instructions')
-    expect(args).toContain('orca(set_goal),orca(execute_plan)')
+    expect(args).toContain('vertragus(set_goal),vertragus(execute_plan)')
   })
 
   it('pre-approves only Vertragus-owned orchestration tools for Codex', () => {
     const args = getOrchestratorAdapter('codex').buildArgs(context)
     expect(args).toContain(
-      'mcp_servers.orca.default_tools_approval_mode=' + JSON.stringify('approve')
+      'mcp_servers.vertragus.default_tools_approval_mode=' + JSON.stringify('approve')
     )
     expect(args).toContain(
-      'mcp_servers.orca.enabled_tools=' + JSON.stringify(['set_goal', 'execute_plan'])
+      'mcp_servers.vertragus.enabled_tools=' + JSON.stringify(['set_goal', 'execute_plan'])
     )
   })
 

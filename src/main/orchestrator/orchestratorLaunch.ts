@@ -133,7 +133,7 @@ export const orchestratorSystemPrompt = (
   '   eine Integrationsaufgabe. Feature-Tasks liefern Module und klare Schnittstellenhinweise.',
   '- Fasse erst zusammen, wenn alle taskIds beziehungsweise der Planlauf terminal sind.',
   '',
-  'Delegiere aktiv über die mcp__orca__* Tools statt selbst zu arbeiten.'
+  'Delegiere aktiv über die mcp__vertragus__* Tools statt selbst zu arbeiten.'
 ].join('\n')
 
 export interface OrchestratorSetup {

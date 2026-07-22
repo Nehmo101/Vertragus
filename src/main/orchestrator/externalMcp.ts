@@ -11,6 +11,7 @@ import { app } from 'electron'
 import type { AgentProviderId } from '@shared/providers'
 import {
   isMcpServerComplete,
+  isReservedMcpServerName,
   mcpScopeMatches,
   providerSupportsExternalMcp,
   type McpServerConfig
@@ -72,6 +73,10 @@ export function externalMcpSpecsFor(
     if (!server.enabled) continue
     if (!mcpScopeMatches(server.scope, kind)) continue
     if (!isMcpServerComplete(server)) continue
+    // Defense in depth: a reserved name would shadow the internal Vertragus
+    // server in the generated config (last one wins). The schema rejects these
+    // too, but pre-validation stores may still carry one.
+    if (isReservedMcpServerName(server.name)) continue
     byName.set(server.name, toSpec(server))
   }
   return [...byName.values()]
