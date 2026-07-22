@@ -164,7 +164,9 @@ export default function LimitsPanel(): JSX.Element {
                 </div>
                 <details className="limit-model-gates">
                   <summary>{t('limits.modelGates')}</summary>
-                  <div className="limit-model-grid">
+                  {/* data-list: several providers legitimately offer the same
+                      model id, so identical labels across grids are expected. */}
+                  <div className="limit-model-grid" data-list="">
                     {store.models[r.id].models.map((model) => {
                       const enabled = !store.disabledModels[r.id].some(
                         (disabled) => disabled.toLowerCase() === model.toLowerCase()

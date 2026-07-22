@@ -172,6 +172,10 @@ function analyzeView() {
   const textBearing = [...document.body.querySelectorAll('h1,h2,h3,h4,button,label,[role="heading"]')]
   for (const element of textBearing) {
     if (element.offsetParent === null) continue
+    // Closed <details> content stays queryable (content-visibility) but is
+    // not part of the visible view — same exclusion as the overlap scan.
+    const details = element.closest('details:not([open])')
+    if (details && !element.closest('summary')) continue
     // Repeating list rows legitimately share button labels.
     if (element.closest('ul,ol,table,[role="list"],[role="listbox"],[data-list]')) continue
     const text = (element.textContent ?? '').trim()
@@ -230,7 +234,10 @@ function buildStubInitScript(seedDir) {
       listMcpServers: () => ok(SEED.mcpServers),
       checkProviders: () => ok([]),
       getProviderCapacity: () => ok({}),
-      listModels: () => ok([]),
+      // Reject like a missing catalogue: the renderer then falls back to
+      // DEFAULT_MODELS — the same state the real app reaches on a CI runner
+      // without provider CLIs, so both engines render identical model grids.
+      listModels: () => Promise.reject(new Error('e2e: kein Modellkatalog')),
       getConfig: (key) => ok(Object.prototype.hasOwnProperty.call(CONFIG, key) ? CONFIG[key] : null),
       setConfig: (key, value) => { CONFIG[key] = value; return ok(undefined); },
       gitInfo: () => ok({ isRepo: false }),
