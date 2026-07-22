@@ -53,6 +53,7 @@ const MULTI_SLOT_PROFILE: WorkspaceProfile = workspaceProfileSchema.parse({
       provider: 'claude',
       model: '',
       modelPreset: 'strong',
+      fallbackModels: ['sonnet', 'haiku'],
       count: 1,
       orchestrated: true,
       yolo: false,

@@ -73,6 +73,9 @@ const HELP = {
   count: 'Maximale parallele Task-Kapazität dieser Rolle und Anzahl beim manuellen Teamstart.',
   yolo: 'Überspringt Provider-Bestätigungen. Nur mit Worktree-Isolation und bewusstem Scope verwenden.',
   orchestrated: 'Wenn aktiv, darf der Orchestrator Aufgaben an diesen Slot delegieren.',
+  fallbackModels:
+    'Kommagetrennte Modellnamen, auf die dieser Slot bei einem Nutzungslimit ("at capacity", 5h/Wochenlimit) ' +
+    'der Reihe nach ausweicht — erst danach wechselt Vertragus den Provider.',
   strengths: 'Kommagetrennte Fähigkeiten, die der Orchestrator bei der Rollenwahl bevorzugen soll.',
   weaknesses: 'Kommagetrennte Aufgaben, für die der Orchestrator diesen Slot möglichst nicht wählen soll.',
   benchmark:
@@ -1060,6 +1063,21 @@ export default function ProfileEditor(): JSX.Element | null {
                   >
                     Durchsuchen…
                   </button>
+                </div>
+                <div className="slot-path-row">
+                  <div className="slot-path-field">
+                    <div className="slot-col-label">
+                      Fallback-Modelle (optional) <InfoTip text={HELP.fallbackModels} />
+                    </div>
+                    <input
+                      className="slot-select-sm"
+                      placeholder="z. B. sonnet, haiku"
+                      value={(slot.fallbackModels ?? []).join(', ')}
+                      onChange={(event) =>
+                        patchSlot(idx, { fallbackModels: parseCapabilityList(event.target.value) })
+                      }
+                    />
+                  </div>
                 </div>
                 <div className="slot-path-row">
                   <div className="slot-path-field">

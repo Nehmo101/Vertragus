@@ -17,6 +17,13 @@ export const agentSlotSchema = z.object({
   model: z.string().default(''),
   /** Performance preset when model is empty. Omitted = legacy CLI default. */
   modelPreset: modelPresetSchema.optional(),
+  /**
+   * Models to fall back to (in order) when the slot's model hits a usage
+   * limit ("at capacity", 5h/weekly limits). Tried on the SAME provider/slot
+   * before the engine switches to a different provider — a limit signal no
+   * longer kills a run while untried fallback models remain.
+   */
+  fallbackModels: z.array(z.string().min(1)).max(8).default([]),
   /** Number of instances to open for this slot. */
   count: z.number().int().min(1).default(1),
   /** May the orchestrator dispatch tasks to this slot? */
@@ -172,7 +179,9 @@ export const workspaceProfileSchema = z.object({
   }
 })
 
-export type AgentSlot = z.infer<typeof agentSlotSchema>
+type ParsedAgentSlot = z.infer<typeof agentSlotSchema>
+/** Legacy in-memory slot drafts may predate the fallbackModels field. */
+export type AgentSlot = Omit<ParsedAgentSlot, 'fallbackModels'> & { fallbackModels?: string[] }
 type ParsedOrchestratorConfig = z.infer<typeof orchestratorSchema>
 /** Legacy in-memory profile drafts may not have passed through the schema yet. */
 export type OrchestratorConfig = Omit<ParsedOrchestratorConfig, 'permissionMode'> & {
@@ -187,8 +196,9 @@ export type GithubProjectConfig = z.infer<typeof githubProjectSchema>
 export type ProfileCloneStatus = z.infer<typeof profileCloneStatusSchema>
 export type ProfileGithubRepo = z.infer<typeof profileGithubRepoSchema>
 type ParsedWorkspaceProfile = z.infer<typeof workspaceProfileSchema>
-export type WorkspaceProfile = Omit<ParsedWorkspaceProfile, 'orchestrator'> & {
+export type WorkspaceProfile = Omit<ParsedWorkspaceProfile, 'orchestrator' | 'agents'> & {
   orchestrator?: OrchestratorConfig
+  agents: AgentSlot[]
 }
 
 /** Create an independent, uniquely identified copy of a workspace profile. */
@@ -354,6 +364,7 @@ export const DEFAULT_PROFILE: WorkspaceProfile = {
       role: 'codex',
       provider: 'codex',
       model: '',
+      fallbackModels: [],
       count: 3,
       orchestrated: true,
       yolo: false,

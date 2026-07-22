@@ -854,6 +854,97 @@ describe('asynchronous orchestration API', () => {
     }))
   })
 
+  it('walks the slot fallback-model list on a rate limit before switching provider', async () => {
+    const callsBefore = runTask.mock.calls.length
+    runTask
+      .mockImplementationOnce(async (request) => ({
+        info: { ...info(request.taskId), provider: request.provider },
+        done: Promise.resolve({ result: 'Selected model is at capacity', isError: true, status: 'failed' as const })
+      }))
+      .mockImplementationOnce(async (request) => ({
+        info: { ...info(request.taskId), provider: request.provider },
+        done: Promise.resolve({ result: 'Selected model is at capacity', isError: true, status: 'failed' as const })
+      }))
+      .mockImplementationOnce(async (request) => ({
+        info: { ...info(request.taskId), provider: request.provider },
+        done: Promise.resolve({ result: 'Fallback model completed', isError: false, status: 'succeeded' as const })
+      }))
+    const profile = {
+      ...DEFAULT_PROFILE,
+      agents: [
+        {
+          ...DEFAULT_PROFILE.agents[0]!,
+          role: 'primary',
+          provider: 'codex' as const,
+          fallbackModels: ['ersatz-1', 'ersatz-2']
+        },
+        { ...DEFAULT_PROFILE.agents[0]!, role: 'reserve', provider: 'cursor' as const }
+      ],
+      planner: {
+        ...DEFAULT_PROFILE.planner,
+        mode: 'auto' as const,
+        routingMode: 'fixed' as const,
+        maxRetries: 0
+      }
+    }
+    const engine = new OrchestratorEngine({ profile })
+    const result = await engine.executePlan({
+      version: 1, goal: 'Survive model capacity limits', maxParallel: 1,
+      tasks: [{
+        id: 'limited', title: 'Limited', role: 'primary', prompt: 'Work',
+        dependsOn: [], conflictKeys: [], ownership: 'feature', expectedFiles: []
+      }]
+    })
+    expect(result.status).toBe('success')
+    const attempts = runTask.mock.calls.slice(callsBefore).map((call) => ({
+      provider: call[0].provider,
+      model: call[0].model
+    }))
+    // Same slot walks its fallback models before any provider switch happens.
+    expect(attempts).toEqual([
+      { provider: 'codex', model: '' },
+      { provider: 'codex', model: 'ersatz-1' },
+      { provider: 'codex', model: 'ersatz-2' }
+    ])
+  })
+
+  it('prefers a slot fallback model over a provider switch for a terminal limited task', async () => {
+    const callsBefore = runTask.mock.calls.length
+    runTask
+      .mockImplementationOnce(async (request) => ({
+        info: { ...info(request.taskId), provider: request.provider },
+        done: Promise.resolve({ result: 'Provider rate limit hit', isError: true, status: 'failed' as const })
+      }))
+      .mockImplementationOnce(async (request) => ({
+        info: { ...info(request.taskId), provider: request.provider },
+        done: Promise.resolve({ result: 'Recovered on fallback model', isError: false, status: 'succeeded' as const })
+      }))
+    const engine = new OrchestratorEngine({ profile: {
+      ...DEFAULT_PROFILE,
+      agents: [
+        {
+          ...DEFAULT_PROFILE.agents[0]!,
+          role: 'primary',
+          provider: 'codex' as const,
+          fallbackModels: ['ersatz-1']
+        },
+        { ...DEFAULT_PROFILE.agents[0]!, role: 'reserve', provider: 'cursor' as const }
+      ]
+    } })
+    const accepted = engine.dispatchAsync('primary', 'Safe internal prompt', 'Model fallback')
+    await vi.waitFor(() => expect(engine.getTaskStatus(accepted.taskId)?.status).toBe('error'))
+    await expect(engine.fallbackTask(accepted.taskId)).resolves.toBe(true)
+    await vi.waitFor(() => expect(engine.getTaskStatus(accepted.taskId)?.status).toBe('success'))
+    const attempts = runTask.mock.calls.slice(callsBefore).map((call) => ({
+      provider: call[0].provider,
+      model: call[0].model
+    }))
+    expect(attempts).toEqual([
+      { provider: 'codex', model: '' },
+      { provider: 'codex', model: 'ersatz-1' }
+    ])
+  })
+
   it('switches provider on a rate limit even when normal routing is fixed', async () => {
     const callsBefore = runTask.mock.calls.length
     runTask

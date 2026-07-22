@@ -145,6 +145,8 @@ interface DispatchOptions {
   maxAttempts?: number
   /** Verified failed-worker worktree whose partial files may be resumed. */
   recoveryWorktree?: string
+  /** Limit-fallback: launch this exact model instead of the slot's configured one. */
+  modelOverride?: string
   /** Internal marker that prevents a candidate from recursively opening another group. */
   multiAgentRunId?: string
   multiAgentParentTaskId?: string
@@ -480,6 +482,10 @@ export class OrchestratorEngine extends EventEmitter {
   private readonly resumeRequestedTasks = new Set<string>()
   private readonly resumeTaskWaiters = new Map<string, () => void>()
   private readonly forcedFallbackRoles = new Map<string, string>()
+  /** Fallback models already tried per task, so each is attempted at most once. */
+  private readonly attemptedFallbackModels = new Map<string, Set<string>>()
+  /** Model override to apply when a paused limit-hit task resumes. */
+  private readonly forcedFallbackModels = new Map<string, string>()
   private readonly fallbackInFlight = new Set<string>()
   private readonly dispatchRecords = new Map<string, DispatchRecord>()
   private firstPlanApproved = true
@@ -1116,16 +1122,26 @@ export class OrchestratorEngine extends EventEmitter {
       this.taskResults.get(taskId)
     ].filter(Boolean).join(' ')
     if (!agentLimit && !detectLimit(task.provider, limitText)) return false
-    const fallback = this.listSubagents()
-      .filter((agent) => agent.available && agent.provider !== task.provider && agent.role !== task.role)
-      .sort((left, right) => (left.busy / left.capacity) - (right.busy / right.capacity))[0]
-    if (!fallback) return false
+
+    // FIRST choice: stay on the same slot and walk its fallback-model list —
+    // a limit on one model must not burn a different provider slot while
+    // cheaper same-provider alternatives remain untried.
+    const fallbackModel = task.role ? this.nextFallbackModel(task.role, taskId) : undefined
+    const fallback = fallbackModel
+      ? undefined
+      : this.listSubagents()
+          .filter((agent) => agent.available && agent.provider !== task.provider && agent.role !== task.role)
+          .sort((left, right) => (left.busy / left.capacity) - (right.busy / right.capacity))[0]
+    if (!fallbackModel && !fallback) return false
+    const targetRole = fallbackModel ? task.role! : fallback!.role
 
     if (task.status === 'running' || task.status === 'queued' || task.status === 'paused') {
-      this.forcedFallbackRoles.set(taskId, fallback.role)
+      this.forcedFallbackRoles.set(taskId, targetRole)
+      if (fallbackModel) this.forcedFallbackModels.set(taskId, fallbackModel)
       const paused = await this.pauseTask(taskId)
       if (!paused) {
         this.forcedFallbackRoles.delete(taskId)
+        this.forcedFallbackModels.delete(taskId)
         return false
       }
       return this.resumeTask(taskId)
@@ -1136,18 +1152,21 @@ export class OrchestratorEngine extends EventEmitter {
     this.fallbackInFlight.add(taskId)
     task.status = 'queued'
     task.finishedAt = undefined
-    task.lastAction = `Provider-Limit: sichere Fortsetzung mit ${fallback.provider}`
+    task.lastAction = fallbackModel
+      ? `Provider-Limit: sichere Fortsetzung mit Fallback-Modell ${fallbackModel}`
+      : `Provider-Limit: sichere Fortsetzung mit ${fallback!.provider}`
     task.note = 'Vertragus startet einen Ersatz-Worker aus dem gesicherten Recovery-Artefakt.'
     this.reliability.automaticRecoveries += 1
     this.push()
     void this.dispatch(
-      fallback.role,
+      targetRole,
       record.prompt,
       record.title,
       {
         ...record.options,
         taskId,
-        recoveryWorktree: task.recoveryArtifact?.worktree
+        recoveryWorktree: task.recoveryArtifact?.worktree,
+        modelOverride: fallbackModel
       }
     ).finally(() => this.fallbackInFlight.delete(taskId))
     return true
@@ -1157,6 +1176,29 @@ export class OrchestratorEngine extends EventEmitter {
     const forced = this.forcedFallbackRoles.get(taskId)
     if (forced) this.forcedFallbackRoles.delete(taskId)
     return forced ?? currentRole
+  }
+
+  /**
+   * Next untried fallback model of the task's slot (retro learning: a
+   * "model at capacity" signal must walk the slot's fallback list before the
+   * engine burns a different provider slot or kills the run).
+   */
+  private nextFallbackModel(role: string, taskId: string): string | undefined {
+    let slot: AgentSlot
+    try {
+      slot = this.pickSlot(role).slot
+    } catch {
+      return undefined
+    }
+    const configured = slot.fallbackModels ?? []
+    if (configured.length === 0) return undefined
+    const attempted = this.attemptedFallbackModels.get(taskId) ?? new Set<string>()
+    const current = resolveSlotModel(slot.provider, slot)
+    const next = configured.find((model) => model !== current && !attempted.has(model))
+    if (!next) return undefined
+    attempted.add(next)
+    this.attemptedFallbackModels.set(taskId, attempted)
+    return next
   }
 
   private waitForTaskResume(taskId: string): Promise<void> {
@@ -1778,6 +1820,14 @@ export class OrchestratorEngine extends EventEmitter {
       })
     }
     const yolo = slot.yolo || (profile?.yoloDefault ?? false)
+    // Limit-fallback: an explicit override (options or a paused task resuming
+    // after a limit hit) replaces the slot's configured model for this launch.
+    const forcedModel = this.forcedFallbackModels.get(taskId)
+    if (forcedModel) this.forcedFallbackModels.delete(taskId)
+    const modelOverride = options.modelOverride ?? forcedModel
+    const launchSlot: AgentSlot = modelOverride
+      ? { ...slot, model: modelOverride, modelPreset: undefined }
+      : slot
 
     const task: VertragusTask = this.tasks.get(taskId) ?? {
       id: taskId,
@@ -1790,7 +1840,7 @@ export class OrchestratorEngine extends EventEmitter {
       title: title?.trim() || task.title,
       role: slotRole,
       provider: slot.provider,
-      model: resolveSlotModel(slot.provider, slot),
+      model: resolveSlotModel(launchSlot.provider, launchSlot),
       status: 'queued' as const,
       phase: 'queued' as const,
       lastAction: 'Wartet auf freie Kapazität',
@@ -1913,9 +1963,9 @@ export class OrchestratorEngine extends EventEmitter {
     const dependencyBaseRef = this.resolveDependencyBaseRef(options.dependsOn)
     try {
       const { info, done, baseCommit } = await agentManager.runTask({
-        provider: slot.provider,
-        model: slot.model,
-        modelPreset: slot.modelPreset,
+        provider: launchSlot.provider,
+        model: launchSlot.model,
+        modelPreset: launchSlot.modelPreset,
         role: slotRole,
         taskId,
         prompt: taskPrompt,
@@ -2729,9 +2779,19 @@ export class OrchestratorEngine extends EventEmitter {
         : task.prompt
       const running = (async (): Promise<void> => {
         const maxRetries = profile?.planner.maxRetries ?? 1
-        const maxRateLimitRetries = Math.max(maxRetries, 1)
+        // Every configured fallback model grants one extra limit retry — a run
+        // must not die while untried slot fallbacks remain (retro backlog).
+        const slotFallbackCount = (() => {
+          try {
+            return this.pickSlot(task.role).slot.fallbackModels?.length ?? 0
+          } catch {
+            return 0
+          }
+        })()
+        const maxRateLimitRetries = Math.max(maxRetries, 1) + slotFallbackCount
         const attemptedRoles = new Set<string>()
         let requestedRole = task.role
+        let modelOverride: string | undefined
         let recoveryContext = ''
         let recoveryWorktree: string | undefined
 
@@ -2755,7 +2815,8 @@ export class OrchestratorEngine extends EventEmitter {
               ownership: task.ownership,
               attempt: attempt + 1,
               maxAttempts: maxRateLimitRetries + 1,
-              recoveryWorktree
+              recoveryWorktree,
+              modelOverride
             }
           )
           this.taskResults.set(runtimeId, output)
@@ -2792,6 +2853,26 @@ export class OrchestratorEngine extends EventEmitter {
 
           recoveryContext = output
           recoveryWorktree = runtimeTask?.recoveryArtifact?.worktree
+
+          // On a limit signal, FIRST walk the same slot's fallback-model list;
+          // only when it is exhausted switch to a different provider slot.
+          const fallbackModel = rateLimited
+            ? this.nextFallbackModel(requestedRole, runtimeId)
+            : undefined
+          if (fallbackModel) {
+            modelOverride = fallbackModel
+            this.reliability.automaticRecoveries += 1
+            this.setActivityState(
+              'delegating',
+              `Provider-Limit erkannt; Recovery ${attempt + 1}/${maxRateLimitRetries} bleibt auf dem Slot und wechselt auf Fallback-Modell ${fallbackModel}.`,
+              [`${task.title}: ${requestedRole}`],
+              'Ersatz-Worker auswerten und erst danach abhängige Aufgaben freigeben.'
+            )
+            this.push()
+            continue
+          }
+          modelOverride = undefined
+
           const alternatives = this.listSubagents()
             .filter((agent) =>
               agent.available && !attemptedRoles.has(agent.role) &&
