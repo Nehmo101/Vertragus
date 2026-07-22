@@ -43,7 +43,7 @@ vi.mock('@main/agents/worktree', () => ({
   inventoryWorktrees: worktree.inventoryWorktrees,
   rollbackWorktree: worktree.rollbackWorktree,
   discardManagedOrphans: worktree.discardManagedOrphans,
-  isOrcaWorktreePath: (path: string) => /[\\/]\.(?:vertragus|orca)-worktrees[\\/]/.test(path),
+  isManagedWorktreePath: (path: string) => /[\\/]\.(?:vertragus|orca)-worktrees[\\/]/.test(path),
   managedWorktreeParts: (path: string) => {
     const match = path
       .replace(/\\/g, '/')

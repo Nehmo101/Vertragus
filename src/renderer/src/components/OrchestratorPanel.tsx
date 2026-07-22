@@ -17,7 +17,7 @@ import {
   resolveOrchestratorActivity,
   taskActivityText
 } from '@renderer/orchestratorActivity'
-import type { OrcaTask, TaskStatus } from '@shared/orchestrator'
+import type { VertragusTask, TaskStatus } from '@shared/orchestrator'
 import { resolveModel } from '@shared/models'
 import type { AgentUsage } from '@shared/agents'
 import { summarizeUsage, summarizeUsageGroup, TELEMETRY_STATUS_LABELS, TELEMETRY_STATUS_TITLES } from '@shared/telemetry'
@@ -31,7 +31,7 @@ const MAX_VISIBLE_FINDINGS = 6
 type PlannerMode = 'auto' | 'review' | 'manual'
 const PLANNER_MODES: PlannerMode[] = ['auto', 'review', 'manual']
 
-type TaskWithTelemetry = OrcaTask & {
+type TaskWithTelemetry = VertragusTask & {
   lastHeartbeatAt?: number
   phase?: string
   lastAction?: string
@@ -63,7 +63,7 @@ function fmtAge(ms: number): string {
 }
 
 /** Compact "12k Token · $0.12" line; null when the provider reported nothing. */
-function usageText(t: TFunction, usage?: OrcaTask['usage']): string | null {
+function usageText(t: TFunction, usage?: VertragusTask['usage']): string | null {
   const summary = summarizeUsage(usage)
   if (summary.status === 'absent') return null
   const parts: string[] = []
@@ -93,7 +93,7 @@ function TaskCard({
   workspaceSessionId,
   now
 }: {
-  task: OrcaTask
+  task: VertragusTask
   usage?: AgentUsage
   profileId: string
   workspaceSessionId?: string

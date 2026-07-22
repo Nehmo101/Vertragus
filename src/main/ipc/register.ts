@@ -315,7 +315,7 @@ export function registerIpcHandlers(): void {
     if (!latest) return null
     const result = await saveRunDialog(
       senderWindow(e),
-      `orca-run-${latest.runId}-${new Date(latest.updatedAt).toISOString().slice(0, 10)}.jsonl`
+      `vertragus-run-${latest.runId}-${new Date(latest.updatedAt).toISOString().slice(0, 10)}.jsonl`
     )
     if (result.canceled || !result.filePath) return null
     runJournal.export(latest.runId, result.filePath)
@@ -899,7 +899,7 @@ export function registerIpcHandlers(): void {
       at: evt.time,
       payload: evt
     })
-    broadcast(IPC.evOrcaEvent, evt)
+    broadcast(IPC.evVertragusEvent, evt)
   })
   workspaceSessions.on('changed', () => {
     broadcast(IPC.evWorkspaceSessions, workspaceSessions.list())

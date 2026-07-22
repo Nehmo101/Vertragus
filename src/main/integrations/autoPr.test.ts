@@ -359,7 +359,7 @@ describe('autoPr quality gate environment', () => {
 
   it('does not leak a secret through the command or logs and leaves other env values unchanged', async () => {
     const privateMarker = 'private-marker-value'
-    const inheritedEnv = { PATH: '/system/bin', ORCA_PRIVATE_MARKER: privateMarker }
+    const inheritedEnv = { PATH: '/system/bin', VERTRAGUS_PRIVATE_MARKER: privateMarker }
     const originalEnv = { ...inheritedEnv }
     const logs = [
       vi.spyOn(console, 'log').mockImplementation(() => undefined),
@@ -378,7 +378,7 @@ describe('autoPr quality gate environment', () => {
     const invocation = lastGateInvocation()
     expect(inheritedEnv).toEqual(originalEnv)
     expect(invocation.env).not.toBe(inheritedEnv)
-    expect(invocation.env.ORCA_PRIVATE_MARKER).toBe(privateMarker)
+    expect(invocation.env.VERTRAGUS_PRIVATE_MARKER).toBe(privateMarker)
     expect(invocation.command).toBe('pnpm lint')
     expect(invocation.command).not.toContain(privateMarker)
     for (const log of logs) expect(log).not.toHaveBeenCalled()
@@ -430,7 +430,7 @@ describe('autoPr quality gate environment', () => {
 
   it('does not leak a secret through the command or logs and leaves other env values unchanged', async () => {
     const privateMarker = 'private-marker-value'
-    const inheritedEnv = { PATH: '/system/bin', ORCA_PRIVATE_MARKER: privateMarker }
+    const inheritedEnv = { PATH: '/system/bin', VERTRAGUS_PRIVATE_MARKER: privateMarker }
     const originalEnv = { ...inheritedEnv }
     const logs = [
       vi.spyOn(console, 'log').mockImplementation(() => undefined),
@@ -449,7 +449,7 @@ describe('autoPr quality gate environment', () => {
     const invocation = lastGateInvocation()
     expect(inheritedEnv).toEqual(originalEnv)
     expect(invocation.env).not.toBe(inheritedEnv)
-    expect(invocation.env.ORCA_PRIVATE_MARKER).toBe(privateMarker)
+    expect(invocation.env.VERTRAGUS_PRIVATE_MARKER).toBe(privateMarker)
     expect(invocation.command).toBe('pnpm lint')
     expect(invocation.command).not.toContain(privateMarker)
     for (const log of logs) expect(log).not.toHaveBeenCalled()

@@ -99,10 +99,10 @@ async function check(
 }
 
 async function writeProbe(directory: string): Promise<void> {
-  const path = join(directory, `.orca-preflight-${randomUUID()}.tmp`)
+  const path = join(directory, `.vertragus-preflight-${randomUUID()}.tmp`)
   const handle = await open(path, 'wx', 0o600)
   try {
-    await handle.writeFile('orca-preflight\n', 'utf8')
+    await handle.writeFile('vertragus-preflight\n', 'utf8')
   } finally {
     await handle.close()
     await rm(path, { force: true })
@@ -127,7 +127,7 @@ export function codexRuntimeCanaryArgs(workingDir: string): string[] {
     '-NoProfile',
     '-NonInteractive',
     '-Command',
-    "$path = $env:ORCA_CODEX_CANARY_PATH; [System.IO.File]::WriteAllText($path, 'orca-runtime-preflight'); Remove-Item -LiteralPath $path -Force"
+    "$path = $env:VERTRAGUS_CODEX_CANARY_PATH; [System.IO.File]::WriteAllText($path, 'vertragus-runtime-preflight'); Remove-Item -LiteralPath $path -Force"
   ]
 }
 
@@ -187,7 +187,7 @@ function defaultCursorCanaryDeps(): CursorCanaryDeps {
   return {
     async probeVersion() {
       // Empty, controlled working directory — never the repository.
-      const dir = await mkdtemp(join(tmpdir(), 'orca-cursor-version-'))
+      const dir = await mkdtemp(join(tmpdir(), 'vertragus-cursor-version-'))
       try {
         // requireFaithfulArgs throws instead of returning a cmd.exe wrapper, so
         // a Cursor install that can only be reached through a truncating shell
@@ -209,16 +209,16 @@ function defaultCursorCanaryDeps(): CursorCanaryDeps {
       // Reproduce the exact worker transport: a Windows script shim rewritten to
       // a direct Node entrypoint, then spawned without a shell. The echo target
       // prints back the positional argument it actually received.
-      const dir = await mkdtemp(join(tmpdir(), 'orca-cursor-transport-'))
+      const dir = await mkdtemp(join(tmpdir(), 'vertragus-cursor-transport-'))
       try {
-        await open(join(dir, 'orca-echo.mjs'), 'w', 0o600).then(async (handle) => {
+        await open(join(dir, 'vertragus-echo.mjs'), 'w', 0o600).then(async (handle) => {
           await handle.writeFile('process.stdout.write(process.argv[2] ?? "")', 'utf8')
           await handle.close()
         })
         const shim = join(dir, 'cursor-agent.cmd')
         await open(shim, 'w', 0o600).then(async (handle) => {
           await handle.writeFile(
-            '@ECHO off\r\nSETLOCAL\r\n"%~dp0\\node.exe"  "%~dp0\\orca-echo.mjs" %*\r\n',
+            '@ECHO off\r\nSETLOCAL\r\n"%~dp0\\node.exe"  "%~dp0\\vertragus-echo.mjs" %*\r\n',
             'utf8'
           )
           await handle.close()
@@ -261,8 +261,8 @@ async function runCursorRuntimeCanary(deps: CursorCanaryDeps): Promise<RuntimeCa
 
   // Two distinct lines separated by a blank line — the exact shape whose second
   // half was lost in the real multiagent run (only ["IDENTITY"] arrived).
-  const identity = 'ORCA-CURSOR-CANARY-IDENTITAET'
-  const fingerprint = 'ORCA-CURSOR-CANARY-FINGERPRINT'
+  const identity = 'VERTRAGUS-CURSOR-CANARY-IDENTITAET'
+  const fingerprint = 'VERTRAGUS-CURSOR-CANARY-FINGERPRINT'
   const probe = `${identity}\n\n${fingerprint}`
   let received: string
   try {
@@ -360,7 +360,7 @@ async function providerRuntimeCanary(
       poolWorkspace = await mkdtemp(join(runtimeRoot, 'preflight-workspace-'))
       canaryWorkspace = poolWorkspace
     }
-    markerPath = join(canaryWorkspace, `.orca-codex-runtime-${randomUUID()}.tmp`)
+    markerPath = join(canaryWorkspace, `.vertragus-codex-runtime-${randomUUID()}.tmp`)
     runtimeDir = await mkdtemp(
       join(workerWorkspace ? runtimeRoot : canaryWorkspace, 'preflight-runtime-')
     )
@@ -370,7 +370,7 @@ async function providerRuntimeCanary(
         cwd: canaryWorkspace,
         env: codexSingleRootEnvironment(runtimeDir, {
           ...process.env,
-          ORCA_CODEX_CANARY_PATH: markerPath
+          VERTRAGUS_CODEX_CANARY_PATH: markerPath
         }, platform),
         windowsHide: true,
         timeout: PREFLIGHT_TIMEOUT_MS

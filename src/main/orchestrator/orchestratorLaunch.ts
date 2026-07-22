@@ -126,7 +126,7 @@ export const orchestratorSystemPrompt = (
   '   steht. Sprich Subagents in deiner Zusammenfassung mit diesem Namen an.',
   '- Definition of Done je Task: geänderte Dateien oder explizit keine Änderungen; relevante Tests,',
   '   Typecheck/Lint, automatisch injizierte Security-Negativfälle und Integrationshinweise müssen im Ergebnis stehen.',
-  '- Der Worker führt kein git add, commit, cherry-pick oder push aus. Orcas Main-Prozess sichert und verifiziert den Commit zentral.',
+  '- Der Worker führt kein git add, commit, cherry-pick oder push aus. Der Vertragus-Main-Prozess sichert und verifiziert den Commit zentral.',
   '- Bei einem Infrastrukturblocker liefere nur ein strukturiertes Kurzresultat: Blocker, geprüfte Alternativen,',
   '   geplante Dateien, Schnittstellen und knappe Implementierungsnotizen — keinen vollständigen Ersatz-Codeentwurf.',
   '- Gemeinsame Hotspots (Shared Schemas, IPC, Profilmodell, globale Styles) gehören in genau',

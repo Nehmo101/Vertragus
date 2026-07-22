@@ -55,7 +55,7 @@ function rawGet(origin: string, path: string): Promise<{ status: number; body: s
 
 describe('RemoteGateway hardening', () => {
   it('binds loopback, rejects an unlisted Host, and caps request bodies', async () => {
-    const directory = mkdtempSync(join(tmpdir(), 'orca-gateway-test-'))
+    const directory = mkdtempSync(join(tmpdir(), 'vertragus-gateway-test-'))
     directories.push(directory)
     const gateway = await startRemoteGateway({
       auth: new DeviceAuth(new MemoryStore()),
@@ -97,7 +97,7 @@ describe('RemoteGateway hardening', () => {
   })
 
   it('authenticates WebSocket upgrades with the same device bearer and rejects missing auth', async () => {
-    const directory = mkdtempSync(join(tmpdir(), 'orca-ws-test-'))
+    const directory = mkdtempSync(join(tmpdir(), 'vertragus-ws-test-'))
     directories.push(directory)
     const auth = new DeviceAuth(new MemoryStore())
     const gateway = await startRemoteGateway({
@@ -140,7 +140,7 @@ describe('RemoteGateway hardening', () => {
   })
 
   it('registers native APNs tokens on /push/apns and rejects malformed ones', async () => {
-    const directory = mkdtempSync(join(tmpdir(), 'orca-apns-test-'))
+    const directory = mkdtempSync(join(tmpdir(), 'vertragus-apns-test-'))
     directories.push(directory)
     const auth = new DeviceAuth(new MemoryStore())
     const apnsCalls: Array<{ deviceId: string; input: unknown }> = []
@@ -201,7 +201,7 @@ describe('RemoteGateway serveStatic hardening', () => {
     gateway: Awaited<ReturnType<typeof startRemoteGateway>>
     staticDir: string
   }> {
-    const baseDir = mkdtempSync(join(tmpdir(), 'orca-static-test-'))
+    const baseDir = mkdtempSync(join(tmpdir(), 'vertragus-static-test-'))
     directories.push(baseDir)
     // Secret file lives OUTSIDE the static root, one level up.
     writeFileSync(join(baseDir, 'secret.txt'), SECRET)
@@ -272,7 +272,7 @@ describe('RemoteGateway serveStatic hardening', () => {
 
 describe('RemoteGateway API authorization', () => {
   it('rejects /stream with 401 (no/invalid bearer) and 403 (valid token lacking read scope)', async () => {
-    const directory = mkdtempSync(join(tmpdir(), 'orca-authz-test-'))
+    const directory = mkdtempSync(join(tmpdir(), 'vertragus-authz-test-'))
     directories.push(directory)
     const auth = new DeviceAuth(new MemoryStore())
     const gateway = await startRemoteGateway({
@@ -309,7 +309,7 @@ describe('RemoteGateway API authorization', () => {
 
 describe('RemoteGateway pairing rate limit', () => {
   it('returns 429 once the pairing rate limit is exhausted', async () => {
-    const directory = mkdtempSync(join(tmpdir(), 'orca-pair-rl-test-'))
+    const directory = mkdtempSync(join(tmpdir(), 'vertragus-pair-rl-test-'))
     directories.push(directory)
     const gateway = await startRemoteGateway({
       auth: new DeviceAuth(new MemoryStore()),

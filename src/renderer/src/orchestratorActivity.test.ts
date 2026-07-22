@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentInstanceInfo } from '@shared/agents'
-import type { OrcaTask, OrchestratorSnapshot } from '@shared/orchestrator'
+import type { VertragusTask, OrchestratorSnapshot } from '@shared/orchestrator'
 import {
   liveOrchestratorTasks,
   paneReadableSummary,
@@ -8,7 +8,7 @@ import {
   taskActivityText
 } from './orchestratorActivity'
 
-function task(patch: Partial<OrcaTask> = {}): OrcaTask {
+function task(patch: Partial<VertragusTask> = {}): VertragusTask {
   return {
     id: 'task-1',
     title: 'Status UI',

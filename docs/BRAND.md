@@ -64,7 +64,7 @@ Weiß/Blau.
 
 ## Interne Bezeichner (bewusst noch alt)
 
-`orca/`-Branch-Präfix, `.orca-worktrees/`, `OrcaMcpServer`/`OrcaTask`,
+`orca/`-Branch-Präfix, `.orca-worktrees/`, `VertragusMcpServer`/`VertragusTask`,
 `window.orca`, `mcp__orca__*`-Toolnamen sowie persistierte Schlüssel
 (`orca.layout.v1` im localStorage, `orca.remote.*` in der PWA, die
 WebSocket-Subprotokolle `orca-v1`/`orca-bearer.*`) bleiben bis zu einem

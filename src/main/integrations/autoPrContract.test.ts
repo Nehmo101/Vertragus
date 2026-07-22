@@ -23,7 +23,7 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
 }
 
 async function repo(): Promise<{ dir: string; base: string }> {
-  const dir = await mkdtemp(join(tmpdir(), 'orca-contract-'))
+  const dir = await mkdtemp(join(tmpdir(), 'vertragus-contract-'))
   created.push(dir)
   await git(dir, 'init')
   await git(dir, 'config', 'user.name', 'Vertragus Test')

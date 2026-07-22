@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
-import type { OrchestratorSnapshot, OrcaTask } from '@shared/orchestrator'
+import type { OrchestratorSnapshot, VertragusTask } from '@shared/orchestrator'
 import type { ApnsRegisterRequest, RemoteEventFrame } from '@shared/remote'
 import {
   readApnsCredential,
@@ -50,14 +50,14 @@ async function defaultLoadApnsSender(credential: StoredApnsCredential): Promise<
   return new Http2ApnsSender({ teamId: credential.teamId, keyId: credential.keyId, p8: credential.p8 })
 }
 
-function taskMap(snapshot: OrchestratorSnapshot | undefined): Map<string, OrcaTask> {
+function taskMap(snapshot: OrchestratorSnapshot | undefined): Map<string, VertragusTask> {
   return new Map((snapshot?.tasks ?? []).map((task) => [task.id, task]))
 }
 
-function isActive(task: OrcaTask): boolean {
+function isActive(task: VertragusTask): boolean {
   return task.status === 'queued' || task.status === 'running' || task.status === 'waiting' || task.status === 'paused'
 }
-function isTerminal(task: OrcaTask): boolean { return !isActive(task) }
+function isTerminal(task: VertragusTask): boolean { return !isActive(task) }
 
 /** Pure transition diff. Identical heartbeat snapshots produce no notifications. */
 export function diffPushTransitions(
@@ -269,7 +269,7 @@ export class PushService extends EventEmitter {
     if (subscriptions.length === 0) return
     const keys = await this.ensureKeys()
     const webPush = await this.dependencies.loadWebPush()
-    webPush.setVapidDetails('mailto:orca@localhost.invalid', keys.publicKey, keys.privateKey)
+    webPush.setVapidDetails('mailto:vertragus@localhost.invalid', keys.publicKey, keys.privateKey)
     const gone = new Set<string>()
     await Promise.all(subscriptions.map(async (subscription) => {
       try {

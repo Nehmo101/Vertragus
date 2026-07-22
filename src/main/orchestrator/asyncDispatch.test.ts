@@ -112,7 +112,7 @@ describe('asynchronous orchestration API', () => {
     const cursor = subagentExecutionContract({
       provider: 'cursor',
       yolo: false,
-      orcaSubTools: false,
+      vertragusSubTools: false,
       securityChecklist: [],
       platform: 'linux'
     }).join('\n')
@@ -127,7 +127,7 @@ describe('asynchronous orchestration API', () => {
     const claude = subagentExecutionContract({
       provider: 'claude',
       yolo: false,
-      orcaSubTools: true,
+      vertragusSubTools: true,
       securityChecklist: [],
       platform: 'linux'
     }).join('\n')
@@ -141,7 +141,7 @@ describe('asynchronous orchestration API', () => {
     const contract = subagentExecutionContract({
       provider: 'codex',
       yolo: false,
-      orcaSubTools: false,
+      vertragusSubTools: false,
       securityChecklist: ['Prüfe Eingabevalidierung'],
       platform: 'win32'
     }).join('\n')

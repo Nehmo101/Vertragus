@@ -142,7 +142,7 @@ const vertragus: VertragusApi = {
     bulkHandoff: (req) => ipcRenderer.invoke(IPC.agentsBulkHandoff, req),
     onData: (cb) => subscribe<AgentDataChunk>(IPC.evAgentData, cb),
     onChanged: (cb) => subscribe<AgentInstanceInfo[]>(IPC.evAgentsChanged, cb),
-    onEvent: (cb) => subscribe<VertragusEvent>(IPC.evOrcaEvent, cb)
+    onEvent: (cb) => subscribe<VertragusEvent>(IPC.evVertragusEvent, cb)
   },
 
   orchestrator: {

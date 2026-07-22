@@ -11,7 +11,7 @@ import { mcpServerSchema, mcpServersSchema, type McpServerConfig } from '@shared
 import { CURRENT_CONFIG_SCHEMA_VERSION, migrateConfigSnapshot } from '@main/config/migrations'
 import { deriveProfileDeletion } from '@main/config/profileDeletion'
 
-interface OrcaConfigShape {
+interface VertragusConfigShape {
   schemaVersion: number
   profiles: WorkspaceProfile[]
   activeProfileId: string
@@ -37,7 +37,7 @@ if (userDataDir) {
   }
 }
 
-const store = new Store<OrcaConfigShape>({
+const store = new Store<VertragusConfigShape>({
   name: 'vertragus',
   defaults: {
     schemaVersion: 0,

@@ -14,7 +14,7 @@ describe('inbox file artifacts', () => {
   })
 
   async function tempFile(bytes: number): Promise<{ dir: string; file: string }> {
-    const dir = join(tmpdir(), `orca-inbox-${randomUUID()}`)
+    const dir = join(tmpdir(), `vertragus-inbox-${randomUUID()}`)
     roots.push(dir)
     await mkdir(dir, { recursive: true })
     const file = join(dir, 'sample.txt')

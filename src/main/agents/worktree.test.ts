@@ -7,8 +7,8 @@ import {
   createWorktree,
   discardManagedOrphans,
   inventoryWorktrees,
-  isOrcaBranch,
-  isOrcaWorktreePath,
+  isManagedBranch,
+  isManagedWorktreePath,
   managedWorktreeParts,
   rollbackWorktree,
   worktreeIdentity
@@ -16,10 +16,10 @@ import {
 
 const GIT_ENV = {
   ...process.env,
-  GIT_AUTHOR_NAME: 'orca-test',
-  GIT_AUTHOR_EMAIL: 'orca@test',
-  GIT_COMMITTER_NAME: 'orca-test',
-  GIT_COMMITTER_EMAIL: 'orca@test'
+  GIT_AUTHOR_NAME: 'vertragus-test',
+  GIT_AUTHOR_EMAIL: 'vertragus@test',
+  GIT_COMMITTER_NAME: 'vertragus-test',
+  GIT_COMMITTER_EMAIL: 'vertragus@test'
 }
 
 function gitIn(cwd: string, args: string[]): string {
@@ -52,33 +52,33 @@ describe('worktreeIdentity', () => {
 
 describe('rollback safety guards', () => {
   it('accepts managed worktree trees (new + legacy) only', () => {
-    expect(isOrcaWorktreePath('/repo/.vertragus-worktrees/session-a/task-01')).toBe(true)
-    expect(isOrcaWorktreePath('C:\\repo\\.vertragus-worktrees\\session-a\\task-01')).toBe(true)
+    expect(isManagedWorktreePath('/repo/.vertragus-worktrees/session-a/task-01')).toBe(true)
+    expect(isManagedWorktreePath('C:\\repo\\.vertragus-worktrees\\session-a\\task-01')).toBe(true)
     // Legacy checkouts stay cleanable after the rebrand.
-    expect(isOrcaWorktreePath('/repo/.orca-worktrees/session-a/task-01')).toBe(true)
-    expect(isOrcaWorktreePath('C:\\repo\\.orca-worktrees\\session-a\\task-01')).toBe(true)
+    expect(isManagedWorktreePath('/repo/.orca-worktrees/session-a/task-01')).toBe(true)
+    expect(isManagedWorktreePath('C:\\repo\\.orca-worktrees\\session-a\\task-01')).toBe(true)
   })
 
   it('never treats non-managed paths as owned (no destructive false positive)', () => {
-    expect(isOrcaWorktreePath('/repo')).toBe(false)
+    expect(isManagedWorktreePath('/repo')).toBe(false)
     // Look-alike segments without the leading dot must not be owned.
-    expect(isOrcaWorktreePath('/repo/src/orca-worktrees-note')).toBe(false)
-    expect(isOrcaWorktreePath('/repo/src/vertragus-worktrees-note')).toBe(false)
-    expect(isOrcaWorktreePath('/home/user/my.vertragus-worktrees.bak')).toBe(false)
-    expect(isOrcaWorktreePath('')).toBe(false)
+    expect(isManagedWorktreePath('/repo/src/orca-worktrees-note')).toBe(false)
+    expect(isManagedWorktreePath('/repo/src/vertragus-worktrees-note')).toBe(false)
+    expect(isManagedWorktreePath('/home/user/my.vertragus-worktrees.bak')).toBe(false)
+    expect(isManagedWorktreePath('')).toBe(false)
   })
 
   it('accepts managed branch namespaces (new + legacy) only', () => {
-    expect(isOrcaBranch('vertragus/session-a/task-01')).toBe(true)
-    expect(isOrcaBranch('orca/session-a/task-01')).toBe(true)
+    expect(isManagedBranch('vertragus/session-a/task-01')).toBe(true)
+    expect(isManagedBranch('orca/session-a/task-01')).toBe(true)
   })
 
   it('never deletes user branches that merely mention the namespace', () => {
-    expect(isOrcaBranch('DEV')).toBe(false)
-    expect(isOrcaBranch('feature/orca')).toBe(false)
-    expect(isOrcaBranch('feature/vertragus')).toBe(false)
-    expect(isOrcaBranch('my-vertragus/x')).toBe(false)
-    expect(isOrcaBranch('')).toBe(false)
+    expect(isManagedBranch('DEV')).toBe(false)
+    expect(isManagedBranch('feature/orca')).toBe(false)
+    expect(isManagedBranch('feature/vertragus')).toBe(false)
+    expect(isManagedBranch('my-vertragus/x')).toBe(false)
+    expect(isManagedBranch('')).toBe(false)
   })
 
   it('parses managed worktree paths into root + identity parts', () => {
@@ -204,7 +204,7 @@ describe('createWorktree dependency base', () => {
   })
 
   function initRepo(): string {
-    const root = mkdtempSync(join(tmpdir(), 'orca-wt-'))
+    const root = mkdtempSync(join(tmpdir(), 'vertragus-wt-'))
     created.push(root)
     gitIn(root, ['init', '-q', '-b', 'main'])
     return root

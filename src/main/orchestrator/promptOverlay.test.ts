@@ -10,7 +10,7 @@ import {
   sanitizeOverlay
 } from './promptOverlay'
 
-let userDataDir = '/tmp/orca-overlay-test-unset'
+let userDataDir = '/tmp/vertragus-overlay-test-unset'
 
 vi.mock('electron', () => ({
   app: { getPath: vi.fn(() => userDataDir) }
@@ -55,7 +55,7 @@ describe('promptOverlay cache', () => {
     const { mkdtempSync } = await import('node:fs')
     const { tmpdir } = await import('node:os')
     const { join } = await import('node:path')
-    userDataDir = mkdtempSync(join(tmpdir(), 'orca-overlay-'))
+    userDataDir = mkdtempSync(join(tmpdir(), 'vertragus-overlay-'))
     promptOverlayInternals.reset()
     vi.mocked(getRepoFile).mockReset().mockResolvedValue(undefined)
     vi.mocked(retroSyncConfig).mockReset().mockReturnValue({

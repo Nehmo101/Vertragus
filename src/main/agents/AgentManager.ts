@@ -39,7 +39,7 @@ import { resolveSlotModel } from '@main/agents/providerModelDefaults'
 import { buildInteractiveLaunch } from '@main/providers/types'
 import { resolveLaunch } from '@main/agents/resolveCommand'
 import { terminateProcessTreeWithEscalation } from '@main/agents/processTermination'
-import { createWorktree, currentBranch, isOrcaBranch, rollbackWorktree } from '@main/agents/worktree'
+import { createWorktree, currentBranch, isManagedBranch, rollbackWorktree } from '@main/agents/worktree'
 import { buildAgentResumeState } from '@main/agents/resumeState'
 import { sessionStore, type AgentStatePersistence } from '@main/config/sessionStore'
 import { canonicalWorkspacePath, workspacePathKey } from '@main/agents/workspacePath'
@@ -51,7 +51,7 @@ import {
 import { BUFFER_LIMIT, ScrollbackBuffer } from '@main/agents/scrollbackBuffer'
 import {
   cursorWorkspaceTrustPrompt,
-  isExactOrcaWorktreePath
+  isExactManagedWorktreePath
 } from '@main/agents/cursorWorkspaceTrust'
 import { getProfile, getSetting } from '@main/config/store'
 import {
@@ -509,18 +509,18 @@ export class AgentManager extends EventEmitter {
     worktree: string
     branch: string
   }> {
-    if (!isExactOrcaWorktreePath(requested)) {
+    if (!isExactManagedWorktreePath(requested)) {
       throw new Error('Recovery-Worktree wurde nicht von Vertragus erzeugt.')
     }
     const workingDir = await canonicalWorkspacePath(requested)
     if (
-      !isExactOrcaWorktreePath(workingDir) ||
+      !isExactManagedWorktreePath(workingDir) ||
       workspacePathKey(workingDir) !== workspacePathKey(requested)
     ) {
       throw new Error('Recovery-Worktree ist ein Alias oder wurde verschoben.')
     }
     const branch = await currentBranch(workingDir)
-    if (!branch || branch === 'HEAD' || !isOrcaBranch(branch)) {
+    if (!branch || branch === 'HEAD' || !isManagedBranch(branch)) {
       throw new Error('Recovery-Worktree besitzt keinen sicheren Vertragus-Branch.')
     }
     return { workingDir, worktree: workingDir, branch }
@@ -781,6 +781,9 @@ export class AgentManager extends EventEmitter {
         cwd: workingDir,
         env: {
           ...process.env,
+          VERTRAGUS_AGENT_NAME: name,
+          VERTRAGUS_AGENT_ROLE: req.teamRole ?? info.role,
+          // Deprecated: legacy names kept so existing user hooks keep working.
           ORCA_AGENT_NAME: name,
           ORCA_AGENT_ROLE: req.teamRole ?? info.role
         } as Record<string, string>

@@ -29,7 +29,7 @@ app.whenReady().then(async () => {
   const [ipc, agents, mcp, remote, windows, updater] = await Promise.all([
     import('@main/ipc/register'),
     import('@main/agents/AgentManager'),
-    import('@main/orchestrator/OrcaMcpServer'),
+    import('@main/orchestrator/VertragusMcpServer'),
     import('@main/remote'),
     import('@main/windows'),
     import('@main/updater')
@@ -45,7 +45,7 @@ app.whenReady().then(async () => {
   })
 
   // Start the Vertragus MCP server before any orchestrator can spawn.
-  await mcp.startMcpServer().catch((err) => console.error('[OrcaMcp] failed to start', err))
+  await mcp.startMcpServer().catch((err) => console.error('[VertragusMcp] failed to start', err))
 
   // Integration self-test (VERTRAGUS_MCP_SELFTEST=1): exercise the MCP tools + engine
   // end-to-end with a stubbed runTask, then exit.

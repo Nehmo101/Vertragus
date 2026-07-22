@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { OrcaTask, SubagentFinding } from '@shared/orchestrator'
+import type { VertragusTask, SubagentFinding } from '@shared/orchestrator'
 import {
   MAX_CANVAS_NOTES,
   NODE_INSERT_GAP,
@@ -18,7 +18,7 @@ import {
 } from './canvasGraph'
 import { rectsOverlap, type CanvasRect } from './canvasSlots'
 
-function task(overrides: Partial<OrcaTask> & { id: string }): OrcaTask {
+function task(overrides: Partial<VertragusTask> & { id: string }): VertragusTask {
   return {
     title: overrides.id,
     role: 'worker',
@@ -159,7 +159,7 @@ describe('buildCanvasGraph · findings as sticky notes', () => {
 })
 
 describe('trustSignal', () => {
-  const completion = { commit: 'abc1234' } as unknown as OrcaTask['completion']
+  const completion = { commit: 'abc1234' } as unknown as VertragusTask['completion']
 
   it('flags errors and active blockers red', () => {
     expect(trustSignal(task({ id: 'a', status: 'error' }))).toBe('err')
@@ -168,7 +168,7 @@ describe('trustSignal', () => {
         task({
           id: 'a',
           status: 'running',
-          blocker: { code: 'X', summary: 's', details: [] } as unknown as OrcaTask['blocker']
+          blocker: { code: 'X', summary: 's', details: [] } as unknown as VertragusTask['blocker']
         })
       )
     ).toBe('err')
@@ -181,7 +181,7 @@ describe('trustSignal', () => {
         task({
           id: 'a',
           status: 'running',
-          findings: [{ gate: 'security', code: 'S1', message: 'm' }] as OrcaTask['findings']
+          findings: [{ gate: 'security', code: 'S1', message: 'm' }] as VertragusTask['findings']
         })
       )
     ).toBe('warn')

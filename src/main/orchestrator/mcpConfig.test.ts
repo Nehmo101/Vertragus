@@ -72,7 +72,7 @@ describe('claudeAllowedTools', () => {
 
 describe('buildClaudeMcpArgs', () => {
   it('writes a unique config file and returns strict orchestrator args', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'orca-mcp-test-'))
+    const dir = mkdtempSync(join(tmpdir(), 'vertragus-mcp-test-'))
     try {
       const args = buildClaudeMcpArgs([orca, filesystem], {
         configDir: dir,
@@ -95,7 +95,7 @@ describe('buildClaudeMcpArgs', () => {
   })
 
   it('omits strict and system prompt for subagents', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'orca-mcp-test-'))
+    const dir = mkdtempSync(join(tmpdir(), 'vertragus-mcp-test-'))
     try {
       const args = buildClaudeMcpArgs([filesystem], {
         configDir: dir,
@@ -118,7 +118,7 @@ describe('buildClaudeMcpArgs', () => {
 
 describe('buildKimiMcpArgs', () => {
   it('mirrors Claude args but points Kimi at --mcp-config-file', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'orca-mcp-test-'))
+    const dir = mkdtempSync(join(tmpdir(), 'vertragus-mcp-test-'))
     try {
       const args = buildKimiMcpArgs([orca, filesystem], {
         configDir: dir,

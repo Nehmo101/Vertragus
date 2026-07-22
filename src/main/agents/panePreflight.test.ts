@@ -82,7 +82,7 @@ describe('Codex runtime preflight', () => {
       '-NoProfile',
       '-NonInteractive',
       '-Command',
-      expect.stringMatching(/ORCA_CODEX_CANARY_PATH.*WriteAllText/)
+      expect.stringMatching(/VERTRAGUS_CODEX_CANARY_PATH.*WriteAllText/)
     ])
     expect(args.at(-1)).not.toContain(worker)
     expect(args).not.toContain('exec')
@@ -107,7 +107,7 @@ describe('Codex runtime preflight', () => {
     expect(childProcess.invocations).toHaveLength(1)
     const invocation = childProcess.invocations[0]!
     const canaryWorkspace = invocation.options.cwd!
-    const markerPath = invocation.options.env?.ORCA_CODEX_CANARY_PATH
+    const markerPath = invocation.options.env?.VERTRAGUS_CODEX_CANARY_PATH
     const runtimeDir = invocation.options.env?.TEMP
     expect(dirname(canaryWorkspace)).toBe(runtimeRoot)
     expect(relative(runtimeRoot, canaryWorkspace)).toMatch(/^preflight-workspace-/)
@@ -147,7 +147,7 @@ describe('Codex runtime preflight', () => {
     expect(await sameWorkspacePath(canonicalWorker, worker)).toBe(true)
     expect(childProcess.invocations).toHaveLength(1)
     const invocation = childProcess.invocations[0]!
-    const markerPath = invocation.options.env?.ORCA_CODEX_CANARY_PATH
+    const markerPath = invocation.options.env?.VERTRAGUS_CODEX_CANARY_PATH
     const runtimeDir = invocation.options.env?.TEMP
     expect(invocation.options.cwd).toBe(canonicalWorker)
     expect(invocation.args).toContain(canonicalWorker)

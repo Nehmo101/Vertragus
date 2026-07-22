@@ -30,7 +30,7 @@ import {
   type NoteNodeData,
   type TaskNodeData
 } from '@renderer/canvasGraph'
-import type { OrcaTask } from '@shared/orchestrator'
+import type { VertragusTask } from '@shared/orchestrator'
 import LoreName from '@renderer/components/LoreName'
 import { summarizeUsage } from '@shared/telemetry'
 import { formatTokenCount, formatUsd } from '@renderer/telemetryFormat'
@@ -344,7 +344,7 @@ export default function CanvasBoard(): JSX.Element {
     setPosition(boardKey, node.id, { x: node.position.x, y: node.position.y })
   }
 
-  const [menu, setMenu] = useState<{ x: number; y: number; task: OrcaTask } | null>(null)
+  const [menu, setMenu] = useState<{ x: number; y: number; task: VertragusTask } | null>(null)
 
   const onNodeContextMenu: NodeMouseHandler<CanvasNode> = (event, node) => {
     if (node.type !== 'task') return

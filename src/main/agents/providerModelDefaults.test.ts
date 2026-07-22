@@ -25,7 +25,7 @@ afterEach(async () => {
 })
 
 async function homeWithCodexConfig(toml: string): Promise<string> {
-  const home = await mkdtemp(join(tmpdir(), 'orca-codex-home-'))
+  const home = await mkdtemp(join(tmpdir(), 'vertragus-codex-home-'))
   created.push(home)
   await mkdir(join(home, '.codex'), { recursive: true })
   await writeFile(join(home, '.codex', 'config.toml'), toml)

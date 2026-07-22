@@ -165,7 +165,7 @@ describe('runtime permission handling (Retro-Fixes Lauf 2/3)', () => {
       done: new Promise((resolve) => { finish = resolve })
     }))
     kill.mockImplementationOnce(async () => {
-      finish({ result: 'Orca permission stop', isError: true, status: 'cancelled' })
+      finish({ result: 'Vertragus permission stop', isError: true, status: 'cancelled' })
     })
     const engine = new OrchestratorEngine({
       profile: { ...DEFAULT_PROFILE }, workspaceSessionId: 'storm-session'

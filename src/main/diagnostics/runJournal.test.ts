@@ -20,7 +20,7 @@ describe('RunJournal', () => {
   })
 
   it('persists, filters and exports sanitized run history', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'orca-journal-'))
+    const dir = mkdtempSync(join(tmpdir(), 'vertragus-journal-'))
     const exported = join(dir, 'export.jsonl')
     try {
       const journal = new RunJournal(join(dir, 'runs'))
@@ -60,7 +60,7 @@ describe('RunJournal', () => {
   })
 
   it('rejects path-like run ids', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'orca-journal-'))
+    const dir = mkdtempSync(join(tmpdir(), 'vertragus-journal-'))
     try {
       expect(() => new RunJournal(dir).export('../secret', join(dir, 'out'))).toThrow('Ungültige Run-ID')
     } finally {
@@ -69,7 +69,7 @@ describe('RunJournal', () => {
   })
 
   it('rotates a run journal before it can grow without bounds', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'orca-journal-'))
+    const dir = mkdtempSync(join(tmpdir(), 'vertragus-journal-'))
     try {
       const runs = join(dir, 'runs')
       const seed = new RunJournal(runs)

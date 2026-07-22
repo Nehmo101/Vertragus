@@ -179,7 +179,7 @@ export const IPC = {
   // main -> renderer push channels
   evAgentData: 'ev:agentData',
   evAgentsChanged: 'ev:agentsChanged',
-  evOrcaEvent: 'ev:orcaEvent',
+  evVertragusEvent: 'ev:vertragusEvent',
   evProvidersHealth: 'ev:providersHealth',
   evAppUpdateState: 'ev:appUpdateState',
   evOrchestrator: 'ev:orchestrator',

@@ -19,7 +19,7 @@ import { agentManager } from '@main/agents/AgentManager'
 import {
   discardManagedOrphans,
   inventoryWorktrees,
-  isOrcaWorktreePath,
+  isManagedWorktreePath,
   managedWorktreeParts,
   rollbackWorktree,
   worktreeSessionDirName
@@ -183,7 +183,7 @@ function isOwnedOrphanSession(sessionDir: string): boolean {
 export async function discardOrphanWorktree(path: string): Promise<boolean> {
   const trimmed = typeof path === 'string' ? path.trim() : ''
   const parts = managedWorktreeParts(trimmed)
-  if (!trimmed || !parts || !isOrcaWorktreePath(trimmed)) {
+  if (!trimmed || !parts || !isManagedWorktreePath(trimmed)) {
     throw new Error('Pfad ist kein Vertragus-Worktree.')
   }
   if (isOwnedOrphanSession(parts.sessionId)) {

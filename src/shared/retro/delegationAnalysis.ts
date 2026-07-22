@@ -68,7 +68,7 @@ export function deriveDelegationOutcome(
   }
 }
 
-/** Minimal task projection the retro mapping accepts (OrcaTask is compatible). */
+/** Minimal task projection the retro mapping accepts (VertragusTask is compatible). */
 export interface DelegationTaskProjection {
   status: TaskStatus
   completion?: { kind?: string }

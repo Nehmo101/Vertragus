@@ -20,7 +20,7 @@ import type {
   ExecutionPlanResult,
   ExecutionPlanTask,
   ExecutionPlanTaskResult,
-  OrcaTask,
+  VertragusTask,
   OrchestratorActivity,
   OrchestratorActivityPhase,
   OrchestratorGoal,
@@ -91,7 +91,7 @@ import {
 } from '@main/integrations/autoPr'
 import { resolveExecutionPlan } from '@main/orchestrator/planner'
 import { Semaphore } from '@main/orchestrator/semaphore'
-import { subagentOrcaToolsAvailable } from '@main/orchestrator/externalMcp'
+import { subagentVertragusToolsAvailable } from '@main/orchestrator/externalMcp'
 import { providerSupportsSubagentReporting } from '@shared/mcp'
 import { securityChecklistForFiles } from '@main/integrations/securityGate'
 import {
@@ -233,7 +233,7 @@ export function providerExecutionGuidance(
   if (provider !== 'codex' || yolo || platform !== 'win32') return []
   return [
     'Codex/Windows-Safe-Sandbox: Wenn ausschliesslich ein Node-Unterprozess mit spawn EPERM scheitert, ist das ein bekannter Sandbox-Gate-Fehler und kein fachlicher BLOCKER.',
-    'Codex/Windows-Safe-Sandbox: Arbeite in diesem Fall weiter, kennzeichne nur den betroffenen Test/Build als nicht ausfuehrbar und schliesse bei fachlich vollstaendiger Arbeit mit ERGEBNIS: ERFOLG; Orcas Main-Prozess wiederholt die zentralen Abnahme-Gates ausserhalb der Worker-Sandbox.'
+    'Codex/Windows-Safe-Sandbox: Arbeite in diesem Fall weiter, kennzeichne nur den betroffenen Test/Build als nicht ausfuehrbar und schliesse bei fachlich vollstaendiger Arbeit mit ERGEBNIS: ERFOLG; der Vertragus-Main-Prozess wiederholt die zentralen Abnahme-Gates ausserhalb der Worker-Sandbox.'
   ]
 }
 
@@ -242,7 +242,7 @@ export function providerExecutionGuidance(
  *
  * The Vertragus subagent reporting tools (report_progress / post_finding /
  * list_findings / ask_orchestrator) are only demanded when the worker's provider
- * actually receives them (`orcaSubTools`). Providers without a verified per-agent
+ * actually receives them (`vertragusSubTools`). Providers without a verified per-agent
  * MCP channel — Cursor today — are never asked to call tools they do not have,
  * so a missing progress/finding stream is an expected capability gap rather than
  * a contract violation. Pure and side-effect-free for direct unit testing.
@@ -250,22 +250,22 @@ export function providerExecutionGuidance(
 export function subagentExecutionContract(input: {
   provider: AgentProviderId
   yolo: boolean
-  orcaSubTools: boolean
+  vertragusSubTools: boolean
   securityChecklist: readonly string[]
   platform?: NodeJS.Platform
 }): string[] {
-  const { provider, yolo, orcaSubTools, securityChecklist, platform } = input
+  const { provider, yolo, vertragusSubTools, securityChecklist, platform } = input
   return [
     'Vertragus-Ausführungsvertrag:',
     '- Bearbeite nur die beauftragte Fachaufgabe und die erwarteten Dateien.',
     '- Führe relevante Tests, Typecheck und Lint aus.',
-    '- Führe kein git add, commit, cherry-pick oder push aus; Orcas Main-Prozess sichert Änderungen zentral.',
+    '- Führe kein git add, commit, cherry-pick oder push aus; der Vertragus-Main-Prozess sichert Änderungen zentral.',
     '- Bei Infrastrukturblockern antworte strukturiert und knapp: Blocker, Alternativen, geplante Dateien, Schnittstellen.',
     '- Ergebnisvertrag am Ende: (1) geänderte Dateien, (2) Tests mit grün/gesamt, (3) Typecheck-/Lint-Status, (4) Integrationshinweise.',
     '- Schließe exakt mit ERGEBNIS: ERFOLG oder ERGEBNIS: BLOCKER samt konkreter Begründung.',
     '- Automatisch injizierte Security-Negativfälle: securityGate.ts bewertet nur hinzugefügte Diff-Zeilen.',
     '- Neue Zeilen mit process.env, Bearer, Authorization, Secret-Literalen, writeFileSync, appendFileSync, createWriteStream, rm oder child_process-Aufrufen brauchen passende Missbrauchs-/Injection-/Leak-Negativtests in Testdateien.',
-    ...(orcaSubTools
+    ...(vertragusSubTools
       ? [
           '- Live-Status: Melde wichtige Phasenwechsel und Zwischenstände knapp über das MCP-Tool report_progress (Server vertragus-sub).',
           '- Team-Board: Teile Schnittstellen, Entscheidungen und Blocker, die parallele Tasks betreffen, über post_finding; prüfe mit list_findings die Einträge anderer Subagents, bevor du gemeinsame Schnittstellen festlegst.',
@@ -423,7 +423,7 @@ export class OrchestratorEngine extends EventEmitter {
   private planRunSeq = 0
   private goal: OrchestratorGoal | null = null
   private activity: OrchestratorActivity | undefined
-  private readonly tasks = new Map<string, OrcaTask>()
+  private readonly tasks = new Map<string, VertragusTask>()
   private readonly preparedChanges = new Map<string, PreparedTaskChange>()
   private readonly taskResults = new Map<string, string>()
   private readonly taskRuns = new Map<string, Promise<string>>()
@@ -615,7 +615,7 @@ export class OrchestratorEngine extends EventEmitter {
    * ~22 min / ~4 USD ohne eine geschriebene Datei). The worker is stopped with a
    * structured blocker instead of letting the run bleed out.
    */
-  private registerTimeoutDenial(task: OrcaTask): void {
+  private registerTimeoutDenial(task: VertragusTask): void {
     const streak = (this.timeoutDenialStreaks.get(task.id) ?? 0) + 1
     this.timeoutDenialStreaks.set(task.id, streak)
     if (this.yoloOverride || streak < PERMISSION_TIMEOUT_DENIAL_LIMIT) return
@@ -1604,7 +1604,7 @@ export class OrchestratorEngine extends EventEmitter {
     const parentTaskId = options.taskId ?? this.nextTaskId()
     const runId = `multi-${++this.multiAgentSeq}`
     const taskTitle = title?.trim() || prompt.split('\n')[0].slice(0, 60)
-    const parent: OrcaTask = this.tasks.get(parentTaskId) ?? {
+    const parent: VertragusTask = this.tasks.get(parentTaskId) ?? {
       id: parentTaskId, title: taskTitle, role: slotRole, status: 'running', createdAt: Date.now()
     }
     Object.assign(parent, {
@@ -1779,7 +1779,7 @@ export class OrchestratorEngine extends EventEmitter {
     }
     const yolo = slot.yolo || (profile?.yoloDefault ?? false)
 
-    const task: OrcaTask = this.tasks.get(taskId) ?? {
+    const task: VertragusTask = this.tasks.get(taskId) ?? {
       id: taskId,
       title: title?.trim() || prompt.split('\n')[0].slice(0, 60),
       role: slotRole,
@@ -1852,18 +1852,18 @@ export class OrchestratorEngine extends EventEmitter {
     this.push()
 
     const securityChecklist = securityChecklistForFiles(options.expectedFiles ?? [])
-    const orcaSubTools = subagentOrcaToolsAvailable(slot.provider)
+    const vertragusSubTools = subagentVertragusToolsAvailable(slot.provider)
     const executionContract = subagentExecutionContract({
       provider: slot.provider,
       yolo,
-      orcaSubTools,
+      vertragusSubTools,
       securityChecklist
     }).join('\n')
     const taskPrompt = `${prompt}\n\n${executionContract}`
     const subSystemPrompt =
       'Du bist ein namentlich gekennzeichneter Subagent in Vertragus, beauftragt vom Orchestrator. ' +
       'Erledige die Aufgabe eigenständig und fasse das Ergebnis am Ende knapp zusammen. ' +
-      'Git-Schreiboperationen werden ausschließlich von Orcas Main-Prozess ausgeführt.'
+      'Git-Schreiboperationen werden ausschließlich vom Vertragus-Main-Prozess ausgeführt.'
 
     const attemptNumber = options.attempt ?? (task.attempts?.length ?? 0) + 1
     let activeAttempt: TaskAttemptSnapshot | undefined
@@ -1936,7 +1936,7 @@ export class OrchestratorEngine extends EventEmitter {
         attempt: attemptNumber,
         agentId: info.id,
         agentName: info.name,
-        provider: info.provider as OrcaTask['provider'],
+        provider: info.provider as VertragusTask['provider'],
         model: info.model,
         status: 'running',
         startedAt: Date.now()
@@ -2343,7 +2343,7 @@ export class OrchestratorEngine extends EventEmitter {
   }
 
   /** Keep a short, distinct history of what the worker actually did. */
-  private rememberTaskAction(task: OrcaTask): void {
+  private rememberTaskAction(task: VertragusTask): void {
     const action = task.lastAction?.trim()
     if (!action || task.recentActions?.[0] === action) return
     task.recentActions = [
@@ -2935,7 +2935,7 @@ export class OrchestratorEngine extends EventEmitter {
     if (lifecycle.gitPostProcessing?.status === 'failed') {
       const gitState = lifecycle.gitPostProcessing
       const error = gitState.error!
-      let runtimeId = `${planId}-orca-git-post-processing`
+      let runtimeId = `${planId}-vertragus-git-post-processing`
       while (this.tasks.has(runtimeId)) runtimeId += '-retry'
       const resultText = `${error.message} [${error.code}/${error.phase}]`
       this.tasks.set(runtimeId, {
@@ -2959,7 +2959,7 @@ export class OrchestratorEngine extends EventEmitter {
       })
       this.taskResults.set(runtimeId, resultText)
       gitTaskResult = {
-        id: 'orca-git-post-processing',
+        id: 'vertragus-git-post-processing',
         status: 'error',
         criticality: 'required',
         result: resultText,
@@ -3097,7 +3097,7 @@ export class OrchestratorEngine extends EventEmitter {
     }
 
     const integrationId = 'integration-' + (planId ?? Date.now().toString(36))
-    const integrationTask: OrcaTask = {
+    const integrationTask: VertragusTask = {
       id: integrationId,
       title: 'Integration & Abnahme',
       role: 'integrator',
@@ -3113,7 +3113,7 @@ export class OrchestratorEngine extends EventEmitter {
       createdAt: Date.now()
     }
     const changedCommits = new Set(changes.map((change) => change.commit))
-    const affectedTasks = (): OrcaTask[] => [...this.tasks.values()].filter(
+    const affectedTasks = (): VertragusTask[] => [...this.tasks.values()].filter(
       (task) => Boolean(task.commit && changedCommits.has(task.commit))
     )
     const applyRemoteCi = (remoteCi: RemoteCiOutcome): void => {
@@ -3219,7 +3219,7 @@ export class OrchestratorEngine extends EventEmitter {
     planId: string,
     goal: string,
     status: ExecutionPlanResult['status'],
-    planTasks: OrcaTask[]
+    planTasks: VertragusTask[]
   ): RunRetro | undefined {
     // Selbsttests sind keine Modellbeobachtungen: weder lokal lernen noch
     // exportieren, sonst entstehen fabrizierte Weakness-Learnings.
@@ -3261,7 +3261,7 @@ export class OrchestratorEngine extends EventEmitter {
    */
   private buildDelegationRetro(
     planId: string,
-    planTasks: OrcaTask[]
+    planTasks: VertragusTask[]
   ): DelegationRetro | undefined {
     const estimate = this.planEstimates.get(planId)
     if (!estimate) return undefined
@@ -3363,7 +3363,7 @@ export class OrchestratorEngine extends EventEmitter {
     return resolveSlotModel(provider, model?.trim() ? { model } : (configured ?? { model: '' }))
   }
 
-  private resolvedRetroTasks(planId: string): OrcaTask[] {
+  private resolvedRetroTasks(planId: string): VertragusTask[] {
     return [...this.tasks.values()]
       .filter((task) => task.planId === planId)
       .map((task) => ({
@@ -3597,7 +3597,7 @@ export class OrchestratorEngine extends EventEmitter {
     }>
   }): BenchmarkRecord {
     const run = this.benchmarkRuns.get(input.benchmarkId)
-    const resolveContestant = (role: string): OrcaTask | undefined => {
+    const resolveContestant = (role: string): VertragusTask | undefined => {
       if (!run) return undefined
       return run.taskIds
         .map((taskId) => this.tasks.get(taskId))

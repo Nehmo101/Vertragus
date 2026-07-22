@@ -1,5 +1,5 @@
 /**
- * OrcaMcpServer — a Streamable-HTTP MCP server (localhost only) that exposes
+ * VertragusMcpServer — a Streamable-HTTP MCP server (localhost only) that exposes
  * the orchestration tools to the orchestrator agent. Both the server and the
  * agent processes live in the Electron main process, so tool calls route
  * directly into the OrchestratorEngine (no extra IPC hop).
@@ -876,7 +876,7 @@ export async function startMcpServer(): Promise<McpServerHandle> {
   const httpServer: Server = createServer((req, res) => {
     void handleRequest(req, res).catch((err) => {
       if (!res.headersSent) res.writeHead(500).end()
-      console.error('[OrcaMcp] request error', err)
+      console.error('[VertragusMcp] request error', err)
     })
   })
 

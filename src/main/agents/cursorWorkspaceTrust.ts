@@ -4,7 +4,7 @@ import { stripAnsi } from '@main/agents/limitSignals'
 // New checkouts live under `.vertragus-worktrees`; the legacy `.orca-worktrees`
 // marker stays trusted so pre-rebrand worktrees keep auto-trust ownership.
 const WORKTREE_DIR_MARKERS = ['.vertragus-worktrees', '.orca-worktrees']
-const ORCA_WORKTREE_PART = /^[a-z0-9._-]+$/i
+const MANAGED_WORKTREE_PART = /^[a-z0-9._-]+$/i
 const TRAVERSAL_OR_ALIAS_SEGMENT = /(?:^|[\\/])\.\.?(?:[\\/]|$)/
 const WINDOWS_DEVICE_OR_NETWORK_PATH = /^(?:\\\\|\\\\[?.]\\)/
 
@@ -39,7 +39,7 @@ export function normalizeWorkspacePath(value: string): string | undefined {
  * <repo>/.orca-worktrees/<session>/<agent>). Do not resolve this value before
  * checking it: resolution could turn a traversal or alias into a trusted path.
  */
-export function isExactOrcaWorktreePath(value: string): boolean {
+export function isExactManagedWorktreePath(value: string): boolean {
   if (
     !value ||
     value !== value.trim() ||
@@ -61,14 +61,14 @@ export function isExactOrcaWorktreePath(value: string): boolean {
   return (
     WORKTREE_DIR_MARKERS.includes(marker) &&
     parts.length >= 3 &&
-    ORCA_WORKTREE_PART.test(session ?? '') &&
-    ORCA_WORKTREE_PART.test(agent ?? '')
+    MANAGED_WORKTREE_PART.test(session ?? '') &&
+    MANAGED_WORKTREE_PART.test(agent ?? '')
   )
 }
 
 /** Backward-compatible alias for callers that need Vertragus worktree ownership. */
-export function isOrcaWorktreePath(value: string): boolean {
-  return isExactOrcaWorktreePath(value)
+export function isManagedWorktreePath(value: string): boolean {
+  return isExactManagedWorktreePath(value)
 }
 
 function visibleTerminalText(output: string): string {
@@ -106,7 +106,7 @@ const TRUST_THIS_WORKSPACE_RE = /\btrust\s+(?:this\s+)?workspace\b/i
 const TRUST_WITH_A_RE =
   /(?:\[\s*a\s*\]|\(\s*a\s*\)|\ba\s*[.)\-:])\s*(?:trust\s+(?:this\s+)?workspace)\b|\btrust\s+(?:this\s+)?workspace\b\s*(?:\[\s*a\s*\]|\(\s*a\s*\)|\ba\s*[.)\-:])|\b(?:press|type)\s+(?:the\s+)?(?:key\s+)?["'`[]?a["'`\]]?\s+to\s+trust\s+(?:this\s+)?workspace\b/i
 
-function hasOrcaWorktreeOwnership(input: {
+function hasManagedWorktreeOwnership(input: {
   workingDir: string
   worktree?: string
   alreadyHandled: boolean
@@ -117,8 +117,8 @@ function hasOrcaWorktreeOwnership(input: {
       !input.interactiveUsed &&
       input.worktree &&
       input.worktree === input.workingDir &&
-      isExactOrcaWorktreePath(input.worktree) &&
-      isExactOrcaWorktreePath(input.workingDir)
+      isExactManagedWorktreePath(input.worktree) &&
+      isExactManagedWorktreePath(input.workingDir)
   )
 }
 
@@ -134,7 +134,7 @@ export function cursorWorkspaceTrustPrompt(input: {
   alreadyHandled: boolean
   interactiveUsed: boolean
 }): CursorWorkspaceTrustPrompt {
-  if (!hasOrcaWorktreeOwnership(input)) return 'none'
+  if (!hasManagedWorktreeOwnership(input)) return 'none'
 
   const text = visibleTerminalText(input.output)
   if (!TRUST_THIS_WORKSPACE_RE.test(text)) return 'none'

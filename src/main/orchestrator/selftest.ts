@@ -44,7 +44,7 @@ export async function runSelfTest(): Promise<void> {
   }
 
   try {
-    selftestWorktree = await mkdtemp(join(tmpdir(), 'orca-mcp-selftest-'))
+    selftestWorktree = await mkdtemp(join(tmpdir(), 'vertragus-mcp-selftest-'))
     await execFileAsync('git', ['init'], { cwd: selftestWorktree, windowsHide: true })
     await execFileAsync('git', ['config', 'user.name', 'Vertragus Selftest'], { cwd: selftestWorktree, windowsHide: true })
     await execFileAsync('git', ['config', 'user.email', 'orca@example.invalid'], { cwd: selftestWorktree, windowsHide: true })
@@ -128,7 +128,7 @@ export async function runSelfTest(): Promise<void> {
       return { info, done: Promise.resolve({ result: `STUB-RESULT für: ${req.prompt}`, isError: false }) }
     }
 
-    const client = new Client({ name: 'orca-selftest', version: '0.0.1' })
+    const client = new Client({ name: 'vertragus-selftest', version: '0.0.1' })
     const transport = new StreamableHTTPClientTransport(new URL(handle.url))
     await client.connect(transport)
     check(true, 'MCP client connected + initialized')

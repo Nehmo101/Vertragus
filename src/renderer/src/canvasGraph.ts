@@ -9,7 +9,7 @@
  */
 import dagre from 'dagre'
 import { MarkerType, type Edge, type Node } from '@xyflow/react'
-import type { OrcaTask, SubagentFinding } from '@shared/orchestrator'
+import type { VertragusTask, SubagentFinding } from '@shared/orchestrator'
 
 /* Arrowhead colors are fixed midtones that read on both themes — SVG marker
    fills cannot resolve CSS custom properties. */
@@ -48,7 +48,7 @@ export interface CanvasOrchestratorInfo {
 }
 
 export interface TaskNodeData {
-  task: OrcaTask
+  task: VertragusTask
   [key: string]: unknown
 }
 
@@ -70,7 +70,7 @@ export interface CanvasGraph {
   edges: Edge[]
 }
 
-function taskEdges(tasks: readonly OrcaTask[], hasOrchestrator: boolean): Edge[] {
+function taskEdges(tasks: readonly VertragusTask[], hasOrchestrator: boolean): Edge[] {
   const known = new Set(tasks.map((task) => task.id))
   const edges: Edge[] = []
 
@@ -155,7 +155,7 @@ function autoLayout(
  * bidirectional half of the canvas: subagents write onto the board mid-run.
  */
 export function buildCanvasGraph(
-  tasks: readonly OrcaTask[],
+  tasks: readonly VertragusTask[],
   orchestrator: CanvasOrchestratorInfo | null,
   findings: readonly SubagentFinding[] = [],
   positions: NodePositions = {}
@@ -233,7 +233,7 @@ export type TrustSignal = 'ok' | 'warn' | 'err' | 'idle'
  * gate findings; ok: verified success (terminal status AND a completion
  * proof); idle: nothing to verify yet.
  */
-export function trustSignal(task: OrcaTask): TrustSignal {
+export function trustSignal(task: VertragusTask): TrustSignal {
   if (task.status === 'error' || task.blocker) return 'err'
   if (
     task.status === 'needs-work' ||

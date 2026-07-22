@@ -114,7 +114,7 @@ struct RemoteBudgetSnapshot: Codable, Hashable {
     let exceededBy: [String]?
 }
 
-struct OrcaTask: Codable, Hashable, Identifiable {
+struct VertragusTask: Codable, Hashable, Identifiable {
     let id: String
     let title: String
     let role: String?
@@ -173,7 +173,7 @@ struct OrchestratorSnapshot: Codable, Hashable, Identifiable {
     let profileId: String?
     let workspaceSessionId: String?
     let goal: OrchestratorGoal?
-    let tasks: [OrcaTask]
+    let tasks: [VertragusTask]
     let budget: RemoteBudgetSnapshot?
     let pendingPlan: PendingPlanReview?
     let pendingApprovals: [ApprovalItem]?
@@ -193,7 +193,7 @@ struct ApprovalItem: Codable, Hashable, Identifiable {
     let title: String
     let summary: String
     let createdAt: Double
-    let task: OrcaTask?
+    let task: VertragusTask?
     let permission: PermissionRequest?
     let actions: [String]
 }

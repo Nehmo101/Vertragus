@@ -12,7 +12,7 @@ vi.mock('@main/config/store', () => ({
 vi.mock('@main/agents/worktree', () => ({
   createWorktree: vi.fn().mockResolvedValue(undefined),
   rollbackWorktree: vi.fn(),
-  isOrcaBranch: (branch: string) => /^(?:vertragus|orca)\//.test(branch)
+  isManagedBranch: (branch: string) => /^(?:vertragus|orca)\//.test(branch)
 }))
 const fsMocks = vi.hoisted(() => ({ existing: new Set<string>() }))
 vi.mock('node:fs', async (importOriginal) => ({

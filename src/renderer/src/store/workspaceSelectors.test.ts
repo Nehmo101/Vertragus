@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentInstanceInfo, VertragusEvent } from '@shared/agents'
-import type { OrcaTask, OrchestratorSnapshot } from '@shared/orchestrator'
+import type { VertragusTask, OrchestratorSnapshot } from '@shared/orchestrator'
 import {
   effectivePaneReadable,
   profileHasRunningAgents,
@@ -29,7 +29,7 @@ function agent(id: string, profileId?: string): AgentInstanceInfo {
   }
 }
 
-function task(id: string, status: OrcaTask['status']): OrcaTask {
+function task(id: string, status: VertragusTask['status']): VertragusTask {
   return {
     id,
     title: id,
@@ -43,7 +43,7 @@ function task(id: string, status: OrcaTask['status']): OrcaTask {
 function snapshot(
   profileId: string,
   workspaceSessionId: string,
-  tasks: OrcaTask[] = []
+  tasks: VertragusTask[] = []
 ): OrchestratorSnapshot {
   return {
     profileId,
