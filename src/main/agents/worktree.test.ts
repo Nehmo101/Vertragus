@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, afterEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createWorktree,
   discardManagedOrphans,
@@ -13,6 +13,14 @@ import {
   rollbackWorktree,
   worktreeIdentity
 } from './worktree'
+
+// The integration suites below drive real `git worktree` commands, which are
+// I/O-bound and noticeably slower on Windows CI runners — slow enough to exceed
+// Vitest's 5s default and fail the Release pipeline intermittently (the CI run
+// for the same commit went green; it is timing, not logic). Give this file more
+// headroom; the pure-function suites finish in milliseconds and are unaffected
+// by the higher ceiling.
+vi.setConfig({ testTimeout: 20000, hookTimeout: 20000 })
 
 const GIT_ENV = {
   ...process.env,
