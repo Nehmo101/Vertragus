@@ -341,6 +341,11 @@ export function registerIpcHandlers(): void {
     const configKey = assertValidConfigKey(key)
     setPublicConfig(configKey, value)
     if (configKey === 'providerLimits') providerCapacity.refreshLimits()
+    // Mirror the persisted value into every window so secondary windows
+    // (agent panes, voice overlay) don't render stale shared UI settings.
+    // Broadcasting the stored value (not the raw input) keeps receivers
+    // canonical; receivers only mirror it, so there is no write-back loop.
+    broadcast(IPC.evConfigChanged, { key: configKey, value: getPublicConfig(configKey) })
   })
 
   // ---- profiles ----
