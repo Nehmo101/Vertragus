@@ -72,6 +72,24 @@ const MULTI_SLOT_PROFILE: WorkspaceProfile = workspaceProfileSchema.parse({
     }
   ],
   solo: false,
+  skills: [
+    {
+      id: 'seed-skill-1',
+      name: 'Deploy-Ablauf',
+      instructions: 'Vor jedem Release: Quality Gates lokal, dann Tag, dann Release-Workflow beobachten.',
+      source: 'user',
+      createdAt: T0,
+      updatedAt: T0
+    },
+    {
+      id: 'seed-skill-2',
+      name: 'Flaky-Test-Triage',
+      instructions: 'Bei rotem CI zuerst Retry-Logs prüfen; nur reproduzierbare Fehler als Modellfehler werten.',
+      source: 'orchestrator',
+      createdAt: T0 + HOUR,
+      updatedAt: T0 + HOUR
+    }
+  ],
   yoloDefault: false,
   planner: { mode: 'review', routingMode: 'adaptive', maxParallel: 4, maxRetries: 1 },
   benchmark: { enabled: false },

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { profileHasRunningAgents, useAppStore } from '@renderer/store/useAppStore'
-import { profileRepoLocalPath, type WorkspaceProfile, type AgentSlot } from '@shared/profile'
+import { profileRepoLocalPath, type WorkspaceProfile, type AgentSlot, type ProfileSkill } from '@shared/profile'
 import { postProcessBranchValidationError } from '@shared/gitPostProcessing'
 import type { AgentProviderId } from '@shared/providers'
 import type { ModelPreset } from '@shared/models'
@@ -73,6 +73,10 @@ const HELP = {
   count: 'Maximale parallele Task-Kapazität dieser Rolle und Anzahl beim manuellen Teamstart.',
   yolo: 'Überspringt Provider-Bestätigungen. Nur mit Worktree-Isolation und bewusstem Scope verwenden.',
   orchestrated: 'Wenn aktiv, darf der Orchestrator Aufgaben an diesen Slot delegieren.',
+  skills:
+    'Benannte, wiederverwendbare Verfahren dieses Workspaces ("wie machen wir X hier"). Sie werden in die ' +
+    'Orchestrator-/Solo-Prompts injiziert, und der Orchestrator pflegt sie selbst über die MCP-Tools ' +
+    'list_skills/record_skill/remove_skill — das Profil lernt über Läufe hinweg dazu.',
   fallbackModels:
     'Kommagetrennte Modellnamen, auf die dieser Slot bei einem Nutzungslimit ("at capacity", 5h/Wochenlimit) ' +
     'der Reihe nach ausweicht — erst danach wechselt Vertragus den Provider.',
@@ -256,6 +260,12 @@ export default function ProfileEditor(): JSX.Element | null {
   const patchSlot = (idx: number, p: Partial<AgentSlot>): void => {
     const agents = draft.agents.map((s, i) => (i === idx ? { ...s, ...p } : s))
     setDraft({ ...draft, agents })
+  }
+  const patchSkill = (idx: number, p: Partial<ProfileSkill>): void => {
+    const skills = (draft.skills ?? []).map((skill, i) =>
+      i === idx ? { ...skill, ...p, updatedAt: Date.now() } : skill
+    )
+    setDraft({ ...draft, skills })
   }
   const patchSlotMultiAgent = (idx: number, choice: MultiAgentOverrideChoice): void => {
     const agents = draft.agents.map((slot, i) =>
@@ -901,6 +911,70 @@ export default function ProfileEditor(): JSX.Element | null {
                 {autoGitBranchError}
               </div>
             )}
+          </section>
+          <section className="automation-section" aria-labelledby="skills-heading">
+            <div className="slots-caption compact-caption">
+              <span id="skills-heading">
+                Profil-Skills <InfoTip text={HELP.skills} />
+              </span>
+              <span className="count">{(draft.skills ?? []).length} / 24</span>
+            </div>
+            {(draft.skills ?? []).map((skill, index) => (
+              <div className="slot-path-row" key={skill.id}>
+                <div className="slot-path-field">
+                  <input
+                    className="slot-select-sm"
+                    placeholder="Skill-Name, z. B. Deploy-Ablauf"
+                    value={skill.name}
+                    maxLength={80}
+                    onChange={(event) => patchSkill(index, { name: event.target.value })}
+                  />
+                  <textarea
+                    className="slot-select-sm"
+                    rows={2}
+                    placeholder="Wann anwenden + konkrete Schritte"
+                    value={skill.instructions}
+                    maxLength={2000}
+                    onChange={(event) => patchSkill(index, { instructions: event.target.value })}
+                  />
+                  <div className="model-effective">
+                    {skill.source === 'orchestrator' ? 'Vom Orchestrator gelernt' : 'Manuell angelegt'}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="inbox-btn ghost"
+                  aria-label={`Skill ${skill.name || index + 1} entfernen`}
+                  onClick={() =>
+                    patch({ skills: (draft.skills ?? []).filter((_, i) => i !== index) })
+                  }
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="ghost-btn"
+              disabled={(draft.skills ?? []).length >= 24}
+              onClick={() =>
+                patch({
+                  skills: [
+                    ...(draft.skills ?? []),
+                    {
+                      id: `skill-${Date.now().toString(36)}`,
+                      name: '',
+                      instructions: '',
+                      source: 'user' as const,
+                      createdAt: Date.now(),
+                      updatedAt: Date.now()
+                    }
+                  ]
+                })
+              }
+            >
+              ＋ Skill hinzufügen
+            </button>
           </section>
           <div className="slots-caption">
             <span>Subagent-Slots</span>

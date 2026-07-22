@@ -70,6 +70,9 @@ export const ORCHESTRATOR_TOOL_NAMES = [
   'execute_plan',
   'get_retro_draft',
   'record_retro',
+  'list_skills',
+  'record_skill',
+  'remove_skill',
   'revoke_learning',
   'run_benchmark',
   'get_benchmark_status',
@@ -600,6 +603,39 @@ export function buildMcpServer(
   )
 
   register(
+    'list_skills',
+    'Liste die Profil-Skills dieses Workspaces: benannte, wiederverwendbare Verfahren ' +
+      '("wie machen wir X hier"), die in künftige System-Prompts injiziert werden.',
+    {},
+    async () => text(JSON.stringify(engine.listSkills(), null, 2))
+  )
+
+  register(
+    'record_skill',
+    'Lege einen Profil-Skill an oder aktualisiere ihn (Upsert über den Namen, case-insensitiv). ' +
+      'Halte fest, WANN der Skill anzuwenden ist und die konkreten Schritte — er wird dauerhaft ' +
+      'im Workspace-Profil gespeichert und künftigen Orchestrator-/Solo-Läufen in den Prompt injiziert.',
+    {
+      name: z.string().min(1).max(80).describe('Eindeutiger Skill-Name, z.B. "Deploy-Ablauf"'),
+      instructions: z.string().min(1).max(2_000)
+        .describe('Wann anwenden + konkrete Schritte, kompakt formuliert')
+    },
+    async (args) => text(JSON.stringify(engine.recordSkill({
+      name: String(args.name ?? ''),
+      instructions: String(args.instructions ?? '')
+    }), null, 2))
+  )
+
+  register(
+    'remove_skill',
+    'Entferne einen nachweislich falschen oder überholten Profil-Skill über seinen exakten Namen.',
+    {
+      name: z.string().min(1).max(80).describe('Exakter Name des zu entfernenden Skills')
+    },
+    async (args) => text(JSON.stringify(engine.removeSkill(String(args.name ?? '')), null, 2))
+  )
+
+  register(
     'revoke_learning',
     'Lösche nachweislich falsches Modellwissen. Provider und Modell müssen exakt passen; ' +
       'insightContains wird als case-insensitiver Teilstring auf den Insight angewendet.',
@@ -941,6 +977,27 @@ export function buildSoloMcpServer(
       })
       return text(JSON.stringify(result, null, 2))
     }
+  )
+
+  toolFn(
+    'list_skills',
+    'Liste die Profil-Skills dieses Workspaces (benannte, wiederverwendbare Verfahren).',
+    {},
+    async () => text(JSON.stringify(engine.listSkills(), null, 2))
+  )
+
+  toolFn(
+    'record_skill',
+    'Lege einen Profil-Skill an oder aktualisiere ihn (Upsert über den Namen). Halte fest, WANN er ' +
+      'anzuwenden ist und die konkreten Schritte; er wird künftigen Läufen in den Prompt injiziert.',
+    {
+      name: z.string().min(1).max(80).describe('Eindeutiger Skill-Name'),
+      instructions: z.string().min(1).max(2_000).describe('Wann anwenden + konkrete Schritte')
+    },
+    async (args) => text(JSON.stringify(engine.recordSkill({
+      name: String(args.name ?? ''),
+      instructions: String(args.instructions ?? '')
+    }), null, 2))
   )
 
   return server

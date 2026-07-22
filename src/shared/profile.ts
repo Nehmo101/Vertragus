@@ -40,6 +40,28 @@ export const agentSlotSchema = z.object({
   weaknesses: z.array(z.string().min(1)).max(24).default([])
 })
 
+/**
+ * A per-profile skill: a reusable, named instruction block ("how we do X in
+ * this workspace") injected into the orchestrator/solo system prompt. Skills
+ * are managed in the profile editor AND by the orchestrator itself via the
+ * MCP tools list_skills / record_skill / remove_skill — the profile learns
+ * workspace-specific procedures across runs.
+ */
+export const profileSkillSchema = z.object({
+  id: z.string().min(1).max(64),
+  /** Unique display name, e.g. "Deploy-Ablauf" (upsert key, case-insensitive). */
+  name: z.string().min(1).max(80),
+  /** When to apply the skill plus the concrete steps. */
+  instructions: z.string().min(1).max(2_000),
+  source: z.enum(['user', 'orchestrator']).default('user'),
+  createdAt: z.number().default(0),
+  updatedAt: z.number().default(0)
+})
+
+export const MAX_PROFILE_SKILLS = 24
+export const profileSkillsSchema = z.array(profileSkillSchema).max(MAX_PROFILE_SKILLS)
+export type ProfileSkill = z.infer<typeof profileSkillSchema>
+
 export const orchestratorSchema = z.object({
   provider: agentProviderId.default('claude'),
   /** Empty = preset or CLI default. Non-empty overrides modelPreset. */
@@ -153,6 +175,8 @@ export const workspaceProfileSchema = z.object({
    * full orchestrator surface, minimizing fixed token cost per turn.
    */
   solo: z.boolean().default(false),
+  /** Named, reusable workspace procedures injected into orchestrator/solo prompts. */
+  skills: profileSkillsSchema.default([]),
   /** Global Yolo master switch (default OFF for safety). */
   yoloDefault: z.boolean().default(false),
   planner: plannerConfigSchema.default({}),
@@ -196,9 +220,11 @@ export type GithubProjectConfig = z.infer<typeof githubProjectSchema>
 export type ProfileCloneStatus = z.infer<typeof profileCloneStatusSchema>
 export type ProfileGithubRepo = z.infer<typeof profileGithubRepoSchema>
 type ParsedWorkspaceProfile = z.infer<typeof workspaceProfileSchema>
-export type WorkspaceProfile = Omit<ParsedWorkspaceProfile, 'orchestrator' | 'agents'> & {
+export type WorkspaceProfile = Omit<ParsedWorkspaceProfile, 'orchestrator' | 'agents' | 'skills'> & {
   orchestrator?: OrchestratorConfig
   agents: AgentSlot[]
+  /** Legacy in-memory profile drafts may predate the skills field. */
+  skills?: ProfileSkill[]
 }
 
 /** Create an independent, uniquely identified copy of a workspace profile. */
@@ -373,6 +399,7 @@ export const DEFAULT_PROFILE: WorkspaceProfile = {
     }
   ],
   solo: false,
+  skills: [],
   yoloDefault: false,
   planner: { mode: 'review', routingMode: 'adaptive', maxParallel: 6, maxRetries: 1 },
   benchmark: { enabled: false },

@@ -11,6 +11,8 @@ import { getMcpHandle } from '@main/orchestrator/mcpHandle'
 import { getOrchestratorAdapter } from '@main/orchestrator/providerAdapters'
 import { externalMcpSpecsFor } from '@main/orchestrator/externalMcp'
 import { getPromptOverlay } from '@main/orchestrator/promptOverlay'
+import { skillsPromptBlock } from '@main/orchestrator/profileSkills'
+import type { ProfileSkill } from '@shared/profile'
 
 export interface OrchestratorPolicyOptions {
   adaptiveTeam?: boolean
@@ -20,6 +22,8 @@ export interface OrchestratorPolicyOptions {
   benchmarkMode?: boolean
   /** Reviewed learnings overlay (retro branch) injected into the prompt. */
   overlayText?: string
+  /** Per-profile skills injected into the prompt (managed via list/record/remove_skill). */
+  skills?: ProfileSkill[]
 }
 
 export const orchestratorSystemPrompt = (
@@ -103,6 +107,16 @@ export const orchestratorSystemPrompt = (
         ''
       ]
     : []),
+  ...(skillsPromptBlock(options.skills)
+    ? [
+        skillsPromptBlock(options.skills),
+        '- Pflege die Profil-Skills aktiv: Lege mit record_skill wiederverwendbare Verfahren an, sobald du eines etabliert hast; aktualisiere überholte mit record_skill und entferne falsche mit remove_skill. list_skills zeigt den Bestand.',
+        ''
+      ]
+    : [
+        '- Profil-Skills: Dieses Profil hat noch keine gespeicherten Verfahren. Wenn du in diesem Lauf ein wiederverwendbares Vorgehen etablierst, halte es mit record_skill fest — es wird künftigen Läufen injiziert.',
+        ''
+      ]),
   ...(options.benchmarkMode
     ? [
         'Auto-Benchmark-Modus (dieses Profil):',

@@ -54,6 +54,7 @@ import {
   agentSlotCapabilities,
   profileDefaultBaseBranch,
   type AgentSlot,
+  type ProfileSkill,
   type WorkspaceProfile
 } from '@shared/profile'
 import { resolveModel } from '@shared/models'
@@ -104,6 +105,13 @@ import { resolveExecutionPlan } from '@main/orchestrator/planner'
 import { Semaphore } from '@main/orchestrator/semaphore'
 import { subagentVertragusToolsAvailable } from '@main/orchestrator/externalMcp'
 import { computeBudgetSnapshot, computeIntegrationSnapshot } from '@main/orchestrator/engineSnapshots'
+import {
+  listProfileSkills,
+  recordProfileSkill,
+  removeProfileSkill,
+  type RecordSkillInput,
+  type RecordSkillResult
+} from '@main/orchestrator/profileSkills'
 import { providerSupportsSubagentReporting } from '@shared/mcp'
 import { securityChecklistForFiles } from '@main/integrations/securityGate'
 import {
@@ -1243,6 +1251,29 @@ export class OrchestratorEngine extends EventEmitter {
 
   private activeProfile(): WorkspaceProfile | undefined {
     return this.boundProfile ?? getProfile(getActiveProfileId())
+  }
+
+  /** Per-profile skills (MCP surface: list_skills / record_skill / remove_skill). */
+  listSkills(): ProfileSkill[] {
+    return listProfileSkills(this.activeProfile()?.id)
+  }
+
+  recordSkill(input: RecordSkillInput): RecordSkillResult {
+    const result = recordProfileSkill(this.activeProfile()?.id, input)
+    // Keep the bound snapshot in sync so subsequent launches in this session
+    // inject the updated skills without a profile reload.
+    if (result.ok && this.boundProfile) {
+      this.boundProfile = { ...this.boundProfile, skills: result.skills }
+    }
+    return result
+  }
+
+  removeSkill(name: string): RecordSkillResult {
+    const result = removeProfileSkill(this.activeProfile()?.id, name)
+    if (result.ok && this.boundProfile) {
+      this.boundProfile = { ...this.boundProfile, skills: result.skills }
+    }
+    return result
   }
 
   /**

@@ -656,7 +656,8 @@ export class AgentManager extends EventEmitter {
             adaptiveTeam: orchestratorProfile?.planner.routingMode === 'adaptive',
             maxRetries: orchestratorProfile?.planner.maxRetries,
             engineId: req.engineId,
-            benchmarkMode: orchestratorProfile?.benchmark?.enabled ?? false
+            benchmarkMode: orchestratorProfile?.benchmark?.enabled ?? false,
+            skills: orchestratorProfile?.skills
           })
         : undefined
       if (orchestratorSetup && !orchestratorSetup.capability.supported) {
@@ -665,7 +666,10 @@ export class AgentManager extends EventEmitter {
       // Efficiency-Solo agents get the minimal solo MCP session + compact solo
       // prompt; unsupported providers degrade to a plain agent launch.
       const soloSetup = !orchestratorSetup && req.solo
-        ? buildSoloSetup(req.provider, name, id, req.workspaceSessionId, { engineId: req.engineId })
+        ? buildSoloSetup(req.provider, name, id, req.workspaceSessionId, {
+            engineId: req.engineId,
+            skills: (req.profileId ? getProfile(req.profileId) : undefined)?.skills
+          })
         : undefined
       const resumeArgs = req.resumeConversation ? providerResumeArgs(req.provider) : undefined
       const extraArgs = [

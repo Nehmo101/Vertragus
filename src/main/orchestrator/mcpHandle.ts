@@ -28,7 +28,7 @@ export const ORCHESTRATOR_MCP_SERVER_NAME = 'vertragus'
  * invariant test asserts the set-equality. Kept here so the launch side
  * (soloLaunch.ts → AgentManager) never has to import the server module.
  */
-export const SOLO_TOOL_NAMES = ['report_activity', 'record_retro'] as const
+export const SOLO_TOOL_NAMES = ['report_activity', 'record_retro', 'list_skills', 'record_skill'] as const
 
 /** Fully-qualified solo tool names for the provider launch allowlist. */
 export const SOLO_ALLOWED_TOOLS = SOLO_TOOL_NAMES.map(

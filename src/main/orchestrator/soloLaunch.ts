@@ -13,11 +13,15 @@ import { getMcpHandle, SOLO_ALLOWED_TOOLS } from '@main/orchestrator/mcpHandle'
 import { getOrchestratorAdapter } from '@main/orchestrator/providerAdapters'
 import { externalMcpSpecsFor } from '@main/orchestrator/externalMcp'
 import { getPromptOverlay } from '@main/orchestrator/promptOverlay'
+import { skillsPromptBlock } from '@main/orchestrator/profileSkills'
+import type { ProfileSkill } from '@shared/profile'
 
 export interface SoloPolicyOptions {
   engineId?: string
   /** Reviewed learnings overlay (retro branch) injected into the prompt. */
   overlayText?: string
+  /** Per-profile skills injected into the prompt (extend them via record_skill). */
+  skills?: ProfileSkill[]
 }
 
 export const soloSystemPrompt = (
@@ -31,13 +35,15 @@ export const soloSystemPrompt = (
   '- Führe kein git add, commit, cherry-pick oder push aus; der Vertragus-Main-Prozess sichert Änderungen zentral.',
   '- Beende erst, wenn das Ziel nachweislich erfüllt ist oder eine konkrete Sackgasse eine Nutzerentscheidung braucht.',
   '- Rufe am Ende record_retro mit einem ehrlichen Fazit und Modell-Erkenntnissen (Stärke UND Schwäche, nur mit Beleg) auf.',
+  '- Wenn du ein wiederverwendbares Vorgehen für diesen Workspace etablierst, halte es mit record_skill fest; list_skills zeigt den Bestand.',
   ...(options.overlayText
     ? [
         '',
         'Gelerntes Teamwissen (aus geprüften Retros früherer Läufe; verbindlich zu berücksichtigen):',
         options.overlayText
       ]
-    : [])
+    : []),
+  ...(skillsPromptBlock(options.skills) ? ['', skillsPromptBlock(options.skills)] : [])
 ].join('\n')
 
 export interface SoloSetup {
