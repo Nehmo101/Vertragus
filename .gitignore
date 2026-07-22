@@ -12,10 +12,12 @@ release/
 *.log
 npm-debug.log*
 pnpm-debug.log*
+.vertragus-runtime/
 .orca-runtime/
 
 # Runtime artifacts (agent handoff briefings; written to userData at runtime,
 # but tests that mock app.getPath emit them into the repo root)
+vertragus-handoffs/
 orca-handoffs/
 
 # Env / secrets

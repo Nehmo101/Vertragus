@@ -115,7 +115,9 @@ describe('RemoteGateway hardening', () => {
       ['read'], undefined, { id: 'owner', displayName: 'Owner' },
       [{ profileId: 'p', sessionIds: ['s'], allowGoalSubmit: false }]
     ).code, 'Phone')!
-    const upgrade = (protocol?: string): Promise<number> => new Promise((resolveStatus, reject) => {
+    const upgrade = (
+      protocol?: string
+    ): Promise<{ status: number; protocol?: string }> => new Promise((resolveStatus, reject) => {
       const target = new URL(gateway.origin)
       const req = request({
         hostname: target.hostname, port: target.port, path: '/ws',
@@ -126,14 +128,40 @@ describe('RemoteGateway hardening', () => {
           ...(protocol ? { 'Sec-WebSocket-Protocol': protocol } : {})
         }
       })
-      req.on('upgrade', (response, socket) => { socket.destroy(); resolveStatus(response.statusCode ?? 101) })
-      req.on('response', (response) => { response.resume(); resolveStatus(response.statusCode ?? 0) })
+      req.on('upgrade', (response, socket) => {
+        socket.destroy()
+        const negotiated = response.headers['sec-websocket-protocol']
+        resolveStatus({
+          status: response.statusCode ?? 101,
+          protocol: Array.isArray(negotiated) ? negotiated[0] : negotiated
+        })
+      })
+      req.on('response', (response) => { response.resume(); resolveStatus({ status: response.statusCode ?? 0 }) })
       req.on('error', reject)
       req.end()
     })
     try {
-      await expect(upgrade()).resolves.toBe(401)
-      await expect(upgrade(`orca-v1, orca-bearer.${paired.token}`)).resolves.toBe(101)
+      await expect(upgrade()).resolves.toEqual({ status: 401 })
+      // Legacy-only client (pre-rebrand mobile/iOS build) against new server.
+      const legacy = await upgrade(`orca-v1, orca-bearer.${paired.token}`)
+      expect(legacy).toEqual({ status: 101, protocol: 'orca-v1' })
+      // New-only client.
+      const canonical = await upgrade(`vertragus-v1, vertragus-bearer.${paired.token}`)
+      expect(canonical).toEqual({ status: 101, protocol: 'vertragus-v1' })
+      // Transition client offering both families: canonical version wins.
+      const mixed = await upgrade(
+        `vertragus-v1, orca-v1, vertragus-bearer.${paired.token}, orca-bearer.${paired.token}`
+      )
+      expect(mixed).toEqual({ status: 101, protocol: 'vertragus-v1' })
+      // Bearer prefix and version may mix across families during rollout.
+      const crossed = await upgrade(`orca-v1, vertragus-bearer.${paired.token}`)
+      expect(crossed).toEqual({ status: 101, protocol: 'orca-v1' })
+      // Garbage tokens stay rejected; an unknown version is never selected
+      // (the upgrade completes without a subprotocol, so a conforming client
+      // fails the connection on its side).
+      await expect(upgrade('vertragus-bearer.short')).resolves.toEqual({ status: 401 })
+      const unknown = await upgrade(`vertragus-v2, vertragus-bearer.${paired.token}`)
+      expect(unknown.protocol).toBeUndefined()
     } finally {
       await gateway.close()
     }

@@ -2,6 +2,7 @@ import { join, posix, win32 } from 'node:path'
 import { ensureWorktreeDependencies } from '@main/agents/dependencyBootstrap'
 import { assertSecurityGate } from '../securityGate'
 import { execAsync, MAX_OUTPUT, repositoryRoot } from './gitPlumbing'
+import { WORKTREE_CONTAINER } from '@main/agents/worktree'
 
 /**
  * A gate that fails because its TOOLING is missing (eslint/prisma not found in
@@ -113,7 +114,7 @@ function assertManagedIntegrationPath(repositoryRoot: string, integrationPath: s
   const pathApi = win32.isAbsolute(repositoryRoot) || win32.isAbsolute(integrationPath)
     ? win32
     : posix
-  const integrationRoot = pathApi.resolve(repositoryRoot, '.orca-worktrees', 'integration')
+  const integrationRoot = pathApi.resolve(repositoryRoot, WORKTREE_CONTAINER, 'integration')
   const candidate = pathApi.resolve(integrationPath)
   const relativePath = pathApi.relative(integrationRoot, candidate)
   if (

@@ -7,6 +7,7 @@ import { git, repositoryRoot, runFile, safeSlug, isAncestor } from './gitPlumbin
 import { combineRemoteCi, monitorRemoteCi, type RemoteCiOutcome } from './ciMonitor'
 import { runIntegrationQualityGates } from './gates'
 import type { AutoPrOutcome, PublishInput } from './types'
+import { WORKTREE_CONTAINER } from '@main/agents/worktree'
 
 export function pickBaseBranch(
   configured: string,
@@ -125,9 +126,9 @@ async function publishPerTask(input: PublishInput): Promise<AutoPrOutcome> {
 async function publishAggregate(input: PublishInput): Promise<AutoPrOutcome> {
   const first = input.changes[0]
   const root = await repositoryRoot(first.worktree)
-  const branch = `orca/goal-${safeSlug(input.goalId)}-${Date.now().toString(36)}`
-  const integrationPath = join(root, '.orca-worktrees', 'integration', safeSlug(branch, 60))
-  await mkdir(join(root, '.orca-worktrees', 'integration'), { recursive: true })
+  const branch = `vertragus/goal-${safeSlug(input.goalId)}-${Date.now().toString(36)}`
+  const integrationPath = join(root, WORKTREE_CONTAINER, 'integration', safeSlug(branch, 60))
+  await mkdir(join(root, WORKTREE_CONTAINER, 'integration'), { recursive: true })
   const base = await defaultBase(root, input.config.baseBranch, input.profileDefaultBranch)
   // Refresh the base first so cherry-picks land on the current tip instead of a
   // stale origin/<base>. A green commit built against a stale base is broadly

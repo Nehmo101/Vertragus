@@ -6,6 +6,19 @@ Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1
 
 ---
 
+## 2026-07-22 — Orca→Vertragus-Vollmigration der internen Bezeichner
+
+### Geändert
+
+- **Interne Bezeichner vollständig auf Vertragus migriert:** `VertragusTask`/`VertragusMcpServer` (inkl. iOS), MCP-Tool-Namespace `mcp__vertragus__*` (Launch-Config und Prompts werden pro Start transient generiert, daher ohne Runtime-Alias), Commit-Präfix `vertragus(<taskId>)`, Integrations-Branch `vertragus/goal-*` unter `.vertragus-worktrees/integration`, Laufzeit-Verzeichnisse `vertragus-mcp`/`.vertragus-runtime`/`vertragus-handoffs`/`vertragus-idea-transfers`, Inbox-Store `vertragus-inbox.json`. Persistierte Altbestände werden beim ersten Start einmalig kopierend übernommen (`legacyAdoption.ts`); kein Legacy-Bestand wird gelöscht. WebSocket-Pairing: kanonisch `vertragus-v1`/`vertragus-bearer.*`, der Desktop akzeptiert die `orca-*`-Familie dauerhaft weiter, Mobile/iOS bieten übergangsweise beide an. Hinweis: In interaktiven Non-Yolo-Claude-Panes werden gespeicherte `mcp__orca__*`-Approvals wirkungslos; die Tools fragen einmalig neu an.
+
+### Behoben
+
+- **`await_plan_approval` fehlte in der Orchestrator-Allowlist:** Der Systemprompt schreibt das Tool vor, aber die strikte `--allowedTools`-Liste (Claude/Kimi) enthielt es nicht — Orchestratoren konnten die Plan-Freigabe nie blockierend abwarten. Ein Invariantentest erzwingt jetzt Set-Gleichheit zwischen registrierten Tools und der Allowlist.
+- **Reservierte MCP-Servernamen:** Ein externer MCP-Server namens `vertragus`/`orca`(`-sub`) überschrieb kommentarlos den internen Orchestrator-Server in der generierten Launch-Config. Solche Namen werden jetzt im Editor abgelehnt und beim Launch defensiv übersprungen.
+
+---
+
 ## 2026-07-21 — Taskleisten-Hinweis bei Nutzer-Rückmeldung
 
 ### Hinzugefügt

@@ -27,12 +27,22 @@ import {
   sortNewestFirst
 } from '@main/inbox/archive'
 
+import { adoptLegacyFile } from '@main/config/legacyAdoption'
+
 interface InboxStoreShape {
   ideas: Idea[]
 }
 
+// Adopt the pre-rebrand inbox exactly once, before electron-store materializes
+// vertragus-inbox.json with defaults (copy-only; orca-inbox.json stays).
+try {
+  adoptLegacyFile(app.getPath('userData'), 'orca-inbox.json', 'vertragus-inbox.json')
+} catch {
+  // Outside a real Electron runtime (vitest) `app` is undefined.
+}
+
 const store = new Store<InboxStoreShape>({
-  name: 'orca-inbox',
+  name: 'vertragus-inbox',
   defaults: { ideas: [] }
 })
 

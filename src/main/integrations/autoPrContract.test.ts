@@ -60,7 +60,7 @@ describe('Auto-PR worker commit contract', () => {
     expect(result.change?.commits).toEqual([result.change?.commit])
     expect(result.change?.files).toContain('feature.ts')
     expect(await git(dir, 'rev-parse', 'HEAD^')).toBe(base)
-    expect(await git(dir, 'show', '-s', '--format=%s', 'HEAD')).toBe('orca(worker-1): Feature')
+    expect(await git(dir, 'show', '-s', '--format=%s', 'HEAD')).toBe('vertragus(worker-1): Feature')
   }, 20_000)
 
   it('returns explicit no-changes when HEAD and worktree match the captured base', async () => {

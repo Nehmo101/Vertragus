@@ -104,7 +104,7 @@ export function safeSlug(value: string, max = 42): string {
       .replace(/[^a-zA-Z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '')
       .toLowerCase()
-      .slice(0, max) || 'orca-task'
+      .slice(0, max) || 'vertragus-task'
   )
 }
 

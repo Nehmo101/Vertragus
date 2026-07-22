@@ -269,7 +269,7 @@ final class RemoteClient: ObservableObject {
     }
 
     private func runWebSocket(token: String, url: URL) async -> Bool {
-        let socket = urlSession.webSocketTask(with: url, protocols: ["orca-v1", "orca-bearer.\(token)"])
+        let socket = urlSession.webSocketTask(with: url, protocols: ["vertragus-v1", "orca-v1", "vertragus-bearer.\(token)", "orca-bearer.\(token)"])
         webSocketTask = socket
         socket.resume()
         var opened = false

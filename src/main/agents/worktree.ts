@@ -20,6 +20,11 @@ import { canonicalWorkspacePath } from '@main/agents/workspacePath'
 
 const execFileAsync = promisify(execFile)
 
+/** Directory (inside the repo root) that holds all Vertragus-managed worktrees. */
+export const WORKTREE_CONTAINER = '.vertragus-worktrees'
+/** Pre-rebrand container; still recognized for cleanup/inventory, never written. */
+export const LEGACY_WORKTREE_CONTAINER = '.orca-worktrees'
+
 /** Default Git command budget. Discard/status paths use shorter timeouts. */
 const GIT_TIMEOUT_MS = 15_000
 const GIT_STATUS_TIMEOUT_MS = 3_000
@@ -363,7 +368,7 @@ export async function inventoryWorktrees(
   )
   const discovered: Array<Omit<WorktreeInventoryEntry, 'changedFiles' | 'owned'> & { owned: boolean }> =
     []
-  for (const container of ['.vertragus-worktrees', '.orca-worktrees'] as const) {
+  for (const container of [WORKTREE_CONTAINER, LEGACY_WORKTREE_CONTAINER] as const) {
     const containerPath = join(root, container)
     const sessions = await readdir(containerPath, { withFileTypes: true }).catch(() => [])
     for (const session of sessions) {

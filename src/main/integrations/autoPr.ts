@@ -91,7 +91,7 @@ async function captureNeedsWorkChange(
     const stagedFiles = (await git(input.worktree!, ['diff', '--cached', '--name-only'])).trim()
     if (stagedFiles) {
       await git(input.worktree!, [
-        'commit', '-m', `orca(${input.taskId}): needs work - ${input.title.trim().slice(0, 60)}`
+        'commit', '-m', `vertragus(${input.taskId}): needs work - ${input.title.trim().slice(0, 60)}`
       ])
     }
   }
@@ -200,7 +200,7 @@ export async function prepareTaskChange(input: PrepareTaskInput): Promise<Prepar
 
     if (stagedFiles.length > 0) {
       await git(input.worktree, [
-        'commit', '-m', 'orca(' + input.taskId + '): ' + input.title.trim().slice(0, 72)
+        'commit', '-m', 'vertragus(' + input.taskId + '): ' + input.title.trim().slice(0, 72)
       ])
     }
     const branch = await git(input.worktree, ['branch', '--show-current'])

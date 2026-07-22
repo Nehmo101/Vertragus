@@ -39,6 +39,7 @@ import { resolveSlotModel } from '@main/agents/providerModelDefaults'
 import { buildInteractiveLaunch } from '@main/providers/types'
 import { resolveLaunch } from '@main/agents/resolveCommand'
 import { terminateProcessTreeWithEscalation } from '@main/agents/processTermination'
+import { adoptLegacyDir } from '@main/config/legacyAdoption'
 import { createWorktree, currentBranch, isManagedBranch, rollbackWorktree } from '@main/agents/worktree'
 import { buildAgentResumeState } from '@main/agents/resumeState'
 import { sessionStore, type AgentStatePersistence } from '@main/config/sessionStore'
@@ -834,7 +835,10 @@ export class AgentManager extends EventEmitter {
 
   /** Persist a handoff briefing to an absolute path and return it. */
   private writeBriefing(sourceId: string, targetId: string, at: number, content: string): string {
-    const dir = join(app.getPath('userData'), 'orca-handoffs')
+    const userData = app.getPath('userData')
+    // Bring pre-rebrand handoff briefings along (copy-only, one-time).
+    adoptLegacyDir(userData, 'orca-handoffs', 'vertragus-handoffs')
+    const dir = join(userData, 'vertragus-handoffs')
     mkdirSync(dir, { recursive: true })
     const file = join(dir, `handoff-${sourceId}-to-${targetId}-${at}.md`)
     writeFileSync(file, content, 'utf8')
