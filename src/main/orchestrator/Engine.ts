@@ -68,10 +68,21 @@ import { agentManager } from '@main/agents/AgentManager'
 import { PanePreflightError } from '@main/agents/panePreflight'
 import { detectLimit, stripAnsi } from '@main/agents/limitSignals'
 import {
-  hasExplicitWorkerBlocker,
-  hasExplicitWorkerSuccess,
-  type HeadlessResult
-} from '@main/agents/headless'
+  judgeWorkerTerminalResult,
+  platformExecutionGuidance,
+  providerExecutionGuidance,
+  subagentExecutionContract,
+  type WorkerTerminalJudgement
+} from '@main/orchestrator/workerContract'
+
+// Re-exports: asyncDispatch.test.ts (and future callers) import these from './Engine'.
+export {
+  judgeWorkerTerminalResult,
+  platformExecutionGuidance,
+  providerExecutionGuidance,
+  subagentExecutionContract
+}
+export type { WorkerTerminalJudgement }
 import {
   getProfile,
   getActiveProfileId,
@@ -92,6 +103,7 @@ import {
 import { resolveExecutionPlan } from '@main/orchestrator/planner'
 import { Semaphore } from '@main/orchestrator/semaphore'
 import { subagentVertragusToolsAvailable } from '@main/orchestrator/externalMcp'
+import { computeBudgetSnapshot, computeIntegrationSnapshot } from '@main/orchestrator/engineSnapshots'
 import { providerSupportsSubagentReporting } from '@shared/mcp'
 import { securityChecklistForFiles } from '@main/integrations/securityGate'
 import {
@@ -208,92 +220,8 @@ const AWAIT_MAX_TIMEOUT_MS = 55_000
 function isTerminalTaskStatus(status: TaskStatus): boolean {
   return status === 'success' || status === 'needs-work' || status === 'error' || status === 'stopped'
 }
-export function platformExecutionGuidance(
-  platform: NodeJS.Platform = process.platform
-): string[] {
-  if (platform === 'win32') {
-    return [
-      'Windows/PowerShell: Nutze pro Tool-Aufruf einen kurzen Einzelbefehl.',
-      "Windows/PowerShell: Nutze rg -g (z. B. rg -g '*.ts' Muster) statt Shell-Pfadglobs wie src/**/*.ts.",
-      "Windows/PowerShell: rg mit Exit-Code 1 und leerem stderr bedeutet 'keine Treffer', nicht Infrastrukturfehler.",
-      'Windows/PowerShell: Vereinfache nach Parser- oder Quotingfehlern den Aufruf; wiederhole ihn nicht unveraendert.'
-    ]
-  }
-  if (platform === 'darwin') {
-    return [
-      'macOS/zsh: Nutze zsh-kompatible Befehle und beachte die BSD-Varianten von Tools wie sed, stat und date.'
-    ]
-  }
-  return []
-}
-
-export function providerExecutionGuidance(
-  provider: AgentProviderId,
-  yolo: boolean,
-  platform: NodeJS.Platform = process.platform
-): string[] {
-  if (provider !== 'codex' || yolo || platform !== 'win32') return []
-  return [
-    'Codex/Windows-Safe-Sandbox: Wenn ausschliesslich ein Node-Unterprozess mit spawn EPERM scheitert, ist das ein bekannter Sandbox-Gate-Fehler und kein fachlicher BLOCKER.',
-    'Codex/Windows-Safe-Sandbox: Fuehre Vitest zuerst mit "--pool=threads --no-file-parallelism" aus — der Threads-Pool vermeidet die vom Sandbox-Token blockierten Kindprozess-Spawns des Forks-Pools und laesst viele Suiten trotz Sandbox laufen.',
-    'Codex/Windows-Safe-Sandbox: Scheitert auch das, arbeite weiter, kennzeichne nur den betroffenen Test/Build als nicht ausfuehrbar und schliesse bei fachlich vollstaendiger Arbeit mit ERGEBNIS: ERFOLG; der Vertragus-Main-Prozess wiederholt die zentralen Abnahme-Gates ausserhalb der Worker-Sandbox.'
-  ]
-}
-
-/**
- * The per-worker execution contract appended to a dispatched task's prompt.
- *
- * The Vertragus subagent reporting tools (report_progress / post_finding /
- * list_findings / ask_orchestrator) are only demanded when the worker's provider
- * actually receives them (`vertragusSubTools`). Providers without a verified per-agent
- * MCP channel — Cursor today — are never asked to call tools they do not have,
- * so a missing progress/finding stream is an expected capability gap rather than
- * a contract violation. Pure and side-effect-free for direct unit testing.
- */
-export function subagentExecutionContract(input: {
-  provider: AgentProviderId
-  yolo: boolean
-  vertragusSubTools: boolean
-  securityChecklist: readonly string[]
-  platform?: NodeJS.Platform
-}): string[] {
-  const { provider, yolo, vertragusSubTools, securityChecklist, platform } = input
-  return [
-    'Vertragus-Ausführungsvertrag:',
-    '- Bearbeite nur die beauftragte Fachaufgabe und die erwarteten Dateien.',
-    '- Führe relevante Tests, Typecheck und Lint aus.',
-    '- Führe kein git add, commit, cherry-pick oder push aus; der Vertragus-Main-Prozess sichert Änderungen zentral.',
-    '- Bei Infrastrukturblockern antworte strukturiert und knapp: Blocker, Alternativen, geplante Dateien, Schnittstellen.',
-    '- Ergebnisvertrag am Ende: (1) geänderte Dateien, (2) Tests mit grün/gesamt, (3) Typecheck-/Lint-Status, (4) Integrationshinweise.',
-    '- Schließe exakt mit ERGEBNIS: ERFOLG oder ERGEBNIS: BLOCKER samt konkreter Begründung.',
-    '- Automatisch injizierte Security-Negativfälle: securityGate.ts bewertet nur hinzugefügte Diff-Zeilen.',
-    '- Neue Zeilen mit process.env, Bearer, Authorization, Secret-Literalen, writeFileSync, appendFileSync, createWriteStream, rm oder child_process-Aufrufen brauchen passende Missbrauchs-/Injection-/Leak-Negativtests in Testdateien.',
-    ...(vertragusSubTools
-      ? [
-          '- Live-Status: Melde wichtige Phasenwechsel und Zwischenstände knapp über das MCP-Tool report_progress (Server vertragus-sub).',
-          '- Team-Board: Teile Schnittstellen, Entscheidungen und Blocker, die parallele Tasks betreffen, über post_finding; prüfe mit list_findings die Einträge anderer Subagents, bevor du gemeinsame Schnittstellen festlegst.',
-          '- Direkte Hilfe: Wenn eine Richtungsentscheidung, Freigabe oder Unterstützung fehlt, nutze ask_orchestrator und warte mit await_orchestrator_response auf die konkrete Antwort.'
-        ]
-      : []),
-    ...providerExecutionGuidance(provider, yolo, platform).map((item) => `- ${item}`),
-    ...platformExecutionGuidance(platform).map((item) => `- ${item}`),
-    ...securityChecklist.map((item) => `- Security-Pflicht: ${item}`)
-  ]
-}
-
 /** Consecutive permission-prompt timeouts before a task is failed fast as permission-starved. */
 const PERMISSION_TIMEOUT_DENIAL_LIMIT = 3
-
-export interface WorkerTerminalJudgement {
-  status: 'success' | 'error' | 'stopped'
-  failureKind?: 'infrastructure' | 'worker' | 'cancelled'
-  /**
-   * Exit 0 without an explicit worker contract while the provider flagged an
-   * error: contradictory signals. The acceptance gates may overrule this error.
-   */
-  unconfirmed?: boolean
-  reason: string
-}
 
 export interface CancelPlanResult {
   ok: boolean
@@ -302,96 +230,6 @@ export interface CancelPlanResult {
   planId?: string
   status?: 'stopped'
 }
-
-/**
- * esbuild (and other native build helpers) fail to spawn their child process
- * under the codex restricted-token sandbox with `spawn EPERM`. This is an
- * infrastructure limit, not a code defect — detect it in the worker's output.
- */
-function isSandboxSpawnFailure(text: string | undefined): boolean {
-  if (!text) return false
-  return /\bspawn\b[^\n]*\bEPERM\b/i.test(text) ||
-    /\bEPERM\b[^\n]*\bspawn\b/i.test(text) ||
-    /esbuild[^\n]*\bEPERM\b/i.test(text)
-}
-
-/** Resolve contradictory provider flags using process outcome and the worker's explicit contract. */
-export function judgeWorkerTerminalResult(result: HeadlessResult): WorkerTerminalJudgement {
-  if (result.status === 'cancelled') {
-    return {
-      status: 'stopped',
-      failureKind: 'cancelled',
-      reason: 'Der Worker wurde durch den Stop-Mechanismus abgebrochen.'
-    }
-  }
-
-  const infrastructureFailure =
-    result.failureKind === 'provider-auth' ||
-    result.failureKind === 'sandbox' ||
-    result.failureKind === 'stalled'
-  if (infrastructureFailure) {
-    return {
-      status: 'error',
-      failureKind: 'infrastructure',
-      reason: result.error?.trim() ||
-        `Provider-Infrastruktur fehlgeschlagen (${result.failureKind}).`
-    }
-  }
-
-  // A worker that only fails because esbuild cannot spawn its native child in
-  // the codex restricted-token sandbox is hitting an infrastructure limit, not
-  // producing bad code. The retro analysis already treats EPERM as infra
-  // (runAnalysis.ts); classify it here too so such a run does not count as a
-  // model/worker failure — even when the worker mistakenly self-reports BLOCKER.
-  if (isSandboxSpawnFailure(result.result) || isSandboxSpawnFailure(result.error)) {
-    return {
-      status: 'error',
-      failureKind: 'infrastructure',
-      reason: 'Sandbox-Gate-Fehler: esbuild/Node-Unterprozess scheiterte an spawn EPERM (kein fachlicher BLOCKER).'
-    }
-  }
-
-  if (hasExplicitWorkerBlocker(result.result)) {
-    return {
-      status: 'error',
-      failureKind: 'worker',
-      reason: 'Der Worker meldete explizit ERGEBNIS: BLOCKER.'
-    }
-  }
-
-  if (result.exitCode === 0 && hasExplicitWorkerSuccess(result.result)) {
-    return {
-      status: 'success',
-      reason: 'Provider-Prozess endete mit Exit-Code 0 und expliziter ERGEBNIS: ERFOLG-Meldung.'
-    }
-  }
-
-  if (result.status === 'succeeded' && !result.isError) {
-    return { status: 'success', reason: 'Der Provider meldete einen erfolgreichen Worker-Abschluss.' }
-  }
-  if (result.status == null && !result.isError) {
-    return { status: 'success', reason: 'Der kompatible Provider-Adapter meldete keinen Fehler.' }
-  }
-
-  if (result.exitCode === 0) {
-    return {
-      status: 'error',
-      failureKind: 'worker',
-      unconfirmed: true,
-      reason: 'Der Provider meldete einen Fehler trotz Exit-Code 0 und ohne expliziten ' +
-        'Ergebnisvertrag; die Abnahme-Gates entscheiden über die Übernahme.'
-    }
-  }
-
-  const exitDetail = result.exitCode == null ? '' : ` (Exit-Code ${result.exitCode})`
-  return {
-    status: 'error',
-    failureKind: 'worker',
-    reason: result.error?.trim() ||
-      `Der Provider bewertete den Worker-Abschluss als fehlgeschlagen${exitDetail}.`
-  }
-}
-
 
 /** Numeric sequence of a `<prefix><base36>` runtime id, or null for foreign ids. */
 function parseSequenceId(id: string, prefix: string): number | null {
@@ -638,62 +476,15 @@ export class OrchestratorEngine extends EventEmitter {
   }
 
   private budgetSnapshot(): RemoteBudgetSnapshot {
-    let tokens = 0
-    let costUsd = 0
-    const measuredTasks = [...this.tasks.values()].filter((task) => task.provider || task.usage)
-    for (const task of measuredTasks) {
-      tokens += (task.usage?.tokensIn ?? 0) + (task.usage?.tokensOut ?? 0)
-      costUsd += task.usage?.costUsd ?? 0
-    }
-    const exceededBy: Array<'tokens' | 'cost'> = []
-    if (this.budgetCaps.maxTokens != null && tokens >= this.budgetCaps.maxTokens) exceededBy.push('tokens')
-    if (this.budgetCaps.maxCostUsd != null && costUsd >= this.budgetCaps.maxCostUsd) exceededBy.push('cost')
-    const reported = measuredTasks.filter((task) => task.usage && Object.values(task.usage).some((value) => value != null))
-    return {
-      tokens,
-      costUsd,
-      caps: { ...this.budgetCaps },
-      exceeded: exceededBy.length > 0,
-      tasksReported: reported.length,
-      tasksTotal: measuredTasks.length,
-      tokenDataComplete: measuredTasks.length > 0 && measuredTasks.every((task) =>
-        task.usage?.tokensIn != null || task.usage?.tokensOut != null
-      ),
-      costDataComplete: measuredTasks.length > 0 && measuredTasks.every((task) => task.usage?.costUsd != null),
-      exceededBy
-    }
+    return computeBudgetSnapshot(this.tasks.values(), this.budgetCaps)
   }
 
   private integrationSnapshot(): IntegrationCenterSnapshot {
-    const items = [...this.tasks.values()]
-      .filter((task) => task.autoPrStatus != null && (
-        task.autoPrStatus !== 'skipped' || task.commit != null || task.prUrl != null
-      ))
-      .map((task) => ({
-        taskId: task.id,
-        title: task.title,
-        status: task.autoPrStatus!,
-        commit: task.commit,
-        branch: task.branch,
-        prUrl: task.prUrl,
-        remoteCiStatus: task.remoteCiStatus,
-        remoteCiUrl: task.remoteCiUrl,
-        remoteCiSummary: task.remoteCiSummary,
-        findingCount: task.findings?.length ?? 0
-      }))
-    let status: IntegrationCenterSnapshot['status'] = 'idle'
-    if (this.publicationInFlight) status = 'publishing'
-    else if (this.pendingPublication) status = 'awaiting-approval'
-    else if (items.some((item) =>
-      item.status === 'blocked' ||
-      item.remoteCiStatus === 'failed' ||
-      item.remoteCiStatus === 'cancelled' ||
-      item.remoteCiStatus === 'timed-out' ||
-      item.remoteCiStatus === 'unavailable'
-    )) status = 'blocked'
-    else if (items.some((item) => item.status === 'prepared')) status = 'prepared'
-    else if (items.some((item) => item.status === 'published')) status = 'published'
-    return { status, pendingPublicationId: this.pendingPublication?.id, items }
+    return computeIntegrationSnapshot(
+      this.tasks.values(),
+      this.pendingPublication,
+      this.publicationInFlight
+    )
   }
 
   snapshot(): OrchestratorSnapshot {
