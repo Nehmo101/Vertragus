@@ -23,6 +23,19 @@ export interface McpServerHandle {
 export const ORCHESTRATOR_MCP_SERVER_NAME = 'vertragus'
 
 /**
+ * Bare names of the tools an Efficiency-Solo agent gets. The solo MCP session
+ * (VertragusMcpServer.buildSoloMcpServer) registers exactly these; an
+ * invariant test asserts the set-equality. Kept here so the launch side
+ * (soloLaunch.ts → AgentManager) never has to import the server module.
+ */
+export const SOLO_TOOL_NAMES = ['report_activity', 'record_retro'] as const
+
+/** Fully-qualified solo tool names for the provider launch allowlist. */
+export const SOLO_ALLOWED_TOOLS = SOLO_TOOL_NAMES.map(
+  (tool) => `mcp__${ORCHESTRATOR_MCP_SERVER_NAME}__${tool}`
+)
+
+/**
  * MCP config key the per-worker subagent server is attached under. The CLI
  * namespaces every tool as `mcp__<serverName>__<tool>`, so this single constant
  * drives both the launch spec name and the allow-list below. The label is

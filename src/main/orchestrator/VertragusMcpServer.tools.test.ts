@@ -19,8 +19,8 @@ vi.mock('@main/agents/AgentManager', () => ({
   agentManager: { runTask: vi.fn(), kill: vi.fn(), list: () => [] }
 }))
 
-import { buildMcpServer, ORCHESTRATOR_TOOL_NAMES } from './VertragusMcpServer'
-import { ORCHESTRATOR_MCP_SERVER_NAME } from './mcpHandle'
+import { buildMcpServer, buildSoloMcpServer, ORCHESTRATOR_TOOL_NAMES } from './VertragusMcpServer'
+import { ORCHESTRATOR_MCP_SERVER_NAME, SOLO_TOOL_NAMES } from './mcpHandle'
 
 describe('orchestrator MCP tool surface', () => {
   it('registers exactly the tools promised by ORCHESTRATOR_TOOL_NAMES', async () => {
@@ -45,5 +45,22 @@ describe('orchestrator MCP tool surface', () => {
   it('uses the vertragus namespace for the launch allowlist', () => {
     expect(ORCHESTRATOR_MCP_SERVER_NAME).toBe('vertragus')
     expect(ORCHESTRATOR_TOOL_NAMES).toContain('await_plan_approval')
+  })
+
+  it('exposes ONLY the minimal solo surface in a solo session', async () => {
+    // The token saving of Efficiency-Solo depends on tools/list genuinely
+    // returning just these tools — the big orchestrator schema block must
+    // never reach a solo agent's context.
+    const server = buildSoloMcpServer()
+    const client = new Client({ name: 'solo-surface-test', version: '0.0.1' })
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+    await server.connect(serverTransport)
+    await client.connect(clientTransport)
+
+    const listed = await client.listTools()
+    expect(listed.tools.map((tool) => tool.name).sort()).toEqual([...SOLO_TOOL_NAMES].sort())
+
+    await client.close()
+    await server.close()
   })
 })

@@ -135,6 +135,12 @@ export interface SpawnAgentRequest {
   modelPreset?: ModelPreset
   role?: string
   kind?: AgentKind
+  /**
+   * Efficiency-Solo launch: attach the minimal solo MCP session (report/retro)
+   * plus the compact solo system prompt instead of subagent MCP wiring.
+   * Ignored for orchestrators.
+   */
+  solo?: boolean
   yolo?: boolean
   /** Marks an interactive profile agent as reusable capacity for this orchestrator role. */
   teamRole?: string

@@ -64,6 +64,7 @@ import {
   type HeadlessUsageSnapshot
 } from '@main/agents/headless'
 import { buildOrchestratorSetup } from '@main/orchestrator/orchestratorLaunch'
+import { buildSoloSetup } from '@main/orchestrator/soloLaunch'
 import { buildSubagentMcpArgs } from '@main/orchestrator/externalMcp'
 import { NameAllocator } from '@main/agents/names'
 import { detectLimit, limitKindLabel, stripAnsi } from '@main/agents/limitSignals'
@@ -724,9 +725,18 @@ export class AgentManager extends EventEmitter {
       if (orchestratorSetup && !orchestratorSetup.capability.supported) {
         throw new Error(orchestratorSetup.capability.reason ?? `${req.provider} cannot orchestrate.`)
       }
+      // Efficiency-Solo agents get the minimal solo MCP session + compact solo
+      // prompt; unsupported providers degrade to a plain agent launch.
+      const soloSetup = !orchestratorSetup && req.solo
+        ? buildSoloSetup(req.provider, name, id, req.workspaceSessionId, { engineId: req.engineId })
+        : undefined
       const resumeArgs = req.resumeConversation ? providerResumeArgs(req.provider) : undefined
       const extraArgs = [
-        ...(orchestratorSetup ? orchestratorSetup.extraArgs : buildSubagentMcpArgs(req.provider, id)),
+        ...(orchestratorSetup
+          ? orchestratorSetup.extraArgs
+          : soloSetup?.capability.supported
+            ? soloSetup.extraArgs
+            : buildSubagentMcpArgs(req.provider, id)),
         ...(resumeArgs ?? [])
       ]
 

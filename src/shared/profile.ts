@@ -139,6 +139,13 @@ export const workspaceProfileSchema = z.object({
   /** Optional — a workspace can run without an orchestrator. */
   orchestrator: orchestratorSchema.optional(),
   agents: z.array(agentSlotSchema).default([]),
+  /**
+   * Efficiency-Solo mode: exactly ONE agent works directly — no orchestrator
+   * process, no delegation roundtrips, no plan DAG. The agent gets the
+   * reviewed retro-learnings overlay and a minimal MCP toolset instead of the
+   * full orchestrator surface, minimizing fixed token cost per turn.
+   */
+  solo: z.boolean().default(false),
   /** Global Yolo master switch (default OFF for safety). */
   yoloDefault: z.boolean().default(false),
   planner: plannerConfigSchema.default({}),
@@ -146,6 +153,23 @@ export const workspaceProfileSchema = z.object({
   multiAgent: multiAgentConfigSchema.default({}),
   autoPr: autoPrConfigSchema.default({}),
   autoGit: autoGitConfigSchema.default({})
+}).superRefine((profile, context) => {
+  if (!profile.solo) return
+  if (profile.orchestrator) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['orchestrator'],
+      message: 'Ein Solo-Profil hat keinen Orchestrator — der eine Agent arbeitet direkt.'
+    })
+  }
+  const totalAgents = profile.agents.reduce((sum, slot) => sum + slot.count, 0)
+  if (totalAgents !== 1) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['agents'],
+      message: 'Ein Solo-Profil hat genau einen Agent-Slot mit count 1.'
+    })
+  }
 })
 
 export type AgentSlot = z.infer<typeof agentSlotSchema>
@@ -337,6 +361,7 @@ export const DEFAULT_PROFILE: WorkspaceProfile = {
       weaknesses: []
     }
   ],
+  solo: false,
   yoloDefault: false,
   planner: { mode: 'review', routingMode: 'adaptive', maxParallel: 6, maxRetries: 1 },
   benchmark: { enabled: false },

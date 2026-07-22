@@ -11,6 +11,7 @@ import {
   modelAfterProviderChange,
   resolveModel
 } from '@shared/models'
+import { recommendSoloModel } from '@shared/retro/soloModel'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import InfoTip from '@renderer/components/InfoTip'
 import { assertValidGithubAuthStatus, githubAuthPresentation, hasUsableGithubAuth } from '@renderer/store/githubAuth'
@@ -51,7 +52,7 @@ const HELP = {
   githubAuth: 'Browser-OAuth (Device Flow mit VERTRAGUS_GITHUB_OAUTH_CLIENT_ID) oder gh --web. Tokens werden verschlüsselt lokal gespeichert, nie im Profil oder in Logs. Wird für Auto-PR benötigt.',
   generateFromRepo: 'Das gewählte Analysemodell liest das Working-Directory-Repository read-only und schlägt Rollen, Modelle und Quality Gates vor. Kann je nach Repo-Größe ein bis mehrere Minuten dauern.',
   agentWorkingDir: 'Optionaler Pfad nur für diesen Slot. Leer übernimmt den Workspace-Basispfad.',
-  mode: 'Orchestriert lässt Claude oder Codex planen und delegieren. Single startet nur die konfigurierten Slots.',
+  mode: 'Orchestriert lässt Claude oder Codex planen und delegieren. Single startet nur die konfigurierten Slots. Efficiency Solo startet genau EINEN Agenten, der direkt arbeitet — minimale Token-Fixkosten, Retro-Learnings im Prompt, nur report_activity/record_retro als Tools.',
   orchestratorProvider: 'Nur Provider mit verifiziertem Vertragus-MCP-Adapter können orchestrieren.',
   permissionMode: 'Auto-Mode bestätigt Edits automatisch. Plan-Mode erlaubt Claude nur zu planen.',
   model: 'Leer verwendet Preset oder CLI-Standard. Freitext überschreibt das Preset. Über das Listen-Menü rechts wählst du jederzeit ein anderes Modell — auch wenn schon eines eingetragen ist.',
@@ -81,6 +82,44 @@ const HELP = {
     'Übernimmt gespeicherte Retro- und Benchmark-Erkenntnisse passend zu Provider und Modell ' +
     'in die Stärken/Schwächen der Slots. Die Erkenntnisse entstehen automatisch nach jedem Lauf.'
 } as const
+
+/**
+ * Benchmark/retro-driven model suggestion for the Efficiency-Solo mode.
+ * Pure hint — the user always keeps the final model choice.
+ */
+function SoloModelHint({ provider }: { provider?: AgentProviderId }): JSX.Element | null {
+  const [hint, setHint] = useState<string | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const [learnings, benchmarks] = await Promise.all([
+          window.vertragus.retro.listLearnings(),
+          window.vertragus.retro.listBenchmarks()
+        ])
+        const [best] = recommendSoloModel(learnings, benchmarks, provider)
+        if (!cancelled) {
+          setHint(
+            best
+              ? `Empfohlen laut Benchmarks/Retros: ${best.provider}${best.model ? ` · ${best.model}` : ' (CLI-Standard)'} — ${best.rationale}`
+              : null
+          )
+        }
+      } catch {
+        if (!cancelled) setHint(null)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [provider])
+  if (!hint) return null
+  return (
+    <div className="model-effective" aria-live="polite" style={{ marginBottom: 8 }}>
+      {hint}
+    </div>
+  )
+}
 
 interface MultiAgentOverrideSelectProps {
   id: string
@@ -465,6 +504,7 @@ export default function ProfileEditor(): JSX.Element | null {
               onClick={() =>
                 !draft.orchestrator &&
                 patch({
+                  solo: false,
                   orchestrator: {
                     provider: 'claude',
                     // The preset defines the default; a model remains an
@@ -481,13 +521,45 @@ export default function ProfileEditor(): JSX.Element | null {
               <span>ein Orchestrator delegiert an Subagents</span>
             </button>
             <button type="button"
-              className={!draft.orchestrator ? 'active' : ''}
-              onClick={() => patch({ orchestrator: undefined })}
+              className={!draft.orchestrator && !draft.solo ? 'active' : ''}
+              onClick={() => patch({ orchestrator: undefined, solo: false })}
             >
               ⚡ Single
               <span>alle Slots laufen parallel, kein Orchestrator</span>
             </button>
+            <button type="button"
+              className={!draft.orchestrator && draft.solo ? 'active' : ''}
+              onClick={() => {
+                // Solo requires exactly one slot with count 1 (schema constraint).
+                const first = draft.agents[0] ?? {
+                  role: 'solo',
+                  provider: 'claude' as AgentProviderId,
+                  model: '',
+                  modelPreset: 'balanced' as ModelPreset,
+                  count: 1,
+                  orchestrated: false,
+                  yolo: false,
+                  strengths: [],
+                  weaknesses: []
+                }
+                setDraft({
+                  ...draft,
+                  orchestrator: undefined,
+                  solo: true,
+                  agents: [{ ...first, count: 1, orchestrated: false }],
+                  planner: { ...draft.planner, mode: 'manual', maxParallel: 1, maxRetries: 0 },
+                  benchmark: { enabled: false },
+                  multiAgent: { ...draft.multiAgent, enabled: false }
+                })
+              }}
+            >
+              🎯 Efficiency Solo
+              <span>ein Agent arbeitet direkt, minimaler Tokenverbrauch</span>
+            </button>
           </div>
+          {!draft.orchestrator && draft.solo && (
+            <SoloModelHint provider={draft.agents[0]?.provider} />
+          )}
           {draft.orchestrator ? (
             <div className="orch-block">
               <span className="avatar">◇</span>

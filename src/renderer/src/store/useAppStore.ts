@@ -1202,6 +1202,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             weaknesses: []
           }
         ],
+        solo: false,
         yoloDefault: false,
         planner: { mode: 'review', routingMode: 'adaptive', maxParallel: 6, maxRetries: 1 },
         benchmark: { enabled: false },
