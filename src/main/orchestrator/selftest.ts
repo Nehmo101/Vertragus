@@ -47,7 +47,7 @@ export async function runSelfTest(): Promise<void> {
     selftestWorktree = await mkdtemp(join(tmpdir(), 'vertragus-mcp-selftest-'))
     await execFileAsync('git', ['init'], { cwd: selftestWorktree, windowsHide: true })
     await execFileAsync('git', ['config', 'user.name', 'Vertragus Selftest'], { cwd: selftestWorktree, windowsHide: true })
-    await execFileAsync('git', ['config', 'user.email', 'orca@example.invalid'], { cwd: selftestWorktree, windowsHide: true })
+    await execFileAsync('git', ['config', 'user.email', 'vertragus@example.invalid'], { cwd: selftestWorktree, windowsHide: true })
     await writeFile(join(selftestWorktree, 'README.md'), 'selftest\n')
     await execFileAsync('git', ['add', '--all'], { cwd: selftestWorktree, windowsHide: true })
     await execFileAsync('git', ['commit', '-m', 'selftest base'], { cwd: selftestWorktree, windowsHide: true })

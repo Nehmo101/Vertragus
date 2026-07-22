@@ -103,8 +103,8 @@ export function createMainWindow(): BrowserWindow {
   }
   secureWindow(win)
 
-  // Headless UI capture for verification/CI: ORCA_SCREENSHOT=<file.png>.
-  // ORCA_DEMO_DAG=1 pushes demo agents + task graph through the real render path.
+  // Headless UI capture for verification/CI: VERTRAGUS_SCREENSHOT=<file.png>.
+  // VERTRAGUS_DEMO_DAG=1 pushes demo agents + task graph through the real render path.
   const shotPath = brandEnv('SCREENSHOT')
   if (shotPath) {
     win.webContents.once('did-finish-load', () => {
