@@ -91,7 +91,7 @@ async function captureNeedsWorkChange(
     const stagedFiles = (await git(input.worktree!, ['diff', '--cached', '--name-only'])).trim()
     if (stagedFiles) {
       await git(input.worktree!, [
-        'commit', '-m', `orca(${input.taskId}): needs work - ${input.title.trim().slice(0, 60)}`
+        'commit', '-m', `vertragus(${input.taskId}): needs work - ${input.title.trim().slice(0, 60)}`
       ])
     }
   }
@@ -122,6 +122,9 @@ async function captureNeedsWorkChange(
     }
   }
 }
+
+/** Above this many files in one task commit an advisory granularity finding is raised. */
+const COMMIT_GRANULARITY_ADVISORY_THRESHOLD = 25
 
 export async function prepareTaskChange(input: PrepareTaskInput): Promise<PrepareTaskResult> {
   if (input.config.mode === 'off' && !input.commitOnly) {
@@ -200,7 +203,7 @@ export async function prepareTaskChange(input: PrepareTaskInput): Promise<Prepar
 
     if (stagedFiles.length > 0) {
       await git(input.worktree, [
-        'commit', '-m', 'orca(' + input.taskId + '): ' + input.title.trim().slice(0, 72)
+        'commit', '-m', 'vertragus(' + input.taskId + '): ' + input.title.trim().slice(0, 72)
       ])
     }
     const branch = await git(input.worktree, ['branch', '--show-current'])
@@ -224,6 +227,18 @@ export async function prepareTaskChange(input: PrepareTaskInput): Promise<Prepar
       ? (await git(input.worktree, ['diff', '--name-only', baseCommit + '...' + contract.commit]))
           .split(/\r?\n/).map((file) => file.trim()).filter(Boolean)
       : stagedFiles
+    // Advisory only — oversized late-phase commits are a review burden and a
+    // recurring retro finding, but they must never block a verified delivery.
+    if (files.length > COMMIT_GRANULARITY_ADVISORY_THRESHOLD && commits.length === 1) {
+      hygieneFindings.push({
+        gate: 'commit',
+        code: 'commit-granularity',
+        message:
+          `Task-Commit umfasst ${files.length} Dateien in einem einzigen Commit — ` +
+          'für späte Phasen kleinere, thematisch getrennte Commits bevorzugen.',
+        files: files.slice(0, 32)
+      })
+    }
     const change: PreparedTaskChange = {
       taskId: input.taskId,
       title: input.title,

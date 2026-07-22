@@ -42,7 +42,7 @@ function commandResult(overrides: Partial<RemoteCiCommandResult> = {}): RemoteCi
 describe('autoPr safety helpers', () => {
   it('creates stable safe slugs', () => {
     expect(autoPrInternals.safeSlug('Checkout Flow / API #42')).toBe('checkout-flow-api-42')
-    expect(autoPrInternals.safeSlug('***')).toBe('orca-task')
+    expect(autoPrInternals.safeSlug('***')).toBe('vertragus-task')
   })
 
   it('blocks common secret shapes', () => {
@@ -190,7 +190,7 @@ describe('autoPr safety helpers', () => {
       calls.push('gates')
     })
     const repositoryRoot = 'C:\\repo'
-    const integrationPath = 'C:\\repo\\.orca-worktrees\\integration\\orca-goal'
+    const integrationPath = 'C:\\repo\\.vertragus-worktrees\\integration\\orca-goal'
 
     await autoPrInternals.runIntegrationQualityGates(
       repositoryRoot,
@@ -213,7 +213,7 @@ describe('autoPr safety helpers', () => {
 
     await expect(autoPrInternals.runIntegrationQualityGates(
       'C:\\repo',
-      'C:\\repo\\.orca-worktrees\\integration\\orca-goal',
+      'C:\\repo\\.vertragus-worktrees\\integration\\orca-goal',
       ['corepack pnpm lint'],
       {
         bootstrap: vi.fn(async () => {
@@ -233,7 +233,7 @@ describe('autoPr safety helpers', () => {
 
     await expect(autoPrInternals.runIntegrationQualityGates(
       '/repo',
-      '/repo/.orca-worktrees/integration/../../outside',
+      '/repo/.vertragus-worktrees/integration/../../outside',
       ['corepack pnpm lint'],
       { bootstrap, runGates }
     )).rejects.toThrow(/nicht innerhalb des verwalteten Integration-Verzeichnisses/)
@@ -345,21 +345,21 @@ describe('autoPr quality gate environment', () => {
 
   it('adds the main workspace binaries for a worktree without node_modules', async () => {
     await autoPrInternals.runQualityGates(
-      '/repo/.orca-worktrees/integration/branch',
+      '/repo/.vertragus-worktrees/integration/branch',
       ['pnpm lint'],
       '/repo',
       { inheritedEnv: { PATH: '/system/bin' }, platform: 'linux' }
     )
 
     expect(normalizedPath(lastGateInvocation().env.PATH)).toBe(
-      '/repo/.orca-worktrees/integration/branch/node_modules/.bin:' +
+      '/repo/.vertragus-worktrees/integration/branch/node_modules/.bin:' +
       '/repo/node_modules/.bin:/system/bin'
     )
   })
 
   it('does not leak a secret through the command or logs and leaves other env values unchanged', async () => {
     const privateMarker = 'private-marker-value'
-    const inheritedEnv = { PATH: '/system/bin', ORCA_PRIVATE_MARKER: privateMarker }
+    const inheritedEnv = { PATH: '/system/bin', VERTRAGUS_PRIVATE_MARKER: privateMarker }
     const originalEnv = { ...inheritedEnv }
     const logs = [
       vi.spyOn(console, 'log').mockImplementation(() => undefined),
@@ -378,7 +378,7 @@ describe('autoPr quality gate environment', () => {
     const invocation = lastGateInvocation()
     expect(inheritedEnv).toEqual(originalEnv)
     expect(invocation.env).not.toBe(inheritedEnv)
-    expect(invocation.env.ORCA_PRIVATE_MARKER).toBe(privateMarker)
+    expect(invocation.env.VERTRAGUS_PRIVATE_MARKER).toBe(privateMarker)
     expect(invocation.command).toBe('pnpm lint')
     expect(invocation.command).not.toContain(privateMarker)
     for (const log of logs) expect(log).not.toHaveBeenCalled()
@@ -416,21 +416,21 @@ describe('autoPr quality gate environment', () => {
 
   it('adds the main workspace binaries for a worktree without node_modules', async () => {
     await autoPrInternals.runQualityGates(
-      '/repo/.orca-worktrees/integration/branch',
+      '/repo/.vertragus-worktrees/integration/branch',
       ['pnpm lint'],
       '/repo',
       { inheritedEnv: { PATH: '/system/bin' }, platform: 'linux' }
     )
 
     expect(normalizedPath(lastGateInvocation().env.PATH)).toBe(
-      '/repo/.orca-worktrees/integration/branch/node_modules/.bin:' +
+      '/repo/.vertragus-worktrees/integration/branch/node_modules/.bin:' +
       '/repo/node_modules/.bin:/system/bin'
     )
   })
 
   it('does not leak a secret through the command or logs and leaves other env values unchanged', async () => {
     const privateMarker = 'private-marker-value'
-    const inheritedEnv = { PATH: '/system/bin', ORCA_PRIVATE_MARKER: privateMarker }
+    const inheritedEnv = { PATH: '/system/bin', VERTRAGUS_PRIVATE_MARKER: privateMarker }
     const originalEnv = { ...inheritedEnv }
     const logs = [
       vi.spyOn(console, 'log').mockImplementation(() => undefined),
@@ -449,7 +449,7 @@ describe('autoPr quality gate environment', () => {
     const invocation = lastGateInvocation()
     expect(inheritedEnv).toEqual(originalEnv)
     expect(invocation.env).not.toBe(inheritedEnv)
-    expect(invocation.env.ORCA_PRIVATE_MARKER).toBe(privateMarker)
+    expect(invocation.env.VERTRAGUS_PRIVATE_MARKER).toBe(privateMarker)
     expect(invocation.command).toBe('pnpm lint')
     expect(invocation.command).not.toContain(privateMarker)
     for (const log of logs) expect(log).not.toHaveBeenCalled()

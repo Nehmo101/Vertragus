@@ -134,7 +134,9 @@ export default function Workspace(): JSX.Element {
               onClick={() => actions.setWorkspaceLayout(layout.id)}
             >
               <span aria-hidden="true">{layout.icon}</span>
-              <span>{t(`canvas.layout.${layout.id}`, { defaultValue: layout.fallback })}</span>
+              <span className="layout-btn-label">
+                {t(`canvas.layout.${layout.id}`, { defaultValue: layout.fallback })}
+              </span>
             </button>
           ))}
         </div>

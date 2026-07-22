@@ -39,7 +39,7 @@ afterEach(async () => {
 })
 
 async function pnpmRepo(): Promise<string> {
-  const fixture = await mkdtemp(join(tmpdir(), 'orca-deps-'))
+  const fixture = await mkdtemp(join(tmpdir(), 'vertragus-deps-'))
   roots.push(fixture)
   const root = join(fixture, 'repo')
   await mkdir(root, { recursive: true })
@@ -58,7 +58,7 @@ async function worktree(root: string, name: string): Promise<string> {
 
 describe('worktree dependency bootstrap', () => {
   it('skips repositories without a Node package', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'orca-deps-none-'))
+    const root = await mkdtemp(join(tmpdir(), 'vertragus-deps-none-'))
     roots.push(root)
 
     await expect(ensureWorktreeDependencies(root, root)).resolves.toEqual(
@@ -67,7 +67,7 @@ describe('worktree dependency bootstrap', () => {
   })
 
   it('reuses an existing dependency tree without reinstalling', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'orca-deps-present-'))
+    const root = await mkdtemp(join(tmpdir(), 'vertragus-deps-present-'))
     roots.push(root)
     await writeFile(join(root, 'package.json'), JSON.stringify({
       name: 'fixture',
@@ -188,7 +188,7 @@ describe('worktree dependency bootstrap', () => {
   })
 
   it('falls back to the shared cache symlink when no lockfile toolchain is known', async () => {
-    const fixture = await mkdtemp(join(tmpdir(), 'orca-deps-link-'))
+    const fixture = await mkdtemp(join(tmpdir(), 'vertragus-deps-link-'))
     roots.push(fixture)
     const root = join(fixture, 'repo')
     const work = join(root, '.orca-worktrees', 'task-2')
@@ -214,7 +214,7 @@ describe('worktree dependency bootstrap', () => {
   })
 
   it('rejects an invalid path-traversal target outside the repository before linking', async () => {
-    const fixture = await mkdtemp(join(tmpdir(), 'orca-deps-boundary-'))
+    const fixture = await mkdtemp(join(tmpdir(), 'vertragus-deps-boundary-'))
     roots.push(fixture)
     const root = join(fixture, 'repository')
     const outsideTarget = join(root, '..', 'evil')

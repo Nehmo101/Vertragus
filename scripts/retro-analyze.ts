@@ -59,7 +59,7 @@ const SYNTHESIS_SYSTEM_PROMPT = [
   'Regeln für Proposals (Verbesserungs-Briefs):',
   '- Maximal 3, nur für strukturelle Probleme, die eine Overlay-Regel NICHT lösen kann',
   '  (z. B. Prompt-Template in src/main/orchestrator/orchestratorLaunch.ts, MCP-Tools in',
-  '  src/main/orchestrator/OrcaMcpServer.ts, Engine-/Scheduler-Logik).',
+  '  src/main/orchestrator/VertragusMcpServer.ts, Engine-/Scheduler-Logik).',
   '- Jedes prompt-Feld ist ein eigenständiger, direkt ausführbarer Claude-Code-Auftrag',
   '  gegen das Vertragus-Repository: konkrete Dateipfade, gewünschtes Verhalten,',
   '  Abnahmekriterium "pnpm run ci grün".',

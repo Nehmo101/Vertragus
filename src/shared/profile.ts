@@ -17,6 +17,13 @@ export const agentSlotSchema = z.object({
   model: z.string().default(''),
   /** Performance preset when model is empty. Omitted = legacy CLI default. */
   modelPreset: modelPresetSchema.optional(),
+  /**
+   * Models to fall back to (in order) when the slot's model hits a usage
+   * limit ("at capacity", 5h/weekly limits). Tried on the SAME provider/slot
+   * before the engine switches to a different provider — a limit signal no
+   * longer kills a run while untried fallback models remain.
+   */
+  fallbackModels: z.array(z.string().min(1)).max(8).default([]),
   /** Number of instances to open for this slot. */
   count: z.number().int().min(1).default(1),
   /** May the orchestrator dispatch tasks to this slot? */
@@ -32,6 +39,28 @@ export const agentSlotSchema = z.object({
   /** Tasks the adaptive router should avoid assigning to this worker/model. */
   weaknesses: z.array(z.string().min(1)).max(24).default([])
 })
+
+/**
+ * A per-profile skill: a reusable, named instruction block ("how we do X in
+ * this workspace") injected into the orchestrator/solo system prompt. Skills
+ * are managed in the profile editor AND by the orchestrator itself via the
+ * MCP tools list_skills / record_skill / remove_skill — the profile learns
+ * workspace-specific procedures across runs.
+ */
+export const profileSkillSchema = z.object({
+  id: z.string().min(1).max(64),
+  /** Unique display name, e.g. "Deploy-Ablauf" (upsert key, case-insensitive). */
+  name: z.string().min(1).max(80),
+  /** When to apply the skill plus the concrete steps. */
+  instructions: z.string().min(1).max(2_000),
+  source: z.enum(['user', 'orchestrator']).default('user'),
+  createdAt: z.number().default(0),
+  updatedAt: z.number().default(0)
+})
+
+export const MAX_PROFILE_SKILLS = 24
+export const profileSkillsSchema = z.array(profileSkillSchema).max(MAX_PROFILE_SKILLS)
+export type ProfileSkill = z.infer<typeof profileSkillSchema>
 
 export const orchestratorSchema = z.object({
   provider: agentProviderId.default('claude'),
@@ -139,6 +168,15 @@ export const workspaceProfileSchema = z.object({
   /** Optional — a workspace can run without an orchestrator. */
   orchestrator: orchestratorSchema.optional(),
   agents: z.array(agentSlotSchema).default([]),
+  /**
+   * Efficiency-Solo mode: exactly ONE agent works directly — no orchestrator
+   * process, no delegation roundtrips, no plan DAG. The agent gets the
+   * reviewed retro-learnings overlay and a minimal MCP toolset instead of the
+   * full orchestrator surface, minimizing fixed token cost per turn.
+   */
+  solo: z.boolean().default(false),
+  /** Named, reusable workspace procedures injected into orchestrator/solo prompts. */
+  skills: profileSkillsSchema.default([]),
   /** Global Yolo master switch (default OFF for safety). */
   yoloDefault: z.boolean().default(false),
   planner: plannerConfigSchema.default({}),
@@ -146,9 +184,28 @@ export const workspaceProfileSchema = z.object({
   multiAgent: multiAgentConfigSchema.default({}),
   autoPr: autoPrConfigSchema.default({}),
   autoGit: autoGitConfigSchema.default({})
+}).superRefine((profile, context) => {
+  if (!profile.solo) return
+  if (profile.orchestrator) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['orchestrator'],
+      message: 'Ein Solo-Profil hat keinen Orchestrator — der eine Agent arbeitet direkt.'
+    })
+  }
+  const totalAgents = profile.agents.reduce((sum, slot) => sum + slot.count, 0)
+  if (totalAgents !== 1) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['agents'],
+      message: 'Ein Solo-Profil hat genau einen Agent-Slot mit count 1.'
+    })
+  }
 })
 
-export type AgentSlot = z.infer<typeof agentSlotSchema>
+type ParsedAgentSlot = z.infer<typeof agentSlotSchema>
+/** Legacy in-memory slot drafts may predate the fallbackModels field. */
+export type AgentSlot = Omit<ParsedAgentSlot, 'fallbackModels'> & { fallbackModels?: string[] }
 type ParsedOrchestratorConfig = z.infer<typeof orchestratorSchema>
 /** Legacy in-memory profile drafts may not have passed through the schema yet. */
 export type OrchestratorConfig = Omit<ParsedOrchestratorConfig, 'permissionMode'> & {
@@ -163,8 +220,11 @@ export type GithubProjectConfig = z.infer<typeof githubProjectSchema>
 export type ProfileCloneStatus = z.infer<typeof profileCloneStatusSchema>
 export type ProfileGithubRepo = z.infer<typeof profileGithubRepoSchema>
 type ParsedWorkspaceProfile = z.infer<typeof workspaceProfileSchema>
-export type WorkspaceProfile = Omit<ParsedWorkspaceProfile, 'orchestrator'> & {
+export type WorkspaceProfile = Omit<ParsedWorkspaceProfile, 'orchestrator' | 'agents' | 'skills'> & {
   orchestrator?: OrchestratorConfig
+  agents: AgentSlot[]
+  /** Legacy in-memory profile drafts may predate the skills field. */
+  skills?: ProfileSkill[]
 }
 
 /** Create an independent, uniquely identified copy of a workspace profile. */
@@ -330,6 +390,7 @@ export const DEFAULT_PROFILE: WorkspaceProfile = {
       role: 'codex',
       provider: 'codex',
       model: '',
+      fallbackModels: [],
       count: 3,
       orchestrated: true,
       yolo: false,
@@ -337,6 +398,8 @@ export const DEFAULT_PROFILE: WorkspaceProfile = {
       weaknesses: []
     }
   ],
+  solo: false,
+  skills: [],
   yoloDefault: false,
   planner: { mode: 'review', routingMode: 'adaptive', maxParallel: 6, maxRetries: 1 },
   benchmark: { enabled: false },

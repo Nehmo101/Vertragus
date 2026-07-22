@@ -6,7 +6,9 @@ import { assertSecurityGate } from '../securityGate'
 import { git, repositoryRoot, runFile, safeSlug, isAncestor } from './gitPlumbing'
 import { combineRemoteCi, monitorRemoteCi, type RemoteCiOutcome } from './ciMonitor'
 import { runIntegrationQualityGates } from './gates'
+import { formatPreflightFindings, runPublishPreflight } from './publishPreflight'
 import type { AutoPrOutcome, PublishInput } from './types'
+import { WORKTREE_CONTAINER } from '@main/agents/worktree'
 
 export function pickBaseBranch(
   configured: string,
@@ -63,12 +65,18 @@ async function pushAndOpenPr(
     throw new Error(`Auto-PR verweigert Push auf geschützten Branch ${branch}.`)
   }
   await runFile(cwd, 'gh', ['auth', 'status'])
+  // One structured preflight instead of a blind push/PR retry loop: blocking
+  // findings (auth, casing conflict) fail fast with every cause in one message.
+  const base = await defaultBase(cwd, config.baseBranch, profileDefaultBranch)
+  const preflight = await runPublishPreflight({ cwd, branch, base })
+  if (!preflight.ok) {
+    throw new Error(formatPreflightFindings(preflight.findings))
+  }
   await git(cwd, ['push', '--set-upstream', 'origin', branch])
   const existing = await findExistingPr(cwd, branch)
   if (existing) return existing
 
   const args = ['pr', 'create', '--head', branch, '--title', title, '--body', body]
-  const base = await defaultBase(cwd, config.baseBranch, profileDefaultBranch)
   if (base) args.push('--base', base)
   if (config.mode === 'draft-after-checks') args.push('--draft')
   for (const label of config.labels) args.push('--label', label)
@@ -125,9 +133,9 @@ async function publishPerTask(input: PublishInput): Promise<AutoPrOutcome> {
 async function publishAggregate(input: PublishInput): Promise<AutoPrOutcome> {
   const first = input.changes[0]
   const root = await repositoryRoot(first.worktree)
-  const branch = `orca/goal-${safeSlug(input.goalId)}-${Date.now().toString(36)}`
-  const integrationPath = join(root, '.orca-worktrees', 'integration', safeSlug(branch, 60))
-  await mkdir(join(root, '.orca-worktrees', 'integration'), { recursive: true })
+  const branch = `vertragus/goal-${safeSlug(input.goalId)}-${Date.now().toString(36)}`
+  const integrationPath = join(root, WORKTREE_CONTAINER, 'integration', safeSlug(branch, 60))
+  await mkdir(join(root, WORKTREE_CONTAINER, 'integration'), { recursive: true })
   const base = await defaultBase(root, input.config.baseBranch, input.profileDefaultBranch)
   // Refresh the base first so cherry-picks land on the current tip instead of a
   // stale origin/<base>. A green commit built against a stale base is broadly

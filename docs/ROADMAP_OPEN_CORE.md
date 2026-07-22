@@ -18,7 +18,7 @@ Status-Legende: ✅ umgesetzt · 🔨 in Arbeit · 📋 spezifiziert.
 **These:** Der Markt-Engpass ist Review, nicht Generierung. Vertragus' Gates,
 Judge und Findings werden vom Nebenprodukt zur zentralen Oberfläche.
 
-**Basis im Code:** `OrcaTask.completion/judgeReason/findings/blocker/preflight/
+**Basis im Code:** `VertragusTask.completion/judgeReason/findings/blocker/preflight/
 autoPrStatus/remoteCiStatus` (`src/shared/orchestrator.ts`), Diff via
 `window.orca.orchestrator.taskDiff`, Review-Gate (`reviewPlan`), Gate-Findings
 im `OrchestratorPanel`.

@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { TaskRecoveryArtifact } from '@shared/orchestrator'
-import { isExactOrcaWorktreePath } from '@main/agents/cursorWorkspaceTrust'
+import { isExactManagedWorktreePath } from '@main/agents/cursorWorkspaceTrust'
 import { canonicalWorkspacePath, workspacePathKey } from '@main/agents/workspacePath'
 
 const execFileAsync = promisify(execFile)
@@ -31,11 +31,11 @@ export async function captureTaskRecoveryArtifact(input: {
   baseCommit?: string
 }): Promise<TaskRecoveryArtifact | undefined> {
   const requested = input.worktree
-  if (!requested || !isExactOrcaWorktreePath(requested)) return undefined
+  if (!requested || !isExactManagedWorktreePath(requested)) return undefined
   try {
     const worktree = await canonicalWorkspacePath(requested)
     if (
-      !isExactOrcaWorktreePath(worktree) ||
+      !isExactManagedWorktreePath(worktree) ||
       workspacePathKey(worktree) !== workspacePathKey(requested)
     ) {
       return undefined

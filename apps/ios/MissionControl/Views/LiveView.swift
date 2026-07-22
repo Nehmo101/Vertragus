@@ -124,7 +124,7 @@ private struct WorkspaceSection: View {
 }
 
 private struct TaskRow: View {
-    let task: OrcaTask
+    let task: VertragusTask
     let scope: ScopeArgs?
     let capabilities: [String]
     @EnvironmentObject private var client: RemoteClient

@@ -492,7 +492,7 @@ export function runHeadless(
       mkdirSync(runtimeRoot, { recursive: true })
       extraArgs.push(...codexSingleRootSandboxArgs())
     }
-    tmpDir = mkdtempSync(join(runtimeRoot ?? tmpdir(), 'orca-codex-'))
+    tmpDir = mkdtempSync(join(runtimeRoot ?? tmpdir(), 'vertragus-codex-'))
     lastMsgFile = join(tmpDir, 'last.txt')
     extraArgs.push('--json', '-o', lastMsgFile)
   }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { profileHasRunningAgents, useAppStore } from '@renderer/store/useAppStore'
-import { profileRepoLocalPath, type WorkspaceProfile, type AgentSlot } from '@shared/profile'
+import { profileRepoLocalPath, type WorkspaceProfile, type AgentSlot, type ProfileSkill } from '@shared/profile'
 import { postProcessBranchValidationError } from '@shared/gitPostProcessing'
 import type { AgentProviderId } from '@shared/providers'
 import type { ModelPreset } from '@shared/models'
@@ -11,6 +11,7 @@ import {
   modelAfterProviderChange,
   resolveModel
 } from '@shared/models'
+import { recommendSoloModel } from '@shared/retro/soloModel'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import InfoTip from '@renderer/components/InfoTip'
 import { assertValidGithubAuthStatus, githubAuthPresentation, hasUsableGithubAuth } from '@renderer/store/githubAuth'
@@ -51,7 +52,7 @@ const HELP = {
   githubAuth: 'Browser-OAuth (Device Flow mit VERTRAGUS_GITHUB_OAUTH_CLIENT_ID) oder gh --web. Tokens werden verschlüsselt lokal gespeichert, nie im Profil oder in Logs. Wird für Auto-PR benötigt.',
   generateFromRepo: 'Das gewählte Analysemodell liest das Working-Directory-Repository read-only und schlägt Rollen, Modelle und Quality Gates vor. Kann je nach Repo-Größe ein bis mehrere Minuten dauern.',
   agentWorkingDir: 'Optionaler Pfad nur für diesen Slot. Leer übernimmt den Workspace-Basispfad.',
-  mode: 'Orchestriert lässt Claude oder Codex planen und delegieren. Single startet nur die konfigurierten Slots.',
+  mode: 'Orchestriert lässt Claude oder Codex planen und delegieren. Single startet nur die konfigurierten Slots. Efficiency Solo startet genau EINEN Agenten, der direkt arbeitet — minimale Token-Fixkosten, Retro-Learnings im Prompt, nur report_activity/record_retro als Tools.',
   orchestratorProvider: 'Nur Provider mit verifiziertem Vertragus-MCP-Adapter können orchestrieren.',
   permissionMode: 'Auto-Mode bestätigt Edits automatisch. Plan-Mode erlaubt Claude nur zu planen.',
   model: 'Leer verwendet Preset oder CLI-Standard. Freitext überschreibt das Preset. Über das Listen-Menü rechts wählst du jederzeit ein anderes Modell — auch wenn schon eines eingetragen ist.',
@@ -72,6 +73,13 @@ const HELP = {
   count: 'Maximale parallele Task-Kapazität dieser Rolle und Anzahl beim manuellen Teamstart.',
   yolo: 'Überspringt Provider-Bestätigungen. Nur mit Worktree-Isolation und bewusstem Scope verwenden.',
   orchestrated: 'Wenn aktiv, darf der Orchestrator Aufgaben an diesen Slot delegieren.',
+  skills:
+    'Benannte, wiederverwendbare Verfahren dieses Workspaces ("wie machen wir X hier"). Sie werden in die ' +
+    'Orchestrator-/Solo-Prompts injiziert, und der Orchestrator pflegt sie selbst über die MCP-Tools ' +
+    'list_skills/record_skill/remove_skill — das Profil lernt über Läufe hinweg dazu.',
+  fallbackModels:
+    'Kommagetrennte Modellnamen, auf die dieser Slot bei einem Nutzungslimit ("at capacity", 5h/Wochenlimit) ' +
+    'der Reihe nach ausweicht — erst danach wechselt Vertragus den Provider.',
   strengths: 'Kommagetrennte Fähigkeiten, die der Orchestrator bei der Rollenwahl bevorzugen soll.',
   weaknesses: 'Kommagetrennte Aufgaben, für die der Orchestrator diesen Slot möglichst nicht wählen soll.',
   benchmark:
@@ -81,6 +89,44 @@ const HELP = {
     'Übernimmt gespeicherte Retro- und Benchmark-Erkenntnisse passend zu Provider und Modell ' +
     'in die Stärken/Schwächen der Slots. Die Erkenntnisse entstehen automatisch nach jedem Lauf.'
 } as const
+
+/**
+ * Benchmark/retro-driven model suggestion for the Efficiency-Solo mode.
+ * Pure hint — the user always keeps the final model choice.
+ */
+function SoloModelHint({ provider }: { provider?: AgentProviderId }): JSX.Element | null {
+  const [hint, setHint] = useState<string | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const [learnings, benchmarks] = await Promise.all([
+          window.vertragus.retro.listLearnings(),
+          window.vertragus.retro.listBenchmarks()
+        ])
+        const [best] = recommendSoloModel(learnings, benchmarks, provider)
+        if (!cancelled) {
+          setHint(
+            best
+              ? `Empfohlen laut Benchmarks/Retros: ${best.provider}${best.model ? ` · ${best.model}` : ' (CLI-Standard)'} — ${best.rationale}`
+              : null
+          )
+        }
+      } catch {
+        if (!cancelled) setHint(null)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [provider])
+  if (!hint) return null
+  return (
+    <div className="model-effective" aria-live="polite" style={{ marginBottom: 8 }}>
+      {hint}
+    </div>
+  )
+}
 
 interface MultiAgentOverrideSelectProps {
   id: string
@@ -214,6 +260,12 @@ export default function ProfileEditor(): JSX.Element | null {
   const patchSlot = (idx: number, p: Partial<AgentSlot>): void => {
     const agents = draft.agents.map((s, i) => (i === idx ? { ...s, ...p } : s))
     setDraft({ ...draft, agents })
+  }
+  const patchSkill = (idx: number, p: Partial<ProfileSkill>): void => {
+    const skills = (draft.skills ?? []).map((skill, i) =>
+      i === idx ? { ...skill, ...p, updatedAt: Date.now() } : skill
+    )
+    setDraft({ ...draft, skills })
   }
   const patchSlotMultiAgent = (idx: number, choice: MultiAgentOverrideChoice): void => {
     const agents = draft.agents.map((slot, i) =>
@@ -465,6 +517,7 @@ export default function ProfileEditor(): JSX.Element | null {
               onClick={() =>
                 !draft.orchestrator &&
                 patch({
+                  solo: false,
                   orchestrator: {
                     provider: 'claude',
                     // The preset defines the default; a model remains an
@@ -481,13 +534,45 @@ export default function ProfileEditor(): JSX.Element | null {
               <span>ein Orchestrator delegiert an Subagents</span>
             </button>
             <button type="button"
-              className={!draft.orchestrator ? 'active' : ''}
-              onClick={() => patch({ orchestrator: undefined })}
+              className={!draft.orchestrator && !draft.solo ? 'active' : ''}
+              onClick={() => patch({ orchestrator: undefined, solo: false })}
             >
               ⚡ Single
               <span>alle Slots laufen parallel, kein Orchestrator</span>
             </button>
+            <button type="button"
+              className={!draft.orchestrator && draft.solo ? 'active' : ''}
+              onClick={() => {
+                // Solo requires exactly one slot with count 1 (schema constraint).
+                const first = draft.agents[0] ?? {
+                  role: 'solo',
+                  provider: 'claude' as AgentProviderId,
+                  model: '',
+                  modelPreset: 'balanced' as ModelPreset,
+                  count: 1,
+                  orchestrated: false,
+                  yolo: false,
+                  strengths: [],
+                  weaknesses: []
+                }
+                setDraft({
+                  ...draft,
+                  orchestrator: undefined,
+                  solo: true,
+                  agents: [{ ...first, count: 1, orchestrated: false }],
+                  planner: { ...draft.planner, mode: 'manual', maxParallel: 1, maxRetries: 0 },
+                  benchmark: { enabled: false },
+                  multiAgent: { ...draft.multiAgent, enabled: false }
+                })
+              }}
+            >
+              🎯 Efficiency Solo
+              <span>ein Agent arbeitet direkt, minimaler Tokenverbrauch</span>
+            </button>
           </div>
+          {!draft.orchestrator && draft.solo && (
+            <SoloModelHint provider={draft.agents[0]?.provider} />
+          )}
           {draft.orchestrator ? (
             <div className="orch-block">
               <span className="avatar">◇</span>
@@ -827,6 +912,70 @@ export default function ProfileEditor(): JSX.Element | null {
               </div>
             )}
           </section>
+          <section className="automation-section" aria-labelledby="skills-heading">
+            <div className="slots-caption compact-caption">
+              <span id="skills-heading">
+                Profil-Skills <InfoTip text={HELP.skills} />
+              </span>
+              <span className="count">{(draft.skills ?? []).length} / 24</span>
+            </div>
+            {(draft.skills ?? []).map((skill, index) => (
+              <div className="slot-path-row" key={skill.id}>
+                <div className="slot-path-field">
+                  <input
+                    className="slot-select-sm"
+                    placeholder="Skill-Name, z. B. Deploy-Ablauf"
+                    value={skill.name}
+                    maxLength={80}
+                    onChange={(event) => patchSkill(index, { name: event.target.value })}
+                  />
+                  <textarea
+                    className="slot-select-sm"
+                    rows={2}
+                    placeholder="Wann anwenden + konkrete Schritte"
+                    value={skill.instructions}
+                    maxLength={2000}
+                    onChange={(event) => patchSkill(index, { instructions: event.target.value })}
+                  />
+                  <div className="model-effective">
+                    {skill.source === 'orchestrator' ? 'Vom Orchestrator gelernt' : 'Manuell angelegt'}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="inbox-btn ghost"
+                  aria-label={`Skill ${skill.name || index + 1} entfernen`}
+                  onClick={() =>
+                    patch({ skills: (draft.skills ?? []).filter((_, i) => i !== index) })
+                  }
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="ghost-btn"
+              disabled={(draft.skills ?? []).length >= 24}
+              onClick={() =>
+                patch({
+                  skills: [
+                    ...(draft.skills ?? []),
+                    {
+                      id: `skill-${Date.now().toString(36)}`,
+                      name: '',
+                      instructions: '',
+                      source: 'user' as const,
+                      createdAt: Date.now(),
+                      updatedAt: Date.now()
+                    }
+                  ]
+                })
+              }
+            >
+              ＋ Skill hinzufügen
+            </button>
+          </section>
           <div className="slots-caption">
             <span>Subagent-Slots</span>
             <span className="count">
@@ -988,6 +1137,21 @@ export default function ProfileEditor(): JSX.Element | null {
                   >
                     Durchsuchen…
                   </button>
+                </div>
+                <div className="slot-path-row">
+                  <div className="slot-path-field">
+                    <div className="slot-col-label">
+                      Fallback-Modelle (optional) <InfoTip text={HELP.fallbackModels} />
+                    </div>
+                    <input
+                      className="slot-select-sm"
+                      placeholder="z. B. sonnet, haiku"
+                      value={(slot.fallbackModels ?? []).join(', ')}
+                      onChange={(event) =>
+                        patchSlot(idx, { fallbackModels: parseCapabilityList(event.target.value) })
+                      }
+                    />
+                  </div>
                 </div>
                 <div className="slot-path-row">
                   <div className="slot-path-field">

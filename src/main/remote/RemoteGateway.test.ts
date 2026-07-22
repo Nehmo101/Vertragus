@@ -55,7 +55,7 @@ function rawGet(origin: string, path: string): Promise<{ status: number; body: s
 
 describe('RemoteGateway hardening', () => {
   it('binds loopback, rejects an unlisted Host, and caps request bodies', async () => {
-    const directory = mkdtempSync(join(tmpdir(), 'orca-gateway-test-'))
+    const directory = mkdtempSync(join(tmpdir(), 'vertragus-gateway-test-'))
     directories.push(directory)
     const gateway = await startRemoteGateway({
       auth: new DeviceAuth(new MemoryStore()),
@@ -97,7 +97,7 @@ describe('RemoteGateway hardening', () => {
   })
 
   it('authenticates WebSocket upgrades with the same device bearer and rejects missing auth', async () => {
-    const directory = mkdtempSync(join(tmpdir(), 'orca-ws-test-'))
+    const directory = mkdtempSync(join(tmpdir(), 'vertragus-ws-test-'))
     directories.push(directory)
     const auth = new DeviceAuth(new MemoryStore())
     const gateway = await startRemoteGateway({
@@ -115,7 +115,9 @@ describe('RemoteGateway hardening', () => {
       ['read'], undefined, { id: 'owner', displayName: 'Owner' },
       [{ profileId: 'p', sessionIds: ['s'], allowGoalSubmit: false }]
     ).code, 'Phone')!
-    const upgrade = (protocol?: string): Promise<number> => new Promise((resolveStatus, reject) => {
+    const upgrade = (
+      protocol?: string
+    ): Promise<{ status: number; protocol?: string }> => new Promise((resolveStatus, reject) => {
       const target = new URL(gateway.origin)
       const req = request({
         hostname: target.hostname, port: target.port, path: '/ws',
@@ -126,21 +128,47 @@ describe('RemoteGateway hardening', () => {
           ...(protocol ? { 'Sec-WebSocket-Protocol': protocol } : {})
         }
       })
-      req.on('upgrade', (response, socket) => { socket.destroy(); resolveStatus(response.statusCode ?? 101) })
-      req.on('response', (response) => { response.resume(); resolveStatus(response.statusCode ?? 0) })
+      req.on('upgrade', (response, socket) => {
+        socket.destroy()
+        const negotiated = response.headers['sec-websocket-protocol']
+        resolveStatus({
+          status: response.statusCode ?? 101,
+          protocol: Array.isArray(negotiated) ? negotiated[0] : negotiated
+        })
+      })
+      req.on('response', (response) => { response.resume(); resolveStatus({ status: response.statusCode ?? 0 }) })
       req.on('error', reject)
       req.end()
     })
     try {
-      await expect(upgrade()).resolves.toBe(401)
-      await expect(upgrade(`orca-v1, orca-bearer.${paired.token}`)).resolves.toBe(101)
+      await expect(upgrade()).resolves.toEqual({ status: 401 })
+      // Legacy-only client (pre-rebrand mobile/iOS build) against new server.
+      const legacy = await upgrade(`orca-v1, orca-bearer.${paired.token}`)
+      expect(legacy).toEqual({ status: 101, protocol: 'orca-v1' })
+      // New-only client.
+      const canonical = await upgrade(`vertragus-v1, vertragus-bearer.${paired.token}`)
+      expect(canonical).toEqual({ status: 101, protocol: 'vertragus-v1' })
+      // Transition client offering both families: canonical version wins.
+      const mixed = await upgrade(
+        `vertragus-v1, orca-v1, vertragus-bearer.${paired.token}, orca-bearer.${paired.token}`
+      )
+      expect(mixed).toEqual({ status: 101, protocol: 'vertragus-v1' })
+      // Bearer prefix and version may mix across families during rollout.
+      const crossed = await upgrade(`orca-v1, vertragus-bearer.${paired.token}`)
+      expect(crossed).toEqual({ status: 101, protocol: 'orca-v1' })
+      // Garbage tokens stay rejected; an unknown version is never selected
+      // (the upgrade completes without a subprotocol, so a conforming client
+      // fails the connection on its side).
+      await expect(upgrade('vertragus-bearer.short')).resolves.toEqual({ status: 401 })
+      const unknown = await upgrade(`vertragus-v2, vertragus-bearer.${paired.token}`)
+      expect(unknown.protocol).toBeUndefined()
     } finally {
       await gateway.close()
     }
   })
 
   it('registers native APNs tokens on /push/apns and rejects malformed ones', async () => {
-    const directory = mkdtempSync(join(tmpdir(), 'orca-apns-test-'))
+    const directory = mkdtempSync(join(tmpdir(), 'vertragus-apns-test-'))
     directories.push(directory)
     const auth = new DeviceAuth(new MemoryStore())
     const apnsCalls: Array<{ deviceId: string; input: unknown }> = []
@@ -201,7 +229,7 @@ describe('RemoteGateway serveStatic hardening', () => {
     gateway: Awaited<ReturnType<typeof startRemoteGateway>>
     staticDir: string
   }> {
-    const baseDir = mkdtempSync(join(tmpdir(), 'orca-static-test-'))
+    const baseDir = mkdtempSync(join(tmpdir(), 'vertragus-static-test-'))
     directories.push(baseDir)
     // Secret file lives OUTSIDE the static root, one level up.
     writeFileSync(join(baseDir, 'secret.txt'), SECRET)
@@ -272,7 +300,7 @@ describe('RemoteGateway serveStatic hardening', () => {
 
 describe('RemoteGateway API authorization', () => {
   it('rejects /stream with 401 (no/invalid bearer) and 403 (valid token lacking read scope)', async () => {
-    const directory = mkdtempSync(join(tmpdir(), 'orca-authz-test-'))
+    const directory = mkdtempSync(join(tmpdir(), 'vertragus-authz-test-'))
     directories.push(directory)
     const auth = new DeviceAuth(new MemoryStore())
     const gateway = await startRemoteGateway({
@@ -309,7 +337,7 @@ describe('RemoteGateway API authorization', () => {
 
 describe('RemoteGateway pairing rate limit', () => {
   it('returns 429 once the pairing rate limit is exhausted', async () => {
-    const directory = mkdtempSync(join(tmpdir(), 'orca-pair-rl-test-'))
+    const directory = mkdtempSync(join(tmpdir(), 'vertragus-pair-rl-test-'))
     directories.push(directory)
     const gateway = await startRemoteGateway({
       auth: new DeviceAuth(new MemoryStore()),

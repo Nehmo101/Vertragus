@@ -90,7 +90,7 @@ async function nodeSiblingFallback(command: string): Promise<string | undefined>
 async function resolvePosixCommand(command: string): Promise<string> {
   const { stdout } = await execFileAsync(
     '/bin/sh',
-    ['-c', 'command -v "$1"', 'orca-command-resolution', command],
+    ['-c', 'command -v "$1"', 'vertragus-command-resolution', command],
     { windowsHide: true }
   )
   return stdout.trim() || command

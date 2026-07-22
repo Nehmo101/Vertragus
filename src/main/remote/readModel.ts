@@ -1,5 +1,5 @@
 import type { EventEmitter } from 'node:events'
-import type { OrcaTask, OrchestratorSnapshot, WorkspaceSessionSummary } from '@shared/orchestrator'
+import type { VertragusTask, OrchestratorSnapshot, WorkspaceSessionSummary } from '@shared/orchestrator'
 import {
   deriveRemoteApprovals,
   type ApprovalItem,
@@ -25,7 +25,7 @@ function canReadSession(device: DeviceInfo, profileId?: string, sessionId?: stri
   ))
 }
 
-function remoteTask(task: OrcaTask): OrcaTask {
+function remoteTask(task: VertragusTask): VertragusTask {
   return {
     ...task,
     worktree: undefined,

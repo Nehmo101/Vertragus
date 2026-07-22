@@ -1,5 +1,5 @@
 /**
- * OrcaMcpServer — a Streamable-HTTP MCP server (localhost only) that exposes
+ * VertragusMcpServer — a Streamable-HTTP MCP server (localhost only) that exposes
  * the orchestration tools to the orchestrator agent. Both the server and the
  * agent processes live in the Electron main process, so tool calls route
  * directly into the OrchestratorEngine (no extra IPC hop).
@@ -30,42 +30,58 @@ import { agentManager } from '@main/agents/AgentManager'
 import type { HandoffClientIdentity } from '@main/agents/handoffHandshake'
 import { workspaceSessions } from '@main/orchestrator/WorkspaceSessionRegistry'
 import {
+  ORCHESTRATOR_MCP_SERVER_NAME,
   setMcpHandle,
   SUBAGENT_MCP_SERVER_NAME,
   type McpServerHandle
 } from '@main/orchestrator/mcpHandle'
 import { removeModelLearnings } from '@main/orchestrator/retroStore'
 
-const ORCHESTRATOR_TOOLS = [
-  'mcp__orca__get_handoff_context',
-  'mcp__orca__acknowledge_handoff',
-  'mcp__orca__set_goal',
-  'mcp__orca__report_activity',
-  'mcp__orca__list_subagents',
-  'mcp__orca__estimate_delegation',
-  'mcp__orca__dispatch_subagent',
-  'mcp__orca__dispatch_batch',
-  'mcp__orca__get_task_status',
-  'mcp__orca__list_tasks',
-  'mcp__orca__await_task',
-  'mcp__orca__await_any',
-  'mcp__orca__list_findings',
-  'mcp__orca__list_multiagent_runs',
-  'mcp__orca__review_multiagent',
-  'mcp__orca__list_subagent_requests',
-  'mcp__orca__respond_subagent',
-  'mcp__orca__get_plan_status',
-  'mcp__orca__await_plan',
-  'mcp__orca__cancel_plan',
-  'mcp__orca__open_subwindow',
-  'mcp__orca__execute_plan',
-  'mcp__orca__get_retro_draft',
-  'mcp__orca__record_retro',
-  'mcp__orca__revoke_learning',
-  'mcp__orca__run_benchmark',
-  'mcp__orca__get_benchmark_status',
-  'mcp__orca__record_benchmark'
-]
+/**
+ * Bare names of every orchestrator-session tool this server registers. The
+ * launch allowlist and the prompts are derived from this list, so a tool that
+ * is registered but missing here would be invisible to strict-allowlist
+ * providers (Claude/Kimi) — an invariant test asserts set-equality with the
+ * actual registrations.
+ */
+export const ORCHESTRATOR_TOOL_NAMES = [
+  'get_handoff_context',
+  'acknowledge_handoff',
+  'set_goal',
+  'report_activity',
+  'list_subagents',
+  'estimate_delegation',
+  'dispatch_subagent',
+  'dispatch_batch',
+  'get_task_status',
+  'list_tasks',
+  'await_task',
+  'await_any',
+  'list_findings',
+  'list_multiagent_runs',
+  'review_multiagent',
+  'list_subagent_requests',
+  'respond_subagent',
+  'get_plan_status',
+  'await_plan',
+  'await_plan_approval',
+  'cancel_plan',
+  'open_subwindow',
+  'execute_plan',
+  'get_retro_draft',
+  'record_retro',
+  'list_skills',
+  'record_skill',
+  'remove_skill',
+  'revoke_learning',
+  'run_benchmark',
+  'get_benchmark_status',
+  'record_benchmark'
+] as const
+
+const ORCHESTRATOR_TOOLS = ORCHESTRATOR_TOOL_NAMES.map(
+  (tool) => `mcp__${ORCHESTRATOR_MCP_SERVER_NAME}__${tool}`
+)
 
 const FINDING_KINDS = ['interface', 'decision', 'blocker', 'insight'] as const
 const SUBAGENT_PROGRESS_PHASES = ['working', 'testing', 'committing'] as const
@@ -87,7 +103,7 @@ function text(s: string): ToolText {
   return { content: [{ type: 'text', text: s }] }
 }
 
-function buildMcpServer(
+export function buildMcpServer(
   engine: OrchestratorEngine = orchestratorEngine,
   clientIdentity?: HandoffClientIdentity
 ): McpServer {
@@ -587,6 +603,39 @@ function buildMcpServer(
   )
 
   register(
+    'list_skills',
+    'Liste die Profil-Skills dieses Workspaces: benannte, wiederverwendbare Verfahren ' +
+      '("wie machen wir X hier"), die in künftige System-Prompts injiziert werden.',
+    {},
+    async () => text(JSON.stringify(engine.listSkills(), null, 2))
+  )
+
+  register(
+    'record_skill',
+    'Lege einen Profil-Skill an oder aktualisiere ihn (Upsert über den Namen, case-insensitiv). ' +
+      'Halte fest, WANN der Skill anzuwenden ist und die konkreten Schritte — er wird dauerhaft ' +
+      'im Workspace-Profil gespeichert und künftigen Orchestrator-/Solo-Läufen in den Prompt injiziert.',
+    {
+      name: z.string().min(1).max(80).describe('Eindeutiger Skill-Name, z.B. "Deploy-Ablauf"'),
+      instructions: z.string().min(1).max(2_000)
+        .describe('Wann anwenden + konkrete Schritte, kompakt formuliert')
+    },
+    async (args) => text(JSON.stringify(engine.recordSkill({
+      name: String(args.name ?? ''),
+      instructions: String(args.instructions ?? '')
+    }), null, 2))
+  )
+
+  register(
+    'remove_skill',
+    'Entferne einen nachweislich falschen oder überholten Profil-Skill über seinen exakten Namen.',
+    {
+      name: z.string().min(1).max(80).describe('Exakter Name des zu entfernenden Skills')
+    },
+    async (args) => text(JSON.stringify(engine.removeSkill(String(args.name ?? '')), null, 2))
+  )
+
+  register(
     'revoke_learning',
     'Lösche nachweislich falsches Modellwissen. Provider und Modell müssen exakt passen; ' +
       'insightContains wird als case-insensitiver Teilstring auf den Insight angewendet.',
@@ -843,6 +892,117 @@ function buildSubagentMcpServer(engine: OrchestratorEngine, taskId: string): Mcp
   return server
 }
 
+/**
+ * The deliberately tiny MCP surface for Efficiency-Solo agents: report the
+ * visible activity state and record a retro (which feeds the shared model
+ * learnings) — nothing else. The point of solo mode is minimal fixed token
+ * cost: this session's tools/list genuinely returns ONLY the SOLO_TOOL_NAMES
+ * (mcpHandle.ts), so the full orchestrator tool-schema block never enters the
+ * agent's context — the restriction is server-side, not just a client
+ * allowlist.
+ */
+export function buildSoloMcpServer(
+  engine: OrchestratorEngine = orchestratorEngine
+): McpServer {
+  const server = new McpServer(
+    { name: ORCHESTRATOR_MCP_SERVER_NAME, version: '0.1.0' },
+    {
+      instructions: [
+        'Du bist ein Vertragus Solo-Agent und erledigst das Ziel direkt selbst.',
+        'Melde Phasenwechsel knapp über report_activity.',
+        'Speichere am Ende eines Laufs mit record_retro ein kurzes Fazit samt ehrlicher Modell-Erkenntnisse.'
+      ].join(' ')
+    }
+  )
+  const toolFn = server.tool.bind(server) as (
+    name: string,
+    description: string,
+    shape: z.ZodRawShape,
+    handler: (args: Record<string, unknown>) => Promise<ToolText>
+  ) => void
+
+  toolFn(
+    'report_activity',
+    'Aktualisiere den sichtbaren Lagebericht: aktuelle Phase, was du konkret machst und der nächste Schritt.',
+    {
+      phase: z.enum(ACTIVITY_PHASES).describe('Aktuelle Arbeitsphase'),
+      summary: z.string().min(1).max(280).describe('Was du gerade konkret machst'),
+      details: z.array(z.string().min(1).max(220)).max(4).optional()
+        .describe('Bis zu vier konkrete Arbeitsschritte'),
+      nextStep: z.string().min(1).max(220).optional().describe('Dein unmittelbar nächster Schritt')
+    },
+    async (args) => {
+      const activity = engine.reportActivity({
+        phase: String(args.phase ?? 'idle') as OrchestratorActivityPhase,
+        summary: String(args.summary ?? ''),
+        details: Array.isArray(args.details) ? args.details.map(String) : [],
+        nextStep: args.nextStep ? String(args.nextStep) : undefined
+      })
+      return text(JSON.stringify(activity, null, 2))
+    }
+  )
+
+  toolFn(
+    'record_retro',
+    'Speichere nach dem Lauf eine kurze Retrospektive mit Modell-Erkenntnissen; sie fließen in das dauerhafte Modellwissen ein.',
+    {
+      summary: z.string().min(1).max(500).describe('Kurzes Fazit des Laufs in ein bis zwei Sätzen'),
+      learnings: z
+        .array(
+          z.object({
+            provider: z.enum(AGENT_PROVIDERS).describe('Provider des bewerteten Modells'),
+            model: z.string().min(1).describe('Exakter Modellname'),
+            role: z.string().optional().describe('Rollen-Kontext der Beobachtung'),
+            kind: z.enum(['strength', 'weakness']).describe('Stärke oder Schwäche'),
+            insight: z.string().min(1).max(200).describe('Kurze Erkenntnis'),
+            evidence: z.string().max(300).optional().describe('Konkreter Beleg aus diesem Lauf')
+          })
+        )
+        .max(20)
+        .describe('Konkrete Modell-Erkenntnisse aus diesem Lauf')
+    },
+    async (args) => {
+      const result = engine.recordOrchestratorRetro({
+        summary: String(args.summary ?? ''),
+        learnings: Array.isArray(args.learnings)
+          ? (args.learnings as Array<{
+              provider: (typeof AGENT_PROVIDERS)[number]
+              model: string
+              role?: string
+              kind: 'strength' | 'weakness'
+              insight: string
+              evidence?: string
+            }>)
+          : []
+      })
+      return text(JSON.stringify(result, null, 2))
+    }
+  )
+
+  toolFn(
+    'list_skills',
+    'Liste die Profil-Skills dieses Workspaces (benannte, wiederverwendbare Verfahren).',
+    {},
+    async () => text(JSON.stringify(engine.listSkills(), null, 2))
+  )
+
+  toolFn(
+    'record_skill',
+    'Lege einen Profil-Skill an oder aktualisiere ihn (Upsert über den Namen). Halte fest, WANN er ' +
+      'anzuwenden ist und die konkreten Schritte; er wird künftigen Läufen in den Prompt injiziert.',
+    {
+      name: z.string().min(1).max(80).describe('Eindeutiger Skill-Name'),
+      instructions: z.string().min(1).max(2_000).describe('Wann anwenden + konkrete Schritte')
+    },
+    async (args) => text(JSON.stringify(engine.recordSkill({
+      name: String(args.name ?? ''),
+      instructions: String(args.instructions ?? '')
+    }), null, 2))
+  )
+
+  return server
+}
+
 async function readBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = []
   let total = 0
@@ -876,7 +1036,7 @@ export async function startMcpServer(): Promise<McpServerHandle> {
   const httpServer: Server = createServer((req, res) => {
     void handleRequest(req, res).catch((err) => {
       if (!res.headersSent) res.writeHead(500).end()
-      console.error('[OrcaMcp] request error', err)
+      console.error('[VertragusMcp] request error', err)
     })
   })
 
@@ -889,6 +1049,11 @@ export async function startMcpServer(): Promise<McpServerHandle> {
     const token = url.searchParams.get('token')
     const subagentTaskId = url.searchParams.get('subagentTask')
     const isSubagentSession = Boolean(subagentTaskId)
+    // Solo sessions carry the launching agent's id; they use the orchestrator
+    // token (both are generated by the main process) but get the minimal
+    // solo tool surface instead of the orchestrator server.
+    const soloAgentId = url.searchParams.get('solo')
+    const isSoloSession = !isSubagentSession && Boolean(soloAgentId)
     const authorized = isSubagentSession
       ? token === subagentToken || token === authToken
       : token === authToken
@@ -937,7 +1102,9 @@ export async function startMcpServer(): Promise<McpServerHandle> {
         }
         const server = isSubagentSession
           ? buildSubagentMcpServer(engine, subagentTaskId!)
-          : buildMcpServer(engine, clientIdentity)
+          : isSoloSession
+            ? buildSoloMcpServer(engine)
+            : buildMcpServer(engine, clientIdentity)
         await server.connect(transport)
       }
       if (!transport) {

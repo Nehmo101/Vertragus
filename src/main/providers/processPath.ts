@@ -11,7 +11,7 @@ const WINDOWS_PATH_SCRIPT = [
   '[Console]::Out.Write($user)'
 ].join('; ')
 
-const DARWIN_PATH_MARKER = '__ORCA_LOGIN_SHELL_PATH__='
+const DARWIN_PATH_MARKER = '__VERTRAGUS_LOGIN_SHELL_PATH__='
 const DARWIN_PATH_SCRIPT = `printf '\\n${DARWIN_PATH_MARKER}%s\\n' "$PATH"`
 const DARWIN_SYSTEM_PATH = '/usr/bin:/bin:/usr/sbin:/sbin'
 const DARWIN_FALLBACK_PATH = '/opt/homebrew/bin:/usr/local/bin'

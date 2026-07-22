@@ -181,7 +181,7 @@ describe('orchestrator provider adapters', () => {
   it('configures Codex through transient CLI overrides', () => {
     const handle: McpServerHandle = {
       url: 'http://127.0.0.1:1234/mcp',
-      allowedTools: ['mcp__orca__execute_plan'],
+      allowedTools: ['mcp__vertragus__execute_plan'],
       close: async () => undefined
     }
     const adapter = getOrchestratorAdapter('codex')
@@ -193,7 +193,7 @@ describe('orchestrator provider adapters', () => {
     })
     expect(adapter.capability.supported).toBe(true)
     expect(args).toContain('developer_instructions="Delegate work."')
-    expect(args).toContain('mcp_servers.orca.url="http://127.0.0.1:1234/mcp"')
-    expect(args).toContain('mcp_servers.orca.enabled_tools=["execute_plan"]')
+    expect(args).toContain('mcp_servers.vertragus.url="http://127.0.0.1:1234/mcp"')
+    expect(args).toContain('mcp_servers.vertragus.enabled_tools=["execute_plan"]')
   })
 })

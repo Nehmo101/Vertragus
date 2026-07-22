@@ -89,7 +89,7 @@ Handportierte `Codable`-Structs, 1:1 gespiegelt aus den node-freien TS-Verträge
   `RemoteEventFrame` (als Swift-`enum` mit `type`-Diskriminator:
   `snapshot`/`approvals`/`event`/`ping`) + `command-result`-Frame.
 - Aus **`src/shared/orchestrator.ts`** (nur was die UI rendert): `OrchestratorSnapshot`,
-  `OrcaTask`, `TaskStatus`, `OrchestratorGoal`, `OrchestratorActivity`, `TaskBlocker`,
+  `VertragusTask`, `TaskStatus`, `OrchestratorGoal`, `OrchestratorActivity`, `TaskBlocker`,
   `PendingPlanReview`, `ExecutionPlan`/`ExecutionPlanTask`, `IntegrationCenterSnapshot`,
   `IntegrationCenterItem`, `RemoteCiStatus`, `TaskPhase`.
 - Optionale Felder als Swift-Optionals; unbekannte Felder ignorieren (robustes Decoding).

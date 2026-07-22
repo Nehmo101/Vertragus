@@ -179,7 +179,7 @@ export const IPC = {
   // main -> renderer push channels
   evAgentData: 'ev:agentData',
   evAgentsChanged: 'ev:agentsChanged',
-  evOrcaEvent: 'ev:orcaEvent',
+  evVertragusEvent: 'ev:vertragusEvent',
   evProvidersHealth: 'ev:providersHealth',
   evAppUpdateState: 'ev:appUpdateState',
   evOrchestrator: 'ev:orchestrator',
@@ -270,7 +270,7 @@ export interface GithubAuthStatus {
   /** Connection-level scopes that are missing (feature-specific scopes are checked on use). */
   missingScopes: string[]
   needsReauth: boolean
-  /** True when ORCA_GITHUB_OAUTH_CLIENT_ID or a saved client id is configured. */
+  /** True when VERTRAGUS_GITHUB_OAUTH_CLIENT_ID (legacy: ORCA_*) or a saved client id is configured. */
   oauthConfigured: boolean
   detail?: string
 }

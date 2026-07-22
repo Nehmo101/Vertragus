@@ -62,15 +62,32 @@ Weiß/Blau.
       der Pfoten — die aktuelle Kurve ist eine Konzept-Skizze.
 - [ ] Icon-Sonderformate: macOS-Squircle-Feinschliff, Windows-Kachelfarben.
 
-## Interne Bezeichner (bewusst noch alt)
+## Interne Bezeichner (Migration abgeschlossen)
 
-`orca/`-Branch-Präfix, `.orca-worktrees/`, `OrcaMcpServer`/`OrcaTask`,
-`window.orca`, `mcp__orca__*`-Toolnamen sowie persistierte Schlüssel
-(`orca.layout.v1` im localStorage, `orca.remote.*` in der PWA, die
-WebSocket-Subprotokolle `orca-v1`/`orca-bearer.*`) bleiben bis zu einem
-eigenen Migrations-Release stabil (Bruchgefahr für bestehende Workspaces
-und gekoppelte Geräte).
-Env-Flags sind bereits migriert: kanonisch `VERTRAGUS_*`, `ORCA_*` wirkt
-als Fallback (`src/main/env.ts`). Die Konfigurationsdatei heißt jetzt
-`vertragus.json`; eine vorhandene `orca-strator.json` wird beim ersten
-Start einmalig übernommen (`src/main/config/store.ts`).
+Der Migrations-Release hat alle internen Bezeichner auf Vertragus
+umgestellt: `VertragusMcpServer`/`VertragusTask`, MCP-Toolnamen
+`mcp__vertragus__*`/`mcp__vertragus-sub__*`, Commit-Präfix
+`vertragus(<taskId>)`, Integrations-Branches `vertragus/goal-*`,
+Laufzeit-Verzeichnisse (`vertragus-mcp`, `.vertragus-runtime`,
+`vertragus-handoffs`, `vertragus-inbox.json`, `vertragus-idea-transfers`)
+sowie das kanonische WebSocket-Subprotokoll `vertragus-v1` /
+`vertragus-bearer.*`.
+
+**Bewusst erhaltene Legacy-Lese-Fallbacks** (niemals per Find-Replace
+entfernen — sie halten bestehende Installationen und gekoppelte Geräte am
+Leben):
+
+- Env-Flags: kanonisch `VERTRAGUS_*`, `ORCA_*` wirkt als Fallback
+  (`src/main/env.ts`); `ORCA_AGENT_NAME`/`ORCA_AGENT_ROLE` werden für
+  bestehende User-Hooks zusätzlich weiter gesetzt.
+- Konfigurations-/Datendateien: `orca-strator.json`, `orca-inbox.json`,
+  `orca-handoffs/`, `orca-idea-transfers/` werden beim ersten Start
+  einmalig kopierend übernommen (`src/main/config/legacyAdoption.ts`);
+  Legacy-Dateien werden nie gelöscht.
+- localStorage/PWA: `orca.layout.v1`, `orca.canvas.v1`, `orca.remote.*`
+  bleiben als Lese-Fallback.
+- Git: `.orca-worktrees/` und `orca/`-Branches bleiben erkennbar
+  (Cleanup/Inventar, duale Regexe in `src/main/agents/worktree.ts`).
+- Remote-Pairing: der Server akzeptiert `orca-v1`/`orca-bearer.*`
+  dauerhaft; Clients bieten übergangsweise beide Familien an, damit jede
+  Client×Server-Versionskombination verhandelt.

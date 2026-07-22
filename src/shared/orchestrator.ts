@@ -130,7 +130,7 @@ export type RemoteCiStatus =
   | 'timed-out'
   | 'unavailable'
 
-export interface OrcaTask {
+export interface VertragusTask {
   id: string
   /** Short title shown on the DAG card. */
   title: string
@@ -337,7 +337,7 @@ export function deriveTaskSummary(
 export interface IntegrationCenterItem {
   taskId: string
   title: string
-  status: NonNullable<OrcaTask['autoPrStatus']>
+  status: NonNullable<VertragusTask['autoPrStatus']>
   /** Commit/branch identifiers are display-only; host worktree paths are never projected remotely. */
   commit?: string
   branch?: string
@@ -363,7 +363,7 @@ export interface OrchestratorSnapshot {
   plannerMode?: PlannerConfig['mode']
   goal: OrchestratorGoal | null
   activity?: OrchestratorActivity
-  tasks: OrcaTask[]
+  tasks: VertragusTask[]
   capacity?: OrchestratorCapacitySnapshot
   reliability?: OrchestratorReliabilityMetrics
   pendingPlan?: PendingPlanReview

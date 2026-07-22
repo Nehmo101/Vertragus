@@ -20,6 +20,11 @@ import { canonicalWorkspacePath } from '@main/agents/workspacePath'
 
 const execFileAsync = promisify(execFile)
 
+/** Directory (inside the repo root) that holds all Vertragus-managed worktrees. */
+export const WORKTREE_CONTAINER = '.vertragus-worktrees'
+/** Pre-rebrand container; still recognized for cleanup/inventory, never written. */
+export const LEGACY_WORKTREE_CONTAINER = '.orca-worktrees'
+
 /** Default Git command budget. Discard/status paths use shorter timeouts. */
 const GIT_TIMEOUT_MS = 15_000
 const GIT_STATUS_TIMEOUT_MS = 3_000
@@ -187,7 +192,7 @@ export async function createWorktree(
  * Only ever touch paths we created under `.vertragus-worktrees/` (or the legacy
  * `.orca-worktrees/`, so pre-rebrand checkouts stay cleanable).
  */
-export function isOrcaWorktreePath(path: string): boolean {
+export function isManagedWorktreePath(path: string): boolean {
   return /[\\/]\.(?:vertragus|orca)-worktrees[\\/]/.test(path.trim())
 }
 
@@ -195,7 +200,7 @@ export function isOrcaWorktreePath(path: string): boolean {
  * Only ever delete branches we created under the `vertragus/` namespace (or the
  * legacy `orca/` namespace).
  */
-export function isOrcaBranch(branch: string): boolean {
+export function isManagedBranch(branch: string): boolean {
   return /^(?:vertragus|orca)\//.test(branch.trim())
 }
 
@@ -267,7 +272,7 @@ async function resolveRollbackRoot(worktreePath: string): Promise<string | null>
  */
 async function removeManagedWorktreeDir(worktreePath: string): Promise<boolean> {
   const parts = managedWorktreeParts(worktreePath)
-  if (!parts || !isOrcaWorktreePath(worktreePath)) return false
+  if (!parts || !isManagedWorktreePath(worktreePath)) return false
   if (!existsSync(worktreePath)) return true
   try {
     await rm(worktreePath, { recursive: true, force: true })
@@ -299,7 +304,7 @@ export async function pruneWorktrees(root: string): Promise<void> {
 }
 
 async function deleteManagedBranch(root: string, branch: string): Promise<void> {
-  if (!isOrcaBranch(branch)) return
+  if (!isManagedBranch(branch)) return
   try {
     await git(root, ['branch', '-D', branch], GIT_DISCARD_TIMEOUT_MS)
   } catch {
@@ -363,7 +368,7 @@ export async function inventoryWorktrees(
   )
   const discovered: Array<Omit<WorktreeInventoryEntry, 'changedFiles' | 'owned'> & { owned: boolean }> =
     []
-  for (const container of ['.vertragus-worktrees', '.orca-worktrees'] as const) {
+  for (const container of [WORKTREE_CONTAINER, LEGACY_WORKTREE_CONTAINER] as const) {
     const containerPath = join(root, container)
     const sessions = await readdir(containerPath, { withFileTypes: true }).catch(() => [])
     for (const session of sessions) {
@@ -424,12 +429,12 @@ export async function rollbackWorktree(
   options: RollbackWorktreeOptions = {}
 ): Promise<boolean> {
   const path = worktreePath.trim()
-  if (!path || !isOrcaWorktreePath(path)) return false
+  if (!path || !isManagedWorktreePath(path)) return false
 
   const parts = managedWorktreeParts(path)
   const root = await resolveRollbackRoot(path)
   const targetBranch =
-    branch && isOrcaBranch(branch)
+    branch && isManagedBranch(branch)
       ? branch
       : parts
         ? inferredManagedBranch(parts)
@@ -488,7 +493,7 @@ export async function discardManagedOrphans(
 
   for (const path of unique) {
     const parts = managedWorktreeParts(path)
-    if (!parts || !isOrcaWorktreePath(path)) {
+    if (!parts || !isManagedWorktreePath(path)) {
       failed += 1
       continue
     }

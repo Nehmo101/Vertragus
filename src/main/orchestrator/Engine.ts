@@ -20,7 +20,7 @@ import type {
   ExecutionPlanResult,
   ExecutionPlanTask,
   ExecutionPlanTaskResult,
-  OrcaTask,
+  VertragusTask,
   OrchestratorActivity,
   OrchestratorActivityPhase,
   OrchestratorGoal,
@@ -54,6 +54,7 @@ import {
   agentSlotCapabilities,
   profileDefaultBaseBranch,
   type AgentSlot,
+  type ProfileSkill,
   type WorkspaceProfile
 } from '@shared/profile'
 import { resolveModel } from '@shared/models'
@@ -68,10 +69,21 @@ import { agentManager } from '@main/agents/AgentManager'
 import { PanePreflightError } from '@main/agents/panePreflight'
 import { detectLimit, stripAnsi } from '@main/agents/limitSignals'
 import {
-  hasExplicitWorkerBlocker,
-  hasExplicitWorkerSuccess,
-  type HeadlessResult
-} from '@main/agents/headless'
+  judgeWorkerTerminalResult,
+  platformExecutionGuidance,
+  providerExecutionGuidance,
+  subagentExecutionContract,
+  type WorkerTerminalJudgement
+} from '@main/orchestrator/workerContract'
+
+// Re-exports: asyncDispatch.test.ts (and future callers) import these from './Engine'.
+export {
+  judgeWorkerTerminalResult,
+  platformExecutionGuidance,
+  providerExecutionGuidance,
+  subagentExecutionContract
+}
+export type { WorkerTerminalJudgement }
 import {
   getProfile,
   getActiveProfileId,
@@ -91,7 +103,15 @@ import {
 } from '@main/integrations/autoPr'
 import { resolveExecutionPlan } from '@main/orchestrator/planner'
 import { Semaphore } from '@main/orchestrator/semaphore'
-import { subagentOrcaToolsAvailable } from '@main/orchestrator/externalMcp'
+import { subagentVertragusToolsAvailable } from '@main/orchestrator/externalMcp'
+import { computeBudgetSnapshot, computeIntegrationSnapshot } from '@main/orchestrator/engineSnapshots'
+import {
+  listProfileSkills,
+  recordProfileSkill,
+  removeProfileSkill,
+  type RecordSkillInput,
+  type RecordSkillResult
+} from '@main/orchestrator/profileSkills'
 import { providerSupportsSubagentReporting } from '@shared/mcp'
 import { securityChecklistForFiles } from '@main/integrations/securityGate'
 import {
@@ -145,6 +165,8 @@ interface DispatchOptions {
   maxAttempts?: number
   /** Verified failed-worker worktree whose partial files may be resumed. */
   recoveryWorktree?: string
+  /** Limit-fallback: launch this exact model instead of the slot's configured one. */
+  modelOverride?: string
   /** Internal marker that prevents a candidate from recursively opening another group. */
   multiAgentRunId?: string
   multiAgentParentTaskId?: string
@@ -206,91 +228,8 @@ const AWAIT_MAX_TIMEOUT_MS = 55_000
 function isTerminalTaskStatus(status: TaskStatus): boolean {
   return status === 'success' || status === 'needs-work' || status === 'error' || status === 'stopped'
 }
-export function platformExecutionGuidance(
-  platform: NodeJS.Platform = process.platform
-): string[] {
-  if (platform === 'win32') {
-    return [
-      'Windows/PowerShell: Nutze pro Tool-Aufruf einen kurzen Einzelbefehl.',
-      "Windows/PowerShell: Nutze rg -g (z. B. rg -g '*.ts' Muster) statt Shell-Pfadglobs wie src/**/*.ts.",
-      "Windows/PowerShell: rg mit Exit-Code 1 und leerem stderr bedeutet 'keine Treffer', nicht Infrastrukturfehler.",
-      'Windows/PowerShell: Vereinfache nach Parser- oder Quotingfehlern den Aufruf; wiederhole ihn nicht unveraendert.'
-    ]
-  }
-  if (platform === 'darwin') {
-    return [
-      'macOS/zsh: Nutze zsh-kompatible Befehle und beachte die BSD-Varianten von Tools wie sed, stat und date.'
-    ]
-  }
-  return []
-}
-
-export function providerExecutionGuidance(
-  provider: AgentProviderId,
-  yolo: boolean,
-  platform: NodeJS.Platform = process.platform
-): string[] {
-  if (provider !== 'codex' || yolo || platform !== 'win32') return []
-  return [
-    'Codex/Windows-Safe-Sandbox: Wenn ausschliesslich ein Node-Unterprozess mit spawn EPERM scheitert, ist das ein bekannter Sandbox-Gate-Fehler und kein fachlicher BLOCKER.',
-    'Codex/Windows-Safe-Sandbox: Arbeite in diesem Fall weiter, kennzeichne nur den betroffenen Test/Build als nicht ausfuehrbar und schliesse bei fachlich vollstaendiger Arbeit mit ERGEBNIS: ERFOLG; Orcas Main-Prozess wiederholt die zentralen Abnahme-Gates ausserhalb der Worker-Sandbox.'
-  ]
-}
-
-/**
- * The per-worker execution contract appended to a dispatched task's prompt.
- *
- * The Vertragus subagent reporting tools (report_progress / post_finding /
- * list_findings / ask_orchestrator) are only demanded when the worker's provider
- * actually receives them (`orcaSubTools`). Providers without a verified per-agent
- * MCP channel — Cursor today — are never asked to call tools they do not have,
- * so a missing progress/finding stream is an expected capability gap rather than
- * a contract violation. Pure and side-effect-free for direct unit testing.
- */
-export function subagentExecutionContract(input: {
-  provider: AgentProviderId
-  yolo: boolean
-  orcaSubTools: boolean
-  securityChecklist: readonly string[]
-  platform?: NodeJS.Platform
-}): string[] {
-  const { provider, yolo, orcaSubTools, securityChecklist, platform } = input
-  return [
-    'Vertragus-Ausführungsvertrag:',
-    '- Bearbeite nur die beauftragte Fachaufgabe und die erwarteten Dateien.',
-    '- Führe relevante Tests, Typecheck und Lint aus.',
-    '- Führe kein git add, commit, cherry-pick oder push aus; Orcas Main-Prozess sichert Änderungen zentral.',
-    '- Bei Infrastrukturblockern antworte strukturiert und knapp: Blocker, Alternativen, geplante Dateien, Schnittstellen.',
-    '- Ergebnisvertrag am Ende: (1) geänderte Dateien, (2) Tests mit grün/gesamt, (3) Typecheck-/Lint-Status, (4) Integrationshinweise.',
-    '- Schließe exakt mit ERGEBNIS: ERFOLG oder ERGEBNIS: BLOCKER samt konkreter Begründung.',
-    '- Automatisch injizierte Security-Negativfälle: securityGate.ts bewertet nur hinzugefügte Diff-Zeilen.',
-    '- Neue Zeilen mit process.env, Bearer, Authorization, Secret-Literalen, writeFileSync, appendFileSync, createWriteStream, rm oder child_process-Aufrufen brauchen passende Missbrauchs-/Injection-/Leak-Negativtests in Testdateien.',
-    ...(orcaSubTools
-      ? [
-          '- Live-Status: Melde wichtige Phasenwechsel und Zwischenstände knapp über das MCP-Tool report_progress (Server vertragus-sub).',
-          '- Team-Board: Teile Schnittstellen, Entscheidungen und Blocker, die parallele Tasks betreffen, über post_finding; prüfe mit list_findings die Einträge anderer Subagents, bevor du gemeinsame Schnittstellen festlegst.',
-          '- Direkte Hilfe: Wenn eine Richtungsentscheidung, Freigabe oder Unterstützung fehlt, nutze ask_orchestrator und warte mit await_orchestrator_response auf die konkrete Antwort.'
-        ]
-      : []),
-    ...providerExecutionGuidance(provider, yolo, platform).map((item) => `- ${item}`),
-    ...platformExecutionGuidance(platform).map((item) => `- ${item}`),
-    ...securityChecklist.map((item) => `- Security-Pflicht: ${item}`)
-  ]
-}
-
 /** Consecutive permission-prompt timeouts before a task is failed fast as permission-starved. */
 const PERMISSION_TIMEOUT_DENIAL_LIMIT = 3
-
-export interface WorkerTerminalJudgement {
-  status: 'success' | 'error' | 'stopped'
-  failureKind?: 'infrastructure' | 'worker' | 'cancelled'
-  /**
-   * Exit 0 without an explicit worker contract while the provider flagged an
-   * error: contradictory signals. The acceptance gates may overrule this error.
-   */
-  unconfirmed?: boolean
-  reason: string
-}
 
 export interface CancelPlanResult {
   ok: boolean
@@ -299,96 +238,6 @@ export interface CancelPlanResult {
   planId?: string
   status?: 'stopped'
 }
-
-/**
- * esbuild (and other native build helpers) fail to spawn their child process
- * under the codex restricted-token sandbox with `spawn EPERM`. This is an
- * infrastructure limit, not a code defect — detect it in the worker's output.
- */
-function isSandboxSpawnFailure(text: string | undefined): boolean {
-  if (!text) return false
-  return /\bspawn\b[^\n]*\bEPERM\b/i.test(text) ||
-    /\bEPERM\b[^\n]*\bspawn\b/i.test(text) ||
-    /esbuild[^\n]*\bEPERM\b/i.test(text)
-}
-
-/** Resolve contradictory provider flags using process outcome and the worker's explicit contract. */
-export function judgeWorkerTerminalResult(result: HeadlessResult): WorkerTerminalJudgement {
-  if (result.status === 'cancelled') {
-    return {
-      status: 'stopped',
-      failureKind: 'cancelled',
-      reason: 'Der Worker wurde durch den Stop-Mechanismus abgebrochen.'
-    }
-  }
-
-  const infrastructureFailure =
-    result.failureKind === 'provider-auth' ||
-    result.failureKind === 'sandbox' ||
-    result.failureKind === 'stalled'
-  if (infrastructureFailure) {
-    return {
-      status: 'error',
-      failureKind: 'infrastructure',
-      reason: result.error?.trim() ||
-        `Provider-Infrastruktur fehlgeschlagen (${result.failureKind}).`
-    }
-  }
-
-  // A worker that only fails because esbuild cannot spawn its native child in
-  // the codex restricted-token sandbox is hitting an infrastructure limit, not
-  // producing bad code. The retro analysis already treats EPERM as infra
-  // (runAnalysis.ts); classify it here too so such a run does not count as a
-  // model/worker failure — even when the worker mistakenly self-reports BLOCKER.
-  if (isSandboxSpawnFailure(result.result) || isSandboxSpawnFailure(result.error)) {
-    return {
-      status: 'error',
-      failureKind: 'infrastructure',
-      reason: 'Sandbox-Gate-Fehler: esbuild/Node-Unterprozess scheiterte an spawn EPERM (kein fachlicher BLOCKER).'
-    }
-  }
-
-  if (hasExplicitWorkerBlocker(result.result)) {
-    return {
-      status: 'error',
-      failureKind: 'worker',
-      reason: 'Der Worker meldete explizit ERGEBNIS: BLOCKER.'
-    }
-  }
-
-  if (result.exitCode === 0 && hasExplicitWorkerSuccess(result.result)) {
-    return {
-      status: 'success',
-      reason: 'Provider-Prozess endete mit Exit-Code 0 und expliziter ERGEBNIS: ERFOLG-Meldung.'
-    }
-  }
-
-  if (result.status === 'succeeded' && !result.isError) {
-    return { status: 'success', reason: 'Der Provider meldete einen erfolgreichen Worker-Abschluss.' }
-  }
-  if (result.status == null && !result.isError) {
-    return { status: 'success', reason: 'Der kompatible Provider-Adapter meldete keinen Fehler.' }
-  }
-
-  if (result.exitCode === 0) {
-    return {
-      status: 'error',
-      failureKind: 'worker',
-      unconfirmed: true,
-      reason: 'Der Provider meldete einen Fehler trotz Exit-Code 0 und ohne expliziten ' +
-        'Ergebnisvertrag; die Abnahme-Gates entscheiden über die Übernahme.'
-    }
-  }
-
-  const exitDetail = result.exitCode == null ? '' : ` (Exit-Code ${result.exitCode})`
-  return {
-    status: 'error',
-    failureKind: 'worker',
-    reason: result.error?.trim() ||
-      `Der Provider bewertete den Worker-Abschluss als fehlgeschlagen${exitDetail}.`
-  }
-}
-
 
 /** Numeric sequence of a `<prefix><base36>` runtime id, or null for foreign ids. */
 function parseSequenceId(id: string, prefix: string): number | null {
@@ -423,7 +272,7 @@ export class OrchestratorEngine extends EventEmitter {
   private planRunSeq = 0
   private goal: OrchestratorGoal | null = null
   private activity: OrchestratorActivity | undefined
-  private readonly tasks = new Map<string, OrcaTask>()
+  private readonly tasks = new Map<string, VertragusTask>()
   private readonly preparedChanges = new Map<string, PreparedTaskChange>()
   private readonly taskResults = new Map<string, string>()
   private readonly taskRuns = new Map<string, Promise<string>>()
@@ -480,6 +329,10 @@ export class OrchestratorEngine extends EventEmitter {
   private readonly resumeRequestedTasks = new Set<string>()
   private readonly resumeTaskWaiters = new Map<string, () => void>()
   private readonly forcedFallbackRoles = new Map<string, string>()
+  /** Fallback models already tried per task, so each is attempted at most once. */
+  private readonly attemptedFallbackModels = new Map<string, Set<string>>()
+  /** Model override to apply when a paused limit-hit task resumes. */
+  private readonly forcedFallbackModels = new Map<string, string>()
   private readonly fallbackInFlight = new Set<string>()
   private readonly dispatchRecords = new Map<string, DispatchRecord>()
   private firstPlanApproved = true
@@ -615,7 +468,7 @@ export class OrchestratorEngine extends EventEmitter {
    * ~22 min / ~4 USD ohne eine geschriebene Datei). The worker is stopped with a
    * structured blocker instead of letting the run bleed out.
    */
-  private registerTimeoutDenial(task: OrcaTask): void {
+  private registerTimeoutDenial(task: VertragusTask): void {
     const streak = (this.timeoutDenialStreaks.get(task.id) ?? 0) + 1
     this.timeoutDenialStreaks.set(task.id, streak)
     if (this.yoloOverride || streak < PERMISSION_TIMEOUT_DENIAL_LIMIT) return
@@ -631,62 +484,15 @@ export class OrchestratorEngine extends EventEmitter {
   }
 
   private budgetSnapshot(): RemoteBudgetSnapshot {
-    let tokens = 0
-    let costUsd = 0
-    const measuredTasks = [...this.tasks.values()].filter((task) => task.provider || task.usage)
-    for (const task of measuredTasks) {
-      tokens += (task.usage?.tokensIn ?? 0) + (task.usage?.tokensOut ?? 0)
-      costUsd += task.usage?.costUsd ?? 0
-    }
-    const exceededBy: Array<'tokens' | 'cost'> = []
-    if (this.budgetCaps.maxTokens != null && tokens >= this.budgetCaps.maxTokens) exceededBy.push('tokens')
-    if (this.budgetCaps.maxCostUsd != null && costUsd >= this.budgetCaps.maxCostUsd) exceededBy.push('cost')
-    const reported = measuredTasks.filter((task) => task.usage && Object.values(task.usage).some((value) => value != null))
-    return {
-      tokens,
-      costUsd,
-      caps: { ...this.budgetCaps },
-      exceeded: exceededBy.length > 0,
-      tasksReported: reported.length,
-      tasksTotal: measuredTasks.length,
-      tokenDataComplete: measuredTasks.length > 0 && measuredTasks.every((task) =>
-        task.usage?.tokensIn != null || task.usage?.tokensOut != null
-      ),
-      costDataComplete: measuredTasks.length > 0 && measuredTasks.every((task) => task.usage?.costUsd != null),
-      exceededBy
-    }
+    return computeBudgetSnapshot(this.tasks.values(), this.budgetCaps)
   }
 
   private integrationSnapshot(): IntegrationCenterSnapshot {
-    const items = [...this.tasks.values()]
-      .filter((task) => task.autoPrStatus != null && (
-        task.autoPrStatus !== 'skipped' || task.commit != null || task.prUrl != null
-      ))
-      .map((task) => ({
-        taskId: task.id,
-        title: task.title,
-        status: task.autoPrStatus!,
-        commit: task.commit,
-        branch: task.branch,
-        prUrl: task.prUrl,
-        remoteCiStatus: task.remoteCiStatus,
-        remoteCiUrl: task.remoteCiUrl,
-        remoteCiSummary: task.remoteCiSummary,
-        findingCount: task.findings?.length ?? 0
-      }))
-    let status: IntegrationCenterSnapshot['status'] = 'idle'
-    if (this.publicationInFlight) status = 'publishing'
-    else if (this.pendingPublication) status = 'awaiting-approval'
-    else if (items.some((item) =>
-      item.status === 'blocked' ||
-      item.remoteCiStatus === 'failed' ||
-      item.remoteCiStatus === 'cancelled' ||
-      item.remoteCiStatus === 'timed-out' ||
-      item.remoteCiStatus === 'unavailable'
-    )) status = 'blocked'
-    else if (items.some((item) => item.status === 'prepared')) status = 'prepared'
-    else if (items.some((item) => item.status === 'published')) status = 'published'
-    return { status, pendingPublicationId: this.pendingPublication?.id, items }
+    return computeIntegrationSnapshot(
+      this.tasks.values(),
+      this.pendingPublication,
+      this.publicationInFlight
+    )
   }
 
   snapshot(): OrchestratorSnapshot {
@@ -1116,16 +922,26 @@ export class OrchestratorEngine extends EventEmitter {
       this.taskResults.get(taskId)
     ].filter(Boolean).join(' ')
     if (!agentLimit && !detectLimit(task.provider, limitText)) return false
-    const fallback = this.listSubagents()
-      .filter((agent) => agent.available && agent.provider !== task.provider && agent.role !== task.role)
-      .sort((left, right) => (left.busy / left.capacity) - (right.busy / right.capacity))[0]
-    if (!fallback) return false
+
+    // FIRST choice: stay on the same slot and walk its fallback-model list —
+    // a limit on one model must not burn a different provider slot while
+    // cheaper same-provider alternatives remain untried.
+    const fallbackModel = task.role ? this.nextFallbackModel(task.role, taskId) : undefined
+    const fallback = fallbackModel
+      ? undefined
+      : this.listSubagents()
+          .filter((agent) => agent.available && agent.provider !== task.provider && agent.role !== task.role)
+          .sort((left, right) => (left.busy / left.capacity) - (right.busy / right.capacity))[0]
+    if (!fallbackModel && !fallback) return false
+    const targetRole = fallbackModel ? task.role! : fallback!.role
 
     if (task.status === 'running' || task.status === 'queued' || task.status === 'paused') {
-      this.forcedFallbackRoles.set(taskId, fallback.role)
+      this.forcedFallbackRoles.set(taskId, targetRole)
+      if (fallbackModel) this.forcedFallbackModels.set(taskId, fallbackModel)
       const paused = await this.pauseTask(taskId)
       if (!paused) {
         this.forcedFallbackRoles.delete(taskId)
+        this.forcedFallbackModels.delete(taskId)
         return false
       }
       return this.resumeTask(taskId)
@@ -1136,18 +952,21 @@ export class OrchestratorEngine extends EventEmitter {
     this.fallbackInFlight.add(taskId)
     task.status = 'queued'
     task.finishedAt = undefined
-    task.lastAction = `Provider-Limit: sichere Fortsetzung mit ${fallback.provider}`
+    task.lastAction = fallbackModel
+      ? `Provider-Limit: sichere Fortsetzung mit Fallback-Modell ${fallbackModel}`
+      : `Provider-Limit: sichere Fortsetzung mit ${fallback!.provider}`
     task.note = 'Vertragus startet einen Ersatz-Worker aus dem gesicherten Recovery-Artefakt.'
     this.reliability.automaticRecoveries += 1
     this.push()
     void this.dispatch(
-      fallback.role,
+      targetRole,
       record.prompt,
       record.title,
       {
         ...record.options,
         taskId,
-        recoveryWorktree: task.recoveryArtifact?.worktree
+        recoveryWorktree: task.recoveryArtifact?.worktree,
+        modelOverride: fallbackModel
       }
     ).finally(() => this.fallbackInFlight.delete(taskId))
     return true
@@ -1157,6 +976,29 @@ export class OrchestratorEngine extends EventEmitter {
     const forced = this.forcedFallbackRoles.get(taskId)
     if (forced) this.forcedFallbackRoles.delete(taskId)
     return forced ?? currentRole
+  }
+
+  /**
+   * Next untried fallback model of the task's slot (retro learning: a
+   * "model at capacity" signal must walk the slot's fallback list before the
+   * engine burns a different provider slot or kills the run).
+   */
+  private nextFallbackModel(role: string, taskId: string): string | undefined {
+    let slot: AgentSlot
+    try {
+      slot = this.pickSlot(role).slot
+    } catch {
+      return undefined
+    }
+    const configured = slot.fallbackModels ?? []
+    if (configured.length === 0) return undefined
+    const attempted = this.attemptedFallbackModels.get(taskId) ?? new Set<string>()
+    const current = resolveSlotModel(slot.provider, slot)
+    const next = configured.find((model) => model !== current && !attempted.has(model))
+    if (!next) return undefined
+    attempted.add(next)
+    this.attemptedFallbackModels.set(taskId, attempted)
+    return next
   }
 
   private waitForTaskResume(taskId: string): Promise<void> {
@@ -1411,6 +1253,29 @@ export class OrchestratorEngine extends EventEmitter {
     return this.boundProfile ?? getProfile(getActiveProfileId())
   }
 
+  /** Per-profile skills (MCP surface: list_skills / record_skill / remove_skill). */
+  listSkills(): ProfileSkill[] {
+    return listProfileSkills(this.activeProfile()?.id)
+  }
+
+  recordSkill(input: RecordSkillInput): RecordSkillResult {
+    const result = recordProfileSkill(this.activeProfile()?.id, input)
+    // Keep the bound snapshot in sync so subsequent launches in this session
+    // inject the updated skills without a profile reload.
+    if (result.ok && this.boundProfile) {
+      this.boundProfile = { ...this.boundProfile, skills: result.skills }
+    }
+    return result
+  }
+
+  removeSkill(name: string): RecordSkillResult {
+    const result = removeProfileSkill(this.activeProfile()?.id, name)
+    if (result.ok && this.boundProfile) {
+      this.boundProfile = { ...this.boundProfile, skills: result.skills }
+    }
+    return result
+  }
+
   /**
    * Assign every profile slot a stable role before filtering dispatchability.
    * This keeps duplicate-role suffixes identical to the already-started team,
@@ -1604,7 +1469,7 @@ export class OrchestratorEngine extends EventEmitter {
     const parentTaskId = options.taskId ?? this.nextTaskId()
     const runId = `multi-${++this.multiAgentSeq}`
     const taskTitle = title?.trim() || prompt.split('\n')[0].slice(0, 60)
-    const parent: OrcaTask = this.tasks.get(parentTaskId) ?? {
+    const parent: VertragusTask = this.tasks.get(parentTaskId) ?? {
       id: parentTaskId, title: taskTitle, role: slotRole, status: 'running', createdAt: Date.now()
     }
     Object.assign(parent, {
@@ -1778,8 +1643,16 @@ export class OrchestratorEngine extends EventEmitter {
       })
     }
     const yolo = slot.yolo || (profile?.yoloDefault ?? false)
+    // Limit-fallback: an explicit override (options or a paused task resuming
+    // after a limit hit) replaces the slot's configured model for this launch.
+    const forcedModel = this.forcedFallbackModels.get(taskId)
+    if (forcedModel) this.forcedFallbackModels.delete(taskId)
+    const modelOverride = options.modelOverride ?? forcedModel
+    const launchSlot: AgentSlot = modelOverride
+      ? { ...slot, model: modelOverride, modelPreset: undefined }
+      : slot
 
-    const task: OrcaTask = this.tasks.get(taskId) ?? {
+    const task: VertragusTask = this.tasks.get(taskId) ?? {
       id: taskId,
       title: title?.trim() || prompt.split('\n')[0].slice(0, 60),
       role: slotRole,
@@ -1790,7 +1663,7 @@ export class OrchestratorEngine extends EventEmitter {
       title: title?.trim() || task.title,
       role: slotRole,
       provider: slot.provider,
-      model: resolveSlotModel(slot.provider, slot),
+      model: resolveSlotModel(launchSlot.provider, launchSlot),
       status: 'queued' as const,
       phase: 'queued' as const,
       lastAction: 'Wartet auf freie Kapazität',
@@ -1852,18 +1725,18 @@ export class OrchestratorEngine extends EventEmitter {
     this.push()
 
     const securityChecklist = securityChecklistForFiles(options.expectedFiles ?? [])
-    const orcaSubTools = subagentOrcaToolsAvailable(slot.provider)
+    const vertragusSubTools = subagentVertragusToolsAvailable(slot.provider)
     const executionContract = subagentExecutionContract({
       provider: slot.provider,
       yolo,
-      orcaSubTools,
+      vertragusSubTools,
       securityChecklist
     }).join('\n')
     const taskPrompt = `${prompt}\n\n${executionContract}`
     const subSystemPrompt =
       'Du bist ein namentlich gekennzeichneter Subagent in Vertragus, beauftragt vom Orchestrator. ' +
       'Erledige die Aufgabe eigenständig und fasse das Ergebnis am Ende knapp zusammen. ' +
-      'Git-Schreiboperationen werden ausschließlich von Orcas Main-Prozess ausgeführt.'
+      'Git-Schreiboperationen werden ausschließlich vom Vertragus-Main-Prozess ausgeführt.'
 
     const attemptNumber = options.attempt ?? (task.attempts?.length ?? 0) + 1
     let activeAttempt: TaskAttemptSnapshot | undefined
@@ -1913,9 +1786,9 @@ export class OrchestratorEngine extends EventEmitter {
     const dependencyBaseRef = this.resolveDependencyBaseRef(options.dependsOn)
     try {
       const { info, done, baseCommit } = await agentManager.runTask({
-        provider: slot.provider,
-        model: slot.model,
-        modelPreset: slot.modelPreset,
+        provider: launchSlot.provider,
+        model: launchSlot.model,
+        modelPreset: launchSlot.modelPreset,
         role: slotRole,
         taskId,
         prompt: taskPrompt,
@@ -1936,7 +1809,7 @@ export class OrchestratorEngine extends EventEmitter {
         attempt: attemptNumber,
         agentId: info.id,
         agentName: info.name,
-        provider: info.provider as OrcaTask['provider'],
+        provider: info.provider as VertragusTask['provider'],
         model: info.model,
         status: 'running',
         startedAt: Date.now()
@@ -2343,7 +2216,7 @@ export class OrchestratorEngine extends EventEmitter {
   }
 
   /** Keep a short, distinct history of what the worker actually did. */
-  private rememberTaskAction(task: OrcaTask): void {
+  private rememberTaskAction(task: VertragusTask): void {
     const action = task.lastAction?.trim()
     if (!action || task.recentActions?.[0] === action) return
     task.recentActions = [
@@ -2729,9 +2602,19 @@ export class OrchestratorEngine extends EventEmitter {
         : task.prompt
       const running = (async (): Promise<void> => {
         const maxRetries = profile?.planner.maxRetries ?? 1
-        const maxRateLimitRetries = Math.max(maxRetries, 1)
+        // Every configured fallback model grants one extra limit retry — a run
+        // must not die while untried slot fallbacks remain (retro backlog).
+        const slotFallbackCount = (() => {
+          try {
+            return this.pickSlot(task.role).slot.fallbackModels?.length ?? 0
+          } catch {
+            return 0
+          }
+        })()
+        const maxRateLimitRetries = Math.max(maxRetries, 1) + slotFallbackCount
         const attemptedRoles = new Set<string>()
         let requestedRole = task.role
+        let modelOverride: string | undefined
         let recoveryContext = ''
         let recoveryWorktree: string | undefined
 
@@ -2755,7 +2638,8 @@ export class OrchestratorEngine extends EventEmitter {
               ownership: task.ownership,
               attempt: attempt + 1,
               maxAttempts: maxRateLimitRetries + 1,
-              recoveryWorktree
+              recoveryWorktree,
+              modelOverride
             }
           )
           this.taskResults.set(runtimeId, output)
@@ -2792,6 +2676,26 @@ export class OrchestratorEngine extends EventEmitter {
 
           recoveryContext = output
           recoveryWorktree = runtimeTask?.recoveryArtifact?.worktree
+
+          // On a limit signal, FIRST walk the same slot's fallback-model list;
+          // only when it is exhausted switch to a different provider slot.
+          const fallbackModel = rateLimited
+            ? this.nextFallbackModel(requestedRole, runtimeId)
+            : undefined
+          if (fallbackModel) {
+            modelOverride = fallbackModel
+            this.reliability.automaticRecoveries += 1
+            this.setActivityState(
+              'delegating',
+              `Provider-Limit erkannt; Recovery ${attempt + 1}/${maxRateLimitRetries} bleibt auf dem Slot und wechselt auf Fallback-Modell ${fallbackModel}.`,
+              [`${task.title}: ${requestedRole}`],
+              'Ersatz-Worker auswerten und erst danach abhängige Aufgaben freigeben.'
+            )
+            this.push()
+            continue
+          }
+          modelOverride = undefined
+
           const alternatives = this.listSubagents()
             .filter((agent) =>
               agent.available && !attemptedRoles.has(agent.role) &&
@@ -2935,7 +2839,7 @@ export class OrchestratorEngine extends EventEmitter {
     if (lifecycle.gitPostProcessing?.status === 'failed') {
       const gitState = lifecycle.gitPostProcessing
       const error = gitState.error!
-      let runtimeId = `${planId}-orca-git-post-processing`
+      let runtimeId = `${planId}-vertragus-git-post-processing`
       while (this.tasks.has(runtimeId)) runtimeId += '-retry'
       const resultText = `${error.message} [${error.code}/${error.phase}]`
       this.tasks.set(runtimeId, {
@@ -2959,7 +2863,7 @@ export class OrchestratorEngine extends EventEmitter {
       })
       this.taskResults.set(runtimeId, resultText)
       gitTaskResult = {
-        id: 'orca-git-post-processing',
+        id: 'vertragus-git-post-processing',
         status: 'error',
         criticality: 'required',
         result: resultText,
@@ -3097,7 +3001,7 @@ export class OrchestratorEngine extends EventEmitter {
     }
 
     const integrationId = 'integration-' + (planId ?? Date.now().toString(36))
-    const integrationTask: OrcaTask = {
+    const integrationTask: VertragusTask = {
       id: integrationId,
       title: 'Integration & Abnahme',
       role: 'integrator',
@@ -3113,7 +3017,7 @@ export class OrchestratorEngine extends EventEmitter {
       createdAt: Date.now()
     }
     const changedCommits = new Set(changes.map((change) => change.commit))
-    const affectedTasks = (): OrcaTask[] => [...this.tasks.values()].filter(
+    const affectedTasks = (): VertragusTask[] => [...this.tasks.values()].filter(
       (task) => Boolean(task.commit && changedCommits.has(task.commit))
     )
     const applyRemoteCi = (remoteCi: RemoteCiOutcome): void => {
@@ -3219,7 +3123,7 @@ export class OrchestratorEngine extends EventEmitter {
     planId: string,
     goal: string,
     status: ExecutionPlanResult['status'],
-    planTasks: OrcaTask[]
+    planTasks: VertragusTask[]
   ): RunRetro | undefined {
     // Selbsttests sind keine Modellbeobachtungen: weder lokal lernen noch
     // exportieren, sonst entstehen fabrizierte Weakness-Learnings.
@@ -3261,7 +3165,7 @@ export class OrchestratorEngine extends EventEmitter {
    */
   private buildDelegationRetro(
     planId: string,
-    planTasks: OrcaTask[]
+    planTasks: VertragusTask[]
   ): DelegationRetro | undefined {
     const estimate = this.planEstimates.get(planId)
     if (!estimate) return undefined
@@ -3363,7 +3267,7 @@ export class OrchestratorEngine extends EventEmitter {
     return resolveSlotModel(provider, model?.trim() ? { model } : (configured ?? { model: '' }))
   }
 
-  private resolvedRetroTasks(planId: string): OrcaTask[] {
+  private resolvedRetroTasks(planId: string): VertragusTask[] {
     return [...this.tasks.values()]
       .filter((task) => task.planId === planId)
       .map((task) => ({
@@ -3597,7 +3501,7 @@ export class OrchestratorEngine extends EventEmitter {
     }>
   }): BenchmarkRecord {
     const run = this.benchmarkRuns.get(input.benchmarkId)
-    const resolveContestant = (role: string): OrcaTask | undefined => {
+    const resolveContestant = (role: string): VertragusTask | undefined => {
       if (!run) return undefined
       return run.taskIds
         .map((taskId) => this.tasks.get(taskId))

@@ -67,7 +67,7 @@ describe('headless prompt enhancement provider adapter', () => {
       systemPrompt: 'trusted rules',
       extraArgs: []
     })
-    expect(runner.mock.calls[0]?.[2].workingDir).toMatch(/orca-prompt-enhancement-/)
+    expect(runner.mock.calls[0]?.[2].workingDir).toMatch(/vertragus-prompt-enhancement-/)
     expect(capacity.acquireWait).toHaveBeenCalledWith('codex', expect.any(Object))
     expect(capacity.release).toHaveBeenCalledWith('codex')
   })

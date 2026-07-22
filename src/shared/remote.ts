@@ -1,5 +1,5 @@
 /** Node-free Mission Control contracts shared by Electron and the mobile PWA. */
-import type { OrchestratorSnapshot, OrcaTask, PendingPlanReview } from './orchestrator'
+import type { OrchestratorSnapshot, VertragusTask, PendingPlanReview } from './orchestrator'
 
 export const REMOTE_CAPABILITIES = [
   'read',
@@ -105,7 +105,7 @@ export interface ApprovalItem {
   summary: string
   createdAt: number
   plan?: PendingPlanReview
-  task?: OrcaTask
+  task?: VertragusTask
   permission?: PermissionRequest
   actions: RemoteCommandId[]
 }

@@ -7,8 +7,16 @@ import { stat } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { IPC, type AppInfo } from '@shared/ipc'
-import { assertValidConfigKey } from '@shared/ipcValidation'
-import type { AgentInstanceInfo, BulkHandoffRequest, HandoffRequest, SpawnAgentRequest, VertragusEvent } from '@shared/agents'
+import { assertIpcId, assertIpcOptionalId, assertValidConfigKey } from '@shared/ipcValidation'
+import { parseIpcPayload } from '@main/security/ipcPayload'
+import type { AgentInstanceInfo, SpawnAgentRequest, VertragusEvent } from '@shared/agents'
+import {
+  bulkHandoffRequestSchema,
+  githubRepoBindRequestSchema,
+  handoffRequestSchema,
+  inboxSpeechSettingsPatchSchema,
+  spawnAgentRequestSchema
+} from '@shared/ipcSchemas'
 import type { OrchestratorSnapshot } from '@shared/orchestrator'
 import type { RemoteBudgetCaps } from '@shared/remote'
 import type { ProviderId } from '@shared/providers'
@@ -17,8 +25,7 @@ import {
   type RepoProfileGenerationRequest,
   type WorkspaceProfile
 } from '@shared/profile'
-import type { McpServerConfig } from '@shared/mcp'
-import type { GithubRepoBindRequest } from '@shared/ipc'
+import { mcpServersSchema } from '@shared/mcp'
 import { checkAllProviders } from '@main/providers/health'
 import { listModels } from '@main/providers/models'
 import { gitInfo, switchBranch } from '@main/integrations/git'
@@ -98,13 +105,13 @@ import {
   listRunRetros
 } from '@main/orchestrator/retroStore'
 import { flushRetroExportQueue, retroSyncStatus } from '@main/orchestrator/retroExport'
-import type {
-  AddArtifactInput,
-  CreateIdeaInput,
-  UpdateIdeaInput
+import {
+  addArtifactInputSchema,
+  createIdeaInputSchema,
+  updateIdeaInputSchema
 } from '@shared/inbox'
-import type { IdeaTransferRequest } from '@shared/inboxTransfer'
-import type { InboxSpeechSettingsPatch, TranscribeAudioPayload } from '@shared/inboxSpeech'
+import { ideaTransferRequestSchema } from '@shared/inboxTransfer'
+import type { TranscribeAudioPayload } from '@shared/inboxSpeech'
 import {
   abortInboxTranscription,
   getInboxSpeechSettings,
@@ -177,8 +184,8 @@ function recordDiagnostic(
 // throw (a deleted-profile race is a real error the renderer can surface),
 // distinguishing it from a legitimate false/decline returned by the engine; the
 // read-only snapshot handler stays lenient. Mirrors the remote path's requireProfile.
-function requireProfile(profileId: string): WorkspaceProfile {
-  const profile = getProfile(profileId)
+function requireProfile(profileId: unknown): WorkspaceProfile {
+  const profile = getProfile(assertIpcId(profileId, 'Profil-ID'))
   if (!profile) throw new Error('Workspace-Profil nicht gefunden.')
   return profile
 }
@@ -315,14 +322,16 @@ export function registerIpcHandlers(): void {
     if (!latest) return null
     const result = await saveRunDialog(
       senderWindow(e),
-      `orca-run-${latest.runId}-${new Date(latest.updatedAt).toISOString().slice(0, 10)}.jsonl`
+      `vertragus-run-${latest.runId}-${new Date(latest.updatedAt).toISOString().slice(0, 10)}.jsonl`
     )
     if (result.canceled || !result.filePath) return null
     runJournal.export(latest.runId, result.filePath)
     return result.filePath
   })
-  ipcMain.handle(IPC.providerLogin, async (_e, id: ProviderId) => {
-    const info = await agentManager.loginProvider(id)
+  ipcMain.handle(IPC.providerLogin, async (_e, id: unknown) => {
+    const info = await agentManager.loginProvider(
+      assertIpcId(id, 'Provider-Angabe', 64) as ProviderId
+    )
     createPaneWindow(info.id)
     return info
   })
@@ -433,19 +442,27 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.mcpList, () => listMcpServers())
   // mcpSave persists an arbitrary stdio command that is launched on the next agent
   // spawn — a code-execution primitive that must never be reachable from the voice overlay.
-  ipcMain.handle(IPC.mcpSave, (e, servers: McpServerConfig[]) => {
+  ipcMain.handle(IPC.mcpSave, (e, servers: unknown) => {
     assertNotVoiceWindow(e)
-    return saveMcpServers(servers)
+    return saveMcpServers(parseIpcPayload(mcpServersSchema, servers, 'MCP-Server-Liste'))
   })
 
   // ---- git ----
-  ipcMain.handle(IPC.gitSwitchBranch, (e, dir: string, branch: string) => {
+  ipcMain.handle(IPC.gitSwitchBranch, (e, dir: unknown, branch: unknown) => {
     assertNotVoiceWindow(e)
-    return switchBranch(dir, branch)
+    return switchBranch(
+      assertIpcId(dir, 'Verzeichnisangabe', 4096),
+      assertIpcId(branch, 'Branch-Angabe', 512)
+    )
   })
-  ipcMain.handle(IPC.gitInfo, (_e, dir: string) => gitInfo(dir))
-  ipcMain.handle(IPC.githubProjects, (_e, dir: string, owner?: string) =>
-    listGithubProjects(dir, owner)
+  ipcMain.handle(IPC.gitInfo, (_e, dir: unknown) =>
+    gitInfo(assertIpcId(dir, 'Verzeichnisangabe', 4096))
+  )
+  ipcMain.handle(IPC.githubProjects, (_e, dir: unknown, owner?: unknown) =>
+    listGithubProjects(
+      assertIpcId(dir, 'Verzeichnisangabe', 4096),
+      assertIpcOptionalId(owner, 'Owner-Angabe', 200)
+    )
   )
   ipcMain.handle(IPC.githubAuthStatus, () => githubAuthStatus())
   ipcMain.handle(IPC.githubAuthLogin, async (e) => {
@@ -469,19 +486,29 @@ export function registerIpcHandlers(): void {
       .catch((error) => console.warn('[GitHub] refresh after logout failed', error))
     return status
   })
-  ipcMain.handle(IPC.githubRepoSearch, (e, query: string, limit?: number) => {
+  ipcMain.handle(IPC.githubRepoSearch, (e, query: unknown, limit?: unknown) => {
     assertNotVoiceWindow(e)
-    return searchGithubRepos(query, limit)
+    const boundedLimit = typeof limit === 'number' && Number.isFinite(limit)
+      ? Math.max(1, Math.min(50, Math.trunc(limit)))
+      : undefined
+    return searchGithubRepos(assertIpcId(query, 'Suchanfrage', 512), boundedLimit)
   })
-  ipcMain.handle(IPC.githubRepoResolve, (_e, owner: string, repo: string) =>
-    resolveGithubRepo(owner, repo)
+  ipcMain.handle(IPC.githubRepoResolve, (_e, owner: unknown, repo: unknown) =>
+    resolveGithubRepo(
+      assertIpcId(owner, 'Owner-Angabe', 200),
+      assertIpcId(repo, 'Repository-Angabe', 200)
+    )
   )
-  ipcMain.handle(IPC.githubRepoBind, (e, req: GithubRepoBindRequest) => {
+  ipcMain.handle(IPC.githubRepoBind, (e, req: unknown) => {
     assertNotVoiceWindow(e)
-    return bindGithubRepo(req)
+    return bindGithubRepo(parseIpcPayload(githubRepoBindRequestSchema, req, 'Repository-Bindung'))
   })
-  ipcMain.handle(IPC.githubRepoCheckLocal, (_e, owner: string, repo: string, localPath: string) =>
-    checkGithubRepoLocal(owner, repo, localPath)
+  ipcMain.handle(IPC.githubRepoCheckLocal, (_e, owner: unknown, repo: unknown, localPath: unknown) =>
+    checkGithubRepoLocal(
+      assertIpcId(owner, 'Owner-Angabe', 200),
+      assertIpcId(repo, 'Repository-Angabe', 200),
+      assertIpcId(localPath, 'Pfadangabe', 4096)
+    )
   )
 
   // ---- native folder picker ----
@@ -518,15 +545,26 @@ export function registerIpcHandlers(): void {
 
   // ---- ideas inbox ----
   ipcMain.handle(IPC.ideasList, () => listIdeas())
-  ipcMain.handle(IPC.ideasGet, (_e, id: string) => getIdea(id))
-  ipcMain.handle(IPC.ideasCreate, (_e, input?: CreateIdeaInput) => createIdea(input))
-  ipcMain.handle(IPC.ideasUpdate, (_e, input: UpdateIdeaInput) => updateIdea(input))
-  ipcMain.handle(IPC.ideasDelete, (_e, id: string) => deleteIdea(id))
-  ipcMain.handle(IPC.ideasAddArtifact, async (_e, ideaId: string, input: AddArtifactInput) =>
-    addArtifact(ideaId, input)
+  ipcMain.handle(IPC.ideasGet, (_e, id: unknown) => getIdea(assertIpcId(id, 'Ideen-ID')))
+  ipcMain.handle(IPC.ideasCreate, (_e, input?: unknown) =>
+    createIdea(
+      input === undefined
+        ? undefined
+        : parseIpcPayload(createIdeaInputSchema, input, 'Ideen-Eingabe')
+    )
   )
-  ipcMain.handle(IPC.ideasRemoveArtifact, (_e, ideaId: string, artifactId: string) =>
-    removeArtifact(ideaId, artifactId)
+  ipcMain.handle(IPC.ideasUpdate, (_e, input: unknown) =>
+    updateIdea(parseIpcPayload(updateIdeaInputSchema, input, 'Ideen-Aktualisierung'))
+  )
+  ipcMain.handle(IPC.ideasDelete, (_e, id: unknown) => deleteIdea(assertIpcId(id, 'Ideen-ID')))
+  ipcMain.handle(IPC.ideasAddArtifact, async (_e, ideaId: unknown, input: unknown) =>
+    addArtifact(
+      assertIpcId(ideaId, 'Ideen-ID'),
+      parseIpcPayload(addArtifactInputSchema, input, 'Artefakt-Eingabe')
+    )
+  )
+  ipcMain.handle(IPC.ideasRemoveArtifact, (_e, ideaId: unknown, artifactId: unknown) =>
+    removeArtifact(assertIpcId(ideaId, 'Ideen-ID'), assertIpcId(artifactId, 'Artefakt-ID'))
   )
   ipcMain.handle(IPC.ideasRemoveAttribute, (event, ideaId: unknown, attribute: unknown) =>
     inboxArchiveController.removeAttribute(event as ArchiveIpcEventLike, ideaId, attribute)
@@ -534,11 +572,11 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.ideasRestore, (event, ideaId: unknown) =>
     inboxArchiveController.restoreIdea(event as ArchiveIpcEventLike, ideaId)
   )
-  ipcMain.handle(IPC.ideasTransferToProfile, (_e, req: IdeaTransferRequest) =>
-    transferIdeaToProfile(req)
+  ipcMain.handle(IPC.ideasTransferToProfile, (_e, req: unknown) =>
+    transferIdeaToProfile(parseIpcPayload(ideaTransferRequestSchema, req, 'Transfer-Anfrage'))
   )
-  ipcMain.handle(IPC.ideasTransferRetry, (_e, ideaId: string, yoloMaster?: boolean) =>
-    retryIdeaTransfer(ideaId, yoloMaster)
+  ipcMain.handle(IPC.ideasTransferRetry, (_e, ideaId: unknown, yoloMaster?: unknown) =>
+    retryIdeaTransfer(assertIpcId(ideaId, 'Ideen-ID'), yoloMaster === true)
   )
   ipcMain.handle(IPC.ideasEnhancePrompt, (event, request: unknown) =>
     promptController.enhance(event, request)
@@ -546,15 +584,20 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.ideasAbortPromptEnhancement, (event, request: unknown) =>
     promptController.abort(event, request)
   )
-  ipcMain.handle(IPC.ideasTransferReset, (_e, ideaId: string) => resetIdeaTransfer(ideaId))
+  ipcMain.handle(IPC.ideasTransferReset, (_e, ideaId: unknown) =>
+    resetIdeaTransfer(assertIpcId(ideaId, 'Ideen-ID'))
+  )
 
   // ---- inbox speech-to-text ----
   ipcMain.handle(IPC.inboxSpeechStatus, () => getInboxSpeechStatus())
   ipcMain.handle(IPC.inboxSpeechGetSettings, () => getInboxSpeechSettings())
-  ipcMain.handle(IPC.inboxSpeechSetSettings, (_e, patch: InboxSpeechSettingsPatch) =>
-    setInboxSpeechSettings(patch)
+  ipcMain.handle(IPC.inboxSpeechSetSettings, (_e, patch: unknown) =>
+    setInboxSpeechSettings(
+      parseIpcPayload(inboxSpeechSettingsPatchSchema, patch, 'Speech-Einstellungen')
+    )
   )
   ipcMain.handle(IPC.inboxSpeechTranscribe, (_e, payload: TranscribeAudioPayload) =>
+    // Payload shape (bounded base64 audio) is enforced inside transcribeInboxAudio.
     transcribeInboxAudio(payload)
   )
   ipcMain.handle(IPC.inboxSpeechAbort, () => {
@@ -601,8 +644,13 @@ export function registerIpcHandlers(): void {
 
   // ---- agents ----
   ipcMain.handle(IPC.agentsList, () => agentManager.list())
-  ipcMain.handle(IPC.agentSpawn, (e, req: SpawnAgentRequest) => {
+  ipcMain.handle(IPC.agentSpawn, (e, rawRequest: unknown) => {
     assertNotVoiceWindow(e)
+    const req: SpawnAgentRequest = parseIpcPayload(
+      spawnAgentRequestSchema,
+      rawRequest,
+      'Agent-Startanfrage'
+    )
     if (!req.profileId) return agentManager.spawn(req)
     const profile = getProfile(req.profileId)
     if (!profile) throw new Error('Workspace-Profil nicht gefunden.')
@@ -613,11 +661,11 @@ export function registerIpcHandlers(): void {
       engineId: session.engine.engineId
     })
   })
-  ipcMain.handle(IPC.agentsSpawnProfile, async (e, profileId: string, yoloMaster: boolean) => {
+  ipcMain.handle(IPC.agentsSpawnProfile, async (e, profileId: unknown, yoloMaster: unknown) => {
     assertNotVoiceWindow(e)
-    const profile = getProfile(profileId)
+    const profile = getProfile(assertIpcId(profileId, 'Profil-ID'))
     if (!profile) return []
-    return spawnProfileTeam(profile, yoloMaster, {
+    return spawnProfileTeam(profile, yoloMaster === true, {
       workingDirOverride: getActiveRepoOverridePath()
     })
   })
@@ -633,35 +681,41 @@ export function registerIpcHandlers(): void {
     if (isVoiceWindowSender(e.sender)) return
     agentManager.resize(id, cols, rows)
   })
-  ipcMain.handle(IPC.agentKill, (e, id: string) => {
+  ipcMain.handle(IPC.agentKill, (e, id: unknown) => {
     assertNotVoiceWindow(e)
-    return agentManager.kill(id)
+    return agentManager.kill(assertIpcId(id, 'Agent-ID'))
   })
   ipcMain.handle(IPC.agentsKillAll, (e) => {
     assertNotVoiceWindow(e)
     return agentManager.killAll()
   })
-  ipcMain.handle(IPC.agentsClean, async (e, profileId: string, workspaceSessionId?: string) => {
+  ipcMain.handle(IPC.agentsClean, async (e, rawProfileId: unknown, rawSessionId?: unknown) => {
     assertNotVoiceWindow(e)
+    const profileId = assertIpcId(rawProfileId, 'Profil-ID')
+    const workspaceSessionId = assertIpcOptionalId(rawSessionId, 'Workspace-Session-ID')
     await agentManager.removeAll(profileId, workspaceSessionId)
     if (workspaceSessionId) workspaceSessions.removeSession(workspaceSessionId)
     else workspaceSessions.remove(profileId)
   })
-  ipcMain.handle(IPC.agentBuffer, (_e, id: string) => agentManager.buffer(id))
-  ipcMain.handle(IPC.agentBufferTail, (_e, id: string, maxChars: number) =>
-    agentManager.bufferTail(id, maxChars)
+  ipcMain.handle(IPC.agentBuffer, (_e, id: unknown) =>
+    agentManager.buffer(assertIpcId(id, 'Agent-ID'))
   )
-  ipcMain.handle(IPC.agentPopout, (e, id: string) => {
+  ipcMain.handle(IPC.agentBufferTail, (_e, id: unknown, maxChars: number) =>
+    agentManager.bufferTail(assertIpcId(id, 'Agent-ID'), maxChars)
+  )
+  ipcMain.handle(IPC.agentPopout, (e, id: unknown) => {
     assertNotVoiceWindow(e)
-    createPaneWindow(id)
+    createPaneWindow(assertIpcId(id, 'Agent-ID'))
   })
-  ipcMain.handle(IPC.agentHandoff, (e, req: HandoffRequest) => {
+  ipcMain.handle(IPC.agentHandoff, (e, req: unknown) => {
     assertNotVoiceWindow(e)
-    return agentManager.handoff(req)
+    return agentManager.handoff(parseIpcPayload(handoffRequestSchema, req, 'Übergabe-Anfrage'))
   })
-  ipcMain.handle(IPC.agentsBulkHandoff, (e, req: BulkHandoffRequest) => {
+  ipcMain.handle(IPC.agentsBulkHandoff, (e, req: unknown) => {
     assertNotVoiceWindow(e)
-    return agentManager.bulkHandoff(req)
+    return agentManager.bulkHandoff(
+      parseIpcPayload(bulkHandoffRequestSchema, req, 'Massenübergabe-Anfrage')
+    )
   })
 
   // ---- orchestrator ----
@@ -697,12 +751,13 @@ export function registerIpcHandlers(): void {
     assertNotVoiceWindow(e)
     return workspaceSessions.reviewPlan(requireProfile(profileId), Boolean(approved), workspaceSessionId)
   })
-  ipcMain.handle(IPC.orchestratorTaskDiff, async (_e, profileId: string, taskId: string, workspaceSessionId?: string) => {
-    const profile = getProfile(profileId)
+  ipcMain.handle(IPC.orchestratorTaskDiff, async (_e, profileId: unknown, taskId: unknown, workspaceSessionId?: unknown) => {
+    const profile = getProfile(assertIpcId(profileId, 'Profil-ID'))
     if (!profile) throw new Error('Workspace-Profil nicht gefunden.')
+    const requestedTaskId = assertIpcId(taskId, 'Task-ID')
     const task = workspaceSessions
-      .snapshot(profile, workspaceSessionId)
-      .tasks.find((entry) => entry.id === taskId)
+      .snapshot(profile, assertIpcOptionalId(workspaceSessionId, 'Workspace-Session-ID'))
+      .tasks.find((entry) => entry.id === requestedTaskId)
     if (!task) throw new Error('Aufgabe nicht gefunden.')
     return loadTaskReviewDiff(task)
   })
@@ -899,7 +954,7 @@ export function registerIpcHandlers(): void {
       at: evt.time,
       payload: evt
     })
-    broadcast(IPC.evOrcaEvent, evt)
+    broadcast(IPC.evVertragusEvent, evt)
   })
   workspaceSessions.on('changed', () => {
     broadcast(IPC.evWorkspaceSessions, workspaceSessions.list())

@@ -427,7 +427,7 @@ describe('faithful shim launch delivers arguments to a real process', () => {
   })
 
   async function makeShim(): Promise<{ shim: string; dir: string }> {
-    const dir = await realFs.mkdtemp(join(tmpdir(), 'orca-shim-'))
+    const dir = await realFs.mkdtemp(join(tmpdir(), 'vertragus-shim-'))
     dirs.push(dir)
     // Prints exactly the arguments the target process received, as JSON.
     await realFs.writeFile(

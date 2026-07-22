@@ -1,7 +1,7 @@
 {
   "name": "vertragus",
   "version": "0.1.0",
-  "description": "Vertragus \u2014 orchestrate and run multiple AI coding agents in parallel (cross-platform desktop: Windows + macOS + Linux)",
+  "description": "Vertragus — orchestrate and run multiple AI coding agents in parallel (cross-platform desktop: Windows + macOS + Linux)",
   "main": "./out/main/index.js",
   "author": "Nehmo101",
   "license": "MIT",
@@ -29,7 +29,9 @@
     "build:win": "pnpm run build && electron-builder --win",
     "build:mac": "pnpm run build && electron-builder --mac --universal",
     "build:linux": "pnpm run build && electron-builder --linux",
-    "ci": "pnpm run icons && pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build:mobile && electron-vite build"
+    "ci": "pnpm run icons && pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build:mobile && electron-vite build",
+    "seed:teststore": "tsx --tsconfig tsconfig.node.json scripts/testStore/seed.ts",
+    "test:e2e": "node scripts/e2e-smoke.mjs"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.1",
@@ -61,6 +63,7 @@
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.7.0",
+    "playwright-core": "^1.61.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "sharp": "^0.35.3",

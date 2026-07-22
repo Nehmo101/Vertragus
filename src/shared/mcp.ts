@@ -36,12 +36,27 @@ export const MCP_SCOPE_LABELS: Record<McpScope, string> = {
  */
 export const MCP_NAME_PATTERN = /^[A-Za-z0-9_-]{1,48}$/
 
+/**
+ * Names of the in-app Vertragus MCP servers (current + legacy). An external
+ * server under one of these keys would silently shadow the internal
+ * orchestrator/subagent server in the generated launch config (last one wins),
+ * so they are rejected at validation and filtered defensively at launch.
+ */
+export const RESERVED_MCP_SERVER_NAMES = ['vertragus', 'vertragus-sub', 'orca', 'orca-sub'] as const
+
+export function isReservedMcpServerName(name: string): boolean {
+  return (RESERVED_MCP_SERVER_NAMES as readonly string[]).includes(name.toLowerCase())
+}
+
 export const mcpServerSchema = z.object({
   id: z.string().min(1),
   /** Bare identifier used as the MCP key / tool namespace. */
   name: z
     .string()
-    .regex(MCP_NAME_PATTERN, 'Nur Buchstaben, Zahlen, _ und - (max. 48 Zeichen).'),
+    .regex(MCP_NAME_PATTERN, 'Nur Buchstaben, Zahlen, _ und - (max. 48 Zeichen).')
+    .refine((name) => !isReservedMcpServerName(name), {
+      message: 'Dieser Name ist für die internen Vertragus-Server reserviert.'
+    }),
   /** Disabled servers are kept but never attached to an agent. */
   enabled: z.boolean().default(true),
   transport: z.enum(MCP_TRANSPORTS).default('stdio'),
@@ -90,6 +105,7 @@ export function mcpScopeMatches(scope: McpScope, kind: 'orchestrator' | 'subagen
  */
 export function isMcpServerComplete(server: McpServerConfig): boolean {
   if (!MCP_NAME_PATTERN.test(server.name)) return false
+  if (isReservedMcpServerName(server.name)) return false
   return server.transport === 'stdio'
     ? server.command.trim().length > 0
     : server.url.trim().length > 0

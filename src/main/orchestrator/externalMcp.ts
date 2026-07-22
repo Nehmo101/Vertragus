@@ -11,6 +11,7 @@ import { app } from 'electron'
 import type { AgentProviderId } from '@shared/providers'
 import {
   isMcpServerComplete,
+  isReservedMcpServerName,
   mcpScopeMatches,
   providerSupportsExternalMcp,
   type McpServerConfig
@@ -72,6 +73,10 @@ export function externalMcpSpecsFor(
     if (!server.enabled) continue
     if (!mcpScopeMatches(server.scope, kind)) continue
     if (!isMcpServerComplete(server)) continue
+    // Defense in depth: a reserved name would shadow the internal Vertragus
+    // server in the generated config (last one wins). The schema rejects these
+    // too, but pre-validation stores may still carry one.
+    if (isReservedMcpServerName(server.name)) continue
     byName.set(server.name, toSpec(server))
   }
   return [...byName.values()]
@@ -82,7 +87,7 @@ export function externalMcpSpecsFor(
  * scoped to one running task, or undefined when the Vertragus MCP server is not up
  * or no task scope was provided.
  */
-function orcaSubagentSpec(context: SubagentMcpContext): McpServerSpec | undefined {
+function vertragusSubagentSpec(context: SubagentMcpContext): McpServerSpec | undefined {
   const base = getMcpHandle()?.subagentUrl
   if (!base || !context.taskId) return undefined
   const url = new URL(base)
@@ -106,7 +111,7 @@ function orcaSubagentSpec(context: SubagentMcpContext): McpServerSpec | undefine
  * tools attached — used to decide whether the execution contract should
  * mention them.
  */
-export function subagentOrcaToolsAvailable(provider: AgentProviderId): boolean {
+export function subagentVertragusToolsAvailable(provider: AgentProviderId): boolean {
   return providerSupportsExternalMcp(provider) && Boolean(getMcpHandle()?.subagentUrl)
 }
 
@@ -122,9 +127,9 @@ export function buildSubagentMcpArgs(
   context: SubagentMcpContext = {}
 ): string[] {
   if (!providerSupportsExternalMcp(provider)) return []
-  const orcaSub = orcaSubagentSpec(context)
+  const vertragusSub = vertragusSubagentSpec(context)
   const servers = [
-    ...(orcaSub ? [orcaSub] : []),
+    ...(vertragusSub ? [vertragusSub] : []),
     ...externalMcpSpecsFor('subagent', provider)
   ]
   if (servers.length === 0) return []
@@ -139,7 +144,7 @@ export function buildSubagentMcpArgs(
       strict: false,
       includeReadonlyTools: false
     })
-    if (context.permissionPrompt && orcaSub) {
+    if (context.permissionPrompt && vertragusSub) {
       args.push('--permission-prompt-tool', SUBAGENT_PERMISSION_PROMPT_TOOL)
     }
     return args

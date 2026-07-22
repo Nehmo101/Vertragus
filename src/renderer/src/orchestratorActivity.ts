@@ -1,6 +1,6 @@
 import type { AgentInstanceInfo, AgentStatus } from '@shared/agents'
 import type {
-  OrcaTask,
+  VertragusTask,
   OrchestratorActivity,
   OrchestratorActivityPhase,
   OrchestratorSnapshot,
@@ -32,18 +32,18 @@ export const TASK_PHASE_LABEL: Record<TaskPhase, string> = {
   completed: 'Abgeschlossen'
 }
 
-function taskDetails(tasks: OrcaTask[]): string[] {
+function taskDetails(tasks: VertragusTask[]): string[] {
   return tasks.slice(0, 4).map((task) => {
     const owner = task.agentName ?? task.role
     return `${owner}: ${task.title} · ${task.lastAction ?? task.phase ?? task.status}`
   })
 }
 
-export function liveOrchestratorTasks(tasks: OrcaTask[]): OrcaTask[] {
+export function liveOrchestratorTasks(tasks: VertragusTask[]): VertragusTask[] {
   return tasks.filter((task) => task.status === 'running' || task.status === 'queued')
 }
 
-export function taskActivityText(task: OrcaTask): string {
+export function taskActivityText(task: VertragusTask): string {
   const phase = task.phase ? TASK_PHASE_LABEL[task.phase] : task.status === 'running' ? 'Arbeitet' : 'Wartet'
   const action = task.lastAction?.trim()
   return action ? `${phase} · ${action}` : phase

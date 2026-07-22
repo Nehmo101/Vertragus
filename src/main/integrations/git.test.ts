@@ -15,9 +15,9 @@ describe('workspace branch selection', () => {
   let dir: string
 
   beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), 'orca-git-'))
+    dir = await mkdtemp(join(tmpdir(), 'vertragus-git-'))
     await git(dir, 'init')
-    await git(dir, 'config', 'user.email', 'test@orca.local')
+    await git(dir, 'config', 'user.email', 'test@vertragus.local')
     await git(dir, 'config', 'user.name', 'Vertragus Test')
     await writeFile(join(dir, 'README.md'), '# test\n', 'utf8')
     await git(dir, 'add', 'README.md')

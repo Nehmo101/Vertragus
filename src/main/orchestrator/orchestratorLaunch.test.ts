@@ -5,7 +5,10 @@ const mcp = vi.hoisted(() => ({
 }))
 
 vi.mock('electron', () => ({ app: { getPath: () => '.' } }))
-vi.mock('@main/orchestrator/mcpHandle', () => ({ getMcpHandle: () => mcp.handle }))
+vi.mock('@main/orchestrator/mcpHandle', () => ({
+  getMcpHandle: () => mcp.handle,
+  ORCHESTRATOR_MCP_SERVER_NAME: 'vertragus'
+}))
 vi.mock('@main/orchestrator/externalMcp', () => ({ externalMcpSpecsFor: () => [] }))
 vi.mock('@main/orchestrator/promptOverlay', () => ({ getPromptOverlay: vi.fn(() => undefined) }))
 
@@ -100,7 +103,7 @@ describe('orchestrator progress communication prompt', () => {
   it('binds the concrete agent, workspace session and engine to the MCP URL', () => {
     mcp.handle = {
       url: 'http://127.0.0.1:1234/mcp?token=server-secret',
-      allowedTools: ['mcp__orca__get_handoff_context'],
+      allowedTools: ['mcp__vertragus__get_handoff_context'],
       close: async () => undefined
     }
 

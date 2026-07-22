@@ -255,7 +255,7 @@ export interface RunRetro {
 
 /**
  * Minimal task projection accepted by the run analyzer.
- * OrcaTask is structurally compatible, but the analyzer stays independent of
+ * VertragusTask is structurally compatible, but the analyzer stays independent of
  * the complete orchestration schema and can be reused by import/export tools.
  */
 export interface RetroTaskObservation {

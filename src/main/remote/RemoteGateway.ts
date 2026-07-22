@@ -118,13 +118,24 @@ function bearer(req: IncomingMessage): string | undefined {
   return match?.[1]
 }
 
+/**
+ * Bearer-token subprotocol prefixes, canonical first. The legacy `orca-*`
+ * family stays accepted indefinitely so already-paired devices keep working;
+ * clients offer both so every client×server version pairing negotiates.
+ */
+const WS_BEARER_PREFIXES = ['vertragus-bearer.', 'orca-bearer.'] as const
+const WS_PROTOCOL_VERSIONS = ['vertragus-v1', 'orca-v1'] as const
+
 function websocketBearer(req: IncomingMessage): string | undefined {
   const header = req.headers['sec-websocket-protocol']
   if (!header || Array.isArray(header)) return undefined
-  const protocol = header.split(',').map((value) => value.trim())
-    .find((value) => value.startsWith('orca-bearer.'))
-  const token = protocol?.slice('orca-bearer.'.length)
-  return token && /^[A-Za-z0-9_-]{32,512}$/.test(token) ? token : undefined
+  const protocols = header.split(',').map((value) => value.trim())
+  for (const prefix of WS_BEARER_PREFIXES) {
+    const protocol = protocols.find((value) => value.startsWith(prefix))
+    const token = protocol?.slice(prefix.length)
+    if (token && /^[A-Za-z0-9_-]{32,512}$/.test(token)) return token
+  }
+  return undefined
 }
 
 function requestHost(req: IncomingMessage): string | undefined {
@@ -170,7 +181,8 @@ export async function startRemoteGateway(options: GatewayOptions): Promise<Remot
   const webSocketServer = wsRuntime ? new wsRuntime.WebSocketServer({
       noServer: true,
       maxPayload: REMOTE_COMMAND_BODY_CAP,
-      handleProtocols: (protocols) => protocols.has('orca-v1') ? 'orca-v1' : false
+      handleProtocols: (protocols) =>
+        WS_PROTOCOL_VERSIONS.find((version) => protocols.has(version)) ?? false
     }) : undefined
   const wsOpen = wsRuntime?.WebSocket.OPEN ?? 1
 
