@@ -14,6 +14,15 @@ if (brandEnv('UI_SMOKE') && smokeUserData) {
   app.setPath('userData', smokeUserData)
 }
 
+// E2E smoke (scripts/e2e-smoke.mjs): run the real app against a seeded,
+// isolated userData directory. Unlike UI_SMOKE the app stays open and is
+// driven from outside (Playwright), so only the data dir is redirected and
+// background side effects (tray, retro sync) are skipped below.
+const e2eUserData = brandEnv('E2E_USER_DATA')
+if (e2eUserData) {
+  app.setPath('userData', e2eUserData)
+}
+
 /** Hard ceiling for the ordered quit sequence before app.exit() forces the end. */
 const SHUTDOWN_DEADLINE_MS = 8_000
 
@@ -88,7 +97,7 @@ app.whenReady().then(async () => {
 
   // Voice overlay: reachable from anywhere via a global shortcut and a tray icon.
   // Both just toggle the overlay window; the overlay owns no privileged rights.
-  if (!brandEnv('UI_SMOKE')) {
+  if (!brandEnv('UI_SMOKE') && !e2eUserData) {
     try {
       globalShortcut.register(VOICE_OVERLAY_SHORTCUT, () => windows.toggleVoiceOverlay())
     } catch (error) {
@@ -112,7 +121,7 @@ app.whenReady().then(async () => {
   }
 
   // Retro-Sync: drain queued retro exports on start + coarse retry interval.
-  if (!brandEnv('UI_SMOKE')) {
+  if (!brandEnv('UI_SMOKE') && !e2eUserData) {
     const retroExport = await import('@main/orchestrator/retroExport')
     retroExport.startRetroSyncScheduler()
   }

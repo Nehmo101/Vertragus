@@ -1582,6 +1582,19 @@ button {
   background: rgba(45, 212, 191, 0.12);
   color: var(--accent);
 }
+/* The 28px layout buttons are icon-only; the label is for screen readers.
+   Rendered visibly it painted across the neighboring buttons. */
+.layout-btn .layout-btn-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
 
 .ws-scroll {
   flex: 1;
@@ -4853,6 +4866,9 @@ textarea:focus-visible,
 .inbox-editor {
   overflow: auto;
   padding: 12px 14px 20px;
+  /* Grid children default to min-width:auto; without this the editor's
+     min-content width pushes the inbox under the fixed right-hand panel. */
+  min-width: 0;
 }
 .inbox-editor-head {
   display: flex;

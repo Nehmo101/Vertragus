@@ -724,7 +724,7 @@ export default function InboxPanel(): JSX.Element {
         <div className="inbox-error">{error || speech.error}</div>
       )}
 
-      {speech.status && (
+      {speech.status && Number.isFinite(speech.status.maxDurationMs) && Number.isFinite(speech.status.maxBytes) && (
         <div className="inbox-speech-hint">
           Limit: {Math.round(speech.status.maxDurationMs / 1000)}s ·{' '}
           {Math.round(speech.status.maxBytes / (1024 * 1024))} MB · Modell {speech.status.model}

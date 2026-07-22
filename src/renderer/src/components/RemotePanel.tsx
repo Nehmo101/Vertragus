@@ -350,10 +350,10 @@ export default function RemotePanel(): JSX.Element {
           </label>
           <label>{t('remote.pairing.actorId')}<input value={actorId} onChange={(event) => setActorId(event.target.value)} maxLength={160} /></label>
           <label>{t('remote.pairing.actorName')}<input value={actorName} onChange={(event) => setActorName(event.target.value)} maxLength={160} /></label>
-          <div className="remote-scope-list">
+          <div className="remote-scope-list" role="list">
             <strong>{t('remote.pairing.scopes')}</strong>
             {profiles.map((profile) => (
-              <div key={profile.id} className="remote-scope">
+              <div key={profile.id} className="remote-scope" role="listitem">
                 <span>{profile.name}</span>
                 {sessions.filter((session) => session.profileId === profile.id).map((session) => (
                   <label className="remote-checkbox" key={session.id}>

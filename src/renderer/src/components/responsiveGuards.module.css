@@ -80,6 +80,32 @@
   max-width: 130px;
 }
 
+/* Right-hand control clusters must never be squeezed into each other; drop
+   lower-priority info instead (clock first, then subtitle and counter text). */
+.titlebar :global(.lang-switch),
+.titlebar :global(.live-counter),
+.titlebar :global(.yolo-btn) {
+  flex: none;
+}
+@media (max-width: 1180px) {
+  .titlebar :global(.live-counter .clock),
+  .titlebar :global(.live-counter .sep) {
+    display: none;
+  }
+}
+@media (max-width: 1020px) {
+  .titlebar {
+    gap: 8px;
+  }
+  .titlebar :global(.wordmark-sub) {
+    display: none;
+  }
+  /* Dot-only live indicator; the exact count stays available on wider windows. */
+  .titlebar :global(.live-counter span:not(.pulse-dot)) {
+    display: none;
+  }
+}
+
 @container workspace (max-width: 760px) {
   .workspace :global(.ws-header) {
     height: auto;
