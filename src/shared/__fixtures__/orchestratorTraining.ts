@@ -1,4 +1,6 @@
 /**
+ * Test fixture — no production consumers; validated curriculum for the
+ * orchestrator training prompts (docs/ORCHESTRATOR_TRAINING_PROMPTS.md).
  * Orchestrator-Trainingskatalog.
  *
  * Diese Szenarien trainieren die KERNFÄHIGKEIT des Vertragus-Orchestrators:
@@ -14,7 +16,7 @@
  * Referenzplan, damit das Trainingsmaterial nicht von den echten Plan-Regeln
  * abdriftet (Single-Integrator, Shared-Hotspot-Ownership, azyklischer DAG …).
  */
-import type { ExecutionPlan } from './orchestrator'
+import type { ExecutionPlan } from '../orchestrator'
 
 /** Wie viele Subagents ein starker Plan hier tatsächlich einsetzen sollte. */
 export type TrainingTeamSize = 'solo' | 'small' | 'medium' | 'large'
@@ -816,8 +818,3 @@ export const orchestratorTrainingScenarios: readonly OrchestratorTrainingScenari
   recoveryReplan,
   benchmarkBakeoff
 ]
-
-/** Nachschlagen eines Szenarios über seine stabile id. */
-export function trainingScenarioById(id: string): OrchestratorTrainingScenario | undefined {
-  return orchestratorTrainingScenarios.find((scenario) => scenario.id === id)
-}

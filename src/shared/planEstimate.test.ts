@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { estimatePlanDelegation } from './planEstimate'
 import type { ExecutionPlan, ExecutionPlanTask } from './orchestrator'
-import { orchestratorTrainingScenarios } from './orchestratorTraining'
+import { orchestratorTrainingScenarios } from './__fixtures__/orchestratorTraining'
 
 function task(partial: Partial<ExecutionPlanTask> & { id: string }): ExecutionPlanTask {
   return {
