@@ -61,7 +61,7 @@ export async function probeProviderConnection(
   def: ProviderDef,
   run: AuthCommandRunner
 ): Promise<ProviderConnectionProbe> {
-  if (def.id === 'ollama') {
+  if (def.runsLocally) {
     return { connection: 'local', detail: 'Lokaler Dienst; Cloud-Login optional' }
   }
   if (!def.auth?.statusArgs) {
