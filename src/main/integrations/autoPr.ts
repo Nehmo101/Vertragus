@@ -123,6 +123,9 @@ async function captureNeedsWorkChange(
   }
 }
 
+/** Above this many files in one task commit an advisory granularity finding is raised. */
+const COMMIT_GRANULARITY_ADVISORY_THRESHOLD = 25
+
 export async function prepareTaskChange(input: PrepareTaskInput): Promise<PrepareTaskResult> {
   if (input.config.mode === 'off' && !input.commitOnly) {
     return { status: 'skipped', result: 'disabled', message: 'Auto-PR ist deaktiviert.' }
@@ -224,6 +227,18 @@ export async function prepareTaskChange(input: PrepareTaskInput): Promise<Prepar
       ? (await git(input.worktree, ['diff', '--name-only', baseCommit + '...' + contract.commit]))
           .split(/\r?\n/).map((file) => file.trim()).filter(Boolean)
       : stagedFiles
+    // Advisory only — oversized late-phase commits are a review burden and a
+    // recurring retro finding, but they must never block a verified delivery.
+    if (files.length > COMMIT_GRANULARITY_ADVISORY_THRESHOLD && commits.length === 1) {
+      hygieneFindings.push({
+        gate: 'commit',
+        code: 'commit-granularity',
+        message:
+          `Task-Commit umfasst ${files.length} Dateien in einem einzigen Commit — ` +
+          'für späte Phasen kleinere, thematisch getrennte Commits bevorzugen.',
+        files: files.slice(0, 32)
+      })
+    }
     const change: PreparedTaskChange = {
       taskId: input.taskId,
       title: input.title,

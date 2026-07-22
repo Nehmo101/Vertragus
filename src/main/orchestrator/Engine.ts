@@ -235,7 +235,8 @@ export function providerExecutionGuidance(
   if (provider !== 'codex' || yolo || platform !== 'win32') return []
   return [
     'Codex/Windows-Safe-Sandbox: Wenn ausschliesslich ein Node-Unterprozess mit spawn EPERM scheitert, ist das ein bekannter Sandbox-Gate-Fehler und kein fachlicher BLOCKER.',
-    'Codex/Windows-Safe-Sandbox: Arbeite in diesem Fall weiter, kennzeichne nur den betroffenen Test/Build als nicht ausfuehrbar und schliesse bei fachlich vollstaendiger Arbeit mit ERGEBNIS: ERFOLG; der Vertragus-Main-Prozess wiederholt die zentralen Abnahme-Gates ausserhalb der Worker-Sandbox.'
+    'Codex/Windows-Safe-Sandbox: Fuehre Vitest zuerst mit "--pool=threads --no-file-parallelism" aus — der Threads-Pool vermeidet die vom Sandbox-Token blockierten Kindprozess-Spawns des Forks-Pools und laesst viele Suiten trotz Sandbox laufen.',
+    'Codex/Windows-Safe-Sandbox: Scheitert auch das, arbeite weiter, kennzeichne nur den betroffenen Test/Build als nicht ausfuehrbar und schliesse bei fachlich vollstaendiger Arbeit mit ERGEBNIS: ERFOLG; der Vertragus-Main-Prozess wiederholt die zentralen Abnahme-Gates ausserhalb der Worker-Sandbox.'
   ]
 }
 
