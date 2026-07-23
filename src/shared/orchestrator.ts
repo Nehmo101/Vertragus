@@ -575,6 +575,15 @@ export interface SubagentDescriptor {
   /** Knowledge accumulated from retros and benchmarks of earlier runs. */
   learnedStrengths?: string[]
   learnedWeaknesses?: string[]
+  /**
+   * Aggregated judged-outcome record from persisted run retros (≥3 samples):
+   * the quantitative counterpart to the qualitative learned* texts.
+   */
+  trackRecord?: {
+    samples: number
+    successRate: number
+    reworkRate: number
+  }
   available: boolean
   /**
    * True when a dispatched worker of this provider receives the Vertragus subagent

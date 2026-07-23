@@ -103,6 +103,11 @@ import {
 } from '@main/integrations/autoPr'
 import { resolveExecutionPlan } from '@main/orchestrator/planner'
 import { applyTaskTransition } from '@main/orchestrator/taskStateMachine'
+import {
+  computeRoutingScores,
+  routingScoreFor,
+  type RoutingScore
+} from '@shared/retro/routingStats'
 import { Semaphore } from '@main/orchestrator/semaphore'
 import { subagentVertragusToolsAvailable } from '@main/orchestrator/externalMcp'
 import { computeBudgetSnapshot, computeIntegrationSnapshot } from '@main/orchestrator/engineSnapshots'
@@ -337,6 +342,7 @@ export class OrchestratorEngine extends EventEmitter {
   private readonly fallbackInFlight = new Set<string>()
   private readonly dispatchRecords = new Map<string, DispatchRecord>()
   private firstPlanApproved = true
+  private routingScoresCache: { at: number; scores: RoutingScore[] } | undefined
   /** Per-role capacity limiter — count = max parallel subagents of that role. */
   private boundProfile: WorkspaceProfile | undefined
   private readonly workspaceSessionId: string | undefined
@@ -1376,8 +1382,25 @@ export class OrchestratorEngine extends EventEmitter {
     }])
   }
 
+  /** Aggregated success track record from persisted retros (cached ~30 s). */
+  private routingScores(): RoutingScore[] {
+    const now = Date.now()
+    if (this.routingScoresCache && now - this.routingScoresCache.at < 30_000) {
+      return this.routingScoresCache.scores
+    }
+    let scores: RoutingScore[] = []
+    try {
+      scores = computeRoutingScores(listRunRetros(this.activeProfile()?.id))
+    } catch (error) {
+      console.warn('[Orchestrator] Routing-Statistik nicht lesbar', error)
+    }
+    this.routingScoresCache = { at: now, scores }
+    return scores
+  }
+
   listSubagents(): SubagentDescriptor[] {
     const profile = this.activeProfile()
+    const routing = this.routingScores()
     return this.slotsWithRoles().map(({ slot, role }) => {
       const capabilities = agentSlotCapabilities(slot)
       const workingDir = slot.workingDir || profile?.workingDir || homedir()
@@ -1393,6 +1416,7 @@ export class OrchestratorEngine extends EventEmitter {
       } catch (error) {
         console.warn('[Orchestrator] Modell-Lernwissen nicht lesbar', error)
       }
+      const track = routingScoreFor(routing, slot.provider, model)
       return {
         role,
         provider: slot.provider,
@@ -1403,6 +1427,9 @@ export class OrchestratorEngine extends EventEmitter {
         weaknesses: capabilities.weaknesses,
         learnedStrengths: learned.strengths,
         learnedWeaknesses: learned.weaknesses,
+        trackRecord: track
+          ? { samples: track.samples, successRate: track.successRate, reworkRate: track.reworkRate }
+          : undefined,
         available: preflight?.status !== 'failed',
         subagentReporting: providerSupportsSubagentReporting(slot.provider),
         preflight
@@ -2801,12 +2828,20 @@ export class OrchestratorEngine extends EventEmitter {
           }
           modelOverride = undefined
 
+          const routing = this.routingScores()
+          const provenScore = (agent: SubagentDescriptor): number =>
+            routingScoreFor(routing, agent.provider, agent.model)?.score ?? 0
           const alternatives = this.listSubagents()
             .filter((agent) =>
               agent.available && !attemptedRoles.has(agent.role) &&
               (!rateLimited || agent.provider !== runtimeTask?.provider)
             )
-            .sort((a, b) => (a.busy / a.capacity) - (b.busy / b.capacity))
+            // Least-loaded first; equal load falls back to the retro-proven
+            // success record instead of configuration order.
+            .sort((a, b) => {
+              const load = (a.busy / a.capacity) - (b.busy / b.capacity)
+              return load !== 0 ? load : provenScore(b) - provenScore(a)
+            })
           if ((!rateLimited && profile?.planner.routingMode !== 'adaptive') || alternatives.length === 0) {
             results.set(task.id, {
               id: task.id,
@@ -3264,6 +3299,7 @@ export class OrchestratorEngine extends EventEmitter {
         createdAt: Date.now()
       }
       recordRunRetro(retro)
+      this.routingScoresCache = undefined
       this.lastRetro = retro
       return retro
     } catch (error) {
@@ -3538,6 +3574,7 @@ export class OrchestratorEngine extends EventEmitter {
       exportQueuedAt: base.exportQueuedAt ?? Date.now()
     }
     recordRunRetro(this.lastRetro)
+    this.routingScoresCache = undefined
     if (shouldQueueExport) enqueueRetroExport(this.lastRetro)
     this.push()
     return { summary: this.lastRetro.summary, storedLearnings: applied }
