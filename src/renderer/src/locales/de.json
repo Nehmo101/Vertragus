@@ -330,6 +330,8 @@
       "diffLoading": "Diff wird geladen…",
       "diffRefresh": "Diff aktualisieren",
       "diffShow": "Git-Diff anzeigen",
+      "openWorktree": "Im Editor öffnen",
+      "openWorktreeHint": "Öffnet den Task-Worktree in VS Code (falls installiert), sonst im Dateimanager.",
       "resumeInterrupted": "Weiterführen",
       "resumeInterruptedHint": "Setzt die Aufgabe im gesicherten Worktree fort — kein Zwischenstand geht verloren."
     }

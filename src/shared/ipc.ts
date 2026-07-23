@@ -147,6 +147,7 @@ export const IPC = {
   orchestratorSetYoloMaster: 'orchestrator:setYoloMaster',
   orchestratorReviewPlan: 'orchestrator:reviewPlan',
   orchestratorTaskDiff: 'orchestrator:taskDiff',
+  orchestratorOpenTaskWorktree: 'orchestrator:openTaskWorktree',
   orchestratorApprovePublication: 'orchestrator:approvePublication',
   orchestratorRejectPublication: 'orchestrator:rejectPublication',
   orchestratorResolvePermission: 'orchestrator:resolvePermission',
@@ -551,6 +552,12 @@ export interface VertragusApi {
     onSnapshot(cb: (snap: OrchestratorSnapshot) => void): () => void
     /** Read a size-limited patch from the task's trusted Vertragus worktree. */
     taskDiff(profileId: string, taskId: string, workspaceSessionId?: string): Promise<TaskReviewDiff>
+    /** Open the task's worktree in the editor (VS Code if on PATH, file manager otherwise). */
+    openTaskWorktree(
+      profileId: string,
+      taskId: string,
+      workspaceSessionId?: string
+    ): Promise<{ opened: 'editor' | 'folder' }>
     approvePublication(profileId: string, workspaceSessionId: string, planId?: string): Promise<boolean>
     rejectPublication(profileId: string, workspaceSessionId: string, planId?: string): Promise<boolean>
     resolvePermission(

@@ -333,6 +333,22 @@ function TaskCard({
                     : t('orch.task.diffShow')}
               </button>
             )}
+            {task.worktree && (
+              <button
+                type="button"
+                className="btn ghost task-diff-btn"
+                title={t('orch.task.openWorktreeHint')}
+                onClick={() => {
+                  void window.vertragus.orchestrator
+                    .openTaskWorktree(profileId, task.id, workspaceSessionId)
+                    .catch((error: unknown) => {
+                      setDiffError(error instanceof Error ? error.message : String(error))
+                    })
+                }}
+              >
+                {t('orch.task.openWorktree')}
+              </button>
+            )}
             {diffError && <div className="task-note err">{diffError}</div>}
             {diff && <pre className="task-diff">{diff}</pre>}
           </details>

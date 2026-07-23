@@ -163,6 +163,8 @@ const vertragus: VertragusApi = {
       ipcRenderer.invoke(IPC.orchestratorReviewPlan, profileId, approved, workspaceSessionId),
     taskDiff: (profileId, taskId, workspaceSessionId) =>
       ipcRenderer.invoke(IPC.orchestratorTaskDiff, profileId, taskId, workspaceSessionId),
+    openTaskWorktree: (profileId, taskId, workspaceSessionId) =>
+      ipcRenderer.invoke(IPC.orchestratorOpenTaskWorktree, profileId, taskId, workspaceSessionId),
     approvePublication: (profileId, workspaceSessionId, planId) =>
       ipcRenderer.invoke(IPC.orchestratorApprovePublication, profileId, workspaceSessionId, planId),
     rejectPublication: (profileId, workspaceSessionId, planId) =>

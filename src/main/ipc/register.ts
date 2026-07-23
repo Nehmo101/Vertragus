@@ -143,6 +143,7 @@ import type {
 } from '@shared/voiceAssistant'
 import { RunJournal } from '@main/diagnostics/runJournal'
 import { loadTaskReviewDiff } from '@main/integrations/reviewDiff'
+import { openWorktreeInEditor } from '@main/integrations/openInEditor'
 import { createMainPromptEnhancementService } from '@main/inbox/promptEnhancementProvider'
 import { inspectPromptWorkspaceContext } from '@main/inbox/promptEnhancementContext'
 import {
@@ -771,6 +772,22 @@ export function registerIpcHandlers(): void {
       .tasks.find((entry) => entry.id === requestedTaskId)
     if (!task) throw new Error('Aufgabe nicht gefunden.')
     return loadTaskReviewDiff(task)
+  })
+  ipcMain.handle(IPC.orchestratorOpenTaskWorktree, async (e, profileId: unknown, taskId: unknown, workspaceSessionId?: unknown) => {
+    assertNotVoiceWindow(e)
+    const profile = requireProfile(profileId)
+    const requestedTaskId = assertIpcId(taskId, 'Task-ID')
+    const task = workspaceSessions
+      .snapshot(profile, assertIpcOptionalId(workspaceSessionId, 'Workspace-Session-ID'))
+      .tasks.find((entry) => entry.id === requestedTaskId)
+    // Only paths the engine itself recorded for this task are ever opened —
+    // the renderer supplies IDs, never filesystem paths.
+    const worktree = task?.worktree ?? task?.recoveryArtifact?.worktree
+    if (!worktree) throw new Error('Für diese Aufgabe liegt kein Worktree vor.')
+    await stat(worktree).catch(() => {
+      throw new Error('Der Worktree existiert nicht mehr (vermutlich bereits aufgeräumt).')
+    })
+    return openWorktreeInEditor(worktree)
   })
   ipcMain.handle(
     IPC.orchestratorApprovePublication,
