@@ -4,6 +4,7 @@ import { extname, normalize, resolve } from 'node:path'
 import { z } from 'zod'
 import type { DeviceInfo, RemoteCommandEnvelope, RemoteEventFrame } from '@shared/remote'
 import { RemoteAuditLog } from './auditLog'
+import { redactAuditArgs } from './auditRedact'
 import { RemoteCommandError, RemoteCommandRouter } from './commands'
 import { DeviceAuth } from './deviceAuth'
 import type { RemoteGatewayHandle } from './gatewayHandle'
@@ -148,6 +149,23 @@ function requestHost(req: IncomingMessage): string | undefined {
   }
 }
 
+/**
+ * Hostname of the `Origin` request header. Returns `undefined` when the header
+ * is absent (native clients, same-origin GETs), and `null` when it is present
+ * but unparseable — including the literal "null" origin of sandboxed or opaque
+ * browsing contexts — which callers must treat as a mismatch.
+ */
+function originHost(req: IncomingMessage): string | null | undefined {
+  const raw = req.headers.origin
+  if (raw === undefined) return undefined
+  if (Array.isArray(raw)) return null
+  try {
+    return new URL(raw).hostname.toLowerCase() || null
+  } catch {
+    return null
+  }
+}
+
 // Rate-limit key for a pairing attempt. The gateway binds to 127.0.0.1 only and
 // the sole internet ingress is the Cloudflare tunnel, so `req.socket.remoteAddress`
 // is always 127.0.0.1 for real remote clients — keying on it would put every
@@ -197,6 +215,23 @@ export async function startRemoteGateway(options: GatewayOptions): Promise<Remot
   function hostAllowed(req: IncomingMessage): boolean {
     const host = requestHost(req)
     return Boolean(host && allowedHosts.has(host))
+  }
+
+  // Defense in depth against cross-site WebSocket hijacking and cross-origin
+  // request forgery: browsers attach an Origin header to cross-origin requests
+  // and to every WebSocket upgrade, so a present Origin must resolve to the
+  // same host allowlist as the Host check. Native clients (no Origin header)
+  // stay allowed — the bearer token remains the primary authentication.
+  function originAllowed(req: IncomingMessage): boolean {
+    const host = originHost(req)
+    return host === undefined || (host !== null && allowedHosts.has(host))
+  }
+
+  function auditOriginRejected(req: IncomingMessage, action: string): void {
+    options.audit.record({
+      kind: 'auth', outcome: 'rejected', action,
+      detail: { reason: 'origin_forbidden', origin: originHost(req) ?? 'invalid' }
+    })
   }
 
   async function authenticate(
@@ -272,6 +307,11 @@ export async function startRemoteGateway(options: GatewayOptions): Promise<Remot
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (!hostAllowed(req)) {
       json(res, 421, { error: 'Host is not allowed.' })
+      return
+    }
+    if (!originAllowed(req)) {
+      auditOriginRejected(req, 'http.request')
+      json(res, 403, { error: 'Origin is not allowed.' })
       return
     }
     const url = new URL(req.url ?? '/', 'http://127.0.0.1')
@@ -424,7 +464,9 @@ export async function startRemoteGateway(options: GatewayOptions): Promise<Remot
           kind: 'command', outcome: 'accepted', deviceId: authenticated.device.id,
           actor: authenticated.device.actor.id,
           action: String(envelope?.id ?? ''), requestId: envelope?.requestId,
-          detail: { args: envelope?.args }
+          // Free-text command content (e.g. goal.submit prompts) never lands in
+          // the audit trail verbatim; only length + hash prefix are kept.
+          detail: { args: redactAuditArgs(String(envelope?.id ?? ''), envelope?.args) }
         })
         json(res, 200, { ok: true, result })
       } catch (error) {
@@ -433,7 +475,10 @@ export async function startRemoteGateway(options: GatewayOptions): Promise<Remot
           deviceId: authenticated.device.id, action: String(envelope?.id ?? ''),
           actor: authenticated.device.actor.id,
           requestId: envelope?.requestId,
-          detail: { message: error instanceof Error ? error.message : String(error), args: envelope?.args }
+          detail: {
+            message: error instanceof Error ? error.message : String(error),
+            args: redactAuditArgs(String(envelope?.id ?? ''), envelope?.args)
+          }
         })
         throw error
       }
@@ -446,6 +491,13 @@ export async function startRemoteGateway(options: GatewayOptions): Promise<Remot
   server.on('upgrade', (req, socket, head) => {
     void (async () => {
       const url = new URL(req.url ?? '/', 'http://127.0.0.1')
+      if (!originAllowed(req)) {
+        // Cross-site WebSocket hijacking attempt: refuse before any auth work.
+        auditOriginRejected(req, 'ws.upgrade')
+        socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n')
+        socket.destroy()
+        return
+      }
       const authenticated = hostAllowed(req) && url.pathname === '/ws'
         ? await authenticate(req, 'ws.upgrade', websocketBearer(req))
         : undefined
@@ -487,7 +539,8 @@ export async function startRemoteGateway(options: GatewayOptions): Promise<Remot
               options.audit.record({
                 kind: 'command', outcome: 'accepted', deviceId: device.id,
                 actor: device.actor.id, action: String(envelope.id ?? ''),
-                requestId: envelope.requestId, detail: { args: envelope.args, transport: 'ws' }
+                requestId: envelope.requestId,
+                detail: { args: redactAuditArgs(String(envelope.id ?? ''), envelope.args), transport: 'ws' }
               })
               if (webSocket.readyState === wsOpen) {
                 webSocket.send(JSON.stringify({
@@ -574,6 +627,6 @@ export async function startRemoteGateway(options: GatewayOptions): Promise<Remot
 }
 
 export const remoteGatewayInternals = {
-  bearer, websocketBearer, requestHost, readJson, sseFrame, pairSchema, pushSubscriptionSchema,
-  apnsSubscriptionSchema, speechSchema
+  bearer, websocketBearer, requestHost, originHost, readJson, sseFrame, pairSchema,
+  pushSubscriptionSchema, apnsSubscriptionSchema, speechSchema
 }

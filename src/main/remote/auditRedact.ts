@@ -40,10 +40,11 @@ function redactValue(value: unknown): unknown {
  * envelope (schema-rejected input still hits the error audit path) is likewise
  * reduced to length + hash so it never lands on disk in clear.
  *
- * `commandId` is part of the contract so per-command rules can be added
- * without touching call sites; today every command shares the generic rule.
+ * The command id is part of the contract so per-command rules can be added
+ * without touching call sites; today every command shares the generic rule
+ * (hence the underscore — the parameter is reserved, not forgotten).
  */
-export function redactAuditArgs(commandId: string, args: unknown): unknown {
+export function redactAuditArgs(_commandId: string, args: unknown): unknown {
   if (typeof args === 'string') {
     return { textLength: args.length, textSha256Prefix: sha256Prefix(args) }
   }

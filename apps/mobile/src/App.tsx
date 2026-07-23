@@ -8,12 +8,8 @@ import type {
   RemoteEventFrame
 } from '@shared/remote'
 
-import {
-  readRemoteDevice,
-  readRemoteToken,
-  writeRemoteDevice,
-  writeRemoteToken
-} from './storageKeys'
+import { readRemoteDevice, writeRemoteDevice } from './storageKeys'
+import { loadRemoteToken, storeRemoteToken } from './tokenVault'
 
 type View = 'live' | 'approvals' | 'changes' | 'goal' | 'devices'
 
@@ -90,7 +86,11 @@ async function consumeSse(
 }
 
 export default function App(): JSX.Element {
-  const [token, setToken] = useState(() => readRemoteToken(localStorage))
+  // The bearer token lives in the encrypted token vault (IndexedDB + WebCrypto)
+  // and is loaded asynchronously; `tokenLoaded` gates the UI so a paired device
+  // never flashes the pairing screen during the vault read.
+  const [token, setToken] = useState('')
+  const [tokenLoaded, setTokenLoaded] = useState(false)
   const [code, setCode] = useState(pairingCode)
   const [deviceName, setDeviceName] = useState(() => navigator.platform || 'Mobilgerät')
   const [view, setView] = useState<View>(initialView)
@@ -123,6 +123,15 @@ export default function App(): JSX.Element {
   }, [devices, snapshots])
   const [profileId, setProfileId] = useState('')
   useEffect(() => { if (!profileId && profiles[0]) setProfileId(profiles[0]) }, [profileId, profiles])
+
+  useEffect(() => {
+    let cancelled = false
+    void loadRemoteToken()
+      .then((value) => { if (!cancelled && value) setToken(value) })
+      .catch(() => undefined)
+      .finally(() => { if (!cancelled) setTokenLoaded(true) })
+    return () => { cancelled = true }
+  }, [])
 
   useEffect(() => {
     if (!token) return
@@ -249,7 +258,7 @@ export default function App(): JSX.Element {
       })
       const result = await response.json() as PairingResult & { error?: string }
       if (!response.ok) throw new Error(result.error ?? 'Pairing fehlgeschlagen.')
-      writeRemoteToken(localStorage, result.token)
+      await storeRemoteToken(result.token)
       writeRemoteDevice(localStorage, JSON.stringify(result.device))
       setToken(result.token)
       window.location.hash = '#/live'
@@ -319,6 +328,16 @@ export default function App(): JSX.Element {
     window.setTimeout(() => { if (recorder.state === 'recording') recorder.stop() }, 120_000)
   }
 
+  if (!tokenLoaded) {
+    return (
+      <main className="pair-screen">
+        <div className="brand-mark">V</div>
+        <span className="eyebrow">VERTRAGVS</span>
+        <p>Sicherer Speicher wird geöffnet…</p>
+      </main>
+    )
+  }
+
   if (!token) {
     return (
       <main className="pair-screen">
@@ -371,7 +390,9 @@ export default function App(): JSX.Element {
             {devices.map((device) => <article className="device" key={device.id}><div><strong>{device.name} · {device.actor.displayName}</strong><small>{device.capabilities.join(' · ')} · {device.scopes.length} Scope(s)</small></div><span>{device.revokedAt ? 'widerrufen' : 'aktiv'}</span></article>)}
             {currentDevice?.capabilities?.includes('push') && <button onClick={() => void enablePush().catch((value) => setError(message(value)))}>Push-Benachrichtigungen aktivieren</button>}
             <p className="muted">Auf iOS funktioniert Web-Push nur für eine zum Home-Bildschirm hinzugefügte PWA. In-App-Badges bleiben immer aktiv.</p>
-            <button className="danger" onClick={() => void command('killSwitch.activate', {}).catch((value) => setError(message(value)))}>Master-Not-Aus</button>
+            {currentDevice?.capabilities?.includes('admin')
+              ? <button className="danger" onClick={() => void command('killSwitch.activate', {}).catch((value) => setError(message(value)))}>Master-Not-Aus</button>
+              : <p className="muted">Der Master-Not-Aus erfordert die Admin-Capability. Dieses Gerät wurde ohne sie gekoppelt.</p>}
           </section>
         )}
       </main>
