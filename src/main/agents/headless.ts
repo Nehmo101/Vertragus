@@ -8,7 +8,7 @@
  */
 import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmdirSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { providerHeadlessDef, type AgentProviderId } from '@shared/providers'
 import { buildHeadlessLaunch, type HeadlessOpts } from '@main/providers/types'
@@ -24,6 +24,12 @@ import {
   codexSingleRootEnvironment,
   codexSingleRootSandboxArgs
 } from '@main/agents/codexSandbox'
+import {
+  applySandbox,
+  bwrapAvailable,
+  BWRAP_MISSING_MESSAGE,
+  type SandboxMode
+} from '@main/agents/sandboxLaunch'
 
 // ---- ANSI helpers (colors match the xterm theme) ----
 const C = {
@@ -185,6 +191,17 @@ export interface HeadlessHandle {
   pid?: number
   done: Promise<HeadlessResult>
   kill(): void
+}
+
+/**
+ * HeadlessOpts plus the profile's opt-in OS-sandbox mode. 'bwrap' only takes
+ * effect for Yolo workers on Linux: the resolved CLI launch is wrapped in
+ * bubblewrap, and a missing bwrap aborts the run (failureKind 'sandbox')
+ * instead of silently continuing unsandboxed. On win32/darwin the option is
+ * ignored with one system log line per run. Omitted = 'none'.
+ */
+export interface HeadlessRunOpts extends HeadlessOpts {
+  sandbox?: SandboxMode
 }
 
 interface LifecycleReporter {
@@ -412,7 +429,7 @@ function interpreterFor(id: AgentProviderId): (o: Record<string, unknown>) => Li
 export function runHeadless(
   id: AgentProviderId,
   prompt: string,
-  opts: HeadlessOpts,
+  opts: HeadlessRunOpts,
   onLine: (chunk: string) => void,
   lifecycleOptions?: HeadlessLifecycleOptions
 ): HeadlessHandle {
@@ -672,14 +689,43 @@ export function runHeadless(
   // must rewrite the shim to a direct Node/exe entrypoint for ALL providers —
   // failing loudly beats silently corrupting the prompt.
   void resolveLaunch(launch.command, launch.args, { requireFaithfulArgs: true })
-    .then((resolved) => {
+    .then(async (resolved) => {
       if (settled || stopStatus) return
+      // Opt-in-OS-Sandbox (Profilfeld `sandbox`): nur Yolo-Worker werden
+      // gewrappt — Nicht-Yolo-Läufe behalten die Provider-Permission-Gates.
+      const sandboxRequested = opts.sandbox === 'bwrap' && opts.yolo
+      if (sandboxRequested && process.platform !== 'linux') {
+        // Dokumentiertes Ignorieren auf win32/darwin: bubblewrap existiert nur
+        // auf Linux — eine system-Logzeile pro Run statt eines stillen No-ops.
+        emitLine(
+          line(
+            C.grey,
+            `OS-Sandbox 'bwrap' ist Linux-only — Konfiguration wird auf ${process.platform} ignoriert.`
+          )
+        )
+      }
+      const sandbox: SandboxMode =
+        sandboxRequested && process.platform === 'linux' ? 'bwrap' : 'none'
+      if (sandbox === 'bwrap' && !(await bwrapAvailable())) {
+        // Harter Abbruch statt stillem Weiterlaufen ohne Sandbox.
+        requestFailure({ kind: 'sandbox', message: BWRAP_MISSING_MESSAGE })
+        return
+      }
+      if (settled || stopStatus) return // state may have changed across the probe await
+      const spawnLaunch = applySandbox(resolved, sandbox, {
+        workingDir: opts.workingDir,
+        homeDir: homedir(),
+        tempDir: tmpDir
+      })
+      if (sandbox === 'bwrap') {
+        emitLine(line(C.grey, 'OS-Sandbox aktiv: bubblewrap (Root read-only, Worktree beschreibbar, Netz an).'))
+      }
       lifecycle.phase('starting-process')
       try {
         const env = id === 'codex' && tmpDir && process.platform === 'win32' && !opts.yolo
           ? codexSingleRootEnvironment(tmpDir)
           : { ...process.env }
-        child = spawn(resolved.file, resolved.args, {
+        child = spawn(spawnLaunch.file, spawnLaunch.args, {
           cwd: opts.workingDir,
           env,
           detached: shouldCreateProcessGroup(),

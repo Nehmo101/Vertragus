@@ -1280,6 +1280,11 @@ export class AgentManager extends EventEmitter {
         lifecycle?.onEvent(event)
       }
     }
+    // Opt-in-OS-Sandbox (bubblewrap) für Yolo-Worker: Die Engine reicht kein
+    // Profilobjekt durch, deshalb wird der Wert hier aus dem Workspace-Profil
+    // des Dispatches gelesen (Fallback: Profil des übernommenen Team-Panes).
+    const sandboxProfileId = req.profileId ?? info.profileId
+    const sandbox = (sandboxProfileId ? getProfile(sandboxProfileId) : undefined)?.sandbox ?? 'none'
     let handle: HeadlessHandle
     try {
       handle = runHeadless(
@@ -1289,6 +1294,7 @@ export class AgentManager extends EventEmitter {
           model: resolvedModel || undefined,
           workingDir,
           yolo: req.yolo,
+          sandbox,
           systemPrompt,
           // The task scope attaches Vertragus' subagent tools (report_progress,
           // post_finding, list_findings) alongside external MCP servers.

@@ -9,6 +9,15 @@ import { postProcessBranchValidationError } from './gitPostProcessing'
 
 export const agentProviderId = z.enum(['claude', 'kimi', 'codex', 'cursor', 'copilot', 'ollama'])
 
+/**
+ * Opt-in OS sandbox for headless Yolo workers. 'bwrap' wraps the worker CLI in
+ * bubblewrap on Linux (read-only root, writable worktree/temp/provider config
+ * paths, network on); win32/darwin ignore the option with one log line per run.
+ * See src/main/agents/sandboxLaunch.ts and docs/PRODUCTION_HARDENING.md.
+ */
+export const sandboxModeSchema = z.enum(['none', 'bwrap'])
+export type SandboxMode = z.infer<typeof sandboxModeSchema>
+
 export const agentSlotSchema = z.object({
   /** Logical role, e.g. "worker", "reviewer". */
   role: z.string().min(1).default('worker'),
@@ -179,6 +188,8 @@ export const workspaceProfileSchema = z.object({
   skills: profileSkillsSchema.default([]),
   /** Global Yolo master switch (default OFF for safety). */
   yoloDefault: z.boolean().default(false),
+  /** OS sandbox for headless Yolo workers (Linux/bubblewrap, opt-in). */
+  sandbox: sandboxModeSchema.default('none'),
   planner: plannerConfigSchema.default({}),
   benchmark: benchmarkConfigSchema.default({}),
   multiAgent: multiAgentConfigSchema.default({}),
@@ -220,11 +231,16 @@ export type GithubProjectConfig = z.infer<typeof githubProjectSchema>
 export type ProfileCloneStatus = z.infer<typeof profileCloneStatusSchema>
 export type ProfileGithubRepo = z.infer<typeof profileGithubRepoSchema>
 type ParsedWorkspaceProfile = z.infer<typeof workspaceProfileSchema>
-export type WorkspaceProfile = Omit<ParsedWorkspaceProfile, 'orchestrator' | 'agents' | 'skills'> & {
+export type WorkspaceProfile = Omit<
+  ParsedWorkspaceProfile,
+  'orchestrator' | 'agents' | 'skills' | 'sandbox'
+> & {
   orchestrator?: OrchestratorConfig
   agents: AgentSlot[]
   /** Legacy in-memory profile drafts may predate the skills field. */
   skills?: ProfileSkill[]
+  /** Legacy in-memory profile drafts may predate the sandbox field; omitted = 'none'. */
+  sandbox?: SandboxMode
 }
 
 /** Create an independent, uniquely identified copy of a workspace profile. */
@@ -401,6 +417,7 @@ export const DEFAULT_PROFILE: WorkspaceProfile = {
   solo: false,
   skills: [],
   yoloDefault: false,
+  sandbox: 'none',
   planner: { mode: 'review', routingMode: 'adaptive', maxParallel: 6, maxRetries: 1 },
   benchmark: { enabled: false },
   multiAgent: { enabled: false, stopLosers: true },
