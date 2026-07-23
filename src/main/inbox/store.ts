@@ -9,6 +9,8 @@ import {
   ideaSchema,
   normalizeTags,
   isValidUrl,
+  imageArtifactExtension,
+  MAX_IMAGE_ARTIFACT_BYTES,
   type AddArtifactInput,
   type CreateIdeaInput,
   type Idea,
@@ -16,7 +18,7 @@ import {
   type RemovableIdeaAttribute,
   type UpdateIdeaInput
 } from '@shared/inbox'
-import { fileExists, tryCopyArtifactFile } from '@main/inbox/files'
+import { fileExists, storeImageArtifact, tryCopyArtifactFile } from '@main/inbox/files'
 import { consumePickerGrant } from '@main/inbox/pickerGrants'
 import type { IdeaTransfer } from '@shared/inboxTransfer'
 import {
@@ -248,6 +250,23 @@ export async function addArtifact(ideaId: string, input: AddArtifactInput): Prom
   } else if (input.kind === 'url') {
     if (!isValidUrl(input.url)) throw new Error('URL ist ungültig (http/https erforderlich).')
     artifact.url = input.url.trim()
+  } else if (input.kind === 'image') {
+    const extension = imageArtifactExtension(input.mimeType)
+    if (!extension) throw new Error('Nicht unterstützter Bildtyp.')
+    const clean = input.dataBase64.replace(/\s/g, '')
+    if (!clean || !/^[A-Za-z0-9+/]+={0,2}$/.test(clean)) {
+      throw new Error('Bilddaten ungültig (kein Base64).')
+    }
+    const data = Buffer.from(clean, 'base64')
+    if (data.length === 0) throw new Error('Bilddaten sind leer.')
+    if (data.length > MAX_IMAGE_ARTIFACT_BYTES) throw new Error('Bild ist zu groß (max. 15 MB).')
+    const userData = app.getPath('userData')
+    // Filename is server-generated from artifact.id + validated extension — client `name` is display-only.
+    const stored = await storeImageArtifact(userData, ideaId, artifact.id, data, extension)
+    artifact.storedPath = stored.storedPath
+    artifact.fileName = artifact.label
+    artifact.mimeType = input.mimeType
+    artifact.copied = true
   } else {
     const sourcePath = consumePickerGrant(input.grantId)
     const userData = app.getPath('userData')
@@ -287,6 +306,7 @@ export function removeArtifact(ideaId: string, artifactId: string): Idea {
 function defaultArtifactLabel(input: AddArtifactInput): string {
   if (input.kind === 'text') return 'Text'
   if (input.kind === 'url') return 'Link'
+  if (input.kind === 'image') return input.name?.trim() || 'Bild'
   return input.label?.trim() || 'Datei'
 }
 

@@ -12,6 +12,7 @@ export const createAgentsSlice: StateCreator<AppState, [], [], AgentsSlice> = (s
   selectedAgentId: null,
   reopenedAgentIds: [],
   handoffSource: null,
+  handoffBulk: false,
   addAgentOpen: false,
   addSeq: 0,
 
@@ -155,13 +156,13 @@ export const createAgentsSlice: StateCreator<AppState, [], [], AgentsSlice> = (s
     }
   },
 
-  openHandoff(id) {
+  openHandoff(id, opts) {
     const agent = get().agents.find((a) => a.id === id)
-    if (agent) set({ handoffSource: agent })
+    if (agent) set({ handoffSource: agent, handoffBulk: opts?.bulk ?? false })
   },
 
   closeHandoff() {
-    set({ handoffSource: null })
+    set({ handoffSource: null, handoffBulk: false })
   },
 
   async handoff(req) {

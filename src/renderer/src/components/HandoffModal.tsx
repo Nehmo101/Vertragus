@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '@renderer/store/useAppStore'
-import { LIMIT_KIND_LABELS } from '@shared/agents'
+import { LIMIT_KIND_LABELS, type AgentInstanceInfo } from '@shared/agents'
 import type { AgentProviderId } from '@shared/providers'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import ModelCatalogStatus from '@renderer/components/ModelCatalogStatus'
@@ -9,12 +9,32 @@ import { defaultHandoffModel } from '@renderer/modelCatalog'
 
 const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'kimi', 'codex', 'cursor', 'copilot', 'ollama']
 
+export function collectEligibleSources(
+  source: AgentInstanceInfo,
+  agents: AgentInstanceInfo[]
+): AgentInstanceInfo[] {
+  return agents.filter(
+    (agent) =>
+      agent.provider === source.provider &&
+      agent.profileId === source.profileId &&
+      agent.workspaceSessionId === source.workspaceSessionId &&
+      agent.mode === 'interactive' &&
+      agent.status === 'running' &&
+      !agent.handoffTo
+  )
+}
+
 export default function HandoffModal(): JSX.Element | null {
   const { t } = useTranslation()
-  const store = useAppStore()
-  const source = store.handoffSource
-  const closeHandoff = store.closeHandoff
-  const models = store.models
+  // Narrow store slices: a whole-store subscribe re-renders on every agents.onChanged
+  // tick and collapses Chromium's native <select> while the user is picking.
+  const source = useAppStore((s) => s.handoffSource)
+  const models = useAppStore((s) => s.models)
+  const closeHandoff = useAppStore((s) => s.closeHandoff)
+  const handoff = useAppStore((s) => s.handoff)
+  const bulkHandoff = useAppStore((s) => s.bulkHandoff)
+  const goalTitle = useAppStore((s) => s.orchestrator.goal?.title ?? '')
+
   const catalogFor = (p: AgentProviderId) => models[p]
   const modelsFor = (p: AgentProviderId): string[] => catalogFor(p).models
   // Cloud CLIs decide when the field is empty. Ollama has no model-less mode,
@@ -23,11 +43,23 @@ export default function HandoffModal(): JSX.Element | null {
     defaultHandoffModel(p, catalogFor(p))
 
   const [provider, setProvider] = useState<AgentProviderId>('codex')
-  const [model, setModel] = useState<string>(defaultModelFor('codex'))
-  const [task, setTask] = useState<string>(store.orchestrator.goal?.title ?? '')
+  const [model, setModel] = useState<string>(() =>
+    defaultHandoffModel('codex', useAppStore.getState().models.codex)
+  )
+  const [task, setTask] = useState<string>(goalTitle)
   const [summary, setSummary] = useState<string>('')
-  const [bulk, setBulk] = useState(false)
   const taskRef = useRef<HTMLTextAreaElement>(null)
+  // Freeze the bulk cohort at open time — live `agents` would re-render this modal.
+  const [eligibleSources] = useState<AgentInstanceInfo[]>(() => {
+    const state = useAppStore.getState()
+    return state.handoffSource
+      ? collectEligibleSources(state.handoffSource, state.agents)
+      : []
+  })
+  // Pre-check bulk when opened from the "Massenübergabe" entry, but only if a real cohort exists.
+  const [bulk, setBulk] = useState<boolean>(
+    () => useAppStore.getState().handoffBulk && eligibleSources.length > 1
+  )
 
   useEffect(() => {
     taskRef.current?.focus()
@@ -45,25 +77,17 @@ export default function HandoffModal(): JSX.Element | null {
 
   const limit = source.limitWarning
   const srcTheme = PROVIDER_THEME[source.provider]
-  const eligibleSources = store.agents.filter((agent) =>
-    agent.provider === source.provider &&
-    agent.profileId === source.profileId &&
-    agent.workspaceSessionId === source.workspaceSessionId &&
-    agent.mode === 'interactive' &&
-    agent.status === 'running' &&
-    !agent.handoffTo
-  )
 
   const submit = (): void => {
     setBulk(false)
     if (bulk) {
-      void store.bulkHandoff({
+      void bulkHandoff({
         sourceIds: eligibleSources.map((agent) => agent.id),
         provider, model, task, summary, stopSources: true
       })
       return
     }
-    void store.handoff({ sourceId: source.id, provider, model, task, summary })
+    void handoff({ sourceId: source.id, provider, model, task, summary })
   }
 
   return (

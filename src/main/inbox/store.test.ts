@@ -1,12 +1,15 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { existsSync, readFileSync } from 'node:fs'
 import {
   ideaSchema,
+  MAX_IMAGE_ARTIFACT_BYTES,
   type CreateIdeaInput,
   type UpdateIdeaInput
 } from '@shared/inbox'
 import { ideaTransferSchema } from '@shared/inboxTransfer'
 import {
   __resetIdeasForTest,
+  addArtifact,
   applyIdeaTransfer,
   createIdea,
   getIdea,
@@ -16,6 +19,10 @@ import {
   restoreIdea,
   updateIdea
 } from './store'
+
+/** 1×1 transparent PNG. */
+const TINY_PNG_BASE64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
 
 vi.mock('electron', () => ({
   app: { getPath: () => `/tmp/vertragus-test-userdata-${process.pid}` }
@@ -287,5 +294,69 @@ describe('inbox store security', () => {
     expect(reset.transfer).toBeUndefined()
     expect(reset.refs).toEqual({ profileId: 'prof-2' })
     expect(ideaSchema.parse(reset)).toEqual(reset)
+  })
+})
+
+describe('inbox image artifacts', () => {
+  beforeEach(() => {
+    __resetIdeasForTest([])
+  })
+
+  it('stores a pasted image under a server-generated path and keeps the bytes', async () => {
+    const idea = createIdea({ title: 'With screenshot' })
+    const updated = await addArtifact(idea.id, {
+      kind: 'image',
+      dataBase64: TINY_PNG_BASE64,
+      mimeType: 'image/png',
+      name: 'shot.png'
+    })
+
+    const artifact = updated.artifacts.at(-1)
+    expect(artifact?.kind).toBe('image')
+    expect(artifact?.label).toBe('shot.png')
+    expect(artifact?.mimeType).toBe('image/png')
+    expect(artifact?.copied).toBe(true)
+    // Filename is derived from the artifact id + validated extension — never from client input.
+    expect(artifact?.storedPath).toMatch(new RegExp(`${artifact?.id}\\.png$`))
+    expect(existsSync(artifact!.storedPath!)).toBe(true)
+    expect(readFileSync(artifact!.storedPath!)).toEqual(Buffer.from(TINY_PNG_BASE64, 'base64'))
+  })
+
+  it('rejects unsupported image MIME types', async () => {
+    const idea = createIdea({ title: 'Bad mime' })
+    await expect(
+      addArtifact(idea.id, {
+        kind: 'image',
+        dataBase64: TINY_PNG_BASE64,
+        mimeType: 'image/svg+xml',
+        name: 'x.svg'
+      })
+    ).rejects.toThrow(/Bildtyp/)
+    expect(getIdea(idea.id)?.artifacts).toHaveLength(0)
+  })
+
+  it('rejects non-base64 payloads', async () => {
+    const idea = createIdea({ title: 'Bad base64' })
+    await expect(
+      addArtifact(idea.id, {
+        kind: 'image',
+        dataBase64: 'not valid base64 @@@',
+        mimeType: 'image/png'
+      })
+    ).rejects.toThrow(/Base64/)
+    expect(getIdea(idea.id)?.artifacts).toHaveLength(0)
+  })
+
+  it('rejects images larger than the size cap', async () => {
+    const idea = createIdea({ title: 'Too big' })
+    const oversized = Buffer.alloc(MAX_IMAGE_ARTIFACT_BYTES + 1).toString('base64')
+    await expect(
+      addArtifact(idea.id, {
+        kind: 'image',
+        dataBase64: oversized,
+        mimeType: 'image/png'
+      })
+    ).rejects.toThrow(/zu groß/)
+    expect(getIdea(idea.id)?.artifacts).toHaveLength(0)
   })
 })

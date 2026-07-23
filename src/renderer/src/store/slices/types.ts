@@ -87,6 +87,8 @@ export interface AgentsSlice {
   reopenedAgentIds: string[]
   /** Source agent for the handoff modal; null = closed. */
   handoffSource: AgentInstanceInfo | null
+  /** Pre-select the bulk checkbox when the handoff modal opens (Massenübergabe entry). */
+  handoffBulk: boolean
   addAgentOpen: boolean
   addSeq: number
 
@@ -101,7 +103,7 @@ export interface AgentsSlice {
   addAgent(selection: ManualAgentSelection): Promise<boolean>
   killAgent(id: string): Promise<void>
   popout(id: string): Promise<void>
-  openHandoff(id: string): void
+  openHandoff(id: string, opts?: { bulk?: boolean }): void
   closeHandoff(): void
   handoff(req: HandoffRequest): Promise<void>
   bulkHandoff(req: BulkHandoffRequest): Promise<void>

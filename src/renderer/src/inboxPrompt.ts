@@ -1,4 +1,4 @@
-import type { Idea } from '@shared/inbox'
+import type { Idea, IdeaArtifact } from '@shared/inbox'
 import { previewIdeaTransferBriefing, type IdeaTransferBriefingPreview } from '@shared/inboxTransfer'
 import type {
   PromptEnhancementIpcResult,
@@ -33,16 +33,22 @@ export function promptEnhancementSourceFromIdea(idea: Idea): PromptEnhancementSo
     status: idea.status,
     tags: [...idea.tags],
     refs: idea.refs ? { ...idea.refs } : undefined,
-    artifacts: idea.artifacts.map((artifact) => ({
-      kind: artifact.kind,
-      label: artifact.label,
-      text: artifact.text,
-      url: artifact.url,
-      fileName: artifact.fileName,
-      copied: artifact.copied,
-      missing: artifact.missing,
-      urlInvalid: artifact.urlInvalid
-    }))
+    // Image artifacts carry no textual context for prompt sharpening — omit them here.
+    artifacts: idea.artifacts
+      .filter(
+        (artifact): artifact is IdeaArtifact & { kind: 'text' | 'url' | 'file' } =>
+          artifact.kind !== 'image'
+      )
+      .map((artifact) => ({
+        kind: artifact.kind,
+        label: artifact.label,
+        text: artifact.text,
+        url: artifact.url,
+        fileName: artifact.fileName,
+        copied: artifact.copied,
+        missing: artifact.missing,
+        urlInvalid: artifact.urlInvalid
+      }))
   }
 }
 

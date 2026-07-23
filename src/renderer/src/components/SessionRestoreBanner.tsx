@@ -28,11 +28,16 @@ function groupOrphans(orphans: OrphanedWorktreeInfo[]): OrphanGroup[] {
  * Startup recovery panel: structured restart / cleanup after a clean restore
  * or unexpected exit. Orphans stay collapsed by default so large leftovers
  * never drown the primary "restart team" actions.
+ *
+ * Dismiss ("continue") is kept for the renderer lifetime via a module flag so a
+ * remount / Strict-Mode cycle cannot bring the banner back until the next app start.
  */
+let dismissedForLaunch = false
+
 export default function SessionRestoreBanner(): JSX.Element | null {
   const { t } = useTranslation()
   const [status, setStatus] = useState<SessionRestoreStatus | null>(null)
-  const [dismissed, setDismissed] = useState(false)
+  const [dismissed, setDismissed] = useState(dismissedForLaunch)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [orphansOpen, setOrphansOpen] = useState(false)
@@ -200,7 +205,10 @@ export default function SessionRestoreBanner(): JSX.Element | null {
             type="button"
             className={status.resumableSessions.length > 0 ? 'btn ghost' : 'btn primary'}
             disabled={busy != null}
-            onClick={() => setDismissed(true)}
+            onClick={() => {
+              dismissedForLaunch = true
+              setDismissed(true)
+            }}
           >
             {status.resumableSessions.length > 0 ? t('restore.continue') : t('restore.continueClean')}
           </button>
