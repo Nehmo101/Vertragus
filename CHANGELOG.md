@@ -6,6 +6,76 @@ Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1
 
 ---
 
+## 2026-07-23 — Systemreview: Stabilität, Härtung und neue Betriebsmodi
+
+Ergebnis einer vollständigen System-Prüfung (Orchestrator, Prozessverwaltung,
+Sicherheit, Renderer, Qualität). Alle Punkte mit Tests abgesichert; volle
+Suite, Typecheck, Lint und Build grün.
+
+### Behoben
+
+- **Cancel-Race in der Engine:** Ein an der Rollen-Semaphore oder in der
+  Pause-Wartephase geparkter Dispatch startete für einen bereits per
+  `cancel_plan` gestoppten Task noch einen echten Worker, den danach niemand
+  beendete. Geparkte Dispatches prüfen jetzt nach dem Aufwachen den
+  Task-Status; eine explizite Task-Statusmaschine (`taskStateMachine.ts`) macht
+  `stopped` absorbierend und schließt die Bug-Klasse an der Wurzel.
+- **`await_task`/`await_any_task` für Plan-Tasks:** blockieren jetzt echt über
+  ein gemeinsames Future-Register statt zu Busy-Polling zu degenerieren.
+- **Unbegrenztes Engine-State-Wachstum:** `planReviewStates`,
+  `attemptedFallbackModels` u. a. werden in `reset()` und nach Task-Ende
+  aufgeräumt; `snapshot()` mutiert `reliability` nicht mehr; `fallbackTask`
+  wirft keine Unhandled Rejection mehr.
+- **Windows-Argumenttreue für alle Provider:** Der modellgenerierte Prompt
+  reist bei jedem Headless-Launch als argv-Element; die Shim-Auflösung
+  (`requireFaithfulArgs`) gilt jetzt für claude/kimi/codex/copilot statt nur
+  Cursor — kein cmd.exe-Truncation, keine ausführbaren Metazeichen.
+- **PTY-Backpressure & Puffergrenzen:** PTY-Chunks werden pro Agent
+  mikro-gebatcht (Flush bei Exit/Kill), der stdout-Zeilenpuffer ist gedeckelt.
+- **Planner repo-agnostisch:** Die Shared-Hotspot-Erkennung nutzt eine
+  Segment-Heuristik plus tatsächliche Mehrfach-Deklaration statt hartkodierter
+  Vertragus-Pfade; `expectedFiles` behalten ihre Original-Großschreibung.
+- **Worktree-Hygiene:** `.vertragus-worktrees/` wird in `info/exclude`
+  eingetragen; Provider-Probes spawnen ohne `shell:true`.
+
+### Sicherheit
+
+- **Remote-Kill-Switch verlangt `admin`** statt `read` — ein Zuschauer-Token
+  kann den Gateway nicht mehr abschalten (DoS).
+- **Origin-Allowlist** beim WS-Upgrade und für HTTP als Defense-in-Depth.
+- **Audit-Log-Redaktion:** Ziel-/Prompt-Texte werden auf Länge + Hash-Präfix
+  reduziert statt im Klartext protokolliert.
+- **PWA-Token** liegt nicht mehr in `localStorage`, sondern in einem
+  AES-GCM-Vault (IndexedDB, non-extractable WebCrypto-Key) mit Migration; der
+  Kill-Switch-Button erscheint nur für Geräte mit `admin`-Capability.
+
+### Hinzugefügt
+
+- **Stable-Update-Kanal** neben dem schnellen Main-Kanal (nur getaggte
+  Releases), per Badge in der Titelleiste umschaltbar.
+- **Quantitatives Modell-Routing:** aus den Retro-Daten aggregierte
+  Erfolgsquoten (Wilson-Lower-Bound, Mindest-N 3) als `trackRecord` in
+  `list_subagents` und als Tiebreaker bei der Recovery-Slot-Wahl.
+- **„Im Editor öffnen"** je Task: öffnet den Worktree in VS Code bzw. im
+  Dateimanager.
+- **Opt-in-OS-Sandbox (bubblewrap)** für Headless-Yolo-Worker auf Linux.
+- **Headless-Host-Modus** (`VERTRAGUS_HEADLESS=1`): Engine + Gateway ohne
+  Fenster (VPS-/Daemon-Betrieb).
+- **Custom-Provider-Vertrag** (config-basiert, worker-only) als
+  Plugin-Fundament für weitere Headless-CLIs.
+- **iOS-Client in der CI** (Build + Tests gegen den Simulator) und ein
+  **Coverage-Ratchet** im Quality-Job.
+
+### Geändert
+
+- **Renderer-Performance:** Die schwersten Komponenten
+  (OrchestratorPanel/Canvas/ProfileEditor/LimitsPanel/McpServerEditor)
+  subscriben den Zustand-Store über schmale `useShallow`-Selektoren statt als
+  Ganzes; der Sekundentakt lebt in kleinen selbst tickenden Leaf-Komponenten.
+  Canvas-Staleness der Orchestrator-Aktivität behoben.
+
+---
+
 ## 2026-07-22 — Orca→Vertragus-Vollmigration der internen Bezeichner
 
 ### Geändert
