@@ -64,7 +64,8 @@ export class DeviceAuth extends EventEmitter {
       (value): value is RemoteCapability =>
         value === 'read' || value === 'steer' || value === 'admin' || value === 'diff' ||
         value === 'push' || value === 'speech' || value === 'approve-tools' ||
-        value === 'budget' || value === 'task-control' || value === 'replan'
+        value === 'budget' || value === 'task-control' || value === 'replan' ||
+        value === 'provider-fallback'
     )
     const expiresAt = this.now() + PAIRING_TTL_MS
     this.pending = {

@@ -164,7 +164,9 @@ export class RemoteCommandRouter {
       })
     })
     this.register({
-      id: 'killSwitch.activate', capability: 'read', schema: emptySchema,
+      // The kill switch tears down the whole gateway and revokes every device;
+      // a read-only viewer token must never be able to trigger that.
+      id: 'killSwitch.activate', capability: 'admin', schema: emptySchema,
       handle: async () => {
         await dependencies.activateKillSwitch()
         return { stopping: true }
@@ -202,7 +204,7 @@ export class RemoteCommandRouter {
           route.id === 'goal.submit' && scope.allowGoalSubmit
       )
       if (!allowed) {
-        throw new RemoteCommandError('Account ist fÃ¼r diesen Workspace nicht freigegeben.', 403, 'scope_forbidden')
+        throw new RemoteCommandError('Account ist für diesen Workspace nicht freigegeben.', 403, 'scope_forbidden')
       }
     }
     return route.handle(parsed.data)
