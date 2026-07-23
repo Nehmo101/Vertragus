@@ -8,6 +8,7 @@ vi.mock('@main/windows', () => ({
 }))
 vi.mock('@main/config/store', () => ({
   getSetting: () => undefined,
+  getProfile: () => undefined,
   listMcpServers: () => []
 }))
 const taskResult = vi.hoisted(() => ({
