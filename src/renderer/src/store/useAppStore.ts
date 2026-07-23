@@ -33,6 +33,7 @@ import { createGitRepoSlice } from './slices/gitRepoSlice'
 import { createAgentsSlice } from './slices/agentsSlice'
 import { createOrchestratorSlice } from './slices/orchestratorSlice'
 import { createUiSlice } from './slices/uiSlice'
+import i18n from '@renderer/i18n'
 
 export type {
   AppState,
@@ -316,7 +317,7 @@ export const useAppStore = create<AppState>()((set, get, api) => ({
         const before = prev.find((p) => p.id === a.id)
         if (before?.limitWarning) continue
         const label = LIMIT_KIND_LABELS[a.limitWarning.kind]
-        get().showToast(`⚠ ${a.name}: ${label} nahe — „⇄ Übergeben" möglich`)
+        get().showToast(i18n.t('toast.limitNear', { name: a.name, kind: label }))
       }
       const retainedIds = new Set(agents.map((agent) => agent.id))
       set((state) => ({
@@ -469,7 +470,7 @@ export const useAppStore = create<AppState>()((set, get, api) => ({
           ...allSnapshots.map((item) => [item.workspaceSessionId ?? item.profileId!, item] as const)
         ])
       }))
-    }).catch((error) => get().showToast(`Workspace-Übersicht unvollständig: ${errorMessage(error)}`))
+    }).catch((error) => get().showToast(i18n.t('toast.workspaceOverviewIncomplete', { error: errorMessage(error) })))
 
     void get().refreshGit()
     void get().refreshHealth()

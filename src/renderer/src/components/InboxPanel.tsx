@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import type {
   Idea,
   IdeaArchiveView,
@@ -44,25 +46,42 @@ import {
 import styles from './responsiveGuards.module.css'
 import archiveStyles from './InboxPanel.module.css'
 
-const STATUS_LABEL: Record<IdeaStatus, string> = {
-  draft: 'Entwurf',
-  ready: 'Bereit',
-  archived: 'Archiv',
-  done: 'Erledigt'
+// Label maps hold i18n key paths; the German/English copy lives in the locales.
+const STATUS_LABEL_KEYS: Record<IdeaStatus, string> = {
+  draft: 'inbox.status.draft',
+  ready: 'inbox.status.ready',
+  archived: 'inbox.status.archived',
+  done: 'inbox.status.done'
 }
-const TRANSFER_STATUS_LABEL: Record<string, string> = {
-  pending: 'Übergabe wartet',
-  running: 'Planung läuft',
-  planned: 'Plan im Review',
-  failed: 'Übergabe fehlgeschlagen'
+const TRANSFER_STATUS_LABEL_KEYS: Record<string, string> = {
+  pending: 'inbox.transferStatus.pending',
+  running: 'inbox.transferStatus.running',
+  planned: 'inbox.transferStatus.planned',
+  failed: 'inbox.transferStatus.failed'
+}
+const SPEECH_STATE_LABEL_KEYS: Record<string, string> = {
+  idle: 'inbox.speechState.idle',
+  recording: 'inbox.speechState.recording',
+  transcribing: 'inbox.speechState.transcribing',
+  review: 'inbox.speechState.review',
+  failed: 'inbox.speechState.failed'
 }
 
-const SPEECH_STATE_LABEL: Record<string, string> = {
-  idle: 'Bereit',
-  recording: 'Aufnahme…',
-  transcribing: 'Transkribiert…',
-  review: 'Vorschau',
-  failed: 'Fehler'
+/** Localized idea status (defined for every member of the known status union). */
+function statusLabel(t: TFunction, status: IdeaStatus): string {
+  return t(STATUS_LABEL_KEYS[status])
+}
+
+/** Localized transfer status; unknown backend states fall back to their raw id. */
+function transferStatusLabel(t: TFunction, status: string): string {
+  const key = TRANSFER_STATUS_LABEL_KEYS[status]
+  return key ? t(key) : status
+}
+
+/** Localized speech state; unknown states fall back to their raw id. */
+function speechStateLabel(t: TFunction, state: string): string {
+  const key = SPEECH_STATE_LABEL_KEYS[state]
+  return key ? t(key) : state
 }
 
 function createPromptRequestId(): string {
@@ -80,20 +99,21 @@ function ArtifactRow({
   preview?: string
   onRemove?: () => void
 }): JSX.Element {
+  const { t } = useTranslation()
   let detail = ''
   let warn = ''
   if (artifact.kind === 'text') {
     detail = artifact.text?.slice(0, 120) ?? ''
   } else if (artifact.kind === 'url') {
     detail = artifact.url ?? ''
-    if (artifact.urlInvalid) warn = 'Ungültige URL'
+    if (artifact.urlInvalid) warn = t('inbox.artifact.urlInvalid')
   } else if (artifact.kind === 'image') {
     detail = artifact.fileName ?? artifact.label
-    if (artifact.missing) warn = 'Bild fehlt'
+    if (artifact.missing) warn = t('inbox.artifact.imageMissing')
   } else {
     detail = artifact.fileName ?? artifact.sourcePath ?? ''
-    if (artifact.missing) warn = 'Datei fehlt'
-    else if (artifact.copied === false) warn = 'Nur Referenz (nicht kopiert)'
+    if (artifact.missing) warn = t('inbox.artifact.fileMissing')
+    else if (artifact.copied === false) warn = t('inbox.artifact.referenceOnly')
   }
 
   return (
@@ -102,7 +122,7 @@ function ArtifactRow({
         <span className="kind">{artifact.kind}</span>
         <span className="label">{artifact.label}</span>
         {onRemove && (
-          <button type="button" className="icon-btn-sm" title="Artefakt entfernen" onClick={onRemove}>
+          <button type="button" className="icon-btn-sm" title={t('inbox.artifact.removeTitle')} onClick={onRemove}>
             ✕
           </button>
         )}
@@ -127,6 +147,7 @@ function ArchiveDetail({
   saving: boolean
   onRestore: () => void
 }): JSX.Element {
+  const { t } = useTranslation()
   const attributes = listRemovableIdeaAttributes(idea)
   const history = sortedIdeaHistory(idea)
   const workspaces = workspaceReferences(idea)
@@ -134,25 +155,25 @@ function ArchiveDetail({
   return (
     <>
       <div className={archiveStyles.archiveHead}>
-        <h2 className={archiveStyles.archiveTitle}>{idea.title || 'Unbenannte Idee'}</h2>
-        <span className={archiveStyles.archiveStatus}>{STATUS_LABEL[idea.status]}</span>
+        <h2 className={archiveStyles.archiveTitle}>{idea.title || t('inbox.archive.untitled')}</h2>
+        <span className={archiveStyles.archiveStatus}>{statusLabel(t, idea.status)}</span>
         <button
           type="button"
           className="inbox-btn"
           disabled={saving}
           onClick={onRestore}
         >
-          Wiederherstellen
+          {t('inbox.archive.restore')}
         </button>
       </div>
 
-      <section className={archiveStyles.archiveSection} aria-label="Inhalt">
-        <div className={archiveStyles.sectionLabel}>Inhalt</div>
+      <section className={archiveStyles.archiveSection} aria-label={t('inbox.archive.content')}>
+        <div className={archiveStyles.sectionLabel}>{t('inbox.archive.content')}</div>
         <p className={archiveStyles.readOnlyContent}>{idea.content || '—'}</p>
       </section>
 
-      <section className={archiveStyles.archiveSection} aria-label="Attribute">
-        <div className={archiveStyles.sectionLabel}>Attribute</div>
+      <section className={archiveStyles.archiveSection} aria-label={t('inbox.archive.attributes')}>
+        <div className={archiveStyles.sectionLabel}>{t('inbox.archive.attributes')}</div>
         {attributes.length > 0 ? (
           <div className={archiveStyles.chipList}>
             {attributes.map((attribute) => (
@@ -162,12 +183,12 @@ function ArchiveDetail({
             ))}
           </div>
         ) : (
-          <div className={archiveStyles.muted}>Keine Tags oder Verknüpfungsattribute.</div>
+          <div className={archiveStyles.muted}>{t('inbox.archive.noAttributes')}</div>
         )}
       </section>
 
-      <section className={archiveStyles.archiveSection} aria-label="Workspace-Verknüpfung">
-        <div className={archiveStyles.sectionLabel}>Workspace-Verknüpfung</div>
+      <section className={archiveStyles.archiveSection} aria-label={t('inbox.archive.workspaceLink')}>
+        <div className={archiveStyles.sectionLabel}>{t('inbox.archive.workspaceLink')}</div>
         {workspaces.length > 0 ? (
           <div className={archiveStyles.factList}>
             {workspaces.map((reference) => (
@@ -178,37 +199,37 @@ function ArchiveDetail({
             ))}
           </div>
         ) : (
-          <div className={archiveStyles.muted}>Keine Workspace-Verknüpfung erhalten.</div>
+          <div className={archiveStyles.muted}>{t('inbox.archive.noWorkspaceLink')}</div>
         )}
       </section>
 
-      <section className={archiveStyles.archiveSection} aria-label="Übergabe-Telemetrie">
-        <div className={archiveStyles.sectionLabel}>Übergabe-Telemetrie</div>
+      <section className={archiveStyles.archiveSection} aria-label={t('inbox.archive.transferTelemetry')}>
+        <div className={archiveStyles.sectionLabel}>{t('inbox.archive.transferTelemetry')}</div>
         {idea.transfer ? (
           <div className={`inbox-transfer-status status-${idea.transfer.status}`}>
-            {TRANSFER_STATUS_LABEL[idea.transfer.status] ?? idea.transfer.status}
+            {transferStatusLabel(t, idea.transfer.status)}
             {idea.transfer.error && ` — ${idea.transfer.error}`}
             {idea.transfer.planId && ` · Plan ${idea.transfer.planId}`}
           </div>
         ) : (
-          <div className={archiveStyles.muted}>Keine Übergabe-Telemetrie vorhanden.</div>
+          <div className={archiveStyles.muted}>{t('inbox.archive.noTransferTelemetry')}</div>
         )}
       </section>
 
-      <section className={archiveStyles.archiveSection} aria-label="Artefakte">
-        <div className={archiveStyles.sectionLabel}>Artefakte ({idea.artifacts.length})</div>
+      <section className={archiveStyles.archiveSection} aria-label={t('inbox.archive.artifactsAria')}>
+        <div className={archiveStyles.sectionLabel}>{t('inbox.artifacts', { count: idea.artifacts.length })}</div>
         <div className="inbox-artifact-list">
           {idea.artifacts.map((artifact) => (
             <ArtifactRow key={artifact.id} artifact={artifact} />
           ))}
           {idea.artifacts.length === 0 && (
-            <div className={archiveStyles.muted}>Keine Artefakte.</div>
+            <div className={archiveStyles.muted}>{t('inbox.noArtifacts')}</div>
           )}
         </div>
       </section>
 
-      <section className={archiveStyles.archiveSection} aria-label="Verarbeitungshistorie">
-        <div className={archiveStyles.sectionLabel}>Verarbeitungshistorie</div>
+      <section className={archiveStyles.archiveSection} aria-label={t('inbox.archive.history')}>
+        <div className={archiveStyles.sectionLabel}>{t('inbox.archive.history')}</div>
         {history.length > 0 ? (
           <ol className={archiveStyles.historyList}>
             {history.map((entry, index) => (
@@ -222,19 +243,23 @@ function ArchiveDetail({
             ))}
           </ol>
         ) : (
-          <div className={archiveStyles.muted}>Keine Verarbeitungshistorie vorhanden.</div>
+          <div className={archiveStyles.muted}>{t('inbox.archive.noHistory')}</div>
         )}
       </section>
 
       <div className="inbox-meta">
-        ID: {idea.id} · erstellt {formatIdeaDate(idea.createdAt)} · archiviert{' '}
-        {formatIdeaDate(ideaTimestamp(idea, 'archive'))}
+        {t('inbox.archive.meta', {
+          id: idea.id,
+          created: formatIdeaDate(idea.createdAt),
+          archived: formatIdeaDate(ideaTimestamp(idea, 'archive'))
+        })}
       </div>
     </>
   )
 }
 
 export default function InboxPanel(): JSX.Element {
+  const { t } = useTranslation()
   const speech = useInboxSpeech()
   const openSpeechSettings = useAppStore((state) => state.openSpeechSettings)
   const [ideas, setIdeas] = useState<Idea[]>([])
@@ -399,7 +424,7 @@ export default function InboxPanel(): JSX.Element {
         commitPromptSession({ ...promptSessionRef.current, copied: true })
       }
     } catch (err) {
-      setError(`Kopieren fehlgeschlagen: ${err instanceof Error ? err.message : String(err)}`)
+      setError(t('inbox.errors.copyFailed', { error: err instanceof Error ? err.message : String(err) }))
     }
   }
 
@@ -452,7 +477,7 @@ export default function InboxPanel(): JSX.Element {
   const saveDraft = async (openTransferAfterSave = false): Promise<void> => {
     if (!draft) return
     if (draft.status === 'archived') {
-      setError('Archivierte Ideen muessen vor dem Bearbeiten wiederhergestellt werden.')
+      setError(t('inbox.errors.archivedReadonly'))
       return
     }
     setSaving(true)
@@ -482,7 +507,7 @@ export default function InboxPanel(): JSX.Element {
     setError('')
     try {
       const idea = await window.vertragus.inbox.create({
-        title: speech.voiceDraft.title.trim() || 'Sprachnotiz',
+        title: speech.voiceDraft.title.trim() || t('inbox.voiceDraft.defaultTitle'),
         content: speech.voiceDraft.content,
         status: 'draft',
         tags: ['sprache']
@@ -594,7 +619,7 @@ export default function InboxPanel(): JSX.Element {
   const attachImageBlob = async (blob: Blob, name?: string): Promise<void> => {
     if (!draft) return
     if (!IMAGE_ARTIFACT_MIME_TYPES.includes(blob.type as ImageArtifactMime)) {
-      setError('Nicht unterstützter Bildtyp — erlaubt: PNG, JPEG, GIF, WebP.')
+      setError(t('inbox.errors.unsupportedImage'))
       return
     }
     let dataUrl: string
@@ -602,7 +627,7 @@ export default function InboxPanel(): JSX.Element {
       dataUrl = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader()
         reader.onload = () => resolve(String(reader.result))
-        reader.onerror = () => reject(reader.error ?? new Error('Bild konnte nicht gelesen werden.'))
+        reader.onerror = () => reject(reader.error ?? new Error(t('inbox.errors.imageRead')))
         reader.readAsDataURL(blob)
       })
     } catch (err) {
@@ -708,20 +733,18 @@ export default function InboxPanel(): JSX.Element {
   return (
     <main
       className={`inbox-panel ${styles.inboxPanel}`}
-      aria-label={view === 'archive' ? 'Ideen-Archiv' : 'Ideen-Inbox'}
+      aria-label={view === 'archive' ? t('inbox.ariaArchive') : t('inbox.ariaInbox')}
     >
       <div className="inbox-header">
         <div>
           <div className="inbox-title">
-            {view === 'archive' ? 'Ideen-Archiv' : 'Ideen-Inbox'}
+            {view === 'archive' ? t('inbox.titleArchive') : t('inbox.titleInbox')}
           </div>
           <div className="inbox-sub">
-            {view === 'archive'
-              ? 'Archivierte Ideen mit ihrer Verarbeitungshistorie'
-              : 'Ideen, Notizen und Spracheingabe — unabhängig vom Workspace'}
+            {view === 'archive' ? t('inbox.subArchive') : t('inbox.subInbox')}
           </div>
         </div>
-        <div className={archiveStyles.viewSwitch} role="tablist" aria-label="Ideenansicht">
+        <div className={archiveStyles.viewSwitch} role="tablist" aria-label={t('inbox.viewAria')}>
           {(['inbox', 'archive'] as const).map((item) => (
             <button
               key={item}
@@ -733,24 +756,26 @@ export default function InboxPanel(): JSX.Element {
               }`}
               onClick={() => selectView(item)}
             >
-              {item === 'inbox' ? 'Inbox' : 'Archiv'}
+              {item === 'inbox' ? t('inbox.tabInbox') : t('inbox.tabArchive')}
             </button>
           ))}
         </div>
         <div className="inbox-speech-bar">
           <span className={`inbox-speech-status state-${speech.state}`}>
-            {SPEECH_STATE_LABEL[speech.state] ?? speech.state}
+            {speechStateLabel(t, speech.state)}
           </span>
           <button
             type="button"
             className={`inbox-speech-mic ${speech.state === 'recording' ? 'recording' : ''}`}
-            title={`${
-              speech.state === 'recording'
-                ? 'Aufnahme stoppen'
-                : speech.state === 'transcribing'
-                  ? 'Abbrechen'
-                  : 'Spracheingabe starten/stoppen'
-            } · Kürzel ${shortcutKeys} · Shortcut ${shortcutKeys}`}
+            title={t('inbox.micTitle', {
+              action:
+                speech.state === 'recording'
+                  ? t('inbox.micStop')
+                  : speech.state === 'transcribing'
+                    ? t('inbox.micCancel')
+                    : t('inbox.micStartStop'),
+              keys: shortcutKeys
+            })}
             disabled={speech.state === 'review' || saving}
             aria-pressed={speech.state === 'recording'}
             aria-keyshortcuts={shortcutAriaKeys}
@@ -758,21 +783,21 @@ export default function InboxPanel(): JSX.Element {
           >
             {speech.state === 'recording' ? '■' : '🎙'}
           </button>
-          <kbd className="inbox-speech-shortcut" title={`Kürzel ${shortcutKeys} · Shortcut ${shortcutKeys}`}>
+          <kbd className="inbox-speech-shortcut" title={t('inbox.shortcutTitle', { keys: shortcutKeys })}>
             {shortcutKeys}
           </kbd>
           <button
             type="button"
             className="inbox-btn ghost sm"
-            title="Cloud-STT Einstellungen"
+            title={t('inbox.sttSettings')}
             onClick={() => openSpeechSettings()}
           >
-            ⚙ STT
+            {t('inbox.sttButton')}
           </button>
         </div>
         <div className="spacer" />
         <button type="button" className="inbox-btn" disabled={saving || speechBusy} onClick={() => void createIdea()}>
-          ＋ Neue Idee
+          {t('inbox.newIdea')}
         </button>
         <button
           type="button"
@@ -781,7 +806,7 @@ export default function InboxPanel(): JSX.Element {
             window.location.hash = ''
           }}
         >
-          ← Workspace
+          {t('inbox.backToWorkspace')}
         </button>
       </div>
 
@@ -791,27 +816,30 @@ export default function InboxPanel(): JSX.Element {
 
       {speech.status && Number.isFinite(speech.status.maxDurationMs) && Number.isFinite(speech.status.maxBytes) && (
         <div className="inbox-speech-hint">
-          Limit: {Math.round(speech.status.maxDurationMs / 1000)}s ·{' '}
-          {Math.round(speech.status.maxBytes / (1024 * 1024))} MB · Modell {speech.status.model}
-          {!speech.status.configured && ' · API-Schlüssel fehlt'}
+          {t('inbox.speechLimit', {
+            seconds: Math.round(speech.status.maxDurationMs / 1000),
+            megabytes: Math.round(speech.status.maxBytes / (1024 * 1024)),
+            model: speech.status.model
+          })}
+          {!speech.status.configured && ` · ${t('inbox.apiKeyMissing')}`}
         </div>
       )}
 
       {showVoiceReview && speech.voiceDraft && (
-        <section className="inbox-voice-review" aria-label="Sprachtranskript Vorschau">
+        <section className="inbox-voice-review" aria-label={t('inbox.voiceReviewAria')}>
           <div className="inbox-voice-review-head">
-            <b>Neuer Ideenentwurf aus Sprache</b>
-            <span className="hint">Erst nach Bestätigung gespeichert</span>
+            <b>{t('inbox.voiceReviewHead')}</b>
+            <span className="hint">{t('inbox.voiceReviewHint')}</span>
           </div>
           <label className="inbox-field">
-            <span>Titel</span>
+            <span>{t('inbox.fieldTitle')}</span>
             <input
               value={speech.voiceDraft.title}
               onChange={(e) => speech.updateVoiceDraft({ title: e.target.value })}
             />
           </label>
           <label className="inbox-field">
-            <span>Inhalt (editierbar)</span>
+            <span>{t('inbox.fieldContentEditable')}</span>
             <textarea
               rows={6}
               value={speech.voiceDraft.content}
@@ -820,7 +848,7 @@ export default function InboxPanel(): JSX.Element {
           </label>
           <div className="inbox-voice-review-actions">
             <button type="button" className="inbox-btn ghost" onClick={speech.discardVoiceDraft}>
-              Verwerfen
+              {t('inbox.discard')}
             </button>
             <button
               type="button"
@@ -828,7 +856,7 @@ export default function InboxPanel(): JSX.Element {
               disabled={saving || !speech.voiceDraft.content.trim()}
               onClick={() => void confirmVoiceDraft()}
             >
-              Als Idee speichern
+              {t('inbox.saveAsIdea')}
             </button>
           </div>
         </section>
@@ -836,12 +864,10 @@ export default function InboxPanel(): JSX.Element {
 
       <div className="inbox-body">
         <aside className="inbox-list">
-          {loading && <div className="inbox-empty">Lade…</div>}
+          {loading && <div className="inbox-empty">{t('inbox.loading')}</div>}
           {!loading && visibleIdeas.length === 0 && (
             <div className="inbox-empty">
-              {view === 'archive'
-                ? 'Noch keine archivierten Ideen.'
-                : 'Noch keine Ideen. Erstelle die erste oder nutze 🎙.'}
+              {view === 'archive' ? t('inbox.emptyArchive') : t('inbox.emptyInbox')}
             </div>
           )}
           {visibleIdeas.map((idea) => (
@@ -853,7 +879,7 @@ export default function InboxPanel(): JSX.Element {
             >
               <div className="row-title">{idea.title}</div>
               <div className="row-meta">
-                <span className="status">{STATUS_LABEL[idea.status]}</span>
+                <span className="status">{statusLabel(t, idea.status)}</span>
                 <span>
                   {ideaTimestampLabel(view)} {formatIdeaDate(ideaTimestamp(idea, view))}
                 </span>
@@ -874,9 +900,7 @@ export default function InboxPanel(): JSX.Element {
         <section className="inbox-editor">
           {!draft ? (
             <div className="inbox-empty">
-              {view === 'archive'
-                ? 'Wähle eine archivierte Idee.'
-                : 'Wähle oder erstelle eine Idee.'}
+              {view === 'archive' ? t('inbox.pickArchive') : t('inbox.pickInbox')}
             </div>
           ) : view === 'archive' ? (
             <ArchiveDetail idea={draft} saving={saving} onRestore={() => void restoreIdea()} />
@@ -888,18 +912,18 @@ export default function InboxPanel(): JSX.Element {
                   className="inbox-title-input"
                   value={draft.title}
                   onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-                  aria-label="Titel"
+                  aria-label={t('inbox.titleAria')}
                 />
                 <select
                   value={draft.status}
                   onChange={(e) =>
                     setDraft({ ...draft, status: e.target.value as IdeaStatus })
                   }
-                  aria-label="Status"
+                  aria-label={t('inbox.statusAria')}
                 >
                   {IDEA_INPUT_STATUSES.map((s) => (
                     <option key={s} value={s}>
-                      {STATUS_LABEL[s]}
+                      {statusLabel(t, s)}
                     </option>
                   ))}
                 </select>
@@ -909,18 +933,18 @@ export default function InboxPanel(): JSX.Element {
                   disabled={saving || speechBusy || promptSession.phase === 'loading'}
                   aria-expanded={promptSession.open}
                   onClick={() => void runPromptEnhancement()}
-                  title="Lokalen Draft im Main-Prozess mit der verknüpften Provider-Konfiguration schärfen"
+                  title={t('inbox.sharpenTitle')}
                 >
-                  {promptSession.phase === 'loading' ? 'Wird geschärft …' : PROMPT_SHARPEN_LABEL}
+                  {promptSession.phase === 'loading' ? t('inbox.sharpening') : PROMPT_SHARPEN_LABEL}
                 </button>
                 <button
                   type="button"
                   className="inbox-btn"
                   disabled={saving || speechBusy || isTransferActive(draft.transfer)}
                   onClick={() => void saveDraft(true)}
-                  title="Idee an Workspace-Profil übergeben und Orchestrator-Planung starten"
+                  title={t('inbox.transferToProfileTitle')}
                 >
-                  An Profil übergeben
+                  {t('inbox.transferToProfile')}
                 </button>
                 <button
                   type="button"
@@ -928,7 +952,7 @@ export default function InboxPanel(): JSX.Element {
                   disabled={saving || speechBusy}
                   onClick={() => void saveDraft()}
                 >
-                  Speichern
+                  {t('inbox.save')}
                 </button>
                 <button
                   type="button"
@@ -936,13 +960,13 @@ export default function InboxPanel(): JSX.Element {
                   disabled={speechBusy}
                   onClick={() => setConfirmDelete(true)}
                 >
-                  Löschen
+                  {t('inbox.delete')}
                 </button>
               </div>
 
               {draft.transfer && (
                 <div className={`inbox-transfer-status status-${draft.transfer.status}`}>
-                  {TRANSFER_STATUS_LABEL[draft.transfer.status] ?? draft.transfer.status}
+                  {transferStatusLabel(t, draft.transfer.status)}
                   {draft.transfer.error && ` — ${draft.transfer.error}`}
                   {draft.transfer.planId && ` · Plan ${draft.transfer.planId}`}
                   <button
@@ -951,7 +975,7 @@ export default function InboxPanel(): JSX.Element {
                     disabled={saving}
                     onClick={() => void resetTransfer()}
                   >
-                    Zurücksetzen
+                    {t('inbox.resetTransfer')}
                   </button>
                 </div>
               )}
@@ -972,18 +996,18 @@ export default function InboxPanel(): JSX.Element {
               />
 
               <label className="inbox-field">
-                <span>Inhalt</span>
+                <span>{t('inbox.contentLabel')}</span>
                 <textarea
                   value={draft.content}
                   onChange={(e) => setDraft({ ...draft, content: e.target.value })}
                   onPaste={handleContentPaste}
                   rows={8}
-                  placeholder="Text eingeben — oder ein Bild (Screenshot) direkt hier einfügen (Strg+V)."
+                  placeholder={t('inbox.contentPlaceholder')}
                 />
               </label>
 
               <label className="inbox-field">
-                <span>Tags (kommagetrennt)</span>
+                <span>{t('inbox.tagsLabel')}</span>
                 <input
                   value={draft.tags.join(', ')}
                   onChange={(e) =>
@@ -997,7 +1021,7 @@ export default function InboxPanel(): JSX.Element {
 
               <div className="inbox-refs">
                 <label>
-                  Profil-ID
+                  {t('inbox.profileId')}
                   <input
                     value={draft.refs?.profileId ?? ''}
                     onChange={(e) =>
@@ -1009,7 +1033,7 @@ export default function InboxPanel(): JSX.Element {
                   />
                 </label>
                 <label>
-                  Workspace-ID
+                  {t('inbox.workspaceId')}
                   <input
                     value={draft.refs?.workspaceId ?? ''}
                     onChange={(e) =>
@@ -1021,7 +1045,7 @@ export default function InboxPanel(): JSX.Element {
                   />
                 </label>
                 <label>
-                  Plan-ID
+                  {t('inbox.planId')}
                   <input
                     value={draft.refs?.planId ?? ''}
                     onChange={(e) =>
@@ -1033,7 +1057,7 @@ export default function InboxPanel(): JSX.Element {
                   />
                 </label>
                 <label>
-                  Task-ID
+                  {t('inbox.taskId')}
                   <input
                     value={draft.refs?.taskId ?? ''}
                     onChange={(e) =>
@@ -1046,8 +1070,8 @@ export default function InboxPanel(): JSX.Element {
                 </label>
               </div>
 
-              <section className={archiveStyles.attributeSection} aria-label="Attribute entfernen">
-                <div className={archiveStyles.sectionLabel}>Attribute entfernen</div>
+              <section className={archiveStyles.attributeSection} aria-label={t('inbox.removeAttributesLabel')}>
+                <div className={archiveStyles.sectionLabel}>{t('inbox.removeAttributesLabel')}</div>
                 {listRemovableIdeaAttributes(draft).length > 0 ? (
                   <div className={archiveStyles.attributeList}>
                     {listRemovableIdeaAttributes(draft).map((option) => (
@@ -1059,8 +1083,8 @@ export default function InboxPanel(): JSX.Element {
                           type="button"
                           className={archiveStyles.attributeRemove}
                           disabled={saving}
-                          aria-label={`${option.label} ${option.value} entfernen`}
-                          title={`${option.label} entfernen`}
+                          aria-label={t('inbox.removeAttributeAria', { label: option.label, value: option.value })}
+                          title={t('inbox.removeAttributeTitle', { label: option.label })}
                           onClick={() => void removeAttribute(option.attribute)}
                         >
                           ×
@@ -1069,39 +1093,39 @@ export default function InboxPanel(): JSX.Element {
                     ))}
                   </div>
                 ) : (
-                  <div className={archiveStyles.muted}>Keine entfernbaren Attribute.</div>
+                  <div className={archiveStyles.muted}>{t('inbox.noRemovableAttributes')}</div>
                 )}
               </section>
 
               <div className="inbox-artifacts">
                 <div className="inbox-artifacts-head">
-                  <span>Artefakte ({draft.artifacts.length})</span>
+                  <span>{t('inbox.artifacts', { count: draft.artifacts.length })}</span>
                   <div className="inbox-artifact-actions">
                     <button type="button" className="inbox-btn sm" disabled={saving} onClick={() => void addFile()}>
-                      Datei
+                      {t('inbox.file')}
                     </button>
                   </div>
                 </div>
 
                 <div className="inbox-artifact-add">
                   <input
-                    placeholder="URL (https://…)"
+                    placeholder={t('inbox.urlPlaceholder')}
                     value={urlInput}
                     onChange={(e) => setUrlInput(e.target.value)}
                   />
                   <button type="button" className="inbox-btn sm" disabled={saving} onClick={() => void addUrl()}>
-                    URL hinzufügen
+                    {t('inbox.addUrl')}
                   </button>
                 </div>
                 <div className="inbox-artifact-add">
                   <textarea
-                    placeholder="Text-Artefakt"
+                    placeholder={t('inbox.textPlaceholder')}
                     value={textInput}
                     onChange={(e) => setTextInput(e.target.value)}
                     rows={2}
                   />
                   <button type="button" className="inbox-btn sm" disabled={saving} onClick={() => void addText()}>
-                    Text hinzufügen
+                    {t('inbox.addText')}
                   </button>
                 </div>
 
@@ -1115,14 +1139,17 @@ export default function InboxPanel(): JSX.Element {
                     />
                   ))}
                   {draft.artifacts.length === 0 && (
-                    <div className="inbox-empty small">Keine Artefakte.</div>
+                    <div className="inbox-empty small">{t('inbox.noArtifacts')}</div>
                   )}
                 </div>
               </div>
 
               <div className="inbox-meta">
-                ID: {draft.id} · erstellt {formatIdeaDate(draft.createdAt)} · aktualisiert{' '}
-                {formatIdeaDate(draft.updatedAt)}
+                {t('inbox.editor.meta', {
+                  id: draft.id,
+                  created: formatIdeaDate(draft.createdAt),
+                  updated: formatIdeaDate(draft.updatedAt)
+                })}
               </div>
             </>
           )}
@@ -1145,17 +1172,17 @@ export default function InboxPanel(): JSX.Element {
           <div className="confirm-backdrop" onClick={() => setConfirmDelete(false)} />
           <div className="confirm-pop" role="alertdialog" aria-modal="true">
             <div className="head">
-              <b>Idee löschen?</b>
+              <b>{t('inbox.deleteConfirmTitle')}</b>
             </div>
             <div className="text">
-              „{draft.title}“ und alle Artefakt-Metadaten werden unwiderruflich entfernt.
+              {t('inbox.deleteConfirmText', { title: draft.title })}
             </div>
             <div className="actions">
               <button type="button" className="btn-ghost" onClick={() => setConfirmDelete(false)}>
-                Abbrechen
+                {t('inbox.cancel')}
               </button>
               <button type="button" className="btn-danger" disabled={saving} onClick={() => void deleteIdea()}>
-                Löschen
+                {t('inbox.delete')}
               </button>
             </div>
           </div>

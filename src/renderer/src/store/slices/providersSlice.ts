@@ -10,6 +10,7 @@ import {
   normalizeProviderLimits
 } from '@shared/providers'
 import { normalizeModelCatalog } from '@renderer/modelCatalog'
+import i18n from '@renderer/i18n'
 import { errorMessage } from '../useAppStore'
 import type { AppState, ProvidersSlice } from './types'
 
@@ -53,9 +54,13 @@ export const createProvidersSlice: StateCreator<AppState, [], [], ProvidersSlice
       await window.vertragus.loginProvider(id)
       // The completion event triggers a second reload after the CLI closes.
       void get().refreshModels()
-      get().showToast(`${provider.loginLabel ?? 'Provider-Login'} im sicheren Terminal geöffnet.`)
+      get().showToast(
+        i18n.t('toast.providerLoginOpened', {
+          label: provider.loginLabel ?? i18n.t('toast.providerLoginFallback')
+        })
+      )
     } catch (error) {
-      get().showToast(`Login konnte nicht gestartet werden: ${errorMessage(error)}`)
+      get().showToast(i18n.t('toast.providerLoginFailed', { error: errorMessage(error) }))
     }
   },
 

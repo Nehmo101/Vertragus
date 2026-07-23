@@ -1,6 +1,7 @@
 /** Workspace profiles, workspace sessions and the profile editor modal. */
 import type { StateCreator } from 'zustand'
 import { duplicateProfile as createDuplicateProfile } from '@shared/profile'
+import i18n from '@renderer/i18n'
 import { activeProfile, errorMessage } from '../useAppStore'
 import type { AppState, ProfilesSlice } from './types'
 
@@ -14,7 +15,7 @@ export const createProfilesSlice: StateCreator<AppState, [], [], ProfilesSlice> 
   async selectProfile(id) {
     if (id === get().activeProfileId) {
       await get().refreshGit().catch((error) => {
-        get().showToast(`Git-Status nicht verfügbar: ${errorMessage(error)}`)
+        get().showToast(i18n.t('toast.gitStatusUnavailable', { error: errorMessage(error) }))
       })
       return true
     }
@@ -36,11 +37,11 @@ export const createProfilesSlice: StateCreator<AppState, [], [], ProfilesSlice> 
         }
       }))
       await get().refreshGit().catch((error) => {
-        get().showToast(`Profil gewechselt, Git-Status nicht verfügbar: ${errorMessage(error)}`)
+        get().showToast(i18n.t('toast.profileSwitchedGitUnavailable', { error: errorMessage(error) }))
       })
       return true
     } catch (error) {
-      get().showToast(`Profilwechsel nicht möglich: ${errorMessage(error)}`)
+      get().showToast(i18n.t('toast.profileSwitchFailed', { error: errorMessage(error) }))
       return false
     }
   },
@@ -63,7 +64,7 @@ export const createProfilesSlice: StateCreator<AppState, [], [], ProfilesSlice> 
       await get().refreshGit().catch(() => undefined)
       return true
     } catch (error) {
-      get().showToast(`Workspace konnte nicht ausgewaehlt werden: ${errorMessage(error)}`)
+      get().showToast(i18n.t('toast.workspaceSelectFailed', { error: errorMessage(error) }))
       return false
     }
   },
@@ -85,9 +86,9 @@ export const createProfilesSlice: StateCreator<AppState, [], [], ProfilesSlice> 
         },
         selectedAgentId: null
       }))
-      get().showToast('Workspace-Lauf entfernt.')
+      get().showToast(i18n.t('toast.workspaceRunRemoved'))
     } catch (error) {
-      get().showToast(`Workspace konnte nicht entfernt werden: ${errorMessage(error)}`)
+      get().showToast(i18n.t('toast.workspaceRemoveFailed', { error: errorMessage(error) }))
     }
   },
 
@@ -149,9 +150,9 @@ export const createProfilesSlice: StateCreator<AppState, [], [], ProfilesSlice> 
       const profiles = await window.vertragus.saveProfile(profile)
       set({ profiles, editorProfile: null })
       const selected = await get().selectProfile(profile.id)
-      if (selected) get().showToast(`Profil „${profile.name}" gespeichert.`)
+      if (selected) get().showToast(i18n.t('toast.profileSaved', { name: profile.name }))
     } catch (error) {
-      get().showToast(`Profil konnte nicht gespeichert werden: ${errorMessage(error)}`)
+      get().showToast(i18n.t('toast.profileSaveFailed', { error: errorMessage(error) }))
     }
   },
 
@@ -159,15 +160,15 @@ export const createProfilesSlice: StateCreator<AppState, [], [], ProfilesSlice> 
     try {
       const currentProfiles = get().profiles
       const source = currentProfiles.find((profile) => profile.id === id)
-      if (!source) throw new Error('Quellprofil wurde nicht gefunden.')
+      if (!source) throw new Error(i18n.t('toast.sourceProfileNotFound'))
 
       const duplicate = createDuplicateProfile(source, currentProfiles)
       const profiles = await window.vertragus.saveProfile(duplicate)
       const savedDuplicate = profiles.find((profile) => profile.id === duplicate.id) ?? duplicate
       set({ profiles, editorProfile: savedDuplicate })
-      get().showToast(`Profil "${source.name}" als "${duplicate.name}" dupliziert.`)
+      get().showToast(i18n.t('toast.profileDuplicated', { source: source.name, duplicate: duplicate.name }))
     } catch (error) {
-      get().showToast(`Profil konnte nicht dupliziert werden: ${errorMessage(error)}`)
+      get().showToast(i18n.t('toast.profileDuplicateFailed', { error: errorMessage(error) }))
     }
   },
 
@@ -183,11 +184,11 @@ export const createProfilesSlice: StateCreator<AppState, [], [], ProfilesSlice> 
       await get().refreshGit().catch(() => undefined)
       get().showToast(
         wasLastProfile
-          ? `Profil „${profile.name}" gelöscht. Das Standardprofil wurde wiederhergestellt.`
-          : `Profil „${profile.name}" gelöscht.`
+          ? i18n.t('toast.profileDeletedLast', { name: profile.name })
+          : i18n.t('toast.profileDeleted', { name: profile.name })
       )
     } catch (error) {
-      get().showToast(`Profil konnte nicht gelöscht werden: ${errorMessage(error)}`)
+      get().showToast(i18n.t('toast.profileDeleteFailed', { error: errorMessage(error) }))
     }
   }
 })

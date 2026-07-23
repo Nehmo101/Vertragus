@@ -1,4 +1,6 @@
 import { memo, useEffect, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import type { AgentInstanceInfo, HandoffLink } from '@shared/agents'
@@ -24,13 +26,13 @@ interface Props {
   subdued?: boolean
 }
 
-function handoffState(link: HandoffLink): string {
+function handoffState(t: TFunction, link: HandoffLink): string {
   switch (link.handshake?.phase) {
-    case 'awaiting-context': return ' · Start/Kontext ausstehend'
-    case 'awaiting-ack': return ' · Wissensbestätigung ausstehend'
-    case 'completing': return ' · bestätigt'
-    case 'completed': return ' · bestätigt'
-    case 'failed': return ' · fehlgeschlagen'
+    case 'awaiting-context': return ` · ${t('agentPane.handoffPhase.awaitingContext')}`
+    case 'awaiting-ack': return ` · ${t('agentPane.handoffPhase.awaitingAck')}`
+    case 'completing':
+    case 'completed': return ` · ${t('agentPane.handoffPhase.confirmed')}`
+    case 'failed': return ` · ${t('agentPane.handoffPhase.failed')}`
     default: return ''
   }
 }
@@ -187,6 +189,7 @@ const TerminalHost = memo(function TerminalHost({
 })
 
 export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff, focused, subdued }: Props): JSX.Element {
+  const { t } = useTranslation()
   const provider = PROVIDER_THEME[agent.provider]
   const status = STATUS_THEME[agent.status]
   const isOrch = agent.kind === 'orchestrator'
@@ -214,22 +217,22 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
         <div className="pane-title-block">
           <div className="pane-line1">
             <LoreName name={agent.name} className="pane-name" />
-            <span className="pane-model">{agent.model || 'CLI-Standard'}</span>
-            {isOrch && <span className="badge-orch">Orchestrator</span>}
+            <span className="pane-model">{agent.model || t('agentPane.cliDefault')}</span>
+            {isOrch && <span className="badge-orch">{t('agentPane.orchestrator')}</span>}
             {agent.yolo && <span className="badge-yolo">YOLO</span>}
             {limit && (
-              <span className="badge-limit" title={limit.note ?? 'Limit erkannt'}>
+              <span className="badge-limit" title={limit.note ?? t('agentPane.limitDetected')}>
                 ⚠ {LIMIT_KIND_LABELS[limit.kind]}
               </span>
             )}
             {agent.handoffTo && (
-              <span className="badge-handoff" title={`übergeben an ${agent.handoffTo.name}${handoffState(agent.handoffTo)}`}>
-                ↪ {agent.handoffTo.name}{handoffState(agent.handoffTo)}
+              <span className="badge-handoff" title={`${t('agentPane.handoffToTitle', { name: agent.handoffTo.name })}${handoffState(t, agent.handoffTo)}`}>
+                ↪ {agent.handoffTo.name}{handoffState(t, agent.handoffTo)}
               </span>
             )}
             {agent.handoffFrom && (
-              <span className="badge-handoff from" title={`übernommen von ${agent.handoffFrom.name}${handoffState(agent.handoffFrom)}`}>
-                ↩ {agent.handoffFrom.name}{handoffState(agent.handoffFrom)}
+              <span className="badge-handoff from" title={`${t('agentPane.handoffFromTitle', { name: agent.handoffFrom.name })}${handoffState(t, agent.handoffFrom)}`}>
+                ↩ {agent.handoffFrom.name}{handoffState(t, agent.handoffFrom)}
               </span>
             )}
           </div>
@@ -254,20 +257,20 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
           <button
             type="button"
             className={`pane-icon-btn handoff ${limit ? 'warn' : ''}`}
-            title={limit ? `Limit nahe — an anderen Agent übergeben` : 'Arbeit an anderen Agent übergeben'}
-            aria-label="Arbeit an anderen Agent übergeben"
+            title={limit ? t('agentPane.handoffLimitTitle') : t('agentPane.handoffTitle')}
+            aria-label={t('agentPane.handoffAria')}
             onClick={onHandoff}
           >
             ⇄
           </button>
         )}
         {onPopout && (
-          <button type="button" className="pane-icon-btn" title="Als eigenes Fenster" aria-label="Agent als eigenes Fenster öffnen" onClick={onPopout}>
+          <button type="button" className="pane-icon-btn" title={t('agentPane.popoutTitle')} aria-label={t('agentPane.popoutAria')} onClick={onPopout}>
             ⧉
           </button>
         )}
         {onClose && (
-          <button type="button" className="pane-icon-btn close" title="Agent schließen" aria-label="Agent schließen" onClick={onClose}>
+          <button type="button" className="pane-icon-btn close" title={t('agentPane.closeTitle')} aria-label={t('agentPane.closeAria')} onClick={onClose}>
             ✕
           </button>
         )}
@@ -281,7 +284,7 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
         {readable && summary && (
           <div className="pane-readable" role="status" aria-live="polite">
             <div className="pane-readable-head">
-              <span className="pane-readable-tag">Lesbare Zusammenfassung</span>
+              <span className="pane-readable-tag">{t('agentPane.readableTag')}</span>
               <span className="pane-readable-phase">{summary.phaseLabel}</span>
             </div>
             <div className="pane-readable-headline">{summary.headline}</div>
@@ -294,12 +297,12 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
             )}
             {summary.nextStep && (
               <div className="pane-readable-next">
-                <span>Als Nächstes</span>
+                <span>{t('agentPane.nextStep')}</span>
                 {summary.nextStep}
               </div>
             )}
             <div className="pane-readable-hint">
-              Haken „Lesbar" entfernen, um die Rohausgabe im Terminal zu sehen.
+              {t('agentPane.readableHint')}
             </div>
           </div>
         )}
@@ -308,7 +311,7 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
       <div className="pane-foot">
         <label
           className={`pane-readable-toggle ${readable ? 'on' : ''}`}
-          title="Lesbare Zusammenfassung statt Rohausgabe in diesem CLI-Fenster (übersteuert die globale Voreinstellung)"
+          title={t('agentPane.readableToggleTitle')}
         >
           <input
             type="checkbox"
@@ -316,18 +319,18 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
             onChange={() => togglePaneReadable(agent.id)}
           />
           <span className="mark" aria-hidden="true">✓</span>
-          <span className="label">Lesbar</span>
+          <span className="label">{t('agentPane.readable')}</span>
         </label>
         {usage ? (
           <>
-            {telemetry.steps != null && <span><span className="k">Schritte</span> <b>{telemetry.steps}</b></span>}
+            {telemetry.steps != null && <span><span className="k">{t('agentPane.steps')}</span> <b>{telemetry.steps}</b></span>}
             {telemetry.tokens != null && (
               <span title={formatTokenBreakdown(usage.tokensIn, usage.tokensOut)}>
-                <span className="k">Tokens</span> <b>{formatTokenCount(telemetry.tokens)}</b>
+                <span className="k">{t('agentPane.tokens')}</span> <b>{formatTokenCount(telemetry.tokens)}</b>
               </span>
             )}
             {telemetry.costUsd != null && (
-              <span><span className="k">Kosten</span> <b className="cost">{formatUsd(telemetry.costUsd)}</b></span>
+              <span><span className="k">{t('agentPane.cost')}</span> <b className="cost">{formatUsd(telemetry.costUsd)}</b></span>
             )}
           </>
         ) : (
