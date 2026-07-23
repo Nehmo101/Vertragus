@@ -71,6 +71,7 @@ export const IPC = {
   appUpdateCheck: 'app:updateCheck',
   appUpdateDownload: 'app:updateDownload',
   appUpdateInstall: 'app:updateInstall',
+  appUpdateSetChannel: 'app:updateSetChannel',
   diagnosticsExportLatest: 'diagnostics:exportLatest',
   providersHealth: 'providers:health',
   providersCapacity: 'providers:capacity',
@@ -215,12 +216,19 @@ export type UpdateStatus =
   | 'downloaded'
   | 'error'
 
+/**
+ * Update channel: `main` follows every green main-branch build (prereleases),
+ * `stable` only offers tagged, non-prerelease releases.
+ */
+export type UpdateChannel = 'main' | 'stable'
+
 export interface UpdateState {
   status: UpdateStatus
   currentVersion: string
   availableVersion?: string
   progress?: number
   message?: string
+  channel?: UpdateChannel
 }
 
 export interface GitWorktreeInfo {
@@ -350,6 +358,7 @@ export interface VertragusApi {
     check(): Promise<UpdateState>
     download(): Promise<UpdateState>
     install(): Promise<void>
+    setChannel(channel: UpdateChannel): Promise<UpdateState>
     onState(cb: (state: UpdateState) => void): () => void
   }
   diagnostics: {

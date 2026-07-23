@@ -20,6 +20,7 @@ const vertragus: VertragusApi = {
     check: () => ipcRenderer.invoke(IPC.appUpdateCheck),
     download: () => ipcRenderer.invoke(IPC.appUpdateDownload),
     install: () => ipcRenderer.invoke(IPC.appUpdateInstall),
+    setChannel: (channel) => ipcRenderer.invoke(IPC.appUpdateSetChannel, channel),
     onState: (cb) => subscribe<UpdateState>(IPC.evAppUpdateState, cb)
   },
   diagnostics: {

@@ -1,16 +1,32 @@
 import { app } from 'electron'
 import { autoUpdater, type ProgressInfo, type UpdateInfo } from 'electron-updater'
-import type { UpdateState } from '@shared/ipc'
+import type { UpdateChannel, UpdateState } from '@shared/ipc'
+import { getSetting, setSetting } from '@main/config/store'
 
-const UPDATE_CHANNEL = 'main'
 const CHECK_INTERVAL_MS = 30 * 60 * 1_000
+const UPDATE_CHANNEL_SETTING = 'updateChannel'
 
 let initialized = false
 let state: UpdateState = {
   status: 'idle',
-  currentVersion: app.getVersion()
+  currentVersion: app.getVersion(),
+  channel: readUpdateChannel()
 }
 const listeners = new Set<(next: UpdateState) => void>()
+
+export function readUpdateChannel(): UpdateChannel {
+  return getSetting<UpdateChannel>(UPDATE_CHANNEL_SETTING) === 'stable' ? 'stable' : 'main'
+}
+
+/**
+ * `main` follows every green main-branch build (GitHub prereleases on the
+ * `main` channel file); `stable` only accepts tagged non-prerelease releases
+ * (the default `latest` channel file).
+ */
+function applyChannel(channel: UpdateChannel): void {
+  autoUpdater.allowPrerelease = channel === 'main'
+  autoUpdater.channel = channel === 'main' ? 'main' : 'latest'
+}
 
 function publish(next: UpdateState): void {
   state = next
@@ -25,7 +41,8 @@ function withVersion(status: UpdateState['status'], info?: UpdateInfo): UpdateSt
   return {
     status,
     currentVersion: app.getVersion(),
-    availableVersion: info?.version
+    availableVersion: info?.version,
+    channel: readUpdateChannel()
   }
 }
 
@@ -78,6 +95,27 @@ export function installMainUpdate(): void {
   autoUpdater.quitAndInstall(false, true)
 }
 
+/**
+ * Switch between the fast `main` channel and the tagged-releases-only
+ * `stable` channel. Persists the choice, reconfigures the updater and — when
+ * possible — re-checks immediately so the badge reflects the new channel.
+ */
+export async function setUpdateChannel(channel: UpdateChannel): Promise<UpdateState> {
+  if (channel !== 'main' && channel !== 'stable') return state
+  setSetting(UPDATE_CHANNEL_SETTING, channel)
+  if (!initialized || !app.isPackaged) {
+    publish({ ...state, channel })
+    return state
+  }
+  applyChannel(channel)
+  // A download in flight keeps running; the new channel applies to the next check.
+  if (state.status === 'downloading' || state.status === 'downloaded') {
+    publish({ ...state, channel })
+    return state
+  }
+  return checkForMainUpdate()
+}
+
 export function initializeUpdater(): void {
   if (initialized) return
   initialized = true
@@ -95,8 +133,7 @@ export function initializeUpdater(): void {
 
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = true
-  autoUpdater.allowPrerelease = true
-  autoUpdater.channel = UPDATE_CHANNEL
+  applyChannel(readUpdateChannel())
 
   autoUpdater.on('checking-for-update', () => publish(withVersion('checking')))
   autoUpdater.on('update-available', (info) => publish(withVersion('available', info)))

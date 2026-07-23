@@ -32,6 +32,11 @@ const h = vi.hoisted(() => {
 
 vi.mock('electron', () => ({ app: h.app }))
 vi.mock('electron-updater', () => ({ autoUpdater: h.autoUpdater }))
+const settings = vi.hoisted(() => new Map<string, unknown>())
+vi.mock('@main/config/store', () => ({
+  getSetting: (key: string) => settings.get(key),
+  setSetting: (key: string, value: unknown) => settings.set(key, value)
+}))
 
 import {
   getUpdateState,
@@ -39,7 +44,9 @@ import {
   checkForMainUpdate,
   downloadMainUpdate,
   installMainUpdate,
-  initializeUpdater
+  initializeUpdater,
+  readUpdateChannel,
+  setUpdateChannel
 } from './updater'
 
 // The module keeps a single shared `state` and a one-way `initialized` flag with
@@ -209,6 +216,32 @@ describe('updater state machine', () => {
     h.emit('update-downloaded', { version: '3.1.0' })
     installMainUpdate()
     expect(h.autoUpdater.quitAndInstall).toHaveBeenCalledWith(false, true)
+  })
+})
+
+describe('update channel', () => {
+  it('defaults to the fast main channel', () => {
+    expect(readUpdateChannel()).toBe('main')
+  })
+
+  it('setUpdateChannel(stable) persists the choice, tracks tagged releases only, and re-checks', async () => {
+    h.emit('update-not-available', { version: '1.2.3' })
+    const result = await setUpdateChannel('stable')
+
+    expect(readUpdateChannel()).toBe('stable')
+    expect(h.autoUpdater.allowPrerelease).toBe(false)
+    expect(h.autoUpdater.channel).toBe('latest')
+    expect(h.autoUpdater.checkForUpdates).toHaveBeenCalled()
+    expect(result.channel).toBe('stable')
+  })
+
+  it('switching back to main restores prerelease tracking on the main channel file', async () => {
+    h.emit('update-not-available', { version: '1.2.3' })
+    await setUpdateChannel('main')
+
+    expect(readUpdateChannel()).toBe('main')
+    expect(h.autoUpdater.allowPrerelease).toBe(true)
+    expect(h.autoUpdater.channel).toBe('main')
   })
 })
 

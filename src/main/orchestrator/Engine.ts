@@ -1987,7 +1987,7 @@ export class OrchestratorEngine extends EventEmitter {
         : infrastructureFailure
           ? 'Provider-Infrastruktur fehlgeschlagen' : workerError ? 'Worker fehlgeschlagen' : 'Worker abgeschlossen'
       if (activeAttempt) {
-        activeAttempt.status = task.status
+        activeAttempt.status = judgement.status
         activeAttempt.failureKind = task.failureKind
         activeAttempt.finishedAt = Date.now()
         activeAttempt.note = result.result.replace(/\s+/g, ' ').trim().slice(0, RESULT_PREVIEW)

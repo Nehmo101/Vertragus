@@ -35,7 +35,8 @@ import {
   downloadMainUpdate,
   getUpdateState,
   installMainUpdate,
-  onUpdateState
+  onUpdateState,
+  setUpdateChannel
 } from '@main/updater'
 import {
   githubAuthLogin,
@@ -315,6 +316,10 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC.appUpdateCheck, () => checkForMainUpdate())
   ipcMain.handle(IPC.appUpdateDownload, () => downloadMainUpdate())
   ipcMain.handle(IPC.appUpdateInstall, () => installMainUpdate())
+  ipcMain.handle(IPC.appUpdateSetChannel, (event, channel: unknown) => {
+    assertNotVoiceWindow(event)
+    return setUpdateChannel(channel === 'stable' ? 'stable' : 'main')
+  })
   ipcMain.handle(IPC.providersHealth, () => checkAllProviders())
   ipcMain.handle(IPC.providersCapacity, () => providerCapacity.statsAll())
   ipcMain.handle(IPC.diagnosticsExportLatest, async (e, profileId: string) => {
