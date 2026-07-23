@@ -86,6 +86,19 @@ describe('fatal provider stderr classification', () => {
 })
 
 describe('runHeadless lifecycle', () => {
+  it('requires argument-faithful launches for every CLI provider — the prompt travels as an argv element', async () => {
+    for (const provider of ['claude', 'kimi', 'codex', 'copilot', 'cursor'] as const) {
+      mocks.resolveLaunch.mockRejectedValueOnce(new Error('halt before spawn'))
+      await runHeadless(provider, 'multiline\nprompt', opts, vi.fn()).done
+      expect(mocks.resolveLaunch).toHaveBeenLastCalledWith(
+        expect.any(String),
+        expect.any(Array),
+        { requireFaithfulArgs: true }
+      )
+    }
+    expect(mocks.spawn).not.toHaveBeenCalled()
+  })
+
   it('resolves a command-resolution rejection as a failed result', async () => {
     mocks.resolveLaunch.mockRejectedValueOnce(new Error('CLI fehlt'))
 
@@ -173,8 +186,9 @@ describe('runHeadless lifecycle', () => {
     expect(mocks.resolveLaunch).toHaveBeenCalledWith(
       'claude',
       ['-p', 'task', '--output-format', 'stream-json', '--model', 'test', '--verbose'],
-      // Non-cursor providers keep the default (shell-wrapped) resolution.
-      { requireFaithfulArgs: false }
+      // The prompt is an argv element, so every provider takes the
+      // argument-faithful (never cmd.exe-wrapped) resolution.
+      { requireFaithfulArgs: true }
     )
     child.emit('close', 0)
 

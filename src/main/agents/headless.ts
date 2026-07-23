@@ -660,12 +660,14 @@ export function runHeadless(
 
   const done = new Promise<HeadlessResult>((resolve) => { resolveDone = resolve })
 
-  // Cursor is launched through a script shim (cursor-agent.cmd) on Windows.
-  // Its prompt is a multiline positional argument, so it must reach the process
-  // byte-faithfully — the cmd.exe wrapper would truncate it at the first newline
-  // and expose shell metacharacters. resolveLaunch rewrites the shim to a direct
-  // Node/exe entrypoint for this provider instead.
-  void resolveLaunch(launch.command, launch.args, { requireFaithfulArgs: id === 'cursor' })
+  // Every headless CLI launch carries the model-generated task prompt (and for
+  // claude/kimi the system prompt) as an argument, and the appended execution
+  // contract makes it always multiline. On Windows the CLIs are typically npm
+  // .cmd shims; a cmd.exe wrapper would truncate the prompt at the first
+  // newline and make shell metacharacters executable. resolveLaunch therefore
+  // must rewrite the shim to a direct Node/exe entrypoint for ALL providers —
+  // failing loudly beats silently corrupting the prompt.
+  void resolveLaunch(launch.command, launch.args, { requireFaithfulArgs: true })
     .then((resolved) => {
       if (settled || stopStatus) return
       lifecycle.phase('starting-process')
