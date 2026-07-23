@@ -7,7 +7,7 @@ import {
   effectiveMultiAgentEnabled,
   multiAgentOverrideChoice,
   slotWithMultiAgentOverride
-} from './ProfileEditor'
+} from './profileEditor/MultiAgentOverrideSelect'
 
 const baseSlot: AgentSlot = {
   role: 'worker',
