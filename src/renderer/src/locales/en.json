@@ -164,6 +164,8 @@
   },
   "orch": {
     "panelAria": "Orchestrator side panel",
+    "bulkHandoff": "Bulk handoff ({{n}})",
+    "bulkHandoffHint": "Hand off all {{n}} running interactive agents of this provider together",
     "collapse": "Collapse the orchestrator side panel",
     "expand": "Expand the orchestrator side panel",
     "resize": "Resize the orchestrator side panel",

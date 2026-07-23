@@ -11,6 +11,7 @@ import { PROVIDER_THEME } from '@renderer/ui/theme'
 import LoreName from '@renderer/components/LoreName'
 import LimitsPanel from '@renderer/components/LimitsPanel'
 import InfoTip from '@renderer/components/InfoTip'
+import { collectEligibleSources } from '@renderer/components/HandoffModal'
 import {
   liveOrchestratorTasks,
   ORCHESTRATOR_ACTIVITY_LABEL,
@@ -19,7 +20,7 @@ import {
 } from '@renderer/orchestratorActivity'
 import type { OrcaTask, TaskStatus } from '@shared/orchestrator'
 import { resolveModel } from '@shared/models'
-import type { AgentUsage } from '@shared/agents'
+import type { AgentUsage, AgentInstanceInfo } from '@shared/agents'
 import { summarizeUsage, summarizeUsageGroup, TELEMETRY_STATUS_LABELS, TELEMETRY_STATUS_TITLES } from '@shared/telemetry'
 import { formatTokenBreakdown, formatTokenCount, formatUsd } from '@renderer/telemetryFormat'
 import { ResizeHandle } from '@renderer/components/ResizeHandle'
@@ -401,6 +402,70 @@ function OrchestratorPanelContent({
     }
   }
 
+  // "Massenübergabe": target the largest cohort of running interactive agents that
+  // share a provider — the same cohort the handoff modal would bulk-transfer.
+  const bulkHandoffTarget = ((): { agent: AgentInstanceInfo; count: number } | null => {
+    const candidates = wsAgents.filter(
+      (agent) => agent.mode === 'interactive' && agent.status === 'running' && !agent.handoffTo
+    )
+    let best: { agent: AgentInstanceInfo; count: number } | null = null
+    for (const agent of candidates) {
+      const count = collectEligibleSources(agent, store.agents).length
+      if (!best || count > best.count) best = { agent, count }
+    }
+    return best && best.count >= 2 ? best : null
+  })()
+
+  // Rendered near the top of the panel so an awaiting plan approval is impossible to miss.
+  const planReview = pendingPlan ? (
+    <div className="plan-review plan-review-top" role="status" aria-live="polite">
+      <div className="plan-review-head">
+        <div>
+          <strong>{t('orch.plan.waiting')}</strong>
+          <span>
+            {t('orch.plan.stats', {
+              tasks: pendingPlan.plan.tasks.length,
+              parallel: pendingPlan.plan.maxParallel
+            })}
+          </span>
+        </div>
+        <code>{pendingPlan.planId}</code>
+      </div>
+      <ol>
+        {pendingPlan.plan.tasks.map((task) => (
+          <li key={task.id}>
+            <strong>{task.title}</strong>
+            <span>{task.role}</span>
+          </li>
+        ))}
+      </ol>
+      {pendingPlan.validationIssues.length > 0 && (
+        <div className="plan-review-warning">
+          <strong>
+            {pendingPlan.rejected
+              ? t('orch.plan.rejectedWarning')
+              : t('orch.plan.normalizedWarning')}
+          </strong>
+          <div role="list">
+            {pendingPlan.validationIssues.map((issue, index) => (
+              <div role="listitem" key={`${issue.code}-${issue.taskId ?? index}`}>
+                <code>{issue.code}</code>{issue.taskId ? ` · ${issue.taskId}` : ''}: {issue.message}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      <div className="plan-review-actions">
+        <button type="button" className="btn ghost" onClick={() => void store.reviewPendingPlan(false)}>
+          {t('orch.plan.reject')}
+        </button>
+        <button type="button" className="btn primary" onClick={() => void store.reviewPendingPlan(true)}>
+          {pendingPlan.rejected ? t('orch.plan.startFallback') : t('orch.plan.start')}
+        </button>
+      </div>
+    </div>
+  ) : null
+
   return (
     <section
       id="orchestrator-right-panel"
@@ -423,6 +488,19 @@ function OrchestratorPanelContent({
       </div>
       <div id="orchestrator-right-content" className="panel-scroll-content">
       <LimitsPanel />
+      {bulkHandoffTarget && (
+        <div className="bulk-handoff-bar">
+          <button
+            type="button"
+            className="btn ghost bulk-handoff-btn"
+            title={t('orch.bulkHandoffHint', { n: bulkHandoffTarget.count })}
+            onClick={() => store.openHandoff(bulkHandoffTarget.agent.id, { bulk: true })}
+          >
+            ⇄ {t('orch.bulkHandoff', { n: bulkHandoffTarget.count })}
+          </button>
+        </div>
+      )}
+      {planReview}
       <div className="orch-head">
         <div className="orch-head-row">
           <span className="orch-diamond">◇</span>
@@ -673,54 +751,6 @@ function OrchestratorPanelContent({
           <span>{t('orch.dag.caption')}</span>
           <span className="tag">DAG</span>
         </div>
-        {pendingPlan && (
-          <div className="plan-review" role="status" aria-live="polite">
-            <div className="plan-review-head">
-              <div>
-                <strong>{t('orch.plan.waiting')}</strong>
-                <span>
-                  {t('orch.plan.stats', {
-                    tasks: pendingPlan.plan.tasks.length,
-                    parallel: pendingPlan.plan.maxParallel
-                  })}
-                </span>
-              </div>
-              <code>{pendingPlan.planId}</code>
-            </div>
-            <ol>
-              {pendingPlan.plan.tasks.map((task) => (
-                <li key={task.id}>
-                  <strong>{task.title}</strong>
-                  <span>{task.role}</span>
-                </li>
-              ))}
-            </ol>
-            {pendingPlan.validationIssues.length > 0 && (
-              <div className="plan-review-warning">
-                <strong>
-                  {pendingPlan.rejected
-                    ? t('orch.plan.rejectedWarning')
-                    : t('orch.plan.normalizedWarning')}
-                </strong>
-                <div role="list">
-                  {pendingPlan.validationIssues.map((issue, index) => (
-                    <div role="listitem" key={`${issue.code}-${issue.taskId ?? index}`}>
-                      <code>{issue.code}</code>{issue.taskId ? ` · ${issue.taskId}` : ''}: {issue.message}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            <div className="plan-review-actions">
-              <button type="button" className="btn ghost" onClick={() => void store.reviewPendingPlan(false)}>
-                {t('orch.plan.reject')}
-              </button>
-              <button type="button" className="btn primary" onClick={() => void store.reviewPendingPlan(true)}>
-                {pendingPlan.rejected ? t('orch.plan.startFallback') : t('orch.plan.start')}
-              </button>
-            </div>
-          </div>
-        )}
         <div className="dag-scroll">
           {tasks.length === 0 ? (
             <div className="dag-empty">

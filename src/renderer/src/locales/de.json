@@ -164,6 +164,8 @@
   },
   "orch": {
     "panelAria": "Orchestrator-Seitenleiste",
+    "bulkHandoff": "Massenübergabe ({{n}})",
+    "bulkHandoffHint": "{{n}} laufende interaktive Agents dieses Providers gemeinsam an einen anderen übergeben",
     "collapse": "Orchestrator-Seitenleiste einklappen",
     "expand": "Orchestrator-Seitenleiste ausklappen",
     "resize": "Breite der Orchestrator-Seitenleiste ändern",

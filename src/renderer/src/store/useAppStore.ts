@@ -101,6 +101,8 @@ interface AppState {
   editorProfile: WorkspaceProfile | null
   /** Source agent for the handoff modal; null = closed. */
   handoffSource: AgentInstanceInfo | null
+  /** Pre-select the bulk checkbox when the handoff modal opens (Massenübergabe entry). */
+  handoffBulk: boolean
   addAgentOpen: boolean
   addSeq: number
 
@@ -148,7 +150,7 @@ interface AppState {
   addAgent(selection: ManualAgentSelection): Promise<boolean>
   killAgent(id: string): Promise<void>
   popout(id: string): Promise<void>
-  openHandoff(id: string): void
+  openHandoff(id: string, opts?: { bulk?: boolean }): void
   closeHandoff(): void
   handoff(req: HandoffRequest): Promise<void>
   bulkHandoff(req: BulkHandoffRequest): Promise<void>
@@ -425,6 +427,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   toast: null,
   editorProfile: null,
   handoffSource: null,
+  handoffBulk: false,
   addAgentOpen: false,
   addSeq: 0,
 
@@ -1133,13 +1136,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  openHandoff(id) {
+  openHandoff(id, opts) {
     const agent = get().agents.find((a) => a.id === id)
-    if (agent) set({ handoffSource: agent })
+    if (agent) set({ handoffSource: agent, handoffBulk: opts?.bulk ?? false })
   },
 
   closeHandoff() {
-    set({ handoffSource: null })
+    set({ handoffSource: null, handoffBulk: false })
   },
 
   async handoff(req) {

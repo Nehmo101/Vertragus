@@ -41,8 +41,36 @@ export const removableIdeaAttributeSchema = z.enum(REMOVABLE_IDEA_ATTRIBUTES)
 export type RemovableIdeaAttribute = z.infer<typeof removableIdeaAttributeSchema>
 export type IdeaArchiveView = 'inbox' | 'archive'
 
-export const ARTIFACT_KINDS = ['text', 'file', 'url'] as const
+export const ARTIFACT_KINDS = ['text', 'file', 'url', 'image'] as const
 export type ArtifactKind = (typeof ARTIFACT_KINDS)[number]
+
+/** Image MIME types accepted for pasted/dropped image artifacts. */
+export const IMAGE_ARTIFACT_MIME_TYPES = [
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp'
+] as const
+export type ImageArtifactMime = (typeof IMAGE_ARTIFACT_MIME_TYPES)[number]
+
+/** Upper bound on a single decoded pasted image (guards against disk-fill / DoS). */
+export const MAX_IMAGE_ARTIFACT_BYTES = 15 * 1024 * 1024
+
+/** Server-side file extension for an accepted image MIME; null = unsupported. */
+export function imageArtifactExtension(mime: string): string | null {
+  switch (mime) {
+    case 'image/png':
+      return 'png'
+    case 'image/jpeg':
+      return 'jpg'
+    case 'image/gif':
+      return 'gif'
+    case 'image/webp':
+      return 'webp'
+    default:
+      return null
+  }
+}
 
 export const ideaRefsSchema = z.object({
   profileId: z.string().optional(),
@@ -63,7 +91,9 @@ export const ideaArtifactSchema = z.object({
   copied: z.boolean().optional(),
   url: z.string().optional(),
   missing: z.boolean().optional(),
-  urlInvalid: z.boolean().optional()
+  urlInvalid: z.boolean().optional(),
+  /** Image MIME type for kind === 'image' artifacts. */
+  mimeType: z.string().optional()
 })
 
 export const ideaSchema = z.object({
@@ -124,7 +154,22 @@ export interface AddFileArtifactInput {
   grantId: string
 }
 
-export type AddArtifactInput = AddTextArtifactInput | AddUrlArtifactInput | AddFileArtifactInput
+export interface AddImageArtifactInput {
+  kind: 'image'
+  label?: string
+  /** Base64-encoded image bytes (no `data:` prefix). Validated + size-capped on the main side. */
+  dataBase64: string
+  /** image/* MIME type; checked against IMAGE_ARTIFACT_MIME_TYPES on the main side. */
+  mimeType: string
+  /** Original file/display name — used only as a label, never as a filesystem path. */
+  name?: string
+}
+
+export type AddArtifactInput =
+  | AddTextArtifactInput
+  | AddUrlArtifactInput
+  | AddFileArtifactInput
+  | AddImageArtifactInput
 
 /** Accept http(s) URLs with a host. */
 export function isValidUrl(raw: string): boolean {

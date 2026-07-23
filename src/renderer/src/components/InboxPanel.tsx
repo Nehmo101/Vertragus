@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent } from 'react'
 import type {
   Idea,
   IdeaArchiveView,
@@ -6,7 +6,7 @@ import type {
   IdeaStatus,
   RemovableIdeaAttribute
 } from '@shared/inbox'
-import { IDEA_INPUT_STATUSES } from '@shared/inbox'
+import { IDEA_INPUT_STATUSES, IMAGE_ARTIFACT_MIME_TYPES, type ImageArtifactMime } from '@shared/inbox'
 import { isTransferActive } from '@shared/inboxTransfer'
 import { useInboxSpeech } from '@renderer/hooks/useInboxSpeech'
 import { useAppStore } from '@renderer/store/useAppStore'
@@ -72,9 +72,12 @@ function createPromptRequestId(): string {
 
 function ArtifactRow({
   artifact,
+  preview,
   onRemove
 }: {
   artifact: IdeaArtifact
+  /** In-session thumbnail data URL for a just-pasted image (not persisted). */
+  preview?: string
   onRemove?: () => void
 }): JSX.Element {
   let detail = ''
@@ -84,6 +87,9 @@ function ArtifactRow({
   } else if (artifact.kind === 'url') {
     detail = artifact.url ?? ''
     if (artifact.urlInvalid) warn = 'Ungültige URL'
+  } else if (artifact.kind === 'image') {
+    detail = artifact.fileName ?? artifact.label
+    if (artifact.missing) warn = 'Bild fehlt'
   } else {
     detail = artifact.fileName ?? artifact.sourcePath ?? ''
     if (artifact.missing) warn = 'Datei fehlt'
@@ -101,6 +107,9 @@ function ArtifactRow({
           </button>
         )}
       </div>
+      {artifact.kind === 'image' && preview && (
+        <img className="inbox-artifact-thumb" src={preview} alt={artifact.label} />
+      )}
       <div className="inbox-artifact-body" title={detail}>
         {detail || '—'}
       </div>
@@ -238,6 +247,8 @@ export default function InboxPanel(): JSX.Element {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [urlInput, setUrlInput] = useState('')
   const [textInput, setTextInput] = useState('')
+  // In-session thumbnails for just-pasted images (artifactId → data URL); not persisted.
+  const [imagePreviews, setImagePreviews] = useState<Record<string, string>>({})
   const [transferOpen, setTransferOpen] = useState(false)
   const [promptSession, setPromptSession] = useState<PromptEnhancementSession>(
     INITIAL_PROMPT_ENHANCEMENT_SESSION
@@ -580,6 +591,60 @@ export default function InboxPanel(): JSX.Element {
     }
   }
 
+  const attachImageBlob = async (blob: Blob, name?: string): Promise<void> => {
+    if (!draft) return
+    if (!IMAGE_ARTIFACT_MIME_TYPES.includes(blob.type as ImageArtifactMime)) {
+      setError('Nicht unterstützter Bildtyp — erlaubt: PNG, JPEG, GIF, WebP.')
+      return
+    }
+    let dataUrl: string
+    try {
+      dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(String(reader.result))
+        reader.onerror = () => reject(reader.error ?? new Error('Bild konnte nicht gelesen werden.'))
+        reader.readAsDataURL(blob)
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+      return
+    }
+    const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1)
+    setSaving(true)
+    setError('')
+    try {
+      const updated = await window.vertragus.inbox.addArtifact(draft.id, {
+        kind: 'image',
+        dataBase64: base64,
+        mimeType: blob.type,
+        name
+      })
+      const added = updated.artifacts[updated.artifacts.length - 1]
+      if (added) setImagePreviews((prev) => ({ ...prev, [added.id]: dataUrl }))
+      setDraft({ ...updated })
+      const list = await window.vertragus.inbox.list()
+      setIdeas(list)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // Paste an image (e.g. a screenshot) directly into the content field to attach it as an artifact.
+  const handleContentPaste = (event: ReactClipboardEvent<HTMLTextAreaElement>): void => {
+    if (!draft) return
+    const images = Array.from(event.clipboardData?.items ?? []).filter(
+      (item) => item.kind === 'file' && item.type.startsWith('image/')
+    )
+    if (images.length === 0) return
+    event.preventDefault()
+    for (const item of images) {
+      const file = item.getAsFile()
+      if (file) void attachImageBlob(file, file.name || undefined)
+    }
+  }
+
   const removeArtifact = async (artifactId: string): Promise<void> => {
     if (!draft) return
     setSaving(true)
@@ -911,7 +976,9 @@ export default function InboxPanel(): JSX.Element {
                 <textarea
                   value={draft.content}
                   onChange={(e) => setDraft({ ...draft, content: e.target.value })}
+                  onPaste={handleContentPaste}
                   rows={8}
+                  placeholder="Text eingeben — oder ein Bild (Screenshot) direkt hier einfügen (Strg+V)."
                 />
               </label>
 
@@ -1043,6 +1110,7 @@ export default function InboxPanel(): JSX.Element {
                     <ArtifactRow
                       key={artifact.id}
                       artifact={artifact}
+                      preview={imagePreviews[artifact.id]}
                       onRemove={() => void removeArtifact(artifact.id)}
                     />
                   ))}

@@ -9,7 +9,7 @@ import { defaultHandoffModel } from '@renderer/modelCatalog'
 
 const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'kimi', 'codex', 'cursor', 'copilot', 'ollama']
 
-function collectEligibleSources(
+export function collectEligibleSources(
   source: AgentInstanceInfo,
   agents: AgentInstanceInfo[]
 ): AgentInstanceInfo[] {
@@ -48,7 +48,6 @@ export default function HandoffModal(): JSX.Element | null {
   )
   const [task, setTask] = useState<string>(goalTitle)
   const [summary, setSummary] = useState<string>('')
-  const [bulk, setBulk] = useState(false)
   const taskRef = useRef<HTMLTextAreaElement>(null)
   // Freeze the bulk cohort at open time — live `agents` would re-render this modal.
   const [eligibleSources] = useState<AgentInstanceInfo[]>(() => {
@@ -57,6 +56,10 @@ export default function HandoffModal(): JSX.Element | null {
       ? collectEligibleSources(state.handoffSource, state.agents)
       : []
   })
+  // Pre-check bulk when opened from the "Massenübergabe" entry, but only if a real cohort exists.
+  const [bulk, setBulk] = useState<boolean>(
+    () => useAppStore.getState().handoffBulk && eligibleSources.length > 1
+  )
 
   useEffect(() => {
     taskRef.current?.focus()
