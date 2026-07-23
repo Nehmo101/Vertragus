@@ -1,6 +1,16 @@
 import { join, posix, win32 } from 'node:path'
 import { ensureWorktreeDependencies } from '@main/agents/dependencyBootstrap'
-import { assertSecurityGate } from '../securityGate'
+import type { AutoPrConfig } from '@shared/profile'
+import {
+  assertSecurityGate,
+  SecurityGateError,
+  type SecurityGateReport
+} from '../securityGate'
+import {
+  formatGitleaksFindings,
+  scanStagedWithGitleaks,
+  type GitleaksScanResult
+} from './gitleaksGate'
 import { execAsync, MAX_OUTPUT, repositoryRoot } from './gitPlumbing'
 import { WORKTREE_CONTAINER } from '@main/agents/worktree'
 
@@ -35,6 +45,79 @@ export class QualityGateError extends Error {
 
 export function assertDiffLooksSafe(diff: string): void {
   assertSecurityGate(diff)
+}
+
+/**
+ * A staged secret — or a configured but unusable gitleaks — blocks the commit
+ * outright. Unlike SecurityGateError there is deliberately no needs-work
+ * rescue commit for this class: secret-bearing changes must never be
+ * committed anywhere, not even as partial work.
+ */
+export class SecretScanGateError extends Error {
+  readonly code = 'secret-scan-blocked'
+  constructor(readonly problems: readonly string[]) {
+    super(`Secret-Scan hat den Commit blockiert:\n${problems.join('\n')}`)
+    this.name = 'SecretScanGateError'
+  }
+}
+
+export const GITLEAKS_UNAVAILABLE_MESSAGE =
+  'gitleaks ist konfiguriert, aber nicht installiert — der Secret-Scan kann nicht laufen. ' +
+  'gitleaks installieren oder autoPr.secretScanner auf "builtin" stellen.'
+
+export interface SecretScanDeps {
+  scanStaged(worktree: string): Promise<GitleaksScanResult>
+}
+
+/**
+ * Combined secret/security gate for staged task changes, honoring
+ * AutoPrConfig.secretScanner:
+ * - 'builtin' (default, also for legacy configs without the field): exactly
+ *   today's assertSecurityGate behavior — gitleaks is never invoked.
+ * - 'gitleaks': the built-in added-line secret regexes are skipped and
+ *   gitleaks is authoritative for secrets; surface/negative-test analysis
+ *   still runs unchanged.
+ * - 'both': built-in regexes AND gitleaks run; their findings are merged into
+ *   one blocking error.
+ * A configured but unavailable or failing gitleaks always blocks (fail
+ * closed) — never a silent pass.
+ */
+export async function assertSecretScanGates(
+  worktree: string,
+  stagedDiff: string,
+  config: Pick<AutoPrConfig, 'secretScanner' | 'securityGateExcludes'>,
+  deps: SecretScanDeps = { scanStaged: scanStagedWithGitleaks }
+): Promise<SecurityGateReport> {
+  const scanner = config.secretScanner ?? 'builtin'
+  if (scanner === 'builtin') {
+    return assertSecurityGate(stagedDiff, { excludePaths: config.securityGateExcludes })
+  }
+
+  const problems: string[] = []
+  let surfaceError: SecurityGateError | undefined
+  let report: SecurityGateReport | undefined
+  try {
+    report = assertSecurityGate(stagedDiff, {
+      excludePaths: config.securityGateExcludes,
+      skipAddedLineSecretScan: scanner === 'gitleaks'
+    })
+  } catch (error) {
+    // Surface findings keep their classified error (needs-work path); any
+    // other throw here is the built-in secret scan or the oversized-diff guard.
+    if (error instanceof SecurityGateError) surfaceError = error
+    else problems.push(error instanceof Error ? error.message : String(error))
+  }
+
+  const outcome = await deps.scanStaged(worktree)
+  if (outcome.status === 'unavailable') problems.push(GITLEAKS_UNAVAILABLE_MESSAGE)
+  else if (outcome.status === 'error') problems.push(outcome.message)
+  else if (outcome.status === 'findings') problems.push(formatGitleaksFindings(outcome.findings))
+
+  if (problems.length > 0) throw new SecretScanGateError(problems)
+  if (surfaceError) throw surfaceError
+  // Unreachable: no problems and no surface error implies the report exists.
+  if (!report) throw new SecretScanGateError(['Security-Gate-Report fehlt unerwartet.'])
+  return report
 }
 
 export function qualityGateShellCommand(

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useShallow } from 'zustand/react/shallow'
 import {
   activeProfile,
   useAppStore,
@@ -31,7 +32,23 @@ interface ProviderUsage {
  */
 export default function LimitsPanel(): JSX.Element {
   const { t } = useTranslation()
-  const store = useAppStore()
+  // Narrow pick: the panel must not re-render on unrelated store slices
+  // (orchestrator snapshots, git, toasts, …).
+  const store = useAppStore(
+    useShallow((s) => ({
+      agents: s.agents,
+      profiles: s.profiles,
+      activeProfileId: s.activeProfileId,
+      activeWorkspaceSessionId: s.activeWorkspaceSessionId,
+      providerLimits: s.providerLimits,
+      providerEnabled: s.providerEnabled,
+      models: s.models,
+      disabledModels: s.disabledModels,
+      setModelEnabled: s.setModelEnabled,
+      setProviderEnabled: s.setProviderEnabled,
+      setProviderLimit: s.setProviderLimit
+    }))
+  )
   const {
     agents,
     providerLimits: limits,

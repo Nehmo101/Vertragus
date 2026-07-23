@@ -6,6 +6,7 @@ import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
 import { shell } from 'electron'
 import type { GithubAuthMethod, GithubAuthStatus } from '@shared/ipc'
+import { resolveLaunch } from '@main/agents/resolveCommand'
 import {
   clearGithubOAuthToken,
   githubOAuthClientId,
@@ -106,11 +107,20 @@ export function buildGithubAuthStatus(input: {
   }
 }
 
+/**
+ * gh is typically a .cmd shim on Windows that execFile cannot start directly;
+ * resolveLaunch rewrites it to an explicit interpreter + script path, so no
+ * shell ever interprets the (constant) arguments. POSIX runs gh as-is.
+ */
+async function ghLaunch(args: string[]): Promise<{ file: string; args: string[] }> {
+  return process.platform === 'win32' ? resolveLaunch('gh', args) : { file: 'gh', args }
+}
+
 async function runGh(args: string[], timeout = 12_000): Promise<string> {
-  const { stdout, stderr } = await execFileAsync('gh', args, {
+  const launch = await ghLaunch(args)
+  const { stdout, stderr } = await execFileAsync(launch.file, launch.args, {
     timeout,
-    windowsHide: true,
-    shell: process.platform === 'win32'
+    windowsHide: true
   })
   return (stdout || stderr || '').trim()
 }
@@ -153,11 +163,11 @@ async function probeOAuthUser(token: string): Promise<{ login: string; scopes: s
 }
 
 async function syncTokenToGh(token: string): Promise<void> {
+  const launch = await ghLaunch(['auth', 'login', '--with-token'])
   await new Promise<void>((resolve, reject) => {
-    const child = spawn('gh', ['auth', 'login', '--with-token'], {
+    const child = spawn(launch.file, launch.args, {
       windowsHide: true,
-      stdio: ['pipe', 'ignore', 'pipe'],
-      shell: process.platform === 'win32'
+      stdio: ['pipe', 'ignore', 'pipe']
     })
     let err = ''
     child.stderr.on('data', (chunk: Buffer) => {
@@ -246,26 +256,22 @@ async function loginWithDeviceFlow(clientId: string): Promise<GithubAuthStatus> 
 }
 
 async function loginWithGhWeb(): Promise<GithubAuthStatus> {
+  const launch = await ghLaunch([
+    'auth',
+    'login',
+    '--web',
+    '--hostname',
+    'github.com',
+    '--git-protocol',
+    'https',
+    '--scopes',
+    GITHUB_LOGIN_SCOPES.join(',')
+  ])
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(
-      'gh',
-      [
-        'auth',
-        'login',
-        '--web',
-        '--hostname',
-        'github.com',
-        '--git-protocol',
-        'https',
-        '--scopes',
-        GITHUB_LOGIN_SCOPES.join(',')
-      ],
-      {
-        windowsHide: true,
-        stdio: ['pipe', 'ignore', 'pipe'],
-        shell: process.platform === 'win32'
-      }
-    )
+    const child = spawn(launch.file, launch.args, {
+      windowsHide: true,
+      stdio: ['pipe', 'ignore', 'pipe']
+    })
     let err = ''
     child.stderr.on('data', (chunk: Buffer) => {
       err += chunk.toString()

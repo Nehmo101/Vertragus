@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { request } from 'node:http'
@@ -116,7 +116,8 @@ describe('RemoteGateway hardening', () => {
       [{ profileId: 'p', sessionIds: ['s'], allowGoalSubmit: false }]
     ).code, 'Phone')!
     const upgrade = (
-      protocol?: string
+      protocol?: string,
+      extraHeaders: Record<string, string> = {}
     ): Promise<{ status: number; protocol?: string }> => new Promise((resolveStatus, reject) => {
       const target = new URL(gateway.origin)
       const req = request({
@@ -125,7 +126,8 @@ describe('RemoteGateway hardening', () => {
           Connection: 'Upgrade', Upgrade: 'websocket',
           'Sec-WebSocket-Version': '13',
           'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
-          ...(protocol ? { 'Sec-WebSocket-Protocol': protocol } : {})
+          ...(protocol ? { 'Sec-WebSocket-Protocol': protocol } : {}),
+          ...extraHeaders
         }
       })
       req.on('upgrade', (response, socket) => {
@@ -162,6 +164,25 @@ describe('RemoteGateway hardening', () => {
       await expect(upgrade('vertragus-bearer.short')).resolves.toEqual({ status: 401 })
       const unknown = await upgrade(`vertragus-v2, vertragus-bearer.${paired.token}`)
       expect(unknown.protocol).toBeUndefined()
+      // Browser upgrade from an allowed origin still succeeds.
+      const sameOrigin = await upgrade(
+        `vertragus-v1, vertragus-bearer.${paired.token}`,
+        { Origin: gateway.origin }
+      )
+      expect(sameOrigin).toEqual({ status: 101, protocol: 'vertragus-v1' })
+      // Cross-site WebSocket hijacking: a valid bearer with a foreign Origin
+      // is refused before authentication (403, not 401).
+      const crossSite = await upgrade(
+        `vertragus-v1, vertragus-bearer.${paired.token}`,
+        { Origin: 'https://attacker.example' }
+      )
+      expect(crossSite.status).toBe(403)
+      // Opaque ("null") and unparseable origins count as mismatches too.
+      const nullOrigin = await upgrade(
+        `vertragus-v1, vertragus-bearer.${paired.token}`,
+        { Origin: 'null' }
+      )
+      expect(nullOrigin.status).toBe(403)
     } finally {
       await gateway.close()
     }
@@ -329,6 +350,89 @@ describe('RemoteGateway API authorization', () => {
         headers: { Authorization: `Bearer ${paired.token}` }
       })
       expect(noCapability.status).toBe(403)
+    } finally {
+      await gateway.close()
+    }
+  })
+})
+
+describe('RemoteGateway origin allowlist', () => {
+  it('rejects HTTP requests whose Origin host is not allowlisted and audits the rejection', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'vertragus-origin-test-'))
+    directories.push(directory)
+    const auditPath = join(directory, 'audit.jsonl')
+    const gateway = await startRemoteGateway({
+      auth: new DeviceAuth(new MemoryStore()),
+      readModel: new RemoteReadModel(new EventEmitter()),
+      audit: new RemoteAuditLog(auditPath),
+      commands: commandRouter()
+    })
+    try {
+      // Same-origin browser request (Origin host equals the gateway host) passes.
+      const sameOrigin = await fetch(`${gateway.origin}/health`, {
+        headers: { Origin: gateway.origin }
+      })
+      expect(sameOrigin.status).toBe(200)
+      // No Origin header (native client) stays allowed.
+      const native = await fetch(`${gateway.origin}/health`)
+      expect(native.status).toBe(200)
+      // Foreign origin is refused even though Host and path are valid.
+      const foreign = await fetch(`${gateway.origin}/health`, {
+        headers: { Origin: 'https://attacker.example' }
+      })
+      expect(foreign.status).toBe(403)
+      // Opaque "null" origin counts as a mismatch.
+      const opaque = await fetch(`${gateway.origin}/health`, {
+        headers: { Origin: 'null' }
+      })
+      expect(opaque.status).toBe(403)
+      const audit = readFileSync(auditPath, 'utf8')
+      expect(audit).toContain('origin_forbidden')
+      expect(audit).toContain('attacker.example')
+    } finally {
+      await gateway.close()
+    }
+  })
+})
+
+describe('RemoteGateway audit redaction', () => {
+  it('never writes goal.submit prompt text into the audit log (accepted and rejected paths)', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'vertragus-audit-redact-test-'))
+    directories.push(directory)
+    const auditPath = join(directory, 'audit.jsonl')
+    const auth = new DeviceAuth(new MemoryStore())
+    const gateway = await startRemoteGateway({
+      auth,
+      readModel: new RemoteReadModel(new EventEmitter()),
+      audit: new RemoteAuditLog(auditPath),
+      commands: commandRouter()
+    })
+    const paired = auth.pair(auth.startPairing(
+      ['read', 'steer'], undefined, { id: 'owner', displayName: 'Owner' },
+      [{ profileId: 'p', sessionIds: ['s'], allowGoalSubmit: true }]
+    ).code, 'Phone')!
+    const secret = 'streng geheimes Remote-Ziel mit personenbezogenen Daten'
+    const post = (body: unknown): Promise<Response> => fetch(`${gateway.origin}/command`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${paired.token}` },
+      body: JSON.stringify(body)
+    })
+    try {
+      const accepted = await post({
+        id: 'goal.submit', args: { profileId: 'p', text: secret }, requestId: 'r-1'
+      })
+      expect(accepted.status).toBe(200)
+      // Schema-rejected envelope: the error audit path must be redacted too.
+      const rejected = await post({
+        id: 'goal.submit', args: { profileId: 'p', text: secret, bogus: true }, requestId: 'r-2'
+      })
+      expect(rejected.status).toBe(400)
+      const audit = readFileSync(auditPath, 'utf8')
+      expect(audit).toContain('goal.submit')
+      expect(audit).toContain('"textLength":' + String(secret.length))
+      expect(audit).toContain('textSha256Prefix')
+      expect(audit).not.toContain('geheimes')
+      expect(audit).not.toContain(secret)
     } finally {
       await gateway.close()
     }

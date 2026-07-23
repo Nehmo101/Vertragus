@@ -277,6 +277,24 @@ export default function TitleBar(): JSX.Element {
           </button>
         )}
 
+        {update?.channel && update.status !== 'unsupported' && (
+          <button
+            type="button"
+            className="remote-title-badge no-drag"
+            title={update.channel === 'stable'
+              ? 'Update-Kanal Stable: nur getaggte Releases. Klicken wechselt auf den schnellen Main-Kanal.'
+              : 'Update-Kanal Main: jeder grüne main-Build wird angeboten. Klicken wechselt auf Stable (nur getaggte Releases).'}
+            aria-label="Update-Kanal umschalten"
+            onClick={() => {
+              void window.vertragus.updates
+                .setChannel(update.channel === 'stable' ? 'main' : 'stable')
+                .then(setUpdate)
+            }}
+          >
+            Kanal {update.channel === 'stable' ? 'Stable' : 'Main'}
+          </button>
+        )}
+
         <button
           type="button"
           className={`remote-title-badge no-drag ${remote?.enabled ? 'active' : ''}`}

@@ -86,6 +86,19 @@ describe('fatal provider stderr classification', () => {
 })
 
 describe('runHeadless lifecycle', () => {
+  it('requires argument-faithful launches for every CLI provider — the prompt travels as an argv element', async () => {
+    for (const provider of ['claude', 'kimi', 'codex', 'copilot', 'cursor'] as const) {
+      mocks.resolveLaunch.mockRejectedValueOnce(new Error('halt before spawn'))
+      await runHeadless(provider, 'multiline\nprompt', opts, vi.fn()).done
+      expect(mocks.resolveLaunch).toHaveBeenLastCalledWith(
+        expect.any(String),
+        expect.any(Array),
+        { requireFaithfulArgs: true }
+      )
+    }
+    expect(mocks.spawn).not.toHaveBeenCalled()
+  })
+
   it('resolves a command-resolution rejection as a failed result', async () => {
     mocks.resolveLaunch.mockRejectedValueOnce(new Error('CLI fehlt'))
 
@@ -173,8 +186,9 @@ describe('runHeadless lifecycle', () => {
     expect(mocks.resolveLaunch).toHaveBeenCalledWith(
       'claude',
       ['-p', 'task', '--output-format', 'stream-json', '--model', 'test', '--verbose'],
-      // Non-cursor providers keep the default (shell-wrapped) resolution.
-      { requireFaithfulArgs: false }
+      // The prompt is an argv element, so every provider takes the
+      // argument-faithful (never cmd.exe-wrapped) resolution.
+      { requireFaithfulArgs: true }
     )
     child.emit('close', 0)
 
@@ -225,6 +239,32 @@ describe('runHeadless lifecycle', () => {
       result: 'fertig',
       is_error: false
     })}\n`))
+    child.emit('close', 0)
+
+    await expect(handle.done).resolves.toMatchObject({ status: 'succeeded', result: 'fertig' })
+  })
+
+  it('caps the stdout line accumulator and flushes an endless line without data loss', async () => {
+    const child = fakeChild()
+    const output: string[] = []
+    mocks.resolveLaunch.mockResolvedValueOnce({ file: 'claude', args: [] })
+    mocks.spawn.mockReturnValueOnce(child)
+    const handle = runHeadless('claude', 'task', opts, (chunk) => output.push(chunk))
+    await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce())
+
+    // One endless line (no newline anywhere): two 600 KB chunks cross the cap.
+    child.stdout?.emit('data', Buffer.from('a'.repeat(600_000)))
+    expect(output).toHaveLength(0) // below the cap the accumulator keeps waiting
+    child.stdout?.emit('data', Buffer.from('b'.repeat(600_000)))
+    // Overflow is flushed as one processed line — no byte is dropped.
+    expect(output.join('')).toContain('a'.repeat(600_000))
+    expect(output.join('')).toContain('b'.repeat(600_000))
+
+    // The stream keeps parsing normally after the overflow flush.
+    child.stdout?.emit(
+      'data',
+      Buffer.from(`${JSON.stringify({ type: 'result', result: 'fertig', is_error: false })}\n`)
+    )
     child.emit('close', 0)
 
     await expect(handle.done).resolves.toMatchObject({ status: 'succeeded', result: 'fertig' })

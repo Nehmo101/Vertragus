@@ -1,5 +1,6 @@
 /** App-shell UI: theme/layout/density, readable panes, toast, MCP + speech modals. */
 import type { StateCreator } from 'zustand'
+import i18n from '@renderer/i18n'
 import { effectivePaneReadable, errorMessage, uiCommandViewToHash } from '../useAppStore'
 import type { AppState, UiSlice } from './types'
 
@@ -59,10 +60,10 @@ export const createUiSlice: StateCreator<AppState, [], [], UiSlice> = (set, get)
     try {
       const path = await window.vertragus.diagnostics.exportLatest(get().activeProfileId)
       get().showToast(
-        path ? `Diagnose exportiert: ${path}` : 'Für dieses Workspace-Profil gibt es noch keinen Run.'
+        path ? i18n.t('toast.diagnosticsExported', { path }) : i18n.t('toast.diagnosticsNoRun')
       )
     } catch (error) {
-      get().showToast(`Diagnoseexport fehlgeschlagen: ${errorMessage(error)}`)
+      get().showToast(i18n.t('toast.diagnosticsExportFailed', { error: errorMessage(error) }))
     }
   },
 
@@ -108,9 +109,9 @@ export const createUiSlice: StateCreator<AppState, [], [], UiSlice> = (set, get)
     try {
       const saved = await window.vertragus.saveMcpServers(servers)
       set({ mcpServers: saved, mcpEditorOpen: false })
-      get().showToast(`MCP-Server gespeichert (${saved.length}).`)
+      get().showToast(i18n.t('toast.mcpSaved', { count: saved.length }))
     } catch (error) {
-      get().showToast(`MCP-Server konnten nicht gespeichert werden: ${errorMessage(error)}`)
+      get().showToast(i18n.t('toast.mcpSaveFailed', { error: errorMessage(error) }))
     }
   },
 

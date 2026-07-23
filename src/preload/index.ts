@@ -20,6 +20,7 @@ const vertragus: VertragusApi = {
     check: () => ipcRenderer.invoke(IPC.appUpdateCheck),
     download: () => ipcRenderer.invoke(IPC.appUpdateDownload),
     install: () => ipcRenderer.invoke(IPC.appUpdateInstall),
+    setChannel: (channel) => ipcRenderer.invoke(IPC.appUpdateSetChannel, channel),
     onState: (cb) => subscribe<UpdateState>(IPC.evAppUpdateState, cb)
   },
   diagnostics: {
@@ -162,6 +163,8 @@ const vertragus: VertragusApi = {
       ipcRenderer.invoke(IPC.orchestratorReviewPlan, profileId, approved, workspaceSessionId),
     taskDiff: (profileId, taskId, workspaceSessionId) =>
       ipcRenderer.invoke(IPC.orchestratorTaskDiff, profileId, taskId, workspaceSessionId),
+    openTaskWorktree: (profileId, taskId, workspaceSessionId) =>
+      ipcRenderer.invoke(IPC.orchestratorOpenTaskWorktree, profileId, taskId, workspaceSessionId),
     approvePublication: (profileId, workspaceSessionId, planId) =>
       ipcRenderer.invoke(IPC.orchestratorApprovePublication, profileId, workspaceSessionId, planId),
     rejectPublication: (profileId, workspaceSessionId, planId) =>

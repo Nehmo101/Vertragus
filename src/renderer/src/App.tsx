@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '@renderer/store/useAppStore'
 import TitleBar from '@renderer/components/TitleBar'
@@ -31,6 +32,7 @@ function useHashRoute(): string {
 }
 
 export default function App(): JSX.Element {
+  const { t } = useTranslation()
   useAttentionSignal()
   // The root only reads low-frequency UI state (theme, layout, open modals,
   // toast). Selecting exactly those with a shallow comparison keeps App — and
@@ -120,11 +122,8 @@ export default function App(): JSX.Element {
 
       {store.yoloMaster && (
         <div className="yolo-strip">
-          <span className="head">⚠ YOLO-MODUS AKTIV</span>
-          <span className="rest">
-            Alle Bestätigungen deaktiviert — Agents committen, pushen &amp; führen Shell-Befehle
-            ohne Rückfrage aus.
-          </span>
+          <span className="head">{t('app.yoloBanner.head')}</span>
+          <span className="rest">{t('app.yoloBanner.body')}</span>
         </div>
       )}
 

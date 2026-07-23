@@ -113,3 +113,25 @@ prüfen, dass die Signatur gültig ist:
 ```powershell
 Get-AuthenticodeSignature <installer> | Select-Object Status, StatusMessage
 ```
+
+## OS-Sandbox für Yolo-Worker (Linux, opt-in)
+
+Das Profilfeld `sandbox: 'bwrap'` wrappt headless gestartete **Yolo**-Worker in
+[bubblewrap](https://github.com/containers/bubblewrap): Wurzel-Dateisystem
+read-only, beschreibbar sind nur der Task-Worktree, das Laufzeit-/
+Temp-Verzeichnis und die Provider-Konfigurations-/Cache-Pfade unter dem
+Home-Verzeichnis (die CLIs aktualisieren dort Sessions und Tokens). Netzwerk
+bleibt an (Provider-APIs), `--unshare-pid --die-with-parent` begrenzt den
+Prozessbaum.
+
+Was das schützt: Ein Yolo-Worker kann außerhalb von Worktree und
+Provider-Pfaden nichts überschreiben oder löschen. Was es nicht schützt:
+Exfiltration über das Netz und Schreibzugriffe innerhalb der freigegebenen
+Pfade — die Worktree-Isolation und die Gates bleiben die fachliche
+Verteidigung.
+
+Nur Linux; `bwrap` muss installiert sein (`apt install bubblewrap`). Ist die
+Sandbox konfiguriert, aber `bwrap` fehlt, bricht der Worker mit einem klaren
+`sandbox`-Fehler ab statt still unsandboxed zu laufen. Windows/macOS ignorieren
+die Option mit einer Logzeile pro Lauf; Nicht-Yolo-Worker behalten die
+Permission-Gates ihres Providers.

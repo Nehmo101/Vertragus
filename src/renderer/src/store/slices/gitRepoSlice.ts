@@ -1,6 +1,7 @@
 /** Repository switching, git status and GitHub authentication. */
 import type { StateCreator } from 'zustand'
 import { profileRepoRef, repoRefKey } from '@shared/repoSwitcher'
+import i18n from '@renderer/i18n'
 import { effectiveRepoPath, errorMessage } from '../useAppStore'
 import type { AppState, GitRepoSlice } from './types'
 
@@ -26,7 +27,7 @@ export const createGitRepoSlice: StateCreator<AppState, [], [], GitRepoSlice> = 
       // can no longer be verified.
       if (request === githubAuthRequest) {
         set({ githubAuth: null })
-        get().showToast(`GitHub-Status nicht verfügbar: ${errorMessage(error)}`)
+        get().showToast(i18n.t('toast.githubStatusUnavailable', { error: errorMessage(error) }))
       }
     }
   },
@@ -42,13 +43,15 @@ export const createGitRepoSlice: StateCreator<AppState, [], [], GitRepoSlice> = 
       void get().refreshHealth()
       get().showToast(
         githubAuth.needsReauth
-          ? `GitHub-Berechtigungen fehlen: ${githubAuth.missingScopes.join(', ')}.`
+          ? i18n.t('toast.githubScopesMissing', { scopes: githubAuth.missingScopes.join(', ') })
           : githubAuth.authenticated
-            ? `GitHub verbunden${githubAuth.account ? ` als ${githubAuth.account}` : ''}.`
-            : 'GitHub-Anmeldung unvollständig.'
+            ? githubAuth.account
+              ? i18n.t('toast.githubConnectedAs', { account: githubAuth.account })
+              : i18n.t('toast.githubConnected')
+            : i18n.t('toast.githubLoginIncomplete')
       )
     } catch (error) {
-      get().showToast(`GitHub-Login fehlgeschlagen: ${errorMessage(error)}`)
+      get().showToast(i18n.t('toast.githubLoginFailed', { error: errorMessage(error) }))
       if (action === githubAuthAction) set({ githubAuthBusy: false })
       await get().refreshGithubAuth()
     } finally {
@@ -65,9 +68,9 @@ export const createGitRepoSlice: StateCreator<AppState, [], [], GitRepoSlice> = 
       const githubAuth = await window.vertragus.githubAuthLogout()
       if (request === githubAuthRequest) set({ githubAuth })
       void get().refreshHealth()
-      get().showToast('GitHub abgemeldet.')
+      get().showToast(i18n.t('toast.githubLoggedOut'))
     } catch (error) {
-      get().showToast(`GitHub-Abmeldung fehlgeschlagen: ${errorMessage(error)}`)
+      get().showToast(i18n.t('toast.githubLogoutFailed', { error: errorMessage(error) }))
       if (action === githubAuthAction) set({ githubAuthBusy: false })
       await get().refreshGithubAuth()
     } finally {
@@ -96,10 +99,10 @@ export const createGitRepoSlice: StateCreator<AppState, [], [], GitRepoSlice> = 
     try {
       const gitInfo = await window.vertragus.gitSwitchBranch(dir, branch)
       set({ gitInfo })
-      get().showToast(`Branch gewechselt: ${gitInfo.branch ?? branch}`)
+      get().showToast(i18n.t('toast.branchSwitched', { branch: gitInfo.branch ?? branch }))
       return true
     } catch (error) {
-      get().showToast(`Branch konnte nicht gewechselt werden: ${errorMessage(error)}`)
+      get().showToast(i18n.t('toast.branchSwitchFailed', { error: errorMessage(error) }))
       await get().refreshGit().catch(() => undefined)
       return false
     }
@@ -135,18 +138,18 @@ export const createGitRepoSlice: StateCreator<AppState, [], [], GitRepoSlice> = 
       if (recentsChanged) void window.vertragus.setConfig('workspaceRepo.recent', recentRepos)
     } catch (error) {
       set({ activeRepo: previous, recentRepos: previousRecents })
-      get().showToast(`Repository konnte nicht gewechselt werden: ${errorMessage(error)}`)
+      get().showToast(i18n.t('toast.repoSwitchFailed', { error: errorMessage(error) }))
       return
     }
 
     await get().refreshGit().catch((error) => {
-      get().showToast(`Git-Status nicht verfügbar: ${errorMessage(error)}`)
+      get().showToast(i18n.t('toast.gitStatusUnavailable', { error: errorMessage(error) }))
     })
     const path = effectiveRepoPath(get())
     get().showToast(
       ref
-        ? `Repository gewechselt: ${ref.label?.trim() || path || ref.path}`
-        : 'Repository folgt wieder dem aktiven Profil.'
+        ? i18n.t('toast.repoSwitched', { repo: ref.label?.trim() || path || ref.path })
+        : i18n.t('toast.repoFollowsProfile')
     )
   },
 

@@ -107,7 +107,8 @@ function parseDevices(value: unknown): StoredDeviceRecord[] {
         capability === 'read' || capability === 'steer' || capability === 'admin' ||
         capability === 'diff' || capability === 'push' || capability === 'speech' ||
         capability === 'approve-tools' || capability === 'budget' ||
-        capability === 'task-control' || capability === 'replan'
+        capability === 'task-control' || capability === 'replan' ||
+        capability === 'provider-fallback'
     )
     const actor = item.actor && typeof item.actor.id === 'string' && typeof item.actor.displayName === 'string'
       ? { id: item.actor.id.slice(0, 160), displayName: item.actor.displayName.slice(0, 160) }

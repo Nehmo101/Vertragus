@@ -102,6 +102,12 @@ import {
   type RemoteCiOutcome
 } from '@main/integrations/autoPr'
 import { resolveExecutionPlan } from '@main/orchestrator/planner'
+import { applyTaskTransition } from '@main/orchestrator/taskStateMachine'
+import {
+  computeRoutingScores,
+  routingScoreFor,
+  type RoutingScore
+} from '@shared/retro/routingStats'
 import { Semaphore } from '@main/orchestrator/semaphore'
 import { subagentVertragusToolsAvailable } from '@main/orchestrator/externalMcp'
 import { computeBudgetSnapshot, computeIntegrationSnapshot } from '@main/orchestrator/engineSnapshots'
@@ -336,6 +342,7 @@ export class OrchestratorEngine extends EventEmitter {
   private readonly fallbackInFlight = new Set<string>()
   private readonly dispatchRecords = new Map<string, DispatchRecord>()
   private firstPlanApproved = true
+  private routingScoresCache: { at: number; scores: RoutingScore[] } | undefined
   /** Per-role capacity limiter — count = max parallel subagents of that role. */
   private boundProfile: WorkspaceProfile | undefined
   private readonly workspaceSessionId: string | undefined
@@ -503,7 +510,9 @@ export class OrchestratorEngine extends EventEmitter {
     const runningAges = tasks
       .filter((task) => task.status === 'running')
       .map((task) => now - (task.lastHeartbeatAt ?? task.createdAt))
-    this.reliability.maxRunningStatusAgeMs = Math.max(
+    // Read-only view: the persistent high-water mark is advanced in push()
+    // (the write path); snapshot() must not mutate engine state.
+    const maxRunningStatusAgeMs = Math.max(
       this.reliability.maxRunningStatusAgeMs,
       ...runningAges,
       0
@@ -522,6 +531,7 @@ export class OrchestratorEngine extends EventEmitter {
       tasks,
       reliability: {
         ...this.reliability,
+        maxRunningStatusAgeMs,
         failuresByProviderAndPlatform: { ...this.reliability.failuresByProviderAndPlatform }
       },
       capacity: {
@@ -577,6 +587,16 @@ export class OrchestratorEngine extends EventEmitter {
 
   private push(): void {
     this.reliability.lastSnapshotAt = Date.now()
+    // Advance the running-age high-water mark here in the write path, so the
+    // read-only snapshot() can report it without mutating engine state.
+    const now = Date.now()
+    for (const task of this.tasks.values()) {
+      if (task.status !== 'running') continue
+      this.reliability.maxRunningStatusAgeMs = Math.max(
+        this.reliability.maxRunningStatusAgeMs,
+        now - (task.lastHeartbeatAt ?? task.createdAt)
+      )
+    }
     const snapshot = this.snapshot()
     // Lifecycle events arrive up to once per second per running worker; a full
     // synchronous config write for each would stall the main process. The live
@@ -731,6 +751,8 @@ export class OrchestratorEngine extends EventEmitter {
     this.pausedTasks.clear()
     this.resumeRequestedTasks.clear()
     this.forcedFallbackRoles.clear()
+    this.attemptedFallbackModels.clear()
+    this.forcedFallbackModels.clear()
     this.fallbackInFlight.clear()
     this.dispatchRecords.clear()
     this.firstPlanApproved = true
@@ -748,6 +770,8 @@ export class OrchestratorEngine extends EventEmitter {
     this.planSelfEstimates.clear()
     this.pendingSelfEstimate = undefined
     this.cancelledPlanRuns.clear()
+    this.planReviewStates.clear()
+    this.planReviewWaiters.clear()
     this.benchmarkRuns.clear()
     for (const run of this.multiAgentRuns.values()) {
       run.resolve({ action: 'rejected', message: 'Multiagent-Lauf durch Engine-Reset beendet.' })
@@ -968,7 +992,22 @@ export class OrchestratorEngine extends EventEmitter {
         recoveryWorktree: task.recoveryArtifact?.worktree,
         modelOverride: fallbackModel
       }
-    ).finally(() => this.fallbackInFlight.delete(taskId))
+    )
+      // .finally alone would re-throw a dispatch rejection (e.g. pickSlot on a
+      // changed profile) as an unhandled rejection; surface it on the task.
+      .catch((error: unknown) => {
+        const current = this.tasks.get(taskId)
+        if (!current || isTerminalTaskStatus(current.status)) return
+        const message = error instanceof Error ? error.message : String(error)
+        current.status = 'error'
+        current.failureKind = 'infrastructure'
+        current.note = message
+        current.lastAction = 'Fallback-Dispatch unerwartet fehlgeschlagen'
+        current.finishedAt = Date.now()
+        this.taskResults.set(taskId, message)
+        this.push()
+      })
+      .finally(() => this.fallbackInFlight.delete(taskId))
     return true
   }
 
@@ -976,6 +1015,18 @@ export class OrchestratorEngine extends EventEmitter {
     const forced = this.forcedFallbackRoles.get(taskId)
     if (forced) this.forcedFallbackRoles.delete(taskId)
     return forced ?? currentRole
+  }
+
+  /**
+   * Drop the per-task helper state once a task run (including all retries) is
+   * over, so the maps stop growing with session lifetime. attemptedFallbackModels
+   * deliberately survives run boundaries: a later manual fallbackTask must not
+   * re-try models this task already burned; reset() clears it.
+   */
+  private clearTaskScratch(taskId: string): void {
+    this.forcedFallbackModels.delete(taskId)
+    this.forcedFallbackRoles.delete(taskId)
+    this.timeoutDenialStreaks.delete(taskId)
   }
 
   /**
@@ -1008,6 +1059,30 @@ export class OrchestratorEngine extends EventEmitter {
       return Promise.resolve()
     }
     return new Promise<void>((resolve) => this.resumeTaskWaiters.set(taskId, resolve))
+  }
+
+  /**
+   * A cancel that lands while a dispatch is parked (slot wait or pause wait)
+   * marks the task terminal; the parked dispatch must observe that and never
+   * (re)start a worker for it.
+   */
+  private taskStoppedWhileParked(taskId: string): boolean {
+    return this.tasks.get(taskId)?.status === 'stopped'
+  }
+
+  private stoppedTaskResult(taskId: string): string {
+    return this.taskResults.get(taskId) ?? `Task ${taskId} wurde vor dem Worker-Start gestoppt.`
+  }
+
+  /** Wake a dispatch parked in waitForTaskResume so it can observe a stop. */
+  private releaseParkedDispatch(taskId: string): void {
+    this.pausedTasks.delete(taskId)
+    this.resumeRequestedTasks.delete(taskId)
+    const waiter = this.resumeTaskWaiters.get(taskId)
+    if (waiter) {
+      this.resumeTaskWaiters.delete(taskId)
+      waiter()
+    }
   }
 
   replanPending(input: { removeTaskIds: string[]; maxParallel?: number }): boolean {
@@ -1307,8 +1382,25 @@ export class OrchestratorEngine extends EventEmitter {
     }])
   }
 
+  /** Aggregated success track record from persisted retros (cached ~30 s). */
+  private routingScores(): RoutingScore[] {
+    const now = Date.now()
+    if (this.routingScoresCache && now - this.routingScoresCache.at < 30_000) {
+      return this.routingScoresCache.scores
+    }
+    let scores: RoutingScore[] = []
+    try {
+      scores = computeRoutingScores(listRunRetros(this.activeProfile()?.id))
+    } catch (error) {
+      console.warn('[Orchestrator] Routing-Statistik nicht lesbar', error)
+    }
+    this.routingScoresCache = { at: now, scores }
+    return scores
+  }
+
   listSubagents(): SubagentDescriptor[] {
     const profile = this.activeProfile()
+    const routing = this.routingScores()
     return this.slotsWithRoles().map(({ slot, role }) => {
       const capabilities = agentSlotCapabilities(slot)
       const workingDir = slot.workingDir || profile?.workingDir || homedir()
@@ -1324,6 +1416,7 @@ export class OrchestratorEngine extends EventEmitter {
       } catch (error) {
         console.warn('[Orchestrator] Modell-Lernwissen nicht lesbar', error)
       }
+      const track = routingScoreFor(routing, slot.provider, model)
       return {
         role,
         provider: slot.provider,
@@ -1334,6 +1427,9 @@ export class OrchestratorEngine extends EventEmitter {
         weaknesses: capabilities.weaknesses,
         learnedStrengths: learned.strengths,
         learnedWeaknesses: learned.weaknesses,
+        trackRecord: track
+          ? { samples: track.samples, successRate: track.successRate, reworkRate: track.reworkRate }
+          : undefined,
         available: preflight?.status !== 'failed',
         subagentReporting: providerSupportsSubagentReporting(slot.provider),
         preflight
@@ -1430,6 +1526,7 @@ export class OrchestratorEngine extends EventEmitter {
     this.taskRuns.set(taskId, work)
     void work.finally(() => {
       this.taskRuns.delete(taskId)
+      this.clearTaskScratch(taskId)
       const current = this.multiAgentRuns.get(run.id)
       if (!current || current.status === 'accepted' || current.status === 'rejected') return
       const complete = current.candidateTaskIds.every((id) => {
@@ -1710,17 +1807,32 @@ export class OrchestratorEngine extends EventEmitter {
       slotReleased = true
       sem.release()
     }
+    if (this.taskStoppedWhileParked(taskId)) {
+      // cancel_plan landed while this dispatch waited for a worker slot; the
+      // task is terminal and must never (re)start a process.
+      releaseSlot()
+      return this.stoppedTaskResult(taskId)
+    }
     if (this.pausedTasks.has(taskId)) {
-      task.status = 'paused'
-      task.lastAction = 'Pausiert vor Worker-Start'
+      if (!applyTaskTransition(task, 'paused', { lastAction: 'Pausiert vor Worker-Start' }).ok) {
+        releaseSlot()
+        return this.stoppedTaskResult(taskId)
+      }
       releaseSlot()
       await this.waitForTaskResume(taskId)
+      if (this.taskStoppedWhileParked(taskId)) return this.stoppedTaskResult(taskId)
       return this.dispatch(this.resumedRole(taskId, role), prompt, title, { ...options, taskId })
     }
-    task.status = 'running'
-    task.phase = 'preflight'
-    task.lastAction = 'Pane-Preflight läuft'
-    task.lastHeartbeatAt = Date.now()
+    if (!applyTaskTransition(task, 'running', {
+      phase: 'preflight',
+      lastAction: 'Pane-Preflight läuft',
+      lastHeartbeatAt: Date.now()
+    }).ok) {
+      // The transition matrix keeps `stopped` absorbing: a cancel that made
+      // the task terminal while this dispatch was parked always wins.
+      releaseSlot()
+      return this.stoppedTaskResult(taskId)
+    }
     this.syncActivityFromTasks()
     this.push()
 
@@ -1823,13 +1935,23 @@ export class OrchestratorEngine extends EventEmitter {
 
       const result = await done
       releaseSlot()
+      if (this.pausedTasks.has(taskId) && result.status === 'succeeded') {
+        // The worker finished before the pause could stop it. Keep the
+        // delivered work and let the normal judgement pipeline decide instead
+        // of discarding a completed result and re-running the whole task.
+        this.pausedTasks.delete(taskId)
+        this.resumeRequestedTasks.delete(taskId)
+        task.note = 'Pause traf nach Worker-Abschluss ein; das gelieferte Ergebnis wird regulär bewertet.'
+      }
       if (this.pausedTasks.has(taskId)) {
         const recoveryArtifact = await captureTaskRecoveryArtifact({
           worktree: info.worktree,
           baseCommit
         })
+        if (!applyTaskTransition(task, 'paused').ok) {
+          return this.stoppedTaskResult(taskId)
+        }
         task.recoveryArtifact = recoveryArtifact
-        task.status = 'paused'
         task.lastAction = 'Pausiert; Teilarbeit sicher für Fortsetzung gehalten'
         task.note = recoveryArtifact
           ? `${recoveryArtifact.changedFiles.length} Datei(en) im Vertragus-Worktree gesichert.`
@@ -1843,6 +1965,7 @@ export class OrchestratorEngine extends EventEmitter {
         }
         this.push()
         await this.waitForTaskResume(taskId)
+        if (this.taskStoppedWhileParked(taskId)) return this.stoppedTaskResult(taskId)
         return this.dispatch(this.resumedRole(taskId, role), prompt, title, {
           ...options,
           taskId,
@@ -1876,7 +1999,12 @@ export class OrchestratorEngine extends EventEmitter {
       const wasCancelled = judgement.status === 'stopped'
       const workerError = judgement.status === 'error'
       const infrastructureFailure = judgement.failureKind === 'infrastructure'
-      task.status = judgement.status
+      // Route the verdict through the transition matrix: when a cancel already
+      // made the task terminal (`stopped` is absorbing), the late judgement of
+      // the killed worker must not overwrite the user's decision.
+      if (!applyTaskTransition(task, judgement.status).ok) {
+        return this.stoppedTaskResult(taskId)
+      }
       task.failureKind = judgement.failureKind
       task.judgeReason = judgement.reason
       task.progress = task.status === 'success' ? 100 : undefined
@@ -1886,7 +2014,7 @@ export class OrchestratorEngine extends EventEmitter {
         : infrastructureFailure
           ? 'Provider-Infrastruktur fehlgeschlagen' : workerError ? 'Worker fehlgeschlagen' : 'Worker abgeschlossen'
       if (activeAttempt) {
-        activeAttempt.status = task.status
+        activeAttempt.status = judgement.status
         activeAttempt.failureKind = task.failureKind
         activeAttempt.finishedAt = Date.now()
         activeAttempt.note = result.result.replace(/\s+/g, ' ').trim().slice(0, RESULT_PREVIEW)
@@ -2236,7 +2364,10 @@ export class OrchestratorEngine extends EventEmitter {
         return message
       })
     this.taskRuns.set(taskId, run)
-    void run.finally(() => this.taskRuns.delete(taskId))
+    void run.finally(() => {
+      this.taskRuns.delete(taskId)
+      this.clearTaskScratch(taskId)
+    })
     return this.getTaskStatus(taskId) ?? { taskId, status: 'queued' }
   }
 
@@ -2565,6 +2696,7 @@ export class OrchestratorEngine extends EventEmitter {
     const stopTask = (task: ExecutionPlanTask, reason: string): void => {
       const runtimeId = runtimeIds.get(task.id)!
       const stopped = this.tasks.get(runtimeId)!
+      this.releaseParkedDispatch(runtimeId)
       Object.assign(stopped, {
         status: 'stopped' as const,
         failureKind: isCancelled() ? 'cancelled' as const : 'worker' as const,
@@ -2696,12 +2828,20 @@ export class OrchestratorEngine extends EventEmitter {
           }
           modelOverride = undefined
 
+          const routing = this.routingScores()
+          const provenScore = (agent: SubagentDescriptor): number =>
+            routingScoreFor(routing, agent.provider, agent.model)?.score ?? 0
           const alternatives = this.listSubagents()
             .filter((agent) =>
               agent.available && !attemptedRoles.has(agent.role) &&
               (!rateLimited || agent.provider !== runtimeTask?.provider)
             )
-            .sort((a, b) => (a.busy / a.capacity) - (b.busy / b.capacity))
+            // Least-loaded first; equal load falls back to the retro-proven
+            // success record instead of configuration order.
+            .sort((a, b) => {
+              const load = (a.busy / a.capacity) - (b.busy / b.capacity)
+              return load !== 0 ? load : provenScore(b) - provenScore(a)
+            })
           if ((!rateLimited && profile?.planner.routingMode !== 'adaptive') || alternatives.length === 0) {
             results.set(task.id, {
               id: task.id,
@@ -2752,6 +2892,15 @@ export class OrchestratorEngine extends EventEmitter {
           for (const key of task.conflictKeys) activeConflicts.delete(key)
         })
       active.set(task.id, running)
+      // Register plan tasks in the shared future map so await_task /
+      // await_any_task genuinely block on them instead of degrading to
+      // busy-polling, exactly like dispatchAsync tasks.
+      const settled = running.then(() => this.taskResults.get(runtimeId) ?? '')
+      this.taskRuns.set(runtimeId, settled)
+      void settled.finally(() => {
+        this.taskRuns.delete(runtimeId)
+        this.clearTaskScratch(runtimeId)
+      })
     }
 
     while (pending.size > 0 || active.size > 0) {
@@ -3150,6 +3299,7 @@ export class OrchestratorEngine extends EventEmitter {
         createdAt: Date.now()
       }
       recordRunRetro(retro)
+      this.routingScoresCache = undefined
       this.lastRetro = retro
       return retro
     } catch (error) {
@@ -3424,6 +3574,7 @@ export class OrchestratorEngine extends EventEmitter {
       exportQueuedAt: base.exportQueuedAt ?? Date.now()
     }
     recordRunRetro(this.lastRetro)
+    this.routingScoresCache = undefined
     if (shouldQueueExport) enqueueRetroExport(this.lastRetro)
     this.push()
     return { summary: this.lastRetro.summary, storedLearnings: applied }
@@ -3674,6 +3825,7 @@ export class OrchestratorEngine extends EventEmitter {
         finishedAt: Date.now()
       })
       this.taskResults.set(task.id, reason)
+      this.releaseParkedDispatch(task.id)
     }
     await Promise.allSettled(runningAgentIds.map((agentId) => agentManager.kill(agentId)))
     const latest = this.planRunResults.get(runId) ?? stored
@@ -3870,6 +4022,7 @@ export class OrchestratorEngine extends EventEmitter {
         if (listeners.size === 0) this.supportWaiters.delete(requestId)
         resolve({ done: false, stillWaiting: true, request: { ...request } })
       }, wait)
+      timer.unref?.()
     })
   }
 

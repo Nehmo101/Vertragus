@@ -72,6 +72,15 @@ describe('RemoteCommandRouter', () => {
     }, steerDevice)).rejects.toMatchObject({ status: 403, code: 'scope_forbidden' })
   })
 
+  it('denies the kill switch to read/steer devices — it tears down the gateway for everyone', async () => {
+    const envelope = { id: 'killSwitch.activate', args: {} }
+    await expect(router().execute(envelope, steerDevice)).rejects.toMatchObject({ status: 403 })
+    await expect(router().execute(envelope, {
+      ...steerDevice,
+      capabilities: [...steerDevice.capabilities, 'admin']
+    })).resolves.toEqual({ stopping: true })
+  })
+
   it('keeps provider fallback behind its own Phase-D capability', async () => {
     const envelope = { id: 'task.fallback', args: { profileId: 'p', sessionId: 's', taskId: 'task' } }
     await expect(router().execute(envelope, steerDevice)).rejects.toMatchObject({ status: 403 })

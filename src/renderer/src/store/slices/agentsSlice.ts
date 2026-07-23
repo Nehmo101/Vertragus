@@ -1,6 +1,7 @@
 /** Agent lifecycle: spawn/kill/handoff, pane selection and history reopen. */
 import type { StateCreator } from 'zustand'
 import { workspacePlaceName } from '@shared/workspaceNames'
+import i18n from '@renderer/i18n'
 import { activeProfile, effectiveRepoPath, errorMessage } from '../useAppStore'
 import type { AgentsSlice, AppState } from './types'
 
@@ -41,10 +42,10 @@ export const createAgentsSlice: StateCreator<AppState, [], [], AgentsSlice> = (s
     const s = get()
     const profile = activeProfile(s)
     if (!profile) {
-      s.showToast('Kein Workspace-Profil ausgewählt.')
+      s.showToast(i18n.t('toast.noProfileSelected'))
       return
     }
-    s.showToast(`Workspace „${profile.name}" startet…`)
+    s.showToast(i18n.t('toast.workspaceStarting', { name: profile.name }))
     try {
       const spawned = await window.vertragus.agents.spawnProfile(profile.id, s.yoloMaster)
       const workspaceSessionId = spawned.find((agent) => agent.workspaceSessionId)?.workspaceSessionId
@@ -65,21 +66,21 @@ export const createAgentsSlice: StateCreator<AppState, [], [], AgentsSlice> = (s
         const startedSession = workspaceSessions.find((item) => item.id === workspaceSessionId)
         if (startedSession) {
           const name = startedSession.name || workspacePlaceName(startedSession.sequence)
-          get().showToast(`W${startedSession.sequence} ${name} gestartet.`)
+          get().showToast(i18n.t('toast.workspaceSessionStarted', { sequence: startedSession.sequence, name }))
         } else {
-          get().showToast('Workspace gestartet.')
+          get().showToast(i18n.t('toast.workspaceStarted'))
         }
         return workspaceSessionId
       }
     } catch (error) {
-      get().showToast(`Workspace konnte nicht starten: ${errorMessage(error)}`)
+      get().showToast(i18n.t('toast.workspaceStartFailed', { error: errorMessage(error) }))
     }
     return undefined
   },
 
   async stopAll() {
     await window.vertragus.agents.killAll()
-    get().showToast('Alle Agents gestoppt.')
+    get().showToast(i18n.t('toast.allAgentsStopped'))
   },
 
   async cleanWorkspace() {
@@ -105,7 +106,7 @@ export const createAgentsSlice: StateCreator<AppState, [], [], AgentsSlice> = (s
       },
       selectedAgentId: null
     }))
-    get().showToast('Workspace geleert — alle Agents entfernt.')
+    get().showToast(i18n.t('toast.workspaceCleared'))
   },
 
   openAddAgent() {
@@ -133,11 +134,14 @@ export const createAgentsSlice: StateCreator<AppState, [], [], AgentsSlice> = (s
       })
       set({ addSeq: s.addSeq + 1, addAgentOpen: false })
       get().showToast(
-        `Neuer Subagent gestartet — ${selection.provider}/${agent.model || 'CLI-Standard'}`
+        i18n.t('toast.subagentStarted', {
+          provider: selection.provider,
+          model: agent.model || i18n.t('toast.cliDefault')
+        })
       )
       return true
     } catch (error) {
-      get().showToast(`Agent konnte nicht starten: ${errorMessage(error)}`)
+      get().showToast(i18n.t('toast.agentStartFailed', { error: errorMessage(error) }))
       return false
     }
   },
@@ -151,7 +155,10 @@ export const createAgentsSlice: StateCreator<AppState, [], [], AgentsSlice> = (s
     await window.vertragus.agents.popout(id)
     if (agent) {
       get().showToast(
-        `„${agent.model || 'CLI-Standard'} · ${agent.role.split('·').pop()?.trim()}" als eigenes Fenster geöffnet ⧉`
+        i18n.t('toast.agentPoppedOut', {
+          model: agent.model || i18n.t('toast.cliDefault'),
+          role: agent.role.split('·').pop()?.trim() ?? ''
+        })
       )
     }
   },
@@ -172,11 +179,14 @@ export const createAgentsSlice: StateCreator<AppState, [], [], AgentsSlice> = (s
       set({ handoffSource: null })
       get().showToast(
         source?.kind === 'orchestrator'
-          ? `↪ Orchestrator-Übergabe gestartet: ${source.name} bleibt bis zur Bestätigung aktiv → ${target.name}`
-          : `↪ Übergabe: ${source?.name ?? 'Agent'} → ${target.name}`
+          ? i18n.t('toast.handoffOrchestrator', { source: source.name, target: target.name })
+          : i18n.t('toast.handoff', {
+              source: source?.name ?? i18n.t('toast.handoffAgentFallback'),
+              target: target.name
+            })
       )
     } catch (error) {
-      get().showToast(`Übergabe fehlgeschlagen: ${errorMessage(error)}`)
+      get().showToast(i18n.t('toast.handoffFailed', { error: errorMessage(error) }))
     }
   },
 
@@ -184,10 +194,16 @@ export const createAgentsSlice: StateCreator<AppState, [], [], AgentsSlice> = (s
     try {
       const result = await window.vertragus.agents.bulkHandoff(req)
       set({ handoffSource: null })
-      const suffix = result.failures.length > 0 ? ` · ${result.failures.length} fehlgeschlagen` : ''
-      get().showToast(`Massenübergabe: ${result.transferred.length}/${result.requested} übernommen${suffix}`)
+      const suffix =
+        result.failures.length > 0 ? i18n.t('toast.bulkHandoffFailures', { count: result.failures.length }) : ''
+      get().showToast(
+        i18n.t('toast.bulkHandoff', {
+          transferred: result.transferred.length,
+          requested: result.requested
+        }) + suffix
+      )
     } catch (error) {
-      get().showToast(`Massenübergabe fehlgeschlagen: ${errorMessage(error)}`)
+      get().showToast(i18n.t('toast.bulkHandoffFailed', { error: errorMessage(error) }))
     }
   }
 })

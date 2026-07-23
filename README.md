@@ -253,6 +253,16 @@ Tests are co-located next to their sources as `*.test.ts`. Setting
 `VERTRAGUS_MCP_SELFTEST=1` runs an end-to-end self-test of the MCP tools and engine,
 then exits (useful for CI and local sanity checks).
 
+### Headless host mode
+
+`VERTRAGUS_HEADLESS=1` starts the full engine — MCP server, agent manager,
+session restore and the Mission-Control gateway — **without any window, tray
+or updater surface**. Control happens exclusively through paired
+Mission-Control devices, so enable remote access in the desktop app first;
+a headless start without it logs a loud warning that the host is unreachable.
+This is step 1 of the detach-persistence roadmap (VPS/daemon operation, e.g.
+under systemd).
+
 ## Testing
 
 ```bash

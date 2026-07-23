@@ -52,6 +52,19 @@ describe('buildCanvasGraph', () => {
     expect(hub?.type === 'orchestrator' && hub.data.goalTitle).toBe('Canvas bauen')
   })
 
+  it('carries live orchestrator activity and status into the hub node data', () => {
+    // Regression guard for the stale-activity bug: the board rebuilds the graph
+    // when activity/status change, so the builder must forward exactly these.
+    const graph = buildCanvasGraph(
+      [task({ id: 't1' })],
+      { ...ORCH, activity: 'Prüft Ergebnisse', status: 'reviewing' }
+    )
+
+    const hub = graph.nodes.find((node) => node.id === ORCHESTRATOR_NODE_ID)
+    expect(hub?.type === 'orchestrator' && hub.data.activity).toBe('Prüft Ergebnisse')
+    expect(hub?.type === 'orchestrator' && hub.data.status).toBe('reviewing')
+  })
+
   it('renders hard dependencies as hard edges and animates them while the dependent runs', () => {
     const graph = buildCanvasGraph(
       [task({ id: 'a', status: 'success' }), task({ id: 'b', status: 'running', dependsOn: ['a'] })],

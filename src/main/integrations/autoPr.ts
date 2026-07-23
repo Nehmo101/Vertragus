@@ -1,7 +1,6 @@
 import type { TaskGateFinding } from '@shared/orchestrator'
 import { noTaskChanges, verifiedTaskCommit } from './commitContract'
 import {
-  assertSecurityGate,
   evaluateSecurityGate,
   SecurityGateError
 } from './securityGate'
@@ -17,6 +16,7 @@ import {
 } from './autoPr/gitPlumbing'
 import {
   assertDiffLooksSafe,
+  assertSecretScanGates,
   QualityGateError,
   qualityGateEnvironment,
   qualityGateShellCommand,
@@ -182,9 +182,12 @@ export async function prepareTaskChange(input: PrepareTaskInput): Promise<Prepar
       staged = true
       hygieneFindings.push(...await unstageScratchFiles(input.worktree))
       await assertStagedHygiene(input.worktree)
-      assertSecurityGate(
+      // Secret gate over the staged state: builtin regexes, gitleaks, or both
+      // depending on AutoPrConfig.secretScanner.
+      await assertSecretScanGates(
+        input.worktree,
         await git(input.worktree, ['diff', '--cached', '--no-ext-diff', '--binary']),
-        { excludePaths: input.config.securityGateExcludes }
+        input.config
       )
     }
 
@@ -197,7 +200,7 @@ export async function prepareTaskChange(input: PrepareTaskInput): Promise<Prepar
     await assertStagedHygiene(input.worktree)
     const stagedDiff = await git(input.worktree, ['diff', '--cached', '--no-ext-diff', '--binary'])
     if (stagedDiff) {
-      assertSecurityGate(stagedDiff, { excludePaths: input.config.securityGateExcludes })
+      await assertSecretScanGates(input.worktree, stagedDiff, input.config)
     }
     const stagedFiles = await stagedFileList(input.worktree)
 

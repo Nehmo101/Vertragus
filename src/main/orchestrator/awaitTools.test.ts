@@ -361,6 +361,78 @@ describe('awaitPlan', () => {
     await vi.waitFor(() => expect(engine.getPlanRunStatus(started.runId)?.status).toBe('stopped'))
   })
 
+  it('genuinely blocks await_task on a running plan task via the shared future map', async () => {
+    const finishOf = manualWorker()
+    const engine = new OrchestratorEngine({ profile: autoProfile() })
+    const started = engine.executePlanAsync(planInput('plan-await', 'Plan await'))
+    await vi.waitFor(() => expect(engine.getPlanRunStatus(started.runId)?.tasks?.[0]?.status).toBe('running'))
+    const runtimeId = engine.getPlanRunStatus(started.runId)!.tasks![0]!.taskId
+
+    const pending = engine.awaitTask(runtimeId)
+    let settled = false
+    void pending.then(() => { settled = true })
+    await flush()
+    // Before the shared registration this returned immediately with
+    // stillRunning/timeout, degrading the tool to busy-polling.
+    expect(settled).toBe(false)
+
+    finishOf()({ result: 'ERGEBNIS: ERFOLG', isError: false, status: 'succeeded' })
+    const result = await pending
+    expect(result.done).toBe(true)
+    expect(result).toMatchObject({ task: { taskId: runtimeId } })
+  })
+
+  it('never starts a worker for a task cancelled while parked at the role-slot semaphore', async () => {
+    // One worker slot, two same-role tasks, maxParallel 2: task two enters
+    // dispatch() and parks at sem.acquire() while task one holds the slot.
+    const finishOf = manualWorker()
+    const profile = {
+      ...autoProfile(),
+      agents: [{ ...DEFAULT_PROFILE.agents[0], count: 1 }]
+    }
+    const engine = new OrchestratorEngine({ profile })
+    const started = engine.executePlanAsync({
+      version: 1 as const,
+      goal: 'Slot race',
+      maxParallel: 2,
+      tasks: ['one', 'two'].map((id) => ({
+        id,
+        title: id,
+        role: 'codex',
+        prompt: `Work on ${id}.`,
+        dependsOn: [],
+        advisoryDependsOn: [],
+        criticality: 'required' as const,
+        conflictKeys: [],
+        ownership: 'feature' as const,
+        expectedFiles: []
+      }))
+    })
+    await vi.waitFor(() => {
+      expect(runTask).toHaveBeenCalledTimes(1)
+      const tasks = engine.getPlanRunStatus(started.runId)?.tasks ?? []
+      expect(tasks.find((task) => task.planTaskId === 'two')?.status).toBe('queued')
+    })
+
+    await expect(engine.cancelPlan(started.runId)).resolves.toEqual(
+      expect.objectContaining({ ok: true, status: 'stopped' })
+    )
+    // The slot frees only now — after the cancel — which is exactly the window
+    // in which the parked dispatch used to flip task two back to running and
+    // launch an orphan worker.
+    finishOf()({ result: 'Task abgebrochen', isError: true, status: 'cancelled' })
+    await flush()
+    await flush()
+
+    expect(runTask).toHaveBeenCalledTimes(1)
+    const tasks = engine.getPlanRunStatus(started.runId)?.tasks ?? []
+    expect(tasks.find((task) => task.planTaskId === 'two')?.status).toBe('stopped')
+    await expect(engine.awaitPlan(started.runId)).resolves.toMatchObject({
+      done: true,
+      plan: { status: 'stopped' }
+    })
+  })
+
   it('lets concurrent awaiters of a failing plan both resolve without an unhandled rejection', async () => {
     const finishOf = manualWorker()
     const engine = new OrchestratorEngine({ profile: autoProfile() })

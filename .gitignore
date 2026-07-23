@@ -8,6 +8,9 @@ dist/
 release/
 *.tsbuildinfo
 
+# Coverage reports (vitest --coverage)
+coverage/
+
 # Logs
 *.log
 npm-debug.log*

@@ -50,6 +50,16 @@ export function writeRemoteToken(store: KeyValueStore, token: string): void {
   writeCanonical(store, REMOTE_TOKEN_KEY, LEGACY_REMOTE_TOKEN_KEY, token)
 }
 
+/**
+ * Remove the token from the canonical and the legacy key. Used by the token
+ * vault after migrating the plaintext token into encrypted IndexedDB storage,
+ * so no plaintext copy survives in localStorage.
+ */
+export function purgeRemoteToken(store: KeyValueStore): void {
+  store.removeItem(REMOTE_TOKEN_KEY)
+  store.removeItem(LEGACY_REMOTE_TOKEN_KEY)
+}
+
 export function writeRemoteDevice(store: KeyValueStore, deviceJson: string): void {
   writeCanonical(store, REMOTE_DEVICE_KEY, LEGACY_REMOTE_DEVICE_KEY, deviceJson)
 }

@@ -13,7 +13,7 @@
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdir, readdir, rm } from 'node:fs/promises'
+import { appendFile, mkdir, readdir, readFile, rm } from 'node:fs/promises'
 import { promisify } from 'node:util'
 import { dirname, join } from 'node:path'
 import { canonicalWorkspacePath } from '@main/agents/workspacePath'
@@ -131,6 +131,52 @@ async function branchExists(root: string, branch: string): Promise<boolean> {
 /** Max slot probes per agent identity before giving up (defensive bound). */
 const WORKTREE_SLOT_ATTEMPTS = 20
 
+/** Repo roots whose info/exclude was already ensured during this app run. */
+const excludeEnsuredRoots = new Set<string>()
+
+/**
+ * Hide the managed worktree containers from `git status` by listing them in the
+ * repository's private `<gitdir>/info/exclude` (never the tracked .gitignore).
+ * `--git-path info/exclude` resolves the shared info/ location even when the
+ * workspace itself is a linked worktree. Idempotent per repo and per file
+ * content; failures are logged and never block worktree creation.
+ */
+async function ensureWorktreeContainerExcluded(root: string): Promise<void> {
+  if (excludeEnsuredRoots.has(root)) return
+  excludeEnsuredRoots.add(root)
+  try {
+    const excludePath = await git(root, [
+      'rev-parse',
+      '--path-format=absolute',
+      '--git-path',
+      'info/exclude'
+    ])
+    if (!excludePath) return
+    const wanted = [`${WORKTREE_CONTAINER}/`]
+    // The legacy container is only worth hiding while it still exists.
+    if (existsSync(join(root, LEGACY_WORKTREE_CONTAINER))) {
+      wanted.push(`${LEGACY_WORKTREE_CONTAINER}/`)
+    }
+    let current = ''
+    try {
+      current = await readFile(excludePath, 'utf8')
+    } catch {
+      // No info/exclude yet — appendFile below creates it.
+    }
+    const present = new Set(current.split(/\r?\n/).map((entry) => entry.trim()))
+    const missing = wanted.filter(
+      (entry) => !present.has(entry) && !present.has(entry.slice(0, -1))
+    )
+    if (missing.length === 0) return
+    await mkdir(dirname(excludePath), { recursive: true })
+    const joiner = current.length > 0 && !current.endsWith('\n') ? '\n' : ''
+    await appendFile(excludePath, `${joiner}${missing.join('\n')}\n`, 'utf8')
+  } catch (error) {
+    // Cosmetic only (keeps `git status` clean) — never fail the worktree.
+    console.warn('[worktree] info/exclude update skipped', error)
+  }
+}
+
 /**
  * Create a fresh isolated worktree for the given agent and app session.
  * A non-Git directory returns null. Git failures are surfaced to the caller;
@@ -159,6 +205,7 @@ export async function createWorktree(
   const discoveredRoot = await repoRoot(dir)
   if (!discoveredRoot) return null
   const root = await canonicalWorkspacePath(discoveredRoot)
+  await ensureWorktreeContainerExcluded(root)
   let identity = worktreeIdentity(root, agentId, sessionId)
   for (let attempt = 2; attempt <= WORKTREE_SLOT_ATTEMPTS; attempt += 1) {
     if (!existsSync(identity.path) && !(await branchExists(root, identity.branch))) break

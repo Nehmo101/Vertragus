@@ -90,6 +90,12 @@ export interface SecurityGateOptions {
    * leaked-secret scan). Sourced from AutoPrConfig.securityGateExcludes.
    */
   excludePaths?: readonly string[]
+  /**
+   * Skip the built-in added-line secret regex scan. Set only when
+   * AutoPrConfig.secretScanner === 'gitleaks' delegates secret detection to
+   * gitleaks entirely; the surface/negative-test analysis still runs unchanged.
+   */
+  skipAddedLineSecretScan?: boolean
 }
 
 function surfaceScanExclusions(options?: SecurityGateOptions): RegExp[] {
@@ -131,9 +137,11 @@ export function evaluateSecurityGate(diff: string, options?: SecurityGateOptions
   }
 
   const files = addedLinesByFile(diff)
-  const allAddedLines = [...files.values()].flat().join('\n')
-  if (leakedSecretPatterns.some((pattern) => pattern.test(allAddedLines))) {
-    throw new Error('Moegliches Secret in hinzugefuegten Diff-Zeilen erkannt; Security Gate wurde blockiert.')
+  if (!options?.skipAddedLineSecretScan) {
+    const allAddedLines = [...files.values()].flat().join('\n')
+    if (leakedSecretPatterns.some((pattern) => pattern.test(allAddedLines))) {
+      throw new Error('Moegliches Secret in hinzugefuegten Diff-Zeilen erkannt; Security Gate wurde blockiert.')
+    }
   }
 
   const testEvidence = [...files.entries()]

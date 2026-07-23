@@ -38,6 +38,16 @@ describe('DeviceAuth', () => {
     expect(auth.authenticate(paired.token)).toBeUndefined()
   })
 
+  it('keeps every routed capability pairable — provider-fallback included', () => {
+    const store = new MemoryStore()
+    const auth = new DeviceAuth(store)
+    const paired = auth.pair(
+      auth.startPairing(['read', 'provider-fallback', 'nonsense' as never]).code,
+      'Fallback-Gerät'
+    )!
+    expect(paired.device.capabilities).toEqual(['read', 'provider-fallback'])
+  })
+
   it('encrypts the hash-only record and refuses a plaintext fallback', () => {
     let persisted: unknown
     const encrypted = new EncryptedDeviceStore(

@@ -9,6 +9,15 @@ import { postProcessBranchValidationError } from './gitPostProcessing'
 
 export const agentProviderId = z.enum(['claude', 'kimi', 'codex', 'cursor', 'copilot', 'ollama'])
 
+/**
+ * Opt-in OS sandbox for headless Yolo workers. 'bwrap' wraps the worker CLI in
+ * bubblewrap on Linux (read-only root, writable worktree/temp/provider config
+ * paths, network on); win32/darwin ignore the option with one log line per run.
+ * See src/main/agents/sandboxLaunch.ts and docs/PRODUCTION_HARDENING.md.
+ */
+export const sandboxModeSchema = z.enum(['none', 'bwrap'])
+export type SandboxMode = z.infer<typeof sandboxModeSchema>
+
 export const agentSlotSchema = z.object({
   /** Logical role, e.g. "worker", "reviewer". */
   role: z.string().min(1).default('worker'),
@@ -99,6 +108,16 @@ export const multiAgentConfigSchema = z.object({
   stopLosers: z.boolean().default(true)
 })
 
+/**
+ * Secret scanner for the Auto-PR commit gate. 'builtin' keeps the regex-based
+ * added-line scan, 'gitleaks' delegates secret detection to a locally
+ * installed gitleaks binary, 'both' runs both scanners and merges their
+ * findings. A configured but missing gitleaks blocks the gate instead of
+ * silently passing. See src/main/integrations/autoPr/gitleaksGate.ts.
+ */
+export const secretScannerSchema = z.enum(['builtin', 'gitleaks', 'both'])
+export type SecretScannerMode = z.infer<typeof secretScannerSchema>
+
 export const autoPrConfigSchema = z.object({
   mode: z.enum(['off', 'draft-after-checks', 'ready-after-checks', 'hold-for-approval']).default('off'),
   strategy: z.enum(['aggregate', 'per-task']).default('aggregate'),
@@ -112,6 +131,8 @@ export const autoPrConfigSchema = z.object({
    * leaked-secret patterns always apply to every file.
    */
   securityGateExcludes: z.array(z.string().min(1).max(200)).max(32).default([]),
+  /** Optional second secret scanner; omitted = 'builtin' (backward compatible). */
+  secretScanner: secretScannerSchema.default('builtin'),
   labels: z.array(z.string().min(1)).max(20).default([]),
   reviewers: z.array(z.string().min(1)).max(20).default([])
 })
@@ -179,6 +200,8 @@ export const workspaceProfileSchema = z.object({
   skills: profileSkillsSchema.default([]),
   /** Global Yolo master switch (default OFF for safety). */
   yoloDefault: z.boolean().default(false),
+  /** OS sandbox for headless Yolo workers (Linux/bubblewrap, opt-in). */
+  sandbox: sandboxModeSchema.default('none'),
   planner: plannerConfigSchema.default({}),
   benchmark: benchmarkConfigSchema.default({}),
   multiAgent: multiAgentConfigSchema.default({}),
@@ -214,17 +237,28 @@ export type OrchestratorConfig = Omit<ParsedOrchestratorConfig, 'permissionMode'
 export type PlannerConfig = z.infer<typeof plannerConfigSchema>
 export type BenchmarkConfig = z.infer<typeof benchmarkConfigSchema>
 export type MultiAgentConfig = z.infer<typeof multiAgentConfigSchema>
-export type AutoPrConfig = z.infer<typeof autoPrConfigSchema>
+type ParsedAutoPrConfig = z.infer<typeof autoPrConfigSchema>
+/** Legacy in-memory configs may predate the secretScanner field; omitted = 'builtin'. */
+export type AutoPrConfig = Omit<ParsedAutoPrConfig, 'secretScanner'> & {
+  secretScanner?: SecretScannerMode
+}
 export type AutoGitConfig = z.infer<typeof autoGitConfigSchema>
 export type GithubProjectConfig = z.infer<typeof githubProjectSchema>
 export type ProfileCloneStatus = z.infer<typeof profileCloneStatusSchema>
 export type ProfileGithubRepo = z.infer<typeof profileGithubRepoSchema>
 type ParsedWorkspaceProfile = z.infer<typeof workspaceProfileSchema>
-export type WorkspaceProfile = Omit<ParsedWorkspaceProfile, 'orchestrator' | 'agents' | 'skills'> & {
+export type WorkspaceProfile = Omit<
+  ParsedWorkspaceProfile,
+  'orchestrator' | 'agents' | 'skills' | 'sandbox' | 'autoPr'
+> & {
   orchestrator?: OrchestratorConfig
   agents: AgentSlot[]
   /** Legacy in-memory profile drafts may predate the skills field. */
   skills?: ProfileSkill[]
+  /** Legacy in-memory profile drafts may predate the sandbox field; omitted = 'none'. */
+  sandbox?: SandboxMode
+  /** Legacy in-memory drafts may predate autoPr.secretScanner; omitted = 'builtin'. */
+  autoPr: AutoPrConfig
 }
 
 /** Create an independent, uniquely identified copy of a workspace profile. */
@@ -401,6 +435,7 @@ export const DEFAULT_PROFILE: WorkspaceProfile = {
   solo: false,
   skills: [],
   yoloDefault: false,
+  sandbox: 'none',
   planner: { mode: 'review', routingMode: 'adaptive', maxParallel: 6, maxRetries: 1 },
   benchmark: { enabled: false },
   multiAgent: { enabled: false, stopLosers: true },
@@ -410,6 +445,7 @@ export const DEFAULT_PROFILE: WorkspaceProfile = {
     baseBranch: '',
     qualityGates: ['corepack pnpm typecheck', 'corepack pnpm test', 'corepack pnpm lint'],
     securityGateExcludes: [],
+    secretScanner: 'builtin',
     labels: [],
     reviewers: []
   },

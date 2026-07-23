@@ -71,6 +71,7 @@ export const IPC = {
   appUpdateCheck: 'app:updateCheck',
   appUpdateDownload: 'app:updateDownload',
   appUpdateInstall: 'app:updateInstall',
+  appUpdateSetChannel: 'app:updateSetChannel',
   diagnosticsExportLatest: 'diagnostics:exportLatest',
   providersHealth: 'providers:health',
   providersCapacity: 'providers:capacity',
@@ -146,6 +147,7 @@ export const IPC = {
   orchestratorSetYoloMaster: 'orchestrator:setYoloMaster',
   orchestratorReviewPlan: 'orchestrator:reviewPlan',
   orchestratorTaskDiff: 'orchestrator:taskDiff',
+  orchestratorOpenTaskWorktree: 'orchestrator:openTaskWorktree',
   orchestratorApprovePublication: 'orchestrator:approvePublication',
   orchestratorRejectPublication: 'orchestrator:rejectPublication',
   orchestratorResolvePermission: 'orchestrator:resolvePermission',
@@ -215,12 +217,19 @@ export type UpdateStatus =
   | 'downloaded'
   | 'error'
 
+/**
+ * Update channel: `main` follows every green main-branch build (prereleases),
+ * `stable` only offers tagged, non-prerelease releases.
+ */
+export type UpdateChannel = 'main' | 'stable'
+
 export interface UpdateState {
   status: UpdateStatus
   currentVersion: string
   availableVersion?: string
   progress?: number
   message?: string
+  channel?: UpdateChannel
 }
 
 export interface GitWorktreeInfo {
@@ -350,6 +359,7 @@ export interface VertragusApi {
     check(): Promise<UpdateState>
     download(): Promise<UpdateState>
     install(): Promise<void>
+    setChannel(channel: UpdateChannel): Promise<UpdateState>
     onState(cb: (state: UpdateState) => void): () => void
   }
   diagnostics: {
@@ -542,6 +552,12 @@ export interface VertragusApi {
     onSnapshot(cb: (snap: OrchestratorSnapshot) => void): () => void
     /** Read a size-limited patch from the task's trusted Vertragus worktree. */
     taskDiff(profileId: string, taskId: string, workspaceSessionId?: string): Promise<TaskReviewDiff>
+    /** Open the task's worktree in the editor (VS Code if on PATH, file manager otherwise). */
+    openTaskWorktree(
+      profileId: string,
+      taskId: string,
+      workspaceSessionId?: string
+    ): Promise<{ opened: 'editor' | 'folder' }>
     approvePublication(profileId: string, workspaceSessionId: string, planId?: string): Promise<boolean>
     rejectPublication(profileId: string, workspaceSessionId: string, planId?: string): Promise<boolean>
     resolvePermission(

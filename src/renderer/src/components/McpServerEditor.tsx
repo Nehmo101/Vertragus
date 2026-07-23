@@ -1,4 +1,7 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
+import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '@renderer/store/useAppStore'
 import InfoTip from '@renderer/components/InfoTip'
 import {
@@ -26,17 +29,17 @@ interface Draft {
   headersText: string
 }
 
+// Translation key paths; the German/English copy lives in the locale files.
 const HELP = {
-  intro:
-    'Diese MCP-Server werden allen gestarteten Agents mitgegeben — dem Orchestrator und den einzelnen Subagents —, sodass sie deren Tools direkt sehen und nutzen können. Verifiziert für Claude und Codex; andere Provider ignorieren die Anbindung.',
-  name: 'Eindeutiger Bezeichner. Wird als MCP-Schlüssel und Tool-Namensraum verwendet (mcp__<name>__tool). Nur Buchstaben, Zahlen, _ und -.',
-  transport: 'stdio startet einen lokalen Prozess. HTTP/SSE verbinden sich mit einem laufenden Server per URL.',
-  scope: 'Legt fest, welche Agents diesen Server erhalten: alle, nur der Orchestrator oder nur die Subagents.',
-  command: 'Ausführbarer Befehl des lokalen MCP-Servers, z. B. npx oder ein Pfad zu einer Binary.',
-  args: 'Argumente des Befehls — ein Argument pro Zeile.',
-  env: 'Umgebungsvariablen für den Prozess — je Zeile KEY=WERT.',
-  url: 'Endpunkt des laufenden MCP-Servers, z. B. https://host/mcp.',
-  headers: 'Optionale HTTP-Header — je Zeile Name: Wert (z. B. Authorization: Bearer …).'
+  intro: 'mcpEditor.help.intro',
+  name: 'mcpEditor.help.name',
+  transport: 'mcpEditor.help.transport',
+  scope: 'mcpEditor.help.scope',
+  command: 'mcpEditor.help.command',
+  args: 'mcpEditor.help.args',
+  env: 'mcpEditor.help.env',
+  url: 'mcpEditor.help.url',
+  headers: 'mcpEditor.help.headers'
 } as const
 
 function parseLines(text: string): string[] {
@@ -105,20 +108,28 @@ function emptyDraft(): Draft {
 }
 
 /** Inline validation message for one row, or '' when the row is valid. */
-function rowError(draft: Draft, all: Draft[]): string {
+function rowError(t: TFunction, draft: Draft, all: Draft[]): string {
   const name = draft.name.trim()
-  if (!name) return 'Name fehlt.'
-  if (!MCP_NAME_PATTERN.test(name)) return 'Ungültiger Name (nur A–Z, 0–9, _ und -).'
+  if (!name) return t('mcpEditor.errors.nameMissing')
+  if (!MCP_NAME_PATTERN.test(name)) return t('mcpEditor.errors.nameInvalid')
   if (all.some((other) => other.id !== draft.id && other.name.trim() === name)) {
-    return `Name „${name}" ist doppelt.`
+    return t('mcpEditor.errors.nameDuplicate', { name })
   }
-  if (draft.transport === 'stdio' && !draft.command.trim()) return 'Befehl fehlt.'
-  if (draft.transport !== 'stdio' && !draft.url.trim()) return 'URL fehlt.'
+  if (draft.transport === 'stdio' && !draft.command.trim()) return t('mcpEditor.errors.commandMissing')
+  if (draft.transport !== 'stdio' && !draft.url.trim()) return t('mcpEditor.errors.urlMissing')
   return ''
 }
 
 export default function McpServerEditor(): JSX.Element | null {
-  const store = useAppStore()
+  const { t } = useTranslation()
+  // Narrow pick — the modal only needs the MCP list and its own actions.
+  const store = useAppStore(
+    useShallow((s) => ({
+      mcpServers: s.mcpServers,
+      saveMcpServers: s.saveMcpServers,
+      closeMcpEditor: s.closeMcpEditor
+    }))
+  )
   const [drafts, setDrafts] = useState<Draft[]>(() => store.mcpServers.map(toDraft))
   const closeMcpEditor = store.closeMcpEditor
 
@@ -135,7 +146,7 @@ export default function McpServerEditor(): JSX.Element | null {
   const remove = (idx: number): void => setDrafts(drafts.filter((_, i) => i !== idx))
   const add = (): void => setDrafts([...drafts, emptyDraft()])
 
-  const errors = drafts.map((draft) => rowError(draft, drafts))
+  const errors = drafts.map((draft) => rowError(t, draft, drafts))
   const firstError = errors.find(Boolean)
   const enabledCount = drafts.filter((d) => d.enabled).length
 
@@ -152,14 +163,14 @@ export default function McpServerEditor(): JSX.Element | null {
           <span className="modal-gear">🔌</span>
           <div style={{ flex: 1 }}>
             <div className="modal-title" id="mcp-editor-title">
-              MCP-Server
+              {t('mcpEditor.title')}
             </div>
-            <div className="modal-sub">Externe Model-Context-Protocol-Server für alle Agents</div>
+            <div className="modal-sub">{t('mcpEditor.sub')}</div>
           </div>
           <button
             type="button"
             className="modal-close"
-            aria-label="MCP-Server schließen"
+            aria-label={t('mcpEditor.closeAria')}
             onClick={store.closeMcpEditor}
           >
             ✕
@@ -167,19 +178,18 @@ export default function McpServerEditor(): JSX.Element | null {
         </div>
 
         <div className="modal-body">
-          <p className="mcp-intro">{HELP.intro}</p>
+          <p className="mcp-intro">{t(HELP.intro)}</p>
 
           <div className="slots-caption">
-            <span>Server</span>
+            <span>{t('mcpEditor.server')}</span>
             <span className="count">
-              {drafts.length} konfiguriert · {enabledCount} aktiv
+              {t('mcpEditor.count', { total: drafts.length, active: enabledCount })}
             </span>
           </div>
 
           {drafts.length === 0 && (
             <div className="single-hint">
-              Noch keine MCP-Server. Füge z. B. einen Filesystem- oder Websearch-Server hinzu; er
-              steht danach jedem gestarteten Agent zur Verfügung.
+              {t('mcpEditor.emptyHint')}
             </div>
           )}
 
@@ -190,26 +200,26 @@ export default function McpServerEditor(): JSX.Element | null {
                   <button
                     type="button"
                     className={`ctrl-check ${draft.enabled ? 'on' : ''}`}
-                    title={draft.enabled ? 'Aktiv — klicken zum Deaktivieren' : 'Inaktiv — klicken zum Aktivieren'}
-                    aria-label={draft.enabled ? 'Server deaktivieren' : 'Server aktivieren'}
+                    title={draft.enabled ? t('mcpEditor.enabledOn') : t('mcpEditor.enabledOff')}
+                    aria-label={draft.enabled ? t('mcpEditor.disableAria') : t('mcpEditor.enableAria')}
                     onClick={() => patch(idx, { enabled: !draft.enabled })}
                   >
                     {draft.enabled ? '✓' : ''}
                   </button>
                   <div className="mcp-name-field">
                     <div className="slot-col-label">
-                      Name <InfoTip text={HELP.name} />
+                      {t('mcpEditor.nameLabel')} <InfoTip text={t(HELP.name)} />
                     </div>
                     <input
                       className="slot-select-sm mono"
-                      placeholder="z. B. filesystem"
+                      placeholder={t('mcpEditor.namePlaceholder')}
                       value={draft.name}
                       onChange={(e) => patch(idx, { name: e.target.value })}
                     />
                   </div>
                   <div className="mcp-transport-field">
                     <div className="slot-col-label">
-                      Transport <InfoTip text={HELP.transport} />
+                      {t('mcpEditor.transportLabel')} <InfoTip text={t(HELP.transport)} />
                     </div>
                     <select
                       className="slot-select-sm"
@@ -225,7 +235,7 @@ export default function McpServerEditor(): JSX.Element | null {
                   </div>
                   <div className="mcp-scope-field">
                     <div className="slot-col-label">
-                      Sichtbar für <InfoTip text={HELP.scope} />
+                      {t('mcpEditor.scopeLabel')} <InfoTip text={t(HELP.scope)} />
                     </div>
                     <select
                       className="slot-select-sm"
@@ -242,8 +252,8 @@ export default function McpServerEditor(): JSX.Element | null {
                   <button
                     type="button"
                     className="slot-remove"
-                    title="Server entfernen"
-                    aria-label={`Server ${draft.name || idx + 1} entfernen`}
+                    title={t('mcpEditor.removeTitle')}
+                    aria-label={t('mcpEditor.removeAria', { name: draft.name || idx + 1 })}
                     onClick={() => remove(idx)}
                   >
                     ✕
@@ -254,7 +264,7 @@ export default function McpServerEditor(): JSX.Element | null {
                   <div className="mcp-fields">
                     <label className="mcp-field-wide">
                       <span className="slot-col-label">
-                        Befehl <InfoTip text={HELP.command} />
+                        {t('mcpEditor.commandLabel')} <InfoTip text={t(HELP.command)} />
                       </span>
                       <input
                         className="slot-select-sm mono"
@@ -265,18 +275,18 @@ export default function McpServerEditor(): JSX.Element | null {
                     </label>
                     <label className="mcp-field-wide">
                       <span className="slot-col-label">
-                        Argumente (eine je Zeile) <InfoTip text={HELP.args} />
+                        {t('mcpEditor.argsLabel')} <InfoTip text={t(HELP.args)} />
                       </span>
                       <textarea
                         className="text-input mono mcp-textarea"
-                        placeholder={'-y\n@modelcontextprotocol/server-filesystem\n/pfad'}
+                        placeholder={t('mcpEditor.argsPlaceholder')}
                         value={draft.argsText}
                         onChange={(e) => patch(idx, { argsText: e.target.value })}
                       />
                     </label>
                     <label className="mcp-field-wide">
                       <span className="slot-col-label">
-                        Umgebung (KEY=WERT je Zeile) <InfoTip text={HELP.env} />
+                        {t('mcpEditor.envLabel')} <InfoTip text={t(HELP.env)} />
                       </span>
                       <textarea
                         className="text-input mono mcp-textarea"
@@ -290,7 +300,7 @@ export default function McpServerEditor(): JSX.Element | null {
                   <div className="mcp-fields">
                     <label className="mcp-field-wide">
                       <span className="slot-col-label">
-                        URL <InfoTip text={HELP.url} />
+                        {t('mcpEditor.urlLabel')} <InfoTip text={t(HELP.url)} />
                       </span>
                       <input
                         className="slot-select-sm mono"
@@ -301,7 +311,7 @@ export default function McpServerEditor(): JSX.Element | null {
                     </label>
                     <label className="mcp-field-wide">
                       <span className="slot-col-label">
-                        Header (Name: Wert je Zeile) <InfoTip text={HELP.headers} />
+                        {t('mcpEditor.headersLabel')} <InfoTip text={t(HELP.headers)} />
                       </span>
                       <textarea
                         className="text-input mono mcp-textarea"
@@ -323,7 +333,7 @@ export default function McpServerEditor(): JSX.Element | null {
           </div>
 
           <button type="button" className="add-slot" onClick={add}>
-            ＋ MCP-Server hinzufügen
+            {t('mcpEditor.addServer')}
           </button>
         </div>
 
@@ -333,15 +343,15 @@ export default function McpServerEditor(): JSX.Element | null {
               <span className="mcp-foot-error">⚠ {firstError}</span>
             ) : (
               <>
-                <b>{enabledCount}</b> aktive Server werden an die Agents angebunden
+                <b>{enabledCount}</b> {t('mcpEditor.footActive')}
               </>
             )}
           </div>
           <button type="button" className="btn-secondary" onClick={store.closeMcpEditor}>
-            Abbrechen
+            {t('mcpEditor.cancel')}
           </button>
           <button type="button" className="btn-primary" disabled={Boolean(firstError)} onClick={save}>
-            Speichern
+            {t('mcpEditor.save')}
           </button>
         </div>
       </div>

@@ -5,6 +5,7 @@
  * Node positions persist per profile + workspace session.
  */
 import { useEffect, useMemo, useState, type DragEvent } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import {
   Background,
   BackgroundVariant,
@@ -304,9 +305,26 @@ const NODE_TYPES = { task: TaskNode, orchestrator: OrchestratorNode, note: NoteN
 
 export default function CanvasBoard(): JSX.Element {
   const { t } = useTranslation()
-  const store = useAppStore()
-  const tasks = store.orchestrator.tasks
-  const goal = store.orchestrator.goal
+  // Pick exactly the fields/actions the board reads; the activity summary/phase
+  // are picked as primitives so the graph memo below can depend on them.
+  const store = useAppStore(
+    useShallow((s) => ({
+      agents: s.agents,
+      profiles: s.profiles,
+      activeProfileId: s.activeProfileId,
+      activeWorkspaceSessionId: s.activeWorkspaceSessionId,
+      tasks: s.orchestrator.tasks,
+      goal: s.orchestrator.goal,
+      findings: s.orchestrator.findings,
+      activitySummary: s.orchestrator.activity?.summary,
+      activityPhase: s.orchestrator.activity?.phase,
+      setSelectedAgent: s.setSelectedAgent,
+      showToast: s.showToast,
+      startAll: s.startAll
+    }))
+  )
+  const tasks = store.tasks
+  const goal = store.goal
   const boardKey = canvasBoardKey(store.activeProfileId, store.activeWorkspaceSessionId ?? undefined)
   const positions = useCanvasStore(selectBoardPositions(boardKey))
   const setPosition = useCanvasStore((state) => state.setPosition)
@@ -321,18 +339,28 @@ export default function CanvasBoard(): JSX.Element {
         goalTitle: goal?.title,
         goalActive: Boolean(goal?.active),
         taskCount: tasks.length,
-        activity: store.orchestrator.activity?.summary,
-        status: store.orchestrator.activity?.phase
+        activity: store.activitySummary,
+        status: store.activityPhase
       }
     : null
 
-  const findings = store.orchestrator.findings
+  const findings = store.findings
   const graph = useMemo(
     () => buildCanvasGraph(tasks, orchestrator, findings ?? [], positions),
     // Positions are intentionally applied only on rebuilds; live drags update
     // the store on drag-stop and survive via mergeNodePositions below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tasks, findings, orchAgent?.id, orchAgent?.name, orchAgent?.model, goal?.title, goal?.active]
+    [
+      tasks,
+      findings,
+      orchAgent?.id,
+      orchAgent?.name,
+      orchAgent?.model,
+      goal?.title,
+      goal?.active,
+      store.activitySummary,
+      store.activityPhase
+    ]
   )
 
   const [nodes, setNodes, onNodesChange] = useNodesState<CanvasNode>([])
@@ -510,7 +538,15 @@ export default function CanvasBoard(): JSX.Element {
 
 function SessionChips(): JSX.Element {
   const { t } = useTranslation()
-  const store = useAppStore()
+  const store = useAppStore(
+    useShallow((s) => ({
+      workspaceSessions: s.workspaceSessions,
+      activeProfileId: s.activeProfileId,
+      activeWorkspaceSessionId: s.activeWorkspaceSessionId,
+      selectWorkspaceSession: s.selectWorkspaceSession,
+      startAll: s.startAll
+    }))
+  )
   const sessions = store.workspaceSessions.filter((session) => session.profileId === store.activeProfileId)
   return (
     <nav className="canvas-sessions" aria-label={t('canvas.sessions.aria', { defaultValue: 'Workspace-Sessions' })}>
@@ -531,28 +567,39 @@ function SessionChips(): JSX.Element {
  * populated board.
  */
 function CanvasComposerMount(): JSX.Element {
-  const store = useAppStore()
-  const profileId = store.activeProfileId
-  const workspaceSessionId = store.activeWorkspaceSessionId ?? undefined
-  const orchestratorRunning = store.agents.some(
-    (agent) =>
-      agent.kind === 'orchestrator' &&
-      (agent.status === 'running' || agent.status === 'waiting') &&
-      (!agent.profileId || agent.profileId === profileId) &&
-      (!workspaceSessionId || agent.workspaceSessionId === workspaceSessionId)
+  const store = useAppStore(
+    useShallow((s) => {
+      const profileId = s.activeProfileId
+      const workspaceSessionId = s.activeWorkspaceSessionId ?? undefined
+      return {
+        profileId,
+        workspaceSessionId,
+        orchestrator: s.orchestrator,
+        reviewPendingPlan: s.reviewPendingPlan,
+        startAll: s.startAll,
+        // Derive the boolean so usage-only agent ticks don't re-render the slot.
+        orchestratorRunning: s.agents.some(
+          (agent) =>
+            agent.kind === 'orchestrator' &&
+            (agent.status === 'running' || agent.status === 'waiting') &&
+            (!agent.profileId || agent.profileId === profileId) &&
+            (!workspaceSessionId || agent.workspaceSessionId === workspaceSessionId)
+        )
+      }
+    })
   )
   return (
     <div className="canvas-composer-slot">
       <OrchestratorThread
-        profileId={profileId}
-        workspaceSessionId={workspaceSessionId}
+        profileId={store.profileId}
+        workspaceSessionId={store.workspaceSessionId}
         snapshot={store.orchestrator}
         reviewPendingPlan={store.reviewPendingPlan}
       />
       <CanvasComposer
-        profileId={profileId}
-        workspaceSessionId={workspaceSessionId}
-        orchestratorRunning={orchestratorRunning}
+        profileId={store.profileId}
+        workspaceSessionId={store.workspaceSessionId}
+        orchestratorRunning={store.orchestratorRunning}
         startAll={store.startAll}
       />
     </div>

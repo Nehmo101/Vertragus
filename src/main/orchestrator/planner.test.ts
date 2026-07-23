@@ -124,6 +124,50 @@ describe('auto subagent planner validation', () => {
     )
   })
 
+  it('serializes writers of a file that several tasks declare — regardless of repo layout', () => {
+    // Foreign repo layout: no src/shared, but two tasks write the same file.
+    const result = resolveExecutionPlan({
+      ...validPlan,
+      tasks: [
+        {
+          ...validPlan.tasks[0],
+          id: 'writer-a',
+          ownership: 'feature',
+          expectedFiles: ['App/Models/User.cs']
+        },
+        {
+          ...validPlan.tasks[0],
+          id: 'writer-b',
+          dependsOn: [],
+          ownership: 'feature',
+          // Different casing on purpose: overlap detection folds case, the
+          // stored path keeps its original casing for prompts/diffs.
+          expectedFiles: ['app/models/user.cs']
+        }
+      ]
+    })
+
+    expect(result.usedFallback).toBe(false)
+    expect(result.plan.tasks.find((task) => task.id === 'writer-a')?.conflictKeys).toContain('shared-hotspots')
+    expect(result.plan.tasks.find((task) => task.id === 'writer-b')?.conflictKeys).toContain('shared-hotspots')
+    expect(result.plan.tasks.find((task) => task.id === 'writer-a')?.expectedFiles).toEqual(['App/Models/User.cs'])
+  })
+
+  it('keeps uniquely-owned files in a foreign repo out of the hotspot serialization', () => {
+    const result = resolveExecutionPlan({
+      ...validPlan,
+      tasks: [
+        {
+          ...validPlan.tasks[0],
+          ownership: 'feature',
+          expectedFiles: ['lib/feature/checkout.dart']
+        }
+      ]
+    })
+
+    expect(result.plan.tasks[0]?.conflictKeys ?? []).not.toContain('shared-hotspots')
+  })
+
   it('marks a structured but invalid plan as rejected and preserves its issues', () => {
     const result = resolveExecutionPlan({ ...validPlan, maxParallel: 0 })
 

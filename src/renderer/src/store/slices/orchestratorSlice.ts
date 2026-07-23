@@ -1,5 +1,6 @@
 /** Orchestrator snapshots, plan review gate and the YOLO master switch. */
 import type { StateCreator } from 'zustand'
+import i18n from '@renderer/i18n'
 import { errorMessage } from '../useAppStore'
 import type { AppState, OrchestratorSlice } from './types'
 
@@ -30,7 +31,7 @@ export const createOrchestratorSlice: StateCreator<AppState, [], [], Orchestrato
         workspaceSessionId
       )
       if (!resolved) {
-        state.showToast('Kein Plan wartet mehr auf Freigabe.')
+        state.showToast(i18n.t('toast.noPlanWaiting'))
         return
       }
       const snapshot = await window.vertragus.orchestrator.snapshot(
@@ -44,9 +45,9 @@ export const createOrchestratorSlice: StateCreator<AppState, [], [], Orchestrato
           [snapshot.workspaceSessionId ?? state.activeProfileId]: snapshot
         }
       }))
-      get().showToast(approved ? 'Plan freigegeben.' : 'Plan abgelehnt.')
+      get().showToast(approved ? i18n.t('toast.planApproved') : i18n.t('toast.planRejected'))
     } catch (error) {
-      state.showToast(`Planfreigabe fehlgeschlagen: ${errorMessage(error)}`)
+      state.showToast(i18n.t('toast.planReviewFailed', { error: errorMessage(error) }))
     }
   }
 })
