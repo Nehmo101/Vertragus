@@ -1,6 +1,6 @@
 # Vertragus – Handbuch für Nutzung, Entwicklung und Betrieb
 
-Stand: 12. Juli 2026
+Stand: 21. Juli 2026
 
 Dieses Handbuch trennt **heute verfügbar** und **geplant**. Die detaillierte
 Weiterentwicklung steht in der
@@ -125,6 +125,27 @@ Rollen sollten eindeutig und fachlich sein. Zwei Slots mit `worker` werden
 intern zwar zu `worker` und `worker-2`, sprechende Rollen ergeben aber bessere
 Pläne und verständlichere Logs.
 
+### Multiagent-Modus pro Slot
+
+Die globale Multiagent-Einstellung des Profils ist die Vorgabe für alle Slots.
+Jeder Slot kann sie mit der Drei-Zustands-Auswahl **Multiagent-Modus** gezielt
+übersteuern:
+
+- **Global erben:** Im Slot wird kein eigener Wert gespeichert; die globale
+  Einstellung wirkt. Das ist zugleich das Verhalten alter Profile ohne
+  Slot-Feld.
+- **Aktiv:** Der Slot speichert `true` und aktiviert Multiagent unabhängig von
+  der globalen Vorgabe.
+- **Aus:** Der Slot speichert `false` und deaktiviert Multiagent unabhängig von
+  der globalen Vorgabe.
+
+Der Editor zeigt neben der Auswahl immer den effektiven Zustand. Eine
+Kandidatengruppe entsteht nur bei einem orchestrierten Dispatch an einen Slot
+mit **Anzahl > 1**; der Rekursionsschutz verhindert, dass ein bereits gestarteter
+Multiagent-Kandidat erneut auffächert. Bei jedem Dispatch, auch bei
+verschachtelten Delegationen, wird der tatsächlich adressierte Ziel-Slot
+ausgewertet und nicht der Slot des Parent-Agents.
+
 ## 5. Ein gutes Orchestrator-Ziel
 
 Ein Ziel sollte Ergebnis, Grenzen und Prüfungen nennen:
@@ -158,7 +179,50 @@ parallel laufender Tasks ist durch die Slot-Kapazität begrenzt.
 
 Die Fußzeilenwerte für Schritte, Tokens und Kosten sind aktuell Platzhalter.
 
-## 7. Workspace und Git-Worktrees
+## 7. Taskleisten-Hinweis bei Nutzer-Rückmeldung
+
+Wenn Vertragus im Hintergrund läuft und mindestens ein Profil-Workspace eine
+Nutzer-Rückmeldung braucht, macht das Betriebssystem auf das Hauptfenster
+aufmerksam.
+
+**Auslöser (Workspace braucht Rückmeldung), u. a.:**
+
+- offenes Plan-Review (`pendingPlan` / Phase `awaiting-review`)
+- Agent wartet auf Eingabe (`status === 'waiting'`, Orchestrator oder Subagent)
+- offene Subagent-Rückfrage (`subagentRequests` mit Status `pending`)
+- Multiagent-Lauf im Review (`multiAgentRuns` mit Status `awaiting-review`)
+- offene Einträge in der Mission-Approval-Inbox (abgeleitete Remote-Approvals)
+
+Gezählt werden **distinkte** Profil-Workspaces (Workspace-Sessions; orphaned
+Profil-Scopes ohne Session-Zeile zählen je einmal). Mehrere gleichzeitige
+Auslöser ergeben **einen** aggregierten Blinkzustand — kein gestapeltes
+Mehrfach-Blinken.
+
+**Start:** Nur beim Übergang Zähler `0 → >0`, und nur wenn das Hauptfenster
+nicht fokussiert ist. Solange der Zähler über 0 bleibt, bleiben weitere
+Erhöhungen ohne neuen Start.
+
+**Beendigung:**
+
+- Hauptfenster erhält den Fokus, oder
+- keine ausstehende Rückmeldung mehr (Zähler = 0).
+
+Danach löst erst wieder ein neuer `0 → >0`-Übergang aus (auch wenn nach dem
+Fokus noch Rückmeldungen offen waren und erst später erneut von 0 auf >0
+wechseln).
+
+**Betriebssystem:**
+
+| Plattform | Signal |
+| --- | --- |
+| Windows / Linux | Taskleistensymbol blinkt (`flashFrame`) |
+| macOS | Dock-Icon bounce’t (`critical`), nicht Taskbar-Blinken |
+
+*Offen:* Ob der Dock-Bounce unter macOS in einer echten Desktop-Session bereits
+manuell abgenommen wurde (Unit-Tests decken das Verhalten ab; der
+Integrations-Worktree lief unter Windows).
+
+## 8. Workspace und Git-Worktrees
 
 Standardmäßig versucht Vertragus für jeden Agent einen Worktree anzulegen
 (Verzeichnis- und Branch-Name behalten das `orca`-Präfix als internen
@@ -191,7 +255,7 @@ git -C .orca-worktrees/task-02 diff
 Nicht blind löschen. Erst Status und Diff jedes Worktrees prüfen. Die zukünftige
 Cleanup-Funktion muss dieselbe Schutzregel erzwingen.
 
-## 8. YOLO sicher verwenden
+## 9. YOLO sicher verwenden
 
 YOLO deaktiviert Bestätigungen im jeweiligen Provider. Es ist kein Ersatz für
 Isolation oder Review.
@@ -208,7 +272,7 @@ Empfehlung:
 „Alle stoppen“ beendet Prozesse; vorhandene Worktrees bleiben zur Datenrettung
 bestehen.
 
-## 9. Entwicklung und Verifikation
+## 10. Entwicklung und Verifikation
 
 ### Typecheck
 
@@ -265,7 +329,7 @@ vorliegt, erscheint in der Titelleiste der Self-Update-Button. Download und
 Installation bleiben eine bewusste Benutzeraktion; laufende Agents müssen vor
 dem Neustart gestoppt werden.
 
-## 10. Release-Ablauf
+## 11. Release-Ablauf
 
 1. Änderungen per Pull Request mit grüner CI nach `main` übernehmen.
 2. GitHub Actions baut bei jedem Push auf `main` Windows- und Linux-Installer.
@@ -283,7 +347,7 @@ git tag v0.2.0
 git push origin v0.2.0
 ```
 
-## 11. Fehlerdiagnose
+## 12. Fehlerdiagnose
 
 ### Provider wird als „Fehlt“ angezeigt
 
@@ -322,7 +386,7 @@ ist.
 - Prüfen, ob mindestens ein Slot „steuerbar“ ist.
 - Rollen aus der Profilkonfiguration verwenden.
 
-## 12. Geplanter Auto-PR-Betrieb
+## 13. Geplanter Auto-PR-Betrieb
 
 Auto-PR ist noch nicht implementiert. Der sichere Zielablauf:
 
@@ -338,7 +402,7 @@ Auto-PR ist noch nicht implementiert. Der sichere Zielablauf:
 Bis diese Pipeline umgesetzt ist, müssen Diff, Integration, Commit, Push und PR
 manuell erfolgen.
 
-## 13. Dokumentationsregel
+## 14. Dokumentationsregel
 
 Neue Features werden in README und Handbuch erst als „vorhanden“ bezeichnet,
 wenn UI, IPC, Main-Prozess und mindestens ein automatisierter Test den kompletten

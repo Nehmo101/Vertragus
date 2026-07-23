@@ -168,11 +168,22 @@ export interface DelegationTaskObservation {
   noChanges: boolean
   startedAt?: number
   finishedAt?: number
+  /** Terminal failure cause, used to distinguish infrastructure/transport wipeouts from model failures. */
+  failureKind?: TaskFailureKind
+  /**
+   * A purely logical multiagent parent: the container task that fans out into N
+   * competing candidates. It is NOT a real worker process — its interval spans
+   * the whole group — so it must never be counted as an extra concurrent worker
+   * or as a dispatched subagent.
+   */
+  multiAgentParent?: boolean
+  /** One real competing candidate spawned by a multiagent fan-out. */
+  multiAgentCandidate?: boolean
 }
 
 /** What actually happened to the delegated team in one plan run. */
 export interface DelegationOutcome {
-  /** Subagent tasks that reached a terminal state. */
+  /** Real subagent worker tasks that reached a terminal state (logical multiagent parents excluded). */
   dispatchedTasks: number
   /** Tasks that produced a real commit. */
   committedTasks: number
@@ -180,8 +191,12 @@ export interface DelegationOutcome {
   noChangeTasks: number
   /** Tasks that failed or were stopped. */
   failedTasks: number
-  /** Best-effort peak of tasks observed running at the same time. */
+  /** Best-effort peak of real workers observed running at the same time (logical parents excluded). */
   observedPeakParallel: number
+  /** Competing candidates produced by multiagent fan-out(s); a subset of dispatchedTasks. */
+  multiAgentCandidates: number
+  /** Dispatched workers whose terminal failure was infrastructure/transport (not a model failure). */
+  infraFailedTasks: number
 }
 
 /** Was the estimated delegation decision borne out by what the run did? */
@@ -240,7 +255,7 @@ export interface RunRetro {
 
 /**
  * Minimal task projection accepted by the run analyzer.
- * OrcaTask is structurally compatible, but the analyzer stays independent of
+ * VertragusTask is structurally compatible, but the analyzer stays independent of
  * the complete orchestration schema and can be reused by import/export tools.
  */
 export interface RetroTaskObservation {

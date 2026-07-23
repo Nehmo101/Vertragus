@@ -129,6 +129,38 @@ describe('provider model argument passing', () => {
     expect(args).toContain('--trust')
     expect(args.indexOf('--trust')).toBeLessThan(args.indexOf('--model'))
   })
+
+  it('builds the full Cursor headless argument list (safe mode) with the prompt positional', () => {
+    // -p/--print is only a switch; Cursor takes the prompt as a positional arg.
+    const launch = buildHeadlessLaunch('cursor', 'IDENTITY\n\nTASK-FINGERPRINT', opts)
+    expect(launch.command).toBe('cursor-agent')
+    expect(launch.args).toEqual([
+      '-p',
+      '--trust',
+      'IDENTITY\n\nTASK-FINGERPRINT',
+      '--output-format',
+      'stream-json',
+      '--model',
+      'chosen-model'
+    ])
+    // The multiline prompt is a single positional argument, never split.
+    expect(launch.args.filter((a) => a.includes('TASK-FINGERPRINT'))).toHaveLength(1)
+    expect(launch.args[2]).toBe('IDENTITY\n\nTASK-FINGERPRINT')
+  })
+
+  it('passes Cursor Yolo mode and stream-json through headless launch', () => {
+    const launch = buildHeadlessLaunch('cursor', 'do work', { ...opts, yolo: true })
+    expect(launch.args).toEqual([
+      '-p',
+      '--trust',
+      'do work',
+      '--output-format',
+      'stream-json',
+      '--model',
+      'chosen-model',
+      '--yolo'
+    ])
+  })
 })
 
 const baseOpts = {

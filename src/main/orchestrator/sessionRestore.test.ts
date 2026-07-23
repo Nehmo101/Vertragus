@@ -21,8 +21,8 @@ const agents = vi.hoisted(() => ({
 }))
 const worktree = vi.hoisted(() => ({
   inventoryWorktrees: vi.fn(async () => [] as unknown[]),
-  currentBranch: vi.fn(async () => 'vertragus/session-gone/codex-01'),
-  rollbackWorktree: vi.fn(async () => true)
+  rollbackWorktree: vi.fn(async () => true),
+  discardManagedOrphans: vi.fn(async () => ({ discarded: 0, failed: 0 }))
 }))
 const migrate = vi.hoisted(() => vi.fn(() => 0))
 
@@ -41,16 +41,29 @@ vi.mock('@main/orchestrator/WorkspaceSessionRegistry', () => ({
 vi.mock('@main/agents/AgentManager', () => ({ agentManager: agents }))
 vi.mock('@main/agents/worktree', () => ({
   inventoryWorktrees: worktree.inventoryWorktrees,
-  currentBranch: worktree.currentBranch,
   rollbackWorktree: worktree.rollbackWorktree,
-  isOrcaBranch: (branch: string) => /^(?:vertragus|orca)\//.test(branch),
-  isOrcaWorktreePath: (path: string) => /[\\/]\.(?:vertragus|orca)-worktrees[\\/]/.test(path),
+  discardManagedOrphans: worktree.discardManagedOrphans,
+  isManagedWorktreePath: (path: string) => /[\\/]\.(?:vertragus|orca)-worktrees[\\/]/.test(path),
+  managedWorktreeParts: (path: string) => {
+    const match = path
+      .replace(/\\/g, '/')
+      .replace(/\/+$/, '')
+      .match(/^(.*)\/\.(vertragus|orca)-worktrees\/([^/]+)\/([^/]+)$/)
+    if (!match?.[1] || !match[2] || !match[3] || !match[4]) return null
+    return {
+      root: match[1],
+      legacy: match[2] === 'orca',
+      sessionId: match[3],
+      agentId: match[4]
+    }
+  },
   worktreeSessionDirName: (id: string) => id.toLowerCase()
 }))
 vi.mock('@shared/profile', () => ({ profileRepoLocalPath: () => undefined }))
 
 import {
   discardOrphanWorktree,
+  discardOrphanWorktrees,
   finalizeSessionPersistence,
   getRestoreStatus,
   lastShutdownWasClean,
@@ -166,7 +179,7 @@ describe('sessionRestore', () => {
     await expect(restartSessionAgents('default', 's1')).rejects.toThrow('keine gesicherten')
   })
 
-  it('discards only unmanaged orphan worktrees and passes the managed branch', async () => {
+  it('discards only unmanaged orphan worktrees without probing the checkout branch', async () => {
     await expect(discardOrphanWorktree('/repo/src')).rejects.toThrow('kein Vertragus-Worktree')
 
     store.listSessions.mockReturnValue([{ id: 'kept', profileId: 'default', name: '', updatedAt: 1 }])
@@ -178,8 +191,31 @@ describe('sessionRestore', () => {
       discardOrphanWorktree('/repo/.vertragus-worktrees/session-gone/codex-01')
     ).resolves.toBe(true)
     expect(worktree.rollbackWorktree).toHaveBeenCalledWith(
-      '/repo/.vertragus-worktrees/session-gone/codex-01',
-      'vertragus/session-gone/codex-01'
+      '/repo/.vertragus-worktrees/session-gone/codex-01'
     )
+  })
+
+  it('bulk-discards via the serialized managed-orphan helper with owned-session filter', async () => {
+    store.listSessions.mockReturnValue([{ id: 'Kept', profileId: 'default', name: '', updatedAt: 1 }])
+    worktree.discardManagedOrphans.mockResolvedValueOnce({ discarded: 3, failed: 1 })
+
+    await expect(
+      discardOrphanWorktrees([
+        '/repo/.vertragus-worktrees/gone-a/task-01',
+        '/repo/.vertragus-worktrees/gone-b/task-02'
+      ])
+    ).resolves.toEqual({ discarded: 3, failed: 1 })
+
+    expect(worktree.discardManagedOrphans).toHaveBeenCalledOnce()
+    const call = worktree.discardManagedOrphans.mock.calls[0] as unknown as [
+      string[],
+      (sessionId: string) => boolean
+    ]
+    expect(call[0]).toEqual([
+      '/repo/.vertragus-worktrees/gone-a/task-01',
+      '/repo/.vertragus-worktrees/gone-b/task-02'
+    ])
+    expect(call[1]('kept')).toBe(true)
+    expect(call[1]('gone-a')).toBe(false)
   })
 })

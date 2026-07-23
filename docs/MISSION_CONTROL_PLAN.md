@@ -20,7 +20,7 @@ Das Fundament liegt bereits im Code, ist aber bewusst zurückgestellt:
 - Der Agent-Status **`waiting`** ist „reserved for approval detection (later)"
   (`src/shared/agents.ts:17`).
 - Ein token-authentifizierter `node:http`-Server existiert schon
-  (`src/main/orchestrator/OrcaMcpServer.ts`; `Orca*`-Klassennamen bleiben
+  (`src/main/orchestrator/VertragusMcpServer.ts`; `Orca*`-Klassennamen bleiben
   interne Bezeichner, Migration geplant) — das exakte Vorbild fürs Gateway.
 - `OrchestratorSnapshot` (`src/shared/orchestrator.ts:242`) ist der fertige, Node-freie
   Read-Model-Typ, den der Browser-Client direkt importiert.
@@ -35,7 +35,7 @@ Das Fundament liegt bereits im Code, ist aber bewusst zurückgestellt:
 
 ## Kernprinzipien (gegen den Code verifiziert, gelten in ALLEN Phasen)
 
-- **Kein offener Port.** Das Gateway bindet nur `127.0.0.1` (wie `OrcaMcpServer`
+- **Kein offener Port.** Das Gateway bindet nur `127.0.0.1` (wie `VertragusMcpServer`
   `httpServer.listen(0, '127.0.0.1', …)`). Erreichbarkeit entsteht ausschließlich durch die
   **ausgehende** `cloudflared`-Verbindung zur Cloudflare-Edge.
 - **Der Tunnel ist nur ein Rohr, kein Schutz.** Die Tunnel-URL gilt als öffentlich →
@@ -87,7 +87,7 @@ Das Fundament liegt bereits im Code, ist aber bewusst zurückgestellt:
 
 | Datei | Aufgabe | Vorbild/Reuse |
 |---|---|---|
-| `RemoteGateway.ts` | `node:http`-Server: Router, Auth-Middleware, Body-Cap, RateLimit, SSE-Hub, PWA-Shell ausliefern. `start/stopRemoteGateway()`. | `OrcaMcpServer.startMcpServer()`, `MAX_REQUEST_BODY_BYTES`, `readBody` |
+| `RemoteGateway.ts` | `node:http`-Server: Router, Auth-Middleware, Body-Cap, RateLimit, SSE-Hub, PWA-Shell ausliefern. `start/stopRemoteGateway()`. | `VertragusMcpServer.startMcpServer()`, `MAX_REQUEST_BODY_BYTES`, `readBody` |
 | `gatewayHandle.ts` | Import-zyklusfreier Handle-/Port-Halter. | `orchestrator/mcpHandle.ts` |
 | `deviceAuth.ts` | Pairing-Codes, Token-Mint (256-bit `randomBytes`), **nur Hash speichern**, `timingSafeEqual`-Prüfung, Widerruf, Geräte-Liste, Capabilities (`read`/`steer`/`admin`). | `node:crypto` |
 | `deviceStore.ts` | `safeStorage`-verschlüsselte Geräte-Records unter `secrets.remote.*`. | `config/secrets.ts` |
@@ -102,7 +102,7 @@ Das Fundament liegt bereits im Code, ist aber bewusst zurückgestellt:
 **Neu (Shared):** `src/shared/remote.ts` — pure Typen (kein Node-Import), vom PWA direkt
 importiert: `RemoteCommandId`-Union, `RemoteCommandEnvelope`, `ApprovalItem`/`ApprovalKind`,
 `DeviceInfo` (nie mit Token), `RemoteEventFrame` (`snapshot`/`approvals`/`event`/`ping`),
-`PairingChallenge`. Nutzt `OrchestratorSnapshot`/`OrcaTask`/`PendingPlanReview` unverändert.
+`PairingChallenge`. Nutzt `OrchestratorSnapshot`/`VertragusTask`/`PendingPlanReview` unverändert.
 
 **Neu (Client):** `apps/mobile/` — eigenständige Vite-+-React-PWA (eigenes `package.json`,
 `manifest.webmanifest`, `service-worker.ts`), baut nach `apps/mobile/dist`; das Gateway
@@ -326,7 +326,7 @@ Das Repo ist bewusst dependency-arm — jede Dep bleibt optional/lazy und nur be
 Remote relevant.
 
 ## Kritische Dateien (Reuse-Anker)
-- `src/main/orchestrator/OrcaMcpServer.ts` — Auth/Body-Cap/`node:http`-Muster fürs Gateway.
+- `src/main/orchestrator/VertragusMcpServer.ts` — Auth/Body-Cap/`node:http`-Muster fürs Gateway.
 - `src/main/ipc/register.ts` — `workspaceSessions.on('snapshot')`-Verdrahtung (Read-Model-Abo + Command-Home).
 - `src/main/orchestrator/Engine.ts` — `push()`-Snapshot, `reviewPlan`/`pendingPlan`, `publishPendingChanges` (Gates + `approvePublication` + `waiting` + `pendingPermission`).
 - `src/main/config/secrets.ts` — safeStorage-Muster für Token/VAPID/Cloudflare-Cred.

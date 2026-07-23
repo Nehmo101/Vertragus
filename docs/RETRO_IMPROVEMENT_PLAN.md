@@ -82,21 +82,39 @@ No-Git) wirken nachweislich.
 
 ## Backlog und nachgelagerte Aktivierung
 
-1. **Modell-Fallback-Liste pro Slot** — bei Kapazitäts-/Limit-Signalen auf
-   ein konfiguriertes Ausweichmodell desselben Providers wechseln, nicht nur
-   auf einen anderen Slot (Retro mrl8oafq: Lauf ohne verfügbare Alternative).
-2. **Echte E2E-/Browser-Smokes** — UI-/Cloud-Integrationen (cloudflared, Web
-   Push, Access) gegen reale Dienste bzw. mit Browser-Screenshots
-   validieren statt nur vertraglich (Mission-Control-Retro).
-3. **Commit-Granularität später Phasen** — große Phasen-Commits aufteilen;
-   Orchestrator-Prompt-Regel oder Gate-Warnung ab N geänderten Dateien
-   (Mission-Control-Retro).
-4. **Vitest `spawn EPERM` in der Worker-Sandbox** — Testausführung in der
-   codex-Sandbox zuverlässig machen (`src/main/agents/codexSandbox.ts`),
-   damit Worker keine Ersatz-Smoke-Tests bauen müssen (mrla9l8n, mrlafkh9).
-5. **Publish-Preflight als Main-Prozess-Feature** — Live-Remote-Wahrheit
-   (Branch-Casing, Divergenz, Auth) zentral prüfen statt über mehrere
-   Worker-Preflight-Pläne (mrl9*-Serie: 5 Plan-Iterationen für einen Push).
+1. **Modell-Fallback-Liste pro Slot — umgesetzt (2026-07-22).**
+   `agentSlotSchema.fallbackModels` (Profil-Editor je Slot); beide
+   Engine-Limit-Pfade (Plan-Retry-Loop und `fallbackTask`) laufen die Liste
+   auf DEMSELBEN Slot ab, bevor ein Provider-Wechsel greift. Je
+   konfiguriertem Fallback-Modell gibt es einen zusätzlichen Limit-Retry —
+   ein Lauf stirbt nicht mehr, solange unversuchte Optionen existieren
+   (Retro mrl8oafq).
+2. **Echte E2E-/Browser-Smokes — UI-Hälfte umgesetzt (2026-07-22).**
+   `pnpm run test:e2e` (`scripts/e2e-smoke.mjs`) fährt alle Views gegen den
+   geseedeten Test-Store (`scripts/testStore/seed.ts`), screenshottet
+   hell/dunkel in zwei Breiten und prüft auf visuelle Überlappungen und
+   Content-Duplikate; eigener CI-Job mit Artifact-Upload. Offen bleiben die
+   Live-Cloud-Integrationen (cloudflared, Web Push, Access).
+3. **Commit-Granularität später Phasen — umgesetzt (2026-07-22).**
+   Advisory-Finding `commit-granularity` (gate `commit`) ab >25 Dateien in
+   einem einzelnen Task-Commit; blockiert nie. Zusätzlich weist der
+   Worker-Kontrakt auf kleinere thematische Commits hin.
+4. **Vitest `spawn EPERM` in der Worker-Sandbox — Workaround (2026-07-22).**
+   Befund: Der Vitest-Standard-Pool (`forks`) spawnt Kindprozesse, die das
+   Restricted-Token der Codex-Windows-Sandbox mit EPERM ablehnt; der
+   `threads`-Pool vermeidet `child_process`. Der Worker-Kontrakt
+   (`providerExecutionGuidance`) instruiert Codex-Worker jetzt, Vitest
+   zuerst mit `--pool=threads --no-file-parallelism` auszuführen; scheitert
+   auch das, gilt weiterhin die Infrastruktur-Klassifikation (EPERM zählt
+   in Gates und Retro-Analyse nie als Modellfehler). Eine echte
+   Sandbox-Lösung (breiteres Single-Root-Env) bleibt Beobachtungspunkt
+   (mrla9l8n, mrlafkh9).
+5. **Publish-Preflight als Main-Prozess-Feature — umgesetzt (2026-07-22).**
+   `autoPr/publishPreflight.ts` prüft vor dem ersten Push zentral:
+   Push-Probe (`push --dry-run`, klassifiziert Auth-Fehler),
+   Branch-Casing-Kollisionen via `ls-remote` und ahead/behind gegen die
+   PR-Basis. Blockierende Befunde brechen mit EINER strukturierten
+   Meldung ab statt in Worker-Retry-Schleifen (mrl9*-Serie).
 6. **Overlay-/Proposals-Pipeline aktivieren — umgesetzt (2026-07-16).**
    `scripts/retro-analyze.ts` seedet beim ersten schreibenden Lauf vor dem
    Mindestmengen-Gate ein leeres `overlay/learnings.md`,
@@ -106,6 +124,37 @@ No-Git) wirken nachweislich.
    menschlich zu prüfenden PR gegen `retros`. Benötigt wird nur das Repo-Secret
    `ANTHROPIC_API_KEY`; `GITHUB_TOKEN` stellt Actions bereit. Erst der Merge
    des Bootstrap-/Analyse-PRs macht das Overlay für Installationen sichtbar.
+
+## Nachtrag: Verbleibende Audit-Architekturpunkte (2026-07-22)
+
+Nach der ersten Retro-Umsetzung (PR #127: L5, M5, A2-Rest, A3, A1-partiell)
+wurden die noch offenen Architekturbefunde aus `audit-report.md` gezielt und
+verhaltensneutral abgearbeitet:
+
+- **A8 — Provider-Verhalten konsolidiert (umgesetzt).** Die deklarativen
+  Provider-Fakten (Stream-Envelope, `--verbose`, Lokal-Betrieb) liegen jetzt
+  als `ProviderDef.headless`/`ProviderDef.runsLocally` auf dem bestehenden
+  Deskriptor statt als verstreute `id === 'x'`-Literale in `headless.ts`/
+  `auth.ts`. Genuin bespoken Pfade (Codex-Sandbox, Ollama-Ausführung,
+  Auth-Status-Parsing) bleiben bewusst als Strategie-Funktionen.
+- **A7 — Per-Window-Config-Staleness behoben (umgesetzt).** `config:set`
+  broadcastet den gespeicherten Wert als `ev:configChanged`; Sekundärfenster
+  (Agenten-Panes, Voice-Overlay) spiegeln geteilte UI-Settings
+  (Theme/Density/lesbare Panes) live statt bis zum Reload zu veralten.
+  Schleifensicher, da Empfänger nur spiegeln.
+- **A6 — Gezielter PTY-Fanout (umgesetzt).** Agenten-Terminal-Chunks gehen nur
+  noch an das Hauptfenster und die Pop-out-Pane(s) des jeweiligen Agenten
+  (`agentDataTargetWindows`), nicht mehr als Broadcast an alle Fenster.
+
+**Bewusst zurückgestellt — A1-Rest (Engine `dispatch`/`executePreparedPlan`).**
+`Engine.ts` hat 105 private Felder; `executePreparedPlan` (~313 Zeilen) und
+`dispatch`/`publishPendingChanges` sind zustandsbehaftete Kontrollfluss-Methoden,
+die eng an diese privaten Felder gekoppelt sind. Eine Extraktion hätte eine
+breitere Schnittstelle als der herausgelöste Code und ließe sich ohne laufende
+App (nur mit Unit-Tests) nicht risikoarm gegen den grünen Build absichern — genau
+die Warnung des Audits. Die sicheren, puren Cluster wurden bereits in PR #127
+extrahiert (`workerContract`, `engineSnapshots`). Der verbleibende Kern sollte
+nur mit lauffähiger App und beobachtbarem Verhalten geteilt werden.
 
 ## Nachtrag: Canvas-Overhaul-Blocker (Retros mrphz4dw/mrpirnc8/mrpjohl2, 2026-07-18)
 

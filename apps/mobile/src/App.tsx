@@ -157,7 +157,7 @@ export default function App(): JSX.Element {
       if (typeof WebSocket === 'undefined') return startSse()
       const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
       const socket = new WebSocket(`${scheme}//${window.location.host}/ws`, [
-        'orca-v1', `orca-bearer.${token}`
+        'vertragus-v1', 'orca-v1', `vertragus-bearer.${token}`, `orca-bearer.${token}`
       ])
       socketRef.current = socket
       socket.onopen = () => {

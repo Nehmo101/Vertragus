@@ -11,6 +11,7 @@ import type {
   OrchestratorDelegationEstimate,
   PlanDelegationEstimate
 } from '../planEstimate'
+import type { TaskFailureKind, TaskStatus } from '../orchestrator'
 import type {
   CalibrationGrade,
   DelegationOutcome,
@@ -42,27 +43,113 @@ function peakParallel(observations: readonly DelegationTaskObservation[]): numbe
   return peak
 }
 
+function isFailed(status: TaskStatus): boolean {
+  return status === 'error' || status === 'stopped'
+}
+
 export function deriveDelegationOutcome(
   observations: readonly DelegationTaskObservation[]
 ): DelegationOutcome {
+  // A logical multiagent parent is a container, not a real worker process: its
+  // interval spans the whole competing group, so counting it would inflate both
+  // the dispatched total and peak parallelism (the real "6 = 5 candidates + 1
+  // logical parent" bug). Score only real worker tasks.
+  const workers = observations.filter((observation) => !observation.multiAgentParent)
   return {
-    dispatchedTasks: observations.length,
-    committedTasks: observations.filter((observation) => observation.committed).length,
-    noChangeTasks: observations.filter((observation) => observation.noChanges).length,
-    failedTasks: observations.filter(
-      (observation) => observation.status === 'error' || observation.status === 'stopped'
-    ).length,
-    observedPeakParallel: peakParallel(observations)
+    dispatchedTasks: workers.length,
+    committedTasks: workers.filter((observation) => observation.committed).length,
+    noChangeTasks: workers.filter((observation) => observation.noChanges).length,
+    failedTasks: workers.filter((observation) => isFailed(observation.status)).length,
+    observedPeakParallel: peakParallel(workers),
+    multiAgentCandidates: workers.filter((observation) => observation.multiAgentCandidate).length,
+    infraFailedTasks: workers.filter(
+      (observation) => isFailed(observation.status) && observation.failureKind === 'infrastructure'
+    ).length
   }
+}
+
+/** Minimal task projection the retro mapping accepts (VertragusTask is compatible). */
+export interface DelegationTaskProjection {
+  status: TaskStatus
+  completion?: { kind?: string }
+  createdAt?: number
+  finishedAt?: number
+  failureKind?: TaskFailureKind
+  multiAgentRunId?: string
+  multiAgentParentTaskId?: string
+  multiAgentCandidate?: number
+}
+
+/**
+ * Map a runtime task to a delegation observation, classifying it as one of:
+ * a real worker, a multiagent candidate, or a purely logical multiagent parent.
+ * The parent carries a run id but no candidate number; a candidate carries a
+ * candidate number. Everything else is an ordinary logical/worker task.
+ */
+export function toDelegationObservation(
+  task: DelegationTaskProjection
+): DelegationTaskObservation {
+  const isCandidate = task.multiAgentCandidate != null
+  const isLogicalParent = task.multiAgentRunId != null && !isCandidate
+  return {
+    status: task.status,
+    committed: task.completion?.kind === 'commit',
+    noChanges: task.completion?.kind === 'no-changes',
+    startedAt: task.createdAt,
+    finishedAt: task.finishedAt,
+    failureKind: task.failureKind,
+    multiAgentParent: isLogicalParent,
+    multiAgentCandidate: isCandidate
+  }
+}
+
+/**
+ * A deliberate multiagent fan-out: a single logical task run as N≥2 competing
+ * candidates. Every dispatched worker is a candidate, so this is a requested
+ * comparison — not an over-delegated team, and not to be scored as one.
+ */
+function isDeliberateFanout(outcome: DelegationOutcome): boolean {
+  return outcome.multiAgentCandidates >= 2 && outcome.multiAgentCandidates === outcome.dispatchedTasks
 }
 
 function judge(
   estimate: PlanDelegationEstimate,
   outcome: DelegationOutcome
 ): { verdict: DelegationVerdict; note: string } {
-  const { dispatchedTasks, committedTasks, noChangeTasks, failedTasks } = outcome
+  const { dispatchedTasks, committedTasks, noChangeTasks, failedTasks, infraFailedTasks } = outcome
   if (dispatchedTasks === 0) {
     return { verdict: 'inconclusive', note: 'Keine terminalen Subagent-Tasks beobachtet.' }
+  }
+
+  // Every worker failed on infrastructure/transport (e.g. the Cursor prompt
+  // never arrived): the model never got a fair chance, so the delegation
+  // decision is inconclusive rather than "over-delegated".
+  if (infraFailedTasks === dispatchedTasks) {
+    return {
+      verdict: 'inconclusive',
+      note:
+        `Alle ${dispatchedTasks} Worker scheiterten an Infrastruktur/Transport ` +
+        '— kein aussagekräftiges Delegationsergebnis (Kalibrierung ausgesetzt).'
+    }
+  }
+
+  // A requested multiagent comparison of one logical task is never blanket
+  // overhead: judge it by whether the competition produced an integrable result.
+  if (isDeliberateFanout(outcome)) {
+    if (committedTasks >= 1) {
+      return {
+        verdict: 'justified',
+        note:
+          `Multiagent-Wettbewerb: ${dispatchedTasks} Kandidaten verglichen, ` +
+          `${committedTasks} mit integrierbarem Ergebnis.`
+      }
+    }
+    return {
+      verdict: 'inconclusive',
+      note:
+        `Multiagent-Wettbewerb mit ${dispatchedTasks} Kandidaten ohne integrierbares Ergebnis ` +
+        `(${noChangeTasks}× keine Änderung, ${failedTasks}× fehlgeschlagen).`
+    }
   }
 
   if (estimate.recommendation === 'solo') {
@@ -121,9 +208,16 @@ function calibrate(
 ): SelfCalibration {
   const agreedWithStructure = selfEstimate.recommendation === estimate.recommendation
   const warranted = outcome.committedTasks >= 2
+  const infraWipeout = outcome.dispatchedTasks > 0 && outcome.infraFailedTasks === outcome.dispatchedTasks
   let grade: CalibrationGrade
-  if (outcome.dispatchedTasks === 0) {
+  if (outcome.dispatchedTasks === 0 || infraWipeout) {
+    // No real signal, or a shared infrastructure/transport failure masked the
+    // model — do not blame the delegation call in either direction.
     grade = 'unclear'
+  } else if (isDeliberateFanout(outcome)) {
+    // A requested comparison: accurate when it yielded an integrable result,
+    // otherwise unclear — never "over-delegated" for a single logical task.
+    grade = outcome.committedTasks >= 1 ? 'accurate' : 'unclear'
   } else if (selfEstimate.recommendation === 'delegate') {
     grade = warranted ? 'accurate' : 'over-delegated'
   } else {

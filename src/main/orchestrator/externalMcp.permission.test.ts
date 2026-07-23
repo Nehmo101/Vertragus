@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 
-const directory = mkdtempSync(join(tmpdir(), 'orca-permission-mcp-'))
+const directory = mkdtempSync(join(tmpdir(), 'vertragus-permission-mcp-'))
 vi.mock('electron', () => ({ app: { getPath: () => directory } }))
 vi.mock('@main/config/store', () => ({ listMcpServers: () => [] }))
 

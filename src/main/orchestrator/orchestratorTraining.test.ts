@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { resolveExecutionPlan } from './planner'
-import {
-  orchestratorTrainingScenarios,
-  trainingScenarioById
-} from '@shared/orchestratorTraining'
+import { orchestratorTrainingScenarios } from '@shared/__fixtures__/orchestratorTraining'
 
 describe('orchestrator training catalogue', () => {
   it('exposes a non-empty catalogue with unique ids', () => {
@@ -18,10 +15,10 @@ describe('orchestrator training catalogue', () => {
     expect(sizes.has('large')).toBe(true)
   })
 
-  it('resolves scenarios by id', () => {
+  it('keeps a well-formed first scenario', () => {
     const first = orchestratorTrainingScenarios[0]
-    expect(trainingScenarioById(first.id)).toBe(first)
-    expect(trainingScenarioById('does-not-exist')).toBeUndefined()
+    expect(first).toBeDefined()
+    expect(first.id.length).toBeGreaterThan(0)
   })
 
   it('only omits a reference plan for benchmark-mode scenarios', () => {

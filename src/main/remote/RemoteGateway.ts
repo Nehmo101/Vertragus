@@ -59,6 +59,11 @@ const pushSubscriptionSchema = z.object({
     auth: z.string().min(1).max(256)
   }).strict()
 }).strict()
+const apnsSubscriptionSchema = z.object({
+  token: z.string().regex(/^[a-fA-F0-9]{64,200}$/),
+  environment: z.enum(['sandbox', 'production']),
+  bundleId: z.string().regex(/^[A-Za-z0-9.-]{1,200}$/)
+}).strict()
 const speechSchema = z.object({
   mimeType: z.string().min(1).max(100),
   durationMs: z.number().nonnegative().max(INBOX_SPEECH_MAX_DURATION_MS),
@@ -113,13 +118,24 @@ function bearer(req: IncomingMessage): string | undefined {
   return match?.[1]
 }
 
+/**
+ * Bearer-token subprotocol prefixes, canonical first. The legacy `orca-*`
+ * family stays accepted indefinitely so already-paired devices keep working;
+ * clients offer both so every client×server version pairing negotiates.
+ */
+const WS_BEARER_PREFIXES = ['vertragus-bearer.', 'orca-bearer.'] as const
+const WS_PROTOCOL_VERSIONS = ['vertragus-v1', 'orca-v1'] as const
+
 function websocketBearer(req: IncomingMessage): string | undefined {
   const header = req.headers['sec-websocket-protocol']
   if (!header || Array.isArray(header)) return undefined
-  const protocol = header.split(',').map((value) => value.trim())
-    .find((value) => value.startsWith('orca-bearer.'))
-  const token = protocol?.slice('orca-bearer.'.length)
-  return token && /^[A-Za-z0-9_-]{32,512}$/.test(token) ? token : undefined
+  const protocols = header.split(',').map((value) => value.trim())
+  for (const prefix of WS_BEARER_PREFIXES) {
+    const protocol = protocols.find((value) => value.startsWith(prefix))
+    const token = protocol?.slice(prefix.length)
+    if (token && /^[A-Za-z0-9_-]{32,512}$/.test(token)) return token
+  }
+  return undefined
 }
 
 function requestHost(req: IncomingMessage): string | undefined {
@@ -130,6 +146,24 @@ function requestHost(req: IncomingMessage): string | undefined {
   } catch {
     return undefined
   }
+}
+
+// Rate-limit key for a pairing attempt. The gateway binds to 127.0.0.1 only and
+// the sole internet ingress is the Cloudflare tunnel, so `req.socket.remoteAddress`
+// is always 127.0.0.1 for real remote clients — keying on it would put every
+// internet client (and the owner) in one shared bucket, letting an attacker lock
+// the owner out of pairing. Cloudflare overwrites `cf-connecting-ip` with the
+// edge-observed client IP (a client cannot spoof it through the tunnel), so prefer
+// it, then the first `x-forwarded-for` hop, and only fall back to the socket
+// address for genuinely local (non-tunneled) requests.
+function pairingClientKey(req: IncomingMessage): string {
+  const cf = req.headers['cf-connecting-ip']
+  if (typeof cf === 'string' && cf.trim()) return `cf:${cf.trim()}`
+  const xff = req.headers['x-forwarded-for']
+  const forwarded = Array.isArray(xff) ? xff[0] : xff
+  const firstHop = forwarded?.split(',')[0]?.trim()
+  if (firstHop) return `xff:${firstHop}`
+  return `ip:${req.socket.remoteAddress ?? 'unknown'}`
 }
 
 function sseFrame(frame: RemoteEventFrame): string {
@@ -147,7 +181,8 @@ export async function startRemoteGateway(options: GatewayOptions): Promise<Remot
   const webSocketServer = wsRuntime ? new wsRuntime.WebSocketServer({
       noServer: true,
       maxPayload: REMOTE_COMMAND_BODY_CAP,
-      handleProtocols: (protocols) => protocols.has('orca-v1') ? 'orca-v1' : false
+      handleProtocols: (protocols) =>
+        WS_PROTOCOL_VERSIONS.find((version) => protocols.has(version)) ?? false
     }) : undefined
   const wsOpen = wsRuntime?.WebSocket.OPEN ?? 1
 
@@ -245,7 +280,7 @@ export async function startRemoteGateway(options: GatewayOptions): Promise<Remot
       return
     }
     if (url.pathname === '/pair' && req.method === 'POST') {
-      const remoteKey = req.socket.remoteAddress ?? 'unknown'
+      const remoteKey = pairingClientKey(req)
       if (!pairLimiter.consume(remoteKey)) throw new HttpError(429, 'Too many pairing attempts.')
       const parsed = pairSchema.safeParse(await readJson(req, REMOTE_PAIR_BODY_CAP))
       if (!parsed.success) throw new HttpError(400, 'Invalid pairing request.')
@@ -326,6 +361,25 @@ export async function startRemoteGateway(options: GatewayOptions): Promise<Remot
         kind: 'command', outcome: 'accepted', deviceId: authenticated.device.id,
         actor: authenticated.device.actor.id,
         action: 'push.subscribe'
+      })
+      json(res, 200, { ok: true })
+      return
+    }
+    if (url.pathname === '/push/apns' && req.method === 'POST') {
+      const authenticated = await authenticate(req, 'push.apns-subscribe')
+      if (!authenticated || !authenticated.device.capabilities.includes('push')) {
+        json(res, authenticated ? 403 : 401, { error: 'Unauthorized.' })
+        return
+      }
+      if (!options.pushService) throw new HttpError(404, 'Push service unavailable.')
+      const parsed = apnsSubscriptionSchema.safeParse(await readJson(req, REMOTE_PUSH_BODY_CAP))
+      if (!parsed.success) throw new HttpError(400, 'Invalid APNs subscription.')
+      options.pushService.subscribeApns(authenticated.device.id, parsed.data)
+      // The device token is never written to the audit trail (only the action + device id).
+      options.audit.record({
+        kind: 'command', outcome: 'accepted', deviceId: authenticated.device.id,
+        actor: authenticated.device.actor.id,
+        action: 'push.apns-subscribe'
       })
       json(res, 200, { ok: true })
       return
@@ -520,5 +574,6 @@ export async function startRemoteGateway(options: GatewayOptions): Promise<Remot
 }
 
 export const remoteGatewayInternals = {
-  bearer, websocketBearer, requestHost, readJson, sseFrame, pairSchema, pushSubscriptionSchema, speechSchema
+  bearer, websocketBearer, requestHost, readJson, sseFrame, pairSchema, pushSubscriptionSchema,
+  apnsSubscriptionSchema, speechSchema
 }

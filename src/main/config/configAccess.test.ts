@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { setSetting } from '@main/config/store'
 import {
+  PUBLIC_CONFIG_GET_KEYS,
+  PUBLIC_CONFIG_SET_KEYS,
   assertConfigGetAllowed,
   assertConfigSetAllowed,
   getPublicConfig,
@@ -33,9 +35,34 @@ describe('configAccess', () => {
     expect(() => setPublicConfig('secrets.github.oauth', 'x')).toThrow()
   })
 
+  it('keeps APNs secrets (credential + device tokens) out of public config', () => {
+    // Regression: APNs signing keys and device tokens must never be reachable via the
+    // generic config IPC. They live under secrets.remote.* and are not on the allowlists.
+    for (const key of ['secrets.remote.apns', 'secrets.remote.apnsTokens']) {
+      expect(() => assertConfigGetAllowed(key)).toThrow(/per IPC lesen/)
+      expect(() => assertConfigSetAllowed(key)).toThrow(/per IPC schreiben/)
+      expect(PUBLIC_CONFIG_GET_KEYS.has(key)).toBe(false)
+      expect(PUBLIC_CONFIG_SET_KEYS.has(key)).toBe(false)
+    }
+  })
+
   it('rejects unknown keys', () => {
     expect(() => assertConfigGetAllowed('inboxSpeech.model')).toThrow(/nicht über IPC lesbar/)
     expect(() => assertConfigSetAllowed('github.oauthClientId')).toThrow(/nicht über IPC schreibbar/)
+  })
+
+  it('rejects prototype-pollution keys end-to-end (allowlist never contains them)', () => {
+    for (const bad of [
+      'ui.__proto__.polluted',
+      '__proto__',
+      'a.constructor.b',
+      'constructor',
+      'constructor.prototype.x',
+      'prototype'
+    ]) {
+      expect(() => getPublicConfig(bad), bad).toThrow()
+      expect(() => setPublicConfig(bad, 'x'), bad).toThrow()
+    }
   })
 
   it('exposes remote.enabled but refuses unsafe generic activation', () => {

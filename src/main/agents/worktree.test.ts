@@ -1,22 +1,33 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, afterEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createWorktree,
+  discardManagedOrphans,
   inventoryWorktrees,
-  isOrcaBranch,
-  isOrcaWorktreePath,
+  isManagedBranch,
+  isManagedWorktreePath,
+  managedWorktreeParts,
+  rollbackWorktree,
   worktreeIdentity
 } from './worktree'
 
+// The integration suites below drive real `git worktree` commands, which are
+// I/O-bound and noticeably slower on Windows CI runners — slow enough to exceed
+// Vitest's 5s default and fail the Release pipeline intermittently (the CI run
+// for the same commit went green; it is timing, not logic). Give this file more
+// headroom; the pure-function suites finish in milliseconds and are unaffected
+// by the higher ceiling.
+vi.setConfig({ testTimeout: 20000, hookTimeout: 20000 })
+
 const GIT_ENV = {
   ...process.env,
-  GIT_AUTHOR_NAME: 'orca-test',
-  GIT_AUTHOR_EMAIL: 'orca@test',
-  GIT_COMMITTER_NAME: 'orca-test',
-  GIT_COMMITTER_EMAIL: 'orca@test'
+  GIT_AUTHOR_NAME: 'vertragus-test',
+  GIT_AUTHOR_EMAIL: 'vertragus@test',
+  GIT_COMMITTER_NAME: 'vertragus-test',
+  GIT_COMMITTER_EMAIL: 'vertragus@test'
 }
 
 function gitIn(cwd: string, args: string[]): string {
@@ -49,33 +60,49 @@ describe('worktreeIdentity', () => {
 
 describe('rollback safety guards', () => {
   it('accepts managed worktree trees (new + legacy) only', () => {
-    expect(isOrcaWorktreePath('/repo/.vertragus-worktrees/session-a/task-01')).toBe(true)
-    expect(isOrcaWorktreePath('C:\\repo\\.vertragus-worktrees\\session-a\\task-01')).toBe(true)
+    expect(isManagedWorktreePath('/repo/.vertragus-worktrees/session-a/task-01')).toBe(true)
+    expect(isManagedWorktreePath('C:\\repo\\.vertragus-worktrees\\session-a\\task-01')).toBe(true)
     // Legacy checkouts stay cleanable after the rebrand.
-    expect(isOrcaWorktreePath('/repo/.orca-worktrees/session-a/task-01')).toBe(true)
-    expect(isOrcaWorktreePath('C:\\repo\\.orca-worktrees\\session-a\\task-01')).toBe(true)
+    expect(isManagedWorktreePath('/repo/.orca-worktrees/session-a/task-01')).toBe(true)
+    expect(isManagedWorktreePath('C:\\repo\\.orca-worktrees\\session-a\\task-01')).toBe(true)
   })
 
   it('never treats non-managed paths as owned (no destructive false positive)', () => {
-    expect(isOrcaWorktreePath('/repo')).toBe(false)
+    expect(isManagedWorktreePath('/repo')).toBe(false)
     // Look-alike segments without the leading dot must not be owned.
-    expect(isOrcaWorktreePath('/repo/src/orca-worktrees-note')).toBe(false)
-    expect(isOrcaWorktreePath('/repo/src/vertragus-worktrees-note')).toBe(false)
-    expect(isOrcaWorktreePath('/home/user/my.vertragus-worktrees.bak')).toBe(false)
-    expect(isOrcaWorktreePath('')).toBe(false)
+    expect(isManagedWorktreePath('/repo/src/orca-worktrees-note')).toBe(false)
+    expect(isManagedWorktreePath('/repo/src/vertragus-worktrees-note')).toBe(false)
+    expect(isManagedWorktreePath('/home/user/my.vertragus-worktrees.bak')).toBe(false)
+    expect(isManagedWorktreePath('')).toBe(false)
   })
 
   it('accepts managed branch namespaces (new + legacy) only', () => {
-    expect(isOrcaBranch('vertragus/session-a/task-01')).toBe(true)
-    expect(isOrcaBranch('orca/session-a/task-01')).toBe(true)
+    expect(isManagedBranch('vertragus/session-a/task-01')).toBe(true)
+    expect(isManagedBranch('orca/session-a/task-01')).toBe(true)
   })
 
   it('never deletes user branches that merely mention the namespace', () => {
-    expect(isOrcaBranch('DEV')).toBe(false)
-    expect(isOrcaBranch('feature/orca')).toBe(false)
-    expect(isOrcaBranch('feature/vertragus')).toBe(false)
-    expect(isOrcaBranch('my-vertragus/x')).toBe(false)
-    expect(isOrcaBranch('')).toBe(false)
+    expect(isManagedBranch('DEV')).toBe(false)
+    expect(isManagedBranch('feature/orca')).toBe(false)
+    expect(isManagedBranch('feature/vertragus')).toBe(false)
+    expect(isManagedBranch('my-vertragus/x')).toBe(false)
+    expect(isManagedBranch('')).toBe(false)
+  })
+
+  it('parses managed worktree paths into root + identity parts', () => {
+    expect(managedWorktreeParts('/repo/.vertragus-worktrees/session-a/task-01')).toEqual({
+      root: '/repo',
+      legacy: false,
+      sessionId: 'session-a',
+      agentId: 'task-01'
+    })
+    expect(managedWorktreeParts('C:\\repo\\.orca-worktrees\\session-b\\codex-01')).toEqual({
+      root: 'C:/repo',
+      legacy: true,
+      sessionId: 'session-b',
+      agentId: 'codex-01'
+    })
+    expect(managedWorktreeParts('/repo/src')).toBeNull()
   })
 })
 
@@ -131,6 +158,51 @@ describe('createWorktree + inventory against a real repository', () => {
     repos.push(plain)
     await expect(inventoryWorktrees(plain, new Set())).resolves.toEqual([])
   })
+
+  it('discards broken leftover worktree directories that Git can no longer remove', async () => {
+    const repo = initRepo()
+    const orphan = join(repo, '.vertragus-worktrees', 'session-broken', 'codex-01')
+    // Simulate a crash leftover: directory exists, but it is not a linked worktree.
+    mkdirSync(orphan, { recursive: true })
+    writeFileSync(join(orphan, 'wip.txt'), 'orphaned work')
+
+    await expect(rollbackWorktree(orphan)).resolves.toBe(true)
+    expect(existsSync(orphan)).toBe(false)
+    // Empty session container should go away with the last agent checkout.
+    expect(existsSync(join(repo, '.vertragus-worktrees', 'session-broken'))).toBe(false)
+
+    const inventory = await inventoryWorktrees(repo, new Set())
+    expect(inventory).toEqual([])
+  })
+
+  it('bulk-discards many unregistered leftovers without leaving ghosts', async () => {
+    const repo = initRepo()
+    const paths: string[] = []
+    for (let session = 0; session < 5; session += 1) {
+      for (let agent = 0; agent < 4; agent += 1) {
+        const path = join(
+          repo,
+          '.vertragus-worktrees',
+          `session-${session}`,
+          `agent-${agent}`
+        )
+        mkdirSync(path, { recursive: true })
+        writeFileSync(join(path, 'wip.txt'), `leftover ${session}/${agent}`)
+        paths.push(path)
+      }
+    }
+    // One owned session must be refused.
+    const owned = join(repo, '.vertragus-worktrees', 'session-owned', 'agent-0')
+    mkdirSync(owned, { recursive: true })
+    paths.push(owned)
+
+    const result = await discardManagedOrphans(paths, (sessionId) => sessionId === 'session-owned')
+    expect(result).toEqual({ discarded: 20, failed: 1 })
+    expect(existsSync(owned)).toBe(true)
+    expect(await inventoryWorktrees(repo, new Set(['session-owned']))).toEqual([
+      expect.objectContaining({ sessionId: 'session-owned', owned: true })
+    ])
+  })
 })
 
 describe('createWorktree dependency base', () => {
@@ -140,7 +212,7 @@ describe('createWorktree dependency base', () => {
   })
 
   function initRepo(): string {
-    const root = mkdtempSync(join(tmpdir(), 'orca-wt-'))
+    const root = mkdtempSync(join(tmpdir(), 'vertragus-wt-'))
     created.push(root)
     gitIn(root, ['init', '-q', '-b', 'main'])
     return root

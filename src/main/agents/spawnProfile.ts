@@ -37,6 +37,29 @@ export async function spawnProfileTeam(
     options?.workingDirOverride?.trim() || profileRepoLocalPath(runtimeProfile) || runtimeProfile.workingDir
   const spawned: AgentInstanceInfo[] = []
 
+  // Efficiency-Solo: exactly one agent works directly — no orchestrator, no
+  // prewarmed team. The workspace session above still exists so the solo MCP
+  // session (report_activity / record_retro) and the UI snapshot are backed.
+  if (runtimeProfile.solo && !runtimeProfile.orchestrator) {
+    const [{ slot, role }] = agentSlotsWithRoles(runtimeProfile.agents)
+    spawned.push(
+      await agentManager.spawn({
+        provider: slot.provider,
+        model: slot.model,
+        modelPreset: slot.modelPreset,
+        role: 'Solo · arbeitet direkt',
+        teamRole: role,
+        solo: true,
+        yolo: slot.yolo || yoloMaster,
+        workingDir: slot.workingDir || workingDir,
+        profileId: runtimeProfile.id,
+        workspaceSessionId: session.id,
+        engineId: engine.engineId
+      })
+    )
+    return spawned
+  }
+
   // Spawn the orchestrator FIRST. It is the coordinator, so it must come up
   // reliably and independently of the prewarmed workers. Previously the workers
   // were prewarmed first and the orchestrator last, so any failing worker slot

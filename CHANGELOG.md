@@ -6,6 +6,33 @@ Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1
 
 ---
 
+## 2026-07-22 — Orca→Vertragus-Vollmigration der internen Bezeichner
+
+### Geändert
+
+- **Interne Bezeichner vollständig auf Vertragus migriert:** `VertragusTask`/`VertragusMcpServer` (inkl. iOS), MCP-Tool-Namespace `mcp__vertragus__*` (Launch-Config und Prompts werden pro Start transient generiert, daher ohne Runtime-Alias), Commit-Präfix `vertragus(<taskId>)`, Integrations-Branch `vertragus/goal-*` unter `.vertragus-worktrees/integration`, Laufzeit-Verzeichnisse `vertragus-mcp`/`.vertragus-runtime`/`vertragus-handoffs`/`vertragus-idea-transfers`, Inbox-Store `vertragus-inbox.json`. Persistierte Altbestände werden beim ersten Start einmalig kopierend übernommen (`legacyAdoption.ts`); kein Legacy-Bestand wird gelöscht. WebSocket-Pairing: kanonisch `vertragus-v1`/`vertragus-bearer.*`, der Desktop akzeptiert die `orca-*`-Familie dauerhaft weiter, Mobile/iOS bieten übergangsweise beide an. Hinweis: In interaktiven Non-Yolo-Claude-Panes werden gespeicherte `mcp__orca__*`-Approvals wirkungslos; die Tools fragen einmalig neu an.
+
+### Behoben
+
+- **`await_plan_approval` fehlte in der Orchestrator-Allowlist:** Der Systemprompt schreibt das Tool vor, aber die strikte `--allowedTools`-Liste (Claude/Kimi) enthielt es nicht — Orchestratoren konnten die Plan-Freigabe nie blockierend abwarten. Ein Invariantentest erzwingt jetzt Set-Gleichheit zwischen registrierten Tools und der Allowlist.
+- **Reservierte MCP-Servernamen:** Ein externer MCP-Server namens `vertragus`/`orca`(`-sub`) überschrieb kommentarlos den internen Orchestrator-Server in der generierten Launch-Config. Solche Namen werden jetzt im Editor abgelehnt und beim Launch defensiv übersprungen.
+
+---
+
+## 2026-07-21 — Taskleisten-Hinweis bei Nutzer-Rückmeldung
+
+### Hinzugefügt
+
+- **Taskleisten-/Dock-Hinweis bei ausstehender Rückmeldung:** Solange mindestens ein Profil-Workspace eine Nutzer-Rückmeldung braucht (offenes Plan-Review, offene Subagent-Rückfrage, Multiagent-Lauf im Review; zusätzlich offene Mission-Approvals laut Store-Aggregation), signalisiert Vertragus das am Betriebssystem: unter Windows und Linux blinkt das Taskleistensymbol (`flashFrame`), unter macOS bounce’t das Dock-Icon (`critical`). Der Hinweis startet nur beim Übergang „keine ausstehende Rückmeldung → mindestens eine“ und nur, wenn das Hauptfenster nicht fokussiert ist. Mehrere Auslöser über distinkte Workspaces zählen als **ein** aggregierter Blinkzustand; solange der Zähler > 0 bleibt, startet kein zweites Blinken. Beendet wird der Hinweis durch Fokussieren des Hauptfensters oder wenn der Zähler wieder 0 ist. Ein erneuter 0→>0-Übergang löst danach wieder aus.
+  - *Offen:* zugehörige PR-Nummer und Tag-Spanne für die Changelog-Überschrift (Feature noch nicht als Release getaggt; aktueller Stand der Integration: Commit `897f7a77`).
+  - *Offen:* Dock-Bounce unter macOS im Integrations-Worktree nicht manuell verifiziert (Implementierung und Unit-Tests vorhanden; Laufzeit unter Windows geprüft).
+
+### Dokumentation
+
+- Handbuch-Abschnitt zum Taskleisten-/Dock-Hinweis (Verhalten, Beendigung, Mehrfach-Auslöser, OS-Unterschied).
+
+---
+
 ## 2026-07-19 — Retro-Härtung & Security-Gate-Nacharbeit (v0.1.59 – v0.1.61)
 
 ### Behoben

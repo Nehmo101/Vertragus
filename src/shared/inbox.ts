@@ -171,6 +171,25 @@ export type AddArtifactInput =
   | AddFileArtifactInput
   | AddImageArtifactInput
 
+/** Boundary schemas for the create/update/artifact IPC payloads (audit M5). */
+export const createIdeaInputSchema = z.object({
+  title: z.string().max(500).optional(),
+  content: z.string().max(100_000).optional(),
+  status: z.enum(IDEA_INPUT_STATUSES).optional(),
+  tags: z.array(z.string().max(120)).max(64).optional(),
+  refs: ideaRefsSchema.optional()
+})
+
+export const updateIdeaInputSchema = createIdeaInputSchema.extend({
+  id: z.string().min(1).max(256)
+})
+
+export const addArtifactInputSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('text'), label: z.string().max(300).optional(), text: z.string().max(200_000) }),
+  z.object({ kind: z.literal('url'), label: z.string().max(300).optional(), url: z.string().max(2048) }),
+  z.object({ kind: z.literal('file'), label: z.string().max(300).optional(), grantId: z.string().min(1).max(256) })
+])
+
 /** Accept http(s) URLs with a host. */
 export function isValidUrl(raw: string): boolean {
   const trimmed = raw.trim()

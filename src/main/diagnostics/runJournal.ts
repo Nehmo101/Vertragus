@@ -1,14 +1,6 @@
 import { createHash } from 'node:crypto'
-import {
-  appendFileSync,
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  statSync,
-  writeFileSync
-} from 'node:fs'
+import { copyFileSync, mkdirSync, readFileSync, readdirSync } from 'node:fs'
+import { appendFile, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 export const RUN_JOURNAL_MAX_BYTES = 5 * 1024 * 1024
@@ -82,6 +74,12 @@ function parseLines(path: string): RunJournalEntry[] {
 }
 
 export class RunJournal {
+  // Cached file size per run file so the hot write path never calls statSync.
+  private readonly sizes = new Map<string, number>()
+  // Per-file serialized async write chain so appends never block the main thread
+  // and can never interleave. record() returns synchronously; the write is queued.
+  private readonly writeChains = new Map<string, Promise<void>>()
+
   constructor(private readonly directory: string) {
     mkdirSync(directory, { recursive: true })
   }
@@ -105,16 +103,36 @@ export class RunJournal {
     }
     const path = this.file(runId)
     const line = `${JSON.stringify(entry)}\n`
-    if (existsSync(path) && statSync(path).size >= RUN_JOURNAL_MAX_BYTES) {
-      writeFileSync(path, line, { encoding: 'utf8', mode: 0o600 })
-      return entry
-    }
-
-    appendFileSync(path, line, {
-      encoding: 'utf8',
-      mode: 0o600
-    })
+    const prev = this.writeChains.get(path) ?? Promise.resolve()
+    const next = prev
+      .then(() => this.writeLine(path, line))
+      .catch((error) => console.warn('[RunJournal] write failed', error))
+    this.writeChains.set(path, next)
     return entry
+  }
+
+  private async writeLine(path: string, line: string): Promise<void> {
+    let size = this.sizes.get(path)
+    if (size === undefined) {
+      try {
+        size = (await stat(path)).size
+      } catch {
+        size = 0
+      }
+    }
+    const bytes = Buffer.byteLength(line)
+    if (size >= RUN_JOURNAL_MAX_BYTES) {
+      await writeFile(path, line, { encoding: 'utf8', mode: 0o600 })
+      this.sizes.set(path, bytes)
+      return
+    }
+    await appendFile(path, line, { encoding: 'utf8', mode: 0o600 })
+    this.sizes.set(path, size + bytes)
+  }
+
+  /** Await all pending writes (call before reading the journal back, or on quit). */
+  async flush(): Promise<void> {
+    await Promise.all(this.writeChains.values())
   }
 
   list(profileId?: string): RunJournalSummary[] {

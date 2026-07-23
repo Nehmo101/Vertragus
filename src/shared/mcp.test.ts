@@ -4,7 +4,8 @@ import {
   isMcpServerComplete,
   mcpScopeMatches,
   mcpServerSchema,
-  providerSupportsExternalMcp
+  providerSupportsExternalMcp,
+  providerSupportsSubagentReporting
 } from './mcp'
 
 describe('mcpScopeMatches', () => {
@@ -25,6 +26,28 @@ describe('providerSupportsExternalMcp', () => {
     expect(providerSupportsExternalMcp('cursor')).toBe(false)
     expect(providerSupportsExternalMcp('copilot')).toBe(false)
     expect(providerSupportsExternalMcp('ollama')).toBe(false)
+  })
+})
+
+describe('providerSupportsSubagentReporting', () => {
+  it('advertises the subagent reporting tools only for providers with a verified MCP channel', () => {
+    // Claude, Kimi and Codex receive report_progress/post_finding/list_findings.
+    expect(providerSupportsSubagentReporting('claude')).toBe(true)
+    expect(providerSupportsSubagentReporting('kimi')).toBe(true)
+    expect(providerSupportsSubagentReporting('codex')).toBe(true)
+    // Cursor has no verified transient per-process MCP config today — do not
+    // promise tools it cannot receive.
+    expect(providerSupportsSubagentReporting('cursor')).toBe(false)
+    expect(providerSupportsSubagentReporting('copilot')).toBe(false)
+    expect(providerSupportsSubagentReporting('ollama')).toBe(false)
+  })
+
+  it('never claims more subagent reporting than external MCP support', () => {
+    for (const provider of ['claude', 'kimi', 'codex', 'cursor', 'copilot', 'ollama'] as const) {
+      if (providerSupportsSubagentReporting(provider)) {
+        expect(providerSupportsExternalMcp(provider)).toBe(true)
+      }
+    }
   })
 })
 

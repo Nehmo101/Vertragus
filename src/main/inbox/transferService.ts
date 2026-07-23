@@ -16,6 +16,7 @@ import {
 } from '@shared/inboxTransfer'
 import { profileRepoLocalPath } from '@shared/profile'
 import { getIdea, applyIdeaTransfer } from '@main/inbox/store'
+import { adoptLegacyDir } from '@main/config/legacyAdoption'
 import {
   assessProfileOrchestrator,
   assessRepoReadiness,
@@ -45,7 +46,10 @@ function now(): number {
 }
 
 function writeBriefing(transferId: string, content: string): string {
-  const dir = join(app.getPath('userData'), 'orca-idea-transfers')
+  const userData = app.getPath('userData')
+  // Bring pre-rebrand transfer briefings along (copy-only, one-time).
+  adoptLegacyDir(userData, 'orca-idea-transfers', 'vertragus-idea-transfers')
+  const dir = join(userData, 'vertragus-idea-transfers')
   mkdirSync(dir, { recursive: true })
   const file = join(dir, `transfer-${transferId}.md`)
   writeFileSync(file, content, 'utf8')

@@ -34,7 +34,7 @@ describe('inbox archive IPC controller', () => {
   it('rejects a foreign renderer origin even for a known window', () => {
     expect(() => assertAuthorizedInboxArchiveSender(event(1, 'https://evil.example'), {
       developmentUrl: 'http://localhost:5173',
-      packagedRendererUrl: 'file:///opt/orca/renderer/index.html',
+      packagedRendererUrl: 'file:///opt/vertragus/renderer/index.html',
       isKnownSender: () => true
     })).toThrow(/unauthorized/)
   })
@@ -45,7 +45,7 @@ describe('inbox archive IPC controller', () => {
     try {
       assertAuthorizedInboxArchiveSender(event(1, 'https://evil.example'), {
         developmentUrl,
-        packagedRendererUrl: 'file:///opt/orca/renderer/index.html',
+        packagedRendererUrl: 'file:///opt/vertragus/renderer/index.html',
         isKnownSender: () => true
       })
     } catch (error) {

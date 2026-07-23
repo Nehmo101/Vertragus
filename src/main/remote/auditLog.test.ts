@@ -9,7 +9,7 @@ afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: tru
 
 describe('RemoteAuditLog', () => {
   it('redacts credentials while preserving actor and action', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'orca-remote-audit-'))
+    const dir = mkdtempSync(join(tmpdir(), 'vertragus-remote-audit-'))
     dirs.push(dir)
     const path = join(dir, 'audit.jsonl')
     new RemoteAuditLog(path).record({

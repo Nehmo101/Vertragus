@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { OrcaTask } from './orchestrator'
+import type { VertragusTask } from './orchestrator'
 import {
   analyzeRunRetro,
   benchmarkLearnings,
@@ -15,7 +15,7 @@ import {
   type NewModelLearning
 } from './retro'
 
-function task(overrides: Partial<OrcaTask>): OrcaTask {
+function task(overrides: Partial<VertragusTask>): VertragusTask {
   return {
     id: overrides.id ?? `t-${Math.random().toString(36).slice(2, 8)}`,
     title: 'Task',
@@ -165,7 +165,7 @@ describe('deriveModelStats', () => {
         startedAt: 1_000,
         note: 'Provider is at capacity'
       }]
-    }) as OrcaTask & { judgeReason?: string }
+    }) as VertragusTask & { judgeReason?: string }
     infra.judgeReason = 'Der Provider bewertete den Worker-Abschluss als fehlgeschlagen.'
 
     const [stats] = deriveModelStats([

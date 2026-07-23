@@ -1,413 +1,52 @@
-import { exec, execFile } from 'node:child_process'
-import { mkdir } from 'node:fs/promises'
-import { join, posix, win32 } from 'node:path'
-import { promisify } from 'node:util'
-import { ensureWorktreeDependencies } from '@main/agents/dependencyBootstrap'
-import type { AutoPrConfig } from '@shared/profile'
-import type { RemoteCiStatus, TaskGateFinding } from '@shared/orchestrator'
+import type { TaskGateFinding } from '@shared/orchestrator'
 import { noTaskChanges, verifiedTaskCommit } from './commitContract'
 import {
   assertSecurityGate,
   evaluateSecurityGate,
   SecurityGateError
 } from './securityGate'
+import {
+  assertStagedHygiene,
+  CommitHygieneError,
+  git,
+  isAncestor,
+  safeSlug,
+  scratchFiles,
+  stagedFileList,
+  unstageScratchFiles
+} from './autoPr/gitPlumbing'
+import {
+  assertDiffLooksSafe,
+  QualityGateError,
+  qualityGateEnvironment,
+  qualityGateShellCommand,
+  runGatesWithBootstrapRetry,
+  runIntegrationQualityGates,
+  runQualityGates
+} from './autoPr/gates'
+import {
+  combineRemoteCi,
+  monitorRemoteCi,
+  parseRemoteChecks,
+  remoteCiFromChecks
+} from './autoPr/ciMonitor'
+import { defaultBase, pickBaseBranch, publishPreparedChanges } from './autoPr/prPublish'
+import type {
+  PreparedTaskChange,
+  PrepareTaskInput,
+  PrepareTaskResult
+} from './autoPr/types'
 
-const execFileAsync = promisify(execFile)
-const execAsync = promisify(exec)
-const MAX_OUTPUT = 8 * 1024 * 1024
-const REMOTE_CI_REGISTRATION_TIMEOUT_MS = 90_000
-const REMOTE_CI_TOTAL_TIMEOUT_MS = 20 * 60_000
-const REMOTE_CI_POLL_MS = 5_000
-const REMOTE_CI_READ_TIMEOUT_MS = 30_000
-const REMOTE_CHECK_FIELDS = 'bucket,link,name,state,workflow'
-
-/**
- * A gate that fails because its TOOLING is missing (eslint/prisma not found in
- * a fresh worktree) is an infrastructure problem, not a finding against the
- * worker's code. Retros repeatedly graded such runs as model failures.
- */
-const GATE_INFRASTRUCTURE_PATTERNS = [
-  /command not found/i,
-  /not recognized as an internal or external command/i,
-  /konnte nicht gefunden werden/i,
-  /cannot find module/i,
-  /\bENOENT\b/,
-  // esbuild fails to spawn its native child under the codex restricted-token
-  // sandbox. The retro analysis already treats EPERM as infra (runAnalysis.ts),
-  // so the gate must classify it the same way instead of grading green code as
-  // a model failure.
-  /\bEPERM\b/,
-  /esbuild.*(?:spawn|EPERM)/i
-]
-
-class QualityGateError extends Error {
-  readonly code = 'quality-gate-failed'
-  readonly infrastructure: boolean
-  constructor(readonly command: string, detail: string) {
-    super(`Quality Gate fehlgeschlagen: ${command}\n${detail}`)
-    this.name = 'QualityGateError'
-    this.infrastructure = GATE_INFRASTRUCTURE_PATTERNS.some((pattern) => pattern.test(detail))
-  }
-}
-
-/** Trailing whitespace/CRLF is fixable follow-up work, never a hard blocker. */
-class CommitHygieneError extends Error {
-  readonly code = 'commit-hygiene'
-  constructor(readonly check: string, detail: string) {
-    super(`Commit-Hygiene fehlgeschlagen (${check}): ${detail}`)
-    this.name = 'CommitHygieneError'
-  }
-}
-
-/**
- * Worker scratch files that must never reach a commit. Retros show workers
- * leaving *.origcheck/*.check/.verify-*-tmp.md droppings despite prompt-level
- * prohibitions — enforcement has to live in the commit path.
- */
-const SCRATCH_FILE_PATTERNS = [
-  /\.(?:origcheck|c9check|check|orig|rej|bak|tmp)$/i,
-  /(?:^|\/)\.verify-[^/]+$/i,
-  /~$/
-]
-
-export function scratchFiles(files: readonly string[]): string[] {
-  return files.filter((file) => SCRATCH_FILE_PATTERNS.some((pattern) => pattern.test(file)))
-}
-
-export interface PreparedTaskChange {
-  taskId: string
-  title: string
-  worktree: string
-  branch: string
-  commit: string
-  commits: string[]
-  files: string[]
-}
-
-export interface RemoteCiOutcome {
-  status: RemoteCiStatus
-  message: string
-  url?: string
-}
-
-export interface RemoteCiCommandResult {
-  stdout: string
-  stderr: string
-  exitCode: number
-  timedOut: boolean
-}
-
-export interface RemoteCiCheckCommand {
-  cwd: string
-  prUrl: string
-  watch: boolean
-  timeoutMs: number
-}
-
-export interface RemoteCiMonitorDeps {
-  now(): number
-  delay(ms: number): Promise<void>
-  runChecks(command: RemoteCiCheckCommand): Promise<RemoteCiCommandResult>
-}
-
-interface RemoteCheckRow {
-  bucket: string
-  link?: string
-  name: string
-  state?: string
-  workflow?: string
-}
-
-interface MonitorRemoteCiInput {
-  cwd: string
-  prUrl: string
-  onUpdate?: (outcome: RemoteCiOutcome) => void
-}
-
-export interface AutoPrOutcome {
-  status: 'skipped' | 'prepared' | 'published' | 'blocked'
-  message: string
-  url?: string
-  branch?: string
-  worktree?: string
-  remoteCi?: RemoteCiOutcome
-}
-
-interface PrepareTaskInput {
-  config: AutoPrConfig
-  /** Enforce the worker commit contract even when PR publishing is disabled. */
-  commitOnly?: boolean
-  /** HEAD captured before the worker process started. */
-  baseCommit?: string
-  taskId: string
-  title: string
-  worktree?: string
-}
-
-interface PublishInput {
-  config: AutoPrConfig
-  goalId: string
-  goalTitle: string
-  changes: PreparedTaskChange[]
-  /** Profile-bound default branch when autoPr.baseBranch is empty. */
-  profileDefaultBranch?: string
-  onRemoteCiUpdate?: (outcome: RemoteCiOutcome) => void
-}
-
-async function runFile(cwd: string, command: string, args: string[]): Promise<string> {
-  const { stdout, stderr } = await execFileAsync(command, args, {
-    cwd,
-    windowsHide: true,
-    timeout: 120_000,
-    maxBuffer: MAX_OUTPUT
-  })
-  return (stdout || stderr || '').trim()
-}
-
-async function runFileResult(
-  cwd: string,
-  command: string,
-  args: string[],
-  timeoutMs: number
-): Promise<RemoteCiCommandResult> {
-  try {
-    const { stdout, stderr } = await execFileAsync(command, args, {
-      cwd,
-      windowsHide: true,
-      timeout: timeoutMs,
-      maxBuffer: MAX_OUTPUT
-    })
-    return { stdout, stderr, exitCode: 0, timedOut: false }
-  } catch (error) {
-    const failed = error as Error & {
-      stdout?: string
-      stderr?: string
-      code?: number | string
-      killed?: boolean
-    }
-    return {
-      stdout: typeof failed.stdout === 'string' ? failed.stdout : '',
-      stderr: typeof failed.stderr === 'string' && failed.stderr.trim() ? failed.stderr : failed.message,
-      exitCode: typeof failed.code === 'number' ? failed.code : 1,
-      timedOut: Boolean(failed.killed || /timed out/i.test(failed.message))
-    }
-  }
-}
-
-async function git(cwd: string, args: string[]): Promise<string> {
-  return runFile(cwd, 'git', args)
-}
-
-/**
- * `git merge-base --is-ancestor a b` exits 0 when `a` is an ancestor of `b`,
- * 1 when it is not, and >1 on a real error. The plain `git()` helper throws on
- * any non-zero exit, so the ancestor question needs an exit-code-aware runner.
- */
-async function isAncestor(cwd: string, ancestor: string, descendant: string): Promise<boolean> {
-  try {
-    await execFileAsync('git', ['merge-base', '--is-ancestor', ancestor, descendant], {
-      cwd,
-      windowsHide: true,
-      timeout: 120_000,
-      maxBuffer: MAX_OUTPUT
-    })
-    return true
-  } catch (error) {
-    const code = (error as { code?: number | string }).code
-    if (code === 1) return false
-    throw error
-  }
-}
-
-/** git diff --cached --check als klassifizierbarer Hygiene-Fehler statt plain Error. */
-async function assertStagedHygiene(worktree: string): Promise<void> {
-  try {
-    await git(worktree, ['diff', '--cached', '--check'])
-  } catch (error) {
-    throw new CommitHygieneError(
-      'git diff --cached --check',
-      error instanceof Error ? error.message : String(error)
-    )
-  }
-}
-
-async function stagedFileList(worktree: string): Promise<string[]> {
-  return (await git(worktree, ['diff', '--cached', '--name-only']))
-    .split(/\r?\n/)
-    .map((file) => file.trim())
-    .filter(Boolean)
-}
-
-/** Entfernt Scratch-Dateien aus dem Staging (nicht aus dem Worktree) und meldet sie. */
-async function unstageScratchFiles(worktree: string): Promise<TaskGateFinding[]> {
-  const scratch = scratchFiles(await stagedFileList(worktree))
-  if (scratch.length === 0) return []
-  await git(worktree, ['reset', '-q', 'HEAD', '--', ...scratch])
-  return [{
-    gate: 'commit',
-    code: 'temp-files-removed',
-    message: `${scratch.length} Scratch-Datei(en) wurden vor dem Commit aus dem Staging entfernt.`,
-    files: scratch
-  }]
-}
-
-function safeSlug(value: string, max = 42): string {
-  return (
-    value
-      .normalize('NFKD')
-      .replace(/[^a-zA-Z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .toLowerCase()
-      .slice(0, max) || 'orca-task'
-  )
-}
-
-function assertDiffLooksSafe(diff: string): void {
-  assertSecurityGate(diff)
-}
-
-function qualityGateShellCommand(
-  cwd: string,
-  command: string,
-  platform: NodeJS.Platform = process.platform
-): string {
-  if (platform === 'win32') {
-    const localBin = win32.join(cwd, 'node_modules', '.bin').replace(/'/g, "''")
-    return `& { $env:PATH = '${localBin};' + $env:PATH; ${command} }`
-  }
-  const localBin = posix.join(cwd, 'node_modules', '.bin').replace(/'/g, "'\"'\"'")
-  return `export PATH='${localBin}':"$PATH"; ${command}`
-}
-
-interface QualityGateRuntime {
-  inheritedEnv: NodeJS.ProcessEnv
-  platform: NodeJS.Platform
-}
-
-function qualityGateEnvironment(
-  cwd: string,
-  workspaceRoot: string,
-  inheritedEnv: NodeJS.ProcessEnv,
-  platform: NodeJS.Platform
-): NodeJS.ProcessEnv {
-  const pathKey = platform === 'win32'
-    ? Object.keys(inheritedEnv).find((key) => key.toLowerCase() === 'path') ?? 'Path'
-    : 'PATH'
-  const separator = platform === 'win32' ? ';' : ':'
-  const binaryPaths = [join(cwd, 'node_modules', '.bin')]
-  const workspaceBinaryPath = join(workspaceRoot, 'node_modules', '.bin')
-  if (workspaceBinaryPath !== binaryPaths[0]) binaryPaths.push(workspaceBinaryPath)
-  const inheritedPath = inheritedEnv[pathKey]
-  if (inheritedPath) binaryPaths.push(inheritedPath)
-  return { ...inheritedEnv, [pathKey]: binaryPaths.join(separator) }
-}
-
-async function runQualityGates(
-  cwd: string,
-  gates: string[],
-  workspaceRoot = cwd,
-  runtime: QualityGateRuntime = {
-    inheritedEnv: process.env,
-    platform: process.platform
-  }
-): Promise<void> {
-  const env = qualityGateEnvironment(
-    cwd,
-    workspaceRoot,
-    runtime.inheritedEnv,
-    runtime.platform
-  )
-  for (const command of gates) {
-    try {
-      await execAsync(command, {
-        cwd,
-        env,
-        windowsHide: true,
-        timeout: 15 * 60_000,
-        maxBuffer: MAX_OUTPUT,
-        shell: runtime.platform === 'win32' ? 'powershell.exe' : '/bin/sh'
-      })
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error)
-      throw new QualityGateError(command, detail)
-    }
-  }
-}
-
-interface IntegrationQualityGateDeps {
-  bootstrap(repositoryRoot: string, workingDir: string): Promise<unknown>
-  runGates(cwd: string, gates: string[], workspaceRoot?: string): Promise<void>
-}
-
-function assertManagedIntegrationPath(repositoryRoot: string, integrationPath: string): void {
-  const pathApi = win32.isAbsolute(repositoryRoot) || win32.isAbsolute(integrationPath)
-    ? win32
-    : posix
-  const integrationRoot = pathApi.resolve(repositoryRoot, '.orca-worktrees', 'integration')
-  const candidate = pathApi.resolve(integrationPath)
-  const relativePath = pathApi.relative(integrationRoot, candidate)
-  if (
-    !relativePath ||
-    relativePath === '..' ||
-    relativePath.startsWith('..' + pathApi.sep) ||
-    pathApi.isAbsolute(relativePath)
-  ) {
-    throw new QualityGateError(
-      'Dependency-Bootstrap',
-      'Integration-Worktree liegt nicht innerhalb des verwalteten Integration-Verzeichnisses.'
-    )
-  }
-}
-
-async function runIntegrationQualityGates(
-  repositoryRoot: string,
-  integrationPath: string,
-  gates: string[],
-  deps: IntegrationQualityGateDeps = {
-    bootstrap: ensureWorktreeDependencies,
-    runGates: runQualityGates
-  }
-): Promise<void> {
-  assertManagedIntegrationPath(repositoryRoot, integrationPath)
-  try {
-    await deps.bootstrap(repositoryRoot, integrationPath)
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error)
-    throw new QualityGateError(
-      'Dependency-Bootstrap',
-      `Dependencies für den Integration-Worktree konnten nicht bereitgestellt werden: ${detail}`
-    )
-  }
-  await deps.runGates(integrationPath, gates, repositoryRoot)
-}
-
-export type PrepareTaskResult = AutoPrOutcome & {
-  result: 'disabled' | 'unavailable' | 'no-changes' | 'committed' | 'needs-work' | 'blocked'
-  noChanges?: boolean
-  change?: PreparedTaskChange
-  findings?: TaskGateFinding[]
-  /** True when the block was caused by missing gate tooling, not by the change itself. */
-  infrastructure?: boolean
-}
-
-/**
- * Infrastruktur-Gate-Fehler (fehlendes eslint/prisma im frischen Worktree)
- * bekommen genau einen Bootstrap-Versuch, bevor sie als Blocker zählen.
- */
-async function runGatesWithBootstrapRetry(worktree: string, gates: string[]): Promise<void> {
-  try {
-    await runQualityGates(worktree, gates)
-  } catch (error) {
-    if (!(error instanceof QualityGateError) || !error.infrastructure) throw error
-    try {
-      const root = await repositoryRoot(worktree)
-      await ensureWorktreeDependencies(root, worktree)
-    } catch {
-      throw error
-    }
-    await runQualityGates(worktree, gates)
-  }
-}
+export { scratchFiles, pickBaseBranch, publishPreparedChanges }
+export type {
+  PreparedTaskChange,
+  AutoPrOutcome,
+  PrepareTaskResult
+} from './autoPr/types'
+export type {
+  RemoteCiOutcome,
+  RemoteCiCommandResult
+} from './autoPr/ciMonitor'
 
 function uniqueTaskFindings(findings: TaskGateFinding[]): TaskGateFinding[] {
   return [...new Map(findings.map((finding) => [
@@ -452,7 +91,7 @@ async function captureNeedsWorkChange(
     const stagedFiles = (await git(input.worktree!, ['diff', '--cached', '--name-only'])).trim()
     if (stagedFiles) {
       await git(input.worktree!, [
-        'commit', '-m', `orca(${input.taskId}): needs work - ${input.title.trim().slice(0, 60)}`
+        'commit', '-m', `vertragus(${input.taskId}): needs work - ${input.title.trim().slice(0, 60)}`
       ])
     }
   }
@@ -483,6 +122,9 @@ async function captureNeedsWorkChange(
     }
   }
 }
+
+/** Above this many files in one task commit an advisory granularity finding is raised. */
+const COMMIT_GRANULARITY_ADVISORY_THRESHOLD = 25
 
 export async function prepareTaskChange(input: PrepareTaskInput): Promise<PrepareTaskResult> {
   if (input.config.mode === 'off' && !input.commitOnly) {
@@ -561,7 +203,7 @@ export async function prepareTaskChange(input: PrepareTaskInput): Promise<Prepar
 
     if (stagedFiles.length > 0) {
       await git(input.worktree, [
-        'commit', '-m', 'orca(' + input.taskId + '): ' + input.title.trim().slice(0, 72)
+        'commit', '-m', 'vertragus(' + input.taskId + '): ' + input.title.trim().slice(0, 72)
       ])
     }
     const branch = await git(input.worktree, ['branch', '--show-current'])
@@ -585,6 +227,18 @@ export async function prepareTaskChange(input: PrepareTaskInput): Promise<Prepar
       ? (await git(input.worktree, ['diff', '--name-only', baseCommit + '...' + contract.commit]))
           .split(/\r?\n/).map((file) => file.trim()).filter(Boolean)
       : stagedFiles
+    // Advisory only — oversized late-phase commits are a review burden and a
+    // recurring retro finding, but they must never block a verified delivery.
+    if (files.length > COMMIT_GRANULARITY_ADVISORY_THRESHOLD && commits.length === 1) {
+      hygieneFindings.push({
+        gate: 'commit',
+        code: 'commit-granularity',
+        message:
+          `Task-Commit umfasst ${files.length} Dateien in einem einzigen Commit — ` +
+          'für späte Phasen kleinere, thematisch getrennte Commits bevorzugen.',
+        files: files.slice(0, 32)
+      })
+    }
     const change: PreparedTaskChange = {
       taskId: input.taskId,
       title: input.title,
@@ -677,488 +331,6 @@ export async function prepareTaskChange(input: PrepareTaskInput): Promise<Prepar
       message: error instanceof Error ? error.message : String(error),
       worktree: input.worktree
     }
-  }
-}
-
-async function repositoryRoot(cwd: string): Promise<string> {
-  const porcelain = await git(cwd, ['worktree', 'list', '--porcelain'])
-  const first = porcelain.match(/^worktree\s+(.+)$/m)?.[1]
-  if (!first) throw new Error('Repository-Hauptworktree konnte nicht bestimmt werden.')
-  return first.trim()
-}
-
-export function pickBaseBranch(
-  configured: string,
-  profileDefaultBranch?: string,
-  remoteBranch?: string
-): string {
-  if (configured.trim()) return configured.trim()
-  if (profileDefaultBranch?.trim()) return profileDefaultBranch.trim()
-  if (remoteBranch?.trim()) return remoteBranch.trim()
-  return 'main'
-}
-
-async function defaultBase(
-  cwd: string,
-  configured: string,
-  profileDefaultBranch?: string
-): Promise<string> {
-  if (configured.trim()) return configured.trim()
-  if (profileDefaultBranch?.trim()) return profileDefaultBranch.trim()
-  try {
-    const symbolic = await git(cwd, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'])
-    return symbolic.replace(/^origin\//, '')
-  } catch {
-    return 'main'
-  }
-}
-
-async function findExistingPr(cwd: string, branch: string): Promise<string | undefined> {
-  const raw = await runFile(cwd, 'gh', [
-    'pr',
-    'list',
-    '--head',
-    branch,
-    '--state',
-    'all',
-    '--json',
-    'url',
-    '--limit',
-    '1'
-  ])
-  const rows = JSON.parse(raw || '[]') as Array<{ url?: string }>
-  return rows[0]?.url
-}
-
-async function pushAndOpenPr(
-  cwd: string,
-  config: AutoPrConfig,
-  branch: string,
-  title: string,
-  body: string,
-  profileDefaultBranch?: string
-): Promise<string> {
-  if (['main', 'master'].includes(branch.toLowerCase())) {
-    throw new Error(`Auto-PR verweigert Push auf geschützten Branch ${branch}.`)
-  }
-  await runFile(cwd, 'gh', ['auth', 'status'])
-  await git(cwd, ['push', '--set-upstream', 'origin', branch])
-  const existing = await findExistingPr(cwd, branch)
-  if (existing) return existing
-
-  const args = ['pr', 'create', '--head', branch, '--title', title, '--body', body]
-  const base = await defaultBase(cwd, config.baseBranch, profileDefaultBranch)
-  if (base) args.push('--base', base)
-  if (config.mode === 'draft-after-checks') args.push('--draft')
-  for (const label of config.labels) args.push('--label', label)
-  for (const reviewer of config.reviewers) args.push('--reviewer', reviewer)
-  return runFile(cwd, 'gh', args)
-}
-
-function parseRemoteChecks(raw: string): RemoteCheckRow[] {
-  if (!raw.trim()) return []
-  try {
-    const parsed = JSON.parse(raw) as unknown
-    if (!Array.isArray(parsed)) return []
-    return parsed.filter((row): row is RemoteCheckRow => {
-      if (!row || typeof row !== 'object') return false
-      const candidate = row as Partial<RemoteCheckRow>
-      return typeof candidate.bucket === 'string' && typeof candidate.name === 'string'
-    })
-  } catch {
-    return []
-  }
-}
-
-function remoteCiFromChecks(checks: RemoteCheckRow[], prUrl: string): RemoteCiOutcome {
-  const failed = checks.find((check) => check.bucket === 'fail')
-  if (failed) {
-    return {
-      status: 'failed',
-      message: `Remote-CI fehlgeschlagen: ${failed.workflow || failed.name}.`,
-      url: failed.link || prUrl
-    }
-  }
-  const cancelled = checks.find((check) => check.bucket === 'cancel')
-  if (cancelled) {
-    return {
-      status: 'cancelled',
-      message: `Remote-CI abgebrochen: ${cancelled.workflow || cancelled.name}.`,
-      url: cancelled.link || prUrl
-    }
-  }
-  const pending = checks.filter((check) => !['pass', 'skipping'].includes(check.bucket))
-  if (pending.length > 0) {
-    return {
-      status: 'pending',
-      message: `${pending.length} Remote-Check(s) laufen.`,
-      url: pending[0]?.link || prUrl
-    }
-  }
-  return {
-    status: 'passed',
-    message: `${checks.length} Remote-Check(s) grün.`,
-    url: checks[0]?.link || prUrl
-  }
-}
-
-function combineRemoteCi(outcomes: RemoteCiOutcome[]): RemoteCiOutcome {
-  if (outcomes.length === 0) {
-    return { status: 'waiting', message: 'Remote-CI wird registriert.' }
-  }
-  if (outcomes.length === 1) return outcomes[0]
-  const priority: Record<RemoteCiStatus, number> = {
-    failed: 7,
-    cancelled: 6,
-    unavailable: 5,
-    'timed-out': 4,
-    pending: 3,
-    waiting: 2,
-    passed: 1
-  }
-  const decisive = outcomes.reduce((current, outcome) =>
-    priority[outcome.status] > priority[current.status] ? outcome : current
-  )
-  const counts = new Map<RemoteCiStatus, number>()
-  for (const outcome of outcomes) counts.set(outcome.status, (counts.get(outcome.status) ?? 0) + 1)
-  return {
-    status: decisive.status,
-    message: `Remote-CI (${outcomes.length} PRs): ${[...counts.entries()]
-      .map(([status, count]) => `${count} ${status}`)
-      .join(', ')}.`,
-    url: decisive.url
-  }
-}
-
-function hasAuthFailure(result: RemoteCiCommandResult): boolean {
-  return /(auth|login|logged in|token|HTTP 40[13]|permission)/i.test(
-    result.stdout + '\n' + result.stderr
-  )
-}
-
-function isNoChecksYet(result: RemoteCiCommandResult): boolean {
-  return /no checks reported/i.test(result.stdout + '\n' + result.stderr)
-}
-
-function commandDetail(result: RemoteCiCommandResult): string {
-  return (result.stderr || result.stdout).replace(/\s+/g, ' ').trim().slice(0, 240)
-}
-
-const defaultRemoteCiDeps: RemoteCiMonitorDeps = {
-  now: () => Date.now(),
-  delay: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-  runChecks: async (command) => {
-    const args = ['pr', 'checks', command.prUrl, '--json', REMOTE_CHECK_FIELDS]
-    if (command.watch) args.push('--watch', '--fail-fast', '--interval', '10')
-    return runFileResult(command.cwd, 'gh', args, command.timeoutMs)
-  }
-}
-
-async function monitorRemoteCi(
-  input: MonitorRemoteCiInput,
-  deps: RemoteCiMonitorDeps = defaultRemoteCiDeps
-): Promise<RemoteCiOutcome> {
-  const startedAt = deps.now()
-  const report = (outcome: RemoteCiOutcome): RemoteCiOutcome => {
-    input.onUpdate?.(outcome)
-    return outcome
-  }
-
-  report({ status: 'waiting', message: 'Remote-CI wird registriert.', url: input.prUrl })
-
-  while (deps.now() - startedAt <= REMOTE_CI_REGISTRATION_TIMEOUT_MS) {
-    const currentResult = await deps.runChecks({
-      cwd: input.cwd,
-      prUrl: input.prUrl,
-      watch: false,
-      timeoutMs: REMOTE_CI_READ_TIMEOUT_MS
-    })
-    if (hasAuthFailure(currentResult)) {
-      return report({
-        status: 'unavailable',
-        message: 'Remote-CI nicht verfügbar: GitHub-Authentifizierung fehlt oder ist ungültig.',
-        url: input.prUrl
-      })
-    }
-
-    const checks = parseRemoteChecks(currentResult.stdout)
-    if (checks.length > 0) {
-      const current = remoteCiFromChecks(checks, input.prUrl)
-      report(current)
-      if (current.status !== 'pending') return current
-
-      const remaining = REMOTE_CI_TOTAL_TIMEOUT_MS - (deps.now() - startedAt)
-      if (remaining <= 0) {
-        return report({
-          status: 'timed-out',
-          message: 'Remote-CI läuft nach dem Zeitlimit weiter.',
-          url: current.url || input.prUrl
-        })
-      }
-
-      const watched = await deps.runChecks({
-        cwd: input.cwd,
-        prUrl: input.prUrl,
-        watch: true,
-        timeoutMs: remaining
-      })
-      if (hasAuthFailure(watched)) {
-        return report({
-          status: 'unavailable',
-          message: 'Remote-CI nicht verfügbar: GitHub-Authentifizierung ist abgelaufen.',
-          url: input.prUrl
-        })
-      }
-      if (watched.timedOut) {
-        return report({
-          status: 'timed-out',
-          message: 'Remote-CI läuft nach dem Zeitlimit weiter.',
-          url: current.url || input.prUrl
-        })
-      }
-
-      // `gh pr checks --watch` is itself a terminal signal: it exits 0 when
-      // every check passed and non-zero (--fail-fast) once one failed. The old
-      // code discarded that exit code and did a single follow-up read, which
-      // races GitHub's eventual-consistency window right after --watch returns
-      // and mislabels green PRs as timed-out -> stopped (retros mrqulr14,
-      // mrn5pdnn). Re-poll briefly for a detailed terminal read, then fall back
-      // to the watch exit code instead of declaring a timeout.
-      const finalDeadline = Math.min(
-        deps.now() + REMOTE_CI_READ_TIMEOUT_MS,
-        startedAt + REMOTE_CI_TOTAL_TIMEOUT_MS
-      )
-      let lastFinalUrl = current.url || input.prUrl
-      let reads = 0
-      while (deps.now() <= finalDeadline || reads === 0) {
-        reads += 1
-        const finalResult = await deps.runChecks({
-          cwd: input.cwd,
-          prUrl: input.prUrl,
-          watch: false,
-          timeoutMs: REMOTE_CI_READ_TIMEOUT_MS
-        })
-        if (hasAuthFailure(finalResult)) {
-          return report({
-            status: 'unavailable',
-            message: 'Remote-CI-Ergebnis konnte wegen GitHub-Authentifizierung nicht gelesen werden.',
-            url: input.prUrl
-          })
-        }
-        const finalChecks = parseRemoteChecks(finalResult.stdout)
-        if (finalChecks.length > 0) {
-          const finalOutcome = remoteCiFromChecks(finalChecks, input.prUrl)
-          if (finalOutcome.status !== 'pending') return report(finalOutcome)
-          lastFinalUrl = finalOutcome.url || lastFinalUrl
-        }
-        if (deps.now() > finalDeadline) break
-        await deps.delay(REMOTE_CI_POLL_MS)
-      }
-      if (watched.exitCode === 0) {
-        return report({
-          status: 'passed',
-          message: 'Remote-CI grün (über gh --watch bestätigt).',
-          url: lastFinalUrl
-        })
-      }
-      return report({
-        status: 'timed-out',
-        message: 'Remote-CI-Watch endete ohne terminales Ergebnis.',
-        url: lastFinalUrl
-      })
-    }
-
-    if (
-      currentResult.exitCode !== 0 &&
-      currentResult.exitCode !== 8 &&
-      !currentResult.timedOut &&
-      !isNoChecksYet(currentResult)
-    ) {
-      return report({
-        status: 'unavailable',
-        message: `Remote-CI konnte nicht gelesen werden: ${commandDetail(currentResult) || 'unbekannter gh-Fehler'}.`,
-        url: input.prUrl
-      })
-    }
-    await deps.delay(REMOTE_CI_POLL_MS)
-  }
-
-  return report({
-    status: 'timed-out',
-    message: 'GitHub hat innerhalb von 90 Sekunden keine Remote-Checks registriert.',
-    url: input.prUrl
-  })
-}
-
-async function publishPerTask(input: PublishInput): Promise<AutoPrOutcome> {
-  const published: Array<{ cwd: string; url: string }> = []
-  for (const change of input.changes) {
-    const body = [
-      `Automatisch vorbereitet von Vertragus für **${input.goalTitle}**.`,
-      '',
-      `Task: ${change.taskId} – ${change.title}`,
-      '',
-      'Quality Gates:',
-      ...input.config.qualityGates.map((gate) => `- \`${gate}\``),
-      '- Security Gate (Secrets + sensitive negative tests)'
-    ].join('\n')
-    const url = await pushAndOpenPr(
-      change.worktree,
-      input.config,
-      change.branch,
-      `[Vertragus ${change.taskId}] ${change.title}`,
-      body,
-      input.profileDefaultBranch
-    )
-    published.push({ cwd: change.worktree, url })
-  }
-
-  const live = new Map<number, RemoteCiOutcome>()
-  const remoteOutcomes = await Promise.all(
-    published.map((entry, index) =>
-      monitorRemoteCi({
-        cwd: entry.cwd,
-        prUrl: entry.url,
-        onUpdate: (outcome) => {
-          live.set(index, outcome)
-          input.onRemoteCiUpdate?.(combineRemoteCi([...live.values()]))
-        }
-      })
-    )
-  )
-  const remoteCi = combineRemoteCi(remoteOutcomes)
-  input.onRemoteCiUpdate?.(remoteCi)
-  return {
-    status: 'published',
-    message: `${published.length} Pull Request(s) erstellt oder wiederverwendet. ${remoteCi.message}`,
-    url: published[0]?.url,
-    remoteCi
-  }
-}
-
-async function publishAggregate(input: PublishInput): Promise<AutoPrOutcome> {
-  const first = input.changes[0]
-  const root = await repositoryRoot(first.worktree)
-  const branch = `orca/goal-${safeSlug(input.goalId)}-${Date.now().toString(36)}`
-  const integrationPath = join(root, '.orca-worktrees', 'integration', safeSlug(branch, 60))
-  await mkdir(join(root, '.orca-worktrees', 'integration'), { recursive: true })
-  const base = await defaultBase(root, input.config.baseBranch, input.profileDefaultBranch)
-  // Refresh the base first so cherry-picks land on the current tip instead of a
-  // stale origin/<base>. A green commit built against a stale base is broadly
-  // conflicting once parallel main commits land (retros mrqt5wlo, mrqxapm5).
-  // Best-effort: a local test origin may not support fetching a single branch.
-  try {
-    await git(root, ['fetch', 'origin', base])
-  } catch {
-    // Continue with whatever origin/<base> is already known locally.
-  }
-  await git(root, ['worktree', 'add', '-b', branch, integrationPath, `origin/${base}`])
-
-  const skippedCommits: string[] = []
-  try {
-    for (const change of input.changes) {
-      for (const commit of change.commits) {
-        const candidate = await git(change.worktree, ['rev-parse', '--verify', commit + '^{commit}'])
-        const contract = verifiedTaskCommit(commit, candidate)
-        // Idempotency guard. A commit already reachable from the integration
-        // HEAD (the base already contains it, or an earlier task in this batch
-        // delivered the same history) must not be replayed — re-cherry-picking
-        // a commit that is already materialized is exactly what blocked the
-        // integration three runs in a row (retro mrqsh5km).
-        if (await isAncestor(integrationPath, contract.commit, 'HEAD')) {
-          skippedCommits.push(contract.commit)
-          continue
-        }
-        try {
-          await git(integrationPath, ['cherry-pick', contract.commit])
-        } catch (error) {
-          const detail = error instanceof Error ? error.message : String(error)
-          if (/nothing to commit|previous cherry-pick is now empty|--allow-empty/i.test(detail)) {
-            // The change is already present under a different SHA (rebased or
-            // squashed onto the refreshed base). Drop the redundant pick and
-            // keep integrating instead of aborting the whole batch.
-            await git(integrationPath, ['cherry-pick', '--skip'])
-            skippedCommits.push(contract.commit)
-            continue
-          }
-          throw error
-        }
-      }
-    }
-    const newCommitCount = Number(
-      (await git(integrationPath, ['rev-list', '--count', `origin/${base}..HEAD`])).trim()
-    )
-    if (!Number.isFinite(newCommitCount) || newCommitCount === 0) {
-      // Every task commit was already reachable from the refreshed base — there
-      // is nothing left to integrate. That is a clean no-op, not a conflict.
-      return {
-        status: 'skipped',
-        message: `Alle ${skippedCommits.length} Task-Commit(s) sind bereits in origin/${base} enthalten; keine Integration nötig.`,
-        branch,
-        worktree: integrationPath
-      }
-    }
-    const integratedDiff = await git(integrationPath, ['diff', '--no-ext-diff', '--binary', `origin/${base}...HEAD`])
-    assertSecurityGate(integratedDiff, { excludePaths: input.config.securityGateExcludes })
-    await runIntegrationQualityGates(root, integrationPath, input.config.qualityGates)
-    const body = [
-      `Automatisch integriert von Vertragus für **${input.goalTitle}**.`,
-      '',
-      'Enthaltene Tasks:',
-      ...input.changes.map((change) => `- ${change.taskId}: ${change.title}`),
-      '',
-      'Quality Gates:',
-      ...input.config.qualityGates.map((gate) => `- \`${gate}\``),
-      '- Security Gate (Secrets + sensitive negative tests)'
-    ].join('\n')
-    const url = await pushAndOpenPr(
-      integrationPath,
-      input.config,
-      branch,
-      `[Vertragus] ${input.goalTitle}`,
-      body,
-      input.profileDefaultBranch
-    )
-    const remoteCi = await monitorRemoteCi({
-      cwd: integrationPath,
-      prUrl: url,
-      onUpdate: input.onRemoteCiUpdate
-    })
-    const skipNote = skippedCommits.length > 0
-      ? ` ${skippedCommits.length} bereits vorhandene(r) Commit(s) übersprungen.`
-      : ''
-    return {
-      status: 'published',
-      message: `${input.changes.length} Tasks in einen Pull Request integriert.${skipNote} ${remoteCi.message}`,
-      url,
-      branch,
-      worktree: integrationPath,
-      remoteCi
-    }
-  } catch (error) {
-    try {
-      await git(integrationPath, ['cherry-pick', '--abort'])
-    } catch {
-      // Keep the integration worktree for manual conflict inspection.
-    }
-    return {
-      status: 'blocked',
-      message: error instanceof Error ? error.message : String(error),
-      branch,
-      worktree: integrationPath
-    }
-  }
-}
-
-export async function publishPreparedChanges(input: PublishInput): Promise<AutoPrOutcome> {
-  if (input.config.mode === 'off') return { status: 'skipped', message: 'Auto-PR ist deaktiviert.' }
-  if (input.changes.length === 0) return { status: 'skipped', message: 'Keine Task-Commits vorhanden.' }
-  try {
-    return input.config.strategy === 'per-task'
-      ? await publishPerTask(input)
-      : await publishAggregate(input)
-  } catch (error) {
-    return { status: 'blocked', message: error instanceof Error ? error.message : String(error) }
   }
 }
 

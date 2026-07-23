@@ -1,5 +1,5 @@
 import type { EventEmitter } from 'node:events'
-import type { OrcaTask, OrchestratorSnapshot } from '@shared/orchestrator'
+import type { VertragusTask, OrchestratorSnapshot, WorkspaceSessionSummary } from '@shared/orchestrator'
 import {
   deriveRemoteApprovals,
   type ApprovalItem,
@@ -9,7 +9,9 @@ import {
 
 export interface SnapshotBus extends EventEmitter {
   on(event: 'snapshot', listener: (snapshot: OrchestratorSnapshot) => void): this
+  on(event: 'changed', listener: (sessions: WorkspaceSessionSummary[]) => void): this
   off(event: 'snapshot', listener: (snapshot: OrchestratorSnapshot) => void): this
+  off(event: 'changed', listener: (sessions: WorkspaceSessionSummary[]) => void): this
 }
 
 export function deriveApprovals(snapshots: Iterable<OrchestratorSnapshot>): ApprovalItem[] {
@@ -23,7 +25,7 @@ function canReadSession(device: DeviceInfo, profileId?: string, sessionId?: stri
   ))
 }
 
-function remoteTask(task: OrcaTask): OrcaTask {
+function remoteTask(task: VertragusTask): VertragusTask {
   return {
     ...task,
     worktree: undefined,
@@ -70,18 +72,42 @@ export class RemoteReadModel {
     this.publish({ type: 'approvals', at: Date.now(), approvals: deriveApprovals(this.snapshots.values()) })
   }
 
+  // Prune snapshots for workspace sessions that no longer exist. Without this the
+  // map grows for the lifetime of the app (every closed session's full snapshot is
+  // retained, replayed to each newly connecting device, and re-scanned by
+  // deriveApprovals on every snapshot event).
+  private readonly onSessionsChanged = (sessions: WorkspaceSessionSummary[]): void => {
+    const live = new Set<string>()
+    for (const session of sessions) {
+      live.add(session.id)
+      live.add(session.profileId)
+    }
+    let removed = false
+    for (const key of this.snapshots.keys()) {
+      if (!live.has(key)) {
+        this.snapshots.delete(key)
+        removed = true
+      }
+    }
+    if (removed) {
+      this.publish({ type: 'approvals', at: Date.now(), approvals: deriveApprovals(this.snapshots.values()) })
+    }
+  }
+
   constructor(private readonly bus: SnapshotBus) {}
 
   start(): void {
     if (this.started) return
     this.started = true
     this.bus.on('snapshot', this.onSnapshot)
+    this.bus.on('changed', this.onSessionsChanged)
   }
 
   stop(): void {
     if (!this.started) return
     this.started = false
     this.bus.off('snapshot', this.onSnapshot)
+    this.bus.off('changed', this.onSessionsChanged)
     this.listeners.clear()
   }
 

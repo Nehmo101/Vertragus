@@ -37,7 +37,7 @@ describe('darwinLoginShellPath', () => {
   it('extracts the marked PATH despite noisy interactive shell startup output', () => {
     expect(
       darwinLoginShellPath(
-        'welcome from .zshrc\n__ORCA_LOGIN_SHELL_PATH__=/opt/homebrew/bin:/usr/bin\n'
+        'welcome from .zshrc\n__VERTRAGUS_LOGIN_SHELL_PATH__=/opt/homebrew/bin:/usr/bin\n'
       )
     ).toBe('/opt/homebrew/bin:/usr/bin')
   })

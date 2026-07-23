@@ -39,8 +39,11 @@ import { resolveSlotModel } from '@main/agents/providerModelDefaults'
 import { buildInteractiveLaunch } from '@main/providers/types'
 import { resolveLaunch } from '@main/agents/resolveCommand'
 import { terminateProcessTreeWithEscalation } from '@main/agents/processTermination'
-import { createWorktree, currentBranch, isOrcaBranch, rollbackWorktree } from '@main/agents/worktree'
-import { buildAgentResumeState } from '@main/agents/resumeState'
+import { adoptLegacyDir } from '@main/config/legacyAdoption'
+import { CursorTrustMonitor } from '@main/agents/cursorTrustMonitor'
+import { PreflightCache, type PanePreflightRunner } from '@main/agents/preflightCache'
+import { ResumeSweep } from '@main/agents/resumeSweep'
+import { createWorktree, currentBranch, isManagedBranch, rollbackWorktree } from '@main/agents/worktree'
 import { sessionStore, type AgentStatePersistence } from '@main/config/sessionStore'
 import { canonicalWorkspacePath, workspacePathKey } from '@main/agents/workspacePath'
 import {
@@ -48,10 +51,8 @@ import {
   runPanePreflight,
   type PanePreflightInput
 } from '@main/agents/panePreflight'
-import {
-  cursorWorkspaceTrustPrompt,
-  isExactOrcaWorktreePath
-} from '@main/agents/cursorWorkspaceTrust'
+import { BUFFER_LIMIT, ScrollbackBuffer } from '@main/agents/scrollbackBuffer'
+import { isExactManagedWorktreePath } from '@main/agents/cursorWorkspaceTrust'
 import { getProfile, getSetting } from '@main/config/store'
 import {
   runHeadless,
@@ -62,6 +63,7 @@ import {
   type HeadlessUsageSnapshot
 } from '@main/agents/headless'
 import { buildOrchestratorSetup } from '@main/orchestrator/orchestratorLaunch'
+import { buildSoloSetup } from '@main/orchestrator/soloLaunch'
 import { buildSubagentMcpArgs } from '@main/orchestrator/externalMcp'
 import { NameAllocator } from '@main/agents/names'
 import { detectLimit, limitKindLabel, stripAnsi } from '@main/agents/limitSignals'
@@ -81,11 +83,15 @@ import { agentIdentityInstruction, isReusableTeamMember } from '@main/agents/tea
 import { closePaneWindows } from '@main/windows'
 import { permissionBroker } from '@main/permissions/PermissionBroker'
 
-const BUFFER_LIMIT = 200_000 // chars of scrollback kept per agent
-const CURSOR_TRUST_RETRY_DELAY_MS = 150
-const CURSOR_TRUST_MAX_RETRIES = 3
-const CURSOR_TRUST_WATCHDOG_MS = 8_000
+// Cursor's interactive trust screen fits in a few KB and is only on-screen at
+// startup; scanning a bounded tail (not the whole 200 KB buffer on every chunk)
+// keeps the per-chunk trust check cheap.
 const HANDOFF_SHUTDOWN_TIMEOUT_MS = 5_000
+
+// ScrollbackBuffer + BUFFER_LIMIT now live in ./scrollbackBuffer (extracted for
+// independent testing); re-exported so the `@main/agents/AgentManager` import
+// surface used by tests stays unchanged.
+export { ScrollbackBuffer }
 
 type SpawnRequest = SpawnAgentRequest & { permissionMode?: ClaudePermissionMode }
 
@@ -93,7 +99,7 @@ interface Managed {
   info: AgentInstanceInfo
   pty?: pty.IPty
   headless?: HeadlessHandle
-  buffer: string
+  buffer: ScrollbackBuffer
   seq: number
   /** True once a usage-limit signal fired for this agent (debounce). */
   limitWarned?: boolean
@@ -104,13 +110,8 @@ interface Managed {
   /** Protect a team pane from automatic reuse after the user typed into it. */
   interactiveUsed?: boolean
   /** Cursor's startup trust confirmation was handled for a Vertragus worktree. */
-  workspaceTrustHandled?: boolean
   /** A bounded retry while Cursor renders its trust screen across PTY chunks. */
-  workspaceTrustRetry?: ReturnType<typeof setTimeout>
-  workspaceTrustRetryCount?: number
   /** Detect and recover when Cursor stays on "Trusting workspace..." indefinitely. */
-  workspaceTrustWatchdog?: ReturnType<typeof setTimeout>
-  workspaceTrustNudged?: boolean
   /** Ignore the interactive PTY exit while converting this pane into a task. */
   reassigning?: boolean
 }
@@ -137,7 +138,7 @@ export interface RunTaskRequest {
   baseRef?: string
 }
 
-export type PanePreflightRunner = (input: PanePreflightInput) => Promise<PanePreflightReport>
+export type { PanePreflightRunner } from '@main/agents/preflightCache'
 
 function assertModelSelection(provider: AgentProviderId, model: string): void {
   if (provider === 'ollama' && !model) {
@@ -160,7 +161,7 @@ function assertProviderSelection(provider: AgentProviderId, model: string): void
 
 export class AgentManager extends EventEmitter {
   private readonly agents = new Map<string, Managed>()
-  private readonly preflightReports = new Map<string, PanePreflightReport>()
+  private readonly preflightCache = new PreflightCache((input) => this.preflightRunner(input))
   private readonly handoffStarts = new Set<string>()
   private readonly handoffBriefings = new Map<
     string,
@@ -200,30 +201,24 @@ export class AgentManager extends EventEmitter {
     if (changed) this.changed()
   }
 
-  private preflightKey(provider: AgentProviderId, workingDir: string): string {
-    return `${provider}:${workspacePathKey(workingDir)}`
-  }
-
   latestPreflight(provider: AgentProviderId, workingDir: string): PanePreflightReport | undefined {
-    return this.preflightReports.get(this.preflightKey(provider, workingDir))
+    return this.preflightCache.latest(provider, workingDir)
   }
 
   async preflightSlot(input: PanePreflightInput): Promise<PanePreflightReport> {
-    try {
-      const report = await this.preflightRunner(input)
-      this.preflightReports.set(this.preflightKey(input.provider, input.workingDir), report)
-      return report
-    } catch (error) {
-      if (error instanceof PanePreflightError) {
-        this.preflightReports.set(this.preflightKey(input.provider, input.workingDir), error.report)
-      }
-      throw error
-    }
+    return this.preflightCache.run(input)
   }
 
   buffer(id: string): { data: string; seq: number } {
     const m = this.agents.get(id)
-    return { data: m?.buffer ?? '', seq: m?.seq ?? 0 }
+    return { data: m ? m.buffer.toString() : '', seq: m?.seq ?? 0 }
+  }
+
+  /** Last `maxChars` of scrollback, sliced in-process to keep IPC payloads small. */
+  bufferTail(id: string, maxChars: number): { data: string; seq: number } {
+    const m = this.agents.get(id)
+    const cap = Number.isFinite(maxChars) && maxChars > 0 ? Math.min(maxChars, BUFFER_LIMIT) : 4_000
+    return { data: m ? m.buffer.tail(cap) : '', seq: m?.seq ?? 0 }
   }
 
   private emitEvent(
@@ -493,18 +488,18 @@ export class AgentManager extends EventEmitter {
     worktree: string
     branch: string
   }> {
-    if (!isExactOrcaWorktreePath(requested)) {
+    if (!isExactManagedWorktreePath(requested)) {
       throw new Error('Recovery-Worktree wurde nicht von Vertragus erzeugt.')
     }
     const workingDir = await canonicalWorkspacePath(requested)
     if (
-      !isExactOrcaWorktreePath(workingDir) ||
+      !isExactManagedWorktreePath(workingDir) ||
       workspacePathKey(workingDir) !== workspacePathKey(requested)
     ) {
       throw new Error('Recovery-Worktree ist ein Alias oder wurde verschoben.')
     }
     const branch = await currentBranch(workingDir)
-    if (!branch || branch === 'HEAD' || !isOrcaBranch(branch)) {
+    if (!branch || branch === 'HEAD' || !isManagedBranch(branch)) {
       throw new Error('Recovery-Worktree besitzt keinen sicheren Vertragus-Branch.')
     }
     return { workingDir, worktree: workingDir, branch }
@@ -512,13 +507,13 @@ export class AgentManager extends EventEmitter {
 
 
   private pushData(managed: Managed, data: string): void {
-    managed.buffer = (managed.buffer + data).slice(-BUFFER_LIMIT)
+    managed.buffer.append(data)
     managed.seq += 1
     this.emit('data', { id: managed.info.id, data, seq: managed.seq })
     this.inspectPermissionPrompt(managed)
     this.scanForLimit(managed)
-    this.autoTrustCursorWorktree(managed)
-    this.monitorCursorWorkspaceTrust(managed)
+    this.cursorTrust.autoTrust(managed.info.id)
+    this.cursorTrust.monitor(managed.info.id)
   }
 
   /**
@@ -539,7 +534,7 @@ export class AgentManager extends EventEmitter {
       workspaceSessionId: info.workspaceSessionId,
       engineId: info.engineId,
       yolo: Boolean(info.yolo)
-    }, stripAnsi(managed.buffer.slice(-2_000)), (response) => {
+    }, stripAnsi(managed.buffer.tail(2_000)), (response) => {
       const current = this.agents.get(info.id)
       if (!current?.pty) return
       if (current.info.status === 'waiting') current.info.status = 'running'
@@ -557,39 +552,32 @@ export class AgentManager extends EventEmitter {
    * Cursor's --trust flag is headless-only. In interactive mode, confirm its
    * initial prompt only when this manager created the isolated worktree.
    */
-  private clearCursorWorkspaceTrustRetry(managed: Managed): void {
-    if (managed.workspaceTrustRetry) {
-      clearTimeout(managed.workspaceTrustRetry)
-      managed.workspaceTrustRetry = undefined
-    }
-    if (managed.workspaceTrustWatchdog) {
-      clearTimeout(managed.workspaceTrustWatchdog)
-      managed.workspaceTrustWatchdog = undefined
-    }
-  }
-
-  private cursorTrustProgressVisible(managed: Managed): boolean {
-    const tail = stripAnsi(managed.buffer.slice(-800)).replace(/\r/g, '\n').trimEnd()
-    return /Trusting workspace(?:\.{3})?\s*$/i.test(tail)
-  }
-
-  private monitorCursorWorkspaceTrust(managed: Managed): void {
-    if (!managed.workspaceTrustHandled || !managed.pty || managed.info.provider !== 'cursor') return
-    if (!this.cursorTrustProgressVisible(managed)) {
-      if (managed.workspaceTrustWatchdog) this.clearCursorWorkspaceTrustRetry(managed)
-      return
-    }
-    if (managed.workspaceTrustWatchdog) return
-    managed.workspaceTrustWatchdog = setTimeout(() => {
-      managed.workspaceTrustWatchdog = undefined
-      if (!this.agents.has(managed.info.id) || !managed.pty || !this.cursorTrustProgressVisible(managed)) return
-      if (!managed.workspaceTrustNudged) {
-        managed.workspaceTrustNudged = true
-        managed.pty.write('\r')
-        this.emitEvent(`${managed.info.name} - Cursor-Trust reagiert nicht; Enter wird erneut gesendet.`, 'warn', managed.info)
-        this.monitorCursorWorkspaceTrust(managed)
-        return
+  /** Stateful Cursor-trust retry/watchdog layer (extracted, audit A2). */
+  private readonly cursorTrust = new CursorTrustMonitor({
+    isPresent: (id) => this.agents.has(id),
+    hasPty: (id) => Boolean(this.agents.get(id)?.pty),
+    writePty: (id, data) => {
+      this.agents.get(id)?.pty?.write(data)
+    },
+    bufferTail: (id, chars) => this.agents.get(id)?.buffer.tail(chars) ?? '',
+    trustView: (id) => {
+      const managed = this.agents.get(id)
+      if (!managed) return undefined
+      return {
+        name: managed.info.name,
+        provider: managed.info.provider,
+        workingDir: managed.info.workingDir,
+        worktree: managed.info.worktree,
+        interactiveUsed: Boolean(managed.interactiveUsed)
       }
+    },
+    emitEvent: (id, text, tone) => {
+      const managed = this.agents.get(id)
+      this.emitEvent(text, tone, managed?.info)
+    },
+    failTrustStuckAgent: (id, message) => {
+      const managed = this.agents.get(id)
+      if (!managed) return
       managed.reassigning = true
       this.terminate(managed)
       this.releaseCapacity(managed)
@@ -598,48 +586,15 @@ export class AgentManager extends EventEmitter {
         managed,
         '\r\n\x1b[31mCursor blieb bei der Workspace-Trust-Bestaetigung haengen. Der Agent wurde beendet und kann vom Orchestrator ersetzt werden.\x1b[0m\r\n'
       )
-      this.emitEvent(`${managed.info.name} - Cursor Workspace-Trust fehlgeschlagen`, 'error', managed.info)
+      this.emitEvent(message, 'error', managed.info)
       this.changed()
-    }, CURSOR_TRUST_WATCHDOG_MS)
-  }
-
-  private retryCursorWorkspaceTrust(managed: Managed): void {
-    if (
-      managed.workspaceTrustRetry ||
-      managed.workspaceTrustHandled ||
-      (managed.workspaceTrustRetryCount ?? 0) >= CURSOR_TRUST_MAX_RETRIES
-    ) {
-      return
     }
-    managed.workspaceTrustRetryCount = (managed.workspaceTrustRetryCount ?? 0) + 1
-    managed.workspaceTrustRetry = setTimeout(() => {
-      managed.workspaceTrustRetry = undefined
-      if (!this.agents.has(managed.info.id) || !managed.pty) return
-      this.autoTrustCursorWorktree(managed)
-    }, CURSOR_TRUST_RETRY_DELAY_MS)
+  })
+
+  private clearCursorWorkspaceTrustRetry(managed: Managed): void {
+    this.cursorTrust.clear(managed.info.id)
   }
 
-  private autoTrustCursorWorktree(managed: Managed): void {
-    const { info } = managed
-    if (info.provider !== 'cursor' || !managed.pty) return
-    const prompt = cursorWorkspaceTrustPrompt({
-      output: managed.buffer,
-      workingDir: info.workingDir,
-      worktree: info.worktree,
-      alreadyHandled: Boolean(managed.workspaceTrustHandled),
-      interactiveUsed: Boolean(managed.interactiveUsed)
-    })
-    if (prompt === 'none') return
-    if (prompt === 'partial') {
-      this.retryCursorWorkspaceTrust(managed)
-      return
-    }
-
-    this.clearCursorWorkspaceTrustRetry(managed)
-    managed.workspaceTrustHandled = true
-    managed.pty.write('a\r')
-    this.emitEvent(`${info.name} · Cursor-Trust für Vertragus-Worktree bestätigt (a gesendet)`, 'dispatch', info)
-  }
   /**
    * Best-effort scan of an interactive agent's output for a usage-limit banner.
    * Fires once per agent (debounced). Marks `info.limitWarning` and emits a warn
@@ -651,7 +606,7 @@ export class AgentManager extends EventEmitter {
     // but only executable agent providers can emit model usage-limit signals.
     if (managed.info.provider === 'github' || managed.info.provider === 'cloudflare') return
     // Match against a short tail so phrases split across chunks are still caught.
-    const hit = detectLimit(managed.info.provider, managed.buffer.slice(-2000))
+    const hit = detectLimit(managed.info.provider, managed.buffer.tail(2000))
     if (!hit) return
     managed.limitWarned = true
     managed.info.limitWarning = { kind: hit.kind, detectedAt: Date.now(), note: hit.note }
@@ -701,15 +656,28 @@ export class AgentManager extends EventEmitter {
             adaptiveTeam: orchestratorProfile?.planner.routingMode === 'adaptive',
             maxRetries: orchestratorProfile?.planner.maxRetries,
             engineId: req.engineId,
-            benchmarkMode: orchestratorProfile?.benchmark?.enabled ?? false
+            benchmarkMode: orchestratorProfile?.benchmark?.enabled ?? false,
+            skills: orchestratorProfile?.skills
           })
         : undefined
       if (orchestratorSetup && !orchestratorSetup.capability.supported) {
         throw new Error(orchestratorSetup.capability.reason ?? `${req.provider} cannot orchestrate.`)
       }
+      // Efficiency-Solo agents get the minimal solo MCP session + compact solo
+      // prompt; unsupported providers degrade to a plain agent launch.
+      const soloSetup = !orchestratorSetup && req.solo
+        ? buildSoloSetup(req.provider, name, id, req.workspaceSessionId, {
+            engineId: req.engineId,
+            skills: (req.profileId ? getProfile(req.profileId) : undefined)?.skills
+          })
+        : undefined
       const resumeArgs = req.resumeConversation ? providerResumeArgs(req.provider) : undefined
       const extraArgs = [
-        ...(orchestratorSetup ? orchestratorSetup.extraArgs : buildSubagentMcpArgs(req.provider, id)),
+        ...(orchestratorSetup
+          ? orchestratorSetup.extraArgs
+          : soloSetup?.capability.supported
+            ? soloSetup.extraArgs
+            : buildSubagentMcpArgs(req.provider, id)),
         ...(resumeArgs ?? [])
       ]
 
@@ -747,7 +715,7 @@ export class AgentManager extends EventEmitter {
       status: 'running',
       startedAt: Date.now()
     }
-    const managed: Managed = { info, buffer: '', seq: 0, capacityProvider: req.provider }
+    const managed: Managed = { info, buffer: new ScrollbackBuffer(), seq: 0, capacityProvider: req.provider }
     capacityHeld = false
     this.agents.set(id, managed)
     if (req.teamRole) {
@@ -765,6 +733,9 @@ export class AgentManager extends EventEmitter {
         cwd: workingDir,
         env: {
           ...process.env,
+          VERTRAGUS_AGENT_NAME: name,
+          VERTRAGUS_AGENT_ROLE: req.teamRole ?? info.role,
+          // Deprecated: legacy names kept so existing user hooks keep working.
           ORCA_AGENT_NAME: name,
           ORCA_AGENT_ROLE: req.teamRole ?? info.role
         } as Record<string, string>
@@ -805,7 +776,7 @@ export class AgentManager extends EventEmitter {
       else this.releaseCapacity(managed)
       info.status = 'error'
       const msg = err instanceof Error ? err.message : String(err)
-      managed.buffer = `Spawn fehlgeschlagen: ${msg}\r\n`
+      managed.buffer.reset(`Spawn fehlgeschlagen: ${msg}\r\n`)
       this.emitEvent(`${id} Spawn fehlgeschlagen: ${msg}`, 'error', info)
     }
 
@@ -815,7 +786,10 @@ export class AgentManager extends EventEmitter {
 
   /** Persist a handoff briefing to an absolute path and return it. */
   private writeBriefing(sourceId: string, targetId: string, at: number, content: string): string {
-    const dir = join(app.getPath('userData'), 'orca-handoffs')
+    const userData = app.getPath('userData')
+    // Bring pre-rebrand handoff briefings along (copy-only, one-time).
+    adoptLegacyDir(userData, 'orca-handoffs', 'vertragus-handoffs')
+    const dir = join(userData, 'vertragus-handoffs')
     mkdirSync(dir, { recursive: true })
     const file = join(dir, `handoff-${sourceId}-to-${targetId}-${at}.md`)
     writeFileSync(file, content, 'utf8')
@@ -876,7 +850,7 @@ export class AgentManager extends EventEmitter {
         targetName: target.name,
         task: req.task,
         summary: req.summary,
-        scrollback: src.buffer,
+        scrollback: src.buffer.toString(),
         scrollbackChars: getSetting<number>('handoff.scrollbackChars'),
         timestamp: at
       })
@@ -1020,7 +994,7 @@ export class AgentManager extends EventEmitter {
       status: 'running',
       startedAt: Date.now()
     }
-    const managed: Managed = { info, buffer: '', seq: 0 }
+    const managed: Managed = { info, buffer: new ScrollbackBuffer(), seq: 0 }
     this.agents.set(id, managed)
     this.pushData(
       managed,
@@ -1161,7 +1135,7 @@ export class AgentManager extends EventEmitter {
         status: 'running',
         startedAt: Date.now()
       }
-      managed = { info, buffer: '', seq: 0 }
+      managed = { info, buffer: new ScrollbackBuffer(), seq: 0 }
       this.agents.set(id, managed)
       this.pushData(
         managed,
@@ -1365,7 +1339,7 @@ export class AgentManager extends EventEmitter {
       () => {
         const managed = this.agents.get(id)
         return {
-          buffer: managed?.buffer ?? '',
+          buffer: managed ? managed.buffer.toString() : '',
           alive: managed ? this.isAlive(managed) : false
         }
       },
@@ -1492,38 +1466,25 @@ export class AgentManager extends EventEmitter {
     this.changed()
   }
 
-  private resumeSweepTimer: ReturnType<typeof setInterval> | undefined
+  /** Periodic resume-state persistence (extracted, audit A2). */
+  private readonly resumeSweep = new ResumeSweep(
+    {
+      listSessionAgents: () =>
+        [...this.agents.values()].map((managed) => ({
+          info: managed.info,
+          scrollback: managed.buffer.toString()
+        }))
+    },
+    sessionStore
+  )
 
-  /**
-   * Persist the last-known state (info + scrollback tail) of every
-   * session-bound agent, grouped per workspace session. Called periodically by
-   * the sweep and once more during the ordered shutdown, so a crash loses at
-   * most one sweep interval of terminal history.
-   */
-  persistResumeStates(store: AgentStatePersistence = sessionStore): void {
-    const bySession = new Map<string, ReturnType<typeof buildAgentResumeState>[]>()
-    const capturedAt = Date.now()
-    for (const managed of this.agents.values()) {
-      const sessionId = managed.info.workspaceSessionId
-      if (!sessionId) continue
-      const states = bySession.get(sessionId) ?? []
-      states.push(buildAgentResumeState(managed.info, managed.buffer, capturedAt))
-      bySession.set(sessionId, states)
-    }
-    for (const [sessionId, agents] of bySession) {
-      try {
-        store.writeAgentResumeStates(sessionId, agents)
-      } catch (error) {
-        console.warn('[Agents] resume-state persistence failed', sessionId, error)
-      }
-    }
+  persistResumeStates(store?: AgentStatePersistence): void {
+    this.resumeSweep.persist(store)
   }
 
   /** Start the periodic resume-state sweep (idempotent; runtime only). */
   startResumeStateSweep(intervalMs = 30_000): void {
-    if (this.resumeSweepTimer) return
-    this.resumeSweepTimer = setInterval(() => this.persistResumeStates(), intervalMs)
-    this.resumeSweepTimer.unref?.()
+    this.resumeSweep.start(intervalMs)
   }
 
   /** True when the session already has a live agent (guards double restarts). */

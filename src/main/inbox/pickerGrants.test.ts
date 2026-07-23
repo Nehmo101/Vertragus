@@ -22,7 +22,7 @@ describe('pickerGrants', () => {
   })
 
   it('issues a single-use grant for a picked file', async () => {
-    const dir = join(tmpdir(), `orca-grant-${randomUUID()}`)
+    const dir = join(tmpdir(), `vertragus-grant-${randomUUID()}`)
     roots.push(dir)
     await mkdir(dir, { recursive: true })
     const file = join(dir, 'note.txt')

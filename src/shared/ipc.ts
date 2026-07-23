@@ -45,6 +45,8 @@ import type {
   PromptEnhancementIpcResult
 } from './promptEnhancement'
 import type {
+  ApnsConfigInput,
+  ApnsConfigStatus,
   DeviceInfo,
   PairingChallenge,
   RemoteBudgetCaps,
@@ -88,6 +90,7 @@ export const IPC = {
   sessionsRestoreStatus: 'sessions:restoreStatus',
   sessionsRestartAgents: 'sessions:restartAgents',
   sessionsDiscardOrphanWorktree: 'sessions:discardOrphanWorktree',
+  sessionsDiscardOrphanWorktrees: 'sessions:discardOrphanWorktrees',
   mcpList: 'mcp:list',
   mcpSave: 'mcp:save',
   gitSwitchBranch: 'git:switchBranch',
@@ -132,6 +135,7 @@ export const IPC = {
   agentsKillAll: 'agents:killAll',
   agentsClean: 'agents:clean',
   agentBuffer: 'agent:buffer',
+  agentBufferTail: 'agent:bufferTail',
   agentPopout: 'agent:popout',
   agentHandoff: 'agent:handoff',
   agentsBulkHandoff: 'agents:bulkHandoff',
@@ -164,6 +168,9 @@ export const IPC = {
   remoteListDevices: 'remote:listDevices',
   remoteRevokeDevice: 'remote:revokeDevice',
   remotePairStart: 'remote:pairStart',
+  remoteSetApnsConfig: 'remote:setApnsConfig',
+  remoteGetApnsConfigStatus: 'remote:getApnsConfigStatus',
+  remoteClearApnsConfig: 'remote:clearApnsConfig',
   retroListRetros: 'retro:listRetros',
   retroListLearnings: 'retro:listLearnings',
   retroListBenchmarks: 'retro:listBenchmarks',
@@ -172,7 +179,7 @@ export const IPC = {
   // main -> renderer push channels
   evAgentData: 'ev:agentData',
   evAgentsChanged: 'ev:agentsChanged',
-  evOrcaEvent: 'ev:orcaEvent',
+  evVertragusEvent: 'ev:vertragusEvent',
   evProvidersHealth: 'ev:providersHealth',
   evAppUpdateState: 'ev:appUpdateState',
   evOrchestrator: 'ev:orchestrator',
@@ -180,10 +187,13 @@ export const IPC = {
   evRemote: 'ev:remote',
   evVoiceAssistant: 'ev:voiceAssistant',
   evUiCommand: 'ev:uiCommand',
+  evConfigChanged: 'ev:configChanged',
   // window controls (frameless title bar)
   winMinimize: 'win:minimize',
   winMaximizeToggle: 'win:maximizeToggle',
-  winClose: 'win:close'
+  winClose: 'win:close',
+  /** Renderer → main: aggregated pending-feedback count for taskbar/dock attention. */
+  attentionSetPendingFeedbackCount: 'attention:setPendingFeedbackCount'
 } as const
 
 export interface AppInfo {
@@ -261,7 +271,7 @@ export interface GithubAuthStatus {
   /** Connection-level scopes that are missing (feature-specific scopes are checked on use). */
   missingScopes: string[]
   needsReauth: boolean
-  /** True when ORCA_GITHUB_OAUTH_CLIENT_ID or a saved client id is configured. */
+  /** True when VERTRAGUS_GITHUB_OAUTH_CLIENT_ID (legacy: ORCA_*) or a saved client id is configured. */
   oauthConfigured: boolean
   detail?: string
 }
@@ -358,6 +368,12 @@ export interface VertragusApi {
   listModels(): Promise<ProviderModelCatalog>
   getConfig<T = unknown>(key: string): Promise<T | undefined>
   setConfig(key: string, value: unknown): Promise<void>
+  /**
+   * Fires in every window whenever any window persists a config value, so
+   * secondary windows (agent panes, voice overlay) mirror shared UI settings
+   * (theme, density, readable panes) live instead of going stale until reload.
+   */
+  onConfigChanged(cb: (change: { key: string; value: unknown }) => void): () => void
 
   listProfiles(): Promise<WorkspaceProfile[]>
   saveProfile(profile: WorkspaceProfile): Promise<WorkspaceProfile[]>
@@ -379,6 +395,8 @@ export interface VertragusApi {
     restartAgents(profileId: string, sessionId: string): Promise<AgentInstanceInfo[]>
     /** Discard one orphaned Vertragus worktree (uncommitted work is lost). */
     discardOrphanWorktree(path: string): Promise<boolean>
+    /** Discard many orphaned worktrees; continues after individual failures. */
+    discardOrphanWorktrees(paths: string[]): Promise<{ discarded: number; failed: number }>
   }
 
   /** External MCP servers attached to the launched agents. */
@@ -459,6 +477,11 @@ export interface VertragusApi {
     listDevices(): Promise<DeviceInfo[]>
     revokeDevice(deviceId: string): Promise<boolean>
     pairStart(request?: RemotePairStartRequest): Promise<PairingChallenge>
+    /** Desktop-only: persist encrypted APNs signing credentials for native iOS push. */
+    setApnsConfig(config: ApnsConfigInput): Promise<ApnsConfigStatus>
+    /** Non-secret APNs status; never returns the .p8 key. */
+    getApnsConfigStatus(): Promise<ApnsConfigStatus>
+    clearApnsConfig(): Promise<ApnsConfigStatus>
     onStatus(cb: (status: RemoteStatus) => void): () => void
   }
 
@@ -477,6 +500,12 @@ export interface VertragusApi {
     clean(profileId: string, workspaceSessionId?: string): Promise<void>
     /** Scrollback replay for late-mounting terminals (pop-outs, reloads). */
     buffer(id: string): Promise<AgentBufferSnapshot>
+    /**
+     * Like buffer(), but slices to the last `maxChars` in the main process so
+     * small periodic peeks (e.g. canvas node previews) don't serialize the whole
+     * ~200 KB scrollback over IPC on every poll.
+     */
+    bufferTail(id: string, maxChars: number): Promise<AgentBufferSnapshot>
     popout(id: string): Promise<void>
     /**
      * Hand a source agent's live work over to a freshly spawned agent, seeded
@@ -594,5 +623,13 @@ export interface VertragusApi {
     minimize(): void
     maximizeToggle(): void
     close(): void
+  }
+
+  /**
+   * Taskbar / dock attention signal. One-way only (preload send → main on);
+   * the main process validates and clamps the count before flashing/bouncing.
+   */
+  attention: {
+    setPendingFeedbackCount(count: number): void
   }
 }

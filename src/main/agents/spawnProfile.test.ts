@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_PROFILE } from '@shared/profile'
+import { EFFICIENCY_SOLO_PROFILE } from '@shared/profilePresets'
 import { resolveModel } from '@shared/models'
 import { buildInteractiveLaunch } from '@main/providers/types'
 
@@ -193,5 +194,21 @@ describe('adaptive profile team start', () => {
     for (const [request] of mocks.spawn.mock.calls) {
       expect(request.workingDir).toBe('/profile/repo')
     }
+  })
+
+  it('spawns exactly one solo agent for an Efficiency-Solo profile', async () => {
+    const spawned = await spawnProfileTeam(EFFICIENCY_SOLO_PROFILE, false)
+
+    expect(spawned).toHaveLength(1)
+    expect(mocks.spawn).toHaveBeenCalledTimes(1)
+    const [request] = mocks.spawn.mock.calls[0]
+    expect(request.solo).toBe(true)
+    expect(request.kind).toBeUndefined()
+    expect(request.provider).toBe('claude')
+    expect(request.role).toBe('Solo · arbeitet direkt')
+    // The workspace session still starts so record_retro and the UI snapshot work.
+    expect(mocks.start).toHaveBeenCalledTimes(1)
+    // No orchestrator: the engine is never activated with the profile.
+    expect(mocks.activate).not.toHaveBeenCalled()
   })
 })

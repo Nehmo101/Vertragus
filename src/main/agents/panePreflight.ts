@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { access, mkdir, mkdtemp, open, rm, rmdir } from 'node:fs/promises'
 import { constants } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import type {
@@ -13,7 +14,7 @@ import type {
 import { getProvider, type AgentProviderId } from '@shared/providers'
 import { ensureWorktreeDependencies } from '@main/agents/dependencyBootstrap'
 import { canonicalWorkspacePath, workspacePathKey } from '@main/agents/workspacePath'
-import { resolveLaunch } from '@main/agents/resolveCommand'
+import { resolveFaithfulShimLaunch, resolveLaunch } from '@main/agents/resolveCommand'
 import {
   CODEX_RUNTIME_DIR_NAME,
   codexSingleRootEnvironment,
@@ -22,6 +23,7 @@ import {
 
 const execFileAsync = promisify(execFile)
 const PREFLIGHT_TIMEOUT_MS = 12_000
+const CANARY_DIAGNOSTIC_LIMIT = 2_000
 
 export interface PanePreflightInput {
   provider: AgentProviderId
@@ -97,10 +99,10 @@ async function check(
 }
 
 async function writeProbe(directory: string): Promise<void> {
-  const path = join(directory, `.orca-preflight-${randomUUID()}.tmp`)
+  const path = join(directory, `.vertragus-preflight-${randomUUID()}.tmp`)
   const handle = await open(path, 'wx', 0o600)
   try {
-    await handle.writeFile('orca-preflight\n', 'utf8')
+    await handle.writeFile('vertragus-preflight\n', 'utf8')
   } finally {
     await handle.close()
     await rm(path, { force: true })
@@ -108,9 +110,9 @@ async function writeProbe(directory: string): Promise<void> {
 }
 
 /**
- * Exercise Codex's real Windows sandbox bootstrap inside the exact worker
- * workspace. A host-process write probe alone cannot detect restricted-token
- * or split-writable-root failures that only happen in a nested Codex process.
+ * Exercise Codex's real Windows sandbox bootstrap without a model call. A
+ * host-process write probe alone cannot detect restricted-token or
+ * split-writable-root failures that only happen in a nested Codex process.
  */
 export function codexRuntimeCanaryArgs(workingDir: string): string[] {
   return [
@@ -125,14 +127,212 @@ export function codexRuntimeCanaryArgs(workingDir: string): string[] {
     '-NoProfile',
     '-NonInteractive',
     '-Command',
-    "$path = $env:ORCA_CODEX_CANARY_PATH; [System.IO.File]::WriteAllText($path, 'orca-runtime-preflight'); Remove-Item -LiteralPath $path -Force"
+    "$path = $env:VERTRAGUS_CODEX_CANARY_PATH; [System.IO.File]::WriteAllText($path, 'vertragus-runtime-preflight'); Remove-Item -LiteralPath $path -Force"
   ]
 }
 
-async function providerRuntimeCanary(input: PanePreflightInput, workingDir: string): Promise<{
+async function canonicalPreflightPaths(input: PanePreflightInput): Promise<{
+  profileWorkspace: string
+  workerWorkspace?: string
+}> {
+  const profileWorkspace = await canonicalWorkspacePath(input.workingDir)
+  const workerWorkspace = input.worktree
+    ? await canonicalWorkspacePath(input.worktree)
+    : undefined
+  return { profileWorkspace, workerWorkspace }
+}
+
+function canaryFailure(error: unknown, workingDir: string): Error {
+  const failure = error as {
+    message?: unknown
+    stderr?: unknown
+    killed?: unknown
+    code?: unknown
+  }
+  const timedOut = failure.killed === true || failure.code === 'ETIMEDOUT'
+  const reason = timedOut
+    ? `Timeout nach ${PREFLIGHT_TIMEOUT_MS} ms`
+    : typeof failure.message === 'string'
+      ? failure.message
+      : String(error)
+  const stderr =
+    typeof failure.stderr === 'string' || Buffer.isBuffer(failure.stderr)
+      ? String(failure.stderr).trim().slice(0, CANARY_DIAGNOSTIC_LIMIT)
+      : ''
+  return new Error(
+    `Codex-Sandbox-Canary fehlgeschlagen in ${workingDir}: ${reason}${stderr ? `; stderr: ${stderr}` : ''}`
+  )
+}
+
+type RuntimeCanaryResult = { status?: PanePreflightCheck['status']; detail: string }
+
+/**
+ * Injectable seams for the Cursor transport canary so the positive/negative
+ * cases (including the historical cmd.exe truncation) are testable without a
+ * real Cursor install or a paid model call.
+ */
+export interface CursorCanaryDeps {
+  /** Launch cursor-agent --version through the faithful (non-shell) path; returns the first version line. Throws when no argument-faithful entrypoint exists. */
+  probeVersion: () => Promise<string>
+  /** Send a multiline fingerprint through exactly the worker's argument transport and return what the target process received. */
+  transportRoundtrip: (fingerprint: string) => Promise<string>
+}
+
+/** First non-empty line of a CLI's stdout/stderr. */
+function firstLine(text: string): string {
+  return text.split(/\r?\n/).find(Boolean)?.trim() ?? ''
+}
+
+function defaultCursorCanaryDeps(): CursorCanaryDeps {
+  return {
+    async probeVersion() {
+      // Empty, controlled working directory — never the repository.
+      const dir = await mkdtemp(join(tmpdir(), 'vertragus-cursor-version-'))
+      try {
+        // requireFaithfulArgs throws instead of returning a cmd.exe wrapper, so
+        // a Cursor install that can only be reached through a truncating shell
+        // fails the canary here instead of silently shipping broken prompts.
+        const launch = await resolveLaunch('cursor-agent', ['--version'], {
+          requireFaithfulArgs: true
+        })
+        const { stdout, stderr } = await execFileAsync(launch.file, launch.args, {
+          cwd: dir,
+          windowsHide: true,
+          timeout: PREFLIGHT_TIMEOUT_MS
+        })
+        return firstLine(stdout || stderr) || 'startet'
+      } finally {
+        await rm(dir, { recursive: true, force: true })
+      }
+    },
+    async transportRoundtrip(fingerprint) {
+      // Reproduce the exact worker transport: a Windows script shim rewritten to
+      // a direct Node entrypoint, then spawned without a shell. The echo target
+      // prints back the positional argument it actually received.
+      const dir = await mkdtemp(join(tmpdir(), 'vertragus-cursor-transport-'))
+      try {
+        await open(join(dir, 'vertragus-echo.mjs'), 'w', 0o600).then(async (handle) => {
+          await handle.writeFile('process.stdout.write(process.argv[2] ?? "")', 'utf8')
+          await handle.close()
+        })
+        const shim = join(dir, 'cursor-agent.cmd')
+        await open(shim, 'w', 0o600).then(async (handle) => {
+          await handle.writeFile(
+            '@ECHO off\r\nSETLOCAL\r\n"%~dp0\\node.exe"  "%~dp0\\vertragus-echo.mjs" %*\r\n',
+            'utf8'
+          )
+          await handle.close()
+        })
+        const launch = await resolveFaithfulShimLaunch(shim, [fingerprint])
+        if (!launch) {
+          throw new Error('Shim liess sich nicht auf einen argumenttreuen Entrypoint aufloesen.')
+        }
+        const { stdout } = await execFileAsync(launch.file, launch.args, {
+          cwd: dir,
+          windowsHide: true,
+          timeout: PREFLIGHT_TIMEOUT_MS,
+          maxBuffer: 1024 * 1024,
+          // The resolved interpreter may be the Electron binary when no standalone
+          // node is on PATH; run it as plain Node so the echo cannot spuriously
+          // fail the transport canary.
+          env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }
+        })
+        return stdout
+      } finally {
+        await rm(dir, { recursive: true, force: true })
+      }
+    }
+  }
+}
+
+async function runCursorRuntimeCanary(deps: CursorCanaryDeps): Promise<RuntimeCanaryResult> {
+  let version: string
+  try {
+    version = await deps.probeVersion()
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    return {
+      status: 'failed',
+      detail:
+        'Cursor-Preflight: kein argumenttreuer Startpfad fuer cursor-agent verifizierbar ' +
+        `(${detail}). Ein cmd.exe/PowerShell-Wrapper wuerde mehrzeilige Prompts abschneiden.`
+    }
+  }
+
+  // Two distinct lines separated by a blank line — the exact shape whose second
+  // half was lost in the real multiagent run (only ["IDENTITY"] arrived).
+  const identity = 'VERTRAGUS-CURSOR-CANARY-IDENTITAET'
+  const fingerprint = 'VERTRAGUS-CURSOR-CANARY-FINGERPRINT'
+  const probe = `${identity}\n\n${fingerprint}`
+  let received: string
+  try {
+    received = await deps.transportRoundtrip(probe)
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    return { status: 'failed', detail: `Cursor-Argumenttransport nicht verifizierbar: ${detail}` }
+  }
+
+  if (!received.includes(fingerprint)) {
+    return {
+      status: 'failed',
+      detail:
+        `Cursor-Argumenttransport gekuerzt: nur "${firstLine(received)}" statt der vollstaendigen ` +
+        `mehrzeiligen Eingabe angekommen — der Fingerprint hinter dem Zeilenumbruch fehlt ` +
+        '(cmd.exe-Truncation-Regression, exakt der reale Multiagent-Fehler).'
+    }
+  }
+  if (received !== probe) {
+    return {
+      status: 'failed',
+      detail:
+        `Cursor-Argumenttransport verfaelscht: empfangen ${JSON.stringify(received)}, ` +
+        `erwartet ${JSON.stringify(probe)}.`
+    }
+  }
+
+  return {
+    detail:
+      `Cursor-Version: ${version}. Argumenttransport verifiziert — mehrzeiliger Fingerprint ` +
+      `(${Buffer.byteLength(probe)} Bytes, ${probe.split('\n').length} Zeilen) kommt byte-treu an. ` +
+      'Kein Modell-Roundtrip ausgefuehrt (deterministischer Transport-Canary).'
+  }
+}
+
+/**
+ * A model-free Cursor canary is deterministic per (provider, installed version,
+ * platform, app session): the installed CLI and the transport code do not change
+ * within one app process. Cache the in-flight promise so five concurrent
+ * candidates share one preparation instead of repeating it; evict on an
+ * unexpected rejection so a transient error never poisons the session.
+ */
+const cursorCanaryCache = new Map<string, Promise<RuntimeCanaryResult>>()
+
+function cursorRuntimeCanary(
+  platform: NodeJS.Platform,
+  deps: CursorCanaryDeps = defaultCursorCanaryDeps()
+): Promise<RuntimeCanaryResult> {
+  const key = `cursor:${platform}`
+  let pending = cursorCanaryCache.get(key)
+  if (!pending) {
+    pending = runCursorRuntimeCanary(deps)
+    cursorCanaryCache.set(key, pending)
+    void pending.catch(() => cursorCanaryCache.delete(key))
+  }
+  return pending
+}
+
+async function providerRuntimeCanary(
+  input: PanePreflightInput,
+  profileWorkspace: string,
+  workerWorkspace?: string,
+  platform: NodeJS.Platform = process.platform
+): Promise<{
   status?: PanePreflightCheck['status']
   detail: string
 }> {
+  if (input.provider === 'cursor') {
+    return cursorRuntimeCanary(platform)
+  }
   if (input.provider !== 'codex') {
     return { detail: 'Fuer diesen Provider ist kein separater Runtime-Canary erforderlich.' }
   }
@@ -142,40 +342,59 @@ async function providerRuntimeCanary(input: PanePreflightInput, workingDir: stri
       detail: 'Expliziter Yolo-Modus: Codex umgeht Approval- und Sandbox-Pruefungen.'
     }
   }
-  if (process.platform !== 'win32') {
+  if (platform !== 'win32') {
     return {
       status: 'warning',
       detail: 'Der Codex-Runtime-Canary ist derzeit auf den Windows-Sandboxfehler zugeschnitten.'
     }
   }
 
-  const markerPath = join(workingDir, `.orca-codex-runtime-${randomUUID()}.tmp`)
-  const runtimeRoot = join(workingDir, CODEX_RUNTIME_DIR_NAME)
+  const runtimeRoot = join(workerWorkspace ?? profileWorkspace, CODEX_RUNTIME_DIR_NAME)
   await mkdir(runtimeRoot, { recursive: true })
+  let canaryWorkspace = workerWorkspace
+  let poolWorkspace: string | undefined
+  let markerPath: string | undefined
   let runtimeDir: string | undefined
   try {
-    runtimeDir = await mkdtemp(join(runtimeRoot, 'preflight-'))
-    const launch = await resolveLaunch('codex', codexRuntimeCanaryArgs(workingDir))
-    await execFileAsync(launch.file, launch.args, {
-      cwd: workingDir,
-      env: codexSingleRootEnvironment(runtimeDir, {
-        ...process.env,
-        ORCA_CODEX_CANARY_PATH: markerPath
-      }),
-      windowsHide: true,
-      timeout: PREFLIGHT_TIMEOUT_MS
-    })
+    if (!canaryWorkspace) {
+      poolWorkspace = await mkdtemp(join(runtimeRoot, 'preflight-workspace-'))
+      canaryWorkspace = poolWorkspace
+    }
+    markerPath = join(canaryWorkspace, `.vertragus-codex-runtime-${randomUUID()}.tmp`)
+    runtimeDir = await mkdtemp(
+      join(workerWorkspace ? runtimeRoot : canaryWorkspace, 'preflight-runtime-')
+    )
+    const launch = await resolveLaunch('codex', codexRuntimeCanaryArgs(canaryWorkspace))
+    try {
+      await execFileAsync(launch.file, launch.args, {
+        cwd: canaryWorkspace,
+        env: codexSingleRootEnvironment(runtimeDir, {
+          ...process.env,
+          VERTRAGUS_CODEX_CANARY_PATH: markerPath
+        }, platform),
+        windowsHide: true,
+        timeout: PREFLIGHT_TIMEOUT_MS
+      })
+    } catch (error) {
+      throw canaryFailure(error, canaryWorkspace)
+    }
   } finally {
-    await rm(markerPath, { force: true })
+    if (markerPath) await rm(markerPath, { force: true })
     if (runtimeDir) await rm(runtimeDir, { recursive: true, force: true })
+    if (poolWorkspace) await rm(poolWorkspace, { recursive: true, force: true })
     await rmdir(runtimeRoot).catch(() => undefined)
   }
-  return { detail: `Codex-Sandbox startet und schreibt im Worker-Worktree: ${workingDir}` }
+  return {
+    detail: workerWorkspace
+      ? `Codex-Sandbox startet und schreibt im Worker-Worktree: ${workerWorkspace}`
+      : `Codex-Sandbox startet und schreibt im isolierten Pool-Arbeitsverzeichnis: ${canaryWorkspace}`
+  }
 }
 
 export async function runPanePreflight(input: PanePreflightInput): Promise<PanePreflightReport> {
   const startedAt = Date.now()
-  const canonicalWorkspace = await canonicalWorkspacePath(input.workingDir)
+  const { profileWorkspace: canonicalWorkspace, workerWorkspace: canonicalWorker } =
+    await canonicalPreflightPaths(input)
   const repositoryRoot = await primaryWorktree(canonicalWorkspace)
 
   const checks = await Promise.all([
@@ -191,7 +410,9 @@ export async function runPanePreflight(input: PanePreflightInput): Promise<PaneP
       const version = (stdout || stderr || '').split(/\r?\n/).find(Boolean)?.trim() ?? 'bereit'
       return { detail: `${provider.label} startet noninteraktiv: ${version}` }
     }),
-    check('provider-runtime', () => providerRuntimeCanary(input, canonicalWorkspace)),
+    check('provider-runtime', () =>
+      providerRuntimeCanary(input, canonicalWorkspace, canonicalWorker)
+    ),
     check('workspace', async () => {
       await access(canonicalWorkspace, constants.R_OK | constants.W_OK)
       await writeProbe(canonicalWorkspace)
@@ -250,4 +471,11 @@ export async function runPanePreflight(input: PanePreflightInput): Promise<PaneP
     )
   }
   return report
+}
+
+export const panePreflightInternals = {
+  canonicalPreflightPaths,
+  providerRuntimeCanary,
+  cursorRuntimeCanary,
+  resetCursorCanaryCache: (): void => cursorCanaryCache.clear()
 }

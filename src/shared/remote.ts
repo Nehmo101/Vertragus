@@ -1,5 +1,5 @@
 /** Node-free Mission Control contracts shared by Electron and the mobile PWA. */
-import type { OrchestratorSnapshot, OrcaTask, PendingPlanReview } from './orchestrator'
+import type { OrchestratorSnapshot, VertragusTask, PendingPlanReview } from './orchestrator'
 
 export const REMOTE_CAPABILITIES = [
   'read',
@@ -105,7 +105,7 @@ export interface ApprovalItem {
   summary: string
   createdAt: number
   plan?: PendingPlanReview
-  task?: OrcaTask
+  task?: VertragusTask
   permission?: PermissionRequest
   actions: RemoteCommandId[]
 }
@@ -169,6 +169,35 @@ export interface RemotePairStartRequest {
   deviceNameHint?: string
   actor?: RemoteActor
   scopes?: RemoteScope[]
+}
+
+/** APNs delivery environment; sandbox tokens only reach the sandbox host. */
+export type ApnsEnvironment = 'sandbox' | 'production'
+
+/** Native-client registration payload for `POST /push/apns` (no IPC involved). */
+export interface ApnsRegisterRequest {
+  token: string
+  environment: ApnsEnvironment
+  bundleId: string
+}
+
+/** Desktop-only IPC payload to store APNs signing credentials (encrypted at rest). */
+export interface ApnsConfigInput {
+  teamId: string
+  keyId: string
+  /** PEM-encoded `.p8` private key. Never returned back over IPC. */
+  p8: string
+  bundleId: string
+  environment: ApnsEnvironment
+}
+
+/** Non-secret APNs configuration status for the desktop UI. Never includes the `.p8`. */
+export interface ApnsConfigStatus {
+  configured: boolean
+  teamId?: string
+  keyId?: string
+  bundleId?: string
+  environment?: ApnsEnvironment
 }
 
 function approvalScope(snapshot: OrchestratorSnapshot): { profileId: string; workspaceSessionId: string } | undefined {

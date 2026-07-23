@@ -11,6 +11,8 @@ import { getMcpHandle } from '@main/orchestrator/mcpHandle'
 import { getOrchestratorAdapter } from '@main/orchestrator/providerAdapters'
 import { externalMcpSpecsFor } from '@main/orchestrator/externalMcp'
 import { getPromptOverlay } from '@main/orchestrator/promptOverlay'
+import { skillsPromptBlock } from '@main/orchestrator/profileSkills'
+import type { ProfileSkill } from '@shared/profile'
 
 export interface OrchestratorPolicyOptions {
   adaptiveTeam?: boolean
@@ -20,6 +22,8 @@ export interface OrchestratorPolicyOptions {
   benchmarkMode?: boolean
   /** Reviewed learnings overlay (retro branch) injected into the prompt. */
   overlayText?: string
+  /** Per-profile skills injected into the prompt (managed via list/record/remove_skill). */
+  skills?: ProfileSkill[]
 }
 
 export const orchestratorSystemPrompt = (
@@ -103,6 +107,16 @@ export const orchestratorSystemPrompt = (
         ''
       ]
     : []),
+  ...(skillsPromptBlock(options.skills)
+    ? [
+        skillsPromptBlock(options.skills),
+        '- Pflege die Profil-Skills aktiv: Lege mit record_skill wiederverwendbare Verfahren an, sobald du eines etabliert hast; aktualisiere überholte mit record_skill und entferne falsche mit remove_skill. list_skills zeigt den Bestand.',
+        ''
+      ]
+    : [
+        '- Profil-Skills: Dieses Profil hat noch keine gespeicherten Verfahren. Wenn du in diesem Lauf ein wiederverwendbares Vorgehen etablierst, halte es mit record_skill fest — es wird künftigen Läufen injiziert.',
+        ''
+      ]),
   ...(options.benchmarkMode
     ? [
         'Auto-Benchmark-Modus (dieses Profil):',
@@ -126,14 +140,14 @@ export const orchestratorSystemPrompt = (
   '   steht. Sprich Subagents in deiner Zusammenfassung mit diesem Namen an.',
   '- Definition of Done je Task: geänderte Dateien oder explizit keine Änderungen; relevante Tests,',
   '   Typecheck/Lint, automatisch injizierte Security-Negativfälle und Integrationshinweise müssen im Ergebnis stehen.',
-  '- Der Worker führt kein git add, commit, cherry-pick oder push aus. Orcas Main-Prozess sichert und verifiziert den Commit zentral.',
+  '- Der Worker führt kein git add, commit, cherry-pick oder push aus. Der Vertragus-Main-Prozess sichert und verifiziert den Commit zentral.',
   '- Bei einem Infrastrukturblocker liefere nur ein strukturiertes Kurzresultat: Blocker, geprüfte Alternativen,',
   '   geplante Dateien, Schnittstellen und knappe Implementierungsnotizen — keinen vollständigen Ersatz-Codeentwurf.',
   '- Gemeinsame Hotspots (Shared Schemas, IPC, Profilmodell, globale Styles) gehören in genau',
   '   eine Integrationsaufgabe. Feature-Tasks liefern Module und klare Schnittstellenhinweise.',
   '- Fasse erst zusammen, wenn alle taskIds beziehungsweise der Planlauf terminal sind.',
   '',
-  'Delegiere aktiv über die mcp__orca__* Tools statt selbst zu arbeiten.'
+  'Delegiere aktiv über die mcp__vertragus__* Tools statt selbst zu arbeiten.'
 ].join('\n')
 
 export interface OrchestratorSetup {

@@ -77,13 +77,34 @@ function mapGhRepo(row: RawGhRepo, fallbackOwner?: string): GithubRepoSummary | 
 
 async function runGhJson<T>(args: string[], timeout = 25_000): Promise<T> {
   await assertGithubAuthenticated()
+  // NOTE: never pass `shell: true` here. `gh` is resolved directly by execFile
+  // (libuv searches PATH/PATHEXT), so arguments are never re-parsed by a shell.
+  // Enabling a shell would let metacharacters in dynamic args (e.g. the free-text
+  // search query) inject arbitrary commands on Windows.
   const { stdout } = await execFileAsync('gh', args, {
     timeout,
     windowsHide: true,
-    maxBuffer: 6 * 1024 * 1024,
-    shell: process.platform === 'win32'
+    maxBuffer: 6 * 1024 * 1024
   })
   return JSON.parse(stdout || '[]') as T
+}
+
+// A GitHub search query is passed to `gh search repos <query>` as a positional
+// argv element. With no shell, metacharacters are inert, but a query beginning
+// with '-' would still be parsed by gh as a flag (argument injection), and
+// control characters have no place in a search string. Reject both.
+function sanitizeSearchQuery(query: string): string {
+  const trimmed = query.trim()
+  if ([...trimmed].some((ch) => {
+    const code = ch.charCodeAt(0)
+    return code < 0x20 || code === 0x7f
+  })) {
+    throw new Error('Ungültige Suchanfrage: Steuerzeichen sind nicht erlaubt.')
+  }
+  if (trimmed.startsWith('-')) {
+    throw new Error('Ungültige Suchanfrage: darf nicht mit "-" beginnen.')
+  }
+  return trimmed
 }
 
 async function assertGithubAuthenticated(): Promise<void> {
@@ -140,7 +161,7 @@ export async function searchGithubRepos(query: string, limit = 30): Promise<Gith
   const rows = await runGhJson<RawGhRepo[]>([
     'search',
     'repos',
-    trimmed,
+    sanitizeSearchQuery(trimmed),
     '--limit',
     String(Math.min(Math.max(limit, 1), 50)),
     '--json',
@@ -292,6 +313,7 @@ export async function bindGithubRepo(req: GithubRepoBindRequest): Promise<Github
 
 export const githubRepoInternals = {
   normalizeRepoSlug,
+  sanitizeSearchQuery,
   parseRepoFromRemote,
   remotesMatchBoundRepo,
   mapGhRepo

@@ -18,7 +18,7 @@ import {
   resolveOrchestratorActivity,
   taskActivityText
 } from '@renderer/orchestratorActivity'
-import type { OrcaTask, TaskStatus } from '@shared/orchestrator'
+import type { VertragusTask, TaskStatus } from '@shared/orchestrator'
 import { resolveModel } from '@shared/models'
 import type { AgentUsage, AgentInstanceInfo } from '@shared/agents'
 import { summarizeUsage, summarizeUsageGroup, TELEMETRY_STATUS_LABELS, TELEMETRY_STATUS_TITLES } from '@shared/telemetry'
@@ -32,18 +32,22 @@ const MAX_VISIBLE_FINDINGS = 6
 type PlannerMode = 'auto' | 'review' | 'manual'
 const PLANNER_MODES: PlannerMode[] = ['auto', 'review', 'manual']
 
-type TaskWithTelemetry = OrcaTask & {
+type TaskWithTelemetry = VertragusTask & {
   lastHeartbeatAt?: number
   phase?: string
   lastAction?: string
 }
 
-function useClock(): number {
+// Ticks once per second only while there is active work to time (running/waiting
+// agents). When idle the interval is torn down, so the panel no longer re-renders
+// every second just to advance clocks nobody is watching.
+function useClock(active: boolean): number {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
+    if (!active) return
     const t = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(t)
-  }, [])
+  }, [active])
   return now
 }
 
@@ -60,7 +64,7 @@ function fmtAge(ms: number): string {
 }
 
 /** Compact "12k Token · $0.12" line; null when the provider reported nothing. */
-function usageText(t: TFunction, usage?: OrcaTask['usage']): string | null {
+function usageText(t: TFunction, usage?: VertragusTask['usage']): string | null {
   const summary = summarizeUsage(usage)
   if (summary.status === 'absent') return null
   const parts: string[] = []
@@ -90,7 +94,7 @@ function TaskCard({
   workspaceSessionId,
   now
 }: {
-  task: OrcaTask
+  task: VertragusTask
   usage?: AgentUsage
   profileId: string
   workspaceSessionId?: string
@@ -344,7 +348,10 @@ function OrchestratorPanelContent({
   const { t } = useTranslation()
   const store = useAppStore()
   const [autoModeBusy, setAutoModeBusy] = useState(false)
-  const now = useClock()
+  const hasActiveWork = store.agents.some(
+    (agent) => agent.status === 'running' || agent.status === 'waiting'
+  )
+  const now = useClock(hasActiveWork)
   const profile = activeProfile(store)
   const wsAgents = workspaceAgents(store)
   const orch = wsAgents.find((agent) => agent.kind === 'orchestrator')

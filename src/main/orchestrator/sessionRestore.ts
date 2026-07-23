@@ -17,10 +17,10 @@ import { migrateLegacySettingsSnapshots, sessionStore } from '@main/config/sessi
 import { workspaceSessions } from '@main/orchestrator/WorkspaceSessionRegistry'
 import { agentManager } from '@main/agents/AgentManager'
 import {
-  currentBranch,
+  discardManagedOrphans,
   inventoryWorktrees,
-  isOrcaBranch,
-  isOrcaWorktreePath,
+  isManagedWorktreePath,
+  managedWorktreeParts,
   rollbackWorktree,
   worktreeSessionDirName
 } from '@main/agents/worktree'
@@ -166,25 +166,49 @@ export async function restartSessionAgents(
   return spawned
 }
 
+function isOwnedOrphanSession(sessionDir: string): boolean {
+  return sessionStore
+    .listSessions()
+    .some((entry) => worktreeSessionDirName(entry.id) === sessionDir)
+}
+
 /**
  * Discard one orphaned Vertragus worktree (explicit user decision — this
  * throws away uncommitted work). Refuses paths outside the managed namespaces
  * and worktrees that still belong to an indexed session.
+ *
+ * Branch identity is inferred from the managed path so broken leftovers do not
+ * hang on `git rev-parse` inside a corrupt checkout before cleanup starts.
  */
 export async function discardOrphanWorktree(path: string): Promise<boolean> {
   const trimmed = typeof path === 'string' ? path.trim() : ''
-  if (!trimmed || !isOrcaWorktreePath(trimmed)) {
+  const parts = managedWorktreeParts(trimmed)
+  if (!trimmed || !parts || !isManagedWorktreePath(trimmed)) {
     throw new Error('Pfad ist kein Vertragus-Worktree.')
   }
-  const match = trimmed
-    .replace(/\\/g, '/')
-    .match(/\.(?:vertragus|orca)-worktrees\/([^/]+)\/([^/]+)\/?$/)
-  if (!match) throw new Error('Pfad ist kein Vertragus-Worktree.')
-  const sessionDir = match[1]
-  const owned = sessionStore
-    .listSessions()
-    .some((entry) => worktreeSessionDirName(entry.id) === sessionDir)
-  if (owned) throw new Error('Dieser Worktree gehört zu einer bekannten Session.')
-  const branch = await currentBranch(trimmed)
-  return rollbackWorktree(trimmed, branch && isOrcaBranch(branch) ? branch : undefined)
+  if (isOwnedOrphanSession(parts.sessionId)) {
+    throw new Error('Dieser Worktree gehört zu einer bekannten Session.')
+  }
+  return rollbackWorktree(trimmed)
+}
+
+export interface DiscardOrphansResult {
+  discarded: number
+  failed: number
+}
+
+/**
+ * Discard many orphaned worktrees in one explicit user action.
+ *
+ * Serialized per repository (filesystem-first, one prune at the end) so bulk
+ * "Verwerfen" cannot wedge itself on Git locks the way concurrent workers did.
+ */
+export async function discardOrphanWorktrees(paths: string[]): Promise<DiscardOrphansResult> {
+  const owned = new Set(
+    sessionStore
+      .listSessions()
+      .map((entry) => worktreeSessionDirName(entry.id))
+      .filter((id): id is string => Boolean(id))
+  )
+  return discardManagedOrphans(paths, (sessionId) => owned.has(sessionId))
 }

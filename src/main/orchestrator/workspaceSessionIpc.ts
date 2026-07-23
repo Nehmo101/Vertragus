@@ -1,4 +1,5 @@
 import type { OrchestratorSnapshot, WorkspaceSessionSummary } from '@shared/orchestrator'
+import { assertIpcId } from '@shared/ipcValidation'
 import {
   assertAuthorizedRendererIpcSender,
   type RendererIpcAuthorizationOptions,
@@ -12,12 +13,8 @@ export interface WorkspaceSessionIpcDependencies {
   remove(profileId: string, sessionId: string): Promise<WorkspaceSessionSummary[]>
 }
 
-function requiredId(value: unknown, label: string): string {
-  if (typeof value !== 'string' || value.trim().length === 0 || value.length > 256) {
-    throw new Error(`Ungültige ${label} (invalid payload).`)
-  }
-  return value
-}
+
+const requiredId = (value: unknown, label: string): string => assertIpcId(value, label)
 
 /** Authorize and validate workspace-session IPC before reading or mutating state. */
 export function createWorkspaceSessionIpcController(

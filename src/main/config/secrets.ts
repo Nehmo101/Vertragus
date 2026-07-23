@@ -30,14 +30,7 @@ export function isEncryptionAvailable(): boolean {
 }
 
 export function readGithubOAuthToken(): string | undefined {
-  const blob = getSetting<string>(GITHUB_TOKEN_KEY)
-  if (!blob?.trim()) return undefined
-  if (!canEncrypt()) return undefined
-  try {
-    return safeStorage.decryptString(Buffer.from(blob, 'base64'))
-  } catch {
-    return undefined
-  }
+  return readEncryptedString(GITHUB_TOKEN_KEY)
 }
 
 export function writeGithubOAuthToken(token: string, meta: Omit<StoredGithubOAuth, 'obtainedAt'>): void {
@@ -47,10 +40,6 @@ export function writeGithubOAuthToken(token: string, meta: Omit<StoredGithubOAut
   const encrypted = safeStorage.encryptString(token).toString('base64')
   setSetting(GITHUB_TOKEN_KEY, encrypted)
   setSetting('secrets.github.meta', { ...meta, obtainedAt: Date.now() } satisfies StoredGithubOAuth)
-}
-
-export function readGithubOAuthMeta(): StoredGithubOAuth | undefined {
-  return getSetting<StoredGithubOAuth>('secrets.github.meta')
 }
 
 export function clearGithubOAuthToken(): void {
@@ -71,27 +60,11 @@ export function hasTranscriptionApiKey(): boolean {
 }
 
 export function readTranscriptionApiKey(): string | undefined {
-  const blob = getSetting<string>(TRANSCRIPTION_KEY)
-  if (!blob?.trim()) return undefined
-  if (!canEncrypt()) return undefined
-  try {
-    return safeStorage.decryptString(Buffer.from(blob, 'base64'))
-  } catch {
-    return undefined
-  }
+  return readEncryptedString(TRANSCRIPTION_KEY)
 }
 
 export function writeTranscriptionApiKey(key: string): void {
-  const trimmed = key.trim()
-  if (!trimmed) {
-    clearTranscriptionApiKey()
-    return
-  }
-  if (!canEncrypt()) {
-    throw new Error('Verschlüsselung ist auf diesem System nicht verfügbar.')
-  }
-  const encrypted = safeStorage.encryptString(trimmed).toString('base64')
-  setSetting(TRANSCRIPTION_KEY, encrypted)
+  writeEncryptedString(TRANSCRIPTION_KEY, key)
 }
 
 export function clearTranscriptionApiKey(): void {

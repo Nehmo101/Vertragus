@@ -2,7 +2,11 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { resolveInitialLayout, uiCommandViewToHash } from '@renderer/store/useAppStore'
+import {
+  remoteConfigPatch,
+  resolveInitialLayout,
+  uiCommandViewToHash
+} from '@renderer/store/useAppStore'
 
 describe('resolveInitialLayout — canvas-default one-time migration (D1)', () => {
   it('forces canvas on the first run regardless of the stored layout', () => {
@@ -36,6 +40,25 @@ describe('resolveInitialLayout — canvas-default one-time migration (D1)', () =
     expect(source).toMatch(/ui\.canvasDefaultApplied/)
     expect(source).toMatch(/resolveInitialLayout\s*\(/)
     expect(source).toMatch(/setConfig\(\s*['"]ui\.canvasDefaultApplied['"]\s*,\s*true\s*\)/)
+  })
+})
+
+describe('remoteConfigPatch — per-window config mirror (A7)', () => {
+  it('mirrors the shared UI keys, normalizing each value', () => {
+    expect(remoteConfigPatch('ui.theme', 'dark')).toEqual({ theme: 'dark' })
+    expect(remoteConfigPatch('ui.theme', 'anything-else')).toEqual({ theme: 'light' })
+    expect(remoteConfigPatch('ui.density', 'compact')).toEqual({ uiDensity: 'compact' })
+    expect(remoteConfigPatch('ui.density', undefined)).toEqual({ uiDensity: 'comfortable' })
+    expect(remoteConfigPatch('ui.cliReadable', true)).toEqual({ cliReadable: true })
+    expect(remoteConfigPatch('ui.cliReadable', 'true')).toEqual({ cliReadable: false })
+  })
+
+  it('ignores keys that are not window-shared UI settings', () => {
+    // Persisted but window-local / non-visual keys must not be mirrored.
+    expect(remoteConfigPatch('ui.workspaceLayout', 'canvas')).toBeNull()
+    expect(remoteConfigPatch('providerLimits', { claude: 4 })).toBeNull()
+    expect(remoteConfigPatch('ui.canvasDefaultApplied', true)).toBeNull()
+    expect(remoteConfigPatch('yoloMaster', true)).toBeNull()
   })
 })
 

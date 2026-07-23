@@ -29,7 +29,7 @@ function report(ok: boolean, text: string): boolean {
 export async function runRemoteSelfTest(): Promise<void> {
   let allOk = true
   const check = (condition: boolean, text: string): void => { if (!report(condition, text)) allOk = false }
-  const directory = await mkdtemp(join(tmpdir(), 'orca-remote-selftest-'))
+  const directory = await mkdtemp(join(tmpdir(), 'vertragus-remote-selftest-'))
   const bus = new EventEmitter()
   const engine = new OrchestratorEngine({ profile: DEFAULT_PROFILE, workspaceSessionId: 'remote-selftest' })
   const mutableEngine = engine as OrchestratorEngine & { listSubagents: OrchestratorEngine['listSubagents'] }
@@ -40,7 +40,7 @@ export async function runRemoteSelfTest(): Promise<void> {
   try {
     mutableEngine.listSubagents = () => [{
       role: 'codex', provider: 'codex', model: '', capacity: 1, busy: 0,
-      strengths: [], weaknesses: [], available: true
+      strengths: [], weaknesses: [], available: true, subagentReporting: true
     }]
     agentManager.runTask = async (request) => {
       const info: AgentInstanceInfo = {

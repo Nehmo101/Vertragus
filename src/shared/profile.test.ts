@@ -41,6 +41,7 @@ function completeProfile(): WorkspaceProfile {
         modelPreset: 'balanced',
         count: 2,
         orchestrated: true,
+        multiAgent: true,
         yolo: true,
         workingDir: 'C:\\git\\projekt\\worker',
         strengths: ['Tests', 'Debugging'],
@@ -52,6 +53,7 @@ function completeProfile(): WorkspaceProfile {
         model: 'composer',
         count: 1,
         orchestrated: false,
+        multiAgent: false,
         yolo: false,
         strengths: ['Review'],
         weaknesses: []
@@ -83,7 +85,18 @@ describe('workspaceProfileSchema', () => {
       name: 'Legacy',
       workingDir: '',
       orchestrator: { provider: 'codex', model: '', autoOpenSubwindows: true },
-      agents: [],
+      agents: [
+        {
+          role: 'legacy-worker',
+          provider: 'codex',
+          model: '',
+          count: 2,
+          orchestrated: true,
+          yolo: false,
+          strengths: [],
+          weaknesses: []
+        }
+      ],
       yoloDefault: false
     })
     expect(profile.planner.mode).toBe('review')
@@ -92,7 +105,40 @@ describe('workspaceProfileSchema', () => {
     expect(profile.autoGit).toEqual({ enabled: false, targetBranch: '' })
     expect(profile.orchestrator?.model).toBe('')
     expect(profile.orchestrator?.permissionMode).toBe('default')
+    expect('multiAgent' in profile.agents[0]!).toBe(false)
   })
+
+  it('round-trips missing, true, and false slot overrides without materializing inheritance', () => {
+    const input = {
+      ...DEFAULT_PROFILE,
+      agents: [
+        { ...DEFAULT_PROFILE.agents[0]! },
+        { ...DEFAULT_PROFILE.agents[0]!, role: 'parallel', multiAgent: true },
+        { ...DEFAULT_PROFILE.agents[0]!, role: 'direct', multiAgent: false }
+      ]
+    }
+
+    const parsed = workspaceProfileSchema.parse(input)
+    const roundTripped = workspaceProfileSchema.parse(JSON.parse(JSON.stringify(parsed)))
+
+    expect('multiAgent' in parsed.agents[0]!).toBe(false)
+    expect(parsed.agents[1]!.multiAgent).toBe(true)
+    expect(parsed.agents[2]!.multiAgent).toBe(false)
+    expect(roundTripped).toEqual(parsed)
+    expect('multiAgent' in roundTripped.agents[0]!).toBe(false)
+  })
+
+  it.each(['false', 0, null, {}, []])(
+    'rejects a non-boolean slot override: %j',
+    (multiAgent) => {
+      const result = workspaceProfileSchema.safeParse({
+        ...DEFAULT_PROFILE,
+        agents: [{ ...DEFAULT_PROFILE.agents[0]!, multiAgent }]
+      })
+
+      expect(result.success).toBe(false)
+    }
+  )
 
   it.each(['default', 'auto', 'plan'] as const)(
     'round-trips the Claude permission mode %s',
@@ -218,6 +264,22 @@ describe('workspaceProfileSchema', () => {
 })
 
 describe('duplicateProfile', () => {
+  it('preserves missing, true, and false slot overrides while cloning', () => {
+    const source = completeProfile()
+    source.agents.push({
+      ...source.agents[0]!,
+      role: 'legacy-compatible',
+      multiAgent: undefined
+    })
+    delete source.agents[2]!.multiAgent
+
+    const copy = duplicateProfile(source, [source])
+
+    expect(copy.agents[0]!.multiAgent).toBe(true)
+    expect(copy.agents[1]!.multiAgent).toBe(false)
+    expect('multiAgent' in copy.agents[2]!).toBe(false)
+  })
+
   it('copies every configurable setting except the intentional safety resets', () => {
     const source = completeProfile()
     const copy = duplicateProfile(source, [source])

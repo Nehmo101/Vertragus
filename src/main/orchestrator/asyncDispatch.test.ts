@@ -60,7 +60,8 @@ import {
   OrchestratorEngine,
   judgeWorkerTerminalResult,
   platformExecutionGuidance,
-  providerExecutionGuidance
+  providerExecutionGuidance,
+  subagentExecutionContract
 } from './Engine'
 import { permissionBroker } from '@main/permissions/PermissionBroker'
 
@@ -103,6 +104,50 @@ describe('asynchronous orchestration API', () => {
     expect(providerExecutionGuidance('codex', true, 'win32')).toEqual([])
     expect(providerExecutionGuidance('claude', false, 'win32')).toEqual([])
     expect(providerExecutionGuidance('codex', false, 'linux')).toEqual([])
+  })
+
+  it('only demands the Vertragus subagent reporting tools when the worker actually has them', () => {
+    // Cursor: no MCP channel → the contract never names report_progress etc.,
+    // so a Cursor worker is not asked to call tools it does not have.
+    const cursor = subagentExecutionContract({
+      provider: 'cursor',
+      yolo: false,
+      vertragusSubTools: false,
+      securityChecklist: [],
+      platform: 'linux'
+    }).join('\n')
+    expect(cursor).toContain('Vertragus-Ausführungsvertrag')
+    expect(cursor).toContain('ERGEBNIS: ERFOLG')
+    expect(cursor).not.toContain('report_progress')
+    expect(cursor).not.toContain('post_finding')
+    expect(cursor).not.toContain('list_findings')
+    expect(cursor).not.toContain('ask_orchestrator')
+
+    // Claude with the MCP channel up → the reporting tools ARE part of the contract.
+    const claude = subagentExecutionContract({
+      provider: 'claude',
+      yolo: false,
+      vertragusSubTools: true,
+      securityChecklist: [],
+      platform: 'linux'
+    }).join('\n')
+    expect(claude).toContain('report_progress')
+    expect(claude).toContain('post_finding')
+    expect(claude).toContain('list_findings')
+    expect(claude).toContain('ask_orchestrator')
+  })
+
+  it('appends provider, platform and security guidance to the contract', () => {
+    const contract = subagentExecutionContract({
+      provider: 'codex',
+      yolo: false,
+      vertragusSubTools: false,
+      securityChecklist: ['Prüfe Eingabevalidierung'],
+      platform: 'win32'
+    }).join('\n')
+    expect(contract).toContain('spawn EPERM') // codex/win32 provider guidance
+    expect(contract).toContain('kurzen Einzelbefehl') // win32 platform guidance
+    expect(contract).toContain('Security-Pflicht: Prüfe Eingabevalidierung')
   })
 
   it('treats an esbuild spawn EPERM as infrastructure even when the worker self-reports BLOCKER', () => {
@@ -807,6 +852,97 @@ describe('asynchronous orchestration API', () => {
       commit: 'b'.repeat(40),
       findings: [expect.objectContaining({ code: 'missing-ipc-controls' })]
     }))
+  })
+
+  it('walks the slot fallback-model list on a rate limit before switching provider', async () => {
+    const callsBefore = runTask.mock.calls.length
+    runTask
+      .mockImplementationOnce(async (request) => ({
+        info: { ...info(request.taskId), provider: request.provider },
+        done: Promise.resolve({ result: 'Selected model is at capacity', isError: true, status: 'failed' as const })
+      }))
+      .mockImplementationOnce(async (request) => ({
+        info: { ...info(request.taskId), provider: request.provider },
+        done: Promise.resolve({ result: 'Selected model is at capacity', isError: true, status: 'failed' as const })
+      }))
+      .mockImplementationOnce(async (request) => ({
+        info: { ...info(request.taskId), provider: request.provider },
+        done: Promise.resolve({ result: 'Fallback model completed', isError: false, status: 'succeeded' as const })
+      }))
+    const profile = {
+      ...DEFAULT_PROFILE,
+      agents: [
+        {
+          ...DEFAULT_PROFILE.agents[0]!,
+          role: 'primary',
+          provider: 'codex' as const,
+          fallbackModels: ['ersatz-1', 'ersatz-2']
+        },
+        { ...DEFAULT_PROFILE.agents[0]!, role: 'reserve', provider: 'cursor' as const }
+      ],
+      planner: {
+        ...DEFAULT_PROFILE.planner,
+        mode: 'auto' as const,
+        routingMode: 'fixed' as const,
+        maxRetries: 0
+      }
+    }
+    const engine = new OrchestratorEngine({ profile })
+    const result = await engine.executePlan({
+      version: 1, goal: 'Survive model capacity limits', maxParallel: 1,
+      tasks: [{
+        id: 'limited', title: 'Limited', role: 'primary', prompt: 'Work',
+        dependsOn: [], conflictKeys: [], ownership: 'feature', expectedFiles: []
+      }]
+    })
+    expect(result.status).toBe('success')
+    const attempts = runTask.mock.calls.slice(callsBefore).map((call) => ({
+      provider: call[0].provider,
+      model: call[0].model
+    }))
+    // Same slot walks its fallback models before any provider switch happens.
+    expect(attempts).toEqual([
+      { provider: 'codex', model: '' },
+      { provider: 'codex', model: 'ersatz-1' },
+      { provider: 'codex', model: 'ersatz-2' }
+    ])
+  })
+
+  it('prefers a slot fallback model over a provider switch for a terminal limited task', async () => {
+    const callsBefore = runTask.mock.calls.length
+    runTask
+      .mockImplementationOnce(async (request) => ({
+        info: { ...info(request.taskId), provider: request.provider },
+        done: Promise.resolve({ result: 'Provider rate limit hit', isError: true, status: 'failed' as const })
+      }))
+      .mockImplementationOnce(async (request) => ({
+        info: { ...info(request.taskId), provider: request.provider },
+        done: Promise.resolve({ result: 'Recovered on fallback model', isError: false, status: 'succeeded' as const })
+      }))
+    const engine = new OrchestratorEngine({ profile: {
+      ...DEFAULT_PROFILE,
+      agents: [
+        {
+          ...DEFAULT_PROFILE.agents[0]!,
+          role: 'primary',
+          provider: 'codex' as const,
+          fallbackModels: ['ersatz-1']
+        },
+        { ...DEFAULT_PROFILE.agents[0]!, role: 'reserve', provider: 'cursor' as const }
+      ]
+    } })
+    const accepted = engine.dispatchAsync('primary', 'Safe internal prompt', 'Model fallback')
+    await vi.waitFor(() => expect(engine.getTaskStatus(accepted.taskId)?.status).toBe('error'))
+    await expect(engine.fallbackTask(accepted.taskId)).resolves.toBe(true)
+    await vi.waitFor(() => expect(engine.getTaskStatus(accepted.taskId)?.status).toBe('success'))
+    const attempts = runTask.mock.calls.slice(callsBefore).map((call) => ({
+      provider: call[0].provider,
+      model: call[0].model
+    }))
+    expect(attempts).toEqual([
+      { provider: 'codex', model: '' },
+      { provider: 'codex', model: 'ersatz-1' }
+    ])
   })
 
   it('switches provider on a rate limit even when normal routing is fixed', async () => {

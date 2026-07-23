@@ -25,7 +25,7 @@ function profile(workingDir: string): WorkspaceProfile {
 
 describe('prompt workspace context inspection', () => {
   it('collects only bounded, confirmed repository metadata without exposing the root path', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'orca-prompt-context-'))
+    const root = await mkdtemp(join(tmpdir(), 'vertragus-prompt-context-'))
     cleanup.push(root)
     await mkdir(join(root, '.github', 'workflows'), { recursive: true })
     await writeFile(
@@ -56,8 +56,8 @@ describe('prompt workspace context inspection', () => {
   })
 
   it('ignores symlinks that escape the workspace root', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'orca-prompt-root-'))
-    const outside = await mkdtemp(join(tmpdir(), 'orca-prompt-outside-'))
+    const root = await mkdtemp(join(tmpdir(), 'vertragus-prompt-root-'))
+    const outside = await mkdtemp(join(tmpdir(), 'vertragus-prompt-outside-'))
     cleanup.push(root, outside)
     await writeFile(join(outside, 'package.json'), JSON.stringify({ name: 'outside-secret-repo' }))
     try {

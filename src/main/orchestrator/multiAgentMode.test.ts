@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { DEFAULT_PROFILE, type WorkspaceProfile } from '@shared/profile'
+import { DEFAULT_PROFILE, type AgentSlot, type WorkspaceProfile } from '@shared/profile'
 
 vi.mock('electron', () => ({
   app: { getPath: () => '.', getName: () => 'test', isPackaged: false }
@@ -59,18 +59,35 @@ function info(taskId: string) {
   }
 }
 
-function multiProfile(count = 3): WorkspaceProfile {
+function multiProfile(
+  count = 3,
+  globalEnabled = true,
+  slotOverride?: boolean
+): WorkspaceProfile {
+  const slot: AgentSlot = {
+    ...DEFAULT_PROFILE.agents[0]!,
+    role: 'grok',
+    provider: 'cursor',
+    model: 'grok',
+    count,
+    ...(slotOverride === undefined ? {} : { multiAgent: slotOverride })
+  }
   return {
     ...DEFAULT_PROFILE,
-    agents: [{
-      ...DEFAULT_PROFILE.agents[0]!,
-      role: 'grok',
-      provider: 'cursor',
-      model: 'grok',
-      count
-    }],
-    multiAgent: { enabled: true, stopLosers: true }
+    agents: [slot],
+    multiAgent: { enabled: globalEnabled, stopLosers: true }
   }
+}
+
+function completeTasksImmediately(): void {
+  runTask.mockImplementation(async (request: { taskId: string }) => ({
+    info: info(request.taskId),
+    done: Promise.resolve<Completion>({
+      result: `ERGEBNIS: ERFOLG ${request.taskId}`,
+      isError: false,
+      status: 'succeeded'
+    })
+  }))
 }
 
 afterEach(() => {
@@ -79,6 +96,115 @@ afterEach(() => {
 })
 
 describe('profile Multiagent mode', () => {
+  it('inherits an enabled global mode when the slot override is missing', async () => {
+    completeTasksImmediately()
+    const engine = new OrchestratorEngine({ profile: multiProfile(3, true) })
+
+    engine.dispatchAsync('grok', 'Global aktiv', 'Geerbt an')
+
+    await vi.waitFor(() => expect(runTask).toHaveBeenCalledTimes(3))
+    expect(engine.listMultiAgentRuns()).toHaveLength(1)
+    engine.dispose()
+  })
+
+  it('inherits a disabled global mode when the slot override is missing', async () => {
+    completeTasksImmediately()
+    const engine = new OrchestratorEngine({ profile: multiProfile(3, false) })
+
+    await engine.dispatch('grok', 'Global inaktiv', 'Geerbt aus')
+
+    expect(runTask).toHaveBeenCalledTimes(1)
+    expect(engine.listMultiAgentRuns()).toEqual([])
+    engine.dispose()
+  })
+
+  it('lets an explicit slot true override a disabled global mode', async () => {
+    completeTasksImmediately()
+    const engine = new OrchestratorEngine({ profile: multiProfile(3, false, true) })
+
+    engine.dispatchAsync('grok', 'Slot aktiv', 'Override an')
+
+    await vi.waitFor(() => expect(runTask).toHaveBeenCalledTimes(3))
+    expect(engine.listMultiAgentRuns()).toHaveLength(1)
+    engine.dispose()
+  })
+
+  it('lets an explicit slot false override an enabled global mode', async () => {
+    completeTasksImmediately()
+    const engine = new OrchestratorEngine({ profile: multiProfile(3, true, false) })
+
+    await engine.dispatch('grok', 'Slot inaktiv', 'Override aus')
+
+    expect(runTask).toHaveBeenCalledTimes(1)
+    expect(engine.listMultiAgentRuns()).toEqual([])
+    engine.dispose()
+  })
+
+  it('does not fan out when the enabled target slot has count one', async () => {
+    completeTasksImmediately()
+    const engine = new OrchestratorEngine({ profile: multiProfile(1, true, true) })
+
+    await engine.dispatch('grok', 'Ein Worker', 'Count eins')
+
+    expect(runTask).toHaveBeenCalledTimes(1)
+    expect(engine.listMultiAgentRuns()).toEqual([])
+    engine.dispose()
+  })
+
+  it('does not recursively fan out a dispatch marked as a multiagent candidate', async () => {
+    completeTasksImmediately()
+    const engine = new OrchestratorEngine({ profile: multiProfile(3, true, true) })
+
+    await engine.dispatch('grok', 'Kandidat', 'Rekursionsschutz', {
+      multiAgentRunId: 'multi-existing'
+    })
+
+    expect(runTask).toHaveBeenCalledTimes(1)
+    expect(engine.listMultiAgentRuns()).toEqual([])
+    engine.dispose()
+  })
+
+  it('evaluates the actually addressed slot when multiple slots are configured', async () => {
+    completeTasksImmediately()
+    const directSlot: AgentSlot = {
+      ...DEFAULT_PROFILE.agents[0]!,
+      role: 'direct',
+      provider: 'cursor',
+      model: 'direct-model',
+      count: 4,
+      multiAgent: false
+    }
+    const fanoutSlot: AgentSlot = {
+      ...DEFAULT_PROFILE.agents[0]!,
+      role: 'fanout',
+      provider: 'cursor',
+      model: 'fanout-model',
+      count: 2,
+      multiAgent: true
+    }
+    const profile: WorkspaceProfile = {
+      ...DEFAULT_PROFILE,
+      agents: [directSlot, fanoutSlot],
+      multiAgent: { enabled: false, stopLosers: true }
+    }
+    const engine = new OrchestratorEngine({ profile })
+
+    await engine.dispatch('direct', 'Direkt', 'Adressiertes Slot-Aus')
+    engine.dispatchAsync('fanout', 'Parallel', 'Adressiertes Slot-An')
+
+    await vi.waitFor(() => expect(runTask).toHaveBeenCalledTimes(3))
+    expect(runTask.mock.calls.map(([request]) => request.model)).toEqual([
+      'direct-model',
+      'fanout-model',
+      'fanout-model'
+    ])
+    expect(engine.listMultiAgentRuns()).toEqual([
+      expect.objectContaining({ role: 'fanout', candidateTaskIds: expect.any(Array) })
+    ])
+    expect(engine.listMultiAgentRuns()[0]?.candidateTaskIds).toHaveLength(2)
+    engine.dispose()
+  })
+
   it('fans one task out to the slot count and integrates only the reviewed winner', async () => {
     const completions = new Map<string, (value: Completion) => void>()
     runTask.mockImplementation(async (request: { taskId: string }) => ({

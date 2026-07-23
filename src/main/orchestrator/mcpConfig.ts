@@ -104,7 +104,7 @@ function buildAnthropicStyleMcpArgs(
   configFlag: string
 ): string[] {
   if (servers.length === 0) return []
-  const dir = join(opts.configDir, 'orca-mcp')
+  const dir = join(opts.configDir, 'vertragus-mcp')
   mkdirSync(dir, { recursive: true })
   const configPath = join(dir, `${opts.fileTag}.json`)
   writeFileSync(configPath, JSON.stringify(toClaudeMcpConfig(servers), null, 2))

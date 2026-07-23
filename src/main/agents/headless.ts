@@ -10,7 +10,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AgentProviderId } from '@shared/providers'
+import { providerHeadlessDef, type AgentProviderId } from '@shared/providers'
 import { buildHeadlessLaunch, type HeadlessOpts } from '@main/providers/types'
 import { resolveLaunch } from '@main/agents/resolveCommand'
 import { runOllamaChat } from '@main/agents/ollamaHeadless'
@@ -394,7 +394,9 @@ function interpretCodex(
 }
 
 function interpreterFor(id: AgentProviderId): (o: Record<string, unknown>) => LineInterpretation {
-  if (id !== 'codex') return interpretClaudeStyle
+  // Every non-codex agent uses the Anthropic-style envelope (see ProviderDef.
+  // headless.streamFormat); codex has its own event shapes.
+  if (providerHeadlessDef(id)?.streamFormat !== 'codex') return interpretClaudeStyle
   const activeCommands = new Map<string, number>()
   return (event) => interpretCodex(event, activeCommands)
 }
@@ -480,8 +482,9 @@ export function runHeadless(
   let tmpDir: string | undefined
   let runtimeRoot: string | undefined
   const extraArgs = [...(opts.extraArgs ?? [])]
-  // Kimi Code CLI mirrors Claude Code's stream-json + --verbose surface.
-  if (id === 'claude' || id === 'kimi') extraArgs.push('--verbose')
+  // Claude Code and the Kimi CLI that mirrors it emit the full stream-json
+  // envelope only under --verbose (see ProviderDef.headless.verbose).
+  if (providerHeadlessDef(id)?.verbose) extraArgs.push('--verbose')
   if (id === 'codex') {
     if (!extraArgs.includes('--skip-git-repo-check')) {
       extraArgs.push('--skip-git-repo-check')
@@ -492,7 +495,7 @@ export function runHeadless(
       mkdirSync(runtimeRoot, { recursive: true })
       extraArgs.push(...codexSingleRootSandboxArgs())
     }
-    tmpDir = mkdtempSync(join(runtimeRoot ?? tmpdir(), 'orca-codex-'))
+    tmpDir = mkdtempSync(join(runtimeRoot ?? tmpdir(), 'vertragus-codex-'))
     lastMsgFile = join(tmpDir, 'last.txt')
     extraArgs.push('--json', '-o', lastMsgFile)
   }
@@ -657,7 +660,12 @@ export function runHeadless(
 
   const done = new Promise<HeadlessResult>((resolve) => { resolveDone = resolve })
 
-  void resolveLaunch(launch.command, launch.args)
+  // Cursor is launched through a script shim (cursor-agent.cmd) on Windows.
+  // Its prompt is a multiline positional argument, so it must reach the process
+  // byte-faithfully — the cmd.exe wrapper would truncate it at the first newline
+  // and expose shell metacharacters. resolveLaunch rewrites the shim to a direct
+  // Node/exe entrypoint for this provider instead.
+  void resolveLaunch(launch.command, launch.args, { requireFaithfulArgs: id === 'cursor' })
     .then((resolved) => {
       if (settled || stopStatus) return
       lifecycle.phase('starting-process')

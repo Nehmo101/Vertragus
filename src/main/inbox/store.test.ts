@@ -25,7 +25,7 @@ const TINY_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
 
 vi.mock('electron', () => ({
-  app: { getPath: () => `/tmp/orca-test-userdata-${process.pid}` }
+  app: { getPath: () => `/tmp/vertragus-test-userdata-${process.pid}` }
 }))
 
 vi.mock('electron-store', async (importOriginal) => {
@@ -34,7 +34,7 @@ vi.mock('electron-store', async (importOriginal) => {
     import('node:os'),
     import('node:path')
   ])
-  const testCwd = join(tmpdir(), `orca-test-userdata-${process.pid}`)
+  const testCwd = join(tmpdir(), `vertragus-test-userdata-${process.pid}`)
   return {
     default: class TestElectronStore extends ElectronStore {
       constructor(options: ConstructorParameters<typeof ElectronStore>[0]) {

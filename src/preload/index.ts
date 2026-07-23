@@ -32,6 +32,8 @@ const vertragus: VertragusApi = {
   listModels: () => ipcRenderer.invoke(IPC.providersModels),
   getConfig: (key) => ipcRenderer.invoke(IPC.configGet, assertValidConfigKey(key)),
   setConfig: (key, value) => ipcRenderer.invoke(IPC.configSet, assertValidConfigKey(key), value),
+  onConfigChanged: (cb) =>
+    subscribe<{ key: string; value: unknown }>(IPC.evConfigChanged, cb),
 
   listProfiles: () => ipcRenderer.invoke(IPC.profilesList),
   saveProfile: (profile) => ipcRenderer.invoke(IPC.profileSave, profile),
@@ -53,7 +55,9 @@ const vertragus: VertragusApi = {
     restartAgents: (profileId, sessionId) =>
       ipcRenderer.invoke(IPC.sessionsRestartAgents, profileId, sessionId),
     discardOrphanWorktree: (path) =>
-      ipcRenderer.invoke(IPC.sessionsDiscardOrphanWorktree, path)
+      ipcRenderer.invoke(IPC.sessionsDiscardOrphanWorktree, path),
+    discardOrphanWorktrees: (paths) =>
+      ipcRenderer.invoke(IPC.sessionsDiscardOrphanWorktrees, paths)
   },
 
   listMcpServers: () => ipcRenderer.invoke(IPC.mcpList),
@@ -115,6 +119,9 @@ const vertragus: VertragusApi = {
     listDevices: () => ipcRenderer.invoke(IPC.remoteListDevices),
     revokeDevice: (deviceId) => ipcRenderer.invoke(IPC.remoteRevokeDevice, deviceId),
     pairStart: (request) => ipcRenderer.invoke(IPC.remotePairStart, request),
+    setApnsConfig: (config) => ipcRenderer.invoke(IPC.remoteSetApnsConfig, config),
+    getApnsConfigStatus: () => ipcRenderer.invoke(IPC.remoteGetApnsConfigStatus),
+    clearApnsConfig: () => ipcRenderer.invoke(IPC.remoteClearApnsConfig),
     onStatus: (cb) => subscribe(IPC.evRemote, cb)
   },
 
@@ -131,12 +138,13 @@ const vertragus: VertragusApi = {
     clean: (profileId, workspaceSessionId) =>
       ipcRenderer.invoke(IPC.agentsClean, profileId, workspaceSessionId),
     buffer: (id) => ipcRenderer.invoke(IPC.agentBuffer, id),
+    bufferTail: (id, maxChars) => ipcRenderer.invoke(IPC.agentBufferTail, id, maxChars),
     popout: (id) => ipcRenderer.invoke(IPC.agentPopout, id),
     handoff: (req) => ipcRenderer.invoke(IPC.agentHandoff, req),
     bulkHandoff: (req) => ipcRenderer.invoke(IPC.agentsBulkHandoff, req),
     onData: (cb) => subscribe<AgentDataChunk>(IPC.evAgentData, cb),
     onChanged: (cb) => subscribe<AgentInstanceInfo[]>(IPC.evAgentsChanged, cb),
-    onEvent: (cb) => subscribe<VertragusEvent>(IPC.evOrcaEvent, cb)
+    onEvent: (cb) => subscribe<VertragusEvent>(IPC.evVertragusEvent, cb)
   },
 
   orchestrator: {
@@ -211,6 +219,11 @@ const vertragus: VertragusApi = {
     minimize: () => ipcRenderer.send(IPC.winMinimize),
     maximizeToggle: () => ipcRenderer.send(IPC.winMaximizeToggle),
     close: () => ipcRenderer.send(IPC.winClose)
+  },
+
+  attention: {
+    setPendingFeedbackCount: (count) =>
+      ipcRenderer.send(IPC.attentionSetPendingFeedbackCount, count)
   }
 }
 

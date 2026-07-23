@@ -26,7 +26,7 @@ describe('workspace path canonicalization', () => {
   })
 
   it('collapses symlink/junction aliases to one workspace identity', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'orca-path-'))
+    const root = await mkdtemp(join(tmpdir(), 'vertragus-path-'))
     roots.push(root)
     const real = join(root, 'real')
     const alias = join(root, 'alias')
@@ -40,7 +40,7 @@ describe('workspace path canonicalization', () => {
   })
 
   it('recognizes children but rejects sibling paths', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'orca-root-'))
+    const root = await mkdtemp(join(tmpdir(), 'vertragus-root-'))
     roots.push(root)
     const workspace = join(root, 'workspace')
     const child = join(workspace, 'src')

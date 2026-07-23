@@ -40,6 +40,37 @@ jobs:
           ELECTRON_DISABLE_SANDBOX: '1'
         run: xvfb-run -a pnpm run test:ui-smoke
 
+  e2e-smoke:
+    # Separate job: Playwright-driven Electron can be flakier than unit tests,
+    # and the screenshot/report artifacts are wanted even on failure.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.13'
+          cache: pnpm
+      - name: Cache Electron binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/electron
+          key: electron-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - run: pnpm install --frozen-lockfile
+      - name: Seeded E2E smoke (screenshots + overlap/duplicate checks)
+        env:
+          ELECTRON_DISABLE_SANDBOX: '1'
+          CI: 'true'
+        run: xvfb-run -a pnpm run test:e2e
+      - name: Upload E2E artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: e2e-artifacts/
+          retention-days: 14
+
   windows-build:
     runs-on: windows-latest
     timeout-minutes: 15

@@ -22,13 +22,13 @@ describe('orchestrator Git post-processing', () => {
   let remoteDir: string
 
   beforeEach(async () => {
-    fixtureRoot = await mkdtemp(join(tmpdir(), 'orca-git-post-process-'))
+    fixtureRoot = await mkdtemp(join(tmpdir(), 'vertragus-git-post-process-'))
     workspaceDir = join(fixtureRoot, 'workspace')
     remoteDir = join(fixtureRoot, 'remote.git')
 
     await mkdir(workspaceDir)
     await git(workspaceDir, 'init')
-    await git(workspaceDir, 'config', 'user.email', 'test@orca.local')
+    await git(workspaceDir, 'config', 'user.email', 'test@vertragus.local')
     await git(workspaceDir, 'config', 'user.name', 'Vertragus Test')
     await writeFile(join(workspaceDir, 'README.md'), '# initial\n', 'utf8')
     await writeFile(join(workspaceDir, 'obsolete.txt'), 'remove me\n', 'utf8')

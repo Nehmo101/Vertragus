@@ -63,7 +63,7 @@ export function createHeadlessPromptEnhancementExecutor(
       // A disposable empty CWD prevents an editing-capable agent CLI from reading
       // or mutating the linked repository during this text-only operation.
       const temporaryRoot = tmpdir()
-      workingDir = mkdtempSync(resolve(temporaryRoot, 'orca-prompt-enhancement-'))
+      workingDir = mkdtempSync(resolve(temporaryRoot, 'vertragus-prompt-enhancement-'))
       assertDisposablePromptWorkingDirectory(workingDir, temporaryRoot)
       handle = runner(
         request.provider,

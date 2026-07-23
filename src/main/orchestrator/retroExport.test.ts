@@ -17,7 +17,7 @@ const settings = new Map<string, unknown>()
 
 vi.mock('electron', () => ({
   app: {
-    getPath: vi.fn(() => '/tmp/orca-test-user-data'),
+    getPath: vi.fn(() => '/tmp/vertragus-test-user-data'),
     getVersion: vi.fn(() => '0.0.0-test')
   }
 }))

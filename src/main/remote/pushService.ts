@@ -1,15 +1,21 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
-import type { OrchestratorSnapshot, OrcaTask } from '@shared/orchestrator'
-import type { RemoteEventFrame } from '@shared/remote'
+import type { OrchestratorSnapshot, VertragusTask } from '@shared/orchestrator'
+import type { ApnsRegisterRequest, RemoteEventFrame } from '@shared/remote'
 import {
+  readApnsCredential,
+  readApnsTokens,
   readPushSubscriptions,
   readVapidKeys,
+  writeApnsTokens,
   writePushSubscriptions,
   writeVapidKeys,
+  type StoredApnsCredential,
+  type StoredApnsToken,
   type StoredPushSubscription,
   type StoredVapidKeys
 } from './deviceStore'
+import type { ApnsSender } from './apnsSender'
 import type { RemoteReadModel } from './readModel'
 
 export interface PushTransition {
@@ -21,14 +27,37 @@ export interface PushTransition {
   workspaceSessionId?: string
 }
 
-function taskMap(snapshot: OrchestratorSnapshot | undefined): Map<string, OrcaTask> {
+/** APNs payload built from a transition: alert + `data`-style top-level fields. */
+export interface ApnsPayload {
+  aps: { alert: { title: string; body: string }; sound: 'default' }
+  url: string
+  profileId?: string
+  workspaceSessionId?: string
+}
+
+export function buildApnsPayload(transition: PushTransition): ApnsPayload {
+  return {
+    aps: { alert: { title: transition.title, body: transition.body }, sound: 'default' },
+    url: transition.url,
+    profileId: transition.profileId,
+    workspaceSessionId: transition.workspaceSessionId
+  }
+}
+
+/** Lazy default APNs sender loader (mirrors `loadWebPush`; keeps `node:http2` off the hot path). */
+async function defaultLoadApnsSender(credential: StoredApnsCredential): Promise<ApnsSender> {
+  const { Http2ApnsSender } = await import('./apnsSender')
+  return new Http2ApnsSender({ teamId: credential.teamId, keyId: credential.keyId, p8: credential.p8 })
+}
+
+function taskMap(snapshot: OrchestratorSnapshot | undefined): Map<string, VertragusTask> {
   return new Map((snapshot?.tasks ?? []).map((task) => [task.id, task]))
 }
 
-function isActive(task: OrcaTask): boolean {
+function isActive(task: VertragusTask): boolean {
   return task.status === 'queued' || task.status === 'running' || task.status === 'waiting' || task.status === 'paused'
 }
-function isTerminal(task: OrcaTask): boolean { return !isActive(task) }
+function isTerminal(task: VertragusTask): boolean { return !isActive(task) }
 
 /** Pure transition diff. Identical heartbeat snapshots produce no notifications. */
 export function diffPushTransitions(
@@ -112,6 +141,12 @@ export interface PushServiceDependencies {
   saveKeys(value: StoredVapidKeys): void
   loadWebPush(): Promise<WebPushModule>
   onDelivery?(transition: PushTransition, outcome: 'sent' | 'gone' | 'error'): void
+  /** APNs delivery is only attempted when all three (+ a stored credential) are present. */
+  loadApnsTokens?(): StoredApnsToken[]
+  saveApnsTokens?(value: StoredApnsToken[]): void
+  loadApnsCredential?(): StoredApnsCredential | undefined
+  /** Lazy sender factory, injectable for tests (mirrors `loadWebPush`). */
+  loadApnsSender?(credential: StoredApnsCredential): Promise<ApnsSender>
 }
 
 const defaults: PushServiceDependencies = {
@@ -120,13 +155,19 @@ const defaults: PushServiceDependencies = {
   loadKeys: readVapidKeys,
   saveKeys: writeVapidKeys,
   loadWebPush: async () => import('web-push'),
-  onDelivery: undefined
+  onDelivery: undefined,
+  loadApnsTokens: readApnsTokens,
+  saveApnsTokens: writeApnsTokens,
+  loadApnsCredential: readApnsCredential,
+  loadApnsSender: defaultLoadApnsSender
 }
 
 export class PushService extends EventEmitter {
   private unsubscribe: (() => void) | undefined
   private readonly snapshots = new Map<string, OrchestratorSnapshot>()
   private readonly delivered = new Set<string>()
+  private apnsSenderPromise: Promise<ApnsSender> | undefined
+  private apnsSenderSignature: string | undefined
 
   constructor(
     private readonly readModel: RemoteReadModel,
@@ -144,6 +185,10 @@ export class PushService extends EventEmitter {
     this.unsubscribe = undefined
     this.snapshots.clear()
     this.delivered.clear()
+    const sender = this.apnsSenderPromise
+    this.apnsSenderPromise = undefined
+    this.apnsSenderSignature = undefined
+    void sender?.then((instance) => instance.close()).catch(() => undefined)
   }
 
   private onFrame(frame: RemoteEventFrame): void {
@@ -168,13 +213,38 @@ export class PushService extends EventEmitter {
     this.dependencies.saveSubscriptions(subscriptions)
   }
 
+  /** Register (or replace, deduped by token) a native APNs device token. */
+  subscribeApns(deviceId: string, input: ApnsRegisterRequest): void {
+    const load = this.dependencies.loadApnsTokens
+    const save = this.dependencies.saveApnsTokens
+    if (!load || !save) return
+    const tokens = load().filter((entry) => entry.token !== input.token)
+    tokens.push({
+      id: randomUUID(),
+      deviceId,
+      token: input.token,
+      environment: input.environment,
+      bundleId: input.bundleId,
+      createdAt: Date.now()
+    })
+    save(tokens)
+  }
+
   removeDevice(deviceId: string): void {
     this.dependencies.saveSubscriptions(
       this.dependencies.loadSubscriptions().filter((subscription) => subscription.deviceId !== deviceId)
     )
+    const load = this.dependencies.loadApnsTokens
+    const save = this.dependencies.saveApnsTokens
+    if (load && save) {
+      save(load().filter((entry) => entry.deviceId !== deviceId))
+    }
   }
 
-  removeAll(): void { this.dependencies.saveSubscriptions([]) }
+  removeAll(): void {
+    this.dependencies.saveSubscriptions([])
+    this.dependencies.saveApnsTokens?.([])
+  }
 
   private async ensureKeys(): Promise<StoredVapidKeys> {
     const existing = this.dependencies.loadKeys()
@@ -186,6 +256,12 @@ export class PushService extends EventEmitter {
   }
 
   private async deliver(transition: PushTransition): Promise<void> {
+    // Web-Push and APNs are independent delivery paths; either may be unconfigured.
+    await this.deliverWebPush(transition)
+    await this.deliverApns(transition)
+  }
+
+  private async deliverWebPush(transition: PushTransition): Promise<void> {
     const allSubscriptions = this.dependencies.loadSubscriptions()
     const subscriptions = allSubscriptions.filter((subscription) =>
       this.canRead(subscription.deviceId, transition.profileId, transition.workspaceSessionId)
@@ -193,7 +269,7 @@ export class PushService extends EventEmitter {
     if (subscriptions.length === 0) return
     const keys = await this.ensureKeys()
     const webPush = await this.dependencies.loadWebPush()
-    webPush.setVapidDetails('mailto:orca@localhost.invalid', keys.publicKey, keys.privateKey)
+    webPush.setVapidDetails('mailto:vertragus@localhost.invalid', keys.publicKey, keys.privateKey)
     const gone = new Set<string>()
     await Promise.all(subscriptions.map(async (subscription) => {
       try {
@@ -223,5 +299,65 @@ export class PushService extends EventEmitter {
     if (gone.size > 0) {
       this.dependencies.saveSubscriptions(allSubscriptions.filter((subscription) => !gone.has(subscription.id)))
     }
+  }
+
+  /** Additive native APNs delivery, scope-filtered like Web-Push. No-op unless configured. */
+  private async deliverApns(transition: PushTransition): Promise<void> {
+    const loadTokens = this.dependencies.loadApnsTokens
+    const saveTokens = this.dependencies.saveApnsTokens
+    const loadCredential = this.dependencies.loadApnsCredential
+    if (!loadTokens || !saveTokens || !loadCredential) return
+    const credential = loadCredential()
+    if (!credential) return
+    const allTokens = loadTokens()
+    const tokens = allTokens.filter((entry) =>
+      this.canRead(entry.deviceId, transition.profileId, transition.workspaceSessionId)
+    )
+    if (tokens.length === 0) return
+    const sender = await this.ensureApnsSender(credential)
+    const payload = buildApnsPayload(transition)
+    const { isApnsTokenGone } = await import('./apnsSender')
+    const gone = new Set<string>()
+    await Promise.all(tokens.map(async (entry) => {
+      try {
+        const result = await sender.send(entry.token, payload, {
+          environment: entry.environment,
+          bundleId: entry.bundleId
+        })
+        if (isApnsTokenGone(result)) {
+          gone.add(entry.id)
+          this.dependencies.onDelivery?.(transition, 'gone')
+          this.emit('delivery', transition, 'gone')
+        } else if (result.status >= 200 && result.status < 300) {
+          this.dependencies.onDelivery?.(transition, 'sent')
+          this.emit('delivery', transition, 'sent')
+        } else {
+          this.dependencies.onDelivery?.(transition, 'error')
+          this.emit('delivery', transition, 'error')
+        }
+      } catch {
+        this.dependencies.onDelivery?.(transition, 'error')
+        this.emit('delivery', transition, 'error')
+      }
+    }))
+    if (gone.size > 0) {
+      saveTokens(allTokens.filter((entry) => !gone.has(entry.id)))
+    }
+  }
+
+  /** Lazily build (and cache) a sender, rebuilding when the credential changes. */
+  private ensureApnsSender(credential: StoredApnsCredential): Promise<ApnsSender> {
+    const signature = JSON.stringify(credential)
+    if (this.apnsSenderPromise && this.apnsSenderSignature === signature) return this.apnsSenderPromise
+    const previous = this.apnsSenderPromise
+    const load = this.dependencies.loadApnsSender ?? defaultLoadApnsSender
+    this.apnsSenderSignature = signature
+    this.apnsSenderPromise = (async () => {
+      if (previous) {
+        try { (await previous).close() } catch { /* replacing a stale sender */ }
+      }
+      return load(credential)
+    })()
+    return this.apnsSenderPromise
   }
 }
