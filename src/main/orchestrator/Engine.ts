@@ -503,7 +503,9 @@ export class OrchestratorEngine extends EventEmitter {
     const runningAges = tasks
       .filter((task) => task.status === 'running')
       .map((task) => now - (task.lastHeartbeatAt ?? task.createdAt))
-    this.reliability.maxRunningStatusAgeMs = Math.max(
+    // Read-only view: the persistent high-water mark is advanced in push()
+    // (the write path); snapshot() must not mutate engine state.
+    const maxRunningStatusAgeMs = Math.max(
       this.reliability.maxRunningStatusAgeMs,
       ...runningAges,
       0
@@ -522,6 +524,7 @@ export class OrchestratorEngine extends EventEmitter {
       tasks,
       reliability: {
         ...this.reliability,
+        maxRunningStatusAgeMs,
         failuresByProviderAndPlatform: { ...this.reliability.failuresByProviderAndPlatform }
       },
       capacity: {
@@ -577,6 +580,16 @@ export class OrchestratorEngine extends EventEmitter {
 
   private push(): void {
     this.reliability.lastSnapshotAt = Date.now()
+    // Advance the running-age high-water mark here in the write path, so the
+    // read-only snapshot() can report it without mutating engine state.
+    const now = Date.now()
+    for (const task of this.tasks.values()) {
+      if (task.status !== 'running') continue
+      this.reliability.maxRunningStatusAgeMs = Math.max(
+        this.reliability.maxRunningStatusAgeMs,
+        now - (task.lastHeartbeatAt ?? task.createdAt)
+      )
+    }
     const snapshot = this.snapshot()
     // Lifecycle events arrive up to once per second per running worker; a full
     // synchronous config write for each would stall the main process. The live
@@ -731,6 +744,8 @@ export class OrchestratorEngine extends EventEmitter {
     this.pausedTasks.clear()
     this.resumeRequestedTasks.clear()
     this.forcedFallbackRoles.clear()
+    this.attemptedFallbackModels.clear()
+    this.forcedFallbackModels.clear()
     this.fallbackInFlight.clear()
     this.dispatchRecords.clear()
     this.firstPlanApproved = true
@@ -748,6 +763,8 @@ export class OrchestratorEngine extends EventEmitter {
     this.planSelfEstimates.clear()
     this.pendingSelfEstimate = undefined
     this.cancelledPlanRuns.clear()
+    this.planReviewStates.clear()
+    this.planReviewWaiters.clear()
     this.benchmarkRuns.clear()
     for (const run of this.multiAgentRuns.values()) {
       run.resolve({ action: 'rejected', message: 'Multiagent-Lauf durch Engine-Reset beendet.' })
@@ -968,7 +985,22 @@ export class OrchestratorEngine extends EventEmitter {
         recoveryWorktree: task.recoveryArtifact?.worktree,
         modelOverride: fallbackModel
       }
-    ).finally(() => this.fallbackInFlight.delete(taskId))
+    )
+      // .finally alone would re-throw a dispatch rejection (e.g. pickSlot on a
+      // changed profile) as an unhandled rejection; surface it on the task.
+      .catch((error: unknown) => {
+        const current = this.tasks.get(taskId)
+        if (!current || isTerminalTaskStatus(current.status)) return
+        const message = error instanceof Error ? error.message : String(error)
+        current.status = 'error'
+        current.failureKind = 'infrastructure'
+        current.note = message
+        current.lastAction = 'Fallback-Dispatch unerwartet fehlgeschlagen'
+        current.finishedAt = Date.now()
+        this.taskResults.set(taskId, message)
+        this.push()
+      })
+      .finally(() => this.fallbackInFlight.delete(taskId))
     return true
   }
 
@@ -976,6 +1008,18 @@ export class OrchestratorEngine extends EventEmitter {
     const forced = this.forcedFallbackRoles.get(taskId)
     if (forced) this.forcedFallbackRoles.delete(taskId)
     return forced ?? currentRole
+  }
+
+  /**
+   * Drop the per-task helper state once a task run (including all retries) is
+   * over, so the maps stop growing with session lifetime. attemptedFallbackModels
+   * deliberately survives run boundaries: a later manual fallbackTask must not
+   * re-try models this task already burned; reset() clears it.
+   */
+  private clearTaskScratch(taskId: string): void {
+    this.forcedFallbackModels.delete(taskId)
+    this.forcedFallbackRoles.delete(taskId)
+    this.timeoutDenialStreaks.delete(taskId)
   }
 
   /**
@@ -1454,6 +1498,7 @@ export class OrchestratorEngine extends EventEmitter {
     this.taskRuns.set(taskId, work)
     void work.finally(() => {
       this.taskRuns.delete(taskId)
+      this.clearTaskScratch(taskId)
       const current = this.multiAgentRuns.get(run.id)
       if (!current || current.status === 'accepted' || current.status === 'rejected') return
       const complete = current.candidateTaskIds.every((id) => {
@@ -2276,7 +2321,10 @@ export class OrchestratorEngine extends EventEmitter {
         return message
       })
     this.taskRuns.set(taskId, run)
-    void run.finally(() => this.taskRuns.delete(taskId))
+    void run.finally(() => {
+      this.taskRuns.delete(taskId)
+      this.clearTaskScratch(taskId)
+    })
     return this.getTaskStatus(taskId) ?? { taskId, status: 'queued' }
   }
 
@@ -2793,6 +2841,15 @@ export class OrchestratorEngine extends EventEmitter {
           for (const key of task.conflictKeys) activeConflicts.delete(key)
         })
       active.set(task.id, running)
+      // Register plan tasks in the shared future map so await_task /
+      // await_any_task genuinely block on them instead of degrading to
+      // busy-polling, exactly like dispatchAsync tasks.
+      const settled = running.then(() => this.taskResults.get(runtimeId) ?? '')
+      this.taskRuns.set(runtimeId, settled)
+      void settled.finally(() => {
+        this.taskRuns.delete(runtimeId)
+        this.clearTaskScratch(runtimeId)
+      })
     }
 
     while (pending.size > 0 || active.size > 0) {
@@ -3912,6 +3969,7 @@ export class OrchestratorEngine extends EventEmitter {
         if (listeners.size === 0) this.supportWaiters.delete(requestId)
         resolve({ done: false, stillWaiting: true, request: { ...request } })
       }, wait)
+      timer.unref?.()
     })
   }
 

@@ -12,7 +12,13 @@ const MAX_ROLE_LENGTH = 64
 const MAX_PROMPT_LENGTH = 40_000
 const MAX_CONFLICT_KEYS = 16
 const MAX_EXPECTED_FILES = 64
-const SHARED_HOTSPOT = /^(?:src\/shared\/|src\/main\/ipc\/|src\/preload\/|src\/shared\/profile\.ts$|src\/renderer\/src\/(?:styles|cozy-organic)\.css$)/i
+/**
+ * Repo-agnostic shared-surface heuristic: path segments that are cross-cutting
+ * in most codebases. The exact signal — the same file declared by more than
+ * one task — is computed per plan during validation. (The previous pattern
+ * hard-coded Vertragus' own repository layout and misfired on user projects.)
+ */
+const SHARED_HOTSPOT_SEGMENT = /(?:^|\/)(?:shared|common|preload|ipc)(?:\/|$)/i
 const SAFE_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/
 
 type UnknownRecord = Record<string, unknown>
@@ -32,6 +38,17 @@ function stringArray(value: unknown): string[] | undefined {
   if (value == null) return []
   if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) return undefined
   return [...new Set(value.map((item) => item.trim()).filter(Boolean))]
+}
+
+/** Keep the first-seen casing, drop case-insensitive duplicates. */
+function dedupeCaseInsensitive(values: string[]): string[] {
+  const seen = new Set<string>()
+  return values.filter((value) => {
+    const key = value.toLowerCase()
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 function fallbackPlan(input: unknown, role: string, prompt?: string): ExecutionPlan {
@@ -220,7 +237,10 @@ export function resolveExecutionPlan(
           ...(ownership === 'integrator' ? ['shared-hotspots'] : [])
         ])],
         ownership,
-        expectedFiles: expectedFiles.map((file) => file.replace(/\\/g, '/').toLowerCase())
+        // Normalize separators but keep the original casing: these paths reach
+        // worker prompts and diff expectations, and most target repos live on
+        // case-sensitive filesystems. Comparisons fold case explicitly instead.
+        expectedFiles: dedupeCaseInsensitive(expectedFiles.map((file) => file.replace(/\\/g, '/')))
       })
     })
   }
@@ -232,8 +252,17 @@ export function resolveExecutionPlan(
   if (integrators.length > 1) {
     issues.push({ code: 'invalid_ownership', message: 'A plan may contain only one shared-file integrator.' })
   }
+  const declarationCounts = new Map<string, number>()
+  for (const task of tasks) {
+    for (const file of task.expectedFiles) {
+      const key = file.toLowerCase()
+      declarationCounts.set(key, (declarationCounts.get(key) ?? 0) + 1)
+    }
+  }
+  const isSharedHotspot = (file: string): boolean =>
+    SHARED_HOTSPOT_SEGMENT.test(file) || (declarationCounts.get(file.toLowerCase()) ?? 0) > 1
   const declaredSharedFiles = tasks.flatMap((task) =>
-    task.expectedFiles.filter((file) => SHARED_HOTSPOT.test(file)).map((file) => ({ task, file }))
+    task.expectedFiles.filter(isSharedHotspot).map((file) => ({ task, file }))
   )
   for (const { task, file } of declaredSharedFiles) {
     if (task.ownership !== 'integrator') {

@@ -361,6 +361,27 @@ describe('awaitPlan', () => {
     await vi.waitFor(() => expect(engine.getPlanRunStatus(started.runId)?.status).toBe('stopped'))
   })
 
+  it('genuinely blocks await_task on a running plan task via the shared future map', async () => {
+    const finishOf = manualWorker()
+    const engine = new OrchestratorEngine({ profile: autoProfile() })
+    const started = engine.executePlanAsync(planInput('plan-await', 'Plan await'))
+    await vi.waitFor(() => expect(engine.getPlanRunStatus(started.runId)?.tasks?.[0]?.status).toBe('running'))
+    const runtimeId = engine.getPlanRunStatus(started.runId)!.tasks![0]!.taskId
+
+    const pending = engine.awaitTask(runtimeId)
+    let settled = false
+    void pending.then(() => { settled = true })
+    await flush()
+    // Before the shared registration this returned immediately with
+    // stillRunning/timeout, degrading the tool to busy-polling.
+    expect(settled).toBe(false)
+
+    finishOf()({ result: 'ERGEBNIS: ERFOLG', isError: false, status: 'succeeded' })
+    const result = await pending
+    expect(result.done).toBe(true)
+    expect(result).toMatchObject({ task: { taskId: runtimeId } })
+  })
+
   it('never starts a worker for a task cancelled while parked at the role-slot semaphore', async () => {
     // One worker slot, two same-role tasks, maxParallel 2: task two enters
     // dispatch() and parks at sem.acquire() while task one holds the slot.
