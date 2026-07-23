@@ -720,6 +720,8 @@
     "cleanWorktree": "no local changes",
     "discard": "Discard",
     "discarding": "Discarding…",
+    "confirm": "Confirm?",
+    "cancel": "Cancel",
     "discardClean": "Discard clean ({{count}})",
     "discardAll": "Discard all ({{count}})",
     "discardConfirm": "Discard this worktree permanently? Uncommitted work will be lost:\n{{path}}",

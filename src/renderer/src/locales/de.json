@@ -720,6 +720,8 @@
     "cleanWorktree": "keine lokalen Änderungen",
     "discard": "Verwerfen",
     "discarding": "Verwirft…",
+    "confirm": "Bestätigen?",
+    "cancel": "Abbrechen",
     "discardClean": "Saubere verwerfen ({{count}})",
     "discardAll": "Alle verwerfen ({{count}})",
     "discardConfirm": "Diesen Worktree endgültig verwerfen? Uncommittete Arbeit geht verloren:\n{{path}}",

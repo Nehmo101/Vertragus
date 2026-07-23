@@ -1160,6 +1160,21 @@ button {
 .restore-banner .btn.ghost:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.05);
 }
+/* Two-click confirm: the action button plus its cancel affordance stay together. */
+.restore-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* Armed state (first click) — danger accent signalling the next click commits. */
+.restore-banner .btn.armed {
+  border-color: color-mix(in srgb, var(--danger-btn) 60%, transparent);
+  background: color-mix(in srgb, var(--danger-btn) 18%, transparent);
+  color: var(--danger-text);
+}
+.restore-banner .btn.armed:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger-btn) 26%, transparent);
+}
 .restore-sublist {
   margin-top: 4px;
 }
