@@ -1010,6 +1010,30 @@ export class OrchestratorEngine extends EventEmitter {
     return new Promise<void>((resolve) => this.resumeTaskWaiters.set(taskId, resolve))
   }
 
+  /**
+   * A cancel that lands while a dispatch is parked (slot wait or pause wait)
+   * marks the task terminal; the parked dispatch must observe that and never
+   * (re)start a worker for it.
+   */
+  private taskStoppedWhileParked(taskId: string): boolean {
+    return this.tasks.get(taskId)?.status === 'stopped'
+  }
+
+  private stoppedTaskResult(taskId: string): string {
+    return this.taskResults.get(taskId) ?? `Task ${taskId} wurde vor dem Worker-Start gestoppt.`
+  }
+
+  /** Wake a dispatch parked in waitForTaskResume so it can observe a stop. */
+  private releaseParkedDispatch(taskId: string): void {
+    this.pausedTasks.delete(taskId)
+    this.resumeRequestedTasks.delete(taskId)
+    const waiter = this.resumeTaskWaiters.get(taskId)
+    if (waiter) {
+      this.resumeTaskWaiters.delete(taskId)
+      waiter()
+    }
+  }
+
   replanPending(input: { removeTaskIds: string[]; maxParallel?: number }): boolean {
     const pending = this.pendingPlan
     if (!pending) return false
@@ -1710,11 +1734,18 @@ export class OrchestratorEngine extends EventEmitter {
       slotReleased = true
       sem.release()
     }
+    if (this.taskStoppedWhileParked(taskId)) {
+      // cancel_plan landed while this dispatch waited for a worker slot; the
+      // task is terminal and must never (re)start a process.
+      releaseSlot()
+      return this.stoppedTaskResult(taskId)
+    }
     if (this.pausedTasks.has(taskId)) {
       task.status = 'paused'
       task.lastAction = 'Pausiert vor Worker-Start'
       releaseSlot()
       await this.waitForTaskResume(taskId)
+      if (this.taskStoppedWhileParked(taskId)) return this.stoppedTaskResult(taskId)
       return this.dispatch(this.resumedRole(taskId, role), prompt, title, { ...options, taskId })
     }
     task.status = 'running'
@@ -1823,6 +1854,14 @@ export class OrchestratorEngine extends EventEmitter {
 
       const result = await done
       releaseSlot()
+      if (this.pausedTasks.has(taskId) && result.status === 'succeeded') {
+        // The worker finished before the pause could stop it. Keep the
+        // delivered work and let the normal judgement pipeline decide instead
+        // of discarding a completed result and re-running the whole task.
+        this.pausedTasks.delete(taskId)
+        this.resumeRequestedTasks.delete(taskId)
+        task.note = 'Pause traf nach Worker-Abschluss ein; das gelieferte Ergebnis wird regulär bewertet.'
+      }
       if (this.pausedTasks.has(taskId)) {
         const recoveryArtifact = await captureTaskRecoveryArtifact({
           worktree: info.worktree,
@@ -1843,6 +1882,7 @@ export class OrchestratorEngine extends EventEmitter {
         }
         this.push()
         await this.waitForTaskResume(taskId)
+        if (this.taskStoppedWhileParked(taskId)) return this.stoppedTaskResult(taskId)
         return this.dispatch(this.resumedRole(taskId, role), prompt, title, {
           ...options,
           taskId,
@@ -2565,6 +2605,7 @@ export class OrchestratorEngine extends EventEmitter {
     const stopTask = (task: ExecutionPlanTask, reason: string): void => {
       const runtimeId = runtimeIds.get(task.id)!
       const stopped = this.tasks.get(runtimeId)!
+      this.releaseParkedDispatch(runtimeId)
       Object.assign(stopped, {
         status: 'stopped' as const,
         failureKind: isCancelled() ? 'cancelled' as const : 'worker' as const,
@@ -3674,6 +3715,7 @@ export class OrchestratorEngine extends EventEmitter {
         finishedAt: Date.now()
       })
       this.taskResults.set(task.id, reason)
+      this.releaseParkedDispatch(task.id)
     }
     await Promise.allSettled(runningAgentIds.map((agentId) => agentManager.kill(agentId)))
     const latest = this.planRunResults.get(runId) ?? stored
