@@ -3,7 +3,11 @@ import { join } from 'node:path'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { installEditMenu } from '@main/editMenu'
 import { brandEnv } from '@main/env'
+import { headlessStartupLines, isHeadlessMode } from '@main/headlessMode'
 import { refreshProcessPathFromSystem } from '@main/providers/processPath'
+
+/** VERTRAGUS_HEADLESS=1: run engine + gateway without any window (VPS/daemon). */
+const headless = isHeadlessMode()
 
 /** Global shortcut that toggles the free voice overlay from anywhere. */
 const VOICE_OVERLAY_SHORTCUT = 'CommandOrControl+Shift+Space'
@@ -92,12 +96,20 @@ app.whenReady().then(async () => {
   })
 
   ipc.registerIpcHandlers()
-  windows.createMainWindow()
-  updater.initializeUpdater()
+  if (headless) {
+    // No window, tray, shortcut or updater surface — the Mission-Control
+    // gateway is the only control plane. Warn loudly when it is disabled.
+    for (const line of headlessStartupLines(remote.remoteService.status().enabled)) {
+      console.info(line)
+    }
+  } else {
+    windows.createMainWindow()
+    updater.initializeUpdater()
+  }
 
   // Voice overlay: reachable from anywhere via a global shortcut and a tray icon.
   // Both just toggle the overlay window; the overlay owns no privileged rights.
-  if (!brandEnv('UI_SMOKE') && !e2eUserData) {
+  if (!brandEnv('UI_SMOKE') && !e2eUserData && !headless) {
     try {
       globalShortcut.register(VOICE_OVERLAY_SHORTCUT, () => windows.toggleVoiceOverlay())
     } catch (error) {
@@ -127,12 +139,13 @@ app.whenReady().then(async () => {
   }
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) windows.createMainWindow()
+    if (!headless && BrowserWindow.getAllWindows().length === 0) windows.createMainWindow()
   })
 })
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
+  // A headless host has no windows by design and must keep running.
+  if (!headless && process.platform !== 'darwin') app.quit()
 })
 
 // Ordered shutdown: persist session state first (synchronous local writes),
