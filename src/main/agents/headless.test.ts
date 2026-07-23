@@ -244,6 +244,32 @@ describe('runHeadless lifecycle', () => {
     await expect(handle.done).resolves.toMatchObject({ status: 'succeeded', result: 'fertig' })
   })
 
+  it('caps the stdout line accumulator and flushes an endless line without data loss', async () => {
+    const child = fakeChild()
+    const output: string[] = []
+    mocks.resolveLaunch.mockResolvedValueOnce({ file: 'claude', args: [] })
+    mocks.spawn.mockReturnValueOnce(child)
+    const handle = runHeadless('claude', 'task', opts, (chunk) => output.push(chunk))
+    await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce())
+
+    // One endless line (no newline anywhere): two 600 KB chunks cross the cap.
+    child.stdout?.emit('data', Buffer.from('a'.repeat(600_000)))
+    expect(output).toHaveLength(0) // below the cap the accumulator keeps waiting
+    child.stdout?.emit('data', Buffer.from('b'.repeat(600_000)))
+    // Overflow is flushed as one processed line — no byte is dropped.
+    expect(output.join('')).toContain('a'.repeat(600_000))
+    expect(output.join('')).toContain('b'.repeat(600_000))
+
+    // The stream keeps parsing normally after the overflow flush.
+    child.stdout?.emit(
+      'data',
+      Buffer.from(`${JSON.stringify({ type: 'result', result: 'fertig', is_error: false })}\n`)
+    )
+    child.emit('close', 0)
+
+    await expect(handle.done).resolves.toMatchObject({ status: 'succeeded', result: 'fertig' })
+  })
+
   it('keeps exit zero plus an explicit success result successful after an earlier provider error', async () => {
     const child = fakeChild()
     mocks.resolveLaunch.mockResolvedValueOnce({ file: 'codex', args: [] })

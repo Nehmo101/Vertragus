@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
@@ -202,6 +202,67 @@ describe('createWorktree + inventory against a real repository', () => {
     expect(await inventoryWorktrees(repo, new Set(['session-owned']))).toEqual([
       expect.objectContaining({ sessionId: 'session-owned', owned: true })
     ])
+  })
+})
+
+describe('createWorktree info/exclude registration', () => {
+  const created: string[] = []
+  afterEach(() => {
+    for (const dir of created.splice(0)) rmSync(dir, { recursive: true, force: true })
+  })
+
+  function initRepo(): string {
+    const root = mkdtempSync(join(tmpdir(), 'vertragus-wt-excl-'))
+    created.push(root)
+    gitIn(root, ['init', '-q', '-b', 'main'])
+    gitIn(root, ['commit', '--allow-empty', '-qm', 'init'])
+    return root
+  }
+
+  it('hides the managed container from git status via the private info/exclude', async () => {
+    const root = initRepo()
+
+    const wt = await createWorktree(root, 'task-a', 'session-excl-a')
+    expect(wt).not.toBeNull()
+
+    const exclude = readFileSync(join(root, '.git', 'info', 'exclude'), 'utf8')
+    expect(exclude).toContain('.vertragus-worktrees/')
+    // No legacy container on disk — its pattern is not written.
+    expect(exclude).not.toContain('.orca-worktrees/')
+    // The new checkout no longer shows up as an untracked directory.
+    expect(gitIn(root, ['status', '--porcelain'])).toBe('')
+  })
+
+  it('appends only missing patterns and never duplicates existing entries', async () => {
+    const root = initRepo()
+    mkdirSync(join(root, '.orca-worktrees'), { recursive: true })
+    const excludePath = join(root, '.git', 'info', 'exclude')
+    mkdirSync(join(root, '.git', 'info'), { recursive: true })
+    writeFileSync(excludePath, '# private excludes\n.vertragus-worktrees/\n')
+
+    await createWorktree(root, 'task-b', 'session-excl-b')
+    await createWorktree(root, 'task-c', 'session-excl-b')
+
+    const exclude = readFileSync(excludePath, 'utf8')
+    expect(exclude).toContain('# private excludes')
+    expect(exclude.match(/^\.vertragus-worktrees\/$/gm)).toHaveLength(1)
+    expect(exclude.match(/^\.orca-worktrees\/$/gm)).toHaveLength(1)
+  })
+
+  it('writes through a linked worktree into the shared info/exclude', async () => {
+    const root = initRepo()
+    const holder = mkdtempSync(join(tmpdir(), 'vertragus-wt-linked-'))
+    created.push(holder)
+    const linked = join(holder, 'checkout')
+    gitIn(root, ['worktree', 'add', '-q', linked])
+
+    const wt = await createWorktree(linked, 'task-d', 'session-excl-d')
+    expect(wt).not.toBeNull()
+
+    // The pattern applies repo-wide: it must land in the main repository's
+    // shared info/exclude, not inside the per-worktree gitdir.
+    const exclude = readFileSync(join(root, '.git', 'info', 'exclude'), 'utf8')
+    expect(exclude).toContain('.vertragus-worktrees/')
   })
 })
 

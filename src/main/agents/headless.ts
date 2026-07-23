@@ -119,6 +119,10 @@ const DEFAULT_STALL_TIMEOUT_MS = 15 * 60_000
 const STALL_CHECK_INTERVAL_MS = 30_000
 const MIN_HEARTBEAT_INTERVAL_MS = 30_000
 const MAX_HEARTBEAT_INTERVAL_MS = 60_000
+// Cap for the stdout line accumulator: a provider streaming one endless line
+// without a newline must not grow the buffer unboundedly. On overflow the
+// buffered rest is flushed as one line (processed, never dropped).
+const STDOUT_LINE_BUFFER_LIMIT = 1_048_576
 
 /**
  * The worker contract line, tolerant of Markdown decoration the models like to
@@ -692,6 +696,9 @@ export function runHeadless(
       }
       child.stdout?.on('data', (data: Buffer) => {
         stdoutBuf += data.toString(); const parts = stdoutBuf.split(/\r?\n/); stdoutBuf = parts.pop() ?? ''; for (const part of parts) handleLine(part)
+        if (stdoutBuf.length > STDOUT_LINE_BUFFER_LIMIT) {
+          const overflow = stdoutBuf; stdoutBuf = ''; handleLine(overflow)
+        }
       })
       child.stderr?.on('data', (data: Buffer) => {
         const text = data.toString().trim()

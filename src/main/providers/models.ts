@@ -16,6 +16,7 @@ import {
   type ProviderModelCatalog,
   type ProviderModelCatalogEntry
 } from '@shared/providers'
+import { resolveLaunch } from '@main/agents/resolveCommand'
 
 const execFileAsync = promisify(execFile)
 const ANSI_SGR_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g')
@@ -29,11 +30,14 @@ export interface ModelDiscoveryDependencies {
 
 const defaultDependencies: ModelDiscoveryDependencies = {
   async exec(command, args, timeoutMs) {
-    const { stdout } = await execFileAsync(command, args, {
+    // Windows provider CLIs are commonly installed as PowerShell/cmd shims that
+    // execFile cannot start directly; resolveLaunch rewrites them to an explicit
+    // interpreter + script path instead of enabling shell interpretation.
+    const launch =
+      process.platform === 'win32' ? await resolveLaunch(command, args) : { file: command, args }
+    const { stdout } = await execFileAsync(launch.file, launch.args, {
       timeout: timeoutMs,
-      windowsHide: true,
-      // Windows provider CLIs are commonly installed as PowerShell/cmd shims.
-      shell: process.platform === 'win32'
+      windowsHide: true
     })
     return stdout
   },

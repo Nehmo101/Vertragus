@@ -88,6 +88,11 @@ import { permissionBroker } from '@main/permissions/PermissionBroker'
 // keeps the per-chunk trust check cheap.
 const HANDOFF_SHUTDOWN_TIMEOUT_MS = 5_000
 
+// PTY chunks arrive far faster than a terminal repaints. Collect them per
+// agent for ~one frame and emit ONE concatenated 'data' chunk over IPC
+// (register.ts forwards every 'data' emit unbatched, unlike 'changed').
+const DATA_FLUSH_INTERVAL_MS = 16
+
 // ScrollbackBuffer + BUFFER_LIMIT now live in ./scrollbackBuffer (extracted for
 // independent testing); re-exported so the `@main/agents/AgentManager` import
 // surface used by tests stays unchanged.
@@ -101,6 +106,10 @@ interface Managed {
   headless?: HeadlessHandle
   buffer: ScrollbackBuffer
   seq: number
+  /** PTY chunks collected for the next micro-batched 'data' emit. */
+  pendingData?: string
+  /** Trailing flush timer of the pending micro-batch. */
+  dataFlushTimer?: NodeJS.Timeout
   /** True once a usage-limit signal fired for this agent (debounce). */
   limitWarned?: boolean
   /** Provider slot held while running or after acquire for a waiting task. */
@@ -402,6 +411,7 @@ export class AgentManager extends EventEmitter {
     }
 
     await this.terminateHandoffSourceProcess(source)
+    this.flushAgentData(source)
     this.clearCursorWorkspaceTrustRetry(source)
     this.releaseCapacity(source)
     source.info.status = 'stopped'
@@ -506,7 +516,32 @@ export class AgentManager extends EventEmitter {
   }
 
 
+  /**
+   * Micro-batch PTY output: chunks are collected per agent for ~one frame and
+   * emitted as ONE concatenated 'data' chunk instead of one IPC send per PTY
+   * read. Batching happens BEFORE the scrollback append and the seq increment,
+   * so a buffer() snapshot always equals the concatenation of all emitted
+   * chunks up to its seq — the renderer replay stays gap- and duplicate-free.
+   */
   private pushData(managed: Managed, data: string): void {
+    managed.pendingData = (managed.pendingData ?? '') + data
+    if (managed.dataFlushTimer) return
+    managed.dataFlushTimer = setTimeout(() => this.flushAgentData(managed), DATA_FLUSH_INTERVAL_MS)
+    managed.dataFlushTimer.unref?.()
+  }
+
+  /**
+   * Deliver the pending micro-batch now. Exit/kill/remove paths call this
+   * directly so an agent's last lines are never stranded behind the timer.
+   */
+  private flushAgentData(managed: Managed): void {
+    if (managed.dataFlushTimer) {
+      clearTimeout(managed.dataFlushTimer)
+      managed.dataFlushTimer = undefined
+    }
+    const data = managed.pendingData
+    if (!data) return
+    managed.pendingData = undefined
     managed.buffer.append(data)
     managed.seq += 1
     this.emit('data', { id: managed.info.id, data, seq: managed.seq })
@@ -745,6 +780,8 @@ export class AgentManager extends EventEmitter {
 
       proc.onData((data) => this.pushData(managed, data))
       proc.onExit(({ exitCode }) => {
+        // Deliver the last output lines before any exit state is announced.
+        this.flushAgentData(managed)
         const wasReassigned = managed.reassigning
         managed.pty = undefined
         this.clearCursorWorkspaceTrustRetry(managed)
@@ -776,6 +813,8 @@ export class AgentManager extends EventEmitter {
       else this.releaseCapacity(managed)
       info.status = 'error'
       const msg = err instanceof Error ? err.message : String(err)
+      // Emit any pending banner first so the reset below defines the snapshot.
+      this.flushAgentData(managed)
       managed.buffer.reset(`Spawn fehlgeschlagen: ${msg}\r\n`)
       this.emitEvent(`${id} Spawn fehlgeschlagen: ${msg}`, 'error', info)
     }
@@ -845,6 +884,8 @@ export class AgentManager extends EventEmitter {
       }
 
       const at = Date.now()
+      // The briefing snapshots the scrollback — include the pending micro-batch.
+      this.flushAgentData(src)
       const briefing = buildBriefing({
         source: src.info,
         targetName: target.name,
@@ -1014,6 +1055,7 @@ export class AgentManager extends EventEmitter {
       info.pid = proc.pid
       proc.onData((data) => this.pushData(managed, data))
       proc.onExit(({ exitCode }) => {
+        this.flushAgentData(managed)
         managed.pty = undefined
         if (!this.agents.has(id)) return
         info.exitCode = exitCode
@@ -1274,6 +1316,8 @@ export class AgentManager extends EventEmitter {
     this.changed()
 
     const done = handle.done.then((result) => {
+      // The worker's final lines must land before the completion state does.
+      this.flushAgentData(active)
       active.headless = undefined
       // The provider process is gone — free the gate slot even when the pane
       // was already pruned or the task ran on a reused team pane.
@@ -1439,6 +1483,7 @@ export class AgentManager extends EventEmitter {
   async kill(id: string): Promise<void> {
     const managed = this.agents.get(id)
     if (!managed) return
+    this.flushAgentData(managed)
     this.handoffHandshakes.markAgentUnavailable(
       id,
       `${managed.info.name} wurde vor Abschluss der Orchestrator-Übergabe geschlossen.`
@@ -1470,10 +1515,14 @@ export class AgentManager extends EventEmitter {
   private readonly resumeSweep = new ResumeSweep(
     {
       listSessionAgents: () =>
-        [...this.agents.values()].map((managed) => ({
-          info: managed.info,
-          scrollback: managed.buffer.toString()
-        }))
+        [...this.agents.values()].map((managed) => {
+          // Persist the scrollback including the pending micro-batch.
+          this.flushAgentData(managed)
+          return {
+            info: managed.info,
+            scrollback: managed.buffer.toString()
+          }
+        })
     },
     sessionStore
   )
@@ -1588,6 +1637,7 @@ export class AgentManager extends EventEmitter {
       (m) => (this.isAlive(m) || m.info.status === 'waiting') && (!profileId || m.info.profileId === profileId)
     )
     for (const m of running) {
+      this.flushAgentData(m)
       this.handoffHandshakes.markAgentUnavailable(
         m.info.id,
         `${m.info.name} wurde vor Abschluss der Orchestrator-Übergabe gestoppt.`
@@ -1617,6 +1667,7 @@ export class AgentManager extends EventEmitter {
     const count = targets.length
     const rollbacks: Array<{ name: string; worktree: string; branch?: string }> = []
     for (const [id, managed] of targets) {
+      this.flushAgentData(managed)
       this.handoffHandshakes.markAgentUnavailable(
         id,
         `${managed.info.name} wurde vor Abschluss der Orchestrator-Übergabe aus dem Workspace entfernt.`
@@ -1676,6 +1727,7 @@ export class AgentManager extends EventEmitter {
   prune(id: string): void {
     const managed = this.agents.get(id)
     if (managed && !this.isAlive(managed)) {
+      this.flushAgentData(managed)
       this.releaseCapacity(managed)
       this.agents.delete(id)
       this.changed()

@@ -6,6 +6,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { PROVIDERS, type ProviderDef, type ProviderHealth } from '@shared/providers'
+import { resolveLaunch } from '@main/agents/resolveCommand'
 import { githubAuthStatus } from '@main/integrations/githubAuth'
 import { probeProviderConnection } from '@main/providers/auth'
 import { refreshProcessPathFromSystem } from '@main/providers/processPath'
@@ -15,11 +16,14 @@ const execFileAsync = promisify(execFile)
 const PROBE_TIMEOUT_MS = 6000
 
 async function run(command: string, args: string[]): Promise<string> {
-  const { stdout, stderr } = await execFileAsync(command, args, {
+  // On Windows many CLIs are .cmd/.ps1 shims execFile cannot start directly;
+  // resolveLaunch rewrites them to an explicit interpreter + script path, so
+  // no shell ever interprets the (constant) arguments. POSIX runs as-is.
+  const launch =
+    process.platform === 'win32' ? await resolveLaunch(command, args) : { file: command, args }
+  const { stdout, stderr } = await execFileAsync(launch.file, launch.args, {
     timeout: PROBE_TIMEOUT_MS,
-    windowsHide: true,
-    // On Windows many CLIs are .cmd/.ps1 shims; shell lookup resolves them.
-    shell: process.platform === 'win32'
+    windowsHide: true
   })
   return (stdout || stderr || '').trim()
 }

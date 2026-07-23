@@ -43,7 +43,13 @@ function addCursorAgent(manager: AgentManager): {
 }
 
 function push(manager: AgentManager, managed: unknown, output: string): void {
-  ;(manager as unknown as { pushData(agent: unknown, data: string): void }).pushData(managed, output)
+  const internal = manager as unknown as {
+    pushData(agent: unknown, data: string): void
+    flushAgentData(agent: unknown): void
+  }
+  internal.pushData(managed, output)
+  // Deliver the micro-batched chunk immediately, like the exit/kill paths do.
+  internal.flushAgentData(managed)
 }
 
 afterEach(() => vi.useRealTimers())
