@@ -8,6 +8,7 @@ import { copyFileSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { DEFAULT_PROFILE, workspaceProfileSchema, type WorkspaceProfile } from '@shared/profile'
 import { mcpServerSchema, mcpServersSchema, type McpServerConfig } from '@shared/mcp'
+import { parseCustomProviders, type CustomProviderConfig } from '@shared/customProviders'
 import { CURRENT_CONFIG_SCHEMA_VERSION, migrateConfigSnapshot } from '@main/config/migrations'
 import { deriveProfileDeletion } from '@main/config/profileDeletion'
 
@@ -81,6 +82,21 @@ export function setSetting(key: string, value: unknown): void {
   const settings = { ...store.get('settings') }
   settings[key] = value
   store.set('settings', settings)
+}
+
+/**
+ * User-declared custom provider CLIs (config-driven, worker-only). Always
+ * validated on read, so a hand-edited or migrated config can never inject a
+ * malformed or built-in-shadowing descriptor into the launch path.
+ */
+export function listCustomProviders(): CustomProviderConfig[] {
+  return parseCustomProviders(getSetting('customProviders'))
+}
+
+export function saveCustomProviders(raw: unknown): CustomProviderConfig[] {
+  const validated = parseCustomProviders(raw)
+  setSetting('customProviders', validated)
+  return validated
 }
 
 export function listSettingKeys(prefix = ''): string[] {

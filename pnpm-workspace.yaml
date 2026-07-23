@@ -3,8 +3,9 @@ packages:
   # apps/ios is a native SwiftUI Xcode project (no package.json); keep it out of the pnpm workspace.
   - '!apps/ios'
 
-# Agent worktrees (.orca-worktrees/) share preflight-managed node_modules with the repository root.
-# Their paths intentionally differ from pnpm's cached workspace state.
+# Agent worktrees (.vertragus-worktrees/, legacy .orca-worktrees/) share
+# preflight-managed node_modules with the repository root. Their paths
+# intentionally differ from pnpm's cached workspace state.
 verifyDepsBeforeRun: false
 
 # Universal macOS packages need both optional @lydell/node-pty binaries.
