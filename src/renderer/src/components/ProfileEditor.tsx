@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { profileHasRunningAgents, useAppStore } from '@renderer/store/useAppStore'
 import { profileRepoLocalPath, type WorkspaceProfile, type AgentSlot, type ProfileSkill } from '@shared/profile'
 import { postProcessBranchValidationError } from '@shared/gitPostProcessing'
@@ -189,7 +190,29 @@ function formatElapsed(seconds: number): string {
 }
 
 export default function ProfileEditor(): JSX.Element | null {
-  const store = useAppStore()
+  // Pick exactly the fields/actions the editor reads (actions are stable in
+  // zustand); a bare useAppStore() would re-render the whole modal on every
+  // orchestrator/event tick.
+  const store = useAppStore(
+    useShallow((s) => ({
+      editorProfile: s.editorProfile,
+      profiles: s.profiles,
+      agents: s.agents,
+      models: s.models,
+      disabledModels: s.disabledModels,
+      providerEnabled: s.providerEnabled,
+      githubAuth: s.githubAuth,
+      githubAuthBusy: s.githubAuthBusy,
+      closeEditor: s.closeEditor,
+      saveEditor: s.saveEditor,
+      deleteProfile: s.deleteProfile,
+      duplicateProfile: s.duplicateProfile,
+      refreshGithubAuth: s.refreshGithubAuth,
+      githubLogin: s.githubLogin,
+      githubLogout: s.githubLogout,
+      githubTerminalLogin: s.githubTerminalLogin
+    }))
+  )
   const initial = store.editorProfile
   const [draft, setDraft] = useState<WorkspaceProfile | null>(initial)
   const [confirmDelete, setConfirmDelete] = useState(false)

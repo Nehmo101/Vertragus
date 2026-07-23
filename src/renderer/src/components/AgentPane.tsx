@@ -197,7 +197,9 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
   const limit = agent.limitWarning
   const readable = useAppStore((s) => effectivePaneReadable(s, agent.id))
   const togglePaneReadable = useAppStore((s) => s.togglePaneReadable)
-  const orchestrator = useAppStore((s) => s.orchestrator)
+  // The snapshot only feeds the readable summary; subscribe to it only while
+  // "Lesbar" is on, so orchestrator ticks don't re-render raw terminal panes.
+  const orchestrator = useAppStore((s) => (readable ? s.orchestrator : undefined))
   const summary = readable ? paneReadableSummary(agent, orchestrator) : null
 
   return (

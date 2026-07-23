@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '@renderer/store/useAppStore'
 import InfoTip from '@renderer/components/InfoTip'
 import {
@@ -118,7 +119,14 @@ function rowError(draft: Draft, all: Draft[]): string {
 }
 
 export default function McpServerEditor(): JSX.Element | null {
-  const store = useAppStore()
+  // Narrow pick — the modal only needs the MCP list and its own actions.
+  const store = useAppStore(
+    useShallow((s) => ({
+      mcpServers: s.mcpServers,
+      saveMcpServers: s.saveMcpServers,
+      closeMcpEditor: s.closeMcpEditor
+    }))
+  )
   const [drafts, setDrafts] = useState<Draft[]>(() => store.mcpServers.map(toDraft))
   const closeMcpEditor = store.closeMcpEditor
 

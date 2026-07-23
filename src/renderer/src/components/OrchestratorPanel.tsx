@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import {
@@ -18,7 +19,7 @@ import {
   resolveOrchestratorActivity,
   taskActivityText
 } from '@renderer/orchestratorActivity'
-import type { VertragusTask, TaskStatus } from '@shared/orchestrator'
+import type { VertragusTask, TaskStatus, OrchestratorSnapshot } from '@shared/orchestrator'
 import { resolveModel } from '@shared/models'
 import type { AgentUsage, AgentInstanceInfo } from '@shared/agents'
 import { summarizeUsage, summarizeUsageGroup, TELEMETRY_STATUS_LABELS, TELEMETRY_STATUS_TITLES } from '@shared/telemetry'
@@ -38,9 +39,10 @@ type TaskWithTelemetry = VertragusTask & {
   lastAction?: string
 }
 
-// Ticks once per second only while there is active work to time (running/waiting
-// agents). When idle the interval is torn down, so the panel no longer re-renders
-// every second just to advance clocks nobody is watching.
+// Ticks once per second only while `active` (there is running/waiting work to
+// time). Lives in the small leaf components below (task cards, age labels, the
+// dispatch clock), so per-second clock advances re-render only those leaves —
+// never the whole panel.
 function useClock(active: boolean): number {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
@@ -92,18 +94,20 @@ function TaskCard({
   usage,
   profileId,
   workspaceSessionId,
-  now
+  clockActive
 }: {
   task: VertragusTask
   usage?: AgentUsage
   profileId: string
   workspaceSessionId?: string
-  now: number
+  clockActive: boolean
 }): JSX.Element {
   const { t } = useTranslation()
   const [diff, setDiff] = useState<string | null>(null)
   const [diffError, setDiffError] = useState<string | null>(null)
   const [diffLoading, setDiffLoading] = useState(false)
+  // Heartbeat ages/staleness only render while the task runs; tick only then.
+  const now = useClock(clockActive && task.status === 'running')
   const telemetry = task as TaskWithTelemetry
   const pill = TASK_PILL[task.status]
   const worker = summarizeUsage(usage)
@@ -338,6 +342,88 @@ function TaskCard({
   )
 }
 
+/** Self-ticking "updated Xs ago" caption span for the live-activity header. */
+function LiveActivityAge({
+  snapshot,
+  active
+}: {
+  snapshot: OrchestratorSnapshot
+  active: boolean
+}): JSX.Element {
+  const { t } = useTranslation()
+  const now = useClock(active)
+  const activity = resolveOrchestratorActivity(snapshot, now)
+  return <span>{t('orch.live.updated', { age: fmtAge(now - activity.updatedAt) })}</span>
+}
+
+/** One live subagent row; ticks its own clock for ages and staleness. */
+function LiveWorkerCard({
+  task,
+  clockActive
+}: {
+  task: VertragusTask
+  clockActive: boolean
+}): JSX.Element {
+  const { t } = useTranslation()
+  const now = useClock(clockActive)
+  const heartbeatAt = task.lastHeartbeatAt ?? task.createdAt
+  const heartbeatAge = now - heartbeatAt
+  const stale = task.status === 'running' && heartbeatAge > STALE_HEARTBEAT_MS
+  return (
+    <div className={`live-worker ${stale ? 'stale' : ''}`}>
+      <div className="live-worker-head">
+        <strong>
+          {task.agentName ? <LoreName name={task.agentName} /> : task.role}
+        </strong>
+        <span>
+          {task.status === 'queued'
+            ? t('orch.live.waiting')
+            : stale
+              ? t('orch.live.noSignal')
+              : t('orch.live.working')}
+        </span>
+      </div>
+      <div className="live-worker-task">{task.title}</div>
+      <div className="live-worker-action" title={task.lastAction}>
+        {taskActivityText(task)}
+      </div>
+      {task.recentActions && task.recentActions.length > 1 && (
+        <ul className="live-worker-history" title={t('orch.live.historyTitle')}>
+          {task.recentActions.slice(1).map((action, index) => (
+            <li key={`${index}-${action}`}>{action}</li>
+          ))}
+        </ul>
+      )}
+      <div className="live-worker-meta">
+        <span>{task.role}{task.model ? ` · ${task.model}` : ''}</span>
+        <span>
+          {task.status === 'queued'
+            ? t('orch.live.waitingSince', { age: fmtAge(now - task.createdAt) })
+            : t('orch.live.updateAgo', { age: fmtAge(heartbeatAge) })}
+        </span>
+      </div>
+      {usageText(t, task.usage) && (
+        <div className="live-worker-usage" title={t('orch.task.usageTitle')}>
+          {usageText(t, task.usage)}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Self-ticking "vor Xs" age for one findings-board entry. */
+function FindingAge({ createdAt, active }: { createdAt: number; active: boolean }): JSX.Element {
+  const { t } = useTranslation()
+  const now = useClock(active)
+  return <>{t('orch.findings.ago', { age: fmtAge(now - createdAt) })}</>
+}
+
+/** Self-ticking wall clock in the dispatch-log header. */
+function DispatchClock({ active }: { active: boolean }): JSX.Element {
+  const now = useClock(active)
+  return <span className="clock">{fmtTime(now)}</span>
+}
+
 function OrchestratorPanelContent({
   width,
   onCollapse
@@ -346,12 +432,26 @@ function OrchestratorPanelContent({
   onCollapse: () => void
 }): JSX.Element {
   const { t } = useTranslation()
-  const store = useAppStore()
+  // Pick exactly the fields/actions the panel reads (actions are stable in
+  // zustand), so unrelated store changes (theme, git, health, toast…) no
+  // longer re-render this heavy panel.
+  const store = useAppStore(
+    useShallow((s) => ({
+      agents: s.agents,
+      events: s.events,
+      profiles: s.profiles,
+      activeProfileId: s.activeProfileId,
+      activeWorkspaceSessionId: s.activeWorkspaceSessionId,
+      orchestrator: s.orchestrator,
+      openHandoff: s.openHandoff,
+      reviewPendingPlan: s.reviewPendingPlan,
+      showToast: s.showToast
+    }))
+  )
   const [autoModeBusy, setAutoModeBusy] = useState(false)
   const hasActiveWork = store.agents.some(
     (agent) => agent.status === 'running' || agent.status === 'waiting'
   )
-  const now = useClock(hasActiveWork)
   const profile = activeProfile(store)
   const wsAgents = workspaceAgents(store)
   const orch = wsAgents.find((agent) => agent.kind === 'orchestrator')
@@ -362,7 +462,9 @@ function OrchestratorPanelContent({
   // The engine appends board entries in order; the panel shows the newest first.
   const boardFindings = [...(findings ?? [])].reverse()
   const logRef = useRef<HTMLDivElement>(null)
-  const activity = resolveOrchestratorActivity(store.orchestrator, now)
+  // Only the phase/summary/details are read here; the ticking "updated Xs ago"
+  // age lives in <LiveActivityAge>, which derives its own activity per tick.
+  const activity = resolveOrchestratorActivity(store.orchestrator)
   const liveTasks = liveOrchestratorTasks(tasks)
 
   const requiredTasks = tasks.filter((task) => (task.criticality ?? 'required') === 'required')
@@ -637,7 +739,7 @@ function OrchestratorPanelContent({
       <div className="live-activity">
         <div className="live-activity-caption">
           <span>{t('orch.live.caption')}</span>
-          <span>{t('orch.live.updated', { age: fmtAge(now - activity.updatedAt) })}</span>
+          <LiveActivityAge snapshot={store.orchestrator} active={hasActiveWork} />
         </div>
         <div className="coordinator-status">
           <span className="coordinator-mark">ORCH</span>
@@ -671,51 +773,9 @@ function OrchestratorPanelContent({
             <div className="live-workers-empty">
               {pendingPlan ? t('orch.live.notStarted') : t('orch.live.empty')}
             </div>
-          ) : liveTasks.map((task) => {
-            const heartbeatAt = task.lastHeartbeatAt ?? task.createdAt
-            const heartbeatAge = now - heartbeatAt
-            const stale = task.status === 'running' && heartbeatAge > STALE_HEARTBEAT_MS
-            return (
-              <div key={task.id} className={`live-worker ${stale ? 'stale' : ''}`}>
-                <div className="live-worker-head">
-                  <strong>
-                    {task.agentName ? <LoreName name={task.agentName} /> : task.role}
-                  </strong>
-                  <span>
-                    {task.status === 'queued'
-                      ? t('orch.live.waiting')
-                      : stale
-                        ? t('orch.live.noSignal')
-                        : t('orch.live.working')}
-                  </span>
-                </div>
-                <div className="live-worker-task">{task.title}</div>
-                <div className="live-worker-action" title={task.lastAction}>
-                  {taskActivityText(task)}
-                </div>
-                {task.recentActions && task.recentActions.length > 1 && (
-                  <ul className="live-worker-history" title={t('orch.live.historyTitle')}>
-                    {task.recentActions.slice(1).map((action, index) => (
-                      <li key={`${index}-${action}`}>{action}</li>
-                    ))}
-                  </ul>
-                )}
-                <div className="live-worker-meta">
-                  <span>{task.role}{task.model ? ` · ${task.model}` : ''}</span>
-                  <span>
-                    {task.status === 'queued'
-                      ? t('orch.live.waitingSince', { age: fmtAge(now - task.createdAt) })
-                      : t('orch.live.updateAgo', { age: fmtAge(heartbeatAge) })}
-                  </span>
-                </div>
-                {usageText(t, task.usage) && (
-                  <div className="live-worker-usage" title={t('orch.task.usageTitle')}>
-                    {usageText(t, task.usage)}
-                  </div>
-                )}
-              </div>
-            )
-          })}
+          ) : liveTasks.map((task) => (
+            <LiveWorkerCard key={task.id} task={task} clockActive={hasActiveWork} />
+          ))}
         </div>
 
         {boardFindings.length > 0 && (
@@ -739,7 +799,7 @@ function OrchestratorPanelContent({
                     <span className="finding-meta">
                       {finding.agentName ? <LoreName name={finding.agentName} /> : (finding.role ?? finding.taskId)}
                       {' · '}
-                      {t('orch.findings.ago', { age: fmtAge(now - finding.createdAt) })}
+                      <FindingAge createdAt={finding.createdAt} active={hasActiveWork} />
                     </span>
                   </div>
                   <p className="finding-detail">{finding.detail}</p>
@@ -771,7 +831,7 @@ function OrchestratorPanelContent({
                 usage={task.agentId ? usageByAgentId.get(task.agentId) : undefined}
                 profileId={store.activeProfileId}
                 workspaceSessionId={store.activeWorkspaceSessionId ?? undefined}
-                now={now}
+                clockActive={hasActiveWork}
               />
             ))
           )}
@@ -782,7 +842,7 @@ function OrchestratorPanelContent({
             <span className="caption">{t('orch.dispatch.caption')}</span>
             <span className="dot" />
             <div className="spacer" />
-            <span className="clock">{fmtTime(now)}</span>
+            <DispatchClock active={hasActiveWork} />
           </div>
           <div className="dispatch-body" ref={logRef}>
             {events.length === 0 && (
