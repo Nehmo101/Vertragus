@@ -102,6 +102,7 @@ import {
   type RemoteCiOutcome
 } from '@main/integrations/autoPr'
 import { resolveExecutionPlan } from '@main/orchestrator/planner'
+import { applyTaskTransition } from '@main/orchestrator/taskStateMachine'
 import { Semaphore } from '@main/orchestrator/semaphore'
 import { subagentVertragusToolsAvailable } from '@main/orchestrator/externalMcp'
 import { computeBudgetSnapshot, computeIntegrationSnapshot } from '@main/orchestrator/engineSnapshots'
@@ -1786,17 +1787,25 @@ export class OrchestratorEngine extends EventEmitter {
       return this.stoppedTaskResult(taskId)
     }
     if (this.pausedTasks.has(taskId)) {
-      task.status = 'paused'
-      task.lastAction = 'Pausiert vor Worker-Start'
+      if (!applyTaskTransition(task, 'paused', { lastAction: 'Pausiert vor Worker-Start' }).ok) {
+        releaseSlot()
+        return this.stoppedTaskResult(taskId)
+      }
       releaseSlot()
       await this.waitForTaskResume(taskId)
       if (this.taskStoppedWhileParked(taskId)) return this.stoppedTaskResult(taskId)
       return this.dispatch(this.resumedRole(taskId, role), prompt, title, { ...options, taskId })
     }
-    task.status = 'running'
-    task.phase = 'preflight'
-    task.lastAction = 'Pane-Preflight läuft'
-    task.lastHeartbeatAt = Date.now()
+    if (!applyTaskTransition(task, 'running', {
+      phase: 'preflight',
+      lastAction: 'Pane-Preflight läuft',
+      lastHeartbeatAt: Date.now()
+    }).ok) {
+      // The transition matrix keeps `stopped` absorbing: a cancel that made
+      // the task terminal while this dispatch was parked always wins.
+      releaseSlot()
+      return this.stoppedTaskResult(taskId)
+    }
     this.syncActivityFromTasks()
     this.push()
 
@@ -1912,8 +1921,10 @@ export class OrchestratorEngine extends EventEmitter {
           worktree: info.worktree,
           baseCommit
         })
+        if (!applyTaskTransition(task, 'paused').ok) {
+          return this.stoppedTaskResult(taskId)
+        }
         task.recoveryArtifact = recoveryArtifact
-        task.status = 'paused'
         task.lastAction = 'Pausiert; Teilarbeit sicher für Fortsetzung gehalten'
         task.note = recoveryArtifact
           ? `${recoveryArtifact.changedFiles.length} Datei(en) im Vertragus-Worktree gesichert.`
@@ -1961,7 +1972,12 @@ export class OrchestratorEngine extends EventEmitter {
       const wasCancelled = judgement.status === 'stopped'
       const workerError = judgement.status === 'error'
       const infrastructureFailure = judgement.failureKind === 'infrastructure'
-      task.status = judgement.status
+      // Route the verdict through the transition matrix: when a cancel already
+      // made the task terminal (`stopped` is absorbing), the late judgement of
+      // the killed worker must not overwrite the user's decision.
+      if (!applyTaskTransition(task, judgement.status).ok) {
+        return this.stoppedTaskResult(taskId)
+      }
       task.failureKind = judgement.failureKind
       task.judgeReason = judgement.reason
       task.progress = task.status === 'success' ? 100 : undefined
