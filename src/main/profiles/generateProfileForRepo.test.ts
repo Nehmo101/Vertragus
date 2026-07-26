@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   runHeadless: vi.fn(),
   listModels: vi.fn(),
-  getSetting: vi.fn()
+  getSetting: vi.fn(),
+  checkAllProviders: vi.fn()
 }))
 
 vi.mock('node:fs/promises', () => ({
@@ -15,11 +16,22 @@ vi.mock('@main/config/store', () => ({
 vi.mock('@main/agents/headless', () => ({
   runHeadless: mocks.runHeadless
 }))
+vi.mock('@main/providers/health', () => ({
+  checkAllProviders: mocks.checkAllProviders
+}))
 vi.mock('@main/providers/models', () => ({
   listModels: mocks.listModels
 }))
 
 import { generateProfileForRepo } from './generateProfileForRepo'
+
+function health(
+  id: string,
+  available = true,
+  connection: 'connected' | 'disconnected' | 'local' | 'unknown' = 'connected'
+): { id: string; available: boolean; connection: string; checkedAt: number } {
+  return { id, available, connection, checkedAt: 0 }
+}
 
 describe('generateProfileForRepo', () => {
   beforeEach(() => {
@@ -31,6 +43,14 @@ describe('generateProfileForRepo', () => {
       if (key === 'disabledModels') return {}
       return undefined
     })
+    mocks.checkAllProviders.mockResolvedValue([
+      health('claude'),
+      health('kimi', true, 'unknown'),
+      health('codex'),
+      health('cursor'),
+      health('copilot', true, 'unknown'),
+      health('ollama', true, 'local')
+    ])
     mocks.listModels.mockResolvedValue({
       claude: { models: ['fable-5'] },
       kimi: { models: ['kimi-k3'] },
@@ -80,7 +100,7 @@ describe('generateProfileForRepo', () => {
 
     expect(mocks.runHeadless).toHaveBeenCalledWith(
       'claude',
-      expect.stringContaining('Enabled provider/model catalogue'),
+      expect.stringContaining('Active provider/model catalogue'),
       expect.objectContaining({
         model: 'fable-5',
         workingDir: 'C:\\git\\repo',
@@ -142,5 +162,104 @@ describe('generateProfileForRepo', () => {
 
     // One role definition but three concurrent workers → maxParallel 3, not 1.
     expect(profile.planner.maxParallel).toBe(3)
+  })
+
+  it('excludes enabled but inactive providers from the catalogue and remaps their slots', async () => {
+    // Copilot is globally enabled but its CLI is not installed; Cursor is
+    // installed but logged out. Neither may be suggested or survive in slots.
+    mocks.checkAllProviders.mockResolvedValue([
+      health('claude'),
+      health('kimi', true, 'unknown'),
+      health('codex'),
+      health('cursor', true, 'disconnected'),
+      health('copilot', false, 'unknown'),
+      health('ollama', true, 'local')
+    ])
+
+    const profile = await generateProfileForRepo({
+      workingDir: 'C:\\git\\repo',
+      provider: 'claude',
+      model: 'fable-5'
+    })
+
+    const prompt = mocks.runHeadless.mock.calls[0][1] as string
+    const catalogue = JSON.parse(
+      prompt.match(/Active provider\/model catalogue[^:]*: (\{.*\})/)?.[1] ?? '{}'
+    )
+    expect(Object.keys(catalogue).sort()).toEqual(['claude', 'codex', 'kimi'])
+
+    // The generated cursor slot falls back to the analysis provider, and the
+    // foreign cursor model id must not carry over onto the fallback provider.
+    expect(profile.agents).toEqual([
+      expect.objectContaining({ role: 'backend', provider: 'claude', model: 'fable-5' }),
+      expect.objectContaining({ role: 'frontend', provider: 'claude', model: '' })
+    ])
+  })
+
+  it('never orchestrates with an enabled but unavailable provider', async () => {
+    // Analysis runs on Kimi; Claude is enabled but its CLI is missing, so the
+    // orchestrator fallback must skip it and pick the next active candidate.
+    mocks.checkAllProviders.mockResolvedValue([
+      health('claude', false, 'unknown'),
+      health('kimi', true, 'unknown'),
+      health('codex'),
+      health('cursor'),
+      health('copilot', true, 'unknown'),
+      health('ollama', true, 'local')
+    ])
+    mocks.runHeadless.mockReturnValue({
+      kill: vi.fn(),
+      done: Promise.resolve({
+        isError: false,
+        result: JSON.stringify({
+          name: 'Repo Team',
+          agents: [
+            { role: 'backend', provider: 'claude', model: 'fable-5', count: 1 }
+          ]
+        })
+      })
+    })
+
+    const profile = await generateProfileForRepo({
+      workingDir: 'C:\\git\\repo',
+      provider: 'kimi',
+      model: 'kimi-k3'
+    })
+
+    expect(profile.orchestrator?.provider).toBe('kimi')
+    expect(profile.agents).toEqual([
+      expect.objectContaining({ role: 'backend', provider: 'kimi', model: '' })
+    ])
+  })
+
+  it('rejects analysis on a provider that is not active', async () => {
+    mocks.checkAllProviders.mockResolvedValue([
+      health('claude', false, 'unknown'),
+      health('kimi', true, 'unknown'),
+      health('codex'),
+      health('cursor'),
+      health('copilot', true, 'unknown'),
+      health('ollama', true, 'local')
+    ])
+
+    await expect(
+      generateProfileForRepo({ workingDir: 'C:\\git\\repo', provider: 'claude', model: 'fable-5' })
+    ).rejects.toThrow('nicht aktiv')
+    expect(mocks.runHeadless).not.toHaveBeenCalled()
+  })
+
+  it('keeps the enabled-only behaviour when the health probe fails entirely', async () => {
+    mocks.checkAllProviders.mockRejectedValue(new Error('probe infrastructure broken'))
+
+    const profile = await generateProfileForRepo({
+      workingDir: 'C:\\git\\repo',
+      provider: 'claude',
+      model: 'fable-5'
+    })
+
+    expect(profile.agents).toEqual([
+      expect.objectContaining({ role: 'backend', provider: 'claude' }),
+      expect.objectContaining({ role: 'frontend', provider: 'cursor' })
+    ])
   })
 })
