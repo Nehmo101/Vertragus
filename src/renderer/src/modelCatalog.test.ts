@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest'
+import i18n from './i18n'
 import {
   defaultHandoffModel,
   modelCatalogLabel,
   modelPresetAvailability,
   normalizeModelCatalog
 } from './modelCatalog'
+
+// The label test asserts the German source copy, independent of the host locale.
+const t = i18n.getFixedT('de')
 
 describe('normalizeModelCatalog', () => {
   it('keeps structured live catalogues and exact account model IDs', () => {
@@ -23,7 +27,7 @@ describe('normalizeModelCatalog', () => {
       accountDependent: true,
       detail: 'Codex account cache'
     })
-    expect(modelCatalogLabel('codex', catalog.codex)).toBe('Live · 2 Modelle · kontoabhängig')
+    expect(modelCatalogLabel(t, 'codex', catalog.codex)).toBe('Live · 2 Modelle · kontoabhängig')
   })
 
   it('treats ordinary legacy arrays as unverified fallback suggestions', () => {
@@ -31,7 +35,7 @@ describe('normalizeModelCatalog', () => {
 
     expect(catalog.codex.source).toBe('fallback')
     expect(catalog.codex.models).toEqual(['gpt-5.6-terra'])
-    expect(modelCatalogLabel('codex', catalog.codex)).toContain('nicht kontoverifiziert')
+    expect(modelCatalogLabel(t, 'codex', catalog.codex)).toContain('nicht kontoverifiziert')
   })
 
   it('keeps Claude aliases visible for legacy and structured fallback responses', () => {
@@ -66,7 +70,7 @@ describe('normalizeModelCatalog', () => {
       accountDependent: true,
       detail: 'Kuratierte Vorschläge; Konto-Verfügbarkeit nicht verifiziert.'
     })
-    expect(modelCatalogLabel('cursor', catalog.cursor)).toContain('Fallback · 2 Vorschläge')
+    expect(modelCatalogLabel(t, 'cursor', catalog.cursor)).toContain('Fallback · 2 Vorschläge')
   })
 
   it('preserves explicit unavailable state and drops its model guesses', () => {
@@ -114,7 +118,7 @@ describe('normalizeModelCatalog', () => {
     })
 
     expect(catalog.claude.source).toBe('mixed')
-    expect(modelCatalogLabel('claude', catalog.claude)).toContain('Live + Vorschläge')
+    expect(modelCatalogLabel(t, 'claude', catalog.claude)).toContain('Live + Vorschläge')
   })
 })
 

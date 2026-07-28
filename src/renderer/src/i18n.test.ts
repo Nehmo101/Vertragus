@@ -86,34 +86,9 @@ describe('renderer i18n hardcode guard', () => {
   const rendererSrc = dirname(fileURLToPath(import.meta.url))
 
   // Components not yet migrated to i18n keys (still contain German umlauts).
-  // ProfileEditor + everything under profileEditor/ is being decomposed by a
-  // separate effort and must stay untouched here. Remove entries as screens are
-  // migrated — this list should only ever get shorter.
-  const ALLOWLIST = new Set<string>([
-    'components/ProfileEditor.tsx',
-    'components/profileEditor/AgentSlotsSection.tsx',
-    'components/profileEditor/AutoGitSection.tsx',
-    'components/profileEditor/AutoPrSection.tsx',
-    'components/profileEditor/ModeOrchestratorSection.tsx',
-    'components/profileEditor/PlannerSection.tsx',
-    'components/profileEditor/RepoWorkspaceSection.tsx',
-    'components/profileEditor/SkillsSection.tsx',
-    'components/OrchestratorPanel.tsx',
-    'components/TitleBar.tsx',
-    'components/CanvasBoard.tsx',
-    'components/CanvasTerminalDrawer.tsx',
-    'components/DiffMergeCenter.tsx',
-    'components/HandoffModal.tsx',
-    'components/IdeaTransferModal.tsx',
-    'components/ModelCombo.tsx',
-    'components/PaneWindow.tsx',
-    'components/PromptEnhancementReview.tsx',
-    'components/RemotePanel.tsx',
-    'components/VoiceOverlay.tsx',
-    // Überflug-Umsetzung 2026-07-28: neue deutsche Texte, Migration folgt in der i18n-Welle.
-    'components/SessionRestoreBanner.tsx',
-    'shortcuts/AppShortcutProvider.tsx'
-  ])
+  // The renderer is fully migrated — this list is empty and must stay empty:
+  // add an entry only for a deliberate, temporary exception, never permanently.
+  const ALLOWLIST = new Set<string>([])
 
   /** Every renderer `.tsx` component (test fixtures excluded), path relative to src. */
   function componentFiles(dir: string): string[] {

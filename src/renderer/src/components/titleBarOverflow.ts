@@ -37,30 +37,39 @@ export interface OverflowMenuContext {
   updateChannel: 'stable' | 'main' | null
 }
 
-export function buildOverflowMenuItems(ctx: OverflowMenuContext): OverflowMenuItem[] {
+/** Minimale Übersetzer-Signatur, damit i18next-`t` direkt durchgereicht werden kann. */
+export type OverflowTranslate = (key: string) => string
+
+export function buildOverflowMenuItems(
+  ctx: OverflowMenuContext,
+  t: OverflowTranslate
+): OverflowMenuItem[] {
   const items: OverflowMenuItem[] = [
     {
       id: 'language',
       role: 'menuitem',
-      label: 'Sprache wechseln',
-      detail: ctx.language === 'de' ? 'Deutsch' : 'English'
+      label: t('titlebar.overflow.language'),
+      detail:
+        ctx.language === 'de'
+          ? t('titlebar.overflow.languageGerman')
+          : t('titlebar.overflow.languageEnglish')
     },
     {
       id: 'theme',
       role: 'menuitemcheckbox',
-      label: 'Dunkles Design',
+      label: t('titlebar.overflow.darkTheme'),
       checked: ctx.theme === 'dark'
     },
     {
       id: 'readable',
       role: 'menuitemcheckbox',
-      label: 'Lesbare CLI-Ausgabe',
+      label: t('titlebar.overflow.readable'),
       checked: ctx.cliReadable
     },
     {
       id: 'density',
       role: 'menuitemcheckbox',
-      label: 'Kompakte Ansicht',
+      label: t('titlebar.overflow.density'),
       checked: ctx.uiDensity === 'compact'
     }
   ]
@@ -76,7 +85,7 @@ export function buildOverflowMenuItems(ctx: OverflowMenuContext): OverflowMenuIt
     items.push({
       id: 'updateChannel',
       role: 'menuitem',
-      label: 'Update-Kanal wechseln',
+      label: t('titlebar.overflow.updateChannel'),
       detail: ctx.updateChannel === 'stable' ? 'Stable' : 'Main'
     })
   }

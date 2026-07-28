@@ -210,15 +210,30 @@ export function confirmPromptEnhancementApply<T extends Idea>(
     : draft
 }
 
-export function promptProviderModelLabel(result: PromptEnhancementViewResult | undefined): string {
+export interface PromptProviderModelLabels {
+  /** Shown when the provider decides the model itself, e.g. "CLI-Standard". */
+  cliDefault: string
+  /** Shown for the deterministic local fallback, e.g. "Lokal · kein Modell". */
+  localNoModel: string
+}
+
+const DEFAULT_PROVIDER_MODEL_LABELS: PromptProviderModelLabels = {
+  cliDefault: 'CLI-Standard',
+  localNoModel: 'Lokal · kein Modell'
+}
+
+export function promptProviderModelLabel(
+  result: PromptEnhancementViewResult | undefined,
+  labels: PromptProviderModelLabels = DEFAULT_PROVIDER_MODEL_LABELS
+): string {
   if (!result) return ''
   if (result.status === 'enhanced' || result.status === 'fallback') {
-    return `${result.provider} · ${result.model || 'CLI-Standard'}`
+    return `${result.provider} · ${result.model || labels.cliDefault}`
   }
   if (result.status === 'provider-unavailable') {
-    return `${result.selection.provider} · ${result.selection.model || 'CLI-Standard'}`
+    return `${result.selection.provider} · ${result.selection.model || labels.cliDefault}`
   }
-  if (result.status === 'local-fallback') return 'Lokal · kein Modell'
+  if (result.status === 'local-fallback') return labels.localNoModel
   return ''
 }
 

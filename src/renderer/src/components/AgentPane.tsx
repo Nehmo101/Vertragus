@@ -253,14 +253,14 @@ const TerminalHost = memo(function TerminalHost({
 /**
  * Small reusable info button with a popover for secondary details (branch,
  * worktree, agent id) that do not need a permanent footer slot. Escape or a
- * click outside closes it. Visible texts are hard German, i18n follows later
- * (kept umlaut-free to satisfy the renderer i18n hardcode guard).
+ * click outside closes it.
  */
 export function PaneInfoPopover({
   entries
 }: {
   entries: Array<{ label: string; value: string }>
 }): JSX.Element {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLSpanElement>(null)
 
@@ -285,9 +285,8 @@ export function PaneInfoPopover({
       <button
         type="button"
         className={`${paneStyles.infoBtn} ${open ? paneStyles.infoBtnOpen : ''}`}
-        /* i18n-spaeter */
-        title="Details (Branch, Worktree, Agent-ID)"
-        aria-label="Agent-Details anzeigen"
+        title={t('agentPane.info.title')}
+        aria-label={t('agentPane.info.ariaShow')}
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
@@ -295,8 +294,7 @@ export function PaneInfoPopover({
         ℹ
       </button>
       {open && (
-        /* i18n-spaeter */
-        <div className={paneStyles.infoPopover} role="dialog" aria-label="Agent-Details">
+        <div className={paneStyles.infoPopover} role="dialog" aria-label={t('agentPane.info.dialogAria')}>
           <dl>
             {entries.map((entry) => (
               <div key={entry.label} style={{ display: 'contents' }}>
@@ -320,6 +318,8 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
   const usage = agent.usage
   const telemetry = summarizeUsage(usage)
   const absence = absentTelemetryNotice(agent.mode)
+  // Renderer-side i18n key for the shared (German-authored) absence notice.
+  const absenceKey = agent.mode === 'interactive' ? 'interactive' : 'absent'
   const limit = agent.limitWarning
   const readable = useAppStore((s) => effectivePaneReadable(s, agent.id))
   const togglePaneReadable = useAppStore((s) => s.togglePaneReadable)
@@ -352,11 +352,10 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
   }
 
   // Secondary details move into the info popover instead of the footer.
-  /* i18n-spaeter */
   const infoEntries: Array<{ label: string; value: string }> = [
-    ...(agent.branch ? [{ label: 'Branch', value: agent.branch }] : []),
-    ...(agent.worktree ? [{ label: 'Worktree', value: agent.worktree }] : []),
-    { label: 'Agent-ID', value: agent.id }
+    ...(agent.branch ? [{ label: t('agentPane.info.branch'), value: agent.branch }] : []),
+    ...(agent.worktree ? [{ label: t('agentPane.info.worktree'), value: agent.worktree }] : []),
+    { label: t('agentPane.info.agentId'), value: agent.id }
   ]
 
   return (
@@ -376,7 +375,7 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
             {agent.yolo && <span className="badge-yolo">YOLO</span>}
             {limit && (
               <span className="badge-limit" title={limit.note ?? t('agentPane.limitDetected')}>
-                ⚠ {LIMIT_KIND_LABELS[limit.kind]}
+                ⚠ {t(`ui.limitKind.${limit.kind}`, { defaultValue: LIMIT_KIND_LABELS[limit.kind] })}
               </span>
             )}
             {agent.handoffTo && (
@@ -399,7 +398,7 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
               }}
             />
             <span className="pane-status" style={{ color: status.text }}>
-              {status.label}
+              {t(status.label)}
             </span>
             <span className="sep">·</span>
             <span className="pane-role" title={agent.role}>
@@ -411,9 +410,8 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
           <input
             className={paneStyles.searchInput}
             type="text"
-            /* i18n-spaeter */
-            placeholder="Suchen…"
-            aria-label="Im Terminal-Verlauf suchen"
+            placeholder={t('agentPane.search.placeholder')}
+            aria-label={t('agentPane.search.inputAria')}
             autoFocus
             value={searchQuery}
             onChange={(event) => {
@@ -427,9 +425,8 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
         <button
           type="button"
           className="pane-icon-btn"
-          /* i18n-spaeter */
-          title="Suche im Verlauf (Enter = weiter, Shift+Enter = vorheriger Treffer, Esc = beenden)"
-          aria-label="Suche im Terminal-Verlauf umschalten"
+          title={t('agentPane.search.toggleTitle')}
+          aria-label={t('agentPane.search.toggleAria')}
           aria-pressed={searchOpen}
           onClick={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
         >
@@ -517,13 +514,19 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
             )}
           </>
         ) : (
-          <span className="telemetry-status absent" title={absence.title}>
-            {absence.label}
+          <span
+            className="telemetry-status absent"
+            title={t(`ui.telemetry.${absenceKey}Title`, { defaultValue: absence.title })}
+          >
+            {t(`ui.telemetry.${absenceKey}`, { defaultValue: absence.label })}
           </span>
         )}
         {usage && telemetry.status !== 'present' && (
-          <span className={`telemetry-status ${telemetry.status}`} title={TELEMETRY_STATUS_TITLES[telemetry.status]}>
-            {TELEMETRY_STATUS_LABELS[telemetry.status]}
+          <span
+            className={`telemetry-status ${telemetry.status}`}
+            title={t(`ui.telemetry.${telemetry.status}Title`, { defaultValue: TELEMETRY_STATUS_TITLES[telemetry.status] })}
+          >
+            {t(`ui.telemetry.${telemetry.status}`, { defaultValue: TELEMETRY_STATUS_LABELS[telemetry.status] })}
           </span>
         )}
         <span className="spacer" />

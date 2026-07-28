@@ -745,7 +745,7 @@ export function SidebarView({
                   <span className="profile-rail" />
                   <div className="info">
                     <div className="name">{profile.name}</div>
-                    <div className="summary">{profileSummary(profile)}</div>
+                    <div className="summary">{profileSummary(profile, t)}</div>
                   </div>
                   {attention && <span className="workspace-attention-indicator" aria-hidden="true" />}
                   <span className={`profile-count ${runningByProfile.has(profile.id) ? 'running' : ''}`}>
@@ -1045,7 +1045,7 @@ export function SidebarView({
                 type="button"
                 key={server.id}
                 className="mcp-row"
-                title={`${MCP_TRANSPORT_LABELS[server.transport]} · ${MCP_SCOPE_LABELS[server.scope]}${server.enabled ? '' : ` · ${t('sidebar.mcp.inactive')}`}`}
+                title={`${t(`ui.mcp.transport.${server.transport}`, { defaultValue: MCP_TRANSPORT_LABELS[server.transport] })} · ${t(`ui.mcp.scope.${server.scope}`, { defaultValue: MCP_SCOPE_LABELS[server.scope] })}${server.enabled ? '' : ` · ${t('sidebar.mcp.inactive')}`}`}
                 onClick={store.openMcpEditor}
               >
                 <span

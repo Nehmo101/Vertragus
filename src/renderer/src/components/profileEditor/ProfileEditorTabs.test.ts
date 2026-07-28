@@ -1,6 +1,8 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
+// Registers the app i18n instance so useTranslation works in static renders.
+import '../../i18n'
 import ProfileEditorTabs, {
   profileEditorPanelDomId,
   profileEditorTabDomId,

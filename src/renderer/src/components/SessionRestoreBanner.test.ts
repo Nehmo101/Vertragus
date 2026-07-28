@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import i18n from '../i18n'
 import type {
   OrphanedWorktreeInfo,
   ResumableSessionInfo,
@@ -14,6 +15,9 @@ import {
   runFullCleanup,
   shouldAutoExpand
 } from './SessionRestoreBanner'
+
+// The summary test asserts the German source copy, independent of the host locale.
+const t = i18n.getFixedT('de')
 
 /**
  * This project has no @testing-library/react and vitest runs in `environment:
@@ -80,7 +84,7 @@ describe('buildCompactSummary', () => {
       orphanedWorktrees: [orphan('/w1', 3), orphan('/w2', 0), orphan('/w3', 1)],
       staleSessions: [stale('s1')]
     })
-    expect(buildCompactSummary(status)).toBe(
+    expect(buildCompactSummary(status, t)).toBe(
       '2 Sessions wiederherstellbar · 3 verwaiste Worktrees (2 mit Änderungen) · 1 alte Session'
     )
   })
@@ -88,13 +92,14 @@ describe('buildCompactSummary', () => {
   it('uses singular forms and omits the dirty suffix for clean orphans', () => {
     expect(
       buildCompactSummary(
-        makeStatus({ resumableSessions: [resumable('a')], orphanedWorktrees: [orphan('/w1', 0)] })
+        makeStatus({ resumableSessions: [resumable('a')], orphanedWorktrees: [orphan('/w1', 0)] }),
+        t
       )
     ).toBe('1 Session wiederherstellbar · 1 verwaister Worktree')
   })
 
   it('returns an empty string when there is nothing to count', () => {
-    expect(buildCompactSummary(makeStatus({ cleanShutdown: false }))).toBe('')
+    expect(buildCompactSummary(makeStatus({ cleanShutdown: false }), t)).toBe('')
   })
 })
 

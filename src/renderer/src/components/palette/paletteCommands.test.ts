@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import i18n from '../../i18n'
 import {
   buildCommands,
   filterCommands,
@@ -7,6 +8,9 @@ import {
   type PaletteActions,
   type PaletteContext
 } from './paletteCommands'
+
+// Titles are asserted against the German source copy, independent of the host locale.
+const t = i18n.getFixedT('de')
 
 function createActions(): PaletteActions {
   return {
@@ -37,7 +41,7 @@ function createContext(overrides: Partial<PaletteContext> = {}): PaletteContext 
 
 describe('buildCommands', () => {
   it('liefert die statischen Befehle (Navigation, Layout, Panels, Ansicht, startAll)', () => {
-    const ids = buildCommands(createContext()).map((command) => command.id)
+    const ids = buildCommands(createContext(), t).map((command) => command.id)
     for (const expected of [
       'nav.workspace',
       'nav.inbox',
@@ -60,7 +64,7 @@ describe('buildCommands', () => {
 
   it('baut je Profil einen Start- und einen Bearbeiten-Befehl', () => {
     const ctx = createContext()
-    const commands = buildCommands(ctx)
+    const commands = buildCommands(ctx, t)
     const titles = commands.map((command) => command.title)
     expect(titles).toContain('Profil starten: Vertragus Core')
     expect(titles).toContain('Profil starten: Docs Team')
@@ -75,20 +79,20 @@ describe('buildCommands', () => {
 
   it('baut je laufendem Agent einen Fokus-Befehl mit Lore-Namen', () => {
     const ctx = createContext()
-    const command = buildCommands(ctx).find((item) => item.id === 'agent.focus.a1')
+    const command = buildCommands(ctx, t).find((item) => item.id === 'agent.focus.a1')
     expect(command?.title).toBe('Agent fokussieren: Boromir')
     command?.run()
     expect(ctx.actions.focusAgent).toHaveBeenCalledWith('a1')
   })
 
   it('kommt ohne Profile/Agents aus (nur statische Befehle)', () => {
-    const commands = buildCommands(createContext({ profiles: [], runningAgents: [] }))
+    const commands = buildCommands(createContext({ profiles: [], runningAgents: [] }), t)
     expect(commands).toHaveLength(14)
   })
 
   it('verdrahtet Navigation, Layout und Panels mit den erwarteten Argumenten', () => {
     const ctx = createContext()
-    const commands = buildCommands(ctx)
+    const commands = buildCommands(ctx, t)
     const run = (id: string): void => commands.find((command) => command.id === id)?.run()
 
     run('nav.workspace')
@@ -104,7 +108,7 @@ describe('buildCommands', () => {
   })
 
   it('enthaelt keine destruktiven Befehle', () => {
-    const ids = buildCommands(createContext()).map((command) => command.id.toLowerCase())
+    const ids = buildCommands(createContext(), t).map((command) => command.id.toLowerCase())
     for (const id of ids) {
       expect(id).not.toMatch(/stop|kill|delete|remove|clean/)
     }
@@ -112,7 +116,7 @@ describe('buildCommands', () => {
 })
 
 describe('filterCommands', () => {
-  const commands = buildCommands(createContext())
+  const commands = buildCommands(createContext(), t)
 
   it('liefert bei leerer Eingabe alle Befehle', () => {
     expect(filterCommands(commands, '')).toHaveLength(commands.length)

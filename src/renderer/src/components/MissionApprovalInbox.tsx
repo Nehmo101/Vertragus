@@ -97,10 +97,9 @@ export default function MissionApprovalInbox(): JSX.Element {
         <div><span className="eyebrow">{t('modals.approvals.eyebrow')}</span><h1>{t('modals.approvals.title')}</h1></div>
         <span className={`mission-count ${approvals.length ? 'attention' : ''}`}>{t('modals.approvals.openCount', { n: approvals.length })}</span>
       </header>
-      {/* i18n-spaeter: Texte umlautfrei, bis die i18n-Welle sie in die locales hebt. */}
       {error && (
         <ErrorCard
-          title="Aktion fehlgeschlagen"
+          title={t('ui.actionFailed')}
           detail={error}
           onRetry={retryLastAction}
           retryDisabled={Boolean(busy)}

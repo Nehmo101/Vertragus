@@ -60,91 +60,94 @@ export interface PaletteContext {
   actions: PaletteActions
 }
 
+/** Minimale Übersetzer-Signatur, damit i18next-`t` direkt durchgereicht werden kann. */
+export type PaletteTranslate = (key: string, options?: { name?: string }) => string
+
 /** Baut die vollständige Befehlsliste für den aktuellen Store-Zustand. */
-export function buildCommands(ctx: PaletteContext): PaletteCommand[] {
+export function buildCommands(ctx: PaletteContext, t: PaletteTranslate): PaletteCommand[] {
   const { actions } = ctx
   const commands: PaletteCommand[] = [
     {
       id: 'nav.workspace',
-      title: 'Gehe zu: Workspace',
+      title: t('palette.cmd.navWorkspace'),
       keywords: ['navigation', 'agents', 'panes', 'home'],
       run: () => actions.navigate('')
     },
     {
       id: 'nav.inbox',
-      title: 'Gehe zu: Ideen-Inbox',
+      title: t('palette.cmd.navInbox'),
       keywords: ['navigation', 'inbox', 'ideen', 'notizen'],
       run: () => actions.navigate('#/inbox')
     },
     {
       id: 'nav.approvals',
-      title: 'Gehe zu: Approvals',
+      title: t('palette.cmd.navApprovals'),
       keywords: ['navigation', 'freigaben', 'missionen'],
       run: () => actions.navigate('#/approvals')
     },
     {
       id: 'nav.changes',
-      title: 'Gehe zu: Changes',
+      title: t('palette.cmd.navChanges'),
       keywords: ['navigation', 'diff', 'merge', 'review'],
       run: () => actions.navigate('#/changes')
     },
     {
       id: 'nav.remote',
-      title: 'Gehe zu: Mission Control',
+      title: t('palette.cmd.navRemote'),
       keywords: ['navigation', 'remote', 'mobil'],
       run: () => actions.navigate('#/remote')
     },
     {
       id: 'layout.canvas',
-      title: 'Layout: Zentrale',
+      title: t('palette.cmd.layoutCanvas'),
       keywords: ['ansicht', 'canvas', 'board'],
       run: () => actions.setWorkspaceLayout('canvas')
     },
     {
       id: 'layout.tiles',
-      title: 'Layout: Terminals',
+      title: t('palette.cmd.layoutTiles'),
       keywords: ['ansicht', 'kacheln', 'tiles'],
       run: () => actions.setWorkspaceLayout('tiles')
     },
     {
       id: 'layout.focus',
-      title: 'Layout: Fokus',
+      title: t('palette.cmd.layoutFocus'),
       keywords: ['ansicht', 'focus', 'einzeln'],
       run: () => actions.setWorkspaceLayout('focus')
     },
     {
       id: 'panel.sidebar',
-      title: 'Sidebar ein-/ausblenden',
+      title: t('palette.cmd.toggleSidebar'),
       keywords: ['panel', 'seitenleiste', 'links'],
       run: () => actions.togglePanel('sidebar-left')
     },
     {
       id: 'panel.orchestrator',
-      title: 'Orchestrator-Panel ein-/ausblenden',
+      title: t('palette.cmd.toggleOrchestrator'),
       keywords: ['panel', 'rechts', 'thread'],
       run: () => actions.togglePanel('orchestrator-right')
     },
     {
       id: 'agents.startAll',
-      title: 'Alle Agents starten',
+      title: t('palette.cmd.startAll'),
       keywords: ['workspace', 'start', 'session'],
       run: () => actions.startAll()
     },
     {
       id: 'view.theme',
-      title: 'Theme umschalten',
+      title: t('palette.cmd.toggleTheme'),
       keywords: ['ansicht', 'dunkel', 'hell', 'dark', 'light'],
       run: () => actions.toggleTheme()
     },
     {
       id: 'view.readable',
-      title: 'Lesbar-Modus umschalten',
+      title: t('palette.cmd.toggleReadable'),
       keywords: ['ansicht', 'cli', 'zusammenfassung', 'readable'],
       run: () => actions.toggleReadable()
     },
     {
       id: 'view.density',
-      title: 'Kompakte Ansicht umschalten',
+      title: t('palette.cmd.toggleDensity'),
       keywords: ['ansicht', 'dichte', 'density', 'compact'],
       run: () => actions.toggleDensity()
     }
@@ -152,7 +155,7 @@ export function buildCommands(ctx: PaletteContext): PaletteCommand[] {
   for (const profile of ctx.profiles) {
     commands.push({
       id: `profile.start.${profile.id}`,
-      title: `Profil starten: ${profile.name}`,
+      title: t('palette.cmd.startProfile', { name: profile.name }),
       keywords: ['workspace', 'agents', profile.name],
       run: () => actions.startProfile(profile.id)
     })
@@ -160,7 +163,7 @@ export function buildCommands(ctx: PaletteContext): PaletteCommand[] {
   for (const agent of ctx.runningAgents) {
     commands.push({
       id: `agent.focus.${agent.id}`,
-      title: `Agent fokussieren: ${agent.name}`,
+      title: t('palette.cmd.focusAgent', { name: agent.name }),
       keywords: agent.role ? ['pane', 'terminal', agent.role] : ['pane', 'terminal'],
       run: () => actions.focusAgent(agent.id)
     })
@@ -168,7 +171,7 @@ export function buildCommands(ctx: PaletteContext): PaletteCommand[] {
   for (const profile of ctx.profiles) {
     commands.push({
       id: `profile.edit.${profile.id}`,
-      title: `Profil bearbeiten: ${profile.name}`,
+      title: t('palette.cmd.editProfile', { name: profile.name }),
       keywords: ['editor', 'einstellungen', profile.name],
       run: () => actions.editProfile(profile.id)
     })

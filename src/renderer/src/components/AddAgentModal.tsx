@@ -9,13 +9,8 @@ import {
 } from '@renderer/modelCatalog'
 import { useAppStore } from '@renderer/store/useAppStore'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
-import {
-  MODEL_PRESETS,
-  MODEL_PRESET_LABELS,
-  formatModelLabel,
-  resolveModel,
-  type ModelPreset
-} from '@shared/models'
+import { effectiveModelLabel, presetLabel } from '@renderer/components/profileEditor/modelSelection'
+import { MODEL_PRESETS, resolveModel, type ModelPreset } from '@shared/models'
 import type { AgentProviderId } from '@shared/providers'
 
 const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'kimi', 'codex', 'cursor', 'copilot', 'ollama']
@@ -127,7 +122,7 @@ export default function AddAgentModal(): JSX.Element | null {
                 const available = availablePreset(provider, preset, catalog)
                 return (
                   <option key={preset} value={preset} disabled={!available}>
-                    {MODEL_PRESET_LABELS[preset]}
+                    {presetLabel(t, preset)}
                     {!available ? ` ${t('modals.addAgent.unavailable')}` : ''}
                   </option>
                 )
@@ -156,7 +151,7 @@ export default function AddAgentModal(): JSX.Element | null {
             <span>{t('modals.addAgent.effective')}</span>
             <b>{PROVIDER_THEME[provider].label}</b>
             <span>·</span>
-            <b>{formatModelLabel(effectiveModel, { model, modelPreset })}</b>
+            <b>{effectiveModelLabel(t, effectiveModel, { model, modelPreset })}</b>
           </div>
           {model.trim() && modelPreset && (
             <div className="add-agent-hint">

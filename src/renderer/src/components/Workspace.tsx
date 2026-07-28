@@ -18,10 +18,10 @@ import styles from './responsiveGuards.module.css'
 const BOOTSTRAP_TIMEOUT_MS = 10_000
 
 // '◈' statt '⌘': das Befehlssymbol kollidiert auf dem Mac mit der Cmd-Taste.
-const LAYOUTS: Array<{ id: WorkspaceLayout; icon: string; fallback: string }> = [
-  { id: 'canvas', icon: '◈', fallback: 'Zentrale' },
-  { id: 'tiles', icon: '▦', fallback: 'Terminals' },
-  { id: 'focus', icon: '▣', fallback: 'Fokus' }
+const LAYOUTS: Array<{ id: WorkspaceLayout; icon: string }> = [
+  { id: 'canvas', icon: '◈' },
+  { id: 'tiles', icon: '▦' },
+  { id: 'focus', icon: '▣' }
 ]
 
 export default function Workspace(): JSX.Element {
@@ -93,8 +93,7 @@ export default function Workspace(): JSX.Element {
             role="status"
             style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-2)', fontSize: 14 }}
           >
-            {/* i18n-spaeter: umlautfreier Text, bis die i18n-Welle ihn in die locales hebt. */}
-            <Spinner /> Lade Workspace…
+            <Spinner /> {t('workspace.loading')}
           </div>
         </div>
       </main>
@@ -110,8 +109,8 @@ export default function Workspace(): JSX.Element {
         {workspaceLayout === 'canvas' && (
           <button type="button" className="clean-btn canvas-orch-toggle" data-open={orchDrawerOpen} aria-pressed={orchDrawerOpen} onClick={toggleOrchDrawer}>
             {/* Lore-Name aus dem i18n-Key + statischer Funktions-Zusatz,
-                damit klar ist, was sich hinter „Caronte" verbirgt. */}
-            {t('canvas.orchestratorToggle', { defaultValue: 'Caronte' })}
+                damit klar ist, was sich hinter dem Namen verbirgt. */}
+            {t('canvas.orchestratorToggle')}
             <span className="canvas-orch-toggle-role"> · Orchestrator</span>
           </button>
         )}
@@ -184,7 +183,7 @@ export default function Workspace(): JSX.Element {
             >
               <span aria-hidden="true">{layout.icon}</span>
               <span className="layout-btn-label">
-                {t(`canvas.layout.${layout.id}`, { defaultValue: layout.fallback })}
+                {t(`canvas.layout.${layout.id}`)}
               </span>
             </button>
           ))}

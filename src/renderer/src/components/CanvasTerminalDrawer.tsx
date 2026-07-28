@@ -1,4 +1,5 @@
 import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { AgentInstanceInfo } from '@shared/agents'
 import AgentPane from './AgentPane'
 import { useLayoutStore } from '@renderer/store/layoutStore'
@@ -9,6 +10,7 @@ interface Props {
 }
 
 export default function CanvasTerminalDrawer({ agent, onClose }: Props): JSX.Element | null {
+  const { t } = useTranslation()
   const height = useLayoutStore((state) => state.terminalDrawerHeight)
   const setHeight = useLayoutStore((state) => state.setTerminalDrawerHeight)
   const start = useRef<{ y: number; height: number } | null>(null)
@@ -34,11 +36,11 @@ export default function CanvasTerminalDrawer({ agent, onClose }: Props): JSX.Ele
   }
 
   return (
-    <section className="canvas-terminal-drawer" style={{ height: `${height}%` }} aria-label="Agent-Terminal">
+    <section className="canvas-terminal-drawer" style={{ height: `${height}%` }} aria-label={t('canvas.drawer.aria')}>
       <div
         className="canvas-terminal-resize"
         role="separator"
-        aria-label="Terminalhöhe ändern"
+        aria-label={t('canvas.drawer.resize')}
         aria-orientation="horizontal"
         tabIndex={0}
         onPointerDown={onPointerDown}
@@ -46,7 +48,7 @@ export default function CanvasTerminalDrawer({ agent, onClose }: Props): JSX.Ele
         onPointerUp={() => { start.current = null }}
         onDoubleClick={() => setHeight(45)}
       />
-      <button type="button" className="canvas-terminal-close" onClick={onClose} aria-label="Terminal schließen">×</button>
+      <button type="button" className="canvas-terminal-close" onClick={onClose} aria-label={t('canvas.drawer.close')}>×</button>
       <AgentPane agent={agent} focused onFocus={() => undefined} />
     </section>
   )

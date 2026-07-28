@@ -29,17 +29,21 @@ function useClock(): string {
   return now.toTimeString().slice(0, 8)
 }
 
-function profileSummary(p: WorkspaceProfile): string {
+/** Minimal translate signature so i18next's `t` can be passed straight through. */
+type SummaryTranslate = (key: string) => string
+
+function profileSummary(p: WorkspaceProfile, t: SummaryTranslate): string {
+  const cliDefault = t('titlebar.cliDefault')
   const parts: string[] = []
   if (p.orchestrator) {
     parts.push(
-      `${p.orchestrator.provider}/${resolveModel(p.orchestrator.provider, p.orchestrator) || 'CLI-Standard'}`
+      `${p.orchestrator.provider}/${resolveModel(p.orchestrator.provider, p.orchestrator) || cliDefault}`
     )
   }
   for (const slot of p.agents) {
-    parts.push(`${slot.count}× ${slot.provider}/${resolveModel(slot.provider, slot) || 'CLI-Standard'}`)
+    parts.push(`${slot.count}× ${slot.provider}/${resolveModel(slot.provider, slot) || cliDefault}`)
   }
-  return parts.join(' · ') || 'leer'
+  return parts.join(' · ') || t('titlebar.profileSummaryEmpty')
 }
 
 function profileAgentCount(p: WorkspaceProfile): number {
@@ -91,7 +95,7 @@ export default function TitleBar(): JSX.Element {
 
   const repoRef = effectiveRepoRef(store)
   const repoPath = repoRef?.path.trim() ?? ''
-  const repoLabel = repoRef ? repoRefLabel(repoRef) : 'Kein Repo'
+  const repoLabel = repoRef ? repoRefLabel(repoRef) : t('titlebar.noRepo')
   const repos = knownRepos(store)
   const activeRepoKey = repoPath ? repoRefKey(repoPath) : ''
   const running = store.running
@@ -103,20 +107,20 @@ export default function TitleBar(): JSX.Element {
     (update?.status === 'error' && Boolean(update.availableVersion))
   const updateLabel =
     update?.status === 'downloading'
-      ? `Update ${Math.round(update.progress ?? 0)} %`
+      ? t('titlebar.update.downloading', { percent: Math.round(update.progress ?? 0) })
       : update?.status === 'downloaded'
-        ? 'Update installieren'
+        ? t('titlebar.update.install')
         : update?.status === 'available'
-          ? 'Aktualisierung verfügbar'
+          ? t('titlebar.update.available')
           : update?.status === 'error'
-            ? 'Update erneut prüfen'
-            : 'Self-Update'
+            ? t('titlebar.update.retry')
+            : t('titlebar.update.self')
   const updateTitle = update?.status === 'downloaded' && anyRunning
-    ? 'Vor der Installation bitte alle Agents stoppen.'
+    ? t('titlebar.update.stopAgentsFirst')
     : update?.message ??
       (update?.availableVersion
-        ? `Main-Update ${update.availableVersion} ist verfügbar.`
-        : 'Neue Version vom Main-Branch installieren.')
+        ? t('titlebar.update.mainAvailable', { version: update.availableVersion })
+        : t('titlebar.update.installMain'))
 
   const activeProfileId = store.activeProfileId
   const refreshGit = store.refreshGit
@@ -155,8 +159,8 @@ export default function TitleBar(): JSX.Element {
     }
   }, [activeProfileId, refreshGit])
 
-  // Überlaufmenü: Escape schließt und gibt den Fokus an den ⋯-Button zurück
-  // (Muster aus components/ui/Modal.tsx); Außenklick schließt über den Backdrop.
+  // Overflow menu: Escape closes and returns focus to the ⋯ button (pattern
+  // from components/ui/Modal.tsx); an outside click closes via the backdrop.
   const closeOverflow = (): void => {
     setOverflowOpen(false)
     overflowBtnRef.current?.focus()
@@ -185,13 +189,13 @@ export default function TitleBar(): JSX.Element {
     items[next].focus()
   }
 
-  // Stop-alle per Shortcut (Mod+Shift+.): requestStopAll() im agentsSlice bumpt
-  // die Anfrage-Id; hier öffnet sich daraufhin der bestehende Confirm-Dialog —
-  // der Shortcut stoppt also NIE direkt.
+  // Stop-all via shortcut (Mod+Shift+.): requestStopAll() in the agentsSlice
+  // bumps the request id; the existing confirm dialog then opens here — the
+  // shortcut therefore NEVER stops directly.
   useEffect(() => {
     return useAppStore.subscribe((state, prev) => {
       if (state.stopAllRequestId === prev.stopAllRequestId) return
-      // Ohne laufende Agents gibt es nichts zu bestätigen (wie beim Button).
+      // Without running agents there is nothing to confirm (same as the button).
       if (!state.agents.some((a) => a.status === 'running')) return
       setMenuOpen(false)
       setOverflowOpen(false)
@@ -202,10 +206,12 @@ export default function TitleBar(): JSX.Element {
   const remoteLabel = store.gitInfo?.remote?.replace(/(https?:\/\/)[^/@]+@/i, '$1')
   const gitTitle = store.gitInfo?.isRepo
     ? [
-        store.gitInfo.branch ? `Branch: ${store.gitInfo.branch}` : undefined,
-        store.gitInfo.defaultBranch ? `Standard-Branch: ${store.gitInfo.defaultBranch}` : undefined,
-        remoteLabel ? `Remote: ${remoteLabel}` : undefined,
-        `Arbeitsbaum: ${store.gitInfo.dirty ? 'ungespeicherte Änderungen' : 'sauber'}`
+        store.gitInfo.branch ? t('titlebar.git.branch', { branch: store.gitInfo.branch }) : undefined,
+        store.gitInfo.defaultBranch
+          ? t('titlebar.git.defaultBranch', { branch: store.gitInfo.defaultBranch })
+          : undefined,
+        remoteLabel ? t('titlebar.git.remote', { remote: remoteLabel }) : undefined,
+        store.gitInfo.dirty ? t('titlebar.git.treeDirty') : t('titlebar.git.treeClean')
       ]
         .filter(Boolean)
         .join('\n')
@@ -221,19 +227,22 @@ export default function TitleBar(): JSX.Element {
     }
   }
 
-  // Selten genutzte Schalter leben im Überlaufmenü; die Item-Liste ist pure
-  // Logik (titleBarOverflow.ts), hier werden nur die Ids auf Aktionen gemappt.
-  const overflowItems = buildOverflowMenuItems({
-    language: activeLanguage,
-    theme: store.theme,
-    cliReadable: store.cliReadable,
-    uiDensity: store.uiDensity,
-    updateVisible,
-    updateLabel,
-    updateDisabled:
-      update?.status === 'downloading' || (update?.status === 'downloaded' && anyRunning),
-    updateChannel: update?.channel && update.status !== 'unsupported' ? update.channel : null
-  })
+  // Rarely used toggles live in the overflow menu; the item list is pure logic
+  // (titleBarOverflow.ts), only the ids are mapped to actions here.
+  const overflowItems = buildOverflowMenuItems(
+    {
+      language: activeLanguage,
+      theme: store.theme,
+      cliReadable: store.cliReadable,
+      uiDensity: store.uiDensity,
+      updateVisible,
+      updateLabel,
+      updateDisabled:
+        update?.status === 'downloading' || (update?.status === 'downloaded' && anyRunning),
+      updateChannel: update?.channel && update.status !== 'unsupported' ? update.channel : null
+    },
+    t
+  )
   const onOverflowItem = (id: OverflowItemId): void => {
     switch (id) {
       case 'language':
@@ -291,16 +300,16 @@ export default function TitleBar(): JSX.Element {
         <div className="tb-divider" />
         <div className="repo-path">
           <span className="path" title={repoPath || undefined}>
-            {repoPath ? compactHome(repoPath) : 'kein Arbeitsverzeichnis'}
+            {repoPath ? compactHome(repoPath) : t('titlebar.noWorkingDir')}
           </span>
           {store.gitInfo?.isRepo && (
             <label
               className={`branch-pill branch-picker no-drag ${store.gitInfo.dirty ? 'dirty' : ''}`}
               title={gitTitle}
             >
-              <span>Branch:</span>
+              <span>{t('titlebar.branchLabel')}</span>
               <select
-                aria-label={'Aktuellen Git-Branch ausw\u00e4hlen'}
+                aria-label={t('titlebar.branchPickAria')}
                 value={store.gitInfo.branch ?? ''}
                 disabled={branchSwitching || !store.gitInfo.branches?.length}
                 onChange={(event) => {
@@ -334,7 +343,7 @@ export default function TitleBar(): JSX.Element {
         <div className="live-counter no-drag">
           <span className="pulse-dot" />
           <span>
-            <b>{running}</b> aktiv
+            <b>{running}</b> {t('titlebar.activeCount')}
           </span>
           <span className="sep">·</span>
           <span className="clock">{clock}</span>
@@ -343,17 +352,17 @@ export default function TitleBar(): JSX.Element {
         <button
           type="button"
           className={`remote-title-badge no-drag ${remote?.enabled ? 'active' : ''}`}
-          title={remote?.enabled ? `Mission Control: ${remote.tunnel}` : 'Mission Control einrichten'}
+          title={remote?.enabled ? t('titlebar.remoteActiveTitle', { tunnel: remote.tunnel }) : t('titlebar.remoteSetupTitle')}
           onClick={() => { window.location.hash = '#/remote' }}
         >
           <span className="pulse-dot" />
-          Remote {remote?.enabled ? 'aktiv' : 'aus'}
+          {remote?.enabled ? t('titlebar.remoteOn') : t('titlebar.remoteOff')}
         </button>
 
         <button type="button"
           className={`yolo-btn ${tb.yoloMaster} ${store.yoloMaster ? 'on' : ''}`}
           onClick={store.toggleYolo}
-          title="Yolo-Master: neue Agents starten ohne Bestätigungen"
+          title={t('titlebar.yoloTitle')}
           aria-pressed={store.yoloMaster}
         >
           <span className="yolo-track">
@@ -372,7 +381,7 @@ export default function TitleBar(): JSX.Element {
               <path d="M7 4.5v15l12-7.5z" />
             </svg>
           )}
-          <span>{anyRunning ? 'Alle stoppen' : 'Alle starten'}</span>
+          <span>{anyRunning ? t('titlebar.stopAll') : t('titlebar.startAll')}</span>
         </button>
 
         <div style={{ position: 'relative' }} className="no-drag">
@@ -380,8 +389,8 @@ export default function TitleBar(): JSX.Element {
             className="repo-btn"
             aria-haspopup="menu"
             aria-expanded={menuOpen}
-            aria-label="Repository wechseln"
-            title={repoPath || 'Kein Repository ausgewählt'}
+            aria-label={t('titlebar.repoSwitch')}
+            title={repoPath || t('titlebar.noRepoSelected')}
             onClick={() => {
               setMenuOpen((v) => !v)
               setOverflowOpen(false)
@@ -395,12 +404,10 @@ export default function TitleBar(): JSX.Element {
           {menuOpen && (
             <>
               <div className="menu-backdrop" onClick={() => setMenuOpen(false)} />
-              <div className="profile-menu repo-menu" role="menu" aria-label="Repository wechseln">
-                <div className="menu-caption">Repository wechseln</div>
+              <div className="profile-menu repo-menu" role="menu" aria-label={t('titlebar.repoSwitch')}>
+                <div className="menu-caption">{t('titlebar.repoSwitch')}</div>
                 {repos.length === 0 && (
-                  <div className="repo-menu-empty">
-                    Noch kein Repository. Wähle unten einen Ordner.
-                  </div>
+                  <div className="repo-menu-empty">{t('titlebar.repoMenuEmpty')}</div>
                 )}
                 {repos.map((repo) => {
                   const active = repoRefKey(repo.path) === activeRepoKey
@@ -432,7 +439,7 @@ export default function TitleBar(): JSX.Element {
                     void store.addRepoFromFolder()
                   }}
                 >
-                  <span style={{ fontSize: 13 }}>＋</span> Ordner wählen…
+                  <span style={{ fontSize: 13 }}>＋</span> {t('titlebar.chooseFolder')}
                 </button>
                 {store.activeRepo && (
                   <button type="button"
@@ -442,7 +449,7 @@ export default function TitleBar(): JSX.Element {
                       void store.selectRepo(null)
                     }}
                   >
-                    <span style={{ fontSize: 13 }}>↩</span> Dem aktiven Profil folgen
+                    <span style={{ fontSize: 13 }}>↩</span> {t('titlebar.followProfile')}
                   </button>
                 )}
               </div>
@@ -457,8 +464,8 @@ export default function TitleBar(): JSX.Element {
             className={tb.overflowBtn}
             aria-haspopup="menu"
             aria-expanded={overflowOpen}
-            aria-label="Weitere Optionen"
-            title="Weitere Optionen"
+            aria-label={t('titlebar.moreOptions')}
+            title={t('titlebar.moreOptions')}
             onClick={() => {
               setOverflowOpen((v) => !v)
               setMenuOpen(false)
@@ -474,10 +481,10 @@ export default function TitleBar(): JSX.Element {
                 ref={overflowMenuRef}
                 className={`profile-menu ${tb.overflowMenu}`}
                 role="menu"
-                aria-label="Weitere Optionen"
+                aria-label={t('titlebar.moreOptions')}
                 onKeyDown={onOverflowMenuKeyDown}
               >
-                <div className="menu-caption">Ansicht &amp; Updates</div>
+                <div className="menu-caption">{t('titlebar.viewUpdates')}</div>
                 {overflowItems.map((item) => (
                   <button
                     type="button"
@@ -512,18 +519,18 @@ export default function TitleBar(): JSX.Element {
 
         <div className="tb-divider" />
         <div className="win-controls no-drag">
-          <button type="button" className="win-btn" title="Minimieren" onClick={() => window.vertragus.win.minimize()}>
+          <button type="button" className="win-btn" title={t('titlebar.minimize')} onClick={() => window.vertragus.win.minimize()}>
             ─
           </button>
           <button type="button"
             className="win-btn"
-            title="Maximieren"
+            title={t('titlebar.maximize')}
             style={{ fontSize: 11 }}
             onClick={() => window.vertragus.win.maximizeToggle()}
           >
             ▢
           </button>
-          <button type="button" className="win-btn close" title="Schließen" onClick={() => window.vertragus.win.close()}>
+          <button type="button" className="win-btn close" title={t('titlebar.close')} onClick={() => window.vertragus.win.close()}>
             ✕
           </button>
         </div>
@@ -535,15 +542,12 @@ export default function TitleBar(): JSX.Element {
           <div className="confirm-pop" role="alertdialog" aria-modal="true" aria-labelledby="stop-agents-title">
             <div className="head">
               <span style={{ fontSize: 16 }}>⛔</span>
-              <b id="stop-agents-title">Alle Agents stoppen?</b>
+              <b id="stop-agents-title">{t('titlebar.stopConfirmTitle')}</b>
             </div>
-            <div className="text">
-              {running} laufende Agents werden sofort beendet. Nicht committete Änderungen in
-              Sandbox-Worktrees gehen verloren.
-            </div>
+            <div className="text">{t('titlebar.stopConfirmText', { n: running })}</div>
             <div className="actions">
               <button type="button" className="btn-ghost" onClick={() => setConfirmKill(false)}>
-                Abbrechen
+                {t('titlebar.cancel')}
               </button>
               <button type="button"
                 className="btn-danger"
@@ -552,7 +556,7 @@ export default function TitleBar(): JSX.Element {
                   void store.stopAll()
                 }}
               >
-                Alle stoppen
+                {t('titlebar.stopAll')}
               </button>
             </div>
           </div>

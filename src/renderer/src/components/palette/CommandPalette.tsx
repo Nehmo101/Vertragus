@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import Modal from '@renderer/components/ui/Modal'
 import { shouldIgnoreShortcutEvent } from '@renderer/shortcuts/eventGate'
 import { isMainWindowRoute } from '@renderer/shortcuts/appShortcuts'
@@ -14,11 +15,7 @@ import {
 } from './paletteCommands'
 import styles from './CommandPalette.module.css'
 
-/*
- * Command palette (Mod+K). Comments in English on purpose: this component is
- * NOT on the i18n umlaut-guard allowlist, so the whole file must stay free of
- * German umlauts until the i18n wave migrates the visible copy to t()-keys.
- */
+/* Command palette (Mod+K). All visible copy comes from i18n keys. */
 
 /**
  * Snapshot of the store state the palette needs, wired to exactly the store
@@ -74,6 +71,7 @@ export function collectPaletteContext(): PaletteContext {
  * (inputs, IME, repeat) and isMainWindowRoute.
  */
 export default function CommandPalette(): JSX.Element | null {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [commands, setCommands] = useState<readonly PaletteCommand[]>([])
   const [query, setQuery] = useState('')
@@ -92,14 +90,14 @@ export default function CommandPalette(): JSX.Element | null {
       if (shouldIgnoreShortcutEvent(event) || !isMainWindowRoute()) return
       event.preventDefault()
       // Build the command list at open time so profiles/agents are current.
-      setCommands(buildCommands(collectPaletteContext()))
+      setCommands(buildCommands(collectPaletteContext(), t))
       setQuery('')
       setActiveIndex(0)
       setOpen(true)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [open])
+  }, [open, t])
 
   if (!open) return null
 
@@ -134,7 +132,7 @@ export default function CommandPalette(): JSX.Element | null {
       onClose={close}
       size="sm"
       className={styles.palette}
-      label={'Befehlspalette' /* i18n-spaeter */}
+      label={t('palette.label')}
       initialFocus={inputRef}
     >
       <input
@@ -145,8 +143,8 @@ export default function CommandPalette(): JSX.Element | null {
         aria-expanded="true"
         aria-controls="command-palette-list"
         aria-activedescendant={clampedIndex >= 0 ? `command-palette-option-${clampedIndex}` : undefined}
-        aria-label={'Befehl suchen' /* i18n-spaeter */}
-        placeholder={'Befehl suchen...' /* i18n-spaeter */}
+        aria-label={t('palette.searchAria')}
+        placeholder={t('palette.searchPlaceholder')}
         autoComplete="off"
         spellCheck={false}
         value={query}
@@ -160,7 +158,7 @@ export default function CommandPalette(): JSX.Element | null {
         id="command-palette-list"
         className={styles.list}
         role="listbox"
-        aria-label={'Befehle' /* i18n-spaeter */}
+        aria-label={t('palette.listAria')}
       >
         {visible.map((command, index) => (
           <li
@@ -179,7 +177,7 @@ export default function CommandPalette(): JSX.Element | null {
       </ul>
       {visible.length === 0 && (
         <div className={styles.empty} role="status">
-          {'Keine Treffer' /* i18n-spaeter */}
+          {t('palette.noMatches')}
         </div>
       )}
     </Modal>

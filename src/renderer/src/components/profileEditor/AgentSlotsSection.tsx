@@ -1,14 +1,15 @@
 import { memo } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { AgentSlot } from '@shared/profile'
 import type { AgentProviderId, DisabledModels, ProviderEnabled } from '@shared/providers'
-import { MODEL_PRESETS, MODEL_PRESET_LABELS, formatModelLabel, modelAfterProviderChange, resolveModel } from '@shared/models'
+import { MODEL_PRESETS, modelAfterProviderChange, resolveModel } from '@shared/models'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import InfoTip from '@renderer/components/InfoTip'
 import ModelCatalogStatus from '@renderer/components/ModelCatalogStatus'
 import ModelCombo from '@renderer/components/ModelCombo'
 import type { ModelCatalog } from '@renderer/modelCatalog'
 import { HELP } from './help'
-import { availableModels, parsePreset, presetAvailable, presetValue } from './modelSelection'
+import { availableModels, effectiveModelLabel, parsePreset, presetAvailable, presetLabel, presetValue } from './modelSelection'
 import { MultiAgentOverrideSelect, type MultiAgentOverrideChoice } from './MultiAgentOverrideSelect'
 
 const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'kimi', 'codex', 'cursor', 'copilot', 'ollama']
@@ -46,11 +47,12 @@ const AgentSlotRow = memo(function AgentSlotRow({
   onSetSlotMultiAgent,
   onRemoveSlot
 }: AgentSlotRowProps): JSX.Element {
+  const { t } = useTranslation()
   const slotModels = availableModels(models, disabledModels, slot.provider)
   return (
     <div className="slot-row">
       <div className="slot-role-field">
-        <div className="slot-col-label">Rolle / Label <InfoTip text={HELP.role} /></div>
+        <div className="slot-col-label">{t('profile.slots.role')} <InfoTip text={t(HELP.role)} /></div>
         <input
           className="slot-role-input"
           value={slot.role}
@@ -61,7 +63,7 @@ const AgentSlotRow = memo(function AgentSlotRow({
       <div className="slot-fields">
       <div style={{ flex: 1.1 }}>
         <div className="slot-col-label">
-          Provider <InfoTip text={HELP.agentProvider} />
+          {t('profile.slots.provider')} <InfoTip text={t(HELP.agentProvider)} />
         </div>
         <select
           className="slot-select-sm"
@@ -88,20 +90,20 @@ const AgentSlotRow = memo(function AgentSlotRow({
       </div>
       <div style={{ flex: 0.85 }}>
         <div className="slot-col-label">
-          Preset <InfoTip text={HELP.modelPreset} />
+          {t('profile.slots.preset')} <InfoTip text={t(HELP.modelPreset)} />
         </div>
         <select
           className="slot-select-sm"
           value={presetValue(slot.modelPreset)}
           onChange={(e) => onPatchSlot(idx, { modelPreset: parsePreset(e.target.value) })}
         >
-          <option value="">Legacy (CLI)</option>
+          <option value="">{t('profile.mode.legacyCli')}</option>
           {MODEL_PRESETS.map((preset) => {
             const available = presetAvailable(models, slot.provider, preset)
             return (
               <option key={preset} value={preset} disabled={!available}>
-                {MODEL_PRESET_LABELS[preset]}
-                {!available ? ' (nicht verfügbar)' : ''}
+                {presetLabel(t, preset)}
+                {!available ? t('profile.mode.presetUnavailable') : ''}
               </option>
             )
           })}
@@ -109,8 +111,8 @@ const AgentSlotRow = memo(function AgentSlotRow({
       </div>
       <div style={{ flex: 1.4 }}>
         <div className="slot-col-label">
-          Modell <InfoTip text={HELP.model} />
-          <span className="model-count" title="verfügbare Modelle dieses Providers (frei eingebbar)">
+          {t('profile.slots.model')} <InfoTip text={t(HELP.model)} />
+          <span className="model-count" title={t('profile.mode.modelCountTitle')}>
             {slotModels.length}
           </span>
         </div>
@@ -123,12 +125,12 @@ const AgentSlotRow = memo(function AgentSlotRow({
         />
         <ModelCatalogStatus provider={slot.provider} catalog={models[slot.provider]} />
         <div className="model-effective" aria-live="polite">
-          Effektiv: {formatModelLabel(resolveModel(slot.provider, slot), slot)}
+          {t('profile.mode.effective')} {effectiveModelLabel(t, resolveModel(slot.provider, slot), slot)}
         </div>
       </div>
       <div style={{ flex: 'none' }}>
         <div className="slot-col-label" style={{ textAlign: 'center' }}>
-          Anzahl <InfoTip text={HELP.count} />
+          {t('profile.slots.count')} <InfoTip text={t(HELP.count)} />
         </div>
         <div className="stepper">
           <button type="button" onClick={() => onPatchSlot(idx, { count: Math.max(1, slot.count - 1) })}>
@@ -142,7 +144,7 @@ const AgentSlotRow = memo(function AgentSlotRow({
       </div>
       <div style={{ flex: 'none', textAlign: 'center' }}>
         <div className="slot-col-label">
-          Yolo <InfoTip text={HELP.yolo} />
+          {t('profile.slots.yolo')} <InfoTip text={t(HELP.yolo)} />
         </div>
         <button type="button"
           className={`slot-yolo ${slot.yolo ? 'on' : ''}`}
@@ -152,7 +154,7 @@ const AgentSlotRow = memo(function AgentSlotRow({
         </button>
       </div>
       <div style={{ flex: 'none', textAlign: 'center' }}>
-        <div className="slot-col-label">steuerbar <InfoTip text={HELP.orchestrated} /></div>
+        <div className="slot-col-label">{t('profile.slots.controllable')} <InfoTip text={t(HELP.orchestrated)} /></div>
         <button type="button"
           className={`ctrl-check ${slot.orchestrated ? 'on' : ''}`}
           onClick={() => onPatchSlot(idx, { orchestrated: !slot.orchestrated })}
@@ -162,7 +164,7 @@ const AgentSlotRow = memo(function AgentSlotRow({
       </div>
       <button type="button"
         className="slot-remove"
-        title="Slot entfernen"
+        title={t('profile.slots.removeSlot')}
         onClick={() => onRemoveSlot(idx)}
       >
         ✕
@@ -177,11 +179,11 @@ const AgentSlotRow = memo(function AgentSlotRow({
       <div className="slot-path-row">
         <div className="slot-path-field">
           <div className="slot-col-label">
-            Eigener Pfad (optional) <InfoTip text={HELP.agentWorkingDir} />
+            {t('profile.slots.ownPath')} <InfoTip text={t(HELP.agentWorkingDir)} />
           </div>
           <input
             className="slot-select-sm mono"
-            placeholder={workspaceWorkingDir || 'Workspace-Basispfad'}
+            placeholder={workspaceWorkingDir || t('profile.slots.workspaceBase')}
             value={slot.workingDir ?? ''}
             onChange={(event) =>
               onPatchSlot(idx, { workingDir: event.target.value || undefined })
@@ -196,17 +198,17 @@ const AgentSlotRow = memo(function AgentSlotRow({
             if (dir) onPatchSlot(idx, { workingDir: dir })
           }}
         >
-          Durchsuchen…
+          {t('profile.slots.browse')}
         </button>
       </div>
       <div className="slot-path-row">
         <div className="slot-path-field">
           <div className="slot-col-label">
-            Fallback-Modelle (optional) <InfoTip text={HELP.fallbackModels} />
+            {t('profile.slots.fallbackModels')} <InfoTip text={t(HELP.fallbackModels)} />
           </div>
           <input
             className="slot-select-sm"
-            placeholder="z. B. sonnet, haiku"
+            placeholder={t('profile.slots.fallbackPlaceholder')}
             value={(slot.fallbackModels ?? []).join(', ')}
             onChange={(event) =>
               onPatchSlot(idx, { fallbackModels: parseCapabilityList(event.target.value) })
@@ -217,11 +219,11 @@ const AgentSlotRow = memo(function AgentSlotRow({
       <div className="slot-path-row">
         <div className="slot-path-field">
           <div className="slot-col-label">
-            Stärken (optional) <InfoTip text={HELP.strengths} />
+            {t('profile.slots.strengths')} <InfoTip text={t(HELP.strengths)} />
           </div>
           <input
             className="slot-select-sm"
-            placeholder="z. B. Frontend, Tests, Security-Review"
+            placeholder={t('profile.slots.strengthsPlaceholder')}
             value={slot.strengths.join(', ')}
             onChange={(event) =>
               onPatchSlot(idx, { strengths: parseCapabilityList(event.target.value) })
@@ -230,11 +232,11 @@ const AgentSlotRow = memo(function AgentSlotRow({
         </div>
         <div className="slot-path-field">
           <div className="slot-col-label">
-            Schwächen (optional) <InfoTip text={HELP.weaknesses} />
+            {t('profile.slots.weaknesses')} <InfoTip text={t(HELP.weaknesses)} />
           </div>
           <input
             className="slot-select-sm"
-            placeholder="z. B. große Refactorings"
+            placeholder={t('profile.slots.weaknessesPlaceholder')}
             value={slot.weaknesses.join(', ')}
             onChange={(event) =>
               onPatchSlot(idx, { weaknesses: parseCapabilityList(event.target.value) })
@@ -259,7 +261,7 @@ interface AgentSlotsSectionProps {
   onAddSlot: () => void
 }
 
-/** Subagent-Slots: Liste aller Slot-Zeilen plus „Slot hinzufügen“. */
+/** Subagent slots: list of all slot rows plus the add-slot button. */
 const AgentSlotsSection = memo(function AgentSlotsSection({
   agents,
   workspaceWorkingDir,
@@ -272,13 +274,14 @@ const AgentSlotsSection = memo(function AgentSlotsSection({
   onRemoveSlot,
   onAddSlot
 }: AgentSlotsSectionProps): JSX.Element {
+  const { t } = useTranslation()
   const subTotal = agents.reduce((n, s) => n + s.count, 0)
   return (
     <>
       <div className="slots-caption">
-        <span>Subagent-Slots</span>
+        <span>{t('profile.slots.caption')}</span>
         <span className="count">
-          {agents.length} Slots · {subTotal} Agents
+          {t('profile.slots.captionCount', { slots: agents.length, agents: subTotal })}
         </span>
       </div>
 
@@ -301,7 +304,7 @@ const AgentSlotsSection = memo(function AgentSlotsSection({
       </div>
 
       <button type="button" className="add-slot" onClick={() => onAddSlot()}>
-        ＋ Slot hinzufügen
+        {t('profile.slots.addSlot')}
       </button>
     </>
   )

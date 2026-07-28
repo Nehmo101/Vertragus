@@ -39,29 +39,8 @@ const CAPABILITY_LABEL_KEYS: Partial<Record<RemoteCapability, string>> = {
   'provider-fallback': 'remote.pairing.fallback'
 }
 
-/** New copy stays hard German for now; a later i18n pass moves it into the locale files. */
-const PRESET_CARDS: Array<{ id: RemotePresetId | 'custom'; title: string; desc: string }> = [
-  {
-    id: 'observe',
-    title: 'Nur beobachten',
-    desc: 'Status lesen, Diffs ansehen und Push-Benachrichtigungen erhalten — keine Eingriffe.'
-  },
-  {
-    id: 'approve',
-    title: 'Freigaben erteilen',
-    desc: 'Zusätzlich Sprach-Transkription, Tool-Freigaben und Budget-Caps aus der Ferne.'
-  },
-  {
-    id: 'full',
-    title: 'Vollzugriff',
-    desc: 'Alle Capabilities: zusätzlich Fernsteuerung, Admin-Reset, Task-Kontrolle, Replan und Provider-Fallback.'
-  },
-  {
-    id: 'custom',
-    title: 'Benutzerdefiniert',
-    desc: 'Einzelne Capabilities unter „Erweitert“ selbst zusammenstellen.'
-  }
-]
+/** Preset card ids; title/desc live in the locale files under remote.presets.<id>. */
+const PRESET_CARD_IDS: Array<RemotePresetId | 'custom'> = ['observe', 'approve', 'full', 'custom']
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -186,8 +165,8 @@ export default function RemotePanel(): JSX.Element {
   const capabilityLabel = (capability: RemoteCapability): string => {
     const key = CAPABILITY_LABEL_KEYS[capability]
     if (key) return t(key)
-    if (capability === 'read') return 'Lesezugriff (immer aktiv)'
-    return 'Fernsteuerung erlauben (Kommandos senden)'
+    if (capability === 'read') return t('remote.pairing.read')
+    return t('remote.pairing.steer')
   }
 
   return (
@@ -205,10 +184,10 @@ export default function RemotePanel(): JSX.Element {
 
       {error && (
         <ErrorCard
-          title="Aktion fehlgeschlagen"
+          title={t('ui.actionFailed')}
           detail={error}
           onRetry={retryLoad}
-          retryLabel="Neu laden"
+          retryLabel={t('remote.reload')}
           retryDisabled={busy}
         />
       )}
@@ -293,23 +272,25 @@ export default function RemotePanel(): JSX.Element {
 
       <details className="remote-card remote-apns">
         <summary>
-          <h2>APNs Push (iOS)</h2>
+          <h2>{t('remote.apns.title')}</h2>
           <span className={`remote-state state-${apnsStatus.configured ? 'online' : 'disabled'}`}>
-            {apnsStatus.configured ? 'Konfiguriert' : 'Nicht konfiguriert'}
+            {apnsStatus.configured ? t('remote.apns.configured') : t('remote.apns.notConfigured')}
           </span>
         </summary>
-        <p>
-          Signierschlüssel für native iOS-Push. Wird verschlüsselt auf diesem Gerät gespeichert
-          (safeStorage) und nie im Klartext zurückgegeben. Ohne Konfiguration bleibt Web-Push aktiv.
-        </p>
+        <p>{t('remote.apns.desc')}</p>
         {apnsStatus.configured && (
           <small className="remote-apns-status">
-            Aktiv · Team {apnsStatus.teamId} · Key {apnsStatus.keyId} · {apnsStatus.bundleId} · {apnsStatus.environment}
+            {t('remote.apns.active', {
+              teamId: apnsStatus.teamId,
+              keyId: apnsStatus.keyId,
+              bundleId: apnsStatus.bundleId,
+              environment: apnsStatus.environment
+            })}
           </small>
         )}
         <div className="remote-form">
           <label>
-            Team ID
+            {t('remote.apns.teamId')}
             <input
               value={apnsTeamId}
               onChange={(event) => setApnsTeamId(event.target.value)}
@@ -319,7 +300,7 @@ export default function RemotePanel(): JSX.Element {
             />
           </label>
           <label>
-            Key ID
+            {t('remote.apns.keyId')}
             <input
               value={apnsKeyId}
               onChange={(event) => setApnsKeyId(event.target.value)}
@@ -329,7 +310,7 @@ export default function RemotePanel(): JSX.Element {
             />
           </label>
           <label>
-            Bundle ID
+            {t('remote.apns.bundleId')}
             <input
               value={apnsBundleId}
               onChange={(event) => setApnsBundleId(event.target.value)}
@@ -339,7 +320,7 @@ export default function RemotePanel(): JSX.Element {
             />
           </label>
           <label>
-            Umgebung
+            {t('remote.apns.environment')}
             <select
               value={apnsEnvironment}
               onChange={(event) => setApnsEnvironment(event.target.value as ApnsEnvironment)}
@@ -349,12 +330,12 @@ export default function RemotePanel(): JSX.Element {
             </select>
           </label>
           <label>
-            .p8-Schlüssel
+            {t('remote.apns.p8Key')}
             <textarea
               value={apnsP8}
               onChange={(event) => setApnsP8(event.target.value)}
               placeholder={apnsStatus.configured
-                ? 'Gespeichert · nur zum Ersetzen erneut einfügen'
+                ? t('remote.apns.p8Stored')
                 : '-----BEGIN PRIVATE KEY-----'}
               autoComplete="off"
               rows={4}
@@ -380,7 +361,7 @@ export default function RemotePanel(): JSX.Element {
                 setApnsP8('')
               })}
             >
-              Speichern
+              {t('remote.apns.save')}
             </button>
             {apnsStatus.configured && (
               <button
@@ -392,7 +373,7 @@ export default function RemotePanel(): JSX.Element {
                   setApnsP8('')
                 })}
               >
-                Entfernen
+                {t('remote.apns.remove')}
               </button>
             )}
           </div>
@@ -403,12 +384,12 @@ export default function RemotePanel(): JSX.Element {
         <section className="remote-card">
           <h2>{t('remote.pairing.title')}</h2>
           <p>{t('remote.pairing.desc')}</p>
-          <div className={styles.presetGroup} role="radiogroup" aria-label="Zugriffs-Preset">
-            {PRESET_CARDS.map((card) => (
+          <div className={styles.presetGroup} role="radiogroup" aria-label={t('remote.presets.aria')}>
+            {PRESET_CARD_IDS.map((cardId) => (
               <label
-                key={card.id}
+                key={cardId}
                 className={
-                  activePreset === card.id
+                  activePreset === cardId
                     ? `${styles.presetCard} ${styles.presetCardActive}`
                     : styles.presetCard
                 }
@@ -417,12 +398,12 @@ export default function RemotePanel(): JSX.Element {
                   type="radio"
                   name="remote-pairing-preset"
                   className={styles.presetRadio}
-                  value={card.id}
-                  checked={activePreset === card.id}
-                  onChange={() => selectPreset(card.id)}
+                  value={cardId}
+                  checked={activePreset === cardId}
+                  onChange={() => selectPreset(cardId)}
                 />
-                <span className={styles.presetTitle}>{card.title}</span>
-                <span className={styles.presetDesc}>{card.desc}</span>
+                <span className={styles.presetTitle}>{t(`remote.presets.${cardId}.title`)}</span>
+                <span className={styles.presetDesc}>{t(`remote.presets.${cardId}.desc`)}</span>
               </label>
             ))}
           </div>
@@ -431,12 +412,9 @@ export default function RemotePanel(): JSX.Element {
             open={advancedExpanded}
             onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
           >
-            <summary className={styles.advancedSummary}>Erweitert</summary>
+            <summary className={styles.advancedSummary}>{t('remote.advanced.title')}</summary>
             <div className={styles.advancedBody}>
-              <p className={styles.advancedHint}>
-                Einzelne Capabilities und Workspace-Scopes. Das Ändern einer Checkbox wechselt oben
-                auf „Benutzerdefiniert“.
-              </p>
+              <p className={styles.advancedHint}>{t('remote.advanced.hint')}</p>
               {REMOTE_CAPABILITIES.map((capability) => (
                 <label className="remote-checkbox" key={capability}>
                   <input
@@ -507,10 +485,7 @@ export default function RemotePanel(): JSX.Element {
             {t('remote.pairing.generate')}
           </button>
           {selectedSessions.length === 0 && goalProfiles.length === 0 && (
-            <small className={styles.scopeHint}>
-              Unter „Erweitert“ mindestens eine Session oder eine Ziel-Freigabe auswählen, um das
-              Pairing zu starten.
-            </small>
+            <small className={styles.scopeHint}>{t('remote.pairing.scopeHint')}</small>
           )}
           {challenge && (
             <div className="remote-pairing">

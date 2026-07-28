@@ -114,6 +114,16 @@
     },
     "voiceDraft": {
       "defaultTitle": "Sprachnotiz"
+    },
+    "filter": {
+      "search": "Suche",
+      "searchPlaceholder": "Titel oder Inhalt",
+      "statusAria": "Status-Filter",
+      "tag": "Tag",
+      "all": "Alle",
+      "count": "{{shown}} von {{total}}",
+      "noMatches": "Keine Treffer",
+      "reset": "Filter aufheben"
     }
   },
   "agentPane": {
@@ -142,7 +152,25 @@
     "readable": "Lesbar",
     "steps": "Schritte",
     "tokens": "Tokens",
-    "cost": "Kosten"
+    "cost": "Kosten",
+    "window": {
+      "gone": "Agent läuft nicht mehr",
+      "goneHint": "Der Agent „{{id}}“ wurde beendet oder aufgeräumt. Dieses Fenster kann geschlossen werden."
+    },
+    "info": {
+      "title": "Details (Branch, Worktree, Agent-ID)",
+      "ariaShow": "Agent-Details anzeigen",
+      "dialogAria": "Agent-Details",
+      "branch": "Branch",
+      "worktree": "Worktree",
+      "agentId": "Agent-ID"
+    },
+    "search": {
+      "placeholder": "Suchen…",
+      "inputAria": "Im Terminal-Verlauf suchen",
+      "toggleTitle": "Suche im Verlauf (Enter = weiter, Shift+Enter = vorheriger Treffer, Esc = beenden)",
+      "toggleAria": "Suche im Terminal-Verlauf umschalten"
+    }
   },
   "mcpEditor": {
     "help": {
@@ -280,6 +308,7 @@
     "addAgentSub": "Provider & Modell wählen",
     "playground": "✦ Playground ansehen",
     "playgroundHint": "Demo-Team ohne Provider-Login erkunden",
+    "loading": "Lade Workspace…",
     "layouts": {
       "tiles": "Kacheln",
       "focus": "Fokus",
@@ -360,6 +389,11 @@
       "aria": "Workspace-Sessions",
       "add": "Weitere Session starten"
     },
+    "drawer": {
+      "aria": "Agent-Terminal",
+      "resize": "Terminalhöhe ändern",
+      "close": "Terminal schließen"
+    },
     "composer": {
       "startMode": "Start",
       "label": "Nachricht an Caronte",
@@ -418,7 +452,60 @@
   },
   "titlebar": {
     "languageGroup": "Sprache wählen",
-    "versionTitle": "Vertragus Version {{version}}"
+    "versionTitle": "Vertragus Version {{version}}",
+    "cliDefault": "CLI-Standard",
+    "profileSummaryEmpty": "leer",
+    "noRepo": "Kein Repo",
+    "update": {
+      "downloading": "Update {{percent}} %",
+      "install": "Update installieren",
+      "available": "Aktualisierung verfügbar",
+      "retry": "Update erneut prüfen",
+      "self": "Self-Update",
+      "stopAgentsFirst": "Vor der Installation bitte alle Agents stoppen.",
+      "mainAvailable": "Main-Update {{version}} ist verfügbar.",
+      "installMain": "Neue Version vom Main-Branch installieren."
+    },
+    "git": {
+      "branch": "Branch: {{branch}}",
+      "defaultBranch": "Standard-Branch: {{branch}}",
+      "remote": "Remote: {{remote}}",
+      "treeDirty": "Arbeitsbaum: ungespeicherte Änderungen",
+      "treeClean": "Arbeitsbaum: sauber"
+    },
+    "noWorkingDir": "kein Arbeitsverzeichnis",
+    "branchLabel": "Branch:",
+    "branchPickAria": "Aktuellen Git-Branch auswählen",
+    "activeCount": "aktiv",
+    "remoteSetupTitle": "Mission Control einrichten",
+    "remoteActiveTitle": "Mission Control: {{tunnel}}",
+    "remoteOn": "Remote aktiv",
+    "remoteOff": "Remote aus",
+    "yoloTitle": "Yolo-Master: neue Agents starten ohne Bestätigungen",
+    "stopAll": "Alle stoppen",
+    "startAll": "Alle starten",
+    "repoSwitch": "Repository wechseln",
+    "noRepoSelected": "Kein Repository ausgewählt",
+    "repoMenuEmpty": "Noch kein Repository. Wähle unten einen Ordner.",
+    "chooseFolder": "Ordner wählen…",
+    "followProfile": "Dem aktiven Profil folgen",
+    "moreOptions": "Weitere Optionen",
+    "viewUpdates": "Ansicht & Updates",
+    "minimize": "Minimieren",
+    "maximize": "Maximieren",
+    "close": "Schließen",
+    "stopConfirmTitle": "Alle Agents stoppen?",
+    "stopConfirmText": "{{n}} laufende Agents werden sofort beendet. Nicht committete Änderungen in Sandbox-Worktrees gehen verloren.",
+    "cancel": "Abbrechen",
+    "overflow": {
+      "language": "Sprache wechseln",
+      "languageGerman": "Deutsch",
+      "languageEnglish": "English",
+      "darkTheme": "Dunkles Design",
+      "readable": "Lesbare CLI-Ausgabe",
+      "density": "Kompakte Ansicht",
+      "updateChannel": "Update-Kanal wechseln"
+    }
   },
   "orch": {
     "panelAria": "Orchestrator-Seitenleiste",
@@ -450,6 +537,30 @@
       "decision": "Entscheidung",
       "blocker": "Blocker",
       "insight": "Erkenntnis"
+    },
+    "activityPhase": {
+      "idle": "bereit",
+      "planning": "plant",
+      "awaiting-review": "wartet auf Freigabe",
+      "delegating": "delegiert",
+      "monitoring": "überwacht",
+      "reviewing": "prüft",
+      "integrating": "integriert",
+      "summarizing": "fasst zusammen",
+      "completed": "abgeschlossen",
+      "blocked": "blockiert"
+    },
+    "section": {
+      "overview": "Ziel & Status",
+      "retro": "Gelerntes & Routing",
+      "forceOpenTitle": "Bleibt geöffnet, solange ein Plan auf Freigabe wartet"
+    },
+    "showLess": "Weniger anzeigen",
+    "showMore": "{{n}} weitere anzeigen",
+    "sessionLabel": "Sitzung:",
+    "retroSection": {
+      "empty": "Noch kein Retro- oder Routing-Wissen vorhanden. Nach dem ersten abgeschlossenen Lauf erscheinen hier Modell-Lernwissen und die Gründe für die Modellwahl.",
+      "whyModel": "Warum dieses Modell?"
     },
     "plannerMode": {
       "caption": "Planungsmodus",
@@ -529,7 +640,6 @@
     },
     "findings": {
       "caption": "Findings-Board",
-      "showing": "{{shown}} von {{total}} Einträgen",
       "entryOne": "{{n}} Eintrag",
       "entryMany": "{{n}} Einträge",
       "boardTitle": "Von Subagents live geteilte Schnittstellen, Entscheidungen und Blocker",
@@ -871,6 +981,9 @@
       "taskControl": "Task Pause/Resume erlauben",
       "replan": "Restriktives Live-Replan erlauben",
       "fallback": "Provider-Fallback bei erkanntem Limit erlauben",
+      "read": "Lesezugriff (immer aktiv)",
+      "steer": "Fernsteuerung erlauben (Kommandos senden)",
+      "scopeHint": "Unter „Erweitert“ mindestens eine Session oder eine Ziel-Freigabe auswählen, um das Pairing zu starten.",
       "actorId": "Account-ID oder Access-E-Mail",
       "actorName": "Anzeigename",
       "scopes": "Workspace-Scopes (standardmäßig keiner)",
@@ -879,6 +992,45 @@
       "generate": "Pairing-QR erzeugen",
       "qrAlt": "Mission-Control Pairing-QR",
       "validUntil": "Gültig bis {{time}}"
+    },
+    "reload": "Neu laden",
+    "apns": {
+      "title": "APNs Push (iOS)",
+      "configured": "Konfiguriert",
+      "notConfigured": "Nicht konfiguriert",
+      "desc": "Signierschlüssel für native iOS-Push. Wird verschlüsselt auf diesem Gerät gespeichert (safeStorage) und nie im Klartext zurückgegeben. Ohne Konfiguration bleibt Web-Push aktiv.",
+      "active": "Aktiv · Team {{teamId}} · Key {{keyId}} · {{bundleId}} · {{environment}}",
+      "teamId": "Team ID",
+      "keyId": "Key ID",
+      "bundleId": "Bundle ID",
+      "environment": "Umgebung",
+      "p8Key": ".p8-Schlüssel",
+      "p8Stored": "Gespeichert · nur zum Ersetzen erneut einfügen",
+      "save": "Speichern",
+      "remove": "Entfernen"
+    },
+    "presets": {
+      "aria": "Zugriffs-Preset",
+      "observe": {
+        "title": "Nur beobachten",
+        "desc": "Status lesen, Diffs ansehen und Push-Benachrichtigungen erhalten — keine Eingriffe."
+      },
+      "approve": {
+        "title": "Freigaben erteilen",
+        "desc": "Zusätzlich Sprach-Transkription, Tool-Freigaben und Budget-Caps aus der Ferne."
+      },
+      "full": {
+        "title": "Vollzugriff",
+        "desc": "Alle Capabilities: zusätzlich Fernsteuerung, Admin-Reset, Task-Kontrolle, Replan und Provider-Fallback."
+      },
+      "custom": {
+        "title": "Benutzerdefiniert",
+        "desc": "Einzelne Capabilities unter „Erweitert“ selbst zusammenstellen."
+      }
+    },
+    "advanced": {
+      "title": "Erweitert",
+      "hint": "Einzelne Capabilities und Workspace-Scopes. Das Ändern einer Checkbox wechselt oben auf „Benutzerdefiniert“."
     },
     "devices": {
       "title": "Gekoppelte Geräte",
@@ -989,6 +1141,421 @@
     "discardAllConfirm": "{{count}} verwaiste Worktrees endgültig verwerfen? Uncommittete Arbeit geht verloren.\nBeispiel: {{path}}",
     "discardResult": "{{discarded}} verworfen, {{failed}} fehlgeschlagen.",
     "stale": "{{count}} alte Session(s) ohne Aktivität",
-    "staleConfirm": "Diese Session samt gesichertem Verlauf entfernen?"
+    "staleConfirm": "Diese Session samt gesichertem Verlauf entfernen?",
+    "summaryResumableOne": "1 Session wiederherstellbar",
+    "summaryResumableMany": "{{n}} Sessions wiederherstellbar",
+    "summaryOrphanOne": "1 verwaister Worktree",
+    "summaryOrphanMany": "{{n}} verwaiste Worktrees",
+    "summaryDirtySuffix": " ({{n}} mit Änderungen)",
+    "summaryStaleOne": "1 alte Session",
+    "summaryStaleMany": "{{n}} alte Sessions",
+    "collapse": "Einklappen",
+    "details": "Details",
+    "discardEverything": "Alles verwerfen & aufräumen",
+    "discardEverythingConfirm": "{{orphans}} verwaiste Worktrees verwerfen (uncommittete Arbeit geht verloren) und {{stale}} alte Session(s) entfernen?",
+    "discardEverythingArmed": "Wirklich alles verwerfen?"
+  },
+  "profile": {
+    "cliDefault": "CLI-Standard",
+    "preset": {
+      "fast": "Schnell",
+      "balanced": "Ausgewogen",
+      "strong": "Stark"
+    },
+    "help": {
+      "profileName": "Frei wählbarer Name für diese Kombination aus Workspace, Orchestrator und Subagents.",
+      "workingDir": "Lokaler Repository- oder Projektordner, in dem die Agents arbeiten. Der Auto-PR-Basisbranch wird bei Bedarf aus dem git-origin dieses Ordners abgeleitet.",
+      "githubAuth": "Browser-OAuth (Device Flow mit VERTRAGUS_GITHUB_OAUTH_CLIENT_ID) oder gh --web. Tokens werden verschlüsselt lokal gespeichert, nie im Profil oder in Logs. Wird für Auto-PR benötigt.",
+      "generateFromRepo": "Das gewählte Analysemodell liest das Working-Directory-Repository read-only und schlägt Rollen, Modelle und Quality Gates vor. Kann je nach Repo-Größe ein bis mehrere Minuten dauern.",
+      "agentWorkingDir": "Optionaler Pfad nur für diesen Slot. Leer übernimmt den Workspace-Basispfad.",
+      "mode": "Orchestriert lässt Claude oder Codex planen und delegieren. Single startet nur die konfigurierten Slots. Efficiency Solo startet genau EINEN Agenten, der direkt arbeitet — minimale Token-Fixkosten, Retro-Learnings im Prompt, nur report_activity/record_retro als Tools.",
+      "orchestratorProvider": "Nur Provider mit verifiziertem Vertragus-MCP-Adapter können orchestrieren.",
+      "permissionMode": "Auto-Mode bestätigt Edits automatisch. Plan-Mode erlaubt Claude nur zu planen.",
+      "model": "Leer verwendet Preset oder CLI-Standard. Freitext überschreibt das Preset. Über das Listen-Menü rechts wählst du jederzeit ein anderes Modell — auch wenn schon eines eingetragen ist.",
+      "modelPreset": "Leistungs-Preset (schnell/ausgewogen/stark). Gilt nur wenn Modell leer ist — Freitext hat Vorrang.",
+      "plannerMode": "Auto startet valide Pläne direkt. Review wartet auf Freigabe. Manuell deaktiviert execute_plan.",
+      "routingMode": "Adaptiv startet zunächst nur den Orchestrator und aktiviert Task-Agents passend zum Plan. Vorgewärmt startet alle Slots sofort.",
+      "maxParallel": "Globales Oberlimit gleichzeitig laufender Plan-Tasks; Rollen-Kapazitäten können es weiter reduzieren.",
+      "maxRetries": "Wie oft der Orchestrator nach einem fehlgeschlagenen Plan ohne neue Nutzerinformation fokussiert nachplanen darf.",
+      "multiAgent": "Startet für jede delegierte Aufgabe alle Instanzen des gewählten Slots parallel. Ein Slot-Override hat Vorrang; „Global erben“ übernimmt diese globale Einstellung. Die Runtime bildet weiterhin nur bei orchestriertem Einsatz und Anzahl > 1 eine Kandidatengruppe, speichert den Override aber unabhängig davon.",
+      "autoPrMode": "PRs entstehen nur nach erfolgreichen Gates. Draft ist der empfohlene sichere Startmodus.",
+      "prStrategy": "Aggregate kombiniert Task-Commits in einen Goal-PR. Per Task erzeugt getrennte PRs.",
+      "baseBranch": "Zielbranch des PRs. Leer nutzt den gebundenen Standardbranch oder den des origin-Remotes.",
+      "qualityGates": "Vertrauenswürdige Shell-Befehle, die im Task- und Integrations-Worktree erfolgreich laufen müssen.",
+      "autoGitMode": "Nach einem vollständig erfolgreichen Workspace-Lauf werden alle Änderungen im Workspace committet und zu origin gepusht. Bei Fehlern bleibt der Lauf rot.",
+      "autoGitBranch": "Expliziter Ziel-Branch auf origin. Optionen, Ref-Specs, Revisionen, Leerzeichen und Steuerzeichen werden abgewiesen.",
+      "role": "Eindeutige Fähigkeit, die der Planner adressiert, etwa frontend, backend, tests oder review.",
+      "agentProvider": "CLI, die diesen Slot ausführt. Der Login erfolgt separat in der Provider-Seitenleiste.",
+      "count": "Maximale parallele Task-Kapazität dieser Rolle und Anzahl beim manuellen Teamstart.",
+      "yolo": "Überspringt Provider-Bestätigungen. Nur mit Worktree-Isolation und bewusstem Scope verwenden.",
+      "orchestrated": "Wenn aktiv, darf der Orchestrator Aufgaben an diesen Slot delegieren.",
+      "skills": "Benannte, wiederverwendbare Verfahren dieses Workspaces (\"wie machen wir X hier\"). Sie werden in die Orchestrator-/Solo-Prompts injiziert, und der Orchestrator pflegt sie selbst über die MCP-Tools list_skills/record_skill/remove_skill — das Profil lernt über Läufe hinweg dazu.",
+      "fallbackModels": "Kommagetrennte Modellnamen, auf die dieser Slot bei einem Nutzungslimit (\"at capacity\", 5h/Wochenlimit) der Reihe nach ausweicht — erst danach wechselt Vertragus den Provider.",
+      "strengths": "Kommagetrennte Fähigkeiten, die der Orchestrator bei der Rollenwahl bevorzugen soll.",
+      "weaknesses": "Kommagetrennte Aufgaben, für die der Orchestrator diesen Slot möglichst nicht wählen soll.",
+      "benchmark": "Auto-Benchmark: Der Orchestrator gibt allen Slots dieselbe Aufgabe, vergleicht die Ergebnisse, bewertet sie und speichert die Erkenntnisse als Modellwissen für künftige Läufe.",
+      "applyLearnings": "Übernimmt gespeicherte Retro- und Benchmark-Erkenntnisse passend zu Provider und Modell in die Stärken/Schwächen der Slots. Die Erkenntnisse entstehen automatisch nach jedem Lauf."
+    },
+    "summary": {
+      "noRepo": "Kein Repo verbunden",
+      "orchestrated": "Orchestriert · {{model}}",
+      "solo": "Efficiency Solo",
+      "soloModel": "Efficiency Solo · {{model}}",
+      "singleOne": "Single · 1 Slot parallel",
+      "singleMany": "Single · {{n}} Slots parallel",
+      "noSlots": "Keine Slots",
+      "slotBaseOne": "1 Slot · {{providers}} Provider",
+      "slotBaseMany": "{{n}} Slots · {{providers}} Provider",
+      "agentsSuffix": " · {{n}} Agents",
+      "autoPrOff": "Auto-PR aus",
+      "pushTo": "Push auf {{branch}}",
+      "autoGitOff": "Auto-Git aus",
+      "noSkills": "Keine Skills",
+      "skillOne": "1 Skill",
+      "skillMany": "{{n}} Skills"
+    },
+    "editor": {
+      "title": "Profil-Editor",
+      "sub": "Orchestrator & Subagent-Slots konfigurieren",
+      "closeAria": "Profil-Editor schließen",
+      "nameLabel": "Profilname",
+      "tablistAria": "Profil-Bereiche",
+      "generateNeedsDir": "Bitte zuerst ein Working Directory und ein Analysemodell auswählen.",
+      "generateDone": "Repo-Profil erzeugt. Rollen und Quality Gates bitte prüfen.",
+      "learningsNone": "Noch keine gespeicherten Retro-/Benchmark-Erkenntnisse vorhanden.",
+      "learningsApplied": "{{n}} Erkenntnis(se) in Stärken/Schwächen übernommen. Bitte prüfen und speichern.",
+      "learningsNoMatch": "Keine neuen Erkenntnisse für die konfigurierten Provider/Modelle gefunden.",
+      "tabRepo": "Repo & GitHub",
+      "tabMode": "Modus & Orchestrator",
+      "tabSlots": "Agent-Slots",
+      "tabAutomation": "Auto-PR & Git",
+      "tabSkills": "Skills",
+      "badgeOrchPreset": "Orchestrator-Preset nicht im Live-Katalog",
+      "badgeSlotPresets": "{{n}} Preset(s) nicht im Live-Katalog",
+      "badgeBranch": "Ziel-Branch korrigieren",
+      "deleteTitle": "Profil löschen?",
+      "deleteText": "„{{name}}“ und alle zugehörigen Einstellungen werden dauerhaft entfernt.",
+      "deleteLastHint": " Danach wird das Standardprofil wiederhergestellt.",
+      "cancel": "Abbrechen",
+      "deleteConfirm": "Endgültig löschen",
+      "totalsLabel": "Gesamt:",
+      "totalsOrchestrator": "Orchestrator",
+      "totalsSubagents": "Subagents",
+      "totalsAgents": "{{n}} Agents",
+      "duplicate": "Profil duplizieren",
+      "deleteBtn": "Profil löschen",
+      "deleteDisabledTitle": "Während einer laufenden Agent-Session nicht verfügbar",
+      "presetWarning": "{{n}} Preset(s) sind für den Live-Katalog nicht verfügbar. Wähle CLI-Standard oder ein explizites Modell.",
+      "branchWarning": "Auto-Commit & Push: Ziel-Branch korrigieren.",
+      "saveDisabledPresets": "Nicht verfügbare Modell-Presets zuerst korrigieren",
+      "save": "Profil speichern"
+    },
+    "github": {
+      "heading": "GitHub-Verbindung",
+      "renew": "Erneuern",
+      "connect": "Verbinden",
+      "logout": "Abmelden",
+      "terminalTitle": "Fallback: gh auth login im Terminal",
+      "terminalLogin": "Login im Terminal"
+    },
+    "repo": {
+      "workingDir": "Working Directory (Repo)",
+      "browse": "Durchsuchen…",
+      "analyzing": "Repo wird analysiert… {{elapsed}}",
+      "generate": "KI-Profil aus Git-Repo erzeugen",
+      "applyLearnings": "Retro-Erkenntnisse übernehmen",
+      "generatingHint": "Das ausgewählte Modell liest das Repository read-only und entwirft ein Profil. Je nach Repo-Größe dauert das ein bis mehrere Minuten — das Fenster kann offen bleiben."
+    },
+    "mode": {
+      "label": "Modus",
+      "orchestrated": "Orchestriert",
+      "orchestratedSub": "ein Orchestrator delegiert an Subagents",
+      "single": "Single",
+      "singleSub": "alle Slots laufen parallel, kein Orchestrator",
+      "solo": "Efficiency Solo",
+      "soloSub": "ein Agent arbeitet direkt, minimaler Tokenverbrauch",
+      "soloHint": "Empfohlen laut Benchmarks/Retros: {{model}} — {{rationale}}",
+      "provider": "Provider",
+      "claudeMode": "Claude-Modus",
+      "preset": "Preset",
+      "legacyCli": "Legacy (CLI)",
+      "presetUnavailable": " (nicht verfügbar)",
+      "model": "Modell",
+      "modelCountTitle": "verfügbare Modelle dieses Providers (frei eingebbar)",
+      "effective": "Effektiv:",
+      "controlsSubagents": "steuert Subagents",
+      "singleHint": "Kein Orchestrator — beim Start laufen alle Subagent-Slots (mit ihrer Anzahl) parallel als eigenständige, interaktive Agents."
+    },
+    "planner": {
+      "heading": "Auto-Subagent-Planer",
+      "headingSub": "entscheidet Parallelität und Re-Planning",
+      "teamStart": "Team-Start",
+      "routingAdaptive": "Adaptiv — nach Plan aktivieren",
+      "routingFixed": "Vorgewärmt — alle Slots starten",
+      "plannerMode": "Planungsmodus",
+      "modeAuto": "Auto — direkt ausführen",
+      "modeReview": "Review — Plan bestätigen",
+      "modeManual": "Manuell — keine Auto-Planung",
+      "maxParallel": "Max. parallel",
+      "maxRetries": "Re-Plan-Versuche",
+      "benchmark": "Auto-Benchmark",
+      "benchmarkNeedsOrch": "Auto-Benchmark benötigt einen Orchestrator.",
+      "off": "Aus",
+      "benchmarkOn": "Aktiv — gleiche Aufgabe für alle Slots",
+      "multiAgent": "Multiagent-Modus",
+      "multiAgentNeedsOrch": "Multiagent-Modus benötigt einen Orchestrator.",
+      "multiOff": "Aus — ein Agent je Task",
+      "multiOn": "Aktiv — Slot-Anzahl als Kandidaten"
+    },
+    "autoPr": {
+      "heading": "Auto-PR",
+      "headingSub": "nur nach erfolgreichen Quality Gates",
+      "mode": "Modus",
+      "off": "Aus",
+      "draftAfterChecks": "Draft nach Checks",
+      "readyAfterChecks": "Ready nach Checks",
+      "holdForApproval": "Vor Veröffentlichung freigeben",
+      "strategy": "PR-Strategie",
+      "aggregate": "Ein gemeinsamer PR",
+      "perTask": "Ein PR je Task",
+      "baseBranch": "Basis-Branch",
+      "boundDefault": "Gebundener Standardbranch",
+      "qualityGates": "Quality Gates (eine Zeile je Befehl)"
+    },
+    "autoGit": {
+      "heading": "Auto-Commit & Push",
+      "headingSub": "nur nach vollständig erfolgreichem Lauf",
+      "mode": "Modus",
+      "off": "Aus",
+      "on": "Nach Erfolg committen & pushen",
+      "targetBranch": "Ziel-Branch",
+      "branchPlaceholder": "z. B. vertragus/integrated"
+    },
+    "skills": {
+      "heading": "Profil-Skills",
+      "namePlaceholder": "Skill-Name, z. B. Deploy-Ablauf",
+      "instructionsPlaceholder": "Wann anwenden + konkrete Schritte",
+      "learned": "Vom Orchestrator gelernt",
+      "manual": "Manuell angelegt",
+      "removeAria": "Skill {{name}} entfernen",
+      "add": "＋ Skill hinzufügen"
+    },
+    "slots": {
+      "caption": "Subagent-Slots",
+      "captionCount": "{{slots}} Slots · {{agents}} Agents",
+      "role": "Rolle / Label",
+      "provider": "Provider",
+      "preset": "Preset",
+      "model": "Modell",
+      "count": "Anzahl",
+      "yolo": "Yolo",
+      "controllable": "steuerbar",
+      "removeSlot": "Slot entfernen",
+      "ownPath": "Eigener Pfad (optional)",
+      "workspaceBase": "Workspace-Basispfad",
+      "browse": "Durchsuchen…",
+      "fallbackModels": "Fallback-Modelle (optional)",
+      "fallbackPlaceholder": "z. B. sonnet, haiku",
+      "strengths": "Stärken (optional)",
+      "strengthsPlaceholder": "z. B. Frontend, Tests, Security-Review",
+      "weaknesses": "Schwächen (optional)",
+      "weaknessesPlaceholder": "z. B. große Refactorings",
+      "addSlot": "＋ Slot hinzufügen"
+    },
+    "multiAgent": {
+      "label": "Multiagent-Modus",
+      "inherit": "Global erben — aktuell {{state}}",
+      "on": "Aktiv",
+      "off": "Aus",
+      "effective": "Effektiv: {{state}}",
+      "inherited": "globale Einstellung geerbt",
+      "override": "Slot-Override · global {{state}}"
+    }
+  },
+  "palette": {
+    "label": "Befehlspalette",
+    "searchAria": "Befehl suchen",
+    "searchPlaceholder": "Befehl suchen...",
+    "listAria": "Befehle",
+    "noMatches": "Keine Treffer",
+    "cmd": {
+      "navWorkspace": "Gehe zu: Workspace",
+      "navInbox": "Gehe zu: Ideen-Inbox",
+      "navApprovals": "Gehe zu: Approvals",
+      "navChanges": "Gehe zu: Changes",
+      "navRemote": "Gehe zu: Mission Control",
+      "layoutCanvas": "Layout: Zentrale",
+      "layoutTiles": "Layout: Terminals",
+      "layoutFocus": "Layout: Fokus",
+      "toggleSidebar": "Sidebar ein-/ausblenden",
+      "toggleOrchestrator": "Orchestrator-Panel ein-/ausblenden",
+      "startAll": "Alle Agents starten",
+      "toggleTheme": "Theme umschalten",
+      "toggleReadable": "Lesbar-Modus umschalten",
+      "toggleDensity": "Kompakte Ansicht umschalten",
+      "startProfile": "Profil starten: {{name}}",
+      "focusAgent": "Agent fokussieren: {{name}}",
+      "editProfile": "Profil bearbeiten: {{name}}"
+    }
+  },
+  "promptReview": {
+    "regionLabel": "Prompt-Verbesserung prüfen",
+    "sharpening": "Wird geschärft …",
+    "title": "Prompt-Verbesserung prüfen",
+    "cancel": "Abbrechen",
+    "loadingHint": "Provider und Modell werden im Main-Prozess ausgeführt.",
+    "fallbackBadge": "Deterministischer Fallback – keine KI-Verbesserung",
+    "original": "Original",
+    "untitled": "Ohne Titel",
+    "aiEnhancement": "KI-Verbesserung",
+    "suggestion": "Vorschlag",
+    "preparing": "Antwort wird vorbereitet …",
+    "noSuggestion": "Noch kein Verbesserungsvorschlag.",
+    "candidatesAria": "Provider ausdrücklich auswählen",
+    "candidateReady": "verfügbar",
+    "candidateLogin": "Anmeldung nötig",
+    "candidateUnverified": "Status ungeprüft",
+    "candidateUnavailable": "nicht verfügbar",
+    "chooseCliDefault": "CLI-Standard auswählen",
+    "showFallback": "Deterministischen Fallback anzeigen (keine KI)",
+    "retry": "Erneut schärfen",
+    "copied": "Kopiert",
+    "copy": "Kopieren",
+    "apply": "Übernehmen",
+    "applyConfirmAria": "Übernahme bestätigen",
+    "applyConfirmQuestion": "Nur lokalen Titel und Inhalt ersetzen?",
+    "no": "Nein",
+    "yesApply": "Ja, übernehmen",
+    "cliDefault": "CLI-Standard",
+    "localNoModel": "Lokal · kein Modell"
+  },
+  "ideaTransfer": {
+    "statusLabel": {
+      "pending": "Wartet",
+      "running": "Läuft",
+      "planned": "Plan im Review",
+      "failed": "Fehlgeschlagen"
+    },
+    "dupPlanned": "Plan wartet im Review — keine zweite Planung gestartet.",
+    "dupRunning": "Übergabe läuft bereits — keine zweite Planung gestartet.",
+    "transferFailed": "Übergabe fehlgeschlagen.",
+    "toastTransferred": "Idee „{{title}}“ an Workspace übergeben — Planung läuft.",
+    "retryFailed": "Wiederholung fehlgeschlagen.",
+    "toastRetried": "Übergabe wiederholt — Workspace geöffnet.",
+    "title": "An Workspace-Profil übergeben",
+    "sub": "Idee „{{title}}“ planen lassen — Review-Gate vor Subagent-Start",
+    "closeAria": "Schließen",
+    "statusLine": "Status: {{status}}",
+    "planSuffix": " · Plan {{planId}}",
+    "plannedHint": " — Freigabe im Orchestrator-Panel; erneutes Planen erst nach Ablehnung.",
+    "profileLabel": "Workspace-Profil",
+    "profileDisabled": " (ohne Orchestrator — deaktiviert)",
+    "noEligible": "Kein Profil mit Orchestrator und aktivem Planner-Modus — bitte im Profil-Editor konfigurieren.",
+    "briefingHide": "Briefing-Vorschau ausblenden",
+    "briefingShow": "Briefing-Vorschau anzeigen",
+    "briefingHint": "Dieses Briefing wird an den Orchestrator übergeben. Rohmaterial ist als Kontext markiert; die Planungsvorgaben bleiben verbindlich.",
+    "needsCloneHint": "Repository ist gebunden, aber noch nicht geklont. Klonen startet den vorhandenen GitHub-Bindungsflow.",
+    "needsAuth": "GitHub-Anmeldung erforderlich.",
+    "githubBrowser": "GitHub verbinden (Browser)",
+    "githubTerminal": "GitHub im Terminal verbinden",
+    "cancel": "Abbrechen",
+    "retry": "Erneut versuchen",
+    "githubConnect": "GitHub verbinden",
+    "cloneTransfer": "Klonen & übergeben",
+    "transferring": "Übergabe…",
+    "transferPlan": "Übergeben & planen"
+  },
+  "diffMerge": {
+    "aria": "Diff- und Merge-Center",
+    "eyebrow": "Integration",
+    "title": "Diff & Merge Center",
+    "changes": "{{n}} Änderungen",
+    "meta": {
+      "noCommit": "kein Commit",
+      "noFindings": "keine Gate-Findings",
+      "findingOne": "{{n}} Gate-Finding",
+      "findingMany": "{{n}} Gate-Findings"
+    },
+    "fileOne": "{{n}} Datei",
+    "fileMany": "{{n}} Dateien",
+    "noWorktree": "Für diese Aufgabe liegt kein Worktree mehr vor.",
+    "close": "Schließen",
+    "truncated": "Diff gekürzt (Größenlimit erreicht).",
+    "emptyTitle": "Noch keine Integrationen",
+    "emptyHint": "Verifizierte Task-Commits erscheinen hier.",
+    "openPr": "PR öffnen",
+    "ciChecks": "CI-Checks",
+    "diff": "Diff",
+    "publishing": "Veröffentliche…",
+    "publish": "Geprüft veröffentlichen",
+    "rejecting": "Lehne ab…",
+    "reject": "Ablehnen"
+  },
+  "ui": {
+    "actionFailed": "Aktion fehlgeschlagen",
+    "limitKind": {
+      "session-5h": "5-Stunden-Limit",
+      "weekly": "Wochenlimit",
+      "weekly-fable": "Fable-Wochenlimit",
+      "generic": "Nutzungslimit"
+    },
+    "status": {
+      "running": "läuft",
+      "waiting": "wartet",
+      "error": "Fehler",
+      "stopped": "gestoppt"
+    },
+    "telemetry": {
+      "absent": "Telemetrie fehlt",
+      "partial": "Telemetrie teilweise",
+      "absentTitle": "Dieser Provider liefert derzeit keine Telemetrie an Vertragus.",
+      "partialTitle": "Dieser Provider liefert nur einen Teil der Telemetrie an Vertragus.",
+      "interactive": "Telemetrie nur für Tasks",
+      "interactiveTitle": "Interaktive Agents liefern keine strukturierte Nutzungstelemetrie an Vertragus. Tokens und Kosten erscheinen nur bei vom Orchestrator dispatchten Tasks."
+    },
+    "mcp": {
+      "transport": {
+        "stdio": "Lokaler Prozess (stdio)",
+        "http": "HTTP (Streamable)",
+        "sse": "SSE (Server-Sent Events)"
+      },
+      "scope": {
+        "all": "Alle Agents",
+        "orchestrator": "Nur Orchestrator",
+        "subagents": "Nur Subagents"
+      }
+    },
+    "claudePermission": {
+      "aria": "Claude-Berechtigungsmodus",
+      "mode": {
+        "default": "Standard (Nachfragen)",
+        "auto": "Auto-Mode (Edits automatisch bestätigen)",
+        "plan": "Plan-Mode (nur planen)"
+      }
+    },
+    "modelCatalog": {
+      "unavailable": "Nicht verfügbar",
+      "accountDependent": "kontoabhängig",
+      "notAccountVerified": "nicht kontoverifiziert",
+      "live": "Live",
+      "mixed": "Live + Vorschläge",
+      "fallback": "Fallback",
+      "models": "{{n}} Modelle",
+      "suggestions": "{{n}} Vorschläge"
+    },
+    "modelCombo": {
+      "placeholder": "CLI-Standard / Preset",
+      "pickAria": "Modell aus Liste wählen",
+      "pickTitle": "Modell aus der vollständigen Liste wählen",
+      "list": "Liste ▾"
+    },
+    "infoTip": {
+      "label": "Feldhilfe"
+    },
+    "errorCard": {
+      "title": "Etwas ist schiefgelaufen",
+      "retry": "Erneut versuchen",
+      "details": "Technische Details"
+    }
   }
 }

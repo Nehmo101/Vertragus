@@ -6,30 +6,30 @@ import { detectShortcutPlatform } from './bindings'
 import { registerAppShortcuts, type AppShortcutActions } from './appShortcuts'
 
 /**
- * App-weite Shortcuts (Navigation, Layout, Panels, Agents) — Aufbau analog zum
- * SpeechShortcutProvider: eine eigene ShortcutRegistry lauscht auf `keydown` des
- * Renderer-Fensters; das Event-Gate der Registry (shouldIgnoreShortcutEvent)
- * blockt Eingaben in input/textarea/select/contenteditable — inklusive der
- * versteckten xterm-Helper-Textarea des Terminals — sowie IME/Repeat.
+ * App-wide shortcuts (navigation, layout, panels, agents) — built like the
+ * SpeechShortcutProvider: a dedicated ShortcutRegistry listens for `keydown`
+ * on the renderer window; the registry's event gate (shouldIgnoreShortcutEvent)
+ * blocks input into input/textarea/select/contenteditable — including the
+ * hidden xterm helper textarea of the terminal — as well as IME/repeat.
  *
- * Der Provider wird in App.tsx nur im Hauptfenster gemountet (die #/voice- und
- * #/pane-Zweige returnen vorher); der isMainWindowRoute-Guard in
- * registerAppShortcuts sichert das zusätzlich zur Laufzeit ab.
+ * App.tsx mounts the provider only in the main window (the #/voice and #/pane
+ * branches return earlier); the isMainWindowRoute guard in registerAppShortcuts
+ * additionally enforces that at runtime.
  */
 export function AppShortcutProvider({
   children,
   target
 }: {
   children: ReactNode
-  /** Injizierbares Listener-Target für Tests; Standard ist das Renderer-`window`. */
+  /** Injectable listener target for tests; defaults to the renderer `window`. */
   target?: Pick<EventTarget, 'addEventListener' | 'removeEventListener'>
 }): JSX.Element {
   const registry = useMemo(() => new ShortcutRegistry({ platform: detectShortcutPlatform() }), [])
 
   useEffect(() => {
-    // Exakt dieselben Aktionen wie die sichtbaren Bedienelemente:
-    // Sidebar-Navigation setzt window.location.hash, die TitleBar startet über
-    // startAll(), Panel-Toggles laufen über layoutStore.toggleCollapsed.
+    // Exactly the same actions as the visible controls: sidebar navigation sets
+    // window.location.hash, the TitleBar starts via startAll(), panel toggles
+    // run through layoutStore.toggleCollapsed.
     const actions: AppShortcutActions = {
       navigate: (route) => {
         window.location.hash = route
@@ -38,8 +38,8 @@ export function AppShortcutProvider({
       startAllAgents: () => {
         void useAppStore.getState().startAll()
       },
-      // Kein direkter stopAll(): bumpt nur die Anfrage-Id, die TitleBar öffnet
-      // daraufhin ihren bestehenden „Alle stoppen?“-Confirm (siehe bindings.ts).
+      // No direct stopAll(): only bumps the request id; the TitleBar then opens
+      // its existing "stop all?" confirm (see bindings.ts).
       requestStopAllAgents: () => useAppStore.getState().requestStopAll(),
       toggleSidebar: () => useLayoutStore.getState().toggleCollapsed('sidebar-left'),
       toggleOrchestrator: () => useLayoutStore.getState().toggleCollapsed('orchestrator-right')

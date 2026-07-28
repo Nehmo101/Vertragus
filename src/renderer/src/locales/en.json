@@ -114,6 +114,16 @@
     },
     "voiceDraft": {
       "defaultTitle": "Voice note"
+    },
+    "filter": {
+      "search": "Search",
+      "searchPlaceholder": "Title or content",
+      "statusAria": "Status filter",
+      "tag": "Tag",
+      "all": "All",
+      "count": "{{shown}} of {{total}}",
+      "noMatches": "No matches",
+      "reset": "Clear filters"
     }
   },
   "agentPane": {
@@ -142,7 +152,25 @@
     "readable": "Readable",
     "steps": "Steps",
     "tokens": "Tokens",
-    "cost": "Cost"
+    "cost": "Cost",
+    "window": {
+      "gone": "This agent is no longer running",
+      "goneHint": "Agent “{{id}}” was stopped or cleaned up. You can close this window."
+    },
+    "info": {
+      "title": "Details (branch, worktree, agent ID)",
+      "ariaShow": "Show agent details",
+      "dialogAria": "Agent details",
+      "branch": "Branch",
+      "worktree": "Worktree",
+      "agentId": "Agent ID"
+    },
+    "search": {
+      "placeholder": "Search…",
+      "inputAria": "Search the terminal history",
+      "toggleTitle": "Search the history (Enter = next, Shift+Enter = previous match, Esc = close)",
+      "toggleAria": "Toggle terminal history search"
+    }
   },
   "mcpEditor": {
     "help": {
@@ -280,6 +308,7 @@
     "addAgentSub": "Choose provider & model",
     "playground": "✦ Explore the playground",
     "playgroundHint": "Try a demo team without any provider login",
+    "loading": "Loading workspace…",
     "layouts": {
       "tiles": "Tiles",
       "focus": "Focus",
@@ -360,6 +389,11 @@
       "aria": "Workspace sessions",
       "add": "Start another session"
     },
+    "drawer": {
+      "aria": "Agent terminal",
+      "resize": "Resize the terminal height",
+      "close": "Close terminal"
+    },
     "composer": {
       "startMode": "Start",
       "label": "Message Caronte",
@@ -418,7 +452,60 @@
   },
   "titlebar": {
     "languageGroup": "Choose language",
-    "versionTitle": "Vertragus version {{version}}"
+    "versionTitle": "Vertragus version {{version}}",
+    "cliDefault": "CLI default",
+    "profileSummaryEmpty": "empty",
+    "noRepo": "No repo",
+    "update": {
+      "downloading": "Update {{percent}} %",
+      "install": "Install update",
+      "available": "Update available",
+      "retry": "Check for update again",
+      "self": "Self-update",
+      "stopAgentsFirst": "Please stop all agents before installing.",
+      "mainAvailable": "Main update {{version}} is available.",
+      "installMain": "Install the latest version from the main branch."
+    },
+    "git": {
+      "branch": "Branch: {{branch}}",
+      "defaultBranch": "Default branch: {{branch}}",
+      "remote": "Remote: {{remote}}",
+      "treeDirty": "Working tree: uncommitted changes",
+      "treeClean": "Working tree: clean"
+    },
+    "noWorkingDir": "no working directory",
+    "branchLabel": "Branch:",
+    "branchPickAria": "Choose the current Git branch",
+    "activeCount": "active",
+    "remoteSetupTitle": "Set up Mission Control",
+    "remoteActiveTitle": "Mission Control: {{tunnel}}",
+    "remoteOn": "Remote active",
+    "remoteOff": "Remote off",
+    "yoloTitle": "Yolo master: new agents start without confirmations",
+    "stopAll": "Stop all",
+    "startAll": "Start all",
+    "repoSwitch": "Switch repository",
+    "noRepoSelected": "No repository selected",
+    "repoMenuEmpty": "No repository yet. Choose a folder below.",
+    "chooseFolder": "Choose folder…",
+    "followProfile": "Follow the active profile",
+    "moreOptions": "More options",
+    "viewUpdates": "View & updates",
+    "minimize": "Minimize",
+    "maximize": "Maximize",
+    "close": "Close",
+    "stopConfirmTitle": "Stop all agents?",
+    "stopConfirmText": "{{n}} running agents will be stopped immediately. Uncommitted changes in sandbox worktrees will be lost.",
+    "cancel": "Cancel",
+    "overflow": {
+      "language": "Switch language",
+      "languageGerman": "Deutsch",
+      "languageEnglish": "English",
+      "darkTheme": "Dark theme",
+      "readable": "Readable CLI output",
+      "density": "Compact view",
+      "updateChannel": "Switch update channel"
+    }
   },
   "orch": {
     "panelAria": "Orchestrator side panel",
@@ -450,6 +537,30 @@
       "decision": "Decision",
       "blocker": "Blocker",
       "insight": "Insight"
+    },
+    "activityPhase": {
+      "idle": "idle",
+      "planning": "planning",
+      "awaiting-review": "awaiting approval",
+      "delegating": "delegating",
+      "monitoring": "monitoring",
+      "reviewing": "reviewing",
+      "integrating": "integrating",
+      "summarizing": "summarising",
+      "completed": "completed",
+      "blocked": "blocked"
+    },
+    "section": {
+      "overview": "Goal & status",
+      "retro": "Learnings & routing",
+      "forceOpenTitle": "Stays open while a plan is awaiting approval"
+    },
+    "showLess": "Show less",
+    "showMore": "Show {{n}} more",
+    "sessionLabel": "Session:",
+    "retroSection": {
+      "empty": "No retro or routing knowledge yet. After the first completed run, model learnings and the reasons for each model choice appear here.",
+      "whyModel": "Why this model?"
     },
     "plannerMode": {
       "caption": "Planning mode",
@@ -529,7 +640,6 @@
     },
     "findings": {
       "caption": "Findings board",
-      "showing": "{{shown}} of {{total}} entries",
       "entryOne": "{{n}} entry",
       "entryMany": "{{n}} entries",
       "boardTitle": "Interfaces, decisions and blockers shared live by subagents",
@@ -871,6 +981,9 @@
       "taskControl": "Allow task pause/resume",
       "replan": "Allow restrictive live replan",
       "fallback": "Allow provider fallback on a detected limit",
+      "read": "Read access (always active)",
+      "steer": "Allow remote steering (send commands)",
+      "scopeHint": "Select at least one session or goal permission under “Advanced” to start pairing.",
       "actorId": "Account ID or Access email",
       "actorName": "Display name",
       "scopes": "Workspace scopes (none by default)",
@@ -879,6 +992,45 @@
       "generate": "Generate pairing QR",
       "qrAlt": "Mission Control pairing QR",
       "validUntil": "Valid until {{time}}"
+    },
+    "reload": "Reload",
+    "apns": {
+      "title": "APNs Push (iOS)",
+      "configured": "Configured",
+      "notConfigured": "Not configured",
+      "desc": "Signing key for native iOS push. Stored encrypted on this device (safeStorage) and never returned in plain text. Without configuration, web push stays active.",
+      "active": "Active · Team {{teamId}} · Key {{keyId}} · {{bundleId}} · {{environment}}",
+      "teamId": "Team ID",
+      "keyId": "Key ID",
+      "bundleId": "Bundle ID",
+      "environment": "Environment",
+      "p8Key": ".p8 key",
+      "p8Stored": "Stored · paste again only to replace",
+      "save": "Save",
+      "remove": "Remove"
+    },
+    "presets": {
+      "aria": "Access preset",
+      "observe": {
+        "title": "Observe only",
+        "desc": "Read status, view diffs and receive push notifications — no interventions."
+      },
+      "approve": {
+        "title": "Grant approvals",
+        "desc": "Additionally speech transcription, tool approvals and budget caps from remote."
+      },
+      "full": {
+        "title": "Full access",
+        "desc": "All capabilities: additionally remote steering, admin reset, task control, replan and provider fallback."
+      },
+      "custom": {
+        "title": "Custom",
+        "desc": "Pick individual capabilities under “Advanced”."
+      }
+    },
+    "advanced": {
+      "title": "Advanced",
+      "hint": "Individual capabilities and workspace scopes. Changing a checkbox switches to “Custom” above."
     },
     "devices": {
       "title": "Paired devices",
@@ -989,6 +1141,421 @@
     "discardAllConfirm": "Discard {{count}} orphaned worktrees permanently? Uncommitted work will be lost.\nExample: {{path}}",
     "discardResult": "Discarded {{discarded}}, failed {{failed}}.",
     "stale": "{{count}} old session(s) without activity",
-    "staleConfirm": "Remove this session including its saved history?"
+    "staleConfirm": "Remove this session including its saved history?",
+    "summaryResumableOne": "1 session restorable",
+    "summaryResumableMany": "{{n}} sessions restorable",
+    "summaryOrphanOne": "1 orphaned worktree",
+    "summaryOrphanMany": "{{n}} orphaned worktrees",
+    "summaryDirtySuffix": " ({{n}} with changes)",
+    "summaryStaleOne": "1 old session",
+    "summaryStaleMany": "{{n}} old sessions",
+    "collapse": "Collapse",
+    "details": "Details",
+    "discardEverything": "Discard everything & clean up",
+    "discardEverythingConfirm": "Discard {{orphans}} orphaned worktrees (uncommitted work will be lost) and remove {{stale}} old session(s)?",
+    "discardEverythingArmed": "Really discard everything?"
+  },
+  "profile": {
+    "cliDefault": "CLI default",
+    "preset": {
+      "fast": "Fast",
+      "balanced": "Balanced",
+      "strong": "Strong"
+    },
+    "help": {
+      "profileName": "Freely chosen name for this combination of workspace, orchestrator and subagents.",
+      "workingDir": "Local repository or project folder the agents work in. The auto-PR base branch is derived from this folder's git origin when needed.",
+      "githubAuth": "Browser OAuth (device flow with VERTRAGUS_GITHUB_OAUTH_CLIENT_ID) or gh --web. Tokens are stored encrypted locally, never in the profile or in logs. Required for auto PR.",
+      "generateFromRepo": "The selected analysis model reads the working-directory repository read-only and proposes roles, models and quality gates. Depending on repo size this can take one to several minutes.",
+      "agentWorkingDir": "Optional path for this slot only. Empty inherits the workspace base path.",
+      "mode": "Orchestrated lets Claude or Codex plan and delegate. Single starts only the configured slots. Efficiency Solo starts exactly ONE agent that works directly — minimal fixed token cost, retro learnings in the prompt, only report_activity/record_retro as tools.",
+      "orchestratorProvider": "Only providers with a verified Vertragus MCP adapter can orchestrate.",
+      "permissionMode": "Auto mode approves edits automatically. Plan mode lets Claude plan only.",
+      "model": "Empty uses the preset or CLI default. Free text overrides the preset. The list menu on the right lets you pick another model at any time — even when one is already set.",
+      "modelPreset": "Capability preset (fast/balanced/strong). Applies only when the model is empty — free text takes precedence.",
+      "plannerMode": "Auto starts valid plans immediately. Review waits for approval. Manual disables execute_plan.",
+      "routingMode": "Adaptive starts only the orchestrator first and activates task agents to match the plan. Prewarmed starts all slots immediately.",
+      "maxParallel": "Global upper limit of concurrently running plan tasks; role capacities can reduce it further.",
+      "maxRetries": "How often the orchestrator may re-plan in a focused way after a failed plan without new user input.",
+      "multiAgent": "Starts every instance of the chosen slot in parallel for each delegated task. A slot override takes precedence; \"inherit global\" adopts this global setting. The runtime still forms a candidate group only for orchestrated use with a count > 1, but stores the override regardless.",
+      "autoPrMode": "PRs are created only after successful gates. Draft is the recommended safe starting mode.",
+      "prStrategy": "Aggregate combines task commits into one goal PR. Per task creates separate PRs.",
+      "baseBranch": "Target branch of the PR. Empty uses the bound default branch or the origin remote's.",
+      "qualityGates": "Trusted shell commands that must succeed in the task and integration worktrees.",
+      "autoGitMode": "After a fully successful workspace run, all changes in the workspace are committed and pushed to origin. On failure the run stays red.",
+      "autoGitBranch": "Explicit target branch on origin. Options, ref specs, revisions, whitespace and control characters are rejected.",
+      "role": "Distinct capability the planner addresses, e.g. frontend, backend, tests or review.",
+      "agentProvider": "CLI that runs this slot. Login happens separately in the provider sidebar.",
+      "count": "Maximum parallel task capacity of this role and the count for a manual team start.",
+      "yolo": "Skips provider confirmations. Use only with worktree isolation and a deliberate scope.",
+      "orchestrated": "When active, the orchestrator may delegate tasks to this slot.",
+      "skills": "Named, reusable procedures of this workspace (\"how we do X here\"). They are injected into the orchestrator/solo prompts, and the orchestrator maintains them itself via the MCP tools list_skills/record_skill/remove_skill — the profile keeps learning across runs.",
+      "fallbackModels": "Comma-separated model names this slot falls back to in order on a usage limit (\"at capacity\", 5h/weekly limit) — only afterwards does Vertragus switch providers.",
+      "strengths": "Comma-separated capabilities the orchestrator should prefer when picking roles.",
+      "weaknesses": "Comma-separated tasks the orchestrator should avoid assigning to this slot.",
+      "benchmark": "Auto benchmark: the orchestrator gives all slots the same task, compares and scores the results, and stores the findings as model knowledge for future runs.",
+      "applyLearnings": "Applies stored retro and benchmark findings matching provider and model to the slots' strengths/weaknesses. The findings are produced automatically after every run."
+    },
+    "summary": {
+      "noRepo": "No repo connected",
+      "orchestrated": "Orchestrated · {{model}}",
+      "solo": "Efficiency Solo",
+      "soloModel": "Efficiency Solo · {{model}}",
+      "singleOne": "Single · 1 slot in parallel",
+      "singleMany": "Single · {{n}} slots in parallel",
+      "noSlots": "No slots",
+      "slotBaseOne": "1 slot · {{providers}} provider(s)",
+      "slotBaseMany": "{{n}} slots · {{providers}} provider(s)",
+      "agentsSuffix": " · {{n}} agents",
+      "autoPrOff": "Auto PR off",
+      "pushTo": "Push to {{branch}}",
+      "autoGitOff": "Auto Git off",
+      "noSkills": "No skills",
+      "skillOne": "1 skill",
+      "skillMany": "{{n}} skills"
+    },
+    "editor": {
+      "title": "Profile editor",
+      "sub": "Configure orchestrator & subagent slots",
+      "closeAria": "Close profile editor",
+      "nameLabel": "Profile name",
+      "tablistAria": "Profile sections",
+      "generateNeedsDir": "Please choose a working directory and an analysis model first.",
+      "generateDone": "Repo profile generated. Please review roles and quality gates.",
+      "learningsNone": "No stored retro/benchmark findings yet.",
+      "learningsApplied": "Applied {{n}} finding(s) to strengths/weaknesses. Please review and save.",
+      "learningsNoMatch": "No new findings for the configured providers/models.",
+      "tabRepo": "Repo & GitHub",
+      "tabMode": "Mode & orchestrator",
+      "tabSlots": "Agent slots",
+      "tabAutomation": "Auto PR & Git",
+      "tabSkills": "Skills",
+      "badgeOrchPreset": "Orchestrator preset not in the live catalog",
+      "badgeSlotPresets": "{{n}} preset(s) not in the live catalog",
+      "badgeBranch": "Fix the target branch",
+      "deleteTitle": "Delete profile?",
+      "deleteText": "“{{name}}” and all its settings will be removed permanently.",
+      "deleteLastHint": " The default profile will then be restored.",
+      "cancel": "Cancel",
+      "deleteConfirm": "Delete permanently",
+      "totalsLabel": "Total:",
+      "totalsOrchestrator": "orchestrator",
+      "totalsSubagents": "subagents",
+      "totalsAgents": "{{n}} agents",
+      "duplicate": "Duplicate profile",
+      "deleteBtn": "Delete profile",
+      "deleteDisabledTitle": "Not available while an agent session is running",
+      "presetWarning": "{{n}} preset(s) are not available in the live catalog. Choose CLI default or an explicit model.",
+      "branchWarning": "Auto commit & push: fix the target branch.",
+      "saveDisabledPresets": "Fix unavailable model presets first",
+      "save": "Save profile"
+    },
+    "github": {
+      "heading": "GitHub connection",
+      "renew": "Renew",
+      "connect": "Connect",
+      "logout": "Sign out",
+      "terminalTitle": "Fallback: gh auth login in the terminal",
+      "terminalLogin": "Login in the terminal"
+    },
+    "repo": {
+      "workingDir": "Working directory (repo)",
+      "browse": "Browse…",
+      "analyzing": "Analysing repo… {{elapsed}}",
+      "generate": "Generate AI profile from the Git repo",
+      "applyLearnings": "Apply retro findings",
+      "generatingHint": "The selected model reads the repository read-only and drafts a profile. Depending on repo size this takes one to several minutes — the window can stay open."
+    },
+    "mode": {
+      "label": "Mode",
+      "orchestrated": "Orchestrated",
+      "orchestratedSub": "one orchestrator delegates to subagents",
+      "single": "Single",
+      "singleSub": "all slots run in parallel, no orchestrator",
+      "solo": "Efficiency Solo",
+      "soloSub": "one agent works directly, minimal token use",
+      "soloHint": "Recommended by benchmarks/retros: {{model}} — {{rationale}}",
+      "provider": "Provider",
+      "claudeMode": "Claude mode",
+      "preset": "Preset",
+      "legacyCli": "Legacy (CLI)",
+      "presetUnavailable": " (not available)",
+      "model": "Model",
+      "modelCountTitle": "available models of this provider (free text allowed)",
+      "effective": "Effective:",
+      "controlsSubagents": "steers subagents",
+      "singleHint": "No orchestrator — on start all subagent slots (with their count) run in parallel as independent interactive agents."
+    },
+    "planner": {
+      "heading": "Auto subagent planner",
+      "headingSub": "decides parallelism and re-planning",
+      "teamStart": "Team start",
+      "routingAdaptive": "Adaptive — activate per plan",
+      "routingFixed": "Prewarmed — start all slots",
+      "plannerMode": "Planning mode",
+      "modeAuto": "Auto — execute immediately",
+      "modeReview": "Review — confirm each plan",
+      "modeManual": "Manual — no auto planning",
+      "maxParallel": "Max. parallel",
+      "maxRetries": "Re-plan attempts",
+      "benchmark": "Auto benchmark",
+      "benchmarkNeedsOrch": "Auto benchmark requires an orchestrator.",
+      "off": "Off",
+      "benchmarkOn": "Active — same task for all slots",
+      "multiAgent": "Multi-agent mode",
+      "multiAgentNeedsOrch": "Multi-agent mode requires an orchestrator.",
+      "multiOff": "Off — one agent per task",
+      "multiOn": "Active — slot count as candidates"
+    },
+    "autoPr": {
+      "heading": "Auto PR",
+      "headingSub": "only after successful quality gates",
+      "mode": "Mode",
+      "off": "Off",
+      "draftAfterChecks": "Draft after checks",
+      "readyAfterChecks": "Ready after checks",
+      "holdForApproval": "Approve before publishing",
+      "strategy": "PR strategy",
+      "aggregate": "One combined PR",
+      "perTask": "One PR per task",
+      "baseBranch": "Base branch",
+      "boundDefault": "Bound default branch",
+      "qualityGates": "Quality gates (one command per line)"
+    },
+    "autoGit": {
+      "heading": "Auto commit & push",
+      "headingSub": "only after a fully successful run",
+      "mode": "Mode",
+      "off": "Off",
+      "on": "Commit & push after success",
+      "targetBranch": "Target branch",
+      "branchPlaceholder": "e.g. vertragus/integrated"
+    },
+    "skills": {
+      "heading": "Profile skills",
+      "namePlaceholder": "Skill name, e.g. deploy procedure",
+      "instructionsPlaceholder": "When to apply + concrete steps",
+      "learned": "Learned by the orchestrator",
+      "manual": "Created manually",
+      "removeAria": "Remove skill {{name}}",
+      "add": "＋ Add skill"
+    },
+    "slots": {
+      "caption": "Subagent slots",
+      "captionCount": "{{slots}} slots · {{agents}} agents",
+      "role": "Role / label",
+      "provider": "Provider",
+      "preset": "Preset",
+      "model": "Model",
+      "count": "Count",
+      "yolo": "Yolo",
+      "controllable": "steerable",
+      "removeSlot": "Remove slot",
+      "ownPath": "Custom path (optional)",
+      "workspaceBase": "Workspace base path",
+      "browse": "Browse…",
+      "fallbackModels": "Fallback models (optional)",
+      "fallbackPlaceholder": "e.g. sonnet, haiku",
+      "strengths": "Strengths (optional)",
+      "strengthsPlaceholder": "e.g. frontend, tests, security review",
+      "weaknesses": "Weaknesses (optional)",
+      "weaknessesPlaceholder": "e.g. large refactorings",
+      "addSlot": "＋ Add slot"
+    },
+    "multiAgent": {
+      "label": "Multi-agent mode",
+      "inherit": "Inherit global — currently {{state}}",
+      "on": "Active",
+      "off": "Off",
+      "effective": "Effective: {{state}}",
+      "inherited": "inherited global setting",
+      "override": "slot override · global {{state}}"
+    }
+  },
+  "palette": {
+    "label": "Command palette",
+    "searchAria": "Search commands",
+    "searchPlaceholder": "Search commands...",
+    "listAria": "Commands",
+    "noMatches": "No matches",
+    "cmd": {
+      "navWorkspace": "Go to: Workspace",
+      "navInbox": "Go to: Ideas inbox",
+      "navApprovals": "Go to: Approvals",
+      "navChanges": "Go to: Changes",
+      "navRemote": "Go to: Mission Control",
+      "layoutCanvas": "Layout: Hub",
+      "layoutTiles": "Layout: Terminals",
+      "layoutFocus": "Layout: Focus",
+      "toggleSidebar": "Toggle sidebar",
+      "toggleOrchestrator": "Toggle orchestrator panel",
+      "startAll": "Start all agents",
+      "toggleTheme": "Toggle theme",
+      "toggleReadable": "Toggle readable mode",
+      "toggleDensity": "Toggle compact view",
+      "startProfile": "Start profile: {{name}}",
+      "focusAgent": "Focus agent: {{name}}",
+      "editProfile": "Edit profile: {{name}}"
+    }
+  },
+  "promptReview": {
+    "regionLabel": "Review prompt enhancement",
+    "sharpening": "Sharpening …",
+    "title": "Review prompt enhancement",
+    "cancel": "Cancel",
+    "loadingHint": "The provider and model run in the main process.",
+    "fallbackBadge": "Deterministic fallback – no AI enhancement",
+    "original": "Original",
+    "untitled": "Untitled",
+    "aiEnhancement": "AI enhancement",
+    "suggestion": "Suggestion",
+    "preparing": "Preparing the response …",
+    "noSuggestion": "No enhancement suggestion yet.",
+    "candidatesAria": "Choose a provider explicitly",
+    "candidateReady": "available",
+    "candidateLogin": "sign-in required",
+    "candidateUnverified": "status unverified",
+    "candidateUnavailable": "not available",
+    "chooseCliDefault": "Use CLI default",
+    "showFallback": "Show deterministic fallback (no AI)",
+    "retry": "Sharpen again",
+    "copied": "Copied",
+    "copy": "Copy",
+    "apply": "Apply",
+    "applyConfirmAria": "Confirm apply",
+    "applyConfirmQuestion": "Replace only the local title and content?",
+    "no": "No",
+    "yesApply": "Yes, apply",
+    "cliDefault": "CLI default",
+    "localNoModel": "Local · no model"
+  },
+  "ideaTransfer": {
+    "statusLabel": {
+      "pending": "Waiting",
+      "running": "Running",
+      "planned": "Plan in review",
+      "failed": "Failed"
+    },
+    "dupPlanned": "A plan is already waiting in review — no second planning started.",
+    "dupRunning": "A handoff is already running — no second planning started.",
+    "transferFailed": "Handoff failed.",
+    "toastTransferred": "Idea “{{title}}” handed to the workspace — planning is running.",
+    "retryFailed": "Retry failed.",
+    "toastRetried": "Handoff retried — workspace opened.",
+    "title": "Hand to workspace profile",
+    "sub": "Have the idea “{{title}}” planned — review gate before subagents start",
+    "closeAria": "Close",
+    "statusLine": "Status: {{status}}",
+    "planSuffix": " · plan {{planId}}",
+    "plannedHint": " — Approve in the orchestrator panel; plan again only after a rejection.",
+    "profileLabel": "Workspace profile",
+    "profileDisabled": " (no orchestrator — disabled)",
+    "noEligible": "No profile with an orchestrator and active planner mode — configure one in the profile editor.",
+    "briefingHide": "Hide briefing preview",
+    "briefingShow": "Show briefing preview",
+    "briefingHint": "This briefing is handed to the orchestrator. Raw material is marked as context; the planning constraints stay binding.",
+    "needsCloneHint": "The repository is bound but not cloned yet. Cloning starts the existing GitHub binding flow.",
+    "needsAuth": "GitHub sign-in required.",
+    "githubBrowser": "Connect GitHub (browser)",
+    "githubTerminal": "Connect GitHub in the terminal",
+    "cancel": "Cancel",
+    "retry": "Try again",
+    "githubConnect": "Connect GitHub",
+    "cloneTransfer": "Clone & hand over",
+    "transferring": "Handing over…",
+    "transferPlan": "Hand over & plan"
+  },
+  "diffMerge": {
+    "aria": "Diff & merge center",
+    "eyebrow": "Integration",
+    "title": "Diff & Merge Center",
+    "changes": "{{n}} changes",
+    "meta": {
+      "noCommit": "no commit",
+      "noFindings": "no gate findings",
+      "findingOne": "{{n}} gate finding",
+      "findingMany": "{{n}} gate findings"
+    },
+    "fileOne": "{{n}} file",
+    "fileMany": "{{n}} files",
+    "noWorktree": "No worktree remains for this task.",
+    "close": "Close",
+    "truncated": "Diff truncated (size limit reached).",
+    "emptyTitle": "No integrations yet",
+    "emptyHint": "Verified task commits appear here.",
+    "openPr": "Open PR",
+    "ciChecks": "CI checks",
+    "diff": "Diff",
+    "publishing": "Publishing…",
+    "publish": "Publish verified",
+    "rejecting": "Rejecting…",
+    "reject": "Reject"
+  },
+  "ui": {
+    "actionFailed": "Action failed",
+    "limitKind": {
+      "session-5h": "5-hour limit",
+      "weekly": "Weekly limit",
+      "weekly-fable": "Fable weekly limit",
+      "generic": "Usage limit"
+    },
+    "status": {
+      "running": "running",
+      "waiting": "waiting",
+      "error": "error",
+      "stopped": "stopped"
+    },
+    "telemetry": {
+      "absent": "No telemetry",
+      "partial": "Partial telemetry",
+      "absentTitle": "This provider currently reports no telemetry to Vertragus.",
+      "partialTitle": "This provider reports only part of its telemetry to Vertragus.",
+      "interactive": "Telemetry for tasks only",
+      "interactiveTitle": "Interactive agents do not stream structured usage telemetry to Vertragus. Tokens and cost appear only for orchestrator-dispatched tasks."
+    },
+    "mcp": {
+      "transport": {
+        "stdio": "Local process (stdio)",
+        "http": "HTTP (streamable)",
+        "sse": "SSE (server-sent events)"
+      },
+      "scope": {
+        "all": "All agents",
+        "orchestrator": "Orchestrator only",
+        "subagents": "Subagents only"
+      }
+    },
+    "claudePermission": {
+      "aria": "Claude permission mode",
+      "mode": {
+        "default": "Default (ask first)",
+        "auto": "Auto mode (auto-approve edits)",
+        "plan": "Plan mode (planning only)"
+      }
+    },
+    "modelCatalog": {
+      "unavailable": "Not available",
+      "accountDependent": "account-dependent",
+      "notAccountVerified": "not account-verified",
+      "live": "Live",
+      "mixed": "Live + suggestions",
+      "fallback": "Fallback",
+      "models": "{{n}} models",
+      "suggestions": "{{n}} suggestions"
+    },
+    "modelCombo": {
+      "placeholder": "CLI default / preset",
+      "pickAria": "Choose a model from the list",
+      "pickTitle": "Choose a model from the full list",
+      "list": "List ▾"
+    },
+    "infoTip": {
+      "label": "Field help"
+    },
+    "errorCard": {
+      "title": "Something went wrong",
+      "retry": "Try again",
+      "details": "Technical details"
+    }
   }
 }

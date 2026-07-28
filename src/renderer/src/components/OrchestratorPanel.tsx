@@ -276,8 +276,11 @@ function TaskCard({
               <span><span className="k">{t('orch.usageLabels.cost')}</span> <b className="cost">{formatUsd(worker.costUsd)}</b></span>
             )}
             {worker.status === 'partial' && (
-              <span className="telemetry-status partial" title={TELEMETRY_STATUS_TITLES.partial}>
-                {TELEMETRY_STATUS_LABELS.partial}
+              <span
+                className="telemetry-status partial"
+                title={t('ui.telemetry.partialTitle', { defaultValue: TELEMETRY_STATUS_TITLES.partial })}
+              >
+                {t('ui.telemetry.partial', { defaultValue: TELEMETRY_STATUS_LABELS.partial })}
               </span>
             )}
           </div>
@@ -474,6 +477,7 @@ function PanelSection({
   forceOpen?: boolean
   children: ReactNode
 }): JSX.Element {
+  const { t } = useTranslation()
   const open = useOrchPanelSections((state) => resolveSectionOpen(state.sections, id, forceOpen))
   const toggleSection = useOrchPanelSections((state) => state.toggleSection)
   const bodyId = `orch-section-${id}`
@@ -485,7 +489,7 @@ function PanelSection({
           className={styles.sectionToggle}
           aria-expanded={open}
           aria-controls={bodyId}
-          title={forceOpen ? 'Bleibt geöffnet, solange ein Plan auf Freigabe wartet' : undefined}
+          title={forceOpen ? t('orch.section.forceOpenTitle') : undefined}
           onClick={() => toggleSection(id)}
         >
           <span className={`${styles.chevron} ${open ? styles.chevronOpen : ''}`} aria-hidden="true">
@@ -554,7 +558,7 @@ function FindingsBoard({
           aria-expanded={showAll}
           onClick={() => setShowAll((value) => !value)}
         >
-          {showAll ? 'Weniger anzeigen' : `${hidden} weitere anzeigen`}
+          {showAll ? t('orch.showLess') : t('orch.showMore', { n: hidden })}
         </button>
       )}
     </>
@@ -587,7 +591,7 @@ function RetroRoutingSection({
         const learnings = await window.vertragus.retro.listLearnings()
         if (!cancelled) setStoredLearnings(learnings)
       } catch {
-        // Kein persistenter Lernspeicher erreichbar — Snapshot-Daten genügen.
+        // No persistent learning store reachable — snapshot data is enough.
       }
     })()
     return () => {
@@ -603,12 +607,7 @@ function RetroRoutingSection({
   const routing = buildRoutingInsights(slots, [...storedLearnings, ...learnings])
 
   if (!lastRetro && routing.length === 0) {
-    return (
-      <div className={styles.retroEmpty}>
-        Noch kein Retro- oder Routing-Wissen vorhanden. Nach dem ersten abgeschlossenen Lauf
-        erscheinen hier Modell-Lernwissen und die Gründe für die Modellwahl.
-      </div>
-    )
+    return <div className={styles.retroEmpty}>{t('orch.retroSection.empty')}</div>
   }
 
   return (
@@ -656,14 +655,14 @@ function RetroRoutingSection({
               aria-expanded={showAllLearnings}
               onClick={() => setShowAllLearnings((value) => !value)}
             >
-              {showAllLearnings ? 'Weniger anzeigen' : `${hiddenLearnings} weitere anzeigen`}
+              {showAllLearnings ? t('orch.showLess') : t('orch.showMore', { n: hiddenLearnings })}
             </button>
           )}
         </>
       )}
       {routing.length > 0 && (
         <>
-          <div className={styles.routingHead}>Warum dieses Modell?</div>
+          <div className={styles.routingHead}>{t('orch.retroSection.whyModel')}</div>
           {routing.map((entry) => (
             <div key={`${entry.provider}/${entry.model}`} className={styles.routingModel}>
               <strong>
@@ -805,7 +804,7 @@ function OrchestratorPanelContent({
     }
   }
 
-  // "Massenübergabe": target the largest cohort of running interactive agents that
+  // Bulk handoff: target the largest cohort of running interactive agents that
   // share a provider — the same cohort the handoff modal would bulk-transfer.
   const bulkHandoffTarget = ((): { agent: AgentInstanceInfo; count: number } | null => {
     const candidates = wsAgents.filter(
@@ -909,7 +908,7 @@ function OrchestratorPanelContent({
       </PanelSection>
       <PanelSection
         id="overview"
-        title="Ziel & Status"
+        title={t('orch.section.overview')}
         badge={goal?.active ? t('orch.active') : t('orch.inactive')}
       >
       <div className="orch-head">
@@ -997,14 +996,14 @@ function OrchestratorPanelContent({
         {sessionUsageText && (
           <div className="usage-strip" title={t('orch.run.usageTitle')}>
             <span>
-              Sitzung: <strong>{sessionUsageText}</strong>
+              {t('orch.sessionLabel')} <strong>{sessionUsageText}</strong>
             </span>
           </div>
         )}
       </div>
       </PanelSection>
 
-      <PanelSection id="retro" title={'Gelerntes & Routing'}>
+      <PanelSection id="retro" title={t('orch.section.retro')}>
         <RetroRoutingSection lastRetro={lastRetro} slots={profile?.agents} />
       </PanelSection>
 
@@ -1022,7 +1021,9 @@ function OrchestratorPanelContent({
                 {orch?.name ? <LoreName name={orch.name} /> : t('orch.title')}
               </strong>
               <span className={`activity-phase phase-${activity.phase}`}>
-                {ORCHESTRATOR_ACTIVITY_LABEL[activity.phase]}
+                {t(`orch.activityPhase.${activity.phase}`, {
+                  defaultValue: ORCHESTRATOR_ACTIVITY_LABEL[activity.phase]
+                })}
               </span>
             </div>
             <div className="coordinator-summary" role="status" aria-live="polite">{activity.summary}</div>

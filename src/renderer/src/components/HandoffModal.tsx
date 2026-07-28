@@ -58,7 +58,7 @@ export default function HandoffModal(): JSX.Element | null {
       ? collectEligibleSources(state.handoffSource, state.agents)
       : []
   })
-  // Pre-check bulk when opened from the "Massenübergabe" entry, but only if a real cohort exists.
+  // Pre-check bulk when opened from the bulk-handoff entry, but only if a real cohort exists.
   const [bulk, setBulk] = useState<boolean>(
     () => useAppStore.getState().handoffBulk && eligibleSources.length > 1
   )
@@ -123,7 +123,9 @@ export default function HandoffModal(): JSX.Element | null {
               </div>
               <div className="reason">
                 {limit
-                  ? t('modals.handoff.limitDetected', { kind: LIMIT_KIND_LABELS[limit.kind] })
+                  ? t('modals.handoff.limitDetected', {
+                      kind: t(`ui.limitKind.${limit.kind}`, { defaultValue: LIMIT_KIND_LABELS[limit.kind] })
+                    })
                   : t('modals.handoff.manual')} — {source.role}
               </div>
             </div>

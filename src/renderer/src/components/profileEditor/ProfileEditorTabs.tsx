@@ -1,4 +1,5 @@
 import { memo, useRef, type KeyboardEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { ProfileEditorTabId } from './tabSummaries'
 import styles from './ProfileEditorTabs.module.css'
 
@@ -36,6 +37,7 @@ const ProfileEditorTabs = memo(function ProfileEditorTabs({
   activeTab,
   onSelect
 }: ProfileEditorTabsProps): JSX.Element {
+  const { t } = useTranslation()
   const listRef = useRef<HTMLDivElement>(null)
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
@@ -59,7 +61,7 @@ const ProfileEditorTabs = memo(function ProfileEditorTabs({
     <div
       ref={listRef}
       role="tablist"
-      aria-label="Profil-Bereiche"
+      aria-label={t('profile.editor.tablistAria')}
       className={styles.tablist}
       onKeyDown={onKeyDown}
     >

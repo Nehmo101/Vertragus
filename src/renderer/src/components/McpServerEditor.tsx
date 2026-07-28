@@ -216,9 +216,9 @@ export default function McpServerEditor(): JSX.Element | null {
                       value={draft.transport}
                       onChange={(e) => patch(idx, { transport: e.target.value as McpTransport })}
                     >
-                      {MCP_TRANSPORTS.map((t) => (
-                        <option key={t} value={t}>
-                          {MCP_TRANSPORT_LABELS[t]}
+                      {MCP_TRANSPORTS.map((transport) => (
+                        <option key={transport} value={transport}>
+                          {t(`ui.mcp.transport.${transport}`, { defaultValue: MCP_TRANSPORT_LABELS[transport] })}
                         </option>
                       ))}
                     </select>
@@ -232,9 +232,9 @@ export default function McpServerEditor(): JSX.Element | null {
                       value={draft.scope}
                       onChange={(e) => patch(idx, { scope: e.target.value as McpScope })}
                     >
-                      {MCP_SCOPES.map((s) => (
-                        <option key={s} value={s}>
-                          {MCP_SCOPE_LABELS[s]}
+                      {MCP_SCOPES.map((scope) => (
+                        <option key={scope} value={scope}>
+                          {t(`ui.mcp.scope.${scope}`, { defaultValue: MCP_SCOPE_LABELS[scope] })}
                         </option>
                       ))}
                     </select>

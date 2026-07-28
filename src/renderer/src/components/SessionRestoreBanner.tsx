@@ -43,29 +43,36 @@ export function shouldAutoExpand(status: SessionRestoreStatus): boolean {
   )
 }
 
+/** Minimal translate signature so i18next's `t` can be passed straight through. */
+export type RestoreTranslate = (key: string, options?: { n?: number }) => string
+
 /**
  * One-line summary for the collapsed banner, e.g.
- * "2 Sessions wiederherstellbar · 3 verwaiste Worktrees (2 mit Änderungen) · 1 alte Session".
+ * "2 sessions restorable · 3 orphaned worktrees (2 with changes) · 1 old session".
  * Returns '' when there is nothing to count (crash-only banner).
  */
-export function buildCompactSummary(status: SessionRestoreStatus): string {
-  /* i18n-später: Zusammenfassung bewusst hart deutsch, wird später lokalisiert */
+export function buildCompactSummary(status: SessionRestoreStatus, t: RestoreTranslate): string {
   const parts: string[] = []
   const resumable = status.resumableSessions.length
   if (resumable > 0) {
     parts.push(
-      resumable === 1 ? '1 Session wiederherstellbar' : `${resumable} Sessions wiederherstellbar`
+      resumable === 1
+        ? t('restore.summaryResumableOne')
+        : t('restore.summaryResumableMany', { n: resumable })
     )
   }
   const orphans = status.orphanedWorktrees.length
   if (orphans > 0) {
     const dirty = status.orphanedWorktrees.filter((item) => (item.changedFiles ?? 0) > 0).length
-    const base = orphans === 1 ? '1 verwaister Worktree' : `${orphans} verwaiste Worktrees`
-    parts.push(dirty > 0 ? `${base} (${dirty} mit Änderungen)` : base)
+    const base =
+      orphans === 1 ? t('restore.summaryOrphanOne') : t('restore.summaryOrphanMany', { n: orphans })
+    parts.push(dirty > 0 ? `${base}${t('restore.summaryDirtySuffix', { n: dirty })}` : base)
   }
   const stale = status.staleSessions.length
   if (stale > 0) {
-    parts.push(stale === 1 ? '1 alte Session' : `${stale} alte Sessions`)
+    parts.push(
+      stale === 1 ? t('restore.summaryStaleOne') : t('restore.summaryStaleMany', { n: stale })
+    )
   }
   return parts.join(' · ')
 }
@@ -170,7 +177,7 @@ export default function SessionRestoreBanner(): JSX.Element | null {
 
   useEffect(() => {
     // Armed destructive confirms disarm themselves after a short timeout so a
-    // forgotten first click cannot leave a live "Bestätigen?" button around.
+    // forgotten first click cannot leave a live confirm button around.
     if (confirming == null) return
     const timer = window.setTimeout(() => setConfirming(null), CONFIRM_RESET_MS)
     return () => window.clearTimeout(timer)
@@ -334,7 +341,7 @@ export default function SessionRestoreBanner(): JSX.Element | null {
   }
   const detailCount =
     status.resumableSessions.length + status.orphanedWorktrees.length + status.staleSessions.length
-  const compactSummary = buildCompactSummary(status)
+  const compactSummary = buildCompactSummary(status, t)
   const cleanupTargets = collectCleanupTargets(status)
   const cleanupCount = cleanupTargets.orphanPaths.length + cleanupTargets.staleSessions.length
 
@@ -389,7 +396,7 @@ export default function SessionRestoreBanner(): JSX.Element | null {
                   : compactSummary || t('restore.summaryNone')}
               </span>
               <span className={styles.detailsHint}>
-                {isExpanded ? 'Einklappen' /* i18n-später */ : 'Details' /* i18n-später */}
+                {isExpanded ? t('restore.collapse') : t('restore.details')}
               </span>
               <span className="restore-chevron" aria-hidden>
                 {isExpanded ? '▾' : '▸'}
@@ -439,11 +446,14 @@ export default function SessionRestoreBanner(): JSX.Element | null {
           {cleanupCount > 0 &&
             renderConfirmAction(
               'discard-everything',
-              /* i18n-später */ 'Alles verwerfen & aufräumen',
-              /* i18n-später */ `${cleanupTargets.orphanPaths.length} verwaiste Worktrees verwerfen (uncommittete Arbeit geht verloren) und ${cleanupTargets.staleSessions.length} alte Session(s) entfernen?`,
+              t('restore.discardEverything'),
+              t('restore.discardEverythingConfirm', {
+                orphans: cleanupTargets.orphanPaths.length,
+                stale: cleanupTargets.staleSessions.length
+              }),
               discardEverything,
               {
-                armedLabel: /* i18n-später */ 'Wirklich alles verwerfen?',
+                armedLabel: t('restore.discardEverythingArmed'),
                 idleClass: `btn ${styles.dangerAction}`
               }
             )}

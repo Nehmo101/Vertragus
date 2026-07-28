@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import i18n from '../i18n'
 import { buildOverflowMenuItems, type OverflowMenuContext } from './titleBarOverflow'
+
+// Labels are asserted against the German source copy, independent of the host locale.
+const t = i18n.getFixedT('de')
 
 const base: OverflowMenuContext = {
   language: 'de',
@@ -14,7 +18,7 @@ const base: OverflowMenuContext = {
 
 describe('buildOverflowMenuItems', () => {
   it('liefert die vier festen Umschalter in stabiler Reihenfolge', () => {
-    const items = buildOverflowMenuItems(base)
+    const items = buildOverflowMenuItems(base, t)
     expect(items.map((item) => item.id)).toEqual(['language', 'theme', 'readable', 'density'])
   })
 
@@ -24,24 +28,24 @@ describe('buildOverflowMenuItems', () => {
       theme: 'dark',
       cliReadable: true,
       uiDensity: 'compact'
-    })
+    }, t)
     const byId = new Map(items.map((item) => [item.id, item]))
     expect(byId.get('theme')?.checked).toBe(true)
     expect(byId.get('readable')?.checked).toBe(true)
     expect(byId.get('density')?.checked).toBe(true)
-    expect(buildOverflowMenuItems(base).find((i) => i.id === 'density')?.checked).toBe(false)
+    expect(buildOverflowMenuItems(base, t).find((i) => i.id === 'density')?.checked).toBe(false)
   })
 
   it('zeigt die aktuelle Sprache als Detail', () => {
-    expect(buildOverflowMenuItems(base).find((i) => i.id === 'language')?.detail).toBe('Deutsch')
+    expect(buildOverflowMenuItems(base, t).find((i) => i.id === 'language')?.detail).toBe('Deutsch')
     expect(
-      buildOverflowMenuItems({ ...base, language: 'en' }).find((i) => i.id === 'language')?.detail
+      buildOverflowMenuItems({ ...base, language: 'en' }, t).find((i) => i.id === 'language')?.detail
     ).toBe('English')
   })
 
   it('blendet Update-Items nur bei Bedarf ein und reicht disabled durch', () => {
-    expect(buildOverflowMenuItems(base).some((i) => i.id === 'update')).toBe(false)
-    expect(buildOverflowMenuItems(base).some((i) => i.id === 'updateChannel')).toBe(false)
+    expect(buildOverflowMenuItems(base, t).some((i) => i.id === 'update')).toBe(false)
+    expect(buildOverflowMenuItems(base, t).some((i) => i.id === 'updateChannel')).toBe(false)
 
     const items = buildOverflowMenuItems({
       ...base,
@@ -49,7 +53,7 @@ describe('buildOverflowMenuItems', () => {
       updateLabel: 'Update installieren',
       updateDisabled: true,
       updateChannel: 'main'
-    })
+    }, t)
     const update = items.find((i) => i.id === 'update')
     expect(update?.label).toBe('Update installieren')
     expect(update?.disabled).toBe(true)

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import i18n from '../../i18n'
 import type { AgentSlot, WorkspaceProfile } from '@shared/profile'
 import {
   automationTabSummary,
@@ -8,6 +9,9 @@ import {
   slotsTabSummary,
   tabSummaries
 } from './tabSummaries'
+
+// Summaries are asserted against the German source copy, independent of the host locale.
+const t = i18n.getFixedT('de')
 
 function slot(patch: Partial<AgentSlot> = {}): AgentSlot {
   return {
@@ -63,16 +67,16 @@ describe('repoTabSummary', () => {
         cloneStatus: 'linked'
       }
     })
-    expect(repoTabSummary(p)).toBe('uwe/dragons')
+    expect(repoTabSummary(p, t)).toBe('uwe/dragons')
   })
 
   it('falls back to the working directory basename for both path styles', () => {
-    expect(repoTabSummary(profile({ workingDir: 'C:\\git\\vertragus' }))).toBe('vertragus')
-    expect(repoTabSummary(profile({ workingDir: '/home/uwe/vertragus/' }))).toBe('vertragus')
+    expect(repoTabSummary(profile({ workingDir: 'C:\\git\\vertragus' }), t)).toBe('vertragus')
+    expect(repoTabSummary(profile({ workingDir: '/home/uwe/vertragus/' }), t)).toBe('vertragus')
   })
 
   it('names the empty state', () => {
-    expect(repoTabSummary(profile())).toBe('Kein Repo verbunden')
+    expect(repoTabSummary(profile(), t)).toBe('Kein Repo verbunden')
   })
 })
 
@@ -86,7 +90,7 @@ describe('modeTabSummary', () => {
         autoOpenSubwindows: true
       }
     })
-    expect(modeTabSummary(p)).toBe('Orchestriert · claude/opus')
+    expect(modeTabSummary(p, t)).toBe('Orchestriert · claude/opus')
   })
 
   it('falls back to the preset, then to the CLI default', () => {
@@ -99,7 +103,7 @@ describe('modeTabSummary', () => {
         autoOpenSubwindows: true
       }
     })
-    expect(modeTabSummary(withPreset)).toBe('Orchestriert · claude/balanced')
+    expect(modeTabSummary(withPreset, t)).toBe('Orchestriert · claude/balanced')
 
     const cliDefault = profile({
       orchestrator: {
@@ -109,18 +113,18 @@ describe('modeTabSummary', () => {
         autoOpenSubwindows: true
       }
     })
-    expect(modeTabSummary(cliDefault)).toBe('Orchestriert · kimi/CLI-Standard')
+    expect(modeTabSummary(cliDefault, t)).toBe('Orchestriert · kimi/CLI-Standard')
   })
 
   it('shows solo mode with the single slot model', () => {
     const p = profile({ solo: true, agents: [slot({ provider: 'claude', model: 'sonnet' })] })
-    expect(modeTabSummary(p)).toBe('Efficiency Solo · claude/sonnet')
-    expect(modeTabSummary(profile({ solo: true }))).toBe('Efficiency Solo')
+    expect(modeTabSummary(p, t)).toBe('Efficiency Solo · claude/sonnet')
+    expect(modeTabSummary(profile({ solo: true }), t)).toBe('Efficiency Solo')
   })
 
   it('shows the parallel single mode with slot count and singular form', () => {
-    expect(modeTabSummary(profile({ agents: [slot(), slot()] }))).toBe('Single · 2 Slots parallel')
-    expect(modeTabSummary(profile({ agents: [slot()] }))).toBe('Single · 1 Slot parallel')
+    expect(modeTabSummary(profile({ agents: [slot(), slot()] }), t)).toBe('Single · 2 Slots parallel')
+    expect(modeTabSummary(profile({ agents: [slot()] }), t)).toBe('Single · 1 Slot parallel')
   })
 })
 
@@ -129,17 +133,17 @@ describe('slotsTabSummary', () => {
     const p = profile({
       agents: [slot({ provider: 'claude' }), slot({ provider: 'codex' }), slot({ provider: 'codex' })]
     })
-    expect(slotsTabSummary(p)).toBe('3 Slots · 2 Provider')
+    expect(slotsTabSummary(p, t)).toBe('3 Slots · 2 Provider')
   })
 
   it('adds the instance total only when count multiplies the rows', () => {
     const p = profile({ agents: [slot({ count: 3 }), slot({ provider: 'claude' })] })
-    expect(slotsTabSummary(p)).toBe('2 Slots · 2 Provider · 4 Agents')
+    expect(slotsTabSummary(p, t)).toBe('2 Slots · 2 Provider · 4 Agents')
   })
 
   it('uses the singular and names the empty state', () => {
-    expect(slotsTabSummary(profile({ agents: [slot()] }))).toBe('1 Slot · 1 Provider')
-    expect(slotsTabSummary(profile())).toBe('Keine Slots')
+    expect(slotsTabSummary(profile({ agents: [slot()] }), t)).toBe('1 Slot · 1 Provider')
+    expect(slotsTabSummary(profile(), t)).toBe('Keine Slots')
   })
 })
 
@@ -149,13 +153,13 @@ describe('automationTabSummary', () => {
       autoPr: { ...profile().autoPr, mode: 'draft-after-checks', strategy: 'aggregate' },
       autoGit: { enabled: true, targetBranch: 'main' }
     })
-    expect(automationTabSummary(p)).toBe('draft-after-checks · aggregate · Push auf main')
+    expect(automationTabSummary(p, t)).toBe('draft-after-checks · aggregate · Push auf main')
   })
 
   it('names both disabled states and a missing target branch', () => {
-    expect(automationTabSummary(profile())).toBe('Auto-PR aus · Auto-Git aus')
+    expect(automationTabSummary(profile(), t)).toBe('Auto-PR aus · Auto-Git aus')
     const missingBranch = profile({ autoGit: { enabled: true, targetBranch: '   ' } })
-    expect(automationTabSummary(missingBranch)).toBe('Auto-PR aus · Push auf ?')
+    expect(automationTabSummary(missingBranch, t)).toBe('Auto-PR aus · Push auf ?')
   })
 })
 
@@ -170,15 +174,15 @@ describe('skillsTabSummary', () => {
   }
 
   it('counts skills with singular/plural and survives legacy drafts', () => {
-    expect(skillsTabSummary(profile({ skills: [skill] }))).toBe('1 Skill')
-    expect(skillsTabSummary(profile({ skills: [skill, { ...skill, id: 's2' }] }))).toBe('2 Skills')
-    expect(skillsTabSummary(profile({ skills: undefined }))).toBe('Keine Skills')
+    expect(skillsTabSummary(profile({ skills: [skill] }), t)).toBe('1 Skill')
+    expect(skillsTabSummary(profile({ skills: [skill, { ...skill, id: 's2' }] }), t)).toBe('2 Skills')
+    expect(skillsTabSummary(profile({ skills: undefined }), t)).toBe('Keine Skills')
   })
 })
 
 describe('tabSummaries', () => {
   it('returns one line per tab', () => {
-    const all = tabSummaries(profile())
+    const all = tabSummaries(profile(), t)
     expect(Object.keys(all).sort()).toEqual(['automation', 'mode', 'repo', 'skills', 'slots'])
     for (const line of Object.values(all)) {
       expect(line.length).toBeGreaterThan(0)

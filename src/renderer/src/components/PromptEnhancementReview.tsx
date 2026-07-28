@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { PromptEnhancementSelection } from '@shared/promptEnhancement'
 import {
   PROMPT_ENHANCEMENT_A11Y,
@@ -30,6 +31,7 @@ export default function PromptEnhancementReview({
   onConfirmApply,
   onCancelApply
 }: Props): JSX.Element | null {
+  const { t } = useTranslation()
   const regionRef = useRef<HTMLElement>(null)
   useEffect(() => {
     if (shouldFocusPromptReview(session.open)) regionRef.current?.focus()
@@ -45,11 +47,24 @@ export default function PromptEnhancementReview({
   const message = result && 'message' in result ? result.message : ''
   const warnings = result && 'warnings' in result ? result.warnings : []
 
+  const candidateStatus = (status: string): string => {
+    switch (status) {
+      case 'ready':
+        return t('promptReview.candidateReady')
+      case 'needs-login':
+        return t('promptReview.candidateLogin')
+      case 'unverified':
+        return t('promptReview.candidateUnverified')
+      default:
+        return t('promptReview.candidateUnavailable')
+    }
+  }
+
   return (
     <section
       ref={regionRef}
       className="inbox-prompt-review"
-      aria-label={PROMPT_ENHANCEMENT_A11Y.regionLabel}
+      aria-label={t('promptReview.regionLabel')}
       aria-live={PROMPT_ENHANCEMENT_A11Y.live}
       tabIndex={-1}
       onKeyDown={(event) => {
@@ -61,33 +76,38 @@ export default function PromptEnhancementReview({
     >
       <div className="inbox-prompt-review-head">
         <div>
-          <b>{session.phase === 'loading' ? 'Wird geschärft …' : 'Prompt-Verbesserung prüfen'}</b>
-          <span>{promptProviderModelLabel(result)}</span>
+          <b>{session.phase === 'loading' ? t('promptReview.sharpening') : t('promptReview.title')}</b>
+          <span>
+            {promptProviderModelLabel(result, {
+              cliDefault: t('promptReview.cliDefault'),
+              localNoModel: t('promptReview.localNoModel')
+            })}
+          </span>
         </div>
         <button type="button" className="inbox-btn ghost sm" onClick={onCancel}>
-          Abbrechen
+          {t('promptReview.cancel')}
         </button>
       </div>
 
-      {session.phase === 'loading' && <div role="status">Provider und Modell werden im Main-Prozess ausgeführt.</div>}
+      {session.phase === 'loading' && <div role="status">{t('promptReview.loadingHint')}</div>}
       {message && (
         <div className={session.phase === 'error' ? 'inbox-error' : 'inbox-transfer-hint'} role={session.phase === 'error' ? 'alert' : undefined}>
           {message}
         </div>
       )}
       {result?.status === 'fallback' || result?.status === 'local-fallback' ? (
-        <div className="inbox-prompt-fallback-badge">Deterministischer Fallback – keine KI-Verbesserung</div>
+        <div className="inbox-prompt-fallback-badge">{t('promptReview.fallbackBadge')}</div>
       ) : null}
       {warnings.length > 0 && <div className="inbox-transfer-hint">{warnings.join(' ')}</div>}
 
       <div className="inbox-prompt-compare">
         <article>
-          <h3>Original</h3>
-          <b>{session.original.title || 'Ohne Titel'}</b>
+          <h3>{t('promptReview.original')}</h3>
+          <b>{session.original.title || t('promptReview.untitled')}</b>
           <pre>{session.original.content || '—'}</pre>
         </article>
         <article>
-          <h3>{result?.status === 'enhanced' ? 'KI-Verbesserung' : 'Vorschlag'}</h3>
+          <h3>{result?.status === 'enhanced' ? t('promptReview.aiEnhancement') : t('promptReview.suggestion')}</h3>
           {output ? (
             <>
               <b>{output.title}</b>
@@ -95,21 +115,21 @@ export default function PromptEnhancementReview({
             </>
           ) : (
             <div className="inbox-empty small">
-              {session.phase === 'loading' ? 'Antwort wird vorbereitet …' : 'Noch kein Verbesserungsvorschlag.'}
+              {session.phase === 'loading' ? t('promptReview.preparing') : t('promptReview.noSuggestion')}
             </div>
           )}
         </article>
       </div>
 
       {candidates.length > 0 && (
-        <div className="inbox-prompt-candidates" aria-label="Provider ausdrücklich auswählen">
+        <div className="inbox-prompt-candidates" aria-label={t('promptReview.candidatesAria')}>
           {candidates.map((candidate) => {
             const selectable = result?.status === 'selection-required' &&
               (candidate.status === 'ready' || candidate.status === 'unverified')
             return (
               <span key={candidate.provider} className={`inbox-prompt-candidate state-${candidate.status}`}>
                 <span title={candidate.detail}>
-                  {candidate.label} · {candidate.status === 'ready' ? 'verfügbar' : candidate.status === 'needs-login' ? 'Anmeldung nötig' : candidate.status === 'unverified' ? 'Status ungeprüft' : 'nicht verfügbar'}
+                  {candidate.label} · {candidateStatus(candidate.status)}
                 </span>
                 {selectable && (
                   <button
@@ -117,7 +137,7 @@ export default function PromptEnhancementReview({
                     className="inbox-btn ghost sm"
                     onClick={() => onRetry({ provider: candidate.provider })}
                   >
-                    CLI-Standard auswählen
+                    {t('promptReview.chooseCliDefault')}
                   </button>
                 )}
               </span>
@@ -128,30 +148,30 @@ export default function PromptEnhancementReview({
 
       {(result?.status === 'selection-required' || result?.status === 'provider-unavailable') && (
         <button type="button" className="inbox-btn ghost sm" onClick={onFallback}>
-          Deterministischen Fallback anzeigen (keine KI)
+          {t('promptReview.showFallback')}
         </button>
       )}
 
       <div className="inbox-prompt-review-actions">
         {result?.status !== 'selection-required' && session.phase !== 'loading' && (
           <button type="button" className="inbox-btn ghost" onClick={() => onRetry(session.selection)}>
-            Erneut schärfen
+            {t('promptReview.retry')}
           </button>
         )}
         {output && (
           <>
             <button type="button" className="inbox-btn ghost" onClick={onCopy}>
-              {session.copied ? 'Kopiert' : 'Kopieren'}
+              {session.copied ? t('promptReview.copied') : t('promptReview.copy')}
             </button>
             {!session.confirmApply ? (
               <button type="button" className="inbox-btn" onClick={onRequestApply}>
-                Übernehmen
+                {t('promptReview.apply')}
               </button>
             ) : (
-              <span className="inbox-prompt-apply-confirm" role="group" aria-label="Übernahme bestätigen">
-                <span>Nur lokalen Titel und Inhalt ersetzen?</span>
-                <button type="button" className="inbox-btn ghost sm" onClick={onCancelApply}>Nein</button>
-                <button type="button" className="inbox-btn sm" onClick={onConfirmApply}>Ja, übernehmen</button>
+              <span className="inbox-prompt-apply-confirm" role="group" aria-label={t('promptReview.applyConfirmAria')}>
+                <span>{t('promptReview.applyConfirmQuestion')}</span>
+                <button type="button" className="inbox-btn ghost sm" onClick={onCancelApply}>{t('promptReview.no')}</button>
+                <button type="button" className="inbox-btn sm" onClick={onConfirmApply}>{t('promptReview.yesApply')}</button>
               </span>
             )}
           </>

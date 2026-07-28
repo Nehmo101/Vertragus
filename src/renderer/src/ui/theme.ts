@@ -26,14 +26,15 @@ export const PROVIDER_THEME: Record<ProviderId, ProviderTheme> = {
 export interface StatusTheme {
   dot: string
   text: string
+  /** i18n key of the human-readable status label — render via `t(theme.label)`. */
   label: string
 }
 
 export const STATUS_THEME: Record<AgentStatus, StatusTheme> = {
-  running: { dot: 'var(--run)', text: 'var(--run-text)', label: 'läuft' },
-  waiting: { dot: 'var(--wait)', text: 'var(--wait-text)', label: 'wartet' },
-  error: { dot: 'var(--err)', text: 'var(--err-text)', label: 'Fehler' },
-  stopped: { dot: 'var(--stop)', text: 'var(--stop-text)', label: 'gestoppt' }
+  running: { dot: 'var(--run)', text: 'var(--run-text)', label: 'ui.status.running' },
+  waiting: { dot: 'var(--wait)', text: 'var(--wait-text)', label: 'ui.status.waiting' },
+  error: { dot: 'var(--err)', text: 'var(--err-text)', label: 'ui.status.error' },
+  stopped: { dot: 'var(--stop)', text: 'var(--stop-text)', label: 'ui.status.stopped' }
 }
 
 /**

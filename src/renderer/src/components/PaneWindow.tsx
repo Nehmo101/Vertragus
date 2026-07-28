@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { AgentInstanceInfo } from '@shared/agents'
 import AgentPane from '@renderer/components/AgentPane'
 import styles from './PaneWindow.module.css'
 
 /** Pop-out window: renders a single agent pane, mirroring the main grid. */
 export default function PaneWindow({ agentId }: { agentId: string }): JSX.Element {
+  const { t } = useTranslation()
   const [agent, setAgent] = useState<AgentInstanceInfo | null>(null)
 
   useEffect(() => {
@@ -22,11 +24,8 @@ export default function PaneWindow({ agentId }: { agentId: string }): JSX.Elemen
         <div className={styles.emptyWrap}>
           <div className={styles.emptyCard} role="status">
             <span className={styles.emptyIcon} aria-hidden="true">◌</span>
-            <strong className={styles.emptyTitle}>Agent läuft nicht mehr</strong>
-            <span className={styles.emptyHint}>
-              Der Agent „{agentId}“ wurde beendet oder aufgeräumt. Dieses Fenster kann
-              geschlossen werden.
-            </span>
+            <strong className={styles.emptyTitle}>{t('agentPane.window.gone')}</strong>
+            <span className={styles.emptyHint}>{t('agentPane.window.goneHint', { id: agentId })}</span>
           </div>
         </div>
       </div>

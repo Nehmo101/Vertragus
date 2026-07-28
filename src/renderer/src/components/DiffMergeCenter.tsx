@@ -1,4 +1,6 @@
 import { useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import type { TaskReviewDiff } from '@shared/ipc'
 import type { IntegrationCenterItem, VertragusTask } from '@shared/orchestrator'
 import { useAppStore } from '@renderer/store/useAppStore'
@@ -18,19 +20,22 @@ interface OpenDiff extends TaskReviewDiff {
 }
 
 /** One compact metadata line per integration entry, derived from snapshot data only. */
-function changeMeta(item: IntegrationCenterItem, task: VertragusTask | undefined): string {
+function changeMeta(t: TFunction, item: IntegrationCenterItem, task: VertragusTask | undefined): string {
   const parts: string[] = [item.status]
-  parts.push(item.commit ? item.commit.slice(0, 10) : 'kein Commit')
+  parts.push(item.commit ? item.commit.slice(0, 10) : t('diffMerge.meta.noCommit'))
   if (item.branch) parts.push(item.branch)
   if (item.remoteCiStatus) parts.push(`CI ${item.remoteCiStatus}`)
   parts.push(item.findingCount === 0
-    ? 'keine Gate-Findings'
-    : `${item.findingCount} Gate-Finding${item.findingCount === 1 ? '' : 's'}`)
+    ? t('diffMerge.meta.noFindings')
+    : item.findingCount === 1
+      ? t('diffMerge.meta.findingOne', { n: item.findingCount })
+      : t('diffMerge.meta.findingMany', { n: item.findingCount }))
   if (task?.agentName) parts.push(task.model ? `${task.agentName} (${task.model})` : task.agentName)
   return parts.join(' · ')
 }
 
 export default function DiffMergeCenter(): JSX.Element {
+  const { t } = useTranslation()
   const snapshots = useAppStore((state) => state.orchestrators)
   const sessions = useAppStore((state) => state.workspaceSessions)
   const [diff, setDiff] = useState<OpenDiff>()
@@ -66,14 +71,14 @@ export default function DiffMergeCenter(): JSX.Element {
   const fileCount = diff ? countDiffFiles(diff.diff) : 0
 
   return (
-    <main className="mission-surface" aria-label="Diff- und Merge-Center">
+    <main className="mission-surface" aria-label={t('diffMerge.aria')}>
       <header className="mission-header">
-        <div><span className="eyebrow">Integration</span><h1>Diff &amp; Merge Center</h1></div>
-        <span className="mission-count">{values.reduce((sum, snapshot) => sum + (snapshot.integration?.items.length ?? 0), 0)} Änderungen</span>
+        <div><span className="eyebrow">{t('diffMerge.eyebrow')}</span><h1>{t('diffMerge.title')}</h1></div>
+        <span className="mission-count">{t('diffMerge.changes', { n: values.reduce((sum, snapshot) => sum + (snapshot.integration?.items.length ?? 0), 0) })}</span>
       </header>
       {error && (
         <ErrorCard
-          title="Aktion fehlgeschlagen"
+          title={t('ui.actionFailed')}
           detail={error}
           onRetry={retryLastAction}
           retryDisabled={Boolean(busy)}
@@ -83,24 +88,24 @@ export default function DiffMergeCenter(): JSX.Element {
         <div>
           <strong>{diff.title}</strong>
           <div className={styles.modalActions}>
-            {fileCount > 0 && <span className={styles.fileCount}>{fileCount} {fileCount === 1 ? 'Datei' : 'Dateien'}</span>}
+            {fileCount > 0 && <span className={styles.fileCount}>{fileCount === 1 ? t('diffMerge.fileOne', { n: fileCount }) : t('diffMerge.fileMany', { n: fileCount })}</span>}
             <button
               type="button"
               className="secondary"
               disabled={!diff.canOpenWorktree || busy === 'worktree'}
               title={diff.canOpenWorktree
-                ? 'Öffnet den Task-Worktree in VS Code (falls installiert), sonst im Dateimanager.'
-                : 'Für diese Aufgabe liegt kein Worktree mehr vor.'}
+                ? t('orch.task.openWorktreeHint')
+                : t('diffMerge.noWorktree')}
               onClick={() => void run('worktree', () =>
                 window.vertragus.orchestrator.openTaskWorktree(diff.profileId, diff.taskId, diff.sessionId))}
-            >Im Editor öffnen</button>
-            <button type="button" onClick={() => setDiff(undefined)}>Schließen</button>
+            >{t('orch.task.openWorktree')}</button>
+            <button type="button" onClick={() => setDiff(undefined)}>{t('diffMerge.close')}</button>
           </div>
         </div>
         <DiffView diff={diff.diff} />
-        {diff.truncated && <small className={styles.truncatedNote}>Diff gekürzt (Größenlimit erreicht).</small>}
+        {diff.truncated && <small className={styles.truncatedNote}>{t('diffMerge.truncated')}</small>}
       </section>}
-      {values.length === 0 && <div className="mission-empty"><strong>Noch keine Integrationen</strong><span>Verifizierte Task-Commits erscheinen hier.</span></div>}
+      {values.length === 0 && <div className="mission-empty"><strong>{t('diffMerge.emptyTitle')}</strong><span>{t('diffMerge.emptyHint')}</span></div>}
       <section className="mission-integration-list">
         {values.map((snapshot) => {
           const integration = snapshot.integration!
@@ -114,13 +119,13 @@ export default function DiffMergeCenter(): JSX.Element {
               return <div className="mission-change" key={item.taskId}>
                 <div>
                   <strong>{item.title}</strong>
-                  <small>{changeMeta(item, task)}</small>
+                  <small>{changeMeta(t, item, task)}</small>
                   {item.remoteCiSummary && <small>{item.remoteCiSummary}</small>}
                   {(item.prUrl || (item.remoteCiUrl && item.remoteCiUrl !== item.prUrl)) && (
                     <span className={styles.changeLinks}>
-                      {item.prUrl && <a href={item.prUrl} target="_blank" rel="noreferrer">PR öffnen</a>}
+                      {item.prUrl && <a href={item.prUrl} target="_blank" rel="noreferrer">{t('diffMerge.openPr')}</a>}
                       {item.remoteCiUrl && item.remoteCiUrl !== item.prUrl && (
-                        <a href={item.remoteCiUrl} target="_blank" rel="noreferrer">CI-Checks</a>
+                        <a href={item.remoteCiUrl} target="_blank" rel="noreferrer">{t('diffMerge.ciChecks')}</a>
                       )}
                     </span>
                   )}
@@ -134,15 +139,15 @@ export default function DiffMergeCenter(): JSX.Element {
                     sessionId,
                     canOpenWorktree: Boolean(task?.worktree ?? task?.recoveryArtifact?.worktree)
                   })
-                })}>Diff</button>
+                })}>{t('diffMerge.diff')}</button>
               </div>
             })}
             {publication && <div className="mission-actions">
               <button type="button" disabled={Boolean(busy)} onClick={() => void run(`publish:${sessionId}`, () => window.vertragus.orchestrator.approvePublication(snapshot.profileId!, sessionId, publication.task?.planId))}>
-                {busy === `publish:${sessionId}` ? <><Spinner /> Veröffentliche…</> : 'Geprüft veröffentlichen'}
+                {busy === `publish:${sessionId}` ? <><Spinner /> {t('diffMerge.publishing')}</> : t('diffMerge.publish')}
               </button>
               <button type="button" className="secondary" disabled={Boolean(busy)} onClick={() => void run(`reject:${sessionId}`, () => window.vertragus.orchestrator.rejectPublication(snapshot.profileId!, sessionId, publication.task?.planId))}>
-                {busy === `reject:${sessionId}` ? <><Spinner /> Lehne ab…</> : 'Ablehnen'}
+                {busy === `reject:${sessionId}` ? <><Spinner /> {t('diffMerge.rejecting')}</> : t('diffMerge.reject')}
               </button>
             </div>}
           </article>

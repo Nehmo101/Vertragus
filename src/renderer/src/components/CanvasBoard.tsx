@@ -52,9 +52,9 @@ import { CanvasComposer } from './CanvasComposer'
 import { OrchestratorThread } from './OrchestratorThread'
 
 /**
- * Tastaturpfad für Task-Knoten: Enter/Space öffnet das bestehende Kontextmenü
- * als Popover am Knoten. Der Callback lebt im Board, die Knoten erreichen ihn
- * über diesen Context, weil React Flow die Node-Komponenten selbst rendert.
+ * Keyboard path for task nodes: Enter/Space opens the existing context menu
+ * as a popover at the node. The callback lives in the board; the nodes reach
+ * it via this context because React Flow renders the node components itself.
  */
 const TaskNodeMenuContext = createContext<
   ((task: VertragusTask, element: HTMLElement) => void) | null
@@ -125,8 +125,8 @@ function TaskNode({ data }: NodeProps<Node<TaskNodeData, 'task'>>): JSX.Element 
   const [dropActive, setDropActive] = useState(false)
   const openNodeMenu = useContext(TaskNodeMenuContext)
 
-  // Enter/Space öffnet das Kontextmenü am Knoten; Escape schließt es (globaler
-  // Listener im Board). stopPropagation hält React-Flow-Shortcuts fern.
+  // Enter/Space opens the context menu at the node; Escape closes it (global
+  // listener in the board). stopPropagation keeps React Flow shortcuts away.
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
     if (event.target !== event.currentTarget) return
     if (event.key === 'Enter' || event.key === ' ') {
@@ -407,7 +407,7 @@ export default function CanvasBoard(): JSX.Element {
 
   const [menu, setMenu] = useState<{ x: number; y: number; task: VertragusTask } | null>(null)
 
-  // Tastaturpfad: öffnet das Kontextmenü als Popover direkt unter dem Knoten.
+  // Keyboard path: opens the context menu as a popover right below the node.
   const openMenuAtNode = (task: VertragusTask, element: HTMLElement): void => {
     const host = element.closest('.vertragus-canvas')?.getBoundingClientRect()
     const rect = element.getBoundingClientRect()
@@ -418,7 +418,7 @@ export default function CanvasBoard(): JSX.Element {
     })
   }
 
-  // Escape schließt das Menü, egal wo der Fokus gerade liegt.
+  // Escape closes the menu no matter where focus currently is.
   useEffect(() => {
     if (!menu) return
     const onKey = (event: KeyboardEvent): void => {
@@ -471,13 +471,13 @@ export default function CanvasBoard(): JSX.Element {
           <div className="canvas-empty-profile">{store.profiles.find((p) => p.id === store.activeProfileId)?.name ?? '—'}</div>
           <div>{t('canvas.emptyHint')}</div>
           <div className="canvas-empty-actions">
-            <button type="button" className="clean-btn workspace-start-btn" onClick={() => void store.startAll()}>{t('canvas.empty.start', { defaultValue: 'Team starten' })}</button>
-            <button type="button" className="clean-btn" onClick={() => void window.vertragus.demo.play()}>{t('canvas.empty.playground', { defaultValue: 'Playground' })}</button>
+            <button type="button" className="clean-btn workspace-start-btn" onClick={() => void store.startAll()}>{t('canvas.empty.start')}</button>
+            <button type="button" className="clean-btn" onClick={() => void window.vertragus.demo.play()}>{t('canvas.empty.playground')}</button>
           </div>
           <ol className="canvas-onboarding">
-            <li>{t('canvas.empty.drag', { defaultValue: 'Karten frei anordnen' })}</li>
-            <li>{t('canvas.empty.doubleClick', { defaultValue: 'Doppelklick öffnet das Terminal' })}</li>
-            <li>{t('canvas.empty.chat', { defaultValue: 'Unten mit Caronte chatten' })}</li>
+            <li>{t('canvas.empty.drag')}</li>
+            <li>{t('canvas.empty.doubleClick')}</li>
+            <li>{t('canvas.empty.chat')}</li>
           </ol>
         </div>
         <CanvasComposerMount />
@@ -503,8 +503,8 @@ export default function CanvasBoard(): JSX.Element {
           minZoom={0.25}
           maxZoom={1.75}
           nodesConnectable={false}
-          // Fokus liegt auf dem inneren Task-Knoten (tabIndex), nicht auf dem
-          // React-Flow-Wrapper — sonst gäbe es doppelte Tab-Stopps pro Knoten.
+          // Focus sits on the inner task node (tabIndex), not on the React
+          // Flow wrapper — otherwise every node would get two tab stops.
           nodesFocusable={false}
           deleteKeyCode={null}
           proOptions={{ hideAttribution: false }}
@@ -608,13 +608,13 @@ function SessionChips(): JSX.Element {
   )
   const sessions = store.workspaceSessions.filter((session) => session.profileId === store.activeProfileId)
   return (
-    <nav className="canvas-sessions" aria-label={t('canvas.sessions.aria', { defaultValue: 'Workspace-Sessions' })}>
+    <nav className="canvas-sessions" aria-label={t('canvas.sessions.aria')}>
       {sessions.map((session) => (
         <button key={session.id} type="button" className={session.id === store.activeWorkspaceSessionId ? 'active' : ''} onClick={() => void store.selectWorkspaceSession(session.profileId, session.id)} title={session.taskSummary}>
           W{session.sequence} · {session.name}
         </button>
       ))}
-      <button type="button" className="canvas-session-add" onClick={() => void store.startAll()} aria-label={t('canvas.sessions.add', { defaultValue: 'Weitere Session starten' })}>＋</button>
+      <button type="button" className="canvas-session-add" onClick={() => void store.startAll()} aria-label={t('canvas.sessions.add')}>＋</button>
     </nav>
   )
 }

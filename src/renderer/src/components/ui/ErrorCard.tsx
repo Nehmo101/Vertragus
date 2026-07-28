@@ -1,17 +1,12 @@
+import { useTranslation } from 'react-i18next'
 import styles from './ErrorCard.module.css'
-
-/*
- * i18n-spaeter: Alle Texte hier sind bewusst umlautfrei-deutsch gehalten
- * (Umlaut-Guard in i18n.test.ts), bis die i18n-Welle sie in die locale-Dateien
- * hebt. Aufrufer koennen jeden Text per Prop ueberschreiben, z. B. mit t()-Keys.
- */
 
 /** Raw details longer than this are hidden behind a disclosure. */
 export const DETAIL_COLLAPSE_THRESHOLD = 120
 
 /**
  * True when a raw error detail is long or technical enough that it should be
- * collapsed behind a "Technische Details" disclosure instead of shown inline:
+ * collapsed behind a "technical details" disclosure instead of shown inline:
  * multi-line output, stack-trace-ish content, or anything past the threshold.
  */
 export function shouldCollapseDetail(detail: string): boolean {
@@ -41,20 +36,21 @@ export interface ErrorCardProps {
  * `<div role="alert">{rawMessage}</div>` pattern.
  */
 export default function ErrorCard({
-  title = 'Etwas ist schiefgelaufen',
+  title,
   detail,
   onRetry,
-  retryLabel = 'Erneut versuchen',
+  retryLabel,
   retryDisabled = false,
   className
 }: ErrorCardProps): JSX.Element {
+  const { t } = useTranslation()
   return (
     <div role="alert" className={className ? `${styles.card} ${className}` : styles.card}>
       <div className={styles.body}>
-        <strong className={styles.title}>{title}</strong>
+        <strong className={styles.title}>{title ?? t('ui.errorCard.title')}</strong>
         {detail && (shouldCollapseDetail(detail) ? (
           <details className={styles.details}>
-            <summary className={styles.summary}>Technische Details</summary>
+            <summary className={styles.summary}>{t('ui.errorCard.details')}</summary>
             <pre className={styles.detailText}>{detail}</pre>
           </details>
         ) : (
@@ -63,7 +59,7 @@ export default function ErrorCard({
       </div>
       {onRetry && (
         <button type="button" className={styles.retry} disabled={retryDisabled} onClick={onRetry}>
-          {retryLabel}
+          {retryLabel ?? t('ui.errorCard.retry')}
         </button>
       )}
     </div>

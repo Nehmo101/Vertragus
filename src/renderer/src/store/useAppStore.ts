@@ -316,7 +316,9 @@ export const useAppStore = create<AppState>()((set, get, api) => ({
         if (!a.limitWarning) continue
         const before = prev.find((p) => p.id === a.id)
         if (before?.limitWarning) continue
-        const label = LIMIT_KIND_LABELS[a.limitWarning.kind]
+        const label = i18n.t(`ui.limitKind.${a.limitWarning.kind}`, {
+          defaultValue: LIMIT_KIND_LABELS[a.limitWarning.kind]
+        })
         get().showToast(i18n.t('toast.limitNear', { name: a.name, kind: label }))
       }
       const retainedIds = new Set(agents.map((agent) => agent.id))

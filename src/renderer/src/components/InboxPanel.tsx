@@ -898,12 +898,12 @@ export default function InboxPanel(): JSX.Element {
         <aside className={`inbox-list ${archiveStyles.listPane}`}>
           <div className={archiveStyles.filterBar}>
             <label className={archiveStyles.searchField}>
-              <span className={archiveStyles.filterLabel}>{'Suche' /* i18n-spaeter */}</span>
+              <span className={archiveStyles.filterLabel}>{t('inbox.filter.search')}</span>
               <input
                 type="search"
                 className={archiveStyles.searchInput}
                 value={query}
-                placeholder={'Titel oder Inhalt' /* i18n-spaeter */}
+                placeholder={t('inbox.filter.searchPlaceholder')}
                 onChange={(e) => setQuery(e.target.value)}
               />
             </label>
@@ -911,7 +911,7 @@ export default function InboxPanel(): JSX.Element {
               <div
                 className={archiveStyles.chipRow}
                 role="group"
-                aria-label={'Status-Filter' /* i18n-spaeter */}
+                aria-label={t('inbox.filter.statusAria')}
               >
                 {availableStatuses.map((status) => (
                   <button
@@ -931,14 +931,14 @@ export default function InboxPanel(): JSX.Element {
               </div>
             )}
             <label className={archiveStyles.tagField}>
-              <span className={archiveStyles.filterLabel}>{'Tag' /* i18n-spaeter */}</span>
+              <span className={archiveStyles.filterLabel}>{t('inbox.filter.tag')}</span>
               <select
                 className={archiveStyles.tagSelect}
                 value={tagFilter ?? ''}
                 disabled={availableTags.length === 0 && !tagFilter}
                 onChange={(e) => setTagFilter(e.target.value || null)}
               >
-                <option value="">{'Alle' /* i18n-spaeter */}</option>
+                <option value="">{t('inbox.filter.all')}</option>
                 {availableTags.map((tag) => (
                   <option key={tag} value={tag}>
                     {tag}
@@ -947,7 +947,7 @@ export default function InboxPanel(): JSX.Element {
               </select>
             </label>
             <div className={archiveStyles.filterCount} aria-live="polite">
-              {`${filteredIdeas.length} von ${visibleIdeas.length}` /* i18n-spaeter */}
+              {t('inbox.filter.count', { shown: filteredIdeas.length, total: visibleIdeas.length })}
             </div>
           </div>
           <div
@@ -963,14 +963,14 @@ export default function InboxPanel(): JSX.Element {
             )}
             {!loading && visibleIdeas.length > 0 && filteredIdeas.length === 0 && (
               <div className="inbox-empty">
-                <div>{'Keine Treffer' /* i18n-spaeter */}</div>
+                <div>{t('inbox.filter.noMatches')}</div>
                 <button
                   type="button"
                   className={archiveStyles.filterReset}
                   disabled={!filtersActive}
                   onClick={resetFilters}
                 >
-                  {'Filter aufheben' /* i18n-spaeter */}
+                  {t('inbox.filter.reset')}
                 </button>
               </div>
             )}
