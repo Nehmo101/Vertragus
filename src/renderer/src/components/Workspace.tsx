@@ -13,8 +13,9 @@ import CanvasBoard from '@renderer/components/CanvasBoard'
 import { useLayoutStore } from '@renderer/store/layoutStore'
 import styles from './responsiveGuards.module.css'
 
+// '◈' statt '⌘': das Befehlssymbol kollidiert auf dem Mac mit der Cmd-Taste.
 const LAYOUTS: Array<{ id: WorkspaceLayout; icon: string; fallback: string }> = [
-  { id: 'canvas', icon: '⌘', fallback: 'Zentrale' },
+  { id: 'canvas', icon: '◈', fallback: 'Zentrale' },
   { id: 'tiles', icon: '▦', fallback: 'Terminals' },
   { id: 'focus', icon: '▣', fallback: 'Fokus' }
 ]
@@ -51,9 +52,16 @@ export default function Workspace(): JSX.Element {
   const collapseSidebar = useLayoutStore((state) => state.collapse)
   const orchDrawerOpen = useLayoutStore((state) => state.orchDrawerOpen)
   const toggleOrchDrawer = useLayoutStore((state) => state.toggleOrchDrawer)
+  const canvasAutoCollapseDone = useLayoutStore((state) => state.canvasAutoCollapseDone)
+  const markCanvasAutoCollapseDone = useLayoutStore((state) => state.markCanvasAutoCollapseDone)
+  // Auto-collapse der Sidebar nur beim allerersten Canvas-Besuch; danach
+  // bleibt die Nutzerwahl erhalten (persistenter Flag im layoutStore).
   useEffect(() => {
-    if (workspaceLayout === 'canvas') collapseSidebar('sidebar-left', true)
-  }, [workspaceLayout, collapseSidebar])
+    if (workspaceLayout === 'canvas' && !canvasAutoCollapseDone) {
+      collapseSidebar('sidebar-left', true)
+      markCanvasAutoCollapseDone()
+    }
+  }, [workspaceLayout, canvasAutoCollapseDone, collapseSidebar, markCanvasAutoCollapseDone])
 
   return (
     <main
@@ -63,7 +71,10 @@ export default function Workspace(): JSX.Element {
       <div className="ws-header">
         {workspaceLayout === 'canvas' && (
           <button type="button" className="clean-btn canvas-orch-toggle" data-open={orchDrawerOpen} aria-pressed={orchDrawerOpen} onClick={toggleOrchDrawer}>
+            {/* Lore-Name aus dem i18n-Key + statischer Funktions-Zusatz,
+                damit klar ist, was sich hinter „Caronte" verbirgt. */}
             {t('canvas.orchestratorToggle', { defaultValue: 'Caronte' })}
+            <span className="canvas-orch-toggle-role"> · Orchestrator</span>
           </button>
         )}
         <label className="workspace-picker">

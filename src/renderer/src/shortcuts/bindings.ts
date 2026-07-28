@@ -1,7 +1,23 @@
 import type { ShortcutActionId, ShortcutBinding, ShortcutModifier, ShortcutPlatform } from './types'
 
+/**
+ * Bewusst NICHT belegt: „Alle Agents stoppen“ (Mod+Shift+.). Der Bestätigungs-Dialog
+ * lebt als lokaler Komponenten-State (`confirmKill`) in TitleBar.tsx und ist von außen
+ * nicht auslösbar; ein direkter `stopAll()`-Aufruf würde den Confirm-Flow umgehen.
+ * Sobald der Dialog in den Store wandert, kann das Binding hier ergänzt werden.
+ */
 export const DEFAULT_SHORTCUT_BINDINGS: Readonly<Record<ShortcutActionId, readonly ShortcutBinding[]>> = {
-  'speech.toggle': [{ key: 'm', modifiers: ['Mod', 'Shift'] }]
+  'speech.toggle': [{ key: 'm', modifiers: ['Mod', 'Shift'] }],
+  'nav.workspace': [{ key: '1', modifiers: ['Mod'] }],
+  'nav.inbox': [{ key: '2', modifiers: ['Mod'] }],
+  'nav.approvals': [{ key: '3', modifiers: ['Mod'] }],
+  'nav.changes': [{ key: '4', modifiers: ['Mod'] }],
+  'layout.canvas': [{ key: '1', modifiers: ['Mod', 'Alt'] }],
+  'layout.tiles': [{ key: '2', modifiers: ['Mod', 'Alt'] }],
+  'layout.focus': [{ key: '3', modifiers: ['Mod', 'Alt'] }],
+  'agents.startAll': [{ key: 'Enter', modifiers: ['Mod', 'Shift'] }],
+  'panel.sidebarLeft': [{ key: 'b', modifiers: ['Mod'] }],
+  'panel.orchestratorRight': [{ key: 'b', modifiers: ['Mod', 'Alt'] }]
 }
 
 const MODIFIER_ORDER: readonly Exclude<ShortcutModifier, 'Mod'>[] = [

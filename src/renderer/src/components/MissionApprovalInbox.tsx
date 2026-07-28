@@ -5,6 +5,7 @@ import { deriveRemoteApprovals, type ApprovalItem } from '@shared/remote'
 import type { OrchestratorSnapshot } from '@shared/orchestrator'
 import type { TaskReviewDiff } from '@shared/ipc'
 import { useAppStore } from '@renderer/store/useAppStore'
+import DiffView from './diff/DiffView'
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -147,7 +148,7 @@ export default function MissionApprovalInbox(): JSX.Element {
       {diff && (
         <section className="mission-diff-modal">
           <div><strong>{diff.title}</strong><button type="button" onClick={() => setDiff(undefined)}>{t('modals.approvals.close')}</button></div>
-          <pre>{diff.diff}</pre>
+          <DiffView diff={diff.diff} />
           {diff.truncated && <small>{t('modals.approvals.truncated')}</small>}
         </section>
       )}

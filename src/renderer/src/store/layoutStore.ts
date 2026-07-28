@@ -24,16 +24,28 @@ export const LEGACY_LAYOUT_STORAGE_KEY = 'orca.layout.v1'
 
 export type PanelLayouts = Record<PanelId, PanelLayout>
 
+/** xterm font size limits for agent panes (Strg/Cmd+Mausrad zoom). */
+export const PANE_FONT_MIN = 8
+export const PANE_FONT_MAX = 20
+export const PANE_FONT_DEFAULT = 11
+
 export interface LayoutStore {
   panels: PanelLayouts
   orchDrawerOpen: boolean
   terminalDrawerHeight: number
+  /** True once the sidebar was auto-collapsed on the very first canvas visit. */
+  canvasAutoCollapseDone: boolean
+  /** Persisted xterm font size per agent pane, keyed by agent id. */
+  paneFontSizes: Record<string, number>
   setWidth: (id: PanelId, width: number) => void
   toggleCollapsed: (id: PanelId) => void
   collapse: (id: PanelId, collapsed: boolean) => void
   setOrchDrawerOpen: (open: boolean) => void
   toggleOrchDrawer: () => void
   setTerminalDrawerHeight: (height: number) => void
+  markCanvasAutoCollapseDone: () => void
+  setPaneFontSize: (agentId: string, size: number) => void
+  resetPaneFontSize: (agentId: string) => void
 }
 
 function createDefaultLayouts(): PanelLayouts {
@@ -57,6 +69,18 @@ export function clampPanelWidth(id: PanelId, width: number): number {
   const limits = PANEL_LIMITS[id]
   if (!Number.isFinite(width)) return limits.defaultWidth
   return Math.min(limits.maxWidth, Math.max(limits.minWidth, width))
+}
+
+/** Clamps a pane font size into the 8–20 px window; invalid input → default. */
+export function clampPaneFontSize(size: number): number {
+  if (!Number.isFinite(size)) return PANE_FONT_DEFAULT
+  return Math.min(PANE_FONT_MAX, Math.max(PANE_FONT_MIN, Math.round(size)))
+}
+
+/** Effective xterm font size for an agent pane (default when unset). */
+export function paneFontSize(state: Pick<LayoutStore, 'paneFontSizes'>, agentId: string): number {
+  const stored = state.paneFontSizes[agentId]
+  return stored == null ? PANE_FONT_DEFAULT : clampPaneFontSize(stored)
 }
 
 function parsePanelLayout(value: unknown, id: PanelId): PanelLayout {
@@ -88,6 +112,38 @@ export function parsePersistedLayout(raw: string | null): PanelLayouts {
   }
 }
 
+/**
+ * Reads the persisted first-canvas-visit flag. Older payloads (or the legacy
+ * `orca.layout.v1` format) simply lack the key and migrate to `false`.
+ */
+export function parsePersistedCanvasFlag(raw: string | null): boolean {
+  if (raw === null) return false
+  try {
+    const persisted: unknown = JSON.parse(raw)
+    return isRecord(persisted) && persisted.canvasAutoCollapseDone === true
+  } catch {
+    return false
+  }
+}
+
+/** Reads persisted per-pane font sizes; unknown/invalid entries are dropped. */
+export function parsePersistedPaneFontSizes(raw: string | null): Record<string, number> {
+  if (raw === null) return {}
+  try {
+    const persisted: unknown = JSON.parse(raw)
+    if (!isRecord(persisted) || !isRecord(persisted.paneFontSizes)) return {}
+    const sizes: Record<string, number> = {}
+    for (const [agentId, size] of Object.entries(persisted.paneFontSizes)) {
+      if (typeof size === 'number' && Number.isFinite(size)) {
+        sizes[agentId] = clampPaneFontSize(size)
+      }
+    }
+    return sizes
+  } catch {
+    return {}
+  }
+}
+
 function getLayoutStorage(): Storage | undefined {
   try {
     return typeof localStorage === 'undefined' ? undefined : localStorage
@@ -96,29 +152,48 @@ function getLayoutStorage(): Storage | undefined {
   }
 }
 
-function loadLayouts(): PanelLayouts {
+interface PersistedLayoutState {
+  panels: PanelLayouts
+  canvasAutoCollapseDone: boolean
+  paneFontSizes: Record<string, number>
+}
+
+function loadLayouts(): PersistedLayoutState {
+  const defaults: PersistedLayoutState = {
+    panels: createDefaultLayouts(),
+    canvasAutoCollapseDone: false,
+    paneFontSizes: {}
+  }
   const storage = getLayoutStorage()
-  if (!storage) return createDefaultLayouts()
+  if (!storage) return defaults
 
   try {
-    return parsePersistedLayout(
-      storage.getItem(LAYOUT_STORAGE_KEY) ?? storage.getItem(LEGACY_LAYOUT_STORAGE_KEY)
-    )
+    const raw = storage.getItem(LAYOUT_STORAGE_KEY) ?? storage.getItem(LEGACY_LAYOUT_STORAGE_KEY)
+    return {
+      panels: parsePersistedLayout(raw),
+      canvasAutoCollapseDone: parsePersistedCanvasFlag(raw),
+      paneFontSizes: parsePersistedPaneFontSizes(raw)
+    }
   } catch {
-    return createDefaultLayouts()
+    return defaults
   }
 }
 
-function persistLayouts(panels: PanelLayouts): void {
+function persistLayouts(state: PersistedLayoutState): void {
   try {
-    getLayoutStorage()?.setItem(LAYOUT_STORAGE_KEY, JSON.stringify({ panels }))
+    // Optional keys are written only when set, so pre-existing payload shapes
+    // (and their consumers) keep round-tripping unchanged.
+    const payload: Record<string, unknown> = { panels: state.panels }
+    if (state.canvasAutoCollapseDone) payload.canvasAutoCollapseDone = true
+    if (Object.keys(state.paneFontSizes).length > 0) payload.paneFontSizes = state.paneFontSizes
+    getLayoutStorage()?.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(payload))
   } catch {
     // Layout persistence is best-effort; an unavailable storage must not break the renderer.
   }
 }
 
 export const useLayoutStore = create<LayoutStore>((set, get) => ({
-  panels: loadLayouts(),
+  ...loadLayouts(),
   orchDrawerOpen: false,
   terminalDrawerHeight: 45,
   setWidth: (id, width) => {
@@ -128,7 +203,7 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
         [id]: { ...state.panels[id], width: clampPanelWidth(id, width) }
       }
     }))
-    persistLayouts(get().panels)
+    persistLayouts(get())
   },
   toggleCollapsed: (id) => {
     set((state) => ({
@@ -137,7 +212,7 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
         [id]: { ...state.panels[id], collapsed: !state.panels[id].collapsed }
       }
     }))
-    persistLayouts(get().panels)
+    persistLayouts(get())
   },
   collapse: (id, collapsed) => {
     set((state) => ({
@@ -146,12 +221,32 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
         [id]: { ...state.panels[id], collapsed }
       }
     }))
-    persistLayouts(get().panels)
+    persistLayouts(get())
   },
   setOrchDrawerOpen: (orchDrawerOpen) => set({ orchDrawerOpen }),
   toggleOrchDrawer: () => set((state) => ({ orchDrawerOpen: !state.orchDrawerOpen })),
   setTerminalDrawerHeight: (height) =>
-    set({ terminalDrawerHeight: Math.min(75, Math.max(28, Number.isFinite(height) ? height : 45)) })
+    set({ terminalDrawerHeight: Math.min(75, Math.max(28, Number.isFinite(height) ? height : 45)) }),
+  markCanvasAutoCollapseDone: () => {
+    if (get().canvasAutoCollapseDone) return
+    set({ canvasAutoCollapseDone: true })
+    persistLayouts(get())
+  },
+  setPaneFontSize: (agentId, size) => {
+    set((state) => ({
+      paneFontSizes: { ...state.paneFontSizes, [agentId]: clampPaneFontSize(size) }
+    }))
+    persistLayouts(get())
+  },
+  resetPaneFontSize: (agentId) => {
+    set((state) => {
+      if (!(agentId in state.paneFontSizes)) return state
+      const next = { ...state.paneFontSizes }
+      delete next[agentId]
+      return { paneFontSizes: next }
+    })
+    persistLayouts(get())
+  }
 }))
 
 export const selectPanelLayout =

@@ -28,12 +28,24 @@ const {
 } = vi.hoisted(() => ({
   runTask: vi.fn(),
   kill: vi.fn(async () => undefined),
-  prepareTaskChange: vi.fn<(input: unknown) => Promise<PrepareTaskResult>>(async () => ({
-    status: 'skipped',
-    result: 'no-changes',
-    noChanges: true,
-    message: 'No-op bestätigt.'
-  })),
+  // Diff-Guard: ein leerer Diff gilt nicht mehr als Erfolg, daher liefert der
+  // Standard-Mock einen verifizierten Commit als Erfolgsbeleg. Tests für den
+  // No-Diff-Pfad überschreiben ihn gezielt mit einem no-changes-Ergebnis.
+  prepareTaskChange: vi.fn<(input: unknown) => Promise<PrepareTaskResult>>(async (input) => {
+    const { taskId = 'task', title = 'Task' } = (input ?? {}) as { taskId?: string; title?: string }
+    return {
+      status: 'prepared',
+      result: 'committed',
+      noChanges: false,
+      message: 'Commit verifiziert.',
+      branch: 'orca/default',
+      worktree: '.',
+      change: {
+        taskId, title, worktree: '.', branch: 'orca/default',
+        commit: 'd'.repeat(40), commits: ['d'.repeat(40)], files: ['feature.ts']
+      }
+    }
+  }),
   publishPreparedChanges: vi.fn<(
     input: { onRemoteCiUpdate?: (outcome: RemoteCiOutcome) => void }
   ) => Promise<AutoPrOutcome>>(),
@@ -58,6 +70,7 @@ vi.mock('@main/orchestrator/retroExport', () => ({
 
 import {
   OrchestratorEngine,
+  isReadOnlyTaskDeclaration,
   judgeWorkerTerminalResult,
   platformExecutionGuidance,
   providerExecutionGuidance,
@@ -187,7 +200,7 @@ describe('asynchronous orchestration API', () => {
     finish({ result: 'Committed abc', isError: false, status: 'succeeded' })
     await vi.waitFor(() => expect(engine.getTaskStatus(accepted.taskId)?.status).toBe('success'))
     expect(engine.getTaskStatus(accepted.taskId)).toEqual(
-      expect.objectContaining({ result: expect.stringContaining('Committed abc'), completion: { kind: 'no-changes' } })
+      expect.objectContaining({ result: expect.stringContaining('Committed abc'), completion: { kind: 'commit', commit: 'd'.repeat(40) } })
     )
     expect(engine.getTaskStatus(accepted.taskId)).toEqual(expect.objectContaining({
       agentName: 'Caronte',
@@ -1272,6 +1285,71 @@ describe('asynchronous orchestration API', () => {
 
     await vi.waitFor(() => expect(engine.getTaskStatus(accepted.taskId)?.status).toBe('error'))
     expect(engine.getTaskStatus(accepted.taskId)?.completion).toBeUndefined()
+  })
+
+  it('demotes a success claim without any worktree diff to needs-work (Diff-Guard)', async () => {
+    runTask.mockImplementationOnce(async (request) => ({
+      info: info(request.taskId),
+      done: Promise.resolve({ result: 'ERGEBNIS: ERFOLG', isError: false, status: 'succeeded' as const })
+    }))
+    // Leerer Diff trotz Erfolgsmeldung — Retros: Worker lieferten nur eine
+    // Selbstvorstellung und wurden dennoch grün gewertet.
+    prepareTaskChange.mockResolvedValueOnce({
+      status: 'skipped',
+      result: 'no-changes',
+      noChanges: true,
+      message: 'Keine Änderungen im Worktree.'
+    })
+    const engine = new OrchestratorEngine({ profile: { ...DEFAULT_PROFILE } })
+
+    const accepted = engine.dispatchAsync('codex', 'Implementiere das Feature.', 'Feature ohne Diff')
+
+    await vi.waitFor(() => expect(engine.getTaskStatus(accepted.taskId)?.status).toBe('needs-work'))
+    expect(engine.getTaskStatus(accepted.taskId)).toEqual(expect.objectContaining({
+      completion: { kind: 'no-changes' },
+      failureKind: 'gate',
+      findings: expect.arrayContaining([
+        expect.objectContaining({ gate: 'commit', code: 'no-diff-completion' })
+      ])
+    }))
+  })
+
+  it('keeps an explicitly read-only analysis/review task green without a diff', async () => {
+    runTask.mockImplementationOnce(async (request) => ({
+      info: info(request.taskId),
+      done: Promise.resolve({ result: 'Analyse abgeschlossen. ERGEBNIS: ERFOLG', isError: false, status: 'succeeded' as const })
+    }))
+    prepareTaskChange.mockResolvedValueOnce({
+      status: 'skipped',
+      result: 'no-changes',
+      noChanges: true,
+      message: 'Keine Änderungen im Worktree.'
+    })
+    const engine = new OrchestratorEngine({ profile: { ...DEFAULT_PROFILE } })
+
+    const accepted = engine.dispatchAsync(
+      'codex',
+      'Analysiere die Architektur und erstelle einen Bericht; keine Codeänderungen vornehmen.',
+      'Architektur-Review'
+    )
+
+    await vi.waitFor(() => expect(engine.getTaskStatus(accepted.taskId)?.status).toBe('success'))
+    expect(engine.getTaskStatus(accepted.taskId)?.completion).toEqual({ kind: 'no-changes' })
+  })
+
+  it('recognizes read-only task declarations conservatively', () => {
+    // Klare Lese-Signale in Rolle/Titel oder explizite Prompt-Marker …
+    expect(isReadOnlyTaskDeclaration({ role: 'reviewer', title: 'PR prüfen' })).toBe(true)
+    expect(isReadOnlyTaskDeclaration({ role: 'worker', title: 'Architektur-Review' })).toBe(true)
+    expect(isReadOnlyTaskDeclaration({ role: 'qa-gate-runner', title: 'verify-acceptance' })).toBe(true)
+    expect(isReadOnlyTaskDeclaration({
+      role: 'worker', title: 'Aufräumen', prompt: 'Lies den Code, aber keine Codeänderungen vornehmen.'
+    })).toBe(true)
+    expect(isReadOnlyTaskDeclaration({ role: 'worker', prompt: 'Read-only Recherche im Repo.' })).toBe(true)
+    // … aber normale Implementierungsaufträge bleiben Code-Tasks.
+    expect(isReadOnlyTaskDeclaration({ role: 'codex', title: 'Feature', prompt: 'Implementiere das Feature.' })).toBe(false)
+    expect(isReadOnlyTaskDeclaration({ role: 'frontend-ui', title: 'TitleBar responsiv machen' })).toBe(false)
+    expect(isReadOnlyTaskDeclaration({})).toBe(false)
   })
 
   it('adopts a quarantined recovery artifact as needs-work commit when every gate passes', async () => {

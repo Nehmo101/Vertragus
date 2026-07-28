@@ -124,6 +124,10 @@ No-Git) wirken nachweislich.
    menschlich zu prüfenden PR gegen `retros`. Benötigt wird nur das Repo-Secret
    `ANTHROPIC_API_KEY`; `GITHUB_TOKEN` stellt Actions bereit. Erst der Merge
    des Bootstrap-/Analyse-PRs macht das Overlay für Installationen sichtbar.
+   **Aktiviert am 2026-07-28:** Der erste Analyse-PR (#136, „Retro-Analyse
+   2026-07-27“) wurde gemergt — `overlay/learnings.md` enthält erstmals
+   geprüfte Regeln und wird seither in Orchestrator-Systemprompts injiziert;
+   drei Proposals liegen zur Umsetzung unter `proposals/`.
 
 ## Nachtrag: Verbleibende Audit-Architekturpunkte (2026-07-22)
 

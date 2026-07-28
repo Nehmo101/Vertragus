@@ -109,7 +109,10 @@ describe('renderer i18n hardcode guard', () => {
     'components/PaneWindow.tsx',
     'components/PromptEnhancementReview.tsx',
     'components/RemotePanel.tsx',
-    'components/VoiceOverlay.tsx'
+    'components/VoiceOverlay.tsx',
+    // Überflug-Umsetzung 2026-07-28: neue deutsche Texte, Migration folgt in der i18n-Welle.
+    'components/SessionRestoreBanner.tsx',
+    'shortcuts/AppShortcutProvider.tsx'
   ])
 
   /** Every renderer `.tsx` component (test fixtures excluded), path relative to src. */

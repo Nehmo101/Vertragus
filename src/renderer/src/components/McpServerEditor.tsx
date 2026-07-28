@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '@renderer/store/useAppStore'
 import InfoTip from '@renderer/components/InfoTip'
+import Modal from '@renderer/components/ui/Modal'
 import {
   MCP_NAME_PATTERN,
   MCP_SCOPE_LABELS,
@@ -131,15 +132,6 @@ export default function McpServerEditor(): JSX.Element | null {
     }))
   )
   const [drafts, setDrafts] = useState<Draft[]>(() => store.mcpServers.map(toDraft))
-  const closeMcpEditor = store.closeMcpEditor
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') closeMcpEditor()
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [closeMcpEditor])
 
   const patch = (idx: number, part: Partial<Draft>): void =>
     setDrafts(drafts.map((draft, i) => (i === idx ? { ...draft, ...part } : draft)))
@@ -156,9 +148,7 @@ export default function McpServerEditor(): JSX.Element | null {
   }
 
   return (
-    <div className="modal-wrap">
-      <div className="modal-scrim" onClick={store.closeMcpEditor} />
-      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="mcp-editor-title">
+    <Modal labelledBy="mcp-editor-title" onClose={store.closeMcpEditor}>
         <div className="modal-head">
           <span className="modal-gear">🔌</span>
           <div style={{ flex: 1 }}>
@@ -354,7 +344,6 @@ export default function McpServerEditor(): JSX.Element | null {
             {t('mcpEditor.save')}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }

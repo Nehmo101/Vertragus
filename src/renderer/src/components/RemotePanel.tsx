@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { REMOTE_CAPABILITIES } from '@shared/remote'
 import type {
   ApnsConfigStatus,
   ApnsEnvironment,
@@ -9,6 +10,13 @@ import type {
   RemoteStatus
 } from '@shared/remote'
 import type { WorkspaceSessionSummary } from '@shared/orchestrator'
+import {
+  REMOTE_PRESET_CAPABILITIES,
+  normalizeCapabilities,
+  presetForCapabilities,
+  type RemotePresetId
+} from './remotePresets'
+import styles from './RemotePanel.module.css'
 
 const INITIAL_STATUS: RemoteStatus = {
   enabled: false,
@@ -16,6 +24,43 @@ const INITIAL_STATUS: RemoteStatus = {
   tunnel: 'disabled',
   deviceCount: 0
 }
+
+/** Existing locale keys for the nine previously exposed capability checkboxes. */
+const CAPABILITY_LABEL_KEYS: Partial<Record<RemoteCapability, string>> = {
+  admin: 'remote.pairing.admin',
+  diff: 'remote.pairing.diff',
+  push: 'remote.pairing.push',
+  speech: 'remote.pairing.speech',
+  'approve-tools': 'remote.pairing.tools',
+  budget: 'remote.pairing.budget',
+  'task-control': 'remote.pairing.taskControl',
+  replan: 'remote.pairing.replan',
+  'provider-fallback': 'remote.pairing.fallback'
+}
+
+/** New copy stays hard German for now; a later i18n pass moves it into the locale files. */
+const PRESET_CARDS: Array<{ id: RemotePresetId | 'custom'; title: string; desc: string }> = [
+  {
+    id: 'observe',
+    title: 'Nur beobachten',
+    desc: 'Status lesen, Diffs ansehen und Push-Benachrichtigungen erhalten — keine Eingriffe.'
+  },
+  {
+    id: 'approve',
+    title: 'Freigaben erteilen',
+    desc: 'Zusätzlich Sprach-Transkription, Tool-Freigaben und Budget-Caps aus der Ferne.'
+  },
+  {
+    id: 'full',
+    title: 'Vollzugriff',
+    desc: 'Alle Capabilities: zusätzlich Fernsteuerung, Admin-Reset, Task-Kontrolle, Replan und Provider-Fallback.'
+  },
+  {
+    id: 'custom',
+    title: 'Benutzerdefiniert',
+    desc: 'Einzelne Capabilities unter „Erweitert“ selbst zusammenstellen.'
+  }
+]
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -28,15 +73,11 @@ export default function RemotePanel(): JSX.Element {
   const [challenge, setChallenge] = useState<PairingChallenge>()
   const [hostname, setHostname] = useState('')
   const [tunnelToken, setTunnelToken] = useState('')
-  const [admin, setAdmin] = useState(false)
-  const [diffAccess, setDiffAccess] = useState(false)
-  const [pushAccess, setPushAccess] = useState(false)
-  const [speechAccess, setSpeechAccess] = useState(false)
-  const [toolApproval, setToolApproval] = useState(false)
-  const [budgetAccess, setBudgetAccess] = useState(false)
-  const [taskControl, setTaskControl] = useState(false)
-  const [replanAccess, setReplanAccess] = useState(false)
-  const [fallbackAccess, setFallbackAccess] = useState(false)
+  const [capabilities, setCapabilities] = useState<RemoteCapability[]>(
+    () => [...REMOTE_PRESET_CAPABILITIES.observe]
+  )
+  const [customSelected, setCustomSelected] = useState(false)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const [actorId, setActorId] = useState('owner')
   const [actorName, setActorName] = useState('Owner')
   const [profiles, setProfiles] = useState<Array<{ id: string; name: string }>>([])
@@ -106,6 +147,38 @@ export default function RemotePanel(): JSX.Element {
   }
 
   const activeDevices = devices.filter((device) => !device.revokedAt)
+
+  const derivedPreset = presetForCapabilities(capabilities)
+  const activePreset: RemotePresetId | 'custom' = customSelected ? 'custom' : derivedPreset
+  const advancedExpanded = advancedOpen || activePreset === 'custom'
+
+  const selectPreset = (id: RemotePresetId | 'custom'): void => {
+    if (id === 'custom') {
+      setCustomSelected(true)
+      setAdvancedOpen(true)
+      return
+    }
+    setCustomSelected(false)
+    setCapabilities([...REMOTE_PRESET_CAPABILITIES[id]])
+  }
+
+  const toggleCapability = (capability: RemoteCapability, enabled: boolean): void => {
+    setCapabilities((current) => {
+      const next = new Set(current)
+      if (enabled) next.add(capability)
+      else next.delete(capability)
+      next.add('read')
+      return normalizeCapabilities(next)
+    })
+    setCustomSelected(false)
+  }
+
+  const capabilityLabel = (capability: RemoteCapability): string => {
+    const key = CAPABILITY_LABEL_KEYS[capability]
+    if (key) return t(key)
+    if (capability === 'read') return 'Lesezugriff (immer aktiv)'
+    return 'Fernsteuerung erlauben (Kommandos senden)'
+  }
 
   return (
     <main className="remote-panel">
@@ -312,72 +385,83 @@ export default function RemotePanel(): JSX.Element {
         <section className="remote-card">
           <h2>{t('remote.pairing.title')}</h2>
           <p>{t('remote.pairing.desc')}</p>
-          <label className="remote-checkbox">
-            <input type="checkbox" checked={admin} onChange={(event) => setAdmin(event.target.checked)} />
-            {t('remote.pairing.admin')}
-          </label>
-          <label className="remote-checkbox">
-            <input type="checkbox" checked={diffAccess} onChange={(event) => setDiffAccess(event.target.checked)} />
-            {t('remote.pairing.diff')}
-          </label>
-          <label className="remote-checkbox">
-            <input type="checkbox" checked={pushAccess} onChange={(event) => setPushAccess(event.target.checked)} />
-            {t('remote.pairing.push')}
-          </label>
-          <label className="remote-checkbox">
-            <input type="checkbox" checked={speechAccess} onChange={(event) => setSpeechAccess(event.target.checked)} />
-            {t('remote.pairing.speech')}
-          </label>
-          <label className="remote-checkbox">
-            <input type="checkbox" checked={toolApproval} onChange={(event) => setToolApproval(event.target.checked)} />
-            {t('remote.pairing.tools')}
-          </label>
-          <label className="remote-checkbox">
-            <input type="checkbox" checked={budgetAccess} onChange={(event) => setBudgetAccess(event.target.checked)} />
-            {t('remote.pairing.budget')}
-          </label>
-          <label className="remote-checkbox">
-            <input type="checkbox" checked={taskControl} onChange={(event) => setTaskControl(event.target.checked)} />
-            {t('remote.pairing.taskControl')}
-          </label>
-          <label className="remote-checkbox">
-            <input type="checkbox" checked={replanAccess} onChange={(event) => setReplanAccess(event.target.checked)} />
-            {t('remote.pairing.replan')}
-          </label>
-          <label className="remote-checkbox">
-            <input type="checkbox" checked={fallbackAccess} onChange={(event) => setFallbackAccess(event.target.checked)} />
-            {t('remote.pairing.fallback')}
-          </label>
-          <label>{t('remote.pairing.actorId')}<input value={actorId} onChange={(event) => setActorId(event.target.value)} maxLength={160} /></label>
-          <label>{t('remote.pairing.actorName')}<input value={actorName} onChange={(event) => setActorName(event.target.value)} maxLength={160} /></label>
-          <div className="remote-scope-list" role="list">
-            <strong>{t('remote.pairing.scopes')}</strong>
-            {profiles.map((profile) => (
-              <div key={profile.id} className="remote-scope" role="listitem">
-                <span>{profile.name}</span>
-                {sessions.filter((session) => session.profileId === profile.id).map((session) => (
-                  <label className="remote-checkbox" key={session.id}>
-                    <input
-                      type="checkbox"
-                      checked={selectedSessions.includes(session.id)}
-                      onChange={(event) => setSelectedSessions((current) => event.target.checked
-                        ? [...current, session.id] : current.filter((id) => id !== session.id))}
-                    />
-                    {t('remote.pairing.session', { name: session.name })}
-                  </label>
-                ))}
-                <label className="remote-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={goalProfiles.includes(profile.id)}
-                    onChange={(event) => setGoalProfiles((current) => event.target.checked
-                      ? [...current, profile.id] : current.filter((id) => id !== profile.id))}
-                  />
-                  {t('remote.pairing.allowGoals')}
-                </label>
-              </div>
+          <div className={styles.presetGroup} role="radiogroup" aria-label="Zugriffs-Preset">
+            {PRESET_CARDS.map((card) => (
+              <label
+                key={card.id}
+                className={
+                  activePreset === card.id
+                    ? `${styles.presetCard} ${styles.presetCardActive}`
+                    : styles.presetCard
+                }
+              >
+                <input
+                  type="radio"
+                  name="remote-pairing-preset"
+                  className={styles.presetRadio}
+                  value={card.id}
+                  checked={activePreset === card.id}
+                  onChange={() => selectPreset(card.id)}
+                />
+                <span className={styles.presetTitle}>{card.title}</span>
+                <span className={styles.presetDesc}>{card.desc}</span>
+              </label>
             ))}
           </div>
+          <details
+            className={styles.advanced}
+            open={advancedExpanded}
+            onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
+          >
+            <summary className={styles.advancedSummary}>Erweitert</summary>
+            <div className={styles.advancedBody}>
+              <p className={styles.advancedHint}>
+                Einzelne Capabilities und Workspace-Scopes. Das Ändern einer Checkbox wechselt oben
+                auf „Benutzerdefiniert“.
+              </p>
+              {REMOTE_CAPABILITIES.map((capability) => (
+                <label className="remote-checkbox" key={capability}>
+                  <input
+                    type="checkbox"
+                    checked={capabilities.includes(capability)}
+                    disabled={capability === 'read'}
+                    onChange={(event) => toggleCapability(capability, event.target.checked)}
+                  />
+                  {capabilityLabel(capability)}
+                </label>
+              ))}
+              <div className="remote-scope-list" role="list">
+                <strong>{t('remote.pairing.scopes')}</strong>
+                {profiles.map((profile) => (
+                  <div key={profile.id} className="remote-scope" role="listitem">
+                    <span>{profile.name}</span>
+                    {sessions.filter((session) => session.profileId === profile.id).map((session) => (
+                      <label className="remote-checkbox" key={session.id}>
+                        <input
+                          type="checkbox"
+                          checked={selectedSessions.includes(session.id)}
+                          onChange={(event) => setSelectedSessions((current) => event.target.checked
+                            ? [...current, session.id] : current.filter((id) => id !== session.id))}
+                        />
+                        {t('remote.pairing.session', { name: session.name })}
+                      </label>
+                    ))}
+                    <label className="remote-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={goalProfiles.includes(profile.id)}
+                        onChange={(event) => setGoalProfiles((current) => event.target.checked
+                          ? [...current, profile.id] : current.filter((id) => id !== profile.id))}
+                      />
+                      {t('remote.pairing.allowGoals')}
+                    </label>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </details>
+          <label>{t('remote.pairing.actorId')}<input value={actorId} onChange={(event) => setActorId(event.target.value)} maxLength={160} /></label>
+          <label>{t('remote.pairing.actorName')}<input value={actorName} onChange={(event) => setActorName(event.target.value)} maxLength={160} /></label>
           <button
             type="button"
             className="btn primary"
@@ -386,16 +470,6 @@ export default function RemotePanel(): JSX.Element {
               (selectedSessions.length === 0 && goalProfiles.length === 0)
             }
             onClick={() => void run(async () => {
-              const capabilities: RemoteCapability[] = ['read', 'steer']
-              if (admin) capabilities.push('admin')
-              if (diffAccess) capabilities.push('diff')
-              if (pushAccess) capabilities.push('push')
-              if (speechAccess) capabilities.push('speech')
-              if (toolApproval) capabilities.push('approve-tools')
-              if (budgetAccess) capabilities.push('budget')
-              if (taskControl) capabilities.push('task-control')
-              if (replanAccess) capabilities.push('replan')
-              if (fallbackAccess) capabilities.push('provider-fallback')
               const scopes = profiles.flatMap((profile) => {
                 const sessionIds = sessions
                   .filter((session) => session.profileId === profile.id && selectedSessions.includes(session.id))
@@ -406,7 +480,7 @@ export default function RemotePanel(): JSX.Element {
                   : []
               })
               setChallenge(await window.vertragus.remote.pairStart({
-                capabilities,
+                capabilities: normalizeCapabilities(capabilities),
                 actor: { id: actorId.trim(), displayName: actorName.trim() || actorId.trim() },
                 scopes
               }))
@@ -414,6 +488,12 @@ export default function RemotePanel(): JSX.Element {
           >
             {t('remote.pairing.generate')}
           </button>
+          {selectedSessions.length === 0 && goalProfiles.length === 0 && (
+            <small className={styles.scopeHint}>
+              Unter „Erweitert“ mindestens eine Session oder eine Ziel-Freigabe auswählen, um das
+              Pairing zu starten.
+            </small>
+          )}
           {challenge && (
             <div className="remote-pairing">
               {challenge.qrDataUrl && <img src={challenge.qrDataUrl} alt={t('remote.pairing.qrAlt')} />}

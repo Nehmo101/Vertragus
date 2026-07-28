@@ -1,4 +1,16 @@
-export type ShortcutActionId = 'speech.toggle' | (string & {})
+export type ShortcutActionId =
+  | 'speech.toggle'
+  | 'nav.workspace'
+  | 'nav.inbox'
+  | 'nav.approvals'
+  | 'nav.changes'
+  | 'layout.canvas'
+  | 'layout.tiles'
+  | 'layout.focus'
+  | 'agents.startAll'
+  | 'panel.sidebarLeft'
+  | 'panel.orchestratorRight'
+  | (string & {})
 
 export type ShortcutModifier = 'Alt' | 'Control' | 'Meta' | 'Mod' | 'Shift'
 

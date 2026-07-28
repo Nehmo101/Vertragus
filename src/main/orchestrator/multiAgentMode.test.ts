@@ -21,12 +21,23 @@ vi.mock('@main/agents/AgentManager', () => ({
   agentManager: { runTask, kill, list: () => [] }
 }))
 vi.mock('@main/integrations/autoPr', () => ({
-  prepareTaskChange: vi.fn(async () => ({
-    status: 'skipped',
-    result: 'no-changes',
-    noChanges: true,
-    message: 'No-op bestätigt.'
-  })),
+  // Diff-Guard: ein leerer Diff gilt nicht mehr als Erfolg, daher liefert der
+  // Standard-Mock einen verifizierten Commit als Erfolgsbeleg.
+  prepareTaskChange: vi.fn(async (input: unknown) => {
+    const { taskId = 'task', title = 'Task' } = (input ?? {}) as { taskId?: string; title?: string }
+    return {
+      status: 'prepared',
+      result: 'committed',
+      noChanges: false,
+      message: 'Commit verifiziert.',
+      branch: 'orca/default',
+      worktree: '.',
+      change: {
+        taskId, title, worktree: '.', branch: 'orca/default',
+        commit: 'd'.repeat(40), commits: ['d'.repeat(40)], files: ['feature.ts']
+      }
+    }
+  }),
   publishPreparedChanges: vi.fn()
 }))
 vi.mock('@main/orchestrator/recoveryArtifact', () => ({

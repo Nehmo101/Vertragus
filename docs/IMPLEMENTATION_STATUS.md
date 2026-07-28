@@ -1,16 +1,21 @@
 # Vertragus – Umsetzungsstand
 
-Stand: 13. Juli 2026
+Stand: 28. Juli 2026
 
 Dieser Stand setzt die fünf angeforderten Kernbereiche als zusammenhängenden
 Produktpfad um. Die ursprüngliche Audit- und Roadmap-Datei bleibt als historische
-Ausgangsbasis erhalten.
+Ausgangsbasis erhalten. Seit dem ursprünglichen Stand (13. Juli) hinzugekommene
+Bereiche stehen im Abschnitt
+[„Seit dem 13. Juli ergänzt“](#seit-dem-13-juli-ergänzt).
 
 ## Fertig umgesetzt
 
-### Claude, Codex und GitHub Copilot als Orchestrator
+### Claude, Kimi, Codex und GitHub Copilot als Orchestrator
 
 - Claude und Codex besitzen getrennte, verifizierte Provider-Adapter.
+- Kimi (Moonshot Kimi Code CLI) ist als vollwertiger Orchestrator/Worker
+  angebunden; die CLI spiegelt die Claude-Code-Stream-Oberfläche und ist
+  MCP-nativ.
 - Beide erhalten den lokalen Vertragus-MCP-Server und dieselbe Orchestrator-Policy.
 - Die Codex-Konfiguration wird nur über prozesslokale `-c`-Overrides gesetzt;
   die persönliche Codex-Konfiguration wird nicht verändert.
@@ -158,14 +163,41 @@ Ausgangsbasis erhalten.
   strukturierten Orchestrator-Briefings. Der bestehende Transfer-Flow bleibt
   unverändert.
 
+## Seit dem 13. Juli ergänzt
+
+Diese Bereiche kamen nach dem ursprünglichen Stand hinzu und sind umgesetzt
+und getestet:
+
+- **Mission Control (Remote-Zugriff):** authentifiziertes Remote-Gateway über
+  einen Cloudflare Tunnel (`src/main/remote/`) mit QR-Geräte-Pairing,
+  mobile-first PWA (`apps/mobile/`), nativer iOS-App (`apps/ios/`, inkl.
+  CI-Build und Tests) und APNs-Push; Remote-Approvals, Rate-Limits,
+  Origin-Allowlist und redigiertes Audit-Log. Die frühere Aussage „Cloudflare-
+  Remote-Steuerung ist außerhalb des Sprints“ gilt damit nicht mehr.
+- **Headless-Hostmodus:** `VERTRAGUS_HEADLESS=1` startet Engine, MCP-Server,
+  Agent-Manager, Session-Restore und Mission-Control-Gateway ohne Fenster,
+  Tray oder Updater (Commit `017728a`) — Schritt 1 der Detach-Persistenz.
+- **Custom-Provider-Schnittstelle:** deklarativer, Zod-validierter Vertrag für
+  zusätzliche Headless-CLIs als Worker (Commit `cd015e1`, siehe
+  [CUSTOM_PROVIDERS.md](./CUSTOM_PROVIDERS.md)); die Slot-Auswahl in der
+  Profil-UI ist bewusst noch offen.
+- **gitleaks als zweiter Secret-Scanner** im Auto-PR-Gate, optional neben den
+  eingebauten Mustern (Commit `055321a`).
+- **Stable-Update-Kanal** neben dem schnellen `main`-Kanal; `stable` folgt nur
+  getaggten Releases (Commit `a7a5406`).
+- **Quantitatives Modell-Routing aus Retro-Daten** (Commit `07b0f5f`) sowie
+  **Modell-Fallback-Listen je Slot** (`fallbackModels`, 2026-07-22).
+- **Profil-Skills:** vom Orchestrator erweiterbare Workspace-Verfahren
+  (`list_skills` / `record_skill` / `remove_skill`, Commit `b7a7117`).
+- **Efficiency-Solo-Preset:** Ein-Agent-Profil mit kompaktem Solo-Kontrakt und
+  minimaler MCP-Session (siehe [EFFICIENCY_SOLO.md](./EFFICIENCY_SOLO.md)).
+
 ## Bewusst außerhalb des aktuellen Sprints
 
 Diese Punkte waren Ideen der langfristigen Roadmap, aber keine Voraussetzung
 der fünf Kernfeatures:
 
 - Auto-Merge oder Force-Push
-- Cloudflare-Remote-Steuerung; der lokale CLI-Verbindungsstatus ist kein
-  freigegebener Remote-Zugriff.
 - Merge-/Konflikteditor einschließlich vollständiger interaktiver
   Konfliktauflösung; das Review-Cockpit bleibt read-only.
 - Wiederverwendung warmer interaktiver Agents als Scheduler-Pool

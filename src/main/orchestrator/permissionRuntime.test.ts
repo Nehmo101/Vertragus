@@ -28,12 +28,23 @@ const {
 } = vi.hoisted(() => ({
   runTask: vi.fn(),
   kill: vi.fn(async () => undefined),
-  prepareTaskChange: vi.fn<(input: unknown) => Promise<PrepareTaskResult>>(async () => ({
-    status: 'skipped',
-    result: 'no-changes',
-    noChanges: true,
-    message: 'No-op bestätigt.'
-  })),
+  // Diff-Guard: ein leerer Diff gilt nicht mehr als Erfolg, daher liefert der
+  // Standard-Mock einen verifizierten Commit; No-Diff-Tests überschreiben ihn.
+  prepareTaskChange: vi.fn<(input: unknown) => Promise<PrepareTaskResult>>(async (input) => {
+    const { taskId = 'task', title = 'Task' } = (input ?? {}) as { taskId?: string; title?: string }
+    return {
+      status: 'prepared',
+      result: 'committed',
+      noChanges: false,
+      message: 'Commit verifiziert.',
+      branch: 'orca/default',
+      worktree: '.',
+      change: {
+        taskId, title, worktree: '.', branch: 'orca/default',
+        commit: 'd'.repeat(40), commits: ['d'.repeat(40)], files: ['feature.ts']
+      }
+    }
+  }),
   publishPreparedChanges: vi.fn<(
     input: { onRemoteCiUpdate?: (outcome: RemoteCiOutcome) => void }
   ) => Promise<AutoPrOutcome>>(),
@@ -136,6 +147,13 @@ describe('runtime permission handling (Retro-Fixes Lauf 2/3)', () => {
     }))
     const engine = new OrchestratorEngine({
       profile: { ...DEFAULT_PROFILE }, workspaceSessionId: 'denied-session'
+    })
+    // Der Worker konnte nie schreiben: die Abnahme findet keinerlei Änderungen.
+    prepareTaskChange.mockResolvedValueOnce({
+      status: 'skipped',
+      result: 'no-changes',
+      noChanges: true,
+      message: 'No-op bestätigt.'
     })
     const accepted = engine.dispatchAsync('codex', 'Write contracts', 'Contracts')
     await vi.waitFor(() => expect(engine.getTaskStatus(accepted.taskId)?.status).toBe('running'))
@@ -241,5 +259,44 @@ describe('runtime permission handling (Retro-Fixes Lauf 2/3)', () => {
     finish({ result: 'ERGEBNIS: ERFOLG', isError: false, status: 'succeeded' })
     await vi.waitFor(() => expect(engine.getTaskStatus(accepted.taskId)?.status).toBe('success'))
     expect(engine.getTaskStatus(accepted.taskId)?.completion).toEqual({ kind: 'commit', commit: 'b'.repeat(40) })
+  })
+
+  it('flags a long-open tool approval via watchdog without killing the waiting worker', async () => {
+    const killCallsBefore = kill.mock.calls.length
+    let finish!: (value: { result: string; isError: boolean; status: 'succeeded' }) => void
+    runTask.mockImplementationOnce(async (request) => ({
+      info: info(request.taskId),
+      done: new Promise((resolve) => { finish = resolve })
+    }))
+    const engine = new OrchestratorEngine({
+      profile: { ...DEFAULT_PROFILE },
+      workspaceSessionId: 'watchdog-session',
+      permissionApprovalTimeoutMs: 40
+    })
+    const accepted = engine.dispatchAsync('codex', 'Gate-Kette ausführen', 'Watchdog')
+    await vi.waitFor(() => expect(engine.getTaskStatus(accepted.taskId)?.status).toBe('running'))
+
+    const decision = permissionBroker.requestDecision(
+      permissionContext(engine, accepted.taskId, 'watchdog-session'), 'bash'
+    )
+    await vi.waitFor(() => expect(engine.getTaskStatus(accepted.taskId)?.status).toBe('waiting'))
+
+    // Retro: qa-gate-runner blieb unbegrenzt in 'Wartet auf Tool-Freigabe'.
+    // Der Watchdog markiert den Task nach Ablauf des Fensters sichtbar …
+    await vi.waitFor(() => expect(engine.getTaskStatus(accepted.taskId)?.findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ gate: 'permission', code: 'approval-timeout' })
+      ])
+    ))
+    // … ohne den Worker zu stoppen: die Freigabe bleibt offen und beantwortbar.
+    expect(engine.getTaskStatus(accepted.taskId)?.status).toBe('waiting')
+    expect(engine.snapshot().pendingPermissions).toHaveLength(1)
+    expect(kill.mock.calls.length).toBe(killCallsBefore)
+
+    const pending = engine.snapshot().pendingPermissions![0]
+    expect(engine.resolvePermission(pending.id, true)).toBe(true)
+    await expect(decision).resolves.toBe('allow')
+    finish({ result: 'ERGEBNIS: ERFOLG', isError: false, status: 'succeeded' })
+    await vi.waitFor(() => expect(engine.getTaskStatus(accepted.taskId)?.status).toBe('success'))
   })
 })

@@ -1,10 +1,11 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import type { GithubAuthStatus, GitInfo, GitWorktreeInfo } from '@shared/ipc'
 import { githubAuthPresentation, hasUsableGithubAuth } from '@renderer/store/githubAuth'
 import { useAppRootPortalTarget } from '../hooks/useAppRootPortalTarget'
+import { useEscapeToClose } from './ui/useEscapeToClose'
 import {
   buildGitBranchTree,
   compactWorktreePath,
@@ -114,14 +115,9 @@ export default function GitWorkspaceTree({
   )
   const worktreeCount = gitInfo?.worktrees?.length ?? 0
 
-  useEffect(() => {
-    if (!open) return
-    const closeOnEscape = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') setOpen(false)
-    }
-    window.addEventListener('keydown', closeOnEscape)
-    return () => window.removeEventListener('keydown', closeOnEscape)
-  }, [open])
+  // Non-modal popover: shares the central Escape handler with the Modal
+  // primitive but keeps its anchored, trap-free popover behavior.
+  useEscapeToClose(() => setOpen(false), { enabled: open })
 
   useLayoutEffect(() => {
     if (!open) return

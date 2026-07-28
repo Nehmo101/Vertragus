@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import ModelCatalogStatus from '@renderer/components/ModelCatalogStatus'
+import Modal from '@renderer/components/ui/Modal'
+import Spinner from '@renderer/components/ui/Spinner'
 import {
   modelPresetAvailability,
   type ProviderModelCatalog
@@ -49,15 +51,6 @@ export default function AddAgentModal(): JSX.Element | null {
     [model, modelPreset, provider]
   )
 
-  useEffect(() => {
-    if (!open) return
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape' && !submitting) close()
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [close, open, submitting])
-
   if (!open) return null
 
   const submit = async (): Promise<void> => {
@@ -71,14 +64,14 @@ export default function AddAgentModal(): JSX.Element | null {
   }
 
   return (
-    <div className="modal-wrap">
-      <div className="modal-scrim" onClick={() => !submitting && close()} />
-      <div
-        className="modal add-agent-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="add-agent-title"
-      >
+    <Modal
+      className="add-agent-modal"
+      size="sm"
+      labelledBy="add-agent-title"
+      onClose={close}
+      closeOnScrim={!submitting}
+      closeOnEscape={!submitting}
+    >
         <div className="modal-head">
           <span className="modal-gear">＋</span>
           <div style={{ flex: 1 }}>
@@ -178,10 +171,15 @@ export default function AddAgentModal(): JSX.Element | null {
             {t('modals.addAgent.cancel')}
           </button>
           <button type="button" className="btn-primary" disabled={submitting} onClick={() => void submit()}>
-            {submitting ? t('modals.addAgent.starting') : t('modals.addAgent.start')}
+            {submitting ? (
+              <>
+                <Spinner /> {t('modals.addAgent.starting')}
+              </>
+            ) : (
+              t('modals.addAgent.start')
+            )}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }

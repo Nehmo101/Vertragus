@@ -51,6 +51,37 @@ describe('speech.toggle binding (Ctrl/Cmd+Shift+M)', () => {
   })
 })
 
+describe('app shortcut default bindings', () => {
+  it.each([
+    ['nav.workspace', { key: '1', modifiers: ['Mod'] }, 'Control+1', 'Meta+1'],
+    ['nav.inbox', { key: '2', modifiers: ['Mod'] }, 'Control+2', 'Meta+2'],
+    ['nav.approvals', { key: '3', modifiers: ['Mod'] }, 'Control+3', 'Meta+3'],
+    ['nav.changes', { key: '4', modifiers: ['Mod'] }, 'Control+4', 'Meta+4'],
+    ['layout.canvas', { key: '1', modifiers: ['Mod', 'Alt'] }, 'Control+Alt+1', 'Meta+Alt+1'],
+    ['layout.tiles', { key: '2', modifiers: ['Mod', 'Alt'] }, 'Control+Alt+2', 'Meta+Alt+2'],
+    ['layout.focus', { key: '3', modifiers: ['Mod', 'Alt'] }, 'Control+Alt+3', 'Meta+Alt+3'],
+    [
+      'agents.startAll',
+      { key: 'Enter', modifiers: ['Mod', 'Shift'] },
+      'Control+Shift+enter',
+      'Meta+Shift+enter'
+    ],
+    ['panel.sidebarLeft', { key: 'b', modifiers: ['Mod'] }, 'Control+b', 'Meta+b'],
+    ['panel.orchestratorRight', { key: 'b', modifiers: ['Mod', 'Alt'] }, 'Control+Alt+b', 'Meta+Alt+b']
+  ] as const)('%s default binding + platform mapping', (actionId, binding, other, mac) => {
+    expect(DEFAULT_SHORTCUT_BINDINGS[actionId]).toEqual([binding])
+    expect(normalizeBinding(binding, 'other')).toBe(other)
+    expect(normalizeBinding(binding, 'mac')).toBe(mac)
+  })
+
+  it('belegt keinen Stopp-Shortcut (Mod+Shift+.) — Confirm-Flow bleibt in der TitleBar', () => {
+    const bound = Object.values(DEFAULT_SHORTCUT_BINDINGS)
+      .flat()
+      .map((binding) => normalizeBinding(binding, 'other'))
+    expect(bound).not.toContain('Control+Shift+.')
+  })
+})
+
 describe('dispatcher event gate', () => {
   it.each([
     ['input', { tagName: 'INPUT' }],

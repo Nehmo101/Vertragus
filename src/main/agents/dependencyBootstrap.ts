@@ -50,6 +50,21 @@ interface InstallCommand {
   offlineArgs?: string[]
 }
 
+/**
+ * pnpm materialisiert Pakete standardmäßig per Hardlink aus dem Store. In
+ * Git-Worktrees führt das unter Windows zu ACL-/EPERM-Fehlern (z. B. beim
+ * Start der esbuild-Binaries), weil die Hardlinks die Store-ACLs teilen.
+ * Worktree-Installs kopieren deshalb (`package-import-method=copy`); der
+ * Haupt-Checkout behält den schnellen Hardlink-Default — darum bewusst als
+ * Install-Flag statt global in .npmrc.
+ */
+const PNPM_WORKTREE_IMPORT_METHOD = '--config.package-import-method=copy'
+
+function normalizedPath(value: string): string {
+  const resolved = resolve(value)
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved
+}
+
 function assertWorktreeContained(repositoryRoot: string, workingDir: string): void {
   const resolvedRoot = resolve(repositoryRoot)
   const resolvedWorkingDir = resolve(workingDir)
@@ -242,7 +257,13 @@ export async function ensureWorktreeDependencies(
     // Single coordinated online fetch shared by all sibling worktrees, then a
     // per-worktree offline materialization instead of N identical network runs.
     const warmed = await ensureStoreWarmup(repositoryRoot, command)
-    const installArgs = warmed && command.offlineArgs ? command.offlineArgs : command.args
+    let installArgs = warmed && command.offlineArgs ? command.offlineArgs : command.args
+    // Nur echte Worktree-Installs kopieren statt zu hardlinken (Windows-ACL/
+    // EPERM, Retro mrnsnr45); ein Install direkt im Haupt-Checkout bleibt
+    // beim pnpm-Default.
+    if (command.label === 'pnpm' && normalizedPath(workingDir) !== normalizedPath(repositoryRoot)) {
+      installArgs = [...installArgs, PNPM_WORKTREE_IMPORT_METHOD]
+    }
     await installDependencies(workingDir, command.command, installArgs)
     if (!await exists(workerModules)) {
       throw new Error('Dependency-Bootstrap lief durch, aber node_modules fehlt weiterhin.')

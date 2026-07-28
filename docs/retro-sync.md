@@ -1,5 +1,12 @@
 # Retro-Sync & Selbstverbesserungs-Loop
 
+> **Status (2026-07-28): Der Loop ist aktiv.** Der erste Analyse-PR (#136,
+> „Retro-Analyse 2026-07-27“) wurde am 28.07.2026 in den `retros`-Branch
+> gemergt; damit sind `overlay/learnings.md` (erste geprüfte Regeln), drei
+> Proposals und `state/last-analysis.json` erstmals live. Das Overlay wird ab
+> jetzt als „Gelerntes Teamwissen“ in Orchestrator-Systemprompts injiziert
+> (nach App-Neustart bzw. spätestens nach 30 Minuten TTL).
+
 Vertragus sammelt am Ende jedes Orchestrator-Laufs eine Retrospektive
 (automatisch aus dem Task-Graphen plus qualitativ via `record_retro`). Der
 Retro-Sync macht daraus einen geschlossenen Verbesserungs-Loop:
@@ -59,8 +66,8 @@ Export durch die Secret-Redaction (`redactDiagnosticValue`).
    In den Actions-Einstellungen muss das Erstellen von Pull Requests durch
    GitHub Actions erlaubt sein.
 3. **Hinweis:** `schedule`-Workflows laufen nur vom Default-Branch (`main`).
-   Bis `retro-analysis.yml` dort angekommen ist, den Workflow per
-   `workflow_dispatch` manuell starten.
+   `retro-analysis.yml` liegt dort und der Wochen-Cron (montags 06:00 UTC)
+   ist aktiv; `workflow_dispatch` bleibt für manuelle Läufe verfügbar.
 
 ## Betrieb
 
@@ -109,6 +116,11 @@ Analyse selektiert nur ihre benötigten Pflichtfelder. Erweiterungen anderer
 Tracks müssen deshalb additiv und optional bleiben.
 
 ### Aktivierung verifizieren
+
+*Erledigt am 2026-07-28:* Der Analyse-PR #136 wurde nach menschlicher Prüfung
+gemergt; `overlay/learnings.md`, `proposals/` und `state/last-analysis.json`
+liegen auf `retros`. Die folgenden Schritte bleiben als Anleitung für eine
+Re-Verifikation oder eine neue Installation dokumentiert.
 
 1. Sicherstellen, dass der `retros`-Branch durch mindestens einen App-Export
    existiert und `retro-analysis.yml` auf dem Default-Branch liegt.

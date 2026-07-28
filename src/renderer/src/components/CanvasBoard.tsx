@@ -4,7 +4,15 @@
  * dependent task runs, advisory dependencies render dashed bronze.
  * Node positions persist per profile + workspace session.
  */
-import { useEffect, useMemo, useState, type DragEvent } from 'react'
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type DragEvent,
+  type KeyboardEvent as ReactKeyboardEvent
+} from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import {
   Background,
@@ -42,6 +50,15 @@ import type { TFunction } from 'i18next'
 import CanvasTerminalDrawer from './CanvasTerminalDrawer'
 import { CanvasComposer } from './CanvasComposer'
 import { OrchestratorThread } from './OrchestratorThread'
+
+/**
+ * Tastaturpfad für Task-Knoten: Enter/Space öffnet das bestehende Kontextmenü
+ * als Popover am Knoten. Der Callback lebt im Board, die Knoten erreichen ihn
+ * über diesen Context, weil React Flow die Node-Komponenten selbst rendert.
+ */
+const TaskNodeMenuContext = createContext<
+  ((task: VertragusTask, element: HTMLElement) => void) | null
+>(null)
 
 function statusClass(status: TaskStatus): string {
   if (status === 'running') return 'running'
@@ -106,6 +123,18 @@ function TaskNode({ data }: NodeProps<Node<TaskNodeData, 'task'>>): JSX.Element 
   const { task } = data
   const showToast = useAppStore((state) => state.showToast)
   const [dropActive, setDropActive] = useState(false)
+  const openNodeMenu = useContext(TaskNodeMenuContext)
+
+  // Enter/Space öffnet das Kontextmenü am Knoten; Escape schließt es (globaler
+  // Listener im Board). stopPropagation hält React-Flow-Shortcuts fern.
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    if (event.target !== event.currentTarget) return
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      event.stopPropagation()
+      openNodeMenu?.(task, event.currentTarget)
+    }
+  }
 
   const onDragOver = (event: DragEvent<HTMLDivElement>): void => {
     if (!task.agentId || !event.dataTransfer.types.includes('Files')) return
@@ -141,6 +170,10 @@ function TaskNode({ data }: NodeProps<Node<TaskNodeData, 'task'>>): JSX.Element 
     <div
       className={`canvas-node canvas-node--task ${statusClass(task.status)} ${dropActive ? 'drop-target' : ''}`}
       title={task.agentId ? t('canvas.dropHint', { name: task.agentName ?? task.role }) : undefined}
+      tabIndex={0}
+      aria-haspopup="menu"
+      aria-label={task.title}
+      onKeyDown={onKeyDown}
       onDragOver={onDragOver}
       onDragLeave={() => setDropActive(false)}
       onDrop={onDrop}
@@ -374,6 +407,27 @@ export default function CanvasBoard(): JSX.Element {
 
   const [menu, setMenu] = useState<{ x: number; y: number; task: VertragusTask } | null>(null)
 
+  // Tastaturpfad: öffnet das Kontextmenü als Popover direkt unter dem Knoten.
+  const openMenuAtNode = (task: VertragusTask, element: HTMLElement): void => {
+    const host = element.closest('.vertragus-canvas')?.getBoundingClientRect()
+    const rect = element.getBoundingClientRect()
+    setMenu({
+      x: rect.left - (host?.left ?? 0) + 12,
+      y: rect.bottom - (host?.top ?? 0) + 6,
+      task
+    })
+  }
+
+  // Escape schließt das Menü, egal wo der Fokus gerade liegt.
+  useEffect(() => {
+    if (!menu) return
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setMenu(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [menu])
+
   const onNodeContextMenu: NodeMouseHandler<CanvasNode> = (event, node) => {
     if (node.type !== 'task') return
     event.preventDefault()
@@ -434,27 +488,32 @@ export default function CanvasBoard(): JSX.Element {
   return (
     <div className="vertragus-canvas" aria-label={t('canvas.aria')}>
       <SessionChips />
-      <ReactFlow
-        nodes={nodes}
-        edges={graph.edges}
-        nodeTypes={NODE_TYPES}
-        onNodesChange={onNodesChange}
-        onNodeDragStop={onNodeDragStop}
-        onNodeDoubleClick={onNodeDoubleClick}
-        onNodeContextMenu={onNodeContextMenu}
-        onPaneClick={() => setMenu(null)}
-        onMoveStart={() => setMenu(null)}
-        fitView
-        minZoom={0.25}
-        maxZoom={1.75}
-        nodesConnectable={false}
-        deleteKeyCode={null}
-        proOptions={{ hideAttribution: false }}
-      >
-        <Background variant={BackgroundVariant.Dots} gap={22} size={1.2} className="canvas-bg" />
-        <Controls position="bottom-left" showInteractive={false} />
-        <MiniMap position="bottom-right" pannable zoomable className="canvas-minimap" />
-      </ReactFlow>
+      <TaskNodeMenuContext.Provider value={openMenuAtNode}>
+        <ReactFlow
+          nodes={nodes}
+          edges={graph.edges}
+          nodeTypes={NODE_TYPES}
+          onNodesChange={onNodesChange}
+          onNodeDragStop={onNodeDragStop}
+          onNodeDoubleClick={onNodeDoubleClick}
+          onNodeContextMenu={onNodeContextMenu}
+          onPaneClick={() => setMenu(null)}
+          onMoveStart={() => setMenu(null)}
+          fitView
+          minZoom={0.25}
+          maxZoom={1.75}
+          nodesConnectable={false}
+          // Fokus liegt auf dem inneren Task-Knoten (tabIndex), nicht auf dem
+          // React-Flow-Wrapper — sonst gäbe es doppelte Tab-Stopps pro Knoten.
+          nodesFocusable={false}
+          deleteKeyCode={null}
+          proOptions={{ hideAttribution: false }}
+        >
+          <Background variant={BackgroundVariant.Dots} gap={22} size={1.2} className="canvas-bg" />
+          <Controls position="bottom-left" showInteractive={false} />
+          <MiniMap position="bottom-right" pannable zoomable className="canvas-minimap" />
+        </ReactFlow>
+      </TaskNodeMenuContext.Provider>
       {menu && menuTask && sessionId && (
         <div className="canvas-menu" role="menu" style={{ left: menu.x, top: menu.y }}>
           {menuTask.status === 'running' && (

@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useAppStore } from '@renderer/store/useAppStore'
+import Modal from '@renderer/components/ui/Modal'
 import type { Idea } from '@shared/inbox'
 import {
   assessProfileOrchestrator,
@@ -56,14 +57,6 @@ export default function IdeaTransferModal({
   const [lastResult, setLastResult] = useState<Idea['transfer']>()
   const [briefingPreviewOpen, setBriefingPreviewOpen] = useState(false)
   const briefingPreview = useMemo(() => previewIdeaTransferBriefing(idea), [idea])
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape' && !busy) onClose()
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [busy, onClose])
 
   const runTransfer = async (clone?: boolean): Promise<void> => {
     setBusy(true)
@@ -149,13 +142,17 @@ export default function IdeaTransferModal({
   }
 
   return (
-    <div className="modal-wrap">
-      <div className="modal-scrim" onClick={() => !busy && onClose()} />
-      <div className="modal idea-transfer-modal" role="dialog" aria-modal="true">
+    <Modal
+      className="idea-transfer-modal"
+      labelledBy="idea-transfer-title"
+      onClose={onClose}
+      closeOnScrim={!busy}
+      closeOnEscape={!busy}
+    >
         <div className="modal-head">
           <span className="modal-gear">➜</span>
           <div style={{ flex: 1 }}>
-            <div className="modal-title">An Workspace-Profil übergeben</div>
+            <div className="modal-title" id="idea-transfer-title">An Workspace-Profil übergeben</div>
             <div className="modal-sub">
               Idee „{idea.title}" planen lassen — Review-Gate vor Subagent-Start
             </div>
@@ -294,7 +291,6 @@ export default function IdeaTransferModal({
             </button>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }

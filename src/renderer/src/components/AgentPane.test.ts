@@ -12,6 +12,8 @@ vi.mock('react', async () => {
 })
 vi.mock('@xterm/xterm', () => ({ Terminal: class Terminal {} }))
 vi.mock('@xterm/addon-fit', () => ({ FitAddon: class FitAddon {} }))
+// The UMD bundle references `self` at import time, which plain Node lacks.
+vi.mock('@xterm/addon-search', () => ({ SearchAddon: class SearchAddon {} }))
 
 import { useAgentTerminal } from './AgentPane'
 

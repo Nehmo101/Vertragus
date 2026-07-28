@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '@renderer/store/useAppStore'
@@ -18,22 +18,16 @@ import SessionRestoreBanner from '@renderer/components/SessionRestoreBanner'
 import MissionApprovalInbox from '@renderer/components/MissionApprovalInbox'
 import DiffMergeCenter from '@renderer/components/DiffMergeCenter'
 import { SpeechShortcutProvider } from '@renderer/features/speechShortcut/SpeechShortcutProvider'
+import { AppShortcutProvider } from '@renderer/shortcuts/AppShortcutProvider'
 import VoiceOverlay from '@renderer/components/VoiceOverlay'
 import { useAttentionSignal } from '@renderer/hooks/useAttentionSignal'
-
-function useHashRoute(): string {
-  const [hash, setHash] = useState(() => window.location.hash)
-  useEffect(() => {
-    const onChange = (): void => setHash(window.location.hash)
-    window.addEventListener('hashchange', onChange)
-    return () => window.removeEventListener('hashchange', onChange)
-  }, [])
-  return hash
-}
+import { useHashRoute } from '@renderer/hooks/useHashRoute'
+import { useDocumentLanguage } from '@renderer/hooks/useDocumentLanguage'
 
 export default function App(): JSX.Element {
   const { t } = useTranslation()
   useAttentionSignal()
+  useDocumentLanguage()
   // The root only reads low-frequency UI state (theme, layout, open modals,
   // toast). Selecting exactly those with a shallow comparison keeps App — and
   // therefore the whole tree it renders — from reconciling on every high-frequency
@@ -111,10 +105,11 @@ export default function App(): JSX.Element {
     ) : (
       <Workspace />
     )
-  const showOrchestrator = !['#/remote', '#/approvals', '#/changes'].includes(hash)
+  const showOrchestrator = !['#/inbox', '#/remote', '#/approvals', '#/changes'].includes(hash)
 
   return (
     <SpeechShortcutProvider>
+    <AppShortcutProvider>
     <div className="app-root" data-theme={store.theme} data-density={store.uiDensity}>
       <TitleBar />
 
@@ -150,6 +145,7 @@ export default function App(): JSX.Element {
         </div>
       )}
     </div>
+    </AppShortcutProvider>
     </SpeechShortcutProvider>
   )
 }

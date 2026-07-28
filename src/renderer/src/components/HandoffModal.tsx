@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import Modal from '@renderer/components/ui/Modal'
+import Spinner from '@renderer/components/ui/Spinner'
 import { useAppStore } from '@renderer/store/useAppStore'
 import { LIMIT_KIND_LABELS, type AgentInstanceInfo } from '@shared/agents'
 import type { AgentProviderId } from '@shared/providers'
@@ -61,46 +63,50 @@ export default function HandoffModal(): JSX.Element | null {
     () => useAppStore.getState().handoffBulk && eligibleSources.length > 1
   )
 
-  useEffect(() => {
-    taskRef.current?.focus()
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
-        setBulk(false)
-        closeHandoff()
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [closeHandoff])
+  const [submitting, setSubmitting] = useState(false)
 
   if (!source) return null
 
   const limit = source.limitWarning
   const srcTheme = PROVIDER_THEME[source.provider]
 
-  const submit = (): void => {
+  const submit = async (): Promise<void> => {
+    if (submitting) return
     setBulk(false)
-    if (bulk) {
-      void bulkHandoff({
-        sourceIds: eligibleSources.map((agent) => agent.id),
-        provider, model, task, summary, stopSources: true
-      })
-      return
+    setSubmitting(true)
+    try {
+      if (bulk) {
+        await bulkHandoff({
+          sourceIds: eligibleSources.map((agent) => agent.id),
+          provider, model, task, summary, stopSources: true
+        })
+        return
+      }
+      await handoff({ sourceId: source.id, provider, model, task, summary })
+    } finally {
+      setSubmitting(false)
     }
-    void handoff({ sourceId: source.id, provider, model, task, summary })
+  }
+
+  const close = (): void => {
+    setBulk(false)
+    closeHandoff()
   }
 
   return (
-    <div className="modal-wrap">
-      <div className="modal-scrim" onClick={() => { setBulk(false); closeHandoff() }} />
-      <div className="modal handoff-modal" role="dialog" aria-modal="true" aria-labelledby="handoff-title">
+    <Modal
+      className="handoff-modal"
+      labelledBy="handoff-title"
+      onClose={close}
+      initialFocus={taskRef}
+    >
         <div className="modal-head">
           <span className="modal-gear">⇄</span>
           <div style={{ flex: 1 }}>
             <div className="modal-title" id="handoff-title">{t('modals.handoff.title')}</div>
             <div className="modal-sub">{t('modals.handoff.sub')}</div>
           </div>
-          <button type="button" className="modal-close" aria-label={t('modals.handoff.closeAria')} onClick={() => { setBulk(false); closeHandoff() }}>
+          <button type="button" className="modal-close" aria-label={t('modals.handoff.closeAria')} onClick={close}>
             ✕
           </button>
         </div>
@@ -208,16 +214,15 @@ export default function HandoffModal(): JSX.Element | null {
 
         <div className="modal-foot">
           <div className="spacer" />
-          <button type="button" className="btn-secondary" onClick={() => { setBulk(false); closeHandoff() }}>
+          <button type="button" className="btn-secondary" onClick={close}>
             {t('modals.handoff.cancel')}
           </button>
-          <button type="button" className="btn-primary" onClick={submit}>
-            ⇄ {bulk
+          <button type="button" className="btn-primary" disabled={submitting} onClick={() => void submit()}>
+            {submitting ? <Spinner /> : '⇄'} {bulk
               ? t('modals.handoff.submitBulk', { n: eligibleSources.length })
               : t('modals.handoff.submit')}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }

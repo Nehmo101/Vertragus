@@ -1,0 +1,30 @@
+/*
+ * Small inline spinner for long-running actions, visually matching the
+ * profile-generate spinner (.profile-generate-spinner in styles.css) but
+ * color-adaptive via currentColor so it works on filled and ghost buttons.
+ */
+
+.spinner {
+  display: inline-block;
+  flex: none;
+  width: 13px;
+  height: 13px;
+  border: 2px solid color-mix(in srgb, currentColor 35%, transparent);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  vertical-align: -2px;
+  animation: spinnerSpin 0.8s linear infinite;
+}
+
+/* Keep the progress affordance but slow it down for reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 2s;
+  }
+}
+
+@keyframes spinnerSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}

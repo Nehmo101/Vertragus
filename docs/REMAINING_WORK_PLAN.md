@@ -1,5 +1,13 @@
 # Remaining Work Plan — Audit Follow-up (Architecture Refactors)
 
+> **Status (2026-07-28): essentially complete.** All parts except the A1 core
+> split have landed on `main` (PRs #127/#128; per-part commits below). Still
+> open: the A1 remainder (`Engine.ts` `dispatch`/`executePreparedPlan` split —
+> deliberately deferred, rationale in
+> [`RETRO_IMPROVEMENT_PLAN.md`](./RETRO_IMPROVEMENT_PLAN.md), "Nachtrag:
+> Verbleibende Audit-Architekturpunkte") and **A4** (triple maintenance of the
+> IPC surface across main/preload/renderer — never scheduled in this plan).
+
 This plan tracks the **only** audit findings still open after the main remediation
 branch (`claude/scan-everything-r66a2y`). Everything security-, performance-,
 quality-, test-, and dependency-related is already done and merged. What remains
@@ -26,7 +34,7 @@ only. See `audit-report.md` for the full findings and what was fixed.
 
 ## Parts (do in order)
 
-### Part 1 — A8: Provider descriptor
+### Part 1 — A8: Provider descriptor — **DONE** (commit `6816291`)
 - **Scope:** `src/main/providers/` (+ `src/shared/providers.ts` if present).
 - **Goal:** consolidate per-provider behavior that already lives under
   `src/main/providers/` (login labels, capacities, health checks, model handling)
@@ -35,7 +43,7 @@ only. See `audit-report.md` for the full findings and what was fixed.
 - **Done when:** duplication within `providers/` is reduced to one descriptor,
   exports preserved, green gate passes.
 
-### Part 2 — A2 remainder: AgentManager extraction
+### Part 2 — A2 remainder: AgentManager extraction — **DONE** (commit `1a60194`)
 - **Scope:** `src/main/agents/` only. `AgentManager.ts` is ~1,741 lines
   (`ScrollbackBuffer` was already extracted to `scrollbackBuffer.ts`).
 - **Goal:** extract the Cursor workspace-trust dispatch/monitor/retry logic, the
@@ -45,7 +53,7 @@ only. See `audit-report.md` for the full findings and what was fixed.
   `@main/agents/AgentManager`).
 - **Done when:** `AgentManager.ts` is materially smaller, green gate passes.
 
-### Part 3 — A3: Store slices
+### Part 3 — A3: Store slices — **DONE** (commit `2587011`)
 - **Scope:** `src/renderer/src/store/` only. `useAppStore.ts` is ~1,303 lines.
 - **Goal:** move module-scope selector/helper functions to `selectors.ts` and the
   `AppState` interface to `types.ts` (re-exported); split the `create()` closure
@@ -56,7 +64,10 @@ only. See `audit-report.md` for the full findings and what was fixed.
   the full gate before merge). Preserve every export from `@renderer/store/useAppStore`.
 - **Done when:** store is sliced, public API identical, green gate passes.
 
-### Part 4 — A1: Engine split
+### Part 4 — A1: Engine split — **PARTIALLY DONE / core deliberately deferred**
+(conservative extraction of `workerContract` + `engineSnapshots` in commit
+`e5e053d`; the remaining `dispatch`/`executePreparedPlan` split is deferred —
+see the "Nachtrag" in `RETRO_IMPROVEMENT_PLAN.md` for the rationale)
 - **Scope:** `src/main/orchestrator/` only. `Engine.ts` is ~3,998 lines (largest).
 - **Goal:** extract cohesive concerns into modules (snapshot construction/redaction,
   persistence-throttle + push-coalescing, benchmark bookkeeping, subagent-support
@@ -65,7 +76,7 @@ only. See `audit-report.md` for the full findings and what was fixed.
 - **Done when:** `Engine.ts` is materially smaller, green gate passes. Consider
   doing this as several small PRs if one is too large to review.
 
-### Part 5 — A6 + A7: Broadcast fanout & config change-notification
+### Part 5 — A6 + A7: Broadcast fanout & config change-notification — **DONE** (commits `45a41ca` / `a07956b`)
 - **Scope:** `src/main/ipc/register.ts`, `src/main/windows.ts`, and the renderer
   config store as needed.
 - **A6:** revisit the per-window PTY-chunk / snapshot broadcast fanout — introduce
@@ -78,7 +89,7 @@ only. See `audit-report.md` for the full findings and what was fixed.
 - **Done when:** multi-window config stays consistent, broadcast fanout is
   centralized, green gate passes.
 
-### Part 6 — M5: Standardize IPC validation
+### Part 6 — M5: Standardize IPC validation — **DONE** (commit `6beb1de`)
 - **Scope:** `src/main/ipc/register.ts` (+ `src/shared/ipcValidation.ts`).
 - **Goal:** migrate the "trust-the-compile-time-type" handlers onto the
   authorize-sender + zod-parse-`unknown` controller pattern already used by
@@ -87,7 +98,7 @@ only. See `audit-report.md` for the full findings and what was fixed.
   already fixed — this is the remaining validation-style consistency.
 - **Done when:** one validation convention across handlers, green gate passes.
 
-### Part 7 — L5: Relocate orchestratorTraining (cleanup)
+### Part 7 — L5: Relocate orchestratorTraining (cleanup) — **DONE** (commit `1d0ca7e`)
 - **Scope:** `src/shared/orchestratorTraining.ts` + its two importers
   (`src/main/orchestrator/orchestratorTraining.test.ts`,
   `src/shared/planEstimate.test.ts`).

@@ -1,0 +1,64 @@
+/*
+ * Modal primitive chrome. Replicates the global .modal-wrap / .modal-scrim /
+ * .modal look from styles.css so the shared component stays visually
+ * identical to the previous ad-hoc modals even if the global classes ever
+ * change or disappear. The global classes are additionally kept on the
+ * markup for existing per-modal selectors.
+ */
+
+.wrap {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+}
+
+.scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 7, 12, 0.66);
+  backdrop-filter: blur(3px);
+}
+
+.dialog {
+  position: relative;
+  width: 640px;
+  max-width: 100%;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-modal);
+  border: 1px solid var(--border-5);
+  border-radius: 16px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+
+.dialog:focus {
+  outline: none;
+}
+
+/* Width preset matching e.g. the add-agent modal (.add-agent-modal). */
+.sm {
+  width: 520px;
+}
+
+/* Subtle entrance fade — only for users without a reduced-motion preference. */
+@media (prefers-reduced-motion: no-preference) {
+  .scrim,
+  .dialog {
+    animation: modalFadeIn 120ms ease-out;
+  }
+}
+
+@keyframes modalFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

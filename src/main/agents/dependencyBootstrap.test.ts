@@ -92,9 +92,11 @@ describe('worktree dependency bootstrap', () => {
       expect.objectContaining({ status: 'installed' })
     )
     // One coordinated online warm-up, then an offline per-worktree materialization.
+    // Worktree-Installs kopieren statt zu hardlinken (Windows-ACL/EPERM, esbuild).
     expect(resolveLaunchMock).toHaveBeenCalledWith('corepack', ['pnpm', 'fetch'])
     expect(resolveLaunchMock).toHaveBeenCalledWith('corepack', [
-      'pnpm', 'install', '--frozen-lockfile', '--prefer-offline'
+      'pnpm', 'install', '--frozen-lockfile', '--prefer-offline',
+      '--config.package-import-method=copy'
     ])
     // No --ignore-scripts: lifecycle scripts (e.g. prisma generate) must run.
     expect(installCalls()).toHaveLength(1)
@@ -120,6 +122,19 @@ describe('worktree dependency bootstrap', () => {
     for (const dir of worktrees) {
       expect((await lstat(join(dir, 'node_modules'))).isSymbolicLink()).toBe(false)
     }
+  })
+
+  it('keeps the pnpm hardlink default for an install directly in the main checkout', async () => {
+    const root = await pnpmRepo()
+
+    // workingDir === repositoryRoot: kein Worktree, kein Copy-Import — der
+    // Haupt-Checkout darf nicht auf den langsameren Copy-Modus wechseln.
+    await expect(ensureWorktreeDependencies(root, root)).resolves.toEqual(
+      expect.objectContaining({ status: 'installed' })
+    )
+    const args = installCalls().map((call) => (call as unknown[])[1] as string[])
+    expect(args).toHaveLength(1)
+    expect(args[0]).not.toContain('--config.package-import-method=copy')
   })
 
   it('re-runs the warm-up when the lockfile content changes', async () => {
@@ -148,8 +163,10 @@ describe('worktree dependency bootstrap', () => {
     await expect(ensureWorktreeDependencies(root, first)).resolves.toEqual(
       expect.objectContaining({ status: 'installed' })
     )
-    // Fell back to the online (non-prefer-offline) install.
-    expect(resolveLaunchMock).toHaveBeenCalledWith('corepack', ['pnpm', 'install', '--frozen-lockfile'])
+    // Fell back to the online (non-prefer-offline) install — auch hier per Copy.
+    expect(resolveLaunchMock).toHaveBeenCalledWith('corepack', [
+      'pnpm', 'install', '--frozen-lockfile', '--config.package-import-method=copy'
+    ])
 
     // A failed warm-up is evicted, so the next fan-out retries it (not poisoned).
     const second = await worktree(root, 'fallback-2')

@@ -1,6 +1,6 @@
 # Vertragus – Handbuch für Nutzung, Entwicklung und Betrieb
 
-Stand: 21. Juli 2026
+Stand: 28. Juli 2026
 
 Dieses Handbuch trennt **heute verfügbar** und **geplant**. Die detaillierte
 Weiterentwicklung steht in der
@@ -17,21 +17,29 @@ Vertragus-MCP-Server.
 Heute belastbar verfügbar:
 
 - Windows-/Linux-Desktop-App
-- Claude, Codex, Cursor Agent und Ollama als interaktive Agents
-- Claude als technisch angebundener Orchestrator
-- parallele Headless-Subagents über `dispatch_batch`
+- Claude, Kimi, Codex, Cursor Agent, GitHub Copilot und Ollama als
+  interaktive Agents
+- Claude, Kimi, Codex und GitHub Copilot als Orchestratoren (Cursor und
+  Ollama bleiben bewusst Worker)
+- parallele Headless-Subagents über `dispatch_batch` und den automatischen,
+  validierten Subagent-Planer (`execute_plan`)
+- Auto-PR mit Quality Gates, Secret-Scan (inkl. optionalem gitleaks) und
+  Diff-/Merge-Center
+- echte Token-/Kosten-/Schrittwerte, sofern die Provider-CLI sie liefert
+- Approval Inbox und Session-Restore nach Neustart oder Crash
+- Remote-Zugriff „Mission Control“ (Cloudflare Tunnel, Geräte-Pairing, PWA,
+  native iOS-App mit APNs) und Headless-Hostmodus (`VERTRAGUS_HEADLESS=1`)
 - Workspace-Profile und nativer Ordnerdialog
 - Live-Terminals, Taskübersicht, Pop-outs und YOLO-Schalter
 - Git-Worktree-Isolation und Provider-Health
-- Windows-/Linux-Installer-Builds
+- Windows-/Linux-Installer-Builds mit `main`- und `stable`-Update-Kanal
 
 Noch geplant oder unvollständig:
 
-- Codex/Cursor/Ollama als echte Orchestratoren
-- automatischer, validierter Subagent-Planer
-- Auto-PR, Diff-/Merge-Center und Quality Gates
-- sichtbare Token-/Kostenwerte und Approval Inbox
-- Session-Restore, Design-Presets und Remote-Zugriff
+- interaktiver Merge-/Konflikteditor (das Review-Cockpit bleibt read-only)
+- Custom-Provider-Slots direkt in der Profil-UI (Vertrag und Storage
+  existieren, siehe [Custom-Provider-API](./CUSTOM_PROVIDERS.md))
+- Offline-Whisper-STT und signierte Produktions-Installer
 
 ## 2. Voraussetzungen
 
@@ -99,10 +107,11 @@ Vertragus-MCP an die freigegebenen Slots. Der aktuelle Team-Start öffnet zusät
 die konfigurierten Slots als interaktive Panes; MCP-Dispatches erscheinen als
 weitere Headless-Task-Panes.
 
-**Wichtiger aktueller Stand:** Nur Claude wird mit Vertragus-MCP und dem
-Orchestrator-Prompt gestartet. Andere Provider sind im Auswahlfeld sichtbar,
-arbeiten derzeit aber wie normale interaktive Agents. Bis Phase B der Roadmap
-sollte für reale Orchestrierung Claude verwendet werden.
+**Aktueller Stand:** Claude, Kimi, Codex und GitHub Copilot werden mit
+Vertragus-MCP und dem Orchestrator-Prompt gestartet und können real
+delegieren. Cursor und Ollama bleiben bewusst Worker; ein Start als
+scheinbarer Orchestrator ohne Delegationswerkzeuge wird in UI und Runtime
+verhindert.
 
 ### Single
 
@@ -163,7 +172,7 @@ Prüfe Typecheck, Tests und Build. Fasse Änderungen, Risiken und offene Punkte
 am Ende zusammen.
 ```
 
-Der aktuelle Claude-Orchestrator ruft zuerst `set_goal` und `list_subagents` auf.
+Der Orchestrator ruft zuerst `set_goal` und `list_subagents` auf.
 Für mehrere unabhängige Aufgaben soll er `dispatch_batch` verwenden. Die Anzahl
 parallel laufender Tasks ist durch die Slot-Kapazität begrenzt.
 
@@ -174,10 +183,14 @@ parallel laufender Tasks ist durch die Slot-Kapazität begrenzt.
 - **Leeren** stoppt nur die Agents des sichtbaren Workspace und entfernt dessen Kacheln.
 - Rechts erscheinen Ziel, Tasks und Dispatch-Protokoll.
 - `queued` bedeutet Warten auf freie Slot-Kapazität.
-- „fertig“ bedeutet, dass der Agent erfolgreich endete; eine unabhängige
-  Codeprüfung ist heute noch nicht automatisch garantiert.
+- „fertig“ bedeutet bei orchestrierten Läufen: Der Worker endete erfolgreich
+  und hat einen verifizierten Commit oder einen expliziten No-op geliefert;
+  bei aktiviertem Auto-PR laufen zusätzlich die Quality Gates. Bei rein
+  interaktiven Agents bleibt die Codeprüfung Handarbeit.
 
-Die Fußzeilenwerte für Schritte, Tokens und Kosten sind aktuell Platzhalter.
+Die Fußzeilenwerte für Schritte, Tokens und Kosten sind echte Provider-Werte,
+sofern die CLI sie liefert; andernfalls zeigt die UI bewusst „nicht
+verfügbar“.
 
 ## 7. Taskleisten-Hinweis bei Nutzer-Rückmeldung
 
@@ -224,32 +237,36 @@ Integrations-Worktree lief unter Windows).
 
 ## 8. Workspace und Git-Worktrees
 
-Standardmäßig versucht Vertragus für jeden Agent einen Worktree anzulegen
-(Verzeichnis- und Branch-Name behalten das `orca`-Präfix als internen
-Bezeichner, Migration geplant):
+Standardmäßig versucht Vertragus für jeden Agent einen Worktree anzulegen.
+Verzeichnis und Branch tragen die UUID-basierte Session-ID:
 
 ```text
-<repo>/.orca-worktrees/<agent-id>
-Branch: orca/<agent-id>
+<repo>/.vertragus-worktrees/<session-id>/<agent-id>
+Branch: vertragus/<session-id>/<agent-id>
 ```
 
+Legacy-Checkouts unter `.orca-worktrees/` und `orca/…`-Branches aus älteren
+Versionen werden weiterhin erkannt.
+
 Vorteil: Parallele Agents überschreiben nicht dieselben Dateien im
-Hauptcheckout.
+Hauptcheckout, und die Session-ID verhindert, dass Agent-IDs nach einem
+App-Neustart kollidieren.
 
 Aktuelle Grenzen:
 
 - Worktrees werden beim Stoppen absichtlich nicht gelöscht.
-- Änderungen werden noch nicht automatisch verglichen oder zusammengeführt.
-- Agent-IDs können nach App-Neustart wiederverwendet werden. Vor produktiver
-  Auto-PR-Nutzung muss Phase A der Roadmap umgesetzt sein.
+- Verglichen und zusammengeführt wird über Auto-PR (Cherry-Pick erfolgreicher
+  Task-Commits in einen Integrations-Worktree) und das Diff-/Merge-Center;
+  einen interaktiven Konflikteditor gibt es noch nicht — Konflikte werden als
+  `blocked` sichtbar und müssen manuell aufgelöst werden.
 
 Worktrees manuell prüfen:
 
 ```powershell
 git worktree list
-git branch --list 'orca/*'
-git -C .orca-worktrees/task-02 status
-git -C .orca-worktrees/task-02 diff
+git branch --list 'vertragus/*'   # Legacy: 'orca/*'
+git -C .vertragus-worktrees/<session-id>/task-02 status
+git -C .vertragus-worktrees/<session-id>/task-02 diff
 ```
 
 Nicht blind löschen. Erst Status und Diff jedes Worktrees prüfen. Die zukünftige
@@ -311,9 +328,8 @@ Einzeldispatch, parallelen Batch-Dispatch und Semaphor-Limits.
 corepack pnpm lint
 ```
 
-Der Befehl ist im aktuellen Stand **bekannt defekt**, weil ESLint und eine
-Konfiguration fehlen. Phase A behebt dies; der rote Lint-Lauf ist bis dahin kein
-Beleg für einen Fehler im TypeScript-Code.
+ESLint ist konfiguriert (`eslint.config.mjs`) und Teil des kanonischen
+Gates `corepack pnpm run ci`.
 
 ### Installer
 
@@ -324,7 +340,9 @@ corepack pnpm build:linux
 
 Windows erzeugt einen NSIS-Installer, Linux eine AppImage- und eine
 Debian-Paketvariante unter `release/<version>/`. Installierte Builds prüfen den
-`main`-Kanal beim Start und danach regelmäßig. Nur wenn dort ein neuerer Build
+gewählten Update-Kanal beim Start und danach regelmäßig — standardmäßig den
+schnellen `main`-Kanal; der `stable`-Kanal folgt nur getaggten Releases. Nur
+wenn dort ein neuerer Build
 vorliegt, erscheint in der Titelleiste der Self-Update-Button. Download und
 Installation bleiben eine bewusste Benutzeraktion; laufende Agents müssen vor
 dem Neustart gestoppt werden.
@@ -364,15 +382,15 @@ git push origin v0.2.0
 
 ### Task bleibt dauerhaft auf „läuft“
 
-Im aktuellen Stand kann dies passieren, wenn eine CLI nicht auflösbar ist.
-Agent stoppen, Provider im Health-Panel prüfen und App neu starten. Der dauerhafte
-Fix ist P0 in Phase A.
+Fehlende CLIs, Spawn-Fehler und manuelle Abbrüche lösen Tasks inzwischen
+deterministisch auf (`succeeded` / `failed` / `cancelled`). Hängt ein Task
+dennoch, Agent stoppen, Provider im Health-Panel prüfen und App neu starten.
 
 ### Branch-/Worktree-Konflikt beim Start
 
 ```powershell
 git worktree list
-git branch --list 'orca/*'
+git branch --list 'vertragus/*'   # Legacy: 'orca/*'
 ```
 
 Den betroffenen Worktree zuerst auf Änderungen prüfen. Nicht mit `git reset
@@ -381,26 +399,32 @@ ist.
 
 ### Orchestrator delegiert nicht
 
-- Aktuell Claude als Orchestrator verwenden.
+- Einen orchestrierungsfähigen Provider verwenden (Claude, Kimi, Codex oder
+  GitHub Copilot); Cursor und Ollama sind bewusst reine Worker.
 - Prüfen, ob der Vertragus-MCP-Selbsttest grün ist.
 - Prüfen, ob mindestens ein Slot „steuerbar“ ist.
 - Rollen aus der Profilkonfiguration verwenden.
 
-## 13. Geplanter Auto-PR-Betrieb
+## 13. Auto-PR-Betrieb
 
-Auto-PR ist noch nicht implementiert. Der sichere Zielablauf:
+Auto-PR ist implementiert (Modi: aus, Draft nach Checks, Ready nach Checks;
+ein gemeinsamer Goal-PR oder ein PR pro Task). Der sichere Ablauf:
 
 1. Prompt → validierter Plan
-2. eindeutige, frische Task-Worktrees
+2. eindeutige, frische Task-Worktrees (session-scoped)
 3. Tasks → Diff und strukturierte Ergebnisse
-4. Quality Gates und Review-Agent
-5. Aggregation in Goal-Branch
-6. Push eines neuen Branches
-7. genau ein Draft-PR über `gh`
-8. PR-Link und Checks zurück in Vertragus
+4. Quality Gates, `git diff --check`, Größenlimit und Secret-Scan
+   (Muster plus optional gitleaks) pro Task
+5. Aggregation: Cherry-Pick erfolgreicher Task-Commits in einen separaten
+   Integrations-Worktree, Gates laufen erneut
+6. Push eines neuen Branches — nie Force-Push, nie Auto-Merge, nie auf
+   `main`/`master`
+7. PR über `gh`; fehlende Authentifizierung, Konflikte oder rote Gates
+   erscheinen sichtbar als `blocked`
+8. PR-Link und GitHub-Checks (Remote-CI-Status) zurück in Vertragus
 
-Bis diese Pipeline umgesetzt ist, müssen Diff, Integration, Commit, Push und PR
-manuell erfolgen.
+Bei deaktiviertem Auto-PR erfolgen Diff, Integration, Commit, Push und PR
+weiterhin manuell.
 
 ## 14. Dokumentationsregel
 
