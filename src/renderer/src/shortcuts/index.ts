@@ -2,7 +2,8 @@ export {
   DEFAULT_SHORTCUT_BINDINGS,
   detectShortcutPlatform,
   normalizeBinding,
-  normalizeKeyboardEvent
+  normalizeKeyboardEvent,
+  normalizeKeyboardEventCandidates
 } from './bindings'
 export { shouldIgnoreShortcutEvent } from './eventGate'
 export { isMainWindowRoute, registerAppShortcuts } from './appShortcuts'

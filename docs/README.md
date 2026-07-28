@@ -15,6 +15,7 @@ Stand: 28. Juli 2026
 
 - [Reliable Agent Lifecycle](./RELIABLE_AGENT_LIFECYCLE.md) — asynchroner Dispatch, verifizierte Commits, Gates und Integrationsphase (EN).
 - [Production Hardening](./PRODUCTION_HARDENING.md) — Electron-Sandbox, CSP, Navigationsschutz, redigierte Diagnostik.
+- [IPC-Architektur & Konsistenz-Guard](./IPC_ARCHITECTURE.md) — die drei IPC-Schichten, der statische Drift-Guard (`ipcSurface.test.ts`), das Muster für neue Kanäle und der Weg zum Kanal-Manifest.
 - [Retro-Sync & Selbstverbesserungs-Loop](./retro-sync.md) — Retros → `retros`-Branch → Analyse → geprüftes Learnings-Overlay im Systemprompt.
 - [Retro-Analyse & Verbesserungsplan](./RETRO_IMPROVEMENT_PLAN.md) — Auswertung der Retrospektiven und die daraus umgesetzten Plattform-Fixes.
 - [Technischer Auditbericht](./VERTRAGUS_AUDIT.md) — Audit vom 12. Juli 2026 (Commit `d396a0a`), historische Befundbasis.
@@ -33,6 +34,7 @@ Stand: 28. Juli 2026
 - [Voice-/Speech-to-Text-Plan](./VOICE_INTERFACE_PLAN.md) — Design der Sprachsteuerung für den ausgewählten Agenten.
 - [Orchestrator-Training-Prompts](./ORCHESTRATOR_TRAINING_PROMPTS.md) — Trainings- und Bewertungskatalog für den Orchestrator.
 - [Marke & Design](./BRAND.md) — Name, Windhund-Herkunft und visuelles System.
+- [Theme- und Token-Architektur](./THEME.md) — CSS-Token-Schichten (styles.css → cozy-organic → data-theme), Namenskonventionen, Do/Don't und dokumentierte Ausnahmen.
 
 ### Umsetzungspläne (`plans/`)
 

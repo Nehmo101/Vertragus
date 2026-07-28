@@ -180,6 +180,11 @@ function analyzeView() {
     if (element.closest('ul,ol,table,[role="list"],[role="listbox"],[data-list]')) continue
     const text = (element.textContent ?? '').trim()
     if (text.length <= 12) continue
+    // Accordion headers per WAI-ARIA APG nest the toggle inside the heading
+    // (h3 > button). The wrapper carries no text of its own, so counting both
+    // would flag every collapsible section as a duplicate.
+    const nestedBearer = element.querySelector('h1,h2,h3,h4,button,label,[role="heading"]')
+    if (nestedBearer && (nestedBearer.textContent ?? '').trim() === text) continue
     const entry = texts.get(text) ?? { count: 0, selectors: [] }
     entry.count += 1
     if (entry.selectors.length < 4) entry.selectors.push(selectorFor(element))

@@ -320,7 +320,7 @@ function RetroSyncRow(): JSX.Element {
   return (
     <>
       <div className="provider-row">
-        <span className="chip sz-26" style={{ background: 'var(--sage)', color: '#10221a' }}>
+        <span className="chip sz-26" style={{ background: 'var(--sage)', color: 'var(--on-sage)' }}>
           ↻
         </span>
         <div className="info">
@@ -479,7 +479,7 @@ function SpeechRow(): JSX.Element {
 
   return (
     <div className="provider-row">
-      <span className="chip sz-26" style={{ background: 'var(--sage)', color: '#10221a' }}>
+      <span className="chip sz-26" style={{ background: 'var(--sage)', color: 'var(--on-sage)' }}>
         🎙
       </span>
       <div className="info">
@@ -1051,8 +1051,8 @@ export function SidebarView({
                 <span
                   className="status-dot"
                   style={{
-                    background: server.enabled ? '#3fd17a' : '#5a6b78',
-                    boxShadow: server.enabled ? '0 0 7px #3fd17a' : 'none'
+                    background: server.enabled ? 'var(--mcp-dot-on)' : 'var(--mcp-dot-off)',
+                    boxShadow: server.enabled ? '0 0 7px var(--mcp-dot-on)' : 'none'
                   }}
                 />
                 <span className="mcp-row-name">{server.name}</span>

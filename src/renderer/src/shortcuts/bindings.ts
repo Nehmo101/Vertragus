@@ -38,6 +38,32 @@ export function normalizeShortcutKey(key: string): string {
   return key.toLowerCase()
 }
 
+/**
+ * `event.key` ist layoutabhängig: Auf deutschem Layout liefert Shift+Punkt `:`,
+ * womit `Mod+Shift+.` (agents.stopAll) nie über den Key matchen würde. Für die
+ * Satzzeichen, die in Bindings vorkommen (können), matchen wir deshalb
+ * zusätzlich über den layoutUNabhängigen `event.code` (physische Taste).
+ * Ziffern-Chords (Mod+1…4) brauchen das nicht: Ohne Shift liefert `event.key`
+ * auf allen gängigen Layouts die Ziffer selbst.
+ */
+const PUNCTUATION_KEY_TO_CODE: Readonly<Record<string, string>> = {
+  '.': 'Period',
+  ',': 'Comma',
+  '/': 'Slash',
+  ';': 'Semicolon',
+  "'": 'Quote',
+  '[': 'BracketLeft',
+  ']': 'BracketRight',
+  '\\': 'Backslash',
+  '-': 'Minus',
+  '=': 'Equal',
+  '`': 'Backquote'
+}
+
+const PUNCTUATION_CODE_TO_KEY: Readonly<Record<string, string>> = Object.fromEntries(
+  Object.entries(PUNCTUATION_KEY_TO_CODE).map(([key, code]) => [code, key])
+)
+
 export function normalizeBinding(
   binding: ShortcutBinding,
   platform: ShortcutPlatform = detectShortcutPlatform()
@@ -51,11 +77,31 @@ export function normalizeBinding(
   return [...ordered, normalizeShortcutKey(binding.key)].join('+')
 }
 
-export function normalizeKeyboardEvent(event: KeyboardEvent): string {
-  const modifiers: ShortcutModifier[] = []
+function eventModifiers(event: KeyboardEvent): Exclude<ShortcutModifier, 'Mod'>[] {
+  const modifiers: Exclude<ShortcutModifier, 'Mod'>[] = []
   if (event.ctrlKey) modifiers.push('Control')
   if (event.metaKey) modifiers.push('Meta')
   if (event.altKey) modifiers.push('Alt')
   if (event.shiftKey) modifiers.push('Shift')
-  return [...modifiers, normalizeShortcutKey(event.key)].join('+')
+  return modifiers
+}
+
+export function normalizeKeyboardEvent(event: KeyboardEvent): string {
+  return [...eventModifiers(event), normalizeShortcutKey(event.key)].join('+')
+}
+
+/**
+ * Alle Kombinationen, unter denen das Event ein Binding matchen darf:
+ * immer die `event.key`-Form, plus — falls die physische Taste ein bekanntes
+ * Satzzeichen ist (`event.code` in der Mapping-Tabelle) — die Code-Form.
+ * Beispiel deutsches Layout: key=':' code='Period' shiftKey → liefert
+ * ['Control+Shift+:', 'Control+Shift+.'] und `Mod+Shift+.` feuert trotzdem.
+ */
+export function normalizeKeyboardEventCandidates(event: KeyboardEvent): string[] {
+  const primary = normalizeKeyboardEvent(event)
+  const codeKey = PUNCTUATION_CODE_TO_KEY[event.code ?? '']
+  if (!codeKey || normalizeShortcutKey(codeKey) === normalizeShortcutKey(event.key ?? '')) {
+    return [primary]
+  }
+  return [primary, [...eventModifiers(event), normalizeShortcutKey(codeKey)].join('+')]
 }

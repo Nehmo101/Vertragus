@@ -2,7 +2,7 @@ import {
   DEFAULT_SHORTCUT_BINDINGS,
   detectShortcutPlatform,
   normalizeBinding,
-  normalizeKeyboardEvent
+  normalizeKeyboardEventCandidates
 } from './bindings'
 import { shouldIgnoreShortcutEvent } from './eventGate'
 import type {
@@ -52,10 +52,12 @@ export class ShortcutRegistry {
 
   handleKeydown = (event: KeyboardEvent): boolean => {
     if (shouldIgnoreShortcutEvent(event)) return false
-    const eventCombination = normalizeKeyboardEvent(event)
+    // Key-Form plus ggf. Code-Fallback (deutsches Layout: Shift+. liefert ':'),
+    // damit Satzzeichen-Chords wie Mod+Shift+. layoutunabhängig matchen.
+    const eventCombinations = new Set(normalizeKeyboardEventCandidates(event))
     const actions = Object.entries(this.bindings)
       .filter(([, bindings]) =>
-        bindings?.some((binding) => normalizeBinding(binding, this.platform) === eventCombination)
+        bindings?.some((binding) => eventCombinations.has(normalizeBinding(binding, this.platform)))
       )
       .map(([actionId]) => actionId as ShortcutActionId)
 

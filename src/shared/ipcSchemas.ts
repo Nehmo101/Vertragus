@@ -20,6 +20,13 @@ export const githubRepoBindRequestSchema = z.object({
   clone: z.boolean().optional()
 })
 
+/** GithubIssueListRequest (shared/ipc.ts). */
+export const githubIssueListRequestSchema = z.object({
+  owner: z.string().min(1).max(200),
+  repo: z.string().min(1).max(200),
+  limit: z.number().int().min(1).max(50).optional()
+})
+
 /** InboxSpeechSettingsPatch (shared/inboxSpeech.ts) — all-optional write patch. */
 export const inboxSpeechSettingsPatchSchema = z.object({
   model: z.string().max(200).optional(),

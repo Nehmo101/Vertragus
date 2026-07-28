@@ -52,6 +52,9 @@
   margin-inline: 6px;
 }
 .yoloMaster:global(.yolo-btn.on) {
+  /* Bewusst literale Warnfarben (Basis #f2555a / Text #ff6b70): gekoppelt an
+     die ebenfalls literalen .yolo-strip-Werte in styles.css, themen-invariant.
+     Nicht auf var(--err) umstellen — cozy-organic überschreibt --err. */
   background: linear-gradient(180deg, rgba(242, 85, 90, 0.32), rgba(242, 85, 90, 0.14));
   border-color: rgba(242, 85, 90, 0.8);
   color: #ff6b70;

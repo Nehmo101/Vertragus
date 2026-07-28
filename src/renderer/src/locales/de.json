@@ -420,36 +420,6 @@
       }
     }
   },
-  "voice": {
-    "aria": "Sprachsteuerung",
-    "sendTo": "Sprache an",
-    "targetGroup": "Sprachziel wählen",
-    "noAgent": "kein Agent ausgewählt",
-    "orchestrator": "Orchestrator",
-    "noOrchestrator": "Kein Orchestrator im Workspace aktiv",
-    "state": {
-      "idle": "Bereit",
-      "recording": "Aufnahme läuft",
-      "transcribing": "Transkribiere…",
-      "review": "Vorschau prüfen",
-      "failed": "Fehler"
-    },
-    "record": "Aufnehmen",
-    "stop": "Stop",
-    "cancel": "Abbrechen",
-    "recordTitle": "Push-to-talk starten",
-    "stopTitle": "Aufnahme beenden",
-    "shortcutHint": "Kürzel {{keys}}",
-    "configureFirst": "STT-Zugang zuerst über ⚙ einrichten",
-    "settingsTitle": "Sprache-zu-Text einrichten (API-Schlüssel, Modell, Sprache)",
-    "settingsAria": "Sprache-zu-Text-Einstellungen öffnen",
-    "reviewAria": "Transkript vor dem Senden bearbeiten",
-    "discard": "Verwerfen",
-    "insert": "Einfügen",
-    "send": "Senden",
-    "errorSetupTitle": "Einstellungen öffnen und API-Schlüssel hinterlegen",
-    "errorSetupAction": "jetzt einrichten"
-  },
   "titlebar": {
     "languageGroup": "Sprache wählen",
     "versionTitle": "Vertragus Version {{version}}",
@@ -1556,6 +1526,35 @@
       "title": "Etwas ist schiefgelaufen",
       "retry": "Erneut versuchen",
       "details": "Technische Details"
+    }
+  },
+  "issues": {
+    "trigger": "Issue…",
+    "triggerTitle": "GitHub-Issue als Ziel übernehmen",
+    "title": "Offene Issues — {{repo}}",
+    "subtitle": "Issue wählen und als editierbares Ziel in den Composer übernehmen",
+    "close": "Schließen",
+    "loading": "Lade offene Issues…",
+    "errorTitle": "Issues konnten nicht geladen werden",
+    "retry": "Erneut versuchen",
+    "searchLabel": "Issues filtern",
+    "searchPlaceholder": "Nach Nummer, Titel oder Label filtern…",
+    "empty": "Keine offenen Issues gefunden.",
+    "noMatches": "Kein Issue passt zum Filter.",
+    "selectTitle": "Issue #{{number}} als Ziel übernehmen",
+    "byAuthor": "von {{author}}",
+    "updated": {
+      "justNow": "gerade aktualisiert",
+      "minutesAgo_one": "vor {{count}} Minute",
+      "minutesAgo_other": "vor {{count}} Minuten",
+      "hoursAgo_one": "vor {{count}} Stunde",
+      "hoursAgo_other": "vor {{count}} Stunden",
+      "daysAgo_one": "vor {{count}} Tag",
+      "daysAgo_other": "vor {{count}} Tagen",
+      "monthsAgo_one": "vor {{count}} Monat",
+      "monthsAgo_other": "vor {{count}} Monaten",
+      "yearsAgo_one": "vor {{count}} Jahr",
+      "yearsAgo_other": "vor {{count}} Jahren"
     }
   }
 }

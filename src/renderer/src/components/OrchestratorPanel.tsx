@@ -95,11 +95,11 @@ function usageText(t: TFunction, usage?: VertragusTask['usage']): string | null 
 
 const TASK_PILL: Record<TaskStatus, { bg: string; fg: string; dot: string }> = {
   queued: { bg: 'var(--stop-soft)', fg: 'var(--stop-text)', dot: 'var(--stop)' },
-  paused: { bg: 'color-mix(in srgb, #f5a524 18%, transparent)', fg: '#f7c96b', dot: '#f5a524' },
-  waiting: { bg: 'color-mix(in srgb, #f5a524 18%, transparent)', fg: '#f7c96b', dot: '#f5a524' },
+  paused: { bg: 'color-mix(in srgb, var(--attn) 18%, transparent)', fg: 'var(--attn-text)', dot: 'var(--attn)' },
+  waiting: { bg: 'color-mix(in srgb, var(--attn) 18%, transparent)', fg: 'var(--attn-text)', dot: 'var(--attn)' },
   running: { bg: 'color-mix(in srgb, var(--run) 18%, transparent)', fg: 'var(--run-text)', dot: 'var(--run)' },
   success: { bg: 'color-mix(in srgb, var(--run) 18%, transparent)', fg: 'var(--run-text)', dot: 'var(--run)' },
-  'needs-work': { bg: 'color-mix(in srgb, #f5a524 18%, transparent)', fg: '#f7c96b', dot: '#f5a524' },
+  'needs-work': { bg: 'color-mix(in srgb, var(--attn) 18%, transparent)', fg: 'var(--attn-text)', dot: 'var(--attn)' },
   error: { bg: 'var(--err-soft)', fg: 'var(--err-text)', dot: 'var(--err)' },
   stopped: { bg: 'var(--stop-soft)', fg: 'var(--stop-text)', dot: 'var(--stop)' }
 }

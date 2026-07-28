@@ -104,6 +104,7 @@ export const IPC = {
   githubRepoResolve: 'github:repoResolve',
   githubRepoBind: 'github:repoBind',
   githubRepoCheckLocal: 'github:repoCheckLocal',
+  githubListIssues: 'github:listIssues',
   dialogPickFolder: 'dialog:pickFolder',
   dialogPickFile: 'dialog:pickFile',
   demoPlay: 'demo:play',
@@ -329,6 +330,33 @@ export interface GithubRepoLocalCheck {
   message: string
 }
 
+export interface GithubIssueListRequest {
+  owner: string
+  repo: string
+  /** Max issues to return (1–50, default 30). */
+  limit?: number
+}
+
+export interface GithubIssueSummary {
+  number: number
+  title: string
+  /** Plain issue body, truncated to a bounded length for the composer. */
+  body: string
+  /** True when the original body exceeded the truncation limit. */
+  bodyTruncated: boolean
+  labels: string[]
+  url: string
+  author?: string
+  /** ISO timestamp of the last update. */
+  updatedAt: string
+}
+
+export interface GithubIssueListResult {
+  owner: string
+  repo: string
+  issues: GithubIssueSummary[]
+}
+
 /** Short-lived grant returned by the native file picker (not a raw filesystem path). */
 export interface PickedFileGrant {
   grantId: string
@@ -430,6 +458,10 @@ export interface VertragusApi {
     repo: string,
     localPath: string
   ): Promise<GithubRepoLocalCheck>
+  github: {
+    /** Open issues of a repository (pull requests excluded). */
+    listIssues(req: GithubIssueListRequest): Promise<GithubIssueListResult>
+  }
   /** Open a native folder picker; resolves to the chosen path or null. */
   pickFolder(): Promise<string | null>
   /** Open a native file picker for inbox artifacts; returns a short-lived grant. */

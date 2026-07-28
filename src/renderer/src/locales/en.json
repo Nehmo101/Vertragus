@@ -420,36 +420,6 @@
       }
     }
   },
-  "voice": {
-    "aria": "Voice control",
-    "sendTo": "Speak to",
-    "targetGroup": "Choose the voice target",
-    "noAgent": "no agent selected",
-    "orchestrator": "Orchestrator",
-    "noOrchestrator": "No orchestrator active in this workspace",
-    "state": {
-      "idle": "Ready",
-      "recording": "Recording",
-      "transcribing": "Transcribing…",
-      "review": "Review draft",
-      "failed": "Error"
-    },
-    "record": "Record",
-    "stop": "Stop",
-    "cancel": "Cancel",
-    "recordTitle": "Start push-to-talk",
-    "stopTitle": "Stop recording",
-    "shortcutHint": "Shortcut {{keys}}",
-    "configureFirst": "Set up STT access via ⚙ first",
-    "settingsTitle": "Set up speech-to-text (API key, model, language)",
-    "settingsAria": "Open speech-to-text settings",
-    "reviewAria": "Edit the transcript before sending",
-    "discard": "Discard",
-    "insert": "Insert",
-    "send": "Send",
-    "errorSetupTitle": "Open settings and add an API key",
-    "errorSetupAction": "set up now"
-  },
   "titlebar": {
     "languageGroup": "Choose language",
     "versionTitle": "Vertragus version {{version}}",
@@ -1556,6 +1526,35 @@
       "title": "Something went wrong",
       "retry": "Try again",
       "details": "Technical details"
+    }
+  },
+  "issues": {
+    "trigger": "Issue…",
+    "triggerTitle": "Adopt a GitHub issue as goal",
+    "title": "Open issues — {{repo}}",
+    "subtitle": "Pick an issue and adopt it as an editable goal in the composer",
+    "close": "Close",
+    "loading": "Loading open issues…",
+    "errorTitle": "Could not load issues",
+    "retry": "Try again",
+    "searchLabel": "Filter issues",
+    "searchPlaceholder": "Filter by number, title or label…",
+    "empty": "No open issues found.",
+    "noMatches": "No issue matches the filter.",
+    "selectTitle": "Adopt issue #{{number}} as goal",
+    "byAuthor": "by {{author}}",
+    "updated": {
+      "justNow": "updated just now",
+      "minutesAgo_one": "{{count}} minute ago",
+      "minutesAgo_other": "{{count}} minutes ago",
+      "hoursAgo_one": "{{count}} hour ago",
+      "hoursAgo_other": "{{count}} hours ago",
+      "daysAgo_one": "{{count}} day ago",
+      "daysAgo_other": "{{count}} days ago",
+      "monthsAgo_one": "{{count}} month ago",
+      "monthsAgo_other": "{{count}} months ago",
+      "yearsAgo_one": "{{count}} year ago",
+      "yearsAgo_other": "{{count}} years ago"
     }
   }
 }

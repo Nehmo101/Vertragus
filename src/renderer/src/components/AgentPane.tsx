@@ -7,7 +7,7 @@ import { SearchAddon } from '@xterm/addon-search'
 import type { AgentInstanceInfo, HandoffLink } from '@shared/agents'
 import { LIMIT_KIND_LABELS } from '@shared/agents'
 import { absentTelemetryNotice, summarizeUsage, TELEMETRY_STATUS_LABELS, TELEMETRY_STATUS_TITLES } from '@shared/telemetry'
-import { PROVIDER_THEME, STATUS_THEME, XTERM_THEME } from '@renderer/ui/theme'
+import { PROVIDER_THEME, STATUS_THEME, resolveXtermTheme } from '@renderer/ui/theme'
 import { formatTokenBreakdown, formatTokenCount, formatUsd } from '@renderer/telemetryFormat'
 import { useAppStore, effectivePaneReadable } from '@renderer/store/useAppStore'
 import { paneReadableSummary } from '@renderer/orchestratorActivity'
@@ -71,7 +71,9 @@ export function useAgentTerminal(
       fontFamily: "ui-monospace, 'Cascadia Code', Consolas, monospace",
       fontSize: paneFontSize(useLayoutStore.getState(), agentId),
       lineHeight: 1.35,
-      theme: XTERM_THEME,
+      // Immer die dunkle Palette — das Terminal bleibt auch im Light-Theme
+      // dunkel; die Werte kommen zur Laufzeit aus cozy-organic.css.
+      theme: resolveXtermTheme(),
       // Agent CLIs redraw progress lines while input stays active. A blinking
       // block cursor makes those cursor moves look like terminal flicker.
       cursorBlink: false,
