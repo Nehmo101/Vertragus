@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type {
+  DiscardOrphanFailure,
+  DiscardOrphansResult,
   OrphanedWorktreeInfo,
   SessionRestoreStatus,
   StaleSessionInfo
@@ -44,7 +46,7 @@ export function shouldAutoExpand(status: SessionRestoreStatus): boolean {
 }
 
 /** Minimal translate signature so i18next's `t` can be passed straight through. */
-export type RestoreTranslate = (key: string, options?: { n?: number }) => string
+export type RestoreTranslate = (key: string, options?: Record<string, unknown>) => string
 
 /**
  * One-line summary for the collapsed banner, e.g.
@@ -97,27 +99,60 @@ export function collectCleanupTargets(status: SessionRestoreStatus): CleanupTarg
  */
 export async function runFullCleanup(
   api: {
-    discardOrphanWorktrees(paths: string[]): Promise<{ discarded: number; failed: number }>
+    discardOrphanWorktrees(paths: string[]): Promise<DiscardOrphansResult>
     removeWorkspaceSession(profileId: string, sessionId: string): Promise<unknown>
   },
   targets: CleanupTargets
-): Promise<{ discarded: number; failed: number }> {
+): Promise<DiscardOrphansResult> {
   let discarded = 0
-  let failed = 0
+  const failures: DiscardOrphanFailure[] = []
   if (targets.orphanPaths.length > 0) {
     const result = await api.discardOrphanWorktrees(targets.orphanPaths)
     discarded += result.discarded
-    failed += result.failed
+    failures.push(...result.failures)
   }
   for (const session of targets.staleSessions) {
     try {
       await api.removeWorkspaceSession(session.profileId, session.id)
       discarded += 1
-    } catch {
-      failed += 1
+    } catch (cause) {
+      failures.push({
+        path: session.id,
+        reason: cause instanceof Error ? cause.message : String(cause)
+      })
     }
   }
-  return { discarded, failed }
+  return { discarded, failed: failures.length, failures }
+}
+
+/** How many distinct causes the error line names before it summarizes the rest. */
+const FAILURE_REASON_LIMIT = 2
+
+/**
+ * Turn a discard result into an actionable error line. "165 fehlgeschlagen"
+ * alone left no way to tell a locked checkout from a guard rejection, so the
+ * dominant causes (plus one example path each) are spelled out.
+ */
+export function describeDiscardFailure(t: RestoreTranslate, result: DiscardOrphansResult): string {
+  const head = t('restore.discardResult', {
+    discarded: result.discarded,
+    failed: result.failed
+  })
+  const byReason = new Map<string, { count: number; example: string }>()
+  for (const failure of result.failures) {
+    const seen = byReason.get(failure.reason)
+    if (seen) seen.count += 1
+    else byReason.set(failure.reason, { count: 1, example: failure.path })
+  }
+  const ranked = [...byReason.entries()].sort((a, b) => b[1].count - a[1].count)
+  const named = ranked
+    .slice(0, FAILURE_REASON_LIMIT)
+    .map(([reason, { count, example }]) =>
+      t('restore.discardReason', { count, reason, path: example })
+    )
+  const rest = ranked.length - named.length
+  if (rest > 0) named.push(t('restore.discardReasonMore', { count: rest }))
+  return named.length > 0 ? `${head} ${named.join(' · ')}` : head
 }
 
 /**
@@ -240,14 +275,7 @@ export default function SessionRestoreBanner(): JSX.Element | null {
     )
     void run(key, async () => {
       const result = await window.vertragus.sessions.discardOrphanWorktrees(paths)
-      if (result.failed > 0) {
-        throw new Error(
-          t('restore.discardResult', {
-            discarded: result.discarded,
-            failed: result.failed
-          })
-        )
-      }
+      if (result.failed > 0) throw new Error(describeDiscardFailure(t, result))
     })
   }
 
@@ -361,11 +389,7 @@ export default function SessionRestoreBanner(): JSX.Element | null {
         },
         targets
       )
-      if (result.failed > 0) {
-        throw new Error(
-          t('restore.discardResult', { discarded: result.discarded, failed: result.failed })
-        )
-      }
+      if (result.failed > 0) throw new Error(describeDiscardFailure(t, result))
     })
   }
 
@@ -601,6 +625,8 @@ export default function SessionRestoreBanner(): JSX.Element | null {
                               t('restore.discardConfirm', { count: 1, path: worktree.path }),
                               () =>
                                 void run(`orphan-${worktree.path}`, async () => {
+                                  // The main process throws with the concrete
+                                  // cause; `false` without one stays a fallback.
                                   const ok = await window.vertragus.sessions.discardOrphanWorktree(
                                     worktree.path
                                   )

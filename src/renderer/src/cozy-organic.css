@@ -766,6 +766,20 @@ textarea.quality-gates { border-radius: 16px; }
 }
 .btn-primary:hover { background: var(--accent-hover); }
 .slot-yolo.on { border-color: var(--err-line); background: var(--err-soft); color: var(--err-text); }
+.model-combo-toggle {
+  border-color: var(--border-2);
+  border-radius: 999px;
+  background: var(--inset);
+  color: var(--text-3);
+}
+.model-combo-list {
+  border-color: var(--border-2);
+  border-radius: 16px;
+  background: var(--surface-2);
+  box-shadow: var(--shadow-md);
+}
+.model-combo-option { color: var(--text); }
+.model-combo-option.highlight { background: var(--inset); }
 .info-tip { border-color: var(--border-2); color: var(--text-3); }
 .info-tip::after { border-color: var(--border-2); border-radius: 13px; background: var(--surface-2); color: var(--text); box-shadow: var(--shadow-md); }
 .toast {

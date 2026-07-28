@@ -34,6 +34,19 @@ export interface ResumableSessionInfo {
   capturedAt: number
 }
 
+/** Why one worktree could not be discarded (locked file, long path, guard). */
+export interface DiscardOrphanFailure {
+  path: string
+  reason: string
+}
+
+/** Outcome of an explicit discard action, with a reason per failed path. */
+export interface DiscardOrphansResult {
+  discarded: number
+  failed: number
+  failures: DiscardOrphanFailure[]
+}
+
 export interface SessionRestoreStatus {
   /** False when the previous run ended without a completed shutdown flush. */
   cleanShutdown: boolean

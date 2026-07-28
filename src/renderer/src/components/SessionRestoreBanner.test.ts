@@ -10,6 +10,7 @@ import {
   CONFIRM_RESET_MS,
   buildCompactSummary,
   collectCleanupTargets,
+  describeDiscardFailure,
   groupOrphans,
   resolveConfirmClick,
   runFullCleanup,
@@ -121,7 +122,9 @@ describe('collectCleanupTargets', () => {
 
 describe('runFullCleanup (Sammelaktion)', () => {
   it('discards all orphans in one call and dismisses every stale session', async () => {
-    const discardOrphanWorktrees = vi.fn().mockResolvedValue({ discarded: 2, failed: 0 })
+    const discardOrphanWorktrees = vi
+      .fn()
+      .mockResolvedValue({ discarded: 2, failed: 0, failures: [] })
     const removeWorkspaceSession = vi.fn().mockResolvedValue([])
 
     const result = await runFullCleanup(
@@ -140,7 +143,7 @@ describe('runFullCleanup (Sammelaktion)', () => {
     expect(removeWorkspaceSession).toHaveBeenCalledTimes(2)
     expect(removeWorkspaceSession).toHaveBeenNthCalledWith(1, 'p1', 's1')
     expect(removeWorkspaceSession).toHaveBeenNthCalledWith(2, 'p2', 's2')
-    expect(result).toEqual({ discarded: 4, failed: 0 })
+    expect(result).toEqual({ discarded: 4, failed: 0, failures: [] })
   })
 
   it('skips the orphan IPC call entirely when there are no orphans', async () => {
@@ -153,11 +156,15 @@ describe('runFullCleanup (Sammelaktion)', () => {
     )
 
     expect(discardOrphanWorktrees).not.toHaveBeenCalled()
-    expect(result).toEqual({ discarded: 1, failed: 0 })
+    expect(result).toEqual({ discarded: 1, failed: 0, failures: [] })
   })
 
   it('aggregates orphan failures and counts stale rejections without aborting', async () => {
-    const discardOrphanWorktrees = vi.fn().mockResolvedValue({ discarded: 1, failed: 1 })
+    const discardOrphanWorktrees = vi.fn().mockResolvedValue({
+      discarded: 1,
+      failed: 1,
+      failures: [{ path: '/w2', reason: 'EPERM: operation not permitted' }]
+    })
     const removeWorkspaceSession = vi
       .fn()
       .mockRejectedValueOnce(new Error('locked'))
@@ -176,7 +183,55 @@ describe('runFullCleanup (Sammelaktion)', () => {
 
     // The second stale session is still dismissed after the first one failed.
     expect(removeWorkspaceSession).toHaveBeenCalledTimes(2)
-    expect(result).toEqual({ discarded: 2, failed: 2 })
+    expect(result).toEqual({
+      discarded: 2,
+      failed: 2,
+      failures: [
+        { path: '/w2', reason: 'EPERM: operation not permitted' },
+        { path: 's1', reason: 'locked' }
+      ]
+    })
+  })
+})
+
+describe('describeDiscardFailure (Ursachen statt bloßer Zahl)', () => {
+  it('names the dominant cause with an example path', () => {
+    const message = describeDiscardFailure(t, {
+      discarded: 0,
+      failed: 3,
+      failures: [
+        { path: 'C:\\git\\uwe\\.vertragus-worktrees\\s1\\a1', reason: 'EPERM: not permitted' },
+        { path: 'C:\\git\\uwe\\.vertragus-worktrees\\s1\\a2', reason: 'EPERM: not permitted' },
+        { path: 'C:\\git\\uwe\\.vertragus-worktrees\\s2\\a1', reason: 'EPERM: not permitted' }
+      ]
+    })
+
+    expect(message).toContain('0 verworfen, 3 fehlgeschlagen.')
+    expect(message).toContain('3× EPERM: not permitted')
+    expect(message).toContain('C:\\git\\uwe\\.vertragus-worktrees\\s1\\a1')
+  })
+
+  it('ranks causes and summarizes the tail', () => {
+    const message = describeDiscardFailure(t, {
+      discarded: 1,
+      failed: 4,
+      failures: [
+        { path: '/a', reason: 'EBUSY' },
+        { path: '/b', reason: 'EPERM' },
+        { path: '/c', reason: 'EPERM' },
+        { path: '/d', reason: 'Gehört zu einer bekannten Session.' }
+      ]
+    })
+
+    expect(message.indexOf('2× EPERM')).toBeLessThan(message.indexOf('1× EBUSY'))
+    expect(message).toContain('+ 1 weitere Ursache(n)')
+    expect(message).not.toContain('Gehört zu einer bekannten Session.')
+  })
+
+  it('falls back to the plain count when no reason was reported', () => {
+    expect(describeDiscardFailure(t, { discarded: 2, failed: 0, failures: [] })).toBe(
+      '2 verworfen, 0 fehlgeschlagen.'
+    )
   })
 })
 

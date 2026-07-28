@@ -21,7 +21,7 @@ import type {
   VertragusEvent
 } from './agents'
 import type { OrchestratorSnapshot, WorkspaceSessionSummary } from './orchestrator'
-import type { SessionRestoreStatus } from './sessions'
+import type { DiscardOrphansResult, SessionRestoreStatus } from './sessions'
 import type { BenchmarkRecord, ModelLearning, RunRetro } from './retro'
 import type { RetroSyncStatus } from './retroSync'
 import type {
@@ -434,7 +434,7 @@ export interface VertragusApi {
     /** Discard one orphaned Vertragus worktree (uncommitted work is lost). */
     discardOrphanWorktree(path: string): Promise<boolean>
     /** Discard many orphaned worktrees; continues after individual failures. */
-    discardOrphanWorktrees(paths: string[]): Promise<{ discarded: number; failed: number }>
+    discardOrphanWorktrees(paths: string[]): Promise<DiscardOrphansResult>
   }
 
   /** External MCP servers attached to the launched agents. */

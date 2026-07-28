@@ -5,7 +5,7 @@
  */
 import type { AgentProviderId, DisabledModels } from '@shared/providers'
 import type { ModelPreset, ModelSelection } from '@shared/models'
-import { MODEL_PRESET_LABELS } from '@shared/models'
+import { MODEL_PRESET_LABELS, PRESET_MODELS } from '@shared/models'
 import type { ModelCatalog } from '@renderer/modelCatalog'
 import { modelPresetAvailability } from '@renderer/modelCatalog'
 
@@ -15,6 +15,21 @@ export type ModelTranslate = (key: string, options?: Record<string, unknown>) =>
 /** Localized preset label; falls back to the shared (German-authored) constant. */
 export function presetLabel(t: ModelTranslate, preset: ModelPreset): string {
   return t(`profile.preset.${preset}`, { defaultValue: MODEL_PRESET_LABELS[preset] })
+}
+
+/**
+ * Preset option label including the model the *selected provider* would run,
+ * e.g. "Ausgewogen · sonnet" for Claude and "Ausgewogen · kimi-k3" for Kimi.
+ * The bare preset name said nothing about what the provider actually starts.
+ */
+export function presetOptionLabel(
+  t: ModelTranslate,
+  provider: AgentProviderId,
+  preset: ModelPreset
+): string {
+  const label = presetLabel(t, preset)
+  const model = PRESET_MODELS[provider][preset]
+  return model ? t('profile.mode.presetHint', { preset: label, model }) : label
 }
 
 /** Localized twin of @shared/models#formatModelLabel (resolved model or CLI default). */

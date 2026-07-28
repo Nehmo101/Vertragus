@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import ModelCatalogStatus from '@renderer/components/ModelCatalogStatus'
+import ModelCombo from '@renderer/components/ModelCombo'
 import Modal from '@renderer/components/ui/Modal'
 import Spinner from '@renderer/components/ui/Spinner'
 import {
@@ -9,7 +10,10 @@ import {
 } from '@renderer/modelCatalog'
 import { useAppStore } from '@renderer/store/useAppStore'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
-import { effectiveModelLabel, presetLabel } from '@renderer/components/profileEditor/modelSelection'
+import {
+  effectiveModelLabel,
+  presetOptionLabel
+} from '@renderer/components/profileEditor/modelSelection'
 import { MODEL_PRESETS, resolveModel, type ModelPreset } from '@shared/models'
 import type { AgentProviderId } from '@shared/providers'
 
@@ -122,7 +126,7 @@ export default function AddAgentModal(): JSX.Element | null {
                 const available = availablePreset(provider, preset, catalog)
                 return (
                   <option key={preset} value={preset} disabled={!available}>
-                    {presetLabel(t, preset)}
+                    {presetOptionLabel(t, provider, preset)}
                     {!available ? ` ${t('modals.addAgent.unavailable')}` : ''}
                   </option>
                 )
@@ -132,19 +136,14 @@ export default function AddAgentModal(): JSX.Element | null {
 
           <label>
             <span className="field-label">{t('modals.addAgent.model')}</span>
-            <input
+            <ModelCombo
               className="slot-select-sm mono"
-              list="add-agent-models"
-              placeholder={t('modals.addAgent.modelPlaceholder')}
+              id="add-agent-models"
+              models={catalog.models}
               value={model}
-              onChange={(event) => setModel(event.target.value)}
+              onChange={setModel}
             />
           </label>
-          <datalist id="add-agent-models">
-            {catalog.models.map((item) => (
-              <option key={item} value={item} />
-            ))}
-          </datalist>
           <ModelCatalogStatus provider={provider} catalog={catalog} />
 
           <div className="add-agent-effective" aria-live="polite">

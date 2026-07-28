@@ -9,7 +9,14 @@ import ModelCatalogStatus from '@renderer/components/ModelCatalogStatus'
 import ModelCombo from '@renderer/components/ModelCombo'
 import type { ModelCatalog } from '@renderer/modelCatalog'
 import { HELP } from './help'
-import { availableModels, effectiveModelLabel, parsePreset, presetAvailable, presetLabel, presetValue } from './modelSelection'
+import {
+  availableModels,
+  effectiveModelLabel,
+  parsePreset,
+  presetAvailable,
+  presetOptionLabel,
+  presetValue
+} from './modelSelection'
 import { MultiAgentOverrideSelect, type MultiAgentOverrideChoice } from './MultiAgentOverrideSelect'
 
 const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'kimi', 'codex', 'cursor', 'copilot', 'ollama']
@@ -97,36 +104,17 @@ const AgentSlotRow = memo(function AgentSlotRow({
           value={presetValue(slot.modelPreset)}
           onChange={(e) => onPatchSlot(idx, { modelPreset: parsePreset(e.target.value) })}
         >
-          <option value="">{t('profile.mode.legacyCli')}</option>
+          <option value="">{t('profile.mode.presetNone')}</option>
           {MODEL_PRESETS.map((preset) => {
             const available = presetAvailable(models, slot.provider, preset)
             return (
               <option key={preset} value={preset} disabled={!available}>
-                {presetLabel(t, preset)}
+                {presetOptionLabel(t, slot.provider, preset)}
                 {!available ? t('profile.mode.presetUnavailable') : ''}
               </option>
             )
           })}
         </select>
-      </div>
-      <div style={{ flex: 1.4 }}>
-        <div className="slot-col-label">
-          {t('profile.slots.model')} <InfoTip text={t(HELP.model)} />
-          <span className="model-count" title={t('profile.mode.modelCountTitle')}>
-            {slotModels.length}
-          </span>
-        </div>
-        <ModelCombo
-          className="slot-select-sm mono"
-          datalistId={`slot-models-${idx}`}
-          models={slotModels}
-          value={slot.model}
-          onChange={(model) => onPatchSlot(idx, { model })}
-        />
-        <ModelCatalogStatus provider={slot.provider} catalog={models[slot.provider]} />
-        <div className="model-effective" aria-live="polite">
-          {t('profile.mode.effective')} {effectiveModelLabel(t, resolveModel(slot.provider, slot), slot)}
-        </div>
       </div>
       <div style={{ flex: 'none' }}>
         <div className="slot-col-label" style={{ textAlign: 'center' }}>
@@ -169,6 +157,30 @@ const AgentSlotRow = memo(function AgentSlotRow({
       >
         ✕
       </button>
+      </div>
+      {/* Own full-width row: model ids are long, and squeezing them into the
+          field row above left about three readable characters. */}
+      <div className="slot-model-row">
+        <div className="slot-col-label">
+          {t('profile.slots.model')} <InfoTip text={t(HELP.model)} />
+          <span className="model-count" title={t('profile.mode.modelCountTitle')}>
+            {slotModels.length}
+          </span>
+        </div>
+        <ModelCombo
+          className="slot-select-sm mono"
+          id={`slot-models-${idx}`}
+          models={slotModels}
+          value={slot.model}
+          onChange={(model) => onPatchSlot(idx, { model })}
+        />
+        <div className="slot-model-meta">
+          <ModelCatalogStatus provider={slot.provider} catalog={models[slot.provider]} />
+          <div className="model-effective" aria-live="polite">
+            {t('profile.mode.effective')}{' '}
+            {effectiveModelLabel(t, resolveModel(slot.provider, slot), slot)}
+          </div>
+        </div>
       </div>
       <MultiAgentOverrideSelect
         id={`slot-multi-agent-${idx}`}

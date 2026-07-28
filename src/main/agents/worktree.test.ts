@@ -5,7 +5,9 @@ import { join } from 'node:path'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createWorktree,
+  describeFsError,
   discardManagedOrphans,
+  extendedLengthPath,
   inventoryWorktrees,
   isManagedBranch,
   isManagedWorktreePath,
@@ -33,6 +35,39 @@ const GIT_ENV = {
 function gitIn(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8', env: GIT_ENV }).trim()
 }
+
+describe('extendedLengthPath', () => {
+  it('lifts the Windows MAX_PATH cap for drive and UNC paths', () => {
+    expect(extendedLengthPath('C:\\git\\uwe\\.vertragus-worktrees\\s\\a', 'win32')).toBe(
+      '\\\\?\\C:\\git\\uwe\\.vertragus-worktrees\\s\\a'
+    )
+    // Git reports roots with forward slashes; they must be normalized first.
+    expect(extendedLengthPath('C:/git/uwe', 'win32')).toBe('\\\\?\\C:\\git\\uwe')
+    expect(extendedLengthPath('\\\\nas\\team\\repo', 'win32')).toBe(
+      '\\\\?\\UNC\\nas\\team\\repo'
+    )
+  })
+
+  it('never double-prefixes and leaves POSIX paths untouched', () => {
+    expect(extendedLengthPath('\\\\?\\C:\\repo', 'win32')).toBe('\\\\?\\C:\\repo')
+    expect(extendedLengthPath('/home/user/repo', 'linux')).toBe('/home/user/repo')
+    expect(extendedLengthPath('C:\\repo', 'darwin')).toBe('C:\\repo')
+  })
+})
+
+describe('describeFsError', () => {
+  it('keeps the errno code so the banner can name the real cause', () => {
+    const error = Object.assign(new Error('operation not permitted'), { code: 'EPERM' })
+    expect(describeFsError(error)).toBe('EPERM: operation not permitted')
+  })
+
+  it('collapses multi-line git stderr into one bounded line', () => {
+    const reason = describeFsError(new Error(`fatal:\n  ${'x'.repeat(400)}`))
+    expect(reason.length).toBeLessThanOrEqual(240)
+    expect(reason).not.toContain('\n')
+    expect(reason.endsWith('…')).toBe(true)
+  })
+})
 
 describe('worktreeIdentity', () => {
   it('isolates identical agent ids across app sessions', () => {
@@ -197,7 +232,11 @@ describe('createWorktree + inventory against a real repository', () => {
     paths.push(owned)
 
     const result = await discardManagedOrphans(paths, (sessionId) => sessionId === 'session-owned')
-    expect(result).toEqual({ discarded: 20, failed: 1 })
+    expect(result).toMatchObject({ discarded: 20, failed: 1 })
+    // The refusal carries its reason, so the banner can explain the leftover.
+    expect(result.failures).toEqual([
+      { path: owned, reason: 'Gehört zu einer bekannten Session.' }
+    ])
     expect(existsSync(owned)).toBe(true)
     expect(await inventoryWorktrees(repo, new Set(['session-owned']))).toEqual([
       expect.objectContaining({ sessionId: 'session-owned', owned: true })

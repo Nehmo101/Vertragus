@@ -851,7 +851,6 @@
       "cliDefault": "CLI-Standard",
       "unavailable": "(nicht verfügbar)",
       "model": "Modell",
-      "modelPlaceholder": "CLI-Standard / Stärke verwenden",
       "effective": "Wird gestartet mit",
       "hint": "Die explizite Modellwahl hat Vorrang vor der gewählten Stärke.",
       "cancel": "Abbrechen",
@@ -1110,6 +1109,8 @@
     "discardCleanConfirm": "{{count}} saubere Worktrees ohne lokale Änderungen verwerfen?",
     "discardAllConfirm": "{{count}} verwaiste Worktrees endgültig verwerfen? Uncommittete Arbeit geht verloren.\nBeispiel: {{path}}",
     "discardResult": "{{discarded}} verworfen, {{failed}} fehlgeschlagen.",
+    "discardReason": "{{count}}× {{reason}} (z. B. {{path}})",
+    "discardReasonMore": "+ {{count}} weitere Ursache(n)",
     "stale": "{{count}} alte Session(s) ohne Aktivität",
     "staleConfirm": "Diese Session samt gesichertem Verlauf entfernen?",
     "summaryResumableOne": "1 Session wiederherstellbar",
@@ -1248,7 +1249,8 @@
       "provider": "Provider",
       "claudeMode": "Claude-Modus",
       "preset": "Preset",
-      "legacyCli": "Legacy (CLI)",
+      "presetNone": "Ohne Preset · CLI-Standard",
+      "presetHint": "{{preset}} · {{model}}",
       "presetUnavailable": " (nicht verfügbar)",
       "model": "Modell",
       "modelCountTitle": "verfügbare Modelle dieses Providers (frei eingebbar)",
@@ -1515,9 +1517,9 @@
     },
     "modelCombo": {
       "placeholder": "CLI-Standard / Preset",
-      "pickAria": "Modell aus Liste wählen",
-      "pickTitle": "Modell aus der vollständigen Liste wählen",
-      "list": "Liste ▾"
+      "pickAria": "Vollständige Modell-Liste öffnen",
+      "pickTitle": "Alle Modelle dieses Providers anzeigen",
+      "noMatch": "Kein Modell passt zur Eingabe — freier Text bleibt erlaubt."
     },
     "infoTip": {
       "label": "Feldhilfe"

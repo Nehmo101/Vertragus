@@ -13,7 +13,7 @@
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { appendFile, mkdir, readdir, readFile, rm } from 'node:fs/promises'
+import { appendFile, chmod, mkdir, readdir, readFile, rm } from 'node:fs/promises'
 import { promisify } from 'node:util'
 import { dirname, join } from 'node:path'
 import { canonicalWorkspacePath } from '@main/agents/workspacePath'
@@ -31,6 +31,13 @@ const GIT_STATUS_TIMEOUT_MS = 3_000
 const GIT_DISCARD_TIMEOUT_MS = 8_000
 /** Bound concurrent `git status` probes during inventory. */
 const INVENTORY_STATUS_CONCURRENCY = 8
+/** Windows releases file handles lazily (indexer, AV, watchers) — retry a bit. */
+const RM_MAX_RETRIES = 4
+const RM_RETRY_DELAY_MS = 120
+/** Depth bound for the read-only sweep; agent checkouts never nest that deep. */
+const CHMOD_MAX_DEPTH = 24
+/** Keep git's stderr readable inside a one-line failure reason. */
+const REASON_MAX_LENGTH = 240
 
 async function git(cwd: string, args: string[], timeoutMs = GIT_TIMEOUT_MS): Promise<string> {
   const { stdout } = await execFileAsync('git', ['-C', cwd, ...args], {
@@ -314,29 +321,121 @@ async function resolveRollbackRoot(worktreePath: string): Promise<string | null>
 }
 
 /**
+ * Win32 extended-length form of an absolute path (`\\?\C:\…`, `\\?\UNC\…`).
+ *
+ * Without it every filesystem call is capped at MAX_PATH (260 chars), which a
+ * worktree like `<repo>\.vertragus-worktrees\<session>\<agent>\node_modules\…`
+ * blows past routinely — that is why bulk discard reported *every* leftover as
+ * failed on Windows. Pure and platform-parameterized so it stays testable.
+ */
+export function extendedLengthPath(
+  path: string,
+  platform: NodeJS.Platform = process.platform
+): string {
+  if (platform !== 'win32') return path
+  const backslashed = path.replace(/\//g, '\\')
+  if (backslashed.startsWith('\\\\?\\')) return backslashed
+  if (backslashed.startsWith('\\\\')) return `\\\\?\\UNC\\${backslashed.slice(2)}`
+  if (/^[a-zA-Z]:\\/.test(backslashed)) return `\\\\?\\${backslashed}`
+  // Relative or otherwise unusual — leave it to the caller's cwd resolution.
+  return path
+}
+
+function errorCode(error: unknown): string {
+  return typeof error === 'object' && error !== null && 'code' in error
+    ? String((error as { code: unknown }).code)
+    : ''
+}
+
+/** One-line, user-facing cause — the banner has to explain *why* a discard failed. */
+export function describeFsError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  const code = errorCode(error)
+  const text = code && !message.startsWith(code) ? `${code}: ${message}` : message
+  const collapsed = text.replace(/\s+/g, ' ').trim()
+  return collapsed.length > REASON_MAX_LENGTH
+    ? `${collapsed.slice(0, REASON_MAX_LENGTH - 1)}…`
+    : collapsed
+}
+
+/**
+ * Windows refuses to delete read-only files (Git packs, npm/pnpm caches keep
+ * them around), and `fs.rm` never clears the flag itself. Best-effort sweep
+ * before the retry; every individual failure is ignored on purpose.
+ */
+async function clearReadOnlyFlags(dir: string, depth = 0): Promise<void> {
+  if (depth > CHMOD_MAX_DEPTH) return
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => [])
+  for (const entry of entries) {
+    const child = join(dir, entry.name)
+    try {
+      if (entry.isDirectory()) {
+        await chmod(extendedLengthPath(child), 0o700)
+        await clearReadOnlyFlags(child, depth + 1)
+      } else if (!entry.isSymbolicLink()) {
+        await chmod(extendedLengthPath(child), 0o600)
+      }
+    } catch {
+      // Best-effort; the retry below reports whatever is actually left over.
+    }
+  }
+}
+
+/** Delete a directory tree, surviving long paths, transient locks and read-only flags. */
+async function removeDirTree(dir: string): Promise<void> {
+  const target = extendedLengthPath(dir)
+  const options = {
+    recursive: true,
+    force: true,
+    maxRetries: RM_MAX_RETRIES,
+    retryDelay: RM_RETRY_DELAY_MS
+  } as const
+  try {
+    await rm(target, options)
+    return
+  } catch (error) {
+    if (!['EPERM', 'EACCES', 'EBUSY', 'ENOTEMPTY'].includes(errorCode(error))) throw error
+  }
+  await clearReadOnlyFlags(dir)
+  await rm(target, options)
+}
+
+export interface WorktreeRemoval {
+  removed: boolean
+  /** Why the removal failed — surfaced to the user, absent on success. */
+  reason?: string
+}
+
+/**
  * Delete a managed worktree directory from disk when Git cannot remove it.
  * Only paths under `.vertragus-worktrees/` / `.orca-worktrees/` are touched.
  */
-async function removeManagedWorktreeDir(worktreePath: string): Promise<boolean> {
+async function removeManagedWorktreeDir(worktreePath: string): Promise<WorktreeRemoval> {
   const parts = managedWorktreeParts(worktreePath)
-  if (!parts || !isManagedWorktreePath(worktreePath)) return false
-  if (!existsSync(worktreePath)) return true
+  if (!parts || !isManagedWorktreePath(worktreePath)) {
+    return { removed: false, reason: 'Pfad liegt außerhalb der verwalteten Worktree-Ordner.' }
+  }
+  if (!existsSync(worktreePath)) return { removed: true }
+  let reason: string | undefined
   try {
-    await rm(worktreePath, { recursive: true, force: true })
-  } catch {
-    return existsSync(worktreePath) === false
+    await removeDirTree(worktreePath)
+  } catch (error) {
+    reason = describeFsError(error)
+  }
+  if (existsSync(worktreePath)) {
+    return { removed: false, reason: reason ?? 'Ordner ist nach dem Löschen weiterhin vorhanden.' }
   }
   // Drop the empty session container so inventory stops reporting the group.
   const sessionDir = dirname(worktreePath)
   try {
     const leftover = await readdir(sessionDir)
     if (leftover.length === 0) {
-      await rm(sessionDir, { recursive: true, force: true })
+      await removeDirTree(sessionDir)
     }
   } catch {
     // Best-effort; the agent checkout itself is already gone.
   }
-  return existsSync(worktreePath) === false
+  return { removed: true }
 }
 
 /** Best-effort `git worktree prune` for a repository root. */
@@ -511,9 +610,48 @@ export async function rollbackWorktree(
   return !existsSync(path)
 }
 
+export interface DiscardOrphanFailure {
+  path: string
+  reason: string
+}
+
 export interface DiscardManagedOrphansResult {
   discarded: number
   failed: number
+  /** One entry per failed path — without it the UI can only report a count. */
+  failures: DiscardOrphanFailure[]
+}
+
+/**
+ * Discard one leftover: filesystem first (crash leftovers are usually not
+ * registered as linked worktrees, so `git worktree remove` only burns timeout
+ * budget), then Git as the fallback for a checkout Git still holds.
+ */
+async function discardOneOrphan(path: string, root: string): Promise<WorktreeRemoval> {
+  try {
+    if (!existsSync(path)) return { removed: true }
+    const direct = await removeManagedWorktreeDir(path)
+    if (direct.removed) return direct
+    if (!existsSync(root)) return direct
+
+    let gitReason: string | undefined
+    try {
+      await git(root, ['worktree', 'remove', '--force', path], GIT_DISCARD_TIMEOUT_MS)
+    } catch (error) {
+      gitReason = describeFsError(error)
+    }
+    if (!existsSync(path)) return { removed: true }
+
+    const retry = await removeManagedWorktreeDir(path)
+    if (retry.removed) return retry
+    const reason = retry.reason ?? direct.reason ?? gitReason
+    return {
+      removed: false,
+      reason: gitReason && reason !== gitReason ? `${reason} (git: ${gitReason})` : reason
+    }
+  } catch (error) {
+    return { removed: false, reason: describeFsError(error) }
+  }
 }
 
 /**
@@ -525,6 +663,7 @@ export interface DiscardManagedOrphansResult {
  * - deletes checkouts one-by-one per repository (filesystem-first)
  * - deletes inferred branches afterward
  * - runs `git worktree prune` once per repository
+ * - reports a concrete reason for every path it could not remove
  */
 export async function discardManagedOrphans(
   paths: readonly string[],
@@ -536,16 +675,16 @@ export async function discardManagedOrphans(
 
   type Item = { path: string; parts: ManagedWorktreeParts }
   const byRoot = new Map<string, Item[]>()
-  let failed = 0
+  const failures: DiscardOrphanFailure[] = []
 
   for (const path of unique) {
     const parts = managedWorktreeParts(path)
     if (!parts || !isManagedWorktreePath(path)) {
-      failed += 1
+      failures.push({ path, reason: 'Pfad ist kein Vertragus-Worktree.' })
       continue
     }
     if (isOwnedSession(parts.sessionId)) {
-      failed += 1
+      failures.push({ path, reason: 'Gehört zu einer bekannten Session.' })
       continue
     }
     const group = byRoot.get(parts.root) ?? []
@@ -559,33 +698,12 @@ export async function discardManagedOrphans(
     const branches = new Set<string>()
 
     for (const item of items) {
-      try {
-        // Filesystem-first: crash leftovers are often not registered as linked
-        // worktrees, so `git worktree remove` only burns timeout budget.
-        let gone = !existsSync(item.path)
-        if (!gone) {
-          gone = await removeManagedWorktreeDir(item.path)
-        }
-        if (!gone && existsSync(item.path) && existsSync(root)) {
-          try {
-            await git(root, ['worktree', 'remove', '--force', item.path], GIT_DISCARD_TIMEOUT_MS)
-          } catch {
-            // still try one more FS pass below
-          }
-          if (existsSync(item.path)) {
-            gone = await removeManagedWorktreeDir(item.path)
-          } else {
-            gone = true
-          }
-        }
-        if (gone) {
-          discarded += 1
-          branches.add(inferredManagedBranch(item.parts))
-        } else {
-          failed += 1
-        }
-      } catch {
-        failed += 1
+      const outcome = await discardOneOrphan(item.path, root)
+      if (outcome.removed) {
+        discarded += 1
+        branches.add(inferredManagedBranch(item.parts))
+      } else {
+        failures.push({ path: item.path, reason: outcome.reason ?? 'Unbekannter Fehler.' })
       }
     }
 
@@ -597,5 +715,5 @@ export async function discardManagedOrphans(
     }
   }
 
-  return { discarded, failed }
+  return { discarded, failed: failures.length, failures }
 }

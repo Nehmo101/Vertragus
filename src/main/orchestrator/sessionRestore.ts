@@ -21,8 +21,8 @@ import {
   inventoryWorktrees,
   isManagedWorktreePath,
   managedWorktreeParts,
-  rollbackWorktree,
-  worktreeSessionDirName
+  worktreeSessionDirName,
+  type DiscardManagedOrphansResult
 } from '@main/agents/worktree'
 
 /** Sessions without activity for this many days are suggested for cleanup. */
@@ -177,8 +177,10 @@ function isOwnedOrphanSession(sessionDir: string): boolean {
  * throws away uncommitted work). Refuses paths outside the managed namespaces
  * and worktrees that still belong to an indexed session.
  *
- * Branch identity is inferred from the managed path so broken leftovers do not
- * hang on `git rev-parse` inside a corrupt checkout before cleanup starts.
+ * Shares the bulk path so a single discard fails with the same concrete reason
+ * (locked file, long path, permissions) instead of a bare `false`. Branch
+ * identity is inferred from the managed path, so broken leftovers do not hang
+ * on `git rev-parse` inside a corrupt checkout before cleanup starts.
  */
 export async function discardOrphanWorktree(path: string): Promise<boolean> {
   const trimmed = typeof path === 'string' ? path.trim() : ''
@@ -189,19 +191,21 @@ export async function discardOrphanWorktree(path: string): Promise<boolean> {
   if (isOwnedOrphanSession(parts.sessionId)) {
     throw new Error('Dieser Worktree gehört zu einer bekannten Session.')
   }
-  return rollbackWorktree(trimmed)
+  const result = await discardOrphanWorktrees([trimmed])
+  if (result.failed > 0) {
+    throw new Error(result.failures[0]?.reason ?? 'Worktree konnte nicht entfernt werden.')
+  }
+  return true
 }
 
-export interface DiscardOrphansResult {
-  discarded: number
-  failed: number
-}
+export type DiscardOrphansResult = DiscardManagedOrphansResult
 
 /**
  * Discard many orphaned worktrees in one explicit user action.
  *
  * Serialized per repository (filesystem-first, one prune at the end) so bulk
  * "Verwerfen" cannot wedge itself on Git locks the way concurrent workers did.
+ * Per-path reasons are logged here as well — the renderer only shows a summary.
  */
 export async function discardOrphanWorktrees(paths: string[]): Promise<DiscardOrphansResult> {
   const owned = new Set(
@@ -210,5 +214,9 @@ export async function discardOrphanWorktrees(paths: string[]): Promise<DiscardOr
       .map((entry) => worktreeSessionDirName(entry.id))
       .filter((id): id is string => Boolean(id))
   )
-  return discardManagedOrphans(paths, (sessionId) => owned.has(sessionId))
+  const result = await discardManagedOrphans(paths, (sessionId) => owned.has(sessionId))
+  for (const failure of result.failures) {
+    console.warn('[Sessions] worktree discard failed', failure.path, failure.reason)
+  }
+  return result
 }
