@@ -3,29 +3,40 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { IPC } from '@shared/ipc'
+import {
+  buildVertragusApi,
+  listIpcChannels,
+  type CustomBridgeBindings,
+  type IpcChannelSpec,
+  type IpcManifestKey,
+  type IpcTransport
+} from '@shared/ipcManifest'
+import { ipcManifestSchemas } from '@shared/ipcManifestSchemas'
 
 /**
- * Audit A4 — the IPC surface is maintained in triplicate:
- *   (1) channel constants + VertragusApi types in src/shared/ipc.ts
- *   (2) the preload bridge in src/preload/index.ts (invoke / send / subscribe)
- *   (3) handler registration in src/main/ipc/register.ts (ipcMain.handle/on)
+ * Audit A4 — the IPC surface guard, manifest edition.
  *
- * Drift between the three used to surface only at runtime. This guard derives
- * all channel sets from the sources (no hard-coded full list, so purely
- * additive changes that follow the pattern stay green) and pins:
- *   (a) every channel the preload invokes/sends has a registered handler,
- *   (b) every registered handler is used by the preload — or is listed as a
- *       justified exception below,
- *   (c) every handler body shows an authorization marker and (when it takes a
- *       payload) a validation marker (zod parseIpcPayload / shared asserts /
- *       an authorizing controller) — or is listed as a justified exception,
- *   (d) every pushed main→renderer event channel has a preload subscriber and
- *       vice versa.
+ * The declarative manifest (src/shared/ipcManifest.ts) is the single source of
+ * truth: preload bindings are built from it (buildVertragusApi) and the main
+ * process registers handlers from it (registerManifestChannels), so the old
+ * "triplicate drift" classes are prevented by construction. What this guard
+ * still pins:
+ *   (a) manifest ↔ IPC constants stay 1:1 (keys, channel strings, ev: naming),
+ *   (b) the handler map in register.ts covers exactly the manifest's
+ *       registerable channels, and channels whose authorization/validation is
+ *       NOT central ('controller' / 'custom' auth, 'handler' validation) really
+ *       show the corresponding marker in their handler body,
+ *   (c) the set of deliberately window-open channels (auth 'any') and the
+ *       handler-validated payload channels are pinned as exact, justified
+ *       lists — opening a new channel requires editing this test,
+ *   (d) every pushed ev:* channel is a manifest event entry and vice versa,
+ *   (e) no channel is wired in both worlds: legacy `ipcMain.handle(IPC.…)`
+ *       registrations in register.ts (currently none) must stay disjoint from
+ *       the manifest and satisfy the old auth/validation source patterns.
  *
- * When this test fails after adding a channel, the fix is almost always to
- * finish the pattern (constant + preload method + registered handler with
- * authorize + parse) — only add an exception with a reason when the deviation
- * is deliberate. See docs/IPC_ARCHITECTURE.md.
+ * Central 'not-voice' / 'main-window' / 'voice-window' enforcement and the
+ * central zod parse are covered behaviorally in registerManifest.test.ts; the
+ * generic preload bridge behaviorally in src/shared/ipcManifest.test.ts.
  */
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -34,57 +45,72 @@ const preloadSrc = readFileSync(join(here, '../../preload/index.ts'), 'utf8')
 const windowsSrc = readFileSync(join(here, '../windows.ts'), 'utf8')
 
 // ---------------------------------------------------------------------------
-// Source parsing
+// Manifest-derived sets
 // ---------------------------------------------------------------------------
 
-function matchNames(src: string, re: RegExp): string[] {
-  return [...src.matchAll(re)].map((m) => m[1]!)
+const entries = listIpcChannels()
+const byKey = new Map(entries.map((e) => [e.key as string, e.spec]))
+const registerable = entries.filter((e) => e.spec.kind === 'invoke' || e.spec.kind === 'send')
+const invokeEntries = entries.filter((e) => e.spec.kind === 'invoke')
+const sendEntries = entries.filter((e) => e.spec.kind === 'send')
+const eventEntries = entries.filter((e) => e.spec.kind === 'event')
+const localEntries = entries.filter((e) => e.spec.kind === 'local')
+
+const IPC_KEYS = Object.keys(IPC) as (keyof typeof IPC)[]
+const IPC_VALUES = new Set<string>(Object.values(IPC))
+
+/**
+ * Event channels deliberately exposed under a second API path. Keyed by the
+ * extra manifest key, value = the IPC key it aliases.
+ */
+const EVENT_ALIASES: Record<string, string> = {
+  voiceAssistantOnProgress: 'evVoiceAssistant'
 }
 
-interface Registration {
-  kind: 'handle' | 'on'
+// ---------------------------------------------------------------------------
+// register.ts handler-map parsing
+// ---------------------------------------------------------------------------
+
+interface HandlerEntry {
   name: string
-  /** Full `ipcMain.handle(...)` / `ipcMain.on(...)` call, parenthesis-balanced. */
-  block: string
+  /** Full property source (arrow function incl. body). */
+  body: string
   /** Callback parameter list, split at top-level commas. */
   params: string[]
 }
 
-/** Extract the full registration call by balancing parentheses from `ipcMain.…(`. */
-function extractRegistrations(src: string): Registration[] {
-  const out: Registration[] = []
-  const re = /ipcMain\.(handle|on)\(\s*IPC\.(\w+)\s*,/g
-  let m: RegExpExecArray | null
-  while ((m = re.exec(src))) {
-    const openIdx = src.indexOf('(', m.index)
-    let depth = 0
-    let i = openIdx
-    for (; i < src.length; i++) {
-      if (src[i] === '(') depth++
-      else if (src[i] === ')') {
-        depth--
-        if (depth === 0) break
-      }
+function extractHandlerMap(src: string): HandlerEntry[] {
+  const marker = 'const manifestHandlers: ManifestHandlers = {'
+  const start = src.indexOf(marker)
+  expect(start, 'expected a `const manifestHandlers: ManifestHandlers = {` map in register.ts').toBeGreaterThan(-1)
+  const openIdx = start + marker.length - 1
+  let depth = 0
+  let end = openIdx
+  for (; end < src.length; end++) {
+    if (src[end] === '{') depth++
+    else if (src[end] === '}') {
+      depth--
+      if (depth === 0) break
     }
-    expect(depth, `unbalanced parentheses while parsing ipcMain.${m[1]}(IPC.${m[2]}…)`).toBe(0)
-    const block = src.slice(m.index, i + 1)
-    out.push({
-      kind: m[1] as 'handle' | 'on',
-      name: m[2]!,
-      block,
-      params: callbackParams(block, m[2]!)
-    })
   }
-  return out
+  expect(depth, 'unbalanced braces while parsing the manifestHandlers map').toBe(0)
+  const block = src.slice(openIdx + 1, end)
+  // Top-level properties sit at indent 4 (`\n    name: …`); everything nested
+  // is indented deeper, comments never match `word: `.
+  const re = /\n {4}(\w+): /g
+  const found: { name: string; start: number }[] = []
+  let m: RegExpExecArray | null
+  while ((m = re.exec(block))) found.push({ name: m[1]!, start: m.index })
+  return found.map((prop, i) => {
+    const body = block.slice(prop.start, found[i + 1]?.start ?? block.length)
+    return { name: prop.name, body, params: handlerParams(body, prop.name) }
+  })
 }
 
-/** Parameters of the handler callback: `(e, id: unknown) => …` → ['e', 'id: unknown']. */
-function callbackParams(block: string, name: string): string[] {
-  const after = block.replace(
-    new RegExp(`^ipcMain\\.(?:handle|on)\\(\\s*IPC\\.${name}\\s*,\\s*(?:async\\s*)?`),
-    ''
-  )
-  expect(after.startsWith('('), `cannot find callback parameter list for IPC.${name}`).toBe(true)
+/** Parameters of the handler arrow: `name: async (e, id) => …` → ['e', 'id']. */
+function handlerParams(body: string, name: string): string[] {
+  const after = body.replace(new RegExp(`^\\n {4}${name}: (?:async\\s*)?`), '')
+  expect(after.startsWith('('), `cannot find parameter list for handler ${name}`).toBe(true)
   let depth = 0
   let i = 0
   for (; i < after.length; i++) {
@@ -94,124 +120,135 @@ function callbackParams(block: string, name: string): string[] {
       if (depth === 0) break
     }
   }
-  const inner = after.slice(1, i)
-  // Top-level split is fine: no current parameter type contains a comma.
-  return inner
+  return after
+    .slice(1, i)
     .split(',')
     .map((p) => p.trim())
     .filter(Boolean)
 }
 
-const registrations = extractRegistrations(registerSrc)
-const handled = new Set(registrations.filter((r) => r.kind === 'handle').map((r) => r.name))
-const onRegistered = new Set(registrations.filter((r) => r.kind === 'on').map((r) => r.name))
-const byName = new Map(registrations.map((r) => [r.name, r]))
+const handlerEntries = extractHandlerMap(registerSrc)
+const handlersByName = new Map(handlerEntries.map((h) => [h.name, h]))
 
-// All IPC.* references in register.ts that are NOT a registration are pushes
-// (broadcast(IPC.x, …), broadcastAgentData(IPC.x, …), sender.send(IPC.x, …)).
-const registerRefs = new Set(matchNames(registerSrc, /IPC\.(\w+)/g))
-const pushed = new Set([...registerRefs].filter((n) => !handled.has(n) && !onRegistered.has(n)))
+// Legacy world: direct ipcMain registrations in register.ts (old pattern).
+const legacyRegistrations = [
+  ...registerSrc.matchAll(/ipcMain\.(handle|on)\(\s*IPC\.(\w+)/g)
+].map((m) => ({ kind: m[1]!, name: m[2]! }))
 
-// Preload: invoke / one-way send / everything else = event subscription.
-const invoked = new Set(matchNames(preloadSrc, /ipcRenderer\.invoke\(\s*IPC\.(\w+)/g))
-const sentOneWay = new Set(matchNames(preloadSrc, /ipcRenderer\.send\(\s*IPC\.(\w+)/g))
-const preloadRefs = new Set(matchNames(preloadSrc, /IPC\.(\w+)/g))
-const subscribed = new Set(
-  [...preloadRefs].filter((n) => !invoked.has(n) && !sentOneWay.has(n))
-)
-
-const IPC_KEYS = new Set(Object.keys(IPC))
-const EVENT_KEYS = new Set(
-  Object.entries(IPC)
-    .filter(([, value]) => value.startsWith('ev:'))
-    .map(([key]) => key)
-)
-
-function missing(from: Iterable<string>, inSet: Set<string>, except: Set<string> = new Set()): string[] {
-  return [...from].filter((n) => !inSet.has(n) && !except.has(n)).sort()
+/** Channels intentionally left on the legacy (non-manifest) registration path. */
+const LEGACY_CHANNELS: Record<string, string> = {
+  // currently none — all 116 renderer→main channels are manifest-registered
 }
 
 // ---------------------------------------------------------------------------
-// Justified exceptions. Every entry needs a reason; stale entries fail the
-// hygiene test below, so this list cannot rot.
+// Pinned authorization / validation review lists. Every entry needs a reason
+// (in the manifest `note`); stale entries fail the hygiene checks below.
 // ---------------------------------------------------------------------------
-
-/** Handlers registered in register.ts but (deliberately) not called from the preload. */
-const HANDLERS_WITHOUT_PRELOAD_USE: Record<string, string> = {
-  // currently none — every registered channel is bridged onto window.vertragus
-}
-
-/** Pushed event channels without a preload subscriber. */
-const PUSHED_WITHOUT_SUBSCRIBER: Record<string, string> = {
-  // currently none — every pushed ev:* channel has an on*-subscription
-}
 
 /**
- * Handlers whose body shows no authorization marker (assertNotVoiceWindow /
- * requireMainWindow / guard* / isVoiceWindowSender / *Controller.*). These are
- * callable from EVERY window that shares the renderer preload — including the
- * voice overlay. Only list channels here where that is acceptable.
+ * Channels with manifest auth 'any': callable from EVERY window that shares the
+ * renderer preload — including the voice overlay. Opening a channel this way
+ * must be a reviewed decision, so the exact set is pinned here; the reason
+ * lives in the manifest entry's `note`.
  */
-const AUTH_EXCEPTIONS: Record<string, string> = {
-  appInfo: 'read-only app metadata',
-  appUpdateState: 'read-only updater state',
-  appUpdateCheck: 'benign trigger; updater state is broadcast to all windows anyway',
-  appUpdateDownload: 'benign trigger of the signed-update download',
-  appUpdateInstall: 'installs an already verified update; no payload',
-  providersHealth: 'read-only provider probe',
-  providersCapacity: 'read-only concurrency snapshot',
-  providersModels: 'read-only model catalog',
-  providerLogin: 'opens the provider CLI login pane; no secrets cross the bridge',
-  diagnosticsExportLatest: 'read-only redacted export via a native save dialog parented to the sender',
-  configGet: 'public config keys only (allow-listed in configAccess)',
-  configSet: 'public config keys only; every window may persist shared UI settings',
-  profilesList: 'read-only',
-  profileGetActive: 'read-only',
-  profileSetActive: 'selection pointer only; existence-checked against the store',
-  mcpList: 'read-only (mcpSave is voice-guarded)',
-  gitInfo: 'read-only repository inspection',
-  githubProjects: 'read-only board listing',
-  githubAuthStatus: 'read-only auth status (never tokens)',
-  githubRepoResolve: 'read-only repo metadata lookup',
-  githubRepoCheckLocal: 'read-only local clone check',
-  demoPlay: 'pushes demo state only into the requesting window',
-  dialogPickFolder: 'native picker; user interaction required, returns a user-chosen path',
-  dialogPickFile: 'native picker; returns a short-lived grant, not a raw path',
-  ideasList: 'read-only inbox listing',
-  ideasGet: 'read-only',
-  ideasCreate: 'inbox capture is intentionally reachable from every window (zod-parsed)',
-  ideasUpdate: 'inbox mutation accepted from every window (zod-parsed)',
-  ideasDelete: 'inbox mutation accepted from every window (id-validated)',
-  ideasAddArtifact: 'inbox mutation accepted from every window (zod-parsed)',
-  ideasRemoveArtifact: 'inbox mutation accepted from every window (id-validated)',
-  ideasTransferToProfile: 'transfer request is zod-parsed; orchestrator start runs its own gates',
-  ideasTransferRetry: 'id-validated retry of a previously authorized transfer',
-  ideasTransferReset: 'id-validated metadata reset',
-  inboxSpeechStatus: 'read-only STT status',
-  inboxSpeechGetSettings: 'settings expose key presence as booleans only',
-  inboxSpeechSetSettings: 'zod-parsed patch; raw keys never leave the main process',
-  inboxSpeechTranscribe: 'bounded audio payload validated inside transcribeInboxAudio',
-  inboxSpeechAbort: 'aborts the single in-flight transcription; no payload',
-  agentsList: 'read-only agent listing',
-  agentBuffer: 'read-only scrollback replay (id-validated)',
-  agentBufferTail: 'read-only scrollback slice (id-validated)',
-  orchestratorSnapshot: 'read-only snapshot; lenient by design for deleted profiles',
-  orchestratorTaskDiff: 'read-only size-limited diff from the trusted worktree',
-  retroListRetros: 'read-only',
-  retroListLearnings: 'read-only',
-  retroListBenchmarks: 'read-only',
-  retroSyncStatus: 'read-only',
-  retroSyncFlush: 'benign flush of the export queue; no payload',
-  winMinimize: 'window control scoped to the sender window itself',
-  winMaximizeToggle: 'window control scoped to the sender window itself',
-  winClose: 'window control scoped to the sender window itself'
-}
+const EXPECTED_OPEN_CHANNELS = [
+  'agentBuffer',
+  'agentBufferTail',
+  'agentsList',
+  'appInfo',
+  'appUpdateCheck',
+  'appUpdateDownload',
+  'appUpdateInstall',
+  'appUpdateState',
+  'configGet',
+  'configSet',
+  'demoPlay',
+  'diagnosticsExportLatest',
+  'dialogPickFile',
+  'dialogPickFolder',
+  'gitInfo',
+  'githubAuthStatus',
+  'githubProjects',
+  'githubRepoCheckLocal',
+  'githubRepoResolve',
+  'ideasAddArtifact',
+  'ideasCreate',
+  'ideasDelete',
+  'ideasGet',
+  'ideasList',
+  'ideasRemoveArtifact',
+  'ideasTransferReset',
+  'ideasTransferRetry',
+  'ideasTransferToProfile',
+  'ideasUpdate',
+  'inboxSpeechAbort',
+  'inboxSpeechGetSettings',
+  'inboxSpeechSetSettings',
+  'inboxSpeechStatus',
+  'inboxSpeechTranscribe',
+  'mcpList',
+  'orchestratorSnapshot',
+  'orchestratorTaskDiff',
+  'profileGetActive',
+  'profileSetActive',
+  'profilesList',
+  'providerLogin',
+  'providersCapacity',
+  'providersHealth',
+  'providersModels',
+  'retroListBenchmarks',
+  'retroListLearnings',
+  'retroListRetros',
+  'retroSyncFlush',
+  'retroSyncStatus',
+  'winClose',
+  'winMaximizeToggle',
+  'winMinimize'
+].sort()
+
+/** Channels restricted to the main window (Mission Control & friends). */
+const EXPECTED_MAIN_WINDOW_CHANNELS = [
+  'orchestratorSend',
+  'remoteClearApnsConfig',
+  'remoteDisable',
+  'remoteEnable',
+  'remoteGetApnsConfigStatus',
+  'remoteListDevices',
+  'remotePairStart',
+  'remoteRevokeDevice',
+  'remoteSetApnsConfig',
+  'remoteStatus',
+  'voiceAssistantGetSettings',
+  'voiceAssistantSetSettings',
+  'voiceOverlayToggle'
+].sort()
+
+/** Channels whose authorization lives in a sender-checking controller. */
+const EXPECTED_CONTROLLER_CHANNELS = [
+  'attentionSetPendingFeedbackCount',
+  'ideasAbortPromptEnhancement',
+  'ideasEnhancePrompt',
+  'ideasRemoveAttribute',
+  'ideasRestore',
+  'profileDelete',
+  'profileSave',
+  'workspaceSessionRemove',
+  'workspaceSessionSetActive',
+  'workspaceSessionsList'
+].sort()
+
+/** Channels with a bespoke guard inside the handler body. */
+const EXPECTED_CUSTOM_AUTH_CHANNELS = ['voiceAssistantTurn', 'voiceOverlayHide'].sort()
+
+/** Channels restricted to the voice overlay window (send-only). */
+const EXPECTED_VOICE_WINDOW_CHANNELS = ['voiceOverlayMoved'].sort()
 
 /**
- * Handlers that take a payload but show no shared validation marker
- * (parseIpcPayload / assertIpcId / assertIpcOptionalId / assertValidConfigKey /
- * requireProfile / *Controller.*). Each reason states where validation happens
- * instead — several of these are exactly the A4 drift this guard documents.
+ * Handlers that take a payload (validation 'handler') but show no shared
+ * validation marker (assertIpcId / assertIpcOptionalId / assertValidConfigKey /
+ * requireProfile / *Controller.*) in their body. Each reason states where
+ * validation happens instead — several are exactly the A4 drift this guard
+ * documents.
  */
 const VALIDATION_EXCEPTIONS: Record<string, string> = {
   appUpdateSetChannel: 'inline whitelist: anything but "stable" falls back to "main"',
@@ -245,159 +282,341 @@ const AUTH_MARKERS =
   /assertNotVoiceWindow\(|requireMainWindow\(|guardVoiceTurnAllowed\(|guardOverlayControl\(|isVoiceWindowSender\(|Controller\.\w+\(/
 const VALIDATION_MARKERS =
   /parseIpcPayload\(|assertIpcId\(|assertIpcOptionalId\(|assertValidConfigKey\(|requireProfile\(|Controller\.\w+\(/
+const CONTROLLER_MARKER = /Controller\.\w+\(/
+const CUSTOM_GUARD_MARKER = /guardVoiceTurnAllowed\(|guardOverlayControl\(/
+
+function sortedKeys(specs: { key: IpcManifestKey; spec: IpcChannelSpec }[]): string[] {
+  return specs.map((e) => e.key as string).sort()
+}
 
 // ---------------------------------------------------------------------------
-// Tests
+// (a) manifest ↔ IPC constants
 // ---------------------------------------------------------------------------
 
-describe('IPC channel constants (ipc.ts)', () => {
-  it('channel string values are unique (an alias would silently merge two channels)', () => {
+describe('IPC constants ↔ manifest', () => {
+  it('channel string values in ipc.ts are unique (an alias would silently merge two channels)', () => {
     const values = Object.values(IPC)
     const dupes = values.filter((v, i) => values.indexOf(v) !== i)
     expect(dupes, `duplicate channel strings: ${dupes.join(', ')}`).toEqual([])
   })
 
-  it('renderer→main channels never use the ev: prefix, push channels always do', () => {
-    for (const name of [...invoked, ...sentOneWay]) {
-      expect(EVENT_KEYS.has(name), `${name} is invoked/sent but named like a push channel`).toBe(false)
-    }
-    for (const name of pushed) {
-      expect(EVENT_KEYS.has(name), `${name} is pushed but lacks the ev: naming convention`).toBe(true)
-    }
-  })
-
-  it('defines no orphan constants (unused in both preload and register)', () => {
-    const used = new Set([...preloadRefs, ...registerRefs])
-    expect(missing(IPC_KEYS, used)).toEqual([])
-  })
-
-  it('never registers a channel both as handle and on', () => {
-    expect([...handled].filter((n) => onRegistered.has(n))).toEqual([])
-  })
-})
-
-describe('preload ↔ register consistency', () => {
-  it('(a) every preload invoke has a registered ipcMain.handle', () => {
+  it('every IPC constant has a manifest entry under the same key with the same channel string', () => {
+    const broken = IPC_KEYS.filter((key) => byKey.get(key)?.channel !== IPC[key])
     expect(
-      missing(invoked, handled),
-      'invoked in preload but never handled in register.ts'
+      broken,
+      'IPC keys without a same-named manifest entry (or with a mismatched channel string)'
     ).toEqual([])
   })
 
-  it('(a) every preload one-way send has a registered ipcMain.on', () => {
-    expect(
-      missing(sentOneWay, onRegistered),
-      'sent from preload but never subscribed via ipcMain.on'
-    ).toEqual([])
-  })
-
-  it('(b) every registered handler is used by the preload (or is a justified exception)', () => {
-    const except = new Set(Object.keys(HANDLERS_WITHOUT_PRELOAD_USE))
-    expect(
-      missing(handled, invoked, except),
-      'handled in register.ts but never invoked from preload (dead handler?)'
-    ).toEqual([])
-    expect(
-      missing(onRegistered, sentOneWay, except),
-      'ipcMain.on-registered but never sent from preload (dead handler?)'
-    ).toEqual([])
-  })
-
-  it('(d) every pushed event channel has a preload subscriber (or is a justified exception)', () => {
-    const except = new Set(Object.keys(PUSHED_WITHOUT_SUBSCRIBER))
-    expect(
-      missing(pushed, subscribed, except),
-      'pushed from main but nobody subscribes in preload'
-    ).toEqual([])
-  })
-
-  it('(d) every preload subscription has a main-side sender', () => {
-    expect(
-      missing(subscribed, pushed),
-      'subscribed in preload but never pushed from register.ts'
-    ).toEqual([])
-  })
-
-  it('raw ev:* string literals outside ipc.ts refer to real channels (windows.ts pushDemoState)', () => {
-    const values = new Set<string>(Object.values(IPC))
-    const literals = matchNames(windowsSrc, /'(ev:[^']+)'/g)
-    // pushDemoState sends demo snapshots with literal channel names — a typo
-    // there would silently push into the void.
-    const unknown = literals.filter((l) => !values.has(l))
-    expect(unknown, `windows.ts sends to non-existent event channels: ${unknown.join(', ')}`).toEqual([])
-  })
-})
-
-describe('(c) authorization + payload validation per handler', () => {
-  it('every handler shows an authorization marker or is a documented exception', () => {
-    const offenders = registrations
-      .filter((r) => !AUTH_MARKERS.test(r.block) && !(r.name in AUTH_EXCEPTIONS))
-      .map((r) => r.name)
-    expect(
-      offenders,
-      'handlers without an authorization marker — add assertNotVoiceWindow/requireMainWindow ' +
-        '(or an authorizing controller), or document the exception in AUTH_EXCEPTIONS with a reason'
-    ).toEqual([])
-  })
-
-  it('every handler that takes a payload shows a validation marker or is a documented exception', () => {
-    const offenders = registrations
-      .filter(
-        (r) =>
-          r.params.length >= 2 &&
-          !VALIDATION_MARKERS.test(r.block) &&
-          !(r.name in VALIDATION_EXCEPTIONS)
+  it('every manifest entry maps to a real IPC constant (aliases and locals are declared)', () => {
+    for (const { key, spec } of entries) {
+      if (spec.kind === 'local') {
+        expect(spec.channel, `local entry ${key} must not claim a channel`).toBe('')
+        continue
+      }
+      expect(IPC_VALUES.has(spec.channel), `${key} targets unknown channel "${spec.channel}"`).toBe(
+        true
       )
-      .map((r) => r.name)
+      if (!(key in IPC)) {
+        const aliased = EVENT_ALIASES[key]
+        expect(aliased, `${key} is not an IPC key and not a declared alias`).toBeTruthy()
+        expect(spec.kind, `alias ${key} must be an event entry`).toBe('event')
+        expect(spec.channel).toBe(IPC[aliased as keyof typeof IPC])
+        expect(spec.note, `alias ${key} needs an explanatory note`).toBeTruthy()
+      }
+    }
+  })
+
+  it('no two non-event entries share a channel (a duplicate registration would silently override)', () => {
+    const seen = new Map<string, number>()
+    for (const { spec } of registerable) seen.set(spec.channel, (seen.get(spec.channel) ?? 0) + 1)
+    const dupes = [...seen.entries()].filter(([, n]) => n > 1).map(([c]) => c)
+    expect(dupes).toEqual([])
+  })
+
+  it('renderer→main channels never use the ev: prefix, event entries always do', () => {
+    for (const { key, spec } of registerable) {
+      expect(spec.channel.startsWith('ev:'), `${key} is invoke/send but named like a push channel`).toBe(false)
+    }
+    for (const { key, spec } of eventEntries) {
+      expect(spec.channel.startsWith('ev:'), `${key} is an event but lacks the ev: naming convention`).toBe(true)
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// (b) handler map ↔ manifest
+// ---------------------------------------------------------------------------
+
+describe('register.ts handler map ↔ manifest', () => {
+  it('the handler map covers exactly the registerable manifest channels', () => {
+    expect(handlerEntries.map((h) => h.name).sort()).toEqual(sortedKeys(registerable))
+  })
+
+  it("auth 'controller' handlers call their controller in the body", () => {
+    for (const key of EXPECTED_CONTROLLER_CHANNELS) {
+      const handler = handlersByName.get(key)
+      expect(handler, `missing handler for controller channel ${key}`).toBeTruthy()
+      expect(
+        CONTROLLER_MARKER.test(handler!.body),
+        `${key} declares auth 'controller' but its handler body calls no *Controller.* method`
+      ).toBe(true)
+    }
+  })
+
+  it("auth 'custom' handlers show their bespoke guard in the body", () => {
+    for (const key of EXPECTED_CUSTOM_AUTH_CHANNELS) {
+      const handler = handlersByName.get(key)
+      expect(handler, `missing handler for custom-auth channel ${key}`).toBeTruthy()
+      expect(
+        CUSTOM_GUARD_MARKER.test(handler!.body),
+        `${key} declares auth 'custom' but its handler body shows no guard* call`
+      ).toBe(true)
+    }
+  })
+
+  it("validation 'none' handlers take no payload parameters", () => {
+    for (const { key, spec } of registerable) {
+      if (spec.validation !== 'none') continue
+      const handler = handlersByName.get(key as string)!
+      expect(
+        handler.params.length,
+        `${key} declares validation 'none' but its handler takes payload parameters`
+      ).toBeLessThanOrEqual(1)
+    }
+  })
+
+  it("validation 'handler' channels take a payload and validate it (or are documented exceptions)", () => {
+    const offenders: string[] = []
+    for (const { key, spec } of registerable) {
+      if (spec.validation !== 'handler') continue
+      const handler = handlersByName.get(key as string)!
+      expect(
+        handler.params.length,
+        `${key} declares validation 'handler' but takes no payload — declare 'none'`
+      ).toBeGreaterThanOrEqual(2)
+      if (!VALIDATION_MARKERS.test(handler.body) && !(key in VALIDATION_EXCEPTIONS)) {
+        offenders.push(key as string)
+      }
+    }
     expect(
       offenders,
-      'payload-taking handlers without parseIpcPayload/assertIpcId/… — validate the payload ' +
+      'payload-taking handlers without assertIpcId/requireProfile/…-marker — validate the payload ' +
         'or document the exception in VALIDATION_EXCEPTIONS with a reason'
     ).toEqual([])
   })
 
-  it('exception lists carry no stale entries', () => {
-    for (const name of Object.keys(AUTH_EXCEPTIONS)) {
-      const reg = byName.get(name)
-      expect(reg, `AUTH_EXCEPTIONS lists unregistered channel ${name}`).toBeTruthy()
+  it("validation 'schema' channels have a binding in ipcManifestSchemas (and vice versa)", () => {
+    const declared = registerable
+      .filter((e) => e.spec.validation === 'schema')
+      .map((e) => e.key as string)
+      .sort()
+    expect(Object.keys(ipcManifestSchemas).sort()).toEqual(declared)
+    for (const { key, spec } of registerable) {
+      if (spec.validation !== 'schema') continue
+      const handler = handlersByName.get(key as string)!
+      const payloadIndex = (spec.schemaArg ?? 0) + 1 // + event parameter
       expect(
-        AUTH_MARKERS.test(reg!.block),
-        `AUTH_EXCEPTIONS entry ${name} is stale — the handler now has an authorization marker`
-      ).toBe(false)
+        handler.params.length,
+        `${key} parses argument ${spec.schemaArg ?? 0} centrally but its handler takes fewer parameters`
+      ).toBeGreaterThan(payloadIndex)
     }
-    for (const name of Object.keys(VALIDATION_EXCEPTIONS)) {
-      const reg = byName.get(name)
-      expect(reg, `VALIDATION_EXCEPTIONS lists unregistered channel ${name}`).toBeTruthy()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// (c) pinned authorization sets + hygiene
+// ---------------------------------------------------------------------------
+
+describe('authorization levels are pinned and justified', () => {
+  it("the exact set of window-open channels (auth 'any') matches the reviewed list", () => {
+    expect(sortedKeys(registerable.filter((e) => e.spec.auth === 'any'))).toEqual(
+      EXPECTED_OPEN_CHANNELS
+    )
+  })
+
+  it("every auth 'any' entry carries a justification note in the manifest", () => {
+    const missingNote = registerable
+      .filter((e) => e.spec.auth === 'any' && !e.spec.note)
+      .map((e) => e.key)
+    expect(missingNote, "auth 'any' without a manifest note").toEqual([])
+  })
+
+  it('the main-window / controller / custom / voice-window sets match the reviewed lists', () => {
+    expect(sortedKeys(registerable.filter((e) => e.spec.auth === 'main-window'))).toEqual(
+      EXPECTED_MAIN_WINDOW_CHANNELS
+    )
+    expect(sortedKeys(registerable.filter((e) => e.spec.auth === 'controller'))).toEqual(
+      EXPECTED_CONTROLLER_CHANNELS
+    )
+    expect(sortedKeys(registerable.filter((e) => e.spec.auth === 'custom'))).toEqual(
+      EXPECTED_CUSTOM_AUTH_CHANNELS
+    )
+    expect(sortedKeys(registerable.filter((e) => e.spec.auth === 'voice-window'))).toEqual(
+      EXPECTED_VOICE_WINDOW_CHANNELS
+    )
+  })
+
+  it('exception lists carry no stale entries', () => {
+    for (const [name, reason] of Object.entries(VALIDATION_EXCEPTIONS)) {
+      expect(reason.length, `VALIDATION_EXCEPTIONS entry ${name} needs a reason`).toBeGreaterThan(0)
+      const spec = byKey.get(name)
+      expect(spec, `VALIDATION_EXCEPTIONS lists unknown channel ${name}`).toBeTruthy()
       expect(
-        reg!.params.length >= 2,
-        `VALIDATION_EXCEPTIONS entry ${name} is stale — the handler takes no payload`
-      ).toBe(true)
+        spec!.validation,
+        `VALIDATION_EXCEPTIONS entry ${name} is stale — the channel no longer declares validation 'handler'`
+      ).toBe('handler')
+      const handler = handlersByName.get(name)
+      expect(handler, `VALIDATION_EXCEPTIONS lists unregistered channel ${name}`).toBeTruthy()
       expect(
-        VALIDATION_MARKERS.test(reg!.block),
+        VALIDATION_MARKERS.test(handler!.body),
         `VALIDATION_EXCEPTIONS entry ${name} is stale — the handler now validates via shared helpers`
       ).toBe(false)
     }
-    for (const name of Object.keys(HANDLERS_WITHOUT_PRELOAD_USE)) {
-      expect(byName.has(name), `HANDLERS_WITHOUT_PRELOAD_USE lists unregistered channel ${name}`).toBe(true)
+    for (const [name, reason] of Object.entries(LEGACY_CHANNELS)) {
+      expect(reason.length, `LEGACY_CHANNELS entry ${name} needs a reason`).toBeGreaterThan(0)
       expect(
-        invoked.has(name) || sentOneWay.has(name),
-        `HANDLERS_WITHOUT_PRELOAD_USE entry ${name} is stale — the preload uses it now`
-      ).toBe(false)
+        legacyRegistrations.some((r) => r.name === name),
+        `LEGACY_CHANNELS entry ${name} is stale — no direct ipcMain registration exists`
+      ).toBe(true)
     }
-    for (const name of Object.keys(PUSHED_WITHOUT_SUBSCRIBER)) {
-      expect(pushed.has(name), `PUSHED_WITHOUT_SUBSCRIBER lists unpushed channel ${name}`).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// (d) events
+// ---------------------------------------------------------------------------
+
+describe('push events', () => {
+  it('register.ts references IPC constants only for push channels (all wiring is manifest-driven)', () => {
+    const eventKeys = new Set(eventEntries.map((e) => e.key as string))
+    const refs = new Set([...registerSrc.matchAll(/IPC\.(\w+)/g)].map((m) => m[1]!))
+    const nonEvent = [...refs].filter((n) => !eventKeys.has(n))
+    expect(
+      nonEvent.sort(),
+      'register.ts references non-event IPC constants directly — new channels belong in the manifest'
+    ).toEqual([])
+  })
+
+  it('every manifest event channel is pushed from register.ts', () => {
+    const pushed = new Set([...registerSrc.matchAll(/IPC\.(\w+)/g)].map((m) => m[1]!))
+    const unpushed = eventEntries
+      .map((e) => e.key as string)
+      .filter((key) => !(key in EVENT_ALIASES))
+      .filter((key) => !pushed.has(key))
+    expect(unpushed, 'manifest event entries nobody pushes from register.ts').toEqual([])
+  })
+
+  it('raw ev:* string literals outside ipc.ts refer to real channels (windows.ts pushDemoState)', () => {
+    const literals = [...windowsSrc.matchAll(/'(ev:[^']+)'/g)].map((m) => m[1]!)
+    // pushDemoState sends demo snapshots with literal channel names — a typo
+    // there would silently push into the void.
+    const unknown = literals.filter((l) => !IPC_VALUES.has(l))
+    expect(unknown, `windows.ts sends to non-existent event channels: ${unknown.join(', ')}`).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// (e) legacy world stays empty / disjoint
+// ---------------------------------------------------------------------------
+
+describe('legacy registrations', () => {
+  it('no channel is registered both via the manifest and via a direct ipcMain call', () => {
+    const manifestKeys = new Set(registerable.map((e) => e.key as string))
+    const doubled = legacyRegistrations.filter((r) => manifestKeys.has(r.name)).map((r) => r.name)
+    expect(doubled, 'channels wired in BOTH worlds (manifest + direct ipcMain)').toEqual([])
+  })
+
+  it('every direct ipcMain registration is a declared legacy exception with the old safety patterns', () => {
+    for (const reg of legacyRegistrations) {
       expect(
-        subscribed.has(name),
-        `PUSHED_WITHOUT_SUBSCRIBER entry ${name} is stale — the preload subscribes now`
-      ).toBe(false)
+        reg.name in LEGACY_CHANNELS,
+        `undeclared legacy registration ipcMain.${reg.kind}(IPC.${reg.name}) — migrate it into the manifest ` +
+          'or document it in LEGACY_CHANNELS with a reason'
+      ).toBe(true)
+      // Legacy handlers must keep the old inline auth/validation discipline.
+      const block = registerSrc.slice(registerSrc.indexOf(`ipcMain.${reg.kind}(IPC.${reg.name}`))
+      const head = block.slice(0, 2000)
+      expect(
+        AUTH_MARKERS.test(head),
+        `legacy handler ${reg.name} shows no authorization marker`
+      ).toBe(true)
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// preload: custom bindings + plausibility
+// ---------------------------------------------------------------------------
+
+describe('preload bridge', () => {
+  const customKeys = entries.filter((e) => e.spec.bridge === 'custom').map((e) => e.key as string)
+
+  it('declares a hand-written binding for every bridge:custom manifest entry', () => {
+    for (const key of customKeys) {
+      expect(
+        new RegExp(`\\n {2}${key}: `).test(preloadSrc),
+        `preload customBindings is missing "${key}"`
+      ).toBe(true)
     }
   })
 
-  it('parses a plausible surface (guards against the parser itself rotting)', () => {
-    expect(handled.size).toBeGreaterThan(80)
-    expect(onRegistered.size).toBeGreaterThanOrEqual(5)
-    expect(pushed.size).toBeGreaterThanOrEqual(8)
-    expect(invoked.size).toBeGreaterThan(80)
-    expect(subscribed.size).toBeGreaterThanOrEqual(8)
+  it('references IPC constants only for its custom bindings (everything else is generic)', () => {
+    const refs = new Set([...preloadSrc.matchAll(/IPC\.(\w+)/g)].map((m) => m[1]!))
+    const allowed = new Set(customKeys)
+    const stray = [...refs].filter((n) => !allowed.has(n))
+    expect(
+      stray.sort(),
+      'preload wires channels outside the manifest-driven builder — extend customBindings/manifest instead'
+    ).toEqual([])
+  })
+
+  it('builds a bridge function for every manifest entry on its exact channel', () => {
+    const calls: { kind: string; channel: string }[] = []
+    const transport: IpcTransport = {
+      invoke: async (channel) => {
+        calls.push({ kind: 'invoke', channel })
+        return undefined
+      },
+      send: (channel) => {
+        calls.push({ kind: 'send', channel })
+      },
+      subscribe: (channel) => {
+        calls.push({ kind: 'subscribe', channel })
+        return () => {}
+      }
+    }
+    const custom = Object.fromEntries(customKeys.map((k) => [k, () => undefined]))
+    const api = buildVertragusApi(transport, custom as unknown as CustomBridgeBindings) as unknown as Record<string, unknown>
+    for (const { key, spec } of entries) {
+      const fn = spec.api
+        .split('.')
+        .reduce<unknown>((cursor, segment) => (cursor as Record<string, unknown>)[segment], api)
+      expect(typeof fn, `built api misses a function at ${spec.api} (${key})`).toBe('function')
+      if (spec.bridge === 'custom') continue
+      calls.length = 0
+      ;(fn as (...args: unknown[]) => unknown)(() => {})
+      expect(calls, `${key} bridged onto the wrong transport/channel`).toEqual([
+        {
+          kind: spec.kind === 'invoke' ? 'invoke' : spec.kind === 'send' ? 'send' : 'subscribe',
+          channel: spec.channel
+        }
+      ])
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// plausibility floors (guards against the parser / manifest rotting)
+// ---------------------------------------------------------------------------
+
+describe('surface plausibility', () => {
+  it('parses a plausible surface', () => {
+    expect(invokeEntries.length).toBeGreaterThan(100)
+    expect(sendEntries.length).toBeGreaterThanOrEqual(8)
+    expect(eventEntries.length).toBeGreaterThanOrEqual(11)
+    expect(localEntries.length).toBeGreaterThanOrEqual(1)
+    expect(handlerEntries.length).toBeGreaterThan(100)
+    expect(Object.keys(ipcManifestSchemas).length).toBeGreaterThanOrEqual(10)
   })
 })

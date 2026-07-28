@@ -26,6 +26,7 @@ Stand: 28. Juli 2026
 - [Mission Control — Gesamtplan](./MISSION_CONTROL_PLAN.md) — Architektur-Blueprint der sicheren Remote-Kommandozentrale (Phasen A–C).
 - [Mission Control — Phase D](./MISSION_CONTROL_PHASE_D.md) — Anbindung weiterer Roadmap-Features an dieselbe Engine- und Sicherheitsgrenze.
 - [Mission Control — Provider- und Sicherheitsabdeckung](./MISSION_CONTROL_PROVIDER_COVERAGE.md) — Permission Broker und Abdeckung je Provider (Phase C).
+- [Headless-Betrieb](./HEADLESS.md) — Host ohne Fenster via `pnpm run headless` (start/pair/status), Terminal-QR-Pairing, Sicherheitsmodell und systemd-/Task-Scheduler-Betrieb.
 
 ## Roadmaps & Pläne
 

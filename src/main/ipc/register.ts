@@ -1,32 +1,22 @@
 /**
- * Registers all ipcMain handlers. Each maps 1:1 onto a method in VertragusApi
- * (src/shared/ipc.ts) which the preload bridge exposes on window.vertragus.
+ * Main-process side of the IPC surface. The declarative channel manifest
+ * (src/shared/ipcManifest.ts) is the single source of truth for channel names,
+ * directions, authorization levels and central zod validation; this module
+ * provides the typed handler implementations (ManifestHandlers) and wires them
+ * via registerManifestChannels — plus the main→renderer push feeds at the
+ * bottom. See docs/IPC_ARCHITECTURE.md.
  */
-import { app, dialog, ipcMain, BrowserWindow } from 'electron'
+import { app, dialog, BrowserWindow } from 'electron'
 import { stat } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { IPC, type AppInfo } from '@shared/ipc'
+import { IPC } from '@shared/ipc'
 import { assertIpcId, assertIpcOptionalId, assertValidConfigKey } from '@shared/ipcValidation'
-import { parseIpcPayload } from '@main/security/ipcPayload'
-import type { AgentInstanceInfo, SpawnAgentRequest, VertragusEvent } from '@shared/agents'
-import {
-  bulkHandoffRequestSchema,
-  githubIssueListRequestSchema,
-  githubRepoBindRequestSchema,
-  handoffRequestSchema,
-  inboxSpeechSettingsPatchSchema,
-  spawnAgentRequestSchema
-} from '@shared/ipcSchemas'
+import type { AgentInstanceInfo, VertragusEvent } from '@shared/agents'
 import type { OrchestratorSnapshot } from '@shared/orchestrator'
-import type { RemoteBudgetCaps } from '@shared/remote'
 import type { ProviderId } from '@shared/providers'
-import {
-  profileRepoLocalPath,
-  type RepoProfileGenerationRequest,
-  type WorkspaceProfile
-} from '@shared/profile'
-import { mcpServersSchema } from '@shared/mcp'
+import { profileRepoLocalPath, type WorkspaceProfile } from '@shared/profile'
+import { registerManifestChannels, type ManifestHandlers } from './registerManifest'
 import { checkAllProviders } from '@main/providers/health'
 import { listModels } from '@main/providers/models'
 import { gitInfo, switchBranch } from '@main/integrations/git'
@@ -110,13 +100,6 @@ import {
 } from '@main/orchestrator/retroStore'
 import { flushRetroExportQueue, retroSyncStatus } from '@main/orchestrator/retroExport'
 import {
-  addArtifactInputSchema,
-  createIdeaInputSchema,
-  updateIdeaInputSchema
-} from '@shared/inbox'
-import { ideaTransferRequestSchema } from '@shared/inboxTransfer'
-import type { TranscribeAudioPayload } from '@shared/inboxSpeech'
-import {
   abortInboxTranscription,
   getInboxSpeechSettings,
   getInboxSpeechStatus,
@@ -136,13 +119,7 @@ import {
   guardVoiceTurnAllowed,
   resolveOrchestratorSend
 } from '@main/voice/voiceIpc'
-import type {
-  OrchestratorSendResult,
-  VoiceAssistantProgressEvent,
-  VoiceAssistantSettingsPatch,
-  VoiceOverlayTurnRequest,
-  VoiceOverlayTurnResult
-} from '@shared/voiceAssistant'
+import type { VoiceAssistantProgressEvent } from '@shared/voiceAssistant'
 import { RunJournal } from '@main/diagnostics/runJournal'
 import { loadTaskReviewDiff } from '@main/integrations/reviewDiff'
 import { openWorktreeInEditor } from '@main/integrations/openInEditor'
@@ -154,7 +131,6 @@ import {
   type PromptIpcWebContentsLike
 } from '@main/inbox/promptEnhancementIpc'
 import { remoteService } from '@main/remote'
-import type { RemoteEnableRequest, RemotePairStartRequest } from '@shared/remote'
 import { createAttentionIpcController } from '@main/attention/attentionIpc'
 
 function senderWindow(e: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent): BrowserWindow | null {
@@ -293,535 +269,392 @@ export function registerIpcHandlers(): void {
   const attentionController = createAttentionIpcController({
     authorization: rendererAuthorization
   })
-  const requireMainWindow = (event: Electron.IpcMainInvokeEvent): void => {
+  const requireMainWindow = (
+    event: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent
+  ): void => {
     if (!isMainWindowSender(event.sender)) throw new Error('Remote-Verwaltung ist nur im Hauptfenster erlaubt.')
   }
   // The voice overlay window shares the renderer preload, so every privileged
-  // agent/spawn/orchestrator channel must explicitly refuse it. Its only path to
-  // mutate the workspace is the gated voiceAssistant:turn tool loop.
+  // agent/spawn/orchestrator channel must explicitly refuse it (manifest auth
+  // level 'not-voice', enforced centrally by registerManifestChannels). Its only
+  // path to mutate the workspace is the gated voiceAssistant:turn tool loop.
   const assertNotVoiceWindow = (
     event: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent
   ): void => {
     guardNotVoiceWindow(isVoiceWindowSender(event.sender))
   }
-  // ---- app / providers / config ----
-  ipcMain.handle(IPC.appInfo, (): AppInfo => {
-    return {
+
+  // -------------------------------------------------------------------------
+  // Handler implementations, one per manifest invoke/send channel. The mapped
+  // ManifestHandlers type pins argument + result types to VertragusApi.
+  // Authorization ('not-voice' / 'main-window' / 'voice-window') and zod
+  // parsing (validation 'schema') run centrally BEFORE these bodies; channels
+  // with auth 'controller' / 'custom' authorize inside their body.
+  // -------------------------------------------------------------------------
+  const manifestHandlers: ManifestHandlers = {
+    // ---- app / updates / diagnostics ----
+    appInfo: () => ({
       name: app.getName(),
       version: app.getVersion(),
       electron: process.versions.electron,
       chrome: process.versions.chrome,
       node: process.versions.node,
       platform: process.platform
-    }
-  })
-  ipcMain.handle(IPC.appUpdateState, () => getUpdateState())
-  ipcMain.handle(IPC.appUpdateCheck, () => checkForMainUpdate())
-  ipcMain.handle(IPC.appUpdateDownload, () => downloadMainUpdate())
-  ipcMain.handle(IPC.appUpdateInstall, () => installMainUpdate())
-  ipcMain.handle(IPC.appUpdateSetChannel, (event, channel: unknown) => {
-    assertNotVoiceWindow(event)
-    return setUpdateChannel(channel === 'stable' ? 'stable' : 'main')
-  })
-  ipcMain.handle(IPC.providersHealth, () => checkAllProviders())
-  ipcMain.handle(IPC.providersCapacity, () => providerCapacity.statsAll())
-  ipcMain.handle(IPC.diagnosticsExportLatest, async (e, profileId: string) => {
-    await runJournal.flush()
-    const latest = runJournal.list(String(profileId ?? ''))[0]
-    if (!latest) return null
-    const result = await saveRunDialog(
-      senderWindow(e),
-      `vertragus-run-${latest.runId}-${new Date(latest.updatedAt).toISOString().slice(0, 10)}.jsonl`
-    )
-    if (result.canceled || !result.filePath) return null
-    runJournal.export(latest.runId, result.filePath)
-    return result.filePath
-  })
-  ipcMain.handle(IPC.providerLogin, async (_e, id: unknown) => {
-    const info = await agentManager.loginProvider(
-      assertIpcId(id, 'Provider-Angabe', 64) as ProviderId
-    )
-    createPaneWindow(info.id)
-    return info
-  })
-  ipcMain.handle(IPC.providersModels, () => listModels())
-  ipcMain.handle(IPC.configGet, (_e, key: unknown) => getPublicConfig(assertValidConfigKey(key)))
-  ipcMain.handle(IPC.configSet, (_e, key: unknown, value: unknown) => {
-    const configKey = assertValidConfigKey(key)
-    setPublicConfig(configKey, value)
-    if (configKey === 'providerLimits') providerCapacity.refreshLimits()
-    // Mirror the persisted value into every window so secondary windows
-    // (agent panes, voice overlay) don't render stale shared UI settings.
-    // Broadcasting the stored value (not the raw input) keeps receivers
-    // canonical; receivers only mirror it, so there is no write-back loop.
-    broadcast(IPC.evConfigChanged, { key: configKey, value: getPublicConfig(configKey) })
-  })
+    }),
+    appUpdateState: () => getUpdateState(),
+    appUpdateCheck: () => checkForMainUpdate(),
+    appUpdateDownload: () => downloadMainUpdate(),
+    appUpdateInstall: () => installMainUpdate(),
+    appUpdateSetChannel: (_e, channel) =>
+      setUpdateChannel(channel === 'stable' ? 'stable' : 'main'),
+    diagnosticsExportLatest: async (e, profileId) => {
+      await runJournal.flush()
+      const latest = runJournal.list(String(profileId ?? ''))[0]
+      if (!latest) return null
+      const result = await saveRunDialog(
+        senderWindow(e),
+        `vertragus-run-${latest.runId}-${new Date(latest.updatedAt).toISOString().slice(0, 10)}.jsonl`
+      )
+      if (result.canceled || !result.filePath) return null
+      runJournal.export(latest.runId, result.filePath)
+      return result.filePath
+    },
 
-  // ---- profiles ----
-  ipcMain.handle(IPC.profilesList, () => listProfiles())
-  ipcMain.handle(IPC.profileSave, async (e, input: unknown) => {
-    const profile = profileSaveController.authorizeAndParse(e, input)
-    let workingDir = profile.workingDir.trim()
-    let githubRepo = profile.githubRepo
+    // ---- providers / config ----
+    providersHealth: () => checkAllProviders(),
+    providersCapacity: () => providerCapacity.statsAll(),
+    providersModels: () => listModels(),
+    providerLogin: async (_e, id) => {
+      const info = await agentManager.loginProvider(
+        assertIpcId(id, 'Provider-Angabe', 64) as ProviderId
+      )
+      createPaneWindow(info.id)
+      return info
+    },
+    configGet: (_e, key) => getPublicConfig(assertValidConfigKey(key)),
+    configSet: (_e, key, value) => {
+      const configKey = assertValidConfigKey(key)
+      setPublicConfig(configKey, value)
+      if (configKey === 'providerLimits') providerCapacity.refreshLimits()
+      // Mirror the persisted value into every window so secondary windows
+      // (agent panes, voice overlay) don't render stale shared UI settings.
+      // Broadcasting the stored value (not the raw input) keeps receivers
+      // canonical; receivers only mirror it, so there is no write-back loop.
+      broadcast(IPC.evConfigChanged, { key: configKey, value: getPublicConfig(configKey) })
+    },
 
-    if (githubRepo) {
-      const localPath = resolveGithubLocalPathOptional(githubRepo.localPath, 'Repository')
-      if (localPath) {
-        workingDir = await normalizeDirectory(localPath, 'Repository')
-        if (githubRepo.owner && githubRepo.repo) {
-          const check = await checkGithubRepoLocal(githubRepo.owner, githubRepo.repo, workingDir)
-          githubRepo = { ...githubRepo, localPath: workingDir, cloneStatus: check.cloneStatus }
-          if (check.cloneStatus === 'diverged') {
-            throw new Error(check.message)
+    // ---- profiles ----
+    profilesList: () => listProfiles(),
+    profileSave: async (e, input) => {
+      const profile = profileSaveController.authorizeAndParse(e, input)
+      let workingDir = profile.workingDir.trim()
+      let githubRepo = profile.githubRepo
+
+      if (githubRepo) {
+        const localPath = resolveGithubLocalPathOptional(githubRepo.localPath, 'Repository')
+        if (localPath) {
+          workingDir = await normalizeDirectory(localPath, 'Repository')
+          if (githubRepo.owner && githubRepo.repo) {
+            const check = await checkGithubRepoLocal(githubRepo.owner, githubRepo.repo, workingDir)
+            githubRepo = { ...githubRepo, localPath: workingDir, cloneStatus: check.cloneStatus }
+            if (check.cloneStatus === 'diverged') {
+              throw new Error(check.message)
+            }
+          } else {
+            githubRepo = { ...githubRepo, localPath: workingDir }
           }
-        } else {
+        } else if (workingDir) {
+          workingDir = await normalizeDirectory(workingDir, 'Workspace')
           githubRepo = { ...githubRepo, localPath: workingDir }
+          if (githubRepo.owner && githubRepo.repo) {
+            const check = await checkGithubRepoLocal(githubRepo.owner, githubRepo.repo, workingDir)
+            githubRepo = { ...githubRepo, cloneStatus: check.cloneStatus }
+            if (check.cloneStatus === 'diverged') {
+              throw new Error(check.message)
+            }
+          }
         }
       } else if (workingDir) {
         workingDir = await normalizeDirectory(workingDir, 'Workspace')
-        githubRepo = { ...githubRepo, localPath: workingDir }
-        if (githubRepo.owner && githubRepo.repo) {
-          const check = await checkGithubRepoLocal(githubRepo.owner, githubRepo.repo, workingDir)
-          githubRepo = { ...githubRepo, cloneStatus: check.cloneStatus }
-          if (check.cloneStatus === 'diverged') {
-            throw new Error(check.message)
-          }
+      }
+
+      const agents = await Promise.all(
+        profile.agents.map(async (slot, index) => ({
+          ...slot,
+          workingDir: slot.workingDir?.trim()
+            ? await normalizeDirectory(slot.workingDir, `Pfad für Slot ${index + 1}`)
+            : undefined
+        }))
+      )
+      const effectiveWorkingDir = profileRepoLocalPath({ workingDir, githubRepo }) || workingDir
+      return saveProfile({ ...profile, workingDir: effectiveWorkingDir, githubRepo, agents })
+    },
+    profileGenerateForRepo: (_e, req) => generateProfileForRepo(req),
+    profileDelete: (e, id) => profileDeletionController.delete(e, id),
+    profileGetActive: () => getActiveProfileId(),
+    profileSetActive: (_e, id) => {
+      if (!getProfile(id)) {
+        throw new Error('Workspace-Profil nicht gefunden.')
+      }
+      setActiveProfileId(id)
+    },
+    workspaceSessionsList: (e, profileId) => workspaceSessionController.list(e, profileId),
+    workspaceSessionSetActive: (e, profileId, sessionId) =>
+      workspaceSessionController.setActive(e, profileId, sessionId),
+    workspaceSessionRemove: (e, profileId, sessionId) =>
+      workspaceSessionController.remove(e, profileId, sessionId),
+
+    // ---- restart recovery (startup banner) ----
+    sessionsRestoreStatus: () => sessionRestore.getRestoreStatus(),
+    sessionsRestartAgents: (_e, profileId, sessionId) => {
+      if (typeof profileId !== 'string' || typeof sessionId !== 'string') {
+        throw new Error('Ungültige Session-Angabe.')
+      }
+      return sessionRestore.restartSessionAgents(profileId, sessionId)
+    },
+    sessionsDiscardOrphanWorktree: (_e, path) => {
+      if (typeof path !== 'string') throw new Error('Ungültiger Worktree-Pfad.')
+      return sessionRestore.discardOrphanWorktree(path)
+    },
+    sessionsDiscardOrphanWorktrees: (_e, paths) => {
+      if (!Array.isArray(paths) || paths.some((path) => typeof path !== 'string')) {
+        throw new Error('Ungültige Worktree-Pfade.')
+      }
+      return sessionRestore.discardOrphanWorktrees(paths)
+    },
+
+    // ---- external MCP servers ----
+    mcpList: () => listMcpServers(),
+    // servers arrive zod-parsed (manifest validation 'schema': mcpServersSchema).
+    mcpSave: (_e, servers) => saveMcpServers(servers),
+
+    // ---- git / github ----
+    gitSwitchBranch: (_e, dir, branch) =>
+      switchBranch(
+        assertIpcId(dir, 'Verzeichnisangabe', 4096),
+        assertIpcId(branch, 'Branch-Angabe', 512)
+      ),
+    gitInfo: (_e, dir) => gitInfo(assertIpcId(dir, 'Verzeichnisangabe', 4096)),
+    githubProjects: (_e, dir, owner) =>
+      listGithubProjects(
+        assertIpcId(dir, 'Verzeichnisangabe', 4096),
+        assertIpcOptionalId(owner, 'Owner-Angabe', 200)
+      ),
+    githubAuthStatus: () => githubAuthStatus(),
+    githubAuthLogin: async () => {
+      const status = await githubAuthLogin({
+        useTerminalLogin: async () => {
+          const info = await agentManager.loginProvider('github')
+          createPaneWindow(info.id)
         }
+      })
+      void checkAllProviders()
+        .then((health) => broadcast(IPC.evProvidersHealth, health))
+        .catch((error) => console.warn('[GitHub] refresh after login failed', error))
+      return status
+    },
+    githubAuthLogout: async () => {
+      const status = await githubAuthLogout()
+      void checkAllProviders()
+        .then((health) => broadcast(IPC.evProvidersHealth, health))
+        .catch((error) => console.warn('[GitHub] refresh after logout failed', error))
+      return status
+    },
+    githubRepoSearch: (_e, query, limit) => {
+      const boundedLimit = typeof limit === 'number' && Number.isFinite(limit)
+        ? Math.max(1, Math.min(50, Math.trunc(limit)))
+        : undefined
+      return searchGithubRepos(assertIpcId(query, 'Suchanfrage', 512), boundedLimit)
+    },
+    githubRepoResolve: (_e, owner, repo) =>
+      resolveGithubRepo(
+        assertIpcId(owner, 'Owner-Angabe', 200),
+        assertIpcId(repo, 'Repository-Angabe', 200)
+      ),
+    githubRepoBind: (_e, req) => bindGithubRepo(req),
+    githubRepoCheckLocal: (_e, owner, repo, localPath) =>
+      checkGithubRepoLocal(
+        assertIpcId(owner, 'Owner-Angabe', 200),
+        assertIpcId(repo, 'Repository-Angabe', 200),
+        assertIpcId(localPath, 'Pfadangabe', 4096)
+      ),
+    githubListIssues: (_e, req) => listOpenIssues(req),
+
+    // ---- native pickers / demo ----
+    demoPlay: (e) => {
+      const win = senderWindow(e)
+      if (win) pushDemoState(win)
+    },
+    dialogPickFolder: async (e) => {
+      const win = senderWindow(e)
+      const opts: Electron.OpenDialogOptions = {
+        title: 'Arbeitsverzeichnis / Repo wählen',
+        properties: ['openDirectory', 'createDirectory']
       }
-    } else if (workingDir) {
-      workingDir = await normalizeDirectory(workingDir, 'Workspace')
-    }
-
-    const agents = await Promise.all(
-      profile.agents.map(async (slot, index) => ({
-        ...slot,
-        workingDir: slot.workingDir?.trim()
-          ? await normalizeDirectory(slot.workingDir, `Pfad für Slot ${index + 1}`)
-          : undefined
-      }))
-    )
-    const effectiveWorkingDir = profileRepoLocalPath({ workingDir, githubRepo }) || workingDir
-    return saveProfile({ ...profile, workingDir: effectiveWorkingDir, githubRepo, agents })
-  })
-  ipcMain.handle(IPC.profileGenerateForRepo, (e, req: RepoProfileGenerationRequest) => {
-    assertNotVoiceWindow(e)
-    return generateProfileForRepo(req)
-  })
-  ipcMain.handle(IPC.profileDelete, (e, id: unknown) =>
-    profileDeletionController.delete(e, id)
-  )
-  ipcMain.handle(IPC.profileGetActive, () => getActiveProfileId())
-  ipcMain.handle(IPC.profileSetActive, (_e, id: string) => {
-    if (!getProfile(id)) {
-      throw new Error('Workspace-Profil nicht gefunden.')
-    }
-    setActiveProfileId(id)
-  })
-  ipcMain.handle(IPC.workspaceSessionsList, (e, profileId?: unknown) =>
-    workspaceSessionController.list(e, profileId)
-  )
-  ipcMain.handle(IPC.workspaceSessionSetActive, (e, profileId: unknown, sessionId: unknown) =>
-    workspaceSessionController.setActive(e, profileId, sessionId)
-  )
-  ipcMain.handle(IPC.workspaceSessionRemove, (e, profileId: unknown, sessionId: unknown) =>
-    workspaceSessionController.remove(e, profileId, sessionId)
-  )
-
-  // ---- restart recovery (startup banner) ----
-  ipcMain.handle(IPC.sessionsRestoreStatus, (e) => {
-    assertNotVoiceWindow(e)
-    return sessionRestore.getRestoreStatus()
-  })
-  ipcMain.handle(IPC.sessionsRestartAgents, (e, profileId: unknown, sessionId: unknown) => {
-    assertNotVoiceWindow(e)
-    if (typeof profileId !== 'string' || typeof sessionId !== 'string') {
-      throw new Error('Ungültige Session-Angabe.')
-    }
-    return sessionRestore.restartSessionAgents(profileId, sessionId)
-  })
-  ipcMain.handle(IPC.sessionsDiscardOrphanWorktree, (e, path: unknown) => {
-    assertNotVoiceWindow(e)
-    if (typeof path !== 'string') throw new Error('Ungültiger Worktree-Pfad.')
-    return sessionRestore.discardOrphanWorktree(path)
-  })
-  ipcMain.handle(IPC.sessionsDiscardOrphanWorktrees, (e, paths: unknown) => {
-    assertNotVoiceWindow(e)
-    if (!Array.isArray(paths) || paths.some((path) => typeof path !== 'string')) {
-      throw new Error('Ungültige Worktree-Pfade.')
-    }
-    return sessionRestore.discardOrphanWorktrees(paths)
-  })
-
-  // ---- external MCP servers ----
-  ipcMain.handle(IPC.mcpList, () => listMcpServers())
-  // mcpSave persists an arbitrary stdio command that is launched on the next agent
-  // spawn — a code-execution primitive that must never be reachable from the voice overlay.
-  ipcMain.handle(IPC.mcpSave, (e, servers: unknown) => {
-    assertNotVoiceWindow(e)
-    return saveMcpServers(parseIpcPayload(mcpServersSchema, servers, 'MCP-Server-Liste'))
-  })
-
-  // ---- git ----
-  ipcMain.handle(IPC.gitSwitchBranch, (e, dir: unknown, branch: unknown) => {
-    assertNotVoiceWindow(e)
-    return switchBranch(
-      assertIpcId(dir, 'Verzeichnisangabe', 4096),
-      assertIpcId(branch, 'Branch-Angabe', 512)
-    )
-  })
-  ipcMain.handle(IPC.gitInfo, (_e, dir: unknown) =>
-    gitInfo(assertIpcId(dir, 'Verzeichnisangabe', 4096))
-  )
-  ipcMain.handle(IPC.githubProjects, (_e, dir: unknown, owner?: unknown) =>
-    listGithubProjects(
-      assertIpcId(dir, 'Verzeichnisangabe', 4096),
-      assertIpcOptionalId(owner, 'Owner-Angabe', 200)
-    )
-  )
-  ipcMain.handle(IPC.githubAuthStatus, () => githubAuthStatus())
-  ipcMain.handle(IPC.githubAuthLogin, async (e) => {
-    assertNotVoiceWindow(e)
-    const status = await githubAuthLogin({
-      useTerminalLogin: async () => {
-        const info = await agentManager.loginProvider('github')
-        createPaneWindow(info.id)
+      const result = win
+        ? await dialog.showOpenDialog(win, opts)
+        : await dialog.showOpenDialog(opts)
+      return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]
+    },
+    dialogPickFile: async (e) => {
+      const win = senderWindow(e)
+      const opts: Electron.OpenDialogOptions = {
+        title: 'Datei für Artefakt wählen',
+        properties: ['openFile']
       }
-    })
-    void checkAllProviders()
-      .then((health) => broadcast(IPC.evProvidersHealth, health))
-      .catch((error) => console.warn('[GitHub] refresh after login failed', error))
-    return status
-  })
-  ipcMain.handle(IPC.githubAuthLogout, async (e) => {
-    assertNotVoiceWindow(e)
-    const status = await githubAuthLogout()
-    void checkAllProviders()
-      .then((health) => broadcast(IPC.evProvidersHealth, health))
-      .catch((error) => console.warn('[GitHub] refresh after logout failed', error))
-    return status
-  })
-  ipcMain.handle(IPC.githubRepoSearch, (e, query: unknown, limit?: unknown) => {
-    assertNotVoiceWindow(e)
-    const boundedLimit = typeof limit === 'number' && Number.isFinite(limit)
-      ? Math.max(1, Math.min(50, Math.trunc(limit)))
-      : undefined
-    return searchGithubRepos(assertIpcId(query, 'Suchanfrage', 512), boundedLimit)
-  })
-  ipcMain.handle(IPC.githubRepoResolve, (_e, owner: unknown, repo: unknown) =>
-    resolveGithubRepo(
-      assertIpcId(owner, 'Owner-Angabe', 200),
-      assertIpcId(repo, 'Repository-Angabe', 200)
-    )
-  )
-  ipcMain.handle(IPC.githubRepoBind, (e, req: unknown) => {
-    assertNotVoiceWindow(e)
-    return bindGithubRepo(parseIpcPayload(githubRepoBindRequestSchema, req, 'Repository-Bindung'))
-  })
-  ipcMain.handle(IPC.githubRepoCheckLocal, (_e, owner: unknown, repo: unknown, localPath: unknown) =>
-    checkGithubRepoLocal(
-      assertIpcId(owner, 'Owner-Angabe', 200),
-      assertIpcId(repo, 'Repository-Angabe', 200),
-      assertIpcId(localPath, 'Pfadangabe', 4096)
-    )
-  )
-  ipcMain.handle(IPC.githubListIssues, (e, req: unknown) => {
-    assertNotVoiceWindow(e)
-    return listOpenIssues(parseIpcPayload(githubIssueListRequestSchema, req, 'Issue-Anfrage'))
-  })
+      const result = win
+        ? await dialog.showOpenDialog(win, opts)
+        : await dialog.showOpenDialog(opts)
+      return result.canceled || result.filePaths.length === 0
+        ? null
+        : issuePickerGrant(result.filePaths[0])
+    },
 
-  // ---- native folder picker ----
-  ipcMain.handle(IPC.demoPlay, (e) => {
-    const win = senderWindow(e)
-    if (win) pushDemoState(win)
-  })
+    // ---- ideas inbox ----
+    ideasList: () => listIdeas(),
+    ideasGet: (_e, id) => getIdea(assertIpcId(id, 'Ideen-ID')),
+    ideasCreate: (_e, input) => createIdea(input),
+    ideasUpdate: (_e, input) => updateIdea(input),
+    ideasDelete: (_e, id) => deleteIdea(assertIpcId(id, 'Ideen-ID')),
+    ideasAddArtifact: (_e, ideaId, input) => addArtifact(assertIpcId(ideaId, 'Ideen-ID'), input),
+    ideasRemoveArtifact: (_e, ideaId, artifactId) =>
+      removeArtifact(assertIpcId(ideaId, 'Ideen-ID'), assertIpcId(artifactId, 'Artefakt-ID')),
+    ideasRemoveAttribute: (event, ideaId, attribute) =>
+      inboxArchiveController.removeAttribute(event as ArchiveIpcEventLike, ideaId, attribute),
+    ideasRestore: (event, ideaId) =>
+      inboxArchiveController.restoreIdea(event as ArchiveIpcEventLike, ideaId),
+    ideasTransferToProfile: (_e, req) => transferIdeaToProfile(req),
+    ideasTransferRetry: (_e, ideaId, yoloMaster) =>
+      retryIdeaTransfer(assertIpcId(ideaId, 'Ideen-ID'), yoloMaster === true),
+    ideasEnhancePrompt: (event, request) => promptController.enhance(event, request),
+    ideasAbortPromptEnhancement: (event, request) => promptController.abort(event, request),
+    ideasTransferReset: (_e, ideaId) => resetIdeaTransfer(assertIpcId(ideaId, 'Ideen-ID')),
 
-  ipcMain.handle(IPC.dialogPickFolder, async (e) => {
-    const win = senderWindow(e)
-    const opts: Electron.OpenDialogOptions = {
-      title: 'Arbeitsverzeichnis / Repo wählen',
-      properties: ['openDirectory', 'createDirectory']
-    }
-    const result = win
-      ? await dialog.showOpenDialog(win, opts)
-      : await dialog.showOpenDialog(opts)
-    return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]
-  })
-
-  ipcMain.handle(IPC.dialogPickFile, async (e) => {
-    const win = senderWindow(e)
-    const opts: Electron.OpenDialogOptions = {
-      title: 'Datei für Artefakt wählen',
-      properties: ['openFile']
-    }
-    const result = win
-      ? await dialog.showOpenDialog(win, opts)
-      : await dialog.showOpenDialog(opts)
-    return result.canceled || result.filePaths.length === 0
-      ? null
-      : issuePickerGrant(result.filePaths[0])
-  })
-
-  // ---- ideas inbox ----
-  ipcMain.handle(IPC.ideasList, () => listIdeas())
-  ipcMain.handle(IPC.ideasGet, (_e, id: unknown) => getIdea(assertIpcId(id, 'Ideen-ID')))
-  ipcMain.handle(IPC.ideasCreate, (_e, input?: unknown) =>
-    createIdea(
-      input === undefined
-        ? undefined
-        : parseIpcPayload(createIdeaInputSchema, input, 'Ideen-Eingabe')
-    )
-  )
-  ipcMain.handle(IPC.ideasUpdate, (_e, input: unknown) =>
-    updateIdea(parseIpcPayload(updateIdeaInputSchema, input, 'Ideen-Aktualisierung'))
-  )
-  ipcMain.handle(IPC.ideasDelete, (_e, id: unknown) => deleteIdea(assertIpcId(id, 'Ideen-ID')))
-  ipcMain.handle(IPC.ideasAddArtifact, async (_e, ideaId: unknown, input: unknown) =>
-    addArtifact(
-      assertIpcId(ideaId, 'Ideen-ID'),
-      parseIpcPayload(addArtifactInputSchema, input, 'Artefakt-Eingabe')
-    )
-  )
-  ipcMain.handle(IPC.ideasRemoveArtifact, (_e, ideaId: unknown, artifactId: unknown) =>
-    removeArtifact(assertIpcId(ideaId, 'Ideen-ID'), assertIpcId(artifactId, 'Artefakt-ID'))
-  )
-  ipcMain.handle(IPC.ideasRemoveAttribute, (event, ideaId: unknown, attribute: unknown) =>
-    inboxArchiveController.removeAttribute(event as ArchiveIpcEventLike, ideaId, attribute)
-  )
-  ipcMain.handle(IPC.ideasRestore, (event, ideaId: unknown) =>
-    inboxArchiveController.restoreIdea(event as ArchiveIpcEventLike, ideaId)
-  )
-  ipcMain.handle(IPC.ideasTransferToProfile, (_e, req: unknown) =>
-    transferIdeaToProfile(parseIpcPayload(ideaTransferRequestSchema, req, 'Transfer-Anfrage'))
-  )
-  ipcMain.handle(IPC.ideasTransferRetry, (_e, ideaId: unknown, yoloMaster?: unknown) =>
-    retryIdeaTransfer(assertIpcId(ideaId, 'Ideen-ID'), yoloMaster === true)
-  )
-  ipcMain.handle(IPC.ideasEnhancePrompt, (event, request: unknown) =>
-    promptController.enhance(event, request)
-  )
-  ipcMain.handle(IPC.ideasAbortPromptEnhancement, (event, request: unknown) =>
-    promptController.abort(event, request)
-  )
-  ipcMain.handle(IPC.ideasTransferReset, (_e, ideaId: unknown) =>
-    resetIdeaTransfer(assertIpcId(ideaId, 'Ideen-ID'))
-  )
-
-  // ---- inbox speech-to-text ----
-  ipcMain.handle(IPC.inboxSpeechStatus, () => getInboxSpeechStatus())
-  ipcMain.handle(IPC.inboxSpeechGetSettings, () => getInboxSpeechSettings())
-  ipcMain.handle(IPC.inboxSpeechSetSettings, (_e, patch: unknown) =>
-    setInboxSpeechSettings(
-      parseIpcPayload(inboxSpeechSettingsPatchSchema, patch, 'Speech-Einstellungen')
-    )
-  )
-  ipcMain.handle(IPC.inboxSpeechTranscribe, (_e, payload: TranscribeAudioPayload) =>
+    // ---- inbox speech-to-text ----
+    inboxSpeechStatus: () => getInboxSpeechStatus(),
+    inboxSpeechGetSettings: () => getInboxSpeechSettings(),
+    inboxSpeechSetSettings: (_e, patch) => setInboxSpeechSettings(patch),
     // Payload shape (bounded base64 audio) is enforced inside transcribeInboxAudio.
-    transcribeInboxAudio(payload)
-  )
-  ipcMain.handle(IPC.inboxSpeechAbort, () => {
-    abortInboxTranscription()
-  })
+    inboxSpeechTranscribe: (_e, payload) => transcribeInboxAudio(payload),
+    inboxSpeechAbort: () => {
+      abortInboxTranscription()
+    },
 
-  // ---- Mission Control (desktop administration only) ----
-  ipcMain.handle(IPC.remoteStatus, (event) => {
-    requireMainWindow(event)
-    return remoteService.status()
-  })
-  ipcMain.handle(IPC.remoteEnable, (event, request: RemoteEnableRequest) => {
-    requireMainWindow(event)
-    return remoteService.enable(request)
-  })
-  ipcMain.handle(IPC.remoteDisable, (event) => {
-    requireMainWindow(event)
-    return remoteService.disable()
-  })
-  ipcMain.handle(IPC.remoteListDevices, (event) => {
-    requireMainWindow(event)
-    return remoteService.listDevices()
-  })
-  ipcMain.handle(IPC.remoteRevokeDevice, (event, deviceId: string) => {
-    requireMainWindow(event)
-    return remoteService.revokeDevice(String(deviceId))
-  })
-  ipcMain.handle(IPC.remotePairStart, (event, request?: RemotePairStartRequest) => {
-    requireMainWindow(event)
-    return remoteService.startPairing(request)
-  })
-  ipcMain.handle(IPC.remoteSetApnsConfig, (event, config: unknown) => {
-    requireMainWindow(event)
-    return remoteService.setApnsConfig(config)
-  })
-  ipcMain.handle(IPC.remoteGetApnsConfigStatus, (event) => {
-    requireMainWindow(event)
-    return remoteService.getApnsConfigStatus()
-  })
-  ipcMain.handle(IPC.remoteClearApnsConfig, (event) => {
-    requireMainWindow(event)
-    return remoteService.clearApnsConfig()
-  })
+    // ---- Mission Control (desktop administration only; auth 'main-window') ----
+    remoteStatus: () => remoteService.status(),
+    remoteEnable: (_e, request) => remoteService.enable(request),
+    remoteDisable: () => remoteService.disable(),
+    remoteListDevices: () => remoteService.listDevices(),
+    remoteRevokeDevice: (_e, deviceId) => remoteService.revokeDevice(String(deviceId)),
+    remotePairStart: (_e, request) => remoteService.startPairing(request),
+    remoteSetApnsConfig: (_e, config) => remoteService.setApnsConfig(config),
+    remoteGetApnsConfigStatus: () => remoteService.getApnsConfigStatus(),
+    remoteClearApnsConfig: () => remoteService.clearApnsConfig(),
 
-  // ---- agents ----
-  ipcMain.handle(IPC.agentsList, () => agentManager.list())
-  ipcMain.handle(IPC.agentSpawn, (e, rawRequest: unknown) => {
-    assertNotVoiceWindow(e)
-    const req: SpawnAgentRequest = parseIpcPayload(
-      spawnAgentRequestSchema,
-      rawRequest,
-      'Agent-Startanfrage'
-    )
-    if (!req.profileId) return agentManager.spawn(req)
-    const profile = getProfile(req.profileId)
-    if (!profile) throw new Error('Workspace-Profil nicht gefunden.')
-    const session = workspaceSessions.ensure(profile)
-    return agentManager.spawn({
-      ...req,
-      workspaceSessionId: session.id,
-      engineId: session.engine.engineId
-    })
-  })
-  ipcMain.handle(IPC.agentsSpawnProfile, async (e, profileId: unknown, yoloMaster: unknown) => {
-    assertNotVoiceWindow(e)
-    const profile = getProfile(assertIpcId(profileId, 'Profil-ID'))
-    if (!profile) return []
-    return spawnProfileTeam(profile, yoloMaster === true, {
-      workingDirOverride: getActiveRepoOverridePath()
-    })
-  })
-  ipcMain.on(IPC.agentWrite, (e, id: string, data: string) => {
-    if (isVoiceWindowSender(e.sender)) return
-    agentManager.write(id, data)
-  })
-  ipcMain.on(IPC.agentMarkInteractiveUsed, (e, id: string) => {
-    if (isVoiceWindowSender(e.sender)) return
-    agentManager.markInteractiveUsed(id)
-  })
-  ipcMain.on(IPC.agentResize, (e, id: string, cols: number, rows: number) => {
-    if (isVoiceWindowSender(e.sender)) return
-    agentManager.resize(id, cols, rows)
-  })
-  ipcMain.handle(IPC.agentKill, (e, id: unknown) => {
-    assertNotVoiceWindow(e)
-    return agentManager.kill(assertIpcId(id, 'Agent-ID'))
-  })
-  ipcMain.handle(IPC.agentsKillAll, (e) => {
-    assertNotVoiceWindow(e)
-    return agentManager.killAll()
-  })
-  ipcMain.handle(IPC.agentsClean, async (e, rawProfileId: unknown, rawSessionId?: unknown) => {
-    assertNotVoiceWindow(e)
-    const profileId = assertIpcId(rawProfileId, 'Profil-ID')
-    const workspaceSessionId = assertIpcOptionalId(rawSessionId, 'Workspace-Session-ID')
-    await agentManager.removeAll(profileId, workspaceSessionId)
-    if (workspaceSessionId) workspaceSessions.removeSession(workspaceSessionId)
-    else workspaceSessions.remove(profileId)
-  })
-  ipcMain.handle(IPC.agentBuffer, (_e, id: unknown) =>
-    agentManager.buffer(assertIpcId(id, 'Agent-ID'))
-  )
-  ipcMain.handle(IPC.agentBufferTail, (_e, id: unknown, maxChars: number) =>
-    agentManager.bufferTail(assertIpcId(id, 'Agent-ID'), maxChars)
-  )
-  ipcMain.handle(IPC.agentPopout, (e, id: unknown) => {
-    assertNotVoiceWindow(e)
-    createPaneWindow(assertIpcId(id, 'Agent-ID'))
-  })
-  ipcMain.handle(IPC.agentHandoff, (e, req: unknown) => {
-    assertNotVoiceWindow(e)
-    return agentManager.handoff(parseIpcPayload(handoffRequestSchema, req, 'Übergabe-Anfrage'))
-  })
-  ipcMain.handle(IPC.agentsBulkHandoff, (e, req: unknown) => {
-    assertNotVoiceWindow(e)
-    return agentManager.bulkHandoff(
-      parseIpcPayload(bulkHandoffRequestSchema, req, 'Massenübergabe-Anfrage')
-    )
-  })
+    // ---- agents ----
+    agentsList: () => agentManager.list(),
+    // req arrives zod-parsed (spawnAgentRequestSchema).
+    agentSpawn: (_e, req) => {
+      if (!req.profileId) return agentManager.spawn(req)
+      const profile = getProfile(req.profileId)
+      if (!profile) throw new Error('Workspace-Profil nicht gefunden.')
+      const session = workspaceSessions.ensure(profile)
+      return agentManager.spawn({
+        ...req,
+        workspaceSessionId: session.id,
+        engineId: session.engine.engineId
+      })
+    },
+    agentsSpawnProfile: async (_e, profileId, yoloMaster) => {
+      const profile = getProfile(assertIpcId(profileId, 'Profil-ID'))
+      if (!profile) return []
+      return spawnProfileTeam(profile, yoloMaster === true, {
+        workingDirOverride: getActiveRepoOverridePath()
+      })
+    },
+    agentWrite: (_e, id, data) => {
+      agentManager.write(id, data)
+    },
+    agentMarkInteractiveUsed: (_e, id) => {
+      agentManager.markInteractiveUsed(id)
+    },
+    agentResize: (_e, id, cols, rows) => {
+      agentManager.resize(id, cols, rows)
+    },
+    agentKill: (_e, id) => agentManager.kill(assertIpcId(id, 'Agent-ID')),
+    agentsKillAll: () => agentManager.killAll(),
+    agentsClean: async (_e, rawProfileId, rawSessionId) => {
+      const profileId = assertIpcId(rawProfileId, 'Profil-ID')
+      const workspaceSessionId = assertIpcOptionalId(rawSessionId, 'Workspace-Session-ID')
+      await agentManager.removeAll(profileId, workspaceSessionId)
+      if (workspaceSessionId) workspaceSessions.removeSession(workspaceSessionId)
+      else workspaceSessions.remove(profileId)
+    },
+    agentBuffer: (_e, id) => agentManager.buffer(assertIpcId(id, 'Agent-ID')),
+    agentBufferTail: (_e, id, maxChars) =>
+      agentManager.bufferTail(assertIpcId(id, 'Agent-ID'), maxChars),
+    agentPopout: (_e, id) => {
+      createPaneWindow(assertIpcId(id, 'Agent-ID'))
+    },
+    agentHandoff: (_e, req) => agentManager.handoff(req),
+    agentsBulkHandoff: (_e, req) => agentManager.bulkHandoff(req),
 
-  // ---- orchestrator ----
-  ipcMain.handle(IPC.orchestratorSnapshot, (_e, profileId: string, workspaceSessionId?: string) => {
-    const profile = getProfile(profileId)
-    return profile
-      ? workspaceSessions.snapshot(profile, workspaceSessionId)
-      : { profileId, workspaceSessionId, goal: null, tasks: [] }
-  })
-  ipcMain.handle(IPC.orchestratorReset, (e, profileId: string, workspaceSessionId?: string) => {
-    assertNotVoiceWindow(e)
-    workspaceSessions.reset(requireProfile(profileId), workspaceSessionId)
-  })
-  ipcMain.handle(IPC.orchestratorEnableAutoMode, (e, profileId: string, workspaceSessionId?: string) => {
-    assertNotVoiceWindow(e)
-    return workspaceSessions.enableAutoMode(requireProfile(profileId), workspaceSessionId)
-  })
-  ipcMain.handle(
-    IPC.orchestratorSetPlannerMode,
-    (e, profileId: string, mode: WorkspaceProfile['planner']['mode'], workspaceSessionId?: string) => {
-      assertNotVoiceWindow(e)
+    // ---- orchestrator ----
+    orchestratorSnapshot: (_e, profileId, workspaceSessionId) => {
+      const profile = getProfile(profileId)
+      return profile
+        ? workspaceSessions.snapshot(profile, workspaceSessionId)
+        : { profileId, workspaceSessionId, goal: null, tasks: [] }
+    },
+    orchestratorReset: (_e, profileId, workspaceSessionId) => {
+      workspaceSessions.reset(requireProfile(profileId), workspaceSessionId)
+    },
+    orchestratorEnableAutoMode: (_e, profileId, workspaceSessionId) =>
+      workspaceSessions.enableAutoMode(requireProfile(profileId), workspaceSessionId),
+    orchestratorSetPlannerMode: (_e, profileId, mode, workspaceSessionId) => {
       if (mode !== 'auto' && mode !== 'review' && mode !== 'manual') {
         throw new Error(`Unbekannter Planungsmodus: ${String(mode)}`)
       }
       return workspaceSessions.setPlannerMode(requireProfile(profileId), mode, workspaceSessionId)
-    }
-  )
-  ipcMain.handle(IPC.orchestratorSetYoloMaster, (e, enabled: boolean) => {
-    assertNotVoiceWindow(e)
-    return workspaceSessions.setYoloMaster(Boolean(enabled))
-  })
-  ipcMain.handle(IPC.orchestratorReviewPlan, (e, profileId: string, approved: boolean, workspaceSessionId?: string) => {
-    assertNotVoiceWindow(e)
-    return workspaceSessions.reviewPlan(requireProfile(profileId), Boolean(approved), workspaceSessionId)
-  })
-  ipcMain.handle(IPC.orchestratorTaskDiff, async (_e, profileId: unknown, taskId: unknown, workspaceSessionId?: unknown) => {
-    const profile = getProfile(assertIpcId(profileId, 'Profil-ID'))
-    if (!profile) throw new Error('Workspace-Profil nicht gefunden.')
-    const requestedTaskId = assertIpcId(taskId, 'Task-ID')
-    const task = workspaceSessions
-      .snapshot(profile, assertIpcOptionalId(workspaceSessionId, 'Workspace-Session-ID'))
-      .tasks.find((entry) => entry.id === requestedTaskId)
-    if (!task) throw new Error('Aufgabe nicht gefunden.')
-    return loadTaskReviewDiff(task)
-  })
-  ipcMain.handle(IPC.orchestratorOpenTaskWorktree, async (e, profileId: unknown, taskId: unknown, workspaceSessionId?: unknown) => {
-    assertNotVoiceWindow(e)
-    const profile = requireProfile(profileId)
-    const requestedTaskId = assertIpcId(taskId, 'Task-ID')
-    const task = workspaceSessions
-      .snapshot(profile, assertIpcOptionalId(workspaceSessionId, 'Workspace-Session-ID'))
-      .tasks.find((entry) => entry.id === requestedTaskId)
-    // Only paths the engine itself recorded for this task are ever opened —
-    // the renderer supplies IDs, never filesystem paths.
-    const worktree = task?.worktree ?? task?.recoveryArtifact?.worktree
-    if (!worktree) throw new Error('Für diese Aufgabe liegt kein Worktree vor.')
-    await stat(worktree).catch(() => {
-      throw new Error('Der Worktree existiert nicht mehr (vermutlich bereits aufgeräumt).')
-    })
-    return openWorktreeInEditor(worktree)
-  })
-  ipcMain.handle(
-    IPC.orchestratorApprovePublication,
-    (e, profileId: string, workspaceSessionId: string, planId?: string) => {
-      assertNotVoiceWindow(e)
-      return workspaceSessions.approvePublication(requireProfile(profileId), planId, workspaceSessionId)
-    }
-  )
-  ipcMain.handle(
-    IPC.orchestratorRejectPublication,
-    (e, profileId: string, workspaceSessionId: string, planId?: string) => {
-      assertNotVoiceWindow(e)
-      return workspaceSessions.rejectPublication(requireProfile(profileId), planId, workspaceSessionId)
-    }
-  )
-  ipcMain.handle(
-    IPC.orchestratorResolvePermission,
-    (e, profileId: string, workspaceSessionId: string, permissionId: string, allow: boolean) => {
-      assertNotVoiceWindow(e)
+    },
+    orchestratorSetYoloMaster: (_e, enabled) => workspaceSessions.setYoloMaster(Boolean(enabled)),
+    orchestratorReviewPlan: (_e, profileId, approved, workspaceSessionId) =>
+      workspaceSessions.reviewPlan(requireProfile(profileId), Boolean(approved), workspaceSessionId),
+    orchestratorTaskDiff: async (_e, profileId, taskId, workspaceSessionId) => {
+      const profile = getProfile(assertIpcId(profileId, 'Profil-ID'))
+      if (!profile) throw new Error('Workspace-Profil nicht gefunden.')
+      const requestedTaskId = assertIpcId(taskId, 'Task-ID')
+      const task = workspaceSessions
+        .snapshot(profile, assertIpcOptionalId(workspaceSessionId, 'Workspace-Session-ID'))
+        .tasks.find((entry) => entry.id === requestedTaskId)
+      if (!task) throw new Error('Aufgabe nicht gefunden.')
+      return loadTaskReviewDiff(task)
+    },
+    orchestratorOpenTaskWorktree: async (_e, profileId, taskId, workspaceSessionId) => {
+      const profile = requireProfile(profileId)
+      const requestedTaskId = assertIpcId(taskId, 'Task-ID')
+      const task = workspaceSessions
+        .snapshot(profile, assertIpcOptionalId(workspaceSessionId, 'Workspace-Session-ID'))
+        .tasks.find((entry) => entry.id === requestedTaskId)
+      // Only paths the engine itself recorded for this task are ever opened —
+      // the renderer supplies IDs, never filesystem paths.
+      const worktree = task?.worktree ?? task?.recoveryArtifact?.worktree
+      if (!worktree) throw new Error('Für diese Aufgabe liegt kein Worktree vor.')
+      await stat(worktree).catch(() => {
+        throw new Error('Der Worktree existiert nicht mehr (vermutlich bereits aufgeräumt).')
+      })
+      return openWorktreeInEditor(worktree)
+    },
+    orchestratorApprovePublication: (_e, profileId, workspaceSessionId, planId) =>
+      workspaceSessions.approvePublication(requireProfile(profileId), planId, workspaceSessionId),
+    orchestratorRejectPublication: (_e, profileId, workspaceSessionId, planId) =>
+      workspaceSessions.rejectPublication(requireProfile(profileId), planId, workspaceSessionId),
+    orchestratorResolvePermission: (_e, profileId, workspaceSessionId, permissionId, allow) => {
       const profile = requireProfile(profileId)
       if (!/^[0-9a-f-]{36}$/i.test(permissionId)) return false
       return workspaceSessions.resolvePermission(profile, permissionId, Boolean(allow), workspaceSessionId)
-    }
-  )
-  ipcMain.handle(
-    IPC.orchestratorSetBudgetCaps,
-    (e, profileId: string, workspaceSessionId: string, caps: RemoteBudgetCaps) => {
-      assertNotVoiceWindow(e)
+    },
+    orchestratorSetBudgetCaps: (_e, profileId, workspaceSessionId, caps) => {
       const profile = requireProfile(profileId)
       const maxTokens = caps?.maxTokens
       const maxCostUsd = caps?.maxCostUsd
@@ -830,48 +663,19 @@ export function registerIpcHandlers(): void {
         (maxCostUsd != null && (!Number.isFinite(maxCostUsd) || maxCostUsd < 0.01 || maxCostUsd > 1_000_000))
       ) throw new Error('Ungültige Budget-Grenzen.')
       return workspaceSessions.setBudgetCaps(profile, { maxTokens, maxCostUsd }, workspaceSessionId)
-    }
-  )
-  ipcMain.handle(
-    IPC.orchestratorPauseTask,
-    (e, profileId: string, workspaceSessionId: string, taskId: string) => {
-      assertNotVoiceWindow(e)
-      return workspaceSessions.pauseTask(requireProfile(profileId), taskId, workspaceSessionId)
-    }
-  )
-  ipcMain.handle(
-    IPC.orchestratorResumeTask,
-    (e, profileId: string, workspaceSessionId: string, taskId: string) => {
-      assertNotVoiceWindow(e)
-      return workspaceSessions.resumeTask(requireProfile(profileId), taskId, workspaceSessionId)
-    }
-  )
-  ipcMain.handle(
-    IPC.orchestratorResumeInterruptedTask,
-    (e, profileId: string, workspaceSessionId: string, taskId: string) => {
-      assertNotVoiceWindow(e)
-      return workspaceSessions.resumeInterruptedTask(requireProfile(profileId), taskId, workspaceSessionId)
-    }
-  )
-  ipcMain.handle(
-    IPC.orchestratorFallbackTask,
-    (e, profileId: string, workspaceSessionId: string, taskId: string) => {
-      assertNotVoiceWindow(e)
-      return workspaceSessions.fallbackTask(requireProfile(profileId), taskId, workspaceSessionId)
-    }
-  )
-  // Canvas composer → seed a free-text message to the session's orchestrator agent.
-  // Main-window only; the voice window has its own gated tool for this.
-  ipcMain.handle(
-    IPC.orchestratorSend,
-    async (
-      event,
-      profileId: unknown,
-      workspaceSessionId: unknown,
-      text: unknown
-    ): Promise<OrchestratorSendResult> => {
-      requireMainWindow(event)
-      return resolveOrchestratorSend(
+    },
+    orchestratorPauseTask: (_e, profileId, workspaceSessionId, taskId) =>
+      workspaceSessions.pauseTask(requireProfile(profileId), taskId, workspaceSessionId),
+    orchestratorResumeTask: (_e, profileId, workspaceSessionId, taskId) =>
+      workspaceSessions.resumeTask(requireProfile(profileId), taskId, workspaceSessionId),
+    orchestratorResumeInterruptedTask: (_e, profileId, workspaceSessionId, taskId) =>
+      workspaceSessions.resumeInterruptedTask(requireProfile(profileId), taskId, workspaceSessionId),
+    orchestratorFallbackTask: (_e, profileId, workspaceSessionId, taskId) =>
+      workspaceSessions.fallbackTask(requireProfile(profileId), taskId, workspaceSessionId),
+    // Canvas composer → seed a free-text message to the session's orchestrator
+    // agent. Auth 'main-window' (central); the voice window has its own gated tool.
+    orchestratorSend: async (_event, profileId, workspaceSessionId, text) =>
+      resolveOrchestratorSend(
         {
           hasProfile: (id) => Boolean(getProfile(id)),
           activeSessionId: (id) => workspaceSessions.list(id).find((session) => session.active)?.id,
@@ -884,14 +688,10 @@ export function registerIpcHandlers(): void {
         profileId,
         workspaceSessionId,
         text
-      )
-    }
-  )
+      ),
 
-  // ---- voice assistant + overlay ----
-  ipcMain.handle(
-    IPC.voiceAssistantTurn,
-    async (event, request: VoiceOverlayTurnRequest): Promise<VoiceOverlayTurnResult> => {
+    // ---- voice assistant + overlay ----
+    voiceAssistantTurn: async (event, request) => {
       // Only the overlay window (or the main window as a fallback host) may run a
       // turn. The turn itself runs the bounded tool loop entirely in the main
       // process; API keys never leave it.
@@ -911,58 +711,54 @@ export function registerIpcHandlers(): void {
         broadcast(IPC.evUiCommand, command)
       }
       return adaptVoiceTurnResult(result)
+    },
+    voiceAssistantGetSettings: () => getVoiceAssistantSettings(),
+    voiceAssistantSetSettings: (_e, patch) => setVoiceAssistantSettings(patch),
+    voiceOverlayToggle: () => {
+      toggleVoiceOverlay()
+    },
+    voiceOverlayHide: (event) => {
+      guardOverlayControl(isVoiceWindowSender(event.sender), isMainWindowSender(event.sender))
+      hideVoiceOverlay()
+    },
+    // Auth 'voice-window': non-overlay senders are dropped centrally.
+    voiceOverlayMoved: (_e, x, y) => {
+      moveVoiceOverlay(Number(x), Number(y))
+    },
+
+    // ---- retro / model learnings / benchmarks ----
+    retroListRetros: (_e, profileId) => listRunRetros(profileId ? String(profileId) : undefined),
+    retroListLearnings: () => listModelLearnings(),
+    retroListBenchmarks: (_e, profileId) =>
+      listBenchmarkRecords(profileId ? String(profileId) : undefined),
+    retroSyncStatus: () => retroSyncStatus(),
+    retroSyncFlush: () => flushRetroExportQueue(),
+
+    // ---- window controls (frameless title bar) ----
+    winMinimize: (e) => senderWindow(e)?.minimize(),
+    winMaximizeToggle: (e) => {
+      const win = senderWindow(e)
+      if (!win) return
+      if (win.isMaximized()) win.unmaximize()
+      else win.maximize()
+    },
+    winClose: (e) => senderWindow(e)?.close(),
+
+    // ---- attention (taskbar / dock flash) — one-way only ----
+    attentionSetPendingFeedbackCount: (e, count) => {
+      try {
+        attentionController.setPendingFeedbackCount(e, count)
+      } catch {
+        // One-way channel: drop unauthorized / invalid payloads without a reply.
+      }
     }
-  )
-  ipcMain.handle(IPC.voiceAssistantGetSettings, (event) => {
-    requireMainWindow(event)
-    return getVoiceAssistantSettings()
-  })
-  ipcMain.handle(IPC.voiceAssistantSetSettings, (event, patch: VoiceAssistantSettingsPatch) => {
-    requireMainWindow(event)
-    return setVoiceAssistantSettings(patch)
-  })
-  ipcMain.handle(IPC.voiceOverlayToggle, (event) => {
-    requireMainWindow(event)
-    toggleVoiceOverlay()
-  })
-  ipcMain.handle(IPC.voiceOverlayHide, (event) => {
-    guardOverlayControl(isVoiceWindowSender(event.sender), isMainWindowSender(event.sender))
-    hideVoiceOverlay()
-  })
-  ipcMain.on(IPC.voiceOverlayMoved, (event, x: number, y: number) => {
-    if (!isVoiceWindowSender(event.sender)) return
-    moveVoiceOverlay(Number(x), Number(y))
-  })
+  }
 
-  // ---- retro / model learnings / benchmarks ----
-  ipcMain.handle(IPC.retroListRetros, (_e, profileId?: string) =>
-    listRunRetros(profileId ? String(profileId) : undefined)
-  )
-  ipcMain.handle(IPC.retroListLearnings, () => listModelLearnings())
-  ipcMain.handle(IPC.retroListBenchmarks, (_e, profileId?: string) =>
-    listBenchmarkRecords(profileId ? String(profileId) : undefined)
-  )
-  ipcMain.handle(IPC.retroSyncStatus, () => retroSyncStatus())
-  ipcMain.handle(IPC.retroSyncFlush, () => flushRetroExportQueue())
-
-  // ---- attention (taskbar / dock flash) — one-way only ----
-  ipcMain.on(IPC.attentionSetPendingFeedbackCount, (e, count: unknown) => {
-    try {
-      attentionController.setPendingFeedbackCount(e, count)
-    } catch {
-      // One-way channel: drop unauthorized / invalid payloads without a reply.
-    }
+  registerManifestChannels(manifestHandlers, {
+    assertNotVoiceWindow,
+    requireMainWindow,
+    isVoiceWindowSender
   })
-
-  // ---- window controls (frameless title bar) ----
-  ipcMain.on(IPC.winMinimize, (e) => senderWindow(e)?.minimize())
-  ipcMain.on(IPC.winMaximizeToggle, (e) => {
-    const win = senderWindow(e)
-    if (!win) return
-    if (win.isMaximized()) win.unmaximize()
-    else win.maximize()
-  })
-  ipcMain.on(IPC.winClose, (e) => senderWindow(e)?.close())
 
   // ---- push events: agent output / state / dispatch feed ----
   // Targeted fanout: only the main window and this agent's pop-out pane(s)

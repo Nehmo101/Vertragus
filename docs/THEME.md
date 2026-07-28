@@ -103,23 +103,103 @@ auf `:root` — Portale müssen unter `.app-root` mounten (siehe
 
 styles.css und cozy-organic.css pflegen teils dieselben Oberflächen doppelt:
 styles.css definiert Regel + alten Hex-Wert, cozy-organic überschreibt mit
-höher-/gleichrangigen Selektoren. Zusätzlich streuen in styles.css und
-canvas.css noch dutzende Roh-Hex-Werte in Regeln (u. a. `#f5a524`/`#f7c96b`
-— jetzt als `--attn`/`--attn-text` tokenisiert, die alten Regeln nutzen aber
-noch die Literale — sowie `#2dd4bf`-Gradients, `#04121a`-on-accent-Texte,
-`#c0333a`-Danger-Flächen).
+höher-/gleichrangigen Selektoren. Ein erster konservativer Durchgang ist
+erledigt (siehe „Konsolidierung 2026-07-28" unten); es verbleiben Roh-Hex-
+Werte in styles.css-Regeln, deren Substitution NICHT beweisbar optik-neutral
+ist, weil die passenden Token je Theme unterschiedliche Werte tragen:
 
-Empfohlenes Vorgehen für die Konsolidierung (bewusst nicht im Rahmen der
-Token-Hygiene erledigt, weil es Regel-Umbauten erfordert):
+- **`#2dd4bf`/`#22d3ee`/`#1c8fb0`/`#1c9fb8`-Gradients** (`.btn-primary`,
+  `.orch-diamond`, `.orch-block .avatar`, `.modal-gear`, `.goal-bar-fill`,
+  `.task-bar-fill`): alter Handoff-Akzent; `--accent` ist heute Bronze und
+  je Theme verschieden. Viele dieser Regeln sind von cozy-organic überdeckt —
+  klären, ob die Regel je Theme noch sichtbar ist, dann löschen statt
+  tokenisieren (Screenshot-Vergleich Light + Dark).
+- **`#04121a`/`#06121a`-on-accent-Texte** (7×/2×): `--on-accent` ist
+  `#fbf6ea` (Light) bzw. `#1d1a12` (Dark) — keine wertgleiche Substitution
+  möglich.
+- **`#c0333a`-Danger-Flächen** (`.win-btn.close:hover`, `.btn-danger`,
+  `.slot-yolo.on`): kein Token trägt exakt diesen Wert.
+- **`#3fd17a` (`.github-auth-ok`) / `#e9b949` (`.github-auth-warn`)**:
+  wertgleich zu `--mcp-dot-on` bzw. altem `--warn`, aber semantisch fremd
+  (`--ok`/`--warn` sind per Alias auf `--run`/`--wait` remappt) — bei Bedarf
+  eigenes Token anlegen.
+- **Rest-Grautöne** `#a9b6c9`, `#8fa0b6`, `#8b98ad`, `#4a5a70` u. a. in
+  Dispatch-/Pane-Regeln: alte Handoff-Textfarben ohne wertgleiches Token.
+- **canvas.css**: alle 15 verbliebenen Hex sind absichtlich themen-invariant
+  (Vellum-Notizzettel `.canvas-node--note` inkl. `kind-*`-Chips, deren
+  Werte den *Light*-Werten von `--err`/`--accent`/`--sage` entsprechen, im
+  Dark-Theme aber bewusst NICHT mitwandern sollen; plus ein `#000`-Schatten).
+  Nicht tokenisieren.
 
-1. **Inventar:** `grep -E '#[0-9a-fA-F]{3,8}' src/renderer/src/*.css` — je
-   Fundstelle klären, ob die Regel im Light-/Dark-Theme überhaupt noch
-   sichtbar ist (viele styles.css-Regeln sind vollständig von cozy-organic
-   überdeckt).
-2. **Tote Regeln löschen** statt tokenisieren (Screenshot-Vergleich Light +
-   Dark vor/nach jedem Block).
-3. Verbleibende styles.css-Literale auf die vorhandenen Token bzw. die
-   Compatibility-Aliases umstellen — dabei gilt weiter: exakt gleicher
-   Farbwert oder neues Token, keine stille Umfärbung.
-4. Ziel-Endzustand: styles.css enthält nur noch Layout/Struktur plus
-   `:root`-Fallback-Token, alle Farbentscheidungen leben in cozy-organic.css.
+Ziel-Endzustand bleibt: styles.css enthält nur noch Layout/Struktur plus
+`:root`-Fallback-Token, alle Farbentscheidungen leben in cozy-organic.css.
+
+### Spezifitätskonflikte mit cozy-organic (Ist-Stand 2026-07-28)
+
+Vier CSS-Module erhöhen gezielt die Spezifität, um Regeln zu schlagen, die
+cozy-organic (lädt zuletzt) auf gleicher Ebene definiert. Vorlage für einen
+künftigen gezielten Umbau (z. B. Layer/`@layer` oder Verschieben der
+Theme-Regeln in die Module):
+
+- **responsiveGuards.module.css** (`@media ≤1240px`):
+  `.titlebar:global(.titlebar)` (0,2,0) setzt `gap: 8px` gegen cozy-organics
+  `.titlebar { gap: 13px }` (0,1,0). Bei gleicher Spezifität gewann das Theme
+  und die 13px-Gaps drückten die Fensterknöpfe über den rechten Rand
+  (Fenster-Minimum 900px).
+- **InboxPanel.module.css**: `.panel .splitBody.splitBody` (0,3,0) besitzt
+  die Grid-Spalten gegen styles.css `.inbox-body { 240px 1fr }` (0,1,0) und
+  responsiveGuards' Re-Deklaration unter 720px (0,2,0).
+- **TitleBar.module.css**: `.yoloMaster:global(.yolo-btn.on)` (0,3,0) legt
+  die themen-invariante YOLO-Warn-Optik über die Theme-Regel `.yolo-btn.on`
+  (0,2,0) aus cozy-organic.
+- **SessionRestoreBanner.module.css**:
+  `:global(.restore-banner) :global(.btn).dangerAction` (0,3,0) schlägt den
+  Button-Reset `.restore-banner .btn` (0,2,0) aus styles.css.
+
+## Konsolidierung 2026-07-28 (Welle 5)
+
+Konservativer erster Durchgang, ausschließlich beweisbar optik-neutrale
+Schritte; verifiziert mit `typecheck:web`, vollem Renderer-Vitest-Lauf und
+E2E-Smoke (12 Ansichten).
+
+**Wertgleiche Token-Substitution** (Token in Light, Dark und
+`:root`-Fallback identisch → keine Theme-Abhängigkeit):
+
+- styles.css: 10 Ersetzungen — 5× `#f5a524` → `var(--attn)`
+  (`.finding-entry.kind-decision .finding-kind`, `.task-criticality`,
+  `.task-findings`/`.task-blocker` Border+Fläche, `.retro-down`) und
+  5× `#f7c96b` → `var(--attn-text)` (dieselben Kontexte plus
+  `.reliability-strip .warn`, `.plan-review-warning`).
+- canvas.css: 0 (alle Hex dort sind absichtliche Vellum-Invarianten, s. o.).
+
+**Nachweislich tote Regeln entfernt** (Beweis: exakte Klassennamen kommen in
+keinem `.tsx/.ts/.html/.js/.mjs` im Repo vor — `grep -rF '<klasse>'` ohne
+node_modules/dist/out = 0 Treffer — und kein dynamisches Präfix aus dem
+Inventar `grep -ohE "[a-z-]+-\$\{"` kann sie erzeugen):
+
+- styles.css: 62 Regeln (~425 Zeilen) zu 34 toten Klassen: `.logo-badge`,
+  `.readable-btn`/`.readable-check` (6), `.profile-btn`/`.profile-avatar`
+  (5), `.restore-dismiss`, `.ws-header .crumb/-root/-sep` (3), `.wt-tag`,
+  `.findings-board-head`, `.retro-card` (2), `.retro-body`, `.dag-caption`
+  (2), `.dispatch-head` (4), `.density-btn` (3), `.github-project-field/
+  -owner-row/-select` (5), `.github-repo-actions`, `.agent-branch-tag`,
+  `.self-update-btn` (6), `.inbox-prompt-preview(-head)` (3), `.voice-target/
+  -label/-state/-record/-settings/-error(-action)` (14), `.remote-error`,
+  `.mission-error`; dazu `.live-activity-caption` aus zwei Selektorlisten
+  entfernt (`.live-workers-head` bleibt).
+- cozy-organic.css: 18 Regeln zu denselben toten Klassen
+  (`.voice-target-switch/-btn` (5), `.profile-btn/-avatar` (3), `.wt-tag`,
+  `.dag-caption` (2), `.dispatch-head` (3), `.self-update-btn` (4)); dazu
+  tote Selektoren aus 4 Listen entfernt (`.agent-branch-tag` 2×,
+  `.wt-tag` 1×, `.dispatch-head .clock` 1×, `.github-project-field` 1×).
+- Bewusst NICHT gelöscht trotz 0 Literal-Treffern: dynamisch erzeugte
+  Klassen (`layout-${…}`, `workspace-${…}`, `kind-${…}`, `tone-${…}`,
+  `state-${…}`, `status-${…}`, `phase-${…}` — z. B. `.layout-canvas`,
+  `.workspace-focus`, `.kind-budget-exceeded`, `.tone-dispatch`) sowie
+  Drittanbieter-Laufzeitklassen (`.react-flow__*`, xterm).
+
+**Verbleibende Roh-Hex-Zählung** (`grep -oE '#[0-9a-fA-F]{3,8}' | wc -l`):
+styles.css 97 (davon 39 in den `:root`-Token-Definitionen und 4 als
+`var(--sage, #1e5148)`-Fallbacks), canvas.css 15 (alle dokumentiert
+invariant), cozy-organic.css 97 (Token-Definitionen des aktiven Themes —
+dort gehören sie hin).

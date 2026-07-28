@@ -32,7 +32,8 @@
     "build:linux": "pnpm run build && electron-builder --linux",
     "ci": "pnpm run icons && pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build:mobile && electron-vite build",
     "seed:teststore": "tsx --tsconfig tsconfig.node.json scripts/testStore/seed.ts",
-    "test:e2e": "node scripts/e2e-smoke.mjs"
+    "test:e2e": "node scripts/e2e-smoke.mjs",
+    "headless": "node scripts/headless.mjs"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.1",
