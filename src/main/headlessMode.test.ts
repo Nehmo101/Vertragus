@@ -230,11 +230,11 @@ describe('headless CLI helpers (scripts/headless.mjs)', () => {
       'C:\\Users\\x\\AppData\\Roaming\\Vertragus'
     ])
     expect(candidateUserDataDirs('linux', {}, '/home/x')).toEqual([
-      join('/home/x/.config', 'vertragus'),
-      join('/home/x/.config', 'Vertragus')
+      '/home/x/.config/vertragus',
+      '/home/x/.config/Vertragus'
     ])
     expect(candidateUserDataDirs('darwin', {}, '/Users/x')[0]).toBe(
-      join('/Users/x/Library/Application Support', 'vertragus')
+      '/Users/x/Library/Application Support/vertragus'
     )
   })
 

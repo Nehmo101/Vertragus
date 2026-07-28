@@ -17,7 +17,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, posix, win32 } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 export const CONTROL_FILENAME = 'headless-control.json'
@@ -72,13 +72,15 @@ export function parseControlAnnouncement(line) {
  * package name ("vertragus"), packaged builds the productName ("Vertragus").
  */
 export function candidateUserDataDirs(platform, env, home) {
+  // Separators must follow the TARGET platform, not the host running the CLI.
+  const p = platform === 'win32' ? win32 : posix
   const base =
     platform === 'win32'
-      ? env.APPDATA ?? join(home, 'AppData', 'Roaming')
+      ? env.APPDATA ?? p.join(home, 'AppData', 'Roaming')
       : platform === 'darwin'
-        ? join(home, 'Library', 'Application Support')
-        : env.XDG_CONFIG_HOME ?? join(home, '.config')
-  return [join(base, 'vertragus'), join(base, 'Vertragus')]
+        ? p.join(home, 'Library', 'Application Support')
+        : env.XDG_CONFIG_HOME ?? p.join(home, '.config')
+  return [p.join(base, 'vertragus'), p.join(base, 'Vertragus')]
 }
 
 const TUNNEL_LABEL = {
