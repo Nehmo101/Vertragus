@@ -11,7 +11,14 @@ import ClaudePermissionModeSelect from '@renderer/components/ClaudePermissionMod
 import ModelCombo from '@renderer/components/ModelCombo'
 import type { ModelCatalog } from '@renderer/modelCatalog'
 import { HELP } from './help'
-import { availableModels, effectiveModelLabel, parsePreset, presetAvailable, presetLabel, presetValue } from './modelSelection'
+import {
+  availableModels,
+  effectiveModelLabel,
+  parsePreset,
+  presetAvailable,
+  presetOptionLabel,
+  presetValue
+} from './modelSelection'
 import type { ProfileEditorMode } from './draftReducer'
 
 const ORCHESTRATOR_PROVIDERS: AgentProviderId[] = ['claude', 'kimi', 'codex', 'copilot']
@@ -118,7 +125,7 @@ const ModeOrchestratorSection = memo(function ModeOrchestratorSection({
       {orchestrator ? (
         <div className="orch-block">
           <span className="avatar">◇</span>
-          <div style={{ flex: 1 }}>
+          <div className="orch-field">
             <div className="select-label">
               {t('profile.mode.provider')} <InfoTip text={t(HELP.orchestratorProvider)} />
             </div>
@@ -151,7 +158,7 @@ const ModeOrchestratorSection = memo(function ModeOrchestratorSection({
             </select>
           </div>
           {orchestrator.provider === 'claude' && (
-            <div style={{ flex: 1.4 }}>
+            <div className="orch-field wide">
               <div className="select-label">
                 {t('profile.mode.claudeMode')} <InfoTip text={t(HELP.permissionMode)} />
               </div>
@@ -162,7 +169,7 @@ const ModeOrchestratorSection = memo(function ModeOrchestratorSection({
               />
             </div>
           )}
-          <div style={{ flex: 0.9 }}>
+          <div className="orch-field">
             <div className="select-label">
               {t('profile.mode.preset')} <InfoTip text={t(HELP.modelPreset)} />
             </div>
@@ -171,19 +178,19 @@ const ModeOrchestratorSection = memo(function ModeOrchestratorSection({
               value={presetValue(orchestrator.modelPreset)}
               onChange={(e) => onPatchOrchestrator({ modelPreset: parsePreset(e.target.value) })}
             >
-              <option value="">{t('profile.mode.legacyCli')}</option>
+              <option value="">{t('profile.mode.presetNone')}</option>
               {MODEL_PRESETS.map((preset) => {
                 const available = presetAvailable(models, orchestrator.provider, preset)
                 return (
                   <option key={preset} value={preset} disabled={!available}>
-                    {presetLabel(t, preset)}
+                    {presetOptionLabel(t, orchestrator.provider, preset)}
                     {!available ? t('profile.mode.presetUnavailable') : ''}
                   </option>
                 )
               })}
             </select>
           </div>
-          <div style={{ flex: 1 }}>
+          <div className="orch-model-field">
             <div className="select-label">
               {t('profile.mode.model')} <InfoTip text={t(HELP.model)} />
               <span className="model-count" title={t('profile.mode.modelCountTitle')}>
@@ -192,7 +199,7 @@ const ModeOrchestratorSection = memo(function ModeOrchestratorSection({
             </div>
             <ModelCombo
               className="select mono"
-              datalistId="orch-models"
+              id="orch-models"
               models={orchestratorModels}
               value={orchestrator.model}
               onChange={(model) => onPatchOrchestrator({ model })}

@@ -851,7 +851,6 @@
       "cliDefault": "CLI default",
       "unavailable": "(not available)",
       "model": "Model",
-      "modelPlaceholder": "Use CLI default / strength",
       "effective": "Will start with",
       "hint": "An explicit model choice takes precedence over the selected strength.",
       "cancel": "Cancel",
@@ -1110,6 +1109,8 @@
     "discardCleanConfirm": "Discard {{count}} clean worktrees with no local changes?",
     "discardAllConfirm": "Discard {{count}} orphaned worktrees permanently? Uncommitted work will be lost.\nExample: {{path}}",
     "discardResult": "Discarded {{discarded}}, failed {{failed}}.",
+    "discardReason": "{{count}}× {{reason}} (e.g. {{path}})",
+    "discardReasonMore": "+ {{count}} more cause(s)",
     "stale": "{{count}} old session(s) without activity",
     "staleConfirm": "Remove this session including its saved history?",
     "summaryResumableOne": "1 session restorable",
@@ -1248,7 +1249,8 @@
       "provider": "Provider",
       "claudeMode": "Claude mode",
       "preset": "Preset",
-      "legacyCli": "Legacy (CLI)",
+      "presetNone": "No preset · CLI default",
+      "presetHint": "{{preset}} · {{model}}",
       "presetUnavailable": " (not available)",
       "model": "Model",
       "modelCountTitle": "available models of this provider (free text allowed)",
@@ -1515,9 +1517,9 @@
     },
     "modelCombo": {
       "placeholder": "CLI default / preset",
-      "pickAria": "Choose a model from the list",
-      "pickTitle": "Choose a model from the full list",
-      "list": "List ▾"
+      "pickAria": "Open the full model list",
+      "pickTitle": "Show every model of this provider",
+      "noMatch": "No model matches — free text stays allowed."
     },
     "infoTip": {
       "label": "Field help"

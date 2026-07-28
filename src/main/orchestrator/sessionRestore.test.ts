@@ -22,7 +22,11 @@ const agents = vi.hoisted(() => ({
 const worktree = vi.hoisted(() => ({
   inventoryWorktrees: vi.fn(async () => [] as unknown[]),
   rollbackWorktree: vi.fn(async () => true),
-  discardManagedOrphans: vi.fn(async () => ({ discarded: 0, failed: 0 }))
+  discardManagedOrphans: vi.fn(async () => ({
+    discarded: 0,
+    failed: 0,
+    failures: [] as Array<{ path: string; reason: string }>
+  }))
 }))
 const migrate = vi.hoisted(() => vi.fn(() => 0))
 
@@ -187,24 +191,55 @@ describe('sessionRestore', () => {
       discardOrphanWorktree('/repo/.vertragus-worktrees/kept/sub-01')
     ).rejects.toThrow('bekannten Session')
 
+    // A single discard goes through the bulk helper so it reports the same
+    // concrete failure reason instead of a bare `false`.
+    worktree.discardManagedOrphans.mockResolvedValueOnce({
+      discarded: 1,
+      failed: 0,
+      failures: []
+    })
     await expect(
       discardOrphanWorktree('/repo/.vertragus-worktrees/session-gone/codex-01')
     ).resolves.toBe(true)
-    expect(worktree.rollbackWorktree).toHaveBeenCalledWith(
-      '/repo/.vertragus-worktrees/session-gone/codex-01'
+    expect(worktree.discardManagedOrphans).toHaveBeenCalledWith(
+      ['/repo/.vertragus-worktrees/session-gone/codex-01'],
+      expect.any(Function)
     )
+  })
+
+  it('surfaces the removal reason when a single discard fails', async () => {
+    store.listSessions.mockReturnValue([])
+    worktree.discardManagedOrphans.mockResolvedValueOnce({
+      discarded: 0,
+      failed: 1,
+      failures: [
+        { path: '/repo/.vertragus-worktrees/gone/codex-01', reason: 'EPERM: not permitted' }
+      ]
+    })
+
+    await expect(
+      discardOrphanWorktree('/repo/.vertragus-worktrees/gone/codex-01')
+    ).rejects.toThrow('EPERM: not permitted')
   })
 
   it('bulk-discards via the serialized managed-orphan helper with owned-session filter', async () => {
     store.listSessions.mockReturnValue([{ id: 'Kept', profileId: 'default', name: '', updatedAt: 1 }])
-    worktree.discardManagedOrphans.mockResolvedValueOnce({ discarded: 3, failed: 1 })
+    worktree.discardManagedOrphans.mockResolvedValueOnce({
+      discarded: 3,
+      failed: 1,
+      failures: [{ path: '/repo/.vertragus-worktrees/gone-b/task-02', reason: 'EBUSY' }]
+    })
 
     await expect(
       discardOrphanWorktrees([
         '/repo/.vertragus-worktrees/gone-a/task-01',
         '/repo/.vertragus-worktrees/gone-b/task-02'
       ])
-    ).resolves.toEqual({ discarded: 3, failed: 1 })
+    ).resolves.toEqual({
+      discarded: 3,
+      failed: 1,
+      failures: [{ path: '/repo/.vertragus-worktrees/gone-b/task-02', reason: 'EBUSY' }]
+    })
 
     expect(worktree.discardManagedOrphans).toHaveBeenCalledOnce()
     const call = worktree.discardManagedOrphans.mock.calls[0] as unknown as [

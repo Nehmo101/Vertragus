@@ -6,6 +6,46 @@ Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1
 
 ---
 
+## 2026-07-28 — Modellauswahl im Profil-Editor und belastbares Worktree-Aufräumen
+
+### Geändert
+
+- **Modellauswahl ist wieder eine echte Auswahl:** Das Modellfeld war ein
+  `<input list=…>` mit `<datalist>`. Chromium filtert eine Datalist gegen den
+  aktuellen Eingabewert — bei gespeichertem `claude-sonnet-4-6` erschien also
+  genau dieser eine Vorschlag, und man musste den Provider wechseln und
+  zurückwechseln (das leert das Feld), um die übrigen Modelle zu sehen.
+  `ModelCombo` ist jetzt eine echte Combobox: Freitext bleibt möglich, der
+  ▾-Button öffnet **immer** den vollständigen Katalog des Providers, Tippen
+  filtert, Pfeiltasten/Enter/Escape bedienen die Liste. Der separate
+  „Liste ▾"-Zweitselect entfällt. Gleiche Umstellung in „Agent hinzufügen"
+  und im Handoff-Dialog, die denselben Defekt hatten.
+- **Modellfeld ist lesbar:** Im Subagent-Slot bekommt das Modell eine eigene
+  Zeile über die volle Breite (vorher teilte es sich eine Flex-Zeile mit
+  Provider, Preset, Anzahl, Yolo und Steuerbar und blieb auf ca. drei
+  sichtbare Zeichen zusammengedrückt); der Orchestrator-Block umbricht statt
+  zu schrumpfen.
+- **Preset statt „Legacy (CLI)":** Die leere Option heißt jetzt „Ohne Preset ·
+  CLI-Standard", und jedes Preset nennt das Modell, das der **gewählte
+  Provider** tatsächlich startet — „Ausgewogen · sonnet" bei Claude,
+  „Ausgewogen · kimi-k3" bei Kimi.
+
+### Behoben
+
+- **„Alles verwerfen & aufräumen" schlug reihenweise fehl:** Das Löschen lief
+  über `fs.rm` ohne `\\?\`-Präfix und ohne Retries. Unter Windows greift damit
+  das MAX_PATH-Limit von 260 Zeichen — ein Worktree-Pfad plus `node_modules`
+  reißt das routinemäßig — und schreibgeschützte Dateien blockieren das
+  Löschen zusätzlich. Ergebnis: „0 verworfen, 165 fehlgeschlagen". Jetzt wird
+  mit Extended-Length-Pfad, Wiederholungen und einem Read-Only-Sweep gelöscht.
+- **Fehlerursachen sind sichtbar:** Jeder Fehlschlag wurde stumm geschluckt und
+  nur gezählt. `discardManagedOrphans` liefert nun pro Pfad einen Grund; der
+  Restore-Banner nennt die häufigsten Ursachen mit Beispielpfad, das Main-Log
+  protokolliert alle. Auch das Verwerfen eines einzelnen Worktrees meldet
+  seinen Grund statt eines nackten `false`.
+
+---
+
 ## 2026-07-28 — Überflug-Umsetzung: UX-Offensive, Vertrauens-Guards und vollständige i18n
 
 Umsetzung des großen UI-/Funktions-/Retro-Reviews vom 28.07. in drei

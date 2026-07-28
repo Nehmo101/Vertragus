@@ -7,6 +7,7 @@ import { LIMIT_KIND_LABELS, type AgentInstanceInfo } from '@shared/agents'
 import type { AgentProviderId } from '@shared/providers'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import ModelCatalogStatus from '@renderer/components/ModelCatalogStatus'
+import ModelCombo from '@renderer/components/ModelCombo'
 import { defaultHandoffModel } from '@renderer/modelCatalog'
 
 const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'kimi', 'codex', 'cursor', 'copilot', 'ollama']
@@ -168,18 +169,13 @@ export default function HandoffModal(): JSX.Element | null {
             </div>
             <div style={{ flex: 1.4 }}>
               <div className="select-label">{t('modals.handoff.model')}</div>
-              <input
+              <ModelCombo
                 className="slot-select-sm mono"
-                list="handoff-models"
-                placeholder={t('modals.handoff.cliDefault')}
+                id="handoff-models"
+                models={modelsFor(provider)}
                 value={model}
-                onChange={(e) => setModel(e.target.value)}
+                onChange={setModel}
               />
-              <datalist id="handoff-models">
-                {modelsFor(provider).map((m) => (
-                  <option key={m} value={m} />
-                ))}
-              </datalist>
               <ModelCatalogStatus provider={provider} catalog={catalogFor(provider)} />
             </div>
           </div>
