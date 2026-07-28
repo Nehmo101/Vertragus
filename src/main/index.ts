@@ -3,7 +3,12 @@ import { join } from 'node:path'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { installEditMenu } from '@main/editMenu'
 import { brandEnv } from '@main/env'
-import { headlessStartupLines, isHeadlessMode } from '@main/headlessMode'
+import {
+  formatHeadlessStatusLine,
+  headlessStartupLines,
+  isHeadlessMode,
+  startHeadlessControl
+} from '@main/headlessMode'
 import { refreshProcessPathFromSystem } from '@main/providers/processPath'
 
 /** VERTRAGUS_HEADLESS=1: run engine + gateway without any window (VPS/daemon). */
@@ -32,6 +37,7 @@ const SHUTDOWN_DEADLINE_MS = 8_000
 
 let stopAgents: () => Promise<void> = async () => undefined
 let stopRemote: () => Promise<void> = async () => undefined
+let stopHeadlessControl: () => Promise<void> = async () => undefined
 let flushSessionState: () => void = () => undefined
 let shutdownStarted = false
 
@@ -102,6 +108,24 @@ app.whenReady().then(async () => {
     for (const line of headlessStartupLines(remote.remoteService.status().enabled)) {
       console.info(line)
     }
+    // One parseable status line now and on every change (CLI + supervisor logs).
+    console.info(formatHeadlessStatusLine(remote.remoteService.status()))
+    remote.remoteService.on('status', () => {
+      console.info(formatHeadlessStatusLine(remote.remoteService.status()))
+    })
+    // Local admin plane for scripts/headless.mjs (status/pair/shutdown);
+    // loopback-only, bearer token in userData/headless-control.json.
+    try {
+      const control = await startHeadlessControl({
+        userDataDir: app.getPath('userData'),
+        remote: remote.remoteService,
+        quit: () => app.quit()
+      })
+      stopHeadlessControl = control.close
+      console.info(`[headless] control=127.0.0.1:${control.port} file=${control.filePath}`)
+    } catch (error) {
+      console.warn('[Headless] Control-Server konnte nicht starten', error)
+    }
   } else {
     windows.createMainWindow()
     updater.initializeUpdater()
@@ -164,6 +188,9 @@ app.on('before-quit', (event) => {
   const shutdown = (async () => {
     await stopAgents().catch((error) => console.warn('[Shutdown] agent stop failed', error))
     await stopRemote().catch((error) => console.warn('[Shutdown] remote stop failed', error))
+    await stopHeadlessControl().catch((error) =>
+      console.warn('[Shutdown] headless control stop failed', error)
+    )
   })()
   const deadline = new Promise<void>((resolve) => {
     setTimeout(resolve, SHUTDOWN_DEADLINE_MS)

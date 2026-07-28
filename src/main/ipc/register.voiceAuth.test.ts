@@ -1,80 +1,52 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 /**
- * Source-contract regressions for voice-window IPC authorization.
- * Pure unit tests of the extracted guards live in voiceIpc.test.ts; this file
- * locks the wiring in register.ts so spawn/write cannot regress to unguarded.
+ * Voice-window IPC authorization contract (manifest edition). Pure unit tests
+ * of the extracted guards live in voiceIpc.test.ts; the central enforcement
+ * pipeline is covered in registerManifest.test.ts. This file locks WHICH
+ * channels declare which level, so spawn/write cannot regress to unguarded —
+ * plus a behavioral spot check that the declared level actually rejects a
+ * voice-overlay sender through the real guard.
  */
+vi.mock('electron', () => ({
+  ipcMain: { handle: vi.fn(), on: vi.fn() }
+}))
+
+import { ipcManifest } from '@shared/ipcManifest'
+import {
+  createManifestChannelHandler,
+  type RegisterableManifestKey
+} from './registerManifest'
+import { guardNotVoiceWindow, VOICE_WINDOW_FORBIDDEN } from '@main/voice/voiceIpc'
+
 const registerSrc = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'register.ts'), 'utf8')
 
-function handlerBlock(channelExpr: string): string {
-  const match = registerSrc.match(
-    new RegExp(
-      String.raw`ipcMain\.(?:handle|on)\(\s*IPC\.${channelExpr}\s*,[\s\S]*?\n  \)`,
-      'm'
-    )
-  )
-  expect(match, `expected IPC.${channelExpr} handler`).toBeTruthy()
+function voiceAssistantTurnBody(): string {
+  const match = registerSrc.match(/voiceAssistantTurn:\s*async \(event, request\)[\s\S]*?\n {4}\},/)
+  expect(match, 'expected voiceAssistantTurn handler in the map').toBeTruthy()
   return match![0]
 }
 
-// Extracts a single handler's source from its registration up to the first
-// handler-level close (`\n  )` for multi-line or `\n  })` for single-line
-// arrow bodies), whichever comes first — so it never bleeds into the next
-// handler the way the greedy `handlerBlock` can.
-function singleHandler(channelExpr: string): string {
-  const start = registerSrc.search(
-    new RegExp(String.raw`ipcMain\.(?:handle|on)\(\s*(?:\n\s*)?IPC\.${channelExpr}\b`)
-  )
-  expect(start, `expected IPC.${channelExpr} handler`).toBeGreaterThanOrEqual(0)
-  const rest = registerSrc.slice(start)
-  const close = rest.search(/\n {2}\}?\)/)
-  return rest.slice(0, close >= 0 ? close : undefined)
-}
-
-describe('register.ts voice-window authorization wiring', () => {
-  it('rejects agents:spawnProfile from the voice overlay window', () => {
-    const block = handlerBlock('agentsSpawnProfile')
-    expect(block).toMatch(/assertNotVoiceWindow\s*\(/)
-  })
-
-  it('rejects agents:spawn from the voice overlay window', () => {
-    const block = handlerBlock('agentSpawn')
-    expect(block).toMatch(/assertNotVoiceWindow\s*\(/)
-  })
-
-  it('drops agents:write from the voice overlay window (auth negative)', () => {
-    const block = handlerBlock('agentWrite')
-    expect(block).toMatch(/isVoiceWindowSender\s*\(/)
-    expect(block).toMatch(/return/)
-  })
-
-  it('gates orchestrator:send to the main window before resolution', () => {
-    const block = handlerBlock('orchestratorSend')
-    expect(block).toMatch(/requireMainWindow\s*\(/)
-    expect(block).toMatch(/resolveOrchestratorSend\s*\(/)
-  })
-
-  it('allows voiceAssistant:turn only from overlay or main', () => {
-    const block = handlerBlock('voiceAssistantTurn')
-    expect(block).toMatch(/guardVoiceTurnAllowed\s*\(/)
-    expect(block).toMatch(/isVoiceWindowSender/)
-    expect(block).toMatch(/isMainWindowSender/)
-  })
-
-  it('does not let the voice turn handler call spawnProfile or agent write directly', () => {
-    const block = handlerBlock('voiceAssistantTurn')
-    expect(block).not.toMatch(/spawnProfileTeam|agentsSpawnProfile|agentManager\.write/)
-  })
-
+describe('voice-window authorization declarations', () => {
   // The voice overlay shares the renderer preload, so every privileged
   // orchestrator mutation + command-executing channel must refuse it. These
   // are the escalation primitives (approve plans, auto-resolve tool prompts,
   // global YOLO, persist an executable MCP command) the guard exists to block.
   it.each([
+    'agentSpawn',
+    'agentsSpawnProfile',
+    'agentWrite',
+    'agentMarkInteractiveUsed',
+    'agentResize',
+    'agentKill',
+    'agentsKillAll',
+    'agentsClean',
+    'agentPopout',
+    'agentHandoff',
+    'agentsBulkHandoff',
     'orchestratorReset',
     'orchestratorEnableAutoMode',
     'orchestratorSetPlannerMode',
@@ -87,12 +59,7 @@ describe('register.ts voice-window authorization wiring', () => {
     'orchestratorPauseTask',
     'orchestratorResumeTask',
     'orchestratorResumeInterruptedTask',
-    'orchestratorFallbackTask'
-  ])('rejects %s from the voice overlay window', (channel) => {
-    expect(singleHandler(channel)).toMatch(/assertNotVoiceWindow\s*\(/)
-  })
-
-  it.each([
+    'orchestratorFallbackTask',
     'mcpSave',
     'gitSwitchBranch',
     'githubRepoBind',
@@ -100,7 +67,57 @@ describe('register.ts voice-window authorization wiring', () => {
     'githubAuthLogin',
     'githubAuthLogout',
     'profileGenerateForRepo'
-  ])('rejects %s from the voice overlay window', (channel) => {
-    expect(singleHandler(channel)).toMatch(/assertNotVoiceWindow\s*\(/)
+  ] as const)("declares %s as 'not-voice'", (key) => {
+    expect(ipcManifest[key].auth).toBe('not-voice')
+  })
+
+  it("gates orchestrator:send to the main window", () => {
+    expect(ipcManifest.orchestratorSend.auth).toBe('main-window')
+    const handler = registerSrc.match(/orchestratorSend:[\s\S]*?resolveOrchestratorSend\s*\(/)
+    expect(handler, 'orchestratorSend must resolve via resolveOrchestratorSend').toBeTruthy()
+  })
+
+  it('allows voiceAssistant:turn only from overlay or main (bespoke guard in the body)', () => {
+    expect(ipcManifest.voiceAssistantTurn.auth).toBe('custom')
+    const body = voiceAssistantTurnBody()
+    expect(body).toMatch(/guardVoiceTurnAllowed\s*\(/)
+    expect(body).toMatch(/isVoiceWindowSender/)
+    expect(body).toMatch(/isMainWindowSender/)
+  })
+
+  it('does not let the voice turn handler call spawnProfile or agent write directly', () => {
+    const body = voiceAssistantTurnBody()
+    expect(body).not.toMatch(/spawnProfileTeam|agentsSpawnProfile|agentManager\.write/)
+  })
+})
+
+describe('declared levels reject a voice-overlay sender through the real guard', () => {
+  const voiceEvent = { sender: { __voice: true } } as unknown as Electron.IpcMainInvokeEvent
+  const deps = {
+    assertNotVoiceWindow: (event: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent) =>
+      guardNotVoiceWindow(Boolean((event.sender as unknown as { __voice?: boolean }).__voice)),
+    requireMainWindow: () => {},
+    isVoiceWindowSender: (sender: Electron.WebContents) =>
+      Boolean((sender as unknown as { __voice?: boolean }).__voice)
+  }
+
+  function run(key: RegisterableManifestKey, handler: () => unknown): unknown {
+    return createManifestChannelHandler(
+      key,
+      handler as Parameters<typeof createManifestChannelHandler>[1],
+      deps
+    )(voiceEvent)
+  }
+
+  it('rejects agents:spawn from the voice overlay window', () => {
+    const handler = vi.fn()
+    expect(() => run('agentSpawn', handler)).toThrow(VOICE_WINDOW_FORBIDDEN)
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('drops agents:write from the voice overlay window (auth negative, no reply)', () => {
+    const handler = vi.fn()
+    expect(run('agentWrite', handler)).toBeUndefined()
+    expect(handler).not.toHaveBeenCalled()
   })
 })

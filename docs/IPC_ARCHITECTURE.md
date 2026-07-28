@@ -1,79 +1,125 @@
-# IPC-Architektur: die dreifach gepflegte Oberfläche und ihr Konsistenz-Guard
+# IPC-Architektur: Kanal-Manifest als Single Source of Truth
 
-Stand: 28. Juli 2026 · Audit-Punkt A4 („IPC surface maintained in triplicate")
+Stand: 28. Juli 2026 · Audit-Punkt A4 — **Manifest umgesetzt: 116 von 116
+Renderer→Main-Kanälen laufen über das Manifest (0 Legacy-Kanäle)**, dazu alle
+11 Push-Events und 1 Preload-lokales API-Mitglied.
 
-Die IPC-Oberfläche von Vertragus umfasst aktuell **127 Kanäle** (108 Request/Response,
-8 Einweg-Sends Renderer→Main, 11 Push-Events Main→Renderer). Jeder Kanal wird an
-**drei Stellen** gepflegt. Drift zwischen den dreien fiel bisher erst zur Laufzeit auf —
-seit diesem Schritt fängt ein statischer Guard-Test die typischen Fehlerklassen beim
-`vitest`-Lauf ab.
+Die IPC-Oberfläche von Vertragus umfasst **127 Kanäle** (108 Request/Response,
+8 Einweg-Sends Renderer→Main, 11 Push-Events Main→Renderer). Die frühere
+Dreifachpflege (Konstanten/Typen, Preload-Bridge, Handler-Registrierung — je
+Kanal drei Stellen) ist abgelöst: Ein **deklaratives Kanal-Manifest** in
+`src/shared/ipcManifest.ts` beschreibt jeden Kanal genau einmal; Preload-Bridge
+und Handler-Verdrahtung werden daraus generisch aufgebaut. Drift zwischen den
+Schichten ist damit **per Konstruktion** ausgeschlossen; der Guard-Test sichert
+die verbliebenen Freiheitsgrade (Autorisierungs-Deklarationen, Handler-Bodies,
+Ausnahmen) ab.
 
-## Die drei Schichten
+## Die Schichten heute
 
 | Schicht | Datei | Inhalt |
 | --- | --- | --- |
-| 1. Vertrag | `src/shared/ipc.ts` | `IPC`-Konstantenobjekt (Kanalname → String) plus das `VertragusApi`-Interface, das der Renderer unter `window.vertragus` sieht. |
-| 2. Bridge | `src/preload/index.ts` | `contextBridge`-Expose des `VertragusApi`: `ipcRenderer.invoke(IPC.…)` für Request/Response, `ipcRenderer.send(IPC.…)` für Einweg-Kanäle, `subscribe(IPC.ev…)` für Push-Events. |
-| 3. Handler | `src/main/ipc/register.ts` | `ipcMain.handle(IPC.…)` / `ipcMain.on(IPC.…)` mit Autorisierung (Fenster-Guards) und Payload-Validierung (zod / Shared-Asserts). Push-Events werden hier via `broadcast(IPC.ev…)` bzw. `sender.send(…)` verschickt. |
+| Namen + Typen | `src/shared/ipc.ts` | `IPC`-Konstantenobjekt (Kanalname → String) und das `VertragusApi`-Interface, das der Renderer unter `window.vertragus` sieht. Bleibt die Heimat der Kanal-Strings und API-Signaturen. |
+| **Manifest** | `src/shared/ipcManifest.ts` | **Je Kanal EIN Eintrag**: Kanal (via `IPC`-Konstante), Richtung (`invoke` \| `send` \| `event` \| `local`), API-Pfad auf `window.vertragus`, Autorisierungs-Stufe, Validierungsmodus, Sonderfall-Markierung (`bridge: 'custom'`), Begründungs-`note`. Zod-frei und Electron-frei (Preload-Bundle). Enthält außerdem `buildVertragusApi` (generischer Preload-Builder). |
+| Schema-Bindings | `src/shared/ipcManifestSchemas.ts` | Zod-Schema + deutsches Fehlerlabel je Kanal mit `validation: 'schema'` (11 Kanäle). Nur der Main-Prozess importiert dieses Modul (Preload bleibt zod-frei). |
+| Bridge | `src/preload/index.ts` | Baut `window.vertragus` via `buildVertragusApi(transport, customBindings)`. Nur die 4 `bridge: 'custom'`-Einträge sind handgeschrieben (s. u.). |
+| Registrierung | `src/main/ipc/registerManifest.ts` | `registerManifestChannels`: Schleife über das Manifest — zentrale Autorisierung + zentraler zod-Parse VOR dem Handler, dann `ipcMain.handle`/`ipcMain.on`. |
+| Handler | `src/main/ipc/register.ts` | Die typisierte `ManifestHandlers`-Map (eine Implementierung je invoke/send-Kanal, Argument-/Ergebnistypen aus `VertragusApi` abgeleitet) plus die Push-Event-Verdrahtung (`broadcast(IPC.ev…)`). |
 
-### Kanal-Klassen (Namenskonvention)
+### Typsicherheit
 
-- **Request/Response** (`invoke`/`handle`): z. B. `profiles:list`, `agent:spawn`.
-- **Einweg Renderer→Main** (`send`/`on`): heiße bzw. rückgabefreie Pfade —
+Jeder Manifest-Eintrag trägt als Phantom-Typ das `VertragusApi`-Mitglied seines
+API-Pfads (`ApiAtPath<'agents.spawn'>` etc.) — Manifest und `ipc.ts`-Typen
+können nicht divergieren. Zwei statische Checks in `ipcManifest.ts` erzwingen
+Vollständigkeit in beide Richtungen (`_EveryApiMemberHasAManifestEntry`,
+`_EveryManifestEntryTargetsARealApiMember`): ein neues `VertragusApi`-Mitglied
+ohne Manifest-Eintrag ist ein Compile-Fehler, ebenso ein Manifest-Eintrag auf
+einen nicht existierenden Pfad. Die `ManifestHandlers`-Map in `register.ts`
+und die Schema-Map in `ipcManifestSchemas.ts` sind Mapped Types über das
+Manifest — fehlende oder überzählige Handler/Schemas sind Compile-Fehler.
+
+### Kanal-Klassen (Namenskonvention, unverändert)
+
+- **Request/Response** (`kind: 'invoke'`): z. B. `profiles:list`, `agent:spawn`.
+- **Einweg Renderer→Main** (`kind: 'send'`): heiße bzw. rückgabefreie Pfade —
   `agent:write`, `agent:resize`, `win:*`, `voiceOverlay:moved`, `attention:setPendingFeedbackCount`.
-- **Push Main→Renderer**: Präfix **`ev:`** (z. B. `ev:agentsChanged`). Das Präfix ist
-  Konvention *und* wird vom Guard erzwungen: `invoke`-Kanäle dürfen nicht `ev:` heißen,
-  gepushte Kanäle müssen es.
+- **Push Main→Renderer** (`kind: 'event'`): Präfix **`ev:`** — Konvention *und*
+  vom Guard erzwungen.
+- **`kind: 'local'`**: Preload-lokal, kein IPC (nur `files.pathForFile` via `webUtils`).
 
-### Sicherheitsmuster in `register.ts`
+### Autorisierungs-Stufen (`auth`)
 
-Alle Fenster (Hauptfenster, Agent-Pop-outs, Voice-Overlay) teilen sich dasselbe Preload,
-d. h. **jeder Kanal ist grundsätzlich aus jedem Fenster aufrufbar**. Privilegierte Kanäle
-schützen sich deshalb explizit:
+Zentral von `registerManifestChannels` durchgesetzt, **bevor** der Handler läuft:
 
-- **Autorisierung:** `assertNotVoiceWindow(e)` (verweigert das Voice-Overlay),
-  `requireMainWindow(e)` (nur Hauptfenster), `guardVoiceTurnAllowed` / `guardOverlayControl`
-  (Voice-Spezialfälle) oder ein Controller (`create…IpcController`), der Sender-Herkunft
-  selbst prüft.
-- **Validierung:** `parseIpcPayload(zodSchema, payload, 'Label')` für strukturierte
-  Payloads, `assertIpcId` / `assertIpcOptionalId` / `assertValidConfigKey` für String-IDs,
-  `requireProfile(profileId)` für Profil-Bezüge.
+| Stufe | Verhalten | Anzahl |
+| --- | --- | --- |
+| `'any'` | bewusst aus jedem Fenster erreichbar; `note` mit Begründung ist Pflicht (Guard) | 52 |
+| `'not-voice'` | verweigert das Voice-Overlay (invoke: wirft, send: still verworfen) | 38 |
+| `'main-window'` | nur Hauptfenster (wirft) | 13 |
+| `'voice-window'` | nur Voice-Overlay (send: andere Sender still verworfen) | 1 |
+| `'controller'` | ein Controller im Handler prüft die Sender-Herkunft selbst (`create…IpcController`) | 10 |
+| `'custom'` | maßgeschneiderter Guard im Handler (`guardVoiceTurnAllowed`, `guardOverlayControl`) | 2 |
 
-Nicht jeder Kanal braucht beides — Read-only-Kanäle ohne Payload (z. B. `profiles:list`)
-sind bewusst ungeschützt. Der Guard verlangt aber, dass jede Abweichung **explizit mit
-Begründung** gelistet ist.
+### Validierungsmodi (`validation`)
 
-## Der Konsistenz-Guard: `src/main/ipc/ipcSurface.test.ts`
+- `'schema'` (11 Kanäle): zentraler `parseIpcPayload`-zod-Parse via
+  `ipcManifestSchemas.ts`; `schemaArg` wählt das Argument (Standard 0,
+  `ideas:addArtifact` parst Argument 1), `schemaOptional` lässt `undefined`
+  durch (`ideas:create`). Der Handler erhält das geparste (gestrippte) Payload.
+- `'handler'`: der Handler-Body validiert (Shared-Asserts wie `assertIpcId`,
+  Controller oder der Service dahinter). Der Guard verlangt einen
+  Validierungs-Marker im Body **oder** einen begründeten Eintrag in
+  `VALIDATION_EXCEPTIONS` (aktuell 24, u. a. die dokumentierte
+  `profile:generateForRepo`-Drift).
+- `'none'`: Kanal ohne Renderer-Payload (Guard: Handler nimmt maximal den
+  Event-Parameter).
 
-Der Guard liest die drei Quelldateien (plus `src/main/windows.ts`), leitet **alle
-Kanal-Mengen programmatisch aus den Quellen ab** (keine hartkodierte Vollliste — rein
-additive Erweiterungen, die dem Muster folgen, bleiben automatisch grün) und prüft:
+### Preload-Sonderfälle (`bridge: 'custom'`, 4 Stück)
 
-1. **(a) Invoke → Handler:** Jeder im Preload invokete/gesendete Kanal hat einen
-   registrierten `ipcMain.handle`/`ipcMain.on`-Handler.
-2. **(b) Handler → Invoke:** Jeder registrierte Handler wird im Preload verwendet —
-   tote Handler fallen sofort auf (Ausnahmen: `HANDLERS_WITHOUT_PRELOAD_USE`, derzeit leer).
-3. **(c) Autorisierung + Validierung:** Jeder Handler-Block zeigt einen
-   Autorisierungs-Marker; jeder Handler mit Payload-Parametern zeigt einen
-   Validierungs-Marker. Abweichungen stehen mit Begründung in `AUTH_EXCEPTIONS`
-   (~52 bewusst fensteroffene, meist Read-only-Kanäle) bzw. `VALIDATION_EXCEPTIONS`
-   (~23 Kanäle, die inline oder im Service dahinter validieren). Ein Hygiene-Test
-   entfernt veraltete Einträge: Wird ein Ausnahme-Kanal später korrekt geschützt,
-   schlägt der Test fehl, bis der Eintrag gelöscht ist — die Listen können nicht verrotten.
-4. **(d) Events:** Jeder aus `register.ts` gepushte `ev:`-Kanal hat einen
-   Preload-Subscriber und umgekehrt; die `ev:`-String-Literale in
-   `windows.ts` (`pushDemoState`) müssen auf echte Kanäle zeigen.
+1. `configGet` / `configSet` — validieren den Config-Key schon im Preload
+   (fail fast; Main validiert erneut).
+2. `ideasAbortPromptEnhancement` — wickelt die nackte `requestId` in die
+   `{ requestId }`-Request-Form des Controllers.
+3. `files.pathForFile` — kein IPC, `webUtils.getPathForFile` direkt im Preload.
 
-Daneben: eindeutige Kanal-Strings (kein Alias), keine Waisen-Konstanten, kein Kanal
-gleichzeitig `handle` und `on`, Plausibilitäts-Untergrenzen gegen Parser-Rot.
-Ergänzend prüfen `register.channels.test.ts` (Tippfehler/Doppelregistrierung) und
-`register.attention.test.ts` (Attention-Spezialverdrahtung) weitere Invarianten.
+Dazu ein dokumentierter Event-Alias: `voiceAssistant.onProgress` abonniert
+denselben Kanal wie `events.onVoiceAssistant` (`ev:voiceAssistant`).
+
+## Die Guards
+
+- **`src/main/ipc/ipcSurface.test.ts`** (Quell- + Manifest-Guard): Manifest ↔
+  `IPC`-Konstanten 1:1 (gleiche Keys, gleiche Strings, `ev:`-Konvention,
+  keine Kanal-Duplikate außer deklarierten Event-Aliassen); Handler-Map deckt
+  exakt die registrierbaren Manifest-Kanäle; `'controller'`/`'custom'`-Kanäle
+  zeigen ihren Marker im Body; die **exakten Mengen** der `'any'`-,
+  `'main-window'`-, `'controller'`-, `'custom'`- und `'voice-window'`-Kanäle
+  sind als Review-Listen gepinnt (einen Kanal zu öffnen erfordert eine
+  Test-Änderung); `VALIDATION_EXCEPTIONS` mit Rot-Schutz (stale Einträge
+  schlagen fehl); Push-Events ↔ `broadcast`-Verwendung; Preload referenziert
+  `IPC.*` nur für seine Custom-Bindings; **Legacy-Welt**: direkte
+  `ipcMain.handle(IPC.…)`-Registrierungen in `register.ts` müssen in
+  `LEGACY_CHANNELS` deklariert sein (derzeit leer), dürfen nie mit dem Manifest
+  kollidieren (keine Doppelregistrierung) und müssen die alten
+  Marker-Muster erfüllen; Plausibilitäts-Untergrenzen.
+- **`src/main/ipc/registerManifest.test.ts`** (Verhaltens-Guard): die zentrale
+  Pipeline weist Voice-/Fremdfenster nach Stufe ab bzw. verwirft still,
+  parst Schemas (inkl. `schemaArg`/`schemaOptional`, Auth vor Parse) und
+  registriert jeden invoke/send-Kanal genau einmal auf dem richtigen
+  `ipcMain`-Primitive.
+- **`src/shared/ipcManifest.test.ts`**: der generische Builder reicht
+  Argumente durch, Events liefern funktionierende Unsubscribes, fehlende
+  Custom-Bindings werfen, API-Pfade sind eindeutig.
+- **`register.channels.test.ts`** (Tippfehler/Doppelregistrierung, kein
+  direktes `ipcMain` in `register.ts`) und **`register.attention.test.ts`** /
+  **`register.voiceAuth.test.ts`** (Spezialverdrahtung + gepinnte
+  `not-voice`-Deklarationen mit Verhaltens-Spotcheck) ergänzen.
 
 ## Neuen Kanal anlegen — Schritt für Schritt
 
-Beispiel: ein Request/Response-Kanal `github:listIssues`.
+Beispiel: ein Request/Response-Kanal `github:listIssues` unter
+`window.vertragus.github.listIssues`.
 
-1. **`src/shared/ipc.ts`** — Konstante + API-Methode ergänzen:
+1. **`src/shared/ipc.ts`** — Konstante + API-Methode ergänzen (unverändert die
+   Heimat von Namen und Typen):
 
    ```ts
    export const IPC = {
@@ -82,90 +128,66 @@ Beispiel: ein Request/Response-Kanal `github:listIssues`.
    } as const
 
    export interface VertragusApi {
-     // …
-     githubListIssues(dir: string): Promise<GithubIssueSummary[]>
+     github: {
+       listIssues(req: GithubIssueListRequest): Promise<GithubIssueListResult>
+     }
    }
    ```
 
-2. **`src/preload/index.ts`** — Bridge-Methode:
+2. **`src/shared/ipcManifest.ts`** — EIN Manifest-Eintrag (gleicher Key wie die
+   `IPC`-Konstante; ab hier meldet der Compiler jede fehlende Stelle):
 
    ```ts
-   githubListIssues: (dir) => ipcRenderer.invoke(IPC.githubListIssues, dir),
+   githubListIssues: invoke(IPC.githubListIssues, 'github.listIssues', {
+     auth: 'not-voice',      // 'any' nur mit note + Eintrag in EXPECTED_OPEN_CHANNELS des Guards
+     validation: 'schema'
+   }),
    ```
 
-3. **`src/main/ipc/register.ts`** — Handler mit Autorisierung + Validierung:
+3. **`src/shared/ipcSchemas.ts` + `src/shared/ipcManifestSchemas.ts`** — bei
+   `validation: 'schema'` das zod-Schema anlegen und binden:
 
    ```ts
-   ipcMain.handle(IPC.githubListIssues, (e, dir: unknown) => {
-     assertNotVoiceWindow(e) // entfällt nur bei bewusst offenen Read-only-Kanälen
-     return listGithubIssues(assertIpcId(dir, 'Verzeichnisangabe', 4096))
-   })
+   githubListIssues: { label: 'Issue-Anfrage', schema: githubIssueListRequestSchema },
    ```
 
-   Für strukturierte Payloads stattdessen ein zod-Schema in `src/shared/ipcSchemas.ts`
-   anlegen und mit `parseIpcPayload(schema, payload, 'Label')` parsen.
+4. **`src/main/ipc/register.ts`** — Handler in die `manifestHandlers`-Map
+   (Payload kommt bereits geparst an, Autorisierung läuft zentral):
 
-4. **`vitest` laufen lassen.** Der Guard ist grün, sobald alle drei Schichten das Muster
-   erfüllen. Fehlt ein Schritt (z. B. Handler ohne Preload-Methode oder ohne
-   Autorisierungs-Marker), benennt die Fehlermeldung den Kanal und die erwartete
-   Korrektur. Nur wenn die Abweichung **gewollt** ist (Read-only, Validierung im
-   Service), den Kanal mit einem Begründungssatz in die passende Ausnahme-Liste
-   in `ipcSurface.test.ts` eintragen.
+   ```ts
+   githubListIssues: (_e, req) => listOpenIssues(req),
+   ```
 
-Für Push-Events analog: `ev:`-Konstante, `subscribe(IPC.ev…)`-Methode im Preload,
-`broadcast(IPC.ev…)` im Main-Prozess.
+5. **`vitest` laufen lassen.** Preload-Bridge entsteht automatisch — es gibt
+   keinen Preload-Schritt mehr. Compilerfehler benennen fehlende
+   Manifest-/Handler-/Schema-Einträge; der Guard meldet fehlende Begründungen
+   (`note` bei `auth: 'any'`) und nicht gepinnte Autorisierungs-Mengen. Nur
+   wenn eine Abweichung **gewollt** ist (Validierung im Service, offener
+   Read-only-Kanal), den Kanal mit Begründung in die passende Liste in
+   `ipcSurface.test.ts` eintragen.
 
-## Bekannte Drift (dokumentiert, bewusst nicht „mitrepariert")
+Für Push-Events: `ev:`-Konstante in `ipc.ts`, `onX`-Signatur im `VertragusApi`,
+`event(IPC.evX, 'gruppe.onX')`-Eintrag im Manifest, `broadcast(IPC.evX, …)` in
+`register.ts`. Für Preload-Sonderformen (Argument-Transformationen): Eintrag
+mit `bridge: 'custom'` markieren und Binding in `customBindings`
+(`src/preload/index.ts`) ergänzen.
 
-- **`profile:generateForRepo`** nimmt sein Request-Objekt ohne zod-Parse an der
-  IPC-Grenze entgegen (Validierung erst in `generateProfileForRepo`) — als `DRIFT`
-  in `VALIDATION_EXCEPTIONS` markiert; Kandidat für ein Schema in `ipcSchemas.ts`.
-- **`windows.ts` / `pushDemoState`** sendet mit String-Literalen (`'ev:agentsChanged'` …)
-  statt über die `IPC`-Konstanten. Der Guard prüft die Literale gegen die Konstanten,
-  besser wäre die direkte Verwendung von `IPC.ev…`.
-- **Voice-Overlay-Reichweite:** Die Inbox-Mutationskanäle (`ideas:create/update/delete`, …)
-  und `inboxSpeech:*` sind aus jedem Fenster aufrufbar (kein Fenster-Guard). Für die
-  Inbox ist das vertretbar (validierte, unprivilegierte Ablage), steht aber bewusst
-  sichtbar in `AUTH_EXCEPTIONS`, damit die Entscheidung überprüfbar bleibt.
-- Tote Handler oder unbenutzte Kanäle gibt es derzeit **keine** — alle 127 Konstanten
-  sind in Preload und Register verdrahtet.
+## Restliste + bekannte Drift
 
-## Empfohlener Folgeschritt: Kanal-Manifest als Single Source of Truth
-
-Der Guard verhindert Drift, beseitigt aber nicht die Dreifachpflege. Der nächste
-A4-Schritt wäre ein **deklaratives Kanal-Manifest** in `src/shared/` (kein Voll-Codegen):
-
-```ts
-// src/shared/ipcManifest.ts (Skizze)
-export const ipcManifest = {
-  githubListIssues: {
-    channel: 'github:listIssues',
-    kind: 'invoke',            // 'invoke' | 'send' | 'event'
-    auth: 'notVoiceWindow',    // 'none' | 'notVoiceWindow' | 'mainWindow' | 'controller'
-    schema: githubListIssuesRequestSchema // zod; Typen via z.infer abgeleitet
-  },
-  // …
-} as const
-```
-
-Daraus ableitbar:
-
-1. **Typen:** `VertragusApi`-Signaturen via `z.infer` aus den Schemas — Schicht 1 entfällt
-   als eigene Pflegestelle weitgehend.
-2. **Preload:** eine generische Schleife baut `invoke`/`send`/`subscribe`-Methoden aus dem
-   Manifest (die heutige Datei schrumpft auf Sonderfälle wie `files.pathForFile`).
-3. **Register:** ein Wrapper `registerChannel(manifestEntry, handlerFn)` erzwingt
-   Auth-Guard + zod-Parse zentral; `register.ts` behält nur noch die Handler-Logik.
-4. Der bestehende Guard bleibt als Rückversicherung und prüft dann Manifest ↔ Quellen.
-
-**Aufwandsschätzung** (inkrementell, pro Domäne migrierbar — z. B. zuerst `retro:*`/`win:*`):
-
-| Teilschritt | Aufwand |
-| --- | --- |
-| Manifest-Format + `registerChannel`-Wrapper + Preload-Generator | ~1–2 Tage |
-| Schemas für die ~23 heute schema-losen Payload-Kanäle nachziehen | ~2–3 Tage |
-| Migration aller ~127 Kanäle in Wellen, Guard/Tests je Welle grün | ~3–4 Tage |
-| **Summe** | **~6–9 Personentage** |
-
-Risikoarm, weil der Guard jede Welle absichert und alte + neue Registrierung während
-der Migration parallel bestehen können.
+- **Legacy-Kanäle: keine.** Alle 116 Renderer→Main-Kanäle laufen übers
+  Manifest; `LEGACY_CHANNELS` im Guard ist leer und existiert als
+  dokumentierter Ausweg für künftige Sonderfälle (alter Pfad bleibt vom Guard
+  überwacht und kollisionsfrei).
+- **`profile:generateForRepo`** nimmt sein Request-Objekt weiterhin ohne
+  zod-Parse an der IPC-Grenze entgegen (Validierung erst in
+  `generateProfileForRepo`) — als `DRIFT` in `VALIDATION_EXCEPTIONS` markiert
+  und im Manifest-`note` dokumentiert; Kandidat für `validation: 'schema'`.
+- **~24 `validation: 'handler'`-Kanäle ohne Shared-Marker** (inline-`typeof`,
+  Service-Validierung, `String()`/`Boolean()`-Koersion) stehen begründet in
+  `VALIDATION_EXCEPTIONS` — unverändert gegenüber dem Stand vor dem Manifest.
+- **`windows.ts` / `pushDemoState`** sendet weiterhin mit String-Literalen
+  (`'ev:agentsChanged'` …) statt über die `IPC`-Konstanten; der Guard prüft die
+  Literale gegen die Konstanten.
+- **Voice-Overlay-Reichweite:** Die Inbox-Mutationskanäle (`ideas:*`,
+  `inboxSpeech:*`) bleiben bewusst aus jedem Fenster aufrufbar
+  (`auth: 'any'` mit Begründungs-`note`, gepinnt in `EXPECTED_OPEN_CHANNELS`).

@@ -2,34 +2,37 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { IPC } from '@shared/ipc'
+import {
+  buildVertragusApi,
+  ipcManifest,
+  listIpcChannels,
+  type CustomBridgeBindings,
+  type IpcTransport
+} from '@shared/ipcManifest'
 
 /**
- * Source-contract regressions for attention IPC wiring in register.ts.
+ * Contract regressions for attention IPC wiring (manifest edition).
  * Behavioral auth/validation negatives live in attentionIpc.test.ts.
  */
 const registerSrc = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'register.ts'), 'utf8')
-const preloadSrc = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), '../../preload/index.ts'),
-  'utf8'
-)
 
-function attentionHandlerBlock(): string {
-  const match = registerSrc.match(
-    /ipcMain\.on\(\s*IPC\.attentionSetPendingFeedbackCount\s*,[\s\S]*?\n {2}\}\)/
-  )
-  expect(match, 'expected IPC.attentionSetPendingFeedbackCount on-handler').toBeTruthy()
-  return match![0]
-}
+describe('attention IPC wiring', () => {
+  it('declares a one-way controller-authorized send channel in the manifest', () => {
+    const spec = ipcManifest.attentionSetPendingFeedbackCount
+    expect(spec.kind).toBe('send')
+    expect(spec.auth).toBe('controller')
+    expect(spec.validation).toBe('handler')
+    expect(spec.channel).toBe(IPC.attentionSetPendingFeedbackCount)
+  })
 
-describe('register.ts attention IPC wiring', () => {
-  it('registers a one-way on-handler (not invoke) for attention:setPendingFeedbackCount', () => {
-    const block = attentionHandlerBlock()
-    expect(block).toMatch(/^ipcMain\.on\s*\(/)
-    expect(registerSrc).not.toMatch(
-      /ipcMain\.handle\s*\(\s*IPC\.attentionSetPendingFeedbackCount/
+  it('routes through attentionController and drops invalid payloads without a reply', () => {
+    const handler = registerSrc.match(
+      /attentionSetPendingFeedbackCount:\s*\(e, count\)\s*=>\s*\{[\s\S]*?\n {4}\}/
     )
-    expect(block).toMatch(/attentionController\.setPendingFeedbackCount/)
-    expect(block).toMatch(/catch/)
+    expect(handler, 'expected attentionSetPendingFeedbackCount handler in the map').toBeTruthy()
+    expect(handler![0]).toMatch(/attentionController\.setPendingFeedbackCount/)
+    expect(handler![0]).toMatch(/catch/)
   })
 
   it('wires attention through createAttentionIpcController + rendererAuthorization', () => {
@@ -39,13 +42,24 @@ describe('register.ts attention IPC wiring', () => {
     )
   })
 
-  it('preload exposes one-way send under window.vertragus.attention', () => {
-    expect(preloadSrc).toMatch(/attention:\s*\{/)
-    expect(preloadSrc).toMatch(
-      /setPendingFeedbackCount:\s*\(count\)\s*=>\s*ipcRenderer\.send\(\s*IPC\.attentionSetPendingFeedbackCount/
-    )
-    expect(preloadSrc).not.toMatch(
-      /attentionSetPendingFeedbackCount[\s\S]{0,40}ipcRenderer\.invoke/
-    )
+  it('bridges window.vertragus.attention.setPendingFeedbackCount as a one-way send', () => {
+    const sends: unknown[][] = []
+    const transport: IpcTransport = {
+      invoke: async () => {
+        throw new Error('attention must not invoke')
+      },
+      send: (channel, ...args) => {
+        sends.push([channel, ...args])
+      },
+      subscribe: () => () => {}
+    }
+    const custom = Object.fromEntries(
+      listIpcChannels()
+        .filter((e) => e.spec.bridge === 'custom')
+        .map((e) => [e.key, () => undefined])
+    ) as unknown as CustomBridgeBindings
+    const api = buildVertragusApi(transport, custom)
+    api.attention.setPendingFeedbackCount(3)
+    expect(sends).toEqual([[IPC.attentionSetPendingFeedbackCount, 3]])
   })
 })
