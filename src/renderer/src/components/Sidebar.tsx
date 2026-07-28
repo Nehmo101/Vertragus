@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
@@ -20,8 +20,10 @@ import { workspacePlaceName, workspacePlaceBlurb } from '@shared/workspaceNames'
 import LoreName from '@renderer/components/LoreName'
 import WorkspaceTaskSummary from '@renderer/components/WorkspaceTaskSummary'
 import { deriveRemoteApprovals } from '@shared/remote'
+import type { OrchestratorSnapshot } from '@shared/orchestrator'
 import { ResizeHandle } from '@renderer/components/ResizeHandle'
-import { selectPanelLayout, useLayoutStore } from '@renderer/store/layoutStore'
+import { useHashRoute } from '@renderer/hooks/useHashRoute'
+import { selectPanelLayout, sidebarSectionOpen, useLayoutStore } from '@renderer/store/layoutStore'
 import styles from './Sidebar.module.css'
 import { workspaceRunPresentation } from './workspaceRunStatus'
 
@@ -215,6 +217,7 @@ function GithubRow(): JSX.Element {
 
 function retroSyncDetail(
   t: TFunction,
+  locale: string,
   status: RetroSyncStatus | undefined,
   error: string | undefined
 ): string {
@@ -226,7 +229,7 @@ function retroSyncDetail(
       target: `${status.repoOwner}/${status.repoName}@${status.branch}`
     })
   const lastExport = status.lastExportAt
-    ? new Date(status.lastExportAt).toLocaleString('de-DE', {
+    ? new Date(status.lastExportAt).toLocaleString(locale || undefined, {
         day: '2-digit',
         month: '2-digit',
         hour: '2-digit',
@@ -237,7 +240,7 @@ function retroSyncDetail(
 }
 
 function RetroSyncRow(): JSX.Element {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const store = useAppStore(useShallow((s) => ({ githubAuth: s.githubAuth })))
   const connected = hasUsableGithubAuth(store.githubAuth)
   const [status, setStatus] = useState<RetroSyncStatus | undefined>()
@@ -245,14 +248,18 @@ function RetroSyncRow(): JSX.Element {
   const [editing, setEditing] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | undefined>()
+  const [loadFailed, setLoadFailed] = useState(false)
 
   const reload = async (): Promise<void> => {
     try {
       const next = await window.vertragus.retro.syncStatus()
       setStatus(next)
       setDraft({ repoOwner: next.repoOwner, repoName: next.repoName, branch: next.branch })
+      setLoadFailed(false)
     } catch {
-      // Status ist rein informativ; Fehler blockieren die Sidebar nicht.
+      // Status ist rein informativ; ein Fehler blockiert die Sidebar nicht,
+      // wird aber kompakt in der Zeile angezeigt (statt still bei "…" zu bleiben).
+      setLoadFailed(true)
     }
   }
 
@@ -307,7 +314,8 @@ function RetroSyncRow(): JSX.Element {
 
   const active = Boolean(status?.enabled)
   const dot = active ? 'var(--run)' : 'var(--sage)'
-  const detail = retroSyncDetail(t, status, error)
+  const detail =
+    !status && loadFailed ? 'Status nicht abrufbar' : retroSyncDetail(t, i18n.language, status, error)
 
   return (
     <>
@@ -317,16 +325,40 @@ function RetroSyncRow(): JSX.Element {
         </span>
         <div className="info">
           <div
-            className="name"
+            className={`name ${styles.rowNameWithAction}`}
             title={t('sidebar.retro.nameTitle')}
             onDoubleClick={() => setEditing((value) => !value)}
           >
             {t('sidebar.retro.name')}
+            <button
+              type="button"
+              className={styles.rowEditBtn}
+              title="Ziel bearbeiten"
+              aria-label="Ziel bearbeiten"
+              aria-expanded={editing}
+              onClick={(event) => {
+                event.stopPropagation()
+                setEditing((value) => !value)
+              }}
+            >
+              ✎
+            </button>
           </div>
-          <div className="detail" title={detail}>
+          <div className={loadFailed && !status ? `detail ${styles.rowErrorText}` : 'detail'} title={detail}>
             {detail}
           </div>
         </div>
+        {loadFailed && (
+          <button
+            type="button"
+            className={`icon-btn-sm ${styles.rowRetryBtn}`}
+            title="Status erneut laden"
+            aria-label="Status erneut laden"
+            onClick={() => void reload()}
+          >
+            ↻
+          </button>
+        )}
         <span className="status-wrap">
           <span
             className="status-dot"
@@ -412,21 +444,28 @@ function SpeechRow(): JSX.Element {
   )
   const revision = store.speechStatusRevision
   const [status, setStatus] = useState<InboxSpeechStatus | undefined>()
+  const [loadFailed, setLoadFailed] = useState(false)
+  const [retryToken, setRetryToken] = useState(0)
 
   useEffect(() => {
     let cancelled = false
     void window.vertragus.inboxSpeech
       .status()
       .then((next) => {
-        if (!cancelled) setStatus(next)
+        if (!cancelled) {
+          setStatus(next)
+          setLoadFailed(false)
+        }
       })
       .catch(() => {
-        // Status ist rein informativ; Fehler blockieren die Sidebar nicht.
+        // Status ist rein informativ; ein Fehler blockiert die Sidebar nicht,
+        // wird aber kompakt in der Zeile angezeigt (statt still bei "…" zu bleiben).
+        if (!cancelled) setLoadFailed(true)
       })
     return () => {
       cancelled = true
     }
-  }, [revision])
+  }, [revision, retryToken])
 
   const configured = Boolean(status?.configured)
   const dot = configured ? 'var(--run)' : 'var(--wait)'
@@ -434,7 +473,9 @@ function SpeechRow(): JSX.Element {
     ? configured
       ? t('sidebar.speech.model', { model: status.model, language: status.language })
       : t('sidebar.speech.noKey')
-    : '…'
+    : loadFailed
+      ? 'Status nicht abrufbar'
+      : '…'
 
   return (
     <div className="provider-row">
@@ -445,10 +486,21 @@ function SpeechRow(): JSX.Element {
         <div className="name" title={t('sidebar.speech.nameTitle')}>
           {t('sidebar.speech.name')}
         </div>
-        <div className="detail" title={detail}>
+        <div className={loadFailed && !status ? `detail ${styles.rowErrorText}` : 'detail'} title={detail}>
           {detail}
         </div>
       </div>
+      {loadFailed && !status && (
+        <button
+          type="button"
+          className={`icon-btn-sm ${styles.rowRetryBtn}`}
+          title="Status erneut laden"
+          aria-label="Status erneut laden"
+          onClick={() => setRetryToken((token) => token + 1)}
+        >
+          ↻
+        </button>
+      )}
       <span className="status-wrap">
         <span className="status-dot" style={{ background: dot, boxShadow: `0 0 7px ${dot}` }} />
         <span
@@ -471,14 +523,19 @@ function SpeechRow(): JSX.Element {
   )
 }
 
-function useHashRoute(): string {
-  const [hash, setHash] = useState(() => window.location.hash)
-  useEffect(() => {
-    const onChange = (): void => setHash(window.location.hash)
-    window.addEventListener('hashchange', onChange)
-    return () => window.removeEventListener('hashchange', onChange)
-  }, [])
-  return hash
+/**
+ * Zahl offener Publikationen (Diff & Merge Center) quer durch alle
+ * Orchestrator-Snapshots: vorbereitete oder blockierte Integrations-Items,
+ * die noch nicht publiziert wurden. Pure Funktion, damit sie testbar bleibt.
+ */
+export function openPublicationCount(snapshots: Iterable<OrchestratorSnapshot>): number {
+  let count = 0
+  for (const snapshot of snapshots) {
+    for (const item of snapshot.integration?.items ?? []) {
+      if (item.status === 'prepared' || item.status === 'blocked') count += 1
+    }
+  }
+  return count
 }
 
 export const SIDEBAR_SECTION_ORDER = [
@@ -491,6 +548,52 @@ export const SIDEBAR_SECTION_ORDER = [
 ] as const
 
 type SidebarSectionId = (typeof SIDEBAR_SECTION_ORDER)[number]
+
+interface SectionToggleProps {
+  id: SidebarSectionId
+  label: string
+  open: boolean
+  onToggle: (id: SidebarSectionId) => void
+  /** Attention-Zaehler, der am eingeklappten Header sichtbar bleiben muss. */
+  indicatorCount?: number
+}
+
+/**
+ * Klickbarer Sektions-Header: Chevron + Caption-Text als Button mit
+ * aria-expanded/aria-controls. Bei eingeklappter Sektion bleibt ein kompakter
+ * Attention-Zaehler sichtbar, damit z.B. wartende Profile nicht untergehen.
+ */
+function SectionToggle({
+  id,
+  label,
+  open,
+  onToggle,
+  indicatorCount = 0
+}: SectionToggleProps): JSX.Element {
+  return (
+    <button
+      type="button"
+      className={styles.sectionToggle}
+      aria-expanded={open}
+      aria-controls={`sidebar-section-${id}`}
+      onClick={() => onToggle(id)}
+    >
+      <span className={styles.sectionChevron} aria-hidden="true">
+        {open ? '▾' : '▸'}
+      </span>
+      <span className={styles.sectionToggleLabel}>{label}</span>
+      {!open && indicatorCount > 0 && (
+        <span
+          className={styles.sectionBadge}
+          data-section-badge={id}
+          title="Aufmerksamkeit erforderlich"
+        >
+          {indicatorCount}
+        </span>
+      )}
+    </button>
+  )
+}
 
 function attentionText(t: TFunction, attention: WorkspaceUserAttention): string {
   return attention.source === 'orchestrator'
@@ -556,12 +659,43 @@ export function SidebarView({
   }
   const agentHistory = workspaceAgentHistory(store)
   const approvalCount = deriveRemoteApprovals(Object.values(store.orchestrators)).length
+  const publicationCount = openPublicationCount(Object.values(store.orchestrators))
+
+  // Bewusst useSyncExternalStore statt useLayoutStore(selector): zustand liefert
+  // beim Server-/Static-Rendering sonst den Initialzustand (getInitialState),
+  // womit der aktuelle Collapse-Zustand in Tests unsichtbar waere. Der Getter
+  // gibt eine stabile Referenz zurueck, solange sich die Sektionen nicht aendern.
+  const sidebarSections = useSyncExternalStore(
+    useLayoutStore.subscribe,
+    () => useLayoutStore.getState().sidebarSections,
+    () => useLayoutStore.getState().sidebarSections
+  )
+  const toggleSidebarSection = useLayoutStore((state) => state.toggleSidebarSection)
+  const isSectionOpen = (id: SidebarSectionId): boolean =>
+    sidebarSectionOpen({ sidebarSections }, id)
+
+  // Attention-Zaehler pro Sektion, damit wartende Profile/Workspaces auch am
+  // eingeklappten Sektions-Header sichtbar bleiben.
+  const profileAttentionCount = store.profiles.filter((profile) =>
+    workspaceUserAttention(store, profile.id)
+  ).length
+  const sessionAttentionCount = store.workspaceSessions.filter(
+    (session) =>
+      session.profileId === store.activeProfileId &&
+      workspaceUserAttention(store, session.profileId, session.id)
+  ).length
 
   const sections: Record<SidebarSectionId, JSX.Element> = {
     'workspace-profiles': (
       <section key="workspace-profiles" data-sidebar-section="workspace-profiles">
         <div className="side-caption" style={{ paddingTop: 10 }}>
-          <span>{t('sidebar.profiles.caption')}</span>
+          <SectionToggle
+            id="workspace-profiles"
+            label={t('sidebar.profiles.caption')}
+            open={isSectionOpen('workspace-profiles')}
+            onToggle={toggleSidebarSection}
+            indicatorCount={profileAttentionCount}
+          />
           <button type="button" className="icon-btn-sm" title={t('sidebar.profiles.newTitle')} aria-label={t('sidebar.profiles.newAria')} onClick={store.openEditorNew}>
             ＋
           </button>
@@ -591,7 +725,8 @@ export function SidebarView({
             </>
           )}
         </div>
-        <div className="side-list" style={{ paddingBottom: 14 }}>
+        {isSectionOpen('workspace-profiles') && (
+        <div id="sidebar-section-workspace-profiles" className="side-list" style={{ paddingBottom: 14 }}>
           {store.profiles.map((profile) => {
             const attention = workspaceUserAttention(store, profile.id)
             const attentionLabel = attention ? attentionText(t, attention) : undefined
@@ -632,14 +767,23 @@ export function SidebarView({
             )
           })}
         </div>
+        )}
         <div className="side-sep" />
       </section>
     ),
     'profile-workspaces': (
       <section key="profile-workspaces" data-sidebar-section="profile-workspaces">
         <div className="side-caption workspace-session-caption">
-          <span>{t('sidebar.sessions.caption')}</span>
+          <SectionToggle
+            id="profile-workspaces"
+            label={t('sidebar.sessions.caption')}
+            open={isSectionOpen('profile-workspaces')}
+            onToggle={toggleSidebarSection}
+            indicatorCount={sessionAttentionCount}
+          />
         </div>
+        {isSectionOpen('profile-workspaces') && (
+        <div id="sidebar-section-profile-workspaces">
         <div className="side-list workspace-session-list">
           {store.workspaceSessions
             .filter((session) => session.profileId === store.activeProfileId)
@@ -752,15 +896,24 @@ export function SidebarView({
             </div>
           </>
         )}
+        </div>
+        )}
         <div className="side-sep" />
       </section>
     ),
     navigation: (
       <section key="navigation" data-sidebar-section="navigation">
         <div className="side-caption" style={{ paddingTop: 10 }}>
-          <span>{t('sidebar.nav.caption')}</span>
+          <SectionToggle
+            id="navigation"
+            label={t('sidebar.nav.caption')}
+            open={isSectionOpen('navigation')}
+            onToggle={toggleSidebarSection}
+            indicatorCount={approvalCount + publicationCount}
+          />
         </div>
-        <div className="side-list" style={{ paddingBottom: 8 }}>
+        {isSectionOpen('navigation') && (
+        <div id="sidebar-section-navigation" className="side-list" style={{ paddingBottom: 8 }}>
           <button
             type="button"
             className={`nav-row ${hash === '#/inbox' ? 'active' : ''}`}
@@ -804,6 +957,11 @@ export function SidebarView({
                   : t('sidebar.nav.allDecided')}
               </div>
             </div>
+            {approvalCount > 0 && (
+              <span className={styles.navBadge} data-nav-badge="approvals" aria-hidden="true">
+                {approvalCount}
+              </span>
+            )}
           </button>
           <button
             type="button"
@@ -816,27 +974,50 @@ export function SidebarView({
               <div className="name">{t('sidebar.nav.changes')}</div>
               <div className="summary">{t('sidebar.nav.changesSub')}</div>
             </div>
+            {publicationCount > 0 && (
+              <span className={styles.navBadge} data-nav-badge="changes" aria-hidden="true">
+                {publicationCount}
+              </span>
+            )}
           </button>
           <button
             type="button"
-            className="nav-row"
+            className={`nav-row ${hash === '#/remote' ? 'active' : ''}`}
+            onClick={() => { window.location.hash = '#/remote' }}
+            title="Mission Control anzeigen"
+          >
+            <span className="nav-icon">🛰</span>
+            <div className="info">
+              <div className="name">Mission Control</div>
+              <div className="summary">Remote-Steuerung und Freigaben</div>
+            </div>
+          </button>
+          <button
+            type="button"
+            className={`nav-row ${styles.actionRow}`}
             onClick={() => void store.exportDiagnostics()}
             title={t('sidebar.nav.diagTitle')}
           >
-            <span className="nav-icon">⇩</span>
+            <span className={`nav-icon ${styles.actionRowIcon}`}>⇩</span>
             <div className="info">
               <div className="name">{t('sidebar.nav.diag')}</div>
               <div className="summary">{t('sidebar.nav.diagSub')}</div>
             </div>
           </button>
         </div>
+        )}
         <div className="side-sep" />
       </section>
     ),
     mcp: (
       <section key="mcp" data-sidebar-section="mcp">
         <div className="side-caption" style={{ paddingTop: 14 }}>
-          <span>{t('sidebar.mcp.caption')}</span>
+          <SectionToggle
+            id="mcp"
+            label={t('sidebar.mcp.caption')}
+            open={isSectionOpen('mcp')}
+            onToggle={toggleSidebarSection}
+          />
           <button
             type="button"
             className="icon-btn-sm"
@@ -847,7 +1028,8 @@ export function SidebarView({
             ⚙
           </button>
         </div>
-        <div className="side-list">
+        {isSectionOpen('mcp') && (
+        <div id="sidebar-section-mcp" className="side-list">
           {store.mcpServers.length === 0 ? (
             <button
               type="button"
@@ -879,13 +1061,19 @@ export function SidebarView({
             ))
           )}
         </div>
+        )}
         <div className="side-sep" />
       </section>
     ),
     'ai-providers': (
       <section key="ai-providers" data-sidebar-section="ai-providers">
         <div className="side-caption">
-          <span>{t('sidebar.ai.caption')}</span>
+          <SectionToggle
+            id="ai-providers"
+            label={t('sidebar.ai.caption')}
+            open={isSectionOpen('ai-providers')}
+            onToggle={toggleSidebarSection}
+          />
           <button
             type="button"
             className="provider-refresh-btn"
@@ -897,25 +1085,34 @@ export function SidebarView({
           </button>
           <span className="online-pill">{t('sidebar.ai.online', { n: onlineCount })}</span>
         </div>
-        <div className="side-list">
+        {isSectionOpen('ai-providers') && (
+        <div id="sidebar-section-ai-providers" className="side-list">
           {aiIds.map((id) => (
             <ProviderRow key={id} id={id} />
           ))}
         </div>
+        )}
         <div className="side-sep" />
       </section>
     ),
     infrastructure: (
       <section key="infrastructure" data-sidebar-section="infrastructure">
         <div className="side-caption" style={{ paddingTop: 14 }}>
-          <span>{t('sidebar.infra.caption')}</span>
+          <SectionToggle
+            id="infrastructure"
+            label={t('sidebar.infra.caption')}
+            open={isSectionOpen('infrastructure')}
+            onToggle={toggleSidebarSection}
+          />
         </div>
-        <div className="side-list">
+        {isSectionOpen('infrastructure') && (
+        <div id="sidebar-section-infrastructure" className="side-list">
           <GithubRow />
           <RetroSyncRow />
           <SpeechRow />
           <ProviderRow id="cloudflare" />
         </div>
+        )}
       </section>
     )
   }

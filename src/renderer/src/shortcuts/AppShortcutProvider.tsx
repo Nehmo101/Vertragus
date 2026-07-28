@@ -38,6 +38,9 @@ export function AppShortcutProvider({
       startAllAgents: () => {
         void useAppStore.getState().startAll()
       },
+      // Kein direkter stopAll(): bumpt nur die Anfrage-Id, die TitleBar öffnet
+      // daraufhin ihren bestehenden „Alle stoppen?“-Confirm (siehe bindings.ts).
+      requestStopAllAgents: () => useAppStore.getState().requestStopAll(),
       toggleSidebar: () => useLayoutStore.getState().toggleCollapsed('sidebar-left'),
       toggleOrchestrator: () => useLayoutStore.getState().toggleCollapsed('orchestrator-right')
     }

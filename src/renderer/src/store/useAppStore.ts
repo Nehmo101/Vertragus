@@ -476,5 +476,8 @@ export const useAppStore = create<AppState>()((set, get, api) => ({
     void get().refreshHealth()
     void get().refreshGithubAuth()
     void get().refreshModels()
+
+    // Bootstrap complete: the workspace drops its loading state now.
+    set({ bootstrapped: true })
   }
 }))

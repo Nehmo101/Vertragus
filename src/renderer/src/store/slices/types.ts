@@ -120,6 +120,8 @@ export interface OrchestratorSlice {
 
 export interface UiSlice {
   appInfo: AppInfo | null
+  /** True once the one-time init() bootstrap has hydrated the store. */
+  bootstrapped: boolean
   theme: UiTheme
   workspaceLayout: WorkspaceLayout
   uiDensity: UiDensity

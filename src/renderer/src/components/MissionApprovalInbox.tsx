@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { deriveRemoteApprovals, type ApprovalItem } from '@shared/remote'
@@ -6,6 +6,8 @@ import type { OrchestratorSnapshot } from '@shared/orchestrator'
 import type { TaskReviewDiff } from '@shared/ipc'
 import { useAppStore } from '@renderer/store/useAppStore'
 import DiffView from './diff/DiffView'
+import ErrorCard from './ui/ErrorCard'
+import Spinner from './ui/Spinner'
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -36,10 +38,26 @@ export default function MissionApprovalInbox(): JSX.Element {
   const [diff, setDiff] = useState<TaskReviewDiff & { title: string }>()
   const [budgetDrafts, setBudgetDrafts] = useState<Record<string, { tokens: string; cost: string }>>({})
 
+  // Remember the last failed call so the error card can offer a retry.
+  const lastFailed = useRef<{ key: string; operation: () => Promise<unknown> }>()
+
   const run = async (key: string, operation: () => Promise<unknown>): Promise<void> => {
     setBusy(key)
     setError(undefined)
-    try { await operation() } catch (value) { setError(message(value)) } finally { setBusy(undefined) }
+    try {
+      await operation()
+      lastFailed.current = undefined
+    } catch (value) {
+      lastFailed.current = { key, operation }
+      setError(message(value))
+    } finally {
+      setBusy(undefined)
+    }
+  }
+
+  const retryLastAction = (): void => {
+    const failed = lastFailed.current
+    if (failed) void run(failed.key, failed.operation)
   }
 
   const act = (approval: ApprovalItem, action: ApprovalItem['actions'][number]): void => {
@@ -79,7 +97,15 @@ export default function MissionApprovalInbox(): JSX.Element {
         <div><span className="eyebrow">{t('modals.approvals.eyebrow')}</span><h1>{t('modals.approvals.title')}</h1></div>
         <span className={`mission-count ${approvals.length ? 'attention' : ''}`}>{t('modals.approvals.openCount', { n: approvals.length })}</span>
       </header>
-      {error && <div className="mission-error" role="alert">{error}</div>}
+      {/* i18n-spaeter: Texte umlautfrei, bis die i18n-Welle sie in die locales hebt. */}
+      {error && (
+        <ErrorCard
+          title="Aktion fehlgeschlagen"
+          detail={error}
+          onRetry={retryLastAction}
+          retryDisabled={Boolean(busy)}
+        />
+      )}
 
       <section className="mission-budget-grid" aria-label={t('modals.approvals.budgetsAria')}>
         {sessionSnapshots(snapshots).map((snapshot) => {
@@ -162,14 +188,8 @@ export default function MissionApprovalInbox(): JSX.Element {
             <p>{approval.summary}</p>
             {approval.task && <button type="button" className="secondary" onClick={() => showDiff(approval)}>{t('modals.approvals.viewDiff')}</button>}
             <div className="mission-actions">
-              {approval.actions.filter((action) => action !== 'budget.setCaps').map((action) => (
-                <button
-                  type="button"
-                  className={action.endsWith('reject') || action.endsWith('deny') || action === 'run.reset' ? 'secondary' : ''}
-                  disabled={Boolean(busy)}
-                  key={action}
-                  onClick={() => act(approval, action)}
-                >{
+              {approval.actions.filter((action) => action !== 'budget.setCaps').map((action) => {
+                const label =
                   action === 'plan.approve' ? t('modals.approvals.actions.planApprove') :
                     action === 'plan.reject' ? t('modals.approvals.actions.planReject') :
                       action === 'publication.approve' ? t('modals.approvals.actions.publicationApprove') :
@@ -178,8 +198,17 @@ export default function MissionApprovalInbox(): JSX.Element {
                             action === 'permission.deny' ? t('modals.approvals.actions.permissionDeny') :
                               action === 'task.fallback' ? t('modals.approvals.actions.taskFallback') :
                                 action === 'mode.enableAuto' ? t('modals.approvals.actions.modeEnableAuto') : t('modals.approvals.actions.runReset')
-                }</button>
-              ))}
+                const running = busy === `${approval.id}:${action}`
+                return (
+                  <button
+                    type="button"
+                    className={action.endsWith('reject') || action.endsWith('deny') || action === 'run.reset' ? 'secondary' : ''}
+                    disabled={Boolean(busy)}
+                    key={action}
+                    onClick={() => act(approval, action)}
+                  >{running ? <><Spinner /> {label}</> : label}</button>
+                )
+              })}
             </div>
           </article>
         ))}

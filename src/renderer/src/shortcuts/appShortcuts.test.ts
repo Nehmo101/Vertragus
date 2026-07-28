@@ -1,7 +1,7 @@
 /**
  * Verdrahtungs-Matrix für die globalen App-Shortcuts:
- * Navigation (Mod+1..4), Layout (Mod+Alt+1..3), Agents (Mod+Shift+Enter),
- * Panels (Mod+B / Mod+Alt+B) — plus Hauptfenster- und Fokus-Guards.
+ * Navigation (Mod+1..4), Layout (Mod+Alt+1..3), Agents (Mod+Shift+Enter /
+ * Mod+Shift+.), Panels (Mod+B / Mod+Alt+B) — plus Hauptfenster- und Fokus-Guards.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -34,6 +34,7 @@ function createActions(): AppShortcutActions & {
   navigate: ReturnType<typeof vi.fn>
   setWorkspaceLayout: ReturnType<typeof vi.fn>
   startAllAgents: ReturnType<typeof vi.fn>
+  requestStopAllAgents: ReturnType<typeof vi.fn>
   toggleSidebar: ReturnType<typeof vi.fn>
   toggleOrchestrator: ReturnType<typeof vi.fn>
 } {
@@ -41,6 +42,7 @@ function createActions(): AppShortcutActions & {
     navigate: vi.fn(),
     setWorkspaceLayout: vi.fn(),
     startAllAgents: vi.fn(),
+    requestStopAllAgents: vi.fn(),
     toggleSidebar: vi.fn(),
     toggleOrchestrator: vi.fn()
   }
@@ -107,9 +109,12 @@ describe('registerAppShortcuts wiring (platform other)', () => {
     expect(actions.toggleSidebar).toHaveBeenCalledOnce()
   })
 
-  it('registriert keinen Stopp-Shortcut (Confirm-Flow lebt in der TitleBar)', () => {
-    // Mod+Shift+. bleibt bewusst unbelegt — siehe bindings.ts.
-    expect(registry.handleKeydown(keyboardEvent({ key: '.', shiftKey: true }))).toBe(false)
+  it('Mod+Shift+. fordert den Stop-alle-Confirm an, stoppt aber NICHT direkt', () => {
+    // Der Chord ruft requestStopAllAgents (→ requestStopAll im agentsSlice);
+    // die TitleBar öffnet daraufhin ihren Bestätigungs-Dialog — siehe bindings.ts.
+    expect(registry.handleKeydown(keyboardEvent({ key: '.', shiftKey: true }))).toBe(true)
+    expect(actions.requestStopAllAgents).toHaveBeenCalledOnce()
+    expect(actions.startAllAgents).not.toHaveBeenCalled()
   })
 
   it('unregister entfernt alle Registrierungen', () => {

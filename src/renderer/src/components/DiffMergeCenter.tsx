@@ -1,8 +1,10 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { TaskReviewDiff } from '@shared/ipc'
 import type { IntegrationCenterItem, VertragusTask } from '@shared/orchestrator'
 import { useAppStore } from '@renderer/store/useAppStore'
 import DiffView, { countDiffFiles } from './diff/DiffView'
+import ErrorCard from './ui/ErrorCard'
+import Spinner from './ui/Spinner'
 import styles from './DiffMergeCenter.module.css'
 
 function message(error: unknown): string { return error instanceof Error ? error.message : String(error) }
@@ -40,9 +42,25 @@ export default function DiffMergeCenter(): JSX.Element {
     )
   )
 
+  // Remember the last failed call so the error card can offer a retry.
+  const lastFailed = useRef<{ key: string; operation: () => Promise<unknown> }>()
+
   const run = async (key: string, operation: () => Promise<unknown>): Promise<void> => {
     setBusy(key); setError(undefined)
-    try { await operation() } catch (value) { setError(message(value)) } finally { setBusy(undefined) }
+    try {
+      await operation()
+      lastFailed.current = undefined
+    } catch (value) {
+      lastFailed.current = { key, operation }
+      setError(message(value))
+    } finally {
+      setBusy(undefined)
+    }
+  }
+
+  const retryLastAction = (): void => {
+    const failed = lastFailed.current
+    if (failed) void run(failed.key, failed.operation)
   }
 
   const fileCount = diff ? countDiffFiles(diff.diff) : 0
@@ -53,7 +71,14 @@ export default function DiffMergeCenter(): JSX.Element {
         <div><span className="eyebrow">Integration</span><h1>Diff &amp; Merge Center</h1></div>
         <span className="mission-count">{values.reduce((sum, snapshot) => sum + (snapshot.integration?.items.length ?? 0), 0)} Änderungen</span>
       </header>
-      {error && <div className="mission-error" role="alert">{error}</div>}
+      {error && (
+        <ErrorCard
+          title="Aktion fehlgeschlagen"
+          detail={error}
+          onRetry={retryLastAction}
+          retryDisabled={Boolean(busy)}
+        />
+      )}
       {diff && <section className="mission-diff-modal">
         <div>
           <strong>{diff.title}</strong>
@@ -113,8 +138,12 @@ export default function DiffMergeCenter(): JSX.Element {
               </div>
             })}
             {publication && <div className="mission-actions">
-              <button type="button" disabled={Boolean(busy)} onClick={() => void run(`publish:${sessionId}`, () => window.vertragus.orchestrator.approvePublication(snapshot.profileId!, sessionId, publication.task?.planId))}>Geprüft veröffentlichen</button>
-              <button type="button" className="secondary" disabled={Boolean(busy)} onClick={() => void run(`reject:${sessionId}`, () => window.vertragus.orchestrator.rejectPublication(snapshot.profileId!, sessionId, publication.task?.planId))}>Ablehnen</button>
+              <button type="button" disabled={Boolean(busy)} onClick={() => void run(`publish:${sessionId}`, () => window.vertragus.orchestrator.approvePublication(snapshot.profileId!, sessionId, publication.task?.planId))}>
+                {busy === `publish:${sessionId}` ? <><Spinner /> Veröffentliche…</> : 'Geprüft veröffentlichen'}
+              </button>
+              <button type="button" className="secondary" disabled={Boolean(busy)} onClick={() => void run(`reject:${sessionId}`, () => window.vertragus.orchestrator.rejectPublication(snapshot.profileId!, sessionId, publication.task?.planId))}>
+                {busy === `reject:${sessionId}` ? <><Spinner /> Lehne ab…</> : 'Ablehnen'}
+              </button>
             </div>}
           </article>
         })}

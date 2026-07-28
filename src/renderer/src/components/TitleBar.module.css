@@ -1,0 +1,69 @@
+/* TitleBar-eigene Ergänzungen: Überlaufmenü („⋯“) und YOLO-Warn-Optik.
+   Basis-Chrome (profile-menu, menu-item, …) kommt aus styles.css; hier stehen
+   nur die Abweichungen als Modul-Klassen. */
+
+/* ---------- Überlaufmenü ---------- */
+.overflowBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 7px;
+  border: 1px solid var(--border-4);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+.overflowBtn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.overflowBtn[aria-expanded='true'] {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-1);
+}
+
+/* Breite/Layout der Items im Überlaufmenü (ergänzt .profile-menu/.menu-item). */
+.overflowMenu {
+  width: 240px;
+}
+.overflowMenu :global(.menu-item) .detail {
+  font-size: 11px;
+  color: var(--text-3);
+}
+.overflowMenu :global(.menu-item):disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.overflowMenu :global(.menu-item):focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* ---------- YOLO-Master: Warn-Optik im aktiven Zustand ----------
+   Der gefährlichste Schalter der Leiste bekommt aktiv die Farbwelt der
+   YOLO-Warnleiste (.yolo-strip in styles.css: rotes Glimmen + yolopulse).
+   :global(.yolo-btn.on) hebt die Spezifität auf (0,3,0), damit die Regeln
+   sicher über den Theme-Styles (.yolo-btn.on, (0,2,0)) liegen. */
+.yoloMaster {
+  /* Sichtbarer Sicherheitsabstand zu den Nachbar-Schaltern. */
+  margin-inline: 6px;
+}
+.yoloMaster:global(.yolo-btn.on) {
+  background: linear-gradient(180deg, rgba(242, 85, 90, 0.32), rgba(242, 85, 90, 0.14));
+  border-color: rgba(242, 85, 90, 0.8);
+  color: #ff6b70;
+  box-shadow: 0 0 18px rgba(242, 85, 90, 0.45);
+  animation: yoloMasterPulse 2.6s ease-in-out infinite;
+}
+@keyframes yoloMasterPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 10px rgba(242, 85, 90, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 22px rgba(242, 85, 90, 0.65);
+  }
+}

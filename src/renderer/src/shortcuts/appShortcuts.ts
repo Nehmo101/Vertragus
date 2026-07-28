@@ -11,14 +11,17 @@ export type AppShortcutLayout = 'canvas' | 'tiles' | 'focus'
  * damit die Verdrahtung ohne Store/window testbar bleibt. Der Provider füllt es
  * mit exakt denselben Store-Aktionen, die auch die TitleBar/Sidebar-Buttons nutzen.
  *
- * Kein `stopAllAgents`: Der Stop-Confirm-Flow lebt als lokaler State in
- * TitleBar.tsx (`confirmKill`) und wäre per Shortcut nur unter Umgehung des
- * Dialogs erreichbar — siehe Kommentar in bindings.ts.
+ * `requestStopAllAgents` ruft bewusst NICHT `stopAll()` direkt: Der
+ * Stop-Confirm-Flow lebt als lokaler State in TitleBar.tsx (`confirmKill`).
+ * Die Aktion bumpt nur `stopAllRequestId` im agentsSlice (`requestStopAll()`),
+ * worauf die TitleBar ihren Bestätigungs-Dialog öffnet — siehe bindings.ts.
  */
 export interface AppShortcutActions {
   navigate(route: AppShortcutRoute): void
   setWorkspaceLayout(layout: AppShortcutLayout): void
   startAllAgents(): void
+  /** Öffnet den „Alle stoppen?“-Confirm der TitleBar (kein direkter Stopp). */
+  requestStopAllAgents(): void
   toggleSidebar(): void
   toggleOrchestrator(): void
 }
@@ -79,6 +82,11 @@ export function registerAppShortcuts(
     registry.register({
       actionId: 'agents.startAll',
       handler: () => actions.startAllAgents(),
+      isActive
+    }),
+    registry.register({
+      actionId: 'agents.stopAll',
+      handler: () => actions.requestStopAllAgents(),
       isActive
     }),
     registry.register({

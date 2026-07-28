@@ -17,7 +17,7 @@ interface GithubAuthSectionProps {
   onTerminalLogin: () => void
 }
 
-/** GitHub-Verbindung: OAuth status plus Verbinden/Abmelden/PTY actions. */
+/** GitHub-Verbindung: OAuth status plus Verbinden/Abmelden/Terminal-Login actions. */
 const GithubAuthSection = memo(function GithubAuthSection({
   githubAuth,
   githubAuthBusy,
@@ -79,7 +79,7 @@ const GithubAuthSection = memo(function GithubAuthSection({
           disabled={githubAuthBusy || terminalLoginRunning}
           onClick={() => onTerminalLogin()}
         >
-          PTY
+          Login im Terminal
         </button>
       </div>
       {githubAuthError && (

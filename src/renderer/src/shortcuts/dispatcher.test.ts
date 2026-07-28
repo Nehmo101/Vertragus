@@ -66,19 +66,18 @@ describe('app shortcut default bindings', () => {
       'Control+Shift+enter',
       'Meta+Shift+enter'
     ],
+    [
+      'agents.stopAll',
+      { key: '.', modifiers: ['Mod', 'Shift'] },
+      'Control+Shift+.',
+      'Meta+Shift+.'
+    ],
     ['panel.sidebarLeft', { key: 'b', modifiers: ['Mod'] }, 'Control+b', 'Meta+b'],
     ['panel.orchestratorRight', { key: 'b', modifiers: ['Mod', 'Alt'] }, 'Control+Alt+b', 'Meta+Alt+b']
   ] as const)('%s default binding + platform mapping', (actionId, binding, other, mac) => {
     expect(DEFAULT_SHORTCUT_BINDINGS[actionId]).toEqual([binding])
     expect(normalizeBinding(binding, 'other')).toBe(other)
     expect(normalizeBinding(binding, 'mac')).toBe(mac)
-  })
-
-  it('belegt keinen Stopp-Shortcut (Mod+Shift+.) — Confirm-Flow bleibt in der TitleBar', () => {
-    const bound = Object.values(DEFAULT_SHORTCUT_BINDINGS)
-      .flat()
-      .map((binding) => normalizeBinding(binding, 'other'))
-    expect(bound).not.toContain('Control+Shift+.')
   })
 })
 

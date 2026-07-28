@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
@@ -19,13 +19,28 @@ import {
   resolveOrchestratorActivity,
   taskActivityText
 } from '@renderer/orchestratorActivity'
-import type { VertragusTask, TaskStatus, OrchestratorSnapshot } from '@shared/orchestrator'
+import type {
+  VertragusTask,
+  TaskStatus,
+  OrchestratorSnapshot,
+  SubagentFinding
+} from '@shared/orchestrator'
 import { resolveModel } from '@shared/models'
-import type { AgentUsage, AgentInstanceInfo } from '@shared/agents'
-import { summarizeUsage, summarizeUsageGroup, TELEMETRY_STATUS_LABELS, TELEMETRY_STATUS_TITLES } from '@shared/telemetry'
+import type { AgentUsage, AgentInstanceInfo, VertragusEvent } from '@shared/agents'
+import type { ModelLearning, RunRetro } from '@shared/retro'
+import type { AgentSlot } from '@shared/profile'
+import { summarizeUsage, TELEMETRY_STATUS_LABELS, TELEMETRY_STATUS_TITLES } from '@shared/telemetry'
 import { formatTokenBreakdown, formatTokenCount, formatUsd } from '@renderer/telemetryFormat'
 import { ResizeHandle } from '@renderer/components/ResizeHandle'
 import { selectPanelLayout, useLayoutStore } from '@renderer/store/layoutStore'
+import {
+  resolveSectionOpen,
+  useOrchPanelSections,
+  type OrchSectionId
+} from '@renderer/store/orchPanelSectionsStore'
+import { formatSessionUsage, sumSessionUsage } from '@renderer/orchUsage'
+import { buildRoutingInsights } from '@renderer/orchRouting'
+import styles from './OrchestratorPanel.module.css'
 
 const STALE_HEARTBEAT_MS = 90_000
 const MAX_VISIBLE_FINDINGS = 6
@@ -440,6 +455,273 @@ function DispatchClock({ active }: { active: boolean }): JSX.Element {
   return <span className="clock">{fmtTime(now)}</span>
 }
 
+/**
+ * One collapsible panel section: header button with chevron + aria-expanded,
+ * per-section persistent open state. `forceOpen` keeps the section visible
+ * regardless of the stored preference (plan-review gate rule); the underlying
+ * preference still toggles and applies again once the force is lifted.
+ */
+function PanelSection({
+  id,
+  title,
+  badge,
+  forceOpen = false,
+  children
+}: {
+  id: OrchSectionId
+  title: string
+  badge?: ReactNode
+  forceOpen?: boolean
+  children: ReactNode
+}): JSX.Element {
+  const open = useOrchPanelSections((state) => resolveSectionOpen(state.sections, id, forceOpen))
+  const toggleSection = useOrchPanelSections((state) => state.toggleSection)
+  const bodyId = `orch-section-${id}`
+  return (
+    <section className={styles.section}>
+      <h3 className={styles.sectionHeading}>
+        <button
+          type="button"
+          className={styles.sectionToggle}
+          aria-expanded={open}
+          aria-controls={bodyId}
+          title={forceOpen ? 'Bleibt geöffnet, solange ein Plan auf Freigabe wartet' : undefined}
+          onClick={() => toggleSection(id)}
+        >
+          <span className={`${styles.chevron} ${open ? styles.chevronOpen : ''}`} aria-hidden="true">
+            ▶
+          </span>
+          <span className={styles.sectionTitle}>{title}</span>
+          {badge != null && <span className={styles.sectionBadge}>{badge}</span>}
+        </button>
+      </h3>
+      {open && (
+        <div id={bodyId} className={styles.sectionBody}>
+          {children}
+        </div>
+      )}
+    </section>
+  )
+}
+
+/**
+ * Findings board with a soft cap: the first entries render immediately, the
+ * rest sits behind "N weitere anzeigen". Expansion state is deliberately
+ * ephemeral (not persisted).
+ */
+function FindingsBoard({
+  findings,
+  clockActive
+}: {
+  findings: SubagentFinding[]
+  clockActive: boolean
+}): JSX.Element {
+  const { t } = useTranslation()
+  const [showAll, setShowAll] = useState(false)
+  const visible = showAll ? findings : findings.slice(0, MAX_VISIBLE_FINDINGS)
+  const hidden = findings.length - visible.length
+  return (
+    <>
+      <div className="findings-board" title={t('orch.findings.boardTitle')}>
+        {visible.map((finding) => (
+          <div key={finding.id} className={`finding-entry kind-${finding.kind}`}>
+            <div className="finding-head">
+              <span className="finding-kind">{t(`orch.kind.${finding.kind}`)}</span>
+              <strong className="finding-title">{finding.title}</strong>
+              <span className="finding-meta">
+                {finding.agentName ? (
+                  <LoreName name={finding.agentName} />
+                ) : (
+                  (finding.role ?? finding.taskId)
+                )}
+                {' · '}
+                <FindingAge createdAt={finding.createdAt} active={clockActive} />
+              </span>
+            </div>
+            <p className="finding-detail">{finding.detail}</p>
+            {finding.files?.length ? (
+              <code className="finding-files" title={t('orch.findings.filesTitle')}>
+                {finding.files.join(', ')}
+              </code>
+            ) : null}
+          </div>
+        ))}
+      </div>
+      {findings.length > MAX_VISIBLE_FINDINGS && (
+        <button
+          type="button"
+          className={styles.moreBtn}
+          aria-expanded={showAll}
+          onClick={() => setShowAll((value) => !value)}
+        >
+          {showAll ? 'Weniger anzeigen' : `${hidden} weitere anzeigen`}
+        </button>
+      )}
+    </>
+  )
+}
+
+const MAX_VISIBLE_RETRO_LEARNINGS = 6
+
+/**
+ * "Gelerntes & Routing": the last run's retro (model stats + learnings, capped
+ * with "mehr anzeigen") plus per-subagent routing knowledge — the learned
+ * strengths/weaknesses the engine feeds into its SubagentDescriptors, answered
+ * here as "Warum dieses Modell?". Reads only existing data: the orchestrator
+ * snapshot and the already-exposed retro.listLearnings IPC.
+ */
+function RetroRoutingSection({
+  lastRetro,
+  slots
+}: {
+  lastRetro?: RunRetro
+  slots?: AgentSlot[]
+}): JSX.Element {
+  const { t } = useTranslation()
+  const [showAllLearnings, setShowAllLearnings] = useState(false)
+  const [storedLearnings, setStoredLearnings] = useState<ModelLearning[]>([])
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const learnings = await window.vertragus.retro.listLearnings()
+        if (!cancelled) setStoredLearnings(learnings)
+      } catch {
+        // Kein persistenter Lernspeicher erreichbar — Snapshot-Daten genügen.
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const learnings = lastRetro?.learnings ?? []
+  const visibleLearnings = showAllLearnings
+    ? learnings
+    : learnings.slice(0, MAX_VISIBLE_RETRO_LEARNINGS)
+  const hiddenLearnings = learnings.length - visibleLearnings.length
+  const routing = buildRoutingInsights(slots, [...storedLearnings, ...learnings])
+
+  if (!lastRetro && routing.length === 0) {
+    return (
+      <div className={styles.retroEmpty}>
+        Noch kein Retro- oder Routing-Wissen vorhanden. Nach dem ersten abgeschlossenen Lauf
+        erscheinen hier Modell-Lernwissen und die Gründe für die Modellwahl.
+      </div>
+    )
+  }
+
+  return (
+    <div className={styles.retroBody}>
+      {lastRetro && (
+        <>
+          <div className="retro-model" title={lastRetro.goal}>
+            <strong className="retro-caption">{t('orch.retro.caption')}</strong>
+            <span>{lastRetro.summary}</span>
+          </div>
+          {lastRetro.modelStats.map((stat) => (
+            <div key={`${stat.provider}/${stat.model}`} className="retro-model">
+              <strong>
+                {stat.provider}/{stat.model || t('orch.retro.default')}
+              </strong>
+              <span>
+                {t('orch.retro.ok', { succeeded: stat.succeeded, total: stat.tasks })}
+                {stat.needsWork > 0 ? ` · ${t('orch.retro.needsWork', { n: stat.needsWork })}` : ''}
+                {stat.failed > 0 ? ` · ${t('orch.retro.failed', { n: stat.failed })}` : ''}
+                {stat.avgDurationMs != null
+                  ? ` · ${t('orch.retro.avg', { value: fmtAge(stat.avgDurationMs) })}`
+                  : ''}
+                {stat.tokensIn != null || stat.tokensOut != null
+                  ? ` · ${t('orch.usage.tokens', { value: formatTokenCount((stat.tokensIn ?? 0) + (stat.tokensOut ?? 0)) })}`
+                  : ''}
+              </span>
+            </div>
+          ))}
+          {learnings.length > 0 && (
+            <ul className="retro-learnings">
+              {visibleLearnings.map((learning) => (
+                <li key={learning.id} title={learning.evidence}>
+                  <span className={learning.kind === 'strength' ? 'retro-up' : 'retro-down'}>
+                    {learning.kind === 'strength' ? '▲' : '▼'}
+                  </span>
+                  {learning.provider}/{learning.model || t('orch.retro.default')}: {learning.insight}
+                </li>
+              ))}
+            </ul>
+          )}
+          {learnings.length > MAX_VISIBLE_RETRO_LEARNINGS && (
+            <button
+              type="button"
+              className={`${styles.moreBtn} ${styles.moreBtnInline}`}
+              aria-expanded={showAllLearnings}
+              onClick={() => setShowAllLearnings((value) => !value)}
+            >
+              {showAllLearnings ? 'Weniger anzeigen' : `${hiddenLearnings} weitere anzeigen`}
+            </button>
+          )}
+        </>
+      )}
+      {routing.length > 0 && (
+        <>
+          <div className={styles.routingHead}>Warum dieses Modell?</div>
+          {routing.map((entry) => (
+            <div key={`${entry.provider}/${entry.model}`} className={styles.routingModel}>
+              <strong>
+                {entry.provider}/{entry.model || t('orch.retro.default')}
+              </strong>
+              {entry.roles.length > 0 && (
+                <span className={styles.routingRoles}>{entry.roles.join(', ')}</span>
+              )}
+              <ul className={styles.routingList}>
+                {entry.learnedStrengths.map((text) => (
+                  <li key={`s-${text}`}>
+                    <span className="retro-up">▲</span>
+                    {text}
+                  </li>
+                ))}
+                {entry.learnedWeaknesses.map((text) => (
+                  <li key={`w-${text}`}>
+                    <span className="retro-down">▼</span>
+                    {text}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Dispatch log as a real log region (role="log" + aria-live, matching
+ * OrchestratorThread). Owns its auto-scroll so reopening the section lands at
+ * the newest entry.
+ */
+function DispatchLog({ events }: { events: VertragusEvent[] }): JSX.Element {
+  const { t } = useTranslation()
+  const logRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = logRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [events.length])
+  return (
+    <div className="dispatch">
+      <div className="dispatch-body" role="log" aria-live="polite" ref={logRef}>
+        {events.length === 0 && (
+          <div className="dispatch-line tone-muted">{t('orch.dispatch.ready')}</div>
+        )}
+        {events.map((evt, i) => (
+          <div key={i} className={`dispatch-line tone-${evt.tone}`}>
+            <span className="time">{fmtTime(evt.time)}</span> {evt.text}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function OrchestratorPanelContent({
   width,
   onCollapse
@@ -477,7 +759,6 @@ function OrchestratorPanelContent({
     store.orchestrator
   // The engine appends board entries in order; the panel shows the newest first.
   const boardFindings = [...(findings ?? [])].reverse()
-  const logRef = useRef<HTMLDivElement>(null)
   // Only the phase/summary/details are read here; the ticking "updated Xs ago"
   // age lives in <LiveActivityAge>, which derives its own activity per tick.
   const activity = resolveOrchestratorActivity(store.orchestrator)
@@ -487,16 +768,13 @@ function OrchestratorPanelContent({
   const done = requiredTasks.filter((task) => task.status === 'success').length
   const pct = requiredTasks.length > 0 ? Math.round((done / requiredTasks.length) * 100) : 0
   const assigned = tasks.filter((t) => t.agentId).length
-  const runUsage = summarizeUsageGroup(tasks.map((task) => task.usage))
+  // Session sum over every task of the active workspace (tokens/cost/steps).
+  const sessionUsageText = formatSessionUsage(sumSessionUsage(store.orchestrator))
   const configuredOrchestratorModel = profile?.orchestrator
     ? resolveModel(profile.orchestrator.provider, profile.orchestrator) || t('orch.cliDefault')
     : '—'
   const displayedOrchestratorModel = orch?.model || configuredOrchestratorModel
 
-  useEffect(() => {
-    const el = logRef.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [events.length])
   const currentPlannerMode: PlannerMode =
     (plannerMode ?? profile?.planner.mode ?? 'review') as PlannerMode
   const autoModeActive = currentPlannerMode === 'auto'
@@ -612,7 +890,6 @@ function OrchestratorPanelContent({
         </button>
       </div>
       <div id="orchestrator-right-content" className="panel-scroll-content">
-      <LimitsPanel />
       {bulkHandoffTarget && (
         <div className="bulk-handoff-bar">
           <button
@@ -625,7 +902,16 @@ function OrchestratorPanelContent({
           </button>
         </div>
       )}
+      {/* Renders above every collapsible section: an awaiting plan approval can never be hidden. */}
       {planReview}
+      <PanelSection id="limits" title={t('limits.title')}>
+        <LimitsPanel />
+      </PanelSection>
+      <PanelSection
+        id="overview"
+        title="Ziel & Status"
+        badge={goal?.active ? t('orch.active') : t('orch.inactive')}
+      >
       <div className="orch-head">
         <div className="orch-head-row">
           <span className="orch-diamond">◇</span>
@@ -708,55 +994,26 @@ function OrchestratorPanelContent({
             <span><strong>{fmtAge(reliability.maxRunningStatusAgeMs)}</strong> {t('orch.reliability.maxStatusAge')}</span>
           </div>
         )}
-        {runUsage.status !== 'absent' && (
+        {sessionUsageText && (
           <div className="usage-strip" title={t('orch.run.usageTitle')}>
-            <span>{t('orch.run.tokens')}: <strong>{runUsage.tokens != null ? formatTokenCount(runUsage.tokens) : '—'}</strong></span>
-            <span>{t('orch.run.cost')}: <strong>{runUsage.costUsd != null ? formatUsd(runUsage.costUsd) : '—'}</strong></span>
-            <span>{t('orch.run.steps')}: <strong>{runUsage.steps ?? '—'}</strong></span>
+            <span>
+              Sitzung: <strong>{sessionUsageText}</strong>
+            </span>
           </div>
         )}
-        {lastRetro && (
-          <details className="retro-card">
-            <summary title={lastRetro.goal}>
-              <span className="retro-caption">{t('orch.retro.caption')}</span> {lastRetro.summary}
-            </summary>
-            <div className="retro-body">
-              {lastRetro.modelStats.map((stat) => (
-                <div key={`${stat.provider}/${stat.model}`} className="retro-model">
-                  <strong>{stat.provider}/{stat.model || t('orch.retro.default')}</strong>
-                  <span>
-                    {t('orch.retro.ok', { succeeded: stat.succeeded, total: stat.tasks })}
-                    {stat.needsWork > 0 ? ` · ${t('orch.retro.needsWork', { n: stat.needsWork })}` : ''}
-                    {stat.failed > 0 ? ` · ${t('orch.retro.failed', { n: stat.failed })}` : ''}
-                    {stat.avgDurationMs != null ? ` · ${t('orch.retro.avg', { value: fmtAge(stat.avgDurationMs) })}` : ''}
-                    {stat.tokensIn != null || stat.tokensOut != null
-                      ? ` · ${t('orch.usage.tokens', { value: formatTokenCount((stat.tokensIn ?? 0) + (stat.tokensOut ?? 0)) })}`
-                      : ''}
-                  </span>
-                </div>
-              ))}
-              {lastRetro.learnings.length > 0 && (
-                <ul className="retro-learnings">
-                  {lastRetro.learnings.slice(0, 6).map((learning) => (
-                    <li key={learning.id} title={learning.evidence}>
-                      <span className={learning.kind === 'strength' ? 'retro-up' : 'retro-down'}>
-                        {learning.kind === 'strength' ? '▲' : '▼'}
-                      </span>
-                      {learning.provider}/{learning.model || t('orch.retro.default')}: {learning.insight}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </details>
-        )}
       </div>
+      </PanelSection>
 
+      <PanelSection id="retro" title={'Gelerntes & Routing'}>
+        <RetroRoutingSection lastRetro={lastRetro} slots={profile?.agents} />
+      </PanelSection>
+
+      <PanelSection
+        id="live"
+        title={t('orch.live.caption')}
+        badge={<LiveActivityAge snapshot={store.orchestrator} active={hasActiveWork} />}
+      >
       <div className="live-activity">
-        <div className="live-activity-caption">
-          <span>{t('orch.live.caption')}</span>
-          <LiveActivityAge snapshot={store.orchestrator} active={hasActiveWork} />
-        </div>
         <div className="coordinator-status">
           <span className="coordinator-mark">ORCH</span>
           <div className="coordinator-status-copy">
@@ -794,84 +1051,58 @@ function OrchestratorPanelContent({
           ))}
         </div>
 
-        {boardFindings.length > 0 && (
-          <>
-            <div className="live-workers-head findings-board-head">
-              <span>{t('orch.findings.caption')}</span>
-              <span>
-                {boardFindings.length > MAX_VISIBLE_FINDINGS
-                  ? t('orch.findings.showing', { shown: MAX_VISIBLE_FINDINGS, total: boardFindings.length })
-                  : boardFindings.length === 1
-                    ? t('orch.findings.entryOne', { n: boardFindings.length })
-                    : t('orch.findings.entryMany', { n: boardFindings.length })}
-              </span>
-            </div>
-            <div className="findings-board" title={t('orch.findings.boardTitle')}>
-              {boardFindings.slice(0, MAX_VISIBLE_FINDINGS).map((finding) => (
-                <div key={finding.id} className={`finding-entry kind-${finding.kind}`}>
-                  <div className="finding-head">
-                    <span className="finding-kind">{t(`orch.kind.${finding.kind}`)}</span>
-                    <strong className="finding-title">{finding.title}</strong>
-                    <span className="finding-meta">
-                      {finding.agentName ? <LoreName name={finding.agentName} /> : (finding.role ?? finding.taskId)}
-                      {' · '}
-                      <FindingAge createdAt={finding.createdAt} active={hasActiveWork} />
-                    </span>
-                  </div>
-                  <p className="finding-detail">{finding.detail}</p>
-                  {finding.files?.length ? (
-                    <code className="finding-files" title={t('orch.findings.filesTitle')}>{finding.files.join(', ')}</code>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          </>
-        )}
       </div>
+      </PanelSection>
 
-      <div className="orch-panel-body">
-        <div className="dag-caption">
-          <span>{t('orch.dag.caption')}</span>
-          <span className="tag">DAG</span>
-        </div>
-        <div className="dag-scroll">
-          {tasks.length === 0 ? (
-            <div className="dag-empty">
-              {t('orch.dag.emptyLead')} <code>dispatch_subagent</code> {t('orch.dag.emptyTail')}
-            </div>
-          ) : (
-            tasks.map((task) => (
-              <TaskCard
-                key={task.id}
-                task={task}
-                usage={task.agentId ? usageByAgentId.get(task.agentId) : undefined}
-                profileId={store.activeProfileId}
-                workspaceSessionId={store.activeWorkspaceSessionId ?? undefined}
-                clockActive={hasActiveWork}
-              />
-            ))
-          )}
-        </div>
+      {boardFindings.length > 0 && (
+        <PanelSection
+          id="findings"
+          title={t('orch.findings.caption')}
+          badge={
+            boardFindings.length === 1
+              ? t('orch.findings.entryOne', { n: boardFindings.length })
+              : t('orch.findings.entryMany', { n: boardFindings.length })
+          }
+        >
+          <FindingsBoard findings={boardFindings} clockActive={hasActiveWork} />
+        </PanelSection>
+      )}
 
-        <div className="dispatch">
-          <div className="dispatch-head">
-            <span className="caption">{t('orch.dispatch.caption')}</span>
-            <span className="dot" />
-            <div className="spacer" />
-            <DispatchClock active={hasActiveWork} />
-          </div>
-          <div className="dispatch-body" ref={logRef}>
-            {events.length === 0 && (
-              <div className="dispatch-line tone-muted">{t('orch.dispatch.ready')}</div>
-            )}
-            {events.map((evt, i) => (
-              <div key={i} className={`dispatch-line tone-${evt.tone}`}>
-                <span className="time">{fmtTime(evt.time)}</span> {evt.text}
+      <PanelSection
+        id="tasks"
+        title={t('orch.dag.caption')}
+        badge={<span className="tag">DAG</span>}
+        forceOpen={Boolean(pendingPlan)}
+      >
+        <div className="orch-panel-body">
+          <div className="dag-scroll">
+            {tasks.length === 0 ? (
+              <div className="dag-empty">
+                {t('orch.dag.emptyLead')} <code>dispatch_subagent</code> {t('orch.dag.emptyTail')}
               </div>
-            ))}
+            ) : (
+              tasks.map((task) => (
+                <TaskCard
+                  key={task.id}
+                  task={task}
+                  usage={task.agentId ? usageByAgentId.get(task.agentId) : undefined}
+                  profileId={store.activeProfileId}
+                  workspaceSessionId={store.activeWorkspaceSessionId ?? undefined}
+                  clockActive={hasActiveWork}
+                />
+              ))
+            )}
           </div>
         </div>
-      </div>
+      </PanelSection>
+
+      <PanelSection
+        id="dispatch"
+        title={t('orch.dispatch.caption')}
+        badge={<DispatchClock active={hasActiveWork} />}
+      >
+        <DispatchLog events={events} />
+      </PanelSection>
       </div>
     </section>
   )

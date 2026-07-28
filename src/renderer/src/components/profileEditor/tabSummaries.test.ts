@@ -1,0 +1,187 @@
+import { describe, expect, it } from 'vitest'
+import type { AgentSlot, WorkspaceProfile } from '@shared/profile'
+import {
+  automationTabSummary,
+  modeTabSummary,
+  repoTabSummary,
+  skillsTabSummary,
+  slotsTabSummary,
+  tabSummaries
+} from './tabSummaries'
+
+function slot(patch: Partial<AgentSlot> = {}): AgentSlot {
+  return {
+    role: 'worker',
+    provider: 'codex',
+    model: '',
+    count: 1,
+    orchestrated: true,
+    yolo: false,
+    strengths: [],
+    weaknesses: [],
+    ...patch
+  }
+}
+
+function profile(patch: Partial<WorkspaceProfile> = {}): WorkspaceProfile {
+  return {
+    id: 'p1',
+    name: 'Test',
+    workingDir: '',
+    agents: [],
+    solo: false,
+    skills: [],
+    yoloDefault: false,
+    sandbox: 'none',
+    planner: { mode: 'review', routingMode: 'adaptive', maxParallel: 6, maxRetries: 1 },
+    benchmark: { enabled: false },
+    multiAgent: { enabled: false, stopLosers: true },
+    autoPr: {
+      mode: 'off',
+      strategy: 'aggregate',
+      baseBranch: '',
+      qualityGates: [],
+      securityGateExcludes: [],
+      secretScanner: 'builtin',
+      labels: [],
+      reviewers: []
+    },
+    autoGit: { enabled: false, targetBranch: '' },
+    ...patch
+  }
+}
+
+describe('repoTabSummary', () => {
+  it('prefers the GitHub binding over the local path', () => {
+    const p = profile({
+      workingDir: 'C:\\git\\somewhere-else',
+      githubRepo: {
+        owner: 'uwe',
+        repo: 'dragons',
+        defaultBranch: 'main',
+        localPath: '',
+        cloneStatus: 'linked'
+      }
+    })
+    expect(repoTabSummary(p)).toBe('uwe/dragons')
+  })
+
+  it('falls back to the working directory basename for both path styles', () => {
+    expect(repoTabSummary(profile({ workingDir: 'C:\\git\\vertragus' }))).toBe('vertragus')
+    expect(repoTabSummary(profile({ workingDir: '/home/uwe/vertragus/' }))).toBe('vertragus')
+  })
+
+  it('names the empty state', () => {
+    expect(repoTabSummary(profile())).toBe('Kein Repo verbunden')
+  })
+})
+
+describe('modeTabSummary', () => {
+  it('shows the orchestrated mode with the explicit model', () => {
+    const p = profile({
+      orchestrator: {
+        provider: 'claude',
+        model: 'opus',
+        permissionMode: 'default',
+        autoOpenSubwindows: true
+      }
+    })
+    expect(modeTabSummary(p)).toBe('Orchestriert · claude/opus')
+  })
+
+  it('falls back to the preset, then to the CLI default', () => {
+    const withPreset = profile({
+      orchestrator: {
+        provider: 'claude',
+        model: '',
+        modelPreset: 'balanced',
+        permissionMode: 'default',
+        autoOpenSubwindows: true
+      }
+    })
+    expect(modeTabSummary(withPreset)).toBe('Orchestriert · claude/balanced')
+
+    const cliDefault = profile({
+      orchestrator: {
+        provider: 'kimi',
+        model: '',
+        permissionMode: 'default',
+        autoOpenSubwindows: true
+      }
+    })
+    expect(modeTabSummary(cliDefault)).toBe('Orchestriert · kimi/CLI-Standard')
+  })
+
+  it('shows solo mode with the single slot model', () => {
+    const p = profile({ solo: true, agents: [slot({ provider: 'claude', model: 'sonnet' })] })
+    expect(modeTabSummary(p)).toBe('Efficiency Solo · claude/sonnet')
+    expect(modeTabSummary(profile({ solo: true }))).toBe('Efficiency Solo')
+  })
+
+  it('shows the parallel single mode with slot count and singular form', () => {
+    expect(modeTabSummary(profile({ agents: [slot(), slot()] }))).toBe('Single · 2 Slots parallel')
+    expect(modeTabSummary(profile({ agents: [slot()] }))).toBe('Single · 1 Slot parallel')
+  })
+})
+
+describe('slotsTabSummary', () => {
+  it('counts slots and distinct providers', () => {
+    const p = profile({
+      agents: [slot({ provider: 'claude' }), slot({ provider: 'codex' }), slot({ provider: 'codex' })]
+    })
+    expect(slotsTabSummary(p)).toBe('3 Slots · 2 Provider')
+  })
+
+  it('adds the instance total only when count multiplies the rows', () => {
+    const p = profile({ agents: [slot({ count: 3 }), slot({ provider: 'claude' })] })
+    expect(slotsTabSummary(p)).toBe('2 Slots · 2 Provider · 4 Agents')
+  })
+
+  it('uses the singular and names the empty state', () => {
+    expect(slotsTabSummary(profile({ agents: [slot()] }))).toBe('1 Slot · 1 Provider')
+    expect(slotsTabSummary(profile())).toBe('Keine Slots')
+  })
+})
+
+describe('automationTabSummary', () => {
+  it('combines PR mode/strategy with the auto-git target', () => {
+    const p = profile({
+      autoPr: { ...profile().autoPr, mode: 'draft-after-checks', strategy: 'aggregate' },
+      autoGit: { enabled: true, targetBranch: 'main' }
+    })
+    expect(automationTabSummary(p)).toBe('draft-after-checks · aggregate · Push auf main')
+  })
+
+  it('names both disabled states and a missing target branch', () => {
+    expect(automationTabSummary(profile())).toBe('Auto-PR aus · Auto-Git aus')
+    const missingBranch = profile({ autoGit: { enabled: true, targetBranch: '   ' } })
+    expect(automationTabSummary(missingBranch)).toBe('Auto-PR aus · Push auf ?')
+  })
+})
+
+describe('skillsTabSummary', () => {
+  const skill = {
+    id: 's1',
+    name: 'Deploy',
+    instructions: 'x',
+    source: 'user' as const,
+    createdAt: 0,
+    updatedAt: 0
+  }
+
+  it('counts skills with singular/plural and survives legacy drafts', () => {
+    expect(skillsTabSummary(profile({ skills: [skill] }))).toBe('1 Skill')
+    expect(skillsTabSummary(profile({ skills: [skill, { ...skill, id: 's2' }] }))).toBe('2 Skills')
+    expect(skillsTabSummary(profile({ skills: undefined }))).toBe('Keine Skills')
+  })
+})
+
+describe('tabSummaries', () => {
+  it('returns one line per tab', () => {
+    const all = tabSummaries(profile())
+    expect(Object.keys(all).sort()).toEqual(['automation', 'mode', 'repo', 'skills', 'slots'])
+    for (const line of Object.values(all)) {
+      expect(line.length).toBeGreaterThan(0)
+    }
+  })
+})

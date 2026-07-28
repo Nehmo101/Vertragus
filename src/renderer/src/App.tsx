@@ -19,6 +19,7 @@ import MissionApprovalInbox from '@renderer/components/MissionApprovalInbox'
 import DiffMergeCenter from '@renderer/components/DiffMergeCenter'
 import { SpeechShortcutProvider } from '@renderer/features/speechShortcut/SpeechShortcutProvider'
 import { AppShortcutProvider } from '@renderer/shortcuts/AppShortcutProvider'
+import CommandPalette from '@renderer/components/palette/CommandPalette'
 import VoiceOverlay from '@renderer/components/VoiceOverlay'
 import { useAttentionSignal } from '@renderer/hooks/useAttentionSignal'
 import { useHashRoute } from '@renderer/hooks/useHashRoute'
@@ -137,6 +138,11 @@ export default function App(): JSX.Element {
       {store.handoffSource && <HandoffModal key={store.handoffSource.id} />}
 
       {store.addAgentOpen && <AddAgentModal />}
+
+      {/* Kommandopalette (Mod+K): nur im Hauptfenster gemountet — die
+          #/voice- und #/pane-Zweige returnen oben; den Listener samt Guards
+          bringt die Komponente selbst mit. */}
+      <CommandPalette />
 
       {store.toast && (
         <div className="toast" role="status" aria-live="polite">

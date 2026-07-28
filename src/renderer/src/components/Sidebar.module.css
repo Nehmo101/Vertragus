@@ -38,3 +38,119 @@
     border-width: 2px;
   }
 }
+
+/* ---------- einklappbare Sektions-Header ---------- */
+.sectionToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sectionToggle:hover {
+  color: var(--text-2);
+}
+
+.sectionChevron {
+  width: 1em;
+  flex: none;
+  font-size: 9px;
+  opacity: 0.75;
+}
+
+.sectionToggleLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Attention-Zaehler, der am eingeklappten Sektions-Header sichtbar bleibt. */
+.sectionBadge {
+  flex: none;
+  min-width: 16px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--wait) 55%, transparent);
+  background: color-mix(in srgb, var(--wait) 16%, transparent);
+  color: var(--wait-text);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-align: center;
+  text-transform: none;
+}
+
+/* ---------- Badge-Zaehler an Navigations-Zeilen ---------- */
+.navBadge {
+  flex: none;
+  margin-left: auto;
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--wait) 55%, transparent);
+  background: color-mix(in srgb, var(--wait) 16%, transparent);
+  color: var(--wait-text);
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* ---------- Aktions-Zeile (Diagnose-Export) statt Navigation ---------- */
+.actionRow {
+  margin-top: 6px;
+  border: 1px dashed var(--border-3);
+}
+
+.actionRow:hover {
+  border-style: solid;
+}
+
+.actionRowIcon {
+  color: var(--text-3);
+}
+
+/* ---------- Inline-Aktionen und Fehlerzustand in Infrastruktur-Zeilen ---------- */
+.rowNameWithAction {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.rowEditBtn {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-3);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.rowEditBtn:hover {
+  background: rgba(45, 212, 191, 0.12);
+  color: var(--accent);
+}
+
+.rowRetryBtn {
+  flex: none;
+}
+
+.rowErrorText {
+  color: var(--err-text);
+}

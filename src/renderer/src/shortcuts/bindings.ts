@@ -1,10 +1,11 @@
 import type { ShortcutActionId, ShortcutBinding, ShortcutModifier, ShortcutPlatform } from './types'
 
 /**
- * Bewusst NICHT belegt: „Alle Agents stoppen“ (Mod+Shift+.). Der Bestätigungs-Dialog
- * lebt als lokaler Komponenten-State (`confirmKill`) in TitleBar.tsx und ist von außen
- * nicht auslösbar; ein direkter `stopAll()`-Aufruf würde den Confirm-Flow umgehen.
- * Sobald der Dialog in den Store wandert, kann das Binding hier ergänzt werden.
+ * `agents.stopAll` (Mod+Shift+.) läuft NICHT direkt auf `stopAll()`: Der
+ * Bestätigungs-Dialog lebt weiterhin als lokaler Komponenten-State
+ * (`confirmKill`) in TitleBar.tsx. Der Shortcut ruft `requestStopAll()` im
+ * agentsSlice; die TitleBar beobachtet `stopAllRequestId` und öffnet daraufhin
+ * ihren bestehenden Confirm-Flow — so bleibt die Rückfrage garantiert erhalten.
  */
 export const DEFAULT_SHORTCUT_BINDINGS: Readonly<Record<ShortcutActionId, readonly ShortcutBinding[]>> = {
   'speech.toggle': [{ key: 'm', modifiers: ['Mod', 'Shift'] }],
@@ -16,6 +17,7 @@ export const DEFAULT_SHORTCUT_BINDINGS: Readonly<Record<ShortcutActionId, readon
   'layout.tiles': [{ key: '2', modifiers: ['Mod', 'Alt'] }],
   'layout.focus': [{ key: '3', modifiers: ['Mod', 'Alt'] }],
   'agents.startAll': [{ key: 'Enter', modifiers: ['Mod', 'Shift'] }],
+  'agents.stopAll': [{ key: '.', modifiers: ['Mod', 'Shift'] }],
   'panel.sidebarLeft': [{ key: 'b', modifiers: ['Mod'] }],
   'panel.orchestratorRight': [{ key: 'b', modifiers: ['Mod', 'Alt'] }]
 }

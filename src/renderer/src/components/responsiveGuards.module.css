@@ -59,7 +59,7 @@
 }
 .titlebar > :first-child,
 .titlebar :global(.repo-path),
-.titlebar :global(.profile-btn) {
+.titlebar :global(.repo-btn) {
   min-width: 0;
 }
 .titlebar :global(.repo-path) {
@@ -68,7 +68,7 @@
 }
 .titlebar :global(.repo-path .path),
 .titlebar :global(.branch-pill),
-.titlebar :global(.profile-btn .name) {
+.titlebar :global(.repo-btn .name) {
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
@@ -82,16 +82,9 @@
 
 /* Right-hand control clusters must never be squeezed into each other; drop
    lower-priority info instead (clock first, then subtitle and counter text). */
-.titlebar :global(.lang-switch),
 .titlebar :global(.live-counter),
 .titlebar :global(.yolo-btn) {
   flex: none;
-}
-@media (max-width: 1180px) {
-  .titlebar :global(.live-counter .clock),
-  .titlebar :global(.live-counter .sep) {
-    display: none;
-  }
 }
 
 @container workspace (max-width: 760px) {
@@ -145,12 +138,25 @@
   }
 }
 
-/* Keep the dense title bar usable down to the 900px main-window minimum.
+@media (max-width: 720px) {
+  .inboxPanel :global(.inbox-body) {
+    grid-template-columns: minmax(150px, 38%) minmax(0, 1fr);
+  }
+}
+
+/* Keep the title bar usable down to the 900px main-window minimum. Since the
+   overflow menu ("⋯") absorbed the language/theme/readable/update controls the
+   bar only carries nine clusters, so a single compact stage suffices (the old
+   1320/1020/720px cascade is gone). Widest remaining full layout is ~1150px,
+   hence the stage starts at 1240px; the compact layout measures ~860px and
+   fits the 900px minimum with margin.
    The doubled class raises specificity to (0,2,0) so the compact gap wins over
    the theme's global `.titlebar { gap: 13px }` (cozy-organic.css, loaded last):
-   at equal specificity the theme won and the 13px gaps overflowed the 900px
-   minimum by ~10px, pushing the window controls past the right edge. */
-@media (max-width: 1320px) {
+   at equal specificity the theme won and its 13px gaps overflowed the minimum,
+   pushing the window controls past the right edge. The right-hand clusters are
+   flex:none (a cluster squeezed below min-content paints its children over its
+   neighbors), so width must come out of gaps/paddings/hidden labels instead. */
+@media (max-width: 1240px) {
   .titlebar:global(.titlebar) {
     gap: 8px;
   }
@@ -159,26 +165,18 @@
     min-width: 154px;
   }
   .titlebar :global(.branch-picker) {
-    flex: 0 0 154px;
-    min-width: 154px;
-    max-width: 154px;
     min-height: 28px;
   }
   .titlebar :global(.branch-picker select) {
-    flex: 1 1 80px;
-    min-width: 80px;
-    max-width: 80px;
+    max-width: 100px;
     min-height: 24px;
   }
-  .titlebar :global(.wordmark-sub-label),
-  .titlebar :global(.wordmark-sub-separator),
-  .titlebar :global(.repo-path .path),
+  .titlebar :global(.wordmark-sub),
   .titlebar :global(.live-counter .clock),
   .titlebar :global(.live-counter .sep),
   .titlebar :global(.stop-btn > span),
   .titlebar :global(.yolo-btn .label),
-  .titlebar :global(.self-update-btn > span:last-child),
-  .titlebar :global(.profile-btn .name) {
+  .titlebar :global(.repo-btn .name) {
     display: none;
   }
   .titlebar :global(.tb-divider) {
@@ -187,73 +185,8 @@
   .titlebar :global(.live-counter),
   .titlebar :global(.stop-btn),
   .titlebar :global(.yolo-btn),
-  .titlebar :global(.self-update-btn) {
+  .titlebar :global(.remote-title-badge) {
     padding-left: 9px;
     padding-right: 9px;
-  }
-}
-
-@media (max-width: 720px) {
-  .titlebar :global(.repo-path) {
-    display: flex;
-    flex: 0 0 104px;
-    min-width: 104px;
-    max-width: 104px;
-  }
-  .titlebar :global(.repo-path .git-tree-anchor),
-  .titlebar :global(.branch-picker > span:first-child),
-  .titlebar :global(.branch-picker .dirty-mark) {
-    display: none;
-  }
-  .titlebar :global(.branch-picker) {
-    flex-basis: 104px;
-    min-width: 104px;
-    max-width: 104px;
-  }
-  .titlebar :global(.branch-picker::before) {
-    content: '⑂';
-    flex: none;
-    font-size: 12px;
-  }
-  .titlebar :global(.branch-picker select) {
-    flex-basis: 64px;
-    width: 64px;
-    min-width: 64px;
-    max-width: 64px;
-  }
-  .inboxPanel :global(.inbox-body) {
-    grid-template-columns: minmax(150px, 38%) minmax(0, 1fr);
-  }
-}
-
-/* Compact stage below 1020px. Placed AFTER the 1320px block: at equal
-   specificity the later declaration wins, so the tighter gap and paddings
-   override the 1320px stage. The right-hand clusters are flex:none (a cluster
-   that shrinks below min-content paints its children over its neighbors), so
-   width must come out of gaps/paddings/hidden labels instead. */
-@media (max-width: 1020px) {
-  .titlebar:global(.titlebar) {
-    gap: 5px;
-  }
-  .titlebar :global(.remote-title-badge) {
-    padding-left: 6px;
-    padding-right: 6px;
-  }
-  .titlebar :global(.wordmark-sub) {
-    display: none;
-  }
-  /* Dot-only live indicator; the exact count stays available on wider windows. */
-  .titlebar :global(.live-counter span:not(.pulse-dot)) {
-    display: none;
-  }
-  .titlebar :global(.live-counter) {
-    padding: 5px 6px;
-  }
-  .titlebar :global(.lang-btn) {
-    padding: 3px 6px;
-  }
-  .titlebar :global(.yolo-btn) {
-    padding-left: 8px;
-    padding-right: 8px;
   }
 }

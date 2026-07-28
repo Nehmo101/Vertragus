@@ -29,6 +29,13 @@ import AutoPrSection from './profileEditor/AutoPrSection'
 import AutoGitSection from './profileEditor/AutoGitSection'
 import SkillsSection from './profileEditor/SkillsSection'
 import AgentSlotsSection from './profileEditor/AgentSlotsSection'
+import ProfileEditorTabs, {
+  profileEditorPanelDomId,
+  profileEditorTabDomId,
+  type ProfileEditorTab
+} from './profileEditor/ProfileEditorTabs'
+import { tabSummaries, type ProfileEditorTabId } from './profileEditor/tabSummaries'
+import tabStyles from './profileEditor/ProfileEditorTabs.module.css'
 
 // The multi-agent override helpers moved to profileEditor/; re-exported here so
 // the module's public surface stays unchanged for existing importers.
@@ -39,6 +46,13 @@ export {
   slotWithMultiAgentOverride
 } from './profileEditor/MultiAgentOverrideSelect'
 export type { MultiAgentOverrideChoice } from './profileEditor/MultiAgentOverrideSelect'
+
+/**
+ * Zuletzt aktiver Tab, gemerkt pro App-Sitzung (Modul-Variable, bewusst nicht
+ * persistiert): Wer den Editor schließt und wieder öffnet, landet im selben
+ * Bereich.
+ */
+let lastActiveTab: ProfileEditorTabId = 'repo'
 
 export default function ProfileEditor(): JSX.Element | null {
   // Pick exactly the fields/actions the editor reads (actions are stable in
@@ -67,6 +81,7 @@ export default function ProfileEditor(): JSX.Element | null {
   const initial = store.editorProfile
   const [draft, dispatch] = useReducer(profileDraftReducer, initial)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [activeTab, setActiveTab] = useState<ProfileEditorTabId>(lastActiveTab)
   const [generatingProfile, setGeneratingProfile] = useState(false)
   const [generateStatus, setGenerateStatus] = useState('')
   const [generateElapsed, setGenerateElapsed] = useState(0)
@@ -159,6 +174,11 @@ export default function ProfileEditor(): JSX.Element | null {
     }
   }, [])
 
+  const selectTab = useCallback((id: ProfileEditorTabId): void => {
+    lastActiveTab = id
+    setActiveTab(id)
+  }, [])
+
   const applyLearnings = useCallback(async (): Promise<void> => {
     const draft = draftRef.current
     if (!draft) return
@@ -226,19 +246,49 @@ export default function ProfileEditor(): JSX.Element | null {
     draft.autoGit.targetBranch,
     draft.autoGit.enabled
   )
-  const unavailablePresetCount =
-    (draft.orchestrator &&
-    selectionHasUnavailablePreset(
-      store.models,
-      draft.orchestrator.provider,
-      draft.orchestrator.model,
-      draft.orchestrator.modelPreset
-    )
-      ? 1
-      : 0) +
-    draft.agents.filter((slot) =>
-      selectionHasUnavailablePreset(store.models, slot.provider, slot.model, slot.modelPreset)
-    ).length
+  // Preset-Probleme getrennt nach Tab (Modus vs. Slots), damit der jeweilige
+  // Tab einen Warn-Badge tragen kann; die Summe steuert weiter den Footer.
+  const orchestratorPresetUnavailable = Boolean(
+    draft.orchestrator &&
+      selectionHasUnavailablePreset(
+        store.models,
+        draft.orchestrator.provider,
+        draft.orchestrator.model,
+        draft.orchestrator.modelPreset
+      )
+  )
+  const slotPresetCount = draft.agents.filter((slot) =>
+    selectionHasUnavailablePreset(store.models, slot.provider, slot.model, slot.modelPreset)
+  ).length
+  const unavailablePresetCount = (orchestratorPresetUnavailable ? 1 : 0) + slotPresetCount
+
+  // Eine Zusammenfassungszeile je Tab plus Warn-Badges für Fehler, die sonst
+  // in einem gerade nicht aktiven Tab unentdeckt blieben.
+  const summaries = tabSummaries(draft)
+  const tabs: ProfileEditorTab[] = [
+    { id: 'repo', label: 'Repo & GitHub', summary: summaries.repo },
+    {
+      id: 'mode',
+      label: 'Modus & Orchestrator',
+      summary: summaries.mode,
+      badge: orchestratorPresetUnavailable
+        ? 'Orchestrator-Preset nicht im Live-Katalog'
+        : undefined
+    },
+    {
+      id: 'slots',
+      label: 'Agent-Slots',
+      summary: summaries.slots,
+      badge: slotPresetCount > 0 ? `${slotPresetCount} Preset(s) nicht im Live-Katalog` : undefined
+    },
+    {
+      id: 'automation',
+      label: 'Auto-PR & Git',
+      summary: summaries.automation,
+      badge: autoGitBranchError ? 'Ziel-Branch korrigieren' : undefined
+    },
+    { id: 'skills', label: 'Skills', summary: summaries.skills }
+  ]
 
   return (
     <div className="modal-wrap">
@@ -255,7 +305,8 @@ export default function ProfileEditor(): JSX.Element | null {
           </button>
         </div>
 
-        <div className="modal-body">
+        {/* Immer sichtbar, unabhängig vom aktiven Tab: Profilname + Tab-Leiste. */}
+        <div className={tabStyles.head}>
           <label className="field-label" htmlFor="profile-name">
             Profilname <InfoTip text={HELP.profileName} />
           </label>
@@ -266,80 +317,111 @@ export default function ProfileEditor(): JSX.Element | null {
             value={draft.name}
             onChange={(e) => actions.patchProfile({ name: e.target.value })}
           />
+          <ProfileEditorTabs tabs={tabs} activeTab={activeTab} onSelect={selectTab} />
+        </div>
 
-          <GithubAuthSection
-            githubAuth={store.githubAuth}
-            githubAuthBusy={store.githubAuthBusy}
-            terminalLoginRunning={githubTerminalLoginRunning}
-            onLogin={store.githubLogin}
-            onLogout={store.githubLogout}
-            onTerminalLogin={store.githubTerminalLogin}
-          />
+        <div className="modal-body">
+          {/*
+           * Nur das aktive Panel ist gemountet: die Sektionen sind props-
+           * getrieben über den Draft (der einzige lokale Sektions-State, der
+           * SoloModelHint, lädt sich beim Remount selbst neu), es geht also
+           * kein Zustand verloren — und inaktive Tabs kosten keine Renders.
+           */}
+          <div
+            role="tabpanel"
+            id={profileEditorPanelDomId(activeTab)}
+            aria-labelledby={profileEditorTabDomId(activeTab)}
+          >
+            {activeTab === 'repo' && (
+              <>
+                <GithubAuthSection
+                  githubAuth={store.githubAuth}
+                  githubAuthBusy={store.githubAuthBusy}
+                  terminalLoginRunning={githubTerminalLoginRunning}
+                  onLogin={store.githubLogin}
+                  onLogout={store.githubLogout}
+                  onTerminalLogin={store.githubTerminalLogin}
+                />
 
-          <RepoWorkspaceSection
-            workingDir={draft.workingDir}
-            repoLocalPath={profileRepoLocalPath(draft)}
-            generating={generatingProfile}
-            generateElapsed={generateElapsed}
-            generateStatus={generateStatus}
-            learningsStatus={learningsStatus}
-            onPatchProfile={actions.patchProfile}
-            onGenerateFromRepo={generateFromRepo}
-            onApplyLearnings={applyLearnings}
-          />
+                <RepoWorkspaceSection
+                  workingDir={draft.workingDir}
+                  repoLocalPath={profileRepoLocalPath(draft)}
+                  generating={generatingProfile}
+                  generateElapsed={generateElapsed}
+                  generateStatus={generateStatus}
+                  learningsStatus={learningsStatus}
+                  onPatchProfile={actions.patchProfile}
+                  onGenerateFromRepo={generateFromRepo}
+                  onApplyLearnings={applyLearnings}
+                />
+              </>
+            )}
 
-          <ModeOrchestratorSection
-            orchestrator={draft.orchestrator}
-            solo={draft.solo}
-            soloProvider={draft.agents[0]?.provider}
-            providerEnabled={store.providerEnabled}
-            models={store.models}
-            disabledModels={store.disabledModels}
-            onSetMode={actions.setMode}
-            onPatchOrchestrator={actions.patchOrchestrator}
-          />
+            {activeTab === 'mode' && (
+              <>
+                <ModeOrchestratorSection
+                  orchestrator={draft.orchestrator}
+                  solo={draft.solo}
+                  soloProvider={draft.agents[0]?.provider}
+                  providerEnabled={store.providerEnabled}
+                  models={store.models}
+                  disabledModels={store.disabledModels}
+                  onSetMode={actions.setMode}
+                  onPatchOrchestrator={actions.patchOrchestrator}
+                />
 
-          <PlannerSection
-            planner={draft.planner}
-            benchmarkEnabled={draft.benchmark.enabled}
-            multiAgentEnabled={draft.multiAgent.enabled}
-            hasOrchestrator={hasOrch}
-            onPatchPlanner={actions.patchPlanner}
-            onSetBenchmarkEnabled={actions.setBenchmarkEnabled}
-            onSetMultiAgentEnabled={actions.setMultiAgentEnabled}
-          />
+                <PlannerSection
+                  planner={draft.planner}
+                  benchmarkEnabled={draft.benchmark.enabled}
+                  multiAgentEnabled={draft.multiAgent.enabled}
+                  hasOrchestrator={hasOrch}
+                  onPatchPlanner={actions.patchPlanner}
+                  onSetBenchmarkEnabled={actions.setBenchmarkEnabled}
+                  onSetMultiAgentEnabled={actions.setMultiAgentEnabled}
+                />
+              </>
+            )}
 
-          <AutoPrSection
-            autoPr={draft.autoPr}
-            boundDefaultBranch={draft.githubRepo?.defaultBranch}
-            onPatchAutoPr={actions.patchAutoPr}
-          />
+            {activeTab === 'slots' && (
+              <AgentSlotsSection
+                agents={draft.agents}
+                workspaceWorkingDir={draft.workingDir}
+                multiAgentGlobalEnabled={draft.multiAgent.enabled}
+                providerEnabled={store.providerEnabled}
+                models={store.models}
+                disabledModels={store.disabledModels}
+                onPatchSlot={actions.patchSlot}
+                onSetSlotMultiAgent={actions.setSlotMultiAgent}
+                onRemoveSlot={actions.removeSlot}
+                onAddSlot={actions.addSlot}
+              />
+            )}
 
-          <AutoGitSection
-            autoGit={draft.autoGit}
-            branchError={autoGitBranchError}
-            onPatchAutoGit={actions.patchAutoGit}
-          />
+            {activeTab === 'automation' && (
+              <>
+                <AutoPrSection
+                  autoPr={draft.autoPr}
+                  boundDefaultBranch={draft.githubRepo?.defaultBranch}
+                  onPatchAutoPr={actions.patchAutoPr}
+                />
 
-          <SkillsSection
-            skills={draft.skills}
-            onPatchSkill={actions.patchSkill}
-            onAddSkill={actions.addSkill}
-            onRemoveSkill={actions.removeSkill}
-          />
+                <AutoGitSection
+                  autoGit={draft.autoGit}
+                  branchError={autoGitBranchError}
+                  onPatchAutoGit={actions.patchAutoGit}
+                />
+              </>
+            )}
 
-          <AgentSlotsSection
-            agents={draft.agents}
-            workspaceWorkingDir={draft.workingDir}
-            multiAgentGlobalEnabled={draft.multiAgent.enabled}
-            providerEnabled={store.providerEnabled}
-            models={store.models}
-            disabledModels={store.disabledModels}
-            onPatchSlot={actions.patchSlot}
-            onSetSlotMultiAgent={actions.setSlotMultiAgent}
-            onRemoveSlot={actions.removeSlot}
-            onAddSlot={actions.addSlot}
-          />
+            {activeTab === 'skills' && (
+              <SkillsSection
+                skills={draft.skills}
+                onPatchSkill={actions.patchSkill}
+                onAddSkill={actions.addSkill}
+                onRemoveSkill={actions.removeSkill}
+              />
+            )}
+          </div>
         </div>
 
         {confirmDelete && (

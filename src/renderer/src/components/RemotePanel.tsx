@@ -16,6 +16,7 @@ import {
   presetForCapabilities,
   type RemotePresetId
 } from './remotePresets'
+import ErrorCard from './ui/ErrorCard'
 import styles from './RemotePanel.module.css'
 
 const INITIAL_STATUS: RemoteStatus = {
@@ -102,19 +103,28 @@ export default function RemotePanel(): JSX.Element {
     setDevices(await window.vertragus.remote.listDevices())
   }
 
-  useEffect(() => {
-    const unsubscribe = window.vertragus.remote.onStatus(setStatus)
-    const unsubscribeSessions = window.vertragus.workspaceSessions.onChanged(setSessions)
-    void Promise.all([
+  const loadAll = async (): Promise<void> => {
+    const [nextStatus, nextDevices, nextProfiles, nextSessions] = await Promise.all([
       window.vertragus.remote.status(), window.vertragus.remote.listDevices(),
       window.vertragus.listProfiles(), window.vertragus.workspaceSessions.list()
     ])
-      .then(([nextStatus, nextDevices, nextProfiles, nextSessions]) => {
-        setStatus(nextStatus)
-        setDevices(nextDevices)
-        setProfiles(nextProfiles.map(({ id, name }) => ({ id, name })))
-        setSessions(nextSessions)
-      })
+    setStatus(nextStatus)
+    setDevices(nextDevices)
+    setProfiles(nextProfiles.map(({ id, name }) => ({ id, name })))
+    setSessions(nextSessions)
+  }
+
+  /** Retry for the error card: clear the error and reload the panel data. */
+  const retryLoad = (): void => {
+    setError(undefined)
+    void loadAll().catch((value) => setError(errorMessage(value)))
+  }
+
+  useEffect(() => {
+    const unsubscribe = window.vertragus.remote.onStatus(setStatus)
+    const unsubscribeSessions = window.vertragus.workspaceSessions.onChanged(setSessions)
+    void Promise.resolve()
+      .then(() => loadAll())
       .catch((value) => setError(errorMessage(value)))
     return () => { unsubscribe(); unsubscribeSessions() }
   }, [])
@@ -193,7 +203,15 @@ export default function RemotePanel(): JSX.Element {
         </span>
       </header>
 
-      {error && <div className="remote-error" role="alert">{error}</div>}
+      {error && (
+        <ErrorCard
+          title="Aktion fehlgeschlagen"
+          detail={error}
+          onRetry={retryLoad}
+          retryLabel="Neu laden"
+          retryDisabled={busy}
+        />
+      )}
 
       <section className="remote-card remote-setup">
         <div>

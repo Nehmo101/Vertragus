@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import {
   useAppStore,
   activeProfile,
@@ -10,8 +10,12 @@ import {
 } from '@renderer/store/useAppStore'
 import AgentPane from '@renderer/components/AgentPane'
 import CanvasBoard from '@renderer/components/CanvasBoard'
+import Spinner from '@renderer/components/ui/Spinner'
 import { useLayoutStore } from '@renderer/store/layoutStore'
 import styles from './responsiveGuards.module.css'
+
+/** After this many ms the workspace renders normally even if init() never finished. */
+const BOOTSTRAP_TIMEOUT_MS = 10_000
 
 // '◈' statt '⌘': das Befehlssymbol kollidiert auf dem Mac mit der Cmd-Taste.
 const LAYOUTS: Array<{ id: WorkspaceLayout; icon: string; fallback: string }> = [
@@ -22,6 +26,7 @@ const LAYOUTS: Array<{ id: WorkspaceLayout; icon: string; fallback: string }> = 
 
 export default function Workspace(): JSX.Element {
   const { t } = useTranslation()
+  const bootstrapped = useAppStore((state) => state.bootstrapped)
   const profiles = useAppStore((state) => state.profiles)
   const activeProfileId = useAppStore((state) => state.activeProfileId)
   const activeWorkspaceSessionId = useAppStore((state) => state.activeWorkspaceSessionId)
@@ -62,6 +67,39 @@ export default function Workspace(): JSX.Element {
       markCanvasAutoCollapseDone()
     }
   }, [workspaceLayout, canvasAutoCollapseDone, collapseSidebar, markCanvasAutoCollapseDone])
+
+  // App-start loading state: while the one-time store bootstrap runs, showing
+  // "0 agents" plus the empty hero would be misleading. Show a centered
+  // spinner instead — with a hard timeout so a stuck init() never blocks the
+  // workspace forever.
+  const [bootstrapTimedOut, setBootstrapTimedOut] = useState(false)
+  useEffect(() => {
+    if (bootstrapped) return
+    const timer = setTimeout(() => setBootstrapTimedOut(true), BOOTSTRAP_TIMEOUT_MS)
+    return () => clearTimeout(timer)
+  }, [bootstrapped])
+
+  if (!bootstrapped && !bootstrapTimedOut) {
+    return (
+      <main
+        className={`workspace ${styles.workspace} workspace-${workspaceLayout}`}
+        aria-label={t('workspace.aria')}
+      >
+        <div
+          className="ws-scroll"
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        >
+          <div
+            role="status"
+            style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-2)', fontSize: 14 }}
+          >
+            {/* i18n-spaeter: umlautfreier Text, bis die i18n-Welle ihn in die locales hebt. */}
+            <Spinner /> Lade Workspace…
+          </div>
+        </div>
+      </main>
+    )
+  }
 
   return (
     <main

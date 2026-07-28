@@ -37,6 +37,12 @@ export interface LayoutStore {
   canvasAutoCollapseDone: boolean
   /** Persisted xterm font size per agent pane, keyed by agent id. */
   paneFontSizes: Record<string, number>
+  /**
+   * Collapse state of the sidebar sections, keyed by section id. Only collapsed
+   * sections are stored (`false`); a missing key means "open" (the default), so
+   * older persisted payloads without this field stay valid.
+   */
+  sidebarSections: Record<string, boolean>
   setWidth: (id: PanelId, width: number) => void
   toggleCollapsed: (id: PanelId) => void
   collapse: (id: PanelId, collapsed: boolean) => void
@@ -46,6 +52,7 @@ export interface LayoutStore {
   markCanvasAutoCollapseDone: () => void
   setPaneFontSize: (agentId: string, size: number) => void
   resetPaneFontSize: (agentId: string) => void
+  toggleSidebarSection: (sectionId: string) => void
 }
 
 function createDefaultLayouts(): PanelLayouts {
@@ -144,6 +151,34 @@ export function parsePersistedPaneFontSizes(raw: string | null): Record<string, 
   }
 }
 
+/**
+ * Reads persisted sidebar-section collapse states. Only explicit `false`
+ * (collapsed) entries are kept — `true` equals the "open" default and would
+ * only bloat the payload; non-boolean values are dropped defensively.
+ */
+export function parsePersistedSidebarSections(raw: string | null): Record<string, boolean> {
+  if (raw === null) return {}
+  try {
+    const persisted: unknown = JSON.parse(raw)
+    if (!isRecord(persisted) || !isRecord(persisted.sidebarSections)) return {}
+    const sections: Record<string, boolean> = {}
+    for (const [sectionId, open] of Object.entries(persisted.sidebarSections)) {
+      if (open === false) sections[sectionId] = false
+    }
+    return sections
+  } catch {
+    return {}
+  }
+}
+
+/** Whether one sidebar section is open; missing entries default to open. */
+export function sidebarSectionOpen(
+  state: Pick<LayoutStore, 'sidebarSections'>,
+  sectionId: string
+): boolean {
+  return state.sidebarSections[sectionId] !== false
+}
+
 function getLayoutStorage(): Storage | undefined {
   try {
     return typeof localStorage === 'undefined' ? undefined : localStorage
@@ -156,13 +191,15 @@ interface PersistedLayoutState {
   panels: PanelLayouts
   canvasAutoCollapseDone: boolean
   paneFontSizes: Record<string, number>
+  sidebarSections: Record<string, boolean>
 }
 
 function loadLayouts(): PersistedLayoutState {
   const defaults: PersistedLayoutState = {
     panels: createDefaultLayouts(),
     canvasAutoCollapseDone: false,
-    paneFontSizes: {}
+    paneFontSizes: {},
+    sidebarSections: {}
   }
   const storage = getLayoutStorage()
   if (!storage) return defaults
@@ -172,7 +209,8 @@ function loadLayouts(): PersistedLayoutState {
     return {
       panels: parsePersistedLayout(raw),
       canvasAutoCollapseDone: parsePersistedCanvasFlag(raw),
-      paneFontSizes: parsePersistedPaneFontSizes(raw)
+      paneFontSizes: parsePersistedPaneFontSizes(raw),
+      sidebarSections: parsePersistedSidebarSections(raw)
     }
   } catch {
     return defaults
@@ -186,6 +224,7 @@ function persistLayouts(state: PersistedLayoutState): void {
     const payload: Record<string, unknown> = { panels: state.panels }
     if (state.canvasAutoCollapseDone) payload.canvasAutoCollapseDone = true
     if (Object.keys(state.paneFontSizes).length > 0) payload.paneFontSizes = state.paneFontSizes
+    if (Object.keys(state.sidebarSections).length > 0) payload.sidebarSections = state.sidebarSections
     getLayoutStorage()?.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(payload))
   } catch {
     // Layout persistence is best-effort; an unavailable storage must not break the renderer.
@@ -244,6 +283,16 @@ export const useLayoutStore = create<LayoutStore>((set, get) => ({
       const next = { ...state.paneFontSizes }
       delete next[agentId]
       return { paneFontSizes: next }
+    })
+    persistLayouts(get())
+  },
+  toggleSidebarSection: (sectionId) => {
+    set((state) => {
+      const next = { ...state.sidebarSections }
+      // Open is the default: re-opening removes the key instead of storing `true`.
+      if (next[sectionId] === false) delete next[sectionId]
+      else next[sectionId] = false
+      return { sidebarSections: next }
     })
     persistLayouts(get())
   }

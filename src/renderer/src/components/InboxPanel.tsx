@@ -43,6 +43,12 @@ import {
   sortedIdeaHistory,
   workspaceReferences
 } from './inboxArchive'
+import {
+  collectIdeaStatuses,
+  collectIdeaTags,
+  filterIdeas,
+  hasActiveFilter
+} from './inboxFilter'
 import styles from './responsiveGuards.module.css'
 import archiveStyles from './InboxPanel.module.css'
 
@@ -281,7 +287,32 @@ export default function InboxPanel(): JSX.Element {
   const promptSessionRef = useRef(promptSession)
   const activePromptRef = useRef<{ requestId: string; generation: number }>()
   const titleInputRef = useRef<HTMLInputElement>(null)
-  const visibleIdeas = ideasForView(ideas, view)
+  // List filters (search + status + tag); pure logic lives in inboxFilter.ts.
+  const [query, setQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState<IdeaStatus | null>(null)
+  const [tagFilter, setTagFilter] = useState<string | null>(null)
+  const visibleIdeas = useMemo(() => ideasForView(ideas, view), [ideas, view])
+  const filterCriteria = useMemo(
+    () => ({ query, status: statusFilter, tag: tagFilter }),
+    [query, statusFilter, tagFilter]
+  )
+  const filteredIdeas = useMemo(
+    () => filterIdeas(visibleIdeas, filterCriteria),
+    [visibleIdeas, filterCriteria]
+  )
+  const availableStatuses = useMemo(() => collectIdeaStatuses(visibleIdeas), [visibleIdeas])
+  const availableTags = useMemo(() => {
+    const tags = collectIdeaTags(visibleIdeas)
+    // Keep a stale tag selection visible in the dropdown until it is cleared.
+    return tagFilter && !tags.includes(tagFilter) ? [tagFilter, ...tags] : tags
+  }, [visibleIdeas, tagFilter])
+  const filtersActive = hasActiveFilter(filterCriteria)
+
+  const resetFilters = (): void => {
+    setQuery('')
+    setStatusFilter(null)
+    setTagFilter(null)
+  }
 
   const commitPromptSession = (next: PromptEnhancementSession): void => {
     promptSessionRef.current = next
@@ -449,6 +480,7 @@ export default function InboxPanel(): JSX.Element {
   const selectView = (nextView: IdeaArchiveView): void => {
     if (nextView === view) return
     closePromptReview(false)
+    resetFilters()
     const first = ideasForView(ideas, nextView)[0]
     setView(nextView)
     setSelectedId(first?.id ?? null)
@@ -732,7 +764,7 @@ export default function InboxPanel(): JSX.Element {
 
   return (
     <main
-      className={`inbox-panel ${styles.inboxPanel}`}
+      className={`inbox-panel ${styles.inboxPanel} ${archiveStyles.panel}`}
       aria-label={view === 'archive' ? t('inbox.ariaArchive') : t('inbox.ariaInbox')}
     >
       <div className="inbox-header">
@@ -862,39 +894,114 @@ export default function InboxPanel(): JSX.Element {
         </section>
       )}
 
-      <div className="inbox-body">
-        <aside className="inbox-list">
-          {loading && <div className="inbox-empty">{t('inbox.loading')}</div>}
-          {!loading && visibleIdeas.length === 0 && (
-            <div className="inbox-empty">
-              {view === 'archive' ? t('inbox.emptyArchive') : t('inbox.emptyInbox')}
-            </div>
-          )}
-          {visibleIdeas.map((idea) => (
-            <button
-              type="button"
-              key={idea.id}
-              className={`inbox-row ${idea.id === selectedId ? 'active' : ''}`}
-              onClick={() => selectIdea(idea)}
-            >
-              <div className="row-title">{idea.title}</div>
-              <div className="row-meta">
-                <span className="status">{statusLabel(t, idea.status)}</span>
-                <span>
-                  {ideaTimestampLabel(view)} {formatIdeaDate(ideaTimestamp(idea, view))}
-                </span>
+      <div className={`inbox-body ${archiveStyles.splitBody}`}>
+        <aside className={`inbox-list ${archiveStyles.listPane}`}>
+          <div className={archiveStyles.filterBar}>
+            <label className={archiveStyles.searchField}>
+              <span className={archiveStyles.filterLabel}>{'Suche' /* i18n-spaeter */}</span>
+              <input
+                type="search"
+                className={archiveStyles.searchInput}
+                value={query}
+                placeholder={'Titel oder Inhalt' /* i18n-spaeter */}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </label>
+            {availableStatuses.length > 1 && (
+              <div
+                className={archiveStyles.chipRow}
+                role="group"
+                aria-label={'Status-Filter' /* i18n-spaeter */}
+              >
+                {availableStatuses.map((status) => (
+                  <button
+                    key={status}
+                    type="button"
+                    className={`${archiveStyles.filterChip} ${
+                      statusFilter === status ? archiveStyles.filterChipActive : ''
+                    }`}
+                    aria-pressed={statusFilter === status}
+                    onClick={() =>
+                      setStatusFilter(statusFilter === status ? null : status)
+                    }
+                  >
+                    {statusLabel(t, status)}
+                  </button>
+                ))}
               </div>
-              {idea.tags.length > 0 && (
-                <div className="row-tags">
-                  {idea.tags.map((tag) => (
-                    <span key={tag} className="tag">
-                      {tag}
+            )}
+            <label className={archiveStyles.tagField}>
+              <span className={archiveStyles.filterLabel}>{'Tag' /* i18n-spaeter */}</span>
+              <select
+                className={archiveStyles.tagSelect}
+                value={tagFilter ?? ''}
+                disabled={availableTags.length === 0 && !tagFilter}
+                onChange={(e) => setTagFilter(e.target.value || null)}
+              >
+                <option value="">{'Alle' /* i18n-spaeter */}</option>
+                {availableTags.map((tag) => (
+                  <option key={tag} value={tag}>
+                    {tag}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className={archiveStyles.filterCount} aria-live="polite">
+              {`${filteredIdeas.length} von ${visibleIdeas.length}` /* i18n-spaeter */}
+            </div>
+          </div>
+          <div
+            role="list"
+            className={archiveStyles.ideaList}
+            aria-label={view === 'archive' ? t('inbox.tabArchive') : t('inbox.tabInbox')}
+          >
+            {loading && <div className="inbox-empty">{t('inbox.loading')}</div>}
+            {!loading && visibleIdeas.length === 0 && (
+              <div className="inbox-empty">
+                {view === 'archive' ? t('inbox.emptyArchive') : t('inbox.emptyInbox')}
+              </div>
+            )}
+            {!loading && visibleIdeas.length > 0 && filteredIdeas.length === 0 && (
+              <div className="inbox-empty">
+                <div>{'Keine Treffer' /* i18n-spaeter */}</div>
+                <button
+                  type="button"
+                  className={archiveStyles.filterReset}
+                  disabled={!filtersActive}
+                  onClick={resetFilters}
+                >
+                  {'Filter aufheben' /* i18n-spaeter */}
+                </button>
+              </div>
+            )}
+            {filteredIdeas.map((idea) => (
+              <div role="listitem" key={idea.id} className={archiveStyles.listItem}>
+                <button
+                  type="button"
+                  className={`inbox-row ${idea.id === selectedId ? 'active' : ''}`}
+                  aria-current={idea.id === selectedId ? 'true' : undefined}
+                  onClick={() => selectIdea(idea)}
+                >
+                  <div className="row-title">{idea.title}</div>
+                  <div className="row-meta">
+                    <span className="status">{statusLabel(t, idea.status)}</span>
+                    <span>
+                      {ideaTimestampLabel(view)} {formatIdeaDate(ideaTimestamp(idea, view))}
                     </span>
-                  ))}
-                </div>
-              )}
-            </button>
-          ))}
+                  </div>
+                  {idea.tags.length > 0 && (
+                    <div className="row-tags">
+                      {idea.tags.map((tag) => (
+                        <span key={tag} className="tag">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </button>
+              </div>
+            ))}
+          </div>
         </aside>
 
         <section className="inbox-editor">

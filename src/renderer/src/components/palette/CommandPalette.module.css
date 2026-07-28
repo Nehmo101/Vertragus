@@ -1,0 +1,59 @@
+/*
+ * Command palette chrome on top of the Modal 'sm' dialog. The dialog is a flex
+ * child of the centered modal wrap, so align-self pins it to the upper third
+ * like typical command palettes instead of dead-center.
+ */
+
+.palette {
+  align-self: flex-start;
+  margin-top: 10vh;
+}
+
+.input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 14px 16px;
+  border: none;
+  border-bottom: 1px solid var(--border-5);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-1);
+  font: inherit;
+  font-size: 14px;
+}
+
+.input:focus {
+  outline: none;
+}
+
+.input::placeholder {
+  color: var(--text-4);
+}
+
+.list {
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  max-height: min(46vh, 380px);
+  overflow-y: auto;
+}
+
+.item {
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.itemActive {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent-light);
+}
+
+.empty {
+  padding: 14px 16px 16px;
+  color: var(--text-3);
+  font-size: 13px;
+}
