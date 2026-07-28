@@ -4,9 +4,29 @@
  * sections can call them without subscribing to the store themselves.
  */
 import type { AgentProviderId, DisabledModels } from '@shared/providers'
-import type { ModelPreset } from '@shared/models'
+import type { ModelPreset, ModelSelection } from '@shared/models'
+import { MODEL_PRESET_LABELS } from '@shared/models'
 import type { ModelCatalog } from '@renderer/modelCatalog'
 import { modelPresetAvailability } from '@renderer/modelCatalog'
+
+/** Minimal translate signature so i18next's `t` can be passed straight through. */
+export type ModelTranslate = (key: string, options?: Record<string, unknown>) => string
+
+/** Localized preset label; falls back to the shared (German-authored) constant. */
+export function presetLabel(t: ModelTranslate, preset: ModelPreset): string {
+  return t(`profile.preset.${preset}`, { defaultValue: MODEL_PRESET_LABELS[preset] })
+}
+
+/** Localized twin of @shared/models#formatModelLabel (resolved model or CLI default). */
+export function effectiveModelLabel(
+  t: ModelTranslate,
+  resolved: string,
+  sel?: ModelSelection
+): string {
+  if (resolved) return resolved
+  if (sel?.modelPreset) return `${t('profile.cliDefault')} (${presetLabel(t, sel.modelPreset)})`
+  return t('profile.cliDefault')
+}
 
 /** Catalog models of a provider minus the user-disabled ones (case-insensitive). */
 export function availableModels(

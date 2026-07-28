@@ -1,13 +1,8 @@
 import { memo, useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { OrchestratorConfig } from '@shared/profile'
 import type { AgentProviderId, DisabledModels, ProviderEnabled } from '@shared/providers'
-import {
-  MODEL_PRESETS,
-  MODEL_PRESET_LABELS,
-  formatModelLabel,
-  modelAfterProviderChange,
-  resolveModel
-} from '@shared/models'
+import { MODEL_PRESETS, modelAfterProviderChange, resolveModel } from '@shared/models'
 import { recommendSoloModel } from '@shared/retro/soloModel'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import InfoTip from '@renderer/components/InfoTip'
@@ -16,7 +11,7 @@ import ClaudePermissionModeSelect from '@renderer/components/ClaudePermissionMod
 import ModelCombo from '@renderer/components/ModelCombo'
 import type { ModelCatalog } from '@renderer/modelCatalog'
 import { HELP } from './help'
-import { availableModels, parsePreset, presetAvailable, presetValue } from './modelSelection'
+import { availableModels, effectiveModelLabel, parsePreset, presetAvailable, presetLabel, presetValue } from './modelSelection'
 import type { ProfileEditorMode } from './draftReducer'
 
 const ORCHESTRATOR_PROVIDERS: AgentProviderId[] = ['claude', 'kimi', 'codex', 'copilot']
@@ -26,6 +21,7 @@ const ORCHESTRATOR_PROVIDERS: AgentProviderId[] = ['claude', 'kimi', 'codex', 'c
  * Pure hint — the user always keeps the final model choice.
  */
 function SoloModelHint({ provider }: { provider?: AgentProviderId }): JSX.Element | null {
+  const { t } = useTranslation()
   const [hint, setHint] = useState<string | null>(null)
   useEffect(() => {
     let cancelled = false
@@ -39,7 +35,10 @@ function SoloModelHint({ provider }: { provider?: AgentProviderId }): JSX.Elemen
         if (!cancelled) {
           setHint(
             best
-              ? `Empfohlen laut Benchmarks/Retros: ${best.provider}${best.model ? ` · ${best.model}` : ' (CLI-Standard)'} — ${best.rationale}`
+              ? t('profile.mode.soloHint', {
+                  model: `${best.provider}${best.model ? ` · ${best.model}` : ` (${t('profile.cliDefault')})`}`,
+                  rationale: best.rationale
+                })
               : null
           )
         }
@@ -50,7 +49,7 @@ function SoloModelHint({ provider }: { provider?: AgentProviderId }): JSX.Elemen
     return () => {
       cancelled = true
     }
-  }, [provider])
+  }, [provider, t])
   if (!hint) return null
   return (
     <div className="model-effective" aria-live="polite" style={{ marginBottom: 8 }}>
@@ -71,7 +70,7 @@ interface ModeOrchestratorSectionProps {
   onPatchOrchestrator: (patch: Partial<OrchestratorConfig>) => void
 }
 
-/** Modus-Umschalter (Orchestriert/Single/Efficiency Solo) plus Orchestrator-Konfiguration. */
+/** Mode switch (orchestrated/single/efficiency solo) plus orchestrator configuration. */
 const ModeOrchestratorSection = memo(function ModeOrchestratorSection({
   orchestrator,
   solo,
@@ -82,6 +81,7 @@ const ModeOrchestratorSection = memo(function ModeOrchestratorSection({
   onSetMode,
   onPatchOrchestrator
 }: ModeOrchestratorSectionProps): JSX.Element {
+  const { t } = useTranslation()
   const orchestratorModels = orchestrator
     ? availableModels(models, disabledModels, orchestrator.provider)
     : []
@@ -89,29 +89,29 @@ const ModeOrchestratorSection = memo(function ModeOrchestratorSection({
   return (
     <>
       <div className="field-label" style={{ marginBottom: 8 }}>
-        Modus <InfoTip text={HELP.mode} />
+        {t('profile.mode.label')} <InfoTip text={t(HELP.mode)} />
       </div>
       <div className="mode-toggle">
         <button type="button"
           className={orchestrator ? 'active' : ''}
           onClick={() => onSetMode('orchestrated')}
         >
-          🪄 Orchestriert
-          <span>ein Orchestrator delegiert an Subagents</span>
+          🪄 {t('profile.mode.orchestrated')}
+          <span>{t('profile.mode.orchestratedSub')}</span>
         </button>
         <button type="button"
           className={!orchestrator && !solo ? 'active' : ''}
           onClick={() => onSetMode('single')}
         >
-          ⚡ Single
-          <span>alle Slots laufen parallel, kein Orchestrator</span>
+          ⚡ {t('profile.mode.single')}
+          <span>{t('profile.mode.singleSub')}</span>
         </button>
         <button type="button"
           className={!orchestrator && solo ? 'active' : ''}
           onClick={() => onSetMode('solo')}
         >
-          🎯 Efficiency Solo
-          <span>ein Agent arbeitet direkt, minimaler Tokenverbrauch</span>
+          🎯 {t('profile.mode.solo')}
+          <span>{t('profile.mode.soloSub')}</span>
         </button>
       </div>
       {!orchestrator && solo && <SoloModelHint provider={soloProvider} />}
@@ -120,7 +120,7 @@ const ModeOrchestratorSection = memo(function ModeOrchestratorSection({
           <span className="avatar">◇</span>
           <div style={{ flex: 1 }}>
             <div className="select-label">
-              Provider <InfoTip text={HELP.orchestratorProvider} />
+              {t('profile.mode.provider')} <InfoTip text={t(HELP.orchestratorProvider)} />
             </div>
             <select
               className="select"
@@ -153,7 +153,7 @@ const ModeOrchestratorSection = memo(function ModeOrchestratorSection({
           {orchestrator.provider === 'claude' && (
             <div style={{ flex: 1.4 }}>
               <div className="select-label">
-                Claude-Modus <InfoTip text={HELP.permissionMode} />
+                {t('profile.mode.claudeMode')} <InfoTip text={t(HELP.permissionMode)} />
               </div>
               <ClaudePermissionModeSelect
                 id="orchestrator-permission-mode"
@@ -164,20 +164,20 @@ const ModeOrchestratorSection = memo(function ModeOrchestratorSection({
           )}
           <div style={{ flex: 0.9 }}>
             <div className="select-label">
-              Preset <InfoTip text={HELP.modelPreset} />
+              {t('profile.mode.preset')} <InfoTip text={t(HELP.modelPreset)} />
             </div>
             <select
               className="select"
               value={presetValue(orchestrator.modelPreset)}
               onChange={(e) => onPatchOrchestrator({ modelPreset: parsePreset(e.target.value) })}
             >
-              <option value="">Legacy (CLI)</option>
+              <option value="">{t('profile.mode.legacyCli')}</option>
               {MODEL_PRESETS.map((preset) => {
                 const available = presetAvailable(models, orchestrator.provider, preset)
                 return (
                   <option key={preset} value={preset} disabled={!available}>
-                    {MODEL_PRESET_LABELS[preset]}
-                    {!available ? ' (nicht verfügbar)' : ''}
+                    {presetLabel(t, preset)}
+                    {!available ? t('profile.mode.presetUnavailable') : ''}
                   </option>
                 )
               })}
@@ -185,8 +185,8 @@ const ModeOrchestratorSection = memo(function ModeOrchestratorSection({
           </div>
           <div style={{ flex: 1 }}>
             <div className="select-label">
-              Modell <InfoTip text={HELP.model} />
-              <span className="model-count" title="verfügbare Modelle dieses Providers (frei eingebbar)">
+              {t('profile.mode.model')} <InfoTip text={t(HELP.model)} />
+              <span className="model-count" title={t('profile.mode.modelCountTitle')}>
                 {orchestratorModels.length}
               </span>
             </div>
@@ -202,20 +202,18 @@ const ModeOrchestratorSection = memo(function ModeOrchestratorSection({
               catalog={models[orchestrator.provider]}
             />
             <div className="model-effective" aria-live="polite">
-              Effektiv:{' '}
-              {formatModelLabel(
+              {t('profile.mode.effective')}{' '}
+              {effectiveModelLabel(
+                t,
                 resolveModel(orchestrator.provider, orchestrator),
                 orchestrator
               )}
             </div>
           </div>
-          <div className="orch-note">steuert Subagents</div>
+          <div className="orch-note">{t('profile.mode.controlsSubagents')}</div>
         </div>
       ) : (
-        <div className="single-hint">
-          Kein Orchestrator — beim Start laufen alle Subagent-Slots (mit ihrer Anzahl) parallel
-          als eigenständige, interaktive Agents.
-        </div>
+        <div className="single-hint">{t('profile.mode.singleHint')}</div>
       )}
     </>
   )

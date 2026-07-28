@@ -90,6 +90,62 @@ describe('layoutStore persistence', () => {
     })
   })
 
+  it('defaults sidebar sections to open, persists collapsed ones and round-trips', async () => {
+    const firstLoad = await import('./layoutStore')
+    const { useLayoutStore, sidebarSectionOpen, LAYOUT_STORAGE_KEY } = firstLoad
+
+    expect(useLayoutStore.getState().sidebarSections).toEqual({})
+    expect(sidebarSectionOpen(useLayoutStore.getState(), 'navigation')).toBe(true)
+
+    useLayoutStore.getState().toggleSidebarSection('navigation')
+    useLayoutStore.getState().toggleSidebarSection('mcp')
+
+    expect(sidebarSectionOpen(useLayoutStore.getState(), 'navigation')).toBe(false)
+    expect(JSON.parse(storage.getItem(LAYOUT_STORAGE_KEY) ?? '{}')).toEqual({
+      panels: {
+        'sidebar-left': { width: 300, collapsed: false },
+        'orchestrator-right': { width: 360, collapsed: false }
+      },
+      sidebarSections: { navigation: false, mcp: false }
+    })
+
+    vi.resetModules()
+    const secondLoad = await import('./layoutStore')
+    const reloaded = secondLoad.useLayoutStore.getState()
+
+    expect(reloaded.sidebarSections).toEqual({ navigation: false, mcp: false })
+    expect(secondLoad.sidebarSectionOpen(reloaded, 'navigation')).toBe(false)
+    expect(secondLoad.sidebarSectionOpen(reloaded, 'ai-providers')).toBe(true)
+  })
+
+  it('drops the sidebarSections payload key again once every section is re-opened', async () => {
+    const { useLayoutStore, LAYOUT_STORAGE_KEY } = await import('./layoutStore')
+
+    useLayoutStore.getState().toggleSidebarSection('infrastructure')
+    useLayoutStore.getState().toggleSidebarSection('infrastructure')
+
+    expect(useLayoutStore.getState().sidebarSections).toEqual({})
+    const persisted = JSON.parse(storage.getItem(LAYOUT_STORAGE_KEY) ?? '{}') as Record<
+      string,
+      unknown
+    >
+    expect('sidebarSections' in persisted).toBe(false)
+  })
+
+  it('parses legacy or malformed sidebarSections payloads defensively', async () => {
+    const { parsePersistedSidebarSections } = await import('./layoutStore')
+
+    expect(parsePersistedSidebarSections(null)).toEqual({})
+    expect(parsePersistedSidebarSections('{not-json')).toEqual({})
+    // Payloads von vor dieser Welle haben den Key schlicht nicht → alles offen.
+    expect(parsePersistedSidebarSections(JSON.stringify({ panels: {} }))).toEqual({})
+    expect(
+      parsePersistedSidebarSections(
+        JSON.stringify({ sidebarSections: { navigation: false, mcp: true, weird: 'yes', n: 1 } })
+      )
+    ).toEqual({ navigation: false })
+  })
+
   it('falls back to defaults for malformed or invalid persisted data', async () => {
     storage.setItem('orca.layout.v1', '{not-json')
     const malformedLoad = await import('./layoutStore')

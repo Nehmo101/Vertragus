@@ -13,6 +13,32 @@
   background: var(--inset);
 }
 
+/* Layout-Schalter: Icon + sichtbarer Text statt reiner Glyphen. Überschreibt
+   die icon-only-Regeln aus styles.css (canvas.css lädt danach). */
+.layout-btn {
+  width: auto;
+  height: 28px;
+  padding: 0 10px;
+  gap: 6px;
+  font-size: 11px;
+}
+.layout-btn .layout-btn-label {
+  position: static;
+  width: auto;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+  clip: auto;
+  white-space: nowrap;
+}
+
+/* Caronte-Toggle: Funktions-Zusatz dezenter als der Lore-Name. */
+.canvas-orch-toggle-role {
+  color: var(--text-3);
+  font-size: 10.5px;
+}
+
 /* Canvas-first shell: the board owns all remaining workspace space. */
 .body-row.layout-canvas .app-content { min-width: 0; }
 .workspace-canvas { position: relative; padding: 0; }
@@ -407,6 +433,12 @@
 }
 .canvas-node--task.drop-target {
   outline: 2px dashed var(--sage);
+  outline-offset: 3px;
+}
+
+/* Tastaturpfad: sichtbarer Fokusring auf fokussierten Task-Knoten. */
+.canvas-node--task:focus-visible {
+  outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
 @media (prefers-reduced-motion: no-preference) {

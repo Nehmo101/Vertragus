@@ -57,7 +57,7 @@ export type TaskCompletion =
   | { kind: 'no-changes' }
 
 export interface TaskGateFinding {
-  gate: 'security' | 'quality' | 'commit' | 'preflight'
+  gate: 'security' | 'quality' | 'commit' | 'preflight' | 'permission'
   code: string
   message: string
   files?: string[]

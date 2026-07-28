@@ -1,4 +1,5 @@
 import { memo } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { GithubAuthStatus } from '@shared/ipc'
 import InfoTip from '@renderer/components/InfoTip'
 import {
@@ -17,7 +18,7 @@ interface GithubAuthSectionProps {
   onTerminalLogin: () => void
 }
 
-/** GitHub-Verbindung: OAuth status plus Verbinden/Abmelden/PTY actions. */
+/** GitHub-Verbindung: OAuth status plus Verbinden/Abmelden/Terminal-Login actions. */
 const GithubAuthSection = memo(function GithubAuthSection({
   githubAuth,
   githubAuthBusy,
@@ -26,6 +27,7 @@ const GithubAuthSection = memo(function GithubAuthSection({
   onLogout,
   onTerminalLogin
 }: GithubAuthSectionProps): JSX.Element {
+  const { t } = useTranslation()
   // The OAuth status crosses the IPC bridge from main; validate its shape before
   // any connect/login action trusts it. A malformed payload is rejected, not used.
   let githubAuthError = ''
@@ -42,7 +44,7 @@ const GithubAuthSection = memo(function GithubAuthSection({
   return (
     <section className="github-repo-field" aria-labelledby="github-auth-heading">
       <div className="field-label" id="github-auth-heading">
-        GitHub-Verbindung <InfoTip text={HELP.githubAuth} />
+        {t('profile.github.heading')} <InfoTip text={t(HELP.githubAuth)} />
       </div>
       <div className="github-auth-row">
         <div className="github-auth-status" aria-live="polite" title={githubAuthView.detail}>
@@ -59,7 +61,7 @@ const GithubAuthSection = memo(function GithubAuthSection({
             disabled={githubAuthBusy || terminalLoginRunning || Boolean(githubAuthError)}
             onClick={() => onLogin()}
           >
-            {githubAuthView.label === 'Erneuern' ? 'Erneuern' : 'Verbinden'}
+            {githubAuthView.label === 'Erneuern' ? t('profile.github.renew') : t('profile.github.connect')}
           </button>
         )}
         {githubAuthUsable && (
@@ -69,17 +71,17 @@ const GithubAuthSection = memo(function GithubAuthSection({
             disabled={githubAuthBusy || terminalLoginRunning}
             onClick={() => onLogout()}
           >
-            Abmelden
+            {t('profile.github.logout')}
           </button>
         )}
         <button
           type="button"
           className="btn-secondary browse-btn"
-          title="Fallback: gh auth login im Terminal"
+          title={t('profile.github.terminalTitle')}
           disabled={githubAuthBusy || terminalLoginRunning}
           onClick={() => onTerminalLogin()}
         >
-          PTY
+          {t('profile.github.terminalLogin')}
         </button>
       </div>
       {githubAuthError && (

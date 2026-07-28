@@ -69,7 +69,9 @@ import { agentManager } from '@main/agents/AgentManager'
 import { PanePreflightError } from '@main/agents/panePreflight'
 import { detectLimit, stripAnsi } from '@main/agents/limitSignals'
 import {
+  isReadOnlyTaskDeclaration,
   judgeWorkerTerminalResult,
+  NO_DIFF_COMPLETION_CODE,
   platformExecutionGuidance,
   providerExecutionGuidance,
   subagentExecutionContract,
@@ -78,7 +80,9 @@ import {
 
 // Re-exports: asyncDispatch.test.ts (and future callers) import these from './Engine'.
 export {
+  isReadOnlyTaskDeclaration,
   judgeWorkerTerminalResult,
+  NO_DIFF_COMPLETION_CODE,
   platformExecutionGuidance,
   providerExecutionGuidance,
   subagentExecutionContract
@@ -236,6 +240,15 @@ function isTerminalTaskStatus(status: TaskStatus): boolean {
 }
 /** Consecutive permission-prompt timeouts before a task is failed fast as permission-starved. */
 const PERMISSION_TIMEOUT_DENIAL_LIMIT = 3
+/**
+ * Approval-Watchdog (Proposal 2026-07-27): Eine Tool-Freigabe, die länger als
+ * dieses Fenster unbeantwortet offen bleibt, markiert den wartenden Task mit
+ * einem `approval-timeout`-Finding statt ihn stumm hängen zu lassen. Der Task
+ * wird bewusst NICHT gestoppt — die Freigabe bleibt beantwortbar.
+ */
+const PERMISSION_APPROVAL_TIMEOUT_MS = 10 * 60_000
+/** Finding-Code des Approval-Watchdogs für zu lange offene Tool-Freigaben. */
+export const APPROVAL_TIMEOUT_CODE = 'approval-timeout'
 
 export interface CancelPlanResult {
   ok: boolean
@@ -330,6 +343,10 @@ export class OrchestratorEngine extends EventEmitter {
   private readonly timeoutDenialStreaks = new Map<string, number>()
   /** Tasks failed fast because permission prompts starved; value is the blocker reason. */
   private readonly permissionBlockedTasks = new Map<string, string>()
+  /** Approval-Watchdog: ein Timer je offener Tool-Freigabe (Request-Id → Timer). */
+  private readonly approvalWatchdogs = new Map<string, ReturnType<typeof setTimeout>>()
+  /** Watchdog-Fenster, nach dem eine offene Tool-Freigabe als Blocker markiert wird. */
+  private readonly approvalTimeoutMs: number
   private budgetCaps: RemoteBudgetCaps = {}
   private readonly pausedTasks = new Set<string>()
   private readonly resumeRequestedTasks = new Set<string>()
@@ -353,10 +370,13 @@ export class OrchestratorEngine extends EventEmitter {
       profile?: WorkspaceProfile
       workspaceSessionId?: string
       persistence?: SnapshotPersistence
+      /** Approval-Watchdog-Fenster für offene Tool-Freigaben (Tests: verkürzbar). */
+      permissionApprovalTimeoutMs?: number
     } = {}
   ) {
     super()
     this.engineId = `engine-${options.workspaceSessionId ?? randomUUID()}`
+    this.approvalTimeoutMs = options.permissionApprovalTimeoutMs ?? PERMISSION_APPROVAL_TIMEOUT_MS
     this.boundProfile = options.profile
       ? { ...options.profile, agents: options.profile.agents.map((slot) => ({ ...slot })) }
       : undefined
@@ -445,6 +465,11 @@ export class OrchestratorEngine extends EventEmitter {
       task.status = 'waiting'
       task.lastAction = `Wartet auf Tool-Freigabe: ${request.tool}`
     }
+    // Approval-Watchdog: bleibt die Freigabe über das Fenster hinaus offen,
+    // wird der wartende Task sichtbar markiert statt still zu hängen.
+    const watchdog = setTimeout(() => this.flagApprovalTimeout(request.id), this.approvalTimeoutMs)
+    watchdog.unref?.()
+    this.approvalWatchdogs.set(request.id, watchdog)
     this.push()
   }
 
@@ -453,6 +478,11 @@ export class OrchestratorEngine extends EventEmitter {
     decision: PermissionDecision,
     reason: string
   ): void => {
+    const watchdog = this.approvalWatchdogs.get(request.id)
+    if (watchdog) {
+      clearTimeout(watchdog)
+      this.approvalWatchdogs.delete(request.id)
+    }
     if (!this.pendingPermissions.delete(request.id)) return
     const task = request.taskId ? this.tasks.get(request.taskId) : undefined
     if (task?.status === 'waiting') {
@@ -488,6 +518,39 @@ export class OrchestratorEngine extends EventEmitter {
     task.note = reason
     task.lastAction = 'Permission-Blocker erkannt; Worker wird gestoppt'
     if (task.agentId) void agentManager.kill(task.agentId)
+  }
+
+  /**
+   * Approval-Watchdog (Proposal 2026-07-27): qa-gate-runner-Tasks blieben
+   * unbegrenzt in „Wartet auf Tool-Freigabe“ hängen, obwohl die Prüfkette
+   * längst grün war. Nach Ablauf des Fensters wird der wartende Task mit einem
+   * `approval-timeout`-Finding markiert und der Zustand sofort gepusht. Das
+   * Taskbar-Blinken deckt offene Freigaben bereits ab (attentionSelectors
+   * zählt pendingPermissions über deriveRemoteApprovals), daher genügt hier
+   * das sofortige Status-Ereignis als Attention-Signal. Der Worker wird
+   * bewusst NICHT gestoppt: die Freigabe bleibt beantwortbar, YOLO oder ein
+   * explizites Allow/Deny lösen den Zustand weiterhin regulär auf.
+   */
+  private flagApprovalTimeout(requestId: string): void {
+    this.approvalWatchdogs.delete(requestId)
+    const request = this.pendingPermissions.get(requestId)
+    if (!request) return
+    const seconds = Math.max(1, Math.round(this.approvalTimeoutMs / 1000))
+    const task = request.taskId ? this.tasks.get(request.taskId) : undefined
+    if (task && !isTerminalTaskStatus(task.status)) {
+      const message = `Tool-Freigabe für ${request.tool} ist seit über ${seconds}s unbeantwortet; ` +
+        'der Task wartet weiter, bis die Freigabe beantwortet oder YOLO aktiviert wird.'
+      if (!task.findings?.some((finding) => finding.code === APPROVAL_TIMEOUT_CODE)) {
+        task.findings = [...(task.findings ?? []), {
+          gate: 'permission',
+          code: APPROVAL_TIMEOUT_CODE,
+          message
+        }]
+      }
+      task.note = message
+      task.lastAction = `Tool-Freigabe ${request.tool} wartet ungewöhnlich lange`
+    }
+    this.requestPush(true)
   }
 
   private budgetSnapshot(): RemoteBudgetSnapshot {
@@ -2220,6 +2283,31 @@ export class OrchestratorEngine extends EventEmitter {
               }]
               task.judgeReason = 'Ergebnisvertrag verletzt: ERFOLG ohne Diff trotz erwarteter Dateien.'
               task.lastAction = 'Ergebnisvertrag verletzt: kein Diff trotz erwarteter Dateien'
+              this.reliability.needsWorkTasks += 1
+              if (activeAttempt) {
+                activeAttempt.status = 'needs-work'
+                activeAttempt.failureKind = 'gate'
+                activeAttempt.note = task.judgeReason
+              }
+            } else if (!isReadOnlyTaskDeclaration({ role: slotRole, title: task.title, prompt })) {
+              // Diff-Guard (Proposal 2026-07-27): Auch ohne deklarierte
+              // expectedFiles ist ein ERFOLG mit leerem Worktree-Diff kein
+              // belegter Erfolg — Retros zeigten Worker, die nur eine
+              // Selbstvorstellung lieferten ("no changes detected despite
+              // success claim"). Nur explizit lese-orientierte Tasks
+              // (Analyse/Review/Gate-Lauf) dürfen ohne Diff grün bleiben.
+              task.status = 'needs-work'
+              task.failureKind = 'gate'
+              task.progress = undefined
+              task.completion = { kind: 'no-changes' }
+              task.findings = [...(task.findings ?? []), {
+                gate: 'commit',
+                code: NO_DIFF_COMPLETION_CODE,
+                message: 'Worker meldete Erfolg, aber der Worktree enthält keinerlei Änderungen ' +
+                  '(no changes detected despite success claim).'
+              }]
+              task.judgeReason = 'Ergebnisvertrag verletzt: ERFOLG ohne jede Änderung im Worktree.'
+              task.lastAction = 'Kein Diff trotz Erfolgsmeldung — als needs-work herabgestuft'
               this.reliability.needsWorkTasks += 1
               if (activeAttempt) {
                 activeAttempt.status = 'needs-work'

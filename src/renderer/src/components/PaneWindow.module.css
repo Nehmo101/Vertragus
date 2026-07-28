@@ -1,0 +1,46 @@
+/*
+ * Empty state for the pop-out pane window when the mirrored agent no longer
+ * exists (finished, killed, or cleaned up). Centered card built from existing
+ * theme tokens only.
+ */
+
+.emptyWrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.emptyCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-width: 340px;
+  padding: 22px 26px;
+  text-align: center;
+  background: var(--bg-card);
+  border: 1px solid var(--border-3);
+  border-radius: 14px;
+  box-shadow: var(--shadow-sm);
+}
+
+.emptyIcon {
+  font-size: 22px;
+  line-height: 1;
+  color: var(--text-3);
+}
+
+.emptyTitle {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-1);
+}
+
+.emptyHint {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-3);
+  overflow-wrap: anywhere;
+}

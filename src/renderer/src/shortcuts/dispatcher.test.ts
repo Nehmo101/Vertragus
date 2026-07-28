@@ -16,12 +16,19 @@
  * the `./index` barrel re-exports the dispatcher contract this suite pins.
  */
 import { describe, expect, it, vi } from 'vitest'
-import { DEFAULT_SHORTCUT_BINDINGS, normalizeBinding, ShortcutRegistry, shouldIgnoreShortcutEvent } from './index'
+import {
+  DEFAULT_SHORTCUT_BINDINGS,
+  normalizeBinding,
+  normalizeKeyboardEventCandidates,
+  ShortcutRegistry,
+  shouldIgnoreShortcutEvent
+} from './index'
 
 function keyboardEvent(overrides: Partial<KeyboardEvent> = {}): KeyboardEvent {
   const preventDefault = vi.fn()
   return {
     key: 'm',
+    code: 'KeyM',
     ctrlKey: true,
     metaKey: false,
     altKey: false,
@@ -48,6 +55,36 @@ describe('speech.toggle binding (Ctrl/Cmd+Shift+M)', () => {
     const binding = DEFAULT_SHORTCUT_BINDINGS['speech.toggle'][0]
     expect(normalizeBinding(binding, 'other')).toBe('Control+Shift+m')
     expect(normalizeBinding(binding, 'mac')).toBe('Meta+Shift+m')
+  })
+})
+
+describe('app shortcut default bindings', () => {
+  it.each([
+    ['nav.workspace', { key: '1', modifiers: ['Mod'] }, 'Control+1', 'Meta+1'],
+    ['nav.inbox', { key: '2', modifiers: ['Mod'] }, 'Control+2', 'Meta+2'],
+    ['nav.approvals', { key: '3', modifiers: ['Mod'] }, 'Control+3', 'Meta+3'],
+    ['nav.changes', { key: '4', modifiers: ['Mod'] }, 'Control+4', 'Meta+4'],
+    ['layout.canvas', { key: '1', modifiers: ['Mod', 'Alt'] }, 'Control+Alt+1', 'Meta+Alt+1'],
+    ['layout.tiles', { key: '2', modifiers: ['Mod', 'Alt'] }, 'Control+Alt+2', 'Meta+Alt+2'],
+    ['layout.focus', { key: '3', modifiers: ['Mod', 'Alt'] }, 'Control+Alt+3', 'Meta+Alt+3'],
+    [
+      'agents.startAll',
+      { key: 'Enter', modifiers: ['Mod', 'Shift'] },
+      'Control+Shift+enter',
+      'Meta+Shift+enter'
+    ],
+    [
+      'agents.stopAll',
+      { key: '.', modifiers: ['Mod', 'Shift'] },
+      'Control+Shift+.',
+      'Meta+Shift+.'
+    ],
+    ['panel.sidebarLeft', { key: 'b', modifiers: ['Mod'] }, 'Control+b', 'Meta+b'],
+    ['panel.orchestratorRight', { key: 'b', modifiers: ['Mod', 'Alt'] }, 'Control+Alt+b', 'Meta+Alt+b']
+  ] as const)('%s default binding + platform mapping', (actionId, binding, other, mac) => {
+    expect(DEFAULT_SHORTCUT_BINDINGS[actionId]).toEqual([binding])
+    expect(normalizeBinding(binding, 'other')).toBe(other)
+    expect(normalizeBinding(binding, 'mac')).toBe(mac)
   })
 })
 
@@ -79,6 +116,80 @@ describe('dispatcher event gate', () => {
     ['already defaultPrevented', { defaultPrevented: true }]
   ])('ignores %s', (_label, overrides) => {
     expect(shouldIgnoreShortcutEvent(keyboardEvent(overrides))).toBe(true)
+  })
+})
+
+/**
+ * Layoutunabhängigkeit für Satzzeichen-Chords: `event.key` ist layoutabhängig
+ * (deutsches Layout: Shift+Punkt → ':'), daher matcht die Registry zusätzlich
+ * über `event.code` (physische Taste, z. B. 'Period'). Ziffern-Chords (Mod+1…4)
+ * sind shift-frei und über `event.key` bereits zuverlässig.
+ */
+describe('German keyboard layout code fallback (Mod+Shift+.)', () => {
+  function stopAllEvent(overrides: Partial<KeyboardEvent> = {}): KeyboardEvent {
+    return keyboardEvent({ key: '.', code: 'Period', ctrlKey: true, shiftKey: true, ...overrides })
+  }
+
+  it('normalizeKeyboardEventCandidates adds the code-derived combination for punctuation', () => {
+    expect(normalizeKeyboardEventCandidates(stopAllEvent({ key: ':' }))).toEqual([
+      'Control+Shift+:',
+      'Control+Shift+.'
+    ])
+    // key and code agree (US layout without Shift-shifted glyph) → single candidate
+    expect(normalizeKeyboardEventCandidates(stopAllEvent())).toEqual(['Control+Shift+.'])
+    // non-punctuation codes never produce a fallback
+    expect(normalizeKeyboardEventCandidates(keyboardEvent())).toEqual(['Control+Shift+m'])
+  })
+
+  it('fires agents.stopAll on German layout: key=":" code="Period" shiftKey', () => {
+    const handler = vi.fn()
+    const registry = new ShortcutRegistry({ platform: 'other' })
+    registry.register({ actionId: 'agents.stopAll', handler })
+    const event = stopAllEvent({ key: ':' })
+
+    expect(registry.handleKeydown(event)).toBe(true)
+    expect(handler).toHaveBeenCalledWith({ actionId: 'agents.stopAll', event })
+    expect(event.preventDefault).toHaveBeenCalledOnce()
+  })
+
+  it('fires agents.stopAll on US layout: key="." code="Period" shiftKey', () => {
+    const handler = vi.fn()
+    const registry = new ShortcutRegistry({ platform: 'other' })
+    registry.register({ actionId: 'agents.stopAll', handler })
+    const event = stopAllEvent()
+
+    expect(registry.handleKeydown(event)).toBe(true)
+    expect(handler).toHaveBeenCalledOnce()
+  })
+
+  it('fires agents.stopAll via key even when event.code is unavailable', () => {
+    const handler = vi.fn()
+    const registry = new ShortcutRegistry({ platform: 'other' })
+    registry.register({ actionId: 'agents.stopAll', handler })
+
+    expect(registry.handleKeydown(stopAllEvent({ code: undefined }))).toBe(true)
+    expect(handler).toHaveBeenCalledOnce()
+  })
+
+  it('does not fire for ":" from a different physical key (no false positive)', () => {
+    const handler = vi.fn()
+    const registry = new ShortcutRegistry({ platform: 'other' })
+    registry.register({ actionId: 'agents.stopAll', handler })
+    const event = stopAllEvent({ key: ':', code: 'Semicolon' })
+
+    expect(registry.handleKeydown(event)).toBe(false)
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('digit chords stay key-based: Mod+1 matches via event.key without any fallback', () => {
+    const handler = vi.fn()
+    const registry = new ShortcutRegistry({ platform: 'other' })
+    registry.register({ actionId: 'nav.workspace', handler })
+    const event = keyboardEvent({ key: '1', code: 'Digit1', shiftKey: false })
+
+    expect(registry.handleKeydown(event)).toBe(true)
+    expect(handler).toHaveBeenCalledOnce()
+    expect(normalizeKeyboardEventCandidates(event)).toEqual(['Control+1'])
   })
 })
 

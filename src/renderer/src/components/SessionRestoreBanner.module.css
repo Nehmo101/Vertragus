@@ -1,0 +1,44 @@
+/*
+ * Module-scoped additions for the SessionRestoreBanner compact summary row and
+ * the bulk "Alles verwerfen & aufräumen" action. Base banner styling lives in
+ * styles.css (.restore-*) and is intentionally reused, not duplicated.
+ */
+
+/* Compact summary row: reuses .restore-toggle basics, allows wrapping on narrow banners. */
+.summaryToggle {
+  flex-wrap: wrap;
+  align-items: baseline;
+  row-gap: 2px;
+  column-gap: 8px;
+}
+
+/* Small "Details" / "Einklappen" affordance so the row reads as expandable. */
+.detailsHint {
+  font-size: 10.5px;
+  line-height: 1.4;
+  padding: 1px 8px;
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.22));
+  border-radius: 999px;
+  opacity: 0.8;
+  white-space: nowrap;
+}
+
+.summaryToggle:hover .detailsHint {
+  opacity: 1;
+}
+
+/*
+ * Destructive bulk action, as prominent as the primary restart button but in
+ * danger colors. :global keeps specificity above `.restore-banner .btn` so the
+ * shared button reset does not win; when armed the component swaps to the
+ * existing `.btn.armed` styling instead.
+ */
+:global(.restore-banner) :global(.btn).dangerAction {
+  background: color-mix(in srgb, var(--danger-btn, #b3383e) 72%, #000);
+  color: var(--danger-text, #ffe1e2);
+  border-color: color-mix(in srgb, var(--danger-btn, #b3383e) 55%, transparent);
+}
+
+:global(.restore-banner) :global(.btn).dangerAction:hover:not(:disabled) {
+  filter: brightness(1.1);
+}

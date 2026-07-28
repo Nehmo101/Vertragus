@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
 import { profileHasRunningAgents, useAppStore } from '@renderer/store/useAppStore'
 import {
@@ -29,6 +30,13 @@ import AutoPrSection from './profileEditor/AutoPrSection'
 import AutoGitSection from './profileEditor/AutoGitSection'
 import SkillsSection from './profileEditor/SkillsSection'
 import AgentSlotsSection from './profileEditor/AgentSlotsSection'
+import ProfileEditorTabs, {
+  profileEditorPanelDomId,
+  profileEditorTabDomId,
+  type ProfileEditorTab
+} from './profileEditor/ProfileEditorTabs'
+import { tabSummaries, type ProfileEditorTabId } from './profileEditor/tabSummaries'
+import tabStyles from './profileEditor/ProfileEditorTabs.module.css'
 
 // The multi-agent override helpers moved to profileEditor/; re-exported here so
 // the module's public surface stays unchanged for existing importers.
@@ -40,7 +48,14 @@ export {
 } from './profileEditor/MultiAgentOverrideSelect'
 export type { MultiAgentOverrideChoice } from './profileEditor/MultiAgentOverrideSelect'
 
+/**
+ * Last active tab, remembered per app session (module variable, deliberately
+ * not persisted): closing and reopening the editor lands in the same section.
+ */
+let lastActiveTab: ProfileEditorTabId = 'repo'
+
 export default function ProfileEditor(): JSX.Element | null {
+  const { t } = useTranslation()
   // Pick exactly the fields/actions the editor reads (actions are stable in
   // zustand); a bare useAppStore() would re-render the whole modal on every
   // orchestrator/event tick.
@@ -67,6 +82,7 @@ export default function ProfileEditor(): JSX.Element | null {
   const initial = store.editorProfile
   const [draft, dispatch] = useReducer(profileDraftReducer, initial)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [activeTab, setActiveTab] = useState<ProfileEditorTabId>(lastActiveTab)
   const [generatingProfile, setGeneratingProfile] = useState(false)
   const [generateStatus, setGenerateStatus] = useState('')
   const [generateElapsed, setGenerateElapsed] = useState(0)
@@ -137,7 +153,7 @@ export default function ProfileEditor(): JSX.Element | null {
     const analyzer = draft.orchestrator ?? draft.agents[0]
     const workingDir = profileRepoLocalPath(draft)
     if (!analyzer || !workingDir) {
-      setGenerateStatus('Bitte zuerst ein Working Directory und ein Analysemodell auswählen.')
+      setGenerateStatus(t('profile.editor.generateNeedsDir'))
       return
     }
     setGenerateElapsed(0)
@@ -151,12 +167,17 @@ export default function ProfileEditor(): JSX.Element | null {
         modelPreset: analyzer.modelPreset
       })
       dispatch({ type: 'applyGeneratedProfile', generated })
-      setGenerateStatus('Repo-Profil erzeugt. Rollen und Quality Gates bitte prüfen.')
+      setGenerateStatus(t('profile.editor.generateDone'))
     } catch (error) {
       setGenerateStatus(error instanceof Error ? error.message : String(error))
     } finally {
       setGeneratingProfile(false)
     }
+  }, [t])
+
+  const selectTab = useCallback((id: ProfileEditorTabId): void => {
+    lastActiveTab = id
+    setActiveTab(id)
   }, [])
 
   const applyLearnings = useCallback(async (): Promise<void> => {
@@ -165,7 +186,7 @@ export default function ProfileEditor(): JSX.Element | null {
     try {
       const learnings = await window.vertragus.retro.listLearnings()
       if (learnings.length === 0) {
-        setLearningsStatus('Noch keine gespeicherten Retro-/Benchmark-Erkenntnisse vorhanden.')
+        setLearningsStatus(t('profile.editor.learningsNone'))
         return
       }
       let applied = 0
@@ -203,13 +224,13 @@ export default function ProfileEditor(): JSX.Element | null {
       dispatch({ type: 'replaceAgents', agents })
       setLearningsStatus(
         applied > 0
-          ? `${applied} Erkenntnis(se) in Stärken/Schwächen übernommen. Bitte prüfen und speichern.`
-          : 'Keine neuen Erkenntnisse für die konfigurierten Provider/Modelle gefunden.'
+          ? t('profile.editor.learningsApplied', { n: applied })
+          : t('profile.editor.learningsNoMatch')
       )
     } catch (error) {
       setLearningsStatus(error instanceof Error ? error.message : String(error))
     }
-  }, [])
+  }, [t])
 
   if (!initial || !draft) return null
 
@@ -226,19 +247,49 @@ export default function ProfileEditor(): JSX.Element | null {
     draft.autoGit.targetBranch,
     draft.autoGit.enabled
   )
-  const unavailablePresetCount =
-    (draft.orchestrator &&
-    selectionHasUnavailablePreset(
-      store.models,
-      draft.orchestrator.provider,
-      draft.orchestrator.model,
-      draft.orchestrator.modelPreset
-    )
-      ? 1
-      : 0) +
-    draft.agents.filter((slot) =>
-      selectionHasUnavailablePreset(store.models, slot.provider, slot.model, slot.modelPreset)
-    ).length
+  // Preset issues split per tab (mode vs. slots) so the respective tab can
+  // carry a warn badge; the sum still drives the footer.
+  const orchestratorPresetUnavailable = Boolean(
+    draft.orchestrator &&
+      selectionHasUnavailablePreset(
+        store.models,
+        draft.orchestrator.provider,
+        draft.orchestrator.model,
+        draft.orchestrator.modelPreset
+      )
+  )
+  const slotPresetCount = draft.agents.filter((slot) =>
+    selectionHasUnavailablePreset(store.models, slot.provider, slot.model, slot.modelPreset)
+  ).length
+  const unavailablePresetCount = (orchestratorPresetUnavailable ? 1 : 0) + slotPresetCount
+
+  // One summary line per tab plus warn badges for errors that would otherwise
+  // stay undetected in a currently inactive tab.
+  const summaries = tabSummaries(draft, t)
+  const tabs: ProfileEditorTab[] = [
+    { id: 'repo', label: t('profile.editor.tabRepo'), summary: summaries.repo },
+    {
+      id: 'mode',
+      label: t('profile.editor.tabMode'),
+      summary: summaries.mode,
+      badge: orchestratorPresetUnavailable
+        ? t('profile.editor.badgeOrchPreset')
+        : undefined
+    },
+    {
+      id: 'slots',
+      label: t('profile.editor.tabSlots'),
+      summary: summaries.slots,
+      badge: slotPresetCount > 0 ? t('profile.editor.badgeSlotPresets', { n: slotPresetCount }) : undefined
+    },
+    {
+      id: 'automation',
+      label: t('profile.editor.tabAutomation'),
+      summary: summaries.automation,
+      badge: autoGitBranchError ? t('profile.editor.badgeBranch') : undefined
+    },
+    { id: 'skills', label: t('profile.editor.tabSkills'), summary: summaries.skills }
+  ]
 
   return (
     <div className="modal-wrap">
@@ -247,17 +298,18 @@ export default function ProfileEditor(): JSX.Element | null {
         <div className="modal-head">
           <span className="modal-gear">⚙</span>
           <div style={{ flex: 1 }}>
-            <div className="modal-title" id="profile-editor-title">Profil-Editor</div>
-            <div className="modal-sub">Orchestrator &amp; Subagent-Slots konfigurieren</div>
+            <div className="modal-title" id="profile-editor-title">{t('profile.editor.title')}</div>
+            <div className="modal-sub">{t('profile.editor.sub')}</div>
           </div>
-          <button type="button" className="modal-close" aria-label="Profil-Editor schließen" onClick={store.closeEditor}>
+          <button type="button" className="modal-close" aria-label={t('profile.editor.closeAria')} onClick={store.closeEditor}>
             ✕
           </button>
         </div>
 
-        <div className="modal-body">
+        {/* Always visible, independent of the active tab: profile name + tab bar. */}
+        <div className={tabStyles.head}>
           <label className="field-label" htmlFor="profile-name">
-            Profilname <InfoTip text={HELP.profileName} />
+            {t('profile.editor.nameLabel')} <InfoTip text={t(HELP.profileName)} />
           </label>
           <input
             ref={nameRef}
@@ -266,106 +318,137 @@ export default function ProfileEditor(): JSX.Element | null {
             value={draft.name}
             onChange={(e) => actions.patchProfile({ name: e.target.value })}
           />
+          <ProfileEditorTabs tabs={tabs} activeTab={activeTab} onSelect={selectTab} />
+        </div>
 
-          <GithubAuthSection
-            githubAuth={store.githubAuth}
-            githubAuthBusy={store.githubAuthBusy}
-            terminalLoginRunning={githubTerminalLoginRunning}
-            onLogin={store.githubLogin}
-            onLogout={store.githubLogout}
-            onTerminalLogin={store.githubTerminalLogin}
-          />
+        <div className="modal-body">
+          {/*
+           * Only the active panel is mounted: the sections are props-driven via
+           * the draft (the only local section state, the SoloModelHint, reloads
+           * itself on remount), so no state is lost — and inactive tabs cost
+           * no renders.
+           */}
+          <div
+            role="tabpanel"
+            id={profileEditorPanelDomId(activeTab)}
+            aria-labelledby={profileEditorTabDomId(activeTab)}
+          >
+            {activeTab === 'repo' && (
+              <>
+                <GithubAuthSection
+                  githubAuth={store.githubAuth}
+                  githubAuthBusy={store.githubAuthBusy}
+                  terminalLoginRunning={githubTerminalLoginRunning}
+                  onLogin={store.githubLogin}
+                  onLogout={store.githubLogout}
+                  onTerminalLogin={store.githubTerminalLogin}
+                />
 
-          <RepoWorkspaceSection
-            workingDir={draft.workingDir}
-            repoLocalPath={profileRepoLocalPath(draft)}
-            generating={generatingProfile}
-            generateElapsed={generateElapsed}
-            generateStatus={generateStatus}
-            learningsStatus={learningsStatus}
-            onPatchProfile={actions.patchProfile}
-            onGenerateFromRepo={generateFromRepo}
-            onApplyLearnings={applyLearnings}
-          />
+                <RepoWorkspaceSection
+                  workingDir={draft.workingDir}
+                  repoLocalPath={profileRepoLocalPath(draft)}
+                  generating={generatingProfile}
+                  generateElapsed={generateElapsed}
+                  generateStatus={generateStatus}
+                  learningsStatus={learningsStatus}
+                  onPatchProfile={actions.patchProfile}
+                  onGenerateFromRepo={generateFromRepo}
+                  onApplyLearnings={applyLearnings}
+                />
+              </>
+            )}
 
-          <ModeOrchestratorSection
-            orchestrator={draft.orchestrator}
-            solo={draft.solo}
-            soloProvider={draft.agents[0]?.provider}
-            providerEnabled={store.providerEnabled}
-            models={store.models}
-            disabledModels={store.disabledModels}
-            onSetMode={actions.setMode}
-            onPatchOrchestrator={actions.patchOrchestrator}
-          />
+            {activeTab === 'mode' && (
+              <>
+                <ModeOrchestratorSection
+                  orchestrator={draft.orchestrator}
+                  solo={draft.solo}
+                  soloProvider={draft.agents[0]?.provider}
+                  providerEnabled={store.providerEnabled}
+                  models={store.models}
+                  disabledModels={store.disabledModels}
+                  onSetMode={actions.setMode}
+                  onPatchOrchestrator={actions.patchOrchestrator}
+                />
 
-          <PlannerSection
-            planner={draft.planner}
-            benchmarkEnabled={draft.benchmark.enabled}
-            multiAgentEnabled={draft.multiAgent.enabled}
-            hasOrchestrator={hasOrch}
-            onPatchPlanner={actions.patchPlanner}
-            onSetBenchmarkEnabled={actions.setBenchmarkEnabled}
-            onSetMultiAgentEnabled={actions.setMultiAgentEnabled}
-          />
+                <PlannerSection
+                  planner={draft.planner}
+                  benchmarkEnabled={draft.benchmark.enabled}
+                  multiAgentEnabled={draft.multiAgent.enabled}
+                  hasOrchestrator={hasOrch}
+                  onPatchPlanner={actions.patchPlanner}
+                  onSetBenchmarkEnabled={actions.setBenchmarkEnabled}
+                  onSetMultiAgentEnabled={actions.setMultiAgentEnabled}
+                />
+              </>
+            )}
 
-          <AutoPrSection
-            autoPr={draft.autoPr}
-            boundDefaultBranch={draft.githubRepo?.defaultBranch}
-            onPatchAutoPr={actions.patchAutoPr}
-          />
+            {activeTab === 'slots' && (
+              <AgentSlotsSection
+                agents={draft.agents}
+                workspaceWorkingDir={draft.workingDir}
+                multiAgentGlobalEnabled={draft.multiAgent.enabled}
+                providerEnabled={store.providerEnabled}
+                models={store.models}
+                disabledModels={store.disabledModels}
+                onPatchSlot={actions.patchSlot}
+                onSetSlotMultiAgent={actions.setSlotMultiAgent}
+                onRemoveSlot={actions.removeSlot}
+                onAddSlot={actions.addSlot}
+              />
+            )}
 
-          <AutoGitSection
-            autoGit={draft.autoGit}
-            branchError={autoGitBranchError}
-            onPatchAutoGit={actions.patchAutoGit}
-          />
+            {activeTab === 'automation' && (
+              <>
+                <AutoPrSection
+                  autoPr={draft.autoPr}
+                  boundDefaultBranch={draft.githubRepo?.defaultBranch}
+                  onPatchAutoPr={actions.patchAutoPr}
+                />
 
-          <SkillsSection
-            skills={draft.skills}
-            onPatchSkill={actions.patchSkill}
-            onAddSkill={actions.addSkill}
-            onRemoveSkill={actions.removeSkill}
-          />
+                <AutoGitSection
+                  autoGit={draft.autoGit}
+                  branchError={autoGitBranchError}
+                  onPatchAutoGit={actions.patchAutoGit}
+                />
+              </>
+            )}
 
-          <AgentSlotsSection
-            agents={draft.agents}
-            workspaceWorkingDir={draft.workingDir}
-            multiAgentGlobalEnabled={draft.multiAgent.enabled}
-            providerEnabled={store.providerEnabled}
-            models={store.models}
-            disabledModels={store.disabledModels}
-            onPatchSlot={actions.patchSlot}
-            onSetSlotMultiAgent={actions.setSlotMultiAgent}
-            onRemoveSlot={actions.removeSlot}
-            onAddSlot={actions.addSlot}
-          />
+            {activeTab === 'skills' && (
+              <SkillsSection
+                skills={draft.skills}
+                onPatchSkill={actions.patchSkill}
+                onAddSkill={actions.addSkill}
+                onRemoveSkill={actions.removeSkill}
+              />
+            )}
+          </div>
         </div>
 
         {confirmDelete && (
           <div className="profile-delete-confirm" role="alertdialog" aria-modal="true" aria-labelledby="profile-delete-title">
             <div className="profile-delete-head">
               <span aria-hidden="true">⚠</span>
-              <b id="profile-delete-title">Profil löschen?</b>
+              <b id="profile-delete-title">{t('profile.editor.deleteTitle')}</b>
             </div>
             <div className="profile-delete-text">
-              „{draft.name}" und alle zugehörigen Einstellungen werden dauerhaft entfernt.
-              {store.profiles.length === 1 && ' Danach wird das Standardprofil wiederhergestellt.'}
+              {t('profile.editor.deleteText', { name: draft.name })}
+              {store.profiles.length === 1 && t('profile.editor.deleteLastHint')}
             </div>
             <div className="profile-delete-actions">
               <button type="button" className="btn-ghost" onClick={() => setConfirmDelete(false)}>
-                Abbrechen
+                {t('profile.editor.cancel')}
               </button>
               <button type="button" className="btn-danger" onClick={() => void store.deleteProfile(draft.id)}>
-                Endgültig löschen
+                {t('profile.editor.deleteConfirm')}
               </button>
             </div>
           </div>
         )}
         <div className="modal-foot">
           <div className="totals">
-            Gesamt: <b>{hasOrch ? 1 : 0}</b> Orchestrator + <b>{subTotal}</b> Subagents ={' '}
-            <b className="grand">{grandTotal} Agents</b>
+            {t('profile.editor.totalsLabel')} <b>{hasOrch ? 1 : 0}</b> {t('profile.editor.totalsOrchestrator')} + <b>{subTotal}</b> {t('profile.editor.totalsSubagents')} ={' '}
+            <b className="grand">{t('profile.editor.totalsAgents', { n: grandTotal })}</b>
           </div>
           {isSavedProfile && (
             <button
@@ -373,7 +456,7 @@ export default function ProfileEditor(): JSX.Element | null {
               className="btn-secondary"
               onClick={() => void store.duplicateProfile(draft.id)}
             >
-              Profil duplizieren
+              {t('profile.editor.duplicate')}
             </button>
           )}
           {isSavedProfile && (
@@ -381,25 +464,24 @@ export default function ProfileEditor(): JSX.Element | null {
               type="button"
               className="btn-danger modal-delete-btn"
               disabled={hasRunningAgents}
-              title={hasRunningAgents ? 'Während einer laufenden Agent-Session nicht verfügbar' : 'Profil löschen'}
+              title={hasRunningAgents ? t('profile.editor.deleteDisabledTitle') : t('profile.editor.deleteBtn')}
               onClick={() => setConfirmDelete(true)}
             >
-              Profil löschen
+              {t('profile.editor.deleteBtn')}
             </button>
           )}
           {unavailablePresetCount > 0 && (
             <div className="model-preset-warning" role="alert">
-              {unavailablePresetCount} Preset(s) sind für den Live-Katalog nicht verfügbar. Wähle
-              CLI-Standard oder ein explizites Modell.
+              {t('profile.editor.presetWarning', { n: unavailablePresetCount })}
             </div>
           )}
           {autoGitBranchError && (
             <div className="model-preset-warning" role="alert">
-              Auto-Commit &amp; Push: Ziel-Branch korrigieren.
+              {t('profile.editor.branchWarning')}
             </div>
           )}
           <button type="button" className="btn-secondary" onClick={store.closeEditor}>
-            Abbrechen
+            {t('profile.editor.cancel')}
           </button>
           <button
             type="button"
@@ -407,14 +489,14 @@ export default function ProfileEditor(): JSX.Element | null {
             disabled={unavailablePresetCount > 0 || Boolean(autoGitBranchError)}
             title={
               unavailablePresetCount > 0
-                ? 'Nicht verfügbare Modell-Presets zuerst korrigieren'
+                ? t('profile.editor.saveDisabledPresets')
                 : autoGitBranchError
                   ? autoGitBranchError
                 : undefined
             }
             onClick={() => void store.saveEditor(draft)}
           >
-            Profil speichern
+            {t('profile.editor.save')}
           </button>
         </div>
       </div>

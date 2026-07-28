@@ -1,0 +1,90 @@
+/*
+ * Compact error card used wherever a surface previously rendered a bare
+ * role="alert" div with a raw exception message. Uses only existing theme
+ * tokens from cozy-organic.css (--err / --err-text / --err-soft / --err-line)
+ * so it adapts to light and dark themes automatically.
+ */
+
+.card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 16px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--err-line);
+  border-radius: 10px;
+  background: var(--err-soft);
+  color: var(--err-text);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.title {
+  font-weight: 600;
+  font-size: 13.5px;
+}
+
+/* Short, human-readable detail shown inline. */
+.detail {
+  margin: 0;
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+/* Long / technical detail hidden behind a disclosure. */
+.details {
+  font-size: 12.5px;
+}
+
+.summary {
+  cursor: pointer;
+  user-select: none;
+  opacity: 0.85;
+}
+
+.summary:hover {
+  opacity: 1;
+}
+
+.detailText {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  max-height: 160px;
+  overflow: auto;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--err) 8%, transparent);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.retry {
+  flex: none;
+  padding: 6px 12px;
+  border: 1px solid var(--err-line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--err-text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.retry:hover {
+  background: color-mix(in srgb, var(--err) 12%, transparent);
+}
+
+.retry:disabled {
+  opacity: 0.55;
+  cursor: default;
+}

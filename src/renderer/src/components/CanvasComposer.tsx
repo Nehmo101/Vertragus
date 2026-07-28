@@ -1,6 +1,11 @@
 import { useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { GithubIssueSummary } from '@shared/ipc'
 import { useCanvasChatStore } from '../store/canvasChatStore'
+import { useAppStore } from '../store/useAppStore'
+import IssuePickerModal, { IssueGlyph } from './github/IssuePickerModal'
+import { formatIssueGoal } from './github/issueGoal'
+import issueStyles from './github/IssuePicker.module.css'
 
 interface OrchestratorSendResult { ok: boolean; reason?: 'no_orchestrator' | 'seed_failed' | string }
 interface CanvasBridge {
@@ -33,9 +38,28 @@ export function CanvasComposer({
   const { t } = useTranslation()
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
+  const [issuePickerOpen, setIssuePickerOpen] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const append = useCanvasChatStore((state) => state.append)
   const setStatus = useCanvasChatStore((state) => state.setStatus)
+  // Bound GitHub repo of the active profile — gates the issue picker trigger.
+  const githubRepo = useAppStore(
+    (state) => state.profiles.find((profile) => profile.id === profileId)?.githubRepo
+  )
+  const repoBound = Boolean(githubRepo?.owner && githubRepo?.repo)
+
+  const insertIssueGoal = (issue: GithubIssueSummary): void => {
+    setIssuePickerOpen(false)
+    // Draft only — the user reviews/edits and sends the goal themselves.
+    setText(formatIssueGoal(issue))
+    requestAnimationFrame(() => {
+      const textarea = textareaRef.current
+      if (!textarea) return
+      textarea.style.height = 'auto'
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 144)}px`
+      textarea.focus()
+    })
+  }
 
   const resize = (event: ChangeEvent<HTMLTextAreaElement>): void => {
     event.currentTarget.style.height = 'auto'
@@ -73,6 +97,27 @@ export function CanvasComposer({
   return (
     <div className="canvas-composer" data-start-mode={!orchestratorRunning}>
       {!orchestratorRunning && <span className="canvas-composer-mode">{t('canvas.composer.startMode')}</span>}
+      {repoBound && (
+        <button
+          type="button"
+          className={issueStyles.trigger}
+          title={t('issues.triggerTitle')}
+          onClick={() => setIssuePickerOpen(true)}
+        >
+          <span className={issueStyles.triggerGlyph}>
+            <IssueGlyph />
+          </span>
+          {t('issues.trigger')}
+        </button>
+      )}
+      {issuePickerOpen && githubRepo && (
+        <IssuePickerModal
+          owner={githubRepo.owner}
+          repo={githubRepo.repo}
+          onSelect={insertIssueGoal}
+          onClose={() => setIssuePickerOpen(false)}
+        />
+      )}
       <textarea
         ref={textareaRef}
         rows={1}

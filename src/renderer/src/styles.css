@@ -49,6 +49,15 @@
   --danger-track: #e0454b;
   --danger-text: #ff8f92;
 
+  /* Additive Token für die Ablösung von Inline-Hex in Komponenten
+     (Werte exakt wie die früheren Hardcodes; cozy-organic.css definiert
+     dieselben Token erneut, damit beide Theme-Ebenen vollständig sind). */
+  --attn: #f5a524;
+  --attn-text: #f7c96b;
+  --on-sage: #10221a;
+  --mcp-dot-on: #3fd17a;
+  --mcp-dot-off: #5a6b78;
+
   --font-ui: 'Segoe UI', ui-sans-serif, system-ui, -apple-system, 'Helvetica Neue', sans-serif;
   --font-mono: ui-monospace, 'Cascadia Code', Consolas, monospace;
 }

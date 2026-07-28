@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useAppStore } from '@renderer/store/useAppStore'
+import Modal from '@renderer/components/ui/Modal'
 import type { Idea } from '@shared/inbox'
 import {
   assessProfileOrchestrator,
@@ -7,13 +9,6 @@ import {
   previewIdeaTransferBriefing
 } from '@shared/inboxTransfer'
 import type { WorkspaceProfile } from '@shared/profile'
-
-const TRANSFER_STATUS_LABEL: Record<string, string> = {
-  pending: 'Wartet',
-  running: 'Läuft',
-  planned: 'Plan im Review',
-  failed: 'Fehlgeschlagen'
-}
 
 function profileHasOrchestrator(profile: WorkspaceProfile): boolean {
   return assessProfileOrchestrator(profile).ok
@@ -28,6 +23,7 @@ export default function IdeaTransferModal({
   onClose: () => void
   onTransferred: (idea: Idea) => void
 }): JSX.Element {
+  const { t } = useTranslation()
   // Narrow store slices so agent stream ticks do not remount/collapse the profile <select>.
   const profiles = useAppStore((s) => s.profiles)
   const activeProfileId = useAppStore((s) => s.activeProfileId)
@@ -57,14 +53,6 @@ export default function IdeaTransferModal({
   const [briefingPreviewOpen, setBriefingPreviewOpen] = useState(false)
   const briefingPreview = useMemo(() => previewIdeaTransferBriefing(idea), [idea])
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape' && !busy) onClose()
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [busy, onClose])
-
   const runTransfer = async (clone?: boolean): Promise<void> => {
     setBusy(true)
     setError('')
@@ -79,13 +67,13 @@ export default function IdeaTransferModal({
       if (result.duplicate) {
         setError(
           result.transfer.status === 'planned'
-            ? 'Plan wartet im Review — keine zweite Planung gestartet.'
-            : 'Übergabe läuft bereits — keine zweite Planung gestartet.'
+            ? t('ideaTransfer.dupPlanned')
+            : t('ideaTransfer.dupRunning')
         )
         return
       }
       if (result.transfer.status === 'failed') {
-        setError(result.transfer.error ?? 'Übergabe fehlgeschlagen.')
+        setError(result.transfer.error ?? t('ideaTransfer.transferFailed'))
         onTransferred(result.idea)
         return
       }
@@ -96,7 +84,7 @@ export default function IdeaTransferModal({
       }
       onTransferred(result.idea)
       window.location.hash = ''
-      showToast(`Idee „${idea.title}" an Workspace übergeben — Planung läuft.`)
+      showToast(t('ideaTransfer.toastTransferred', { title: idea.title }))
       onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -112,7 +100,7 @@ export default function IdeaTransferModal({
       const result = await window.vertragus.inbox.transferRetry(idea.id, yoloMaster)
       setLastResult(result.transfer)
       if (result.transfer.status === 'failed') {
-        setError(result.transfer.error ?? 'Wiederholung fehlgeschlagen.')
+        setError(result.transfer.error ?? t('ideaTransfer.retryFailed'))
         onTransferred(result.idea)
         return
       }
@@ -123,7 +111,7 @@ export default function IdeaTransferModal({
       }
       onTransferred(result.idea)
       window.location.hash = ''
-      showToast('Übergabe wiederholt — Workspace geöffnet.')
+      showToast(t('ideaTransfer.toastRetried'))
       onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -149,18 +137,20 @@ export default function IdeaTransferModal({
   }
 
   return (
-    <div className="modal-wrap">
-      <div className="modal-scrim" onClick={() => !busy && onClose()} />
-      <div className="modal idea-transfer-modal" role="dialog" aria-modal="true">
+    <Modal
+      className="idea-transfer-modal"
+      labelledBy="idea-transfer-title"
+      onClose={onClose}
+      closeOnScrim={!busy}
+      closeOnEscape={!busy}
+    >
         <div className="modal-head">
           <span className="modal-gear">➜</span>
           <div style={{ flex: 1 }}>
-            <div className="modal-title">An Workspace-Profil übergeben</div>
-            <div className="modal-sub">
-              Idee „{idea.title}" planen lassen — Review-Gate vor Subagent-Start
-            </div>
+            <div className="modal-title" id="idea-transfer-title">{t('ideaTransfer.title')}</div>
+            <div className="modal-sub">{t('ideaTransfer.sub', { title: idea.title })}</div>
           </div>
-          <button type="button" className="modal-close" aria-label="Schließen" onClick={onClose}>
+          <button type="button" className="modal-close" aria-label={t('ideaTransfer.closeAria')} onClick={onClose}>
             ✕
           </button>
         </div>
@@ -168,15 +158,18 @@ export default function IdeaTransferModal({
         <div className="modal-body">
           {idea.transfer && (
             <div className={`inbox-transfer-status status-${idea.transfer.status}`}>
-              Status: {TRANSFER_STATUS_LABEL[idea.transfer.status] ?? idea.transfer.status}
-              {idea.transfer.planId && ` · Plan ${idea.transfer.planId}`}
-              {idea.transfer.status === 'planned' &&
-                ' — Freigabe im Orchestrator-Panel; erneutes Planen erst nach Ablehnung.'}
+              {t('ideaTransfer.statusLine', {
+                status: t(`ideaTransfer.statusLabel.${idea.transfer.status}`, {
+                  defaultValue: idea.transfer.status
+                })
+              })}
+              {idea.transfer.planId && t('ideaTransfer.planSuffix', { planId: idea.transfer.planId })}
+              {idea.transfer.status === 'planned' && t('ideaTransfer.plannedHint')}
             </div>
           )}
 
           <label className="inbox-field">
-            <span>Workspace-Profil</span>
+            <span>{t('ideaTransfer.profileLabel')}</span>
             <select
               value={resolvedProfileId}
               // Submit stays blocked via `blocking`; the target profile must remain choosable.
@@ -188,7 +181,7 @@ export default function IdeaTransferModal({
                 return (
                   <option key={p.id} value={p.id} disabled={!ok}>
                     {p.name}
-                    {!ok ? ' (ohne Orchestrator — deaktiviert)' : ''}
+                    {!ok ? t('ideaTransfer.profileDisabled') : ''}
                   </option>
                 )
               })}
@@ -196,10 +189,7 @@ export default function IdeaTransferModal({
           </label>
 
           {noEligibleProfiles && (
-            <div className="inbox-transfer-hint">
-              Kein Profil mit Orchestrator und aktivem Planner-Modus — bitte im Profil-Editor
-              konfigurieren.
-            </div>
+            <div className="inbox-transfer-hint">{t('ideaTransfer.noEligible')}</div>
           )}
 
           <div className="inbox-briefing-preview">
@@ -209,7 +199,7 @@ export default function IdeaTransferModal({
               aria-expanded={briefingPreviewOpen}
               onClick={() => setBriefingPreviewOpen((open) => !open)}
             >
-              {briefingPreviewOpen ? 'Briefing-Vorschau ausblenden' : 'Briefing-Vorschau anzeigen'}
+              {briefingPreviewOpen ? t('ideaTransfer.briefingHide') : t('ideaTransfer.briefingShow')}
             </button>
             {!briefingPreview.ok && (
               <div className="inbox-error" role="alert">
@@ -218,10 +208,7 @@ export default function IdeaTransferModal({
             )}
             {briefingPreviewOpen && briefingPreview.ok && (
               <>
-                <div className="inbox-transfer-hint">
-                  Dieses Briefing wird an den Orchestrator übergeben. Rohmaterial ist als Kontext
-                  markiert; die Planungsvorgaben bleiben verbindlich.
-                </div>
+                <div className="inbox-transfer-hint">{t('ideaTransfer.briefingHint')}</div>
                 {briefingPreview.warnings.length > 0 && (
                   <div className="inbox-transfer-hint">
                     {briefingPreview.warnings.join(' ')}
@@ -237,15 +224,12 @@ export default function IdeaTransferModal({
           {error && <div className="inbox-error">{error}</div>}
 
           {needsClone && !needsAuth && (
-            <div className="inbox-transfer-hint">
-              Repository ist gebunden, aber noch nicht geklont. Klonen startet den vorhandenen
-              GitHub-Bindungsflow.
-            </div>
+            <div className="inbox-transfer-hint">{t('ideaTransfer.needsCloneHint')}</div>
           )}
 
           {needsAuth && (
             <div className="inbox-transfer-hint">
-              <div>{transfer?.error ?? 'GitHub-Anmeldung erforderlich.'}</div>
+              <div>{transfer?.error ?? t('ideaTransfer.needsAuth')}</div>
               <button
                 type="button"
                 className="btn-secondary"
@@ -254,8 +238,8 @@ export default function IdeaTransferModal({
                 onClick={githubLoginClick}
               >
                 {githubAuth?.oauthConfigured
-                  ? 'GitHub verbinden (Browser)'
-                  : 'GitHub im Terminal verbinden'}
+                  ? t('ideaTransfer.githubBrowser')
+                  : t('ideaTransfer.githubTerminal')}
               </button>
             </div>
           )}
@@ -263,16 +247,16 @@ export default function IdeaTransferModal({
 
         <div className="modal-foot">
           <button type="button" className="btn-ghost" disabled={busy} onClick={onClose}>
-            Abbrechen
+            {t('ideaTransfer.cancel')}
           </button>
           {canRetry && (
             <button type="button" className="btn-secondary" disabled={busy} onClick={() => void retry()}>
-              Erneut versuchen
+              {t('ideaTransfer.retry')}
             </button>
           )}
           {needsAuth ? (
             <button type="button" className="btn-primary" disabled={busy} onClick={githubLoginClick}>
-              GitHub verbinden
+              {t('ideaTransfer.githubConnect')}
             </button>
           ) : needsClone ? (
             <button
@@ -281,7 +265,7 @@ export default function IdeaTransferModal({
               disabled={busy || !selectedEligible || !briefingPreview.ok}
               onClick={() => void runTransfer(true)}
             >
-              Klonen & übergeben
+              {t('ideaTransfer.cloneTransfer')}
             </button>
           ) : (
             <button
@@ -290,11 +274,10 @@ export default function IdeaTransferModal({
               disabled={busy || blocking || !selectedEligible || !briefingPreview.ok}
               onClick={() => void runTransfer()}
             >
-              {busy ? 'Übergabe…' : 'Übergeben & planen'}
+              {busy ? t('ideaTransfer.transferring') : t('ideaTransfer.transferPlan')}
             </button>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }

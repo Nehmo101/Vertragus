@@ -1,20 +1,24 @@
-import { memo, useEffect, useRef } from 'react'
+import { memo, useEffect, useRef, useState, type MutableRefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
+import { SearchAddon } from '@xterm/addon-search'
 import type { AgentInstanceInfo, HandoffLink } from '@shared/agents'
 import { LIMIT_KIND_LABELS } from '@shared/agents'
 import { absentTelemetryNotice, summarizeUsage, TELEMETRY_STATUS_LABELS, TELEMETRY_STATUS_TITLES } from '@shared/telemetry'
-import { PROVIDER_THEME, STATUS_THEME, XTERM_THEME } from '@renderer/ui/theme'
+import { PROVIDER_THEME, STATUS_THEME, resolveXtermTheme } from '@renderer/ui/theme'
 import { formatTokenBreakdown, formatTokenCount, formatUsd } from '@renderer/telemetryFormat'
 import { useAppStore, effectivePaneReadable } from '@renderer/store/useAppStore'
 import { paneReadableSummary } from '@renderer/orchestratorActivity'
 import LoreName from '@renderer/components/LoreName'
+import { useLayoutStore, paneFontSize } from '@renderer/store/layoutStore'
 import { isAgentTerminalChunk } from './terminalStream'
 import { createTerminalFrameWriter } from './terminalFrameWriter'
 import { terminalEnterData } from '@renderer/components/terminalEnter'
+import { paneSearchKeyAction, type PaneSearchApi } from './paneSearch'
 import styles from './responsiveGuards.module.css'
+import paneStyles from './AgentPane.module.css'
 
 interface Props {
   agent: AgentInstanceInfo
@@ -40,8 +44,16 @@ function handoffState(t: TFunction, link: HandoffLink): string {
 /**
  * Live terminal bound to a real agent PTY. Replays the scrollback buffer via
  * seq numbers, then streams — duplicates and gaps are impossible by design.
+ *
+ * The per-pane font size is persisted in the layoutStore (keyed by agentId);
+ * the hook reads it imperatively (getState + subscribe) instead of a React
+ * subscription so font changes never re-render the pane.
  */
-export function useAgentTerminal(agentId: string, inputEnabled: boolean): React.RefObject<HTMLDivElement> {
+export function useAgentTerminal(
+  agentId: string,
+  inputEnabled: boolean,
+  searchApiRef?: MutableRefObject<PaneSearchApi | null>
+): React.RefObject<HTMLDivElement> {
   const hostRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<Terminal | null>(null)
   const inputEnabledRef = useRef(inputEnabled)
@@ -57,9 +69,11 @@ export function useAgentTerminal(agentId: string, inputEnabled: boolean): React.
 
     const term = new Terminal({
       fontFamily: "ui-monospace, 'Cascadia Code', Consolas, monospace",
-      fontSize: 11,
+      fontSize: paneFontSize(useLayoutStore.getState(), agentId),
       lineHeight: 1.35,
-      theme: XTERM_THEME,
+      // Immer die dunkle Palette — das Terminal bleibt auch im Light-Theme
+      // dunkel; die Werte kommen zur Laufzeit aus cozy-organic.css.
+      theme: resolveXtermTheme(),
       // Agent CLIs redraw progress lines while input stays active. A blinking
       // block cursor makes those cursor moves look like terminal flicker.
       cursorBlink: false,
@@ -73,6 +87,15 @@ export function useAgentTerminal(agentId: string, inputEnabled: boolean): React.
     terminalRef.current = term
     const fit = new FitAddon()
     term.loadAddon(fit)
+    const search = new SearchAddon()
+    term.loadAddon(search)
+    if (searchApiRef) {
+      searchApiRef.current = {
+        findNext: (query, incremental) => search.findNext(query, { incremental }),
+        findPrevious: (query) => search.findPrevious(query),
+        clear: () => search.clearDecorations()
+      }
+    }
     term.open(host)
     const frameWriter = createTerminalFrameWriter((data) => term.write(data))
 
@@ -89,6 +112,17 @@ export function useAgentTerminal(agentId: string, inputEnabled: boolean): React.
       }
 
       const modifier = event.ctrlKey || event.metaKey
+      // Ctrl/Cmd+0 resets the pane font size back to the default.
+      if (
+        event.type === 'keydown' &&
+        modifier &&
+        !event.altKey &&
+        (event.key === '0' || event.code === 'Digit0')
+      ) {
+        useLayoutStore.getState().resetPaneFontSize(agentId)
+        return false
+      }
+
       const isCopy = modifier && !event.altKey && event.key.toLowerCase() === 'c'
       return !(event.type === 'keydown' && isCopy && term.hasSelection())
     })
@@ -156,6 +190,29 @@ export function useAgentTerminal(agentId: string, inputEnabled: boolean): React.
     })
     observer.observe(host)
 
+    // Ctrl/Cmd+wheel over the terminal changes the font size (8-20 px).
+    // Capture phase so xterm's own scroll handling cannot swallow the event.
+    const onWheel = (event: WheelEvent): void => {
+      if (!event.ctrlKey && !event.metaKey) return
+      event.preventDefault()
+      event.stopPropagation()
+      const store = useLayoutStore.getState()
+      const current = paneFontSize(store, agentId)
+      store.setPaneFontSize(agentId, current + (event.deltaY < 0 ? 1 : -1))
+    }
+    host.addEventListener('wheel', onWheel, { passive: false, capture: true })
+
+    // Apply persisted font changes (wheel/Ctrl+0, including from a popout
+    // window of the same agent) directly to the terminal.
+    const unsubscribeFont = useLayoutStore.subscribe((state) => {
+      const size = paneFontSize(state, agentId)
+      if (term.options.fontSize !== size) {
+        term.options.fontSize = size
+        lastSize = ''
+        doFit()
+      }
+    })
+
     return () => {
       disposed = true
       observer.disconnect()
@@ -163,11 +220,15 @@ export function useAgentTerminal(agentId: string, inputEnabled: boolean): React.
       onInput.dispose()
       onKey.dispose()
       host.removeEventListener('paste', onPaste, true)
+      host.removeEventListener('wheel', onWheel, { capture: true })
+      unsubscribeFont()
       unsubscribe()
       frameWriter.dispose()
+      if (searchApiRef) searchApiRef.current = null
       term.dispose()
       terminalRef.current = null
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- searchApiRef ist ein stabiles Ref-Objekt
   }, [agentId])
 
   return hostRef
@@ -179,14 +240,76 @@ export function useAgentTerminal(agentId: string, inputEnabled: boolean): React.
  */
 const TerminalHost = memo(function TerminalHost({
   agentId,
-  inputEnabled
+  inputEnabled,
+  searchApiRef
 }: {
   agentId: string
   inputEnabled: boolean
+  /** Stabiles Ref-Objekt — bricht die memo()-Isolation nicht. */
+  searchApiRef?: MutableRefObject<PaneSearchApi | null>
 }): JSX.Element {
-  const hostRef = useAgentTerminal(agentId, inputEnabled)
+  const hostRef = useAgentTerminal(agentId, inputEnabled, searchApiRef)
   return <div className="pane-term" ref={hostRef} />
 })
+
+/**
+ * Small reusable info button with a popover for secondary details (branch,
+ * worktree, agent id) that do not need a permanent footer slot. Escape or a
+ * click outside closes it.
+ */
+export function PaneInfoPopover({
+  entries
+}: {
+  entries: Array<{ label: string; value: string }>
+}): JSX.Element {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef<HTMLSpanElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (event: MouseEvent): void => {
+      if (wrapRef.current && !wrapRef.current.contains(event.target as Node)) setOpen(false)
+    }
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    window.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  return (
+    <span className={paneStyles.infoWrap} ref={wrapRef}>
+      <button
+        type="button"
+        className={`${paneStyles.infoBtn} ${open ? paneStyles.infoBtnOpen : ''}`}
+        title={t('agentPane.info.title')}
+        aria-label={t('agentPane.info.ariaShow')}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        ℹ
+      </button>
+      {open && (
+        <div className={paneStyles.infoPopover} role="dialog" aria-label={t('agentPane.info.dialogAria')}>
+          <dl>
+            {entries.map((entry) => (
+              <div key={entry.label} style={{ display: 'contents' }}>
+                <dt>{entry.label}</dt>
+                <dd title={entry.value}>{entry.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      )}
+    </span>
+  )
+}
 
 export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff, focused, subdued }: Props): JSX.Element {
   const { t } = useTranslation()
@@ -197,6 +320,8 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
   const usage = agent.usage
   const telemetry = summarizeUsage(usage)
   const absence = absentTelemetryNotice(agent.mode)
+  // Renderer-side i18n key for the shared (German-authored) absence notice.
+  const absenceKey = agent.mode === 'interactive' ? 'interactive' : 'absent'
   const limit = agent.limitWarning
   const readable = useAppStore((s) => effectivePaneReadable(s, agent.id))
   const togglePaneReadable = useAppStore((s) => s.togglePaneReadable)
@@ -204,6 +329,36 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
   // "Lesbar" is on, so orchestrator ticks don't re-render raw terminal panes.
   const orchestrator = useAppStore((s) => (readable ? s.orchestrator : undefined))
   const summary = readable ? paneReadableSummary(agent, orchestrator) : null
+
+  // Scrollback search: the loupe button toggles the field, Enter = next,
+  // Shift+Enter = previous, Escape closes. The addon API arrives via a ref
+  // from the terminal hook.
+  const searchApiRef = useRef<PaneSearchApi | null>(null)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const closeSearch = (): void => {
+    setSearchOpen(false)
+    setSearchQuery('')
+    searchApiRef.current?.clear()
+  }
+  const onSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>): void => {
+    const action = paneSearchKeyAction(event)
+    if (!action) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (action === 'close') closeSearch()
+    else if (searchQuery) {
+      if (action === 'next') searchApiRef.current?.findNext(searchQuery)
+      else searchApiRef.current?.findPrevious(searchQuery)
+    }
+  }
+
+  // Secondary details move into the info popover instead of the footer.
+  const infoEntries: Array<{ label: string; value: string }> = [
+    ...(agent.branch ? [{ label: t('agentPane.info.branch'), value: agent.branch }] : []),
+    ...(agent.worktree ? [{ label: t('agentPane.info.worktree'), value: agent.worktree }] : []),
+    { label: t('agentPane.info.agentId'), value: agent.id }
+  ]
 
   return (
     <div
@@ -222,7 +377,7 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
             {agent.yolo && <span className="badge-yolo">YOLO</span>}
             {limit && (
               <span className="badge-limit" title={limit.note ?? t('agentPane.limitDetected')}>
-                ⚠ {LIMIT_KIND_LABELS[limit.kind]}
+                ⚠ {t(`ui.limitKind.${limit.kind}`, { defaultValue: LIMIT_KIND_LABELS[limit.kind] })}
               </span>
             )}
             {agent.handoffTo && (
@@ -245,7 +400,7 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
               }}
             />
             <span className="pane-status" style={{ color: status.text }}>
-              {status.label}
+              {t(status.label)}
             </span>
             <span className="sep">·</span>
             <span className="pane-role" title={agent.role}>
@@ -253,6 +408,32 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
             </span>
           </div>
         </div>
+        {searchOpen && (
+          <input
+            className={paneStyles.searchInput}
+            type="text"
+            placeholder={t('agentPane.search.placeholder')}
+            aria-label={t('agentPane.search.inputAria')}
+            autoFocus
+            value={searchQuery}
+            onChange={(event) => {
+              setSearchQuery(event.target.value)
+              if (event.target.value) searchApiRef.current?.findNext(event.target.value, true)
+              else searchApiRef.current?.clear()
+            }}
+            onKeyDown={onSearchKeyDown}
+          />
+        )}
+        <button
+          type="button"
+          className="pane-icon-btn"
+          title={t('agentPane.search.toggleTitle')}
+          aria-label={t('agentPane.search.toggleAria')}
+          aria-pressed={searchOpen}
+          onClick={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
+        >
+          ⌕
+        </button>
         {onHandoff && (
           <button
             type="button"
@@ -280,6 +461,7 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
         <TerminalHost
           agentId={agent.id}
           inputEnabled={agent.status === 'running'}
+          searchApiRef={searchApiRef}
         />
         {readable && summary && (
           <div className="pane-readable" role="status" aria-live="polite">
@@ -334,27 +516,25 @@ export default function AgentPane({ agent, onClose, onPopout, onFocus, onHandoff
             )}
           </>
         ) : (
-          <span className="telemetry-status absent" title={absence.title}>
-            {absence.label}
+          <span
+            className="telemetry-status absent"
+            title={t(`ui.telemetry.${absenceKey}Title`, { defaultValue: absence.title })}
+          >
+            {t(`ui.telemetry.${absenceKey}`, { defaultValue: absence.label })}
           </span>
         )}
         {usage && telemetry.status !== 'present' && (
-          <span className={`telemetry-status ${telemetry.status}`} title={TELEMETRY_STATUS_TITLES[telemetry.status]}>
-            {TELEMETRY_STATUS_LABELS[telemetry.status]}
+          <span
+            className={`telemetry-status ${telemetry.status}`}
+            title={t(`ui.telemetry.${telemetry.status}Title`, { defaultValue: TELEMETRY_STATUS_TITLES[telemetry.status] })}
+          >
+            {t(`ui.telemetry.${telemetry.status}`, { defaultValue: TELEMETRY_STATUS_LABELS[telemetry.status] })}
           </span>
         )}
         <span className="spacer" />
-        {agent.branch && (
-          <span className="agent-branch-tag" title={`Branch: ${agent.branch}`}>
-            {agent.branch}
-          </span>
-        )}
-        {agent.worktree && (
-          <span className="wt-tag" title={`Worktree: ${agent.worktree}`}>
-            wt
-          </span>
-        )}
-        <span className="id">{agent.id}</span>
+        {/* Secondary details (branch, worktree, agent id) live in the info
+            popover; status/provider/model/telemetry stay always visible. */}
+        <PaneInfoPopover entries={infoEntries} />
       </div>
     </div>
   )

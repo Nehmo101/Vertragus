@@ -12,6 +12,7 @@ import { parseIpcPayload } from '@main/security/ipcPayload'
 import type { AgentInstanceInfo, SpawnAgentRequest, VertragusEvent } from '@shared/agents'
 import {
   bulkHandoffRequestSchema,
+  githubIssueListRequestSchema,
   githubRepoBindRequestSchema,
   handoffRequestSchema,
   inboxSpeechSettingsPatchSchema,
@@ -49,6 +50,7 @@ import {
   resolveGithubRepo,
   searchGithubRepos
 } from '@main/integrations/githubRepo'
+import { listOpenIssues } from '@main/integrations/githubIssues'
 import { agentManager } from '@main/agents/AgentManager'
 import { providerCapacity } from '@main/agents/providerCapacity'
 import { workspaceSessions } from '@main/orchestrator/WorkspaceSessionRegistry'
@@ -522,6 +524,10 @@ export function registerIpcHandlers(): void {
       assertIpcId(localPath, 'Pfadangabe', 4096)
     )
   )
+  ipcMain.handle(IPC.githubListIssues, (e, req: unknown) => {
+    assertNotVoiceWindow(e)
+    return listOpenIssues(parseIpcPayload(githubIssueListRequestSchema, req, 'Issue-Anfrage'))
+  })
 
   // ---- native folder picker ----
   ipcMain.handle(IPC.demoPlay, (e) => {

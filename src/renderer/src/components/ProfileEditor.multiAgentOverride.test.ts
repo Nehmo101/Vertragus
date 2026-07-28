@@ -1,6 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
+import i18n from '../i18n'
 import type { AgentSlot } from '@shared/profile'
 import {
   MultiAgentOverrideSelect,
@@ -19,6 +20,11 @@ const baseSlot: AgentSlot = {
   strengths: [],
   weaknesses: []
 }
+
+// The markup tests assert the German source copy, independent of the host locale.
+beforeAll(async () => {
+  await i18n.changeLanguage('de')
+})
 
 describe('ProfileEditor multiagent slot override', () => {
   it('treats old and new slots without an override as Global erben', () => {

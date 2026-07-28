@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import type { AgentSlot } from '@shared/profile'
 import InfoTip from '@renderer/components/InfoTip'
 import { HELP } from './help'
@@ -38,14 +39,17 @@ export function MultiAgentOverrideSelect({
   globalEnabled,
   onChange
 }: MultiAgentOverrideSelectProps): JSX.Element {
+  const { t } = useTranslation()
   const statusId = `${id}-status`
   const effectiveEnabled = value ?? globalEnabled
+  const stateLabel = (enabled: boolean): string =>
+    enabled ? t('profile.multiAgent.on') : t('profile.multiAgent.off')
 
   return (
     <div className="slot-path-row">
       <div className="slot-path-field">
         <label className="field-label slot-col-label" htmlFor={id}>
-          Multiagent-Modus <InfoTip text={HELP.multiAgent} />
+          {t('profile.multiAgent.label')} <InfoTip text={t(HELP.multiAgent)} />
         </label>
         <select
           id={id}
@@ -55,17 +59,17 @@ export function MultiAgentOverrideSelect({
           onChange={(event) => onChange(event.currentTarget.value as MultiAgentOverrideChoice)}
         >
           <option value="inherit">
-            Global erben — aktuell {globalEnabled ? 'Aktiv' : 'Aus'}
+            {t('profile.multiAgent.inherit', { state: stateLabel(globalEnabled) })}
           </option>
-          <option value="on">Aktiv</option>
-          <option value="off">Aus</option>
+          <option value="on">{t('profile.multiAgent.on')}</option>
+          <option value="off">{t('profile.multiAgent.off')}</option>
         </select>
         <div className="model-effective" id={statusId} aria-live="polite">
-          Effektiv: {effectiveEnabled ? 'Aktiv' : 'Aus'}
+          {t('profile.multiAgent.effective', { state: stateLabel(effectiveEnabled) })}
           {' · '}
           {value === undefined
-            ? 'globale Einstellung geerbt'
-            : `Slot-Override · global ${globalEnabled ? 'Aktiv' : 'Aus'}`}
+            ? t('profile.multiAgent.inherited')
+            : t('profile.multiAgent.override', { state: stateLabel(globalEnabled) })}
         </div>
       </div>
     </div>

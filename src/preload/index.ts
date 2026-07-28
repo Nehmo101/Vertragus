@@ -75,6 +75,9 @@ const vertragus: VertragusApi = {
   githubRepoBind: (req) => ipcRenderer.invoke(IPC.githubRepoBind, req),
   githubRepoCheckLocal: (owner, repo, localPath) =>
     ipcRenderer.invoke(IPC.githubRepoCheckLocal, owner, repo, localPath),
+  github: {
+    listIssues: (req) => ipcRenderer.invoke(IPC.githubListIssues, req)
+  },
   pickFolder: () => ipcRenderer.invoke(IPC.dialogPickFolder),
   pickFile: () => ipcRenderer.invoke(IPC.dialogPickFile),
   files: {

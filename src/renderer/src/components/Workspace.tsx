@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import {
   useAppStore,
   activeProfile,
@@ -10,17 +10,23 @@ import {
 } from '@renderer/store/useAppStore'
 import AgentPane from '@renderer/components/AgentPane'
 import CanvasBoard from '@renderer/components/CanvasBoard'
+import Spinner from '@renderer/components/ui/Spinner'
 import { useLayoutStore } from '@renderer/store/layoutStore'
 import styles from './responsiveGuards.module.css'
 
-const LAYOUTS: Array<{ id: WorkspaceLayout; icon: string; fallback: string }> = [
-  { id: 'canvas', icon: '⌘', fallback: 'Zentrale' },
-  { id: 'tiles', icon: '▦', fallback: 'Terminals' },
-  { id: 'focus', icon: '▣', fallback: 'Fokus' }
+/** After this many ms the workspace renders normally even if init() never finished. */
+const BOOTSTRAP_TIMEOUT_MS = 10_000
+
+// '◈' statt '⌘': das Befehlssymbol kollidiert auf dem Mac mit der Cmd-Taste.
+const LAYOUTS: Array<{ id: WorkspaceLayout; icon: string }> = [
+  { id: 'canvas', icon: '◈' },
+  { id: 'tiles', icon: '▦' },
+  { id: 'focus', icon: '▣' }
 ]
 
 export default function Workspace(): JSX.Element {
   const { t } = useTranslation()
+  const bootstrapped = useAppStore((state) => state.bootstrapped)
   const profiles = useAppStore((state) => state.profiles)
   const activeProfileId = useAppStore((state) => state.activeProfileId)
   const activeWorkspaceSessionId = useAppStore((state) => state.activeWorkspaceSessionId)
@@ -51,9 +57,48 @@ export default function Workspace(): JSX.Element {
   const collapseSidebar = useLayoutStore((state) => state.collapse)
   const orchDrawerOpen = useLayoutStore((state) => state.orchDrawerOpen)
   const toggleOrchDrawer = useLayoutStore((state) => state.toggleOrchDrawer)
+  const canvasAutoCollapseDone = useLayoutStore((state) => state.canvasAutoCollapseDone)
+  const markCanvasAutoCollapseDone = useLayoutStore((state) => state.markCanvasAutoCollapseDone)
+  // Auto-collapse der Sidebar nur beim allerersten Canvas-Besuch; danach
+  // bleibt die Nutzerwahl erhalten (persistenter Flag im layoutStore).
   useEffect(() => {
-    if (workspaceLayout === 'canvas') collapseSidebar('sidebar-left', true)
-  }, [workspaceLayout, collapseSidebar])
+    if (workspaceLayout === 'canvas' && !canvasAutoCollapseDone) {
+      collapseSidebar('sidebar-left', true)
+      markCanvasAutoCollapseDone()
+    }
+  }, [workspaceLayout, canvasAutoCollapseDone, collapseSidebar, markCanvasAutoCollapseDone])
+
+  // App-start loading state: while the one-time store bootstrap runs, showing
+  // "0 agents" plus the empty hero would be misleading. Show a centered
+  // spinner instead — with a hard timeout so a stuck init() never blocks the
+  // workspace forever.
+  const [bootstrapTimedOut, setBootstrapTimedOut] = useState(false)
+  useEffect(() => {
+    if (bootstrapped) return
+    const timer = setTimeout(() => setBootstrapTimedOut(true), BOOTSTRAP_TIMEOUT_MS)
+    return () => clearTimeout(timer)
+  }, [bootstrapped])
+
+  if (!bootstrapped && !bootstrapTimedOut) {
+    return (
+      <main
+        className={`workspace ${styles.workspace} workspace-${workspaceLayout}`}
+        aria-label={t('workspace.aria')}
+      >
+        <div
+          className="ws-scroll"
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        >
+          <div
+            role="status"
+            style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-2)', fontSize: 14 }}
+          >
+            <Spinner /> {t('workspace.loading')}
+          </div>
+        </div>
+      </main>
+    )
+  }
 
   return (
     <main
@@ -63,7 +108,10 @@ export default function Workspace(): JSX.Element {
       <div className="ws-header">
         {workspaceLayout === 'canvas' && (
           <button type="button" className="clean-btn canvas-orch-toggle" data-open={orchDrawerOpen} aria-pressed={orchDrawerOpen} onClick={toggleOrchDrawer}>
-            {t('canvas.orchestratorToggle', { defaultValue: 'Caronte' })}
+            {/* Lore-Name aus dem i18n-Key + statischer Funktions-Zusatz,
+                damit klar ist, was sich hinter dem Namen verbirgt. */}
+            {t('canvas.orchestratorToggle')}
+            <span className="canvas-orch-toggle-role"> · Orchestrator</span>
           </button>
         )}
         <label className="workspace-picker">
@@ -135,7 +183,7 @@ export default function Workspace(): JSX.Element {
             >
               <span aria-hidden="true">{layout.icon}</span>
               <span className="layout-btn-label">
-                {t(`canvas.layout.${layout.id}`, { defaultValue: layout.fallback })}
+                {t(`canvas.layout.${layout.id}`)}
               </span>
             </button>
           ))}

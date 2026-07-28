@@ -1,7 +1,10 @@
 # Native iPhone-App „Vertragus Mission Control" (SwiftUI)
 
 > Implementierungs-Plan / Architektur-Blueprint für den nativen iOS-Client.
-> Status: freigegeben und umsetzbereit. Rein additiv zum bestehenden Remote-Gateway.
+> Status (2026-07-28): **umgesetzt** — die App liegt unter `apps/ios/`
+> (MissionControl + Tests, iOS-Build in der CI-Matrix), APNs-Versand im
+> Gateway (`src/main/remote/apnsSender.ts`). Rein additiv zum bestehenden
+> Remote-Gateway.
 
 ## Context
 

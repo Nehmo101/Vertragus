@@ -65,6 +65,14 @@ body {
   --prov-github: #6b6152;
   --prov-cloudflare: #c17d24;
 
+  /* Theme-invariante Einzelfarben — aus Inline-Styles der Komponenten gehoben,
+     Werte unverändert (Token-Hygiene, keine Optik-Änderung). */
+  --attn: #f5a524;
+  --attn-text: #f7c96b;
+  --on-sage: #10221a;
+  --mcp-dot-on: #3fd17a;
+  --mcp-dot-off: #5a6b78;
+
   /* Compatibility aliases for existing renderer components. */
   --bg-app: var(--bg);
   --bg-panel: var(--panel);
@@ -159,6 +167,12 @@ body {
   --prov-ollama: #c6b9a1;
   --prov-github: #b8ab93;
   --prov-cloudflare: #e6b45f;
+  /* Theme-invariante Einzelfarben (identisch zum Light-Block, s. o.). */
+  --attn: #f5a524;
+  --attn-text: #f7c96b;
+  --on-sage: #10221a;
+  --mcp-dot-on: #3fd17a;
+  --mcp-dot-off: #5a6b78;
   color-scheme: dark;
 }
 

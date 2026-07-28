@@ -120,25 +120,34 @@ export function defaultHandoffModel(
   return provider === 'ollama' ? catalog.models[0] ?? '' : ''
 }
 
+/** Minimal translate signature so callers can pass i18next's `t` directly. */
+export type CatalogTranslate = (key: string, options?: { n?: number }) => string
+
 export function modelCatalogLabel(
+  t: CatalogTranslate,
   _provider: AgentProviderId,
   catalog: ProviderModelCatalog
 ): string {
   if (catalog.source === 'unavailable') {
-    return `Nicht verfügbar${catalog.accountDependent ? ' · kontoabhängig' : ''}`
+    return `${t('ui.modelCatalog.unavailable')}${
+      catalog.accountDependent ? ` · ${t('ui.modelCatalog.accountDependent')}` : ''
+    }`
   }
   const origin =
     catalog.source === 'live'
-      ? 'Live'
+      ? t('ui.modelCatalog.live')
       : catalog.source === 'mixed'
-        ? 'Live + Vorschläge'
-        : 'Fallback'
-  const noun = catalog.source === 'fallback' ? 'Vorschläge' : 'Modelle'
+        ? t('ui.modelCatalog.mixed')
+        : t('ui.modelCatalog.fallback')
+  const counted =
+    catalog.source === 'fallback'
+      ? t('ui.modelCatalog.suggestions', { n: catalog.models.length })
+      : t('ui.modelCatalog.models', { n: catalog.models.length })
   const account =
     catalog.source === 'fallback' && catalog.accountDependent
-      ? ' · nicht kontoverifiziert'
+      ? ` · ${t('ui.modelCatalog.notAccountVerified')}`
       : catalog.accountDependent
-        ? ' · kontoabhängig'
+        ? ` · ${t('ui.modelCatalog.accountDependent')}`
         : ''
-  return `${origin} · ${catalog.models.length} ${noun}${account}`
+  return `${origin} · ${counted}${account}`
 }

@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import {
   CLAUDE_PERMISSION_MODE_LABELS,
   CLAUDE_PERMISSION_MODES,
@@ -17,18 +18,21 @@ export default function ClaudePermissionModeSelect({
   id,
   disabled = false
 }: ClaudePermissionModeSelectProps): JSX.Element {
+  const { t } = useTranslation()
   return (
     <select
       id={id}
       className="select"
-      aria-label="Claude-Berechtigungsmodus"
+      aria-label={t('ui.claudePermission.aria')}
       value={value}
       disabled={disabled}
       onChange={(event) => onChange(event.target.value as ClaudePermissionMode)}
     >
       {CLAUDE_PERMISSION_MODES.map((mode) => (
         <option key={mode} value={mode}>
-          {CLAUDE_PERMISSION_MODE_LABELS[mode]}
+          {t(`ui.claudePermission.mode.${mode}`, {
+            defaultValue: CLAUDE_PERMISSION_MODE_LABELS[mode]
+          })}
         </option>
       ))}
     </select>

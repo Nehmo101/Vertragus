@@ -4,7 +4,15 @@
  * dependent task runs, advisory dependencies render dashed bronze.
  * Node positions persist per profile + workspace session.
  */
-import { useEffect, useMemo, useState, type DragEvent } from 'react'
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type DragEvent,
+  type KeyboardEvent as ReactKeyboardEvent
+} from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import {
   Background,
@@ -42,6 +50,15 @@ import type { TFunction } from 'i18next'
 import CanvasTerminalDrawer from './CanvasTerminalDrawer'
 import { CanvasComposer } from './CanvasComposer'
 import { OrchestratorThread } from './OrchestratorThread'
+
+/**
+ * Keyboard path for task nodes: Enter/Space opens the existing context menu
+ * as a popover at the node. The callback lives in the board; the nodes reach
+ * it via this context because React Flow renders the node components itself.
+ */
+const TaskNodeMenuContext = createContext<
+  ((task: VertragusTask, element: HTMLElement) => void) | null
+>(null)
 
 function statusClass(status: TaskStatus): string {
   if (status === 'running') return 'running'
@@ -106,6 +123,18 @@ function TaskNode({ data }: NodeProps<Node<TaskNodeData, 'task'>>): JSX.Element 
   const { task } = data
   const showToast = useAppStore((state) => state.showToast)
   const [dropActive, setDropActive] = useState(false)
+  const openNodeMenu = useContext(TaskNodeMenuContext)
+
+  // Enter/Space opens the context menu at the node; Escape closes it (global
+  // listener in the board). stopPropagation keeps React Flow shortcuts away.
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    if (event.target !== event.currentTarget) return
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      event.stopPropagation()
+      openNodeMenu?.(task, event.currentTarget)
+    }
+  }
 
   const onDragOver = (event: DragEvent<HTMLDivElement>): void => {
     if (!task.agentId || !event.dataTransfer.types.includes('Files')) return
@@ -141,6 +170,10 @@ function TaskNode({ data }: NodeProps<Node<TaskNodeData, 'task'>>): JSX.Element 
     <div
       className={`canvas-node canvas-node--task ${statusClass(task.status)} ${dropActive ? 'drop-target' : ''}`}
       title={task.agentId ? t('canvas.dropHint', { name: task.agentName ?? task.role }) : undefined}
+      tabIndex={0}
+      aria-haspopup="menu"
+      aria-label={task.title}
+      onKeyDown={onKeyDown}
       onDragOver={onDragOver}
       onDragLeave={() => setDropActive(false)}
       onDrop={onDrop}
@@ -374,6 +407,27 @@ export default function CanvasBoard(): JSX.Element {
 
   const [menu, setMenu] = useState<{ x: number; y: number; task: VertragusTask } | null>(null)
 
+  // Keyboard path: opens the context menu as a popover right below the node.
+  const openMenuAtNode = (task: VertragusTask, element: HTMLElement): void => {
+    const host = element.closest('.vertragus-canvas')?.getBoundingClientRect()
+    const rect = element.getBoundingClientRect()
+    setMenu({
+      x: rect.left - (host?.left ?? 0) + 12,
+      y: rect.bottom - (host?.top ?? 0) + 6,
+      task
+    })
+  }
+
+  // Escape closes the menu no matter where focus currently is.
+  useEffect(() => {
+    if (!menu) return
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setMenu(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [menu])
+
   const onNodeContextMenu: NodeMouseHandler<CanvasNode> = (event, node) => {
     if (node.type !== 'task') return
     event.preventDefault()
@@ -417,13 +471,13 @@ export default function CanvasBoard(): JSX.Element {
           <div className="canvas-empty-profile">{store.profiles.find((p) => p.id === store.activeProfileId)?.name ?? '—'}</div>
           <div>{t('canvas.emptyHint')}</div>
           <div className="canvas-empty-actions">
-            <button type="button" className="clean-btn workspace-start-btn" onClick={() => void store.startAll()}>{t('canvas.empty.start', { defaultValue: 'Team starten' })}</button>
-            <button type="button" className="clean-btn" onClick={() => void window.vertragus.demo.play()}>{t('canvas.empty.playground', { defaultValue: 'Playground' })}</button>
+            <button type="button" className="clean-btn workspace-start-btn" onClick={() => void store.startAll()}>{t('canvas.empty.start')}</button>
+            <button type="button" className="clean-btn" onClick={() => void window.vertragus.demo.play()}>{t('canvas.empty.playground')}</button>
           </div>
           <ol className="canvas-onboarding">
-            <li>{t('canvas.empty.drag', { defaultValue: 'Karten frei anordnen' })}</li>
-            <li>{t('canvas.empty.doubleClick', { defaultValue: 'Doppelklick öffnet das Terminal' })}</li>
-            <li>{t('canvas.empty.chat', { defaultValue: 'Unten mit Caronte chatten' })}</li>
+            <li>{t('canvas.empty.drag')}</li>
+            <li>{t('canvas.empty.doubleClick')}</li>
+            <li>{t('canvas.empty.chat')}</li>
           </ol>
         </div>
         <CanvasComposerMount />
@@ -434,27 +488,32 @@ export default function CanvasBoard(): JSX.Element {
   return (
     <div className="vertragus-canvas" aria-label={t('canvas.aria')}>
       <SessionChips />
-      <ReactFlow
-        nodes={nodes}
-        edges={graph.edges}
-        nodeTypes={NODE_TYPES}
-        onNodesChange={onNodesChange}
-        onNodeDragStop={onNodeDragStop}
-        onNodeDoubleClick={onNodeDoubleClick}
-        onNodeContextMenu={onNodeContextMenu}
-        onPaneClick={() => setMenu(null)}
-        onMoveStart={() => setMenu(null)}
-        fitView
-        minZoom={0.25}
-        maxZoom={1.75}
-        nodesConnectable={false}
-        deleteKeyCode={null}
-        proOptions={{ hideAttribution: false }}
-      >
-        <Background variant={BackgroundVariant.Dots} gap={22} size={1.2} className="canvas-bg" />
-        <Controls position="bottom-left" showInteractive={false} />
-        <MiniMap position="bottom-right" pannable zoomable className="canvas-minimap" />
-      </ReactFlow>
+      <TaskNodeMenuContext.Provider value={openMenuAtNode}>
+        <ReactFlow
+          nodes={nodes}
+          edges={graph.edges}
+          nodeTypes={NODE_TYPES}
+          onNodesChange={onNodesChange}
+          onNodeDragStop={onNodeDragStop}
+          onNodeDoubleClick={onNodeDoubleClick}
+          onNodeContextMenu={onNodeContextMenu}
+          onPaneClick={() => setMenu(null)}
+          onMoveStart={() => setMenu(null)}
+          fitView
+          minZoom={0.25}
+          maxZoom={1.75}
+          nodesConnectable={false}
+          // Focus sits on the inner task node (tabIndex), not on the React
+          // Flow wrapper — otherwise every node would get two tab stops.
+          nodesFocusable={false}
+          deleteKeyCode={null}
+          proOptions={{ hideAttribution: false }}
+        >
+          <Background variant={BackgroundVariant.Dots} gap={22} size={1.2} className="canvas-bg" />
+          <Controls position="bottom-left" showInteractive={false} />
+          <MiniMap position="bottom-right" pannable zoomable className="canvas-minimap" />
+        </ReactFlow>
+      </TaskNodeMenuContext.Provider>
       {menu && menuTask && sessionId && (
         <div className="canvas-menu" role="menu" style={{ left: menu.x, top: menu.y }}>
           {menuTask.status === 'running' && (
@@ -549,13 +608,13 @@ function SessionChips(): JSX.Element {
   )
   const sessions = store.workspaceSessions.filter((session) => session.profileId === store.activeProfileId)
   return (
-    <nav className="canvas-sessions" aria-label={t('canvas.sessions.aria', { defaultValue: 'Workspace-Sessions' })}>
+    <nav className="canvas-sessions" aria-label={t('canvas.sessions.aria')}>
       {sessions.map((session) => (
         <button key={session.id} type="button" className={session.id === store.activeWorkspaceSessionId ? 'active' : ''} onClick={() => void store.selectWorkspaceSession(session.profileId, session.id)} title={session.taskSummary}>
           W{session.sequence} · {session.name}
         </button>
       ))}
-      <button type="button" className="canvas-session-add" onClick={() => void store.startAll()} aria-label={t('canvas.sessions.add', { defaultValue: 'Weitere Session starten' })}>＋</button>
+      <button type="button" className="canvas-session-add" onClick={() => void store.startAll()} aria-label={t('canvas.sessions.add')}>＋</button>
     </nav>
   )
 }

@@ -196,3 +196,139 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ---- Master-detail layout for the full-width inbox route ----
+   The base layout in styles.css is `.inbox-body { 240px 1fr }` and
+   responsiveGuards.module.css re-declares the columns below 720px with
+   specificity (0,2,0). Scoping under .panel and doubling .splitBody raises
+   these rules to (0,3,0) so they own the columns at every width. */
+
+.panel {
+  min-width: 0;
+}
+
+.panel .splitBody.splitBody {
+  /* Narrow default: stacked — list on top (height-capped), editor below. */
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, auto) minmax(0, 1fr);
+}
+
+.panel .listPane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 42vh;
+  padding: 0;
+  overflow: hidden;
+  border-right: 0;
+  border-bottom: 1px solid var(--border-1);
+}
+
+@media (min-width: 900px) {
+  .panel .splitBody.splitBody {
+    /* Master-detail: scrollable list left, editor right. */
+    grid-template-columns: clamp(320px, 34%, 380px) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .panel .listPane {
+    max-height: none;
+    border-right: 1px solid var(--border-1);
+    border-bottom: 0;
+  }
+}
+
+.filterBar {
+  display: grid;
+  gap: 7px;
+  padding: 10px 10px 8px;
+  border-bottom: 1px solid var(--border-2);
+}
+
+.searchField,
+.tagField {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.filterLabel {
+  color: var(--text-3);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.searchInput,
+.tagSelect {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  background: var(--bg-input);
+  color: var(--text-1);
+  font-size: 12px;
+}
+
+.tagSelect:disabled {
+  opacity: 0.6;
+}
+
+.chipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.filterChip {
+  padding: 3px 9px;
+  border: 1px solid var(--border-2);
+  border-radius: 999px;
+  background: var(--bg-input);
+  color: var(--text-3);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+.filterChip:hover {
+  color: var(--text-1);
+}
+
+.filterChipActive {
+  border-color: rgba(45, 212, 191, 0.28);
+  background: rgba(45, 212, 191, 0.14);
+  color: var(--accent-light);
+}
+
+.filterCount {
+  color: var(--text-4);
+  font-size: 10.5px;
+}
+
+.ideaList {
+  flex: 1;
+  min-height: 0;
+  padding: 8px;
+  overflow: auto;
+}
+
+.listItem {
+  display: block;
+  min-width: 0;
+}
+
+.filterReset {
+  margin-top: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent-light);
+  cursor: pointer;
+  font-size: 11px;
+  text-decoration: underline;
+}
+
+.filterReset:disabled {
+  cursor: default;
+  opacity: 0.5;
+}

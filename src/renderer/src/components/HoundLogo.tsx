@@ -40,6 +40,8 @@ export default function HoundLogo({ size = 28, badge = true }: Props): JSX.Eleme
     <svg width={size} height={size} viewBox="0 0 120 120" aria-hidden="true">
       <defs>
         <mask id={`${id}-slits`} maskUnits="userSpaceOnUse" x="-24" y="0" width="160" height="64">
+          {/* Luminanz-Maske: hell = sichtbar, schwarz = Schlitz. Bewusst
+              literale #fff/#000 — das sind keine Theme-Farben. */}
           <rect x="-24" y="0" width="160" height="64" fill="#fff" />
           <rect x="-24" y="17" width="86" height="1.6" fill="#000" />
           <rect x="-24" y="19.9" width="80" height="1.5" fill="#000" />

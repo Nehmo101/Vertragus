@@ -85,6 +85,56 @@ export function subagentExecutionContract(input: {
   ]
 }
 
+/** Finding-Code für einen Erfolgs-Abschluss ohne jede Änderung im Worktree. */
+export const NO_DIFF_COMPLETION_CODE = 'no-diff-completion'
+
+// Rollen/Titel, die erkennbar reine Lese-Arbeit beschreiben (Analyse, Review,
+// Audit, Gate-Läufe): nur klare Signale, keine breiten Ratespiele.
+const READ_ONLY_ROLE_PATTERN = new RegExp(
+  '(?:^|[^a-zäöü])(?:' + [
+    'review(?:er)?', 'analy[sz]e[rn]?', 'analysis', 'analyst', 'audit(?:or)?',
+    'research(?:er)?', 'recherche', 'read[ -]?only', 'inspekt(?:ion|or)', 'inspection',
+    'qa[ -]?gate(?:[ -]?runner)?', 'gate[ -]?runner', 'verify', 'verifikation',
+    'bericht', 'report(?:er)?'
+  ].join('|') + ')(?:[^a-zäöü]|$)',
+  'i'
+)
+
+// Explizite Read-only-Marker im Task-Prompt ("keine Codeänderungen", "nur
+// analysieren", "do not modify"); ein normaler Implementierungsauftrag
+// enthält keinen davon.
+const READ_ONLY_PROMPT_PATTERN = new RegExp(
+  [
+    'read[ -]?only',
+    'nur\\s+lesen(?:d)?',
+    'nur\\s+analysieren',
+    'keine\\s+(?:code|datei)[\\wäöüß-]*änderungen',
+    'ohne\\s+(?:code|datei)[\\wäöüß-]*änderungen',
+    'keine\\s+änderungen\\s+(?:vornehmen|erwartet)',
+    'nichts\\s+(?:ändern|verändern)',
+    'do\\s+not\\s+(?:modify|change)\\s+(?:any\\s+)?(?:files?|code)',
+    'no\\s+code\\s+changes'
+  ].join('|'),
+  'i'
+)
+
+/**
+ * Konservative Erkennung explizit deklarierter Nicht-Code-Tasks (Diff-Guard,
+ * Proposal 2026-07-27): Ein Worker-Abschluss ohne jede Worktree-Änderung darf
+ * nur dann als Erfolg gelten, wenn Rolle/Titel eine reine Analyse-/Review-
+ * Aufgabe benennen oder der Prompt Codeänderungen ausdrücklich ausschließt.
+ * Alles andere gilt als Code-Task — im Zweifel greift der Guard.
+ */
+export function isReadOnlyTaskDeclaration(input: {
+  role?: string
+  title?: string
+  prompt?: string
+}): boolean {
+  const roleAndTitle = [input.role, input.title].filter(Boolean).join(' · ')
+  if (roleAndTitle && READ_ONLY_ROLE_PATTERN.test(roleAndTitle)) return true
+  return Boolean(input.prompt && READ_ONLY_PROMPT_PATTERN.test(input.prompt))
+}
+
 export interface WorkerTerminalJudgement {
   status: 'success' | 'error' | 'stopped'
   failureKind?: 'infrastructure' | 'worker' | 'cancelled'

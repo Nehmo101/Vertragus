@@ -5,12 +5,28 @@ import i18n from '@renderer/i18n'
 import { activeProfile, effectiveRepoPath, errorMessage } from '../useAppStore'
 import type { AgentsSlice, AppState } from './types'
 
+/**
+ * Stop-alle per Shortcut (Mod+Shift+.): Der Bestätigungs-Dialog bleibt lokaler
+ * State der TitleBar; `requestStopAll()` bumpt nur eine Anfrage-Id, auf die die
+ * TitleBar hört und ihren bestehenden Confirm öffnet. Interface-Erweiterung per
+ * Modul-Augmentation, damit slices/types.ts (parallel in Arbeit) unberührt bleibt.
+ */
+declare module './types' {
+  interface AgentsSlice {
+    /** Monoton steigend; jede Erhöhung = eine „Alle stoppen“-Anfrage von außen. */
+    stopAllRequestId: number
+    /** Öffnet den Stop-alle-Confirm der TitleBar — ruft NICHT direkt stopAll(). */
+    requestStopAll(): void
+  }
+}
+
 const ADD_ROLES = ['Docs / Changelog', 'Refactor / Cleanup', 'Security-Review', 'Perf / Bench']
 
 export const createAgentsSlice: StateCreator<AppState, [], [], AgentsSlice> = (set, get) => ({
   agents: [],
   events: [],
   selectedAgentId: null,
+  stopAllRequestId: 0,
   reopenedAgentIds: [],
   handoffSource: null,
   handoffBulk: false,
@@ -81,6 +97,10 @@ export const createAgentsSlice: StateCreator<AppState, [], [], AgentsSlice> = (s
   async stopAll() {
     await window.vertragus.agents.killAll()
     get().showToast(i18n.t('toast.allAgentsStopped'))
+  },
+
+  requestStopAll() {
+    set((state) => ({ stopAllRequestId: state.stopAllRequestId + 1 }))
   },
 
   async cleanWorkspace() {

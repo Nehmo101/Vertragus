@@ -8,8 +8,11 @@ beforeAll(async () => {
   await i18n.changeLanguage('de')
 })
 import { workspaceProfileSchema } from '@shared/profile'
+import type { OrchestratorSnapshot } from '@shared/orchestrator'
 import { useAppStore } from '@renderer/store/useAppStore'
+import { useLayoutStore } from '@renderer/store/layoutStore'
 import {
+  openPublicationCount,
   SIDEBAR_SECTION_ORDER,
   SidebarView
 } from '@renderer/components/Sidebar'
@@ -38,6 +41,7 @@ beforeEach(() => {
     reopenedAgentIds: []
   })
 
+  useLayoutStore.setState({ sidebarSections: {} })
 })
 
 describe('Sidebar rendering', () => {
@@ -121,6 +125,132 @@ describe('Sidebar rendering', () => {
     expect(markup).toContain('workspace-task-summary')
     expect(markup).toContain('Schema, IPC und Store verbinden')
     expect(markup).toContain('Pippin wartet auf deine Rückmeldung.')
+  })
+})
+
+describe('sidebar section collapse', () => {
+  it('renders one toggle per section, all open by default', () => {
+    const markup = renderToStaticMarkup(
+      createElement(SidebarView, { store: useAppStore.getState() })
+    )
+
+    for (const id of SIDEBAR_SECTION_ORDER) {
+      expect(markup).toContain(`aria-controls="sidebar-section-${id}"`)
+      expect(markup).toContain(`id="sidebar-section-${id}"`)
+    }
+    const expandedToggles = markup.match(/aria-expanded="true" aria-controls="sidebar-section-/g)
+    expect(expandedToggles?.length).toBe(SIDEBAR_SECTION_ORDER.length)
+  })
+
+  it('hides a collapsed section body but keeps the attention counter on the header', () => {
+    const profile = workspaceProfileSchema.parse({ id: 'alpha', name: 'Alpha' })
+    useAppStore.setState({
+      profiles: [profile],
+      activeProfileId: profile.id,
+      agents: [
+        {
+          id: 'pippin',
+          profileId: profile.id,
+          name: 'Pippin',
+          provider: 'codex',
+          model: '',
+          role: 'Subagent',
+          kind: 'sub',
+          mode: 'interactive',
+          yolo: false,
+          workingDir: '.',
+          status: 'waiting',
+          startedAt: 1
+        }
+      ]
+    })
+    useLayoutStore.setState({ sidebarSections: { 'workspace-profiles': false } })
+
+    const markup = renderToStaticMarkup(
+      createElement(SidebarView, { store: useAppStore.getState() })
+    )
+
+    expect(markup).not.toContain('id="sidebar-section-workspace-profiles"')
+    expect(markup).toContain('aria-expanded="false" aria-controls="sidebar-section-workspace-profiles"')
+    expect(markup).toContain('data-section-badge="workspace-profiles"')
+    // Sektion bleibt als leere Huelle im DOM, damit die Reihenfolge stabil bleibt.
+    expect(markup).toContain('data-sidebar-section="workspace-profiles"')
+  })
+})
+
+describe('navigation badges and rows', () => {
+  const snapshotWithWork: OrchestratorSnapshot = {
+    profileId: 'alpha',
+    workspaceSessionId: 'session-alpha',
+    goal: null,
+    tasks: [],
+    pendingApprovals: [
+      {
+        id: 'approval-1',
+        kind: 'plan-review',
+        profileId: 'alpha',
+        workspaceSessionId: 'session-alpha',
+        title: 'Plan wartet',
+        summary: '1 Aufgabe',
+        createdAt: 1,
+        actions: []
+      }
+    ],
+    integration: {
+      status: 'prepared',
+      items: [
+        { taskId: 't1', title: 'Feature A', status: 'prepared', findingCount: 0 },
+        { taskId: 't2', title: 'Feature B', status: 'published', findingCount: 0 },
+        { taskId: 't3', title: 'Feature C', status: 'blocked', findingCount: 1 },
+        { taskId: 't4', title: 'Feature D', status: 'skipped', findingCount: 0 }
+      ]
+    }
+  }
+
+  it('counts only unpublished, unskipped integration items as open publications', () => {
+    expect(openPublicationCount([snapshotWithWork])).toBe(2)
+    expect(openPublicationCount([])).toBe(0)
+    expect(openPublicationCount([{ goal: null, tasks: [] }])).toBe(0)
+  })
+
+  it('shows approval and publication counters as badges on the nav rows', () => {
+    useAppStore.setState({ orchestrators: { 'session-alpha': snapshotWithWork } })
+
+    const markup = renderToStaticMarkup(
+      createElement(SidebarView, { store: useAppStore.getState() })
+    )
+
+    expect(markup).toContain('data-nav-badge="approvals"')
+    expect(markup).toContain('data-nav-badge="changes"')
+    expect(markup).toMatch(/data-nav-badge="approvals"[^>]*>1</)
+    expect(markup).toMatch(/data-nav-badge="changes"[^>]*>2</)
+  })
+
+  it('omits the badges when nothing is open', () => {
+    const markup = renderToStaticMarkup(
+      createElement(SidebarView, { store: useAppStore.getState() })
+    )
+
+    expect(markup).not.toContain('data-nav-badge=')
+  })
+
+  it('renders the Mission Control navigation row', () => {
+    const markup = renderToStaticMarkup(
+      createElement(SidebarView, { store: useAppStore.getState() })
+    )
+
+    expect(markup).toContain('Mission Control')
+    expect(markup).toContain('Remote-Steuerung und Freigaben')
+  })
+})
+
+describe('infrastructure rows', () => {
+  it('exposes an explicit edit button for the RetroSync target', () => {
+    const markup = renderToStaticMarkup(
+      createElement(SidebarView, { store: useAppStore.getState() })
+    )
+
+    expect(markup).toContain('aria-label="Ziel bearbeiten"')
   })
 })
 

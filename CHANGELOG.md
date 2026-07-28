@@ -6,6 +6,90 @@ Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1
 
 ---
 
+## 2026-07-28 — Überflug-Umsetzung: UX-Offensive, Vertrauens-Guards und vollständige i18n
+
+Umsetzung des großen UI-/Funktions-/Retro-Reviews vom 28.07. in drei
+Agent-Wellen (16 parallele Arbeitsaufträge mit disjunkten Dateibereichen).
+Volle Suite, Typecheck und Lint grün. Zum Auftakt wurde PR #136 gemerged —
+damit ist die Retro-Lernschleife (Overlay auf dem `retros`-Branch) erstmals
+aktiv.
+
+### Hinzugefügt
+
+- **Kommandopalette (`Mod+K`):** Navigation, Layouts, Panel-Toggles, Profile
+  starten/bearbeiten, Agent fokussieren, Ansichts-Umschalter — bewusst ohne
+  destruktive Befehle.
+- **Shortcut-Ausbau:** `Mod+1…4` (Ansichten), `Mod+Alt+1…3` (Layouts),
+  `Mod+Shift+Enter` (alle starten), `Mod+Shift+.` (alle stoppen, über den
+  bestehenden Bestätigungsdialog), `Mod+B`/`Mod+Alt+B` (Panels).
+- **Worker-Completion-Diff-Guard:** Ein Erfolgs-Abschluss ohne Änderungen im
+  Worktree wird grundsätzlich zu `needs-work` (Finding `no-diff-completion`)
+  herabgestuft — außer der Task ist erkennbar read-only. Schließt die
+  Hollow-Success-Lücke aus den Retros (composer-2.5).
+- **Approval-Timeout-Watchdog:** Tool-Freigaben, die länger als 10 Minuten
+  offen sind, markieren den Task mit Finding `approval-timeout` (Worker läuft
+  weiter, Freigabe bleibt beantwortbar).
+- **Terminal-Komfort:** Scrollback-Suche je Pane (`@xterm/addon-search`),
+  Schriftgröße per `Strg/Cmd+Mausrad` (8–20, `Strg+0` Reset, je Agent
+  gemerkt), Info-Popover für Branch/Worktree/Agent-ID.
+- **Diff- & Merge-Center:** farbiges Unified-Diff-Rendering, Kontext je
+  Eintrag (Status, CI, Gate-Findings, Dateizahl), „Im Editor öffnen".
+- **Mission-Control-Pairing-Presets:** „Nur beobachten" / „Freigaben
+  erteilen" / „Vollzugriff" statt neun loser Checkboxen (Details unter
+  „Erweitert").
+- **Session-Übersicht im Orchestrator-Panel:** Usage-Summe (Token, ≈-Kosten,
+  Schritte) und „Gelerntes & Routing" mit „Warum dieses Modell?"-Einblick.
+
+### Geändert
+
+- **ProfileEditor mit Tabs:** fünf Tabs (ARIA-Pattern) über den bestehenden
+  Sektions-Komponenten, Warn-Badges für tab-fremde Validierungsfehler,
+  Zusammenfassungszeile je Tab; „PTY" heißt jetzt „Login im Terminal".
+- **Sidebar:** sechs einzeln kollabierbare Sektionen (persistiert,
+  Attention-Zähler bleiben sichtbar), Badge-Zähler an Approvals/Changes,
+  Mission-Control-Eintrag, RetroSync-Editor per Stift-Icon statt verstecktem
+  Doppelklick, Fehlerzustände mit Retry statt stillem Schlucken.
+- **TitleBar entlastet:** Überlaufmenü (Sprache, Theme, Lesbar, Update,
+  Kanal, neue „Kompakte Ansicht"), YOLO-Master mit deutlicher Warn-Optik,
+  responsive Sonderregeln von vier Breakpoints auf einen reduziert.
+- **Orchestrator-Panel entdichtet:** sieben einzeln kollabierbare Sektionen
+  (Plan-Review-Gate nie versteckbar), Dispatch-Log als `role="log"`,
+  Findings-Board ohne hartes 6er-Cap.
+- **Ideen-Inbox:** Master-Detail-Layout ab 900 px, Suche + Status- und
+  Tag-Filter; das Orchestrator-Panel wird auf der Inbox-Route ausgeblendet.
+- **Startwiederherstellung:** kompakte Zusammenfassungszeile statt
+  Sektions-Stapel, Sammelaktion „Alles verwerfen & aufräumen" mit
+  Zwei-Klick-Bestätigung.
+- **Workspace/Canvas:** beschriftete Layout-Schalter, „Caronte ·
+  Orchestrator", Tastaturpfad für Task-Knoten (Enter öffnet das Kontextmenü),
+  Sidebar-Autocollapse nur noch beim ersten Canvas-Besuch.
+- **Worktree-Installs** nutzen `package-import-method=copy` (Windows-ACL-
+  Problem aus den Retros; Haupt-Checkout unverändert).
+
+### i18n
+
+- **Renderer vollständig migriert:** 464 neue Locale-Keys je Sprache (DE/EN
+  synchron), inkl. ProfileEditor-Familie, TitleBar, Diff-Center, Modals,
+  Statuslabels; die Umlaut-Guard-Allowlist ist leer und erzwingt i18n ab
+  jetzt für alle Renderer-Komponenten. Dokumentierte Ausnahmen: Engine-
+  generierte Freitexte und Datenpfad-Details.
+
+### Vereinheitlicht
+
+- **Modal-Primitive** (`components/ui/Modal`): Focus-Trap, zentraler
+  Escape-Hook, Fokus-Rückgabe, `aria-modal` — fünf Dialoge umgestellt; dazu
+  gemeinsame `ErrorCard` mit „Erneut versuchen" (Remote, Approvals, Changes),
+  App-Start-Spinner mit 10-Sekunden-Fallback und Aktions-Spinner.
+
+### Dokumentation
+
+- Handbuch, README, Doc-Index, `REMAINING_WORK_PLAN` (6 von 7 Punkten als
+  erledigt markiert, mit Commit-Referenzen) und `retro-sync` auf den
+  Ist-Stand vom 28.07. gebracht — inkl. Korrektur von „Auto-PR ist noch
+  nicht implementiert".
+
+---
+
 ## 2026-07-23 — Systemreview: Stabilität, Härtung und neue Betriebsmodi
 
 Ergebnis einer vollständigen System-Prüfung (Orchestrator, Prozessverwaltung,

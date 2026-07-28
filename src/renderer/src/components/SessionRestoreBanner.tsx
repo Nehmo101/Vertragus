@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { OrphanedWorktreeInfo, SessionRestoreStatus } from '@shared/sessions'
+import type {
+  OrphanedWorktreeInfo,
+  SessionRestoreStatus,
+  StaleSessionInfo
+} from '@shared/sessions'
+import styles from './SessionRestoreBanner.module.css'
 
 type OrphanGroup = {
   sessionId: string
@@ -8,7 +13,7 @@ type OrphanGroup = {
   dirtyCount: number
 }
 
-function groupOrphans(orphans: OrphanedWorktreeInfo[]): OrphanGroup[] {
+export function groupOrphans(orphans: OrphanedWorktreeInfo[]): OrphanGroup[] {
   const bySession = new Map<string, OrphanedWorktreeInfo[]>()
   for (const orphan of orphans) {
     const list = bySession.get(orphan.sessionId) ?? []
@@ -25,14 +30,122 @@ function groupOrphans(orphans: OrphanedWorktreeInfo[]): OrphanGroup[] {
 }
 
 /**
+ * Auto-expand threshold for the compact summary row: with at most one pending
+ * item there is nothing to summarize away, so the detail view shows directly.
+ * Anything larger starts collapsed to keep post-crash startups uncluttered.
+ */
+export function shouldAutoExpand(status: SessionRestoreStatus): boolean {
+  return (
+    status.resumableSessions.length +
+      status.orphanedWorktrees.length +
+      status.staleSessions.length <=
+    1
+  )
+}
+
+/** Minimal translate signature so i18next's `t` can be passed straight through. */
+export type RestoreTranslate = (key: string, options?: { n?: number }) => string
+
+/**
+ * One-line summary for the collapsed banner, e.g.
+ * "2 sessions restorable · 3 orphaned worktrees (2 with changes) · 1 old session".
+ * Returns '' when there is nothing to count (crash-only banner).
+ */
+export function buildCompactSummary(status: SessionRestoreStatus, t: RestoreTranslate): string {
+  const parts: string[] = []
+  const resumable = status.resumableSessions.length
+  if (resumable > 0) {
+    parts.push(
+      resumable === 1
+        ? t('restore.summaryResumableOne')
+        : t('restore.summaryResumableMany', { n: resumable })
+    )
+  }
+  const orphans = status.orphanedWorktrees.length
+  if (orphans > 0) {
+    const dirty = status.orphanedWorktrees.filter((item) => (item.changedFiles ?? 0) > 0).length
+    const base =
+      orphans === 1 ? t('restore.summaryOrphanOne') : t('restore.summaryOrphanMany', { n: orphans })
+    parts.push(dirty > 0 ? `${base}${t('restore.summaryDirtySuffix', { n: dirty })}` : base)
+  }
+  const stale = status.staleSessions.length
+  if (stale > 0) {
+    parts.push(
+      stale === 1 ? t('restore.summaryStaleOne') : t('restore.summaryStaleMany', { n: stale })
+    )
+  }
+  return parts.join(' · ')
+}
+
+export type CleanupTargets = {
+  orphanPaths: string[]
+  staleSessions: Array<Pick<StaleSessionInfo, 'id' | 'profileId'>>
+}
+
+/** Everything the bulk "discard & clean up" action touches, derived from the status. */
+export function collectCleanupTargets(status: SessionRestoreStatus): CleanupTargets {
+  return {
+    orphanPaths: status.orphanedWorktrees.map((item) => item.path),
+    staleSessions: status.staleSessions.map(({ id, profileId }) => ({ id, profileId }))
+  }
+}
+
+/**
+ * Bulk cleanup core: discard all orphaned worktrees in one IPC call, then
+ * dismiss every stale session. API is injected so tests can run it without a
+ * window/preload bridge. Individual stale failures are counted, not fatal.
+ */
+export async function runFullCleanup(
+  api: {
+    discardOrphanWorktrees(paths: string[]): Promise<{ discarded: number; failed: number }>
+    removeWorkspaceSession(profileId: string, sessionId: string): Promise<unknown>
+  },
+  targets: CleanupTargets
+): Promise<{ discarded: number; failed: number }> {
+  let discarded = 0
+  let failed = 0
+  if (targets.orphanPaths.length > 0) {
+    const result = await api.discardOrphanWorktrees(targets.orphanPaths)
+    discarded += result.discarded
+    failed += result.failed
+  }
+  for (const session of targets.staleSessions) {
+    try {
+      await api.removeWorkspaceSession(session.profileId, session.id)
+      discarded += 1
+    } catch {
+      failed += 1
+    }
+  }
+  return { discarded, failed }
+}
+
+/**
+ * Two-click confirm state machine: first click on a key arms it, a second
+ * click on the same key fires; clicking a different key re-arms that one.
+ */
+export function resolveConfirmClick(
+  confirming: string | null,
+  key: string
+): { confirming: string | null; fire: boolean } {
+  if (confirming !== key) return { confirming: key, fire: false }
+  return { confirming: null, fire: true }
+}
+
+/** Armed confirms fall back to idle after this timeout (safety against stale danger UI). */
+export const CONFIRM_RESET_MS = 6000
+
+/**
  * Startup recovery panel: structured restart / cleanup after a clean restore
  * or unexpected exit. Orphans stay collapsed by default so large leftovers
  * never drown the primary "restart team" actions.
  *
  * Dismiss ("continue") is kept for the renderer lifetime via a module flag so a
  * remount / Strict-Mode cycle cannot bring the banner back until the next app start.
+ * The expand/collapse choice is kept the same way: per launch only, never persisted.
  */
 let dismissedForLaunch = false
+let expandedForLaunch: boolean | null = null
 
 export default function SessionRestoreBanner(): JSX.Element | null {
   const { t } = useTranslation()
@@ -45,6 +158,8 @@ export default function SessionRestoreBanner(): JSX.Element | null {
   const [orphansOpen, setOrphansOpen] = useState(false)
   const [staleOpen, setStaleOpen] = useState(false)
   const [expandedSessions, setExpandedSessions] = useState<Set<string>>(() => new Set())
+  // null = no explicit choice yet → derive the default from the status (threshold).
+  const [expandedPref, setExpandedPref] = useState<boolean | null>(expandedForLaunch)
 
   const refresh = (): Promise<void> =>
     window.vertragus.sessions
@@ -59,6 +174,14 @@ export default function SessionRestoreBanner(): JSX.Element | null {
       .then(setStatus)
       .catch(() => setStatus(null))
   }, [])
+
+  useEffect(() => {
+    // Armed destructive confirms disarm themselves after a short timeout so a
+    // forgotten first click cannot leave a live confirm button around.
+    if (confirming == null) return
+    const timer = window.setTimeout(() => setConfirming(null), CONFIRM_RESET_MS)
+    return () => window.clearTimeout(timer)
+  }, [confirming])
 
   const orphanGroups = useMemo(
     () => (status ? groupOrphans(status.orphanedWorktrees) : []),
@@ -158,12 +281,9 @@ export default function SessionRestoreBanner(): JSX.Element | null {
 
   /** First click arms the confirm; a second click on the same key runs the action. */
   const requestOrConfirm = (key: string, action: () => void): void => {
-    if (confirming !== key) {
-      setConfirming(key)
-      return
-    }
-    setConfirming(null)
-    action()
+    const next = resolveConfirmClick(confirming, key)
+    setConfirming(next.confirming)
+    if (next.fire) action()
   }
 
   /**
@@ -177,20 +297,26 @@ export default function SessionRestoreBanner(): JSX.Element | null {
     key: string,
     idleLabel: string,
     confirmTitle: string,
-    action: () => void
+    action: () => void,
+    options?: { armedLabel?: string; idleClass?: string }
   ): JSX.Element => {
     const armed = confirming === key
+    const idleClass = options?.idleClass ?? 'btn ghost'
     return (
       <span className="restore-confirm">
         <button
           type="button"
-          className={armed ? 'btn ghost armed' : 'btn ghost'}
+          className={armed ? 'btn armed' : idleClass}
           disabled={busy != null}
           title={armed ? confirmTitle : undefined}
           aria-label={armed ? confirmTitle : undefined}
           onClick={() => requestOrConfirm(key, action)}
         >
-          {busy === key ? t('restore.discarding') : armed ? t('restore.confirm') : idleLabel}
+          {busy === key
+            ? t('restore.discarding')
+            : armed
+              ? (options?.armedLabel ?? t('restore.confirm'))
+              : idleLabel}
         </button>
         {armed && (
           <button
@@ -206,20 +332,88 @@ export default function SessionRestoreBanner(): JSX.Element | null {
     )
   }
 
+  // Expand/collapse for the whole detail area: explicit per-launch choice wins,
+  // otherwise small statuses (threshold) open directly.
+  const isExpanded = expandedPref ?? shouldAutoExpand(status)
+  const setExpanded = (next: boolean): void => {
+    expandedForLaunch = next
+    setExpandedPref(next)
+  }
+  const detailCount =
+    status.resumableSessions.length + status.orphanedWorktrees.length + status.staleSessions.length
+  const compactSummary = buildCompactSummary(status, t)
+  const cleanupTargets = collectCleanupTargets(status)
+  const cleanupCount = cleanupTargets.orphanPaths.length + cleanupTargets.staleSessions.length
+
+  /** Bulk action: discard every orphaned worktree and dismiss all stale sessions. */
+  const discardEverything = (): void => {
+    const targets = cleanupTargets
+    // Optimistically clear both groups so the banner shrinks immediately while
+    // the main process finishes filesystem + git cleanup.
+    setStatus((prev) => (prev ? { ...prev, orphanedWorktrees: [], staleSessions: [] } : prev))
+    void run('discard-everything', async () => {
+      const result = await runFullCleanup(
+        {
+          discardOrphanWorktrees: (paths) =>
+            window.vertragus.sessions.discardOrphanWorktrees(paths),
+          removeWorkspaceSession: (profileId, sessionId) =>
+            window.vertragus.workspaceSessions.remove(profileId, sessionId)
+        },
+        targets
+      )
+      if (result.failed > 0) {
+        throw new Error(
+          t('restore.discardResult', { discarded: result.discarded, failed: result.failed })
+        )
+      }
+    })
+  }
+
+  const busyDiscarding =
+    busy != null &&
+    (busy === 'discard-everything' ||
+      busy === 'orphans-all' ||
+      busy === 'orphans-clean' ||
+      busy.startsWith('orphan-'))
+
   return (
     <div className="restore-banner" role="region" aria-label={t('restore.title')}>
       <div className="restore-head">
         <div className="restore-head-copy">
-          <span className="head">
-            {status.cleanShutdown ? t('restore.title') : t('restore.titleCrash')}
-          </span>
-          <span className="rest">
-            {busy != null && (busy === 'orphans-all' || busy === 'orphans-clean' || busy.startsWith('orphan-'))
-              ? t('restore.discarding')
-              : status.restoredSessions > 0
+          {detailCount > 0 ? (
+            <button
+              type="button"
+              className={`restore-toggle ${styles.summaryToggle}`}
+              aria-expanded={isExpanded}
+              onClick={() => setExpanded(!isExpanded)}
+            >
+              <span className="head">
+                {status.cleanShutdown ? t('restore.title') : t('restore.titleCrash')}
+              </span>
+              <span className="rest">
+                {busyDiscarding
+                  ? t('restore.discarding')
+                  : compactSummary || t('restore.summaryNone')}
+              </span>
+              <span className={styles.detailsHint}>
+                {isExpanded ? t('restore.collapse') : t('restore.details')}
+              </span>
+              <span className="restore-chevron" aria-hidden>
+                {isExpanded ? '▾' : '▸'}
+              </span>
+            </button>
+          ) : (
+            <span className="head">
+              {status.cleanShutdown ? t('restore.title') : t('restore.titleCrash')}
+            </span>
+          )}
+          {isExpanded && (
+            <span className="rest">
+              {status.restoredSessions > 0
                 ? t('restore.summary', { count: status.restoredSessions })
                 : t('restore.summaryNone')}
-          </span>
+            </span>
+          )}
         </div>
         <div className="restore-head-actions">
           {status.resumableSessions.length > 1 && (
@@ -249,6 +443,20 @@ export default function SessionRestoreBanner(): JSX.Element | null {
                 : t('restore.restart', { count: status.resumableSessions[0]!.agentCount })}
             </button>
           )}
+          {cleanupCount > 0 &&
+            renderConfirmAction(
+              'discard-everything',
+              t('restore.discardEverything'),
+              t('restore.discardEverythingConfirm', {
+                orphans: cleanupTargets.orphanPaths.length,
+                stale: cleanupTargets.staleSessions.length
+              }),
+              discardEverything,
+              {
+                armedLabel: t('restore.discardEverythingArmed'),
+                idleClass: `btn ${styles.dangerAction}`
+              }
+            )}
           <button
             type="button"
             className={status.resumableSessions.length > 0 ? 'btn ghost' : 'btn primary'}
@@ -265,7 +473,7 @@ export default function SessionRestoreBanner(): JSX.Element | null {
 
       {error && <div className="restore-error">{error}</div>}
 
-      {status.resumableSessions.length > 0 && (
+      {isExpanded && status.resumableSessions.length > 0 && (
         <section className="restore-section">
           <div className="restore-section-head">
             <span className="restore-label">{t('restore.resumable')}</span>
@@ -306,7 +514,7 @@ export default function SessionRestoreBanner(): JSX.Element | null {
         </section>
       )}
 
-      {status.orphanedWorktrees.length > 0 && (
+      {isExpanded && status.orphanedWorktrees.length > 0 && (
         <section className="restore-section">
           <div className="restore-section-head">
             <button
@@ -415,7 +623,7 @@ export default function SessionRestoreBanner(): JSX.Element | null {
         </section>
       )}
 
-      {status.staleSessions.length > 0 && (
+      {isExpanded && status.staleSessions.length > 0 && (
         <section className="restore-section">
           <div className="restore-section-head">
             <button

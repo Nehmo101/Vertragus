@@ -1,0 +1,25 @@
+.modalActions {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.fileCount {
+  color: var(--text-3);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.truncatedNote {
+  display: block;
+  margin-top: 8px;
+  color: var(--text-3);
+}
+
+.changeLinks {
+  display: inline-flex;
+  gap: 12px;
+  margin-top: 4px;
+  font-size: 12px;
+}

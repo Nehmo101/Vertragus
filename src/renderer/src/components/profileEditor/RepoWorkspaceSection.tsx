@@ -1,4 +1,5 @@
 import { memo } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { WorkspaceProfile } from '@shared/profile'
 import InfoTip from '@renderer/components/InfoTip'
 import { HELP } from './help'
@@ -23,7 +24,7 @@ interface RepoWorkspaceSectionProps {
   onApplyLearnings: () => void
 }
 
-/** Working Directory plus KI-Profilgenerierung und Retro-Erkenntnisse. */
+/** Working directory plus AI profile generation and retro findings. */
 const RepoWorkspaceSection = memo(function RepoWorkspaceSection({
   workingDir,
   repoLocalPath,
@@ -35,10 +36,11 @@ const RepoWorkspaceSection = memo(function RepoWorkspaceSection({
   onGenerateFromRepo,
   onApplyLearnings
 }: RepoWorkspaceSectionProps): JSX.Element {
+  const { t } = useTranslation()
   return (
     <>
       <label className="field-label" htmlFor="profile-working-dir">
-        Working Directory (Repo) <InfoTip text={HELP.workingDir} />
+        {t('profile.repo.workingDir')} <InfoTip text={t(HELP.workingDir)} />
       </label>
       <div className="dir-row">
         <input
@@ -55,33 +57,32 @@ const RepoWorkspaceSection = memo(function RepoWorkspaceSection({
             if (dir) onPatchProfile({ workingDir: dir })
           }}
         >
-          Durchsuchen…
+          {t('profile.repo.browse')}
         </button>
       </div>
       <button
         type="button"
         className="btn-secondary profile-generate-btn"
         disabled={generating || !repoLocalPath}
-        title={HELP.generateFromRepo}
+        title={t(HELP.generateFromRepo)}
         onClick={() => onGenerateFromRepo()}
       >
         {generating
-          ? `Repo wird analysiert… ${formatElapsed(generateElapsed)}`
-          : 'KI-Profil aus Git-Repo erzeugen'}
+          ? t('profile.repo.analyzing', { elapsed: formatElapsed(generateElapsed) })
+          : t('profile.repo.generate')}
       </button>
       <button
         type="button"
         className="btn-secondary profile-generate-btn"
-        title={HELP.applyLearnings}
+        title={t(HELP.applyLearnings)}
         onClick={() => onApplyLearnings()}
       >
-        Retro-Erkenntnisse übernehmen
+        {t('profile.repo.applyLearnings')}
       </button>
       {generating && (
         <div className="profile-generate-progress" aria-live="polite">
           <span className="profile-generate-spinner" aria-hidden="true" />
-          Das ausgewählte Modell liest das Repository read-only und entwirft ein Profil. Je
-          nach Repo-Größe dauert das ein bis mehrere Minuten — das Fenster kann offen bleiben.
+          {t('profile.repo.generatingHint')}
         </div>
       )}
       {(generateStatus || learningsStatus) && (

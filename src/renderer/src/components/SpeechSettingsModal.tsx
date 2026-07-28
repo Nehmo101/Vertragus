@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next'
 import type { InboxSpeechSettings } from '@shared/inboxSpeech'
 import { DEFAULT_TRANSCRIPTION_ENDPOINT, DEFAULT_TRANSCRIPTION_MODEL } from '@shared/inboxSpeech'
 import { useAppStore } from '@renderer/store/useAppStore'
+import Modal from '@renderer/components/ui/Modal'
+import Spinner from '@renderer/components/ui/Spinner'
 
 /**
  * Global speech-to-text (cloud STT) settings modal. Opened from the sidebar,
@@ -34,14 +36,6 @@ export default function SpeechSettingsModal(): JSX.Element {
       setError('')
     })
   }, [])
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') close()
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [close])
 
   const save = async (): Promise<void> => {
     setSaving(true)
@@ -79,11 +73,15 @@ export default function SpeechSettingsModal(): JSX.Element {
   }
 
   return (
-    <>
-      <div className="confirm-backdrop" onClick={close} />
-      <div className="confirm-pop inbox-speech-settings" role="dialog" aria-modal="true">
+    <Modal
+      unstyled
+      scrimClassName="confirm-backdrop"
+      className="confirm-pop inbox-speech-settings"
+      labelledBy="speech-settings-title"
+      onClose={close}
+    >
         <div className="head">
-          <b>{t('speech.title')}</b>
+          <b id="speech-settings-title">{t('speech.title')}</b>
         </div>
         <div className="text">
           {t('speech.note')}
@@ -123,10 +121,15 @@ export default function SpeechSettingsModal(): JSX.Element {
             {t('speech.cancel')}
           </button>
           <button type="button" className="btn-primary" disabled={saving} onClick={() => void save()}>
-            {t('speech.save')}
+            {saving ? (
+              <>
+                <Spinner /> {t('speech.save')}
+              </>
+            ) : (
+              t('speech.save')
+            )}
           </button>
         </div>
-      </div>
-    </>
+    </Modal>
   )
 }

@@ -66,7 +66,7 @@ export default function VoiceOverlay(): JSX.Element {
         className="voice-orb drag-region"
         role="button"
         tabIndex={0}
-        aria-label={t('voiceOverlay.toggle', { defaultValue: 'Sprachaufnahme umschalten' })}
+        aria-label={t('voiceOverlay.toggle')}
         aria-pressed={assistant.state === 'listening'}
         onPointerDown={beginDrag}
         onPointerMove={drag}
@@ -87,23 +87,23 @@ export default function VoiceOverlay(): JSX.Element {
         <section className="voice-card no-drag" aria-live="polite">
           <header>
             <span className="voice-status">{t(`voiceOverlay.state.${assistant.state}`, { defaultValue: assistant.state })}</span>
-            <button type="button" className="voice-close no-drag" aria-label={t('voiceOverlay.hide', { defaultValue: 'Ausblenden' })} onClick={assistant.hide}>×</button>
+            <button type="button" className="voice-close no-drag" aria-label={t('voiceOverlay.hide')} onClick={assistant.hide}>×</button>
           </header>
-          {assistant.transcript && <p className="voice-transcript"><b>{t('voiceOverlay.you', { defaultValue: 'Du' })}:</b> {assistant.transcript}</p>}
-          {assistant.reply && <p className="voice-reply"><b>{t('voiceOverlay.assistant', { defaultValue: 'Assistent' })}:</b> {assistant.reply}</p>}
+          {assistant.transcript && <p className="voice-transcript"><b>{t('voiceOverlay.you')}:</b> {assistant.transcript}</p>}
+          {assistant.reply && <p className="voice-reply"><b>{t('voiceOverlay.assistant')}:</b> {assistant.reply}</p>}
           {assistant.error && <p className="voice-overlay-error" role="alert">{t(`voiceOverlay.error.${assistant.error}`, { defaultValue: assistant.error })}</p>}
           {assistant.confirmation && (
-            <div className="voice-confirmation" role="alertdialog" aria-label={t('voiceOverlay.confirmation', { defaultValue: 'Bestätigung' })}>
+            <div className="voice-confirmation" role="alertdialog" aria-label={t('voiceOverlay.confirmation')}>
               <p>{assistant.confirmation.prompt}</p>
               <div>
-                <button type="button" disabled={busy} onClick={() => void assistant.submitText(t('voiceOverlay.noValue', { defaultValue: 'Nein' }))}>{t('voiceOverlay.no', { defaultValue: 'Nein' })}</button>
-                <button type="button" className="primary" disabled={busy} onClick={() => void assistant.submitText(t('voiceOverlay.yesValue', { defaultValue: 'Ja, bestätigen' }))}>{t('voiceOverlay.yes', { defaultValue: 'Ja' })}</button>
+                <button type="button" disabled={busy} onClick={() => void assistant.submitText(t('voiceOverlay.noValue'))}>{t('voiceOverlay.no')}</button>
+                <button type="button" className="primary" disabled={busy} onClick={() => void assistant.submitText(t('voiceOverlay.yesValue'))}>{t('voiceOverlay.yes')}</button>
               </div>
             </div>
           )}
           <form onSubmit={(event) => { event.preventDefault(); submit() }}>
-            <input className="no-drag" value={text} disabled={busy} aria-label={t('voiceOverlay.textLabel', { defaultValue: 'Nachricht' })} placeholder={t('voiceOverlay.textPlaceholder', { defaultValue: 'Oder Nachricht eingeben …' })} onChange={(event) => setText(event.target.value)} />
-            <button type="submit" className="no-drag" disabled={busy || !text.trim()} aria-label={t('voiceOverlay.send', { defaultValue: 'Senden' })}>↗</button>
+            <input className="no-drag" value={text} disabled={busy} aria-label={t('voiceOverlay.textLabel')} placeholder={t('voiceOverlay.textPlaceholder')} onChange={(event) => setText(event.target.value)} />
+            <button type="submit" className="no-drag" disabled={busy || !text.trim()} aria-label={t('voiceOverlay.send')}>↗</button>
           </form>
         </section>
       )}

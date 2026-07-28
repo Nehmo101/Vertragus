@@ -106,12 +106,23 @@ beforeEach(() => {
   kill.mockReset()
   kill.mockImplementation(async () => undefined)
   prepareTaskChange.mockReset()
-  prepareTaskChange.mockImplementation(async () => ({
-    status: 'skipped',
-    result: 'no-changes',
-    noChanges: true,
-    message: 'No-op bestätigt.'
-  }))
+  // Diff-Guard: ein leerer Diff gilt nicht mehr als Erfolg, daher liefert der
+  // Standard-Mock einen verifizierten Commit als Erfolgsbeleg.
+  prepareTaskChange.mockImplementation(async (input) => {
+    const { taskId = 'task', title = 'Task' } = (input ?? {}) as { taskId?: string; title?: string }
+    return {
+      status: 'prepared',
+      result: 'committed',
+      noChanges: false,
+      message: 'Commit verifiziert.',
+      branch: 'orca/default',
+      worktree: '.',
+      change: {
+        taskId, title, worktree: '.', branch: 'orca/default',
+        commit: 'd'.repeat(40), commits: ['d'.repeat(40)], files: ['feature.ts']
+      }
+    }
+  })
   publishPreparedChanges.mockReset()
   captureTaskRecoveryArtifact.mockReset()
   captureTaskRecoveryArtifact.mockImplementation(async () => undefined)

@@ -90,7 +90,7 @@ any process starts.
 | **GitHub Copilot** | `copilot` | agent / subagent / orchestrator (`@github/copilot` CLI) |
 | **Ollama** | `ollama` | local LLMs (HTTP API on `:11434`) |
 | **GitHub** | `gh` | repo / branch / PR context |
-| **Cloudflare Tunnel** | `cloudflared` | remote access (planned) |
+| **Cloudflare Tunnel** | `cloudflared` | remote access (Mission Control gateway) |
 
 > [!NOTE]
 > The CLIs authenticate through their own subscriptions. Vertragus invokes
@@ -107,9 +107,10 @@ any process starts.
   and tiles / focus / DAG layout controls; honours reduced-motion and keyboard
   focus.
 - **Session-safe worktree isolation** — each agent works in
-  `<repo>/.orca-worktrees/<agent-id>` on branch `orca/<agent-id>` (internal
-  identifiers, migration planned); old worktrees are never silently reused or
-  deleted.
+  `<repo>/.vertragus-worktrees/<session-id>/<agent-id>` on branch
+  `vertragus/<session-id>/<agent-id>` (legacy `.orca-worktrees` checkouts and
+  `orca/…` branches are still recognized); old worktrees are never silently
+  reused or deleted.
 
 **Orchestration**
 
@@ -130,7 +131,9 @@ any process starts.
 **Integrations & safety**
 
 - **Safe Auto-PR** — runs configured quality gates, scans staged diffs
-  (`git diff --check`, size limits, secret patterns), prepares task commits and
+  (`git diff --check`, size limits, secret patterns, optional
+  [gitleaks](https://github.com/gitleaks/gitleaks) as a second secret scanner),
+  prepares task commits and
   publishes an aggregate or per-task PR **without force-push, auto-merge, or any
   push to `main`/`master`**, then tracks GitHub checks as a separate remote-CI
   state.
@@ -153,9 +156,14 @@ any process starts.
   allowlists, redacted per-run diagnostics, a read-only task review cockpit,
   selected-agent push-to-talk with explicit preview, and Windows/Linux UI smoke
   tests.
-- **Main-channel self-update** — every successful `main` build is published for
-  Windows and Linux; the title bar offers download and restart only when a newer
+- **Self-update channels** — every successful `main` build is published for
+  Windows and Linux (fast `main` channel); a `stable` channel follows tagged
+  releases only. The title bar offers download and restart only when a newer
   build exists.
+- **Mission Control remote access** — an authenticated remote gateway over a
+  Cloudflare tunnel with QR device pairing, a mobile-first PWA, a native iOS
+  app (`apps/ios/`) with APNs push, remote approvals and an audit log with
+  secret redaction.
 - **Real usage values** — persisted task state plus token / cost / step counts
   when the provider reports them (otherwise the UI clearly shows "not available").
 
@@ -188,7 +196,9 @@ corepack pnpm dev                          # launch the app with HMR
 Download the latest build from
 [GitHub Releases](https://github.com/Nehmo101/Vertragus/releases) — a Windows
 NSIS installer (`.exe`) or a Linux `AppImage` / `.deb`. Installed builds follow
-the `main` update channel and offer an in-app update when a newer build exists.
+the `main` update channel by default (a `stable` channel tracking tagged
+releases is selectable in-app) and offer an in-app update when a newer build
+exists.
 
 ### First run
 
@@ -299,13 +309,14 @@ auto-update channel.
 - Adaptive DAG planning, review mode, session binding and Auto-PR: **complete**.
 - Read-only task review, redacted diagnostics and selected-agent STT: **available**.
 - Electron hardening, config migrations and UI smoke: **available**.
+- Mission Control remote access (tunnel, device pairing, PWA, native iOS app
+  with APNs) and headless host mode (`VERTRAGUS_HEADLESS=1`): **available**.
 - Cursor and Ollama remain **workers only** (starting them as a fake orchestrator
   without delegation tools is blocked in both UI and runtime).
 
-**Deliberately out of the current sprint:** the merge/conflict editor (the review
-cockpit stays read-only), authenticated Cloudflare remote control, offline
-Whisper STT, signed production installers, and GitHub Artifact Attestations
-(currently disabled).
+**Deliberately out of the current sprint:** the interactive merge/conflict
+editor (the review cockpit stays read-only), offline Whisper STT, signed
+production installers, and GitHub Artifact Attestations (currently disabled).
 
 See [implementation status](docs/IMPLEMENTATION_STATUS.md) and
 [production hardening](docs/PRODUCTION_HARDENING.md) for exact boundaries.

@@ -8,6 +8,9 @@ let toastTimer: ReturnType<typeof setTimeout> | undefined
 
 export const createUiSlice: StateCreator<AppState, [], [], UiSlice> = (set, get) => ({
   appInfo: null,
+  // Set to true at the very end of init() (useAppStore.ts) so surfaces can
+  // show a loading state instead of an empty workspace during bootstrap.
+  bootstrapped: false,
   theme: 'light',
   workspaceLayout: 'tiles',
   uiDensity: 'comfortable',
