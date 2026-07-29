@@ -19,8 +19,71 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Die Release-Hülle entsteht einmal zentral, bevor irgendein Build publiziert.
+  # electron-builder legt sonst pro Ziel (dmg/zip, AppImage/deb) einen eigenen
+  # GitHub-Publisher an; laufen zwei davon gleichzeitig in „release doesn't
+  # exist“, antwortet die API dem Verlierer mit 422 already_exists und der Job
+  # stirbt (zuletzt der macOS-Job, weil er als schnellster zuerst hochlädt).
+  # Existiert die Release-Hülle vorab, findet jeder Publisher sie nur noch.
+  prepare:
+    name: prepare release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.main-version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine main-channel version
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        id: main-version
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pkg = require('./package.json')
+            const [major, minor, rawPatch] = pkg.version.split('.')
+            const patch = Number(rawPatch.split('-')[0]) + Number(process.env.GITHUB_RUN_NUMBER)
+            const attempt = process.env.GITHUB_RUN_ATTEMPT || '1'
+            const shortSha = context.sha.slice(0, 7)
+            core.setOutput('version', `${major}.${minor}.${patch}-main.${attempt}.g${shortSha}`)
+
+      # Immer als Entwurf: sichtbar wird das Release erst, wenn alle drei
+      # Plattformen ihre Artefakte hochgeladen haben (Job `publish`). Sonst
+      # zeigt der `main`-Updater auf ein Release ohne `main-mac.yml`.
+      - name: Create draft release shell
+        if: github.event_name == 'push'
+        uses: actions/github-script@v7
+        env:
+          MAIN_VERSION: ${{ steps.main-version.outputs.version }}
+        with:
+          script: |
+            const version = process.env.MAIN_VERSION || require('./package.json').version
+            const tag = `v${version}`
+            const { owner, repo } = context.repo
+            const { data: releases } = await github.rest.repos.listReleases({ owner, repo, per_page: 100 })
+            if (releases.some((release) => release.tag_name === tag)) {
+              core.info(`Release ${tag} existiert bereits — nichts anzulegen.`)
+              return
+            }
+            try {
+              await github.rest.repos.createRelease({
+                owner,
+                repo,
+                tag_name: tag,
+                name: version,
+                target_commitish: context.sha,
+                draft: true,
+                prerelease: Boolean(process.env.MAIN_VERSION)
+              })
+              core.info(`Entwurfs-Release ${tag} angelegt.`)
+            } catch (error) {
+              if (error.status !== 422) throw error
+              core.info(`Release ${tag} wurde parallel angelegt — weiter.`)
+            }
+
   release:
     name: build installers (${{ matrix.os }})
+    needs: prepare
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
@@ -71,19 +134,6 @@ jobs:
       - name: Verify and build renderer + main
         run: pnpm run ci
 
-      - name: Determine main-channel version
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        id: main-version
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const pkg = require('./package.json')
-            const [major, minor, rawPatch] = pkg.version.split('.')
-            const patch = Number(rawPatch.split('-')[0]) + Number(process.env.GITHUB_RUN_NUMBER)
-            const attempt = process.env.GITHUB_RUN_ATTEMPT || '1'
-            const shortSha = context.sha.slice(0, 7)
-            core.setOutput('version', `${major}.${minor}.${patch}-main.${attempt}.g${shortSha}`)
-
       - name: Detect complete macOS signing credentials
         if: runner.os == 'macOS' && github.event_name == 'push'
         id: mac-signing
@@ -108,7 +158,7 @@ jobs:
         run: >-
           pnpm exec electron-builder
           --config electron-builder.main.yml
-          --config.extraMetadata.version=${{ steps.main-version.outputs.version }}
+          --config.extraMetadata.version=${{ needs.prepare.outputs.version }}
           --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -125,7 +175,7 @@ jobs:
         run: >-
           pnpm exec electron-builder
           --config electron-builder.main.yml
-          --config.extraMetadata.version=${{ steps.main-version.outputs.version }}
+          --config.extraMetadata.version=${{ needs.prepare.outputs.version }}
           --config.mac.notarize=false
           --publish always
         env:
@@ -190,3 +240,41 @@ jobs:
             release/**/*.zip
             release/**/*.AppImage
             release/**/*.deb
+
+  # Erst wenn alle drei Plattformen ihre Artefakte im Entwurf abgelegt haben,
+  # wird daraus ein sichtbares Prerelease. Bricht eine Plattform ab, bleibt der
+  # Entwurf unveröffentlicht und der `main`-Updater sieht weiterhin den letzten
+  # vollständigen Stand statt eines Releases ohne `main-mac.yml`.
+  # Tag-Releases bleiben Entwürfe — die veröffentlicht weiterhin ein Mensch.
+  publish:
+    name: publish main prerelease
+    needs: [prepare, release]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/github-script@v7
+        env:
+          MAIN_VERSION: ${{ needs.prepare.outputs.version }}
+        with:
+          script: |
+            const tag = `v${process.env.MAIN_VERSION}`
+            const { owner, repo } = context.repo
+            const { data: releases } = await github.rest.repos.listReleases({ owner, repo, per_page: 100 })
+            const release = releases.find((candidate) => candidate.tag_name === tag)
+            if (release == null) {
+              core.setFailed(`Release ${tag} nicht gefunden.`)
+              return
+            }
+            if (!release.draft) {
+              core.info(`Release ${tag} ist bereits veröffentlicht.`)
+              return
+            }
+            await github.rest.repos.updateRelease({
+              owner,
+              repo,
+              release_id: release.id,
+              draft: false,
+              prerelease: true
+            })
+            core.info(`Prerelease ${tag} veröffentlicht.`)

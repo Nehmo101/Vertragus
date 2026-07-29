@@ -348,7 +348,10 @@ git push origin vX.Y.Z
 ```
 
 Jeder Push auf `main` erzeugt zusätzlich automatisch einen Prerelease-Build
-über `release.yml`.
+über `release.yml`. Das Release wird zuerst als Entwurf angelegt und erst
+sichtbar, wenn Windows, macOS und Linux ihre Artefakte hochgeladen haben —
+ein halb fertiges Prerelease würde den `main`-Updater sonst auf eine fehlende
+Kanaldatei (z. B. `main-mac.yml`) zeigen lassen.
 
 ## 18. Tägliche Kurzroutine
 
