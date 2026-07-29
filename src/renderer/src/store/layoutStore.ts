@@ -307,8 +307,3 @@ export const selectPanelWidth =
   (id: PanelId) =>
   (state: LayoutStore): number =>
     state.panels[id].width
-
-export const selectPanelCollapsed =
-  (id: PanelId) =>
-  (state: LayoutStore): boolean =>
-    state.panels[id].collapsed

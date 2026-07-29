@@ -369,8 +369,7 @@
       "preflight": "Preflight",
       "autoPr": "Auto PR",
       "remoteCi": "Remote CI",
-      "findings": "Open gate findings",
-      "none": "No evidence yet — the task has no verified result."
+      "findings": "Open gate findings"
     },
     "layout": {
       "canvas": "Hub",
@@ -571,10 +570,7 @@
       "maxStatusAge": "max status age"
     },
     "run": {
-      "usageTitle": "Provider-reported usage of all tasks in this run",
-      "tokens": "Total tokens",
-      "cost": "Cost",
-      "steps": "Steps"
+      "usageTitle": "Provider-reported usage of all tasks in this run"
     },
     "retro": {
       "caption": "Retro",
@@ -1084,7 +1080,6 @@
     "titleCrash": "Vertragus ended unexpectedly",
     "summary": "Restored {{count}} workspace session(s) with progress.",
     "summaryNone": "Leftovers from earlier runs were found.",
-    "dismiss": "Dismiss",
     "continue": "Continue working",
     "continueClean": "Continue without cleanup",
     "resumable": "Restart team",

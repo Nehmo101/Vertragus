@@ -132,7 +132,8 @@ No-Git) wirken nachweislich.
 ## Nachtrag: Verbleibende Audit-Architekturpunkte (2026-07-22)
 
 Nach der ersten Retro-Umsetzung (PR #127: L5, M5, A2-Rest, A3, A1-partiell)
-wurden die noch offenen Architekturbefunde aus `audit-report.md` gezielt und
+wurden die noch offenen Architekturbefunde aus
+[`AUDIT_REPORT_2026-07.md`](./AUDIT_REPORT_2026-07.md) gezielt und
 verhaltensneutral abgearbeitet:
 
 - **A8 — Provider-Verhalten konsolidiert (umgesetzt).** Die deklarativen

@@ -19,6 +19,7 @@ Stand: 28. Juli 2026
 - [Retro-Sync & Selbstverbesserungs-Loop](./retro-sync.md) — Retros → `retros`-Branch → Analyse → geprüftes Learnings-Overlay im Systemprompt.
 - [Retro-Analyse & Verbesserungsplan](./RETRO_IMPROVEMENT_PLAN.md) — Auswertung der Retrospektiven und die daraus umgesetzten Plattform-Fixes.
 - [Technischer Auditbericht](./VERTRAGUS_AUDIT.md) — Audit vom 12. Juli 2026 (Commit `d396a0a`), historische Befundbasis.
+- [Vollaudit Juli 2026](./AUDIT_REPORT_2026-07.md) — Sechs-Kategorien-Audit vom 21. Juli 2026 (Commit `425db1c`) mit priorisierter Behebungsliste (EN).
 - [Remaining Work Plan](./REMAINING_WORK_PLAN.md) — Status der verbleibenden Audit-Architektur-Refactorings (EN).
 
 ## Mission Control (Remote-Zugriff)

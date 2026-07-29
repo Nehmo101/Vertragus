@@ -12,7 +12,8 @@ This plan tracks the **only** audit findings still open after the main remediati
 branch (`claude/scan-everything-r66a2y`). Everything security-, performance-,
 quality-, test-, and dependency-related is already done and merged. What remains
 are **behavior-preserving structural refactors** — no active bug, maintainability
-only. See `audit-report.md` for the full findings and what was fixed.
+only. See [`AUDIT_REPORT_2026-07.md`](./AUDIT_REPORT_2026-07.md) for the full
+findings and what was fixed.
 
 ## Ground rules (apply to every part)
 
