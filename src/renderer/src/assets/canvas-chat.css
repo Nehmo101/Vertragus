@@ -1,10 +1,13 @@
-.canvas-composer-slot { position: absolute; inset: auto 50% 22px auto; z-index: 25; width: min(680px, calc(100% - 32px)); transform: translateX(50%); }
-.canvas-composer { display: flex; align-items: flex-end; gap: 8px; padding: 8px 10px 8px 16px; border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); border-radius: 26px; background: color-mix(in srgb, var(--bg) 92%, transparent); box-shadow: 0 12px 38px rgb(24 18 10 / 18%); backdrop-filter: blur(18px); }
-.canvas-composer textarea { flex: 1; max-height: 144px; min-height: 24px; resize: none; overflow-y: auto; border: 0; outline: 0; padding: 4px 0; color: var(--text); background: transparent; font: inherit; line-height: 1.45; }
+.canvas-composer-slot { position: absolute; inset: auto 50% 22px auto; z-index: 25; width: min(680px, calc(100% - 32px)); transform: translateX(50%); pointer-events: auto; }
+.canvas-composer { position: relative; display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 12px; border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); border-radius: 26px; background: color-mix(in srgb, var(--bg) 92%, transparent); box-shadow: 0 12px 38px rgb(24 18 10 / 18%); backdrop-filter: blur(18px); }
+.canvas-composer textarea { flex: 1; min-width: 0; max-height: 144px; min-height: 24px; resize: none; overflow-y: auto; border: 0; outline: 0; padding: 4px 0; color: var(--text); background: transparent; font: inherit; line-height: 1.45; }
+.canvas-composer:focus-within { border-color: color-mix(in srgb, var(--accent) 68%, transparent); box-shadow: 0 12px 38px rgb(24 18 10 / 18%), 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent); }
+.canvas-composer button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.canvas-composer button:disabled { cursor: default; opacity: .45; }
 .canvas-composer button { width: 34px; height: 34px; flex: 0 0 auto; border: 0; border-radius: 50%; cursor: pointer; }
 .canvas-composer-send { color: white; background: var(--sage); font-size: 20px; }
 .canvas-composer-mic { color: var(--sage); background: color-mix(in srgb, var(--sage) 12%, transparent); }
-.canvas-composer-mode { position: absolute; bottom: calc(100% + 7px); left: 20px; padding: 3px 9px; border-radius: 10px; color: var(--accent); background: var(--bg); font-size: 11px; }
+.canvas-composer-mode { position: static; flex: 0 0 auto; padding: 4px 8px; border: 1px solid color-mix(in srgb, var(--accent) 26%, transparent); border-radius: 999px; color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, var(--bg)); font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 .orchestrator-thread { margin: 0 10px 10px; border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent); border-radius: 18px; background: color-mix(in srgb, var(--bg) 95%, transparent); box-shadow: 0 10px 32px rgb(24 18 10 / 14%); overflow: hidden; }
 .orchestrator-thread-toggle { width: 100%; display: flex; gap: 10px; align-items: center; border: 0; padding: 10px 14px; color: var(--text); background: transparent; text-align: left; cursor: pointer; }
 .orchestrator-thread-latest { flex: 1; overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }

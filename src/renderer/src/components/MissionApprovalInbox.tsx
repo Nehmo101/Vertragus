@@ -179,7 +179,23 @@ export default function MissionApprovalInbox(): JSX.Element {
       )}
 
       <section className="mission-approval-list">
-        {approvals.length === 0 && <div className="mission-empty"><strong>{t('modals.approvals.allDecided')}</strong><span>{t('modals.approvals.empty')}</span></div>}
+        {approvals.length === 0 && (
+          <div className="mission-empty mission-empty-rich">
+            <span className="mission-empty-icon success" aria-hidden="true">&#10003;</span>
+            <div className="mission-empty-copy">
+              <strong>{t('modals.approvals.allDecided')}</strong>
+              <span>{t('modals.approvals.empty')}</span>
+            </div>
+            <ul className="mission-empty-steps">
+              <li>{t('modals.approvals.emptyStepPlan')}</li>
+              <li>{t('modals.approvals.emptyStepPermission')}</li>
+              <li>{t('modals.approvals.emptyStepPublication')}</li>
+            </ul>
+            <button type="button" className="secondary" onClick={() => { window.location.hash = '' }}>
+              {t('modals.approvals.backToWorkspace')}
+            </button>
+          </div>
+        )}
         {approvals.map((approval) => (
           <article className={`mission-approval kind-${approval.kind}`} key={approval.id}>
             <small>{approvalLabel(t, approval)} · {approval.profileId}</small>

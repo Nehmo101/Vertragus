@@ -1126,6 +1126,11 @@ export default function InboxPanel(): JSX.Element {
                 />
               </label>
 
+              <details className="inbox-advanced">
+                <summary>
+                  <span>{t('inbox.advancedTitle')}</span>
+                  <small>{t('inbox.advancedHint')}</small>
+                </summary>
               <div className="inbox-refs">
                 <label>
                   {t('inbox.profileId')}
@@ -1203,6 +1208,7 @@ export default function InboxPanel(): JSX.Element {
                   <div className={archiveStyles.muted}>{t('inbox.noRemovableAttributes')}</div>
                 )}
               </section>
+              </details>
 
               <div className="inbox-artifacts">
                 <div className="inbox-artifacts-head">

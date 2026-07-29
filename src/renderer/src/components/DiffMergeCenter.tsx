@@ -105,7 +105,23 @@ export default function DiffMergeCenter(): JSX.Element {
         <DiffView diff={diff.diff} />
         {diff.truncated && <small className={styles.truncatedNote}>{t('diffMerge.truncated')}</small>}
       </section>}
-      {values.length === 0 && <div className="mission-empty"><strong>{t('diffMerge.emptyTitle')}</strong><span>{t('diffMerge.emptyHint')}</span></div>}
+      {values.length === 0 && (
+        <div className="mission-empty mission-empty-rich">
+          <span className="mission-empty-icon" aria-hidden="true">&#9671;</span>
+          <div className="mission-empty-copy">
+            <strong>{t('diffMerge.emptyTitle')}</strong>
+            <span>{t('diffMerge.emptyHint')}</span>
+          </div>
+          <ul className="mission-empty-steps">
+            <li>{t('diffMerge.emptyStepRun')}</li>
+            <li>{t('diffMerge.emptyStepVerify')}</li>
+            <li>{t('diffMerge.emptyStepPublish')}</li>
+          </ul>
+          <button type="button" className="secondary" onClick={() => { window.location.hash = '' }}>
+            {t('diffMerge.backToWorkspace')}
+          </button>
+        </div>
+      )}
       <section className="mission-integration-list">
         {values.map((snapshot) => {
           const integration = snapshot.integration!

@@ -87,7 +87,7 @@
   flex: none;
 }
 
-@container workspace (max-width: 760px) {
+@container workspace (max-width: 980px) {
   .workspace :global(.ws-header) {
     height: auto;
     min-height: 52px;
@@ -114,11 +114,14 @@
   .workspace :global(.layout-switch) {
     margin-left: auto;
   }
+}
+
+
+@container workspace (max-width: 760px) {
   .workspace :global(.ws-grid) {
     grid-template-columns: minmax(0, 1fr);
   }
 }
-
 @container workspace (max-width: 520px) {
   .workspace :global(.workspace-picker),
   .workspace :global(.workspace-context) {
