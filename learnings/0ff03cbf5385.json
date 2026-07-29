@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": 1785358147960,
+  "exportedAt": 1785359227623,
   "app": {
     "name": "vertragus",
     "version": "0.1.88-main.1.gb10b245"
@@ -8,6 +8,48 @@
   "machineId": "0ff03cbf5385",
   "kind": "learnings",
   "payload": [
+    {
+      "id": "learning-ms6ksbpx-2-s0ah99",
+      "provider": "claude",
+      "model": "claude-opus-5",
+      "role": "backend",
+      "kind": "weakness",
+      "insight": "Führt fehlende Codegen-Schritte (prisma db:generate) im frischen Worktree nicht proaktiv aus, wodurch das repo-weite Gate-Typecheck an @uwe/database-Abhängigkeiten scheitert",
+      "evidence": "Gate-Findings in @uwe/backup (task-07) und @uwe/kitchen (task-08): Cannot find module ./generated/prisma/client — beide Pakete unberührt vom Diff",
+      "source": "orchestrator",
+      "profileId": "profile-75790e09-189d-4bcf-bfa2-ed8010ebce36",
+      "observations": 1,
+      "createdAt": 1785359226453,
+      "updatedAt": 1785359226453
+    },
+    {
+      "id": "learning-ms6ksbpx-1-wvrkag",
+      "provider": "claude",
+      "model": "claude-opus-5",
+      "role": "backend",
+      "kind": "strength",
+      "insight": "Nimmt fremde Recovery-Diffs sauber per git show in den eigenen Worktree übernommen und liefert vollständige, paketlokal grüne Ergebnisse in unter 7 Minuten",
+      "evidence": "Trajano übernahm cc046efa von task-05 und lieferte 371f393d; Paolo übernahm ac1fb73f von task-06 und lieferte 162002df, jeweils mit grünen Paket-Tests",
+      "source": "orchestrator",
+      "profileId": "profile-75790e09-189d-4bcf-bfa2-ed8010ebce36",
+      "observations": 1,
+      "createdAt": 1785359226453,
+      "updatedAt": 1785359226453
+    },
+    {
+      "id": "learning-ms6knyde-1-9tcdwn",
+      "provider": "claude",
+      "model": "claude-opus-5",
+      "role": "backend",
+      "kind": "weakness",
+      "insight": "Quality-Gates erfordern Nacharbeit bei backend",
+      "evidence": "2 Task(s) mit 2 Gate-Finding(s)",
+      "source": "auto-retro",
+      "profileId": "profile-75790e09-189d-4bcf-bfa2-ed8010ebce36",
+      "observations": 1,
+      "createdAt": 1785359022530,
+      "updatedAt": 1785359022530
+    },
     {
       "id": "learning-ms6k56d2-2-1lvhih",
       "provider": "claude",
