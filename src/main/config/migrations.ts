@@ -1,6 +1,7 @@
 import { DEFAULT_PROFILE, workspaceProfileSchema, type WorkspaceProfile } from '@shared/profile'
+import type { AgentProviderId } from '@shared/providers'
 
-export const CURRENT_CONFIG_SCHEMA_VERSION = 3
+export const CURRENT_CONFIG_SCHEMA_VERSION = 4
 
 export interface MigratedConfig {
   schemaVersion: number
@@ -15,37 +16,109 @@ function recordOrEmpty(value: unknown): Record<string, unknown> {
     : {}
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
 /**
- * v2 removes the accidental Fable override that shipped alongside the balanced
- * preset. Only the stock profile and the exact contradictory generated value
- * are touched; intentional standalone `model: "fable"` selections remain.
+ * The model ids the retired fast/balanced/strong tier presets expanded to,
+ * frozen here as migration data. They must NOT come from a live table any more:
+ * the presets are gone, and a migration has to reproduce what the old install
+ * actually ran, not what a current table would say.
  */
-function resetGeneratedClaudeModel(profile: WorkspaceProfile): WorkspaceProfile {
-  const orchestrator = profile.orchestrator
+const LEGACY_PRESET_MODELS: Record<AgentProviderId, Record<string, string>> = {
+  claude: { fast: 'haiku', balanced: 'sonnet', strong: 'opus' },
+  kimi: { fast: 'kimi-k3-turbo', balanced: 'kimi-k3', strong: 'kimi-k3-thinking' },
+  codex: { fast: 'gpt-5.4-mini', balanced: 'gpt-5.6-terra', strong: 'gpt-5.6-sol' },
+  cursor: { fast: 'composer-2.5-fast', balanced: 'composer-2.5', strong: 'claude-opus-4-8-high' },
+  copilot: { fast: 'claude-haiku-4.5', balanced: 'claude-sonnet-4.6', strong: 'gpt-5.4' },
+  ollama: { fast: 'qwen2.5-coder:14b', balanced: 'qwen2.5-coder:32b', strong: 'llama3.3:70b' }
+}
+
+/** Effort level a legacy tier preset best corresponds to. */
+const LEGACY_PRESET_EFFORT: Record<string, string> = {
+  fast: 'low',
+  balanced: 'medium',
+  strong: 'high'
+}
+
+function legacyPresetModel(provider: unknown, preset: string): string | undefined {
+  const table = LEGACY_PRESET_MODELS[provider as AgentProviderId]
+  return table?.[preset]
+}
+
+/**
+ * v4: fold the retired model-tier preset into the fields that replaced it.
+ *
+ * `modelPreset` only ever expanded to a model id, so an install that ran
+ * "balanced" on Claude was running `sonnet`. The migration writes that alias
+ * into `model` (aliases keep tracking the newest release of the family, which is
+ * the whole point) and carries the tier's rough intent over to the new `effort`
+ * knob. An explicitly chosen model always wins — it did before, too.
+ *
+ * Runs on the RAW snapshot: the schema no longer knows `modelPreset`, so a parse
+ * would strip the value before it could be read.
+ */
+function adoptLegacyModelPreset(raw: Record<string, unknown>): Record<string, unknown> {
+  const preset = typeof raw.modelPreset === 'string' ? raw.modelPreset : undefined
+  if (!preset) return raw
+  const rest = { ...raw }
+  delete rest.modelPreset
+  const model = typeof rest.model === 'string' ? rest.model.trim() : ''
+  const adopted = model || legacyPresetModel(rest.provider, preset) || ''
+  return {
+    ...rest,
+    model: adopted,
+    effort: typeof rest.effort === 'string' ? rest.effort : LEGACY_PRESET_EFFORT[preset]
+  }
+}
+
+/**
+ * v2 (kept, now raw-level): drop the accidental Fable override that shipped
+ * alongside the balanced preset, so the preset adoption above can put the
+ * balanced alias in its place. Only the stock profile and the exact
+ * contradictory generated value are touched; an intentional standalone
+ * `model: "fable"` selection remains.
+ */
+function resetGeneratedClaudeModel(raw: Record<string, unknown>): Record<string, unknown> {
+  const orchestrator = isRecord(raw.orchestrator) ? raw.orchestrator : undefined
   if (!orchestrator || orchestrator.provider !== 'claude' || orchestrator.model !== 'fable') {
-    return profile
+    return raw
   }
 
   const isStockDefault =
-    profile.id === 'default' &&
-    profile.name === 'Fable + Codex subagents' &&
+    raw.id === 'default' &&
+    raw.name === 'Fable + Codex subagents' &&
     orchestrator.modelPreset === undefined
   const isGeneratedPresetConflict = orchestrator.modelPreset === 'balanced'
-  if (!isStockDefault && !isGeneratedPresetConflict) return profile
+  if (!isStockDefault && !isGeneratedPresetConflict) return raw
 
   return {
-    ...profile,
-    name: isStockDefault ? DEFAULT_PROFILE.name : profile.name,
+    ...raw,
+    name: isStockDefault ? DEFAULT_PROFILE.name : raw.name,
     orchestrator: { ...orchestrator, model: '', modelPreset: 'balanced' }
   }
+}
+
+/** Raw-level rewrites applied before the profile schema sees the snapshot. */
+function migrateRawProfile(value: unknown): unknown {
+  if (!isRecord(value)) return value
+  const profile = resetGeneratedClaudeModel(value)
+  const orchestrator = isRecord(profile.orchestrator)
+    ? adoptLegacyModelPreset(profile.orchestrator)
+    : profile.orchestrator
+  const agents = Array.isArray(profile.agents)
+    ? profile.agents.map((slot) => (isRecord(slot) ? adoptLegacyModelPreset(slot) : slot))
+    : profile.agents
+  return { ...profile, orchestrator, agents }
 }
 
 export function migrateConfigSnapshot(raw: unknown): MigratedConfig {
   const source = recordOrEmpty(raw)
   const profiles = Array.isArray(source.profiles)
     ? source.profiles.flatMap((profile) => {
-        const parsed = workspaceProfileSchema.safeParse(profile)
-        return parsed.success ? [resetGeneratedClaudeModel(parsed.data)] : []
+        const parsed = workspaceProfileSchema.safeParse(migrateRawProfile(profile))
+        return parsed.success ? [parsed.data] : []
       })
     : []
   const safeProfiles = profiles.length > 0 ? profiles : [DEFAULT_PROFILE]

@@ -20,8 +20,7 @@ export const EFFICIENCY_SOLO_PROFILE: WorkspaceProfile = workspaceProfileSchema.
     {
       role: 'solo',
       provider: 'claude',
-      model: '',
-      modelPreset: 'balanced',
+      model: 'sonnet',
       count: 1,
       orchestrated: false,
       yolo: false,

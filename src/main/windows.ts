@@ -30,7 +30,7 @@ const DEMO_PROFILE = workspaceProfileSchema.parse({
   id: 'demo',
   name: 'Demo',
   workingDir: 'C:\\git\\demo-app',
-  orchestrator: { provider: 'claude', model: '', modelPreset: 'balanced', autoOpenSubwindows: true },
+  orchestrator: { provider: 'claude', model: 'sonnet', effort: 'high', autoOpenSubwindows: true },
   agents: [
     { role: 'backend', provider: 'codex', model: '', count: 2, orchestrated: true, yolo: true },
     { role: 'frontend', provider: 'cursor', model: 'composer', count: 3, orchestrated: true, yolo: false }

@@ -32,8 +32,8 @@ const MULTI_SLOT_PROFILE: WorkspaceProfile = workspaceProfileSchema.parse({
   workingDir: '',
   orchestrator: {
     provider: 'claude',
-    model: '',
-    modelPreset: 'balanced',
+    model: 'sonnet',
+    effort: 'high',
     permissionMode: 'default',
     autoOpenSubwindows: true
   },
@@ -51,8 +51,8 @@ const MULTI_SLOT_PROFILE: WorkspaceProfile = workspaceProfileSchema.parse({
     {
       role: 'backend',
       provider: 'claude',
-      model: '',
-      modelPreset: 'strong',
+      model: 'opus',
+      effort: 'xhigh',
       fallbackModels: ['sonnet', 'haiku'],
       count: 1,
       orchestrated: true,

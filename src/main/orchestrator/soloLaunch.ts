@@ -15,6 +15,7 @@ import { externalMcpSpecsFor } from '@main/orchestrator/externalMcp'
 import { getPromptOverlay } from '@main/orchestrator/promptOverlay'
 import { skillsPromptBlock } from '@main/orchestrator/profileSkills'
 import type { ProfileSkill } from '@shared/profile'
+import { withEffortDirective, type EffortLevel } from '@shared/effort'
 
 export interface SoloPolicyOptions {
   engineId?: string
@@ -22,6 +23,8 @@ export interface SoloPolicyOptions {
   overlayText?: string
   /** Per-profile skills injected into the prompt (extend them via record_skill). */
   skills?: ProfileSkill[]
+  /** Reasoning effort of the launching slot (drives the Ultracode directive). */
+  effort?: EffortLevel
 }
 
 export const soloSystemPrompt = (
@@ -79,7 +82,11 @@ export function buildSoloSetup(
       name,
       handle: scopedHandle,
       configDir: app.getPath('userData'),
-      systemPrompt: soloSystemPrompt(name, { ...policy, overlayText }),
+      systemPrompt: withEffortDirective(
+        provider,
+        policy.effort,
+        soloSystemPrompt(name, { ...policy, overlayText })
+      ),
       externalServers: externalMcpSpecsFor('subagent', provider),
       fileTag: agentId
     }),

@@ -27,7 +27,7 @@ describe('config migrations', () => {
     expect(result.settings).toEqual({})
   })
 
-  it('resets the shipped Fable default to the balanced Claude preset once', () => {
+  it('folds the legacy tier preset into the model alias it expanded to', () => {
     const result = migrateConfigSnapshot({
       schemaVersion: 1,
       profiles: [
@@ -61,13 +61,54 @@ describe('config migrations', () => {
       activeProfileId: 'default'
     })
 
+    // Stock default: the accidental Fable override goes, the balanced tier
+    // becomes the rolling `sonnet` alias it always resolved to.
     expect(result.profiles[0]).toMatchObject({
       name: 'Claude + Codex subagents',
-      orchestrator: { model: '', modelPreset: 'balanced' }
+      orchestrator: { model: 'sonnet', effort: 'medium' }
     })
+    // An intentional standalone Fable selection is preserved untouched.
     expect(result.profiles[1].orchestrator?.model).toBe('fable')
-    expect(result.profiles[1].orchestrator?.modelPreset).toBeUndefined()
-    expect(result.profiles[2].orchestrator).toMatchObject({ model: '', modelPreset: 'balanced' })
+    expect(result.profiles[1].orchestrator?.effort).toBeUndefined()
+    expect(result.profiles[2].orchestrator).toMatchObject({
+      model: 'sonnet',
+      effort: 'medium'
+    })
+  })
+
+  it('keeps an explicit model and maps each legacy tier to an effort rung', () => {
+    const result = migrateConfigSnapshot({
+      schemaVersion: 3,
+      profiles: [
+        {
+          id: 'legacy',
+          name: 'Legacy tiers',
+          workingDir: '',
+          orchestrator: {
+            provider: 'claude',
+            model: 'claude-opus-4-7',
+            modelPreset: 'strong',
+            autoOpenSubwindows: true
+          },
+          agents: [
+            { role: 'a', provider: 'codex', model: '', modelPreset: 'fast', count: 1, orchestrated: true, yolo: false },
+            { role: 'b', provider: 'ollama', model: '', modelPreset: 'strong', count: 1, orchestrated: true, yolo: false }
+          ]
+        }
+      ],
+      activeProfileId: 'legacy'
+    })
+
+    // Explicit model wins, as it did before; only the tier moves to effort.
+    expect(result.profiles[0].orchestrator).toMatchObject({
+      model: 'claude-opus-4-7',
+      effort: 'high'
+    })
+    expect(result.profiles[0].agents[0]).toMatchObject({ model: 'gpt-5.4-mini', effort: 'low' })
+    expect(result.profiles[0].agents[1]).toMatchObject({
+      model: 'llama3.3:70b',
+      effort: 'high'
+    })
   })
 
   it('preserves an enabled Auto-Git target while migrating older config snapshots', () => {
@@ -82,7 +123,7 @@ describe('config migrations', () => {
       activeProfileId: 'git-enabled'
     })
 
-    expect(result.schemaVersion).toBe(3)
+    expect(result.schemaVersion).toBe(CURRENT_CONFIG_SCHEMA_VERSION)
     expect(result.profiles[0].autoGit).toEqual({
       enabled: true,
       targetBranch: 'orca/integrated'

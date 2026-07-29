@@ -2,7 +2,7 @@
  * Agent runtime types shared across main / preload / renderer.
  */
 import type { AgentProviderId, ProviderId } from './providers'
-import type { ModelPreset } from './models'
+import type { EffortLevel } from './effort'
 import type { PanePreflightReport } from './orchestrator'
 
 export type AgentKind = 'orchestrator' | 'sub'
@@ -130,9 +130,10 @@ export interface AgentResumeState {
 
 export interface SpawnAgentRequest {
   provider: AgentProviderId
-  /** Free-text override; empty uses modelPreset or CLI default. */
+  /** Free-text override; empty uses the provider CLI default. */
   model: string
-  modelPreset?: ModelPreset
+  /** Reasoning effort; clamped to what the provider supports. */
+  effort?: EffortLevel
   role?: string
   kind?: AgentKind
   /**

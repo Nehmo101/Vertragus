@@ -2278,7 +2278,16 @@ button {
   background: var(--bg-popover);
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
 }
+/* One block per model family: rolling alias first, pinned releases indented. */
+.model-combo-group + .model-combo-group {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-soft, rgba(148, 163, 184, 0.16));
+}
 .model-combo-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 5px 8px;
   border-radius: 6px;
   color: var(--text-1);
@@ -2286,6 +2295,21 @@ button {
   font-size: 11.5px;
   cursor: pointer;
   overflow-wrap: anywhere;
+}
+.model-combo-option.pinned {
+  padding-left: 18px;
+  color: var(--text-2, var(--text-1));
+}
+.model-combo-tag {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(45, 212, 191, 0.16);
+  color: var(--accent-light);
+  font-family: var(--font-sans, inherit);
+  font-size: 9.5px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 .model-combo-option.highlight {
   background: rgba(45, 212, 191, 0.14);

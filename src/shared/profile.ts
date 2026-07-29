@@ -4,7 +4,7 @@
  */
 import { z } from 'zod'
 import { claudePermissionModeSchema } from './claudePermissionMode'
-import { modelPresetSchema } from './models'
+import { effortLevelSchema } from './effort'
 import { postProcessBranchValidationError } from './gitPostProcessing'
 
 export const agentProviderId = z.enum(['claude', 'kimi', 'codex', 'cursor', 'copilot', 'ollama'])
@@ -22,10 +22,10 @@ export const agentSlotSchema = z.object({
   /** Logical role, e.g. "worker", "reviewer". */
   role: z.string().min(1).default('worker'),
   provider: agentProviderId,
-  /** Model name (free-text, per provider). Empty = preset or CLI default. */
+  /** Model name (free-text, per provider). Empty = provider CLI default. */
   model: z.string().default(''),
-  /** Performance preset when model is empty. Omitted = legacy CLI default. */
-  modelPreset: modelPresetSchema.optional(),
+  /** Reasoning effort; omitted = provider CLI default. Clamped per provider. */
+  effort: effortLevelSchema.optional(),
   /**
    * Models to fall back to (in order) when the slot's model hits a usage
    * limit ("at capacity", 5h/weekly limits). Tried on the SAME provider/slot
@@ -73,10 +73,10 @@ export type ProfileSkill = z.infer<typeof profileSkillSchema>
 
 export const orchestratorSchema = z.object({
   provider: agentProviderId.default('claude'),
-  /** Empty = preset or CLI default. Non-empty overrides modelPreset. */
+  /** Empty = provider CLI default. */
   model: z.string().default(''),
-  /** Performance preset when model is empty. Omitted = legacy CLI default. */
-  modelPreset: modelPresetSchema.optional(),
+  /** Reasoning effort; omitted = provider CLI default. Clamped per provider. */
+  effort: effortLevelSchema.optional(),
   /** Claude CLI permission behavior; ignored by other providers. */
   permissionMode: claudePermissionModeSchema.default('default'),
   /** Orchestrator may open sub-windows on demand. */
@@ -305,7 +305,7 @@ export interface RepoProfileGenerationRequest {
   /** Provider/model that performs the repository analysis. */
   provider: OrchestratorConfig['provider']
   model: string
-  modelPreset?: OrchestratorConfig['modelPreset']
+  effort?: OrchestratorConfig['effort']
 }
 
 /** Effective local path for a profile's bound repository. */
@@ -404,9 +404,10 @@ export function agentSlotCapabilities(slot: AgentSlot): AgentSlotCapabilities {
 }
 
 /**
- * A balanced Claude orchestrator delegating to Codex subagents. The Claude
- * preset resolves to the stable `sonnet` alias; Codex stays empty so its own
- * configured CLI default is used unless the user explicitly selects a model.
+ * A balanced Claude orchestrator delegating to Codex subagents. Claude runs on
+ * the rolling `sonnet` alias, so the profile follows every Sonnet release
+ * without an edit; Codex stays empty so its own configured CLI default is used
+ * unless the user explicitly selects a model. Effort stays unset = CLI default.
  */
 export const DEFAULT_PROFILE: WorkspaceProfile = {
   id: 'default',
@@ -414,8 +415,7 @@ export const DEFAULT_PROFILE: WorkspaceProfile = {
   workingDir: '',
   orchestrator: {
     provider: 'claude',
-    model: '',
-    modelPreset: 'balanced',
+    model: 'sonnet',
     permissionMode: 'default',
     autoOpenSubwindows: true
   },

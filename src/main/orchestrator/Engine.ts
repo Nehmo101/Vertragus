@@ -1809,7 +1809,7 @@ export class OrchestratorEngine extends EventEmitter {
     if (forcedModel) this.forcedFallbackModels.delete(taskId)
     const modelOverride = options.modelOverride ?? forcedModel
     const launchSlot: AgentSlot = modelOverride
-      ? { ...slot, model: modelOverride, modelPreset: undefined }
+      ? { ...slot, model: modelOverride }
       : slot
 
     const task: VertragusTask = this.tasks.get(taskId) ?? {
@@ -1963,7 +1963,7 @@ export class OrchestratorEngine extends EventEmitter {
       const { info, done, baseCommit } = await agentManager.runTask({
         provider: launchSlot.provider,
         model: launchSlot.model,
-        modelPreset: launchSlot.modelPreset,
+        effort: launchSlot.effort,
         role: slotRole,
         taskId,
         prompt: taskPrompt,
@@ -4149,7 +4149,7 @@ export class OrchestratorEngine extends EventEmitter {
     const info = await agentManager.spawn({
       provider: slot.provider,
       model: slot.model,
-      modelPreset: slot.modelPreset,
+      effort: slot.effort,
       role: `Subagent · ${slotRole}`,
       kind: 'sub',
       yolo: slot.yolo || (profile?.yoloDefault ?? false),

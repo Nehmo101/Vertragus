@@ -7,7 +7,7 @@
 import { z } from 'zod'
 import { agentProviderId } from './profile'
 import { claudePermissionModeSchema } from './claudePermissionMode'
-import { modelPresetSchema } from './models'
+import { effortLevelSchema } from './effort'
 
 export { agentProviderId as providerIdSchema }
 
@@ -64,7 +64,7 @@ export const bulkHandoffRequestSchema = z.object({
 export const spawnAgentRequestSchema = z.object({
   provider: agentProviderId,
   model: z.string().max(200),
-  modelPreset: modelPresetSchema.optional(),
+  effort: effortLevelSchema.optional(),
   role: z.string().max(200).optional(),
   kind: z.enum(['orchestrator', 'sub']).optional(),
   solo: z.boolean().optional(),

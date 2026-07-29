@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { modelPresetSchema } from './models'
+import { effortLevelSchema } from './effort'
 import { agentProviderId } from './profile'
 
 const boundedText = (max: number): z.ZodString => z.string().max(max)
@@ -60,7 +60,7 @@ export const promptEnhancementSelectionSchema = z
   .object({
     provider: agentProviderId,
     model: boundedText(200).optional(),
-    modelPreset: modelPresetSchema.optional()
+    effort: effortLevelSchema.optional()
   })
   .strict()
 

@@ -6,7 +6,7 @@
  * functions over WorkspaceProfile — unit-tested in tabSummaries.test.ts.
  * The translator is injected so the functions stay free of React/i18n state.
  */
-import type { ModelPreset } from '@shared/models'
+import { EFFORT_LABELS, clampEffort, type EffortLevel } from '@shared/effort'
 import type { AgentProviderId } from '@shared/providers'
 import type { WorkspaceProfile } from '@shared/profile'
 
@@ -15,17 +15,19 @@ export type ProfileEditorTabId = 'repo' | 'mode' | 'slots' | 'automation' | 'ski
 /** Minimal translate signature so i18next's `t` can be passed straight through. */
 export type SummaryTranslate = (key: string, options?: Record<string, unknown>) => string
 
-/** "provider/modell" — explizites Modell vor Preset, sonst CLI-Standard. */
+/** "provider/modell · Aufwand" — leeres Modell heißt CLI-Standard. */
 function modelLabel(
   t: SummaryTranslate,
   provider: AgentProviderId,
   model: string,
-  preset?: ModelPreset
+  effort?: EffortLevel
 ): string {
   const explicit = model.trim()
-  if (explicit) return `${provider}/${explicit}`
-  if (preset) return `${provider}/${preset}`
-  return `${provider}/${t('profile.cliDefault')}`
+  const base = `${provider}/${explicit || t('profile.cliDefault')}`
+  const level = clampEffort(provider, effort)
+  return level
+    ? `${base} · ${t(`profile.effort.${level}`, { defaultValue: EFFORT_LABELS[level] })}`
+    : base
 }
 
 /** Repo-Tab: GitHub-Bindung vor lokalem Working-Directory-Namen. */
@@ -40,16 +42,16 @@ export function repoTabSummary(draft: WorkspaceProfile, t: SummaryTranslate): st
 /** Modus-Tab: aktiver Modus plus dem Modell, das ihn treibt. */
 export function modeTabSummary(draft: WorkspaceProfile, t: SummaryTranslate): string {
   if (draft.orchestrator) {
-    const { provider, model, modelPreset } = draft.orchestrator
+    const { provider, model, effort } = draft.orchestrator
     return t('profile.summary.orchestrated', {
-      model: modelLabel(t, provider, model, modelPreset)
+      model: modelLabel(t, provider, model, effort)
     })
   }
   if (draft.solo) {
     const first = draft.agents[0]
     if (!first) return t('profile.summary.solo')
     return t('profile.summary.soloModel', {
-      model: modelLabel(t, first.provider, first.model, first.modelPreset)
+      model: modelLabel(t, first.provider, first.model, first.effort)
     })
   }
   const slots = draft.agents.length

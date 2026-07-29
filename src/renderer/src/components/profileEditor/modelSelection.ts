@@ -1,46 +1,93 @@
 /**
- * Model/preset picker helpers shared by the orchestrator block and the agent
+ * Model/effort picker helpers shared by the orchestrator block and the agent
  * slot rows. Pure functions over the store's catalog snapshot so memoized
  * sections can call them without subscribing to the store themselves.
  */
 import type { AgentProviderId, DisabledModels } from '@shared/providers'
-import type { ModelPreset, ModelSelection } from '@shared/models'
-import { MODEL_PRESET_LABELS, PRESET_MODELS } from '@shared/models'
+import type { EffortLevel } from '@shared/effort'
+import {
+  EFFORT_LABELS,
+  EFFORT_LEVELS,
+  PROVIDER_EFFORT,
+  clampEffort,
+  providerEffortLevels,
+  providerSupportsEffort
+} from '@shared/effort'
 import type { ModelCatalog } from '@renderer/modelCatalog'
-import { modelPresetAvailability } from '@renderer/modelCatalog'
 
 /** Minimal translate signature so i18next's `t` can be passed straight through. */
 export type ModelTranslate = (key: string, options?: Record<string, unknown>) => string
 
-/** Localized preset label; falls back to the shared (German-authored) constant. */
-export function presetLabel(t: ModelTranslate, preset: ModelPreset): string {
-  return t(`profile.preset.${preset}`, { defaultValue: MODEL_PRESET_LABELS[preset] })
+/** Localized effort label; falls back to the shared (German-authored) constant. */
+export function effortLabel(t: ModelTranslate, level: EffortLevel): string {
+  return t(`profile.effort.${level}`, { defaultValue: EFFORT_LABELS[level] })
 }
 
 /**
- * Preset option label including the model the *selected provider* would run,
- * e.g. "Ausgewogen · sonnet" for Claude and "Ausgewogen · kimi-k3" for Kimi.
- * The bare preset name said nothing about what the provider actually starts.
+ * Effort option label including the name the SELECTED provider uses, e.g.
+ * "Hoch · high" for Claude and "Hoch · high" (model_reasoning_effort) for Codex.
+ * The bare rung said nothing about what the provider actually receives.
  */
-export function presetOptionLabel(
+export function effortOptionLabel(
   t: ModelTranslate,
   provider: AgentProviderId,
-  preset: ModelPreset
+  level: EffortLevel
 ): string {
-  const label = presetLabel(t, preset)
-  const model = PRESET_MODELS[provider][preset]
-  return model ? t('profile.mode.presetHint', { preset: label, model }) : label
+  const label = effortLabel(t, level)
+  const name = PROVIDER_EFFORT[provider].names?.[level]
+  return name ? t('profile.mode.effortHint', { effort: label, name }) : label
 }
 
-/** Localized twin of @shared/models#formatModelLabel (resolved model or CLI default). */
-export function effectiveModelLabel(
+/** What this provider calls the setting, e.g. "Reasoning Effort". */
+export function effortTerm(provider: AgentProviderId): string {
+  return PROVIDER_EFFORT[provider].term
+}
+
+/** Why a provider offers no rungs (shown instead of a dead dropdown). */
+export function effortNote(provider: AgentProviderId): string | undefined {
+  return PROVIDER_EFFORT[provider].note
+}
+
+/** Selectable rungs for a provider, ascending. Empty = no effort control. */
+export function effortOptions(provider: AgentProviderId): readonly EffortLevel[] {
+  return providerEffortLevels(provider)
+}
+
+export function effortValue(level?: EffortLevel): string {
+  return level ?? ''
+}
+
+export function parseEffort(value: string): EffortLevel | undefined {
+  return (EFFORT_LEVELS as readonly string[]).includes(value) ? (value as EffortLevel) : undefined
+}
+
+export { providerSupportsEffort }
+
+/**
+ * True when the saved rung is higher than the provider can serve, so the run
+ * silently clamps down. Surfaced as a hint instead of rewriting the profile —
+ * switching the provider back must restore the original intent.
+ */
+export function effortClamped(provider: AgentProviderId, level?: EffortLevel): boolean {
+  // Providers without any effort control are not "clamped" — they ignore the
+  // field outright, and the disabled dropdown already says so.
+  if (!level || !providerSupportsEffort(provider)) return false
+  return clampEffort(provider, level) !== level
+}
+
+/** The rung the run will actually use, for the "effective" line. */
+export function effectiveEffortLabel(
   t: ModelTranslate,
-  resolved: string,
-  sel?: ModelSelection
+  provider: AgentProviderId,
+  level?: EffortLevel
 ): string {
-  if (resolved) return resolved
-  if (sel?.modelPreset) return `${t('profile.cliDefault')} (${presetLabel(t, sel.modelPreset)})`
-  return t('profile.cliDefault')
+  const clamped = clampEffort(provider, level)
+  return clamped ? effortOptionLabel(t, provider, clamped) : t('profile.cliDefault')
+}
+
+/** Localized label for the effective model (resolved id or CLI default). */
+export function effectiveModelLabel(t: ModelTranslate, resolved: string): string {
+  return resolved || t('profile.cliDefault')
 }
 
 /** Catalog models of a provider minus the user-disabled ones (case-insensitive). */
@@ -54,30 +101,4 @@ export function availableModels(
       (disabled) => disabled.toLowerCase() === model.toLowerCase()
     )
   )
-}
-
-export function presetValue(preset?: ModelPreset): string {
-  return preset ?? ''
-}
-
-export function parsePreset(value: string): ModelPreset | undefined {
-  return value === 'fast' || value === 'balanced' || value === 'strong' ? value : undefined
-}
-
-export function presetAvailable(
-  models: ModelCatalog,
-  provider: AgentProviderId,
-  preset: ModelPreset
-): boolean {
-  return modelPresetAvailability(provider, preset, models[provider]).available
-}
-
-/** True when the selection relies on a preset the live catalog cannot serve. */
-export function selectionHasUnavailablePreset(
-  models: ModelCatalog,
-  provider: AgentProviderId,
-  model: string,
-  preset?: ModelPreset
-): boolean {
-  return Boolean(!model.trim() && preset && !presetAvailable(models, provider, preset))
 }

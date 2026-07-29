@@ -16,7 +16,7 @@ import { postProcessBranchValidationError } from '@shared/gitPostProcessing'
 import { resolveModel } from '@shared/models'
 import InfoTip from '@renderer/components/InfoTip'
 import { HELP } from './profileEditor/help'
-import { selectionHasUnavailablePreset } from './profileEditor/modelSelection'
+import { effortClamped } from './profileEditor/modelSelection'
 import {
   profileDraftReducer,
   type ProfileEditorMode
@@ -164,7 +164,7 @@ export default function ProfileEditor(): JSX.Element | null {
         workingDir,
         provider: analyzer.provider,
         model: analyzer.model,
-        modelPreset: analyzer.modelPreset
+        effort: analyzer.effort
       })
       dispatch({ type: 'applyGeneratedProfile', generated })
       setGenerateStatus(t('profile.editor.generateDone'))
@@ -247,21 +247,16 @@ export default function ProfileEditor(): JSX.Element | null {
     draft.autoGit.targetBranch,
     draft.autoGit.enabled
   )
-  // Preset issues split per tab (mode vs. slots) so the respective tab can
-  // carry a warn badge; the sum still drives the footer.
-  const orchestratorPresetUnavailable = Boolean(
-    draft.orchestrator &&
-      selectionHasUnavailablePreset(
-        store.models,
-        draft.orchestrator.provider,
-        draft.orchestrator.model,
-        draft.orchestrator.modelPreset
-      )
+  // A rung the provider cannot serve is clamped down at launch, not rejected.
+  // Split per tab (mode vs. slots) so the respective tab can carry the hint;
+  // the sum drives the footer note. This never blocks saving.
+  const orchestratorEffortClamped = Boolean(
+    draft.orchestrator && effortClamped(draft.orchestrator.provider, draft.orchestrator.effort)
   )
-  const slotPresetCount = draft.agents.filter((slot) =>
-    selectionHasUnavailablePreset(store.models, slot.provider, slot.model, slot.modelPreset)
+  const slotEffortClampedCount = draft.agents.filter((slot) =>
+    effortClamped(slot.provider, slot.effort)
   ).length
-  const unavailablePresetCount = (orchestratorPresetUnavailable ? 1 : 0) + slotPresetCount
+  const clampedEffortCount = (orchestratorEffortClamped ? 1 : 0) + slotEffortClampedCount
 
   // One summary line per tab plus warn badges for errors that would otherwise
   // stay undetected in a currently inactive tab.
@@ -272,15 +267,16 @@ export default function ProfileEditor(): JSX.Element | null {
       id: 'mode',
       label: t('profile.editor.tabMode'),
       summary: summaries.mode,
-      badge: orchestratorPresetUnavailable
-        ? t('profile.editor.badgeOrchPreset')
-        : undefined
+      badge: orchestratorEffortClamped ? t('profile.editor.badgeOrchEffort') : undefined
     },
     {
       id: 'slots',
       label: t('profile.editor.tabSlots'),
       summary: summaries.slots,
-      badge: slotPresetCount > 0 ? t('profile.editor.badgeSlotPresets', { n: slotPresetCount }) : undefined
+      badge:
+        slotEffortClampedCount > 0
+          ? t('profile.editor.badgeSlotEffort', { n: slotEffortClampedCount })
+          : undefined
     },
     {
       id: 'automation',
@@ -470,9 +466,9 @@ export default function ProfileEditor(): JSX.Element | null {
               {t('profile.editor.deleteBtn')}
             </button>
           )}
-          {unavailablePresetCount > 0 && (
-            <div className="model-preset-warning" role="alert">
-              {t('profile.editor.presetWarning', { n: unavailablePresetCount })}
+          {clampedEffortCount > 0 && (
+            <div className="model-preset-warning" role="status">
+              {t('profile.editor.effortClampedWarning', { n: clampedEffortCount })}
             </div>
           )}
           {autoGitBranchError && (
@@ -486,14 +482,8 @@ export default function ProfileEditor(): JSX.Element | null {
           <button
             type="button"
             className="btn-primary"
-            disabled={unavailablePresetCount > 0 || Boolean(autoGitBranchError)}
-            title={
-              unavailablePresetCount > 0
-                ? t('profile.editor.saveDisabledPresets')
-                : autoGitBranchError
-                  ? autoGitBranchError
-                : undefined
-            }
+            disabled={Boolean(autoGitBranchError)}
+            title={autoGitBranchError ?? undefined}
             onClick={() => void store.saveEditor(draft)}
           >
             {t('profile.editor.save')}

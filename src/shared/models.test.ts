@@ -1,64 +1,125 @@
 import { describe, expect, it } from 'vitest'
 import { agentSlotSchema, orchestratorSchema, workspaceProfileSchema } from './profile'
 import {
-  MODEL_PRESETS,
-  PRESET_MODELS,
   formatModelLabel,
+  groupModelsByFamily,
+  isModelAlias,
   modelAfterProviderChange,
-  modelPresetSchema,
+  modelFamily,
+  orderedModelList,
   resolveModel
 } from './models'
-
-describe('modelPresetSchema', () => {
-  it('accepts fast, balanced and strong', () => {
-    for (const preset of MODEL_PRESETS) {
-      expect(modelPresetSchema.parse(preset)).toBe(preset)
-    }
-  })
-})
+import { DEFAULT_MODELS } from './providers'
 
 describe('resolveModel', () => {
-  it('prefers explicit free-text over preset', () => {
-    expect(resolveModel('claude', { model: 'fable', modelPreset: 'fast' })).toBe('fable')
+  it('returns the explicit model', () => {
+    expect(resolveModel('claude', { model: 'fable' })).toBe('fable')
   })
 
-  it('maps preset when model is empty', () => {
-    expect(resolveModel('claude', { model: '', modelPreset: 'strong' })).toBe('opus')
-    expect(resolveModel('cursor', { model: '', modelPreset: 'fast' })).toBe('composer-2.5-fast')
-    expect(resolveModel('codex', { model: '', modelPreset: 'balanced' })).toBe('gpt-5.6-terra')
-    expect(resolveModel('codex', { model: '', modelPreset: 'strong' })).toBe('gpt-5.6-sol')
-    expect(resolveModel('copilot', { model: '', modelPreset: 'balanced' })).toBe(
-      'claude-sonnet-4.6'
-    )
-  })
-
-  it('keeps legacy CLI default when preset is absent and model empty', () => {
+  it('falls back to the provider CLI default for an empty model', () => {
     expect(resolveModel('codex', { model: '' })).toBe('')
     expect(resolveModel('claude', { model: '   ' })).toBe('')
-  })
-
-  it('covers every provider preset mapping', () => {
-    const providers = Object.keys(PRESET_MODELS) as Array<keyof typeof PRESET_MODELS>
-    for (const provider of providers) {
-      for (const preset of MODEL_PRESETS) {
-        const mapped = PRESET_MODELS[provider][preset]
-        expect(typeof mapped).toBe('string')
-        expect(resolveModel(provider, { model: '', modelPreset: preset })).toBe(mapped)
-      }
-    }
+    expect(resolveModel('claude', {})).toBe('')
   })
 })
 
 describe('formatModelLabel', () => {
-  it('shows resolved id or CLI default hint', () => {
+  it('shows the resolved id or the CLI default hint', () => {
     expect(formatModelLabel('sonnet')).toBe('sonnet')
-    expect(formatModelLabel('', { modelPreset: 'balanced' })).toBe('CLI-Standard (Ausgewogen)')
     expect(formatModelLabel('')).toBe('CLI-Standard')
   })
 })
 
-describe('profile schema presets', () => {
-  it('migrates legacy profiles without modelPreset', () => {
+describe('isModelAlias', () => {
+  it('treats version-free ids as rolling aliases', () => {
+    for (const alias of ['opus', 'sonnet', 'haiku', 'fable', 'auto']) {
+      expect(isModelAlias(alias)).toBe(true)
+    }
+  })
+
+  it('treats versioned ids as pinned releases', () => {
+    for (const pinned of ['claude-opus-5', 'claude-haiku-4-5', 'gpt-5.6-sol', 'qwen2.5-coder:32b']) {
+      expect(isModelAlias(pinned)).toBe(false)
+    }
+  })
+
+  it('rejects blank input', () => {
+    expect(isModelAlias('   ')).toBe(false)
+  })
+})
+
+describe('modelFamily', () => {
+  it('maps an alias and its pinned releases to the same family', () => {
+    expect(modelFamily('opus')).toBe('opus')
+    expect(modelFamily('claude-opus-5')).toBe('opus')
+    expect(modelFamily('claude-opus-4-8')).toBe('opus')
+    expect(modelFamily('CLAUDE-Opus-4-7')).toBe('opus')
+  })
+
+  it('groups non-Claude ids by their leading name segments', () => {
+    expect(modelFamily('gpt-5.6-sol')).toBe('gpt')
+    expect(modelFamily('composer-2.5-fast')).toBe('composer')
+    expect(modelFamily('kimi-k3-thinking')).toBe('kimi')
+  })
+
+  it('falls back to the first segment when the id starts with its version', () => {
+    expect(modelFamily('qwen2.5-coder:32b')).toBe('qwen2')
+  })
+
+  it('returns an empty family for blank input', () => {
+    expect(modelFamily('  ')).toBe('')
+  })
+})
+
+describe('groupModelsByFamily', () => {
+  it('pairs the rolling alias with its pinned releases (the fable/claude-fable-5 question)', () => {
+    const groups = groupModelsByFamily(['fable', 'claude-fable-5', 'opus', 'claude-opus-5'])
+    expect(groups).toEqual([
+      { family: 'fable', alias: 'fable', pinned: ['claude-fable-5'] },
+      { family: 'opus', alias: 'opus', pinned: ['claude-opus-5'] }
+    ])
+  })
+
+  it('keeps the order of first appearance', () => {
+    const groups = groupModelsByFamily(['claude-opus-5', 'haiku', 'opus'])
+    expect(groups.map((group) => group.family)).toEqual(['opus', 'haiku'])
+    expect(groups[0]).toEqual({ family: 'opus', alias: 'opus', pinned: ['claude-opus-5'] })
+  })
+
+  it('collapses case-insensitive duplicates from merged catalogues', () => {
+    const groups = groupModelsByFamily(['opus', 'OPUS', 'claude-opus-5', 'claude-opus-5'])
+    expect(groups).toEqual([{ family: 'opus', alias: 'opus', pinned: ['claude-opus-5'] }])
+  })
+
+  it('handles families without an alias', () => {
+    expect(groupModelsByFamily(['gpt-5.6-sol', 'gpt-5.4-mini'])).toEqual([
+      { family: 'gpt', pinned: ['gpt-5.6-sol', 'gpt-5.4-mini'] }
+    ])
+  })
+})
+
+describe('orderedModelList', () => {
+  it('puts every family alias directly before its pinned releases', () => {
+    expect(orderedModelList(['claude-opus-5', 'sonnet', 'opus', 'claude-sonnet-5'])).toEqual([
+      'opus',
+      'claude-opus-5',
+      'sonnet',
+      'claude-sonnet-5'
+    ])
+  })
+
+  it('deduplicates without losing an entry', () => {
+    const seeded = orderedModelList(DEFAULT_MODELS.claude)
+    expect(new Set(seeded).size).toBe(seeded.length)
+    expect(seeded).toContain('opus')
+    expect(seeded).toContain('claude-opus-5')
+    // The rolling alias always precedes the pinned releases of its family.
+    expect(seeded.indexOf('opus')).toBeLessThan(seeded.indexOf('claude-opus-5'))
+  })
+})
+
+describe('profile schema model selection', () => {
+  it('accepts legacy profiles that only carry a model', () => {
     const profile = workspaceProfileSchema.parse({
       id: 'legacy',
       name: 'Legacy',
@@ -67,33 +128,45 @@ describe('profile schema presets', () => {
       agents: [{ role: 'worker', provider: 'codex', model: '', count: 1, orchestrated: true, yolo: false }],
       yoloDefault: false
     })
-    expect(profile.orchestrator?.modelPreset).toBeUndefined()
-    expect(profile.agents[0]?.modelPreset).toBeUndefined()
+    expect(profile.orchestrator?.effort).toBeUndefined()
+    expect(profile.agents[0]?.effort).toBeUndefined()
     expect(resolveModel('claude', profile.orchestrator!)).toBe('fable')
     expect(resolveModel('codex', profile.agents[0]!)).toBe('')
   })
 
-  it('accepts optional modelPreset on orchestrator and slots', () => {
+  it('accepts an optional effort on the orchestrator and on slots', () => {
     const orch = orchestratorSchema.parse({
       provider: 'cursor',
-      model: '',
-      modelPreset: 'strong',
+      model: 'composer-2.5',
+      effort: 'max',
       autoOpenSubwindows: true
     })
-    expect(orch.modelPreset).toBe('strong')
-    expect(resolveModel('cursor', orch)).toBe('claude-opus-4-8-high')
+    expect(orch.effort).toBe('max')
 
     const slot = agentSlotSchema.parse({
       role: 'worker',
-      provider: 'ollama',
-      model: '',
-      modelPreset: 'fast',
+      provider: 'claude',
+      model: 'opus',
+      effort: 'ultra',
       count: 1,
       orchestrated: true,
       yolo: false
     })
-    expect(slot.modelPreset).toBe('fast')
-    expect(resolveModel('ollama', slot)).toBe('qwen2.5-coder:14b')
+    expect(slot.effort).toBe('ultra')
+  })
+
+  it('rejects an unknown effort level', () => {
+    expect(
+      agentSlotSchema.safeParse({
+        role: 'worker',
+        provider: 'claude',
+        model: '',
+        effort: 'balanced',
+        count: 1,
+        orchestrated: true,
+        yolo: false
+      }).success
+    ).toBe(false)
   })
 })
 
@@ -127,9 +200,7 @@ describe('modelAfterProviderChange', () => {
   })
 
   it('resolveModel keeps the saved model after a same-provider reselect (persistence)', () => {
-    const sel = { model: 'opus', modelPreset: 'balanced' as const }
-    const model = modelAfterProviderChange('claude', 'claude', sel.model)
-    // preset stays balanced, but the explicit model must still win in resolveModel
-    expect(resolveModel('claude', { model, modelPreset: sel.modelPreset })).toBe('opus')
+    const model = modelAfterProviderChange('claude', 'claude', 'opus')
+    expect(resolveModel('claude', { model })).toBe('opus')
   })
 })

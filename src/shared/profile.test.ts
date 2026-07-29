@@ -30,7 +30,7 @@ function completeProfile(): WorkspaceProfile {
     orchestrator: {
       provider: 'claude',
       model: 'claude-opus',
-      modelPreset: 'strong',
+      effort: 'xhigh',
       autoOpenSubwindows: false
     },
     agents: [
@@ -38,7 +38,7 @@ function completeProfile(): WorkspaceProfile {
         role: 'worker',
         provider: 'codex',
         model: 'gpt-codex',
-        modelPreset: 'balanced',
+        effort: 'medium',
         count: 2,
         orchestrated: true,
         multiAgent: true,

@@ -1084,7 +1084,7 @@ describe('asynchronous orchestration API', () => {
         role: 'worker',
         provider: 'codex' as const,
         model: '',
-        modelPreset: undefined
+        effort: undefined
       }],
       planner: { ...DEFAULT_PROFILE.planner, mode: 'auto' as const },
       autoPr: { ...DEFAULT_PROFILE.autoPr, mode: 'off' as const }
@@ -1179,7 +1179,7 @@ describe('asynchronous orchestration API', () => {
         role: 'worker',
         provider: 'codex' as const,
         model: 'gpt-5.6-sol',
-        modelPreset: undefined
+        effort: undefined
       }],
       planner: { ...DEFAULT_PROFILE.planner, mode: 'auto' as const },
       autoPr: { ...DEFAULT_PROFILE.autoPr, mode: 'off' as const }

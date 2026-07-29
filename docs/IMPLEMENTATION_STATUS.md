@@ -156,9 +156,13 @@ Bereiche stehen im Abschnitt
   vorhandene lokale Account-Optionen, Cursor ausschließlich die Ausgabe von
   cursor-agent models und Ollama den lokalen Dienst. Copilot-Discovery bleibt
   Best Effort.
-- Live-Listen werden nicht mit geratenen Modellen gemischt. Fallback und
-  „nicht verfügbar“ sind sichtbar gekennzeichnet; Presets sind nur aktiv, wenn
-  ihr Ziel im Live-Katalog vorkommt. Freitext bleibt eine bewusste Überschreibung.
+- Zusätzlich fragt Claude die Anthropic-Modell-API ab, sobald ein Credential
+  vorliegt, und bietet zu jeder gefundenen Familie den rollenden Alias an. Jede
+  Discovery merkt sich die gesehenen IDs, damit ein magerer Refresh die Auswahl
+  nicht schrumpfen lässt (60-Tage-Verfall; Ollama ausgenommen). Fallback und
+  „nicht verfügbar“ sind sichtbar gekennzeichnet, die Statuszeile nennt Quelle
+  und Uhrzeit. Freitext bleibt eine bewusste Überschreibung. Details:
+  [Modelle und Aufwandsstufen](./MODELS_AND_EFFORT.md).
 - „Prompt schärfen“ erzeugt in der Ideen-Inbox eine nicht-mutierende Vorschau des
   strukturierten Orchestrator-Briefings. Der bestehende Transfer-Flow bleibt
   unverändert.

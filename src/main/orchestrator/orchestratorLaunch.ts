@@ -13,6 +13,7 @@ import { externalMcpSpecsFor } from '@main/orchestrator/externalMcp'
 import { getPromptOverlay } from '@main/orchestrator/promptOverlay'
 import { skillsPromptBlock } from '@main/orchestrator/profileSkills'
 import type { ProfileSkill } from '@shared/profile'
+import { withEffortDirective, type EffortLevel } from '@shared/effort'
 
 export interface OrchestratorPolicyOptions {
   adaptiveTeam?: boolean
@@ -24,6 +25,8 @@ export interface OrchestratorPolicyOptions {
   overlayText?: string
   /** Per-profile skills injected into the prompt (managed via list/record/remove_skill). */
   skills?: ProfileSkill[]
+  /** Reasoning effort of the launching slot (drives the Ultracode directive). */
+  effort?: EffortLevel
 }
 
 export const orchestratorSystemPrompt = (
@@ -185,7 +188,11 @@ export function buildOrchestratorSetup(
       name,
       handle: scopedHandle,
       configDir: app.getPath('userData'),
-      systemPrompt: orchestratorSystemPrompt(name, { ...policy, overlayText }),
+      systemPrompt: withEffortDirective(
+        provider,
+        policy.effort,
+        orchestratorSystemPrompt(name, { ...policy, overlayText })
+      ),
       externalServers: externalMcpSpecsFor('orchestrator', provider),
       fileTag: agentId
     }),

@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { previewIdeaTransferBriefing } from '@shared/inboxTransfer'
 import { resolveModel } from '@shared/models'
-import type { ModelPreset } from '@shared/models'
+import type { EffortLevel } from '@shared/effort'
 import {
   PROVIDERS,
   type AgentProviderId,
@@ -137,7 +137,7 @@ export interface VerifiedPromptWorkspaceContext {
 export interface ExplicitPromptProviderSelection {
   provider: AgentProviderId
   model?: string
-  modelPreset?: ModelPreset
+  effort?: EffortLevel
 }
 
 export interface PromptProviderCandidate {

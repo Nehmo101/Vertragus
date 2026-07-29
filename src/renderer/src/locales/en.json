@@ -842,15 +842,13 @@
   "modals": {
     "addAgent": {
       "title": "Add agent",
-      "sub": "Choose provider, model and capability level",
+      "sub": "Choose provider, model and effort level",
       "closeAria": "Close dialog",
       "provider": "Provider",
-      "strength": "Strength",
+      "effort": "Effort ({{term}})",
       "cliDefault": "CLI default",
-      "unavailable": "(not available)",
       "model": "Model",
       "effective": "Will start with",
-      "hint": "An explicit model choice takes precedence over the selected strength.",
       "cancel": "Cancel",
       "starting": "Starting…",
       "start": "Start agent"
@@ -1129,10 +1127,13 @@
   },
   "profile": {
     "cliDefault": "CLI default",
-    "preset": {
-      "fast": "Fast",
-      "balanced": "Balanced",
-      "strong": "Strong"
+    "effort": {
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "xhigh": "Extra",
+      "max": "Max",
+      "ultra": "Ultracode"
     },
     "help": {
       "profileName": "Freely chosen name for this combination of workspace, orchestrator and subagents.",
@@ -1143,8 +1144,8 @@
       "mode": "Orchestrated lets Claude or Codex plan and delegate. Single starts only the configured slots. Efficiency Solo starts exactly ONE agent that works directly — minimal fixed token cost, retro learnings in the prompt, only report_activity/record_retro as tools.",
       "orchestratorProvider": "Only providers with a verified Vertragus MCP adapter can orchestrate.",
       "permissionMode": "Auto mode approves edits automatically. Plan mode lets Claude plan only.",
-      "model": "Empty uses the preset or CLI default. Free text overrides the preset. The list menu on the right lets you pick another model at any time — even when one is already set.",
-      "modelPreset": "Capability preset (fast/balanced/strong). Applies only when the model is empty — free text takes precedence.",
+      "model": "Empty uses the provider CLI default. Aliases like opus or sonnet always resolve to the newest release of that family; versioned ids like claude-opus-5 pin deliberately. The list menu on the right lets you pick another model at any time — even when one is already set.",
+      "effort": "Reasoning effort: how much thinking and tool work an agent spends per task — independent of the model. Claude Code receives --effort, Codex model_reasoning_effort; providers without their own switch ignore the field. Ultracode = maximum effort plus clearance for multi-agent orchestration. Unset means the provider default.",
       "plannerMode": "Auto starts valid plans immediately. Review waits for approval. Manual disables execute_plan.",
       "routingMode": "Adaptive starts only the orchestrator first and activates task agents to match the plan. Prewarmed starts all slots immediately.",
       "maxParallel": "Global upper limit of concurrently running plan tasks; role capacities can reduce it further.",
@@ -1202,8 +1203,8 @@
       "tabSlots": "Agent slots",
       "tabAutomation": "Auto PR & Git",
       "tabSkills": "Skills",
-      "badgeOrchPreset": "Orchestrator preset not in the live catalog",
-      "badgeSlotPresets": "{{n}} preset(s) not in the live catalog",
+      "badgeOrchEffort": "Orchestrator effort will be clamped",
+      "badgeSlotEffort": "{{n}} slot(s) with clamped effort",
       "badgeBranch": "Fix the target branch",
       "deleteTitle": "Delete profile?",
       "deleteText": "“{{name}}” and all its settings will be removed permanently.",
@@ -1217,9 +1218,8 @@
       "duplicate": "Duplicate profile",
       "deleteBtn": "Delete profile",
       "deleteDisabledTitle": "Not available while an agent session is running",
-      "presetWarning": "{{n}} preset(s) are not available in the live catalog. Choose CLI default or an explicit model.",
+      "effortClampedWarning": "{{n}} selection(s) exceed what the provider supports — the run uses the highest supported level instead.",
       "branchWarning": "Auto commit & push: fix the target branch.",
-      "saveDisabledPresets": "Fix unavailable model presets first",
       "save": "Save profile"
     },
     "github": {
@@ -1249,10 +1249,10 @@
       "soloHint": "Recommended by benchmarks/retros: {{model}} — {{rationale}}",
       "provider": "Provider",
       "claudeMode": "Claude mode",
-      "preset": "Preset",
-      "presetNone": "No preset · CLI default",
-      "presetHint": "{{preset}} · {{model}}",
-      "presetUnavailable": " (not available)",
+      "effort": "Effort",
+      "effortNone": "None · provider default",
+      "effortHint": "{{effort}} · {{name}}",
+      "effortTermTitle": "What this provider calls its effort setting.",
       "model": "Model",
       "modelCountTitle": "available models of this provider (free text allowed)",
       "effective": "Effective:",
@@ -1318,7 +1318,7 @@
       "captionCount": "{{slots}} slots · {{agents}} agents",
       "role": "Role / label",
       "provider": "Provider",
-      "preset": "Preset",
+      "effort": "Effort",
       "model": "Model",
       "count": "Count",
       "yolo": "Yolo",
@@ -1513,6 +1513,7 @@
     "modelCatalog": {
       "unavailable": "Not available",
       "accountDependent": "account-dependent",
+      "refreshedAt": "refreshed {{time}}",
       "notAccountVerified": "not account-verified",
       "live": "Live",
       "mixed": "Live + suggestions",
@@ -1521,10 +1522,12 @@
       "suggestions": "{{n}} suggestions"
     },
     "modelCombo": {
-      "placeholder": "CLI default / preset",
+      "placeholder": "CLI default / alias",
       "pickAria": "Open the full model list",
       "pickTitle": "Show every model of this provider",
-      "noMatch": "No model matches — free text stays allowed."
+      "noMatch": "No model matches — free text stays allowed.",
+      "rolling": "latest",
+      "rollingTitle": "Rolling alias: always resolves to the newest release of this family at launch."
     },
     "infoTip": {
       "label": "Field help"

@@ -3,8 +3,8 @@ import i18n from './i18n'
 import {
   defaultHandoffModel,
   modelCatalogLabel,
-  modelPresetAvailability,
-  normalizeModelCatalog
+  normalizeModelCatalog,
+  refreshedSuffix
 } from './modelCatalog'
 
 // The label test asserts the German source copy, independent of the host locale.
@@ -122,43 +122,42 @@ describe('normalizeModelCatalog', () => {
   })
 })
 
-describe('modelPresetAvailability', () => {
-  it('disables concrete preset targets missing from a live account catalogue', () => {
+describe('family ordering at the IPC boundary', () => {
+  it('puts a rolling alias directly in front of its pinned releases', () => {
+    // The picker asked "why is there both fable and claude-fable-5?" — they are
+    // one family, so they must arrive as one block, alias first.
     const catalog = normalizeModelCatalog({
       claude: {
-        models: ['fable', 'claude-fable-5'],
+        models: ['claude-fable-5', 'claude-opus-5', 'opus', 'fable'],
         source: 'live',
         accountDependent: true
       }
     })
 
-    expect(modelPresetAvailability('claude', 'balanced', catalog.claude)).toMatchObject({
-      available: false,
-      target: 'sonnet'
-    })
+    expect(catalog.claude.models).toEqual([
+      'fable',
+      'claude-fable-5',
+      'opus',
+      'claude-opus-5'
+    ])
   })
 
-  it('enables canonical Codex presets from live or fallback suggestions', () => {
-    const live = normalizeModelCatalog({
-      codex: {
-        models: ['gpt-5.6-terra', 'gpt-5.6-sol'],
-        source: 'live',
-        accountDependent: true
-      }
-    })
-    const fallback = normalizeModelCatalog({
-      codex: {
-        models: ['gpt-5.6-terra'],
-        source: 'fallback',
-        accountDependent: true
-      }
+  it('carries the discovery timestamp through and renders it', () => {
+    const refreshedAt = Date.parse('2026-07-29T09:05:00Z')
+    const catalog = normalizeModelCatalog({
+      codex: { models: ['gpt-5.6-sol'], source: 'live', accountDependent: true, refreshedAt }
     })
 
-    expect(modelPresetAvailability('codex', 'balanced', live.codex)).toEqual({
-      available: true,
-      target: 'gpt-5.6-terra'
+    expect(catalog.codex.refreshedAt).toBe(refreshedAt)
+    expect(refreshedSuffix(t, catalog.codex)).toContain('aktualisiert')
+    expect(refreshedSuffix(t, { ...catalog.codex, refreshedAt: undefined })).toBe('')
+  })
+
+  it('ignores a non-numeric timestamp from the IPC boundary', () => {
+    const catalog = normalizeModelCatalog({
+      codex: { models: ['gpt-5.6-sol'], source: 'live', accountDependent: true, refreshedAt: 'now' }
     })
-    expect(modelPresetAvailability('codex', 'balanced', fallback.codex).available).toBe(true)
+    expect(catalog.codex.refreshedAt).toBeUndefined()
   })
 })
 
