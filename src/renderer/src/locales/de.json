@@ -369,8 +369,7 @@
       "preflight": "Preflight",
       "autoPr": "Auto-PR",
       "remoteCi": "Remote-CI",
-      "findings": "Offene Gate-Findings",
-      "none": "Noch keine Belege — der Task hat kein verifiziertes Ergebnis."
+      "findings": "Offene Gate-Findings"
     },
     "layout": {
       "canvas": "Zentrale",
@@ -571,10 +570,7 @@
       "maxStatusAge": "max. Statusalter"
     },
     "run": {
-      "usageTitle": "Vom Provider gemeldeter Verbrauch aller Tasks dieses Laufs",
-      "tokens": "Token gesamt",
-      "cost": "Kosten",
-      "steps": "Schritte"
+      "usageTitle": "Vom Provider gemeldeter Verbrauch aller Tasks dieses Laufs"
     },
     "retro": {
       "caption": "Retro",
@@ -1084,7 +1080,6 @@
     "titleCrash": "Vertragus wurde unerwartet beendet",
     "summary": "{{count}} Workspace-Session(s) mit Fortschritt wiederhergestellt.",
     "summaryNone": "Es liegen Reste früherer Läufe vor.",
-    "dismiss": "Ausblenden",
     "continue": "Weiterarbeiten",
     "continueClean": "Ohne Aufräumen weiter",
     "resumable": "Team neu starten",

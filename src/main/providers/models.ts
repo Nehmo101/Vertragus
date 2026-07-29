@@ -152,16 +152,6 @@ export function parseCursorModels(stdout: string): string[] {
   )
 }
 
-/** Conservative parser for CLIs that print one model identifier per line. */
-export function parseSimpleModelList(stdout: string): string[] {
-  return uniqueModels(
-    stdout
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => /^[a-z0-9][a-z0-9._:/-]*$/i.test(line))
-  )
-}
-
 /** Parse model identifiers advertised in the installed Copilot CLI help. */
 export function parseCopilotHelpModels(stdout: string): string[] {
   const plain = stdout.replace(ANSI_SGR_PATTERN, '')

@@ -6,6 +6,63 @@ Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1
 
 ---
 
+## 2026-07-29 — Repo-Aufräumen: toter Code, ungenutzte i18n-Schlüssel, Doku-Ablage
+
+Ein Durchlauf über den kompletten Importgraphen (alle Einstiegspunkte: Main,
+Preload, Renderer, Mobile, Skripte, Tests) auf der Suche nach verwaisten
+Dateien. **Verwaiste Dateien gab es keine** — jede getrackte Quelldatei ist von
+einem Einstiegspunkt aus erreichbar, jedes Dokument ist im Doku-Index verlinkt,
+und es liegen keine Build-Artefakte im Git. Entfernt wurden die kleineren
+Rückstände, die der Graph auf Symbol- und Ablage-Ebene sichtbar gemacht hat.
+
+### Entfernt
+
+- **`githubStatus()` samt `GithubStatus`-Interface** (`src/main/integrations/github.ts`):
+  toter Vorläufer der `gh auth status`-Abfrage. Der Produktivpfad läuft seit der
+  OAuth-Umstellung ausschließlich über `githubAuthStatus()` in
+  `githubAuth.ts`; die alte Funktion hatte keinen einzigen Aufrufer mehr — auch
+  keinen Test.
+- **`parseSimpleModelList()`** (`src/main/providers/models.ts`): Zeilen-Parser
+  für Modellkataloge ohne Aufrufer. Die tatsächlich genutzten Parser
+  (`parseCopilotHelpModels` und die providereigenen) bleiben unangetastet.
+- **`selectPanelCollapsed`** (`src/renderer/src/store/layoutStore.ts`):
+  ungenutzter Selektor. Die Geschwister `selectPanelLayout` und
+  `selectPanelWidth` sind weiter in Gebrauch und bleiben.
+- **Fünf ungenutzte i18n-Schlüssel** in `de.json` **und** `en.json` (1280 → 1275
+  Schlüssel, DE/EN weiterhin paritätisch): `restore.dismiss` (ersetzt durch
+  `restore.continue` / `continueClean`), `orch.run.tokens` / `cost` / `steps`
+  (die Usage-Leiste rendert seit dem Umbau nur noch den vorformatierten
+  `sessionUsageText`) und `canvas.evidence.none` (der Beleg-Block wird nur noch
+  gerendert, wenn Belege existieren). Dynamisch zusammengesetzte Schlüssel —
+  etwa ``t(`ui.telemetry.${status}`)`` oder ``t(`orch.status.${task.status}`)``
+  — wurden geprüft und bleiben vollständig erhalten.
+- **`docs/.gitkeep`**: Platzhalter aus der Zeit, als `docs/` leer war. Das
+  Verzeichnis enthält inzwischen 25 getrackte Dokumente.
+
+### Geändert
+
+- **`audit-report.md` liegt jetzt unter `docs/AUDIT_REPORT_2026-07.md`** — die
+  einzige Doku-Datei, die noch im Repo-Wurzelverzeichnis lag. Sie ist im
+  Doku-Index (`docs/README.md`) unter „Architektur & Sicherheit" verlinkt; die
+  beiden bestehenden Verweise in `REMAINING_WORK_PLAN.md` und
+  `RETRO_IMPROVEMENT_PLAN.md` zeigen als relative Links auf den neuen Pfad.
+
+### Bewusst behalten
+
+- **`canvasSlots.ts`** — nur aus Tests erreichbar, aber im Vollaudit als
+  Befund L7 ausdrücklich als „behalten" entschieden.
+- **`listCustomProviders` / `saveCustomProviders`** — noch ohne Aufrufer, aber
+  als bewusst vorgezogenes Fundament in
+  [`CUSTOM_PROVIDERS.md`](docs/CUSTOM_PROVIDERS.md) dokumentiert.
+- **`z.infer`-Typaliase** wie `BenchmarkConfig` oder `MultiAgentConfig` — Teil
+  eines durchgängigen „ein Alias pro Schema"-Musters in `src/shared/profile.ts`;
+  einzelne herauszubrechen würde das Muster ohne Nutzen zerfasern.
+- **Legacy-`orca`-Bezeichner** (`.orca-worktrees`, `orca-handoffs`,
+  reservierte MCP-Namen) — aktive Rückwärtskompatibilität für Installationen
+  von vor der Umbenennung, kein Altlast-Rückstand.
+
+---
+
 ## 2026-07-28 — Modellauswahl im Profil-Editor und belastbares Worktree-Aufräumen
 
 ### Geändert
