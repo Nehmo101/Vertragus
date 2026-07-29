@@ -46,7 +46,7 @@ export async function spawnProfileTeam(
       await agentManager.spawn({
         provider: slot.provider,
         model: slot.model,
-        modelPreset: slot.modelPreset,
+        effort: slot.effort,
         role: 'Solo · arbeitet direkt',
         teamRole: role,
         solo: true,
@@ -72,7 +72,7 @@ export async function spawnProfileTeam(
       await agentManager.spawn({
         provider: runtimeProfile.orchestrator.provider,
         model: runtimeProfile.orchestrator.model,
-        modelPreset: runtimeProfile.orchestrator.modelPreset,
+        effort: runtimeProfile.orchestrator.effort,
         permissionMode: runtimeProfile.orchestrator.permissionMode,
         kind: 'orchestrator',
         role: 'Orchestrator · plant & verteilt',
@@ -94,7 +94,7 @@ export async function spawnProfileTeam(
           await agentManager.spawn({
             provider: slot.provider,
             model: slot.model,
-            modelPreset: slot.modelPreset,
+            effort: slot.effort,
             role: `Subagent · ${slot.role}${slot.count > 1 ? ` #${i}` : ''}`,
             teamRole: role,
             yolo: slot.yolo || yoloMaster,

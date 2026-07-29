@@ -4,7 +4,7 @@ import type {
   ProviderModelCatalog as SharedModelCatalog,
   ProviderModelCatalogEntry
 } from '@shared/providers'
-import { PRESET_MODELS, type ModelPreset } from '@shared/models'
+import { orderedModelList } from '@shared/models'
 
 export type ModelCatalogSource = SharedModelCatalogSource
 export type ProviderModelCatalog = ProviderModelCatalogEntry
@@ -40,7 +40,7 @@ function detailText(value: unknown): string | undefined {
 
 function fallbackCatalog(provider: AgentProviderId, models: string[] = []): ProviderModelCatalog {
   return {
-    models,
+    models: orderedModelList(models),
     source: 'fallback',
     accountDependent: provider !== 'ollama',
     detail: 'Kuratierte Vorschläge; Konto-Verfügbarkeit nicht verifiziert.'
@@ -63,7 +63,11 @@ export function normalizeModelCatalog(value: unknown): ModelCatalog {
         entry.source === 'unavailable'
           ? entry.source
           : 'fallback'
-      const models = source === 'unavailable' ? [] : modelNames(entry.models)
+      const models = source === 'unavailable' ? [] : orderedModelList(modelNames(entry.models))
+      const refreshedAt =
+        typeof entry.refreshedAt === 'number' && Number.isFinite(entry.refreshedAt)
+          ? entry.refreshedAt
+          : undefined
       if ((source === 'live' || source === 'mixed') && models.length === 0) {
         return [
           provider,
@@ -71,7 +75,8 @@ export function normalizeModelCatalog(value: unknown): ModelCatalog {
             models: [],
             source: 'unavailable',
             accountDependent: provider !== 'ollama',
-            detail: detailText(entry.detail) ?? 'Live-Discovery hat keine Modelle gemeldet.'
+            detail: detailText(entry.detail) ?? 'Live-Discovery hat keine Modelle gemeldet.',
+            refreshedAt
           }
         ]
       }
@@ -81,35 +86,12 @@ export function normalizeModelCatalog(value: unknown): ModelCatalog {
           models,
           source,
           accountDependent: entry.accountDependent === true || provider !== 'ollama',
-          detail: detailText(entry.detail)
+          detail: detailText(entry.detail),
+          refreshedAt
         }
       ]
     })
   ) as ModelCatalog
-}
-
-/**
- * Presets are picker conveniences, not an entitlement whitelist. A target is
- * selectable whenever discovery or the provider fallback suggests it.
- */
-export function modelPresetAvailability(
-  provider: AgentProviderId,
-  preset: ModelPreset,
-  catalog: ProviderModelCatalog
-): { available: boolean; target: string; reason?: string } {
-  const target = PRESET_MODELS[provider][preset] ?? ''
-  if (!target) return { available: true, target }
-  if (catalog.models.includes(target)) {
-    return { available: true, target }
-  }
-  return {
-    available: false,
-    target,
-    reason:
-      catalog.source === 'live' || catalog.source === 'mixed'
-        ? `${target} ist für dieses Konto nicht verfügbar.`
-        : `${target} ist in den Vorschlägen dieses Providers nicht enthalten.`
-  }
 }
 
 /** Cloud CLIs keep their own default; Ollama requires an explicit local model. */
@@ -121,7 +103,7 @@ export function defaultHandoffModel(
 }
 
 /** Minimal translate signature so callers can pass i18next's `t` directly. */
-export type CatalogTranslate = (key: string, options?: { n?: number }) => string
+export type CatalogTranslate = (key: string, options?: Record<string, unknown>) => string
 
 export function modelCatalogLabel(
   t: CatalogTranslate,
@@ -149,5 +131,19 @@ export function modelCatalogLabel(
       : catalog.accountDependent
         ? ` · ${t('ui.modelCatalog.accountDependent')}`
         : ''
-  return `${origin} · ${counted}${account}`
+  return `${origin} · ${counted}${account}${refreshedSuffix(t, catalog)}`
+}
+
+/**
+ * "aktualisiert 14:32" — proof that the list is discovered, not hardcoded. The
+ * catalogue re-discovers itself periodically, so the timestamp is what tells a
+ * user whether a just-released model should already be in there.
+ */
+export function refreshedSuffix(t: CatalogTranslate, catalog: ProviderModelCatalog): string {
+  if (!catalog.refreshedAt) return ''
+  const time = new Date(catalog.refreshedAt).toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+  return ` · ${t('ui.modelCatalog.refreshedAt', { time })}`
 }

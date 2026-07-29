@@ -145,7 +145,7 @@ export const createAgentsSlice: StateCreator<AppState, [], [], AgentsSlice> = (s
       const agent = await window.vertragus.agents.spawn({
         provider: selection.provider,
         model: selection.model,
-        modelPreset: selection.modelPreset,
+        effort: selection.effort,
         role: `Subagent · ${role}`,
         yolo: s.yoloMaster,
         workingDir: effectiveRepoPath(s) || undefined,

@@ -198,7 +198,7 @@ export async function generateProfileForRepo(
     orchestrator: {
       provider: orchestratorProvider,
       model: orchestratorProvider === request.provider ? request.model : '',
-      modelPreset: orchestratorProvider === request.provider ? request.modelPreset : 'balanced',
+      effort: orchestratorProvider === request.provider ? request.effort : undefined,
       autoOpenSubwindows: true
     },
     agents,

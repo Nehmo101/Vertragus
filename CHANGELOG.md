@@ -6,6 +6,71 @@ Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1
 
 ---
 
+## 2026-07-29 — Aufwandsstufen statt Modell-Presets, selbstaktualisierende Modell-Liste
+
+Das „Preset“-Feld im Profil-Editor war keine Leistungsstufe, sondern nur eine
+Abkürzung für einen Modellnamen (schnell/ausgewogen/stark → haiku/sonnet/opus).
+Es doppelte damit das Modellfeld daneben und veraltete mit jedem Release. An
+seiner Stelle steht jetzt die Einstellung, die die CLIs tatsächlich anbieten:
+**Aufwand**.
+
+### Geändert
+
+- **Aufwandsstufen (`Niedrig · Mittel · Hoch · Extra · Max · Ultracode`)**
+  ersetzen die Modell-Presets — eine kanonische Leiter in `src/shared/effort.ts`,
+  die jeder Provider mit seinen eigenen Namen belegt. Claude Code bekommt
+  `--effort <level>` (gegen `claude --help` verifiziert), Codex
+  `-c model_reasoning_effort="…"`. Provider ohne eigenen Schalter (Kimi, Cursor,
+  Copilot, Ollama) bekommen bewusst **kein** Flag — ein unbekanntes CLI-Flag
+  würde den Agentenstart abbrechen —, ihr Dropdown ist deaktiviert und nennt
+  stattdessen, wo der Aufwand dort steckt (Modellvariante bzw. Modell-Suffix).
+- **Stufen werden heruntergeklemmt, nicht abgelehnt:** Codex kennt kein
+  `xhigh`/`max`, ein geteiltes Profil läuft dort auf `high`. Der Editor weist
+  darauf hin, ändert das Profil nicht und blockiert das Speichern nicht mehr
+  (vorher konnte ein „nicht verfügbares Preset“ das Speichern sperren).
+- **Ultracode** ist die neue Spitze: `--effort max` **plus** eine
+  Systemprompt-Direktive, die Multi-Agent-Orchestrierung für die Sitzung
+  freigibt. Sie erreicht Orchestrator-, Solo- und Headless-Worker-Prompts.
+- **Modell-Auswahl gruppiert nach Familie:** der rollende Alias zuerst (mit
+  Marker *neueste*), darunter eingerückt die gepinnten Versionen derselben
+  Familie. Damit ist beantwortet, warum `fable` **und** `claude-fable-5` in der
+  Liste stehen: dieselbe Familie, einmal rollend, einmal festgenagelt. Duplikate
+  aus zusammengeführten Quellen fallen zusammen.
+- **Standardprofile setzen den rollenden Alias** (`sonnet`) statt eines Presets,
+  folgen also jedem Sonnet-Release von selbst.
+
+### Hinzugefügt
+
+- **Live-Modell-API für Claude:** Liegt ein Credential vor (`ANTHROPIC_API_KEY`,
+  sonst `ANTHROPIC_AUTH_TOKEN` als Bearer; `ANTHROPIC_BASE_URL` respektiert),
+  fragt die Discovery `GET /v1/models` ab — die einzige Quelle, die Modelle
+  kennt, die es zum Build-Zeitpunkt noch nicht gab. Ohne Credential wird nicht
+  angefragt.
+- **Abgeleitete Aliase:** Zu jeder live gefundenen Claude-Familie wird der bloße
+  Alias angeboten (`claude-titan-5` → `titan`), weil Claude Code einen Alias
+  immer auf die neueste Version dieser Familie auflöst.
+- **Gemerkter Katalog** (`modelCatalogMemory`): Jede Discovery hält die gesehenen
+  IDs mit Zeitstempel fest. Ein Refresh, der weniger findet (Cache leer, CLI weg,
+  offline), lässt die Auswahl nicht mehr schrumpfen; ohne Wiedersehen verfällt
+  ein Eintrag nach 60 Tagen. Ollama ist ausgenommen — ein lokal gelöschtes Modell
+  kann nicht laufen.
+- **Auto-Refresh alle 6 Stunden** in einem offenen Fenster, damit eine tagelang
+  offene Sitzung nicht auf dem Katalog vom Start sitzenbleibt. Die Statuszeile
+  nennt jetzt zusätzlich die Uhrzeit der letzten Discovery.
+- **`docs/MODELS_AND_EFFORT.md`** — Modellwahl, Aufwandsstufen je Provider und
+  die drei Discovery-Schichten.
+
+### Migration
+
+- **Config-Schema v4:** `modelPreset` wandert vor der Schema-Validierung in das
+  Modellfeld, und zwar mit exakt der ID, die das Preset damals auflöste; die
+  grobe Absicht der Stufe wird als Aufwand übernommen (fast → `low`,
+  balanced → `medium`, strong → `high`). Ein explizit gewähltes Modell bleibt
+  unangetastet — es hatte auch vorher Vorrang. Der Store legt wie üblich eine
+  `vertragus.pre-v4.*.json`-Sicherung an.
+
+---
+
 ## 2026-07-29 — Repo-Aufräumen: toter Code, ungenutzte i18n-Schlüssel, Doku-Ablage
 
 Ein Durchlauf über den kompletten Importgraphen (alle Einstiegspunkte: Main,

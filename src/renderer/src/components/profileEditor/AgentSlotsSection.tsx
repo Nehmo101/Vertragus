@@ -2,7 +2,7 @@ import { memo } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { AgentSlot } from '@shared/profile'
 import type { AgentProviderId, DisabledModels, ProviderEnabled } from '@shared/providers'
-import { MODEL_PRESETS, modelAfterProviderChange, resolveModel } from '@shared/models'
+import { modelAfterProviderChange, resolveModel } from '@shared/models'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import InfoTip from '@renderer/components/InfoTip'
 import ModelCatalogStatus from '@renderer/components/ModelCatalogStatus'
@@ -12,10 +12,12 @@ import { HELP } from './help'
 import {
   availableModels,
   effectiveModelLabel,
-  parsePreset,
-  presetAvailable,
-  presetOptionLabel,
-  presetValue
+  effortNote,
+  effortOptionLabel,
+  effortOptions,
+  effortValue,
+  parseEffort,
+  providerSupportsEffort
 } from './modelSelection'
 import { MultiAgentOverrideSelect, type MultiAgentOverrideChoice } from './MultiAgentOverrideSelect'
 
@@ -78,7 +80,7 @@ const AgentSlotRow = memo(function AgentSlotRow({
           onChange={(e) => {
             const provider = e.target.value as AgentProviderId
             // Clear the explicit override only on a real provider
-            // switch, so the preset resolves against the new provider.
+            // switch, so no incompatible model id carries over.
             // A same-provider reselect keeps the saved model.
             onPatchSlot(idx, {
               provider,
@@ -97,23 +99,21 @@ const AgentSlotRow = memo(function AgentSlotRow({
       </div>
       <div style={{ flex: 0.85 }}>
         <div className="slot-col-label">
-          {t('profile.slots.preset')} <InfoTip text={t(HELP.modelPreset)} />
+          {t('profile.slots.effort')} <InfoTip text={t(HELP.effort)} />
         </div>
         <select
           className="slot-select-sm"
-          value={presetValue(slot.modelPreset)}
-          onChange={(e) => onPatchSlot(idx, { modelPreset: parsePreset(e.target.value) })}
+          value={effortValue(slot.effort)}
+          disabled={!providerSupportsEffort(slot.provider)}
+          title={providerSupportsEffort(slot.provider) ? undefined : effortNote(slot.provider)}
+          onChange={(e) => onPatchSlot(idx, { effort: parseEffort(e.target.value) })}
         >
-          <option value="">{t('profile.mode.presetNone')}</option>
-          {MODEL_PRESETS.map((preset) => {
-            const available = presetAvailable(models, slot.provider, preset)
-            return (
-              <option key={preset} value={preset} disabled={!available}>
-                {presetOptionLabel(t, slot.provider, preset)}
-                {!available ? t('profile.mode.presetUnavailable') : ''}
-              </option>
-            )
-          })}
+          <option value="">{t('profile.mode.effortNone')}</option>
+          {effortOptions(slot.provider).map((level) => (
+            <option key={level} value={level}>
+              {effortOptionLabel(t, slot.provider, level)}
+            </option>
+          ))}
         </select>
       </div>
       <div style={{ flex: 'none' }}>
@@ -178,7 +178,7 @@ const AgentSlotRow = memo(function AgentSlotRow({
           <ModelCatalogStatus provider={slot.provider} catalog={models[slot.provider]} />
           <div className="model-effective" aria-live="polite">
             {t('profile.mode.effective')}{' '}
-            {effectiveModelLabel(t, resolveModel(slot.provider, slot), slot)}
+            {effectiveModelLabel(t, resolveModel(slot.provider, slot))}
           </div>
         </div>
       </div>

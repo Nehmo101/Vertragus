@@ -93,17 +93,29 @@ describe('modeTabSummary', () => {
     expect(modeTabSummary(p, t)).toBe('Orchestriert · claude/opus')
   })
 
-  it('falls back to the preset, then to the CLI default', () => {
-    const withPreset = profile({
+  it('appends the effective effort and falls back to the CLI default', () => {
+    const withEffort = profile({
       orchestrator: {
         provider: 'claude',
-        model: '',
-        modelPreset: 'balanced',
+        model: 'sonnet',
+        effort: 'xhigh',
         permissionMode: 'default',
         autoOpenSubwindows: true
       }
     })
-    expect(modeTabSummary(withPreset, t)).toBe('Orchestriert · claude/balanced')
+    expect(modeTabSummary(withEffort, t)).toBe('Orchestriert · claude/sonnet · Extra')
+
+    // A rung the provider cannot serve is shown as the clamped one.
+    const clamped = profile({
+      orchestrator: {
+        provider: 'codex',
+        model: 'gpt-5.6-sol',
+        effort: 'max',
+        permissionMode: 'default',
+        autoOpenSubwindows: true
+      }
+    })
+    expect(modeTabSummary(clamped, t)).toBe('Orchestriert · codex/gpt-5.6-sol · Hoch')
 
     const cliDefault = profile({
       orchestrator: {

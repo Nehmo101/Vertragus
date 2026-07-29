@@ -105,6 +105,8 @@ export interface ProviderModelCatalogEntry {
   accountDependent: boolean
   /** Short, user-facing explanation of the discovery result. */
   detail?: string
+  /** When this entry was last discovered (epoch ms); drives the freshness hint. */
+  refreshedAt?: number
 }
 
 export type ProviderModelCatalog = Record<AgentProviderId, ProviderModelCatalogEntry>
@@ -236,12 +238,18 @@ export function getProvider(id: ProviderId): ProviderDef | undefined {
 }
 
 /**
- * Curated fallbacks used only when live discovery is unavailable.
+ * Cold-start seed used only until live discovery answers.
  *
- * These values are picker suggestions, not a whitelist. Provider discovery may
- * replace them with an account/local catalogue (Codex, Cursor, Ollama) or merge
- * additional options into them (Claude). This keeps stable CLI aliases visible
- * even when a provider cache only contains experimental/additional models.
+ * These values are picker suggestions, not a whitelist, and they are NOT the
+ * mechanism that keeps the picker current — live discovery plus the remembered
+ * catalogue in main/providers/models.ts is (see its header). The seed only has
+ * to be good enough for a first launch, so it does not need an edit for every
+ * provider release.
+ *
+ * Rolling aliases come first per provider: `opus`/`sonnet`/`haiku`/`fable` and
+ * `auto` always resolve to the newest model of that family, so a profile pinned
+ * to an alias upgrades itself. The versioned ids below them exist for
+ * deliberately pinning one release.
  *
  * The model input stays free-text for intentional overrides. Leaving it empty
  * uses the provider CLI's own configured default.

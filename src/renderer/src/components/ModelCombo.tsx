@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
+import { groupModelsByFamily, orderedModelList } from '@shared/models'
 
 /**
  * Options the popup shows. `query === null` means "the user did not type since
@@ -54,7 +55,11 @@ export default function ModelCombo({
   const rootRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const inputId = `${id}-input`
-  const options = comboOptions(models, query)
+  // Grouped by family, alias first: `opus` and `claude-opus-5` are the same
+  // model line — one rolling, one pinned — so the popup shows them as one block
+  // instead of two unrelated rows. Keyboard order follows the rendered order.
+  const options = useMemo(() => orderedModelList(comboOptions(models, query)), [models, query])
+  const groups = useMemo(() => groupModelsByFamily(options), [options])
 
   useEffect(() => {
     // The editor body scrolls, so a popup opened near its lower edge would be
@@ -162,24 +167,39 @@ export default function ModelCombo({
           {options.length === 0 ? (
             <div className="model-combo-empty">{t('ui.modelCombo.noMatch')}</div>
           ) : (
-            options.map((model, index) => (
-              <div
-                key={model}
-                id={`${id}-option-${index}`}
-                role="option"
-                aria-selected={model === value}
-                className={`model-combo-option${index === highlight ? ' highlight' : ''}${
-                  model === value ? ' selected' : ''
-                }`}
-                onMouseEnter={() => setHighlight(index)}
-                onMouseDown={(event) => {
-                  // Commit before the input loses focus, so the outside-click
-                  // listener cannot close the popup first.
-                  event.preventDefault()
-                  commit(model)
-                }}
-              >
-                {model}
+            groups.map((group) => (
+              <div className="model-combo-group" key={group.family}>
+                {[
+                  ...(group.alias ? [{ model: group.alias, rolling: true }] : []),
+                  ...group.pinned.map((model) => ({ model, rolling: false }))
+                ].map(({ model, rolling }) => {
+                  const index = options.indexOf(model)
+                  return (
+                    <div
+                      key={model}
+                      id={`${id}-option-${index}`}
+                      role="option"
+                      aria-selected={model === value}
+                      className={`model-combo-option${index === highlight ? ' highlight' : ''}${
+                        model === value ? ' selected' : ''
+                      }${rolling ? ' rolling' : ' pinned'}`}
+                      onMouseEnter={() => setHighlight(index)}
+                      onMouseDown={(event) => {
+                        // Commit before the input loses focus, so the outside-click
+                        // listener cannot close the popup first.
+                        event.preventDefault()
+                        commit(model)
+                      }}
+                    >
+                      <span>{model}</span>
+                      {rolling && (
+                        <span className="model-combo-tag" title={t('ui.modelCombo.rollingTitle')}>
+                          {t('ui.modelCombo.rolling')}
+                        </span>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             ))
           )}

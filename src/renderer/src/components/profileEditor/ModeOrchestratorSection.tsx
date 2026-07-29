@@ -2,7 +2,7 @@ import { memo, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { OrchestratorConfig } from '@shared/profile'
 import type { AgentProviderId, DisabledModels, ProviderEnabled } from '@shared/providers'
-import { MODEL_PRESETS, modelAfterProviderChange, resolveModel } from '@shared/models'
+import { modelAfterProviderChange, resolveModel } from '@shared/models'
 import { recommendSoloModel } from '@shared/retro/soloModel'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import InfoTip from '@renderer/components/InfoTip'
@@ -14,10 +14,13 @@ import { HELP } from './help'
 import {
   availableModels,
   effectiveModelLabel,
-  parsePreset,
-  presetAvailable,
-  presetOptionLabel,
-  presetValue
+  effortNote,
+  effortOptionLabel,
+  effortOptions,
+  effortTerm,
+  effortValue,
+  parseEffort,
+  providerSupportsEffort
 } from './modelSelection'
 import type { ProfileEditorMode } from './draftReducer'
 
@@ -171,24 +174,27 @@ const ModeOrchestratorSection = memo(function ModeOrchestratorSection({
           )}
           <div className="orch-field">
             <div className="select-label">
-              {t('profile.mode.preset')} <InfoTip text={t(HELP.modelPreset)} />
+              {t('profile.mode.effort')} <InfoTip text={t(HELP.effort)} />
+              <span className="model-count" title={t('profile.mode.effortTermTitle')}>
+                {effortTerm(orchestrator.provider)}
+              </span>
             </div>
             <select
               className="select"
-              value={presetValue(orchestrator.modelPreset)}
-              onChange={(e) => onPatchOrchestrator({ modelPreset: parsePreset(e.target.value) })}
+              value={effortValue(orchestrator.effort)}
+              disabled={!providerSupportsEffort(orchestrator.provider)}
+              onChange={(e) => onPatchOrchestrator({ effort: parseEffort(e.target.value) })}
             >
-              <option value="">{t('profile.mode.presetNone')}</option>
-              {MODEL_PRESETS.map((preset) => {
-                const available = presetAvailable(models, orchestrator.provider, preset)
-                return (
-                  <option key={preset} value={preset} disabled={!available}>
-                    {presetOptionLabel(t, orchestrator.provider, preset)}
-                    {!available ? t('profile.mode.presetUnavailable') : ''}
-                  </option>
-                )
-              })}
+              <option value="">{t('profile.mode.effortNone')}</option>
+              {effortOptions(orchestrator.provider).map((level) => (
+                <option key={level} value={level}>
+                  {effortOptionLabel(t, orchestrator.provider, level)}
+                </option>
+              ))}
             </select>
+            {!providerSupportsEffort(orchestrator.provider) && (
+              <div className="model-effective">{effortNote(orchestrator.provider)}</div>
+            )}
           </div>
           <div className="orch-model-field">
             <div className="select-label">
@@ -210,11 +216,7 @@ const ModeOrchestratorSection = memo(function ModeOrchestratorSection({
             />
             <div className="model-effective" aria-live="polite">
               {t('profile.mode.effective')}{' '}
-              {effectiveModelLabel(
-                t,
-                resolveModel(orchestrator.provider, orchestrator),
-                orchestrator
-              )}
+              {effectiveModelLabel(t, resolveModel(orchestrator.provider, orchestrator))}
             </div>
           </div>
           <div className="orch-note">{t('profile.mode.controlsSubagents')}</div>

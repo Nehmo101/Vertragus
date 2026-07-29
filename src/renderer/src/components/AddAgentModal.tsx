@@ -4,32 +4,22 @@ import ModelCatalogStatus from '@renderer/components/ModelCatalogStatus'
 import ModelCombo from '@renderer/components/ModelCombo'
 import Modal from '@renderer/components/ui/Modal'
 import Spinner from '@renderer/components/ui/Spinner'
-import {
-  modelPresetAvailability,
-  type ProviderModelCatalog
-} from '@renderer/modelCatalog'
 import { useAppStore } from '@renderer/store/useAppStore'
 import { PROVIDER_THEME } from '@renderer/ui/theme'
 import {
   effectiveModelLabel,
-  presetOptionLabel
+  effortNote,
+  effortOptionLabel,
+  effortOptions,
+  effortTerm,
+  parseEffort,
+  providerSupportsEffort
 } from '@renderer/components/profileEditor/modelSelection'
-import { MODEL_PRESETS, resolveModel, type ModelPreset } from '@shared/models'
+import { resolveModel } from '@shared/models'
+import type { EffortLevel } from '@shared/effort'
 import type { AgentProviderId } from '@shared/providers'
 
 const AGENT_PROVIDERS: AgentProviderId[] = ['claude', 'kimi', 'codex', 'cursor', 'copilot', 'ollama']
-
-function availablePreset(
-  provider: AgentProviderId,
-  preset: ModelPreset,
-  catalog: ProviderModelCatalog
-): boolean {
-  return modelPresetAvailability(provider, preset, catalog).available
-}
-
-function initialPreset(provider: AgentProviderId, catalog: ProviderModelCatalog): ModelPreset | undefined {
-  return availablePreset(provider, 'balanced', catalog) ? 'balanced' : undefined
-}
 
 export default function AddAgentModal(): JSX.Element | null {
   const { t } = useTranslation()
@@ -39,16 +29,11 @@ export default function AddAgentModal(): JSX.Element | null {
   const addAgent = useAppStore((state) => state.addAgent)
   const [provider, setProvider] = useState<AgentProviderId>('codex')
   const [model, setModel] = useState('')
-  const [modelPreset, setModelPreset] = useState<ModelPreset | undefined>(() =>
-    initialPreset('codex', models.codex)
-  )
+  const [effort, setEffort] = useState<EffortLevel | undefined>(undefined)
   const [submitting, setSubmitting] = useState(false)
 
   const catalog = models[provider]
-  const effectiveModel = useMemo(
-    () => resolveModel(provider, { model, modelPreset }),
-    [model, modelPreset, provider]
-  )
+  const effectiveModel = useMemo(() => resolveModel(provider, { model }), [model, provider])
 
   if (!open) return null
 
@@ -56,7 +41,7 @@ export default function AddAgentModal(): JSX.Element | null {
     if (submitting) return
     setSubmitting(true)
     try {
-      await addAgent({ provider, model: model.trim(), modelPreset })
+      await addAgent({ provider, model: model.trim(), effort })
     } finally {
       setSubmitting(false)
     }
@@ -101,7 +86,10 @@ export default function AddAgentModal(): JSX.Element | null {
                 const next = event.target.value as AgentProviderId
                 setProvider(next)
                 setModel('')
-                setModelPreset(initialPreset(next, models[next]))
+                // Effort rungs are provider-specific; keep only a supported one.
+                setEffort((current) =>
+                  current && effortOptions(next).includes(current) ? current : undefined
+                )
               }}
             >
               {AGENT_PROVIDERS.map((item) => (
@@ -113,25 +101,25 @@ export default function AddAgentModal(): JSX.Element | null {
           </label>
 
           <label>
-            <span className="field-label">{t('modals.addAgent.strength')}</span>
+            <span className="field-label">
+              {t('modals.addAgent.effort', { term: effortTerm(provider) })}
+            </span>
             <select
               className="slot-select-sm"
-              value={modelPreset ?? ''}
-              onChange={(event) =>
-                setModelPreset((event.target.value || undefined) as ModelPreset | undefined)
-              }
+              value={effort ?? ''}
+              disabled={!providerSupportsEffort(provider)}
+              onChange={(event) => setEffort(parseEffort(event.target.value))}
             >
               <option value="">{t('modals.addAgent.cliDefault')}</option>
-              {MODEL_PRESETS.map((preset) => {
-                const available = availablePreset(provider, preset, catalog)
-                return (
-                  <option key={preset} value={preset} disabled={!available}>
-                    {presetOptionLabel(t, provider, preset)}
-                    {!available ? ` ${t('modals.addAgent.unavailable')}` : ''}
-                  </option>
-                )
-              })}
+              {effortOptions(provider).map((level) => (
+                <option key={level} value={level}>
+                  {effortOptionLabel(t, provider, level)}
+                </option>
+              ))}
             </select>
+            {!providerSupportsEffort(provider) && (
+              <span className="add-agent-hint">{effortNote(provider)}</span>
+            )}
           </label>
 
           <label>
@@ -150,13 +138,8 @@ export default function AddAgentModal(): JSX.Element | null {
             <span>{t('modals.addAgent.effective')}</span>
             <b>{PROVIDER_THEME[provider].label}</b>
             <span>·</span>
-            <b>{effectiveModelLabel(t, effectiveModel, { model, modelPreset })}</b>
+            <b>{effectiveModelLabel(t, effectiveModel)}</b>
           </div>
-          {model.trim() && modelPreset && (
-            <div className="add-agent-hint">
-              {t('modals.addAgent.hint')}
-            </div>
-          )}
         </div>
 
         <div className="modal-foot">

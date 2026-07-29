@@ -34,7 +34,8 @@ import {
   type AgentProviderId,
   type ProviderId
 } from '@shared/providers'
-import { resolveModel, type ModelPreset } from '@shared/models'
+import { resolveModel } from '@shared/models'
+import { effortArgs, withEffortDirective, type EffortLevel } from '@shared/effort'
 import { resolveSlotModel } from '@main/agents/providerModelDefaults'
 import { buildInteractiveLaunch } from '@main/providers/types'
 import { resolveLaunch } from '@main/agents/resolveCommand'
@@ -128,7 +129,8 @@ interface Managed {
 export interface RunTaskRequest {
   provider: AgentProviderId
   model: string
-  modelPreset?: ModelPreset
+  /** Reasoning effort; clamped to what the provider supports. */
+  effort?: EffortLevel
   role: string
   taskId: string
   prompt: string
@@ -692,7 +694,8 @@ export class AgentManager extends EventEmitter {
             maxRetries: orchestratorProfile?.planner.maxRetries,
             engineId: req.engineId,
             benchmarkMode: orchestratorProfile?.benchmark?.enabled ?? false,
-            skills: orchestratorProfile?.skills
+            skills: orchestratorProfile?.skills,
+            effort: req.effort
           })
         : undefined
       if (orchestratorSetup && !orchestratorSetup.capability.supported) {
@@ -703,7 +706,8 @@ export class AgentManager extends EventEmitter {
       const soloSetup = !orchestratorSetup && req.solo
         ? buildSoloSetup(req.provider, name, id, req.workspaceSessionId, {
             engineId: req.engineId,
-            skills: (req.profileId ? getProfile(req.profileId) : undefined)?.skills
+            skills: (req.profileId ? getProfile(req.profileId) : undefined)?.skills,
+            effort: req.effort
           })
         : undefined
       const resumeArgs = req.resumeConversation ? providerResumeArgs(req.provider) : undefined
@@ -713,7 +717,10 @@ export class AgentManager extends EventEmitter {
           : soloSetup?.capability.supported
             ? soloSetup.extraArgs
             : buildSubagentMcpArgs(req.provider, id)),
-        ...(resumeArgs ?? [])
+        ...(resumeArgs ?? []),
+        // Reasoning effort is a per-launch CLI flag (claude --effort,
+        // codex -c model_reasoning_effort); providers without one get nothing.
+        ...effortArgs(req.provider, req.effort)
       ]
 
       const launch = buildInteractiveLaunch(req.provider, {
@@ -1257,9 +1264,11 @@ export class AgentManager extends EventEmitter {
     }
     const identityInstruction = agentIdentityInstruction(name)
     const taskPrompt = `${identityInstruction}\n\n${req.prompt}`
-    const systemPrompt = req.systemPrompt
-      ? `${identityInstruction} ${req.systemPrompt}`
-      : identityInstruction
+    const systemPrompt = withEffortDirective(
+      req.provider,
+      req.effort,
+      req.systemPrompt ? `${identityInstruction} ${req.systemPrompt}` : identityInstruction
+    )
 
     const baseCommit = info.worktree
       ? await new Promise<string | undefined>((resolve) => {
@@ -1303,7 +1312,7 @@ export class AgentManager extends EventEmitter {
             engineId: req.engineId,
             workspaceSessionId: req.workspaceSessionId,
             permissionPrompt: (req.provider === 'claude' || req.provider === 'kimi') && !req.yolo
-          })
+          }).concat(effortArgs(req.provider, req.effort))
         },
         (chunk) => this.pushData(active, chunk),
         taskLifecycle

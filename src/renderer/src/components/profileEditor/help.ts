@@ -1,6 +1,6 @@
 /**
  * i18n keys of the shared profile-editor help texts (`profile.help.*`).
- * Kept in one map because several fields (model, preset, multi-agent) appear
+ * Kept in one map because several fields (model, effort, multi-agent) appear
  * in more than one section and must stay word-for-word identical. Render with
  * `t(HELP.<field>)`.
  */
@@ -14,7 +14,7 @@ export const HELP = {
   orchestratorProvider: 'profile.help.orchestratorProvider',
   permissionMode: 'profile.help.permissionMode',
   model: 'profile.help.model',
-  modelPreset: 'profile.help.modelPreset',
+  effort: 'profile.help.effort',
   plannerMode: 'profile.help.plannerMode',
   routingMode: 'profile.help.routingMode',
   maxParallel: 'profile.help.maxParallel',

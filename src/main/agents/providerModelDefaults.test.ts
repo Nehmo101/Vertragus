@@ -49,9 +49,9 @@ describe('providerModelDefaults', () => {
     expect(resolveSlotModel('codex', {})).toBe(CODEX_CONFIG_DEFAULT_LABEL)
   })
 
-  it('keeps explicit models and presets untouched', () => {
+  it('keeps an explicit model untouched and labels a CLI default per provider', () => {
     expect(resolveSlotModel('codex', { model: 'gpt-5.4-mini' })).toBe('gpt-5.4-mini')
-    expect(resolveSlotModel('codex', { modelPreset: 'strong' })).toBe('gpt-5.6-sol')
+    expect(resolveSlotModel('claude', { model: 'opus' })).toBe('opus')
     expect(resolveSlotModel('claude', {})).toBe('default (claude-cli)')
   })
 })

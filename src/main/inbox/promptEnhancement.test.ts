@@ -250,14 +250,13 @@ describe('model response preparation', () => {
 })
 
 describe('prompt provider selection', () => {
-  it('prefers the linked profile orchestrator and resolves its preset model', () => {
+  it('prefers the linked profile orchestrator and resolves its model', () => {
     const profile: WorkspaceProfile = {
       ...DEFAULT_PROFILE,
       id: 'shop',
       orchestrator: {
         provider: 'codex',
-        model: '',
-        modelPreset: 'fast',
+        model: 'gpt-5.4-mini',
         autoOpenSubwindows: true
       }
     }

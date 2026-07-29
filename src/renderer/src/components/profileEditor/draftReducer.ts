@@ -58,10 +58,9 @@ export function profileDraftReducer(
           solo: false,
           orchestrator: {
             provider: 'claude',
-            // The preset defines the default; a model remains an
-            // intentional, provider-specific override.
-            model: '',
-            modelPreset: 'balanced',
+            // The rolling `sonnet` alias always resolves to the newest Sonnet,
+            // so a fresh orchestrator never pins an ageing release.
+            model: 'sonnet',
             permissionMode: 'default',
             autoOpenSubwindows: true
           }
@@ -74,8 +73,7 @@ export function profileDraftReducer(
       const first: AgentSlot = state.agents[0] ?? {
         role: 'solo',
         provider: 'claude',
-        model: '',
-        modelPreset: 'balanced',
+        model: 'sonnet',
         count: 1,
         orchestrated: false,
         yolo: false,
@@ -130,7 +128,6 @@ export function profileDraftReducer(
             role: 'worker',
             provider: 'codex',
             model: '',
-            modelPreset: 'balanced',
             count: 1,
             orchestrated: true,
             yolo: false,

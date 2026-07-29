@@ -104,8 +104,8 @@ export const createProfilesSlice: StateCreator<AppState, [], [], ProfilesSlice> 
         workingDir: activeProfile(get())?.workingDir ?? '',
         orchestrator: {
           provider: 'claude',
-          model: '',
-          modelPreset: 'balanced',
+          // Rolling alias: follows every new Sonnet release on its own.
+          model: 'sonnet',
           autoOpenSubwindows: true
         },
         agents: [
@@ -114,7 +114,6 @@ export const createProfilesSlice: StateCreator<AppState, [], [], ProfilesSlice> 
             role: 'worker',
             provider: 'codex',
             model: '',
-            modelPreset: 'balanced',
             count: 1,
             orchestrated: true,
             yolo: false,

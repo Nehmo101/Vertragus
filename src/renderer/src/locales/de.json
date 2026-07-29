@@ -842,15 +842,13 @@
   "modals": {
     "addAgent": {
       "title": "Agent hinzufügen",
-      "sub": "Provider, Modell und Leistungsstärke festlegen",
+      "sub": "Provider, Modell und Aufwandsstufe festlegen",
       "closeAria": "Dialog schließen",
       "provider": "Provider",
-      "strength": "Stärke",
+      "effort": "Aufwand ({{term}})",
       "cliDefault": "CLI-Standard",
-      "unavailable": "(nicht verfügbar)",
       "model": "Modell",
       "effective": "Wird gestartet mit",
-      "hint": "Die explizite Modellwahl hat Vorrang vor der gewählten Stärke.",
       "cancel": "Abbrechen",
       "starting": "Startet…",
       "start": "Agent starten"
@@ -1129,10 +1127,13 @@
   },
   "profile": {
     "cliDefault": "CLI-Standard",
-    "preset": {
-      "fast": "Schnell",
-      "balanced": "Ausgewogen",
-      "strong": "Stark"
+    "effort": {
+      "low": "Niedrig",
+      "medium": "Mittel",
+      "high": "Hoch",
+      "xhigh": "Extra",
+      "max": "Max",
+      "ultra": "Ultracode"
     },
     "help": {
       "profileName": "Frei wählbarer Name für diese Kombination aus Workspace, Orchestrator und Subagents.",
@@ -1143,8 +1144,8 @@
       "mode": "Orchestriert lässt Claude oder Codex planen und delegieren. Single startet nur die konfigurierten Slots. Efficiency Solo startet genau EINEN Agenten, der direkt arbeitet — minimale Token-Fixkosten, Retro-Learnings im Prompt, nur report_activity/record_retro als Tools.",
       "orchestratorProvider": "Nur Provider mit verifiziertem Vertragus-MCP-Adapter können orchestrieren.",
       "permissionMode": "Auto-Mode bestätigt Edits automatisch. Plan-Mode erlaubt Claude nur zu planen.",
-      "model": "Leer verwendet Preset oder CLI-Standard. Freitext überschreibt das Preset. Über das Listen-Menü rechts wählst du jederzeit ein anderes Modell — auch wenn schon eines eingetragen ist.",
-      "modelPreset": "Leistungs-Preset (schnell/ausgewogen/stark). Gilt nur wenn Modell leer ist — Freitext hat Vorrang.",
+      "model": "Leer verwendet den CLI-Standard des Providers. Aliase wie opus oder sonnet lösen immer auf die neueste Version dieser Familie auf; versionierte IDs wie claude-opus-5 pinnen bewusst. Über das Listen-Menü rechts wählst du jederzeit ein anderes Modell — auch wenn schon eines eingetragen ist.",
+      "effort": "Aufwandsstufe (Reasoning Effort): wie viel Denk- und Werkzeugarbeit ein Agent pro Aufgabe investiert — unabhängig vom Modell. Claude Code erhält --effort, Codex model_reasoning_effort; Provider ohne eigenen Schalter ignorieren das Feld. Ultracode = maximaler Aufwand plus Freigabe für Multi-Agent-Orchestrierung. Ohne Auswahl gilt der Provider-Standard.",
       "plannerMode": "Auto startet valide Pläne direkt. Review wartet auf Freigabe. Manuell deaktiviert execute_plan.",
       "routingMode": "Adaptiv startet zunächst nur den Orchestrator und aktiviert Task-Agents passend zum Plan. Vorgewärmt startet alle Slots sofort.",
       "maxParallel": "Globales Oberlimit gleichzeitig laufender Plan-Tasks; Rollen-Kapazitäten können es weiter reduzieren.",
@@ -1202,8 +1203,8 @@
       "tabSlots": "Agent-Slots",
       "tabAutomation": "Auto-PR & Git",
       "tabSkills": "Skills",
-      "badgeOrchPreset": "Orchestrator-Preset nicht im Live-Katalog",
-      "badgeSlotPresets": "{{n}} Preset(s) nicht im Live-Katalog",
+      "badgeOrchEffort": "Orchestrator-Aufwand wird heruntergestuft",
+      "badgeSlotEffort": "{{n}} Slot(s) mit heruntergestuftem Aufwand",
       "badgeBranch": "Ziel-Branch korrigieren",
       "deleteTitle": "Profil löschen?",
       "deleteText": "„{{name}}“ und alle zugehörigen Einstellungen werden dauerhaft entfernt.",
@@ -1217,9 +1218,8 @@
       "duplicate": "Profil duplizieren",
       "deleteBtn": "Profil löschen",
       "deleteDisabledTitle": "Während einer laufenden Agent-Session nicht verfügbar",
-      "presetWarning": "{{n}} Preset(s) sind für den Live-Katalog nicht verfügbar. Wähle CLI-Standard oder ein explizites Modell.",
+      "effortClampedWarning": "{{n}} Auswahl(en) liegen über dem, was der Provider kann — der Lauf nutzt automatisch die höchste unterstützte Stufe.",
       "branchWarning": "Auto-Commit & Push: Ziel-Branch korrigieren.",
-      "saveDisabledPresets": "Nicht verfügbare Modell-Presets zuerst korrigieren",
       "save": "Profil speichern"
     },
     "github": {
@@ -1249,10 +1249,10 @@
       "soloHint": "Empfohlen laut Benchmarks/Retros: {{model}} — {{rationale}}",
       "provider": "Provider",
       "claudeMode": "Claude-Modus",
-      "preset": "Preset",
-      "presetNone": "Ohne Preset · CLI-Standard",
-      "presetHint": "{{preset}} · {{model}}",
-      "presetUnavailable": " (nicht verfügbar)",
+      "effort": "Aufwand",
+      "effortNone": "Ohne · Provider-Standard",
+      "effortHint": "{{effort}} · {{name}}",
+      "effortTermTitle": "So nennt dieser Provider die Aufwandsstufe.",
       "model": "Modell",
       "modelCountTitle": "verfügbare Modelle dieses Providers (frei eingebbar)",
       "effective": "Effektiv:",
@@ -1318,7 +1318,7 @@
       "captionCount": "{{slots}} Slots · {{agents}} Agents",
       "role": "Rolle / Label",
       "provider": "Provider",
-      "preset": "Preset",
+      "effort": "Aufwand",
       "model": "Modell",
       "count": "Anzahl",
       "yolo": "Yolo",
@@ -1513,6 +1513,7 @@
     "modelCatalog": {
       "unavailable": "Nicht verfügbar",
       "accountDependent": "kontoabhängig",
+      "refreshedAt": "aktualisiert {{time}}",
       "notAccountVerified": "nicht kontoverifiziert",
       "live": "Live",
       "mixed": "Live + Vorschläge",
@@ -1521,10 +1522,12 @@
       "suggestions": "{{n}} Vorschläge"
     },
     "modelCombo": {
-      "placeholder": "CLI-Standard / Preset",
+      "placeholder": "CLI-Standard / Alias",
       "pickAria": "Vollständige Modell-Liste öffnen",
       "pickTitle": "Alle Modelle dieses Providers anzeigen",
-      "noMatch": "Kein Modell passt zur Eingabe — freier Text bleibt erlaubt."
+      "noMatch": "Kein Modell passt zur Eingabe — freier Text bleibt erlaubt.",
+      "rolling": "neueste",
+      "rollingTitle": "Rollender Alias: löst beim Start immer auf die neueste Version dieser Familie auf."
     },
     "infoTip": {
       "label": "Feldhilfe"

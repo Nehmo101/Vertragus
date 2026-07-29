@@ -25,7 +25,7 @@ import {
   resolveActiveRepoPath,
   type RepoRef
 } from '@shared/repoSwitcher'
-import type { ModelPreset } from '@shared/models'
+import type { EffortLevel } from '@shared/effort'
 import type { AppState } from './slices/types'
 import { createProvidersSlice } from './slices/providersSlice'
 import { createProfilesSlice } from './slices/profilesSlice'
@@ -49,8 +49,13 @@ export type {
 export interface ManualAgentSelection {
   provider: AgentProviderId
   model: string
-  modelPreset?: ModelPreset
+  effort?: EffortLevel
 }
+
+/** Re-run provider model discovery this often while a window stays open. */
+export const MODEL_AUTO_REFRESH_MS = 6 * 60 * 60 * 1_000
+
+let modelAutoRefreshTimer: number | undefined
 
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -478,6 +483,15 @@ export const useAppStore = create<AppState>()((set, get, api) => ({
     void get().refreshHealth()
     void get().refreshGithubAuth()
     void get().refreshModels()
+
+    // Keep the model catalogue current inside a long-running window. Providers
+    // ship models between app starts, so a session that stays open for days
+    // must not keep offering the list it saw at launch.
+    if (modelAutoRefreshTimer === undefined) {
+      modelAutoRefreshTimer = window.setInterval(() => {
+        void get().refreshModels()
+      }, MODEL_AUTO_REFRESH_MS)
+    }
 
     // Bootstrap complete: the workspace drops its loading state now.
     set({ bootstrapped: true })

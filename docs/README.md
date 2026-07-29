@@ -1,6 +1,6 @@
 # Vertragus-Dokumentation
 
-Stand: 28. Juli 2026
+Stand: 29. Juli 2026
 
 ## Nutzung & Betrieb
 
@@ -8,6 +8,7 @@ Stand: 28. Juli 2026
 - [Aktueller Umsetzungsstand](./IMPLEMENTATION_STATUS.md) — verifizierte Feature-Grenzen: was fertig ist und was bewusst außen vor bleibt.
 - [Git-Handbuch für Branches, Worktrees und Pull Requests](./GIT_WORKFLOW.md) — sicherer Workflow für Entwicklung, parallele Agent-Arbeit und Wiederherstellung.
 - [Efficiency Solo](./EFFICIENCY_SOLO.md) — Ein-Agent-Profil-Preset mit minimalem Tokenverbrauch (kompakter Solo-Kontrakt, minimale MCP-Session).
+- [Modelle und Aufwandsstufen](./MODELS_AND_EFFORT.md) — Modellwahl (rollende Aliase vs. gepinnte Versionen), Aufwandsstufen je Provider (inkl. Ultracode) und die selbstaktualisierende Modell-Discovery.
 - [Custom-Provider-API](./CUSTOM_PROVIDERS.md) — config-basierter Vertrag, um beliebige weitere Headless-CLIs als Worker anzubinden.
 - [Prompt schärfen: produktive Integration](./prompt-enhancement-integration.md) — nicht-mutierende Verbesserung des Inbox-Drafts vor der Übergabe.
 
