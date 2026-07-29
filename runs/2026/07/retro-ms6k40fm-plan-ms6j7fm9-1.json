@@ -1,0 +1,230 @@
+{
+  "version": 1,
+  "exportedAt": 1785358146474,
+  "app": {
+    "name": "vertragus",
+    "version": "0.1.88-main.1.gb10b245"
+  },
+  "machineId": "0ff03cbf5385",
+  "kind": "run-retro",
+  "payload": {
+    "id": "retro-ms6k40fm-plan-ms6j7fm9-1",
+    "profileId": "profile-75790e09-189d-4bcf-bfa2-ed8010ebce36",
+    "workspaceSessionId": "2903afd6-da0b-487e-96e2-3e7c62549822",
+    "planId": "plan-ms6j7fm9-1",
+    "goal": "Neuer MCP-Server uwe-family im Monorepo C:\\git\\UWE: neue guard-geschützte Read-only-API-Routen in apps/family, Bearer-Token-Auth nach Studio-Muster (deny-by-default), Privacy-Gate UWE_MCP_FAMILY_ALLOW_CONTENT wie Brain, vollständige Registrierung, Doku und verifizierte Gates.",
+    "status": "needs-work",
+    "summary": "Lauf needs-work (0/6 erfolgreich), Ursache primär Infrastruktur, nicht Modellqualität: Beide aktive Worker wurden nach 529-Retries durch unbeantwortete Tool-Freigaben (Bash/PowerShell, 3 Timeouts → deny) ausgehungert; Teilarbeit als Commits cc046efa und ac1fb73f gesichert. Zentrales Typecheck-Gate scheiterte zudem im unberührten Paket @uwe/roll-tables (mutmaßlich vorbestehend/Worktree-Problem).",
+    "modelStats": [
+      {
+        "provider": "claude",
+        "model": "claude-opus-5",
+        "roles": [
+          "frontend",
+          "backend",
+          "security-reviewer"
+        ],
+        "tasks": 3,
+        "succeeded": 0,
+        "needsWork": 1,
+        "failed": 0,
+        "stopped": 2,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 2,
+          "model": 0
+        },
+        "failedAttempts": 2,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 2
+        },
+        "gateFindings": 2,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "costUsd": 0,
+        "avgDurationMs": 1297340
+      },
+      {
+        "provider": "claude",
+        "model": "claude-fable-5",
+        "roles": [
+          "security-reviewer"
+        ],
+        "tasks": 2,
+        "succeeded": 0,
+        "needsWork": 1,
+        "failed": 0,
+        "stopped": 1,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 1,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 2,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]",
+        "costUsd": 0,
+        "avgDurationMs": 1335210
+      },
+      {
+        "provider": "claude",
+        "model": "claude-sonnet-5",
+        "roles": [
+          "docs-and-chores"
+        ],
+        "tasks": 1,
+        "succeeded": 0,
+        "needsWork": 0,
+        "failed": 0,
+        "stopped": 1,
+        "failuresByKind": {
+          "infra": 0,
+          "cancelled": 1,
+          "model": 0
+        },
+        "failedAttempts": 0,
+        "failedAttemptsByKind": {
+          "infra": 0,
+          "cancelled": 0,
+          "model": 0
+        },
+        "gateFindings": 0,
+        "avgDurationMs": 1519932,
+        "tokensIn": "[redacted]",
+        "tokensOut": "[redacted]"
+      }
+    ],
+    "learnings": [
+      {
+        "id": "learning-ms6k40ff-1-3rc2o3",
+        "provider": "claude",
+        "model": "claude-opus-5",
+        "role": "frontend",
+        "kind": "weakness",
+        "insight": "Quality-Gates erfordern Nacharbeit bei frontend, backend, security-reviewer",
+        "evidence": "1 Task(s) mit 2 Gate-Finding(s)",
+        "source": "auto-retro",
+        "profileId": "profile-75790e09-189d-4bcf-bfa2-ed8010ebce36",
+        "observations": 1,
+        "createdAt": 1785358092075,
+        "updatedAt": 1785358092075
+      },
+      {
+        "id": "learning-ms6k40ff-2-1lv2kc",
+        "provider": "claude",
+        "model": "claude-fable-5",
+        "role": "security-reviewer",
+        "kind": "weakness",
+        "insight": "Quality-Gates erfordern Nacharbeit bei security-reviewer",
+        "evidence": "1 Task(s) mit 2 Gate-Finding(s)",
+        "source": "auto-retro",
+        "profileId": "profile-75790e09-189d-4bcf-bfa2-ed8010ebce36",
+        "observations": 1,
+        "createdAt": 1785358092075,
+        "updatedAt": 1785358092075
+      },
+      {
+        "id": "learning-ms6k56d2-1-w7chce",
+        "provider": "claude",
+        "model": "claude-opus-5",
+        "role": "frontend",
+        "kind": "strength",
+        "insight": "Arbeitet bei blockierten Shell-Freigaben zielgerichtet weiter und hinterlässt verwertbare, thematisch korrekte Teilarbeit",
+        "evidence": "shared-auth: trotz Bash/PowerShell-Denies wurden guards.ts, route-policy.ts und middleware.ts editiert; partieller Commit cc046efa wurde vom Gate übernommen",
+        "source": "orchestrator",
+        "profileId": "profile-75790e09-189d-4bcf-bfa2-ed8010ebce36",
+        "observations": 1,
+        "createdAt": 1785358146422,
+        "updatedAt": 1785358146422
+      },
+      {
+        "id": "learning-ms6k56d2-2-1lvhih",
+        "provider": "claude",
+        "model": "claude-opus-5",
+        "role": "frontend",
+        "kind": "weakness",
+        "insight": "Ohne Shell-Zugriff bleiben Security-Gate-Kontrollen (secret-leak-Negativtests) unverifiziert liegen statt sie zumindest als Testdateien anzulegen",
+        "evidence": "Gate-Finding missing-secret-controls/secret-leak auf allen drei geänderten Auth-Dateien im partiellen Commit cc046efa",
+        "source": "orchestrator",
+        "profileId": "profile-75790e09-189d-4bcf-bfa2-ed8010ebce36",
+        "observations": 1,
+        "createdAt": 1785358146422,
+        "updatedAt": 1785358146422
+      },
+      {
+        "id": "learning-ms6k56d2-3-v4n4ya",
+        "provider": "claude",
+        "model": "claude-fable-5",
+        "role": "security-reviewer",
+        "kind": "strength",
+        "insight": "Liefert auch als Ausweich-Besetzung für Implementierung schnell ein fast vollständiges Ergebnis inkl. Tests und weicht bei Tool-Denies selbstständig auf alternative Shells aus",
+        "evidence": "mcp-package: 8 Dateien (config, tools/family.ts, bin, servers, index, 2 Testdateien, package.json) als Commit ac1fb73f; nach PowerShell-Block eigenständiger Bash-Versuch",
+        "source": "orchestrator",
+        "profileId": "profile-75790e09-189d-4bcf-bfa2-ed8010ebce36",
+        "observations": 1,
+        "createdAt": 1785358146422,
+        "updatedAt": 1785358146422
+      },
+      {
+        "id": "learning-ms6k56d2-4-jsbd4i",
+        "provider": "claude",
+        "model": "claude-fable-5",
+        "role": "security-reviewer",
+        "kind": "weakness",
+        "insight": "Kein belegbarer Modellfehler in diesem Lauf; Gate-Findings stammen aus Infrastruktur (Permission-Starvation, vorbestehender roll-tables-Typecheck)",
+        "evidence": "Quality-Gate-Fehler trat in packages/roll-tables auf, das im Diff ac1fb73f nicht enthalten ist",
+        "source": "orchestrator",
+        "profileId": "profile-75790e09-189d-4bcf-bfa2-ed8010ebce36",
+        "observations": 1,
+        "createdAt": 1785358146422,
+        "updatedAt": 1785358146422
+      }
+    ],
+    "delegation": {
+      "estimate": {
+        "recommendation": "delegate",
+        "taskCount": 6,
+        "requiredTaskCount": 5,
+        "parallelWidth": 2,
+        "effectiveParallelWidth": 2,
+        "hasIntegrator": true,
+        "declaredMaxParallel": 3,
+        "underParallelized": false,
+        "reason": "Delegation lohnt: bis zu 2 Tasks können gleichzeitig laufen (mit einem Integrator als Trichter)."
+      },
+      "selfEstimate": {
+        "recommendation": "delegate",
+        "expectedParallelTasks": 2,
+        "confidence": "high",
+        "rationale": "Sechs klar trennbare Pakete: Shared-Auth (security+auth) und MCP-Paket sind unabhängig und laufen sofort parallel; Family-Routen hängen am Token-Export, Doku am MCP-Toolkatalog, dazu ein Advisory-Security-Audit und ein finaler Integrator. Spitzenbreite 2, kein Solo-Fall.",
+        "createdAt": 1785356420739
+      },
+      "outcome": {
+        "dispatchedTasks": 6,
+        "committedTasks": 2,
+        "noChangeTasks": 0,
+        "failedTasks": 4,
+        "observedPeakParallel": 6,
+        "multiAgentCandidates": 0,
+        "infraFailedTasks": 0
+      },
+      "verdict": "justified",
+      "selfCalibration": {
+        "agreedWithStructure": true,
+        "grade": "accurate",
+        "note": "Selbst-Einschätzung \"delegate\" (high) deckt sich mit der Struktur; real 2/6 Tasks mit Änderungen → accurate."
+      },
+      "note": "Delegation gerechtfertigt: 2 Subagents lieferten echte Änderungen."
+    },
+    "createdAt": 1785358092083,
+    "exportQueuedAt": 1785358146431
+  }
+}
