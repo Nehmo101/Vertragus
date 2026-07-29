@@ -4755,6 +4755,14 @@ textarea:focus-visible,
   font-size: 10.5px;
   color: var(--text-3);
 }
+.inbox-advanced { margin: 2px 0 14px; border: 1px solid var(--border-2); border-radius: 9px; background: color-mix(in srgb, var(--bg-card) 76%, transparent); }
+.inbox-advanced > summary { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 12px; color: var(--text-2); font-size: 11.5px; font-weight: 650; cursor: pointer; list-style: none; }
+.inbox-advanced > summary::-webkit-details-marker { display: none; }
+.inbox-advanced > summary::after { content: '+'; flex: 0 0 auto; color: var(--text-3); font: 15px var(--font-mono); }
+.inbox-advanced[open] > summary::after { content: '\2212'; }
+.inbox-advanced > summary:hover { color: var(--text-1); background: color-mix(in srgb, var(--accent) 5%, transparent); }
+.inbox-advanced > summary small { margin-left: auto; color: var(--text-3); font-size: 10.5px; font-weight: 400; }
+.inbox-advanced > .inbox-refs, .inbox-advanced > section { margin: 0 10px 10px; }
 .inbox-artifacts {
   border: 1px solid var(--border-2);
   border-radius: 8px;
@@ -5249,11 +5257,12 @@ textarea:focus-visible,
 }
 
 .remote-form { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(220px, 1fr) auto; align-items: end; gap: 10px; min-width: min(680px, 60vw); }
-.remote-form > .remote-checkbox { grid-column: 1 / -1; }
+.remote-form > .remote-checkbox { display: flex; grid-column: 1 / -1; align-items: center; gap: 7px; }
 .remote-form label { display: grid; gap: 5px; color: var(--text-2); font-size: 11px; }
 .remote-form input { min-width: 0; }
 .remote-online-details code { max-width: 420px; overflow: hidden; text-overflow: ellipsis; }
 .remote-checkbox { display: flex; align-items: center; gap: 7px; margin: 14px 0; color: var(--text-2); }
+.remote-checkbox input { flex: none; width: 16px; height: 16px; accent-color: var(--accent); }
 .remote-scope-list { display: grid; gap: 8px; margin: 14px 0; border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
 .remote-scope { display: grid; gap: 4px; border-top: 1px solid var(--line); padding-top: 8px; }
 
@@ -5274,6 +5283,16 @@ textarea:focus-visible,
 
 /* Mission Control Phase D: standalone approvals + integration surfaces. */
 .mission-surface { flex: 1; min-width: 0; overflow: auto; padding: 24px; background: var(--bg); }
+.mission-surface button { border: 1px solid color-mix(in srgb, var(--sage) 46%, transparent); border-radius: 9px; padding: 8px 12px; color: #fff; background: var(--sage); font: 600 12px var(--font-ui); cursor: pointer; transition: border-color 140ms ease, background 140ms ease, transform 140ms ease; }
+.mission-surface button:hover:not(:disabled) { background: var(--sage-strong); transform: translateY(-1px); }
+.mission-surface button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mission-surface button:disabled { cursor: default; opacity: .48; }
+.mission-surface button.secondary { border-color: var(--border-2); color: var(--text-2); background: var(--surface-2); }
+.mission-surface button.secondary:hover:not(:disabled) { color: var(--text-1); background: color-mix(in srgb, var(--surface-2) 80%, var(--accent) 9%); }
+.mission-surface button.danger, .mission-surface .btn.danger { border-color: color-mix(in srgb, var(--err) 48%, transparent); color: var(--err-text); background: color-mix(in srgb, var(--err) 12%, transparent); }
+.mission-surface input:not([type='checkbox']):not([type='radio']), .mission-surface textarea, .mission-surface select { min-height: 34px; border: 1px solid var(--border-3); border-radius: 8px; padding: 7px 9px; color: var(--text-1); background: var(--bg-input); font: 12px var(--font-ui); }
+.mission-surface input:focus-visible, .mission-surface textarea:focus-visible, .mission-surface select:focus-visible { border-color: var(--accent); outline: 2px solid color-mix(in srgb, var(--accent) 18%, transparent); outline-offset: 1px; }
+.mission-surface label { color: var(--text-2); }
 .mission-header,
 .mission-integration > header,
 .mission-diff-modal > div,
@@ -5311,6 +5330,14 @@ textarea:focus-visible,
 .mission-change { padding: 12px 0; border-bottom: 1px solid var(--line); }
 .mission-change:last-of-type { border-bottom: 0; }
 .mission-empty { display: grid; place-items: center; gap: 6px; min-height: 140px; color: var(--text-3); }
+.mission-empty-rich { align-content: center; justify-items: center; min-height: 260px; padding: 32px; text-align: center; }
+.mission-empty-icon { display: grid; place-items: center; width: 46px; height: 46px; border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); border-radius: 50%; color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, transparent); font-size: 21px; }
+.mission-empty-icon.success { color: var(--ok-text); border-color: color-mix(in srgb, var(--ok) 35%, transparent); background: color-mix(in srgb, var(--ok) 10%, transparent); }
+.mission-empty-copy { display: grid; gap: 5px; max-width: 580px; }
+.mission-empty-copy strong { color: var(--text-1); font-size: 17px; }
+.mission-empty-steps { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin: 10px 0 4px; padding: 0; list-style: none; }
+.mission-empty-steps li { padding: 7px 10px; border-radius: 999px; background: var(--surface-2); color: var(--text-2); font-size: 11px; }
+.mission-empty-rich > button { margin-top: 4px; }
 
 @media (max-width: 900px) {
   .mission-budget-inputs { grid-template-columns: 1fr; }

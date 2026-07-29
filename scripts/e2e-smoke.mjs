@@ -194,7 +194,32 @@ function analyzeView() {
     .filter(([, entry]) => entry.count > 1)
     .map(([text, entry]) => ({ text: text.slice(0, 80), count: entry.count, selectors: entry.selectors }))
 
-  return { overlaps, duplicates }
+  const interactive = all.filter((element) =>
+    element.matches('button, input, select, textarea, a[href], [role="button"], [role="separator"], [tabindex]:not([tabindex="-1"])')
+  )
+  const clippedControls = []
+  const inertControls = []
+  for (const element of interactive) {
+    if (element.disabled || element.getAttribute('aria-disabled') === 'true') continue
+    if (element.closest('[inert]')) continue
+    if (element.offsetParent === null && getComputedStyle(element).position !== 'fixed') continue
+    const details = element.closest('details:not([open])')
+    if (details && !element.closest('summary')) continue
+    const rect = element.getBoundingClientRect()
+    if (rect.width < 4 || rect.height < 4 || rect.bottom < 0 || rect.top > innerHeight) continue
+    const style = getComputedStyle(element)
+    if (style.visibility === 'hidden' || Number(style.opacity) <= 0.05) continue
+    if (rect.left < -1 || rect.right > innerWidth + 1 || rect.top < -1 || rect.bottom > innerHeight + 1) {
+      clippedControls.push({
+        selector: selectorFor(element),
+        rect: [Math.round(rect.left), Math.round(rect.top), Math.round(rect.right), Math.round(rect.bottom)]
+      })
+    }
+    if (style.pointerEvents === 'none') {
+      inertControls.push({ selector: selectorFor(element) })
+    }
+  }
+  return { overlaps, duplicates, clippedControls, inertControls }
 }
 
 /** window.vertragus stub for the Chromium renderer-only fallback. */
@@ -388,6 +413,21 @@ async function walkRoutes(page) {
         window.location.hash = hash
       }, route.hash)
       await page.waitForTimeout(600)
+      if (route.name === 'workspace') {
+        const composer = page.locator('.canvas-composer textarea')
+        await composer.click()
+        await composer.fill('e2e interaction')
+        const value = await composer.inputValue()
+        if (value !== 'e2e interaction') throw new Error('Canvas composer is not interactive')
+        await composer.fill('')
+      }
+      if (route.name === 'inbox') {
+        const details = page.locator('details.inbox-advanced')
+        await details.locator('summary').click()
+        const open = await details.evaluate((element) => element.open)
+        if (!open) throw new Error('Inbox advanced details did not open')
+        await details.locator('summary').click()
+      }
       for (const theme of THEMES) {
         await page.evaluate((value) => {
           document.querySelector('.app-root')?.setAttribute('data-theme', value)
@@ -398,7 +438,7 @@ async function walkRoutes(page) {
         if (theme === 'light') {
           const analysis = await page.evaluate(analyzeView)
           report.views.push({ route: route.name, viewport: viewport.name, ...analysis })
-          report.violations += analysis.overlaps.length + analysis.duplicates.length
+          report.violations += analysis.overlaps.length + analysis.duplicates.length + analysis.clippedControls.length + analysis.inertControls.length
         }
       }
     }
@@ -460,11 +500,14 @@ const reportPath = join(artifactsDir, 'e2e-report.json')
 writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8')
 console.log(`E2E-Report (${report.engine}): ${reportPath}`)
 for (const view of report.views) {
-  const status = view.overlaps.length + view.duplicates.length === 0 ? 'ok' : 'VERSTOESSE'
+  const issueCount = view.overlaps.length + view.duplicates.length + view.clippedControls.length + view.inertControls.length
+  const status = issueCount === 0 ? 'ok' : 'VERSTOESSE'
   console.log(
     `  ${view.route}/${view.viewport}: ${status}` +
       (view.overlaps.length ? ` overlaps=${view.overlaps.length}` : '') +
-      (view.duplicates.length ? ` duplicates=${view.duplicates.length}` : '')
+      (view.duplicates.length ? ` duplicates=${view.duplicates.length}` : '') +
+      (view.clippedControls.length ? ` clipped=${view.clippedControls.length}` : '') +
+      (view.inertControls.length ? ` inert=${view.inertControls.length}` : '')
   )
   // Details inline: on CI the report artifact is not always reachable.
   for (const overlap of view.overlaps) {
@@ -472,6 +515,12 @@ for (const view of report.views) {
   }
   for (const duplicate of view.duplicates) {
     console.log(`    duplicate x${duplicate.count}: "${duplicate.text}" @ ${duplicate.selectors.join(' | ')}`)
+  }
+  for (const control of view.clippedControls) {
+    console.log(`    clipped control: ${control.selector} @ ${control.rect.join(',')}`)
+  }
+  for (const control of view.inertControls) {
+    console.log(`    inert control: ${control.selector}`)
   }
 }
 if (report.violations > 0) {

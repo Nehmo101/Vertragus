@@ -170,7 +170,7 @@ export default function RemotePanel(): JSX.Element {
   }
 
   return (
-    <main className="remote-panel">
+    <main className="remote-panel mission-surface">
       <header className="remote-panel-head">
         <div>
           <span className="eyebrow">{t('remote.eyebrow')}</span>

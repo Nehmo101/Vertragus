@@ -723,10 +723,11 @@ function DispatchLog({ events }: { events: VertragusEvent[] }): JSX.Element {
 
 function OrchestratorPanelContent({
   width,
-  onCollapse
+  onCollapse, hidden
 }: {
   width: number
   onCollapse: () => void
+  hidden: boolean
 }): JSX.Element {
   const { t } = useTranslation()
   // Pick exactly the fields/actions the panel reads (actions are stable in
@@ -872,6 +873,8 @@ function OrchestratorPanelContent({
     <section
       id="orchestrator-right-panel"
       className="orch-panel layout-panel"
+      aria-hidden={hidden}
+      {...({ inert: hidden ? '' : undefined } as Record<string, unknown>)}
       style={{ width }}
       aria-label={t('orch.panelAria')}
     >
@@ -1109,11 +1112,13 @@ function OrchestratorPanelContent({
   )
 }
 
-export function CollapsedOrchestratorPanel({ onToggle }: { onToggle: () => void }): JSX.Element {
+export function CollapsedOrchestratorPanel({ onToggle, hidden = false }: { onToggle: () => void; hidden?: boolean }): JSX.Element {
   const { t } = useTranslation()
   return (
     <aside
       id="orchestrator-right-panel"
+      aria-hidden={hidden}
+      {...({ inert: hidden ? '' : undefined } as Record<string, unknown>)}
       className="orch-panel layout-panel panel-collapsed"
       aria-label={t('orch.panelAria')}
     >
@@ -1136,22 +1141,27 @@ export function CollapsedOrchestratorPanel({ onToggle }: { onToggle: () => void 
 
 export default function OrchestratorPanel(): JSX.Element {
   const { t } = useTranslation()
+  const workspaceLayout = useAppStore((state) => state.workspaceLayout)
+  const orchDrawerOpen = useLayoutStore((state) => state.orchDrawerOpen)
+  const canvasHidden = workspaceLayout === 'canvas' && !orchDrawerOpen
   const layout = useLayoutStore(selectPanelLayout('orchestrator-right'))
   const toggleCollapsed = useLayoutStore((state) => state.toggleCollapsed)
   const toggle = (): void => toggleCollapsed('orchestrator-right')
 
   if (layout.collapsed) {
-    return <CollapsedOrchestratorPanel onToggle={toggle} />
+    return <CollapsedOrchestratorPanel onToggle={toggle} hidden={canvasHidden} />
   }
 
   return (
     <>
-      <ResizeHandle
-        panelId="orchestrator-right"
-        direction="left"
-        ariaLabel={t('orch.resize')}
-      />
-      <OrchestratorPanelContent width={layout.width} onCollapse={toggle} />
+      {!canvasHidden && (
+        <ResizeHandle
+          panelId="orchestrator-right"
+          direction="left"
+          ariaLabel={t('orch.resize')}
+        />
+      )}
+      <OrchestratorPanelContent width={layout.width} onCollapse={toggle} hidden={canvasHidden} />
     </>
   )
 }

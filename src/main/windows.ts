@@ -14,6 +14,7 @@ import { protectWebContents } from '@main/security/navigation'
 import { initAttentionService } from '@main/attention/attentionService'
 import { workspacePlaceName } from '@shared/workspaceNames'
 import { agentDataTargetWindows } from '@main/agentDataFanout'
+import { workspaceProfileSchema } from '@shared/profile'
 
 /** Pre-paint window color matching the renderer themes (cozy-organic.css ambient). */
 function windowBackground(): string {
@@ -25,7 +26,7 @@ let mainWindow: BrowserWindow | null = null
 let voiceWindow: BrowserWindow | null = null
 
 /** Representative profile for headless ProfileEditor screenshots. */
-const DEMO_PROFILE = {
+const DEMO_PROFILE = workspaceProfileSchema.parse({
   id: 'demo',
   name: 'Demo',
   workingDir: 'C:\\git\\demo-app',
@@ -44,7 +45,7 @@ const DEMO_PROFILE = {
     labels: [],
     reviewers: []
   }
-}
+})
 
 function loadRoute(win: BrowserWindow, hash: string): void {
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {

@@ -21,4 +21,16 @@ describe('OrchestratorPanel collapsed layout', () => {
     expect(markup).not.toContain('style="width:360px"')
     expect(markup).not.toContain('role="separator"')
   })
+
+  it('removes the off-canvas drawer from the accessibility and focus trees', () => {
+    const markup = renderToStaticMarkup(
+      createElement(CollapsedOrchestratorPanel, {
+        onToggle: (): void => undefined,
+        hidden: true
+      })
+    )
+
+    expect(markup).toContain('aria-hidden="true"')
+    expect(markup).toContain('inert=""')
+  })
 })
