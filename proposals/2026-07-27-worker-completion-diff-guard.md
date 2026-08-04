@@ -1,9 +1,10 @@
 ---
-status: proposed
+status: done
 created: 2026-07-27
 kind: code
 source-retros: 76
 source-benchmarks: 0
+implementedIn: 2027e72
 ---
 
 # Completion-Status gegen echten git diff verifizieren
