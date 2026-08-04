@@ -10,7 +10,8 @@ export const createOrchestratorSlice: StateCreator<AppState, [], [], Orchestrato
 ) => ({
   orchestrator: { goal: null, tasks: [] },
   orchestrators: {},
-  yoloMaster: false,
+  // Yolo ist Standard; Safe Mode ist der Opt-out (siehe App-Strip).
+  yoloMaster: true,
 
   toggleYolo() {
     const next = !get().yoloMaster

@@ -156,7 +156,7 @@ describe('adaptive profile team start', () => {
 
     await spawnProfileTeam(profile, true)
 
-    expect(profile.yoloDefault).toBe(false)
+    expect(profile.yoloDefault).toBe(true)
     expect(mocks.start).toHaveBeenCalledWith(expect.objectContaining({ yoloDefault: true }))
     expect(mocks.spawn).toHaveBeenCalledWith(expect.objectContaining({
       kind: 'orchestrator',

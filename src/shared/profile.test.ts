@@ -289,9 +289,7 @@ describe('duplicateProfile', () => {
     expect(copySettings).toEqual({
       ...sourceSettings,
       githubRepo: { ...source.githubRepo, cloneStatus: 'unbound', localPath: '' },
-      githubProject: { ...source.githubProject },
-      agents: source.agents.map((slot) => ({ ...slot, yolo: false })),
-      yoloDefault: false
+      githubProject: { ...source.githubProject }
     })
     expect(copyId).not.toBe(sourceId)
     expect(copyName).not.toBe(sourceName)
@@ -333,16 +331,15 @@ describe('duplicateProfile', () => {
     })
   })
 
-  it('resets the profile default and every agent slot from yolo to safe mode', () => {
+  it('preserves the source yolo configuration when duplicating', () => {
     const source = completeProfile()
-    source.agents = source.agents.map((slot) => ({ ...slot, yolo: true }))
+    source.yoloDefault = false
+    source.agents = source.agents.map((slot, index) => ({ ...slot, yolo: index === 0 }))
 
     const copy = duplicateProfile(source, [source])
 
-    expect(source.yoloDefault).toBe(true)
-    expect(source.agents.every((slot) => slot.yolo)).toBe(true)
     expect(copy.yoloDefault).toBe(false)
-    expect(copy.agents.every((slot) => !slot.yolo)).toBe(true)
+    expect(copy.agents.map((slot) => slot.yolo)).toEqual(source.agents.map((slot) => slot.yolo))
   })
 
   it('deep-clones the GitHub project configuration', () => {

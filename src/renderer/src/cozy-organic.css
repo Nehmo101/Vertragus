@@ -406,6 +406,14 @@ body {
   color: var(--err-text);
   font-size: 12px;
 }
+.safe-strip {
+  min-height: 34px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+  color: var(--text-2);
+  font-size: 12px;
+}
 
 /* Sidebar */
 .sidebar {

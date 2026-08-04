@@ -48,7 +48,8 @@ export default function App(): JSX.Element {
       init: s.init,
       openEditor: s.openEditor,
       openAddAgent: s.openAddAgent,
-      applyUiCommand: s.applyUiCommand
+      applyUiCommand: s.applyUiCommand,
+      toggleYolo: s.toggleYolo
     }))
   )
   const hash = useHashRoute()
@@ -116,11 +117,28 @@ export default function App(): JSX.Element {
 
       <SessionRestoreBanner />
 
-      {store.yoloMaster && (
-        <div className="yolo-strip">
+      {store.yoloMaster ? (
+        <button
+          type="button"
+          className="yolo-strip"
+          onClick={store.toggleYolo}
+          title={t('app.yoloBanner.disable')}
+        >
           <span className="head">{t('app.yoloBanner.head')}</span>
           <span className="rest">{t('app.yoloBanner.body')}</span>
-        </div>
+          <span className="action">{t('app.yoloBanner.disable')}</span>
+        </button>
+      ) : (
+        <button
+          type="button"
+          className="safe-strip"
+          onClick={store.toggleYolo}
+          title={t('app.safeMode.enable')}
+        >
+          <span className="head">{t('app.safeMode.head')}</span>
+          <span className="rest">{t('app.safeMode.body')}</span>
+          <span className="action">{t('app.safeMode.enable')}</span>
+        </button>
       )}
 
       <div className={`body-row layout-${store.workspaceLayout}`}>

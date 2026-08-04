@@ -1439,7 +1439,7 @@ export class OrchestratorEngine extends EventEmitter {
       model: '',
       count: 1,
       orchestrated: true,
-      yolo: false,
+      yolo: true,
       strengths: [],
       weaknesses: []
     }])
@@ -1636,7 +1636,7 @@ export class OrchestratorEngine extends EventEmitter {
       title: taskTitle, role: slotRole, provider: slot.provider, model: resolveSlotModel(slot.provider, slot),
       status: 'running' as const, phase: 'working' as const,
       lastAction: `Startet ${candidateCount} parallele Kandidaten`, lastHeartbeatAt: Date.now(),
-      yolo: slot.yolo || (profile?.yoloDefault ?? false),
+      yolo: slot.yolo || (profile?.yoloDefault ?? true),
       dependsOn: options.dependsOn, advisoryDependsOn: options.advisoryDependsOn,
       conflictKeys: options.conflictKeys, expectedFiles: options.expectedFiles,
       planId: options.planId, planTaskId: options.planTaskId, engineId: this.engineId,
@@ -1802,7 +1802,7 @@ export class OrchestratorEngine extends EventEmitter {
         }
       })
     }
-    const yolo = slot.yolo || (profile?.yoloDefault ?? false)
+    const yolo = slot.yolo || (profile?.yoloDefault ?? true)
     // Limit-fallback: an explicit override (options or a paused task resuming
     // after a limit hit) replaces the slot's configured model for this launch.
     const forcedModel = this.forcedFallbackModels.get(taskId)
@@ -4152,7 +4152,7 @@ export class OrchestratorEngine extends EventEmitter {
       effort: slot.effort,
       role: `Subagent · ${slotRole}`,
       kind: 'sub',
-      yolo: slot.yolo || (profile?.yoloDefault ?? false),
+      yolo: slot.yolo || (profile?.yoloDefault ?? true),
       workingDir: slot.workingDir || profile?.workingDir,
       profileId: profile?.id,
       workspaceSessionId: this.workspaceSessionId,

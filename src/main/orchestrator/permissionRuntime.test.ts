@@ -70,6 +70,14 @@ vi.mock('@main/orchestrator/retroExport', () => ({
 import { OrchestratorEngine } from './Engine'
 import { permissionBroker } from '@main/permissions/PermissionBroker'
 
+// Seit Yolo default AN ist, brauchen die Permission-Szenarien ein explizites
+// Safe-Mode-Profil — sonst laufen die Worker ohne Freigabe-Prompts.
+const SAFE_PROFILE = {
+  ...DEFAULT_PROFILE,
+  yoloDefault: false,
+  agents: DEFAULT_PROFILE.agents.map((slot) => ({ ...slot, yolo: false }))
+}
+
 function info(taskId: string) {
   return {
     id: `agent-${taskId}`,
@@ -108,7 +116,7 @@ describe('runtime permission handling (Retro-Fixes Lauf 2/3)', () => {
       done: new Promise((resolve) => { finish = resolve })
     }))
     const engine = new OrchestratorEngine({
-      profile: { ...DEFAULT_PROFILE }, workspaceSessionId: 'yolo-session'
+      profile: { ...SAFE_PROFILE }, workspaceSessionId: 'yolo-session'
     })
     const accepted = engine.dispatchAsync('codex', 'Guarded work', 'Yolo runtime')
     await vi.waitFor(() => expect(engine.getTaskStatus(accepted.taskId)?.status).toBe('running'))
@@ -146,7 +154,7 @@ describe('runtime permission handling (Retro-Fixes Lauf 2/3)', () => {
       done: new Promise((resolve) => { finish = resolve })
     }))
     const engine = new OrchestratorEngine({
-      profile: { ...DEFAULT_PROFILE }, workspaceSessionId: 'denied-session'
+      profile: { ...SAFE_PROFILE }, workspaceSessionId: 'denied-session'
     })
     // Der Worker konnte nie schreiben: die Abnahme findet keinerlei Änderungen.
     prepareTaskChange.mockResolvedValueOnce({
@@ -186,7 +194,7 @@ describe('runtime permission handling (Retro-Fixes Lauf 2/3)', () => {
       finish({ result: 'Vertragus permission stop', isError: true, status: 'cancelled' })
     })
     const engine = new OrchestratorEngine({
-      profile: { ...DEFAULT_PROFILE }, workspaceSessionId: 'storm-session'
+      profile: { ...SAFE_PROFILE }, workspaceSessionId: 'storm-session'
     })
     const accepted = engine.dispatchAsync('codex', 'Blocked work', 'Storm')
     await vi.waitFor(() => expect(engine.getTaskStatus(accepted.taskId)?.status).toBe('running'))
@@ -219,7 +227,7 @@ describe('runtime permission handling (Retro-Fixes Lauf 2/3)', () => {
       done: new Promise((resolve) => { finish = resolve })
     }))
     const engine = new OrchestratorEngine({
-      profile: { ...DEFAULT_PROFILE }, workspaceSessionId: 'mixed-session'
+      profile: { ...SAFE_PROFILE }, workspaceSessionId: 'mixed-session'
     })
     const accepted = engine.dispatchAsync('codex', 'Mixed decisions', 'Mixed')
     await vi.waitFor(() => expect(engine.getTaskStatus(accepted.taskId)?.status).toBe('running'))
@@ -269,7 +277,7 @@ describe('runtime permission handling (Retro-Fixes Lauf 2/3)', () => {
       done: new Promise((resolve) => { finish = resolve })
     }))
     const engine = new OrchestratorEngine({
-      profile: { ...DEFAULT_PROFILE },
+      profile: { ...SAFE_PROFILE },
       workspaceSessionId: 'watchdog-session',
       permissionApprovalTimeoutMs: 40
     })

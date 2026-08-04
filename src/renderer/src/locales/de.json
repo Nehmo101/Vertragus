@@ -222,8 +222,14 @@
   },
   "app": {
     "yoloBanner": {
-      "head": "⚠ YOLO-MODUS AKTIV",
-      "body": "Alle Bestätigungen deaktiviert — Agents committen, pushen & führen Shell-Befehle ohne Rückfrage aus."
+      "head": "⚡ YOLO-MODUS AKTIV",
+      "body": "Alle Bestätigungen deaktiviert — Agents committen, pushen & führen Shell-Befehle ohne Rückfrage aus.",
+      "disable": "Klicken zum Deaktivieren"
+    },
+    "safeMode": {
+      "head": "🛡 Sicherer Modus",
+      "body": "Agents fragen vor riskanten Aktionen nach — Läufe können auf Freigaben warten.",
+      "enable": "Yolo aktivieren"
     }
   },
   "toast": {

@@ -179,7 +179,7 @@ export async function generateProfileForRepo(
       provider,
       model,
       orchestrated: true,
-      yolo: false
+      yolo: true
     }
   })
 
@@ -202,7 +202,7 @@ export async function generateProfileForRepo(
       autoOpenSubwindows: true
     },
     agents,
-    yoloDefault: false,
+    yoloDefault: true,
     planner: {
       mode: 'review',
       routingMode: 'adaptive',

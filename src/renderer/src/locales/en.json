@@ -222,8 +222,14 @@
   },
   "app": {
     "yoloBanner": {
-      "head": "⚠ YOLO MODE ACTIVE",
-      "body": "All confirmations disabled — agents commit, push & run shell commands without asking."
+      "head": "⚡ YOLO MODE ACTIVE",
+      "body": "All confirmations disabled — agents commit, push & run shell commands without asking.",
+      "disable": "Click to disable"
+    },
+    "safeMode": {
+      "head": "🛡 Safe Mode",
+      "body": "Agents ask before risky actions — runs may wait for approvals.",
+      "enable": "Enable Yolo"
     }
   },
   "toast": {

@@ -451,7 +451,7 @@ export const useAppStore = create<AppState>()((set, get, api) => ({
         null,
       mcpServers,
       agents,
-      yoloMaster: yolo ?? false,
+      yoloMaster: yolo ?? true,
       orchestrator: snapshot,
       orchestrators: { [snapshot.workspaceSessionId ?? activeProfileId]: snapshot },
       theme: theme === 'dark' ? 'dark' : 'light',

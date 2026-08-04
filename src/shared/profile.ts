@@ -39,8 +39,8 @@ export const agentSlotSchema = z.object({
   orchestrated: z.boolean().default(true),
   /** Per-slot Multiagent override. Omitted means inherit the profile setting. */
   multiAgent: z.boolean().optional(),
-  /** Run without approval prompts (see Yolo Mode). */
-  yolo: z.boolean().default(false),
+  /** Run without approval prompts (see Yolo Mode). Default ON; Safe Mode is the opt-out. */
+  yolo: z.boolean().default(true),
   /** Optional per-slot working directory override. */
   workingDir: z.string().optional(),
   /** Tasks this worker/model is especially suitable for. */
@@ -198,8 +198,8 @@ export const workspaceProfileSchema = z.object({
   solo: z.boolean().default(false),
   /** Named, reusable workspace procedures injected into orchestrator/solo prompts. */
   skills: profileSkillsSchema.default([]),
-  /** Global Yolo master switch (default OFF for safety). */
-  yoloDefault: z.boolean().default(false),
+  /** Global Yolo master switch (default ON; Safe Mode is the opt-out). */
+  yoloDefault: z.boolean().default(true),
   /** OS sandbox for headless Yolo workers (Linux/bubblewrap, opt-in). */
   sandbox: sandboxModeSchema.default('none'),
   planner: plannerConfigSchema.default({}),
@@ -294,9 +294,7 @@ export function duplicateProfile(
     githubRepo: source.githubRepo
       ? { ...source.githubRepo, cloneStatus: 'unbound', localPath: '' }
       : undefined,
-    githubProject: source.githubProject ? { ...source.githubProject } : undefined,
-    agents: clonedSource.agents.map((slot) => ({ ...slot, yolo: false })),
-    yoloDefault: false
+    githubProject: source.githubProject ? { ...source.githubProject } : undefined
   })
 }
 
@@ -427,14 +425,14 @@ export const DEFAULT_PROFILE: WorkspaceProfile = {
       fallbackModels: [],
       count: 3,
       orchestrated: true,
-      yolo: false,
+      yolo: true,
       strengths: [],
       weaknesses: []
     }
   ],
   solo: false,
   skills: [],
-  yoloDefault: false,
+  yoloDefault: true,
   sandbox: 'none',
   planner: { mode: 'review', routingMode: 'adaptive', maxParallel: 6, maxRetries: 1 },
   benchmark: { enabled: false },
