@@ -491,8 +491,9 @@
   },
   "rail": {
     "title": "Vertragus Rail",
-    "subtitle": "Doppelklick auf ◆ = Vollansicht",
-    "dragAria": "Rail verschieben (ziehen); Doppelklick öffnet die Vollansicht",
+    "subtitle": "Ziehen verschiebt die Leiste",
+    "dragAria": "Freie Fläche ziehen verschiebt die Rail; sie schnappt an die Bildschirmkante",
+    "close": "Rail schließen (als letztes Fenster beendet das Vertragus)",
     "launch": "{{name}} starten — Agenten erscheinen als gekachelte Fenster",
     "running": "{{name}}: {{count}} Agent(en) aktiv — klicken fokussiert und kachelt neu",
     "full": "Vollansicht",

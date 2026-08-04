@@ -14,6 +14,10 @@
   --rail-muted: #a2a2ab;
   --rail-accent: #2dd4bf;
   --rail-hover: rgba(45, 212, 191, 0.1);
+  /* Native OS-Drag auf der ganzen Flaeche (Voice-Overlay-Muster) — Buttons,
+     Kacheln und die scrollende Liste sind unten explizit no-drag. */
+  -webkit-app-region: drag;
+  cursor: grab;
   flex: 1;
   min-width: 0;
   display: flex;
@@ -27,6 +31,11 @@
   font-size: 13px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
   overflow: hidden;
+}
+.rail button,
+.rail .rail-profiles {
+  -webkit-app-region: no-drag;
+  cursor: pointer;
 }
 [data-theme='light'] .rail {
   --rail-bg: rgba(243, 239, 228, 0.97);
@@ -57,12 +66,7 @@
   font-size: 16px;
   color: var(--rail-accent);
   background: color-mix(in srgb, var(--rail-accent) 14%, transparent);
-  cursor: grab;
   user-select: none;
-  touch-action: none;
-}
-.rail-orb:active {
-  cursor: grabbing;
 }
 .rail-brand {
   flex: 1;
@@ -83,7 +87,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.rail-open-main {
+.rail-open-main,
+.rail-close {
   flex: none;
   width: 34px;
   height: 34px;
@@ -101,6 +106,21 @@
   background: var(--rail-hover);
   border-color: var(--rail-accent);
   outline: none;
+}
+.rail-close {
+  font-size: 13px;
+  color: var(--rail-muted);
+}
+.rail-close:hover,
+.rail-close:focus-visible {
+  background: rgba(242, 85, 90, 0.14);
+  border-color: rgba(242, 85, 90, 0.55);
+  color: #ff8a8e;
+  outline: none;
+}
+[data-theme='light'] .rail-close:hover,
+[data-theme='light'] .rail-close:focus-visible {
+  color: #b3261e;
 }
 
 /* ---------- Profil-Kacheln ---------- */

@@ -727,11 +727,6 @@ export const ipcManifest = {
     validation: 'none',
     note: 'guardRailControl: rail window or main window'
   }),
-  railMoved: send(IPC.railMoved, 'rail.moved', {
-    auth: 'custom',
-    validation: 'handler',
-    note: 'guardRailControl drops non-rail senders; Number() coercion of window coordinates'
-  }),
   railLaunchTiled: invoke(IPC.railLaunchTiled, 'rail.launchTiled', {
     auth: 'custom',
     validation: 'handler',

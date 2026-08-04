@@ -55,7 +55,6 @@ import {
   isPaneWindowSender,
   isRailWindowSender,
   isVoiceWindowSender,
-  moveRailWindow,
   moveVoiceOverlay,
   openMainWindow,
   pushDemoState,
@@ -756,11 +755,6 @@ export function registerIpcHandlers(): void {
     railOpenMain: (event) => {
       guardRailControl(isRailWindowSender(event.sender), isMainWindowSender(event.sender))
       openMainWindow()
-    },
-    // Auth 'custom' (send): non-rail senders are dropped without a reply.
-    railMoved: (event, x, y) => {
-      if (!isRailWindowSender(event.sender)) return
-      moveRailWindow(Number(x), Number(y))
     },
     railLaunchTiled: async (event, profileId, yoloMaster) => {
       guardRailControl(isRailWindowSender(event.sender), isMainWindowSender(event.sender))

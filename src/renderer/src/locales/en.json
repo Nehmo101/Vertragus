@@ -491,8 +491,9 @@
   },
   "rail": {
     "title": "Vertragus rail",
-    "subtitle": "Double-click ◆ = full view",
-    "dragAria": "Move the rail (drag); double-click opens the full view",
+    "subtitle": "Drag to move the bar",
+    "dragAria": "Drag any free area to move the rail; it snaps to the screen edge",
+    "close": "Close the rail (quits Vertragus when it is the last window)",
     "launch": "Launch {{name}} — agents appear as tiled windows",
     "running": "{{name}}: {{count}} agent(s) active — click focuses and re-tiles",
     "full": "Full view",

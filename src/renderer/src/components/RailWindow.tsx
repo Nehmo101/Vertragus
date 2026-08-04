@@ -1,25 +1,20 @@
-import { useMemo, useRef } from 'react'
+import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '@renderer/store/useAppStore'
 import { railTiles } from './railTiles'
 import '@renderer/assets/rail.css'
 
-interface DragStart {
-  pointerX: number
-  pointerY: number
-  windowX: number
-  windowY: number
-  moved: boolean
-}
-
 /**
  * Die Desktop-Rail (#/sidebar): schmale Always-on-top-Startleiste. Sie spiegelt
  * den Store nur (Profil-Liste, Agenten, Sessions kommen via ev:-Broadcasts)
  * und schreibt ausschliesslich via IPC-Actions — nie direkt in geteilten State.
  *
- * Der Weg zurueck zur Vollansicht ist bewusst mehrfach vorhanden: Header-Button,
- * Doppelklick auf den Orb, Empty-State-Button und der Tray-Eintrag im Main.
+ * Verschieben: native OS-Drag ueber -webkit-app-region auf der ganzen Flaeche
+ * (Snap + Persistenz uebernimmt der Main-Prozess im 'moved'-Event). Der Weg
+ * zurueck zur Vollansicht ist mehrfach vorhanden: Header-Button, Footer-Button,
+ * Empty-State-Button und der Tray-Eintrag. ✕ schliesst die Rail (als letztes
+ * Fenster beendet das Vertragus).
  */
 export default function RailWindow(): JSX.Element {
   const { t } = useTranslation()
@@ -33,7 +28,6 @@ export default function RailWindow(): JSX.Element {
       toggleYolo: s.toggleYolo
     }))
   )
-  const dragRef = useRef<DragStart | null>(null)
   const tiles = useMemo(
     () => railTiles(store.profiles, store.agents, store.workspaceSessions),
     [store.profiles, store.agents, store.workspaceSessions]
@@ -43,47 +37,10 @@ export default function RailWindow(): JSX.Element {
     void window.vertragus.rail.openMain()
   }
 
-  const beginDrag = (event: React.PointerEvent<HTMLDivElement>): void => {
-    if (event.button !== 0) return
-    dragRef.current = {
-      pointerX: event.screenX,
-      pointerY: event.screenY,
-      windowX: window.screenX,
-      windowY: window.screenY,
-      moved: false
-    }
-    event.currentTarget.setPointerCapture(event.pointerId)
-  }
-
-  const drag = (event: React.PointerEvent<HTMLDivElement>): void => {
-    const start = dragRef.current
-    if (!start) return
-    const dx = event.screenX - start.pointerX
-    const dy = event.screenY - start.pointerY
-    if (!start.moved && Math.abs(dx) + Math.abs(dy) < 4) return
-    start.moved = true
-    window.vertragus.rail.moved(Math.round(start.windowX + dx), Math.round(start.windowY + dy))
-  }
-
-  const endDrag = (event: React.PointerEvent<HTMLDivElement>): void => {
-    dragRef.current = null
-    event.currentTarget.releasePointerCapture(event.pointerId)
-  }
-
   return (
-    <main className="rail" aria-label={t('rail.title')}>
+    <main className="rail" aria-label={t('rail.title')} title={t('rail.dragAria')}>
       <header className="rail-head">
-        <div
-          className="rail-orb"
-          role="button"
-          tabIndex={0}
-          title={t('rail.dragAria')}
-          aria-label={t('rail.dragAria')}
-          onPointerDown={beginDrag}
-          onPointerMove={drag}
-          onPointerUp={endDrag}
-          onDoubleClick={openMain}
-        >
+        <div className="rail-orb" aria-hidden="true">
           ◆
         </div>
         <div className="rail-brand">
@@ -98,6 +55,15 @@ export default function RailWindow(): JSX.Element {
           onClick={openMain}
         >
           ⛶
+        </button>
+        <button
+          type="button"
+          className="rail-close"
+          title={t('rail.close')}
+          aria-label={t('rail.close')}
+          onClick={() => window.vertragus.win.close()}
+        >
+          ✕
         </button>
       </header>
 
