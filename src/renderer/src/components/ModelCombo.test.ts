@@ -1,7 +1,7 @@
 import { createElement, Fragment } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
-import ModelCombo, { comboOptions, moveHighlight } from './ModelCombo'
+import ModelCombo, { comboOptions, comboVariantRows, moveHighlight } from './ModelCombo'
 
 describe('comboOptions', () => {
   const models = ['claude-opus-5', 'claude-sonnet-4-6', 'claude-haiku-4-5']
@@ -17,6 +17,24 @@ describe('comboOptions', () => {
     expect(comboOptions(models, 'HAIKU')).toEqual(['claude-haiku-4-5'])
     expect(comboOptions(models, '4-')).toEqual(['claude-sonnet-4-6', 'claude-haiku-4-5'])
     expect(comboOptions(models, 'gpt')).toEqual([])
+  })
+})
+
+describe('comboVariantRows', () => {
+  it('collapses dated snapshots into their base row and keeps them searchable', () => {
+    const models = ['claude-sonnet-4-5', 'claude-sonnet-4-5-20250929', 'claude-opus-5']
+    const rows = comboVariantRows(models, null)
+    expect(rows.map((row) => row.id)).toEqual(['claude-sonnet-4-5', 'claude-opus-5'])
+    expect(rows[0]!.snapshots).toEqual(['claude-sonnet-4-5-20250929'])
+    // Typing a date still finds the base row via its folded snapshot.
+    expect(comboVariantRows(models, '20250929').map((row) => row.id)).toEqual([
+      'claude-sonnet-4-5'
+    ])
+  })
+
+  it('collapses punctuation twins from different sources into one row', () => {
+    const rows = comboVariantRows(['claude-sonnet-4.6', 'claude-sonnet-4-6'], null)
+    expect(rows.map((row) => row.id)).toEqual(['claude-sonnet-4.6'])
   })
 })
 

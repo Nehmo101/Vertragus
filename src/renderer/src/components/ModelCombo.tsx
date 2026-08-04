@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { groupModelsByFamily, orderedModelList } from '@shared/models'
+import {
+  collapseModelVariants,
+  groupModelVariantsByFamily,
+  type ModelVariant
+} from '@shared/models'
 
 /**
  * Options the popup shows. `query === null` means "the user did not type since
@@ -15,6 +19,22 @@ export function comboOptions(models: string[], query: string | null): string[] {
   const needle = query?.trim().toLowerCase()
   if (!needle) return models
   return models.filter((model) => model.toLowerCase().includes(needle))
+}
+
+/**
+ * Collapsed display rows for the popup: punctuation twins fold into one row,
+ * dated snapshots into their base row (kept as tooltip). Typing also matches a
+ * folded snapshot id, so searching a date still finds the base row.
+ */
+export function comboVariantRows(models: string[], query: string | null): ModelVariant[] {
+  const variants = collapseModelVariants(models)
+  const needle = query?.trim().toLowerCase()
+  if (!needle) return variants
+  return variants.filter(
+    (variant) =>
+      variant.id.toLowerCase().includes(needle) ||
+      variant.snapshots.some((snapshot) => snapshot.toLowerCase().includes(needle))
+  )
 }
 
 /** Next highlighted index for ArrowUp/ArrowDown, wrapping at both ends. */
@@ -56,10 +76,22 @@ export default function ModelCombo({
   const listRef = useRef<HTMLDivElement>(null)
   const inputId = `${id}-input`
   // Grouped by family, alias first: `opus` and `claude-opus-5` are the same
-  // model line — one rolling, one pinned — so the popup shows them as one block
-  // instead of two unrelated rows. Keyboard order follows the rendered order.
-  const options = useMemo(() => orderedModelList(comboOptions(models, query)), [models, query])
-  const groups = useMemo(() => groupModelsByFamily(options), [options])
+  // model line — one rolling, one pinned — so the popup shows them as one
+  // labeled family block instead of unrelated rows. Punctuation twins and dated
+  // snapshots are collapsed (snapshots survive as tooltip). Keyboard order
+  // follows the rendered order.
+  const groups = useMemo(
+    () => groupModelVariantsByFamily(comboVariantRows(models, query)),
+    [models, query]
+  )
+  const options = useMemo(
+    () =>
+      groups.flatMap((group) => [
+        ...(group.alias ? [group.alias.id] : []),
+        ...group.pinned.map((variant) => variant.id)
+      ]),
+    [groups]
+  )
 
   useEffect(() => {
     // The editor body scrolls, so a popup opened near its lower edge would be
@@ -94,7 +126,7 @@ export default function ModelCombo({
       if (!open) {
         setOpen(true)
         setQuery(null)
-        setHighlight(event.key === 'ArrowDown' ? 0 : models.length - 1)
+        setHighlight(event.key === 'ArrowDown' ? 0 : options.length - 1)
         return
       }
       setHighlight((current) =>
@@ -167,41 +199,62 @@ export default function ModelCombo({
           {options.length === 0 ? (
             <div className="model-combo-empty">{t('ui.modelCombo.noMatch')}</div>
           ) : (
-            groups.map((group) => (
-              <div className="model-combo-group" key={group.family}>
-                {[
-                  ...(group.alias ? [{ model: group.alias, rolling: true }] : []),
-                  ...group.pinned.map((model) => ({ model, rolling: false }))
-                ].map(({ model, rolling }) => {
-                  const index = options.indexOf(model)
-                  return (
-                    <div
-                      key={model}
-                      id={`${id}-option-${index}`}
-                      role="option"
-                      aria-selected={model === value}
-                      className={`model-combo-option${index === highlight ? ' highlight' : ''}${
-                        model === value ? ' selected' : ''
-                      }${rolling ? ' rolling' : ' pinned'}`}
-                      onMouseEnter={() => setHighlight(index)}
-                      onMouseDown={(event) => {
-                        // Commit before the input loses focus, so the outside-click
-                        // listener cannot close the popup first.
-                        event.preventDefault()
-                        commit(model)
-                      }}
-                    >
-                      <span>{model}</span>
-                      {rolling && (
-                        <span className="model-combo-tag" title={t('ui.modelCombo.rollingTitle')}>
-                          {t('ui.modelCombo.rolling')}
-                        </span>
-                      )}
+            groups.map((group) => {
+              const rows = [
+                ...(group.alias ? [{ variant: group.alias, rolling: true }] : []),
+                ...group.pinned.map((variant) => ({ variant, rolling: false }))
+              ]
+              return (
+                <div className="model-combo-group" key={group.family}>
+                  {rows.length > 1 && (
+                    <div className="model-combo-family-head" aria-hidden="true">
+                      {group.family}
                     </div>
-                  )
-                })}
-              </div>
-            ))
+                  )}
+                  {rows.map(({ variant, rolling }) => {
+                    const model = variant.id
+                    const index = options.indexOf(model)
+                    const snapshotTitle =
+                      variant.snapshots.length > 0
+                        ? t('ui.modelCombo.snapshotTitle', {
+                            ids: variant.snapshots.join(', ')
+                          })
+                        : undefined
+                    return (
+                      <div
+                        key={model}
+                        id={`${id}-option-${index}`}
+                        role="option"
+                        aria-selected={model === value}
+                        title={snapshotTitle}
+                        className={`model-combo-option${index === highlight ? ' highlight' : ''}${
+                          model === value ? ' selected' : ''
+                        }${rolling ? ' rolling' : ' pinned'}${rows.length > 1 ? ' in-family' : ''}`}
+                        onMouseEnter={() => setHighlight(index)}
+                        onMouseDown={(event) => {
+                          // Commit before the input loses focus, so the outside-click
+                          // listener cannot close the popup first.
+                          event.preventDefault()
+                          commit(model)
+                        }}
+                      >
+                        <span>{model}</span>
+                        {variant.snapshots.length > 0 && (
+                          <span className="model-combo-tag snapshots" title={snapshotTitle}>
+                            +{variant.snapshots.length}
+                          </span>
+                        )}
+                        {rolling && (
+                          <span className="model-combo-tag" title={t('ui.modelCombo.rollingTitle')}>
+                            {t('ui.modelCombo.rolling')}
+                          </span>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })
           )}
         </div>
       )}

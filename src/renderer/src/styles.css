@@ -2328,6 +2328,24 @@ button {
   padding-top: 4px;
   border-top: 1px solid var(--border-soft, rgba(148, 163, 184, 0.16));
 }
+/* Familien-Header: Alias + Pins lesen als EIN Block, nicht als Duplikate. */
+.model-combo-family-head {
+  padding: 2px 8px 1px;
+  color: var(--text-muted);
+  font-size: 9.5px;
+  font-family: var(--font-sans, inherit);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  user-select: none;
+}
+.model-combo-option.in-family {
+  margin-left: 6px;
+}
+.model-combo-tag.snapshots {
+  background: rgba(148, 163, 184, 0.16);
+  color: var(--text-2, var(--text-1));
+  text-transform: none;
+}
 .model-combo-option {
   display: flex;
   align-items: center;

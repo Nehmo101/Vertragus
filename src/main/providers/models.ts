@@ -30,7 +30,7 @@ import {
   type ProviderModelCatalog,
   type ProviderModelCatalogEntry
 } from '@shared/providers'
-import { modelFamily, orderedModelList } from '@shared/models'
+import { modelFamily, normalizeModelKey, orderedModelList } from '@shared/models'
 import { resolveLaunch } from '@main/agents/resolveCommand'
 
 const execFileAsync = promisify(execFile)
@@ -110,13 +110,18 @@ const defaultDependencies: ModelDiscoveryDependencies = {
 }
 
 function uniqueModels(values: unknown[]): string[] {
-  const seen = new Set<string>()
+  // Punktuations-Zwillinge über Quellen hinweg (claude-sonnet-4.6 vs
+  // claude-sonnet-4-6) zählen als EIN Modell; die zuerst gesehene
+  // Schreibweise überlebt — sie ist die, die die Quelle auch akzeptiert.
+  const seen = new Map<string, string>()
   for (const value of values) {
     if (typeof value !== 'string') continue
     const model = value.trim()
-    if (model) seen.add(model)
+    if (!model) continue
+    const key = normalizeModelKey(model)
+    if (!seen.has(key)) seen.set(key, model)
   }
-  return [...seen]
+  return [...seen.values()]
 }
 
 function mergeModels(...groups: unknown[][]): string[] {
@@ -470,8 +475,10 @@ export function applyModelMemory(
   }
   for (const model of discovered) seen[model] = now
 
-  const discoveredKeys = new Set(discovered.map((model) => model.toLowerCase()))
-  const revived = Object.keys(seen).filter((model) => !discoveredKeys.has(model.toLowerCase()))
+  // normalizeModelKey statt lowercase: gemerkte Punktuations-Zwillinge altern
+  // aus, statt bei jedem Refresh als "revived" zurückzukommen.
+  const discoveredKeys = new Set(discovered.map((model) => normalizeModelKey(model)))
+  const revived = Object.keys(seen).filter((model) => !discoveredKeys.has(normalizeModelKey(model)))
   const models = orderedModelList([...discovered, ...revived])
 
   if (discovered.length === 0) {

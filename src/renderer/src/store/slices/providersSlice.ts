@@ -77,6 +77,9 @@ export const createProvidersSlice: StateCreator<AppState, [], [], ProvidersSlice
     })
     set({ providerEnabled })
     void window.vertragus.setConfig('providerEnabled', providerEnabled)
+    // Ein frisch aktivierter Provider soll seine Modelle sofort zeigen —
+    // nicht erst beim nächsten 6h-Tick oder Health-Refresh.
+    if (enabled) void get().refreshModels()
   },
 
   setModelEnabled(provider, model, enabled) {

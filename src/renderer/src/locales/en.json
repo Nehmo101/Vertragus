@@ -1536,7 +1536,8 @@
       "pickTitle": "Show every model of this provider",
       "noMatch": "No model matches — free text stays allowed.",
       "rolling": "latest",
-      "rollingTitle": "Rolling alias: always resolves to the newest release of this family at launch."
+      "rollingTitle": "Rolling alias: always resolves to the newest release of this family at launch.",
+      "snapshotTitle": "Dated snapshots of this model: {{ids}}"
     },
     "infoTip": {
       "label": "Field help"

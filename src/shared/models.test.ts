@@ -1,13 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import { agentSlotSchema, orchestratorSchema, workspaceProfileSchema } from './profile'
 import {
+  collapseModelVariants,
   formatModelLabel,
   groupModelsByFamily,
+  groupModelVariantsByFamily,
   isModelAlias,
+  isSnapshotId,
   modelAfterProviderChange,
   modelFamily,
+  normalizeModelKey,
   orderedModelList,
-  resolveModel
+  resolveModel,
+  snapshotBase
 } from './models'
 import { DEFAULT_MODELS } from './providers'
 
@@ -45,6 +50,80 @@ describe('isModelAlias', () => {
 
   it('rejects blank input', () => {
     expect(isModelAlias('   ')).toBe(false)
+  })
+})
+
+describe('normalizeModelKey', () => {
+  it('folds punctuation spellings of the same id together', () => {
+    expect(normalizeModelKey('claude-sonnet-4.6')).toBe(normalizeModelKey('claude-sonnet-4-6'))
+    expect(normalizeModelKey('CLAUDE-Sonnet-4_6')).toBe('claude-sonnet-4-6')
+  })
+})
+
+describe('snapshot ids', () => {
+  it('detects dated snapshots and strips the date to the base id', () => {
+    expect(isSnapshotId('claude-sonnet-4-5-20250929')).toBe(true)
+    expect(snapshotBase('claude-sonnet-4-5-20250929')).toBe('claude-sonnet-4-5')
+  })
+
+  it('leaves non-date numeric ids alone', () => {
+    for (const id of ['qwen2.5-coder:32b', 'gpt-5.4-mini', 'claude-sonnet-4-5', 'llama3.3:70b']) {
+      expect(isSnapshotId(id)).toBe(false)
+      expect(snapshotBase(id)).toBe(id)
+    }
+  })
+})
+
+describe('collapseModelVariants', () => {
+  it('folds a dated snapshot into its base row as tooltip data', () => {
+    const rows = collapseModelVariants([
+      'claude-sonnet-4-5',
+      'claude-sonnet-4-5-20250929',
+      'claude-opus-5'
+    ])
+    expect(rows).toEqual([
+      { id: 'claude-sonnet-4-5', snapshots: ['claude-sonnet-4-5-20250929'] },
+      { id: 'claude-opus-5', snapshots: [] }
+    ])
+  })
+
+  it('folds a snapshot listed BEFORE its base (source order independent)', () => {
+    const rows = collapseModelVariants(['claude-sonnet-4-5-20250929', 'claude-sonnet-4-5'])
+    expect(rows).toEqual([
+      { id: 'claude-sonnet-4-5', snapshots: ['claude-sonnet-4-5-20250929'] }
+    ])
+  })
+
+  it('keeps an orphan snapshot launchable as its own row', () => {
+    expect(collapseModelVariants(['claude-haiku-4-5-20251001'])).toEqual([
+      { id: 'claude-haiku-4-5-20251001', snapshots: [] }
+    ])
+  })
+
+  it('collapses punctuation twins, first spelling wins', () => {
+    expect(collapseModelVariants(['claude-sonnet-4.6', 'claude-sonnet-4-6'])).toEqual([
+      { id: 'claude-sonnet-4.6', snapshots: [] }
+    ])
+  })
+
+  it('does not collapse genuinely different versions', () => {
+    const rows = collapseModelVariants(['gpt-5.4-mini', 'gpt-5.6-sol', 'qwen2.5-coder:32b'])
+    expect(rows.map((row) => row.id)).toEqual(['gpt-5.4-mini', 'gpt-5.6-sol', 'qwen2.5-coder:32b'])
+  })
+})
+
+describe('groupModelVariantsByFamily', () => {
+  it('shows alias, base and snapshot as ONE family block', () => {
+    const groups = groupModelVariantsByFamily(
+      collapseModelVariants(['sonnet', 'claude-sonnet-4-6', 'claude-sonnet-4-5-20250929', 'claude-sonnet-4-5'])
+    )
+    expect(groups).toHaveLength(1)
+    expect(groups[0]!.alias?.id).toBe('sonnet')
+    expect(groups[0]!.pinned.map((variant) => variant.id)).toEqual([
+      'claude-sonnet-4-6',
+      'claude-sonnet-4-5'
+    ])
+    expect(groups[0]!.pinned[1]!.snapshots).toEqual(['claude-sonnet-4-5-20250929'])
   })
 })
 

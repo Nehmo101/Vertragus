@@ -368,6 +368,18 @@ export function agentSlotCapabilities(slot: AgentSlot): AgentSlotCapabilities {
       weaknesses: ['tiefes Architekturdesign', 'abschliessendes Security-Review']
     }
   }
+  if (slot.provider === 'cursor' && model.includes('composer')) {
+    return {
+      strengths: ['Frontend und UI-Implementierung', 'ausgewogene Feature-Arbeit', 'Repo-Navigation'],
+      weaknesses: ['tiefes Backend-Architekturdesign']
+    }
+  }
+  if (slot.provider === 'claude' && model.includes('haiku')) {
+    return {
+      strengths: ['schnelle mechanische Aenderungen', 'kleine klar umrissene Tasks', 'kostenguenstige Zuarbeit'],
+      weaknesses: ['tiefes Architekturdesign', 'grosse mehrschichtige Refactorings']
+    }
+  }
   if (slot.provider === 'claude' && (model.includes('fable') || model.includes('opus'))) {
     return {
       strengths: ['Backend-Architektur', 'komplexe Refactorings', 'lange Kontexte und Abwaegungen'],
@@ -392,16 +404,52 @@ export function agentSlotCapabilities(slot: AgentSlot): AgentSlotCapabilities {
       weaknesses: ['rein visuelle Entwurfsarbeit ohne Repo-Kontext']
     }
   }
+  if (slot.provider === 'codex' && (model.includes('mini') || model.includes('turbo'))) {
+    return {
+      strengths: ['schnelle mechanische Edits', 'kleine abgegrenzte Fixes', 'parallele Massenzuarbeit'],
+      weaknesses: ['Architekturentscheidungen', 'lange mehrstufige Analysen']
+    }
+  }
+  if (slot.provider === 'codex' && model.includes('sol')) {
+    return {
+      strengths: ['tiefes Debugging', 'gruendliche Code-Reviews', 'komplexe repo-nahe Implementierung'],
+      weaknesses: ['rein visuelle Entwurfsarbeit ohne Repo-Kontext']
+    }
+  }
   if (slot.provider === 'codex') {
     return {
       strengths: ['repo-nahe Implementierung', 'Tests und Debugging', 'praezise Code-Reviews'],
       weaknesses: ['rein visuelle Entwurfsarbeit ohne Repo-Kontext']
     }
   }
+  if (slot.provider === 'copilot' && model.includes('claude')) {
+    return {
+      strengths: ['Review und Analyse', 'GitHub-nahe Aufgaben', 'sorgfaeltige Code-Ergaenzungen'],
+      weaknesses: ['grosse autonome Architekturumbauten']
+    }
+  }
+  if (slot.provider === 'copilot' && model.includes('gemini')) {
+    return {
+      strengths: ['multimodale Aufgaben', 'GitHub-nahe Aufgaben', 'breite Recherche im Repo'],
+      weaknesses: ['grosse autonome Architekturumbauten']
+    }
+  }
   if (slot.provider === 'copilot') {
     return {
       strengths: ['gezielte Implementierung', 'GitHub-nahe Aufgaben', 'Code-Ergaenzungen'],
       weaknesses: ['grosse autonome Architekturumbauten']
+    }
+  }
+  if (slot.provider === 'ollama' && model.includes('coder')) {
+    return {
+      strengths: ['lokale Code-Generierung', 'kleine abgegrenzte Implementierungen', 'offlinefaehige Zuarbeit'],
+      weaknesses: ['sehr grosse Kontexte', 'providerabhaengige Tool-Integrationen']
+    }
+  }
+  if (slot.provider === 'ollama' && model.includes('llama')) {
+    return {
+      strengths: ['lokale Analyse und Zusammenfassungen', 'offlinefaehige Recherche'],
+      weaknesses: ['sehr grosse Kontexte', 'komplexe agentische Tool-Ketten']
     }
   }
   return {

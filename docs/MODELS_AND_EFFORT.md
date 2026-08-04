@@ -97,6 +97,21 @@ zusammengeführten Quellen fallen zusammen.
 Freitext bleibt erlaubt: Ein Provider kann eine ID akzeptieren, die keine Quelle
 kennt.
 
+### Snapshot- und Schreibweisen-Dedup
+
+Zwei Fälle erzeugten früher optisch doppelte Zeilen; beide werden seit v0.1.90
+zusammengefaltet (`collapseModelVariants` in `src/shared/models.ts`):
+
+- **Datierte Snapshots**: liefert die Anthropic-API `claude-sonnet-4-5` UND
+  `claude-sonnet-4-5-20250929`, erscheint nur die Basis-Zeile; der Snapshot
+  bleibt als Tooltip (`+1`-Marker) sichtbar und über die Suche auffindbar. Ein
+  Snapshot ohne Basis in der Liste bleibt eine eigene, startbare Zeile.
+- **Punktuations-Zwillinge**: `claude-sonnet-4.6` (Copilot) und
+  `claude-sonnet-4-6` (Anthropic) zählen als EIN Modell
+  (`normalizeModelKey`); die zuerst gesehene Schreibweise überlebt, denn sie
+  ist die, die die jeweilige CLI auch akzeptiert. Gespeicherte Werte werden nie
+  umgeschrieben — der Dedup betrifft nur Anzeige und Katalog-Merge.
+
 ## Migration (Config-Schema v4)
 
 Beim ersten Start nach dem Update, vor der Schema-Validierung, weil das Schema

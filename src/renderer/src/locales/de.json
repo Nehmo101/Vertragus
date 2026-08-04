@@ -1536,7 +1536,8 @@
       "pickTitle": "Alle Modelle dieses Providers anzeigen",
       "noMatch": "Kein Modell passt zur Eingabe — freier Text bleibt erlaubt.",
       "rolling": "neueste",
-      "rollingTitle": "Rollender Alias: löst beim Start immer auf die neueste Version dieser Familie auf."
+      "rollingTitle": "Rollender Alias: löst beim Start immer auf die neueste Version dieser Familie auf.",
+      "snapshotTitle": "Datierte Snapshots dieses Modells: {{ids}}"
     },
     "infoTip": {
       "label": "Feldhilfe"
