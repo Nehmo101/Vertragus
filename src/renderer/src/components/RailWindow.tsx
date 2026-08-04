@@ -17,6 +17,9 @@ interface DragStart {
  * Die Desktop-Rail (#/sidebar): schmale Always-on-top-Startleiste. Sie spiegelt
  * den Store nur (Profil-Liste, Agenten, Sessions kommen via ev:-Broadcasts)
  * und schreibt ausschliesslich via IPC-Actions — nie direkt in geteilten State.
+ *
+ * Der Weg zurueck zur Vollansicht ist bewusst mehrfach vorhanden: Header-Button,
+ * Doppelklick auf den Orb, Empty-State-Button und der Tray-Eintrag im Main.
  */
 export default function RailWindow(): JSX.Element {
   const { t } = useTranslation()
@@ -25,6 +28,7 @@ export default function RailWindow(): JSX.Element {
       profiles: s.profiles,
       agents: s.agents,
       workspaceSessions: s.workspaceSessions,
+      bootstrapped: s.bootstrapped,
       yoloMaster: s.yoloMaster,
       toggleYolo: s.toggleYolo
     }))
@@ -34,6 +38,10 @@ export default function RailWindow(): JSX.Element {
     () => railTiles(store.profiles, store.agents, store.workspaceSessions),
     [store.profiles, store.agents, store.workspaceSessions]
   )
+
+  const openMain = (): void => {
+    void window.vertragus.rail.openMain()
+  }
 
   const beginDrag = (event: React.PointerEvent<HTMLDivElement>): void => {
     if (event.button !== 0) return
@@ -64,18 +72,34 @@ export default function RailWindow(): JSX.Element {
 
   return (
     <main className="rail" aria-label={t('rail.title')}>
-      <div
-        className="rail-orb drag-region"
-        role="button"
-        tabIndex={0}
-        title={t('rail.dragAria')}
-        aria-label={t('rail.dragAria')}
-        onPointerDown={beginDrag}
-        onPointerMove={drag}
-        onPointerUp={endDrag}
-      >
-        ◆
-      </div>
+      <header className="rail-head">
+        <div
+          className="rail-orb"
+          role="button"
+          tabIndex={0}
+          title={t('rail.dragAria')}
+          aria-label={t('rail.dragAria')}
+          onPointerDown={beginDrag}
+          onPointerMove={drag}
+          onPointerUp={endDrag}
+          onDoubleClick={openMain}
+        >
+          ◆
+        </div>
+        <div className="rail-brand">
+          <span className="rail-brand-name">VERTRAGVS</span>
+          <span className="rail-brand-sub">{t('rail.subtitle')}</span>
+        </div>
+        <button
+          type="button"
+          className="rail-open-main"
+          title={t('rail.full')}
+          aria-label={t('rail.full')}
+          onClick={openMain}
+        >
+          ⛶
+        </button>
+      </header>
 
       <div className="rail-profiles" role="list">
         {tiles.map((tile) => (
@@ -97,16 +121,28 @@ export default function RailWindow(): JSX.Element {
               {tile.initial}
             </span>
             <span className="rail-tile-name">{tile.name}</span>
-            {tile.runningAgents > 0 && (
+            {tile.runningAgents > 0 ? (
               <span className="rail-tile-badge">{tile.runningAgents}</span>
+            ) : (
+              <span className="rail-tile-go" aria-hidden="true">
+                ▶
+              </span>
             )}
-            {tile.active && <span className="rail-tile-pulse" aria-hidden="true" />}
           </button>
         ))}
-        {tiles.length === 0 && <div className="rail-empty">{t('rail.empty')}</div>}
+        {tiles.length === 0 && (
+          <div className="rail-empty">
+            <p>{store.bootstrapped ? t('rail.empty') : t('rail.loading')}</p>
+            {store.bootstrapped && (
+              <button type="button" className="rail-empty-action" onClick={openMain}>
+                {t('rail.emptyAction')}
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
-      <div className="rail-footer">
+      <footer className="rail-footer">
         <button
           type="button"
           className={`rail-action yolo${store.yoloMaster ? ' on' : ''}`}
@@ -114,17 +150,20 @@ export default function RailWindow(): JSX.Element {
           aria-pressed={store.yoloMaster}
           onClick={store.toggleYolo}
         >
-          ⚡ <span className="rail-action-label">Yolo</span>
+          <span className="rail-action-icon" aria-hidden="true">
+            ⚡
+          </span>
+          <span className="rail-action-label">
+            {store.yoloMaster ? t('rail.yoloOn') : t('rail.yoloOff')}
+          </span>
         </button>
-        <button
-          type="button"
-          className="rail-action"
-          title={t('rail.full')}
-          onClick={() => void window.vertragus.rail.openMain()}
-        >
-          ⛶ <span className="rail-action-label">{t('rail.full')}</span>
+        <button type="button" className="rail-action" title={t('rail.full')} onClick={openMain}>
+          <span className="rail-action-icon" aria-hidden="true">
+            ⛶
+          </span>
+          <span className="rail-action-label">{t('rail.full')}</span>
         </button>
-      </div>
+      </footer>
     </main>
   )
 }

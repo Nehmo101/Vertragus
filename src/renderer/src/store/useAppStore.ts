@@ -430,7 +430,10 @@ export const useAppStore = create<AppState>()((set, get, api) => ({
         window.vertragus.getConfig<WorkspaceLayout>('ui.workspaceLayout'),
         window.vertragus.getConfig<UiDensity>('ui.density'),
         window.vertragus.getConfig<Partial<Record<AgentProviderId, number>>>('providerLimits'),
-        window.vertragus.workspaceSessions.list(),
+        // Nie die gesamte Hydration an einem einzelnen gescheiterten Read
+        // sterben lassen (Sekundärfenster!): Sessions kommen notfalls über
+        // den ev:workspaceSessions-Broadcast nach.
+        window.vertragus.workspaceSessions.list().catch(() => []),
         window.vertragus.getConfig<Partial<ProviderEnabled>>('providerEnabled'),
         window.vertragus.getConfig<Partial<DisabledModels>>('disabledModels'),
         window.vertragus.getConfig<boolean>('ui.cliReadable'),

@@ -491,11 +491,16 @@
   },
   "rail": {
     "title": "Vertragus rail",
-    "dragAria": "Move the rail (drag); snaps to the screen edge",
+    "subtitle": "Double-click ◆ = full view",
+    "dragAria": "Move the rail (drag); double-click opens the full view",
     "launch": "Launch {{name}} — agents appear as tiled windows",
     "running": "{{name}}: {{count}} agent(s) active — click focuses and re-tiles",
     "full": "Full view",
-    "empty": "No workspace profiles yet — create one in the full view."
+    "loading": "Loading workspace profiles…",
+    "empty": "No workspace profiles yet.",
+    "emptyAction": "Open full view",
+    "yoloOn": "Yolo active — click to disable",
+    "yoloOff": "Safe mode — click to enable Yolo"
   },
   "orch": {
     "panelAria": "Orchestrator side panel",

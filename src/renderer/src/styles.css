@@ -175,6 +175,15 @@ button {
   background: transparent;
 }
 
+/* Same for the frameless desktop rail (#/sidebar): rail.css governs it. */
+.app-root.rail-window-root {
+  min-width: 0;
+  min-height: 0;
+  width: 100vw;
+  height: 100vh;
+  background: transparent;
+}
+
 .body-row {
   flex: 1;
   display: flex;

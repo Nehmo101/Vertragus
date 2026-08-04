@@ -28,6 +28,7 @@
     "retro:analyze": "tsx scripts/retro-analyze.ts",
     "retro:mark-proposal": "tsx scripts/retro-mark-proposal.ts",
     "test:ui-smoke": "node scripts/ui-smoke.mjs",
+    "test:rail-smoke": "node scripts/rail-smoke.mjs",
     "build:win": "pnpm run build && electron-builder --win",
     "build:mac": "pnpm run build && electron-builder --mac --universal",
     "build:linux": "pnpm run build && electron-builder --linux",

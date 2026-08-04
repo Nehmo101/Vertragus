@@ -425,6 +425,16 @@ export function isRailWindowSender(sender: Electron.WebContents): boolean {
   return Boolean(railWindow && !railWindow.isDestroyed() && railWindow.webContents === sender)
 }
 
+/** True für jedes Agent-Pane-Popout-Fenster (Read-Pfade wie Session-Listen). */
+export function isPaneWindowSender(sender: Electron.WebContents): boolean {
+  for (const windows of paneWindows.values()) {
+    for (const win of windows) {
+      if (!win.isDestroyed() && win.webContents === sender) return true
+    }
+  }
+  return false
+}
+
 export function createRailWindow(): BrowserWindow {
   if (railWindow && !railWindow.isDestroyed()) {
     railWindow.show()
@@ -457,6 +467,23 @@ export function createRailWindow(): BrowserWindow {
   installEditContextMenu(win)
   secureWindow(win)
   win.on('ready-to-show', () => win.show())
+
+  // Headless-Verifikation der Rail (scripts/rail-smoke.mjs):
+  // VERTRAGUS_RAIL_SCREENSHOT=<file.png> captured das Fenster nach dem Boot.
+  const railShotPath = brandEnv('RAIL_SCREENSHOT')
+  if (railShotPath) {
+    win.webContents.once('did-finish-load', () => {
+      setTimeout(async () => {
+        try {
+          const image = await win.webContents.capturePage()
+          writeFileSync(railShotPath, image.toPNG())
+        } finally {
+          app.quit()
+        }
+      }, 4000)
+    })
+  }
+
   loadRoute(win, '/sidebar')
   return win
 }
