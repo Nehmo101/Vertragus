@@ -138,12 +138,13 @@ app.whenReady().then(async () => {
   // Startmodus: 'rail' bootet nur die schmale Desktop-Rail; Smoke-/Screenshot-
   // und E2E-Läufe erwarten immer das Vollfenster.
   const configStore = await import('@main/config/store')
+  // E2E-Läufe (VERTRAGUS_E2E_USER_DATA) folgen dem geseedeten ui.startMode:
+  // der Standard-Seed bootet weiter das Vollfenster, der Rail-E2E die Rail.
   const railStart = (): boolean =>
     Boolean(brandEnv('RAIL_SCREENSHOT')) ||
     (configStore.getSetting<string>('ui.startMode') === 'rail' &&
       !brandEnv('UI_SMOKE') &&
-      !brandEnv('SCREENSHOT') &&
-      !e2eUserData)
+      !brandEnv('SCREENSHOT'))
   if (!headless) {
     if (railStart()) {
       windows.createRailWindow()

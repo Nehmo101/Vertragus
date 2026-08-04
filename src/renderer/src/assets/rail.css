@@ -14,6 +14,10 @@
   --rail-muted: #a2a2ab;
   --rail-accent: #2dd4bf;
   --rail-hover: rgba(45, 212, 191, 0.1);
+  /* Native OS-Drag auf der ganzen Flaeche (Voice-Overlay-Muster) — Buttons,
+     Kacheln und die scrollende Liste sind unten explizit no-drag. */
+  -webkit-app-region: drag;
+  cursor: grab;
   flex: 1;
   min-width: 0;
   display: flex;
@@ -27,6 +31,11 @@
   font-size: 13px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
   overflow: hidden;
+}
+.rail button,
+.rail .rail-profiles {
+  -webkit-app-region: no-drag;
+  cursor: pointer;
 }
 [data-theme='light'] .rail {
   --rail-bg: rgba(243, 239, 228, 0.97);
@@ -57,12 +66,7 @@
   font-size: 16px;
   color: var(--rail-accent);
   background: color-mix(in srgb, var(--rail-accent) 14%, transparent);
-  cursor: grab;
   user-select: none;
-  touch-action: none;
-}
-.rail-orb:active {
-  cursor: grabbing;
 }
 .rail-brand {
   flex: 1;
@@ -83,7 +87,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.rail-open-main {
+.rail-open-main,
+.rail-close {
   flex: none;
   width: 34px;
   height: 34px;
@@ -102,6 +107,21 @@
   border-color: var(--rail-accent);
   outline: none;
 }
+.rail-close {
+  font-size: 13px;
+  color: var(--rail-muted);
+}
+.rail-close:hover,
+.rail-close:focus-visible {
+  background: rgba(242, 85, 90, 0.14);
+  border-color: rgba(242, 85, 90, 0.55);
+  color: #ff8a8e;
+  outline: none;
+}
+[data-theme='light'] .rail-close:hover,
+[data-theme='light'] .rail-close:focus-visible {
+  color: #b3261e;
+}
 
 /* ---------- Profil-Kacheln ---------- */
 .rail-profiles {
@@ -114,9 +134,16 @@
   overflow-x: hidden;
   scrollbar-width: thin;
 }
+.rail-row {
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
 .rail-tile {
   position: relative;
-  flex: none;
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -129,6 +156,10 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
+}
+.rail-tile:disabled {
+  cursor: progress;
+  opacity: 0.75;
 }
 .rail-tile:hover,
 .rail-tile:focus-visible {
@@ -186,8 +217,87 @@
   0%, 100% { opacity: 0.65; }
   50% { opacity: 1; }
 }
+
+/* Start-Feedback: Spinner ersetzt das Initial, solange launchTiled laeuft. */
+.rail-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid color-mix(in srgb, var(--rail-accent) 35%, transparent);
+  border-top-color: var(--rail-accent);
+  border-radius: 50%;
+  animation: railspin 0.8s linear infinite;
+}
+@keyframes railspin {
+  to { transform: rotate(360deg); }
+}
+
+/* Stoppen: zweistufig — erster Klick armiert (rot), zweiter fuehrt aus. */
+.rail-stop {
+  flex: none;
+  width: 30px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--rail-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+.rail-stop:hover,
+.rail-stop:focus-visible {
+  color: #ff8a8e;
+  border-color: rgba(242, 85, 90, 0.45);
+  background: rgba(242, 85, 90, 0.1);
+  outline: none;
+}
+.rail-stop.confirm {
+  color: #fff;
+  background: rgba(242, 85, 90, 0.75);
+  border-color: rgba(242, 85, 90, 0.9);
+  font-weight: 700;
+}
+[data-theme='light'] .rail-stop:hover,
+[data-theme='light'] .rail-stop:focus-visible {
+  color: #b3261e;
+}
+
+/* Startfehler: sichtbar statt still — mit Dismiss. */
+.rail-error {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(242, 85, 90, 0.5);
+  border-radius: 10px;
+  background: rgba(242, 85, 90, 0.12);
+  color: #ffb3b6;
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+[data-theme='light'] .rail-error {
+  color: #8f1d17;
+  background: rgba(242, 85, 90, 0.1);
+}
+.rail-error-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  max-height: 72px;
+  overflow-y: auto;
+}
+.rail-error-dismiss {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .rail-tile.active .rail-tile-badge { animation: none; }
+  .rail-spinner { animation-duration: 1.6s; }
 }
 
 /* ---------- Leerzustand ---------- */

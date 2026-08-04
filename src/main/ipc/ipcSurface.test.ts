@@ -241,7 +241,6 @@ const EXPECTED_CONTROLLER_CHANNELS = [
 /** Channels with a bespoke guard inside the handler body. */
 const EXPECTED_CUSTOM_AUTH_CHANNELS = [
   'railLaunchTiled',
-  'railMoved',
   'railOpenMain',
   'voiceAssistantTurn',
   'voiceOverlayHide'
@@ -282,8 +281,7 @@ const VALIDATION_EXCEPTIONS: Record<string, string> = {
   agentWrite: 'hot pty path; unknown ids are dropped inside AgentManager.write',
   agentMarkInteractiveUsed: 'unknown ids are ignored inside AgentManager',
   agentResize: 'unknown ids are ignored inside AgentManager; cols/rows clamped by pty',
-  voiceOverlayMoved: 'voice-window-only; Number() coercion of window coordinates',
-  railMoved: 'rail-window-only (isRailWindowSender drop); Number() coercion of window coordinates'
+  voiceOverlayMoved: 'voice-window-only; Number() coercion of window coordinates'
 }
 
 const AUTH_MARKERS =

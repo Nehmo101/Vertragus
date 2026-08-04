@@ -464,6 +464,19 @@ export function createRailWindow(): BrowserWindow {
   win.on('closed', () => {
     if (railWindow === win) railWindow = null
   })
+  // Kanten-Snap + Persistenz nach jeder Positionsänderung. Bewusst das
+  // entprellte 'move'-Event statt 'moved': Letzteres feuert unter Windows nur
+  // am Ende eines NUTZER-Drags (WM_EXITSIZEMOVE), nicht bei programmatischen
+  // Moves. Das Entprellen (200 ms Ruhe) markiert das Drag-Ende; der Snap einer
+  // bereits gesnappten Position ist Identität, es entsteht keine Schleife.
+  let railMoveTimer: NodeJS.Timeout | undefined
+  win.on('move', () => {
+    if (railMoveTimer) clearTimeout(railMoveTimer)
+    railMoveTimer = setTimeout(() => snapAndPersistRail(win), 200)
+  })
+  win.on('closed', () => {
+    if (railMoveTimer) clearTimeout(railMoveTimer)
+  })
   installEditContextMenu(win)
   secureWindow(win)
   win.on('ready-to-show', () => win.show())
@@ -512,33 +525,28 @@ export function getRailDock(): { edge: 'left' | 'right'; width: number } | null 
   return { edge, width: RAIL_WIDTH + RAIL_MARGIN }
 }
 
-let railPersistTimer: NodeJS.Timeout | undefined
-
 /**
- * Rail-Drag: Kanten-Snap + y-Klemmung, Persistenz debounced (~300 ms), damit
- * ein Drag keinen Write-Sturm auf vertragus.json erzeugt.
+ * Nach einem nativen OS-Drag (-webkit-app-region: drag im Renderer): an die
+ * Bildschirmkante snappen, y klemmen und die Lage persistieren. Das
+ * 'moved'-Event feuert am Drag-Ende — kein Debounce/IPC nötig.
  */
-export function moveRailWindow(x: number, y: number): void {
-  if (!railWindow || railWindow.isDestroyed()) return
-  if (!Number.isFinite(x) || !Number.isFinite(y)) return
-  const workArea = screen.getPrimaryDisplay().workArea
+function snapAndPersistRail(win: BrowserWindow): void {
+  if (win.isDestroyed()) return
+  const workArea = screen.getDisplayMatching(win.getBounds()).workArea
   const inset: Rect = {
     x: workArea.x + RAIL_MARGIN,
     y: workArea.y + RAIL_MARGIN,
     width: workArea.width - 2 * RAIL_MARGIN,
     height: workArea.height - 2 * RAIL_MARGIN
   }
-  const height = railWindow.getBounds().height
-  const snapped = snapRailPosition(Math.round(x), Math.round(y), inset, RAIL_WIDTH, height)
-  railWindow.setPosition(snapped.x, snapped.y)
-  if (railPersistTimer) clearTimeout(railPersistTimer)
-  railPersistTimer = setTimeout(() => {
-    railPersistTimer = undefined
-    const [finalX, finalY] = railWindow?.isDestroyed() === false ? railWindow.getPosition() : [snapped.x, snapped.y]
-    const center = finalX + RAIL_WIDTH / 2
-    const edge = center < workArea.x + workArea.width / 2 ? 'left' : 'right'
-    setSetting('ui.railBounds', { edge, y: finalY })
-  }, 300)
+  const bounds = win.getBounds()
+  const snapped = snapRailPosition(bounds.x, bounds.y, inset, RAIL_WIDTH, bounds.height)
+  if (snapped.x !== bounds.x || snapped.y !== bounds.y) {
+    win.setPosition(snapped.x, snapped.y)
+  }
+  const center = snapped.x + RAIL_WIDTH / 2
+  const edge = center < workArea.x + workArea.width / 2 ? 'left' : 'right'
+  setSetting('ui.railBounds', { edge, y: snapped.y })
 }
 
 /** "Full"-Button der Rail: Hauptfenster fokussieren oder neu erzeugen. */

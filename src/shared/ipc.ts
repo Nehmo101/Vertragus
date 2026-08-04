@@ -168,7 +168,6 @@ export const IPC = {
   // desktop rail (schmale Always-on-top-Startleiste)
   railToggle: 'rail:toggle',
   railOpenMain: 'rail:openMain',
-  railMoved: 'rail:moved',
   railLaunchTiled: 'rail:launchTiled',
   remoteStatus: 'remote:status',
   remoteEnable: 'remote:enable',
@@ -659,14 +658,14 @@ export interface VertragusApi {
     moved(x: number, y: number): void
   }
 
-  /** Desktop rail: the slim always-on-top launcher window (#/sidebar). */
+  /** Desktop rail: the slim always-on-top launcher window (#/sidebar). Moving
+   *  happens natively via -webkit-app-region: drag; the main process snaps and
+   *  persists the position in the window's 'moved' event. */
   rail: {
     /** Toggle the rail window visibility (creates it on first use). */
     toggle(): Promise<void>
     /** Open (or focus) the full main window from the rail. */
     openMain(): Promise<void>
-    /** Reposition the rail window during a drag; snaps + persists on the main side. */
-    moved(x: number, y: number): void
     /**
      * Start a workspace profile and tile every spawned agent — including the
      * orchestrator — as its own pane window across the desktop work area. A
