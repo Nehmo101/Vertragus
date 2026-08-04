@@ -20,7 +20,11 @@ export interface RailTile {
   /** Großbuchstaben-Initial für die kompakte Darstellung. */
   initial: string
   runningAgents: number
-  /** Hat dieses Profil eine aktive Workspace-Session? */
+  /**
+   * Aktiv-Glow: nur wenn WIRKLICH Agenten laufen. Eine Session allein reicht
+   * nicht — nach einem Fehlstart bliebe sonst ein irreführender Aktiv-Rahmen
+   * an einem Profil mit 0 Agenten stehen.
+   */
   active: boolean
 }
 
@@ -33,13 +37,15 @@ export function railTiles(
     const runningAgents = agents.filter(
       (agent) => agent.profileId === profile.id && agent.status === 'running'
     ).length
-    const active = sessions.some((session) => session.profileId === profile.id && session.active)
+    const sessionActive = sessions.some(
+      (session) => session.profileId === profile.id && session.active
+    )
     return {
       id: profile.id,
       name: profile.name,
       initial: (profile.name.trim().charAt(0) || '?').toUpperCase(),
       runningAgents,
-      active
+      active: sessionActive && runningAgents > 0
     }
   })
 }

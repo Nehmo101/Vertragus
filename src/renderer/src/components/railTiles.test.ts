@@ -29,6 +29,11 @@ describe('railTiles', () => {
     ])
   })
 
+  it('shows no active glow for a session without running agents (failed start)', () => {
+    const tiles = railTiles(profiles, [], [{ profileId: 'uwe', active: true }])
+    expect(tiles[0]).toMatchObject({ id: 'uwe', runningAgents: 0, active: false })
+  })
+
   it('keeps the profile order stable', () => {
     const tiles = railTiles(profiles, [], [])
     expect(tiles.map((tile) => tile.id)).toEqual(['uwe', 'terra', 'empty'])

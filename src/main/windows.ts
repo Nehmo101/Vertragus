@@ -464,8 +464,19 @@ export function createRailWindow(): BrowserWindow {
   win.on('closed', () => {
     if (railWindow === win) railWindow = null
   })
-  // Kanten-Snap + Persistenz nach jedem nativen Drag (Drag-Ende-Event).
-  win.on('moved', () => snapAndPersistRail(win))
+  // Kanten-Snap + Persistenz nach jeder Positionsänderung. Bewusst das
+  // entprellte 'move'-Event statt 'moved': Letzteres feuert unter Windows nur
+  // am Ende eines NUTZER-Drags (WM_EXITSIZEMOVE), nicht bei programmatischen
+  // Moves. Das Entprellen (200 ms Ruhe) markiert das Drag-Ende; der Snap einer
+  // bereits gesnappten Position ist Identität, es entsteht keine Schleife.
+  let railMoveTimer: NodeJS.Timeout | undefined
+  win.on('move', () => {
+    if (railMoveTimer) clearTimeout(railMoveTimer)
+    railMoveTimer = setTimeout(() => snapAndPersistRail(win), 200)
+  })
+  win.on('closed', () => {
+    if (railMoveTimer) clearTimeout(railMoveTimer)
+  })
   installEditContextMenu(win)
   secureWindow(win)
   win.on('ready-to-show', () => win.show())
