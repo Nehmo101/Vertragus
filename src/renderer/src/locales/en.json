@@ -237,6 +237,7 @@
     "limitNear": "⚠ {{name}}: {{kind}} near — “⇄ Hand off” available",
     "workspaceOverviewIncomplete": "Workspace overview incomplete: {{error}}",
     "diagnosticsExported": "Diagnostics exported: {{path}}",
+    "startModeChanged": "Start mode: {{mode}} — takes effect on the next launch.",
     "diagnosticsNoRun": "There is no run yet for this workspace profile.",
     "diagnosticsExportFailed": "Diagnostics export failed: {{error}}",
     "mcpSaved": "MCP servers saved ({{count}}).",
@@ -481,8 +482,20 @@
       "darkTheme": "Dark theme",
       "readable": "Readable CLI output",
       "density": "Compact view",
+      "startMode": "Switch start mode",
+      "startModeFull": "Full window",
+      "startModeRail": "Rail",
+      "showRail": "Show rail",
       "updateChannel": "Switch update channel"
     }
+  },
+  "rail": {
+    "title": "Vertragus rail",
+    "dragAria": "Move the rail (drag); snaps to the screen edge",
+    "launch": "Launch {{name}} — agents appear as tiled windows",
+    "running": "{{name}}: {{count}} agent(s) active — click focuses and re-tiles",
+    "full": "Full view",
+    "empty": "No workspace profiles yet — create one in the full view."
   },
   "orch": {
     "panelAria": "Orchestrator side panel",

@@ -218,6 +218,7 @@ const EXPECTED_MAIN_WINDOW_CHANNELS = [
   'remoteRevokeDevice',
   'remoteSetApnsConfig',
   'remoteStatus',
+  'railToggle',
   'voiceAssistantGetSettings',
   'voiceAssistantSetSettings',
   'voiceOverlayToggle'
@@ -238,7 +239,13 @@ const EXPECTED_CONTROLLER_CHANNELS = [
 ].sort()
 
 /** Channels with a bespoke guard inside the handler body. */
-const EXPECTED_CUSTOM_AUTH_CHANNELS = ['voiceAssistantTurn', 'voiceOverlayHide'].sort()
+const EXPECTED_CUSTOM_AUTH_CHANNELS = [
+  'railLaunchTiled',
+  'railMoved',
+  'railOpenMain',
+  'voiceAssistantTurn',
+  'voiceOverlayHide'
+].sort()
 
 /** Channels restricted to the voice overlay window (send-only). */
 const EXPECTED_VOICE_WINDOW_CHANNELS = ['voiceOverlayMoved'].sort()
@@ -275,15 +282,16 @@ const VALIDATION_EXCEPTIONS: Record<string, string> = {
   agentWrite: 'hot pty path; unknown ids are dropped inside AgentManager.write',
   agentMarkInteractiveUsed: 'unknown ids are ignored inside AgentManager',
   agentResize: 'unknown ids are ignored inside AgentManager; cols/rows clamped by pty',
-  voiceOverlayMoved: 'voice-window-only; Number() coercion of window coordinates'
+  voiceOverlayMoved: 'voice-window-only; Number() coercion of window coordinates',
+  railMoved: 'rail-window-only (isRailWindowSender drop); Number() coercion of window coordinates'
 }
 
 const AUTH_MARKERS =
-  /assertNotVoiceWindow\(|requireMainWindow\(|guardVoiceTurnAllowed\(|guardOverlayControl\(|isVoiceWindowSender\(|Controller\.\w+\(/
+  /assertNotVoiceWindow\(|requireMainWindow\(|guardVoiceTurnAllowed\(|guardOverlayControl\(|guardRailControl\(|isVoiceWindowSender\(|isRailWindowSender\(|Controller\.\w+\(/
 const VALIDATION_MARKERS =
   /parseIpcPayload\(|assertIpcId\(|assertIpcOptionalId\(|assertValidConfigKey\(|requireProfile\(|Controller\.\w+\(/
 const CONTROLLER_MARKER = /Controller\.\w+\(/
-const CUSTOM_GUARD_MARKER = /guardVoiceTurnAllowed\(|guardOverlayControl\(/
+const CUSTOM_GUARD_MARKER = /guardVoiceTurnAllowed\(|guardOverlayControl\(|guardRailControl\(|isRailWindowSender\(/
 
 function sortedKeys(specs: { key: IpcManifestKey; spec: IpcChannelSpec }[]): string[] {
   return specs.map((e) => e.key as string).sort()

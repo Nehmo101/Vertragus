@@ -125,6 +125,8 @@ export interface UiSlice {
   theme: UiTheme
   workspaceLayout: WorkspaceLayout
   uiDensity: UiDensity
+  /** Startmodus des nächsten App-Starts: Vollfenster oder Desktop-Rail. */
+  startMode: 'full' | 'rail'
   /** Global default: CLI panes show a readable activity summary instead of raw output. */
   cliReadable: boolean
   /** Per-agent overrides of the global readable default (session-scoped). */
@@ -146,6 +148,8 @@ export interface UiSlice {
   togglePaneReadable(agentId: string): void
   setWorkspaceLayout(layout: WorkspaceLayout): void
   setUiDensity(density: UiDensity): void
+  /** Startmodus umschalten (voll ⇄ rail); gilt ab dem nächsten Start. */
+  cycleStartMode(): void
   showToast(msg: string): void
   exportDiagnostics(): Promise<void>
   /** Apply a voice-assistant UI navigation command (layout/view/session). */

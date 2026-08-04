@@ -21,6 +21,7 @@ import { SpeechShortcutProvider } from '@renderer/features/speechShortcut/Speech
 import { AppShortcutProvider } from '@renderer/shortcuts/AppShortcutProvider'
 import CommandPalette from '@renderer/components/palette/CommandPalette'
 import VoiceOverlay from '@renderer/components/VoiceOverlay'
+import RailWindow from '@renderer/components/RailWindow'
 import { useAttentionSignal } from '@renderer/hooks/useAttentionSignal'
 import { useHashRoute } from '@renderer/hooks/useHashRoute'
 import { useDocumentLanguage } from '@renderer/hooks/useDocumentLanguage'
@@ -71,7 +72,7 @@ export default function App(): JSX.Element {
   useEffect(() => {
     const unsubscribe = window.vertragus.events.onUiCommand((command) => {
       const route = window.location.hash
-      if (route.startsWith('#/voice') || route.startsWith('#/pane')) return
+      if (route.startsWith('#/voice') || route.startsWith('#/pane') || route.startsWith('#/sidebar')) return
       store.applyUiCommand(command)
     })
     return unsubscribe
@@ -82,6 +83,14 @@ export default function App(): JSX.Element {
     return (
       <div className="app-root voice-window-root" data-theme={store.theme}>
         <VoiceOverlay />
+      </div>
+    )
+  }
+
+  if (hash === '#/sidebar') {
+    return (
+      <div className="app-root rail-window-root" data-theme={store.theme}>
+        <RailWindow />
       </div>
     )
   }

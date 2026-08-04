@@ -13,13 +13,31 @@ const base: OverflowMenuContext = {
   updateVisible: false,
   updateLabel: 'Self-Update',
   updateDisabled: false,
-  updateChannel: null
+  updateChannel: null,
+  startMode: 'full'
 }
 
 describe('buildOverflowMenuItems', () => {
-  it('liefert die vier festen Umschalter in stabiler Reihenfolge', () => {
+  it('liefert die festen Einträge in stabiler Reihenfolge', () => {
     const items = buildOverflowMenuItems(base, t)
-    expect(items.map((item) => item.id)).toEqual(['language', 'theme', 'readable', 'density'])
+    expect(items.map((item) => item.id)).toEqual([
+      'language',
+      'theme',
+      'readable',
+      'density',
+      'startMode',
+      'showRail'
+    ])
+  })
+
+  it('zeigt den Startmodus als Detail', () => {
+    expect(buildOverflowMenuItems(base, t).find((i) => i.id === 'startMode')?.detail).toBe(
+      'Vollfenster'
+    )
+    expect(
+      buildOverflowMenuItems({ ...base, startMode: 'rail' }, t).find((i) => i.id === 'startMode')
+        ?.detail
+    ).toBe('Rail')
   })
 
   it('mappt die Checked-Zustände auf den Store-Zustand', () => {
@@ -64,6 +82,8 @@ describe('buildOverflowMenuItems', () => {
       'theme',
       'readable',
       'density',
+      'startMode',
+      'showRail',
       'update',
       'updateChannel'
     ])

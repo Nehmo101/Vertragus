@@ -66,6 +66,8 @@ export default function TitleBar(): JSX.Element {
       githubAuth: s.githubAuth,
       theme: s.theme,
       uiDensity: s.uiDensity,
+      startMode: s.startMode,
+      cycleStartMode: s.cycleStartMode,
       yoloMaster: s.yoloMaster,
       running: s.agents.filter((a) => a.status === 'running').length,
       stopAllRequestId: s.stopAllRequestId,
@@ -239,7 +241,8 @@ export default function TitleBar(): JSX.Element {
       updateLabel,
       updateDisabled:
         update?.status === 'downloading' || (update?.status === 'downloaded' && anyRunning),
-      updateChannel: update?.channel && update.status !== 'unsupported' ? update.channel : null
+      updateChannel: update?.channel && update.status !== 'unsupported' ? update.channel : null,
+      startMode: store.startMode
     },
     t
   )
@@ -256,6 +259,13 @@ export default function TitleBar(): JSX.Element {
         break
       case 'density':
         store.setUiDensity(store.uiDensity === 'compact' ? 'comfortable' : 'compact')
+        break
+      case 'startMode':
+        store.cycleStartMode()
+        break
+      case 'showRail':
+        closeOverflow()
+        void window.vertragus.rail.toggle()
         break
       case 'update':
         closeOverflow()

@@ -237,6 +237,7 @@
     "limitNear": "⚠ {{name}}: {{kind}} nahe — „⇄ Übergeben\" möglich",
     "workspaceOverviewIncomplete": "Workspace-Übersicht unvollständig: {{error}}",
     "diagnosticsExported": "Diagnose exportiert: {{path}}",
+    "startModeChanged": "Startmodus: {{mode}} — gilt ab dem nächsten Start.",
     "diagnosticsNoRun": "Für dieses Workspace-Profil gibt es noch keinen Run.",
     "diagnosticsExportFailed": "Diagnoseexport fehlgeschlagen: {{error}}",
     "mcpSaved": "MCP-Server gespeichert ({{count}}).",
@@ -481,8 +482,20 @@
       "darkTheme": "Dunkles Design",
       "readable": "Lesbare CLI-Ausgabe",
       "density": "Kompakte Ansicht",
+      "startMode": "Startmodus wechseln",
+      "startModeFull": "Vollfenster",
+      "startModeRail": "Rail",
+      "showRail": "Rail anzeigen",
       "updateChannel": "Update-Kanal wechseln"
     }
+  },
+  "rail": {
+    "title": "Vertragus Rail",
+    "dragAria": "Rail verschieben (ziehen); schnappt an die Bildschirmkante",
+    "launch": "{{name}} starten — Agenten erscheinen als gekachelte Fenster",
+    "running": "{{name}}: {{count}} Agent(en) aktiv — klicken fokussiert und kachelt neu",
+    "full": "Vollansicht",
+    "empty": "Noch keine Workspace-Profile — in der Vollansicht anlegen."
   },
   "orch": {
     "panelAria": "Orchestrator-Seitenleiste",

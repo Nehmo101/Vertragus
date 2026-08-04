@@ -268,10 +268,16 @@ export function resolveInitialLayout(
 export function remoteConfigPatch(
   key: string,
   value: unknown
-): { theme: UiTheme } | { uiDensity: UiDensity } | { cliReadable: boolean } | null {
+):
+  | { theme: UiTheme }
+  | { uiDensity: UiDensity }
+  | { cliReadable: boolean }
+  | { startMode: 'full' | 'rail' }
+  | null {
   if (key === 'ui.theme') return { theme: value === 'dark' ? 'dark' : 'light' }
   if (key === 'ui.density') return { uiDensity: value === 'compact' ? 'compact' : 'comfortable' }
   if (key === 'ui.cliReadable') return { cliReadable: value === true }
+  if (key === 'ui.startMode') return { startMode: value === 'rail' ? 'rail' : 'full' }
   return null
 }
 
@@ -352,6 +358,8 @@ export const useAppStore = create<AppState>()((set, get, api) => ({
       const patch = remoteConfigPatch(key, value)
       if (patch) set(patch)
     })
+    // Profilliste live in allen Fenstern (Rail, Panes) — Save/Delete broadcastet.
+    window.vertragus.onProfilesChanged((profiles) => set({ profiles }))
     window.vertragus.workspaceSessions.onChanged((workspaceSessions) =>
       set((state) => {
         const currentStillExists = workspaceSessions.some(
@@ -406,7 +414,8 @@ export const useAppStore = create<AppState>()((set, get, api) => ({
       cliReadable,
       activeRepoRaw,
       recentReposRaw,
-      canvasDefaultApplied
+      canvasDefaultApplied,
+      startMode
     ] =
       await Promise.all([
         window.vertragus.getAppInfo(),
@@ -427,7 +436,8 @@ export const useAppStore = create<AppState>()((set, get, api) => ({
         window.vertragus.getConfig<boolean>('ui.cliReadable'),
         window.vertragus.getConfig<unknown>('workspaceRepo.active'),
         window.vertragus.getConfig<unknown>('workspaceRepo.recent'),
-        window.vertragus.getConfig<boolean>('ui.canvasDefaultApplied')
+        window.vertragus.getConfig<boolean>('ui.canvasDefaultApplied'),
+        window.vertragus.getConfig<string>('ui.startMode')
       ])
     // One-time canvas-default migration (D1): force canvas on first run only.
     const { layout: initialLayout, applyCanvasDefault } = resolveInitialLayout(
@@ -457,6 +467,7 @@ export const useAppStore = create<AppState>()((set, get, api) => ({
       theme: theme === 'dark' ? 'dark' : 'light',
       workspaceLayout: initialLayout,
       uiDensity: density === 'compact' ? density : 'comfortable',
+      startMode: startMode === 'rail' ? 'rail' : 'full',
       cliReadable: cliReadable ?? false,
       providerLimits: normalizeProviderLimits(limits),
       providerEnabled: normalizeProviderEnabled(providerEnabled),

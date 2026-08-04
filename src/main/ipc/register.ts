@@ -52,11 +52,17 @@ import {
   createPaneWindow,
   hideVoiceOverlay,
   isMainWindowSender,
+  isRailWindowSender,
   isVoiceWindowSender,
+  moveRailWindow,
   moveVoiceOverlay,
+  openMainWindow,
   pushDemoState,
+  tileAgentWindows,
+  toggleRailWindow,
   toggleVoiceOverlay
 } from '@main/windows'
+import { guardRailControl } from '@main/ipc/railGuards'
 import { getPublicConfig, setPublicConfig } from '@main/config/configAccess'
 import {
   listProfiles,
@@ -387,10 +393,17 @@ export function registerIpcHandlers(): void {
         }))
       )
       const effectiveWorkingDir = profileRepoLocalPath({ workingDir, githubRepo }) || workingDir
-      return saveProfile({ ...profile, workingDir: effectiveWorkingDir, githubRepo, agents })
+      const profiles = saveProfile({ ...profile, workingDir: effectiveWorkingDir, githubRepo, agents })
+      // Sekundärfenster (Rail, Panes) spiegeln die Profilliste live.
+      broadcast(IPC.evProfilesChanged, profiles)
+      return profiles
     },
     profileGenerateForRepo: (_e, req) => generateProfileForRepo(req),
-    profileDelete: (e, id) => profileDeletionController.delete(e, id),
+    profileDelete: async (e, id) => {
+      const profiles = await profileDeletionController.delete(e, id)
+      broadcast(IPC.evProfilesChanged, profiles)
+      return profiles
+    },
     profileGetActive: () => getActiveProfileId(),
     profileSetActive: (_e, id) => {
       if (!getProfile(id)) {
@@ -724,6 +737,36 @@ export function registerIpcHandlers(): void {
     // Auth 'voice-window': non-overlay senders are dropped centrally.
     voiceOverlayMoved: (_e, x, y) => {
       moveVoiceOverlay(Number(x), Number(y))
+    },
+
+    // ---- desktop rail ----
+    railToggle: () => {
+      toggleRailWindow()
+    },
+    railOpenMain: (event) => {
+      guardRailControl(isRailWindowSender(event.sender), isMainWindowSender(event.sender))
+      openMainWindow()
+    },
+    // Auth 'custom' (send): non-rail senders are dropped without a reply.
+    railMoved: (event, x, y) => {
+      if (!isRailWindowSender(event.sender)) return
+      moveRailWindow(Number(x), Number(y))
+    },
+    railLaunchTiled: async (event, profileId, yoloMaster) => {
+      guardRailControl(isRailWindowSender(event.sender), isMainWindowSender(event.sender))
+      const profile = getProfile(assertIpcId(profileId, 'Profil-ID'))
+      if (!profile) throw new Error('Workspace-Profil nicht gefunden.')
+      // Läuft die Session schon? Dann nur fokussieren + neu kacheln.
+      const running = agentManager
+        .list()
+        .filter((agent) => agent.profileId === profile.id && agent.status === 'running')
+      const agents = running.length > 0
+        ? running
+        : await spawnProfileTeam(profile, yoloMaster === true, {
+            workingDirOverride: getActiveRepoOverridePath()
+          })
+      const primaryIndex = Math.max(0, agents.findIndex((agent) => agent.kind === 'orchestrator'))
+      tileAgentWindows(agents.map((agent) => agent.id), primaryIndex)
     },
 
     // ---- retro / model learnings / benchmarks ----

@@ -14,6 +14,7 @@ export const createUiSlice: StateCreator<AppState, [], [], UiSlice> = (set, get)
   theme: 'light',
   workspaceLayout: 'tiles',
   uiDensity: 'comfortable',
+  startMode: 'full',
   cliReadable: false,
   paneReadable: {},
   toast: null,
@@ -51,6 +52,17 @@ export const createUiSlice: StateCreator<AppState, [], [], UiSlice> = (set, get)
   setUiDensity(density) {
     set({ uiDensity: density })
     void window.vertragus.setConfig('ui.density', density)
+  },
+
+  cycleStartMode() {
+    const next = get().startMode === 'rail' ? 'full' : 'rail'
+    set({ startMode: next })
+    void window.vertragus.setConfig('ui.startMode', next)
+    get().showToast(i18n.t('toast.startModeChanged', {
+      mode: next === 'rail'
+        ? i18n.t('titlebar.overflow.startModeRail')
+        : i18n.t('titlebar.overflow.startModeFull')
+    }))
   },
 
   showToast(msg) {

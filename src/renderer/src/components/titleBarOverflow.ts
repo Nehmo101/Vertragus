@@ -9,6 +9,8 @@ export type OverflowItemId =
   | 'theme'
   | 'readable'
   | 'density'
+  | 'startMode'
+  | 'showRail'
   | 'update'
   | 'updateChannel'
 
@@ -35,6 +37,8 @@ export interface OverflowMenuContext {
   updateDisabled: boolean
   /** null = Kanal unbekannt oder Updates nicht unterstützt. */
   updateChannel: 'stable' | 'main' | null
+  /** Startmodus des nächsten App-Starts: Vollfenster oder Desktop-Rail. */
+  startMode: 'full' | 'rail'
 }
 
 /** Minimale Übersetzer-Signatur, damit i18next-`t` direkt durchgereicht werden kann. */
@@ -71,6 +75,20 @@ export function buildOverflowMenuItems(
       role: 'menuitemcheckbox',
       label: t('titlebar.overflow.density'),
       checked: ctx.uiDensity === 'compact'
+    },
+    {
+      id: 'startMode',
+      role: 'menuitem',
+      label: t('titlebar.overflow.startMode'),
+      detail:
+        ctx.startMode === 'rail'
+          ? t('titlebar.overflow.startModeRail')
+          : t('titlebar.overflow.startModeFull')
+    },
+    {
+      id: 'showRail',
+      role: 'menuitem',
+      label: t('titlebar.overflow.showRail')
     }
   ]
   if (ctx.updateVisible) {
