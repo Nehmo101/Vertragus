@@ -70,6 +70,23 @@ describe('workspace session IPC authorization', () => {
     expect(deps.remove).not.toHaveBeenCalled()
   })
 
+  it('lets readAuthorization widen ONLY the list endpoint (rail/pane windows)', async () => {
+    const deps = dependencies()
+    // Sender 9 = Rail-/Pane-Fenster: darf lesen, aber nie mutieren.
+    deps.readAuthorization = {
+      ...deps.authorization,
+      isKnownSender: (sender) => sender.id === 7 || sender.id === 9
+    }
+    const controller = createWorkspaceSessionIpcController(deps)
+
+    expect(controller.list(event(9), 'alpha')).toEqual([])
+    expect(deps.list).toHaveBeenCalledWith('alpha')
+    expect(() => controller.setActive(event(9), 'alpha', 'session-alpha')).toThrow(/unauthorized/i)
+    await expect(controller.remove(event(9), 'alpha', 'session-alpha')).rejects.toThrow(/unauthorized/i)
+    expect(deps.setActive).not.toHaveBeenCalled()
+    expect(deps.remove).not.toHaveBeenCalled()
+  })
+
   it('rejects foreign origins without leaking renderer context or workspace identifiers', () => {
     const controller = createWorkspaceSessionIpcController(dependencies())
     let rejection: unknown

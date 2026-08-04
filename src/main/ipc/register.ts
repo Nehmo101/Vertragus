@@ -52,6 +52,7 @@ import {
   createPaneWindow,
   hideVoiceOverlay,
   isMainWindowSender,
+  isPaneWindowSender,
   isRailWindowSender,
   isVoiceWindowSender,
   moveRailWindow,
@@ -260,6 +261,15 @@ export function registerIpcHandlers(): void {
   })
   const workspaceSessionController = createWorkspaceSessionIpcController({
     authorization: rendererAuthorization,
+    // Read-Ende auch für Rail- und Pane-Fenster: sie rendern Session-Zustand
+    // und ihre Store-Hydration (init) darf am initialen Fetch nicht sterben.
+    readAuthorization: {
+      ...rendererAuthorization,
+      isKnownSender: (sender) =>
+        isMainWindowSender(sender as Electron.WebContents) ||
+        isRailWindowSender(sender as Electron.WebContents) ||
+        isPaneWindowSender(sender as Electron.WebContents)
+    },
     list: (profileId) => workspaceSessions.list(profileId),
     setActive: (profileId, sessionId) => {
       const profile = getProfile(profileId)

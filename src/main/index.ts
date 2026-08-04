@@ -23,6 +23,13 @@ if (brandEnv('UI_SMOKE') && smokeUserData) {
   app.setPath('userData', smokeUserData)
 }
 
+// Rail-Screenshot-Smoke (scripts/rail-smoke.mjs): isoliertes, geseedetes
+// userData + Boot direkt in die Rail; das Fenster captured sich selbst.
+const railShotData = brandEnv('RAIL_SCREENSHOT_DATA')
+if (brandEnv('RAIL_SCREENSHOT') && railShotData) {
+  app.setPath('userData', railShotData)
+}
+
 // E2E smoke (scripts/e2e-smoke.mjs): run the real app against a seeded,
 // isolated userData directory. Unlike UI_SMOKE the app stays open and is
 // driven from outside (Playwright), so only the data dir is redirected and
@@ -132,10 +139,11 @@ app.whenReady().then(async () => {
   // und E2E-Läufe erwarten immer das Vollfenster.
   const configStore = await import('@main/config/store')
   const railStart = (): boolean =>
-    configStore.getSetting<string>('ui.startMode') === 'rail' &&
-    !brandEnv('UI_SMOKE') &&
-    !brandEnv('SCREENSHOT') &&
-    !e2eUserData
+    Boolean(brandEnv('RAIL_SCREENSHOT')) ||
+    (configStore.getSetting<string>('ui.startMode') === 'rail' &&
+      !brandEnv('UI_SMOKE') &&
+      !brandEnv('SCREENSHOT') &&
+      !e2eUserData)
   if (!headless) {
     if (railStart()) {
       windows.createRailWindow()
@@ -147,7 +155,7 @@ app.whenReady().then(async () => {
 
   // Voice overlay: reachable from anywhere via a global shortcut and a tray icon.
   // Both just toggle the overlay window; the overlay owns no privileged rights.
-  if (!brandEnv('UI_SMOKE') && !e2eUserData && !headless) {
+  if (!brandEnv('UI_SMOKE') && !brandEnv('RAIL_SCREENSHOT') && !e2eUserData && !headless) {
     try {
       globalShortcut.register(VOICE_OVERLAY_SHORTCUT, () => windows.toggleVoiceOverlay())
     } catch (error) {
@@ -174,7 +182,7 @@ app.whenReady().then(async () => {
   }
 
   // Retro-Sync: drain queued retro exports on start + coarse retry interval.
-  if (!brandEnv('UI_SMOKE') && !e2eUserData) {
+  if (!brandEnv('UI_SMOKE') && !brandEnv('RAIL_SCREENSHOT') && !e2eUserData) {
     const retroExport = await import('@main/orchestrator/retroExport')
     retroExport.startRetroSyncScheduler()
   }

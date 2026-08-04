@@ -491,11 +491,16 @@
   },
   "rail": {
     "title": "Vertragus Rail",
-    "dragAria": "Rail verschieben (ziehen); schnappt an die Bildschirmkante",
+    "subtitle": "Doppelklick auf ◆ = Vollansicht",
+    "dragAria": "Rail verschieben (ziehen); Doppelklick öffnet die Vollansicht",
     "launch": "{{name}} starten — Agenten erscheinen als gekachelte Fenster",
     "running": "{{name}}: {{count}} Agent(en) aktiv — klicken fokussiert und kachelt neu",
     "full": "Vollansicht",
-    "empty": "Noch keine Workspace-Profile — in der Vollansicht anlegen."
+    "loading": "Lade Workspace-Profile…",
+    "empty": "Noch keine Workspace-Profile.",
+    "emptyAction": "Vollansicht öffnen",
+    "yoloOn": "Yolo aktiv — klicken deaktiviert",
+    "yoloOff": "Safe Mode — klicken aktiviert Yolo"
   },
   "orch": {
     "panelAria": "Orchestrator-Seitenleiste",

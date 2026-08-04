@@ -8,6 +8,14 @@ import {
 
 export interface WorkspaceSessionIpcDependencies {
   authorization: RendererIpcAuthorizationOptions
+  /**
+   * Optional weitere Autorisierung nur für das READ-Ende (list): Rail- und
+   * Pane-Fenster rendern Session-Zustand und erhalten die Liste ohnehin über
+   * den ev:workspaceSessions-Broadcast — der initiale Fetch darf sie deshalb
+   * nicht aussperren (sonst stirbt die Store-Hydration in Sekundärfenstern).
+   * Mutationen (setActive/remove) bleiben strikt bei `authorization`.
+   */
+  readAuthorization?: RendererIpcAuthorizationOptions
   list(profileId?: string): WorkspaceSessionSummary[]
   setActive(profileId: string, sessionId: string): OrchestratorSnapshot
   remove(profileId: string, sessionId: string): Promise<WorkspaceSessionSummary[]>
@@ -34,10 +42,16 @@ export function createWorkspaceSessionIpcController(
       dependencies.authorization,
       'Workspace-Session-IPC: Zugriff verweigert (unauthorized).'
     )
+  const authorizeRead = (event: RendererIpcEventLike): void =>
+    assertAuthorizedRendererIpcSender(
+      event,
+      dependencies.readAuthorization ?? dependencies.authorization,
+      'Workspace-Session-IPC: Zugriff verweigert (unauthorized).'
+    )
 
   return {
     list(event, profileId) {
-      authorize(event)
+      authorizeRead(event)
       if (profileId === undefined) return dependencies.list()
       return dependencies.list(requiredId(profileId, 'Profil-ID'))
     },
