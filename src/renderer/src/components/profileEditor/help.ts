@@ -7,6 +7,7 @@
 export const HELP = {
   profileName: 'profile.help.profileName',
   workingDir: 'profile.help.workingDir',
+  setupCommands: 'profile.help.setupCommands',
   githubAuth: 'profile.help.githubAuth',
   generateFromRepo: 'profile.help.generateFromRepo',
   agentWorkingDir: 'profile.help.agentWorkingDir',

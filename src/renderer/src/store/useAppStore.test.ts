@@ -94,3 +94,22 @@ describe('useAppStore profile duplication', () => {
     expect(storedCopy!.id).not.toBe(source.id)
   })
 })
+
+describe('provider enablement and the model catalogue', () => {
+  it('refreshes the model list immediately when a provider is enabled, not on disable', () => {
+    const setConfig = vi.fn(async () => undefined)
+    const refreshModels = vi.fn(async () => undefined)
+    vi.stubGlobal('window', { vertragus: { setConfig } })
+    useAppStore.setState({ refreshModels })
+
+    useAppStore.getState().setProviderEnabled('kimi', true)
+    expect(refreshModels).toHaveBeenCalledTimes(1)
+
+    useAppStore.getState().setProviderEnabled('kimi', false)
+    expect(refreshModels).toHaveBeenCalledTimes(1)
+    expect(setConfig).toHaveBeenCalledWith(
+      'providerEnabled',
+      expect.objectContaining({ kimi: false })
+    )
+  })
+})

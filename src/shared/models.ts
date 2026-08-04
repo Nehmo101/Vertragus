@@ -58,6 +58,108 @@ export function isModelAlias(model: string): boolean {
   return id.length > 0 && !/\d/.test(id)
 }
 
+/**
+ * Comparison key that folds punctuation spellings of the same id together:
+ * Copilot advertises `claude-sonnet-4.6` while Anthropic lists
+ * `claude-sonnet-4-6` — one model, two spellings. FOR COMPARISON ONLY: the
+ * committed/displayed value keeps each provider's own spelling, because the
+ * CLI may only accept the form it advertised.
+ */
+export function normalizeModelKey(model: string): string {
+  return model.trim().toLowerCase().replace(/[._]/g, '-')
+}
+
+const SNAPSHOT_SUFFIX = /-20\d{6}$/
+
+/** True for a dated snapshot id like `claude-sonnet-4-5-20250929`. */
+export function isSnapshotId(model: string): boolean {
+  return SNAPSHOT_SUFFIX.test(model.trim())
+}
+
+/** Base id of a dated snapshot (`claude-sonnet-4-5-20250929` → `claude-sonnet-4-5`). */
+export function snapshotBase(model: string): string {
+  return model.trim().replace(SNAPSHOT_SUFFIX, '')
+}
+
+export interface ModelVariant {
+  /** Display/commit id — the first spelling the catalogue offered. */
+  id: string
+  /** Dated snapshots collapsed into this row (shown as tooltip, still committable). */
+  snapshots: string[]
+}
+
+/**
+ * Collapse punctuation twins and dated snapshots into display rows. A snapshot
+ * folds into its base row when the base exists anywhere in the list; an orphan
+ * snapshot (no base offered) stays its own row so it remains launchable.
+ * First-seen spelling wins; order of first appearance is preserved.
+ */
+export function collapseModelVariants(models: readonly string[]): ModelVariant[] {
+  const rows: ModelVariant[] = []
+  const byKey = new Map<string, ModelVariant>()
+
+  const addRow = (id: string): ModelVariant => {
+    const key = normalizeModelKey(id)
+    let row = byKey.get(key)
+    if (!row) {
+      row = { id, snapshots: [] }
+      byKey.set(key, row)
+      rows.push(row)
+    }
+    return row
+  }
+
+  // Pass 1: every non-snapshot id becomes a row (punctuation twins collapse).
+  for (const raw of models) {
+    const model = raw.trim()
+    if (!model || isSnapshotId(model)) continue
+    addRow(model)
+  }
+  // Pass 2: snapshots fold into their base row or stand alone (rare).
+  for (const raw of models) {
+    const model = raw.trim()
+    if (!model || !isSnapshotId(model)) continue
+    const base = byKey.get(normalizeModelKey(snapshotBase(model)))
+    if (base) {
+      if (!base.snapshots.some((existing) => normalizeModelKey(existing) === normalizeModelKey(model))) {
+        base.snapshots.push(model)
+      }
+    } else {
+      addRow(model)
+    }
+  }
+  return rows
+}
+
+export interface ModelVariantFamilyGroup {
+  family: string
+  alias?: ModelVariant
+  pinned: ModelVariant[]
+}
+
+/**
+ * Family grouping over collapsed variants — what the picker renders: one block
+ * per family, alias first, snapshots folded into their base rows.
+ */
+export function groupModelVariantsByFamily(
+  variants: readonly ModelVariant[]
+): ModelVariantFamilyGroup[] {
+  const groups: ModelVariantFamilyGroup[] = []
+  const byFamily = new Map<string, ModelVariantFamilyGroup>()
+  for (const variant of variants) {
+    const family = modelFamily(variant.id) || normalizeModelKey(variant.id)
+    let group = byFamily.get(family)
+    if (!group) {
+      group = { family, pinned: [] }
+      byFamily.set(family, group)
+      groups.push(group)
+    }
+    if (isModelAlias(variant.id) && !group.alias) group.alias = variant
+    else group.pinned.push(variant)
+  }
+  return groups
+}
+
 const VENDOR_PREFIXES = ['claude-', 'anthropic.', 'openai.', 'google.']
 
 /**
@@ -108,7 +210,9 @@ export function groupModelsByFamily(models: readonly string[]): ModelFamilyGroup
   for (const raw of models) {
     const model = raw.trim()
     if (!model) continue
-    const key = model.toLowerCase()
+    // Punctuation twins (claude-sonnet-4.6 vs claude-sonnet-4-6) collapse to
+    // one row; the first-seen spelling survives.
+    const key = normalizeModelKey(model)
     if (seen.has(key)) continue
     seen.add(key)
 

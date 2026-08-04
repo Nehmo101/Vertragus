@@ -196,6 +196,7 @@ describe('autoPr safety helpers', () => {
       repositoryRoot,
       integrationPath,
       ['corepack pnpm lint'],
+      [],
       { bootstrap, runGates }
     )
 
@@ -215,6 +216,7 @@ describe('autoPr safety helpers', () => {
       'C:\\repo',
       'C:\\repo\\.vertragus-worktrees\\integration\\orca-goal',
       ['corepack pnpm lint'],
+      [],
       {
         bootstrap: vi.fn(async () => {
           throw new Error('Junction konnte nicht erstellt werden')
@@ -235,6 +237,7 @@ describe('autoPr safety helpers', () => {
       '/repo',
       '/repo/.vertragus-worktrees/integration/../../outside',
       ['corepack pnpm lint'],
+      [],
       { bootstrap, runGates }
     )).rejects.toThrow(/nicht innerhalb des verwalteten Integration-Verzeichnisses/)
 

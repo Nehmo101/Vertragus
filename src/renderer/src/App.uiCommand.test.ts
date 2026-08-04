@@ -6,14 +6,15 @@ import { describe, expect, it } from 'vitest'
 const appSrc = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'App.tsx'), 'utf8')
 
 describe('App uiCommand / voice route wiring', () => {
-  it('ignores broadcast uiCommands in the voice overlay and pane windows', () => {
+  it('ignores broadcast uiCommands in the voice overlay, pane and rail windows', () => {
     expect(appSrc).toMatch(/onUiCommand/)
     expect(appSrc).toMatch(/#\/voice/)
     expect(appSrc).toMatch(/#\/pane/)
+    expect(appSrc).toMatch(/#\/sidebar/)
     expect(appSrc).toMatch(/applyUiCommand/)
-    // Voice and pane windows must return before applying navigation/layout commands.
+    // Voice, pane and rail windows must return before applying navigation/layout commands.
     expect(appSrc).toMatch(
-      /route\.startsWith\(['"]#\/voice['"]\)\s*\|\|\s*route\.startsWith\(['"]#\/pane['"]\)\s*\)\s*return/
+      /route\.startsWith\(['"]#\/voice['"]\)\s*\|\|\s*route\.startsWith\(['"]#\/pane['"]\)\s*\|\|\s*route\.startsWith\(['"]#\/sidebar['"]\)\s*\)\s*return/
     )
   })
 

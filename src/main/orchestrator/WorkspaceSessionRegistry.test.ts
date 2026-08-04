@@ -162,10 +162,12 @@ describe('WorkspaceSessionRegistry', () => {
     expect(registry.setYoloMaster(true)).toBe(2)
     expect(first.profile.yoloDefault).toBe(true)
     expect(second.profile.yoloDefault).toBe(true)
-    expect(DEFAULT_PROFILE.yoloDefault).toBe(false)
+    expect(DEFAULT_PROFILE.yoloDefault).toBe(true)
 
     expect(registry.setYoloMaster(false)).toBe(2)
     expect(first.profile.yoloDefault).toBe(false)
+    // The source profile is never mutated — only the session clones are.
+    expect(DEFAULT_PROFILE.yoloDefault).toBe(true)
   })
 
   it('assigns one unique random place per profile cycle before adding a suffix', () => {

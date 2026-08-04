@@ -39,8 +39,8 @@ export const agentSlotSchema = z.object({
   orchestrated: z.boolean().default(true),
   /** Per-slot Multiagent override. Omitted means inherit the profile setting. */
   multiAgent: z.boolean().optional(),
-  /** Run without approval prompts (see Yolo Mode). */
-  yolo: z.boolean().default(false),
+  /** Run without approval prompts (see Yolo Mode). Default ON; Safe Mode is the opt-out. */
+  yolo: z.boolean().default(true),
   /** Optional per-slot working directory override. */
   workingDir: z.string().optional(),
   /** Tasks this worker/model is especially suitable for. */
@@ -198,8 +198,15 @@ export const workspaceProfileSchema = z.object({
   solo: z.boolean().default(false),
   /** Named, reusable workspace procedures injected into orchestrator/solo prompts. */
   skills: profileSkillsSchema.default([]),
-  /** Global Yolo master switch (default OFF for safety). */
-  yoloDefault: z.boolean().default(false),
+  /**
+   * Trusted repo warm-up commands, run once per FRESH worktree after the
+   * dependency install (e.g. "corepack pnpm --filter @scope/database db:generate").
+   * Same trust model as autoPr.qualityGates; executed without a shell and with
+   * shell metacharacters rejected (see main/agents/worktreeSetup.ts).
+   */
+  setupCommands: z.array(z.string().min(1).max(400)).max(8).default([]),
+  /** Global Yolo master switch (default ON; Safe Mode is the opt-out). */
+  yoloDefault: z.boolean().default(true),
   /** OS sandbox for headless Yolo workers (Linux/bubblewrap, opt-in). */
   sandbox: sandboxModeSchema.default('none'),
   planner: plannerConfigSchema.default({}),
@@ -249,12 +256,14 @@ export type ProfileGithubRepo = z.infer<typeof profileGithubRepoSchema>
 type ParsedWorkspaceProfile = z.infer<typeof workspaceProfileSchema>
 export type WorkspaceProfile = Omit<
   ParsedWorkspaceProfile,
-  'orchestrator' | 'agents' | 'skills' | 'sandbox' | 'autoPr'
+  'orchestrator' | 'agents' | 'skills' | 'sandbox' | 'autoPr' | 'setupCommands'
 > & {
   orchestrator?: OrchestratorConfig
   agents: AgentSlot[]
   /** Legacy in-memory profile drafts may predate the skills field. */
   skills?: ProfileSkill[]
+  /** Legacy in-memory profile drafts may predate the setupCommands field. */
+  setupCommands?: string[]
   /** Legacy in-memory profile drafts may predate the sandbox field; omitted = 'none'. */
   sandbox?: SandboxMode
   /** Legacy in-memory drafts may predate autoPr.secretScanner; omitted = 'builtin'. */
@@ -294,9 +303,7 @@ export function duplicateProfile(
     githubRepo: source.githubRepo
       ? { ...source.githubRepo, cloneStatus: 'unbound', localPath: '' }
       : undefined,
-    githubProject: source.githubProject ? { ...source.githubProject } : undefined,
-    agents: clonedSource.agents.map((slot) => ({ ...slot, yolo: false })),
-    yoloDefault: false
+    githubProject: source.githubProject ? { ...source.githubProject } : undefined
   })
 }
 
@@ -361,6 +368,18 @@ export function agentSlotCapabilities(slot: AgentSlot): AgentSlotCapabilities {
       weaknesses: ['tiefes Architekturdesign', 'abschliessendes Security-Review']
     }
   }
+  if (slot.provider === 'cursor' && model.includes('composer')) {
+    return {
+      strengths: ['Frontend und UI-Implementierung', 'ausgewogene Feature-Arbeit', 'Repo-Navigation'],
+      weaknesses: ['tiefes Backend-Architekturdesign']
+    }
+  }
+  if (slot.provider === 'claude' && model.includes('haiku')) {
+    return {
+      strengths: ['schnelle mechanische Aenderungen', 'kleine klar umrissene Tasks', 'kostenguenstige Zuarbeit'],
+      weaknesses: ['tiefes Architekturdesign', 'grosse mehrschichtige Refactorings']
+    }
+  }
   if (slot.provider === 'claude' && (model.includes('fable') || model.includes('opus'))) {
     return {
       strengths: ['Backend-Architektur', 'komplexe Refactorings', 'lange Kontexte und Abwaegungen'],
@@ -385,16 +404,52 @@ export function agentSlotCapabilities(slot: AgentSlot): AgentSlotCapabilities {
       weaknesses: ['rein visuelle Entwurfsarbeit ohne Repo-Kontext']
     }
   }
+  if (slot.provider === 'codex' && (model.includes('mini') || model.includes('turbo'))) {
+    return {
+      strengths: ['schnelle mechanische Edits', 'kleine abgegrenzte Fixes', 'parallele Massenzuarbeit'],
+      weaknesses: ['Architekturentscheidungen', 'lange mehrstufige Analysen']
+    }
+  }
+  if (slot.provider === 'codex' && model.includes('sol')) {
+    return {
+      strengths: ['tiefes Debugging', 'gruendliche Code-Reviews', 'komplexe repo-nahe Implementierung'],
+      weaknesses: ['rein visuelle Entwurfsarbeit ohne Repo-Kontext']
+    }
+  }
   if (slot.provider === 'codex') {
     return {
       strengths: ['repo-nahe Implementierung', 'Tests und Debugging', 'praezise Code-Reviews'],
       weaknesses: ['rein visuelle Entwurfsarbeit ohne Repo-Kontext']
     }
   }
+  if (slot.provider === 'copilot' && model.includes('claude')) {
+    return {
+      strengths: ['Review und Analyse', 'GitHub-nahe Aufgaben', 'sorgfaeltige Code-Ergaenzungen'],
+      weaknesses: ['grosse autonome Architekturumbauten']
+    }
+  }
+  if (slot.provider === 'copilot' && model.includes('gemini')) {
+    return {
+      strengths: ['multimodale Aufgaben', 'GitHub-nahe Aufgaben', 'breite Recherche im Repo'],
+      weaknesses: ['grosse autonome Architekturumbauten']
+    }
+  }
   if (slot.provider === 'copilot') {
     return {
       strengths: ['gezielte Implementierung', 'GitHub-nahe Aufgaben', 'Code-Ergaenzungen'],
       weaknesses: ['grosse autonome Architekturumbauten']
+    }
+  }
+  if (slot.provider === 'ollama' && model.includes('coder')) {
+    return {
+      strengths: ['lokale Code-Generierung', 'kleine abgegrenzte Implementierungen', 'offlinefaehige Zuarbeit'],
+      weaknesses: ['sehr grosse Kontexte', 'providerabhaengige Tool-Integrationen']
+    }
+  }
+  if (slot.provider === 'ollama' && model.includes('llama')) {
+    return {
+      strengths: ['lokale Analyse und Zusammenfassungen', 'offlinefaehige Recherche'],
+      weaknesses: ['sehr grosse Kontexte', 'komplexe agentische Tool-Ketten']
     }
   }
   return {
@@ -427,14 +482,15 @@ export const DEFAULT_PROFILE: WorkspaceProfile = {
       fallbackModels: [],
       count: 3,
       orchestrated: true,
-      yolo: false,
+      yolo: true,
       strengths: [],
       weaknesses: []
     }
   ],
   solo: false,
   skills: [],
-  yoloDefault: false,
+  setupCommands: [],
+  yoloDefault: true,
   sandbox: 'none',
   planner: { mode: 'review', routingMode: 'adaptive', maxParallel: 6, maxRetries: 1 },
   benchmark: { enabled: false },

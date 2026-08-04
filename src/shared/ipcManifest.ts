@@ -717,6 +717,27 @@ export const ipcManifest = {
     note: 'Number() coercion of window coordinates'
   }),
 
+  // ---- desktop rail (slim always-on-top launcher) ----
+  railToggle: invoke(IPC.railToggle, 'rail.toggle', {
+    auth: 'main-window',
+    validation: 'none'
+  }),
+  railOpenMain: invoke(IPC.railOpenMain, 'rail.openMain', {
+    auth: 'custom',
+    validation: 'none',
+    note: 'guardRailControl: rail window or main window'
+  }),
+  railMoved: send(IPC.railMoved, 'rail.moved', {
+    auth: 'custom',
+    validation: 'handler',
+    note: 'guardRailControl drops non-rail senders; Number() coercion of window coordinates'
+  }),
+  railLaunchTiled: invoke(IPC.railLaunchTiled, 'rail.launchTiled', {
+    auth: 'custom',
+    validation: 'handler',
+    note: 'guardRailControl: rail or main window; profileId existence-checked, yolo Boolean()-coerced'
+  }),
+
   // ---- retro / model learnings / benchmarks ----
   retroListRetros: invoke(IPC.retroListRetros, 'retro.listRetros', {
     auth: 'any',
@@ -784,6 +805,7 @@ export const ipcManifest = {
   evVoiceAssistant: event(IPC.evVoiceAssistant, 'events.onVoiceAssistant'),
   evUiCommand: event(IPC.evUiCommand, 'events.onUiCommand'),
   evConfigChanged: event(IPC.evConfigChanged, 'onConfigChanged'),
+  evProfilesChanged: event(IPC.evProfilesChanged, 'onProfilesChanged'),
   // Documented alias: voiceAssistant.onProgress subscribes to the same channel
   // as events.onVoiceAssistant (see VertragusApi doc comment).
   voiceAssistantOnProgress: event(

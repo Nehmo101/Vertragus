@@ -13,7 +13,7 @@ describe('config migrations', () => {
     expect(result.profiles[0].planner.mode).toBe('review')
     expect(result.profiles[0].autoGit).toEqual({ enabled: false, targetBranch: '' })
     expect(result.activeProfileId).toBe('one')
-    expect(result.settings).toEqual({ 'ui.theme': 'dark' })
+    expect(result.settings).toEqual({ 'ui.theme': 'dark', yoloMaster: true })
   })
 
   it('drops corrupt profiles and repairs the active profile reference', () => {
@@ -24,7 +24,7 @@ describe('config migrations', () => {
     })
     expect(result.profiles).toHaveLength(1)
     expect(result.activeProfileId).toBe(result.profiles[0].id)
-    expect(result.settings).toEqual({})
+    expect(result.settings).toEqual({ yoloMaster: true })
   })
 
   it('folds the legacy tier preset into the model alias it expanded to', () => {
@@ -128,5 +128,59 @@ describe('config migrations', () => {
       enabled: true,
       targetBranch: 'orca/integrated'
     })
+  })
+
+  it('v5: flips the all-false stock yolo default to ON', () => {
+    const result = migrateConfigSnapshot({
+      schemaVersion: 4,
+      profiles: [{
+        id: 'stock',
+        name: 'Stock',
+        agents: [
+          { role: 'a', provider: 'codex', model: '', count: 1, orchestrated: true, yolo: false },
+          { role: 'b', provider: 'claude', model: 'sonnet', count: 1, orchestrated: true, yolo: false }
+        ],
+        yoloDefault: false
+      }],
+      activeProfileId: 'stock'
+    })
+    expect(result.profiles[0].yoloDefault).toBe(true)
+    expect(result.profiles[0].agents.map((slot) => slot.yolo)).toEqual([true, true])
+  })
+
+  it('v5: leaves a deliberately configured yolo mix untouched', () => {
+    const result = migrateConfigSnapshot({
+      schemaVersion: 4,
+      profiles: [{
+        id: 'mixed',
+        name: 'Mixed',
+        agents: [
+          { role: 'a', provider: 'codex', model: '', count: 1, orchestrated: true, yolo: true },
+          { role: 'b', provider: 'claude', model: 'sonnet', count: 1, orchestrated: true, yolo: false }
+        ],
+        yoloDefault: false
+      }],
+      activeProfileId: 'mixed'
+    })
+    expect(result.profiles[0].yoloDefault).toBe(false)
+    expect(result.profiles[0].agents.map((slot) => slot.yolo)).toEqual([true, false])
+  })
+
+  it('v5: seeds yoloMaster ON only when unset, preserving a stored false', () => {
+    const seeded = migrateConfigSnapshot({
+      schemaVersion: 4,
+      profiles: [],
+      activeProfileId: '',
+      settings: {}
+    })
+    expect(seeded.settings.yoloMaster).toBe(true)
+
+    const optedOut = migrateConfigSnapshot({
+      schemaVersion: 4,
+      profiles: [],
+      activeProfileId: '',
+      settings: { yoloMaster: false }
+    })
+    expect(optedOut.settings.yoloMaster).toBe(false)
   })
 })

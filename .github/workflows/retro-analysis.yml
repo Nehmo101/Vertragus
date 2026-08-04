@@ -56,7 +56,9 @@ jobs:
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       - if: steps.data.outcome == 'success'
         name: Retro-Analyse ausführen
-        run: pnpm run retro:analyze -- --dir "$GITHUB_WORKSPACE/data" --write --summary-file "$GITHUB_WORKSPACE/summary.md"
+        # min-new 1: der wöchentliche Cron ist bereits die Batch-Grenze — jede
+        # neue Erkenntnis soll spätestens nach einer Woche das Overlay erreichen.
+        run: pnpm run retro:analyze -- --dir "$GITHUB_WORKSPACE/data" --write --min-new 1 --summary-file "$GITHUB_WORKSPACE/summary.md"
         working-directory: app
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

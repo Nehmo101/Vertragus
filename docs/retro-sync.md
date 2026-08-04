@@ -142,7 +142,19 @@ Re-Verifikation oder eine neue Installation dokumentiert.
    Abnahmekriterien). Umsetzen heißt: Brief als Prompt in eine Claude-Code-
    Session gegen `main` geben; der resultierende Code-PR durchläuft die
    normale CI. Danach den Proposal-Status im Front-Matter pflegen
-   (`proposed` → `accepted`/`done`/`rejected`).
+   (`proposed` → `accepted`/`done`/`rejected`) — **bevor** die nächste
+   Analyse läuft, sonst schlägt sie Varianten desselben Problems erneut vor.
+   Werkzeug dafür (auf einem Checkout des `retros`-Branch, Änderung als PR
+   gegen `retros` einreichen):
+
+   ```bash
+   pnpm run retro:mark-proposal -- --dir ../vertragus-retros \
+     --slug worker-completion-diff-guard --status done --commit 2027e72
+   ```
+
+   Die Analyse erhält die Proposal-Status seither als Eingabe
+   (`existingProposals`) und schließt umgesetzte Briefe explizit von
+   Neuvorschlägen aus.
 4. Merge des Analyse-PRs aktiviert das neue Overlay für alle Installationen.
 
 ## Sicherheits-Eigenschaften

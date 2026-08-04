@@ -4,7 +4,7 @@
  * Regelwerk revidieren und (b) bis zu drei Verbesserungs-Briefs generieren.
  *
  *   pnpm run retro:analyze -- --dir /pfad/zum/retros-checkout [--write]
- *     [--min-new 3] [--summary-file summary.md]
+ *     [--min-new 3] [--max-age-days 10] [--summary-file summary.md]
  *
  * Ohne --write ist der Lauf ein Dry-Run und druckt nur die geplanten
  * Änderungen. Benötigt ANTHROPIC_API_KEY; Modell via VERTRAGUS_RETRO_MODEL
@@ -22,10 +22,13 @@ import {
   nextState,
   parseAnalysisState,
   parseBranchFiles,
+  parseProposalStatus,
   proposalFileName,
   renderProposalMarkdown,
+  shouldRunAnalysis,
   synthesisOutputSchema,
   type BranchFile,
+  type ExistingProposal,
   type SynthesisInput,
   type SynthesisOutput
 } from '../src/shared/retroAnalysis'
@@ -43,7 +46,7 @@ const SYNTHESIS_SYSTEM_PROMPT = [
   'Du erhältst als JSON: aggregierte Modell-Statistiken (stats), verdichtete Learnings',
   '(learnings, bereits auf >= 2 Beobachtungen oder Benchmark-Beleg gefiltert),',
   'Benchmark-Urteile (benchmarkVerdicts), das aktuelle Overlay (currentOverlay) und',
-  'bereits existierende Proposal-Slugs (existingProposalSlugs).',
+  'bereits existierende Proposals mit Status (existingProposals: slug + status).',
   '',
   'Regeln für das Overlay:',
   '- REVIDIERE currentOverlay, statt es blind neu zu generieren: behalte Regeln, die',
@@ -63,7 +66,10 @@ const SYNTHESIS_SYSTEM_PROMPT = [
   '- Jedes prompt-Feld ist ein eigenständiger, direkt ausführbarer Claude-Code-Auftrag',
   '  gegen das Vertragus-Repository: konkrete Dateipfade, gewünschtes Verhalten,',
   '  Abnahmekriterium "pnpm run ci grün".',
-  '- Keine Duplikate zu existingProposalSlugs. Lieber kein Proposal als ein spekulatives.',
+  '- Keine Duplikate zu existingProposals — auch keine Varianten bereits umgesetzter',
+  '  Proposals (status done/accepted): deren Problem gilt als adressiert, außer neue',
+  '  Daten belegen ausdrücklich, dass es fortbesteht. Lieber kein Proposal als ein',
+  '  spekulatives.',
   '',
   'notes: kurze deutsche Zusammenfassung deiner Analyse für den Review-PR',
   '(was hat sich geändert und warum, auffällige Trends).'
@@ -73,6 +79,7 @@ interface CliOptions {
   dir: string
   write: boolean
   minNew: number
+  maxAgeDays: number
   summaryFile?: string
 }
 
@@ -85,6 +92,7 @@ function readCliOptions(): CliOptions {
       dir: { type: 'string' },
       write: { type: 'boolean', default: false },
       'min-new': { type: 'string' },
+      'max-age-days': { type: 'string' },
       'summary-file': { type: 'string' }
     }
   })
@@ -95,10 +103,14 @@ function readCliOptions(): CliOptions {
   const minNew = Number(
     values['min-new'] ?? process.env.VERTRAGUS_RETRO_MIN_NEW ?? process.env.ORCA_RETRO_MIN_NEW ?? 3
   )
+  const maxAgeDays = Number(
+    values['max-age-days'] ?? process.env.VERTRAGUS_RETRO_MAX_AGE_DAYS ?? 10
+  )
   return {
     dir: values.dir,
     write: Boolean(values.write),
     minNew: Number.isFinite(minNew) && minNew >= 0 ? minNew : 3,
+    maxAgeDays: Number.isFinite(maxAgeDays) && maxAgeDays > 0 ? maxAgeDays : 10,
     summaryFile: values['summary-file']
   }
 }
@@ -133,12 +145,23 @@ function readOverlay(root: string): string {
   }
 }
 
-function existingProposalSlugs(root: string): string[] {
+function existingProposals(root: string): ExistingProposal[] {
   const dir = join(root, 'proposals')
   if (!existsSync(dir)) return []
   return readdirSync(dir)
     .filter((name) => name.endsWith('.md'))
-    .map((name) => name.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, ''))
+    .map((name) => {
+      let status = 'proposed'
+      try {
+        status = parseProposalStatus(readFileSync(join(dir, name), 'utf8'))
+      } catch {
+        // Unlesbare Datei: konservativ als offen behandeln.
+      }
+      return {
+        slug: name.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, ''),
+        status
+      }
+    })
 }
 
 async function runSynthesis(input: SynthesisInput): Promise<SynthesisOutput> {
@@ -220,19 +243,30 @@ async function main(): Promise<void> {
   const newRetros = collectNew(branch.retros, (entry) => entry.retro.createdAt, state)
   const newBenchmarks = collectNew(branch.benchmarks, (entry) => entry.record.createdAt, state)
 
-  if (newRetros.length < options.minNew) {
+  const trigger = shouldRunAnalysis(
+    newRetros.map((entry) => entry.retro.createdAt),
+    { minNew: options.minNew, maxAgeDays: options.maxAgeDays },
+    Date.now()
+  )
+  if (!trigger) {
     console.log(
-      `::notice::Nur ${newRetros.length} neue Retro(s) (< ${options.minNew}) — Analyse übersprungen.`
+      `::notice::Nur ${newRetros.length} neue Retro(s) (< ${options.minNew}, ältestes jünger als ` +
+        `${options.maxAgeDays} Tage) — Analyse übersprungen.`
     )
     return
   }
+  console.log(
+    trigger === 'min-new'
+      ? `Trigger: ${newRetros.length} neue Retro(s) >= min-new ${options.minNew}.`
+      : `Trigger: max-age — das älteste unanalysierte Retro wartet länger als ${options.maxAgeDays} Tage.`
+  )
 
   const input = aggregateForSynthesis({
     retros: newRetros,
     benchmarks: newBenchmarks,
     learningsSnapshots: branch.learnings,
     currentOverlay: readOverlay(root),
-    existingProposalSlugs: existingProposalSlugs(root)
+    existingProposals: existingProposals(root)
   })
 
   console.log(
@@ -243,7 +277,7 @@ async function main(): Promise<void> {
   const dateIso = new Date().toISOString().slice(0, 10)
   const overlayContent = `${output.overlay.trim()}\n`
   const proposals = output.proposals.filter(
-    (proposal) => !input.existingProposalSlugs.includes(proposal.slug)
+    (proposal) => !input.existingProposals.some((existing) => existing.slug === proposal.slug)
   )
   const processedPaths = [
     ...newRetros.map((entry) => entry.path),

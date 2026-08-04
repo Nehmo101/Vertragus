@@ -877,22 +877,29 @@ button {
   color: #fff;
 }
 
-/* ---------- yolo strip ---------- */
-.yolo-strip {
+/* ---------- yolo / safe-mode strip ---------- */
+.yolo-strip,
+.safe-strip {
   flex: none;
+  width: 100%;
   height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11.5px;
+  letter-spacing: 0.3px;
+  position: relative;
+  z-index: 30;
+}
+.yolo-strip {
   background: linear-gradient(180deg, rgba(242, 85, 90, 0.16), rgba(242, 85, 90, 0.07));
   border-bottom: 1px solid rgba(242, 85, 90, 0.3);
   color: var(--danger-text);
-  font-size: 11.5px;
-  letter-spacing: 0.3px;
   animation: yolopulse 2.6s ease-in-out infinite;
-  position: relative;
-  z-index: 30;
 }
 .yolo-strip .head {
   font-weight: 700;
@@ -900,6 +907,43 @@ button {
 }
 .yolo-strip .rest {
   color: #e79ba0;
+}
+.yolo-strip .action,
+.safe-strip .action {
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  opacity: 0.85;
+  font-weight: 600;
+}
+.yolo-strip:hover,
+.yolo-strip:focus-visible {
+  background: linear-gradient(180deg, rgba(242, 85, 90, 0.26), rgba(242, 85, 90, 0.12));
+  outline: none;
+}
+.yolo-strip:hover .action,
+.yolo-strip:focus-visible .action {
+  opacity: 1;
+}
+/* Safe Mode: yolo is the default — the quiet grey strip is the opt-out state. */
+.safe-strip {
+  background: color-mix(in srgb, var(--panel, #2a2a2e) 70%, transparent);
+  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.09));
+  color: var(--muted, #9a9aa2);
+}
+.safe-strip .head {
+  font-weight: 700;
+}
+.safe-strip:hover,
+.safe-strip:focus-visible {
+  color: var(--text, #e4e4e8);
+  outline: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .yolo-strip {
+    animation: none;
+  }
 }
 
 /* ---------- restart-recovery banner ---------- */
@@ -2283,6 +2327,24 @@ button {
   margin-top: 4px;
   padding-top: 4px;
   border-top: 1px solid var(--border-soft, rgba(148, 163, 184, 0.16));
+}
+/* Familien-Header: Alias + Pins lesen als EIN Block, nicht als Duplikate. */
+.model-combo-family-head {
+  padding: 2px 8px 1px;
+  color: var(--text-muted);
+  font-size: 9.5px;
+  font-family: var(--font-sans, inherit);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  user-select: none;
+}
+.model-combo-option.in-family {
+  margin-left: 6px;
+}
+.model-combo-tag.snapshots {
+  background: rgba(148, 163, 184, 0.16);
+  color: var(--text-2, var(--text-1));
+  text-transform: none;
 }
 .model-combo-option {
   display: flex;

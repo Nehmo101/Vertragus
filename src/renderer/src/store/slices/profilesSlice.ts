@@ -116,13 +116,13 @@ export const createProfilesSlice: StateCreator<AppState, [], [], ProfilesSlice> 
             model: '',
             count: 1,
             orchestrated: true,
-            yolo: false,
+            yolo: true,
             strengths: [],
             weaknesses: []
           }
         ],
         solo: false,
-        yoloDefault: false,
+        yoloDefault: true,
         planner: { mode: 'review', routingMode: 'adaptive', maxParallel: 6, maxRetries: 1 },
         benchmark: { enabled: false },
         multiAgent: { enabled: false, stopLosers: true },

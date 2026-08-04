@@ -7,8 +7,10 @@ import {
   nextState,
   parseAnalysisState,
   parseBranchFiles,
+  parseProposalStatus,
   proposalFileName,
   renderProposalMarkdown,
+  shouldRunAnalysis,
   synthesisOutputSchema,
   type AnalysisState,
   type BranchFile
@@ -160,6 +162,49 @@ describe('collectNew / state', () => {
   })
 })
 
+describe('shouldRunAnalysis', () => {
+  const DAY = 24 * 3600_000
+  const opts = { minNew: 3, maxAgeDays: 10 }
+
+  it('runs on enough new retros (min-new trigger)', () => {
+    expect(shouldRunAnalysis([NOW, NOW - DAY, NOW - 2 * DAY], opts, NOW)).toBe('min-new')
+  })
+
+  it('runs few-but-old retros via the max-age trigger (the 2026-07 stall)', () => {
+    expect(shouldRunAnalysis([NOW - 12 * DAY, NOW - 11 * DAY], opts, NOW)).toBe('max-age')
+  })
+
+  it('skips few fresh retros', () => {
+    expect(shouldRunAnalysis([NOW - DAY, NOW - 2 * DAY], opts, NOW)).toBeNull()
+  })
+
+  it('never runs without new retros, even with min-new 0', () => {
+    expect(shouldRunAnalysis([], opts, NOW)).toBeNull()
+    expect(shouldRunAnalysis([], { minNew: 0, maxAgeDays: 10 }, NOW)).toBeNull()
+  })
+
+  it('treats exactly maxAgeDays as still fresh (strictly older triggers)', () => {
+    expect(shouldRunAnalysis([NOW - 10 * DAY], opts, NOW)).toBeNull()
+    expect(shouldRunAnalysis([NOW - 10 * DAY - 1], opts, NOW)).toBe('max-age')
+  })
+})
+
+describe('parseProposalStatus', () => {
+  it('reads the front-matter status', () => {
+    expect(parseProposalStatus('---\nstatus: done\ncreated: 2026-07-27\n---\n\n# T')).toBe('done')
+    expect(parseProposalStatus('---\r\nstatus: accepted\r\n---\r\nBody')).toBe('accepted')
+  })
+
+  it('defaults to proposed for missing front-matter or status', () => {
+    expect(parseProposalStatus('# Kein Front-Matter')).toBe('proposed')
+    expect(parseProposalStatus('---\ncreated: 2026-07-27\n---\n')).toBe('proposed')
+  })
+
+  it('ignores a status line outside the front-matter block', () => {
+    expect(parseProposalStatus('# Titel\n\nstatus: done\n')).toBe('proposed')
+  })
+})
+
 describe('aggregateForSynthesis', () => {
   it('sums stats per model and enforces the conservatism gate', () => {
     const retros = [
@@ -210,7 +255,7 @@ describe('aggregateForSynthesis', () => {
         learning({ insight: 'Benchmark-Erkenntnis', source: 'benchmark', observations: 1 })
       ],
       currentOverlay: '- Alte Regel',
-      existingProposalSlugs: ['alte-idee']
+      existingProposals: [{ slug: 'alte-idee', status: 'proposed' }]
     })
 
     expect(input.newRetroCount).toBe(2)
@@ -225,7 +270,7 @@ describe('aggregateForSynthesis', () => {
     expect(insights).toContain('Benchmark-Erkenntnis')
     expect(input.benchmarkVerdicts[0]).toContain('codex/gpt · Score 9/10')
     expect(input.currentOverlay).toBe('- Alte Regel')
-    expect(input.existingProposalSlugs).toEqual(['alte-idee'])
+    expect(input.existingProposals).toEqual([{ slug: 'alte-idee', status: 'proposed' }])
   })
 
   it('drops single-observation single-occurrence learnings', () => {
@@ -240,7 +285,7 @@ describe('aggregateForSynthesis', () => {
       benchmarks: [],
       learningsSnapshots: [],
       currentOverlay: '',
-      existingProposalSlugs: []
+      existingProposals: []
     })
     expect(input.learnings).toHaveLength(0)
   })
@@ -266,7 +311,7 @@ describe('aggregateForSynthesis', () => {
         })
       ],
       currentOverlay: '',
-      existingProposalSlugs: []
+      existingProposals: []
     })
     const insights = input.learnings.map((entry) => entry.insight)
     expect(insights).not.toContain('fehleranfällig bei codex')

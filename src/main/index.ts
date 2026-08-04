@@ -126,8 +126,22 @@ app.whenReady().then(async () => {
     } catch (error) {
       console.warn('[Headless] Control-Server konnte nicht starten', error)
     }
-  } else {
-    windows.createMainWindow()
+  }
+
+  // Startmodus: 'rail' bootet nur die schmale Desktop-Rail; Smoke-/Screenshot-
+  // und E2E-Läufe erwarten immer das Vollfenster.
+  const configStore = await import('@main/config/store')
+  const railStart = (): boolean =>
+    configStore.getSetting<string>('ui.startMode') === 'rail' &&
+    !brandEnv('UI_SMOKE') &&
+    !brandEnv('SCREENSHOT') &&
+    !e2eUserData
+  if (!headless) {
+    if (railStart()) {
+      windows.createRailWindow()
+    } else {
+      windows.createMainWindow()
+    }
     updater.initializeUpdater()
   }
 
@@ -145,6 +159,9 @@ app.whenReady().then(async () => {
       voiceTray.setToolTip('Vertragus')
       voiceTray.setContextMenu(
         Menu.buildFromTemplate([
+          // Rettungsanker: aus jedem Zustand (auch versteckter Rail) zurück zur App.
+          { label: 'Vertragus öffnen', click: () => windows.openMainWindow() },
+          { label: 'Rail umschalten', click: () => windows.toggleRailWindow() },
           { label: 'Sprachassistent umschalten', click: () => windows.toggleVoiceOverlay() },
           { type: 'separator' },
           { label: 'Beenden', click: () => app.quit() }
@@ -163,7 +180,9 @@ app.whenReady().then(async () => {
   }
 
   app.on('activate', () => {
-    if (!headless && BrowserWindow.getAllWindows().length === 0) windows.createMainWindow()
+    if (headless || BrowserWindow.getAllWindows().length > 0) return
+    if (railStart()) windows.createRailWindow()
+    else windows.createMainWindow()
   })
 })
 

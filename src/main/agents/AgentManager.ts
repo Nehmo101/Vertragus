@@ -664,7 +664,7 @@ export class AgentManager extends EventEmitter {
     const kind = req.kind ?? 'sub'
     const id = this.nextId(kind === 'orchestrator' ? 'orch' : 'sub')
     const name = this.names.allocate(kind)
-    const yolo = req.yolo ?? false
+    const yolo = req.yolo ?? true
     let workingDir: string
     let worktree: string | undefined
     let branch: string | undefined
@@ -1249,7 +1249,8 @@ export class AgentManager extends EventEmitter {
         worktree: info.worktree,
         yolo: req.yolo,
         engineId: req.engineId,
-        workspaceSessionId: req.workspaceSessionId
+        workspaceSessionId: req.workspaceSessionId,
+        setupCommands: req.profileId ? getProfile(req.profileId)?.setupCommands : undefined
       })
     } catch (error) {
       this.releaseCapacity(active)

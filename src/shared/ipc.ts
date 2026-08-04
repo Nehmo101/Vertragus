@@ -165,6 +165,11 @@ export const IPC = {
   voiceOverlayToggle: 'voiceOverlay:toggle',
   voiceOverlayHide: 'voiceOverlay:hide',
   voiceOverlayMoved: 'voiceOverlay:moved',
+  // desktop rail (schmale Always-on-top-Startleiste)
+  railToggle: 'rail:toggle',
+  railOpenMain: 'rail:openMain',
+  railMoved: 'rail:moved',
+  railLaunchTiled: 'rail:launchTiled',
   remoteStatus: 'remote:status',
   remoteEnable: 'remote:enable',
   remoteDisable: 'remote:disable',
@@ -191,6 +196,7 @@ export const IPC = {
   evVoiceAssistant: 'ev:voiceAssistant',
   evUiCommand: 'ev:uiCommand',
   evConfigChanged: 'ev:configChanged',
+  evProfilesChanged: 'ev:profilesChanged',
   // window controls (frameless title bar)
   winMinimize: 'win:minimize',
   winMaximizeToggle: 'win:maximizeToggle',
@@ -416,6 +422,12 @@ export interface VertragusApi {
   listProfiles(): Promise<WorkspaceProfile[]>
   saveProfile(profile: WorkspaceProfile): Promise<WorkspaceProfile[]>
   deleteProfile(id: string): Promise<WorkspaceProfile[]>
+  /**
+   * Fires in every window whenever a profile is saved or deleted, so secondary
+   * windows (rail, agent panes) mirror the profile list live instead of going
+   * stale until reload.
+   */
+  onProfilesChanged(cb: (profiles: WorkspaceProfile[]) => void): () => void
   generateProfileForRepo(req: RepoProfileGenerationRequest): Promise<WorkspaceProfile>
   getActiveProfileId(): Promise<string>
   setActiveProfileId(id: string): Promise<void>
@@ -645,6 +657,23 @@ export interface VertragusApi {
     hide(): Promise<void>
     /** Persist the overlay window position after a native drag. */
     moved(x: number, y: number): void
+  }
+
+  /** Desktop rail: the slim always-on-top launcher window (#/sidebar). */
+  rail: {
+    /** Toggle the rail window visibility (creates it on first use). */
+    toggle(): Promise<void>
+    /** Open (or focus) the full main window from the rail. */
+    openMain(): Promise<void>
+    /** Reposition the rail window during a drag; snaps + persists on the main side. */
+    moved(x: number, y: number): void
+    /**
+     * Start a workspace profile and tile every spawned agent — including the
+     * orchestrator — as its own pane window across the desktop work area. A
+     * second call for an already-running session focuses + re-tiles instead of
+     * respawning.
+     */
+    launchTiled(profileId: string, yoloMaster: boolean): Promise<void>
   }
 
   /** Main → renderer push feeds for the voice assistant. */

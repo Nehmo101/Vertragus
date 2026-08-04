@@ -18,6 +18,7 @@ import { parseActiveRepo, parseRecentRepos } from '@shared/repoSwitcher'
 export const PUBLIC_CONFIG_GET_KEYS = new Set([
   'yoloMaster',
   'ui.theme',
+  'ui.startMode',
   'ui.workspaceLayout',
   'ui.density',
   'ui.cliReadable',
@@ -39,6 +40,7 @@ export const PUBLIC_CONFIG_GET_KEYS = new Set([
 export const PUBLIC_CONFIG_SET_KEYS = new Set([
   'yoloMaster',
   'ui.theme',
+  'ui.startMode',
   'ui.workspaceLayout',
   'ui.density',
   'ui.cliReadable',
@@ -84,6 +86,11 @@ export function getPublicConfig<T = unknown>(key: string): T | undefined {
 
 export function setPublicConfig(key: string, value: unknown): void {
   assertConfigSetAllowed(key)
+  if (key === 'ui.startMode') {
+    // Startmodus des nächsten App-Starts: Vollfenster oder Desktop-Rail.
+    setSetting(key, value === 'rail' ? 'rail' : 'full')
+    return
+  }
   if (key === 'remote.enabled') {
     if (typeof value !== 'boolean') throw new Error('remote.enabled erwartet true oder false.')
     // Activation is deliberately exclusive to dedicated Remote IPC where safeStorage,

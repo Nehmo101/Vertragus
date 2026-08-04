@@ -222,8 +222,14 @@
   },
   "app": {
     "yoloBanner": {
-      "head": "⚠ YOLO MODE ACTIVE",
-      "body": "All confirmations disabled — agents commit, push & run shell commands without asking."
+      "head": "⚡ YOLO MODE ACTIVE",
+      "body": "All confirmations disabled — agents commit, push & run shell commands without asking.",
+      "disable": "Click to disable"
+    },
+    "safeMode": {
+      "head": "🛡 Safe Mode",
+      "body": "Agents ask before risky actions — runs may wait for approvals.",
+      "enable": "Enable Yolo"
     }
   },
   "toast": {
@@ -231,6 +237,7 @@
     "limitNear": "⚠ {{name}}: {{kind}} near — “⇄ Hand off” available",
     "workspaceOverviewIncomplete": "Workspace overview incomplete: {{error}}",
     "diagnosticsExported": "Diagnostics exported: {{path}}",
+    "startModeChanged": "Start mode: {{mode}} — takes effect on the next launch.",
     "diagnosticsNoRun": "There is no run yet for this workspace profile.",
     "diagnosticsExportFailed": "Diagnostics export failed: {{error}}",
     "mcpSaved": "MCP servers saved ({{count}}).",
@@ -475,8 +482,20 @@
       "darkTheme": "Dark theme",
       "readable": "Readable CLI output",
       "density": "Compact view",
+      "startMode": "Switch start mode",
+      "startModeFull": "Full window",
+      "startModeRail": "Rail",
+      "showRail": "Show rail",
       "updateChannel": "Switch update channel"
     }
+  },
+  "rail": {
+    "title": "Vertragus rail",
+    "dragAria": "Move the rail (drag); snaps to the screen edge",
+    "launch": "Launch {{name}} — agents appear as tiled windows",
+    "running": "{{name}}: {{count}} agent(s) active — click focuses and re-tiles",
+    "full": "Full view",
+    "empty": "No workspace profiles yet — create one in the full view."
   },
   "orch": {
     "panelAria": "Orchestrator side panel",
@@ -1138,6 +1157,7 @@
     "help": {
       "profileName": "Freely chosen name for this combination of workspace, orchestrator and subagents.",
       "workingDir": "Local repository or project folder the agents work in. The auto-PR base branch is derived from this folder's git origin when needed.",
+      "setupCommands": "Warm-up commands run once per fresh worktree after the package install — e.g. codegen like \"corepack pnpm --filter @scope/database db:generate\". One command per line, no shell syntax (&&, |, $ …); failures block the start with a clear cause.",
       "githubAuth": "Browser OAuth (device flow with VERTRAGUS_GITHUB_OAUTH_CLIENT_ID) or gh --web. Tokens are stored encrypted locally, never in the profile or in logs. Required for auto PR.",
       "generateFromRepo": "The selected analysis model reads the working-directory repository read-only and proposes roles, models and quality gates. Depending on repo size this can take one to several minutes.",
       "agentWorkingDir": "Optional path for this slot only. Empty inherits the workspace base path.",
@@ -1232,6 +1252,8 @@
     },
     "repo": {
       "workingDir": "Working directory (repo)",
+      "setupCommands": "Warm-up commands (fresh worktrees)",
+      "setupCommandsPlaceholder": "corepack pnpm --filter @scope/database db:generate",
       "browse": "Browse…",
       "analyzing": "Analysing repo… {{elapsed}}",
       "generate": "Generate AI profile from the Git repo",
@@ -1527,7 +1549,8 @@
       "pickTitle": "Show every model of this provider",
       "noMatch": "No model matches — free text stays allowed.",
       "rolling": "latest",
-      "rollingTitle": "Rolling alias: always resolves to the newest release of this family at launch."
+      "rollingTitle": "Rolling alias: always resolves to the newest release of this family at launch.",
+      "snapshotTitle": "Dated snapshots of this model: {{ids}}"
     },
     "infoTip": {
       "label": "Field help"

@@ -23,13 +23,13 @@ export const EFFICIENCY_SOLO_PROFILE: WorkspaceProfile = workspaceProfileSchema.
       model: 'sonnet',
       count: 1,
       orchestrated: false,
-      yolo: false,
+      yolo: true,
       strengths: [],
       weaknesses: []
     }
   ],
   solo: true,
-  yoloDefault: false,
+  yoloDefault: true,
   planner: { mode: 'manual', routingMode: 'fixed', maxParallel: 1, maxRetries: 0 },
   benchmark: { enabled: false },
   multiAgent: { enabled: false, stopLosers: true },

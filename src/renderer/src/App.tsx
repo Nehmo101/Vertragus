@@ -21,6 +21,7 @@ import { SpeechShortcutProvider } from '@renderer/features/speechShortcut/Speech
 import { AppShortcutProvider } from '@renderer/shortcuts/AppShortcutProvider'
 import CommandPalette from '@renderer/components/palette/CommandPalette'
 import VoiceOverlay from '@renderer/components/VoiceOverlay'
+import RailWindow from '@renderer/components/RailWindow'
 import { useAttentionSignal } from '@renderer/hooks/useAttentionSignal'
 import { useHashRoute } from '@renderer/hooks/useHashRoute'
 import { useDocumentLanguage } from '@renderer/hooks/useDocumentLanguage'
@@ -48,7 +49,8 @@ export default function App(): JSX.Element {
       init: s.init,
       openEditor: s.openEditor,
       openAddAgent: s.openAddAgent,
-      applyUiCommand: s.applyUiCommand
+      applyUiCommand: s.applyUiCommand,
+      toggleYolo: s.toggleYolo
     }))
   )
   const hash = useHashRoute()
@@ -70,7 +72,7 @@ export default function App(): JSX.Element {
   useEffect(() => {
     const unsubscribe = window.vertragus.events.onUiCommand((command) => {
       const route = window.location.hash
-      if (route.startsWith('#/voice') || route.startsWith('#/pane')) return
+      if (route.startsWith('#/voice') || route.startsWith('#/pane') || route.startsWith('#/sidebar')) return
       store.applyUiCommand(command)
     })
     return unsubscribe
@@ -81,6 +83,14 @@ export default function App(): JSX.Element {
     return (
       <div className="app-root voice-window-root" data-theme={store.theme}>
         <VoiceOverlay />
+      </div>
+    )
+  }
+
+  if (hash === '#/sidebar') {
+    return (
+      <div className="app-root rail-window-root" data-theme={store.theme}>
+        <RailWindow />
       </div>
     )
   }
@@ -116,11 +126,28 @@ export default function App(): JSX.Element {
 
       <SessionRestoreBanner />
 
-      {store.yoloMaster && (
-        <div className="yolo-strip">
+      {store.yoloMaster ? (
+        <button
+          type="button"
+          className="yolo-strip"
+          onClick={store.toggleYolo}
+          title={t('app.yoloBanner.disable')}
+        >
           <span className="head">{t('app.yoloBanner.head')}</span>
           <span className="rest">{t('app.yoloBanner.body')}</span>
-        </div>
+          <span className="action">{t('app.yoloBanner.disable')}</span>
+        </button>
+      ) : (
+        <button
+          type="button"
+          className="safe-strip"
+          onClick={store.toggleYolo}
+          title={t('app.safeMode.enable')}
+        >
+          <span className="head">{t('app.safeMode.head')}</span>
+          <span className="rest">{t('app.safeMode.body')}</span>
+          <span className="action">{t('app.safeMode.enable')}</span>
+        </button>
       )}
 
       <div className={`body-row layout-${store.workspaceLayout}`}>

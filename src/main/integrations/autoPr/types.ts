@@ -30,6 +30,8 @@ export interface PrepareTaskInput {
   taskId: string
   title: string
   worktree?: string
+  /** Profil-deklarierte Warm-up-Befehle für frisch bereitgestellte Worktrees. */
+  setupCommands?: string[]
 }
 
 export interface PublishInput {
@@ -39,6 +41,8 @@ export interface PublishInput {
   changes: PreparedTaskChange[]
   /** Profile-bound default branch when autoPr.baseBranch is empty. */
   profileDefaultBranch?: string
+  /** Profil-deklarierte Warm-up-Befehle für frisch bereitgestellte Worktrees. */
+  setupCommands?: string[]
   onRemoteCiUpdate?: (outcome: RemoteCiOutcome) => void
 }
 

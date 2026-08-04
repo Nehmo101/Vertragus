@@ -342,6 +342,7 @@ export default function ProfileEditor(): JSX.Element | null {
 
                 <RepoWorkspaceSection
                   workingDir={draft.workingDir}
+                  setupCommands={draft.setupCommands ?? []}
                   repoLocalPath={profileRepoLocalPath(draft)}
                   generating={generatingProfile}
                   generateElapsed={generateElapsed}

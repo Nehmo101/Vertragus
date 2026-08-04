@@ -76,7 +76,7 @@ export function profileDraftReducer(
         model: 'sonnet',
         count: 1,
         orchestrated: false,
-        yolo: false,
+        yolo: true,
         strengths: [],
         weaknesses: []
       }
@@ -130,7 +130,7 @@ export function profileDraftReducer(
             model: '',
             count: 1,
             orchestrated: true,
-            yolo: false,
+            yolo: true,
             strengths: [],
             weaknesses: []
           }

@@ -1,7 +1,7 @@
 import { DEFAULT_PROFILE, workspaceProfileSchema, type WorkspaceProfile } from '@shared/profile'
 import type { AgentProviderId } from '@shared/providers'
 
-export const CURRENT_CONFIG_SCHEMA_VERSION = 4
+export const CURRENT_CONFIG_SCHEMA_VERSION = 5
 
 export interface MigratedConfig {
   schemaVersion: number
@@ -100,10 +100,36 @@ function resetGeneratedClaudeModel(raw: Record<string, unknown>): Record<string,
   }
 }
 
+/**
+ * v5: Yolo is the new default (Safe Mode is the opt-out). A profile is flipped
+ * ONLY when its entire yolo configuration still carries the old stock default —
+ * `yoloDefault: false` AND every slot `yolo: false`. Any `true` anywhere means
+ * the user configured yolo deliberately; such profiles are left untouched, and
+ * so is any profile where the user turned individual slots off (mixed states
+ * cannot exist under the old all-false stock default without deliberate edits).
+ *
+ * Runs on the RAW snapshot because `store.ts:listProfiles` has been persisting
+ * parsed schema defaults back to disk — every existing install stores EXPLICIT
+ * `false` values, so the flipped schema default alone would never reach them.
+ */
+function flipStockYoloDefaults(raw: Record<string, unknown>): Record<string, unknown> {
+  const slots = Array.isArray(raw.agents) ? raw.agents : []
+  const yoloDefault = raw.yoloDefault === undefined ? false : raw.yoloDefault
+  const allStockOff =
+    yoloDefault === false &&
+    slots.every((slot) => !isRecord(slot) || slot.yolo === undefined || slot.yolo === false)
+  if (!allStockOff) return raw
+  return {
+    ...raw,
+    yoloDefault: true,
+    agents: slots.map((slot) => (isRecord(slot) ? { ...slot, yolo: true } : slot))
+  }
+}
+
 /** Raw-level rewrites applied before the profile schema sees the snapshot. */
 function migrateRawProfile(value: unknown): unknown {
   if (!isRecord(value)) return value
-  const profile = resetGeneratedClaudeModel(value)
+  const profile = flipStockYoloDefaults(resetGeneratedClaudeModel(value))
   const orchestrator = isRecord(profile.orchestrator)
     ? adoptLegacyModelPreset(profile.orchestrator)
     : profile.orchestrator
@@ -127,10 +153,16 @@ export function migrateConfigSnapshot(raw: unknown): MigratedConfig {
     ? requestedActive
     : safeProfiles[0].id
 
+  // v5: yolo is default-ON. An install that never touched the master switch has
+  // no stored value — give it the new default explicitly. A deliberate stored
+  // `false` (the user turned yolo off) is preserved.
+  const settings = recordOrEmpty(source.settings)
+  if (settings.yoloMaster === undefined) settings.yoloMaster = true
+
   return {
     schemaVersion: CURRENT_CONFIG_SCHEMA_VERSION,
     profiles: safeProfiles,
     activeProfileId,
-    settings: recordOrEmpty(source.settings)
+    settings
   }
 }

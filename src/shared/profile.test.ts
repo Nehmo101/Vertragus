@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  agentSlotCapabilities,
   agentSlotsWithRoles,
   DEFAULT_PROFILE,
   duplicateProfile,
   profileDefaultBaseBranch,
   profileRepoLocalPath,
+  type AgentSlot,
   type WorkspaceProfile,
   workspaceProfileSchema
 } from './profile'
@@ -289,9 +291,7 @@ describe('duplicateProfile', () => {
     expect(copySettings).toEqual({
       ...sourceSettings,
       githubRepo: { ...source.githubRepo, cloneStatus: 'unbound', localPath: '' },
-      githubProject: { ...source.githubProject },
-      agents: source.agents.map((slot) => ({ ...slot, yolo: false })),
-      yoloDefault: false
+      githubProject: { ...source.githubProject }
     })
     expect(copyId).not.toBe(sourceId)
     expect(copyName).not.toBe(sourceName)
@@ -333,16 +333,15 @@ describe('duplicateProfile', () => {
     })
   })
 
-  it('resets the profile default and every agent slot from yolo to safe mode', () => {
+  it('preserves the source yolo configuration when duplicating', () => {
     const source = completeProfile()
-    source.agents = source.agents.map((slot) => ({ ...slot, yolo: true }))
+    source.yoloDefault = false
+    source.agents = source.agents.map((slot, index) => ({ ...slot, yolo: index === 0 }))
 
     const copy = duplicateProfile(source, [source])
 
-    expect(source.yoloDefault).toBe(true)
-    expect(source.agents.every((slot) => slot.yolo)).toBe(true)
     expect(copy.yoloDefault).toBe(false)
-    expect(copy.agents.every((slot) => !slot.yolo)).toBe(true)
+    expect(copy.agents.map((slot) => slot.yolo)).toEqual(source.agents.map((slot) => slot.yolo))
   })
 
   it('deep-clones the GitHub project configuration', () => {
@@ -395,5 +394,37 @@ describe('duplicateProfile', () => {
     const copy = duplicateProfile(source, [source])
 
     expect(workspaceProfileSchema.parse(copy)).toEqual(copy)
+  })
+})
+
+describe('agentSlotCapabilities', () => {
+  function slot(provider: AgentSlot['provider'], model: string, overrides: Partial<AgentSlot> = {}): AgentSlot {
+    return {
+      role: 'worker', provider, model, count: 1, orchestrated: true,
+      yolo: true, strengths: [], weaknesses: [], ...overrides
+    }
+  }
+
+  it('always prefers explicit profile strengths over the heuristics', () => {
+    const explicit = agentSlotCapabilities(slot('codex', 'gpt-5.4-mini', { strengths: ['Nur das'] }))
+    expect(explicit.strengths).toEqual(['Nur das'])
+  })
+
+  it('differentiates model families within one provider', () => {
+    expect(agentSlotCapabilities(slot('codex', 'gpt-5.4-mini')).strengths).toContain('schnelle mechanische Edits')
+    expect(agentSlotCapabilities(slot('codex', 'gpt-5.6-sol')).strengths).toContain('tiefes Debugging')
+    expect(agentSlotCapabilities(slot('codex', '')).strengths).toContain('repo-nahe Implementierung')
+    expect(agentSlotCapabilities(slot('claude', 'haiku')).strengths).toContain('schnelle mechanische Aenderungen')
+    expect(agentSlotCapabilities(slot('claude', 'fable')).strengths).toContain('Backend-Architektur')
+    expect(agentSlotCapabilities(slot('cursor', 'composer-2.5')).strengths).toContain('Frontend und UI-Implementierung')
+    expect(agentSlotCapabilities(slot('cursor', 'composer-2.5-fast')).weaknesses).toContain('tiefes Architekturdesign')
+    expect(agentSlotCapabilities(slot('copilot', 'claude-sonnet-4.6')).strengths).toContain('Review und Analyse')
+    expect(agentSlotCapabilities(slot('copilot', 'gemini-2.5-pro')).strengths).toContain('multimodale Aufgaben')
+    expect(agentSlotCapabilities(slot('ollama', 'qwen2.5-coder:32b')).strengths).toContain('lokale Code-Generierung')
+    expect(agentSlotCapabilities(slot('ollama', 'llama3.3:70b')).strengths).toContain('lokale Analyse und Zusammenfassungen')
+  })
+
+  it('keeps a conservative fallback for unknown local models', () => {
+    expect(agentSlotCapabilities(slot('ollama', 'mystery-model')).strengths).toContain('lokale kostenguenstige Aufgaben')
   })
 })

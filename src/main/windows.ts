@@ -2,7 +2,7 @@
  * Window management: frameless main window (custom title bar per design),
  * pop-out windows for individual agent panes, and broadcast to all windows.
  */
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, screen, shell } from 'electron'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -15,6 +15,7 @@ import { initAttentionService } from '@main/attention/attentionService'
 import { workspacePlaceName } from '@shared/workspaceNames'
 import { agentDataTargetWindows } from '@main/agentDataFanout'
 import { workspaceProfileSchema } from '@shared/profile'
+import { computeTiles, snapRailPosition, type Rect } from '@main/tiling'
 
 /** Pre-paint window color matching the renderer themes (cozy-organic.css ambient). */
 function windowBackground(): string {
@@ -24,6 +25,7 @@ const WINDOW_ICON = join(__dirname, '../renderer/favicon.png')
 const paneWindows = new Map<string, Set<BrowserWindow>>()
 let mainWindow: BrowserWindow | null = null
 let voiceWindow: BrowserWindow | null = null
+let railWindow: BrowserWindow | null = null
 
 /** Representative profile for headless ProfileEditor screenshots. */
 const DEMO_PROFILE = workspaceProfileSchema.parse({
@@ -382,11 +384,187 @@ export function moveVoiceOverlay(x: number, y: number): void {
   voiceWindow.setPosition(Math.round(x), Math.round(y))
 }
 
-/** Pop out a single agent pane into its own OS window (native frame). */
-export function createPaneWindow(agentId: string): BrowserWindow {
+// ---------------------------------------------------------------------------
+// Desktop-Rail: schmale Always-on-top-Startleiste (#/sidebar)
+// ---------------------------------------------------------------------------
+
+const RAIL_WIDTH = 280
+const RAIL_MAX_HEIGHT = 680
+const RAIL_MARGIN = 12
+/** Persistierte Rail-Lage: Kante + vertikale Position. */
+interface RailBounds {
+  edge: 'left' | 'right'
+  y: number
+}
+
+function parseRailBounds(value: unknown): RailBounds | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const record = value as { edge?: unknown; y?: unknown }
+  if (record.edge !== 'left' && record.edge !== 'right') return undefined
+  if (typeof record.y !== 'number' || !Number.isFinite(record.y)) return undefined
+  return { edge: record.edge, y: record.y }
+}
+
+function railGeometry(): { x: number; y: number; width: number; height: number } {
+  const workArea = screen.getPrimaryDisplay().workArea
+  const height = Math.min(RAIL_MAX_HEIGHT, workArea.height - 2 * RAIL_MARGIN)
+  const stored = parseRailBounds(getSetting('ui.railBounds'))
+  const edge = stored?.edge ?? 'right'
+  const x = edge === 'left'
+    ? workArea.x + RAIL_MARGIN
+    : workArea.x + workArea.width - RAIL_WIDTH - RAIL_MARGIN
+  const y = Math.min(
+    Math.max(stored?.y ?? workArea.y + RAIL_MARGIN, workArea.y),
+    workArea.y + Math.max(0, workArea.height - height)
+  )
+  return { x, y, width: RAIL_WIDTH, height }
+}
+
+/** Nur das Rail-Fenster darf rail:moved senden; rail:openMain zusätzlich das Hauptfenster. */
+export function isRailWindowSender(sender: Electron.WebContents): boolean {
+  return Boolean(railWindow && !railWindow.isDestroyed() && railWindow.webContents === sender)
+}
+
+export function createRailWindow(): BrowserWindow {
+  if (railWindow && !railWindow.isDestroyed()) {
+    railWindow.show()
+    railWindow.focus()
+    return railWindow
+  }
+  const geometry = railGeometry()
   const win = new BrowserWindow({
-    width: 760,
-    height: 520,
+    ...geometry,
+    show: false,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    // Im Rail-Startmodus ist die Rail die einzige Oberfläche der App — sie
+    // muss über die Taskleiste erreichbar bleiben (anders als das Voice-Overlay).
+    skipTaskbar: false,
+    alwaysOnTop: true,
+    backgroundColor: '#00000000',
+    icon: WINDOW_ICON,
+    title: 'Vertragus — Rail',
+    webPreferences: baseWebPreferences()
+  })
+  railWindow = win
+  win.setAlwaysOnTop(true, 'floating')
+  win.on('closed', () => {
+    if (railWindow === win) railWindow = null
+  })
+  installEditContextMenu(win)
+  secureWindow(win)
+  win.on('ready-to-show', () => win.show())
+  loadRoute(win, '/sidebar')
+  return win
+}
+
+/** Show the rail (creating it on first use), or hide it if already visible. */
+export function toggleRailWindow(): void {
+  if (railWindow && !railWindow.isDestroyed()) {
+    if (railWindow.isVisible()) {
+      railWindow.hide()
+    } else {
+      railWindow.show()
+      railWindow.focus()
+    }
+    return
+  }
+  createRailWindow()
+}
+
+/** Rail-Kante + Breite für die Kachelung; null, wenn keine sichtbare Rail existiert. */
+export function getRailDock(): { edge: 'left' | 'right'; width: number } | null {
+  if (!railWindow || railWindow.isDestroyed() || !railWindow.isVisible()) return null
+  const workArea = screen.getPrimaryDisplay().workArea
+  const [x] = railWindow.getPosition()
+  const center = x + RAIL_WIDTH / 2
+  const edge = center < workArea.x + workArea.width / 2 ? 'left' : 'right'
+  return { edge, width: RAIL_WIDTH + RAIL_MARGIN }
+}
+
+let railPersistTimer: NodeJS.Timeout | undefined
+
+/**
+ * Rail-Drag: Kanten-Snap + y-Klemmung, Persistenz debounced (~300 ms), damit
+ * ein Drag keinen Write-Sturm auf vertragus.json erzeugt.
+ */
+export function moveRailWindow(x: number, y: number): void {
+  if (!railWindow || railWindow.isDestroyed()) return
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return
+  const workArea = screen.getPrimaryDisplay().workArea
+  const inset: Rect = {
+    x: workArea.x + RAIL_MARGIN,
+    y: workArea.y + RAIL_MARGIN,
+    width: workArea.width - 2 * RAIL_MARGIN,
+    height: workArea.height - 2 * RAIL_MARGIN
+  }
+  const height = railWindow.getBounds().height
+  const snapped = snapRailPosition(Math.round(x), Math.round(y), inset, RAIL_WIDTH, height)
+  railWindow.setPosition(snapped.x, snapped.y)
+  if (railPersistTimer) clearTimeout(railPersistTimer)
+  railPersistTimer = setTimeout(() => {
+    railPersistTimer = undefined
+    const [finalX, finalY] = railWindow?.isDestroyed() === false ? railWindow.getPosition() : [snapped.x, snapped.y]
+    const center = finalX + RAIL_WIDTH / 2
+    const edge = center < workArea.x + workArea.width / 2 ? 'left' : 'right'
+    setSetting('ui.railBounds', { edge, y: finalY })
+  }, 300)
+}
+
+/** "Full"-Button der Rail: Hauptfenster fokussieren oder neu erzeugen. */
+export function openMainWindow(): BrowserWindow {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+    return mainWindow
+  }
+  return createMainWindow()
+}
+
+/**
+ * Rail-Start: alle Agenten (inkl. Orchestrator) als eigene Pane-Fenster über
+ * die freie Arbeitsfläche kacheln. Vorhandene Panes werden nur umpositioniert.
+ */
+export function tileAgentWindows(agentIds: string[], primaryIndex: number): void {
+  if (agentIds.length === 0) return
+  const workArea = screen.getPrimaryDisplay().workArea
+  const dock = getRailDock()
+  const tiles = computeTiles({
+    workArea,
+    railEdge: dock?.edge,
+    railWidth: dock?.width ?? 0,
+    count: agentIds.length,
+    primaryIndex
+  })
+  agentIds.forEach((agentId, index) => {
+    const tile = tiles[index]
+    if (tile) showTiledPaneWindow(agentId, tile)
+  })
+}
+
+/** Vorhandenes Pane-Fenster auf die Kachel setzen + fokussieren, sonst neu erzeugen. */
+export function showTiledPaneWindow(agentId: string, tile: Rect): BrowserWindow {
+  const existing = paneWindows.get(agentId)
+  for (const win of existing ?? []) {
+    if (!win.isDestroyed()) {
+      win.setBounds(tile)
+      win.focus()
+      return win
+    }
+  }
+  return createPaneWindow(agentId, tile)
+}
+
+/** Pop out a single agent pane into its own OS window (native frame). */
+export function createPaneWindow(agentId: string, bounds?: Rect): BrowserWindow {
+  const win = new BrowserWindow({
+    width: bounds?.width ?? 760,
+    height: bounds?.height ?? 520,
+    ...(bounds ? { x: bounds.x, y: bounds.y } : {}),
     minWidth: 420,
     minHeight: 300,
     autoHideMenuBar: true,
