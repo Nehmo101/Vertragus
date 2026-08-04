@@ -194,7 +194,12 @@ async function publishAggregate(input: PublishInput): Promise<AutoPrOutcome> {
     }
     const integratedDiff = await git(integrationPath, ['diff', '--no-ext-diff', '--binary', `origin/${base}...HEAD`])
     assertSecurityGate(integratedDiff, { excludePaths: input.config.securityGateExcludes })
-    await runIntegrationQualityGates(root, integrationPath, input.config.qualityGates)
+    await runIntegrationQualityGates(
+      root,
+      integrationPath,
+      input.config.qualityGates,
+      input.setupCommands ?? []
+    )
     const body = [
       `Automatisch integriert von Vertragus für **${input.goalTitle}**.`,
       '',

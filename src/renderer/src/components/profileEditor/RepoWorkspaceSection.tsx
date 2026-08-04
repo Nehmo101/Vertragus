@@ -13,6 +13,8 @@ function formatElapsed(seconds: number): string {
 
 interface RepoWorkspaceSectionProps {
   workingDir: string
+  /** Trusted warm-up commands run once per fresh worktree after the install. */
+  setupCommands: string[]
   /** Effective repo path (githubRepo.localPath or workingDir); empty disables generation. */
   repoLocalPath: string
   generating: boolean
@@ -27,6 +29,7 @@ interface RepoWorkspaceSectionProps {
 /** Working directory plus AI profile generation and retro findings. */
 const RepoWorkspaceSection = memo(function RepoWorkspaceSection({
   workingDir,
+  setupCommands,
   repoLocalPath,
   generating,
   generateElapsed,
@@ -60,6 +63,20 @@ const RepoWorkspaceSection = memo(function RepoWorkspaceSection({
           {t('profile.repo.browse')}
         </button>
       </div>
+      <label className="field-label" htmlFor="profile-setup-commands">
+        {t('profile.repo.setupCommands')} <InfoTip text={t(HELP.setupCommands)} />
+      </label>
+      <textarea
+        id="profile-setup-commands"
+        className="text-input mono quality-gates"
+        placeholder={t('profile.repo.setupCommandsPlaceholder')}
+        value={setupCommands.join('\n')}
+        onChange={(e) =>
+          onPatchProfile({
+            setupCommands: e.target.value.split('\n').map((line) => line.trim()).filter(Boolean)
+          })
+        }
+      />
       <button
         type="button"
         className="btn-secondary profile-generate-btn"

@@ -1249,7 +1249,8 @@ export class AgentManager extends EventEmitter {
         worktree: info.worktree,
         yolo: req.yolo,
         engineId: req.engineId,
-        workspaceSessionId: req.workspaceSessionId
+        workspaceSessionId: req.workspaceSessionId,
+        setupCommands: req.profileId ? getProfile(req.profileId)?.setupCommands : undefined
       })
     } catch (error) {
       this.releaseCapacity(active)

@@ -1,5 +1,6 @@
 import { join, posix, win32 } from 'node:path'
 import { ensureWorktreeDependencies } from '@main/agents/dependencyBootstrap'
+import { runWorktreeSetupCommands } from '@main/agents/worktreeSetup'
 import type { AutoPrConfig } from '@shared/profile'
 import {
   assertSecurityGate,
@@ -36,10 +37,12 @@ const GATE_INFRASTRUCTURE_PATTERNS = [
 export class QualityGateError extends Error {
   readonly code = 'quality-gate-failed'
   readonly infrastructure: boolean
-  constructor(readonly command: string, detail: string) {
+  constructor(readonly command: string, detail: string, options?: { infrastructure?: boolean }) {
     super(`Quality Gate fehlgeschlagen: ${command}\n${detail}`)
     this.name = 'QualityGateError'
-    this.infrastructure = GATE_INFRASTRUCTURE_PATTERNS.some((pattern) => pattern.test(detail))
+    this.infrastructure =
+      options?.infrastructure ??
+      GATE_INFRASTRUCTURE_PATTERNS.some((pattern) => pattern.test(detail))
   }
 }
 
@@ -213,18 +216,42 @@ function assertManagedIntegrationPath(repositoryRoot: string, integrationPath: s
   }
 }
 
+/**
+ * Repo-Codegen nach frischer Worktree-Materialisierung (Retro 2026-07-29:
+ * fehlende generierte Prisma-Clients ließen den repo-weiten Typecheck in
+ * unberührten Paketen scheitern). Ein Fehlschlag ist ein benannter
+ * Infrastruktur-Gate-Fehler statt eines später unerklärlich roten Laufs.
+ */
+async function runSetupAfterFreshBootstrap(
+  bootstrapResult: unknown,
+  setupCommands: readonly string[],
+  workingDir: string
+): Promise<void> {
+  if (setupCommands.length === 0) return
+  const status = (bootstrapResult as { status?: string } | null | undefined)?.status
+  if (status !== 'installed' && status !== 'linked') return
+  try {
+    await runWorktreeSetupCommands(setupCommands, workingDir)
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    throw new QualityGateError('Worktree-Warm-up', detail, { infrastructure: true })
+  }
+}
+
 export async function runIntegrationQualityGates(
   repositoryRoot: string,
   integrationPath: string,
   gates: string[],
+  setupCommands: readonly string[] = [],
   deps: IntegrationQualityGateDeps = {
     bootstrap: ensureWorktreeDependencies,
     runGates: runQualityGates
   }
 ): Promise<void> {
   assertManagedIntegrationPath(repositoryRoot, integrationPath)
+  let bootstrapResult: unknown
   try {
-    await deps.bootstrap(repositoryRoot, integrationPath)
+    bootstrapResult = await deps.bootstrap(repositoryRoot, integrationPath)
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error)
     throw new QualityGateError(
@@ -232,6 +259,7 @@ export async function runIntegrationQualityGates(
       `Dependencies für den Integration-Worktree konnten nicht bereitgestellt werden: ${detail}`
     )
   }
+  await runSetupAfterFreshBootstrap(bootstrapResult, setupCommands, integrationPath)
   await deps.runGates(integrationPath, gates, repositoryRoot)
 }
 
@@ -239,17 +267,23 @@ export async function runIntegrationQualityGates(
  * Infrastruktur-Gate-Fehler (fehlendes eslint/prisma im frischen Worktree)
  * bekommen genau einen Bootstrap-Versuch, bevor sie als Blocker zählen.
  */
-export async function runGatesWithBootstrapRetry(worktree: string, gates: string[]): Promise<void> {
+export async function runGatesWithBootstrapRetry(
+  worktree: string,
+  gates: string[],
+  setupCommands: readonly string[] = []
+): Promise<void> {
   try {
     await runQualityGates(worktree, gates)
   } catch (error) {
     if (!(error instanceof QualityGateError) || !error.infrastructure) throw error
+    let bootstrapResult: unknown
     try {
       const root = await repositoryRoot(worktree)
-      await ensureWorktreeDependencies(root, worktree)
+      bootstrapResult = await ensureWorktreeDependencies(root, worktree)
     } catch {
       throw error
     }
+    await runSetupAfterFreshBootstrap(bootstrapResult, setupCommands, worktree)
     await runQualityGates(worktree, gates)
   }
 }

@@ -1144,6 +1144,7 @@
     "help": {
       "profileName": "Frei wählbarer Name für diese Kombination aus Workspace, Orchestrator und Subagents.",
       "workingDir": "Lokaler Repository- oder Projektordner, in dem die Agents arbeiten. Der Auto-PR-Basisbranch wird bei Bedarf aus dem git-origin dieses Ordners abgeleitet.",
+      "setupCommands": "Warm-up-Befehle, die einmal pro frischem Worktree nach der Paketinstallation laufen — z. B. Codegen wie »corepack pnpm --filter @scope/database db:generate«. Ein Befehl pro Zeile, ohne Shell-Syntax (&&, |, $ …); Fehlschläge blocken den Start mit klarer Ursache.",
       "githubAuth": "Browser-OAuth (Device Flow mit VERTRAGUS_GITHUB_OAUTH_CLIENT_ID) oder gh --web. Tokens werden verschlüsselt lokal gespeichert, nie im Profil oder in Logs. Wird für Auto-PR benötigt.",
       "generateFromRepo": "Das gewählte Analysemodell liest das Working-Directory-Repository read-only und schlägt Rollen, Modelle und Quality Gates vor. Kann je nach Repo-Größe ein bis mehrere Minuten dauern.",
       "agentWorkingDir": "Optionaler Pfad nur für diesen Slot. Leer übernimmt den Workspace-Basispfad.",
@@ -1238,6 +1239,8 @@
     },
     "repo": {
       "workingDir": "Working Directory (Repo)",
+      "setupCommands": "Warm-up-Befehle (frische Worktrees)",
+      "setupCommandsPlaceholder": "corepack pnpm --filter @scope/database db:generate",
       "browse": "Durchsuchen…",
       "analyzing": "Repo wird analysiert… {{elapsed}}",
       "generate": "KI-Profil aus Git-Repo erzeugen",

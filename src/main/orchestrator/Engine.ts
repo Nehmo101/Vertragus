@@ -1513,7 +1513,8 @@ export class OrchestratorEngine extends EventEmitter {
           provider: slot.provider,
           workingDir,
           engineId: this.engineId,
-          workspaceSessionId: this.workspaceSessionId
+          workspaceSessionId: this.workspaceSessionId,
+          setupCommands: profile?.setupCommands
         })
       }))
     }
@@ -2161,7 +2162,8 @@ export class OrchestratorEngine extends EventEmitter {
           baseCommit,
           taskId,
           title: task.title,
-          worktree: info.worktree
+          worktree: info.worktree,
+          setupCommands: this.activeProfile()?.setupCommands
         })
         task.autoPrStatus = autoPr.mode === 'off' ? 'skipped' : prepared.status
         task.branch = prepared.branch
@@ -3295,6 +3297,7 @@ export class OrchestratorEngine extends EventEmitter {
       goalTitle: this.goal?.title ?? 'Vertragus Aufgabe',
       changes,
       profileDefaultBranch: profileDefaultBaseBranch(profile),
+      setupCommands: profile.setupCommands,
       onRemoteCiUpdate: applyRemoteCi
     })
     const remoteStatus = outcome.remoteCi?.status

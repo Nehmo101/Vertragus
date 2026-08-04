@@ -191,7 +191,11 @@ export async function prepareTaskChange(input: PrepareTaskInput): Promise<Prepar
       )
     }
 
-    await runGatesWithBootstrapRetry(input.worktree, input.config.qualityGates)
+    await runGatesWithBootstrapRetry(
+      input.worktree,
+      input.config.qualityGates,
+      input.setupCommands ?? []
+    )
 
     // Gates may format or generate files. Stage and inspect their final output too.
     await git(input.worktree, ['add', '--all'])

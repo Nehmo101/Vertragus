@@ -1144,6 +1144,7 @@
     "help": {
       "profileName": "Freely chosen name for this combination of workspace, orchestrator and subagents.",
       "workingDir": "Local repository or project folder the agents work in. The auto-PR base branch is derived from this folder's git origin when needed.",
+      "setupCommands": "Warm-up commands run once per fresh worktree after the package install — e.g. codegen like \"corepack pnpm --filter @scope/database db:generate\". One command per line, no shell syntax (&&, |, $ …); failures block the start with a clear cause.",
       "githubAuth": "Browser OAuth (device flow with VERTRAGUS_GITHUB_OAUTH_CLIENT_ID) or gh --web. Tokens are stored encrypted locally, never in the profile or in logs. Required for auto PR.",
       "generateFromRepo": "The selected analysis model reads the working-directory repository read-only and proposes roles, models and quality gates. Depending on repo size this can take one to several minutes.",
       "agentWorkingDir": "Optional path for this slot only. Empty inherits the workspace base path.",
@@ -1238,6 +1239,8 @@
     },
     "repo": {
       "workingDir": "Working directory (repo)",
+      "setupCommands": "Warm-up commands (fresh worktrees)",
+      "setupCommandsPlaceholder": "corepack pnpm --filter @scope/database db:generate",
       "browse": "Browse…",
       "analyzing": "Analysing repo… {{elapsed}}",
       "generate": "Generate AI profile from the Git repo",

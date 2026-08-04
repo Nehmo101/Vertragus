@@ -13,6 +13,7 @@ import type {
 } from '@shared/orchestrator'
 import { getProvider, type AgentProviderId } from '@shared/providers'
 import { ensureWorktreeDependencies } from '@main/agents/dependencyBootstrap'
+import { runWorktreeSetupCommands } from '@main/agents/worktreeSetup'
 import { canonicalWorkspacePath, workspacePathKey } from '@main/agents/workspacePath'
 import { resolveFaithfulShimLaunch, resolveLaunch } from '@main/agents/resolveCommand'
 import {
@@ -32,6 +33,8 @@ export interface PanePreflightInput {
   yolo?: boolean
   engineId?: string
   workspaceSessionId?: string
+  /** Profil-deklarierte Warm-up-Befehle für FRISCHE Worktrees (nach dem Install). */
+  setupCommands?: string[]
 }
 
 export class PanePreflightError extends Error {
@@ -434,6 +437,15 @@ export async function runPanePreflight(input: PanePreflightInput): Promise<PaneP
     }),
     check('dependencies', async () => {
       const result = await ensureWorktreeDependencies(repositoryRoot ?? canonicalWorkspace, canonicalWorkspace)
+      // Repo-Codegen (z. B. prisma generate) nur nach frischer Materialisierung:
+      // ein bereits benutzter Worktree ('present') hat seine Artefakte schon.
+      const setupCommands = input.setupCommands ?? []
+      if (setupCommands.length > 0 && (result.status === 'installed' || result.status === 'linked')) {
+        const setup = await runWorktreeSetupCommands(setupCommands, canonicalWorkspace)
+        return {
+          detail: `${result.detail} Warm-up: ${setup.map((entry) => entry.command).join(' · ')}`
+        }
+      }
       return { detail: result.detail }
     }),
     check('toolchain', async () => {

@@ -198,6 +198,13 @@ export const workspaceProfileSchema = z.object({
   solo: z.boolean().default(false),
   /** Named, reusable workspace procedures injected into orchestrator/solo prompts. */
   skills: profileSkillsSchema.default([]),
+  /**
+   * Trusted repo warm-up commands, run once per FRESH worktree after the
+   * dependency install (e.g. "corepack pnpm --filter @scope/database db:generate").
+   * Same trust model as autoPr.qualityGates; executed without a shell and with
+   * shell metacharacters rejected (see main/agents/worktreeSetup.ts).
+   */
+  setupCommands: z.array(z.string().min(1).max(400)).max(8).default([]),
   /** Global Yolo master switch (default ON; Safe Mode is the opt-out). */
   yoloDefault: z.boolean().default(true),
   /** OS sandbox for headless Yolo workers (Linux/bubblewrap, opt-in). */
@@ -249,12 +256,14 @@ export type ProfileGithubRepo = z.infer<typeof profileGithubRepoSchema>
 type ParsedWorkspaceProfile = z.infer<typeof workspaceProfileSchema>
 export type WorkspaceProfile = Omit<
   ParsedWorkspaceProfile,
-  'orchestrator' | 'agents' | 'skills' | 'sandbox' | 'autoPr'
+  'orchestrator' | 'agents' | 'skills' | 'sandbox' | 'autoPr' | 'setupCommands'
 > & {
   orchestrator?: OrchestratorConfig
   agents: AgentSlot[]
   /** Legacy in-memory profile drafts may predate the skills field. */
   skills?: ProfileSkill[]
+  /** Legacy in-memory profile drafts may predate the setupCommands field. */
+  setupCommands?: string[]
   /** Legacy in-memory profile drafts may predate the sandbox field; omitted = 'none'. */
   sandbox?: SandboxMode
   /** Legacy in-memory drafts may predate autoPr.secretScanner; omitted = 'builtin'. */
@@ -432,6 +441,7 @@ export const DEFAULT_PROFILE: WorkspaceProfile = {
   ],
   solo: false,
   skills: [],
+  setupCommands: [],
   yoloDefault: true,
   sandbox: 'none',
   planner: { mode: 'review', routingMode: 'adaptive', maxParallel: 6, maxRetries: 1 },
