@@ -26,6 +26,7 @@
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "retro:analyze": "tsx scripts/retro-analyze.ts",
+    "retro:mark-proposal": "tsx scripts/retro-mark-proposal.ts",
     "test:ui-smoke": "node scripts/ui-smoke.mjs",
     "build:win": "pnpm run build && electron-builder --win",
     "build:mac": "pnpm run build && electron-builder --mac --universal",

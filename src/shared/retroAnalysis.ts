@@ -177,6 +177,28 @@ export function collectNew<T extends { path: string }>(
   )
 }
 
+export type AnalysisTrigger = 'min-new' | 'max-age'
+
+/**
+ * Decide whether an analysis run is due. Two triggers:
+ * - 'min-new': enough new retros accumulated (the normal batch trigger).
+ * - 'max-age': fewer than minNew retros exist, but the OLDEST unanalyzed one
+ *   has been waiting longer than maxAgeDays — without this, a quiet install
+ *   (< minNew retros per week) stalls forever and its findings never reach
+ *   the overlay (exactly what happened after 2026-07-27).
+ */
+export function shouldRunAnalysis(
+  newRetroCreatedAts: number[],
+  options: { minNew: number; maxAgeDays: number },
+  now: number
+): AnalysisTrigger | null {
+  if (newRetroCreatedAts.length === 0) return null
+  if (newRetroCreatedAts.length >= options.minNew) return 'min-new'
+  const oldest = Math.min(...newRetroCreatedAts)
+  if (now - oldest > options.maxAgeDays * 24 * 60 * 60_000) return 'max-age'
+  return null
+}
+
 export function nextState(
   state: AnalysisState,
   processedPaths: string[],
@@ -221,6 +243,12 @@ export interface AggregatedLearning {
   observations: number
 }
 
+export interface ExistingProposal {
+  slug: string
+  /** Front-matter status: proposed | accepted | done | rejected. */
+  status: string
+}
+
 export interface SynthesisInput {
   newRetroCount: number
   newBenchmarkCount: number
@@ -229,7 +257,14 @@ export interface SynthesisInput {
   learnings: AggregatedLearning[]
   benchmarkVerdicts: string[]
   currentOverlay: string
-  existingProposalSlugs: string[]
+  existingProposals: ExistingProposal[]
+}
+
+/** Front-matter `status:` of a proposal markdown file; 'proposed' when absent. */
+export function parseProposalStatus(content: string): string {
+  const frontMatter = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content)
+  const match = frontMatter ? /^status:\s*(\S+)\s*$/m.exec(frontMatter[1]) : null
+  return match?.[1] ?? 'proposed'
 }
 
 const MAX_LEARNINGS_FOR_SYNTHESIS = 60
@@ -340,7 +375,7 @@ export function aggregateForSynthesis(input: {
   benchmarks: ParsedBenchmark[]
   learningsSnapshots: ModelLearning[]
   currentOverlay: string
-  existingProposalSlugs: string[]
+  existingProposals: ExistingProposal[]
 }): SynthesisInput {
   const allLearnings = [
     ...input.retros.flatMap(({ retro }) => retro.learnings),
@@ -358,7 +393,7 @@ export function aggregateForSynthesis(input: {
     learnings: gatedLearnings(allLearnings),
     benchmarkVerdicts: benchmarkVerdicts(input.benchmarks),
     currentOverlay: input.currentOverlay,
-    existingProposalSlugs: input.existingProposalSlugs
+    existingProposals: input.existingProposals
   }
 }
 
