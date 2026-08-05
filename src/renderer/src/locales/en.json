@@ -711,6 +711,10 @@
     "on": "On",
     "off": "Off",
     "ok": "OK",
+    "rail": {
+      "startAria": "Start a new workspace",
+      "startTitle": "Start the team from the active profile"
+    },
     "provider": {
       "checking": "Checking…",
       "missing": "Missing",
@@ -801,6 +805,9 @@
     },
     "nav": {
       "caption": "Navigation",
+      "remoteTitle": "Show Mission Control",
+      "remote": "Mission Control",
+      "remoteSub": "Remote control and approvals",
       "inboxTitle": "Manage ideas and artifacts",
       "inbox": "Ideas inbox",
       "inboxSub": "Notes · Voice · Files",

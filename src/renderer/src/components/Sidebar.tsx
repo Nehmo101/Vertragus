@@ -640,6 +640,220 @@ interface SidebarViewProps {
   onToggle?: () => void
 }
 
+type RailIconName =
+  | 'expand'
+  | 'workspace'
+  | 'inbox'
+  | 'approvals'
+  | 'changes'
+  | 'remote'
+  | 'start'
+  | 'new'
+  | 'diagnostics'
+
+function RailIcon({ name }: { name: RailIconName }): JSX.Element {
+  const paths: Record<RailIconName, JSX.Element> = {
+    expand: <path d="m9 6 6 6-6 6" />,
+    workspace: (
+      <>
+        <rect x="4" y="4" width="6" height="6" rx="1" />
+        <rect x="14" y="4" width="6" height="6" rx="1" />
+        <rect x="4" y="14" width="6" height="6" rx="1" />
+        <rect x="14" y="14" width="6" height="6" rx="1" />
+      </>
+    ),
+    inbox: (
+      <>
+        <path d="M4 5h16v13H4z" />
+        <path d="M4 13h4l2 3h4l2-3h4" />
+      </>
+    ),
+    approvals: (
+      <>
+        <path d="M12 3 5 6v5c0 4.6 2.8 8 7 10 4.2-2 7-5.4 7-10V6z" />
+        <path d="m9 12 2 2 4-4" />
+      </>
+    ),
+    changes: (
+      <>
+        <path d="M7 7h11l-3-3" />
+        <path d="m18 7-3 3" />
+        <path d="M17 17H6l3 3" />
+        <path d="m6 17 3-3" />
+      </>
+    ),
+    remote: (
+      <>
+        <circle cx="12" cy="12" r="2" />
+        <path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7" />
+        <path d="M5.5 5.5a9 9 0 0 0 0 13M18.5 5.5a9 9 0 0 1 0 13" />
+      </>
+    ),
+    start: <path d="m9 6 9 6-9 6z" />,
+    new: (
+      <>
+        <path d="M12 5v14" />
+        <path d="M5 12h14" />
+      </>
+    ),
+    diagnostics: (
+      <>
+        <path d="M12 4v11" />
+        <path d="m8 12 4 4 4-4" />
+        <path d="M5 20h14" />
+      </>
+    )
+  }
+
+  return (
+    <svg className={styles.railIcon} viewBox="0 0 24 24" aria-hidden="true">
+      {paths[name]}
+    </svg>
+  )
+}
+
+interface SidebarRailProps {
+  store: SidebarViewState
+  hash: string
+  runningByProfile: Map<string, number>
+  approvalCount: number
+  publicationCount: number
+  onExpand?: () => void
+}
+
+function SidebarRail({
+  store,
+  hash,
+  runningByProfile,
+  approvalCount,
+  publicationCount,
+  onExpand
+}: SidebarRailProps): JSX.Element {
+  const { t } = useTranslation()
+  const navigate = (nextHash: string): void => {
+    window.location.assign(nextHash || '#')
+  }
+  const navItems: Array<{
+    id: RailIconName
+    hash: string
+    label: string
+    badge?: number
+  }> = [
+    { id: 'workspace', hash: '', label: t('sidebar.nav.workspaceTitle') },
+    { id: 'inbox', hash: '#/inbox', label: t('sidebar.nav.inboxTitle') },
+    {
+      id: 'approvals',
+      hash: '#/approvals',
+      label: t('sidebar.nav.approvalsTitle'),
+      badge: approvalCount
+    },
+    {
+      id: 'changes',
+      hash: '#/changes',
+      label: t('sidebar.nav.changesTitle'),
+      badge: publicationCount
+    },
+    { id: 'remote', hash: '#/remote', label: t('sidebar.nav.remoteTitle') }
+  ]
+
+  return (
+    <div className={styles.rail} data-testid="sidebar-rail">
+      <button
+        type="button"
+        className={`${styles.railButton} ${styles.railExpand}`}
+        aria-expanded="false"
+        data-rail-action="expand"
+        aria-controls="sidebar-left-content"
+        aria-label={t('sidebar.expandAria')}
+        title={t('sidebar.expandTitle')}
+        onClick={onExpand}
+      >
+        <span className={styles.railBrandMark} aria-hidden="true">V</span>
+        <RailIcon name="expand" />
+      </button>
+
+      <button
+        type="button"
+        className={`${styles.railButton} ${styles.railPrimary}`}
+        aria-label={t('sidebar.rail.startAria')}
+        title={t('sidebar.rail.startTitle')}
+        onClick={() => void store.startAll()}
+        data-rail-action="start"
+      >
+        <RailIcon name="start" />
+      </button>
+
+      <nav className={styles.railNav} aria-label={t('sidebar.nav.caption')}>
+        {navItems.map((item) => {
+          const active = item.hash === '' ? hash === '' || hash === '#' : hash === item.hash
+          return (
+            <button
+              key={item.id}
+              type="button"
+              className={`${styles.railButton} ${active ? styles.railButtonActive : ''}`}
+              aria-label={item.label}
+              data-rail-route={item.hash || 'workspace'}
+              aria-current={active ? 'page' : undefined}
+              title={item.label}
+              onClick={() => navigate(item.hash)}
+            >
+              <RailIcon name={item.id} />
+              {Boolean(item.badge) && (
+                <span className={styles.railBadge} aria-hidden="true">
+                  {item.badge! > 9 ? '9+' : item.badge}
+                </span>
+              )}
+            </button>
+          )
+        })}
+      </nav>
+
+      <div className={styles.railDivider} />
+      <div className={styles.railProfiles} aria-label={t('sidebar.profiles.caption')}>
+        {store.profiles.map((profile) => {
+          const active = profile.id === store.activeProfileId
+          const running = runningByProfile.get(profile.id) ?? 0
+          const attention = workspaceUserAttention(store, profile.id)
+          const detail = running
+            ? t('sidebar.profiles.activeCount', { n: running })
+            : profileSummary(profile, t)
+          const attentionLabel = attention ? attentionText(t, attention) : undefined
+          return (
+            <button
+              key={profile.id}
+              type="button"
+              data-rail-profile={profile.id}
+              className={`${styles.railProfile} ${active ? styles.railProfileActive : ''}`}
+              data-running={running > 0 || undefined}
+              data-attention={attention?.source}
+              aria-label={`${profile.name}. ${detail}${attentionLabel ? `. ${attentionLabel}` : ''}`}
+              aria-pressed={active}
+              title={`${profile.name} · ${detail}${attentionLabel ? ` · ${attentionLabel}` : ''}`}
+              onClick={() => {
+                navigate('')
+                void store.selectProfile(profile.id)
+              }}
+              onDoubleClick={() => store.openEditor(profile)}
+            >
+              <span>{profile.name.trim().slice(0, 2).toLocaleUpperCase() || '–'}</span>
+              {(running > 0 || attention) && <i aria-hidden="true" />}
+            </button>
+          )
+        })}
+      </div>
+
+      <div className={styles.railFooter}>
+        <button type="button" className={styles.railButton} data-rail-action="new-profile" aria-label={t('sidebar.profiles.newAria')} title={t('sidebar.profiles.newTitle')} onClick={store.openEditorNew}>
+          <RailIcon name="new" />
+        </button>
+        <button type="button" className={styles.railButton} data-rail-action="diagnostics" aria-label={t('sidebar.nav.diag')} title={t('sidebar.nav.diagTitle')} onClick={() => void store.exportDiagnostics()}>
+          <RailIcon name="diagnostics" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export function SidebarView({
   store,
   width,
@@ -684,6 +898,25 @@ export function SidebarView({
       session.profileId === store.activeProfileId &&
       workspaceUserAttention(store, session.profileId, session.id)
   ).length
+
+  if (collapsed) {
+    return (
+      <aside
+        id="sidebar-left-panel"
+        className="sidebar layout-panel panel-collapsed"
+        aria-label={t('sidebar.aria')}
+      >
+        <SidebarRail
+          store={store}
+          hash={hash}
+          runningByProfile={runningByProfile}
+          approvalCount={approvalCount}
+          publicationCount={publicationCount}
+          onExpand={onToggle}
+        />
+      </aside>
+    )
+  }
 
   const sections: Record<SidebarSectionId, JSX.Element> = {
     'workspace-profiles': (
@@ -984,12 +1217,12 @@ export function SidebarView({
             type="button"
             className={`nav-row ${hash === '#/remote' ? 'active' : ''}`}
             onClick={() => { window.location.hash = '#/remote' }}
-            title="Mission Control anzeigen"
+            title={t('sidebar.nav.remoteTitle')}
           >
             <span className="nav-icon">🛰</span>
             <div className="info">
-              <div className="name">Mission Control</div>
-              <div className="summary">Remote-Steuerung und Freigaben</div>
+              <div className="name">{t('sidebar.nav.remote')}</div>
+              <div className="summary">{t('sidebar.nav.remoteSub')}</div>
             </div>
           </button>
           <button
@@ -1135,15 +1368,13 @@ export function SidebarView({
             title={collapsed ? t('sidebar.expandTitle') : t('sidebar.collapseTitle')}
             onClick={onToggle}
           >
-            {collapsed ? '›' : '‹'}
+            {'‹'}
           </button>
         </div>
       )}
-      {!collapsed && (
-        <div id="sidebar-left-content" className="panel-scroll-content">
-          {SIDEBAR_SECTION_ORDER.map((section) => sections[section])}
-        </div>
-      )}
+      <div id="sidebar-left-content" className="panel-scroll-content">
+        {SIDEBAR_SECTION_ORDER.map((section) => sections[section])}
+      </div>
     </aside>
   )
 }

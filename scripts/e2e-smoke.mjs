@@ -26,14 +26,16 @@ import { extname, join, normalize } from 'node:path'
 
 const cwd = process.cwd()
 const artifactsDir = join(cwd, 'e2e-artifacts')
-const mainEntry = join(cwd, 'out', 'main', 'index.js')
 const rendererDir = join(cwd, 'out', 'renderer')
 
 function run(command, args) {
-  const result = spawnSync(command, args, {
+  const executable = process.platform === 'win32' ? (process.env.ComSpec ?? 'cmd.exe') : command
+  const commandArgs = process.platform === 'win32'
+    ? ['/d', '/s', '/c', command, ...args]
+    : args
+  const result = spawnSync(executable, commandArgs, {
     cwd,
-    stdio: 'inherit',
-    shell: process.platform === 'win32'
+    stdio: 'inherit'
   })
   if (result.status !== 0) {
     throw new Error(`${command} ${args.join(' ')} failed (exit ${result.status ?? 'unknown'})`)
@@ -44,7 +46,11 @@ function run(command, args) {
 // fetch its own pnpm and die on the known signature-verification issue. Use
 // plain pnpm when it exists and fall back to corepack for bare environments.
 const pnpmRunner = (() => {
-  const probe = spawnSync('pnpm', ['--version'], { cwd, shell: process.platform === 'win32' })
+  const executable = process.platform === 'win32' ? (process.env.ComSpec ?? 'cmd.exe') : 'pnpm'
+  const args = process.platform === 'win32'
+    ? ['/d', '/s', '/c', 'pnpm', '--version']
+    : ['--version']
+  const probe = spawnSync(executable, args, { cwd })
   return probe.status === 0 ? ['pnpm'] : ['corepack', 'pnpm']
 })()
 
@@ -53,9 +59,9 @@ function runPnpm(args) {
   run(command, [...prefix, ...args])
 }
 
-if (!existsSync(mainEntry) || !existsSync(join(rendererDir, 'index.html'))) {
-  runPnpm(['exec', 'electron-vite', 'build'])
-}
+// Always rebuild: reusing an existing out/ directory would test stale renderer
+// code after source edits and can make a broken UI look green locally.
+runPnpm(['exec', 'electron-vite', 'build'])
 
 // Fresh seeded userData per run so results are deterministic.
 const userData = join(tmpdir(), `vertragus-e2e-${Date.now().toString(36)}`)
@@ -393,7 +399,11 @@ const report = {
   startedAt: new Date().toISOString(),
   engine: electronBinary ? 'electron' : 'chromium-renderer-only',
   views: [],
-  violations: 0
+  violations: 0,
+  interactions: {
+    railRoutes: 0,
+    railToggle: false
+  },
 }
 
 async function walkRoutes(page) {
@@ -406,9 +416,59 @@ async function walkRoutes(page) {
     content:
       '*, *::before, *::after { transition: none !important; animation: none !important; }'
   })
+
+  // The canvas-first layout auto-collapses the sidebar. Exercise the resulting
+  // rail as a real navigation surface before taking screenshots: every route
+  // button must update the hash and its active state, and both expand/collapse
+  // controls must restore the opposite layout without losing the workspace.
+  const initialRail = page.locator('[data-testid="sidebar-rail"]')
+  if ((await initialRail.count()) === 0 || !(await initialRail.isVisible())) {
+    const initialCollapse = page.locator('.sidebar .panel-collapse-button')
+    if ((await initialCollapse.count()) !== 1) {
+      throw new Error('Neither the sidebar rail nor its collapse control is available')
+    }
+    await initialCollapse.click()
+  }
+  await page.waitForSelector('[data-testid="sidebar-rail"]', { timeout: 10_000 })
+  const railRoutes = [
+    ['workspace', ''],
+    ['#/inbox', '#/inbox'],
+    ['#/approvals', '#/approvals'],
+    ['#/changes', '#/changes'],
+    ['#/remote', '#/remote']
+  ]
+  for (const [route, expectedHash] of railRoutes) {
+    const button = page.locator(`[data-rail-route="${route}"]`)
+    if ((await button.count()) !== 1) throw new Error(`Rail route ${route} is missing or duplicated`)
+    await button.click()
+    // The browser updates location.hash before React has necessarily committed
+    // the hashchange-driven render. Wait for the user-visible active state as
+    // well so slower Linux CI runners cannot race the assertion.
+    await page.waitForFunction(
+      ({ routeSelector, expected }) =>
+        window.location.hash === expected &&
+        document.querySelector(routeSelector)?.getAttribute('aria-current') === 'page',
+      { routeSelector: `[data-rail-route="${route}"]`, expected: expectedHash }
+    )
+    report.interactions.railRoutes += 1
+  }
+
+  const workspaceRailButton = page.locator('[data-rail-route="workspace"]')
+  await workspaceRailButton.click()
+  await page.waitForFunction(() => window.location.hash === '')
+  const expandRailButton = page.locator('[data-rail-action="expand"]')
+  if ((await expandRailButton.count()) !== 1) throw new Error('Rail expand control is missing')
+  await expandRailButton.click()
+  await page.waitForSelector('.sidebar:not(.panel-collapsed) #sidebar-left-content')
+  const collapseSidebarButton = page.locator('.sidebar .panel-collapse-button')
+  if ((await collapseSidebarButton.count()) !== 1) throw new Error('Sidebar collapse control is missing')
+  await collapseSidebarButton.click()
+  await page.waitForSelector('[data-testid="sidebar-rail"]')
+  report.interactions.railToggle = true
+
+    for (const route of ROUTES) {
   for (const viewport of VIEWPORTS) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height })
-    for (const route of ROUTES) {
       await page.evaluate((hash) => {
         window.location.hash = hash
       }, route.hash)
