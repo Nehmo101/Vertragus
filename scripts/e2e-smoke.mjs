@@ -441,10 +441,15 @@ async function walkRoutes(page) {
     const button = page.locator(`[data-rail-route="${route}"]`)
     if ((await button.count()) !== 1) throw new Error(`Rail route ${route} is missing or duplicated`)
     await button.click()
-    await page.waitForFunction((expected) => window.location.hash === expected, expectedHash)
-    if ((await button.getAttribute('aria-current')) !== 'page') {
-      throw new Error(`Rail route ${route} did not expose its active state`)
-    }
+    // The browser updates location.hash before React has necessarily committed
+    // the hashchange-driven render. Wait for the user-visible active state as
+    // well so slower Linux CI runners cannot race the assertion.
+    await page.waitForFunction(
+      ({ routeSelector, expected }) =>
+        window.location.hash === expected &&
+        document.querySelector(routeSelector)?.getAttribute('aria-current') === 'page',
+      { routeSelector: `[data-rail-route="${route}"]`, expected: expectedHash }
+    )
     report.interactions.railRoutes += 1
   }
 
