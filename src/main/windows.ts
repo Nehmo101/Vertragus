@@ -652,8 +652,7 @@ export function broadcastAgentData(channel: string, agentId: string, payload: un
 }
 
 /** Dev/CI only: feed representative Phase-2 state through the normal push channels. */
-export function pushDemoState(win: BrowserWindow): void {
-  const profileId = 'default'
+export function pushDemoState(win: BrowserWindow, profileId = 'default'): void {
   const workspaceSessionId = 'session-demo'
   const now = Date.now()
   const agents = [

@@ -474,6 +474,7 @@ async function walkRoutes(page) {
       }, route.hash)
       await page.waitForTimeout(600)
       if (route.name === 'workspace') {
+
         const composer = page.locator('.canvas-composer textarea')
         await composer.click()
         await composer.fill('e2e interaction')
@@ -506,6 +507,28 @@ async function walkRoutes(page) {
       window.location.hash = ''
     })
   }
+
+  // Populate the graph only after the generic overlap scan. React Flow uses
+  // intentionally stacked internal portals, so its full graph gets a dedicated
+  // interaction + screenshot regression instead of false-positive overlap noise.
+  await page.setViewportSize(VIEWPORTS[0])
+  await page.waitForSelector('.canvas-empty-actions')
+  await page.locator('.canvas-empty-actions button').nth(1).click()
+  await page.waitForSelector('.canvas-node--orchestrator')
+  await page.waitForFunction(() => document.querySelectorAll('.canvas-node--task').length >= 4)
+  await page.waitForFunction(() => {
+    const nodes = document.querySelectorAll('.canvas-node').length
+    return nodes > 0 && document.querySelectorAll('.canvas-node__chrome').length === nodes
+  })
+  const populatedComposer = page.locator('.canvas-composer textarea')
+  await populatedComposer.fill('populated canvas interaction')
+  if ((await populatedComposer.inputValue()) !== 'populated canvas interaction') {
+    throw new Error('Populated canvas composer is not interactive')
+  }
+  await populatedComposer.fill('')
+  await page.evaluate(() => document.querySelector('.app-root')?.setAttribute('data-theme', 'dark'))
+  await page.waitForTimeout(250)
+  await page.screenshot({ path: join(artifactsDir, 'workspace-populated-wide-dark.png'), fullPage: false })
 }
 
 const playwright = await import('playwright-core')

@@ -118,6 +118,20 @@ function TerminalPeek({ agentId, name }: { agentId: string; name: string }): JSX
   )
 }
 
+function WindowChrome({ label }: { label: string }): JSX.Element {
+  return (
+    <div className="canvas-node__chrome" aria-hidden="true">
+      <span className="canvas-node__traffic">
+        <span />
+        <span />
+        <span />
+      </span>
+      <span className="canvas-node__chrome-label">{label}</span>
+      <span className="canvas-node__chrome-mark">VERTRAGUS</span>
+    </div>
+  )
+}
+
 function TaskNode({ data }: NodeProps<Node<TaskNodeData, 'task'>>): JSX.Element {
   const { t } = useTranslation()
   const { task } = data
@@ -179,6 +193,7 @@ function TaskNode({ data }: NodeProps<Node<TaskNodeData, 'task'>>): JSX.Element 
       onDrop={onDrop}
     >
       <Handle type="target" position={Position.Left} className="canvas-handle" />
+      <WindowChrome label="TASK WINDOW" />
       <div className="canvas-node__head">
         <span className={`canvas-node__dot ${statusClass(task.status)}`} />
         <span className="canvas-node__title" title={task.title}>
@@ -285,6 +300,7 @@ function OrchestratorNode({ data }: NodeProps<Node<CanvasOrchestratorInfo, 'orch
   const { t } = useTranslation()
   return (
     <div className="canvas-node canvas-node--orchestrator">
+      <WindowChrome label="ORCHESTRATOR" />
       <div className="canvas-node__head">
         <span className={`canvas-node__dot orchestrator ${data.goalActive ? 'running' : ''}`} />
         <LoreName name={data.name} className="canvas-node__title" />
@@ -314,6 +330,7 @@ function NoteNode({ data }: NodeProps<Node<NoteNodeData, 'note'>>): JSX.Element 
   return (
     <div className={`canvas-node canvas-node--note kind-${finding.kind}`}>
       <Handle type="target" position={Position.Left} className="canvas-handle" />
+      <WindowChrome label={`${t(`canvas.kind.${finding.kind}`)} NOTE`} />
       <div className="canvas-node__head">
         <span className="canvas-note__kind">{t(`canvas.kind.${finding.kind}`)}</span>
         <span className="canvas-node__title" title={finding.title}>
@@ -489,7 +506,8 @@ export default function CanvasBoard(): JSX.Element {
     <div className="vertragus-canvas" aria-label={t('canvas.aria')}>
       <SessionChips />
       <TaskNodeMenuContext.Provider value={openMenuAtNode}>
-        <ReactFlow
+        <div className="canvas-flow-stage">
+          <ReactFlow
           nodes={nodes}
           edges={graph.edges}
           nodeTypes={NODE_TYPES}
@@ -500,6 +518,10 @@ export default function CanvasBoard(): JSX.Element {
           onPaneClick={() => setMenu(null)}
           onMoveStart={() => setMenu(null)}
           fitView
+          fitViewOptions={{ padding: 0.1, maxZoom: 0.9 }}
+          onInit={(instance) => {
+            window.setTimeout(() => void instance.fitView({ padding: 0.1, maxZoom: 0.9 }), 120)
+          }}
           minZoom={0.25}
           maxZoom={1.75}
           nodesConnectable={false}
@@ -512,7 +534,8 @@ export default function CanvasBoard(): JSX.Element {
           <Background variant={BackgroundVariant.Dots} gap={22} size={1.2} className="canvas-bg" />
           <Controls position="bottom-left" showInteractive={false} />
           <MiniMap position="bottom-right" pannable zoomable className="canvas-minimap" />
-        </ReactFlow>
+          </ReactFlow>
+        </div>
       </TaskNodeMenuContext.Provider>
       {menu && menuTask && sessionId && (
         <div className="canvas-menu" role="menu" style={{ left: menu.x, top: menu.y }}>
@@ -590,7 +613,7 @@ export default function CanvasBoard(): JSX.Element {
         </div>
       )}
       <CanvasTerminalDrawer agent={store.agents.find((agent) => agent.id === drawerAgentId) ?? null} onClose={() => setDrawerAgentId(null)} />
-      <div className="canvas-composer-slot" />
+      <CanvasComposerMount />
     </div>
   )
 }
