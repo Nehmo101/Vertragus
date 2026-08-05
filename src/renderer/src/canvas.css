@@ -158,7 +158,7 @@
 .canvas-empty-actions { display: flex; justify-content: center; gap: 8px; margin-top: 18px; }
 .canvas-onboarding { display: flex; justify-content: center; gap: 22px; margin: 22px 0 0; padding: 18px 0 0; border-top: 1px solid var(--divider); list-style-position: inside; font-size: 11px; }
 
-.canvas-node--orchestrator { width: 380px; padding: 15px 17px; }
+.canvas-node--orchestrator { width: 400px; }
 .canvas-hub-activity { margin: 10px 0 7px; color: var(--text-2); font-size: 12px; }
 .canvas-node--orchestrator .canvas-term { max-height: 64px; }
 
@@ -187,6 +187,17 @@
 .workspace-canvas .vertragus-canvas {
   flex: 1;
 }
+.canvas-flow-stage {
+  position: absolute;
+  inset: 96px 0 112px;
+}
+.canvas-flow-stage .react-flow { position: absolute; inset: 0; }
+@container workspace (max-width: 980px) {
+  .canvas-flow-stage { top: 130px; }
+}
+@container workspace (max-width: 520px) {
+  .canvas-flow-stage { top: 184px; }
+}
 
 .canvas-empty {
   flex: 1;
@@ -211,261 +222,242 @@
   font-size: 18px;
 }
 
-/* --- nodes ------------------------------------------------------------- */
+/* --- agent windows ----------------------------------------------------- */
 .canvas-node {
-  width: 260px;
-  padding: 11px 13px;
-  border: 1px solid color-mix(in srgb, var(--accent) 10%, var(--border-2));
+  --window-accent: #c18b48;
+  position: relative;
+  width: 292px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--window-accent) 20%, #42372c);
   border-radius: 12px;
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--accent) 4%, transparent), transparent 45%),
-    color-mix(in srgb, var(--pane) 96%, #0b0805);
-  color: var(--text);
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.045), var(--shadow-md);
+    radial-gradient(circle at 92% 0, color-mix(in srgb, var(--window-accent) 9%, transparent), transparent 34%),
+    linear-gradient(145deg, #17130f, #0e0c09 72%);
+  color: #f6ebd4;
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.055),
+    0 0 0 1px color-mix(in srgb, var(--window-accent) 13%, transparent),
+    0 24px 60px rgba(0, 0, 0, 0.62),
+    0 5px 15px rgba(0, 0, 0, 0.42);
   font-size: 12px;
   line-height: 1.5;
+  isolation: isolate;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+.canvas-node::after {
+  position: absolute;
+  z-index: -1;
+  inset: 32px 0 auto;
+  height: 88px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--window-accent) 6%, transparent), transparent);
+  content: '';
+  pointer-events: none;
+}
+.canvas-node:hover {
+  border-color: color-mix(in srgb, var(--window-accent) 42%, #42372c);
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.065),
+    0 0 0 1px color-mix(in srgb, var(--window-accent) 20%, transparent),
+    0 30px 74px rgba(0, 0, 0, 0.68),
+    0 8px 20px rgba(0, 0, 0, 0.48);
+  transform: translateY(-2px);
 }
 .canvas-node--orchestrator {
-  width: 380px;
-  border-color: color-mix(in srgb, var(--accent) 74%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 16%, transparent), 0 0 34px color-mix(in srgb, var(--accent) 9%, transparent), var(--shadow-md);
+  --window-accent: #d59a50;
+  width: 400px;
+  border-color: color-mix(in srgb, var(--window-accent) 46%, #42372c);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.06), 0 0 0 1px rgba(213, 154, 80, 0.16), 0 28px 72px rgba(0, 0, 0, 0.66), 0 0 42px rgba(213, 154, 80, 0.09);
 }
 .canvas-node--task.running {
-  border-color: var(--sage);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--sage) 26%, transparent), var(--shadow-md);
+  --window-accent: #4cb795;
+  border-color: rgba(76, 183, 149, 0.58);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.055), 0 0 0 1px rgba(76, 183, 149, 0.18), 0 24px 60px rgba(0, 0, 0, 0.62), 0 0 38px rgba(76, 183, 149, 0.1);
 }
-.canvas-node--task.error {
-  border-color: var(--err-line);
-}
+.canvas-node--task.error { --window-accent: #d96855; border-color: rgba(217, 104, 85, 0.6); }
+.canvas-node--task.success { --window-accent: #71b985; }
 
+.canvas-node__chrome {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 11px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.075);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent), rgba(3, 3, 2, 0.38);
+  box-shadow: inset 0 -1px rgba(0, 0, 0, 0.45);
+}
+.canvas-node__traffic { display: flex; align-items: center; gap: 5px; }
+.canvas-node__traffic span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #773a30;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+.canvas-node__traffic span:nth-child(2) { background: #8b6a2d; }
+.canvas-node__traffic span:nth-child(3) { background: #356b58; }
+.canvas-node__chrome-label {
+  justify-self: center;
+  color: rgba(246, 235, 212, 0.5);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.canvas-node__chrome-mark {
+  color: color-mix(in srgb, var(--window-accent) 58%, rgba(246, 235, 212, 0.42));
+  font-family: var(--font-mono);
+  font-size: 7px;
+  letter-spacing: 0.1em;
+}
 .canvas-node__head {
   display: flex;
   align-items: center;
-  gap: 7px;
-  margin-bottom: 4px;
+  gap: 8px;
+  margin: 0;
+  padding: 13px 14px 5px;
 }
 .canvas-node__dot {
   flex: 0 0 auto;
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--stop);
+  background: #80786a;
+  box-shadow: 0 0 0 3px rgba(128, 120, 106, 0.08);
 }
-.canvas-node__dot.running {
-  background: var(--sage);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--sage) 70%, transparent);
-}
-.canvas-node__dot.success {
-  background: var(--run);
-}
-.canvas-node__dot.error {
-  background: var(--err);
-}
-.canvas-node__dot.orchestrator {
-  background: var(--accent);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 60%, transparent);
-}
+.canvas-node__dot.running { background: #4cb795; box-shadow: 0 0 12px rgba(76, 183, 149, 0.7); }
+.canvas-node__dot.success { background: #71b985; }
+.canvas-node__dot.error { background: #d96855; box-shadow: 0 0 10px rgba(217, 104, 85, 0.5); }
+.canvas-node__dot.orchestrator { background: #d59a50; box-shadow: 0 0 12px rgba(213, 154, 80, 0.62); }
 .canvas-node__title {
   flex: 1;
   min-width: 0;
   overflow: hidden;
+  color: #f6ebd4;
+  font-family: var(--font-heading);
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--text);
-  font-weight: 600;
 }
 .canvas-node__status {
   flex: 0 0 auto;
-  color: var(--text-3);
+  padding: 2px 6px;
+  border: 1px solid color-mix(in srgb, var(--window-accent) 23%, rgba(255, 255, 255, 0.08));
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--window-accent) 8%, rgba(0, 0, 0, 0.18));
+  color: color-mix(in srgb, var(--window-accent) 55%, #d7cebb);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 .canvas-node__meta {
-  color: var(--text-2);
-  font-family: var(--font-mono);
-  font-size: 10.5px;
+  padding: 0 14px 12px;
   overflow: hidden;
+  color: rgba(246, 235, 212, 0.56);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.canvas-node__agent {
-  color: var(--text-2);
-}
+.canvas-node__agent { color: rgba(246, 235, 212, 0.72); }
 .canvas-node__bar {
-  height: 4px;
-  margin: 8px 0 6px;
-  border-radius: 3px;
+  height: 3px;
+  margin: -2px 14px 11px;
   overflow: hidden;
-  background: color-mix(in srgb, var(--text) 12%, transparent);
+  border-radius: 2px;
+  background: rgba(246, 235, 212, 0.08);
 }
 .canvas-node__bar-fill {
   display: block;
   height: 100%;
-  border-radius: 3px;
-  background: linear-gradient(90deg, var(--sage), var(--sage-strong));
+  border-radius: 2px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--window-accent) 72%, #fff), var(--window-accent));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--window-accent) 48%, transparent);
 }
-.canvas-node__bar-fill.indeterminate {
-  width: 40%;
-}
+.canvas-node__bar-fill.indeterminate { width: 40%; }
 .canvas-node__foot {
   display: flex;
   gap: 10px;
-  color: var(--text-3);
-  font-family: var(--font-mono);
-  font-size: 10px;
+  min-height: 16px;
+  padding: 0 14px 12px;
   overflow: hidden;
-}
-.canvas-node__foot span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.canvas-node__goal,
-.canvas-node__note {
-  color: var(--text-2);
-}
-
-/* Sticky notes — the bidirectional half of the board. Deliberately vellum in
-   both themes: agents "write on paper" regardless of the app theme. */
-.canvas-node--note {
-  width: 220px;
-  background: #ede6d2;
-  border-color: #d8ceb4;
-  color: #3a382e;
-  transform: rotate(-0.6deg);
-  font-size: 11.5px;
-}
-.canvas-node--note .canvas-node__title {
-  color: #4a462f;
-}
-.canvas-note__kind {
-  flex: 0 0 auto;
-  padding: 1px 6px;
-  border-radius: 5px;
-  background: color-mix(in srgb, #4a462f 12%, transparent);
-  color: #4a462f;
+  color: rgba(246, 235, 212, 0.42);
   font-family: var(--font-mono);
   font-size: 9px;
-  letter-spacing: 0.04em;
+}
+.canvas-node__foot span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.canvas-node__goal, .canvas-node__note { color: rgba(246, 235, 212, 0.7); }
+.canvas-hub-activity {
+  margin: 0 14px 11px;
+  padding: 8px 10px;
+  border: 1px solid rgba(213, 154, 80, 0.12);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.22);
+  color: rgba(246, 235, 212, 0.68);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.canvas-node--note { --window-accent: #d2aa60; width: 250px; border-color: rgba(210, 170, 96, 0.34); }
+.canvas-node--note.kind-blocker { --window-accent: #d96855; }
+.canvas-node--note.kind-interface { --window-accent: #4cb795; }
+.canvas-note__kind {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--window-accent) 12%, transparent);
+  color: color-mix(in srgb, var(--window-accent) 78%, #fff);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
-}
-.canvas-node--note.kind-blocker .canvas-note__kind {
-  background: color-mix(in srgb, #bb4b3a 18%, transparent);
-  color: #8f3123;
-}
-.canvas-node--note.kind-decision .canvas-note__kind {
-  background: color-mix(in srgb, #936c2b 18%, transparent);
-  color: #5f4416;
-}
-.canvas-node--note.kind-interface .canvas-note__kind {
-  background: color-mix(in srgb, #1e5148 16%, transparent);
-  color: #143a33;
 }
 .canvas-note__detail {
   display: -webkit-box;
-  -webkit-line-clamp: 4;
-  -webkit-box-orient: vertical;
+  padding: 4px 14px 14px;
   overflow: hidden;
-  color: #55503f;
-  line-height: 1.45;
+  color: rgba(246, 235, 212, 0.68);
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
 }
-.canvas-node--note .canvas-node__foot span,
-.canvas-node--note .canvas-node__agent {
-  color: #6b6550;
-}
+.canvas-node--note .canvas-node__foot span, .canvas-node--note .canvas-node__agent { color: rgba(246, 235, 212, 0.48); }
 
-/* Trust badge — the "why is this green?" signal per task. */
 .canvas-node__gate {
   flex: 0 0 auto;
-  width: 9px;
-  height: 9px;
-  border-radius: 3px;
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid #80786a;
+  border-radius: 2px;
+  background: transparent;
   transform: rotate(45deg);
-  border: 1.5px solid var(--stop);
-  background: transparent;
 }
-.canvas-node__gate.ok {
-  border-color: var(--run);
-  background: var(--run);
-}
-.canvas-node__gate.warn {
-  border-color: var(--wait);
-  background: color-mix(in srgb, var(--wait) 45%, transparent);
-}
-.canvas-node__gate.err {
-  border-color: var(--err);
-  background: var(--err);
-}
-
-.canvas-evidence {
-  margin-top: 7px;
-  border-top: 1px dashed var(--divider);
-  padding-top: 5px;
-  font-size: 10.5px;
-}
-.canvas-evidence summary {
-  cursor: pointer;
-  color: var(--text-3);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-.canvas-evidence dl {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 2px 10px;
-  margin: 6px 0 0;
-}
-.canvas-evidence dt {
-  color: var(--text-3);
-  font-family: var(--font-mono);
-  font-size: 10px;
-}
-.canvas-evidence dd {
-  margin: 0;
-  color: var(--text-2);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.canvas-menu {
-  position: absolute;
-  z-index: 30;
-  display: flex;
-  flex-direction: column;
-  min-width: 200px;
-  padding: 5px;
-  border: 1px solid var(--border-2);
-  border-radius: 10px;
-  background: var(--surface-2);
-  box-shadow: var(--shadow-md);
-}
-.canvas-menu button {
-  padding: 7px 10px;
-  border: none;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--text);
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-}
-.canvas-menu button:hover {
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-}
-
-/* Live terminal peek inside running task cards — always the dark terminal
-   surface, matching the app's terminal token in both themes. */
+.canvas-node__gate.ok { border-color: #71b985; background: #71b985; }
+.canvas-node__gate.warn { border-color: #d2aa60; background: rgba(210, 170, 96, 0.45); }
+.canvas-node__gate.err { border-color: #d96855; background: #d96855; }
+.canvas-evidence { margin: 0 14px 12px; padding-top: 6px; border-top: 1px dashed rgba(246, 235, 212, 0.12); font-size: 10px; }
+.canvas-evidence summary { cursor: pointer; color: rgba(246, 235, 212, 0.42); font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; }
+.canvas-evidence dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 6px 0 0; }
+.canvas-evidence dt { color: rgba(246, 235, 212, 0.4); font-family: var(--font-mono); font-size: 9px; }
+.canvas-evidence dd { margin: 0; overflow: hidden; color: rgba(246, 235, 212, 0.65); text-overflow: ellipsis; white-space: nowrap; }
+.canvas-menu { position: absolute; z-index: 30; display: flex; flex-direction: column; min-width: 200px; padding: 5px; border: 1px solid var(--border-2); border-radius: 10px; background: var(--surface-2); box-shadow: var(--shadow-md); }
+.canvas-menu button { padding: 7px 10px; border: none; border-radius: 7px; background: transparent; color: var(--text); font-size: 12px; text-align: left; cursor: pointer; }
+.canvas-menu button:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .canvas-term {
-  margin: 8px 0 6px;
-  padding: 7px 9px;
   max-height: 96px;
+  margin: 0 12px 11px;
+  padding: 9px 10px;
   overflow: hidden;
-  border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--term-text) 12%, transparent);
-  background: var(--terminal);
+  border: 1px solid rgba(246, 235, 212, 0.085);
+  border-radius: 6px;
+  background: rgba(2, 3, 2, 0.68);
+  box-shadow: inset 0 1px 10px rgba(0, 0, 0, 0.55);
   color: var(--term-text);
   font-family: var(--font-mono);
   font-size: 9.5px;
@@ -473,37 +465,24 @@
   white-space: pre-wrap;
   word-break: break-all;
 }
-.canvas-term-cursor {
-  color: var(--term-run);
-}
-.canvas-node--task.drop-target {
-  outline: 2px dashed var(--sage);
-  outline-offset: 3px;
-}
-
-/* Tastaturpfad: sichtbarer Fokusring auf fokussierten Task-Knoten. */
-.canvas-node--task:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
-}
+.canvas-term-cursor { color: var(--term-run); }
+.canvas-node--task.drop-target { outline: 2px dashed #4cb795; outline-offset: 3px; }
+.canvas-node--task:focus-visible { outline: 2px solid var(--window-accent); outline-offset: 4px; }
 @media (prefers-reduced-motion: no-preference) {
-  .canvas-term-cursor {
-    animation: canvas-blink 1.1s steps(2) infinite;
-  }
-  @keyframes canvas-blink {
-    50% {
-      opacity: 0;
-    }
-  }
+  .canvas-term-cursor { animation: canvas-blink 1.1s steps(2) infinite; }
+  @keyframes canvas-blink { 50% { opacity: 0; } }
 }
-
+@media (prefers-reduced-motion: reduce) {
+  .canvas-node { transition: none; }
+  .canvas-node:hover { transform: none; }
+}
 .canvas-handle {
-  width: 7px;
-  height: 7px;
-  border: 1px solid var(--border-2);
-  background: var(--surface-2);
+  width: 8px;
+  height: 8px;
+  border: 1px solid color-mix(in srgb, var(--window-accent) 50%, #453a2f);
+  background: #17130f;
+  box-shadow: 0 0 8px color-mix(in srgb, var(--window-accent) 20%, transparent);
 }
-
 /* --- edges ------------------------------------------------------------- */
 .vertragus-canvas .react-flow__edge-path {
   stroke: color-mix(in srgb, var(--text) 34%, transparent);
@@ -547,11 +526,17 @@
   background: var(--surface);
 }
 .vertragus-canvas .canvas-minimap {
-  border: 1px solid var(--border-2);
-  border-radius: 10px;
+  width: 136px !important;
+  height: 92px !important;
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--border-2));
+  border-radius: 8px;
   overflow: hidden;
-  background: var(--surface-2);
+  background: color-mix(in srgb, var(--surface-2) 86%, transparent);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+  opacity: 0.52;
+  transition: opacity 150ms ease;
 }
+.vertragus-canvas .canvas-minimap:hover { opacity: 0.9; }
 .vertragus-canvas .react-flow__minimap-mask {
   fill: color-mix(in srgb, var(--text) 10%, transparent);
 }

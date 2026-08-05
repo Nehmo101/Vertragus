@@ -103,6 +103,19 @@ describe('buildCanvasGraph', () => {
     expect(rootEdges.map((e) => e.target).sort()).toEqual(['ghost', 'root'])
   })
 
+  it('lays out a flat four-task fan-out as a readable two-column window grid', () => {
+    const graph = buildCanvasGraph(
+      ['a', 'b', 'c', 'd'].map((id) => task({ id })),
+      ORCH
+    )
+    const tasks = graph.nodes.filter((node) => node.type === 'task')
+    const hub = graph.nodes.find((node) => node.id === ORCHESTRATOR_NODE_ID)!
+
+    expect(new Set(tasks.map((node) => node.position.x)).size).toBe(2)
+    expect(new Set(tasks.map((node) => node.position.y)).size).toBe(2)
+    expect(Math.min(...tasks.map((node) => node.position.x))).toBeGreaterThan(hub.position.x)
+  })
+
   it('gives dependent nodes a larger x than their dependency (LR auto-layout)', () => {
     const graph = buildCanvasGraph(
       [task({ id: 'a' }), task({ id: 'b', dependsOn: ['a'] })],

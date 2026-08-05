@@ -23,12 +23,12 @@ function arrow(color: string): Edge['markerEnd'] {
 
 export const ORCHESTRATOR_NODE_ID = 'orchestrator'
 
-export const TASK_NODE_WIDTH = 260
-export const TASK_NODE_HEIGHT = 118
-export const ORCH_NODE_WIDTH = 380
-export const ORCH_NODE_HEIGHT = 178
-export const NOTE_NODE_WIDTH = 220
-export const NOTE_NODE_HEIGHT = 122
+export const TASK_NODE_WIDTH = 292
+export const TASK_NODE_HEIGHT = 190
+export const ORCH_NODE_WIDTH = 400
+export const ORCH_NODE_HEIGHT = 210
+export const NOTE_NODE_WIDTH = 250
+export const NOTE_NODE_HEIGHT = 156
 /** Minimum free canvas space around a newly inserted node. */
 export const NODE_INSERT_GAP = 24
 /** The canvas shows the newest findings as sticky notes; older ones stay in the side panel. */
@@ -115,6 +115,40 @@ function autoLayout(
   edges: readonly Edge[],
   positions: NodePositions
 ): Map<string, NodePosition> {
+  const resolved = new Map<string, NodePosition>()
+  const taskNodes = nodes.filter((node) => node.type === 'task')
+  const hasStoredPosition = nodes.some((node) => {
+    const stored = positions[node.id]
+    return stored && Number.isFinite(stored.x) && Number.isFinite(stored.y)
+  })
+  const flatFanout =
+    taskNodes.length >= 4 &&
+    nodes.some((node) => node.type === 'orchestrator') &&
+    edges.length === taskNodes.length &&
+    edges.every((edge) => edge.source === ORCHESTRATOR_NODE_ID) &&
+    !hasStoredPosition
+
+  if (flatFanout) {
+    const columns = 2
+    const gapX = 72
+    const gapY = 28
+    const startX = 32 + ORCH_NODE_WIDTH + 96
+    const rows = Math.ceil(taskNodes.length / columns)
+    const gridHeight = rows * TASK_NODE_HEIGHT + Math.max(0, rows - 1) * gapY
+    const orchestrator = nodes.find((node) => node.type === 'orchestrator')!
+    resolved.set(orchestrator.id, {
+      x: 32,
+      y: Math.max(32, (gridHeight - ORCH_NODE_HEIGHT) / 2)
+    })
+    taskNodes.forEach((node, index) => {
+      resolved.set(node.id, {
+        x: startX + (index % columns) * (TASK_NODE_WIDTH + gapX),
+        y: 32 + Math.floor(index / columns) * (TASK_NODE_HEIGHT + gapY)
+      })
+    })
+    return resolved
+  }
+
   const graph = new dagre.graphlib.Graph()
   graph.setGraph({ rankdir: 'LR', nodesep: 42, ranksep: 96, marginx: 32, marginy: 32 })
   graph.setDefaultEdgeLabel(() => ({}))
@@ -131,7 +165,6 @@ function autoLayout(
   }
   dagre.layout(graph)
 
-  const resolved = new Map<string, NodePosition>()
   for (const node of nodes) {
     const stored = positions[node.id]
     if (stored && Number.isFinite(stored.x) && Number.isFinite(stored.y)) {

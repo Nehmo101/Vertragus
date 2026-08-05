@@ -505,7 +505,7 @@ export function registerIpcHandlers(): void {
     // ---- native pickers / demo ----
     demoPlay: (e) => {
       const win = senderWindow(e)
-      if (win) pushDemoState(win)
+      if (win) pushDemoState(win, getActiveProfileId() ?? undefined)
     },
     dialogPickFolder: async (e) => {
       const win = senderWindow(e)
