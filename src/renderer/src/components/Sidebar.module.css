@@ -154,3 +154,240 @@
 .rowErrorText {
   color: var(--err-text);
 }
+
+/* ---------- CNVS-inspired functional rail ---------- */
+.rail {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  align-items: center;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 7px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 2%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 22%),
+    linear-gradient(180deg, color-mix(in srgb, var(--panel) 96%, #0c0906), color-mix(in srgb, var(--panel) 92%, #080604));
+}
+
+.rail::after {
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: 1px;
+  background: linear-gradient(transparent, color-mix(in srgb, var(--accent) 32%, var(--divider)) 18%, var(--divider) 82%, transparent);
+  content: '';
+  pointer-events: none;
+}
+
+.railButton,
+.railProfile {
+  position: relative;
+  display: grid;
+  flex: none;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease, color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.railButton {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+}
+
+.railButton:hover,
+.railButton:focus-visible,
+.railProfile:hover,
+.railProfile:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--border-2));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 13%, transparent), color-mix(in srgb, var(--surface) 76%, transparent));
+  color: var(--accent-light);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.06), 0 0 18px color-mix(in srgb, var(--accent) 12%, transparent);
+  outline: none;
+}
+
+.railButton:active,
+.railProfile:active {
+  transform: scale(0.96);
+}
+
+.railIcon {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.55;
+}
+
+.railExpand {
+  height: 46px;
+  margin-bottom: 2px;
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border-2));
+  background: color-mix(in srgb, var(--surface) 76%, transparent);
+  color: var(--text-2);
+}
+
+.railExpand .railIcon {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 11px;
+  height: 11px;
+  padding: 1px;
+  border-radius: 50%;
+  background: var(--panel);
+  color: var(--accent-light);
+}
+
+.railBrandMark {
+  color: var(--cream, var(--text));
+  font-family: var(--font-heading);
+  font-size: 19px;
+  font-weight: 700;
+  text-shadow: 0 0 16px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.railPrimary {
+  margin-bottom: 2px;
+  border-color: color-mix(in srgb, var(--accent) 68%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 27%, var(--surface)), color-mix(in srgb, var(--accent-deep) 18%, var(--panel)));
+  color: var(--accent-light);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.1), 0 0 24px color-mix(in srgb, var(--accent) 19%, transparent);
+}
+
+.railNav,
+.railFooter {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.railButtonActive {
+  border-color: color-mix(in srgb, var(--accent) 58%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 19%, transparent), color-mix(in srgb, var(--surface) 82%, transparent));
+  color: var(--accent-light);
+  box-shadow: inset 2px 0 var(--accent), inset 0 1px rgba(255, 255, 255, 0.06), 0 0 18px color-mix(in srgb, var(--accent) 13%, transparent);
+}
+
+.railBadge {
+  position: absolute;
+  top: 2px;
+  right: 1px;
+  display: grid;
+  min-width: 16px;
+  height: 16px;
+  place-items: center;
+  padding: 0 3px;
+  border: 1px solid var(--panel);
+  border-radius: 999px;
+  background: var(--wait);
+  color: #171006;
+  font: 800 8px/1 var(--font-mono);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--wait) 38%, transparent);
+}
+
+.railDivider {
+  width: 30px;
+  height: 1px;
+  flex: none;
+  margin: 1px 0;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 28%, var(--divider)), transparent);
+}
+
+.railProfiles {
+  display: flex;
+  width: 100%;
+  min-height: 0;
+  flex: 1;
+  align-items: center;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.railProfiles::-webkit-scrollbar {
+  display: none;
+}
+
+.railProfile {
+  width: 36px;
+  height: 36px;
+  border-color: var(--border-2);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 62%, transparent);
+  color: var(--text-2);
+  font: 700 10px/1 var(--font-mono);
+  letter-spacing: -0.04em;
+}
+
+.railProfileActive {
+  border-color: color-mix(in srgb, var(--accent) 74%, transparent);
+  background: color-mix(in srgb, var(--accent) 15%, var(--surface));
+  color: var(--accent-light);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent), 0 0 16px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.railProfile i {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 9px;
+  height: 9px;
+  border: 2px solid var(--panel);
+  border-radius: 50%;
+  background: var(--run);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--run) 65%, transparent);
+}
+
+.railProfile[data-attention] i {
+  background: var(--wait);
+  box-shadow: 0 0 9px color-mix(in srgb, var(--wait) 72%, transparent);
+}
+
+.railFooter {
+  padding-top: 3px;
+  border-top: 1px solid color-mix(in srgb, var(--divider) 72%, transparent);
+}
+
+@media (max-height: 680px) {
+  .rail {
+    gap: 4px;
+    padding-block: 5px;
+  }
+  .railButton {
+    width: 38px;
+    height: 36px;
+  }
+  .railExpand {
+    height: 40px;
+  }
+  .railProfile {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .railButton,
+  .railProfile {
+    transition: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .railButton,
+  .railProfile { border-width: 2px; }
+}

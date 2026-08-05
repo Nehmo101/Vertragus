@@ -203,6 +203,13 @@ button {
   overflow: hidden;
 }
 
+.sidebar.layout-panel.panel-collapsed {
+  width: 58px;
+  flex-basis: 58px;
+  min-width: 58px;
+  overflow: hidden;
+}
+
 .panel-scroll-content {
   flex: 1;
   min-width: 0;

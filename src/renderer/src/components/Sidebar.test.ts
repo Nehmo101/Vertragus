@@ -45,7 +45,7 @@ beforeEach(() => {
 })
 
 describe('Sidebar rendering', () => {
-  it('replaces all sidebar content with an accessible expand control when collapsed', () => {
+  it('turns the collapsed sidebar into a functional, accessible navigation rail', () => {
     const markup = renderToStaticMarkup(
       createElement(SidebarView, {
         store: useAppStore.getState(),
@@ -56,10 +56,53 @@ describe('Sidebar rendering', () => {
     )
 
     expect(markup).toContain('panel-collapsed')
+    expect(markup).toContain('data-testid="sidebar-rail"')
     expect(markup).toContain('aria-expanded="false"')
     expect(markup).toContain('aria-label="Linke Seitenleiste ausklappen"')
+    expect(markup).toContain('aria-label="Agent-Workspace"')
+    expect(markup).toContain('aria-label="Ideen und Artefakte verwalten"')
+    expect(markup).toContain('aria-label="Neuen Workspace starten"')
+    expect(markup).toContain('aria-current="page"')
+    expect(markup.match(/<button/g)?.length).toBe(9)
     expect(markup).not.toContain('data-sidebar-section=')
     expect(markup).not.toContain('style="width:420px"')
+  })
+
+  it('keeps profile state and waiting attention visible in rail mode', () => {
+    const profile = workspaceProfileSchema.parse({ id: 'alpha', name: 'Alpha Team' })
+    useAppStore.setState({
+      profiles: [profile],
+      activeProfileId: profile.id,
+      agents: [
+        {
+          id: 'waiting-agent',
+          profileId: profile.id,
+          name: 'Pippin',
+          provider: 'codex',
+          model: '',
+          role: 'Subagent',
+          kind: 'sub',
+          mode: 'interactive',
+          yolo: false,
+          workingDir: '.',
+          status: 'waiting',
+          startedAt: 1
+        }
+      ]
+    })
+
+    const markup = renderToStaticMarkup(
+      createElement(SidebarView, {
+        store: useAppStore.getState(),
+        collapsed: true,
+        onToggle: (): void => undefined
+      })
+    )
+
+    expect(markup).toContain('data-attention="subagent"')
+    expect(markup).toContain('aria-pressed="true"')
+    expect(markup).toContain('AL</span>')
+    expect(markup).toContain('Pippin wartet auf deine Rückmeldung.')
   })
 
   it('renders the six product sections in the required order', () => {
