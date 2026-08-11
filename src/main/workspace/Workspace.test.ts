@@ -19,7 +19,7 @@ interface Harness {
   windows: FakeWindows
   spawns: RecordedSpawn[]
   prompts: string[]
-  seedOptions: Array<{ autoSubmit?: boolean } | undefined>
+  seedOptions: Array<{ autoSubmit?: boolean; submitDelayMs?: number } | undefined>
   now: { value: number }
 }
 
@@ -100,6 +100,22 @@ describe('startAgent', () => {
         roleColor: roleColor('worker', 0),
         // The window layer turns this into bounds (zone, else auto-tiling).
         placement: { roleId: 'worker' }
+      }
+    ])
+  })
+
+  it('hands the profile zone layout to the window layer', async () => {
+    const zones = {
+      zones: [{ roleId: 'worker', displayId: 1, rect: { x: 0.5, y: 0, w: 0.5, h: 1 } }]
+    }
+    const { workspace, windows } = harness({ profile: testProfile({ zones }) })
+    const started = await workspace.startAgent({ role: 'worker', task: 'x' })
+    expect(windows.opened).toEqual([
+      {
+        agentId: started.agentId,
+        title: started.name,
+        roleColor: roleColor('worker', 0),
+        placement: { roleId: 'worker', zones }
       }
     ])
   })
@@ -489,7 +505,8 @@ describe('the real seed handshake', () => {
     seedOptions: {
       ready: { idleMs: 5, pollMs: 1, minChars: 1, timeoutMs: 500 },
       maxAttempts: 1,
-      submitDelayMs: 5
+      submitDelayMs: 5,
+      submitRetries: 1
     }
   }
 
@@ -520,6 +537,19 @@ describe('autoSubmitTasks', () => {
     const { workspace, seedOptions } = harness()
     await workspace.startAgent({ role: 'worker', task: 'Do the thing.' })
     expect(seedOptions.at(-1)?.autoSubmit).toBe(true)
+  })
+
+  it('forwards the provider seed submitDelayMs into the handshake options', async () => {
+    const { workspace, seedOptions } = harness({
+      profile: testProfile({
+        slots: [
+          { id: 'slot-worker', roleId: 'worker', providerId: 'cursor' },
+          { id: 'slot-reviewer', roleId: 'reviewer', providerId: 'claude' }
+        ]
+      })
+    })
+    await workspace.startAgent({ role: 'worker', task: 'Do the thing.' })
+    expect(seedOptions.at(-1)?.submitDelayMs).toBe(750)
   })
 
   it('is honoured for a follow-up sent to a running agent', async () => {

@@ -129,7 +129,12 @@ const PRESETS: readonly ProviderConfig[] = [
     // PTY after the seed handshake, and MCP is deliberately not attached.
     systemPromptDelivery: { kind: 'pty' },
     mcp: { kind: 'none' },
-    modelDiscovery: { kind: 'cli', args: ['models'], parse: 'lines' }
+    modelDiscovery: { kind: 'cli', args: ['models'], parse: 'lines' },
+    // Role prompt + task are pasted as one multi-KB block. The default 250 ms
+    // submit delay lands Enter while cursor-agent is still digesting the paste,
+    // so the keypress becomes a composer newline instead of a submit. A longer
+    // first delay (retries still cover a silent swallow) fixes auto-submit.
+    seed: { submitDelayMs: 750 }
   }),
   providerConfigSchema.parse({
     id: 'ollama',

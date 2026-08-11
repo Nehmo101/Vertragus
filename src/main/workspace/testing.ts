@@ -196,14 +196,14 @@ export function fakeSeed(): {
     write: (text: string) => void,
     snapshot: unknown,
     prompt: string,
-    options?: { autoSubmit?: boolean }
+    options?: { autoSubmit?: boolean; submitDelayMs?: number }
   ) => Promise<boolean>
   prompts: string[]
   /** The options each seed call received, in call order. */
-  options: Array<{ autoSubmit?: boolean } | undefined>
+  options: Array<{ autoSubmit?: boolean; submitDelayMs?: number } | undefined>
 } {
   const prompts: string[] = []
-  const options: Array<{ autoSubmit?: boolean } | undefined> = []
+  const options: Array<{ autoSubmit?: boolean; submitDelayMs?: number } | undefined> = []
   return {
     prompts,
     options,
