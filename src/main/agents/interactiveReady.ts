@@ -69,6 +69,16 @@ export const SUBMIT_KEY = '\r'
 /** Pause between the assignment text and the submitting Enter. */
 export const DEFAULT_SUBMIT_DELAY_MS = 250
 
+/**
+ * How long to watch the PTY after each Enter before deciding it was swallowed.
+ * Large PTY pastes (Cursor's role prompt + task) often need longer than the
+ * initial delay alone — see {@link seedWithReadyHandshake}.
+ */
+export const DEFAULT_SUBMIT_WATCH_MS = 700
+
+/** Max Enter presses including the first (retries only when the buffer stays still). */
+export const DEFAULT_SUBMIT_RETRIES = 3
+
 export interface SeedWithReadyOptions {
   ready?: WaitForReadyOptions
   maxAttempts?: number
@@ -82,6 +92,17 @@ export interface SeedWithReadyOptions {
   autoSubmit?: boolean
   /** Delay before the submitting Enter. See {@link SUBMIT_KEY}. */
   submitDelayMs?: number
+  /**
+   * How long to watch for a buffer reaction after each Enter before retrying.
+   * Grows with each failed attempt (`watchMs * (attempt + 1)`).
+   */
+  submitWatchMs?: number
+  /**
+   * Max Enter presses including the first. Retries only fire when the PTY
+   * buffer is unchanged after the previous Enter — see the heuristic on
+   * {@link seedWithReadyHandshake}.
+   */
+  submitRetries?: number
 }
 
 /**
@@ -92,6 +113,14 @@ export interface SeedWithReadyOptions {
  * again after that creates duplicate turns or queued input.
  *
  * The text and the Enter are two writes on purpose — see {@link SUBMIT_KEY}.
+ * Enter itself is also verified: after each {@link SUBMIT_KEY}, we watch the
+ * buffer. Unchanged → the keypress was likely swallowed as a paste newline
+ * (Cursor with a multi-KB system prompt is the known case) and we press again,
+ * bounded by {@link SeedWithReadyOptions.submitRetries}, with a growing watch
+ * window. Any buffer mutation — including a lone `\r` echo — stops retries.
+ * That prefers a missed resubmit over a double turn: a CLI that already
+ * accepted Enter almost always emits *something* within the watch window, while
+ * a silent swallow leaves the buffer byte-identical.
  */
 export async function seedWithReadyHandshake(
   write: (text: string) => void,
@@ -106,6 +135,8 @@ export async function seedWithReadyHandshake(
   const acceptancePollMs = options.acceptancePollMs ?? 50
   const autoSubmit = options.autoSubmit ?? true
   const submitDelayMs = options.submitDelayMs ?? DEFAULT_SUBMIT_DELAY_MS
+  const submitWatchMs = options.submitWatchMs ?? DEFAULT_SUBMIT_WATCH_MS
+  const submitRetries = options.submitRetries ?? DEFAULT_SUBMIT_RETRIES
   // A caller that already terminated its prompt must not produce two returns.
   const text = prompt.endsWith(SUBMIT_KEY) ? prompt.slice(0, -1) : prompt
 
@@ -132,6 +163,44 @@ export async function seedWithReadyHandshake(
   if (!autoSubmit) return true
   await sleep(submitDelayMs)
   if (!getSnapshot().alive) return false
-  write(SUBMIT_KEY)
+
+  for (let attempt = 0; attempt < submitRetries; attempt++) {
+    const before = getSnapshot()
+    if (!before.alive) return false
+    // Separate write from the prompt text — never glue Enter onto the paste.
+    write(SUBMIT_KEY)
+    if (attempt === submitRetries - 1) break
+
+    let reacted = false
+    // Growing window: a still-digesting multi-KB paste needs more time later.
+    const watchMs = submitWatchMs * (attempt + 1)
+    const deadline = Date.now() + watchMs
+    while (Date.now() < deadline) {
+      await sleep(Math.min(acceptancePollMs, Math.max(1, deadline - Date.now())))
+      const after = getSnapshot()
+      if (!after.alive) return false
+      if (after.buffer !== before.buffer) {
+        reacted = true
+        break
+      }
+    }
+    if (reacted) break
+  }
+
   return true
+}
+
+/**
+ * Map a provider's optional `seed` block onto {@link SeedWithReadyOptions}.
+ * Absent fields stay absent so handshake defaults apply.
+ */
+export function seedOptionsFromProvider(
+  seed: { submitDelayMs?: number; submitRetries?: number; submitWatchMs?: number } | undefined
+): SeedWithReadyOptions {
+  if (!seed) return {}
+  return {
+    ...(seed.submitDelayMs !== undefined ? { submitDelayMs: seed.submitDelayMs } : {}),
+    ...(seed.submitRetries !== undefined ? { submitRetries: seed.submitRetries } : {}),
+    ...(seed.submitWatchMs !== undefined ? { submitWatchMs: seed.submitWatchMs } : {})
+  }
 }

@@ -166,6 +166,8 @@ describe('cursor preset', () => {
     expect(cursor.yoloArgs).toEqual(['--yolo'])
     expect(cursor.systemPromptDelivery).toEqual({ kind: 'pty' })
     expect(cursor.mcp).toEqual({ kind: 'none' })
+    // Multi-KB PTY paste needs a longer pause before Enter — see interactiveReady.
+    expect(cursor.seed).toEqual({ submitDelayMs: 750 })
   })
 
   it('reads the line-based model list of the CLI', () => {
