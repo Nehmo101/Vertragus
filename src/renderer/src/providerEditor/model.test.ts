@@ -100,7 +100,6 @@ const SHAPES: ProviderConfig[] = (
       systemPromptDelivery: { kind: 'pty' },
       mcp: { kind: 'none' },
       modelDiscovery: { kind: 'cli', args: ['models'], parse: 'lines' },
-      seed: { submitDelayMs: 750 },
       enabled: false
     },
     // Ollama-like: positional model (no modelArg), base args, http discovery.
