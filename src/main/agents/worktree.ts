@@ -1,0 +1,201 @@
+/**
+ * Git worktrees for agents that must work in isolation.
+ *
+ * The default is the shared repository — several agents in one checkout, which
+ * is what makes a review/test/worker team cheap. `start_agent{worktree: true}`
+ * opts one agent out: it gets `<repo>/.vertragus/worktrees/<agentId>` on its own
+ * branch `vertragus/<workspace>/<agent>`.
+ *
+ * Two deliberate properties:
+ *
+ * 1. **No shell.** Every git call goes through `execFile` with an argument
+ *    array. A workspace or agent name reaches the branch name, and a name is
+ *    data — a shell string would make it executable.
+ * 2. **No cleanup, ever.** Vertragus never removes a worktree or deletes a
+ *    branch: the work an agent did is the user's, and a tool that tidies away
+ *    unmerged commits is a tool nobody trusts twice. Stale worktrees are listed
+ *    by {@link listWorktrees} and removed by hand.
+ */
+import { execFile } from 'node:child_process'
+import { mkdir } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
+import { promisify } from 'node:util'
+
+const execFileAsync = promisify(execFile)
+
+/** Worktrees live inside the repo so they travel with it and are easy to find. */
+export const WORKTREE_ROOT = join('.vertragus', 'worktrees')
+
+/** Branch namespace; everything Vertragus creates is recognizable at a glance. */
+export const BRANCH_PREFIX = 'vertragus'
+
+/** How many `-2`, `-3`, … suffixes are tried before giving up on a branch name. */
+const MAX_BRANCH_ATTEMPTS = 50
+
+export interface GitResult {
+  stdout: string
+  stderr: string
+}
+
+/** The single seam every git call goes through — injectable for error tests. */
+export type GitRunner = (args: string[], cwd: string) => Promise<GitResult>
+
+export const defaultGitRunner: GitRunner = async (args, cwd) => {
+  const { stdout, stderr } = await execFileAsync('git', args, {
+    cwd,
+    windowsHide: true,
+    maxBuffer: 8 * 1024 * 1024
+  })
+  return { stdout, stderr }
+}
+
+export interface WorktreeDeps {
+  git?: GitRunner
+}
+
+/**
+ * Path- and ref-safe slug. Git refuses refs with spaces, `~^:?*[`, `..`, `@{`,
+ * a leading/trailing `.` or a trailing `.lock`, so nothing but `[a-z0-9-]`
+ * survives here. An empty result would produce `vertragus//x`, hence the
+ * fallback.
+ */
+export function slugifyRef(value: string, fallback = 'x'): string {
+  const slug = value
+    .normalize('NFKD')
+    // Combining marks, escaped so this file stays plain ASCII.
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  return slug || fallback
+}
+
+/** `vertragus/<workspace>/<agent>` — the branch an isolated agent works on. */
+export function worktreeBranchName(workspaceName: string, agentName: string): string {
+  return `${BRANCH_PREFIX}/${slugifyRef(workspaceName, 'workspace')}/${slugifyRef(agentName, 'agent')}`
+}
+
+/** Absolute path of an agent's worktree inside its repository. */
+export function worktreePathFor(repoPath: string, agentId: string): string {
+  return join(repoPath, WORKTREE_ROOT, slugifyRef(agentId, 'agent'))
+}
+
+export interface WorktreeEntry {
+  path: string
+  /** Short branch name (`vertragus/paradiso/caronte`), or undefined when detached. */
+  branch?: string
+  head?: string
+  detached: boolean
+}
+
+/**
+ * Every worktree of a repository, main checkout included. Parsed from
+ * `--porcelain` rather than the human format, which pads and truncates.
+ */
+export async function listWorktrees(
+  repoPath: string,
+  deps: WorktreeDeps = {}
+): Promise<WorktreeEntry[]> {
+  const git = deps.git ?? defaultGitRunner
+  const { stdout } = await git(['worktree', 'list', '--porcelain'], repoPath)
+  const entries: WorktreeEntry[] = []
+  let current: WorktreeEntry | undefined
+
+  for (const rawLine of stdout.split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (line.startsWith('worktree ')) {
+      if (current) entries.push(current)
+      current = { path: line.slice('worktree '.length), detached: false }
+      continue
+    }
+    if (!current) continue
+    if (line.startsWith('HEAD ')) current.head = line.slice('HEAD '.length)
+    else if (line.startsWith('branch ')) current.branch = line.slice('branch refs/heads/'.length)
+    else if (line === 'detached') current.detached = true
+  }
+  if (current) entries.push(current)
+  return entries
+}
+
+/** True when `refs/heads/<branch>` already exists in this repository. */
+export async function branchExists(
+  repoPath: string,
+  branch: string,
+  deps: WorktreeDeps = {}
+): Promise<boolean> {
+  const git = deps.git ?? defaultGitRunner
+  try {
+    await git(['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], repoPath)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * First free `<branch>`, `<branch>-2`, `<branch>-3`, … .
+ *
+ * Needed because branches deliberately outlive their worktree: the second run
+ * of the same workspace hands the same place-name to the same role, and
+ * `git worktree add -b` on an existing branch fails outright.
+ */
+export async function uniqueBranchName(
+  repoPath: string,
+  branch: string,
+  deps: WorktreeDeps = {}
+): Promise<string> {
+  for (let attempt = 1; attempt <= MAX_BRANCH_ATTEMPTS; attempt += 1) {
+    const candidate = attempt === 1 ? branch : `${branch}-${attempt}`
+    if (!(await branchExists(repoPath, candidate, deps))) return candidate
+  }
+  throw new Error(
+    `No free branch name after ${MAX_BRANCH_ATTEMPTS} attempts starting at "${branch}". ` +
+      'Delete some old vertragus/* branches.'
+  )
+}
+
+export interface CreatedWorktree {
+  path: string
+  branch: string
+}
+
+function gitErrorMessage(error: unknown): string {
+  if (error && typeof error === 'object') {
+    const shaped = error as { stderr?: string; message?: string }
+    const stderr = shaped.stderr?.trim()
+    if (stderr) return stderr
+    if (shaped.message) return shaped.message
+  }
+  return String(error)
+}
+
+/**
+ * Create an isolated worktree for one agent.
+ *
+ * `git worktree add <repo>/.vertragus/worktrees/<agentId> -b <branch>` — no
+ * shell, no interpolation. Failures are rethrown with git's own stderr, because
+ * "not a git repository" and "already exists" need very different reactions
+ * from the orchestrator and both are invisible in an exit code.
+ */
+export async function createWorktree(
+  repoPath: string,
+  agentId: string,
+  branchName: string,
+  deps: WorktreeDeps = {}
+): Promise<CreatedWorktree> {
+  const git = deps.git ?? defaultGitRunner
+  const path = worktreePathFor(repoPath, agentId)
+  const branch = await uniqueBranchName(repoPath, branchName, deps)
+
+  // git creates the leaf itself but not the two levels above it.
+  await mkdir(dirname(path), { recursive: true })
+
+  try {
+    await git(['worktree', 'add', path, '-b', branch], repoPath)
+  } catch (error) {
+    throw new Error(
+      `git worktree add failed for agent ${agentId} in ${repoPath}: ${gitErrorMessage(error)}`
+    )
+  }
+  return { path, branch }
+}

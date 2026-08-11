@@ -1,0 +1,262 @@
+/**
+ * The spawn pipeline: a {@link ProviderConfig} plus one agent's context becomes
+ * a real PTY process. This is the single place a provider CLI is ever started.
+ *
+ * Three rules are encoded here, each of them a bug from the previous
+ * generation:
+ *
+ * 1. **Every spawn makes an MCP decision.** The attach args come from
+ *    `provider.mcp`, and `none` is a declared value, never an omission. The old
+ *    repo had a second, interactive spawn path that forgot the config and
+ *    produced subagents with no way to report back.
+ * 2. **The orchestrator never gets yolo args.** Not "unless configured" — the
+ *    yolo flags are only appended for `kind: 'subagent'`, so no profile, no
+ *    master switch and no custom provider can hand `--dangerously-skip-*` to
+ *    the agent that is supposed to only delegate.
+ * 3. **Never `pty.spawn('cmd')` naked.** Everything goes through
+ *    {@link resolveLaunch}: on Windows the CLIs are `.cmd`/`.ps1` shims that a
+ *    PTY cannot exec. And when an argument carries a newline — a system prompt
+ *    does — the cmd.exe wrapper would truncate it at the first line, so those
+ *    launches demand an argument-faithful entrypoint.
+ *
+ * `buildAgentArgv` is the pure, snapshot-testable core; `buildAgentLaunch` adds
+ * command resolution; `spawnAgent` adds the process.
+ */
+import {
+  orchestratorAllowedTools,
+  writeClaudeMcpConfigFile,
+  buildCodexMcpArgs,
+  buildKimiMcpArgs
+} from '@main/mcp/attach'
+import {
+  buildEffortArgs,
+  buildModelArgs,
+  type EffortLevel,
+  type ProviderConfig
+} from '@shared/schema/provider'
+import { PtyAgent, type PtyAgentLike, type PtySpawnOptions } from './PtyAgent'
+import { resolveLaunch, type ResolveLaunchOptions } from './resolveCommand'
+
+/** Orchestrator and subagent differ in exactly two places: yolo and allowlist. */
+export type AgentLaunchKind = 'orchestrator' | 'subagent'
+
+/**
+ * The PTY surface the workspace layer needs. Wider than {@link PtyAgentLike}
+ * (which is what the IPC layer sees) because the workspace also spawns, reads a
+ * tail for `read_output` and pushes spawn errors into the scrollback.
+ */
+export interface AgentPty extends PtyAgentLike {
+  spawn(options: PtySpawnOptions): void
+  tail(chars: number): string
+  push(data: string): void
+  dispose(): void
+}
+
+export interface AgentLaunchInput {
+  kind: AgentLaunchKind
+  provider: ProviderConfig
+  /** Model id; empty/absent leaves the CLI on its own default. */
+  model?: string
+  effort?: EffortLevel
+  /** Honored for subagents only — see rule 2 above. */
+  yolo?: boolean
+  /** Working directory: the shared repo, or this agent's worktree. */
+  cwd: string
+  /** This agent's personal MCP URL, already carrying ws/agent/token. */
+  mcpUrl: string
+  /** Unique per agent — names the transient MCP config file. */
+  fileTag: string
+  /** Directory the transient MCP config files are written into. */
+  configDir: string
+  /** Role prompt for a subagent, orchestrator prompt for the orchestrator. */
+  systemPrompt?: string
+  /** Platform override for testing the Windows resolution off-Windows. */
+  platform?: NodeJS.Platform
+}
+
+export interface AgentArgv {
+  /** The composed argument vector, before PATH/shim resolution. */
+  argv: string[]
+  /**
+   * Set when the provider takes its system prompt through the terminal
+   * (`systemPromptDelivery: 'pty'`, e.g. Cursor and Ollama). The caller must
+   * type this before the first task — there is no launch flag for it.
+   */
+  ptySystemPrompt?: string
+}
+
+export interface ResolvedLaunch extends AgentArgv {
+  /** Executable actually handed to node-pty (post shim resolution). */
+  file: string
+  /** Arguments actually handed to node-pty. */
+  args: string[]
+  /** The provider's declared command, before resolution — for logs and errors. */
+  command: string
+  cwd: string
+}
+
+function m5(feature: string): Error {
+  return new Error(`${feature} lands in M5 (provider breadth)`)
+}
+
+/**
+ * MCP attach arguments for one agent.
+ *
+ * The flags come from the provider descriptor, not from hard-coded strings, so
+ * an edited preset or a custom Claude-compatible CLI keeps working. The config
+ * file itself and the orchestrator allowlist come from `mcp/attach` — that
+ * module owns "what does a valid attachment look like", this one owns "which
+ * flags does this provider spell it with". For the shipped claude preset both
+ * routes produce byte-identical args; a test pins that equivalence.
+ */
+export function buildMcpArgs(input: AgentLaunchInput): string[] {
+  const { provider } = input
+  switch (provider.mcp.kind) {
+    case 'claude-json': {
+      const configPath = writeClaudeMcpConfigFile(input.mcpUrl, input.configDir, input.fileTag)
+      const args = [provider.mcp.configArg, configPath]
+      if (provider.mcp.strictArg) args.push(provider.mcp.strictArg)
+      // Subagents run WITHOUT an allowlist on purpose: a worker must be able to
+      // edit, run and commit. Its discipline comes from the task contract, not
+      // from a tool cage — the cage is what starved the old repo's workers.
+      if (input.kind === 'orchestrator' && provider.mcp.allowedToolsArg) {
+        args.push(provider.mcp.allowedToolsArg, orchestratorAllowedTools().join(','))
+      }
+      return args
+    }
+    case 'codex-overrides':
+      return buildCodexMcpArgs({
+        url: input.mcpUrl,
+        configDir: input.configDir,
+        fileTag: input.fileTag
+      })
+    case 'kimi-project':
+      return buildKimiMcpArgs({
+        url: input.mcpUrl,
+        configDir: input.configDir,
+        fileTag: input.fileTag,
+        workspaceDir: input.cwd
+      })
+    case 'none':
+      return []
+  }
+}
+
+/**
+ * How the system prompt reaches this provider. Exactly one place emits it —
+ * either as launch args or as text for the seed handshake — so a prompt can
+ * never arrive twice or not at all.
+ */
+export function buildSystemPromptArgs(input: AgentLaunchInput): AgentArgv {
+  const prompt = input.systemPrompt?.trim()
+  if (!prompt) return { argv: [] }
+  const delivery = input.provider.systemPromptDelivery
+  switch (delivery.kind) {
+    case 'arg':
+      return { argv: [delivery.flag, prompt] }
+    case 'pty':
+      return { argv: [], ptySystemPrompt: prompt }
+    case 'agent-file':
+      throw m5('Agent-file system prompts (Kimi)')
+    case 'codex-config':
+      throw m5('Codex developer-instruction system prompts')
+  }
+}
+
+/**
+ * The pure core: provider descriptor + context → argument vector.
+ *
+ * Order matters. `provider.args` first (`ollama run`), then the model — which
+ * for a provider without `modelArg` is positional and must sit directly behind
+ * those args — then effort, yolo, MCP attach and the system prompt.
+ */
+export function buildAgentArgv(input: AgentLaunchInput): AgentArgv {
+  const { provider } = input
+  const argv = [...provider.args]
+  argv.push(...buildModelArgs(provider, input.model))
+  argv.push(...buildEffortArgs(provider, input.effort))
+  if (input.kind === 'subagent' && input.yolo) argv.push(...provider.yoloArgs)
+  argv.push(...buildMcpArgs(input))
+  const prompt = buildSystemPromptArgs(input)
+  argv.push(...prompt.argv)
+  return { argv, ptySystemPrompt: prompt.ptySystemPrompt }
+}
+
+export interface LaunchDeps {
+  resolve?: (
+    command: string,
+    args: string[],
+    options?: ResolveLaunchOptions
+  ) => Promise<{ file: string; args: string[] }>
+}
+
+/** True when any argument would be mangled by a cmd.exe/PowerShell wrapper. */
+export function needsFaithfulArgs(argv: readonly string[]): boolean {
+  return argv.some((arg) => /[\r\n]/.test(arg))
+}
+
+/**
+ * Compose the argv and resolve the executable. Everything a launch needs, with
+ * no process started yet — which is what makes the whole pipeline testable.
+ */
+export async function buildAgentLaunch(
+  input: AgentLaunchInput,
+  deps: LaunchDeps = {}
+): Promise<ResolvedLaunch> {
+  const { argv, ptySystemPrompt } = buildAgentArgv(input)
+  const resolve = deps.resolve ?? resolveLaunch
+  const resolved = await resolve(input.provider.command, argv, {
+    requireFaithfulArgs: needsFaithfulArgs(argv),
+    ...(input.platform ? { platform: input.platform } : {})
+  })
+  return {
+    file: resolved.file,
+    args: resolved.args,
+    command: input.provider.command,
+    argv,
+    cwd: input.cwd,
+    ptySystemPrompt
+  }
+}
+
+export interface SpawnAgentDeps extends LaunchDeps {
+  /** Injectable PTY construction — the workspace tests never touch a process. */
+  createPty?: () => AgentPty
+  cols?: number
+  rows?: number
+}
+
+export interface SpawnedAgent {
+  pty: AgentPty
+  launch: ResolvedLaunch
+}
+
+/**
+ * Build the launch and start the process.
+ *
+ * A spawn failure is not thrown away: the error is written into the agent's own
+ * scrollback so it shows up in the CLI window and in `read_output`, exactly
+ * where someone debugging a dead agent looks first — and then rethrown so the
+ * caller (and through it `start_agent`) reports a real failure.
+ */
+export async function spawnAgent(
+  input: AgentLaunchInput,
+  deps: SpawnAgentDeps = {}
+): Promise<SpawnedAgent> {
+  const launch = await buildAgentLaunch(input, deps)
+  const pty = deps.createPty ? deps.createPty() : new PtyAgent()
+  try {
+    pty.spawn({
+      file: launch.file,
+      args: launch.args,
+      cwd: launch.cwd,
+      ...(deps.cols ? { cols: deps.cols } : {}),
+      ...(deps.rows ? { rows: deps.rows } : {})
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    pty.push(`\x1b[31mVertragus: spawn of "${launch.command}" failed: ${message}\x1b[0m\r\n`)
+    throw error
+  }
+  return { pty, launch }
+}
