@@ -1,0 +1,238 @@
+import { describe, expect, it } from 'vitest'
+import {
+  createEmptyProfile,
+  duplicateProfile,
+  MAX_SLOTS,
+  parseProfiles,
+  profileRoleIds,
+  profileSchema,
+  roleTemplateSchema,
+  slotLimitFor,
+  slotSchema,
+  type Profile
+} from './profile'
+
+function baseProfile(overrides: Record<string, unknown> = {}): Profile {
+  return profileSchema.parse({
+    id: 'p1',
+    name: 'Vertragus',
+    repoPath: 'C:/git/vertragus',
+    orchestrator: { providerId: 'claude', model: 'opus' },
+    slots: [{ id: 's1', roleId: 'worker', providerId: 'codex', maxCount: 3 }],
+    ...overrides
+  })
+}
+
+describe('roleTemplateSchema', () => {
+  it('defaults builtin to false and trims the name', () => {
+    const parsed = roleTemplateSchema.parse({ id: 'qa', name: '  QA  ', prompt: 'Do QA.' })
+    expect(parsed).toEqual({ id: 'qa', name: 'QA', prompt: 'Do QA.', builtin: false })
+  })
+
+  it('enforces the name and prompt bounds', () => {
+    expect(roleTemplateSchema.safeParse({ id: 'x', name: 'x'.repeat(41), prompt: 'p' }).success).toBe(
+      false
+    )
+    expect(roleTemplateSchema.safeParse({ id: 'x', name: 'x', prompt: '' }).success).toBe(false)
+    expect(
+      roleTemplateSchema.safeParse({ id: 'x', name: 'x', prompt: 'p'.repeat(8001) }).success
+    ).toBe(false)
+  })
+
+  it('rejects unknown fields (strict)', () => {
+    expect(
+      roleTemplateSchema.safeParse({ id: 'x', name: 'x', prompt: 'p', color: '#fff' }).success
+    ).toBe(false)
+  })
+})
+
+describe('slotSchema', () => {
+  it('keeps model and effort optional', () => {
+    expect(slotSchema.parse({ id: 's', roleId: 'worker', providerId: 'claude' })).toEqual({
+      id: 's',
+      roleId: 'worker',
+      providerId: 'claude'
+    })
+  })
+
+  it('bounds maxCount to 1..16 and rejects a fractional count', () => {
+    expect(slotSchema.safeParse({ id: 's', roleId: 'r', providerId: 'p', maxCount: 0 }).success).toBe(
+      false
+    )
+    expect(slotSchema.safeParse({ id: 's', roleId: 'r', providerId: 'p', maxCount: 17 }).success).toBe(
+      false
+    )
+    expect(slotSchema.safeParse({ id: 's', roleId: 'r', providerId: 'p', maxCount: 1.5 }).success).toBe(
+      false
+    )
+  })
+
+  it('rejects an unknown effort rung', () => {
+    expect(
+      slotSchema.safeParse({ id: 's', roleId: 'r', providerId: 'p', effort: 'ultra' }).success
+    ).toBe(false)
+  })
+})
+
+describe('profileSchema', () => {
+  it('defaults repoPath and slots', () => {
+    const parsed = profileSchema.parse({
+      id: 'p',
+      name: 'P',
+      orchestrator: { providerId: 'claude' }
+    })
+    expect(parsed.repoPath).toBe('')
+    expect(parsed.slots).toEqual([])
+    expect(parsed.maxSubagents).toBeUndefined()
+  })
+
+  it('enforces the name bounds and rejects unknown fields', () => {
+    expect(profileSchema.safeParse({ id: 'p', name: '', orchestrator: { providerId: 'c' } }).success).toBe(
+      false
+    )
+    expect(
+      profileSchema.safeParse({ id: 'p', name: 'x'.repeat(61), orchestrator: { providerId: 'c' } })
+        .success
+    ).toBe(false)
+    expect(
+      profileSchema.safeParse({
+        id: 'p',
+        name: 'P',
+        orchestrator: { providerId: 'c' },
+        yoloDefault: true
+      }).success
+    ).toBe(false)
+  })
+
+  it('caps the slot list and maxSubagents', () => {
+    const slots = Array.from({ length: MAX_SLOTS + 1 }, (_, index) => ({
+      id: `s${index}`,
+      roleId: 'worker',
+      providerId: 'claude'
+    }))
+    expect(
+      profileSchema.safeParse({ id: 'p', name: 'P', orchestrator: { providerId: 'c' }, slots }).success
+    ).toBe(false)
+    expect(
+      profileSchema.safeParse({
+        id: 'p',
+        name: 'P',
+        orchestrator: { providerId: 'c' },
+        maxSubagents: 33
+      }).success
+    ).toBe(false)
+  })
+
+  it('accepts an optional zone layout', () => {
+    const parsed = baseProfile({
+      zones: { zones: [{ roleId: 'worker', displayId: 1, rect: { x: 0, y: 0, w: 0.5, h: 0.5 } }] }
+    })
+    expect(parsed.zones?.zones).toHaveLength(1)
+  })
+})
+
+describe('parseProfiles', () => {
+  it('keeps the valid rows and drops the rest', () => {
+    const parsed = parseProfiles([
+      { id: 'p1', name: 'One', orchestrator: { providerId: 'claude' } },
+      { id: 'p2', name: '' },
+      null,
+      { id: 'p1', name: 'Duplicate', orchestrator: { providerId: 'claude' } }
+    ])
+    expect(parsed.map((profile) => profile.name)).toEqual(['One'])
+  })
+
+  it('returns nothing for a non-array store value', () => {
+    expect(parseProfiles('{}')).toEqual([])
+  })
+})
+
+describe('createEmptyProfile', () => {
+  it('produces a schema-valid profile with no slots', () => {
+    const profile = createEmptyProfile({ name: 'Fresh', repoPath: 'C:/tmp' })
+    expect(profileSchema.safeParse(profile).success).toBe(true)
+    expect(profile).toMatchObject({
+      name: 'Fresh',
+      repoPath: 'C:/tmp',
+      orchestrator: { providerId: 'claude' },
+      slots: []
+    })
+    expect(profile.id).toMatch(/^profile-/)
+  })
+
+  it('gives two profiles created in a row different ids', () => {
+    expect(createEmptyProfile().id).not.toBe(createEmptyProfile().id)
+  })
+})
+
+describe('duplicateProfile', () => {
+  it('creates an independent copy with a fresh id, name and slot ids', () => {
+    const source = baseProfile()
+    const copy = duplicateProfile(source, [source])
+    expect(copy.id).not.toBe(source.id)
+    expect(copy.name).toBe('Vertragus (copy)')
+    expect(copy.slots[0]!.id).not.toBe(source.slots[0]!.id)
+    expect(copy.slots[0]!.roleId).toBe('worker')
+
+    copy.slots[0]!.providerId = 'kimi'
+    expect(source.slots[0]!.providerId).toBe('codex')
+  })
+
+  it('counts up when the copy name is taken', () => {
+    const source = baseProfile()
+    const existing = [source, baseProfile({ id: 'p2', name: 'Vertragus (copy)' })]
+    expect(duplicateProfile(source, existing).name).toBe('Vertragus (copy 2)')
+  })
+
+  it('uses the caller-supplied word so the UI can localize it', () => {
+    expect(duplicateProfile(baseProfile(), [], { copyWord: 'Kopie' }).name).toBe('Vertragus (Kopie)')
+  })
+})
+
+describe('slotLimitFor', () => {
+  it('reports an unconfigured role so start_agent can refuse it', () => {
+    expect(slotLimitFor(baseProfile(), 'reviewer')).toEqual({ configured: false })
+  })
+
+  it('reports no cap when a slot leaves maxCount open', () => {
+    const profile = baseProfile({
+      slots: [{ id: 's1', roleId: 'worker', providerId: 'claude' }]
+    })
+    expect(slotLimitFor(profile, 'worker')).toEqual({ configured: true })
+  })
+
+  it('sums the caps of several slots of the same role', () => {
+    const profile = baseProfile({
+      slots: [
+        { id: 's1', roleId: 'worker', providerId: 'claude', maxCount: 3 },
+        { id: 's2', roleId: 'worker', providerId: 'codex', maxCount: 2 },
+        { id: 's3', roleId: 'tester', providerId: 'codex', maxCount: 1 }
+      ]
+    })
+    expect(slotLimitFor(profile, 'worker')).toEqual({ configured: true, max: 5 })
+    expect(slotLimitFor(profile, 'tester')).toEqual({ configured: true, max: 1 })
+  })
+
+  it('never reports more than the global subagent ceiling', () => {
+    const slots = Array.from({ length: 8 }, (_, index) => ({
+      id: `s${index}`,
+      roleId: 'worker',
+      providerId: 'claude',
+      maxCount: 16
+    }))
+    expect(slotLimitFor(baseProfile({ slots }), 'worker')).toEqual({ configured: true, max: 32 })
+  })
+})
+
+describe('profileRoleIds', () => {
+  it('lists each staffed role once, in slot order', () => {
+    const profile = baseProfile({
+      slots: [
+        { id: 's1', roleId: 'worker', providerId: 'claude' },
+        { id: 's2', roleId: 'reviewer', providerId: 'codex' },
+        { id: 's3', roleId: 'worker', providerId: 'kimi' }
+      ]
+    })
+    expect(profileRoleIds(profile)).toEqual(['worker', 'reviewer'])
+  })
+})

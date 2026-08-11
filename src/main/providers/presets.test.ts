@@ -1,0 +1,165 @@
+import { describe, expect, it } from 'vitest'
+import { providerConfigSchema, type ProviderConfig } from '@shared/schema/provider'
+import { providerPreset, providerPresets } from './presets'
+
+function preset(id: string): ProviderConfig {
+  const found = providerPresets().find((entry) => entry.id === id)
+  if (!found) throw new Error(`missing preset ${id}`)
+  return found
+}
+
+describe('providerPresets', () => {
+  it('ships the five built-ins, each carrying its preset id', () => {
+    const presets = providerPresets()
+    expect(presets.map((entry) => entry.id)).toEqual(['claude', 'codex', 'kimi', 'cursor', 'ollama'])
+    for (const entry of presets) expect(entry.presetId).toBe(entry.id)
+  })
+
+  it('validates against the one provider schema', () => {
+    for (const entry of providerPresets()) {
+      expect(providerConfigSchema.safeParse(entry).success).toBe(true)
+    }
+  })
+
+  it('hands out copies so a caller cannot poison the registry', () => {
+    const first = providerPresets()[0]!
+    first.command = 'tampered'
+    first.yoloArgs.push('--nope')
+    expect(providerPresets()[0]!.command).toBe('claude')
+    expect(providerPresets()[0]!.yoloArgs).toEqual(['--dangerously-skip-permissions'])
+  })
+
+  it('resolves a single preset by id and nothing for an unknown one', () => {
+    expect(providerPreset('codex')?.command).toBe('codex')
+    expect(providerPreset('copilot')).toBeUndefined()
+  })
+
+  it('probes every provider with --version', () => {
+    for (const entry of providerPresets()) expect(entry.versionArgs).toEqual(['--version'])
+  })
+})
+
+describe('claude preset', () => {
+  const claude = preset('claude')
+
+  it('carries the verified launch flags', () => {
+    expect(claude.command).toBe('claude')
+    expect(claude.yoloArgs).toEqual(['--dangerously-skip-permissions'])
+    expect(claude.modelArg).toBe('--model')
+    expect(claude.effortArg).toEqual({ style: 'flag', flag: '--effort' })
+    expect(claude.systemPromptDelivery).toEqual({
+      kind: 'arg',
+      flag: '--append-system-prompt'
+    })
+  })
+
+  it('attaches MCP through a transient, strict config file', () => {
+    expect(claude.mcp).toEqual({
+      kind: 'claude-json',
+      configArg: '--mcp-config',
+      strictArg: '--strict-mcp-config',
+      allowedToolsArg: '--allowedTools'
+    })
+  })
+
+  it('discovers models from the local account cache only — never an API key', () => {
+    expect(claude.modelDiscovery).toEqual({
+      kind: 'file',
+      path: '~/.claude.json',
+      parse: 'json',
+      jsonPath: 'additionalModelOptionsCache[].value'
+    })
+  })
+
+  it('knows the real login and status commands', () => {
+    expect(claude.auth).toEqual({ loginArgs: ['auth', 'login'], statusArgs: ['auth', 'status'] })
+  })
+})
+
+describe('codex preset', () => {
+  const codex = preset('codex')
+
+  it('uses the bypass flag and the config-override effort surface', () => {
+    expect(codex.yoloArgs).toEqual(['--dangerously-bypass-approvals-and-sandbox'])
+    expect(codex.effortArg).toEqual({
+      style: 'template',
+      flag: '-c',
+      template: 'model_reasoning_effort="{effort}"'
+    })
+  })
+
+  it('keeps the distinct OpenAI attach surface (no Anthropic flags)', () => {
+    expect(codex.systemPromptDelivery).toEqual({ kind: 'codex-config' })
+    expect(codex.mcp).toEqual({ kind: 'codex-overrides' })
+  })
+
+  it('reads the account catalogue cache', () => {
+    expect(codex.modelDiscovery).toMatchObject({
+      kind: 'file',
+      path: '~/.codex/models_cache.json',
+      jsonPath: 'models[].slug'
+    })
+    expect(codex.auth?.statusArgs).toEqual(['login', 'status'])
+  })
+})
+
+describe('kimi preset', () => {
+  const kimi = preset('kimi')
+
+  it('delivers the system prompt as an agent file and MCP per project', () => {
+    expect(kimi.yoloArgs).toEqual(['--yolo'])
+    expect(kimi.systemPromptDelivery).toEqual({ kind: 'agent-file', flag: '--agent-file' })
+    expect(kimi.mcp).toEqual({ kind: 'kimi-project' })
+  })
+
+  it('declares no effort flag — the CLI has none, and an unknown flag kills a launch', () => {
+    expect(kimi.effortArg).toBeUndefined()
+  })
+
+  it('lists models via the provider table of the CLI', () => {
+    expect(kimi.modelDiscovery).toEqual({
+      kind: 'cli',
+      args: ['provider', 'list', '--json'],
+      parse: 'json',
+      jsonPath: 'models'
+    })
+  })
+
+  it('has a login flow but no status probe', () => {
+    expect(kimi.auth).toEqual({ loginArgs: ['login'] })
+  })
+})
+
+describe('cursor preset', () => {
+  const cursor = preset('cursor')
+
+  it('is PTY-only: no system-prompt flag and deliberately no MCP', () => {
+    expect(cursor.command).toBe('cursor-agent')
+    expect(cursor.yoloArgs).toEqual(['--yolo'])
+    expect(cursor.systemPromptDelivery).toEqual({ kind: 'pty' })
+    expect(cursor.mcp).toEqual({ kind: 'none' })
+  })
+
+  it('reads the line-based model list of the CLI', () => {
+    expect(cursor.modelDiscovery).toEqual({ kind: 'cli', args: ['models'], parse: 'lines' })
+    expect(cursor.auth?.statusArgs).toEqual(['status'])
+  })
+})
+
+describe('ollama preset', () => {
+  const ollama = preset('ollama')
+
+  it('has no permission layer to bypass and takes the model positionally', () => {
+    expect(ollama.yoloArgs).toEqual([])
+    expect(ollama.args).toEqual(['run'])
+    expect(ollama.modelArg).toBeUndefined()
+  })
+
+  it('asks the local service which models physically exist', () => {
+    expect(ollama.modelDiscovery).toEqual({
+      kind: 'http',
+      url: 'http://127.0.0.1:11434/api/tags',
+      jsonPath: 'models[].name'
+    })
+  })
+})

@@ -1,0 +1,8 @@
+{
+  "providers": { "moonshot": { "base_url": "https://api.moonshot.ai" } },
+  "models": {
+    "kimi-k3": { "provider": "moonshot" },
+    "kimi-k3-turbo": { "provider": "moonshot" },
+    "kimi-code/k3": { "provider": "moonshot" }
+  }
+}

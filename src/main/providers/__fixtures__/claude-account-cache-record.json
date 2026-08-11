@@ -1,0 +1,6 @@
+{
+  "additionalModelOptionsCache": {
+    "opus": { "value": "claude-opus-5", "label": "Opus" },
+    "sonnet": { "value": "claude-sonnet-5", "label": "Sonnet" }
+  }
+}

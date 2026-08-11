@@ -1,0 +1,12 @@
+{
+  "numStartups": 42,
+  "installMethod": "native",
+  "additionalModelOptionsCache": [
+    { "value": "claude-opus-5", "label": "Opus" },
+    { "value": "claude-sonnet-5", "label": "Sonnet" },
+    { "value": "claude-haiku-4-5", "label": "Haiku" },
+    { "value": "   ", "label": "blank" }
+  ],
+  "modelAccessCache": [{ "value": "claude-fable-5" }],
+  "projects": {}
+}

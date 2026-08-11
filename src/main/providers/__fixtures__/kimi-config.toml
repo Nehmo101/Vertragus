@@ -1,0 +1,13 @@
+default_model = "kimi-k3"
+
+[thinking]
+enabled = true
+
+[models."kimi-code/k3"]
+provider = "moonshot"
+
+[models.kimi-k3-turbo]
+provider = "moonshot"
+
+[providers.moonshot]
+base_url = "https://api.moonshot.ai"
