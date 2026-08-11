@@ -43,11 +43,19 @@
   font-display: swap;
 }
 
-:root {
+:root,
+:root[data-theme='dark'] {
   /* type */
   --font-heading: 'Caprasimo', Georgia, serif;
   --font-body: 'Figtree', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /*
+   * Ink as RGB channels so component sheets can write `rgba(var(--ink-rgb), a)`
+   * and flip with the theme instead of baking a dark-only cream wash.
+   */
+  --ink-rgb: 234, 230, 219;
+  --graphite-rgb: 9, 11, 14;
 
   /* ink */
   --text: #eae6db;
@@ -88,17 +96,20 @@
   /* Same surfaces while the window has OS focus — see --focus-opacity. */
   --glass-window-focused: rgba(14, 16, 20, 0.97);
   --glass-terminal-focused: rgba(13, 16, 21, 0.85);
-  --hairline: rgba(234, 230, 219, 0.08);
-  --hairline-strong: rgba(234, 230, 219, 0.12);
-  --hover-wash: rgba(234, 230, 219, 0.05);
+  --hairline: rgba(var(--ink-rgb), 0.08);
+  --hairline-strong: rgba(var(--ink-rgb), 0.12);
+  --hover-wash: rgba(var(--ink-rgb), 0.05);
+  /* Zone overlay dimming over the desktop wallpaper. */
+  --zones-wash: rgba(var(--graphite-rgb), 0.34);
 
   /* geometry */
   --radius-panel: 22px;
   --radius-window: 18px;
   --radius-card: 14px;
   --radius-chip: 10px;
-  --shadow-panel: 0 24px 60px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(234, 230, 219, 0.05);
+  --shadow-panel: 0 24px 60px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(var(--ink-rgb), 0.05);
   --shadow-window: 0 28px 70px rgba(0, 0, 0, 0.55);
+  --shadow-chip: 0 6px 18px rgba(0, 0, 0, 0.4);
 
   /* the defining trait: ghost at rest, present on hover */
   --ghost-opacity: 0.6;
@@ -119,6 +130,65 @@
   --accent-soft: rgba(203, 163, 90, 0.12);
   --accent-line: rgba(203, 163, 90, 0.4);
   --sage: var(--verdigris);
+}
+
+/*
+ * Light appearance — same brand accents, inverted surfaces and ink.
+ *
+ * `--glass-terminal` / `--glass-terminal-focused` stay dark on purpose: the
+ * xterm palette never follows the light theme (see terminal/xtermTheme.ts), so
+ * the canvas ground behind it must stay dark too. Only the window chrome
+ * (title bar, borders, panel, editors) flips.
+ */
+:root[data-theme='light'] {
+  --ink-rgb: 29, 26, 18;
+  --graphite-rgb: 244, 241, 234;
+
+  --text: #1d1a12;
+  --text-2: #5c584e;
+  --text-3: #7a7568;
+
+  --bronze: #a8843d;
+  --bronze-bright: #b8944a;
+  --bronze-deep: #8f7030;
+  --on-bronze: #1d1a12;
+
+  --verdigris: #2a6b5e;
+  --verdigris-bright: #348574;
+  --verdigris-text: #1f5a4e;
+
+  --role-reviewer: #5a7394;
+  --role-reviewer-text: #3f5674;
+
+  --warn: #c47d10;
+  --warn-text: #9a6208;
+  --err: #c45a45;
+  --err-text: #a84838;
+  --yolo: #c03940;
+  --yolo-text: #a82e35;
+  --idle: #7a6f5a;
+
+  --glass-top: rgba(252, 250, 245, 0.94);
+  --glass-bottom: rgba(244, 241, 234, 0.96);
+  --glass-window: rgba(248, 246, 240, 0.94);
+  --glass-header: rgba(255, 253, 248, 0.82);
+  --glass-terminal: rgba(13, 16, 21, 0.88);
+  --glass-input: rgba(255, 255, 255, 0.82);
+  --glass-window-focused: rgba(252, 250, 245, 0.98);
+  --glass-terminal-focused: rgba(13, 16, 21, 0.94);
+  --hairline: rgba(var(--ink-rgb), 0.1);
+  --hairline-strong: rgba(var(--ink-rgb), 0.16);
+  --hover-wash: rgba(var(--ink-rgb), 0.05);
+  --zones-wash: rgba(var(--ink-rgb), 0.14);
+
+  --shadow-panel: 0 24px 60px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  --shadow-window: 0 28px 70px rgba(0, 0, 0, 0.14);
+  --shadow-chip: 0 6px 18px rgba(0, 0, 0, 0.16);
+
+  --bg: #f4f1ea;
+  --accent-strong: #8f7030;
+  --accent-soft: rgba(168, 132, 61, 0.14);
+  --accent-line: rgba(168, 132, 61, 0.45);
 }
 
 * {

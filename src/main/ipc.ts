@@ -19,7 +19,12 @@
 import { ipcMain } from 'electron'
 import type { PtyAgentLike, PtyExitInfo } from './agents/PtyAgent'
 import { getSettings } from './store/settings'
-import { closeCliWindow, getCliWindow, isCliWindowSender } from './windows/cliWindow'
+import {
+  closeCliWindow,
+  getCliWindow,
+  isCliWindowSender,
+  minimizeCliWindow
+} from './windows/cliWindow'
 
 export const TERMINAL_CHANNELS = {
   attach: 'terminal:attach',
@@ -27,7 +32,8 @@ export const TERMINAL_CHANNELS = {
   resize: 'terminal:resize',
   data: 'terminal:data',
   exit: 'terminal:exit',
-  windowClose: 'window:close'
+  windowClose: 'window:close',
+  windowMinimize: 'window:minimize'
 } as const
 
 /** ~one frame: long enough to merge a burst, short enough to feel live. */
@@ -56,10 +62,12 @@ export interface TerminalAttachResult {
   exit: PtyExitInfo | null
   /**
    * UI language at attach time. CLI windows may not call settings:get (window
-   * type guard) and are not a settings broadcast target, so the locale rides
-   * along with the attach result instead.
+   * type guard); locale and theme ride along with the attach result, and later
+   * flips arrive via the settings broadcast (CLI windows are broadcast targets).
    */
   locale?: string
+  /** Appearance at attach time — see {@link locale}. */
+  theme?: 'dark' | 'light'
 }
 
 export interface TerminalDataEvent {
@@ -104,9 +112,11 @@ export interface TerminalIpcHost {
   /** False once the window is gone — the stream then stops by itself. */
   hasWindow?(agentId: string): boolean
   closeWindow(agentId: string): void
+  minimizeWindow(agentId: string): void
   coalesceMs?: number
   /** UI language for attach results; CLI windows cannot query settings. */
   locale?(): string
+  theme?(): 'dark' | 'light'
 }
 
 interface AgentRecord {
@@ -187,7 +197,8 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
       rows: record.entry.pty.rows,
       meta: record.entry.meta,
       exit: record.exit,
-      ...(host.locale ? { locale: host.locale() } : {})
+      ...(host.locale ? { locale: host.locale() } : {}),
+      ...(host.theme ? { theme: host.theme() } : {})
     }
   }) as IpcListener)
 
@@ -226,6 +237,12 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
       }
     }
     host.closeWindow(agentId)
+  }) as IpcListener)
+
+  host.ipcMain.on(TERMINAL_CHANNELS.windowMinimize, ((event: { sender: { id: number } }): void => {
+    const agentId = host.senderAgentId(event.sender.id)
+    if (!agentId) return
+    host.minimizeWindow(agentId)
   }) as IpcListener)
 
   const detach = (record: AgentRecord): void => {
@@ -314,7 +331,9 @@ export function registerTerminalIpc(): AgentRegistry {
       if (win && !win.webContents.isDestroyed()) win.webContents.send(channel, payload)
     },
     closeWindow: (agentId) => closeCliWindow(agentId),
-    locale: () => getSettings().ui.locale
+    minimizeWindow: (agentId) => minimizeCliWindow(agentId),
+    locale: () => getSettings().ui.locale,
+    theme: () => getSettings().ui.theme
   })
   return registry
 }

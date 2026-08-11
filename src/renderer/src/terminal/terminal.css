@@ -108,6 +108,7 @@
   font-weight: 500;
 }
 
+.cli-minimize,
 .cli-close {
   flex: 0 0 auto;
   display: grid;
@@ -124,6 +125,11 @@
   transition:
     background 0.15s ease,
     color 0.15s ease;
+}
+
+.cli-minimize:hover {
+  background: var(--hover-wash);
+  color: var(--text);
 }
 
 .cli-close:hover {
@@ -150,7 +156,7 @@
 .cli-terminal .xterm-viewport {
   background: transparent !important;
   scrollbar-width: thin;
-  scrollbar-color: rgba(234, 230, 219, 0.18) transparent;
+  scrollbar-color: rgba(var(--ink-rgb), 0.18) transparent;
 }
 
 .cli-terminal .xterm-viewport::-webkit-scrollbar {
@@ -159,7 +165,7 @@
 
 .cli-terminal .xterm-viewport::-webkit-scrollbar-thumb {
   border-radius: 4px;
-  background: rgba(234, 230, 219, 0.16);
+  background: rgba(var(--ink-rgb), 0.16);
 }
 
 .cli-error {

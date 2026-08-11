@@ -38,7 +38,7 @@ import type { AppSettings, SettingsStore } from '@main/store/settings'
 import { settings } from '@main/store/settings'
 import { discoverModels, type ModelDiscoveryResult } from '@main/providers/discovery'
 import { checkAllProviders, type ProviderHealth } from '@main/providers/health'
-import { focusCliWindow } from '@main/windows/cliWindow'
+import { focusCliWindow, listCliWindows } from '@main/windows/cliWindow'
 import {
   hideAllHotkeyStatus,
   reRegisterHideAllShortcut,
@@ -68,6 +68,7 @@ import { appUpdater, onUpdateState } from '@main/updater'
 import {
   closeZoneOverlayWindows,
   isZoneOverlaySender,
+  listZoneOverlayWindows,
   openZoneOverlayWindows,
   zoneOverlayDisplayIds,
   type ZoneOverlaySender
@@ -290,11 +291,12 @@ export interface ZoneEditorPayload {
   /** Only the zones of THIS display; the other overlays own the rest. */
   zones: Zone[]
   /**
-   * UI language for this overlay. Added by the `zones:load` handler, not by
-   * {@link zoneEditorPayload} — an overlay cannot call `settings:get`, so the
-   * one payload it does receive is where the language has to travel.
+   * UI language / appearance for this overlay. Added by the `zones:load`
+   * handler, not by {@link zoneEditorPayload} — an overlay cannot call
+   * `settings:get`, so the one payload it does receive is where they travel.
    */
   locale?: AppSettings['ui']['locale']
+  theme?: AppSettings['ui']['theme']
 }
 
 /**
@@ -848,10 +850,11 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     const profile = host.store.getProfiles().find((entry) => entry.id === sender.profileId)
     if (!profile) throw new Error(`zones:load rejected — unknown profile ${sender.profileId}`)
     // The overlay is not an "app window" on the settings guard, so this is the
-    // only channel that can tell it which language to draw in.
+    // only channel that can tell it which language and theme to draw in at open.
     return {
       ...zoneEditorPayload(profile, host.store.getRoleTemplates(), sender.displayId),
-      locale: host.store.getSettings().ui.locale
+      locale: host.store.getSettings().ui.locale,
+      theme: host.store.getSettings().ui.theme
     }
   })
 
@@ -994,7 +997,11 @@ export function registerAppIpc(directory?: WorkspaceDirectory): AppIpc {
         getPanelWindow(),
         ...listProfileEditorWindows().map((entry) => entry.window),
         ...listProviderEditorWindows().map((entry) => entry.window),
-        getSettingsWindow()
+        getSettingsWindow(),
+        // CLI and zone overlays cannot call settings:get, but they still need
+        // live locale/theme flips — same broadcast every other app window gets.
+        ...listCliWindows().map((entry) => entry.window),
+        ...listZoneOverlayWindows().map((entry) => entry.window)
       ]
       for (const win of targets) {
         if (win && !win.webContents.isDestroyed()) win.webContents.send(channel, payload)

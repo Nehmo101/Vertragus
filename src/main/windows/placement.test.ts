@@ -126,13 +126,29 @@ describe('placeAgentWindow — zones', () => {
     expect(contains(SECOND.workArea, plan[1]!.bounds)).toBe(true)
   })
 
-  it('falls back to auto-tiling when the zone’s display is unplugged', () => {
+  it('applies a zone with a stale display id when only one monitor remains', () => {
+    // Sole remaining display: rematch rather than pretend the zone is gone.
     const profile = {
       zones: layout({ roleId: 'worker', displayId: 99, rect: { x: 0.5, y: 0, w: 0.5, h: 1 } })
     }
     const bounds = placeAgentWindow({ profile, roleId: 'worker', displays: [PRIMARY] })
 
+    expect(bounds).toEqual({ x: 960, y: 0, width: 960, height: 1080 })
+  })
+
+  it('falls back to auto-tiling when no attached display can own the zone', () => {
+    const profile = {
+      zones: layout({ roleId: 'worker', displayId: 99, rect: { x: 0.5, y: 0, w: 0.5, h: 1 } })
+    }
+    // Two monitors, neither matching — do not guess which one inherits the zone.
+    const bounds = placeAgentWindow({
+      profile,
+      roleId: 'worker',
+      displays: [PRIMARY, SECOND]
+    })
+
     expect(contains(PRIMARY.workArea, bounds)).toBe(true)
+    expect(bounds).not.toEqual({ x: 960, y: 0, width: 960, height: 1080 })
   })
 
   it('leaves a role without a zone to the auto-tiling even when others have one', () => {

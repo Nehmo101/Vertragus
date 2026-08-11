@@ -99,6 +99,52 @@ describe('profiles', () => {
     const { store: settings } = store()
     expect(settings.saveProfile(createEmptyProfile({ name: 'Fresh' }))).toHaveLength(1)
   })
+
+  /**
+   * Real data flow that used to lose every hand-drawn layout:
+   * zone overlay saves zones → profile editor (opened earlier) saves without
+   * `zones` → store must still hold the layout, or agent windows fall back to
+   * auto-tiling as if no zones existed.
+   */
+  it('keeps zones when a later profile save omits them', () => {
+    const { store: settings } = store()
+    const zones = {
+      zones: [{ roleId: 'worker', displayId: 1, rect: { x: 0, y: 0, w: 0.5, h: 1 } }]
+    }
+    settings.saveProfile(validProfile)
+    settings.saveProfile({ ...validProfile, zones })
+    settings.saveProfile(validProfile)
+    expect(settings.getProfile('p1')!.zones).toEqual(zones)
+  })
+
+  it('still lets an explicit empty zone layout clear what was stored', () => {
+    const { store: settings } = store()
+    settings.saveProfile({
+      ...validProfile,
+      zones: { zones: [{ roleId: 'worker', displayId: 1, rect: { x: 0, y: 0, w: 1, h: 1 } }] }
+    })
+    settings.saveProfile({ ...validProfile, zones: { zones: [] } })
+    expect(settings.getProfile('p1')!.zones).toEqual({ zones: [] })
+  })
+
+  it('zone → profile-save → placeAgentWindow still lands inside the zone', async () => {
+    const { placeAgentWindow } = await import('@main/windows/placement')
+    const { store: settings } = store()
+    const zones = {
+      zones: [{ roleId: 'worker', displayId: 1, rect: { x: 0.5, y: 0, w: 0.5, h: 1 } }]
+    }
+    settings.saveProfile(validProfile)
+    settings.saveProfile({ ...validProfile, zones })
+    // Stale profile-editor draft (no zones field) — used to wipe the layout.
+    settings.saveProfile({ ...validProfile, name: 'Vertragus' })
+    const profile = settings.getProfile('p1')!
+    const bounds = placeAgentWindow({
+      profile,
+      roleId: 'worker',
+      displays: [{ id: 1, workArea: { x: 0, y: 0, width: 1920, height: 1080 }, primary: true }]
+    })
+    expect(bounds).toEqual({ x: 960, y: 0, width: 960, height: 1080 })
+  })
 })
 
 describe('providers', () => {

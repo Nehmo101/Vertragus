@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { applyLocale } from '../i18n'
+import { applyTheme } from '../theme'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
@@ -64,6 +65,7 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
   // lifetime of the window, so it is read during render, not in the effect.
   const bridge = window.vertragus?.terminal
   const close = useCallback(() => bridge?.closeWindow(), [bridge])
+  const minimize = useCallback(() => bridge?.minimizeWindow(), [bridge])
 
   // Focus, not hover, decides whether this window is solid: hover means the
   // user is reading it, focus means they are typing in it.
@@ -129,8 +131,9 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
       .attach(agentId)
       .then((result) => {
         if (disposed) return
-        // CLI windows cannot query settings; the locale rides on the attach.
+        // CLI windows cannot query settings; locale and theme ride on the attach.
         if (result.locale) void applyLocale(result.locale)
+        if (result.theme) applyTheme(result.theme)
         setMeta(result.meta)
         if (result.exit) setExit(result.exit)
         term.write(result.snapshot)
@@ -169,6 +172,14 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
           }
         />
         <span className="cli-label">{metaLabel(meta, agentId)}</span>
+        <button
+          className="cli-minimize"
+          onClick={minimize}
+          title={t('terminal.minimizeWindow')}
+          aria-label={t('terminal.minimizeWindow')}
+        >
+          −
+        </button>
         <button
           className="cli-close"
           onClick={close}

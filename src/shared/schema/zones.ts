@@ -73,7 +73,13 @@ export function resolveZoneRect(
   zone: Pick<Zone, 'displayId' | 'rect'>,
   displays: readonly DisplayLike[]
 ): AbsRect | null {
-  const display = displays.find((candidate) => candidate.id === zone.displayId)
+  // Prefer the stored Electron id. When it is gone, a single attached display
+  // is still the monitor the zone was drawn on — Windows churns Display.id
+  // across sessions/reboots even when the physical layout did not change, and
+  // treating that as "unplugged" silently drops every hand-drawn zone into
+  // auto-tiling.
+  let display = displays.find((candidate) => candidate.id === zone.displayId)
+  if (!display && displays.length === 1) display = displays[0]
   if (!display) return null
   const { workArea } = display
   const width = Math.round(clamp(zone.rect.w, 0, 1) * workArea.width)

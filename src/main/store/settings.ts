@@ -230,7 +230,16 @@ export function createSettingsStore({ backend, warn = console.warn }: SettingsSt
       // Writes validate strictly: a rejected save is a bug the caller must see,
       // unlike a legacy row on read.
       const parsed = profileSchema.parse(profile)
-      const profiles = upsert(readProfiles(), parsed)
+      // Zones are edited out-of-band (the overlay), not by the profile form.
+      // A form save that simply omits `zones` must not wipe a layout the user
+      // just drew — only an explicit `zones` field (including `{ zones: [] }`)
+      // replaces what is stored.
+      const existing = readProfiles().find((entry) => entry.id === parsed.id)
+      const next =
+        parsed.zones === undefined && existing?.zones
+          ? { ...parsed, zones: existing.zones }
+          : parsed
+      const profiles = upsert(readProfiles(), next)
       backend.set('profiles', profiles)
       return profiles
     },

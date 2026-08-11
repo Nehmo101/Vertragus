@@ -71,6 +71,16 @@ describe('resolveZoneRect', () => {
     expect(resolveZoneRect({ displayId: 1, rect: { x: 0, y: 0, w: 1, h: 1 } }, [])).toBeNull()
   })
 
+  it('rematches a stale Electron display id when only one monitor is attached', () => {
+    // Windows: Display.id often changes across sessions while the work area
+    // stays put. With a single monitor there is nothing else to guess.
+    const rect = resolveZoneRect(
+      { displayId: 99, rect: { x: 0.5, y: 0, w: 0.5, h: 1 } },
+      [{ id: 7, workArea: displays[0]!.workArea }]
+    )
+    expect(rect).toEqual({ x: 960, y: 0, width: 960, height: 1040 })
+  })
+
   it('keeps a rect that would overflow inside the work area', () => {
     const rect = resolveZoneRect({ displayId: 1, rect: { x: 0.9, y: 0.9, w: 0.5, h: 0.5 } }, displays)
     expect(rect).toEqual({ x: 960, y: 520, width: 960, height: 520 })
