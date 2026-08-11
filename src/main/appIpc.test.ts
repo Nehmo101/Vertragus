@@ -17,7 +17,10 @@ vi.mock('electron', () => ({
 vi.mock('@main/store/settings', () => ({ settings: vi.fn() }))
 vi.mock('@main/providers/discovery', () => ({ discoverModels: vi.fn() }))
 vi.mock('@main/providers/health', () => ({ checkAllProviders: vi.fn() }))
-vi.mock('@main/windows/cliWindow', () => ({ focusCliWindow: vi.fn() }))
+vi.mock('@main/windows/cliWindow', () => ({
+  focusCliWindow: vi.fn(),
+  listCliWindows: vi.fn(() => [])
+}))
 vi.mock('@main/windows/panel', () => ({
   getPanelWindow: vi.fn(() => null),
   isPanelWindowSender: vi.fn(() => false)
@@ -53,6 +56,7 @@ vi.mock('@main/windows/zoneOverlay', () => ({
   openZoneOverlayWindows: vi.fn(),
   closeZoneOverlayWindows: vi.fn(),
   isZoneOverlaySender: vi.fn(() => null),
+  listZoneOverlayWindows: vi.fn(() => []),
   zoneOverlayDisplayIds: vi.fn(() => [])
 }))
 vi.mock('@main/windows/hideAll', () => ({
@@ -1093,6 +1097,8 @@ describe('zones', () => {
     expect(payload.zones).toEqual([
       { roleId: 'worker', displayId: 11, rect: rel(0.5, 0, 0.5, 1) }
     ])
+    expect(payload.locale).toBe('de')
+    expect(payload.theme).toBe('dark')
   })
 
   it('saves the layout of every overlay, not just the one that clicked save', () => {

@@ -118,6 +118,7 @@ const PANEL_WEBCONTENTS_ID = 99
 let ipc: FakeIpcMain
 let sent: { agentId: string; channel: string; payload: unknown }[]
 let closed: string[]
+let minimized: string[]
 let registry: AgentRegistry
 let ptyA: FakePty
 let ptyB: FakePty
@@ -128,13 +129,15 @@ beforeEach(() => {
   ipc = new FakeIpcMain()
   sent = []
   closed = []
+  minimized = []
   liveWindows = new Set(Object.values(WINDOWS))
   registry = createTerminalIpc({
     ipcMain: ipc,
     senderAgentId: (id) => WINDOWS[id] ?? null,
     hasWindow: (agentId) => liveWindows.has(agentId),
     send: (agentId, channel, payload) => sent.push({ agentId, channel, payload }),
-    closeWindow: (agentId) => closed.push(agentId)
+    closeWindow: (agentId) => closed.push(agentId),
+    minimizeWindow: (agentId) => minimized.push(agentId)
   })
   ptyA = new FakePty()
   ptyB = new FakePty()
@@ -329,6 +332,18 @@ describe('window:close', () => {
   })
 })
 
+describe('window:minimize', () => {
+  it('minimizes only the sender’s own window', () => {
+    ipc.send(TERMINAL_CHANNELS.windowMinimize, 10)
+    expect(minimized).toEqual(['agent-a'])
+  })
+
+  it('ignores a minimize from a window that is not a CLI window', () => {
+    ipc.send(TERMINAL_CHANNELS.windowMinimize, PANEL_WEBCONTENTS_ID)
+    expect(minimized).toEqual([])
+  })
+})
+
 describe('AgentRegistry', () => {
   it('lists and looks up registered agents', () => {
     expect(registry.listAgents().map((entry) => entry.meta.agentId)).toEqual(['agent-a', 'agent-b'])
@@ -385,7 +400,7 @@ describe('preload channel parity', () => {
     for (const channel of Object.values(TERMINAL_CHANNELS)) {
       expect(source).toContain(`'${channel}'`)
     }
-    const preloadChannels = [...source.matchAll(/'(terminal:[a-z]+|window:close)'/g)].map(
+    const preloadChannels = [...source.matchAll(/'(terminal:[a-z]+|window:[a-z]+)'/g)].map(
       (match) => match[1]
     )
     expect(new Set(preloadChannels)).toEqual(new Set(Object.values(TERMINAL_CHANNELS)))

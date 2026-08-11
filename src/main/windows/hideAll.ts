@@ -4,15 +4,17 @@
  * The contract, in the user's words: "everything away, and back exactly as it
  * was". Which means:
  *
- * - Only `hide()`. No minimize, no close, no move. Positions survive, the PTYs
- *   keep running, nothing is re-tiled on the way back.
+ * - Only `hide()`. No close, no move, and never `minimize()` / `restore()` —
+ *   positions survive, the PTYs keep running, nothing is re-tiled on the way
+ *   back. Windows the user already minimized are left alone (same rule as
+ *   already-hidden windows: not ours to touch).
  * - **The panel stays.** It is the way back — hiding it would leave the user
  *   with an invisible app and a hotkey they may have mistyped.
  * - Restoring uses `showInactive()` in the remembered order and only then
  *   focuses the window that had focus, so bringing four terminals back does not
  *   steal focus four times and end on an arbitrary one.
- * - Toggling twice is the identity. Windows hidden by the user BEFORE the
- *   toggle stay hidden afterwards — they were not ours to show.
+ * - Toggling twice is the identity. Windows hidden (or minimized) by the user
+ *   BEFORE the toggle stay that way afterwards — they were not ours to show.
  *
  * The controller is pure bookkeeping over an injectable window list (fake
  * windows in the test), and the global shortcut is registered through an
@@ -30,6 +32,7 @@ import { listSettingsWindows } from './settingsWindow'
 export interface HideableWindow {
   isDestroyed(): boolean
   isVisible(): boolean
+  isMinimized(): boolean
   isFocused(): boolean
   hide(): void
   showInactive(): void
@@ -69,8 +72,9 @@ export function createHideAllController(deps: HideAllDeps): HideAllController {
       if (hiddenKeys.length === 0) {
         focusedKey = targets.find((target) => target.window.isFocused())?.key
         for (const target of targets) {
-          // A window the user had already hidden is none of our business.
+          // A window the user had already hidden or minimized is none of ours.
           if (!target.window.isVisible()) continue
+          if (target.window.isMinimized()) continue
           target.window.hide()
           hiddenKeys.push(target.key)
         }

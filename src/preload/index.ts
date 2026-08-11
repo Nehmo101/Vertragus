@@ -19,7 +19,8 @@ const CHANNELS = {
   resize: 'terminal:resize',
   data: 'terminal:data',
   exit: 'terminal:exit',
-  windowClose: 'window:close'
+  windowClose: 'window:close',
+  windowMinimize: 'window:minimize'
 } as const
 
 export interface TerminalAgentMeta {
@@ -39,6 +40,8 @@ export interface TerminalAttachResult {
   exit: { exitCode: number; signal?: number } | null
   /** UI language at attach time; CLI windows cannot query settings. */
   locale?: string
+  /** Appearance at attach time; CLI windows cannot query settings. */
+  theme?: 'dark' | 'light'
 }
 
 export interface TerminalDataEvent {
@@ -79,6 +82,10 @@ const terminal = {
   /** Close this window only — the agent keeps running. */
   closeWindow: (): void => {
     ipcRenderer.send(CHANNELS.windowClose)
+  },
+  /** Minimize this window — the agent keeps running and the window stays registered. */
+  minimizeWindow: (): void => {
+    ipcRenderer.send(CHANNELS.windowMinimize)
   }
 }
 
@@ -253,6 +260,8 @@ export interface ZoneEditorPayload {
   zones: Zone[]
   /** UI language — an overlay window may not call `settings:get` itself. */
   locale?: 'de' | 'en'
+  /** Appearance — same constraint as locale. */
+  theme?: 'dark' | 'light'
 }
 
 function subscribe<T>(channel: string, listener: (payload: T) => void): () => void {
@@ -352,8 +361,9 @@ const app = {
   onUpdate: (listener: (state: UpdateState) => void): (() => void) =>
     subscribe(APP.eventUpdate, listener),
   /**
-   * App settings changed anywhere. The renderer's i18n subscribes so a language
-   * picked in the settings window reaches the panel and both editors at once.
+   * App settings changed anywhere. The renderer's i18n and theme modules
+   * subscribe so a language or appearance picked in the settings window reaches
+   * the panel, editors, CLI chrome and zone overlays at once.
    */
   onSettings: (listener: (settings: PanelSettings) => void): (() => void) =>
     subscribe(APP.eventSettings, listener),

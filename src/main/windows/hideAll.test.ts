@@ -35,6 +35,7 @@ class FakeWindow {
   visible = true
   focused = false
   destroyed = false
+  minimized = false
   readonly log: string[]
 
   constructor(
@@ -49,6 +50,9 @@ class FakeWindow {
   }
   isVisible(): boolean {
     return this.visible
+  }
+  isMinimized(): boolean {
+    return this.minimized
   }
   isFocused(): boolean {
     return this.focused
@@ -115,6 +119,24 @@ describe('toggle', () => {
     expect(windows.a!.visible).toBe(true)
     // Hidden before the toggle, hidden after — it was never ours.
     expect(windows.b!.visible).toBe(false)
+  })
+
+  it('leaves a user-minimized window alone across a hide-all roundtrip', () => {
+    const { log, windows, targets } = harness(['a', 'b'])
+    windows.b!.minimized = true
+    const hideAll = createHideAllController({ targets: () => targets })
+
+    expect(hideAll.toggle()).toBe('hidden')
+    expect(log).toEqual(['hide:a'])
+    expect(windows.b!.minimized).toBe(true)
+    expect(windows.b!.visible).toBe(true)
+
+    log.length = 0
+    expect(hideAll.toggle()).toBe('restored')
+    expect(log).toEqual(['show:a'])
+    // Minimized before the toggle, still minimized after — never restored.
+    expect(windows.b!.minimized).toBe(true)
+    expect(windows.b!.visible).toBe(true)
   })
 
   it('restores focus once, to the window that had it', () => {

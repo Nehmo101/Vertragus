@@ -204,6 +204,12 @@ export function closeCliWindow(agentId: string): void {
   if (win) win.close()
 }
 
+/** Minimize the window — it stays in the registry and the agent keeps running. */
+export function minimizeCliWindow(agentId: string): void {
+  const win = getCliWindow(agentId)
+  if (win) win.minimize()
+}
+
 /** Bring an agent's window to the front (panel click, M3). */
 export function focusCliWindow(agentId: string): void {
   const win = getCliWindow(agentId)

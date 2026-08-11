@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import HoundLogo from './HoundLogo'
 import { PanelFooter } from './PanelFooter'
@@ -7,7 +7,12 @@ import { WorkspaceCard } from './WorkspaceCard'
 import { CloseIcon, MinusIcon } from './icons'
 import { trackPanelPointer } from './pointerOver'
 import { usePanelData } from './usePanelData'
-import { orderWorkspaces } from './viewModel'
+import {
+  expandedWorkspaceId,
+  nextSelectedWorkspaceId,
+  orderWorkspaces,
+  type SelectedWorkspaceId
+} from './viewModel'
 import './panel.css'
 
 /**
@@ -22,6 +27,12 @@ export function PanelApp(): React.JSX.Element {
   const { t } = useTranslation()
   const panel = usePanelData()
   const workspaces = orderWorkspaces(panel.workspaces)
+  /**
+   * Which card the user last chose. `undefined` until the first click so the
+   * active workspace stays open by default; see expandedWorkspaceId.
+   */
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<SelectedWorkspaceId>(undefined)
+  const expandedId = expandedWorkspaceId(workspaces, selectedWorkspaceId)
 
   /**
    * Hover, measured in the main process. The whole panel is a drag region, and
@@ -97,6 +108,12 @@ export function PanelApp(): React.JSX.Element {
                 <WorkspaceCard
                   key={workspace.workspaceId}
                   workspace={workspace}
+                  expanded={workspace.workspaceId === expandedId}
+                  onToggle={() =>
+                    setSelectedWorkspaceId((current) =>
+                      nextSelectedWorkspaceId(workspaces, current, workspace.workspaceId)
+                    )
+                  }
                   onStop={panel.stopWorkspace}
                   onFocusAgent={panel.focusAgent}
                 />

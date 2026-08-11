@@ -57,6 +57,11 @@ export interface ProviderDraft {
   discoveryPath: string
   discoveryUrl: string
   seedModels: string
+  /**
+   * Opaque passthrough of provider `seed` handshake overrides. Not edited in
+   * the form — open-and-save must not drop a preset's submitDelayMs.
+   */
+  seed?: ProviderConfig['seed']
   enabled: boolean
 }
 
@@ -150,6 +155,7 @@ export function draftFromProvider(config: ProviderConfig): ProviderDraft {
     discoveryPath: discovery.kind === 'file' ? discovery.path : '',
     discoveryUrl: discovery.kind === 'http' ? discovery.url : '',
     seedModels: fromLines(config.seedModels),
+    ...(config.seed ? { seed: config.seed } : {}),
     enabled: config.enabled
   }
 }
@@ -241,6 +247,7 @@ export function toProviderInput(draft: ProviderDraft): unknown {
     mcp: mcpInput(draft),
     modelDiscovery: modelDiscoveryInput(draft),
     seedModels: toLines(draft.seedModels),
+    ...(draft.seed ? { seed: draft.seed } : {}),
     enabled: draft.enabled
   }
 }

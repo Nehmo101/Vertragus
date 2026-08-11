@@ -17,7 +17,7 @@
   cursor: default;
 }
 
-/* Just enough darkening to read the glass slabs over any wallpaper. */
+/* Just enough dimming to read the glass slabs over any wallpaper. */
 .zones-wash {
   position: absolute;
   inset: 0;
@@ -26,7 +26,7 @@
       rgba(203, 163, 90, 0.06),
       transparent 60%
     ),
-    rgba(9, 11, 14, 0.34);
+    var(--zones-wash);
   border: 1px solid var(--hairline);
   border-radius: 4px;
 }
@@ -103,7 +103,7 @@
   gap: 6px;
   padding: 3px 4px 3px 10px;
   border-radius: var(--radius-chip);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-chip);
 }
 
 .zone-chip-label {
@@ -201,7 +201,7 @@
   padding: 5px 11px;
   border: 1px solid;
   border-radius: var(--radius-chip);
-  background: rgba(234, 230, 219, 0.03);
+  background: rgba(var(--ink-rgb), 0.03);
   font: 600 11.5px var(--font-body);
   cursor: pointer;
 }
