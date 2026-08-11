@@ -1,0 +1,383 @@
+/*
+ * The profile editor sheet — same glass as the panel, one step calmer.
+ *
+ * The window is frameless, so the header doubles as the drag handle and every
+ * control opts out with `no-drag`. Inputs are dark wells rather than outlined
+ * boxes: on a translucent surface an outline competes with the window border,
+ * a filled well does not.
+ */
+
+.pe {
+  display: flex;
+  flex-direction: column;
+  height: calc(100% - 8px);
+  margin: 4px;
+  overflow: hidden;
+  border-radius: var(--radius-window);
+  border: 1px solid var(--hairline);
+  box-shadow: var(--shadow-window);
+  background: linear-gradient(180deg, var(--glass-top), var(--glass-bottom));
+  backdrop-filter: blur(16px) saturate(1.15);
+}
+
+.pe button,
+.pe input,
+.pe select,
+.pe textarea {
+  -webkit-app-region: no-drag;
+  font-family: inherit;
+}
+
+.pe-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 14px 16px 11px;
+  border-bottom: 1px solid var(--hairline);
+  background: linear-gradient(90deg, rgba(203, 163, 90, 0.08), transparent 60%);
+  -webkit-app-region: drag;
+}
+
+.pe-title {
+  margin: 0;
+  font: 400 15px var(--font-heading);
+  letter-spacing: 0.02em;
+  color: var(--bronze-bright);
+}
+
+.pe-profile-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  font: 500 12px var(--font-body);
+  color: var(--text-2);
+}
+
+.pe-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pe-fatal {
+  margin: auto;
+  padding: 24px;
+  font: 500 13px var(--font-body);
+  color: var(--text-2);
+  text-align: center;
+}
+
+/* --- fields ------------------------------------------------------------ */
+
+.pe-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.pe-field-label {
+  font: 600 10px var(--font-body);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.pe-input {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-chip);
+  background: var(--glass-input);
+  color: var(--text);
+  font: 400 12.5px var(--font-body);
+}
+
+.pe-input:hover {
+  border-color: rgba(234, 230, 219, 0.2);
+}
+
+.pe-mono {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.pe-textarea {
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.pe-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pe-icon-button {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-chip);
+  background: var(--glass-input);
+  color: var(--text-2);
+  cursor: pointer;
+  transition:
+    color 0.18s ease,
+    border-color 0.18s ease;
+}
+
+.pe-icon-button:hover {
+  color: var(--bronze-bright);
+  border-color: rgba(203, 163, 90, 0.45);
+}
+
+.pe-hint {
+  font: 400 11px var(--font-body);
+  color: var(--text-3);
+}
+
+.pe-empty {
+  margin: 0;
+  font: 400 11.5px var(--font-body);
+  color: var(--text-2);
+}
+
+.pe-error {
+  font: 500 11px var(--font-body);
+  color: var(--err-text);
+}
+
+.pe-error-form {
+  margin: 0;
+  padding: 7px 9px;
+  border: 1px solid rgba(217, 115, 92, 0.35);
+  border-radius: var(--radius-chip);
+  background: rgba(217, 115, 92, 0.1);
+}
+
+/* --- orchestrator ------------------------------------------------------ */
+
+.pe-orchestrator {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 11px 12px 12px;
+  border: 1px solid rgba(203, 163, 90, 0.3);
+  border-radius: var(--radius-card);
+  background: rgba(203, 163, 90, 0.06);
+}
+
+.pe-section-label {
+  margin: 0;
+  font: 600 10px var(--font-body);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--bronze);
+}
+
+.pe-orchestrator-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.35fr 0.8fr;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+/* --- slots ------------------------------------------------------------- */
+
+.pe-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pe-slots .pe-section-label {
+  color: var(--text-3);
+}
+
+.pe-slot-list {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pe-slot {
+  padding: 7px 8px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: rgba(234, 230, 219, 0.02);
+}
+
+.pe-slot-grid {
+  display: grid;
+  /* role · provider · model · max · effort · remove — provider needs room for
+     the longest preset label ("Claude Code"), the model field for an id. */
+  grid-template-columns: 0.95fr 1.15fr 1.3fr 40px 0.8fr 22px;
+  gap: 5px;
+  align-items: center;
+}
+
+.pe-slot-grid .pe-input {
+  padding: 6px 7px;
+  font-size: 11.5px;
+}
+
+.pe-role {
+  font-weight: 600;
+}
+
+.pe-max {
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.pe-effort {
+  font-size: 11.5px;
+}
+
+.pe-remove {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease;
+}
+
+.pe-remove:hover {
+  background: rgba(217, 115, 92, 0.18);
+  color: var(--err-text);
+}
+
+.pe-custom-role {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px dashed var(--hairline-strong);
+}
+
+.pe-custom-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.pe-add-role {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 5px 11px;
+  border: 1px dashed rgba(234, 230, 219, 0.15);
+  border-radius: 11px;
+  background: transparent;
+  color: var(--text-3);
+  font: 500 11.5px var(--font-body);
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    color 0.18s ease,
+    background 0.18s ease;
+}
+
+.pe-add-role:hover {
+  border-color: rgba(203, 163, 90, 0.4);
+  background: rgba(203, 163, 90, 0.06);
+  color: var(--bronze-bright);
+}
+
+.pe-max-subagents {
+  max-width: 240px;
+}
+
+/* --- footer ------------------------------------------------------------ */
+
+.pe-foot {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px 12px;
+  border-top: 1px solid var(--hairline);
+}
+
+.pe-foot-spacer {
+  flex: 1 1 auto;
+}
+
+.pe-ghost,
+.pe-secondary,
+.pe-danger {
+  padding: 7px 13px;
+  border-radius: var(--radius-chip);
+  border: 1px solid var(--hairline-strong);
+  background: transparent;
+  color: var(--text-2);
+  font: 500 12px var(--font-body);
+  cursor: pointer;
+  transition:
+    color 0.18s ease,
+    border-color 0.18s ease,
+    background 0.18s ease;
+}
+
+.pe-ghost:hover,
+.pe-secondary:hover {
+  color: var(--text);
+  border-color: rgba(234, 230, 219, 0.22);
+  background: var(--hover-wash);
+}
+
+.pe-danger {
+  border-color: transparent;
+  color: var(--text-3);
+}
+
+.pe-danger:hover {
+  color: var(--err-text);
+  background: rgba(217, 115, 92, 0.12);
+}
+
+.pe-primary {
+  padding: 7px 17px;
+  border: 1px solid rgba(203, 163, 90, 0.55);
+  border-radius: var(--radius-chip);
+  background: linear-gradient(180deg, var(--bronze-bright), var(--bronze-deep));
+  color: var(--on-bronze);
+  font: 600 12px var(--font-body);
+  cursor: pointer;
+  transition: filter 0.18s ease;
+}
+
+.pe-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.pe-primary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

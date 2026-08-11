@@ -2,11 +2,18 @@ import { writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { app } from 'electron'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
+import { allRoleTemplates, roleColor } from '@shared/prompts/roles'
 import { PtyAgent } from './agents/PtyAgent'
 import { resolveLaunch } from './agents/resolveCommand'
+import { registerAppIpc, type WorkspaceDirectory, type WorkspaceSummary } from './appIpc'
+import { createAppWorkspaceManager, maybeStartDevWorkspace, type DevRunHandle } from './devRun'
 import { registerTerminalIpc } from './ipc'
-import { createCliWindow } from './windows/cliWindow'
+import { startMcpServer, type McpServerHandle } from './mcp/server'
+import { getProfile, getRoleTemplates } from './store/settings'
+import { createCliWindow, focusCliWindow } from './windows/cliWindow'
 import { createPanelWindow, getPanelWindow } from './windows/panel'
+import { armProfileEditorSmoke } from './windows/profileEditor'
+import type { WorkspaceManager } from './workspace/WorkspaceManager'
 
 /**
  * Headless smoke hook: <envVar>=<path> boots the window, captures it and exits.
@@ -30,10 +37,65 @@ function armScreenshotHook(win: Electron.BrowserWindow, envVar: string, delayMs 
   })
 }
 
+/** Adapter: WorkspaceManager → the view the panel draws. */
+function panelDirectory(manager: WorkspaceManager): WorkspaceDirectory {
+  const roleLabel = (roleId: string): string =>
+    allRoleTemplates(getRoleTemplates()).find((role) => role.id === roleId)?.name ?? roleId
+
+  return {
+    list: () =>
+      manager.list().map<WorkspaceSummary>((ws) => {
+        const orchestrator = ws.orchestrator
+        const roleIds = [...new Set(ws.profile.slots.map((slot) => slot.roleId))]
+        return {
+          workspaceId: ws.workspaceId,
+          name: ws.name,
+          profileId: ws.profileId,
+          profileName: ws.profile.name,
+          active: orchestrator !== undefined,
+          agents: [
+            ...(orchestrator
+              ? [
+                  {
+                    agentId: orchestrator.agentId,
+                    name: orchestrator.name,
+                    roleId: 'orchestrator',
+                    roleLabel: 'Orchestrator',
+                    roleColor: roleColor('orchestrator'),
+                    state: 'working' as const
+                  }
+                ]
+              : []),
+            ...ws.listAgents().map((agent) => ({
+              agentId: agent.agentId,
+              name: agent.name,
+              roleId: agent.role,
+              roleLabel: roleLabel(agent.role),
+              roleColor: roleColor(agent.role, roleIds.indexOf(agent.role)),
+              state:
+                agent.status === 'working'
+                  ? ('working' as const)
+                  : agent.status === 'starting'
+                    ? ('waiting' as const)
+                    : ('stopped' as const),
+              ...(agent.pendingQuestion ? { pendingQuestion: agent.pendingQuestion } : {})
+            }))
+          ]
+        }
+      }),
+    start(profileId) {
+      const profile = getProfile(profileId)
+      if (!profile) throw new Error(`Unbekanntes Profil ${profileId}`)
+      return manager.startWorkspace(profile)
+    },
+    stop: (workspaceId) => manager.stopWorkspace(workspaceId),
+    focusAgent: (agentId) => focusCliWindow(agentId)
+  }
+}
+
 // --- M1 dev verification path -------------------------------------------
 // VERTRAGUS_DEV_SPAWN=<command line> spawns one real PTY agent after ready and
-// opens its CLI window. This is the manual route until M2 wires the real
-// spawn pipeline (profiles → workspace → orchestrator).
+// opens its CLI window — kept as the CLI-window screenshot smoke.
 async function startDevAgent(): Promise<void> {
   const commandLine = process.env.VERTRAGUS_DEV_SPAWN?.trim()
   if (!commandLine) return
@@ -45,8 +107,6 @@ async function startDevAgent(): Promise<void> {
   const agent = new PtyAgent()
   const registry = registerTerminalIpc()
   try {
-    // PATH/shim resolution is the spawn pipeline's job (M2); here it is what
-    // makes `VERTRAGUS_DEV_SPAWN=cmd` work at all.
     const launch = await resolveLaunch(command, rawArgs)
     agent.spawn({ file: launch.file, args: launch.args, cwd: homedir() })
   } catch (error) {
@@ -68,7 +128,11 @@ async function startDevAgent(): Promise<void> {
 }
 // --- end M1 dev verification path ---------------------------------------
 
-app.whenReady().then(() => {
+let appMcp: McpServerHandle | undefined
+let appManager: WorkspaceManager | undefined
+let devRun: DevRunHandle | undefined
+
+app.whenReady().then(async () => {
   electronApp.setAppUserModelId('org.nehmo.vertragus')
 
   app.on('browser-window-created', (_event, window) => {
@@ -76,12 +140,41 @@ app.whenReady().then(() => {
   })
 
   registerTerminalIpc()
+
+  // One MCP server + one WorkspaceManager serve both the panel's play button
+  // and the dev run; the dev run merely injects them instead of starting its
+  // own pair.
+  try {
+    appMcp = await startMcpServer()
+    appManager = createAppWorkspaceManager(appMcp)
+    registerAppIpc(panelDirectory(appManager))
+  } catch (error) {
+    console.error('[boot] MCP server did not start — panel runs without workspaces:', error)
+    registerAppIpc()
+  }
+
   armScreenshotHook(createPanelWindow(), 'VERTRAGUS_PANEL_SCREENSHOT')
+  armProfileEditorSmoke()
   void startDevAgent()
+  if (appMcp && appManager) {
+    const mcp = appMcp
+    const manager = appManager
+    devRun = await maybeStartDevWorkspace({
+      startServer: async () => mcp,
+      createManager: () => manager
+    })
+  }
 
   app.on('activate', () => {
     if (!getPanelWindow()) createPanelWindow()
   })
+})
+
+app.on('before-quit', () => {
+  // devRun shares the app's manager/server, so stopping twice must be safe.
+  void devRun?.stop().catch(() => undefined)
+  void appManager?.stopAll().catch(() => undefined)
+  void appMcp?.close().catch(() => undefined)
 })
 
 app.on('window-all-closed', () => {

@@ -1,3 +1,15 @@
+/*
+ * The panel shell — 280px of glass docked to a screen edge.
+ *
+ * Geometry and colour values follow the approved mockup literally; where a
+ * value has a token it uses the token, and where the mockup is more specific
+ * than the token set (the verdigris play button, the yolo switch) the literal
+ * rgba is kept so the two cannot drift apart silently.
+ *
+ * Whole-panel drag with `-webkit-app-region: drag` + no-drag on every control:
+ * the panel has no title bar, so any dead pixel is the handle.
+ */
+
 .panel {
   display: flex;
   flex-direction: column;
@@ -8,6 +20,7 @@
   border: 1px solid var(--hairline);
   box-shadow: var(--shadow-panel);
   backdrop-filter: blur(16px) saturate(1.15);
+  overflow: hidden;
   -webkit-app-region: drag;
 }
 
@@ -15,6 +28,7 @@
 .panel input,
 .panel select {
   -webkit-app-region: no-drag;
+  font-family: inherit;
 }
 
 .panel-brand {
@@ -36,15 +50,24 @@
   background: linear-gradient(90deg, rgba(203, 163, 90, 0.28), rgba(234, 230, 219, 0.05));
 }
 
+/* The lists scroll, the brand and the footer never do. */
+.panel-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-bottom: 6px;
+}
+
 .panel-section {
-  padding: 12px 18px 4px;
+  padding: 12px 12px 4px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
 .panel-label {
-  margin: 0;
+  margin: 0 0 2px 6px;
   font: 600 10px var(--font-body);
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -52,7 +75,352 @@
 }
 
 .panel-empty {
-  margin: 0;
-  font: 400 12.5px var(--font-body);
+  margin: 2px 6px 4px;
+  font: 400 12px var(--font-body);
   color: var(--text-2);
+}
+
+.panel-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* --- profiles ---------------------------------------------------------- */
+
+.panel-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px 5px 8px;
+  border-radius: 12px;
+  transition: background 0.18s ease;
+}
+
+.panel-row:hover {
+  background: var(--hover-wash);
+}
+
+.panel-row-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 500 13px var(--font-body);
+  color: var(--text);
+}
+
+.panel-play {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0 0 0 1px;
+  border-radius: 50%;
+  border: 1px solid rgba(47, 125, 109, 0.45);
+  background: rgba(47, 125, 109, 0.16);
+  color: var(--verdigris-text);
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease;
+}
+
+.panel-play:hover {
+  background: rgba(47, 125, 109, 0.32);
+  border-color: rgba(47, 125, 109, 0.7);
+}
+
+.panel-icon-button {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease;
+}
+
+.panel-icon-button:hover:not(:disabled) {
+  background: var(--hover-wash);
+  color: var(--text);
+}
+
+.panel-icon-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.panel-new {
+  margin-top: 3px;
+  padding: 6px 8px;
+  border: 1px dashed rgba(234, 230, 219, 0.13);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-3);
+  font: 500 12px var(--font-body);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    color 0.18s ease,
+    background 0.18s ease;
+}
+
+.panel-new:hover {
+  border-color: rgba(203, 163, 90, 0.4);
+  background: rgba(203, 163, 90, 0.06);
+  color: var(--bronze-bright);
+}
+
+/* --- workspaces -------------------------------------------------------- */
+
+.panel-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.panel-card {
+  padding: 8px 9px 7px;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--hairline);
+  background: rgba(234, 230, 219, 0.02);
+}
+
+.panel-card.is-active {
+  border-color: rgba(47, 125, 109, 0.28);
+  background: rgba(47, 125, 109, 0.07);
+}
+
+.panel-card-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.panel-card-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 600 13px var(--font-body);
+  color: var(--text);
+}
+
+.panel-card-count {
+  flex: 1 1 auto;
+  font: 500 10.5px var(--font-body);
+  color: var(--verdigris-text);
+}
+
+.panel-stop {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease;
+}
+
+.panel-stop:hover {
+  background: rgba(217, 115, 92, 0.18);
+  color: var(--err-text);
+}
+
+.panel-agents {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.panel-agent {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 3px 5px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.18s ease;
+}
+
+.panel-agent:hover {
+  background: var(--hover-wash);
+}
+
+.panel-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--role-color, var(--verdigris));
+}
+
+.panel-dot.is-working {
+  animation: vg-pulse 2.4s ease-out infinite;
+}
+
+.panel-dot.is-working.is-orchestrator {
+  animation-name: vg-pulse-bronze;
+}
+
+.panel-dot.is-idle {
+  background: var(--idle);
+  opacity: 0.75;
+}
+
+.panel-agent-name {
+  flex: 0 0 auto;
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 500 12px var(--font-body);
+  /* the role colour, lifted towards the ink so it stays readable on glass */
+  color: color-mix(in srgb, var(--role-color, var(--verdigris)) 62%, var(--text) 38%);
+}
+
+.panel-agent-status {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 10.5px var(--font-body);
+  color: var(--text-3);
+}
+
+.panel-question {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid rgba(245, 165, 36, 0.55);
+  background: rgba(245, 165, 36, 0.2);
+  color: var(--warn-text);
+  font: 700 9px var(--font-body);
+}
+
+/* --- errors ------------------------------------------------------------ */
+
+.panel-error {
+  margin: 0 12px 8px;
+  padding: 7px 9px;
+  border: 1px solid rgba(217, 115, 92, 0.35);
+  border-radius: var(--radius-chip);
+  background: rgba(217, 115, 92, 0.1);
+  color: var(--err-text);
+  font: 500 11.5px var(--font-body);
+  text-align: left;
+}
+
+.panel-error.is-clickable {
+  width: calc(100% - 24px);
+  cursor: pointer;
+}
+
+/* --- footer ------------------------------------------------------------ */
+
+.panel-footer {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 12px 10px;
+  border-top: 1px solid var(--hairline);
+}
+
+.panel-footer-spacer {
+  flex: 1 1 auto;
+}
+
+.panel-yolo {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 6px 3px 3px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.panel-yolo:hover {
+  background: var(--hover-wash);
+}
+
+.panel-yolo-track {
+  position: relative;
+  display: block;
+  width: 34px;
+  height: 19px;
+  border-radius: 10px;
+  border: 1px solid rgba(234, 230, 219, 0.16);
+  background: rgba(234, 230, 219, 0.07);
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.panel-yolo-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: rgba(234, 230, 219, 0.55);
+  transition:
+    transform 0.2s ease,
+    background 0.2s ease;
+}
+
+.panel-yolo.is-on .panel-yolo-track {
+  border-color: var(--yolo);
+  background: rgba(224, 69, 75, 0.85);
+}
+
+.panel-yolo.is-on .panel-yolo-knob {
+  transform: translateX(15px);
+  background: #fff;
+}
+
+.panel-yolo-label {
+  font: 600 11px var(--font-body);
+  color: var(--text-3);
+  transition: color 0.2s ease;
+}
+
+.panel-yolo.is-on .panel-yolo-label {
+  color: var(--yolo-text);
 }

@@ -1,4 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { Profile, RoleTemplate } from '@shared/schema/profile'
+import type { ProviderConfig } from '@shared/schema/provider'
 
 /**
  * The renderer bridge. One API object per window type; a CLI window only ever
@@ -77,11 +79,138 @@ const terminal = {
   }
 }
 
+/**
+ * App surface — panel and profile editor. Same rule as above: the channel names
+ * are duplicated from src/main/appIpc.ts because preload is bundled separately;
+ * appIpc.test.ts asserts both lists stay identical.
+ *
+ * Authorization is not attempted here. Every channel below is checked in the
+ * main process by WINDOW TYPE (panel / profile editor), so exposing the same
+ * object in both windows is safe: a CLI window that somehow called these would
+ * be rejected on the other side.
+ */
+const APP = {
+  profilesList: 'profiles:list',
+  profilesSave: 'profiles:save',
+  profilesDelete: 'profiles:delete',
+  rolesList: 'roles:list',
+  rolesSave: 'roles:save',
+  providersList: 'providers:list',
+  modelsDiscover: 'models:discover',
+  workspacesList: 'workspaces:list',
+  workspacesStart: 'workspaces:start',
+  workspacesStop: 'workspaces:stop',
+  workspacesFocusAgent: 'workspaces:focusAgent',
+  settingsGet: 'settings:get',
+  settingsYolo: 'settings:yolo',
+  windowsHideAll: 'windows:hideAll',
+  dialogPickDirectory: 'dialog:pickDirectory',
+  profileEditorOpen: 'profileEditor:open',
+  profileEditorClose: 'profileEditor:close',
+  eventProfiles: 'ev:profiles',
+  eventWorkspaces: 'ev:workspaces'
+} as const
+
+export type PanelAgentState = 'working' | 'waiting' | 'stopped'
+
+export interface WorkspaceAgentSummary {
+  agentId: string
+  name: string
+  roleId: string
+  roleLabel?: string
+  roleColor: string
+  state: PanelAgentState
+  statusText?: string
+  pendingQuestion?: string
+}
+
+export interface WorkspaceSummary {
+  workspaceId: string
+  name: string
+  profileId: string
+  profileName?: string
+  active: boolean
+  agents: WorkspaceAgentSummary[]
+}
+
+/** Result of a provider version probe (see main/providers/health.ts). */
+export interface ProviderHealth {
+  id: string
+  available: boolean
+  version?: string
+  detail?: string
+  error?: string
+  checkedAt: number
+}
+
+export interface ProviderListEntry {
+  config: ProviderConfig
+  health?: ProviderHealth
+}
+
+export interface ModelDiscoveryResult {
+  models: string[]
+  source: 'live' | 'memory' | 'none'
+  refreshedAt: number
+}
+
+export interface PanelSettings {
+  yoloMaster: boolean
+  hideAllHotkey: string
+  locale: 'de' | 'en'
+}
+
+function subscribe<T>(channel: string, listener: (payload: T) => void): () => void {
+  const handler = (_event: unknown, payload: T): void => listener(payload)
+  ipcRenderer.on(channel, handler)
+  return () => {
+    ipcRenderer.removeListener(channel, handler)
+  }
+}
+
+const app = {
+  listProfiles: (): Promise<Profile[]> => ipcRenderer.invoke(APP.profilesList),
+  saveProfile: (profile: Profile): Promise<Profile[]> =>
+    ipcRenderer.invoke(APP.profilesSave, profile),
+  deleteProfile: (id: string): Promise<Profile[]> => ipcRenderer.invoke(APP.profilesDelete, { id }),
+  listRoles: (): Promise<RoleTemplate[]> => ipcRenderer.invoke(APP.rolesList),
+  saveRole: (template: RoleTemplate): Promise<RoleTemplate[]> =>
+    ipcRenderer.invoke(APP.rolesSave, template),
+  listProviders: (): Promise<ProviderListEntry[]> => ipcRenderer.invoke(APP.providersList),
+  discoverModels: (providerId: string): Promise<ModelDiscoveryResult> =>
+    ipcRenderer.invoke(APP.modelsDiscover, { providerId }),
+  listWorkspaces: (): Promise<WorkspaceSummary[]> => ipcRenderer.invoke(APP.workspacesList),
+  startWorkspace: (profileId: string): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesStart, { profileId }),
+  stopWorkspace: (workspaceId: string): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesStop, { workspaceId }),
+  focusAgent: (agentId: string): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesFocusAgent, { agentId }),
+  getSettings: (): Promise<PanelSettings> => ipcRenderer.invoke(APP.settingsGet),
+  setYoloMaster: (enabled: boolean): Promise<PanelSettings> =>
+    ipcRenderer.invoke(APP.settingsYolo, { enabled }),
+  hideAllWindows: (): Promise<void> => ipcRenderer.invoke(APP.windowsHideAll),
+  pickDirectory: (defaultPath?: string): Promise<string | null> =>
+    ipcRenderer.invoke(APP.dialogPickDirectory, { defaultPath }),
+  openProfileEditor: (profileId?: string): Promise<void> =>
+    ipcRenderer.invoke(APP.profileEditorOpen, { profileId }),
+  /** Close this editor window; the agent-free equivalent of terminal.closeWindow. */
+  closeProfileEditor: (): void => {
+    ipcRenderer.send(APP.profileEditorClose)
+  },
+  onProfiles: (listener: (profiles: Profile[]) => void): (() => void) =>
+    subscribe(APP.eventProfiles, listener),
+  onWorkspaces: (listener: (workspaces: WorkspaceSummary[]) => void): (() => void) =>
+    subscribe(APP.eventWorkspaces, listener)
+}
+
 const api = {
   platform: process.platform,
-  terminal
+  terminal,
+  app
 }
 
 export type VertragusApi = typeof api
+export type VertragusAppApi = typeof app
 
 contextBridge.exposeInMainWorld('vertragus', api)

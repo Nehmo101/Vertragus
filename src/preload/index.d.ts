@@ -1,11 +1,19 @@
 import type { VertragusApi } from './index'
 
 export type {
+  ModelDiscoveryResult,
+  PanelAgentState,
+  PanelSettings,
+  ProviderHealth,
+  ProviderListEntry,
   TerminalAgentMeta,
   TerminalAttachResult,
   TerminalDataEvent,
   TerminalExitEvent,
-  VertragusApi
+  VertragusApi,
+  VertragusAppApi,
+  WorkspaceAgentSummary,
+  WorkspaceSummary
 } from './index'
 
 declare global {

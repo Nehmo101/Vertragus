@@ -1,0 +1,65 @@
+/**
+ * Every visible string of the profile editor. Same rule as the panel: one
+ * object per surface so M6 can lift it into an i18n bundle unchanged.
+ */
+export const EDITOR_STRINGS = {
+  title: 'Profil bearbeiten',
+  titleNew: 'Neues Profil',
+  name: 'Name',
+  namePlaceholder: 'z. B. Vertragus',
+  repoPath: 'Repo-Pfad',
+  repoPathPlaceholder: 'C:\\git\\projekt',
+  pickFolder: 'Ordner wählen',
+  orchestrator: 'Orchestrator',
+  orchestratorHint: 'Startet Play. Delegiert nur — codet nie.',
+  provider: 'Provider',
+  model: 'Modell',
+  modelPlaceholder: 'Standard des CLI',
+  effort: 'Effort',
+  effortDefault: 'Standard',
+  effortLow: 'niedrig',
+  effortMedium: 'mittel',
+  effortHigh: 'hoch',
+  slots: 'Subagent-Slots',
+  slotsHint: 'Bauplan, keine feste Anzahl — der Orchestrator entscheidet innerhalb der Limits.',
+  noSlots: 'Noch keine Rollen. Ohne Slot kann der Orchestrator niemanden starten.',
+  role: 'Rolle',
+  max: 'Max',
+  maxTitle: 'Höchstzahl gleichzeitiger Instanzen dieses Slots',
+  addRole: '+ Rolle',
+  removeSlot: 'Slot entfernen',
+  customRole: 'Eigene Rolle …',
+  customRoleName: 'Name der Rolle',
+  customRolePrompt: 'System-Prompt dieser Rolle',
+  customRolePromptPlaceholder: 'Was diese Rolle tut — und was sie nicht anfassen darf.',
+  customRoleSave: 'Rolle übernehmen',
+  customRoleCancel: 'Abbrechen',
+  maxSubagents: 'Max. Subagents',
+  maxSubagentsPlaceholder: 'leer = Orchestrator entscheidet',
+  cancel: 'Abbrechen',
+  save: 'Speichern',
+  saving: 'Speichert …',
+  deleteProfile: 'Profil löschen',
+  deleteConfirm: (name: string): string =>
+    `Profil „${name}" wirklich löschen? Laufende Workspaces bleiben davon unberührt.`,
+  loading: 'Lädt …',
+  unknownProfile: 'Dieses Profil gibt es nicht (mehr).',
+  bridgeMissing: 'Preload-Bridge nicht verfügbar.',
+  providerUnavailable: (detail: string): string => `nicht startbar — ${detail}`,
+  modelsFrom: {
+    live: 'live vom CLI',
+    memory: 'aus dem Gedächtnis',
+    none: 'keine Liste — Freitext'
+  },
+  errors: {
+    name: 'Bitte einen Namen vergeben.',
+    repoPath: 'Bitte den Repo-Ordner wählen.',
+    provider: 'Bitte einen Provider wählen.',
+    role: 'Bitte eine Rolle wählen.',
+    maxCount: 'Bitte eine Zahl ab 1 (oder leer lassen).',
+    maxSubagents: 'Bitte eine Zahl ab 1 (oder leer lassen).',
+    customRoleName: 'Bitte einen Rollennamen vergeben.',
+    customRolePrompt: 'Bitte den Prompt der Rolle schreiben.',
+    generic: 'Ungültiger Wert.'
+  }
+} as const
