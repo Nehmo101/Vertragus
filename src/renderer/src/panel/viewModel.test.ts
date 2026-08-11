@@ -10,7 +10,7 @@ import {
   errorText,
   orderWorkspaces,
   workspaceCardClass,
-  workspaceTooltip
+  workspacePlaceTooltip
 } from './viewModel'
 
 /** The authored language — the assertions below read as the real UI reads. */
@@ -94,10 +94,11 @@ describe('tooltips', () => {
   })
 
   it('reveals what kind of place a workspace is, cycle suffix included', () => {
-    expect(workspaceTooltip(workspace())).toMatch(/Himmelssphären/)
-    expect(workspaceTooltip(workspace({ name: 'Paradiso II' }))).toMatch(/Himmelssphären/)
-    // An unknown name is still a name — never an empty tooltip.
-    expect(workspaceTooltip(workspace({ name: 'Eigenbau' }))).toBe('Eigenbau')
+    expect(workspacePlaceTooltip(workspace())).toMatch(/Himmelssphären/)
+    expect(workspacePlaceTooltip(workspace({ name: 'Paradiso II' }))).toMatch(/Himmelssphären/)
+    // A name the roster does not know gets no card at all — a box repeating the
+    // word under the cursor is worse than nothing.
+    expect(workspacePlaceTooltip(workspace({ name: 'Eigenbau' }))).toBeUndefined()
   })
 })
 
