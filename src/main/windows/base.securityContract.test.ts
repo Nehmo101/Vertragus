@@ -17,7 +17,7 @@ describe('window security contract', () => {
   })
 
   it('never weakens the posture anywhere in the windows layer', () => {
-    const files = ['base.ts', 'panel.ts']
+    const files = ['base.ts', 'panel.ts', 'cliWindow.ts']
     for (const file of files) {
       const content = readFileSync(join(__dirname, file), 'utf8')
       expect(content).not.toMatch(/sandbox:\s*false/)
