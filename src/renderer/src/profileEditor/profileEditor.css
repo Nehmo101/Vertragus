@@ -531,3 +531,32 @@
 .pe-combo-status.is-warn {
   color: var(--warn-text);
 }
+
+/*
+ * Provider picker + its pencil. The button sits INSIDE the field so the select
+ * keeps shrinking with the column (slot rows are tight), and it is the same
+ * icon-button as the repo-folder picker — one affordance, one look.
+ */
+.pe-provider {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.pe-provider > select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.pe-provider-edit {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+}
+
+.pe-provider-edit:disabled {
+  opacity: 0.35;
+  cursor: default;
+}

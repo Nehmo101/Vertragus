@@ -12,7 +12,12 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Profile } from '@shared/schema/profile'
-import type { PanelSettings, VertragusAppApi, WorkspaceSummary } from '../../../preload'
+import type {
+  PanelSettings,
+  UpdateState,
+  VertragusAppApi,
+  WorkspaceSummary
+} from '../../../preload'
 import { errorText } from './viewModel'
 
 /** Slow enough to be free, fast enough that a stale card is never a surprise. */
@@ -23,14 +28,19 @@ export interface PanelData {
   profiles: Profile[]
   workspaces: WorkspaceSummary[]
   settings: PanelSettings | null
+  /** Null until the first push/poll; `disabled` in a dev run. */
+  update: UpdateState | null
   error: string | null
   dismissError(): void
   startWorkspace(profileId: string): void
   stopWorkspace(workspaceId: string): void
   focusAgent(agentId: string): void
   editProfile(profileId?: string): void
+  openSettings(): void
   toggleYolo(): void
   hideAll(): void
+  /** Restart into the downloaded update — the badge's click target. */
+  installUpdate(): void
   /** Quit Vertragus — main asks first when agents are still running. */
   quitApp(): void
 }
@@ -40,6 +50,7 @@ export function usePanelData(): PanelData {
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([])
   const [settings, setSettings] = useState<PanelSettings | null>(null)
+  const [update, setUpdate] = useState<UpdateState | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const fail = useCallback((cause: unknown) => setError(errorText(cause)), [])
@@ -59,16 +70,27 @@ export function usePanelData(): PanelData {
     bridge.getSettings().then((next) => {
       if (alive) setSettings(next)
     }, fail)
+    // The updater is the one source here that may be absent entirely (dev run,
+    // GitHub down). Its failure stays silent: the badge simply never appears,
+    // and a red banner about updates would bury the workspaces below it.
+    bridge.getUpdateState().then(
+      (next) => {
+        if (alive) setUpdate(next)
+      },
+      () => undefined
+    )
     loadWorkspaces()
 
     const offProfiles = bridge.onProfiles((next) => setProfiles(next))
     const offWorkspaces = bridge.onWorkspaces((next) => setWorkspaces(next))
+    const offUpdate = bridge.onUpdate((next) => setUpdate(next))
     const timer = setInterval(loadWorkspaces, WORKSPACE_POLL_MS)
 
     return () => {
       alive = false
       offProfiles()
       offWorkspaces()
+      offUpdate()
       clearInterval(timer)
     }
   }, [bridge, fail])
@@ -87,6 +109,7 @@ export function usePanelData(): PanelData {
     profiles,
     workspaces,
     settings,
+    update,
     error,
     dismissError: () => setError(null),
     startWorkspace: (profileId) =>
@@ -101,6 +124,8 @@ export function usePanelData(): PanelData {
       }),
     focusAgent: (agentId) => run((api) => api.focusAgent(agentId)),
     editProfile: (profileId) => run((api) => api.openProfileEditor(profileId)),
+    openSettings: () => run((api) => api.openSettings()),
+    installUpdate: () => run((api) => api.installUpdate()),
     toggleYolo: () =>
       run(async (api) => {
         const next = await api.setYoloMaster(!(settings?.yoloMaster ?? false))

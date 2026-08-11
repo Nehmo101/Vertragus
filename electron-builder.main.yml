@@ -1,0 +1,13 @@
+# The main channel: every green build of `main` publishes here as a prerelease.
+#
+# Two channels, one repo. `main` writes main.yml / main-mac.yml / main-linux.yml
+# next to its installers, `latest` (a tag build, plain electron-builder.yml)
+# writes latest*.yml. An installed app follows exactly one of them — see
+# `updateChannel` in the settings and `applyChannel` in src/main/updater.ts.
+extends: ./electron-builder.yml
+publish:
+  provider: github
+  owner: Nehmo101
+  repo: Vertragus
+  channel: main
+  releaseType: prerelease

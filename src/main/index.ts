@@ -14,7 +14,10 @@ import { createCliWindow, focusCliWindow } from './windows/cliWindow'
 import { registerAppHideAllShortcut, unregisterHideAllShortcut } from './windows/hideAll'
 import { createPanelWindow, getPanelWindow } from './windows/panel'
 import { armProfileEditorSmoke } from './windows/profileEditor'
+import { armProviderEditorSmoke } from './windows/providerEditor'
+import { armSettingsWindowSmoke } from './windows/settingsWindow'
 import { armZoneOverlaySmoke } from './windows/zoneOverlay'
+import { startAppUpdater } from './updater'
 import type { WorkspaceManager } from './workspace/WorkspaceManager'
 
 /**
@@ -165,11 +168,18 @@ app.whenReady().then(async () => {
   const hotkey = registerAppHideAllShortcut()
   if (!hotkey.registered) console.warn('[boot] hide-all hotkey:', hotkey.error)
 
+  // Self-update: checks once now and every six hours after that. Inert in a dev
+  // run, so this line is a no-op for everyone except an installed Vertragus.
+  // It runs AFTER registerAppIpc, so the first state push has a listener.
+  startAppUpdater()
+
   // Env-gated verification hooks; no-ops in every normal run. All of them live
   // here, next to each other — a window smoke hook hidden inside an IPC
   // registration is how you end up calling that registration twice.
   armScreenshotHook(createPanelWindow(), 'VERTRAGUS_PANEL_SCREENSHOT')
   armProfileEditorSmoke()
+  armProviderEditorSmoke()
+  armSettingsWindowSmoke()
   armZoneOverlaySmoke()
   void startDevAgent()
   if (appMcp && appManager) {

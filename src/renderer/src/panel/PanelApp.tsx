@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect } from 'react'
 import HoundLogo from './HoundLogo'
 import { PanelFooter } from './PanelFooter'
 import { ProfileRow } from './ProfileRow'
@@ -9,9 +9,6 @@ import { PANEL_STRINGS } from './strings'
 import { usePanelData } from './usePanelData'
 import { orderWorkspaces } from './viewModel'
 import './panel.css'
-
-/** How long a transient panel hint stays on screen. */
-export const PANEL_HINT_MS = 3_000
 
 /**
  * The panel — Vertragus' primary surface.
@@ -24,8 +21,6 @@ export const PANEL_HINT_MS = 3_000
 export function PanelApp(): React.JSX.Element {
   const panel = usePanelData()
   const workspaces = orderWorkspaces(panel.workspaces)
-  const [hint, setHint] = useState<string | null>(null)
-  const hintTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   /**
    * Hover, measured in the main process. The whole panel is a drag region, and
@@ -36,14 +31,6 @@ export function PanelApp(): React.JSX.Element {
     if (!panel.bridge) return
     return trackPanelPointer(document.documentElement.classList, panel.bridge)
   }, [panel.bridge])
-
-  useEffect(() => () => clearTimeout(hintTimer.current), [])
-
-  const showHint = (text: string): void => {
-    clearTimeout(hintTimer.current)
-    setHint(text)
-    hintTimer.current = setTimeout(() => setHint(null), PANEL_HINT_MS)
-  }
 
   return (
     <aside className="panel glass">
@@ -124,18 +111,15 @@ export function PanelApp(): React.JSX.Element {
           {panel.error}
         </button>
       ) : null}
-      {hint ? (
-        <p className="panel-hint" role="status">
-          {hint}
-        </p>
-      ) : null}
-
       <PanelFooter
         yolo={panel.settings?.yoloMaster ?? false}
         onToggleYolo={panel.toggleYolo}
         onHideAll={panel.hideAll}
-        onSettings={() => showHint(PANEL_STRINGS.settingsHint)}
+        onSettings={panel.openSettings}
         hotkeyError={panel.settings?.hideAllHotkeyError}
+        updateReady={panel.update?.status === 'downloaded'}
+        updateVersion={panel.update?.availableVersion}
+        onInstallUpdate={panel.installUpdate}
       />
     </aside>
   )

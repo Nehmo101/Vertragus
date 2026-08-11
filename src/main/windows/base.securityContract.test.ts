@@ -17,13 +17,34 @@ describe('window security contract', () => {
   })
 
   it('never weakens the posture anywhere in the windows layer', () => {
-    const files = ['base.ts', 'panel.ts', 'cliWindow.ts']
+    const files = [
+      'base.ts',
+      'panel.ts',
+      'cliWindow.ts',
+      'profileEditor.ts',
+      'settingsWindow.ts',
+      'zoneOverlay.ts'
+    ]
     for (const file of files) {
       const content = readFileSync(join(__dirname, file), 'utf8')
       expect(content).not.toMatch(/sandbox:\s*false/)
       expect(content).not.toMatch(/contextIsolation:\s*false/)
       expect(content).not.toMatch(/nodeIntegration:\s*true/)
       expect(content).not.toMatch(/webSecurity:\s*false/)
+    }
+  })
+
+  /**
+   * A window that builds its own `webPreferences` instead of spreading the
+   * shared base is how the sandbox gets lost quietly — the flags above would
+   * still be intact in base.ts while the new window ignores them.
+   */
+  it('builds every window from the shared base options', () => {
+    const files = ['panel.ts', 'cliWindow.ts', 'profileEditor.ts', 'settingsWindow.ts', 'zoneOverlay.ts']
+    for (const file of files) {
+      const content = readFileSync(join(__dirname, file), 'utf8')
+      expect(content, file).toMatch(/(glassWindowOptions|baseWebPreferences)\(\)/)
+      expect(content, file).toMatch(/secureWindow\(/)
     }
   })
 })

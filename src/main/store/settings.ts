@@ -8,15 +8,26 @@
  *    validate instead of throwing. A hand-edited or half-written config file
  *    must cost the user the broken row, never the whole list — and never the
  *    app's ability to start.
- * 2. **No migrations.** This is a fresh store (`vertragus.json`, version 1) with
- *    no data to inherit. The old repo's migration chain was a permanent source
- *    of "why is my profile different now"; if v2 ever needs one, it gets one
- *    deliberately, not by accident.
+ * 2. **No migrations.** This is a fresh store (`vertragus-v2.json`, version 1)
+ *    with no data to inherit. The old repo's migration chain was a permanent
+ *    source of "why is my profile different now"; if v2 ever needs one, it gets
+ *    one deliberately, not by accident.
+ *
+ * The file name is `vertragus-v2` and not `vertragus` for a reason that cost a
+ * boot to find: the archived app is also called "vertragus", so both share
+ * `%APPDATA%\vertragus\vertragus.json`. Every start of this app read the old
+ * app's records, dropped all seven of them as invalid, and wrote its own —
+ * which the old app would then have dropped in turn. Separate files end that.
+ * The one exception is {@link adoptLegacyStore}: on the very first start, rows
+ * the OLD file holds in the NEW format are taken over once (see there).
  *
  * The backing store is injectable so every rule above is unit-testable without
  * an Electron runtime — electron-store itself is only constructed lazily, on
  * first real use inside the app.
  */
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { app } from 'electron'
 import Store from 'electron-store'
 import { z } from 'zod'
 import {
@@ -35,7 +46,9 @@ import {
 } from '@shared/schema/provider'
 import { providerPresets } from '@main/providers/presets'
 
-export const STORE_NAME = 'vertragus'
+export const STORE_NAME = 'vertragus-v2'
+/** The archived app's file in the same userData folder — read once, never written. */
+export const LEGACY_STORE_NAME = 'vertragus'
 export const STORE_VERSION = 1
 
 export const panelBoundsSchema = z
@@ -64,14 +77,28 @@ export const appSettingsSchema = z
     /** Electron accelerator; registration failure must be shown, never swallowed. */
     hideAllHotkey: z.string().trim().min(1).max(80).default('Control+Alt+V'),
     autostart: z.boolean().default(false),
+    /**
+     * `main` follows every green main build, `stable` only tagged releases.
+     * Default `main`: this app ships from main, and a user who never opens the
+     * settings should still get fixes.
+     */
+    updateChannel: z.enum(['main', 'stable']).default('main'),
     /** `{ providerId: { modelId: lastSeenAtMs } }` — see providers/discovery. */
     modelMemory: modelMemorySchema.default({})
   })
   .strict()
 export type AppSettings = z.infer<typeof appSettingsSchema>
+export type UpdateChannel = AppSettings['updateChannel']
 
 /** Keys of the store's top-level sections. */
-export const SETTINGS_KEYS = ['ui', 'yoloMaster', 'hideAllHotkey', 'autostart', 'modelMemory'] as const
+export const SETTINGS_KEYS = [
+  'ui',
+  'yoloMaster',
+  'hideAllHotkey',
+  'autostart',
+  'updateChannel',
+  'modelMemory'
+] as const
 
 export interface SettingsBackend {
   get(key: string): unknown
@@ -86,6 +113,57 @@ export interface SettingsStoreDeps {
 
 function defaultSetting<K extends keyof AppSettings>(key: K): AppSettings[K] {
   return appSettingsSchema.parse({})[key]
+}
+
+/** Fail-soft read of the role-template list: invalid and duplicate rows drop. */
+export function parseRoleTemplates(raw: unknown): RoleTemplate[] {
+  if (!Array.isArray(raw)) return []
+  const seen = new Set<string>()
+  const templates: RoleTemplate[] = []
+  for (const entry of raw) {
+    const parsed = roleTemplateSchema.safeParse(entry)
+    if (!parsed.success || seen.has(parsed.data.id)) continue
+    seen.add(parsed.data.id)
+    templates.push(parsed.data)
+  }
+  return templates
+}
+
+// --- the one-time legacy adoption ----------------------------------------
+
+/**
+ * What the OLD `vertragus.json` can contribute to a brand-new `vertragus-v2`.
+ *
+ * This is NOT a migration and must never become one: the archived app's schema
+ * is a different app's schema. It exists because both apps shared one file for
+ * a day, so anything the user created in the new app during that day sits in
+ * the old file. Only rows that the CURRENT schema validates are taken over —
+ * everything else is left where it is, and the old file is never written to.
+ *
+ * Runs exactly once: `createElectronBackend` calls it only when the v2 file
+ * does not exist yet. An empty result (the normal case for a genuine legacy
+ * file) means nothing is written at all.
+ */
+export function adoptLegacyStore(legacy: unknown): Record<string, unknown> {
+  if (!legacy || typeof legacy !== 'object' || Array.isArray(legacy)) return {}
+  const raw = legacy as Record<string, unknown>
+  const adopted: Record<string, unknown> = {}
+
+  const profiles = parseProfiles(raw.profiles)
+  if (profiles.length > 0) adopted.profiles = profiles
+  const providers = parseProviderConfigs(raw.providers)
+  if (providers.length > 0) adopted.providers = providers
+  const roleTemplates = parseRoleTemplates(raw.roleTemplates)
+  if (roleTemplates.length > 0) adopted.roleTemplates = roleTemplates
+
+  // Settings key by key: one unrecognized value must not cost the others.
+  for (const key of SETTINGS_KEYS) {
+    if (raw[key] === undefined) continue
+    const field = appSettingsSchema.shape[key] as z.ZodTypeAny
+    const parsed = field.safeParse(raw[key])
+    if (parsed.success) adopted[key] = parsed.data
+  }
+  return adopted
 }
 
 export interface SettingsStore {
@@ -127,14 +205,7 @@ export function createSettingsStore({ backend, warn = console.warn }: SettingsSt
   function readRoleTemplates(): RoleTemplate[] {
     const raw = backend.get('roleTemplates')
     if (!Array.isArray(raw)) return []
-    const seen = new Set<string>()
-    const templates: RoleTemplate[] = []
-    for (const entry of raw) {
-      const parsed = roleTemplateSchema.safeParse(entry)
-      if (!parsed.success || seen.has(parsed.data.id)) continue
-      seen.add(parsed.data.id)
-      templates.push(parsed.data)
-    }
+    const templates = parseRoleTemplates(raw)
     if (raw.length !== templates.length) {
       warn(`[settings] dropped ${raw.length - templates.length} invalid role template(s)`)
     }
@@ -237,7 +308,24 @@ export function createSettingsStore({ backend, warn = console.warn }: SettingsSt
   }
 }
 
+/**
+ * Read the archived app's file WITHOUT electron-store — constructing a second
+ * Store on that name would create (and default-fill) another app's config.
+ * Anything unreadable is simply "no legacy data".
+ */
+function readLegacyStoreFile(userDataDir: string): unknown {
+  try {
+    return JSON.parse(readFileSync(join(userDataDir, `${LEGACY_STORE_NAME}.json`), 'utf8'))
+  } catch {
+    return undefined
+  }
+}
+
 function createElectronBackend(): SettingsBackend {
+  const userDataDir = app.getPath('userData')
+  // Decided BEFORE the Store is constructed — constructing it writes the file.
+  const firstRun = !existsSync(join(userDataDir, `${STORE_NAME}.json`))
+
   const store = new Store<Record<string, unknown>>({
     name: STORE_NAME,
     defaults: {
@@ -247,6 +335,16 @@ function createElectronBackend(): SettingsBackend {
       roleTemplates: []
     }
   })
+
+  if (firstRun) {
+    const adopted = adoptLegacyStore(readLegacyStoreFile(userDataDir))
+    const keys = Object.keys(adopted)
+    if (keys.length > 0) {
+      for (const key of keys) store.set(key, adopted[key])
+      console.info(`[settings] adopted from ${LEGACY_STORE_NAME}.json: ${keys.join(', ')}`)
+    }
+  }
+
   // Stamped, not migrated: a future v2 decides deliberately what to do with v1.
   if (store.get('version') !== STORE_VERSION) store.set('version', STORE_VERSION)
   return {

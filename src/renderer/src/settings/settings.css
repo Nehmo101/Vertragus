@@ -1,0 +1,316 @@
+/*
+ * The settings sheet — the same glass as the profile editor, one notch calmer.
+ *
+ * It reuses the editor's visual grammar (dark input wells, uppercase field
+ * rails, a bronze primary) rather than inventing a second one: two windows of
+ * the same app that look like two apps is the failure mode this avoids. The
+ * class prefix is `st-` so neither stylesheet can reach into the other.
+ */
+
+.st {
+  display: flex;
+  flex-direction: column;
+  height: calc(100% - 8px);
+  margin: 4px;
+  overflow: hidden;
+  border-radius: var(--radius-window);
+  border: 1px solid var(--hairline);
+  box-shadow: var(--shadow-window);
+  background: linear-gradient(180deg, var(--glass-top), var(--glass-bottom));
+  backdrop-filter: blur(16px) saturate(1.15);
+}
+
+.st button,
+.st input,
+.st select {
+  -webkit-app-region: no-drag;
+  font-family: inherit;
+}
+
+.st-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 14px 16px 11px;
+  border-bottom: 1px solid var(--hairline);
+  background: linear-gradient(90deg, rgba(203, 163, 90, 0.08), transparent 60%);
+  -webkit-app-region: drag;
+}
+
+.st-title {
+  margin: 0;
+  font: 400 15px var(--font-heading);
+  letter-spacing: 0.02em;
+  color: var(--bronze-bright);
+}
+
+.st-subtitle {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  font: 400 11.5px var(--font-body);
+  color: var(--text-3);
+}
+
+.st-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.st-fatal {
+  margin: auto;
+  padding: 24px;
+  font: 500 13px var(--font-body);
+  color: var(--text-2);
+  text-align: center;
+}
+
+/* --- fields ------------------------------------------------------------- */
+
+.st-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* Theme and language are one line of the form: both are one-word choices, and
+   stacking them would push the update block below the fold. */
+.st-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.st-label {
+  font: 600 10px var(--font-body);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.st-section-label {
+  margin: 0;
+  font: 600 10px var(--font-body);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--bronze);
+}
+
+.st-input {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-chip);
+  background: var(--glass-input);
+  color: var(--text);
+  font: 400 12.5px var(--font-body);
+}
+
+.st-input:hover {
+  border-color: rgba(234, 230, 219, 0.2);
+}
+
+.st-mono {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.st-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.st-spacer {
+  flex: 1 1 auto;
+}
+
+.st-hint {
+  font: 400 11px var(--font-body);
+  line-height: 1.4;
+  color: var(--text-3);
+}
+
+.st-hint.is-warn {
+  color: var(--warn-text);
+}
+
+.st-error {
+  font: 500 11px var(--font-body);
+  color: var(--err-text);
+}
+
+.st-error-form {
+  margin: 0;
+  padding: 7px 9px;
+  border: 1px solid rgba(217, 115, 92, 0.35);
+  border-radius: var(--radius-chip);
+  background: rgba(217, 115, 92, 0.1);
+}
+
+/* --- switch -------------------------------------------------------------- */
+
+.st-switch {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  cursor: pointer;
+}
+
+.st-switch-input {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  margin: 1px 0 0;
+  accent-color: var(--bronze);
+  cursor: pointer;
+}
+
+.st-switch-input:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.st-switch-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.st-switch-label {
+  font: 500 12.5px var(--font-body);
+  color: var(--text);
+}
+
+/* --- updates ------------------------------------------------------------- */
+
+.st-updates {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 11px 12px 12px;
+  border: 1px solid rgba(203, 163, 90, 0.3);
+  border-radius: var(--radius-card);
+  background: rgba(203, 163, 90, 0.06);
+}
+
+.st-update-line {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 2px 0 0;
+}
+
+.st-update-status {
+  font: 500 12.5px var(--font-body);
+  color: var(--text);
+}
+
+.st-update-progress {
+  font: 400 11.5px var(--font-mono);
+  color: var(--text-2);
+}
+
+/* One dot instead of four different words for "something is happening": the
+   state is already spelled out next to it, the colour only has to be findable
+   from the corner of the eye. */
+.st-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-3);
+}
+
+.st-dot.is-downloaded {
+  background: var(--bronze-bright);
+  box-shadow: 0 0 7px rgba(203, 163, 90, 0.7);
+}
+
+.st-dot.is-downloading,
+.st-dot.is-checking,
+.st-dot.is-available {
+  background: var(--bronze);
+}
+
+.st-dot.is-up-to-date {
+  background: rgba(140, 180, 150, 0.85);
+}
+
+.st-dot.is-error {
+  background: var(--err-text);
+}
+
+.st-version {
+  font: 400 11px var(--font-mono);
+  color: var(--text-3);
+}
+
+/* --- buttons ------------------------------------------------------------- */
+
+.st-ghost,
+.st-secondary {
+  flex: 0 0 auto;
+  padding: 7px 13px;
+  border-radius: var(--radius-chip);
+  border: 1px solid var(--hairline-strong);
+  background: transparent;
+  color: var(--text-2);
+  font: 500 12px var(--font-body);
+  cursor: pointer;
+  transition:
+    color 0.18s ease,
+    border-color 0.18s ease,
+    background 0.18s ease;
+}
+
+.st-ghost:hover:not(:disabled),
+.st-secondary:hover:not(:disabled) {
+  color: var(--text);
+  border-color: rgba(234, 230, 219, 0.22);
+  background: var(--hover-wash);
+}
+
+.st-ghost:disabled,
+.st-secondary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.st-primary {
+  flex: 0 0 auto;
+  padding: 7px 15px;
+  border: 1px solid rgba(203, 163, 90, 0.55);
+  border-radius: var(--radius-chip);
+  background: linear-gradient(180deg, var(--bronze-bright), var(--bronze-deep));
+  color: var(--on-bronze);
+  font: 600 12px var(--font-body);
+  cursor: pointer;
+  transition: filter 0.18s ease;
+}
+
+.st-primary:hover {
+  filter: brightness(1.08);
+}
+
+/* --- footer -------------------------------------------------------------- */
+
+.st-foot {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px 12px;
+  border-top: 1px solid var(--hairline);
+}

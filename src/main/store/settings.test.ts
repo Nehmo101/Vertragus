@@ -3,9 +3,12 @@ import { createEmptyProfile } from '@shared/schema/profile'
 import { providerConfigSchema } from '@shared/schema/provider'
 import { providerPresets } from '@main/providers/presets'
 import {
+  adoptLegacyStore,
   appSettingsSchema,
   createSettingsStore,
+  LEGACY_STORE_NAME,
   SETTINGS_KEYS,
+  STORE_NAME,
   type SettingsBackend,
   type SettingsStore
 } from './settings'
@@ -190,8 +193,27 @@ describe('app settings', () => {
       yoloMaster: true,
       hideAllHotkey: 'Control+Alt+V',
       autostart: false,
+      updateChannel: 'main',
       modelMemory: {}
     })
+  })
+
+  it('switches the update channel and refuses an invented one', () => {
+    const { store: settings, backend } = store()
+    expect(settings.setSetting('updateChannel', 'stable').updateChannel).toBe('stable')
+    expect(backend.data.updateChannel).toBe('stable')
+    // @ts-expect-error — IPC input is not type-checked; the schema is the gate.
+    expect(() => settings.setSetting('updateChannel', 'nightly')).toThrow()
+  })
+
+  it('writes theme and autostart through the same single-key path', () => {
+    const { store: settings } = store()
+    settings.setSetting('autostart', true)
+    settings.setSetting('ui', { theme: 'light', locale: 'en' })
+    const result = settings.getSettings()
+    expect(result.autostart).toBe(true)
+    expect(result.ui.theme).toBe('light')
+    expect(result.yoloMaster).toBe(true)
   })
 
   it('writes and reads a single key without disturbing the others', () => {
@@ -240,10 +262,88 @@ describe('app settings', () => {
     expect(settings.getSettings().modelMemory).toEqual({ claude: { opus: 1_800_000_000_000 } })
   })
 
+  it('rejects an empty update channel like any other invalid value', () => {
+    const { store: settings } = store({ updateChannel: 'nightly' })
+    // Fail-soft on read: the bad key falls back, the good ones survive.
+    expect(settings.getSettings().updateChannel).toBe('main')
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('invalid settings section'))
+  })
+
   it('covers every settings key with a schema field', () => {
     for (const key of SETTINGS_KEYS) {
       expect(appSettingsSchema.shape[key]).toBeDefined()
     }
     expect(Object.keys(appSettingsSchema.shape).sort()).toEqual([...SETTINGS_KEYS].sort())
+  })
+})
+
+describe('the store file name', () => {
+  /**
+   * The bug this guards: the archived app is also called "vertragus", so both
+   * apps used %APPDATA%\vertragus\vertragus.json. Every boot of this app read
+   * seven foreign profiles, dropped them all, and wrote its own over them.
+   */
+  it('is vertragus-v2, never the archived app’s vertragus', () => {
+    expect(STORE_NAME).toBe('vertragus-v2')
+    expect(LEGACY_STORE_NAME).toBe('vertragus')
+    expect(STORE_NAME).not.toBe(LEGACY_STORE_NAME)
+  })
+})
+
+describe('adoptLegacyStore', () => {
+  it('takes over what the shared file holds in the CURRENT format', () => {
+    const adopted = adoptLegacyStore({
+      profiles: [validProfile],
+      providers: [{ id: 'acme', label: 'Acme', command: 'acme' }],
+      roleTemplates: [{ id: 'sre', name: 'SRE', prompt: 'Keep it running.' }],
+      hideAllHotkey: 'Control+Shift+H',
+      updateChannel: 'stable',
+      ui: { theme: 'light', locale: 'en' }
+    })
+
+    expect((adopted.profiles as unknown[])).toHaveLength(1)
+    expect((adopted.providers as { id: string }[])[0]!.id).toBe('acme')
+    expect((adopted.roleTemplates as unknown[])).toHaveLength(1)
+    expect(adopted.hideAllHotkey).toBe('Control+Shift+H')
+    expect(adopted.updateChannel).toBe('stable')
+    expect(adopted.ui).toEqual({ theme: 'light', locale: 'en' })
+  })
+
+  it('leaves the archived app’s own records behind instead of dropping them loudly', () => {
+    // Exactly the seven rows that used to be "dropped" on every boot: a shape
+    // this schema has never understood.
+    const adopted = adoptLegacyStore({
+      profiles: [{ id: 'old-1', title: 'Legacy', agents: [{ kind: 'claude' }] }],
+      providers: [{ id: 'old', binary: 'claude' }],
+      settings: { theme: 'midnight' }
+    })
+    expect(adopted).toEqual({})
+  })
+
+  it('adopts the valid rows of a mixed file and skips the rest', () => {
+    const adopted = adoptLegacyStore({
+      profiles: [validProfile, { id: 'old-1', title: 'Legacy' }],
+      yoloMaster: 'yes-please',
+      autostart: true
+    })
+    expect((adopted.profiles as { id: string }[]).map((entry) => entry.id)).toEqual(['p1'])
+    expect(adopted.yoloMaster).toBeUndefined()
+    expect(adopted.autostart).toBe(true)
+  })
+
+  it('writes nothing at all for a missing, empty or hostile file', () => {
+    expect(adoptLegacyStore(undefined)).toEqual({})
+    expect(adoptLegacyStore(null)).toEqual({})
+    expect(adoptLegacyStore('not-an-object')).toEqual({})
+    expect(adoptLegacyStore([1, 2, 3])).toEqual({})
+    expect(adoptLegacyStore({})).toEqual({})
+  })
+
+  it('produces exactly what the store then reads back', () => {
+    const adopted = adoptLegacyStore({ profiles: [validProfile], updateChannel: 'stable' })
+    const { store: settings } = store(adopted)
+    expect(settings.getProfiles().map((profile) => profile.id)).toEqual(['p1'])
+    expect(settings.getSettings().updateChannel).toBe('stable')
+    expect(warn).not.toHaveBeenCalled()
   })
 })

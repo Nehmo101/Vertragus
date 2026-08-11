@@ -22,14 +22,23 @@ export default defineConfig({
       reporter: ['text', 'json-summary'],
       include: ['src/**', 'scripts/**'],
       exclude: ['**/dist/**', '**/*.test.ts', '**/*.d.ts', 'src/renderer/src/env.d.ts'],
-      // Ratchet thresholds: set just below the measured status quo so coverage
-      // can only move up. Raise them deliberately, never lower. Seeded low while
-      // the skeleton grows; ratchet up from M2 on.
+      /**
+       * Ratchet thresholds: set ~2 points below the measured status quo so
+       * coverage can only move up. Raise them deliberately, never lower.
+       *
+       * Measured at M6a (891 tests): statements/lines 63.1, branches 89.6,
+       * functions 80.0. The statement figure is dominated by React components
+       * — there is no DOM test runner in this project, so every `.tsx` file
+       * counts as uncovered while its extracted logic (`viewModel`, `model`,
+       * `geometry`, `useSettings`'s validation) is tested at close to 100 %.
+       * That is why the branch and function numbers are the meaningful ones,
+       * and why the statement gate is the loosest of the four.
+       */
       thresholds: {
-        statements: 0,
-        branches: 0,
-        functions: 0,
-        lines: 0
+        statements: 61,
+        branches: 87,
+        functions: 78,
+        lines: 61
       }
     }
   }

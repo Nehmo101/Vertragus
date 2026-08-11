@@ -28,6 +28,27 @@ vi.mock('@main/windows/profileEditor', () => ({
   closeProfileEditorWindow: vi.fn(),
   listProfileEditorWindows: vi.fn(() => [])
 }))
+vi.mock('@main/windows/providerEditor', () => ({
+  isProviderEditorWindowSender: vi.fn(() => null),
+  openProviderEditorWindow: vi.fn(),
+  closeProviderEditorWindow: vi.fn(),
+  listProviderEditorWindows: vi.fn(() => [])
+}))
+vi.mock('@main/windows/settingsWindow', () => ({
+  isSettingsWindowSender: vi.fn(() => false),
+  openSettingsWindow: vi.fn(),
+  closeSettingsWindow: vi.fn(),
+  getSettingsWindow: vi.fn(() => null)
+}))
+vi.mock('@main/updater', () => ({
+  appUpdater: vi.fn(() => ({
+    state: vi.fn(),
+    check: vi.fn(),
+    setChannel: vi.fn(),
+    install: vi.fn()
+  })),
+  onUpdateState: vi.fn(() => () => undefined)
+}))
 vi.mock('@main/windows/zoneOverlay', () => ({
   openZoneOverlayWindows: vi.fn(),
   closeZoneOverlayWindows: vi.fn(),
@@ -36,7 +57,8 @@ vi.mock('@main/windows/zoneOverlay', () => ({
 }))
 vi.mock('@main/windows/hideAll', () => ({
   toggleHideAll: vi.fn(),
-  hideAllHotkeyStatus: vi.fn(() => undefined)
+  hideAllHotkeyStatus: vi.fn(() => undefined),
+  reRegisterHideAllShortcut: vi.fn(() => ({ hotkey: 'Control+Alt+V', registered: true }))
 }))
 
 import { ipcMain } from 'electron'
@@ -51,20 +73,23 @@ import {
   quitConfirmationText,
   registerAppIpc,
   runningAgentCount,
+  WRITABLE_SETTINGS,
   type AppIpc,
   type AppIpcHost,
   type AppSettingsPort,
   type PanelSettings,
+  type UpdateStatePayload,
   type WorkspaceDirectory,
   type WorkspaceSummary,
   type ZoneEditorPayload
 } from './appIpc'
+import type { HideAllHotkeyStatus } from './windows/hideAll'
 import type { MinimalIpcMain } from './ipc'
 import type { WorkspaceSummary as PreloadWorkspaceSummary } from '../preload'
 import { profileSchema, type Profile, type RoleTemplate } from '@shared/schema/profile'
 import type { AppSettings } from './store/settings'
 import type { ProviderConfig, ProviderConfigInput } from '@shared/schema/provider'
-import { providerConfigSchema } from '@shared/schema/provider'
+import { mergeProviderConfigs, providerConfigSchema } from '@shared/schema/provider'
 import type { ProviderHealth } from './providers/health'
 
 type Listener = (event: { sender: { id: number } }, ...args: never[]) => unknown
@@ -101,6 +126,8 @@ const EDITOR_ID = 2
 const CLI_ID = 3
 const OVERLAY_A_ID = 4
 const OVERLAY_B_ID = 5
+const SETTINGS_ID = 6
+const PROVIDER_EDITOR_ID = 7
 
 function profile(id: string, name = id): Profile {
   return profileSchema.parse({
@@ -121,6 +148,7 @@ const SETTINGS: AppSettings = {
   yoloMaster: true,
   hideAllHotkey: 'Control+Alt+V',
   autostart: false,
+  updateChannel: 'main',
   modelMemory: {}
 }
 
@@ -128,6 +156,7 @@ const SETTINGS: AppSettings = {
 function createFakeStore(initial: Profile[] = []): AppSettingsPort & { settings: AppSettings } {
   let profiles = [...initial]
   let roles: RoleTemplate[] = []
+  let storedProviders: ProviderConfig[] = []
   const settings: AppSettings = structuredClone(SETTINGS)
   return {
     settings,
@@ -141,10 +170,25 @@ function createFakeStore(initial: Profile[] = []): AppSettingsPort & { settings:
       profiles = profiles.filter((entry) => entry.id !== id)
       return profiles
     },
-    effectiveProviders: () => [
-      provider({ id: 'claude', label: 'Claude Code', command: 'claude' }),
-      provider({ id: 'codex', label: 'Codex', command: 'codex' })
-    ],
+    // Presets merged with stored overrides, exactly like the real store: a
+    // stored entry with a preset id REPLACES it, unknown ids are appended.
+    effectiveProviders: () =>
+      mergeProviderConfigs(
+        [
+          provider({ id: 'claude', label: 'Claude Code', command: 'claude', presetId: 'claude' }),
+          provider({ id: 'codex', label: 'Codex', command: 'codex', presetId: 'codex' })
+        ],
+        storedProviders
+      ),
+    saveProvider(raw) {
+      const parsed = providerConfigSchema.parse(raw)
+      storedProviders = [...storedProviders.filter((entry) => entry.id !== parsed.id), parsed]
+      return storedProviders
+    },
+    deleteProvider(id) {
+      storedProviders = storedProviders.filter((entry) => entry.id !== id)
+      return storedProviders
+    },
     getRoleTemplates: () => roles,
     saveRoleTemplate(raw) {
       const template = raw as RoleTemplate
@@ -195,6 +239,8 @@ interface Harness {
   pick: ReturnType<typeof vi.fn>
   opened: (string | undefined)[]
   closed: number[]
+  providerEditorsOpened: (string | undefined)[]
+  providerEditorsClosed: number[]
   hidden: number
   /** Agent counts the quit dialog was asked about, in order. */
   quitPrompts: number[]
@@ -204,6 +250,21 @@ interface Harness {
   zoneSessions: string[]
   zonesClosed: number
   now: number
+  /** Settings window: how often it was opened / closed, and the live hotkey. */
+  settingsOpened: number
+  settingsClosed: number
+  registeredHotkeys: string[]
+  /** What the fake OS answers when a hotkey is (re-)registered. */
+  hotkeyRegisters: boolean
+  hotkeyStatus?: HideAllHotkeyStatus
+  autostartWrites: boolean[]
+  autostartSupported: boolean
+  update: UpdateStatePayload
+  channelWrites: string[]
+  updateChecks: number
+  installs: number
+  /** Push a new update state to whoever subscribed (the IPC layer). */
+  pushUpdate(next: Partial<UpdateStatePayload>): void
 }
 
 function harness(overrides: Partial<AppIpcHost> = {}): Harness {
@@ -213,6 +274,8 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
   const state = { workspaces: [workspace('w1')] }
   const opened: (string | undefined)[] = []
   const closed: number[] = []
+  const providerEditorsOpened: (string | undefined)[] = []
+  const providerEditorsClosed: number[] = []
   const health = vi.fn(
     async (configs: readonly ProviderConfig[]): Promise<ProviderHealth[]> =>
       configs.map((config) => ({ id: config.id, available: true, checkedAt: 1 }))
@@ -232,14 +295,36 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     pick,
     opened,
     closed,
+    providerEditorsOpened,
+    providerEditorsClosed,
     hidden: 0,
     quitPrompts: [] as number[],
     confirmQuit: true,
     quits: 0,
     zoneSessions: [] as string[],
     zonesClosed: 0,
-    now: 1_000
+    now: 1_000,
+    settingsOpened: 0,
+    settingsClosed: 0,
+    registeredHotkeys: [] as string[],
+    hotkeyRegisters: true,
+    autostartWrites: [] as boolean[],
+    autostartSupported: true,
+    update: {
+      status: 'idle',
+      currentVersion: '1.2.3',
+      channel: 'main' as const
+    },
+    channelWrites: [] as string[],
+    updateChecks: 0,
+    installs: 0
   } as Harness
+
+  let pushUpdateState: ((state: UpdateStatePayload) => void) | undefined
+  result.pushUpdate = (next) => {
+    result.update = { ...result.update, ...next }
+    pushUpdateState?.(result.update)
+  }
 
   const directory = {
     started: [] as string[],
@@ -270,11 +355,14 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     directory: result.directory,
     isPanelSender: (id) => id === PANEL_ID,
     profileEditorSender: (id) => (id === EDITOR_ID ? 'p1' : null),
+    providerEditorSender: (id) => (id === PROVIDER_EDITOR_ID ? 'claude' : null),
     discoverModels: discover,
     checkProviders: health,
     pickDirectory: pick,
     openProfileEditor: (profileId) => opened.push(profileId),
     closeProfileEditor: (id) => closed.push(id),
+    openProviderEditor: (providerId) => providerEditorsOpened.push(providerId),
+    closeProviderEditor: (id) => providerEditorsClosed.push(id),
     broadcast: (channel, payload) => broadcasts.push({ channel, payload }),
     hideAll: () => {
       result.hidden += 1
@@ -298,6 +386,48 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
           : null,
     zoneOverlayDisplayIds: () => [11, 22],
     now: () => result.now,
+
+    isSettingsSender: (id) => id === SETTINGS_ID,
+    openSettings: () => {
+      result.settingsOpened += 1
+    },
+    closeSettings: () => {
+      result.settingsClosed += 1
+    },
+    reRegisterHotkey: (hotkey) => {
+      result.registeredHotkeys.push(hotkey)
+      // Mirrors production: the module-level status IS the last attempt, which
+      // is what `settings:get` reports back as `hideAllHotkeyError`.
+      result.hotkeyStatus = result.hotkeyRegisters
+        ? { hotkey, registered: true }
+        : { hotkey, registered: false, error: `Hotkey ${hotkey} ist belegt.` }
+      return result.hotkeyStatus
+    },
+    hotkeyStatus: () => result.hotkeyStatus,
+    setAutostart: (enabled) => {
+      result.autostartWrites.push(enabled)
+    },
+    autostartSupported: () => result.autostartSupported,
+    updateState: () => result.update,
+    setUpdateChannel: async (channel) => {
+      result.channelWrites.push(channel)
+      result.update = { ...result.update, channel }
+      store.setSetting('updateChannel', channel)
+      return result.update
+    },
+    checkForUpdates: async () => {
+      result.updateChecks += 1
+      return result.update
+    },
+    installUpdate: () => {
+      result.installs += 1
+    },
+    onUpdateState: (listener) => {
+      pushUpdateState = listener
+      return () => {
+        pushUpdateState = undefined
+      }
+    },
     ...overrides
   })
   return result
@@ -399,6 +529,122 @@ describe('providers and models', () => {
   })
 })
 
+describe('provider descriptors', () => {
+  const custom = {
+    id: 'my-cli',
+    label: 'Mein CLI',
+    command: 'mycli',
+    mcp: { kind: 'claude-json', configArg: '--mcp-config' }
+  }
+
+  it('appends a custom provider and announces the merged list', () => {
+    const configs = h.ipc.invoke(
+      APP_CHANNELS.providersSave,
+      PROVIDER_EDITOR_ID,
+      custom
+    ) as ProviderConfig[]
+
+    expect(configs.map((entry) => entry.id)).toEqual(['claude', 'codex', 'my-cli'])
+    expect(h.broadcasts).toEqual([
+      { channel: APP_CHANNELS.eventProviders, payload: configs }
+    ])
+  })
+
+  it('lets a save under a preset id REPLACE the built-in', () => {
+    h.ipc.invoke(APP_CHANNELS.providersSave, PANEL_ID, {
+      id: 'codex',
+      presetId: 'codex',
+      label: 'Codex (mein Fork)',
+      command: 'codex-fork'
+    })
+    const configs = h.store.effectiveProviders()
+    // Replaced in place — the picker order must not jump around on an edit.
+    expect(configs.map((entry) => entry.id)).toEqual(['claude', 'codex'])
+    expect(configs[1]!.command).toBe('codex-fork')
+  })
+
+  it('resets a preset by deleting the override', () => {
+    h.ipc.invoke(APP_CHANNELS.providersSave, PANEL_ID, {
+      id: 'codex',
+      presetId: 'codex',
+      label: 'Codex (mein Fork)',
+      command: 'codex-fork'
+    })
+    const configs = h.ipc.invoke(APP_CHANNELS.providersDelete, PROVIDER_EDITOR_ID, {
+      id: 'codex'
+    }) as ProviderConfig[]
+
+    // The built-in is back, not gone: that is what "Auf Preset zurücksetzen" is.
+    expect(configs.map((entry) => entry.id)).toEqual(['claude', 'codex'])
+    expect(configs[1]!.command).toBe('codex')
+    expect(h.broadcasts.at(-1)?.channel).toBe(APP_CHANNELS.eventProviders)
+  })
+
+  it('re-probes health after a write instead of showing the stale answer', async () => {
+    await h.ipc.invoke(APP_CHANNELS.providersList, PANEL_ID)
+    expect(h.health).toHaveBeenCalledTimes(1)
+
+    h.ipc.invoke(APP_CHANNELS.providersSave, PANEL_ID, custom)
+    await h.ipc.invoke(APP_CHANNELS.providersList, PANEL_ID)
+    // A provider that was just created has no cached `--version` answer; the
+    // cached one would show it as "nicht startbar".
+    expect(h.health).toHaveBeenCalledTimes(2)
+  })
+
+  it('rejects an invalid descriptor instead of writing half a launch recipe', () => {
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.providersSave, PROVIDER_EDITOR_ID, { id: 'x', command: '' })
+    ).toThrow()
+    expect(h.store.effectiveProviders().map((entry) => entry.id)).toEqual(['claude', 'codex'])
+    expect(h.broadcasts).toEqual([])
+  })
+
+  it('refuses a delete without an id', () => {
+    expect(() => h.ipc.invoke(APP_CHANNELS.providersDelete, PANEL_ID, {})).toThrow(
+      /missing provider id/
+    )
+  })
+
+  it('is closed to a CLI window on every channel', () => {
+    for (const channel of [
+      APP_CHANNELS.providersList,
+      APP_CHANNELS.providersSave,
+      APP_CHANNELS.providersDelete
+    ]) {
+      expect(() => h.ipc.invoke(channel, CLI_ID, custom)).toThrow(/not a panel or editor/)
+    }
+  })
+})
+
+describe('the provider editor window', () => {
+  it('opens empty from the panel and by id from the profile editor', () => {
+    h.ipc.invoke(APP_CHANNELS.providerEditorOpen, PANEL_ID, {})
+    // "+ Eigener Provider …" and the pencil both live in the profile editor.
+    h.ipc.invoke(APP_CHANNELS.providerEditorOpen, EDITOR_ID, { providerId: 'claude' })
+    expect(h.providerEditorsOpened).toEqual([undefined, 'claude'])
+  })
+
+  it('is not openable from a CLI window', () => {
+    expect(() => h.ipc.invoke(APP_CHANNELS.providerEditorOpen, CLI_ID, {})).toThrow(
+      /not a panel or editor/
+    )
+  })
+
+  it('lets only a provider editor close itself', () => {
+    h.ipc.send(APP_CHANNELS.providerEditorClose, EDITOR_ID)
+    h.ipc.send(APP_CHANNELS.providerEditorClose, PANEL_ID)
+    expect(h.providerEditorsClosed).toEqual([])
+
+    h.ipc.send(APP_CHANNELS.providerEditorClose, PROVIDER_EDITOR_ID)
+    expect(h.providerEditorsClosed).toEqual([PROVIDER_EDITOR_ID])
+  })
+
+  it('may read the data it needs — providers, profiles and models', async () => {
+    expect(await h.ipc.invoke(APP_CHANNELS.providersList, PROVIDER_EDITOR_ID)).toHaveLength(2)
+    expect(h.ipc.invoke(APP_CHANNELS.profilesList, PROVIDER_EDITOR_ID)).toHaveLength(2)
+  })
+})
+
 describe('workspaces', () => {
   it('lists the directory', () => {
     expect(h.ipc.invoke(APP_CHANNELS.workspacesList, PANEL_ID)).toHaveLength(1)
@@ -445,12 +691,19 @@ describe('workspaces', () => {
 })
 
 describe('settings and windows', () => {
-  it('returns only the settings the panel shows', () => {
+  it('returns only the settings a window shows', () => {
     expect(h.ipc.invoke(APP_CHANNELS.settingsGet, PANEL_ID)).toEqual({
       yoloMaster: true,
       hideAllHotkey: 'Control+Alt+V',
-      locale: 'de'
+      locale: 'de',
+      theme: 'dark',
+      autostart: false,
+      updateChannel: 'main',
+      autostartSupported: true
     })
+    // Never the app's own bookkeeping — model memory and panel bounds are
+    // written by the app and have no form.
+    expect(h.ipc.invoke(APP_CHANNELS.settingsGet, PANEL_ID)).not.toHaveProperty('modelMemory')
   })
 
   it('toggles the yolo master', () => {
@@ -489,6 +742,203 @@ describe('settings and windows', () => {
 
     h.ipc.send(APP_CHANNELS.profileEditorClose, EDITOR_ID)
     expect(h.closed).toEqual([EDITOR_ID])
+  })
+})
+
+describe('the settings window', () => {
+  it('opens from the panel — and only from the panel', () => {
+    h.ipc.invoke(APP_CHANNELS.settingsWindowOpen, PANEL_ID)
+    expect(h.settingsOpened).toBe(1)
+
+    for (const sender of [CLI_ID, EDITOR_ID, SETTINGS_ID]) {
+      expect(() => h.ipc.invoke(APP_CHANNELS.settingsWindowOpen, sender)).toThrow(/rejected/)
+    }
+    expect(h.settingsOpened).toBe(1)
+  })
+
+  it('lets only itself close itself', () => {
+    h.ipc.send(APP_CHANNELS.settingsWindowClose, PANEL_ID)
+    h.ipc.send(APP_CHANNELS.settingsWindowClose, CLI_ID)
+    expect(h.settingsClosed).toBe(0)
+
+    h.ipc.send(APP_CHANNELS.settingsWindowClose, SETTINGS_ID)
+    expect(h.settingsClosed).toBe(1)
+  })
+
+  it('may read the shared app data the profile editor reads', () => {
+    expect(h.ipc.invoke(APP_CHANNELS.profilesList, SETTINGS_ID)).toHaveLength(2)
+    expect(h.ipc.invoke(APP_CHANNELS.settingsGet, SETTINGS_ID)).toMatchObject({ locale: 'de' })
+  })
+})
+
+describe('settings:set', () => {
+  it('accepts writes from the panel and from the settings window only', async () => {
+    await expect(
+      h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, { key: 'theme', value: 'light' })
+    ).resolves.toMatchObject({ theme: 'light' })
+    await expect(
+      h.ipc.invoke(APP_CHANNELS.settingsSet, PANEL_ID, { key: 'locale', value: 'en' })
+    ).resolves.toMatchObject({ locale: 'en' })
+
+    for (const sender of [CLI_ID, EDITOR_ID]) {
+      expect(() =>
+        h.ipc.invoke(APP_CHANNELS.settingsSet, sender, { key: 'theme', value: 'light' })
+      ).toThrow(/not the panel or the settings window/)
+    }
+  })
+
+  it('refuses every key that is not on the small allow-list', async () => {
+    // `modelMemory` and `ui` are written by the app itself; a renderer that
+    // could set them could corrupt state no form ever shows.
+    for (const key of ['modelMemory', 'ui', 'yoloMaster', 'profiles', '__proto__', undefined]) {
+      await expect(
+        h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, { key, value: 1 })
+      ).rejects.toThrow(/not user-writable/)
+    }
+    expect(WRITABLE_SETTINGS).toEqual([
+      'hideAllHotkey',
+      'autostart',
+      'updateChannel',
+      'theme',
+      'locale'
+    ])
+  })
+
+  it('takes a new hotkey immediately instead of at the next boot', async () => {
+    const next = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'hideAllHotkey',
+      value: 'Control+Shift+H'
+    })) as PanelSettings
+
+    expect(h.registeredHotkeys).toEqual(['Control+Shift+H'])
+    expect(h.store.settings.hideAllHotkey).toBe('Control+Shift+H')
+    expect(next.hideAllHotkey).toBe('Control+Shift+H')
+    expect(next.hideAllHotkeyError).toBeUndefined()
+  })
+
+  it('stores a refused hotkey and hands the reason back for the form', async () => {
+    h.hotkeyRegisters = false
+    const next = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'hideAllHotkey',
+      value: 'Control+Alt+Delete'
+    })) as PanelSettings
+
+    // Stored: the field must show what is actually saved …
+    expect(h.store.settings.hideAllHotkey).toBe('Control+Alt+Delete')
+    // … and the reason travels with it instead of into a console nobody reads.
+    expect(next.hideAllHotkeyError).toContain('belegt')
+  })
+
+  it('rejects an empty hotkey at the store, before anything is registered', async () => {
+    // The schema is the gate; a hotkey that can never be registered is a write
+    // error, not a status.
+    h.store.setSetting = () => {
+      throw new Error('hideAllHotkey darf nicht leer sein')
+    }
+    await expect(
+      h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, { key: 'hideAllHotkey', value: '' })
+    ).rejects.toThrow(/leer/)
+    expect(h.registeredHotkeys).toEqual([])
+  })
+
+  it('writes the login item only where it means something', async () => {
+    await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, { key: 'autostart', value: true })
+    expect(h.autostartWrites).toEqual([true])
+    expect(h.store.settings.autostart).toBe(true)
+
+    // In a dev run the entry would point at the Electron binary: stored, but
+    // never registered, and the window is told the switch is inert.
+    h.autostartSupported = false
+    const next = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'autostart',
+      value: false
+    })) as PanelSettings
+    expect(h.autostartWrites).toEqual([true])
+    expect(next.autostartSupported).toBe(false)
+    expect(next.autostart).toBe(false)
+  })
+
+  it('rejects an autostart payload that is not a boolean', async () => {
+    await expect(
+      h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, { key: 'autostart', value: 'ja' })
+    ).rejects.toThrow(/expects a boolean/)
+  })
+
+  it('routes the update channel through the updater, which persists it once', async () => {
+    const next = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'updateChannel',
+      value: 'stable'
+    })) as PanelSettings
+
+    expect(h.channelWrites).toEqual(['stable'])
+    expect(next.updateChannel).toBe('stable')
+  })
+
+  it('rejects a channel nobody publishes to', async () => {
+    await expect(
+      h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, { key: 'updateChannel', value: 'nightly' })
+    ).rejects.toThrow(/main or stable/)
+    expect(h.channelWrites).toEqual([])
+  })
+
+  it('patches theme and locale into the ui object without losing the other half', async () => {
+    await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, { key: 'theme', value: 'light' })
+    const next = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'locale',
+      value: 'en'
+    })) as PanelSettings
+
+    expect(next).toMatchObject({ theme: 'light', locale: 'en' })
+    expect(h.store.settings.ui).toEqual({ theme: 'light', locale: 'en' })
+  })
+})
+
+describe('self-update', () => {
+  it('serves the current state to the panel and the settings window', () => {
+    h.pushUpdate({ status: 'downloaded', availableVersion: '1.4.0' })
+
+    expect(h.ipc.invoke(APP_CHANNELS.updatesGet, PANEL_ID)).toMatchObject({
+      status: 'downloaded',
+      availableVersion: '1.4.0'
+    })
+    expect(h.ipc.invoke(APP_CHANNELS.updatesGet, SETTINGS_ID)).toMatchObject({
+      status: 'downloaded'
+    })
+    expect(() => h.ipc.invoke(APP_CHANNELS.updatesGet, CLI_ID)).toThrow(/rejected/)
+  })
+
+  it('pushes every state change to the windows that draw the badge', () => {
+    h.pushUpdate({ status: 'downloading', progress: 40 })
+    h.pushUpdate({ status: 'downloaded', availableVersion: '1.4.0', progress: undefined })
+
+    const pushed = h.broadcasts.filter((entry) => entry.channel === APP_CHANNELS.eventUpdate)
+    expect(pushed.map((entry) => (entry.payload as UpdateStatePayload).status)).toEqual([
+      'downloading',
+      'downloaded'
+    ])
+  })
+
+  it('installs on demand — never on its own', async () => {
+    h.pushUpdate({ status: 'downloaded' })
+    expect(h.installs).toBe(0)
+
+    await h.ipc.invoke(APP_CHANNELS.updatesInstall, PANEL_ID)
+    expect(h.installs).toBe(1)
+
+    expect(() => h.ipc.invoke(APP_CHANNELS.updatesInstall, CLI_ID)).toThrow(/rejected/)
+    expect(h.installs).toBe(1)
+  })
+
+  it('runs a manual check for the settings window', async () => {
+    await h.ipc.invoke(APP_CHANNELS.updatesCheck, SETTINGS_ID)
+    expect(h.updateChecks).toBe(1)
+  })
+
+  it('stops pushing once disposed', () => {
+    h.app.dispose()
+    h.broadcasts.length = 0
+    h.pushUpdate({ status: 'downloaded' })
+    expect(h.broadcasts).toEqual([])
   })
 })
 
@@ -848,7 +1298,7 @@ describe('preload parity', () => {
     }
     const found = [
       ...source.matchAll(
-        /'((?:profiles|roles|providers|models|workspaces|settings|windows|app|dialog|profileEditor|zones|ev):[a-zA-Z]+)'/g
+        /'((?:profiles|roles|providers|models|workspaces|settings|settingsWindow|updates|windows|app|dialog|profileEditor|providerEditor|zones|ev):[a-zA-Z]+)'/g
       )
     ].map((match) => match[1])
     expect(new Set(found)).toEqual(new Set(Object.values(APP_CHANNELS)))

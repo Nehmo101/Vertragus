@@ -1,7 +1,7 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { slugifyRef } from '@main/agents/worktree'
 import { ORCHESTRATOR_COLOR, ORCHESTRATOR_ROLE_ID, roleColor } from '@shared/prompts/roles'
-import { Workspace, type WorkspaceDeps } from './Workspace'
+import { PTY_ONLY_IDLE_HINT_MS, Workspace, type WorkspaceDeps } from './Workspace'
 import {
   FakeRegistry,
   FakeWindows,
@@ -543,5 +543,119 @@ describe('autoSubmitTasks', () => {
     })
     await workspace.startOrchestrator()
     expect(seedOptions.at(-1)?.autoSubmit).toBe(true)
+  })
+})
+
+/**
+ * Cursor and Ollama run `mcp: none` on purpose — no verified attach surface, so
+ * declaring one would kill the launch. The price is an agent that cannot report
+ * anything, and the orchestrator has no way to tell "thinking" from "dead".
+ * These tests pin the one thing the host CAN say about such a worker.
+ */
+describe('PTY-only silence hint', () => {
+  /** A profile whose worker slot runs on Cursor (mcp: none). */
+  const ptyOnlyProfile = (): ReturnType<typeof testProfile> =>
+    testProfile({
+      slots: [
+        { id: 'slot-worker', roleId: 'worker', providerId: 'cursor' },
+        { id: 'slot-reviewer', roleId: 'reviewer', providerId: 'claude' }
+      ]
+    })
+
+  /** Move the workspace clock and the timer wheel together. */
+  function advance(h: Harness, ms: number): void {
+    h.now.value += ms
+    vi.advanceTimersByTime(ms)
+  }
+
+  function hints(h: Harness): string[] {
+    return h.workspace.events
+      .all()
+      .filter((event) => event.type === 'agent_progress')
+      .map((event) => (event as { note: string }).note)
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('tells the orchestrator once, after two minutes of silence', async () => {
+    const h = harness({ profile: ptyOnlyProfile() })
+    const started = await h.workspace.startAgent({ role: 'worker', task: 'Do it.' })
+
+    advance(h, PTY_ONLY_IDLE_HINT_MS - 1)
+    expect(hints(h)).toEqual([])
+
+    advance(h, 1)
+    expect(hints(h)).toHaveLength(1)
+    expect(hints(h)[0]).toContain(started.name)
+    expect(hints(h)[0]).toContain('PTY-only')
+    expect(hints(h)[0]).toContain('120 s ohne Ausgabe')
+    expect(hints(h)[0]).toContain('read_output')
+
+    // Not a drip: the same silence must not keep firing.
+    advance(h, PTY_ONLY_IDLE_HINT_MS * 3)
+    expect(hints(h)).toHaveLength(1)
+  })
+
+  it('resets on output and reports the NEXT silence phase', async () => {
+    const h = harness({ profile: ptyOnlyProfile() })
+    await h.workspace.startAgent({ role: 'worker', task: 'Do it.' })
+    const pty = h.spawns[0]!.pty
+
+    advance(h, PTY_ONLY_IDLE_HINT_MS - 5_000)
+    pty.emit('still here\r\n')
+    advance(h, PTY_ONLY_IDLE_HINT_MS - 5_000)
+    // The clock passed 120 s since start, but not since the last output.
+    expect(hints(h)).toEqual([])
+
+    advance(h, 5_000)
+    expect(hints(h)).toHaveLength(1)
+
+    // A second silence phase after new output earns a second hint.
+    pty.emit('back\r\n')
+    advance(h, PTY_ONLY_IDLE_HINT_MS)
+    expect(hints(h)).toHaveLength(2)
+  })
+
+  it('says nothing about an agent that can report for itself', async () => {
+    const h = harness()
+    await h.workspace.startAgent({ role: 'worker', task: 'Do it.' })
+    advance(h, PTY_ONLY_IDLE_HINT_MS * 2)
+    expect(hints(h)).toEqual([])
+  })
+
+  it('says nothing about an agent that already ended', async () => {
+    const h = harness({ profile: ptyOnlyProfile() })
+    await h.workspace.startAgent({ role: 'worker', task: 'Do it.' })
+    h.spawns[0]!.pty.exit({ exitCode: 0 })
+
+    advance(h, PTY_ONLY_IDLE_HINT_MS * 2)
+    // agent_exited is the event for a dead process; a silence hint on top of it
+    // would send the orchestrator looking for a live agent that is gone.
+    expect(hints(h)).toEqual([])
+  })
+
+  it('says nothing about a stopped agent', async () => {
+    const h = harness({ profile: ptyOnlyProfile() })
+    const started = await h.workspace.startAgent({ role: 'worker', task: 'Do it.' })
+    await h.workspace.stopAgent(started.agentId)
+
+    advance(h, PTY_ONLY_IDLE_HINT_MS * 2)
+    expect(hints(h)).toEqual([])
+  })
+
+  it('never nags about the orchestrator — it is the reader, not the subject', async () => {
+    const h = harness({
+      profile: testProfile({ orchestrator: { providerId: 'cursor' } }),
+      ptySystemPrompt: true
+    })
+    await h.workspace.startOrchestrator()
+
+    advance(h, PTY_ONLY_IDLE_HINT_MS * 2)
+    expect(hints(h)).toEqual([])
   })
 })

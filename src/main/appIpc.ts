@@ -39,7 +39,12 @@ import { settings } from '@main/store/settings'
 import { discoverModels, type ModelDiscoveryResult } from '@main/providers/discovery'
 import { checkAllProviders, type ProviderHealth } from '@main/providers/health'
 import { focusCliWindow } from '@main/windows/cliWindow'
-import { hideAllHotkeyStatus, toggleHideAll, type HideAllHotkeyStatus } from '@main/windows/hideAll'
+import {
+  hideAllHotkeyStatus,
+  reRegisterHideAllShortcut,
+  toggleHideAll,
+  type HideAllHotkeyStatus
+} from '@main/windows/hideAll'
 import { getPanelWindow, isPanelWindowSender } from '@main/windows/panel'
 import {
   closeProfileEditorWindow,
@@ -47,6 +52,19 @@ import {
   listProfileEditorWindows,
   openProfileEditorWindow
 } from '@main/windows/profileEditor'
+import {
+  closeProviderEditorWindow,
+  isProviderEditorWindowSender,
+  listProviderEditorWindows,
+  openProviderEditorWindow
+} from '@main/windows/providerEditor'
+import {
+  closeSettingsWindow,
+  getSettingsWindow,
+  isSettingsWindowSender,
+  openSettingsWindow
+} from '@main/windows/settingsWindow'
+import { appUpdater, onUpdateState } from '@main/updater'
 import {
   closeZoneOverlayWindows,
   isZoneOverlaySender,
@@ -63,6 +81,8 @@ export const APP_CHANNELS = {
   rolesList: 'roles:list',
   rolesSave: 'roles:save',
   providersList: 'providers:list',
+  providersSave: 'providers:save',
+  providersDelete: 'providers:delete',
   modelsDiscover: 'models:discover',
   workspacesList: 'workspaces:list',
   workspacesStart: 'workspaces:start',
@@ -70,18 +90,28 @@ export const APP_CHANNELS = {
   workspacesFocusAgent: 'workspaces:focusAgent',
   settingsGet: 'settings:get',
   settingsYolo: 'settings:yolo',
+  settingsSet: 'settings:set',
   windowsHideAll: 'windows:hideAll',
   appQuit: 'app:quit',
   dialogPickDirectory: 'dialog:pickDirectory',
   profileEditorOpen: 'profileEditor:open',
   profileEditorClose: 'profileEditor:close',
+  providerEditorOpen: 'providerEditor:open',
+  providerEditorClose: 'providerEditor:close',
+  settingsWindowOpen: 'settingsWindow:open',
+  settingsWindowClose: 'settingsWindow:close',
+  updatesGet: 'updates:get',
+  updatesCheck: 'updates:check',
+  updatesInstall: 'updates:install',
   zonesEdit: 'zones:edit',
   zonesLoad: 'zones:load',
   zonesDraft: 'zones:draft',
   zonesSave: 'zones:save',
   zonesCancel: 'zones:cancel',
   eventProfiles: 'ev:profiles',
-  eventWorkspaces: 'ev:workspaces'
+  eventProviders: 'ev:providers',
+  eventWorkspaces: 'ev:workspaces',
+  eventUpdate: 'ev:update'
 } as const
 
 /** Health probes are cheap but not free; a re-opened editor reuses this. */
@@ -167,6 +197,8 @@ export type AppSettingsPort = Pick<
   | 'saveProfile'
   | 'deleteProfile'
   | 'effectiveProviders'
+  | 'saveProvider'
+  | 'deleteProvider'
   | 'getRoleTemplates'
   | 'saveRoleTemplate'
   | 'getSettings'
@@ -179,16 +211,57 @@ export interface ProviderListEntry {
   health?: ProviderHealth
 }
 
-/** The settings the panel actually shows; the rest stays in the main process. */
+/**
+ * The settings the panel and the settings window show; everything else (model
+ * memory, panel bounds) stays in the main process.
+ */
 export interface PanelSettings {
   yoloMaster: boolean
   hideAllHotkey: string
   locale: AppSettings['ui']['locale']
+  theme: AppSettings['ui']['theme']
+  autostart: boolean
+  updateChannel: AppSettings['updateChannel']
+  /**
+   * False in a dev run: `app.setLoginItemSettings` would register the Electron
+   * binary, not Vertragus. The settings window shows the toggle disabled with
+   * that reason instead of pretending the switch did something.
+   */
+  autostartSupported: boolean
   /**
    * Set only when the global hotkey could NOT be registered. The panel shows it
    * on the hide-all eye — a hotkey that silently does nothing is a support case.
    */
   hideAllHotkeyError?: string
+}
+
+/**
+ * The settings a window may write. Deliberately a small, flat allow-list rather
+ * than "any key of AppSettings": `modelMemory` and `panelBounds` are written by
+ * the app itself, and a renderer that could overwrite them would be a way to
+ * corrupt state no form ever shows.
+ */
+export const WRITABLE_SETTINGS = [
+  'hideAllHotkey',
+  'autostart',
+  'updateChannel',
+  'theme',
+  'locale'
+] as const
+export type WritableSetting = (typeof WRITABLE_SETTINGS)[number]
+
+export function isWritableSetting(key: unknown): key is WritableSetting {
+  return typeof key === 'string' && (WRITABLE_SETTINGS as readonly string[]).includes(key)
+}
+
+/** State of the self-updater as the panel badge and the settings window read it. */
+export interface UpdateStatePayload {
+  status: string
+  currentVersion: string
+  availableVersion?: string
+  channel: AppSettings['updateChannel']
+  progress?: number
+  message?: string
 }
 
 // --- the zone editor -----------------------------------------------------
@@ -308,11 +381,15 @@ export interface AppIpcHost {
   isPanelSender(webContentsId: number): boolean
   /** Editor key (profile id, or `new`) behind this webContents, or null. */
   profileEditorSender(webContentsId: number): string | null
+  /** Editor key (provider id, or `new`) behind this webContents, or null. */
+  providerEditorSender(webContentsId: number): string | null
   discoverModels(config: ProviderConfig): Promise<ModelDiscoveryResult>
   checkProviders(configs: readonly ProviderConfig[]): Promise<ProviderHealth[]>
   pickDirectory(webContentsId: number, defaultPath?: string): Promise<string | null>
   openProfileEditor(profileId?: string): void
   closeProfileEditor(webContentsId: number): void
+  openProviderEditor(providerId?: string): void
+  closeProviderEditor(webContentsId: number): void
   /** Push to every app window (panel + open editors). */
   broadcast(channel: string, payload: unknown): void
   /** Hide every CLI window and editor; toggling again restores them. */
@@ -334,6 +411,29 @@ export interface AppIpcHost {
   /** Result of the last global-hotkey registration, if it already happened. */
   hotkeyStatus?(): HideAllHotkeyStatus | undefined
   now?(): number
+
+  // --- the settings window and the updater --------------------------------
+
+  /** True for the one settings window; see windows/settingsWindow.ts. */
+  isSettingsSender(webContentsId: number): boolean
+  openSettings(): void
+  closeSettings(): void
+  /**
+   * Take the new accelerator immediately. The returned status is what the form
+   * shows inline — a hotkey that is only tried at the next boot is untestable
+   * for the user.
+   */
+  reRegisterHotkey(hotkey: string): HideAllHotkeyStatus
+  /** Register/unregister the login item. False when the platform cannot. */
+  setAutostart(enabled: boolean): void
+  autostartSupported(): boolean
+  updateState(): UpdateStatePayload
+  setUpdateChannel(channel: AppSettings['updateChannel']): Promise<UpdateStatePayload>
+  checkForUpdates(): Promise<UpdateStatePayload>
+  /** Restart into the downloaded update; throws while nothing is ready. */
+  installUpdate(): void
+  /** Push channel for update state. Without it the badge only refreshes on demand. */
+  onUpdateState?(listener: (state: UpdateStatePayload) => void): () => void
 }
 
 export interface AppIpc {
@@ -347,11 +447,19 @@ export interface AppIpc {
 type IpcEvent = { sender: { id: number } }
 type IpcListener = (event: IpcEvent, ...args: never[]) => unknown
 
-function toPanelSettings(value: AppSettings, hotkey?: HideAllHotkeyStatus): PanelSettings {
+export function toPanelSettings(
+  value: AppSettings,
+  hotkey?: HideAllHotkeyStatus,
+  autostartSupported = true
+): PanelSettings {
   return {
     yoloMaster: value.yoloMaster,
     hideAllHotkey: value.hideAllHotkey,
     locale: value.ui.locale,
+    theme: value.ui.theme,
+    autostart: value.autostart,
+    updateChannel: value.updateChannel,
+    autostartSupported,
     ...(hotkey && !hotkey.registered ? { hideAllHotkeyError: hotkey.error ?? '' } : {})
   }
 }
@@ -360,6 +468,7 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
   const now = host.now ?? (() => Date.now())
   let healthCache: { at: number; health: ProviderHealth[] } | undefined
   let unsubscribeDirectory: (() => void) | undefined
+  let unsubscribeUpdates: (() => void) | undefined
   /** What each overlay has drawn so far, keyed by display. Lives per session. */
   const zoneDrafts = new Map<number, Zone[]>()
 
@@ -370,12 +479,32 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     }
   }
 
-  /** Panel or profile editor: profiles, roles, providers, models, folder pick. */
+  /** Panel or an editor window: profiles, roles, providers, models, folder pick. */
   const requireAppWindow = (event: IpcEvent, channel: string): void => {
     if (host.isPanelSender(event.sender.id)) return
     if (host.profileEditorSender(event.sender.id) !== null) return
+    if (host.providerEditorSender(event.sender.id) !== null) return
+    if (host.isSettingsSender(event.sender.id)) return
     throw new Error(`${channel} rejected — sender is not a panel or editor window`)
   }
+
+  /**
+   * Panel or settings window: writing app settings and driving the updater.
+   * The profile editor is deliberately NOT included — it edits one record, and
+   * nothing in it should be able to change the global hotkey.
+   */
+  const requireSettingsWindow = (event: IpcEvent, channel: string): void => {
+    if (host.isPanelSender(event.sender.id)) return
+    if (host.isSettingsSender(event.sender.id)) return
+    throw new Error(`${channel} rejected — sender is not the panel or the settings window`)
+  }
+
+  const panelSettings = (value?: AppSettings): PanelSettings =>
+    toPanelSettings(
+      value ?? host.store.getSettings(),
+      host.hotkeyStatus?.(),
+      host.autostartSupported()
+    )
 
   /** Zone overlays only: reading and writing a profile's zone layout. */
   const requireZoneOverlay = (event: IpcEvent, channel: string): ZoneOverlaySender => {
@@ -446,6 +575,50 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     }))
   })
 
+  /**
+   * Announce the effective provider list. Every window that shows providers
+   * (the profile editor's picker, above all) refreshes from this instead of
+   * finding out on its next reopen — a custom provider you just created must
+   * appear in the dropdown you created it from.
+   */
+  const emitProviders = (): void => {
+    host.broadcast(APP_CHANNELS.eventProviders, host.store.effectiveProviders())
+  }
+
+  /**
+   * Write a provider descriptor. This is the record that decides how a CLI is
+   * started, so it is parsed strictly by the store and a rejection travels back
+   * to the editor as an error it can pin on a field — never a silent drop.
+   *
+   * Saving under a PRESET id is not a special case: `effectiveProviders` lets a
+   * stored entry replace its preset, which is exactly what "edit a built-in"
+   * means. The way back is `providers:delete`.
+   */
+  handle(APP_CHANNELS.providersSave, requireAppWindow, (_event, payload) => {
+    host.store.saveProvider(payload)
+    // A new or edited CLI has a different `--version` answer than the one in
+    // the cache; keeping it would show a fresh provider as "not installed".
+    healthCache = undefined
+    const configs = host.store.effectiveProviders()
+    emitProviders()
+    return configs
+  })
+
+  /**
+   * Delete a stored provider — which for a preset id is RESET, not removal:
+   * dropping the override makes the built-in reappear in `effectiveProviders`.
+   * One channel for both because it is one operation on the store.
+   */
+  handle(APP_CHANNELS.providersDelete, requireAppWindow, (_event, payload) => {
+    const id = typeof payload === 'string' ? payload : (payload as { id?: string })?.id
+    if (!id) throw new Error('providers:delete rejected — missing provider id')
+    host.store.deleteProvider(id)
+    healthCache = undefined
+    const configs = host.store.effectiveProviders()
+    emitProviders()
+    return configs
+  })
+
   handle(APP_CHANNELS.modelsDiscover, requireAppWindow, async (_event, payload) => {
     const providerId =
       typeof payload === 'string' ? payload : (payload as { providerId?: string })?.providerId
@@ -483,15 +656,64 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
 
   // --- settings & windows ------------------------------------------------
 
-  handle(APP_CHANNELS.settingsGet, requireAppWindow, () =>
-    toPanelSettings(host.store.getSettings(), host.hotkeyStatus?.())
-  )
+  handle(APP_CHANNELS.settingsGet, requireAppWindow, () => panelSettings())
 
   handle(APP_CHANNELS.settingsYolo, requirePanel, (_event, payload) => {
     const enabled =
       typeof payload === 'boolean' ? payload : (payload as { enabled?: boolean })?.enabled
     if (typeof enabled !== 'boolean') throw new Error('settings:yolo rejected — expected a boolean')
-    return toPanelSettings(host.store.setSetting('yoloMaster', enabled), host.hotkeyStatus?.())
+    return panelSettings(host.store.setSetting('yoloMaster', enabled))
+  })
+
+  /**
+   * The settings form's single write path.
+   *
+   * Three of the five keys have an effect that must happen NOW, not at the next
+   * boot — the hotkey, the login item and the update channel. They are applied
+   * here rather than in the renderer, so the same guarantee holds no matter who
+   * calls the channel.
+   *
+   * A hotkey the OS refuses is still stored: the value the user typed stays in
+   * the field, and the reason travels back in `hideAllHotkeyError` where both
+   * the form and the panel's eye already show it. Dropping the write instead
+   * would leave the form showing a value that is not what is stored.
+   */
+  handle(APP_CHANNELS.settingsSet, requireSettingsWindow, async (_event, payload) => {
+    const body = (payload ?? {}) as { key?: unknown; value?: unknown }
+    if (!isWritableSetting(body.key)) {
+      throw new Error(`settings:set rejected — ${String(body.key)} is not user-writable`)
+    }
+
+    switch (body.key) {
+      case 'hideAllHotkey': {
+        const next = host.store.setSetting('hideAllHotkey', body.value as string)
+        host.reRegisterHotkey(next.hideAllHotkey)
+        return panelSettings(next)
+      }
+      case 'autostart': {
+        if (typeof body.value !== 'boolean') {
+          throw new Error('settings:set rejected — autostart expects a boolean')
+        }
+        const next = host.store.setSetting('autostart', body.value)
+        if (host.autostartSupported()) host.setAutostart(next.autostart)
+        return panelSettings(next)
+      }
+      case 'updateChannel': {
+        if (body.value !== 'main' && body.value !== 'stable') {
+          throw new Error('settings:set rejected — updateChannel expects main or stable')
+        }
+        // The updater persists the channel itself (it has to reconfigure at the
+        // same moment), so this path must not write it a second time.
+        await host.setUpdateChannel(body.value)
+        return panelSettings()
+      }
+      case 'theme':
+      case 'locale': {
+        // `ui` is one strict object in the schema: read, patch, write back.
+        const ui = { ...host.store.getSettings().ui, [body.key]: body.value }
+        return panelSettings(host.store.setSetting('ui', ui))
+      }
+    }
   })
 
   handle(APP_CHANNELS.windowsHideAll, requirePanel, () => {
@@ -527,6 +749,49 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     if (host.profileEditorSender(event.sender.id) === null) return
     host.closeProfileEditor(event.sender.id)
   }) as IpcListener)
+
+  /**
+   * Open the provider editor. Reachable from the panel AND from the profile
+   * editor, because "+ Eigener Provider …" sits in the provider dropdown —
+   * the moment you notice a CLI is missing is the moment you are picking one.
+   */
+  handle(APP_CHANNELS.providerEditorOpen, requireAppWindow, (_event, payload) => {
+    const providerId =
+      typeof payload === 'string' ? payload : (payload as { providerId?: string })?.providerId
+    host.openProviderEditor(providerId || undefined)
+  })
+
+  host.ipcMain.on(APP_CHANNELS.providerEditorClose, ((event: IpcEvent): void => {
+    if (host.providerEditorSender(event.sender.id) === null) return
+    host.closeProviderEditor(event.sender.id)
+  }) as IpcListener)
+
+  // --- the settings window -----------------------------------------------
+
+  handle(APP_CHANNELS.settingsWindowOpen, requirePanel, () => {
+    host.openSettings()
+  })
+
+  host.ipcMain.on(APP_CHANNELS.settingsWindowClose, ((event: IpcEvent): void => {
+    // Only the settings window may close itself.
+    if (!host.isSettingsSender(event.sender.id)) return
+    host.closeSettings()
+  }) as IpcListener)
+
+  // --- self-update --------------------------------------------------------
+
+  handle(APP_CHANNELS.updatesGet, requireSettingsWindow, () => host.updateState())
+
+  handle(APP_CHANNELS.updatesCheck, requireSettingsWindow, () => host.checkForUpdates())
+
+  /**
+   * The panel badge's click target. Restarting takes every running agent with
+   * it, which is exactly why nothing here installs on its own — see
+   * main/updater.ts.
+   */
+  handle(APP_CHANNELS.updatesInstall, requireSettingsWindow, () => {
+    host.installUpdate()
+  })
 
   // --- zones -------------------------------------------------------------
 
@@ -589,6 +854,9 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
   }) as IpcListener)
 
   unsubscribeDirectory = host.directory.onChange?.(() => emitWorkspaces())
+  unsubscribeUpdates = host.onUpdateState?.((state) => {
+    host.broadcast(APP_CHANNELS.eventUpdate, state)
+  })
 
   return {
     emitWorkspaces,
@@ -596,6 +864,8 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     dispose() {
       unsubscribeDirectory?.()
       unsubscribeDirectory = undefined
+      unsubscribeUpdates?.()
+      unsubscribeUpdates = undefined
       healthCache = undefined
       zoneDrafts.clear()
       for (const channel of Object.values(APP_CHANNELS)) {
@@ -633,6 +903,8 @@ export function registerAppIpc(directory?: WorkspaceDirectory): AppIpc {
     saveProfile: (profile) => settings().saveProfile(profile),
     deleteProfile: (id) => settings().deleteProfile(id),
     effectiveProviders: () => settings().effectiveProviders(),
+    saveProvider: (config) => settings().saveProvider(config),
+    deleteProvider: (id) => settings().deleteProvider(id),
     getRoleTemplates: () => settings().getRoleTemplates(),
     saveRoleTemplate: (template) => settings().saveRoleTemplate(template),
     getSettings: () => settings().getSettings(),
@@ -644,6 +916,7 @@ export function registerAppIpc(directory?: WorkspaceDirectory): AppIpc {
     directory: directory ?? createStubWorkspaceDirectory(),
     isPanelSender: (id) => isPanelWindowSender(id),
     profileEditorSender: (id) => isProfileEditorWindowSender(id),
+    providerEditorSender: (id) => isProviderEditorWindowSender(id),
     discoverModels: (config) => discoverModels(config),
     checkProviders: (configs) => checkAllProviders(configs),
     async pickDirectory(webContentsId, defaultPath) {
@@ -668,8 +941,20 @@ export function registerAppIpc(directory?: WorkspaceDirectory): AppIpc {
       const key = isProfileEditorWindowSender(webContentsId)
       if (key !== null) closeProfileEditorWindow(key)
     },
+    openProviderEditor: (providerId) => {
+      openProviderEditorWindow(providerId)
+    },
+    closeProviderEditor: (webContentsId) => {
+      const key = isProviderEditorWindowSender(webContentsId)
+      if (key !== null) closeProviderEditorWindow(key)
+    },
     broadcast: (channel, payload) => {
-      const targets = [getPanelWindow(), ...listProfileEditorWindows().map((entry) => entry.window)]
+      const targets = [
+        getPanelWindow(),
+        ...listProfileEditorWindows().map((entry) => entry.window),
+        ...listProviderEditorWindows().map((entry) => entry.window),
+        getSettingsWindow()
+      ]
       for (const win of targets) {
         if (win && !win.webContents.isDestroyed()) win.webContents.send(channel, payload)
       }
@@ -703,7 +988,25 @@ export function registerAppIpc(directory?: WorkspaceDirectory): AppIpc {
     closeZoneOverlays: () => closeZoneOverlayWindows(),
     zoneOverlaySender: (id) => isZoneOverlaySender(id),
     zoneOverlayDisplayIds: () => zoneOverlayDisplayIds(),
-    hotkeyStatus: () => hideAllHotkeyStatus()
+    hotkeyStatus: () => hideAllHotkeyStatus(),
+
+    isSettingsSender: (id) => isSettingsWindowSender(id),
+    openSettings: () => {
+      openSettingsWindow()
+    },
+    closeSettings: () => closeSettingsWindow(),
+    reRegisterHotkey: (hotkey) => reRegisterHideAllShortcut(hotkey),
+    setAutostart: (enabled) => {
+      app.setLoginItemSettings({ openAtLogin: enabled, openAsHidden: false })
+    },
+    // In a dev run the login item would point at the Electron binary, not at
+    // Vertragus — the settings window says so instead of writing a broken entry.
+    autostartSupported: () => app.isPackaged,
+    updateState: () => appUpdater().state(),
+    setUpdateChannel: (channel) => appUpdater().setChannel(channel),
+    checkForUpdates: () => appUpdater().check(),
+    installUpdate: () => appUpdater().install(),
+    onUpdateState: (listener) => onUpdateState(listener)
   })
   return instance
 }

@@ -432,6 +432,32 @@
 
 /* --- footer ------------------------------------------------------------ */
 
+/* The update badge sits directly above the footer, full width, and only exists
+   while an update is actually downloaded — nothing here counts percentages in a
+   280 px rail. Bronze rather than red: it is good news that costs a restart. */
+.panel-update {
+  display: block;
+  width: calc(100% - 24px);
+  margin: 0 12px 8px;
+  padding: 7px 9px;
+  border: 1px solid rgba(203, 163, 90, 0.45);
+  border-radius: var(--radius-chip);
+  background: rgba(203, 163, 90, 0.14);
+  color: var(--bronze-bright);
+  font: 600 11.5px var(--font-body);
+  text-align: left;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease;
+}
+
+.panel-update:hover {
+  background: rgba(203, 163, 90, 0.22);
+  border-color: rgba(203, 163, 90, 0.7);
+}
+
 .panel-footer {
   flex: 0 0 auto;
   display: flex;

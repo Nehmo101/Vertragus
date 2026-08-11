@@ -1,6 +1,7 @@
 import { useId, useMemo, useState } from 'react'
 import { EFFORT_LEVELS } from '@shared/schema/provider'
 import type { ModelDiscoveryResult, ProviderListEntry } from '../../../preload'
+import { NEW_PROVIDER_VALUE } from '../providerEditor/model'
 import { filterModelOptions, modelComboStatus, modelOptions, type EffortChoice } from './model'
 import { EDITOR_STRINGS } from './strings'
 
@@ -64,6 +65,13 @@ interface ProviderSelectProps {
  * Provider picker. An unhealthy CLI stays selectable — it may simply not be
  * installed on THIS machine yet — but says so, because a launch that fails
  * three minutes later with "command not found" is the worse surprise.
+ *
+ * The way into the provider editor lives here rather than in the two call
+ * sites, so the orchestrator row and every slot row get it by construction:
+ * a last "+ Eigener Provider …" entry for a CLI Vertragus has never heard of,
+ * and a pencil beside the box for the one currently selected. The moment you
+ * notice a provider is missing or mis-declared is the moment you are looking
+ * at this dropdown.
  */
 export function ProviderSelect({
   value,
@@ -73,22 +81,63 @@ export function ProviderSelect({
   className
 }: ProviderSelectProps): React.JSX.Element {
   const known = providers.some((entry) => entry.config.id === value)
+  const openEditor = (providerId?: string): void => {
+    void window.vertragus?.app.openProviderEditor(providerId)
+  }
   return (
-    <select
-      className={className ?? 'pe-input'}
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-    >
-      {!known && value ? <option value={value}>{loading ? EDITOR_STRINGS.loading : value}</option> : null}
-      {providers.map((entry) => (
-        <option key={entry.config.id} value={entry.config.id}>
-          {entry.config.label}
-          {entry.health && !entry.health.available
-            ? ` — ${EDITOR_STRINGS.providerUnavailable(entry.health.error ?? entry.health.detail ?? '')}`
-            : ''}
-        </option>
-      ))}
-    </select>
+    <div className="pe-provider">
+      <select
+        className={className ?? 'pe-input'}
+        value={value}
+        onChange={(event) => {
+          if (event.target.value === NEW_PROVIDER_VALUE) {
+            // Opens an EMPTY editor; the selection stays where it was, so a
+            // cancelled "new provider" does not silently repoint the slot.
+            openEditor()
+            return
+          }
+          onChange(event.target.value)
+        }}
+      >
+        {!known && value ? (
+          <option value={value}>{loading ? EDITOR_STRINGS.loading : value}</option>
+        ) : null}
+        {providers.map((entry) => (
+          <option key={entry.config.id} value={entry.config.id}>
+            {entry.config.label}
+            {entry.health && !entry.health.available
+              ? ` — ${EDITOR_STRINGS.providerUnavailable(entry.health.error ?? entry.health.detail ?? '')}`
+              : ''}
+          </option>
+        ))}
+        <option value={NEW_PROVIDER_VALUE}>{EDITOR_STRINGS.customProvider}</option>
+      </select>
+      <button
+        type="button"
+        className="pe-icon-button pe-provider-edit"
+        title={EDITOR_STRINGS.editProvider}
+        aria-label={EDITOR_STRINGS.editProvider}
+        disabled={!known}
+        onClick={() => openEditor(value)}
+      >
+        <PencilIcon />
+      </button>
+    </div>
+  )
+}
+
+/** Small pencil for "edit this record"; matches the panel's icon weight. */
+function PencilIcon(): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
+      <path
+        d="M11.2 2.3a1.1 1.1 0 0 1 1.6 0l0.9 0.9a1.1 1.1 0 0 1 0 1.6L6.4 11.9l-3 0.7 0.7-3z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
+    </svg>
   )
 }
 

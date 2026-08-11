@@ -16,7 +16,7 @@ jobs:
   quality:
     # Windows is the primary, owner-verified platform.
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -31,11 +31,19 @@ jobs:
           key: electron-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       - run: pnpm install --frozen-lockfile
       - run: pnpm run ci
+      # The ratchet: thresholds live in vitest.config.ts and are set just below
+      # the measured status quo, so coverage can only move up.
+      - name: Coverage ratchet
+        run: pnpm run test:coverage
+      # Boots the real app and captures the panel. Unit tests would not notice a
+      # white screen from a CSP violation or a preload that failed to load.
+      - name: Panel smoke (real Electron boot + capture)
+        run: node scripts/panel-smoke.mjs
 
   linux:
     # Best-effort platform: build must stay green, no owner verification.
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -50,11 +58,19 @@ jobs:
           key: electron-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       - run: pnpm install --frozen-lockfile
       - run: pnpm run ci
+      # Xvfb has no compositor, so the transparent glass renders against
+      # whatever backdrop the server provides — the check is therefore
+      # "a window of the right size was captured", not a pixel comparison.
+      # The script adds --no-sandbox on Linux only (GH runners disable
+      # unprivileged user namespaces); the production sandbox posture is
+      # asserted by windows/base.securityContract.test.ts, not here.
+      - name: Panel smoke (xvfb)
+        run: xvfb-run -a node scripts/panel-smoke.mjs
 
   macos:
     # Best-effort platform: build must stay green, no owner verification.
     runs-on: macos-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -71,3 +87,41 @@ jobs:
           key: electron-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       - run: pnpm install --frozen-lockfile
       - run: pnpm run ci
+      - name: Panel smoke (real Electron boot + capture)
+        run: node scripts/panel-smoke.mjs
+
+  package:
+    # Proves the installers still BUILD on every platform. Nothing is published
+    # here — that is release.yml's job, and only from main.
+    name: package (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.13'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec electron-vite build
+      - name: Package installers (no publish)
+        run: pnpm exec electron-builder --publish never
+        env:
+          # Nothing is signed in CI; a missing certificate must not fail a build
+          # whose only job is to prove the packaging config still works.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: vertragus-${{ matrix.os }}
+          path: |
+            release/**/*.exe
+            release/**/*.AppImage
+            release/**/*.deb
+          if-no-files-found: error
+          retention-days: 7

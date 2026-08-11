@@ -30,11 +30,13 @@ export const PANEL_STRINGS = {
   quit: 'Vertragus beenden',
   settings: 'Einstellungen',
   /**
-   * The settings button is honest instead of dead: it is clickable and says
-   * what is missing. A greyed-out gear with a "coming in M6" tooltip reads as
-   * broken — that is exactly how the second test run reported it.
+   * The badge only ever appears once an update is fully downloaded, so it can
+   * promise a restart and nothing else — no percentages, no "checking", no
+   * spinner in a 280 px rail.
    */
-  settingsHint: 'Einstellungen kommen mit M6 — Hotkey & Co. bis dahin über die Konfig-Datei.',
+  updateReady: 'Update bereit — Neustart',
+  updateReadyTitle: (version: string): string =>
+    `Version ${version} ist geladen. Klicken startet Vertragus neu — alle laufenden Agenten werden beendet.`,
   bridgeMissing: 'Preload-Bridge nicht verfügbar.',
   loading: 'lädt …'
 } as const

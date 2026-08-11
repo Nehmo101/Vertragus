@@ -23,6 +23,8 @@ import { globalShortcut } from 'electron'
 import { getSettings } from '@main/store/settings'
 import { listCliWindows } from './cliWindow'
 import { listProfileEditorWindows } from './profileEditor'
+import { listProviderEditorWindows } from './providerEditor'
+import { listSettingsWindows } from './settingsWindow'
 
 /** The slice of BrowserWindow hide-all uses. */
 export interface HideableWindow {
@@ -97,8 +99,9 @@ export function createHideAllController(deps: HideAllDeps): HideAllController {
 // --- production wiring ---------------------------------------------------
 
 /**
- * CLI windows first, then open profile editors. The panel is absent by
- * construction: it is the only surface that must survive hide-all.
+ * CLI windows first, then open profile editors, then the settings sheet. The
+ * panel is absent by construction: it is the only surface that must survive
+ * hide-all.
  */
 function appTargets(): HideAllTarget[] {
   return [
@@ -108,6 +111,14 @@ function appTargets(): HideAllTarget[] {
     })),
     ...listProfileEditorWindows().map(({ key, window }) => ({
       key: `editor:${key}`,
+      window: window as unknown as HideableWindow
+    })),
+    ...listProviderEditorWindows().map(({ key, window }) => ({
+      key: `provider:${key}`,
+      window: window as unknown as HideableWindow
+    })),
+    ...listSettingsWindows().map(({ key, window }) => ({
+      key: `settings:${key}`,
       window: window as unknown as HideableWindow
     }))
   ]
@@ -185,6 +196,26 @@ export function registerHideAllShortcut(deps: HideAllShortcutDeps): HideAllHotke
 }
 
 /**
+ * Swap the live accelerator for a new one: drop the old registration, take the
+ * new one, and hand back the status.
+ *
+ * This is what the settings window calls the moment the hotkey field is saved.
+ * It takes effect immediately and on purpose — a hotkey that only works after
+ * the next restart is indistinguishable from one that does not work, and the
+ * status returned here is what the form shows inline when the combination is
+ * malformed or already owned by another app. A rejected accelerator leaves the
+ * app with NO hide-all hotkey (the old one is unregistered first); that is the
+ * honest outcome, and it is visible instead of silent.
+ */
+export function reRegisterHideAllShortcut(hotkey: string): HideAllHotkeyStatus {
+  return registerHideAllShortcut({
+    hotkey,
+    register: (accelerator, callback) => globalShortcut.register(accelerator, callback),
+    unregisterAll: () => globalShortcut.unregisterAll()
+  })
+}
+
+/**
  * Production entry: read the accelerator from the settings store and register
  * it. Called once after `app.whenReady()`; safe to call again after the setting
  * changes (it unregisters first).
@@ -201,11 +232,7 @@ export function registerAppHideAllShortcut(): HideAllHotkeyStatus {
     }
     return status
   }
-  return registerHideAllShortcut({
-    hotkey,
-    register: (accelerator, callback) => globalShortcut.register(accelerator, callback),
-    unregisterAll: () => globalShortcut.unregisterAll()
-  })
+  return reRegisterHideAllShortcut(hotkey)
 }
 
 /** Wired to `will-quit`: a leaked global shortcut outlives the process. */

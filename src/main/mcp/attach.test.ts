@@ -1,31 +1,49 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   assertWrittenClaudeMcpConfig,
+  assertWrittenKimiMcpConfig,
+  bareToolName,
   buildClaudeMcpArgs,
   buildClaudeOrchestratorArgs,
   buildClaudeSubagentArgs,
   buildCodexMcpArgs,
+  buildCodexOrchestratorArgs,
+  buildCodexSubagentArgs,
   buildKimiMcpArgs,
+  buildKimiOrchestratorArgs,
+  buildKimiSubagentArgs,
+  codexDeveloperInstructionsArgs,
+  KIMI_AGENT_NAME,
+  kimiAgentFileText,
   orchestratorAllowedTools,
+  orchestratorMcpTools,
   qualifiedToolName,
   READONLY_CLAUDE_TOOLS,
+  serverScopedTools,
   toClaudeMcpConfig,
-  writeClaudeMcpConfigFile
+  toKimiMcpConfig,
+  tomlString,
+  withoutKimiAgentFileArgs,
+  writeClaudeMcpConfigFile,
+  writeKimiProjectMcpConfig
 } from './attach'
 import { ORCHESTRATOR_TOOL_NAMES } from './toolsOrchestrator'
 
 const URL = 'http://127.0.0.1:51234/mcp?ws=w1&token=secret'
 
 let configDir: string
+let workspaceDir: string
 
 beforeEach(() => {
   configDir = mkdtempSync(join(tmpdir(), 'vertragus-attach-'))
+  workspaceDir = mkdtempSync(join(tmpdir(), 'vertragus-attach-ws-'))
 })
 afterEach(() => {
   rmSync(configDir, { recursive: true, force: true })
+  rmSync(workspaceDir, { recursive: true, force: true })
 })
 
 describe('claude MCP config', () => {
@@ -105,11 +123,161 @@ describe('allowlists', () => {
   })
 })
 
-describe('other providers', () => {
-  it('fail loudly instead of silently spawning an unattached agent', () => {
-    expect(() => buildCodexMcpArgs({ url: URL, configDir, fileTag: 'c' })).toThrow(/M5/)
-    expect(() =>
-      buildKimiMcpArgs({ url: URL, configDir, fileTag: 'k', workspaceDir: configDir })
-    ).toThrow(/M5/)
+describe('server-scoped allowlists', () => {
+  it('separates the process-wide list from the per-server one', () => {
+    // Claude's --allowedTools is process-wide, so Read belongs in it; Codex'
+    // enabled_tools and Kimi's enabledTools are per server, so it does not.
+    expect(orchestratorAllowedTools()).toContain('Read')
+    expect(orchestratorMcpTools()).not.toContain('Read')
+    expect(orchestratorMcpTools()).toEqual(
+      ORCHESTRATOR_TOOL_NAMES.map((tool) => `mcp__vertragus__${tool}`)
+    )
+  })
+
+  it('strips the namespace and drops foreign tools instead of renaming them', () => {
+    expect(bareToolName('mcp__vertragus__start_agent')).toBe('start_agent')
+    expect(bareToolName('Read')).toBe('Read')
+    expect(serverScopedTools(orchestratorAllowedTools())).toEqual([...ORCHESTRATOR_TOOL_NAMES])
+    expect(serverScopedTools(undefined)).toBeUndefined()
+  })
+})
+
+describe('codex attach', () => {
+  it('quotes TOML scalars the way codex parses them', () => {
+    expect(tomlString('plain')).toBe('"plain"')
+    // A multi-line prompt has to survive as ONE TOML scalar.
+    expect(tomlString('a\nb"c')).toBe('"a\\nb\\"c"')
+  })
+
+  it('attaches process-locally: url, required, pre-approved tools', () => {
+    const args = buildCodexMcpArgs({ url: URL, configDir, fileTag: 'c' })
+    expect(args).toEqual([
+      '-c',
+      `mcp_servers.vertragus.url="${URL}"`,
+      '-c',
+      'mcp_servers.vertragus.required=true',
+      '-c',
+      'mcp_servers.vertragus.default_tools_approval_mode="approve"'
+    ])
+    // No Anthropic flags on this path — they would kill the launch.
+    expect(args).not.toContain('--mcp-config')
+    expect(args).not.toContain('--append-system-prompt')
+    expect(args).not.toContain('--allowedTools')
+  })
+
+  it('writes nothing to disk — a codex launch is overrides only', () => {
+    buildCodexOrchestratorArgs({ url: URL, configDir, fileTag: 'c', systemPrompt: 'Delegate.' })
+    expect(existsSync(join(configDir, 'vertragus-mcp'))).toBe(false)
+  })
+
+  it('gives the orchestrator enabled_tools with BARE names', () => {
+    const args = buildCodexOrchestratorArgs({
+      url: URL,
+      configDir,
+      fileTag: 'orch',
+      systemPrompt: 'You orchestrate.'
+    })
+    expect(args).toContain(
+      `mcp_servers.vertragus.enabled_tools=${JSON.stringify([...ORCHESTRATOR_TOOL_NAMES])}`
+    )
+    // The qualified spelling belongs to Claude's flag, not to this key.
+    expect(args.join(' ')).not.toContain('mcp__vertragus__')
+    expect(args).toContain('developer_instructions="You orchestrate."')
+  })
+
+  it('leaves subagents unrestricted but still attached', () => {
+    const args = buildCodexSubagentArgs({ url: URL, configDir, fileTag: 'sub' })
+    expect(args.some((arg) => arg.includes('enabled_tools'))).toBe(false)
+    expect(args).toContain(`mcp_servers.vertragus.url="${URL}"`)
+  })
+
+  it('omits developer_instructions when there is no prompt', () => {
+    expect(codexDeveloperInstructionsArgs(undefined)).toEqual([])
+    expect(codexDeveloperInstructionsArgs('   ')).toEqual([])
+    expect(codexDeveloperInstructionsArgs('line one\nline two')).toEqual([
+      '-c',
+      'developer_instructions="line one\\nline two"'
+    ])
+  })
+})
+
+describe('kimi attach', () => {
+  it('installs .kimi-code/mcp.json in the WORKING directory, not in configDir', () => {
+    const path = writeKimiProjectMcpConfig(URL, workspaceDir)
+    expect(path).toBe(join(workspaceDir, '.kimi-code', 'mcp.json'))
+    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({
+      mcpServers: { vertragus: { url: URL } }
+    })
+  })
+
+  it('marks a bare url as HTTP and scopes the orchestrator with enabledTools', () => {
+    expect(toKimiMcpConfig(URL, orchestratorAllowedTools())).toEqual({
+      mcpServers: { vertragus: { url: URL, enabledTools: [...ORCHESTRATOR_TOOL_NAMES] } }
+    })
+  })
+
+  it('rejects a project config that lost its server entry', () => {
+    const path = writeKimiProjectMcpConfig(URL, workspaceDir)
+    writeFileSync(path, JSON.stringify({ mcpServers: {} }))
+    expect(() => assertWrittenKimiMcpConfig(path)).toThrow(/Invalid Vertragus Kimi MCP config/)
+  })
+
+  it('carries the system prompt as an agent file, never as a flag Kimi lacks', () => {
+    const args = buildKimiOrchestratorArgs({
+      url: URL,
+      configDir,
+      fileTag: 'orch',
+      workspaceDir,
+      systemPrompt: 'You orchestrate.'
+    })
+    expect(args[0]).toBe('--agent-file')
+    // Kimi 0.34 has none of these; declaring one kills the launch.
+    for (const absent of [
+      '--mcp-config',
+      '--mcp-config-file',
+      '--strict-mcp-config',
+      '--append-system-prompt',
+      '--allowedTools'
+    ]) {
+      expect(args).not.toContain(absent)
+    }
+    const body = readFileSync(args[1]!, 'utf8')
+    expect(body).toContain('You orchestrate.')
+    expect(args[1]).toContain('orch.agent.md')
+    // The project file is written even though it contributes no argument.
+    expect(existsSync(join(workspaceDir, '.kimi-code', 'mcp.json'))).toBe(true)
+  })
+
+  it('writes frontmatter Kimi 0.34 actually accepts', () => {
+    const text = kimiAgentFileText('Do the work.')
+    // Required by kimi's parser: a kebab-case name, a non-empty description,
+    // and a non-empty body. It replaces the default prompt, so no body = no
+    // agent at all.
+    expect(text.startsWith('---\n')).toBe(true)
+    expect(text).toContain(`name: ${KIMI_AGENT_NAME}`)
+    expect(KIMI_AGENT_NAME).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/)
+    expect(text).toMatch(/^description: \S.*$/m)
+    expect(text.split('---')[2]!.trim()).toBe('Do the work.')
+  })
+
+  it('attaches a subagent without an allowlist and without a prompt file', () => {
+    const args = buildKimiSubagentArgs({ url: URL, configDir, fileTag: 'sub', workspaceDir })
+    expect(args).toEqual([])
+    const written = JSON.parse(
+      readFileSync(join(workspaceDir, '.kimi-code', 'mcp.json'), 'utf8')
+    ) as { mcpServers: Record<string, unknown> }
+    expect(written.mcpServers.vertragus).toEqual({ url: URL })
+  })
+
+  it('drops --agent-file pairs for a resumed session', () => {
+    expect(
+      withoutKimiAgentFileArgs(['--agent-file', '/tmp/a.md', '--yolo', '--agent-file', '/tmp/b.md'])
+    ).toEqual(['--yolo'])
+    expect(withoutKimiAgentFileArgs([])).toEqual([])
+  })
+
+  it('never attaches without a config file — the one thing Kimi cannot be told', () => {
+    buildKimiMcpArgs({ url: URL, configDir, fileTag: 'k', workspaceDir })
+    expect(existsSync(join(workspaceDir, '.kimi-code', 'mcp.json'))).toBe(true)
   })
 })

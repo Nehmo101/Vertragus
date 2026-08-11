@@ -15,10 +15,13 @@
  * - **The task contract is NOT appended here.** `start_agent` composes
  *   `task + buildTaskContract()`, so a spawn path cannot forget it. The host
  *   receives the finished seed text in `StartAgentInput.task`.
- * - **Only one event kind is pushed from here: `agent_exited`.** That is the
- *   host's exclusive event per `mcp/types`, because only the host can observe a
- *   process dying unasked. `agent_started`, `agent_stopped`, `agent_done`,
- *   `agent_question` and `agent_progress` all belong to the MCP layer.
+ * - **Only two event kinds are pushed from here.** `agent_exited`, because only
+ *   the host can observe a process dying unasked — and, for PTY-only providers,
+ *   one `agent_progress` silence hint (see {@link PTY_ONLY_IDLE_HINT_MS}), for
+ *   the same reason: an agent with no MCP attachment can produce no events of
+ *   its own, so its silence is something only the host can see.
+ *   `agent_started`, `agent_stopped`, `agent_done` and `agent_question` all
+ *   belong to the MCP layer.
  *
  * What the host *does* own is identity and delivery: the Commedia name, the
  * role prompt (via the provider's `systemPromptDelivery`), the worktree, the
@@ -78,6 +81,18 @@ export const AGENT_STATUS = {
   /** Ended by `stop_agent`. Terminal: frees its slot. */
   stopped: 'stopped'
 } as const
+
+/**
+ * How long a PTY-only agent may stay silent before the orchestrator is told.
+ *
+ * A provider with `mcp.kind: 'none'` (Cursor, Ollama) has no way to report:
+ * no `report_progress`, no `report_done`, no `agent_question`. From the
+ * orchestrator's side such a worker is indistinguishable from one that is
+ * thinking hard — and the old repo's answer, assuming success, is exactly the
+ * failure this milestone closes. So the host says the one true thing it knows:
+ * nothing has come out of that terminal for two minutes, go and look.
+ */
+export const PTY_ONLY_IDLE_HINT_MS = 120_000
 
 /** How many characters of scrollback one output line is assumed to cost. */
 const CHARS_PER_LINE = 600
@@ -156,6 +171,10 @@ interface AgentRecord {
    */
   assignmentCursor: number
   unsubscribe: Unsubscribe[]
+  /** PTY-only agents only: the pending silence watchdog. */
+  idleTimer?: ReturnType<typeof setTimeout>
+  /** True once this silence phase has been reported — one hint, not a drip. */
+  idleNotified: boolean
 }
 
 export class Workspace implements AgentHost {
@@ -547,7 +566,8 @@ export class Workspace implements AgentHost {
       stopped: false,
       lastOutputAt: this.now(),
       assignmentCursor: this.events.cursor,
-      unsubscribe: []
+      unsubscribe: [],
+      idleNotified: false
     }
     // Registration first: the CLI window calls `terminal:attach` as soon as it
     // loads, and an unregistered agent rejects that call.
@@ -563,11 +583,71 @@ export class Workspace implements AgentHost {
     record.unsubscribe.push(
       record.pty.onData(() => {
         record.lastOutputAt = this.now()
+        // Output ends the silence phase: the next one earns its own hint.
+        record.idleNotified = false
+        this.armIdleHint(record)
       })
     )
     record.unsubscribe.push(record.pty.onExit((info) => this.handleExit(record, info)))
     this.agents.set(record.agentId, record)
+    this.armIdleHint(record)
     return record
+  }
+
+  /** True for a provider that declared `mcp: none` — it cannot report at all. */
+  private isPtyOnly(providerId: string): boolean {
+    return (
+      this.deps.providers.find((candidate) => candidate.id === providerId)?.mcp.kind === 'none'
+    )
+  }
+
+  /**
+   * (Re)start one agent's silence watchdog.
+   *
+   * Only for PTY-only SUBAGENTS: the orchestrator is the reader of these
+   * events, not a subject of them — the same reason `handleExit` skips it. The
+   * timer is unref'd so a quiet workspace never keeps the app alive.
+   */
+  private armIdleHint(record: AgentRecord): void {
+    if (record.orchestrator || !this.isPtyOnly(record.providerId)) return
+    if (record.idleTimer) clearTimeout(record.idleTimer)
+    const timer = setTimeout(() => this.emitIdleHint(record), PTY_ONLY_IDLE_HINT_MS)
+    ;(timer as { unref?: () => void }).unref?.()
+    record.idleTimer = timer
+  }
+
+  private clearIdleHint(record: AgentRecord): void {
+    if (record.idleTimer) clearTimeout(record.idleTimer)
+    record.idleTimer = undefined
+  }
+
+  /**
+   * The hint itself. Deliberately says "unconfirmed", not "stuck": the agent
+   * may well be working. What the orchestrator is told is what read_output can
+   * settle — and it is told exactly once per silence phase, because a
+   * repeating alarm about a healthy long-running worker is noise it will learn
+   * to ignore.
+   */
+  private emitIdleHint(record: AgentRecord): void {
+    record.idleTimer = undefined
+    if (record.idleNotified || this.events.isClosed) return
+    const status = this.statusOf(record)
+    if (status === AGENT_STATUS.exited || status === AGENT_STATUS.stopped) return
+    // A fake clock (or a timer that fired early) must not produce a false hint.
+    if (this.now() - record.lastOutputAt < PTY_ONLY_IDLE_HINT_MS) {
+      this.armIdleHint(record)
+      return
+    }
+    record.idleNotified = true
+    this.events.push({
+      type: 'agent_progress',
+      agentId: record.agentId,
+      name: record.name,
+      roleId: record.roleId,
+      note: `${record.name} (PTY-only): ${Math.round(
+        PTY_ONLY_IDLE_HINT_MS / 1_000
+      )} s ohne Ausgabe — Status unbestätigt, ggf. read_output prüfen`
+    })
   }
 
   private openWindow(record: AgentRecord, color: string): void {
@@ -617,6 +697,8 @@ export class Workspace implements AgentHost {
    */
   private handleExit(record: AgentRecord, info: PtyExitInfo): void {
     record.exit = info
+    // A dead process is not a silent one — its exit event says everything.
+    this.clearIdleHint(record)
     if (record.stopping) return
     if (record.orchestrator) return
     if (this.events.isClosed) return
@@ -645,6 +727,7 @@ export class Workspace implements AgentHost {
   private terminate(record: AgentRecord): void {
     record.stopping = true
     record.stopped = true
+    this.clearIdleHint(record)
     record.pty.kill()
     for (const off of record.unsubscribe) off()
     record.unsubscribe = []

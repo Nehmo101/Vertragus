@@ -1,0 +1,205 @@
+name: Release
+
+# Every green build of `main` publishes a prerelease on the `main` update
+# channel; a tag publishes a normal release on `latest`. An installed Vertragus
+# follows exactly one of the two — see `updateChannel` in the settings and
+# `applyChannel` in src/main/updater.ts.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Serialize per ref instead of cancelling: an aborted publish can leave a
+# half-uploaded release behind, and the newest main build should also be the
+# last prerelease that appears.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # The release shell is created once, centrally, before any build publishes.
+  # electron-builder otherwise creates a GitHub publisher per target; two of
+  # them racing in "release doesn't exist" makes the loser get a 422
+  # already_exists and kills its job. If the shell exists, each publisher only
+  # has to find it.
+  prepare:
+    name: prepare release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.main-version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine main-channel version
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        id: main-version
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pkg = require('./package.json')
+            const [major, minor, rawPatch] = pkg.version.split('.')
+            const patch = Number(rawPatch.split('-')[0]) + Number(process.env.GITHUB_RUN_NUMBER)
+            const attempt = process.env.GITHUB_RUN_ATTEMPT || '1'
+            const shortSha = context.sha.slice(0, 7)
+            core.setOutput('version', `${major}.${minor}.${patch}-main.${attempt}.g${shortSha}`)
+
+      # Always a draft first: the release only becomes visible once every
+      # platform has uploaded (job `publish`). Otherwise the `main` updater
+      # would point at a release without that platform's channel file.
+      - name: Create draft release shell
+        if: github.event_name == 'push'
+        uses: actions/github-script@v7
+        env:
+          MAIN_VERSION: ${{ steps.main-version.outputs.version }}
+        with:
+          script: |
+            const version = process.env.MAIN_VERSION || require('./package.json').version
+            const tag = `v${version}`
+            const { owner, repo } = context.repo
+            const { data: releases } = await github.rest.repos.listReleases({ owner, repo, per_page: 100 })
+            if (releases.some((release) => release.tag_name === tag)) {
+              core.info(`Release ${tag} existiert bereits — nichts anzulegen.`)
+              return
+            }
+            try {
+              await github.rest.repos.createRelease({
+                owner,
+                repo,
+                tag_name: tag,
+                name: version,
+                target_commitish: context.sha,
+                draft: true,
+                prerelease: Boolean(process.env.MAIN_VERSION)
+              })
+              core.info(`Entwurfs-Release ${tag} angelegt.`)
+            } catch (error) {
+              if (error.status !== 422) throw error
+              core.info(`Release ${tag} wurde parallel angelegt — weiter.`)
+            }
+
+  release:
+    name: build installers (${{ matrix.os }})
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.13'
+          cache: pnpm
+
+      - name: Cache Electron binaries
+        if: runner.os == 'Linux'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: electron-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Cache Electron binaries
+        if: runner.os == 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~\AppData\Local\electron\Cache
+            ~\AppData\Local\electron-builder\Cache
+          key: electron-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The same gate CI runs. A build that publishes is not exempt from it.
+      - name: Verify, typecheck, test, build
+        run: pnpm run ci
+
+      # main channel: prerelease, channel file `main*.yml`.
+      - name: Package and publish main update
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: >-
+          pnpm exec electron-builder
+          --config electron-builder.main.yml
+          --config.extraMetadata.version=${{ needs.prepare.outputs.version }}
+          --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Nothing is signed yet. Windows SmartScreen will warn on first run;
+          # that is a known, accepted cost until a certificate exists.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      # stable channel: a tagged, non-prerelease build, channel file `latest*.yml`.
+      - name: Package and publish tagged release
+        if: startsWith(github.ref, 'refs/tags/')
+        run: pnpm exec electron-builder --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Package installers for a manual run
+        if: github.event_name == 'workflow_dispatch'
+        run: pnpm exec electron-builder --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Upload installer artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vertragus-${{ matrix.os }}
+          path: |
+            release/**/*.exe
+            release/**/*.AppImage
+            release/**/*.deb
+            release/**/*.yml
+            release/**/*.blockmap
+          if-no-files-found: error
+
+  # Only once every platform has put its artifacts into the draft does it become
+  # a visible prerelease. If one platform fails, the draft stays unpublished and
+  # the `main` updater keeps seeing the last complete state instead of a release
+  # that is missing a channel file.
+  #
+  # Tag releases stay drafts on purpose — a human publishes those.
+  publish:
+    name: publish main prerelease
+    needs: [prepare, release]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/github-script@v7
+        env:
+          MAIN_VERSION: ${{ needs.prepare.outputs.version }}
+        with:
+          script: |
+            const tag = `v${process.env.MAIN_VERSION}`
+            const { owner, repo } = context.repo
+            const { data: releases } = await github.rest.repos.listReleases({ owner, repo, per_page: 100 })
+            const release = releases.find((candidate) => candidate.tag_name === tag)
+            if (release == null) {
+              core.setFailed(`Release ${tag} nicht gefunden.`)
+              return
+            }
+            if (!release.draft) {
+              core.info(`Release ${tag} ist bereits veröffentlicht.`)
+              return
+            }
+            await github.rest.repos.updateRelease({
+              owner,
+              repo,
+              release_id: release.id,
+              draft: false,
+              prerelease: true
+            })
+            core.info(`Prerelease ${tag} veröffentlicht.`)

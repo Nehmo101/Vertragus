@@ -1,0 +1,72 @@
+# Packaging for Vertragus.
+#
+# `appId` matches the `setAppUserModelId` call in src/main/index.ts — Windows
+# groups taskbar entries and toast notifications by that id, and a mismatch
+# gives an installed app a second, nameless taskbar slot.
+#
+# The update channel lives in electron-builder.main.yml, which extends this
+# file: a green main build publishes to the `main` channel (prerelease), a tag
+# publishes to `latest`. See src/main/updater.ts for the reading side.
+appId: org.nehmo.vertragus
+productName: Vertragus
+copyright: © Nehmo101
+
+publish:
+  provider: github
+  owner: Nehmo101
+  repo: Vertragus
+
+directories:
+  buildResources: build
+  output: release/${version}
+
+files:
+  - out/**/*
+  - package.json
+
+asarUnpack:
+  # node-pty ships a native binding and a helper .exe; both must be real files
+  # on disk, not asar entries, or spawning an agent fails at runtime.
+  - '**/node_modules/@lydell/node-pty*/**'
+
+win:
+  icon: build/icon.ico
+  target:
+    - nsis
+  artifactName: ${productName}-${version}-setup.${ext}
+
+nsis:
+  # Per-user by design: Vertragus needs no elevation, and an installer that asks
+  # for admin rights on every update is an update people stop installing.
+  oneClick: false
+  perMachine: false
+  allowElevation: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Vertragus
+
+mac:
+  icon: build/icon.icns
+  category: public.app-category.developer-tools
+  # @lydell/node-pty ships prebuilt per-arch packages whose darwin binaries are
+  # byte-identical across x64 and arm64; @electron/universal rejects that unless
+  # the pattern is declared here. The package picks its sub-binary at runtime.
+  x64ArchFiles: '**/{@lydell,@koromix}/**'
+  target:
+    - target: dmg
+      arch:
+        - universal
+    - target: zip
+      arch:
+        - universal
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+linux:
+  icon: build/icons
+  target:
+    - AppImage
+    - deb
+  category: Development
+  maintainer: Nehmo101
+  artifactName: ${productName}-${version}.${ext}

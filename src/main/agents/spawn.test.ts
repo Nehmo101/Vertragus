@@ -1,12 +1,17 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   buildClaudeOrchestratorArgs,
   buildClaudeSubagentArgs,
+  buildCodexOrchestratorArgs,
+  buildCodexSubagentArgs,
+  buildKimiOrchestratorArgs,
+  buildKimiSubagentArgs,
   orchestratorAllowedTools
 } from '@main/mcp/attach'
+import { ORCHESTRATOR_TOOL_NAMES } from '@main/mcp/toolsOrchestrator'
 import { providerPreset, providerPresets } from '@main/providers/presets'
 import { providerConfigSchema, type ProviderConfig } from '@shared/schema/provider'
 import {
@@ -21,9 +26,15 @@ import type { PtySpawnOptions } from './PtyAgent'
 import type { ResolveLaunchOptions } from './resolveCommand'
 
 let configDir: string
+/** A real directory: the Kimi attach path writes into the agent's cwd. */
+let cwd: string
 
 beforeAll(() => {
   configDir = mkdtempSync(join(tmpdir(), 'vertragus-spawn-'))
+})
+
+beforeEach(() => {
+  cwd = mkdtempSync(join(tmpdir(), 'vertragus-spawn-cwd-'))
 })
 
 afterAll(() => {
@@ -48,9 +59,12 @@ function launchInput(overrides: Partial<AgentLaunchInput> = {}): AgentLaunchInpu
   }
 }
 
-/** Replace the transient config path so expectations stay machine-independent. */
+/** Replace transient file paths so expectations stay machine-independent. */
 function normalize(argv: string[]): string[] {
-  return argv.map((arg) => (arg.startsWith(configDir) ? '<mcp-config.json>' : arg))
+  return argv.map((arg) => {
+    if (!arg.startsWith(configDir)) return arg
+    return arg.endsWith('.agent.md') ? '<agent-file.md>' : '<mcp-config.json>'
+  })
 }
 
 describe('buildAgentArgv — per preset', () => {
@@ -131,11 +145,107 @@ describe('buildAgentArgv — per preset', () => {
     expect(ptySystemPrompt).toBe('You are a Worker.')
   })
 
-  it('refuses Codex and Kimi with an explicit M5 error instead of a broken launch', () => {
-    expect(() => buildAgentArgv(launchInput({ provider: preset('codex'), model: 'gpt-5.6' })))
-      .toThrowError(/M5/)
-    expect(() => buildAgentArgv(launchInput({ provider: preset('kimi'), model: 'k2' })))
-      .toThrowError(/M5/)
+  it('composes a Codex subagent: effort and attach are both -c overrides', () => {
+    const { argv, ptySystemPrompt } = buildAgentArgv(
+      launchInput({
+        provider: preset('codex'),
+        model: 'gpt-5.6',
+        effort: 'high',
+        yolo: true,
+        systemPrompt: 'You are a Worker.'
+      })
+    )
+
+    expect(argv).toEqual([
+      '--model',
+      'gpt-5.6',
+      '-c',
+      'model_reasoning_effort="high"',
+      '--dangerously-bypass-approvals-and-sandbox',
+      '-c',
+      `mcp_servers.vertragus.url="${launchInput().mcpUrl}"`,
+      '-c',
+      'mcp_servers.vertragus.required=true',
+      '-c',
+      'mcp_servers.vertragus.default_tools_approval_mode="approve"',
+      '-c',
+      'developer_instructions="You are a Worker."'
+    ])
+    // Codex takes its prompt at launch; nothing is left for the terminal.
+    expect(ptySystemPrompt).toBeUndefined()
+  })
+
+  it('composes a Codex orchestrator: enabled_tools instead of yolo', () => {
+    const { argv } = buildAgentArgv(
+      launchInput({
+        provider: preset('codex'),
+        kind: 'orchestrator',
+        yolo: true,
+        systemPrompt: 'You orchestrate.'
+      })
+    )
+
+    expect(argv).toEqual([
+      '-c',
+      `mcp_servers.vertragus.url="${launchInput().mcpUrl}"`,
+      '-c',
+      'mcp_servers.vertragus.required=true',
+      '-c',
+      'mcp_servers.vertragus.default_tools_approval_mode="approve"',
+      '-c',
+      `mcp_servers.vertragus.enabled_tools=${JSON.stringify([...ORCHESTRATOR_TOOL_NAMES])}`,
+      '-c',
+      'developer_instructions="You orchestrate."'
+    ])
+    expect(argv).not.toContain('--dangerously-bypass-approvals-and-sandbox')
+  })
+
+  it('composes a Kimi subagent: a file in the cwd, a file for the prompt', () => {
+    const { argv, ptySystemPrompt } = buildAgentArgv(
+      launchInput({
+        provider: preset('kimi'),
+        model: 'kimi-code/k3',
+        yolo: true,
+        cwd,
+        systemPrompt: 'You are a Worker.'
+      })
+    )
+
+    expect(normalize(argv)).toEqual([
+      '--model',
+      'kimi-code/k3',
+      '--yolo',
+      '--agent-file',
+      '<agent-file.md>'
+    ])
+    expect(ptySystemPrompt).toBeUndefined()
+
+    // The attachment itself carries no flag — it is this file, and it names
+    // THIS agent's URL.
+    const written = JSON.parse(readFileSync(join(cwd, '.kimi-code', 'mcp.json'), 'utf8')) as {
+      mcpServers: Record<string, { url: string; enabledTools?: string[] }>
+    }
+    expect(written.mcpServers.vertragus!.url).toContain('agent=a1')
+    expect(written.mcpServers.vertragus!.enabledTools).toBeUndefined()
+  })
+
+  it('composes a Kimi orchestrator: scoped tools, no yolo', () => {
+    const { argv } = buildAgentArgv(
+      launchInput({
+        provider: preset('kimi'),
+        kind: 'orchestrator',
+        yolo: true,
+        cwd,
+        systemPrompt: 'You orchestrate.'
+      })
+    )
+
+    expect(normalize(argv)).toEqual(['--agent-file', '<agent-file.md>'])
+    expect(argv).not.toContain('--yolo')
+    const written = JSON.parse(readFileSync(join(cwd, '.kimi-code', 'mcp.json'), 'utf8')) as {
+      mcpServers: Record<string, { enabledTools?: string[] }>
+    }
+    expect(written.mcpServers.vertragus!.enabledTools).toEqual([...ORCHESTRATOR_TOOL_NAMES])
   })
 
   it('omits model and effort args when the launch does not set them', () => {
@@ -163,22 +273,48 @@ describe('MCP attach — the regression that killed the old repo', () => {
   })
 
   it('produces exactly the args mcp/attach builds, so the two cannot drift', () => {
-    const claude = preset('claude')
-    const target = { url: 'http://127.0.0.1:4711/mcp?ws=w1', configDir, fileTag: 'drift' }
+    const url = launchInput().mcpUrl
+    const target = { url, configDir, fileTag: 'drift' }
+    const prompt = 'Delegate.'
 
-    const orchestrator = buildAgentArgv(
-      launchInput({ provider: claude, kind: 'orchestrator', fileTag: 'drift' })
-    )
-    expect(normalize(orchestrator.argv)).toEqual(
-      normalize(buildClaudeOrchestratorArgs({ ...target, url: launchInput().mcpUrl }))
-    )
+    // One row per dialect: the descriptor-driven route (buildAgentArgv) and the
+    // hand-written route in mcp/attach must stay byte-identical, or a preset
+    // edit silently produces a launch nobody tested.
+    const cases = [
+      {
+        provider: preset('claude'),
+        orchestrator: buildClaudeOrchestratorArgs({ ...target, systemPrompt: prompt }),
+        subagent: buildClaudeSubagentArgs({ ...target, systemPrompt: prompt })
+      },
+      {
+        provider: preset('codex'),
+        orchestrator: buildCodexOrchestratorArgs({ ...target, systemPrompt: prompt }),
+        subagent: buildCodexSubagentArgs({ ...target, systemPrompt: prompt })
+      },
+      {
+        provider: preset('kimi'),
+        orchestrator: buildKimiOrchestratorArgs({
+          ...target,
+          workspaceDir: cwd,
+          systemPrompt: prompt
+        }),
+        subagent: buildKimiSubagentArgs({ ...target, workspaceDir: cwd, systemPrompt: prompt })
+      }
+    ]
 
-    const subagent = buildAgentArgv(
-      launchInput({ provider: claude, kind: 'subagent', fileTag: 'drift' })
-    )
-    expect(normalize(subagent.argv)).toEqual(
-      normalize(buildClaudeSubagentArgs({ ...target, url: launchInput().mcpUrl }))
-    )
+    for (const { provider, orchestrator, subagent } of cases) {
+      for (const [kind, expected] of [
+        ['orchestrator', orchestrator],
+        ['subagent', subagent]
+      ] as const) {
+        const built = buildAgentArgv(
+          launchInput({ provider, kind, cwd, fileTag: 'drift', systemPrompt: prompt })
+        )
+        // Only the attach + prompt tail is comparable; the head is model/effort.
+        const tail = built.argv.slice(built.argv.length - expected.length)
+        expect(normalize(tail), `${provider.id} ${kind}`).toEqual(normalize(expected))
+      }
+    }
   })
 
   it('honours the flags a custom claude-json provider declares', () => {
@@ -202,14 +338,58 @@ describe('MCP attach — the regression that killed the old repo', () => {
     const { argv } = buildAgentArgv(launchInput({ provider: preset('cursor') }))
     expect(argv).toEqual([])
   })
+
+  /**
+   * The exact old-repo regression, restated per dialect: a subagent whose
+   * launch does not carry its personal URL cannot report back, and looks
+   * identical to one that is merely slow.
+   */
+  it('puts THIS agent’s server URL into every attaching subagent launch', () => {
+    for (const provider of providerPresets()) {
+      if (provider.mcp.kind === 'none') continue
+      const { argv } = buildAgentArgv(
+        launchInput({ provider, kind: 'subagent', cwd, systemPrompt: 'role' })
+      )
+      const urlSource =
+        provider.mcp.kind === 'kimi-project'
+          ? // Kimi's attachment is a file, so that is where the URL has to be.
+            readFileSync(join(cwd, '.kimi-code', 'mcp.json'), 'utf8')
+          : provider.mcp.kind === 'claude-json'
+            ? readFileSync(argv[argv.indexOf(provider.mcp.configArg) + 1]!, 'utf8')
+            : argv.join(' ')
+      expect(urlSource, `${provider.id} must carry the agent URL`).toContain('agent=a1')
+    }
+  })
+
+  it('keeps the orchestrator prompt off the terminal for every attaching preset', () => {
+    for (const provider of providerPresets()) {
+      if (provider.mcp.kind === 'none') continue
+      const { ptySystemPrompt } = buildAgentArgv(
+        launchInput({ provider, kind: 'orchestrator', cwd, systemPrompt: 'You orchestrate.' })
+      )
+      // A CLI that can be attached can also be told who it is at launch — the
+      // seed handshake is the fallback for PTY-only CLIs, not the norm.
+      expect(ptySystemPrompt, `${provider.id}`).toBeUndefined()
+    }
+  })
+
+  it('writes Kimi’s project config into the worktree, never into the shared repo', () => {
+    const worktree = mkdtempSync(join(tmpdir(), 'vertragus-spawn-wt-'))
+    try {
+      buildAgentArgv(launchInput({ provider: preset('kimi'), cwd: worktree }))
+      expect(existsSync(join(worktree, '.kimi-code', 'mcp.json'))).toBe(true)
+      expect(existsSync(join(cwd, '.kimi-code', 'mcp.json'))).toBe(false)
+    } finally {
+      rmSync(worktree, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('yolo', () => {
   it('never reaches an orchestrator, whatever the provider or the flag says', () => {
     for (const provider of providerPresets()) {
-      if (provider.mcp.kind === 'codex-overrides' || provider.mcp.kind === 'kimi-project') continue
       const { argv } = buildAgentArgv(
-        launchInput({ provider, kind: 'orchestrator', yolo: true, model: 'm' })
+        launchInput({ provider, kind: 'orchestrator', yolo: true, model: 'm', cwd })
       )
       for (const flag of provider.yoloArgs) {
         expect(argv, `${provider.id} orchestrator must not be yolo`).not.toContain(flag)

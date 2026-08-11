@@ -18,12 +18,15 @@ const getSettings = vi.fn(() => ({ hideAllHotkey: 'Control+Alt+V' }))
 vi.mock('@main/store/settings', () => ({ getSettings: () => getSettings() }))
 vi.mock('./cliWindow', () => ({ listCliWindows: () => [] }))
 vi.mock('./profileEditor', () => ({ listProfileEditorWindows: () => [] }))
+vi.mock('./providerEditor', () => ({ listProviderEditorWindows: () => [] }))
+vi.mock('./settingsWindow', () => ({ listSettingsWindows: () => [] }))
 
 import {
   createHideAllController,
   hideAllHotkeyStatus,
   registerAppHideAllShortcut,
   registerHideAllShortcut,
+  reRegisterHideAllShortcut,
   resetHideAllForTesting,
   type HideAllTarget
 } from './hideAll'
@@ -241,6 +244,43 @@ describe('the global shortcut', () => {
 
     expect(register).toHaveBeenCalledWith('Control+Alt+V', expect.any(Function))
     expect(status.registered).toBe(true)
+  })
+
+  it('re-registers a new accelerator the moment the settings window saves it', () => {
+    registerAppHideAllShortcut()
+    unregisterAll.mockClear()
+    register.mockClear()
+
+    const status = reRegisterHideAllShortcut('Control+Shift+H')
+
+    // Old one dropped first — two live registrations would both fire the toggle.
+    expect(unregisterAll).toHaveBeenCalledTimes(1)
+    expect(register).toHaveBeenCalledTimes(1)
+    expect(register).toHaveBeenCalledWith('Control+Shift+H', expect.any(Function))
+    expect(status).toEqual({ hotkey: 'Control+Shift+H', registered: true })
+    expect(hideAllHotkeyStatus()).toEqual(status)
+  })
+
+  it('reports a re-registration that the OS refused, and keeps saying so', () => {
+    registerAppHideAllShortcut()
+    register.mockImplementation(() => false)
+
+    const status = reRegisterHideAllShortcut('Control+Alt+Space')
+
+    expect(status.registered).toBe(false)
+    expect(status.error).toContain('Control+Alt+Space')
+    // The status the panel reads is the failed one, not the old success.
+    expect(hideAllHotkeyStatus()).toEqual(status)
+  })
+
+  it('turns a malformed accelerator from the settings form into a status', () => {
+    register.mockImplementation(() => {
+      throw new Error('Invalid accelerator')
+    })
+    const status = reRegisterHideAllShortcut('Strg+Ö')
+
+    expect(status.registered).toBe(false)
+    expect(status.error).toContain('Invalid accelerator')
   })
 
   it('survives an unreadable settings file', () => {

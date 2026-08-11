@@ -52,6 +52,8 @@ export const EDITOR_STRINGS = {
   unknownProfile: 'Dieses Profil gibt es nicht (mehr).',
   bridgeMissing: 'Preload-Bridge nicht verfügbar.',
   providerUnavailable: (detail: string): string => `nicht startbar — ${detail}`,
+  customProvider: '+ Eigener Provider …',
+  editProvider: 'Provider bearbeiten',
   modelsFrom: {
     live: 'live vom CLI',
     memory: 'aus dem Gedächtnis',

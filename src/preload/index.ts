@@ -97,6 +97,8 @@ const APP = {
   rolesList: 'roles:list',
   rolesSave: 'roles:save',
   providersList: 'providers:list',
+  providersSave: 'providers:save',
+  providersDelete: 'providers:delete',
   modelsDiscover: 'models:discover',
   workspacesList: 'workspaces:list',
   workspacesStart: 'workspaces:start',
@@ -104,18 +106,28 @@ const APP = {
   workspacesFocusAgent: 'workspaces:focusAgent',
   settingsGet: 'settings:get',
   settingsYolo: 'settings:yolo',
+  settingsSet: 'settings:set',
   windowsHideAll: 'windows:hideAll',
   appQuit: 'app:quit',
   dialogPickDirectory: 'dialog:pickDirectory',
   profileEditorOpen: 'profileEditor:open',
   profileEditorClose: 'profileEditor:close',
+  providerEditorOpen: 'providerEditor:open',
+  providerEditorClose: 'providerEditor:close',
+  settingsWindowOpen: 'settingsWindow:open',
+  settingsWindowClose: 'settingsWindow:close',
+  updatesGet: 'updates:get',
+  updatesCheck: 'updates:check',
+  updatesInstall: 'updates:install',
   zonesEdit: 'zones:edit',
   zonesLoad: 'zones:load',
   zonesDraft: 'zones:draft',
   zonesSave: 'zones:save',
   zonesCancel: 'zones:cancel',
   eventProfiles: 'ev:profiles',
-  eventWorkspaces: 'ev:workspaces'
+  eventProviders: 'ev:providers',
+  eventWorkspaces: 'ev:workspaces',
+  eventUpdate: 'ev:update'
 } as const
 
 /**
@@ -187,8 +199,39 @@ export interface PanelSettings {
   yoloMaster: boolean
   hideAllHotkey: string
   locale: 'de' | 'en'
+  theme: 'dark' | 'light'
+  autostart: boolean
+  updateChannel: UpdateChannel
+  /** False in a dev run — the login item would point at the Electron binary. */
+  autostartSupported: boolean
   /** Present only when the global hide-all hotkey could not be registered. */
   hideAllHotkeyError?: string
+}
+
+export type UpdateChannel = 'main' | 'stable'
+
+/** The keys the settings form may write; see WRITABLE_SETTINGS in main/appIpc. */
+export type WritableSetting = 'hideAllHotkey' | 'autostart' | 'updateChannel' | 'theme' | 'locale'
+
+export type UpdateStatus =
+  | 'disabled'
+  | 'idle'
+  | 'checking'
+  | 'up-to-date'
+  | 'available'
+  | 'downloading'
+  | 'downloaded'
+  | 'error'
+
+/** State of the self-updater (see main/updater.ts). */
+export interface UpdateState {
+  status: UpdateStatus
+  currentVersion: string
+  availableVersion?: string
+  channel: UpdateChannel
+  /** 0–100 while downloading. */
+  progress?: number
+  message?: string
 }
 
 /** One entry of the zone editor's role palette (see main/appIpc.ts). */
@@ -236,6 +279,13 @@ const app = {
   getSettings: (): Promise<PanelSettings> => ipcRenderer.invoke(APP.settingsGet),
   setYoloMaster: (enabled: boolean): Promise<PanelSettings> =>
     ipcRenderer.invoke(APP.settingsYolo, { enabled }),
+  /**
+   * Write one setting. Main applies the side effect (hotkey, login item,
+   * update channel) and answers with the whole, re-read settings object — the
+   * form never keeps its own idea of what is stored.
+   */
+  setSetting: (key: WritableSetting, value: unknown): Promise<PanelSettings> =>
+    ipcRenderer.invoke(APP.settingsSet, { key, value }),
   hideAllWindows: (): Promise<void> => ipcRenderer.invoke(APP.windowsHideAll),
   /**
    * Quit Vertragus. Resolves false when running agents made main ask and the
@@ -246,6 +296,31 @@ const app = {
     ipcRenderer.invoke(APP.dialogPickDirectory, { defaultPath }),
   openProfileEditor: (profileId?: string): Promise<void> =>
     ipcRenderer.invoke(APP.profileEditorOpen, { profileId }),
+  /**
+   * Write a provider descriptor. Saving under a preset id EDITS that built-in;
+   * the merged list that comes back is what every picker should show next.
+   */
+  saveProvider: (config: ProviderConfig): Promise<ProviderConfig[]> =>
+    ipcRenderer.invoke(APP.providersSave, config),
+  /**
+   * Drop a stored provider. For a preset id this is "reset to preset" — the
+   * built-in reappears — and for a custom one it is deletion.
+   */
+  deleteProvider: (id: string): Promise<ProviderConfig[]> =>
+    ipcRenderer.invoke(APP.providersDelete, { id }),
+  /** Open the provider editor; no id = a provider that does not exist yet. */
+  openProviderEditor: (providerId?: string): Promise<void> =>
+    ipcRenderer.invoke(APP.providerEditorOpen, { providerId }),
+  /** The panel's gear. */
+  openSettings: (): Promise<void> => ipcRenderer.invoke(APP.settingsWindowOpen),
+  /** Close the settings window; only the settings window itself may call it. */
+  closeSettings: (): void => {
+    ipcRenderer.send(APP.settingsWindowClose)
+  },
+  getUpdateState: (): Promise<UpdateState> => ipcRenderer.invoke(APP.updatesGet),
+  checkForUpdates: (): Promise<UpdateState> => ipcRenderer.invoke(APP.updatesCheck),
+  /** Restart into the downloaded update — the panel badge's click target. */
+  installUpdate: (): Promise<void> => ipcRenderer.invoke(APP.updatesInstall),
   /** Open the on-screen zone editor for a SAVED profile (one overlay/display). */
   editZones: (profileId: string): Promise<void> =>
     ipcRenderer.invoke(APP.zonesEdit, { profileId }),
@@ -253,10 +328,24 @@ const app = {
   closeProfileEditor: (): void => {
     ipcRenderer.send(APP.profileEditorClose)
   },
+  /** Close this provider editor window. */
+  closeProviderEditor: (): void => {
+    ipcRenderer.send(APP.providerEditorClose)
+  },
   onProfiles: (listener: (profiles: Profile[]) => void): (() => void) =>
     subscribe(APP.eventProfiles, listener),
+  /**
+   * The effective provider list changed — someone saved or reset a descriptor.
+   * The profile editor's picker listens so a provider created from its own
+   * "+ Eigener Provider …" entry appears without reopening the window.
+   */
+  onProviders: (listener: (providers: ProviderConfig[]) => void): (() => void) =>
+    subscribe(APP.eventProviders, listener),
   onWorkspaces: (listener: (workspaces: WorkspaceSummary[]) => void): (() => void) =>
     subscribe(APP.eventWorkspaces, listener),
+  /** Self-update state — drives the panel's "Update bereit" badge. */
+  onUpdate: (listener: (state: UpdateState) => void): (() => void) =>
+    subscribe(APP.eventUpdate, listener),
   /** Cursor enters/leaves the panel window — the panel's hover signal. */
   onPointer: (listener: (event: PanelPointerEvent) => void): (() => void) =>
     subscribe(PANEL_POINTER, listener)

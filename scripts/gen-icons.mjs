@@ -156,11 +156,10 @@ export async function generateIcons({
   writeFileSync(resolveSafePath(build, 'icon.icns'), createIcns(pngs, icnsSizes))
   writeFileSync(faviconPath, pngForSize(pngs, 512))
 
-  const mobileIconSvg = resolveSafePath(root, 'apps/mobile/public/icon.svg')
-  mkdirSync(dirname(mobileIconSvg), { recursive: true })
-  writeFileSync(mobileIconSvg, svg)
-
-  console.log('icons written: ICO, ICNS, 16-1024px Linux PNGs, 512px favicon, mobile/icon.svg')
+  // The archived repo also wrote apps/mobile/public/icon.svg here. There is no
+  // mobile app in this generation, and a script that silently creates an empty
+  // `apps/` tree is how dead directories come back.
+  console.log('icons written: ICO, ICNS, 16-1024px Linux PNGs, 512px favicon')
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

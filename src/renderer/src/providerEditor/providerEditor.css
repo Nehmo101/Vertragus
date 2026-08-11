@@ -1,0 +1,90 @@
+/*
+ * The provider editor sheet.
+ *
+ * It borrows the profile editor's glass wholesale (`profileEditor.css` is
+ * imported alongside) and adds only what a much longer form needs: banded
+ * sections so thirty fields do not read as one wall, a two-column grid for the
+ * short pairs, and the preset notice.
+ *
+ * Deliberately NOT its own visual language: two editor windows that look like
+ * two different applications is the sort of drift the panel already suffered.
+ */
+
+.pv-section {
+  padding: 12px 0 4px;
+  border-top: 1px solid var(--hairline);
+}
+
+.pv-section:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+/*
+ * The band heading and the first field label are both uppercase micro-type; set
+ * flush they read as one two-line caption. The gap is what makes the section
+ * boundary legible at a glance.
+ */
+.pv-section > .pe-section-label {
+  margin-bottom: 10px;
+}
+
+/* Short pairs — flag + template, path + json path — sit side by side. */
+.pv-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.pv-grid > * {
+  min-width: 0;
+}
+
+.pv-wide {
+  grid-column: 1 / -1;
+}
+
+/* One-per-line lists. Monospaced: these are literal command-line arguments. */
+.pv-lines {
+  min-height: 54px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+/*
+ * The preset banner. Amber rather than red — editing a built-in is a supported
+ * thing to do, the notice only says the way back exists.
+ */
+.pv-preset {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  border: 1px solid rgba(203, 163, 90, 0.28);
+  border-radius: var(--radius-control, 6px);
+  background: rgba(203, 163, 90, 0.09);
+}
+
+.pv-preset-text {
+  flex: 1 1 auto;
+  font: 400 11.5px var(--font-body);
+  color: var(--text-2);
+}
+
+.pv-preset-reset {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* Health of the CLI this descriptor names — the answer to "does it start?". */
+.pv-health {
+  margin: 0 0 12px;
+  font: 400 11.5px var(--font-body);
+  color: var(--text-2);
+}
+
+.pv-health.is-bad {
+  color: var(--danger, #d08a7a);
+}

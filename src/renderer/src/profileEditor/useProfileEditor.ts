@@ -92,20 +92,28 @@ export function useProfileEditor(profileId?: string): ProfileEditorState {
   useEffect(() => {
     if (!bridge) return
     let alive = true
-    bridge.listProviders().then(
-      (entries) => {
-        if (!alive) return
-        setProviders(entries)
-        setProvidersLoading(false)
-      },
-      (cause) => {
-        if (!alive) return
-        setProvidersLoading(false)
-        setErrors((current) => ({ ...current, form: errorText(cause) }))
-      }
-    )
+    const load = (): void => {
+      bridge.listProviders().then(
+        (entries) => {
+          if (!alive) return
+          setProviders(entries)
+          setProvidersLoading(false)
+        },
+        (cause) => {
+          if (!alive) return
+          setProvidersLoading(false)
+          setErrors((current) => ({ ...current, form: errorText(cause) }))
+        }
+      )
+    }
+    load()
+    // A provider created from THIS window's "+ Eigener Provider …" entry has to
+    // show up in the very dropdown it was created from; re-listing (instead of
+    // taking the pushed configs) is what also refreshes its health probe.
+    const off = bridge.onProviders?.(() => load())
     return () => {
       alive = false
+      off?.()
     }
   }, [bridge])
 

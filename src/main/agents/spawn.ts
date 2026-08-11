@@ -21,12 +21,28 @@
  *
  * `buildAgentArgv` is the pure, snapshot-testable core; `buildAgentLaunch` adds
  * command resolution; `spawnAgent` adds the process.
+ *
+ * **What a launch leaves on disk.** Nothing is deleted afterwards, on purpose:
+ * a CLI re-reads these files whenever it restarts, and removing them under a
+ * live agent is worse than a stray file.
+ *
+ * - `<configDir>/vertragus-mcp/<fileTag>.json` — Claude's transient MCP config.
+ * - `<configDir>/vertragus-mcp/<fileTag>.agent.md` — Kimi's agent profile.
+ *   `configDir` is Electron's `userData`, so both live outside the repository.
+ * - `<cwd>/.kimi-code/mcp.json` — Kimi's MCP attachment. This one is IN THE
+ *   AGENT'S WORKING DIRECTORY (the worktree, or the repository itself for the
+ *   orchestrator) because that is the only place Kimi looks. It is the single
+ *   artefact a Vertragus launch writes into user territory.
+ * - Codex writes nothing at all: every setting is a process-local `-c` override.
  */
 import {
-  orchestratorAllowedTools,
-  writeClaudeMcpConfigFile,
   buildCodexMcpArgs,
-  buildKimiMcpArgs
+  codexDeveloperInstructionsArgs,
+  orchestratorAllowedTools,
+  orchestratorMcpTools,
+  writeClaudeMcpConfigFile,
+  writeKimiAgentFile,
+  writeKimiProjectMcpConfig
 } from '@main/mcp/attach'
 import {
   buildEffortArgs,
@@ -96,10 +112,6 @@ export interface ResolvedLaunch extends AgentArgv {
   cwd: string
 }
 
-function m5(feature: string): Error {
-  return new Error(`${feature} lands in M5 (provider breadth)`)
-}
-
 /**
  * MCP attach arguments for one agent.
  *
@@ -126,18 +138,25 @@ export function buildMcpArgs(input: AgentLaunchInput): string[] {
       return args
     }
     case 'codex-overrides':
+      // Codex takes no config file: the whole attachment is `-c` overrides.
+      // The orchestrator's allowlist is SERVER-scoped here (`enabled_tools`),
+      // so Claude's read-only built-ins have no place in it.
       return buildCodexMcpArgs({
         url: input.mcpUrl,
         configDir: input.configDir,
-        fileTag: input.fileTag
+        fileTag: input.fileTag,
+        ...(input.kind === 'orchestrator' ? { allowedTools: orchestratorMcpTools() } : {})
       })
     case 'kimi-project':
-      return buildKimiMcpArgs({
-        url: input.mcpUrl,
-        configDir: input.configDir,
-        fileTag: input.fileTag,
-        workspaceDir: input.cwd
-      })
+      // Kimi has no flag either — the attachment is a file in the agent's own
+      // working directory, so this contributes nothing to the argv. It is
+      // still a spawn-time decision: no file, no reachable orchestrator.
+      writeKimiProjectMcpConfig(
+        input.mcpUrl,
+        input.cwd,
+        input.kind === 'orchestrator' ? orchestratorMcpTools() : undefined
+      )
+      return []
     case 'none':
       return []
   }
@@ -158,9 +177,15 @@ export function buildSystemPromptArgs(input: AgentLaunchInput): AgentArgv {
     case 'pty':
       return { argv: [], ptySystemPrompt: prompt }
     case 'agent-file':
-      throw m5('Agent-file system prompts (Kimi)')
+      // Kimi: a markdown agent profile whose body REPLACES the default system
+      // prompt. The flag comes from the descriptor, the file format from
+      // `mcp/attach` — Kimi's parser rejects a profile without kebab-case
+      // frontmatter, so it is not a place for an ad-hoc write.
+      return { argv: [delivery.flag, writeKimiAgentFile(prompt, input.configDir, input.fileTag)] }
     case 'codex-config':
-      throw m5('Codex developer-instruction system prompts')
+      // Codex has no system-prompt flag; the prompt is a process-local config
+      // override like everything else it takes.
+      return { argv: codexDeveloperInstructionsArgs(prompt) }
   }
 }
 
