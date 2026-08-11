@@ -1,0 +1,58 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: calc(100% - 12px);
+  margin: 6px;
+  border-radius: var(--radius-panel);
+  background: linear-gradient(180deg, var(--glass-top), var(--glass-bottom));
+  border: 1px solid var(--hairline);
+  box-shadow: var(--shadow-panel);
+  backdrop-filter: blur(16px) saturate(1.15);
+  -webkit-app-region: drag;
+}
+
+.panel button,
+.panel input,
+.panel select {
+  -webkit-app-region: no-drag;
+}
+
+.panel-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 16px 18px 12px;
+}
+
+.panel-wordmark {
+  font: 400 16px var(--font-heading);
+  letter-spacing: 0.14em;
+  color: var(--text);
+}
+
+.panel-divider {
+  height: 1px;
+  margin: 0 18px;
+  background: linear-gradient(90deg, rgba(203, 163, 90, 0.28), rgba(234, 230, 219, 0.05));
+}
+
+.panel-section {
+  padding: 12px 18px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.panel-label {
+  margin: 0;
+  font: 600 10px var(--font-body);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.panel-empty {
+  margin: 0;
+  font: 400 12.5px var(--font-body);
+  color: var(--text-2);
+}

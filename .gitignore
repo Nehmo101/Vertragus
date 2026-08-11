@@ -1,0 +1,11 @@
+node_modules/
+out/
+dist/
+release/
+coverage/
+*.tsbuildinfo
+.DS_Store
+
+# Vertragus runtime artifacts (never commit agent work products)
+.vertragus/
+.vertragus-runtime/

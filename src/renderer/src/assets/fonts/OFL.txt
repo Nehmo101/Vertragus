@@ -1,0 +1,9 @@
+Copyright (c) 2022, The Caprasimo Project Authors (https://github.com/googlefonts/caprasimo)
+Copyright (c) 2022, The Figtree Project Authors (https://github.com/erikdkennedy/figtree)
+Copyright (c) 2020, The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono)
+
+These fonts are licensed under the SIL Open Font License, Version 1.1.
+See https://scripts.sil.org/OFL
+
+Files in this directory were downloaded from Google Fonts (fonts.gstatic.com)
+for self-hosting in the Vertragus Electron renderer.
