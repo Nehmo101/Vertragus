@@ -99,16 +99,24 @@ describe('createWorktree', () => {
       if (args[0] === 'rev-parse') throw new Error('no such ref')
       return { stdout: '', stderr: '' }
     })
-    await createWorktree('/repo', 'agent-three', 'vertragus/a/b', { git })
+    // A real tmp path: createWorktree mkdirs the parent even with an injected
+    // git runner, and an absolute '/repo' lands in the filesystem root on
+    // POSIX CI runners (EACCES).
+    const fakeRepo = mkdtempSync(join(tmpdir(), 'vg-shellstring-'))
+    try {
+      await createWorktree(fakeRepo, 'agent-three', 'vertragus/a/b', { git })
 
-    const addCall = git.mock.calls.find((call) => call[0][1] === 'add')
-    expect(addCall?.[0]).toEqual([
-      'worktree',
-      'add',
-      join('/repo', WORKTREE_ROOT, 'agent-three'),
-      '-b',
-      'vertragus/a/b'
-    ])
+      const addCall = git.mock.calls.find((call) => call[0][1] === 'add')
+      expect(addCall?.[0]).toEqual([
+        'worktree',
+        'add',
+        join(fakeRepo, WORKTREE_ROOT, 'agent-three'),
+        '-b',
+        'vertragus/a/b'
+      ])
+    } finally {
+      rmSync(fakeRepo, { recursive: true, force: true })
+    }
   })
 })
 
