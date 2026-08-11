@@ -4,7 +4,7 @@ import {
   loreTipPlacement,
   LORE_TIP_OPEN_DELAY_MS,
   type LoreTipPlacement
-} from './loreTip'
+} from './loreTipPlacement'
 import './loreTip.css'
 
 interface Props {

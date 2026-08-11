@@ -7,7 +7,7 @@ import {
   LORE_TIP_GAP,
   LORE_TIP_MARGIN,
   LORE_TIP_WIDTH
-} from './loreTip'
+} from './loreTipPlacement'
 
 /** The panel, roughly: 280 wide, a tall screen edge. */
 const PANEL = { width: 280, height: 900 }
