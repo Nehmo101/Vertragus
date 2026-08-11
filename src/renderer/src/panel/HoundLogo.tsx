@@ -1,26 +1,30 @@
 /**
  * Vertragus brand mark — the sprinting sighthound ("Fusione") in the active
  * token palette. Geometry from assets/fusioneMark.ts (sync with build/icon.svg).
+ *
+ * Drei Auslegungen desselben Zeichens:
+ *   badge   — Kachel mit Rahmen (Titelleiste, App-Icon), Urfassungs-Maßstab
+ *   compact — ≤ 48 px: breiteres Fenster, kein Rahmen, eine kräftige Tempospur
+ *   hero    — ohne Rahmen, randfüllend im Quadrat
+ * Die Kompakt-Auslegung existiert, weil das Zeichen 4,2 : 1 breit ist: im
+ * Quadrat bliebe bei 30 px nur ein bronzener Strich übrig.
  */
 import {
-  FUSIONE_EAR,
-  FUSIONE_EAR_INNER,
+  FUSIONE_COMPACT,
   FUSIONE_EYE,
-  FUSIONE_HIGHLIGHT,
+  FUSIONE_HERO_OFFSET,
   FUSIONE_MARK_OFFSET,
   FUSIONE_MARK_SCALE,
-  FUSIONE_PAW,
   FUSIONE_SILHOUETTE,
   FUSIONE_SLITS,
-  FUSIONE_SPEED_LINES,
-  FUSIONE_TAIL
+  FUSIONE_SPEED_LINES
 } from '@renderer/assets/fusioneMark'
 
 interface Props {
   size?: number
   /** Draw the rounded-square badge behind the mark (title bar / icon). */
   badge?: boolean
-  /** Empty-hero scale — no badge, stronger stroke for 80–96px. */
+  /** Empty-hero scale — no badge, mark fills the square. */
   hero?: boolean
 }
 
@@ -28,42 +32,36 @@ let uid = 0
 
 export default function HoundLogo({ size = 28, badge = true, hero = false }: Props): JSX.Element {
   const id = `hound${uid++}`
-  const showBadge = hero ? false : badge
-  const compact = !hero && size <= 52
-  const strokeWidth = hero ? 0.58 : compact ? 0.54 : 0.44
-  const markScale = hero
-    ? FUSIONE_MARK_SCALE.hero
-    : compact
-      ? FUSIONE_MARK_SCALE.compact
-      : FUSIONE_MARK_SCALE.default
+  const compact = !hero && size <= FUSIONE_COMPACT.maxSize
+  const showBadge = badge && !hero && !compact
+
+  const placement = compact
+    ? { offset: FUSIONE_COMPACT.offset, scale: FUSIONE_MARK_SCALE.compact }
+    : hero
+      ? { offset: FUSIONE_HERO_OFFSET, scale: FUSIONE_MARK_SCALE.hero }
+      : { offset: FUSIONE_MARK_OFFSET, scale: FUSIONE_MARK_SCALE.default }
+
+  const viewBox = compact ? FUSIONE_COMPACT.viewBox : '0 0 120 120'
+  const width = compact ? Math.round(size * FUSIONE_COMPACT.aspect) : size
+  const lines = compact ? FUSIONE_COMPACT.lines : FUSIONE_SPEED_LINES
   const markClass = hero
     ? 'hound-logo-mark hound-logo-mark--hero'
     : compact
       ? 'hound-logo-mark hound-logo-mark--compact'
       : 'hound-logo-mark'
-  const lineBoost = hero ? 0.14 : compact ? 0.1 : 0
-  const eyeBoost = hero ? 0.08 : compact ? 0.1 : 0
 
   return (
     <svg
-      width={size}
+      width={width}
       height={size}
-      viewBox="0 0 120 120"
+      viewBox={viewBox}
       aria-hidden="true"
       className={markClass}
       shapeRendering="geometricPrecision"
     >
       <defs>
-        <linearGradient id={`${id}-bronze`} x1="0.12" y1="0.04" x2="0.88" y2="0.96">
-          <stop offset="0" stopColor="var(--accent-strong, var(--accent))" />
-          <stop offset="0.48" stopColor="var(--accent)" />
-          <stop offset="1" stopColor="color-mix(in srgb, var(--accent) 68%, var(--text) 32%)" />
-        </linearGradient>
-        <linearGradient id={`${id}-sheen`} x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0" stopColor="color-mix(in srgb, var(--accent) 0%, transparent)" />
-          <stop offset="0.45" stopColor="color-mix(in srgb, var(--accent) 35%, transparent)" />
-          <stop offset="1" stopColor="color-mix(in srgb, var(--accent) 0%, transparent)" />
-        </linearGradient>
+        {/* Luminanz-Maske: hell = sichtbar, schwarz = Schlitz. Bewusst
+            literale #fff/#000 — das sind keine Theme-Farben. */}
         <mask id={`${id}-slits`} maskUnits="userSpaceOnUse" x="-24" y="0" width="160" height="64">
           <rect x="-24" y="0" width="160" height="64" fill="#fff" />
           {FUSIONE_SLITS.map((slit) => (
@@ -75,7 +73,6 @@ export default function HoundLogo({ size = 28, badge = true, hero = false }: Pro
               y2={slit.y2}
               stroke="#000"
               strokeWidth={slit.w}
-              strokeLinecap="round"
             />
           ))}
         </mask>
@@ -92,55 +89,36 @@ export default function HoundLogo({ size = 28, badge = true, hero = false }: Pro
           strokeWidth="2"
         />
       )}
-      <g transform={`translate(${FUSIONE_MARK_OFFSET.x} ${FUSIONE_MARK_OFFSET.y}) scale(${markScale})`}>
+      <g transform={`translate(${placement.offset.x} ${placement.offset.y}) scale(${placement.scale})`}>
         <g className="hound-lines" stroke="var(--sage)" strokeLinecap="round" fill="none">
-          {FUSIONE_SPEED_LINES.map((line) => (
+          {lines.map((line) => (
             <line
               key={`${line.y1}-${line.x2}`}
               x1={line.x1}
               y1={line.y1}
               x2={line.x2}
               y2={line.y2}
-              strokeWidth={line.w + lineBoost}
+              strokeWidth={line.w}
             />
           ))}
         </g>
         <path
-          d={FUSIONE_TAIL}
-          fill="none"
-          stroke="var(--sage)"
-          strokeWidth={(hero ? 1.35 : 1.2) + lineBoost}
-          strokeLinecap="round"
-          opacity="0.88"
-        />
-        <path
           d={FUSIONE_SILHOUETTE}
-          fill={`url(#${id}-bronze)`}
-          stroke="var(--accent-line)"
-          strokeWidth={strokeWidth}
+          fill="var(--accent)"
+          // Kompakt: gleichfarbige Kontur, sonst fallen Läufe und Rute unter
+          // die Pixelgröße und der Hund franst zu einem Schatten aus.
+          stroke={compact ? 'var(--accent)' : undefined}
+          strokeWidth={compact ? FUSIONE_COMPACT.outline : undefined}
           strokeLinejoin="round"
           strokeLinecap="round"
-          paintOrder="stroke fill"
-          mask={`url(#${id}-slits)`}
+          mask={compact ? undefined : `url(#${id}-slits)`}
         />
-        <path
-          d={FUSIONE_HIGHLIGHT}
-          fill="none"
-          stroke={`url(#${id}-sheen)`}
-          strokeWidth={hero ? 1.1 : 0.9}
-          strokeLinecap="round"
-          opacity="0.55"
-        />
-        <path d={FUSIONE_PAW} fill="color-mix(in srgb, var(--accent) 78%, var(--text) 22%)" opacity="0.85" />
-        <path d={FUSIONE_EAR} fill="color-mix(in srgb, var(--accent) 92%, var(--text) 8%)" />
-        <path d={FUSIONE_EAR_INNER} fill="color-mix(in srgb, var(--accent) 55%, var(--text) 45%)" opacity="0.7" />
         <circle
           cx={FUSIONE_EYE.cx}
           cy={FUSIONE_EYE.cy}
-          r={FUSIONE_EYE.r + eyeBoost}
+          r={compact ? FUSIONE_EYE.compactR : FUSIONE_EYE.r}
           fill="var(--bg)"
-          stroke="var(--accent-line)"
-          strokeWidth={compact ? 0.32 : 0.28}
+          opacity="0.85"
         />
       </g>
     </svg>
