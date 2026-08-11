@@ -119,6 +119,7 @@ body,
 #root {
   margin: 0;
   height: 100%;
+  overflow: hidden;
   background: transparent;
   font-family: var(--font-body);
   color: var(--text);
