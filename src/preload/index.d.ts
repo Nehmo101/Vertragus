@@ -3,6 +3,7 @@ import type { VertragusApi } from './index'
 export type {
   ModelDiscoveryResult,
   PanelAgentState,
+  PanelPointerEvent,
   PanelSettings,
   ProviderHealth,
   ProviderListEntry,

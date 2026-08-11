@@ -170,6 +170,21 @@ export const providerConfigSchema = z
     systemPromptDelivery: systemPromptDeliverySchema.default({ kind: 'pty' }),
     mcp: mcpAttachSchema.default({ kind: 'none' }),
     modelDiscovery: modelDiscoverySchema.default({ kind: 'none' }),
+    /**
+     * Ids that are ALWAYS offered, merged behind whatever discovery found.
+     *
+     * This is not a model catalogue and must never become one: the only ids
+     * that belong here are a CLI's own ROLLING aliases (`opus`, `sonnet`), which
+     * the provider resolves server-side to that family's current release. They
+     * never name a release, so they cannot go stale and cannot hide a new model.
+     *
+     * They exist because a discovery source can be truthful and still be far too
+     * narrow — `~/.claude.json` only caches the account's EXTRA options, so a
+     * machine whose `modelAccessCache` is empty ends up with a two-entry picker
+     * although the CLI happily runs every family. A seed keeps the picker
+     * usable without pretending to know which releases exist.
+     */
+    seedModels: z.array(z.string().trim().min(1).max(200)).max(MAX_ARGS).default([]),
     enabled: z.boolean().default(true)
   })
   .strict()

@@ -27,8 +27,14 @@ export const PANEL_STRINGS = {
   yoloOn: 'Yolo-Master ist AN — Subagents dürfen ohne Rückfrage handeln',
   yoloOff: 'Yolo-Master ist AUS — Subagents fragen nach',
   hideAll: 'Alles ausblenden',
+  quit: 'Vertragus beenden',
   settings: 'Einstellungen',
-  settingsSoon: 'Einstellungen — kommt in M6',
+  /**
+   * The settings button is honest instead of dead: it is clickable and says
+   * what is missing. A greyed-out gear with a "coming in M6" tooltip reads as
+   * broken — that is exactly how the second test run reported it.
+   */
+  settingsHint: 'Einstellungen kommen mit M6 — Hotkey & Co. bis dahin über die Konfig-Datei.',
   bridgeMissing: 'Preload-Bridge nicht verfügbar.',
   loading: 'lädt …'
 } as const

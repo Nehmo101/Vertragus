@@ -1,5 +1,6 @@
 import { BrowserWindow, screen } from 'electron'
 import { glassWindowOptions, loadRoute, secureWindow } from './base'
+import { attachPanelHoverTracking } from './panelHover'
 
 export const PANEL_WIDTH = 280
 export const PANEL_MAX_HEIGHT = 680
@@ -47,6 +48,9 @@ export function createPanelWindow(): BrowserWindow {
   win.setAlwaysOnTop(true, 'floating')
   secureWindow(win)
   loadRoute(win, '/panel')
+  // The panel drags on its whole surface, which costs it CSS :hover on Windows;
+  // the cursor is therefore tracked from the main process. See panelHover.ts.
+  attachPanelHoverTracking(win)
   win.on('ready-to-show', () => win.show())
   win.on('closed', () => {
     panelWindow = null

@@ -18,6 +18,7 @@ import {
 } from '@shared/schema/profile'
 import type { EffortLevel } from '@shared/schema/provider'
 import { collapseModelVariants } from '@shared/models'
+import type { ModelDiscoveryResult } from '../../../preload'
 import { EDITOR_STRINGS } from './strings'
 
 /** `''` means "not set" for every optional field in the form. */
@@ -191,12 +192,77 @@ export function validateDraft(draft: ProfileDraft): ValidationResult {
 }
 
 /**
- * Datalist entries for the model combo: one row per collapsed variant, plus
+ * Suggestion entries for the model combo: one row per collapsed variant, plus
  * every dated snapshot — the CLI may only accept the exact spelling it
  * advertised, so nothing that was discovered is hidden from the user.
  */
 export function modelOptions(models: readonly string[]): string[] {
   return collapseModelVariants(models).flatMap((variant) => [variant.id, ...variant.snapshots])
+}
+
+/**
+ * Substring filter over the suggestions. Case- and punctuation-insensitive
+ * (`opus5` finds `claude-opus-5`) because the id spellings differ per provider
+ * and nobody remembers where the dashes go. An empty query shows everything —
+ * the list is a picker first and a search box second.
+ */
+export function filterModelOptions(options: readonly string[], query: string): string[] {
+  const needle = query.trim().toLowerCase().replace(/[-._:/\s]/g, '')
+  if (!needle) return [...options]
+  return options.filter((option) =>
+    option.toLowerCase().replace(/[-._:/\s]/g, '').includes(needle)
+  )
+}
+
+export type ModelStatusTone = 'loading' | 'ok' | 'warn'
+
+export interface ModelComboStatus {
+  tone: ModelStatusTone
+  /** One short line under the field. */
+  text: string
+  /** The same, plus whatever failed — the `title` of the field. */
+  title: string
+}
+
+/**
+ * What the combo says about its own list.
+ *
+ * The picker is never a closed list, so an empty catalogue is legal — but it
+ * must SAY so, and say why. "Kann kein Modell auswählen" was the user report
+ * for a discovery that had simply not answered yet, and for one whose CLI is a
+ * shim that failed to start: both looked identical (an empty text field).
+ */
+export function modelComboStatus(
+  catalogue: ModelDiscoveryResult | undefined,
+  loading: boolean
+): ModelComboStatus {
+  const strings = EDITOR_STRINGS
+  if (!catalogue) {
+    return loading
+      ? { tone: 'loading', text: strings.modelsLoading, title: strings.modelsLoading }
+      : { tone: 'warn', text: strings.modelsEmpty, title: strings.modelsEmpty }
+  }
+
+  const detail = catalogue.detail ? strings.modelsSource(catalogue.detail) : ''
+  const withDetail = (text: string): ModelComboStatus['title'] =>
+    detail ? `${text} · ${detail}` : text
+
+  if (catalogue.models.length === 0) {
+    // The reason belongs on screen, not only in a tooltip: "kann kein Modell
+    // auswählen" is unanswerable without the command that failed.
+    return { tone: 'warn', text: withDetail(strings.modelsEmpty), title: withDetail(strings.modelsEmpty) }
+  }
+  const summary = `${strings.modelsCount(catalogue.models.length)} · ${
+    strings.modelsFrom[catalogue.source]
+  }`
+  // A seeded-only list means the CLI itself said nothing — worth a warning
+  // colour, because it is the state where a freshly released model is missing.
+  const warn = catalogue.source === 'seed'
+  return {
+    tone: warn ? 'warn' : 'ok',
+    text: warn ? withDetail(summary) : summary,
+    title: withDetail(summary)
+  }
 }
 
 /** Marker value of the "define your own role" entry in the role select. */

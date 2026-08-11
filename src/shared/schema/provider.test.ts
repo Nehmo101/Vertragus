@@ -26,8 +26,18 @@ describe('providerConfigSchema', () => {
       enabled: true,
       systemPromptDelivery: { kind: 'pty' },
       mcp: { kind: 'none' },
-      modelDiscovery: { kind: 'none' }
+      modelDiscovery: { kind: 'none' },
+      seedModels: []
     })
+  })
+
+  it('accepts declared seed models and trims them', () => {
+    expect(config({ seedModels: [' opus ', 'sonnet'] }).seedModels).toEqual(['opus', 'sonnet'])
+  })
+
+  it('rejects a blank seed instead of offering an unpickable empty row', () => {
+    expect(providerConfigSchema.safeParse({ ...minimal, seedModels: ['  '] }).success).toBe(false)
+    expect(providerConfigSchema.safeParse({ ...minimal, seedModels: 'opus' }).success).toBe(false)
   })
 
   it('rejects an unknown field instead of silently keeping it (strict)', () => {

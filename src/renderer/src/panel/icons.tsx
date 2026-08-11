@@ -72,6 +72,44 @@ export function EyeIcon({ size = 14 }: IconProps): React.JSX.Element {
   )
 }
 
+/** The panel head's "hide everything" mark — the same action as the eye. */
+export function MinusIcon({ size = 13 }: IconProps): React.JSX.Element {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M5 12h14" />
+    </svg>
+  )
+}
+
+/** The panel head's "quit Vertragus" mark. */
+export function CloseIcon({ size = 13 }: IconProps): React.JSX.Element {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M6 6 18 18M18 6 6 18" />
+    </svg>
+  )
+}
+
 export function FolderIcon({ size = 13 }: IconProps): React.JSX.Element {
   return (
     <svg

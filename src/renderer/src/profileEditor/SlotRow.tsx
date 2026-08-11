@@ -13,9 +13,11 @@ interface Props {
   providers: ProviderListEntry[]
   providersLoading: boolean
   models: Record<string, ModelDiscoveryResult>
+  modelsLoading: Record<string, boolean>
   errors: DraftErrors
   onChange(slot: SlotDraft): void
   onRemove(): void
+  onReloadModels(providerId: string): void
   onCreateRole(template: RoleTemplate): Promise<RoleTemplate | null>
 }
 
@@ -35,9 +37,11 @@ export function SlotRow({
   providers,
   providersLoading,
   models,
+  modelsLoading,
   errors,
   onChange,
   onRemove,
+  onReloadModels,
   onCreateRole
 }: Props): React.JSX.Element {
   const [customName, setCustomName] = useState('')
@@ -104,6 +108,10 @@ export function SlotRow({
         <ModelCombo
           value={slot.model}
           catalogue={models[slot.providerId]}
+          loading={modelsLoading[slot.providerId] ?? false}
+          onReload={() => onReloadModels(slot.providerId)}
+          // A healthy row stays one line high; only a problem earns a caption.
+          quietWhenHealthy
           onChange={(model) => onChange({ ...slot, model })}
         />
 

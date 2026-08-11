@@ -19,15 +19,34 @@
 }
 
 /*
- * Focused = being worked in. `.glass` already lifts the window to 0.97 on
- * hover; that is enough to read a scrollback and not enough to type against a
- * colourful desktop, where the wallpaper keeps showing through the glyphs. So
- * the window the OS gave focus to goes fully opaque and its terminal ground
- * gets noticeably denser, on the same 0.4s ramp as the hover reveal (and
- * disabled wholesale by the global prefers-reduced-motion rule).
+ * Hovered = being read.
+ *
+ * `.glass` lifts the element to 0.97 on hover, but the terminal GROUND stayed
+ * at alpha 0.6 — so a hovered window still showed the desktop through its own
+ * text, which is what "the windows are too transparent when I hover them" in
+ * the second test run meant. Reading needs the same dense surfaces as typing,
+ * so hover takes the focused tokens; only the element opacity keeps the two
+ * states apart (0.97 hovered, 1 focused).
+ *
+ * Both states use the same tokens, so the order below is not load-bearing —
+ * where hover and focus overlap they paint the identical colour.
+ */
+.cli:hover {
+  background: var(--glass-window-focused);
+}
+
+.cli:hover .cli-terminal {
+  background: var(--glass-terminal-focused);
+}
+
+/*
+ * Focused = being worked in. Hover above already gives the surfaces; focus adds
+ * the last step of opacity, because at 0.97 over a colourful desktop the
+ * wallpaper still shimmers through the glyphs you are typing. Same 0.4s ramp as
+ * the hover reveal (and disabled wholesale by prefers-reduced-motion).
  *
  * The class is set by the CLI windows only — see terminal/windowFocus.ts. The
- * panel keeps its two-step hover behaviour on purpose: nobody types in it.
+ * panel keeps its own two-step behaviour on purpose: nobody types in it.
  */
 :root.is-window-focused .cli {
   opacity: var(--focus-opacity);

@@ -146,6 +146,11 @@ app.whenReady().then(async () => {
   // One MCP server + one WorkspaceManager serve both the panel's play button
   // and the dev run; the dev run merely injects them instead of starting its
   // own pair.
+  //
+  // This is the ONLY registerAppIpc call in the app: the first call binds the
+  // workspace directory for good (see the guard there), so a second one
+  // anywhere else would silently decide that the panel talks to the refusing
+  // stub instead of the real manager.
   try {
     appMcp = await startMcpServer()
     appManager = createAppWorkspaceManager(appMcp)
@@ -160,6 +165,9 @@ app.whenReady().then(async () => {
   const hotkey = registerAppHideAllShortcut()
   if (!hotkey.registered) console.warn('[boot] hide-all hotkey:', hotkey.error)
 
+  // Env-gated verification hooks; no-ops in every normal run. All of them live
+  // here, next to each other — a window smoke hook hidden inside an IPC
+  // registration is how you end up calling that registration twice.
   armScreenshotHook(createPanelWindow(), 'VERTRAGUS_PANEL_SCREENSHOT')
   armProfileEditorSmoke()
   armZoneOverlaySmoke()

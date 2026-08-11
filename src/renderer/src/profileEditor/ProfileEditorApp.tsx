@@ -118,6 +118,8 @@ export function ProfileEditorApp({ profileId }: { profileId?: string }): React.J
               <ModelCombo
                 value={draft.orchestrator.model}
                 catalogue={editor.models[draft.orchestrator.providerId]}
+                loading={editor.modelsLoading[draft.orchestrator.providerId] ?? false}
+                onReload={() => editor.reloadModels(draft.orchestrator.providerId)}
                 onChange={(model) =>
                   editor.update((current) => ({
                     ...current,
@@ -156,6 +158,8 @@ export function ProfileEditorApp({ profileId }: { profileId?: string }): React.J
                   providers={editor.providers}
                   providersLoading={editor.providersLoading}
                   models={editor.models}
+                  modelsLoading={editor.modelsLoading}
+                  onReloadModels={editor.reloadModels}
                   errors={editor.errors}
                   onChange={(next) => updateSlot(index, next)}
                   onRemove={() => removeSlot(index)}

@@ -31,11 +31,47 @@
   font-family: inherit;
 }
 
+/*
+ * Hover, without hover.
+ *
+ * `-webkit-app-region: drag` above is reported to Windows as window caption, so
+ * the compositor — not Chromium — owns the pointer there and no mouse event
+ * ever reaches the DOM. Measured on the running app: `.panel:hover` is true
+ * while the cursor rests on a button (a no-drag island) and false two pixels
+ * beside it. That is the whole "the sidebar is only opaque over the
+ * orchestrator's name" report, and no CSS can fix it.
+ *
+ * So the main process measures the cursor against the window bounds and sets
+ * `is-pointer-over` on the root element (main/windows/panelHover.ts →
+ * panel/pointerOver.ts). The `.glass:hover` rule in tokens.css stays as the
+ * fallback for every platform and path where hover does arrive; this rule wins
+ * on specificity where both apply, and they agree anyway.
+ */
+:root.is-pointer-over .panel {
+  opacity: var(--reveal-opacity);
+}
+
 .panel-brand {
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 16px 18px 12px;
+  padding: 16px 12px 12px 18px;
+}
+
+.panel-brand-spacer {
+  flex: 1 1 auto;
+}
+
+/* Smaller than the footer's icon buttons: window actions, not app switches. */
+.panel-brand-button {
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+}
+
+.panel-quit:hover:not(:disabled) {
+  background: rgba(217, 115, 92, 0.22);
+  color: var(--err-text);
 }
 
 .panel-wordmark {
@@ -364,6 +400,34 @@
 .panel-error.is-clickable {
   width: calc(100% - 24px);
   cursor: pointer;
+}
+
+/*
+ * A transient note in the panel's own voice — used where a control exists but
+ * its feature does not yet (the settings gear). Bronze, not red: this is
+ * information, not a failure.
+ */
+.panel-hint {
+  margin: 0 12px 8px;
+  padding: 7px 9px;
+  border: 1px solid rgba(203, 163, 90, 0.32);
+  border-radius: var(--radius-chip);
+  background: rgba(203, 163, 90, 0.1);
+  color: var(--bronze-bright);
+  font: 500 11.5px var(--font-body);
+  text-align: left;
+  animation: vg-hint-in 0.18s ease-out;
+}
+
+@keyframes vg-hint-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 /* --- footer ------------------------------------------------------------ */

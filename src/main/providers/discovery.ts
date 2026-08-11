@@ -18,6 +18,12 @@
  * 3. A 60-day memory. A refresh that finds less than the last one (cache empty,
  *    CLI missing, offline) must not shrink the picker; remembered ids are
  *    served until they age out.
+ *
+ * On top of those, a provider may declare `seedModels` — rolling aliases that
+ * are ALWAYS offered behind the discovered ids. A discovery source can be
+ * perfectly truthful and still far too narrow (see the Claude preset), and a
+ * picker with two entries reads as broken. Seeds never name a release, so they
+ * are not the hard-coded catalogue this module exists to avoid.
  */
 import { execFile } from 'node:child_process'
 import { readFileSync } from 'node:fs'
@@ -107,13 +113,26 @@ const defaultDependencies: DiscoveryDependencies = {
   }
 }
 
-export type ModelSource = 'live' | 'memory' | 'none'
+/**
+ * Where the offered ids came from:
+ * - `live` — the provider answered and nothing had to be filled in.
+ * - `memory` — the provider said nothing; remembered ids are being served.
+ * - `seed` — only the declared rolling aliases; nothing was discovered at all.
+ * - `mixed` — discovered/remembered ids PLUS at least one seed.
+ * - `none` — nothing to offer; the field is free text only.
+ */
+export type ModelSource = 'live' | 'memory' | 'seed' | 'mixed' | 'none'
 
 export interface ModelDiscoveryResult {
   models: string[]
-  /** `live` = the provider answered, `memory` = last-seen ids, `none` = nothing. */
   source: ModelSource
   refreshedAt: number
+  /**
+   * Human-readable reason the live source produced nothing — the command or
+   * path that was tried plus the error. The picker shows this instead of
+   * leaving the user guessing why their CLI's models are missing.
+   */
+  detail?: string
 }
 
 /** Expand a leading `~` to the user's home directory. */
@@ -123,11 +142,15 @@ export function expandHome(path: string, home: string): string {
   return path
 }
 
+/**
+ * Only real ANSI colouring is removed. A trailing bracket suffix is NOT: a
+ * genuine SGR sequence is `ESC[1m` and never carries a closing bracket, while
+ * `claude-fable-5[1m]` is the CLI's own id for the 1M-context variant. The
+ * earlier "looks like leftover ANSI" strip turned exactly that id into a
+ * different (smaller-context) model behind the user's back.
+ */
 function sanitize(value: string): string {
-  return value
-    .replace(ANSI_SGR_PATTERN, '')
-    .replace(/\[[0-9;]*m\]$/g, '')
-    .trim()
+  return value.replace(ANSI_SGR_PATTERN, '').trim()
 }
 
 /** Keys a catalogue entry object may carry the model id under. */
@@ -206,8 +229,10 @@ export function parseJsonModels(raw: string, jsonPath: string | undefined): stri
 }
 
 /**
- * One model id per line. Strips bullets, drops the "Available models:" style
- * header and anything that is prose rather than an identifier.
+ * One model per line, in the `<id> - <Label>` shape `cursor-agent models`
+ * prints. Only the id (everything before the first ` - `) is kept; bullets, the
+ * "Available models" header, blank lines and the trailing prose tip are
+ * dropped because they are not identifiers.
  */
 export function parseLineModels(stdout: string): string[] {
   return uniqueModels(
@@ -325,9 +350,52 @@ function isRememberable(discovery: ModelDiscovery): boolean {
 }
 
 /**
+ * Append the declared seeds behind the ids that were actually found.
+ *
+ * Discovery hits keep their exact spelling AND their position — a seed only
+ * ever fills a gap, it never reorders or replaces what a provider reported.
+ * Deduplication runs over {@link normalizeModelKey}, so a seed does not come
+ * back as a punctuation twin of something already offered.
+ */
+export function mergeSeedModels(
+  discovered: readonly string[],
+  seeds: readonly string[]
+): { models: string[]; added: string[] } {
+  const known = new Set(discovered.map((model) => normalizeModelKey(model)))
+  const added: string[] = []
+  for (const seed of uniqueModels(seeds)) {
+    const key = normalizeModelKey(seed)
+    if (known.has(key)) continue
+    known.add(key)
+    added.push(seed)
+  }
+  return { models: [...discovered, ...added], added }
+}
+
+/** What was tried, for the "why is this list empty?" hint in the picker. */
+function describeSource(config: ProviderConfig, discovery: ModelDiscovery): string {
+  switch (discovery.kind) {
+    case 'cli':
+      return [config.command, ...discovery.args].join(' ')
+    case 'file':
+      return discovery.path
+    case 'http':
+      return discovery.url
+    case 'none':
+      return config.label
+  }
+}
+
+function errorMessage(cause: unknown): string {
+  if (cause instanceof Error && cause.message.trim()) return cause.message.trim()
+  return String(cause)
+}
+
+/**
  * Discover the model catalogue of one provider. Never throws: a missing CLI,
  * an unreadable cache or an offline service degrades to the remembered list,
- * and from there to an empty list the free-text field still works with.
+ * then to the declared seeds, and from there to an empty list the free-text
+ * field still works with. Whatever failed travels along as `detail`.
  */
 export async function discoverModels(
   config: ProviderConfig,
@@ -338,20 +406,33 @@ export async function discoverModels(
   const discovery = config.modelDiscovery
 
   let live: string[] = []
+  let detail: string | undefined
   try {
     live = await runDiscovery(config, discovery, deps)
-  } catch {
+    if (live.length === 0 && discovery.kind !== 'none') {
+      detail = `${describeSource(config, discovery)}: keine Modelle in der Antwort`
+    }
+  } catch (cause) {
     // Fail-soft by design — see the function contract.
     live = []
+    detail = `${describeSource(config, discovery)}: ${errorMessage(cause)}`
   }
   // Aliases first: they are the entries that keep tracking new releases.
   if (config.presetId === 'claude' && live.length > 0) {
     live = uniqueModels([...familyAliases(live), ...live])
   }
 
+  /** Seeds are appended last so a source that answered always wins the order. */
+  const finish = (found: readonly string[], base: ModelSource): ModelDiscoveryResult => {
+    const { models, added } = mergeSeedModels(found, config.seedModels)
+    const source: ModelSource =
+      added.length === 0 ? base : base === 'none' ? 'seed' : 'mixed'
+    return { models, source, refreshedAt: now, ...(detail ? { detail } : {}) }
+  }
+
   if (!isRememberable(discovery)) {
     const models = orderedModelList(live)
-    return { models, source: models.length > 0 ? 'live' : 'none', refreshedAt: now }
+    return finish(models, models.length > 0 ? 'live' : 'none')
   }
 
   const memory = normalizeModelMemory(await deps.readMemory())
@@ -365,6 +446,7 @@ export async function discoverModels(
     }
   }
 
-  const source: ModelSource = live.length > 0 ? 'live' : models.length > 0 ? 'memory' : 'none'
-  return { models, source, refreshedAt: now }
+  // Seeds are deliberately NOT remembered: memory records what a provider was
+  // seen to offer, and a seed is a local guarantee, not an observation.
+  return finish(models, live.length > 0 ? 'live' : models.length > 0 ? 'memory' : 'none')
 }

@@ -31,6 +31,8 @@ export interface PanelData {
   editProfile(profileId?: string): void
   toggleYolo(): void
   hideAll(): void
+  /** Quit Vertragus — main asks first when agents are still running. */
+  quitApp(): void
 }
 
 export function usePanelData(): PanelData {
@@ -104,6 +106,7 @@ export function usePanelData(): PanelData {
         const next = await api.setYoloMaster(!(settings?.yoloMaster ?? false))
         setSettings(next)
       }),
-    hideAll: () => run((api) => api.hideAllWindows())
+    hideAll: () => run((api) => api.hideAllWindows()),
+    quitApp: () => run((api) => api.quitApp())
   }
 }

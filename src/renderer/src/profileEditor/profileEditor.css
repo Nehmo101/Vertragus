@@ -412,3 +412,122 @@
   opacity: 0.6;
   cursor: default;
 }
+
+/* --- model combo -------------------------------------------------------- */
+
+/* One grid cell: field + dropdown + the line that says where the list came
+   from. The list floats, so opening it never re-flows the form. */
+.pe-combo {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.pe-combo-row {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 3px;
+}
+
+.pe-combo-row .pe-input {
+  flex: 1 1 auto;
+}
+
+.pe-combo-toggle,
+.pe-combo-reload {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-chip);
+  background: var(--glass-input);
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    color 0.18s ease,
+    border-color 0.18s ease;
+}
+
+.pe-combo-toggle:hover:not(:disabled),
+.pe-combo-reload:hover {
+  color: var(--bronze-bright);
+  border-color: rgba(203, 163, 90, 0.45);
+}
+
+.pe-combo-toggle:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.pe-combo-list {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 3px);
+  left: 0;
+  right: 0;
+  max-height: 240px;
+  margin: 0;
+  padding: 3px;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-chip);
+  background: var(--glass-bottom);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+}
+
+.pe-combo-option {
+  display: block;
+  width: 100%;
+  padding: 4px 7px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  font: 400 11.5px var(--font-mono);
+  text-align: left;
+  cursor: pointer;
+}
+
+.pe-combo-option:hover,
+.pe-combo-option:focus-visible {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.pe-combo-option.is-active {
+  color: var(--bronze-bright);
+}
+
+.pe-combo-empty {
+  padding: 4px 7px;
+  font: 400 11px var(--font-body);
+  color: var(--text-3);
+}
+
+/* Wraps to at most two lines: the reason a list is empty names a command and a
+   file path, and cutting that off at the column edge is what made the failure
+   unreadable in the first place. The full text stays in the title. */
+.pe-combo-status {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font: 400 10.5px var(--font-body);
+  line-height: 1.35;
+  color: var(--text-3);
+  overflow-wrap: anywhere;
+}
+
+.pe-combo-status.is-warn {
+  color: var(--warn-text);
+}

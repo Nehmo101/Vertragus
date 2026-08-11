@@ -37,6 +37,23 @@ describe('providerPresets', () => {
   it('probes every provider with --version', () => {
     for (const entry of providerPresets()) expect(entry.versionArgs).toEqual(['--version'])
   })
+
+  /**
+   * The one rule that keeps the pickers honest: no preset may ship a versioned
+   * model id. Only rolling aliases (no digit at all) are allowed as seeds —
+   * anything else would be the hard-coded catalogue this design exists to avoid.
+   */
+  it('seeds rolling aliases only — never a versioned model id', () => {
+    for (const entry of providerPresets()) {
+      for (const seed of entry.seedModels) expect(seed).not.toMatch(/\d/)
+    }
+  })
+
+  it('leaves every other preset seedless — their sources are wide enough', () => {
+    for (const entry of providerPresets()) {
+      if (entry.id !== 'claude') expect(entry.seedModels).toEqual([])
+    }
+  })
 })
 
 describe('claude preset', () => {
@@ -73,6 +90,17 @@ describe('claude preset', () => {
 
   it('knows the real login and status commands', () => {
     expect(claude.auth).toEqual({ loginArgs: ['auth', 'login'], statusArgs: ['auth', 'status'] })
+  })
+
+  /**
+   * The account cache holds the ADDITIONAL options only, so a machine with an
+   * empty modelAccessCache gets a one-entry picker. The seeds close that gap
+   * without becoming a catalogue: every one of them is a rolling alias the CLI
+   * resolves server-side, so none can name an outdated release.
+   */
+  it('seeds the three rolling CLI aliases — and nothing versioned', () => {
+    expect(claude.seedModels).toEqual(['opus', 'sonnet', 'haiku'])
+    for (const seed of claude.seedModels) expect(seed).toMatch(/^[a-z]+$/)
   })
 })
 

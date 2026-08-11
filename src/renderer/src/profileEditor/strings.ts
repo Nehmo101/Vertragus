@@ -55,8 +55,17 @@ export const EDITOR_STRINGS = {
   modelsFrom: {
     live: 'live vom CLI',
     memory: 'aus dem Gedächtnis',
+    seed: 'Standard-Aliase des CLI',
+    mixed: 'live + Standard-Aliase',
     none: 'keine Liste — Freitext'
   },
+  modelsLoading: 'Modelle werden geladen …',
+  modelsCount: (count: number): string => (count === 1 ? '1 Modell' : `${count} Modelle`),
+  modelsEmpty: 'Keine Modelle gefunden — Freitext möglich',
+  modelsSource: (detail: string): string => `Quelle: ${detail}`,
+  modelsOpen: 'Modelle anzeigen',
+  modelsReload: 'Modellliste neu laden',
+  modelsNoMatch: 'Kein Treffer — eingetippte Ids bleiben erlaubt.',
   errors: {
     name: 'Bitte einen Namen vergeben.',
     repoPath: 'Bitte den Repo-Ordner wählen.',

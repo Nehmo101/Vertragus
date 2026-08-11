@@ -1,29 +1,74 @@
+import { useEffect, useRef, useState } from 'react'
 import HoundLogo from './HoundLogo'
 import { PanelFooter } from './PanelFooter'
 import { ProfileRow } from './ProfileRow'
 import { WorkspaceCard } from './WorkspaceCard'
+import { CloseIcon, MinusIcon } from './icons'
+import { trackPanelPointer } from './pointerOver'
 import { PANEL_STRINGS } from './strings'
 import { usePanelData } from './usePanelData'
 import { orderWorkspaces } from './viewModel'
 import './panel.css'
 
+/** How long a transient panel hint stays on screen. */
+export const PANEL_HINT_MS = 3_000
+
 /**
  * The panel — Vertragus' primary surface.
  *
  * Three bands under one glass sheet: the brand, what you can start (profiles),
- * and what is running (workspaces with their agents). The footer holds the two
- * app-wide switches. Everything else the app can do lives in a window this
- * panel opens.
+ * and what is running (workspaces with their agents). The head carries the two
+ * app-wide window actions (hide everything, quit), the footer the two switches.
+ * Everything else the app can do lives in a window this panel opens.
  */
 export function PanelApp(): React.JSX.Element {
   const panel = usePanelData()
   const workspaces = orderWorkspaces(panel.workspaces)
+  const [hint, setHint] = useState<string | null>(null)
+  const hintTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+
+  /**
+   * Hover, measured in the main process. The whole panel is a drag region, and
+   * Windows hands those to the compositor — CSS `:hover` therefore only fires
+   * over the buttons. See pointerOver.ts / main/windows/panelHover.ts.
+   */
+  useEffect(() => {
+    if (!panel.bridge) return
+    return trackPanelPointer(document.documentElement.classList, panel.bridge)
+  }, [panel.bridge])
+
+  useEffect(() => () => clearTimeout(hintTimer.current), [])
+
+  const showHint = (text: string): void => {
+    clearTimeout(hintTimer.current)
+    setHint(text)
+    hintTimer.current = setTimeout(() => setHint(null), PANEL_HINT_MS)
+  }
 
   return (
     <aside className="panel glass">
       <header className="panel-brand">
         <HoundLogo size={30} />
         <span className="panel-wordmark">{PANEL_STRINGS.wordmark}</span>
+        <span className="panel-brand-spacer" />
+        <button
+          type="button"
+          className="panel-icon-button panel-brand-button"
+          title={PANEL_STRINGS.hideAll}
+          aria-label={PANEL_STRINGS.hideAll}
+          onClick={panel.hideAll}
+        >
+          <MinusIcon />
+        </button>
+        <button
+          type="button"
+          className="panel-icon-button panel-brand-button panel-quit"
+          title={PANEL_STRINGS.quit}
+          aria-label={PANEL_STRINGS.quit}
+          onClick={panel.quitApp}
+        >
+          <CloseIcon />
+        </button>
       </header>
       <div className="panel-divider" />
 
@@ -79,11 +124,17 @@ export function PanelApp(): React.JSX.Element {
           {panel.error}
         </button>
       ) : null}
+      {hint ? (
+        <p className="panel-hint" role="status">
+          {hint}
+        </p>
+      ) : null}
 
       <PanelFooter
         yolo={panel.settings?.yoloMaster ?? false}
         onToggleYolo={panel.toggleYolo}
         onHideAll={panel.hideAll}
+        onSettings={() => showHint(PANEL_STRINGS.settingsHint)}
         hotkeyError={panel.settings?.hideAllHotkeyError}
       />
     </aside>

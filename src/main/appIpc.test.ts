@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 /**
  * The production wiring at the bottom of appIpc.ts reaches into Electron, the
@@ -9,8 +9,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
  * modules are mocked away wholesale and never actually run here.
  */
 vi.mock('electron', () => ({
-  ipcMain: { handle: vi.fn(), on: vi.fn() },
-  dialog: { showOpenDialog: vi.fn() },
+  app: { quit: vi.fn() },
+  ipcMain: { handle: vi.fn(), on: vi.fn(), removeHandler: vi.fn(), removeAllListeners: vi.fn() },
+  dialog: { showOpenDialog: vi.fn(), showMessageBox: vi.fn() },
   BrowserWindow: { getAllWindows: () => [] }
 }))
 vi.mock('@main/store/settings', () => ({ settings: vi.fn() }))
@@ -38,10 +39,18 @@ vi.mock('@main/windows/hideAll', () => ({
   hideAllHotkeyStatus: vi.fn(() => undefined)
 }))
 
+import { ipcMain } from 'electron'
+import { isPanelWindowSender } from '@main/windows/panel'
+import { openProfileEditorWindow } from '@main/windows/profileEditor'
+import { settings } from '@main/store/settings'
 import {
   APP_CHANNELS,
   createAppIpc,
+  disposeAppIpc,
   PROVIDER_HEALTH_TTL_MS,
+  quitConfirmationText,
+  registerAppIpc,
+  runningAgentCount,
   type AppIpc,
   type AppIpcHost,
   type AppSettingsPort,
@@ -187,6 +196,11 @@ interface Harness {
   opened: (string | undefined)[]
   closed: number[]
   hidden: number
+  /** Agent counts the quit dialog was asked about, in order. */
+  quitPrompts: number[]
+  /** What the fake user answers in that dialog. */
+  confirmQuit: boolean
+  quits: number
   zoneSessions: string[]
   zonesClosed: number
   now: number
@@ -219,6 +233,9 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     opened,
     closed,
     hidden: 0,
+    quitPrompts: [] as number[],
+    confirmQuit: true,
+    quits: 0,
     zoneSessions: [] as string[],
     zonesClosed: 0,
     now: 1_000
@@ -261,6 +278,13 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     broadcast: (channel, payload) => broadcasts.push({ channel, payload }),
     hideAll: () => {
       result.hidden += 1
+    },
+    confirmQuit: async (runningAgents) => {
+      result.quitPrompts.push(runningAgents)
+      return result.confirmQuit
+    },
+    quit: () => {
+      result.quits += 1
     },
     openZoneOverlays: (profileId) => result.zoneSessions.push(profileId),
     closeZoneOverlays: () => {
@@ -468,6 +492,54 @@ describe('settings and windows', () => {
   })
 })
 
+describe('quitting the app', () => {
+  it('counts the agents a quit would kill, ignoring dead workspaces', () => {
+    expect(runningAgentCount([])).toBe(0)
+    expect(runningAgentCount([workspace('w1'), workspace('w2', false)])).toBe(1)
+
+    const busy = workspace('w3')
+    busy.agents = [
+      ...busy.agents,
+      { agentId: 'a', name: 'Arlecchino', roleId: 'worker', roleColor: '#000', state: 'waiting' },
+      { agentId: 'b', name: 'Brighella', roleId: 'worker', roleColor: '#000', state: 'stopped' }
+    ]
+    expect(runningAgentCount([busy])).toBe(2)
+  })
+
+  it('words the confirmation for one agent and for many', () => {
+    expect(quitConfirmationText(1).message).toBe('1 Agent läuft noch — Vertragus beenden?')
+    expect(quitConfirmationText(4).message).toBe('4 Agenten laufen noch — Vertragus beenden?')
+    expect(quitConfirmationText(4).detail).toBe('Alle Agenten-Prozesse werden gestoppt.')
+  })
+
+  it('asks before killing running agents and quits when confirmed', async () => {
+    await expect(h.ipc.invoke(APP_CHANNELS.appQuit, PANEL_ID)).resolves.toBe(true)
+    expect(h.quitPrompts).toEqual([1])
+    expect(h.quits).toBe(1)
+  })
+
+  it('does not quit when the user cancels', async () => {
+    h.confirmQuit = false
+    await expect(h.ipc.invoke(APP_CHANNELS.appQuit, PANEL_ID)).resolves.toBe(false)
+    expect(h.quitPrompts).toEqual([1])
+    expect(h.quits).toBe(0)
+  })
+
+  it('quits straight away when nothing is running', async () => {
+    const idle = harness({ directory: { ...h.directory, list: () => [workspace('w1', false)] } })
+    await expect(idle.ipc.invoke(APP_CHANNELS.appQuit, PANEL_ID)).resolves.toBe(true)
+    expect(idle.quitPrompts).toEqual([])
+    expect(idle.quits).toBe(1)
+  })
+
+  it('is refused for every window that is not the panel', async () => {
+    for (const sender of [EDITOR_ID, CLI_ID]) {
+      expect(() => h.ipc.invoke(APP_CHANNELS.appQuit, sender)).toThrow(/not the panel window/)
+    }
+    expect(h.quits).toBe(0)
+  })
+})
+
 describe('sender authorization', () => {
   const panelOnly = [
     APP_CHANNELS.workspacesList,
@@ -475,7 +547,8 @@ describe('sender authorization', () => {
     APP_CHANNELS.workspacesStop,
     APP_CHANNELS.workspacesFocusAgent,
     APP_CHANNELS.settingsYolo,
-    APP_CHANNELS.windowsHideAll
+    APP_CHANNELS.windowsHideAll,
+    APP_CHANNELS.appQuit
   ]
   const appWindows = [
     APP_CHANNELS.profilesList,
@@ -695,6 +768,78 @@ describe('lifecycle', () => {
   })
 })
 
+/**
+ * The gear in a profile row was reported as "not clickable". The click path is
+ * panel → `profileEditor:open` → `openProfileEditorWindow`, and the only place
+ * it could break silently is the production registration: `registerAppIpc` is a
+ * singleton, so a SECOND caller would decide which workspace directory the
+ * panel talks to — and any caller that landed before the WorkspaceManager
+ * exists would pin the refusing stub for the rest of the run. These tests nail
+ * both ends of that chain down.
+ */
+describe('production registration', () => {
+  /** Pull a handler out of the mocked ipcMain and call it as a window would. */
+  function invokeRegistered(channel: string, senderId: number, payload?: unknown): unknown {
+    const call = vi
+      .mocked(ipcMain.handle)
+      .mock.calls.findLast((entry) => entry[0] === channel)
+    if (!call) throw new Error(`no handler registered for ${channel}`)
+    return (call[1] as unknown as Listener)({ sender: { id: senderId } }, payload as never)
+  }
+
+  beforeEach(() => {
+    disposeAppIpc()
+    vi.mocked(ipcMain.handle).mockClear()
+    vi.mocked(isPanelWindowSender).mockReturnValue(true)
+    vi.mocked(settings).mockReturnValue({
+      getProfiles: () => []
+    } as unknown as ReturnType<typeof settings>)
+  })
+
+  afterEach(() => {
+    disposeAppIpc()
+    vi.mocked(isPanelWindowSender).mockReturnValue(false)
+  })
+
+  it('opens the profile editor for a gear click from the panel', () => {
+    registerAppIpc()
+    invokeRegistered(APP_CHANNELS.profileEditorOpen, PANEL_ID, { profileId: 'p1' })
+    expect(openProfileEditorWindow).toHaveBeenCalledWith('p1')
+  })
+
+  it('registers every channel exactly once', () => {
+    registerAppIpc()
+    const channels = vi.mocked(ipcMain.handle).mock.calls.map((entry) => entry[0])
+    expect(new Set(channels).size).toBe(channels.length)
+  })
+
+  it('keeps the FIRST directory when someone registers a second time', async () => {
+    const real: WorkspaceDirectory = {
+      list: () => [workspace('w1')],
+      start: vi.fn(),
+      stop: vi.fn(),
+      focusAgent: vi.fn()
+    }
+    const second: WorkspaceDirectory = {
+      list: () => [],
+      start: vi.fn(),
+      stop: vi.fn(),
+      focusAgent: vi.fn()
+    }
+    const first = registerAppIpc(real)
+    expect(registerAppIpc(second)).toBe(first)
+
+    // Still the real manager behind the panel's channels, and no duplicate
+    // ipcMain.handle for a channel (which Electron would throw on).
+    expect(invokeRegistered(APP_CHANNELS.workspacesList, PANEL_ID)).toHaveLength(1)
+    await expect(
+      invokeRegistered(APP_CHANNELS.workspacesStart, PANEL_ID, { profileId: 'p1' })
+    ).resolves.toBeUndefined()
+    expect(real.start).toHaveBeenCalledWith('p1')
+    expect(second.start).not.toHaveBeenCalled()
+  })
+})
+
 describe('preload parity', () => {
   it('uses exactly the channel names main registers', () => {
     const source = readFileSync(join(__dirname, '../preload/index.ts'), 'utf8')
@@ -703,7 +848,7 @@ describe('preload parity', () => {
     }
     const found = [
       ...source.matchAll(
-        /'((?:profiles|roles|providers|models|workspaces|settings|windows|dialog|profileEditor|zones|ev):[a-zA-Z]+)'/g
+        /'((?:profiles|roles|providers|models|workspaces|settings|windows|app|dialog|profileEditor|zones|ev):[a-zA-Z]+)'/g
       )
     ].map((match) => match[1])
     expect(new Set(found)).toEqual(new Set(Object.values(APP_CHANNELS)))

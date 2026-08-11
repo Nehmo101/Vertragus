@@ -35,6 +35,8 @@ export interface ProfileEditorState {
   providersLoading: boolean
   roles: RoleTemplate[]
   models: Record<string, ModelDiscoveryResult>
+  /** Provider ids whose model discovery is currently running. */
+  modelsLoading: Record<string, boolean>
   saving: boolean
   /** True for a profile that has not been saved once. */
   isNew: boolean
@@ -43,6 +45,8 @@ export interface ProfileEditorState {
   cancel(): void
   remove(): void
   pickFolder(): void
+  /** Re-run discovery for one provider, ignoring what was already fetched. */
+  reloadModels(providerId: string): void
   saveCustomRole(template: RoleTemplate): Promise<RoleTemplate | null>
 }
 
@@ -55,6 +59,7 @@ export function useProfileEditor(profileId?: string): ProfileEditorState {
   const [providersLoading, setProvidersLoading] = useState(true)
   const [roles, setRoles] = useState<RoleTemplate[]>(allRoleTemplates())
   const [models, setModels] = useState<Record<string, ModelDiscoveryResult>>({})
+  const [modelsLoading, setModelsLoading] = useState<Record<string, boolean>>({})
   const [saving, setSaving] = useState(false)
   const isNew = !profileId
 
@@ -106,6 +111,13 @@ export function useProfileEditor(profileId?: string): ProfileEditorState {
 
   // --- lazy load: one model catalogue per provider actually in use --------
   const requested = useRef(new Set<string>())
+
+  /**
+   * Every provider the draft points at — the orchestrator AND every slot.
+   * Recomputed from the draft, so switching a single slot to a provider nobody
+   * used yet triggers that provider's discovery; a provider that is already
+   * loaded is never fetched twice.
+   */
   const providerIdsInUse = useMemo(() => {
     if (!draft) return [] as string[]
     return [
@@ -117,21 +129,41 @@ export function useProfileEditor(profileId?: string): ProfileEditorState {
     ]
   }, [draft])
 
-  useEffect(() => {
-    if (!bridge) return
-    for (const providerId of providerIdsInUse) {
-      if (requested.current.has(providerId)) continue
+  const loadModels = useCallback(
+    (providerId: string, force = false) => {
+      if (!bridge || !providerId) return
+      if (!force && requested.current.has(providerId)) return
       requested.current.add(providerId)
+      setModelsLoading((current) => ({ ...current, [providerId]: true }))
       bridge.discoverModels(providerId).then(
-        (result) => setModels((current) => ({ ...current, [providerId]: result })),
-        () => {
-          // A provider without a catalogue is normal (Cursor offline, no CLI):
-          // the combo stays free text, which is always allowed.
+        (result) => {
+          setModels((current) => ({ ...current, [providerId]: result }))
+          setModelsLoading((current) => ({ ...current, [providerId]: false }))
+        },
+        (cause) => {
+          // A provider without a catalogue is normal (CLI missing, not logged
+          // in): the combo stays free text — but it says so instead of looking
+          // like a field that simply refuses to open.
           requested.current.delete(providerId)
+          setModels((current) => ({
+            ...current,
+            [providerId]: {
+              models: [],
+              source: 'none',
+              refreshedAt: Date.now(),
+              detail: errorText(cause)
+            }
+          }))
+          setModelsLoading((current) => ({ ...current, [providerId]: false }))
         }
       )
-    }
-  }, [bridge, providerIdsInUse])
+    },
+    [bridge]
+  )
+
+  useEffect(() => {
+    for (const providerId of providerIdsInUse) loadModels(providerId)
+  }, [loadModels, providerIdsInUse])
 
   const update = useCallback((mutate: (current: ProfileDraft) => ProfileDraft) => {
     setDraft((current) => (current ? mutate(current) : current))
@@ -180,6 +212,11 @@ export function useProfileEditor(profileId?: string): ProfileEditorState {
     )
   }, [bridge, draft, update])
 
+  const reloadModels = useCallback(
+    (providerId: string) => loadModels(providerId, true),
+    [loadModels]
+  )
+
   const saveCustomRole = useCallback(
     async (template: RoleTemplate): Promise<RoleTemplate | null> => {
       if (!bridge) return null
@@ -204,6 +241,7 @@ export function useProfileEditor(profileId?: string): ProfileEditorState {
     providersLoading,
     roles,
     models,
+    modelsLoading,
     saving,
     isNew,
     update,
@@ -211,6 +249,7 @@ export function useProfileEditor(profileId?: string): ProfileEditorState {
     cancel,
     remove,
     pickFolder,
+    reloadModels,
     saveCustomRole
   }
 }

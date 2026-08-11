@@ -6,7 +6,9 @@ import {
   customRoleTemplate,
   draftFromProfile,
   emptyDraft,
+  filterModelOptions,
   messageForPath,
+  modelComboStatus,
   modelOptions,
   newSlotDraft,
   roleOptions,
@@ -150,5 +152,84 @@ describe('pickers', () => {
 
     const role = customRoleTemplate('  Bugjäger  ', '  Find bugs.  ', 'role-x')
     expect(role).toEqual({ id: 'role-x', name: 'Bugjäger', prompt: 'Find bugs.', builtin: false })
+  })
+})
+
+describe('filterModelOptions', () => {
+  const options = ['auto', 'claude-opus-5', 'gpt-5.3-codex-high', 'kimi-code/k3']
+
+  it('shows everything for an empty query', () => {
+    expect(filterModelOptions(options, '   ')).toEqual(options)
+  })
+
+  it('matches on a substring, ignoring case and punctuation', () => {
+    expect(filterModelOptions(options, 'OPUS')).toEqual(['claude-opus-5'])
+    expect(filterModelOptions(options, 'opus5')).toEqual(['claude-opus-5'])
+    expect(filterModelOptions(options, 'codexhigh')).toEqual(['gpt-5.3-codex-high'])
+    expect(filterModelOptions(options, 'kimicode/k3')).toEqual(['kimi-code/k3'])
+  })
+
+  it('returns nothing for a typed id nobody offers — which stays typable', () => {
+    expect(filterModelOptions(options, 'brand-new-model')).toEqual([])
+  })
+})
+
+describe('modelComboStatus', () => {
+  it('says it is still loading while discovery runs', () => {
+    expect(modelComboStatus(undefined, true)).toMatchObject({ tone: 'loading' })
+  })
+
+  it('names the count and the source of a healthy list', () => {
+    const status = modelComboStatus(
+      { models: ['auto', 'composer-2.5'], source: 'live', refreshedAt: 0 },
+      false
+    )
+    expect(status.tone).toBe('ok')
+    expect(status.text).toBe('2 Modelle · live vom CLI')
+  })
+
+  it('warns — with the failing command — when nothing was found', () => {
+    const status = modelComboStatus(
+      {
+        models: [],
+        source: 'none',
+        refreshedAt: 0,
+        detail: 'cursor-agent models: spawn cursor-agent ENOENT'
+      },
+      false
+    )
+    expect(status.tone).toBe('warn')
+    expect(status.text).toContain('Freitext')
+    // The failing command is ON SCREEN, not only in the tooltip.
+    expect(status.text).toContain('Quelle: cursor-agent models: spawn cursor-agent ENOENT')
+    expect(status.title).toBe(status.text)
+  })
+
+  it('warns when only the seeded aliases are left, and shows why', () => {
+    const status = modelComboStatus(
+      {
+        models: ['opus', 'sonnet', 'haiku'],
+        source: 'seed',
+        refreshedAt: 0,
+        detail: '~/.claude.json: ENOENT'
+      },
+      false
+    )
+    expect(status.tone).toBe('warn')
+    expect(status.text).toContain('Standard-Aliase des CLI')
+    expect(status.text).toContain('~/.claude.json: ENOENT')
+  })
+
+  it('treats a seeded-plus-live list as healthy', () => {
+    const status = modelComboStatus(
+      { models: ['fable', 'claude-fable-5[1m]', 'opus'], source: 'mixed', refreshedAt: 0 },
+      false
+    )
+    expect(status.tone).toBe('ok')
+    expect(status.text).toBe('3 Modelle · live + Standard-Aliase')
+  })
+
+  it('does not claim to be loading once a provider answered with nothing', () => {
+    expect(modelComboStatus(undefined, false).tone).toBe('warn')
   })
 })

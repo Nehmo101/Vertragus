@@ -19,7 +19,7 @@
  * `registerAppIpc()` is the production wiring, and the channel names are
  * duplicated in preload with a parity test that fails on drift.
  */
-import { BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { profileRoleIds, type Profile, type RoleTemplate } from '@shared/schema/profile'
 import {
   zoneSchema,
@@ -42,7 +42,6 @@ import { focusCliWindow } from '@main/windows/cliWindow'
 import { hideAllHotkeyStatus, toggleHideAll, type HideAllHotkeyStatus } from '@main/windows/hideAll'
 import { getPanelWindow, isPanelWindowSender } from '@main/windows/panel'
 import {
-  armProfileEditorSmoke,
   closeProfileEditorWindow,
   isProfileEditorWindowSender,
   listProfileEditorWindows,
@@ -72,6 +71,7 @@ export const APP_CHANNELS = {
   settingsGet: 'settings:get',
   settingsYolo: 'settings:yolo',
   windowsHideAll: 'windows:hideAll',
+  appQuit: 'app:quit',
   dialogPickDirectory: 'dialog:pickDirectory',
   profileEditorOpen: 'profileEditor:open',
   profileEditorClose: 'profileEditor:close',
@@ -264,6 +264,36 @@ export function mergeZoneLayout(
   return zoneLayoutSchema.parse({ zones: [...kept, ...drawn] })
 }
 
+// --- quitting ------------------------------------------------------------
+
+/**
+ * How many agents the ✕ in the panel would kill.
+ *
+ * Only workspaces that are still active count: a card whose orchestrator is
+ * gone stays visible so the user can read it, but nothing in it is running.
+ */
+export function runningAgentCount(workspaces: readonly WorkspaceSummary[]): number {
+  return workspaces
+    .filter((workspace) => workspace.active)
+    .reduce(
+      (sum, workspace) =>
+        sum + workspace.agents.filter((agent) => agent.state !== 'stopped').length,
+      0
+    )
+}
+
+/** Copy of the native quit confirmation; exported so the wording is testable. */
+export function quitConfirmationText(runningAgents: number): {
+  message: string
+  detail: string
+} {
+  const subject = runningAgents === 1 ? '1 Agent läuft' : `${runningAgents} Agenten laufen`
+  return {
+    message: `${subject} noch — Vertragus beenden?`,
+    detail: 'Alle Agenten-Prozesse werden gestoppt.'
+  }
+}
+
 /** Parse what an overlay sent, forcing the display it is actually running on. */
 function parseDraftZones(payload: unknown, displayId: number): Zone[] {
   const raw = Array.isArray(payload) ? payload : (payload as { zones?: unknown })?.zones
@@ -287,6 +317,13 @@ export interface AppIpcHost {
   broadcast(channel: string, payload: unknown): void
   /** Hide every CLI window and editor; toggling again restores them. */
   hideAll(): void
+  /**
+   * Native "N agents are still running" confirmation. Resolves true when the
+   * user chose to quit. Only asked when something is actually running.
+   */
+  confirmQuit(runningAgents: number): Promise<boolean>
+  /** Shut the app down. `before-quit` is what stops the agents cleanly. */
+  quit(): void
   /** Open the zone overlay on every display for this profile. */
   openZoneOverlays(profileId: string): void
   closeZoneOverlays(): void
@@ -461,6 +498,18 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     host.hideAll()
   })
 
+  /**
+   * The panel's ✕. Quitting Vertragus kills every agent process, so it asks
+   * first — but only when there is something to lose. Returns false when the
+   * user cancelled, so the panel can tell "declined" from "about to die".
+   */
+  handle(APP_CHANNELS.appQuit, requirePanel, async () => {
+    const running = runningAgentCount(host.directory.list())
+    if (running > 0 && !(await host.confirmQuit(running))) return false
+    host.quit()
+    return true
+  })
+
   handle(APP_CHANNELS.dialogPickDirectory, requireAppWindow, (event, payload) => {
     const defaultPath =
       typeof payload === 'string' ? payload : (payload as { defaultPath?: string })?.defaultPath
@@ -564,6 +613,14 @@ let instance: AppIpc | undefined
 /**
  * Register the app IPC. Pass the WorkspaceManager's directory once it exists;
  * without it the workspace channels run on the refusing stub.
+ *
+ * Registering twice is a no-op that keeps the FIRST registration — `ipcMain`
+ * allows one handler per channel, so a second `createAppIpc` would throw and
+ * take the boot with it. The guard means the directory is bound exactly once:
+ * whoever calls first decides whether the panel gets the real manager or the
+ * stub, which is why the app entry must call this only after the manager is
+ * built (or in its catch). Nothing else in the app may call it — window smoke
+ * hooks in particular live in the app entry, next to the other boot hooks.
  */
 export function registerAppIpc(directory?: WorkspaceDirectory): AppIpc {
   if (instance) return instance
@@ -620,6 +677,26 @@ export function registerAppIpc(directory?: WorkspaceDirectory): AppIpc {
     hideAll: () => {
       toggleHideAll()
     },
+    async confirmQuit(runningAgents) {
+      const { message, detail } = quitConfirmationText(runningAgents)
+      const owner = getPanelWindow()
+      const options: Electron.MessageBoxOptions = {
+        type: 'warning',
+        // Cancel is the default: an accidental Enter must not kill a team.
+        buttons: ['Beenden', 'Abbrechen'],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true,
+        title: 'Vertragus beenden',
+        message,
+        detail
+      }
+      const result = owner
+        ? await dialog.showMessageBox(owner, options)
+        : await dialog.showMessageBox(options)
+      return result.response === 0
+    },
+    quit: () => app.quit(),
     openZoneOverlays: (profileId) => {
       openZoneOverlayWindows(profileId)
     },
@@ -628,8 +705,6 @@ export function registerAppIpc(directory?: WorkspaceDirectory): AppIpc {
     zoneOverlayDisplayIds: () => zoneOverlayDisplayIds(),
     hotkeyStatus: () => hideAllHotkeyStatus()
   })
-  // Env-gated verification hook; a no-op in every normal run.
-  armProfileEditorSmoke()
   return instance
 }
 

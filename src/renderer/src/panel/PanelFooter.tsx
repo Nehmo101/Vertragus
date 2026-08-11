@@ -5,6 +5,8 @@ interface Props {
   yolo: boolean
   onToggleYolo(): void
   onHideAll(): void
+  /** Settings are not built yet; the gear says so instead of being disabled. */
+  onSettings(): void
   /** Set when the global hide-all shortcut could not be registered. */
   hotkeyError?: string
 }
@@ -15,7 +17,13 @@ interface Props {
  * quiet respectively — the dangerous one is the one you can see from across the
  * room.
  */
-export function PanelFooter({ yolo, onToggleYolo, onHideAll, hotkeyError }: Props): React.JSX.Element {
+export function PanelFooter({
+  yolo,
+  onToggleYolo,
+  onHideAll,
+  onSettings,
+  hotkeyError
+}: Props): React.JSX.Element {
   return (
     <footer className="panel-footer">
       <button
@@ -44,9 +52,9 @@ export function PanelFooter({ yolo, onToggleYolo, onHideAll, hotkeyError }: Prop
       <button
         type="button"
         className="panel-icon-button"
-        title={PANEL_STRINGS.settingsSoon}
+        title={PANEL_STRINGS.settings}
         aria-label={PANEL_STRINGS.settings}
-        disabled
+        onClick={onSettings}
       >
         <GearIcon />
       </button>

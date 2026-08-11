@@ -1,0 +1,14 @@
+{
+  "numStartups": 214,
+  "installMethod": "native",
+  "additionalModelOptionsCache": [
+    {
+      "value": "claude-fable-5[1m]",
+      "label": "Fable",
+      "description": "Fable 5 · Most capable for your hardest and longest-running tasks"
+    }
+  ],
+  "modelAccessCache": [],
+  "orgModelDefaultCache": {},
+  "projects": {}
+}

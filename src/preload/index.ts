@@ -105,6 +105,7 @@ const APP = {
   settingsGet: 'settings:get',
   settingsYolo: 'settings:yolo',
   windowsHideAll: 'windows:hideAll',
+  appQuit: 'app:quit',
   dialogPickDirectory: 'dialog:pickDirectory',
   profileEditorOpen: 'profileEditor:open',
   profileEditorClose: 'profileEditor:close',
@@ -116,6 +117,22 @@ const APP = {
   eventProfiles: 'ev:profiles',
   eventWorkspaces: 'ev:workspaces'
 } as const
+
+/**
+ * Main → panel push: is the OS cursor over the panel window?
+ *
+ * Not part of {@link APP}: nothing invokes it, it is emitted by
+ * `main/windows/panelHover.ts` (which owns the name and asserts this literal
+ * stays identical), and the panel's whole-surface drag region is the reason it
+ * has to exist at all — CSS `:hover` cannot see through a drag region on
+ * Windows.
+ */
+const PANEL_POINTER = 'panel:pointer'
+
+/** Payload of the pointer push above. */
+export interface PanelPointerEvent {
+  inside: boolean
+}
 
 export type PanelAgentState = 'working' | 'waiting' | 'stopped'
 
@@ -156,8 +173,14 @@ export interface ProviderListEntry {
 
 export interface ModelDiscoveryResult {
   models: string[]
-  source: 'live' | 'memory' | 'none'
+  /**
+   * `seed` = only the provider's rolling aliases, `mixed` = discovered ids plus
+   * at least one of them. See `@main/providers/discovery`.
+   */
+  source: 'live' | 'memory' | 'seed' | 'mixed' | 'none'
   refreshedAt: number
+  /** Why the live source stayed empty — shown in the model picker. */
+  detail?: string
 }
 
 export interface PanelSettings {
@@ -214,6 +237,11 @@ const app = {
   setYoloMaster: (enabled: boolean): Promise<PanelSettings> =>
     ipcRenderer.invoke(APP.settingsYolo, { enabled }),
   hideAllWindows: (): Promise<void> => ipcRenderer.invoke(APP.windowsHideAll),
+  /**
+   * Quit Vertragus. Resolves false when running agents made main ask and the
+   * user cancelled; true means the shutdown is under way.
+   */
+  quitApp: (): Promise<boolean> => ipcRenderer.invoke(APP.appQuit),
   pickDirectory: (defaultPath?: string): Promise<string | null> =>
     ipcRenderer.invoke(APP.dialogPickDirectory, { defaultPath }),
   openProfileEditor: (profileId?: string): Promise<void> =>
@@ -228,7 +256,10 @@ const app = {
   onProfiles: (listener: (profiles: Profile[]) => void): (() => void) =>
     subscribe(APP.eventProfiles, listener),
   onWorkspaces: (listener: (workspaces: WorkspaceSummary[]) => void): (() => void) =>
-    subscribe(APP.eventWorkspaces, listener)
+    subscribe(APP.eventWorkspaces, listener),
+  /** Cursor enters/leaves the panel window — the panel's hover signal. */
+  onPointer: (listener: (event: PanelPointerEvent) => void): (() => void) =>
+    subscribe(PANEL_POINTER, listener)
 }
 
 /**

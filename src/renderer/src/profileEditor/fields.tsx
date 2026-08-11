@@ -1,7 +1,7 @@
-import { useId } from 'react'
+import { useId, useMemo, useState } from 'react'
 import { EFFORT_LEVELS } from '@shared/schema/provider'
 import type { ModelDiscoveryResult, ProviderListEntry } from '../../../preload'
-import { modelOptions, type EffortChoice } from './model'
+import { filterModelOptions, modelComboStatus, modelOptions, type EffortChoice } from './model'
 import { EDITOR_STRINGS } from './strings'
 
 interface FieldProps {
@@ -124,42 +124,134 @@ export function EffortSelect({ value, onChange, className }: EffortSelectProps):
 interface ModelComboProps {
   value: string
   catalogue: ModelDiscoveryResult | undefined
+  /** Discovery for this provider is still running. */
+  loading?: boolean
   onChange(model: string): void
+  /** Re-run discovery for this provider (CLI installed or logged in since). */
+  onReload?(): void
   className?: string
   placeholder?: string
+  /** Slot rows only show the status line when something is actually wrong. */
+  quietWhenHealthy?: boolean
 }
 
 /**
- * Free text with suggestions — never a closed list. Discovery can be empty
- * (CLI not installed, cache cold) and a brand-new model must be typeable the
- * day it ships, so the datalist assists and never restricts.
+ * Free text WITH a real dropdown — never a closed list, and never an invisible
+ * one either.
+ *
+ * Two failures produced the same symptom ("I cannot pick a model"): a native
+ * `<datalist>` whose only affordance is a hover-only Chromium arrow, and a
+ * discovery that answered with nothing. So this control renders its own list
+ * behind a visible ▾ button, keeps the input typable at all times (a model
+ * released today must be usable today), and states underneath where the
+ * suggestions came from — or why there are none.
  */
 export function ModelCombo({
   value,
   catalogue,
+  loading = false,
   onChange,
+  onReload,
   className,
-  placeholder
+  placeholder,
+  quietWhenHealthy = false
 }: ModelComboProps): React.JSX.Element {
   const listId = useId()
-  const options = catalogue ? modelOptions(catalogue.models) : []
+  const [open, setOpen] = useState(false)
+  const options = useMemo(() => (catalogue ? modelOptions(catalogue.models) : []), [catalogue])
+  const matches = useMemo(() => filterModelOptions(options, value), [options, value])
+  const status = modelComboStatus(catalogue, loading)
+  const showStatus = !quietWhenHealthy || status.tone !== 'ok'
+
   return (
-    <>
-      <input
-        className={className ?? 'pe-input pe-mono'}
-        list={options.length > 0 ? listId : undefined}
-        value={value}
-        spellCheck={false}
-        placeholder={placeholder ?? EDITOR_STRINGS.modelPlaceholder}
-        onChange={(event) => onChange(event.target.value)}
-      />
-      {options.length > 0 ? (
-        <datalist id={listId}>
-          {options.map((model) => (
-            <option key={model} value={model} />
-          ))}
-        </datalist>
+    <div
+      className="pe-combo"
+      onBlur={(event) => {
+        // Closing on every blur would swallow the click on an option itself.
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false)
+      }}
+    >
+      <div className="pe-combo-row">
+        <input
+          className={className ?? 'pe-input pe-mono'}
+          role="combobox"
+          aria-expanded={open}
+          aria-controls={listId}
+          aria-label={EDITOR_STRINGS.model}
+          title={status.title}
+          value={value}
+          spellCheck={false}
+          placeholder={placeholder ?? EDITOR_STRINGS.modelPlaceholder}
+          onChange={(event) => {
+            onChange(event.target.value)
+            if (options.length > 0) setOpen(true)
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape' && open) {
+              event.stopPropagation()
+              setOpen(false)
+            }
+            if (event.key === 'ArrowDown' && options.length > 0) setOpen(true)
+          }}
+        />
+        <button
+          type="button"
+          className="pe-combo-toggle"
+          title={EDITOR_STRINGS.modelsOpen}
+          aria-label={EDITOR_STRINGS.modelsOpen}
+          disabled={options.length === 0}
+          onClick={() => setOpen((current) => !current)}
+        >
+          ▾
+        </button>
+        {onReload ? (
+          <button
+            type="button"
+            className="pe-combo-reload"
+            title={EDITOR_STRINGS.modelsReload}
+            aria-label={EDITOR_STRINGS.modelsReload}
+            onClick={() => {
+              setOpen(false)
+              onReload()
+            }}
+          >
+            ⟳
+          </button>
+        ) : null}
+
+        {/* Inside the row so it hangs off the FIELD, not off the status line —
+            a two-line status must not push the list away from its input. */}
+        {open && options.length > 0 ? (
+          <ul className="pe-combo-list" id={listId} role="listbox">
+          {matches.length === 0 ? (
+            <li className="pe-combo-empty">{EDITOR_STRINGS.modelsNoMatch}</li>
+          ) : (
+            matches.map((model) => (
+              <li key={model}>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={model === value}
+                  className={model === value ? 'pe-combo-option is-active' : 'pe-combo-option'}
+                  onClick={() => {
+                    onChange(model)
+                    setOpen(false)
+                  }}
+                >
+                  {model}
+                </button>
+              </li>
+            ))
+          )}
+          </ul>
+        ) : null}
+      </div>
+
+      {showStatus ? (
+        <span className={`pe-combo-status is-${status.tone}`} title={status.title}>
+          {status.text}
+        </span>
       ) : null}
-    </>
+    </div>
   )
 }

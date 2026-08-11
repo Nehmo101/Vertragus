@@ -90,7 +90,9 @@ function armEditorScreenshot(win: BrowserWindow, delayMs = 4_000): void {
  * Owner verification of the editor's glass rendering without touching the app
  * entry: with `VERTRAGUS_PROFILE_EDITOR_SCREENSHOT` set, the editor opens on
  * boot (for `VERTRAGUS_PROFILE_EDITOR_PROFILE`, or empty for a new profile),
- * is captured and the app exits. Called once from `registerAppIpc`.
+ * is captured and the app exits. Called once from the app entry, next to the
+ * other boot-time smoke hooks — never from `registerAppIpc`, which must stay a
+ * pure IPC registration.
  */
 export function armProfileEditorSmoke(): void {
   if (!process.env['VERTRAGUS_PROFILE_EDITOR_SCREENSHOT']) return
