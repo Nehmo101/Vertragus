@@ -1,15 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import { providerConfigSchema, type ProviderConfig } from '@shared/schema/provider'
+import { translator } from '../i18n'
 import {
   draftFromProvider,
   emptyDraft,
   fieldForPath,
   fromLines,
+  messageForField,
   toLines,
   toProviderInput,
   validateDraft,
   type ProviderDraft
 } from './model'
+
+/** The authored language — the assertions read as the real UI reads. */
+const t = translator('de')
+const en = translator('en')
 
 /**
  * Descriptors covering EVERY branch of the schema's four discriminated unions.
@@ -149,7 +155,7 @@ describe('line lists', () => {
 describe('draft ⇄ ProviderConfig', () => {
   it('round-trips every descriptor shape the schema allows', () => {
     for (const config of SHAPES) {
-      const result = validateDraft(draftFromProvider(config))
+      const result = validateDraft(t, draftFromProvider(config))
       expect(result.ok, `${config.id} must survive the form`).toBe(true)
       if (!result.ok) continue
       // Byte-identical back out: a form that quietly drops `strictArg` or
@@ -193,7 +199,7 @@ describe('draft ⇄ ProviderConfig', () => {
   })
 
   it('normalizes an id typed with spaces and capitals', () => {
-    const result = validateDraft(draft({ id: 'Mein CLI!' }))
+    const result = validateDraft(t, draft({ id: 'Mein CLI!' }))
     expect(result.ok).toBe(true)
     if (result.ok) expect(result.config.id).toBe('mein-cli')
   })
@@ -201,7 +207,7 @@ describe('draft ⇄ ProviderConfig', () => {
 
 describe('validation', () => {
   it('pins each rejection on its own field', () => {
-    const result = validateDraft(
+    const result = validateDraft(t, 
       draft({
         label: '',
         command: '',
@@ -229,20 +235,30 @@ describe('validation', () => {
   })
 
   it('refuses an id that normalizes to nothing', () => {
-    const result = validateDraft(draft({ id: '///' }))
+    const result = validateDraft(t, draft({ id: '///' }))
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.errors.id).toBeTruthy()
   })
 
   it('refuses an id that would silently replace another provider', () => {
-    const result = validateDraft(draft({ id: 'claude' }), ['claude', 'codex'])
+    const result = validateDraft(t, draft({ id: 'claude' }), ['claude', 'codex'])
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.errors.id).toContain('schon')
   })
 
   it('lets a preset keep its own id — that is what editing a built-in is', () => {
     // The editor passes every id EXCEPT this record's own as taken.
-    expect(validateDraft(draftFromProvider(shape('shape-claude')), ['codex']).ok).toBe(true)
+    expect(validateDraft(t, draftFromProvider(shape('shape-claude')), ['codex']).ok).toBe(true)
+  })
+
+  it('answers in the language it is handed', () => {
+    const result = validateDraft(en, draft({ id: 'claude' }), ['claude'])
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.errors.id).toBe('This id already exists.')
+    expect(messageForField(en, 'discoveryUrl')).toBe(
+      'Please enter a complete url (with http:// or https://).'
+    )
+    expect(messageForField(t, 'discoveryUrl')).toContain('vollständige Url')
   })
 
   it('maps nested schema paths onto form fields', () => {
@@ -256,7 +272,7 @@ describe('validation', () => {
   })
 
   it('accepts what the store accepts — no second, stricter opinion', () => {
-    const result = validateDraft(draftFromProvider(shape('shape-kimi')))
+    const result = validateDraft(t, draftFromProvider(shape('shape-kimi')))
     expect(result.ok).toBe(true)
     if (result.ok) expect(() => providerConfigSchema.parse(result.config)).not.toThrow()
   })

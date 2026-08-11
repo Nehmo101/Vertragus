@@ -1,8 +1,8 @@
+import { useTranslation } from 'react-i18next'
 import { Field, SwitchField } from '../profileEditor/fields'
 import { normalizeProviderId } from '@shared/schema/provider'
 import type { McpAttach, ModelDiscovery, SystemPromptDelivery } from '@shared/schema/provider'
 import { type EffortStyleChoice, type ProviderDraft } from './model'
-import { PROVIDER_STRINGS } from './strings'
 import { useProviderEditor } from './useProviderEditor'
 import '../profileEditor/profileEditor.css'
 import './providerEditor.css'
@@ -21,9 +21,9 @@ import './providerEditor.css'
  * nothing starts" must never be a dead end.
  */
 export function ProviderEditorApp({ providerId }: { providerId?: string }): React.JSX.Element {
+  const { t } = useTranslation()
   const editor = useProviderEditor(providerId)
   const { draft } = editor
-  const strings = PROVIDER_STRINGS
 
   if (editor.fatal) {
     return (
@@ -35,7 +35,7 @@ export function ProviderEditorApp({ providerId }: { providerId?: string }): Reac
   if (!draft) {
     return (
       <div className="pe glass">
-        <p className="pe-fatal">{strings.loading}</p>
+        <p className="pe-fatal">{t('common.loading')}</p>
       </div>
     )
   }
@@ -69,39 +69,39 @@ export function ProviderEditorApp({ providerId }: { providerId?: string }): Reac
   return (
     <div className="pe glass">
       <header className="pe-head">
-        <h1 className="pe-title">{editor.isNew ? strings.titleNew : strings.title}</h1>
+        <h1 className="pe-title">{editor.isNew ? t('providerEditor.titleNew') : t('providerEditor.title')}</h1>
         <span className="pe-profile-name">{draft.label}</span>
       </header>
 
       <div className="pe-body">
         {editor.isPreset ? (
           <div className="pv-preset">
-            <span className="pv-preset-text">{strings.presetNotice}</span>
+            <span className="pv-preset-text">{t('providerEditor.presetNotice')}</span>
             <button
               type="button"
               className="pe-ghost pv-preset-reset"
               onClick={editor.removeOrReset}
             >
-              {strings.reset}
+              {t('providerEditor.reset')}
             </button>
           </div>
         ) : null}
 
         {editor.health && !editor.health.available ? (
           <p className="pv-health is-bad">
-            {editor.health.error ?? editor.health.detail ?? strings.errors.command}
+            {editor.health.error ?? editor.health.detail ?? t('providerEditor.errors.command')}
           </p>
         ) : null}
 
         {/* --- identity --- */}
         <section className="pv-section">
-          <h2 className="pe-section-label">{strings.identity}</h2>
+          <h2 className="pe-section-label">{t('providerEditor.identity')}</h2>
           <div className="pv-grid">
-            <Field label={strings.label} error={editor.errors.label}>
+            <Field label={t('providerEditor.label')} error={editor.errors.label}>
               <input
                 className="pe-input"
                 value={draft.label}
-                placeholder={strings.labelPlaceholder}
+                placeholder={t('providerEditor.labelPlaceholder')}
                 onChange={(event) => {
                   const label = event.target.value
                   // A new provider's id follows its name until the id is
@@ -118,30 +118,30 @@ export function ProviderEditorApp({ providerId }: { providerId?: string }): Reac
               />
             </Field>
             <Field
-              label={strings.id}
+              label={t('providerEditor.id')}
               error={editor.errors.id}
-              hint={editor.isNew ? strings.idHint : undefined}
+              hint={editor.isNew ? t('providerEditor.idHint') : undefined}
             >
               <input
                 className="pe-input pe-mono"
                 value={draft.id}
                 spellCheck={false}
                 disabled={!editor.isNew}
-                placeholder={strings.idPlaceholder}
+                placeholder={t('providerEditor.idPlaceholder')}
                 onChange={(event) => set('id', event.target.value)}
               />
             </Field>
             <Field
-              label={strings.command}
+              label={t('providerEditor.command')}
               error={editor.errors.command}
-              hint={strings.commandHint}
+              hint={t('providerEditor.commandHint')}
             >
-              {text('command', { placeholder: strings.commandPlaceholder })}
+              {text('command', { placeholder: t('providerEditor.commandPlaceholder') })}
             </Field>
             <div>
               <SwitchField
-                label={strings.enabled}
-                hint={strings.enabledHint}
+                label={t('providerEditor.enabled')}
+                hint={t('providerEditor.enabledHint')}
                 checked={draft.enabled}
                 onChange={(enabled) => set('enabled', enabled)}
               />
@@ -151,29 +151,29 @@ export function ProviderEditorApp({ providerId }: { providerId?: string }): Reac
 
         {/* --- launch --- */}
         <section className="pv-section">
-          <h2 className="pe-section-label">{strings.launch}</h2>
+          <h2 className="pe-section-label">{t('providerEditor.launch')}</h2>
           <div className="pv-grid">
-            <Field label={strings.args} error={editor.errors.args} hint={strings.argsHint}>
+            <Field label={t('providerEditor.args')} error={editor.errors.args} hint={t('providerEditor.argsHint')}>
               {lines('args')}
             </Field>
             <Field
-              label={strings.yoloArgs}
+              label={t('providerEditor.yoloArgs')}
               error={editor.errors.yoloArgs}
-              hint={strings.yoloArgsHint}
+              hint={t('providerEditor.yoloArgsHint')}
             >
               {lines('yoloArgs')}
             </Field>
             <Field
-              label={strings.modelArg}
+              label={t('providerEditor.modelArg')}
               error={editor.errors.modelArg}
-              hint={strings.modelArgHint}
+              hint={t('providerEditor.modelArgHint')}
             >
               {text('modelArg', { placeholder: '--model' })}
             </Field>
             <Field
-              label={strings.versionArgs}
+              label={t('providerEditor.versionArgs')}
               error={editor.errors.versionArgs}
-              hint={strings.versionArgsHint}
+              hint={t('providerEditor.versionArgsHint')}
             >
               {lines('versionArgs', 2)}
             </Field>
@@ -182,29 +182,29 @@ export function ProviderEditorApp({ providerId }: { providerId?: string }): Reac
 
         {/* --- effort --- */}
         <section className="pv-section">
-          <h2 className="pe-section-label">{strings.effort}</h2>
+          <h2 className="pe-section-label">{t('providerEditor.effort')}</h2>
           <div className="pv-grid">
-            <Field label={strings.effortStyle} error={editor.errors.effortStyle}>
+            <Field label={t('providerEditor.effortStyle')} error={editor.errors.effortStyle}>
               <select
                 className="pe-input"
                 value={draft.effortStyle}
                 onChange={(event) => set('effortStyle', event.target.value as EffortStyleChoice)}
               >
-                <option value="">{strings.effortNone}</option>
-                <option value="flag">{strings.effortFlagStyle}</option>
-                <option value="template">{strings.effortTemplateStyle}</option>
+                <option value="">{t('providerEditor.effortNone')}</option>
+                <option value="flag">{t('providerEditor.effortFlagStyle')}</option>
+                <option value="template">{t('providerEditor.effortTemplateStyle')}</option>
               </select>
             </Field>
             {draft.effortStyle === '' ? null : (
-              <Field label={strings.effortFlag} error={editor.errors.effortFlag}>
+              <Field label={t('providerEditor.effortFlag')} error={editor.errors.effortFlag}>
                 {text('effortFlag', { placeholder: '--effort' })}
               </Field>
             )}
             {draft.effortStyle === 'template' ? (
               <Field
-                label={strings.effortTemplate}
+                label={t('providerEditor.effortTemplate')}
                 error={editor.errors.effortTemplate}
-                hint={strings.effortTemplateHint}
+                hint={t('providerEditor.effortTemplateHint')}
               >
                 {text('effortTemplate', { placeholder: 'model_reasoning_effort="{effort}"' })}
               </Field>
@@ -214,19 +214,19 @@ export function ProviderEditorApp({ providerId }: { providerId?: string }): Reac
 
         {/* --- auth --- */}
         <section className="pv-section">
-          <h2 className="pe-section-label">{strings.auth}</h2>
+          <h2 className="pe-section-label">{t('providerEditor.auth')}</h2>
           <div className="pv-grid">
             <Field
-              label={strings.authLoginArgs}
+              label={t('providerEditor.authLoginArgs')}
               error={editor.errors.authLoginArgs}
-              hint={strings.authLoginArgsHint}
+              hint={t('providerEditor.authLoginArgsHint')}
             >
               {lines('authLoginArgs', 2)}
             </Field>
             <Field
-              label={strings.authStatusArgs}
+              label={t('providerEditor.authStatusArgs')}
               error={editor.errors.authStatusArgs}
-              hint={strings.authStatusArgsHint}
+              hint={t('providerEditor.authStatusArgsHint')}
             >
               {lines('authStatusArgs', 2)}
             </Field>
@@ -235,9 +235,9 @@ export function ProviderEditorApp({ providerId }: { providerId?: string }): Reac
 
         {/* --- system prompt --- */}
         <section className="pv-section">
-          <h2 className="pe-section-label">{strings.systemPrompt}</h2>
+          <h2 className="pe-section-label">{t('providerEditor.systemPrompt')}</h2>
           <div className="pv-grid">
-            <Field label={strings.promptKind}>
+            <Field label={t('providerEditor.promptKind')}>
               <select
                 className="pe-input"
                 value={draft.promptKind}
@@ -245,18 +245,18 @@ export function ProviderEditorApp({ providerId }: { providerId?: string }): Reac
                   set('promptKind', event.target.value as SystemPromptDelivery['kind'])
                 }
               >
-                <option value="arg">{strings.promptKindArg}</option>
-                <option value="agent-file">{strings.promptKindAgentFile}</option>
-                <option value="codex-config">{strings.promptKindCodexConfig}</option>
-                <option value="pty">{strings.promptKindPty}</option>
+                <option value="arg">{t('providerEditor.promptKindArg')}</option>
+                <option value="agent-file">{t('providerEditor.promptKindAgentFile')}</option>
+                <option value="codex-config">{t('providerEditor.promptKindCodexConfig')}</option>
+                <option value="pty">{t('providerEditor.promptKindPty')}</option>
               </select>
             </Field>
             {draft.promptKind === 'arg' || draft.promptKind === 'agent-file' ? (
               <Field
-                label={strings.promptFlag}
+                label={t('providerEditor.promptFlag')}
                 error={editor.errors.promptFlag}
                 hint={
-                  draft.promptKind === 'agent-file' ? strings.promptAgentFileHint : undefined
+                  draft.promptKind === 'agent-file' ? t('providerEditor.promptAgentFileHint') : undefined
                 }
               >
                 {text('promptFlag', {
@@ -266,7 +266,7 @@ export function ProviderEditorApp({ providerId }: { providerId?: string }): Reac
               </Field>
             ) : (
               <p className="pe-hint pv-wide">
-                {draft.promptKind === 'pty' ? strings.promptPtyHint : strings.promptCodexHint}
+                {draft.promptKind === 'pty' ? t('providerEditor.promptPtyHint') : t('providerEditor.promptCodexHint')}
               </p>
             )}
           </div>
@@ -274,36 +274,36 @@ export function ProviderEditorApp({ providerId }: { providerId?: string }): Reac
 
         {/* --- mcp --- */}
         <section className="pv-section">
-          <h2 className="pe-section-label">{strings.mcp}</h2>
+          <h2 className="pe-section-label">{t('providerEditor.mcp')}</h2>
           <div className="pv-grid">
-            <Field label={strings.mcpKind}>
+            <Field label={t('providerEditor.mcpKind')}>
               <select
                 className="pe-input"
                 value={draft.mcpKind}
                 onChange={(event) => set('mcpKind', event.target.value as McpAttach['kind'])}
               >
-                <option value="claude-json">{strings.mcpKindClaudeJson}</option>
-                <option value="codex-overrides">{strings.mcpKindCodexOverrides}</option>
-                <option value="kimi-project">{strings.mcpKindKimiProject}</option>
-                <option value="none">{strings.mcpKindNone}</option>
+                <option value="claude-json">{t('providerEditor.mcpKindClaudeJson')}</option>
+                <option value="codex-overrides">{t('providerEditor.mcpKindCodexOverrides')}</option>
+                <option value="kimi-project">{t('providerEditor.mcpKindKimiProject')}</option>
+                <option value="none">{t('providerEditor.mcpKindNone')}</option>
               </select>
             </Field>
             {draft.mcpKind === 'claude-json' ? (
               <>
-                <Field label={strings.mcpConfigArg} error={editor.errors.mcpConfigArg}>
+                <Field label={t('providerEditor.mcpConfigArg')} error={editor.errors.mcpConfigArg}>
                   {text('mcpConfigArg', { placeholder: '--mcp-config' })}
                 </Field>
                 <Field
-                  label={strings.mcpStrictArg}
+                  label={t('providerEditor.mcpStrictArg')}
                   error={editor.errors.mcpStrictArg}
-                  hint={strings.mcpStrictArgHint}
+                  hint={t('providerEditor.mcpStrictArgHint')}
                 >
                   {text('mcpStrictArg', { placeholder: '--strict-mcp-config' })}
                 </Field>
                 <Field
-                  label={strings.mcpAllowedToolsArg}
+                  label={t('providerEditor.mcpAllowedToolsArg')}
                   error={editor.errors.mcpAllowedToolsArg}
-                  hint={strings.mcpAllowedToolsArgHint}
+                  hint={t('providerEditor.mcpAllowedToolsArgHint')}
                 >
                   {text('mcpAllowedToolsArg', { placeholder: '--allowedTools' })}
                 </Field>
@@ -311,10 +311,10 @@ export function ProviderEditorApp({ providerId }: { providerId?: string }): Reac
             ) : (
               <p className="pe-hint pv-wide">
                 {draft.mcpKind === 'codex-overrides'
-                  ? strings.mcpCodexHint
+                  ? t('providerEditor.mcpCodexHint')
                   : draft.mcpKind === 'kimi-project'
-                    ? strings.mcpKimiHint
-                    : strings.mcpNoneHint}
+                    ? t('providerEditor.mcpKimiHint')
+                    : t('providerEditor.mcpNoneHint')}
               </p>
             )}
           </div>
@@ -322,9 +322,9 @@ export function ProviderEditorApp({ providerId }: { providerId?: string }): Reac
 
         {/* --- model discovery --- */}
         <section className="pv-section">
-          <h2 className="pe-section-label">{strings.discovery}</h2>
+          <h2 className="pe-section-label">{t('providerEditor.discovery')}</h2>
           <div className="pv-grid">
-            <Field label={strings.discoveryKind}>
+            <Field label={t('providerEditor.discoveryKind')}>
               <select
                 className="pe-input"
                 value={draft.discoveryKind}
@@ -332,18 +332,18 @@ export function ProviderEditorApp({ providerId }: { providerId?: string }): Reac
                   set('discoveryKind', event.target.value as ModelDiscovery['kind'])
                 }
               >
-                <option value="none">{strings.discoveryNone}</option>
-                <option value="cli">{strings.discoveryCli}</option>
-                <option value="file">{strings.discoveryFile}</option>
-                <option value="http">{strings.discoveryHttp}</option>
+                <option value="none">{t('providerEditor.discoveryNone')}</option>
+                <option value="cli">{t('providerEditor.discoveryCli')}</option>
+                <option value="file">{t('providerEditor.discoveryFile')}</option>
+                <option value="http">{t('providerEditor.discoveryHttp')}</option>
               </select>
             </Field>
 
             {draft.discoveryKind === 'cli' ? (
               <Field
-                label={strings.discoveryArgs}
+                label={t('providerEditor.discoveryArgs')}
                 error={editor.errors.discoveryArgs}
-                hint={strings.discoveryArgsHint}
+                hint={t('providerEditor.discoveryArgsHint')}
               >
                 {lines('discoveryArgs', 2)}
               </Field>
@@ -351,22 +351,22 @@ export function ProviderEditorApp({ providerId }: { providerId?: string }): Reac
 
             {draft.discoveryKind === 'file' ? (
               <Field
-                label={strings.discoveryPath}
+                label={t('providerEditor.discoveryPath')}
                 error={editor.errors.discoveryPath}
-                hint={strings.discoveryPathHint}
+                hint={t('providerEditor.discoveryPathHint')}
               >
                 {text('discoveryPath', { placeholder: '~/.codex/models_cache.json' })}
               </Field>
             ) : null}
 
             {draft.discoveryKind === 'http' ? (
-              <Field label={strings.discoveryUrl} error={editor.errors.discoveryUrl}>
+              <Field label={t('providerEditor.discoveryUrl')} error={editor.errors.discoveryUrl}>
                 {text('discoveryUrl', { placeholder: 'http://127.0.0.1:11434/api/tags' })}
               </Field>
             ) : null}
 
             {draft.discoveryKind === 'cli' || draft.discoveryKind === 'file' ? (
-              <Field label={strings.discoveryParse} error={editor.errors.discoveryParse}>
+              <Field label={t('providerEditor.discoveryParse')} error={editor.errors.discoveryParse}>
                 <select
                   className="pe-input"
                   value={draft.discoveryParse}
@@ -375,11 +375,11 @@ export function ProviderEditorApp({ providerId }: { providerId?: string }): Reac
                   }
                 >
                   {draft.discoveryKind === 'cli' ? (
-                    <option value="lines">{strings.discoveryParseLines}</option>
+                    <option value="lines">{t('providerEditor.discoveryParseLines')}</option>
                   ) : null}
-                  <option value="json">{strings.discoveryParseJson}</option>
+                  <option value="json">{t('providerEditor.discoveryParseJson')}</option>
                   {draft.discoveryKind === 'file' ? (
-                    <option value="toml-keys">{strings.discoveryParseTomlKeys}</option>
+                    <option value="toml-keys">{t('providerEditor.discoveryParseTomlKeys')}</option>
                   ) : null}
                 </select>
               </Field>
@@ -387,18 +387,18 @@ export function ProviderEditorApp({ providerId }: { providerId?: string }): Reac
 
             {draft.discoveryKind !== 'none' ? (
               <Field
-                label={strings.discoveryJsonPath}
+                label={t('providerEditor.discoveryJsonPath')}
                 error={editor.errors.discoveryJsonPath}
-                hint={strings.discoveryJsonPathHint}
+                hint={t('providerEditor.discoveryJsonPathHint')}
               >
                 {text('discoveryJsonPath', { placeholder: 'models[].name' })}
               </Field>
             ) : null}
 
             <Field
-              label={strings.seedModels}
+              label={t('providerEditor.seedModels')}
               error={editor.errors.seedModels}
-              hint={strings.seedModelsHint}
+              hint={t('providerEditor.seedModelsHint')}
             >
               {lines('seedModels', 2)}
             </Field>
@@ -411,15 +411,15 @@ export function ProviderEditorApp({ providerId }: { providerId?: string }): Reac
       <footer className="pe-foot">
         {editor.isNew || editor.isPreset ? null : (
           <button type="button" className="pe-danger" onClick={editor.removeOrReset}>
-            {strings.deleteProvider}
+            {t('providerEditor.deleteProvider')}
           </button>
         )}
         <span className="pe-foot-spacer" />
         <button type="button" className="pe-ghost" onClick={editor.cancel}>
-          {strings.cancel}
+          {t('common.cancel')}
         </button>
         <button type="button" className="pe-primary" onClick={editor.save} disabled={editor.saving}>
-          {editor.saving ? strings.saving : strings.save}
+          {editor.saving ? t('common.saving') : t('common.save')}
         </button>
       </footer>
     </div>

@@ -1,10 +1,10 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { roleColor } from '@shared/prompts/roles'
 import type { RoleTemplate } from '@shared/schema/profile'
 import type { ModelDiscoveryResult, ProviderListEntry } from '../../../preload'
 import { EffortSelect, ModelCombo, ProviderSelect } from './fields'
 import { CUSTOM_ROLE_VALUE, customRoleTemplate, type DraftErrors, type SlotDraft } from './model'
-import { EDITOR_STRINGS } from './strings'
 
 interface Props {
   slot: SlotDraft
@@ -44,6 +44,7 @@ export function SlotRow({
   onReloadModels,
   onCreateRole
 }: Props): React.JSX.Element {
+  const { t } = useTranslation()
   const [customName, setCustomName] = useState('')
   const [customPrompt, setCustomPrompt] = useState('')
   const [customOpen, setCustomOpen] = useState(false)
@@ -56,11 +57,11 @@ export function SlotRow({
 
   const submitCustomRole = async (): Promise<void> => {
     if (!customName.trim()) {
-      setCustomError(EDITOR_STRINGS.errors.customRoleName)
+      setCustomError(t('profileEditor.errors.customRoleName'))
       return
     }
     if (!customPrompt.trim()) {
-      setCustomError(EDITOR_STRINGS.errors.customRolePrompt)
+      setCustomError(t('profileEditor.errors.customRolePrompt'))
       return
     }
     const template = customRoleTemplate(customName, customPrompt)
@@ -95,7 +96,7 @@ export function SlotRow({
               {role.name}
             </option>
           ))}
-          <option value={CUSTOM_ROLE_VALUE}>{EDITOR_STRINGS.customRole}</option>
+          <option value={CUSTOM_ROLE_VALUE}>{t('profileEditor.customRole')}</option>
         </select>
 
         <ProviderSelect
@@ -120,8 +121,8 @@ export function SlotRow({
           value={slot.maxCount}
           inputMode="numeric"
           placeholder="∞"
-          title={EDITOR_STRINGS.maxTitle}
-          aria-label={EDITOR_STRINGS.max}
+          title={t('profileEditor.maxTitle')}
+          aria-label={t('profileEditor.max')}
           onChange={(event) => onChange({ ...slot, maxCount: event.target.value })}
         />
 
@@ -134,8 +135,8 @@ export function SlotRow({
         <button
           type="button"
           className="pe-remove"
-          title={EDITOR_STRINGS.removeSlot}
-          aria-label={EDITOR_STRINGS.removeSlot}
+          title={t('profileEditor.removeSlot')}
+          aria-label={t('profileEditor.removeSlot')}
           onClick={onRemove}
         >
           ×
@@ -151,23 +152,23 @@ export function SlotRow({
           <input
             className="pe-input"
             value={customName}
-            placeholder={EDITOR_STRINGS.customRoleName}
+            placeholder={t('profileEditor.customRoleName')}
             onChange={(event) => setCustomName(event.target.value)}
           />
           <textarea
             className="pe-input pe-textarea"
             value={customPrompt}
             rows={4}
-            placeholder={EDITOR_STRINGS.customRolePromptPlaceholder}
+            placeholder={t('profileEditor.customRolePromptPlaceholder')}
             onChange={(event) => setCustomPrompt(event.target.value)}
           />
           {customError ? <p className="pe-error">{customError}</p> : null}
           <div className="pe-custom-actions">
             <button type="button" className="pe-ghost" onClick={() => setCustomOpen(false)}>
-              {EDITOR_STRINGS.customRoleCancel}
+              {t('common.cancel')}
             </button>
             <button type="button" className="pe-secondary" onClick={() => void submitCustomRole()}>
-              {EDITOR_STRINGS.customRoleSave}
+              {t('profileEditor.customRoleSave')}
             </button>
           </div>
         </div>

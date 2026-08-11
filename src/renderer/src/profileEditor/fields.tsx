@@ -1,9 +1,9 @@
 import { useId, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { EFFORT_LEVELS } from '@shared/schema/provider'
 import type { ModelDiscoveryResult, ProviderListEntry } from '../../../preload'
 import { NEW_PROVIDER_VALUE } from '../providerEditor/model'
 import { filterModelOptions, modelComboStatus, modelOptions, type EffortChoice } from './model'
-import { EDITOR_STRINGS } from './strings'
 
 interface FieldProps {
   label: string
@@ -80,6 +80,7 @@ export function ProviderSelect({
   onChange,
   className
 }: ProviderSelectProps): React.JSX.Element {
+  const { t } = useTranslation()
   const known = providers.some((entry) => entry.config.id === value)
   const openEditor = (providerId?: string): void => {
     void window.vertragus?.app.openProviderEditor(providerId)
@@ -100,23 +101,25 @@ export function ProviderSelect({
         }}
       >
         {!known && value ? (
-          <option value={value}>{loading ? EDITOR_STRINGS.loading : value}</option>
+          <option value={value}>{loading ? t('common.loading') : value}</option>
         ) : null}
         {providers.map((entry) => (
           <option key={entry.config.id} value={entry.config.id}>
             {entry.config.label}
             {entry.health && !entry.health.available
-              ? ` — ${EDITOR_STRINGS.providerUnavailable(entry.health.error ?? entry.health.detail ?? '')}`
+              ? ` — ${t('profileEditor.providerUnavailable', {
+                  detail: entry.health.error ?? entry.health.detail ?? ''
+                })}`
               : ''}
           </option>
         ))}
-        <option value={NEW_PROVIDER_VALUE}>{EDITOR_STRINGS.customProvider}</option>
+        <option value={NEW_PROVIDER_VALUE}>{t('profileEditor.customProvider')}</option>
       </select>
       <button
         type="button"
         className="pe-icon-button pe-provider-edit"
-        title={EDITOR_STRINGS.editProvider}
-        aria-label={EDITOR_STRINGS.editProvider}
+        title={t('profileEditor.editProvider')}
+        aria-label={t('profileEditor.editProvider')}
         disabled={!known}
         onClick={() => openEditor(value)}
       >
@@ -147,23 +150,18 @@ interface EffortSelectProps {
   className?: string
 }
 
-const EFFORT_LABELS: Record<string, string> = {
-  low: EDITOR_STRINGS.effortLow,
-  medium: EDITOR_STRINGS.effortMedium,
-  high: EDITOR_STRINGS.effortHigh
-}
-
 export function EffortSelect({ value, onChange, className }: EffortSelectProps): React.JSX.Element {
+  const { t } = useTranslation()
   return (
     <select
       className={className ?? 'pe-input'}
       value={value}
       onChange={(event) => onChange(event.target.value as EffortChoice)}
     >
-      <option value="">{EDITOR_STRINGS.effortDefault}</option>
+      <option value="">{t('profileEditor.effortDefault')}</option>
       {EFFORT_LEVELS.map((level) => (
         <option key={level} value={level}>
-          {EFFORT_LABELS[level]}
+          {t(`profileEditor.effortLevel.${level}`)}
         </option>
       ))}
     </select>
@@ -205,11 +203,12 @@ export function ModelCombo({
   placeholder,
   quietWhenHealthy = false
 }: ModelComboProps): React.JSX.Element {
+  const { t } = useTranslation()
   const listId = useId()
   const [open, setOpen] = useState(false)
   const options = useMemo(() => (catalogue ? modelOptions(catalogue.models) : []), [catalogue])
   const matches = useMemo(() => filterModelOptions(options, value), [options, value])
-  const status = modelComboStatus(catalogue, loading)
+  const status = modelComboStatus(t, catalogue, loading)
   const showStatus = !quietWhenHealthy || status.tone !== 'ok'
 
   return (
@@ -226,11 +225,11 @@ export function ModelCombo({
           role="combobox"
           aria-expanded={open}
           aria-controls={listId}
-          aria-label={EDITOR_STRINGS.model}
+          aria-label={t('profileEditor.model')}
           title={status.title}
           value={value}
           spellCheck={false}
-          placeholder={placeholder ?? EDITOR_STRINGS.modelPlaceholder}
+          placeholder={placeholder ?? t('profileEditor.modelPlaceholder')}
           onChange={(event) => {
             onChange(event.target.value)
             if (options.length > 0) setOpen(true)
@@ -246,8 +245,8 @@ export function ModelCombo({
         <button
           type="button"
           className="pe-combo-toggle"
-          title={EDITOR_STRINGS.modelsOpen}
-          aria-label={EDITOR_STRINGS.modelsOpen}
+          title={t('profileEditor.modelsOpen')}
+          aria-label={t('profileEditor.modelsOpen')}
           disabled={options.length === 0}
           onClick={() => setOpen((current) => !current)}
         >
@@ -257,8 +256,8 @@ export function ModelCombo({
           <button
             type="button"
             className="pe-combo-reload"
-            title={EDITOR_STRINGS.modelsReload}
-            aria-label={EDITOR_STRINGS.modelsReload}
+            title={t('profileEditor.modelsReload')}
+            aria-label={t('profileEditor.modelsReload')}
             onClick={() => {
               setOpen(false)
               onReload()
@@ -273,7 +272,7 @@ export function ModelCombo({
         {open && options.length > 0 ? (
           <ul className="pe-combo-list" id={listId} role="listbox">
           {matches.length === 0 ? (
-            <li className="pe-combo-empty">{EDITOR_STRINGS.modelsNoMatch}</li>
+            <li className="pe-combo-empty">{t('profileEditor.modelsNoMatch')}</li>
           ) : (
             matches.map((model) => (
               <li key={model}>

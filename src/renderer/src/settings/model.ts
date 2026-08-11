@@ -16,7 +16,7 @@
  * stricter than Electron is fine here; being looser is not, because the throw
  * on the other side is what this exists to prevent.
  */
-import { SETTINGS_STRINGS } from './strings'
+import type { Translate } from '../i18n'
 
 /** Everything Electron accepts to the LEFT of the final key. */
 export const ACCELERATOR_MODIFIERS = [
@@ -93,29 +93,29 @@ export type AcceleratorCheck = { ok: true } | { ok: false; reason: string }
  * the K key in every application on the machine — a setting no one wants and
  * nobody would connect to this window afterwards.
  */
-export function validateAccelerator(value: string): AcceleratorCheck {
+export function validateAccelerator(t: Translate, value: string): AcceleratorCheck {
   const text = value.trim()
-  if (!text) return { ok: false, reason: SETTINGS_STRINGS.errors.hotkeyEmpty }
+  if (!text) return { ok: false, reason: t('settings.errors.hotkeyEmpty') }
 
   const parts = text.split('+')
   // "Control+" and "Control++" both mean: the key is missing. The single
   // exception is a trailing "+" that IS the key, written as "Plus".
   const key = parts.pop() ?? ''
-  if (!key) return { ok: false, reason: SETTINGS_STRINGS.errors.hotkeyNoKey }
-  if (parts.length === 0) return { ok: false, reason: SETTINGS_STRINGS.errors.hotkeyNoModifier }
+  if (!key) return { ok: false, reason: t('settings.errors.hotkeyNoKey') }
+  if (parts.length === 0) return { ok: false, reason: t('settings.errors.hotkeyNoModifier') }
 
   const seen = new Set<string>()
   for (const part of parts) {
     const modifier = part.trim().toLowerCase()
     if (!(ACCELERATOR_MODIFIERS as readonly string[]).includes(modifier)) {
-      return { ok: false, reason: SETTINGS_STRINGS.errors.hotkeyUnknownModifier(part) }
+      return { ok: false, reason: t('settings.errors.hotkeyUnknownModifier', { part }) }
     }
     if (seen.has(modifier)) {
-      return { ok: false, reason: SETTINGS_STRINGS.errors.hotkeyDuplicateModifier(part) }
+      return { ok: false, reason: t('settings.errors.hotkeyDuplicateModifier', { part }) }
     }
     seen.add(modifier)
   }
 
-  if (!isKey(key)) return { ok: false, reason: SETTINGS_STRINGS.errors.hotkeyUnknownKey(key) }
+  if (!isKey(key)) return { ok: false, reason: t('settings.errors.hotkeyUnknownKey', { key }) }
   return { ok: true }
 }

@@ -37,6 +37,8 @@ export interface TerminalAttachResult {
   rows: number
   meta: TerminalAgentMeta
   exit: { exitCode: number; signal?: number } | null
+  /** UI language at attach time; CLI windows cannot query settings. */
+  locale?: string
 }
 
 export interface TerminalDataEvent {
@@ -127,7 +129,8 @@ const APP = {
   eventProfiles: 'ev:profiles',
   eventProviders: 'ev:providers',
   eventWorkspaces: 'ev:workspaces',
-  eventUpdate: 'ev:update'
+  eventUpdate: 'ev:update',
+  eventSettings: 'ev:settings'
 } as const
 
 /**
@@ -248,6 +251,8 @@ export interface ZoneEditorPayload {
   displayId: number
   roles: ZoneEditorRole[]
   zones: Zone[]
+  /** UI language — an overlay window may not call `settings:get` itself. */
+  locale?: 'de' | 'en'
 }
 
 function subscribe<T>(channel: string, listener: (payload: T) => void): () => void {
@@ -346,6 +351,12 @@ const app = {
   /** Self-update state — drives the panel's "Update bereit" badge. */
   onUpdate: (listener: (state: UpdateState) => void): (() => void) =>
     subscribe(APP.eventUpdate, listener),
+  /**
+   * App settings changed anywhere. The renderer's i18n subscribes so a language
+   * picked in the settings window reaches the panel and both editors at once.
+   */
+  onSettings: (listener: (settings: PanelSettings) => void): (() => void) =>
+    subscribe(APP.eventSettings, listener),
   /** Cursor enters/leaves the panel window — the panel's hover signal. */
   onPointer: (listener: (event: PanelPointerEvent) => void): (() => void) =>
     subscribe(PANEL_POINTER, listener)

@@ -713,6 +713,31 @@ describe('settings and windows', () => {
     expect(h.store.settings.yoloMaster).toBe(false)
   })
 
+  it('broadcasts every settings write so the other windows follow', async () => {
+    h.broadcasts.length = 0
+    const yolo = h.ipc.invoke(APP_CHANNELS.settingsYolo, PANEL_ID, { enabled: false })
+    expect(h.broadcasts).toEqual([{ channel: APP_CHANNELS.eventSettings, payload: yolo }])
+
+    h.broadcasts.length = 0
+    const locale = await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'locale',
+      value: 'en'
+    })
+    // This is the language switch: the panel and both editors change with the
+    // settings window instead of waiting for their next read.
+    expect(h.broadcasts).toEqual([{ channel: APP_CHANNELS.eventSettings, payload: locale }])
+    expect(locale).toMatchObject({ locale: 'en' })
+  })
+
+  it('broadcasts nothing when the write was rejected', async () => {
+    h.broadcasts.length = 0
+    await expect(
+      h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, { key: 'autostart', value: 'ja' })
+    ).rejects.toThrow(/expects a boolean/)
+    expect(() => h.ipc.invoke(APP_CHANNELS.settingsYolo, PANEL_ID, { enabled: 'yes' })).toThrow()
+    expect(h.broadcasts).toEqual([])
+  })
+
   it('rejects a yolo payload that is not a boolean', () => {
     expect(() => h.ipc.invoke(APP_CHANNELS.settingsYolo, PANEL_ID, { enabled: 'yes' })).toThrow(
       /expected a boolean/

@@ -1,5 +1,5 @@
+import { useTranslation } from 'react-i18next'
 import { EyeIcon, GearIcon } from './icons'
-import { PANEL_STRINGS } from './strings'
 
 interface Props {
   yolo: boolean
@@ -37,6 +37,7 @@ export function PanelFooter({
   updateVersion,
   onInstallUpdate
 }: Props): React.JSX.Element {
+  const { t } = useTranslation()
   return (
     <>
       {updateReady ? (
@@ -45,12 +46,12 @@ export function PanelFooter({
           className="panel-update"
           title={
             updateVersion
-              ? PANEL_STRINGS.updateReadyTitle(updateVersion)
-              : PANEL_STRINGS.updateReady
+              ? t('panel.updateReadyTitle', { version: updateVersion })
+              : t('panel.updateReady')
           }
           onClick={onInstallUpdate}
         >
-          {PANEL_STRINGS.updateReady}
+          {t('panel.updateReady')}
         </button>
       ) : null}
       <footer className="panel-footer">
@@ -59,20 +60,20 @@ export function PanelFooter({
           className={`panel-yolo${yolo ? ' is-on' : ''}`}
           role="switch"
           aria-checked={yolo}
-          title={yolo ? PANEL_STRINGS.yoloOn : PANEL_STRINGS.yoloOff}
+          title={yolo ? t('panel.yoloOn') : t('panel.yoloOff')}
           onClick={onToggleYolo}
         >
           <span className="panel-yolo-track">
             <span className="panel-yolo-knob" />
           </span>
-          <span className="panel-yolo-label">{PANEL_STRINGS.yolo}</span>
+          <span className="panel-yolo-label">{t('panel.yolo')}</span>
         </button>
         <span className="panel-footer-spacer" />
         <button
           type="button"
           className={`panel-icon-button${hotkeyError ? ' has-warning' : ''}`}
-          title={hotkeyError ? `${PANEL_STRINGS.hideAll} — ${hotkeyError}` : PANEL_STRINGS.hideAll}
-          aria-label={PANEL_STRINGS.hideAll}
+          title={hotkeyError ? `${t('panel.hideAll')} — ${hotkeyError}` : t('panel.hideAll')}
+          aria-label={t('panel.hideAll')}
           onClick={onHideAll}
         >
           <EyeIcon />
@@ -80,8 +81,8 @@ export function PanelFooter({
         <button
           type="button"
           className="panel-icon-button"
-          title={PANEL_STRINGS.settings}
-          aria-label={PANEL_STRINGS.settings}
+          title={t('panel.settings')}
+          aria-label={t('panel.settings')}
           onClick={onSettings}
         >
           <GearIcon />

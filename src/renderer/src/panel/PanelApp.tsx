@@ -1,11 +1,11 @@
 import { useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import HoundLogo from './HoundLogo'
 import { PanelFooter } from './PanelFooter'
 import { ProfileRow } from './ProfileRow'
 import { WorkspaceCard } from './WorkspaceCard'
 import { CloseIcon, MinusIcon } from './icons'
 import { trackPanelPointer } from './pointerOver'
-import { PANEL_STRINGS } from './strings'
 import { usePanelData } from './usePanelData'
 import { orderWorkspaces } from './viewModel'
 import './panel.css'
@@ -19,6 +19,7 @@ import './panel.css'
  * Everything else the app can do lives in a window this panel opens.
  */
 export function PanelApp(): React.JSX.Element {
+  const { t } = useTranslation()
   const panel = usePanelData()
   const workspaces = orderWorkspaces(panel.workspaces)
 
@@ -36,13 +37,13 @@ export function PanelApp(): React.JSX.Element {
     <aside className="panel glass">
       <header className="panel-brand">
         <HoundLogo size={30} />
-        <span className="panel-wordmark">{PANEL_STRINGS.wordmark}</span>
+        <span className="panel-wordmark">{t('panel.wordmark')}</span>
         <span className="panel-brand-spacer" />
         <button
           type="button"
           className="panel-icon-button panel-brand-button"
-          title={PANEL_STRINGS.hideAll}
-          aria-label={PANEL_STRINGS.hideAll}
+          title={t('panel.hideAll')}
+          aria-label={t('panel.hideAll')}
           onClick={panel.hideAll}
         >
           <MinusIcon />
@@ -50,8 +51,8 @@ export function PanelApp(): React.JSX.Element {
         <button
           type="button"
           className="panel-icon-button panel-brand-button panel-quit"
-          title={PANEL_STRINGS.quit}
-          aria-label={PANEL_STRINGS.quit}
+          title={t('panel.quit')}
+          aria-label={t('panel.quit')}
           onClick={panel.quitApp}
         >
           <CloseIcon />
@@ -61,9 +62,9 @@ export function PanelApp(): React.JSX.Element {
 
       <div className="panel-scroll">
         <section className="panel-section">
-          <h2 className="panel-label">{PANEL_STRINGS.profilesLabel}</h2>
+          <h2 className="panel-label">{t('panel.profilesLabel')}</h2>
           {panel.profiles.length === 0 ? (
-            <p className="panel-empty">{PANEL_STRINGS.noProfiles}</p>
+            <p className="panel-empty">{t('panel.noProfiles')}</p>
           ) : (
             <ul className="panel-list">
               {panel.profiles.map((profile) => (
@@ -79,17 +80,17 @@ export function PanelApp(): React.JSX.Element {
           <button
             type="button"
             className="panel-new"
-            title={PANEL_STRINGS.newProfileTitle}
+            title={t('panel.newProfileTitle')}
             onClick={() => panel.editProfile(undefined)}
           >
-            {PANEL_STRINGS.newProfile}
+            {t('panel.newProfile')}
           </button>
         </section>
 
         <section className="panel-section">
-          <h2 className="panel-label">{PANEL_STRINGS.workspacesLabel}</h2>
+          <h2 className="panel-label">{t('panel.workspacesLabel')}</h2>
           {workspaces.length === 0 ? (
-            <p className="panel-empty">{PANEL_STRINGS.noWorkspaces}</p>
+            <p className="panel-empty">{t('panel.noWorkspaces')}</p>
           ) : (
             <div className="panel-cards">
               {workspaces.map((workspace) => (
@@ -105,7 +106,7 @@ export function PanelApp(): React.JSX.Element {
         </section>
       </div>
 
-      {panel.bridge ? null : <p className="panel-error">{PANEL_STRINGS.bridgeMissing}</p>}
+      {panel.bridge ? null : <p className="panel-error">{t('common.bridgeMissing')}</p>}
       {panel.error ? (
         <button type="button" className="panel-error is-clickable" onClick={panel.dismissError}>
           {panel.error}

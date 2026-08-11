@@ -1,4 +1,5 @@
-import { SETTINGS_STRINGS } from './strings'
+import { useTranslation } from 'react-i18next'
+import { LOCALES, translator } from '../i18n'
 import { useSettings } from './useSettings'
 import './settings.css'
 
@@ -16,6 +17,7 @@ import './settings.css'
  * what the first test run reported as "broken".
  */
 export function SettingsApp(): React.JSX.Element {
+  const { t } = useTranslation()
   const view = useSettings()
   const { settings } = view
 
@@ -29,32 +31,41 @@ export function SettingsApp(): React.JSX.Element {
   if (!settings) {
     return (
       <div className="st glass">
-        <p className="st-fatal">{SETTINGS_STRINGS.loading}</p>
+        <p className="st-fatal">{t('common.loading')}</p>
       </div>
     )
   }
 
   const update = view.update
-  const statusText = update
-    ? (SETTINGS_STRINGS.updateStatus[update.status] ?? update.status)
-    : SETTINGS_STRINGS.loading
+  // The status union is closed (see `UpdateStatus`), so every member has a key;
+  // an unknown one still shows its raw name rather than an empty line.
+  const statusKey = `settings.updateStatus.${update?.status}`
+  const statusText = update ? t([statusKey, update.status]) : t('common.loading')
+  // The updater's own `message` is authored in the main process and therefore
+  // German. For `disabled` it says exactly what the status line already says,
+  // so it is dropped — comparing against BOTH languages, not just the current
+  // one: in English the two strings differ and the German sentence would be
+  // printed underneath the English one.
+  const messageAddsSomething =
+    update?.message !== undefined &&
+    !LOCALES.some((locale) => translator(locale)(statusKey) === update.message)
 
   return (
     <div className="st glass">
       <header className="st-head">
-        <h1 className="st-title">{SETTINGS_STRINGS.title}</h1>
-        <span className="st-subtitle">{SETTINGS_STRINGS.subtitle}</span>
+        <h1 className="st-title">{t('settings.title')}</h1>
+        <span className="st-subtitle">{t('settings.subtitle')}</span>
       </header>
 
       <div className="st-body">
         <section className="st-field">
-          <span className="st-label">{SETTINGS_STRINGS.hotkey}</span>
+          <span className="st-label">{t('settings.hotkey')}</span>
           <div className="st-row">
             <input
               className="st-input st-mono"
               value={view.hotkeyDraft}
               spellCheck={false}
-              placeholder={SETTINGS_STRINGS.hotkeyPlaceholder}
+              placeholder={t('settings.hotkeyPlaceholder')}
               onChange={(event) => view.setHotkeyDraft(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') view.saveHotkey()
@@ -66,13 +77,13 @@ export function SettingsApp(): React.JSX.Element {
               disabled={view.saving || view.hotkeyDraft === settings.hideAllHotkey}
               onClick={view.saveHotkey}
             >
-              {SETTINGS_STRINGS.hotkeySave}
+              {t('settings.hotkeySave')}
             </button>
           </div>
           {view.hotkeyError ? (
             <span className="st-error">{view.hotkeyError}</span>
           ) : (
-            <span className="st-hint">{SETTINGS_STRINGS.hotkeyHint}</span>
+            <span className="st-hint">{t('settings.hotkeyHint')}</span>
           )}
         </section>
 
@@ -86,79 +97,75 @@ export function SettingsApp(): React.JSX.Element {
               onChange={(event) => view.set('autostart', event.target.checked)}
             />
             <span className="st-switch-text">
-              <span className="st-switch-label">{SETTINGS_STRINGS.autostart}</span>
+              <span className="st-switch-label">{t('settings.autostart')}</span>
               <span className={settings.autostartSupported ? 'st-hint' : 'st-hint is-warn'}>
                 {settings.autostartSupported
-                  ? SETTINGS_STRINGS.autostartHint
-                  : SETTINGS_STRINGS.autostartUnsupported}
+                  ? t('settings.autostartHint')
+                  : t('settings.autostartUnsupported')}
               </span>
             </span>
           </label>
         </section>
 
         <section className="st-field">
-          <span className="st-label">{SETTINGS_STRINGS.updateChannel}</span>
+          <span className="st-label">{t('settings.updateChannel')}</span>
           <select
             className="st-input"
             value={settings.updateChannel}
             onChange={(event) => view.set('updateChannel', event.target.value)}
           >
-            <option value="main">{SETTINGS_STRINGS.updateChannelMain}</option>
-            <option value="stable">{SETTINGS_STRINGS.updateChannelStable}</option>
+            <option value="main">{t('settings.updateChannelMain')}</option>
+            <option value="stable">{t('settings.updateChannelStable')}</option>
           </select>
-          <span className="st-hint">{SETTINGS_STRINGS.updateChannelHint}</span>
+          <span className="st-hint">{t('settings.updateChannelHint')}</span>
         </section>
 
         <div className="st-pair">
           <section className="st-field">
-            <span className="st-label">{SETTINGS_STRINGS.theme}</span>
+            <span className="st-label">{t('settings.theme')}</span>
             <select
               className="st-input"
               value={settings.theme}
               onChange={(event) => view.set('theme', event.target.value)}
             >
-              <option value="dark">{SETTINGS_STRINGS.themeDark}</option>
-              <option value="light">{SETTINGS_STRINGS.themeLight}</option>
+              <option value="dark">{t('settings.themeDark')}</option>
+              <option value="light">{t('settings.themeLight')}</option>
             </select>
-            <span className="st-hint">{SETTINGS_STRINGS.themeHint}</span>
+            <span className="st-hint">{t('settings.themeHint')}</span>
           </section>
 
           <section className="st-field">
-            <span className="st-label">{SETTINGS_STRINGS.locale}</span>
+            <span className="st-label">{t('settings.locale')}</span>
             <select
               className="st-input"
               value={settings.locale}
               onChange={(event) => view.set('locale', event.target.value)}
             >
-              <option value="de">{SETTINGS_STRINGS.localeDe}</option>
-              <option value="en">{SETTINGS_STRINGS.localeEn}</option>
+              <option value="de">{t('settings.localeDe')}</option>
+              <option value="en">{t('settings.localeEn')}</option>
             </select>
-            <span className="st-hint">{SETTINGS_STRINGS.localeHint}</span>
+            <span className="st-hint">{t('settings.localeHint')}</span>
           </section>
         </div>
 
         <section className="st-updates">
-          <h2 className="st-section-label">{SETTINGS_STRINGS.updates}</h2>
+          <h2 className="st-section-label">{t('settings.updates')}</h2>
           <p className="st-update-line">
             <span className={`st-dot is-${update?.status ?? 'idle'}`} />
             <span className="st-update-status">{statusText}</span>
             {update?.status === 'downloading' && update.progress !== undefined ? (
               <span className="st-update-progress">
-                {SETTINGS_STRINGS.updateProgress(update.progress)}
+                {t('settings.updateProgress', { percent: Math.round(update.progress) })}
               </span>
             ) : null}
           </p>
-          {/* Only when it adds something: for `disabled` the message IS the
-              status line, and printing both reads like a stutter. */}
-          {update?.message && update.message !== statusText ? (
-            <p className="st-hint">{update.message}</p>
-          ) : null}
+          {messageAddsSomething ? <p className="st-hint">{update?.message}</p> : null}
           {update?.availableVersion ? (
-            <p className="st-hint">{SETTINGS_STRINGS.updateAvailable(update.availableVersion)}</p>
+            <p className="st-hint">{t('settings.updateAvailable', { version: update.availableVersion })}</p>
           ) : null}
           <div className="st-row">
             <span className="st-version">
-              {SETTINGS_STRINGS.updateVersion(update?.currentVersion ?? '—')}
+              {t('settings.updateVersion', { version: update?.currentVersion ?? '—' })}
             </span>
             <span className="st-spacer" />
             <button
@@ -167,11 +174,11 @@ export function SettingsApp(): React.JSX.Element {
               disabled={!update || update.status === 'disabled' || update.status === 'checking'}
               onClick={view.checkForUpdates}
             >
-              {SETTINGS_STRINGS.updateCheck}
+              {t('settings.updateCheck')}
             </button>
             {update?.status === 'downloaded' ? (
               <button type="button" className="st-primary" onClick={view.installUpdate}>
-                {SETTINGS_STRINGS.updateInstall}
+                {t('settings.updateInstall')}
               </button>
             ) : null}
           </div>
@@ -183,7 +190,7 @@ export function SettingsApp(): React.JSX.Element {
       <footer className="st-foot">
         <span className="st-spacer" />
         <button type="button" className="st-ghost" onClick={view.close}>
-          {SETTINGS_STRINGS.close}
+          {t('settings.close')}
         </button>
       </footer>
     </div>

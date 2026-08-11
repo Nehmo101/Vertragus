@@ -12,6 +12,7 @@
  * a toggle with a Save button is a toggle people forget to save.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import type {
   PanelSettings,
   UpdateState,
@@ -20,7 +21,6 @@ import type {
 } from '../../../preload'
 import { errorText } from '../lib/ipcError'
 import { validateAccelerator } from './model'
-import { SETTINGS_STRINGS } from './strings'
 
 export interface SettingsState {
   bridge: VertragusAppApi | undefined
@@ -43,12 +43,11 @@ export interface SettingsState {
 }
 
 export function useSettings(): SettingsState {
+  const { t } = useTranslation()
   const bridge = useMemo(() => window.vertragus?.app, [])
   const [settings, setSettings] = useState<PanelSettings | null>(null)
   const [update, setUpdate] = useState<UpdateState | null>(null)
-  const [fatal, setFatal] = useState<string | null>(
-    bridge ? null : SETTINGS_STRINGS.bridgeMissing
-  )
+  const [fatal, setFatal] = useState<string | null>(bridge ? null : t('common.bridgeMissing'))
   const [hotkeyDraft, setHotkeyDraft] = useState('')
   const [hotkeyError, setHotkeyError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -127,7 +126,7 @@ export function useSettings(): SettingsState {
     saveHotkey: () => {
       // The cheap gate first: a malformed accelerator would make main drop the
       // working registration before finding out it cannot take the new one.
-      const check = validateAccelerator(hotkeyDraft)
+      const check = validateAccelerator(t, hotkeyDraft)
       if (!check.ok) {
         setHotkeyError(check.reason)
         return

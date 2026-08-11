@@ -18,6 +18,7 @@
  */
 import { ipcMain } from 'electron'
 import type { PtyAgentLike, PtyExitInfo } from './agents/PtyAgent'
+import { getSettings } from './store/settings'
 import { closeCliWindow, getCliWindow, isCliWindowSender } from './windows/cliWindow'
 
 export const TERMINAL_CHANNELS = {
@@ -53,6 +54,12 @@ export interface TerminalAttachResult {
   meta: AgentMeta
   /** Set when the process already died before the window attached. */
   exit: PtyExitInfo | null
+  /**
+   * UI language at attach time. CLI windows may not call settings:get (window
+   * type guard) and are not a settings broadcast target, so the locale rides
+   * along with the attach result instead.
+   */
+  locale?: string
 }
 
 export interface TerminalDataEvent {
@@ -98,6 +105,8 @@ export interface TerminalIpcHost {
   hasWindow?(agentId: string): boolean
   closeWindow(agentId: string): void
   coalesceMs?: number
+  /** UI language for attach results; CLI windows cannot query settings. */
+  locale?(): string
 }
 
 interface AgentRecord {
@@ -177,7 +186,8 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
       cols: record.entry.pty.cols,
       rows: record.entry.pty.rows,
       meta: record.entry.meta,
-      exit: record.exit
+      exit: record.exit,
+      ...(host.locale ? { locale: host.locale() } : {})
     }
   }) as IpcListener)
 
@@ -303,7 +313,8 @@ export function registerTerminalIpc(): AgentRegistry {
       const win = getCliWindow(agentId)
       if (win && !win.webContents.isDestroyed()) win.webContents.send(channel, payload)
     },
-    closeWindow: (agentId) => closeCliWindow(agentId)
+    closeWindow: (agentId) => closeCliWindow(agentId),
+    locale: () => getSettings().ui.locale
   })
   return registry
 }

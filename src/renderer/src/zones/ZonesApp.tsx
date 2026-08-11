@@ -1,6 +1,6 @@
 import { useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { DraftZone, PxRect } from './geometry'
-import { ZONE_STRINGS } from './strings'
 import { useZoneEditor, type ZoneEditorState } from './useZoneEditor'
 import './zones.css'
 
@@ -48,6 +48,7 @@ function ZoneRect({
   editor: ZoneEditorState
   gestureRef: React.MutableRefObject<Gesture | null>
 }): React.JSX.Element {
+  const { t } = useTranslation()
   const start = (event: React.PointerEvent, mode: Gesture['mode']): void => {
     event.preventDefault()
     event.stopPropagation()
@@ -106,8 +107,8 @@ function ZoneRect({
         <button
           type="button"
           className="zone-chip-remove"
-          title={ZONE_STRINGS.removeZone(zone.label)}
-          aria-label={ZONE_STRINGS.removeZone(zone.label)}
+          title={t('zones.removeZone', { role: zone.label })}
+          aria-label={t('zones.removeZone', { role: zone.label })}
           onPointerDown={(event) => event.stopPropagation()}
           onClick={() => editor.removeZone(zone.id)}
         >
@@ -133,6 +134,7 @@ export function ZonesApp({
   displayId: number
   demo?: boolean
 }): React.JSX.Element {
+  const { t } = useTranslation()
   const editor = useZoneEditor({ displayId, demo })
   const gestureRef = useRef<Gesture | null>(null)
 
@@ -142,12 +144,12 @@ export function ZonesApp({
 
       <div className="zones-hint">
         <span className="zones-hint-title">
-          {editor.ready ? ZONE_STRINGS.title(editor.profileName) : ZONE_STRINGS.loading}
+          {editor.ready ? t('zones.title', { profile: editor.profileName }) : t('common.loading')}
         </span>
-        <span className="zones-hint-text">{ZONE_STRINGS.hint}</span>
+        <span className="zones-hint-text">{t('zones.hint')}</span>
         <span className="zones-hint-meta">
-          {ZONE_STRINGS.display(editor.viewport.width, editor.viewport.height)}
-          {editor.demo ? ` · ${ZONE_STRINGS.demoBadge}` : ''}
+          {t('zones.display', { width: editor.viewport.width, height: editor.viewport.height })}
+          {editor.demo ? ` · ${t('zones.demoBadge')}` : ''}
         </span>
       </div>
 
@@ -156,11 +158,11 @@ export function ZonesApp({
       ))}
 
       {editor.ready && editor.zones.length === 0 ? (
-        <p className="zones-empty">{ZONE_STRINGS.empty}</p>
+        <p className="zones-empty">{t('zones.empty')}</p>
       ) : null}
 
       <div className="zones-bar">
-        <span className="zones-bar-label">{ZONE_STRINGS.palette}</span>
+        <span className="zones-bar-label">{t('zones.palette')}</span>
         <div className="zones-palette">
           {editor.roles.map((role) => (
             <button
@@ -170,14 +172,14 @@ export function ZonesApp({
               style={{ borderColor: withAlpha(role.color, 0.55), color: role.color }}
               onClick={() => editor.addZone(role.roleId)}
             >
-              {ZONE_STRINGS.addZone(role.label)}
+              {t('zones.addZone', { role: role.label })}
             </button>
           ))}
         </div>
         <span className="zones-bar-spacer" />
         {editor.error ? <span className="zones-error">{editor.error}</span> : null}
         <button type="button" className="zones-ghost" onClick={editor.cancel}>
-          {ZONE_STRINGS.cancel}
+          {t('zones.cancel')}
         </button>
         <button
           type="button"
@@ -185,7 +187,7 @@ export function ZonesApp({
           onClick={editor.save}
           disabled={editor.saving || !editor.ready}
         >
-          {editor.saving ? ZONE_STRINGS.saving : ZONE_STRINGS.save}
+          {editor.saving ? t('common.saving') : t('common.save')}
         </button>
       </div>
     </div>

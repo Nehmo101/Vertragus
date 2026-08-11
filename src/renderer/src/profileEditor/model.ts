@@ -19,7 +19,7 @@ import {
 import type { EffortLevel } from '@shared/schema/provider'
 import { collapseModelVariants } from '@shared/models'
 import type { ModelDiscoveryResult } from '../../../preload'
-import { EDITOR_STRINGS } from './strings'
+import type { Translate } from '../i18n'
 
 /** `''` means "not set" for every optional field in the form. */
 export type EffortChoice = '' | EffortLevel
@@ -149,20 +149,22 @@ export function issuePath(issue: z.ZodIssue): string {
 }
 
 /**
- * German message for a field. The schema's own messages are English and
- * developer-facing ("String must contain at least 1 character(s)"), so the
+ * The user-facing message for a field. The schema's own messages are English
+ * and developer-facing ("String must contain at least 1 character(s)"), so the
  * fields a user can actually get wrong are named explicitly and everything else
  * degrades to one honest generic line instead of leaking zod prose into the UI.
+ *
+ * `t` is passed in rather than imported: this module is pure and unit-tested in
+ * plain Node, and a captured translator would freeze one language into it.
  */
-export function messageForPath(path: string): string {
-  const errors = EDITOR_STRINGS.errors
-  if (path === 'name') return errors.name
-  if (path === 'repoPath') return errors.repoPath
-  if (path === 'maxSubagents') return errors.maxSubagents
-  if (path.endsWith('providerId')) return errors.provider
-  if (path.endsWith('roleId')) return errors.role
-  if (path.endsWith('maxCount')) return errors.maxCount
-  return errors.generic
+export function messageForPath(t: Translate, path: string): string {
+  if (path === 'name') return t('profileEditor.errors.name')
+  if (path === 'repoPath') return t('profileEditor.errors.repoPath')
+  if (path === 'maxSubagents') return t('profileEditor.errors.maxSubagents')
+  if (path.endsWith('providerId')) return t('profileEditor.errors.provider')
+  if (path.endsWith('roleId')) return t('profileEditor.errors.role')
+  if (path.endsWith('maxCount')) return t('profileEditor.errors.maxCount')
+  return t('profileEditor.errors.generic')
 }
 
 export type ValidationResult =
@@ -175,19 +177,21 @@ export type ValidationResult =
  * legal half-finished record, but a profile you cannot start is not what the
  * user meant when they pressed save.
  */
-export function validateDraft(draft: ProfileDraft): ValidationResult {
+export function validateDraft(t: Translate, draft: ProfileDraft): ValidationResult {
   const errors: DraftErrors = {}
-  if (!draft.repoPath.trim()) errors.repoPath = EDITOR_STRINGS.errors.repoPath
+  if (!draft.repoPath.trim()) errors.repoPath = t('profileEditor.errors.repoPath')
 
   const parsed = profileSchema.safeParse(toProfileInput(draft))
   if (!parsed.success) {
     for (const issue of parsed.error.issues) {
       const path = issuePath(issue)
-      if (!errors[path]) errors[path] = messageForPath(path)
+      if (!errors[path]) errors[path] = messageForPath(t, path)
     }
   }
   if (Object.keys(errors).length > 0) return { ok: false, errors }
-  if (!parsed.success) return { ok: false, errors: { form: EDITOR_STRINGS.errors.generic } }
+  if (!parsed.success) {
+    return { ok: false, errors: { form: t('profileEditor.errors.generic') } }
+  }
   return { ok: true, profile: parsed.data }
 }
 
@@ -233,28 +237,32 @@ export interface ModelComboStatus {
  * shim that failed to start: both looked identical (an empty text field).
  */
 export function modelComboStatus(
+  t: Translate,
   catalogue: ModelDiscoveryResult | undefined,
   loading: boolean
 ): ModelComboStatus {
-  const strings = EDITOR_STRINGS
+  const empty = t('profileEditor.modelsEmpty')
   if (!catalogue) {
+    const loadingText = t('profileEditor.modelsLoading')
     return loading
-      ? { tone: 'loading', text: strings.modelsLoading, title: strings.modelsLoading }
-      : { tone: 'warn', text: strings.modelsEmpty, title: strings.modelsEmpty }
+      ? { tone: 'loading', text: loadingText, title: loadingText }
+      : { tone: 'warn', text: empty, title: empty }
   }
 
-  const detail = catalogue.detail ? strings.modelsSource(catalogue.detail) : ''
+  const detail = catalogue.detail
+    ? t('profileEditor.modelsSource', { detail: catalogue.detail })
+    : ''
   const withDetail = (text: string): ModelComboStatus['title'] =>
     detail ? `${text} · ${detail}` : text
 
   if (catalogue.models.length === 0) {
     // The reason belongs on screen, not only in a tooltip: "kann kein Modell
     // auswählen" is unanswerable without the command that failed.
-    return { tone: 'warn', text: withDetail(strings.modelsEmpty), title: withDetail(strings.modelsEmpty) }
+    return { tone: 'warn', text: withDetail(empty), title: withDetail(empty) }
   }
-  const summary = `${strings.modelsCount(catalogue.models.length)} · ${
-    strings.modelsFrom[catalogue.source]
-  }`
+  const summary = `${t('profileEditor.modelsCount', { count: catalogue.models.length })} · ${t(
+    `profileEditor.modelsFrom.${catalogue.source}`
+  )}`
   // A seeded-only list means the CLI itself said nothing — worth a warning
   // colour, because it is the state where a freshly released model is missing.
   const warn = catalogue.source === 'seed'

@@ -1,6 +1,6 @@
+import { useTranslation } from 'react-i18next'
 import type { Profile } from '@shared/schema/profile'
 import { GearIcon, PlayIcon } from './icons'
-import { PANEL_STRINGS } from './strings'
 
 interface Props {
   profile: Profile
@@ -14,6 +14,9 @@ interface Props {
  * control in the panel; it is the one thing the app exists to do.
  */
 export function ProfileRow({ profile, onStart, onEdit }: Props): React.JSX.Element {
+  const { t } = useTranslation()
+  const start = t('panel.startWorkspace', { profile: profile.name })
+  const edit = t('panel.editProfile', { profile: profile.name })
   return (
     <li className="panel-row">
       <span className="panel-row-name" title={profile.repoPath || undefined}>
@@ -22,8 +25,8 @@ export function ProfileRow({ profile, onStart, onEdit }: Props): React.JSX.Eleme
       <button
         type="button"
         className="panel-play"
-        title={PANEL_STRINGS.startWorkspace(profile.name)}
-        aria-label={PANEL_STRINGS.startWorkspace(profile.name)}
+        title={start}
+        aria-label={start}
         onClick={() => onStart(profile.id)}
       >
         <PlayIcon />
@@ -31,8 +34,8 @@ export function ProfileRow({ profile, onStart, onEdit }: Props): React.JSX.Eleme
       <button
         type="button"
         className="panel-icon-button"
-        title={PANEL_STRINGS.editProfile(profile.name)}
-        aria-label={PANEL_STRINGS.editProfile(profile.name)}
+        title={edit}
+        aria-label={edit}
         onClick={() => onEdit(profile.id)}
       >
         <GearIcon />

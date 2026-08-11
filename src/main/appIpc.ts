@@ -111,7 +111,15 @@ export const APP_CHANNELS = {
   eventProfiles: 'ev:profiles',
   eventProviders: 'ev:providers',
   eventWorkspaces: 'ev:workspaces',
-  eventUpdate: 'ev:update'
+  eventUpdate: 'ev:update',
+  /**
+   * App settings changed — the whole {@link PanelSettings} object, pushed to
+   * every app window. The renderer's i18n follows it: the language picker sits
+   * in the settings window, but the panel and both editors have to change with
+   * it, and asking each of them to poll `settings:get` would make "switch the
+   * language" a race against the poll interval.
+   */
+  eventSettings: 'ev:settings'
 } as const
 
 /** Health probes are cheap but not free; a re-opened editor reuses this. */
@@ -281,6 +289,12 @@ export interface ZoneEditorPayload {
   roles: ZoneEditorRole[]
   /** Only the zones of THIS display; the other overlays own the rest. */
   zones: Zone[]
+  /**
+   * UI language for this overlay. Added by the `zones:load` handler, not by
+   * {@link zoneEditorPayload} — an overlay cannot call `settings:get`, so the
+   * one payload it does receive is where the language has to travel.
+   */
+  locale?: AppSettings['ui']['locale']
 }
 
 /**
@@ -530,6 +544,9 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
   const emitWorkspaces = (): void => {
     host.broadcast(APP_CHANNELS.eventWorkspaces, host.directory.list())
   }
+  const emitSettings = (value: PanelSettings): void => {
+    host.broadcast(APP_CHANNELS.eventSettings, value)
+  }
 
   // --- profiles ----------------------------------------------------------
 
@@ -662,7 +679,9 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     const enabled =
       typeof payload === 'boolean' ? payload : (payload as { enabled?: boolean })?.enabled
     if (typeof enabled !== 'boolean') throw new Error('settings:yolo rejected — expected a boolean')
-    return panelSettings(host.store.setSetting('yoloMaster', enabled))
+    const next = panelSettings(host.store.setSetting('yoloMaster', enabled))
+    emitSettings(next)
+    return next
   })
 
   /**
@@ -683,37 +702,54 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     if (!isWritableSetting(body.key)) {
       throw new Error(`settings:set rejected — ${String(body.key)} is not user-writable`)
     }
+    // Bound before the closure: TypeScript drops a property narrowing at the
+    // function boundary, and the exhaustiveness check below depends on it.
+    const key = body.key
 
-    switch (body.key) {
-      case 'hideAllHotkey': {
-        const next = host.store.setSetting('hideAllHotkey', body.value as string)
-        host.reRegisterHotkey(next.hideAllHotkey)
-        return panelSettings(next)
-      }
-      case 'autostart': {
-        if (typeof body.value !== 'boolean') {
-          throw new Error('settings:set rejected — autostart expects a boolean')
+    const written = await (async (): Promise<PanelSettings> => {
+      switch (key) {
+        case 'hideAllHotkey': {
+          const next = host.store.setSetting('hideAllHotkey', body.value as string)
+          host.reRegisterHotkey(next.hideAllHotkey)
+          return panelSettings(next)
         }
-        const next = host.store.setSetting('autostart', body.value)
-        if (host.autostartSupported()) host.setAutostart(next.autostart)
-        return panelSettings(next)
-      }
-      case 'updateChannel': {
-        if (body.value !== 'main' && body.value !== 'stable') {
-          throw new Error('settings:set rejected — updateChannel expects main or stable')
+        case 'autostart': {
+          if (typeof body.value !== 'boolean') {
+            throw new Error('settings:set rejected — autostart expects a boolean')
+          }
+          const next = host.store.setSetting('autostart', body.value)
+          if (host.autostartSupported()) host.setAutostart(next.autostart)
+          return panelSettings(next)
         }
-        // The updater persists the channel itself (it has to reconfigure at the
-        // same moment), so this path must not write it a second time.
-        await host.setUpdateChannel(body.value)
-        return panelSettings()
+        case 'updateChannel': {
+          if (body.value !== 'main' && body.value !== 'stable') {
+            throw new Error('settings:set rejected — updateChannel expects main or stable')
+          }
+          // The updater persists the channel itself (it has to reconfigure at
+          // the same moment), so this path must not write it a second time.
+          await host.setUpdateChannel(body.value)
+          return panelSettings()
+        }
+        case 'theme':
+        case 'locale': {
+          // `ui` is one strict object in the schema: read, patch, write back.
+          const ui = { ...host.store.getSettings().ui, [key]: body.value }
+          return panelSettings(host.store.setSetting('ui', ui))
+        }
+        default: {
+          // Unreachable while WRITABLE_SETTINGS and this switch agree; the
+          // `never` binding is what makes a new key a compile error here.
+          const unhandled: never = key
+          throw new Error(`settings:set rejected — ${String(unhandled)} has no write path`)
+        }
       }
-      case 'theme':
-      case 'locale': {
-        // `ui` is one strict object in the schema: read, patch, write back.
-        const ui = { ...host.store.getSettings().ui, [body.key]: body.value }
-        return panelSettings(host.store.setSetting('ui', ui))
-      }
-    }
+    })()
+
+    // Every window that shows a setting learns about it in the same tick. The
+    // caller still gets the object back: the settings form must not have to
+    // wait for its own broadcast to redraw the field the user just touched.
+    emitSettings(written)
+    return written
   })
 
   handle(APP_CHANNELS.windowsHideAll, requirePanel, () => {
@@ -811,7 +847,12 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     const sender = requireZoneOverlay(event, APP_CHANNELS.zonesLoad)
     const profile = host.store.getProfiles().find((entry) => entry.id === sender.profileId)
     if (!profile) throw new Error(`zones:load rejected — unknown profile ${sender.profileId}`)
-    return zoneEditorPayload(profile, host.store.getRoleTemplates(), sender.displayId)
+    // The overlay is not an "app window" on the settings guard, so this is the
+    // only channel that can tell it which language to draw in.
+    return {
+      ...zoneEditorPayload(profile, host.store.getRoleTemplates(), sender.displayId),
+      locale: host.store.getSettings().ui.locale
+    }
   })
 
   handle(APP_CHANNELS.zonesSave, requireZoneOverlay, (event, payload) => {

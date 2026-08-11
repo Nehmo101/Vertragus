@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { profileSchema, type Profile } from '@shared/schema/profile'
 import { BUILTIN_ROLE_TEMPLATES, roleColor } from '@shared/prompts/roles'
+import { translator } from '../i18n'
 import {
   CUSTOM_ROLE_VALUE,
   customRoleTemplate,
@@ -16,6 +17,10 @@ import {
   validateDraft,
   type ProfileDraft
 } from './model'
+
+/** The authored language — the assertions read as the real UI reads. */
+const t = translator('de')
+const en = translator('en')
 
 const SAVED: Profile = profileSchema.parse({
   id: 'p1',
@@ -35,7 +40,7 @@ function draft(overrides: Partial<ProfileDraft> = {}): ProfileDraft {
 
 describe('draft ⇄ profile', () => {
   it('round-trips a saved profile without changing a single value', () => {
-    const result = validateDraft(draftFromProfile(SAVED))
+    const result = validateDraft(t, draftFromProfile(SAVED))
     expect(result.ok).toBe(true)
     if (result.ok) expect(result.profile).toEqual(SAVED)
   })
@@ -76,14 +81,14 @@ describe('draft ⇄ profile', () => {
     // omission would fall back to the schema default and silently re-arm it.
     const off = toProfileInput(draft({ autoSubmitTasks: false })) as Record<string, unknown>
     expect(off.autoSubmitTasks).toBe(false)
-    const result = validateDraft(draft({ autoSubmitTasks: false }))
+    const result = validateDraft(t, draft({ autoSubmitTasks: false }))
     expect(result.ok && result.profile.autoSubmitTasks).toBe(false)
   })
 
   it('starts a new profile empty but valid apart from the repo path', () => {
     const fresh = emptyDraft('claude', 'profile-x')
     expect(fresh).toMatchObject({ id: 'profile-x', name: '', slots: [] })
-    const result = validateDraft({ ...fresh, name: 'Neu' })
+    const result = validateDraft(t, { ...fresh, name: 'Neu' })
     expect(result.ok).toBe(false)
     if (!result.ok) expect(Object.keys(result.errors)).toEqual(['repoPath'])
   })
@@ -91,7 +96,7 @@ describe('draft ⇄ profile', () => {
 
 describe('validation', () => {
   it('names the empty fields in German instead of leaking zod prose', () => {
-    const result = validateDraft(draft({ name: '   ', repoPath: '' }))
+    const result = validateDraft(t, draft({ name: '   ', repoPath: '' }))
     expect(result.ok).toBe(false)
     if (result.ok) return
     expect(result.errors.repoPath).toBe('Bitte den Repo-Ordner wählen.')
@@ -99,7 +104,7 @@ describe('validation', () => {
   })
 
   it('rejects a slot cap that is not a usable number, keyed to that slot', () => {
-    const result = validateDraft(
+    const result = validateDraft(t, 
       draft({
         slots: [
           { id: 's1', roleId: 'worker', providerId: 'claude', model: '', effort: '', maxCount: 'drei' }
@@ -111,15 +116,24 @@ describe('validation', () => {
   })
 
   it('rejects a maxSubagents beyond the schema bound', () => {
-    const result = validateDraft(draft({ maxSubagents: '999' }))
+    const result = validateDraft(t, draft({ maxSubagents: '999' }))
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.errors.maxSubagents).toBeDefined()
   })
 
   it('maps unknown paths to one honest generic line', () => {
-    expect(messageForPath('slots.2.providerId')).toBe('Bitte einen Provider wählen.')
-    expect(messageForPath('slots.2.roleId')).toBe('Bitte eine Rolle wählen.')
-    expect(messageForPath('something.odd')).toBe('Ungültiger Wert.')
+    expect(messageForPath(t, 'slots.2.providerId')).toBe('Bitte einen Provider wählen.')
+    expect(messageForPath(t, 'slots.2.roleId')).toBe('Bitte eine Rolle wählen.')
+    expect(messageForPath(t, 'something.odd')).toBe('Ungültiger Wert.')
+  })
+
+  it('answers in the language it is handed', () => {
+    const result = validateDraft(en, draft({ name: '   ', repoPath: '' }))
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.errors.repoPath).toBe('Please choose the repo folder.')
+    expect(result.errors.name).toBe('Please enter a name.')
+    expect(messageForPath(en, 'something.odd')).toBe('Invalid value.')
   })
 })
 
@@ -176,11 +190,12 @@ describe('filterModelOptions', () => {
 
 describe('modelComboStatus', () => {
   it('says it is still loading while discovery runs', () => {
-    expect(modelComboStatus(undefined, true)).toMatchObject({ tone: 'loading' })
+    expect(modelComboStatus(t, undefined, true)).toMatchObject({ tone: 'loading' })
   })
 
   it('names the count and the source of a healthy list', () => {
     const status = modelComboStatus(
+      t,
       { models: ['auto', 'composer-2.5'], source: 'live', refreshedAt: 0 },
       false
     )
@@ -190,6 +205,7 @@ describe('modelComboStatus', () => {
 
   it('warns — with the failing command — when nothing was found', () => {
     const status = modelComboStatus(
+      t,
       {
         models: [],
         source: 'none',
@@ -207,6 +223,7 @@ describe('modelComboStatus', () => {
 
   it('warns when only the seeded aliases are left, and shows why', () => {
     const status = modelComboStatus(
+      t,
       {
         models: ['opus', 'sonnet', 'haiku'],
         source: 'seed',
@@ -222,14 +239,22 @@ describe('modelComboStatus', () => {
 
   it('treats a seeded-plus-live list as healthy', () => {
     const status = modelComboStatus(
+      t,
       { models: ['fable', 'claude-fable-5[1m]', 'opus'], source: 'mixed', refreshedAt: 0 },
       false
     )
     expect(status.tone).toBe('ok')
     expect(status.text).toBe('3 Modelle · live + Standard-Aliase')
+    expect(
+      modelComboStatus(
+        en,
+        { models: ['fable', 'claude-fable-5[1m]', 'opus'], source: 'mixed', refreshedAt: 0 },
+        false
+      ).text
+    ).toBe('3 models · live + standard aliases')
   })
 
   it('does not claim to be loading once a provider answered with nothing', () => {
-    expect(modelComboStatus(undefined, false).tone).toBe('warn')
+    expect(modelComboStatus(t, undefined, false).tone).toBe('warn')
   })
 })

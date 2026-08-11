@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { applyLocale } from '../i18n'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
@@ -52,6 +54,7 @@ function metaLabel(meta: TerminalAgentMeta | null, agentId: string): React.JSX.E
  * the main process, this attaches to it, replays the scrollback and streams.
  */
 export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element {
+  const { t } = useTranslation()
   const hostRef = useRef<HTMLDivElement>(null)
   const [meta, setMeta] = useState<TerminalAgentMeta | null>(null)
   const [exit, setExit] = useState<TerminalExitEvent | { exitCode: number } | null>(null)
@@ -115,7 +118,7 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
     })
     const offExit = bridge.onExit((event) => {
       setExit(event)
-      term.write(`\r\n\x1b[90m— beendet · exit ${event.exitCode} —\x1b[0m\r\n`)
+      term.write(`\r\n\x1b[90m${t('terminal.exitLine', { code: event.exitCode })}\x1b[0m\r\n`)
     })
     const offInput = term.onData((data) => bridge.input(data))
 
@@ -126,6 +129,8 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
       .attach(agentId)
       .then((result) => {
         if (disposed) return
+        // CLI windows cannot query settings; the locale rides on the attach.
+        if (result.locale) void applyLocale(result.locale)
         setMeta(result.meta)
         if (result.exit) setExit(result.exit)
         term.write(result.snapshot)
@@ -148,21 +153,28 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
       offInput.dispose()
       term.dispose()
     }
-  }, [agentId, bridge])
+  }, [agentId, bridge, t])
 
   const roleColor = meta?.roleColor ?? 'var(--verdigris)'
   const running = exit === null
-  const notice = bridge ? error : 'Preload-Bridge nicht verfügbar.'
+  const notice = bridge ? error : t('common.bridgeMissing')
 
   return (
     <div className="cli glass" style={{ '--role-color': roleColor } as React.CSSProperties}>
       <header className="cli-titlebar">
         <span
           className={`cli-status ${running ? 'is-running' : 'is-stopped'}`}
-          title={running ? 'läuft' : `beendet · exit ${exit?.exitCode}`}
+          title={
+            running ? t('terminal.running') : t('terminal.stopped', { code: exit?.exitCode })
+          }
         />
         <span className="cli-label">{metaLabel(meta, agentId)}</span>
-        <button className="cli-close" onClick={close} title="Fenster schließen" aria-label="Fenster schließen">
+        <button
+          className="cli-close"
+          onClick={close}
+          title={t('terminal.closeWindow')}
+          aria-label={t('terminal.closeWindow')}
+        >
           ×
         </button>
       </header>

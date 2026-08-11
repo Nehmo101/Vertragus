@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { WorkspaceAgentSummary, WorkspaceSummary } from '../../../preload'
+import { translator } from '../i18n'
 import {
   agentCountLabel,
   agentDotClass,
@@ -11,6 +12,10 @@ import {
   workspaceCardClass,
   workspaceTooltip
 } from './viewModel'
+
+/** The authored language — the assertions below read as the real UI reads. */
+const t = translator('de')
+const en = translator('en')
 
 function agent(overrides: Partial<WorkspaceAgentSummary> = {}): WorkspaceAgentSummary {
   return {
@@ -53,22 +58,29 @@ describe('agent dots', () => {
 
 describe('agent status line', () => {
   it('reads "<Rolle> · <Notiz>" when the host supplies a note', () => {
-    expect(agentStatusLine(agent({ roleLabel: 'Orchestrator', statusText: 'plant' }))).toBe(
+    expect(agentStatusLine(t, agent({ roleLabel: 'Orchestrator', statusText: 'plant' }))).toBe(
       'Orchestrator · plant'
     )
-    expect(agentStatusLine(agent({ statusText: 'T-142' }))).toBe('Worker · T-142')
+    expect(agentStatusLine(t, agent({ statusText: 'T-142' }))).toBe('Worker · T-142')
   })
 
   it('never renders an empty status — the state itself is the fallback', () => {
-    expect(agentStatusLine(agent({ roleLabel: 'Reviewer', state: 'waiting' }))).toBe(
+    expect(agentStatusLine(t, agent({ roleLabel: 'Reviewer', state: 'waiting' }))).toBe(
       'Reviewer · wartet'
     )
-    expect(agentStatusLine(agent({ statusText: '   ' }))).toBe('Worker · arbeitet')
-    expect(agentStatusLine(agent({ state: 'stopped' }))).toBe('Worker · beendet')
+    expect(agentStatusLine(t, agent({ statusText: '   ' }))).toBe('Worker · arbeitet')
+    expect(agentStatusLine(t, agent({ state: 'stopped' }))).toBe('Worker · beendet')
+  })
+
+  it('speaks the language it is handed, not the one it was authored in', () => {
+    expect(agentStatusLine(en, agent({ roleLabel: 'Reviewer', state: 'waiting' }))).toBe(
+      'Reviewer · waiting'
+    )
+    expect(agentStatusLine(en, agent({ state: 'stopped' }))).toBe('Worker · stopped')
   })
 
   it('falls back to the raw role id when the host has no label', () => {
-    expect(agentStatusLine(agent({ roleLabel: undefined, roleId: 'bugjaeger' }))).toBe(
+    expect(agentStatusLine(t, agent({ roleLabel: undefined, roleId: 'bugjaeger' }))).toBe(
       'bugjaeger · arbeitet'
     )
   })
@@ -93,9 +105,11 @@ describe('cards', () => {
   it('marks an active workspace and counts its agents in German', () => {
     expect(workspaceCardClass(workspace())).toBe('panel-card is-active')
     expect(workspaceCardClass(workspace({ active: false }))).toBe('panel-card')
-    expect(agentCountLabel(workspace())).toBe('1 Agent')
-    expect(agentCountLabel(workspace({ agents: [agent(), agent()] }))).toBe('2 Agenten')
-    expect(agentCountLabel(workspace({ agents: [] }))).toBe('0 Agenten')
+    expect(agentCountLabel(t, workspace())).toBe('1 Agent')
+    expect(agentCountLabel(t, workspace({ agents: [agent(), agent()] }))).toBe('2 Agenten')
+    expect(agentCountLabel(t, workspace({ agents: [] }))).toBe('0 Agenten')
+    expect(agentCountLabel(en, workspace())).toBe('1 agent')
+    expect(agentCountLabel(en, workspace({ agents: [agent(), agent()] }))).toBe('2 agents')
   })
 
   it('sorts live workspaces above finished ones without reordering peers', () => {

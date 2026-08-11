@@ -1,6 +1,6 @@
+import { useTranslation } from 'react-i18next'
 import type { WorkspaceAgentSummary, WorkspaceSummary } from '../../../preload'
 import { StopIcon } from './icons'
-import { PANEL_STRINGS } from './strings'
 import {
   agentCountLabel,
   agentDotClass,
@@ -21,20 +21,21 @@ interface AgentProps {
  * hitting a 12px name.
  */
 function AgentRow({ agent, onFocus }: AgentProps): React.JSX.Element {
+  const { t } = useTranslation()
   return (
     <li>
       <button
         type="button"
         className="panel-agent"
         style={{ '--role-color': agent.roleColor } as React.CSSProperties}
-        title={PANEL_STRINGS.focusAgent(agent.name)}
+        title={t('panel.focusAgent', { agent: agent.name })}
         onClick={() => onFocus(agent.agentId)}
       >
         <span className={agentDotClass(agent)} />
         <span className="panel-agent-name" title={agentTooltip(agent)}>
           {agent.name}
         </span>
-        <span className="panel-agent-status">{agentStatusLine(agent)}</span>
+        <span className="panel-agent-status">{agentStatusLine(t, agent)}</span>
         {agent.pendingQuestion ? (
           <span className="panel-question" title={agent.pendingQuestion}>
             ?
@@ -53,18 +54,20 @@ interface Props {
 
 /** One workspace card: Commedia name, agent count, stop — then its agents. */
 export function WorkspaceCard({ workspace, onStop, onFocusAgent }: Props): React.JSX.Element {
+  const { t } = useTranslation()
+  const stop = t('panel.stopWorkspace', { workspace: workspace.name })
   return (
     <article className={workspaceCardClass(workspace)}>
       <header className="panel-card-head">
         <span className="panel-card-name" title={workspaceTooltip(workspace)}>
           {workspace.name}
         </span>
-        <span className="panel-card-count">{agentCountLabel(workspace)}</span>
+        <span className="panel-card-count">{agentCountLabel(t, workspace)}</span>
         <button
           type="button"
           className="panel-stop"
-          title={PANEL_STRINGS.stopWorkspace(workspace.name)}
-          aria-label={PANEL_STRINGS.stopWorkspace(workspace.name)}
+          title={stop}
+          aria-label={stop}
           onClick={() => onStop(workspace.workspaceId)}
         >
           <StopIcon />

@@ -6,6 +6,7 @@
  * preset (and therefore resettable) and which ids are already taken.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { ProviderConfig } from '@shared/schema/provider'
 import type { ProviderListEntry, VertragusAppApi } from '../../../preload'
 import { errorText } from '../lib/ipcError'
@@ -16,7 +17,6 @@ import {
   type DraftErrors,
   type ProviderDraft
 } from './model'
-import { PROVIDER_STRINGS } from './strings'
 
 export interface ProviderEditorState {
   draft: ProviderDraft | null
@@ -38,9 +38,10 @@ export interface ProviderEditorState {
 }
 
 export function useProviderEditor(providerId?: string): ProviderEditorState {
+  const { t } = useTranslation()
   const bridge = useMemo<VertragusAppApi | undefined>(() => window.vertragus?.app, [])
   const [draft, setDraft] = useState<ProviderDraft | null>(null)
-  const [fatal, setFatal] = useState<string | null>(bridge ? null : PROVIDER_STRINGS.bridgeMissing)
+  const [fatal, setFatal] = useState<string | null>(bridge ? null : t('common.bridgeMissing'))
   const [errors, setErrors] = useState<DraftErrors>({})
   const [saving, setSaving] = useState(false)
   const [entries, setEntries] = useState<ProviderListEntry[]>([])
@@ -58,7 +59,7 @@ export function useProviderEditor(providerId?: string): ProviderEditorState {
           return
         }
         const entry = list.find((candidate) => candidate.config.id === providerId)
-        if (!entry) setFatal(PROVIDER_STRINGS.unknownProvider)
+        if (!entry) setFatal(t('providerEditor.unknownProvider'))
         else setDraft(draftFromProvider(entry.config))
       },
       (cause) => {
@@ -68,7 +69,7 @@ export function useProviderEditor(providerId?: string): ProviderEditorState {
     return () => {
       alive = false
     }
-  }, [bridge, providerId])
+  }, [bridge, providerId, t])
 
   const update = useCallback((mutate: (current: ProviderDraft) => ProviderDraft) => {
     setDraft((current) => (current ? mutate(current) : current))
@@ -82,7 +83,7 @@ export function useProviderEditor(providerId?: string): ProviderEditorState {
 
   const save = useCallback(() => {
     if (!bridge || !draft) return
-    const result = validateDraft(draft, takenIds)
+    const result = validateDraft(t, draft, takenIds)
     if (!result.ok) {
       setErrors(result.errors)
       return
@@ -96,7 +97,7 @@ export function useProviderEditor(providerId?: string): ProviderEditorState {
         setErrors({ form: errorText(cause) })
       }
     )
-  }, [bridge, draft, takenIds])
+  }, [bridge, draft, takenIds, t])
 
   const cancel = useCallback(() => bridge?.closeProviderEditor(), [bridge])
 
@@ -106,8 +107,8 @@ export function useProviderEditor(providerId?: string): ProviderEditorState {
     if (!bridge || !draft || isNew) return
     const label = draft.label || draft.id
     const question = draft.presetId
-      ? PROVIDER_STRINGS.resetConfirm(label)
-      : PROVIDER_STRINGS.deleteConfirm(label)
+      ? t('providerEditor.resetConfirm', { label })
+      : t('providerEditor.deleteConfirm', { label })
     if (!window.confirm(question)) return
     setSaving(true)
     // One store call for both: dropping the stored entry deletes a custom
@@ -119,7 +120,7 @@ export function useProviderEditor(providerId?: string): ProviderEditorState {
         setErrors({ form: errorText(cause) })
       }
     )
-  }, [bridge, draft, isNew])
+  }, [bridge, draft, isNew, t])
 
   const health = useMemo(
     () => entries.find((entry) => entry.config.id === providerId)?.health,

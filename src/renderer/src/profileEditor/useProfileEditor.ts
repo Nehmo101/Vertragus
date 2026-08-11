@@ -9,6 +9,7 @@
  * pickers fill in as their answers arrive.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { allRoleTemplates } from '@shared/prompts/roles'
 import type { RoleTemplate } from '@shared/schema/profile'
 import type { ModelDiscoveryResult, ProviderListEntry, VertragusAppApi } from '../../../preload'
@@ -20,7 +21,6 @@ import {
   type DraftErrors,
   type ProfileDraft
 } from './model'
-import { EDITOR_STRINGS } from './strings'
 
 /** The preset that always exists — the default orchestrator of a new profile. */
 const FALLBACK_PROVIDER_ID = 'claude'
@@ -51,9 +51,10 @@ export interface ProfileEditorState {
 }
 
 export function useProfileEditor(profileId?: string): ProfileEditorState {
+  const { t } = useTranslation()
   const bridge = useMemo(() => window.vertragus?.app, [])
   const [draft, setDraft] = useState<ProfileDraft | null>(null)
-  const [fatal, setFatal] = useState<string | null>(bridge ? null : EDITOR_STRINGS.bridgeMissing)
+  const [fatal, setFatal] = useState<string | null>(bridge ? null : t('common.bridgeMissing'))
   const [errors, setErrors] = useState<DraftErrors>({})
   const [providers, setProviders] = useState<ProviderListEntry[]>([])
   const [providersLoading, setProvidersLoading] = useState(true)
@@ -76,7 +77,7 @@ export function useProfileEditor(profileId?: string): ProfileEditorState {
           return
         }
         const profile = profiles.find((entry) => entry.id === profileId)
-        if (!profile) setFatal(EDITOR_STRINGS.unknownProfile)
+        if (!profile) setFatal(t('profileEditor.unknownProfile'))
         else setDraft(draftFromProfile(profile))
       },
       (cause) => {
@@ -86,7 +87,7 @@ export function useProfileEditor(profileId?: string): ProfileEditorState {
     return () => {
       alive = false
     }
-  }, [bridge, profileId])
+  }, [bridge, profileId, t])
 
   // --- slow load: provider list with health -------------------------------
   useEffect(() => {
@@ -179,7 +180,7 @@ export function useProfileEditor(profileId?: string): ProfileEditorState {
 
   const save = useCallback(() => {
     if (!bridge || !draft) return
-    const result = validateDraft(draft)
+    const result = validateDraft(t, draft)
     if (!result.ok) {
       setErrors(result.errors)
       return
@@ -193,13 +194,14 @@ export function useProfileEditor(profileId?: string): ProfileEditorState {
         setErrors({ form: errorText(cause) })
       }
     )
-  }, [bridge, draft])
+  }, [bridge, draft, t])
 
   const cancel = useCallback(() => bridge?.closeProfileEditor(), [bridge])
 
   const remove = useCallback(() => {
     if (!bridge || !draft || isNew) return
-    if (!window.confirm(EDITOR_STRINGS.deleteConfirm(draft.name || draft.id))) return
+    if (!window.confirm(t('profileEditor.deleteConfirm', { name: draft.name || draft.id })))
+      return
     setSaving(true)
     bridge.deleteProfile(draft.id).then(
       () => bridge.closeProfileEditor(),
@@ -208,7 +210,7 @@ export function useProfileEditor(profileId?: string): ProfileEditorState {
         setErrors({ form: errorText(cause) })
       }
     )
-  }, [bridge, draft, isNew])
+  }, [bridge, draft, isNew, t])
 
   const pickFolder = useCallback(() => {
     if (!bridge || !draft) return

@@ -8,7 +8,9 @@
  * others have already told main what they are showing.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { ZoneEditorPayload, ZoneEditorRole } from '../../../preload'
+import { applyLocale } from '../i18n'
 import { errorText } from '../lib/ipcError'
 import { demoZoneEditorPayload } from './demoPayload'
 import {
@@ -21,7 +23,6 @@ import {
   type PxRect,
   type Viewport
 } from './geometry'
-import { ZONE_STRINGS } from './strings'
 
 export interface ZoneEditorState {
   ready: boolean
@@ -70,6 +71,7 @@ function toDrafts(loaded: ZoneEditorPayload, viewport: Viewport, offset: number)
 }
 
 export function useZoneEditor({ displayId, demo = false }: UseZoneEditorInput): ZoneEditorState {
+  const { t } = useTranslation()
   const bridge = useMemo(() => window.vertragus?.zones, [])
   /**
    * The overlay is not resizable, so its work area is fixed for the lifetime of
@@ -84,7 +86,7 @@ export function useZoneEditor({ displayId, demo = false }: UseZoneEditorInput): 
     seed ? toDrafts(seed, viewportNow(), 0) : []
   )
   const [error, setError] = useState<string | null>(
-    bridge || demo ? null : ZONE_STRINGS.bridgeMissing
+    bridge || demo ? null : t('common.bridgeMissing')
   )
   const [saving, setSaving] = useState(false)
   /** Monotonic counter for local zone keys and the new-zone cascade. */
@@ -97,6 +99,9 @@ export function useZoneEditor({ displayId, demo = false }: UseZoneEditorInput): 
     bridge.load().then(
       (loaded) => {
         if (!alive) return
+        // An overlay may not call `settings:get`, so this payload is the only
+        // place its language can come from (see appIpc's zones:load handler).
+        void applyLocale(loaded.locale)
         setPayload(loaded)
         setZones(toDrafts(loaded, viewport, created.current))
         created.current += loaded.zones.length
@@ -183,7 +188,7 @@ export function useZoneEditor({ displayId, demo = false }: UseZoneEditorInput): 
     save() {
       if (demo) return
       if (!bridge || !payload) {
-        setError(ZONE_STRINGS.bridgeMissing)
+        setError(t('common.bridgeMissing'))
         return
       }
       setSaving(true)

@@ -23,7 +23,7 @@ import {
   type ProviderPresetId,
   type SystemPromptDelivery
 } from '@shared/schema/provider'
-import { PROVIDER_STRINGS } from './strings'
+import type { Translate } from '../i18n'
 
 /** `''` means "no effort switch at all" — the CLI has no such knob. */
 export type EffortStyleChoice = '' | 'flag' | 'template'
@@ -282,31 +282,34 @@ export function fieldForPath(path: string): string {
   return map[head] ?? map[head.split('.')[0] ?? ''] ?? 'form'
 }
 
-/** German message for a field; the schema's own prose is developer-facing. */
-export function messageForField(field: string): string {
-  const errors = PROVIDER_STRINGS.errors
+/**
+ * The user-facing message for a field; the schema's own prose is
+ * developer-facing. `t` is a parameter because this module is pure and
+ * unit-tested in plain Node — see the profile editor's `model.ts`.
+ */
+export function messageForField(t: Translate, field: string): string {
   switch (field) {
     case 'id':
-      return errors.id
+      return t('providerEditor.errors.id')
     case 'label':
-      return errors.label
+      return t('providerEditor.errors.label')
     case 'command':
-      return errors.command
+      return t('providerEditor.errors.command')
     case 'effortTemplate':
-      return errors.effortTemplate
+      return t('providerEditor.errors.effortTemplate')
     case 'effortFlag':
     case 'promptFlag':
     case 'mcpConfigArg':
     case 'mcpStrictArg':
     case 'mcpAllowedToolsArg':
     case 'modelArg':
-      return errors.flag
+      return t('providerEditor.errors.flag')
     case 'discoveryPath':
-      return errors.path
+      return t('providerEditor.errors.path')
     case 'discoveryUrl':
-      return errors.url
+      return t('providerEditor.errors.url')
     case 'discoveryJsonPath':
-      return errors.jsonPath
+      return t('providerEditor.errors.jsonPath')
     case 'args':
     case 'yoloArgs':
     case 'versionArgs':
@@ -314,9 +317,9 @@ export function messageForField(field: string): string {
     case 'authLoginArgs':
     case 'authStatusArgs':
     case 'seedModels':
-      return errors.args
+      return t('providerEditor.errors.args')
     default:
-      return errors.generic
+      return t('providerEditor.errors.generic')
   }
 }
 
@@ -332,23 +335,26 @@ export type ValidationResult =
  * stranger's custom entry is data loss.
  */
 export function validateDraft(
+  t: Translate,
   draft: ProviderDraft,
   takenIds: readonly string[] = []
 ): ValidationResult {
   const errors: DraftErrors = {}
   const id = normalizeProviderId(draft.id)
-  if (!id) errors.id = PROVIDER_STRINGS.errors.id
-  else if (takenIds.includes(id)) errors.id = PROVIDER_STRINGS.errors.idTaken
+  if (!id) errors.id = t('providerEditor.errors.id')
+  else if (takenIds.includes(id)) errors.id = t('providerEditor.errors.idTaken')
 
   const parsed = providerConfigSchema.safeParse(toProviderInput(draft))
   if (!parsed.success) {
     for (const issue of parsed.error.issues as z.ZodIssue[]) {
       const field = fieldForPath(issue.path.join('.'))
-      if (!errors[field]) errors[field] = messageForField(field)
+      if (!errors[field]) errors[field] = messageForField(t, field)
     }
   }
   if (Object.keys(errors).length > 0) return { ok: false, errors }
-  if (!parsed.success) return { ok: false, errors: { form: PROVIDER_STRINGS.errors.generic } }
+  if (!parsed.success) {
+    return { ok: false, errors: { form: t('providerEditor.errors.generic') } }
+  }
   return { ok: true, config: { ...parsed.data, id } }
 }
 
