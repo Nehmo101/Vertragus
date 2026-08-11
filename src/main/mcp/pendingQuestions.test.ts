@@ -1,0 +1,114 @@
+import { describe, expect, it } from 'vitest'
+import { PendingQuestions } from './pendingQuestions'
+
+function registry(): PendingQuestions {
+  let n = 0
+  return new PendingQuestions(
+    () => `q${++n}`,
+    () => 1000 + n
+  )
+}
+
+describe('PendingQuestions', () => {
+  it('hands out an id and tracks the open question per agent', () => {
+    const questions = registry()
+    const created = questions.create('a1', 'which interface?')
+    expect(created.questionId).toBe('q1')
+    expect(questions.openForAgent('a1')?.question).toBe('which interface?')
+    expect(questions.openForAgent('a2')).toBeUndefined()
+    expect(questions.openCount).toBe(1)
+  })
+
+  it('wakes every parked waiter of the same question with one answer', async () => {
+    const questions = registry()
+    const { questionId } = questions.create('a1', 'q?')
+    const first = questions.waitForAnswer(questionId, 'a1', 5_000)
+    const second = questions.waitForAnswer(questionId, 'a1', 5_000)
+
+    expect(questions.answer(questionId, 'use zod')?.agentId).toBe('a1')
+
+    await expect(first).resolves.toEqual({ state: 'answered', answer: 'use zod' })
+    await expect(second).resolves.toEqual({ state: 'answered', answer: 'use zod' })
+    expect(questions.openCount).toBe(0)
+  })
+
+  it('reports a timeout without closing the question', async () => {
+    const questions = registry()
+    const { questionId } = questions.create('a1', 'q?')
+    await expect(questions.waitForAnswer(questionId, 'a1', 5)).resolves.toEqual({ state: 'timeout' })
+    // Still open: the ticket resume must find the very same question.
+    expect(questions.openForAgent('a1')?.questionId).toBe(questionId)
+  })
+
+  it('answers a late ticket resume from the answered memory', async () => {
+    const questions = registry()
+    const { questionId } = questions.create('a1', 'q?')
+    await expect(questions.waitForAnswer(questionId, 'a1', 5)).resolves.toEqual({ state: 'timeout' })
+    questions.answer(questionId, 'yes')
+    // Resume arrives after the answer — it must not hang.
+    await expect(questions.waitForAnswer(questionId, 'a1', 5_000)).resolves.toEqual({
+      state: 'answered',
+      answer: 'yes'
+    })
+  })
+
+  it('treats an unknown ticket as unknown', async () => {
+    const questions = registry()
+    await expect(questions.waitForAnswer('nope', 'a1', 5_000)).resolves.toEqual({ state: 'unknown' })
+    expect(questions.answer('nope', 'x')).toBeUndefined()
+  })
+
+  it('refuses a ticket that belongs to another agent', async () => {
+    const questions = registry()
+    const { questionId } = questions.create('a1', 'q?')
+    await expect(questions.waitForAnswer(questionId, 'a2', 5_000)).resolves.toEqual({
+      state: 'unknown'
+    })
+  })
+
+  it('cancels the open questions of one agent only', async () => {
+    const questions = registry()
+    const mine = questions.create('a1', 'q1?')
+    const theirs = questions.create('a2', 'q2?')
+    const waiting = questions.waitForAnswer(mine.questionId, 'a1', 5_000)
+
+    expect(questions.cancelForAgent('a1')).toBe(1)
+    await expect(waiting).resolves.toEqual({ state: 'cancelled' })
+    expect(questions.openForAgent('a2')?.questionId).toBe(theirs.questionId)
+  })
+
+  it('unparks on abort', async () => {
+    const questions = registry()
+    const { questionId } = questions.create('a1', 'q?')
+    const controller = new AbortController()
+    const waiting = questions.waitForAnswer(questionId, 'a1', 5_000, controller.signal)
+    controller.abort()
+    await expect(waiting).resolves.toEqual({ state: 'cancelled' })
+  })
+
+  it('clear() releases every waiter', async () => {
+    const questions = registry()
+    const a = questions.create('a1', 'q?')
+    const b = questions.create('a2', 'q?')
+    const waiting = [
+      questions.waitForAnswer(a.questionId, 'a1', 5_000),
+      questions.waitForAnswer(b.questionId, 'a2', 5_000)
+    ]
+    questions.clear()
+    expect(await Promise.all(waiting)).toEqual([{ state: 'cancelled' }, { state: 'cancelled' }])
+    expect(questions.openCount).toBe(0)
+  })
+
+  it('forgets answers beyond the memory bound instead of growing forever', async () => {
+    const questions = new PendingQuestions()
+    const first = questions.create('a1', 'q?')
+    questions.answer(first.questionId, 'old')
+    for (let i = 0; i < 60; i++) {
+      const q = questions.create('a1', `q${i}?`)
+      questions.answer(q.questionId, `a${i}`)
+    }
+    await expect(questions.waitForAnswer(first.questionId, 'a1', 5_000)).resolves.toEqual({
+      state: 'unknown'
+    })
+  })
+})
