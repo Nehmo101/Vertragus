@@ -55,20 +55,43 @@ export async function waitForInteractiveReady(
   return alive && buffer.length > 0
 }
 
+/**
+ * The submitting keystroke, written on its own.
+ *
+ * Not part of the prompt write, and not immediately after it: Claude Code (and
+ * every other CLI with a multi-line composer) treats a `\r` that arrives inside
+ * the same burst as the text as a *newline of the pasted block* and keeps the
+ * whole thing in the input field. A separate, slightly later write arrives as
+ * what it is — a keypress.
+ */
+export const SUBMIT_KEY = '\r'
+
+/** Pause between the assignment text and the submitting Enter. */
+export const DEFAULT_SUBMIT_DELAY_MS = 250
+
 export interface SeedWithReadyOptions {
   ready?: WaitForReadyOptions
   maxAttempts?: number
   retryDelayMs?: number
   /** Poll interval while waiting for the CLI to react to a seed write. */
   acceptancePollMs?: number
+  /**
+   * Send {@link SUBMIT_KEY} after the text. Default true. `false` leaves the
+   * assignment in the CLI's input field for a human to edit and send.
+   */
+  autoSubmit?: boolean
+  /** Delay before the submitting Enter. See {@link SUBMIT_KEY}. */
+  submitDelayMs?: number
 }
 
 /**
- * Wait for CLI readiness, then write the prompt with bounded retries.
+ * Wait for CLI readiness, write the prompt with bounded retries, then submit.
  *
  * A retry is only needed when the PTY stays completely unchanged. Interactive
  * CLIs normally echo or render immediately after accepting the prompt; sending
  * again after that creates duplicate turns or queued input.
+ *
+ * The text and the Enter are two writes on purpose — see {@link SUBMIT_KEY}.
  */
 export async function seedWithReadyHandshake(
   write: (text: string) => void,
@@ -81,21 +104,34 @@ export async function seedWithReadyHandshake(
   const maxAttempts = options.maxAttempts ?? 3
   const retryDelayMs = options.retryDelayMs ?? 600
   const acceptancePollMs = options.acceptancePollMs ?? 50
-  const text = prompt.endsWith('\r') ? prompt : `${prompt}\r`
+  const autoSubmit = options.autoSubmit ?? true
+  const submitDelayMs = options.submitDelayMs ?? DEFAULT_SUBMIT_DELAY_MS
+  // A caller that already terminated its prompt must not produce two returns.
+  const text = prompt.endsWith(SUBMIT_KEY) ? prompt.slice(0, -1) : prompt
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const before = getSnapshot()
     if (!before.alive) return false
     write(text)
-    if (attempt === maxAttempts - 1) return true
+    if (attempt === maxAttempts - 1) break
 
+    let reacted = false
     const deadline = Date.now() + retryDelayMs
     while (Date.now() < deadline) {
       await sleep(Math.min(acceptancePollMs, Math.max(1, deadline - Date.now())))
       const after = getSnapshot()
       if (!after.alive) return false
-      if (after.buffer !== before.buffer) return true
+      if (after.buffer !== before.buffer) {
+        reacted = true
+        break
+      }
     }
+    if (reacted) break
   }
+
+  if (!autoSubmit) return true
+  await sleep(submitDelayMs)
+  if (!getSnapshot().alive) return false
+  write(SUBMIT_KEY)
   return true
 }

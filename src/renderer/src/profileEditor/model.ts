@@ -43,6 +43,8 @@ export interface ProfileDraft {
   }
   slots: SlotDraft[]
   maxSubagents: string
+  /** Press Enter for the agent after an assignment was typed in. */
+  autoSubmitTasks: boolean
   /** Carried through untouched — the zone editor owns it (M4). */
   zones?: Profile['zones']
 }
@@ -57,7 +59,8 @@ export function emptyDraft(defaultProviderId: string, id = createLocalId('profil
     repoPath: '',
     orchestrator: { providerId: defaultProviderId, model: '', effort: '' },
     slots: [],
-    maxSubagents: ''
+    maxSubagents: '',
+    autoSubmitTasks: true
   }
 }
 
@@ -80,6 +83,7 @@ export function draftFromProfile(profile: Profile): ProfileDraft {
       maxCount: slot.maxCount === undefined ? '' : String(slot.maxCount)
     })),
     maxSubagents: profile.maxSubagents === undefined ? '' : String(profile.maxSubagents),
+    autoSubmitTasks: profile.autoSubmitTasks,
     zones: profile.zones
   }
 }
@@ -133,6 +137,7 @@ export function toProfileInput(draft: ProfileDraft): unknown {
     ...(optionalNumber(draft.maxSubagents) === undefined
       ? {}
       : { maxSubagents: optionalNumber(draft.maxSubagents) }),
+    autoSubmitTasks: draft.autoSubmitTasks,
     ...(draft.zones ? { zones: draft.zones } : {})
   }
 }

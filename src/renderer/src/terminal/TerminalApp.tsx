@@ -5,6 +5,7 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import type { TerminalAgentMeta, TerminalExitEvent } from '../../../preload'
 import '@xterm/xterm/css/xterm.css'
 import './terminal.css'
+import { trackWindowFocus } from './windowFocus'
 import { XTERM_THEME } from './xtermTheme'
 
 /**
@@ -60,6 +61,18 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
   // lifetime of the window, so it is read during render, not in the effect.
   const bridge = window.vertragus?.terminal
   const close = useCallback(() => bridge?.closeWindow(), [bridge])
+
+  // Focus, not hover, decides whether this window is solid: hover means the
+  // user is reading it, focus means they are typing in it.
+  useEffect(
+    () =>
+      trackWindowFocus(document.documentElement.classList, {
+        addEventListener: (type, listener) => window.addEventListener(type, listener),
+        removeEventListener: (type, listener) => window.removeEventListener(type, listener),
+        hasFocus: () => document.hasFocus()
+      }),
+    []
+  )
 
   useEffect(() => {
     const host = hostRef.current

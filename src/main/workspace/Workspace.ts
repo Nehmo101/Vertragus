@@ -64,6 +64,7 @@ import {
   type Slot
 } from '@shared/schema/profile'
 import type { ProviderConfig } from '@shared/schema/provider'
+import type { ZoneLayout } from '@shared/schema/zones'
 import { terminalTailText } from './terminalText'
 
 /** Agent statuses this host reports. See `mcp/types` TERMINAL_AGENT_STATUSES. */
@@ -85,7 +86,15 @@ const MAX_TAIL_CHARS = 400_000
 
 /** Opening/closing the CLI window for an agent. Faked wholesale in tests. */
 export interface WorkspaceWindows {
-  open(agentId: string, options: { title: string; roleColor: string }): void
+  open(
+    agentId: string,
+    options: {
+      title: string
+      roleColor: string
+      /** Role + zone layout; the window layer turns this into bounds. */
+      placement?: { roleId: string; zones?: ZoneLayout }
+    }
+  ): void
   close(agentId: string): void
 }
 
@@ -285,7 +294,7 @@ export class Workspace implements AgentHost {
       const seedText = spawned.launch.ptySystemPrompt
         ? `${spawned.launch.ptySystemPrompt}\n\n${input.task}`
         : input.task
-      const accepted = await this.seed(record, seedText)
+      const accepted = await this.seed(record, seedText, this.autoSubmitTasks)
       if (!accepted) {
         throw new Error(
           `${name} (${provider.label}) never became ready — the CLI did not accept its task.`
@@ -312,7 +321,7 @@ export class Workspace implements AgentHost {
     if (!record.pty.isAlive) {
       throw new Error(`${record.name} is no longer running — its process has ended.`)
     }
-    const accepted = await this.seed(record, text)
+    const accepted = await this.seed(record, text, this.autoSubmitTasks)
     if (!accepted) throw new Error(`${record.name} did not accept the message.`)
     // A new assignment resets the "has it confirmed?" question.
     record.assignmentCursor = this.events.cursor
@@ -405,7 +414,9 @@ export class Workspace implements AgentHost {
       this.openWindow(record, ORCHESTRATOR_COLOR)
 
       if (spawned.launch.ptySystemPrompt) {
-        const accepted = await this.seed(record, spawned.launch.ptySystemPrompt)
+        // Always submitted: this is the orchestrator's own system prompt, not
+        // an assignment the user might want to edit first.
+        const accepted = await this.seed(record, spawned.launch.ptySystemPrompt, true)
         if (!accepted) {
           throw new Error(
             `${name} (${provider.label}) never became ready — the orchestrator prompt was not delivered.`
@@ -560,17 +571,41 @@ export class Workspace implements AgentHost {
   }
 
   private openWindow(record: AgentRecord, color: string): void {
-    this.deps.windows.open(record.agentId, { title: record.name, roleColor: color })
+    // Where the window lands is decided by the placement layer (zones first,
+    // auto-tiling otherwise) — this host only says which role it is and what
+    // the profile's layout looks like, so it stays Electron-free.
+    this.deps.windows.open(record.agentId, {
+      title: record.name,
+      roleColor: color,
+      placement: {
+        roleId: record.orchestrator ? ORCHESTRATOR_ROLE_ID : record.roleId,
+        ...(this.profile.zones ? { zones: this.profile.zones } : {})
+      }
+    })
   }
 
-  private seed(record: AgentRecord, text: string): Promise<boolean> {
+  /**
+   * Type text into an agent's CLI.
+   *
+   * `autoSubmit` decides whether the submitting Enter follows. It is a
+   * parameter and not a property because the two callers differ: an
+   * *assignment* obeys the profile (the user may want to redact it before it
+   * runs), while a system prompt that has no launch flag is plumbing the user
+   * never asked to see and is always sent.
+   */
+  private seed(record: AgentRecord, text: string, autoSubmit: boolean): Promise<boolean> {
     const seed = this.deps.seed ?? seedWithReadyHandshake
     return seed(
       (data) => record.pty.write(data),
       () => ({ buffer: record.pty.snapshot(), alive: record.pty.isAlive }),
       text,
-      this.deps.seedOptions
+      { ...this.deps.seedOptions, autoSubmit }
     )
+  }
+
+  /** Profile switch "send assignments automatically"; default on. */
+  private get autoSubmitTasks(): boolean {
+    return this.profile.autoSubmitTasks ?? true
   }
 
   /**

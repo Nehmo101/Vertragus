@@ -67,6 +67,19 @@ export const profileSchema = z
     slots: z.array(slotSchema).max(MAX_SLOTS).default([]),
     /** Absent = the orchestrator decides freely (still bounded per slot). */
     maxSubagents: z.number().int().min(1).max(MAX_SUBAGENTS).optional(),
+    /**
+     * Press Enter for the agent after an assignment was typed into its CLI.
+     *
+     * Default `true`, because "the task sits in the composer and nobody presses
+     * Enter" is a dead agent with no error message — the first real run lost a
+     * whole team to it. Claude Code swallows a trailing `\r` that arrives in the
+     * same paste as the text (it reads as a newline of the pasted block), so the
+     * submit is sent separately and slightly later; see `interactiveReady`.
+     *
+     * `false` is the deliberate opposite: the assignment stays in the input
+     * field so a human can redact it before it runs.
+     */
+    autoSubmitTasks: z.boolean().default(true),
     zones: zoneLayoutSchema.optional()
   })
   .strict()

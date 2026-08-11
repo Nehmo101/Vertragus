@@ -20,13 +20,26 @@
  * duplicated in preload with a parity test that fails on drift.
  */
 import { BrowserWindow, dialog, ipcMain } from 'electron'
-import type { Profile } from '@shared/schema/profile'
+import { profileRoleIds, type Profile, type RoleTemplate } from '@shared/schema/profile'
+import {
+  zoneSchema,
+  zoneLayoutSchema,
+  type Zone,
+  type ZoneLayout
+} from '@shared/schema/zones'
+import {
+  allRoleTemplates,
+  ORCHESTRATOR_COLOR,
+  ORCHESTRATOR_ROLE_ID,
+  roleColor
+} from '@shared/prompts/roles'
 import type { ProviderConfig } from '@shared/schema/provider'
 import type { AppSettings, SettingsStore } from '@main/store/settings'
 import { settings } from '@main/store/settings'
 import { discoverModels, type ModelDiscoveryResult } from '@main/providers/discovery'
 import { checkAllProviders, type ProviderHealth } from '@main/providers/health'
 import { focusCliWindow } from '@main/windows/cliWindow'
+import { hideAllHotkeyStatus, toggleHideAll, type HideAllHotkeyStatus } from '@main/windows/hideAll'
 import { getPanelWindow, isPanelWindowSender } from '@main/windows/panel'
 import {
   armProfileEditorSmoke,
@@ -35,6 +48,13 @@ import {
   listProfileEditorWindows,
   openProfileEditorWindow
 } from '@main/windows/profileEditor'
+import {
+  closeZoneOverlayWindows,
+  isZoneOverlaySender,
+  openZoneOverlayWindows,
+  zoneOverlayDisplayIds,
+  type ZoneOverlaySender
+} from '@main/windows/zoneOverlay'
 import type { MinimalIpcMain } from './ipc'
 
 export const APP_CHANNELS = {
@@ -55,6 +75,11 @@ export const APP_CHANNELS = {
   dialogPickDirectory: 'dialog:pickDirectory',
   profileEditorOpen: 'profileEditor:open',
   profileEditorClose: 'profileEditor:close',
+  zonesEdit: 'zones:edit',
+  zonesLoad: 'zones:load',
+  zonesDraft: 'zones:draft',
+  zonesSave: 'zones:save',
+  zonesCancel: 'zones:cancel',
   eventProfiles: 'ev:profiles',
   eventWorkspaces: 'ev:workspaces'
 } as const
@@ -159,6 +184,91 @@ export interface PanelSettings {
   yoloMaster: boolean
   hideAllHotkey: string
   locale: AppSettings['ui']['locale']
+  /**
+   * Set only when the global hotkey could NOT be registered. The panel shows it
+   * on the hide-all eye — a hotkey that silently does nothing is a support case.
+   */
+  hideAllHotkeyError?: string
+}
+
+// --- the zone editor -----------------------------------------------------
+
+/** One entry of the overlay's role palette. */
+export interface ZoneEditorRole {
+  roleId: string
+  label: string
+  color: string
+}
+
+/** Everything one overlay window needs to draw its display's zones. */
+export interface ZoneEditorPayload {
+  profileId: string
+  profileName: string
+  displayId: number
+  roles: ZoneEditorRole[]
+  /** Only the zones of THIS display; the other overlays own the rest. */
+  zones: Zone[]
+}
+
+/**
+ * The palette and the current rectangles of one display.
+ *
+ * The orchestrator is always offered even though it has no slot — it is the one
+ * window every workspace opens, so "the orchestrator goes here" is the most
+ * common zone of all.
+ */
+export function zoneEditorPayload(
+  profile: Profile,
+  roleTemplates: readonly RoleTemplate[],
+  displayId: number
+): ZoneEditorPayload {
+  const templates = allRoleTemplates(roleTemplates)
+  const roleIds = profileRoleIds(profile)
+  return {
+    profileId: profile.id,
+    profileName: profile.name,
+    displayId,
+    roles: [
+      { roleId: ORCHESTRATOR_ROLE_ID, label: 'Orchestrator', color: ORCHESTRATOR_COLOR },
+      ...roleIds.map((roleId, index) => ({
+        roleId,
+        label: templates.find((template) => template.id === roleId)?.name ?? roleId,
+        color: roleColor(roleId, index)
+      }))
+    ],
+    zones: (profile.zones?.zones ?? []).filter((zone) => zone.displayId === displayId)
+  }
+}
+
+/**
+ * The layout to persist after a save.
+ *
+ * Every display that had an overlay is REPLACED by what that overlay drew
+ * (including "nothing", which is how a zone is deleted); zones on displays that
+ * were not part of the session — an unplugged monitor, say — are kept
+ * untouched. Losing another monitor's layout because it was disconnected while
+ * the editor was open would be silent data loss.
+ */
+export function mergeZoneLayout(
+  existing: ZoneLayout | undefined,
+  drafts: ReadonlyMap<number, readonly Zone[]>,
+  coveredDisplayIds: readonly number[]
+): ZoneLayout {
+  const covered = new Set([...coveredDisplayIds, ...drafts.keys()])
+  const kept = (existing?.zones ?? []).filter((zone) => !covered.has(zone.displayId))
+  // By display id, not by the order the overlays happened to report in — the
+  // stored layout should not depend on which monitor the user dragged first.
+  const drawn = [...drafts.entries()]
+    .sort(([left], [right]) => left - right)
+    .flatMap(([, zones]) => zones)
+  return zoneLayoutSchema.parse({ zones: [...kept, ...drawn] })
+}
+
+/** Parse what an overlay sent, forcing the display it is actually running on. */
+function parseDraftZones(payload: unknown, displayId: number): Zone[] {
+  const raw = Array.isArray(payload) ? payload : (payload as { zones?: unknown })?.zones
+  if (!Array.isArray(raw)) throw new Error('zones payload rejected — expected an array of zones')
+  return raw.map((entry) => zoneSchema.parse({ ...(entry as object), displayId }))
 }
 
 export interface AppIpcHost {
@@ -175,8 +285,17 @@ export interface AppIpcHost {
   closeProfileEditor(webContentsId: number): void
   /** Push to every app window (panel + open editors). */
   broadcast(channel: string, payload: unknown): void
-  /** Hide every CLI window. Wired in M4; until then a logged no-op. */
+  /** Hide every CLI window and editor; toggling again restores them. */
   hideAll(): void
+  /** Open the zone overlay on every display for this profile. */
+  openZoneOverlays(profileId: string): void
+  closeZoneOverlays(): void
+  /** Profile + display behind this webContents, or null for anything else. */
+  zoneOverlaySender(webContentsId: number): ZoneOverlaySender | null
+  /** Displays currently covered by an overlay — see {@link mergeZoneLayout}. */
+  zoneOverlayDisplayIds(): number[]
+  /** Result of the last global-hotkey registration, if it already happened. */
+  hotkeyStatus?(): HideAllHotkeyStatus | undefined
   now?(): number
 }
 
@@ -191,11 +310,12 @@ export interface AppIpc {
 type IpcEvent = { sender: { id: number } }
 type IpcListener = (event: IpcEvent, ...args: never[]) => unknown
 
-function toPanelSettings(value: AppSettings): PanelSettings {
+function toPanelSettings(value: AppSettings, hotkey?: HideAllHotkeyStatus): PanelSettings {
   return {
     yoloMaster: value.yoloMaster,
     hideAllHotkey: value.hideAllHotkey,
-    locale: value.ui.locale
+    locale: value.ui.locale,
+    ...(hotkey && !hotkey.registered ? { hideAllHotkeyError: hotkey.error ?? '' } : {})
   }
 }
 
@@ -203,6 +323,8 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
   const now = host.now ?? (() => Date.now())
   let healthCache: { at: number; health: ProviderHealth[] } | undefined
   let unsubscribeDirectory: (() => void) | undefined
+  /** What each overlay has drawn so far, keyed by display. Lives per session. */
+  const zoneDrafts = new Map<number, Zone[]>()
 
   /** Panel-only: workspaces, settings, hide-all. */
   const requirePanel = (event: IpcEvent, channel: string): void => {
@@ -216,6 +338,13 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     if (host.isPanelSender(event.sender.id)) return
     if (host.profileEditorSender(event.sender.id) !== null) return
     throw new Error(`${channel} rejected — sender is not a panel or editor window`)
+  }
+
+  /** Zone overlays only: reading and writing a profile's zone layout. */
+  const requireZoneOverlay = (event: IpcEvent, channel: string): ZoneOverlaySender => {
+    const sender = host.zoneOverlaySender(event.sender.id)
+    if (!sender) throw new Error(`${channel} rejected — sender is not a zone overlay window`)
+    return sender
   }
 
   const handle = (
@@ -318,14 +447,14 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
   // --- settings & windows ------------------------------------------------
 
   handle(APP_CHANNELS.settingsGet, requireAppWindow, () =>
-    toPanelSettings(host.store.getSettings())
+    toPanelSettings(host.store.getSettings(), host.hotkeyStatus?.())
   )
 
   handle(APP_CHANNELS.settingsYolo, requirePanel, (_event, payload) => {
     const enabled =
       typeof payload === 'boolean' ? payload : (payload as { enabled?: boolean })?.enabled
     if (typeof enabled !== 'boolean') throw new Error('settings:yolo rejected — expected a boolean')
-    return toPanelSettings(host.store.setSetting('yoloMaster', enabled))
+    return toPanelSettings(host.store.setSetting('yoloMaster', enabled), host.hotkeyStatus?.())
   })
 
   handle(APP_CHANNELS.windowsHideAll, requirePanel, () => {
@@ -350,6 +479,66 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     host.closeProfileEditor(event.sender.id)
   }) as IpcListener)
 
+  // --- zones -------------------------------------------------------------
+
+  handle(APP_CHANNELS.zonesEdit, requireAppWindow, (_event, payload) => {
+    const profileId =
+      typeof payload === 'string' ? payload : (payload as { profileId?: string })?.profileId
+    if (!profileId) throw new Error('zones:edit rejected — missing profile id')
+    // A profile that is not saved yet has nothing to attach zones to.
+    if (!host.store.getProfiles().some((profile) => profile.id === profileId)) {
+      throw new Error(`zones:edit rejected — unknown profile ${profileId}`)
+    }
+    zoneDrafts.clear()
+    host.openZoneOverlays(profileId)
+  })
+
+  handle(APP_CHANNELS.zonesLoad, requireZoneOverlay, (event) => {
+    const sender = requireZoneOverlay(event, APP_CHANNELS.zonesLoad)
+    const profile = host.store.getProfiles().find((entry) => entry.id === sender.profileId)
+    if (!profile) throw new Error(`zones:load rejected — unknown profile ${sender.profileId}`)
+    return zoneEditorPayload(profile, host.store.getRoleTemplates(), sender.displayId)
+  })
+
+  handle(APP_CHANNELS.zonesSave, requireZoneOverlay, (event, payload) => {
+    const sender = requireZoneOverlay(event, APP_CHANNELS.zonesSave)
+    const body = (payload ?? {}) as { profileId?: string; zones?: unknown }
+    if (body.profileId && body.profileId !== sender.profileId) {
+      throw new Error('zones:save rejected — profile does not belong to this overlay')
+    }
+    const profile = host.store.getProfiles().find((entry) => entry.id === sender.profileId)
+    if (!profile) throw new Error(`zones:save rejected — unknown profile ${sender.profileId}`)
+
+    // The acting overlay's own rectangles are the freshest version of its
+    // display; the other displays come from the drafts they pushed while the
+    // user was dragging.
+    zoneDrafts.set(sender.displayId, parseDraftZones(body.zones, sender.displayId))
+    const zones = mergeZoneLayout(profile.zones, zoneDrafts, host.zoneOverlayDisplayIds())
+    const profiles = host.store.saveProfile({ ...profile, zones })
+    zoneDrafts.clear()
+    emitProfiles(profiles)
+    host.closeZoneOverlays()
+    return zones
+  })
+
+  host.ipcMain.on(APP_CHANNELS.zonesDraft, ((event: IpcEvent, payload?: unknown): void => {
+    const sender = host.zoneOverlaySender(event.sender.id)
+    if (!sender) return
+    // Fire-and-forget from a drag: a malformed draft is dropped, never thrown —
+    // the save path validates again and is the one that can report.
+    try {
+      zoneDrafts.set(sender.displayId, parseDraftZones(payload, sender.displayId))
+    } catch {
+      /* ignore */
+    }
+  }) as IpcListener)
+
+  host.ipcMain.on(APP_CHANNELS.zonesCancel, ((event: IpcEvent): void => {
+    if (host.zoneOverlaySender(event.sender.id) === null) return
+    zoneDrafts.clear()
+    host.closeZoneOverlays()
+  }) as IpcListener)
+
   unsubscribeDirectory = host.directory.onChange?.(() => emitWorkspaces())
 
   return {
@@ -359,6 +548,7 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
       unsubscribeDirectory?.()
       unsubscribeDirectory = undefined
       healthCache = undefined
+      zoneDrafts.clear()
       for (const channel of Object.values(APP_CHANNELS)) {
         host.ipcMain.removeAllListeners(channel)
         host.ipcMain.removeHandler(channel)
@@ -428,9 +618,15 @@ export function registerAppIpc(directory?: WorkspaceDirectory): AppIpc {
       }
     },
     hideAll: () => {
-      // TODO(M4): hide every CLI window (and restore in z-order on toggle).
-      console.info('[panel] Alles ausblenden — kommt in M4')
-    }
+      toggleHideAll()
+    },
+    openZoneOverlays: (profileId) => {
+      openZoneOverlayWindows(profileId)
+    },
+    closeZoneOverlays: () => closeZoneOverlayWindows(),
+    zoneOverlaySender: (id) => isZoneOverlaySender(id),
+    zoneOverlayDisplayIds: () => zoneOverlayDisplayIds(),
+    hotkeyStatus: () => hideAllHotkeyStatus()
   })
   // Env-gated verification hook; a no-op in every normal run.
   armProfileEditorSmoke()

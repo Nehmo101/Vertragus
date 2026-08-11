@@ -12,8 +12,11 @@ export type {
   TerminalExitEvent,
   VertragusApi,
   VertragusAppApi,
+  VertragusZonesApi,
   WorkspaceAgentSummary,
-  WorkspaceSummary
+  WorkspaceSummary,
+  ZoneEditorPayload,
+  ZoneEditorRole
 } from './index'
 
 declare global {

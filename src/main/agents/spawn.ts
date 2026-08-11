@@ -34,6 +34,7 @@ import {
   type EffortLevel,
   type ProviderConfig
 } from '@shared/schema/provider'
+import { ensureClaudeWorkspaceTrust } from './claudeTrust'
 import { PtyAgent, type PtyAgentLike, type PtySpawnOptions } from './PtyAgent'
 import { resolveLaunch, type ResolveLaunchOptions } from './resolveCommand'
 
@@ -224,6 +225,18 @@ export interface SpawnAgentDeps extends LaunchDeps {
   createPty?: () => AgentPty
   cols?: number
   rows?: number
+  /** Injectable trust pre-acceptance; see {@link ensureClaudeWorkspaceTrust}. */
+  ensureTrust?: (workspaceDir: string) => void
+}
+
+/**
+ * True for the CLIs that gate a new directory behind an interactive trust
+ * prompt. Keyed on `presetId`, not on the command name: only the shipped preset
+ * is known to store its answer in `~/.claude.json`, and writing that file for a
+ * custom CLI that merely happens to be called `claude` would be a guess.
+ */
+export function needsTrustPreacceptance(provider: ProviderConfig): boolean {
+  return provider.presetId === 'claude'
 }
 
 export interface SpawnedAgent {
@@ -238,12 +251,30 @@ export interface SpawnedAgent {
  * scrollback so it shows up in the CLI window and in `read_output`, exactly
  * where someone debugging a dead agent looks first — and then rethrown so the
  * caller (and through it `start_agent`) reports a real failure.
+ *
+ * Directly before the process starts, the working directory is pre-trusted for
+ * the CLIs that would otherwise open a modal trust prompt. It happens here, in
+ * the one place a CLI is ever launched, so orchestrator, subagent and worktree
+ * paths are covered by construction. It is best-effort: a failure only means
+ * the user sees the dialog once, so it never blocks a launch.
  */
 export async function spawnAgent(
   input: AgentLaunchInput,
   deps: SpawnAgentDeps = {}
 ): Promise<SpawnedAgent> {
   const launch = await buildAgentLaunch(input, deps)
+  if (needsTrustPreacceptance(input.provider)) {
+    const ensureTrust =
+      deps.ensureTrust ??
+      ((dir: string): void => {
+        ensureClaudeWorkspaceTrust(dir)
+      })
+    try {
+      ensureTrust(launch.cwd)
+    } catch (error) {
+      console.warn('[spawn] trust pre-acceptance failed — the CLI may ask:', error)
+    }
+  }
   const pty = deps.createPty ? deps.createPty() : new PtyAgent()
   try {
     pty.spawn({

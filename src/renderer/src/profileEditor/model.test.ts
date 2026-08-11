@@ -66,6 +66,18 @@ describe('draft ⇄ profile', () => {
     expect(input.zones).toBe(zones)
   })
 
+  it('carries the auto-submit switch both ways, on by default', () => {
+    expect(emptyDraft('claude', 'profile-x').autoSubmitTasks).toBe(true)
+    expect(draftFromProfile(SAVED).autoSubmitTasks).toBe(true)
+
+    // Off must survive the round trip as `false`, not as an omitted field: an
+    // omission would fall back to the schema default and silently re-arm it.
+    const off = toProfileInput(draft({ autoSubmitTasks: false })) as Record<string, unknown>
+    expect(off.autoSubmitTasks).toBe(false)
+    const result = validateDraft(draft({ autoSubmitTasks: false }))
+    expect(result.ok && result.profile.autoSubmitTasks).toBe(false)
+  })
+
   it('starts a new profile empty but valid apart from the repo path', () => {
     const fresh = emptyDraft('claude', 'profile-x')
     expect(fresh).toMatchObject({ id: 'profile-x', name: '', slots: [] })

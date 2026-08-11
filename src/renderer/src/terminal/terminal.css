@@ -15,6 +15,27 @@
   box-shadow: var(--shadow-window);
   background: var(--glass-window);
   backdrop-filter: blur(14px) saturate(1.1);
+  transition: background 0.4s ease;
+}
+
+/*
+ * Focused = being worked in. `.glass` already lifts the window to 0.97 on
+ * hover; that is enough to read a scrollback and not enough to type against a
+ * colourful desktop, where the wallpaper keeps showing through the glyphs. So
+ * the window the OS gave focus to goes fully opaque and its terminal ground
+ * gets noticeably denser, on the same 0.4s ramp as the hover reveal (and
+ * disabled wholesale by the global prefers-reduced-motion rule).
+ *
+ * The class is set by the CLI windows only — see terminal/windowFocus.ts. The
+ * panel keeps its two-step hover behaviour on purpose: nobody types in it.
+ */
+:root.is-window-focused .cli {
+  opacity: var(--focus-opacity);
+  background: var(--glass-window-focused);
+}
+
+:root.is-window-focused .cli-terminal {
+  background: var(--glass-terminal-focused);
 }
 
 .cli-titlebar {
@@ -97,6 +118,7 @@
   padding: 8px 4px 8px 10px;
   /* the translucent terminal ground; xterm itself paints fully transparent */
   background: var(--glass-terminal);
+  transition: background 0.4s ease;
   user-select: text;
   -webkit-app-region: no-drag;
 }

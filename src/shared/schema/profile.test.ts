@@ -86,6 +86,28 @@ describe('profileSchema', () => {
     expect(parsed.maxSubagents).toBeUndefined()
   })
 
+  it('submits assignments automatically unless the profile opts out', () => {
+    // The default is the whole point: a profile written before this field
+    // existed — and every new one — must press Enter for the agent, because a
+    // task parked in the composer is an agent that silently never starts.
+    expect(baseProfile().autoSubmitTasks).toBe(true)
+    expect(createEmptyProfile().autoSubmitTasks).toBe(true)
+    expect(baseProfile({ autoSubmitTasks: false }).autoSubmitTasks).toBe(false)
+    expect(
+      profileSchema.safeParse({
+        id: 'p',
+        name: 'P',
+        orchestrator: { providerId: 'c' },
+        autoSubmitTasks: 'yes'
+      }).success
+    ).toBe(false)
+  })
+
+  it('carries the opt-out into a duplicate', () => {
+    const copy = duplicateProfile(baseProfile({ autoSubmitTasks: false }))
+    expect(copy.autoSubmitTasks).toBe(false)
+  })
+
   it('enforces the name bounds and rejects unknown fields', () => {
     expect(profileSchema.safeParse({ id: 'p', name: '', orchestrator: { providerId: 'c' } }).success).toBe(
       false

@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { Profile, RoleTemplate } from '@shared/schema/profile'
 import type { ProviderConfig } from '@shared/schema/provider'
+import type { Zone, ZoneLayout } from '@shared/schema/zones'
 
 /**
  * The renderer bridge. One API object per window type; a CLI window only ever
@@ -107,6 +108,11 @@ const APP = {
   dialogPickDirectory: 'dialog:pickDirectory',
   profileEditorOpen: 'profileEditor:open',
   profileEditorClose: 'profileEditor:close',
+  zonesEdit: 'zones:edit',
+  zonesLoad: 'zones:load',
+  zonesDraft: 'zones:draft',
+  zonesSave: 'zones:save',
+  zonesCancel: 'zones:cancel',
   eventProfiles: 'ev:profiles',
   eventWorkspaces: 'ev:workspaces'
 } as const
@@ -158,6 +164,24 @@ export interface PanelSettings {
   yoloMaster: boolean
   hideAllHotkey: string
   locale: 'de' | 'en'
+  /** Present only when the global hide-all hotkey could not be registered. */
+  hideAllHotkeyError?: string
+}
+
+/** One entry of the zone editor's role palette (see main/appIpc.ts). */
+export interface ZoneEditorRole {
+  roleId: string
+  label: string
+  color: string
+}
+
+/** What one zone overlay window needs to draw its display. */
+export interface ZoneEditorPayload {
+  profileId: string
+  profileName: string
+  displayId: number
+  roles: ZoneEditorRole[]
+  zones: Zone[]
 }
 
 function subscribe<T>(channel: string, listener: (payload: T) => void): () => void {
@@ -194,6 +218,9 @@ const app = {
     ipcRenderer.invoke(APP.dialogPickDirectory, { defaultPath }),
   openProfileEditor: (profileId?: string): Promise<void> =>
     ipcRenderer.invoke(APP.profileEditorOpen, { profileId }),
+  /** Open the on-screen zone editor for a SAVED profile (one overlay/display). */
+  editZones: (profileId: string): Promise<void> =>
+    ipcRenderer.invoke(APP.zonesEdit, { profileId }),
   /** Close this editor window; the agent-free equivalent of terminal.closeWindow. */
   closeProfileEditor: (): void => {
     ipcRenderer.send(APP.profileEditorClose)
@@ -204,13 +231,40 @@ const app = {
     subscribe(APP.eventWorkspaces, listener)
 }
 
+/**
+ * Zone overlay surface — exposed to every window, authorized in main by window
+ * type: only a live overlay window may read or write a zone layout, so the
+ * panel or a CLI window calling these is rejected on the other side.
+ */
+const zones = {
+  /** Palette, profile name and the zones of THIS overlay's display. */
+  load: (): Promise<ZoneEditorPayload> => ipcRenderer.invoke(APP.zonesLoad),
+  /**
+   * Push the current rectangles of this display without saving. Every overlay
+   * does this while dragging, so whichever window hits "save" persists the
+   * whole multi-monitor layout and not just its own screen.
+   */
+  draft: (list: readonly Zone[]): void => {
+    ipcRenderer.send(APP.zonesDraft, { zones: list })
+  },
+  /** Persist the layout of every overlay and close the session. */
+  save: (profileId: string, list: readonly Zone[]): Promise<ZoneLayout> =>
+    ipcRenderer.invoke(APP.zonesSave, { profileId, zones: list }),
+  /** Esc: close every overlay, save nothing. */
+  cancel: (): void => {
+    ipcRenderer.send(APP.zonesCancel)
+  }
+}
+
 const api = {
   platform: process.platform,
   terminal,
-  app
+  app,
+  zones
 }
 
 export type VertragusApi = typeof api
 export type VertragusAppApi = typeof app
+export type VertragusZonesApi = typeof zones
 
 contextBridge.exposeInMainWorld('vertragus', api)

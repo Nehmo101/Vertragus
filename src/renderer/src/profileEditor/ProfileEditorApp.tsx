@@ -1,6 +1,6 @@
 import { WORKER_ROLE_ID } from '@shared/prompts/roles'
 import { FolderIcon } from '../panel/icons'
-import { EffortSelect, Field, ModelCombo, ProviderSelect } from './fields'
+import { EffortSelect, Field, ModelCombo, ProviderSelect, SwitchField } from './fields'
 import { newSlotDraft, type SlotDraft } from './model'
 import { SlotRow } from './SlotRow'
 import { EDITOR_STRINGS } from './strings'
@@ -167,6 +167,15 @@ export function ProfileEditorApp({ profileId }: { profileId?: string }): React.J
           <button type="button" className="pe-add-role" onClick={addSlot}>
             {EDITOR_STRINGS.addRole}
           </button>
+
+          <SwitchField
+            label={EDITOR_STRINGS.autoSubmitTasks}
+            hint={EDITOR_STRINGS.autoSubmitTasksHint}
+            checked={draft.autoSubmitTasks}
+            onChange={(autoSubmitTasks) =>
+              editor.update((current) => ({ ...current, autoSubmitTasks }))
+            }
+          />
         </section>
 
         <Field label={EDITOR_STRINGS.maxSubagents} error={editor.errors.maxSubagents}>
@@ -190,6 +199,20 @@ export function ProfileEditorApp({ profileId }: { profileId?: string }): React.J
             {EDITOR_STRINGS.deleteProfile}
           </button>
         )}
+        {/* Zones are drawn on the real screens, so this only opens the overlay
+            session — it saves nothing here. A profile that does not exist yet
+            has nothing to attach a layout to. */}
+        <button
+          type="button"
+          className="pe-ghost"
+          title={editor.isNew ? EDITOR_STRINGS.zonesNewHint : EDITOR_STRINGS.zonesTitle}
+          disabled={editor.isNew || !profileId}
+          onClick={() => {
+            if (profileId) void window.vertragus?.app.editZones(profileId)
+          }}
+        >
+          {EDITOR_STRINGS.zones}
+        </button>
         <span className="pe-foot-spacer" />
         <button type="button" className="pe-ghost" onClick={editor.cancel}>
           {EDITOR_STRINGS.cancel}

@@ -1,0 +1,253 @@
+/*
+ * The zone overlay.
+ *
+ * The window is transparent and covers one display's work area, so this sheet
+ * has no frame of its own: a faint wash proves the overlay is live, the two
+ * glass slabs carry the chrome, and everything else is the zones themselves.
+ * Nothing here scrolls — the surface IS the screen.
+ */
+
+.zones {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  font-family: var(--font-body);
+  color: var(--text);
+  user-select: none;
+  cursor: default;
+}
+
+/* Just enough darkening to read the glass slabs over any wallpaper. */
+.zones-wash {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+      120% 90% at 50% 0%,
+      rgba(203, 163, 90, 0.06),
+      transparent 60%
+    ),
+    rgba(9, 11, 14, 0.34);
+  border: 1px solid var(--hairline);
+  border-radius: 4px;
+}
+
+/* --- the hint pill ------------------------------------------------------ */
+
+.zones-hint {
+  position: absolute;
+  top: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  max-width: 92vw;
+  padding: 10px 18px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--glass-top), var(--glass-bottom));
+  box-shadow: var(--shadow-panel);
+  backdrop-filter: blur(16px) saturate(1.15);
+}
+
+.zones-hint-title {
+  font: 400 14px var(--font-heading);
+  letter-spacing: 0.02em;
+  color: var(--bronze-bright);
+  white-space: nowrap;
+}
+
+.zones-hint-text {
+  font: 500 12px var(--font-body);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.zones-hint-meta {
+  font: 500 11px var(--font-mono);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.zones-empty {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  margin: 0;
+  font: 500 13px var(--font-body);
+  color: var(--text-3);
+}
+
+/* --- one zone ----------------------------------------------------------- */
+
+.zone {
+  position: absolute;
+  border: 2px solid;
+  border-radius: var(--radius-window);
+  cursor: grab;
+  touch-action: none;
+  backdrop-filter: blur(3px);
+}
+
+.zone:active {
+  cursor: grabbing;
+}
+
+.zone-chip {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px 3px 10px;
+  border-radius: var(--radius-chip);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+
+.zone-chip-label {
+  font: 700 11px var(--font-body);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--on-bronze);
+}
+
+.zone-chip-remove {
+  display: grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: rgba(29, 26, 18, 0.22);
+  color: var(--on-bronze);
+  font: 600 13px var(--font-body);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.zone-chip-remove:hover {
+  background: rgba(29, 26, 18, 0.45);
+}
+
+.zone-handle {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-right: 3px solid;
+  border-bottom: 3px solid;
+  border-color: inherit;
+  border-bottom-right-radius: 8px;
+  opacity: 0.85;
+  cursor: nwse-resize;
+  touch-action: none;
+}
+
+.zone-handle:hover {
+  opacity: 1;
+}
+
+/* --- the bottom bar ----------------------------------------------------- */
+
+.zones-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 26px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 94vw;
+  padding: 10px 12px 10px 18px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-panel);
+  background: linear-gradient(180deg, var(--glass-top), var(--glass-bottom));
+  box-shadow: var(--shadow-panel);
+  backdrop-filter: blur(16px) saturate(1.15);
+}
+
+.zones-bar-label {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font: 600 10px var(--font-body);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.zones-palette {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* The bar is one line: role chips never shrink and never wrap, the bar grows
+     with them (a 16-role profile is not the case this surface optimizes for). */
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+}
+
+.zones-bar-spacer {
+  flex: 0 0 auto;
+  width: 18px;
+}
+
+.zones-role {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 5px 11px;
+  border: 1px solid;
+  border-radius: var(--radius-chip);
+  background: rgba(234, 230, 219, 0.03);
+  font: 600 11.5px var(--font-body);
+  cursor: pointer;
+}
+
+.zones-role:hover {
+  background: var(--hover-wash);
+}
+
+.zones-error {
+  max-width: 320px;
+  font: 500 11.5px var(--font-body);
+  color: var(--err-text);
+}
+
+.zones-ghost,
+.zones-primary {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 7px 16px;
+  border-radius: var(--radius-chip);
+  font: 600 12px var(--font-body);
+  cursor: pointer;
+}
+
+.zones-ghost {
+  border: 1px solid var(--hairline-strong);
+  background: transparent;
+  color: var(--text-2);
+}
+
+.zones-ghost:hover {
+  background: var(--hover-wash);
+  color: var(--text);
+}
+
+.zones-primary {
+  border: 1px solid var(--bronze-deep);
+  background: linear-gradient(180deg, var(--bronze-bright), var(--bronze));
+  color: var(--on-bronze);
+}
+
+.zones-primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, var(--accent-strong), var(--bronze-bright));
+}
+
+.zones-primary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

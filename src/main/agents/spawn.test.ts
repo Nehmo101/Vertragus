@@ -312,6 +312,67 @@ describe('spawnAgent', () => {
     })
   })
 
+  it('pre-accepts the trust dialog for the exact directory it launches in', async () => {
+    const ensureTrust = vi.fn()
+    const worktree = '/repo/.vertragus/worktrees/a1'
+
+    await spawnAgent(launchInput({ cwd: worktree }), {
+      resolve,
+      createPty: () => new FakePty(),
+      ensureTrust
+    })
+    await spawnAgent(launchInput({ kind: 'orchestrator', cwd: '/repo' }), {
+      resolve,
+      createPty: () => new FakePty(),
+      ensureTrust
+    })
+
+    // Orchestrator AND subagent, worktree paths included: the trust prompt is
+    // modal inside the CLI, so any uncovered path is a silently hung agent.
+    expect(ensureTrust.mock.calls.map((call) => call[0])).toEqual([worktree, '/repo'])
+  })
+
+  it('does not write Claude state for a CLI that is not the Claude preset', async () => {
+    const ensureTrust = vi.fn()
+    for (const id of ['cursor', 'ollama']) {
+      await spawnAgent(launchInput({ provider: preset(id) }), {
+        resolve,
+        createPty: () => new FakePty(),
+        ensureTrust
+      })
+    }
+    expect(ensureTrust).not.toHaveBeenCalled()
+
+    // Not even for a custom CLI that happens to be called "claude": without a
+    // presetId we do not know that it keeps its answer in ~/.claude.json.
+    const lookalike = providerConfigSchema.parse({
+      id: 'my-claude',
+      label: 'My Claude',
+      command: 'claude'
+    })
+    await spawnAgent(launchInput({ provider: lookalike }), {
+      resolve,
+      createPty: () => new FakePty(),
+      ensureTrust
+    })
+    expect(ensureTrust).not.toHaveBeenCalled()
+  })
+
+  it('starts the agent anyway when trust pre-acceptance blows up', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const pty = new FakePty()
+    await spawnAgent(launchInput(), {
+      resolve,
+      createPty: () => pty,
+      ensureTrust: () => {
+        throw new Error('EPERM')
+      }
+    })
+    expect(pty.spawnOptions).toBeDefined()
+    expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
   it('writes a spawn failure into the agent scrollback and rethrows it', async () => {
     const pty = new FakePty()
     pty.spawnError = new Error('spawn claude ENOENT')

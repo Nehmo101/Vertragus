@@ -11,8 +11,10 @@ import { registerTerminalIpc } from './ipc'
 import { startMcpServer, type McpServerHandle } from './mcp/server'
 import { getProfile, getRoleTemplates } from './store/settings'
 import { createCliWindow, focusCliWindow } from './windows/cliWindow'
+import { registerAppHideAllShortcut, unregisterHideAllShortcut } from './windows/hideAll'
 import { createPanelWindow, getPanelWindow } from './windows/panel'
 import { armProfileEditorSmoke } from './windows/profileEditor'
+import { armZoneOverlaySmoke } from './windows/zoneOverlay'
 import type { WorkspaceManager } from './workspace/WorkspaceManager'
 
 /**
@@ -153,8 +155,14 @@ app.whenReady().then(async () => {
     registerAppIpc()
   }
 
+  // Hide-all: the global hotkey. A failed registration is not fatal — the
+  // status reaches the panel through settings:get, and the eye still works.
+  const hotkey = registerAppHideAllShortcut()
+  if (!hotkey.registered) console.warn('[boot] hide-all hotkey:', hotkey.error)
+
   armScreenshotHook(createPanelWindow(), 'VERTRAGUS_PANEL_SCREENSHOT')
   armProfileEditorSmoke()
+  armZoneOverlaySmoke()
   void startDevAgent()
   if (appMcp && appManager) {
     const mcp = appMcp
@@ -175,6 +183,11 @@ app.whenReady().then(async () => {
   app.on('activate', () => {
     if (!getPanelWindow()) createPanelWindow()
   })
+})
+
+app.on('will-quit', () => {
+  // A leaked global shortcut outlives the process on Windows.
+  unregisterHideAllShortcut()
 })
 
 app.on('before-quit', () => {

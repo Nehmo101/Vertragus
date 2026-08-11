@@ -5,6 +5,8 @@ interface Props {
   yolo: boolean
   onToggleYolo(): void
   onHideAll(): void
+  /** Set when the global hide-all shortcut could not be registered. */
+  hotkeyError?: string
 }
 
 /**
@@ -13,7 +15,7 @@ interface Props {
  * quiet respectively — the dangerous one is the one you can see from across the
  * room.
  */
-export function PanelFooter({ yolo, onToggleYolo, onHideAll }: Props): React.JSX.Element {
+export function PanelFooter({ yolo, onToggleYolo, onHideAll, hotkeyError }: Props): React.JSX.Element {
   return (
     <footer className="panel-footer">
       <button
@@ -32,8 +34,8 @@ export function PanelFooter({ yolo, onToggleYolo, onHideAll }: Props): React.JSX
       <span className="panel-footer-spacer" />
       <button
         type="button"
-        className="panel-icon-button"
-        title={PANEL_STRINGS.hideAll}
+        className={`panel-icon-button${hotkeyError ? ' has-warning' : ''}`}
+        title={hotkeyError ? `${PANEL_STRINGS.hideAll} — ${hotkeyError}` : PANEL_STRINGS.hideAll}
         aria-label={PANEL_STRINGS.hideAll}
         onClick={onHideAll}
       >

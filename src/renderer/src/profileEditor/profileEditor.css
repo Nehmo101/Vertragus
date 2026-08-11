@@ -314,6 +314,37 @@
   max-width: 240px;
 }
 
+/* --- switch ------------------------------------------------------------- */
+
+.pe-switch {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-top: 10px;
+  cursor: pointer;
+}
+
+.pe-switch-input {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  margin: 1px 0 0;
+  accent-color: var(--bronze);
+  cursor: pointer;
+}
+
+.pe-switch-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.pe-switch-label {
+  font: 500 12.5px var(--font-body);
+  color: var(--text);
+}
+
 /* --- footer ------------------------------------------------------------ */
 
 .pe-foot {

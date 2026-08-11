@@ -84,6 +84,7 @@ export function PanelApp(): React.JSX.Element {
         yolo={panel.settings?.yoloMaster ?? false}
         onToggleYolo={panel.toggleYolo}
         onHideAll={panel.hideAll}
+        hotkeyError={panel.settings?.hideAllHotkeyError}
       />
     </aside>
   )

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { slugifyRef } from '@main/agents/worktree'
-import { ORCHESTRATOR_COLOR, roleColor } from '@shared/prompts/roles'
+import { ORCHESTRATOR_COLOR, ORCHESTRATOR_ROLE_ID, roleColor } from '@shared/prompts/roles'
 import { Workspace, type WorkspaceDeps } from './Workspace'
 import {
   FakeRegistry,
@@ -19,6 +19,7 @@ interface Harness {
   windows: FakeWindows
   spawns: RecordedSpawn[]
   prompts: string[]
+  seedOptions: Array<{ autoSubmit?: boolean } | undefined>
   now: { value: number }
 }
 
@@ -54,7 +55,15 @@ function harness(
     subagentUrl: (agentId) => `http://127.0.0.1:1/mcp?ws=w&agent=${agentId}&token=sub`
   })
 
-  return { workspace, registry, windows, spawns: spawner.calls, prompts: seeder.prompts, now }
+  return {
+    workspace,
+    registry,
+    windows,
+    spawns: spawner.calls,
+    prompts: seeder.prompts,
+    seedOptions: seeder.options,
+    now
+  }
 }
 
 describe('startAgent', () => {
@@ -85,7 +94,13 @@ describe('startAgent', () => {
       model: 'sonnet'
     })
     expect(windows.opened).toEqual([
-      { agentId: started.agentId, title: started.name, roleColor: roleColor('worker', 0) }
+      {
+        agentId: started.agentId,
+        title: started.name,
+        roleColor: roleColor('worker', 0),
+        // The window layer turns this into bounds (zone, else auto-tiling).
+        placement: { roleId: 'worker' }
+      }
     ])
   })
 
@@ -394,7 +409,9 @@ describe('startOrchestrator', () => {
     expect(registry.registered[0]!.meta.roleColor).toBe(ORCHESTRATOR_COLOR)
     expect(windows.opened[0]).toMatchObject({
       agentId: orchestrator.agentId,
-      roleColor: ORCHESTRATOR_COLOR
+      roleColor: ORCHESTRATOR_COLOR,
+      // The orchestrator is placed by its own role key, not by a slot role.
+      placement: { roleId: ORCHESTRATOR_ROLE_ID }
     })
     expect(workspace.orchestrator).toMatchObject({ name: orchestrator.name })
   })
@@ -467,16 +484,64 @@ describe('mcpContext', () => {
 })
 
 describe('the real seed handshake', () => {
-  it('reaches the PTY with a trailing carriage return', async () => {
-    const { workspace, spawns } = harness({
-      deps: {
-        seed: undefined,
-        seedOptions: { ready: { idleMs: 5, pollMs: 1, minChars: 1, timeoutMs: 500 }, maxAttempts: 1 }
-      }
-    })
+  const realSeed = {
+    seed: undefined,
+    seedOptions: {
+      ready: { idleMs: 5, pollMs: 1, minChars: 1, timeoutMs: 500 },
+      maxAttempts: 1,
+      submitDelayMs: 5
+    }
+  }
+
+  it('types the task and then presses Enter as a separate write', async () => {
+    const { workspace, spawns } = harness({ deps: realSeed })
     const started = await workspace.startAgent({ role: 'worker', task: 'Do the thing.' })
 
     expect(started.agentId).toBeTruthy()
-    expect(spawns[0]!.pty.written).toContain('Do the thing.\r')
+    // Two writes, in this order. Glued together as "Do the thing.\r" the
+    // carriage return is swallowed as a newline of the paste and the task
+    // never leaves the composer — the first real run died exactly there.
+    expect(spawns[0]!.pty.written).toEqual(['Do the thing.', '\r'])
+  })
+
+  it('leaves the task in the input field when the profile says so', async () => {
+    const { workspace, spawns } = harness({
+      profile: testProfile({ autoSubmitTasks: false }),
+      deps: realSeed
+    })
+    await workspace.startAgent({ role: 'worker', task: 'Do the thing.' })
+
+    expect(spawns[0]!.pty.written).toEqual(['Do the thing.'])
+  })
+})
+
+describe('autoSubmitTasks', () => {
+  it('presses Enter for assignments by default', async () => {
+    const { workspace, seedOptions } = harness()
+    await workspace.startAgent({ role: 'worker', task: 'Do the thing.' })
+    expect(seedOptions.at(-1)?.autoSubmit).toBe(true)
+  })
+
+  it('is honoured for a follow-up sent to a running agent', async () => {
+    const { workspace, spawns, seedOptions } = harness({
+      profile: testProfile({ autoSubmitTasks: false })
+    })
+    const started = await workspace.startAgent({ role: 'worker', task: 'First.' })
+    await workspace.sendToAgent(started.agentId, 'And now this.')
+
+    // Both the initial assignment and the follow-up obey the switch: a user who
+    // wants to redact what an agent is told means every message, not the first.
+    expect(seedOptions.map((options) => options?.autoSubmit)).toEqual([false, false])
+    expect(spawns[0]!.pty.written).toEqual(['First.', 'And now this.'])
+  })
+
+  it('never withholds the orchestrator system prompt — that is plumbing, not a task', async () => {
+    const { workspace, seedOptions } = harness({
+      profile: testProfile({ autoSubmitTasks: false }),
+      // A provider without a system-prompt flag types its prompt in instead.
+      ptySystemPrompt: true
+    })
+    await workspace.startOrchestrator()
+    expect(seedOptions.at(-1)?.autoSubmit).toBe(true)
   })
 })

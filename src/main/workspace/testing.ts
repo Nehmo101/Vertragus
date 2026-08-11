@@ -184,17 +184,34 @@ export function fakeSpawn(options: { ptySystemPrompt?: boolean; error?: Error } 
   }
 }
 
-/** A seed that always succeeds immediately and records what was typed. */
+/**
+ * A seed that always succeeds immediately and records what was typed.
+ *
+ * It also mirrors the real handshake's two writes — text, then the submitting
+ * Enter, and only when `autoSubmit` is on — so a test can prove the profile
+ * switch reaches the PTY and not merely the options object.
+ */
 export function fakeSeed(): {
-  seed: (write: (text: string) => void, snapshot: unknown, prompt: string) => Promise<boolean>
+  seed: (
+    write: (text: string) => void,
+    snapshot: unknown,
+    prompt: string,
+    options?: { autoSubmit?: boolean }
+  ) => Promise<boolean>
   prompts: string[]
+  /** The options each seed call received, in call order. */
+  options: Array<{ autoSubmit?: boolean } | undefined>
 } {
   const prompts: string[] = []
+  const options: Array<{ autoSubmit?: boolean } | undefined> = []
   return {
     prompts,
-    seed: async (write, _snapshot, prompt) => {
+    options,
+    seed: async (write, _snapshot, prompt, seedOptions) => {
       prompts.push(prompt)
-      write(`${prompt}\r`)
+      options.push(seedOptions)
+      write(prompt)
+      if (seedOptions?.autoSubmit ?? true) write('\r')
       return true
     }
   }

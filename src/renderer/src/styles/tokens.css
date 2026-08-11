@@ -85,6 +85,9 @@
   --glass-header: rgba(20, 23, 28, 0.65);
   --glass-terminal: rgba(13, 16, 21, 0.6);
   --glass-input: rgba(13, 16, 21, 0.7);
+  /* Same surfaces while the window has OS focus — see --focus-opacity. */
+  --glass-window-focused: rgba(14, 16, 20, 0.97);
+  --glass-terminal-focused: rgba(13, 16, 21, 0.85);
   --hairline: rgba(234, 230, 219, 0.08);
   --hairline-strong: rgba(234, 230, 219, 0.12);
   --hover-wash: rgba(234, 230, 219, 0.05);
@@ -100,6 +103,14 @@
   /* the defining trait: ghost at rest, present on hover */
   --ghost-opacity: 0.6;
   --reveal-opacity: 0.97;
+  /*
+   * Third step, above hover: the window the user is actually typing in. Hover
+   * means "I am looking at this", OS focus means "I am working in this", and
+   * 0.97 over a colourful desktop still bleeds through terminal text. Set by
+   * the `is-window-focused` root class, which only the CLI windows apply — the
+   * panel is a launcher and keeps its two-step hover behaviour.
+   */
+  --focus-opacity: 1;
 
   /* compatibility aliases for ported brand components (HoundLogo/fusioneMark) */
   --bg: #0e1013;

@@ -27,6 +27,16 @@ vi.mock('@main/windows/profileEditor', () => ({
   closeProfileEditorWindow: vi.fn(),
   listProfileEditorWindows: vi.fn(() => [])
 }))
+vi.mock('@main/windows/zoneOverlay', () => ({
+  openZoneOverlayWindows: vi.fn(),
+  closeZoneOverlayWindows: vi.fn(),
+  isZoneOverlaySender: vi.fn(() => null),
+  zoneOverlayDisplayIds: vi.fn(() => [])
+}))
+vi.mock('@main/windows/hideAll', () => ({
+  toggleHideAll: vi.fn(),
+  hideAllHotkeyStatus: vi.fn(() => undefined)
+}))
 
 import {
   APP_CHANNELS,
@@ -35,8 +45,10 @@ import {
   type AppIpc,
   type AppIpcHost,
   type AppSettingsPort,
+  type PanelSettings,
   type WorkspaceDirectory,
-  type WorkspaceSummary
+  type WorkspaceSummary,
+  type ZoneEditorPayload
 } from './appIpc'
 import type { MinimalIpcMain } from './ipc'
 import type { WorkspaceSummary as PreloadWorkspaceSummary } from '../preload'
@@ -78,6 +90,8 @@ class FakeIpcMain implements MinimalIpcMain {
 const PANEL_ID = 1
 const EDITOR_ID = 2
 const CLI_ID = 3
+const OVERLAY_A_ID = 4
+const OVERLAY_B_ID = 5
 
 function profile(id: string, name = id): Profile {
   return profileSchema.parse({
@@ -173,6 +187,8 @@ interface Harness {
   opened: (string | undefined)[]
   closed: number[]
   hidden: number
+  zoneSessions: string[]
+  zonesClosed: number
   now: number
 }
 
@@ -203,6 +219,8 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     opened,
     closed,
     hidden: 0,
+    zoneSessions: [] as string[],
+    zonesClosed: 0,
     now: 1_000
   } as Harness
 
@@ -244,10 +262,31 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     hideAll: () => {
       result.hidden += 1
     },
+    openZoneOverlays: (profileId) => result.zoneSessions.push(profileId),
+    closeZoneOverlays: () => {
+      result.zonesClosed += 1
+    },
+    zoneOverlaySender: (id) =>
+      id === OVERLAY_A_ID
+        ? { profileId: 'p1', displayId: 11 }
+        : id === OVERLAY_B_ID
+          ? { profileId: 'p1', displayId: 22 }
+          : null,
+    zoneOverlayDisplayIds: () => [11, 22],
     now: () => result.now,
     ...overrides
   })
   return result
+}
+
+/** A zone rect payload as an overlay sends it (relative to its work area). */
+function rel(x: number, y: number, w: number, h: number): {
+  x: number
+  y: number
+  w: number
+  h: number
+} {
+  return { x, y, w, h }
 }
 
 let h: Harness
@@ -448,7 +487,8 @@ describe('sender authorization', () => {
     APP_CHANNELS.modelsDiscover,
     APP_CHANNELS.settingsGet,
     APP_CHANNELS.dialogPickDirectory,
-    APP_CHANNELS.profileEditorOpen
+    APP_CHANNELS.profileEditorOpen,
+    APP_CHANNELS.zonesEdit
   ]
 
   it('rejects a CLI window on every channel', () => {
@@ -468,6 +508,172 @@ describe('sender authorization', () => {
     expect(() => h.ipc.invoke(APP_CHANNELS.workspacesStart, CLI_ID, { profileId: 'p1' })).toThrow()
     expect(h.store.getProfiles().map((entry) => entry.id)).toEqual(['p1', 'p2'])
     expect(h.directory.started).toEqual([])
+  })
+})
+
+describe('zones', () => {
+  it('opens the overlay session for a saved profile', () => {
+    h.ipc.invoke(APP_CHANNELS.zonesEdit, EDITOR_ID, { profileId: 'p1' })
+    expect(h.zoneSessions).toEqual(['p1'])
+  })
+
+  it('refuses to open zones for a profile that does not exist yet', () => {
+    expect(() => h.ipc.invoke(APP_CHANNELS.zonesEdit, EDITOR_ID, { profileId: 'ghost' })).toThrow(
+      /unknown profile/
+    )
+    expect(h.zoneSessions).toEqual([])
+  })
+
+  it('hands an overlay its display’s zones and the role palette', () => {
+    h.store.saveProfile({
+      ...profile('p1', 'Vertragus'),
+      zones: {
+        zones: [
+          { roleId: 'worker', displayId: 11, rect: rel(0.5, 0, 0.5, 1) },
+          { roleId: 'worker', displayId: 22, rect: rel(0, 0, 0.4, 1) }
+        ]
+      }
+    })
+    const payload = h.ipc.invoke(APP_CHANNELS.zonesLoad, OVERLAY_A_ID) as ZoneEditorPayload
+
+    expect(payload.profileId).toBe('p1')
+    expect(payload.profileName).toBe('Vertragus')
+    expect(payload.displayId).toBe(11)
+    // Orchestrator first, then the profile's slot roles.
+    expect(payload.roles.map((role) => role.roleId)).toEqual(['orchestrator', 'worker'])
+    // Only this display's zones — the other overlay owns display 22.
+    expect(payload.zones).toEqual([
+      { roleId: 'worker', displayId: 11, rect: rel(0.5, 0, 0.5, 1) }
+    ])
+  })
+
+  it('saves the layout of every overlay, not just the one that clicked save', () => {
+    h.ipc.send(APP_CHANNELS.zonesDraft, OVERLAY_B_ID, {
+      zones: [{ roleId: 'reviewer', rect: rel(0, 0, 0.5, 1) }]
+    })
+    h.ipc.invoke(APP_CHANNELS.zonesSave, OVERLAY_A_ID, {
+      profileId: 'p1',
+      zones: [{ roleId: 'worker', rect: rel(0.5, 0, 0.5, 1) }]
+    })
+
+    const saved = h.store.getProfiles().find((entry) => entry.id === 'p1')!
+    expect(saved.zones?.zones).toEqual([
+      { roleId: 'worker', displayId: 11, rect: rel(0.5, 0, 0.5, 1) },
+      { roleId: 'reviewer', displayId: 22, rect: rel(0, 0, 0.5, 1) }
+    ])
+    expect(h.zonesClosed).toBe(1)
+    expect(h.broadcasts.at(-1)?.channel).toBe(APP_CHANNELS.eventProfiles)
+  })
+
+  it('stamps the sender’s display id, whatever the payload claims', () => {
+    h.ipc.invoke(APP_CHANNELS.zonesSave, OVERLAY_A_ID, {
+      profileId: 'p1',
+      zones: [{ roleId: 'worker', displayId: 999, rect: rel(0, 0, 0.5, 1) }]
+    })
+
+    const saved = h.store.getProfiles().find((entry) => entry.id === 'p1')!
+    expect(saved.zones?.zones.map((zone) => zone.displayId)).toEqual([11])
+  })
+
+  it('keeps zones of displays that were not part of the session', () => {
+    h.store.saveProfile({
+      ...profile('p1', 'Vertragus'),
+      zones: { zones: [{ roleId: 'worker', displayId: 77, rect: rel(0, 0, 1, 1) }] }
+    })
+    h.ipc.invoke(APP_CHANNELS.zonesSave, OVERLAY_A_ID, {
+      profileId: 'p1',
+      zones: [{ roleId: 'worker', rect: rel(0.5, 0, 0.5, 1) }]
+    })
+
+    const saved = h.store.getProfiles().find((entry) => entry.id === 'p1')!
+    expect(saved.zones?.zones).toEqual([
+      { roleId: 'worker', displayId: 77, rect: rel(0, 0, 1, 1) },
+      { roleId: 'worker', displayId: 11, rect: rel(0.5, 0, 0.5, 1) }
+    ])
+  })
+
+  it('an empty save deletes this display’s zones', () => {
+    h.store.saveProfile({
+      ...profile('p1', 'Vertragus'),
+      zones: { zones: [{ roleId: 'worker', displayId: 11, rect: rel(0, 0, 1, 1) }] }
+    })
+    h.ipc.invoke(APP_CHANNELS.zonesSave, OVERLAY_A_ID, { profileId: 'p1', zones: [] })
+
+    expect(h.store.getProfiles().find((entry) => entry.id === 'p1')!.zones?.zones).toEqual([])
+  })
+
+  it('rejects a save for a profile the overlay does not belong to', () => {
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.zonesSave, OVERLAY_A_ID, { profileId: 'p2', zones: [] })
+    ).toThrow(/does not belong to this overlay/)
+  })
+
+  it('rejects every zone channel from a panel, an editor or a CLI window', () => {
+    for (const sender of [PANEL_ID, EDITOR_ID, CLI_ID]) {
+      expect(() => h.ipc.invoke(APP_CHANNELS.zonesLoad, sender)).toThrow(
+        /not a zone overlay window/
+      )
+      expect(() =>
+        h.ipc.invoke(APP_CHANNELS.zonesSave, sender, { profileId: 'p1', zones: [] })
+      ).toThrow(/not a zone overlay window/)
+    }
+    // The fire-and-forget channels ignore strangers instead of throwing.
+    h.ipc.send(APP_CHANNELS.zonesDraft, CLI_ID, { zones: [] })
+    h.ipc.send(APP_CHANNELS.zonesCancel, CLI_ID)
+    expect(h.zonesClosed).toBe(0)
+    expect(h.store.getProfiles().find((entry) => entry.id === 'p1')!.zones).toBeUndefined()
+  })
+
+  it('cancel closes the session and saves nothing', () => {
+    h.ipc.send(APP_CHANNELS.zonesDraft, OVERLAY_A_ID, {
+      zones: [{ roleId: 'worker', rect: rel(0, 0, 0.5, 1) }]
+    })
+    h.ipc.send(APP_CHANNELS.zonesCancel, OVERLAY_A_ID)
+
+    expect(h.zonesClosed).toBe(1)
+    expect(h.store.getProfiles().find((entry) => entry.id === 'p1')!.zones).toBeUndefined()
+
+    // The dropped draft must not resurface in the next session's save.
+    h.ipc.invoke(APP_CHANNELS.zonesSave, OVERLAY_B_ID, { profileId: 'p1', zones: [] })
+    expect(h.store.getProfiles().find((entry) => entry.id === 'p1')!.zones?.zones).toEqual([])
+  })
+
+  it('drops a malformed draft instead of throwing at a dragging renderer', () => {
+    expect(() => h.ipc.send(APP_CHANNELS.zonesDraft, OVERLAY_A_ID, { zones: 'nope' })).not.toThrow()
+    h.ipc.invoke(APP_CHANNELS.zonesSave, OVERLAY_A_ID, { profileId: 'p1', zones: [] })
+    expect(h.store.getProfiles().find((entry) => entry.id === 'p1')!.zones?.zones).toEqual([])
+  })
+
+  it('refuses a save whose zones are not a list', () => {
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.zonesSave, OVERLAY_A_ID, { profileId: 'p1', zones: 42 })
+    ).toThrow(/expected an array of zones/)
+  })
+})
+
+describe('the hide-all hotkey status', () => {
+  it('stays out of the settings payload while the hotkey works', () => {
+    const settings = h.ipc.invoke(APP_CHANNELS.settingsGet, PANEL_ID) as PanelSettings
+    expect(settings.hideAllHotkeyError).toBeUndefined()
+    expect(settings.hideAllHotkey).toBe('Control+Alt+V')
+  })
+
+  it('reaches the panel when registration failed', () => {
+    const failing = harness({
+      hotkeyStatus: () => ({
+        hotkey: 'Control+Alt+V',
+        registered: false,
+        error: 'Hotkey Control+Alt+V ist belegt'
+      })
+    })
+    const settings = failing.ipc.invoke(APP_CHANNELS.settingsGet, PANEL_ID) as PanelSettings
+
+    expect(settings.hideAllHotkeyError).toBe('Hotkey Control+Alt+V ist belegt')
+    // …and it survives a yolo toggle, which returns the same shape.
+    const afterToggle = failing.ipc.invoke(APP_CHANNELS.settingsYolo, PANEL_ID, {
+      enabled: false
+    }) as PanelSettings
+    expect(afterToggle.hideAllHotkeyError).toBe('Hotkey Control+Alt+V ist belegt')
   })
 })
 
@@ -497,7 +703,7 @@ describe('preload parity', () => {
     }
     const found = [
       ...source.matchAll(
-        /'((?:profiles|roles|providers|models|workspaces|settings|windows|dialog|profileEditor|ev):[a-zA-Z]+)'/g
+        /'((?:profiles|roles|providers|models|workspaces|settings|windows|dialog|profileEditor|zones|ev):[a-zA-Z]+)'/g
       )
     ].map((match) => match[1])
     expect(new Set(found)).toEqual(new Set(Object.values(APP_CHANNELS)))

@@ -23,6 +23,35 @@ export function Field({ label, error, hint, children }: FieldProps): React.JSX.E
   )
 }
 
+interface SwitchFieldProps {
+  label: string
+  hint?: string
+  checked: boolean
+  onChange(checked: boolean): void
+}
+
+/**
+ * A boolean the other way round from {@link Field}: label beside the control,
+ * not above it. A switch whose caption sits in the uppercase field-label rail
+ * reads as a section heading and gets skipped over.
+ */
+export function SwitchField({ label, hint, checked, onChange }: SwitchFieldProps): React.JSX.Element {
+  return (
+    <label className="pe-switch">
+      <input
+        type="checkbox"
+        className="pe-switch-input"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span className="pe-switch-text">
+        <span className="pe-switch-label">{label}</span>
+        {hint ? <span className="pe-hint">{hint}</span> : null}
+      </span>
+    </label>
+  )
+}
+
 interface ProviderSelectProps {
   value: string
   providers: ProviderListEntry[]
