@@ -34,11 +34,12 @@ import {
   roleColor
 } from '@shared/prompts/roles'
 import type { ProviderConfig } from '@shared/schema/provider'
+import { normalizeAppearance, type Appearance } from '@shared/appearance'
 import type { AppSettings, SettingsStore } from '@main/store/settings'
 import { settings } from '@main/store/settings'
 import { discoverModels, type ModelDiscoveryResult } from '@main/providers/discovery'
 import { checkAllProviders, type ProviderHealth } from '@main/providers/health'
-import { focusCliWindow } from '@main/windows/cliWindow'
+import { focusCliWindow, listCliWindows } from '@main/windows/cliWindow'
 import {
   hideAllHotkeyStatus,
   reRegisterHideAllShortcut,
@@ -119,7 +120,19 @@ export const APP_CHANNELS = {
    * it, and asking each of them to poll `settings:get` would make "switch the
    * language" a race against the poll interval.
    */
-  eventSettings: 'ev:settings'
+  eventSettings: 'ev:settings',
+  /**
+   * How see-through this app is, on its own two channels.
+   *
+   * Everything else about settings is panel/editor business, but appearance is
+   * the one setting a CLI WINDOW has to know — it is the window standing over
+   * the wallpaper while somebody types in it. CLI windows are not app windows
+   * on the IPC guard and never will be, so instead of widening `settings:get`
+   * for them, appearance gets a read anyone may make (four numbers, nothing
+   * else) and a push that reaches every window in the app.
+   */
+  settingsAppearance: 'settings:appearance',
+  eventAppearance: 'ev:appearance'
 } as const
 
 /** Health probes are cheap but not free; a re-opened editor reuses this. */
@@ -228,6 +241,8 @@ export interface PanelSettings {
   hideAllHotkey: string
   locale: AppSettings['ui']['locale']
   theme: AppSettings['ui']['theme']
+  /** Opacity and glass transparency; see shared/appearance.ts. */
+  appearance: Appearance
   autostart: boolean
   updateChannel: AppSettings['updateChannel']
   /**
@@ -254,7 +269,8 @@ export const WRITABLE_SETTINGS = [
   'autostart',
   'updateChannel',
   'theme',
-  'locale'
+  'locale',
+  'appearance'
 ] as const
 export type WritableSetting = (typeof WRITABLE_SETTINGS)[number]
 
@@ -406,6 +422,12 @@ export interface AppIpcHost {
   closeProviderEditor(webContentsId: number): void
   /** Push to every app window (panel + open editors). */
   broadcast(channel: string, payload: unknown): void
+  /**
+   * Push to EVERY window, CLI windows included. Only appearance travels this
+   * way — see {@link APP_CHANNELS.eventAppearance}. Optional so a test host
+   * that does not care falls back to {@link AppIpcHost.broadcast}.
+   */
+  broadcastAll?(channel: string, payload: unknown): void
   /** Hide every CLI window and editor; toggling again restores them. */
   hideAll(): void
   /**
@@ -471,6 +493,7 @@ export function toPanelSettings(
     hideAllHotkey: value.hideAllHotkey,
     locale: value.ui.locale,
     theme: value.ui.theme,
+    appearance: value.ui.appearance,
     autostart: value.autostart,
     updateChannel: value.updateChannel,
     autostartSupported,
@@ -546,6 +569,12 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
   }
   const emitSettings = (value: PanelSettings): void => {
     host.broadcast(APP_CHANNELS.eventSettings, value)
+    // Appearance rides its own channel in the same tick: `ev:settings` never
+    // reaches a CLI window, and the CLI windows are the ones standing over the
+    // wallpaper. Both pushes carry the same value, and applying it twice in an
+    // app window is idempotent — setting four CSS variables to what they
+    // already are.
+    ;(host.broadcastAll ?? host.broadcast)(APP_CHANNELS.eventAppearance, value.appearance)
   }
 
   // --- profiles ----------------------------------------------------------
@@ -675,6 +704,15 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
 
   handle(APP_CHANNELS.settingsGet, requireAppWindow, () => panelSettings())
 
+  /**
+   * Appearance, readable from ANY window — the one deliberate hole in the
+   * window-type authorization above, and a narrow one: it answers four numbers
+   * and a boolean that are already visible as pixels in every window on the
+   * screen. A CLI window needs it to paint its first frame at the user's
+   * opacity instead of flashing the default and correcting itself.
+   */
+  handle(APP_CHANNELS.settingsAppearance, () => undefined, () => host.store.getSettings().ui.appearance)
+
   handle(APP_CHANNELS.settingsYolo, requirePanel, (_event, payload) => {
     const enabled =
       typeof payload === 'boolean' ? payload : (payload as { enabled?: boolean })?.enabled
@@ -729,6 +767,15 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
           // the same moment), so this path must not write it a second time.
           await host.setUpdateChannel(body.value)
           return panelSettings()
+        }
+        case 'appearance': {
+          // Clamped, not refused: every field is a slider, so an out-of-range
+          // value is a control that went too far, never a typo worth an error.
+          // The store's schema clamps too — this is the boundary check, the
+          // same as the `boolean` and enum guards above, and it is what makes
+          // the value the other windows are pushed the value that was stored.
+          const ui = { ...host.store.getSettings().ui, appearance: normalizeAppearance(body.value) }
+          return panelSettings(host.store.setSetting('ui', ui))
         }
         case 'theme':
         case 'locale': {
@@ -921,6 +968,23 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
 
 let instance: AppIpc | undefined
 
+/** The windows that may see app state: the panel, the editors, the settings. */
+function appWindows(): (BrowserWindow | null)[] {
+  return [
+    getPanelWindow(),
+    ...listProfileEditorWindows().map((entry) => entry.window),
+    ...listProviderEditorWindows().map((entry) => entry.window),
+    getSettingsWindow()
+  ]
+}
+
+/** Push to whatever of those windows is still alive. */
+function send(targets: readonly (BrowserWindow | null)[], channel: string, payload: unknown): void {
+  for (const win of targets) {
+    if (win && !win.webContents.isDestroyed()) win.webContents.send(channel, payload)
+  }
+}
+
 /**
  * Register the app IPC. Pass the WorkspaceManager's directory once it exists;
  * without it the workspace channels run on the refusing stub.
@@ -990,15 +1054,10 @@ export function registerAppIpc(directory?: WorkspaceDirectory): AppIpc {
       if (key !== null) closeProviderEditorWindow(key)
     },
     broadcast: (channel, payload) => {
-      const targets = [
-        getPanelWindow(),
-        ...listProfileEditorWindows().map((entry) => entry.window),
-        ...listProviderEditorWindows().map((entry) => entry.window),
-        getSettingsWindow()
-      ]
-      for (const win of targets) {
-        if (win && !win.webContents.isDestroyed()) win.webContents.send(channel, payload)
-      }
+      send(appWindows(), channel, payload)
+    },
+    broadcastAll: (channel, payload) => {
+      send([...appWindows(), ...listCliWindows().map((entry) => entry.window)], channel, payload)
     },
     hideAll: () => {
       toggleHideAll()

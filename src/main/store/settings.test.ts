@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { DEFAULT_APPEARANCE } from '@shared/appearance'
 import { createEmptyProfile } from '@shared/schema/profile'
 import { providerConfigSchema } from '@shared/schema/provider'
 import { providerPresets } from '@main/providers/presets'
@@ -189,7 +190,7 @@ describe('app settings', () => {
   it('serves the documented defaults on a fresh store', () => {
     const { store: settings } = store()
     expect(settings.getSettings()).toEqual({
-      ui: { theme: 'dark', locale: 'de' },
+      ui: { theme: 'dark', locale: 'de', appearance: DEFAULT_APPEARANCE },
       yoloMaster: true,
       hideAllHotkey: 'Control+Alt+V',
       autostart: false,
@@ -209,7 +210,9 @@ describe('app settings', () => {
   it('writes theme and autostart through the same single-key path', () => {
     const { store: settings } = store()
     settings.setSetting('autostart', true)
-    settings.setSetting('ui', { theme: 'light', locale: 'en' })
+    // A `ui` write REPLACES the section, so a caller patches one field by
+    // spreading the rest — the type makes forgetting that a compile error.
+    settings.setSetting('ui', { ...settings.getSettings().ui, theme: 'light' })
     const result = settings.getSettings()
     expect(result.autostart).toBe(true)
     expect(result.ui.theme).toBe('light')
@@ -226,10 +229,16 @@ describe('app settings', () => {
 
   it('persists the panel position and the locale', () => {
     const { store: settings } = store()
-    settings.setSetting('ui', { theme: 'dark', locale: 'en', panelBounds: { edge: 'right', y: 320 } })
+    settings.setSetting('ui', {
+      theme: 'dark',
+      locale: 'en',
+      appearance: DEFAULT_APPEARANCE,
+      panelBounds: { edge: 'right', y: 320 }
+    })
     expect(settings.getSettings().ui).toEqual({
       theme: 'dark',
       locale: 'en',
+      appearance: DEFAULT_APPEARANCE,
       panelBounds: { edge: 'right', y: 320 }
     })
   })
@@ -252,7 +261,9 @@ describe('app settings', () => {
     const result = settings.getSettings()
     expect(result.yoloMaster).toBe(true)
     expect(result.hideAllHotkey).toBe('Control+Shift+H')
-    expect(result.ui).toEqual({ theme: 'light', locale: 'en' })
+    // An old `ui` section without an appearance reads as the design defaults —
+    // the setting is new, the config file predates it, and neither is an error.
+    expect(result.ui).toEqual({ theme: 'light', locale: 'en', appearance: DEFAULT_APPEARANCE })
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('invalid settings section'))
   })
 
@@ -306,7 +317,7 @@ describe('adoptLegacyStore', () => {
     expect((adopted.roleTemplates as unknown[])).toHaveLength(1)
     expect(adopted.hideAllHotkey).toBe('Control+Shift+H')
     expect(adopted.updateChannel).toBe('stable')
-    expect(adopted.ui).toEqual({ theme: 'light', locale: 'en' })
+    expect(adopted.ui).toEqual({ theme: 'light', locale: 'en', appearance: DEFAULT_APPEARANCE })
   })
 
   it('leaves the archived app’s own records behind instead of dropping them loudly', () => {

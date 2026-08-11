@@ -82,7 +82,9 @@ const DYNAMIC_KEY_PREFIXES = [
   // profileEditor/fields.tsx — indexed by EffortLevel
   'profileEditor.effortLevel.',
   // profileEditor/model.ts — indexed by ModelDiscoveryResult['source']
-  'profileEditor.modelsFrom.'
+  'profileEditor.modelsFrom.',
+  // settings/SettingsApp.tsx — indexed by AppearanceSlider
+  'settings.glassSlider.'
 ]
 
 /** `panel.agentCount_one` / `_other` are one key to a caller: `panel.agentCount`. */

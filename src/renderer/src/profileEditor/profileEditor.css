@@ -17,7 +17,7 @@
   border: 1px solid var(--hairline);
   box-shadow: var(--shadow-window);
   background: linear-gradient(180deg, var(--glass-top), var(--glass-bottom));
-  backdrop-filter: blur(16px) saturate(1.15);
+  backdrop-filter: var(--glass-blur);
 }
 
 .pe button,

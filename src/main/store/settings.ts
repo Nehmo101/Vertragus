@@ -30,6 +30,7 @@ import { join } from 'node:path'
 import { app } from 'electron'
 import Store from 'electron-store'
 import { z } from 'zod'
+import { normalizeAppearance } from '@shared/appearance'
 import {
   parseProfiles,
   profileSchema,
@@ -60,11 +61,33 @@ export const panelBoundsSchema = z
   .strict()
 export type PanelBounds = z.infer<typeof panelBoundsSchema>
 
+/**
+ * How see-through the app is. Validated by {@link normalizeAppearance} rather
+ * than by a field-by-field zod object on purpose: every value here is a
+ * clamped number, so an out-of-range one is a slider that went too far, never
+ * an error worth failing a whole settings read over. `preprocess` also means
+ * `undefined` parses — an install from before this setting existed reads as
+ * the design defaults instead of dropping its `ui` section.
+ */
+export const appearanceSchema = z.preprocess(
+  normalizeAppearance,
+  z
+    .object({
+      translucent: z.boolean(),
+      restOpacity: z.number(),
+      hoverOpacity: z.number(),
+      focusOpacity: z.number(),
+      surfaceTransparency: z.number()
+    })
+    .strict()
+)
+
 export const uiSettingsSchema = z
   .object({
     panelBounds: panelBoundsSchema.optional(),
     theme: z.enum(['dark', 'light']).default('dark'),
-    locale: z.enum(['de', 'en']).default('de')
+    locale: z.enum(['de', 'en']).default('de'),
+    appearance: appearanceSchema
   })
   .strict()
 export type UiSettings = z.infer<typeof uiSettingsSchema>

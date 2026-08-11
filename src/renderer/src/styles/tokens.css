@@ -78,16 +78,32 @@
   --yolo-text: #ff8f92;
   --idle: #8c8069;
 
-  /* glass surfaces */
-  --glass-top: rgba(16, 19, 25, 0.9);
-  --glass-bottom: rgba(13, 15, 19, 0.94);
-  --glass-window: rgba(14, 16, 20, 0.9);
-  --glass-header: rgba(20, 23, 28, 0.65);
-  --glass-terminal: rgba(13, 16, 21, 0.6);
-  --glass-input: rgba(13, 16, 21, 0.7);
+  /*
+   * glass surfaces
+   *
+   * Every alpha below is written as `1 - designedTransparency * see-through`
+   * instead of as a literal, so ONE variable scales the whole set: at
+   * `--glass-see-through: 1` these are the mockup's values to the digit, at 0
+   * every surface is solid, and in between they keep their relation to each
+   * other (the terminal stays the most see-through, the panel bottom the
+   * least). The variable is set per window from the stored appearance —
+   * see shared/appearance.ts — and defaults to the design here so a window
+   * whose bridge never answers still paints the intended glass.
+   */
+  --glass-see-through: 1;
+  --glass-top: rgb(16 19 25 / calc(1 - 0.1 * var(--glass-see-through)));
+  --glass-bottom: rgb(13 15 19 / calc(1 - 0.06 * var(--glass-see-through)));
+  --glass-window: rgb(14 16 20 / calc(1 - 0.1 * var(--glass-see-through)));
+  --glass-header: rgb(20 23 28 / calc(1 - 0.35 * var(--glass-see-through)));
+  --glass-terminal: rgb(13 16 21 / calc(1 - 0.4 * var(--glass-see-through)));
+  --glass-input: rgb(13 16 21 / calc(1 - 0.3 * var(--glass-see-through)));
   /* Same surfaces while the window has OS focus — see --focus-opacity. */
-  --glass-window-focused: rgba(14, 16, 20, 0.97);
-  --glass-terminal-focused: rgba(13, 16, 21, 0.85);
+  --glass-window-focused: rgb(14 16 20 / calc(1 - 0.03 * var(--glass-see-through)));
+  --glass-terminal-focused: rgb(13 16 21 / calc(1 - 0.15 * var(--glass-see-through)));
+  /* The frosting behind those surfaces; `:root.is-opaque` switches it off. */
+  --glass-blur: blur(16px) saturate(1.15);
+  /* The CLI window frosts a touch less — terminal glyphs sit on top of it. */
+  --glass-blur-window: blur(14px) saturate(1.1);
   --hairline: rgba(234, 230, 219, 0.08);
   --hairline-strong: rgba(234, 230, 219, 0.12);
   --hover-wash: rgba(234, 230, 219, 0.05);
@@ -146,6 +162,23 @@ body,
 .glass:hover,
 .glass:focus-within {
   opacity: var(--reveal-opacity);
+}
+
+/*
+ * Transparency switched off entirely (`translucent: false`).
+ *
+ * The three opacities are already 1 by then — that is decided once, in
+ * `appearanceCssVars`. What only CSS can drop is the blur: `backdrop-filter`
+ * behind a solid surface samples and blurs pixels nobody will ever see, and on
+ * a multi-window setup that is a compositor pass per window for nothing.
+ *
+ * This is also why every glass surface spells its blur as `var(--glass-blur)`
+ * instead of its own literal: one rule here reaches all of them, and a new
+ * window cannot forget to be switched off.
+ */
+:root.is-opaque {
+  --glass-blur: none;
+  --glass-blur-window: none;
 }
 
 @keyframes vg-pulse {
