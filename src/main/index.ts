@@ -163,6 +163,13 @@ app.whenReady().then(async () => {
       startServer: async () => mcp,
       createManager: () => manager
     })
+    // Owner verification of the real orchestrator boot: capture its CLI
+    // window (real claude with MCP attach) and exit.
+    if (devRun && process.env.VERTRAGUS_DEV_RUN_SCREENSHOT) {
+      const { getCliWindow } = await import('./windows/cliWindow')
+      const win = getCliWindow(devRun.workspace.orchestrator?.agentId ?? '')
+      if (win) armScreenshotHook(win, 'VERTRAGUS_DEV_RUN_SCREENSHOT', 12_000)
+    }
   }
 
   app.on('activate', () => {
