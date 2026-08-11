@@ -83,7 +83,7 @@
 .panel-divider {
   height: 1px;
   margin: 0 18px;
-  background: linear-gradient(90deg, rgba(203, 163, 90, 0.28), rgba(234, 230, 219, 0.05));
+  background: linear-gradient(90deg, rgba(203, 163, 90, 0.28), rgba(var(--ink-rgb), 0.05));
 }
 
 /* The lists scroll, the brand and the footer never do. */
@@ -219,7 +219,7 @@
 .panel-new {
   margin-top: 3px;
   padding: 6px 8px;
-  border: 1px dashed rgba(234, 230, 219, 0.13);
+  border: 1px dashed rgba(var(--ink-rgb), 0.13);
   border-radius: 12px;
   background: transparent;
   color: var(--text-3);
@@ -250,7 +250,7 @@
   padding: 8px 9px 7px;
   border-radius: var(--radius-card);
   border: 1px solid var(--hairline);
-  background: rgba(234, 230, 219, 0.02);
+  background: rgba(var(--ink-rgb), 0.02);
 }
 
 .panel-card.is-active {
@@ -262,6 +262,27 @@
   display: flex;
   align-items: center;
   gap: 7px;
+}
+
+/*
+ * The head toggle owns name + count so Stop stays a sibling control: clicking
+ * stop must never flip expand/collapse. The button resets chrome so the card
+ * still reads as the previous non-interactive head.
+ */
+.panel-card-toggle {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
 }
 
 .panel-card-name {
@@ -309,6 +330,12 @@
   display: flex;
   flex-direction: column;
   gap: 1px;
+}
+
+.panel-agents-empty {
+  margin: 2px 5px 1px;
+  font: 400 11.5px var(--font-body);
+  color: var(--text-3);
 }
 
 .panel-agent {
@@ -492,8 +519,8 @@
   width: 34px;
   height: 19px;
   border-radius: 10px;
-  border: 1px solid rgba(234, 230, 219, 0.16);
-  background: rgba(234, 230, 219, 0.07);
+  border: 1px solid rgba(var(--ink-rgb), 0.16);
+  background: rgba(var(--ink-rgb), 0.07);
   transition:
     background 0.2s ease,
     border-color 0.2s ease;
@@ -506,7 +533,7 @@
   width: 13px;
   height: 13px;
   border-radius: 50%;
-  background: rgba(234, 230, 219, 0.55);
+  background: rgba(var(--ink-rgb), 0.55);
   transition:
     transform 0.2s ease,
     background 0.2s ease;

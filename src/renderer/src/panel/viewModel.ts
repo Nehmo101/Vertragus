@@ -90,5 +90,44 @@ export function orderWorkspaces(workspaces: readonly WorkspaceSummary[]): Worksp
   return [...workspaces].sort((a, b) => Number(b.active) - Number(a.active))
 }
 
+/**
+ * Selection for which workspace card shows its agents.
+ *
+ * `undefined` — the user has not clicked yet; follow the active workspace.
+ * `null` — the user toggled the open card shut; keep every card collapsed.
+ * a string — expand that id while it still exists.
+ */
+export type SelectedWorkspaceId = string | null | undefined
+
+/**
+ * Which card is effectively expanded. Pure so the panel can stay dumb and the
+ * decision is unit-testable without a DOM: disappearances fall back to the
+ * active workspace (same as "never clicked"), an explicit collapse stays
+ * collapsed, and a still-present selection wins.
+ */
+export function expandedWorkspaceId(
+  workspaces: readonly Pick<WorkspaceSummary, 'workspaceId' | 'active'>[],
+  selected: SelectedWorkspaceId
+): string | null {
+  if (selected === null) return null
+  if (typeof selected === 'string' && workspaces.some((entry) => entry.workspaceId === selected)) {
+    return selected
+  }
+  return workspaces.find((entry) => entry.active)?.workspaceId ?? null
+}
+
+/**
+ * Toggle / select from a card-head click. Clicking the already-expanded card
+ * collapses it; clicking another selects that one. The returned value is what
+ * PanelApp should store in `selectedWorkspaceId`.
+ */
+export function nextSelectedWorkspaceId(
+  workspaces: readonly Pick<WorkspaceSummary, 'workspaceId' | 'active'>[],
+  selected: SelectedWorkspaceId,
+  clickedId: string
+): SelectedWorkspaceId {
+  return expandedWorkspaceId(workspaces, selected) === clickedId ? null : clickedId
+}
+
 /** Never swallow a rejected bridge call — the panel shows what went wrong. */
 export { errorText } from '../lib/ipcError'

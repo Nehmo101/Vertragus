@@ -149,6 +149,27 @@ export const providerAuthSchema = z
   .strict()
 export type ProviderAuth = z.infer<typeof providerAuthSchema>
 
+/**
+ * Per-provider tuning for the interactive seed handshake.
+ *
+ * Only the submit side is exposed here: a PTY-delivery provider that pastes a
+ * multi-KB role prompt (Cursor) needs a longer pause before Enter, otherwise
+ * the keypress is swallowed as a newline of the still-digesting paste. Retries
+ * and watch windows live on the handshake itself with safe defaults; presets
+ * only override what they have measured.
+ */
+export const providerSeedSchema = z
+  .object({
+    /** Ms to wait after the prompt text before the first Enter. */
+    submitDelayMs: z.number().int().positive().max(10_000).optional(),
+    /** Max Enter presses including the first (unchanged-buffer retries only). */
+    submitRetries: z.number().int().min(1).max(10).optional(),
+    /** Base watch window after each Enter before deciding to retry. */
+    submitWatchMs: z.number().int().positive().max(10_000).optional()
+  })
+  .strict()
+export type ProviderSeed = z.infer<typeof providerSeedSchema>
+
 export const providerConfigSchema = z
   .object({
     /** Stable id, normalized to `[a-z0-9._-]`. Presets use their preset id. */
@@ -185,6 +206,8 @@ export const providerConfigSchema = z
      * usable without pretending to know which releases exist.
      */
     seedModels: z.array(z.string().trim().min(1).max(200)).max(MAX_ARGS).default([]),
+    /** Optional seed-handshake overrides; see {@link providerSeedSchema}. */
+    seed: providerSeedSchema.optional(),
     enabled: z.boolean().default(true)
   })
   .strict()

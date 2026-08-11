@@ -47,23 +47,48 @@ function AgentRow({ agent, onFocus }: AgentProps): React.JSX.Element {
 
 interface Props {
   workspace: WorkspaceSummary
+  expanded: boolean
+  onToggle(): void
   onStop(workspaceId: string): void
   onFocusAgent(agentId: string): void
 }
 
-/** One workspace card: Commedia name, agent count, stop — then its agents. */
-export function WorkspaceCard({ workspace, onStop, onFocusAgent }: Props): React.JSX.Element {
+/**
+ * One workspace card: Commedia name, agent count, stop. Only the expanded card
+ * lists its agents — collapsed peers keep the head so the rail stays scannable.
+ */
+export function WorkspaceCard({
+  workspace,
+  expanded,
+  onToggle,
+  onStop,
+  onFocusAgent
+}: Props): React.JSX.Element {
   const { t } = useTranslation()
   const stop = t('panel.stopWorkspace', { workspace: workspace.name })
+  const toggle = expanded
+    ? t('panel.collapseWorkspace', { workspace: workspace.name })
+    : t('panel.expandWorkspace', { workspace: workspace.name })
   return (
     <article className={workspaceCardClass(workspace)}>
       <header className="panel-card-head">
-        <LoreTip
-          className="panel-card-name"
-          name={workspace.name}
-          blurb={workspacePlaceTooltip(workspace)}
-        />
-        <span className="panel-card-count">{agentCountLabel(t, workspace)}</span>
+        {/* No native `title` on the toggle: it would pop the OS tooltip on
+            top of the lore card anchored to the name. The aria-label keeps the
+            expand/collapse action announced. */}
+        <button
+          type="button"
+          className="panel-card-toggle"
+          aria-label={toggle}
+          aria-expanded={expanded}
+          onClick={onToggle}
+        >
+          <LoreTip
+            className="panel-card-name"
+            name={workspace.name}
+            blurb={workspacePlaceTooltip(workspace)}
+          />
+          <span className="panel-card-count">{agentCountLabel(t, workspace)}</span>
+        </button>
         <button
           type="button"
           className="panel-stop"
@@ -74,11 +99,17 @@ export function WorkspaceCard({ workspace, onStop, onFocusAgent }: Props): React
           <StopIcon />
         </button>
       </header>
-      <ul className="panel-agents">
-        {workspace.agents.map((agent) => (
-          <AgentRow key={agent.agentId} agent={agent} onFocus={onFocusAgent} />
-        ))}
-      </ul>
+      {expanded ? (
+        <ul className="panel-agents">
+          {workspace.agents.length === 0 ? (
+            <li className="panel-agents-empty">{t('panel.noAgents')}</li>
+          ) : (
+            workspace.agents.map((agent) => (
+              <AgentRow key={agent.agentId} agent={agent} onFocus={onFocusAgent} />
+            ))
+          )}
+        </ul>
+      ) : null}
     </article>
   )
 }

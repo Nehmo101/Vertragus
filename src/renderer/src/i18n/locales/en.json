@@ -12,11 +12,14 @@
     "workspacesLabel": "Running workspaces",
     "noProfiles": "No profiles yet.",
     "noWorkspaces": "No active workspaces.",
+    "noAgents": "No agents yet.",
     "newProfile": "+ New profile",
     "newProfileTitle": "Create a new profile",
     "startWorkspace": "Start a workspace for “{{profile}}”",
     "editProfile": "Edit profile “{{profile}}”",
     "stopWorkspace": "Stop workspace “{{workspace}}”",
+    "expandWorkspace": "Expand workspace “{{workspace}}”",
+    "collapseWorkspace": "Collapse workspace “{{workspace}}”",
     "agentCount_one": "{{count}} agent",
     "agentCount_other": "{{count}} agents",
     "agentWorking": "working",
@@ -219,7 +222,7 @@
     "theme": "Appearance",
     "themeDark": "Dark",
     "themeLight": "Light",
-    "themeHint": "Stored already; the light theme arrives in a later step.",
+    "themeHint": "Takes effect immediately — in this window and every other one.",
     "locale": "Language",
     "localeDe": "Deutsch",
     "localeEn": "English",
@@ -280,6 +283,7 @@
     "running": "running",
     "stopped": "stopped · exit {{code}}",
     "exitLine": "— stopped · exit {{code}} —",
+    "minimizeWindow": "Minimize window",
     "closeWindow": "Close window"
   }
 }

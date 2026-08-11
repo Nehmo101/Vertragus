@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ZoneEditorPayload, ZoneEditorRole } from '../../../preload'
 import { applyLocale } from '../i18n'
+import { applyTheme } from '../theme'
 import { errorText } from '../lib/ipcError'
 import { demoZoneEditorPayload } from './demoPayload'
 import {
@@ -100,8 +101,10 @@ export function useZoneEditor({ displayId, demo = false }: UseZoneEditorInput): 
       (loaded) => {
         if (!alive) return
         // An overlay may not call `settings:get`, so this payload is the only
-        // place its language can come from (see appIpc's zones:load handler).
+        // place its language and theme can come from at open (see appIpc's
+        // zones:load handler). Later flips still arrive via `ev:settings`.
         void applyLocale(loaded.locale)
+        applyTheme(loaded.theme)
         setPayload(loaded)
         setZones(toDrafts(loaded, viewport, created.current))
         created.current += loaded.zones.length

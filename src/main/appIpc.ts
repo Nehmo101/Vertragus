@@ -69,6 +69,7 @@ import { appUpdater, onUpdateState } from '@main/updater'
 import {
   closeZoneOverlayWindows,
   isZoneOverlaySender,
+  listZoneOverlayWindows,
   openZoneOverlayWindows,
   zoneOverlayDisplayIds,
   type ZoneOverlaySender
@@ -306,11 +307,12 @@ export interface ZoneEditorPayload {
   /** Only the zones of THIS display; the other overlays own the rest. */
   zones: Zone[]
   /**
-   * UI language for this overlay. Added by the `zones:load` handler, not by
-   * {@link zoneEditorPayload} — an overlay cannot call `settings:get`, so the
-   * one payload it does receive is where the language has to travel.
+   * UI language / appearance for this overlay. Added by the `zones:load`
+   * handler, not by {@link zoneEditorPayload} — an overlay cannot call
+   * `settings:get`, so the one payload it does receive is where they travel.
    */
   locale?: AppSettings['ui']['locale']
+  theme?: AppSettings['ui']['theme']
 }
 
 /**
@@ -423,9 +425,11 @@ export interface AppIpcHost {
   /** Push to every app window (panel + open editors). */
   broadcast(channel: string, payload: unknown): void
   /**
-   * Push to EVERY window, CLI windows included. Only appearance travels this
-   * way — see {@link APP_CHANNELS.eventAppearance}. Optional so a test host
-   * that does not care falls back to {@link AppIpcHost.broadcast}.
+   * Push to EVERY window — CLI and zone overlay windows included. Settings and
+   * appearance travel this way (see {@link APP_CHANNELS.eventSettings} and
+   * {@link APP_CHANNELS.eventAppearance}): those windows cannot call
+   * settings:get but still follow live locale/theme/appearance flips. Optional
+   * so a test host that does not care falls back to {@link AppIpcHost.broadcast}.
    */
   broadcastAll?(channel: string, payload: unknown): void
   /** Hide every CLI window and editor; toggling again restores them. */
@@ -568,12 +572,12 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     host.broadcast(APP_CHANNELS.eventWorkspaces, host.directory.list())
   }
   const emitSettings = (value: PanelSettings): void => {
-    host.broadcast(APP_CHANNELS.eventSettings, value)
-    // Appearance rides its own channel in the same tick: `ev:settings` never
-    // reaches a CLI window, and the CLI windows are the ones standing over the
-    // wallpaper. Both pushes carry the same value, and applying it twice in an
-    // app window is idempotent — setting four CSS variables to what they
-    // already are.
+    // Settings go to EVERY window: CLI and zone overlays cannot call
+    // settings:get, yet they follow live locale/theme flips over `ev:settings`.
+    // Appearance rides its own channel in the same tick — the CLI windows are
+    // the ones standing over the wallpaper. Both pushes carry the same value,
+    // and applying either twice in an app window is idempotent.
+    ;(host.broadcastAll ?? host.broadcast)(APP_CHANNELS.eventSettings, value)
     ;(host.broadcastAll ?? host.broadcast)(APP_CHANNELS.eventAppearance, value.appearance)
   }
 
@@ -895,10 +899,11 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     const profile = host.store.getProfiles().find((entry) => entry.id === sender.profileId)
     if (!profile) throw new Error(`zones:load rejected — unknown profile ${sender.profileId}`)
     // The overlay is not an "app window" on the settings guard, so this is the
-    // only channel that can tell it which language to draw in.
+    // only channel that can tell it which language and theme to draw in at open.
     return {
       ...zoneEditorPayload(profile, host.store.getRoleTemplates(), sender.displayId),
-      locale: host.store.getSettings().ui.locale
+      locale: host.store.getSettings().ui.locale,
+      theme: host.store.getSettings().ui.theme
     }
   })
 
@@ -1057,7 +1062,17 @@ export function registerAppIpc(directory?: WorkspaceDirectory): AppIpc {
       send(appWindows(), channel, payload)
     },
     broadcastAll: (channel, payload) => {
-      send([...appWindows(), ...listCliWindows().map((entry) => entry.window)], channel, payload)
+      // CLI and zone overlay windows are not app windows on the IPC guard,
+      // but they still need live locale/theme flips and the appearance push.
+      send(
+        [
+          ...appWindows(),
+          ...listCliWindows().map((entry) => entry.window),
+          ...listZoneOverlayWindows().map((entry) => entry.window)
+        ],
+        channel,
+        payload
+      )
     },
     hideAll: () => {
       toggleHideAll()

@@ -8,6 +8,8 @@ import {
   agentStatusLine,
   agentTooltip,
   errorText,
+  expandedWorkspaceId,
+  nextSelectedWorkspaceId,
   orderWorkspaces,
   workspaceCardClass,
   workspacePlaceTooltip
@@ -122,6 +124,41 @@ describe('cards', () => {
       'w2',
       'w0'
     ])
+  })
+})
+
+describe('expanded workspace selection', () => {
+  const live = workspace({ workspaceId: 'w1', active: true })
+  const other = workspace({ workspaceId: 'w2', active: false, agents: [agent(), agent()] })
+  const empty = workspace({ workspaceId: 'w3', active: false, agents: [] })
+
+  it('defaults to the active workspace until the user clicks', () => {
+    expect(expandedWorkspaceId([live, other], undefined)).toBe('w1')
+    expect(expandedWorkspaceId([other], undefined)).toBeNull()
+    expect(expandedWorkspaceId([], undefined)).toBeNull()
+  })
+
+  it('honours an explicit selection and collapses on toggle', () => {
+    expect(expandedWorkspaceId([live, other], 'w2')).toBe('w2')
+    expect(nextSelectedWorkspaceId([live, other], undefined, 'w1')).toBeNull()
+    expect(nextSelectedWorkspaceId([live, other], undefined, 'w2')).toBe('w2')
+    expect(nextSelectedWorkspaceId([live, other], 'w2', 'w2')).toBeNull()
+    expect(nextSelectedWorkspaceId([live, other], null, 'w1')).toBe('w1')
+    expect(expandedWorkspaceId([live, other], null)).toBeNull()
+  })
+
+  it('falls back when the selected workspace disappears', () => {
+    expect(expandedWorkspaceId([live, other], 'gone')).toBe('w1')
+    expect(expandedWorkspaceId([other], 'gone')).toBeNull()
+    // After a collapse, a vanished list stays collapsed — no phantom expand.
+    expect(expandedWorkspaceId([], null)).toBeNull()
+  })
+
+  it('still expands a card whose agent list is empty', () => {
+    expect(expandedWorkspaceId([empty, live], 'w3')).toBe('w3')
+    expect(empty.agents).toEqual([])
+    expect(t('panel.noAgents')).toBe('Noch keine Agenten.')
+    expect(en('panel.noAgents')).toBe('No agents yet.')
   })
 })
 

@@ -117,7 +117,7 @@
 }
 
 .st-input:hover {
-  border-color: rgba(234, 230, 219, 0.2);
+  border-color: rgba(var(--ink-rgb), 0.2);
 }
 
 .st-mono {
@@ -342,7 +342,7 @@
 .st-ghost:hover:not(:disabled),
 .st-secondary:hover:not(:disabled) {
   color: var(--text);
-  border-color: rgba(234, 230, 219, 0.22);
+  border-color: rgba(var(--ink-rgb), 0.22);
   background: var(--hover-wash);
 }
 

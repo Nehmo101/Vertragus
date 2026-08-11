@@ -102,7 +102,7 @@
 }
 
 .pe-input:hover {
-  border-color: rgba(234, 230, 219, 0.2);
+  border-color: rgba(var(--ink-rgb), 0.2);
 }
 
 .pe-mono {
@@ -219,7 +219,7 @@
   padding: 7px 8px;
   border: 1px solid var(--hairline);
   border-radius: 12px;
-  background: rgba(234, 230, 219, 0.02);
+  background: rgba(var(--ink-rgb), 0.02);
 }
 
 .pe-slot-grid {
@@ -292,7 +292,7 @@
   align-self: flex-start;
   margin-top: 2px;
   padding: 5px 11px;
-  border: 1px dashed rgba(234, 230, 219, 0.15);
+  border: 1px dashed rgba(var(--ink-rgb), 0.15);
   border-radius: 11px;
   background: transparent;
   color: var(--text-3);
@@ -379,7 +379,7 @@
 .pe-ghost:hover,
 .pe-secondary:hover {
   color: var(--text);
-  border-color: rgba(234, 230, 219, 0.22);
+  border-color: rgba(var(--ink-rgb), 0.22);
   background: var(--hover-wash);
 }
 

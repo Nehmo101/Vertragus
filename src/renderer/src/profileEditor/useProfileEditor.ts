@@ -89,6 +89,20 @@ export function useProfileEditor(profileId?: string): ProfileEditorState {
     }
   }, [bridge, profileId, t])
 
+  // Zones are saved by the overlay, not by this form. When that write lands,
+  // fold the fresh layout into the draft so a later "Save" cannot ship a stale
+  // snapshot that omits (or regresses) the rectangles the user just drew.
+  useEffect(() => {
+    if (!bridge || !profileId) return undefined
+    return bridge.onProfiles((profiles) => {
+      const profile = profiles.find((entry) => entry.id === profileId)
+      if (!profile) return
+      setDraft((current) =>
+        current ? { ...current, zones: profile.zones } : current
+      )
+    })
+  }, [bridge, profileId])
+
   // --- slow load: provider list with health -------------------------------
   useEffect(() => {
     if (!bridge) return

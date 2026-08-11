@@ -39,6 +39,9 @@ class FakeBrowserWindow {
   restore(): void {
     this.minimized = false
   }
+  minimize(): void {
+    this.minimized = true
+  }
   show(): void {
     this.shown = true
   }
@@ -155,6 +158,20 @@ describe('CLI window registry', () => {
     expect(win.minimized).toBe(false)
     expect(win.focused).toBe(true)
     expect(() => cli.focusCliWindow('ghost')).not.toThrow()
+  })
+
+  it('minimizeCliWindow minimizes without forgetting the registry entry', () => {
+    const win = cli.createCliWindow('agent-a', { title: 'A', roleColor: '#111' })
+
+    cli.minimizeCliWindow('agent-a')
+
+    expect((win as unknown as FakeBrowserWindow).minimized).toBe(true)
+    expect(cli.getCliWindow('agent-a')).toBe(win)
+    expect(cli.isCliWindowSender(win.webContents.id)).toBe('agent-a')
+  })
+
+  it('minimizing an unknown agent is a no-op', () => {
+    expect(() => cli.minimizeCliWindow('ghost')).not.toThrow()
   })
 })
 
