@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { BRACKETED_PASTE_ON, PASTE_BEGIN, PASTE_END } from '@main/agents/interactiveReady'
 import { buildAgentArgv } from '@main/agents/spawn'
 import { slugifyRef } from '@main/agents/worktree'
 import { PendingQuestions } from '@main/mcp/pendingQuestions'
@@ -38,11 +39,15 @@ function harness(
     deps?: Partial<WorkspaceDeps>
     profile?: ReturnType<typeof testProfile>
     ptySystemPrompt?: boolean
+    banner?: string
   } = {}
 ): Harness {
   const registry = new FakeRegistry()
   const windows = new FakeWindows()
-  const spawner = fakeSpawn({ ptySystemPrompt: overrides.ptySystemPrompt })
+  const spawner = fakeSpawn({
+    ptySystemPrompt: overrides.ptySystemPrompt,
+    ...(overrides.banner !== undefined ? { banner: overrides.banner } : {})
+  })
   const seeder = fakeSeed()
   const worktrees = fakeWorktrees()
   const now = { value: 1_000_000 }
@@ -616,6 +621,33 @@ describe('the real seed handshake', () => {
 
     expect(spawns[0]!.pty.written).toEqual(['Do the thing.'])
   })
+
+  it('sends a multi-line assignment as a real paste to a TUI that asked for one', async () => {
+    // The Cursor bug that outlived the timing fix: raw, the block below is a
+    // keystroke stream, and the PTY is free to split it so that `\n` arrives
+    // alone — decoded as Enter, submitting "Do this." on its own and leaving
+    // the rest in the composer. Framed, none of its bytes can be read as keys.
+    const task = ['Do this.', 'Then that.'].join('\n')
+    const { workspace, spawns } = harness({
+      banner: `cursor-agent ready${BRACKETED_PASTE_ON}`,
+      deps: realSeed
+    })
+    await workspace.startAgent({ role: 'worker', task })
+
+    expect(spawns[0]!.pty.written).toEqual([`${PASTE_BEGIN}${task}${PASTE_END}`, '\r'])
+  })
+
+  it('says so in the agent’s own scrollback when the Enter was never accepted', async () => {
+    // A FakePty echoes and then goes quiet — exactly the swallowed-Enter shape.
+    // Reporting that as a clean delivery is what made a silent Cursor agent
+    // indistinguishable from a working one.
+    const { workspace, spawns } = harness({ deps: realSeed })
+    await workspace.startAgent({ role: 'worker', task: 'Do the thing.' })
+
+    expect(spawns[0]!.pty.snapshot()).toContain('never reacted to the submitting Enter')
+    // A warning, not a failure: the agent keeps its window and its process.
+    expect(workspace.listAgents()).toHaveLength(1)
+  })
 })
 
 describe('autoSubmitTasks', () => {
@@ -639,6 +671,7 @@ describe('autoSubmitTasks', () => {
     // cursor-agent redraws even after swallowing Enter, so its preset opts out
     // of buffer-based acceptance — the field must survive the trip end-to-end.
     expect(seedOptions.at(-1)?.submitAcceptance).toBe('sustained-activity')
+    expect(seedOptions.at(-1)?.bracketedPaste).toBe('auto')
   })
 
   it('is honoured for a follow-up sent to a running agent', async () => {
