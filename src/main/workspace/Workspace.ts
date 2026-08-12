@@ -34,6 +34,7 @@ import { EventQueue } from '@main/mcp/eventQueue'
 import type {
   AgentHost,
   AgentSummary,
+  RetroLearningInput,
   StartAgentInput,
   StartedAgent,
   WorkspaceLimits,
@@ -54,6 +55,7 @@ import {
   type SeedWithReadyOptions
 } from '@main/agents/interactiveReady'
 import { buildOrchestratorSystemPrompt, type RoleWithLimit } from '@shared/prompts/orchestrator'
+import type { SlotKnowledge } from '@shared/retro/runStats'
 import {
   allRoleTemplates,
   ORCHESTRATOR_COLOR,
@@ -140,6 +142,14 @@ export interface WorkspaceDeps {
   /** Seed-handshake tuning; tests shorten it so the suite stays fast. */
   seedOptions?: SeedWithReadyOptions
   worktreeDeps?: WorktreeDeps
+  /** Retro feed: learnings in, accumulated knowledge out. Absent = no retro. */
+  retro?: WorkspaceRetroFeed
+}
+
+/** The slice of the retro sink a single workspace consumes (Electron-free). */
+export interface WorkspaceRetroFeed {
+  recordLearnings(profile: Profile, learnings: readonly RetroLearningInput[]): { applied: number }
+  knowledge(profile: Profile): SlotKnowledge[]
 }
 
 export interface WorkspaceInit {
@@ -197,6 +207,8 @@ export class Workspace implements AgentHost {
   private orchestratorRecord: AgentRecord | undefined
   private mcpUrls: WorkspaceMcpUrls | undefined
   private closed = false
+  /** The record_retro summary, held until the manager finalizes the run at stop. */
+  pendingRetroSummary: string | undefined
 
   constructor(init: WorkspaceInit, deps: WorkspaceDeps) {
     this.profile = init.profile
@@ -227,6 +239,8 @@ export class Workspace implements AgentHost {
       agentId: record.agentId,
       name: record.name,
       role: record.roleId,
+      providerId: record.providerId,
+      model: record.model,
       worktreePath: record.worktreePath,
       branch: record.branch
     }
@@ -251,6 +265,7 @@ export class Workspace implements AgentHost {
 
   /** The registration payload for `mcp/server.registerWorkspace`. */
   mcpContext(): WorkspaceMcpContext {
+    const retro = this.deps.retro
     return {
       workspaceId: this.workspaceId,
       workspaceName: this.name,
@@ -260,7 +275,18 @@ export class Workspace implements AgentHost {
       host: this,
       events: this.events,
       limits: this.limits(),
-      roles: profileRoleIds(this.profile)
+      roles: profileRoleIds(this.profile),
+      ...(retro
+        ? {
+            retro: {
+              recordLearnings: (learnings: readonly RetroLearningInput[]) =>
+                retro.recordLearnings(this.profile, learnings),
+              recordSummary: (summary: string) => {
+                this.pendingRetroSummary = summary
+              }
+            }
+          }
+        : {})
     }
   }
 
@@ -334,6 +360,8 @@ export class Workspace implements AgentHost {
         agentId,
         name,
         role: input.role,
+        providerId: provider.id,
+        model,
         worktreePath: worktree.path,
         branch: worktree.branch
       }
@@ -426,7 +454,8 @@ export class Workspace implements AgentHost {
       workspaceName: this.name,
       repoPath: this.repoPath,
       rolesWithLimits: this.rolesWithLimits(),
-      maxSubagents: this.profile.maxSubagents
+      maxSubagents: this.profile.maxSubagents,
+      knowledge: this.deps.retro?.knowledge(this.profile) ?? []
     })
 
     let spawned: SpawnedAgent | undefined
@@ -478,6 +507,8 @@ export class Workspace implements AgentHost {
         agentId,
         name,
         role: ORCHESTRATOR_ROLE_ID,
+        providerId: provider.id,
+        model: this.profile.orchestrator.model,
         worktreePath: worktree.path,
         branch: worktree.branch
       }

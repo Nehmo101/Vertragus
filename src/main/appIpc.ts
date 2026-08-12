@@ -92,6 +92,9 @@ export const APP_CHANNELS = {
   workspacesFocusAgent: 'workspaces:focusAgent',
   worktreesList: 'worktrees:list',
   worktreesRemove: 'worktrees:remove',
+  retroList: 'retro:list',
+  retroLearnings: 'retro:learnings',
+  retroDeleteLearning: 'retro:deleteLearning',
   settingsGet: 'settings:get',
   settingsYolo: 'settings:yolo',
   settingsSet: 'settings:set',
@@ -245,6 +248,9 @@ export type AppSettingsPort = Pick<
   | 'deleteProvider'
   | 'getRoleTemplates'
   | 'saveRoleTemplate'
+  | 'getRunRetros'
+  | 'getModelLearnings'
+  | 'deleteModelLearning'
   | 'getSettings'
   | 'setSetting'
 >
@@ -744,6 +750,32 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     return host.directory.removeWorktree(body.profileId, body.path)
   })
 
+  // --- retro ---------------------------------------------------------------
+
+  handle(APP_CHANNELS.retroList, requirePanel, (_event, payload) => {
+    const profileId =
+      typeof payload === 'string' ? payload : (payload as { profileId?: string })?.profileId
+    const retros = host.store.getRunRetros()
+    return profileId ? retros.filter((retro) => retro.profileId === profileId) : retros
+  })
+
+  handle(APP_CHANNELS.retroLearnings, requirePanel, (_event, payload) => {
+    const profileId =
+      typeof payload === 'string' ? payload : (payload as { profileId?: string })?.profileId
+    const learnings = host.store.getModelLearnings()
+    // Soft filter: a learning without profile context is model knowledge that
+    // holds everywhere, so it shows for every profile.
+    return profileId
+      ? learnings.filter((learning) => !learning.profileId || learning.profileId === profileId)
+      : learnings
+  })
+
+  handle(APP_CHANNELS.retroDeleteLearning, requirePanel, (_event, payload) => {
+    const id = typeof payload === 'string' ? payload : (payload as { id?: string })?.id
+    if (!id) throw new Error('retro:deleteLearning rejected — missing learning id')
+    return host.store.deleteModelLearning(id)
+  })
+
   // --- settings & windows ------------------------------------------------
 
   handle(APP_CHANNELS.settingsGet, requireAppWindow, () => panelSettings())
@@ -1057,6 +1089,9 @@ export function registerAppIpc(directory?: WorkspaceDirectory): AppIpc {
     deleteProvider: (id) => settings().deleteProvider(id),
     getRoleTemplates: () => settings().getRoleTemplates(),
     saveRoleTemplate: (template) => settings().saveRoleTemplate(template),
+    getRunRetros: () => settings().getRunRetros(),
+    getModelLearnings: () => settings().getModelLearnings(),
+    deleteModelLearning: (id) => settings().deleteModelLearning(id),
     getSettings: () => settings().getSettings(),
     setSetting: (key, value) => settings().setSetting(key, value)
   }

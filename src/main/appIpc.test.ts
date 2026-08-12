@@ -91,6 +91,7 @@ import type { HideAllHotkeyStatus } from './windows/hideAll'
 import type { MinimalIpcMain } from './ipc'
 import type { WorkspaceSummary as PreloadWorkspaceSummary } from '../preload'
 import { profileSchema, type Profile, type RoleTemplate } from '@shared/schema/profile'
+import type { ModelLearning, RunRetro } from '@shared/schema/retro'
 import { DEFAULT_APPEARANCE } from '@shared/appearance'
 import type { AppSettings } from './store/settings'
 import type { ProviderConfig, ProviderConfigInput } from '@shared/schema/provider'
@@ -158,13 +159,38 @@ const SETTINGS: AppSettings = {
 }
 
 /** An in-memory stand-in for the settings store, with the same write rules. */
-function createFakeStore(initial: Profile[] = []): AppSettingsPort & { settings: AppSettings } {
+function createFakeStore(
+  initial: Profile[] = []
+): AppSettingsPort & {
+  settings: AppSettings
+  retros: RunRetro[]
+  learnings: ModelLearning[]
+} {
   let profiles = [...initial]
   let roles: RoleTemplate[] = []
   let storedProviders: ProviderConfig[] = []
   const settings: AppSettings = structuredClone(SETTINGS)
+  const retroState = { retros: [] as RunRetro[], learnings: [] as ModelLearning[] }
   return {
     settings,
+    get retros() {
+      return retroState.retros
+    },
+    set retros(next: RunRetro[]) {
+      retroState.retros = next
+    },
+    get learnings() {
+      return retroState.learnings
+    },
+    set learnings(next: ModelLearning[]) {
+      retroState.learnings = next
+    },
+    getRunRetros: () => [...retroState.retros],
+    getModelLearnings: () => [...retroState.learnings],
+    deleteModelLearning(id) {
+      retroState.learnings = retroState.learnings.filter((entry) => entry.id !== id)
+      return [...retroState.learnings]
+    },
     getProfiles: () => profiles,
     saveProfile(raw) {
       const parsed = profileSchema.parse(raw)
@@ -744,6 +770,65 @@ describe('worktree cleanup', () => {
     expect(() =>
       h.ipc.invoke(APP_CHANNELS.worktreesRemove, CLI_ID, { profileId: 'p1', path: '/x' })
     ).toThrow(/not the panel/)
+  })
+})
+
+describe('retro', () => {
+  const learning = (id: string, profileId?: string): ModelLearning => ({
+    id,
+    providerId: 'claude',
+    model: 'sonnet',
+    kind: 'strength',
+    insight: 'stark bei UI',
+    source: 'orchestrator',
+    ...(profileId ? { profileId } : {}),
+    observations: 1,
+    createdAt: 1,
+    updatedAt: 1
+  })
+
+  const retro = (id: string, profileId: string): RunRetro => ({
+    id,
+    workspaceId: `ws-${id}`,
+    workspaceName: 'Paradiso',
+    profileId,
+    summary: '',
+    stats: [],
+    createdAt: 1,
+    endedAt: 2
+  })
+
+  it('lists retros for the panel only, filtered by profile when asked', () => {
+    h.store.retros = [retro('r1', 'p1'), retro('r2', 'p2')]
+    expect(h.ipc.invoke(APP_CHANNELS.retroList, PANEL_ID, {})).toHaveLength(2)
+    expect(h.ipc.invoke(APP_CHANNELS.retroList, PANEL_ID, { profileId: 'p2' })).toEqual([
+      retro('r2', 'p2')
+    ])
+    expect(() => h.ipc.invoke(APP_CHANNELS.retroList, EDITOR_ID, {})).toThrow(/not the panel/)
+  })
+
+  it('filters learnings softly — profile-less entries show everywhere', () => {
+    h.store.learnings = [learning('l1'), learning('l2', 'p1'), learning('l3', 'p2')]
+    const forP1 = h.ipc.invoke(APP_CHANNELS.retroLearnings, PANEL_ID, {
+      profileId: 'p1'
+    }) as ModelLearning[]
+    expect(forP1.map((entry) => entry.id)).toEqual(['l1', 'l2'])
+    expect(h.ipc.invoke(APP_CHANNELS.retroLearnings, PANEL_ID, {})).toHaveLength(3)
+    expect(() => h.ipc.invoke(APP_CHANNELS.retroLearnings, CLI_ID, {})).toThrow(/not the panel/)
+  })
+
+  it('deletes one learning by id and answers with the refreshed list', () => {
+    h.store.learnings = [learning('l1'), learning('l2')]
+    const remaining = h.ipc.invoke(APP_CHANNELS.retroDeleteLearning, PANEL_ID, {
+      id: 'l1'
+    }) as ModelLearning[]
+    expect(remaining.map((entry) => entry.id)).toEqual(['l2'])
+    expect(() => h.ipc.invoke(APP_CHANNELS.retroDeleteLearning, PANEL_ID, {})).toThrow(
+      /missing learning id/
+    )
+    expect(() => h.ipc.invoke(APP_CHANNELS.retroDeleteLearning, EDITOR_ID, { id: 'l2' })).toThrow(
+      /not the panel/
+    )
   })
 })
 
@@ -1447,7 +1532,7 @@ describe('preload parity', () => {
     }
     const found = [
       ...source.matchAll(
-        /'((?:profiles|roles|providers|models|workspaces|worktrees|settings|settingsWindow|updates|windows|app|dialog|profileEditor|providerEditor|zones|ev):[a-zA-Z]+)'/g
+        /'((?:profiles|roles|providers|models|workspaces|worktrees|retro|settings|settingsWindow|updates|windows|app|dialog|profileEditor|providerEditor|zones|ev):[a-zA-Z]+)'/g
       )
     ].map((match) => match[1])
     expect(new Set(found)).toEqual(new Set(Object.values(APP_CHANNELS)))

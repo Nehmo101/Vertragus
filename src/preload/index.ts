@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { Profile, RoleTemplate } from '@shared/schema/profile'
 import type { ProviderConfig } from '@shared/schema/provider'
+import type { ModelLearning, RunRetro } from '@shared/schema/retro'
 import type { Zone, ZoneLayout } from '@shared/schema/zones'
 import type { Appearance } from '@shared/appearance'
 
@@ -116,6 +117,9 @@ const APP = {
   workspacesFocusAgent: 'workspaces:focusAgent',
   worktreesList: 'worktrees:list',
   worktreesRemove: 'worktrees:remove',
+  retroList: 'retro:list',
+  retroLearnings: 'retro:learnings',
+  retroDeleteLearning: 'retro:deleteLearning',
   settingsGet: 'settings:get',
   settingsYolo: 'settings:yolo',
   settingsSet: 'settings:set',
@@ -189,6 +193,9 @@ export interface StaleWorktreeSummary {
   /** Short branch name; absent for a detached worktree. */
   branch?: string
 }
+
+/** Retro records, re-exported so renderer code imports them from the bridge. */
+export type { ModelLearning, RunRetro } from '@shared/schema/retro'
 
 /** Result of a provider version probe (see main/providers/health.ts). */
 export interface ProviderHealth {
@@ -320,6 +327,15 @@ const app = {
    */
   removeWorktree: (profileId: string, path: string): Promise<StaleWorktreeSummary[]> =>
     ipcRenderer.invoke(APP.worktreesRemove, { profileId, path }),
+  /** Run retrospectives, newest first — the panel's retro view. */
+  listRetros: (profileId?: string): Promise<RunRetro[]> =>
+    ipcRenderer.invoke(APP.retroList, profileId ? { profileId } : {}),
+  /** Model learnings; entries without profile context show for every profile. */
+  listLearnings: (profileId?: string): Promise<ModelLearning[]> =>
+    ipcRenderer.invoke(APP.retroLearnings, profileId ? { profileId } : {}),
+  /** Remove one learning (explicit user click); answers with the refreshed list. */
+  deleteLearning: (id: string): Promise<ModelLearning[]> =>
+    ipcRenderer.invoke(APP.retroDeleteLearning, { id }),
   getSettings: (): Promise<PanelSettings> => ipcRenderer.invoke(APP.settingsGet),
   /**
    * How see-through the app is. Unlike `getSettings` this one answers in EVERY

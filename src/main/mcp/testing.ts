@@ -14,6 +14,7 @@ import type {
   StartedAgent,
   ToolText,
   WorkspaceMcpContext,
+  WorkspaceRetroPort,
   WorkspaceRuntime
 } from './types'
 
@@ -106,6 +107,8 @@ export class FakeAgentHost implements AgentHost {
       agentId,
       name: agent.name,
       role: agent.role,
+      providerId: 'fake',
+      model: input.model,
       worktreePath,
       branch
     }
@@ -140,6 +143,7 @@ export interface FakeRuntimeOptions {
   maxTotal?: number
   askTimeoutMs?: number
   host?: FakeAgentHost
+  retro?: WorkspaceRetroPort
 }
 
 /** A workspace runtime wired to a {@link FakeAgentHost}. */
@@ -162,7 +166,8 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): WorkspaceRuntime 
       maxTotal: options.maxTotal
     },
     roles: options.roles ?? ['worker', 'reviewer'],
-    askTimeoutMs: options.askTimeoutMs
+    askTimeoutMs: options.askTimeoutMs,
+    retro: options.retro
   }
   return { ctx, questions: new PendingQuestions(), host, events }
 }
