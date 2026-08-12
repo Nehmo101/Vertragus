@@ -11,6 +11,7 @@ import { registerTerminalIpc } from './ipc'
 import { startMcpServer, type McpServerHandle } from './mcp/server'
 import { getProfile, getRoleTemplates } from './store/settings'
 import { createCliWindow, focusCliWindow } from './windows/cliWindow'
+import { cliFocusTargets, focusWorkspaceAgents } from './windows/focusWorkspace'
 import { registerAppHideAllShortcut, unregisterHideAllShortcut } from './windows/hideAll'
 import { createPanelWindow, getPanelWindow } from './windows/panel'
 import { armProfileEditorSmoke } from './windows/profileEditor'
@@ -47,6 +48,9 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
   const roleLabel = (roleId: string): string =>
     allRoleTemplates(getRoleTemplates()).find((role) => role.id === roleId)?.name ?? roleId
 
+  const pendingOf = (workspaceId: string, agentId: string): string | undefined =>
+    mcp.pendingQuestion(workspaceId, agentId)
+
   return {
     list: () =>
       manager.list().map<WorkspaceSummary>((ws) => {
@@ -69,24 +73,30 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
                     roleId: 'orchestrator',
                     roleLabel: 'Orchestrator',
                     roleColor: roleColor('orchestrator'),
-                    state: 'working' as const
+                    state: 'working' as const,
+                    ...(pendingOf(ws.workspaceId, orchestrator.agentId)
+                      ? { pendingQuestion: pendingOf(ws.workspaceId, orchestrator.agentId) }
+                      : {})
                   }
                 ]
               : []),
-            ...ws.listAgents().map((agent) => ({
-              agentId: agent.agentId,
-              name: agent.name,
-              roleId: agent.role,
-              roleLabel: roleLabel(agent.role),
-              roleColor: roleColor(agent.role, roleIds.indexOf(agent.role)),
-              state:
-                agent.status === 'working'
-                  ? ('working' as const)
-                  : agent.status === 'starting'
-                    ? ('waiting' as const)
-                    : ('stopped' as const),
-              ...(agent.pendingQuestion ? { pendingQuestion: agent.pendingQuestion } : {})
-            }))
+            ...ws.listAgents().map((agent) => {
+              const pendingQuestion = pendingOf(ws.workspaceId, agent.agentId)
+              return {
+                agentId: agent.agentId,
+                name: agent.name,
+                roleId: agent.role,
+                roleLabel: roleLabel(agent.role),
+                roleColor: roleColor(agent.role, roleIds.indexOf(agent.role)),
+                state:
+                  agent.status === 'working'
+                    ? ('working' as const)
+                    : agent.status === 'starting'
+                      ? ('waiting' as const)
+                      : ('stopped' as const),
+                ...(pendingQuestion ? { pendingQuestion } : {})
+              }
+            })
           ]
         }
       }),
@@ -96,7 +106,17 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
       return manager.startWorkspace(profile)
     },
     stop: (workspaceId) => manager.stopWorkspace(workspaceId),
-    focusAgent: (agentId) => focusCliWindow(agentId)
+    focusAgent: (agentId) => focusCliWindow(agentId),
+    focusWorkspace(workspaceId) {
+      const workspace = manager.get(workspaceId)
+      if (!workspace) return
+      // Orchestrator first (stable focus target), then subagents in start order.
+      const agentIds = [
+        ...(workspace.orchestrator ? [workspace.orchestrator.agentId] : []),
+        ...workspace.listAgents().map((agent) => agent.agentId)
+      ]
+      focusWorkspaceAgents(agentIds, { windows: cliFocusTargets })
+    }
   }
 }
 

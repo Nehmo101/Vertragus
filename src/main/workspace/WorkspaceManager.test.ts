@@ -44,6 +44,9 @@ class FakeMcp implements McpServerHandle {
   subagentUrl(): string {
     return ''
   }
+  pendingQuestion(): string | undefined {
+    return undefined
+  }
   workspaceTask(): string | undefined {
     return undefined
   }
