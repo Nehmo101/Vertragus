@@ -260,6 +260,7 @@
     "palette": "Zone hinzufügen",
     "addZone": "+ {{role}}",
     "removeZone": "Zone „{{role}}“ entfernen",
+    "autoLayout": "Automatisch aufteilen",
     "empty": "Noch keine Zone auf diesem Bildschirm — wähle unten eine Rolle.",
     "cancel": "Abbrechen (Esc)",
     "demoBadge": "Demo-Ansicht"
