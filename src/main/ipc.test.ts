@@ -119,6 +119,8 @@ let ipc: FakeIpcMain
 let sent: { agentId: string; channel: string; payload: unknown }[]
 let closed: string[]
 let minimized: string[]
+/** agentId → "fills its screen", the state the fake window layer keeps. */
+let maximized: Set<string>
 let registry: AgentRegistry
 let ptyA: FakePty
 let ptyB: FakePty
@@ -130,6 +132,7 @@ beforeEach(() => {
   sent = []
   closed = []
   minimized = []
+  maximized = new Set()
   liveWindows = new Set(Object.values(WINDOWS))
   registry = createTerminalIpc({
     ipcMain: ipc,
@@ -137,7 +140,13 @@ beforeEach(() => {
     hasWindow: (agentId) => liveWindows.has(agentId),
     send: (agentId, channel, payload) => sent.push({ agentId, channel, payload }),
     closeWindow: (agentId) => closed.push(agentId),
-    minimizeWindow: (agentId) => minimized.push(agentId)
+    minimizeWindow: (agentId) => minimized.push(agentId),
+    toggleMaximizeWindow: (agentId) => {
+      if (maximized.delete(agentId)) return false
+      maximized.add(agentId)
+      return true
+    },
+    isWindowMaximized: (agentId) => maximized.has(agentId)
   })
   ptyA = new FakePty()
   ptyB = new FakePty()
@@ -341,6 +350,31 @@ describe('window:minimize', () => {
   it('ignores a minimize from a window that is not a CLI window', () => {
     ipc.send(TERMINAL_CHANNELS.windowMinimize, PANEL_WEBCONTENTS_ID)
     expect(minimized).toEqual([])
+  })
+})
+
+describe('window:maximize', () => {
+  const toggle = (webContentsId: number): boolean =>
+    ipc.invoke(TERMINAL_CHANNELS.windowMaximize, webContentsId) as boolean
+
+  it('toggles only the sender’s own window and answers with the new state', () => {
+    expect(toggle(10)).toBe(true)
+    expect([...maximized]).toEqual(['agent-a'])
+    expect(toggle(10)).toBe(false)
+    expect([...maximized]).toEqual([])
+  })
+
+  it('ignores a toggle from a window that is not a CLI window', () => {
+    expect(toggle(PANEL_WEBCONTENTS_ID)).toBe(false)
+    expect([...maximized]).toEqual([])
+  })
+
+  it('reports the current state in the attach result', () => {
+    expect(attach(10).maximized).toBe(false)
+    toggle(10)
+    // A reloaded renderer learns it is maximized without having clicked.
+    expect(attach(10).maximized).toBe(true)
+    expect(attach(20).maximized).toBe(false)
   })
 })
 

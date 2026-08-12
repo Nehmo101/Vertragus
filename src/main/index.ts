@@ -12,7 +12,7 @@ import { startMcpServer, type McpServerHandle } from './mcp/server'
 import { getProfile, getRoleTemplates } from './store/settings'
 import { createCliWindow, focusCliWindow } from './windows/cliWindow'
 import { registerAppHideAllShortcut, unregisterHideAllShortcut } from './windows/hideAll'
-import { createPanelWindow, getPanelWindow } from './windows/panel'
+import { createPanelWindow } from './windows/panel'
 import { armProfileEditorSmoke } from './windows/profileEditor'
 import { armProviderEditorSmoke } from './windows/providerEditor'
 import { armSettingsWindowSmoke } from './windows/settingsWindow'
@@ -210,8 +210,10 @@ app.whenReady().then(async () => {
     }
   }
 
+  // Also the way back from the panel's − : createPanelWindow restores and
+  // focuses the existing window, so activating the app un-minimizes it.
   app.on('activate', () => {
-    if (!getPanelWindow()) createPanelWindow()
+    createPanelWindow()
   })
 })
 

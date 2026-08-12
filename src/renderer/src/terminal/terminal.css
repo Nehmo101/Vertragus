@@ -109,6 +109,7 @@
 }
 
 .cli-minimize,
+.cli-maximize,
 .cli-close {
   flex: 0 0 auto;
   display: grid;
@@ -127,7 +128,8 @@
     color 0.15s ease;
 }
 
-.cli-minimize:hover {
+.cli-minimize:hover,
+.cli-maximize:hover {
   background: var(--hover-wash);
   color: var(--text);
 }
