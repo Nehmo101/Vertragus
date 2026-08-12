@@ -14,9 +14,9 @@
  * `isProviderEditorWindowSender` turns a webContents id into exactly one editor
  * key, mirroring `isProfileEditorWindowSender`.
  */
-import { writeFile } from 'node:fs/promises'
-import { app, BrowserWindow } from 'electron'
+import { BrowserWindow } from 'electron'
 import { glassWindowOptions, loadRoute, secureWindow } from './base'
+import { armWindowCapture } from './smokeCapture'
 
 /** Taller and a little wider than the profile sheet: this form is long. */
 export const PROVIDER_EDITOR_WIDTH = 560
@@ -73,20 +73,7 @@ export function isProviderEditorWindowSender(webContentsId: number): string | nu
  * captures the window once it has loaded and exits.
  */
 function armEditorScreenshot(win: BrowserWindow, delayMs = 4_000): void {
-  const target = process.env['VERTRAGUS_PROVIDER_EDITOR_SCREENSHOT']
-  if (!target) return
-  win.webContents.once('did-finish-load', () => {
-    setTimeout(async () => {
-      try {
-        const image = await win.webContents.capturePage()
-        await writeFile(target, image.toPNG())
-        app.exit(0)
-      } catch (error) {
-        console.error('[smoke] capture failed (provider editor):', error)
-        app.exit(1)
-      }
-    }, delayMs)
-  })
+  armWindowCapture(win, 'VERTRAGUS_PROVIDER_EDITOR_SCREENSHOT', 'provider editor', delayMs)
 }
 
 /**

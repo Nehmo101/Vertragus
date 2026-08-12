@@ -147,3 +147,33 @@ describe('EventQueue', () => {
     expect(() => new EventQueue(0)).toThrow(/capacity/)
   })
 })
+
+describe('onPush', () => {
+  it('sees every event, beyond the ring capacity, until unsubscribed', () => {
+    const queue = new EventQueue(2)
+    const seen: number[] = []
+    const off = queue.onPush((event) => seen.push(event.seq))
+
+    for (let i = 0; i < 5; i += 1) {
+      queue.push({ type: 'agent_progress', agentId: 'a1', name: 'A', roleId: 'worker', note: `${i}` })
+    }
+    // The ring dropped the early events; the tap kept them all.
+    expect(queue.all()).toHaveLength(2)
+    expect(seen).toEqual([1, 2, 3, 4, 5])
+
+    off()
+    queue.push({ type: 'agent_progress', agentId: 'a1', name: 'A', roleId: 'worker', note: 'late' })
+    expect(seen).toHaveLength(5)
+  })
+
+  it('drops all listeners on close', () => {
+    const queue = new EventQueue()
+    const seen: number[] = []
+    queue.onPush((event) => seen.push(event.seq))
+    queue.close()
+    expect(() =>
+      queue.push({ type: 'agent_progress', agentId: 'a1', name: 'A', roleId: 'worker', note: 'x' })
+    ).toThrow()
+    expect(seen).toHaveLength(0)
+  })
+})

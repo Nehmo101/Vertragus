@@ -35,6 +35,8 @@ const identity = {
 const agentStartedPayload = z.object({
   type: z.literal('agent_started'),
   ...identity,
+  /** Effective provider id — resolved from the slot, not the tool input. */
+  providerId: z.string().min(1).optional(),
   model: z.string().min(1).optional(),
   worktreePath: z.string().min(1).optional(),
   /** The agent's own branch — what `start_agent{baseBranch}` chains from. */

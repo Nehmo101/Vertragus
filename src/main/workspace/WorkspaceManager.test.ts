@@ -221,3 +221,106 @@ describe('lookup', () => {
     expect(manager.listForProfile('profile-2')).toHaveLength(1)
   })
 })
+
+describe('retro finalization', () => {
+  function fakeRetroSink(log: string[] = []): {
+    sink: import('./retroSink').RetroSink
+    finalized: import('./retroSink').FinalizeRunInput[]
+  } {
+    const finalized: import('./retroSink').FinalizeRunInput[] = []
+    return {
+      finalized,
+      sink: {
+        recordLearnings: () => ({ applied: 0 }),
+        knowledge: () => [],
+        finalizeRun: (input) => {
+          log.push('finalize')
+          finalized.push(input)
+          return undefined
+        }
+      }
+    }
+  }
+
+  it('finalizes the run from the tapped events before unregistering', async () => {
+    const log: string[] = []
+    const { sink, finalized } = fakeRetroSink(log)
+    const { manager, log: harnessLog } = harness({ retro: sink })
+    // The harness log and our log are separate arrays; splice them via mcp log ordering below.
+    const running = await manager.startWorkspace(testProfile())
+    running.workspace.events.push({
+      type: 'agent_started',
+      agentId: 'a1',
+      name: 'Marco',
+      roleId: 'worker',
+      providerId: 'claude',
+      model: 'sonnet'
+    })
+    running.workspace.events.push({
+      type: 'agent_done',
+      agentId: 'a1',
+      name: 'Marco',
+      roleId: 'worker',
+      summary: 'ok',
+      status: 'success'
+    })
+    running.workspace.pendingRetroSummary = 'Sauberer Lauf.'
+
+    await manager.stopWorkspace(running.workspace.workspaceId)
+
+    expect(finalized).toHaveLength(1)
+    expect(finalized[0]).toMatchObject({
+      workspaceId: running.workspace.workspaceId,
+      workspaceName: 'Paradiso',
+      profileId: 'profile-1',
+      summary: 'Sauberer Lauf.'
+    })
+    expect(finalized[0]!.events.map((event) => event.type)).toEqual([
+      'agent_started',
+      'agent_done'
+    ])
+    // Finalize happens before the MCP registration (and its queue) is torn down.
+    expect(log).toEqual(['finalize'])
+    expect(harnessLog.indexOf('unregister')).toBeGreaterThan(-1)
+  })
+
+  it('exposes the record_retro port on the MCP context and stashes the summary', async () => {
+    const { sink } = fakeRetroSink()
+    const applied: unknown[] = []
+    sink.recordLearnings = (profile, learnings) => {
+      applied.push([profile.id, learnings])
+      return { applied: learnings.length }
+    }
+    const { manager, mcp } = harness({ retro: sink })
+    const running = await manager.startWorkspace(testProfile())
+
+    const port = mcp.contexts[0]!.retro
+    expect(port).toBeDefined()
+    port!.recordSummary('Fazit.')
+    const result = port!.recordLearnings([
+      { role: 'worker', kind: 'strength', insight: 'stark bei UI' }
+    ])
+    expect(result.applied).toBe(1)
+    expect(applied[0]).toEqual(['profile-1', [{ role: 'worker', kind: 'strength', insight: 'stark bei UI' }]])
+    expect(running.workspace.pendingRetroSummary).toBe('Fazit.')
+  })
+
+  it('a finalize failure never blocks the stop', async () => {
+    const { sink } = fakeRetroSink()
+    sink.finalizeRun = () => {
+      throw new Error('store on fire')
+    }
+    const { manager, mcp } = harness({ retro: sink })
+    const running = await manager.startWorkspace(testProfile())
+
+    await expect(manager.stopWorkspace(running.workspace.workspaceId)).resolves.toBe(true)
+    expect(mcp.unregistered).toHaveLength(1)
+  })
+
+  it('registers no MCP retro port and no tap without a sink', async () => {
+    const { manager, mcp } = harness()
+    const running = await manager.startWorkspace(testProfile())
+    expect(mcp.contexts[0]!.retro).toBeUndefined()
+    await expect(manager.stopWorkspace(running.workspace.workspaceId)).resolves.toBe(true)
+  })
+})

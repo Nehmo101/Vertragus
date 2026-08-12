@@ -1,7 +1,8 @@
 import { useTranslation } from 'react-i18next'
 import type { Profile } from '@shared/schema/profile'
 import type { VertragusAppApi } from '../../../preload'
-import { BroomIcon, GearIcon, PlayIcon } from './icons'
+import { BroomIcon, ChartIcon, GearIcon, PlayIcon } from './icons'
+import { RetroPanel } from './RetroPanel'
 import { WorktreeCleanup } from './WorktreeCleanup'
 
 interface Props {
@@ -16,18 +17,22 @@ interface Props {
   /** True while this row's worktree cleanup list is unfolded below it. */
   cleanupOpen: boolean
   onToggleCleanup(profileId: string): void
-  /** Bridge for the cleanup list; absent only when preload never loaded. */
+  /** True while this row's retro view is unfolded below it. */
+  retroOpen: boolean
+  onToggleRetro(profileId: string): void
+  /** Bridge for the fold-out views; absent only when preload never loaded. */
   bridge?: VertragusAppApi
 }
 
 /**
  * One profile line: name + workspace count (toggles the filter), Play (opens
- * another workspace — pressing it twice gives two), broom (the worktree
- * cleanup list, folded out below), gear (profile editor). Play is deliberately
- * the visually loudest control in the panel; it is the one thing the app exists
- * to do. Name/count stay a sibling of the three buttons so filter clicks never
- * hit those targets, and the selected wash sits on the row itself so the
- * unfolded cleanup list below it stays visually outside the selection.
+ * another workspace — pressing it twice gives two), chart (what the runs taught
+ * the app, folded out below), broom (the worktree cleanup list, folded out
+ * below), gear (profile editor). Play is deliberately the visually loudest
+ * control in the panel; it is the one thing the app exists to do. Name/count
+ * stay a sibling of the four buttons so filter clicks never hit those targets,
+ * and the selected wash sits on the row itself so the unfolded views below it
+ * stay visually outside the selection.
  */
 export function ProfileRow({
   profile,
@@ -38,6 +43,8 @@ export function ProfileRow({
   onEdit,
   cleanupOpen,
   onToggleCleanup,
+  retroOpen,
+  onToggleRetro,
   bridge
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
@@ -45,6 +52,7 @@ export function ProfileRow({
   const edit = t('panel.editProfile', { profile: profile.name })
   const filter = t('panel.filterProfileWorkspaces', { profile: profile.name })
   const cleanup = t('panel.cleanupWorktrees', { profile: profile.name })
+  const retro = t('panel.retroToggle', { profile: profile.name })
   return (
     <li className="panel-row-group">
       <div className={selected ? 'panel-row is-selected' : 'panel-row'}>
@@ -72,6 +80,16 @@ export function ProfileRow({
         </button>
         <button
           type="button"
+          className={`panel-icon-button${retroOpen ? ' is-active' : ''}`}
+          title={retro}
+          aria-label={retro}
+          aria-expanded={retroOpen}
+          onClick={() => onToggleRetro(profile.id)}
+        >
+          <ChartIcon />
+        </button>
+        <button
+          type="button"
           className={`panel-icon-button${cleanupOpen ? ' is-active' : ''}`}
           title={cleanup}
           aria-label={cleanup}
@@ -90,6 +108,9 @@ export function ProfileRow({
           <GearIcon />
         </button>
       </div>
+      {retroOpen && bridge ? (
+        <RetroPanel key={profile.id} profileId={profile.id} bridge={bridge} />
+      ) : null}
       {cleanupOpen && bridge ? (
         <WorktreeCleanup key={profile.id} profileId={profile.id} bridge={bridge} />
       ) : null}

@@ -404,3 +404,82 @@ describe('adoptLegacyStore', () => {
     expect(warn).not.toHaveBeenCalled()
   })
 })
+
+describe('run retros and model learnings', () => {
+  const validRetro = {
+    id: 'run-1',
+    workspaceId: 'ws-1',
+    workspaceName: 'Limbo',
+    profileId: 'p1',
+    summary: 'Alles grün.',
+    stats: [
+      {
+        roleId: 'worker',
+        providerId: 'codex',
+        model: 'gpt-x',
+        started: 1,
+        succeeded: 1,
+        blocked: 0,
+        failed: 0,
+        unconfirmedExits: 0,
+        stopped: 1
+      }
+    ],
+    createdAt: 1_000,
+    endedAt: 2_000
+  }
+
+  const validLearning = {
+    id: 'learning-1',
+    providerId: 'codex',
+    model: 'gpt-x',
+    kind: 'strength',
+    insight: 'stark bei UI',
+    source: 'orchestrator',
+    observations: 1,
+    createdAt: 1_000,
+    updatedAt: 1_000
+  }
+
+  it('round-trips a retro, newest first, and upserts by id', () => {
+    const { store: settings } = store()
+    settings.recordRunRetro(validRetro)
+    settings.recordRunRetro({ ...validRetro, id: 'run-2', endedAt: 9_000 })
+    const updated = settings.recordRunRetro({ ...validRetro, summary: 'Nachgetragen.' })
+    expect(updated.map((retro) => retro.id)).toEqual(['run-2', 'run-1'])
+    expect(updated[1]?.summary).toBe('Nachgetragen.')
+  })
+
+  it('caps the retro history at 50, dropping the oldest', () => {
+    const { store: settings } = store()
+    for (let i = 0; i < 55; i += 1) {
+      settings.recordRunRetro({ ...validRetro, id: `run-${i}`, endedAt: i })
+    }
+    const retros = settings.getRunRetros()
+    expect(retros).toHaveLength(50)
+    expect(retros[0]?.id).toBe('run-54')
+    expect(retros.some((retro) => retro.endedAt < 5)).toBe(false)
+  })
+
+  it('rejects an invalid retro on write but drops it silently on read', () => {
+    const { store: settings } = store({ runRetros: [validRetro, { id: 'broken' }] })
+    expect(() => settings.recordRunRetro({ id: 'nope' })).toThrow()
+    expect(settings.getRunRetros().map((retro) => retro.id)).toEqual(['run-1'])
+    expect(warn).toHaveBeenCalledWith('[settings] dropped 1 invalid run retro(s)')
+  })
+
+  it('round-trips learnings and deletes by id', () => {
+    const { store: settings } = store()
+    settings.setModelLearnings([validLearning, { ...validLearning, id: 'learning-2' }])
+    expect(settings.getModelLearnings()).toHaveLength(2)
+    const remaining = settings.deleteModelLearning('learning-1')
+    expect(remaining.map((learning) => learning.id)).toEqual(['learning-2'])
+    expect(settings.getModelLearnings()).toHaveLength(1)
+  })
+
+  it('drops invalid learning rows on read without losing the rest', () => {
+    const { store: settings } = store({ modelLearnings: [validLearning, 42] })
+    expect(settings.getModelLearnings()).toHaveLength(1)
+    expect(warn).toHaveBeenCalledWith('[settings] dropped 1 invalid model learning(s)')
+  })
+})

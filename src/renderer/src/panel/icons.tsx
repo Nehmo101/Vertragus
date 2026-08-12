@@ -132,6 +132,27 @@ export function BroomIcon({ size = 13 }: IconProps): React.JSX.Element {
   )
 }
 
+/** The profile row's "what the app learned" mark — a small ascending chart. */
+export function ChartIcon({ size = 13 }: IconProps): React.JSX.Element {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M4 4v15.2a.8.8 0 0 0 .8.8H20" />
+      <path d="M8 15.5v1.8M12.5 12v5.3M17 8.5v8.8" />
+    </svg>
+  )
+}
+
 /** One cleanup entry's "remove this worktree" mark. */
 export function TrashIcon({ size = 12 }: IconProps): React.JSX.Element {
   return (

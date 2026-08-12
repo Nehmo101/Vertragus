@@ -2,10 +2,11 @@
  * The orchestrator system prompt.
  *
  * Written in English (best model compliance) and deliberately short: it states
- * the loop, the six tools and the four failure modes that broke the old repo —
+ * the loop, the seven tools and the four failure modes that broke the old repo —
  * silent polling, unanswered worker questions, unverified process deaths, and
  * an orchestrator that starts coding instead of delegating.
  */
+import type { SlotKnowledge } from '../retro/runStats'
 
 export interface RoleWithLimit {
   /** Role id exactly as `start_agent` expects it. */
@@ -22,6 +23,8 @@ export interface OrchestratorPromptInput {
   rolesWithLimits: RoleWithLimit[]
   /** Cap across all roles; undefined = orchestrator decides. */
   maxSubagents?: number
+  /** Track record from previous runs on this machine; empty = no block rendered. */
+  knowledge?: SlotKnowledge[]
 }
 
 function renderRole(role: RoleWithLimit): string {
@@ -30,16 +33,37 @@ function renderRole(role: RoleWithLimit): string {
   return `- ${role.id} (${limit})${description}`
 }
 
+function renderKnowledge(entry: SlotKnowledge): string {
+  const model = entry.model || 'default model'
+  const score = entry.score
+    ? `score ${Math.round(entry.score.score * 100)} (${entry.score.samples} tasks, ${Math.round(entry.score.successRate * 100)}% success)`
+    : 'no score yet'
+  const parts = [`- ${entry.roleId} (${entry.providerId}/${model}): ${score}.`]
+  if (entry.strengths.length > 0) parts.push(` Strengths: ${entry.strengths.join('; ')}.`)
+  if (entry.weaknesses.length > 0) parts.push(` Weaknesses: ${entry.weaknesses.join('; ')}.`)
+  return parts.join('')
+}
+
 export function buildOrchestratorSystemPrompt({
   workspaceName,
   repoPath,
   rolesWithLimits,
-  maxSubagents
+  maxSubagents,
+  knowledge = []
 }: OrchestratorPromptInput): string {
   const roleLines =
     rolesWithLimits.length > 0
       ? rolesWithLimits.map(renderRole).join('\n')
       : '- (no roles configured — you cannot start agents in this workspace)'
+
+  const knowledgeBlock =
+    knowledge.length > 0
+      ? [
+          '',
+          'Track record from previous runs on this machine (Wilson-scored; more samples = more trust):',
+          ...knowledge.map(renderKnowledge)
+        ]
+      : []
 
   const totalLine =
     maxSubagents === undefined
@@ -56,6 +80,7 @@ export function buildOrchestratorSystemPrompt({
     'Available roles:',
     roleLines,
     totalLine,
+    ...knowledgeBlock,
     '',
     'Your tools:',
     '- start_agent{role, task, model?, baseBranch?} — start a subagent. The task must be self-contained: goal, the files or area involved, the definition of done, and how to verify it. Every agent automatically gets its own git worktree and branch; the response tells you both. Pass baseBranch to start the agent on top of another agent’s branch.',
@@ -64,6 +89,7 @@ export function buildOrchestratorSystemPrompt({
     '- list_agents{} — a snapshot of every agent, its status and its open question.',
     '- read_output{agentId, lines?} — the raw terminal tail of an agent, for verification and debugging.',
     '- stop_agent{agentId} — end an agent and close its window.',
+    '- record_retro{summary, learnings} — your run retrospective, called exactly once at the end.',
     '',
     'Your loop, without exception:',
     '1. Break the goal into tasks and start the agents you need.',
@@ -76,7 +102,7 @@ export function buildOrchestratorSystemPrompt({
     '- agent_exited with confirmed: false: the process died without reporting. Do not treat it as success and do not treat it as failure. Call read_output on it first, decide what really happened, and restart the work if needed.',
     '- agent_progress: note it, do not reply to it.',
     '',
-    'Finishing: when the goal is reached, verify the result (read_output, or a reviewer/tester agent), stop every remaining agent with stop_agent, and give the user one summary: what was changed, by whom, what was verified, and what is still open.',
+    'Finishing: when the goal is reached, verify the result (read_output, or a reviewer/tester agent), stop every remaining agent with stop_agent, then call record_retro exactly once: a one-or-two-sentence verdict on the run, plus per-model learnings. Fill both a strength and a weakness slot for every model that ran when the run gave evidence for it; leave a slot empty otherwise, and never invent a weakness. These learnings steer model choice in future runs. Finally give the user one summary: what was changed, by whom, what was verified, and what is still open.',
     '',
     'Never invent an agent id or a role — use only the values the tools return to you.'
   ].join('\n')
