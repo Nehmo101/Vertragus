@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { loreBlurb } from '@shared/lore'
 import { applyLocale } from '../i18n'
+import { LoreTip } from '../lore/LoreTip'
 import { applyTheme } from '../theme'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -35,12 +37,19 @@ function loadRenderer(term: Terminal): void {
   }
 }
 
+/**
+ * The title bar's label: the agent's Commedia code-name, then role and engine.
+ *
+ * The name carries its lore card here for the same reason it does in the panel
+ * — this window IS "Fortuna", and the one place a user asks who that is, is the
+ * bar with the name in it.
+ */
 function metaLabel(meta: TerminalAgentMeta | null, agentId: string): React.JSX.Element {
   if (!meta) return <span className="cli-label-dim">{agentId}</span>
   const engine = [meta.provider, meta.model].filter(Boolean).join(' ')
   return (
     <>
-      {meta.name}
+      <LoreTip name={meta.name} blurb={loreBlurb(meta.name)} />
       <span className="cli-label-dim">
         {' · '}
         {meta.role}

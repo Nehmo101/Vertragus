@@ -17,7 +17,7 @@
     "newProfileTitle": "Create a new profile",
     "startWorkspace": "Start a workspace for “{{profile}}”",
     "editProfile": "Edit profile “{{profile}}”",
-    "filterProfileWorkspaces": "Filter workspaces for “{{profile}}”",
+    "filterProfileWorkspaces": "Filter workspaces of “{{profile}}”",
     "workspaceTotal_one": "{{count}} workspace in total",
     "workspaceTotal_other": "{{count}} workspaces in total",
     "stopWorkspace": "Stop workspace “{{workspace}}”",
@@ -258,6 +258,21 @@
       "hotkeyUnknownKey": "“{{key}}” is not a key Electron knows.",
       "hotkeyUnknownModifier": "“{{part}}” is not a known modifier.",
       "hotkeyDuplicateModifier": "“{{part}}” appears twice in the hotkey."
+    },
+    "glass": "Glass & opacity",
+    "translucent": "Translucent",
+    "translucentHint": "Windows sit over the desktop as glass. Off: everything is fully opaque.",
+    "translucentOffHint": "Transparency is off. The sliders keep their values and apply again as soon as you switch it back on.",
+    "glassLadderHint": "Rest <= hover <= focus - smaller values are lifted automatically.",
+    "glassSlider": {
+      "restOpacity": "Opacity at rest",
+      "restOpacityHint": "How visible a window is while nothing points at it.",
+      "hoverOpacity": "Opacity on hover",
+      "hoverOpacityHint": "How visible a window becomes once the mouse is over it.",
+      "focusOpacity": "Opacity when focused",
+      "focusOpacityHint": "Applies to agent windows that are being typed in.",
+      "surfaceTransparency": "Surface transparency",
+      "surfaceTransparencyHint": "0 % paints the surfaces themselves solid, 100 % is the designed glass - independent of the opacity above."
     }
   },
   "zones": {

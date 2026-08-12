@@ -1,7 +1,64 @@
 import { useTranslation } from 'react-i18next'
+import {
+  APPEARANCE_LIMITS,
+  APPEARANCE_SLIDERS,
+  type Appearance,
+  type AppearanceSlider
+} from '@shared/appearance'
 import { LOCALES, translator } from '../i18n'
-import { useSettings } from './useSettings'
+import { useSettings, type SettingsState } from './useSettings'
 import './settings.css'
+
+/** Slider steps in percent — one per pixel of a 480px window is pointless. */
+const APPEARANCE_STEP = 0.01
+
+function percent(value: number): string {
+  return `${Math.round(value * 100)} %`
+}
+
+/**
+ * One appearance slider.
+ *
+ * The label carries the current value because a range input has no readout of
+ * its own, and "how transparent is this exactly" is the question the whole
+ * section exists to answer. Disabled — not hidden — while transparency is off:
+ * a control that vanishes takes its stored value with it, as far as the user
+ * can tell.
+ */
+function AppearanceSliderRow({
+  appearance,
+  field,
+  disabled,
+  onPatch
+}: {
+  appearance: Appearance
+  field: AppearanceSlider
+  disabled: boolean
+  onPatch: SettingsState['patchAppearance']
+}): React.JSX.Element {
+  const { t } = useTranslation()
+  const limits = APPEARANCE_LIMITS[field]
+  return (
+    <div className={disabled ? 'st-slider is-disabled' : 'st-slider'}>
+      <label className="st-slider-head">
+        <span className="st-slider-label">{t(`settings.glassSlider.${field}`)}</span>
+        <span className="st-slider-value">{percent(appearance[field])}</span>
+      </label>
+      <input
+        type="range"
+        className="st-range"
+        min={limits.min}
+        max={limits.max}
+        step={APPEARANCE_STEP}
+        value={appearance[field]}
+        disabled={disabled}
+        aria-label={t(`settings.glassSlider.${field}`)}
+        onChange={(event) => onPatch({ [field]: Number(event.target.value) })}
+      />
+      <span className="st-hint">{t(`settings.glassSlider.${field}Hint`)}</span>
+    </div>
+  )
+}
 
 /**
  * The settings window — the sheet behind the panel's gear.
@@ -147,6 +204,36 @@ export function SettingsApp(): React.JSX.Element {
             <span className="st-hint">{t('settings.localeHint')}</span>
           </section>
         </div>
+
+        <section className="st-glass-section">
+          <h2 className="st-section-label">{t('settings.glass')}</h2>
+          <label className="st-switch">
+            <input
+              type="checkbox"
+              className="st-switch-input"
+              checked={settings.appearance.translucent}
+              onChange={(event) => view.patchAppearance({ translucent: event.target.checked })}
+            />
+            <span className="st-switch-text">
+              <span className="st-switch-label">{t('settings.translucent')}</span>
+              <span className="st-hint">
+                {settings.appearance.translucent
+                  ? t('settings.translucentHint')
+                  : t('settings.translucentOffHint')}
+              </span>
+            </span>
+          </label>
+          {APPEARANCE_SLIDERS.map((field) => (
+            <AppearanceSliderRow
+              key={field}
+              field={field}
+              appearance={settings.appearance}
+              disabled={!settings.appearance.translucent}
+              onPatch={view.patchAppearance}
+            />
+          ))}
+          <span className="st-hint">{t('settings.glassLadderHint')}</span>
+        </section>
 
         <section className="st-updates">
           <h2 className="st-section-label">{t('settings.updates')}</h2>
