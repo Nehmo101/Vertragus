@@ -1,4 +1,8 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { buildAgentArgv } from '@main/agents/spawn'
 import { slugifyRef } from '@main/agents/worktree'
 import { ORCHESTRATOR_COLOR, ORCHESTRATOR_ROLE_ID, roleColor } from '@shared/prompts/roles'
 import { PTY_ONLY_IDLE_HINT_MS, Workspace, type WorkspaceDeps } from './Workspace'
@@ -19,7 +23,7 @@ interface Harness {
   windows: FakeWindows
   spawns: RecordedSpawn[]
   prompts: string[]
-  seedOptions: Array<{ autoSubmit?: boolean } | undefined>
+  seedOptions: Array<import('@main/agents/interactiveReady').SeedWithReadyOptions | undefined>
   now: { value: number }
 }
 
@@ -489,7 +493,8 @@ describe('the real seed handshake', () => {
     seedOptions: {
       ready: { idleMs: 5, pollMs: 1, minChars: 1, timeoutMs: 500 },
       maxAttempts: 1,
-      submitDelayMs: 5
+      submitDelayMs: 5,
+      submitRetries: 1
     }
   }
 
@@ -522,6 +527,22 @@ describe('autoSubmitTasks', () => {
     expect(seedOptions.at(-1)?.autoSubmit).toBe(true)
   })
 
+  it('forwards the provider seed tuning into the handshake options', async () => {
+    const { workspace, seedOptions } = harness({
+      profile: testProfile({
+        slots: [
+          { id: 'slot-worker', roleId: 'worker', providerId: 'cursor' },
+          { id: 'slot-reviewer', roleId: 'reviewer', providerId: 'claude' }
+        ]
+      })
+    })
+    await workspace.startAgent({ role: 'worker', task: 'Do the thing.' })
+    expect(seedOptions.at(-1)?.submitDelayMs).toBe(750)
+    // cursor-agent redraws even after swallowing Enter, so its preset opts out
+    // of buffer-based acceptance — the field must survive the trip end-to-end.
+    expect(seedOptions.at(-1)?.submitAcceptance).toBe('sustained-activity')
+  })
+
   it('is honoured for a follow-up sent to a running agent', async () => {
     const { workspace, spawns, seedOptions } = harness({
       profile: testProfile({ autoSubmitTasks: false })
@@ -547,17 +568,20 @@ describe('autoSubmitTasks', () => {
 })
 
 /**
- * Cursor and Ollama run `mcp: none` on purpose — no verified attach surface, so
- * declaring one would kill the launch. The price is an agent that cannot report
- * anything, and the orchestrator has no way to tell "thinking" from "dead".
- * These tests pin the one thing the host CAN say about such a worker.
+ * Ollama runs `mcp: none` on purpose — no verified attach surface, so declaring
+ * one would kill the launch. The price is an agent that cannot report anything,
+ * and the orchestrator has no way to tell "thinking" from "dead". These tests
+ * pin the one thing the host CAN say about such a worker.
+ *
+ * Cursor used to live here too; it now attaches via `cursor-project` and leaves
+ * the idle-hint regime (asserted below).
  */
 describe('PTY-only silence hint', () => {
-  /** A profile whose worker slot runs on Cursor (mcp: none). */
+  /** A profile whose worker slot runs on Ollama (mcp: none). */
   const ptyOnlyProfile = (): ReturnType<typeof testProfile> =>
     testProfile({
       slots: [
-        { id: 'slot-worker', roleId: 'worker', providerId: 'cursor' },
+        { id: 'slot-worker', roleId: 'worker', providerId: 'ollama' },
         { id: 'slot-reviewer', roleId: 'reviewer', providerId: 'claude' }
       ]
     })
@@ -650,12 +674,71 @@ describe('PTY-only silence hint', () => {
 
   it('never nags about the orchestrator — it is the reader, not the subject', async () => {
     const h = harness({
-      profile: testProfile({ orchestrator: { providerId: 'cursor' } }),
+      profile: testProfile({ orchestrator: { providerId: 'ollama' } }),
       ptySystemPrompt: true
     })
     await h.workspace.startOrchestrator()
 
     advance(h, PTY_ONLY_IDLE_HINT_MS * 2)
     expect(hints(h)).toEqual([])
+  })
+})
+
+describe('Cursor MCP attach leaves the idle-hint regime', () => {
+  it('does not emit a PTY-only silence hint for a cursor worker', async () => {
+    vi.useFakeTimers()
+    try {
+      const h = harness({
+        profile: testProfile({
+          slots: [
+            { id: 'slot-worker', roleId: 'worker', providerId: 'cursor' },
+            { id: 'slot-reviewer', roleId: 'reviewer', providerId: 'claude' }
+          ]
+        }),
+        ptySystemPrompt: true
+      })
+      await h.workspace.startAgent({ role: 'worker', task: 'Do it.' })
+
+      h.now.value += PTY_ONLY_IDLE_HINT_MS * 2
+      vi.advanceTimersByTime(PTY_ONLY_IDLE_HINT_MS * 2)
+
+      const notes = h.workspace.events
+        .all()
+        .filter((event) => event.type === 'agent_progress')
+        .map((event) => (event as { note: string }).note)
+      expect(notes).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('spawns cursor with --trust and --approve-mcps in argv order', async () => {
+    const h = harness({
+      profile: testProfile({
+        slots: [
+          { id: 'slot-worker', roleId: 'worker', providerId: 'cursor', model: 'gpt-5.6' },
+          { id: 'slot-reviewer', roleId: 'reviewer', providerId: 'claude' }
+        ]
+      }),
+      ptySystemPrompt: true
+    })
+    await h.workspace.startAgent({ role: 'worker', task: 'Do it.' })
+
+    // fakeSpawn records the launch input but not the real argv; compose it here
+    // against a real temp cwd so the project-file writer can run.
+    const cwd = mkdtempSync(join(tmpdir(), 'vertragus-ws-cursor-'))
+    try {
+      const input = h.spawns[0]!.input
+      expect(input.provider.mcp).toEqual({ kind: 'cursor-project' })
+      expect(input.provider.args).toEqual(['--trust'])
+      const { argv } = buildAgentArgv({
+        ...input,
+        cwd,
+        yolo: true
+      })
+      expect(argv).toEqual(['--trust', '--model', 'gpt-5.6', '--yolo', '--approve-mcps'])
+    } finally {
+      rmSync(cwd, { recursive: true, force: true })
+    }
   })
 })

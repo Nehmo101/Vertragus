@@ -161,11 +161,21 @@ describe('kimi preset', () => {
 describe('cursor preset', () => {
   const cursor = preset('cursor')
 
-  it('is PTY-only: no system-prompt flag and deliberately no MCP', () => {
+  it('attaches via project mcp.json and keeps the prompt on the PTY', () => {
     expect(cursor.command).toBe('cursor-agent')
+    expect(cursor.args).toEqual(['--trust'])
     expect(cursor.yoloArgs).toEqual(['--yolo'])
     expect(cursor.systemPromptDelivery).toEqual({ kind: 'pty' })
-    expect(cursor.mcp).toEqual({ kind: 'none' })
+    expect(cursor.mcp).toEqual({ kind: 'cursor-project' })
+    // Multi-KB PTY paste: cursor-agent freezes while digesting, swallows an
+    // early Enter but still redraws once — so acceptance needs sustained
+    // output, not a mere buffer change. See interactiveReady + preset comment.
+    expect(cursor.seed).toEqual({
+      submitDelayMs: 750,
+      submitRetries: 3,
+      submitWatchMs: 2500,
+      submitAcceptance: 'sustained-activity'
+    })
   })
 
   it('reads the line-based model list of the CLI', () => {

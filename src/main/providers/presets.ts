@@ -121,15 +121,37 @@ const PRESETS: readonly ProviderConfig[] = [
     presetId: 'cursor',
     label: 'Cursor Agent',
     command: 'cursor-agent',
+    // Workspace trust: a fresh directory blocks on a TUI modal before anything
+    // runs. Verified `--trust` suppresses it (cursor-agent 2026.08.11). Trust is
+    // a launch concern, not an MCP concern — parallel to Claude's
+    // `needsTrustPreacceptance` (state-file) path; Cursor has a flag instead.
+    args: ['--trust'],
     yoloArgs: ['--yolo'],
     modelArg: '--model',
     versionArgs: ['--version'],
     auth: { loginArgs: ['login'], statusArgs: ['status'] },
-    // No verified orchestrator/system-prompt flag: the prompt is typed into the
-    // PTY after the seed handshake, and MCP is deliberately not attached.
+    // No verified system-prompt flag: the role/orchestrator prompt is still
+    // typed into the PTY after the seed handshake. MCP attach
+    // (`cursor-project`) and prompt delivery are orthogonal.
     systemPromptDelivery: { kind: 'pty' },
-    mcp: { kind: 'none' },
-    modelDiscovery: { kind: 'cli', args: ['models'], parse: 'lines' }
+    mcp: { kind: 'cursor-project' },
+    modelDiscovery: { kind: 'cli', args: ['models'], parse: 'lines' },
+    // Role prompt + task are pasted as one multi-KB block. Measured against
+    // the real CLI (v2026.08.11, PTY probe): while digesting the paste the TUI
+    // freezes for >1s, an Enter that lands mid-digestion is swallowed — yet
+    // still triggers a redraw (the "[Pasted text …]" chip), so the default
+    // 'buffer-change' acceptance read the swallow as success and never
+    // retried; and an Enter pressed into the freeze or into a running turn
+    // queues the composer content as an EXTRA follow-up turn. Hence
+    // 'sustained-activity': one text write, every Enter gated on a settled
+    // buffer, and only seconds-long output (a turn's spinner) stops the
+    // bounded retries. The wide watch window gives the sustain check room.
+    seed: {
+      submitDelayMs: 750,
+      submitRetries: 3,
+      submitWatchMs: 2500,
+      submitAcceptance: 'sustained-activity'
+    }
   }),
   providerConfigSchema.parse({
     id: 'ollama',

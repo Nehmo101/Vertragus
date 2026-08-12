@@ -108,6 +108,40 @@
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-3);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.panel-label-count {
+  letter-spacing: 0.04em;
+  font-weight: 500;
+  color: var(--text-2);
+  text-transform: none;
+}
+
+/* Section-header chevron: one click opens or shuts every workspace card. */
+.panel-label-chevron {
+  display: grid;
+  place-items: center;
+  align-self: center;
+  width: 18px;
+  height: 18px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease;
+}
+
+.panel-label-chevron:hover {
+  background: var(--hover-wash);
+  color: var(--text);
 }
 
 .panel-empty {
@@ -140,6 +174,30 @@
   background: var(--hover-wash);
 }
 
+.panel-row.is-selected {
+  background: rgba(47, 125, 109, 0.1);
+}
+
+.panel-row.is-selected:hover {
+  background: rgba(47, 125, 109, 0.16);
+}
+
+.panel-row-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
 .panel-row-name {
   flex: 1 1 auto;
   min-width: 0;
@@ -148,6 +206,18 @@
   white-space: nowrap;
   font: 500 13px var(--font-body);
   color: var(--text);
+}
+
+.panel-row-count {
+  flex: 0 0 auto;
+  font: 500 11px var(--font-body);
+  color: var(--text-3);
+  letter-spacing: 0.02em;
+}
+
+.panel-row.is-selected .panel-row-name,
+.panel-row.is-selected .panel-row-count {
+  color: var(--verdigris-text);
 }
 
 .panel-play {
@@ -409,6 +479,71 @@
   background: rgba(245, 165, 36, 0.2);
   color: var(--warn-text);
   font: 700 9px var(--font-body);
+}
+
+/*
+ * --- attention pulses --------------------------------------------------
+ *
+ * An open question waits on the user. `--warn` flips with the theme, so one
+ * keyframe set serves dark and light; color-mix keeps every phase a wash
+ * rather than a hard on/off. The static declarations double as the
+ * reduced-motion fallback — tokens.css kills all animations there, and a
+ * steady highlight must remain.
+ */
+
+/* The whole card, when the ORCHESTRATOR waits — see workspaceNeedsAttention. */
+.panel-card.needs-attention {
+  border-color: color-mix(in srgb, var(--warn) 55%, transparent);
+  background: color-mix(in srgb, var(--warn) 9%, transparent);
+  animation: vg-attention-card 2.2s ease-in-out infinite;
+}
+
+@keyframes vg-attention-card {
+  0%,
+  100% {
+    border-color: color-mix(in srgb, var(--warn) 30%, transparent);
+    background: color-mix(in srgb, var(--warn) 5%, transparent);
+  }
+  50% {
+    border-color: color-mix(in srgb, var(--warn) 75%, transparent);
+    background: color-mix(in srgb, var(--warn) 14%, transparent);
+  }
+}
+
+/* One agent row, when that SUBAGENT waits — see agentNeedsAttention. */
+.panel-agent.needs-attention {
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  animation: vg-attention-row 2.2s ease-in-out infinite;
+}
+
+@keyframes vg-attention-row {
+  0%,
+  100% {
+    background: color-mix(in srgb, var(--warn) 6%, transparent);
+  }
+  50% {
+    background: color-mix(in srgb, var(--warn) 18%, transparent);
+  }
+}
+
+/* The collapsed card's hint that a hidden agent row is blinking inside. */
+.panel-card-attention {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warn);
+  animation: vg-attention-dot 2.2s ease-in-out infinite;
+}
+
+@keyframes vg-attention-dot {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 /* --- errors ------------------------------------------------------------ */

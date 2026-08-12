@@ -2,13 +2,13 @@
  * Attaching the Vertragus MCP server to an agent CLI.
  *
  * Distilled from the old repo's `mcpConfig.ts`: one server, HTTP transport,
- * three provider dialects. The rule that survives unchanged is "every spawn
+ * four provider dialects. The rule that survives unchanged is "every spawn
  * attaches" — the old repo shipped a second spawn path that forgot the config
  * and produced interactive subagents with no way to report back. Callers
  * therefore build args through these functions only.
  *
- * The three dialects are genuinely different in kind, and pretending otherwise
- * is what makes launches fail with an unknown flag:
+ * The dialects are genuinely different in kind, and pretending otherwise is
+ * what makes launches fail with an unknown flag:
  *
  * - **Claude** takes a transient JSON file (`--mcp-config`) and can be locked
  *   to it (`--strict-mcp-config`).
@@ -18,9 +18,28 @@
  * - **Kimi** has neither: it reads `<cwd>/.kimi-code/mcp.json`, so the
  *   attachment is a file in the AGENT'S WORKING DIRECTORY, and its system
  *   prompt arrives as a `--agent-file` markdown profile.
+ * - **Cursor** reads `<cwd>/.cursor/mcp.json` (or `~/.cursor/mcp.json`). There
+ *   is no CLI flag that passes a server or config file (`cursor-agent mcp`
+ *   has login/list/enable/disable — no `add`). Attachment is therefore a
+ *   merge into the project file, plus `--approve-mcps` at launch. HTTP
+ *   Streamable transport preserves the identity query string verbatim.
  *
- * Every flag and key below was verified against the CLIs installed on this
- * machine (claude, codex-cli 0.144.6, kimi 0.34.0) — not from documentation.
+ * Verified Cursor facts (cursor-agent 2026.08.11-e8db854 on this machine):
+ * - Project file shape: `{ "mcpServers": { "<id>": { "url": "http://…" } } }`.
+ * - Server approval is per-project-dir AND per-URL (hash covers the URL in
+ *   `~/.cursor/projects/<slug>/mcp-approvals.json`), so a stored approval can
+ *   never be reused across Vertragus agents — `--approve-mcps` is the only
+ *   mechanism that scales. It also writes the approval entry itself.
+ * - Tool-call approval is covered by `--force` / `--yolo` (preset yoloArgs).
+ * - Workspace trust: a fresh directory blocks on a TUI modal before anything
+ *   runs; the verified `--trust` flag suppresses it (preset `args`, not here).
+ * - `cursor-agent mcp enable` works but crashes on teardown (libuv assert,
+ *   exit 9) AFTER printing success — do not shell out to it for attach.
+ * - No verified per-server tool filter (`enabledTools` / `--allowedTools`):
+ *   orchestrator scoping stays URL-side (which tools the server exposes).
+ *
+ * Every other flag and key below was verified against the CLIs installed on
+ * this machine (claude, codex-cli 0.144.6, kimi 0.34.0) — not from documentation.
  *
  * The orchestrator runs on a strict allowlist (its six tools plus Claude's
  * read-only built-ins) so it cannot start editing code itself. Subagents get NO
@@ -396,4 +415,106 @@ export function withoutKimiAgentFileArgs(args: readonly string[]): string[] {
     out.push(args[index]!)
   }
   return out
+}
+
+// --- Cursor Agent --------------------------------------------------------
+
+/**
+ * Cursor Agent has NO MCP config-file flag. Verified against cursor-agent
+ * 2026.08.11: `cursor-agent mcp --help` lists login/list/list-tools/enable/
+ * disable — no `add`, and no global flag that passes a server JSON. The CLI's
+ * own `mcp login` help names the two locations: project
+ * `<cwd>/.cursor/mcp.json` or global `~/.cursor/mcp.json`. Attachment is
+ * therefore a file in the AGENT'S WORKING DIRECTORY, like Kimi — with the
+ * deliberate difference that `.cursor/mcp.json` is the user's own file and
+ * must be merged, not overwritten.
+ */
+export const CURSOR_PROJECT_DIR = '.cursor'
+export const CURSOR_MCP_FILE = 'mcp.json'
+
+/**
+ * Pre-approves every server listed in the project's mcp.json for this launch.
+ *
+ * KNOWN LIMIT: there is no verified per-server approval flag. `--approve-mcps`
+ * also approves the user's own project servers for that run. For yolo
+ * subagents (already on `--force`/`--yolo`) that stays inside the same trust
+ * envelope; documented rather than papered over. Approval is per-URL hashed,
+ * so a stored entry never covers the next Vertragus agent's personal token —
+ * the flag is required on every spawn.
+ */
+export const CURSOR_APPROVE_MCPS_FLAG = '--approve-mcps'
+
+/**
+ * Merge `mcpServers.vertragus = { url }` into an existing Cursor project file.
+ *
+ * A bare `url` means Streamable HTTP (verified). Unlike Claude's transient
+ * file this MUST preserve every foreign `mcpServers` entry — the file belongs
+ * to the user. Unparseable / non-object `existing` is treated as empty
+ * (caller replaces a corrupt file rather than guessing).
+ */
+export function toCursorMcpConfig(
+  existing: Record<string, unknown> | null | undefined,
+  url: string
+): { mcpServers: Record<string, unknown> } {
+  const prevServers = existing?.mcpServers
+  const servers =
+    prevServers && typeof prevServers === 'object' && !Array.isArray(prevServers)
+      ? { ...(prevServers as Record<string, unknown>) }
+      : {}
+  servers[MCP_SERVER_NAME] = { url }
+  // Keep any other top-level keys the user already had (Cursor may grow them).
+  const base =
+    existing && typeof existing === 'object' && !Array.isArray(existing) ? { ...existing } : {}
+  return { ...base, mcpServers: servers }
+}
+
+/** Fail closed: prove the project file we just wrote names our server. */
+export function assertWrittenCursorMcpConfig(configPath: string): void {
+  const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown>
+  const servers = parsed.mcpServers as Record<string, { url?: string }> | undefined
+  if (!servers || typeof servers !== 'object' || !servers[MCP_SERVER_NAME]?.url) {
+    throw new Error(`Invalid Vertragus Cursor MCP config written to ${configPath}`)
+  }
+}
+
+/**
+ * Install / merge `<workspaceDir>/.cursor/mcp.json`.
+ *
+ * Reads the existing file when present; an absent or corrupt file is replaced
+ * outright (fail-closed — no `.bak`, no salvage of garbage). Only the
+ * `vertragus` key under `mcpServers` is set; every foreign server entry is
+ * preserved.
+ *
+ * Two Cursor agents sharing ONE working directory therefore share one file:
+ * the second install overwrites the first agent's personal URL (same clause
+ * as Kimi above). Sequential starts are safe if Cursor reads the file at boot
+ * (verified indirectly: each CLI run re-read it); parallel Cursor subagents
+ * want `worktree: true`. Assumption: a live TUI mid-session is not re-reading
+ * — if it does, the fix is worktrees, not this writer.
+ *
+ * The `vertragus` entry is left behind on purpose (see the module note in
+ * `agents/spawn`: nothing is deleted afterwards). Cost: the user's own Cursor
+ * sessions in that repo see a dead server ("needs approval"). Cleanup belongs
+ * in `unregisterWorkspace` if it ever annoys — not in v1.
+ */
+export function writeCursorProjectMcpConfig(url: string, workspaceDir: string): string {
+  const dir = join(workspaceDir, CURSOR_PROJECT_DIR)
+  mkdirSync(dir, { recursive: true })
+  const configPath = join(dir, CURSOR_MCP_FILE)
+
+  let existing: Record<string, unknown> | null = null
+  try {
+    const raw = readFileSync(configPath, 'utf8')
+    const parsed: unknown = JSON.parse(raw)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      existing = parsed as Record<string, unknown>
+    }
+    // Non-object JSON (array/string/…) → treat as corrupt, replace.
+  } catch {
+    // Absent file or unparseable JSON → replace / create.
+  }
+
+  writeFileSync(configPath, JSON.stringify(toCursorMcpConfig(existing, url), null, 2))
+  assertWrittenCursorMcpConfig(configPath)
+  return configPath
 }

@@ -35,6 +35,8 @@ export interface PanelData {
   startWorkspace(profileId: string): void
   stopWorkspace(workspaceId: string): void
   focusAgent(agentId: string): void
+  /** Bring this workspace's CLI windows forward; minimize the others. */
+  focusWorkspace(workspaceId: string): void
   editProfile(profileId?: string): void
   openSettings(): void
   toggleYolo(): void
@@ -123,6 +125,7 @@ export function usePanelData(): PanelData {
         setWorkspaces(await api.listWorkspaces())
       }),
     focusAgent: (agentId) => run((api) => api.focusAgent(agentId)),
+    focusWorkspace: (workspaceId) => run((api) => api.focusWorkspace(workspaceId)),
     editProfile: (profileId) => run((api) => api.openProfileEditor(profileId)),
     openSettings: () => run((api) => api.openSettings()),
     installUpdate: () => run((api) => api.installUpdate()),

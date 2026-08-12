@@ -4,13 +4,20 @@ import HoundLogo from './HoundLogo'
 import { PanelFooter } from './PanelFooter'
 import { ProfileRow } from './ProfileRow'
 import { WorkspaceCard } from './WorkspaceCard'
-import { CloseIcon, MinusIcon } from './icons'
+import { ChevronIcon, CloseIcon, MinusIcon } from './icons'
 import { trackPanelPointer } from './pointerOver'
 import { usePanelData } from './usePanelData'
 import {
-  expandedWorkspaceId,
+  areAllWorkspacesExpanded,
+  filterWorkspaces,
+  isWorkspaceExpanded,
+  nextExpandAllSelection,
+  nextSelectedProfileId,
   nextSelectedWorkspaceId,
   orderWorkspaces,
+  resolveSelectedProfileId,
+  shouldFocusWorkspaceOnToggle,
+  workspaceCountByProfile,
   type SelectedWorkspaceId
 } from './viewModel'
 import './panel.css'
@@ -28,11 +35,23 @@ export function PanelApp(): React.JSX.Element {
   const panel = usePanelData()
   const workspaces = orderWorkspaces(panel.workspaces)
   /**
+   * Profile filter for the workspace list below. `null` shows every workspace;
+   * a still-listed id narrows the cards. Cleared automatically when the
+   * profile disappears so the filter cannot stick on a missing row.
+   */
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null)
+  const activeProfileId = resolveSelectedProfileId(panel.profiles, selectedProfileId)
+  const visibleWorkspaces = filterWorkspaces(workspaces, activeProfileId)
+  const countsByProfile = workspaceCountByProfile(workspaces)
+  /**
    * Which card the user last chose. `undefined` until the first click so the
    * active workspace stays open by default; see expandedWorkspaceId.
    */
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<SelectedWorkspaceId>(undefined)
-  const expandedId = expandedWorkspaceId(workspaces, selectedWorkspaceId)
+  const allExpanded = areAllWorkspacesExpanded(selectedWorkspaceId)
+  const expandAllLabel = allExpanded
+    ? t('panel.collapseAllWorkspaces')
+    : t('panel.expandAllWorkspaces')
 
   /**
    * Hover, measured in the main process. The whole panel is a drag region, and
@@ -73,7 +92,12 @@ export function PanelApp(): React.JSX.Element {
 
       <div className="panel-scroll">
         <section className="panel-section">
-          <h2 className="panel-label">{t('panel.profilesLabel')}</h2>
+          <h2 className="panel-label">
+            {t('panel.profilesLabel')}
+            <span className="panel-label-count" title={t('panel.workspaceTotal', { count: workspaces.length })}>
+              {workspaces.length}
+            </span>
+          </h2>
           {panel.profiles.length === 0 ? (
             <p className="panel-empty">{t('panel.noProfiles')}</p>
           ) : (
@@ -82,6 +106,11 @@ export function PanelApp(): React.JSX.Element {
                 <ProfileRow
                   key={profile.id}
                   profile={profile}
+                  count={countsByProfile.get(profile.id) ?? 0}
+                  selected={profile.id === activeProfileId}
+                  onSelect={(profileId) =>
+                    setSelectedProfileId(nextSelectedProfileId(activeProfileId, profileId))
+                  }
                   onStart={panel.startWorkspace}
                   onEdit={panel.editProfile}
                 />
@@ -99,21 +128,45 @@ export function PanelApp(): React.JSX.Element {
         </section>
 
         <section className="panel-section">
-          <h2 className="panel-label">{t('panel.workspacesLabel')}</h2>
-          {workspaces.length === 0 ? (
+          <h2 className="panel-label">
+            {t('panel.workspacesLabel')}
+            {visibleWorkspaces.length === 0 ? null : (
+              <button
+                type="button"
+                className="panel-label-chevron"
+                title={expandAllLabel}
+                aria-label={expandAllLabel}
+                aria-expanded={allExpanded}
+                onClick={() => setSelectedWorkspaceId((current) => nextExpandAllSelection(current))}
+              >
+                <ChevronIcon expanded={allExpanded} />
+              </button>
+            )}
+          </h2>
+          {visibleWorkspaces.length === 0 ? (
             <p className="panel-empty">{t('panel.noWorkspaces')}</p>
           ) : (
             <div className="panel-cards">
-              {workspaces.map((workspace) => (
+              {visibleWorkspaces.map((workspace) => (
                 <WorkspaceCard
                   key={workspace.workspaceId}
                   workspace={workspace}
-                  expanded={workspace.workspaceId === expandedId}
-                  onToggle={() =>
-                    setSelectedWorkspaceId((current) =>
-                      nextSelectedWorkspaceId(workspaces, current, workspace.workspaceId)
+                  expanded={isWorkspaceExpanded(
+                    visibleWorkspaces,
+                    selectedWorkspaceId,
+                    workspace.workspaceId
+                  )}
+                  onToggle={() => {
+                    const next = nextSelectedWorkspaceId(
+                      visibleWorkspaces,
+                      selectedWorkspaceId,
+                      workspace.workspaceId
                     )
-                  }
+                    setSelectedWorkspaceId(next)
+                    if (shouldFocusWorkspaceOnToggle(next, workspace)) {
+                      panel.focusWorkspace(workspace.workspaceId)
+                    }
+                  }}
                   onStop={panel.stopWorkspace}
                   onFocusAgent={panel.focusAgent}
                 />

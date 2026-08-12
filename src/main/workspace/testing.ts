@@ -6,6 +6,7 @@
 import type { AgentRegistry, RegisteredAgent } from '@main/ipc'
 import type { PtyExitInfo, PtySpawnOptions } from '@main/agents/PtyAgent'
 import type { AgentLaunchInput, AgentPty, ResolvedLaunch, SpawnedAgent } from '@main/agents/spawn'
+import type { SeedWithReadyOptions } from '@main/agents/interactiveReady'
 import { profileSchema, type Profile, type ProfileInput } from '@shared/schema/profile'
 import { providerPresets } from '@main/providers/presets'
 import type { ProviderConfig } from '@shared/schema/provider'
@@ -196,14 +197,14 @@ export function fakeSeed(): {
     write: (text: string) => void,
     snapshot: unknown,
     prompt: string,
-    options?: { autoSubmit?: boolean }
+    options?: SeedWithReadyOptions
   ) => Promise<boolean>
   prompts: string[]
   /** The options each seed call received, in call order. */
-  options: Array<{ autoSubmit?: boolean } | undefined>
+  options: Array<SeedWithReadyOptions | undefined>
 } {
   const prompts: string[] = []
-  const options: Array<{ autoSubmit?: boolean } | undefined> = []
+  const options: Array<SeedWithReadyOptions | undefined> = []
   return {
     prompts,
     options,

@@ -99,6 +99,8 @@ export const mcpAttachSchema = z.discriminatedUnion('kind', [
     .strict(),
   z.object({ kind: z.literal('codex-overrides') }).strict(),
   z.object({ kind: z.literal('kimi-project') }).strict(),
+  /** Project-scoped `.cursor/mcp.json` merge + `--approve-mcps` (see mcp/attach). */
+  z.object({ kind: z.literal('cursor-project') }).strict(),
   z.object({ kind: z.literal('none') }).strict()
 ])
 export type McpAttach = z.infer<typeof mcpAttachSchema>
@@ -149,6 +151,39 @@ export const providerAuthSchema = z
   .strict()
 export type ProviderAuth = z.infer<typeof providerAuthSchema>
 
+/**
+ * Per-provider tuning for the interactive seed handshake.
+ *
+ * Only the submit side is exposed here: a PTY-delivery provider that pastes a
+ * multi-KB role prompt (Cursor) needs a longer pause before Enter, otherwise
+ * the keypress is swallowed as a newline of the still-digesting paste. Retries
+ * and watch windows live on the handshake itself with safe defaults; presets
+ * only override what they have measured.
+ */
+export const providerSeedSchema = z
+  .object({
+    /** Ms to wait after the prompt text before the first Enter. */
+    submitDelayMs: z.number().int().positive().max(10_000).optional(),
+    /** Max Enter presses including the first. */
+    submitRetries: z.number().int().min(1).max(10).optional(),
+    /** Base watch window after each Enter before deciding to retry. */
+    submitWatchMs: z.number().int().positive().max(10_000).optional(),
+    /**
+     * What counts as "the Enter was accepted".
+     * - `'buffer-change'` (default): any PTY output inside the watch window
+     *   stops further Enters — right for CLIs that stay quiet on a swallow.
+     * - `'sustained-activity'`: only ongoing output counts. For TUIs that
+     *   redraw once even after swallowing the keypress (cursor-agent renders
+     *   its paste chip and then goes silent), while an accepted Enter starts a
+     *   turn that streams output for seconds. Also switches the handshake to a
+     *   single text write and settle-gated Enters — the full mechanics live on
+     *   the handshake (`@main/agents/interactiveReady`).
+     */
+    submitAcceptance: z.enum(['buffer-change', 'sustained-activity']).optional()
+  })
+  .strict()
+export type ProviderSeed = z.infer<typeof providerSeedSchema>
+
 export const providerConfigSchema = z
   .object({
     /** Stable id, normalized to `[a-z0-9._-]`. Presets use their preset id. */
@@ -185,6 +220,8 @@ export const providerConfigSchema = z
      * usable without pretending to know which releases exist.
      */
     seedModels: z.array(z.string().trim().min(1).max(200)).max(MAX_ARGS).default([]),
+    /** Optional seed-handshake overrides; see {@link providerSeedSchema}. */
+    seed: providerSeedSchema.optional(),
     enabled: z.boolean().default(true)
   })
   .strict()

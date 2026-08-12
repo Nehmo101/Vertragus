@@ -236,6 +236,7 @@ interface Harness {
     started: string[]
     stopped: string[]
     focused: string[]
+    focusedWorkspaces: string[]
     change?: () => void
   }
   health: ReturnType<typeof vi.fn>
@@ -334,6 +335,7 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     started: [] as string[],
     stopped: [] as string[],
     focused: [] as string[],
+    focusedWorkspaces: [] as string[],
     list: () => state.workspaces,
     start(profileId: string) {
       this.started.push(profileId)
@@ -343,6 +345,9 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     },
     focusAgent(agentId: string) {
       this.focused.push(agentId)
+    },
+    focusWorkspace(workspaceId: string) {
+      this.focusedWorkspaces.push(workspaceId)
     },
     onChange(listener: () => void) {
       result.directory.change = listener
@@ -658,14 +663,22 @@ describe('workspaces', () => {
     await h.ipc.invoke(APP_CHANNELS.workspacesStart, PANEL_ID, { profileId: 'p1' })
     await h.ipc.invoke(APP_CHANNELS.workspacesStop, PANEL_ID, { workspaceId: 'w1' })
     h.ipc.invoke(APP_CHANNELS.workspacesFocusAgent, PANEL_ID, { agentId: 'w1-orch' })
+    h.ipc.invoke(APP_CHANNELS.workspacesFocus, PANEL_ID, { workspaceId: 'w1' })
 
     expect(h.directory.started).toEqual(['p1'])
     expect(h.directory.stopped).toEqual(['w1'])
     expect(h.directory.focused).toEqual(['w1-orch'])
+    expect(h.directory.focusedWorkspaces).toEqual(['w1'])
     expect(h.broadcasts.map((entry) => entry.channel)).toEqual([
       APP_CHANNELS.eventWorkspaces,
       APP_CHANNELS.eventWorkspaces
     ])
+  })
+
+  it('rejects a focus-workspace call without a workspace id', () => {
+    expect(() => h.ipc.invoke(APP_CHANNELS.workspacesFocus, PANEL_ID, {})).toThrow(
+      /missing workspace id/
+    )
   })
 
   it('surfaces a refusing directory instead of swallowing it', async () => {
@@ -676,7 +689,8 @@ describe('workspaces', () => {
           throw new Error('Workspace-Manager ist noch nicht verdrahtet.')
         },
         stop() {},
-        focusAgent() {}
+        focusAgent() {},
+        focusWorkspace() {}
       }
     })
     await expect(
@@ -1025,6 +1039,7 @@ describe('sender authorization', () => {
     APP_CHANNELS.workspacesStart,
     APP_CHANNELS.workspacesStop,
     APP_CHANNELS.workspacesFocusAgent,
+    APP_CHANNELS.workspacesFocus,
     APP_CHANNELS.settingsYolo,
     APP_CHANNELS.windowsHideAll,
     APP_CHANNELS.appQuit
@@ -1299,13 +1314,15 @@ describe('production registration', () => {
       list: () => [workspace('w1')],
       start: vi.fn(),
       stop: vi.fn(),
-      focusAgent: vi.fn()
+      focusAgent: vi.fn(),
+      focusWorkspace: vi.fn()
     }
     const second: WorkspaceDirectory = {
       list: () => [],
       start: vi.fn(),
       stop: vi.fn(),
-      focusAgent: vi.fn()
+      focusAgent: vi.fn(),
+      focusWorkspace: vi.fn()
     }
     const first = registerAppIpc(real)
     expect(registerAppIpc(second)).toBe(first)

@@ -37,6 +37,8 @@ function fakeMcp(): McpServerHandle & { closed: number } {
     unregisterWorkspace: vi.fn(),
     orchestratorUrl: () => '',
     subagentUrl: () => '',
+    pendingQuestion: () => undefined,
+    workspaceTask: () => undefined,
     close: vi.fn(async function (this: { closed: number }) {
       this.closed += 1
     })

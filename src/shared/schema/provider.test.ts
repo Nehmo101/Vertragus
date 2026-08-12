@@ -79,6 +79,18 @@ describe('providerConfigSchema', () => {
     ).toBe(true)
   })
 
+  it('accepts the project-file MCP dialects and rejects an unknown kind', () => {
+    expect(
+      providerConfigSchema.safeParse({ ...minimal, mcp: { kind: 'kimi-project' } }).success
+    ).toBe(true)
+    expect(
+      providerConfigSchema.safeParse({ ...minimal, mcp: { kind: 'cursor-project' } }).success
+    ).toBe(true)
+    expect(
+      providerConfigSchema.safeParse({ ...minimal, mcp: { kind: 'cursor-json' } }).success
+    ).toBe(false)
+  })
+
   it('rejects an effort template without the {effort} placeholder', () => {
     expect(
       providerConfigSchema.safeParse({
@@ -100,6 +112,31 @@ describe('providerConfigSchema', () => {
         ...minimal,
         modelDiscovery: { kind: 'http', url: 'http://127.0.0.1:11434/api/tags' }
       }).success
+    ).toBe(false)
+  })
+
+  it('accepts optional seed-handshake overrides and rejects junk', () => {
+    expect(
+      providerConfigSchema.safeParse({ ...minimal, seed: { submitDelayMs: 750 } }).success
+    ).toBe(true)
+    expect(
+      providerConfigSchema.safeParse({
+        ...minimal,
+        seed: { submitAcceptance: 'sustained-activity' }
+      }).success
+    ).toBe(true)
+    expect(
+      providerConfigSchema.safeParse({ ...minimal, seed: { submitAcceptance: 'buffer-change' } })
+        .success
+    ).toBe(true)
+    expect(
+      providerConfigSchema.safeParse({ ...minimal, seed: { submitRetries: 0 } }).success
+    ).toBe(false)
+    expect(
+      providerConfigSchema.safeParse({ ...minimal, seed: { submitAcceptance: 'always' } }).success
+    ).toBe(false)
+    expect(
+      providerConfigSchema.safeParse({ ...minimal, seed: { unknown: true } }).success
     ).toBe(false)
   })
 })

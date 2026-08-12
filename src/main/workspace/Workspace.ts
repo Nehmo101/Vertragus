@@ -50,6 +50,7 @@ import {
 } from '@main/agents/worktree'
 import {
   seedWithReadyHandshake,
+  seedOptionsFromProvider,
   type SeedWithReadyOptions
 } from '@main/agents/interactiveReady'
 import { buildOrchestratorSystemPrompt, type RoleWithLimit } from '@shared/prompts/orchestrator'
@@ -675,11 +676,14 @@ export class Workspace implements AgentHost {
    */
   private seed(record: AgentRecord, text: string, autoSubmit: boolean): Promise<boolean> {
     const seed = this.deps.seed ?? seedWithReadyHandshake
+    const provider = this.deps.providers.find((candidate) => candidate.id === record.providerId)
+    // Provider seed tuning (e.g. Cursor's longer submitDelayMs) applies first;
+    // deps.seedOptions override so tests can keep the suite fast.
     return seed(
       (data) => record.pty.write(data),
       () => ({ buffer: record.pty.snapshot(), alive: record.pty.isAlive }),
       text,
-      { ...this.deps.seedOptions, autoSubmit }
+      { ...seedOptionsFromProvider(provider?.seed), ...this.deps.seedOptions, autoSubmit }
     )
   }
 
