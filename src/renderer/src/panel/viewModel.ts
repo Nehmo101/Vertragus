@@ -56,9 +56,18 @@ export function agentTooltip(agent: Pick<WorkspaceAgentSummary, 'name'>): string
   return loreBlurb(agent.name)
 }
 
-/** Tooltip for a workspace card — what kind of place is this? */
-export function workspaceTooltip(workspace: Pick<WorkspaceSummary, 'name'>): string {
-  return workspacePlaceBlurb(workspace.name) ?? workspace.name
+/**
+ * The mini description of a workspace card — what kind of place is this?
+ *
+ * Undefined for a name the Commedia roster does not know, and that absence is
+ * the point: the card is now a real hover card with the name as its heading,
+ * so falling back to the name would pop up a box that repeats the word the
+ * user is already pointing at.
+ */
+export function workspacePlaceTooltip(
+  workspace: Pick<WorkspaceSummary, 'name'>
+): string | undefined {
+  return workspacePlaceBlurb(workspace.name)
 }
 
 export function workspaceCardClass(workspace: Pick<WorkspaceSummary, 'active'>): string {

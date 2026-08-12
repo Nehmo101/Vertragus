@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { Profile, RoleTemplate } from '@shared/schema/profile'
 import type { ProviderConfig } from '@shared/schema/provider'
 import type { Zone, ZoneLayout } from '@shared/schema/zones'
+import type { Appearance } from '@shared/appearance'
 
 /**
  * The renderer bridge. One API object per window type; a CLI window only ever
@@ -137,7 +138,9 @@ const APP = {
   eventProviders: 'ev:providers',
   eventWorkspaces: 'ev:workspaces',
   eventUpdate: 'ev:update',
-  eventSettings: 'ev:settings'
+  eventSettings: 'ev:settings',
+  settingsAppearance: 'settings:appearance',
+  eventAppearance: 'ev:appearance'
 } as const
 
 /**
@@ -210,6 +213,8 @@ export interface PanelSettings {
   hideAllHotkey: string
   locale: 'de' | 'en'
   theme: 'dark' | 'light'
+  /** Window opacity and glass transparency; see @shared/appearance. */
+  appearance: Appearance
   autostart: boolean
   updateChannel: UpdateChannel
   /** False in a dev run — the login item would point at the Electron binary. */
@@ -221,7 +226,13 @@ export interface PanelSettings {
 export type UpdateChannel = 'main' | 'stable'
 
 /** The keys the settings form may write; see WRITABLE_SETTINGS in main/appIpc. */
-export type WritableSetting = 'hideAllHotkey' | 'autostart' | 'updateChannel' | 'theme' | 'locale'
+export type WritableSetting =
+  | 'hideAllHotkey'
+  | 'autostart'
+  | 'updateChannel'
+  | 'theme'
+  | 'locale'
+  | 'appearance'
 
 export type UpdateStatus =
   | 'disabled'
@@ -291,6 +302,12 @@ const app = {
   focusAgent: (agentId: string): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesFocusAgent, { agentId }),
   getSettings: (): Promise<PanelSettings> => ipcRenderer.invoke(APP.settingsGet),
+  /**
+   * How see-through the app is. Unlike `getSettings` this one answers in EVERY
+   * window, CLI windows included — they have to paint their first frame at the
+   * user's opacity, and they are not app windows on the main-process guard.
+   */
+  getAppearance: (): Promise<Appearance> => ipcRenderer.invoke(APP.settingsAppearance),
   setYoloMaster: (enabled: boolean): Promise<PanelSettings> =>
     ipcRenderer.invoke(APP.settingsYolo, { enabled }),
   /**
@@ -367,6 +384,13 @@ const app = {
    */
   onSettings: (listener: (settings: PanelSettings) => void): (() => void) =>
     subscribe(APP.eventSettings, listener),
+  /**
+   * Appearance changed. Pushed to every window (see `ev:appearance`), so a
+   * slider moved in the settings window redraws the panel and every open
+   * terminal in the same tick.
+   */
+  onAppearance: (listener: (appearance: Appearance) => void): (() => void) =>
+    subscribe(APP.eventAppearance, listener),
   /** Cursor enters/leaves the panel window — the panel's hover signal. */
   onPointer: (listener: (event: PanelPointerEvent) => void): (() => void) =>
     subscribe(PANEL_POINTER, listener)

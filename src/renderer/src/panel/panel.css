@@ -19,7 +19,7 @@
   background: linear-gradient(180deg, var(--glass-top), var(--glass-bottom));
   border: 1px solid var(--hairline);
   box-shadow: var(--shadow-panel);
-  backdrop-filter: blur(16px) saturate(1.15);
+  backdrop-filter: var(--glass-blur);
   overflow: hidden;
   -webkit-app-region: drag;
 }

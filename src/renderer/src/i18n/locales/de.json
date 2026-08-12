@@ -251,6 +251,21 @@
       "hotkeyUnknownKey": "„{{key}}“ ist keine Taste, die Electron kennt.",
       "hotkeyUnknownModifier": "„{{part}}“ ist kein bekannter Modifier.",
       "hotkeyDuplicateModifier": "„{{part}}“ steht doppelt im Hotkey."
+    },
+    "glass": "Glas & Deckkraft",
+    "translucent": "Durchsichtig",
+    "translucentHint": "Fenster liegen als Glas über dem Desktop. Aus: alles ist vollständig deckend.",
+    "translucentOffHint": "Transparenz ist aus. Die Regler behalten ihre Werte und gelten wieder, sobald du sie einschaltest.",
+    "glassLadderHint": "Ruhe ≤ Hover ≤ Fokus — kleinere Werte werden automatisch angehoben.",
+    "glassSlider": {
+      "restOpacity": "Deckkraft in Ruhe",
+      "restOpacityHint": "Wie sichtbar ein Fenster ist, solange nichts darauf zeigt.",
+      "hoverOpacity": "Deckkraft bei Hover",
+      "hoverOpacityHint": "Wie sichtbar ein Fenster wird, sobald die Maus darüber steht.",
+      "focusOpacity": "Deckkraft im Fokus",
+      "focusOpacityHint": "Gilt für Agentenfenster, in denen gerade getippt wird.",
+      "surfaceTransparency": "Durchsichtigkeit der Flächen",
+      "surfaceTransparencyHint": "0 % färbt die Flächen selbst deckend ein, 100 % ist das entworfene Glas — unabhängig von der Deckkraft darüber."
     }
   },
   "zones": {

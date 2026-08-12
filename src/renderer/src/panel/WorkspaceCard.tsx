@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import type { WorkspaceAgentSummary, WorkspaceSummary } from '../../../preload'
+import { LoreTip } from '../lore/LoreTip'
 import { StopIcon } from './icons'
 import {
   agentCountLabel,
@@ -7,7 +8,7 @@ import {
   agentStatusLine,
   agentTooltip,
   workspaceCardClass,
-  workspaceTooltip
+  workspacePlaceTooltip
 } from './viewModel'
 
 interface AgentProps {
@@ -32,9 +33,7 @@ function AgentRow({ agent, onFocus }: AgentProps): React.JSX.Element {
         onClick={() => onFocus(agent.agentId)}
       >
         <span className={agentDotClass(agent)} />
-        <span className="panel-agent-name" title={agentTooltip(agent)}>
-          {agent.name}
-        </span>
+        <LoreTip className="panel-agent-name" name={agent.name} blurb={agentTooltip(agent)} />
         <span className="panel-agent-status">{agentStatusLine(t, agent)}</span>
         {agent.pendingQuestion ? (
           <span className="panel-question" title={agent.pendingQuestion}>
@@ -73,17 +72,21 @@ export function WorkspaceCard({
   return (
     <article className={workspaceCardClass(workspace)}>
       <header className="panel-card-head">
+        {/* No native `title` on the toggle: it would pop the OS tooltip on
+            top of the lore card anchored to the name. The aria-label keeps the
+            expand/collapse action announced. */}
         <button
           type="button"
           className="panel-card-toggle"
-          title={toggle}
           aria-label={toggle}
           aria-expanded={expanded}
           onClick={onToggle}
         >
-          <span className="panel-card-name" title={workspaceTooltip(workspace)}>
-            {workspace.name}
-          </span>
+          <LoreTip
+            className="panel-card-name"
+            name={workspace.name}
+            blurb={workspacePlaceTooltip(workspace)}
+          />
           <span className="panel-card-count">{agentCountLabel(t, workspace)}</span>
         </button>
         <button

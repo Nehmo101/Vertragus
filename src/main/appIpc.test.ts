@@ -91,6 +91,7 @@ import type { HideAllHotkeyStatus } from './windows/hideAll'
 import type { MinimalIpcMain } from './ipc'
 import type { WorkspaceSummary as PreloadWorkspaceSummary } from '../preload'
 import { profileSchema, type Profile, type RoleTemplate } from '@shared/schema/profile'
+import { DEFAULT_APPEARANCE } from '@shared/appearance'
 import type { AppSettings } from './store/settings'
 import type { ProviderConfig, ProviderConfigInput } from '@shared/schema/provider'
 import { mergeProviderConfigs, providerConfigSchema } from '@shared/schema/provider'
@@ -148,7 +149,7 @@ function provider(input: ProviderConfigInput): ProviderConfig {
 }
 
 const SETTINGS: AppSettings = {
-  ui: { theme: 'dark', locale: 'de' },
+  ui: { theme: 'dark', locale: 'de', appearance: DEFAULT_APPEARANCE },
   yoloMaster: true,
   hideAllHotkey: 'Control+Alt+V',
   autostart: false,
@@ -703,11 +704,59 @@ describe('settings and windows', () => {
       theme: 'dark',
       autostart: false,
       updateChannel: 'main',
-      autostartSupported: true
+      autostartSupported: true,
+      appearance: DEFAULT_APPEARANCE
     })
     // Never the app's own bookkeeping — model memory and panel bounds are
     // written by the app and have no form.
     expect(h.ipc.invoke(APP_CHANNELS.settingsGet, PANEL_ID)).not.toHaveProperty('modelMemory')
+  })
+
+  it('answers the appearance in EVERY window — a CLI window included', () => {
+    // The one deliberate hole in the window-type guard: a terminal window is
+    // the surface standing over the wallpaper, so it has to be able to ask how
+    // see-through it should be. Everything else on `settings:get` stays shut.
+    expect(h.ipc.invoke(APP_CHANNELS.settingsAppearance, CLI_ID)).toEqual(DEFAULT_APPEARANCE)
+    expect(h.ipc.invoke(APP_CHANNELS.settingsAppearance, PANEL_ID)).toEqual(DEFAULT_APPEARANCE)
+    expect(() => h.ipc.invoke(APP_CHANNELS.settingsGet, CLI_ID)).toThrow(/rejected/)
+  })
+
+  it('stores an appearance write, clamps it and pushes it to every window', async () => {
+    h.broadcasts.length = 0
+    const next = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'appearance',
+      // hoverOpacity below restOpacity, and a surface value past its range:
+      // the schema clamps rather than refusing — a slider is not a typo.
+      value: { translucent: true, restOpacity: 0.8, hoverOpacity: 0.5, surfaceTransparency: 4 }
+    })) as PanelSettings
+
+    expect(next.appearance).toEqual({
+      translucent: true,
+      restOpacity: 0.8,
+      hoverOpacity: 0.8,
+      focusOpacity: 1,
+      surfaceTransparency: 1
+    })
+    expect(h.store.settings.ui.appearance).toEqual(next.appearance)
+    // The theme and the language it shares its `ui` section with are untouched.
+    expect(h.store.settings.ui).toMatchObject({ theme: 'dark', locale: 'de' })
+    expect(h.broadcasts).toEqual([
+      { channel: APP_CHANNELS.eventSettings, payload: next },
+      { channel: APP_CHANNELS.eventAppearance, payload: next.appearance }
+    ])
+  })
+
+  it('takes the master switch without touching the stored sliders', async () => {
+    await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'appearance',
+      value: { ...DEFAULT_APPEARANCE, restOpacity: 0.4, translucent: false }
+    })
+    const stored = h.store.settings.ui.appearance
+    expect(stored.translucent).toBe(false)
+    // Switching transparency off must not forget what the user had set: the
+    // opaque mode is resolved when the CSS variables are built, not by
+    // flattening the values in the store.
+    expect(stored.restOpacity).toBe(0.4)
   })
 
   it('toggles the yolo master', () => {
@@ -720,7 +769,12 @@ describe('settings and windows', () => {
   it('broadcasts every settings write so the other windows follow', async () => {
     h.broadcasts.length = 0
     const yolo = h.ipc.invoke(APP_CHANNELS.settingsYolo, PANEL_ID, { enabled: false })
-    expect(h.broadcasts).toEqual([{ channel: APP_CHANNELS.eventSettings, payload: yolo }])
+    // Two pushes per write: the whole settings object to the app windows, and
+    // the appearance alone on the channel CLI windows are allowed to hear.
+    expect(h.broadcasts).toEqual([
+      { channel: APP_CHANNELS.eventSettings, payload: yolo },
+      { channel: APP_CHANNELS.eventAppearance, payload: DEFAULT_APPEARANCE }
+    ])
 
     h.broadcasts.length = 0
     const locale = await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
@@ -729,7 +783,10 @@ describe('settings and windows', () => {
     })
     // This is the language switch: the panel and both editors change with the
     // settings window instead of waiting for their next read.
-    expect(h.broadcasts).toEqual([{ channel: APP_CHANNELS.eventSettings, payload: locale }])
+    expect(h.broadcasts).toEqual([
+      { channel: APP_CHANNELS.eventSettings, payload: locale },
+      { channel: APP_CHANNELS.eventAppearance, payload: DEFAULT_APPEARANCE }
+    ])
     expect(locale).toMatchObject({ locale: 'en' })
   })
 
@@ -829,7 +886,8 @@ describe('settings:set', () => {
       'autostart',
       'updateChannel',
       'theme',
-      'locale'
+      'locale',
+      'appearance'
     ])
   })
 
@@ -918,7 +976,11 @@ describe('settings:set', () => {
     })) as PanelSettings
 
     expect(next).toMatchObject({ theme: 'light', locale: 'en' })
-    expect(h.store.settings.ui).toEqual({ theme: 'light', locale: 'en' })
+    expect(h.store.settings.ui).toEqual({
+      theme: 'light',
+      locale: 'en',
+      appearance: DEFAULT_APPEARANCE
+    })
   })
 })
 
