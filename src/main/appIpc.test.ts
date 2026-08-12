@@ -237,6 +237,8 @@ interface Harness {
     started: string[]
     stopped: string[]
     focused: string[]
+    removedWorktrees: Array<{ profileId: string; path: string }>
+    staleWorktrees: { path: string; branch?: string }[]
     change?: () => void
   }
   health: ReturnType<typeof vi.fn>
@@ -335,6 +337,10 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     started: [] as string[],
     stopped: [] as string[],
     focused: [] as string[],
+    removedWorktrees: [] as Array<{ profileId: string; path: string }>,
+    staleWorktrees: [
+      { path: '/repo/.vertragus/worktrees/old-1', branch: 'vertragus/paradiso/caronte' }
+    ] as { path: string; branch?: string }[],
     list: () => state.workspaces,
     start(profileId: string) {
       this.started.push(profileId)
@@ -344,6 +350,15 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     },
     focusAgent(agentId: string) {
       this.focused.push(agentId)
+    },
+    async listStaleWorktrees(profileId: string) {
+      if (profileId === 'unknown') throw new Error(`Unbekanntes Profil ${profileId}`)
+      return this.staleWorktrees
+    },
+    async removeWorktree(profileId: string, path: string) {
+      this.removedWorktrees.push({ profileId, path })
+      this.staleWorktrees = this.staleWorktrees.filter((entry) => entry.path !== path)
+      return this.staleWorktrees
     },
     onChange(listener: () => void) {
       result.directory.change = listener
@@ -670,14 +685,17 @@ describe('workspaces', () => {
   })
 
   it('surfaces a refusing directory instead of swallowing it', async () => {
+    const refuse = (): never => {
+      throw new Error('Workspace-Manager ist noch nicht verdrahtet.')
+    }
     const failing = harness({
       directory: {
         list: () => [],
-        start() {
-          throw new Error('Workspace-Manager ist noch nicht verdrahtet.')
-        },
+        start: refuse,
         stop() {},
-        focusAgent() {}
+        focusAgent() {},
+        listStaleWorktrees: async () => refuse(),
+        removeWorktree: async () => refuse()
       }
     })
     await expect(
@@ -692,6 +710,40 @@ describe('workspaces', () => {
     expect(h.broadcasts).toEqual([
       { channel: APP_CHANNELS.eventWorkspaces, payload: h.directory.list() }
     ])
+  })
+})
+
+describe('worktree cleanup', () => {
+  it('lists a profile’s stale worktrees for the panel only', async () => {
+    await expect(
+      Promise.resolve(h.ipc.invoke(APP_CHANNELS.worktreesList, PANEL_ID, { profileId: 'p1' }))
+    ).resolves.toEqual(h.directory.staleWorktrees)
+    expect(() => h.ipc.invoke(APP_CHANNELS.worktreesList, EDITOR_ID, { profileId: 'p1' })).toThrow(
+      /not the panel/
+    )
+    expect(() => h.ipc.invoke(APP_CHANNELS.worktreesList, PANEL_ID, {})).toThrow(
+      /missing profile id/
+    )
+  })
+
+  it('removes one worktree and answers with the refreshed list', async () => {
+    const path = '/repo/.vertragus/worktrees/old-1'
+    await expect(
+      Promise.resolve(h.ipc.invoke(APP_CHANNELS.worktreesRemove, PANEL_ID, { profileId: 'p1', path }))
+    ).resolves.toEqual([])
+    expect(h.directory.removedWorktrees).toEqual([{ profileId: 'p1', path }])
+  })
+
+  it('refuses a removal without profile or path — never a guessed default', () => {
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.worktreesRemove, PANEL_ID, { path: '/x' })
+    ).toThrow(/missing profile id/)
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.worktreesRemove, PANEL_ID, { profileId: 'p1' })
+    ).toThrow(/missing worktree path/)
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.worktreesRemove, CLI_ID, { profileId: 'p1', path: '/x' })
+    ).toThrow(/not the panel/)
   })
 })
 
@@ -1361,13 +1413,17 @@ describe('production registration', () => {
       list: () => [workspace('w1')],
       start: vi.fn(),
       stop: vi.fn(),
-      focusAgent: vi.fn()
+      focusAgent: vi.fn(),
+      listStaleWorktrees: vi.fn(async () => []),
+      removeWorktree: vi.fn(async () => [])
     }
     const second: WorkspaceDirectory = {
       list: () => [],
       start: vi.fn(),
       stop: vi.fn(),
-      focusAgent: vi.fn()
+      focusAgent: vi.fn(),
+      listStaleWorktrees: vi.fn(async () => []),
+      removeWorktree: vi.fn(async () => [])
     }
     const first = registerAppIpc(real)
     expect(registerAppIpc(second)).toBe(first)
@@ -1391,7 +1447,7 @@ describe('preload parity', () => {
     }
     const found = [
       ...source.matchAll(
-        /'((?:profiles|roles|providers|models|workspaces|settings|settingsWindow|updates|windows|app|dialog|profileEditor|providerEditor|zones|ev):[a-zA-Z]+)'/g
+        /'((?:profiles|roles|providers|models|workspaces|worktrees|settings|settingsWindow|updates|windows|app|dialog|profileEditor|providerEditor|zones|ev):[a-zA-Z]+)'/g
       )
     ].map((match) => match[1])
     expect(new Set(found)).toEqual(new Set(Object.values(APP_CHANNELS)))

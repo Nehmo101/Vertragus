@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -8,6 +8,7 @@ import {
   branchExists,
   createWorktree,
   listWorktrees,
+  removeWorktree,
   slugifyRef,
   uniqueBranchName,
   worktreeBranchName,
@@ -76,6 +77,64 @@ describe('createWorktree', () => {
     expect(worktrees.length).toBeGreaterThanOrEqual(2)
   }, 30_000)
 
+  it('starts the branch from a given startPoint instead of HEAD', async () => {
+    // A base branch with a commit HEAD does not have — the worktree must see it.
+    await git(['checkout', '-b', 'vertragus/paradiso/worker-base'])
+    writeFileSync(join(repoPath, 'handoff.txt'), 'from the worker\n')
+    await git(['add', 'handoff.txt'])
+    await git(['commit', '-m', 'worker result'])
+    await git(['checkout', 'main'])
+
+    const created = await createWorktree(repoPath, 'agent-chained', 'vertragus/paradiso/reviewer', {
+      startPoint: 'vertragus/paradiso/worker-base'
+    })
+
+    expect(existsSync(join(created.path, 'handoff.txt'))).toBe(true)
+    // HEAD of the main checkout never had that file.
+    expect(existsSync(join(repoPath, 'handoff.txt'))).toBe(false)
+  }, 30_000)
+
+  it('passes the startPoint as the final git argument', async () => {
+    const git = vi.fn(async (args: string[]) => {
+      if (args[0] === 'rev-parse') throw new Error('no such ref')
+      return { stdout: '', stderr: '' }
+    })
+    const fakeRepo = mkdtempSync(join(tmpdir(), 'vg-startpoint-'))
+    try {
+      await createWorktree(fakeRepo, 'agent-four', 'vertragus/a/c', { git, startPoint: 'base' })
+      const addCall = git.mock.calls.find((call) => call[0][1] === 'add')
+      expect(addCall?.[0]).toEqual([
+        'worktree',
+        'add',
+        join(fakeRepo, WORKTREE_ROOT, 'agent-four'),
+        '-b',
+        'vertragus/a/c',
+        'base'
+      ])
+    } finally {
+      rmSync(fakeRepo, { recursive: true, force: true })
+    }
+  })
+
+  it('makes .vertragus self-ignoring so the worktrees never pollute git status', async () => {
+    await createWorktree(repoPath, 'agent-ignore', 'vertragus/paradiso/ignaro')
+
+    expect(readFileSync(join(repoPath, '.vertragus', '.gitignore'), 'utf8')).toBe('*\n')
+    // The proof is git's own view: nothing under .vertragus shows up untracked.
+    const { stdout } = await execFileAsync('git', ['status', '--porcelain'], {
+      cwd: repoPath,
+      windowsHide: true
+    })
+    expect(stdout).not.toContain('.vertragus')
+  }, 30_000)
+
+  it('leaves an existing .vertragus/.gitignore alone', async () => {
+    const ignorePath = join(repoPath, '.vertragus', '.gitignore')
+    writeFileSync(ignorePath, '# user-edited\nworktrees/\n')
+    await createWorktree(repoPath, 'agent-keep', 'vertragus/paradiso/custode')
+    expect(readFileSync(ignorePath, 'utf8')).toBe('# user-edited\nworktrees/\n')
+  }, 30_000)
+
   it('does not collide with the branch a previous run left behind', async () => {
     // Branches deliberately survive their worktree — Vertragus never deletes work.
     const created = await createWorktree(repoPath, 'agent-two', 'vertragus/paradiso/caronte')
@@ -117,6 +176,39 @@ describe('createWorktree', () => {
     } finally {
       rmSync(fakeRepo, { recursive: true, force: true })
     }
+  })
+})
+
+describe('removeWorktree', () => {
+  it('removes a clean worktree but keeps its branch', async () => {
+    const created = await createWorktree(repoPath, 'agent-gone', 'vertragus/paradiso/passato')
+
+    await removeWorktree(repoPath, created.path)
+
+    expect(existsSync(created.path)).toBe(false)
+    const paths = (await listWorktrees(repoPath)).map((entry) => entry.path.replace(/\\/g, '/'))
+    expect(paths.some((path) => path.endsWith('agent-gone'))).toBe(false)
+    // The branch survives — committed work stays reachable after cleanup.
+    expect(await branchExists(repoPath, created.branch)).toBe(true)
+  }, 30_000)
+
+  it('refuses a dirty worktree instead of discarding uncommitted changes', async () => {
+    const created = await createWorktree(repoPath, 'agent-dirty', 'vertragus/paradiso/sporco')
+    writeFileSync(join(created.path, 'wip.txt'), 'not committed\n')
+
+    await expect(removeWorktree(repoPath, created.path)).rejects.toThrow(
+      /git worktree remove failed/
+    )
+    expect(existsSync(join(created.path, 'wip.txt'))).toBe(true)
+  }, 30_000)
+
+  it('never builds a shell string — git is called with an argument array', async () => {
+    const git = vi.fn(async () => ({ stdout: '', stderr: '' }))
+    await removeWorktree('/repo', '/repo/.vertragus/worktrees/a1', { git })
+    expect(git).toHaveBeenCalledWith(
+      ['worktree', 'remove', '/repo/.vertragus/worktrees/a1'],
+      '/repo'
+    )
   })
 })
 

@@ -56,7 +56,8 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
       description:
         'Start a subagent for one self-contained task. The task text must state the goal, the files or ' +
         'area involved, the definition of done and how to verify it; Vertragus appends the reporting ' +
-        'contract automatically. Returns the agentId you address from then on.',
+        'contract automatically. Every agent works in its own git worktree on its own branch, so agents ' +
+        'never conflict with each other. Returns the agentId you address from then on.',
       inputSchema: {
         role: z
           .string()
@@ -64,13 +65,19 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
           .describe(`One of the configured roles: ${ctx.roles.join(', ') || '(none configured)'}`),
         task: z.string().min(1).max(20_000).describe('The complete assignment for this agent'),
         model: z.string().min(1).max(200).optional().describe('Override the role default model'),
-        worktree: z
-          .boolean()
+        baseBranch: z
+          .string()
+          .min(1)
+          .max(300)
           .optional()
-          .describe('Run in an isolated git worktree instead of the shared repository')
+          .describe(
+            'Existing branch the new agent starts from — pass another agent’s branch so this ' +
+              'agent builds on that result (e.g. a reviewer on a worker’s branch, or an agent ' +
+              'merging teammates’ branches into its own). Default: the repository HEAD.'
+          )
       }
     },
-    async ({ role, task, model, worktree }): Promise<ToolText> => {
+    async ({ role, task, model, baseBranch }): Promise<ToolText> => {
       if (!ctx.roles.includes(role)) {
         return toolError({
           error: 'unknown_role',
@@ -110,20 +117,22 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
       const seed = `${task}\n\n${buildTaskContract({ role })}`
 
       try {
-        const started = await ctx.host.startAgent({ role, task: seed, model, worktree })
+        const started = await ctx.host.startAgent({ role, task: seed, model, baseBranch })
         ctx.events.push({
           type: 'agent_started',
           agentId: started.agentId,
           name: started.name,
           roleId: started.role,
           model,
-          worktreePath: started.worktreePath
+          worktreePath: started.worktreePath,
+          branch: started.branch
         })
         return toolJson({
           agentId: started.agentId,
           name: started.name,
           role: started.role,
           worktreePath: started.worktreePath,
+          branch: started.branch,
           note: 'Agent started. Wait for its events with await_events instead of asking it for status.'
         })
       } catch (error) {

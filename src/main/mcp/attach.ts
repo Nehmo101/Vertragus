@@ -300,15 +300,15 @@ export function assertWrittenKimiMcpConfig(configPath: string): void {
 /**
  * Install `<workspaceDir>/.kimi-code/mcp.json`.
  *
- * This writes INTO THE AGENT'S WORKING DIRECTORY — the worktree for a worktree
- * agent, otherwise the repository itself. The file is left behind on purpose
+ * This writes INTO THE AGENT'S WORKING DIRECTORY — the agent's own worktree.
+ * The file is left behind on purpose
  * (Kimi re-reads it on every start, and deleting it under a running agent would
  * be worse than a stray file); see the module note in `agents/spawn`.
  *
- * Two Kimi agents sharing ONE working directory therefore share one file: the
- * second install overwrites the first agent's personal URL. Sequential starts
- * are safe (Kimi reads the file at boot, and `startAgent` only returns after the
- * seed handshake), but parallel Kimi subagents want `worktree: true`.
+ * Two Kimi agents sharing ONE working directory would share one file — the
+ * second install would overwrite the first agent's personal URL. That cannot
+ * happen in Vertragus: every agent runs in its own worktree, so every agent
+ * has this file to itself.
  */
 export function writeKimiProjectMcpConfig(
   url: string,

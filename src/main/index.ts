@@ -19,6 +19,7 @@ import { armSettingsWindowSmoke } from './windows/settingsWindow'
 import { armZoneOverlaySmoke } from './windows/zoneOverlay'
 import { startAppUpdater } from './updater'
 import type { WorkspaceManager } from './workspace/WorkspaceManager'
+import { createWorktreeCleanup } from './workspace/worktreeCleanup'
 
 /**
  * Headless smoke hook: <envVar>=<path> boots the window, captures it and exits.
@@ -46,6 +47,15 @@ function armScreenshotHook(win: Electron.BrowserWindow, envVar: string, delayMs 
 function panelDirectory(manager: WorkspaceManager): WorkspaceDirectory {
   const roleLabel = (roleId: string): string =>
     allRoleTemplates(getRoleTemplates()).find((role) => role.id === roleId)?.name ?? roleId
+
+  // Active paths across ALL workspaces, not just the asking profile's: two
+  // profiles may point at the same repository, and an agent of either must
+  // never show up as removable.
+  const cleanup = createWorktreeCleanup({
+    repoPathFor: (profileId) => getProfile(profileId)?.repoPath,
+    activeWorktreePaths: () =>
+      manager.list().flatMap((workspace) => workspace.activeWorktreePaths())
+  })
 
   return {
     list: () =>
@@ -94,7 +104,9 @@ function panelDirectory(manager: WorkspaceManager): WorkspaceDirectory {
       return manager.startWorkspace(profile)
     },
     stop: (workspaceId) => manager.stopWorkspace(workspaceId),
-    focusAgent: (agentId) => focusCliWindow(agentId)
+    focusAgent: (agentId) => focusCliWindow(agentId),
+    listStaleWorktrees: (profileId) => cleanup.listStale(profileId),
+    removeWorktree: (profileId, worktreePath) => cleanup.remove(profileId, worktreePath)
   }
 }
 

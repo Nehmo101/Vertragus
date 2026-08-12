@@ -217,6 +217,37 @@ export function fakeSeed(): {
   }
 }
 
+export interface RecordedWorktree {
+  repoPath: string
+  agentId: string
+  branchName: string
+  /** The baseBranch the caller asked for, when it asked for one. */
+  startPoint?: string
+}
+
+/**
+ * A `createWorktree` that records instead of running git. Every agent start
+ * needs a worktree, so every Workspace test needs this (or its own override).
+ */
+export function fakeWorktrees(): {
+  createWorktree: (
+    repoPath: string,
+    agentId: string,
+    branchName: string,
+    options?: { startPoint?: string }
+  ) => Promise<{ path: string; branch: string }>
+  calls: RecordedWorktree[]
+} {
+  const calls: RecordedWorktree[] = []
+  return {
+    calls,
+    createWorktree: async (repoPath, agentId, branchName, options) => {
+      calls.push({ repoPath, agentId, branchName, ...(options?.startPoint ? { startPoint: options.startPoint } : {}) })
+      return { path: `${repoPath}/.vertragus/worktrees/${agentId}`, branch: branchName }
+    }
+  }
+}
+
 export const testProviders = (): ProviderConfig[] => providerPresets()
 
 /** A profile with a worker and a reviewer slot on Claude. */

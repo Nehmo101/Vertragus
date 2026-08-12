@@ -114,6 +114,8 @@ const APP = {
   workspacesStart: 'workspaces:start',
   workspacesStop: 'workspaces:stop',
   workspacesFocusAgent: 'workspaces:focusAgent',
+  worktreesList: 'worktrees:list',
+  worktreesRemove: 'worktrees:remove',
   settingsGet: 'settings:get',
   settingsYolo: 'settings:yolo',
   settingsSet: 'settings:set',
@@ -179,6 +181,13 @@ export interface WorkspaceSummary {
   profileName?: string
   active: boolean
   agents: WorkspaceAgentSummary[]
+}
+
+/** One stale worktree the panel's cleanup view offers for removal. */
+export interface StaleWorktreeSummary {
+  path: string
+  /** Short branch name; absent for a detached worktree. */
+  branch?: string
 }
 
 /** Result of a provider version probe (see main/providers/health.ts). */
@@ -301,6 +310,16 @@ const app = {
     ipcRenderer.invoke(APP.workspacesStop, { workspaceId }),
   focusAgent: (agentId: string): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesFocusAgent, { agentId }),
+  /** Stale worktrees of this profile's repo — the panel's cleanup list. */
+  listStaleWorktrees: (profileId: string): Promise<StaleWorktreeSummary[]> =>
+    ipcRenderer.invoke(APP.worktreesList, { profileId }),
+  /**
+   * Remove ONE stale worktree (explicit user click). Live agents' worktrees
+   * are refused in main, dirty ones by git; branches always survive. Answers
+   * with the refreshed stale list.
+   */
+  removeWorktree: (profileId: string, path: string): Promise<StaleWorktreeSummary[]> =>
+    ipcRenderer.invoke(APP.worktreesRemove, { profileId, path }),
   getSettings: (): Promise<PanelSettings> => ipcRenderer.invoke(APP.settingsGet),
   /**
    * How see-through the app is. Unlike `getSettings` this one answers in EVERY

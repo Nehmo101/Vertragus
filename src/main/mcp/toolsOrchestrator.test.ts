@@ -38,16 +38,36 @@ describe('start_agent', () => {
     expect(events[0]).toMatchObject({ type: 'agent_started', agentId: 'agent-1', roleId: 'worker' })
   })
 
-  it('passes model and worktree through and reports the worktree path back', async () => {
+  it('passes the model through and reports the agent’s own worktree and branch back', async () => {
     const { runtime, tools } = setup()
     const result = await callTool(tools, 'start_agent', {
       role: 'worker',
       task: 't',
-      model: 'opus',
-      worktree: true
+      model: 'opus'
     })
+    // Isolation is unconditional — there is no worktree flag to set or forget.
     expect(result.json.worktreePath).toBe('/tmp/worktrees/agent-1')
-    expect(runtime.events.all()[0]).toMatchObject({ model: 'opus' })
+    expect(result.json.branch).toBe('vertragus/arsenale/agent-1')
+    expect(runtime.events.all()[0]).toMatchObject({
+      model: 'opus',
+      worktreePath: '/tmp/worktrees/agent-1',
+      branch: 'vertragus/arsenale/agent-1'
+    })
+  })
+
+  it('hands baseBranch to the host so an agent can build on another’s branch', async () => {
+    const baseBranches: Array<string | undefined> = []
+    const host = new FakeAgentHost({ onStart: (input) => baseBranches.push(input.baseBranch) })
+    const { tools } = setup({ host })
+
+    await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
+    await callTool(tools, 'start_agent', {
+      role: 'reviewer',
+      task: 't',
+      baseBranch: 'vertragus/arsenale/agent-1'
+    })
+
+    expect(baseBranches).toEqual([undefined, 'vertragus/arsenale/agent-1'])
   })
 
   it('rejects an unknown role and names the valid ones', async () => {
