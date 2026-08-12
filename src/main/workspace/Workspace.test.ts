@@ -19,7 +19,7 @@ interface Harness {
   windows: FakeWindows
   spawns: RecordedSpawn[]
   prompts: string[]
-  seedOptions: Array<{ autoSubmit?: boolean } | undefined>
+  seedOptions: Array<import('@main/agents/interactiveReady').SeedWithReadyOptions | undefined>
   now: { value: number }
 }
 
@@ -489,7 +489,8 @@ describe('the real seed handshake', () => {
     seedOptions: {
       ready: { idleMs: 5, pollMs: 1, minChars: 1, timeoutMs: 500 },
       maxAttempts: 1,
-      submitDelayMs: 5
+      submitDelayMs: 5,
+      submitRetries: 1
     }
   }
 
@@ -520,6 +521,22 @@ describe('autoSubmitTasks', () => {
     const { workspace, seedOptions } = harness()
     await workspace.startAgent({ role: 'worker', task: 'Do the thing.' })
     expect(seedOptions.at(-1)?.autoSubmit).toBe(true)
+  })
+
+  it('forwards the provider seed tuning into the handshake options', async () => {
+    const { workspace, seedOptions } = harness({
+      profile: testProfile({
+        slots: [
+          { id: 'slot-worker', roleId: 'worker', providerId: 'cursor' },
+          { id: 'slot-reviewer', roleId: 'reviewer', providerId: 'claude' }
+        ]
+      })
+    })
+    await workspace.startAgent({ role: 'worker', task: 'Do the thing.' })
+    expect(seedOptions.at(-1)?.submitDelayMs).toBe(750)
+    // cursor-agent redraws even after swallowing Enter, so its preset opts out
+    // of buffer-based acceptance — the field must survive the trip end-to-end.
+    expect(seedOptions.at(-1)?.submitAcceptance).toBe('sustained-activity')
   })
 
   it('is honoured for a follow-up sent to a running agent', async () => {

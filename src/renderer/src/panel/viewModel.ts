@@ -56,13 +56,71 @@ export function agentTooltip(agent: Pick<WorkspaceAgentSummary, 'name'>): string
   return loreBlurb(agent.name)
 }
 
-/** Tooltip for a workspace card — what kind of place is this? */
-export function workspaceTooltip(workspace: Pick<WorkspaceSummary, 'name'>): string {
-  return workspacePlaceBlurb(workspace.name) ?? workspace.name
+/**
+ * Tooltip for a workspace card — what kind of place is this, and what is it
+ * working on? The task line only appears once the orchestrator has handed out
+ * an assignment; before that the blurb stands alone.
+ */
+export function workspaceTooltip(
+  t: Translate,
+  workspace: Pick<WorkspaceSummary, 'name' | 'taskText'>
+): string {
+  const blurb = workspacePlaceBlurb(workspace.name) ?? workspace.name
+  const task = workspace.taskText?.trim()
+  return task ? `${blurb}\n\n${t('panel.workspaceTask', { task })}` : blurb
 }
 
-export function workspaceCardClass(workspace: Pick<WorkspaceSummary, 'active'>): string {
-  return workspace.active ? 'panel-card is-active' : 'panel-card'
+export function workspaceCardClass(
+  workspace: Pick<WorkspaceSummary, 'active' | 'agents'>
+): string {
+  const parts = ['panel-card']
+  if (workspace.active) parts.push('is-active')
+  if (workspaceNeedsAttention(workspace)) parts.push('needs-attention')
+  return parts.join(' ')
+}
+
+/**
+ * Soft pulse on the card when the ORCHESTRATOR is waiting on the user. A
+ * waiting subagent owns the blink on its own row instead — the card stays a
+ * normal active highlight so the eye goes to the right line.
+ */
+export function workspaceNeedsAttention(
+  workspace: Pick<WorkspaceSummary, 'agents'>
+): boolean {
+  if (
+    workspace.agents.some(
+      (agent) => agent.roleId !== ORCHESTRATOR_ROLE_ID && Boolean(agent.pendingQuestion?.trim())
+    )
+  ) {
+    return false
+  }
+  return workspace.agents.some(
+    (agent) => agent.roleId === ORCHESTRATOR_ROLE_ID && Boolean(agent.pendingQuestion?.trim())
+  )
+}
+
+/** Soft pulse on a subagent row that is parked on an open question. */
+export function agentNeedsAttention(
+  agent: Pick<WorkspaceAgentSummary, 'roleId' | 'pendingQuestion'>
+): boolean {
+  return agent.roleId !== ORCHESTRATOR_ROLE_ID && Boolean(agent.pendingQuestion?.trim())
+}
+
+/**
+ * Collapsed-card hint: a waiting subagent blinks on its own row, but a shut
+ * card hides that row. This drives the small pulsing dot in the card head so
+ * the user knows the card is worth opening.
+ */
+export function workspaceHasWaitingSubagent(
+  workspace: Pick<WorkspaceSummary, 'agents'>
+): boolean {
+  return workspace.agents.some((agent) => agentNeedsAttention(agent))
+}
+
+export function agentRowClass(
+  agent: Pick<WorkspaceAgentSummary, 'roleId' | 'pendingQuestion'>
+): string {
+  return agentNeedsAttention(agent) ? 'panel-agent needs-attention' : 'panel-agent'
 }
 
 export function agentCountLabel(
@@ -82,42 +140,136 @@ export function orderWorkspaces(workspaces: readonly WorkspaceSummary[]): Worksp
 }
 
 /**
+ * How many workspaces sit under each profile — drives the count beside the
+ * profile name. Profiles with none are simply absent from the map (the row
+ * still renders `0`).
+ */
+export function workspaceCountByProfile(
+  workspaces: readonly Pick<WorkspaceSummary, 'profileId'>[]
+): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (const entry of workspaces) {
+    counts.set(entry.profileId, (counts.get(entry.profileId) ?? 0) + 1)
+  }
+  return counts
+}
+
+/**
+ * Narrow the workspace list to one profile, or pass everything through when
+ * nothing is selected. Expansion / selection helpers consume this filtered
+ * list so a hidden card cannot stay "open".
+ */
+export function filterWorkspaces(
+  workspaces: readonly WorkspaceSummary[],
+  selectedProfileId: string | null
+): WorkspaceSummary[] {
+  if (selectedProfileId === null) return [...workspaces]
+  return workspaces.filter((entry) => entry.profileId === selectedProfileId)
+}
+
+/**
+ * Toggle the profile filter. Clicking the active filter clears it; clicking
+ * another profile (or the same one when idle) selects it. Zero workspaces does
+ * not change the toggle — the empty state is still a truthful filter.
+ */
+export function nextSelectedProfileId(
+  selected: string | null,
+  clickedId: string
+): string | null {
+  return selected === clickedId ? null : clickedId
+}
+
+/**
+ * Drop a filter whose profile has disappeared from the list so the UI cannot
+ * stick on an invisible selection. A still-present id (even with zero
+ * workspaces) is left alone — the user clears it by clicking again.
+ */
+export function resolveSelectedProfileId(
+  profiles: readonly { id: string }[],
+  selected: string | null
+): string | null {
+  if (selected === null) return null
+  return profiles.some((entry) => entry.id === selected) ? selected : null
+}
+
+/**
  * Selection for which workspace card shows its agents.
  *
  * `undefined` — the user has not clicked yet; follow the active workspace.
  * `null` — the user toggled the open card shut; keep every card collapsed.
+ * {@link EXPAND_ALL_WORKSPACES} — every visible card is open.
  * a string — expand that id while it still exists.
  */
 export type SelectedWorkspaceId = string | null | undefined
+
+/** Sentinel stored in `selectedWorkspaceId` when the section header opens every card. */
+export const EXPAND_ALL_WORKSPACES = '__all__'
 
 /**
  * Which card is effectively expanded. Pure so the panel can stay dumb and the
  * decision is unit-testable without a DOM: disappearances fall back to the
  * active workspace (same as "never clicked"), an explicit collapse stays
- * collapsed, and a still-present selection wins.
+ * collapsed, and a still-present selection wins. Expand-all is handled by
+ * {@link isWorkspaceExpanded} — this helper still returns a single id.
  */
 export function expandedWorkspaceId(
   workspaces: readonly Pick<WorkspaceSummary, 'workspaceId' | 'active'>[],
   selected: SelectedWorkspaceId
 ): string | null {
-  if (selected === null) return null
+  if (selected === null || selected === EXPAND_ALL_WORKSPACES) return null
   if (typeof selected === 'string' && workspaces.some((entry) => entry.workspaceId === selected)) {
     return selected
   }
   return workspaces.find((entry) => entry.active)?.workspaceId ?? null
 }
 
+/** Whether one card should list its agents under the current selection. */
+export function isWorkspaceExpanded(
+  workspaces: readonly Pick<WorkspaceSummary, 'workspaceId' | 'active'>[],
+  selected: SelectedWorkspaceId,
+  workspaceId: string
+): boolean {
+  if (selected === EXPAND_ALL_WORKSPACES) return true
+  return expandedWorkspaceId(workspaces, selected) === workspaceId
+}
+
+/** Section-header chevron: true when every card is open via expand-all. */
+export function areAllWorkspacesExpanded(selected: SelectedWorkspaceId): boolean {
+  return selected === EXPAND_ALL_WORKSPACES
+}
+
+/**
+ * Toggle expand-all from the section header. Open → collapse everything;
+ * anything else → open everything.
+ */
+export function nextExpandAllSelection(selected: SelectedWorkspaceId): SelectedWorkspaceId {
+  return selected === EXPAND_ALL_WORKSPACES ? null : EXPAND_ALL_WORKSPACES
+}
+
 /**
  * Toggle / select from a card-head click. Clicking the already-expanded card
- * collapses it; clicking another selects that one. The returned value is what
- * PanelApp should store in `selectedWorkspaceId`.
+ * collapses it; clicking another selects that one. Expand-all exits into a
+ * single-card selection so the click always has a clear next state.
  */
 export function nextSelectedWorkspaceId(
   workspaces: readonly Pick<WorkspaceSummary, 'workspaceId' | 'active'>[],
   selected: SelectedWorkspaceId,
   clickedId: string
 ): SelectedWorkspaceId {
+  if (selected === EXPAND_ALL_WORKSPACES) return clickedId
   return expandedWorkspaceId(workspaces, selected) === clickedId ? null : clickedId
+}
+
+/**
+ * Card-head click should also bring that workspace's CLI windows forward —
+ * but only when the click opens/selects the card, never when it collapses,
+ * and never for a finished (inactive) workspace.
+ */
+export function shouldFocusWorkspaceOnToggle(
+  nextSelection: SelectedWorkspaceId,
+  workspace: Pick<WorkspaceSummary, 'workspaceId' | 'active'>
+): boolean {
+  return workspace.active && nextSelection === workspace.workspaceId
 }
 
 /** Never swallow a rejected bridge call — the panel shows what went wrong. */

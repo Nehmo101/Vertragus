@@ -99,6 +99,30 @@ export interface WorkspaceMcpContext {
 export interface WorkspaceRuntime {
   ctx: WorkspaceMcpContext
   questions: PendingQuestions
+  /**
+   * The latest assignment the orchestrator handed out, shortened via
+   * {@link taskNote}. The panel shows it in the workspace tooltip — it lives
+   * here because only the MCP layer sees the raw task before the contract is
+   * appended.
+   */
+  latestTask?: string
+}
+
+/** Max length of the panel's "current task" note. */
+export const TASK_NOTE_MAX = 140
+
+/**
+ * Shorten an assignment to its first non-empty line for the workspace tooltip.
+ * Undefined for whitespace-only text — a blank note must not overwrite a
+ * meaningful one.
+ */
+export function taskNote(task: string): string | undefined {
+  const line = task
+    .split('\n')
+    .map((candidate) => candidate.trim())
+    .find((candidate) => candidate.length > 0)
+  if (!line) return undefined
+  return line.length <= TASK_NOTE_MAX ? line : `${line.slice(0, TASK_NOTE_MAX - 1)}…`
 }
 
 /** Statuses that mean "this agent no longer occupies a slot". */

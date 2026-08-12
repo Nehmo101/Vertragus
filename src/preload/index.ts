@@ -113,6 +113,7 @@ const APP = {
   workspacesStart: 'workspaces:start',
   workspacesStop: 'workspaces:stop',
   workspacesFocusAgent: 'workspaces:focusAgent',
+  workspacesFocus: 'workspaces:focus',
   settingsGet: 'settings:get',
   settingsYolo: 'settings:yolo',
   settingsSet: 'settings:set',
@@ -175,6 +176,8 @@ export interface WorkspaceSummary {
   profileId: string
   profileName?: string
   active: boolean
+  /** Latest assignment the orchestrator handed out — the tooltip's task line. */
+  taskText?: string
   agents: WorkspaceAgentSummary[]
 }
 
@@ -290,6 +293,8 @@ const app = {
     ipcRenderer.invoke(APP.workspacesStop, { workspaceId }),
   focusAgent: (agentId: string): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesFocusAgent, { agentId }),
+  focusWorkspace: (workspaceId: string): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesFocus, { workspaceId }),
   getSettings: (): Promise<PanelSettings> => ipcRenderer.invoke(APP.settingsGet),
   setYoloMaster: (enabled: boolean): Promise<PanelSettings> =>
     ipcRenderer.invoke(APP.settingsYolo, { enabled }),

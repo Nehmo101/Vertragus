@@ -89,6 +89,7 @@ export const APP_CHANNELS = {
   workspacesStart: 'workspaces:start',
   workspacesStop: 'workspaces:stop',
   workspacesFocusAgent: 'workspaces:focusAgent',
+  workspacesFocus: 'workspaces:focus',
   settingsGet: 'settings:get',
   settingsYolo: 'settings:yolo',
   settingsSet: 'settings:set',
@@ -156,6 +157,8 @@ export interface WorkspaceSummary {
   profileName?: string
   /** False once the orchestrator is gone — the card greys out but stays. */
   active: boolean
+  /** Latest assignment the orchestrator handed out — the tooltip's task line. */
+  taskText?: string
   agents: WorkspaceAgentSummary[]
 }
 
@@ -174,6 +177,11 @@ export interface WorkspaceDirectory {
   stop(workspaceId: string): void | Promise<unknown>
   /** Bring an agent's CLI window to the front. */
   focusAgent(agentId: string): void
+  /**
+   * Bring one workspace's CLI windows forward and minimize every other
+   * agent's — positions stay; see {@link focusWorkspaceAgents}.
+   */
+  focusWorkspace(workspaceId: string): void
   /** Optional push channel; without it the panel only refreshes on demand. */
   onChange?(listener: () => void): () => void
 }
@@ -193,7 +201,9 @@ export function createStubWorkspaceDirectory(): WorkspaceDirectory {
     stop() {
       throw new Error('Workspace-Manager ist noch nicht verdrahtet.')
     },
-    focusAgent: (agentId) => focusCliWindow(agentId)
+    focusAgent: (agentId) => focusCliWindow(agentId),
+    // No manager → no workspace→agent map; quiet no-op like focusAgent on a ghost.
+    focusWorkspace() {}
   }
 }
 
@@ -671,6 +681,13 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
       typeof payload === 'string' ? payload : (payload as { agentId?: string })?.agentId
     if (!agentId) throw new Error('workspaces:focusAgent rejected — missing agent id')
     host.directory.focusAgent(agentId)
+  })
+
+  handle(APP_CHANNELS.workspacesFocus, requirePanel, (_event, payload) => {
+    const workspaceId =
+      typeof payload === 'string' ? payload : (payload as { workspaceId?: string })?.workspaceId
+    if (!workspaceId) throw new Error('workspaces:focus rejected — missing workspace id')
+    host.directory.focusWorkspace(workspaceId)
   })
 
   // --- settings & windows ------------------------------------------------

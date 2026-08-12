@@ -102,6 +102,31 @@ describe('providerConfigSchema', () => {
       }).success
     ).toBe(false)
   })
+
+  it('accepts optional seed-handshake overrides and rejects junk', () => {
+    expect(
+      providerConfigSchema.safeParse({ ...minimal, seed: { submitDelayMs: 750 } }).success
+    ).toBe(true)
+    expect(
+      providerConfigSchema.safeParse({
+        ...minimal,
+        seed: { submitAcceptance: 'sustained-activity' }
+      }).success
+    ).toBe(true)
+    expect(
+      providerConfigSchema.safeParse({ ...minimal, seed: { submitAcceptance: 'buffer-change' } })
+        .success
+    ).toBe(true)
+    expect(
+      providerConfigSchema.safeParse({ ...minimal, seed: { submitRetries: 0 } }).success
+    ).toBe(false)
+    expect(
+      providerConfigSchema.safeParse({ ...minimal, seed: { submitAcceptance: 'always' } }).success
+    ).toBe(false)
+    expect(
+      providerConfigSchema.safeParse({ ...minimal, seed: { unknown: true } }).success
+    ).toBe(false)
+  })
 })
 
 describe('normalizeProviderId', () => {

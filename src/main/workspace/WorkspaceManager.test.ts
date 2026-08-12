@@ -19,14 +19,17 @@ class FakeMcp implements McpServerHandle {
   port = 4711
   readonly contexts: WorkspaceMcpContext[] = []
   readonly unregistered: string[] = []
+  private readonly runtimes = new Map<string, RegisteredWorkspace['runtime']>()
 
   constructor(private readonly log: string[] = []) {}
 
   registerWorkspace(ctx: WorkspaceMcpContext): RegisteredWorkspace {
     this.contexts.push(ctx)
     this.log.push(`register:${ctx.workspaceName}`)
+    const runtime = { ctx, questions: new PendingQuestions() }
+    this.runtimes.set(ctx.workspaceId, runtime)
     return {
-      runtime: { ctx, questions: new PendingQuestions() },
+      runtime,
       orchestratorUrl: `http://127.0.0.1:${this.port}/mcp?ws=${ctx.workspaceId}&token=${ctx.orchToken}`,
       subagentUrl: (agentId: string) =>
         `http://127.0.0.1:${this.port}/mcp?ws=${ctx.workspaceId}&agent=${agentId}&token=${ctx.subToken}`
@@ -35,6 +38,7 @@ class FakeMcp implements McpServerHandle {
 
   unregisterWorkspace(workspaceId: string): void {
     this.unregistered.push(workspaceId)
+    this.runtimes.delete(workspaceId)
     this.log.push('unregister')
   }
 
@@ -43,6 +47,12 @@ class FakeMcp implements McpServerHandle {
   }
   subagentUrl(): string {
     return ''
+  }
+  pendingQuestion(workspaceId: string, agentId: string): string | undefined {
+    return this.runtimes.get(workspaceId)?.questions.openForAgent(agentId)?.question
+  }
+  workspaceTask(workspaceId: string): string | undefined {
+    return this.runtimes.get(workspaceId)?.latestTask
   }
   async close(): Promise<void> {}
 }

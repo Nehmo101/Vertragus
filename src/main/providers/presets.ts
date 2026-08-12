@@ -129,7 +129,23 @@ const PRESETS: readonly ProviderConfig[] = [
     // PTY after the seed handshake, and MCP is deliberately not attached.
     systemPromptDelivery: { kind: 'pty' },
     mcp: { kind: 'none' },
-    modelDiscovery: { kind: 'cli', args: ['models'], parse: 'lines' }
+    modelDiscovery: { kind: 'cli', args: ['models'], parse: 'lines' },
+    // Role prompt + task are pasted as one multi-KB block. Measured against
+    // the real CLI (v2026.08.11, PTY probe): while digesting the paste the TUI
+    // freezes for >1s, an Enter that lands mid-digestion is swallowed — yet
+    // still triggers a redraw (the "[Pasted text …]" chip), so the default
+    // 'buffer-change' acceptance read the swallow as success and never
+    // retried; and an Enter pressed into the freeze or into a running turn
+    // queues the composer content as an EXTRA follow-up turn. Hence
+    // 'sustained-activity': one text write, every Enter gated on a settled
+    // buffer, and only seconds-long output (a turn's spinner) stops the
+    // bounded retries. The wide watch window gives the sustain check room.
+    seed: {
+      submitDelayMs: 750,
+      submitRetries: 3,
+      submitWatchMs: 2500,
+      submitAcceptance: 'sustained-activity'
+    }
   }),
   providerConfigSchema.parse({
     id: 'ollama',
