@@ -86,8 +86,11 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
 
     // Register before spawning: the orchestrator's launch args contain its MCP
     // URL, so there is no window in which an agent exists without an attachment.
+    // Hand URLs and the PendingQuestions registry to the workspace — sentinel
+    // ASK lines create entries in the same registry MCP tools use.
     const registered = deps.mcp.registerWorkspace(workspace.mcpContext())
     workspace.attachMcp(registered)
+    workspace.attachQuestions(registered.runtime.questions)
     workspaces.set(workspace.workspaceId, workspace)
 
     try {

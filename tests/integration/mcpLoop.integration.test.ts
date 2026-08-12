@@ -44,7 +44,8 @@ interface FakeProcess {
 /**
  * An AgentHost that really spawns processes. It owns exactly one event kind —
  * `agent_exited` — which is the contract every real host implementation
- * follows; every other event comes from the MCP tools themselves.
+ * follows; every other event comes from the MCP tools themselves. Integration
+ * fake agents always speak MCP (not sentinel).
  */
 class SpawningHost implements AgentHost {
   readonly processes = new Map<string, FakeProcess>()
@@ -54,6 +55,10 @@ class SpawningHost implements AgentHost {
     private readonly events: EventQueue,
     private readonly subagentUrl: (agentId: string) => string
   ) {}
+
+  reportingMode(_role: string): AgentSummary['reporting'] {
+    return 'mcp'
+  }
 
   async startAgent(input: StartAgentInput): Promise<StartedAgent> {
     const n = ++this.counter
@@ -72,7 +77,8 @@ class SpawningHost implements AgentHost {
         status: 'running',
         model: input.model,
         worktreePath: input.worktree ? `/worktrees/${agentId}` : undefined,
-        lastOutputAgeSec: 0
+        lastOutputAgeSec: 0,
+        reporting: 'mcp'
       },
       child,
       lines: [],

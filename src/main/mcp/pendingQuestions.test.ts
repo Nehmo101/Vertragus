@@ -111,4 +111,23 @@ describe('PendingQuestions', () => {
       state: 'unknown'
     })
   })
+
+  it('preserves deliverAnswer on create/get/answer for sentinel PTY delivery', async () => {
+    const questions = registry()
+    const delivered: string[] = []
+    const created = questions.create('a1', 'which file?', {
+      deliverAnswer: async (answer) => {
+        delivered.push(answer)
+      }
+    })
+    expect(created.deliverAnswer).toBeTypeOf('function')
+    expect(questions.get(created.questionId)?.deliverAnswer).toBeTypeOf('function')
+
+    const closed = questions.answer(created.questionId, 'src/main/foo.ts')
+    expect(closed?.deliverAnswer).toBeTypeOf('function')
+    await closed!.deliverAnswer!('src/main/foo.ts')
+    expect(delivered).toEqual(['src/main/foo.ts'])
+    // MCP-created questions leave the callback unset.
+    expect(questions.create('a2', 'plain?').deliverAnswer).toBeUndefined()
+  })
 })

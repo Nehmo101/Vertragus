@@ -189,7 +189,7 @@ describe('ollama preset', () => {
 
   it('has no permission layer to bypass and takes the model positionally', () => {
     expect(ollama.yoloArgs).toEqual([])
-    expect(ollama.args).toEqual(['run'])
+    expect(ollama.args).toEqual(['run', '--nowordwrap'])
     expect(ollama.modelArg).toBeUndefined()
   })
 

@@ -162,8 +162,8 @@ describe('buildAgentArgv — per preset', () => {
       })
     )
 
-    // `ollama run <model>` — a --model flag here would be a launch failure.
-    expect(argv).toEqual(['run', 'qwen3:32b'])
+    // `ollama run --nowordwrap <model>` — a --model flag here would be a launch failure.
+    expect(argv).toEqual(['run', '--nowordwrap', 'qwen3:32b'])
     expect(ptySystemPrompt).toBe('You are a Worker.')
   })
 
@@ -358,7 +358,7 @@ describe('MCP attach — the regression that killed the old repo', () => {
 
   it('leaves an mcp: none provider unattached — a declaration, not an omission', () => {
     const { argv } = buildAgentArgv(launchInput({ provider: preset('ollama'), model: 'qwen3:32b' }))
-    expect(argv).toEqual(['run', 'qwen3:32b'])
+    expect(argv).toEqual(['run', '--nowordwrap', 'qwen3:32b'])
   })
 
   /**

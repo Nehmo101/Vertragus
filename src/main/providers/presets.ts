@@ -158,8 +158,10 @@ const PRESETS: readonly ProviderConfig[] = [
     presetId: 'ollama',
     label: 'Ollama (local)',
     command: 'ollama',
-    // `ollama run <model>` — the model is positional, hence no modelArg.
-    args: ['run'],
+    // `ollama run --nowordwrap <model>` — the model is positional, hence no modelArg.
+    // `--nowordwrap` (verified ollama 0.30.11) removes Ollama-side wrapping so
+    // the sentinel parser only has to rejoin terminal-width wraps.
+    args: ['run', '--nowordwrap'],
     yoloArgs: [],
     versionArgs: ['--version'],
     auth: { loginArgs: ['signin'] },

@@ -50,6 +50,52 @@ export function stripAnsi(value: string): string {
     .replace(CONTROL_PATTERN, '')
 }
 
+/**
+ * Shared PTY chunk normalisation for `read_output` and the sentinel parser.
+ *
+ * Vertical cursor moves become `\n` first (so alternate-screen TUIs keep their
+ * line structure), then ANSI/OSC/C0 junk is stripped. One function so the two
+ * consumers cannot drift.
+ *
+ * For whole buffers (`terminalTail` / `read_output`) call this directly. For
+ * incremental PTY reads, use {@link splitIncompleteAnsiTail} first so an escape
+ * split across chunk boundaries is not half-eaten.
+ */
+export function normalizeTerminalChunk(value: string): string {
+  return stripAnsi(value.replace(CURSOR_BREAK_PATTERN, '\n'))
+}
+
+/**
+ * Split off a trailing incomplete ANSI/OSC escape so the next chunk can finish
+ * it. Complete escapes (and text with no ESC) stay in `ready`.
+ *
+ * Without this, a lone ESC at a chunk boundary is stripped by CONTROL_PATTERN
+ * and the remainder (`[0m…`) leaks into the payload as literal text.
+ */
+export function splitIncompleteAnsiTail(value: string): { ready: string; hold: string } {
+  const lastEsc = value.lastIndexOf(ESC)
+  if (lastEsc < 0) return { ready: value, hold: '' }
+  const tail = value.slice(lastEsc)
+  if (isCompleteEscapeFrom(tail)) return { ready: value, hold: '' }
+  return { ready: value.slice(0, lastEsc), hold: tail }
+}
+
+/** True when `from` (starting at ESC) begins with a complete escape sequence. */
+function isCompleteEscapeFrom(from: string): boolean {
+  if (!from.startsWith(ESC) || from.length < 2) return false
+  const second = from.charAt(1)
+  // OSC: ESC ] … BEL | ESC \
+  if (second === ']') {
+    return from.includes(BEL) || from.includes(`${ESC}\\`)
+  }
+  // CSI: ESC [ params/intermediate final
+  if (second === '[') {
+    return new RegExp(`^${ESC}\\[[0-9;?]*[ -/]*[@-~]`).test(from)
+  }
+  // Two-character escapes (ESC D / ESC M / ESC = / …)
+  return /[@-Z\\-_]/.test(second)
+}
+
 export const DEFAULT_MAX_LINE_LENGTH = 400
 
 /**
@@ -69,10 +115,9 @@ export function terminalTail(
   maxLines: number,
   maxLineLength = DEFAULT_MAX_LINE_LENGTH
 ): string[] {
-  const raw = stripAnsi(buffer.replace(CURSOR_BREAK_PATTERN, '\n'))
+  const raw = normalizeTerminalChunk(buffer)
     .split('\n')
     .map((line) => line.slice(line.lastIndexOf('\r') + 1).trimEnd())
-
   const lines: string[] = []
   for (const line of raw) {
     if (lines.length > 0 && lines[lines.length - 1] === line) continue
