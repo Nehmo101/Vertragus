@@ -38,16 +38,19 @@ describe('start_agent', () => {
     expect(events[0]).toMatchObject({ type: 'agent_started', agentId: 'agent-1', roleId: 'worker' })
   })
 
-  it('passes model and worktree through and reports the worktree path back', async () => {
+  it('passes the model through and reports the agent’s own worktree path back', async () => {
     const { runtime, tools } = setup()
     const result = await callTool(tools, 'start_agent', {
       role: 'worker',
       task: 't',
-      model: 'opus',
-      worktree: true
+      model: 'opus'
     })
+    // Isolation is unconditional — there is no worktree flag to set or forget.
     expect(result.json.worktreePath).toBe('/tmp/worktrees/agent-1')
-    expect(runtime.events.all()[0]).toMatchObject({ model: 'opus' })
+    expect(runtime.events.all()[0]).toMatchObject({
+      model: 'opus',
+      worktreePath: '/tmp/worktrees/agent-1'
+    })
   })
 
   it('rejects an unknown role and names the valid ones', async () => {

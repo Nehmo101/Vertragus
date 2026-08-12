@@ -22,8 +22,6 @@ export interface StartAgentInput {
   /** Full seed text — task plus the appended contract. */
   task: string
   model?: string
-  /** Run in an isolated git worktree instead of the shared repo. */
-  worktree?: boolean
 }
 
 /** What the host reports back once the agent process is up and seeded. */
@@ -31,7 +29,8 @@ export interface StartedAgent {
   agentId: string
   name: string
   role: string
-  worktreePath?: string
+  /** Every agent works in its own git worktree — this is where. */
+  worktreePath: string
 }
 
 /** One row of `list_agents` / the `agentsSummary` in `await_events`. */

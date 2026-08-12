@@ -7,10 +7,12 @@ import {
   FakeWindows,
   fakeSeed,
   fakeSpawn,
+  fakeWorktrees,
   sequentialIds,
   testProfile,
   testProviders,
-  type RecordedSpawn
+  type RecordedSpawn,
+  type RecordedWorktree
 } from './testing'
 
 interface Harness {
@@ -18,6 +20,7 @@ interface Harness {
   registry: FakeRegistry
   windows: FakeWindows
   spawns: RecordedSpawn[]
+  worktrees: RecordedWorktree[]
   prompts: string[]
   seedOptions: Array<{ autoSubmit?: boolean; submitDelayMs?: number } | undefined>
   now: { value: number }
@@ -34,6 +37,7 @@ function harness(
   const windows = new FakeWindows()
   const spawner = fakeSpawn({ ptySystemPrompt: overrides.ptySystemPrompt })
   const seeder = fakeSeed()
+  const worktrees = fakeWorktrees()
   const now = { value: 1_000_000 }
 
   const workspace = new Workspace(
@@ -44,6 +48,7 @@ function harness(
       configDir: '/config',
       providers: testProviders(),
       spawn: spawner.spawn as unknown as WorkspaceDeps['spawn'],
+      createWorktree: worktrees.createWorktree as unknown as WorkspaceDeps['createWorktree'],
       seed: seeder.seed as unknown as WorkspaceDeps['seed'],
       now: () => now.value,
       newId: sequentialIds('a'),
@@ -60,6 +65,7 @@ function harness(
     registry,
     windows,
     spawns: spawner.calls,
+    worktrees: worktrees.calls,
     prompts: seeder.prompts,
     seedOptions: seeder.options,
     now
@@ -67,18 +73,18 @@ function harness(
 }
 
 describe('startAgent', () => {
-  it('spawns a named subagent in the repo, registers it and opens its window', async () => {
+  it('spawns a named subagent in its own worktree, registers it and opens its window', async () => {
     const { workspace, registry, windows, spawns } = harness()
 
     const started = await workspace.startAgent({ role: 'worker', task: 'Do the thing.' })
 
     expect(started.role).toBe('worker')
     expect(started.name).toMatch(/\S/)
-    expect(started.worktreePath).toBeUndefined()
+    expect(started.worktreePath).toBe(`/repo/.vertragus/worktrees/${started.agentId}`)
 
     const launch = spawns[0]!.input
     expect(launch.kind).toBe('subagent')
-    expect(launch.cwd).toBe('/repo')
+    expect(launch.cwd).toBe(started.worktreePath)
     expect(launch.mcpUrl).toContain(`agent=${started.agentId}`)
     // Slot blueprint: role → provider + model.
     expect(launch.provider.id).toBe('claude')
@@ -203,21 +209,43 @@ describe('startAgent', () => {
 })
 
 describe('worktrees', () => {
-  it('creates one on request and runs the agent inside it', async () => {
-    const createWorktree = vi.fn(async () => ({ path: '/repo/.vertragus/worktrees/a-1', branch: 'b' }))
-    const { workspace, spawns } = harness({ deps: { createWorktree } })
+  it('creates one for every subagent, unasked, and runs the agent inside it', async () => {
+    const { workspace, spawns, worktrees } = harness()
 
-    const started = await workspace.startAgent({ role: 'worker', task: 'x', worktree: true })
+    const started = await workspace.startAgent({ role: 'worker', task: 'x' })
 
-    expect(createWorktree).toHaveBeenCalledWith(
-      '/repo',
-      started.agentId,
-      `vertragus/paradiso/${slugifyRef(started.name)}`,
-      undefined
-    )
-    expect(spawns[0]!.input.cwd).toBe('/repo/.vertragus/worktrees/a-1')
-    expect(started.worktreePath).toBe('/repo/.vertragus/worktrees/a-1')
-    expect(workspace.listAgents()[0]!.worktreePath).toBe('/repo/.vertragus/worktrees/a-1')
+    expect(worktrees).toEqual([
+      {
+        repoPath: '/repo',
+        agentId: started.agentId,
+        branchName: `vertragus/paradiso/${slugifyRef(started.name)}`
+      }
+    ])
+    expect(spawns[0]!.input.cwd).toBe(`/repo/.vertragus/worktrees/${started.agentId}`)
+    expect(started.worktreePath).toBe(`/repo/.vertragus/worktrees/${started.agentId}`)
+    expect(workspace.listAgents()[0]!.worktreePath).toBe(started.worktreePath)
+  })
+
+  it('gives each agent its own worktree — never a shared checkout', async () => {
+    const { workspace, spawns } = harness()
+    const first = await workspace.startAgent({ role: 'worker', task: 'x' })
+    const second = await workspace.startAgent({ role: 'reviewer', task: 'y' })
+
+    expect(first.worktreePath).not.toBe(second.worktreePath)
+    expect(spawns.map((spawn) => spawn.input.cwd)).toEqual([
+      first.worktreePath,
+      second.worktreePath
+    ])
+  })
+
+  it('isolates the orchestrator too', async () => {
+    const { workspace, spawns, worktrees } = harness()
+    const orchestrator = await workspace.startOrchestrator()
+
+    expect(orchestrator.worktreePath).toBe(`/repo/.vertragus/worktrees/${orchestrator.agentId}`)
+    expect(spawns[0]!.input.cwd).toBe(orchestrator.worktreePath)
+    expect(worktrees[0]!.branchName).toBe(`vertragus/paradiso/${slugifyRef(orchestrator.name)}`)
+    expect(workspace.orchestrator?.worktreePath).toBe(orchestrator.worktreePath)
   })
 
   it('does not leave a half-started agent behind when git fails', async () => {
@@ -225,10 +253,19 @@ describe('worktrees', () => {
       throw new Error('git worktree add failed')
     })
     const { workspace } = harness({ deps: { createWorktree } })
-    await expect(
-      workspace.startAgent({ role: 'worker', task: 'x', worktree: true })
-    ).rejects.toThrow(/git worktree add failed/)
+    await expect(workspace.startAgent({ role: 'worker', task: 'x' })).rejects.toThrow(
+      /git worktree add failed/
+    )
     expect(workspace.listAgents()).toHaveLength(0)
+  })
+
+  it('does not leave a half-started orchestrator behind when git fails', async () => {
+    const createWorktree = vi.fn(async () => {
+      throw new Error('git worktree add failed')
+    })
+    const { workspace } = harness({ deps: { createWorktree } })
+    await expect(workspace.startOrchestrator()).rejects.toThrow(/git worktree add failed/)
+    expect(workspace.orchestrator).toBeUndefined()
   })
 })
 
@@ -412,7 +449,8 @@ describe('startOrchestrator', () => {
     const launch = spawns[0]!.input
     expect(launch.kind).toBe('orchestrator')
     expect(launch.yolo).toBe(false)
-    expect(launch.cwd).toBe('/repo')
+    // Its own worktree, like every agent — never the shared checkout.
+    expect(launch.cwd).toBe(`/repo/.vertragus/worktrees/${orchestrator.agentId}`)
     expect(launch.model).toBe('opus')
     expect(launch.mcpUrl).toContain('token=orch')
     expect(launch.systemPrompt).toContain('Paradiso')

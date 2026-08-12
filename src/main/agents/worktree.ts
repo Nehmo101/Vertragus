@@ -1,10 +1,12 @@
 /**
- * Git worktrees for agents that must work in isolation.
+ * Git worktrees — the isolation every agent gets.
  *
- * The default is the shared repository — several agents in one checkout, which
- * is what makes a review/test/worker team cheap. `start_agent{worktree: true}`
- * opts one agent out: it gets `<repo>/.vertragus/worktrees/<agentId>` on its own
- * branch `vertragus/<workspace>/<agent>`.
+ * Every agent, the orchestrator included, works in its own worktree at
+ * `<repo>/.vertragus/worktrees/<agentId>` on its own branch
+ * `vertragus/<workspace>/<agent>`. There is no shared-checkout mode: parallel
+ * agents — and parallel workspaces on the same repository — must never trample
+ * each other's files. The branches merge like any other git branches, so
+ * nothing about isolation strands the work.
  *
  * Two deliberate properties:
  *
@@ -17,14 +19,17 @@
  *    by {@link listWorktrees} and removed by hand.
  */
 import { execFile } from 'node:child_process'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
 
+/** Vertragus' directory inside the repository — worktrees and nothing else. */
+export const VERTRAGUS_DIR = '.vertragus'
+
 /** Worktrees live inside the repo so they travel with it and are easy to find. */
-export const WORKTREE_ROOT = join('.vertragus', 'worktrees')
+export const WORKTREE_ROOT = join(VERTRAGUS_DIR, 'worktrees')
 
 /** Branch namespace; everything Vertragus creates is recognizable at a glance. */
 export const BRANCH_PREFIX = 'vertragus'
@@ -189,6 +194,15 @@ export async function createWorktree(
 
   // git creates the leaf itself but not the two levels above it.
   await mkdir(dirname(path), { recursive: true })
+  // `.vertragus/` self-ignores (the node_modules pattern): the worktrees sit
+  // inside the repository, and without this every checkout in the main working
+  // copy shows up untracked — noise in the user's `git status` at best, an
+  // accidental `git add -A` of all the worktrees at worst.
+  await writeFile(join(repoPath, VERTRAGUS_DIR, '.gitignore'), '*\n', { flag: 'wx' }).catch(
+    (error: NodeJS.ErrnoException) => {
+      if (error.code !== 'EEXIST') throw error
+    }
+  )
 
   try {
     await git(['worktree', 'add', path, '-b', branch], repoPath)

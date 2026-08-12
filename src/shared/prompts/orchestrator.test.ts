@@ -33,6 +33,15 @@ describe('buildOrchestratorSystemPrompt', () => {
     expect(prompt).toMatch(/no roles configured/i)
   })
 
+  it('explains that every agent works in its own worktree and merging is delegated', () => {
+    const prompt = buildOrchestratorSystemPrompt(base)
+    expect(prompt).toMatch(/each work in a separate git worktree/i)
+    expect(prompt).toMatch(/delegate the merge/i)
+    // The old opt-in flag is gone — the prompt must not teach it.
+    expect(prompt).not.toContain('worktree: true')
+    expect(prompt).toContain('start_agent{role, task, model?}')
+  })
+
   it('names all six orchestrator tools', () => {
     const prompt = buildOrchestratorSystemPrompt(base)
     for (const tool of [

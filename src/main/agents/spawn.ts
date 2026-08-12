@@ -30,9 +30,9 @@
  * - `<configDir>/vertragus-mcp/<fileTag>.agent.md` — Kimi's agent profile.
  *   `configDir` is Electron's `userData`, so both live outside the repository.
  * - `<cwd>/.kimi-code/mcp.json` — Kimi's MCP attachment. This one is IN THE
- *   AGENT'S WORKING DIRECTORY (the worktree, or the repository itself for the
- *   orchestrator) because that is the only place Kimi looks. It is the single
- *   artefact a Vertragus launch writes into user territory.
+ *   AGENT'S WORKING DIRECTORY (its own worktree) because that is the only
+ *   place Kimi looks. It is the single artefact a Vertragus launch writes into
+ *   user territory.
  * - Codex writes nothing at all: every setting is a process-local `-c` override.
  */
 import {
@@ -77,7 +77,7 @@ export interface AgentLaunchInput {
   effort?: EffortLevel
   /** Honored for subagents only — see rule 2 above. */
   yolo?: boolean
-  /** Working directory: the shared repo, or this agent's worktree. */
+  /** Working directory: this agent's own worktree. */
   cwd: string
   /** This agent's personal MCP URL, already carrying ws/agent/token. */
   mcpUrl: string

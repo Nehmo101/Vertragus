@@ -56,21 +56,18 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
       description:
         'Start a subagent for one self-contained task. The task text must state the goal, the files or ' +
         'area involved, the definition of done and how to verify it; Vertragus appends the reporting ' +
-        'contract automatically. Returns the agentId you address from then on.',
+        'contract automatically. Every agent works in its own git worktree on its own branch, so agents ' +
+        'never conflict with each other. Returns the agentId you address from then on.',
       inputSchema: {
         role: z
           .string()
           .min(1)
           .describe(`One of the configured roles: ${ctx.roles.join(', ') || '(none configured)'}`),
         task: z.string().min(1).max(20_000).describe('The complete assignment for this agent'),
-        model: z.string().min(1).max(200).optional().describe('Override the role default model'),
-        worktree: z
-          .boolean()
-          .optional()
-          .describe('Run in an isolated git worktree instead of the shared repository')
+        model: z.string().min(1).max(200).optional().describe('Override the role default model')
       }
     },
-    async ({ role, task, model, worktree }): Promise<ToolText> => {
+    async ({ role, task, model }): Promise<ToolText> => {
       if (!ctx.roles.includes(role)) {
         return toolError({
           error: 'unknown_role',
@@ -110,7 +107,7 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
       const seed = `${task}\n\n${buildTaskContract({ role })}`
 
       try {
-        const started = await ctx.host.startAgent({ role, task: seed, model, worktree })
+        const started = await ctx.host.startAgent({ role, task: seed, model })
         ctx.events.push({
           type: 'agent_started',
           agentId: started.agentId,

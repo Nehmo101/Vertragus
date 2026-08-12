@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -74,6 +74,25 @@ describe('createWorktree', () => {
     expect(entry?.branch).toBe('vertragus/paradiso/caronte')
     // The main checkout is always in the list too.
     expect(worktrees.length).toBeGreaterThanOrEqual(2)
+  }, 30_000)
+
+  it('makes .vertragus self-ignoring so the worktrees never pollute git status', async () => {
+    await createWorktree(repoPath, 'agent-ignore', 'vertragus/paradiso/ignaro')
+
+    expect(readFileSync(join(repoPath, '.vertragus', '.gitignore'), 'utf8')).toBe('*\n')
+    // The proof is git's own view: nothing under .vertragus shows up untracked.
+    const { stdout } = await execFileAsync('git', ['status', '--porcelain'], {
+      cwd: repoPath,
+      windowsHide: true
+    })
+    expect(stdout).not.toContain('.vertragus')
+  }, 30_000)
+
+  it('leaves an existing .vertragus/.gitignore alone', async () => {
+    const ignorePath = join(repoPath, '.vertragus', '.gitignore')
+    writeFileSync(ignorePath, '# user-edited\nworktrees/\n')
+    await createWorktree(repoPath, 'agent-keep', 'vertragus/paradiso/custode')
+    expect(readFileSync(ignorePath, 'utf8')).toBe('# user-edited\nworktrees/\n')
   }, 30_000)
 
   it('does not collide with the branch a previous run left behind', async () => {
