@@ -5,10 +5,12 @@ import { StopIcon } from './icons'
 import {
   agentCountLabel,
   agentDotClass,
+  agentRowClass,
   agentStatusLine,
   agentTooltip,
   workspaceCardClass,
-  workspacePlaceTooltip
+  workspaceHasWaitingSubagent,
+  workspaceTooltip
 } from './viewModel'
 
 interface AgentProps {
@@ -27,7 +29,7 @@ function AgentRow({ agent, onFocus }: AgentProps): React.JSX.Element {
     <li>
       <button
         type="button"
-        className="panel-agent"
+        className={agentRowClass(agent)}
         style={{ '--role-color': agent.roleColor } as React.CSSProperties}
         title={t('panel.focusAgent', { agent: agent.name })}
         onClick={() => onFocus(agent.agentId)}
@@ -85,9 +87,14 @@ export function WorkspaceCard({
           <LoreTip
             className="panel-card-name"
             name={workspace.name}
-            blurb={workspacePlaceTooltip(workspace)}
+            blurb={workspaceTooltip(t, workspace)}
           />
           <span className="panel-card-count">{agentCountLabel(t, workspace)}</span>
+          {!expanded && workspaceHasWaitingSubagent(workspace) ? (
+            // The blink belongs to the subagent's row, which a shut card hides
+            // — this dot is only the "open me" hint.
+            <span className="panel-card-attention" title={t('panel.subagentWaiting')} />
+          ) : null}
         </button>
         <button
           type="button"

@@ -124,6 +124,7 @@ const APP = {
   workspacesStart: 'workspaces:start',
   workspacesStop: 'workspaces:stop',
   workspacesFocusAgent: 'workspaces:focusAgent',
+  workspacesFocus: 'workspaces:focus',
   worktreesList: 'worktrees:list',
   worktreesRemove: 'worktrees:remove',
   retroList: 'retro:list',
@@ -194,6 +195,8 @@ export interface WorkspaceSummary {
   profileId: string
   profileName?: string
   active: boolean
+  /** Latest assignment the orchestrator handed out — the tooltip's task line. */
+  taskText?: string
   agents: WorkspaceAgentSummary[]
 }
 
@@ -327,6 +330,8 @@ const app = {
     ipcRenderer.invoke(APP.workspacesStop, { workspaceId }),
   focusAgent: (agentId: string): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesFocusAgent, { agentId }),
+  focusWorkspace: (workspaceId: string): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesFocus, { workspaceId }),
   /** Stale worktrees of this profile's repo — the panel's cleanup list. */
   listStaleWorktrees: (profileId: string): Promise<StaleWorktreeSummary[]> =>
     ipcRenderer.invoke(APP.worktreesList, { profileId }),

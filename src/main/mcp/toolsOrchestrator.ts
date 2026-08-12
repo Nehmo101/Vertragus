@@ -13,6 +13,7 @@ import {
   errorMessage,
   runningAgents,
   summarizeAgents,
+  taskNote,
   toolError,
   toolJson,
   toolText,
@@ -114,11 +115,14 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
 
       // The contract is appended HERE, in the one place every subagent start
       // passes through, so no spawn path can produce an agent that never
-      // reports back. The name is not allocated yet, hence role-only.
-      const seed = `${task}\n\n${buildTaskContract({ role })}`
+      // reports back. The name is not allocated yet, hence role-only. Dialect
+      // comes from the host (provider mcp.kind) — this layer does not guess.
+      const reporting = ctx.host.reportingMode(role)
+      const seed = `${task}\n\n${buildTaskContract({ role, reporting })}`
 
       try {
         const started = await ctx.host.startAgent({ role, task: seed, model, baseBranch })
+        runtime.latestTask = taskNote(task) ?? runtime.latestTask
         ctx.events.push({
           type: 'agent_started',
           agentId: started.agentId,
@@ -180,16 +184,40 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
             note: 'Answer a question with the agentId that asked it.'
           })
         }
+        // Sentinel questions: deliver to the PTY FIRST, then close the registry.
+        // Closing first left a failed seed with no open question and a stuck
+        // agent (dedup still held the ASK hash). MCP questions have no
+        // deliverAnswer — answer() alone wakes waitForAnswer as before.
+        if (open.deliverAnswer) {
+          try {
+            await open.deliverAnswer(text)
+          } catch (error) {
+            return toolError({
+              error: 'answer_delivery_failed',
+              agentId,
+              questionId,
+              message: errorMessage(error),
+              note: 'The question is still open — retry send_to_agent with the same questionId.'
+            })
+          }
+          runtime.questions.answer(questionId, text)
+          return toolJson({ ok: true, delivered: 'answer', agentId, questionId })
+        }
         runtime.questions.answer(questionId, text)
         return toolJson({ ok: true, delivered: 'answer', agentId, questionId })
       }
 
       const stillOpen = runtime.questions.openForAgent(agentId)
+      const known = ctx.host.listAgents().find((agent) => agent.agentId === agentId)
+      const reporting = known?.reporting ?? 'mcp'
       try {
-        await ctx.host.sendToAgent(agentId, `${text}\n\n${buildReminderSuffix()}`)
+        await ctx.host.sendToAgent(agentId, `${text}\n\n${buildReminderSuffix(reporting)}`)
       } catch (error) {
         return toolError({ error: 'send_failed', agentId, message: errorMessage(error) })
       }
+      // A follow-up instruction is the workspace's new current task; a question
+      // answer (handled above) is not.
+      runtime.latestTask = taskNote(text) ?? runtime.latestTask
       return toolJson({
         ok: true,
         delivered: 'message',

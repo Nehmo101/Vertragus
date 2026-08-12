@@ -263,6 +263,7 @@ interface Harness {
     started: string[]
     stopped: string[]
     focused: string[]
+    focusedWorkspaces: string[]
     removedWorktrees: Array<{ profileId: string; path: string }>
     staleWorktrees: { path: string; branch?: string }[]
     change?: () => void
@@ -366,6 +367,7 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     started: [] as string[],
     stopped: [] as string[],
     focused: [] as string[],
+    focusedWorkspaces: [] as string[],
     removedWorktrees: [] as Array<{ profileId: string; path: string }>,
     staleWorktrees: [
       { path: '/repo/.vertragus/worktrees/old-1', branch: 'vertragus/paradiso/caronte' }
@@ -379,6 +381,9 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     },
     focusAgent(agentId: string) {
       this.focused.push(agentId)
+    },
+    focusWorkspace(workspaceId: string) {
+      this.focusedWorkspaces.push(workspaceId)
     },
     async listStaleWorktrees(profileId: string) {
       if (profileId === 'unknown') throw new Error(`Unbekanntes Profil ${profileId}`)
@@ -706,14 +711,22 @@ describe('workspaces', () => {
     await h.ipc.invoke(APP_CHANNELS.workspacesStart, PANEL_ID, { profileId: 'p1' })
     await h.ipc.invoke(APP_CHANNELS.workspacesStop, PANEL_ID, { workspaceId: 'w1' })
     h.ipc.invoke(APP_CHANNELS.workspacesFocusAgent, PANEL_ID, { agentId: 'w1-orch' })
+    h.ipc.invoke(APP_CHANNELS.workspacesFocus, PANEL_ID, { workspaceId: 'w1' })
 
     expect(h.directory.started).toEqual(['p1'])
     expect(h.directory.stopped).toEqual(['w1'])
     expect(h.directory.focused).toEqual(['w1-orch'])
+    expect(h.directory.focusedWorkspaces).toEqual(['w1'])
     expect(h.broadcasts.map((entry) => entry.channel)).toEqual([
       APP_CHANNELS.eventWorkspaces,
       APP_CHANNELS.eventWorkspaces
     ])
+  })
+
+  it('rejects a focus-workspace call without a workspace id', () => {
+    expect(() => h.ipc.invoke(APP_CHANNELS.workspacesFocus, PANEL_ID, {})).toThrow(
+      /missing workspace id/
+    )
   })
 
   it('surfaces a refusing directory instead of swallowing it', async () => {
@@ -726,6 +739,7 @@ describe('workspaces', () => {
         start: refuse,
         stop() {},
         focusAgent() {},
+        focusWorkspace() {},
         listStaleWorktrees: async () => refuse(),
         removeWorktree: async () => refuse()
       }
@@ -1237,6 +1251,7 @@ describe('sender authorization', () => {
     APP_CHANNELS.workspacesStart,
     APP_CHANNELS.workspacesStop,
     APP_CHANNELS.workspacesFocusAgent,
+    APP_CHANNELS.workspacesFocus,
     APP_CHANNELS.settingsYolo,
     APP_CHANNELS.windowsHideAll,
     APP_CHANNELS.windowsMinimizePanel,
@@ -1513,6 +1528,7 @@ describe('production registration', () => {
       start: vi.fn(),
       stop: vi.fn(),
       focusAgent: vi.fn(),
+      focusWorkspace: vi.fn(),
       listStaleWorktrees: vi.fn(async () => []),
       removeWorktree: vi.fn(async () => [])
     }
@@ -1521,6 +1537,7 @@ describe('production registration', () => {
       start: vi.fn(),
       stop: vi.fn(),
       focusAgent: vi.fn(),
+      focusWorkspace: vi.fn(),
       listStaleWorktrees: vi.fn(async () => []),
       removeWorktree: vi.fn(async () => [])
     }

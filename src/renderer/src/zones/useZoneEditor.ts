@@ -14,6 +14,7 @@ import { applyLocale } from '../i18n'
 import { applyTheme } from '../theme'
 import { errorText } from '../lib/ipcError'
 import { demoZoneEditorPayload } from './demoPayload'
+import { autoLayoutDrafts } from './autoLayout'
 import {
   clampMove,
   clampResize,
@@ -39,6 +40,8 @@ export interface ZoneEditorState {
   removeZone(id: string): void
   moveZone(id: string, rect: PxRect): void
   resizeZone(id: string, rect: PxRect): void
+  /** Replace drafts with an auto-layout of the palette roles (not persisted until save). */
+  autoLayout(): void
   /** Called at the end of a gesture — main only needs the settled rectangles. */
   commit(): void
   save(): void
@@ -184,6 +187,18 @@ export function useZoneEditor({ displayId, demo = false }: UseZoneEditorInput): 
             : zone
         )
       )
+    },
+
+    autoLayout() {
+      if (!payload || payload.roles.length === 0) return
+      const next: DraftZone[] = autoLayoutDrafts(payload.roles, viewport).map((draft) => {
+        created.current += 1
+        return { ...draft, id: `z${created.current}` }
+      })
+      setZones(next)
+      // Push immediately — `commit()` would still see the previous `zones` closure.
+      if (!bridge || demo) return
+      bridge.draft(draftsToZones(next, displayId, viewport))
     },
 
     commit,

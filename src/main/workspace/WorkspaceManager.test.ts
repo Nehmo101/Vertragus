@@ -20,14 +20,20 @@ class FakeMcp implements McpServerHandle {
   port = 4711
   readonly contexts: WorkspaceMcpContext[] = []
   readonly unregistered: string[] = []
+  private readonly runtimes = new Map<string, RegisteredWorkspace['runtime']>()
+  /** Last questions registry minted at registerWorkspace — for attachQuestions checks. */
+  lastQuestions: PendingQuestions | undefined
 
   constructor(private readonly log: string[] = []) {}
 
   registerWorkspace(ctx: WorkspaceMcpContext): RegisteredWorkspace {
     this.contexts.push(ctx)
     this.log.push(`register:${ctx.workspaceName}`)
+    const runtime = { ctx, questions: new PendingQuestions() }
+    this.runtimes.set(ctx.workspaceId, runtime)
+    this.lastQuestions = runtime.questions
     return {
-      runtime: { ctx, questions: new PendingQuestions() },
+      runtime,
       orchestratorUrl: `http://127.0.0.1:${this.port}/mcp?ws=${ctx.workspaceId}&token=${ctx.orchToken}`,
       subagentUrl: (agentId: string) =>
         `http://127.0.0.1:${this.port}/mcp?ws=${ctx.workspaceId}&agent=${agentId}&token=${ctx.subToken}`
@@ -36,6 +42,7 @@ class FakeMcp implements McpServerHandle {
 
   unregisterWorkspace(workspaceId: string): void {
     this.unregistered.push(workspaceId)
+    this.runtimes.delete(workspaceId)
     this.log.push('unregister')
   }
 
@@ -44,6 +51,12 @@ class FakeMcp implements McpServerHandle {
   }
   subagentUrl(): string {
     return ''
+  }
+  pendingQuestion(workspaceId: string, agentId: string): string | undefined {
+    return this.runtimes.get(workspaceId)?.questions.openForAgent(agentId)?.question
+  }
+  workspaceTask(workspaceId: string): string | undefined {
+    return this.runtimes.get(workspaceId)?.latestTask
   }
   async close(): Promise<void> {}
 }
@@ -115,6 +128,26 @@ describe('startWorkspace', () => {
     expect(spawns[0]!.input.mcpUrl).toBe(running.urls.orchestratorUrl)
     expect(spawns[0]!.input.mcpUrl).toContain(`ws=${running.workspace.workspaceId}`)
     expect(running.orchestrator.name).toBeTruthy()
+  })
+
+  it('attaches the MCP PendingQuestions registry to the workspace', async () => {
+    const { manager, mcp, spawns } = harness()
+    const profile = testProfile({
+      slots: [
+        { id: 'slot-worker', roleId: 'worker', providerId: 'ollama' },
+        { id: 'slot-reviewer', roleId: 'reviewer', providerId: 'claude' }
+      ]
+    })
+    const running = await manager.startWorkspace(profile)
+    // Subagent spawn is index 1 (0 = orchestrator). Feed a sentinel ASK.
+    await running.workspace.startAgent({ role: 'worker', task: 'Ask something.' })
+    const sub = spawns.find((spawn) => spawn.input.kind === 'subagent')
+    sub!.pty.emit(`@@VERTRAGUS:ASK@@${JSON.stringify({ question: 'shared registry?' })}@@END@@`)
+
+    expect(mcp.lastQuestions?.openCount).toBe(1)
+    expect(mcp.lastQuestions?.openForAgent(running.workspace.listAgents()[0]!.agentId)?.question).toBe(
+      'shared registry?'
+    )
   })
 
   it('passes the profile limits and roles into the MCP context', async () => {

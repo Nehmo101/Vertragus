@@ -45,6 +45,11 @@ export type McpIdentity =
   | { kind: 'subagent'; workspaceId: string; agentId: string }
 
 export interface RegisteredWorkspace {
+  /**
+   * The MCP-owned runtime for this workspace. Callers (WorkspaceManager) must
+   * hand `runtime.questions` to the workspace via `attachQuestions` so sentinel
+   * ASK lines and MCP `ask_orchestrator` share one registry.
+   */
   runtime: WorkspaceRuntime
   orchestratorUrl: string
   subagentUrl(agentId: string): string
@@ -56,6 +61,17 @@ export interface McpServerHandle {
   unregisterWorkspace(workspaceId: string): void
   orchestratorUrl(workspaceId: string): string
   subagentUrl(workspaceId: string, agentId: string): string
+  /**
+   * Open question text for an agent, if any. The host layer cannot see these —
+   * they live only in {@link PendingQuestions}. The panel reads them so a
+   * waiting agent can blink without round-tripping through MCP tools.
+   */
+  pendingQuestion(workspaceId: string, agentId: string): string | undefined
+  /**
+   * The latest assignment the orchestrator handed out in this workspace,
+   * shortened to one line. The panel appends it to the workspace tooltip.
+   */
+  workspaceTask(workspaceId: string): string | undefined
   close(): Promise<void>
 }
 
@@ -311,6 +327,14 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
     subagentUrl(workspaceId: string, agentId: string): string {
       const runtime = requireWorkspace(workspaceId)
       return buildSubagentUrl(port, workspaceId, agentId, runtime.ctx.subToken, host)
+    },
+
+    pendingQuestion(workspaceId: string, agentId: string): string | undefined {
+      return workspaces.get(workspaceId)?.questions.openForAgent(agentId)?.question
+    },
+
+    workspaceTask(workspaceId: string): string | undefined {
+      return workspaces.get(workspaceId)?.latestTask
     },
 
     async close(): Promise<void> {

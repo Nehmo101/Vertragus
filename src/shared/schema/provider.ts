@@ -99,6 +99,8 @@ export const mcpAttachSchema = z.discriminatedUnion('kind', [
     .strict(),
   z.object({ kind: z.literal('codex-overrides') }).strict(),
   z.object({ kind: z.literal('kimi-project') }).strict(),
+  /** Project-scoped `.cursor/mcp.json` merge + `--approve-mcps` (see mcp/attach). */
+  z.object({ kind: z.literal('cursor-project') }).strict(),
   z.object({ kind: z.literal('none') }).strict()
 ])
 export type McpAttach = z.infer<typeof mcpAttachSchema>
@@ -162,10 +164,22 @@ export const providerSeedSchema = z
   .object({
     /** Ms to wait after the prompt text before the first Enter. */
     submitDelayMs: z.number().int().positive().max(10_000).optional(),
-    /** Max Enter presses including the first (unchanged-buffer retries only). */
+    /** Max Enter presses including the first. */
     submitRetries: z.number().int().min(1).max(10).optional(),
     /** Base watch window after each Enter before deciding to retry. */
-    submitWatchMs: z.number().int().positive().max(10_000).optional()
+    submitWatchMs: z.number().int().positive().max(10_000).optional(),
+    /**
+     * What counts as "the Enter was accepted".
+     * - `'buffer-change'` (default): any PTY output inside the watch window
+     *   stops further Enters — right for CLIs that stay quiet on a swallow.
+     * - `'sustained-activity'`: only ongoing output counts. For TUIs that
+     *   redraw once even after swallowing the keypress (cursor-agent renders
+     *   its paste chip and then goes silent), while an accepted Enter starts a
+     *   turn that streams output for seconds. Also switches the handshake to a
+     *   single text write and settle-gated Enters — the full mechanics live on
+     *   the handshake (`@main/agents/interactiveReady`).
+     */
+    submitAcceptance: z.enum(['buffer-change', 'sustained-activity']).optional()
   })
   .strict()
 export type ProviderSeed = z.infer<typeof providerSeedSchema>

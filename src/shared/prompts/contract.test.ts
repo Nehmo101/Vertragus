@@ -1,6 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import { buildReminderSuffix, buildTaskContract, CONTRACT_MARKER } from './contract'
 
+/** MCP contract text pinned so 'mcp' stays byte-identical across refactors. */
+const MCP_CONTRACT_SNAPSHOT = [
+  '--- Contract (Vertragus) ---',
+  'You are the "worker" agent of this Vertragus workspace.',
+  'You report to an orchestrator agent through MCP tools. Follow these rules for every task:',
+  '1. Do the work yourself. Read the repository, change the files, run the checks.',
+  '2. When the task is finished, call report_done with a short factual summary of what you changed and how you verified it. Use status "success" only when you verified it, "blocked" when something outside your control stops you, "failed" when you tried and it does not work.',
+  '3. If you need a decision, a permission, an interface, or information you cannot obtain yourself, call ask_orchestrator and wait for the answer. Do not guess, do not pick a random option, and do not idle.',
+  '4. If ask_orchestrator returns answer: null and a ticket, call it again with that same ticket. Do not rephrase the question and do not open a second question.',
+  '5. Send a one-line report_progress on real milestones only, not as a heartbeat.',
+  '6. Never stop working silently and never end your turn without either report_done or an open ask_orchestrator.',
+  '7. After report_done, stay available: the orchestrator either sends you a follow-up task or stops you.',
+  '--- End of contract ---'
+].join('\n')
+
 describe('buildTaskContract', () => {
   it('names the agent when the name is already known', () => {
     expect(buildTaskContract({ agentName: 'Colombina', role: 'worker' })).toContain(
@@ -40,6 +55,41 @@ describe('buildTaskContract', () => {
     expect(contract.startsWith(CONTRACT_MARKER)).toBe(true)
     expect(contract.trimEnd().endsWith('---')).toBe(true)
   })
+
+  it('keeps the mcp dialect byte-identical to the historical wording', () => {
+    expect(buildTaskContract({ role: 'worker' })).toBe(MCP_CONTRACT_SNAPSHOT)
+    expect(buildTaskContract({ role: 'worker', reporting: 'mcp' })).toBe(MCP_CONTRACT_SNAPSHOT)
+  })
+})
+
+describe('buildTaskContract — sentinel dialect', () => {
+  it('teaches split marker halves and the three report kinds', () => {
+    const contract = buildTaskContract({ role: 'worker', reporting: 'sentinel' })
+    expect(contract).toContain('@@VERT')
+    expect(contract).toContain('RAGUS:DONE@@')
+    expect(contract).toContain('RAGUS:ASK@@')
+    expect(contract).toContain('RAGUS:PROGRESS@@')
+    expect(contract).toMatch(/immediately followed by/)
+    expect(contract).toContain('summary')
+    expect(contract).toContain('question')
+    expect(contract).toContain('note')
+    for (const status of ['success', 'blocked', 'failed']) expect(contract).toContain(status)
+  })
+
+  it('is echo-safe: whitespace-stripped text never contains a joined start marker', () => {
+    const contract = buildTaskContract({ role: 'worker', reporting: 'sentinel' })
+    const stripped = contract.replace(/\s+/g, '')
+    // TUI rewrap only inserts breaks; stripping them must still not join halves.
+    expect(stripped).not.toMatch(/@@VERTRAGUS:/)
+    expect(contract).not.toMatch(/@@VERTRAGUS:/)
+  })
+
+  it('keeps end-marker halves separated by a non-whitespace word too', () => {
+    const contract = buildTaskContract({ role: 'worker', reporting: 'sentinel' })
+    const stripped = contract.replace(/\s+/g, '')
+    // Literal @@END@@ must not appear adjacent to a start half in the teaching text.
+    expect(stripped).not.toMatch(/@@VERT(?:RAGUS:(?:DONE|ASK|PROGRESS)@@)[^@]*@@END@@/)
+  })
 })
 
 describe('buildReminderSuffix', () => {
@@ -48,6 +98,15 @@ describe('buildReminderSuffix', () => {
     expect(reminder.split('\n')).toHaveLength(2)
     expect(reminder).toContain('report_done')
     expect(reminder).toContain('ask_orchestrator')
+    expect(reminder.length).toBeLessThan(220)
+  })
+
+  it('sentinel reminder also stays short and echo-safe', () => {
+    const reminder = buildReminderSuffix('sentinel')
+    expect(reminder.split('\n')).toHaveLength(2)
+    expect(reminder).toContain('DONE')
+    expect(reminder).toContain('ASK')
+    expect(reminder.replace(/\s+/g, '')).not.toMatch(/@@VERTRAGUS:/)
     expect(reminder.length).toBeLessThan(220)
   })
 })

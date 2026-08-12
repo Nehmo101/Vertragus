@@ -26,7 +26,12 @@ import type { PtySpawnOptions } from './PtyAgent'
 import type { ResolveLaunchOptions } from './resolveCommand'
 
 let configDir: string
-/** A real directory: the Kimi attach path writes into the agent's cwd. */
+/**
+ * A real directory: the Kimi and Cursor attach paths write into the agent's
+ * cwd. Any case that touches one of them must pass this `cwd` — the fixture
+ * default (`/repo`) does not exist, and on a CI runner the write fails with
+ * EACCES (Linux, unwritable `/`) or ENOENT (macOS, read-only `/`).
+ */
 let cwd: string
 
 beforeAll(() => {
@@ -116,18 +121,40 @@ describe('buildAgentArgv — per preset', () => {
     ])
   })
 
-  it('composes a Cursor subagent: yolo, no attach, prompt through the terminal', () => {
+  it('composes a Cursor subagent: trust, yolo, approve-mcps, prompt through the terminal', () => {
     const { argv, ptySystemPrompt } = buildAgentArgv(
       launchInput({
         provider: preset('cursor'),
         model: 'gpt-5.6',
         yolo: true,
+        cwd,
         systemPrompt: 'You are a Reviewer.'
       })
     )
 
-    expect(argv).toEqual(['--model', 'gpt-5.6', '--yolo'])
+    expect(argv).toEqual(['--trust', '--model', 'gpt-5.6', '--yolo', '--approve-mcps'])
     expect(ptySystemPrompt).toBe('You are a Reviewer.')
+    const written = JSON.parse(readFileSync(join(cwd, '.cursor', 'mcp.json'), 'utf8')) as {
+      mcpServers: Record<string, { url: string }>
+    }
+    expect(written.mcpServers.vertragus!.url).toContain('agent=a1')
+  })
+
+  it('composes a Cursor orchestrator: trust + approve-mcps, no yolo', () => {
+    const { argv, ptySystemPrompt } = buildAgentArgv(
+      launchInput({
+        provider: preset('cursor'),
+        kind: 'orchestrator',
+        yolo: true,
+        cwd,
+        systemPrompt: 'You orchestrate.'
+      })
+    )
+
+    expect(argv).toEqual(['--trust', '--approve-mcps'])
+    expect(argv).not.toContain('--yolo')
+    // Prompt delivery stays PTY even though MCP is attached — orthogonal.
+    expect(ptySystemPrompt).toBe('You orchestrate.')
   })
 
   it('gives Ollama its model positionally, right behind the base args', () => {
@@ -140,8 +167,8 @@ describe('buildAgentArgv — per preset', () => {
       })
     )
 
-    // `ollama run <model>` — a --model flag here would be a launch failure.
-    expect(argv).toEqual(['run', 'qwen3:32b'])
+    // `ollama run --nowordwrap <model>` — a --model flag here would be a launch failure.
+    expect(argv).toEqual(['run', '--nowordwrap', 'qwen3:32b'])
     expect(ptySystemPrompt).toBe('You are a Worker.')
   })
 
@@ -335,8 +362,8 @@ describe('MCP attach — the regression that killed the old repo', () => {
   })
 
   it('leaves an mcp: none provider unattached — a declaration, not an omission', () => {
-    const { argv } = buildAgentArgv(launchInput({ provider: preset('cursor') }))
-    expect(argv).toEqual([])
+    const { argv } = buildAgentArgv(launchInput({ provider: preset('ollama'), model: 'qwen3:32b' }))
+    expect(argv).toEqual(['run', '--nowordwrap', 'qwen3:32b'])
   })
 
   /**
@@ -351,9 +378,16 @@ describe('MCP attach — the regression that killed the old repo', () => {
         launchInput({ provider, kind: 'subagent', cwd, systemPrompt: 'role' })
       )
       const urlSource =
-        provider.mcp.kind === 'kimi-project'
-          ? // Kimi's attachment is a file, so that is where the URL has to be.
-            readFileSync(join(cwd, '.kimi-code', 'mcp.json'), 'utf8')
+        provider.mcp.kind === 'kimi-project' || provider.mcp.kind === 'cursor-project'
+          ? // Project-file dialects: the URL lives in the cwd, not in argv.
+            readFileSync(
+              join(
+                cwd,
+                provider.mcp.kind === 'kimi-project' ? '.kimi-code' : '.cursor',
+                'mcp.json'
+              ),
+              'utf8'
+            )
           : provider.mcp.kind === 'claude-json'
             ? readFileSync(argv[argv.indexOf(provider.mcp.configArg) + 1]!, 'utf8')
             : argv.join(' ')
@@ -361,14 +395,19 @@ describe('MCP attach — the regression that killed the old repo', () => {
     }
   })
 
-  it('keeps the orchestrator prompt off the terminal for every attaching preset', () => {
+  it('keeps the orchestrator prompt off the terminal for flag/file attaching presets', () => {
     for (const provider of providerPresets()) {
       if (provider.mcp.kind === 'none') continue
       const { ptySystemPrompt } = buildAgentArgv(
         launchInput({ provider, kind: 'orchestrator', cwd, systemPrompt: 'You orchestrate.' })
       )
-      // A CLI that can be attached can also be told who it is at launch — the
-      // seed handshake is the fallback for PTY-only CLIs, not the norm.
+      // Cursor attaches via a project file but still delivers its prompt through
+      // the terminal — MCP attach and prompt delivery are orthogonal.
+      if (provider.systemPromptDelivery.kind === 'pty') {
+        expect(ptySystemPrompt, `${provider.id}`).toBe('You orchestrate.')
+        continue
+      }
+      // A CLI that takes the prompt at launch leaves nothing for the seed path.
       expect(ptySystemPrompt, `${provider.id}`).toBeUndefined()
     }
   })
@@ -515,7 +554,9 @@ describe('spawnAgent', () => {
   it('does not write Claude state for a CLI that is not the Claude preset', async () => {
     const ensureTrust = vi.fn()
     for (const id of ['cursor', 'ollama']) {
-      await spawnAgent(launchInput({ provider: preset(id) }), {
+      // `cwd` and not the fixture default: Cursor's attach writes
+      // `<cwd>/.cursor/mcp.json` for real.
+      await spawnAgent(launchInput({ provider: preset(id), cwd }), {
         resolve,
         createPty: () => new FakePty(),
         ensureTrust

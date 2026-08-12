@@ -1,8 +1,44 @@
 import { describe, expect, it } from 'vitest'
-import { stripAnsi, terminalTail, terminalTailText } from './terminalText'
+import {
+  normalizeTerminalChunk,
+  splitIncompleteAnsiTail,
+  stripAnsi,
+  terminalTail,
+  terminalTailText
+} from './terminalText'
 
 const ESC = String.fromCharCode(27)
 const BEL = String.fromCharCode(7)
+
+describe('normalizeTerminalChunk', () => {
+  it('turns vertical cursor moves into newlines then strips colours', () => {
+    expect(normalizeTerminalChunk(`${ESC}[32mfirst${ESC}[0m${ESC}E${ESC}[31msecond${ESC}[0m`)).toBe(
+      'first\nsecond'
+    )
+  })
+
+  it('is what terminalTail builds on — the two paths cannot drift', () => {
+    const painted = `${ESC}[1;1Hhello${ESC}[2;1Hworld`
+    expect(normalizeTerminalChunk(painted).split('\n').map((line) => line.trimEnd())).toEqual(
+      expect.arrayContaining(['hello', 'world'])
+    )
+  })
+})
+
+describe('splitIncompleteAnsiTail', () => {
+  it('holds a lone ESC or incomplete CSI for the next chunk', () => {
+    expect(splitIncompleteAnsiTail(`abc${ESC}`)).toEqual({ ready: 'abc', hold: ESC })
+    expect(splitIncompleteAnsiTail(`abc${ESC}[31`)).toEqual({ ready: 'abc', hold: `${ESC}[31` })
+  })
+
+  it('does not hold a complete CSI or OSC', () => {
+    expect(splitIncompleteAnsiTail(`x${ESC}[0my`)).toEqual({ ready: `x${ESC}[0my`, hold: '' })
+    expect(splitIncompleteAnsiTail(`${ESC}]0;title${BEL}ok`)).toEqual({
+      ready: `${ESC}]0;title${BEL}ok`,
+      hold: ''
+    })
+  })
+})
 
 describe('stripAnsi', () => {
   it('removes colour, cursor and erase sequences', () => {
@@ -41,6 +77,31 @@ describe('terminalTail', () => {
 
   it('always returns at least one line for a non-positive count', () => {
     expect(terminalTail('only\n', 0)).toEqual(['only'])
+  })
+
+  it('reads cursor-positioned TUI frames instead of returning nothing', () => {
+    // An alternate-screen CLI paints rows via CUP and never emits \n. Before
+    // the cursor-break handling this whole buffer collapsed to an empty tail.
+    const frame =
+      `${ESC}[?1049h${ESC}[2J${ESC}[1;1Hcursor-agent` +
+      `${ESC}[2;1Hstatus: working${ESC}[1;1Hcursor-agent${ESC}[2;1Hstatus: done`
+    const tail = terminalTail(frame, 10)
+    expect(tail.length).toBeGreaterThan(0)
+    expect(tail).toContain('status: done')
+    expect(tail).toContain('cursor-agent')
+  })
+
+  it('collapses a repaint loop that redraws identical text every tick', () => {
+    const repaints = Array.from({ length: 50 }, () => `${ESC}[1;1Hworking on it`).join('')
+    expect(terminalTail(repaints, 10)).toEqual(['working on it'])
+  })
+
+  it('treats ESC E / ESC M index moves as line breaks', () => {
+    expect(terminalTail(`first${ESC}Esecond${ESC}Mthird`, 10)).toEqual([
+      'first',
+      'second',
+      'third'
+    ])
   })
 
   it('joins to the plain block read_output returns', () => {

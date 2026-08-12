@@ -30,17 +30,26 @@
  * - `<configDir>/vertragus-mcp/<fileTag>.agent.md` — Kimi's agent profile.
  *   `configDir` is Electron's `userData`, so both live outside the repository.
  * - `<cwd>/.kimi-code/mcp.json` — Kimi's MCP attachment. This one is IN THE
- *   AGENT'S WORKING DIRECTORY (its own worktree) because that is the only
- *   place Kimi looks. It is the single artefact a Vertragus launch writes into
- *   user territory.
+ *   AGENT'S WORKING DIRECTORY (its own worktree — the orchestrator included)
+ *   because that is the only place Kimi looks.
+ * - `<cwd>/.cursor/mcp.json` — Cursor's MCP attachment (merged, not overwritten).
+ *   Same working-directory rule as Kimi; the `vertragus` entry is left behind
+ *   on purpose so a live CLI cannot lose its server mid-session.
+ *
+ *   These two are the only artefacts a Vertragus launch writes into user
+ *   territory. Since every agent owns its worktree they can no longer collide
+ *   between parallel agents — which is exactly why the worktree became
+ *   mandatory rather than opt-in.
  * - Codex writes nothing at all: every setting is a process-local `-c` override.
  */
 import {
   buildCodexMcpArgs,
+  CURSOR_APPROVE_MCPS_FLAG,
   codexDeveloperInstructionsArgs,
   orchestratorAllowedTools,
   orchestratorMcpTools,
   writeClaudeMcpConfigFile,
+  writeCursorProjectMcpConfig,
   writeKimiAgentFile,
   writeKimiProjectMcpConfig
 } from '@main/mcp/attach'
@@ -157,6 +166,15 @@ export function buildMcpArgs(input: AgentLaunchInput): string[] {
         input.kind === 'orchestrator' ? orchestratorMcpTools() : undefined
       )
       return []
+    case 'cursor-project':
+      // Cursor reads `<cwd>/.cursor/mcp.json` and has no config-file flag.
+      // `--approve-mcps` is required because approval is per-URL hashed and
+      // never reusable across Vertragus agents. KNOWN LIMITS (verified):
+      // - no per-server tool filter — orchestrator scoping stays URL-side
+      //   (same declared limit as Codex' missing `--strict-mcp-config`);
+      // - the flag also approves the user's own project servers for this run.
+      writeCursorProjectMcpConfig(input.mcpUrl, input.cwd)
+      return [CURSOR_APPROVE_MCPS_FLAG]
     case 'none':
       return []
   }

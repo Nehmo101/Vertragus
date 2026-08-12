@@ -128,6 +128,21 @@ describe('start_agent', () => {
     expect(result.isError).toBe(true)
     expect(result.json).toMatchObject({ error: 'start_failed', message: 'pty refused' })
     expect(runtime.events.all()).toHaveLength(0)
+    // A task that never started is not the workspace's current task.
+    expect(runtime.latestTask).toBeUndefined()
+  })
+
+  it('records the first task line as the workspace\'s current task, shortened', async () => {
+    const { runtime, tools } = setup()
+    await callTool(tools, 'start_agent', {
+      role: 'worker',
+      task: '  Fix the parser\nDefinition of done: tests green'
+    })
+    expect(runtime.latestTask).toBe('Fix the parser')
+
+    await callTool(tools, 'start_agent', { role: 'worker', task: `${'x'.repeat(200)}\nrest` })
+    expect(runtime.latestTask).toHaveLength(140)
+    expect(runtime.latestTask!.endsWith('…')).toBe(true)
   })
 })
 
@@ -152,6 +167,37 @@ describe('send_to_agent', () => {
     expect(sent).toContain('report_done')
   })
 
+  it('uses the sentinel reminder when the agent reports via PTY lines', async () => {
+    const host = new FakeAgentHost({ reportingMode: () => 'sentinel' })
+    const runtime = fakeRuntime({ host })
+    const tools = captureTools((server) => registerOrchestratorTools(server, runtime))
+    const started = await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
+    expect(runtime.host.seeded[0]!.task).toContain('@@VERT')
+    expect(runtime.host.seeded[0]!.task.replace(/\s+/g, '')).not.toMatch(/@@VERTRAGUS:/)
+
+    await callTool(tools, 'send_to_agent', {
+      agentId: String(started.json.agentId),
+      text: 'follow up'
+    })
+    const sent = runtime.host.sent[0]!.text
+    expect(sent).toContain('DONE sentinel')
+    expect(sent).not.toContain('report_done')
+  })
+
+  it('makes a follow-up instruction the current task, but never a question answer', async () => {
+    const { runtime, tools, agentId } = await withAgent()
+    await callTool(tools, 'send_to_agent', { agentId, text: 'also update the docs' })
+    expect(runtime.latestTask).toBe('also update the docs')
+
+    const question = runtime.questions.create(agentId, 'zod or valibot?')
+    await callTool(tools, 'send_to_agent', {
+      agentId,
+      text: 'zod',
+      questionId: question.questionId
+    })
+    expect(runtime.latestTask).toBe('also update the docs')
+  })
+
   it('answers an open question instead of typing it', async () => {
     const { runtime, tools, agentId } = await withAgent()
     const question = runtime.questions.create(agentId, 'zod or valibot?')
@@ -164,6 +210,66 @@ describe('send_to_agent', () => {
 
     expect(result.json).toMatchObject({ ok: true, delivered: 'answer' })
     expect(runtime.host.sent).toHaveLength(0)
+    expect(runtime.questions.openCount).toBe(0)
+  })
+
+  it('awaits deliverAnswer for sentinel questions and keeps exactly one reminder there', async () => {
+    const { runtime, tools, agentId } = await withAgent()
+    const question = runtime.questions.create(agentId, 'which file?', {
+      deliverAnswer: async (answer) => {
+        await runtime.host.sendToAgent(agentId, `${answer}\n\nSENTINEL_REMINDER`)
+      }
+    })
+
+    const result = await callTool(tools, 'send_to_agent', {
+      agentId,
+      text: 'src/foo.ts',
+      questionId: question.questionId
+    })
+
+    expect(result.json).toMatchObject({ ok: true, delivered: 'answer' })
+    expect(runtime.host.sent).toEqual([
+      { agentId, text: 'src/foo.ts\n\nSENTINEL_REMINDER' }
+    ])
+    expect(runtime.questions.openCount).toBe(0)
+  })
+
+  it('returns toolError when deliverAnswer fails and keeps the question open', async () => {
+    const { runtime, tools, agentId } = await withAgent()
+    let fail = true
+    let delivered = ''
+    const question = runtime.questions.create(agentId, 'which file?', {
+      deliverAnswer: async (answer) => {
+        if (fail) throw new Error('pty refused')
+        delivered = answer
+      }
+    })
+
+    const result = await callTool(tools, 'send_to_agent', {
+      agentId,
+      text: 'src/foo.ts',
+      questionId: question.questionId
+    })
+
+    expect(result.isError).toBe(true)
+    expect(result.json).toMatchObject({
+      error: 'answer_delivery_failed',
+      questionId: question.questionId,
+      message: 'pty refused'
+    })
+    // Recoverable: question stays open; same questionId retries after the PTY accepts.
+    expect(runtime.questions.openCount).toBe(1)
+    expect(runtime.questions.get(question.questionId)?.question).toBe('which file?')
+    expect(String((result.json as { note?: string }).note ?? '')).toMatch(/still open/i)
+
+    fail = false
+    const retry = await callTool(tools, 'send_to_agent', {
+      agentId,
+      text: 'src/foo.ts',
+      questionId: question.questionId
+    })
+    expect(retry.isError).toBeFalsy()
+    expect(delivered).toBe('src/foo.ts')
     expect(runtime.questions.openCount).toBe(0)
   })
 

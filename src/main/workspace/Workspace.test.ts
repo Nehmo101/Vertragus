@@ -1,5 +1,11 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { buildAgentArgv } from '@main/agents/spawn'
 import { slugifyRef } from '@main/agents/worktree'
+import { PendingQuestions } from '@main/mcp/pendingQuestions'
+import { buildReminderSuffix } from '@shared/prompts/contract'
 import { ORCHESTRATOR_COLOR, ORCHESTRATOR_ROLE_ID, roleColor } from '@shared/prompts/roles'
 import { PTY_ONLY_IDLE_HINT_MS, Workspace, type WorkspaceDeps } from './Workspace'
 import {
@@ -22,8 +28,9 @@ interface Harness {
   spawns: RecordedSpawn[]
   worktrees: RecordedWorktree[]
   prompts: string[]
-  seedOptions: Array<{ autoSubmit?: boolean; submitDelayMs?: number } | undefined>
+  seedOptions: Array<import('@main/agents/interactiveReady').SeedWithReadyOptions | undefined>
   now: { value: number }
+  questions: PendingQuestions
 }
 
 function harness(
@@ -39,6 +46,7 @@ function harness(
   const seeder = fakeSeed()
   const worktrees = fakeWorktrees()
   const now = { value: 1_000_000 }
+  const questions = new PendingQuestions(sequentialIds('q'), () => now.value)
 
   const workspace = new Workspace(
     { profile: overrides.profile ?? testProfile(), name: 'Paradiso' },
@@ -59,6 +67,7 @@ function harness(
     orchestratorUrl: 'http://127.0.0.1:1/mcp?ws=w&token=orch',
     subagentUrl: (agentId) => `http://127.0.0.1:1/mcp?ws=w&agent=${agentId}&token=sub`
   })
+  workspace.attachQuestions(questions)
 
   return {
     workspace,
@@ -68,7 +77,8 @@ function harness(
     worktrees: worktrees.calls,
     prompts: seeder.prompts,
     seedOptions: seeder.options,
-    now
+    now,
+    questions
   }
 }
 
@@ -336,6 +346,8 @@ describe('listAgents', () => {
     const { workspace } = harness()
     await workspace.startAgent({ role: 'worker', task: 'x' })
     expect(workspace.listAgents()[0]!.pendingQuestion).toBeUndefined()
+    expect(workspace.listAgents()[0]!.reporting).toBe('mcp')
+    expect(workspace.reportingMode('worker')).toBe('mcp')
   })
 })
 
@@ -613,7 +625,7 @@ describe('autoSubmitTasks', () => {
     expect(seedOptions.at(-1)?.autoSubmit).toBe(true)
   })
 
-  it('forwards the provider seed submitDelayMs into the handshake options', async () => {
+  it('forwards the provider seed tuning into the handshake options', async () => {
     const { workspace, seedOptions } = harness({
       profile: testProfile({
         slots: [
@@ -624,6 +636,9 @@ describe('autoSubmitTasks', () => {
     })
     await workspace.startAgent({ role: 'worker', task: 'Do the thing.' })
     expect(seedOptions.at(-1)?.submitDelayMs).toBe(750)
+    // cursor-agent redraws even after swallowing Enter, so its preset opts out
+    // of buffer-based acceptance — the field must survive the trip end-to-end.
+    expect(seedOptions.at(-1)?.submitAcceptance).toBe('sustained-activity')
   })
 
   it('is honoured for a follow-up sent to a running agent', async () => {
@@ -651,17 +666,20 @@ describe('autoSubmitTasks', () => {
 })
 
 /**
- * Cursor and Ollama run `mcp: none` on purpose — no verified attach surface, so
- * declaring one would kill the launch. The price is an agent that cannot report
- * anything, and the orchestrator has no way to tell "thinking" from "dead".
- * These tests pin the one thing the host CAN say about such a worker.
+ * Ollama runs `mcp: none` on purpose — no verified attach surface, so declaring
+ * one would kill the launch. The price is an agent that cannot report anything,
+ * and the orchestrator has no way to tell "thinking" from "dead". These tests
+ * pin the one thing the host CAN say about such a worker.
+ *
+ * Cursor used to live here too; it now attaches via `cursor-project` and leaves
+ * the idle-hint regime (asserted below).
  */
 describe('PTY-only silence hint', () => {
-  /** A profile whose worker slot runs on Cursor (mcp: none). */
+  /** A profile whose worker slot runs on Ollama (mcp: none). */
   const ptyOnlyProfile = (): ReturnType<typeof testProfile> =>
     testProfile({
       slots: [
-        { id: 'slot-worker', roleId: 'worker', providerId: 'cursor' },
+        { id: 'slot-worker', roleId: 'worker', providerId: 'ollama' },
         { id: 'slot-reviewer', roleId: 'reviewer', providerId: 'claude' }
       ]
     })
@@ -754,12 +772,225 @@ describe('PTY-only silence hint', () => {
 
   it('never nags about the orchestrator — it is the reader, not the subject', async () => {
     const h = harness({
-      profile: testProfile({ orchestrator: { providerId: 'cursor' } }),
+      profile: testProfile({ orchestrator: { providerId: 'ollama' } }),
       ptySystemPrompt: true
     })
     await h.workspace.startOrchestrator()
 
     advance(h, PTY_ONLY_IDLE_HINT_MS * 2)
     expect(hints(h)).toEqual([])
+  })
+})
+
+describe('Cursor MCP attach leaves the idle-hint regime', () => {
+  it('does not emit a PTY-only silence hint for a cursor worker', async () => {
+    vi.useFakeTimers()
+    try {
+      const h = harness({
+        profile: testProfile({
+          slots: [
+            { id: 'slot-worker', roleId: 'worker', providerId: 'cursor' },
+            { id: 'slot-reviewer', roleId: 'reviewer', providerId: 'claude' }
+          ]
+        }),
+        ptySystemPrompt: true
+      })
+      await h.workspace.startAgent({ role: 'worker', task: 'Do it.' })
+
+      h.now.value += PTY_ONLY_IDLE_HINT_MS * 2
+      vi.advanceTimersByTime(PTY_ONLY_IDLE_HINT_MS * 2)
+
+      const notes = h.workspace.events
+        .all()
+        .filter((event) => event.type === 'agent_progress')
+        .map((event) => (event as { note: string }).note)
+      expect(notes).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('spawns cursor with --trust and --approve-mcps in argv order', async () => {
+    const h = harness({
+      profile: testProfile({
+        slots: [
+          { id: 'slot-worker', roleId: 'worker', providerId: 'cursor', model: 'gpt-5.6' },
+          { id: 'slot-reviewer', roleId: 'reviewer', providerId: 'claude' }
+        ]
+      }),
+      ptySystemPrompt: true
+    })
+    await h.workspace.startAgent({ role: 'worker', task: 'Do it.' })
+
+    // fakeSpawn records the launch input but not the real argv; compose it here
+    // against a real temp cwd so the project-file writer can run.
+    const cwd = mkdtempSync(join(tmpdir(), 'vertragus-ws-cursor-'))
+    try {
+      const input = h.spawns[0]!.input
+      expect(input.provider.mcp).toEqual({ kind: 'cursor-project' })
+      expect(input.provider.args).toEqual(['--trust'])
+      const { argv } = buildAgentArgv({
+        ...input,
+        cwd,
+        yolo: true
+      })
+      expect(argv).toEqual(['--trust', '--model', 'gpt-5.6', '--yolo', '--approve-mcps'])
+    } finally {
+      rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('sentinel reporting (mcp: none / Ollama)', () => {
+  const ollamaProfile = (): ReturnType<typeof testProfile> =>
+    testProfile({
+      slots: [
+        { id: 'slot-worker', roleId: 'worker', providerId: 'ollama' },
+        { id: 'slot-reviewer', roleId: 'reviewer', providerId: 'claude' }
+      ]
+    })
+
+  it('exposes sentinel reportingMode for ollama slots', async () => {
+    const { workspace } = harness({ profile: ollamaProfile(), ptySystemPrompt: true })
+    expect(workspace.reportingMode('worker')).toBe('sentinel')
+    expect(workspace.reportingMode('reviewer')).toBe('mcp')
+    const started = await workspace.startAgent({ role: 'worker', task: 'Do it.' })
+    expect(workspace.listAgents().find((row) => row.agentId === started.agentId)?.reporting).toBe(
+      'sentinel'
+    )
+  })
+
+  it('pushes agent_done from a DONE sentinel and confirms the exit', async () => {
+    const { workspace, spawns } = harness({ profile: ollamaProfile(), ptySystemPrompt: true })
+    const started = await workspace.startAgent({ role: 'worker', task: 'Do it.' })
+    const line = `@@VERTRAGUS:DONE@@${JSON.stringify({ summary: 'shipped', status: 'success' })}@@END@@`
+    spawns[0]!.pty.emit(line)
+
+    expect(workspace.events.all()).toEqual([
+      expect.objectContaining({
+        type: 'agent_done',
+        agentId: started.agentId,
+        name: started.name,
+        roleId: 'worker',
+        summary: 'shipped',
+        status: 'success'
+      })
+    ])
+
+    spawns[0]!.pty.exit({ exitCode: 0 })
+    const exited = workspace.events.all().find((event) => event.type === 'agent_exited')
+    expect(exited).toMatchObject({ confirmed: true })
+  })
+
+  it('pushes agent_progress for PROGRESS and unparseable lines', async () => {
+    const { workspace, spawns } = harness({ profile: ollamaProfile(), ptySystemPrompt: true })
+    const started = await workspace.startAgent({ role: 'worker', task: 'Do it.' })
+    spawns[0]!.pty.emit(`@@VERTRAGUS:PROGRESS@@${JSON.stringify({ note: 'mid' })}@@END@@`)
+    spawns[0]!.pty.emit('@@VERTRAGUS:DONE@@{bad}@@END@@')
+
+    const notes = workspace.events
+      .all()
+      .filter((event) => event.type === 'agent_progress')
+      .map((event) => (event as { note: string }).note)
+    expect(notes).toEqual(['mid', 'unparseable sentinel line (invalid_json)'])
+    expect(workspace.events.all().some((event) => event.type === 'agent_done')).toBe(false)
+    expect(started.agentId).toBeTruthy()
+  })
+
+  it('does not parse the echo of orchestrator text that quotes a sentinel pair', async () => {
+    const { workspace, spawns } = harness({ profile: ollamaProfile(), ptySystemPrompt: true })
+    const started = await workspace.startAgent({ role: 'worker', task: 'Do it.' })
+    const before = workspace.events.all().filter((event) => event.type === 'agent_done').length
+
+    // FakePty echoes writes → onData during seed. Without suppress this would
+    // become a fake agent_done before reset runs.
+    await workspace.sendToAgent(
+      started.agentId,
+      'When finished print exactly: @@VERTRAGUS:DONE@@{"summary":"done"}@@END@@'
+    )
+
+    expect(workspace.events.all().filter((event) => event.type === 'agent_done')).toHaveLength(
+      before
+    )
+    // Agent-authored DONE after the seed still fires.
+    spawns[0]!.pty.emit(`@@VERTRAGUS:DONE@@${JSON.stringify({ summary: 'real' })}@@END@@`)
+    expect(workspace.events.all().filter((event) => event.type === 'agent_done')).toHaveLength(
+      before + 1
+    )
+  })
+
+  it('round-trips a sentinel ASK through agent_question and PTY delivery', async () => {
+    const { workspace, spawns, questions, prompts } = harness({
+      profile: ollamaProfile(),
+      ptySystemPrompt: true
+    })
+    const started = await workspace.startAgent({ role: 'worker', task: 'Do it.' })
+    prompts.length = 0
+
+    spawns[0]!.pty.emit(`@@VERTRAGUS:ASK@@${JSON.stringify({ question: 'which file?' })}@@END@@`)
+
+    const asked = workspace.events.all().find((event) => event.type === 'agent_question')
+    expect(asked).toMatchObject({
+      type: 'agent_question',
+      agentId: started.agentId,
+      name: started.name,
+      roleId: 'worker',
+      question: 'which file?'
+    })
+    const questionId = (asked as { questionId: string }).questionId
+    expect(questions.openForAgent(started.agentId)?.questionId).toBe(questionId)
+
+    // Further ASKs while one is open are ignored (one-open-question rule).
+    spawns[0]!.pty.emit(`@@VERTRAGUS:ASK@@${JSON.stringify({ question: 'second?' })}@@END@@`)
+    expect(workspace.events.all().filter((event) => event.type === 'agent_question')).toHaveLength(1)
+
+    const closed = questions.answer(questionId, 'src/foo.ts')
+    await closed!.deliverAnswer!('src/foo.ts')
+
+    expect(questions.openForAgent(started.agentId)).toBeUndefined()
+    const reminder = buildReminderSuffix('sentinel')
+    expect(prompts.at(-1)).toBe(`src/foo.ts\n\n${reminder}`)
+    // Exactly one reminder — deliverAnswer owns it, not a second append.
+    expect(prompts.at(-1)!.split(reminder)).toHaveLength(2)
+  })
+
+  it('cancels an open sentinel ASK when the agent exits', async () => {
+    const { workspace, spawns, questions } = harness({
+      profile: ollamaProfile(),
+      ptySystemPrompt: true
+    })
+    const started = await workspace.startAgent({ role: 'worker', task: 'Do it.' })
+    spawns[0]!.pty.emit(`@@VERTRAGUS:ASK@@${JSON.stringify({ question: 'blocked?' })}@@END@@`)
+    expect(questions.openForAgent(started.agentId)).toBeTruthy()
+
+    spawns[0]!.pty.exit({ exitCode: 1 })
+    expect(questions.openForAgent(started.agentId)).toBeUndefined()
+    expect(questions.openCount).toBe(0)
+  })
+
+  it('cancels an open ASK on stopAgent even though onExit is unsubscribed first', async () => {
+    const { workspace, spawns, questions } = harness({
+      profile: ollamaProfile(),
+      ptySystemPrompt: true
+    })
+    const started = await workspace.startAgent({ role: 'worker', task: 'Do it.' })
+    spawns[0]!.pty.emit(`@@VERTRAGUS:ASK@@${JSON.stringify({ question: 'still?' })}@@END@@`)
+    expect(questions.openForAgent(started.agentId)).toBeTruthy()
+
+    await workspace.stopAgent(started.agentId)
+    expect(questions.openForAgent(started.agentId)).toBeUndefined()
+    expect(questions.openCount).toBe(0)
+  })
+
+  it('allows the same DONE after sendToAgent resets the parser', async () => {
+    const { workspace, spawns } = harness({ profile: ollamaProfile(), ptySystemPrompt: true })
+    const started = await workspace.startAgent({ role: 'worker', task: 'Do it.' })
+    const line = `@@VERTRAGUS:DONE@@${JSON.stringify({ summary: 'same' })}@@END@@`
+    spawns[0]!.pty.emit(line)
+    expect(workspace.events.all().filter((event) => event.type === 'agent_done')).toHaveLength(1)
+
+    await workspace.sendToAgent(started.agentId, 'follow-up')
+    spawns[0]!.pty.emit(line)
+    expect(workspace.events.all().filter((event) => event.type === 'agent_done')).toHaveLength(2)
   })
 })

@@ -47,6 +47,8 @@
 .lore-tip-text {
   font: 400 11.5px/1.45 var(--font-body);
   color: var(--text);
+  /* The workspace card appends the current task as its own paragraph. */
+  white-space: pre-line;
 }
 
 @keyframes lore-tip-in {

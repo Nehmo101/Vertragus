@@ -193,3 +193,27 @@ export function FolderIcon({ size = 13 }: IconProps): React.JSX.Element {
     </svg>
   )
 }
+
+/** Section-header chevron — points down when expanded, right when collapsed. */
+export function ChevronIcon({
+  size = 11,
+  expanded = false
+}: IconProps & { expanded?: boolean }): React.JSX.Element {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+      style={{ transform: expanded ? 'rotate(90deg)' : undefined, transition: 'transform 0.18s ease' }}
+    >
+      <path d="M9 6 15 12 9 18" />
+    </svg>
+  )
+}
