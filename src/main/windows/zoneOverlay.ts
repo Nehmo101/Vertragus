@@ -17,9 +17,9 @@
  * CLI and editor registries: `isZoneOverlaySender` turns a webContents id into
  * one (profileId, displayId) pair, so nothing else can write a zone layout.
  */
-import { writeFile } from 'node:fs/promises'
-import { app, BrowserWindow, screen } from 'electron'
+import { BrowserWindow, screen } from 'electron'
 import { glassWindowOptions, loadRoute, secureWindow } from './base'
+import { armWindowCapture } from './smokeCapture'
 
 export interface ZoneOverlaySender {
   profileId: string
@@ -150,20 +150,8 @@ export function closeZoneOverlayWindows(): void {
  * layout, so the capture shows real zone rectangles on a fresh install.
  */
 function armZoneOverlayScreenshot(win: BrowserWindow | undefined, delayMs = 3_000): void {
-  const target = process.env['VERTRAGUS_ZONES_SCREENSHOT']
-  if (!target || !win) return
-  win.webContents.once('did-finish-load', () => {
-    setTimeout(async () => {
-      try {
-        const image = await win.webContents.capturePage()
-        await writeFile(target, image.toPNG())
-        app.exit(0)
-      } catch (error) {
-        console.error('[smoke] capture failed (zone overlay):', error)
-        app.exit(1)
-      }
-    }, delayMs)
-  })
+  if (!win) return
+  armWindowCapture(win, 'VERTRAGUS_ZONES_SCREENSHOT', 'zone overlay', delayMs)
 }
 
 /** Called once at boot; a no-op in every normal run. */
