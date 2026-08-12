@@ -39,6 +39,10 @@ export interface StartedAgent {
   agentId: string
   name: string
   role: string
+  /** Effective provider the agent runs on — resolved from the slot. */
+  providerId: string
+  /** Resolved model; absent = the provider CLI's own default. */
+  model?: string
   /** Every agent works in its own git worktree — this is where. */
   worktreePath: string
   /** The agent's own branch — pass it as another agent's `baseBranch` to chain work. */
@@ -117,6 +121,27 @@ export interface WorkspaceMcpContext {
    * 50 s (below the 60 s MCP request timeout). Tests shorten it.
    */
   askTimeoutMs?: number
+  /**
+   * Where `record_retro` lands. Absent = the tool answers `retro_unavailable`
+   * instead of failing the workspace — retros are an amenity, never a blocker.
+   */
+  retro?: WorkspaceRetroPort
+}
+
+/** One qualitative insight as the orchestrator hands it in — role-keyed. */
+export interface RetroLearningInput {
+  role: string
+  /** Overrides the slot's model, e.g. when start_agent used a model override. */
+  model?: string
+  kind: 'strength' | 'weakness'
+  insight: string
+  evidence?: string
+}
+
+/** The main-process sink behind `record_retro`; resolves roles to providers. */
+export interface WorkspaceRetroPort {
+  recordLearnings(learnings: readonly RetroLearningInput[]): { applied: number }
+  recordSummary(summary: string): void
 }
 
 /** A registered workspace: its context plus the state the MCP layer owns. */

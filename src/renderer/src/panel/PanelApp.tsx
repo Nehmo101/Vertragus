@@ -54,6 +54,8 @@ export function PanelApp(): React.JSX.Element {
     : t('panel.expandAllWorkspaces')
   /** Profile whose worktree-cleanup list is unfolded; at most one at a time. */
   const [cleanupProfileId, setCleanupProfileId] = useState<string | null>(null)
+  /** Profile whose retro view is unfolded; same one-at-a-time rule. */
+  const [retroProfileId, setRetroProfileId] = useState<string | null>(null)
 
   /**
    * Hover, measured in the main process. The whole panel is a drag region, and
@@ -124,6 +126,10 @@ export function PanelApp(): React.JSX.Element {
                   cleanupOpen={cleanupProfileId === profile.id}
                   onToggleCleanup={(profileId) =>
                     setCleanupProfileId((current) => (current === profileId ? null : profileId))
+                  }
+                  retroOpen={retroProfileId === profile.id}
+                  onToggleRetro={(profileId) =>
+                    setRetroProfileId((current) => (current === profileId ? null : profileId))
                   }
                   bridge={panel.bridge}
                 />

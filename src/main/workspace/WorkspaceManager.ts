@@ -26,16 +26,20 @@ import type { McpServerHandle } from '@main/mcp/server'
 import { workspacePlaceName } from '@shared/workspaceNames'
 import type { Profile } from '@shared/schema/profile'
 import type { StartedAgent } from '@main/mcp/types'
+import type { AgentEvent } from '@shared/schema/events'
+import type { RetroSink } from './retroSink'
 import { Workspace, type WorkspaceDeps, type WorkspaceMcpUrls } from './Workspace'
 
 export interface WorkspaceManagerDeps
-  extends Omit<WorkspaceDeps, 'providers' | 'roleTemplates' | 'yoloMaster'> {
+  extends Omit<WorkspaceDeps, 'providers' | 'roleTemplates' | 'yoloMaster' | 'retro'> {
   mcp: McpServerHandle
   /** Read fresh per start so a provider edit reaches the next workspace. */
   providers: WorkspaceDeps['providers'] | (() => WorkspaceDeps['providers'])
   roleTemplates?: WorkspaceDeps['roleTemplates'] | (() => WorkspaceDeps['roleTemplates'])
   /** Master yolo switch; also read fresh per start. */
   yoloMaster?: boolean | (() => boolean)
+  /** Full sink (the workspace itself only sees the feed slice). Absent = no retro. */
+  retro?: RetroSink
 }
 
 export interface RunningWorkspace {
@@ -62,6 +66,12 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
   const workspaces = new Map<string, Workspace>()
   /** Per-profile Commedia sequence. In memory by design — see the file comment. */
   const sequences = new Map<string, number>()
+  /**
+   * Full event history per workspace, tapped at push time. The EventQueue's
+   * ring only holds the last 1000 events — a long run's early agent_started
+   * events would be gone by stop time, and stats without identity are noise.
+   */
+  const eventTaps = new Map<string, { events: AgentEvent[]; off: () => void }>()
 
   function nextName(profileId: string): string {
     const sequence = (sequences.get(profileId) ?? 0) + 1
@@ -74,8 +84,17 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
       ...deps,
       providers: resolveValue(deps.providers),
       roleTemplates: deps.roleTemplates ? resolveValue(deps.roleTemplates) : [],
-      yoloMaster: deps.yoloMaster === undefined ? true : resolveValue(deps.yoloMaster)
+      yoloMaster: deps.yoloMaster === undefined ? true : resolveValue(deps.yoloMaster),
+      retro: deps.retro
     }
+  }
+
+  function dropTap(workspaceId: string): { events: AgentEvent[] } | undefined {
+    const tap = eventTaps.get(workspaceId)
+    if (!tap) return undefined
+    eventTaps.delete(workspaceId)
+    tap.off()
+    return tap
   }
 
   async function startWorkspace(profile: Profile): Promise<RunningWorkspace> {
@@ -92,12 +111,18 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     workspace.attachMcp(registered)
     workspace.attachQuestions(registered.runtime.questions)
     workspaces.set(workspace.workspaceId, workspace)
+    if (deps.retro) {
+      const events: AgentEvent[] = []
+      const off = workspace.events.onPush((event) => events.push(event))
+      eventTaps.set(workspace.workspaceId, { events, off })
+    }
 
     try {
       const orchestrator = await workspace.startOrchestrator()
       return { workspace, orchestrator, urls: registered }
     } catch (error) {
       workspaces.delete(workspace.workspaceId)
+      dropTap(workspace.workspaceId)
       await workspace.close()
       deps.mcp.unregisterWorkspace(workspace.workspaceId)
       throw error
@@ -111,6 +136,21 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     // Agents first (subagents, then the orchestrator), then the registration —
     // unregisterWorkspace closes the EventQueue, and a push after that throws.
     await workspace.close()
+    const tap = dropTap(workspaceId)
+    if (tap) {
+      // A retro write failure must never block stopping the workspace.
+      try {
+        deps.retro?.finalizeRun({
+          workspaceId,
+          workspaceName: workspace.name,
+          profileId: workspace.profileId,
+          events: tap.events,
+          summary: workspace.pendingRetroSummary
+        })
+      } catch (error) {
+        console.warn('[retro] failed to record run retro:', error)
+      }
+    }
     deps.mcp.unregisterWorkspace(workspaceId)
     return true
   }

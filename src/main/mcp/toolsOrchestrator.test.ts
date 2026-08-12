@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { CONTRACT_MARKER } from '@shared/prompts/contract'
 import { ORCHESTRATOR_TOOL_NAMES, registerOrchestratorTools } from './toolsOrchestrator'
 import { callTool, captureTools, FakeAgentHost, fakeRuntime } from './testing'
@@ -10,7 +10,7 @@ function setup(options: Parameters<typeof fakeRuntime>[0] = {}) {
 }
 
 describe('orchestrator tool surface', () => {
-  it('registers exactly the six documented tools', () => {
+  it('registers exactly the seven documented tools', () => {
     const { tools } = setup()
     expect([...tools.keys()].sort()).toEqual([...ORCHESTRATOR_TOOL_NAMES].sort())
   })
@@ -424,5 +424,67 @@ describe('list_agents / stop_agent / read_output', () => {
     const result = await callTool(tools, 'read_output', { agentId: 'ghost' })
     expect(result.isError).toBe(true)
     expect(result.json).toMatchObject({ error: 'read_failed' })
+  })
+})
+
+describe('record_retro', () => {
+  function retroPort(): {
+    port: { recordLearnings: ReturnType<typeof vi.fn>; recordSummary: ReturnType<typeof vi.fn> }
+  } {
+    return {
+      port: {
+        recordLearnings: vi.fn(() => ({ applied: 1 })),
+        recordSummary: vi.fn()
+      }
+    }
+  }
+
+  it('answers retro_unavailable when the workspace records no retros', async () => {
+    const { tools } = setup()
+    const result = await callTool(tools, 'record_retro', { summary: 'Lief gut.' })
+    expect(result.isError).toBe(true)
+    expect(result.json.error).toBe('retro_unavailable')
+  })
+
+  it('rejects learnings for roles the workspace does not have', async () => {
+    const { port } = retroPort()
+    const { tools } = setup({ retro: port })
+    const result = await callTool(tools, 'record_retro', {
+      summary: 'Lief gut.',
+      learnings: [{ role: 'wizard', kind: 'strength', insight: 'zaubert' }]
+    })
+    expect(result.isError).toBe(true)
+    expect(result.json.error).toBe('unknown_role')
+    expect(result.json.unknownRoles).toEqual(['wizard'])
+    expect(port.recordSummary).not.toHaveBeenCalled()
+    expect(port.recordLearnings).not.toHaveBeenCalled()
+  })
+
+  it('records summary and learnings and reports how many applied', async () => {
+    const { port } = retroPort()
+    const { tools } = setup({ retro: port })
+    const result = await callTool(tools, 'record_retro', {
+      summary: 'Beide Worker sauber, Review fand nichts.',
+      learnings: [
+        { role: 'worker', kind: 'strength', insight: 'stark bei UI', evidence: 'Task 1+2 grün' },
+        { role: 'reviewer', kind: 'weakness', insight: 'langsam bei langen Diffs' }
+      ]
+    })
+    expect(result.isError).toBe(false)
+    expect(result.json.ok).toBe(true)
+    expect(result.json.appliedLearnings).toBe(1)
+    expect(port.recordSummary).toHaveBeenCalledWith('Beide Worker sauber, Review fand nichts.')
+    expect(port.recordLearnings).toHaveBeenCalledWith([
+      { role: 'worker', kind: 'strength', insight: 'stark bei UI', evidence: 'Task 1+2 grün' },
+      { role: 'reviewer', kind: 'weakness', insight: 'langsam bei langen Diffs' }
+    ])
+  })
+
+  it('accepts a summary without any learnings — empty slots are allowed', async () => {
+    const { port } = retroPort()
+    const { tools } = setup({ retro: port })
+    const result = await callTool(tools, 'record_retro', { summary: 'Kein Befund.' })
+    expect(result.isError).toBe(false)
+    expect(port.recordLearnings).toHaveBeenCalledWith([])
   })
 })

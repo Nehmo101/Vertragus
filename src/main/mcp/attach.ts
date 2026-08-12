@@ -41,7 +41,7 @@
  * Every other flag and key below was verified against the CLIs installed on
  * this machine (claude, codex-cli 0.144.6, kimi 0.34.0) — not from documentation.
  *
- * The orchestrator runs on a strict allowlist (its six tools plus Claude's
+ * The orchestrator runs on a strict allowlist (its seven tools plus Claude's
  * read-only built-ins) so it cannot start editing code itself. Subagents get NO
  * `--allowedTools` at all: they are meant to work, and restricting them is what
  * produced the "permission-starved" workers in the old retros.
@@ -72,7 +72,7 @@ export function orchestratorMcpTools(): string[] {
   return ORCHESTRATOR_TOOL_NAMES.map(qualifiedToolName)
 }
 
-/** The orchestrator's complete allowlist: its six tools plus read-only built-ins. */
+/** The orchestrator's complete allowlist: its seven tools plus read-only built-ins. */
 export function orchestratorAllowedTools(): string[] {
   return [...orchestratorMcpTools(), ...READONLY_CLAUDE_TOOLS]
 }

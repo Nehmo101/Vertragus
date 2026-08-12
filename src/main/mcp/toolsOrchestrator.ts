@@ -1,5 +1,5 @@
 /**
- * The six tools the orchestrator agent gets. Everything the orchestrator can
+ * The seven tools the orchestrator agent gets. Everything the orchestrator can
  * do to the world goes through here — there is no second path.
  *
  * The tools deliberately do very little themselves: check the limits, compose
@@ -32,7 +32,8 @@ export const ORCHESTRATOR_TOOL_NAMES = [
   'await_events',
   'list_agents',
   'stop_agent',
-  'read_output'
+  'read_output',
+  'record_retro'
 ] as const
 
 export type OrchestratorToolName = (typeof ORCHESTRATOR_TOOL_NAMES)[number]
@@ -127,7 +128,8 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
           agentId: started.agentId,
           name: started.name,
           roleId: started.role,
-          model,
+          providerId: started.providerId,
+          model: started.model,
           worktreePath: started.worktreePath,
           branch: started.branch
         })
@@ -135,6 +137,8 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
           agentId: started.agentId,
           name: started.name,
           role: started.role,
+          providerId: started.providerId,
+          model: started.model,
           worktreePath: started.worktreePath,
           branch: started.branch,
           note: 'Agent started. Wait for its events with await_events instead of asking it for status.'
@@ -307,6 +311,79 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
         ok: stopped,
         agentId,
         ...(stopped ? {} : { note: 'No such running agent — it had already ended.' })
+      })
+    }
+  )
+
+  server.registerTool(
+    'record_retro',
+    {
+      description:
+        'Your run retrospective — call it exactly once, at the end of the run, after stopping your ' +
+        'agents. Give a one-or-two-sentence verdict and per-model learnings: for every model that ' +
+        'ran, fill a strength AND a weakness slot when the run gave evidence for it. A slot may stay ' +
+        'empty — never invent a weakness. These insights steer model choice in future runs.',
+      inputSchema: {
+        summary: z
+          .string()
+          .min(1)
+          .max(500)
+          .describe('One or two sentences: what the run achieved and how the team performed'),
+        learnings: z
+          .array(
+            z.object({
+              role: z
+                .string()
+                .min(1)
+                .describe('Role the insight was observed in, exactly as start_agent took it'),
+              model: z
+                .string()
+                .min(1)
+                .max(200)
+                .optional()
+                .describe('Only when start_agent overrode the role default model'),
+              kind: z.enum(['strength', 'weakness']),
+              insight: z
+                .string()
+                .min(1)
+                .max(200)
+                .describe('One short, concrete, reusable observation about this model'),
+              evidence: z
+                .string()
+                .max(300)
+                .optional()
+                .describe('What in this run supports the insight')
+            })
+          )
+          .max(20)
+          .default([])
+      }
+    },
+    async ({ summary, learnings }): Promise<ToolText> => {
+      const retro = ctx.retro
+      if (!retro) {
+        return toolError({
+          error: 'retro_unavailable',
+          note: 'This workspace records no retrospectives. Skip the retro and finish your summary to the user.'
+        })
+      }
+      const unknownRoles = [...new Set(learnings.map((entry) => entry.role))].filter(
+        (role) => !ctx.roles.includes(role)
+      )
+      if (unknownRoles.length > 0) {
+        return toolError({
+          error: 'unknown_role',
+          unknownRoles,
+          availableRoles: ctx.roles,
+          note: 'Use the role ids exactly as start_agent took them, then call record_retro again.'
+        })
+      }
+      retro.recordSummary(summary)
+      const { applied } = retro.recordLearnings(learnings)
+      return toolJson({
+        ok: true,
+        appliedLearnings: applied,
+        note: 'Retro recorded. Now give the user your final summary.'
       })
     }
   )
