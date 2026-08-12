@@ -81,7 +81,7 @@ export function WorkspaceCard({
           aria-expanded={expanded}
           onClick={onToggle}
         >
-          <span className="panel-card-name" title={workspaceTooltip(workspace)}>
+          <span className="panel-card-name" title={workspaceTooltip(t, workspace)}>
             {workspace.name}
           </span>
           <span className="panel-card-count">{agentCountLabel(t, workspace)}</span>

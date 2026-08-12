@@ -43,7 +43,7 @@ function armScreenshotHook(win: Electron.BrowserWindow, envVar: string, delayMs 
 }
 
 /** Adapter: WorkspaceManager → the view the panel draws. */
-function panelDirectory(manager: WorkspaceManager): WorkspaceDirectory {
+function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): WorkspaceDirectory {
   const roleLabel = (roleId: string): string =>
     allRoleTemplates(getRoleTemplates()).find((role) => role.id === roleId)?.name ?? roleId
 
@@ -52,12 +52,14 @@ function panelDirectory(manager: WorkspaceManager): WorkspaceDirectory {
       manager.list().map<WorkspaceSummary>((ws) => {
         const orchestrator = ws.orchestrator
         const roleIds = [...new Set(ws.profile.slots.map((slot) => slot.roleId))]
+        const taskText = mcp.workspaceTask(ws.workspaceId)
         return {
           workspaceId: ws.workspaceId,
           name: ws.name,
           profileId: ws.profileId,
           profileName: ws.profile.name,
           active: orchestrator !== undefined,
+          ...(taskText ? { taskText } : {}),
           agents: [
             ...(orchestrator
               ? [
@@ -157,7 +159,7 @@ app.whenReady().then(async () => {
   try {
     appMcp = await startMcpServer()
     appManager = createAppWorkspaceManager(appMcp)
-    registerAppIpc(panelDirectory(appManager))
+    registerAppIpc(panelDirectory(appManager, appMcp))
   } catch (error) {
     console.error('[boot] MCP server did not start — panel runs without workspaces:', error)
     registerAppIpc()

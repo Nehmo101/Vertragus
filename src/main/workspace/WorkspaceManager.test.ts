@@ -44,6 +44,9 @@ class FakeMcp implements McpServerHandle {
   subagentUrl(): string {
     return ''
   }
+  workspaceTask(): string | undefined {
+    return undefined
+  }
   async close(): Promise<void> {}
 }
 

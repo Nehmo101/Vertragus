@@ -20,6 +20,7 @@
     "stopWorkspace": "Workspace „{{workspace}}“ beenden",
     "expandWorkspace": "Workspace „{{workspace}}“ aufklappen",
     "collapseWorkspace": "Workspace „{{workspace}}“ zuklappen",
+    "workspaceTask": "Aktuelle Aufgabe: {{task}}",
     "agentCount_one": "{{count}} Agent",
     "agentCount_other": "{{count}} Agenten",
     "agentWorking": "arbeitet",

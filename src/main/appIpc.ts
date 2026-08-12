@@ -156,6 +156,8 @@ export interface WorkspaceSummary {
   profileName?: string
   /** False once the orchestrator is gone — the card greys out but stays. */
   active: boolean
+  /** Latest assignment the orchestrator handed out — the tooltip's task line. */
+  taskText?: string
   agents: WorkspaceAgentSummary[]
 }
 

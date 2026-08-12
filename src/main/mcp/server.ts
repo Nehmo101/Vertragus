@@ -56,6 +56,11 @@ export interface McpServerHandle {
   unregisterWorkspace(workspaceId: string): void
   orchestratorUrl(workspaceId: string): string
   subagentUrl(workspaceId: string, agentId: string): string
+  /**
+   * The latest assignment the orchestrator handed out in this workspace,
+   * shortened to one line. The panel appends it to the workspace tooltip.
+   */
+  workspaceTask(workspaceId: string): string | undefined
   close(): Promise<void>
 }
 
@@ -311,6 +316,10 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
     subagentUrl(workspaceId: string, agentId: string): string {
       const runtime = requireWorkspace(workspaceId)
       return buildSubagentUrl(port, workspaceId, agentId, runtime.ctx.subToken, host)
+    },
+
+    workspaceTask(workspaceId: string): string | undefined {
+      return workspaces.get(workspaceId)?.latestTask
     },
 
     async close(): Promise<void> {

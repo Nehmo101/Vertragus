@@ -56,9 +56,18 @@ export function agentTooltip(agent: Pick<WorkspaceAgentSummary, 'name'>): string
   return loreBlurb(agent.name)
 }
 
-/** Tooltip for a workspace card — what kind of place is this? */
-export function workspaceTooltip(workspace: Pick<WorkspaceSummary, 'name'>): string {
-  return workspacePlaceBlurb(workspace.name) ?? workspace.name
+/**
+ * Tooltip for a workspace card — what kind of place is this, and what is it
+ * working on? The task line only appears once the orchestrator has handed out
+ * an assignment; before that the blurb stands alone.
+ */
+export function workspaceTooltip(
+  t: Translate,
+  workspace: Pick<WorkspaceSummary, 'name' | 'taskText'>
+): string {
+  const blurb = workspacePlaceBlurb(workspace.name) ?? workspace.name
+  const task = workspace.taskText?.trim()
+  return task ? `${blurb}\n\n${t('panel.workspaceTask', { task })}` : blurb
 }
 
 export function workspaceCardClass(workspace: Pick<WorkspaceSummary, 'active'>): string {

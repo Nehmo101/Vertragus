@@ -13,6 +13,7 @@ import {
   errorMessage,
   runningAgents,
   summarizeAgents,
+  taskNote,
   toolError,
   toolJson,
   toolText,
@@ -111,6 +112,7 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
 
       try {
         const started = await ctx.host.startAgent({ role, task: seed, model, worktree })
+        runtime.latestTask = taskNote(task) ?? runtime.latestTask
         ctx.events.push({
           type: 'agent_started',
           agentId: started.agentId,
@@ -177,6 +179,9 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
       } catch (error) {
         return toolError({ error: 'send_failed', agentId, message: errorMessage(error) })
       }
+      // A follow-up instruction is the workspace's new current task; a question
+      // answer (handled above) is not.
+      runtime.latestTask = taskNote(text) ?? runtime.latestTask
       return toolJson({
         ok: true,
         delivered: 'message',

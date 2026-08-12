@@ -108,6 +108,21 @@ describe('start_agent', () => {
     expect(result.isError).toBe(true)
     expect(result.json).toMatchObject({ error: 'start_failed', message: 'pty refused' })
     expect(runtime.events.all()).toHaveLength(0)
+    // A task that never started is not the workspace's current task.
+    expect(runtime.latestTask).toBeUndefined()
+  })
+
+  it('records the first task line as the workspace\'s current task, shortened', async () => {
+    const { runtime, tools } = setup()
+    await callTool(tools, 'start_agent', {
+      role: 'worker',
+      task: '  Fix the parser\nDefinition of done: tests green'
+    })
+    expect(runtime.latestTask).toBe('Fix the parser')
+
+    await callTool(tools, 'start_agent', { role: 'worker', task: `${'x'.repeat(200)}\nrest` })
+    expect(runtime.latestTask).toHaveLength(140)
+    expect(runtime.latestTask!.endsWith('…')).toBe(true)
   })
 })
 
@@ -130,6 +145,20 @@ describe('send_to_agent', () => {
     const sent = runtime.host.sent[0]!.text
     expect(sent).toContain('also update the docs')
     expect(sent).toContain('report_done')
+  })
+
+  it('makes a follow-up instruction the current task, but never a question answer', async () => {
+    const { runtime, tools, agentId } = await withAgent()
+    await callTool(tools, 'send_to_agent', { agentId, text: 'also update the docs' })
+    expect(runtime.latestTask).toBe('also update the docs')
+
+    const question = runtime.questions.create(agentId, 'zod or valibot?')
+    await callTool(tools, 'send_to_agent', {
+      agentId,
+      text: 'zod',
+      questionId: question.questionId
+    })
+    expect(runtime.latestTask).toBe('also update the docs')
   })
 
   it('answers an open question instead of typing it', async () => {

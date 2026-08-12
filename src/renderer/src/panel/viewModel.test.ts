@@ -96,10 +96,23 @@ describe('tooltips', () => {
   })
 
   it('reveals what kind of place a workspace is, cycle suffix included', () => {
-    expect(workspaceTooltip(workspace())).toMatch(/Himmelssphären/)
-    expect(workspaceTooltip(workspace({ name: 'Paradiso II' }))).toMatch(/Himmelssphären/)
+    expect(workspaceTooltip(t, workspace())).toMatch(/Himmelssphären/)
+    expect(workspaceTooltip(t, workspace({ name: 'Paradiso II' }))).toMatch(/Himmelssphären/)
     // An unknown name is still a name — never an empty tooltip.
-    expect(workspaceTooltip(workspace({ name: 'Eigenbau' }))).toBe('Eigenbau')
+    expect(workspaceTooltip(t, workspace({ name: 'Eigenbau' }))).toBe('Eigenbau')
+  })
+
+  it('appends the current task to the workspace tooltip once one exists', () => {
+    const withTask = workspace({ taskText: 'Parser-Bug in tokenizer.ts fixen' })
+    expect(workspaceTooltip(t, withTask)).toMatch(/Himmelssphären/)
+    expect(workspaceTooltip(t, withTask)).toContain(
+      'Aktuelle Aufgabe: Parser-Bug in tokenizer.ts fixen'
+    )
+    expect(workspaceTooltip(en, withTask)).toContain(
+      'Current task: Parser-Bug in tokenizer.ts fixen'
+    )
+    // Whitespace is not a task — the blurb stands alone.
+    expect(workspaceTooltip(t, workspace({ taskText: '   ' }))).not.toContain('Aufgabe')
   })
 })
 

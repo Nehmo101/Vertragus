@@ -175,6 +175,8 @@ export interface WorkspaceSummary {
   profileId: string
   profileName?: string
   active: boolean
+  /** Latest assignment the orchestrator handed out — the tooltip's task line. */
+  taskText?: string
   agents: WorkspaceAgentSummary[]
 }
 
