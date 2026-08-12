@@ -146,11 +146,22 @@ const PRESETS: readonly ProviderConfig[] = [
     // 'sustained-activity': one text write, every Enter gated on a settled
     // buffer, and only seconds-long output (a turn's spinner) stops the
     // bounded retries. The wide watch window gives the sustain check room.
+    //
+    // All of that is timing, and timing was only half of it: the block also has
+    // to arrive as a *paste*. Written raw it is a keystroke stream that the PTY
+    // splits into read-sized chunks, and every `\n` of the role prompt that
+    // lands on a chunk boundary is decoded as Enter — which submits a fragment
+    // and leaves the rest behind, the failure that survived the timing fix.
+    // `bracketedPaste: 'auto'` (the default, spelled out here because Cursor is
+    // where it was diagnosed) frames the block in ESC[200~/ESC[201~ as soon as
+    // cursor-agent announces DECSET 2004, so its content cannot be read as keys
+    // at all and the separate Enter is the only keypress in the sequence.
     seed: {
       submitDelayMs: 750,
       submitRetries: 3,
       submitWatchMs: 2500,
-      submitAcceptance: 'sustained-activity'
+      submitAcceptance: 'sustained-activity',
+      bracketedPaste: 'auto'
     }
   }),
   providerConfigSchema.parse({

@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  BRACKETED_PASTE_OFF,
+  BRACKETED_PASTE_ON,
+  PASTE_BEGIN,
+  PASTE_END,
   SUBMIT_KEY,
+  bracketedPasteActive,
+  pasteBody,
+  seedNewlines,
   seedOptionsFromProvider,
   seedWithReadyHandshake,
   waitForInteractiveReady
@@ -446,6 +453,186 @@ describe('default acceptance', () => {
   })
 })
 
+/**
+ * Bracketed paste — the half of the Cursor bug that timing could not reach.
+ *
+ * A raw multi-KB write is a keystroke stream: the PTY splits it into
+ * read-sized chunks and a `\n` that lands on a chunk boundary is decoded as
+ * Enter, submitting a fragment of the assignment. DECSET 2004 is the terminal
+ * protocol for saying "this is text, not keys", and a TUI announces it by
+ * emitting ESC[?2004h when it takes the keyboard.
+ */
+describe('bracketed paste', () => {
+  it('reads the CLI’s last DECSET 2004 as its current state', () => {
+    expect(bracketedPasteActive('no announcement here')).toBe(false)
+    expect(bracketedPasteActive(`boot${BRACKETED_PASTE_ON}ready`)).toBe(true)
+    // Handed the keyboard back (shelled out, exiting) — pastes are keys again.
+    expect(bracketedPasteActive(`${BRACKETED_PASTE_ON}ready${BRACKETED_PASTE_OFF}`)).toBe(false)
+    // …and taken it again. Last one wins, not "was it ever on".
+    expect(
+      bracketedPasteActive(`${BRACKETED_PASTE_ON}a${BRACKETED_PASTE_OFF}b${BRACKETED_PASTE_ON}`)
+    ).toBe(true)
+  })
+
+  it('never lets the prompt text end its own paste', () => {
+    // A prompt that quotes terminal escapes would otherwise close the bracket
+    // early and turn its own remainder back into keystrokes.
+    expect(pasteBody(`before${PASTE_END}after`)).toBe('beforeafter')
+    expect(pasteBody(`before${PASTE_BEGIN}after`)).toBe('beforeafter')
+  })
+
+  it('never sends a CR inside the assignment — that is the submit key', () => {
+    // A role prompt edited on Windows is CRLF, and every one of those CRs is
+    // an Enter nobody pressed: it submits a fragment and strands the rest.
+    expect(seedNewlines('line one\r\nline two\rline three')).toBe('line one\nline two\nline three')
+    expect(pasteBody('line one\r\nline two')).toBe('line one\nline two')
+  })
+
+  it('normalises the newlines of a raw write too, not only of a paste', async () => {
+    const write = vi.fn()
+
+    await seedWithReadyHandshake(
+      write,
+      () => ({ buffer: 'plain repl ready', alive: true }),
+      'line one\r\nline two',
+      {
+        ...fastReady,
+        ...fastSettle,
+        submitDelayMs: 5,
+        submitWatchMs: 20,
+        submitRetries: 1,
+        acceptancePollMs: 5
+      }
+    )
+
+    expect(write.mock.calls.map((call) => call[0])).toEqual(['line one\nline two', SUBMIT_KEY])
+  })
+
+  it('frames the assignment once the CLI has announced DECSET 2004', async () => {
+    const buffer = `cursor-agent ready${BRACKETED_PASTE_ON}`
+    const write = vi.fn()
+
+    await seedWithReadyHandshake(write, () => ({ buffer, alive: true }), MULTILINE_TASK, {
+      ...fastReady,
+      ...fastSettle,
+      submitDelayMs: 5,
+      submitWatchMs: 20,
+      submitRetries: 1,
+      acceptancePollMs: 5
+    })
+
+    // The whole block in one framed write, and the Enter still on its own —
+    // the only keypress in the sequence.
+    expect(write.mock.calls.map((call) => call[0])).toEqual([
+      `${PASTE_BEGIN}${MULTILINE_TASK}${PASTE_END}`,
+      SUBMIT_KEY
+    ])
+  })
+
+  it('writes raw text to a CLI that never asked for bracketed pastes', async () => {
+    const buffer = 'plain repl ready'
+    const write = vi.fn()
+
+    await seedWithReadyHandshake(write, () => ({ buffer, alive: true }), MULTILINE_TASK, {
+      ...fastReady,
+      ...fastSettle,
+      submitDelayMs: 5,
+      submitWatchMs: 20,
+      submitRetries: 1,
+      acceptancePollMs: 5
+    })
+
+    expect(write.mock.calls.map((call) => call[0])).toEqual([MULTILINE_TASK, SUBMIT_KEY])
+  })
+
+  it('honours the opt-out even when the CLI announced it', async () => {
+    const buffer = `announces it${BRACKETED_PASTE_ON}`
+    const write = vi.fn()
+
+    await seedWithReadyHandshake(write, () => ({ buffer, alive: true }), MULTILINE_TASK, {
+      ...fastReady,
+      ...fastSettle,
+      bracketedPaste: 'never',
+      submitDelayMs: 5,
+      submitWatchMs: 20,
+      submitRetries: 1,
+      acceptancePollMs: 5
+    })
+
+    expect(write.mock.calls.map((call) => call[0])).toEqual([MULTILINE_TASK, SUBMIT_KEY])
+  })
+})
+
+/**
+ * The seed used to report every delivery as a success, including the ones
+ * where all bounded Enters were spent on a TUI that never reacted — so a
+ * silent agent looked exactly like a working one.
+ */
+describe('onSubmitted', () => {
+  it('reports an Enter that was never accepted', async () => {
+    const buffer = 'interactive cli ready'
+    const onSubmitted = vi.fn()
+
+    await expect(
+      seedWithReadyHandshake(vi.fn(), () => ({ buffer, alive: true }), 'seed prompt', {
+        ...fastReady,
+        ...fastSettle,
+        submitDelayMs: 5,
+        submitWatchMs: 30,
+        submitRetries: 2,
+        acceptancePollMs: 5,
+        onSubmitted
+      })
+      // The text did reach a live CLI — that verdict is unchanged.
+    ).resolves.toBe(true)
+
+    expect(onSubmitted).toHaveBeenCalledExactlyOnceWith(false)
+  })
+
+  it('reports an Enter the TUI answered with a running turn', async () => {
+    let buffer = 'interactive cli ready'
+    let spinner: ReturnType<typeof setInterval> | undefined
+    const onSubmitted = vi.fn()
+    const write = vi.fn((text: string) => {
+      if (text !== SUBMIT_KEY || spinner) return
+      spinner = setInterval(() => {
+        buffer += '·'
+      }, 5)
+    })
+
+    try {
+      await seedWithReadyHandshake(write, () => ({ buffer, alive: true }), 'seed prompt', {
+        ...fastReady,
+        ...fastSettle,
+        submitDelayMs: 5,
+        submitWatchMs: 60,
+        submitRetries: 3,
+        acceptancePollMs: 5,
+        onSubmitted
+      })
+    } finally {
+      if (spinner) clearInterval(spinner)
+    }
+
+    expect(onSubmitted).toHaveBeenCalledExactlyOnceWith(true)
+    // One Enter was enough — the retries must not have fired.
+    expect(write.mock.calls.filter((call) => call[0] === SUBMIT_KEY)).toHaveLength(1)
+  })
+
+  it('says nothing at all when the caller asked for no Enter', async () => {
+    const onSubmitted = vi.fn()
+
+    await seedWithReadyHandshake(
+      vi.fn(),
+      () => ({ buffer: 'interactive cli ready', alive: true }),
+      'seed prompt',
+      { ...fastReady, ...fastSettle, autoSubmit: false, acceptancePollMs: 5, onSubmitted }
+    )
+
+    expect(onSubmitted).not.toHaveBeenCalled()
+  })
+})
+
 describe('seedOptionsFromProvider', () => {
   it('maps only the fields the provider declared', () => {
     expect(seedOptionsFromProvider(undefined)).toEqual({})
@@ -455,13 +642,15 @@ describe('seedOptionsFromProvider', () => {
         submitDelayMs: 750,
         submitRetries: 3,
         submitWatchMs: 2500,
-        submitAcceptance: 'sustained-activity'
+        submitAcceptance: 'sustained-activity',
+        bracketedPaste: 'auto'
       })
     ).toEqual({
       submitDelayMs: 750,
       submitRetries: 3,
       submitWatchMs: 2500,
-      submitAcceptance: 'sustained-activity'
+      submitAcceptance: 'sustained-activity',
+      bracketedPaste: 'auto'
     })
   })
 })

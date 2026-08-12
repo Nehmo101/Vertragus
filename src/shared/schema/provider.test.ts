@@ -130,6 +130,15 @@ describe('providerConfigSchema', () => {
         .success
     ).toBe(true)
     expect(
+      providerConfigSchema.safeParse({ ...minimal, seed: { bracketedPaste: 'auto' } }).success
+    ).toBe(true)
+    expect(
+      providerConfigSchema.safeParse({ ...minimal, seed: { bracketedPaste: 'never' } }).success
+    ).toBe(true)
+    expect(
+      providerConfigSchema.safeParse({ ...minimal, seed: { bracketedPaste: 'always' } }).success
+    ).toBe(false)
+    expect(
       providerConfigSchema.safeParse({ ...minimal, seed: { submitRetries: 0 } }).success
     ).toBe(false)
     expect(

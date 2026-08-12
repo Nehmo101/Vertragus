@@ -179,7 +179,16 @@ export const providerSeedSchema = z
      *   single text write and settle-gated Enters — the full mechanics live on
      *   the handshake (`@main/agents/interactiveReady`).
      */
-    submitAcceptance: z.enum(['buffer-change', 'sustained-activity']).optional()
+    submitAcceptance: z.enum(['buffer-change', 'sustained-activity']).optional(),
+    /**
+     * Whether the assignment may travel as a real bracketed paste.
+     * - `'auto'` (default): framed in `ESC[200~`/`ESC[201~` as soon as the CLI
+     *   announces DECSET 2004, so no newline of a multi-KB role prompt can be
+     *   decoded as Enter no matter how the PTY chunks the write.
+     * - `'never'`: raw write only — the opt-out for a CLI that turns bracketed
+     *   paste on but mishandles the markers.
+     */
+    bracketedPaste: z.enum(['auto', 'never']).optional()
   })
   .strict()
 export type ProviderSeed = z.infer<typeof providerSeedSchema>

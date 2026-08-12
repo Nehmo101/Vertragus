@@ -881,6 +881,12 @@ export class Workspace implements AgentHost {
    * Sentinel parsing is suppressed for the whole write: the CLI echoes
    * host-authored text (tasks, answers, reminders) and those echoes must not
    * become fake agent_done / agent_question events.
+   *
+   * An Enter the handshake could not confirm does NOT fail the seed — the text
+   * reached a live CLI and may well be running. It is written into the agent's
+   * own scrollback instead, so the one place someone debugging a silent agent
+   * looks says "press Enter" rather than nothing at all. Previously this case
+   * was indistinguishable from a clean delivery.
    */
   private seed(record: AgentRecord, text: string, autoSubmit: boolean): Promise<boolean> {
     const seed = this.deps.seed ?? seedWithReadyHandshake
@@ -892,7 +898,18 @@ export class Workspace implements AgentHost {
       (data) => record.pty.write(data),
       () => ({ buffer: record.pty.snapshot(), alive: record.pty.isAlive }),
       text,
-      { ...seedOptionsFromProvider(provider?.seed), ...this.deps.seedOptions, autoSubmit }
+      {
+        ...seedOptionsFromProvider(provider?.seed),
+        ...this.deps.seedOptions,
+        autoSubmit,
+        onSubmitted: (confirmed) => {
+          if (confirmed) return
+          record.pty.push(
+            `\r\n\x1b[33mVertragus: ${record.name} never reacted to the submitting Enter — ` +
+              `the text is in the composer, press Enter here if it is still sitting there.\x1b[0m\r\n`
+          )
+        }
+      }
     ).finally(() => {
       record.suppressSentinel = false
     })

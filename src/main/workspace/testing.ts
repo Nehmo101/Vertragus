@@ -159,7 +159,16 @@ export interface RecordedSpawn {
  * A spawn function that hands out {@link FakePty}s and records every launch
  * input — which is how the tests inspect argv decisions without a process.
  */
-export function fakeSpawn(options: { ptySystemPrompt?: boolean; error?: Error } = {}): {
+export function fakeSpawn(
+  options: {
+    ptySystemPrompt?: boolean
+    error?: Error
+    /** Boot output every spawned {@link FakePty} starts with — a TUI's DECSET
+     * 2004 announcement belongs here, since that is what the seed handshake
+     * reads to decide whether it may send a real bracketed paste. */
+    banner?: string
+  } = {}
+): {
   spawn: (input: AgentLaunchInput) => Promise<SpawnedAgent>
   calls: RecordedSpawn[]
 } {
@@ -168,7 +177,7 @@ export function fakeSpawn(options: { ptySystemPrompt?: boolean; error?: Error } 
     calls,
     spawn: async (input: AgentLaunchInput): Promise<SpawnedAgent> => {
       if (options.error) throw options.error
-      const pty = new FakePty()
+      const pty = options.banner === undefined ? new FakePty() : new FakePty(options.banner)
       const launch: ResolvedLaunch = {
         file: `/resolved/${input.provider.command}`,
         args: ['--fake'],

@@ -66,6 +66,64 @@ export async function waitForInteractiveReady(
  */
 export const SUBMIT_KEY = '\r'
 
+/**
+ * DECSET 2004 — how a CLI announces "send me pastes bracketed". A TUI emits
+ * the enable when it takes the keyboard and the disable when it hands it back
+ * (shelling out, exiting), so the last one in the scrollback is the current
+ * state. See {@link bracketedPasteActive}.
+ */
+export const BRACKETED_PASTE_ON = '\u001b[?2004h'
+export const BRACKETED_PASTE_OFF = '\u001b[?2004l'
+
+/** The markers a terminal wraps pasted text in once DECSET 2004 is on. */
+export const PASTE_BEGIN = '\u001b[200~'
+export const PASTE_END = '\u001b[201~'
+
+/**
+ * True when the CLI's most recent DECSET 2004 was an enable — i.e. it is
+ * asking for real pastes and will read anything between {@link PASTE_BEGIN}
+ * and {@link PASTE_END} as literal text instead of as keystrokes.
+ *
+ * Read off the scrollback, which is a bounded ring: an agent that has printed
+ * more than `SCROLLBACK_LIMIT` since booting can have its announcement evicted,
+ * and a later seed then falls back to the raw write. That is today's behaviour,
+ * not a new failure mode — and a TUI re-announces whenever it retakes the
+ * keyboard.
+ */
+export function bracketedPasteActive(buffer: string): boolean {
+  const on = buffer.lastIndexOf(BRACKETED_PASTE_ON)
+  if (on < 0) return false
+  return buffer.lastIndexOf(BRACKETED_PASTE_OFF) < on
+}
+
+/**
+ * Line breaks as `\n`, never `\r` — for every seed write, framed or raw.
+ *
+ * A carriage return IS the submitting keystroke ({@link SUBMIT_KEY}), so one
+ * sitting inside the assignment is an Enter nobody meant to press: enough to
+ * submit a fragment and strand the rest in the composer. A role prompt edited
+ * on Windows arrives CRLF, which makes this the cheapest of the ways this seed
+ * could lose text.
+ */
+export function seedNewlines(text: string): string {
+  return text.replace(/\r\n?/g, '\n')
+}
+
+/**
+ * The body of a bracketed paste: {@link seedNewlines} minus any paste marker
+ * the text itself carries. A prompt quoting terminal escapes would otherwise
+ * close the bracket early and turn its own remainder back into keystrokes.
+ */
+export function pasteBody(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return seedNewlines(text.replace(/\u001b\[20[01]~/g, ''))
+}
+
+/** {@link pasteBody} between the paste markers. */
+export function bracketPaste(text: string): string {
+  return `${PASTE_BEGIN}${pasteBody(text)}${PASTE_END}`
+}
+
 /** Pause between the assignment text and the submitting Enter. */
 export const DEFAULT_SUBMIT_DELAY_MS = 250
 
@@ -92,6 +150,9 @@ export const DEFAULT_SETTLE_TIMEOUT_MS = 5_000
  * {@link SeedWithReadyOptions.submitAcceptance}.
  */
 export type SubmitAcceptance = 'buffer-change' | 'sustained-activity'
+
+/** See {@link SeedWithReadyOptions.bracketedPaste}. */
+export type BracketedPasteMode = 'auto' | 'never'
 
 export interface SeedWithReadyOptions {
   ready?: WaitForReadyOptions
@@ -145,6 +206,28 @@ export interface SeedWithReadyOptions {
   settleIdleMs?: number
   /** `'sustained-activity'` only: cap on waiting for a settle. */
   settleTimeoutMs?: number
+  /**
+   * Whether the assignment may travel as a real bracketed paste.
+   *
+   * - `'auto'` (default): frame it in {@link PASTE_BEGIN}/{@link PASTE_END}
+   *   whenever the CLI has announced DECSET 2004 — see
+   *   {@link bracketedPasteActive}. Nothing else changes for a CLI that never
+   *   announces it: the raw write is still the fallback.
+   * - `'never'`: always write the raw text. The opt-out for a CLI that turns
+   *   bracketed paste on but mishandles the markers.
+   */
+  bracketedPaste?: BracketedPasteMode
+  /**
+   * Called once with the verdict on the submitting Enter: `true` when the CLI
+   * was observed reacting the way an accepted submit looks (see
+   * {@link submitAcceptance}), `false` when every bounded retry was spent
+   * without that reaction. Not called when `autoSubmit` is off.
+   *
+   * The handshake's own return value stays "the text was delivered to a live
+   * CLI" — an unconfirmed Enter is a warning, not a reason to tear down an
+   * agent that may well have received its task.
+   */
+  onSubmitted?: (confirmed: boolean) => void
 }
 
 /**
@@ -206,6 +289,20 @@ async function waitForSettled(
  * - `'buffer-change'` stops on any buffer mutation and retries the text while
  *   the buffer stays still. It survives as an opt-out for plain REPL-style
  *   providers whose only redraw IS the acceptance echo.
+ *
+ * **How the text travels.** Everything above tunes *timing*, and timing was
+ * only ever half the problem: a raw multi-KB write is not a paste, it is a
+ * stream of keystrokes. The PTY hands it to the CLI in read-sized chunks, so
+ * every `\n` in a role prompt is a coin flip — inside a chunk the CLI's own
+ * paste heuristic may absorb it, on a chunk boundary it arrives alone and is
+ * decoded as Enter, submitting half an assignment (or, when it lands last,
+ * consuming the real Enter's job). Terminals solved this with DECSET 2004: a
+ * TUI that wants pastes says so, and the terminal frames them. So does
+ * Vertragus now — when the CLI has announced bracketed paste, the assignment
+ * goes out framed by {@link PASTE_BEGIN}/{@link PASTE_END} and no byte inside
+ * it can be read as a key, whatever the chunking. The submitting Enter stays
+ * a separate, unframed write, which is exactly what makes it unambiguous.
+ * Providers that never announce DECSET 2004 keep the raw write.
  */
 export async function seedWithReadyHandshake(
   write: (text: string) => void,
@@ -225,6 +322,7 @@ export async function seedWithReadyHandshake(
   const submitAcceptance = options.submitAcceptance ?? 'sustained-activity'
   const settleIdleMs = options.settleIdleMs ?? DEFAULT_SETTLE_IDLE_MS
   const settleTimeoutMs = options.settleTimeoutMs ?? DEFAULT_SETTLE_TIMEOUT_MS
+  const bracketedPaste = options.bracketedPaste ?? 'auto'
   // A caller that already terminated its prompt must not produce two returns.
   const text = prompt.endsWith(SUBMIT_KEY) ? prompt.slice(0, -1) : prompt
 
@@ -251,11 +349,19 @@ export async function seedWithReadyHandshake(
     if (!settled) return false
   }
 
+  // Decided here and not earlier: a TUI announces DECSET 2004 when it takes
+  // the keyboard, which is after the boot output the ready/settle gates above
+  // were waiting through. Asked once, so every retry writes the same bytes.
+  const payload =
+    bracketedPaste === 'auto' && bracketedPasteActive(getSnapshot().buffer)
+      ? bracketPaste(text)
+      : seedNewlines(text)
+
   for (let attempt = 0; attempt < textAttempts; attempt++) {
     const before = getSnapshot()
     if (!before.alive) return false
     textBaseline = before.buffer
-    write(text)
+    write(payload)
     if (attempt === textAttempts - 1) break
 
     let reacted = false
@@ -277,24 +383,28 @@ export async function seedWithReadyHandshake(
   if (!getSnapshot().alive) return false
 
   if (submitAcceptance === 'sustained-activity') {
-    return submitWithSustainedActivity(write, getSnapshot, textBaseline, {
+    const outcome = await submitWithSustainedActivity(write, getSnapshot, textBaseline, {
       submitRetries,
       submitWatchMs,
       settleIdleMs,
       settleTimeoutMs,
       pollMs: acceptancePollMs
     })
+    if (!outcome.alive) return false
+    options.onSubmitted?.(outcome.confirmed)
+    return true
   }
 
+  let confirmed = false
   for (let attempt = 0; attempt < submitRetries; attempt++) {
     const before = getSnapshot()
     if (!before.alive) return false
     // Separate write from the prompt text — never glue Enter onto the paste.
     write(SUBMIT_KEY)
-    if (attempt === submitRetries - 1) break
 
-    let reacted = false
     // Growing window: a still-digesting multi-KB paste needs more time later.
+    // The last attempt is watched too — not to decide on another retry, but so
+    // the caller is told the truth about whether the Enter ever landed.
     const watchMs = submitWatchMs * (attempt + 1)
     const deadline = Date.now() + watchMs
     while (Date.now() < deadline) {
@@ -302,13 +412,14 @@ export async function seedWithReadyHandshake(
       const after = getSnapshot()
       if (!after.alive) return false
       if (after.buffer !== before.buffer) {
-        reacted = true
+        confirmed = true
         break
       }
     }
-    if (reacted) break
+    if (confirmed) break
   }
 
+  options.onSubmitted?.(confirmed)
   return true
 }
 
@@ -329,7 +440,9 @@ export async function seedWithReadyHandshake(
  *    stops the retries; a burst that dies down does not.
  * 3. Bounded. At most `submitRetries` presses, with growing watch windows —
  *    and a retry only ever fires after observed silence, the strongest
- *    available "nothing is running" signal.
+ *    available "nothing is running" signal. The final press is watched like
+ *    every other one; it just has no retry left, so its only product is the
+ *    `confirmed` verdict the caller reports.
  */
 async function submitWithSustainedActivity(
   write: (text: string) => void,
@@ -342,7 +455,8 @@ async function submitWithSustainedActivity(
     settleTimeoutMs: number
     pollMs: number
   }
-): Promise<boolean> {
+): Promise<{ alive: boolean; confirmed: boolean }> {
+  const dead = { alive: false, confirmed: false }
   const sustainMs = Math.max(1, Math.floor(opts.submitWatchMs / 2))
   let settleBaseline = textBaseline
 
@@ -354,11 +468,10 @@ async function submitWithSustainedActivity(
       opts.settleTimeoutMs,
       opts.pollMs
     )
-    if (!settled) return false
+    if (!settled) return dead
     const before = getSnapshot()
-    if (!before.alive) return false
+    if (!before.alive) return dead
     write(SUBMIT_KEY)
-    if (attempt === opts.submitRetries - 1) break
 
     const watchMs = opts.submitWatchMs * (attempt + 1)
     const deadline = Date.now() + watchMs
@@ -368,7 +481,7 @@ async function submitWithSustainedActivity(
     while (Date.now() < deadline) {
       await sleep(Math.min(opts.pollMs, Math.max(1, deadline - Date.now())))
       const after = getSnapshot()
-      if (!after.alive) return false
+      if (!after.alive) return dead
       if (after.buffer !== prev) {
         prev = after.buffer
         const now = Date.now()
@@ -379,12 +492,12 @@ async function submitWithSustainedActivity(
         }
       }
     }
-    if (accepted) break
+    if (accepted) return { alive: true, confirmed: true }
     // Quiet since the last observed frame — the settle gate of the retry.
     settleBaseline = prev
   }
 
-  return true
+  return { alive: true, confirmed: false }
 }
 
 /**
@@ -398,6 +511,7 @@ export function seedOptionsFromProvider(
         submitRetries?: number
         submitWatchMs?: number
         submitAcceptance?: SubmitAcceptance
+        bracketedPaste?: BracketedPasteMode
       }
     | undefined
 ): SeedWithReadyOptions {
@@ -406,6 +520,7 @@ export function seedOptionsFromProvider(
     ...(seed.submitDelayMs !== undefined ? { submitDelayMs: seed.submitDelayMs } : {}),
     ...(seed.submitRetries !== undefined ? { submitRetries: seed.submitRetries } : {}),
     ...(seed.submitWatchMs !== undefined ? { submitWatchMs: seed.submitWatchMs } : {}),
-    ...(seed.submitAcceptance !== undefined ? { submitAcceptance: seed.submitAcceptance } : {})
+    ...(seed.submitAcceptance !== undefined ? { submitAcceptance: seed.submitAcceptance } : {}),
+    ...(seed.bracketedPaste !== undefined ? { bracketedPaste: seed.bracketedPaste } : {})
   }
 }
