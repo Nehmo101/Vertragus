@@ -43,6 +43,31 @@ describe('terminalTail', () => {
     expect(terminalTail('only\n', 0)).toEqual(['only'])
   })
 
+  it('reads cursor-positioned TUI frames instead of returning nothing', () => {
+    // An alternate-screen CLI paints rows via CUP and never emits \n. Before
+    // the cursor-break handling this whole buffer collapsed to an empty tail.
+    const frame =
+      `${ESC}[?1049h${ESC}[2J${ESC}[1;1Hcursor-agent` +
+      `${ESC}[2;1Hstatus: working${ESC}[1;1Hcursor-agent${ESC}[2;1Hstatus: done`
+    const tail = terminalTail(frame, 10)
+    expect(tail.length).toBeGreaterThan(0)
+    expect(tail).toContain('status: done')
+    expect(tail).toContain('cursor-agent')
+  })
+
+  it('collapses a repaint loop that redraws identical text every tick', () => {
+    const repaints = Array.from({ length: 50 }, () => `${ESC}[1;1Hworking on it`).join('')
+    expect(terminalTail(repaints, 10)).toEqual(['working on it'])
+  })
+
+  it('treats ESC E / ESC M index moves as line breaks', () => {
+    expect(terminalTail(`first${ESC}Esecond${ESC}Mthird`, 10)).toEqual([
+      'first',
+      'second',
+      'third'
+    ])
+  })
+
   it('joins to the plain block read_output returns', () => {
     expect(terminalTailText(`${ESC}[32mgreen${ESC}[0m\nplain\n`, 5)).toBe('green\nplain')
   })
