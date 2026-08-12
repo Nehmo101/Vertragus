@@ -25,6 +25,7 @@ import {
   workspaceCountByProfile,
   workspaceHasWaitingSubagent,
   workspaceNeedsAttention,
+  workspacePlaceTooltip,
   workspaceTooltip
 } from './viewModel'
 
@@ -109,13 +110,15 @@ describe('tooltips', () => {
   })
 
   it('reveals what kind of place a workspace is, cycle suffix included', () => {
-    expect(workspaceTooltip(t, workspace())).toMatch(/Himmelssphären/)
-    expect(workspaceTooltip(t, workspace({ name: 'Paradiso II' }))).toMatch(/Himmelssphären/)
-    // An unknown name is still a name — never an empty tooltip.
-    expect(workspaceTooltip(t, workspace({ name: 'Eigenbau' }))).toBe('Eigenbau')
+    expect(workspacePlaceTooltip(workspace())).toMatch(/Himmelssphären/)
+    expect(workspacePlaceTooltip(workspace({ name: 'Paradiso II' }))).toMatch(/Himmelssphären/)
+    // A name the roster does not know gets no card at all — a box repeating the
+    // word under the cursor is worse than nothing.
+    expect(workspacePlaceTooltip(workspace({ name: 'Eigenbau' }))).toBeUndefined()
+    expect(workspaceTooltip(t, workspace({ name: 'Eigenbau' }))).toBeUndefined()
   })
 
-  it('appends the current task to the workspace tooltip once one exists', () => {
+  it('appends the current task to the workspace hover card once one exists', () => {
     const withTask = workspace({ taskText: 'Parser-Bug in tokenizer.ts fixen' })
     expect(workspaceTooltip(t, withTask)).toMatch(/Himmelssphären/)
     expect(workspaceTooltip(t, withTask)).toContain(
@@ -126,6 +129,10 @@ describe('tooltips', () => {
     )
     // Whitespace is not a task — the blurb stands alone.
     expect(workspaceTooltip(t, workspace({ taskText: '   ' }))).not.toContain('Aufgabe')
+    // An unknown name with a task still gets a card — the task carries it.
+    expect(workspaceTooltip(t, workspace({ name: 'Eigenbau', taskText: 'Docs schreiben' }))).toBe(
+      'Aktuelle Aufgabe: Docs schreiben'
+    )
   })
 })
 

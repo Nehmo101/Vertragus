@@ -47,7 +47,7 @@
   border-radius: 999px;
   background: linear-gradient(180deg, var(--glass-top), var(--glass-bottom));
   box-shadow: var(--shadow-panel);
-  backdrop-filter: blur(16px) saturate(1.15);
+  backdrop-filter: var(--glass-blur);
 }
 
 .zones-hint-title {
@@ -168,7 +168,7 @@
   border-radius: var(--radius-panel);
   background: linear-gradient(180deg, var(--glass-top), var(--glass-bottom));
   box-shadow: var(--shadow-panel);
-  backdrop-filter: blur(16px) saturate(1.15);
+  backdrop-filter: var(--glass-blur);
 }
 
 .zones-bar-label {

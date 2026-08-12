@@ -108,6 +108,22 @@ describe('startAgent', () => {
     ])
   })
 
+  it('hands the profile zone layout to the window layer', async () => {
+    const zones = {
+      zones: [{ roleId: 'worker', displayId: 1, rect: { x: 0.5, y: 0, w: 0.5, h: 1 } }]
+    }
+    const { workspace, windows } = harness({ profile: testProfile({ zones }) })
+    const started = await workspace.startAgent({ role: 'worker', task: 'x' })
+    expect(windows.opened).toEqual([
+      {
+        agentId: started.agentId,
+        title: started.name,
+        roleColor: roleColor('worker', 0),
+        placement: { roleId: 'worker', zones }
+      }
+    ])
+  })
+
   it('types the assignment in — exactly as the MCP layer composed it', async () => {
     const { workspace, prompts } = harness()
     await workspace.startAgent({ role: 'worker', task: 'Task text\n\n--- Contract ---' })

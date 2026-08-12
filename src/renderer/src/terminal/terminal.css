@@ -14,7 +14,7 @@
   border: 1px solid var(--hairline);
   box-shadow: var(--shadow-window);
   background: var(--glass-window);
-  backdrop-filter: blur(14px) saturate(1.1);
+  backdrop-filter: var(--glass-blur-window);
   transition: background 0.4s ease;
 }
 

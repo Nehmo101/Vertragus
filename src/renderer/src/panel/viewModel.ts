@@ -57,17 +57,35 @@ export function agentTooltip(agent: Pick<WorkspaceAgentSummary, 'name'>): string
 }
 
 /**
- * Tooltip for a workspace card — what kind of place is this, and what is it
+ * The mini description of a workspace card — what kind of place is this?
+ *
+ * Undefined for a name the Commedia roster does not know, and that absence is
+ * the point: the card is now a real hover card with the name as its heading,
+ * so falling back to the name would pop up a box that repeats the word the
+ * user is already pointing at.
+ */
+export function workspacePlaceTooltip(
+  workspace: Pick<WorkspaceSummary, 'name'>
+): string | undefined {
+  return workspacePlaceBlurb(workspace.name)
+}
+
+/**
+ * Hover-card text for a workspace — what kind of place is this, and what is it
  * working on? The task line only appears once the orchestrator has handed out
- * an assignment; before that the blurb stands alone.
+ * an assignment; before that the blurb stands alone. Undefined when there is
+ * neither (see {@link workspacePlaceTooltip} for why an unknown bare name gets
+ * no card at all).
  */
 export function workspaceTooltip(
   t: Translate,
   workspace: Pick<WorkspaceSummary, 'name' | 'taskText'>
-): string {
-  const blurb = workspacePlaceBlurb(workspace.name) ?? workspace.name
+): string | undefined {
+  const blurb = workspacePlaceTooltip(workspace)
   const task = workspace.taskText?.trim()
-  return task ? `${blurb}\n\n${t('panel.workspaceTask', { task })}` : blurb
+  if (!task) return blurb
+  const taskLine = t('panel.workspaceTask', { task })
+  return blurb ? `${blurb}\n\n${taskLine}` : taskLine
 }
 
 export function workspaceCardClass(
