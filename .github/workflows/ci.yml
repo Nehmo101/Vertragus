@@ -4,6 +4,12 @@ on:
   pull_request:
   push:
     branches: [main]
+  # An escape hatch, not a second entry point. A head commit only gets a run
+  # when its own event fires, and that event can go missing — merging a PR
+  # into a PR branch with a bot token produces a commit GitHub refuses to
+  # raise a `synchronize` for, so the branch tip ends up with zero checks and
+  # no way to ask for any. Without this, the only cure is an empty commit.
+  workflow_dispatch:
 
 permissions:
   contents: read
