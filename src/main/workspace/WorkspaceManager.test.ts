@@ -8,6 +8,7 @@ import {
   FakeRegistry,
   fakeSeed,
   fakeSpawn,
+  fakeWorktrees,
   sequentialIds,
   testProfile,
   testProviders,
@@ -87,6 +88,7 @@ function harness(overrides: Partial<WorkspaceManagerDeps> = {}): Harness {
       log.push(`spawn:${input.kind}`)
       return spawner.spawn(input)
     }) as unknown as WorkspaceDeps['spawn'],
+    createWorktree: fakeWorktrees().createWorktree as unknown as WorkspaceDeps['createWorktree'],
     seed: seeder.seed as unknown as WorkspaceDeps['seed'],
     newId: sequentialIds('id'),
     ...overrides

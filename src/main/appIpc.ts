@@ -91,10 +91,13 @@ export const APP_CHANNELS = {
   workspacesStop: 'workspaces:stop',
   workspacesFocusAgent: 'workspaces:focusAgent',
   workspacesFocus: 'workspaces:focus',
+  worktreesList: 'worktrees:list',
+  worktreesRemove: 'worktrees:remove',
   settingsGet: 'settings:get',
   settingsYolo: 'settings:yolo',
   settingsSet: 'settings:set',
   windowsHideAll: 'windows:hideAll',
+  windowsMinimizePanel: 'windows:minimizePanel',
   appQuit: 'app:quit',
   dialogPickDirectory: 'dialog:pickDirectory',
   profileEditorOpen: 'profileEditor:open',
@@ -175,6 +178,13 @@ export interface WorkspaceSummary {
   agents: WorkspaceAgentSummary[]
 }
 
+/** One stale worktree the panel's cleanup view offers for removal. */
+export interface StaleWorktreeSummary {
+  path: string
+  /** Short branch name (`vertragus/paradiso/caronte`); absent when detached. */
+  branch?: string
+}
+
 /**
  * What this layer needs from the workspace world. The real implementation is
  * the WorkspaceManager; tests and the not-yet-wired app use the stub below.
@@ -195,6 +205,18 @@ export interface WorkspaceDirectory {
    * agent's — positions stay; see {@link focusWorkspaceAgents}.
    */
   focusWorkspace(workspaceId: string): void
+  /**
+   * Stale worktrees of this profile's repository — everything under the
+   * Vertragus worktree root that no live agent is working in.
+   */
+  listStaleWorktrees(profileId: string): Promise<StaleWorktreeSummary[]>
+  /**
+   * Remove ONE stale worktree on the user's explicit click; answers with the
+   * refreshed stale list. Live agents' worktrees and anything outside the
+   * worktree root are refused, dirty worktrees are refused by git itself, and
+   * branches survive — see workspace/worktreeCleanup.
+   */
+  removeWorktree(profileId: string, worktreePath: string): Promise<StaleWorktreeSummary[]>
   /** Optional push channel; without it the panel only refreshes on demand. */
   onChange?(listener: () => void): () => void
 }
@@ -206,17 +228,18 @@ export interface WorkspaceDirectory {
  * worst possible placeholder.
  */
 export function createStubWorkspaceDirectory(): WorkspaceDirectory {
+  const refuse = (): never => {
+    throw new Error('Workspace-Manager ist noch nicht verdrahtet.')
+  }
   return {
     list: () => [],
-    start() {
-      throw new Error('Workspace-Manager ist noch nicht verdrahtet.')
-    },
-    stop() {
-      throw new Error('Workspace-Manager ist noch nicht verdrahtet.')
-    },
+    start: refuse,
+    stop: refuse,
     focusAgent: (agentId) => focusCliWindow(agentId),
     // No manager → no workspace→agent map; quiet no-op like focusAgent on a ghost.
-    focusWorkspace() {}
+    focusWorkspace() {},
+    listStaleWorktrees: async () => refuse(),
+    removeWorktree: async () => refuse()
   }
 }
 
@@ -444,6 +467,11 @@ export interface AppIpcHost {
   broadcastAll?(channel: string, payload: unknown): void
   /** Hide every CLI window and editor; toggling again restores them. */
   hideAll(): void
+  /**
+   * Minimize the panel itself — the one window hide-all deliberately never
+   * touches, and therefore the one that needs its own way down to the taskbar.
+   */
+  minimizePanel(): void
   /**
    * Native "N agents are still running" confirmation. Resolves true when the
    * user chose to quit. Only asked when something is actually running.
@@ -721,6 +749,24 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     host.directory.focusWorkspace(workspaceId)
   })
 
+  // --- worktree cleanup ----------------------------------------------------
+
+  handle(APP_CHANNELS.worktreesList, requirePanel, (_event, payload) => {
+    const profileId =
+      typeof payload === 'string' ? payload : (payload as { profileId?: string })?.profileId
+    if (!profileId) throw new Error('worktrees:list rejected — missing profile id')
+    return host.directory.listStaleWorktrees(profileId)
+  })
+
+  handle(APP_CHANNELS.worktreesRemove, requirePanel, (_event, payload) => {
+    const body = (payload ?? {}) as { profileId?: string; path?: string }
+    if (!body.profileId) throw new Error('worktrees:remove rejected — missing profile id')
+    if (!body.path) throw new Error('worktrees:remove rejected — missing worktree path')
+    // Whether this path may go at all is decided in the directory (stale-list
+    // membership) and by git (dirty worktrees refuse) — never here.
+    return host.directory.removeWorktree(body.profileId, body.path)
+  })
+
   // --- settings & windows ------------------------------------------------
 
   handle(APP_CHANNELS.settingsGet, requireAppWindow, () => panelSettings())
@@ -822,6 +868,16 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
 
   handle(APP_CHANNELS.windowsHideAll, requirePanel, () => {
     host.hideAll()
+  })
+
+  /**
+   * The panel's −. Distinct from hide-all on purpose: hide-all clears the
+   * agents off the screen and leaves the panel standing (it is the way back),
+   * so "get this strip out of my way" had nowhere to go before. The taskbar
+   * entry brings it back — the panel is the one window with `skipTaskbar` off.
+   */
+  handle(APP_CHANNELS.windowsMinimizePanel, requirePanel, () => {
+    host.minimizePanel()
   })
 
   /**
@@ -1093,6 +1149,9 @@ export function registerAppIpc(directory?: WorkspaceDirectory): AppIpc {
     },
     hideAll: () => {
       toggleHideAll()
+    },
+    minimizePanel: () => {
+      getPanelWindow()?.minimize()
     },
     async confirmQuit(runningAgents) {
       const { message, detail } = quitConfirmationText(runningAgents)

@@ -20,6 +20,10 @@
     "filterProfileWorkspaces": "Workspaces von „{{profile}}“ filtern",
     "workspaceTotal_one": "{{count}} Workspace insgesamt",
     "workspaceTotal_other": "{{count}} Workspaces insgesamt",
+    "cleanupWorktrees": "Alte Worktrees von „{{profile}}“ aufräumen",
+    "worktreesLoading": "Suche alte Worktrees …",
+    "worktreesEmpty": "Keine alten Worktrees.",
+    "removeWorktree": "Worktree „{{branch}}“ entfernen — der Branch bleibt erhalten",
     "stopWorkspace": "Workspace „{{workspace}}“ beenden",
     "expandWorkspace": "Workspace „{{workspace}}“ aufklappen",
     "collapseWorkspace": "Workspace „{{workspace}}“ zuklappen",
@@ -36,6 +40,7 @@
     "yolo": "Yolo",
     "yoloOn": "Yolo-Master ist AN — Subagents dürfen ohne Rückfrage handeln",
     "yoloOff": "Yolo-Master ist AUS — Subagents fragen nach",
+    "minimize": "Panel minimieren",
     "hideAll": "Alles ausblenden",
     "quit": "Vertragus beenden",
     "settings": "Einstellungen",
@@ -292,6 +297,8 @@
     "stopped": "beendet · exit {{code}}",
     "exitLine": "— beendet · exit {{code}} —",
     "minimizeWindow": "Fenster minimieren",
+    "maximizeWindow": "Fenster vergrößern — füllt den Bildschirm",
+    "restoreWindow": "Fenster verkleinern — zurück in seine Zone",
     "closeWindow": "Fenster schließen"
   }
 }

@@ -20,6 +20,10 @@
     "filterProfileWorkspaces": "Filter workspaces of “{{profile}}”",
     "workspaceTotal_one": "{{count}} workspace in total",
     "workspaceTotal_other": "{{count}} workspaces in total",
+    "cleanupWorktrees": "Clean up old worktrees of “{{profile}}”",
+    "worktreesLoading": "Looking for old worktrees …",
+    "worktreesEmpty": "No old worktrees.",
+    "removeWorktree": "Remove worktree “{{branch}}” — the branch is kept",
     "stopWorkspace": "Stop workspace “{{workspace}}”",
     "expandWorkspace": "Expand workspace “{{workspace}}”",
     "collapseWorkspace": "Collapse workspace “{{workspace}}”",
@@ -36,6 +40,7 @@
     "yolo": "Yolo",
     "yoloOn": "Yolo master is ON — subagents may act without asking",
     "yoloOff": "Yolo master is OFF — subagents ask first",
+    "minimize": "Minimize panel",
     "hideAll": "Hide everything",
     "quit": "Quit Vertragus",
     "settings": "Settings",
@@ -292,6 +297,8 @@
     "stopped": "stopped · exit {{code}}",
     "exitLine": "— stopped · exit {{code}} —",
     "minimizeWindow": "Minimize window",
+    "maximizeWindow": "Enlarge window — fills the screen",
+    "restoreWindow": "Shrink window — back into its zone",
     "closeWindow": "Close window"
   }
 }

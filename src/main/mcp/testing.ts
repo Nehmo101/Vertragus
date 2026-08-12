@@ -92,13 +92,17 @@ export class FakeAgentHost implements AgentHost {
   async startAgent(input: StartAgentInput): Promise<StartedAgent> {
     if (this.options.startError) throw new Error(this.options.startError)
     const agentId = `agent-${++this.counter}`
+    // Every agent gets its own worktree and branch — the fake mirrors the invariant.
+    const worktreePath = `/tmp/worktrees/${agentId}`
+    const branch = `vertragus/arsenale/${agentId}`
     const agent: AgentSummary = {
       agentId,
       name: `Agent ${this.counter}`,
       role: input.role,
       status: 'running',
       model: input.model,
-      worktreePath: input.worktree ? `/tmp/worktrees/${agentId}` : undefined,
+      worktreePath,
+      branch,
       lastOutputAgeSec: 0,
       reporting: this.reportingMode(input.role)
     }
@@ -109,7 +113,8 @@ export class FakeAgentHost implements AgentHost {
       agentId,
       name: agent.name,
       role: agent.role,
-      worktreePath: agent.worktreePath
+      worktreePath,
+      branch
     }
   }
 

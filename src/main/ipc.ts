@@ -22,8 +22,10 @@ import { getSettings } from './store/settings'
 import {
   closeCliWindow,
   getCliWindow,
+  isCliWindowMaximized,
   isCliWindowSender,
-  minimizeCliWindow
+  minimizeCliWindow,
+  toggleCliWindowMaximized
 } from './windows/cliWindow'
 
 export const TERMINAL_CHANNELS = {
@@ -33,7 +35,8 @@ export const TERMINAL_CHANNELS = {
   data: 'terminal:data',
   exit: 'terminal:exit',
   windowClose: 'window:close',
-  windowMinimize: 'window:minimize'
+  windowMinimize: 'window:minimize',
+  windowMaximize: 'window:maximize'
 } as const
 
 /** ~one frame: long enough to merge a burst, short enough to feel live. */
@@ -68,6 +71,12 @@ export interface TerminalAttachResult {
   locale?: string
   /** Appearance at attach time — see {@link locale}. */
   theme?: 'dark' | 'light'
+  /**
+   * Whether the window is filling its screen right now. The title bar's
+   * grow/shrink button has to draw the correct glyph on its first frame, and a
+   * reloaded renderer has no memory of the click that maximized it.
+   */
+  maximized: boolean
 }
 
 export interface TerminalDataEvent {
@@ -113,6 +122,10 @@ export interface TerminalIpcHost {
   hasWindow?(agentId: string): boolean
   closeWindow(agentId: string): void
   minimizeWindow(agentId: string): void
+  /** Full screen ↔ back into the agent's zone. Answers with the new state. */
+  toggleMaximizeWindow(agentId: string): boolean
+  /** Current grow/shrink state; rides along with the attach result. */
+  isWindowMaximized(agentId: string): boolean
   coalesceMs?: number
   /** UI language for attach results; CLI windows cannot query settings. */
   locale?(): string
@@ -197,6 +210,7 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
       rows: record.entry.pty.rows,
       meta: record.entry.meta,
       exit: record.exit,
+      maximized: host.isWindowMaximized(agentId),
       ...(host.locale ? { locale: host.locale() } : {}),
       ...(host.theme ? { theme: host.theme() } : {})
     }
@@ -243,6 +257,20 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
     const agentId = host.senderAgentId(event.sender.id)
     if (!agentId) return
     host.minimizeWindow(agentId)
+  }) as IpcListener)
+
+  /**
+   * `handle`, not `on`, unlike its two neighbours: the button's glyph has to
+   * flip to match, and the answer is the one place that knows whether it did.
+   * A sender that is not a CLI window is ignored the same way they are — it
+   * simply learns that nothing is maximized.
+   */
+  host.ipcMain.handle(TERMINAL_CHANNELS.windowMaximize, ((event: {
+    sender: { id: number }
+  }): boolean => {
+    const agentId = host.senderAgentId(event.sender.id)
+    if (!agentId) return false
+    return host.toggleMaximizeWindow(agentId)
   }) as IpcListener)
 
   const detach = (record: AgentRecord): void => {
@@ -313,6 +341,7 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
         host.ipcMain.removeAllListeners(channel)
       }
       host.ipcMain.removeHandler(TERMINAL_CHANNELS.attach)
+      host.ipcMain.removeHandler(TERMINAL_CHANNELS.windowMaximize)
     }
   }
 }
@@ -332,6 +361,8 @@ export function registerTerminalIpc(): AgentRegistry {
     },
     closeWindow: (agentId) => closeCliWindow(agentId),
     minimizeWindow: (agentId) => minimizeCliWindow(agentId),
+    toggleMaximizeWindow: (agentId) => toggleCliWindowMaximized(agentId),
+    isWindowMaximized: (agentId) => isCliWindowMaximized(agentId),
     locale: () => getSettings().ui.locale,
     theme: () => getSettings().ui.theme
   })

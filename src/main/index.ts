@@ -13,13 +13,14 @@ import { getProfile, getRoleTemplates } from './store/settings'
 import { createCliWindow, focusCliWindow } from './windows/cliWindow'
 import { cliFocusTargets, focusWorkspaceAgents } from './windows/focusWorkspace'
 import { registerAppHideAllShortcut, unregisterHideAllShortcut } from './windows/hideAll'
-import { createPanelWindow, getPanelWindow } from './windows/panel'
+import { createPanelWindow } from './windows/panel'
 import { armProfileEditorSmoke } from './windows/profileEditor'
 import { armProviderEditorSmoke } from './windows/providerEditor'
 import { armSettingsWindowSmoke } from './windows/settingsWindow'
 import { armZoneOverlaySmoke } from './windows/zoneOverlay'
 import { startAppUpdater } from './updater'
 import type { WorkspaceManager } from './workspace/WorkspaceManager'
+import { createWorktreeCleanup } from './workspace/worktreeCleanup'
 
 /**
  * Headless smoke hook: <envVar>=<path> boots the window, captures it and exits.
@@ -50,6 +51,15 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
 
   const pendingOf = (workspaceId: string, agentId: string): string | undefined =>
     mcp.pendingQuestion(workspaceId, agentId)
+
+  // Active paths across ALL workspaces, not just the asking profile's: two
+  // profiles may point at the same repository, and an agent of either must
+  // never show up as removable.
+  const cleanup = createWorktreeCleanup({
+    repoPathFor: (profileId) => getProfile(profileId)?.repoPath,
+    activeWorktreePaths: () =>
+      manager.list().flatMap((workspace) => workspace.activeWorktreePaths())
+  })
 
   return {
     list: () =>
@@ -116,7 +126,9 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
         ...workspace.listAgents().map((agent) => agent.agentId)
       ]
       focusWorkspaceAgents(agentIds, { windows: cliFocusTargets })
-    }
+    },
+    listStaleWorktrees: (profileId) => cleanup.listStale(profileId),
+    removeWorktree: (profileId, worktreePath) => cleanup.remove(profileId, worktreePath)
   }
 }
 
@@ -220,8 +232,10 @@ app.whenReady().then(async () => {
     }
   }
 
+  // Also the way back from the panel's − : createPanelWindow restores and
+  // focuses the existing window, so activating the app un-minimizes it.
   app.on('activate', () => {
-    if (!getPanelWindow()) createPanelWindow()
+    createPanelWindow()
   })
 })
 

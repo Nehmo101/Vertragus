@@ -41,6 +41,8 @@ export interface PanelData {
   openSettings(): void
   toggleYolo(): void
   hideAll(): void
+  /** The head's − : put the panel itself down to the taskbar. */
+  minimizePanel(): void
   /** Restart into the downloaded update — the badge's click target. */
   installUpdate(): void
   /** Quit Vertragus — main asks first when agents are still running. */
@@ -135,6 +137,7 @@ export function usePanelData(): PanelData {
         setSettings(next)
       }),
     hideAll: () => run((api) => api.hideAllWindows()),
+    minimizePanel: () => run((api) => api.minimizePanel()),
     quitApp: () => run((api) => api.quitApp())
   }
 }

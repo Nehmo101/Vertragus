@@ -76,7 +76,9 @@ class SpawningHost implements AgentHost {
         role: input.role,
         status: 'running',
         model: input.model,
-        worktreePath: input.worktree ? `/worktrees/${agentId}` : undefined,
+        // Every agent gets its own worktree and branch — this host fakes the invariant.
+        worktreePath: `/worktrees/${agentId}`,
+        branch: `vertragus/test/${agentId}`,
         lastOutputAgeSec: 0,
         reporting: 'mcp'
       },
@@ -128,7 +130,8 @@ class SpawningHost implements AgentHost {
       agentId,
       name: record.summary.name,
       role: record.summary.role,
-      worktreePath: record.summary.worktreePath
+      worktreePath: `/worktrees/${agentId}`,
+      branch: `vertragus/test/${agentId}`
     }
   }
 

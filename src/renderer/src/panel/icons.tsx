@@ -110,6 +110,50 @@ export function CloseIcon({ size = 13 }: IconProps): React.JSX.Element {
   )
 }
 
+/** The profile row's "clean up old worktrees" mark. */
+export function BroomIcon({ size = 13 }: IconProps): React.JSX.Element {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M19.6 3.4 12.4 10.6" />
+      <path d="M12.4 10.6c-2.5-.7-4.7 0-6.3 2.4l7.9 4.7c1.6-2.3 2-4.6 1.1-7.1Z" />
+      <path d="M8.6 15.9 7 18.6M11.8 17.8l-1 2.5" />
+    </svg>
+  )
+}
+
+/** One cleanup entry's "remove this worktree" mark. */
+export function TrashIcon({ size = 12 }: IconProps): React.JSX.Element {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M4.5 6.5h15M9.5 6.5V4.9a1.4 1.4 0 0 1 1.4-1.4h2.2a1.4 1.4 0 0 1 1.4 1.4v1.6" />
+      <path d="M7 6.5l.8 12.1a1.7 1.7 0 0 0 1.7 1.6h5a1.7 1.7 0 0 0 1.7-1.6L17 6.5" />
+      <path d="M10.3 10.2v5.8M13.7 10.2v5.8" />
+    </svg>
+  )
+}
+
 export function FolderIcon({ size = 13 }: IconProps): React.JSX.Element {
   return (
     <svg
