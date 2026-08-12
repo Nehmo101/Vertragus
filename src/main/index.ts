@@ -1,4 +1,3 @@
-import { writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { app } from 'electron'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
@@ -16,6 +15,7 @@ import { createPanelWindow } from './windows/panel'
 import { armProfileEditorSmoke } from './windows/profileEditor'
 import { armProviderEditorSmoke } from './windows/providerEditor'
 import { armSettingsWindowSmoke } from './windows/settingsWindow'
+import { armWindowCapture } from './windows/smokeCapture'
 import { armZoneOverlaySmoke } from './windows/zoneOverlay'
 import { startAppUpdater } from './updater'
 import type { WorkspaceManager } from './workspace/WorkspaceManager'
@@ -25,22 +25,10 @@ import { createWorktreeCleanup } from './workspace/worktreeCleanup'
  * Headless smoke hook: <envVar>=<path> boots the window, captures it and exits.
  * Used by the panel smoke script and for owner verification of the glass
  * rendering (panel: VERTRAGUS_PANEL_SCREENSHOT, CLI: VERTRAGUS_CLI_SCREENSHOT).
+ * The capture mechanics (show, wait for paint, retry) live in smokeCapture.
  */
 function armScreenshotHook(win: Electron.BrowserWindow, envVar: string, delayMs = 1_500): void {
-  const target = process.env[envVar]
-  if (!target) return
-  win.webContents.once('did-finish-load', () => {
-    setTimeout(async () => {
-      try {
-        const image = await win.webContents.capturePage()
-        await writeFile(target, image.toPNG())
-        app.exit(0)
-      } catch (error) {
-        console.error(`[smoke] capture failed (${envVar}):`, error)
-        app.exit(1)
-      }
-    }, delayMs)
-  })
+  armWindowCapture(win, envVar, envVar, delayMs)
 }
 
 /** Adapter: WorkspaceManager → the view the panel draws. */

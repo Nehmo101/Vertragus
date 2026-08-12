@@ -12,9 +12,9 @@
  * settings window", which is what lets `settings:set` accept writes from here
  * and from nowhere else except the panel.
  */
-import { writeFile } from 'node:fs/promises'
-import { app, BrowserWindow } from 'electron'
+import { BrowserWindow } from 'electron'
 import { glassWindowOptions, loadRoute, secureWindow } from './base'
+import { armWindowCapture } from './smokeCapture'
 
 export const SETTINGS_WINDOW_WIDTH = 480
 // Measured against the rendered sheet: tall enough that the update block is on
@@ -56,20 +56,7 @@ export function isSettingsWindowSender(webContentsId: number): boolean {
  * and exits. Armed from the app entry, next to the other boot smoke hooks.
  */
 function armSettingsScreenshot(win: BrowserWindow, delayMs = 3_000): void {
-  const target = process.env['VERTRAGUS_SETTINGS_SCREENSHOT']
-  if (!target) return
-  win.webContents.once('did-finish-load', () => {
-    setTimeout(async () => {
-      try {
-        const image = await win.webContents.capturePage()
-        await writeFile(target, image.toPNG())
-        app.exit(0)
-      } catch (error) {
-        console.error('[smoke] capture failed (settings):', error)
-        app.exit(1)
-      }
-    }, delayMs)
-  })
+  armWindowCapture(win, 'VERTRAGUS_SETTINGS_SCREENSHOT', 'settings', delayMs)
 }
 
 /** Boot-time owner verification of the settings sheet; a no-op without the env. */

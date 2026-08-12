@@ -98,7 +98,7 @@ describe('allowlists', () => {
     expect(qualifiedToolName('start_agent')).toBe('mcp__vertragus__start_agent')
   })
 
-  it('gives the orchestrator exactly its six tools plus the read-only built-ins', () => {
+  it('gives the orchestrator exactly its seven tools plus the read-only built-ins', () => {
     expect(orchestratorAllowedTools()).toEqual([
       ...ORCHESTRATOR_TOOL_NAMES.map((tool) => `mcp__vertragus__${tool}`),
       ...READONLY_CLAUDE_TOOLS

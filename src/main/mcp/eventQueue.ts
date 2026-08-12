@@ -24,6 +24,7 @@ interface Waiter {
 export class EventQueue {
   private readonly buffer: AgentEvent[] = []
   private readonly waiters = new Set<Waiter>()
+  private readonly listeners = new Set<(event: AgentEvent) => void>()
   private nextSeq = 1
   private closed = false
 
@@ -65,7 +66,20 @@ export class EventQueue {
         waiter.resolve(this.since(waiter.cursor))
       }
     }
+    for (const listener of [...this.listeners]) listener(event)
     return event
+  }
+
+  /**
+   * Observe every pushed event, past the ring's capacity limit — this is how a
+   * long run's full history survives for the retro at workspace stop. Returns
+   * the unsubscribe function.
+   */
+  onPush(listener: (event: AgentEvent) => void): () => void {
+    this.listeners.add(listener)
+    return () => {
+      this.listeners.delete(listener)
+    }
   }
 
   /**
@@ -126,6 +140,7 @@ export class EventQueue {
   /** Release every parked reader and refuse further pushes. */
   close(): void {
     this.closed = true
+    this.listeners.clear()
     for (const waiter of [...this.waiters]) {
       this.waiters.delete(waiter)
       waiter.dispose()

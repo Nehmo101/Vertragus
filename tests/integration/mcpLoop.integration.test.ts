@@ -124,6 +124,8 @@ class SpawningHost implements AgentHost {
       agentId,
       name: record.summary.name,
       role: record.summary.role,
+      providerId: 'fake',
+      model: record.summary.model,
       worktreePath: `/worktrees/${agentId}`,
       branch: `vertragus/test/${agentId}`
     }

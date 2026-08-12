@@ -270,6 +270,130 @@
   height: 22px;
 }
 
+/* --- retro (folded out under a profile row) ------------------------------ */
+
+.panel-retro {
+  margin: 1px 6px 4px 12px;
+  padding: 4px 6px;
+  border-left: 2px solid var(--hover-wash);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.panel-retro-note {
+  margin: 2px 0;
+  font: 400 11px var(--font-body);
+  color: var(--text-2);
+}
+
+.panel-retro-error {
+  margin: 2px 0;
+  font: 400 11px var(--font-body);
+  color: var(--warn-text);
+  overflow-wrap: anywhere;
+}
+
+.panel-retro-label {
+  margin: 3px 0 1px;
+  font: 600 9px var(--font-body);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.panel-retro-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.panel-retro-model {
+  margin: 1px 0 0;
+  font: 500 11px var(--font-mono, monospace);
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-retro-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.panel-retro-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 0 1px 2px;
+  border-radius: 8px;
+}
+
+.panel-retro-row:hover {
+  background: var(--hover-wash);
+}
+
+.panel-retro-marker {
+  flex: 0 0 auto;
+  font: 400 9px var(--font-body);
+}
+
+.panel-retro-marker.is-strength {
+  color: var(--verdigris-text);
+}
+
+.panel-retro-marker.is-weakness {
+  color: var(--warn-text);
+}
+
+.panel-retro-insight {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 11px var(--font-body);
+  color: var(--text-2);
+}
+
+.panel-retro-observations {
+  flex: 0 0 auto;
+  font: 400 10px var(--font-body);
+  color: var(--text-3);
+}
+
+.panel-retro-remove {
+  width: 22px;
+  height: 22px;
+}
+
+.panel-retro-run-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 11px var(--font-body);
+  color: var(--text-2);
+}
+
+.panel-retro-tally {
+  flex: 0 0 auto;
+  font: 400 10px var(--font-mono, monospace);
+  color: var(--text-3);
+}
+
+.panel-retro-date {
+  flex: 0 0 auto;
+  font: 400 10px var(--font-body);
+  color: var(--text-3);
+}
+
 .panel-icon-button.has-warning {
   position: relative;
   color: var(--warn-text);

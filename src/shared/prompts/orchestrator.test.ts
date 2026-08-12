@@ -48,7 +48,7 @@ describe('buildOrchestratorSystemPrompt', () => {
     expect(prompt).toMatch(/reports every agent’s branch back/i)
   })
 
-  it('names all six orchestrator tools', () => {
+  it('names all seven orchestrator tools', () => {
     const prompt = buildOrchestratorSystemPrompt(base)
     for (const tool of [
       'start_agent',
@@ -56,10 +56,50 @@ describe('buildOrchestratorSystemPrompt', () => {
       'await_events',
       'list_agents',
       'read_output',
-      'stop_agent'
+      'stop_agent',
+      'record_retro'
     ]) {
       expect(prompt).toContain(tool)
     }
+  })
+
+  it('demands one closing record_retro with the never-invent-a-weakness rule', () => {
+    const prompt = buildOrchestratorSystemPrompt(base)
+    expect(prompt).toMatch(/call record_retro exactly once/i)
+    expect(prompt).toMatch(/never invent a weakness/i)
+    expect(prompt).toMatch(/leave a slot empty otherwise/i)
+  })
+
+  it('renders the track record only when knowledge exists', () => {
+    expect(buildOrchestratorSystemPrompt(base)).not.toContain('Track record')
+
+    const prompt = buildOrchestratorSystemPrompt({
+      ...base,
+      knowledge: [
+        {
+          roleId: 'worker',
+          providerId: 'codex',
+          model: 'gpt-x',
+          score: { samples: 8, successRate: 0.75, score: 0.62 },
+          strengths: ['fast on UI tasks'],
+          weaknesses: ['weak on migrations']
+        },
+        {
+          roleId: 'reviewer',
+          providerId: 'claude',
+          model: '',
+          strengths: [],
+          weaknesses: ['times out on long diffs']
+        }
+      ]
+    })
+    expect(prompt).toContain('Track record from previous runs on this machine')
+    expect(prompt).toContain(
+      '- worker (codex/gpt-x): score 62 (8 tasks, 75% success). Strengths: fast on UI tasks. Weaknesses: weak on migrations.'
+    )
+    expect(prompt).toContain(
+      '- reviewer (claude/default model): no score yet. Weaknesses: times out on long diffs.'
+    )
   })
 
   it('makes the await_events loop mandatory and forbids polling', () => {

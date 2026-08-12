@@ -45,6 +45,15 @@ import {
   providerConfigSchema,
   type ProviderConfig
 } from '@shared/schema/provider'
+import {
+  MAX_RUN_RETROS,
+  modelLearningSchema,
+  parseModelLearnings,
+  parseRunRetros,
+  runRetroSchema,
+  type ModelLearning,
+  type RunRetro
+} from '@shared/schema/retro'
 import { providerPresets } from '@main/providers/presets'
 
 export const STORE_NAME = 'vertragus-v2'
@@ -202,6 +211,13 @@ export interface SettingsStore {
   getRoleTemplates(): RoleTemplate[]
   saveRoleTemplate(template: unknown): RoleTemplate[]
   deleteRoleTemplate(id: string): RoleTemplate[]
+  /** Newest first, bounded at {@link MAX_RUN_RETROS}. */
+  getRunRetros(): RunRetro[]
+  recordRunRetro(retro: unknown): RunRetro[]
+  getModelLearnings(): ModelLearning[]
+  /** Replace the whole list — the merge itself lives in shared/retro/learnings. */
+  setModelLearnings(learnings: readonly unknown[]): ModelLearning[]
+  deleteModelLearning(id: string): ModelLearning[]
   getSettings(): AppSettings
   setSetting<K extends keyof AppSettings>(key: K, value: AppSettings[K]): AppSettings
 }
@@ -233,6 +249,24 @@ export function createSettingsStore({ backend, warn = console.warn }: SettingsSt
       warn(`[settings] dropped ${raw.length - templates.length} invalid role template(s)`)
     }
     return templates
+  }
+
+  function readRunRetros(): RunRetro[] {
+    const raw = backend.get('runRetros')
+    const retros = parseRunRetros(raw)
+    if (Array.isArray(raw) && raw.length !== retros.length) {
+      warn(`[settings] dropped ${raw.length - retros.length} invalid run retro(s)`)
+    }
+    return retros
+  }
+
+  function readModelLearnings(): ModelLearning[] {
+    const raw = backend.get('modelLearnings')
+    const learnings = parseModelLearnings(raw)
+    if (Array.isArray(raw) && raw.length !== learnings.length) {
+      warn(`[settings] dropped ${raw.length - learnings.length} invalid model learning(s)`)
+    }
+    return learnings
   }
 
   function upsert<T extends { id: string }>(list: T[], entry: T): T[] {
@@ -311,6 +345,31 @@ export function createSettingsStore({ backend, warn = console.warn }: SettingsSt
       return templates
     },
 
+    getRunRetros: readRunRetros,
+
+    recordRunRetro(retro) {
+      const parsed = runRetroSchema.parse(retro)
+      const retros = upsert(readRunRetros(), parsed)
+      retros.sort((a, b) => b.endedAt - a.endedAt)
+      const bounded = retros.slice(0, MAX_RUN_RETROS)
+      backend.set('runRetros', bounded)
+      return bounded
+    },
+
+    getModelLearnings: readModelLearnings,
+
+    setModelLearnings(learnings) {
+      const parsed = learnings.map((entry) => modelLearningSchema.parse(entry))
+      backend.set('modelLearnings', parsed)
+      return parsed
+    },
+
+    deleteModelLearning(id) {
+      const learnings = readModelLearnings().filter((learning) => learning.id !== id)
+      backend.set('modelLearnings', learnings)
+      return learnings
+    },
+
     getSettings: readSettings,
 
     setSetting(key, value) {
@@ -364,7 +423,9 @@ function createElectronBackend(): SettingsBackend {
       version: STORE_VERSION,
       profiles: [],
       providers: [],
-      roleTemplates: []
+      roleTemplates: [],
+      runRetros: [],
+      modelLearnings: []
     }
   })
 
@@ -414,6 +475,13 @@ export const getRoleTemplates = (): RoleTemplate[] => settings().getRoleTemplate
 export const saveRoleTemplate = (template: unknown): RoleTemplate[] =>
   settings().saveRoleTemplate(template)
 export const deleteRoleTemplate = (id: string): RoleTemplate[] => settings().deleteRoleTemplate(id)
+export const getRunRetros = (): RunRetro[] => settings().getRunRetros()
+export const recordRunRetro = (retro: unknown): RunRetro[] => settings().recordRunRetro(retro)
+export const getModelLearnings = (): ModelLearning[] => settings().getModelLearnings()
+export const setModelLearnings = (learnings: readonly unknown[]): ModelLearning[] =>
+  settings().setModelLearnings(learnings)
+export const deleteModelLearning = (id: string): ModelLearning[] =>
+  settings().deleteModelLearning(id)
 export const getSettings = (): AppSettings => settings().getSettings()
 export const setSetting = <K extends keyof AppSettings>(
   key: K,

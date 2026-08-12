@@ -8,6 +8,10 @@
  * with `VERTRAGUS_PANEL_SCREENSHOT=<png>` (the hook in src/main/index.ts), waits
  * for the process to exit on its own, and then looks at the file.
  *
+ * The hook itself refuses to capture a window whose `#root` never got a child
+ * (see src/main/windows/smokeCapture.ts) — a white screen therefore fails here
+ * with a message instead of arriving as a plausible-looking PNG.
+ *
  * "Looks at the file" means the PNG header, not the bytes: under Xvfb there is
  * no compositor, so a transparent window renders on whatever backdrop the
  * server provides and byte-comparing against a reference would fail for reasons
@@ -96,8 +100,19 @@ async function main() {
   // Chromium's setuid sandbox from starting at all. This is a rendering check,
   // not a sandbox check — the production posture is asserted by the window
   // security contract test, which greps the real flags in src/main/windows.
+  //
+  // The GPU switches are the other half of running under Xvfb: there is no
+  // compositor and no GPU there, so Chromium's viz process negotiates a
+  // surface it cannot actually get, and a capture request that lands in that
+  // window is answered with `UnknownVizError` (CI, 2026-08-12: the identical
+  // commit captured at 10:16 and failed at 11:39). Forcing the software
+  // compositing path takes the GPU process out of the picture entirely, and
+  // /dev/shm on a container runner is too small for Chromium's default.
+  // Linux-only and smoke-only: nothing here changes how the app ships.
   const args = ['.']
-  if (process.platform === 'linux') args.push('--no-sandbox')
+  if (process.platform === 'linux') {
+    args.push('--no-sandbox', '--disable-gpu', '--disable-gpu-compositing', '--disable-dev-shm-usage')
+  }
 
   console.log(`[panel-smoke] starte Electron → ${target}`)
   const child = spawn(electronPath, args, {
