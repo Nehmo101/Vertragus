@@ -156,6 +156,8 @@ interface AgentRecord {
   model?: string
   /** Every agent — orchestrator included — works in its own worktree. */
   worktreePath: string
+  /** The branch that worktree is on — the handle for baseBranch chaining. */
+  branch: string
   pty: AgentPty
   /** The workspace's own orchestrator — excluded from listAgents and events. */
   orchestrator: boolean
@@ -225,7 +227,8 @@ export class Workspace implements AgentHost {
       agentId: record.agentId,
       name: record.name,
       role: record.roleId,
-      worktreePath: record.worktreePath
+      worktreePath: record.worktreePath,
+      branch: record.branch
     }
   }
 
@@ -278,8 +281,9 @@ export class Workspace implements AgentHost {
       // Always isolated: every agent gets its own worktree and branch, so
       // parallel agents — and parallel workspaces on the same repository —
       // never trample each other's checkout. Merging stays an ordinary
-      // git merge of vertragus/* branches.
-      const worktree = await this.createWorktreeFor(agentId, name)
+      // git merge of vertragus/* branches, and `baseBranch` lets an agent
+      // start on top of another agent's result instead of the repo HEAD.
+      const worktree = await this.createWorktreeFor(agentId, name, input.baseBranch)
 
       const model = input.model?.trim() || slot.model
       const launchInput: AgentLaunchInput = {
@@ -305,6 +309,7 @@ export class Workspace implements AgentHost {
         providerId: provider.id,
         model,
         worktreePath: worktree.path,
+        branch: worktree.branch,
         pty: spawned.pty
       })
 
@@ -329,7 +334,8 @@ export class Workspace implements AgentHost {
         agentId,
         name,
         role: input.role,
-        worktreePath: worktree.path
+        worktreePath: worktree.path,
+        branch: worktree.branch
       }
     } catch (error) {
       // A half-started agent must not hold a name, a window or a process.
@@ -366,6 +372,17 @@ export class Workspace implements AgentHost {
   }
 
   /**
+   * The worktrees of every agent whose process is still alive — orchestrator
+   * included. This is what the panel's cleanup view must NOT offer for
+   * removal; everything else under the worktree root is fair game.
+   */
+  activeWorktreePaths(): string[] {
+    return [...this.agents.values()]
+      .filter((record) => record.pty.isAlive && !record.stopped)
+      .map((record) => record.worktreePath)
+  }
+
+  /**
    * Every subagent, in start order. The orchestrator is deliberately absent: it
    * is the reader of this list, and counting it would eat one of its own slots.
    */
@@ -380,6 +397,7 @@ export class Workspace implements AgentHost {
         status: this.statusOf(record),
         model: record.model,
         worktreePath: record.worktreePath,
+        branch: record.branch,
         lastOutputAgeSec: Math.max(0, Math.round((now - record.lastOutputAt) / 1_000))
       }))
   }
@@ -437,6 +455,7 @@ export class Workspace implements AgentHost {
         providerId: provider.id,
         model: this.profile.orchestrator.model,
         worktreePath: worktree.path,
+        branch: worktree.branch,
         pty: spawned.pty,
         orchestrator: true
       })
@@ -455,7 +474,13 @@ export class Workspace implements AgentHost {
       }
       record.seeded = true
       record.assignmentCursor = this.events.cursor
-      return { agentId, name, role: ORCHESTRATOR_ROLE_ID, worktreePath: worktree.path }
+      return {
+        agentId,
+        name,
+        role: ORCHESTRATOR_ROLE_ID,
+        worktreePath: worktree.path,
+        branch: worktree.branch
+      }
     } catch (error) {
       this.orchestratorRecord = undefined
       this.discard(agentId, name, spawned?.pty)
@@ -467,13 +492,19 @@ export class Workspace implements AgentHost {
    * The one worktree seam: `<repo>/.vertragus/worktrees/<agentId>` on the
    * branch `vertragus/<workspace>/<agent>`. Orchestrator and subagents both
    * pass through here — no spawn path can put an agent into a shared checkout.
+   * `startPoint` is the orchestrator's `baseBranch`: the ref the new branch
+   * forks from instead of the repo HEAD.
    */
-  private createWorktreeFor(agentId: string, agentName: string): Promise<CreatedWorktree> {
+  private createWorktreeFor(
+    agentId: string,
+    agentName: string,
+    startPoint?: string
+  ): Promise<CreatedWorktree> {
     return (this.deps.createWorktree ?? createWorktree)(
       this.repoPath,
       agentId,
       worktreeBranchName(this.name, agentName),
-      this.deps.worktreeDeps
+      { ...this.deps.worktreeDeps, ...(startPoint ? { startPoint } : {}) }
     )
   }
 
@@ -574,6 +605,7 @@ export class Workspace implements AgentHost {
     providerId: string
     model?: string
     worktreePath: string
+    branch: string
     pty: AgentPty
     orchestrator?: boolean
   }): AgentRecord {
@@ -584,6 +616,7 @@ export class Workspace implements AgentHost {
       providerId: input.providerId,
       model: input.model,
       worktreePath: input.worktreePath,
+      branch: input.branch,
       pty: input.pty,
       orchestrator: input.orchestrator === true,
       seeded: false,

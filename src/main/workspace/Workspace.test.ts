@@ -226,6 +226,26 @@ describe('worktrees', () => {
     expect(workspace.listAgents()[0]!.worktreePath).toBe(started.worktreePath)
   })
 
+  it('reports the agent’s branch so the orchestrator can chain work onto it', async () => {
+    const { workspace } = harness()
+    const started = await workspace.startAgent({ role: 'worker', task: 'x' })
+    expect(started.branch).toBe(`vertragus/paradiso/${slugifyRef(started.name)}`)
+    expect(workspace.listAgents()[0]!.branch).toBe(started.branch)
+  })
+
+  it('forks the worktree branch from baseBranch when the orchestrator passes one', async () => {
+    const { workspace, worktrees } = harness()
+    const worker = await workspace.startAgent({ role: 'worker', task: 'build it' })
+    await workspace.startAgent({
+      role: 'reviewer',
+      task: 'review it',
+      baseBranch: worker.branch
+    })
+
+    expect(worktrees[0]!.startPoint).toBeUndefined()
+    expect(worktrees[1]!.startPoint).toBe(worker.branch)
+  })
+
   it('gives each agent its own worktree — never a shared checkout', async () => {
     const { workspace, spawns } = harness()
     const first = await workspace.startAgent({ role: 'worker', task: 'x' })
@@ -246,6 +266,22 @@ describe('worktrees', () => {
     expect(spawns[0]!.input.cwd).toBe(orchestrator.worktreePath)
     expect(worktrees[0]!.branchName).toBe(`vertragus/paradiso/${slugifyRef(orchestrator.name)}`)
     expect(workspace.orchestrator?.worktreePath).toBe(orchestrator.worktreePath)
+  })
+
+  it('reports live worktrees — the paths the cleanup view must not offer', async () => {
+    const { workspace, spawns } = harness()
+    const orchestrator = await workspace.startOrchestrator()
+    const worker = await workspace.startAgent({ role: 'worker', task: 'x' })
+    const reviewer = await workspace.startAgent({ role: 'reviewer', task: 'y' })
+
+    expect(workspace.activeWorktreePaths().sort()).toEqual(
+      [orchestrator.worktreePath, worker.worktreePath, reviewer.worktreePath].sort()
+    )
+
+    // A dead or stopped agent's worktree becomes cleanup material.
+    spawns[1]!.pty.exit({ exitCode: 0 })
+    await workspace.stopAgent(reviewer.agentId)
+    expect(workspace.activeWorktreePaths()).toEqual([orchestrator.worktreePath])
   })
 
   it('does not leave a half-started agent behind when git fails', async () => {

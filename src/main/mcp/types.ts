@@ -22,6 +22,11 @@ export interface StartAgentInput {
   /** Full seed text — task plus the appended contract. */
   task: string
   model?: string
+  /**
+   * Existing branch the agent's own branch starts from — how one agent builds
+   * on another's result. Absent = the repository HEAD.
+   */
+  baseBranch?: string
 }
 
 /** What the host reports back once the agent process is up and seeded. */
@@ -31,6 +36,8 @@ export interface StartedAgent {
   role: string
   /** Every agent works in its own git worktree — this is where. */
   worktreePath: string
+  /** The agent's own branch — pass it as another agent's `baseBranch` to chain work. */
+  branch: string
 }
 
 /** One row of `list_agents` / the `agentsSummary` in `await_events`. */
@@ -41,6 +48,8 @@ export interface AgentSummary {
   status: string
   model?: string
   worktreePath?: string
+  /** The agent's own branch, for `baseBranch` chaining and merge tasks. */
+  branch?: string
   /** Seconds since the agent's PTY last produced output. */
   lastOutputAgeSec: number
   /** Text of the agent's currently unanswered question, when it has one. */

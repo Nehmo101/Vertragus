@@ -64,10 +64,20 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
           .min(1)
           .describe(`One of the configured roles: ${ctx.roles.join(', ') || '(none configured)'}`),
         task: z.string().min(1).max(20_000).describe('The complete assignment for this agent'),
-        model: z.string().min(1).max(200).optional().describe('Override the role default model')
+        model: z.string().min(1).max(200).optional().describe('Override the role default model'),
+        baseBranch: z
+          .string()
+          .min(1)
+          .max(300)
+          .optional()
+          .describe(
+            'Existing branch the new agent starts from — pass another agent’s branch so this ' +
+              'agent builds on that result (e.g. a reviewer on a worker’s branch, or an agent ' +
+              'merging teammates’ branches into its own). Default: the repository HEAD.'
+          )
       }
     },
-    async ({ role, task, model }): Promise<ToolText> => {
+    async ({ role, task, model, baseBranch }): Promise<ToolText> => {
       if (!ctx.roles.includes(role)) {
         return toolError({
           error: 'unknown_role',
@@ -107,20 +117,22 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
       const seed = `${task}\n\n${buildTaskContract({ role })}`
 
       try {
-        const started = await ctx.host.startAgent({ role, task: seed, model })
+        const started = await ctx.host.startAgent({ role, task: seed, model, baseBranch })
         ctx.events.push({
           type: 'agent_started',
           agentId: started.agentId,
           name: started.name,
           roleId: started.role,
           model,
-          worktreePath: started.worktreePath
+          worktreePath: started.worktreePath,
+          branch: started.branch
         })
         return toolJson({
           agentId: started.agentId,
           name: started.name,
           role: started.role,
           worktreePath: started.worktreePath,
+          branch: started.branch,
           note: 'Agent started. Wait for its events with await_events instead of asking it for status.'
         })
       } catch (error) {
