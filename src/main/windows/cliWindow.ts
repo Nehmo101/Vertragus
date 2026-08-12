@@ -23,7 +23,8 @@ import {
   type AgentWindowInfo,
   type DisplayInfo,
   type PlacedWindow,
-  type RailInfo
+  type RailInfo,
+  type Rect
 } from './placement'
 
 export const CLI_MIN_WIDTH = 420
@@ -57,6 +58,13 @@ interface CliWindowEntry {
   agentId: string
   window: BrowserWindow
   options: CliWindowOptions
+  /**
+   * Bounds from just before the window was grown — present exactly while it is
+   * filling its screen, and therefore also the flag "this one is maximized".
+   * Only a fallback for the way back: shrinking aims at the zone (see
+   * {@link toggleCliWindowMaximized}).
+   */
+  restoreBounds?: Rect
 }
 
 const windows = new Map<string, CliWindowEntry>()
@@ -65,14 +73,19 @@ export function cliWindowTitle(agentName: string): string {
   return `Vertragus — ${agentName}`
 }
 
-export function getCliWindow(agentId: string): BrowserWindow | null {
+/** The live registry entry, or null — a destroyed window is pruned on the way. */
+function liveEntry(agentId: string): CliWindowEntry | null {
   const entry = windows.get(agentId)
   if (!entry) return null
   if (entry.window.isDestroyed()) {
     windows.delete(agentId)
     return null
   }
-  return entry.window
+  return entry
+}
+
+export function getCliWindow(agentId: string): BrowserWindow | null {
+  return liveEntry(agentId)?.window ?? null
 }
 
 export function listCliWindows(): { agentId: string; window: BrowserWindow }[] {
@@ -103,6 +116,23 @@ function currentDisplays(): DisplayInfo[] {
 }
 
 /**
+ * The display a window sits on, by its center point. `screen.getDisplayMatching`
+ * would answer the same question, but this layer already receives displays as
+ * plain data and the center rule is the one both callers below want.
+ */
+function displayFor(bounds: Rect, displays: readonly DisplayInfo[]): DisplayInfo | undefined {
+  const centerX = bounds.x + bounds.width / 2
+  const centerY = bounds.y + bounds.height / 2
+  return displays.find(
+    ({ workArea }) =>
+      centerX >= workArea.x &&
+      centerX < workArea.x + workArea.width &&
+      centerY >= workArea.y &&
+      centerY < workArea.y + workArea.height
+  )
+}
+
+/**
  * The strip the panel occupies, so auto-tiling does not open terminals
  * underneath it. Derived from the live window instead of the settings store:
  * the panel is draggable, and what matters is where it is right now.
@@ -111,16 +141,9 @@ function panelRail(displays: readonly DisplayInfo[]): RailInfo | undefined {
   const panel = getPanelWindow()
   if (!panel) return undefined
   const bounds = panel.getBounds()
-  const centerX = bounds.x + bounds.width / 2
-  const centerY = bounds.y + bounds.height / 2
-  const host = displays.find(
-    ({ workArea }) =>
-      centerX >= workArea.x &&
-      centerX < workArea.x + workArea.width &&
-      centerY >= workArea.y &&
-      centerY < workArea.y + workArea.height
-  )
+  const host = displayFor(bounds, displays)
   if (!host) return undefined
+  const centerX = bounds.x + bounds.width / 2
   const edge = centerX > host.workArea.x + host.workArea.width / 2 ? 'right' : 'left'
   return { displayId: host.id, edge, width: bounds.width }
 }
@@ -136,7 +159,9 @@ function planFor(agentId: string, placement: CliWindowPlacement): PlacedWindow[]
     .map((entry) => ({
       agentId: entry.agentId,
       roleId: windows.get(entry.agentId)?.options.placement?.roleId ?? '',
-      movedByUser: isMovedByUser(entry.agentId)
+      // A maximized window is as deliberate as a dragged one: re-tiling it out
+      // of full screen because somebody else started an agent is not on.
+      movedByUser: isMovedByUser(entry.agentId) || isCliWindowMaximized(entry.agentId)
     }))
   const rail = panelRail(displays)
   return planWindowLayout({
@@ -168,6 +193,12 @@ export function createCliWindow(agentId: string, options: CliWindowOptions): Bro
     minWidth: CLI_MIN_WIDTH,
     minHeight: CLI_MIN_HEIGHT,
     resizable: true,
+    // Grow/shrink is ours, not the OS's: the title bar's button fills the
+    // screen and puts the window back in its ZONE, which native
+    // maximize/unmaximize cannot do — it only knows the bounds from before.
+    // Leaving the native path enabled would give a double-click on the drag
+    // region a second, conflicting idea of what "maximized" means.
+    maximizable: false,
     // Never alwaysOnTop: agent windows must be able to sit behind the editor.
     alwaysOnTop: false,
     title: cliWindowTitle(options.title)
@@ -208,6 +239,60 @@ export function closeCliWindow(agentId: string): void {
 export function minimizeCliWindow(agentId: string): void {
   const win = getCliWindow(agentId)
   if (win) win.minimize()
+}
+
+/** Is this agent's window currently filling its screen? */
+export function isCliWindowMaximized(agentId: string): boolean {
+  return liveEntry(agentId)?.restoreBounds !== undefined
+}
+
+/**
+ * Where "shrink" sends the window: its zone, or its auto-tiled slot when the
+ * profile has none.
+ *
+ * The manual-move mark is dropped first on purpose. It exists so tiling never
+ * undoes a drag — but this click IS the user asking for the window to go home,
+ * and a window that was dragged out of its zone before being maximized must
+ * still land back in it.
+ */
+function homeBounds(entry: CliWindowEntry): Rect | undefined {
+  const placement = entry.options.placement
+  if (!placement) return undefined
+  forgetWindowPlacement(entry.agentId)
+  return planFor(entry.agentId, placement).find((plan) => plan.agentId === entry.agentId)?.bounds
+}
+
+/**
+ * The title bar's grow/shrink button.
+ *
+ * Grow fills the work area of the screen the window sits on — the work area and
+ * not the raw display, so a full-screen terminal never buries the taskbar.
+ * Shrink puts it back into its zone (see {@link homeBounds}), which is why this
+ * is not Electron's `maximize()`/`unmaximize()`: those only remember the bounds
+ * from before and would hand a dragged-away terminal straight back to where it
+ * was dragged.
+ *
+ * Answers with the state the window is in afterwards.
+ */
+export function toggleCliWindowMaximized(agentId: string): boolean {
+  const entry = liveEntry(agentId)
+  if (!entry) return false
+  const win = entry.window
+
+  if (entry.restoreBounds) {
+    const target = homeBounds(entry) ?? entry.restoreBounds
+    delete entry.restoreBounds
+    applyWindowBounds(agentId, win, target)
+    return false
+  }
+
+  const bounds = win.getBounds()
+  const displays = currentDisplays()
+  const host = displayFor(bounds, displays) ?? displays.find((display) => display.primary)
+  if (!host) return false
+  entry.restoreBounds = bounds
+  applyWindowBounds(agentId, win, host.workArea)
+  return true
 }
 
 /** Bring an agent's window to the front (panel click, M3). */

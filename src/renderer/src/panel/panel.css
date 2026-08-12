@@ -161,6 +161,11 @@
 
 /* --- profiles ---------------------------------------------------------- */
 
+.panel-row-group {
+  display: flex;
+  flex-direction: column;
+}
+
 .panel-row {
   display: flex;
   align-items: center;
@@ -270,6 +275,71 @@
 }
 
 /* The eye carries a small amber dot when the global hotkey failed to register. */
+.panel-icon-button.is-active {
+  background: var(--hover-wash);
+  color: var(--text);
+}
+
+/* --- worktree cleanup (folded out under a profile row) ------------------ */
+
+.panel-worktrees {
+  margin: 1px 6px 4px 12px;
+  padding: 4px 6px;
+  border-left: 2px solid var(--hover-wash);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.panel-worktrees-note {
+  margin: 2px 0;
+  font: 400 11px var(--font-body);
+  color: var(--text-2);
+}
+
+.panel-worktrees-error {
+  margin: 2px 0;
+  font: 400 11px var(--font-body);
+  color: var(--warn-text);
+  overflow-wrap: anywhere;
+}
+
+.panel-worktrees-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.panel-worktrees-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 0 1px 2px;
+  border-radius: 8px;
+}
+
+.panel-worktrees-row:hover {
+  background: var(--hover-wash);
+}
+
+.panel-worktrees-branch {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 11px var(--font-mono, monospace);
+  color: var(--text-2);
+}
+
+.panel-worktrees-remove {
+  width: 22px;
+  height: 22px;
+}
+
 .panel-icon-button.has-warning {
   position: relative;
   color: var(--warn-text);

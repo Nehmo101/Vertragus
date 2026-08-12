@@ -211,3 +211,73 @@ describe('createCliWindow with a placement', () => {
     expect(placement.isMovedByUser('a')).toBe(false)
   })
 })
+
+describe('grow and shrink', () => {
+  const ZONES = {
+    zones: [{ roleId: 'worker', displayId: 2, rect: { x: 0.5, y: 0, w: 0.5, h: 1 } }]
+  }
+  const ZONE_BOUNDS = { x: 2720, y: 0, width: 800, height: 900 }
+
+  it('fills the work area of the screen the window sits on', () => {
+    const win = fake(
+      cli.createCliWindow('a', { ...WORKER, placement: { roleId: 'worker', zones: ZONES } })
+    )
+    expect(win.bounds).toEqual(ZONE_BOUNDS)
+
+    expect(cli.toggleCliWindowMaximized('a')).toBe(true)
+    expect(cli.isCliWindowMaximized('a')).toBe(true)
+    // Display 2, because that is where the zone put it — not the primary.
+    expect(win.bounds).toEqual(DISPLAYS[1]!.workArea)
+  })
+
+  it('shrinks back into the zone, not to where the window happened to be', () => {
+    const win = fake(
+      cli.createCliWindow('a', { ...WORKER, placement: { roleId: 'worker', zones: ZONES } })
+    )
+    userDrags(win)
+    win.setBounds({ x: 10, y: 10, width: 500, height: 400 })
+    cli.toggleCliWindowMaximized('a')
+
+    expect(cli.toggleCliWindowMaximized('a')).toBe(false)
+    expect(cli.isCliWindowMaximized('a')).toBe(false)
+    expect(win.bounds).toEqual(ZONE_BOUNDS)
+    // "Back into its zone" is a decision too — the drag mark is spent.
+    expect(placement.isMovedByUser('a')).toBe(false)
+  })
+
+  it('falls back to the pre-grow bounds when the window has no placement', () => {
+    const win = fake(cli.createCliWindow('a', WORKER))
+    win.setBounds({ x: 30, y: 40, width: 700, height: 500 })
+    const before = { ...win.bounds }
+
+    cli.toggleCliWindowMaximized('a')
+    expect(win.bounds).toEqual(DISPLAYS[0]!.workArea)
+
+    cli.toggleCliWindowMaximized('a')
+    expect(win.bounds).toEqual(before)
+  })
+
+  it('is never re-tiled out of full screen by the next agent', () => {
+    const first = fake(cli.createCliWindow('a', { ...WORKER, placement: { roleId: 'worker' } }))
+    cli.toggleCliWindowMaximized('a')
+    const full = { ...first.bounds }
+
+    cli.createCliWindow('b', { ...WORKER, placement: { roleId: 'worker' } })
+
+    expect(first.bounds).toEqual(full)
+    expect(cli.isCliWindowMaximized('a')).toBe(true)
+  })
+
+  it('is a no-op for an agent that has no window', () => {
+    expect(cli.toggleCliWindowMaximized('ghost')).toBe(false)
+    expect(cli.isCliWindowMaximized('ghost')).toBe(false)
+  })
+
+  it('forgets the state when the window closes', () => {
+    cli.createCliWindow('a', { ...WORKER, placement: { roleId: 'worker' } })
+    cli.toggleCliWindowMaximized('a')
+    cli.closeCliWindow('a')
+
+    expect(cli.isCliWindowMaximized('a')).toBe(false)
+  })
+})

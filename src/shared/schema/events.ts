@@ -36,7 +36,9 @@ const agentStartedPayload = z.object({
   type: z.literal('agent_started'),
   ...identity,
   model: z.string().min(1).optional(),
-  worktreePath: z.string().min(1).optional()
+  worktreePath: z.string().min(1).optional(),
+  /** The agent's own branch — what `start_agent{baseBranch}` chains from. */
+  branch: z.string().min(1).optional()
 })
 
 const agentDonePayload = z.object({

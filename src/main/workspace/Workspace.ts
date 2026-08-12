@@ -154,7 +154,10 @@ interface AgentRecord {
   roleId: string
   providerId: string
   model?: string
-  worktreePath?: string
+  /** Every agent — orchestrator included — works in its own worktree. */
+  worktreePath: string
+  /** The branch that worktree is on — the handle for baseBranch chaining. */
+  branch: string
   pty: AgentPty
   /** The workspace's own orchestrator — excluded from listAgents and events. */
   orchestrator: boolean
@@ -220,7 +223,13 @@ export class Workspace implements AgentHost {
   get orchestrator(): StartedAgent | undefined {
     const record = this.orchestratorRecord
     if (!record) return undefined
-    return { agentId: record.agentId, name: record.name, role: record.roleId }
+    return {
+      agentId: record.agentId,
+      name: record.name,
+      role: record.roleId,
+      worktreePath: record.worktreePath,
+      branch: record.branch
+    }
   }
 
   /** Hand over the URLs the MCP server minted for this workspace. */
@@ -266,18 +275,15 @@ export class Workspace implements AgentHost {
 
     const agentId = this.newId()
     const name = this.names.allocate('sub')
-    let worktree: CreatedWorktree | undefined
     let spawned: SpawnedAgent | undefined
 
     try {
-      if (input.worktree) {
-        worktree = await (this.deps.createWorktree ?? createWorktree)(
-          this.repoPath,
-          agentId,
-          worktreeBranchName(this.name, name),
-          this.deps.worktreeDeps
-        )
-      }
+      // Always isolated: every agent gets its own worktree and branch, so
+      // parallel agents — and parallel workspaces on the same repository —
+      // never trample each other's checkout. Merging stays an ordinary
+      // git merge of vertragus/* branches, and `baseBranch` lets an agent
+      // start on top of another agent's result instead of the repo HEAD.
+      const worktree = await this.createWorktreeFor(agentId, name, input.baseBranch)
 
       const model = input.model?.trim() || slot.model
       const launchInput: AgentLaunchInput = {
@@ -288,7 +294,7 @@ export class Workspace implements AgentHost {
         // Subagents default to yolo — a worker that cannot act is the old
         // repo's "permission-starved" failure. The orchestrator never gets it.
         yolo: this.deps.yoloMaster ?? true,
-        cwd: worktree?.path ?? this.repoPath,
+        cwd: worktree.path,
         mcpUrl: urls.subagentUrl(agentId),
         fileTag: `sub-${agentId}`,
         configDir: this.deps.configDir,
@@ -302,7 +308,8 @@ export class Workspace implements AgentHost {
         roleId: input.role,
         providerId: provider.id,
         model,
-        worktreePath: worktree?.path,
+        worktreePath: worktree.path,
+        branch: worktree.branch,
         pty: spawned.pty
       })
 
@@ -327,7 +334,8 @@ export class Workspace implements AgentHost {
         agentId,
         name,
         role: input.role,
-        worktreePath: worktree?.path
+        worktreePath: worktree.path,
+        branch: worktree.branch
       }
     } catch (error) {
       // A half-started agent must not hold a name, a window or a process.
@@ -364,6 +372,17 @@ export class Workspace implements AgentHost {
   }
 
   /**
+   * The worktrees of every agent whose process is still alive — orchestrator
+   * included. This is what the panel's cleanup view must NOT offer for
+   * removal; everything else under the worktree root is fair game.
+   */
+  activeWorktreePaths(): string[] {
+    return [...this.agents.values()]
+      .filter((record) => record.pty.isAlive && !record.stopped)
+      .map((record) => record.worktreePath)
+  }
+
+  /**
    * Every subagent, in start order. The orchestrator is deliberately absent: it
    * is the reader of this list, and counting it would eat one of its own slots.
    */
@@ -378,6 +397,7 @@ export class Workspace implements AgentHost {
         status: this.statusOf(record),
         model: record.model,
         worktreePath: record.worktreePath,
+        branch: record.branch,
         lastOutputAgeSec: Math.max(0, Math.round((now - record.lastOutputAt) / 1_000))
       }))
   }
@@ -388,6 +408,11 @@ export class Workspace implements AgentHost {
    * Start the workspace's orchestrator: bronze, never yolo, and carrying the
    * orchestrator system prompt through whatever delivery its provider declares
    * (a launch flag for Claude, the seed handshake for a PTY-only CLI).
+   *
+   * The orchestrator gets its own worktree like every other agent: it never
+   * edits files itself, but its CLI still leaves per-agent artefacts in its
+   * working directory (Kimi's `.kimi-code/mcp.json`), and two orchestrators
+   * sharing the main checkout would overwrite each other's.
    */
   async startOrchestrator(): Promise<StartedAgent> {
     this.assertOpen()
@@ -406,6 +431,8 @@ export class Workspace implements AgentHost {
 
     let spawned: SpawnedAgent | undefined
     try {
+      const worktree = await this.createWorktreeFor(agentId, name)
+
       spawned = await (this.deps.spawn ?? spawnAgent)({
         kind: 'orchestrator',
         provider,
@@ -414,7 +441,7 @@ export class Workspace implements AgentHost {
         // Not "yolo: false because the profile says so" — an orchestrator has
         // no yolo surface at all; buildAgentArgv drops it for this kind.
         yolo: false,
-        cwd: this.repoPath,
+        cwd: worktree.path,
         mcpUrl: urls.orchestratorUrl,
         fileTag: `orch-${agentId}`,
         configDir: this.deps.configDir,
@@ -427,6 +454,8 @@ export class Workspace implements AgentHost {
         roleId: ORCHESTRATOR_ROLE_ID,
         providerId: provider.id,
         model: this.profile.orchestrator.model,
+        worktreePath: worktree.path,
+        branch: worktree.branch,
         pty: spawned.pty,
         orchestrator: true
       })
@@ -445,12 +474,38 @@ export class Workspace implements AgentHost {
       }
       record.seeded = true
       record.assignmentCursor = this.events.cursor
-      return { agentId, name, role: ORCHESTRATOR_ROLE_ID }
+      return {
+        agentId,
+        name,
+        role: ORCHESTRATOR_ROLE_ID,
+        worktreePath: worktree.path,
+        branch: worktree.branch
+      }
     } catch (error) {
       this.orchestratorRecord = undefined
       this.discard(agentId, name, spawned?.pty)
       throw error
     }
+  }
+
+  /**
+   * The one worktree seam: `<repo>/.vertragus/worktrees/<agentId>` on the
+   * branch `vertragus/<workspace>/<agent>`. Orchestrator and subagents both
+   * pass through here — no spawn path can put an agent into a shared checkout.
+   * `startPoint` is the orchestrator's `baseBranch`: the ref the new branch
+   * forks from instead of the repo HEAD.
+   */
+  private createWorktreeFor(
+    agentId: string,
+    agentName: string,
+    startPoint?: string
+  ): Promise<CreatedWorktree> {
+    return (this.deps.createWorktree ?? createWorktree)(
+      this.repoPath,
+      agentId,
+      worktreeBranchName(this.name, agentName),
+      { ...this.deps.worktreeDeps, ...(startPoint ? { startPoint } : {}) }
+    )
   }
 
   /** Roles and their caps, as the orchestrator prompt renders them. */
@@ -549,7 +604,8 @@ export class Workspace implements AgentHost {
     roleId: string
     providerId: string
     model?: string
-    worktreePath?: string
+    worktreePath: string
+    branch: string
     pty: AgentPty
     orchestrator?: boolean
   }): AgentRecord {
@@ -560,6 +616,7 @@ export class Workspace implements AgentHost {
       providerId: input.providerId,
       model: input.model,
       worktreePath: input.worktreePath,
+      branch: input.branch,
       pty: input.pty,
       orchestrator: input.orchestrator === true,
       seeded: false,

@@ -84,6 +84,8 @@ describe('createCliWindow', () => {
     expect(options.transparent).toBe(true)
     expect(options.resizable).toBe(true)
     expect(options.alwaysOnTop).toBe(false)
+    // Grow/shrink is the title bar's, not the OS's — see createCliWindow.
+    expect(options.maximizable).toBe(false)
     expect(options.minWidth).toBe(cli.CLI_MIN_WIDTH)
     expect(options.minHeight).toBe(cli.CLI_MIN_HEIGHT)
     expect(options.title).toBe('Vertragus — Caronte')

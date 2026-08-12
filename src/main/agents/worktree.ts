@@ -1,30 +1,38 @@
 /**
- * Git worktrees for agents that must work in isolation.
+ * Git worktrees — the isolation every agent gets.
  *
- * The default is the shared repository — several agents in one checkout, which
- * is what makes a review/test/worker team cheap. `start_agent{worktree: true}`
- * opts one agent out: it gets `<repo>/.vertragus/worktrees/<agentId>` on its own
- * branch `vertragus/<workspace>/<agent>`.
+ * Every agent, the orchestrator included, works in its own worktree at
+ * `<repo>/.vertragus/worktrees/<agentId>` on its own branch
+ * `vertragus/<workspace>/<agent>`. There is no shared-checkout mode: parallel
+ * agents — and parallel workspaces on the same repository — must never trample
+ * each other's files. The branches merge like any other git branches, so
+ * nothing about isolation strands the work.
  *
  * Two deliberate properties:
  *
  * 1. **No shell.** Every git call goes through `execFile` with an argument
  *    array. A workspace or agent name reaches the branch name, and a name is
  *    data — a shell string would make it executable.
- * 2. **No cleanup, ever.** Vertragus never removes a worktree or deletes a
- *    branch: the work an agent did is the user's, and a tool that tidies away
- *    unmerged commits is a tool nobody trusts twice. Stale worktrees are listed
- *    by {@link listWorktrees} and removed by hand.
+ * 2. **No cleanup behind the user's back.** Vertragus never removes a worktree
+ *    on its own and never deletes a branch: the work an agent did is the
+ *    user's, and a tool that tidies away unmerged commits is a tool nobody
+ *    trusts twice. {@link removeWorktree} exists for the panel's cleanup view,
+ *    where the USER removes a stale worktree explicitly — without `--force`,
+ *    so git itself refuses when uncommitted changes would be lost, and the
+ *    branch survives either way.
  */
 import { execFile } from 'node:child_process'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
 
+/** Vertragus' directory inside the repository — worktrees and nothing else. */
+export const VERTRAGUS_DIR = '.vertragus'
+
 /** Worktrees live inside the repo so they travel with it and are easy to find. */
-export const WORKTREE_ROOT = join('.vertragus', 'worktrees')
+export const WORKTREE_ROOT = join(VERTRAGUS_DIR, 'worktrees')
 
 /** Branch namespace; everything Vertragus creates is recognizable at a glance. */
 export const BRANCH_PREFIX = 'vertragus'
@@ -159,6 +167,14 @@ export interface CreatedWorktree {
   branch: string
 }
 
+export interface CreateWorktreeOptions extends WorktreeDeps {
+  /**
+   * Existing ref the agent's branch starts from — another agent's branch, when
+   * one agent builds on another's result. Absent = HEAD of the main checkout.
+   */
+  startPoint?: string
+}
+
 function gitErrorMessage(error: unknown): string {
   if (error && typeof error === 'object') {
     const shaped = error as { stderr?: string; message?: string }
@@ -172,30 +188,65 @@ function gitErrorMessage(error: unknown): string {
 /**
  * Create an isolated worktree for one agent.
  *
- * `git worktree add <repo>/.vertragus/worktrees/<agentId> -b <branch>` — no
- * shell, no interpolation. Failures are rethrown with git's own stderr, because
- * "not a git repository" and "already exists" need very different reactions
- * from the orchestrator and both are invisible in an exit code.
+ * `git worktree add <repo>/.vertragus/worktrees/<agentId> -b <branch>
+ * [<startPoint>]` — no shell, no interpolation. Failures are rethrown with
+ * git's own stderr, because "not a git repository", "already exists" and
+ * "invalid reference" (a baseBranch the orchestrator misremembered) need very
+ * different reactions and all are invisible in an exit code.
  */
 export async function createWorktree(
   repoPath: string,
   agentId: string,
   branchName: string,
-  deps: WorktreeDeps = {}
+  options: CreateWorktreeOptions = {}
 ): Promise<CreatedWorktree> {
-  const git = deps.git ?? defaultGitRunner
+  const git = options.git ?? defaultGitRunner
   const path = worktreePathFor(repoPath, agentId)
-  const branch = await uniqueBranchName(repoPath, branchName, deps)
+  const branch = await uniqueBranchName(repoPath, branchName, options)
 
   // git creates the leaf itself but not the two levels above it.
   await mkdir(dirname(path), { recursive: true })
+  // `.vertragus/` self-ignores (the node_modules pattern): the worktrees sit
+  // inside the repository, and without this every checkout in the main working
+  // copy shows up untracked — noise in the user's `git status` at best, an
+  // accidental `git add -A` of all the worktrees at worst.
+  await writeFile(join(repoPath, VERTRAGUS_DIR, '.gitignore'), '*\n', { flag: 'wx' }).catch(
+    (error: NodeJS.ErrnoException) => {
+      if (error.code !== 'EEXIST') throw error
+    }
+  )
 
   try {
-    await git(['worktree', 'add', path, '-b', branch], repoPath)
+    const args = ['worktree', 'add', path, '-b', branch]
+    if (options.startPoint) args.push(options.startPoint)
+    await git(args, repoPath)
   } catch (error) {
     throw new Error(
       `git worktree add failed for agent ${agentId} in ${repoPath}: ${gitErrorMessage(error)}`
     )
   }
   return { path, branch }
+}
+
+/**
+ * Remove one worktree — the panel's cleanup view, on the user's explicit click.
+ *
+ * Deliberately WITHOUT `--force`: a worktree with uncommitted changes makes git
+ * refuse, and that refusal (with git's own wording) travels to the panel
+ * instead of the changes travelling to /dev/null. The branch is never touched —
+ * committed work stays reachable after the checkout is gone.
+ */
+export async function removeWorktree(
+  repoPath: string,
+  worktreePath: string,
+  deps: WorktreeDeps = {}
+): Promise<void> {
+  const git = deps.git ?? defaultGitRunner
+  try {
+    await git(['worktree', 'remove', worktreePath], repoPath)
+  } catch (error) {
+    throw new Error(
+      `git worktree remove failed for ${worktreePath}: ${gitErrorMessage(error)}`
+    )
+  }
 }
