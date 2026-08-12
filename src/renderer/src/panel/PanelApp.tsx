@@ -48,8 +48,6 @@ export function PanelApp(): React.JSX.Element {
    * active workspace stays open by default; see expandedWorkspaceId.
    */
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<SelectedWorkspaceId>(undefined)
-  // No `expandedWorkspaceId` here any more: expansion is decided per card by
-  // isWorkspaceExpanded, which also powers the expand-all chevron below.
   const allExpanded = areAllWorkspacesExpanded(selectedWorkspaceId)
   const expandAllLabel = allExpanded
     ? t('panel.collapseAllWorkspaces')

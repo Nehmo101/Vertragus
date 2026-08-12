@@ -7,14 +7,19 @@
  * a fake host and no Electron in sight.
  *
  * ## Who pushes which event
- * The MCP layer pushes `agent_started` (after a successful `startAgent`),
- * `agent_done`, `agent_question`, `agent_progress` (subagent tools) and
- * `agent_stopped` (after a successful `stopAgent`). The host pushes exactly one
- * event kind on its own: `agent_exited`, because only it can observe a process
- * dying unasked. A host must NOT duplicate the events listed above.
+ * One owner per channel, no duplicates. The MCP layer pushes `agent_started`
+ * (after a successful `startAgent`), `agent_stopped` (after a successful
+ * `stopAgent`), and — for agents that talk to Vertragus over MCP —
+ * `agent_done` / `agent_question` / `agent_progress` from the subagent tools.
+ * The host pushes `agent_exited` (only it can observe a process dying unasked)
+ * and, for `mcp: none` (sentinel) providers, `agent_done` / `agent_progress`
+ * parsed from PTY sentinel lines — for those agents the host *is* the reporting
+ * channel. A host must NOT duplicate MCP-tool events for an MCP-attached agent,
+ * and the MCP tools must not invent PTY-sentinel events.
  */
 import type { EventQueue } from './eventQueue'
 import type { PendingQuestions } from './pendingQuestions'
+import type { ReportingMode } from '@shared/prompts/contract'
 
 /** What `start_agent` hands the host. */
 export interface StartAgentInput {
@@ -58,6 +63,11 @@ export interface AgentSummary {
   lastOutputAgeSec: number
   /** Text of the agent's currently unanswered question, when it has one. */
   pendingQuestion?: string
+  /**
+   * How this agent reports back. Drives the contract/reminder dialect on
+   * follow-ups (`send_to_agent`). Derived from the provider's `mcp.kind`.
+   */
+  reporting: ReportingMode
 }
 
 /**
@@ -73,6 +83,12 @@ export interface AgentHost {
   /** ANSI-stripped tail of the agent's output. */
   readOutput(agentId: string, lines: number): Promise<string>
   listAgents(): AgentSummary[]
+  /**
+   * Which reporting dialect a *new* agent of this role should get. Used by
+   * `start_agent` before the agent exists; derived from the profile slot's
+   * provider (`mcp.kind === 'none'` → sentinel).
+   */
+  reportingMode(role: string): ReportingMode
 }
 
 /** How many agents the orchestrator may run. */

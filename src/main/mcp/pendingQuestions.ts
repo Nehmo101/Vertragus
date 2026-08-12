@@ -7,6 +7,12 @@
  * the old repo cannot happen: the ask times out, the answer arrives one
  * millisecond later, and the agent's ticket resume would otherwise wait forever
  * for a question nobody will answer again.
+ *
+ * Sentinel (PTY-only) questions optionally carry a {@link PendingQuestion.deliverAnswer}
+ * callback: answering still closes the registry entry synchronously, then the
+ * MCP layer awaits the callback to type the answer into the agent's PTY.
+ * MCP-tool questions leave the callback unset — their delivery is the resolving
+ * `waitForAnswer` response.
  */
 import { randomUUID } from 'node:crypto'
 
@@ -15,6 +21,15 @@ export interface PendingQuestion {
   agentId: string
   question: string
   createdAt: number
+  /**
+   * Optional PTY delivery for sentinel questions. Invoked by
+   * `send_to_agent{questionId}` after {@link PendingQuestions.answer} returns.
+   */
+  deliverAnswer?: (answer: string) => Promise<void>
+}
+
+export interface CreateQuestionOptions {
+  deliverAnswer?: (answer: string) => Promise<void>
 }
 
 export type AwaitAnswerResult =
@@ -29,6 +44,16 @@ interface OpenEntry extends PendingQuestion {
 
 /** How many answered questions stay resolvable for a late ticket resume. */
 const ANSWERED_MEMORY = 50
+
+function publicQuestion(entry: OpenEntry): PendingQuestion {
+  return {
+    questionId: entry.questionId,
+    agentId: entry.agentId,
+    question: entry.question,
+    createdAt: entry.createdAt,
+    ...(entry.deliverAnswer ? { deliverAnswer: entry.deliverAnswer } : {})
+  }
+}
 
 export class PendingQuestions {
   private readonly open = new Map<string, OpenEntry>()
@@ -45,27 +70,28 @@ export class PendingQuestions {
   }
 
   /** Register a new question and return it (the caller pushes the event). */
-  create(agentId: string, question: string): PendingQuestion {
+  create(agentId: string, question: string, options: CreateQuestionOptions = {}): PendingQuestion {
     const entry: OpenEntry = {
       questionId: this.newId(),
       agentId,
       question,
       createdAt: this.now(),
-      waiters: new Set()
+      waiters: new Set(),
+      ...(options.deliverAnswer ? { deliverAnswer: options.deliverAnswer } : {})
     }
     this.open.set(entry.questionId, entry)
-    return { ...entry }
+    return publicQuestion(entry)
   }
 
   get(questionId: string): PendingQuestion | undefined {
     const entry = this.open.get(questionId)
-    return entry ? { ...entry } : undefined
+    return entry ? publicQuestion(entry) : undefined
   }
 
   /** The agent's currently unanswered question, if any (oldest first). */
   openForAgent(agentId: string): PendingQuestion | undefined {
     for (const entry of this.open.values()) {
-      if (entry.agentId === agentId) return { ...entry }
+      if (entry.agentId === agentId) return publicQuestion(entry)
     }
     return undefined
   }
@@ -116,7 +142,11 @@ export class PendingQuestions {
     })
   }
 
-  /** Answer a question: wake every parked caller. Returns false if unknown. */
+  /**
+   * Answer a question: wake every parked caller. Returns the closed entry
+   * (including `deliverAnswer` when set) so the MCP layer can await PTY
+   * delivery. Returns undefined if unknown. Stays synchronous.
+   */
   answer(questionId: string, answer: string): PendingQuestion | undefined {
     const entry = this.open.get(questionId)
     if (!entry) return undefined
@@ -127,12 +157,7 @@ export class PendingQuestions {
       waiter.dispose()
       waiter.resolve({ state: 'answered', answer })
     }
-    return {
-      questionId: entry.questionId,
-      agentId: entry.agentId,
-      question: entry.question,
-      createdAt: entry.createdAt
-    }
+    return publicQuestion(entry)
   }
 
   /** Drop every open question of an agent (it is being stopped or died). */

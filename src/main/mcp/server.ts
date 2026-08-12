@@ -45,6 +45,11 @@ export type McpIdentity =
   | { kind: 'subagent'; workspaceId: string; agentId: string }
 
 export interface RegisteredWorkspace {
+  /**
+   * The MCP-owned runtime for this workspace. Callers (WorkspaceManager) must
+   * hand `runtime.questions` to the workspace via `attachQuestions` so sentinel
+   * ASK lines and MCP `ask_orchestrator` share one registry.
+   */
   runtime: WorkspaceRuntime
   orchestratorUrl: string
   subagentUrl(agentId: string): string

@@ -15,13 +15,14 @@
  * - **The task contract is NOT appended here.** `start_agent` composes
  *   `task + buildTaskContract()`, so a spawn path cannot forget it. The host
  *   receives the finished seed text in `StartAgentInput.task`.
- * - **Only two event kinds are pushed from here.** `agent_exited`, because only
- *   the host can observe a process dying unasked — and, for PTY-only providers,
- *   one `agent_progress` silence hint (see {@link PTY_ONLY_IDLE_HINT_MS}), for
- *   the same reason: an agent with no MCP attachment can produce no events of
- *   its own, so its silence is something only the host can see.
- *   `agent_started`, `agent_stopped`, `agent_done` and `agent_question` all
- *   belong to the MCP layer.
+ * - **Only a few event kinds are pushed from here.** `agent_exited`, because only
+ *   the host can observe a process dying unasked. For PTY-only (`mcp: none`)
+ *   providers the host is also the reporting channel: it parses sentinel lines
+ *   into `agent_done` / `agent_progress` (and will wire `agent_question` in
+ *   Task 3). The silence hint ({@link PTY_ONLY_IDLE_HINT_MS}) stays as the
+ *   host-truth backstop when a sentinel agent goes quiet. MCP-attached agents
+ *   still push done/question/progress only via the MCP layer — no duplicates.
+ *   `agent_started` and `agent_stopped` always belong to the MCP layer.
  *
  * What the host *does* own is identity and delivery: the Commedia name, the
  * role prompt (via the provider's `systemPromptDelivery`), the worktree, the
@@ -31,6 +32,7 @@
 import { randomUUID } from 'node:crypto'
 import type { AgentMeta, AgentRegistry } from '@main/ipc'
 import { EventQueue } from '@main/mcp/eventQueue'
+import type { PendingQuestions } from '@main/mcp/pendingQuestions'
 import type {
   AgentHost,
   AgentSummary,
@@ -54,6 +56,7 @@ import {
   seedOptionsFromProvider,
   type SeedWithReadyOptions
 } from '@main/agents/interactiveReady'
+import { buildReminderSuffix, type ReportingMode } from '@shared/prompts/contract'
 import { buildOrchestratorSystemPrompt, type RoleWithLimit } from '@shared/prompts/orchestrator'
 import type { SlotKnowledge } from '@shared/retro/runStats'
 import {
@@ -71,6 +74,7 @@ import {
 } from '@shared/schema/profile'
 import type { ProviderConfig } from '@shared/schema/provider'
 import type { ZoneLayout } from '@shared/schema/zones'
+import { SentinelParser, type SentinelReport } from './sentinel'
 import { terminalTailText } from './terminalText'
 
 /** Agent statuses this host reports. See `mcp/types` TERMINAL_AGENT_STATUSES. */
@@ -88,12 +92,10 @@ export const AGENT_STATUS = {
 /**
  * How long a PTY-only agent may stay silent before the orchestrator is told.
  *
- * A provider with `mcp.kind: 'none'` (Cursor, Ollama) has no way to report:
- * no `report_progress`, no `report_done`, no `agent_question`. From the
- * orchestrator's side such a worker is indistinguishable from one that is
- * thinking hard — and the old repo's answer, assuming success, is exactly the
- * failure this milestone closes. So the host says the one true thing it knows:
- * nothing has come out of that terminal for two minutes, go and look.
+ * A provider with `mcp.kind: 'none'` (today: Ollama; any future mute CLI) has
+ * no MCP reporting tools. Sentinel lines are model-compliance-dependent, so
+ * the silence watchdog stays as the host-truth backstop: nothing has come out
+ * of that terminal for two minutes, go and look.
  */
 export const PTY_ONLY_IDLE_HINT_MS = 120_000
 
@@ -189,6 +191,16 @@ interface AgentRecord {
   idleTimer?: ReturnType<typeof setTimeout>
   /** True once this silence phase has been reported — one hint, not a drip. */
   idleNotified: boolean
+  /**
+   * PTY-only subagents only: incremental sentinel-line parser. Cleared on every
+   * new assignment so a follow-up DONE with the same payload still fires.
+   */
+  sentinel?: SentinelParser
+  /**
+   * While Vertragus is typing into the PTY (seed handshake), echoes of
+   * host-authored text must not be parsed as agent reports.
+   */
+  suppressSentinel: boolean
 }
 
 export class Workspace implements AgentHost {
@@ -206,6 +218,8 @@ export class Workspace implements AgentHost {
   private readonly newId: () => string
   private orchestratorRecord: AgentRecord | undefined
   private mcpUrls: WorkspaceMcpUrls | undefined
+  /** Open-question registry from MCP registration — needed for sentinel ASK. */
+  private questions: PendingQuestions | undefined
   private closed = false
   /** The record_retro summary, held until the manager finalizes the run at stop. */
   pendingRetroSummary: string | undefined
@@ -249,6 +263,16 @@ export class Workspace implements AgentHost {
   /** Hand over the URLs the MCP server minted for this workspace. */
   attachMcp(urls: WorkspaceMcpUrls): void {
     this.mcpUrls = urls
+  }
+
+  /**
+   * Hand over the workspace's {@link PendingQuestions} registry after
+   * `mcp.registerWorkspace`. Sentinel ASK lines create entries here so the
+   * orchestrator can answer them with `send_to_agent{questionId}` exactly like
+   * MCP-tool questions.
+   */
+  attachQuestions(questions: PendingQuestions): void {
+    this.questions = questions
   }
 
   /**
@@ -379,8 +403,12 @@ export class Workspace implements AgentHost {
     }
     const accepted = await this.seed(record, text, this.autoSubmitTasks)
     if (!accepted) throw new Error(`${record.name} did not accept the message.`)
-    // A new assignment resets the "has it confirmed?" question.
+    // A new assignment resets the "has it confirmed?" question — and the
+    // sentinel dedup memory, so a legitimate identical DONE for a follow-up
+    // still fires. Seed echoes were suppressed during the write; reset drops
+    // any partial buffer state before the agent speaks again.
     record.assignmentCursor = this.events.cursor
+    record.sentinel?.reset()
   }
 
   async stopAgent(agentId: string): Promise<boolean> {
@@ -426,8 +454,19 @@ export class Workspace implements AgentHost {
         model: record.model,
         worktreePath: record.worktreePath,
         branch: record.branch,
-        lastOutputAgeSec: Math.max(0, Math.round((now - record.lastOutputAt) / 1_000))
+        lastOutputAgeSec: Math.max(0, Math.round((now - record.lastOutputAt) / 1_000)),
+        reporting: this.reportingForProvider(record.providerId)
       }))
+  }
+
+  /**
+   * Reporting dialect for a *new* agent of this role — used by `start_agent`
+   * before the agent exists. Derived from the profile slot's provider.
+   */
+  reportingMode(role: string): ReportingMode {
+    const slot = this.profile.slots.find((candidate) => candidate.roleId === role)
+    if (!slot) return 'mcp'
+    return this.reportingForProvider(slot.providerId)
   }
 
   // --- Orchestrator ------------------------------------------------------
@@ -656,7 +695,8 @@ export class Workspace implements AgentHost {
       lastOutputAt: this.now(),
       assignmentCursor: this.events.cursor,
       unsubscribe: [],
-      idleNotified: false
+      idleNotified: false,
+      suppressSentinel: false
     }
     // Registration first: the CLI window calls `terminal:attach` as soon as it
     // loads, and an unregistered agent rejects that call.
@@ -670,20 +710,96 @@ export class Workspace implements AgentHost {
     }
     this.deps.registry.registerAgent({ pty: record.pty, meta })
     record.unsubscribe.push(
-      record.pty.onData(() => {
+      record.pty.onData((data) => {
         record.lastOutputAt = this.now()
         // Output ends the silence phase: the next one earns its own hint.
         record.idleNotified = false
         this.armIdleHint(record)
+        if (record.sentinel && !record.suppressSentinel) {
+          for (const report of record.sentinel.feed(data)) {
+            this.handleSentinelReport(record, report)
+          }
+        }
       })
     )
     record.unsubscribe.push(record.pty.onExit((info) => this.handleExit(record, info)))
     this.agents.set(record.agentId, record)
+    if (!record.orchestrator && this.isPtyOnly(record.providerId)) {
+      record.sentinel = new SentinelParser()
+    }
     this.armIdleHint(record)
     return record
   }
 
-  /** True for a provider that declared `mcp: none` — it cannot report at all. */
+  /** `mcp.kind === 'none'` → sentinel lines; anything else → MCP tools. */
+  private reportingForProvider(providerId: string): ReportingMode {
+    return this.isPtyOnly(providerId) ? 'sentinel' : 'mcp'
+  }
+
+  /**
+   * Turn a parsed sentinel report into the same event shapes MCP tools push.
+   */
+  private handleSentinelReport(record: AgentRecord, report: SentinelReport): void {
+    if (this.events.isClosed || record.orchestrator) return
+    const identity = {
+      agentId: record.agentId,
+      name: record.name,
+      roleId: record.roleId
+    }
+    switch (report.kind) {
+      case 'done':
+        this.events.push({
+          type: 'agent_done',
+          ...identity,
+          summary: report.summary,
+          status: report.status
+        })
+        return
+      case 'progress':
+        this.events.push({ type: 'agent_progress', ...identity, note: report.note })
+        return
+      case 'unparseable':
+        this.events.push({
+          type: 'agent_progress',
+          ...identity,
+          note: `unparseable sentinel line (${report.reason})`
+        })
+        return
+      case 'ask': {
+        if (!this.questions) {
+          // Wiring bug: WorkspaceManager always attachQuestions. Surface it.
+          this.events.push({
+            type: 'agent_progress',
+            ...identity,
+            note: 'sentinel ASK ignored: questions registry not attached'
+          })
+          return
+        }
+        // One open question at a time — same rule as ask_orchestrator.
+        if (this.questions.openForAgent(record.agentId)) return
+        const agentId = record.agentId
+        const pending = this.questions.create(agentId, report.question, {
+          // Reminder lives HERE only. send_to_agent{questionId} must not append
+          // a second one when it awaits deliverAnswer.
+          deliverAnswer: async (answer: string) => {
+            await this.sendToAgent(
+              agentId,
+              `${answer}\n\n${buildReminderSuffix('sentinel')}`
+            )
+          }
+        })
+        this.events.push({
+          type: 'agent_question',
+          ...identity,
+          questionId: pending.questionId,
+          question: report.question
+        })
+        return
+      }
+    }
+  }
+
+  /** True for a provider that declared `mcp: none` — reports via sentinel lines. */
   private isPtyOnly(providerId: string): boolean {
     return (
       this.deps.providers.find((candidate) => candidate.id === providerId)?.mcp.kind === 'none'
@@ -761,10 +877,15 @@ export class Workspace implements AgentHost {
    * *assignment* obeys the profile (the user may want to redact it before it
    * runs), while a system prompt that has no launch flag is plumbing the user
    * never asked to see and is always sent.
+   *
+   * Sentinel parsing is suppressed for the whole write: the CLI echoes
+   * host-authored text (tasks, answers, reminders) and those echoes must not
+   * become fake agent_done / agent_question events.
    */
   private seed(record: AgentRecord, text: string, autoSubmit: boolean): Promise<boolean> {
     const seed = this.deps.seed ?? seedWithReadyHandshake
     const provider = this.deps.providers.find((candidate) => candidate.id === record.providerId)
+    record.suppressSentinel = true
     // Provider seed tuning (e.g. Cursor's longer submitDelayMs) applies first;
     // deps.seedOptions override so tests can keep the suite fast.
     return seed(
@@ -772,7 +893,9 @@ export class Workspace implements AgentHost {
       () => ({ buffer: record.pty.snapshot(), alive: record.pty.isAlive }),
       text,
       { ...seedOptionsFromProvider(provider?.seed), ...this.deps.seedOptions, autoSubmit }
-    )
+    ).finally(() => {
+      record.suppressSentinel = false
+    })
   }
 
   /** Profile switch "send assignments automatically"; default on. */
@@ -781,16 +904,21 @@ export class Workspace implements AgentHost {
   }
 
   /**
-   * The host's ONE event. `confirmed` is derived, not tracked by a callback:
-   * an `agent_done` newer than the agent's last assignment is proof it reported
-   * before dying. Anything else — a crash, a `/exit`, an OOM kill — is
-   * `confirmed: false`, which is the orchestrator's cue to read_output instead
-   * of assuming success.
+   * Process-death event. `confirmed` is derived, not tracked by a callback: an
+   * `agent_done` newer than the agent's last assignment is proof it reported
+   * before dying — whether that done came from MCP tools or a PTY sentinel.
+   * Anything else — a crash, a `/exit`, an OOM kill — is `confirmed: false`.
+   *
+   * Cancels open questions for every agent (MCP and sentinel): a dead agent's
+   * ask is unanswerable. On the stop path `terminate()` also cancels, because
+   * it unsubscribes `onExit` before the async kill finishes — this line alone
+   * would not run then.
    */
   private handleExit(record: AgentRecord, info: PtyExitInfo): void {
     record.exit = info
     // A dead process is not a silent one — its exit event says everything.
     this.clearIdleHint(record)
+    this.questions?.cancelForAgent(record.agentId)
     if (record.stopping) return
     if (record.orchestrator) return
     if (this.events.isClosed) return
@@ -820,6 +948,9 @@ export class Workspace implements AgentHost {
     record.stopping = true
     record.stopped = true
     this.clearIdleHint(record)
+    // Cancel here too: pty.kill() is async and we unsubscribe onExit below, so
+    // handleExit's cancelForAgent would not run on the stop path.
+    this.questions?.cancelForAgent(record.agentId)
     record.pty.kill()
     for (const off of record.unsubscribe) off()
     record.unsubscribe = []

@@ -26,13 +26,16 @@ interface Props {
 
 /**
  * One profile line: name + workspace count (toggles the filter), Play (opens
- * another workspace — pressing it twice gives two), chart (what the runs taught
- * the app, folded out below), broom (the worktree cleanup list, folded out
- * below), gear (profile editor). Play is deliberately the visually loudest
- * control in the panel; it is the one thing the app exists to do. Name/count
- * stay a sibling of the four buttons so filter clicks never hit those targets,
- * and the selected wash sits on the row itself so the unfolded views below it
- * stay visually outside the selection.
+ * another workspace — pressing it twice gives two), chart (what the runs
+ * taught the app, folded out below), broom (the worktree cleanup list, folded
+ * out below), gear (profile editor). Play is deliberately the visually
+ * loudest control in the panel; it is the one thing the app exists to do.
+ * Name/count stay a sibling of the four buttons so filter clicks never hit
+ * those targets.
+ *
+ * The row itself is a `div` inside an `li` wrapper: the fold-out views hang
+ * as further children below the row, and they must not inherit the row's flex
+ * layout or its selected/hover wash.
  */
 export function ProfileRow({
   profile,

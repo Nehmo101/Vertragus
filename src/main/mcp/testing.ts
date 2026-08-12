@@ -72,6 +72,8 @@ export interface FakeHostOptions {
   /** Called instead of the default bookkeeping when an agent is started. */
   onStart?: (input: StartAgentInput, agent: AgentSummary) => void
   startError?: string
+  /** Override {@link AgentHost.reportingMode}; defaults to always `'mcp'`. */
+  reportingMode?: (role: string) => AgentSummary['reporting']
 }
 
 /** An in-memory {@link AgentHost}: no processes, no windows, full bookkeeping. */
@@ -83,6 +85,10 @@ export class FakeAgentHost implements AgentHost {
   private counter = 0
 
   constructor(private readonly options: FakeHostOptions = {}) {}
+
+  reportingMode(role: string): AgentSummary['reporting'] {
+    return this.options.reportingMode?.(role) ?? 'mcp'
+  }
 
   async startAgent(input: StartAgentInput): Promise<StartedAgent> {
     if (this.options.startError) throw new Error(this.options.startError)
@@ -98,7 +104,8 @@ export class FakeAgentHost implements AgentHost {
       model: input.model,
       worktreePath,
       branch,
-      lastOutputAgeSec: 0
+      lastOutputAgeSec: 0,
+      reporting: this.reportingMode(input.role)
     }
     this.agents.set(agentId, agent)
     this.seeded.push({ agentId, task: input.task })
