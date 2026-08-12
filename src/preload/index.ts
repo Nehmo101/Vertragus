@@ -21,7 +21,8 @@ const CHANNELS = {
   data: 'terminal:data',
   exit: 'terminal:exit',
   windowClose: 'window:close',
-  windowMinimize: 'window:minimize'
+  windowMinimize: 'window:minimize',
+  windowMaximize: 'window:maximize'
 } as const
 
 export interface TerminalAgentMeta {
@@ -43,6 +44,8 @@ export interface TerminalAttachResult {
   locale?: string
   /** Appearance at attach time; CLI windows cannot query settings. */
   theme?: 'dark' | 'light'
+  /** True while the window fills its screen — the title bar's glyph follows it. */
+  maximized: boolean
 }
 
 export interface TerminalDataEvent {
@@ -87,7 +90,13 @@ const terminal = {
   /** Minimize this window — the agent keeps running and the window stays registered. */
   minimizeWindow: (): void => {
     ipcRenderer.send(CHANNELS.windowMinimize)
-  }
+  },
+  /**
+   * Grow this window to fill its screen, or shrink it back into its zone.
+   * Answers with the state it ended up in, so the button can draw the other
+   * glyph without keeping a second copy of the truth.
+   */
+  toggleMaximizeWindow: (): Promise<boolean> => ipcRenderer.invoke(CHANNELS.windowMaximize)
 }
 
 /**
@@ -120,6 +129,7 @@ const APP = {
   settingsYolo: 'settings:yolo',
   settingsSet: 'settings:set',
   windowsHideAll: 'windows:hideAll',
+  windowsMinimizePanel: 'windows:minimizePanel',
   appQuit: 'app:quit',
   dialogPickDirectory: 'dialog:pickDirectory',
   profileEditorOpen: 'profileEditor:open',
@@ -337,6 +347,11 @@ const app = {
   setSetting: (key: WritableSetting, value: unknown): Promise<PanelSettings> =>
     ipcRenderer.invoke(APP.settingsSet, { key, value }),
   hideAllWindows: (): Promise<void> => ipcRenderer.invoke(APP.windowsHideAll),
+  /**
+   * Minimize the panel itself. Hide-all leaves the panel standing by design, so
+   * this is the only way to put it away; the taskbar entry brings it back.
+   */
+  minimizePanel: (): Promise<void> => ipcRenderer.invoke(APP.windowsMinimizePanel),
   /**
    * Quit Vertragus. Resolves false when running agents made main ask and the
    * user cancelled; true means the shutdown is under way.

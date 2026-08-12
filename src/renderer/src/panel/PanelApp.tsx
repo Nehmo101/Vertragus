@@ -52,12 +52,18 @@ export function PanelApp(): React.JSX.Element {
         <HoundLogo size={30} />
         <span className="panel-wordmark">{t('panel.wordmark')}</span>
         <span className="panel-brand-spacer" />
+        {/*
+          − minimizes the PANEL, ✕ quits: the two things a window's head is
+          expected to do. Hide-all is a different verb — it clears the agents
+          and deliberately leaves this strip standing — and keeps its own eye
+          in the footer.
+        */}
         <button
           type="button"
           className="panel-icon-button panel-brand-button"
-          title={t('panel.hideAll')}
-          aria-label={t('panel.hideAll')}
-          onClick={panel.hideAll}
+          title={t('panel.minimize')}
+          aria-label={t('panel.minimize')}
+          onClick={panel.minimizePanel}
         >
           <MinusIcon />
         </button>

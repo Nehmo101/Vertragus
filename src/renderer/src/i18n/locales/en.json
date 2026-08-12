@@ -33,6 +33,7 @@
     "yolo": "Yolo",
     "yoloOn": "Yolo master is ON — subagents may act without asking",
     "yoloOff": "Yolo master is OFF — subagents ask first",
+    "minimize": "Minimize panel",
     "hideAll": "Hide everything",
     "quit": "Quit Vertragus",
     "settings": "Settings",
@@ -288,6 +289,8 @@
     "stopped": "stopped · exit {{code}}",
     "exitLine": "— stopped · exit {{code}} —",
     "minimizeWindow": "Minimize window",
+    "maximizeWindow": "Enlarge window — fills the screen",
+    "restoreWindow": "Shrink window — back into its zone",
     "closeWindow": "Close window"
   }
 }

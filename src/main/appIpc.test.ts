@@ -249,6 +249,8 @@ interface Harness {
   providerEditorsOpened: (string | undefined)[]
   providerEditorsClosed: number[]
   hidden: number
+  /** How often the panel put ITSELF down — windows:minimizePanel, not hide-all. */
+  panelMinimizes: number
   /** Agent counts the quit dialog was asked about, in order. */
   quitPrompts: number[]
   /** What the fake user answers in that dialog. */
@@ -305,6 +307,7 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     providerEditorsOpened,
     providerEditorsClosed,
     hidden: 0,
+    panelMinimizes: 0,
     quitPrompts: [] as number[],
     confirmQuit: true,
     quits: 0,
@@ -386,6 +389,9 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     broadcast: (channel, payload) => broadcasts.push({ channel, payload }),
     hideAll: () => {
       result.hidden += 1
+    },
+    minimizePanel: () => {
+      result.panelMinimizes += 1
     },
     confirmQuit: async (runningAgents) => {
       result.quitPrompts.push(runningAgents)
@@ -857,6 +863,13 @@ describe('settings and windows', () => {
     )
   })
 
+  it('minimizes the panel itself without touching hide-all', () => {
+    h.ipc.invoke(APP_CHANNELS.windowsMinimizePanel, PANEL_ID)
+    expect(h.panelMinimizes).toBe(1)
+    // The two verbs stay apart: the panel's − must not clear the agents away.
+    expect(h.hidden).toBe(0)
+  })
+
   it('runs hide-all and the folder picker', async () => {
     h.ipc.invoke(APP_CHANNELS.windowsHideAll, PANEL_ID)
     expect(h.hidden).toBe(1)
@@ -1141,6 +1154,7 @@ describe('sender authorization', () => {
     APP_CHANNELS.workspacesFocusAgent,
     APP_CHANNELS.settingsYolo,
     APP_CHANNELS.windowsHideAll,
+    APP_CHANNELS.windowsMinimizePanel,
     APP_CHANNELS.appQuit
   ]
   const appWindows = [

@@ -60,6 +60,34 @@ function metaLabel(meta: TerminalAgentMeta | null, agentId: string): React.JSX.E
 }
 
 /**
+ * Grow: four arrows pushing out of the corners. Shrink: the same four pulled
+ * back in. Drawn rather than typed, because the Unicode pair for this (⤢ / ⤡)
+ * is a diagonal arrow in some fonts and a blank box in others.
+ */
+function MaximizeGlyph({ maximized }: { maximized: boolean }): React.JSX.Element {
+  return (
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      {maximized ? (
+        <path d="M5 1v4H1M11 5H7V1M1 7h4v4M7 11V7h4" />
+      ) : (
+        <path d="M1 4.5V1h3.5M11 4.5V1H7.5M1 7.5V11h3.5M11 7.5V11H7.5" />
+      )}
+    </svg>
+  )
+}
+
+/**
  * The agent's terminal window. It owns nothing but the view: the PTY lives in
  * the main process, this attaches to it, replays the scrollback and streams.
  */
@@ -69,12 +97,17 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
   const [meta, setMeta] = useState<TerminalAgentMeta | null>(null)
   const [exit, setExit] = useState<TerminalExitEvent | { exitCode: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
+  /** Mirrors the window's real state; main answers with it on every toggle. */
+  const [maximized, setMaximized] = useState(false)
 
   // The bridge is injected by preload before the bundle runs — stable for the
   // lifetime of the window, so it is read during render, not in the effect.
   const bridge = window.vertragus?.terminal
   const close = useCallback(() => bridge?.closeWindow(), [bridge])
   const minimize = useCallback(() => bridge?.minimizeWindow(), [bridge])
+  const toggleMaximize = useCallback(() => {
+    void bridge?.toggleMaximizeWindow().then(setMaximized, () => undefined)
+  }, [bridge])
 
   // Focus, not hover, decides whether this window is solid: hover means the
   // user is reading it, focus means they are typing in it.
@@ -144,6 +177,7 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
         if (result.locale) void applyLocale(result.locale)
         if (result.theme) applyTheme(result.theme)
         setMeta(result.meta)
+        setMaximized(result.maximized)
         if (result.exit) setExit(result.exit)
         term.write(result.snapshot)
         attached = true
@@ -188,6 +222,15 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
           aria-label={t('terminal.minimizeWindow')}
         >
           −
+        </button>
+        <button
+          className="cli-maximize"
+          onClick={toggleMaximize}
+          title={maximized ? t('terminal.restoreWindow') : t('terminal.maximizeWindow')}
+          aria-label={maximized ? t('terminal.restoreWindow') : t('terminal.maximizeWindow')}
+          aria-pressed={maximized}
+        >
+          <MaximizeGlyph maximized={maximized} />
         </button>
         <button
           className="cli-close"

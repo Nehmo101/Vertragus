@@ -38,6 +38,7 @@ class FakeBrowserWindow {
   readonly webContents = new FakeWebContents()
   destroyed = false
   visible = false
+  minimized = false
   bounds: { x: number; y: number; width: number; height: number }
   alwaysOnTopLevel: string | undefined
 
@@ -74,6 +75,15 @@ class FakeBrowserWindow {
     this.emit('hide')
   }
   focus(): void {}
+  minimize(): void {
+    this.minimized = true
+  }
+  restore(): void {
+    this.minimized = false
+  }
+  isMinimized(): boolean {
+    return this.minimized
+  }
   isVisible(): boolean {
     return this.visible
   }
@@ -145,6 +155,16 @@ describe('createPanelWindow', () => {
     const first = panel.createPanelWindow()
     expect(panel.createPanelWindow()).toBe(first)
     expect(FakeBrowserWindow.instances).toHaveLength(1)
+  })
+
+  it('restores the panel when it was minimized by its own −', () => {
+    const win = panel.createPanelWindow() as unknown as FakeBrowserWindow
+    win.minimize()
+
+    panel.createPanelWindow()
+
+    expect(win.minimized).toBe(false)
+    expect(win.visible).toBe(true)
   })
 
   it('maps its webContents id and forgets the window when it closes', () => {

@@ -26,6 +26,10 @@ export function isPanelWindowSender(webContentsId: number): boolean {
 export function createPanelWindow(): BrowserWindow {
   const existing = getPanelWindow()
   if (existing) {
+    // The panel can be minimized by its own − (windows:minimizePanel), so
+    // "bring the app back" has to undo that and not just re-show a window that
+    // is already visible-but-iconified.
+    if (existing.isMinimized()) existing.restore()
     existing.show()
     existing.focus()
     return existing

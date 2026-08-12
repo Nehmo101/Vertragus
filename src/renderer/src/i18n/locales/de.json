@@ -33,6 +33,7 @@
     "yolo": "Yolo",
     "yoloOn": "Yolo-Master ist AN — Subagents dürfen ohne Rückfrage handeln",
     "yoloOff": "Yolo-Master ist AUS — Subagents fragen nach",
+    "minimize": "Panel minimieren",
     "hideAll": "Alles ausblenden",
     "quit": "Vertragus beenden",
     "settings": "Einstellungen",
@@ -288,6 +289,8 @@
     "stopped": "beendet · exit {{code}}",
     "exitLine": "— beendet · exit {{code}} —",
     "minimizeWindow": "Fenster minimieren",
+    "maximizeWindow": "Fenster vergrößern — füllt den Bildschirm",
+    "restoreWindow": "Fenster verkleinern — zurück in seine Zone",
     "closeWindow": "Fenster schließen"
   }
 }

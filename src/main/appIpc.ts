@@ -96,6 +96,7 @@ export const APP_CHANNELS = {
   settingsYolo: 'settings:yolo',
   settingsSet: 'settings:set',
   windowsHideAll: 'windows:hideAll',
+  windowsMinimizePanel: 'windows:minimizePanel',
   appQuit: 'app:quit',
   dialogPickDirectory: 'dialog:pickDirectory',
   profileEditorOpen: 'profileEditor:open',
@@ -456,6 +457,11 @@ export interface AppIpcHost {
   broadcastAll?(channel: string, payload: unknown): void
   /** Hide every CLI window and editor; toggling again restores them. */
   hideAll(): void
+  /**
+   * Minimize the panel itself — the one window hide-all deliberately never
+   * touches, and therefore the one that needs its own way down to the taskbar.
+   */
+  minimizePanel(): void
   /**
    * Native "N agents are still running" confirmation. Resolves true when the
    * user chose to quit. Only asked when something is actually running.
@@ -848,6 +854,16 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
   })
 
   /**
+   * The panel's −. Distinct from hide-all on purpose: hide-all clears the
+   * agents off the screen and leaves the panel standing (it is the way back),
+   * so "get this strip out of my way" had nowhere to go before. The taskbar
+   * entry brings it back — the panel is the one window with `skipTaskbar` off.
+   */
+  handle(APP_CHANNELS.windowsMinimizePanel, requirePanel, () => {
+    host.minimizePanel()
+  })
+
+  /**
    * The panel's ✕. Quitting Vertragus kills every agent process, so it asks
    * first — but only when there is something to lose. Returns false when the
    * user cancelled, so the panel can tell "declined" from "about to die".
@@ -1116,6 +1132,9 @@ export function registerAppIpc(directory?: WorkspaceDirectory): AppIpc {
     },
     hideAll: () => {
       toggleHideAll()
+    },
+    minimizePanel: () => {
+      getPanelWindow()?.minimize()
     },
     async confirmQuit(runningAgents) {
       const { message, detail } = quitConfirmationText(runningAgents)
