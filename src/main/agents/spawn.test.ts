@@ -553,6 +553,8 @@ describe('spawnAgent', () => {
 
   it('does not write Claude state for a CLI that is not the Claude preset', async () => {
     const ensureTrust = vi.fn()
+    // A real cwd: Cursor's attach writes `<cwd>/.cursor/mcp.json` on the way
+    // through, so the default '/repo' would leave the test writing outside tmp.
     for (const id of ['cursor', 'ollama']) {
       // `cwd` and not the fixture default: Cursor's attach writes
       // `<cwd>/.cursor/mcp.json` for real.
@@ -571,7 +573,7 @@ describe('spawnAgent', () => {
       label: 'My Claude',
       command: 'claude'
     })
-    await spawnAgent(launchInput({ provider: lookalike }), {
+    await spawnAgent(launchInput({ provider: lookalike, cwd }), {
       resolve,
       createPty: () => new FakePty(),
       ensureTrust
