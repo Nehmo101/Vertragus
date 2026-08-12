@@ -267,6 +267,7 @@
     "palette": "Add zone",
     "addZone": "+ {{role}}",
     "removeZone": "Remove zone “{{role}}”",
+    "autoLayout": "Auto layout",
     "empty": "No zone on this screen yet — pick a role below.",
     "cancel": "Cancel (Esc)",
     "demoBadge": "Demo view"

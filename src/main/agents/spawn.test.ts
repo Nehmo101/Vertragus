@@ -116,18 +116,40 @@ describe('buildAgentArgv — per preset', () => {
     ])
   })
 
-  it('composes a Cursor subagent: yolo, no attach, prompt through the terminal', () => {
+  it('composes a Cursor subagent: trust, yolo, approve-mcps, prompt through the terminal', () => {
     const { argv, ptySystemPrompt } = buildAgentArgv(
       launchInput({
         provider: preset('cursor'),
         model: 'gpt-5.6',
         yolo: true,
+        cwd,
         systemPrompt: 'You are a Reviewer.'
       })
     )
 
-    expect(argv).toEqual(['--model', 'gpt-5.6', '--yolo'])
+    expect(argv).toEqual(['--trust', '--model', 'gpt-5.6', '--yolo', '--approve-mcps'])
     expect(ptySystemPrompt).toBe('You are a Reviewer.')
+    const written = JSON.parse(readFileSync(join(cwd, '.cursor', 'mcp.json'), 'utf8')) as {
+      mcpServers: Record<string, { url: string }>
+    }
+    expect(written.mcpServers.vertragus!.url).toContain('agent=a1')
+  })
+
+  it('composes a Cursor orchestrator: trust + approve-mcps, no yolo', () => {
+    const { argv, ptySystemPrompt } = buildAgentArgv(
+      launchInput({
+        provider: preset('cursor'),
+        kind: 'orchestrator',
+        yolo: true,
+        cwd,
+        systemPrompt: 'You orchestrate.'
+      })
+    )
+
+    expect(argv).toEqual(['--trust', '--approve-mcps'])
+    expect(argv).not.toContain('--yolo')
+    // Prompt delivery stays PTY even though MCP is attached — orthogonal.
+    expect(ptySystemPrompt).toBe('You orchestrate.')
   })
 
   it('gives Ollama its model positionally, right behind the base args', () => {
@@ -335,8 +357,8 @@ describe('MCP attach — the regression that killed the old repo', () => {
   })
 
   it('leaves an mcp: none provider unattached — a declaration, not an omission', () => {
-    const { argv } = buildAgentArgv(launchInput({ provider: preset('cursor') }))
-    expect(argv).toEqual([])
+    const { argv } = buildAgentArgv(launchInput({ provider: preset('ollama'), model: 'qwen3:32b' }))
+    expect(argv).toEqual(['run', 'qwen3:32b'])
   })
 
   /**
@@ -351,9 +373,16 @@ describe('MCP attach — the regression that killed the old repo', () => {
         launchInput({ provider, kind: 'subagent', cwd, systemPrompt: 'role' })
       )
       const urlSource =
-        provider.mcp.kind === 'kimi-project'
-          ? // Kimi's attachment is a file, so that is where the URL has to be.
-            readFileSync(join(cwd, '.kimi-code', 'mcp.json'), 'utf8')
+        provider.mcp.kind === 'kimi-project' || provider.mcp.kind === 'cursor-project'
+          ? // Project-file dialects: the URL lives in the cwd, not in argv.
+            readFileSync(
+              join(
+                cwd,
+                provider.mcp.kind === 'kimi-project' ? '.kimi-code' : '.cursor',
+                'mcp.json'
+              ),
+              'utf8'
+            )
           : provider.mcp.kind === 'claude-json'
             ? readFileSync(argv[argv.indexOf(provider.mcp.configArg) + 1]!, 'utf8')
             : argv.join(' ')
@@ -361,14 +390,19 @@ describe('MCP attach — the regression that killed the old repo', () => {
     }
   })
 
-  it('keeps the orchestrator prompt off the terminal for every attaching preset', () => {
+  it('keeps the orchestrator prompt off the terminal for flag/file attaching presets', () => {
     for (const provider of providerPresets()) {
       if (provider.mcp.kind === 'none') continue
       const { ptySystemPrompt } = buildAgentArgv(
         launchInput({ provider, kind: 'orchestrator', cwd, systemPrompt: 'You orchestrate.' })
       )
-      // A CLI that can be attached can also be told who it is at launch — the
-      // seed handshake is the fallback for PTY-only CLIs, not the norm.
+      // Cursor attaches via a project file but still delivers its prompt through
+      // the terminal — MCP attach and prompt delivery are orthogonal.
+      if (provider.systemPromptDelivery.kind === 'pty') {
+        expect(ptySystemPrompt, `${provider.id}`).toBe('You orchestrate.')
+        continue
+      }
+      // A CLI that takes the prompt at launch leaves nothing for the seed path.
       expect(ptySystemPrompt, `${provider.id}`).toBeUndefined()
     }
   })

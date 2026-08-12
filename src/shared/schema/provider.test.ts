@@ -79,6 +79,18 @@ describe('providerConfigSchema', () => {
     ).toBe(true)
   })
 
+  it('accepts the project-file MCP dialects and rejects an unknown kind', () => {
+    expect(
+      providerConfigSchema.safeParse({ ...minimal, mcp: { kind: 'kimi-project' } }).success
+    ).toBe(true)
+    expect(
+      providerConfigSchema.safeParse({ ...minimal, mcp: { kind: 'cursor-project' } }).success
+    ).toBe(true)
+    expect(
+      providerConfigSchema.safeParse({ ...minimal, mcp: { kind: 'cursor-json' } }).success
+    ).toBe(false)
+  })
+
   it('rejects an effort template without the {effort} placeholder', () => {
     expect(
       providerConfigSchema.safeParse({

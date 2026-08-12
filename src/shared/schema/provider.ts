@@ -99,6 +99,8 @@ export const mcpAttachSchema = z.discriminatedUnion('kind', [
     .strict(),
   z.object({ kind: z.literal('codex-overrides') }).strict(),
   z.object({ kind: z.literal('kimi-project') }).strict(),
+  /** Project-scoped `.cursor/mcp.json` merge + `--approve-mcps` (see mcp/attach). */
+  z.object({ kind: z.literal('cursor-project') }).strict(),
   z.object({ kind: z.literal('none') }).strict()
 ])
 export type McpAttach = z.infer<typeof mcpAttachSchema>

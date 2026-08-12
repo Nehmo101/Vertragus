@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   assertWrittenClaudeMcpConfig,
+  assertWrittenCursorMcpConfig,
   assertWrittenKimiMcpConfig,
   bareToolName,
   buildClaudeMcpArgs,
@@ -16,6 +17,9 @@ import {
   buildKimiOrchestratorArgs,
   buildKimiSubagentArgs,
   codexDeveloperInstructionsArgs,
+  CURSOR_APPROVE_MCPS_FLAG,
+  CURSOR_MCP_FILE,
+  CURSOR_PROJECT_DIR,
   KIMI_AGENT_NAME,
   kimiAgentFileText,
   orchestratorAllowedTools,
@@ -24,10 +28,12 @@ import {
   READONLY_CLAUDE_TOOLS,
   serverScopedTools,
   toClaudeMcpConfig,
+  toCursorMcpConfig,
   toKimiMcpConfig,
   tomlString,
   withoutKimiAgentFileArgs,
   writeClaudeMcpConfigFile,
+  writeCursorProjectMcpConfig,
   writeKimiProjectMcpConfig
 } from './attach'
 import { ORCHESTRATOR_TOOL_NAMES } from './toolsOrchestrator'
@@ -279,5 +285,83 @@ describe('kimi attach', () => {
   it('never attaches without a config file — the one thing Kimi cannot be told', () => {
     buildKimiMcpArgs({ url: URL, configDir, fileTag: 'k', workspaceDir })
     expect(existsSync(join(workspaceDir, '.kimi-code', 'mcp.json'))).toBe(true)
+  })
+})
+
+describe('cursor attach', () => {
+  it('installs .cursor/mcp.json in the WORKING directory with a bare url', () => {
+    const path = writeCursorProjectMcpConfig(URL, workspaceDir)
+    expect(path).toBe(join(workspaceDir, CURSOR_PROJECT_DIR, CURSOR_MCP_FILE))
+    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({
+      mcpServers: { vertragus: { url: URL } }
+    })
+  })
+
+  it('merges vertragus into an existing file and preserves foreign servers', () => {
+    const dir = join(workspaceDir, CURSOR_PROJECT_DIR)
+    // mkdir happens inside the writer; seed the file first so the merge path runs.
+    writeCursorProjectMcpConfig('http://127.0.0.1:1/old', workspaceDir)
+    writeFileSync(
+      join(dir, CURSOR_MCP_FILE),
+      JSON.stringify({
+        mcpServers: {
+          'user-server': { url: 'http://127.0.0.1:9/user' },
+          vertragus: { url: 'http://127.0.0.1:1/stale' }
+        },
+        extraTopLevel: true
+      })
+    )
+
+    const path = writeCursorProjectMcpConfig(URL, workspaceDir)
+    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({
+      mcpServers: {
+        'user-server': { url: 'http://127.0.0.1:9/user' },
+        vertragus: { url: URL }
+      },
+      extraTopLevel: true
+    })
+  })
+
+  it('replaces a corrupt existing file instead of guessing', () => {
+    const dir = join(workspaceDir, CURSOR_PROJECT_DIR)
+    writeCursorProjectMcpConfig(URL, workspaceDir)
+    writeFileSync(join(dir, CURSOR_MCP_FILE), '{not-json')
+
+    const path = writeCursorProjectMcpConfig(URL, workspaceDir)
+    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({
+      mcpServers: { vertragus: { url: URL } }
+    })
+  })
+
+  it('replaces a non-object JSON file the same way (fail-closed)', () => {
+    const dir = join(workspaceDir, CURSOR_PROJECT_DIR)
+    writeCursorProjectMcpConfig(URL, workspaceDir)
+    writeFileSync(join(dir, CURSOR_MCP_FILE), JSON.stringify(['garbage']))
+
+    expect(JSON.parse(readFileSync(writeCursorProjectMcpConfig(URL, workspaceDir), 'utf8'))).toEqual(
+      {
+        mcpServers: { vertragus: { url: URL } }
+      }
+    )
+  })
+
+  it('builds the merge from an absent existing object', () => {
+    expect(toCursorMcpConfig(null, URL)).toEqual({
+      mcpServers: { vertragus: { url: URL } }
+    })
+    expect(toCursorMcpConfig({ mcpServers: { other: { url: 'x' } } }, URL)).toEqual({
+      mcpServers: { other: { url: 'x' }, vertragus: { url: URL } }
+    })
+  })
+
+  it('rejects a project config that lost its server entry', () => {
+    const path = writeCursorProjectMcpConfig(URL, workspaceDir)
+    writeFileSync(path, JSON.stringify({ mcpServers: {} }))
+    expect(() => assertWrittenCursorMcpConfig(path)).toThrow(/Invalid Vertragus Cursor MCP config/)
+  })
+
+  it('exports the launch flag that pre-approves project MCP servers', () => {
+    // Cursor has no verified per-server tool filter; approval is this flag alone.
+    expect(CURSOR_APPROVE_MCPS_FLAG).toBe('--approve-mcps')
   })
 })

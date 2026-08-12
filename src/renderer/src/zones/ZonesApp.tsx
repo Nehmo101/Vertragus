@@ -176,6 +176,14 @@ export function ZonesApp({
             </button>
           ))}
         </div>
+        <button
+          type="button"
+          className="zones-ghost"
+          onClick={editor.autoLayout}
+          disabled={!editor.ready || editor.roles.length === 0}
+        >
+          {t('zones.autoLayout')}
+        </button>
         <span className="zones-bar-spacer" />
         {editor.error ? <span className="zones-error">{editor.error}</span> : null}
         <button type="button" className="zones-ghost" onClick={editor.cancel}>
