@@ -9,3 +9,7 @@ coverage/
 # Vertragus runtime artifacts (never commit agent work products)
 .vertragus/
 .vertragus-runtime/
+
+# Ephemeral git worktrees for parallel agent sessions — checkouts of other
+# branches, never content of this one.
+.claude/worktrees/
