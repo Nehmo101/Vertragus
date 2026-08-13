@@ -97,6 +97,25 @@ export function bracketedPasteActive(buffer: string): boolean {
 }
 
 /**
+ * Whether the assignment should travel as a framed bracketed paste.
+ *
+ * Reads {@link bracketedPasteActive} off the scrollback when possible. Windows
+ * ConPTY applies DECSET 2004 locally and does not echo the sequence into the
+ * scrollback we read, so detection false-negatives even while the TUI has
+ * enabled pastes — `auto` therefore falls back to framing on win32. Providers
+ * that do not support bracketed paste opt out with `bracketedPaste: 'never'`.
+ */
+export function shouldFrameBracketedPaste(
+  mode: BracketedPasteMode,
+  buffer: string,
+  platform: NodeJS.Platform = process.platform
+): boolean {
+  if (mode === 'never') return false
+  if (bracketedPasteActive(buffer)) return true
+  return platform === 'win32'
+}
+
+/**
  * Line breaks as `\n`, never `\r` — for every seed write, framed or raw.
  *
  * A carriage return IS the submitting keystroke ({@link SUBMIT_KEY}), so one
@@ -211,8 +230,10 @@ export interface SeedWithReadyOptions {
    *
    * - `'auto'` (default): frame it in {@link PASTE_BEGIN}/{@link PASTE_END}
    *   whenever the CLI has announced DECSET 2004 — see
-   *   {@link bracketedPasteActive}. Nothing else changes for a CLI that never
-   *   announces it: the raw write is still the fallback.
+   *   {@link bracketedPasteActive} — or, on Windows, whenever the scrollback
+   *   cannot show the announcement because ConPTY applies it locally. Nothing
+   *   else changes for a CLI that never announces it on Unix: the raw write is
+   *   still the fallback there.
    * - `'never'`: always write the raw text. The opt-out for a CLI that turns
    *   bracketed paste on but mishandles the markers.
    */
@@ -352,10 +373,9 @@ export async function seedWithReadyHandshake(
   // Decided here and not earlier: a TUI announces DECSET 2004 when it takes
   // the keyboard, which is after the boot output the ready/settle gates above
   // were waiting through. Asked once, so every retry writes the same bytes.
-  const payload =
-    bracketedPaste === 'auto' && bracketedPasteActive(getSnapshot().buffer)
-      ? bracketPaste(text)
-      : seedNewlines(text)
+  const payload = shouldFrameBracketedPaste(bracketedPaste, getSnapshot().buffer)
+    ? bracketPaste(text)
+    : seedNewlines(text)
 
   for (let attempt = 0; attempt < textAttempts; attempt++) {
     const before = getSnapshot()

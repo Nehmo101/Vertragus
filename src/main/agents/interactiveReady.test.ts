@@ -10,6 +10,7 @@ import {
   seedNewlines,
   seedOptionsFromProvider,
   seedWithReadyHandshake,
+  shouldFrameBracketedPaste,
   waitForInteractiveReady
 } from './interactiveReady'
 
@@ -474,6 +475,15 @@ describe('bracketed paste', () => {
     ).toBe(true)
   })
 
+  it('frames on Windows when ConPTY hides the DECSET announcement from scrollback', () => {
+    expect(shouldFrameBracketedPaste('auto', 'tui ready', 'win32')).toBe(true)
+    expect(shouldFrameBracketedPaste('never', 'tui ready', 'win32')).toBe(false)
+    expect(shouldFrameBracketedPaste('auto', 'plain repl ready', 'linux')).toBe(false)
+    expect(
+      shouldFrameBracketedPaste('auto', `cursor-agent ready${BRACKETED_PASTE_ON}`, 'linux')
+    ).toBe(true)
+  })
+
   it('never lets the prompt text end its own paste', () => {
     // A prompt that quotes terminal escapes would otherwise close the bracket
     // early and turn its own remainder back into keystrokes.
@@ -543,6 +553,37 @@ describe('bracketed paste', () => {
     })
 
     expect(write.mock.calls.map((call) => call[0])).toEqual([MULTILINE_TASK, SUBMIT_KEY])
+  })
+
+  it('frames on Windows even when the DECSET announcement is missing from scrollback', async () => {
+    const write = vi.fn()
+    const originalPlatform = process.platform
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+    try {
+      await seedWithReadyHandshake(
+        write,
+        () => ({ buffer: 'tui ready', alive: true }),
+        MULTILINE_TASK,
+        {
+          ...fastReady,
+          ...fastSettle,
+          submitDelayMs: 5,
+          submitWatchMs: 20,
+          submitRetries: 1,
+          acceptancePollMs: 5
+        }
+      )
+    } finally {
+      Object.defineProperty(process, 'platform', {
+        value: originalPlatform,
+        configurable: true
+      })
+    }
+
+    expect(write.mock.calls.map((call) => call[0])).toEqual([
+      `${PASTE_BEGIN}${MULTILINE_TASK}${PASTE_END}`,
+      SUBMIT_KEY
+    ])
   })
 
   it('honours the opt-out even when the CLI announced it', async () => {
