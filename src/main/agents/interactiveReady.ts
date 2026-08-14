@@ -88,7 +88,10 @@ export const PASTE_END = '\u001b[201~'
  * more than `SCROLLBACK_LIMIT` since booting can have its announcement evicted,
  * and a later seed then falls back to the raw write. That is today's behaviour,
  * not a new failure mode — and a TUI re-announces whenever it retakes the
- * keyboard.
+ * keyboard. Windows ConPTY also swallows DECSET 2004 (it applies the mode
+ * locally and does not echo the sequence), so `auto` framing is a no-op there
+ * and the child's own burst heuristic is what keeps a multi-line assignment
+ * in one piece.
  */
 export function bracketedPasteActive(buffer: string): boolean {
   const on = buffer.lastIndexOf(BRACKETED_PASTE_ON)

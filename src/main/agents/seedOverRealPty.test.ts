@@ -59,16 +59,25 @@ describe('seeding over a real pty', () => {
     expect(await submitsAfterSeeding({})).toEqual([ASSIGNMENT])
   }, 30_000)
 
-  it('shreds the same assignment into fragments without the paste framing', async () => {
-    // What the handover actually did before: the role prompt goes off as its
-    // own turn, the blank line as another, and the task arrives line by line —
-    // an agent that was briefed with a quarter of its briefing. This is the
-    // regression guard for `bracketedPaste`, not a behaviour anyone wants.
-    expect(await submitsAfterSeeding({ bracketedPaste: 'never' })).toEqual([
-      'You are a Worker.',
-      '',
-      'Do this.',
-      'Then that.'
-    ])
-  }, 30_000)
+  it.skipIf(process.platform === 'win32')(
+    'shreds the same assignment into fragments without the paste framing',
+    async () => {
+      // What the handover actually did before: the role prompt goes off as its
+      // own turn, the blank line as another, and the task arrives line by line —
+      // an agent that was briefed with a quarter of its briefing. This is the
+      // regression guard for `bracketedPaste`, not a behaviour anyone wants.
+      //
+      // Skipped on Windows: ConPTY drops CSI 200~/201~ and turns every `\n` into
+      // a key event, so framed and unframed writes are indistinguishable. The
+      // probe TUI then uses the same burst heuristic real composer CLIs do, and
+      // both paths land as one submit.
+      expect(await submitsAfterSeeding({ bracketedPaste: 'never' })).toEqual([
+        'You are a Worker.',
+        '',
+        'Do this.',
+        'Then that.'
+      ])
+    },
+    30_000
+  )
 })
