@@ -88,31 +88,15 @@ export const PASTE_END = '\u001b[201~'
  * more than `SCROLLBACK_LIMIT` since booting can have its announcement evicted,
  * and a later seed then falls back to the raw write. That is today's behaviour,
  * not a new failure mode — and a TUI re-announces whenever it retakes the
- * keyboard.
+ * keyboard. Windows ConPTY also swallows DECSET 2004 (it applies the mode
+ * locally and does not echo the sequence), so `auto` framing is a no-op there
+ * and the child's own burst heuristic is what keeps a multi-line assignment
+ * in one piece.
  */
 export function bracketedPasteActive(buffer: string): boolean {
   const on = buffer.lastIndexOf(BRACKETED_PASTE_ON)
   if (on < 0) return false
   return buffer.lastIndexOf(BRACKETED_PASTE_OFF) < on
-}
-
-/**
- * Whether the assignment should travel as a framed bracketed paste.
- *
- * Reads {@link bracketedPasteActive} off the scrollback when possible. Windows
- * ConPTY applies DECSET 2004 locally and does not echo the sequence into the
- * scrollback we read, so detection false-negatives even while the TUI has
- * enabled pastes — `auto` therefore falls back to framing on win32. Providers
- * that do not support bracketed paste opt out with `bracketedPaste: 'never'`.
- */
-export function shouldFrameBracketedPaste(
-  mode: BracketedPasteMode,
-  buffer: string,
-  platform: NodeJS.Platform = process.platform
-): boolean {
-  if (mode === 'never') return false
-  if (bracketedPasteActive(buffer)) return true
-  return platform === 'win32'
 }
 
 /**
@@ -230,10 +214,8 @@ export interface SeedWithReadyOptions {
    *
    * - `'auto'` (default): frame it in {@link PASTE_BEGIN}/{@link PASTE_END}
    *   whenever the CLI has announced DECSET 2004 — see
-   *   {@link bracketedPasteActive} — or, on Windows, whenever the scrollback
-   *   cannot show the announcement because ConPTY applies it locally. Nothing
-   *   else changes for a CLI that never announces it on Unix: the raw write is
-   *   still the fallback there.
+   *   {@link bracketedPasteActive}. Nothing else changes for a CLI that never
+   *   announces it: the raw write is still the fallback.
    * - `'never'`: always write the raw text. The opt-out for a CLI that turns
    *   bracketed paste on but mishandles the markers.
    */
@@ -373,9 +355,10 @@ export async function seedWithReadyHandshake(
   // Decided here and not earlier: a TUI announces DECSET 2004 when it takes
   // the keyboard, which is after the boot output the ready/settle gates above
   // were waiting through. Asked once, so every retry writes the same bytes.
-  const payload = shouldFrameBracketedPaste(bracketedPaste, getSnapshot().buffer)
-    ? bracketPaste(text)
-    : seedNewlines(text)
+  const payload =
+    bracketedPaste === 'auto' && bracketedPasteActive(getSnapshot().buffer)
+      ? bracketPaste(text)
+      : seedNewlines(text)
 
   for (let attempt = 0; attempt < textAttempts; attempt++) {
     const before = getSnapshot()
