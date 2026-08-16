@@ -594,7 +594,7 @@ describe('the real seed handshake', () => {
   const realSeed = {
     seed: undefined,
     seedOptions: {
-      ready: { idleMs: 5, pollMs: 1, minChars: 1, timeoutMs: 500 },
+      ready: { idleMs: 5, pollMs: 1, minChars: 1, timeoutMs: 500, keyboardMs: 50 },
       maxAttempts: 1,
       submitDelayMs: 5,
       submitRetries: 1

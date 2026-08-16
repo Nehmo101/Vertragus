@@ -60,6 +60,7 @@ import {
   type ProviderConfig
 } from '@shared/schema/provider'
 import { ensureClaudeWorkspaceTrust } from './claudeTrust'
+import { ensureKimiWorkspaceTrust } from './kimiTrust'
 import { PtyAgent, type PtyAgentLike, type PtySpawnOptions } from './PtyAgent'
 import { resolveLaunch, type ResolveLaunchOptions } from './resolveCommand'
 
@@ -273,13 +274,35 @@ export interface SpawnAgentDeps extends LaunchDeps {
 }
 
 /**
- * True for the CLIs that gate a new directory behind an interactive trust
- * prompt. Keyed on `presetId`, not on the command name: only the shipped preset
- * is known to store its answer in `~/.claude.json`, and writing that file for a
- * custom CLI that merely happens to be called `claude` would be a guess.
+ * The CLIs that gate a new directory behind an interactive trust prompt, and
+ * where each one stores the answer. Keyed on `presetId`, not on the command
+ * name: only the shipped presets are known to use these files, and writing
+ * into a stranger's config because its command happens to be called `claude`
+ * would be a guess.
+ *
+ * Both dialogs are modal *inside* the CLI and both appear once per worktree,
+ * i.e. once per agent — Kimi's was measured eating a whole assignment (see
+ * {@link ensureKimiWorkspaceTrust}).
  */
+export function trustPreacceptanceFor(
+  provider: ProviderConfig
+): ((workspaceDir: string) => void) | undefined {
+  if (provider.presetId === 'claude') {
+    return (dir) => {
+      ensureClaudeWorkspaceTrust(dir)
+    }
+  }
+  if (provider.presetId === 'kimi') {
+    return (dir) => {
+      ensureKimiWorkspaceTrust(dir)
+    }
+  }
+  return undefined
+}
+
+/** True when {@link trustPreacceptanceFor} knows this provider's trust store. */
 export function needsTrustPreacceptance(provider: ProviderConfig): boolean {
-  return provider.presetId === 'claude'
+  return trustPreacceptanceFor(provider) !== undefined
 }
 
 export interface SpawnedAgent {
@@ -306,12 +329,9 @@ export async function spawnAgent(
   deps: SpawnAgentDeps = {}
 ): Promise<SpawnedAgent> {
   const launch = await buildAgentLaunch(input, deps)
-  if (needsTrustPreacceptance(input.provider)) {
-    const ensureTrust =
-      deps.ensureTrust ??
-      ((dir: string): void => {
-        ensureClaudeWorkspaceTrust(dir)
-      })
+  const preaccept = trustPreacceptanceFor(input.provider)
+  if (preaccept) {
+    const ensureTrust = deps.ensureTrust ?? preaccept
     try {
       ensureTrust(launch.cwd)
     } catch (error) {

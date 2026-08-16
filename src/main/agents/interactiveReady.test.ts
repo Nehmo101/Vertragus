@@ -10,14 +10,15 @@ import {
   seedNewlines,
   seedOptionsFromProvider,
   seedWithReadyHandshake,
-  waitForInteractiveReady
+  waitForInteractiveReady,
+  waitForKeyboardTaken
 } from './interactiveReady'
 
 /** A task contract is always multi-line — the shape that triggered the bug. */
 const MULTILINE_TASK = ['line one', 'line two'].join('\n')
 
 const fastReady = {
-  ready: { timeoutMs: 500, idleMs: 20, minChars: 8, pollMs: 10 } as const
+  ready: { timeoutMs: 500, idleMs: 20, minChars: 8, pollMs: 10, keyboardMs: 50 } as const
 }
 
 /**
@@ -40,7 +41,7 @@ describe('interactiveReady', () => {
     let buffer = ''
     const ready = waitForInteractiveReady(
       () => ({ buffer, alive: true }),
-      { timeoutMs: 2000, idleMs: 80, minChars: 10, pollMs: 20 }
+      { timeoutMs: 2000, idleMs: 80, minChars: 10, pollMs: 20, keyboardMs: 40 }
     )
     setTimeout(() => {
       buffer = 'booting cli'
@@ -49,6 +50,57 @@ describe('interactiveReady', () => {
       buffer = 'booting cli · prompt ready'
     }, 60)
     await expect(ready).resolves.toBe(true)
+  })
+
+  /**
+   * The Kimi regression, measured: `kimi` prints its first bytes after 76 ms
+   * and takes the keyboard after 3 783 ms. The idle heuristic alone therefore
+   * declared readiness while nothing was listening, and the whole assignment
+   * was written into a void — it appeared in the scrollback ahead of Kimi's
+   * own welcome box and the composer stayed empty.
+   */
+  it('waits for the CLI to take the keyboard, not merely for a quiet banner', async () => {
+    let buffer = 'kimi booting…'
+    let readyAt = 0
+    const ready = waitForInteractiveReady(() => ({ buffer, alive: true }), {
+      timeoutMs: 2_000,
+      idleMs: 30,
+      minChars: 4,
+      pollMs: 5,
+      keyboardMs: 1_000
+    }).then((value) => {
+      readyAt = Date.now()
+      return value
+    })
+
+    // Banner quiet for far longer than idleMs — the old gate would fire here.
+    await new Promise((resolve) => setTimeout(resolve, 120))
+    expect(readyAt).toBe(0)
+
+    const tookKeyboardAt = Date.now()
+    buffer += BRACKETED_PASTE_ON
+    await expect(ready).resolves.toBe(true)
+    expect(readyAt).toBeGreaterThanOrEqual(tookKeyboardAt)
+  })
+
+  it('falls back to the idle heuristic for a CLI that never announces', async () => {
+    // A plain REPL (`ollama run`) reads stdin from its first prompt onwards and
+    // never enables bracketed paste. Spending the cap must not fail readiness.
+    await expect(
+      waitForInteractiveReady(() => ({ buffer: 'plain repl ready>', alive: true }), {
+        timeoutMs: 500,
+        idleMs: 20,
+        minChars: 4,
+        pollMs: 5,
+        keyboardMs: 60
+      })
+    ).resolves.toBe(true)
+  })
+
+  it('gives up on the keyboard wait as soon as the process dies', async () => {
+    await expect(
+      waitForKeyboardTaken(() => ({ buffer: 'booting', alive: false }), 5_000, 5)
+    ).resolves.toBe(false)
   })
 
   it('returns false when agent is no longer alive', async () => {
@@ -140,7 +192,7 @@ describe('interactiveReady', () => {
 
     await expect(
       seedWithReadyHandshake(write, () => ({ buffer: 'ready>', alive: true }), 'seed prompt', {
-        ready: { timeoutMs: 500, idleMs: 20, minChars: 4, pollMs: 10 },
+        ready: { timeoutMs: 500, idleMs: 20, minChars: 4, pollMs: 10, keyboardMs: 50 },
         ...fastSettle,
         maxAttempts: 1,
         autoSubmit: false,
@@ -158,7 +210,7 @@ describe('interactiveReady', () => {
       () => ({ buffer: 'ready>', alive: true }),
       `seed prompt${SUBMIT_KEY}`,
       {
-        ready: { timeoutMs: 500, idleMs: 20, minChars: 4, pollMs: 10 },
+        ready: { timeoutMs: 500, idleMs: 20, minChars: 4, pollMs: 10, keyboardMs: 50 },
         ...fastSettle,
         maxAttempts: 1,
         submitDelayMs: 5,
@@ -176,7 +228,7 @@ describe('interactiveReady', () => {
 
     await expect(
       seedWithReadyHandshake(write, () => ({ buffer: 'ready>', alive }), 'seed prompt', {
-        ready: { timeoutMs: 500, idleMs: 20, minChars: 4, pollMs: 10 },
+        ready: { timeoutMs: 500, idleMs: 20, minChars: 4, pollMs: 10, keyboardMs: 50 },
         ...fastSettle,
         maxAttempts: 1,
         submitDelayMs: 5
@@ -190,7 +242,7 @@ describe('interactiveReady', () => {
 
     await expect(
       seedWithReadyHandshake(write, () => ({ buffer: '', alive: false }), 'seed prompt', {
-        ready: { timeoutMs: 50, pollMs: 5 }
+        ready: { timeoutMs: 50, pollMs: 5, keyboardMs: 20 }
       })
     ).resolves.toBe(false)
     expect(write).not.toHaveBeenCalled()
@@ -369,7 +421,7 @@ describe("submitAcceptance 'sustained-activity'", () => {
     await expect(
       seedWithReadyHandshake(write, () => ({ buffer: 'ready>', alive }), 'seed prompt', {
         ...fastSustained,
-        ready: { timeoutMs: 500, idleMs: 20, minChars: 4, pollMs: 10 }
+        ready: { timeoutMs: 500, idleMs: 20, minChars: 4, pollMs: 10, keyboardMs: 50 }
       })
     ).resolves.toBe(false)
     expect(write.mock.calls.filter((call) => call[0] === SUBMIT_KEY)).toHaveLength(1)
@@ -433,7 +485,7 @@ describe('default acceptance', () => {
     try {
       await expect(
         seedWithReadyHandshake(write, () => ({ buffer, alive: true }), 'seed prompt', {
-          ready: { timeoutMs: 60, idleMs: 20, minChars: 4, pollMs: 5 },
+          ready: { timeoutMs: 60, idleMs: 20, minChars: 4, pollMs: 5, keyboardMs: 20 },
           maxAttempts: 3,
           submitDelayMs: 5,
           submitWatchMs: 40,
@@ -652,5 +704,10 @@ describe('seedOptionsFromProvider', () => {
       submitAcceptance: 'sustained-activity',
       bracketedPaste: 'auto'
     })
+  })
+
+  it('carries the keyboard-wait opt-out into the readiness options', () => {
+    // 0 is a value, not an omission: `ollama run` never announces DECSET 2004.
+    expect(seedOptionsFromProvider({ keyboardWaitMs: 0 })).toEqual({ ready: { keyboardMs: 0 } })
   })
 })

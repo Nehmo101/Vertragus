@@ -551,6 +551,19 @@ describe('spawnAgent', () => {
     expect(ensureTrust.mock.calls.map((call) => call[0])).toEqual([worktree, '/repo'])
   })
 
+  it('pre-accepts the trust dialog for Kimi too — its dialog ate a whole assignment', async () => {
+    const ensureTrust = vi.fn()
+    // Kimi's modal takes the keyboard before its composer exists, so the seed's
+    // keyboard gate opens on the DIALOG: the assignment is typed into a menu
+    // that ignores text and the submitting Enter answers "Trust this folder".
+    await spawnAgent(launchInput({ provider: preset('kimi'), cwd }), {
+      resolve,
+      createPty: () => new FakePty(),
+      ensureTrust
+    })
+    expect(ensureTrust).toHaveBeenCalledExactlyOnceWith(cwd)
+  })
+
   it('does not write Claude state for a CLI that is not the Claude preset', async () => {
     const ensureTrust = vi.fn()
     // A real cwd: Cursor's attach writes `<cwd>/.cursor/mcp.json` on the way

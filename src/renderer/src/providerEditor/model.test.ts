@@ -198,6 +198,21 @@ describe('draft ⇄ ProviderConfig', () => {
     expect(input.mcp).toEqual({ kind: 'codex-overrides' })
   })
 
+  it('carries the seed tuning through an edit instead of dropping it', () => {
+    // The form has no field for it, and it is not decoration: Cursor's measured
+    // submit timing and Ollama's `keyboardWaitMs: 0` are what make the
+    // assignment arrive. Saving a renamed preset must not silently delete them.
+    const tuned = providerConfigSchema.parse({
+      id: 'cursor',
+      presetId: 'cursor',
+      label: 'Cursor Agent',
+      command: 'cursor-agent',
+      seed: { submitDelayMs: 750, submitAcceptance: 'sustained-activity', keyboardWaitMs: 0 }
+    })
+    const edited = { ...draftFromProvider(tuned), label: 'Cursor (mine)' }
+    expect((toProviderInput(edited) as { seed?: unknown }).seed).toEqual(tuned.seed)
+  })
+
   it('normalizes an id typed with spaces and capitals', () => {
     const result = validateDraft(t, draft({ id: 'Mein CLI!' }))
     expect(result.ok).toBe(true)

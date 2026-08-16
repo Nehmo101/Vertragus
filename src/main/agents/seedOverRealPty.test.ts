@@ -22,7 +22,10 @@ const ASSIGNMENT = ['You are a Worker.', '', 'Do this.', 'Then that.'].join('\n'
 
 /** Real processes, so every window is wide enough to survive a slow runner. */
 const OPTIONS: SeedWithReadyOptions = {
-  ready: { idleMs: 150, minChars: 4, pollMs: 20, timeoutMs: 5_000 },
+  // keyboardMs: the probe TUI announces DECSET 2004 immediately, so this is a
+  // fallback bound and not a wait — a ConPTY build that hides the announcement
+  // costs the test two seconds and still exercises the raw-write path.
+  ready: { idleMs: 150, minChars: 4, pollMs: 20, timeoutMs: 5_000, keyboardMs: 2_000 },
   submitDelayMs: 100,
   submitRetries: 1,
   submitWatchMs: 500,
