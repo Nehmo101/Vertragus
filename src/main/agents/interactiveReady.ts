@@ -15,25 +15,85 @@ export interface WaitForReadyOptions {
   idleMs?: number
   minChars?: number
   pollMs?: number
+  /**
+   * Cap on waiting for the CLI to TAKE THE KEYBOARD before the idle heuristic
+   * is even consulted — see {@link waitForKeyboardTaken}. `0` skips the gate
+   * for a provider that is known never to announce (a plain REPL such as
+   * `ollama run`), which is the only case where waiting out this cap would be
+   * pure delay.
+   */
+  keyboardMs?: number
 }
 
 const DEFAULT_WAIT: Required<WaitForReadyOptions> = {
   timeoutMs: 12_000,
   idleMs: 400,
   minChars: 24,
-  pollMs: 100
+  pollMs: 100,
+  keyboardMs: 15_000
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-/** Returns true when the PTY emitted enough output and then went idle. */
+/**
+ * Wait until the CLI has taken the keyboard, i.e. until it announced DECSET
+ * 2004 ({@link bracketedPasteActive}).
+ *
+ * This is the only *protocol-level* readiness signal a TUI gives: it enables
+ * bracketed paste at the moment it starts reading keys, and it does so before
+ * it has finished painting. Everything else the handshake can observe — output
+ * volume, output going quiet — is a guess about what that output meant, and
+ * measuring the real CLIs showed the guess is wrong by seconds:
+ *
+ *   cli          first output   keyboard taken
+ *   codex             104 ms          339 ms
+ *   claude             77 ms        2 064 ms
+ *   kimi               76 ms        3 783 ms
+ *
+ * All three print a banner in under 110 ms and then go quiet, so the idle
+ * heuristic below declares readiness after ~500 ms — for Kimi that is more
+ * than three seconds before anything is listening, and the whole assignment
+ * was written into a void (measured: the paste appeared in the scrollback
+ * ahead of Kimi's own welcome box, and the composer stayed empty). Claude Code
+ * lost tasks the same way, which is what "one of two identical seeds landed"
+ * meant.
+ *
+ * Returns true when the announcement arrived, false on timeout or process
+ * death — a false is not fatal: the caller falls back to the idle heuristic,
+ * which is exactly the old behaviour for a CLI that never announces.
+ */
+export async function waitForKeyboardTaken(
+  getSnapshot: () => InteractiveSnapshot,
+  timeoutMs: number,
+  pollMs: number
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const { buffer, alive } = getSnapshot()
+    if (!alive) return false
+    if (bracketedPasteActive(buffer)) return true
+    await sleep(pollMs)
+  }
+  return bracketedPasteActive(getSnapshot().buffer)
+}
+
+/**
+ * Returns true when the CLI is ready to be typed into: it has taken the
+ * keyboard (see {@link waitForKeyboardTaken}) and its output has since gone
+ * idle. A CLI that never announces DECSET 2004 falls through to the idle
+ * heuristic alone once `keyboardMs` is spent, so plain REPLs keep working.
+ */
 export async function waitForInteractiveReady(
   getSnapshot: () => InteractiveSnapshot,
   options: WaitForReadyOptions = {}
 ): Promise<boolean> {
   const opts = { ...DEFAULT_WAIT, ...options }
+  if (opts.keyboardMs > 0) {
+    await waitForKeyboardTaken(getSnapshot, opts.keyboardMs, opts.pollMs)
+    if (!getSnapshot().alive) return false
+  }
   const deadline = Date.now() + opts.timeoutMs
   let lastLen = 0
   let lastChange = Date.now()
@@ -306,6 +366,14 @@ async function waitForSettled(
  * it can be read as a key, whatever the chunking. The submitting Enter stays
  * a separate, unframed write, which is exactly what makes it unambiguous.
  * Providers that never announce DECSET 2004 keep the raw write.
+ *
+ * **When it travels.** Framing the paste is worth nothing if nobody is reading
+ * yet, and that was the last hole: readiness was inferred from the output
+ * going quiet, while a CLI's banner goes quiet seconds before its TUI takes
+ * the keyboard (Kimi: 76 ms vs 3 783 ms). {@link waitForKeyboardTaken} closes
+ * it — the same DECSET 2004 that says "send me real pastes" is the CLI saying
+ * "I am reading now", so readiness waits for it before the first byte of the
+ * assignment goes out.
  */
 export async function seedWithReadyHandshake(
   write: (text: string) => void,
@@ -515,6 +583,7 @@ export function seedOptionsFromProvider(
         submitWatchMs?: number
         submitAcceptance?: SubmitAcceptance
         bracketedPaste?: BracketedPasteMode
+        keyboardWaitMs?: number
       }
     | undefined
 ): SeedWithReadyOptions {
@@ -524,6 +593,9 @@ export function seedOptionsFromProvider(
     ...(seed.submitRetries !== undefined ? { submitRetries: seed.submitRetries } : {}),
     ...(seed.submitWatchMs !== undefined ? { submitWatchMs: seed.submitWatchMs } : {}),
     ...(seed.submitAcceptance !== undefined ? { submitAcceptance: seed.submitAcceptance } : {}),
-    ...(seed.bracketedPaste !== undefined ? { bracketedPaste: seed.bracketedPaste } : {})
+    ...(seed.bracketedPaste !== undefined ? { bracketedPaste: seed.bracketedPaste } : {}),
+    // Nested under `ready` because taking the keyboard IS the readiness signal
+    // — the handshake asks for it before it asks anything else.
+    ...(seed.keyboardWaitMs !== undefined ? { ready: { keyboardMs: seed.keyboardWaitMs } } : {})
   }
 }

@@ -188,7 +188,15 @@ export const providerSeedSchema = z
      * - `'never'`: raw write only — the opt-out for a CLI that turns bracketed
      *   paste on but mishandles the markers.
      */
-    bracketedPaste: z.enum(['auto', 'never']).optional()
+    bracketedPaste: z.enum(['auto', 'never']).optional(),
+    /**
+     * Cap on waiting for the CLI to take the keyboard (its DECSET 2004
+     * announcement) before the assignment is written. `0` skips that wait —
+     * only correct for a CLI that never announces, e.g. a plain REPL like
+     * `ollama run`, where waiting out the cap would be pure delay. Leaving it
+     * unset keeps the handshake default, which is what every TUI wants.
+     */
+    keyboardWaitMs: z.number().int().min(0).max(60_000).optional()
   })
   .strict()
 export type ProviderSeed = z.infer<typeof providerSeedSchema>

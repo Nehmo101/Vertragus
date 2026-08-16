@@ -21,6 +21,7 @@ import {
   type ModelDiscovery,
   type ProviderConfig,
   type ProviderPresetId,
+  type ProviderSeed,
   type SystemPromptDelivery
 } from '@shared/schema/provider'
 import type { Translate } from '../i18n'
@@ -58,6 +59,14 @@ export interface ProviderDraft {
   discoveryUrl: string
   seedModels: string
   enabled: boolean
+  /**
+   * Carried, not edited: the seed-handshake tuning has no field in this form
+   * (its values are measurements, not preferences — see `providerSeedSchema`).
+   * It rides along so saving an edited preset cannot silently drop it. Losing
+   * it is not cosmetic: Cursor's `submitDelayMs`/`submitAcceptance` and
+   * Ollama's `keyboardWaitMs: 0` are what make the assignment arrive at all.
+   */
+  seed?: ProviderSeed
 }
 
 /** Field-keyed errors: `label`, `command`, `mcpConfigArg`, `form`. */
@@ -150,7 +159,8 @@ export function draftFromProvider(config: ProviderConfig): ProviderDraft {
     discoveryPath: discovery.kind === 'file' ? discovery.path : '',
     discoveryUrl: discovery.kind === 'http' ? discovery.url : '',
     seedModels: fromLines(config.seedModels),
-    enabled: config.enabled
+    enabled: config.enabled,
+    ...(config.seed ? { seed: config.seed } : {})
   }
 }
 
@@ -241,7 +251,8 @@ export function toProviderInput(draft: ProviderDraft): unknown {
     mcp: mcpInput(draft),
     modelDiscovery: modelDiscoveryInput(draft),
     seedModels: toLines(draft.seedModels),
-    enabled: draft.enabled
+    enabled: draft.enabled,
+    ...(draft.seed ? { seed: draft.seed } : {})
   }
 }
 

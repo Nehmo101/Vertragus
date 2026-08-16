@@ -182,7 +182,12 @@ const PRESETS: readonly ProviderConfig[] = [
       kind: 'http',
       url: 'http://127.0.0.1:11434/api/tags',
       jsonPath: 'models[].name'
-    }
+    },
+    // `ollama run` is a line REPL, not a TUI: it never announces DECSET 2004,
+    // so waiting for the keyboard announcement would only ever time out. The
+    // idle heuristic is the right readiness signal here — and the correct one,
+    // because a REPL reads stdin from its first prompt onwards.
+    seed: { keyboardWaitMs: 0 }
   })
 ]
 
