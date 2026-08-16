@@ -31,16 +31,20 @@ describe('kimiTrustFileName', () => {
    * lower-cased last segment, then 12 hex of SHA-256 over the forward-slash
    * form — so it is also what guards it.
    */
+  // join() and not a literal `C:\…`: the slug is the LAST PATH SEGMENT, and a
+  // POSIX runner does not read a backslash as a separator — the whole Windows
+  // path would become one segment there. Both platforms end up hashing
+  // "C:/git/uwe", which is exactly the spelling the record was written under.
   it('reproduces a record Kimi itself wrote', () => {
-    expect(kimiTrustFileName('C:\\git\\uwe')).toBe('wd_uwe_af4307bfa0b7')
+    expect(kimiTrustFileName(join('C:', 'git', 'uwe'))).toBe('wd_uwe_af4307bfa0b7')
   })
 
   it('hashes the forward-slash spelling, case included', () => {
-    const root = 'C:\\Users\\lasse'
+    const root = join('C:', 'Users', 'lasse')
     const hash = createHash('sha256').update('C:/Users/lasse').digest('hex').slice(0, 12)
     expect(kimiTrustFileName(root)).toBe(`wd_lasse_${hash}`)
     // A different casing is a different folder to Kimi — never normalise it.
-    expect(kimiTrustFileName('C:\\Users\\LASSE')).not.toBe(kimiTrustFileName(root))
+    expect(kimiTrustFileName(join('C:', 'Users', 'LASSE'))).not.toBe(kimiTrustFileName(root))
   })
 
   it('keeps the slug filesystem-safe without touching the hash', () => {
