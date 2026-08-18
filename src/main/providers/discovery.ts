@@ -50,6 +50,38 @@ export const MEMORY_TTL_MS = 60 * 24 * 60 * 60 * 1_000
 /** Built from the escape code itself so the source carries no control char. */
 const ANSI_SGR_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g')
 
+/** First non-empty line of a command's output, trimmed. */
+function firstOutputLine(text: string | undefined): string {
+  return text?.split(/\r?\n/).find((line) => line.trim().length > 0)?.trim() ?? ''
+}
+
+/** What Node attaches to an `execFile` rejection beyond the message. */
+interface ExecFailure {
+  stdout?: string
+  stderr?: string
+  killed?: boolean
+  message?: string
+}
+
+/**
+ * Turn an `execFile` rejection into ONE line worth showing.
+ *
+ * Node's own message is `Command failed: cmd.exe /c C:\…\cursor-agent.cmd models`
+ * with the CLI's stderr glued behind it — a Windows launch path the user never
+ * typed, wrapped around the only sentence that matters. This string ends up
+ * under the model picker, so the CLI's own first line wins and the wrapper is
+ * dropped. A kill is reported as what it was, because a killed process has no
+ * error message of its own.
+ */
+export function cliFailureMessage(cause: unknown, timeoutMs: number): string {
+  const failure = (cause ?? {}) as ExecFailure
+  if (failure.killed) return `keine Antwort binnen ${timeoutMs} ms`
+  return (
+    firstOutputLine(failure.stderr) ||
+    (cause instanceof Error && cause.message.trim() ? cause.message.trim() : String(cause))
+  )
+}
+
 /**
  * Run a provider CLI non-interactively.
  *
@@ -58,6 +90,13 @@ const ANSI_SGR_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g'
  * rewrites them to an explicit interpreter + script path instead of enabling
  * shell interpretation. Getting that wrong in only one of the two call sites is
  * exactly the kind of drift this codebase is trying to end.
+ *
+ * `execFile` rejects on ANY non-zero exit, which on its own says nothing about
+ * the output: a CLI can print its full catalogue and still exit non-zero over
+ * something unrelated (a failed update check, a deprecation guard). Blanking a
+ * picker over an exit code alone was never intended, so a completed run's stdout
+ * is kept. A KILLED run's is not — its last line is cut mid-token, and a
+ * truncated id passes the id whitelist and would be offered as a real model.
  */
 export async function execProviderCli(
   command: string,
@@ -66,11 +105,17 @@ export async function execProviderCli(
 ): Promise<string> {
   const launch =
     process.platform === 'win32' ? await resolveLaunch(command, args) : { file: command, args }
-  const { stdout, stderr } = await execFileAsync(launch.file, launch.args, {
-    timeout: timeoutMs,
-    windowsHide: true
-  })
-  return stdout || stderr || ''
+  try {
+    const { stdout, stderr } = await execFileAsync(launch.file, launch.args, {
+      timeout: timeoutMs,
+      windowsHide: true
+    })
+    return stdout || stderr || ''
+  } catch (cause) {
+    const failure = (cause ?? {}) as ExecFailure
+    if (!failure.killed && failure.stdout?.trim()) return failure.stdout
+    throw new Error(cliFailureMessage(cause, timeoutMs))
+  }
 }
 
 export interface DiscoveryDependencies {
@@ -392,6 +437,36 @@ function errorMessage(cause: unknown): string {
 }
 
 /**
+ * How the agent CLIs word "you are simply not logged in". Deliberately a
+ * phrase list and not an exit-code rule: `cursor-agent status` prints
+ * "Not logged in" and exits 0, while `cursor-agent models` exits 1 — the exit
+ * code says nothing, the sentence does.
+ */
+const AUTH_FAILURE_PATTERN =
+  /(authentication|authorization)\s+(required|failed)|not\s+(logged\s*in|signed\s*in|authenticated)|unauthorized|please\s+(log|sign)\s*-?\s*in|no\s+(api[\s-]?key|credentials|token)\s+(found|provided|set)|invalid\s+(api[\s-]?key|token|credentials)|\bHTTP\s*401\b/i
+
+/**
+ * Rewrite a discovery failure that is only a missing login into the command
+ * that fixes it.
+ *
+ * "cursor-agent models: Authentication required" is true and still leaves the
+ * user guessing, because the CLI names its own binary (`agent login`) and not
+ * the one Vertragus launches. The login command is already declared per
+ * provider, so the hint is composed from the descriptor rather than typed out
+ * per preset. The CLI's own sentence is kept behind it: it is where the
+ * alternatives (API key, env var) are spelled out.
+ */
+export function authFailureHint(config: ProviderConfig, failure: string): string | undefined {
+  if (!AUTH_FAILURE_PATTERN.test(failure)) return undefined
+  const loginArgs = config.auth?.loginArgs ?? []
+  const login =
+    loginArgs.length > 0
+      ? `'${[config.command, ...loginArgs].join(' ')}' ausführen`
+      : 'bitte anmelden'
+  return `nicht angemeldet — ${login} (${failure})`
+}
+
+/**
  * Discover the model catalogue of one provider. Never throws: a missing CLI,
  * an unreadable cache or an offline service degrades to the remembered list,
  * then to the declared seeds, and from there to an empty list the free-text
@@ -415,7 +490,10 @@ export async function discoverModels(
   } catch (cause) {
     // Fail-soft by design — see the function contract.
     live = []
-    detail = `${describeSource(config, discovery)}: ${errorMessage(cause)}`
+    const failure = errorMessage(cause)
+    detail = `${describeSource(config, discovery)}: ${
+      authFailureHint(config, failure) ?? failure
+    }`
   }
   // Aliases first: they are the entries that keep tracking new releases.
   if (config.presetId === 'claude' && live.length > 0) {

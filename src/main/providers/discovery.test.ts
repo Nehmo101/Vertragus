@@ -5,6 +5,8 @@ import type { ModelMemory, ProviderConfig } from '@shared/schema/provider'
 import { providerPreset } from './presets'
 import {
   applyModelMemory,
+  authFailureHint,
+  cliFailureMessage,
   collectByPath,
   discoverModels,
   execProviderCli,
@@ -46,11 +48,14 @@ vi.mock('@main/agents/resolveCommand', () => ({
  */
 const execFileMock = vi.hoisted(() => {
   const calls: { file: string; args: string[] }[] = []
+  /** Per-test stand-in for one run; unset means "answer the default catalogue". */
+  const state: { run?: () => Promise<{ stdout: string; stderr: string }> } = {}
   const impl = async (file: string, args: string[]): Promise<{ stdout: string; stderr: string }> => {
     calls.push({ file, args })
+    if (state.run) return state.run()
     return { stdout: 'auto - Auto (default)\ncomposer-2.5 - Composer 2.5\n', stderr: '' }
   }
-  const fn = Object.assign(impl, { calls })
+  const fn = Object.assign(impl, { calls, state })
   Object.defineProperty(fn, Symbol.for('nodejs.util.promisify.custom'), {
     value: impl,
     configurable: true
@@ -354,7 +359,58 @@ describe('discoverModels — cli sources', () => {
     })
     const result = await discoverModels(preset('cursor'), overrides)
     expect(result.detail).toBe('cursor-agent models: spawn cursor-agent ENOENT')
-    expect(result.source).toBe('none')
+    // The seed keeps the provider startable; the source says nothing was found.
+    expect(result.models).toEqual(['auto'])
+    expect(result.source).toBe('seed')
+  })
+
+  /**
+   * The state a fresh machine is actually in: `cursor-agent --version` answers
+   * (the provider shows as healthy) while `cursor-agent models` exits 1 because
+   * nobody logged in. "Authentication required" alone is unactionable — the CLI
+   * names its own binary (`agent login`), not the command Vertragus launches.
+   */
+  it('turns a login failure into the command that fixes it', async () => {
+    const { deps: overrides } = deps({
+      exec: async () => {
+        throw new Error("Error: Authentication required. Run 'agent login', pass --api-key.")
+      }
+    })
+    const result = await discoverModels(preset('cursor'), overrides)
+    expect(result.detail).toBe(
+      "cursor-agent models: nicht angemeldet — 'cursor-agent login' ausführen " +
+        "(Error: Authentication required. Run 'agent login', pass --api-key.)"
+    )
+    expect(result.models).toEqual(['auto'])
+  })
+})
+
+describe('authFailureHint', () => {
+  it.each([
+    "Error: Authentication required. Run 'agent login'.",
+    'Not logged in',
+    'You are not authenticated',
+    'Unauthorized',
+    'Please sign in to continue',
+    'invalid api key',
+    'HTTP 401'
+  ])('recognises %j as a missing login', (failure) => {
+    expect(authFailureHint(preset('cursor'), failure)).toContain('nicht angemeldet')
+  })
+
+  it.each(['spawn cursor-agent ENOENT', 'keine Antwort binnen 8000 ms', 'HTTP 500'])(
+    'leaves %j alone — it is not a login problem',
+    (failure) => {
+      expect(authFailureHint(preset('cursor'), failure)).toBeUndefined()
+    }
+  )
+
+  /** A provider that declares no login flow can only state the fact. */
+  it('falls back to the bare fact without declared login args', () => {
+    const config = { ...preset('cursor'), auth: undefined }
+    expect(authFailureHint(config, 'Not logged in')).toBe(
+      'nicht angemeldet — bitte anmelden (Not logged in)'
+    )
   })
 })
 
@@ -364,7 +420,24 @@ describe('execProviderCli', () => {
   afterEach(() => {
     Object.defineProperty(process, 'platform', { value: platform, configurable: true })
     execFileMock.calls.length = 0
+    execFileMock.state.run = undefined
   })
+
+  /** The shape Node attaches to an `execFile` rejection. */
+  const execFailure = (fields: {
+    stdout?: string
+    stderr?: string
+    killed?: boolean
+    message?: string
+  }): (() => Promise<never>) => {
+    return async () => {
+      throw Object.assign(new Error(fields.message ?? 'Command failed: cursor-agent models'), {
+        stdout: fields.stdout ?? '',
+        stderr: fields.stderr ?? '',
+        killed: fields.killed ?? false
+      })
+    }
+  }
 
   /**
    * On this machine `cursor-agent` is a PowerShell shim
@@ -393,6 +466,61 @@ describe('execProviderCli', () => {
     Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
     await execProviderCli('kimi', ['provider', 'list'], 8_000)
     expect(execFileMock.calls[0]).toEqual({ file: 'kimi', args: ['provider', 'list'] })
+  })
+
+  /**
+   * `execFile` rejects on any non-zero exit, and an exit code says nothing
+   * about the output — a CLI can print its whole catalogue and still fail on a
+   * background update check afterwards. Discarding that output would blank the
+   * picker over a number.
+   */
+  it('keeps a completed run’s catalogue even when the CLI exits non-zero', async () => {
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
+    execFileMock.state.run = execFailure({
+      stdout: 'auto - Auto (default)\ncomposer-2.5 - Composer 2.5\n',
+      stderr: 'update check failed'
+    })
+    const stdout = await execProviderCli('cursor-agent', ['models'], 8_000)
+    expect(parseLineModels(stdout)).toEqual(['auto', 'composer-2.5'])
+  })
+
+  /**
+   * A killed run is cut mid-write. Its last line can be a truncated id
+   * (`claude-opus-5-hi`), which passes the id whitelist and would be offered as
+   * a real model — so partial output is dropped, not salvaged.
+   */
+  it('drops a killed run’s partial output and reports the timeout', async () => {
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
+    execFileMock.state.run = execFailure({
+      stdout: 'auto - Auto (default)\nclaude-opus-5-hi',
+      killed: true
+    })
+    await expect(execProviderCli('cursor-agent', ['models'], 8_000)).rejects.toThrow(
+      'keine Antwort binnen 8000 ms'
+    )
+  })
+
+  /**
+   * What reaches the picker must be the CLI's own sentence. Node's message
+   * wraps it in `Command failed: cmd.exe /c C:\…\cursor-agent.cmd models` — a
+   * launch path the user never typed and cannot act on.
+   */
+  it('rejects with the CLI’s own line, not the Windows launch wrapper', async () => {
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true })
+    execFileMock.state.run = execFailure({
+      message:
+        'Command failed: cmd.exe /c C:\\Users\\t\\cursor-agent.cmd models\nError: Authentication required.',
+      stderr: "Error: Authentication required. Run 'agent login'.\n"
+    })
+    await expect(execProviderCli('cursor-agent', ['models'], 8_000)).rejects.toThrow(
+      "Error: Authentication required. Run 'agent login'."
+    )
+  })
+
+  it('falls back to the raw message when the CLI said nothing at all', () => {
+    expect(cliFailureMessage(new Error('spawn cursor-agent ENOENT'), 8_000)).toBe(
+      'spawn cursor-agent ENOENT'
+    )
   })
 })
 
@@ -496,7 +624,9 @@ describe('discoverModels — memory layer', () => {
 
 describe('discoverModels — failure handling', () => {
   it('returns an empty result for a provider without discovery', async () => {
-    const config = { ...preset('cursor'), modelDiscovery: { kind: 'none' } as const }
+    // A seedless preset, so "empty" really means empty — Cursor now carries the
+    // `auto` alias behind whatever discovery finds.
+    const config = { ...preset('codex'), modelDiscovery: { kind: 'none' } as const }
     const { deps: overrides, written } = deps()
     expect(await discoverModels(config, overrides)).toEqual({
       models: [],
