@@ -49,10 +49,19 @@ describe('providerPresets', () => {
     }
   })
 
-  it('leaves every other preset seedless — their sources are wide enough', () => {
-    for (const entry of providerPresets()) {
-      if (entry.id !== 'claude') expect(entry.seedModels).toEqual([])
-    }
+  /**
+   * Seeds exist for the two providers whose discovery can come back empty on a
+   * perfectly healthy machine: Claude caches only the account's EXTRA options,
+   * and Cursor needs a logged-in account to answer at all. Every other source
+   * is wide enough to stand alone, and a seed there would only be noise.
+   */
+  it('seeds only the providers whose source can legitimately answer nothing', () => {
+    const seeded = Object.fromEntries(
+      providerPresets()
+        .filter((entry) => entry.seedModels.length > 0)
+        .map((entry) => [entry.id, entry.seedModels])
+    )
+    expect(seeded).toEqual({ claude: ['opus', 'sonnet', 'haiku'], cursor: ['auto'] })
   })
 })
 

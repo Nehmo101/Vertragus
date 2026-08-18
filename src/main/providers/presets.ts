@@ -136,6 +136,19 @@ const PRESETS: readonly ProviderConfig[] = [
     systemPromptDelivery: { kind: 'pty' },
     mcp: { kind: 'cursor-project' },
     modelDiscovery: { kind: 'cli', args: ['models'], parse: 'lines' },
+    /**
+     * The one rolling alias of the Cursor CLI — `auto`, which routes to
+     * whatever model Cursor currently considers best (see `@shared/models`,
+     * where it is listed as an alias next to Claude's `opus`/`sonnet`).
+     *
+     * Cursor was the only CLI/file provider with no seed at all, and its
+     * discovery is the one that fails hardest: `cursor-agent models` needs a
+     * logged-in account, so on a fresh machine the CLI reports its version
+     * happily (the provider shows as healthy) while the picker has zero
+     * entries. One rolling alias is what makes the provider startable in that
+     * state; discovery results still come first and always win the order.
+     */
+    seedModels: ['auto'],
     // Role prompt + task are pasted as one multi-KB block. Measured against
     // the real CLI (v2026.08.11, PTY probe): while digesting the paste the TUI
     // freezes for >1s, an Enter that lands mid-digestion is swallowed — yet
