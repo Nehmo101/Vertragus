@@ -59,6 +59,7 @@ export class PendingQuestions {
   private readonly open = new Map<string, OpenEntry>()
   /** questionId -> answer, insertion-ordered, capped at {@link ANSWERED_MEMORY}. */
   private readonly answered = new Map<string, string>()
+  private readonly mutationListeners = new Set<() => void>()
 
   constructor(
     private readonly newId: () => string = randomUUID,
@@ -67,6 +68,23 @@ export class PendingQuestions {
 
   get openCount(): number {
     return this.open.size
+  }
+
+  /**
+   * Fires after every change to the set of open questions (create, answer,
+   * cancel, clear). The panel's question badges derive from this registry, and
+   * only `create` has a companion event — an answered badge would otherwise
+   * stay lit until something else happens to refresh the view.
+   */
+  onMutate(listener: () => void): () => void {
+    this.mutationListeners.add(listener)
+    return () => {
+      this.mutationListeners.delete(listener)
+    }
+  }
+
+  private notifyMutation(): void {
+    for (const listener of [...this.mutationListeners]) listener()
   }
 
   /** Register a new question and return it (the caller pushes the event). */
@@ -80,6 +98,7 @@ export class PendingQuestions {
       ...(options.deliverAnswer ? { deliverAnswer: options.deliverAnswer } : {})
     }
     this.open.set(entry.questionId, entry)
+    this.notifyMutation()
     return publicQuestion(entry)
   }
 
@@ -157,6 +176,7 @@ export class PendingQuestions {
       waiter.dispose()
       waiter.resolve({ state: 'answered', answer })
     }
+    this.notifyMutation()
     return publicQuestion(entry)
   }
 
@@ -173,6 +193,7 @@ export class PendingQuestions {
         waiter.resolve({ state: 'cancelled' })
       }
     }
+    if (cancelled > 0) this.notifyMutation()
     return cancelled
   }
 

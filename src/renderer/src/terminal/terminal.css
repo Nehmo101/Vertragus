@@ -177,3 +177,43 @@
   background: rgba(217, 115, 92, 0.12);
   border-bottom: 1px solid var(--hairline);
 }
+
+/* Ctrl+F scrollback search — a slim strip between title bar and terminal. */
+.cli-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.cli-search-input {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 8px;
+  font: 500 11.5px var(--font-body);
+  color: var(--ink);
+  background: rgba(var(--ink-rgb), 0.06);
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  outline: none;
+}
+
+.cli-search-input:focus-visible {
+  border-color: var(--role-color);
+}
+
+.cli-search-close {
+  padding: 0 6px;
+  font: 500 13px var(--font-body);
+  color: var(--ink-dim);
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.cli-search-close:hover {
+  color: var(--ink);
+  background: rgba(var(--ink-rgb), 0.08);
+}

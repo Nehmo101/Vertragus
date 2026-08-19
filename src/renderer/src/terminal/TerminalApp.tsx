@@ -6,7 +6,9 @@ import { LoreTip } from '../lore/LoreTip'
 import { applyTheme } from '../theme'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
+import { SearchAddon } from '@xterm/addon-search'
 import { WebglAddon } from '@xterm/addon-webgl'
+import { WebLinksAddon } from '@xterm/addon-web-links'
 import type { TerminalAgentMeta, TerminalExitEvent } from '../../../preload'
 import '@xterm/xterm/css/xterm.css'
 import './terminal.css'
@@ -99,6 +101,10 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
   const [error, setError] = useState<string | null>(null)
   /** Mirrors the window's real state; main answers with it on every toggle. */
   const [maximized, setMaximized] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const searchRef = useRef<SearchAddon | null>(null)
+  const termRef = useRef<Terminal | null>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
 
   // The bridge is injected by preload before the bundle runs — stable for the
   // lifetime of the window, so it is read during render, not in the effect.
@@ -140,6 +146,24 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
     })
     const fit = new FitAddon()
     term.loadAddon(fit)
+    // Agent CLIs print auth and PR URLs constantly; a link that cannot be
+    // clicked is a login the user retypes by hand. The default handler calls
+    // window.open, which the navigation lockdown routes to shell.openExternal
+    // (https/mailto only) — nothing navigates inside this window.
+    term.loadAddon(new WebLinksAddon())
+    const search = new SearchAddon()
+    term.loadAddon(search)
+    searchRef.current = search
+    termRef.current = term
+    // Ctrl+F belongs to the 5000-line scrollback, not to the PTY (where it is
+    // merely cursor-forward). Everything else passes through untouched.
+    term.attachCustomKeyEventHandler((event) => {
+      if (event.type === 'keydown' && event.key === 'f' && (event.ctrlKey || event.metaKey)) {
+        setSearchOpen(true)
+        return false
+      }
+      return true
+    })
     term.open(host)
     loadRenderer(term)
 
@@ -197,9 +221,38 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
       offData()
       offExit()
       offInput.dispose()
+      searchRef.current = null
+      termRef.current = null
       term.dispose()
     }
   }, [agentId, bridge, t])
+
+  // The bar renders after the state flip; focus it once it exists.
+  useEffect(() => {
+    if (searchOpen) searchInputRef.current?.focus()
+  }, [searchOpen])
+
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false)
+    searchRef.current?.clearDecorations()
+    termRef.current?.focus()
+  }, [])
+
+  const onSearchKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      const query = event.currentTarget.value
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        closeSearch()
+        return
+      }
+      if (event.key !== 'Enter' || query === '') return
+      event.preventDefault()
+      if (event.shiftKey) searchRef.current?.findPrevious(query)
+      else searchRef.current?.findNext(query)
+    },
+    [closeSearch]
+  )
 
   const roleColor = meta?.roleColor ?? 'var(--verdigris)'
   const running = exit === null
@@ -242,6 +295,30 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
         </button>
       </header>
       {notice ? <div className="cli-error">{notice}</div> : null}
+      {searchOpen ? (
+        <div className="cli-search">
+          <input
+            ref={searchInputRef}
+            className="cli-search-input"
+            type="text"
+            placeholder={t('terminal.searchPlaceholder')}
+            onKeyDown={onSearchKeyDown}
+            onChange={(event) => {
+              const query = event.currentTarget.value
+              if (query) searchRef.current?.findNext(query, { incremental: true })
+              else searchRef.current?.clearDecorations()
+            }}
+          />
+          <button
+            className="cli-search-close"
+            onClick={closeSearch}
+            title={t('terminal.searchClose')}
+            aria-label={t('terminal.searchClose')}
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
       <div className="cli-terminal" ref={hostRef} />
     </div>
   )

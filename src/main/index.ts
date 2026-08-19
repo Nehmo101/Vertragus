@@ -1,6 +1,7 @@
 import { homedir } from 'node:os'
 import { app } from 'electron'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
+import { mainMessages, readLocale } from '@shared/mainMessages'
 import { allRoleTemplates, roleColor } from '@shared/prompts/roles'
 import { PtyAgent } from './agents/PtyAgent'
 import { resolveLaunch } from './agents/resolveCommand'
@@ -8,7 +9,7 @@ import { registerAppIpc, type WorkspaceDirectory, type WorkspaceSummary } from '
 import { createAppWorkspaceManager, maybeStartDevWorkspace, type DevRunHandle } from './devRun'
 import { registerTerminalIpc } from './ipc'
 import { startMcpServer, type McpServerHandle } from './mcp/server'
-import { getProfile, getRoleTemplates } from './store/settings'
+import { getProfile, getRoleTemplates, getSettings } from './store/settings'
 import { createCliWindow, focusCliWindow } from './windows/cliWindow'
 import { cliFocusTargets, focusWorkspaceAgents } from './windows/focusWorkspace'
 import { registerAppHideAllShortcut, unregisterHideAllShortcut } from './windows/hideAll'
@@ -102,7 +103,10 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
       }),
     start(profileId) {
       const profile = getProfile(profileId)
-      if (!profile) throw new Error(`Unbekanntes Profil ${profileId}`)
+      if (!profile) {
+        const locale = readLocale(() => getSettings().ui.locale)
+        throw new Error(mainMessages(locale).unknownProfile(profileId))
+      }
       return manager.startWorkspace(profile)
     },
     stop: (workspaceId) => manager.stopWorkspace(workspaceId),
@@ -118,7 +122,11 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
       focusWorkspaceAgents(agentIds, { windows: cliFocusTargets })
     },
     listStaleWorktrees: (profileId) => cleanup.listStale(profileId),
-    removeWorktree: (profileId, worktreePath) => cleanup.remove(profileId, worktreePath)
+    removeWorktree: (profileId, worktreePath) => cleanup.remove(profileId, worktreePath),
+    // The push channel: appIpc turns this into ev:workspaces, which is what
+    // lets the panel drop its poll — badges and card states update the moment
+    // something happens instead of up to four seconds later.
+    onChange: (listener) => manager.onChange(listener)
   }
 }
 

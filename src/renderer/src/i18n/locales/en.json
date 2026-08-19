@@ -311,6 +311,8 @@
     "minimizeWindow": "Minimize window",
     "maximizeWindow": "Enlarge window — fills the screen",
     "restoreWindow": "Shrink window — back into its zone",
-    "closeWindow": "Close window"
+    "closeWindow": "Close window",
+    "searchPlaceholder": "Search … (Enter: next, Shift+Enter: previous)",
+    "searchClose": "Close search"
   }
 }

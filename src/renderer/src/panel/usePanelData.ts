@@ -7,8 +7,10 @@
  * start, a save that did not validate) always ends up visible in the panel
  * instead of in the devtools console nobody has open.
  *
- * Workspaces are additionally polled: `ev:workspaces` is the fast path, but the
- * panel must also be right when whoever owns the workspaces forgets to emit.
+ * Workspaces arrive over `ev:workspaces` — the manager pushes on every change
+ * (agent events, question badges, start/stop), so there is no poll here. The
+ * one belt-and-braces refresh left is window focus: if a push was ever lost
+ * while the panel was in the background, looking at it makes it true again.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Profile } from '@shared/schema/profile'
@@ -19,9 +21,6 @@ import type {
   WorkspaceSummary
 } from '../../../preload'
 import { errorText } from './viewModel'
-
-/** Slow enough to be free, fast enough that a stale card is never a surprise. */
-export const WORKSPACE_POLL_MS = 4_000
 
 export interface PanelData {
   bridge: VertragusAppApi | undefined
@@ -88,14 +87,14 @@ export function usePanelData(): PanelData {
     const offProfiles = bridge.onProfiles((next) => setProfiles(next))
     const offWorkspaces = bridge.onWorkspaces((next) => setWorkspaces(next))
     const offUpdate = bridge.onUpdate((next) => setUpdate(next))
-    const timer = setInterval(loadWorkspaces, WORKSPACE_POLL_MS)
+    window.addEventListener('focus', loadWorkspaces)
 
     return () => {
       alive = false
       offProfiles()
       offWorkspaces()
       offUpdate()
-      clearInterval(timer)
+      window.removeEventListener('focus', loadWorkspaces)
     }
   }, [bridge, fail])
 

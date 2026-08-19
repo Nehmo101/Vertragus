@@ -66,6 +66,14 @@ export interface WorkspaceManager {
   list(): Workspace[]
   /** Workspaces of one profile, for the panel's per-profile grouping. */
   listForProfile(profileId: string): Workspace[]
+  /**
+   * Fires after anything that changes what {@link list} would render: a
+   * workspace starting or stopping, any agent event (start, done, question,
+   * exit — orchestrator death included), and question-registry mutations
+   * (answered badges going dark). Bursts within one tick collapse into a
+   * single notification. This is what lets the panel stop polling.
+   */
+  onChange(listener: () => void): () => void
 }
 
 function resolveValue<T>(source: T | (() => T)): T {
@@ -82,6 +90,25 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
    * events would be gone by stop time, and stats without identity are noise.
    */
   const eventTaps = new Map<string, { events: AgentEvent[]; off: () => void }>()
+  /** Per-workspace change subscriptions (event queue + question registry). */
+  const changeTaps = new Map<string, Array<() => void>>()
+  const changeListeners = new Set<() => void>()
+  let notifyScheduled = false
+
+  /** Collapse same-tick bursts into one notification — no timers involved. */
+  function notifyChange(): void {
+    if (notifyScheduled || changeListeners.size === 0) return
+    notifyScheduled = true
+    queueMicrotask(() => {
+      notifyScheduled = false
+      for (const listener of [...changeListeners]) listener()
+    })
+  }
+
+  function dropChangeTap(workspaceId: string): void {
+    for (const off of changeTaps.get(workspaceId) ?? []) off()
+    changeTaps.delete(workspaceId)
+  }
 
   function nextName(profileId: string): string {
     const sequence = (sequences.get(profileId) ?? 0) + 1
@@ -126,15 +153,25 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
       const off = workspace.events.onPush((event) => events.push(event))
       eventTaps.set(workspace.workspaceId, { events, off })
     }
+    changeTaps.set(workspace.workspaceId, [
+      workspace.events.onPush(() => notifyChange()),
+      registered.runtime.questions.onMutate(() => notifyChange())
+    ])
+    // Visible right away — the card renders "starting" while the orchestrator
+    // boots instead of appearing only once it is done.
+    notifyChange()
 
     try {
       const orchestrator = await workspace.startOrchestrator()
+      notifyChange()
       return { workspace, orchestrator, urls: registered }
     } catch (error) {
       workspaces.delete(workspace.workspaceId)
       dropTap(workspace.workspaceId)
+      dropChangeTap(workspace.workspaceId)
       await workspace.close()
       deps.mcp.unregisterWorkspace(workspace.workspaceId)
+      notifyChange()
       throw error
     }
   }
@@ -161,7 +198,9 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
         console.warn('[retro] failed to record run retro:', error)
       }
     }
+    dropChangeTap(workspaceId)
     deps.mcp.unregisterWorkspace(workspaceId)
+    notifyChange()
     return true
   }
 
@@ -176,6 +215,13 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     get: (workspaceId) => workspaces.get(workspaceId),
     list: () => [...workspaces.values()],
     listForProfile: (profileId) =>
-      [...workspaces.values()].filter((workspace) => workspace.profileId === profileId)
+      [...workspaces.values()].filter((workspace) => workspace.profileId === profileId),
+
+    onChange(listener: () => void): () => void {
+      changeListeners.add(listener)
+      return () => {
+        changeListeners.delete(listener)
+      }
+    }
   }
 }

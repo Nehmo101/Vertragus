@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 /**
@@ -177,15 +175,5 @@ describe('CLI window registry', () => {
   })
 })
 
-describe('security posture', () => {
-  it('never weakens the sandbox flags', () => {
-    const source = readFileSync(join(__dirname, 'cliWindow.ts'), 'utf8')
-    expect(source).not.toMatch(/sandbox:\s*false/)
-    expect(source).not.toMatch(/contextIsolation:\s*false/)
-    expect(source).not.toMatch(/nodeIntegration:\s*true/)
-    expect(source).not.toMatch(/webSecurity:\s*false/)
-    // Every window inherits the shared posture instead of hand-rolling one.
-    expect(source).toMatch(/glassWindowOptions\(\)/)
-    expect(source).toMatch(/secureWindow\(win\)/)
-  })
-})
+// The sandbox/secureWindow posture of this window is pinned centrally by
+// base.securityContract.test.ts, which derives its file list from the directory.

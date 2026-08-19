@@ -311,6 +311,8 @@
     "minimizeWindow": "Fenster minimieren",
     "maximizeWindow": "Fenster vergrößern — füllt den Bildschirm",
     "restoreWindow": "Fenster verkleinern — zurück in seine Zone",
-    "closeWindow": "Fenster schließen"
+    "closeWindow": "Fenster schließen",
+    "searchPlaceholder": "Suchen … (Enter: weiter, Shift+Enter: zurück)",
+    "searchClose": "Suche schließen"
   }
 }
