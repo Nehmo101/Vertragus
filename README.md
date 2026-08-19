@@ -47,10 +47,14 @@ your PC. It is **off by default**; enable it under **Settings → Remote access*
   and never leaves the machine in plaintext. Regenerating it disconnects every
   paired device.
 - **What a remote device can do.** Watch any agent's terminal live, type into
-  it (including answering the orchestrator's questions), and start or stop
-  workspaces. It **cannot** edit profiles, providers or settings, touch
-  windows or zones, or remove worktrees — the command surface is a deliberate
-  four-verb allow-list.
+  it, and start or stop workspaces. The command allow-list is exactly four
+  verbs: `workspaces:list`, `workspaces:start`, `workspaces:stop`,
+  `profiles:list`. There is no `focus_agent` or `stop_agent` on the gateway.
+  Typing into a PTY reaches the CLI (permission dialogs live there); it does
+  **not** resolve an MCP `ask_orchestrator` wait — that still needs
+  `send_to_agent{questionId}` on the orchestrator, which remote v1 does not
+  expose. It **cannot** edit profiles, providers or settings, touch windows
+  or zones, or remove worktrees.
 - **Threat model — read this.** Subagents run in YOLO mode
   (`--dangerously-skip-permissions`). **A paired device therefore has code
   execution on your PC through the agents it drives.** Only pair devices you
