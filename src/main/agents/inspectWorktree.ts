@@ -120,7 +120,8 @@ export async function snapshotWorktree(
   const [branchRaw, headRaw, porcelain, diffStat] = await Promise.all([
     gitText(['rev-parse', '--abbrev-ref', 'HEAD'], worktreePath, deps),
     gitText(['rev-parse', 'HEAD'], worktreePath, deps),
-    gitText(['status', '--porcelain'], worktreePath, deps),
+    // `-uall` so a new directory lists its files, not just `src/`.
+    gitText(['status', '--porcelain', '--untracked-files=all'], worktreePath, deps),
     gitText(['diff', '--stat', 'HEAD'], worktreePath, deps)
   ])
   const porcelainTrimmed = porcelain.replace(/\s+$/, '')
