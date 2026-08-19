@@ -37,7 +37,6 @@
  * handshake.
  */
 import { randomUUID } from 'node:crypto'
-import { join } from 'node:path'
 import type { AgentMeta, AgentRegistry } from '@main/ipc'
 import { EventQueue } from '@main/mcp/eventQueue'
 import type { PendingQuestions } from '@main/mcp/pendingQuestions'
@@ -57,7 +56,7 @@ import { spawnAgent, type AgentLaunchInput, type AgentPty, type SpawnedAgent } f
 import {
   createWorktree,
   worktreeBranchName,
-  WORKTREE_ROOT,
+  worktreePathFor,
   type CreatedWorktree,
   type WorktreeDeps
 } from '@main/agents/worktree'
@@ -395,7 +394,7 @@ export class Workspace implements AgentHost {
       // what lets `beginAgent` answer before git ran. `finishStart` uses the
       // real worktree result for the record; a mismatch would be a bug in
       // `createWorktree`, and its own tests pin the convention.
-      worktreePath: join(this.repoPath, WORKTREE_ROOT, agentId),
+      worktreePath: worktreePathFor(this.repoPath, agentId),
       branch: worktreeBranchName(this.name, name)
     }
     this.pendingStarts.set(agentId, pending)

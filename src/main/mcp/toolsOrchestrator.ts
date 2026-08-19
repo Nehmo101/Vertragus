@@ -294,11 +294,23 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
       const seconds = Math.min(timeoutSec ?? AWAIT_TIMEOUT_DEFAULT_SEC, AWAIT_TIMEOUT_MAX_SEC)
       const events = await ctx.events.wait(from, seconds * 1_000)
       const next = events.length > 0 ? events[events.length - 1]!.seq : from
+      // A reader whose cursor fell behind the ring gets told, not left to
+      // infer the loss from a seq jump nothing pointed at.
+      const dropped = ctx.events.droppedSince(from)
       return toolJson({
         events,
         cursor: next,
         agentsSummary: summarizeAgents(runtime),
-        ...(events.length === 0 ? { note: AWAIT_TIMEOUT_NOTE } : {})
+        ...(events.length === 0 ? { note: AWAIT_TIMEOUT_NOTE } : {}),
+        ...(dropped
+          ? {
+              eventsDropped: dropped,
+              note:
+                `Events ${dropped.from}–${dropped.to} fell out of the buffer before this call — ` +
+                'anything you derived from them may be stale. agentsSummary above is the current ' +
+                'truth; reconcile against it instead of the missing events.'
+            }
+          : {})
       })
     }
   )

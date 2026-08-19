@@ -67,6 +67,20 @@ import { ORCHESTRATOR_TOOL_NAMES } from './toolsOrchestrator'
 /** Claude built-ins the orchestrator may use for verification without a prompt. */
 export const READONLY_CLAUDE_TOOLS = ['Read', 'Glob', 'Grep', 'TodoWrite'] as const
 
+/**
+ * Worktree-relative files the project-file dialects (Kimi, Cursor, Grok)
+ * write into an agent's checkout — each carries the agent's tokenised MCP
+ * URL. `createWorktree` puts them on the repository's shared
+ * `.git/info/exclude`, because an agent running `git add -A` in its own
+ * worktree must not be able to commit its token into the user's history.
+ * (Claude's config lives outside the repo; Codex passes argv overrides.)
+ */
+export const WORKTREE_SECRET_FILES = [
+  '.cursor/mcp.json',
+  '.kimi-code/mcp.json',
+  '.grok/config.toml'
+] as const
+
 /** Fully-qualified MCP tool names as the CLIs expect them in an allowlist. */
 export function qualifiedToolName(tool: string): string {
   return `mcp__${MCP_SERVER_NAME}__${tool}`

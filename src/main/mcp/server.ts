@@ -3,15 +3,20 @@
  * whole app, serving every workspace.
  *
  * Identity comes from the query string of the URL we hand to the agent process:
- *   /mcp?ws=<workspaceId>&token=<orchToken>                → orchestrator tools
- *   /mcp?ws=<workspaceId>&agent=<agentId>&token=<subToken> → subagent tools
+ *   /mcp?ws=<workspaceId>&token=<orchToken>                 → orchestrator tools
+ *   /mcp?ws=<workspaceId>&agent=<agentId>&token=<agentToken> → subagent tools
  *
- * The agent identity is fixed server-side from that URL, so a subagent can only
- * ever report as itself, and its token does not open an orchestrator session.
- * Everything else (400/401/405) fails closed.
+ * The subagent token is PER AGENT: an HMAC of the agentId under the workspace's
+ * subagent secret ({@link subagentToken}). Flipping the `agent=` parameter
+ * therefore invalidates the token — a subagent that can read its own MCP URL
+ * (it sits in its worktree's config files, or plainly in argv for Codex)
+ * still cannot report as a sibling. The identity is fixed server-side either
+ * way, and a subagent token does not open an orchestrator session. Requests
+ * whose Host/Origin is not loopback are refused outright (DNS-rebinding
+ * defence). Everything else (400/401/403/405) fails closed.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
-import { randomUUID, timingSafeEqual } from 'node:crypto'
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
@@ -89,6 +94,16 @@ export function buildOrchestratorUrl(
   return `${baseUrl(port, host)}?${params.toString()}`
 }
 
+/**
+ * The per-agent secret: HMAC-SHA256 of the agentId under the workspace's
+ * subagent secret. Stateless — the server re-derives it from the URL's
+ * `agent=` parameter, so there is no token registry to keep in sync, and a
+ * token stolen from one agent's config file opens exactly that one identity.
+ */
+export function subagentToken(subToken: string, agentId: string): string {
+  return createHmac('sha256', subToken).update(agentId).digest('hex')
+}
+
 export function buildSubagentUrl(
   port: number,
   workspaceId: string,
@@ -96,7 +111,11 @@ export function buildSubagentUrl(
   subToken: string,
   host: string = MCP_BIND_HOST
 ): string {
-  const params = new URLSearchParams({ ws: workspaceId, agent: agentId, token: subToken })
+  const params = new URLSearchParams({
+    ws: workspaceId,
+    agent: agentId,
+    token: subagentToken(subToken, agentId)
+  })
   return `${baseUrl(port, host)}?${params.toString()}`
 }
 
@@ -126,9 +145,53 @@ export function resolveIdentity(
   const agentId = params.get('agent')
 
   if (agentId) {
-    return secretEquals(token, ctx.subToken) ? { kind: 'subagent', workspaceId, agentId } : undefined
+    // Compare against the token THIS agentId derives to — a sibling's token
+    // under a flipped `agent=` parameter fails here.
+    return secretEquals(token, subagentToken(ctx.subToken, agentId))
+      ? { kind: 'subagent', workspaceId, agentId }
+      : undefined
   }
   return secretEquals(token, ctx.orchToken) ? { kind: 'orchestrator', workspaceId } : undefined
+}
+
+/**
+ * DNS-rebinding defence: a browser that resolved an attacker's hostname to
+ * 127.0.0.1 still sends that hostname in `Host` (and its page's `Origin`).
+ * Loopback names and the configured bind host are the complete allowlist —
+ * agent CLIs connect to the literal URL we hand them and never send `Origin`.
+ */
+export function isAllowedHostHeader(hostHeader: string | undefined, bindHost: string): boolean {
+  if (!hostHeader) return false
+  let hostname: string
+  try {
+    hostname = new URL(`http://${hostHeader}`).hostname
+  } catch {
+    return false
+  }
+  return (
+    hostname === '127.0.0.1' ||
+    hostname === 'localhost' ||
+    hostname === '[::1]' ||
+    hostname === '::1' ||
+    hostname === bindHost
+  )
+}
+
+export function isAllowedOrigin(origin: string | undefined, bindHost: string): boolean {
+  // No Origin header = not a browser context; the Host check already ran.
+  if (origin === undefined) return true
+  let hostname: string
+  try {
+    hostname = new URL(origin).hostname
+  } catch {
+    return false
+  }
+  return (
+    hostname === '127.0.0.1' ||
+    hostname === 'localhost' ||
+    hostname === '::1' ||
+    hostname === bindHost
+  )
 }
 
 function sameIdentity(a: McpIdentity, b: McpIdentity): boolean {
@@ -197,6 +260,12 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
   })
 
   async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    // Refused before anything else — identity resolution must not even run
+    // for a request that reached us through a rebound hostname.
+    if (!isAllowedHostHeader(req.headers.host, host) || !isAllowedOrigin(req.headers.origin, host)) {
+      res.writeHead(403).end()
+      return
+    }
     const url = new URL(req.url ?? '/', `http://${host}`)
     if (url.pathname !== MCP_PATH) {
       res.writeHead(404).end()
