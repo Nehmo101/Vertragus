@@ -219,7 +219,26 @@ export function createCliWindow(agentId: string, options: CliWindowOptions): Bro
   })
   secureWindow(win)
   loadRoute(win, `/agent/${encodeURIComponent(agentId)}`)
-  win.on('ready-to-show', () => win.show())
+  win.on('ready-to-show', () => {
+    win.show()
+    // Constructor x/y is a hint. Linux compositors often ignore it until
+    // after `show`; pinning here is what actually lands the window on the
+    // target display.
+    if (
+      bounds &&
+      bounds.x !== undefined &&
+      bounds.y !== undefined &&
+      bounds.width !== undefined &&
+      bounds.height !== undefined
+    ) {
+      applyWindowBounds(agentId, win, {
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height
+      })
+    }
+  })
   win.on('closed', () => {
     const entry = windows.get(agentId)
     if (entry?.window === win) windows.delete(agentId)

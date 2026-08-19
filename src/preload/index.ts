@@ -549,10 +549,12 @@ const zones = {
   cancel: (): void => {
     ipcRenderer.send(APP.zonesCancel)
   },
-  /** Multi-monitor picker: keep THIS overlay's display, drop the others. */
-  pickDisplay: (): void => {
-    ipcRenderer.send(APP.zonesPickDisplay)
-  }
+  /**
+   * Multi-monitor picker: pin Vertragus to this display, move the overlay
+   * onto it, and return the editor payload for that screen.
+   */
+  pickDisplay: (displayId: number): Promise<ZoneEditorPayload> =>
+    ipcRenderer.invoke(APP.zonesPickDisplay, { displayId })
 }
 
 const api = {

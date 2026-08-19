@@ -364,14 +364,14 @@ export interface ZoneEditorPayload {
   profileName: string
   displayId: number
   roles: ZoneEditorRole[]
-  /** Only the zones of THIS display; the other overlays own the rest. */
+  /** Only the zones of THIS display. */
   zones: Zone[]
   /**
-   * Attached monitors — the picker names them, and a single-monitor session
-   * still reports the one it is on so the hint can say so.
+   * Attached monitors — the picker lists them so the user can choose a
+   * screen even when the overlay itself could not be placed on it.
    */
   displays: ZoneDisplayInfo[]
-  /** True while this overlay is asking "Vertragus hier verteilen?". */
+  /** True while this overlay is asking which screen Vertragus should use. */
   selectingDisplay: boolean
   /**
    * UI language / appearance for this overlay. Added by the `zones:load`
@@ -533,12 +533,12 @@ export interface AppIpcHost {
   confirmQuit(runningAgents: number): Promise<boolean>
   /** Shut the app down. `before-quit` is what stops the agents cleanly. */
   quit(): void
-  /** Open the zone overlay on every display for this profile. */
+  /** Open the zone overlay for this profile (picker when several monitors). */
   openZoneOverlays(profileId: string): void
   closeZoneOverlays(): void
   /**
-   * Keep this overlay and drop the rest — the multi-monitor picker. Optional
-   * so a test host that never opens overlays does not have to stub it.
+   * Bind the live overlay to this display and leave picker mode. Optional so
+   * a test host that never opens overlays does not have to stub it.
    */
   selectZoneOverlayDisplay?(displayId: number): boolean
   /** Attached monitors as the picker labels them. */
@@ -1125,11 +1125,43 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     host.closeZoneOverlays()
   }) as IpcListener)
 
-  host.ipcMain.on(APP_CHANNELS.zonesPickDisplay, ((event: IpcEvent): void => {
-    const sender = host.zoneOverlaySender(event.sender.id)
-    if (!sender) return
-    host.selectZoneOverlayDisplay?.(sender.displayId)
-  }) as IpcListener)
+  handle(APP_CHANNELS.zonesPickDisplay, requireZoneOverlay, (event, payload) => {
+    const sender = requireZoneOverlay(event, APP_CHANNELS.zonesPickDisplay)
+    const requested =
+      typeof payload === 'number'
+        ? payload
+        : typeof (payload as { displayId?: unknown } | undefined)?.displayId === 'number'
+          ? (payload as { displayId: number }).displayId
+          : sender.displayId
+    if (!Number.isInteger(requested)) {
+      throw new Error('zones:pickDisplay rejected — missing display id')
+    }
+    const displays = host.listZoneDisplays?.() ?? []
+    if (displays.length > 0 && !displays.some((display) => display.id === requested)) {
+      throw new Error(`zones:pickDisplay rejected — unknown display ${requested}`)
+    }
+    if (host.selectZoneOverlayDisplay?.(requested) === false) {
+      throw new Error(`zones:pickDisplay rejected — unknown display ${requested}`)
+    }
+    const profile = host.store.getProfiles().find((entry) => entry.id === sender.profileId)
+    if (!profile) throw new Error(`zones:pickDisplay rejected — unknown profile ${sender.profileId}`)
+    // Stamp the target screen now, not only on Save: auto-tiling must honour
+    // the pick even if the user never draws a rectangle.
+    const zones = mergeZoneLayout(profile.zones, new Map(), [], requested)
+    const profiles = host.store.saveProfile({ ...profile, zones })
+    emitProfiles(profiles)
+    return {
+      ...zoneEditorPayload(
+        { ...profile, zones },
+        host.store.getRoleTemplates(),
+        requested,
+        displays,
+        false
+      ),
+      locale: host.store.getSettings().ui.locale,
+      theme: host.store.getSettings().ui.theme
+    }
+  })
 
   unsubscribeDirectory = host.directory.onChange?.(() => emitWorkspaces())
   unsubscribeUpdates = host.onUpdateState?.((state) => {

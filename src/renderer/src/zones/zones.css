@@ -299,6 +299,34 @@
   color: var(--text-3);
 }
 
+.zones-pick-list {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  width: 100%;
+  margin: 4px 0 8px;
+}
+
+.zones-pick-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 10px 14px;
+  text-align: left;
+}
+
+.zones-pick-screen-name {
+  font: 600 13px var(--font-body);
+}
+
+.zones-pick-screen-meta {
+  font: 500 11.5px var(--font-mono);
+  opacity: 0.8;
+}
+
 .zones-pick-other {
   font: 500 11.5px var(--font-body);
   color: var(--text-3);

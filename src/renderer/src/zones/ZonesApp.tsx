@@ -146,19 +146,27 @@ export function ZonesApp({
         <div className="zones-wash" />
         <div className="zones-pick">
           <span className="zones-pick-kicker">{t('zones.pickTitle')}</span>
-          <h1 className="zones-pick-title">{t('zones.pickThis')}</h1>
+          <h1 className="zones-pick-title">{t('zones.pickTitle')}</h1>
           <p className="zones-pick-hint">{t('zones.pickHint')}</p>
-          <p className="zones-pick-meta">
-            {editor.displayLabel ? `${editor.displayLabel} · ` : ''}
-            {t('zones.display', { width: editor.viewport.width, height: editor.viewport.height })}
-            {editor.displayPrimary ? ` · ${t('zones.pickPrimary')}` : ''}
-          </p>
-          <button type="button" className="zones-primary" onClick={editor.pickDisplay}>
-            {t('zones.pickThis')}
-          </button>
-          {editor.displayCount > 2 ? null : (
-            <span className="zones-pick-other">{t('zones.pickOther')}</span>
-          )}
+          <div className="zones-pick-list">
+            {editor.displays.map((display) => (
+              <button
+                key={display.id}
+                type="button"
+                className={
+                  display.primary ? 'zones-primary zones-pick-screen' : 'zones-ghost zones-pick-screen'
+                }
+                onClick={() => editor.pickDisplay(display.id)}
+                disabled={!editor.ready}
+              >
+                <span className="zones-pick-screen-name">{display.label}</span>
+                <span className="zones-pick-screen-meta">
+                  {t('zones.display', { width: display.width, height: display.height })}
+                  {display.primary ? ` · ${t('zones.pickPrimary')}` : ''}
+                </span>
+              </button>
+            ))}
+          </div>
           <button type="button" className="zones-ghost" onClick={editor.cancel}>
             {t('zones.cancel')}
           </button>
