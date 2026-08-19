@@ -27,6 +27,7 @@ jenem Branch, nicht einem zweiten.
 | Goal-at-Play, Fragen beantworten | B sagt: tippen in die TUI | **Konflikt** — siehe unten |
 | `inspect_agent`, Snapshot-Commit, Handoff | nicht im Plan | **bleibt hier**, nach A |
 | `ask_user` / `user_message` | nicht im Plan | **bleibt hier**, nach A; B sollte eine kleine Kante offenhalten |
+| Multi-Orchestrierung | nicht im Plan | **hier geplant**, nach A2 + C; Root entscheidet, Default bleibt flach |
 
 Nicht anfassen, solange A/B auf dem anderen Branch läuft: Lifecycle,
 MCP-Auth, EventQueue-Gap, Panel-Push, Remote-Server. Dieses Dokument
@@ -315,15 +316,212 @@ dieselbe `WorkspaceSummary` zeichnen. Kein dritter Store.
 
 ---
 
+## Phase F — Multi-Orchestrierung (Root entscheidet)
+
+Denkbar: ja. Sinnvoll: **manchmal**, und nur wenn der Hauptorchestrator
+es wählt. Default bleibt ein flaches Team. Wer immer nestet, hat den
+alten Fehler in einer neuen Form — Kontext-Explosion, unbeantwortete
+Fragen, zu viele Fenster — nur eine Ebene tiefer.
+
+Das ist **kein** zweites Produkt (kein Kanban, keine DAG-Engine, kein
+zweiter Workspace pro Bereich). Es ist eine dritte MCP-Identität in
+*demselben* Workspace, mit eigener EventQueue, damit der Root nicht
+jedes Worker-Event seiner Unterbäume sieht.
+
+### Wann ja, wann nein
+
+Der Root bekommt das Tool. Der Host auto-nestet nie und lehnt auch
+nicht ab, weil „der Task klein wirkt“ — das wäre das Gegenteil von
+„er entscheidet“. Der Prompt sagt, wann er es brauchen *soll*:
+
+| Nesten | Flach bleiben |
+| --- | --- |
+| ≥2 unabhängige Workstreams, die kaum Dateien teilen | Ein Bereich, ein Bug, ein Modul |
+| Jeder Stream braucht eigenen Review/Test-Loop | Pipeline auf *denselben* Dateien: Architect → Worker → Reviewer (`baseBranch`, nicht ein Lead) |
+| Ohne Nesting würde `await_events` den Root ersäufen (>~6 parallele Blatt-Agenten mit laufendem Hin und Her) | Zwei, drei Worker, die der Root selbst schickt |
+
+Hybrid ist erlaubt und gewollt: Root startet einen Worker für etwas
+Kleines *und* einen Sub-Orchestrator für einen großen Stream.
+
+### Dritte Identität, nicht eine Rolle
+
+Heute binär (`server.ts`):
+
+```
+/mcp?ws=&token=<orch>              → sieben Orchestrator-Tools
+/mcp?ws=&agent=<id>&token=<sub>    → report_done / ask / progress
+```
+
+Dazu:
+
+```
+/mcp?ws=&lead=<id>&token=<per-agent>  → Lead-Tools (unten)
+```
+
+Ein Sub-Orchestrator ist **kein** Slot `roleId: orchestrator`. Er zieht
+den Guide-Namen (`NameAllocator` kind `orchestrator`), die Bronze-Farbe
+(oder ein dunkleres Bronze), denselben Provider/Model wie das Profil-
+`orchestrator` (überschreibbar), und **kein Yolo**.
+
+**Lead-Tools** (Union, bewusst):
+
+| Richtung | Tools |
+| --- | --- |
+| Nach unten (scoped auf den eigenen Unterbaum) | `start_agent`, `send_to_agent`, `await_events`, `list_agents`, `stop_agent`, `read_output`, später `inspect_agent` |
+| Nach oben (wie ein Subagent zum Root) | `report_done`, `ask_orchestrator`, `report_progress` |
+| Verboten | `record_retro` (nur Root), `start_orchestrator` (Tiefe 1) |
+
+**Root-Tools** zusätzlich:
+
+```
+start_orchestrator{area, task, maxSubagents?, model?, baseBranch?}
+```
+
+`area` ist ein kurzes Label für Prompt und Panel („payments“, `docs`).
+`maxSubagents` ist das **Teilbudget**, das der Root abgibt — nicht ein
+zweites Profil-Limit. `profile.maxSubagents` bleibt die globale Kappe
+über Root-Kinder + alle Enkel (A1.3-Reservierung workspace-weit).
+
+`start_agent` bleibt auf dem Root. Ohne das Tool könnte er nicht flach
+arbeiten und nicht hybrid.
+
+### Fan-in: der ganze Punkt
+
+Jeder Lead hat eine eigene `EventQueue`. `await_events` des Roots sieht
+**nur Direktkinder** (Worker, die er selbst startete, und Leads).
+Events der Enkel landen nur in der Queue des Leads.
+
+Sonst ist Nesting nutzlos: der Root hätte denselben Event-Sturm, plus
+mehr Prozesse.
+
+Der Retro-Tap (`WorkspaceManager` `onPush`) abonniert **alle** Queues —
+Statistik nach dem Stop braucht die Enkel, der Root-Loop nicht.
+
+`PendingQuestions` kann eine Registry bleiben (schon `agentId`-keyed).
+Das Event `agent_question` muss in die Queue des *Parents* dieses
+Agenten, nicht immer in die Root-Queue.
+
+### Fragen steigen eine Stufe, nie zwei
+
+```
+Worker --ask--> Lead --(antwortet oder ask_orchestrator)--> Root --(später ask_user)--> Mensch
+```
+
+Ein Worker kann den Root nicht anrufen — seine URL hat keine Root-Tools.
+Ein Lead, der eine User-Entscheidung braucht, fragt den Root; der Root
+fragt (heute per Prompt, später via `ask_user`) den Menschen. Kein
+Skip-Level, keine Peer-Fragen zwischen Leads. Koordination zweier
+Bereiche = Lead fragt Root, Root entscheidet oder schickt den anderen
+Lead eine Instruction (`send_to_agent` auf den anderen Lead).
+
+`answer_question` (H1) adressiert denselben Host-Pfad; das Panel/Remote
+zeigt `?` am Lead *und* am Worker. Antworten an den Worker gehen an
+dessen Parent-Lead, nicht an den Root, außer der Worker ist Direktkind
+des Roots.
+
+### Git / Handoff
+
+Gleicher Mechanismus wie flach, eine Ebene höher:
+
+1. Lead lässt Worker snapshoten (C3) bzw. committet über den Host
+2. Lead integriert auf *seinen* Branch (`baseBranch` / später
+   `integrate_branch`)
+3. Lead `report_done` mit seinem Branch/SHA
+4. Root startet den nächsten Lead oder einen Merge-Worker mit
+   `baseBranch` = Lead-Branch
+
+Ohne C (Inspect + Snapshot) ist Multi-Orch Blindheit mal Anzahl Leads.
+Deshalb **nach C**, nicht davor.
+
+### Tod eines Leads
+
+A1.1: Root-Tod lässt Subagents laufen, Karte greyed. Analog:
+
+Lead-Prozess stirbt → Root bekommt `agent_exited` für den Lead.
+**Reparent:** lebende Enkel werden Direktkinder des Roots, ihre Queue
+wird in die Root-Queue übernommen (`subtree_adopted`). Arbeit geht
+nicht verloren; der Root sieht plötzlich mehr Events — nur im
+Fehlerfall, das ist der Deal.
+
+Nicht: Enkel stoppen (zu hart). Nicht: Enkel ohne Parent (orphaned
+`ask_orchestrator`).
+
+### Caps, die der Host erzwingt (nicht der Prompt)
+
+- Tiefe genau 1: `start_orchestrator` nur auf Root-Identität, sonst
+  Tool-Error
+- Max Leads z. B. 4 (Konstante, Profil darf enger)
+- Globales `maxSubagents` inkl. Leads und Enkel
+- Async start (A2.1) gilt für Leads genauso — Seed darf 60s nicht reißen
+- Per-Agent-Token (A2.2) gilt für Leads genauso; Lead-Token öffnet weder
+  Root-Tools noch Geschwister-Unterbäume
+
+Per-Rolle-Limits in v1 **global** (ein Reservierungsnetz). Zwei Leads
+die beide „2 Worker“ wollen, teilen denselben Worker-Cap. Teilbudgets
+(`start_orchestrator{maxSubagents:n}`) begrenzen nur die *Größe des
+Unterbaums*, nicht die Rollenzusammensetzung. Feiner (`roles` am Lead)
+ist später; sonst bauen wir ein zweites Profil.
+
+### Prompt-Kanten (Root)
+
+Kurz, englisch, wie der Rest:
+
+- Default flat. `start_orchestrator` nur wenn die Tabelle „Nesten“ oben
+  zutrifft.
+- Ein Lead ist ein Bereich mit eigener Verifikationsschleife, kein
+  Umbenennen von `start_agent`.
+- Nach `start_orchestrator` nicht die Enkel pollen — `await_events`
+  liefert nur Lead-Events; in den Unterbaum schaut man mit
+  `inspect_agent` auf den Lead (dessen Worktree/Branch), nicht mit
+  `read_output` auf Enkel.
+- Fertig = jeder Lead `report_done` + Root verifiziert (Inspect auf
+  Lead-Branches) + ein Merge-Pfad + `record_retro`.
+
+Lead-Prompt: Bereich, Parent-Name, dieselben Rollen/Limits wie das
+Profil, plus „du startest keine Orchestratoren. Du reportest nach oben.“
+
+### Panel / Remote
+
+`WorkspaceSummary.agents` bekommt `parentId` + `kind:
+'orchestrator' | 'lead' | <role>`. Flache Liste mit Einrückung reicht
+v1 — kein Baum-Widget. Lead-Zeile zeigt `childCount` und das `?` wenn
+*er* eine Frage an den Root hat. Enkel-`?` hängen am Lead, bis man die
+Karte aufklappt (sonst blinkt die Root-Karte dauernd).
+
+Remote-Allow-List: kein neuer Befehl außer dem schon geplanten
+`answer_question` (Parent ergibt sich aus `agentId`). `start_orchestrator`
+ist kein Remote-API — nur der Root-Agent ruft das Tool.
+
+### Reihenfolge relativ zu C–E
+
+Braucht: A1.3 Reservierung, A2.1 async start, A2.2 Per-Agent-Tokens,
+A2.3 Gap (pro Queue). Braucht C (Inspect/Snapshot), sonst ist jeder
+Lead so blind wie der Root heute.
+
+Braucht B nicht. `ask_user` (D) wird mit einer Stufe dazwischen
+wichtiger, ist aber nicht Blocker — Leads fragen den Root, Root
+beantwortet (heute) selbst oder später den User.
+
+Nicht in BigBoy A/B einbauen: das ist ein Identity-Umbau in
+`server.ts` / `toolsOrchestrator.ts` / `Workspace.ts`, während A dort
+gerade Lifecycle und Tokens anfasst.
+
+---
+
 ## Was wir bewusst nicht wollen
 
-- Peer-to-Peer zwischen Subagents
+- Peer-to-Peer zwischen Subagents **oder zwischen Leads**
 - Vorstartetes Team / Playbooks die Fenster spawnen
 - Orchestrator, der selbst committet, merget, testet, pusht
 - Autodelete von Worktrees/Branches
 - Hardcodierte Modellkataloge
 - RAG
-- Zweite Orchestrierung (Kanban, DAG-Engine, Cloud-Runner)
+- Zweite Orchestrierung als **Produkt** (Kanban, DAG-Engine, Cloud-Runner,
+  ein Workspace pro Bereich)
+- Automatisches Nesting / Nesting-Profil-Toggle — der Root entscheidet
+  per Tool, Default flach
+- Tiefe > 1 (Lead startet Lead)
+- Enkel-Events in der Root-`await_events`-Queue
 - `read_output` als Verifikation
 - **Remote als zweiten MCP-Server oder Spiegel aller APP_CHANNELS**
   (BigBoy-Allow-List ist die richtige Grenze)
@@ -345,17 +543,21 @@ BigBoy A3  onChange-Push, panelBounds, Terminal-Links/Suche, Error-Codes
 BigBoy B   Remote Tailscale (nach A; MCP bleibt loopback)
      │
      └─ Phase C   inspect + Done-Fakten + Snapshot + Handoff + Idle-Watchdog
-            D   Goal-UI, user_message, ask_user (nutzt H1/H2)
+            F   Multi-Orch (Root entscheidet; braucht C, braucht B nicht)
+            D   Goal-UI, user_message, ask_user (nutzt H1/H2; mit F eine Stufe mehr)
             E   integrate/gate, Briefing, Resume, Budget, Eval
 ```
 
 C kann an A andocken, sobald Reservierung + async start + Gap liegen —
-es braucht B nicht. D wird billiger, wenn H1/H2 in B schon existieren.
+es braucht B nicht. F danach: ohne Inspect ist jeder Lead genauso blind
+wie der eine Root heute. D wird billiger, wenn H1/H2 in B schon existieren.
 E braucht C (ohne Inspect und Snapshot ist Gate Theater).
 
 Der Sprung zum *starken* Harness bleibt C (Host kennt Git). Der Sprung
 zum *steuerbaren* Harness bleibt D + H1/H2 (Mensch im Loop, auch vom
-Handy). A/B sind das Fundament, ohne das beides auf Sand steht.
+Handy). F ist der Sprung zur *breiten* Umsetzung, den der Root nur
+wählt wenn flach nicht mehr trägt. A/B sind das Fundament, ohne das
+beides auf Sand steht.
 
 ---
 
@@ -372,6 +574,8 @@ Handy). A/B sind das Fundament, ohne das beides auf Sand steht.
 | `onChange` deklariert, Manager emittiert nicht | `appIpc.ts` ~224/~1054, `usePanelData.ts` 4s-Poll |
 | Quit nicht awaited | `index.ts` `before-quit` |
 | Sieben Tools / drei Reporting-Tools | `toolsOrchestrator.ts`, `toolsSubagent.ts` |
+| MCP-Identität binär (Root vs. Blatt) | `server.ts` `McpIdentity`, `resolveIdentity` |
+| Guide-Namen nur für den einen Orchestrator | `agents/names.ts` kind `orchestrator` |
 | Play ohne Goal | `appIpc.ts` `workspaces:start`, `devRun.ts` |
 | Orchestrator-Prompt (User ersetzen, committen lassen) | `orchestrator.ts` |
 | Worker „nie committen“ | `roles.ts` |
