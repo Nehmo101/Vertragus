@@ -15,8 +15,9 @@
  * `orchestrator_exited` (only it can observe a process dying unasked) and, for
  * `mcp: none` (sentinel) providers, `agent_done` / `agent_progress` parsed
  * from PTY sentinel lines — for those agents the host *is* the reporting
- * channel. A host must NOT duplicate MCP-tool events for an MCP-attached agent,
- * and the MCP tools must not invent PTY-sentinel events.
+ * channel (and attaches worktree facts to sentinel `agent_done` when git
+ * answers). A host must NOT duplicate MCP-tool events for an MCP-attached
+ * agent, and the MCP tools must not invent PTY-sentinel events.
  */
 import type { EventQueue } from './eventQueue'
 import type { PendingQuestions } from './pendingQuestions'
@@ -89,6 +90,47 @@ export interface StartingAgent extends StartedAgent {
   ready: Promise<void>
 }
 
+/** Read-only views `inspect_agent` can ask of one agent's worktree. */
+export const INSPECT_VIEWS = ['status', 'diff', 'log', 'file'] as const
+export type InspectView = (typeof INSPECT_VIEWS)[number]
+
+/**
+ * Host-truth git facts for one worktree. No porcelain blob — that stays inside
+ * the `status` view body. Attached to `agent_done` and returned by
+ * {@link AgentHost.snapshotWorktree}.
+ */
+export interface WorktreeFacts {
+  branch: string
+  headSha: string
+  uncommitted: boolean
+  changedFiles: string[]
+  diffStat: string
+}
+
+export interface InspectAgentOptions {
+  view: InspectView
+  /** Relative path inside the worktree — required for `file`. */
+  path?: string
+  /** Line count for `log`; ignored otherwise. */
+  lines?: number
+}
+
+export interface InspectAgentResult extends WorktreeFacts {
+  view: InspectView
+  body: string
+}
+
+/** Fields copied onto `agent_done` when a worktree snapshot succeeds. */
+export function worktreeEventFields(facts: WorktreeFacts): WorktreeFacts {
+  return {
+    branch: facts.branch,
+    headSha: facts.headSha,
+    uncommitted: facts.uncommitted,
+    changedFiles: facts.changedFiles,
+    diffStat: facts.diffStat
+  }
+}
+
 /**
  * Everything the MCP tools need from the process/window world. Implemented by
  * the WorkspaceManager; faked wholesale in tests.
@@ -109,6 +151,19 @@ export interface AgentHost {
   stopAgent(agentId: string): Promise<boolean>
   /** ANSI-stripped tail of the agent's output. */
   readOutput(agentId: string, lines: number): Promise<string>
+  /**
+   * Read-only git inspection of one agent's own worktree. Refuses agents that
+   * are still `starting`. Stopped agents remain inspectable — their worktree
+   * survives `stop_agent`.
+   */
+  inspectAgent(agentId: string, options: InspectAgentOptions): Promise<InspectAgentResult>
+  /**
+   * A compact snapshot of one agent's worktree (branch, HEAD, dirty flag,
+   * changed files, diffstat). Same refusal rules as {@link inspectAgent}.
+   * Callers that attach this to `agent_done` must tolerate a throw: a git
+   * hiccup must never drop the done event.
+   */
+  snapshotWorktree(agentId: string): Promise<WorktreeFacts>
   listAgents(): AgentSummary[]
   /**
    * Which reporting dialect a *new* agent of this role should get. Used by

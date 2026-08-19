@@ -61,7 +61,16 @@ const agentDonePayload = z.object({
   type: z.literal('agent_done'),
   ...identity,
   summary: z.string(),
-  status: agentDoneStatusSchema
+  status: agentDoneStatusSchema,
+  /**
+   * Host-truth from the agent's worktree at report time. Absent when git
+   * failed — the summary still stands; the orchestrator then uses inspect_agent.
+   */
+  branch: z.string().min(1).optional(),
+  headSha: z.string().min(1).optional(),
+  uncommitted: z.boolean().optional(),
+  changedFiles: z.array(z.string().min(1).max(400)).max(80).optional(),
+  diffStat: z.string().max(850).optional()
 })
 
 const agentQuestionPayload = z.object({
@@ -84,7 +93,8 @@ const agentExitedPayload = z.object({
   /**
    * `true` only when the agent reported a terminal result before the process
    * ended. `false` means the process vanished unconfirmed — the orchestrator
-   * must verify with `read_output` instead of assuming success.
+   * must verify with `read_output` instead of assuming success. File changes
+   * are verified with `inspect_agent`, not the terminal tail.
    */
   confirmed: z.boolean()
 })
