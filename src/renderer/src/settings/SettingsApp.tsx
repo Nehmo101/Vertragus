@@ -64,11 +64,11 @@ function AppearanceSliderRow({
 /**
  * The settings window — the sheet behind the panel's gear.
  *
- * Deliberately small. Five settings that belong to the app rather than to a
- * profile, plus the state of the self-updater. Everything a profile owns
- * (providers, models, slots, zones) lives in the profile editor, and putting
- * either half into the other window is how a settings dialog turns into a
- * second, worse copy of the app.
+ * Deliberately small. App-wide settings rather than profile ones, with
+ * Tailscale remote access first so enabling a phone does not mean scrolling
+ * past glass sliders. Everything a profile owns (providers, models, slots,
+ * zones) lives in the profile editor, and putting either half into the other
+ * window is how a settings dialog turns into a second, worse copy of the app.
  *
  * Two fields carry a warning instead of being disabled: autostart in a dev run
  * and the hotkey the OS refused. A greyed-out control with no explanation is
@@ -116,6 +116,8 @@ export function SettingsApp(): React.JSX.Element {
       </header>
 
       <div className="st-body">
+        <RemoteSection />
+
         <section className="st-field">
           <span className="st-label">{t('settings.hotkey')}</span>
           <div className="st-row">
@@ -235,8 +237,6 @@ export function SettingsApp(): React.JSX.Element {
           ))}
           <span className="st-hint">{t('settings.glassLadderHint')}</span>
         </section>
-
-        <RemoteSection />
 
         <section className="st-updates">
           <h2 className="st-section-label">{t('settings.updates')}</h2>

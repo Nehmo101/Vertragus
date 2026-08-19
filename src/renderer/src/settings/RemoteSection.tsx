@@ -1,21 +1,33 @@
 /**
  * The remote-access section of the settings window.
  *
- * Off by default, and enabling it is a deliberate act: the section spells out
- * that a connected device runs agents in yolo mode (remote code execution),
- * offers only Tailscale-first bind addresses, gates `0.0.0.0` behind a typed
- * confirmation, and shows the pairing QR plus the live connected-device list
- * with a per-device disconnect. All the security-relevant state (running,
- * error, clients) is pushed over `ev:remote`, so the section stays live as
- * phones come and go.
+ * Lives at the top of the sheet so Tailscale setup is the first thing the
+ * gear opens onto, not a block buried under glass sliders. Off by default,
+ * and enabling it is a deliberate act: the card spells out that a connected
+ * device runs agents in yolo mode (remote code execution), shows whether a
+ * tailnet interface is up *before* the toggle, offers only Tailscale-first
+ * bind addresses (a placeholder row when none is found), gates `0.0.0.0`
+ * behind a typed confirmation, and shows the pairing QR plus the live
+ * connected-device list with a per-device disconnect. All the
+ * security-relevant state (running, error, clients) is pushed over
+ * `ev:remote`; interfaces are also polled so starting Tailscale after
+ * opening the window is enough.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { BindOption, RemoteClientInfo, RemoteStatus } from '@shared/remote/types'
 import { pairingQrSvg } from './qr'
+import {
+  bindOptionLabel,
+  detectedTailscaleAddress,
+  isAllInterfaces,
+  isMissingTailscaleBind,
+  REMOTE_INTERFACE_POLL_MS,
+  remotePickerOptions,
+  selectedBindAddress,
+  TAILSCALE_DOWNLOAD_URL
+} from './remoteModel'
 import type { VertragusAppApi } from '../../../preload'
-
-const ALL_INTERFACES = '0.0.0.0'
 
 export function RemoteSection(): React.JSX.Element | null {
   const { t } = useTranslation()
@@ -26,21 +38,26 @@ export function RemoteSection(): React.JSX.Element | null {
   const [allConfirmed, setAllConfirmed] = useState(false)
   const [busy, setBusy] = useState(false)
 
-  const refreshClients = useCallback(() => {
-    bridge?.listRemoteClients().then(setClients, () => undefined)
+  const refresh = useCallback(() => {
+    if (!bridge) return
+    void bridge.getRemote().then(setStatus, () => undefined)
+    void bridge.listRemoteInterfaces().then(setInterfaces, () => undefined)
+    void bridge.listRemoteClients().then(setClients, () => undefined)
   }, [bridge])
 
   useEffect(() => {
     if (!bridge) return
-    bridge.getRemote().then(setStatus, () => undefined)
-    bridge.listRemoteInterfaces().then(setInterfaces, () => undefined)
-    refreshClients()
+    refresh()
     const off = bridge.onRemote((next) => {
       setStatus(next)
-      refreshClients()
+      void bridge.listRemoteClients().then(setClients, () => undefined)
     })
-    return off
-  }, [bridge, refreshClients])
+    const timer = window.setInterval(refresh, REMOTE_INTERFACE_POLL_MS)
+    return () => {
+      off()
+      window.clearInterval(timer)
+    }
+  }, [bridge, refresh])
 
   const apply = useCallback(
     async (patch: { enabled?: boolean; bindAddress?: string; port?: number }) => {
@@ -48,23 +65,60 @@ export function RemoteSection(): React.JSX.Element | null {
       setBusy(true)
       try {
         setStatus(await bridge.setRemote(patch))
-        refreshClients()
+        refresh()
       } finally {
         setBusy(false)
       }
     },
-    [bridge, refreshClients]
+    [bridge, refresh]
   )
 
-  if (!bridge || !status) return null
+  if (!bridge) return null
+  if (!status) {
+    return (
+      <section className="st-remote">
+        <h2 className="st-section-label">{t('settings.remote')}</h2>
+        <p className="st-hint">{t('common.loading')}</p>
+      </section>
+    )
+  }
 
-  const bindValue = interfaces.find((option) => option.address === statusBindAddress(status))?.address ?? ''
-  const wantsAll = bindValue === ALL_INTERFACES
-  const enableBlocked = wantsAll && !allConfirmed
+  const picker = remotePickerOptions(interfaces)
+  const bindValue = selectedBindAddress(status, picker)
+  const tailscaleAddress = detectedTailscaleAddress(status, picker)
+  const wantsAll = isAllInterfaces(bindValue)
+  const wantsMissingTailscale = isMissingTailscaleBind(bindValue, picker)
+  const enableBlocked = (wantsAll && !allConfirmed) || wantsMissingTailscale
 
   return (
     <section className="st-remote">
       <h2 className="st-section-label">{t('settings.remote')}</h2>
+
+      <div className={`st-remote-status ${tailscaleAddress ? 'is-ready' : 'is-missing'}`}>
+        <span className={`st-dot ${tailscaleAddress ? 'is-up-to-date' : 'is-warn'}`} />
+        <div className="st-remote-status-body">
+          <span className="st-remote-status-text">
+            {tailscaleAddress
+              ? t('settings.remoteTailscaleReady', { address: tailscaleAddress })
+              : t('settings.remoteTailscaleMissing')}
+          </span>
+          <div className="st-remote-status-actions">
+            {tailscaleAddress ? null : (
+              <a
+                className="st-link"
+                href={TAILSCALE_DOWNLOAD_URL}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {t('settings.remoteTailscaleInstall')}
+              </a>
+            )}
+            <button type="button" className="st-ghost st-remote-refresh" onClick={refresh}>
+              {t('settings.remoteTailscaleRefresh')}
+            </button>
+          </div>
+        </div>
+      </div>
 
       <label className="st-switch">
         <input
@@ -96,9 +150,9 @@ export function RemoteSection(): React.JSX.Element | null {
               apply({ bindAddress: event.target.value })
             }}
           >
-            {interfaces.map((option) => (
-              <option key={option.address} value={option.address}>
-                {option.label}
+            {picker.map((option) => (
+              <option key={option.address || 'tailscale-auto'} value={option.address}>
+                {bindOptionLabel(option, t)}
               </option>
             ))}
           </select>
@@ -145,7 +199,12 @@ export function RemoteSection(): React.JSX.Element | null {
           />
           <label className="st-label">{t('settings.remotePairingUrl')}</label>
           <input className="st-input st-mono" readOnly value={status.pairingUrl} />
-          <button type="button" className="st-secondary" disabled={busy} onClick={() => bridge.regenerateRemoteToken().then(setStatus)}>
+          <button
+            type="button"
+            className="st-secondary"
+            disabled={busy}
+            onClick={() => bridge.regenerateRemoteToken().then(setStatus)}
+          >
             {t('settings.remoteRegenerate')}
           </button>
           <span className="st-hint">{t('settings.remoteRegenerateHint')}</span>
@@ -165,7 +224,7 @@ export function RemoteSection(): React.JSX.Element | null {
                   <button
                     type="button"
                     className="st-ghost"
-                    onClick={() => bridge.revokeRemoteClient(client.id).then(refreshClients)}
+                    onClick={() => bridge.revokeRemoteClient(client.id).then(refresh)}
                   >
                     {t('settings.remoteRevoke')}
                   </button>
@@ -177,9 +236,4 @@ export function RemoteSection(): React.JSX.Element | null {
       ) : null}
     </section>
   )
-}
-
-/** The controller reports the bound address on `address`. */
-function statusBindAddress(status: RemoteStatus): string | undefined {
-  return status.address
 }
