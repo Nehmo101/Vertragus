@@ -78,6 +78,13 @@ export interface McpServerHandle {
    * shortened to one line. The panel appends it to the workspace tooltip.
    */
   workspaceTask(workspaceId: string): string | undefined
+  /**
+   * One agent's current assignment, shortened to one line — what the panel's
+   * agent rows and the CLI windows' hover cards show. Undefined before the
+   * agent got its first task (and for the orchestrator, which is never
+   * assigned one through these tools — see {@link workspaceTask}).
+   */
+  agentTask(workspaceId: string, agentId: string): string | undefined
   close(): Promise<void>
 }
 
@@ -365,7 +372,11 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
     if (workspaces.has(ctx.workspaceId)) {
       throw new Error(`MCP workspace already registered: ${ctx.workspaceId}`)
     }
-    const runtime: WorkspaceRuntime = { ctx, questions: new PendingQuestions() }
+    const runtime: WorkspaceRuntime = {
+      ctx,
+      questions: new PendingQuestions(),
+      agentTasks: new Map()
+    }
     workspaces.set(ctx.workspaceId, runtime)
     return {
       runtime,
@@ -405,6 +416,10 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
 
     workspaceTask(workspaceId: string): string | undefined {
       return workspaces.get(workspaceId)?.latestTask
+    },
+
+    agentTask(workspaceId: string, agentId: string): string | undefined {
+      return workspaces.get(workspaceId)?.agentTasks.get(agentId)
     },
 
     async close(): Promise<void> {

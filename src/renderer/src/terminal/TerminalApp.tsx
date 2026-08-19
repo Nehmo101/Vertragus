@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { loreBlurb } from '@shared/lore'
 import { applyLocale } from '../i18n'
 import { LoreTip } from '../lore/LoreTip'
 import { applyTheme } from '../theme'
+import { metaBlurb } from './titleBlurb'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { WebLinksAddon } from '@xterm/addon-web-links'
+import type { Translate } from '../i18n'
 import type { TerminalAgentMeta, TerminalExitEvent } from '../../../preload'
 import '@xterm/xterm/css/xterm.css'
 import './terminal.css'
@@ -46,12 +47,17 @@ function loadRenderer(term: Terminal): void {
  * — this window IS "Fortuna", and the one place a user asks who that is, is the
  * bar with the name in it.
  */
-function metaLabel(meta: TerminalAgentMeta | null, agentId: string): React.JSX.Element {
+function metaLabel(
+  t: Translate,
+  meta: TerminalAgentMeta | null,
+  agentId: string,
+  task: string | undefined
+): React.JSX.Element {
   if (!meta) return <span className="cli-label-dim">{agentId}</span>
   const engine = [meta.provider, meta.model].filter(Boolean).join(' ')
   return (
     <>
-      <LoreTip name={meta.name} blurb={loreBlurb(meta.name)} />
+      <LoreTip name={meta.name} blurb={metaBlurb(t, meta, task)} />
       <span className="cli-label-dim">
         {' · '}
         {meta.role}
@@ -97,6 +103,7 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
   const { t } = useTranslation()
   const hostRef = useRef<HTMLDivElement>(null)
   const [meta, setMeta] = useState<TerminalAgentMeta | null>(null)
+  const [task, setTask] = useState<string | undefined>(undefined)
   const [exit, setExit] = useState<TerminalExitEvent | { exitCode: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
   /** Mirrors the window's real state; main answers with it on every toggle. */
@@ -188,6 +195,7 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
       setExit(event)
       term.write(`\r\n\x1b[90m${t('terminal.exitLine', { code: event.exitCode })}\x1b[0m\r\n`)
     })
+    const offTask = bridge.onTask((event) => setTask(event.task))
     const offInput = term.onData((data) => bridge.input(data))
 
     const observer = new ResizeObserver(() => applyFit())
@@ -201,6 +209,7 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
         if (result.locale) void applyLocale(result.locale)
         if (result.theme) applyTheme(result.theme)
         setMeta(result.meta)
+        setTask(result.task)
         setMaximized(result.maximized)
         if (result.exit) setExit(result.exit)
         term.write(result.snapshot)
@@ -220,6 +229,7 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
       observer.disconnect()
       offData()
       offExit()
+      offTask()
       offInput.dispose()
       searchRef.current = null
       termRef.current = null
@@ -267,7 +277,7 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
             running ? t('terminal.running') : t('terminal.stopped', { code: exit?.exitCode })
           }
         />
-        <span className="cli-label">{metaLabel(meta, agentId)}</span>
+        <span className="cli-label">{metaLabel(t, meta, agentId, task)}</span>
         <button
           className="cli-minimize"
           onClick={minimize}

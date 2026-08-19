@@ -378,6 +378,56 @@ describe('window:maximize', () => {
   })
 })
 
+describe('terminal:task', () => {
+  it('rides on the attach result once a task note is set', () => {
+    expect(attach(10).task).toBeUndefined()
+    registry.setAgentTask('agent-a', 'Fix the parser')
+    expect(attach(10).task).toBe('Fix the parser')
+    expect(attach(20).task).toBeUndefined()
+  })
+
+  it('pushes a change to the attached window and dedupes repeats', () => {
+    attach(10)
+    registry.setAgentTask('agent-a', 'Fix the parser')
+    registry.setAgentTask('agent-a', 'Fix the parser')
+
+    expect(sent).toEqual([
+      {
+        agentId: 'agent-a',
+        channel: TERMINAL_CHANNELS.task,
+        payload: { agentId: 'agent-a', task: 'Fix the parser' }
+      }
+    ])
+  })
+
+  it('stays quiet for a detached window — the next attach carries the note', () => {
+    registry.setAgentTask('agent-a', 'Fix the parser')
+    expect(sent).toHaveLength(0)
+    expect(attach(10).task).toBe('Fix the parser')
+  })
+
+  it('ignores unknown agents and survives a re-registration', () => {
+    expect(() => registry.setAgentTask('ghost', 'nothing')).not.toThrow()
+    registry.setAgentTask('agent-a', 'Fix the parser')
+    // A PTY swap under the same id keeps the note, like the rest of the record.
+    registry.registerAgent({ pty: new FakePty(), meta: meta('agent-a') })
+    expect(attach(10).task).toBe('Fix the parser')
+  })
+
+  it('clears the note when the assignment is withdrawn', () => {
+    attach(10)
+    registry.setAgentTask('agent-a', 'Fix the parser')
+    registry.setAgentTask('agent-a', undefined)
+
+    expect(sent[1]).toEqual({
+      agentId: 'agent-a',
+      channel: TERMINAL_CHANNELS.task,
+      payload: { agentId: 'agent-a' }
+    })
+    expect(attach(10).task).toBeUndefined()
+  })
+})
+
 describe('AgentRegistry', () => {
   it('lists and looks up registered agents', () => {
     expect(registry.listAgents().map((entry) => entry.meta.agentId)).toEqual(['agent-a', 'agent-b'])

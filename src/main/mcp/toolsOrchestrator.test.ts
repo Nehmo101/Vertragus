@@ -144,6 +144,21 @@ describe('start_agent', () => {
     expect(runtime.latestTask).toHaveLength(140)
     expect(runtime.latestTask!.endsWith('…')).toBe(true)
   })
+
+  it('records each agent\'s own current task and announces the change', async () => {
+    const { runtime, tools } = setup()
+    let notified = 0
+    runtime.onTasksChanged = () => {
+      notified += 1
+    }
+
+    await callTool(tools, 'start_agent', { role: 'worker', task: 'Fix the parser\ndetails' })
+    await callTool(tools, 'start_agent', { role: 'reviewer', task: 'Review the parser fix' })
+
+    expect(runtime.agentTasks.get('agent-1')).toBe('Fix the parser')
+    expect(runtime.agentTasks.get('agent-2')).toBe('Review the parser fix')
+    expect(notified).toBe(2)
+  })
 })
 
 describe('send_to_agent', () => {
@@ -188,6 +203,9 @@ describe('send_to_agent', () => {
     const { runtime, tools, agentId } = await withAgent()
     await callTool(tools, 'send_to_agent', { agentId, text: 'also update the docs' })
     expect(runtime.latestTask).toBe('also update the docs')
+    // The agent's own note follows the follow-up — this is what the panel row
+    // and the CLI window's hover card show for it.
+    expect(runtime.agentTasks.get(agentId)).toBe('also update the docs')
 
     const question = runtime.questions.create(agentId, 'zod or valibot?')
     await callTool(tools, 'send_to_agent', {
@@ -196,6 +214,7 @@ describe('send_to_agent', () => {
       questionId: question.questionId
     })
     expect(runtime.latestTask).toBe('also update the docs')
+    expect(runtime.agentTasks.get(agentId)).toBe('also update the docs')
   })
 
   it('answers an open question instead of typing it', async () => {

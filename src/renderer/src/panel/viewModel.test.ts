@@ -88,6 +88,15 @@ describe('agent status line', () => {
     expect(agentStatusLine(t, agent({ state: 'stopped' }))).toBe('Worker · beendet')
   })
 
+  it('shows the note only while the agent works — a stopped agent must not look busy', () => {
+    expect(agentStatusLine(t, agent({ state: 'stopped', statusText: 'T-142' }))).toBe(
+      'Worker · beendet'
+    )
+    expect(agentStatusLine(t, agent({ state: 'waiting', statusText: 'T-142' }))).toBe(
+      'Worker · wartet'
+    )
+  })
+
   it('speaks the language it is handed, not the one it was authored in', () => {
     expect(agentStatusLine(en, agent({ roleLabel: 'Reviewer', state: 'waiting' }))).toBe(
       'Reviewer · waiting'
@@ -104,9 +113,36 @@ describe('agent status line', () => {
 
 describe('tooltips', () => {
   it('reveals who a Commedia figure is, numbered clones included', () => {
-    expect(agentTooltip(agent({ name: 'Caronte' }))).toMatch(/Fährmann/)
-    expect(agentTooltip(agent({ name: 'Virgilio 2' }))).toMatch(/Führer/)
-    expect(agentTooltip(agent({ name: 'Nobody' }))).toBeUndefined()
+    expect(agentTooltip(t, agent({ name: 'Caronte' }))).toMatch(/Fährmann/)
+    expect(agentTooltip(t, agent({ name: 'Virgilio 2' }))).toMatch(/Führer/)
+    expect(agentTooltip(t, agent({ name: 'Nobody' }))).toBeUndefined()
+  })
+
+  it('appends the agent\'s current task to its hover card', () => {
+    const withTask = agent({ statusText: 'Parser-Bug in tokenizer.ts fixen' })
+    expect(agentTooltip(t, withTask)).toMatch(/Fährmann/)
+    expect(agentTooltip(t, withTask)).toContain(
+      'Aktuelle Aufgabe: Parser-Bug in tokenizer.ts fixen'
+    )
+    expect(agentTooltip(en, withTask)).toContain(
+      'Current task: Parser-Bug in tokenizer.ts fixen'
+    )
+    // Whitespace is not a task — the blurb stands alone.
+    expect(agentTooltip(t, agent({ statusText: '   ' }))).not.toContain('Aufgabe')
+    // A name outside the roster still gets a card once there is a task.
+    expect(agentTooltip(t, agent({ name: 'Nobody', statusText: 'Docs schreiben' }))).toBe(
+      'Aktuelle Aufgabe: Docs schreiben'
+    )
+  })
+
+  it('labels the orchestrator\'s task line as delegated, not as its own', () => {
+    const orchestrator = agent({
+      name: 'Virgilio',
+      roleId: 'orchestrator',
+      statusText: 'Parser-Bug fixen'
+    })
+    expect(agentTooltip(t, orchestrator)).toContain('Zuletzt delegiert: Parser-Bug fixen')
+    expect(agentTooltip(en, orchestrator)).toContain('Last delegated: Parser-Bug fixen')
   })
 
   it('reveals what kind of place a workspace is, cycle suffix included', () => {

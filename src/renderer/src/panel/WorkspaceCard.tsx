@@ -35,7 +35,7 @@ function AgentRow({ agent, onFocus }: AgentProps): React.JSX.Element {
         onClick={() => onFocus(agent.agentId)}
       >
         <span className={agentDotClass(agent)} />
-        <LoreTip className="panel-agent-name" name={agent.name} blurb={agentTooltip(agent)} />
+        <LoreTip className="panel-agent-name" name={agent.name} blurb={agentTooltip(t, agent)} />
         <span className="panel-agent-status">{agentStatusLine(t, agent)}</span>
         {agent.pendingQuestion ? (
           <span className="panel-question" title={agent.pendingQuestion}>

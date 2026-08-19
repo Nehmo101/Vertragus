@@ -38,6 +38,10 @@ function defaultStateText(t: Translate, state: WorkspaceAgentSummary['state']): 
  * "Reviewer · wartet". A host that has nothing specific to say still produces a
  * truthful line from the state alone — an empty status reads as "hung".
  *
+ * Only a WORKING agent shows its note: the note is the current task, and a
+ * stopped or still-starting agent presenting it as live activity would lie.
+ * The full task stays reachable on the name's hover card either way.
+ *
  * `t` is a parameter rather than a module-level import for the same reason the
  * rest of this file is pure: these functions run in plain Node tests, and a
  * captured singleton would be a language they could never switch.
@@ -47,13 +51,33 @@ export function agentStatusLine(
   agent: Pick<WorkspaceAgentSummary, 'state' | 'roleId' | 'roleLabel' | 'statusText'>
 ): string {
   const role = agent.roleLabel?.trim() || agent.roleId
-  const note = agent.statusText?.trim() || defaultStateText(t, agent.state)
+  const note =
+    agent.state === 'working'
+      ? agent.statusText?.trim() || defaultStateText(t, agent.state)
+      : defaultStateText(t, agent.state)
   return `${role} · ${note}`
 }
 
-/** Tooltip for an agent's code-name — who is this figure in the Commedia? */
-export function agentTooltip(agent: Pick<WorkspaceAgentSummary, 'name'>): string | undefined {
-  return loreBlurb(agent.name)
+/**
+ * Hover-card text for an agent's code-name — who is this figure in the
+ * Commedia, and what is it working on? The task line comes from the agent's
+ * current assignment (`statusText`); for the orchestrator, which is never
+ * assigned a task through the tools, it is the last one it delegated.
+ * Undefined when there is neither — a card repeating the bare name would be
+ * worse than no card (see {@link workspacePlaceTooltip}).
+ */
+export function agentTooltip(
+  t: Translate,
+  agent: Pick<WorkspaceAgentSummary, 'name' | 'roleId' | 'statusText'>
+): string | undefined {
+  const blurb = loreBlurb(agent.name)
+  const task = agent.statusText?.trim()
+  if (!task) return blurb
+  const taskLine =
+    agent.roleId === ORCHESTRATOR_ROLE_ID
+      ? t('panel.orchestratorTask', { task })
+      : t('panel.agentTask', { task })
+  return blurb ? `${blurb}\n\n${taskLine}` : taskLine
 }
 
 /**
