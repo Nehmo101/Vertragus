@@ -26,7 +26,7 @@ export function App(): React.JSX.Element {
     // only the display and the demo flag are read from the route here.
     const [path, query] = route.slice(ZONES_ROUTE.length).split('?')
     const params = new URLSearchParams(query ?? '')
-    return <ZonesApp displayId={Number(path) || 0} demo={params.get('demo') === '1'} />
+    return <ZonesApp displayId={Number(path) || 0} demo={params.get('demo') === '1'} pick={params.get('pick') === '1'} />
   }
   // Before the profile route: '/profile-editor' is not a prefix of
   // '/provider-editor', but keeping the more specific test first is what stops

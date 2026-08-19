@@ -8,10 +8,10 @@ import { PtyAgent } from './agents/PtyAgent'
 import { resolveLaunch } from './agents/resolveCommand'
 import { registerAppIpc, type WorkspaceDirectory, type WorkspaceSummary } from './appIpc'
 import { createAppWorkspaceManager, maybeStartDevWorkspace, type DevRunHandle } from './devRun'
-import { registerTerminalIpc } from './ipc'
+import { getAgentRegistry, registerTerminalIpc } from './ipc'
 import { startMcpServer, type McpServerHandle } from './mcp/server'
 import { getProfile, getProfiles, getRoleTemplates, getSettings, setSetting } from './store/settings'
-import { createCliWindow, focusCliWindow } from './windows/cliWindow'
+import { closeCliWindow, createCliWindow, focusCliWindow, getCliWindow, onCliWindowClosed } from './windows/cliWindow'
 import { cliFocusTargets, focusWorkspaceAgents } from './windows/focusWorkspace'
 import { registerAppHideAllShortcut, unregisterHideAllShortcut } from './windows/hideAll'
 import { createPanelWindow } from './windows/panel'
@@ -25,7 +25,6 @@ import {
 import { createRemoteController, type RemoteController } from './remote/controller'
 import { registerRemoteIpc } from './remote/ipc'
 import { bindOptions } from './remote/interfaces'
-import { getAgentRegistry } from './ipc'
 import { armWindowCapture } from './windows/smokeCapture'
 import { armZoneOverlaySmoke } from './windows/zoneOverlay'
 import { startAppUpdater } from './updater'
@@ -59,6 +58,8 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
       manager.list().flatMap((workspace) => workspace.activeWorktreePaths())
   })
 
+  const windowOpenOf = (agentId: string): boolean => getCliWindow(agentId) !== null
+
   return {
     list: () =>
       manager.list().map<WorkspaceSummary>((ws) => {
@@ -87,6 +88,7 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
                     // The orchestrator is never assigned a task through the
                     // tools — the closest truth is the last one it delegated.
                     ...(taskText ? { statusText: taskText } : {}),
+                    ...(windowOpenOf(orchestrator.agentId) ? { windowOpen: true } : {}),
                     ...(pendingOf(ws.workspaceId, orchestrator.agentId)
                       ? { pendingQuestion: pendingOf(ws.workspaceId, orchestrator.agentId) }
                       : {})
@@ -109,6 +111,7 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
                       ? ('waiting' as const)
                       : ('stopped' as const),
                 ...(agentTask ? { statusText: agentTask } : {}),
+                ...(windowOpenOf(agent.agentId) ? { windowOpen: true } : {}),
                 ...(pendingQuestion ? { pendingQuestion } : {})
               }
             })
@@ -124,7 +127,19 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
       return manager.startWorkspace(profile)
     },
     stop: (workspaceId) => manager.stopWorkspace(workspaceId),
-    focusAgent: (agentId) => focusCliWindow(agentId),
+    focusAgent(agentId) {
+      if (getCliWindow(agentId)) {
+        focusCliWindow(agentId)
+        return
+      }
+      // A closed window of a still-registered agent (finished, scrollback
+      // intact) reopens so the last task is not a tooltip-only memory.
+      if (!getAgentRegistry().getAgent(agentId)) return
+      for (const workspace of manager.list()) {
+        if (workspace.showAgentWindow(agentId)) return
+      }
+    },
+    closeAgentWindow: (agentId) => closeCliWindow(agentId),
     focusWorkspace(workspaceId) {
       const workspace = manager.get(workspaceId)
       if (!workspace) return
@@ -139,8 +154,16 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
     removeWorktree: (profileId, worktreePath) => cleanup.remove(profileId, worktreePath),
     // The push channel: appIpc turns this into ev:workspaces, which is what
     // lets the panel drop its poll — badges and card states update the moment
-    // something happens instead of up to four seconds later.
-    onChange: (listener) => manager.onChange(listener)
+    // something happens instead of up to four seconds later. Window close is
+    // the same feed: dismissing a finished agent must drop its ✕ immediately.
+    onChange: (listener) => {
+      const offManager = manager.onChange(listener)
+      const offWindows = onCliWindowClosed(() => listener())
+      return () => {
+        offManager()
+        offWindows()
+      }
+    }
   }
 }
 

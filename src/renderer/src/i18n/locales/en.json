@@ -47,6 +47,7 @@
     "agentWaiting": "waiting",
     "agentStopped": "stopped",
     "focusAgent": "Bring {{agent}}’s window to the front",
+    "closeAgentWindow": "Close {{agent}}’s window — the last task stays in the list",
     "yolo": "Yolo",
     "yoloOn": "Yolo master is ON — subagents may act without asking",
     "yoloOff": "Yolo master is OFF — subagents ask first",
@@ -329,7 +330,12 @@
     "autoLayout": "Auto layout",
     "empty": "No zone on this screen yet — pick a role below.",
     "cancel": "Cancel (Esc)",
-    "demoBadge": "Demo view"
+    "demoBadge": "Demo view",
+    "pickTitle": "Choose a screen",
+    "pickHint": "Several screens — pick which one Vertragus should spread windows across.",
+    "pickThis": "Place Vertragus here",
+    "pickPrimary": "Primary screen",
+    "pickOther": "Or click the other screen."
   },
   "terminal": {
     "currentTask": "Current task: {{task}}",

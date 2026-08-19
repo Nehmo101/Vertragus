@@ -68,6 +68,20 @@ interface CliWindowEntry {
 }
 
 const windows = new Map<string, CliWindowEntry>()
+/** Panel refresh: a closed window must drop its ✕ and stay listed as finished. */
+const closedListeners = new Set<(agentId: string) => void>()
+
+/** Subscribe to CLI windows disappearing — closed by the user or by stop. */
+export function onCliWindowClosed(listener: (agentId: string) => void): () => void {
+  closedListeners.add(listener)
+  return () => {
+    closedListeners.delete(listener)
+  }
+}
+
+function notifyClosed(agentId: string): void {
+  for (const listener of [...closedListeners]) listener(agentId)
+}
 
 export function cliWindowTitle(agentName: string): string {
   return `Vertragus — ${agentName}`
@@ -211,6 +225,7 @@ export function createCliWindow(agentId: string, options: CliWindowOptions): Bro
     if (entry?.window === win) windows.delete(agentId)
     // A reopened agent tiles again; the old "user moved it" mark is stale.
     forgetWindowPlacement(agentId)
+    notifyClosed(agentId)
   })
 
   windows.set(agentId, { agentId, window: win, options })

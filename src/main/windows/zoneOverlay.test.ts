@@ -115,14 +115,20 @@ describe('openZoneOverlayWindows', () => {
     expect(secureWindow).toHaveBeenCalledWith(win)
     expect(loadRoute).toHaveBeenCalledWith(
       win,
-      `/zones/11?profile=${encodeURIComponent('profile 1/x')}`
+      `/zones/11?profile=${encodeURIComponent('profile 1/x')}&pick=1`
     )
-    expect(loadRoute).toHaveBeenCalledWith(expect.anything(), '/zones/22?profile=profile%201%2Fx')
+    expect(loadRoute).toHaveBeenCalledWith(
+      expect.anything(),
+      '/zones/22?profile=profile%201%2Fx&pick=1'
+    )
   })
 
-  it('adds the demo flag only when asked (the screenshot hook)', () => {
+  it('adds the demo flag only when asked and skips the picker (the screenshot hook)', () => {
     overlay.openZoneOverlayWindows('demo', { demo: true })
     expect(loadRoute).toHaveBeenCalledWith(expect.anything(), '/zones/11?profile=demo&demo=1')
+    expect(overlay.isZoneOverlaySender(FakeBrowserWindow.instances[0]!.webContents.id)?.pick).toBe(
+      false
+    )
   })
 
   it('refocuses a running session instead of opening a second one', () => {
@@ -154,11 +160,13 @@ describe('the overlay registry', () => {
 
     expect(overlay.isZoneOverlaySender(a!.webContents.id)).toEqual({
       profileId: 'p1',
-      displayId: 11
+      displayId: 11,
+      pick: true
     })
     expect(overlay.isZoneOverlaySender(b!.webContents.id)).toEqual({
       profileId: 'p1',
-      displayId: 22
+      displayId: 22,
+      pick: true
     })
     expect(overlay.zoneOverlayDisplayIds()).toEqual([11, 22])
   })
@@ -212,6 +220,24 @@ describe('the overlay registry', () => {
 
     expect(FakeBrowserWindow.instances).toHaveLength(4)
     expect(overlay.listZoneOverlayWindows().map((entry) => entry.profileId)).toEqual(['p2', 'p2'])
+  })
+
+  it('keeps only the chosen display and flips it out of picker mode', () => {
+    overlay.openZoneOverlayWindows('p1')
+    const [first, second] = FakeBrowserWindow.instances
+    expect(overlay.selectZoneOverlayDisplay(11)).toBe(true)
+
+    expect(second!.destroyed).toBe(true)
+    expect(overlay.zoneOverlayDisplayIds()).toEqual([11])
+    expect(overlay.isZoneOverlaySender(first!.webContents.id)).toEqual({
+      profileId: 'p1',
+      displayId: 11,
+      pick: false
+    })
+    expect(loadRoute).toHaveBeenCalledWith(first, '/zones/11?profile=p1')
+    // A second pick on the same overlay is a no-op that keeps the editor.
+    expect(overlay.selectZoneOverlayDisplay(11)).toBe(true)
+    expect(overlay.zoneOverlayDisplayIds()).toEqual([11])
   })
 })
 

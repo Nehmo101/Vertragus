@@ -1,8 +1,9 @@
 import { useTranslation } from 'react-i18next'
 import type { WorkspaceAgentSummary, WorkspaceSummary } from '../../../preload'
 import { LoreTip } from '../lore/LoreTip'
-import { StopIcon } from './icons'
+import { CloseIcon, StopIcon } from './icons'
 import {
+  agentCanCloseWindow,
   agentCountLabel,
   agentDotClass,
   agentRowClass,
@@ -16,17 +17,19 @@ import {
 interface AgentProps {
   agent: WorkspaceAgentSummary
   onFocus(agentId: string): void
+  onCloseWindow(agentId: string): void
 }
 
 /**
- * One agent line. The whole row is the click target — "bring that window to the
- * front" is the only thing a user ever wants from it, so it should not require
- * hitting a 12px name.
+ * One agent line. The row brings the window to the front; a finished agent
+ * whose window is still open also has an ✕ so it can leave the screen without
+ * dropping the last task from the list.
  */
-function AgentRow({ agent, onFocus }: AgentProps): React.JSX.Element {
+function AgentRow({ agent, onFocus, onCloseWindow }: AgentProps): React.JSX.Element {
   const { t } = useTranslation()
+  const canClose = agentCanCloseWindow(agent)
   return (
-    <li>
+    <li className="panel-agent-line">
       <button
         type="button"
         className={agentRowClass(agent)}
@@ -43,6 +46,17 @@ function AgentRow({ agent, onFocus }: AgentProps): React.JSX.Element {
           </span>
         ) : null}
       </button>
+      {canClose ? (
+        <button
+          type="button"
+          className="panel-agent-dismiss"
+          title={t('panel.closeAgentWindow', { agent: agent.name })}
+          aria-label={t('panel.closeAgentWindow', { agent: agent.name })}
+          onClick={() => onCloseWindow(agent.agentId)}
+        >
+          <CloseIcon size={11} />
+        </button>
+      ) : null}
     </li>
   )
 }
@@ -53,6 +67,7 @@ interface Props {
   onToggle(): void
   onStop(workspaceId: string): void
   onFocusAgent(agentId: string): void
+  onCloseAgentWindow(agentId: string): void
 }
 
 /**
@@ -64,7 +79,8 @@ export function WorkspaceCard({
   expanded,
   onToggle,
   onStop,
-  onFocusAgent
+  onFocusAgent,
+  onCloseAgentWindow
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
   const stop = t('panel.stopWorkspace', { workspace: workspace.name })
@@ -112,7 +128,12 @@ export function WorkspaceCard({
             <li className="panel-agents-empty">{t('panel.noAgents')}</li>
           ) : (
             workspace.agents.map((agent) => (
-              <AgentRow key={agent.agentId} agent={agent} onFocus={onFocusAgent} />
+              <AgentRow
+                key={agent.agentId}
+                agent={agent}
+                onFocus={onFocusAgent}
+                onCloseWindow={onCloseAgentWindow}
+              />
             ))
           )}
         </ul>

@@ -129,14 +129,43 @@ function ZoneRect({
 
 export function ZonesApp({
   displayId,
-  demo = false
+  demo = false,
+  pick = false
 }: {
   displayId: number
   demo?: boolean
+  pick?: boolean
 }): React.JSX.Element {
   const { t } = useTranslation()
-  const editor = useZoneEditor({ displayId, demo })
+  const editor = useZoneEditor({ displayId, demo, pick })
   const gestureRef = useRef<Gesture | null>(null)
+
+  if (editor.selectingDisplay) {
+    return (
+      <div className="zones">
+        <div className="zones-wash" />
+        <div className="zones-pick">
+          <span className="zones-pick-kicker">{t('zones.pickTitle')}</span>
+          <h1 className="zones-pick-title">{t('zones.pickThis')}</h1>
+          <p className="zones-pick-hint">{t('zones.pickHint')}</p>
+          <p className="zones-pick-meta">
+            {editor.displayLabel ? `${editor.displayLabel} · ` : ''}
+            {t('zones.display', { width: editor.viewport.width, height: editor.viewport.height })}
+            {editor.displayPrimary ? ` · ${t('zones.pickPrimary')}` : ''}
+          </p>
+          <button type="button" className="zones-primary" onClick={editor.pickDisplay}>
+            {t('zones.pickThis')}
+          </button>
+          {editor.displayCount > 2 ? null : (
+            <span className="zones-pick-other">{t('zones.pickOther')}</span>
+          )}
+          <button type="button" className="zones-ghost" onClick={editor.cancel}>
+            {t('zones.cancel')}
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="zones">

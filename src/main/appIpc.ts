@@ -40,7 +40,7 @@ import type { AppSettings, SettingsStore } from '@main/store/settings'
 import { settings } from '@main/store/settings'
 import { discoverModels, type ModelDiscoveryResult } from '@main/providers/discovery'
 import { checkAllProviders, type ProviderHealth } from '@main/providers/health'
-import { focusCliWindow, listCliWindows } from '@main/windows/cliWindow'
+import { closeCliWindow, focusCliWindow, listCliWindows } from '@main/windows/cliWindow'
 import {
   hideAllHotkeyStatus,
   reRegisterHideAllShortcut,
@@ -70,9 +70,12 @@ import { appUpdater, onUpdateState } from '@main/updater'
 import {
   closeZoneOverlayWindows,
   isZoneOverlaySender,
+  listZoneDisplays,
   listZoneOverlayWindows,
   openZoneOverlayWindows,
+  selectZoneOverlayDisplay,
   zoneOverlayDisplayIds,
+  type ZoneDisplayInfo,
   type ZoneOverlaySender
 } from '@main/windows/zoneOverlay'
 import type { MinimalIpcMain } from './ipc'
@@ -92,6 +95,7 @@ export const APP_CHANNELS = {
   workspacesStop: 'workspaces:stop',
   workspacesFocusAgent: 'workspaces:focusAgent',
   workspacesFocus: 'workspaces:focus',
+  workspacesCloseAgent: 'workspaces:closeAgent',
   worktreesList: 'worktrees:list',
   worktreesRemove: 'worktrees:remove',
   retroList: 'retro:list',
@@ -118,6 +122,7 @@ export const APP_CHANNELS = {
   zonesDraft: 'zones:draft',
   zonesSave: 'zones:save',
   zonesCancel: 'zones:cancel',
+  zonesPickDisplay: 'zones:pickDisplay',
   eventProfiles: 'ev:profiles',
   eventProviders: 'ev:providers',
   eventWorkspaces: 'ev:workspaces',
@@ -164,6 +169,12 @@ export interface WorkspaceAgentSummary {
   state: PanelAgentState
   /** Short activity note ("plant", "T-142"). Absent = derived from `state`. */
   statusText?: string
+  /**
+   * True while this agent's CLI window is on screen. A finished agent whose
+   * window is still open can be dismissed with ✕; a closed one stays listed
+   * so the last task remains readable, and a click reopens the scrollback.
+   */
+  windowOpen?: boolean
   /** Set while the agent waits for an answer — drives the `?` badge. */
   pendingQuestion?: string
 }
@@ -205,6 +216,12 @@ export interface WorkspaceDirectory {
   /** Bring an agent's CLI window to the front. */
   focusAgent(agentId: string): void
   /**
+   * Close one agent's CLI window. The agent (and its last task) stay listed —
+   * a finished worker that occupied the screen can be dismissed without
+   * forgetting what it did.
+   */
+  closeAgentWindow(agentId: string): void
+  /**
    * Bring one workspace's CLI windows forward and minimize every other
    * agent's — positions stay; see {@link focusWorkspaceAgents}.
    */
@@ -242,6 +259,7 @@ export function createStubWorkspaceDirectory(
     start: refuse,
     stop: refuse,
     focusAgent: (agentId) => focusCliWindow(agentId),
+    closeAgentWindow: (agentId) => closeCliWindow(agentId),
     // No manager → no workspace→agent map; quiet no-op like focusAgent on a ghost.
     focusWorkspace() {},
     listStaleWorktrees: async () => refuse(),
@@ -349,6 +367,13 @@ export interface ZoneEditorPayload {
   /** Only the zones of THIS display; the other overlays own the rest. */
   zones: Zone[]
   /**
+   * Attached monitors — the picker names them, and a single-monitor session
+   * still reports the one it is on so the hint can say so.
+   */
+  displays: ZoneDisplayInfo[]
+  /** True while this overlay is asking "Vertragus hier verteilen?". */
+  selectingDisplay: boolean
+  /**
    * UI language / appearance for this overlay. Added by the `zones:load`
    * handler, not by {@link zoneEditorPayload} — an overlay cannot call
    * `settings:get`, so the one payload it does receive is where they travel.
@@ -367,7 +392,9 @@ export interface ZoneEditorPayload {
 export function zoneEditorPayload(
   profile: Profile,
   roleTemplates: readonly RoleTemplate[],
-  displayId: number
+  displayId: number,
+  displays: readonly ZoneDisplayInfo[] = [],
+  selectingDisplay = false
 ): ZoneEditorPayload {
   const templates = allRoleTemplates(roleTemplates)
   const roleIds = profileRoleIds(profile)
@@ -383,7 +410,9 @@ export function zoneEditorPayload(
         color: roleColor(roleId, index)
       }))
     ],
-    zones: (profile.zones?.zones ?? []).filter((zone) => zone.displayId === displayId)
+    zones: (profile.zones?.zones ?? []).filter((zone) => zone.displayId === displayId),
+    displays: [...displays],
+    selectingDisplay
   }
 }
 
@@ -399,7 +428,8 @@ export function zoneEditorPayload(
 export function mergeZoneLayout(
   existing: ZoneLayout | undefined,
   drafts: ReadonlyMap<number, readonly Zone[]>,
-  coveredDisplayIds: readonly number[]
+  coveredDisplayIds: readonly number[],
+  targetDisplayId?: number
 ): ZoneLayout {
   const covered = new Set([...coveredDisplayIds, ...drafts.keys()])
   const kept = (existing?.zones ?? []).filter((zone) => !covered.has(zone.displayId))
@@ -408,7 +438,13 @@ export function mergeZoneLayout(
   const drawn = [...drafts.entries()]
     .sort(([left], [right]) => left - right)
     .flatMap(([, zones]) => zones)
-  return zoneLayoutSchema.parse({ zones: [...kept, ...drawn] })
+  const target =
+    targetDisplayId ??
+    (coveredDisplayIds.length === 1 ? coveredDisplayIds[0] : existing?.targetDisplayId)
+  return zoneLayoutSchema.parse({
+    zones: [...kept, ...drawn],
+    ...(target !== undefined ? { targetDisplayId: target } : {})
+  })
 }
 
 // --- quitting ------------------------------------------------------------
@@ -500,6 +536,13 @@ export interface AppIpcHost {
   /** Open the zone overlay on every display for this profile. */
   openZoneOverlays(profileId: string): void
   closeZoneOverlays(): void
+  /**
+   * Keep this overlay and drop the rest — the multi-monitor picker. Optional
+   * so a test host that never opens overlays does not have to stub it.
+   */
+  selectZoneOverlayDisplay?(displayId: number): boolean
+  /** Attached monitors as the picker labels them. */
+  listZoneDisplays?(): ZoneDisplayInfo[]
   /** Profile + display behind this webContents, or null for anything else. */
   zoneOverlaySender(webContentsId: number): ZoneOverlaySender | null
   /** Displays currently covered by an overlay — see {@link mergeZoneLayout}. */
@@ -767,6 +810,14 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     host.directory.focusWorkspace(workspaceId)
   })
 
+  handle(APP_CHANNELS.workspacesCloseAgent, requirePanel, (_event, payload) => {
+    const agentId =
+      typeof payload === 'string' ? payload : (payload as { agentId?: string })?.agentId
+    if (!agentId) throw new Error('workspaces:closeAgent rejected — missing agent id')
+    host.directory.closeAgentWindow(agentId)
+    emitWorkspaces()
+  })
+
   // --- worktree cleanup ----------------------------------------------------
 
   handle(APP_CHANNELS.worktreesList, requirePanel, (_event, payload) => {
@@ -1018,7 +1069,13 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     // The overlay is not an "app window" on the settings guard, so this is the
     // only channel that can tell it which language and theme to draw in at open.
     return {
-      ...zoneEditorPayload(profile, host.store.getRoleTemplates(), sender.displayId),
+      ...zoneEditorPayload(
+        profile,
+        host.store.getRoleTemplates(),
+        sender.displayId,
+        host.listZoneDisplays?.() ?? [],
+        sender.pick
+      ),
       locale: host.store.getSettings().ui.locale,
       theme: host.store.getSettings().ui.theme
     }
@@ -1037,7 +1094,12 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     // display; the other displays come from the drafts they pushed while the
     // user was dragging.
     zoneDrafts.set(sender.displayId, parseDraftZones(body.zones, sender.displayId))
-    const zones = mergeZoneLayout(profile.zones, zoneDrafts, host.zoneOverlayDisplayIds())
+    const zones = mergeZoneLayout(
+      profile.zones,
+      zoneDrafts,
+      host.zoneOverlayDisplayIds(),
+      sender.displayId
+    )
     const profiles = host.store.saveProfile({ ...profile, zones })
     zoneDrafts.clear()
     emitProfiles(profiles)
@@ -1061,6 +1123,12 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     if (host.zoneOverlaySender(event.sender.id) === null) return
     zoneDrafts.clear()
     host.closeZoneOverlays()
+  }) as IpcListener)
+
+  host.ipcMain.on(APP_CHANNELS.zonesPickDisplay, ((event: IpcEvent): void => {
+    const sender = host.zoneOverlaySender(event.sender.id)
+    if (!sender) return
+    host.selectZoneOverlayDisplay?.(sender.displayId)
   }) as IpcListener)
 
   unsubscribeDirectory = host.directory.onChange?.(() => emitWorkspaces())
@@ -1230,6 +1298,8 @@ export function registerAppIpc(directory?: WorkspaceDirectory): AppIpc {
       openZoneOverlayWindows(profileId)
     },
     closeZoneOverlays: () => closeZoneOverlayWindows(),
+    selectZoneOverlayDisplay: (displayId) => selectZoneOverlayDisplay(displayId),
+    listZoneDisplays: () => listZoneDisplays(),
     zoneOverlaySender: (id) => isZoneOverlaySender(id),
     zoneOverlayDisplayIds: () => zoneOverlayDisplayIds(),
     hotkeyStatus: () => hideAllHotkeyStatus(),

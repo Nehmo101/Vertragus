@@ -38,9 +38,9 @@ function defaultStateText(t: Translate, state: WorkspaceAgentSummary['state']): 
  * "Reviewer · wartet". A host that has nothing specific to say still produces a
  * truthful line from the state alone — an empty status reads as "hung".
  *
- * Only a WORKING agent shows its note: the note is the current task, and a
- * stopped or still-starting agent presenting it as live activity would lie.
- * The full task stays reachable on the name's hover card either way.
+ * A working agent shows the live task. A stopped or still-starting one still
+ * shows what it was working on, after the state word — closing the window of a
+ * finished worker must not erase the assignment from the row.
  *
  * `t` is a parameter rather than a module-level import for the same reason the
  * rest of this file is pure: these functions run in plain Node tests, and a
@@ -51,11 +51,23 @@ export function agentStatusLine(
   agent: Pick<WorkspaceAgentSummary, 'state' | 'roleId' | 'roleLabel' | 'statusText'>
 ): string {
   const role = agent.roleLabel?.trim() || agent.roleId
-  const note =
-    agent.state === 'working'
-      ? agent.statusText?.trim() || defaultStateText(t, agent.state)
-      : defaultStateText(t, agent.state)
-  return `${role} · ${note}`
+  const task = agent.statusText?.trim()
+  if (agent.state === 'working') {
+    return `${role} · ${task || defaultStateText(t, agent.state)}`
+  }
+  const state = defaultStateText(t, agent.state)
+  return task ? `${role} · ${state} · ${task}` : `${role} · ${state}`
+}
+
+/**
+ * Finished agents whose CLI window is still on screen get an ✕. Closing it
+ * leaves the row (and the last task) in place — the window is the thing being
+ * dismissed, not the agent.
+ */
+export function agentCanCloseWindow(
+  agent: Pick<WorkspaceAgentSummary, 'state' | 'windowOpen'>
+): boolean {
+  return agent.state === 'stopped' && agent.windowOpen === true
 }
 
 /**

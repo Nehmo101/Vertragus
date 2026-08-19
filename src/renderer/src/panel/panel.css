@@ -587,6 +587,28 @@
   color: var(--err-text);
 }
 
+.panel-agent-dismiss {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease;
+}
+
+.panel-agent-dismiss:hover {
+  background: rgba(217, 115, 92, 0.18);
+  color: var(--err-text);
+}
+
 .panel-agents {
   list-style: none;
   margin: 6px 0 0;
@@ -602,11 +624,19 @@
   color: var(--text-3);
 }
 
+.panel-agent-line {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
 .panel-agent {
   display: flex;
   align-items: center;
   gap: 7px;
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
   padding: 3px 5px;
   border: 0;
   border-radius: 8px;
