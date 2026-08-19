@@ -37,7 +37,8 @@ const ORCHESTRATOR_INSTRUCTIONS = [
   'These are the Vertragus orchestration tools for your workspace.',
   'Delegate work with start_agent, then loop on await_events and handle every event.',
   'Verify file changes with inspect_agent, not by reading the terminal.',
-  'Answer agent_question events immediately with send_to_agent{questionId}.'
+  'Answer agent_question events immediately with send_to_agent{questionId}.',
+  'Call request_succession when your context is nearly full — that replaces you, it does not end the run.'
 ].join(' ')
 
 const SUBAGENT_INSTRUCTIONS = [
@@ -59,6 +60,13 @@ export interface RegisteredWorkspace {
   runtime: WorkspaceRuntime
   orchestratorUrl: string
   subagentUrl(agentId: string): string
+  /**
+   * Invalidate the current orchestrator secret, close orchestrator MCP
+   * sessions, and return the new URL. Subagent URLs stay valid.
+   */
+  rotateOrchestratorToken(): { previousToken: string; orchToken: string; orchestratorUrl: string }
+  /** Restore a previous orchestrator secret (succession spawn failure). */
+  applyOrchestratorToken(orchToken: string): { orchestratorUrl: string }
 }
 
 export interface McpServerHandle {
@@ -67,6 +75,12 @@ export interface McpServerHandle {
   unregisterWorkspace(workspaceId: string): void
   orchestratorUrl(workspaceId: string): string
   subagentUrl(workspaceId: string, agentId: string): string
+  rotateOrchestratorToken(workspaceId: string): {
+    previousToken: string
+    orchToken: string
+    orchestratorUrl: string
+  }
+  applyOrchestratorToken(workspaceId: string, orchToken: string): { orchestratorUrl: string }
   /**
    * Open question text for an agent, if any. The host layer cannot see these —
    * they live only in {@link PendingQuestions}. The panel reads them so a
@@ -360,12 +374,40 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
     return runtime
   }
 
-  function closeSessionsOf(workspaceId: string): void {
+  function closeSessionsOf(workspaceId: string, kind?: McpIdentity['kind']): void {
     for (const [sid, record] of [...sessions.entries()]) {
       if (record.identity.workspaceId !== workspaceId) continue
+      if (kind && record.identity.kind !== kind) continue
       sessions.delete(sid)
       void record.transport.close()
     }
+  }
+
+  function rotateOrchestratorToken(workspaceId: string): {
+    previousToken: string
+    orchToken: string
+    orchestratorUrl: string
+  } {
+    const runtime = requireWorkspace(workspaceId)
+    const previousToken = runtime.ctx.orchToken
+    const orchToken = randomUUID()
+    runtime.ctx.orchToken = orchToken
+    closeSessionsOf(workspaceId, 'orchestrator')
+    return {
+      previousToken,
+      orchToken,
+      orchestratorUrl: buildOrchestratorUrl(port, workspaceId, orchToken, host)
+    }
+  }
+
+  function applyOrchestratorToken(
+    workspaceId: string,
+    orchToken: string
+  ): { orchestratorUrl: string } {
+    const runtime = requireWorkspace(workspaceId)
+    runtime.ctx.orchToken = orchToken
+    closeSessionsOf(workspaceId, 'orchestrator')
+    return { orchestratorUrl: buildOrchestratorUrl(port, workspaceId, orchToken, host) }
   }
 
   function registerWorkspace(ctx: WorkspaceMcpContext): RegisteredWorkspace {
@@ -382,7 +424,9 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
       runtime,
       orchestratorUrl: buildOrchestratorUrl(port, ctx.workspaceId, ctx.orchToken, host),
       subagentUrl: (agentId: string) =>
-        buildSubagentUrl(port, ctx.workspaceId, agentId, ctx.subToken, host)
+        buildSubagentUrl(port, ctx.workspaceId, agentId, ctx.subToken, host),
+      rotateOrchestratorToken: () => rotateOrchestratorToken(ctx.workspaceId),
+      applyOrchestratorToken: (token) => applyOrchestratorToken(ctx.workspaceId, token)
     }
   }
 
@@ -399,6 +443,8 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
     port,
     registerWorkspace,
     unregisterWorkspace,
+    rotateOrchestratorToken,
+    applyOrchestratorToken,
 
     orchestratorUrl(workspaceId: string): string {
       const runtime = requireWorkspace(workspaceId)

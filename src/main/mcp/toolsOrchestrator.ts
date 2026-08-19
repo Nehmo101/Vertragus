@@ -1,5 +1,5 @@
 /**
- * The eight tools the orchestrator agent gets. Everything the orchestrator can
+ * The tools the orchestrator agent gets. Everything the orchestrator can
  * do to the world goes through here — there is no second path.
  *
  * The tools deliberately do very little themselves: check the limits, compose
@@ -9,6 +9,7 @@
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { buildReminderSuffix, buildTaskContract } from '@shared/prompts/contract'
+import { successionRequestSchema } from '@shared/schema/handoff'
 import {
   errorMessage,
   INSPECT_VIEWS,
@@ -36,7 +37,8 @@ export const ORCHESTRATOR_TOOL_NAMES = [
   'stop_agent',
   'read_output',
   'inspect_agent',
-  'record_retro'
+  'record_retro',
+  'request_succession'
 ] as const
 
 export type OrchestratorToolName = (typeof ORCHESTRATOR_TOOL_NAMES)[number]
@@ -52,6 +54,16 @@ const AWAIT_TIMEOUT_NOTE =
   'No events within the wait window — this is normal, the agents are still working. ' +
   'Call await_events again with the cursor from this response. Do not stop, do not idle, ' +
   'and do not switch to polling list_agents.'
+
+function successionBlock(runtime: WorkspaceRuntime): ToolText | undefined {
+  if (!runtime.ctx.host.successionInProgress()) return undefined
+  return toolError({
+    error: 'succession_in_progress',
+    note:
+      'An orchestrator succession is in progress. Wait for the successor. ' +
+      'Do not start agents, send messages, stop agents, or record a retro.'
+  })
+}
 
 export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceRuntime): void {
   const { ctx } = runtime
@@ -86,6 +98,8 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
       }
     },
     async ({ role, task, model, baseBranch }): Promise<ToolText> => {
+      const blocked = successionBlock(runtime)
+      if (blocked) return blocked
       if (!ctx.roles.includes(role)) {
         return toolError({
           error: 'unknown_role',
@@ -203,6 +217,8 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
       }
     },
     async ({ agentId, text, questionId }): Promise<ToolText> => {
+      const blocked = successionBlock(runtime)
+      if (blocked) return blocked
       if (questionId) {
         const open = runtime.questions.get(questionId)
         if (!open) {
@@ -339,6 +355,8 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
       inputSchema: { agentId: z.string().min(1) }
     },
     async ({ agentId }): Promise<ToolText> => {
+      const blocked = successionBlock(runtime)
+      if (blocked) return blocked
       const known = ctx.host.listAgents().find((agent) => agent.agentId === agentId)
       let stopped: boolean
       try {
@@ -368,9 +386,10 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
     {
       description:
         'Your run retrospective — call it exactly once, at the end of the run, after stopping your ' +
-        'agents. Give a one-or-two-sentence verdict and per-model learnings: for every model that ' +
-        'ran, fill a strength AND a weakness slot when the run gave evidence for it. A slot may stay ' +
-        'empty — never invent a weakness. These insights steer model choice in future runs.',
+        'agents. Never call it as part of a context handoff (that is request_succession). Give a ' +
+        'one-or-two-sentence verdict and per-model learnings: for every model that ran, fill a ' +
+        'strength AND a weakness slot when the run gave evidence for it. A slot may stay empty — ' +
+        'never invent a weakness. These insights steer model choice in future runs.',
       inputSchema: {
         summary: z
           .string()
@@ -408,6 +427,8 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
       }
     },
     async ({ summary, learnings }): Promise<ToolText> => {
+      const blocked = successionBlock(runtime)
+      if (blocked) return blocked
       const retro = ctx.retro
       if (!retro) {
         return toolError({
@@ -499,6 +520,59 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
         return toolJson({ agentId, ...result })
       } catch (error) {
         return toolError({ error: 'inspect_failed', agentId, message: errorMessage(error) })
+      }
+    }
+  )
+
+  server.registerTool(
+    'request_succession',
+    {
+      description:
+        'Replace yourself with a successor orchestrator that continues this run with a fresh context. ' +
+        'Call this when your context is nearly full, the provider warns about context, or you are ' +
+        'losing track of agents or decisions. Do not call it when the goal is done — that is ' +
+        'record_retro. Fill goal, decisions, risks and nextActions honestly; omit unknowns. After ' +
+        'this returns, stop: the successor takes the loop. This is serial replacement, not a second ' +
+        'concurrent orchestrator.',
+      inputSchema: {
+        reason: successionRequestSchema.shape.reason.describe(
+          'Why you are handing off. context_full is the usual case.'
+        ),
+        goal: successionRequestSchema.shape.goal,
+        decisions: successionRequestSchema.shape.decisions,
+        risks: successionRequestSchema.shape.risks,
+        nextActions: successionRequestSchema.shape.nextActions,
+        agentNotes: successionRequestSchema.shape.agentNotes,
+        note: successionRequestSchema.shape.note
+      }
+    },
+    async (args): Promise<ToolText> => {
+      let parsed
+      try {
+        parsed = successionRequestSchema.parse(args)
+      } catch (error) {
+        return toolError({ error: 'invalid_package', message: errorMessage(error) })
+      }
+      try {
+        const started = ctx.host.requestSuccession(parsed)
+        return toolJson({
+          successorAgentId: started.successorAgentId,
+          successorName: started.successorName,
+          predecessorAgentId: started.predecessorAgentId,
+          eventCursor: started.eventCursor,
+          state: 'succession_started',
+          note:
+            'Successor is starting in the background. Stop now. await_events is no longer yours — ' +
+            `the successor will resume from cursor ${started.eventCursor}.`
+        })
+      } catch (error) {
+        const message = errorMessage(error)
+        const code = message.includes('already_in_progress')
+          ? 'already_in_progress'
+          : message.includes('no_orchestrator')
+            ? 'no_orchestrator'
+            : 'succession_failed'
+        return toolError({ error: code, message })
       }
     }
   )

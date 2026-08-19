@@ -36,8 +36,34 @@ class FakeMcp implements McpServerHandle {
       runtime,
       orchestratorUrl: `http://127.0.0.1:${this.port}/mcp?ws=${ctx.workspaceId}&token=${ctx.orchToken}`,
       subagentUrl: (agentId: string) =>
-        `http://127.0.0.1:${this.port}/mcp?ws=${ctx.workspaceId}&agent=${agentId}&token=${ctx.subToken}`
+        `http://127.0.0.1:${this.port}/mcp?ws=${ctx.workspaceId}&agent=${agentId}&token=${ctx.subToken}`,
+      rotateOrchestratorToken: () => this.rotateOrchestratorToken(ctx.workspaceId),
+      applyOrchestratorToken: (token) => this.applyOrchestratorToken(ctx.workspaceId, token)
     }
+  }
+
+  rotateOrchestratorToken(workspaceId: string): {
+    previousToken: string
+    orchToken: string
+    orchestratorUrl: string
+  } {
+    const runtime = this.runtimes.get(workspaceId)
+    if (!runtime) throw new Error(`Unknown MCP workspace: ${workspaceId}`)
+    const previousToken = runtime.ctx.orchToken
+    const orchToken = `${previousToken}-next`
+    runtime.ctx.orchToken = orchToken
+    return {
+      previousToken,
+      orchToken,
+      orchestratorUrl: `http://127.0.0.1:${this.port}/mcp?ws=${workspaceId}&token=${orchToken}`
+    }
+  }
+
+  applyOrchestratorToken(workspaceId: string, orchToken: string): { orchestratorUrl: string } {
+    const runtime = this.runtimes.get(workspaceId)
+    if (!runtime) throw new Error(`Unknown MCP workspace: ${workspaceId}`)
+    runtime.ctx.orchToken = orchToken
+    return { orchestratorUrl: `http://127.0.0.1:${this.port}/mcp?ws=${workspaceId}&token=${orchToken}` }
   }
 
   unregisterWorkspace(workspaceId: string): void {

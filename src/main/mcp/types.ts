@@ -22,6 +22,7 @@
 import type { EventQueue } from './eventQueue'
 import type { PendingQuestions } from './pendingQuestions'
 import type { ReportingMode } from '@shared/prompts/contract'
+import type { SuccessionRequest } from '@shared/schema/handoff'
 
 /** What `start_agent` hands the host. */
 export interface StartAgentInput {
@@ -88,6 +89,21 @@ export interface StartingAgent extends StartedAgent {
    * events the orchestrator reads via `await_events`.
    */
   ready: Promise<void>
+}
+
+/**
+ * A begun orchestrator succession: successor identity now, cutover later.
+ *
+ * `requestSuccession` returns this before the successor process exists.
+ * `ready` settles when the successor has been seeded (or rejects if spawn
+ * failed and the predecessor was restored).
+ */
+export interface StartingSuccession {
+  successorAgentId: string
+  successorName: string
+  predecessorAgentId: string
+  eventCursor: number
+  ready: Promise<StartedAgent>
 }
 
 /** Read-only views `inspect_agent` can ask of one agent's worktree. */
@@ -165,6 +181,17 @@ export interface AgentHost {
    */
   snapshotWorktree(agentId: string): Promise<WorktreeFacts>
   listAgents(): AgentSummary[]
+  /**
+   * True while a root succession is in flight. Mutating orchestrator tools
+   * refuse with `succession_in_progress` until the successor is active.
+   */
+  successionInProgress(): boolean
+  /**
+   * Replace the live root orchestrator with a successor that continues the
+   * same run. Synchronous reservation (fence + package + event); the spawn
+   * pipeline continues behind {@link StartingSuccession.ready}.
+   */
+  requestSuccession(input: SuccessionRequest): StartingSuccession
   /**
    * Which reporting dialect a *new* agent of this role should get. Used by
    * `start_agent` before the agent exists; derived from the profile slot's

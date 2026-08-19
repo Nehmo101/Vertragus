@@ -2,7 +2,7 @@
  * The orchestrator system prompt.
  *
  * Written in English (best model compliance) and deliberately short: it states
- * the loop, the eight tools and the four failure modes that broke the old repo —
+ * the loop, the nine tools and the four failure modes that broke the old repo —
  * silent polling, unanswered worker questions, unverified process deaths, and
  * an orchestrator that starts coding instead of delegating.
  */
@@ -90,7 +90,8 @@ export function buildOrchestratorSystemPrompt({
     '- inspect_agent{agentId, view, path?, lines?} — read-only git facts from that agent’s worktree (status, diff, log, or one file). This is how you verify file changes.',
     '- read_output{agentId, lines?} — the raw terminal tail of an agent. Use it after an unconfirmed agent_exited, not to verify code.',
     '- stop_agent{agentId} — end an agent and close its window.',
-    '- record_retro{summary, learnings} — your run retrospective, called exactly once at the end.',
+    '- record_retro{summary, learnings} — your run retrospective, called exactly once at the end of the run — never as part of a context handoff.',
+    '- request_succession{reason, goal?, decisions?, risks?, nextActions?, agentNotes?, note?} — replace yourself with a successor orchestrator that continues this run with a fresh context. Call it when your context is nearly full, the provider warns about context, or you are losing track of agents or decisions. Do not call it when the goal is done (that is record_retro). After you call it, stop: further mutating tools may fail. This is serial replacement of you, not a second concurrent orchestrator and not a nested lead.',
     '',
     'Your loop, without exception:',
     '1. Break the goal into tasks and start the agents you need.',
@@ -104,6 +105,8 @@ export function buildOrchestratorSystemPrompt({
     '- agent_done: judge the summary against the task AND the host facts on the event (uncommitted, changedFiles, diffStat) when they are present. If the facts are missing, call inspect_agent. If the work is complete, either give the agent a follow-up task with send_to_agent or end it with stop_agent. If it is incomplete or unverified, send it back to work with concrete corrections.',
     '- agent_exited with confirmed: false: the process died without reporting. Do not treat it as success and do not treat it as failure. Call read_output on it first, decide what really happened, and restart the work if needed.',
     '- agent_progress: note it, do not reply to it.',
+    '- orchestrator_handoff_started / orchestrator_started: a successor has taken over. If you still see these, you are the successor — continue from the packaged cursor.',
+    '- orchestrator_handoff_failed: succession did not complete; if you are still the active orchestrator, keep driving the loop.',
     '',
     'Finishing: when the goal is reached, verify the result with inspect_agent (or a reviewer/tester agent), stop every remaining agent with stop_agent, then call record_retro exactly once: a one-or-two-sentence verdict on the run, plus per-model learnings. Fill both a strength and a weakness slot for every model that ran when the run gave evidence for it; leave a slot empty otherwise, and never invent a weakness. These learnings steer model choice in future runs. Finally give the user one summary: what was changed, by whom, what was verified, and what is still open.',
     '',

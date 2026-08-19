@@ -43,7 +43,7 @@ Remote-Server.
 | H2 `workspaces:start {goal}` | **offen** — Start bleibt `profileId` only |
 | C3 Snapshot-Commit / C4 Handoff-Paket | später |
 | C5 Orchestrator-Idle-Watchdog | später, und nicht A1.1 (`orchestrator_exited` ist Prozess-Tod) |
-| C6 Orchestrator-Succession (Context-Handoff) | geplant — siehe [`ORCHESTRATOR-SUCCESSION.md`](./ORCHESTRATOR-SUCCESSION.md) |
+| C6 Orchestrator-Succession (Context-Handoff) | **S1 im Code** — siehe [`ORCHESTRATOR-SUCCESSION.md`](./ORCHESTRATOR-SUCCESSION.md) |
 | D Mensch im Loop | nach H1/H2 |
 | E integrate / briefing / eval | nach C |
 | F Multi-Orch (Lead, Tiefe 1) | nach C; Host auto-nestet nie |
@@ -255,6 +255,12 @@ Kurzentscheidungen (Details und State-Machine im eigenen Doc):
   landen, damit SHAs im Paket stimmen
 
 Vollständiger Plan: [`docs/ORCHESTRATOR-SUCCESSION.md`](./ORCHESTRATOR-SUCCESSION.md).
+
+**S1 im Code:** `request_succession` (neuntes Orchestrator-Tool), Host-Paket,
+`orchToken`-Rotation (alte URL → 401, Subagent-URLs bleiben), Successor-Seed
+mit `eventCursor` und offenen Fragen, Fence `succession_in_progress` auf
+mutierenden Tools, `record_retro` währenddessen verboten. User-Button, C5
+und C3-SHA-Härtung sind später.
 
 ---
 
@@ -577,7 +583,7 @@ PR #17   A1–A3 + B Remote + H3 + C1 inspect_agent + C2 Done-Fakten
      │
      └─ Phase C   C3/C4 Snapshot-Commit + Handoff-Paket     später
             C5 Orchestrator-Idle-Watchdog             später
-            C6 Orchestrator-Succession (Context-Handoff)  geplant
+            C6 Orchestrator-Succession (Context-Handoff)  S1
             F   Multi-Orch (Root entscheidet; braucht C, braucht B nicht)
             D   Goal-UI, user_message, ask_user (braucht H1/H2)
             E   integrate/gate, Briefing, Resume, Budget, Eval
@@ -608,7 +614,7 @@ Umsetzung, wenn der Root-Kontext voll läuft. A/B sind das Fundament.
 | Gap sichtbar | `eventQueue.ts` `droppedSince` → `await_events.eventsDropped` | **PR #17** |
 | Panel-Push | `WorkspaceDirectory.onChange` | **PR #17** |
 | Quit awaited | `index.ts` `before-quit` | **PR #17** |
-| Acht Orchestrator-Tools | `toolsOrchestrator.ts` inkl. `inspect_agent` | **PR #17** |
+| Acht Orchestrator-Tools + `request_succession` | `toolsOrchestrator.ts` inkl. `inspect_agent` | **C6 S1** |
 | Host-Fakten auf `agent_done` | `toolsSubagent.ts` `report_done`, Sentinel in `Workspace.ts` | **PR #17** |
 | MCP-Identität binär (Root vs. Blatt) | `server.ts` `McpIdentity` — Lead kommt in F | offen |
 | Ein Orchestrator pro Workspace | `Workspace.startOrchestrator` wirft bei Zweitem — C6 ersetzt seriell, nestet nicht | C6 geplant |

@@ -3,8 +3,9 @@
 Plan for replacing the **root** orchestrator mid-run when its LLM context is
 exhausted — fresh brain, same team, same workspace.
 
-**Status:** planning only (no runtime yet). Grounded in three design passes
-over the current codebase after PR #17.
+**Status:** S1 vertical slice is in the runtime (`request_succession`, token
+rotation, host-enriched package, successor seed). User button, C5 idle
+escape hatch, C3 SHA alignment, and crash recovery from disk are later.
 
 **Not this feature:**
 

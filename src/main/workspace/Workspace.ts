@@ -39,6 +39,8 @@
  * handshake.
  */
 import { randomUUID } from 'node:crypto'
+import { mkdirSync, renameSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { AgentMeta, AgentRegistry } from '@main/ipc'
 import { EventQueue } from '@main/mcp/eventQueue'
 import type { PendingQuestions } from '@main/mcp/pendingQuestions'
@@ -52,6 +54,7 @@ import {
   type StartAgentInput,
   type StartedAgent,
   type StartingAgent,
+  type StartingSuccession,
   type WorktreeFacts,
   type WorkspaceLimits,
   type WorkspaceMcpContext
@@ -74,6 +77,15 @@ import {
 } from '@main/agents/interactiveReady'
 import { buildReminderSuffix, type ReportingMode } from '@shared/prompts/contract'
 import { buildOrchestratorSystemPrompt, type RoleWithLimit } from '@shared/prompts/orchestrator'
+import { buildSuccessorOrchestratorSystemPrompt } from '@shared/prompts/orchestratorHandoff'
+import {
+  buildHandoffPackage,
+  compactRecentEvents,
+  AGENT_FILES_MAX,
+  AGENT_SUMMARY_MAX_CHARS,
+  type OrchestratorHandoffPackage,
+  type SuccessionRequest
+} from '@shared/schema/handoff'
 import type { SlotKnowledge } from '@shared/retro/runStats'
 import {
   allRoleTemplates,
@@ -139,6 +151,12 @@ export interface WorkspaceWindows {
 export interface WorkspaceMcpUrls {
   orchestratorUrl: string
   subagentUrl(agentId: string): string
+  rotateOrchestratorToken?: () => {
+    previousToken: string
+    orchToken: string
+    orchestratorUrl: string
+  }
+  applyOrchestratorToken?: (orchToken: string) => { orchestratorUrl: string }
 }
 
 export interface WorkspaceDeps {
@@ -163,6 +181,8 @@ export interface WorkspaceDeps {
   worktreeDeps?: WorktreeDeps
   /** Retro feed: learnings in, accumulated knowledge out. Absent = no retro. */
   retro?: WorkspaceRetroFeed
+  /** Override succession package persist (tests). Default: configDir/runs/<ws>/succession.json */
+  writeSuccession?: (pkg: OrchestratorHandoffPackage) => void
 }
 
 /** The slice of the retro sink a single workspace consumes (Electron-free). */
@@ -265,7 +285,7 @@ export class Workspace implements AgentHost {
   readonly name: string
   readonly profile: Profile
   readonly events: EventQueue
-  readonly orchToken: string
+  orchToken: string
   readonly subToken: string
 
   private readonly deps: WorkspaceDeps
@@ -279,6 +299,17 @@ export class Workspace implements AgentHost {
   /** Open-question registry from MCP registration — needed for sentinel ASK. */
   private questions: PendingQuestions | undefined
   private closed = false
+  /** In-flight root succession; undefined when the seat is stable. */
+  private succession:
+    | {
+        successorAgentId: string
+        successorName: string
+        predecessorId: string
+        previousToken: string
+        previousUrl: string
+        pkg: OrchestratorHandoffPackage
+      }
+    | undefined
   /** The record_retro summary, held until the manager finalizes the run at stop. */
   pendingRetroSummary: string | undefined
 
@@ -312,6 +343,11 @@ export class Workspace implements AgentHost {
     const record = this.orchestratorRecord
     if (!record) return false
     return record.pty.isAlive && !record.stopped && record.exit === undefined
+  }
+
+  /** True while a successor is being spawned to replace the live root. */
+  successionInProgress(): boolean {
+    return this.succession !== undefined
   }
 
   /** The orchestrator, once started. Never part of {@link listAgents}. */
@@ -693,42 +729,116 @@ export class Workspace implements AgentHost {
    */
   async startOrchestrator(): Promise<StartedAgent> {
     this.assertOpen()
+    if (this.succession) {
+      throw new Error('A successor orchestrator is already starting.')
+    }
     if (this.orchestratorRecord) throw new Error('This workspace already has an orchestrator.')
-    const urls = this.requireMcp()
-    const provider = this.requireProvider(this.profile.orchestrator.providerId)
-
     const agentId = this.newId()
     const name = this.names.allocate('orchestrator')
-    const systemPrompt = buildOrchestratorSystemPrompt({
+    const record = await this.spawnOrchestratorRecord({
+      agentId,
+      name,
+      systemPrompt: this.orchestratorPrompt(),
+      mcpUrl: this.requireMcp().orchestratorUrl
+    })
+    this.orchestratorRecord = record
+    return this.startedOf(record)
+  }
+
+  requestSuccession(input: SuccessionRequest): StartingSuccession {
+    this.assertOpen()
+    if (this.succession) throw new Error('already_in_progress')
+    const predecessor = this.orchestratorRecord
+    if (!predecessor || !this.orchestratorAlive) {
+      throw new Error('no_orchestrator')
+    }
+
+    const successorAgentId = this.newId()
+    const successorName = this.names.allocate('orchestrator')
+    const pkg = this.buildSuccessionPackage(input, predecessor, successorAgentId)
+    this.persistSuccession(pkg)
+
+    this.succession = {
+      successorAgentId,
+      successorName,
+      predecessorId: predecessor.agentId,
+      previousToken: this.orchToken,
+      previousUrl: this.requireMcp().orchestratorUrl,
+      pkg
+    }
+
+    this.events.push({
+      type: 'orchestrator_handoff_started',
+      agentId: predecessor.agentId,
+      name: predecessor.name,
+      roleId: predecessor.roleId,
+      reason: input.reason,
+      eventCursor: pkg.eventCursor,
+      successorAgentId
+    })
+
+    return {
+      successorAgentId,
+      successorName,
+      predecessorAgentId: predecessor.agentId,
+      eventCursor: pkg.eventCursor,
+      ready: this.finishSuccession()
+    }
+  }
+
+  private orchestratorPrompt() {
+    return buildOrchestratorSystemPrompt({
       workspaceName: this.name,
       repoPath: this.repoPath,
       rolesWithLimits: this.rolesWithLimits(),
       maxSubagents: this.profile.maxSubagents,
       knowledge: this.deps.retro?.knowledge(this.profile) ?? []
     })
+  }
 
+  private startedOf(record: AgentRecord): StartedAgent {
+    return {
+      agentId: record.agentId,
+      name: record.name,
+      role: record.roleId,
+      providerId: record.providerId,
+      model: record.model,
+      worktreePath: record.worktreePath,
+      branch: record.branch
+    }
+  }
+
+  /**
+   * Shared spawn for cold start and succession: worktree, PTY, window, seed.
+   * Does NOT bind {@link orchestratorRecord} — the caller decides when the
+   * seat changes, so a failing successor never steals the predecessor's seat.
+   */
+  private async spawnOrchestratorRecord(input: {
+    agentId: string
+    name: string
+    systemPrompt: string
+    mcpUrl: string
+  }): Promise<AgentRecord> {
+    const provider = this.requireProvider(this.profile.orchestrator.providerId)
     let spawned: SpawnedAgent | undefined
     try {
-      const worktree = await this.createWorktreeFor(agentId, name)
-
+      const worktree = await this.createWorktreeFor(input.agentId, input.name)
       spawned = await (this.deps.spawn ?? spawnAgent)({
         kind: 'orchestrator',
         provider,
         model: this.profile.orchestrator.model,
         effort: this.profile.orchestrator.effort,
-        // Not "yolo: false because the profile says so" — an orchestrator has
-        // no yolo surface at all; buildAgentArgv drops it for this kind.
         yolo: false,
         cwd: worktree.path,
-        mcpUrl: urls.orchestratorUrl,
-        fileTag: `orch-${agentId}`,
+        mcpUrl: input.mcpUrl,
+        fileTag: `orch-${input.agentId}`,
         configDir: this.deps.configDir,
-        systemPrompt
+        systemPrompt: input.systemPrompt
       })
 
       const record = this.track({
-        agentId,
-        name,
+        agentId: input.agentId,
+        name: input.name,
         roleId: ORCHESTRATOR_ROLE_ID,
         providerId: provider.id,
         model: this.profile.orchestrator.model,
@@ -737,35 +847,202 @@ export class Workspace implements AgentHost {
         pty: spawned.pty,
         orchestrator: true
       })
-      this.orchestratorRecord = record
       this.openWindow(record, ORCHESTRATOR_COLOR)
 
       if (spawned.launch.ptySystemPrompt) {
-        // Always submitted: this is the orchestrator's own system prompt, not
-        // an assignment the user might want to edit first.
         const accepted = await this.seed(record, spawned.launch.ptySystemPrompt, true)
         if (!accepted) {
           throw new Error(
-            `${name} (${provider.label}) never became ready — the orchestrator prompt was not delivered.`
+            `${input.name} (${provider.label}) never became ready — the orchestrator prompt was not delivered.`
           )
         }
       }
       record.seeded = true
       record.assignmentCursor = this.events.cursor
-      return {
-        agentId,
-        name,
-        role: ORCHESTRATOR_ROLE_ID,
-        providerId: provider.id,
-        model: this.profile.orchestrator.model,
-        worktreePath: worktree.path,
-        branch: worktree.branch
-      }
+      return record
     } catch (error) {
-      this.orchestratorRecord = undefined
-      this.discard(agentId, name, spawned?.pty)
+      this.discard(input.agentId, input.name, spawned?.pty)
       throw error
     }
+  }
+
+  private async finishSuccession(): Promise<StartedAgent> {
+    const pending = this.succession
+    if (!pending) throw new Error('No succession in progress.')
+    const predecessor = this.agents.get(pending.predecessorId)
+
+    try {
+      const rotated = this.rotateOrchToken()
+      pending.previousToken = rotated.previousToken
+      pending.previousUrl = rotated.previousUrl
+
+      const record = await this.spawnOrchestratorRecord({
+        agentId: pending.successorAgentId,
+        name: pending.successorName,
+        systemPrompt: buildSuccessorOrchestratorSystemPrompt(
+          {
+            workspaceName: this.name,
+            repoPath: this.repoPath,
+            rolesWithLimits: this.rolesWithLimits(),
+            maxSubagents: this.profile.maxSubagents,
+            knowledge: this.deps.retro?.knowledge(this.profile) ?? []
+          },
+          pending.pkg
+        ),
+        mcpUrl: this.requireMcp().orchestratorUrl
+      })
+
+      this.orchestratorRecord = record
+      if (predecessor && predecessor !== record) {
+        this.terminate(predecessor)
+      }
+      this.succession = undefined
+      this.events.push({
+        type: 'orchestrator_started',
+        agentId: record.agentId,
+        name: record.name,
+        roleId: record.roleId,
+        predecessorAgentId: pending.predecessorId,
+        eventCursor: pending.pkg.eventCursor
+      })
+      return this.startedOf(record)
+    } catch (error) {
+      this.restoreOrchToken(pending.previousToken, pending.previousUrl)
+      if (this.events.isClosed) {
+        this.succession = undefined
+        throw error
+      }
+      this.events.push({
+        type: 'orchestrator_handoff_failed',
+        agentId: predecessor?.agentId ?? pending.predecessorId,
+        name: predecessor?.name ?? pending.successorName,
+        roleId: ORCHESTRATOR_ROLE_ID,
+        message: error instanceof Error ? error.message : String(error),
+        successorAgentId: pending.successorAgentId
+      })
+      this.succession = undefined
+      throw error
+    }
+  }
+
+  private rotateOrchToken(): { previousToken: string; previousUrl: string; orchToken: string } {
+    const urls = this.requireMcp()
+    const previousToken = this.orchToken
+    const previousUrl = urls.orchestratorUrl
+    if (urls.rotateOrchestratorToken) {
+      const rotated = urls.rotateOrchestratorToken()
+      urls.orchestratorUrl = rotated.orchestratorUrl
+      this.orchToken = rotated.orchToken
+      return { previousToken: rotated.previousToken, previousUrl, orchToken: rotated.orchToken }
+    }
+    const orchToken = this.newId()
+    this.orchToken = orchToken
+    urls.orchestratorUrl = rewriteMcpToken(urls.orchestratorUrl, orchToken)
+    return { previousToken, previousUrl, orchToken }
+  }
+
+  private restoreOrchToken(token: string, url: string): void {
+    const urls = this.requireMcp()
+    if (urls.applyOrchestratorToken) {
+      const applied = urls.applyOrchestratorToken(token)
+      urls.orchestratorUrl = applied.orchestratorUrl
+    } else {
+      urls.orchestratorUrl = url
+    }
+    this.orchToken = token
+  }
+
+  private persistSuccession(pkg: OrchestratorHandoffPackage): void {
+    if (this.deps.writeSuccession) {
+      this.deps.writeSuccession(pkg)
+      return
+    }
+    try {
+      const dir = join(this.deps.configDir, 'runs', this.workspaceId)
+      mkdirSync(dir, { recursive: true })
+      const dest = join(dir, 'succession.json')
+      const tmp = `${dest}.tmp`
+      writeFileSync(tmp, JSON.stringify(pkg, null, 2), 'utf8')
+      renameSync(tmp, dest)
+    } catch {
+      // Best-effort: the in-memory package still seeds the successor.
+    }
+  }
+
+  private buildSuccessionPackage(
+    input: SuccessionRequest,
+    predecessor: AgentRecord,
+    successorAgentId: string
+  ): OrchestratorHandoffPackage {
+    const notes = new Map((input.agentNotes ?? []).map((entry) => [entry.agentId, entry.note]))
+    const lastDone = new Map<string, { summary: string; headSha?: string; uncommitted?: boolean; changedFiles?: string[] }>()
+    for (const event of this.events.all()) {
+      if (event.type !== 'agent_done') continue
+      lastDone.set(event.agentId, {
+        summary: event.summary,
+        ...(event.headSha ? { headSha: event.headSha } : {}),
+        ...(event.uncommitted !== undefined ? { uncommitted: event.uncommitted } : {}),
+        ...(event.changedFiles ? { changedFiles: event.changedFiles.slice(0, AGENT_FILES_MAX) } : {})
+      })
+    }
+
+    const agents = this.listAgents().map((agent) => {
+      const done = lastDone.get(agent.agentId)
+      const orchNote = notes.get(agent.agentId)
+      const open = this.questions?.openForAgent(agent.agentId)
+      return {
+        agentId: agent.agentId,
+        name: agent.name,
+        role: agent.role,
+        status: agent.status,
+        ...(agent.model ? { model: agent.model } : {}),
+        ...(agent.worktreePath ? { worktreePath: agent.worktreePath } : {}),
+        ...(agent.branch ? { branch: agent.branch } : {}),
+        ...(done?.headSha ? { headSha: done.headSha } : {}),
+        ...(done?.uncommitted !== undefined ? { uncommitted: done.uncommitted } : {}),
+        ...(done?.summary
+          ? { lastSummary: done.summary.slice(0, AGENT_SUMMARY_MAX_CHARS) }
+          : {}),
+        ...(done?.changedFiles ? { changedFiles: done.changedFiles } : {}),
+        ...(orchNote ? { orchNote } : {}),
+        ...(open
+          ? { pendingQuestionId: open.questionId, pendingQuestion: open.question }
+          : {})
+      }
+    })
+
+    const openQuestions = (this.questions?.listOpen() ?? []).map((question) => ({
+      questionId: question.questionId,
+      agentId: question.agentId,
+      question: question.question
+    }))
+
+    return buildHandoffPackage({
+      workspaceId: this.workspaceId,
+      workspaceName: this.name,
+      profileId: this.profileId,
+      createdAt: this.now(),
+      reason: input.reason,
+      predecessor: {
+        agentId: predecessor.agentId,
+        name: predecessor.name,
+        providerId: predecessor.providerId,
+        ...(predecessor.model ? { model: predecessor.model } : {})
+      },
+      successorAgentId,
+      eventCursor: this.events.cursor,
+      agents,
+      openQuestions,
+      recentEvents: compactRecentEvents(this.events.all()),
+      goal: input.goal,
+      decisions: input.decisions,
+      risks: input.risks,
+      nextActions: input.nextActions,
+      branchesOfInterest: [
+        ...new Set(agents.map((agent) => agent.branch).filter((branch): branch is string => Boolean(branch)))
+      ],
+      note: input.note
+    })
   }
 
   /**
@@ -1221,11 +1498,10 @@ export class Workspace implements AgentHost {
     if (record.stopping) return
     if (this.events.isClosed) return
     if (record.orchestrator) {
-      // The record stays: the window keeps showing the death output and
-      // stopWorkspace still closes it. Only `orchestratorAlive` flips, which
-      // is what greys the panel card out. The event is for the history (and
-      // any non-orchestrator reader, e.g. a remote client) — the orchestrator
-      // itself is the one reader that can no longer see it.
+      // Only the live seat's unasked death greys the workspace. A predecessor
+      // killed at cutover is `stopping`; a leftover orch row after rebind is
+      // not the driver.
+      if (record !== this.orchestratorRecord) return
       this.events.push({
         type: 'orchestrator_exited',
         agentId: record.agentId,
@@ -1285,5 +1561,15 @@ export class Workspace implements AgentHost {
     this.deps.registry.removeAgent(agentId)
     this.deps.windows.close(agentId)
     this.names.release(name)
+  }
+}
+
+function rewriteMcpToken(url: string, orchToken: string): string {
+  try {
+    const parsed = new URL(url)
+    parsed.searchParams.set('token', orchToken)
+    return parsed.toString()
+  } catch {
+    return url.replace(/([?&]token=)[^&]*/, `$1${encodeURIComponent(orchToken)}`)
   }
 }
