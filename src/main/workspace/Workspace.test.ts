@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BRACKETED_PASTE_ON, PASTE_BEGIN, PASTE_END } from '@main/agents/interactiveReady'
 import { buildAgentArgv } from '@main/agents/spawn'
-import { slugifyRef } from '@main/agents/worktree'
+import { slugifyRef, worktreePathFor } from '@main/agents/worktree'
 import { PendingQuestions } from '@main/mcp/pendingQuestions'
 import { buildReminderSuffix } from '@shared/prompts/contract'
 import { ORCHESTRATOR_COLOR, ORCHESTRATOR_ROLE_ID, roleColor } from '@shared/prompts/roles'
@@ -119,7 +119,7 @@ describe('startAgent', () => {
 
     expect(started.role).toBe('worker')
     expect(started.name).toMatch(/\S/)
-    expect(started.worktreePath).toBe(`/repo/.vertragus/worktrees/${started.agentId}`)
+    expect(started.worktreePath).toBe(worktreePathFor('/repo', started.agentId))
 
     const launch = spawns[0]!.input
     expect(launch.kind).toBe('subagent')
@@ -260,8 +260,8 @@ describe('worktrees', () => {
         branchName: `vertragus/paradiso/${slugifyRef(started.name)}`
       }
     ])
-    expect(spawns[0]!.input.cwd).toBe(`/repo/.vertragus/worktrees/${started.agentId}`)
-    expect(started.worktreePath).toBe(`/repo/.vertragus/worktrees/${started.agentId}`)
+    expect(spawns[0]!.input.cwd).toBe(worktreePathFor('/repo', started.agentId))
+    expect(started.worktreePath).toBe(worktreePathFor('/repo', started.agentId))
     expect(workspace.listAgents()[0]!.worktreePath).toBe(started.worktreePath)
   })
 
@@ -301,7 +301,7 @@ describe('worktrees', () => {
     const { workspace, spawns, worktrees } = harness()
     const orchestrator = await workspace.startOrchestrator()
 
-    expect(orchestrator.worktreePath).toBe(`/repo/.vertragus/worktrees/${orchestrator.agentId}`)
+    expect(orchestrator.worktreePath).toBe(worktreePathFor('/repo', orchestrator.agentId))
     expect(spawns[0]!.input.cwd).toBe(orchestrator.worktreePath)
     expect(worktrees[0]!.branchName).toBe(`vertragus/paradiso/${slugifyRef(orchestrator.name)}`)
     expect(workspace.orchestrator?.worktreePath).toBe(orchestrator.worktreePath)
@@ -403,7 +403,7 @@ describe('beginAgent — synchronous reservation', () => {
     expect(listed[0]).toMatchObject({ agentId: begun.agentId, status: 'starting' })
     // The reservation already knows worktree and branch — by convention, not
     // by asking git.
-    expect(begun.worktreePath).toBe(`/repo/.vertragus/worktrees/${begun.agentId}`)
+    expect(begun.worktreePath).toBe(worktreePathFor('/repo', begun.agentId))
     await begun.ready
     expect(workspace.listAgents()[0]).toMatchObject({ status: 'working' })
   })
@@ -683,7 +683,7 @@ describe('startOrchestrator', () => {
     expect(launch.kind).toBe('orchestrator')
     expect(launch.yolo).toBe(false)
     // Its own worktree, like every agent — never the shared checkout.
-    expect(launch.cwd).toBe(`/repo/.vertragus/worktrees/${orchestrator.agentId}`)
+    expect(launch.cwd).toBe(worktreePathFor('/repo', orchestrator.agentId))
     expect(launch.model).toBe('opus')
     expect(launch.mcpUrl).toContain('token=orch')
     expect(launch.systemPrompt).toContain('Paradiso')

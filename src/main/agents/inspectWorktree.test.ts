@@ -46,7 +46,9 @@ describe('parsePorcelainPaths', () => {
 })
 
 describe('resolveInsideWorktree', () => {
-  const root = join('/tmp', 'vertragus-inspect-root')
+  // An absolute root: `join('/tmp', …)` is not absolute on Windows, and
+  // `path.resolve` then prefixes the drive (`D:\tmp\…`).
+  const root = join(tmpdir(), 'vertragus-inspect-root')
 
   it('accepts a relative file', () => {
     expect(resolveInsideWorktree(root, 'src/a.ts')).toBe(join(root, 'src', 'a.ts'))

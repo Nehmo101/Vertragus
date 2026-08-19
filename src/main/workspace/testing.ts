@@ -7,6 +7,7 @@ import type { AgentRegistry, RegisteredAgent } from '@main/ipc'
 import type { PtyExitInfo, PtySpawnOptions } from '@main/agents/PtyAgent'
 import type { AgentLaunchInput, AgentPty, ResolvedLaunch, SpawnedAgent } from '@main/agents/spawn'
 import type { SeedWithReadyOptions } from '@main/agents/interactiveReady'
+import { worktreePathFor } from '@main/agents/worktree'
 import { profileSchema, type Profile, type ProfileInput } from '@shared/schema/profile'
 import { providerPresets } from '@main/providers/presets'
 import type { ProviderConfig } from '@shared/schema/provider'
@@ -293,7 +294,10 @@ export function fakeWorktrees(): {
     calls,
     createWorktree: async (repoPath, agentId, branchName, options) => {
       calls.push({ repoPath, agentId, branchName, ...(options?.startPoint ? { startPoint: options.startPoint } : {}) })
-      return { path: `${repoPath}/.vertragus/worktrees/${agentId}`, branch: branchName }
+      // Same convention as production `createWorktree` / `beginAgent`, including
+      // Windows separators. A POSIX-only string here makes spawn cwd disagree
+      // with `worktreePathFor` and fails CI on windows-latest.
+      return { path: worktreePathFor(repoPath, agentId), branch: branchName }
     }
   }
 }
