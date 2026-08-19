@@ -87,6 +87,9 @@ describe('providerConfigSchema', () => {
       providerConfigSchema.safeParse({ ...minimal, mcp: { kind: 'cursor-project' } }).success
     ).toBe(true)
     expect(
+      providerConfigSchema.safeParse({ ...minimal, mcp: { kind: 'grok-project' } }).success
+    ).toBe(true)
+    expect(
       providerConfigSchema.safeParse({ ...minimal, mcp: { kind: 'cursor-json' } }).success
     ).toBe(false)
   })

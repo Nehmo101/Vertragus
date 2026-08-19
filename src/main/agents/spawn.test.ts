@@ -7,8 +7,11 @@ import {
   buildClaudeSubagentArgs,
   buildCodexOrchestratorArgs,
   buildCodexSubagentArgs,
+  buildGrokOrchestratorArgs,
+  buildGrokSubagentArgs,
   buildKimiOrchestratorArgs,
   buildKimiSubagentArgs,
+  grokAllowMcpArgs,
   orchestratorAllowedTools
 } from '@main/mcp/attach'
 import { ORCHESTRATOR_TOOL_NAMES } from '@main/mcp/toolsOrchestrator'
@@ -275,6 +278,53 @@ describe('buildAgentArgv — per preset', () => {
     expect(written.mcpServers.vertragus!.enabledTools).toEqual([...ORCHESTRATOR_TOOL_NAMES])
   })
 
+  it('composes a Grok subagent: model, effort, yolo, project file, role prompt', () => {
+    const { argv, ptySystemPrompt } = buildAgentArgv(
+      launchInput({
+        provider: preset('grok'),
+        model: 'grok-build',
+        effort: 'high',
+        yolo: true,
+        cwd,
+        systemPrompt: 'You are a Worker.'
+      })
+    )
+
+    expect(argv).toEqual([
+      '--model',
+      'grok-build',
+      '--effort',
+      'high',
+      '--always-approve',
+      ...grokAllowMcpArgs(),
+      '--append-system-prompt',
+      'You are a Worker.'
+    ])
+    expect(ptySystemPrompt).toBeUndefined()
+    const written = readFileSync(join(cwd, '.grok', 'config.toml'), 'utf8')
+    expect(written).toContain('[mcp_servers.vertragus]')
+    expect(written).toContain('agent=a1')
+  })
+
+  it('composes a Grok orchestrator: allow MCP tools instead of yolo', () => {
+    const { argv } = buildAgentArgv(
+      launchInput({
+        provider: preset('grok'),
+        kind: 'orchestrator',
+        yolo: true,
+        cwd,
+        systemPrompt: 'You orchestrate.'
+      })
+    )
+
+    expect(argv).toEqual([
+      ...grokAllowMcpArgs(),
+      '--append-system-prompt',
+      'You orchestrate.'
+    ])
+    expect(argv).not.toContain('--always-approve')
+  })
+
   it('omits model and effort args when the launch does not set them', () => {
     const { argv } = buildAgentArgv(launchInput({ yolo: false }))
     expect(normalize(argv)).toEqual(['--mcp-config', '<mcp-config.json>', '--strict-mcp-config'])
@@ -326,6 +376,19 @@ describe('MCP attach — the regression that killed the old repo', () => {
           systemPrompt: prompt
         }),
         subagent: buildKimiSubagentArgs({ ...target, workspaceDir: cwd, systemPrompt: prompt })
+      },
+      {
+        provider: preset('grok'),
+        orchestrator: [
+          ...buildGrokOrchestratorArgs({ url, workspaceDir: cwd }),
+          '--append-system-prompt',
+          prompt
+        ],
+        subagent: [
+          ...buildGrokSubagentArgs({ url, workspaceDir: cwd }),
+          '--append-system-prompt',
+          prompt
+        ]
       }
     ]
 
@@ -378,13 +441,19 @@ describe('MCP attach — the regression that killed the old repo', () => {
         launchInput({ provider, kind: 'subagent', cwd, systemPrompt: 'role' })
       )
       const urlSource =
-        provider.mcp.kind === 'kimi-project' || provider.mcp.kind === 'cursor-project'
+        provider.mcp.kind === 'kimi-project' ||
+        provider.mcp.kind === 'cursor-project' ||
+        provider.mcp.kind === 'grok-project'
           ? // Project-file dialects: the URL lives in the cwd, not in argv.
             readFileSync(
               join(
                 cwd,
-                provider.mcp.kind === 'kimi-project' ? '.kimi-code' : '.cursor',
-                'mcp.json'
+                provider.mcp.kind === 'kimi-project'
+                  ? '.kimi-code'
+                  : provider.mcp.kind === 'grok-project'
+                    ? '.grok'
+                    : '.cursor',
+                provider.mcp.kind === 'grok-project' ? 'config.toml' : 'mcp.json'
               ),
               'utf8'
             )
@@ -418,6 +487,17 @@ describe('MCP attach — the regression that killed the old repo', () => {
       buildAgentArgv(launchInput({ provider: preset('kimi'), cwd: worktree }))
       expect(existsSync(join(worktree, '.kimi-code', 'mcp.json'))).toBe(true)
       expect(existsSync(join(cwd, '.kimi-code', 'mcp.json'))).toBe(false)
+    } finally {
+      rmSync(worktree, { recursive: true, force: true })
+    }
+  })
+
+  it('writes Grok’s project config into the worktree, never into the shared repo', () => {
+    const worktree = mkdtempSync(join(tmpdir(), 'vertragus-spawn-wt-'))
+    try {
+      buildAgentArgv(launchInput({ provider: preset('grok'), cwd: worktree }))
+      expect(existsSync(join(worktree, '.grok', 'config.toml'))).toBe(true)
+      expect(existsSync(join(cwd, '.grok', 'config.toml'))).toBe(false)
     } finally {
       rmSync(worktree, { recursive: true, force: true })
     }

@@ -10,7 +10,7 @@
 </p>
 
 Vertragus is a small always-on-top glass panel. You define **profiles** — a
-repo path, an orchestrator CLI (Claude, Codex, Kimi, Cursor, …) and a set of
+repo path, an orchestrator CLI (Claude, Codex, Kimi, Cursor, Grok Build, …) and a set of
 subagent roles — and press play. The orchestrator opens in its own translucent
 terminal window, and starts **visible** subagent windows on demand. Agents and
 orchestrator talk over a slim in-app MCP server with true blocking

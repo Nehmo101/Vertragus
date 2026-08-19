@@ -35,8 +35,10 @@
  * - `<cwd>/.cursor/mcp.json` — Cursor's MCP attachment (merged, not overwritten).
  *   Same working-directory rule as Kimi; the `vertragus` entry is left behind
  *   on purpose so a live CLI cannot lose its server mid-session.
+ * - `<cwd>/.grok/config.toml` — Grok Build's MCP attachment (merged). Same
+ *   working-directory rule; only the `[mcp_servers.vertragus]` table is ours.
  *
- *   These two are the only artefacts a Vertragus launch writes into user
+ *   These three are the only artefacts a Vertragus launch writes into user
  *   territory. Since every agent owns its worktree they can no longer collide
  *   between parallel agents — which is exactly why the worktree became
  *   mandatory rather than opt-in.
@@ -45,11 +47,13 @@
 import {
   buildCodexMcpArgs,
   CURSOR_APPROVE_MCPS_FLAG,
+  grokAllowMcpArgs,
   codexDeveloperInstructionsArgs,
   orchestratorAllowedTools,
   orchestratorMcpTools,
   writeClaudeMcpConfigFile,
   writeCursorProjectMcpConfig,
+  writeGrokProjectMcpConfig,
   writeKimiAgentFile,
   writeKimiProjectMcpConfig
 } from '@main/mcp/attach'
@@ -176,6 +180,13 @@ export function buildMcpArgs(input: AgentLaunchInput): string[] {
       // - the flag also approves the user's own project servers for this run.
       writeCursorProjectMcpConfig(input.mcpUrl, input.cwd)
       return [CURSOR_APPROVE_MCPS_FLAG]
+    case 'grok-project':
+      // Grok reads `<cwd>/.grok/config.toml` and has no config-file flag.
+      // `--allow MCPTool(vertragus__*)` pre-approves our loopback tools so the
+      // orchestrator is not stuck on a TUI prompt. KNOWN LIMIT: no per-server
+      // tool filter on the TOML table — orchestrator scoping stays URL-side.
+      writeGrokProjectMcpConfig(input.mcpUrl, input.cwd)
+      return grokAllowMcpArgs()
     case 'none':
       return []
   }

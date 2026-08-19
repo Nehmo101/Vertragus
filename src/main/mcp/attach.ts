@@ -2,7 +2,7 @@
  * Attaching the Vertragus MCP server to an agent CLI.
  *
  * Distilled from the old repo's `mcpConfig.ts`: one server, HTTP transport,
- * four provider dialects. The rule that survives unchanged is "every spawn
+ * five provider dialects. The rule that survives unchanged is "every spawn
  * attaches" — the old repo shipped a second spawn path that forgot the config
  * and produced interactive subagents with no way to report back. Callers
  * therefore build args through these functions only.
@@ -23,6 +23,13 @@
  *   has login/list/enable/disable — no `add`). Attachment is therefore a
  *   merge into the project file, plus `--approve-mcps` at launch. HTTP
  *   Streamable transport preserves the identity query string verbatim.
+ * - **Grok Build** reads project `.grok/config.toml` (`[mcp_servers.<name>]`)
+ *   and has no `--mcp-config` flag (Claude aliases cover `--append-system-prompt`
+ *   / `--dangerously-skip-permissions`, not MCP). Attachment is a merge of the
+ *   `vertragus` table into that file, plus `--allow MCPTool(vertragus__*)` so
+ *   the loopback tools are usable without a TUI click. Grok also *scans*
+ *   `.cursor/mcp.json` and `.mcp.json`, but those scanners can be switched off
+ *   (`[compat.claude] mcps = false`); the native file cannot.
  *
  * Verified Cursor facts (cursor-agent 2026.08.11-e8db854 on this machine):
  * - Project file shape: `{ "mcpServers": { "<id>": { "url": "http://…" } } }`.
@@ -37,6 +44,12 @@
  *   exit 9) AFTER printing success — do not shell out to it for attach.
  * - No verified per-server tool filter (`enabledTools` / `--allowedTools`):
  *   orchestrator scoping stays URL-side (which tools the server exposes).
+ *
+ * Grok Build flags are taken from the published CLI / MCP / settings docs
+ * (https://docs.x.ai/build/cli/reference, /features/mcp-servers,
+ * /features/permissions). There is no `--strict-mcp-config` and no
+ * per-server `enabled_tools` on `[mcp_servers.*]`; orchestrator scoping
+ * stays URL-side, same declared limit as Cursor.
  *
  * Every other flag and key below was verified against the CLIs installed on
  * this machine (claude, codex-cli 0.144.6, kimi 0.34.0) — not from documentation.
@@ -517,4 +530,132 @@ export function writeCursorProjectMcpConfig(url: string, workspaceDir: string): 
   writeFileSync(configPath, JSON.stringify(toCursorMcpConfig(existing, url), null, 2))
   assertWrittenCursorMcpConfig(configPath)
   return configPath
+}
+
+// --- Grok Build ----------------------------------------------------------
+
+/**
+ * Grok Build has no MCP config-file flag. Official docs: servers live in
+ * `~/.grok/config.toml` or project `.grok/config.toml` as `[mcp_servers.<name>]`
+ * with a bare `url` for HTTP. Project files only contribute mcp_servers /
+ * plugins / permission, and a project table of the same name replaces the
+ * user one. Attachment is therefore a file in the AGENT'S WORKING DIRECTORY,
+ * like Kimi and Cursor — merged, not overwritten, because `.grok/config.toml`
+ * may already hold the user's own servers.
+ */
+export const GROK_PROJECT_DIR = '.grok'
+export const GROK_CONFIG_FILE = 'config.toml'
+
+/**
+ * Auto-approve every tool on the Vertragus MCP server for this launch.
+ *
+ * Grok's permission surface is `--allow` / `--deny` with `MCPTool(server__*)`
+ * patterns (https://docs.x.ai/build/features/permissions). There is no
+ * `--approve-mcps` and no per-server `enabled_tools` on the TOML table, so this
+ * is the only launch-scoped way to keep `report_done` / `start_agent` off the
+ * TUI prompt. Subagent `--always-approve` (yolo) covers the rest; the
+ * orchestrator never gets yolo.
+ *
+ * KNOWN LIMIT: `--allow MCPTool(vertragus__*)` also covers every tool our
+ * server exposes, which is the point — the allowlist is the URL (orchestrator
+ * vs subagent endpoints), not a second filter here.
+ */
+export const GROK_ALLOW_MCP_FLAG = '--allow'
+
+/** `MCPTool(vertragus__*)` — Grok's documented MCP permission glob. */
+export function grokAllowMcpRule(serverName = MCP_SERVER_NAME): string {
+  return `MCPTool(${serverName}__*)`
+}
+
+export function grokAllowMcpArgs(): string[] {
+  return [GROK_ALLOW_MCP_FLAG, grokAllowMcpRule()]
+}
+
+/**
+ * One `[mcp_servers.vertragus]` table. `url` is a TOML basic string so query
+ * tokens with `=` / `&` survive; Grok treats a bare url as HTTP/SSE.
+ */
+export function grokMcpServerBlock(url: string): string {
+  return [`[mcp_servers.${MCP_SERVER_NAME}]`, `url = ${tomlString(url)}`, ''].join('\n')
+}
+
+/**
+ * Replace an existing `[mcp_servers.vertragus]` table, or append one.
+ *
+ * Deliberately not a TOML parser: the only thing we own in this file is our
+ * table, and a real parser would be a dependency plus a new failure mode for a
+ * file we do not own. Foreign tables, `[permission]`, `[plugins]` stay byte
+ * for byte. Quoted (`[mcp_servers."vertragus"]`) and bare headers both match.
+ */
+export function mergeGrokConfigToml(existing: string, url: string): string {
+  const block = grokMcpServerBlock(url)
+  const table =
+    /^\[mcp_servers\.(?:"vertragus"|vertragus)\][ \t]*\r?\n(?:(?!\[)[^\n]*\r?\n?)*/gm
+  const merged = existing.replace(table, () => block)
+  if (merged !== existing) return merged
+  const trimmed = existing.replace(/(?:\r?\n)*$/u, '')
+  return trimmed.length > 0 ? `${trimmed}\n\n${block}` : block
+}
+
+/** Fail closed: prove the project file we just wrote names our server URL. */
+export function assertWrittenGrokMcpConfig(configPath: string, url: string): void {
+  const raw = readFileSync(configPath, 'utf8')
+  const hasTable = /^\[mcp_servers\.(?:"vertragus"|vertragus)\]/m.test(raw)
+  if (!hasTable || !raw.includes(tomlString(url))) {
+    throw new Error(`Invalid Vertragus Grok MCP config written to ${configPath}`)
+  }
+}
+
+/**
+ * Install / merge `<workspaceDir>/.grok/config.toml`.
+ *
+ * Reads the existing file when present; an absent or unreadable file is
+ * created. Only the `[mcp_servers.vertragus]` table is set; every foreign
+ * table is preserved.
+ *
+ * Two Grok agents sharing ONE working directory therefore share one file: the
+ * second install overwrites the first agent's personal URL (same clause as
+ * Kimi / Cursor). That cannot happen in Vertragus: every agent runs in its
+ * own worktree.
+ *
+ * The `vertragus` table is left behind on purpose (see the module note in
+ * `agents/spawn`: nothing is deleted afterwards).
+ */
+export function writeGrokProjectMcpConfig(url: string, workspaceDir: string): string {
+  const dir = join(workspaceDir, GROK_PROJECT_DIR)
+  mkdirSync(dir, { recursive: true })
+  const configPath = join(dir, GROK_CONFIG_FILE)
+
+  let existing = ''
+  try {
+    existing = readFileSync(configPath, 'utf8')
+  } catch {
+    // Absent file → create.
+  }
+
+  writeFileSync(configPath, mergeGrokConfigToml(existing, url))
+  assertWrittenGrokMcpConfig(configPath, url)
+  return configPath
+}
+
+/**
+ * Grok launch arguments: the MCP attachment is a file (so it contributes no
+ * path flag), the tools are pre-allowed via `--allow`.
+ */
+export function buildGrokMcpArgs(target: { url: string; workspaceDir: string }): string[] {
+  writeGrokProjectMcpConfig(target.url, target.workspaceDir)
+  return grokAllowMcpArgs()
+}
+
+/** Grok args for an orchestrator: same attach as a subagent (no tool filter). */
+export function buildGrokOrchestratorArgs(target: {
+  url: string
+  workspaceDir: string
+}): string[] {
+  return buildGrokMcpArgs(target)
+}
+
+/** Grok args for a subagent: attached, unrestricted. */
+export function buildGrokSubagentArgs(target: { url: string; workspaceDir: string }): string[] {
+  return buildGrokMcpArgs(target)
 }

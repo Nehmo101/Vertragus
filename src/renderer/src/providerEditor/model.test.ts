@@ -22,7 +22,7 @@ const en = translator('en')
  *
  * Declared here rather than imported from `@main/providers/presets`: the
  * renderer must not reach into main. It is also the stronger check — the
- * shipped presets use five of these shapes, this covers all of them, including
+ * shipped presets use six of these shapes, this covers all of them, including
  * combinations only a hand-written provider will ever have.
  */
 const SHAPES: ProviderConfig[] = (
@@ -101,6 +101,21 @@ const SHAPES: ProviderConfig[] = (
       mcp: { kind: 'none' },
       modelDiscovery: { kind: 'cli', args: ['models'], parse: 'lines' },
       enabled: false
+    },
+    // Grok-like: flag effort, arg prompt, grok-project attach, line discovery.
+    {
+      id: 'shape-grok',
+      presetId: 'grok',
+      label: 'Grok-like',
+      command: 'grok',
+      yoloArgs: ['--always-approve'],
+      modelArg: '--model',
+      effortArg: { style: 'flag', flag: '--effort' },
+      auth: { loginArgs: ['login'] },
+      systemPromptDelivery: { kind: 'arg', flag: '--append-system-prompt' },
+      mcp: { kind: 'grok-project' },
+      modelDiscovery: { kind: 'cli', args: ['models'], parse: 'lines' },
+      seedModels: ['grok-build']
     },
     // Ollama-like: positional model (no modelArg), base args, http discovery.
     {

@@ -383,6 +383,30 @@ describe('discoverModels — cli sources', () => {
     )
     expect(result.models).toEqual(['auto'])
   })
+
+  it('reads the Grok model list line by line', async () => {
+    const exec = vi.fn(async () => fixture('grok-models.txt'))
+    const { deps: overrides } = deps({ exec })
+    const result = await discoverModels(preset('grok'), overrides)
+    expect(exec).toHaveBeenCalledWith('grok', ['models'], 8_000)
+    expect(result.source).toBe('live')
+    expect(result.models).toEqual(['grok-build', 'grok-4.6', 'grok-4.5', 'grok-4.3'])
+  })
+
+  it('keeps grok-build startable when grok models needs a login', async () => {
+    const { deps: overrides } = deps({
+      exec: async () => {
+        throw new Error('Error: Authentication required. Run grok login or set XAI_API_KEY.')
+      }
+    })
+    const result = await discoverModels(preset('grok'), overrides)
+    expect(result.detail).toBe(
+      'grok models: nicht angemeldet — \'grok login\' ausführen ' +
+        '(Error: Authentication required. Run grok login or set XAI_API_KEY.)'
+    )
+    expect(result.models).toEqual(['grok-build'])
+    expect(result.source).toBe('seed')
+  })
 })
 
 describe('authFailureHint', () => {

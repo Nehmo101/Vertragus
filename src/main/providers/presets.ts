@@ -1,5 +1,5 @@
 /**
- * The five built-in provider presets.
+ * The six built-in provider presets.
  *
  * These are ordinary {@link ProviderConfig} values, not privileged code paths:
  * a stored config with the same id replaces the preset wholesale (see
@@ -11,7 +11,11 @@
  * buildInteractiveLaunch, `src/shared/providers.ts` PROVIDERS,
  * `src/main/orchestrator/mcpConfig.ts`, `docs/MODELS_AND_EFFORT.md`) — not from
  * documentation guesses. An unknown CLI flag kills a launch, so nothing
- * unverified is declared here.
+ * unverified is declared here. Grok Build is the exception that was added
+ * after that generation: its flags come from the published CLI reference
+ * (https://docs.x.ai/build/cli/reference) and the MCP / settings docs, which
+ * list `--always-approve`, `--model`, `--effort`, `--append-system-prompt`
+ * (alias of `--rules`), `grok --version`, `grok login` and `grok models`.
  */
 import {
   providerConfigSchema,
@@ -30,6 +34,8 @@ import {
  * - Kimi answers `kimi provider list --json` with a `models` table whose KEYS
  *   (`kimi-code/k3`, not the nested `model` field) are what `--model` accepts.
  * - Cursor prints `<id> - <label>` per line on `cursor-agent models`.
+ * - Grok Build prints its catalogue on `grok models` (built-in xAI models plus
+ *   any `[model.*]` entries in `~/.grok/config.toml`).
  * - Ollama is a local service; its tags endpoint is the only truth about which
  *   models physically exist on this machine.
  */
@@ -176,6 +182,36 @@ const PRESETS: readonly ProviderConfig[] = [
       submitAcceptance: 'sustained-activity',
       bracketedPaste: 'auto'
     }
+  }),
+  providerConfigSchema.parse({
+    id: 'grok',
+    presetId: 'grok',
+    label: 'Grok Build',
+    command: 'grok',
+    yoloArgs: ['--always-approve'],
+    modelArg: '--model',
+    effortArg: { style: 'flag', flag: '--effort' },
+    versionArgs: ['--version'],
+    // `grok login` is browser/device-code OAuth; the CLI exposes no status probe.
+    auth: { loginArgs: ['login'] },
+    // `--append-system-prompt` is the documented Claude-compatible alias of
+    // `--rules`: extra instructions appended for this session, not a replacement
+    // of the coding-agent prompt (`--system-prompt-override` would drop it).
+    systemPromptDelivery: { kind: 'arg', flag: '--append-system-prompt' },
+    mcp: { kind: 'grok-project' },
+    modelDiscovery: { kind: 'cli', args: ['models'], parse: 'lines' },
+    /**
+     * The rolling coding-agent alias of the Grok CLI — `grok-build`, which the
+     * CLI resolves to whatever currently powers Grok Build (see
+     * https://docs.x.ai/build/overview). Like Cursor's `auto`, it names no
+     * release.
+     *
+     * `grok models` needs a signed-in session or `XAI_API_KEY`, so a healthy
+     * `--version` probe can still produce an empty picker on a fresh machine.
+     * One rolling alias keeps the provider startable; discovery still wins
+     * the order when it answers.
+     */
+    seedModels: ['grok-build']
   }),
   providerConfigSchema.parse({
     id: 'ollama',
