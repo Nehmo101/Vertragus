@@ -2,6 +2,9 @@
 
 Ideen, die aus dem Code kommen — nicht aus einer generischen Agent-Roadmap.
 
+Copy-paste-fähige Agent-Prompts für alle offenen Tracks:
+[`PROMPT-MCP-HARNESS.md`](./PROMPT-MCP-HARNESS.md).
+
 **Stand:** [PR #17](https://github.com/Nehmo101/Vertragus/pull/17) hat BigBoy
 A1–A3, Remote (B) und Harness C1/C2 (`inspect_agent`, Host-Fakten auf
 `agent_done`) **umgesetzt**. Dieses Dokument ist der Plan danach.
