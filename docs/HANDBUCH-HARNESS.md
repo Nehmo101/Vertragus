@@ -46,6 +46,7 @@ Remote-Server.
 | H2 `workspaces:start {goal}` | **offen** — Start bleibt `profileId` only |
 | C3 Snapshot-Commit / C4 Handoff-Paket | später |
 | C5 Orchestrator-Idle-Watchdog | später, und nicht A1.1 (`orchestrator_exited` ist Prozess-Tod) |
+| C6 Orchestrator-Succession (Context-Handoff) | **S1 im Code** — siehe [`ORCHESTRATOR-SUCCESSION.md`](./ORCHESTRATOR-SUCCESSION.md) |
 | D Mensch im Loop | nach H1/H2 |
 | E integrate / briefing / eval | nach C |
 | F Multi-Orch (Lead, Tiefe 1) | nach C; Host auto-nestet nie |
@@ -233,6 +234,36 @@ A1.1 ist Prozess-Tod. Der andere Tod: der Prozess lebt, ruft
 Watchdog auf den letzten Orchestrator-Tool-Call → Event
 `orchestrator_idle` + Panel/Remote-Karte. Optional eine Reminder-Zeile
 in die TUI, einmal pro Stillephase. Weckt ihn nicht (er ruft ja nicht).
+
+### C6 Orchestrator-Succession (Context-Handoff)
+
+Der Root-Orchestrator ist der einzige LLM, der den Lauf akkumuliert.
+Subagents haben isolierte Kontexte; bei langen Läufen läuft *sein*
+Fenster voll — nicht ihres.
+
+**Succession** = serieller Ersatz von `orchestratorRecord` im selben
+Workspace: frischer Kontext, strukturiertes Host-Paket, Team und
+`EventQueue` bleiben. Das ist **kein** zweiter paralleler Root, kein
+Lead (F), kein C4-Worker-Paket.
+
+Kurzentscheidungen (Details und State-Machine im eigenen Doc):
+
+- Trigger: Orchestrator-Tool `request_succession` (Self-Declare); User-
+  Button als Escape; **kein** Host-Token-Zähler
+- Cutover: `orchToken` rotieren → Successor spawnen/seeden → alten PTY
+  killen; `subToken` und Worker-URLs unverändert
+- Dieselbe `EventQueue` + `PendingQuestions`; Paket trägt `eventCursor`
+- `record_retro` ist Run-Ende, nicht Handoff — Host blockt Non-Active
+- C5 ist orthogonal (Stille ≠ Context-Full); C3 sollte vor/mit Harden
+  landen, damit SHAs im Paket stimmen
+
+Vollständiger Plan: [`docs/ORCHESTRATOR-SUCCESSION.md`](./ORCHESTRATOR-SUCCESSION.md).
+
+**S1 im Code:** `request_succession` (neuntes Orchestrator-Tool), Host-Paket,
+`orchToken`-Rotation (alte URL → 401, Subagent-URLs bleiben), Successor-Seed
+mit `eventCursor` und offenen Fragen, Fence `succession_in_progress` auf
+mutierenden Tools, `record_retro` währenddessen verboten. User-Button, C5
+und C3-SHA-Härtung sind später.
 
 ---
 
@@ -533,6 +564,8 @@ gerade Lifecycle und Tokens anfasst.
   ein Workspace pro Bereich)
 - Automatisches Nesting / Nesting-Profil-Toggle — der Root entscheidet
   per Tool, Default flach
+- Automatische Succession aus geratenen Token-Zählern (C6 ist Self-Declare
+  + optional User-Button, kein Host-Ratespiel)
 - Tiefe > 1 (Lead startet Lead)
 - Enkel-Events in der Root-`await_events`-Queue
 - `read_output` als Verifikation
@@ -553,6 +586,7 @@ PR #17   A1–A3 + B Remote + H3 + C1 inspect_agent + C2 Done-Fakten
      │
      └─ Phase C   C3/C4 Snapshot-Commit + Handoff-Paket     später
             C5 Orchestrator-Idle-Watchdog             später
+            C6 Orchestrator-Succession (Context-Handoff)  S1
             F   Multi-Orch (Root entscheidet; braucht C, braucht B nicht)
             D   Goal-UI, user_message, ask_user (braucht H1/H2)
             E   integrate/gate, Briefing, Resume, Budget, Eval
@@ -560,12 +594,15 @@ PR #17   A1–A3 + B Remote + H3 + C1 inspect_agent + C2 Done-Fakten
 
 F danach: ohne Inspect ist jeder Lead genauso blind wie der eine Root
 vorher. D wird billiger, wenn H1/H2 nachgezogen werden. E braucht C
-(ohne Inspect und Snapshot ist Gate Theater).
+(ohne Inspect und Snapshot ist Gate Theater). C6 braucht C1/C2 (da),
+sollte C3 mitnehmen, und ist **nicht** F — Succession ersetzt den Root
+seriell; F nestet unter ihm.
 
 Der Sprung zum *starken* Harness bleibt C (Host kennt Git). Der Sprung
 zum *steuerbaren* Harness bleibt D + H1/H2 (Mensch im Loop, auch vom
 Handy). F ist der Sprung zur *breiten* Umsetzung, den der Root nur
-wählt wenn flach nicht mehr trägt. A/B sind das Fundament.
+wählt wenn flach nicht mehr trägt. C6 ist der Sprung zur *langen*
+Umsetzung, wenn der Root-Kontext voll läuft. A/B sind das Fundament.
 
 ---
 
@@ -580,9 +617,10 @@ wählt wenn flach nicht mehr trägt. A/B sind das Fundament.
 | Gap sichtbar | `eventQueue.ts` `droppedSince` → `await_events.eventsDropped` | **PR #17** |
 | Panel-Push | `WorkspaceDirectory.onChange` | **PR #17** |
 | Quit awaited | `index.ts` `before-quit` | **PR #17** |
-| Acht Orchestrator-Tools | `toolsOrchestrator.ts` inkl. `inspect_agent` | **PR #17** |
+| Acht Orchestrator-Tools + `request_succession` | `toolsOrchestrator.ts` inkl. `inspect_agent` | **C6 S1** |
 | Host-Fakten auf `agent_done` | `toolsSubagent.ts` `report_done`, Sentinel in `Workspace.ts` | **PR #17** |
 | MCP-Identität binär (Root vs. Blatt) | `server.ts` `McpIdentity` — Lead kommt in F | offen |
+| Ein Orchestrator pro Workspace | `Workspace.startOrchestrator` wirft bei Zweitem — C6 ersetzt seriell, nestet nicht | C6 geplant |
 | Play ohne Goal | `appIpc.ts` `workspaces:start`, Gateway `profileId` only | H2 offen |
 | MCP-Fragen vom Handy | Gateway hat kein `answer_question` | H1 offen |
 | Worker „nie committen“ | `roles.ts` — Snapshot-Commit ist C3 | später |

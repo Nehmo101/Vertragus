@@ -9,7 +9,7 @@ import {
 const identity = { agentId: 'a1', name: 'Arlecchino', roleId: 'worker' }
 
 describe('agent event schema', () => {
-  it('covers exactly the eight documented event types', () => {
+  it('covers exactly the documented event types', () => {
     expect([...AGENT_EVENT_TYPES]).toEqual([
       'agent_started',
       'agent_start_failed',
@@ -18,7 +18,10 @@ describe('agent event schema', () => {
       'agent_progress',
       'agent_exited',
       'agent_stopped',
-      'orchestrator_exited'
+      'orchestrator_exited',
+      'orchestrator_handoff_started',
+      'orchestrator_started',
+      'orchestrator_handoff_failed'
     ])
   })
 
@@ -99,6 +102,33 @@ describe('agent event schema', () => {
       confirmed: false
     })
     expect(parsed).toMatchObject({ confirmed: false, exitCode: 1 })
+  })
+
+  it('accepts orchestrator succession events', () => {
+    expect(
+      agentEventPayloadSchema.parse({
+        type: 'orchestrator_handoff_started',
+        ...identity,
+        reason: 'context_full',
+        eventCursor: 12,
+        successorAgentId: 'a2'
+      })
+    ).toMatchObject({ successorAgentId: 'a2', eventCursor: 12 })
+    expect(
+      agentEventPayloadSchema.parse({
+        type: 'orchestrator_started',
+        ...identity,
+        predecessorAgentId: 'a1',
+        eventCursor: 12
+      })
+    ).toMatchObject({ predecessorAgentId: 'a1' })
+    expect(
+      agentEventPayloadSchema.parse({
+        type: 'orchestrator_handoff_failed',
+        ...identity,
+        message: 'seed failed'
+      })
+    ).toMatchObject({ message: 'seed failed' })
   })
 
   it('carries no confirmed flag on orchestrator_exited — it reports to nobody', () => {

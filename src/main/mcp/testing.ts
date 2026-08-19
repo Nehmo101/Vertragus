@@ -14,12 +14,14 @@ import type {
   InspectAgentResult,
   StartAgentInput,
   StartingAgent,
+  StartingSuccession,
   ToolText,
   WorktreeFacts,
   WorkspaceMcpContext,
   WorkspaceRetroPort,
   WorkspaceRuntime
 } from './types'
+import type { SuccessionRequest } from '@shared/schema/handoff'
 
 export interface CapturedTool {
   name: string
@@ -79,6 +81,13 @@ export interface FakeHostOptions {
   reportingMode?: (role: string) => AgentSummary['reporting']
   /** When set, {@link FakeAgentHost.snapshotWorktree} throws this message. */
   snapshotError?: string
+  /**
+   * Keep {@link FakeAgentHost.successionInProgress} true after
+   * `requestSuccession` until {@link FakeAgentHost.completeSuccession} — used
+   * to test the mutating-tool fence.
+   */
+  holdSuccession?: boolean
+  successionError?: string
 }
 
 const FAKE_HEAD = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
@@ -88,10 +97,15 @@ export class FakeAgentHost implements AgentHost {
   readonly agents = new Map<string, AgentSummary>()
   readonly sent: Array<{ agentId: string; text: string }> = []
   readonly seeded: Array<{ agentId: string; task: string }> = []
+  readonly successionCalls: SuccessionRequest[] = []
   output = new Map<string, string>()
   /** Canned git facts per agent; absent → a clean fake snapshot. */
   snapshots = new Map<string, WorktreeFacts>()
+  /** Live root id the fake succession reports as predecessor. */
+  orchestratorId = 'orch-live'
   private counter = 0
+  private successionHeld = false
+  private successionResolvers: Array<(agent: import('./types').StartedAgent) => void> = []
 
   constructor(private readonly options: FakeHostOptions = {}) {}
 
@@ -181,6 +195,57 @@ export class FakeAgentHost implements AgentHost {
 
   listAgents(): AgentSummary[] {
     return [...this.agents.values()]
+  }
+
+  successionInProgress(): boolean {
+    return this.successionHeld
+  }
+
+  requestSuccession(input: SuccessionRequest): StartingSuccession {
+    if (this.successionHeld) throw new Error('already_in_progress')
+    if (this.options.successionError) throw new Error(this.options.successionError)
+    this.successionCalls.push(input)
+    this.successionHeld = true
+    const successorAgentId = `orch-${++this.counter}`
+    const successorName = `Guide ${this.counter}`
+    const started = {
+      agentId: successorAgentId,
+      name: successorName,
+      role: 'orchestrator',
+      providerId: 'fake',
+      worktreePath: `/tmp/worktrees/${successorAgentId}`,
+      branch: `vertragus/arsenale/${successorAgentId}`
+    }
+    const ready = this.options.holdSuccession
+      ? new Promise<typeof started>((resolve) => {
+          this.successionResolvers.push(resolve)
+        })
+      : Promise.resolve(started).then((agent) => {
+          this.successionHeld = false
+          return agent
+        })
+    return {
+      successorAgentId,
+      successorName,
+      predecessorAgentId: this.orchestratorId,
+      eventCursor: 0,
+      ready
+    }
+  }
+
+  /** Unblock a held succession (tests that asserted the fence). */
+  completeSuccession(): void {
+    this.successionHeld = false
+    const started = {
+      agentId: `orch-${this.counter}`,
+      name: `Guide ${this.counter}`,
+      role: 'orchestrator',
+      providerId: 'fake',
+      worktreePath: `/tmp/worktrees/orch-${this.counter}`,
+      branch: `vertragus/arsenale/orch-${this.counter}`
+    }
+    for (const resolve of this.successionResolvers) resolve(started)
+    this.successionResolvers = []
   }
 }
 

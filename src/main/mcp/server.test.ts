@@ -154,7 +154,7 @@ describe('startMcpServer', () => {
     expect(buildOrchestratorUrl(handle.port, 'x', 'y')).toContain('http://127.0.0.1:')
   })
 
-  it('serves the eight orchestrator tools on an orchestrator URL', async () => {
+  it('serves every orchestrator tool on an orchestrator URL', async () => {
     const registered = handle.registerWorkspace(context({ workspaceId: 'w1' }))
     const client = await connect(registered.orchestratorUrl)
     const tools = (await client.listTools()).tools.map((tool) => tool.name).sort()
@@ -277,5 +277,30 @@ describe('startMcpServer', () => {
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' })
     })
     expect(response.status).toBe(400)
+  })
+
+  it('rotates the orchestrator token so the old URL 401s and subagent URLs still work', async () => {
+    const ctx = context({ workspaceId: 'w-succ', orchToken: 'old-orch', subToken: 'sub' })
+    const registered = handle.registerWorkspace(ctx)
+    const oldUrl = registered.orchestratorUrl
+    const subUrl = registered.subagentUrl('agent-1')
+
+    const rotated = registered.rotateOrchestratorToken()
+    expect(rotated.previousToken).toBe('old-orch')
+    expect(rotated.orchToken).not.toBe('old-orch')
+    expect(ctx.orchToken).toBe(rotated.orchToken)
+
+    await expectUnauthorized(oldUrl)
+    expect(handle.orchestratorUrl('w-succ')).toContain(rotated.orchToken)
+
+    const sub = await connect(subUrl)
+    const tools = (await sub.listTools()).tools.map((tool) => tool.name)
+    expect(tools).toContain('report_done')
+    await sub.close()
+
+    const restored = registered.applyOrchestratorToken('old-orch')
+    expect(restored.orchestratorUrl).toBe(oldUrl)
+    const client = await connect(oldUrl)
+    await client.close()
   })
 })
