@@ -25,6 +25,11 @@ workspaces get places (Paradiso, Inferno, …).
 > [Vertragus-Archiv](https://github.com/Nehmo101/Vertragus-Archiv) with a
 > radically smaller core. Nothing here is release-ready yet.
 
+The German handbook [`docs/HANDBUCH-HARNESS.md`](docs/HANDBUCH-HARNESS.md)
+is a code-grounded look at what would make this loop a strong AI harness —
+host-truth for verification and handoff, the human inside the event loop —
+without growing a second orchestrator.
+
 ## Development
 
 ```bash
