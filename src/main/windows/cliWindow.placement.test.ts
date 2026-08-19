@@ -117,6 +117,20 @@ function fake(win: unknown): FakeBrowserWindow {
 }
 
 describe('createCliWindow with a placement', () => {
+  it('re-applies placement bounds after show — compositors often ignore constructor x/y', () => {
+    const zones = {
+      zones: [{ roleId: 'worker', displayId: 2, rect: { x: 0.5, y: 0, w: 0.5, h: 1 } }]
+    }
+    const win = fake(
+      cli.createCliWindow('a', { ...WORKER, placement: { roleId: 'worker', zones } })
+    )
+    win.bounds = { x: 0, y: 0, width: 100, height: 100 }
+
+    win.emit('ready-to-show')
+
+    expect(win.bounds).toEqual({ x: 2720, y: 0, width: 800, height: 900 })
+  })
+
   it('opens on the primary display instead of Electron’s default spot', () => {
     const win = fake(
       cli.createCliWindow('a', { ...WORKER, placement: { roleId: 'worker' } })

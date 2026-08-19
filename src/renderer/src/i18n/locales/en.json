@@ -332,10 +332,8 @@
     "cancel": "Cancel (Esc)",
     "demoBadge": "Demo view",
     "pickTitle": "Choose a screen",
-    "pickHint": "Several screens — pick which one Vertragus should spread windows across.",
-    "pickThis": "Place Vertragus here",
-    "pickPrimary": "Primary screen",
-    "pickOther": "Or click the other screen."
+    "pickHint": "Which screen should Vertragus spread windows across? You can draw zones or auto-layout next.",
+    "pickPrimary": "Primary screen"
   },
   "terminal": {
     "currentTask": "Current task: {{task}}",

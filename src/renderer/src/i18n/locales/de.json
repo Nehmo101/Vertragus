@@ -332,10 +332,8 @@
     "cancel": "Abbrechen (Esc)",
     "demoBadge": "Demo-Ansicht",
     "pickTitle": "Bildschirm wählen",
-    "pickHint": "Mehrere Bildschirme — wähle, auf welchem Vertragus die Fenster verteilen soll.",
-    "pickThis": "Vertragus hier verteilen",
-    "pickPrimary": "Hauptbildschirm",
-    "pickOther": "Oder auf dem anderen Bildschirm klicken."
+    "pickHint": "Auf welchem Bildschirm sollen die Vertragus-Fenster landen? Danach kannst du die Zonen einzeichnen oder automatisch aufteilen.",
+    "pickPrimary": "Hauptbildschirm"
   },
   "terminal": {
     "currentTask": "Aktuelle Aufgabe: {{task}}",
