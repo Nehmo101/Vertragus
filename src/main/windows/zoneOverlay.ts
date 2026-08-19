@@ -210,8 +210,11 @@ export function selectZoneOverlayDisplay(displayId: number): boolean {
     closing = false
   }
 
+  // Do not reload the overlay URL. The picker already fetched roles and
+  // zones; the renderer flips itself into the rectangle editor. A hash-only
+  // loadRoute would not remount React (App reads location.hash once), so the
+  // picker card would stay on screen.
   kept.pick = false
-  loadRoute(kept.window, `/zones/${displayId}${overlayQuery(kept.profileId, {})}`)
   kept.window.focus()
   return true
 }

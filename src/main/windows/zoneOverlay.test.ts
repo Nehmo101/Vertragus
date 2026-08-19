@@ -234,7 +234,9 @@ describe('the overlay registry', () => {
       displayId: 11,
       pick: false
     })
-    expect(loadRoute).toHaveBeenCalledWith(first, '/zones/11?profile=p1')
+    // The overlay already has roles/zones; a hash reload would not remount
+    // the picker into the editor, so the route stays as it was at open.
+    expect(loadRoute).not.toHaveBeenCalledWith(first, '/zones/11?profile=p1')
     // A second pick on the same overlay is a no-op that keeps the editor.
     expect(overlay.selectZoneOverlayDisplay(11)).toBe(true)
     expect(overlay.zoneOverlayDisplayIds()).toEqual([11])

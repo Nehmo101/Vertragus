@@ -106,6 +106,12 @@ export function useZoneEditor({
     bridge || demo ? null : t('common.bridgeMissing')
   )
   const [saving, setSaving] = useState(false)
+  /**
+   * Multi-monitor picker vs rectangle editor. Starts from the route flag and
+   * flips locally on pick — main does not reload the overlay, so this cannot
+   * wait for a new `zones:load` or a remount.
+   */
+  const [selecting, setSelecting] = useState(Boolean(pick))
   /** Monotonic counter for local zone keys and the new-zone cascade. */
   const created = useRef(seed ? seed.zones.length : 0)
 
@@ -124,6 +130,9 @@ export function useZoneEditor({
         setPayload(loaded)
         setZones(toDrafts(loaded, viewport, created.current))
         created.current += loaded.zones.length
+        // Stay in the picker only while both the route and this payload say so.
+        // After a local pick, a late load must not flip the editor back.
+        setSelecting((current) => current && loaded.selectingDisplay)
       },
       (cause) => {
         if (alive) setError(errorText(cause))
@@ -156,6 +165,7 @@ export function useZoneEditor({
   }, [bridge, demo, displayId, viewport, zones])
 
   const pickDisplay = useCallback(() => {
+    setSelecting(false)
     bridge?.pickDisplay()
   }, [bridge])
 
@@ -169,7 +179,7 @@ export function useZoneEditor({
     error,
     saving,
     demo,
-    selectingDisplay: payload?.selectingDisplay ?? pick,
+    selectingDisplay: selecting,
     displayLabel: (payload?.displays ?? []).find((entry) => entry.id === displayId)?.label ?? '',
     displayPrimary:
       (payload?.displays ?? []).find((entry) => entry.id === displayId)?.primary ?? false,
