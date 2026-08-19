@@ -29,7 +29,19 @@ import type { RemoteClientInfo } from '@shared/remote/types'
 import { parseClientMessage, type ServerMessage } from '@shared/remote/protocol'
 
 const MAX_BODY_BYTES = 64 * 1024
+/** Cap a single WebSocket frame — the zod caps run only after ws buffers it. */
+const MAX_WS_PAYLOAD_BYTES = 128 * 1024
+/** Reject new sockets past this many concurrent connections (pre-auth DoS cap). */
+const MAX_CONNECTIONS = 64
+/** Drop a slow reader whose outbound buffer grows past this. */
+const SOCKET_BUFFER_CEILING_BYTES = 8 * 1024 * 1024
 export const REMOTE_DEFAULT_PORT = 9482
+
+/** True for a bare IP literal (v4 or v6) — never a DNS name. */
+function isIpLiteral(host: string): boolean {
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return true
+  return host.includes(':') && /^[0-9a-fA-F:.]+$/.test(host)
+}
 
 export interface RemoteServerOptions {
   /** Bind address — a Tailscale IP by default; `0.0.0.0` only on explicit opt-in. */
@@ -66,13 +78,25 @@ export function isRequestAllowed(
   headers: { host?: string; origin?: string },
   bindHost: string
 ): boolean {
-  const ok = (name: string): boolean =>
-    // 0.0.0.0 binds every interface — accept any Host the machine answers on.
-    bindHost === '0.0.0.0' ||
-    name === bindHost ||
-    name === '127.0.0.1' ||
-    name === 'localhost' ||
-    name === '::1'
+  // In 0.0.0.0 mode we bind every interface, so we cannot pin Host to one
+  // address — but we can still defeat DNS-rebinding by accepting only bare IP
+  // literals (a rebinding attack requires a DNS name it controls). Loopback
+  // names stay allowed for a local browser. A tailnet MagicDNS name is
+  // therefore rejected in 0.0.0.0 mode; that mode is the by-IP escape hatch.
+  const allowAny = bindHost === '0.0.0.0'
+  // URL.hostname keeps IPv6 brackets ("[::1]"); normalize so the literal and
+  // loopback comparisons see a bare address.
+  const bare = (name: string): string => name.replace(/^\[|\]$/g, '')
+  const ok = (raw: string): boolean => {
+    const name = bare(raw)
+    return (
+      name === bindHost ||
+      name === '127.0.0.1' ||
+      name === 'localhost' ||
+      name === '::1' ||
+      (allowAny && isIpLiteral(name))
+    )
+  }
   const hostHeader = headers.host
   if (!hostHeader) return false
   let hostName: string
@@ -124,8 +148,17 @@ export async function startRemoteServer(
     bridge: ReturnType<typeof createTerminalBridge>
   }
 
+  let socketCount = 0
+
   const send = (socket: WebSocket, message: ServerMessage): void => {
-    if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message))
+    if (socket.readyState !== WebSocket.OPEN) return
+    // A stalled reader must not grow main-process memory without bound: close
+    // it once its outbound buffer runs away.
+    if (socket.bufferedAmount > SOCKET_BUFFER_CEILING_BYTES) {
+      socket.close()
+      return
+    }
+    socket.send(JSON.stringify(message))
   }
 
   const httpServer: Server = createServer((req, res) => {
@@ -185,17 +218,31 @@ export async function startRemoteServer(
     }
   }
 
-  const wss = new WebSocketServer({ noServer: true })
+  // maxPayload caps a single frame BEFORE ws buffers it — the zod caps in
+  // protocol.ts run only after the full frame is in memory, so without this an
+  // unauthenticated peer could push ~100 MB frames (ws's default) to OOM us.
+  const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_WS_PAYLOAD_BYTES })
 
   httpServer.on('upgrade', (req, socket, head) => {
-    if (!isRequestAllowed(req.headers, options.host) || new URL(req.url ?? '/', `http://${options.host}`).pathname !== '/ws') {
+    try {
+      const ok =
+        isRequestAllowed(req.headers, options.host) &&
+        new URL(req.url ?? '/', `http://${options.host}`).pathname === '/ws' &&
+        socketCount < MAX_CONNECTIONS
+      if (!ok) {
+        socket.destroy()
+        return
+      }
+      wss.handleUpgrade(req, socket, head, (ws) => acceptSocket(ws))
+    } catch {
+      // A throw here (malformed request target) must not reach the process —
+      // there is no global uncaughtException handler.
       socket.destroy()
-      return
     }
-    wss.handleUpgrade(req, socket, head, (ws) => acceptSocket(ws))
   })
 
   function acceptSocket(socket: WebSocket): void {
+    socketCount += 1
     let connection: Connection | undefined
     // A socket that never authenticates within the grace window is dropped.
     const authTimer = setTimeout(() => {
@@ -204,71 +251,85 @@ export async function startRemoteServer(
     authTimer.unref?.()
 
     socket.on('message', (raw) => {
-      const message = parseClientMessage(raw.toString())
-      if (!message) return
+      // The whole handler is exception-safe: a synchronous throw from any
+      // gateway/bridge call must close the offending socket, never the main
+      // process (there is no global uncaughtException handler).
+      try {
+        const message = parseClientMessage(raw.toString())
+        if (!message) return
 
-      if (!connection) {
-        if (message.type !== 'auth') {
-          socket.close()
+        if (!connection) {
+          if (message.type !== 'auth') {
+            socket.close()
+            return
+          }
+          const session = auth.touch(message.session)
+          if (!session) {
+            send(socket, { type: 'session_revoked' })
+            socket.close()
+            return
+          }
+          clearTimeout(authTimer)
+          const bridge = createTerminalBridge({
+            terminals: options.terminals(),
+            send: (msg) => send(socket, msg)
+          })
+          connection = { socket, session, bridge }
+          clients.add(connection)
+          send(socket, {
+            type: 'hello',
+            workspaces: options.gateway.listWorkspaces(),
+            locale: options.locale(),
+            theme: options.theme()
+          })
           return
         }
-        const session = auth.touch(message.session)
-        if (!session) {
+
+        // Every subsequent message refreshes the session's idle timer.
+        if (!auth.touch(connection.session.token)) {
           send(socket, { type: 'session_revoked' })
           socket.close()
           return
         }
-        clearTimeout(authTimer)
-        const bridge = createTerminalBridge({
-          terminals: options.terminals(),
-          send: (msg) => send(socket, msg)
-        })
-        connection = { socket, session, bridge }
-        clients.add(connection)
-        send(socket, {
-          type: 'hello',
-          workspaces: options.gateway.listWorkspaces(),
-          locale: options.locale(),
-          theme: options.theme()
-        })
-        return
-      }
 
-      // Every subsequent message refreshes the session's idle timer.
-      if (!auth.touch(connection.session.token)) {
-        send(socket, { type: 'session_revoked' })
-        socket.close()
-        return
-      }
-
-      switch (message.type) {
-        case 'attach':
-          connection.bridge.attach(message.agentId)
-          break
-        case 'detach':
-          connection.bridge.detach(message.agentId)
-          break
-        case 'input':
-          connection.bridge.input(message.agentId, message.data)
-          break
-        case 'resize':
-          connection.bridge.resize(message.agentId, message.cols, message.rows)
-          break
-        case 'refresh':
-          send(socket, { type: 'workspaces', workspaces: options.gateway.listWorkspaces() })
-          break
-        case 'command': {
-          void runRemoteCommand(options.gateway, message.name, message.arg).then((result) => {
-            if (result.ok) send(socket, { type: 'command_result', id: message.id, ok: true, result: result.result })
-            else send(socket, { type: 'command_result', id: message.id, ok: false, error: result.error })
-          })
-          break
+        switch (message.type) {
+          case 'attach':
+            connection.bridge.attach(message.agentId)
+            break
+          case 'detach':
+            connection.bridge.detach(message.agentId)
+            break
+          case 'input':
+            connection.bridge.input(message.agentId, message.data)
+            break
+          case 'resize':
+            connection.bridge.resize(message.agentId, message.cols, message.rows)
+            break
+          case 'refresh':
+            send(socket, { type: 'workspaces', workspaces: options.gateway.listWorkspaces() })
+            break
+          case 'command': {
+            void runRemoteCommand(options.gateway, message.name, message.arg).then(
+              (result) => {
+                if (result.ok) {
+                  send(socket, { type: 'command_result', id: message.id, ok: true, result: result.result })
+                } else {
+                  send(socket, { type: 'command_result', id: message.id, ok: false, error: result.error })
+                }
+              },
+              () => send(socket, { type: 'command_result', id: message.id, ok: false, error: 'command failed' })
+            )
+            break
+          }
         }
+      } catch {
+        socket.close()
       }
     })
 
     socket.on('close', () => {
       clearTimeout(authTimer)
+      socketCount = Math.max(0, socketCount - 1)
       if (connection) {
         connection.bridge.dispose()
         clients.delete(connection)

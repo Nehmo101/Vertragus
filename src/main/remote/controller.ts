@@ -17,6 +17,8 @@ import { startRemoteServer, type RemoteServerHandle, type RemoteServerOptions } 
 export type { RemoteStatus } from '@shared/remote/types'
 
 export interface RemoteSecretCodec {
+  /** True only when the OS keychain is available (Electron safeStorage). */
+  available: boolean
   encrypt(plaintext: string): string
   decrypt(ciphertext: string): string | undefined
 }
@@ -67,10 +69,30 @@ export function createRemoteController(deps: RemoteControllerDeps): RemoteContro
   const startServer = deps.startServer ?? startRemoteServer
   let handle: RemoteServerHandle | undefined
   let lastError: string | undefined
+  /**
+   * When the OS keychain is unavailable, the token is kept HERE and never
+   * written to disk — persisting it would mean plaintext-at-rest (electron-store
+   * is plain JSON), which is exactly the leak we refuse. The cost is that the
+   * token does not survive a restart without a keychain: the user re-pairs.
+   */
+  let memoryToken: string | undefined
 
   const token = (): string | undefined => {
+    if (memoryToken) return memoryToken
     const stored = deps.readSettings().pairingTokenEncrypted
     return stored ? deps.secrets.decrypt(stored) : undefined
+  }
+
+  /** Store a freshly minted token: encrypted on disk when possible, else memory-only. */
+  const persistToken = (settings: RemoteSettings, fresh: string): void => {
+    if (deps.secrets.available) {
+      memoryToken = undefined
+      deps.writeSettings({ ...settings, pairingTokenEncrypted: deps.secrets.encrypt(fresh) })
+    } else {
+      // Drop any stale ciphertext and keep the token only in memory.
+      memoryToken = fresh
+      deps.writeSettings({ ...settings, pairingTokenEncrypted: undefined })
+    }
   }
 
   const status = (): RemoteStatus => {
@@ -109,13 +131,8 @@ export function createRemoteController(deps: RemoteControllerDeps): RemoteContro
       return
     }
     // A first enable with no token yet mints one, so the QR is never empty.
-    let current = token()
-    if (!current) {
-      current = mintPairingToken()
-      deps.writeSettings({
-        ...settings,
-        pairingTokenEncrypted: deps.secrets.encrypt(current)
-      })
+    if (!token()) {
+      persistToken(settings, mintPairingToken())
     }
     try {
       handle = await startServer({
@@ -142,8 +159,7 @@ export function createRemoteController(deps: RemoteControllerDeps): RemoteContro
     },
     async regenerateToken(): Promise<RemoteStatus> {
       const settings = deps.readSettings()
-      const fresh = mintPairingToken()
-      deps.writeSettings({ ...settings, pairingTokenEncrypted: deps.secrets.encrypt(fresh) })
+      persistToken(settings, mintPairingToken())
       // Every existing session dies with the old token — a regenerate is a
       // "lock everyone out and re-pair" action.
       await stop()

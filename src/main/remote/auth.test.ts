@@ -67,6 +67,17 @@ describe('RemoteAuthStore.pair', () => {
     clock.advance(1_001)
     expect(auth.pair('pair-secret', 'x').ok).toBe(true)
   })
+
+  it('prunes stale rate-limit entries so the attempts map does not grow forever', () => {
+    const { auth, clock } = store('pair-secret', { attemptLimit: 5, windowMs: 1_000, idleMs: 1 })
+    // Many distinct source addresses each make one failed attempt.
+    for (let i = 0; i < 50; i++) auth.pair('wrong', `addr-${i}`)
+    clock.advance(2_000)
+    // A sweep (triggered by list()) drops the aged-out attempt entries; a fresh
+    // attempt from an old address is not pre-counted.
+    auth.list()
+    expect(auth.pair('pair-secret', 'addr-0').ok).toBe(true)
+  })
 })
 
 describe('RemoteAuthStore session lifecycle', () => {

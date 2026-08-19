@@ -124,4 +124,26 @@ describe('createTerminalBridge', () => {
     bridge.attach('a1')
     expect(sent.filter((m) => m.type === 'snapshot')).toHaveLength(1)
   })
+
+  it('drops the attachment on exit so a later input is ignored, not written to a dead pty', () => {
+    const term = fakeTerminals()
+    const bridge = createTerminalBridge({ terminals: term.directory, send: () => undefined })
+    bridge.attach('a1')
+    term.exit('a1', 0)
+    // The subscription was detached, and input after exit goes nowhere.
+    expect(term.detached).toContain('a1')
+    bridge.input('a1', 'too late')
+    expect(term.writes).toHaveLength(0)
+  })
+
+  it('force-flushes when a burst exceeds the pending cap within one window', () => {
+    const term = fakeTerminals()
+    const sent: ServerMessage[] = []
+    const bridge = createTerminalBridge({ terminals: term.directory, send: (m) => sent.push(m), coalesceMs: 1_000 })
+    bridge.attach('a1')
+    // A single chunk over the 256 KiB cap forces an immediate flush — no timer,
+    // no unbounded growth inside the coalesce window.
+    term.emit('a1', 'x'.repeat(300 * 1024))
+    expect(sent.filter((m) => m.type === 'data')).toHaveLength(1)
+  })
 })

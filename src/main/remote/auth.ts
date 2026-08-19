@@ -147,6 +147,12 @@ export class RemoteAuthStore {
     for (const [key, session] of this.sessions) {
       if (session.lastSeenAt < cutoff) this.sessions.delete(key)
     }
+    // Prune rate-limit entries whose attempts have all aged out, so the map
+    // does not grow one key per distinct source address forever.
+    const attemptCutoff = this.now() - this.windowMs
+    for (const [address, times] of this.attempts) {
+      if (times.every((at) => at < attemptCutoff)) this.attempts.delete(address)
+    }
   }
 
   private isRateLimited(address: string): boolean {

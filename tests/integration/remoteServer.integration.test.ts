@@ -205,6 +205,51 @@ describe('remote server websocket', () => {
     expect(await pushed).toMatchObject({ type: 'workspaces' })
   })
 
+  it('survives a socket whose message handler throws — one bad frame never crashes the server', async () => {
+    // A terminal whose write throws models a dead node-pty (H1). The offending
+    // socket must be closed, but the server must keep serving other clients.
+    const throwing: TerminalDirectory = {
+      list: () => [],
+      get: () => undefined,
+      attach: (agentId, sink) => {
+        void sink
+        return {
+          snapshot: '',
+          cols: 80,
+          rows: 24,
+          meta: { agentId, name: 'X', role: 'worker', roleColor: '#000', provider: 'p', model: 'm' },
+          exit: null,
+          detach: () => undefined
+        }
+      },
+      write: () => {
+        throw new Error('pty is dead')
+      },
+      resize: () => true
+    }
+    handle = await server(throwing)
+    const session1 = await pair(handle.port)
+    const socket1 = await connect(handle.port)
+    const hello1 = nextMessage(socket1, 'hello')
+    socket1.send(JSON.stringify({ type: 'auth', session: session1 }))
+    await hello1
+    const snapshot = nextMessage(socket1, 'snapshot')
+    socket1.send(JSON.stringify({ type: 'attach', agentId: 'a1' }))
+    await snapshot
+
+    const closed1 = new Promise<void>((resolve) => socket1.once('close', () => resolve()))
+    // This input throws inside the handler; the socket closes, the server lives.
+    socket1.send(JSON.stringify({ type: 'input', agentId: 'a1', data: 'boom' }))
+    await closed1
+
+    // A fresh client still gets a full handshake — the server never crashed.
+    const session2 = await pair(handle.port)
+    const socket2 = await connect(handle.port)
+    const hello2 = nextMessage(socket2, 'hello')
+    socket2.send(JSON.stringify({ type: 'auth', session: session2 }))
+    expect(await hello2).toMatchObject({ type: 'hello' })
+  })
+
   it('closes a client when its session is revoked', async () => {
     handle = await server(fakeTerminals().directory)
     const session = await pair(handle.port)

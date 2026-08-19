@@ -199,15 +199,14 @@ function buildRemoteController(
     writeSettings: (next) => setSetting('remote', next),
     networkInterfaces: () => networkInterfaces() as Parameters<typeof bindOptions>[0],
     secrets: {
-      encrypt: (plain) =>
-        safeStorage.isEncryptionAvailable()
-          ? safeStorage.encryptString(plain).toString('base64')
-          : // No OS keychain (headless Linux CI): store a marked plaintext so
-            // the round trip still works. Real installs always have safeStorage.
-            `plain:${Buffer.from(plain).toString('base64')}`,
+      // No OS keychain (a Linux desktop without a configured keyring) → the
+      // controller keeps the token in memory instead of writing plaintext to
+      // the settings file. base64 is not encryption, and a token recoverable
+      // from an unencrypted file on disk is exactly the leak we refuse.
+      available: safeStorage.isEncryptionAvailable(),
+      encrypt: (plain) => safeStorage.encryptString(plain).toString('base64'),
       decrypt: (cipher) => {
         try {
-          if (cipher.startsWith('plain:')) return Buffer.from(cipher.slice(6), 'base64').toString()
           return safeStorage.decryptString(Buffer.from(cipher, 'base64'))
         } catch {
           return undefined

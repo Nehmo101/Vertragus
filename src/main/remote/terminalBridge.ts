@@ -59,11 +59,15 @@ export function createTerminalBridge(deps: TerminalBridgeDeps): TerminalBridge {
 
   const schedule = (agentId: string): void => {
     const attachment = attachments.get(agentId)
-    if (!attachment || attachment.timer) return
+    if (!attachment) return
+    // Checked on EVERY append, not just the first of a cycle: a burst of small
+    // chunks inside one coalesce window would otherwise grow `pending` without
+    // bound because the timer is already set.
     if (attachment.pending.length >= MAX_PENDING_BYTES) {
       flush(agentId)
       return
     }
+    if (attachment.timer) return
     attachment.timer = setTimeout(() => flush(agentId), coalesceMs)
     attachment.timer.unref?.()
   }
@@ -81,6 +85,16 @@ export function createTerminalBridge(deps: TerminalBridgeDeps): TerminalBridge {
         onExit: (info) => {
           flush(agentId)
           deps.send({ type: 'exit', agentId, exitCode: info.exitCode ?? null })
+          // Drop the attachment: the PTY is dead, and a later `input` frame
+          // must be ignored (the `attachments.has` guard) rather than written
+          // into a dead node-pty. Detach the subscription too so no listener
+          // lingers on the dead pty.
+          const attachment = attachments.get(agentId)
+          if (attachment) {
+            if (attachment.timer) clearTimeout(attachment.timer)
+            attachment.subscription.detach()
+            attachments.delete(agentId)
+          }
         }
       })
       if (!subscription) {

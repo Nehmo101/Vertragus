@@ -58,6 +58,7 @@ function harness(initial: RemoteSettings = DEFAULTS, interfaces = tailnet) {
     networkInterfaces: () => interfaces,
     // A reversible "codec" is enough to prove the round trip.
     secrets: {
+      available: true,
       encrypt: (plain) => `enc(${plain})`,
       decrypt: (cipher) => (cipher.startsWith('enc(') ? cipher.slice(4, -1) : undefined)
     },
@@ -124,5 +125,24 @@ describe('createRemoteController', () => {
     expect(controller.status().running).toBe(true)
     const status = await controller.apply({ enabled: false })
     expect(status.running).toBe(false)
+  })
+
+  it('keeps the token in memory and OFF DISK when no keychain is available', async () => {
+    const { deps, getSettings } = harness()
+    // No OS keychain: encrypt must never reach disk.
+    deps.secrets = {
+      available: false,
+      encrypt: () => {
+        throw new Error('encrypt must not be called without a keychain')
+      },
+      decrypt: () => undefined
+    }
+    const controller = createRemoteController(deps)
+    const status = await controller.apply({ enabled: true })
+
+    // The QR still works — a token exists — but nothing plaintext is persisted.
+    expect(status.hasToken).toBe(true)
+    expect(status.pairingUrl).toMatch(/#token=/)
+    expect(getSettings().pairingTokenEncrypted).toBeUndefined()
   })
 })
