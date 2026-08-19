@@ -448,7 +448,7 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     },
     selectZoneOverlayDisplay: (displayId) => {
       result.pickedDisplays.push(displayId)
-      return true
+      return displayId === 11 || displayId === 22
     },
     listZoneDisplays: () => [
       { id: 11, label: 'Main', width: 1920, height: 1040, primary: true },
@@ -1431,11 +1431,13 @@ describe('zones', () => {
       expect(() =>
         h.ipc.invoke(APP_CHANNELS.zonesSave, sender, { profileId: 'p1', zones: [] })
       ).toThrow(/not a zone overlay window/)
+      expect(() =>
+        h.ipc.invoke(APP_CHANNELS.zonesPickDisplay, sender, { displayId: 11 })
+      ).toThrow(/not a zone overlay window/)
     }
     // The fire-and-forget channels ignore strangers instead of throwing.
     h.ipc.send(APP_CHANNELS.zonesDraft, CLI_ID, { zones: [] })
     h.ipc.send(APP_CHANNELS.zonesCancel, CLI_ID)
-    h.ipc.send(APP_CHANNELS.zonesPickDisplay, CLI_ID)
     expect(h.zonesClosed).toBe(0)
     expect(h.pickedDisplays).toEqual([])
     expect(h.store.getProfiles().find((entry) => entry.id === 'p1')!.zones).toBeUndefined()
@@ -1467,9 +1469,27 @@ describe('zones', () => {
     ).toThrow(/expected an array of zones/)
   })
 
-  it('narrows the session to the overlay that picked a screen', () => {
-    h.ipc.send(APP_CHANNELS.zonesPickDisplay, OVERLAY_B_ID)
+  it('pins the profile to the chosen screen and returns the editor payload', () => {
+    const payload = h.ipc.invoke(APP_CHANNELS.zonesPickDisplay, OVERLAY_A_ID, {
+      displayId: 22
+    }) as ZoneEditorPayload
+
     expect(h.pickedDisplays).toEqual([22])
+    expect(payload.displayId).toBe(22)
+    expect(payload.selectingDisplay).toBe(false)
+    expect(payload.roles.map((role) => role.roleId)).toEqual(['orchestrator', 'worker'])
+    expect(h.store.getProfiles().find((entry) => entry.id === 'p1')!.zones?.targetDisplayId).toBe(
+      22
+    )
+    expect(h.broadcasts.at(-1)?.channel).toBe(APP_CHANNELS.eventProfiles)
+  })
+
+  it('refuses a pick for a display that is not attached', () => {
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.zonesPickDisplay, OVERLAY_A_ID, { displayId: 99 })
+    ).toThrow(/unknown display/)
+    expect(h.pickedDisplays).toEqual([])
+    expect(h.store.getProfiles().find((entry) => entry.id === 'p1')!.zones).toBeUndefined()
   })
 })
 

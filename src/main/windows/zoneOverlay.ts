@@ -1,17 +1,19 @@
 /**
- * The zone editor overlay — one transparent full-screen sheet per monitor.
+ * The zone editor overlay — one transparent full-screen sheet, pinned to the
+ * monitor the user picked.
  *
  * Zones are drawn ON the screen they will apply to, because that is the only
  * honest preview: a miniature monitor picker inside the profile editor cannot
  * show what "the right third of the second display" actually feels like. So
- * "Zonen festlegen" opens one frameless, transparent, always-on-top window per
- * display, sized to that display's WORK AREA (not its full bounds — a zone
- * under the taskbar would place windows the user cannot reach).
+ * "Zonen festlegen" opens one frameless, transparent, always-on-top overlay,
+ * sized to a display's WORK AREA (not its full bounds — a zone under the
+ * taskbar would place windows the user cannot reach).
  *
- * With several monitors attached, the session starts as a picker: every
- * overlay asks "Vertragus hier verteilen?" and the click keeps that one
- * display, closing the others, then flips it into the rectangle editor. A
- * single monitor skips the picker — there is nothing to choose.
+ * With several monitors attached, one overlay opens on the screen the user
+ * just clicked from and lists every attached display. Clicking a name moves
+ * that overlay onto the chosen work area (constructor x/y is ignored on some
+ * Linux compositors) and flips it into the rectangle editor. A single monitor
+ * skips the picker — there is nothing to choose.
  *
  * Because the overlay covers everything, it is deliberately short-lived: it is
  * opened by one IPC call, it closes on save or Esc, and closing ANY of its
@@ -105,6 +107,30 @@ function overlayQuery(profileId: string, options: { demo?: boolean; pick?: boole
   return `?${parts.join('&')}`
 }
 
+/** The monitor the picker should appear on: under the cursor, else primary. */
+function hostDisplay(displays: readonly Electron.Display[]): Electron.Display {
+  if (displays.length <= 1) return displays[0] ?? screen.getPrimaryDisplay()
+  const nearest = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+  return displays.find((display) => display.id === nearest.id) ?? displays[0]!
+}
+
+/**
+ * Constructor `x`/`y` is a hint some compositors drop. Pinning after `show`
+ * is what actually puts the overlay on the monitor the user picked.
+ */
+function pinOverlayToDisplay(win: BrowserWindow, displayId: number): void {
+  if (win.isDestroyed()) return
+  const display = screen.getAllDisplays().find((entry) => entry.id === displayId)
+  if (!display) return
+  const { workArea } = display
+  win.setBounds({
+    x: workArea.x,
+    y: workArea.y,
+    width: workArea.width,
+    height: workArea.height
+  })
+}
+
 function createOverlayWindow(
   profileId: string,
   display: Electron.Display,
@@ -130,6 +156,7 @@ function createOverlayWindow(
   // Above the always-on-top panel: the overlay is modal in spirit.
   win.setAlwaysOnTop(true, 'screen-saver')
   secureWindow(win)
+  pinOverlayToDisplay(win, display.id)
   // Safety valve: the renderer owns Esc, but a full-screen click-eater whose
   // renderer failed to boot must still be closable.
   win.webContents.on('before-input-event', (_event, input) => {
@@ -137,14 +164,27 @@ function createOverlayWindow(
   })
   loadRoute(win, `/zones/${display.id}${overlayQuery(profileId, options)}`)
   win.on('ready-to-show', () => {
+    const live = listZoneOverlayWindows().find((entry) => entry.window === win)
+    const displayId = live?.displayId ?? display.id
+    pinOverlayToDisplay(win, displayId)
     win.show()
+    pinOverlayToDisplay(win, displayId)
     if (options.focus) win.focus()
   })
   // One window gone = session over. Otherwise a half-closed session would
   // save a layout for some displays and silently drop the others.
+  // Match by window identity: a picker may rebind the overlay to another
+  // display id, and a sibling we already removed must not tear the session
+  // down when its `closed` event arrives after `closing` is cleared.
   win.on('closed', () => {
-    overlays.delete(display.id)
-    if (!closing) closeZoneOverlayWindows()
+    let tracked: OverlayEntry | undefined
+    for (const [id, entry] of overlays) {
+      if (entry.window !== win) continue
+      tracked = entry
+      overlays.delete(id)
+      break
+    }
+    if (tracked && !closing) closeZoneOverlayWindows()
   })
   overlays.set(display.id, {
     profileId,
@@ -156,8 +196,8 @@ function createOverlayWindow(
 }
 
 /**
- * Open the editor on every attached display. Several monitors start as a
- * picker (one overlay per screen); a single monitor skips straight to the
+ * Open one overlay for this profile. Several monitors start as a picker on
+ * the screen under the cursor; a single monitor skips straight to the
  * rectangle editor. Re-opening while a session is running just refocuses it —
  * two overlay sessions would fight over the same profile's layout.
  */
@@ -172,37 +212,38 @@ export function openZoneOverlayWindows(
   }
 
   const displays = screen.getAllDisplays()
-  const primaryId = screen.getPrimaryDisplay().id
+  if (displays.length === 0) return []
   // Demo captures skip the picker: the screenshot is of the rectangles.
   const pick = !options.demo && displays.length > 1
-  const created: BrowserWindow[] = []
-  for (const display of displays) {
-    created.push(
-      createOverlayWindow(profileId, display, {
-        demo: options.demo,
-        pick,
-        focus: display.id === primaryId
-      })
-    )
-  }
+  const display = options.demo ? displays[0]! : hostDisplay(displays)
+  const created = [
+    createOverlayWindow(profileId, display, {
+      demo: options.demo,
+      pick,
+      focus: true
+    })
+  ]
   armZoneOverlayScreenshot(created[0])
   return created
 }
 
 /**
- * The user picked this monitor: drop every other overlay and turn this one
- * into the rectangle editor. Unknown ids (a window that already closed) are
- * a no-op so a double-click cannot kill the session.
+ * The user picked this monitor: bind the live overlay to it, pin the window
+ * to that work area, and leave picker mode. Unknown ids (unplugged) are a
+ * no-op so a stale click cannot kill the session.
  */
 export function selectZoneOverlayDisplay(displayId: number): boolean {
-  const kept = overlays.get(displayId)
+  const target = screen.getAllDisplays().find((display) => display.id === displayId)
+  if (!target) return false
+
+  const open = listZoneOverlayWindows()
+  const kept = open[0]
   if (!kept || kept.window.isDestroyed()) return false
-  if (!kept.pick) return true
 
   closing = true
   try {
-    for (const entry of listZoneOverlayWindows()) {
-      if (entry.displayId === displayId) continue
+    for (const entry of open) {
+      if (entry.window === kept.window) continue
       overlays.delete(entry.displayId)
       entry.window.close()
     }
@@ -210,11 +251,13 @@ export function selectZoneOverlayDisplay(displayId: number): boolean {
     closing = false
   }
 
-  // Do not reload the overlay URL. The picker already fetched roles and
-  // zones; the renderer flips itself into the rectangle editor. A hash-only
-  // loadRoute would not remount React (App reads location.hash once), so the
-  // picker card would stay on screen.
+  if (kept.displayId !== displayId) {
+    overlays.delete(kept.displayId)
+    kept.displayId = displayId
+    overlays.set(displayId, kept)
+  }
   kept.pick = false
+  pinOverlayToDisplay(kept.window, displayId)
   kept.window.focus()
   return true
 }
