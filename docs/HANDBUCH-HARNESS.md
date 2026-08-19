@@ -2,9 +2,9 @@
 
 Ideen, die aus dem Code kommen — nicht aus einer generischen Agent-Roadmap.
 
-**Stand:** [PR #17](https://github.com/Nehmo101/Vertragus/pull/17) (Branch
-`claude/vertragus-review-improvements-i3ftsv`) hat BigBoy A1–A3 und Remote
-(B) **umgesetzt**. Dieses Dokument setzt darauf auf.
+**Stand:** [PR #17](https://github.com/Nehmo101/Vertragus/pull/17) hat BigBoy
+A1–A3, Remote (B) und Harness C1/C2 (`inspect_agent`, Host-Fakten auf
+`agent_done`) **umgesetzt**. Dieses Dokument ist der Plan danach.
 
 **These, unverändert:** Der Loop ist schon ein Harness. Was fehlt, ist
 *Host-Wahrheit* für Git-Zustand, Diffs und den Menschen im Event-Strom.
@@ -22,11 +22,13 @@ BigBoy macht den Loop *stabil und fernsteuerbar*. Es macht ihn nicht
 | A3 Panel | echte `WorkspaceDirectory.onChange` (kein 4s-Poll), panelBounds, glob-Window-Security, xterm Links/Suche, Main-Process-i18n, zustand weg |
 | B Remote | HTTP+WS, Tailscale-Bind, Pairing, Gateway-Allow-List, Web-Client, Settings |
 | H3 Prompt | `orchestrator.ts` kennt async start / `agent_started` / `agent_start_failed` |
+| C1 `inspect_agent` | Read-only Git gegen das Agent-Worktree (`status` / `diff` / `log` / `file`) |
+| C2 Host-Fakten auf `agent_done` | `branch`, `headSha`, `uncommitted`, `changedFiles`, `diffStat` — nicht als git-status auf jedem `list_agents` |
 
 Gateway-Allow-List ist **vier Verben**: `workspaces:list`, `workspaces:start`,
-`workspaces:stop`, `profiles:list`. Der PR-Text von #17 erwähnt
-`focus_agent` / `stop_agent` auf dem Gateway — **der Code tut das nicht.**
-`resize` existiert im WS-Protokoll; es ist kein Produktziel von Remote-v1.
+`workspaces:stop`, `profiles:list`. Kein `focus_agent` / `stop_agent` auf dem
+Gateway. `resize` existiert im WS-Protokoll; es ist kein Produktziel von
+Remote-v1.
 
 Nicht duplizieren: Lifecycle, MCP-Auth, EventQueue-Gap, Panel-Push,
 Remote-Server.
@@ -39,8 +41,6 @@ Remote-Server.
 | --- | --- |
 | H1 `answer_question` am Gateway | **offen** — Tippen in die PTY löst `ask_orchestrator` nicht |
 | H2 `workspaces:start {goal}` | **offen** — Start bleibt `profileId` only |
-| C1 `inspect_agent` | **dieser PR** |
-| C2 Host-Fakten auf `agent_done` | **dieser PR** — bewusst *nicht* als git-status auf jedem `list_agents` / `await_events` (zu teuer). Live-Wahrheit = `inspect_agent`; Done-Wahrheit = Event-Fakten |
 | C3 Snapshot-Commit / C4 Handoff-Paket | später |
 | C5 Orchestrator-Idle-Watchdog | später, und nicht A1.1 (`orchestrator_exited` ist Prozess-Tod) |
 | D Mensch im Loop | nach H1/H2 |
@@ -101,7 +101,7 @@ Panel und Remote-Client teilen das Feld. Ohne Goal bleibt Start erlaubt
 
 `buildOrchestratorSystemPrompt` kennt `{state:'starting'}`, `agent_started`
 und `agent_start_failed`. `send_to_agent` gegen `starting` ist ein klarer
-Fehler. `inspect_agent` (dieser PR) ebenso.
+Fehler. `inspect_agent` ebenso.
 
 ### Slot-Mapping, auch nach A1.3
 
@@ -175,7 +175,7 @@ Kleine Oberfläche, großer Hebel. Voraussetzung liegt: Reservierung,
 async start, Gap-Signal (`eventsDropped`), Push-Feed. `inspect_agent`
 gegen `starting` ist derselbe Fehler wie `send_to_agent`.
 
-### C1 `inspect_agent` — Host liest das Agent-Worktree — **dieser PR**
+### C1 `inspect_agent` — Host liest das Agent-Worktree — **umgesetzt**
 
 ```
 inspect_agent{agentId, view: status | diff | log | file, path?, lines?}
@@ -188,7 +188,7 @@ Orchestrator-Tool, kein Gateway-Befehl (Remote soll nicht beliebige
 Repo-Dateien lesen). Gestoppte Agenten bleiben inspectable — das
 Worktree überlebt `stop_agent`.
 
-### C2 `agent_done` trägt Host-Fakten — **dieser PR**
+### C2 `agent_done` trägt Host-Fakten — **umgesetzt**
 
 Beim `report_done` / Sentinel-DONE hängt der Host an das Event:
 
@@ -544,12 +544,11 @@ gerade Lifecycle und Tokens anfasst.
 ## Reihenfolge (Tracks, keine Kalender)
 
 ```
-PR #17   A1 Lifecycle + A2 MCP + A3 Panel + B Remote + H3 Prompt
+PR #17   A1–A3 + B Remote + H3 + C1 inspect_agent + C2 Done-Fakten
      │
      ├─ noch offen an Remote:  H1 answer_question   H2 start{goal}
      │
-     └─ Phase C   C1 inspect_agent + C2 Done-Fakten   ← dieser PR
-            C3/C4 Snapshot-Commit + Handoff-Paket     später
+     └─ Phase C   C3/C4 Snapshot-Commit + Handoff-Paket     später
             C5 Orchestrator-Idle-Watchdog             später
             F   Multi-Orch (Root entscheidet; braucht C, braucht B nicht)
             D   Goal-UI, user_message, ask_user (braucht H1/H2)
@@ -578,8 +577,8 @@ wählt wenn flach nicht mehr trägt. A/B sind das Fundament.
 | Gap sichtbar | `eventQueue.ts` `droppedSince` → `await_events.eventsDropped` | **PR #17** |
 | Panel-Push | `WorkspaceDirectory.onChange` | **PR #17** |
 | Quit awaited | `index.ts` `before-quit` | **PR #17** |
-| Acht Orchestrator-Tools | `toolsOrchestrator.ts` inkl. `inspect_agent` | **dieser PR** |
-| Host-Fakten auf `agent_done` | `toolsSubagent.ts` `report_done`, Sentinel in `Workspace.ts` | **dieser PR** |
+| Acht Orchestrator-Tools | `toolsOrchestrator.ts` inkl. `inspect_agent` | **PR #17** |
+| Host-Fakten auf `agent_done` | `toolsSubagent.ts` `report_done`, Sentinel in `Workspace.ts` | **PR #17** |
 | MCP-Identität binär (Root vs. Blatt) | `server.ts` `McpIdentity` — Lead kommt in F | offen |
 | Play ohne Goal | `appIpc.ts` `workspaces:start`, Gateway `profileId` only | H2 offen |
 | MCP-Fragen vom Handy | Gateway hat kein `answer_question` | H1 offen |
