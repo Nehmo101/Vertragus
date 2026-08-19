@@ -36,6 +36,11 @@ export interface ZoneEditorState {
   error: string | null
   saving: boolean
   demo: boolean
+  /** True while this overlay is the multi-monitor picker. */
+  selectingDisplay: boolean
+  displayLabel: string
+  displayPrimary: boolean
+  displayCount: number
   addZone(roleId: string): void
   removeZone(id: string): void
   moveZone(id: string, rect: PxRect): void
@@ -44,6 +49,8 @@ export interface ZoneEditorState {
   autoLayout(): void
   /** Called at the end of a gesture — main only needs the settled rectangles. */
   commit(): void
+  /** Keep this screen, drop the other overlays, then edit zones here. */
+  pickDisplay(): void
   save(): void
   cancel(): void
 }
@@ -51,6 +58,8 @@ export interface ZoneEditorState {
 export interface UseZoneEditorInput {
   displayId: number
   demo?: boolean
+  /** Route flag: several monitors start as a picker. */
+  pick?: boolean
 }
 
 function viewportNow(): Viewport {
@@ -74,7 +83,11 @@ function toDrafts(loaded: ZoneEditorPayload, viewport: Viewport, offset: number)
   })
 }
 
-export function useZoneEditor({ displayId, demo = false }: UseZoneEditorInput): ZoneEditorState {
+export function useZoneEditor({
+  displayId,
+  demo = false,
+  pick = false
+}: UseZoneEditorInput): ZoneEditorState {
   const { t } = useTranslation()
   const bridge = useMemo(() => window.vertragus?.zones, [])
   /**
@@ -142,6 +155,10 @@ export function useZoneEditor({ displayId, demo = false }: UseZoneEditorInput): 
     bridge.draft(draftsToZones(zones, displayId, viewport))
   }, [bridge, demo, displayId, viewport, zones])
 
+  const pickDisplay = useCallback(() => {
+    bridge?.pickDisplay()
+  }, [bridge])
+
   return {
     ready: payload !== null,
     profileName: payload?.profileName ?? '',
@@ -152,6 +169,11 @@ export function useZoneEditor({ displayId, demo = false }: UseZoneEditorInput): 
     error,
     saving,
     demo,
+    selectingDisplay: payload?.selectingDisplay ?? pick,
+    displayLabel: (payload?.displays ?? []).find((entry) => entry.id === displayId)?.label ?? '',
+    displayPrimary:
+      (payload?.displays ?? []).find((entry) => entry.id === displayId)?.primary ?? false,
+    displayCount: payload?.displays.length ?? 0,
 
     addZone(roleId) {
       const role = payload?.roles.find((entry) => entry.roleId === roleId)
@@ -202,6 +224,8 @@ export function useZoneEditor({ displayId, demo = false }: UseZoneEditorInput): 
     },
 
     commit,
+
+    pickDisplay,
 
     save() {
       if (demo) return

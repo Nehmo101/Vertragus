@@ -614,6 +614,23 @@ export class Workspace implements AgentHost {
   }
 
   /**
+   * Re-open the CLI window of a still-listed agent — finished ones included.
+   *
+   * Closing a window is a view decision, not a process decision: the PTY and
+   * the record stay, so the user can come back to the scrollback of a worker
+   * that already reported done. Unknown or discarded agents return false.
+   */
+  showAgentWindow(agentId: string): boolean {
+    const record = this.agents.get(agentId)
+    if (!record) return false
+    this.openWindow(
+      record,
+      record.orchestrator ? ORCHESTRATOR_COLOR : this.colorFor(record.roleId)
+    )
+    return true
+  }
+
+  /**
    * Every subagent, in start order. The orchestrator is deliberately absent: it
    * is the reader of this list, and counting it would eat one of its own slots.
    */

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { WorkspaceAgentSummary, WorkspaceSummary } from '../../../preload'
 import { translator } from '../i18n'
 import {
+  agentCanCloseWindow,
   agentCountLabel,
   agentDotClass,
   agentDotKind,
@@ -88,12 +89,15 @@ describe('agent status line', () => {
     expect(agentStatusLine(t, agent({ state: 'stopped' }))).toBe('Worker · beendet')
   })
 
-  it('shows the note only while the agent works — a stopped agent must not look busy', () => {
+  it('keeps the last task on a finished or waiting agent', () => {
     expect(agentStatusLine(t, agent({ state: 'stopped', statusText: 'T-142' }))).toBe(
-      'Worker · beendet'
+      'Worker · beendet · T-142'
     )
     expect(agentStatusLine(t, agent({ state: 'waiting', statusText: 'T-142' }))).toBe(
-      'Worker · wartet'
+      'Worker · wartet · T-142'
+    )
+    expect(agentStatusLine(en, agent({ state: 'stopped', statusText: 'T-142' }))).toBe(
+      'Worker · stopped · T-142'
     )
   })
 
@@ -108,6 +112,16 @@ describe('agent status line', () => {
     expect(agentStatusLine(t, agent({ roleLabel: undefined, roleId: 'bugjaeger' }))).toBe(
       'bugjaeger · arbeitet'
     )
+  })
+})
+
+describe('dismissing a finished agent window', () => {
+  it('offers ✕ only while a stopped agent still has an open window', () => {
+    expect(agentCanCloseWindow(agent({ state: 'stopped', windowOpen: true }))).toBe(true)
+    expect(agentCanCloseWindow(agent({ state: 'stopped' }))).toBe(false)
+    expect(agentCanCloseWindow(agent({ state: 'working', windowOpen: true }))).toBe(false)
+    expect(t('panel.closeAgentWindow', { agent: 'Caronte' })).toMatch(/schließen/)
+    expect(en('panel.closeAgentWindow', { agent: 'Caronte' })).toMatch(/Close/)
   })
 })
 

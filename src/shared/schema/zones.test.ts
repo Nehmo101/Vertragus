@@ -40,6 +40,12 @@ describe('zoneSchema / zoneLayoutSchema', () => {
 
   it('defaults to an empty layout and caps the zone count', () => {
     expect(zoneLayoutSchema.parse({})).toEqual({ zones: [] })
+    expect(
+      zoneLayoutSchema.parse({
+        zones: [{ roleId: 'worker', displayId: 1, rect: { x: 0, y: 0, w: 0.5, h: 0.5 } }],
+        targetDisplayId: 7
+      }).targetDisplayId
+    ).toBe(7)
     const zones = Array.from({ length: MAX_ZONES + 1 }, () => ({
       roleId: 'worker',
       displayId: 1,

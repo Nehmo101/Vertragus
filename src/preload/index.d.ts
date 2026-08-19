@@ -16,6 +16,7 @@ export type {
   VertragusZonesApi,
   WorkspaceAgentSummary,
   WorkspaceSummary,
+  ZoneDisplayInfo,
   ZoneEditorPayload,
   ZoneEditorRole
 } from './index'

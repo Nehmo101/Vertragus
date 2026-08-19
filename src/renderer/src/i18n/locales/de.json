@@ -47,6 +47,7 @@
     "agentWaiting": "wartet",
     "agentStopped": "beendet",
     "focusAgent": "Fenster von {{agent}} nach vorn holen",
+    "closeAgentWindow": "Fenster von {{agent}} schließen — die letzte Aufgabe bleibt in der Liste",
     "yolo": "Yolo",
     "yoloOn": "Yolo-Master ist AN — Subagents dürfen ohne Rückfrage handeln",
     "yoloOff": "Yolo-Master ist AUS — Subagents fragen nach",
@@ -329,7 +330,12 @@
     "autoLayout": "Automatisch aufteilen",
     "empty": "Noch keine Zone auf diesem Bildschirm — wähle unten eine Rolle.",
     "cancel": "Abbrechen (Esc)",
-    "demoBadge": "Demo-Ansicht"
+    "demoBadge": "Demo-Ansicht",
+    "pickTitle": "Bildschirm wählen",
+    "pickHint": "Mehrere Bildschirme — wähle, auf welchem Vertragus die Fenster verteilen soll.",
+    "pickThis": "Vertragus hier verteilen",
+    "pickPrimary": "Hauptbildschirm",
+    "pickOther": "Oder auf dem anderen Bildschirm klicken."
   },
   "terminal": {
     "currentTask": "Aktuelle Aufgabe: {{task}}",

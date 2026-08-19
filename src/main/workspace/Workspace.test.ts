@@ -644,6 +644,16 @@ describe('stopAgent', () => {
     expect(workspace.listAgents()[0]!.status).toBe('stopped')
   })
 
+  it('reopens a still-listed agent’s window after the user closed it', async () => {
+    const { workspace, windows } = harness()
+    const started = await workspace.startAgent({ role: 'worker', task: 'x' })
+    expect(windows.opened.map((entry) => entry.agentId)).toEqual([started.agentId])
+
+    expect(workspace.showAgentWindow(started.agentId)).toBe(true)
+    expect(windows.opened.map((entry) => entry.agentId)).toEqual([started.agentId, started.agentId])
+    expect(workspace.showAgentWindow('ghost')).toBe(false)
+  })
+
   it('keeps the scrollback readable after the stop', async () => {
     const { workspace, spawns } = harness()
     const started = await workspace.startAgent({ role: 'worker', task: 'x' })

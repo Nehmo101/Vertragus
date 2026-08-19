@@ -8,6 +8,11 @@
  * display, sized to that display's WORK AREA (not its full bounds — a zone
  * under the taskbar would place windows the user cannot reach).
  *
+ * With several monitors attached, the session starts as a picker: every
+ * overlay asks "Vertragus hier verteilen?" and the click keeps that one
+ * display, closing the others, then flips it into the rectangle editor. A
+ * single monitor skips the picker — there is nothing to choose.
+ *
  * Because the overlay covers everything, it is deliberately short-lived: it is
  * opened by one IPC call, it closes on save or Esc, and closing ANY of its
  * windows closes the whole session — a leftover invisible full-screen window
@@ -24,14 +29,25 @@ import { armWindowCapture } from './smokeCapture'
 export interface ZoneOverlaySender {
   profileId: string
   displayId: number
+  /** True while this overlay is the multi-monitor picker, not the editor. */
+  pick: boolean
 }
 
 interface OverlayEntry extends ZoneOverlaySender {
   window: BrowserWindow
 }
 
+/** One attached monitor as the overlay / picker labels it. */
+export interface ZoneDisplayInfo {
+  id: number
+  label: string
+  width: number
+  height: number
+  primary: boolean
+}
+
 const overlays = new Map<number, OverlayEntry>()
-/** True while `closeZoneOverlayWindows` runs, so 'closed' does not recurse. */
+/** True while `closeZoneOverlayWindows` / a picker-narrow runs, so 'closed' does not recurse. */
 let closing = false
 
 export function listZoneOverlayWindows(): OverlayEntry[] {
@@ -47,7 +63,7 @@ export function listZoneOverlayWindows(): OverlayEntry[] {
 export function isZoneOverlaySender(webContentsId: number): ZoneOverlaySender | null {
   for (const entry of listZoneOverlayWindows()) {
     if (entry.window.webContents.id === webContentsId) {
-      return { profileId: entry.profileId, displayId: entry.displayId }
+      return { profileId: entry.profileId, displayId: entry.displayId, pick: entry.pick }
     }
   }
   return null
@@ -56,6 +72,21 @@ export function isZoneOverlaySender(webContentsId: number): ZoneOverlaySender | 
 /** Displays currently covered by an overlay — the layout replaces exactly these. */
 export function zoneOverlayDisplayIds(): number[] {
   return listZoneOverlayWindows().map((entry) => entry.displayId)
+}
+
+/** Attached monitors, labelled the way the picker paints them. */
+export function listZoneDisplays(): ZoneDisplayInfo[] {
+  const primaryId = screen.getPrimaryDisplay().id
+  return screen.getAllDisplays().map((display, index) => {
+    const label = display.label?.trim()
+    return {
+      id: display.id,
+      label: label && label.length > 0 ? label : `Display ${index + 1}`,
+      width: display.workArea.width,
+      height: display.workArea.height,
+      primary: display.id === primaryId
+    }
+  })
 }
 
 export interface OpenZoneOverlayOptions {
@@ -67,10 +98,68 @@ export interface OpenZoneOverlayOptions {
   demo?: boolean
 }
 
+function overlayQuery(profileId: string, options: { demo?: boolean; pick?: boolean }): string {
+  const parts = [`profile=${encodeURIComponent(profileId)}`]
+  if (options.demo) parts.push('demo=1')
+  if (options.pick) parts.push('pick=1')
+  return `?${parts.join('&')}`
+}
+
+function createOverlayWindow(
+  profileId: string,
+  display: Electron.Display,
+  options: { demo?: boolean; pick: boolean; focus: boolean }
+): BrowserWindow {
+  const { workArea } = display
+  const win = new BrowserWindow({
+    ...glassWindowOptions(),
+    x: workArea.x,
+    y: workArea.y,
+    width: workArea.width,
+    height: workArea.height,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    hasShadow: false,
+    alwaysOnTop: true,
+    title: 'Vertragus — Zonen'
+  })
+  // Above the always-on-top panel: the overlay is modal in spirit.
+  win.setAlwaysOnTop(true, 'screen-saver')
+  secureWindow(win)
+  // Safety valve: the renderer owns Esc, but a full-screen click-eater whose
+  // renderer failed to boot must still be closable.
+  win.webContents.on('before-input-event', (_event, input) => {
+    if (input.type === 'keyDown' && input.key === 'Escape') closeZoneOverlayWindows()
+  })
+  loadRoute(win, `/zones/${display.id}${overlayQuery(profileId, options)}`)
+  win.on('ready-to-show', () => {
+    win.show()
+    if (options.focus) win.focus()
+  })
+  // One window gone = session over. Otherwise a half-closed session would
+  // save a layout for some displays and silently drop the others.
+  win.on('closed', () => {
+    overlays.delete(display.id)
+    if (!closing) closeZoneOverlayWindows()
+  })
+  overlays.set(display.id, {
+    profileId,
+    displayId: display.id,
+    pick: options.pick,
+    window: win
+  })
+  return win
+}
+
 /**
- * Open the editor on every attached display. Re-opening while a session is
- * running just refocuses it — two overlay sessions would fight over the same
- * profile's layout.
+ * Open the editor on every attached display. Several monitors start as a
+ * picker (one overlay per screen); a single monitor skips straight to the
+ * rectangle editor. Re-opening while a session is running just refocuses it —
+ * two overlay sessions would fight over the same profile's layout.
  */
 export function openZoneOverlayWindows(
   profileId: string,
@@ -82,51 +171,49 @@ export function openZoneOverlayWindows(
     return open.map((entry) => entry.window)
   }
 
+  const displays = screen.getAllDisplays()
   const primaryId = screen.getPrimaryDisplay().id
+  // Demo captures skip the picker: the screenshot is of the rectangles.
+  const pick = !options.demo && displays.length > 1
   const created: BrowserWindow[] = []
-  for (const display of screen.getAllDisplays()) {
-    const { workArea } = display
-    const win = new BrowserWindow({
-      ...glassWindowOptions(),
-      x: workArea.x,
-      y: workArea.y,
-      width: workArea.width,
-      height: workArea.height,
-      resizable: false,
-      movable: false,
-      minimizable: false,
-      maximizable: false,
-      fullscreenable: false,
-      skipTaskbar: true,
-      hasShadow: false,
-      alwaysOnTop: true,
-      title: 'Vertragus — Zonen'
-    })
-    // Above the always-on-top panel: the overlay is modal in spirit.
-    win.setAlwaysOnTop(true, 'screen-saver')
-    secureWindow(win)
-    // Safety valve: the renderer owns Esc, but a full-screen click-eater whose
-    // renderer failed to boot must still be closable.
-    win.webContents.on('before-input-event', (_event, input) => {
-      if (input.type === 'keyDown' && input.key === 'Escape') closeZoneOverlayWindows()
-    })
-    const query = `?profile=${encodeURIComponent(profileId)}${options.demo ? '&demo=1' : ''}`
-    loadRoute(win, `/zones/${display.id}${query}`)
-    win.on('ready-to-show', () => {
-      win.show()
-      if (display.id === primaryId) win.focus()
-    })
-    // One window gone = session over. Otherwise a half-closed session would
-    // save a layout for some displays and silently drop the others.
-    win.on('closed', () => {
-      overlays.delete(display.id)
-      if (!closing) closeZoneOverlayWindows()
-    })
-    overlays.set(display.id, { profileId, displayId: display.id, window: win })
-    created.push(win)
+  for (const display of displays) {
+    created.push(
+      createOverlayWindow(profileId, display, {
+        demo: options.demo,
+        pick,
+        focus: display.id === primaryId
+      })
+    )
   }
   armZoneOverlayScreenshot(created[0])
   return created
+}
+
+/**
+ * The user picked this monitor: drop every other overlay and turn this one
+ * into the rectangle editor. Unknown ids (a window that already closed) are
+ * a no-op so a double-click cannot kill the session.
+ */
+export function selectZoneOverlayDisplay(displayId: number): boolean {
+  const kept = overlays.get(displayId)
+  if (!kept || kept.window.isDestroyed()) return false
+  if (!kept.pick) return true
+
+  closing = true
+  try {
+    for (const entry of listZoneOverlayWindows()) {
+      if (entry.displayId === displayId) continue
+      overlays.delete(entry.displayId)
+      entry.window.close()
+    }
+  } finally {
+    closing = false
+  }
+
+  kept.pick = false
+  loadRoute(kept.window, `/zones/${displayId}${overlayQuery(kept.profileId, {})}`)
+  kept.window.focus()
+  return true
 }
 
 export function closeZoneOverlayWindows(): void {

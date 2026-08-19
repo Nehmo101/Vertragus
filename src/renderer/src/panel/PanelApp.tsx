@@ -188,6 +188,7 @@ export function PanelApp(): React.JSX.Element {
                   }}
                   onStop={panel.stopWorkspace}
                   onFocusAgent={panel.focusAgent}
+                  onCloseAgentWindow={panel.closeAgentWindow}
                 />
               ))}
             </div>

@@ -57,7 +57,9 @@ vi.mock('@main/windows/zoneOverlay', () => ({
   closeZoneOverlayWindows: vi.fn(),
   isZoneOverlaySender: vi.fn(() => null),
   listZoneOverlayWindows: vi.fn(() => []),
-  zoneOverlayDisplayIds: vi.fn(() => [])
+  zoneOverlayDisplayIds: vi.fn(() => []),
+  selectZoneOverlayDisplay: vi.fn(() => false),
+  listZoneDisplays: vi.fn(() => [])
 }))
 vi.mock('@main/windows/hideAll', () => ({
   toggleHideAll: vi.fn(),
@@ -266,6 +268,7 @@ interface Harness {
     stopped: string[]
     focused: string[]
     focusedWorkspaces: string[]
+    closedAgents: string[]
     removedWorktrees: Array<{ profileId: string; path: string }>
     staleWorktrees: { path: string; branch?: string }[]
     change?: () => void
@@ -287,6 +290,7 @@ interface Harness {
   quits: number
   zoneSessions: string[]
   zonesClosed: number
+  pickedDisplays: number[]
   now: number
   /** Settings window: how often it was opened / closed, and the live hotkey. */
   settingsOpened: number
@@ -342,6 +346,7 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     quits: 0,
     zoneSessions: [] as string[],
     zonesClosed: 0,
+    pickedDisplays: [] as number[],
     now: 1_000,
     settingsOpened: 0,
     settingsClosed: 0,
@@ -370,6 +375,7 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     stopped: [] as string[],
     focused: [] as string[],
     focusedWorkspaces: [] as string[],
+    closedAgents: [] as string[],
     removedWorktrees: [] as Array<{ profileId: string; path: string }>,
     staleWorktrees: [
       { path: '/repo/.vertragus/worktrees/old-1', branch: 'vertragus/paradiso/caronte' }
@@ -383,6 +389,9 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     },
     focusAgent(agentId: string) {
       this.focused.push(agentId)
+    },
+    closeAgentWindow(agentId: string) {
+      this.closedAgents.push(agentId)
     },
     focusWorkspace(workspaceId: string) {
       this.focusedWorkspaces.push(workspaceId)
@@ -437,11 +446,19 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     closeZoneOverlays: () => {
       result.zonesClosed += 1
     },
+    selectZoneOverlayDisplay: (displayId) => {
+      result.pickedDisplays.push(displayId)
+      return true
+    },
+    listZoneDisplays: () => [
+      { id: 11, label: 'Main', width: 1920, height: 1040, primary: true },
+      { id: 22, label: 'Side', width: 1600, height: 860, primary: false }
+    ],
     zoneOverlaySender: (id) =>
       id === OVERLAY_A_ID
-        ? { profileId: 'p1', displayId: 11 }
+        ? { profileId: 'p1', displayId: 11, pick: false }
         : id === OVERLAY_B_ID
-          ? { profileId: 'p1', displayId: 22 }
+          ? { profileId: 'p1', displayId: 22, pick: false }
           : null,
     zoneOverlayDisplayIds: () => [11, 22],
     now: () => result.now,
@@ -714,12 +731,15 @@ describe('workspaces', () => {
     await h.ipc.invoke(APP_CHANNELS.workspacesStop, PANEL_ID, { workspaceId: 'w1' })
     h.ipc.invoke(APP_CHANNELS.workspacesFocusAgent, PANEL_ID, { agentId: 'w1-orch' })
     h.ipc.invoke(APP_CHANNELS.workspacesFocus, PANEL_ID, { workspaceId: 'w1' })
+    h.ipc.invoke(APP_CHANNELS.workspacesCloseAgent, PANEL_ID, { agentId: 'w1-orch' })
 
     expect(h.directory.started).toEqual(['p1'])
     expect(h.directory.stopped).toEqual(['w1'])
     expect(h.directory.focused).toEqual(['w1-orch'])
     expect(h.directory.focusedWorkspaces).toEqual(['w1'])
+    expect(h.directory.closedAgents).toEqual(['w1-orch'])
     expect(h.broadcasts.map((entry) => entry.channel)).toEqual([
+      APP_CHANNELS.eventWorkspaces,
       APP_CHANNELS.eventWorkspaces,
       APP_CHANNELS.eventWorkspaces
     ])
@@ -728,6 +748,12 @@ describe('workspaces', () => {
   it('rejects a focus-workspace call without a workspace id', () => {
     expect(() => h.ipc.invoke(APP_CHANNELS.workspacesFocus, PANEL_ID, {})).toThrow(
       /missing workspace id/
+    )
+  })
+
+  it('rejects a close-agent call without an agent id', () => {
+    expect(() => h.ipc.invoke(APP_CHANNELS.workspacesCloseAgent, PANEL_ID, {})).toThrow(
+      /missing agent id/
     )
   })
 
@@ -741,6 +767,7 @@ describe('workspaces', () => {
         start: refuse,
         stop() {},
         focusAgent() {},
+        closeAgentWindow() {},
         focusWorkspace() {},
         listStaleWorktrees: async () => refuse(),
         removeWorktree: async () => refuse()
@@ -1254,6 +1281,7 @@ describe('sender authorization', () => {
     APP_CHANNELS.workspacesStop,
     APP_CHANNELS.workspacesFocusAgent,
     APP_CHANNELS.workspacesFocus,
+    APP_CHANNELS.workspacesCloseAgent,
     APP_CHANNELS.settingsYolo,
     APP_CHANNELS.windowsHideAll,
     APP_CHANNELS.windowsMinimizePanel,
@@ -1329,6 +1357,8 @@ describe('zones', () => {
     ])
     expect(payload.locale).toBe('de')
     expect(payload.theme).toBe('dark')
+    expect(payload.selectingDisplay).toBe(false)
+    expect(payload.displays.map((display) => display.id)).toEqual([11, 22])
   })
 
   it('saves the layout of every overlay, not just the one that clicked save', () => {
@@ -1345,6 +1375,7 @@ describe('zones', () => {
       { roleId: 'worker', displayId: 11, rect: rel(0.5, 0, 0.5, 1) },
       { roleId: 'reviewer', displayId: 22, rect: rel(0, 0, 0.5, 1) }
     ])
+    expect(saved.zones?.targetDisplayId).toBe(11)
     expect(h.zonesClosed).toBe(1)
     expect(h.broadcasts.at(-1)?.channel).toBe(APP_CHANNELS.eventProfiles)
   })
@@ -1404,7 +1435,9 @@ describe('zones', () => {
     // The fire-and-forget channels ignore strangers instead of throwing.
     h.ipc.send(APP_CHANNELS.zonesDraft, CLI_ID, { zones: [] })
     h.ipc.send(APP_CHANNELS.zonesCancel, CLI_ID)
+    h.ipc.send(APP_CHANNELS.zonesPickDisplay, CLI_ID)
     expect(h.zonesClosed).toBe(0)
+    expect(h.pickedDisplays).toEqual([])
     expect(h.store.getProfiles().find((entry) => entry.id === 'p1')!.zones).toBeUndefined()
   })
 
@@ -1432,6 +1465,11 @@ describe('zones', () => {
     expect(() =>
       h.ipc.invoke(APP_CHANNELS.zonesSave, OVERLAY_A_ID, { profileId: 'p1', zones: 42 })
     ).toThrow(/expected an array of zones/)
+  })
+
+  it('narrows the session to the overlay that picked a screen', () => {
+    h.ipc.send(APP_CHANNELS.zonesPickDisplay, OVERLAY_B_ID)
+    expect(h.pickedDisplays).toEqual([22])
   })
 })
 
@@ -1530,6 +1568,7 @@ describe('production registration', () => {
       start: vi.fn(),
       stop: vi.fn(),
       focusAgent: vi.fn(),
+      closeAgentWindow: vi.fn(),
       focusWorkspace: vi.fn(),
       listStaleWorktrees: vi.fn(async () => []),
       removeWorktree: vi.fn(async () => [])
@@ -1539,6 +1578,7 @@ describe('production registration', () => {
       start: vi.fn(),
       stop: vi.fn(),
       focusAgent: vi.fn(),
+      closeAgentWindow: vi.fn(),
       focusWorkspace: vi.fn(),
       listStaleWorktrees: vi.fn(async () => []),
       removeWorktree: vi.fn(async () => [])

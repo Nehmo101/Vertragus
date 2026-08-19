@@ -147,8 +147,16 @@ describe('CLI window registry', () => {
     expect(cli.listCliWindows()).toEqual([])
   })
 
-  it('closing an unknown agent is a no-op', () => {
-    expect(() => cli.closeCliWindow('ghost')).not.toThrow()
+  it('notifies listeners when a window is closed', () => {
+    const seen: string[] = []
+    const off = cli.onCliWindowClosed((agentId) => seen.push(agentId))
+    cli.createCliWindow('agent-a', { title: 'A', roleColor: '#111' })
+    cli.closeCliWindow('agent-a')
+    expect(seen).toEqual(['agent-a'])
+    off()
+    cli.createCliWindow('agent-b', { title: 'B', roleColor: '#222' })
+    cli.closeCliWindow('agent-b')
+    expect(seen).toEqual(['agent-a'])
   })
 
   it('focus restores a minimized window', () => {

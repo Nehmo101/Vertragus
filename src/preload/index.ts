@@ -143,6 +143,7 @@ const APP = {
   workspacesStop: 'workspaces:stop',
   workspacesFocusAgent: 'workspaces:focusAgent',
   workspacesFocus: 'workspaces:focus',
+  workspacesCloseAgent: 'workspaces:closeAgent',
   worktreesList: 'worktrees:list',
   worktreesRemove: 'worktrees:remove',
   retroList: 'retro:list',
@@ -169,6 +170,7 @@ const APP = {
   zonesDraft: 'zones:draft',
   zonesSave: 'zones:save',
   zonesCancel: 'zones:cancel',
+  zonesPickDisplay: 'zones:pickDisplay',
   eventProfiles: 'ev:profiles',
   eventProviders: 'ev:providers',
   eventWorkspaces: 'ev:workspaces',
@@ -212,6 +214,12 @@ export interface WorkspaceAgentSummary {
   roleColor: string
   state: PanelAgentState
   statusText?: string
+  /**
+   * True while this agent's CLI window is on screen. A finished agent whose
+   * window is still open can be dismissed with ✕; clicking the row after
+   * that reopens the scrollback so the last task stays readable.
+   */
+  windowOpen?: boolean
   pendingQuestion?: string
 }
 
@@ -317,6 +325,15 @@ export interface ZoneEditorRole {
   color: string
 }
 
+/** One attached monitor as the zone overlay picker labels it. */
+export interface ZoneDisplayInfo {
+  id: number
+  label: string
+  width: number
+  height: number
+  primary: boolean
+}
+
 /** What one zone overlay window needs to draw its display. */
 export interface ZoneEditorPayload {
   profileId: string
@@ -324,6 +341,9 @@ export interface ZoneEditorPayload {
   displayId: number
   roles: ZoneEditorRole[]
   zones: Zone[]
+  displays: ZoneDisplayInfo[]
+  /** True while this overlay is asking which screen Vertragus should use. */
+  selectingDisplay: boolean
   /** UI language — an overlay window may not call `settings:get` itself. */
   locale?: 'de' | 'en'
   /** Appearance — same constraint as locale. */
@@ -356,6 +376,12 @@ const app = {
     ipcRenderer.invoke(APP.workspacesStop, { workspaceId }),
   focusAgent: (agentId: string): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesFocusAgent, { agentId }),
+  /**
+   * Close one agent's CLI window. The agent stays listed — a finished worker
+   * can leave the screen without forgetting what it worked on.
+   */
+  closeAgentWindow: (agentId: string): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesCloseAgent, { agentId }),
   focusWorkspace: (workspaceId: string): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesFocus, { workspaceId }),
   /** Stale worktrees of this profile's repo — the panel's cleanup list. */
@@ -522,6 +548,10 @@ const zones = {
   /** Esc: close every overlay, save nothing. */
   cancel: (): void => {
     ipcRenderer.send(APP.zonesCancel)
+  },
+  /** Multi-monitor picker: keep THIS overlay's display, drop the others. */
+  pickDisplay: (): void => {
+    ipcRenderer.send(APP.zonesPickDisplay)
   }
 }
 
