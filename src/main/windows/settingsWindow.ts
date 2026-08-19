@@ -17,10 +17,11 @@ import { glassWindowOptions, loadRoute, secureWindow } from './base'
 import { armWindowCapture } from './smokeCapture'
 
 export const SETTINGS_WINDOW_WIDTH = 480
-// Measured against the rendered sheet: tall enough that the update block is on
-// screen without scrolling (the thing people open this window for), short
-// enough that there is no empty half below it.
-export const SETTINGS_WINDOW_HEIGHT = 570
+// Measured against the rendered sheet: tall enough that the Tailscale remote
+// card — the first block in the body — is on screen without scrolling, short
+// enough that there is no empty half below it. Glass sliders and updates sit
+// further down on purpose.
+export const SETTINGS_WINDOW_HEIGHT = 590
 export const SETTINGS_WINDOW_MIN_WIDTH = 420
 export const SETTINGS_WINDOW_MIN_HEIGHT = 420
 

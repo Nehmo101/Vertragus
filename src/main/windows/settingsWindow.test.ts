@@ -80,6 +80,7 @@ describe('openSettingsWindow', () => {
     expect(options.resizable).toBe(true)
     expect(options.alwaysOnTop).toBe(false)
     expect(options.width).toBe(settingsWindow.SETTINGS_WINDOW_WIDTH)
+    expect(options.height).toBe(settingsWindow.SETTINGS_WINDOW_HEIGHT)
     expect(options.minHeight).toBe(settingsWindow.SETTINGS_WINDOW_MIN_HEIGHT)
   })
 

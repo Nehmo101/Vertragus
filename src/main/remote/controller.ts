@@ -99,10 +99,12 @@ export function createRemoteController(deps: RemoteControllerDeps): RemoteContro
     const settings = deps.readSettings()
     const current = token()
     const address = handle?.host ?? bindPreview(settings)
+    const tailscaleAddress = detectTailscaleAddress(deps.networkInterfaces())
     return {
       enabled: settings.enabled,
       running: handle !== undefined,
       ...(address ? { address } : {}),
+      ...(tailscaleAddress ? { tailscaleAddress } : {}),
       port: handle?.port ?? settings.port,
       hasToken: current !== undefined,
       ...(current && address

@@ -30,6 +30,12 @@ export interface RemoteStatus {
   running: boolean
   /** The resolved bind address the server is (or would be) on. */
   address?: string
+  /**
+   * This machine's Tailscale IPv4, when a tailnet interface is up.
+   * Independent of the chosen bind: the settings card uses it to show
+   * "Tailscale is ready" before the user ever toggles remote access.
+   */
+  tailscaleAddress?: string
   port: number
   /** The full pairing URL for the QR — present only when a token exists. */
   pairingUrl?: string

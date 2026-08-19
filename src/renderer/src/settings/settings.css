@@ -22,7 +22,8 @@
 
 .st button,
 .st input,
-.st select {
+.st select,
+.st a {
   -webkit-app-region: no-drag;
   font-family: inherit;
 }
@@ -316,6 +317,10 @@
   background: var(--err-text);
 }
 
+.st-dot.is-warn {
+  background: var(--warn-text);
+}
+
 .st-version {
   font: 400 11px var(--font-mono);
   color: var(--text-3);
@@ -379,13 +384,81 @@
   border-top: 1px solid var(--hairline);
 }
 
-/* --- remote access section --- */
+/* --- remote access (Tailscale) ------------------------------------------ */
+
+/*
+ * A bordered card like glass/updates, and the first block in the body: the
+ * gear used to open onto hotkey + four appearance sliders, with Tailscale
+ * below the fold. Setup belongs on the first screen.
+ */
 .st-remote {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding-top: 8px;
-  border-top: 1px solid var(--hairline);
+  padding: 11px 12px 12px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-chip);
+  background: rgba(234, 230, 219, 0.03);
+}
+
+.st-remote-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-chip);
+}
+
+.st-remote-status.is-ready {
+  border-color: rgba(140, 180, 150, 0.35);
+}
+
+.st-remote-status.is-missing {
+  border-color: rgba(247, 201, 107, 0.4);
+  background: rgba(247, 201, 107, 0.06);
+}
+
+.st-remote-status .st-dot {
+  margin-top: 5px;
+}
+
+.st-remote-status-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.st-remote-status-text {
+  font: 500 12.5px var(--font-body);
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.st-remote-status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.st-link {
+  color: var(--bronze-bright);
+  font: 500 12px var(--font-body);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.st-link:hover {
+  color: var(--text);
+}
+
+.st-remote-refresh {
+  padding: 4px 10px;
+  font-size: 11.5px;
 }
 
 .st-remote-danger {

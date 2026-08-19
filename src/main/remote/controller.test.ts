@@ -80,7 +80,17 @@ describe('createRemoteController', () => {
     const { deps } = harness()
     const controller = createRemoteController(deps)
     const status = controller.status()
-    expect(status).toMatchObject({ enabled: false, running: false, hasToken: false })
+    expect(status).toMatchObject({
+      enabled: false,
+      running: false,
+      hasToken: false,
+      tailscaleAddress: '100.64.10.20'
+    })
+  })
+
+  it('reports no tailscaleAddress when the machine is off the tailnet', () => {
+    const { deps } = harness(DEFAULTS, noTailnet)
+    expect(createRemoteController(deps).status().tailscaleAddress).toBeUndefined()
   })
 
   it('enabling starts the server, mints a token and yields a pairing URL', async () => {
@@ -91,6 +101,7 @@ describe('createRemoteController', () => {
     expect(startServer).toHaveBeenCalledOnce()
     expect(status.running).toBe(true)
     expect(status.address).toBe('100.64.10.20')
+    expect(status.tailscaleAddress).toBe('100.64.10.20')
     expect(status.hasToken).toBe(true)
     expect(status.pairingUrl).toMatch(/^http:\/\/100\.64\.10\.20:9482\/#token=/)
     // The token was persisted, encrypted.
