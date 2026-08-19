@@ -34,6 +34,7 @@ export const TERMINAL_CHANNELS = {
   resize: 'terminal:resize',
   data: 'terminal:data',
   exit: 'terminal:exit',
+  task: 'terminal:task',
   windowClose: 'window:close',
   windowMinimize: 'window:minimize',
   windowMaximize: 'window:maximize'
@@ -77,6 +78,17 @@ export interface TerminalAttachResult {
    * reloaded renderer has no memory of the click that maximized it.
    */
   maximized: boolean
+  /**
+   * The agent's current task note at attach time, for the title bar's hover
+   * card. Later changes arrive over {@link TERMINAL_CHANNELS.task}.
+   */
+  task?: string
+}
+
+/** Push payload of {@link TERMINAL_CHANNELS.task} — a new current-task note. */
+export interface TerminalTaskEvent {
+  agentId: string
+  task?: string
 }
 
 export interface TerminalDataEvent {
@@ -99,6 +111,12 @@ export interface AgentRegistry {
   getAgent(agentId: string): RegisteredAgent | undefined
   removeAgent(agentId: string): void
   listAgents(): RegisteredAgent[]
+  /**
+   * Update the agent's current-task note shown by its window's hover card.
+   * Unknown agents and unchanged notes are no-ops; an attached window is
+   * pushed the change, a detached one picks it up with its next attach.
+   */
+  setAgentTask(agentId: string, task: string | undefined): void
   /** Window gone — stop pushing until it attaches again. */
   markDetached(agentId: string): void
   /**
@@ -184,6 +202,8 @@ interface AgentRecord {
   pending: string
   timer: ReturnType<typeof setTimeout> | undefined
   exit: PtyExitInfo | null
+  /** Current task note; rides on attach and is pushed on change. */
+  task: string | undefined
   unsubscribe: (() => void)[]
 }
 
@@ -257,6 +277,7 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
       meta: record.entry.meta,
       exit: record.exit,
       maximized: host.isWindowMaximized(agentId),
+      ...(record.task !== undefined ? { task: record.task } : {}),
       ...(host.locale ? { locale: host.locale() } : {}),
       ...(host.theme ? { theme: host.theme() } : {})
     }
@@ -340,6 +361,9 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
         pending: '',
         timer: undefined,
         exit: null,
+        // A re-registration under the same id keeps the note — same PTY-swap
+        // semantics as the rest of the record.
+        task: previous?.task,
         unsubscribe: []
       }
       agents.set(agentId, record)
@@ -369,6 +393,19 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
     },
     listAgents(): RegisteredAgent[] {
       return [...agents.values()].map((record) => record.entry)
+    },
+    setAgentTask(agentId: string, task: string | undefined): void {
+      const record = agents.get(agentId)
+      if (!record || record.task === task) return
+      record.task = task
+      if (!record.attached) return
+      // Same vanished-window guard as flush: never talk to a dead renderer.
+      if (host.hasWindow && !host.hasWindow(agentId)) {
+        record.attached = false
+        return
+      }
+      const payload: TerminalTaskEvent = { agentId, ...(task !== undefined ? { task } : {}) }
+      host.send(agentId, TERMINAL_CHANNELS.task, payload)
     },
     markDetached(agentId: string): void {
       const record = agents.get(agentId)

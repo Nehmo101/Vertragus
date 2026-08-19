@@ -39,6 +39,7 @@ function fakeMcp(): McpServerHandle & { closed: number } {
     subagentUrl: () => '',
     pendingQuestion: () => undefined,
     workspaceTask: () => undefined,
+    agentTask: () => undefined,
     close: vi.fn(async function (this: { closed: number }) {
       this.closed += 1
     })

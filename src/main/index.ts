@@ -84,6 +84,9 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
                     roleLabel: 'Orchestrator',
                     roleColor: roleColor('orchestrator'),
                     state: ws.orchestratorAlive ? ('working' as const) : ('stopped' as const),
+                    // The orchestrator is never assigned a task through the
+                    // tools — the closest truth is the last one it delegated.
+                    ...(taskText ? { statusText: taskText } : {}),
                     ...(pendingOf(ws.workspaceId, orchestrator.agentId)
                       ? { pendingQuestion: pendingOf(ws.workspaceId, orchestrator.agentId) }
                       : {})
@@ -92,6 +95,7 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
               : []),
             ...ws.listAgents().map((agent) => {
               const pendingQuestion = pendingOf(ws.workspaceId, agent.agentId)
+              const agentTask = mcp.agentTask(ws.workspaceId, agent.agentId)
               return {
                 agentId: agent.agentId,
                 name: agent.name,
@@ -104,6 +108,7 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
                     : agent.status === 'starting'
                       ? ('waiting' as const)
                       : ('stopped' as const),
+                ...(agentTask ? { statusText: agentTask } : {}),
                 ...(pendingQuestion ? { pendingQuestion } : {})
               }
             })
@@ -137,6 +142,30 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
     // something happens instead of up to four seconds later.
     onChange: (listener) => manager.onChange(listener)
   }
+}
+
+/**
+ * Feed every agent's current task note into the terminal registry, so the CLI
+ * window's title-bar hover card can show what its agent is working on. Runs on
+ * the same change feed as the panel; `setAgentTask` dedupes, so a burst of
+ * unrelated events costs nothing.
+ */
+function armTerminalTaskFeed(manager: WorkspaceManager, mcp: McpServerHandle): void {
+  const registry = getAgentRegistry()
+  const push = (): void => {
+    for (const ws of manager.list()) {
+      const orchestrator = ws.orchestrator
+      if (orchestrator) {
+        // The orchestrator has no assigned task — its card shows the last one
+        // it delegated, same as its panel row.
+        registry.setAgentTask(orchestrator.agentId, mcp.workspaceTask(ws.workspaceId))
+      }
+      for (const agent of ws.listAgents()) {
+        registry.setAgentTask(agent.agentId, mcp.agentTask(ws.workspaceId, agent.agentId))
+      }
+    }
+  }
+  manager.onChange(push)
 }
 
 // --- M1 dev verification path -------------------------------------------
@@ -256,6 +285,7 @@ app.whenReady().then(async () => {
     appManager = createAppWorkspaceManager(appMcp)
     const directory = panelDirectory(appManager, appMcp)
     registerAppIpc(directory)
+    armTerminalTaskFeed(appManager, appMcp)
     // Remote access — off by default. The controller does nothing until the
     // user enables it in settings; wiring it here gives the settings channels
     // a live controller to drive.

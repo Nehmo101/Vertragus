@@ -237,6 +237,21 @@ export interface WorkspaceRuntime {
    * appended.
    */
   latestTask?: string
+  /**
+   * Current assignment per subagent, shortened via {@link taskNote}. Written by
+   * `start_agent` and follow-up `send_to_agent` calls (never by question
+   * answers), read by the panel's agent rows and the CLI windows' hover cards.
+   * Entries outlive a stopped agent on purpose — "what was it working on?" is
+   * exactly the question a hover over a finished agent answers.
+   */
+  agentTasks: Map<string, string>
+  /**
+   * Fires after {@link latestTask} / {@link agentTasks} changed. The
+   * WorkspaceManager binds this to its change feed so the panel and the CLI
+   * windows follow a follow-up assignment live — a follow-up pushes no agent
+   * event, so without this hook nothing would wake the UI.
+   */
+  onTasksChanged?: () => void
 }
 
 /** Max length of the panel's "current task" note. */
@@ -254,6 +269,19 @@ export function taskNote(task: string): string | undefined {
     .find((candidate) => candidate.length > 0)
   if (!line) return undefined
   return line.length <= TASK_NOTE_MAX ? line : `${line.slice(0, TASK_NOTE_MAX - 1)}…`
+}
+
+/**
+ * Record one handed-out assignment: the agent's own current task and the
+ * workspace's latest one, in one step, with one notification. A whitespace-only
+ * text records nothing — a blank note must not overwrite a meaningful one.
+ */
+export function recordAssignment(runtime: WorkspaceRuntime, agentId: string, task: string): void {
+  const note = taskNote(task)
+  if (!note) return
+  runtime.agentTasks.set(agentId, note)
+  runtime.latestTask = note
+  runtime.onTasksChanged?.()
 }
 
 /** Statuses that mean "this agent no longer occupies a slot". */

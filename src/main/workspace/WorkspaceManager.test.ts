@@ -29,7 +29,7 @@ class FakeMcp implements McpServerHandle {
   registerWorkspace(ctx: WorkspaceMcpContext): RegisteredWorkspace {
     this.contexts.push(ctx)
     this.log.push(`register:${ctx.workspaceName}`)
-    const runtime = { ctx, questions: new PendingQuestions() }
+    const runtime = { ctx, questions: new PendingQuestions(), agentTasks: new Map<string, string>() }
     this.runtimes.set(ctx.workspaceId, runtime)
     this.lastQuestions = runtime.questions
     return {
@@ -57,6 +57,9 @@ class FakeMcp implements McpServerHandle {
   }
   workspaceTask(workspaceId: string): string | undefined {
     return this.runtimes.get(workspaceId)?.latestTask
+  }
+  agentTask(workspaceId: string, agentId: string): string | undefined {
+    return this.runtimes.get(workspaceId)?.agentTasks.get(agentId)
   }
   async close(): Promise<void> {}
 }

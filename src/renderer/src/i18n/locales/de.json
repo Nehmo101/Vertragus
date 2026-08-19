@@ -39,6 +39,8 @@
     "collapseAllWorkspaces": "Alle Workspaces zuklappen",
     "subagentWaiting": "Ein Subagent wartet auf Rückmeldung",
     "workspaceTask": "Aktuelle Aufgabe: {{task}}",
+    "agentTask": "Aktuelle Aufgabe: {{task}}",
+    "orchestratorTask": "Zuletzt delegiert: {{task}}",
     "agentCount_one": "{{count}} Agent",
     "agentCount_other": "{{count}} Agenten",
     "agentWorking": "arbeitet",
@@ -330,6 +332,8 @@
     "demoBadge": "Demo-Ansicht"
   },
   "terminal": {
+    "currentTask": "Aktuelle Aufgabe: {{task}}",
+    "lastDelegated": "Zuletzt delegiert: {{task}}",
     "running": "läuft",
     "stopped": "beendet · exit {{code}}",
     "exitLine": "— beendet · exit {{code}} —",

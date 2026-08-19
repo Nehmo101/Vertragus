@@ -39,6 +39,8 @@
     "collapseAllWorkspaces": "Collapse all workspaces",
     "subagentWaiting": "A subagent is waiting for your reply",
     "workspaceTask": "Current task: {{task}}",
+    "agentTask": "Current task: {{task}}",
+    "orchestratorTask": "Last delegated: {{task}}",
     "agentCount_one": "{{count}} agent",
     "agentCount_other": "{{count}} agents",
     "agentWorking": "working",
@@ -330,6 +332,8 @@
     "demoBadge": "Demo view"
   },
   "terminal": {
+    "currentTask": "Current task: {{task}}",
+    "lastDelegated": "Last delegated: {{task}}",
     "running": "running",
     "stopped": "stopped · exit {{code}}",
     "exitLine": "— stopped · exit {{code}} —",

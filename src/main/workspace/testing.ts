@@ -103,6 +103,7 @@ export class FakeRegistry implements AgentRegistry {
   readonly registered: RegisteredAgent[] = []
   readonly removed: string[] = []
   readonly detached: string[] = []
+  readonly tasks = new Map<string, string | undefined>()
   private readonly agents = new Map<string, RegisteredAgent>()
 
   registerAgent(entry: RegisteredAgent): void {
@@ -121,6 +122,9 @@ export class FakeRegistry implements AgentRegistry {
   }
   markDetached(agentId: string): void {
     this.detached.push(agentId)
+  }
+  setAgentTask(agentId: string, task: string | undefined): void {
+    this.tasks.set(agentId, task)
   }
   terminals(): import('@main/ipc').TerminalDirectory {
     const agents = this.agents

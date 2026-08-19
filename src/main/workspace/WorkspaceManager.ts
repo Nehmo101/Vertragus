@@ -157,6 +157,9 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
       workspace.events.onPush(() => notifyChange()),
       registered.runtime.questions.onMutate(() => notifyChange())
     ])
+    // Assignments too: a follow-up task pushes no agent event, so without this
+    // the panel's status lines and the CLI hover cards would lag behind it.
+    registered.runtime.onTasksChanged = () => notifyChange()
     // Visible right away — the card renders "starting" while the orchestrator
     // boots instead of appearing only once it is done.
     notifyChange()

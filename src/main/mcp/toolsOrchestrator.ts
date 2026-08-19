@@ -12,9 +12,9 @@ import { buildReminderSuffix, buildTaskContract } from '@shared/prompts/contract
 import {
   errorMessage,
   INSPECT_VIEWS,
+  recordAssignment,
   runningAgents,
   summarizeAgents,
-  taskNote,
   toolError,
   toolJson,
   toolText,
@@ -140,7 +140,7 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
       } catch (error) {
         return toolError({ error: 'start_failed', role, message: errorMessage(error) })
       }
-      runtime.latestTask = taskNote(task) ?? runtime.latestTask
+      recordAssignment(runtime, started.agentId, task)
       started.ready.then(
         () => {
           if (ctx.events.isClosed) return
@@ -251,9 +251,9 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
       } catch (error) {
         return toolError({ error: 'send_failed', agentId, message: errorMessage(error) })
       }
-      // A follow-up instruction is the workspace's new current task; a question
-      // answer (handled above) is not.
-      runtime.latestTask = taskNote(text) ?? runtime.latestTask
+      // A follow-up instruction is the agent's (and the workspace's) new
+      // current task; a question answer (handled above) is not.
+      recordAssignment(runtime, agentId, text)
       return toolJson({
         ok: true,
         delivered: 'message',

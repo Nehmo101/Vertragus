@@ -216,5 +216,5 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): WorkspaceRuntime 
     askTimeoutMs: options.askTimeoutMs,
     retro: options.retro
   }
-  return { ctx, questions: new PendingQuestions(), host, events }
+  return { ctx, questions: new PendingQuestions(), agentTasks: new Map(), host, events }
 }

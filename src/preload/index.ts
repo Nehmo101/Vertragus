@@ -22,6 +22,7 @@ const CHANNELS = {
   resize: 'terminal:resize',
   data: 'terminal:data',
   exit: 'terminal:exit',
+  task: 'terminal:task',
   windowClose: 'window:close',
   windowMinimize: 'window:minimize',
   windowMaximize: 'window:maximize'
@@ -48,11 +49,19 @@ export interface TerminalAttachResult {
   theme?: 'dark' | 'light'
   /** True while the window fills its screen — the title bar's glyph follows it. */
   maximized: boolean
+  /** Current task note at attach time; later changes arrive via onTask. */
+  task?: string
 }
 
 export interface TerminalDataEvent {
   agentId: string
   data: string
+}
+
+/** A new current-task note for this window's agent — the hover card follows it. */
+export interface TerminalTaskEvent {
+  agentId: string
+  task?: string
 }
 
 export interface TerminalExitEvent {
@@ -83,6 +92,14 @@ const terminal = {
     ipcRenderer.on(CHANNELS.exit, handler)
     return () => {
       ipcRenderer.removeListener(CHANNELS.exit, handler)
+    }
+  },
+  /** The agent got a new assignment — the title bar's hover card follows it. */
+  onTask: (listener: (event: TerminalTaskEvent) => void): (() => void) => {
+    const handler = (_event: unknown, payload: TerminalTaskEvent): void => listener(payload)
+    ipcRenderer.on(CHANNELS.task, handler)
+    return () => {
+      ipcRenderer.removeListener(CHANNELS.task, handler)
     }
   },
   /** Close this window only — the agent keeps running. */
