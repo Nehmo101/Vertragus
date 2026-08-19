@@ -88,6 +88,7 @@ import {
   type ZoneEditorPayload
 } from './appIpc'
 import type { HideAllHotkeyStatus } from './windows/hideAll'
+import { REMOTE_CHANNELS } from './remote/ipc'
 import type { MinimalIpcMain } from './ipc'
 import type { WorkspaceSummary as PreloadWorkspaceSummary } from '../preload'
 import { profileSchema, type Profile, type RoleTemplate } from '@shared/schema/profile'
@@ -1559,15 +1560,18 @@ describe('production registration', () => {
 describe('preload parity', () => {
   it('uses exactly the channel names main registers', () => {
     const source = readFileSync(join(__dirname, '../preload/index.ts'), 'utf8')
-    for (const channel of Object.values(APP_CHANNELS)) {
+    // The remote-access channels are registered separately (main/remote/ipc.ts)
+    // but still cross this bridge, so they count toward parity too.
+    const expected = new Set([...Object.values(APP_CHANNELS), ...Object.values(REMOTE_CHANNELS)])
+    for (const channel of expected) {
       expect(source).toContain(`'${channel}'`)
     }
     const found = [
       ...source.matchAll(
-        /'((?:profiles|roles|providers|models|workspaces|worktrees|retro|settings|settingsWindow|updates|windows|app|dialog|profileEditor|providerEditor|zones|ev):[a-zA-Z]+)'/g
+        /'((?:profiles|roles|providers|models|workspaces|worktrees|retro|settings|settingsWindow|updates|windows|app|dialog|profileEditor|providerEditor|zones|remote|ev):[a-zA-Z]+)'/g
       )
     ].map((match) => match[1])
-    expect(new Set(found)).toEqual(new Set(Object.values(APP_CHANNELS)))
+    expect(new Set(found)).toEqual(expected)
   })
 
   it('keeps the workspace payload type identical on both sides of the bridge', () => {

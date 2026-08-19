@@ -6,6 +6,7 @@ import {
   type AppearanceSlider
 } from '@shared/appearance'
 import { LOCALES, translator } from '../i18n'
+import { RemoteSection } from './RemoteSection'
 import { useSettings, type SettingsState } from './useSettings'
 import './settings.css'
 
@@ -234,6 +235,8 @@ export function SettingsApp(): React.JSX.Element {
           ))}
           <span className="st-hint">{t('settings.glassLadderHint')}</span>
         </section>
+
+        <RemoteSection />
 
         <section className="st-updates">
           <h2 className="st-section-label">{t('settings.updates')}</h2>

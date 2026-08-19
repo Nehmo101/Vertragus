@@ -25,6 +25,7 @@ import { createTerminalBridge } from './terminalBridge'
 import { RemoteAuthStore, type AuthStoreDeps, type RemoteSession } from './auth'
 import { indexPath, resolveStaticPath } from './staticFiles'
 import type { TerminalDirectory } from '@main/ipc'
+import type { RemoteClientInfo } from '@shared/remote/types'
 import { parseClientMessage, type ServerMessage } from '@shared/remote/protocol'
 
 const MAX_BODY_BYTES = 64 * 1024
@@ -48,12 +49,6 @@ export interface RemoteServerOptions {
   staticRoot: string
   /** Auth tuning — tests inject a clock and deterministic tokens. */
   authDeps?: Partial<AuthStoreDeps>
-}
-
-export interface RemoteClientInfo {
-  remoteAddress: string
-  createdAt: number
-  lastSeenAt: number
 }
 
 export interface RemoteServerHandle {
@@ -301,12 +296,13 @@ export async function startRemoteServer(
     host: options.host,
     clients: () =>
       auth.list().map((session) => ({
+        id: session.id,
         remoteAddress: session.remoteAddress,
         createdAt: session.createdAt,
         lastSeenAt: session.lastSeenAt
       })),
-    revoke(token: string): boolean {
-      const revoked = auth.revoke(token)
+    revoke(id: string): boolean {
+      const revoked = auth.revoke(id)
       // Close any live socket whose session just died.
       for (const connection of [...clients]) {
         if (!auth.touch(connection.session.token)) {

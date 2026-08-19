@@ -9,9 +9,12 @@
  * enumeration) live here, injected.
  */
 import type { RemoteSettings } from '@main/store/settings'
+import type { RemoteStatus } from '@shared/remote/types'
 import { detectTailscaleAddress, type NetworkInterfaces } from './interfaces'
 import { mintPairingToken, pairingUrl } from './pairing'
 import { startRemoteServer, type RemoteServerHandle, type RemoteServerOptions } from './server'
+
+export type { RemoteStatus } from '@shared/remote/types'
 
 export interface RemoteSecretCodec {
   encrypt(plaintext: string): string
@@ -30,19 +33,6 @@ export interface RemoteControllerDeps {
     'host' | 'port' | 'pairingToken' | 'staticRoot'
   >
   startServer?: typeof startRemoteServer
-}
-
-export interface RemoteStatus {
-  enabled: boolean
-  running: boolean
-  /** The resolved bind address the server is (or would be) on. */
-  address?: string
-  port: number
-  /** The full pairing URL for the QR — present only when a token exists. */
-  pairingUrl?: string
-  hasToken: boolean
-  /** Set when enabling failed (no Tailscale detected, bind refused…). */
-  error?: string
 }
 
 export interface RemoteController {

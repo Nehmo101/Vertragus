@@ -214,7 +214,10 @@ describe('remote server websocket', () => {
     await hello
 
     const closed = new Promise<void>((resolve) => socket.once('close', () => resolve()))
-    expect(handle.revoke(session)).toBe(true)
+    // Revoke targets the public client id, not the secret session token.
+    const client = handle.clients()[0]
+    expect(client).toBeDefined()
+    expect(handle.revoke(client!.id)).toBe(true)
     await closed
     expect(socket.readyState).toBe(WebSocket.CLOSED)
   })

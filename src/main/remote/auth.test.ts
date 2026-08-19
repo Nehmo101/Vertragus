@@ -84,16 +84,25 @@ describe('RemoteAuthStore session lifecycle', () => {
     expect(auth.sessionCount).toBe(0)
   })
 
-  it('revokes one session and revokes all', () => {
+  it('revokes one session by its public id and revokes all', () => {
     const { auth } = store()
-    const a = auth.pair('pair-secret', 'x')
+    auth.pair('pair-secret', 'x')
     const b = auth.pair('pair-secret', 'y')
-    const tokenA = a.ok ? a.session : ''
-    expect(auth.revoke(tokenA)).toBe(true)
-    expect(auth.revoke(tokenA)).toBe(false)
+    const [first] = auth.list()
+    // Revoke targets the public id, never the secret token.
+    expect(auth.revoke(first!.id)).toBe(true)
+    expect(auth.revoke(first!.id)).toBe(false)
     expect(auth.sessionCount).toBe(1)
     auth.revokeAll()
     expect(auth.sessionCount).toBe(0)
     expect(b.ok).toBe(true)
+  })
+
+  it('exposes a public id distinct from the session token', () => {
+    const { auth } = store()
+    const result = auth.pair('pair-secret', 'x')
+    const [session] = auth.list()
+    expect(session!.id).toBeTruthy()
+    expect(session!.id).not.toBe(result.ok ? result.session : '')
   })
 })

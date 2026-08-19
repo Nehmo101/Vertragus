@@ -290,7 +290,24 @@
       "focusOpacityHint": "Applies to agent windows that are being typed in.",
       "surfaceTransparency": "Surface transparency",
       "surfaceTransparencyHint": "0 % paints the surfaces themselves solid, 100 % is the designed glass - independent of the opacity above."
-    }
+    },
+    "remote": "Remote access",
+    "remoteEnable": "Enable remote access",
+    "remoteEnableHint": "Drive Vertragus from your phone or browser over your tailnet.",
+    "remoteEnableOffHint": "Off. Only your local PC can drive agents.",
+    "remoteBind": "Network address",
+    "remoteBindHint": "Which address Vertragus listens on. Tailscale is recommended.",
+    "remotePort": "Port",
+    "remoteAllWarning": "0.0.0.0 makes Vertragus reachable on ALL interfaces — including your local network without Tailscale. Choose deliberately.",
+    "remoteAllConfirm": "I understand the risk and want to listen on all interfaces.",
+    "remoteScan": "Scan this QR code with your phone to pair:",
+    "remotePairingUrl": "Pairing link",
+    "remoteRegenerate": "Generate a new pairing code",
+    "remoteRegenerateHint": "Disconnects every paired device and changes the QR code.",
+    "remoteClients": "Connected devices",
+    "remoteClientsEmpty": "No devices connected.",
+    "remoteRevoke": "Disconnect",
+    "remoteWarnExec": "Connected devices can start agents in YOLO mode — that is code execution on this PC. Only trust devices you would trust with the machine itself."
   },
   "zones": {
     "title": "Zones for “{{profile}}”",

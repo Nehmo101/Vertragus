@@ -378,3 +378,67 @@
   padding: 10px 16px 12px;
   border-top: 1px solid var(--hairline);
 }
+
+/* --- remote access section --- */
+.st-remote {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--hairline);
+}
+
+.st-remote-danger {
+  padding: 8px 10px;
+  border: 1px solid rgba(217, 115, 92, 0.4);
+  border-radius: 8px;
+  background: rgba(217, 115, 92, 0.08);
+}
+
+.st-remote-pairing {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.st-qr {
+  width: 160px;
+  height: 160px;
+  padding: 8px;
+  border-radius: 10px;
+  background: #ffffff;
+  --qr-bg: #ffffff;
+  --qr-fg: #05130d;
+}
+
+.st-qr svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.st-remote-clients {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.st-client-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.st-client {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+  padding: 4px 8px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+}

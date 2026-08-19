@@ -290,7 +290,24 @@
       "focusOpacityHint": "Gilt für Agentenfenster, in denen gerade getippt wird.",
       "surfaceTransparency": "Durchsichtigkeit der Flächen",
       "surfaceTransparencyHint": "0 % färbt die Flächen selbst deckend ein, 100 % ist das entworfene Glas — unabhängig von der Deckkraft darüber."
-    }
+    },
+    "remote": "Fernzugriff",
+    "remoteEnable": "Fernzugriff aktivieren",
+    "remoteEnableHint": "Vertragus vom Handy oder Browser über dein Tailnet steuern.",
+    "remoteEnableOffHint": "Aus. Nur dein lokaler PC kann Agenten steuern.",
+    "remoteBind": "Netzwerk-Adresse",
+    "remoteBindHint": "Auf welcher Adresse Vertragus lauscht. Tailscale wird empfohlen.",
+    "remotePort": "Port",
+    "remoteAllWarning": "0.0.0.0 macht Vertragus auf ALLEN Schnittstellen erreichbar — auch im lokalen Netz ohne Tailscale. Nur mit Bedacht wählen.",
+    "remoteAllConfirm": "Ich verstehe das Risiko und will auf allen Schnittstellen lauschen.",
+    "remoteScan": "Zum Koppeln diesen QR-Code mit dem Handy scannen:",
+    "remotePairingUrl": "Kopplungs-Link",
+    "remoteRegenerate": "Neuen Kopplungs-Code erzeugen",
+    "remoteRegenerateHint": "Trennt alle verbundenen Geräte und ändert den QR-Code.",
+    "remoteClients": "Verbundene Geräte",
+    "remoteClientsEmpty": "Keine Geräte verbunden.",
+    "remoteRevoke": "Trennen",
+    "remoteWarnExec": "Verbundene Geräte können Agenten im YOLO-Modus starten — das ist Codeausführung auf diesem PC. Nur Geräten trauen, denen du auch den PC anvertraust."
   },
   "zones": {
     "title": "Zonen für „{{profile}}“",

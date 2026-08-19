@@ -23,6 +23,8 @@ export const LOGIN_ATTEMPT_LIMIT = 8
 export const LOGIN_WINDOW_MS = 60_000
 
 export interface RemoteSession {
+  /** Public handle for the UI's revoke button — safe to show, unlike `token`. */
+  id: string
   token: string
   createdAt: number
   lastSeenAt: number
@@ -84,7 +86,13 @@ export class RemoteAuthStore {
     }
     const token = this.newToken()
     const at = this.now()
-    this.sessions.set(token, { token, createdAt: at, lastSeenAt: at, remoteAddress })
+    this.sessions.set(token, {
+      id: this.newToken(),
+      token,
+      createdAt: at,
+      lastSeenAt: at,
+      remoteAddress
+    })
     return { ok: true, session: token }
   }
 
@@ -106,10 +114,10 @@ export class RemoteAuthStore {
     return [...this.sessions.values()]
   }
 
-  /** Revoke one session by token; true when it existed. */
-  revoke(token: string): boolean {
+  /** Revoke one session by its public id (from the connected-clients list). */
+  revoke(id: string): boolean {
     for (const [key, session] of this.sessions) {
-      if (secretEquals(session.token, token)) {
+      if (session.id === id) {
         this.sessions.delete(key)
         return true
       }

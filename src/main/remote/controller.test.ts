@@ -41,7 +41,7 @@ function harness(initial: RemoteSettings = DEFAULTS, interfaces = tailnet) {
   const fakeHandle = (host: string, port: number): RemoteServerHandle => ({
     host,
     port,
-    clients: () => [{ remoteAddress: '100.64.0.9', createdAt: 1, lastSeenAt: 2 }],
+    clients: () => [{ id: 'client-1', remoteAddress: '100.64.0.9', createdAt: 1, lastSeenAt: 2 }],
     revoke: () => true,
     close: async () => {
       closes.push(++closeCount)

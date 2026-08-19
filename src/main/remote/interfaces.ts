@@ -17,13 +17,8 @@ export interface InterfaceAddress {
 
 export type NetworkInterfaces = Record<string, InterfaceAddress[] | undefined>
 
-export interface BindOption {
-  /** Human label for the settings picker. */
-  label: string
-  address: string
-  /** True for the auto-detected Tailscale address — the recommended default. */
-  tailscale: boolean
-}
+export type { BindOption } from '@shared/remote/types'
+import type { BindOption } from '@shared/remote/types'
 
 /** True for an IPv4 address inside 100.64.0.0/10 — Tailscale's CGNAT range. */
 export function isTailscaleAddress(address: string): boolean {
