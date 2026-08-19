@@ -25,6 +25,11 @@ workspaces get places (Paradiso, Inferno, …).
 > [Vertragus-Archiv](https://github.com/Nehmo101/Vertragus-Archiv) with a
 > radically smaller core. Nothing here is release-ready yet.
 
+The German handbook [`docs/HANDBUCH-HARNESS.md`](docs/HANDBUCH-HARNESS.md)
+is a code-grounded look at the harness core *after* the in-flight robustness
+and Tailscale-remote work (BigBoy A/B): host-truth for verification and
+handoff, the human inside the event loop — without a second orchestrator.
+
 ## Development
 
 ```bash
