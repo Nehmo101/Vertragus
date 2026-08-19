@@ -1,5 +1,5 @@
 /**
- * The seven tools the orchestrator agent gets. Everything the orchestrator can
+ * The eight tools the orchestrator agent gets. Everything the orchestrator can
  * do to the world goes through here — there is no second path.
  *
  * The tools deliberately do very little themselves: check the limits, compose
@@ -11,6 +11,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { buildReminderSuffix, buildTaskContract } from '@shared/prompts/contract'
 import {
   errorMessage,
+  INSPECT_VIEWS,
   runningAgents,
   summarizeAgents,
   taskNote,
@@ -34,6 +35,7 @@ export const ORCHESTRATOR_TOOL_NAMES = [
   'list_agents',
   'stop_agent',
   'read_output',
+  'inspect_agent',
   'record_retro'
 ] as const
 
@@ -44,6 +46,7 @@ export const AWAIT_TIMEOUT_DEFAULT_SEC = 50
 export const AWAIT_TIMEOUT_MAX_SEC = 55
 export const READ_OUTPUT_DEFAULT_LINES = 60
 export const READ_OUTPUT_MAX_LINES = 400
+export const INSPECT_LOG_MAX_LINES = 50
 
 const AWAIT_TIMEOUT_NOTE =
   'No events within the wait window — this is normal, the agents are still working. ' +
@@ -437,8 +440,9 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
     'read_output',
     {
       description:
-        'The plain-text tail of an agent terminal. Use it to verify what an agent actually did, and ' +
-        'always after an agent_exited event with confirmed: false.',
+        'The plain-text tail of an agent terminal. Use it after an agent_exited event with ' +
+        'confirmed: false, and for debugging a stuck CLI. Do not use it to verify file changes — ' +
+        'that is inspect_agent.',
       inputSchema: {
         agentId: z.string().min(1),
         lines: z
@@ -457,6 +461,44 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
         return toolText(output.trim().length > 0 ? output : '(no output captured yet)')
       } catch (error) {
         return toolError({ error: 'read_failed', agentId, message: errorMessage(error) })
+      }
+    }
+  )
+
+  server.registerTool(
+    'inspect_agent',
+    {
+      description:
+        'Read-only git facts from an agent’s own worktree: status, diff, log, or one file. This is ' +
+        'how you verify what the agent actually changed — never by running git yourself and never ' +
+        'by treating read_output as a diff. Stopped agents remain inspectable. Agents that are ' +
+        'still starting are not.',
+      inputSchema: {
+        agentId: z.string().min(1).describe('Agent to inspect, exactly as start_agent returned it'),
+        view: z
+          .enum(INSPECT_VIEWS)
+          .describe('status = porcelain + diffstat, diff = git diff HEAD plus untracked names, log = oneline, file = one utf-8 file'),
+        path: z
+          .string()
+          .min(1)
+          .max(500)
+          .optional()
+          .describe('Relative path inside the agent worktree — required for view "file"'),
+        lines: z
+          .number()
+          .int()
+          .min(1)
+          .max(INSPECT_LOG_MAX_LINES)
+          .optional()
+          .describe(`Commit count for view "log", default 20, max ${INSPECT_LOG_MAX_LINES}`)
+      }
+    },
+    async ({ agentId, view, path, lines }): Promise<ToolText> => {
+      try {
+        const result = await ctx.host.inspectAgent(agentId, { view, path, lines })
+        return toolJson({ agentId, ...result })
+      } catch (error) {
+        return toolError({ error: 'inspect_failed', agentId, message: errorMessage(error) })
       }
     }
   )

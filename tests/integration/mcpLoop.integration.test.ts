@@ -21,8 +21,11 @@ import { buildSubagentUrl, startMcpServer, type McpServerHandle } from '@main/mc
 import type {
   AgentHost,
   AgentSummary,
+  InspectAgentOptions,
+  InspectAgentResult,
   StartAgentInput,
   StartingAgent,
+  WorktreeFacts,
   WorkspaceMcpContext
 } from '@main/mcp/types'
 import type { AgentEvent } from '@shared/schema/events'
@@ -156,6 +159,32 @@ class SpawningHost implements AgentHost {
 
   async readOutput(agentId: string, lines: number): Promise<string> {
     return this.require(agentId).lines.slice(-lines).join('\n')
+  }
+
+  async inspectAgent(agentId: string, options: InspectAgentOptions): Promise<InspectAgentResult> {
+    const record = this.require(agentId)
+    if (options.view === 'file' && !options.path?.trim()) {
+      throw new Error('inspect view "file" needs path.')
+    }
+    return {
+      view: options.view,
+      body: `(integration ${options.view})`,
+      ...this.fakeFacts(record)
+    }
+  }
+
+  async snapshotWorktree(agentId: string): Promise<WorktreeFacts> {
+    return this.fakeFacts(this.require(agentId))
+  }
+
+  private fakeFacts(record: FakeProcess): WorktreeFacts {
+    return {
+      branch: record.summary.branch ?? 'unknown',
+      headSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      uncommitted: false,
+      changedFiles: [],
+      diffStat: ''
+    }
   }
 
   listAgents(): AgentSummary[] {

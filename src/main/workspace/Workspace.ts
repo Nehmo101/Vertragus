@@ -25,11 +25,13 @@
  *   `orchestrator_exited`, because only the host can observe a process dying
  *   unasked. For PTY-only (`mcp: none`)
  *   providers the host is also the reporting channel: it parses sentinel lines
- *   into `agent_done` / `agent_progress` (and will wire `agent_question` in
- *   Task 3). The silence hint ({@link PTY_ONLY_IDLE_HINT_MS}) stays as the
+ *   into `agent_done` / `agent_progress` / `agent_question`. The silence hint
+ *   ({@link PTY_ONLY_IDLE_HINT_MS}) stays as the
  *   host-truth backstop when a sentinel agent goes quiet. MCP-attached agents
  *   still push done/question/progress only via the MCP layer — no duplicates.
  *   `agent_started` and `agent_stopped` always belong to the MCP layer.
+ *   Sentinel `agent_done` is host-owned and carries worktree facts when git
+ *   answers; MCP `report_done` attaches the same facts in the tool layer.
  *
  * What the host *does* own is identity and delivery: the Commedia name, the
  * role prompt (via the provider's `systemPromptDelivery`), the worktree, the
@@ -40,19 +42,24 @@ import { randomUUID } from 'node:crypto'
 import type { AgentMeta, AgentRegistry } from '@main/ipc'
 import { EventQueue } from '@main/mcp/eventQueue'
 import type { PendingQuestions } from '@main/mcp/pendingQuestions'
-import type {
-  AgentHost,
-  AgentSummary,
-  RetroLearningInput,
-  StartAgentInput,
-  StartedAgent,
-  StartingAgent,
-  WorkspaceLimits,
-  WorkspaceMcpContext
+import {
+  worktreeEventFields,
+  type AgentHost,
+  type AgentSummary,
+  type InspectAgentOptions,
+  type InspectAgentResult,
+  type RetroLearningInput,
+  type StartAgentInput,
+  type StartedAgent,
+  type StartingAgent,
+  type WorktreeFacts,
+  type WorkspaceLimits,
+  type WorkspaceMcpContext
 } from '@main/mcp/types'
 import { NameAllocator } from '@main/agents/names'
 import type { PtyExitInfo, Unsubscribe } from '@main/agents/PtyAgent'
 import { spawnAgent, type AgentLaunchInput, type AgentPty, type SpawnedAgent } from '@main/agents/spawn'
+import { inspectWorktree, snapshotWorktree } from '@main/agents/inspectWorktree'
 import {
   createWorktree,
   worktreeBranchName,
@@ -83,6 +90,7 @@ import {
 } from '@shared/schema/profile'
 import type { ProviderConfig } from '@shared/schema/provider'
 import type { ZoneLayout } from '@shared/schema/zones'
+import type { AgentDoneStatus } from '@shared/schema/events'
 import { SentinelParser, type SentinelReport } from './sentinel'
 import { terminalTailText } from './terminalText'
 
@@ -213,6 +221,12 @@ interface AgentRecord {
    * the `confirmed` flag of `agent_exited`.
    */
   assignmentCursor: number
+  /**
+   * True once a sentinel DONE landed for the current assignment. Snapshotting
+   * the worktree is async, so `agent_done` may not be in the queue yet when
+   * the process exits — this flag still confirms the exit.
+   */
+  doneSinceAssignment: boolean
   unsubscribe: Unsubscribe[]
   /** PTY-only agents only: the pending silence watchdog. */
   idleTimer?: ReturnType<typeof setTimeout>
@@ -527,6 +541,7 @@ export class Workspace implements AgentHost {
     // still fires. Seed echoes were suppressed during the write; reset drops
     // any partial buffer state before the agent speaks again.
     record.assignmentCursor = this.events.cursor
+    record.doneSinceAssignment = false
     record.sentinel?.reset()
   }
 
@@ -544,6 +559,39 @@ export class Workspace implements AgentHost {
     const record = this.requireAgent(agentId)
     const chars = Math.min(MAX_TAIL_CHARS, Math.max(MIN_TAIL_CHARS, lines * CHARS_PER_LINE))
     return terminalTailText(record.pty.tail(chars), lines)
+  }
+
+  async inspectAgent(agentId: string, options: InspectAgentOptions): Promise<InspectAgentResult> {
+    const record = this.requireAgent(agentId)
+    const result = await inspectWorktree(
+      {
+        worktreePath: record.worktreePath,
+        view: options.view,
+        path: options.path,
+        lines: options.lines
+      },
+      this.deps.worktreeDeps
+    )
+    return {
+      view: result.view,
+      body: result.body,
+      ...this.factsOf(result)
+    }
+  }
+
+  async snapshotWorktree(agentId: string): Promise<WorktreeFacts> {
+    const record = this.requireAgent(agentId)
+    return this.factsOf(await snapshotWorktree(record.worktreePath, this.deps.worktreeDeps))
+  }
+
+  private factsOf(snapshot: {
+    branch: string
+    headSha: string
+    uncommitted: boolean
+    changedFiles: string[]
+    diffStat: string
+  }): WorktreeFacts {
+    return worktreeEventFields(snapshot)
   }
 
   /**
@@ -887,6 +935,7 @@ export class Workspace implements AgentHost {
       stopped: false,
       lastOutputAt: this.now(),
       assignmentCursor: this.events.cursor,
+      doneSinceAssignment: false,
       unsubscribe: [],
       idleNotified: false,
       suppressSentinel: false
@@ -941,12 +990,8 @@ export class Workspace implements AgentHost {
     }
     switch (report.kind) {
       case 'done':
-        this.events.push({
-          type: 'agent_done',
-          ...identity,
-          summary: report.summary,
-          status: report.status
-        })
+        record.doneSinceAssignment = true
+        void this.emitAgentDone(record, report.summary, report.status)
         return
       case 'progress':
         this.events.push({ type: 'agent_progress', ...identity, note: report.note })
@@ -989,6 +1034,33 @@ export class Workspace implements AgentHost {
         })
         return
       }
+    }
+  }
+
+  /**
+   * Push `agent_done` with host-truth git facts when git answers. A git
+   * failure still emits the prose-only event — never drop a done report.
+   */
+  private async emitAgentDone(
+    record: AgentRecord,
+    summary: string,
+    status: AgentDoneStatus
+  ): Promise<void> {
+    const payload = {
+      type: 'agent_done' as const,
+      agentId: record.agentId,
+      name: record.name,
+      roleId: record.roleId,
+      summary,
+      status
+    }
+    try {
+      const facts = await this.snapshotWorktree(record.agentId)
+      if (this.events.isClosed) return
+      this.events.push({ ...payload, ...facts })
+    } catch {
+      if (this.events.isClosed) return
+      this.events.push(payload)
     }
   }
 
@@ -1157,6 +1229,7 @@ export class Workspace implements AgentHost {
   }
 
   private hasConfirmedSinceAssignment(record: AgentRecord): boolean {
+    if (record.doneSinceAssignment) return true
     return this.events
       .all()
       .some(

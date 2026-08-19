@@ -87,6 +87,30 @@ function harness(
   }
 }
 
+function cannedGit(): NonNullable<NonNullable<WorkspaceDeps['worktreeDeps']>['git']> {
+  return async (args) => {
+    if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') {
+      return { stdout: 'vertragus/paradiso/caronte\n', stderr: '' }
+    }
+    if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
+      return { stdout: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n', stderr: '' }
+    }
+    if (args[0] === 'status') return { stdout: ' M src/a.ts\n', stderr: '' }
+    if (args[0] === 'diff' && args.includes('--stat')) {
+      return { stdout: ' src/a.ts | 2 +-\n', stderr: '' }
+    }
+    if (args[0] === 'diff') return { stdout: 'diff --git a/src/a.ts\n', stderr: '' }
+    if (args[0] === 'log') return { stdout: 'aaaaaaaa fixture\n', stderr: '' }
+    return { stdout: '', stderr: '' }
+  }
+}
+
+async function waitForDone(workspace: Workspace, count = 1): Promise<void> {
+  await vi.waitFor(() => {
+    expect(workspace.events.all().filter((event) => event.type === 'agent_done')).toHaveLength(count)
+  })
+}
+
 describe('startAgent', () => {
   it('spawns a named subagent in its own worktree, registers it and opens its window', async () => {
     const { workspace, registry, windows, spawns } = harness()
@@ -1054,6 +1078,7 @@ describe('sentinel reporting (mcp: none / Ollama)', () => {
     const started = await workspace.startAgent({ role: 'worker', task: 'Do it.' })
     const line = `@@VERTRAGUS:DONE@@${JSON.stringify({ summary: 'shipped', status: 'success' })}@@END@@`
     spawns[0]!.pty.emit(line)
+    await waitForDone(workspace)
 
     expect(workspace.events.all()).toEqual([
       expect.objectContaining({
@@ -1103,6 +1128,7 @@ describe('sentinel reporting (mcp: none / Ollama)', () => {
     )
     // Agent-authored DONE after the seed still fires.
     spawns[0]!.pty.emit(`@@VERTRAGUS:DONE@@${JSON.stringify({ summary: 'real' })}@@END@@`)
+    await waitForDone(workspace, before + 1)
     expect(workspace.events.all().filter((event) => event.type === 'agent_done')).toHaveLength(
       before + 1
     )
@@ -1176,10 +1202,105 @@ describe('sentinel reporting (mcp: none / Ollama)', () => {
     const started = await workspace.startAgent({ role: 'worker', task: 'Do it.' })
     const line = `@@VERTRAGUS:DONE@@${JSON.stringify({ summary: 'same' })}@@END@@`
     spawns[0]!.pty.emit(line)
+    await waitForDone(workspace, 1)
     expect(workspace.events.all().filter((event) => event.type === 'agent_done')).toHaveLength(1)
 
     await workspace.sendToAgent(started.agentId, 'follow-up')
     spawns[0]!.pty.emit(line)
+    await waitForDone(workspace, 2)
     expect(workspace.events.all().filter((event) => event.type === 'agent_done')).toHaveLength(2)
+  })
+
+  it('attaches worktree facts to a sentinel agent_done when git answers', async () => {
+    const { workspace, spawns } = harness({
+      profile: ollamaProfile(),
+      ptySystemPrompt: true,
+      deps: { worktreeDeps: { git: cannedGit() } }
+    })
+    const started = await workspace.startAgent({ role: 'worker', task: 'Do it.' })
+    spawns[0]!.pty.emit(
+      `@@VERTRAGUS:DONE@@${JSON.stringify({ summary: 'shipped', status: 'success' })}@@END@@`
+    )
+    await waitForDone(workspace)
+    expect(workspace.events.all()[0]).toMatchObject({
+      type: 'agent_done',
+      uncommitted: true,
+      changedFiles: ['src/a.ts'],
+      branch: 'vertragus/paradiso/caronte',
+      headSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    })
+    expect(started.agentId).toBeTruthy()
+  })
+
+  it('confirms the exit even when the worktree snapshot has not landed yet', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const git = async () => {
+      await gate
+      return { stdout: 'main\n', stderr: '' }
+    }
+    const { workspace, spawns } = harness({
+      profile: ollamaProfile(),
+      ptySystemPrompt: true,
+      deps: { worktreeDeps: { git } }
+    })
+    const started = await workspace.startAgent({ role: 'worker', task: 'Do it.' })
+    spawns[0]!.pty.emit(
+      `@@VERTRAGUS:DONE@@${JSON.stringify({ summary: 'shipped', status: 'success' })}@@END@@`
+    )
+    spawns[0]!.pty.exit({ exitCode: 0 })
+    const exited = workspace.events.all().find((event) => event.type === 'agent_exited')
+    expect(exited).toMatchObject({ confirmed: true, type: 'agent_exited' })
+    expect(workspace.events.all().some((event) => event.type === 'agent_done')).toBe(false)
+
+    release()
+    await waitForDone(workspace)
+    expect(started.agentId).toBeTruthy()
+  })
+})
+
+describe('inspectAgent', () => {
+  it('refuses an agent that is still starting', async () => {
+    const { workspace } = harness({
+      profile: testProfile({
+        slots: [{ id: 'slot-worker', roleId: 'worker', providerId: 'claude', maxCount: 1 }]
+      })
+    })
+    const begun = workspace.beginAgent({ role: 'worker', task: 'a' })
+    await expect(workspace.inspectAgent(begun.agentId, { view: 'status' })).rejects.toThrow(
+      /still starting/
+    )
+    await begun.ready
+  })
+
+  it('refuses an unknown agent', async () => {
+    const { workspace } = harness()
+    await expect(workspace.inspectAgent('ghost', { view: 'status' })).rejects.toThrow(/Unknown agent/)
+  })
+
+  it('reads status, diff and log from the agent worktree', async () => {
+    const { workspace } = harness({ deps: { worktreeDeps: { git: cannedGit() } } })
+    const started = await workspace.startAgent({ role: 'worker', task: 'Do it.' })
+
+    const status = await workspace.inspectAgent(started.agentId, { view: 'status' })
+    expect(status.uncommitted).toBe(true)
+    expect(status.changedFiles).toEqual(['src/a.ts'])
+    expect(status.body).toMatch(/uncommitted: yes/)
+
+    const diff = await workspace.inspectAgent(started.agentId, { view: 'diff' })
+    expect(diff.body).toMatch(/diff --git/)
+
+    const log = await workspace.inspectAgent(started.agentId, { view: 'log', lines: 5 })
+    expect(log.body).toMatch(/fixture/)
+  })
+
+  it('still inspects a stopped agent — the worktree survives stop_agent', async () => {
+    const { workspace } = harness({ deps: { worktreeDeps: { git: cannedGit() } } })
+    const started = await workspace.startAgent({ role: 'worker', task: 'Do it.' })
+    await workspace.stopAgent(started.agentId)
+    const status = await workspace.inspectAgent(started.agentId, { view: 'status' })
+    expect(status.branch).toBe('vertragus/paradiso/caronte')
   })
 })

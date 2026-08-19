@@ -10,7 +10,7 @@ function setup(options: Parameters<typeof fakeRuntime>[0] = {}) {
 }
 
 describe('orchestrator tool surface', () => {
-  it('registers exactly the seven documented tools', () => {
+  it('registers exactly the eight documented tools', () => {
     const { tools } = setup()
     expect([...tools.keys()].sort()).toEqual([...ORCHESTRATOR_TOOL_NAMES].sort())
   })
@@ -424,6 +424,69 @@ describe('list_agents / stop_agent / read_output', () => {
     const result = await callTool(tools, 'read_output', { agentId: 'ghost' })
     expect(result.isError).toBe(true)
     expect(result.json).toMatchObject({ error: 'read_failed' })
+  })
+})
+
+describe('inspect_agent', () => {
+  it('returns host-truth facts from the agent worktree', async () => {
+    const { runtime, tools } = setup()
+    const started = await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
+    const agentId = String(started.json.agentId)
+    runtime.host.snapshots.set(agentId, {
+      branch: 'vertragus/arsenale/caronte',
+      headSha: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      uncommitted: true,
+      changedFiles: ['src/a.ts'],
+      diffStat: ' src/a.ts | 2 +-\n'
+    })
+
+    const result = await callTool(tools, 'inspect_agent', { agentId, view: 'status' })
+    expect(result.isError).toBe(false)
+    expect(result.json).toMatchObject({
+      agentId,
+      view: 'status',
+      branch: 'vertragus/arsenale/caronte',
+      uncommitted: true,
+      changedFiles: ['src/a.ts'],
+      body: '(fake status)'
+    })
+  })
+
+  it('refuses an agent that is still starting', async () => {
+    const host = new FakeAgentHost()
+    const begun = host.beginAgent({ role: 'worker', task: 't' })
+    host.agents.set(begun.agentId, { ...host.agents.get(begun.agentId)!, status: 'starting' })
+    const { tools } = setup({ host })
+
+    const result = await callTool(tools, 'inspect_agent', { agentId: begun.agentId, view: 'diff' })
+    expect(result.isError).toBe(true)
+    expect(result.json).toMatchObject({ error: 'inspect_failed' })
+    expect(String(result.json.message)).toMatch(/still starting/)
+  })
+
+  it('turns an unknown agent into a tool error', async () => {
+    const { tools } = setup()
+    const result = await callTool(tools, 'inspect_agent', { agentId: 'ghost', view: 'log' })
+    expect(result.isError).toBe(true)
+    expect(result.json).toMatchObject({ error: 'inspect_failed' })
+  })
+
+  it('requires a path for the file view', async () => {
+    const { tools } = setup()
+    const started = await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
+    const result = await callTool(tools, 'inspect_agent', {
+      agentId: String(started.json.agentId),
+      view: 'file'
+    })
+    expect(result.isError).toBe(true)
+    expect(String(result.json.message)).toMatch(/needs path/)
+  })
+
+  it('rejects an invented view at the schema', async () => {
+    const { tools } = setup()
+    await expect(
+      callTool(tools, 'inspect_agent', { agentId: 'a', view: 'blame' })
+    ).rejects.toThrow()
   })
 })
 

@@ -11,7 +11,14 @@
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { AGENT_DONE_STATUSES } from '@shared/schema/events'
-import { errorMessage, toolError, toolJson, type ToolText, type WorkspaceRuntime } from './types'
+import {
+  errorMessage,
+  toolError,
+  toolJson,
+  worktreeEventFields,
+  type ToolText,
+  type WorkspaceRuntime
+} from './types'
 
 export const SUBAGENT_TOOL_NAMES = ['report_done', 'ask_orchestrator', 'report_progress'] as const
 export type SubagentToolName = (typeof SUBAGENT_TOOL_NAMES)[number]
@@ -75,7 +82,20 @@ export function registerSubagentTools(
       }
     },
     async ({ summary, status }): Promise<ToolText> => {
-      ctx.events.push({ type: 'agent_done', ...identity(), summary, status: status ?? 'success' })
+      const payload = {
+        type: 'agent_done' as const,
+        ...identity(),
+        summary,
+        status: status ?? 'success'
+      }
+      // Git hiccup must not swallow the done report — the summary is still
+      // the agent's word; the orchestrator can inspect_agent afterwards.
+      try {
+        const facts = await ctx.host.snapshotWorktree(agentId)
+        ctx.events.push({ ...payload, ...worktreeEventFields(facts) })
+      } catch {
+        ctx.events.push(payload)
+      }
       return toolJson({
         ok: true,
         note: 'The orchestrator has your result. Stay available: it either sends you a follow-up task or stops you. Do not exit on your own.'

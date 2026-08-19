@@ -67,6 +67,30 @@ describe('agent event schema', () => {
     ).toThrow()
   })
 
+  it('accepts host worktree facts on agent_done and still allows a prose-only done', () => {
+    expect(
+      agentEventPayloadSchema.parse({
+        type: 'agent_done',
+        ...identity,
+        summary: 's',
+        status: 'success',
+        branch: 'vertragus/x/y',
+        headSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        uncommitted: true,
+        changedFiles: ['src/a.ts'],
+        diffStat: ' src/a.ts | 1 +\n'
+      })
+    ).toMatchObject({ uncommitted: true, changedFiles: ['src/a.ts'] })
+    expect(
+      agentEventPayloadSchema.parse({
+        type: 'agent_done',
+        ...identity,
+        summary: 's',
+        status: 'success'
+      })
+    ).toMatchObject({ summary: 's' })
+  })
+
   it('marks unconfirmed exits explicitly', () => {
     const parsed = agentEventPayloadSchema.parse({
       type: 'agent_exited',

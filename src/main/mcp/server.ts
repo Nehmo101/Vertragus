@@ -36,6 +36,7 @@ const MAX_REQUEST_BODY_BYTES = 4 * 1024 * 1024
 const ORCHESTRATOR_INSTRUCTIONS = [
   'These are the Vertragus orchestration tools for your workspace.',
   'Delegate work with start_agent, then loop on await_events and handle every event.',
+  'Verify file changes with inspect_agent, not by reading the terminal.',
   'Answer agent_question events immediately with send_to_agent{questionId}.'
 ].join(' ')
 
