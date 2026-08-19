@@ -347,3 +347,46 @@ describe('retro finalization', () => {
     await expect(manager.stopWorkspace(running.workspace.workspaceId)).resolves.toBe(true)
   })
 })
+
+describe('onChange — the push channel that replaced the panel poll', () => {
+  it('fires on start, agent events, question mutations and stop, collapsing same-tick bursts', async () => {
+    const { manager, mcp } = harness()
+    let fired = 0
+    const off = manager.onChange(() => {
+      fired += 1
+    })
+
+    const running = await manager.startWorkspace(testProfile())
+    await Promise.resolve()
+    expect(fired).toBeGreaterThan(0)
+
+    const beforeBurst = fired
+    const identity = { agentId: 'a1', name: 'Caronte', roleId: 'worker' } as const
+    running.workspace.events.push({ type: 'agent_progress', ...identity, note: 'one' })
+    running.workspace.events.push({ type: 'agent_progress', ...identity, note: 'two' })
+    await Promise.resolve()
+    // Two pushes in one tick, one notification — the panel repaints once.
+    expect(fired).toBe(beforeBurst + 1)
+
+    // Question answered: no event exists for this, only the registry mutation —
+    // exactly the case that kept a stale badge lit for up to 4 s under polling.
+    const questions = mcp.lastQuestions!
+    const created = questions.create('a1', 'which path?')
+    await Promise.resolve()
+    const afterCreate = fired
+    questions.answer(created.questionId, 'left')
+    await Promise.resolve()
+    expect(fired).toBe(afterCreate + 1)
+
+    const beforeStop = fired
+    await manager.stopWorkspace(running.workspace.workspaceId)
+    await Promise.resolve()
+    expect(fired).toBeGreaterThan(beforeStop)
+
+    off()
+    const afterOff = fired
+    running.workspace.events.push({ type: 'agent_progress', ...identity, note: 'ignored' })
+    await Promise.resolve()
+    expect(fired).toBe(afterOff)
+  })
+})

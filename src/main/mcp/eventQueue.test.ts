@@ -38,6 +38,25 @@ describe('EventQueue', () => {
     expect(queue.since(1).map((e) => e.seq)).toEqual([3, 4, 5])
   })
 
+  it('names the dropped seq range instead of leaving readers to infer it', () => {
+    const queue = new EventQueue(3)
+    for (let i = 0; i < 5; i++) queue.push(progress(`n${i}`))
+    // Buffer holds 3..5; a reader from the beginning lost 1..2.
+    expect(queue.droppedSince(0)).toEqual({ from: 1, to: 2 })
+    expect(queue.droppedSince(1)).toEqual({ from: 2, to: 2 })
+    // A reader at the ring edge or newer lost nothing.
+    expect(queue.droppedSince(2)).toBeUndefined()
+    expect(queue.droppedSince(5)).toBeUndefined()
+  })
+
+  it('reports no drop on an empty or un-overflowed queue', () => {
+    const empty = new EventQueue(3)
+    expect(empty.droppedSince(0)).toBeUndefined()
+    const filled = new EventQueue(3)
+    filled.push(progress('a'))
+    expect(filled.droppedSince(0)).toBeUndefined()
+  })
+
   it('resolves wait() synchronously when events are already buffered', async () => {
     const queue = new EventQueue()
     queue.push(progress('a'))

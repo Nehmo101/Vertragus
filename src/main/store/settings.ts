@@ -101,9 +101,29 @@ export const uiSettingsSchema = z
   .strict()
 export type UiSettings = z.infer<typeof uiSettingsSchema>
 
+/**
+ * Remote access — opt-in, off by default. `bindAddress` empty means "the
+ * auto-detected Tailscale address"; a concrete address (a LAN IP, or
+ * `0.0.0.0`) is a deliberate override set in the settings window. The pairing
+ * token is stored ENCRYPTED (Electron `safeStorage`, base64) because
+ * electron-store is plaintext JSON on disk — the encryption happens in the
+ * remote wiring, this schema only carries the opaque ciphertext.
+ */
+export const remoteSettingsSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    /** '' = auto (Tailscale); otherwise the exact bind address. */
+    bindAddress: z.string().max(64).default(''),
+    port: z.number().int().min(1).max(65_535).default(9482),
+    pairingTokenEncrypted: z.string().max(4_000).optional()
+  })
+  .strict()
+export type RemoteSettings = z.infer<typeof remoteSettingsSchema>
+
 export const appSettingsSchema = z
   .object({
     ui: uiSettingsSchema.default({}),
+    remote: remoteSettingsSchema.default({}),
     /** Master switch above every slot's yolo flag. Subagents default to yolo. */
     yoloMaster: z.boolean().default(true),
     /** Electron accelerator; registration failure must be shown, never swallowed. */
@@ -125,6 +145,7 @@ export type UpdateChannel = AppSettings['updateChannel']
 /** Keys of the store's top-level sections. */
 export const SETTINGS_KEYS = [
   'ui',
+  'remote',
   'yoloMaster',
   'hideAllHotkey',
   'autostart',

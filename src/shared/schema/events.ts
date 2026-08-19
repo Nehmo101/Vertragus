@@ -11,11 +11,13 @@ import { z } from 'zod'
 
 export const AGENT_EVENT_TYPES = [
   'agent_started',
+  'agent_start_failed',
   'agent_done',
   'agent_question',
   'agent_progress',
   'agent_exited',
-  'agent_stopped'
+  'agent_stopped',
+  'orchestrator_exited'
 ] as const
 
 export type AgentEventType = (typeof AGENT_EVENT_TYPES)[number]
@@ -43,11 +45,32 @@ const agentStartedPayload = z.object({
   branch: z.string().min(1).optional()
 })
 
+/**
+ * A start that was reserved (the `start_agent` call already returned the
+ * agentId) but never came up: worktree creation, spawn or the seed handshake
+ * failed. The reservation is released — the slot is free again. The agentId
+ * is dead from here on; a retry is a fresh `start_agent`.
+ */
+const agentStartFailedPayload = z.object({
+  type: z.literal('agent_start_failed'),
+  ...identity,
+  message: z.string()
+})
+
 const agentDonePayload = z.object({
   type: z.literal('agent_done'),
   ...identity,
   summary: z.string(),
-  status: agentDoneStatusSchema
+  status: agentDoneStatusSchema,
+  /**
+   * Host-truth from the agent's worktree at report time. Absent when git
+   * failed — the summary still stands; the orchestrator then uses inspect_agent.
+   */
+  branch: z.string().min(1).optional(),
+  headSha: z.string().min(1).optional(),
+  uncommitted: z.boolean().optional(),
+  changedFiles: z.array(z.string().min(1).max(400)).max(80).optional(),
+  diffStat: z.string().max(850).optional()
 })
 
 const agentQuestionPayload = z.object({
@@ -70,7 +93,8 @@ const agentExitedPayload = z.object({
   /**
    * `true` only when the agent reported a terminal result before the process
    * ended. `false` means the process vanished unconfirmed — the orchestrator
-   * must verify with `read_output` instead of assuming success.
+   * must verify with `read_output` instead of assuming success. File changes
+   * are verified with `inspect_agent`, not the terminal tail.
    */
   confirmed: z.boolean()
 })
@@ -81,14 +105,28 @@ const agentStoppedPayload = z.object({
   note: z.string().optional()
 })
 
+/**
+ * The workspace's own orchestrator died unasked — a crash, a `/exit`, an OOM
+ * kill. The workspace is no longer driving itself: subagents keep running, but
+ * nobody reads their events until the user intervenes. There is no `confirmed`
+ * here — the orchestrator reports to the user, not to a contract.
+ */
+const orchestratorExitedPayload = z.object({
+  type: z.literal('orchestrator_exited'),
+  ...identity,
+  exitCode: z.number().int().nullable().optional()
+})
+
 /** Event body as produced by a caller — no `seq`/`ts` yet. */
 export const agentEventPayloadSchema = z.discriminatedUnion('type', [
   agentStartedPayload,
+  agentStartFailedPayload,
   agentDonePayload,
   agentQuestionPayload,
   agentProgressPayload,
   agentExitedPayload,
-  agentStoppedPayload
+  agentStoppedPayload,
+  orchestratorExitedPayload
 ])
 export type AgentEventPayload = z.infer<typeof agentEventPayloadSchema>
 
@@ -101,11 +139,13 @@ const envelope = {
 
 export const agentEventSchema = z.discriminatedUnion('type', [
   agentStartedPayload.extend(envelope),
+  agentStartFailedPayload.extend(envelope),
   agentDonePayload.extend(envelope),
   agentQuestionPayload.extend(envelope),
   agentProgressPayload.extend(envelope),
   agentExitedPayload.extend(envelope),
-  agentStoppedPayload.extend(envelope)
+  agentStoppedPayload.extend(envelope),
+  orchestratorExitedPayload.extend(envelope)
 ])
 export type AgentEvent = z.infer<typeof agentEventSchema>
 

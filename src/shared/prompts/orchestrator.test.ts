@@ -48,13 +48,14 @@ describe('buildOrchestratorSystemPrompt', () => {
     expect(prompt).toMatch(/reports every agent’s branch back/i)
   })
 
-  it('names all seven orchestrator tools', () => {
+  it('names all eight orchestrator tools', () => {
     const prompt = buildOrchestratorSystemPrompt(base)
     for (const tool of [
       'start_agent',
       'send_to_agent',
       'await_events',
       'list_agents',
+      'inspect_agent',
       'read_output',
       'stop_agent',
       'record_retro'
@@ -118,6 +119,14 @@ describe('buildOrchestratorSystemPrompt', () => {
     const prompt = buildOrchestratorSystemPrompt(base)
     expect(prompt).toContain('confirmed: false')
     expect(prompt).toMatch(/call read_output on it first/i)
+  })
+
+  it('teaches inspect_agent as the way to verify file changes', () => {
+    const prompt = buildOrchestratorSystemPrompt(base)
+    expect(prompt).toMatch(/inspect_agent\{agentId, view, path\?, lines\?\}/)
+    expect(prompt).toMatch(/never treat the terminal tail as a diff/i)
+    expect(prompt).toMatch(/verify the result with inspect_agent/i)
+    expect(prompt).toMatch(/host facts on the event/i)
   })
 
   it('forbids coding and requires a closing summary plus stop', () => {

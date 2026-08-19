@@ -10,9 +10,12 @@ import { PendingQuestions } from './pendingQuestions'
 import type {
   AgentHost,
   AgentSummary,
+  InspectAgentOptions,
+  InspectAgentResult,
   StartAgentInput,
-  StartedAgent,
+  StartingAgent,
   ToolText,
+  WorktreeFacts,
   WorkspaceMcpContext,
   WorkspaceRetroPort,
   WorkspaceRuntime
@@ -74,7 +77,11 @@ export interface FakeHostOptions {
   startError?: string
   /** Override {@link AgentHost.reportingMode}; defaults to always `'mcp'`. */
   reportingMode?: (role: string) => AgentSummary['reporting']
+  /** When set, {@link FakeAgentHost.snapshotWorktree} throws this message. */
+  snapshotError?: string
 }
+
+const FAKE_HEAD = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 
 /** An in-memory {@link AgentHost}: no processes, no windows, full bookkeeping. */
 export class FakeAgentHost implements AgentHost {
@@ -82,6 +89,8 @@ export class FakeAgentHost implements AgentHost {
   readonly sent: Array<{ agentId: string; text: string }> = []
   readonly seeded: Array<{ agentId: string; task: string }> = []
   output = new Map<string, string>()
+  /** Canned git facts per agent; absent → a clean fake snapshot. */
+  snapshots = new Map<string, WorktreeFacts>()
   private counter = 0
 
   constructor(private readonly options: FakeHostOptions = {}) {}
@@ -90,7 +99,9 @@ export class FakeAgentHost implements AgentHost {
     return this.options.reportingMode?.(role) ?? 'mcp'
   }
 
-  async startAgent(input: StartAgentInput): Promise<StartedAgent> {
+  beginAgent(input: StartAgentInput): StartingAgent {
+    // A sync throw mirrors the real host: reservation-stage refusals (no
+    // slot, disabled provider) happen before anything is awaited.
     if (this.options.startError) throw new Error(this.options.startError)
     const agentId = `agent-${++this.counter}`
     // Every agent gets its own worktree and branch — the fake mirrors the invariant.
@@ -117,7 +128,9 @@ export class FakeAgentHost implements AgentHost {
       providerId: 'fake',
       model: input.model,
       worktreePath,
-      branch
+      branch,
+      // The fake has no pipeline — a begun agent is a ready agent.
+      ready: Promise.resolve()
     }
   }
 
@@ -137,6 +150,33 @@ export class FakeAgentHost implements AgentHost {
     if (!this.agents.has(agentId)) throw new Error(`Unknown agent ${agentId}`)
     const all = (this.output.get(agentId) ?? '').split('\n')
     return all.slice(Math.max(0, all.length - lines)).join('\n')
+  }
+
+  async inspectAgent(agentId: string, options: InspectAgentOptions): Promise<InspectAgentResult> {
+    const facts = await this.snapshotWorktree(agentId)
+    if (options.view === 'file' && !options.path?.trim()) {
+      throw new Error('inspect view "file" needs path.')
+    }
+    const extra = options.path ? ` ${options.path}` : ''
+    return { ...facts, view: options.view, body: `(fake ${options.view}${extra})` }
+  }
+
+  async snapshotWorktree(agentId: string): Promise<WorktreeFacts> {
+    const agent = this.agents.get(agentId)
+    if (!agent) throw new Error(`Unknown agent ${agentId}`)
+    if (agent.status === 'starting') {
+      throw new Error(`${agent.name} is still starting — wait for its agent_started event.`)
+    }
+    if (this.options.snapshotError) throw new Error(this.options.snapshotError)
+    return (
+      this.snapshots.get(agentId) ?? {
+        branch: agent.branch ?? 'unknown',
+        headSha: FAKE_HEAD,
+        uncommitted: false,
+        changedFiles: [],
+        diffStat: ''
+      }
+    )
   }
 
   listAgents(): AgentSummary[] {

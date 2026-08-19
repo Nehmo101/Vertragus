@@ -99,6 +99,22 @@ export class EventQueue {
   }
 
   /**
+   * The seq range a reader at `cursor` can no longer get: events that fell out
+   * of the ring before it asked. `undefined` when nothing is missing. `since()`
+   * silently yields "whatever survived" — this is the honest companion that
+   * lets `await_events` SAY so instead of leaving the orchestrator to infer a
+   * gap from a seq jump nothing told it to look for.
+   */
+  droppedSince(cursor: number): { from: number; to: number } | undefined {
+    const oldest = this.buffer[0]?.seq
+    // An empty buffer means nothing was ever pushed — overflow never empties it.
+    if (oldest === undefined) return undefined
+    const from = Math.max(1, cursor + 1)
+    if (oldest <= from) return undefined
+    return { from, to: oldest - 1 }
+  }
+
+  /**
    * Resolve with events newer than `cursor`; if there are none, park until one
    * arrives, `timeoutMs` elapses (→ `[]`), the signal aborts (→ `[]`) or the
    * queue closes (→ `[]`).

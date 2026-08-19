@@ -26,9 +26,43 @@ workspaces get places (Paradiso, Inferno, …).
 > radically smaller core. Nothing here is release-ready yet.
 
 The German handbook [`docs/HANDBUCH-HARNESS.md`](docs/HANDBUCH-HARNESS.md)
-is a code-grounded look at the harness core *after* the in-flight robustness
-and Tailscale-remote work (BigBoy A/B): host-truth for verification and
+is a code-grounded look at the harness core after the robustness and
+Tailscale-remote work: host-truth for verification (`inspect_agent`) and
 handoff, the human inside the event loop — without a second orchestrator.
+
+## Remote access (Tailscale)
+
+Vertragus can be driven from your phone or another browser while it runs on
+your PC. It is **off by default**; enable it under **Settings → Remote access**.
+
+- **Transport is your tailnet.** The remote server binds, by default, to the
+  machine's auto-detected [Tailscale](https://tailscale.com) address
+  (`100.64.0.0/10`). Traffic is WireGuard-encrypted by Tailscale end to end, so
+  Vertragus adds no TLS and opens no port to the public internet. `0.0.0.0`
+  (all interfaces, including your LAN) is available behind an explicit typed
+  confirmation — use it only when you understand the exposure.
+- **Pairing.** Enabling generates a 256-bit pairing token, shown as a QR code
+  and a link. Scanning it on a device on the same tailnet exchanges the token
+  for a session; the token is stored encrypted at rest (Electron `safeStorage`)
+  and never leaves the machine in plaintext. Regenerating it disconnects every
+  paired device.
+- **What a remote device can do.** Watch any agent's terminal live, type into
+  it, and start or stop workspaces. The command allow-list is exactly four
+  verbs: `workspaces:list`, `workspaces:start`, `workspaces:stop`,
+  `profiles:list`. There is no `focus_agent` or `stop_agent` on the gateway.
+  Typing into a PTY reaches the CLI (permission dialogs live there); it does
+  **not** resolve an MCP `ask_orchestrator` wait — that still needs
+  `send_to_agent{questionId}` on the orchestrator, which remote v1 does not
+  expose. It **cannot** edit profiles, providers or settings, touch windows
+  or zones, or remove worktrees.
+- **Threat model — read this.** Subagents run in YOLO mode
+  (`--dangerously-skip-permissions`). **A paired device therefore has code
+  execution on your PC through the agents it drives.** Only pair devices you
+  would trust with the machine itself. The settings section lists connected
+  devices and lets you disconnect any of them; disabling remote access or
+  regenerating the token severs every session immediately. The in-app MCP
+  server that agents use stays loopback-only and is a separate listener with a
+  separate token domain — remote access never widens it.
 
 ## Development
 

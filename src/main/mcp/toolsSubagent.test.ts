@@ -5,12 +5,12 @@ import {
   resolveAskTimeoutMs,
   SUBAGENT_TOOL_NAMES
 } from './toolsSubagent'
-import { callTool, captureTools, fakeRuntime } from './testing'
+import { callTool, captureTools, FakeAgentHost, fakeRuntime } from './testing'
 import type { AgentEvent } from '@shared/schema/events'
 
 async function setup(askTimeoutMs = 50) {
   const runtime = fakeRuntime({ askTimeoutMs })
-  const started = await runtime.host.startAgent({ role: 'worker', task: 't' })
+  const started = runtime.host.beginAgent({ role: 'worker', task: 't' })
   const tools = captureTools((server) => registerSubagentTools(server, runtime, started.agentId))
   return { runtime, tools, agentId: started.agentId, name: started.name }
 }
@@ -66,6 +66,43 @@ describe('report_done', () => {
     const { tools } = await setup()
     const result = await callTool(tools, 'report_done', { summary: 's' })
     expect(String(result.json.note)).toMatch(/do not exit/i)
+  })
+
+  it('attaches host worktree facts to agent_done', async () => {
+    const { runtime, tools, agentId } = await setup()
+    runtime.host.snapshots.set(agentId, {
+      branch: 'vertragus/arsenale/caronte',
+      headSha: 'cccccccccccccccccccccccccccccccccccccccc',
+      uncommitted: true,
+      changedFiles: ['src/parser.ts'],
+      diffStat: ' src/parser.ts | 4 +++-\n'
+    })
+
+    await callTool(tools, 'report_done', { summary: 'parser fixed' })
+    expect(runtime.events.all().at(-1)).toMatchObject({
+      type: 'agent_done',
+      agentId,
+      summary: 'parser fixed',
+      branch: 'vertragus/arsenale/caronte',
+      headSha: 'cccccccccccccccccccccccccccccccccccccccc',
+      uncommitted: true,
+      changedFiles: ['src/parser.ts']
+    })
+  })
+
+  it('still reports done when the worktree snapshot fails', async () => {
+    const runtime = fakeRuntime({ host: new FakeAgentHost({ snapshotError: 'git died' }) })
+    const started = runtime.host.beginAgent({ role: 'worker', task: 't' })
+    const tools = captureTools((server) => registerSubagentTools(server, runtime, started.agentId))
+
+    const result = await callTool(tools, 'report_done', { summary: 'tried' })
+    expect(result.json.ok).toBe(true)
+    expect(runtime.events.all().at(-1)).toMatchObject({
+      type: 'agent_done',
+      summary: 'tried',
+      status: 'success'
+    })
+    expect(runtime.events.all().at(-1)).not.toHaveProperty('uncommitted')
   })
 })
 

@@ -101,7 +101,53 @@ export interface AgentRegistry {
   listAgents(): RegisteredAgent[]
   /** Window gone — stop pushing until it attaches again. */
   markDetached(agentId: string): void
+  /**
+   * A second consumer of the same PTYs, independent of the CLI windows: the
+   * remote server streams terminals to a browser through this. Each subscriber
+   * gets its own snapshot-then-stream, so a phone attaching never disturbs the
+   * desktop window on the same agent.
+   */
+  terminals(): TerminalDirectory
   dispose(): void
+}
+
+/** One agent as the remote terminal bridge lists it. */
+export interface TerminalListing {
+  agentId: string
+  meta: AgentMeta
+  /** Set once the process has ended. */
+  exit: PtyExitInfo | null
+}
+
+/** A live subscription to one agent's terminal, for a non-window consumer. */
+export interface TerminalSubscription {
+  snapshot: string
+  cols: number
+  rows: number
+  meta: AgentMeta
+  exit: PtyExitInfo | null
+  /** Stop receiving data/exit. Idempotent. */
+  detach(): void
+}
+
+/** Sink a remote subscriber hands in; each callback is best-effort. */
+export interface TerminalSink {
+  onData(data: string): void
+  onExit(info: PtyExitInfo): void
+}
+
+/**
+ * The PTY stream as a non-window consumer sees it. Backed by the same registry
+ * the CLI windows use, but with independent subscriptions — no `attached` flag
+ * shared with a window, no cross-talk. Input goes through the same `pty.write`
+ * path, so a remote keystroke is indistinguishable from a local one.
+ */
+export interface TerminalDirectory {
+  list(): TerminalListing[]
+  get(agentId: string): TerminalListing | undefined
+  attach(agentId: string, sink: TerminalSink): TerminalSubscription | undefined
+  write(agentId: string, data: string): boolean
+  resize(agentId: string, cols: number, rows: number): boolean
 }
 
 type IpcListener = (event: { sender: { id: number } }, ...args: never[]) => unknown
@@ -332,6 +378,55 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
       if (record.timer) {
         clearTimeout(record.timer)
         record.timer = undefined
+      }
+    },
+    terminals(): TerminalDirectory {
+      const listingOf = (record: AgentRecord): TerminalListing => ({
+        agentId: record.entry.meta.agentId,
+        meta: record.entry.meta,
+        exit: record.exit
+      })
+      return {
+        list: () => [...agents.values()].map(listingOf),
+        get: (agentId) => {
+          const record = agents.get(agentId)
+          return record ? listingOf(record) : undefined
+        },
+        attach(agentId, sink) {
+          const record = agents.get(agentId)
+          if (!record) return undefined
+          // Direct PTY subscriptions, independent of the window's `attached`
+          // flag: a remote viewer and the desktop window can watch the same
+          // agent at once without either disturbing the other's stream.
+          const offData = record.entry.pty.onData((data) => sink.onData(data))
+          const offExit = record.entry.pty.onExit((info) => sink.onExit(info))
+          let live = true
+          return {
+            snapshot: record.entry.pty.snapshot(),
+            cols: record.entry.pty.cols,
+            rows: record.entry.pty.rows,
+            meta: record.entry.meta,
+            exit: record.exit,
+            detach() {
+              if (!live) return
+              live = false
+              offData()
+              offExit()
+            }
+          }
+        },
+        write(agentId, data) {
+          const record = agents.get(agentId)
+          if (!record || !data) return false
+          record.entry.pty.write(data)
+          return true
+        },
+        resize(agentId, cols, rows) {
+          const record = agents.get(agentId)
+          if (!record || !isPositiveInt(cols) || !isPositiveInt(rows)) return false
+          record.entry.pty.resize(Math.floor(cols), Math.floor(rows))
+          return true
+        }
       }
     },
     dispose(): void {

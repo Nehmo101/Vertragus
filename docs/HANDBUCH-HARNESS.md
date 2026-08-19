@@ -1,46 +1,58 @@
 # Vertragus als AI-Harness
 
 Ideen, die aus dem Code kommen — nicht aus einer generischen Agent-Roadmap.
-Aktualisiert gegen den **BigBoy-Plan** (Robustheit A1–A3 + Remote über
-Tailscale, Branch `claude/vertragus-review-improvements-i3ftsv`).
+
+**Stand:** [PR #17](https://github.com/Nehmo101/Vertragus/pull/17) hat BigBoy
+A1–A3, Remote (B) und Harness C1/C2 (`inspect_agent`, Host-Fakten auf
+`agent_done`) **umgesetzt**. Dieses Dokument ist der Plan danach.
 
 **These, unverändert:** Der Loop ist schon ein Harness. Was fehlt, ist
 *Host-Wahrheit* für Git-Zustand, Diffs und den Menschen im Event-Strom.
 BigBoy macht den Loop *stabil und fernsteuerbar*. Es macht ihn nicht
-*wissend*. Die zwei Tracks dürfen sich nicht in die Quere kommen.
+*wissend*.
 
 ---
 
-## Verhältnis zum BigBoy-Plan
+## Was PR #17 gelandet hat (nicht nochmal bauen)
 
-BigBoy ist der richtige erste Zug. Mehrere Punkte aus der ersten Fassung
-dieses Handbuchs sind damit **obsolet als eigene Arbeit** — sie gehören
-jenem Branch, nicht einem zweiten.
+| Plan | Im Code |
+| --- | --- |
+| A1 Lifecycle | `orchestrator_exited`, Quit awaited, `beginAgent` reserviert sync (`starting`), `slotWithCapacity` (Overflow auf den nächsten Slot derselben Rolle) |
+| A2 MCP | async `start_agent` → `{state:'starting'}` plus `agent_started` / `agent_start_failed`; per-agent HMAC-Subtokens; Host/Origin-Rebinding; MCP-Configs in `.git/info/exclude`; `await_events.eventsDropped` (**Feld am Tool-Result**, kein synthetisches Event `events_dropped`) |
+| A3 Panel | echte `WorkspaceDirectory.onChange` (kein 4s-Poll), panelBounds, glob-Window-Security, xterm Links/Suche, Main-Process-i18n, zustand weg |
+| B Remote | HTTP+WS, Tailscale-Bind, Pairing, Gateway-Allow-List, Web-Client, Settings |
+| H3 Prompt | `orchestrator.ts` kennt async start / `agent_started` / `agent_start_failed` |
+| C1 `inspect_agent` | Read-only Git gegen das Agent-Worktree (`status` / `diff` / `log` / `file`) |
+| C2 Host-Fakten auf `agent_done` | `branch`, `headSha`, `uncommitted`, `changedFiles`, `diffStat` — nicht als git-status auf jedem `list_agents` |
 
-| Dieses Handbuch (alt) | BigBoy | Status |
-| --- | --- | --- |
-| Orchestrator-Stille (Prozess tot) | A1.1 `orchestrator_exited`, Karte greyed | **deren A1** — war bei mir eine Lücke |
-| Event-Ring ohne Gap | A2.3 `events_dropped {from,to}` | **deren A2** — 1:1 was hier 3.2 war |
-| 4s-Panel-Poll | A3.1 `WorkspaceDirectory.onChange` | **deren A3** — Voraussetzung für Remote-Fan-out |
-| Token-Identität als Stärke | A2.2 Per-Agent-Subtokens, Origin/Rebinding, Exclude | **korrigiert:** Identität ist *noch nicht* hart |
-| — | A1.2 Quit awaited, A1.3 Slot-Reservierung, A2.1 async `start_agent` | neu, richtig, hier nicht duplizieren |
-| Goal-at-Play, Fragen beantworten | B sagt: tippen in die TUI | **Konflikt** — siehe unten |
-| `inspect_agent`, Snapshot-Commit, Handoff | nicht im Plan | **bleibt hier**, nach A |
-| `ask_user` / `user_message` | nicht im Plan | **bleibt hier**, nach A; B sollte eine kleine Kante offenhalten |
-| Multi-Orchestrierung | nicht im Plan | **hier geplant**, nach A2 + C; Root entscheidet, Default bleibt flach |
+Gateway-Allow-List ist **vier Verben**: `workspaces:list`, `workspaces:start`,
+`workspaces:stop`, `profiles:list`. Kein `focus_agent` / `stop_agent` auf dem
+Gateway. `resize` existiert im WS-Protokoll; es ist kein Produktziel von
+Remote-v1.
 
-Nicht anfassen, solange A/B auf dem anderen Branch läuft: Lifecycle,
-MCP-Auth, EventQueue-Gap, Panel-Push, Remote-Server. Dieses Dokument
-beschreibt nur noch den **Harness-Kern danach** plus drei Haken, die
-BigBoy billig mitbauen sollte, weil Remote sie sonst zementiert.
+Nicht duplizieren: Lifecycle, MCP-Auth, EventQueue-Gap, Panel-Push,
+Remote-Server.
 
 ---
 
-## Drei Haken an BigBoy (kein Scope-Sprung, kleine Kanten)
+## Was nach #17 noch fehlt
 
-Der Plan ist in der Reihenfolge A-vor-B, MCP-bleibt-Loopback, Remote-
-Allow-List, Yolo=RCE-opt-in richtig. Drei Stellen würden den späteren
-Harness-Pass teuer machen, wenn B sie als „für immer PTY“ festnagelt.
+| Haken / Phase | Status |
+| --- | --- |
+| H1 `answer_question` am Gateway | **offen** — Tippen in die PTY löst `ask_orchestrator` nicht |
+| H2 `workspaces:start {goal}` | **offen** — Start bleibt `profileId` only |
+| C3 Snapshot-Commit / C4 Handoff-Paket | später |
+| C5 Orchestrator-Idle-Watchdog | später, und nicht A1.1 (`orchestrator_exited` ist Prozess-Tod) |
+| D Mensch im Loop | nach H1/H2 |
+| E integrate / briefing / eval | nach C |
+| F Multi-Orch (Lead, Tiefe 1) | nach C; Host auto-nestet nie |
+
+---
+
+## Zwei Haken, die Remote noch zementiert
+
+H3 ist in #17 erledigt. H1 und H2 fehlen — ohne sie bleibt der Mensch am
+Terminal, nur eben über Tailscale.
 
 ### H1 — „Fragen beantworten = Terminal attach + tippen“ gilt nicht für MCP
 
@@ -85,32 +97,20 @@ Host seedet das Goal über denselben Handshake wie jede Assignment.
 Panel und Remote-Client teilen das Feld. Ohne Goal bleibt Start erlaubt
 (Back-compat), aber die Karte zeigt „kein Ziel — Orchestrator wartet“.
 
-### H3 — `start_agent` async braucht Prompt + `starting`-Semantik überall
+### H3 — erledigt in PR #17
 
-A2.1 (Tool returns sofort `{agentId, state:'starting'}`, Seed im
-Hintergrund, `agent_started` / `agent_start_failed` als Events) ist
-richtig — der Seed darf das 60s-MCP-Timeout nicht reißen.
-
-Bitte nicht vergessen, sonst ist A2.1 ein stiller Prompt-Bruch:
-
-- `buildOrchestratorSystemPrompt` (`orchestrator.ts`), nicht nur
-  `ORCHESTRATOR_INSTRUCTIONS` in `server.ts`
-- `send_to_agent` / später `inspect_agent` gegen `starting` → klarer Fehler
-- `list_agents` zeigt `starting` (A1.3-Reservierung macht den Slot schon
-  voll — gut)
-- Live-Handover-Test muss `await_events` auf `agent_started` warten,
-  nicht den Sync-Return von `start_agent`
+`buildOrchestratorSystemPrompt` kennt `{state:'starting'}`, `agent_started`
+und `agent_start_failed`. `send_to_agent` gegen `starting` ist ein klarer
+Fehler. `inspect_agent` ebenso.
 
 ### Slot-Mapping, auch nach A1.3
 
-`slotFor()` nimmt `slots.find(roleId)` — immer Slot[0] der Rolle
-(`Workspace.ts:630`, `retroSink.ts:61`). Limits summieren über alle
-Slots. A1.3 (erster Slot *mit freier Kapazität*) schließt den TOCTOU-
-und den Cap-Bug.
+`slotWithCapacity` nimmt den ersten Slot der Rolle *mit freier Kapazität*.
+Limits summieren über alle Slots. Das schließt TOCTOU und den Cap-Bug.
 
 Es schließt **nicht**: zwei Worker-Slots Claude vs. Codex. Der
-Orchestrator kann `model` überschreiben, nicht den Provider. Nach A1.3
-gewinnt weiter „erster mit Platz“, also meist immer Claude.
+Orchestrator kann `model` überschreiben, nicht den Provider. Es gewinnt
+weiter „erster mit Platz“, also meist immer Claude.
 
 Harness-Rest, nicht A1: `start_agent{role, slotId? | providerId?}` oder
 eine Rolle = ein Slot als Profil-Regel. Sonst ist Provider-Diversität
@@ -128,8 +128,9 @@ pro Rolle tote UI.
 | Delegation | Slots = Bauplan, nicht vorstartetes Team |
 | Lernen | Retro → Wilson + Insights in den nächsten Prompt |
 | Provider | Ein deklaratives Schema |
-| Identität | URL-gebunden, Subagent sieht nur Reporting-Tools — **A2.2 härtet die Löcher** (geteiltes `subToken`, keine Origin-Checks, Tokens in Worktrees) |
-| Push / Lifecycle | **A1+A3 bauen das gerade** (Orchestrator-Exit, Quit, onChange) |
+| Identität | URL-gebunden, per-agent HMAC-Subtoken, Host/Origin-Check, MCP-Configs in `.git/info/exclude` |
+| Push / Lifecycle | `orchestrator_exited`, Quit awaited, `onChange`-Feed statt 4s-Poll |
+| Remote | Tailscale-Bind, Pairing, vier Gateway-Verben, Web-Client |
 
 Neue Kraft danach kommt als *Host-Tool oder Event im bestehenden Loop*,
 nicht als zweite Orchestrierung und nicht als zweiter Remote-Weg.
@@ -138,24 +139,24 @@ nicht als zweite Orchestrierung und nicht als zweiter Remote-Weg.
 
 ## Die drei Löcher, die BigBoy nicht schließt
 
-### 1. Der Orchestrator sieht die Arbeit seiner Agenten nicht
+### 1. Der Orchestrator sieht die Arbeit seiner Agenten nicht — C1/C2
 
 Jeder Agent inklusive Orchestrator hat ein eigenes Worktree
 (`Workspace.createWorktreeFor`). Claudes Read/Grep laufen im
 *Orchestrator*-Checkout (HEAD), nicht in Carontes Dateien. `read_output`
 ist TUI-Schwanz. Codex/Kimi-Orchestratoren haben die Read-Tools gar nicht.
 
-Verifikation bleibt „Prosa in `report_done` glauben“ oder „Reviewer auf
-`baseBranch` starten“. Remote ändert daran nichts — das Handy sieht
-dieselbe TUI.
+**Dieser PR:** `inspect_agent` liest das Agent-Worktree; `agent_done`
+trägt Host-Fakten. Remote ändert daran nichts — Inspect bleibt ein
+Orchestrator-Tool, kein Gateway-Befehl.
 
-### 2. Handoff hängt an „committe bitte“ im Task-Text
+### 2. Handoff hängt an „committe bitte“ im Task-Text — bleibt C3/C4
 
 Worker-Prompt: nicht committen, außer der Task sagt es. Orchestrator-
-Prompt: erst committen lassen, dann `baseBranch`. `agent_done` hat nur
-`summary` + `status`. Ein Reviewer auf einem leeren Branch reviewt HEAD.
-
-A2.1 (`starting`) macht Starts ehrlicher, ändert Git-Zustand nicht.
+Prompt: erst committen lassen, dann `baseBranch`. C2 sagt, *ob* der
+Branch dirty ist; C3 muss noch snapshot-commiten, sonst reviewt ein
+Reviewer auf `baseBranch` immer noch HEAD, wenn der Worker nicht
+committet hat.
 
 ### 3. Der Mensch ist kein Teilnehmer des Event-Loops
 
@@ -168,31 +169,40 @@ Mensch *am* Terminal, nur eben über Tailscale.
 
 ---
 
-## Phase C — Harness-Kern (nach BigBoy A, parallel zu B ok wo markiert)
+## Phase C — Harness-Kern (nach PR #17)
 
-Kleine Oberfläche, großer Hebel. Setzt voraus: Reservierung (A1.3),
-async start (A2.1), Gap-Signal (A2.3), Push-Feed (A3.1). `inspect_agent`
-gegen `starting` ist dann derselbe Fehler wie `send_to_agent`.
+Kleine Oberfläche, großer Hebel. Voraussetzung liegt: Reservierung,
+async start, Gap-Signal (`eventsDropped`), Push-Feed. `inspect_agent`
+gegen `starting` ist derselbe Fehler wie `send_to_agent`.
 
-### C1 `inspect_agent` — Host liest das Agent-Worktree
+### C1 `inspect_agent` — Host liest das Agent-Worktree — **umgesetzt**
 
 ```
 inspect_agent{agentId, view: status | diff | log | file, path?, lines?}
 ```
 
-Read-only, nie Hauptcheckout. Gecappt (z. B. 80 kB Diff). Prompt wird:
-„du verifizierst über `inspect_agent`, niemals über eigene Git-Befehle.“
-Provider-neutral. Unabhängig von Remote — Orchestrator-Tool, kein
-Gateway-Befehl (Remote soll nicht beliebige Repo-Dateien lesen).
+Read-only, nie Hauptcheckout. Gecappt (80 k Zeichen Diff/Datei, Log
+max 50). Prompt: Verifikation über `inspect_agent`, niemals über eigene
+Git-Befehle, niemals über `read_output`. Provider-neutral.
+Orchestrator-Tool, kein Gateway-Befehl (Remote soll nicht beliebige
+Repo-Dateien lesen). Gestoppte Agenten bleiben inspectable — das
+Worktree überlebt `stop_agent`.
 
-### C2 `agent_done` trägt Host-Fakten
+### C2 `agent_done` trägt Host-Fakten — **umgesetzt**
 
 Beim `report_done` / Sentinel-DONE hängt der Host an das Event:
 
 - `branch`, `headSha`, `changedFiles[]`, `uncommitted`, `diffStat`
 
-Dieselbe Zeile in `list_agents` / `agentsSummary` (und damit im A3.1-
-Feed → Panel und Remote-Karte bekommen den porcelain-Dot umsonst).
+Git-Hänger dürfen das Done-Event nicht schlucken: Snapshot schlägt fehl
+→ Event ohne Fakten, Orchestrator inspectet danach. Sentinel-DONE setzt
+`doneSinceAssignment` synchron, damit `agent_exited.confirmed` auch
+stimmt, wenn der Snapshot noch läuft.
+
+**Nicht** auf jedem `list_agents` / `await_events`: das wäre
+`git status` auf jedem Worktree in der Hauptschleife. Der porcelain-Dot
+auf der Karte kann später das *letzte* `agent_done` ableiten oder
+gezielt `inspect_agent` rufen — nicht den Feed verteuern.
 
 ### C3 Snapshot-Commit beim Done (Default an)
 
@@ -348,7 +358,7 @@ Kleines *und* einen Sub-Orchestrator für einen großen Stream.
 Heute binär (`server.ts`):
 
 ```
-/mcp?ws=&token=<orch>              → sieben Orchestrator-Tools
+/mcp?ws=&token=<orch>              → acht Orchestrator-Tools (inkl. inspect_agent)
 /mcp?ws=&agent=<id>&token=<sub>    → report_done / ask / progress
 ```
 
@@ -367,7 +377,7 @@ den Guide-Namen (`NameAllocator` kind `orchestrator`), die Bronze-Farbe
 
 | Richtung | Tools |
 | --- | --- |
-| Nach unten (scoped auf den eigenen Unterbaum) | `start_agent`, `send_to_agent`, `await_events`, `list_agents`, `stop_agent`, `read_output`, später `inspect_agent` |
+| Nach unten (scoped auf den eigenen Unterbaum) | `start_agent`, `send_to_agent`, `await_events`, `list_agents`, `stop_agent`, `read_output`, `inspect_agent` |
 | Nach oben (wie ein Subagent zum Root) | `report_done`, `ask_orchestrator`, `report_progress` |
 | Verboten | `record_retro` (nur Root), `start_orchestrator` (Tiefe 1) |
 
@@ -534,49 +544,43 @@ gerade Lifecycle und Tokens anfasst.
 ## Reihenfolge (Tracks, keine Kalender)
 
 ```
-BigBoy A1  Lifecycle (Exit, Quit, Reservierung, slotFor-Kapazität)
-BigBoy A2  MCP (async start, Per-Agent-Token, Origin, events_dropped)
-BigBoy A3  onChange-Push, panelBounds, Terminal-Links/Suche, Error-Codes
+PR #17   A1–A3 + B Remote + H3 + C1 inspect_agent + C2 Done-Fakten
      │
-     ├─ Haken in B:  H1 answer_question   H2 start{goal}   H3 Prompt/starting
+     ├─ noch offen an Remote:  H1 answer_question   H2 start{goal}
      │
-BigBoy B   Remote Tailscale (nach A; MCP bleibt loopback)
-     │
-     └─ Phase C   inspect + Done-Fakten + Snapshot + Handoff + Idle-Watchdog
+     └─ Phase C   C3/C4 Snapshot-Commit + Handoff-Paket     später
+            C5 Orchestrator-Idle-Watchdog             später
             F   Multi-Orch (Root entscheidet; braucht C, braucht B nicht)
-            D   Goal-UI, user_message, ask_user (nutzt H1/H2; mit F eine Stufe mehr)
+            D   Goal-UI, user_message, ask_user (braucht H1/H2)
             E   integrate/gate, Briefing, Resume, Budget, Eval
 ```
 
-C kann an A andocken, sobald Reservierung + async start + Gap liegen —
-es braucht B nicht. F danach: ohne Inspect ist jeder Lead genauso blind
-wie der eine Root heute. D wird billiger, wenn H1/H2 in B schon existieren.
-E braucht C (ohne Inspect und Snapshot ist Gate Theater).
+F danach: ohne Inspect ist jeder Lead genauso blind wie der eine Root
+vorher. D wird billiger, wenn H1/H2 nachgezogen werden. E braucht C
+(ohne Inspect und Snapshot ist Gate Theater).
 
 Der Sprung zum *starken* Harness bleibt C (Host kennt Git). Der Sprung
 zum *steuerbaren* Harness bleibt D + H1/H2 (Mensch im Loop, auch vom
 Handy). F ist der Sprung zur *breiten* Umsetzung, den der Root nur
-wählt wenn flach nicht mehr trägt. A/B sind das Fundament, ohne das
-beides auf Sand steht.
+wählt wenn flach nicht mehr trägt. A/B sind das Fundament.
 
 ---
 
 ## Anhang: Code-Anker
 
-| Thema | Wo |
-| --- | --- |
-| Orchestrator-Exit geschluckt | `Workspace.ts` `handleExit` ~940, `if (record.orchestrator) return` |
-| Slot[0] statt freier Kapazität | `Workspace.ts` `slotFor` ~630, `retroSink.ts` ~61, Limits `profile.ts` `slotLimitFor` |
-| MCP-Timeout vs. Sync-Seed | `toolsOrchestrator.ts` `start_agent` / `send_to_agent` |
-| Ein `subToken` für alle Subagents | `Workspace.ts` `this.subToken`, `server.ts` `resolveIdentity` |
-| Kein Origin-Check | `server.ts` `handleRequest` |
-| Ring ohne Gap-Event | `eventQueue.ts` `since()` |
-| `onChange` deklariert, Manager emittiert nicht | `appIpc.ts` ~224/~1054, `usePanelData.ts` 4s-Poll |
-| Quit nicht awaited | `index.ts` `before-quit` |
-| Sieben Tools / drei Reporting-Tools | `toolsOrchestrator.ts`, `toolsSubagent.ts` |
-| MCP-Identität binär (Root vs. Blatt) | `server.ts` `McpIdentity`, `resolveIdentity` |
-| Guide-Namen nur für den einen Orchestrator | `agents/names.ts` kind `orchestrator` |
-| Play ohne Goal | `appIpc.ts` `workspaces:start`, `devRun.ts` |
-| Orchestrator-Prompt (User ersetzen, committen lassen) | `orchestrator.ts` |
-| Worker „nie committen“ | `roles.ts` |
-| `runStats.ts` „Cursor hat kein agent_done“ | veraltet (`cursor-project`; `none` = Ollama) |
+| Thema | Wo | Stand |
+| --- | --- | --- |
+| Orchestrator-Exit | `Workspace.ts` `handleExit` → `orchestrator_exited` | **PR #17** |
+| Slot mit freier Kapazität | `Workspace.ts` `slotWithCapacity` | **PR #17** |
+| Async `start_agent` | `toolsOrchestrator.ts`, Prompt in `orchestrator.ts` | **PR #17** |
+| Per-Agent-Subtoken + Origin | `server.ts` `subagentToken`, `isAllowedHostHeader` | **PR #17** |
+| Gap sichtbar | `eventQueue.ts` `droppedSince` → `await_events.eventsDropped` | **PR #17** |
+| Panel-Push | `WorkspaceDirectory.onChange` | **PR #17** |
+| Quit awaited | `index.ts` `before-quit` | **PR #17** |
+| Acht Orchestrator-Tools | `toolsOrchestrator.ts` inkl. `inspect_agent` | **PR #17** |
+| Host-Fakten auf `agent_done` | `toolsSubagent.ts` `report_done`, Sentinel in `Workspace.ts` | **PR #17** |
+| MCP-Identität binär (Root vs. Blatt) | `server.ts` `McpIdentity` — Lead kommt in F | offen |
+| Play ohne Goal | `appIpc.ts` `workspaces:start`, Gateway `profileId` only | H2 offen |
+| MCP-Fragen vom Handy | Gateway hat kein `answer_question` | H1 offen |
+| Worker „nie committen“ | `roles.ts` — Snapshot-Commit ist C3 | später |
+| `runStats.ts` „Cursor hat kein agent_done“ | veraltet (`none` = Ollama) | ignorieren |

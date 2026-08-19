@@ -22,9 +22,10 @@
  *    branch survives either way.
  */
 import { execFile } from 'node:child_process'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
+import { WORKTREE_SECRET_FILES } from '@main/mcp/attach'
 
 const execFileAsync = promisify(execFile)
 
@@ -215,6 +216,7 @@ export async function createWorktree(
       if (error.code !== 'EEXIST') throw error
     }
   )
+  await ensureSecretExcludes(repoPath)
 
   try {
     const args = ['worktree', 'add', path, '-b', branch]
@@ -226,6 +228,45 @@ export async function createWorktree(
     )
   }
   return { path, branch }
+}
+
+/**
+ * Put the MCP config files the attach dialects write into agent worktrees on
+ * the repository's `.git/info/exclude`.
+ *
+ * Linked worktrees share that file, so one entry covers every agent checkout:
+ * the files carry the agent's tokenised MCP URL, and an agent running
+ * `git add -A` in its own worktree must not be able to commit its token into
+ * the user's history. Exclude (not `.gitignore`) on purpose — it never touches
+ * the user's own tracked files, and a `.cursor/mcp.json` the user tracks
+ * deliberately keeps showing its diff. Skipped when `<repo>/.git` is not a
+ * directory (the repo is itself a linked worktree); idempotent otherwise.
+ */
+async function ensureSecretExcludes(repoPath: string): Promise<void> {
+  const gitDir = join(repoPath, '.git')
+  try {
+    if (!(await stat(gitDir)).isDirectory()) return
+  } catch {
+    return
+  }
+  const excludePath = join(gitDir, 'info', 'exclude')
+  let current = ''
+  try {
+    current = await readFile(excludePath, 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  const present = new Set(current.split('\n').map((line) => line.trim()))
+  const missing = WORKTREE_SECRET_FILES.map((file) => `/${file}`).filter(
+    (pattern) => !present.has(pattern)
+  )
+  if (missing.length === 0) return
+  await mkdir(dirname(excludePath), { recursive: true })
+  const separator = current === '' || current.endsWith('\n') ? '' : '\n'
+  await appendFile(
+    excludePath,
+    `${separator}# Vertragus: agent MCP config files carry per-agent tokens - never commit them.\n${missing.join('\n')}\n`
+  )
 }
 
 /**

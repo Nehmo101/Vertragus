@@ -1,5 +1,5 @@
 /**
- * The seven tools the orchestrator agent gets. Everything the orchestrator can
+ * The eight tools the orchestrator agent gets. Everything the orchestrator can
  * do to the world goes through here — there is no second path.
  *
  * The tools deliberately do very little themselves: check the limits, compose
@@ -11,12 +11,14 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { buildReminderSuffix, buildTaskContract } from '@shared/prompts/contract'
 import {
   errorMessage,
+  INSPECT_VIEWS,
   runningAgents,
   summarizeAgents,
   taskNote,
   toolError,
   toolJson,
   toolText,
+  type StartingAgent,
   type ToolText,
   type WorkspaceRuntime
 } from './types'
@@ -33,6 +35,7 @@ export const ORCHESTRATOR_TOOL_NAMES = [
   'list_agents',
   'stop_agent',
   'read_output',
+  'inspect_agent',
   'record_retro'
 ] as const
 
@@ -43,6 +46,7 @@ export const AWAIT_TIMEOUT_DEFAULT_SEC = 50
 export const AWAIT_TIMEOUT_MAX_SEC = 55
 export const READ_OUTPUT_DEFAULT_LINES = 60
 export const READ_OUTPUT_MAX_LINES = 400
+export const INSPECT_LOG_MAX_LINES = 50
 
 const AWAIT_TIMEOUT_NOTE =
   'No events within the wait window — this is normal, the agents are still working. ' +
@@ -59,7 +63,9 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
         'Start a subagent for one self-contained task. The task text must state the goal, the files or ' +
         'area involved, the definition of done and how to verify it; Vertragus appends the reporting ' +
         'contract automatically. Every agent works in its own git worktree on its own branch, so agents ' +
-        'never conflict with each other. Returns the agentId you address from then on.',
+        'never conflict with each other. Returns the agentId you address from then on. The agent starts ' +
+        'in the background: await_events delivers agent_started once it accepted its task (or ' +
+        'agent_start_failed) — do not send it messages before agent_started.',
       inputSchema: {
         role: z
           .string()
@@ -89,6 +95,10 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
         })
       }
 
+      // Race-free without locks: `listAgents()` already counts reservations
+      // (status `starting`), and nothing between this check and `beginAgent`
+      // awaits — two concurrent start_agent calls therefore serialize through
+      // this synchronous block and cannot both pass a cap of one.
       const running = runningAgents(ctx.host.listAgents())
       const perRoleMax = ctx.limits.perRole.get(role)
       const runningInRole = running.filter((agent) => agent.role === role).length
@@ -120,32 +130,58 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
       const reporting = ctx.host.reportingMode(role)
       const seed = `${task}\n\n${buildTaskContract({ role, reporting })}`
 
+      // `beginAgent` reserves synchronously and returns before the pipeline
+      // (worktree, spawn, seed handshake) ran — that pipeline can outlast the
+      // 60 s MCP request timeout, so this call must not sit on it. The outcome
+      // arrives as an event instead.
+      let started: StartingAgent
       try {
-        const started = await ctx.host.startAgent({ role, task: seed, model, baseBranch })
-        runtime.latestTask = taskNote(task) ?? runtime.latestTask
-        ctx.events.push({
-          type: 'agent_started',
-          agentId: started.agentId,
-          name: started.name,
-          roleId: started.role,
-          providerId: started.providerId,
-          model: started.model,
-          worktreePath: started.worktreePath,
-          branch: started.branch
-        })
-        return toolJson({
-          agentId: started.agentId,
-          name: started.name,
-          role: started.role,
-          providerId: started.providerId,
-          model: started.model,
-          worktreePath: started.worktreePath,
-          branch: started.branch,
-          note: 'Agent started. Wait for its events with await_events instead of asking it for status.'
-        })
+        started = ctx.host.beginAgent({ role, task: seed, model, baseBranch })
       } catch (error) {
         return toolError({ error: 'start_failed', role, message: errorMessage(error) })
       }
+      runtime.latestTask = taskNote(task) ?? runtime.latestTask
+      started.ready.then(
+        () => {
+          if (ctx.events.isClosed) return
+          ctx.events.push({
+            type: 'agent_started',
+            agentId: started.agentId,
+            name: started.name,
+            roleId: started.role,
+            providerId: started.providerId,
+            model: started.model,
+            worktreePath: started.worktreePath,
+            branch: started.branch
+          })
+        },
+        (error: unknown) => {
+          // The workspace may have closed mid-start (stop button, quit) —
+          // then there is no queue left and nobody to tell.
+          if (ctx.events.isClosed) return
+          ctx.events.push({
+            type: 'agent_start_failed',
+            agentId: started.agentId,
+            name: started.name,
+            roleId: started.role,
+            message: errorMessage(error)
+          })
+        }
+      )
+      return toolJson({
+        agentId: started.agentId,
+        name: started.name,
+        role: started.role,
+        providerId: started.providerId,
+        model: started.model,
+        worktreePath: started.worktreePath,
+        branch: started.branch,
+        state: 'starting',
+        note:
+          'Agent reserved and starting in the background. await_events delivers agent_started once ' +
+          'it accepted its task, or agent_start_failed if the start failed. Do not send it messages ' +
+          'before agent_started.'
+      })
     }
   )
 
@@ -261,11 +297,23 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
       const seconds = Math.min(timeoutSec ?? AWAIT_TIMEOUT_DEFAULT_SEC, AWAIT_TIMEOUT_MAX_SEC)
       const events = await ctx.events.wait(from, seconds * 1_000)
       const next = events.length > 0 ? events[events.length - 1]!.seq : from
+      // A reader whose cursor fell behind the ring gets told, not left to
+      // infer the loss from a seq jump nothing pointed at.
+      const dropped = ctx.events.droppedSince(from)
       return toolJson({
         events,
         cursor: next,
         agentsSummary: summarizeAgents(runtime),
-        ...(events.length === 0 ? { note: AWAIT_TIMEOUT_NOTE } : {})
+        ...(events.length === 0 ? { note: AWAIT_TIMEOUT_NOTE } : {}),
+        ...(dropped
+          ? {
+              eventsDropped: dropped,
+              note:
+                `Events ${dropped.from}–${dropped.to} fell out of the buffer before this call — ` +
+                'anything you derived from them may be stale. agentsSummary above is the current ' +
+                'truth; reconcile against it instead of the missing events.'
+            }
+          : {})
       })
     }
   )
@@ -392,8 +440,9 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
     'read_output',
     {
       description:
-        'The plain-text tail of an agent terminal. Use it to verify what an agent actually did, and ' +
-        'always after an agent_exited event with confirmed: false.',
+        'The plain-text tail of an agent terminal. Use it after an agent_exited event with ' +
+        'confirmed: false, and for debugging a stuck CLI. Do not use it to verify file changes — ' +
+        'that is inspect_agent.',
       inputSchema: {
         agentId: z.string().min(1),
         lines: z
@@ -412,6 +461,44 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
         return toolText(output.trim().length > 0 ? output : '(no output captured yet)')
       } catch (error) {
         return toolError({ error: 'read_failed', agentId, message: errorMessage(error) })
+      }
+    }
+  )
+
+  server.registerTool(
+    'inspect_agent',
+    {
+      description:
+        'Read-only git facts from an agent’s own worktree: status, diff, log, or one file. This is ' +
+        'how you verify what the agent actually changed — never by running git yourself and never ' +
+        'by treating read_output as a diff. Stopped agents remain inspectable. Agents that are ' +
+        'still starting are not.',
+      inputSchema: {
+        agentId: z.string().min(1).describe('Agent to inspect, exactly as start_agent returned it'),
+        view: z
+          .enum(INSPECT_VIEWS)
+          .describe('status = porcelain + diffstat, diff = git diff HEAD plus untracked names, log = oneline, file = one utf-8 file'),
+        path: z
+          .string()
+          .min(1)
+          .max(500)
+          .optional()
+          .describe('Relative path inside the agent worktree — required for view "file"'),
+        lines: z
+          .number()
+          .int()
+          .min(1)
+          .max(INSPECT_LOG_MAX_LINES)
+          .optional()
+          .describe(`Commit count for view "log", default 20, max ${INSPECT_LOG_MAX_LINES}`)
+      }
+    },
+    async ({ agentId, view, path, lines }): Promise<ToolText> => {
+      try {
+        const result = await ctx.host.inspectAgent(agentId, { view, path, lines })
+        return toolJson({ agentId, ...result })
+      } catch (error) {
+        return toolError({ error: 'inspect_failed', agentId, message: errorMessage(error) })
       }
     }
   )

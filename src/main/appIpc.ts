@@ -35,6 +35,7 @@ import {
 } from '@shared/prompts/roles'
 import type { ProviderConfig } from '@shared/schema/provider'
 import { normalizeAppearance, type Appearance } from '@shared/appearance'
+import { mainMessages, readLocale } from '@shared/mainMessages'
 import type { AppSettings, SettingsStore } from '@main/store/settings'
 import { settings } from '@main/store/settings'
 import { discoverModels, type ModelDiscoveryResult } from '@main/providers/discovery'
@@ -230,9 +231,11 @@ export interface WorkspaceDirectory {
  * and `stop` REFUSE loudly: a Play button that quietly does nothing is the
  * worst possible placeholder.
  */
-export function createStubWorkspaceDirectory(): WorkspaceDirectory {
+export function createStubWorkspaceDirectory(
+  locale: () => string | undefined = () => undefined
+): WorkspaceDirectory {
   const refuse = (): never => {
-    throw new Error('Workspace-Manager ist noch nicht verdrahtet.')
+    throw new Error(mainMessages(readLocale(locale)).stubNotWired)
   }
   return {
     list: () => [],
@@ -427,14 +430,23 @@ export function runningAgentCount(workspaces: readonly WorkspaceSummary[]): numb
 }
 
 /** Copy of the native quit confirmation; exported so the wording is testable. */
-export function quitConfirmationText(runningAgents: number): {
+export function quitConfirmationText(
+  runningAgents: number,
+  locale?: string
+): {
+  title: string
   message: string
   detail: string
+  confirm: string
+  cancel: string
 } {
-  const subject = runningAgents === 1 ? '1 Agent läuft' : `${runningAgents} Agenten laufen`
+  const messages = mainMessages(locale)
   return {
-    message: `${subject} noch — Vertragus beenden?`,
-    detail: 'Alle Agenten-Prozesse werden gestoppt.'
+    title: messages.quitTitle,
+    message: messages.quitMessage(runningAgents),
+    detail: messages.quitDetail,
+    confirm: messages.quitConfirm,
+    cancel: messages.quitCancel
   }
 }
 
@@ -1131,7 +1143,9 @@ export function registerAppIpc(directory?: WorkspaceDirectory): AppIpc {
   instance = createAppIpc({
     ipcMain: ipcMain as unknown as MinimalIpcMain,
     store,
-    directory: directory ?? createStubWorkspaceDirectory(),
+    directory:
+      directory ??
+      createStubWorkspaceDirectory(() => settings().getSettings().ui.locale),
     isPanelSender: (id) => isPanelWindowSender(id),
     profileEditorSender: (id) => isProfileEditorWindowSender(id),
     providerEditorSender: (id) => isProviderEditorWindowSender(id),
@@ -1189,16 +1203,20 @@ export function registerAppIpc(directory?: WorkspaceDirectory): AppIpc {
       getPanelWindow()?.minimize()
     },
     async confirmQuit(runningAgents) {
-      const { message, detail } = quitConfirmationText(runningAgents)
+      const locale = readLocale(() => settings().getSettings().ui.locale)
+      const { title, message, detail, confirm, cancel } = quitConfirmationText(
+        runningAgents,
+        locale
+      )
       const owner = getPanelWindow()
       const options: Electron.MessageBoxOptions = {
         type: 'warning',
         // Cancel is the default: an accidental Enter must not kill a team.
-        buttons: ['Beenden', 'Abbrechen'],
+        buttons: [confirm, cancel],
         defaultId: 1,
         cancelId: 1,
         noLink: true,
-        title: 'Vertragus beenden',
+        title,
         message,
         detail
       }

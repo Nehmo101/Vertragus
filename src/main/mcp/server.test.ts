@@ -1,12 +1,16 @@
+import { request as httpRequest } from 'node:http'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import {
   buildOrchestratorUrl,
   buildSubagentUrl,
+  isAllowedHostHeader,
+  isAllowedOrigin,
   MCP_SERVER_NAME,
   resolveIdentity,
   startMcpServer,
+  subagentToken,
   type McpServerHandle
 } from './server'
 import { ORCHESTRATOR_TOOL_NAMES } from './toolsOrchestrator'
@@ -28,10 +32,16 @@ describe('URL builders', () => {
     expect(url.searchParams.get('agent')).toBeNull()
   })
 
-  it('build a subagent URL that carries the fixed agent identity', () => {
+  it('build a subagent URL that carries the fixed agent identity and a per-agent token', () => {
     const url = new URL(buildSubagentUrl(4000, 'ws-1', 'agent-9', 'sub'))
     expect(url.searchParams.get('agent')).toBe('agent-9')
-    expect(url.searchParams.get('token')).toBe('sub')
+    // Never the raw workspace secret: the URL lands in the agent's own config
+    // files, and what leaks from there must open exactly one identity.
+    expect(url.searchParams.get('token')).toBe(subagentToken('sub', 'agent-9'))
+    expect(url.searchParams.get('token')).not.toBe('sub')
+    expect(new URL(buildSubagentUrl(4000, 'ws-1', 'agent-8', 'sub')).searchParams.get('token')).not.toBe(
+      url.searchParams.get('token')
+    )
   })
 
   it('escape ids and tokens', () => {
@@ -53,16 +63,31 @@ describe('resolveIdentity', () => {
     })
   })
 
-  it('accepts the subagent token with an agent and fixes the identity', () => {
-    expect(resolveIdentity(params('ws=ws-1&agent=a7&token=sub'), lookup)).toEqual({
+  it('accepts the per-agent token with its own agent and fixes the identity', () => {
+    expect(
+      resolveIdentity(params(`ws=ws-1&agent=a7&token=${subagentToken('sub', 'a7')}`), lookup)
+    ).toEqual({
       kind: 'subagent',
       workspaceId: 'ws-1',
       agentId: 'a7'
     })
   })
 
+  it('refuses a sibling impersonation — one agent’s token under another agent’s id', () => {
+    expect(
+      resolveIdentity(params(`ws=ws-1&agent=a8&token=${subagentToken('sub', 'a7')}`), lookup)
+    ).toBeUndefined()
+  })
+
+  it('refuses the raw workspace secret as a subagent token', () => {
+    expect(resolveIdentity(params('ws=ws-1&agent=a7&token=sub'), lookup)).toBeUndefined()
+  })
+
   it('refuses a subagent token on an orchestrator URL', () => {
     expect(resolveIdentity(params('ws=ws-1&token=sub'), lookup)).toBeUndefined()
+    expect(
+      resolveIdentity(params(`ws=ws-1&token=${subagentToken('sub', 'a7')}`), lookup)
+    ).toBeUndefined()
   })
 
   it('refuses an orchestrator token on a subagent URL', () => {
@@ -78,6 +103,28 @@ describe('resolveIdentity', () => {
 
   it('refuses a token that is merely a prefix of the real one', () => {
     expect(resolveIdentity(params('ws=ws-1&token=orc'), lookup)).toBeUndefined()
+  })
+})
+
+describe('DNS-rebinding defence', () => {
+  it('allows loopback and the configured bind host, refuses everything else', () => {
+    expect(isAllowedHostHeader('127.0.0.1:5123', '127.0.0.1')).toBe(true)
+    expect(isAllowedHostHeader('localhost:5123', '127.0.0.1')).toBe(true)
+    expect(isAllowedHostHeader('[::1]:5123', '127.0.0.1')).toBe(true)
+    // A rebound attacker hostname resolves to 127.0.0.1 but still names itself.
+    expect(isAllowedHostHeader('evil.example:5123', '127.0.0.1')).toBe(false)
+    expect(isAllowedHostHeader(undefined, '127.0.0.1')).toBe(false)
+    // Tests may bind a custom host; that host is then legitimate.
+    expect(isAllowedHostHeader('10.0.0.5:5123', '10.0.0.5')).toBe(true)
+  })
+
+  it('treats a missing Origin as a non-browser client and a foreign one as an attack', () => {
+    expect(isAllowedOrigin(undefined, '127.0.0.1')).toBe(true)
+    expect(isAllowedOrigin('http://127.0.0.1:5123', '127.0.0.1')).toBe(true)
+    expect(isAllowedOrigin('http://localhost:5123', '127.0.0.1')).toBe(true)
+    expect(isAllowedOrigin('https://evil.example', '127.0.0.1')).toBe(false)
+    expect(isAllowedOrigin('null', '127.0.0.1')).toBe(false)
+    expect(isAllowedOrigin('not a url', '127.0.0.1')).toBe(false)
   })
 })
 
@@ -107,7 +154,7 @@ describe('startMcpServer', () => {
     expect(buildOrchestratorUrl(handle.port, 'x', 'y')).toContain('http://127.0.0.1:')
   })
 
-  it('serves the seven orchestrator tools on an orchestrator URL', async () => {
+  it('serves the eight orchestrator tools on an orchestrator URL', async () => {
     const registered = handle.registerWorkspace(context({ workspaceId: 'w1' }))
     const client = await connect(registered.orchestratorUrl)
     const tools = (await client.listTools()).tools.map((tool) => tool.name).sort()
@@ -170,6 +217,40 @@ describe('startMcpServer', () => {
     const client = await connect(registered.orchestratorUrl)
     expect(client.getServerVersion()?.name).toBe(MCP_SERVER_NAME)
     await client.close()
+  })
+
+  it('403s a request whose Host is not loopback — before identity even runs', async () => {
+    // fetch strips the forbidden Host header, so speak raw HTTP.
+    const registered = handle.registerWorkspace(context({ workspaceId: 'w-host' }))
+    const target = new URL(registered.orchestratorUrl)
+    const status = await new Promise<number>((resolve, reject) => {
+      const request = httpRequest(
+        {
+          host: '127.0.0.1',
+          port: handle.port,
+          path: `${target.pathname}${target.search}`,
+          method: 'POST',
+          headers: { Host: 'evil.example', 'Content-Type': 'application/json' }
+        },
+        (response) => {
+          response.resume()
+          resolve(response.statusCode ?? 0)
+        }
+      )
+      request.on('error', reject)
+      request.end('{}')
+    })
+    expect(status).toBe(403)
+  })
+
+  it('403s a browser request with a foreign Origin even with a valid token', async () => {
+    const registered = handle.registerWorkspace(context({ workspaceId: 'w-origin' }))
+    const response = await fetch(registered.orchestratorUrl, {
+      method: 'POST',
+      headers: { Origin: 'https://evil.example', 'Content-Type': 'application/json' },
+      body: '{}'
+    })
+    expect(response.status).toBe(403)
   })
 
   it('404s any path that is not /mcp', async () => {

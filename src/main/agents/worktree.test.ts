@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -133,6 +133,30 @@ describe('createWorktree', () => {
     writeFileSync(ignorePath, '# user-edited\nworktrees/\n')
     await createWorktree(repoPath, 'agent-keep', 'vertragus/paradiso/custode')
     expect(readFileSync(ignorePath, 'utf8')).toBe('# user-edited\nworktrees/\n')
+  }, 30_000)
+
+  it('puts the token-carrying MCP config files on .git/info/exclude, once, idempotently', async () => {
+    const created = await createWorktree(repoPath, 'agent-secret', 'vertragus/paradiso/secreto')
+
+    const exclude = readFileSync(join(repoPath, '.git', 'info', 'exclude'), 'utf8')
+    expect(exclude).toContain('/.cursor/mcp.json')
+    expect(exclude).toContain('/.kimi-code/mcp.json')
+    expect(exclude).toContain('/.grok/config.toml')
+
+    // The proof is git's own view, inside the agent's worktree: a config file
+    // an attach dialect writes there stays invisible to `git add -A`.
+    mkdirSync(join(created.path, '.cursor'), { recursive: true })
+    writeFileSync(join(created.path, '.cursor', 'mcp.json'), '{"mcpServers":{}}\n')
+    const { stdout } = await execFileAsync('git', ['status', '--porcelain'], {
+      cwd: created.path,
+      windowsHide: true
+    })
+    expect(stdout).not.toContain('.cursor')
+
+    // A second worktree does not duplicate the block.
+    await createWorktree(repoPath, 'agent-secret-2', 'vertragus/paradiso/secondo')
+    const again = readFileSync(join(repoPath, '.git', 'info', 'exclude'), 'utf8')
+    expect(again.match(/\/\.cursor\/mcp\.json/g)).toHaveLength(1)
   }, 30_000)
 
   it('does not collide with the branch a previous run left behind', async () => {

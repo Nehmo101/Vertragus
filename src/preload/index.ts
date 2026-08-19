@@ -4,6 +4,7 @@ import type { ProviderConfig } from '@shared/schema/provider'
 import type { ModelLearning, RunRetro } from '@shared/schema/retro'
 import type { Zone, ZoneLayout } from '@shared/schema/zones'
 import type { Appearance } from '@shared/appearance'
+import type { BindOption, RemoteClientInfo, RemoteStatus } from '@shared/remote/types'
 
 /**
  * The renderer bridge. One API object per window type; a CLI window only ever
@@ -157,7 +158,15 @@ const APP = {
   eventUpdate: 'ev:update',
   eventSettings: 'ev:settings',
   settingsAppearance: 'settings:appearance',
-  eventAppearance: 'ev:appearance'
+  eventAppearance: 'ev:appearance',
+  // Remote access — settings-window-only in main; see main/remote/ipc.ts.
+  remoteGet: 'remote:get',
+  remoteSet: 'remote:set',
+  remoteRegenerateToken: 'remote:regenerateToken',
+  remoteClients: 'remote:clients',
+  remoteRevokeClient: 'remote:revokeClient',
+  remoteInterfaces: 'remote:interfaces',
+  eventRemote: 'ev:remote'
 } as const
 
 /**
@@ -448,7 +457,30 @@ const app = {
     subscribe(APP.eventAppearance, listener),
   /** Cursor enters/leaves the panel window — the panel's hover signal. */
   onPointer: (listener: (event: PanelPointerEvent) => void): (() => void) =>
-    subscribe(PANEL_POINTER, listener)
+    subscribe(PANEL_POINTER, listener),
+
+  // --- remote access (settings window only, enforced in main) ---
+  /** Current remote-server status: enabled, running, bind address, pairing URL. */
+  getRemote: (): Promise<RemoteStatus> => ipcRenderer.invoke(APP.remoteGet),
+  /** Toggle/reconfigure remote access; answers with the fresh status. */
+  setRemote: (patch: {
+    enabled?: boolean
+    bindAddress?: string
+    port?: number
+  }): Promise<RemoteStatus> => ipcRenderer.invoke(APP.remoteSet, patch),
+  /** New pairing token — every existing session dies and the QR changes. */
+  regenerateRemoteToken: (): Promise<RemoteStatus> =>
+    ipcRenderer.invoke(APP.remoteRegenerateToken),
+  /** The paired clients currently connected. */
+  listRemoteClients: (): Promise<RemoteClientInfo[]> => ipcRenderer.invoke(APP.remoteClients),
+  /** Kick one client by its session token. */
+  revokeRemoteClient: (token: string): Promise<boolean> =>
+    ipcRenderer.invoke(APP.remoteRevokeClient, token),
+  /** The bind-address options the picker offers (Tailscale first). */
+  listRemoteInterfaces: (): Promise<BindOption[]> => ipcRenderer.invoke(APP.remoteInterfaces),
+  /** Remote status changed — a client connected, the server started/stopped. */
+  onRemote: (listener: (status: RemoteStatus) => void): (() => void) =>
+    subscribe(APP.eventRemote, listener)
 }
 
 /**
