@@ -8,12 +8,13 @@
  *
  * ## Who pushes which event
  * One owner per channel, no duplicates. The MCP layer pushes `agent_started`
- * (after a successful `startAgent`), `agent_stopped` (after a successful
- * `stopAgent`), and — for agents that talk to Vertragus over MCP —
- * `agent_done` / `agent_question` / `agent_progress` from the subagent tools.
- * The host pushes `agent_exited` (only it can observe a process dying unasked)
- * and, for `mcp: none` (sentinel) providers, `agent_done` / `agent_progress`
- * parsed from PTY sentinel lines — for those agents the host *is* the reporting
+ * (once a begun agent's `ready` resolves), `agent_start_failed` (when it
+ * rejects), `agent_stopped` (after a successful `stopAgent`), and — for agents
+ * that talk to Vertragus over MCP — `agent_done` / `agent_question` /
+ * `agent_progress` from the subagent tools. The host pushes `agent_exited` and
+ * `orchestrator_exited` (only it can observe a process dying unasked) and, for
+ * `mcp: none` (sentinel) providers, `agent_done` / `agent_progress` parsed
+ * from PTY sentinel lines — for those agents the host *is* the reporting
  * channel. A host must NOT duplicate MCP-tool events for an MCP-attached agent,
  * and the MCP tools must not invent PTY-sentinel events.
  */
@@ -71,11 +72,37 @@ export interface AgentSummary {
 }
 
 /**
+ * A begun agent: identity now, readiness later.
+ *
+ * `beginAgent` returns this before the process even exists — id, name,
+ * worktree and branch are all decided synchronously. `ready` settles when the
+ * pipeline behind it (worktree, spawn, seed handshake) finishes.
+ */
+export interface StartingAgent extends StartedAgent {
+  /**
+   * Resolves once the CLI accepted its task; rejects when any stage failed
+   * (the reservation is released then). `start_agent` deliberately does NOT
+   * await this — the full pipeline can outlast the 60 s MCP request timeout —
+   * and instead turns the outcome into `agent_started` / `agent_start_failed`
+   * events the orchestrator reads via `await_events`.
+   */
+  ready: Promise<void>
+}
+
+/**
  * Everything the MCP tools need from the process/window world. Implemented by
  * the WorkspaceManager; faked wholesale in tests.
  */
 export interface AgentHost {
-  startAgent(input: StartAgentInput): Promise<StartedAgent>
+  /**
+   * Reserve and begin one agent start. Synchronous up to the reservation: when
+   * this returns, the agent already occupies its slot and shows up in
+   * {@link listAgents} as `starting` — which is what makes the limit checks in
+   * `start_agent` race-free (two concurrent calls cannot both pass a cap of
+   * one, because check and reservation happen in one synchronous block). The
+   * heavy lifting continues behind {@link StartingAgent.ready}.
+   */
+  beginAgent(input: StartAgentInput): StartingAgent
   /** Type text into the agent's PTY. */
   sendToAgent(agentId: string, text: string): Promise<void>
   /** Kill the agent; `false` when there was nothing (left) to kill. */

@@ -10,7 +10,7 @@ import type { AgentEvent } from '@shared/schema/events'
 
 async function setup(askTimeoutMs = 50) {
   const runtime = fakeRuntime({ askTimeoutMs })
-  const started = await runtime.host.startAgent({ role: 'worker', task: 't' })
+  const started = runtime.host.beginAgent({ role: 'worker', task: 't' })
   const tools = captureTools((server) => registerSubagentTools(server, runtime, started.agentId))
   return { runtime, tools, agentId: started.agentId, name: started.name }
 }

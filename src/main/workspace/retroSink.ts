@@ -55,10 +55,14 @@ export function createRetroSink({ store, now = Date.now }: RetroSinkDeps): Retro
     recordLearnings(profile, learnings) {
       const additions: NewModelLearning[] = []
       for (const entry of learnings) {
-        // Same resolution rule as Workspace.slotFor: the first slot of the
-        // role. Exact enough — the model override, when one was used, arrives
-        // via `entry.model`.
-        const slot = profile.slots.find((candidate) => candidate.roleId === entry.role)
+        // A role can span several slots (different provider/model for the
+        // overflow). Attribute the learning to the slot whose model matches
+        // the reported one; the first slot of the role stays the fallback —
+        // the model override, when one was used, arrives via `entry.model`.
+        const roleSlots = profile.slots.filter((candidate) => candidate.roleId === entry.role)
+        const slot =
+          roleSlots.find((candidate) => entry.model && candidate.model === entry.model) ??
+          roleSlots[0]
         if (!slot) continue
         additions.push({
           providerId: slot.providerId,

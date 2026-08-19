@@ -11,12 +11,19 @@
  * - **Limits are NOT enforced here.** `toolsOrchestrator.start_agent` checks
  *   `perRole` and `maxTotal` against `listAgents()` before it ever calls the
  *   host. A second check here would drift from the first and produce two
- *   different error messages for one condition.
+ *   different error messages for one condition. What the host contributes is
+ *   the *reservation*: {@link Workspace.beginAgent} synchronously claims a
+ *   slot (the agent appears in `listAgents` as `starting` before anything is
+ *   awaited), so the tool's check-then-begin runs in one synchronous block
+ *   and two concurrent `start_agent` calls cannot both pass a cap of one.
+ *   Per-slot capacity IS resolved here ({@link Workspace.slotWithCapacity}) —
+ *   which provider/model an agent gets is host business.
  * - **The task contract is NOT appended here.** `start_agent` composes
  *   `task + buildTaskContract()`, so a spawn path cannot forget it. The host
  *   receives the finished seed text in `StartAgentInput.task`.
- * - **Only a few event kinds are pushed from here.** `agent_exited`, because only
- *   the host can observe a process dying unasked. For PTY-only (`mcp: none`)
+ * - **Only a few event kinds are pushed from here.** `agent_exited` and
+ *   `orchestrator_exited`, because only the host can observe a process dying
+ *   unasked. For PTY-only (`mcp: none`)
  *   providers the host is also the reporting channel: it parses sentinel lines
  *   into `agent_done` / `agent_progress` (and will wire `agent_question` in
  *   Task 3). The silence hint ({@link PTY_ONLY_IDLE_HINT_MS}) stays as the
@@ -30,6 +37,7 @@
  * handshake.
  */
 import { randomUUID } from 'node:crypto'
+import { join } from 'node:path'
 import type { AgentMeta, AgentRegistry } from '@main/ipc'
 import { EventQueue } from '@main/mcp/eventQueue'
 import type { PendingQuestions } from '@main/mcp/pendingQuestions'
@@ -39,6 +47,7 @@ import type {
   RetroLearningInput,
   StartAgentInput,
   StartedAgent,
+  StartingAgent,
   WorkspaceLimits,
   WorkspaceMcpContext
 } from '@main/mcp/types'
@@ -48,6 +57,7 @@ import { spawnAgent, type AgentLaunchInput, type AgentPty, type SpawnedAgent } f
 import {
   createWorktree,
   worktreeBranchName,
+  WORKTREE_ROOT,
   type CreatedWorktree,
   type WorktreeDeps
 } from '@main/agents/worktree'
@@ -160,10 +170,28 @@ export interface WorkspaceInit {
   name: string
 }
 
+/**
+ * A slot reservation made by {@link Workspace.beginAgent} before anything is
+ * awaited. Counts toward the slot exactly like a tracked record, so the limit
+ * check in `start_agent` sees the agent the moment `beginAgent` returns.
+ */
+interface PendingStart {
+  agentId: string
+  name: string
+  roleId: string
+  slotId: string
+  providerId: string
+  model?: string
+  worktreePath: string
+  branch: string
+}
+
 interface AgentRecord {
   agentId: string
   name: string
   roleId: string
+  /** Which profile slot this agent occupies; orchestrators have none. */
+  slotId?: string
   providerId: string
   model?: string
   /** Every agent — orchestrator included — works in its own worktree. */
@@ -203,6 +231,22 @@ interface AgentRecord {
   suppressSentinel: boolean
 }
 
+/** Resolve once the PTY's process has exited, or after `timeoutMs` — never rejects. */
+function awaitPtyExit(pty: AgentPty, timeoutMs: number): Promise<void> {
+  if (!pty.isAlive) return Promise.resolve()
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      off()
+      resolve()
+    }, timeoutMs)
+    ;(timer as { unref?: () => void }).unref?.()
+    const off = pty.onExit(() => {
+      clearTimeout(timer)
+      resolve()
+    })
+  })
+}
+
 export class Workspace implements AgentHost {
   readonly workspaceId: string
   readonly name: string
@@ -214,6 +258,7 @@ export class Workspace implements AgentHost {
   private readonly deps: WorkspaceDeps
   private readonly names: NameAllocator
   private readonly agents = new Map<string, AgentRecord>()
+  private readonly pendingStarts = new Map<string, PendingStart>()
   private readonly now: () => number
   private readonly newId: () => string
   private orchestratorRecord: AgentRecord | undefined
@@ -243,6 +288,17 @@ export class Workspace implements AgentHost {
 
   get repoPath(): string {
     return this.profile.repoPath
+  }
+
+  /**
+   * True while the orchestrator process is up. The panel derives the
+   * workspace's `active` flag from this — a crashed orchestrator must grey the
+   * card out instead of pretending the workspace still drives itself.
+   */
+  get orchestratorAlive(): boolean {
+    const record = this.orchestratorRecord
+    if (!record) return false
+    return record.pty.isAlive && !record.stopped && record.exit === undefined
   }
 
   /** The orchestrator, once started. Never part of {@link listAgents}. */
@@ -316,54 +372,111 @@ export class Workspace implements AgentHost {
 
   // --- AgentHost ---------------------------------------------------------
 
-  async startAgent(input: StartAgentInput): Promise<StartedAgent> {
+  beginAgent(input: StartAgentInput): StartingAgent {
     this.assertOpen()
     const urls = this.requireMcp()
-    const slot = this.slotFor(input.role)
+    // Everything that can refuse, refuses BEFORE the reservation — a begin
+    // that throws must not leak a name or a claimed slot.
+    const slot = this.slotWithCapacity(input.role)
     const provider = this.requireProvider(slot.providerId)
     const template = this.requireRoleTemplate(input.role)
 
     const agentId = this.newId()
     const name = this.names.allocate('sub')
-    let spawned: SpawnedAgent | undefined
+    const model = input.model?.trim() || slot.model
+    const pending: PendingStart = {
+      agentId,
+      name,
+      roleId: input.role,
+      slotId: slot.id,
+      providerId: provider.id,
+      model,
+      // Both are decided by convention, not by the worktree call — which is
+      // what lets `beginAgent` answer before git ran. `finishStart` uses the
+      // real worktree result for the record; a mismatch would be a bug in
+      // `createWorktree`, and its own tests pin the convention.
+      worktreePath: join(this.repoPath, WORKTREE_ROOT, agentId),
+      branch: worktreeBranchName(this.name, name)
+    }
+    this.pendingStarts.set(agentId, pending)
 
+    return {
+      agentId,
+      name,
+      role: input.role,
+      providerId: provider.id,
+      model,
+      worktreePath: pending.worktreePath,
+      branch: pending.branch,
+      ready: this.finishStart(pending, slot, provider, template, input, urls)
+    }
+  }
+
+  /** Test/live convenience: begin an agent and wait for the whole pipeline. */
+  async startAgent(input: StartAgentInput): Promise<StartedAgent> {
+    const begun = this.beginAgent(input)
+    await begun.ready
+    return begun
+  }
+
+  /**
+   * The heavy half of {@link beginAgent}: worktree, spawn, window, seed. Runs
+   * behind the returned `ready` promise so `start_agent` never sits on it —
+   * the pipeline (keyboard wait, settle, gated Enters) can outlast the 60 s
+   * MCP request timeout. Every failure releases the reservation and discards
+   * the half-started agent; a workspace that closed mid-start does the same.
+   */
+  private async finishStart(
+    pending: PendingStart,
+    slot: Slot,
+    provider: ProviderConfig,
+    template: RoleTemplate,
+    input: StartAgentInput,
+    urls: WorkspaceMcpUrls
+  ): Promise<void> {
+    let spawned: SpawnedAgent | undefined
     try {
       // Always isolated: every agent gets its own worktree and branch, so
       // parallel agents — and parallel workspaces on the same repository —
       // never trample each other's checkout. Merging stays an ordinary
       // git merge of vertragus/* branches, and `baseBranch` lets an agent
       // start on top of another agent's result instead of the repo HEAD.
-      const worktree = await this.createWorktreeFor(agentId, name, input.baseBranch)
+      const worktree = await this.createWorktreeFor(pending.agentId, pending.name, input.baseBranch)
+      this.assertOpenDuringStart(pending)
 
-      const model = input.model?.trim() || slot.model
       const launchInput: AgentLaunchInput = {
         kind: 'subagent',
         provider,
-        model,
+        model: pending.model,
         effort: slot.effort,
         // Subagents default to yolo — a worker that cannot act is the old
         // repo's "permission-starved" failure. The orchestrator never gets it.
         yolo: this.deps.yoloMaster ?? true,
         cwd: worktree.path,
-        mcpUrl: urls.subagentUrl(agentId),
-        fileTag: `sub-${agentId}`,
+        mcpUrl: urls.subagentUrl(pending.agentId),
+        fileTag: `sub-${pending.agentId}`,
         configDir: this.deps.configDir,
         systemPrompt: template.prompt
       }
       spawned = await (this.deps.spawn ?? spawnAgent)(launchInput)
+      this.assertOpenDuringStart(pending)
 
       const record = this.track({
-        agentId,
-        name,
-        roleId: input.role,
+        agentId: pending.agentId,
+        name: pending.name,
+        roleId: pending.roleId,
+        slotId: pending.slotId,
         providerId: provider.id,
-        model,
+        model: pending.model,
         worktreePath: worktree.path,
         branch: worktree.branch,
         pty: spawned.pty
       })
+      // Tracked and un-reserved in the same synchronous step — the agent is
+      // never counted twice and never invisible.
+      this.pendingStarts.delete(pending.agentId)
 
-      this.openWindow(record, this.colorFor(input.role))
+      this.openWindow(record, this.colorFor(pending.roleId))
 
       // `input.task` already carries the reporting contract — appended by the
       // MCP layer, see the class comment. A provider without a system-prompt
@@ -374,25 +487,24 @@ export class Workspace implements AgentHost {
       const accepted = await this.seed(record, seedText, this.autoSubmitTasks)
       if (!accepted) {
         throw new Error(
-          `${name} (${provider.label}) never became ready — the CLI did not accept its task.`
+          `${pending.name} (${provider.label}) never became ready — the CLI did not accept its task.`
         )
       }
       record.seeded = true
       record.assignmentCursor = this.events.cursor
-
-      return {
-        agentId,
-        name,
-        role: input.role,
-        providerId: provider.id,
-        model,
-        worktreePath: worktree.path,
-        branch: worktree.branch
-      }
     } catch (error) {
-      // A half-started agent must not hold a name, a window or a process.
-      this.discard(agentId, name, spawned?.pty)
+      // A half-started agent must not hold a name, a window, a process — or
+      // its reservation.
+      this.pendingStarts.delete(pending.agentId)
+      this.discard(pending.agentId, pending.name, spawned?.pty)
       throw error
+    }
+  }
+
+  /** A workspace that closed while an agent was starting aborts that start. */
+  private assertOpenDuringStart(pending: PendingStart): void {
+    if (this.closed) {
+      throw new Error(`Workspace ${this.name} closed while ${pending.name} was starting.`)
     }
   }
 
@@ -400,6 +512,14 @@ export class Workspace implements AgentHost {
     const record = this.requireAgent(agentId)
     if (!record.pty.isAlive) {
       throw new Error(`${record.name} is no longer running — its process has ended.`)
+    }
+    if (!record.seeded && !record.orchestrator) {
+      // The seed handshake is still typing into this PTY; a second concurrent
+      // write would interleave with it. (Before async starts this state was
+      // unreachable — the agent was not tracked until seeded.)
+      throw new Error(
+        `${record.name} is still starting — wait for its agent_started event.`
+      )
     }
     const accepted = await this.seed(record, text, this.autoSubmitTasks)
     if (!accepted) throw new Error(`${record.name} did not accept the message.`)
@@ -433,9 +553,17 @@ export class Workspace implements AgentHost {
    * removal; everything else under the worktree root is fair game.
    */
   activeWorktreePaths(): string[] {
-    return [...this.agents.values()]
-      .filter((record) => record.pty.isAlive && !record.stopped)
-      .map((record) => record.worktreePath)
+    return [
+      ...[...this.agents.values()]
+        .filter((record) => record.pty.isAlive && !record.stopped)
+        .map((record) => record.worktreePath),
+      // Mid-creation worktrees of reserved starts must not look stale — the
+      // cleanup view offering a directory `git worktree add` is busy writing
+      // is a race nobody wins.
+      ...[...this.pendingStarts.values()]
+        .filter((pending) => !this.agents.has(pending.agentId))
+        .map((pending) => pending.worktreePath)
+    ]
   }
 
   /**
@@ -444,19 +572,37 @@ export class Workspace implements AgentHost {
    */
   listAgents(): AgentSummary[] {
     const now = this.now()
-    return [...this.agents.values()]
-      .filter((record) => !record.orchestrator)
-      .map((record) => ({
-        agentId: record.agentId,
-        name: record.name,
-        role: record.roleId,
-        status: this.statusOf(record),
-        model: record.model,
-        worktreePath: record.worktreePath,
-        branch: record.branch,
-        lastOutputAgeSec: Math.max(0, Math.round((now - record.lastOutputAt) / 1_000)),
-        reporting: this.reportingForProvider(record.providerId)
-      }))
+    return [
+      ...[...this.agents.values()]
+        .filter((record) => !record.orchestrator)
+        .map((record) => ({
+          agentId: record.agentId,
+          name: record.name,
+          role: record.roleId,
+          status: this.statusOf(record),
+          model: record.model,
+          worktreePath: record.worktreePath,
+          branch: record.branch,
+          lastOutputAgeSec: Math.max(0, Math.round((now - record.lastOutputAt) / 1_000)),
+          reporting: this.reportingForProvider(record.providerId)
+        })),
+      // Reservations: begun but not yet spawned. They occupy their slot (the
+      // `start_agent` limit check counts this list), and the orchestrator sees
+      // them as `starting` instead of wondering where its agent went.
+      ...[...this.pendingStarts.values()]
+        .filter((pending) => !this.agents.has(pending.agentId))
+        .map((pending) => ({
+          agentId: pending.agentId,
+          name: pending.name,
+          role: pending.roleId,
+          status: AGENT_STATUS.starting,
+          model: pending.model,
+          worktreePath: pending.worktreePath,
+          branch: pending.branch,
+          lastOutputAgeSec: 0,
+          reporting: this.reportingForProvider(pending.providerId)
+        }))
+    ]
   }
 
   /**
@@ -608,11 +754,22 @@ export class Workspace implements AgentHost {
    * Stop everything and release the workspace. The EventQueue is NOT closed
    * here — `mcp/server.unregisterWorkspace` owns that, and closing it twice
    * would race the parked `await_events` readers it has to release.
+   *
+   * `awaitExitMs` waits for the killed processes to actually die (bounded).
+   * The quit path needs this: `pty.kill()` is fire-and-forget (Windows
+   * `taskkill`, POSIX SIGTERM→SIGKILL escalation), and an app that exits
+   * before the kills land leaves yolo-mode CLIs orphaned on the machine.
    */
-  async close(): Promise<void> {
+  async close(options: { awaitExitMs?: number } = {}): Promise<void> {
     if (this.closed) return
     this.closed = true
+    // Capture before stopAll — it is the records that know the PTYs, and
+    // `agents.clear()` below forgets them.
+    const live = [...this.agents.values()].filter((record) => record.pty.isAlive)
     await this.stopAll()
+    if (options.awaitExitMs !== undefined && options.awaitExitMs > 0) {
+      await Promise.all(live.map((record) => awaitPtyExit(record.pty, options.awaitExitMs!)))
+    }
     this.agents.clear()
   }
 
@@ -627,14 +784,41 @@ export class Workspace implements AgentHost {
     return this.mcpUrls
   }
 
-  private slotFor(roleId: string): Slot {
-    const slot = this.profile.slots.find((candidate) => candidate.roleId === roleId)
-    if (!slot) {
+  /**
+   * The first slot of the role with free capacity — NOT simply the first slot
+   * of the role. `slotLimitFor` sums `maxCount` across all slots of a role, so
+   * a role can be under its cap while its first slot is full; the agent then
+   * belongs on the next slot, which is the whole point of configuring two
+   * slots for one role (a different provider or model for the overflow).
+   * Reservations count exactly like live records.
+   */
+  private slotWithCapacity(roleId: string): Slot {
+    const slots = this.profile.slots.filter((candidate) => candidate.roleId === roleId)
+    if (slots.length === 0) {
       throw new Error(
         `No slot configured for role "${roleId}" in profile "${this.profile.name}".`
       )
     }
-    return slot
+    for (const slot of slots) {
+      if (slot.maxCount === undefined || this.countForSlot(slot.id) < slot.maxCount) return slot
+    }
+    throw new Error(
+      `Every slot of role "${roleId}" in profile "${this.profile.name}" is at its limit.`
+    )
+  }
+
+  /** Agents (live or reserved) currently occupying one profile slot. */
+  private countForSlot(slotId: string): number {
+    let count = 0
+    for (const pending of this.pendingStarts.values()) {
+      if (pending.slotId === slotId) count += 1
+    }
+    for (const record of this.agents.values()) {
+      if (record.orchestrator || record.slotId !== slotId) continue
+      const status = this.statusOf(record)
+      if (status !== AGENT_STATUS.exited && status !== AGENT_STATUS.stopped) count += 1
+    }
+    return count
   }
 
   private requireProvider(providerId: string): ProviderConfig {
@@ -654,7 +838,15 @@ export class Workspace implements AgentHost {
 
   private requireAgent(agentId: string): AgentRecord {
     const record = this.agents.get(agentId)
-    if (!record) throw new Error(`Unknown agent ${agentId}.`)
+    if (!record) {
+      const pending = this.pendingStarts.get(agentId)
+      if (pending) {
+        throw new Error(
+          `${pending.name} is still starting — wait for its agent_started event.`
+        )
+      }
+      throw new Error(`Unknown agent ${agentId}.`)
+    }
     return record
   }
 
@@ -672,6 +864,7 @@ export class Workspace implements AgentHost {
     agentId: string
     name: string
     roleId: string
+    slotId?: string
     providerId: string
     model?: string
     worktreePath: string
@@ -683,6 +876,7 @@ export class Workspace implements AgentHost {
       agentId: input.agentId,
       name: input.name,
       roleId: input.roleId,
+      slotId: input.slotId,
       providerId: input.providerId,
       model: input.model,
       worktreePath: input.worktreePath,
@@ -937,8 +1131,22 @@ export class Workspace implements AgentHost {
     this.clearIdleHint(record)
     this.questions?.cancelForAgent(record.agentId)
     if (record.stopping) return
-    if (record.orchestrator) return
     if (this.events.isClosed) return
+    if (record.orchestrator) {
+      // The record stays: the window keeps showing the death output and
+      // stopWorkspace still closes it. Only `orchestratorAlive` flips, which
+      // is what greys the panel card out. The event is for the history (and
+      // any non-orchestrator reader, e.g. a remote client) — the orchestrator
+      // itself is the one reader that can no longer see it.
+      this.events.push({
+        type: 'orchestrator_exited',
+        agentId: record.agentId,
+        name: record.name,
+        roleId: record.roleId,
+        exitCode: info.exitCode ?? null
+      })
+      return
+    }
     this.events.push({
       type: 'agent_exited',
       agentId: record.agentId,

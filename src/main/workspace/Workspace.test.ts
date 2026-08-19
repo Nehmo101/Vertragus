@@ -356,6 +356,88 @@ describe('listAgents', () => {
   })
 })
 
+describe('beginAgent — synchronous reservation', () => {
+  const oneWorkerSlot = () =>
+    testProfile({
+      slots: [{ id: 'slot-worker', roleId: 'worker', providerId: 'claude', maxCount: 1 }],
+      maxSubagents: 3
+    })
+
+  it('claims the slot before anything is awaited — two rapid starts cannot both pass a cap of one', async () => {
+    const { workspace } = harness({ profile: oneWorkerSlot() })
+    const first = workspace.beginAgent({ role: 'worker', task: 'a' })
+    // No await in between — this is exactly the TOCTOU the reservation closes.
+    expect(() => workspace.beginAgent({ role: 'worker', task: 'b' })).toThrow(/at its limit/)
+    await first.ready
+  })
+
+  it('lists a reserved agent as starting, so the MCP limit check counts it', async () => {
+    const { workspace } = harness({ profile: oneWorkerSlot() })
+    const begun = workspace.beginAgent({ role: 'worker', task: 'a' })
+    const listed = workspace.listAgents()
+    expect(listed).toHaveLength(1)
+    expect(listed[0]).toMatchObject({ agentId: begun.agentId, status: 'starting' })
+    // The reservation already knows worktree and branch — by convention, not
+    // by asking git.
+    expect(begun.worktreePath).toBe(`/repo/.vertragus/worktrees/${begun.agentId}`)
+    await begun.ready
+    expect(workspace.listAgents()[0]).toMatchObject({ status: 'working' })
+  })
+
+  it('releases the reservation when the start fails, freeing the slot', async () => {
+    const { workspace } = harness({
+      profile: oneWorkerSlot(),
+      deps: {
+        spawn: (() => {
+          throw new Error('pty refused')
+        }) as unknown as WorkspaceDeps['spawn']
+      }
+    })
+    const begun = workspace.beginAgent({ role: 'worker', task: 'a' })
+    await expect(begun.ready).rejects.toThrow('pty refused')
+    expect(workspace.listAgents()).toHaveLength(0)
+    // The slot is free again — the retry passes the reservation stage (and
+    // fails later in the same broken spawn, which is this harness's nature).
+    const retry = workspace.beginAgent({ role: 'worker', task: 'b' })
+    await expect(retry.ready).rejects.toThrow('pty refused')
+  })
+
+  it('refuses messages to an agent that has not accepted its task yet', async () => {
+    const { workspace } = harness({ profile: oneWorkerSlot() })
+    const begun = workspace.beginAgent({ role: 'worker', task: 'a' })
+    await expect(workspace.sendToAgent(begun.agentId, 'too early')).rejects.toThrow(
+      /still starting/
+    )
+    await begun.ready
+    await expect(workspace.sendToAgent(begun.agentId, 'now fine')).resolves.toBeUndefined()
+  })
+
+  it('overflows to the next slot of the role once the first is full', async () => {
+    const profile = testProfile({
+      slots: [
+        { id: 'slot-a', roleId: 'worker', providerId: 'claude', model: 'sonnet', maxCount: 1 },
+        { id: 'slot-b', roleId: 'worker', providerId: 'claude', model: 'haiku', maxCount: 1 }
+      ],
+      maxSubagents: 4
+    })
+    const { workspace, spawns } = harness({ profile })
+
+    await workspace.startAgent({ role: 'worker', task: 'first' })
+    await workspace.startAgent({ role: 'worker', task: 'second' })
+
+    // Not both on slot-a's model: the second agent belongs to the overflow slot.
+    expect(spawns.map((spawn) => spawn.input.model)).toEqual(['sonnet', 'haiku'])
+    expect(() => workspace.beginAgent({ role: 'worker', task: 'third' })).toThrow(/at its limit/)
+  })
+
+  it('frees a slot when its agent is stopped', async () => {
+    const { workspace } = harness({ profile: oneWorkerSlot() })
+    const first = await workspace.startAgent({ role: 'worker', task: 'a' })
+    await workspace.stopAgent(first.agentId)
+    await expect(workspace.startAgent({ role: 'worker', task: 'b' })).resolves.toBeTruthy()
+  })
+})
+
 describe('agent_exited — the one event the host owns', () => {
   it('is unconfirmed when the process dies without reporting', async () => {
     const { workspace, spawns } = harness()
@@ -420,11 +502,85 @@ describe('agent_exited — the one event the host owns', () => {
     expect(workspace.events.all()).toHaveLength(0)
   })
 
-  it('stays silent for the orchestrator, which is the reader of the queue', async () => {
+  it('pushes orchestrator_exited when the orchestrator dies unasked', async () => {
     const { workspace, spawns } = harness()
-    await workspace.startOrchestrator()
+    const orchestrator = await workspace.startOrchestrator()
+    expect(workspace.orchestratorAlive).toBe(true)
+
     spawns[0]!.pty.exit({ exitCode: 1 })
+
+    // Not agent_exited — the orchestrator is no subagent, and its death flips
+    // the workspace to inactive instead of freeing a slot.
+    expect(workspace.events.all()).toEqual([
+      expect.objectContaining({
+        type: 'orchestrator_exited',
+        agentId: orchestrator.agentId,
+        name: orchestrator.name,
+        exitCode: 1
+      })
+    ])
+    expect(workspace.orchestratorAlive).toBe(false)
+    // The record stays — the window keeps showing the death output and
+    // stopWorkspace still closes it.
+    expect(workspace.orchestrator?.agentId).toBe(orchestrator.agentId)
+  })
+
+  it('stays silent when the orchestrator is stopped by stopAll — that is an asked death', async () => {
+    const { workspace } = harness()
+    await workspace.startOrchestrator()
+    await workspace.stopAll()
     expect(workspace.events.all()).toHaveLength(0)
+    expect(workspace.orchestratorAlive).toBe(false)
+  })
+})
+
+describe('close with awaitExitMs — the quit path', () => {
+  it('resolves only once the killed processes have actually exited', async () => {
+    const { workspace, spawns } = harness()
+    await workspace.startAgent({ role: 'worker', task: 'x' })
+    const pty = spawns[0]!.pty
+    // A real kill is fire-and-forget (taskkill / SIGTERM): the process dies
+    // later. The fake normally dies synchronously — detach that so the close
+    // has something to wait for.
+    pty.kill = () => {
+      pty.killed += 1
+    }
+
+    let closed = false
+    const closing = workspace.close({ awaitExitMs: 5_000 }).then(() => {
+      closed = true
+    })
+    await Promise.resolve()
+    expect(pty.killed).toBe(1)
+    expect(closed).toBe(false)
+
+    pty.exit({ exitCode: 0, signal: 15 })
+    await closing
+    expect(closed).toBe(true)
+  })
+
+  it('gives up after the deadline instead of wedging the quit', async () => {
+    vi.useFakeTimers()
+    try {
+      const { workspace, spawns } = harness()
+      await workspace.startAgent({ role: 'worker', task: 'x' })
+      const pty = spawns[0]!.pty
+      pty.kill = () => {
+        pty.killed += 1
+      }
+
+      let closed = false
+      const closing = workspace.close({ awaitExitMs: 1_000 }).then(() => {
+        closed = true
+      })
+      await vi.advanceTimersByTimeAsync(999)
+      expect(closed).toBe(false)
+      await vi.advanceTimersByTimeAsync(2)
+      await closing
+      expect(closed).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

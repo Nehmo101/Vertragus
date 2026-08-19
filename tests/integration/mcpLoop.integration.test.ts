@@ -22,7 +22,7 @@ import type {
   AgentHost,
   AgentSummary,
   StartAgentInput,
-  StartedAgent,
+  StartingAgent,
   WorkspaceMcpContext
 } from '@main/mcp/types'
 import type { AgentEvent } from '@shared/schema/events'
@@ -60,7 +60,7 @@ class SpawningHost implements AgentHost {
     return 'mcp'
   }
 
-  async startAgent(input: StartAgentInput): Promise<StartedAgent> {
+  beginAgent(input: StartAgentInput): StartingAgent {
     const n = ++this.counter
     const agentId = `agent-${n}`
     // The task text carries the behaviour the fake agent should act out.
@@ -133,7 +133,10 @@ class SpawningHost implements AgentHost {
       providerId: 'fake',
       model: record.summary.model,
       worktreePath: `/worktrees/${agentId}`,
-      branch: `vertragus/test/${agentId}`
+      branch: `vertragus/test/${agentId}`,
+      // `spawn` is synchronous and the fake needs no seed handshake — a begun
+      // agent is a ready agent here.
+      ready: Promise.resolve()
     }
   }
 

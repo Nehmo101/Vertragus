@@ -60,7 +60,9 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
           name: ws.name,
           profileId: ws.profileId,
           profileName: ws.profile.name,
-          active: orchestrator !== undefined,
+          // Not "was an orchestrator ever started" — a crashed orchestrator
+          // must grey the card out even though its record (and window) stay.
+          active: ws.orchestratorAlive,
           ...(taskText ? { taskText } : {}),
           agents: [
             ...(orchestrator
@@ -71,7 +73,7 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
                     roleId: 'orchestrator',
                     roleLabel: 'Orchestrator',
                     roleColor: roleColor('orchestrator'),
-                    state: 'working' as const,
+                    state: ws.orchestratorAlive ? ('working' as const) : ('stopped' as const),
                     ...(pendingOf(ws.workspaceId, orchestrator.agentId)
                       ? { pendingQuestion: pendingOf(ws.workspaceId, orchestrator.agentId) }
                       : {})
@@ -232,11 +234,32 @@ app.on('will-quit', () => {
   unregisterHideAllShortcut()
 })
 
-app.on('before-quit', () => {
-  // devRun shares the app's manager/server, so stopping twice must be safe.
-  void devRun?.stop().catch(() => undefined)
-  void appManager?.stopAll().catch(() => undefined)
-  void appMcp?.close().catch(() => undefined)
+/**
+ * Ceiling for the quit-time shutdown. Covers the POSIX SIGTERM→SIGKILL grace
+ * (5 s) plus taskkill latency; a wedged kill must not wedge quitting forever.
+ */
+const QUIT_SHUTDOWN_CEILING_MS = 8_000
+
+let quitting = false
+
+app.on('before-quit', (event) => {
+  if (quitting) return
+  quitting = true
+  // Electron would exit before the fire-and-forget kills land, orphaning
+  // yolo-mode CLI processes. Hold the quit, await the kills (bounded), then
+  // exit for real — the second pass falls through the `quitting` guard.
+  event.preventDefault()
+  const shutdown = (async () => {
+    // devRun shares the app's manager/server, so stopping twice must be safe.
+    await devRun?.stop().catch(() => undefined)
+    await appManager?.stopAll({ awaitExitMs: QUIT_SHUTDOWN_CEILING_MS - 1_000 }).catch(() => undefined)
+    await appMcp?.close().catch(() => undefined)
+  })()
+  const ceiling = new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, QUIT_SHUTDOWN_CEILING_MS)
+    timer.unref?.()
+  })
+  void Promise.race([shutdown, ceiling]).finally(() => app.exit())
 })
 
 app.on('window-all-closed', () => {

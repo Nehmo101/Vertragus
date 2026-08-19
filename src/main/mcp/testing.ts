@@ -11,7 +11,7 @@ import type {
   AgentHost,
   AgentSummary,
   StartAgentInput,
-  StartedAgent,
+  StartingAgent,
   ToolText,
   WorkspaceMcpContext,
   WorkspaceRetroPort,
@@ -90,7 +90,9 @@ export class FakeAgentHost implements AgentHost {
     return this.options.reportingMode?.(role) ?? 'mcp'
   }
 
-  async startAgent(input: StartAgentInput): Promise<StartedAgent> {
+  beginAgent(input: StartAgentInput): StartingAgent {
+    // A sync throw mirrors the real host: reservation-stage refusals (no
+    // slot, disabled provider) happen before anything is awaited.
     if (this.options.startError) throw new Error(this.options.startError)
     const agentId = `agent-${++this.counter}`
     // Every agent gets its own worktree and branch — the fake mirrors the invariant.
@@ -117,7 +119,9 @@ export class FakeAgentHost implements AgentHost {
       providerId: 'fake',
       model: input.model,
       worktreePath,
-      branch
+      branch,
+      // The fake has no pipeline — a begun agent is a ready agent.
+      ready: Promise.resolve()
     }
   }
 

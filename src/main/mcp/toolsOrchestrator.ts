@@ -17,6 +17,7 @@ import {
   toolError,
   toolJson,
   toolText,
+  type StartingAgent,
   type ToolText,
   type WorkspaceRuntime
 } from './types'
@@ -59,7 +60,9 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
         'Start a subagent for one self-contained task. The task text must state the goal, the files or ' +
         'area involved, the definition of done and how to verify it; Vertragus appends the reporting ' +
         'contract automatically. Every agent works in its own git worktree on its own branch, so agents ' +
-        'never conflict with each other. Returns the agentId you address from then on.',
+        'never conflict with each other. Returns the agentId you address from then on. The agent starts ' +
+        'in the background: await_events delivers agent_started once it accepted its task (or ' +
+        'agent_start_failed) — do not send it messages before agent_started.',
       inputSchema: {
         role: z
           .string()
@@ -89,6 +92,10 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
         })
       }
 
+      // Race-free without locks: `listAgents()` already counts reservations
+      // (status `starting`), and nothing between this check and `beginAgent`
+      // awaits — two concurrent start_agent calls therefore serialize through
+      // this synchronous block and cannot both pass a cap of one.
       const running = runningAgents(ctx.host.listAgents())
       const perRoleMax = ctx.limits.perRole.get(role)
       const runningInRole = running.filter((agent) => agent.role === role).length
@@ -120,32 +127,58 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
       const reporting = ctx.host.reportingMode(role)
       const seed = `${task}\n\n${buildTaskContract({ role, reporting })}`
 
+      // `beginAgent` reserves synchronously and returns before the pipeline
+      // (worktree, spawn, seed handshake) ran — that pipeline can outlast the
+      // 60 s MCP request timeout, so this call must not sit on it. The outcome
+      // arrives as an event instead.
+      let started: StartingAgent
       try {
-        const started = await ctx.host.startAgent({ role, task: seed, model, baseBranch })
-        runtime.latestTask = taskNote(task) ?? runtime.latestTask
-        ctx.events.push({
-          type: 'agent_started',
-          agentId: started.agentId,
-          name: started.name,
-          roleId: started.role,
-          providerId: started.providerId,
-          model: started.model,
-          worktreePath: started.worktreePath,
-          branch: started.branch
-        })
-        return toolJson({
-          agentId: started.agentId,
-          name: started.name,
-          role: started.role,
-          providerId: started.providerId,
-          model: started.model,
-          worktreePath: started.worktreePath,
-          branch: started.branch,
-          note: 'Agent started. Wait for its events with await_events instead of asking it for status.'
-        })
+        started = ctx.host.beginAgent({ role, task: seed, model, baseBranch })
       } catch (error) {
         return toolError({ error: 'start_failed', role, message: errorMessage(error) })
       }
+      runtime.latestTask = taskNote(task) ?? runtime.latestTask
+      started.ready.then(
+        () => {
+          if (ctx.events.isClosed) return
+          ctx.events.push({
+            type: 'agent_started',
+            agentId: started.agentId,
+            name: started.name,
+            roleId: started.role,
+            providerId: started.providerId,
+            model: started.model,
+            worktreePath: started.worktreePath,
+            branch: started.branch
+          })
+        },
+        (error: unknown) => {
+          // The workspace may have closed mid-start (stop button, quit) —
+          // then there is no queue left and nobody to tell.
+          if (ctx.events.isClosed) return
+          ctx.events.push({
+            type: 'agent_start_failed',
+            agentId: started.agentId,
+            name: started.name,
+            roleId: started.role,
+            message: errorMessage(error)
+          })
+        }
+      )
+      return toolJson({
+        agentId: started.agentId,
+        name: started.name,
+        role: started.role,
+        providerId: started.providerId,
+        model: started.model,
+        worktreePath: started.worktreePath,
+        branch: started.branch,
+        state: 'starting',
+        note:
+          'Agent reserved and starting in the background. await_events delivers agent_started once ' +
+          'it accepted its task, or agent_start_failed if the start failed. Do not send it messages ' +
+          'before agent_started.'
+      })
     }
   )
 
