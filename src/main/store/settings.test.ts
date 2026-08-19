@@ -237,6 +237,7 @@ describe('app settings', () => {
     const { store: settings } = store()
     expect(settings.getSettings()).toEqual({
       ui: { theme: 'dark', locale: 'de', appearance: DEFAULT_APPEARANCE },
+      remote: { enabled: false, bindAddress: '', port: 9482 },
       yoloMaster: true,
       hideAllHotkey: 'Control+Alt+V',
       autostart: false,

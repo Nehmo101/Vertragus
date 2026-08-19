@@ -151,6 +151,7 @@ function provider(input: ProviderConfigInput): ProviderConfig {
 
 const SETTINGS: AppSettings = {
   ui: { theme: 'dark', locale: 'de', appearance: DEFAULT_APPEARANCE },
+  remote: { enabled: false, bindAddress: '', port: 9482 },
   yoloMaster: true,
   hideAllHotkey: 'Control+Alt+V',
   autostart: false,

@@ -121,6 +121,46 @@ export class FakeRegistry implements AgentRegistry {
   markDetached(agentId: string): void {
     this.detached.push(agentId)
   }
+  terminals(): import('@main/ipc').TerminalDirectory {
+    const agents = this.agents
+    return {
+      list: () =>
+        [...agents.values()].map((entry) => ({ agentId: entry.meta.agentId, meta: entry.meta, exit: null })),
+      get: (agentId) => {
+        const entry = agents.get(agentId)
+        return entry ? { agentId, meta: entry.meta, exit: null } : undefined
+      },
+      attach: (agentId, sink) => {
+        const entry = agents.get(agentId)
+        if (!entry) return undefined
+        const offData = entry.pty.onData((data) => sink.onData(data))
+        const offExit = entry.pty.onExit((info) => sink.onExit(info))
+        return {
+          snapshot: entry.pty.snapshot(),
+          cols: entry.pty.cols,
+          rows: entry.pty.rows,
+          meta: entry.meta,
+          exit: null,
+          detach: () => {
+            offData()
+            offExit()
+          }
+        }
+      },
+      write: (agentId, data) => {
+        const entry = agents.get(agentId)
+        if (!entry || !data) return false
+        entry.pty.write(data)
+        return true
+      },
+      resize: (agentId, cols, rows) => {
+        const entry = agents.get(agentId)
+        if (!entry) return false
+        entry.pty.resize(cols, rows)
+        return true
+      }
+    }
+  }
   dispose(): void {
     this.agents.clear()
   }
