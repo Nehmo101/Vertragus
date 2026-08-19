@@ -18,7 +18,7 @@
 import { z } from 'zod'
 
 /** Editable built-ins. A stored config with the same id overrides its preset. */
-export const PROVIDER_PRESET_IDS = ['claude', 'codex', 'kimi', 'cursor', 'ollama'] as const
+export const PROVIDER_PRESET_IDS = ['claude', 'codex', 'kimi', 'cursor', 'grok', 'ollama'] as const
 export type ProviderPresetId = (typeof PROVIDER_PRESET_IDS)[number]
 export const providerPresetIdSchema = z.enum(PROVIDER_PRESET_IDS)
 
@@ -101,6 +101,12 @@ export const mcpAttachSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('kimi-project') }).strict(),
   /** Project-scoped `.cursor/mcp.json` merge + `--approve-mcps` (see mcp/attach). */
   z.object({ kind: z.literal('cursor-project') }).strict(),
+  /**
+   * Project-scoped `.grok/config.toml` merge of `[mcp_servers.vertragus]` plus
+   * `--allow MCPTool(vertragus__*)` so the loopback server is usable without a
+   * TUI approval (see mcp/attach).
+   */
+  z.object({ kind: z.literal('grok-project') }).strict(),
   z.object({ kind: z.literal('none') }).strict()
 ])
 export type McpAttach = z.infer<typeof mcpAttachSchema>

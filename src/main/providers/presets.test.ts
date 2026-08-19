@@ -9,9 +9,16 @@ function preset(id: string): ProviderConfig {
 }
 
 describe('providerPresets', () => {
-  it('ships the five built-ins, each carrying its preset id', () => {
+  it('ships the six built-ins, each carrying its preset id', () => {
     const presets = providerPresets()
-    expect(presets.map((entry) => entry.id)).toEqual(['claude', 'codex', 'kimi', 'cursor', 'ollama'])
+    expect(presets.map((entry) => entry.id)).toEqual([
+      'claude',
+      'codex',
+      'kimi',
+      'cursor',
+      'grok',
+      'ollama'
+    ])
     for (const entry of presets) expect(entry.presetId).toBe(entry.id)
   })
 
@@ -50,10 +57,11 @@ describe('providerPresets', () => {
   })
 
   /**
-   * Seeds exist for the two providers whose discovery can come back empty on a
+   * Seeds exist for the providers whose discovery can come back empty on a
    * perfectly healthy machine: Claude caches only the account's EXTRA options,
-   * and Cursor needs a logged-in account to answer at all. Every other source
-   * is wide enough to stand alone, and a seed there would only be noise.
+   * Cursor needs a logged-in account to answer at all, and Grok's `grok models`
+   * likewise needs a session or API key. Every other source is wide enough to
+   * stand alone, and a seed there would only be noise.
    */
   it('seeds only the providers whose source can legitimately answer nothing', () => {
     const seeded = Object.fromEntries(
@@ -61,7 +69,11 @@ describe('providerPresets', () => {
         .filter((entry) => entry.seedModels.length > 0)
         .map((entry) => [entry.id, entry.seedModels])
     )
-    expect(seeded).toEqual({ claude: ['opus', 'sonnet', 'haiku'], cursor: ['auto'] })
+    expect(seeded).toEqual({
+      claude: ['opus', 'sonnet', 'haiku'],
+      cursor: ['auto'],
+      grok: ['grok-build']
+    })
   })
 })
 
@@ -193,6 +205,35 @@ describe('cursor preset', () => {
   it('reads the line-based model list of the CLI', () => {
     expect(cursor.modelDiscovery).toEqual({ kind: 'cli', args: ['models'], parse: 'lines' })
     expect(cursor.auth?.statusArgs).toEqual(['status'])
+  })
+})
+
+describe('grok preset', () => {
+  const grok = preset('grok')
+
+  it('carries the documented launch flags', () => {
+    expect(grok.command).toBe('grok')
+    expect(grok.yoloArgs).toEqual(['--always-approve'])
+    expect(grok.modelArg).toBe('--model')
+    expect(grok.effortArg).toEqual({ style: 'flag', flag: '--effort' })
+    expect(grok.systemPromptDelivery).toEqual({
+      kind: 'arg',
+      flag: '--append-system-prompt'
+    })
+    expect(grok.mcp).toEqual({ kind: 'grok-project' })
+  })
+
+  it('reads the line-based model list of the CLI', () => {
+    expect(grok.modelDiscovery).toEqual({ kind: 'cli', args: ['models'], parse: 'lines' })
+  })
+
+  it('has a login flow but no status probe', () => {
+    expect(grok.auth).toEqual({ loginArgs: ['login'] })
+  })
+
+  it('seeds the rolling grok-build alias — and nothing versioned', () => {
+    expect(grok.seedModels).toEqual(['grok-build'])
+    for (const seed of grok.seedModels) expect(seed).not.toMatch(/\d/)
   })
 })
 

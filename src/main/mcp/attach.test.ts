@@ -20,6 +20,15 @@ import {
   CURSOR_APPROVE_MCPS_FLAG,
   CURSOR_MCP_FILE,
   CURSOR_PROJECT_DIR,
+  GROK_ALLOW_MCP_FLAG,
+  GROK_CONFIG_FILE,
+  GROK_PROJECT_DIR,
+  assertWrittenGrokMcpConfig,
+  buildGrokMcpArgs,
+  grokAllowMcpRule,
+  grokMcpServerBlock,
+  mergeGrokConfigToml,
+  writeGrokProjectMcpConfig,
   KIMI_AGENT_NAME,
   kimiAgentFileText,
   orchestratorAllowedTools,
@@ -363,5 +372,72 @@ describe('cursor attach', () => {
   it('exports the launch flag that pre-approves project MCP servers', () => {
     // Cursor has no verified per-server tool filter; approval is this flag alone.
     expect(CURSOR_APPROVE_MCPS_FLAG).toBe('--approve-mcps')
+  })
+})
+
+describe('grok attach', () => {
+  it('installs .grok/config.toml in the WORKING directory with a TOML url', () => {
+    const path = writeGrokProjectMcpConfig(URL, workspaceDir)
+    expect(path).toBe(join(workspaceDir, GROK_PROJECT_DIR, GROK_CONFIG_FILE))
+    expect(readFileSync(path, 'utf8')).toBe(grokMcpServerBlock(URL))
+  })
+
+  it('merges vertragus into an existing file and preserves foreign tables', () => {
+    const dir = join(workspaceDir, GROK_PROJECT_DIR)
+    writeGrokProjectMcpConfig('http://127.0.0.1:1/old', workspaceDir)
+    writeFileSync(
+      join(dir, GROK_CONFIG_FILE),
+      [
+        '[plugins]',
+        'enabled = ["mine"]',
+        '',
+        '[mcp_servers.user-server]',
+        'url = "http://127.0.0.1:9/user"',
+        '',
+        '[mcp_servers.vertragus]',
+        'url = "http://127.0.0.1:1/stale"',
+        '',
+        '[permission]',
+        'allow = ["Read"]',
+        ''
+      ].join('\n')
+    )
+
+    const path = writeGrokProjectMcpConfig(URL, workspaceDir)
+    const written = readFileSync(path, 'utf8')
+    expect(written).toContain('[plugins]')
+    expect(written).toContain('enabled = ["mine"]')
+    expect(written).toContain('[mcp_servers.user-server]')
+    expect(written).toContain('url = "http://127.0.0.1:9/user"')
+    expect(written).toContain('[permission]')
+    expect(written).toContain('allow = ["Read"]')
+    expect(written).toContain(grokMcpServerBlock(URL).trim())
+    expect(written).not.toContain('stale')
+  })
+
+  it('replaces a quoted [mcp_servers."vertragus"] header too', () => {
+    expect(
+      mergeGrokConfigToml('[mcp_servers."vertragus"]\nurl = "old"\n', URL)
+    ).toBe(grokMcpServerBlock(URL))
+  })
+
+  it('appends when the file has no vertragus table yet', () => {
+    const existing = '[mcp_servers.other]\ncommand = "npx"\n'
+    expect(mergeGrokConfigToml(existing, URL)).toBe(
+      `${existing.trimEnd()}\n\n${grokMcpServerBlock(URL)}`
+    )
+  })
+
+  it('rejects a project config that lost its server entry', () => {
+    const path = writeGrokProjectMcpConfig(URL, workspaceDir)
+    writeFileSync(path, '[mcp_servers.other]\nurl = "http://127.0.0.1:9/x"\n')
+    expect(() => assertWrittenGrokMcpConfig(path, URL)).toThrow(/Invalid Vertragus Grok MCP config/)
+  })
+
+  it('pre-allows the Vertragus MCP tools on the command line', () => {
+    const args = buildGrokMcpArgs({ url: URL, workspaceDir })
+    expect(args).toEqual([GROK_ALLOW_MCP_FLAG, grokAllowMcpRule()])
+    expect(args).toEqual(['--allow', 'MCPTool(vertragus__*)'])
+    expect(existsSync(join(workspaceDir, GROK_PROJECT_DIR, GROK_CONFIG_FILE))).toBe(true)
   })
 })
