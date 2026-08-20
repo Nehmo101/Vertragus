@@ -19,6 +19,17 @@ describe('parseClientMessage', () => {
     expect(
       parseClientMessage(JSON.stringify({ type: 'command', id: 'c1', name: 'workspaces:list' }))
     ).toMatchObject({ type: 'command', name: 'workspaces:list' })
+    // Structured args (H1/H2): string-to-string records pass through.
+    expect(
+      parseClientMessage(
+        JSON.stringify({
+          type: 'command',
+          id: 'c2',
+          name: 'answer_question',
+          args: { workspaceId: 'w1', agentId: 'a1', questionId: 'q1', text: 'Use bcrypt.' }
+        })
+      )
+    ).toMatchObject({ type: 'command', name: 'answer_question', args: { questionId: 'q1' } })
     expect(parseClientMessage(JSON.stringify({ type: 'refresh' }))).toMatchObject({ type: 'refresh' })
   })
 
@@ -41,11 +52,28 @@ describe('parseClientMessage', () => {
     expect(parseClientMessage(badResize)).toBeUndefined()
     const hugeResize = JSON.stringify({ type: 'resize', agentId: 'a', cols: 99_999, rows: 24 })
     expect(parseClientMessage(hugeResize)).toBeUndefined()
+    // Args stay bounded too: non-string values and oversized text are refused.
+    const numericArgs = JSON.stringify({
+      type: 'command',
+      id: 'c',
+      name: 'workspaces:start',
+      args: { profileId: 42 }
+    })
+    expect(parseClientMessage(numericArgs)).toBeUndefined()
+    const hugeArgs = JSON.stringify({
+      type: 'command',
+      id: 'c',
+      name: 'answer_question',
+      args: { text: 'x'.repeat(21_000) }
+    })
+    expect(parseClientMessage(hugeArgs)).toBeUndefined()
   })
 
-  it('the command allow-list is exactly the four documented verbs', () => {
+  it('the command allow-list is exactly the six documented verbs', () => {
     expect([...REMOTE_COMMANDS].sort()).toEqual([
+      'answer_question',
       'profiles:list',
+      'user_message',
       'workspaces:list',
       'workspaces:start',
       'workspaces:stop'

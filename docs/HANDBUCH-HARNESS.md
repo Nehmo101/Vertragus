@@ -28,8 +28,9 @@ BigBoy macht den Loop *stabil und fernsteuerbar*. Es macht ihn nicht
 | C1 `inspect_agent` | Read-only Git gegen das Agent-Worktree (`status` / `diff` / `log` / `file`) |
 | C2 Host-Fakten auf `agent_done` | `branch`, `headSha`, `uncommitted`, `changedFiles`, `diffStat` — nicht als git-status auf jedem `list_agents` |
 
-Gateway-Allow-List ist **vier Verben**: `workspaces:list`, `workspaces:start`,
-`workspaces:stop`, `profiles:list`. Kein `focus_agent` / `stop_agent` auf dem
+Gateway-Allow-List ist seit Track 0 **fünf Verben**: `workspaces:list`,
+`workspaces:start` (jetzt mit optionalem `goal`), `workspaces:stop`,
+`profiles:list`, `answer_question`. Kein `focus_agent` / `stop_agent` auf dem
 Gateway. `resize` existiert im WS-Protokoll; es ist kein Produktziel von
 Remote-v1.
 
@@ -42,14 +43,14 @@ Remote-Server.
 
 | Haken / Phase | Status |
 | --- | --- |
-| H1 `answer_question` am Gateway | **offen** — Tippen in die PTY löst `ask_orchestrator` nicht |
-| H2 `workspaces:start {goal}` | **offen** — Start bleibt `profileId` only |
-| C3 Snapshot-Commit / C4 Handoff-Paket | später |
-| C5 Orchestrator-Idle-Watchdog | später, und nicht A1.1 (`orchestrator_exited` ist Prozess-Tod) |
+| H1 `answer_question` am Gateway | **umgesetzt** (Track 0) — ein Host-Pfad (`mcp/answerQuestion.ts`), Gateway-Verb, Panel-Badge |
+| H2 `workspaces:start {goal}` | **umgesetzt** (Track 0) — Goal-Seed über den Assignment-Handshake, Back-compat ohne Goal |
+| C3 Snapshot-Commit / C4 Handoff-Paket | **umgesetzt** (Track 1) — `snapshotDone` committet dirty Worktrees beim Done; `start_agent{baseBranch}` trägt Handoff-Block |
+| C5 Orchestrator-Idle-Watchdog | **umgesetzt** (Track 2) — `orchestrator_idle` Event + Panel/Remote-Hinweis; Timeouts ≠ Idle (Touch bei Call-Start und -Ende) |
 | C6 Orchestrator-Succession (Context-Handoff) | **S1 im Code** — siehe [`ORCHESTRATOR-SUCCESSION.md`](./ORCHESTRATOR-SUCCESSION.md) |
-| D Mensch im Loop | nach H1/H2 |
-| E integrate / briefing / eval | nach C |
-| F Multi-Orch (Lead, Tiefe 1) | nach C; Host auto-nestet nie |
+| D Mensch im Loop | **D1–D4 umgesetzt** (Track 3 + Follow-up) — Goal-UI, `user_message` weckt `await_events`, `ask_user` mit Ticket; D4 Stufen `yolo`/`ask-user`/`ask-orchestrator` (Store-Spiegel zu `yoloMaster`, Contract-Approval-Regel, Threat-Model im README) |
+| E integrate / briefing / eval | **Kern umgesetzt** (Track 6) — `integrate_branch` + Gate-Warnung + Promote-Klick, Briefing + `repoNotes`, Journal + Resume (E3, Briefing statt Re-Spawn), Budget-Wanduhr, Janitor/Explorer, Playbooks, Extra-MCP an Worker (E6), Loop-Eval (E5, `tests/integration/loopEval`) — Phase E vollständig |
+| F Multi-Orch (Lead, Tiefe 1) | **umgesetzt** (Track 5) — dritte Identität `lead=`, eigene Queues, `start_orchestrator`, Fan-in nur Direktkinder, Reparent (`subtree_adopted`), Caps host-seitig |
 
 ---
 
@@ -116,9 +117,11 @@ Es schließt **nicht**: zwei Worker-Slots Claude vs. Codex. Der
 Orchestrator kann `model` überschreiben, nicht den Provider. Es gewinnt
 weiter „erster mit Platz“, also meist immer Claude.
 
-Harness-Rest, nicht A1: `start_agent{role, slotId? | providerId?}` oder
-eine Rolle = ein Slot als Profil-Regel. Sonst ist Provider-Diversität
-pro Rolle tote UI.
+**Umgesetzt (Track 4):** `start_agent{role, providerId?, slotId?}` — eine
+explizite Wahl fällt hart (unbekannt/voll = Fehler, kein stilles
+Ausweichen), ohne Wahl bleibt „erster mit Platz". Der Orchestrator-Prompt
+listet die Slots (Provider/Model) je Rolle, damit die Wahl informiert ist.
+Caps bleiben sync über die Reservierung.
 
 ---
 
@@ -304,6 +307,11 @@ Backends.
 
 ### D4 Yolo als Policy
 
+**Status: umgesetzt.** `agentPolicy` im Store (gespiegelt mit `yoloMaster`,
+eine Wahrheit), Dreifach-Picker im Settings-Fenster, `ask-user` nimmt den
+Subagents die Yolo-Flags, `ask-orchestrator` hängt eine Approval-Regel in
+den Task-Contract (beide Dialekte); ehrliches Threat-Model im README.
+
 Heute ein Bool; Remote × Default-Yolo = RCE auf dem PC (BigBoy sagt das
 richtig; opt-in + Tailscale-Bind + Kill-Switch ist die v1-Antwort).
 
@@ -333,6 +341,14 @@ löschbar im bestehenden Retro-Panel. Kein RAG.
 
 ### E3 Journal über den Gap hinaus / Resume
 
+**Status: umgesetzt.** Journal schreibt `events.jsonl` + `meta.json`
+(Goal, Profil, `resumedFrom`); `resume.ts` liest fail-soft, wählt den
+neuesten Lauf des Profils und baut das Resume-Briefing für einen NEUEN
+Orchestrator (Branches/Worktrees bleiben, Chaining via
+`start_agent{baseBranch}`); Panel-Button „Letzten Lauf fortsetzen“ im
+Play-Fold-out. Kein Re-Spawn alter CLI-Prozesse — offene Tickets nach
+Crash = tot, das Briefing sagt es wörtlich.
+
 A2.3 macht die Lücke *sichtbar*. Resume braucht zusätzlich ein Journal
 (`.vertragus/runs/<id>/events.jsonl`) + Re-Spawn in alten Worktrees.
 Offene Tickets nach Crash = tot, ehrlich sagen. Spät.
@@ -344,11 +360,27 @@ Offene Tickets nach Crash = tot, ehrlich sagen. Spät.
 
 ### E5 Loop-Eval
 
+**Status: umgesetzt** (`tests/integration/loopEval.integration.test.ts`):
+Temp-Repo mit gepflanztem Bug, echte `git worktree`-Maschinerie (Spawn/
+Seed gefaked, keine CLI-Prozesse), Worker fixt in seinem Worktree →
+`snapshotDone` committet (C3) → `inspect_agent` zeigt den Fix → Tester
+mit `baseBranch` auf dem Worker-Branch sieht ihn (C4 real) und meldet
+success ohne uncommitted — Orchestrator-Worktree und Haupt-Checkout ohne
+eigenen Diff.
+
 Handover-Live-Test bleibt. Zweite Probe: Mini-Repo mit Bug, Goal an
 Orchestrator, Assert Worker + `inspect` zeigt Datei + Tester success +
 Orchestrator-Worktree ohne eigenen Diff.
 
 ### E6 Playbooks, Extra-MCP, fehlende Rollen
+
+**Status: umgesetzt** (Playbooks/Rollen in Track 6, Extra-MCP im
+Follow-up). Slot-Schema `extraMcp: [{name, url}]` (Name TOML-sicher,
+`vertragus` reserviert, max 4); alle fünf Attach-Dialekte schreiben die
+Zusatz-Server (Claude strict-File, Codex `-c`-Overrides, Kimi/Cursor/Grok
+Projekt-Dateien) — **nur für Subagents**, Orchestrator/Lead nie. Kein
+Formular-Feld: der Store bewahrt `extraMcp` über Editor-Saves (wie
+Zones), konfiguriert wird per Profil-JSON.
 
 Playbook = Goal-Template, kein vorstartetes Team. Extra-MCP nur an
 Worker (`mcp/attach.ts` kennt die Dialekte). Templates Janitor/Explorer,
@@ -617,11 +649,11 @@ Umsetzung, wenn der Root-Kontext voll läuft. A/B sind das Fundament.
 | Gap sichtbar | `eventQueue.ts` `droppedSince` → `await_events.eventsDropped` | **PR #17** |
 | Panel-Push | `WorkspaceDirectory.onChange` | **PR #17** |
 | Quit awaited | `index.ts` `before-quit` | **PR #17** |
-| Acht Orchestrator-Tools + `request_succession` | `toolsOrchestrator.ts` inkl. `inspect_agent` | **C6 S1** |
+| Elf Orchestrator-Tools + `request_succession` | `toolsOrchestrator.ts` inkl. `inspect_agent` | **C6 S1** |
 | Host-Fakten auf `agent_done` | `toolsSubagent.ts` `report_done`, Sentinel in `Workspace.ts` | **PR #17** |
-| MCP-Identität binär (Root vs. Blatt) | `server.ts` `McpIdentity` — Lead kommt in F | offen |
-| Ein Orchestrator pro Workspace | `Workspace.startOrchestrator` wirft bei Zweitem — C6 ersetzt seriell, nestet nicht | C6 geplant |
-| Play ohne Goal | `appIpc.ts` `workspaces:start`, Gateway `profileId` only | H2 offen |
-| MCP-Fragen vom Handy | Gateway hat kein `answer_question` | H1 offen |
-| Worker „nie committen“ | `roles.ts` — Snapshot-Commit ist C3 | später |
+| MCP-Identität dreifach (Root/Lead/Blatt) | `server.ts` `McpIdentity` inkl. `lead=` + `leadToken` | **Track 5** |
+| Ein Orchestrator pro Workspace | `Workspace.startOrchestrator` wirft bei Zweitem — C6 ersetzt seriell, nestet nicht | **C6 S1** |
+| Goal at Play | `workspaces:start{goal}` Panel + Gateway, Seed via `Workspace.assignGoal` | **Track 0** |
+| MCP-Fragen vom Handy/Panel | `answer_question` Gateway-Verb + `workspaces:answerQuestion`, ein Pfad in `mcp/answerQuestion.ts` | **Track 0** |
+| Worker „nie committen” + Host-Snapshot | `roles.ts`, `Workspace.snapshotDone`, `commitWorktree`, Handoff in `toolsOrchestrator.ts` | **Track 1** |
 | `runStats.ts` „Cursor hat kein agent_done“ | veraltet (`none` = Ollama) | ignorieren |

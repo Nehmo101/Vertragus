@@ -177,6 +177,23 @@ class SpawningHost implements AgentHost {
     return this.fakeFacts(this.require(agentId))
   }
 
+  async snapshotDone(agentId: string): Promise<WorktreeFacts> {
+    // The integration loop has no real worktrees — done-snapshot equals snapshot.
+    return this.snapshotWorktree(agentId)
+  }
+
+  beginLead(): never {
+    throw new Error('the integration loop runs flat — no leads')
+  }
+
+  async integrateBranch(): Promise<never> {
+    throw new Error('the integration loop has no real worktrees to merge')
+  }
+
+  budget(): { usedSec: number; exhausted: boolean } {
+    return { usedSec: 0, exhausted: false }
+  }
+
   private fakeFacts(record: FakeProcess): WorktreeFacts {
     return {
       branch: record.summary.branch ?? 'unknown',

@@ -5,10 +5,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BRACKETED_PASTE_ON, PASTE_BEGIN, PASTE_END } from '@main/agents/interactiveReady'
 import { buildAgentArgv } from '@main/agents/spawn'
 import { slugifyRef, worktreePathFor } from '@main/agents/worktree'
+import { EventQueue } from '@main/mcp/eventQueue'
 import { PendingQuestions } from '@main/mcp/pendingQuestions'
 import { buildReminderSuffix } from '@shared/prompts/contract'
 import { ORCHESTRATOR_COLOR, ORCHESTRATOR_ROLE_ID, roleColor } from '@shared/prompts/roles'
-import { PTY_ONLY_IDLE_HINT_MS, Workspace, type WorkspaceDeps } from './Workspace'
+import {
+  ORCHESTRATOR_IDLE_MS,
+  PTY_ONLY_IDLE_HINT_MS,
+  snapshotCommitMessage,
+  Workspace,
+  type WorkspaceDeps
+} from './Workspace'
 import {
   FakeRegistry,
   FakeWindows,
@@ -70,7 +77,8 @@ function harness(
   )
   workspace.attachMcp({
     orchestratorUrl: 'http://127.0.0.1:1/mcp?ws=w&token=orch',
-    subagentUrl: (agentId) => `http://127.0.0.1:1/mcp?ws=w&agent=${agentId}&token=sub`
+    subagentUrl: (agentId) => `http://127.0.0.1:1/mcp?ws=w&agent=${agentId}&token=sub`,
+    leadUrl: (agentId) => `http://127.0.0.1:1/mcp?ws=w&lead=${agentId}&token=lead`
   })
   workspace.attachQuestions(questions)
 
@@ -199,6 +207,43 @@ describe('startAgent', () => {
     const off = harness({ deps: { yoloMaster: false } })
     await off.workspace.startAgent({ role: 'worker', task: 'x' })
     expect(off.spawns[0]!.input.yolo).toBe(false)
+  })
+
+  it('D4: only the ask-user tier takes the yolo flags away from subagents', async () => {
+    // The tier wins over the boolean — a stale yoloMaster cannot override it.
+    const askUser = harness({ deps: { agentPolicy: 'ask-user', yoloMaster: true } })
+    await askUser.workspace.startAgent({ role: 'worker', task: 'x' })
+    expect(askUser.spawns[0]!.input.yolo).toBe(false)
+
+    // ask-orchestrator keeps CLI autonomy; the gate lives in the contract.
+    const askOrch = harness({ deps: { agentPolicy: 'ask-orchestrator', yoloMaster: false } })
+    await askOrch.workspace.startAgent({ role: 'worker', task: 'x' })
+    expect(askOrch.spawns[0]!.input.yolo).toBe(true)
+
+    const yolo = harness({ deps: { agentPolicy: 'yolo' } })
+    await yolo.workspace.startAgent({ role: 'worker', task: 'x' })
+    expect(yolo.spawns[0]!.input.yolo).toBe(true)
+  })
+
+  it('D4: the mcp context carries the effective tier for the contract layer', () => {
+    expect(harness({ deps: { agentPolicy: 'ask-orchestrator' } }).workspace.mcpContext().agentPolicy).toBe(
+      'ask-orchestrator'
+    )
+    expect(harness().workspace.mcpContext().agentPolicy).toBe('yolo')
+    expect(harness({ deps: { yoloMaster: false } }).workspace.mcpContext().agentPolicy).toBe(
+      'ask-user'
+    )
+  })
+
+  it('E6: passes the slot’s extra MCP servers into the subagent launch', async () => {
+    const extraMcp = [{ name: 'browser', url: 'http://127.0.0.1:9200/mcp' }]
+    const { workspace, spawns } = harness({
+      profile: testProfile({
+        slots: [{ id: 'slot-worker', roleId: 'worker', providerId: 'claude', extraMcp }]
+      })
+    })
+    await workspace.startAgent({ role: 'worker', task: 'x' })
+    expect(spawns[0]!.input.extraMcp).toEqual(extraMcp)
   })
 
   it('refuses a role the profile has no slot for', async () => {
@@ -964,6 +1009,54 @@ describe('autoSubmitTasks', () => {
   })
 })
 
+describe('assignGoal — H2, the goal rides the assignment handshake', () => {
+  it('types the goal into the orchestrator PTY and records it as goalText', async () => {
+    const { workspace, spawns, prompts, seedOptions } = harness()
+    await workspace.startOrchestrator()
+    expect(workspace.goalText).toBeUndefined()
+
+    await workspace.assignGoal('Fix the login bug')
+
+    expect(prompts.at(-1)).toBe('Fix the login bug')
+    expect(spawns[0]!.pty.written).toContain('Fix the login bug')
+    expect(workspace.goalText).toBe('Fix the login bug')
+    // The goal comes straight from the user — always submitted, even when the
+    // profile withholds Enter for assignments the orchestrator hands out.
+    expect(seedOptions.at(-1)?.autoSubmit).toBe(true)
+  })
+
+  it('always submits, autoSubmitTasks off included', async () => {
+    const { workspace, seedOptions } = harness({
+      profile: testProfile({ autoSubmitTasks: false })
+    })
+    await workspace.startOrchestrator()
+    await workspace.assignGoal('Goal.')
+    expect(seedOptions.at(-1)?.autoSubmit).toBe(true)
+  })
+
+  it('refuses without an orchestrator and leaves goalText unset', async () => {
+    const { workspace } = harness()
+    await expect(workspace.assignGoal('Goal.')).rejects.toThrow(/no orchestrator/)
+    expect(workspace.goalText).toBeUndefined()
+  })
+
+  it('does not record a goal the CLI never accepted', async () => {
+    const seedOk = { value: true }
+    const { workspace } = harness({
+      deps: {
+        seed: (async (write: (text: string) => void, _s: unknown, prompt: string) => {
+          if (seedOk.value) write(prompt)
+          return seedOk.value
+        }) as unknown as WorkspaceDeps['seed']
+      }
+    })
+    await workspace.startOrchestrator()
+    seedOk.value = false
+    await expect(workspace.assignGoal('Goal.')).rejects.toThrow(/did not accept the goal/)
+    expect(workspace.goalText).toBeUndefined()
+  })
+})
+
 /**
  * Ollama runs `mcp: none` on purpose — no verified attach surface, so declaring
  * one would kill the launch. The price is an agent that cannot report anything,
@@ -1388,5 +1481,499 @@ describe('inspectAgent', () => {
     await workspace.stopAgent(started.agentId)
     const status = await workspace.inspectAgent(started.agentId, { view: 'status' })
     expect(status.branch).toBe('vertragus/paradiso/caronte')
+  })
+})
+
+describe('snapshotDone — C3 snapshot commit at done-time', () => {
+  /** A stateful git fake: dirty until a commit lands, then clean with a new HEAD. */
+  function statefulGit(options: { dirty?: boolean; commitError?: string } = {}): {
+    calls: string[][]
+    git: NonNullable<NonNullable<WorkspaceDeps['worktreeDeps']>['git']>
+  } {
+    const state = { dirty: options.dirty ?? true }
+    const calls: string[][] = []
+    return {
+      calls,
+      git: async (args) => {
+        calls.push(args)
+        if (args.includes('commit')) {
+          if (options.commitError) throw new Error(options.commitError)
+          state.dirty = false
+          return { stdout: '', stderr: '' }
+        }
+        if (args[0] === 'add') return { stdout: '', stderr: '' }
+        if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') {
+          return { stdout: 'vertragus/paradiso/caronte\n', stderr: '' }
+        }
+        if (args[0] === 'rev-parse') {
+          return { stdout: state.dirty ? 'a'.repeat(40) + '\n' : 'b'.repeat(40) + '\n', stderr: '' }
+        }
+        if (args[0] === 'status') return { stdout: state.dirty ? ' M src/a.ts\n' : '', stderr: '' }
+        if (args[0] === 'diff') return { stdout: state.dirty ? ' src/a.ts | 2 +-\n' : '', stderr: '' }
+        return { stdout: '', stderr: '' }
+      }
+    }
+  }
+
+  it('commits a dirty worktree and keeps the change set on the facts', async () => {
+    const fake = statefulGit()
+    const { workspace } = harness({ deps: { worktreeDeps: { git: fake.git } } })
+    const started = await workspace.startAgent({ role: 'worker', task: 'Do it.' })
+
+    const facts = await workspace.snapshotDone(started.agentId, 'Parser fixed.\nDetails below.')
+
+    const commit = fake.calls.find((args) => args.includes('commit'))!
+    expect(commit).toBeDefined()
+    expect(commit[commit.indexOf('-m') + 1]).toBe(
+      `vertragus: ${started.name} / worker — Parser fixed.`
+    )
+    // No push, no --force — ever.
+    expect(fake.calls.some((args) => args[0] === 'push' || args.includes('--force'))).toBe(false)
+    expect(facts.uncommitted).toBe(false)
+    expect(facts.headSha).toBe('b'.repeat(40))
+    // The done's own change set survives the commit on the event facts.
+    expect(facts.changedFiles).toEqual(['src/a.ts'])
+    expect(facts.diffStat).toContain('src/a.ts')
+  })
+
+  it('does not commit a clean worktree', async () => {
+    const fake = statefulGit({ dirty: false })
+    const { workspace } = harness({ deps: { worktreeDeps: { git: fake.git } } })
+    const started = await workspace.startAgent({ role: 'worker', task: 'Do it.' })
+
+    const facts = await workspace.snapshotDone(started.agentId, 'Nothing to do.')
+    expect(fake.calls.some((args) => args.includes('commit') || args[0] === 'add')).toBe(false)
+    expect(facts.uncommitted).toBe(false)
+  })
+
+  it('falls back to the dirty snapshot when the commit fails — done facts stay truthful', async () => {
+    const fake = statefulGit({ commitError: 'index.lock held' })
+    const { workspace } = harness({ deps: { worktreeDeps: { git: fake.git } } })
+    const started = await workspace.startAgent({ role: 'worker', task: 'Do it.' })
+
+    const facts = await workspace.snapshotDone(started.agentId, 'Tried.')
+    expect(facts.uncommitted).toBe(true)
+    expect(facts.changedFiles).toEqual(['src/a.ts'])
+  })
+
+  it('a sentinel DONE runs the snapshot commit and still emits agent_done on failure', async () => {
+    const fake = statefulGit()
+    const { workspace, spawns } = harness({
+      profile: testProfile({
+        slots: [
+          { id: 'slot-worker', roleId: 'worker', providerId: 'ollama' },
+          { id: 'slot-reviewer', roleId: 'reviewer', providerId: 'claude' }
+        ]
+      }),
+      ptySystemPrompt: true,
+      deps: { worktreeDeps: { git: fake.git } }
+    })
+    await workspace.startAgent({ role: 'worker', task: 'Do it.' })
+    spawns[0]!.pty.emit(`@@VERTRAGUS:DONE@@${JSON.stringify({ summary: 'shipped' })}@@END@@`)
+    await waitForDone(workspace)
+
+    expect(fake.calls.some((args) => args.includes('commit'))).toBe(true)
+    expect(workspace.events.all().at(-1)).toMatchObject({
+      type: 'agent_done',
+      summary: 'shipped',
+      uncommitted: false,
+      changedFiles: ['src/a.ts']
+    })
+  })
+})
+
+describe('snapshotCommitMessage', () => {
+  it('uses the first non-empty summary line and caps it', () => {
+    expect(snapshotCommitMessage('Caronte', 'worker', '\n  Fixed it.  \nMore.')).toBe(
+      'vertragus: Caronte / worker — Fixed it.'
+    )
+    expect(snapshotCommitMessage('Caronte', 'worker', 'x'.repeat(400))).toHaveLength(
+      'vertragus: Caronte / worker — '.length + 120
+    )
+    expect(snapshotCommitMessage('Caronte', 'worker', '   ')).toBe('vertragus: Caronte / worker')
+  })
+})
+
+describe('orchestrator idle watchdog — C5', () => {
+  function advance(h: Harness, ms: number): void {
+    h.now.value += ms
+    vi.advanceTimersByTime(ms)
+  }
+
+  function idleEvents(h: Harness): Array<{ idleSec: number }> {
+    return h.workspace.events
+      .all()
+      .filter((event) => event.type === 'orchestrator_idle') as Array<{ idleSec: number }>
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('reports one orchestrator_idle after the window and writes one reminder line', async () => {
+    const h = harness()
+    await h.workspace.startOrchestrator()
+    expect(h.workspace.orchestratorIdle).toBe(false)
+
+    advance(h, ORCHESTRATOR_IDLE_MS - 1)
+    expect(idleEvents(h)).toEqual([])
+
+    advance(h, 1)
+    expect(idleEvents(h)).toHaveLength(1)
+    expect(idleEvents(h)[0]!.idleSec).toBe(Math.round(ORCHESTRATOR_IDLE_MS / 1_000))
+    expect(h.workspace.orchestratorIdle).toBe(true)
+    // Display-only reminder into the orchestrator terminal — never typed input.
+    expect(h.spawns[0]!.pty.snapshot()).toContain('the loop looks idle')
+    expect(h.spawns[0]!.pty.written.some((entry) => entry.includes('idle'))).toBe(false)
+
+    // One event per silence phase, not a drip.
+    advance(h, ORCHESTRATOR_IDLE_MS * 3)
+    expect(idleEvents(h)).toHaveLength(1)
+  })
+
+  it('no false positives while the loop long-polls — every tool call resets the clock', async () => {
+    const h = harness()
+    await h.workspace.startOrchestrator()
+
+    // A live await_events loop touches at least every ~55 s (call start + end).
+    for (let i = 0; i < 10; i += 1) {
+      advance(h, 55_000)
+      h.workspace.noteOrchestratorActivity()
+    }
+    expect(idleEvents(h)).toEqual([])
+    expect(h.workspace.orchestratorIdle).toBe(false)
+  })
+
+  it('a tool call ends the reported phase; the NEXT silence earns its own event', async () => {
+    const h = harness()
+    await h.workspace.startOrchestrator()
+
+    advance(h, ORCHESTRATOR_IDLE_MS)
+    expect(idleEvents(h)).toHaveLength(1)
+    expect(h.workspace.orchestratorIdle).toBe(true)
+
+    h.workspace.noteOrchestratorActivity()
+    expect(h.workspace.orchestratorIdle).toBe(false)
+
+    advance(h, ORCHESTRATOR_IDLE_MS)
+    expect(idleEvents(h)).toHaveLength(2)
+  })
+
+  it('stays quiet after the orchestrator exited — idle and exited are distinct', async () => {
+    const h = harness()
+    await h.workspace.startOrchestrator()
+    h.spawns[0]!.pty.exit({ exitCode: 1 })
+
+    advance(h, ORCHESTRATOR_IDLE_MS * 2)
+    expect(idleEvents(h)).toEqual([])
+    expect(h.workspace.orchestratorIdle).toBe(false)
+    expect(
+      h.workspace.events.all().filter((event) => event.type === 'orchestrator_exited')
+    ).toHaveLength(1)
+  })
+})
+
+describe('postUserMessage — D2', () => {
+  it('shows the text in the orchestrator terminal (display only) and pushes user_message', async () => {
+    const { workspace, spawns } = harness()
+    await workspace.startOrchestrator()
+
+    workspace.postUserMessage('Focus on the parser first.')
+
+    // Visible in the scrollback, but never typed into the CLI's stdin — a
+    // typed line would start a second turn beside the MCP loop.
+    expect(spawns[0]!.pty.snapshot()).toContain('Focus on the parser first.')
+    expect(spawns[0]!.pty.written).toEqual([])
+    expect(workspace.events.all().at(-1)).toMatchObject({
+      type: 'user_message',
+      text: 'Focus on the parser first.'
+    })
+  })
+
+  it('wakes a parked await_events-style waiter immediately', async () => {
+    const { workspace } = harness()
+    await workspace.startOrchestrator()
+    const cursor = workspace.events.cursor
+    const parked = workspace.events.wait(cursor, 5_000)
+
+    workspace.postUserMessage('steer')
+
+    const events = await parked
+    expect(events.map((event) => event.type)).toEqual(['user_message'])
+  })
+
+  it('refuses without a running orchestrator', async () => {
+    const { workspace } = harness()
+    expect(() => workspace.postUserMessage('x')).toThrow(/no running orchestrator/)
+  })
+})
+
+describe('slot/provider choice at start_agent — Track 4', () => {
+  /** A worker role with two slots on different providers. */
+  const twoProviderProfile = (): ReturnType<typeof testProfile> =>
+    testProfile({
+      slots: [
+        { id: 'slot-claude', roleId: 'worker', providerId: 'claude', model: 'sonnet', maxCount: 2 },
+        { id: 'slot-codex', roleId: 'worker', providerId: 'codex', maxCount: 1 },
+        { id: 'slot-reviewer', roleId: 'reviewer', providerId: 'claude' }
+      ]
+    })
+
+  it('providerId picks the matching slot even though the first slot has room', async () => {
+    const { workspace, spawns } = harness({ profile: twoProviderProfile() })
+    const started = await workspace.startAgent({
+      role: 'worker',
+      task: 'x',
+      providerId: 'codex'
+    })
+    expect(started.providerId).toBe('codex')
+    expect(spawns[0]!.input.provider.id).toBe('codex')
+  })
+
+  it('slotId picks exactly that slot; a provider mismatch on top is an error', async () => {
+    const { workspace } = harness({ profile: twoProviderProfile() })
+    const started = await workspace.startAgent({ role: 'worker', task: 'x', slotId: 'slot-codex' })
+    expect(started.providerId).toBe('codex')
+
+    await expect(
+      workspace.startAgent({ role: 'worker', task: 'x', slotId: 'slot-claude', providerId: 'codex' })
+    ).rejects.toThrow(/runs provider "claude"/)
+  })
+
+  it('unknown slotId / unconfigured providerId are clear errors, never silent fallbacks', async () => {
+    const { workspace } = harness({ profile: twoProviderProfile() })
+    await expect(
+      workspace.startAgent({ role: 'worker', task: 'x', slotId: 'ghost' })
+    ).rejects.toThrow(/Unknown slotId "ghost".*slot-claude, slot-codex/)
+    await expect(
+      workspace.startAgent({ role: 'worker', task: 'x', providerId: 'ollama' })
+    ).rejects.toThrow(/No slot of role "worker" runs provider "ollama"/)
+    expect(workspace.listAgents()).toEqual([])
+  })
+
+  it('an explicitly chosen full slot refuses instead of overflowing — caps stay race-free', async () => {
+    const { workspace } = harness({ profile: twoProviderProfile() })
+    await workspace.startAgent({ role: 'worker', task: 'x', providerId: 'codex' })
+
+    // The codex slot (maxCount 1) is taken; the claude slot has room, but an
+    // explicit choice must not land there.
+    await expect(
+      workspace.startAgent({ role: 'worker', task: 'x', providerId: 'codex' })
+    ).rejects.toThrow(/codex.*at its limit/)
+    await expect(
+      workspace.startAgent({ role: 'worker', task: 'x', slotId: 'slot-codex' })
+    ).rejects.toThrow(/at its limit/)
+
+    // Reservations count: a begun-but-unfinished start blocks the slot too.
+    const begun = workspace.beginAgent({ role: 'worker', task: 'x', providerId: 'claude' })
+    expect(() =>
+      workspace.beginAgent({ role: 'worker', task: 'x', slotId: 'slot-claude' })
+    ).not.toThrow() // second claude seat (maxCount 2)
+    expect(() =>
+      workspace.beginAgent({ role: 'worker', task: 'x', providerId: 'claude' })
+    ).toThrow(/at its limit/)
+    await begun.ready
+  })
+
+  it('without a choice the old "first slot with room" behaviour stands', async () => {
+    const { workspace, spawns } = harness({ profile: twoProviderProfile() })
+    await workspace.startAgent({ role: 'worker', task: 'x' })
+    expect(spawns[0]!.input.provider.id).toBe('claude')
+  })
+
+  it('renders each role’s slots into the orchestrator prompt', () => {
+    const { workspace } = harness({ profile: twoProviderProfile() })
+    const roles = workspace.rolesWithLimits()
+    expect(roles.find((role) => role.id === 'worker')?.slots).toEqual([
+      { id: 'slot-claude', providerId: 'claude', model: 'sonnet' },
+      { id: 'slot-codex', providerId: 'codex' }
+    ])
+  })
+})
+
+describe('beginLead — F', () => {
+  it('spawns a lead: orchestrator provider, lead prompt, no yolo, lead URL, darker bronze', async () => {
+    const { workspace, spawns, windows, prompts } = harness()
+    await workspace.startOrchestrator()
+
+    const lead = await workspace.startLead({
+      area: 'payments',
+      task: 'Own the payments rework.',
+      maxSubagents: 2
+    })
+
+    expect(lead.role).toBe('lead')
+    const launch = spawns[1]!.input
+    expect(launch.kind).toBe('lead')
+    // The profile's orchestrator blueprint, not a slot.
+    expect(launch.provider.id).toBe('claude')
+    expect(launch.model).toBe('opus')
+    expect(launch.yolo).toBe(false)
+    expect(launch.mcpUrl).toContain(`lead=${lead.agentId}`)
+    expect(launch.systemPrompt).toContain('LEAD orchestrator')
+    expect(launch.systemPrompt).toContain('payments')
+    expect(launch.systemPrompt).toContain('budget is 2 agents')
+    // Darker bronze, and the task seeded through the normal handshake.
+    expect(windows.opened.at(-1)).toMatchObject({ agentId: lead.agentId })
+    expect(prompts.at(-1)).toBe('Own the payments rework.')
+    // Listed like a subagent, flagged as lead.
+    const row = workspace.listAgents().find((agent) => agent.agentId === lead.agentId)
+    expect(row?.kind).toBe('lead')
+    expect(row?.status).toBe('working')
+  })
+
+  it('model override wins over the profile orchestrator model', async () => {
+    const { workspace, spawns } = harness()
+    await workspace.startLead({ area: 'x', task: 't', model: 'sonnet' })
+    expect(spawns[0]!.input.model).toBe('sonnet')
+  })
+
+  it('a lead occupies no profile slot — worker capacity stays untouched', async () => {
+    const { workspace } = harness()
+    await workspace.startLead({ area: 'x', task: 't' })
+    // Both worker seats (maxCount 2) are still free.
+    await workspace.startAgent({ role: 'worker', task: 't' })
+    await workspace.startAgent({ role: 'worker', task: 't' })
+  })
+})
+
+describe('event router — F', () => {
+  it('routes host events about a routed agent into the queue the router names', async () => {
+    const { workspace, spawns } = harness()
+    const leadQueue = new EventQueue()
+    const routed = new Set<string>()
+    workspace.attachEventRouter((agentId) =>
+      routed.has(agentId) ? leadQueue : workspace.events
+    )
+
+    const started = await workspace.startAgent({ role: 'worker', task: 'Do it.' })
+    routed.add(started.agentId)
+    spawns[0]!.pty.exit({ exitCode: 1 })
+
+    expect(
+      leadQueue.all().filter((event) => event.type === 'agent_exited' && event.agentId === started.agentId)
+    ).toHaveLength(1)
+    expect(workspace.events.all().filter((event) => event.type === 'agent_exited')).toEqual([])
+  })
+})
+
+describe('budget — E4 wall clock', () => {
+  it('sums agent-seconds (orchestrator excluded) and flags exhaustion', async () => {
+    const { workspace, now, spawns } = harness({
+      profile: testProfile({ maxRuntimeMin: 1 })
+    })
+    await workspace.startOrchestrator()
+    expect(workspace.budget()).toMatchObject({ usedSec: 0, limitSec: 60, exhausted: false })
+
+    await workspace.startAgent({ role: 'worker', task: 't' })
+    now.value += 30_000
+    expect(workspace.budget()).toMatchObject({ usedSec: 30, exhausted: false })
+
+    // A second agent doubles the burn rate.
+    await workspace.startAgent({ role: 'worker', task: 't' })
+    now.value += 20_000
+    expect(workspace.budget()).toMatchObject({ usedSec: 70, exhausted: true })
+
+    // A stopped agent stops burning.
+    spawns[1]!.pty.exit({ exitCode: 0 })
+    const frozen = workspace.budget().usedSec
+    now.value += 60_000
+    expect(workspace.budget().usedSec).toBe(frozen + 60)
+  })
+
+  it('no maxRuntimeMin → unbounded, never exhausted', async () => {
+    const { workspace, now } = harness()
+    await workspace.startAgent({ role: 'worker', task: 't' })
+    now.value += 10_000_000
+    expect(workspace.budget()).toMatchObject({ exhausted: false })
+    expect(workspace.budget().limitSec).toBeUndefined()
+  })
+})
+
+describe('promoteAgentBranch — E1 user click', () => {
+  function gitWithMainState(options: { mainDirty: boolean }): {
+    calls: Array<{ args: string[]; cwd: string }>
+    git: NonNullable<NonNullable<WorkspaceDeps['worktreeDeps']>['git']>
+  } {
+    const calls: Array<{ args: string[]; cwd: string }> = []
+    return {
+      calls,
+      git: async (args, cwd) => {
+        calls.push({ args, cwd })
+        if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') {
+          return { stdout: 'main\n', stderr: '' }
+        }
+        if (args[0] === 'rev-parse') return { stdout: 'a'.repeat(40) + '\n', stderr: '' }
+        if (args[0] === 'status') {
+          return { stdout: cwd === '/repo' && options.mainDirty ? ' M src/x.ts\n' : '', stderr: '' }
+        }
+        return { stdout: '', stderr: '' }
+      }
+    }
+  }
+
+  it('merges the agent branch into the MAIN checkout when it is clean', async () => {
+    const fake = gitWithMainState({ mainDirty: false })
+    const { workspace } = harness({ deps: { worktreeDeps: { git: fake.git } } })
+    const started = await workspace.startAgent({ role: 'worker', task: 't' })
+
+    const outcome = await workspace.promoteAgentBranch(started.agentId)
+    expect(outcome.ok).toBe(true)
+    const merge = fake.calls.find((call) => call.args.includes('merge'))!
+    expect(merge.cwd).toBe('/repo')
+    expect(merge.args).toContain(started.branch)
+  })
+
+  it('refuses a dirty main checkout — no push, no silent overwrite', async () => {
+    const fake = gitWithMainState({ mainDirty: true })
+    const { workspace } = harness({ deps: { worktreeDeps: { git: fake.git } } })
+    const started = await workspace.startAgent({ role: 'worker', task: 't' })
+
+    await expect(workspace.promoteAgentBranch(started.agentId)).rejects.toThrow(
+      /uncommitted changes/
+    )
+    expect(fake.calls.some((call) => call.args.includes('merge'))).toBe(false)
+  })
+})
+
+describe('orchestrator briefing — E2', () => {
+  it('feeds the last commits and stored repo notes into the orchestrator prompt', async () => {
+    const { workspace, spawns } = harness({
+      deps: {
+        worktreeDeps: { git: cannedGit() },
+        retro: {
+          recordLearnings: () => ({ applied: 0 }),
+          knowledge: () => [],
+          repoNotes: () => ['tests need pnpm run ci'],
+          recordRepoNotes: () => ({ applied: 0 })
+        }
+      }
+    })
+    await workspace.startOrchestrator()
+
+    const prompt = spawns[0]!.input.systemPrompt!
+    expect(prompt).toContain('Repository briefing')
+    expect(prompt).toContain('last commits')
+    expect(prompt).toContain('aaaaaaaa fixture')
+    expect(prompt).toContain('tests need pnpm run ci')
+  })
+
+  it('a repo without docs, notes or history still boots — no briefing block', async () => {
+    const { workspace, spawns } = harness()
+    await workspace.startOrchestrator()
+    expect(spawns[0]!.input.systemPrompt).not.toContain('Repository briefing')
+  })
+
+  it('E3: a resume briefing leads the briefing block', async () => {
+    const { workspace, spawns } = harness({
+      deps: { resumeBriefing: 'Previous run left branch vertragus/x with a done report.' }
+    })
+    await workspace.startOrchestrator()
+    const prompt = spawns[0]!.input.systemPrompt!
+    expect(prompt).toContain('--- resumed run ---')
+    expect(prompt).toContain('branch vertragus/x')
   })
 })

@@ -23,7 +23,16 @@ export const REMOTE_COMMANDS = [
   'workspaces:list',
   'workspaces:start',
   'workspaces:stop',
-  'profiles:list'
+  'profiles:list',
+  // H1: answer an agent's open MCP question over the same host path the
+  // orchestrator's send_to_agent{questionId} takes. One extra verb, no second
+  // question registry, no new orchestration surface. Since D3 it also answers
+  // the orchestrator's ask_user questions (reserved agentId "user").
+  'answer_question',
+  // D2: steer the run — visible in the orchestrator terminal and pushed as a
+  // user_message event that wakes its parked await_events. Distinct from raw
+  // terminal `input`, which only reaches the CLI's own prompt.
+  'user_message'
 ] as const
 export type RemoteCommand = (typeof REMOTE_COMMANDS)[number]
 
@@ -49,7 +58,14 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
     id: z.string().min(1).max(200),
     name: z.enum(REMOTE_COMMANDS),
     // Command args are validated per-command in the gateway; kept loose here.
-    arg: z.string().max(400).optional()
+    arg: z.string().max(400).optional(),
+    /**
+     * Structured command arguments (string values only). `arg` predates this
+     * and stays for the single-id commands; anything with more than one field
+     * (start goal, answer_question) travels here. Caps bound a hostile frame,
+     * the gateway validates per command.
+     */
+    args: z.record(z.string().max(64), z.string().max(20_000)).optional()
   }),
   z.object({ type: z.literal('refresh') })
 ])
@@ -65,7 +81,16 @@ export interface RemoteAgentSummary {
   roleLabel?: string
   roleColor: string
   state: 'working' | 'waiting' | 'stopped'
+  /**
+   * F: 'orchestrator' for the root row, 'lead' for sub-orchestrators, the
+   * role id otherwise. Drives the panel's indentation and lead styling.
+   */
+  kind?: string
+  /** F: the lead this agent works under; absent for direct children. */
+  parentId?: string
   pendingQuestion?: string
+  /** Registry id of that open question — what `answer_question` addresses. */
+  pendingQuestionId?: string
 }
 
 export interface RemoteWorkspaceSummary {
@@ -75,6 +100,12 @@ export interface RemoteWorkspaceSummary {
   profileName?: string
   active: boolean
   taskText?: string
+  /** Goal the workspace was started with (H2); absent = "no goal" hint. */
+  goalText?: string
+  /** C5: orchestrator alive but silent on its tools — the card shows a hint. */
+  orchestratorIdle?: boolean
+  /** D3: the orchestrator's open ask_user question (answer with agentId "user"). */
+  userQuestion?: { questionId: string; question: string }
   agents: RemoteAgentSummary[]
 }
 

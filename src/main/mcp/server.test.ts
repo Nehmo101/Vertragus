@@ -7,13 +7,15 @@ import {
   buildSubagentUrl,
   isAllowedHostHeader,
   isAllowedOrigin,
+  leadToken,
   MCP_SERVER_NAME,
   resolveIdentity,
   startMcpServer,
   subagentToken,
   type McpServerHandle
 } from './server'
-import { ORCHESTRATOR_TOOL_NAMES } from './toolsOrchestrator'
+import { EventQueue } from './eventQueue'
+import { LEAD_TOOL_NAMES, ORCHESTRATOR_TOOL_NAMES } from './toolsOrchestrator'
 import { SUBAGENT_TOOL_NAMES } from './toolsSubagent'
 import { fakeRuntime } from './testing'
 import type { WorkspaceMcpContext } from './types'
@@ -210,6 +212,80 @@ describe('startMcpServer', () => {
     expect(handle.orchestratorUrl('w7')).toContain(`ws=w7&token=${ctx.orchToken}`)
     expect(handle.subagentUrl('w7', 'a1')).toContain('agent=a1')
     expect(() => handle.subagentUrl('nope', 'a1')).toThrow(/Unknown MCP workspace/)
+  })
+
+  it('exposes open questions with ids and answers them on the shared path (H1)', async () => {
+    const registered = handle.registerWorkspace(context({ workspaceId: 'w-answer' }))
+    const pending = registered.runtime.questions.create('agent-1', 'Which DB?')
+    const waiter = registered.runtime.questions.waitForAnswer(pending.questionId, 'agent-1', 5_000)
+
+    expect(handle.openQuestion('w-answer', 'agent-1')).toEqual({
+      questionId: pending.questionId,
+      question: 'Which DB?'
+    })
+    expect(handle.openQuestion('w-answer', 'ghost')).toBeUndefined()
+    expect(handle.openQuestion('ghost', 'agent-1')).toBeUndefined()
+
+    await expect(handle.answerQuestion('ghost', 'agent-1', pending.questionId, 'x')).resolves.toEqual({
+      ok: false,
+      error: 'unknown_workspace',
+      questionId: pending.questionId
+    })
+    await expect(
+      handle.answerQuestion('w-answer', 'agent-1', pending.questionId, 'Postgres.')
+    ).resolves.toEqual({ ok: true, agentId: 'agent-1', questionId: pending.questionId })
+    await expect(waiter).resolves.toEqual({ state: 'answered', answer: 'Postgres.' })
+    expect(handle.openQuestion('w-answer', 'agent-1')).toBeUndefined()
+  })
+
+  it('F: serves the lead tool union on a lead URL and keeps the token domains apart', async () => {
+    const ctx = context({ workspaceId: 'w-lead' })
+    const registered = handle.registerWorkspace(ctx)
+
+    const client = await connect(registered.leadUrl('lead-1'))
+    const tools = (await client.listTools()).tools.map((tool) => tool.name).sort()
+    expect(tools).toEqual([...LEAD_TOOL_NAMES].sort())
+    // Root-only surface is absent, upward reporting present.
+    expect(tools).not.toContain('start_orchestrator')
+    expect(tools).not.toContain('record_retro')
+    expect(tools).toContain('report_done')
+    await client.close()
+
+    // A lead token never opens the subagent identity of the same id or vice versa.
+    expect(leadToken(ctx.subToken, 'lead-1')).not.toBe(subagentToken(ctx.subToken, 'lead-1'))
+    await expectUnauthorized(
+      `${registered.leadUrl('lead-1').split('?')[0]}?ws=w-lead&lead=lead-1&token=${subagentToken(ctx.subToken, 'lead-1')}`
+    )
+    await expectUnauthorized(
+      `${registered.leadUrl('lead-1').split('?')[0]}?ws=w-lead&agent=lead-1&token=${leadToken(ctx.subToken, 'lead-1')}`
+    )
+  })
+
+  it('F: a dead lead’s children are adopted when its exit lands in the root queue', () => {
+    const ctx = context({ workspaceId: 'w-adopt' })
+    const registered = handle.registerWorkspace(ctx)
+    const runtime = registered.runtime
+    runtime.leads.set('lead-1', {
+      agentId: 'lead-1',
+      area: 'payments',
+      events: new EventQueue()
+    })
+    runtime.parentOf.set('child-1', 'lead-1')
+
+    ctx.events.push({
+      type: 'agent_exited',
+      agentId: 'lead-1',
+      name: 'Virgilio',
+      roleId: 'lead',
+      exitCode: 1,
+      confirmed: false
+    })
+
+    expect(runtime.leads.has('lead-1')).toBe(false)
+    expect(runtime.parentOf.has('child-1')).toBe(false)
+    expect(
+      ctx.events.all().filter((event) => event.type === 'subtree_adopted')
+    ).toHaveLength(1)
   })
 
   it('names itself vertragus so tools resolve as mcp__vertragus__*', async () => {

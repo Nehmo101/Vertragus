@@ -38,7 +38,12 @@ export interface RemoteApi {
   attach(agentId: string, handlers: TerminalHandlers): () => void
   sendInput(agentId: string, data: string): void
   resize(agentId: string, cols: number, rows: number): void
-  runCommand(name: RemoteCommand, arg?: string): void
+  /**
+   * Run one allow-listed gateway command. Resolves with the command's result
+   * and rejects with the gateway's error text — the start form and the answer
+   * field need that feedback; fire-and-forget callers may ignore the promise.
+   */
+  runCommand(name: RemoteCommand, arg?: string, args?: Record<string, string>): Promise<unknown>
   refresh(): void
   /** Re-pair from scratch (session revoked or expired). */
   reset(): void
@@ -73,6 +78,11 @@ export function useRemote(): RemoteApi {
   const attachedAgents = useRef(new Set<string>())
   const reconnectAttempt = useRef(0)
   const aliveRef = useRef(true)
+  /** Command promises parked until their command_result frame arrives. */
+  const pendingCommands = useRef(
+    new Map<string, { resolve: (result: unknown) => void; reject: (error: Error) => void }>()
+  )
+  const commandSeq = useRef(0)
 
   const sendRaw = useCallback((message: object) => {
     const socket = socketRef.current
@@ -108,10 +118,18 @@ export function useRemote(): RemoteApi {
         sessionRef.current = null
         setPhase('revoked')
         break
-      case 'command_result':
+      case 'command_result': {
+        const pending = pendingCommands.current.get(message.id)
+        if (pending) {
+          pendingCommands.current.delete(message.id)
+          if (message.ok) pending.resolve(message.result)
+          else pending.reject(new Error(message.error))
+        }
+        break
+      }
       case 'error':
-        // Command results and soft errors surface through the workspace push
-        // that follows them; nothing to render inline in this minimal client.
+        // Soft errors surface through the workspace push that follows them;
+        // nothing to render inline in this minimal client.
         break
     }
   }, [sendRaw])
@@ -134,6 +152,11 @@ export function useRemote(): RemoteApi {
     }
     socket.onclose = () => {
       socketRef.current = null
+      // Commands in flight died with the socket — a parked form must not hang.
+      for (const pending of pendingCommands.current.values()) {
+        pending.reject(new Error('Verbindung unterbrochen.'))
+      }
+      pendingCommands.current.clear()
       if (!aliveRef.current || phaseIsTerminal()) return
       // Reconnect with capped exponential backoff.
       const delay = Math.min(RECONNECT_BASE_MS * 2 ** reconnectAttempt.current, RECONNECT_MAX_MS)
@@ -208,7 +231,14 @@ export function useRemote(): RemoteApi {
     attach,
     sendInput: (agentId, data) => sendRaw({ type: 'input', agentId, data }),
     resize: (agentId, cols, rows) => sendRaw({ type: 'resize', agentId, cols, rows }),
-    runCommand: (name, arg) => sendRaw({ type: 'command', id: `${Date.now()}`, name, arg }),
+    runCommand: (name, arg, args) => {
+      const id = `c${(commandSeq.current += 1)}-${Date.now()}`
+      const promise = new Promise<unknown>((resolve, reject) => {
+        pendingCommands.current.set(id, { resolve, reject })
+      })
+      sendRaw({ type: 'command', id, name, arg, args })
+      return promise
+    },
     refresh: () => sendRaw({ type: 'refresh' }),
     reset: () => {
       window.sessionStorage.removeItem(SESSION_KEY)

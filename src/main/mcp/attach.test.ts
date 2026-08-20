@@ -17,6 +17,7 @@ import {
   buildKimiOrchestratorArgs,
   buildKimiSubagentArgs,
   codexDeveloperInstructionsArgs,
+  codexExtraServerOverrides,
   CURSOR_APPROVE_MCPS_FLAG,
   CURSOR_MCP_FILE,
   CURSOR_PROJECT_DIR,
@@ -40,6 +41,7 @@ import {
   toCursorMcpConfig,
   toKimiMcpConfig,
   tomlString,
+  usableExtraMcp,
   withoutKimiAgentFileArgs,
   writeClaudeMcpConfigFile,
   writeCursorProjectMcpConfig,
@@ -439,5 +441,66 @@ describe('grok attach', () => {
     expect(args).toEqual([GROK_ALLOW_MCP_FLAG, grokAllowMcpRule()])
     expect(args).toEqual(['--allow', 'MCPTool(vertragus__*)'])
     expect(existsSync(join(workspaceDir, GROK_PROJECT_DIR, GROK_CONFIG_FILE))).toBe(true)
+  })
+})
+
+describe('E6 extra MCP servers', () => {
+  const EXTRA = [{ name: 'browser', url: 'http://127.0.0.1:9200/mcp' }]
+
+  it('claude: extra servers land in the same strict transient file', () => {
+    expect(toClaudeMcpConfig(URL, EXTRA)).toEqual({
+      mcpServers: {
+        vertragus: { type: 'http', url: URL },
+        browser: { type: 'http', url: 'http://127.0.0.1:9200/mcp' }
+      }
+    })
+    const path = writeClaudeMcpConfigFile(URL, configDir, 'extra', EXTRA)
+    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual(toClaudeMcpConfig(URL, EXTRA))
+  })
+
+  it('codex: one url override per server, nothing else', () => {
+    expect(codexExtraServerOverrides(EXTRA)).toEqual([
+      '-c',
+      `mcp_servers.browser.url=${tomlString('http://127.0.0.1:9200/mcp')}`
+    ])
+    expect(codexExtraServerOverrides(undefined)).toEqual([])
+  })
+
+  it('kimi: extra servers join the project file next to vertragus', () => {
+    expect(toKimiMcpConfig(URL, undefined, EXTRA)).toEqual({
+      mcpServers: {
+        vertragus: { url: URL },
+        browser: { url: 'http://127.0.0.1:9200/mcp' }
+      }
+    })
+  })
+
+  it('cursor: extra servers merge without touching foreign entries', () => {
+    const existing = { mcpServers: { theirs: { url: 'http://example.test/mcp' } } }
+    expect(toCursorMcpConfig(existing, URL, EXTRA).mcpServers).toEqual({
+      theirs: { url: 'http://example.test/mcp' },
+      vertragus: { url: URL },
+      browser: { url: 'http://127.0.0.1:9200/mcp' }
+    })
+  })
+
+  it('grok: one table per extra server, replaced on re-run, foreign tables intact', () => {
+    const existing = '[permission]\nmode = "ask"\n\n[mcp_servers.browser]\nurl = "http://old"\n'
+    const merged = mergeGrokConfigToml(existing, URL, EXTRA)
+    expect(merged).toContain('[permission]')
+    expect(merged).toContain(grokMcpServerBlock(URL).trim())
+    expect(merged).toContain('url = "http://127.0.0.1:9200/mcp"')
+    expect(merged).not.toContain('http://old')
+    // Idempotent: a second merge changes nothing.
+    expect(mergeGrokConfigToml(merged, URL, EXTRA)).toBe(merged)
+  })
+
+  it('defence-in-depth: a server named vertragus is dropped by every writer', () => {
+    const shadow = [{ name: 'Vertragus', url: 'http://evil.test/mcp' }]
+    expect(usableExtraMcp(shadow)).toEqual([])
+    expect(toClaudeMcpConfig(URL, shadow).mcpServers).toEqual({
+      vertragus: { type: 'http', url: URL }
+    })
+    expect(codexExtraServerOverrides(shadow)).toEqual([])
   })
 })

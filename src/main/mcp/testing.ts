@@ -13,6 +13,7 @@ import type {
   InspectAgentOptions,
   InspectAgentResult,
   StartAgentInput,
+  StartLeadInput,
   StartingAgent,
   StartingSuccession,
   ToolText,
@@ -193,8 +194,70 @@ export class FakeAgentHost implements AgentHost {
     )
   }
 
+  /** Every C3 done-snapshot the tools asked for, in call order. */
+  readonly doneSnapshots: Array<{ agentId: string; summary: string }> = []
+
+  /** E1: recorded merges; set `integrateConflict` to force the conflict path. */
+  readonly integrations: Array<{ agentId: string; branch: string }> = []
+  integrateConflict: { conflictFiles: string[]; message: string } | undefined
+
+  async integrateBranch(agentId: string, branch: string): ReturnType<AgentHost['integrateBranch']> {
+    if (!this.agents.has(agentId)) throw new Error(`Unknown agent ${agentId}`)
+    this.integrations.push({ agentId, branch })
+    if (this.integrateConflict) return { ok: false, ...this.integrateConflict }
+    return { ok: true, headSha: FAKE_HEAD }
+  }
+
+  /** E4: settable wall clock; no limit by default. */
+  budgetState: ReturnType<AgentHost['budget']> = { usedSec: 0, exhausted: false }
+
+  budget(): ReturnType<AgentHost['budget']> {
+    return this.budgetState
+  }
+
+  async snapshotDone(agentId: string, summary: string): Promise<WorktreeFacts> {
+    const facts = await this.snapshotWorktree(agentId)
+    this.doneSnapshots.push({ agentId, summary })
+    // Mirror the real host: a dirty worktree comes back committed, keeping
+    // the pre-commit change set on the facts.
+    if (!facts.uncommitted) return facts
+    return { ...facts, uncommitted: false, headSha: `${facts.headSha.slice(0, 39)}b` }
+  }
+
   listAgents(): AgentSummary[] {
     return [...this.agents.values()]
+  }
+
+  /** F: leads mirror beginAgent, with the lead role and no profile slot. */
+  beginLead(input: StartLeadInput): StartingAgent {
+    if (this.options.startError) throw new Error(this.options.startError)
+    const agentId = `agent-${++this.counter}`
+    const worktreePath = `/tmp/worktrees/${agentId}`
+    const branch = `vertragus/arsenale/${agentId}`
+    const agent: AgentSummary = {
+      agentId,
+      name: `Lead ${this.counter}`,
+      role: 'lead',
+      status: 'running',
+      model: input.model,
+      worktreePath,
+      branch,
+      lastOutputAgeSec: 0,
+      kind: 'lead',
+      reporting: 'mcp'
+    }
+    this.agents.set(agentId, agent)
+    this.seeded.push({ agentId, task: input.task })
+    return {
+      agentId,
+      name: agent.name,
+      role: agent.role,
+      providerId: 'fake',
+      model: input.model,
+      worktreePath,
+      branch,
+      ready: Promise.resolve()
+    }
   }
 
   successionInProgress(): boolean {
@@ -281,5 +344,13 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): WorkspaceRuntime 
     askTimeoutMs: options.askTimeoutMs,
     retro: options.retro
   }
-  return { ctx, questions: new PendingQuestions(), agentTasks: new Map(), host, events }
+  return {
+    ctx,
+    questions: new PendingQuestions(),
+    agentTasks: new Map(),
+    leads: new Map(),
+    parentOf: new Map(),
+    host,
+    events
+  }
 }

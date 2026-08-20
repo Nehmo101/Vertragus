@@ -124,6 +124,21 @@ export function workspaceTooltip(
   return blurb ? `${blurb}\n\n${taskLine}` : taskLine
 }
 
+/**
+ * The goal line of an expanded card (H2). A delivered goal is quoted; a
+ * RUNNING workspace without one says so — "kein Ziel — Orchestrator wartet"
+ * is the honest state of a bare Play. A finished workspace without a goal
+ * gets no line at all (there is nothing left to wait for).
+ */
+export function workspaceGoalLine(
+  t: Translate,
+  workspace: Pick<WorkspaceSummary, 'active' | 'goalText'>
+): string | undefined {
+  const goal = workspace.goalText?.trim()
+  if (goal) return t('panel.workspaceGoal', { goal })
+  return workspace.active ? t('panel.noGoal') : undefined
+}
+
 export function workspaceCardClass(
   workspace: Pick<WorkspaceSummary, 'active' | 'agents'>
 ): string {

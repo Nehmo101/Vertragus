@@ -29,7 +29,13 @@ class FakeMcp implements McpServerHandle {
   registerWorkspace(ctx: WorkspaceMcpContext): RegisteredWorkspace {
     this.contexts.push(ctx)
     this.log.push(`register:${ctx.workspaceName}`)
-    const runtime = { ctx, questions: new PendingQuestions(), agentTasks: new Map<string, string>() }
+    const runtime = {
+      ctx,
+      questions: new PendingQuestions(),
+      agentTasks: new Map<string, string>(),
+      leads: new Map(),
+      parentOf: new Map()
+    } as RegisteredWorkspace['runtime']
     this.runtimes.set(ctx.workspaceId, runtime)
     this.lastQuestions = runtime.questions
     return {
@@ -37,6 +43,8 @@ class FakeMcp implements McpServerHandle {
       orchestratorUrl: `http://127.0.0.1:${this.port}/mcp?ws=${ctx.workspaceId}&token=${ctx.orchToken}`,
       subagentUrl: (agentId: string) =>
         `http://127.0.0.1:${this.port}/mcp?ws=${ctx.workspaceId}&agent=${agentId}&token=${ctx.subToken}`,
+      leadUrl: (agentId: string) =>
+        `http://127.0.0.1:${this.port}/mcp?ws=${ctx.workspaceId}&lead=${agentId}&token=lead`,
       rotateOrchestratorToken: () => this.rotateOrchestratorToken(ctx.workspaceId),
       applyOrchestratorToken: (token) => this.applyOrchestratorToken(ctx.workspaceId, token)
     }
@@ -81,11 +89,32 @@ class FakeMcp implements McpServerHandle {
   pendingQuestion(workspaceId: string, agentId: string): string | undefined {
     return this.runtimes.get(workspaceId)?.questions.openForAgent(agentId)?.question
   }
+  openQuestion(
+    workspaceId: string,
+    agentId: string
+  ): { questionId: string; question: string } | undefined {
+    const open = this.runtimes.get(workspaceId)?.questions.openForAgent(agentId)
+    return open ? { questionId: open.questionId, question: open.question } : undefined
+  }
+  async answerQuestion(
+    workspaceId: string,
+    _agentId: string,
+    questionId: string,
+    text: string
+  ): ReturnType<McpServerHandle['answerQuestion']> {
+    const runtime = this.runtimes.get(workspaceId)
+    if (!runtime) return { ok: false as const, error: 'unknown_workspace' as const, questionId }
+    runtime.questions.answer(questionId, text)
+    return { ok: true as const, agentId: _agentId, questionId }
+  }
   workspaceTask(workspaceId: string): string | undefined {
     return this.runtimes.get(workspaceId)?.latestTask
   }
   agentTask(workspaceId: string, agentId: string): string | undefined {
     return this.runtimes.get(workspaceId)?.agentTasks.get(agentId)
+  }
+  agentParent(workspaceId: string, agentId: string): string | undefined {
+    return this.runtimes.get(workspaceId)?.parentOf.get(agentId)
   }
   async close(): Promise<void> {}
 }
@@ -142,6 +171,33 @@ describe('startWorkspace', () => {
     expect(otherFirst.workspace.name).toBe('Paradiso')
   })
 
+  it('E3: a resume start writes meta and briefs the orchestrator on the old run', async () => {
+    const appended: unknown[] = []
+    const metas: unknown[] = []
+    const { manager, spawns } = harness({
+      journal: () => ({
+        path: '/repo/.vertragus/runs/x/events.jsonl',
+        append: (event) => appended.push(event),
+        writeMeta: (meta) => metas.push(meta)
+      })
+    })
+
+    await manager.startWorkspace(testProfile(), {
+      goal: 'continue the parser work',
+      resume: { briefing: 'Old run left branch vertragus/a1.', fromWorkspaceId: 'ws-old' }
+    })
+
+    expect(metas).toHaveLength(1)
+    expect(metas[0]).toMatchObject({
+      profileId: testProfile().id,
+      goal: 'continue the parser work',
+      resumedFrom: 'ws-old'
+    })
+    const prompt = spawns[0]!.input.systemPrompt!
+    expect(prompt).toContain('--- resumed run ---')
+    expect(prompt).toContain('branch vertragus/a1')
+  })
+
   it('registers with the MCP server BEFORE the orchestrator is spawned', async () => {
     const { manager, log } = harness()
     await manager.startWorkspace(testProfile())
@@ -179,6 +235,48 @@ describe('startWorkspace', () => {
     )
   })
 
+  it('seeds a goal into the orchestrator after start (H2) and records it', async () => {
+    const { manager, spawns } = harness()
+    const running = await manager.startWorkspace(testProfile(), { goal: '  Fix the login bug  ' })
+
+    expect(running.workspace.goalText).toBe('Fix the login bug')
+    expect(spawns[0]!.pty.written).toContain('Fix the login bug')
+  })
+
+  it('a bare start stays a bare start — no goal, no seed, no crash', async () => {
+    const { manager, spawns } = harness()
+    const running = await manager.startWorkspace(testProfile())
+    expect(running.workspace.goalText).toBeUndefined()
+    // Nothing was typed into the orchestrator (fake launch has no ptySystemPrompt).
+    expect(spawns[0]!.pty.written).toEqual([])
+
+    const blank = await manager.startWorkspace(testProfile(), { goal: '   ' })
+    expect(blank.workspace.goalText).toBeUndefined()
+  })
+
+  it('a failed goal delivery surfaces the error but keeps the workspace running', async () => {
+    let orchestratorSeeded = false
+    const { manager } = harness({
+      seed: (async (write: (text: string) => void, _s: unknown, prompt: string) => {
+        // First seed call would be the goal (fake launch has no ptySystemPrompt).
+        if (!orchestratorSeeded) {
+          orchestratorSeeded = true
+          return false
+        }
+        write(prompt)
+        return true
+      }) as unknown as WorkspaceDeps['seed']
+    })
+
+    await expect(
+      manager.startWorkspace(testProfile(), { goal: 'Goal.' })
+    ).rejects.toThrow(/did not accept the goal/)
+    // The orchestrator lives on; the workspace stays listed and stoppable.
+    expect(manager.list()).toHaveLength(1)
+    expect(manager.list()[0]!.orchestratorAlive).toBe(true)
+    expect(manager.list()[0]!.goalText).toBeUndefined()
+  })
+
   it('passes the profile limits and roles into the MCP context', async () => {
     const { manager, mcp } = harness()
     await manager.startWorkspace(testProfile())
@@ -193,7 +291,8 @@ describe('startWorkspace', () => {
     const providers = vi.fn(() => testProviders())
     const roleTemplates = vi.fn(() => [])
     const yoloMaster = vi.fn(() => false)
-    const { manager, spawns } = harness({ providers, roleTemplates, yoloMaster })
+    const agentPolicy = vi.fn(() => 'ask-orchestrator' as const)
+    const { manager, spawns, mcp } = harness({ providers, roleTemplates, yoloMaster, agentPolicy })
 
     await manager.startWorkspace(testProfile())
     await manager.startWorkspace(testProfile())
@@ -201,6 +300,9 @@ describe('startWorkspace', () => {
     expect(providers).toHaveBeenCalledTimes(2)
     expect(roleTemplates).toHaveBeenCalledTimes(2)
     expect(yoloMaster).toHaveBeenCalledTimes(2)
+    // D4: the tier is read fresh too, and it reaches the MCP context.
+    expect(agentPolicy).toHaveBeenCalledTimes(2)
+    expect(mcp.contexts[0]!.agentPolicy).toBe('ask-orchestrator')
     expect(spawns).toHaveLength(2)
   })
 
@@ -285,6 +387,8 @@ describe('retro finalization', () => {
       sink: {
         recordLearnings: () => ({ applied: 0 }),
         knowledge: () => [],
+        repoNotes: () => [],
+        recordRepoNotes: () => ({ applied: 0 }),
         finalizeRun: (input) => {
           log.push('finalize')
           finalized.push(input)

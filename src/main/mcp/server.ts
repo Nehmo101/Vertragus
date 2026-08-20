@@ -20,10 +20,11 @@ import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
+import { answerAgentQuestion, type AnswerQuestionOutcome } from './answerQuestion'
 import { PendingQuestions } from './pendingQuestions'
 import { registerOrchestratorTools } from './toolsOrchestrator'
 import { registerSubagentTools } from './toolsSubagent'
-import type { WorkspaceMcpContext, WorkspaceRuntime } from './types'
+import { adoptSubtree, type WorkspaceMcpContext, type WorkspaceRuntime } from './types'
 
 /** MCP namespace of our tools: `mcp__vertragus__<tool>`. */
 export const MCP_SERVER_NAME = 'vertragus'
@@ -50,6 +51,8 @@ const SUBAGENT_INSTRUCTIONS = [
 export type McpIdentity =
   | { kind: 'orchestrator'; workspaceId: string }
   | { kind: 'subagent'; workspaceId: string; agentId: string }
+  /** F: a sub-orchestrator — scoped down-tools plus the upward subagent tools. */
+  | { kind: 'lead'; workspaceId: string; agentId: string }
 
 export interface RegisteredWorkspace {
   /**
@@ -60,6 +63,8 @@ export interface RegisteredWorkspace {
   runtime: WorkspaceRuntime
   orchestratorUrl: string
   subagentUrl(agentId: string): string
+  /** F: the MCP URL a lead process attaches with (`lead=` identity). */
+  leadUrl(agentId: string): string
   /**
    * Invalidate the current orchestrator secret, close orchestrator MCP
    * sessions, and return the new URL. Subagent URLs stay valid.
@@ -88,6 +93,26 @@ export interface McpServerHandle {
    */
   pendingQuestion(workspaceId: string, agentId: string): string | undefined
   /**
+   * Open question of an agent WITH its id — what the panel and the remote
+   * client need to answer it (the text alone cannot address the registry).
+   */
+  openQuestion(
+    workspaceId: string,
+    agentId: string
+  ): { questionId: string; question: string } | undefined
+  /**
+   * Answer one open question on the SAME path `send_to_agent{questionId}`
+   * takes (H1): sentinel questions deliver to the PTY first, MCP questions
+   * wake their parked `ask_orchestrator` waiter. Never throws — failures come
+   * back as values so panel IPC and remote gateway shape their own errors.
+   */
+  answerQuestion(
+    workspaceId: string,
+    agentId: string,
+    questionId: string,
+    text: string
+  ): Promise<AnswerQuestionOutcome | { ok: false; error: 'unknown_workspace'; questionId: string }>
+  /**
    * The latest assignment the orchestrator handed out in this workspace,
    * shortened to one line. The panel appends it to the workspace tooltip.
    */
@@ -99,6 +124,11 @@ export interface McpServerHandle {
    * assigned one through these tools — see {@link workspaceTask}).
    */
   agentTask(workspaceId: string, agentId: string): string | undefined
+  /**
+   * F: the lead an agent belongs to, or undefined for a direct child of the
+   * root. The panel indents child rows under their lead with this.
+   */
+  agentParent(workspaceId: string, agentId: string): string | undefined
   close(): Promise<void>
 }
 
@@ -124,6 +154,31 @@ export function buildOrchestratorUrl(
  */
 export function subagentToken(subToken: string, agentId: string): string {
   return createHmac('sha256', subToken).update(agentId).digest('hex')
+}
+
+/**
+ * F: the per-lead secret — same HMAC scheme as subagents, but under a
+ * namespaced message, so a lead token never validates as that agent's
+ * SUBAGENT token (or vice versa). A leaked lead token opens exactly the lead
+ * identity: neither root tools nor a sibling's subtree.
+ */
+export function leadToken(subToken: string, agentId: string): string {
+  return createHmac('sha256', subToken).update(`lead:${agentId}`).digest('hex')
+}
+
+export function buildLeadUrl(
+  port: number,
+  workspaceId: string,
+  agentId: string,
+  subToken: string,
+  host: string = MCP_BIND_HOST
+): string {
+  const params = new URLSearchParams({
+    ws: workspaceId,
+    lead: agentId,
+    token: leadToken(subToken, agentId)
+  })
+  return `${baseUrl(port, host)}?${params.toString()}`
 }
 
 export function buildSubagentUrl(
@@ -165,7 +220,15 @@ export function resolveIdentity(
   if (!ctx) return undefined
   const token = params.get('token')
   const agentId = params.get('agent')
+  const leadId = params.get('lead')
 
+  if (leadId) {
+    // `lead=` wins over a stray `agent=`: identity comes from exactly one
+    // parameter, and the token must be the lead-namespaced HMAC.
+    return secretEquals(token, leadToken(ctx.subToken, leadId))
+      ? { kind: 'lead', workspaceId, agentId: leadId }
+      : undefined
+  }
   if (agentId) {
     // Compare against the token THIS agentId derives to — a sibling's token
     // under a flipped `agent=` parameter fails here.
@@ -218,7 +281,8 @@ export function isAllowedOrigin(origin: string | undefined, bindHost: string): b
 
 function sameIdentity(a: McpIdentity, b: McpIdentity): boolean {
   if (a.kind !== b.kind || a.workspaceId !== b.workspaceId) return false
-  return a.kind !== 'subagent' || a.agentId === (b as { agentId: string }).agentId
+  if (a.kind === 'orchestrator') return true
+  return a.agentId === (b as { agentId: string }).agentId
 }
 
 async function readBody(req: IncomingMessage): Promise<unknown> {
@@ -246,8 +310,15 @@ function buildServerFor(identity: McpIdentity, runtime: WorkspaceRuntime): McpSe
         identity.kind === 'orchestrator' ? ORCHESTRATOR_INSTRUCTIONS : SUBAGENT_INSTRUCTIONS
     }
   )
-  if (identity.kind === 'orchestrator') registerOrchestratorTools(server, runtime)
-  else registerSubagentTools(server, runtime, identity.agentId)
+  if (identity.kind === 'orchestrator') {
+    registerOrchestratorTools(server, runtime)
+  } else if (identity.kind === 'lead') {
+    // F: the union — scoped down-tools plus the upward subagent tools.
+    registerOrchestratorTools(server, runtime, { leadId: identity.agentId })
+    registerSubagentTools(server, runtime, identity.agentId)
+  } else {
+    registerSubagentTools(server, runtime, identity.agentId)
+  }
   return server
 }
 
@@ -417,14 +488,28 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
     const runtime: WorkspaceRuntime = {
       ctx,
       questions: new PendingQuestions(),
-      agentTasks: new Map()
+      agentTasks: new Map(),
+      leads: new Map(),
+      parentOf: new Map()
     }
+    // F: a lead that dies (or is stopped) has its children reparented to the
+    // root. The tap lives here because the root queue is where both the
+    // host's agent_exited and the root's agent_stopped for a lead land.
+    ctx.events.onPush((event) => {
+      if (
+        (event.type === 'agent_exited' || event.type === 'agent_stopped') &&
+        runtime.leads.has(event.agentId)
+      ) {
+        adoptSubtree(runtime, event.agentId)
+      }
+    })
     workspaces.set(ctx.workspaceId, runtime)
     return {
       runtime,
       orchestratorUrl: buildOrchestratorUrl(port, ctx.workspaceId, ctx.orchToken, host),
       subagentUrl: (agentId: string) =>
         buildSubagentUrl(port, ctx.workspaceId, agentId, ctx.subToken, host),
+      leadUrl: (agentId: string) => buildLeadUrl(port, ctx.workspaceId, agentId, ctx.subToken, host),
       rotateOrchestratorToken: () => rotateOrchestratorToken(ctx.workspaceId),
       applyOrchestratorToken: (token) => applyOrchestratorToken(ctx.workspaceId, token)
     }
@@ -436,6 +521,9 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
     workspaces.delete(workspaceId)
     closeSessionsOf(workspaceId)
     runtime.questions.clear()
+    for (const lead of runtime.leads.values()) lead.events.close()
+    runtime.leads.clear()
+    runtime.parentOf.clear()
     runtime.ctx.events.close()
   }
 
@@ -460,12 +548,30 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
       return workspaces.get(workspaceId)?.questions.openForAgent(agentId)?.question
     },
 
+    openQuestion(
+      workspaceId: string,
+      agentId: string
+    ): { questionId: string; question: string } | undefined {
+      const open = workspaces.get(workspaceId)?.questions.openForAgent(agentId)
+      return open ? { questionId: open.questionId, question: open.question } : undefined
+    },
+
+    async answerQuestion(workspaceId, agentId, questionId, text) {
+      const runtime = workspaces.get(workspaceId)
+      if (!runtime) return { ok: false, error: 'unknown_workspace', questionId }
+      return answerAgentQuestion(runtime.questions, agentId, questionId, text)
+    },
+
     workspaceTask(workspaceId: string): string | undefined {
       return workspaces.get(workspaceId)?.latestTask
     },
 
     agentTask(workspaceId: string, agentId: string): string | undefined {
       return workspaces.get(workspaceId)?.agentTasks.get(agentId)
+    },
+
+    agentParent(workspaceId: string, agentId: string): string | undefined {
+      return workspaces.get(workspaceId)?.parentOf.get(agentId)
     },
 
     async close(): Promise<void> {

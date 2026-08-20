@@ -19,10 +19,91 @@ describe('agent event schema', () => {
       'agent_exited',
       'agent_stopped',
       'orchestrator_exited',
+      'orchestrator_idle',
       'orchestrator_handoff_started',
       'orchestrator_started',
-      'orchestrator_handoff_failed'
+      'orchestrator_handoff_failed',
+      'user_message',
+      'user_question',
+      'subtree_adopted',
+      'integrate_ok',
+      'integrate_conflict',
+      'budget_warning'
     ])
+  })
+
+  it('E1/E4: integrate and budget events parse with their payloads', () => {
+    expect(
+      agentEventPayloadSchema.parse({
+        type: 'integrate_ok',
+        agentId: 'a1',
+        name: 'Caronte',
+        roleId: 'worker',
+        branch: 'vertragus/x/y',
+        headSha: 'abc'
+      })
+    ).toMatchObject({ type: 'integrate_ok' })
+    expect(
+      agentEventPayloadSchema.parse({
+        type: 'integrate_conflict',
+        agentId: 'a1',
+        name: 'Caronte',
+        roleId: 'worker',
+        branch: 'vertragus/x/y',
+        conflictFiles: ['src/a.ts'],
+        message: 'CONFLICT'
+      })
+    ).toMatchObject({ conflictFiles: ['src/a.ts'] })
+    expect(
+      agentEventPayloadSchema.parse({
+        type: 'budget_warning',
+        usedSec: 100,
+        limitSec: 120,
+        exhausted: false
+      })
+    ).toMatchObject({ type: 'budget_warning' })
+  })
+
+  it('F: subtree_adopted names the dead lead, its area and the reparented children', () => {
+    expect(
+      agentEventPayloadSchema.parse({
+        type: 'subtree_adopted',
+        leadAgentId: 'lead-1',
+        area: 'payments',
+        adoptedAgentIds: ['a1', 'a2']
+      })
+    ).toMatchObject({ leadAgentId: 'lead-1', adoptedAgentIds: ['a1', 'a2'] })
+    expect(() =>
+      agentEventPayloadSchema.parse({ type: 'subtree_adopted', area: 'x', adoptedAgentIds: [] })
+    ).toThrow()
+  })
+
+  it('D2/D3: user_message and user_question carry no agent identity', () => {
+    expect(
+      agentEventPayloadSchema.parse({ type: 'user_message', text: 'Focus on the parser.' })
+    ).toMatchObject({ type: 'user_message' })
+    expect(() => agentEventPayloadSchema.parse({ type: 'user_message', text: '' })).toThrow()
+    expect(
+      agentEventPayloadSchema.parse({ type: 'user_question', questionId: 'q1', question: 'Ship?' })
+    ).toMatchObject({ questionId: 'q1' })
+    expect(() =>
+      agentEventPayloadSchema.parse({ type: 'user_question', question: 'Ship?' })
+    ).toThrow()
+  })
+
+  it('C5: orchestrator_idle carries the silence length and stays distinct from exited', () => {
+    const parsed = agentEventPayloadSchema.parse({
+      type: 'orchestrator_idle',
+      ...identity,
+      idleSec: 120
+    })
+    expect(parsed).toMatchObject({ type: 'orchestrator_idle', idleSec: 120 })
+    expect(() =>
+      agentEventPayloadSchema.parse({ type: 'orchestrator_idle', ...identity })
+    ).toThrow()
+    expect(() =>
+      agentEventPayloadSchema.parse({ type: 'orchestrator_idle', ...identity, idleSec: -1 })
+    ).toThrow()
   })
 
   it('requires a message on agent_start_failed — a silent failure helps nobody', () => {

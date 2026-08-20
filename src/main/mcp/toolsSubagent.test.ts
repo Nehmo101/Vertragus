@@ -68,7 +68,7 @@ describe('report_done', () => {
     expect(String(result.json.note)).toMatch(/do not exit/i)
   })
 
-  it('attaches host worktree facts to agent_done', async () => {
+  it('attaches host worktree facts to agent_done via the C3 done-snapshot', async () => {
     const { runtime, tools, agentId } = await setup()
     runtime.host.snapshots.set(agentId, {
       branch: 'vertragus/arsenale/caronte',
@@ -79,15 +79,18 @@ describe('report_done', () => {
     })
 
     await callTool(tools, 'report_done', { summary: 'parser fixed' })
+    // The host committed the dirty worktree (C3): uncommitted flips to false,
+    // HEAD moves, and the change set of THIS done stays on the event.
     expect(runtime.events.all().at(-1)).toMatchObject({
       type: 'agent_done',
       agentId,
       summary: 'parser fixed',
       branch: 'vertragus/arsenale/caronte',
-      headSha: 'cccccccccccccccccccccccccccccccccccccccc',
-      uncommitted: true,
+      uncommitted: false,
       changedFiles: ['src/parser.ts']
     })
+    // The tool hands the summary to the host — it becomes the commit subject.
+    expect(runtime.host.doneSnapshots).toEqual([{ agentId, summary: 'parser fixed' }])
   })
 
   it('still reports done when the worktree snapshot fails', async () => {

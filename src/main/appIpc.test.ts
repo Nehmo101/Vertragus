@@ -14,7 +14,12 @@ vi.mock('electron', () => ({
   dialog: { showOpenDialog: vi.fn(), showMessageBox: vi.fn() },
   BrowserWindow: { getAllWindows: () => [] }
 }))
-vi.mock('@main/store/settings', () => ({ settings: vi.fn() }))
+vi.mock('@main/store/settings', async (importOriginal) => ({
+  // The real helpers (effectiveAgentPolicy) stay; only the Electron-backed
+  // store singleton is stubbed out.
+  ...(await importOriginal<typeof import('@main/store/settings')>()),
+  settings: vi.fn()
+}))
 vi.mock('@main/providers/discovery', () => ({ discoverModels: vi.fn() }))
 vi.mock('@main/providers/health', () => ({ checkAllProviders: vi.fn() }))
 vi.mock('@main/windows/cliWindow', () => ({
@@ -94,7 +99,7 @@ import { REMOTE_CHANNELS } from './remote/ipc'
 import type { MinimalIpcMain } from './ipc'
 import type { WorkspaceSummary as PreloadWorkspaceSummary } from '../preload'
 import { profileSchema, type Profile, type RoleTemplate } from '@shared/schema/profile'
-import type { ModelLearning, RunRetro } from '@shared/schema/retro'
+import type { ModelLearning, RepoNote, RunRetro } from '@shared/schema/retro'
 import { DEFAULT_APPEARANCE } from '@shared/appearance'
 import type { AppSettings } from './store/settings'
 import type { ProviderConfig, ProviderConfigInput } from '@shared/schema/provider'
@@ -174,7 +179,11 @@ function createFakeStore(
   let roles: RoleTemplate[] = []
   let storedProviders: ProviderConfig[] = []
   const settings: AppSettings = structuredClone(SETTINGS)
-  const retroState = { retros: [] as RunRetro[], learnings: [] as ModelLearning[] }
+  const retroState = {
+    retros: [] as RunRetro[],
+    learnings: [] as ModelLearning[],
+    repoNotes: [] as RepoNote[]
+  }
   return {
     settings,
     get retros() {
@@ -194,6 +203,14 @@ function createFakeStore(
     deleteModelLearning(id) {
       retroState.learnings = retroState.learnings.filter((entry) => entry.id !== id)
       return [...retroState.learnings]
+    },
+    getRepoNotes: (profileId) =>
+      profileId
+        ? retroState.repoNotes.filter((entry) => entry.profileId === profileId)
+        : [...retroState.repoNotes],
+    deleteRepoNote(id) {
+      retroState.repoNotes = retroState.repoNotes.filter((entry) => entry.id !== id)
+      return [...retroState.repoNotes]
     },
     getProfiles: () => profiles,
     saveProfile(raw) {
@@ -233,6 +250,13 @@ function createFakeStore(
     getSettings: () => settings,
     setSetting(key, value) {
       ;(settings as Record<string, unknown>)[key] = value
+      // D4 mirror — same write rule as the real store, so panelSettings sees
+      // one truth here too.
+      if (key === 'agentPolicy' && value !== undefined) {
+        settings.yoloMaster = value === 'yolo'
+      } else if (key === 'yoloMaster') {
+        settings.agentPolicy = value ? 'yolo' : 'ask-user'
+      }
       return settings
     }
   }
@@ -264,11 +288,15 @@ interface Harness {
   store: ReturnType<typeof createFakeStore>
   broadcasts: { channel: string; payload: unknown }[]
   directory: WorkspaceDirectory & {
-    started: string[]
+    started: Array<{ profileId: string; goal?: string }>
+    resumed: string[]
     stopped: string[]
     focused: string[]
     focusedWorkspaces: string[]
     closedAgents: string[]
+    answered: Array<{ workspaceId: string; agentId: string; questionId: string; text: string }>
+    userMessages: Array<{ workspaceId: string; text: string }>
+    promoted: Array<{ workspaceId: string; agentId: string }>
     removedWorktrees: Array<{ profileId: string; path: string }>
     staleWorktrees: { path: string; branch?: string }[]
     change?: () => void
@@ -371,21 +399,37 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
   }
 
   const directory = {
-    started: [] as string[],
+    started: [] as Array<{ profileId: string; goal?: string }>,
+    resumed: [] as string[],
     stopped: [] as string[],
     focused: [] as string[],
     focusedWorkspaces: [] as string[],
     closedAgents: [] as string[],
+    answered: [] as Array<{ workspaceId: string; agentId: string; questionId: string; text: string }>,
+    userMessages: [] as Array<{ workspaceId: string; text: string }>,
+    promoted: [] as Array<{ workspaceId: string; agentId: string }>,
     removedWorktrees: [] as Array<{ profileId: string; path: string }>,
     staleWorktrees: [
       { path: '/repo/.vertragus/worktrees/old-1', branch: 'vertragus/paradiso/caronte' }
     ] as { path: string; branch?: string }[],
     list: () => state.workspaces,
-    start(profileId: string) {
-      this.started.push(profileId)
+    start(profileId: string, goal?: string) {
+      this.started.push({ profileId, ...(goal !== undefined ? { goal } : {}) })
+    },
+    resume(profileId: string) {
+      this.resumed.push(profileId)
     },
     stop(workspaceId: string) {
       this.stopped.push(workspaceId)
+    },
+    async answerQuestion(workspaceId: string, agentId: string, questionId: string, text: string) {
+      this.answered.push({ workspaceId, agentId, questionId, text })
+    },
+    postUserMessage(workspaceId: string, text: string) {
+      this.userMessages.push({ workspaceId, text })
+    },
+    async promoteAgentBranch(workspaceId: string, agentId: string) {
+      this.promoted.push({ workspaceId, agentId })
     },
     focusAgent(agentId: string) {
       this.focused.push(agentId)
@@ -733,7 +777,7 @@ describe('workspaces', () => {
     h.ipc.invoke(APP_CHANNELS.workspacesFocus, PANEL_ID, { workspaceId: 'w1' })
     h.ipc.invoke(APP_CHANNELS.workspacesCloseAgent, PANEL_ID, { agentId: 'w1-orch' })
 
-    expect(h.directory.started).toEqual(['p1'])
+    expect(h.directory.started).toEqual([{ profileId: 'p1' }])
     expect(h.directory.stopped).toEqual(['w1'])
     expect(h.directory.focused).toEqual(['w1-orch'])
     expect(h.directory.focusedWorkspaces).toEqual(['w1'])
@@ -743,6 +787,94 @@ describe('workspaces', () => {
       APP_CHANNELS.eventWorkspaces,
       APP_CHANNELS.eventWorkspaces
     ])
+  })
+
+  it('passes a goal through to the directory and treats a blank one as absent (H2)', async () => {
+    await h.ipc.invoke(APP_CHANNELS.workspacesStart, PANEL_ID, {
+      profileId: 'p1',
+      goal: '  Fix the login bug  '
+    })
+    await h.ipc.invoke(APP_CHANNELS.workspacesStart, PANEL_ID, { profileId: 'p1', goal: '   ' })
+
+    expect(h.directory.started).toEqual([
+      { profileId: 'p1', goal: 'Fix the login bug' },
+      { profileId: 'p1' }
+    ])
+  })
+
+  it('resumes the last run over the directory (E3) — panel only, id required', async () => {
+    await h.ipc.invoke(APP_CHANNELS.workspacesResume, PANEL_ID, { profileId: 'p1' })
+    expect(h.directory.resumed).toEqual(['p1'])
+    await expect(
+      Promise.resolve(h.ipc.invoke(APP_CHANNELS.workspacesResume, PANEL_ID, {}))
+    ).rejects.toThrow(/missing profile id/)
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.workspacesResume, CLI_ID, { profileId: 'p1' })
+    ).toThrow(/not the panel/)
+  })
+
+  it('answers an agent question over the directory (H1) — panel only, all ids required', async () => {
+    await h.ipc.invoke(APP_CHANNELS.workspacesAnswerQuestion, PANEL_ID, {
+      workspaceId: 'w1',
+      agentId: 'a1',
+      questionId: 'q1',
+      text: 'Use bcrypt.'
+    })
+    expect(h.directory.answered).toEqual([
+      { workspaceId: 'w1', agentId: 'a1', questionId: 'q1', text: 'Use bcrypt.' }
+    ])
+
+    for (const broken of [
+      { agentId: 'a1', questionId: 'q1', text: 'x' },
+      { workspaceId: 'w1', questionId: 'q1', text: 'x' },
+      { workspaceId: 'w1', agentId: 'a1', text: 'x' },
+      { workspaceId: 'w1', agentId: 'a1', questionId: 'q1', text: '  ' }
+    ]) {
+      await expect(
+        Promise.resolve(h.ipc.invoke(APP_CHANNELS.workspacesAnswerQuestion, PANEL_ID, broken))
+      ).rejects.toThrow(/rejected/)
+    }
+    expect(h.directory.answered).toHaveLength(1)
+
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.workspacesAnswerQuestion, CLI_ID, {
+        workspaceId: 'w1',
+        agentId: 'a1',
+        questionId: 'q1',
+        text: 'x'
+      })
+    ).toThrow(/not the panel/)
+  })
+
+  it('steers a workspace over user_message (D2) — panel only, text required', async () => {
+    await h.ipc.invoke(APP_CHANNELS.workspacesUserMessage, PANEL_ID, {
+      workspaceId: 'w1',
+      text: '  Focus on the parser.  '
+    })
+    expect(h.directory.userMessages).toEqual([{ workspaceId: 'w1', text: 'Focus on the parser.' }])
+
+    await expect(
+      Promise.resolve(
+        h.ipc.invoke(APP_CHANNELS.workspacesUserMessage, PANEL_ID, { workspaceId: 'w1', text: ' ' })
+      )
+    ).rejects.toThrow(/missing text/)
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.workspacesUserMessage, CLI_ID, { workspaceId: 'w1', text: 'x' })
+    ).toThrow(/not the panel/)
+  })
+
+  it('promotes an agent branch on explicit click (E1) — panel only', async () => {
+    await h.ipc.invoke(APP_CHANNELS.workspacesPromoteAgent, PANEL_ID, {
+      workspaceId: 'w1',
+      agentId: 'a1'
+    })
+    expect(h.directory.promoted).toEqual([{ workspaceId: 'w1', agentId: 'a1' }])
+    await expect(
+      Promise.resolve(h.ipc.invoke(APP_CHANNELS.workspacesPromoteAgent, PANEL_ID, { agentId: 'a1' }))
+    ).rejects.toThrow(/missing workspace id/)
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.workspacesPromoteAgent, CLI_ID, { workspaceId: 'w1', agentId: 'a1' })
+    ).toThrow(/not the panel/)
   })
 
   it('rejects a focus-workspace call without a workspace id', () => {
@@ -765,7 +897,11 @@ describe('workspaces', () => {
       directory: {
         list: () => [],
         start: refuse,
+        resume: refuse,
         stop() {},
+        answerQuestion: async () => refuse(),
+        postUserMessage: refuse,
+        promoteAgentBranch: async () => refuse(),
         focusAgent() {},
         closeAgentWindow() {},
         focusWorkspace() {},
@@ -885,6 +1021,7 @@ describe('settings and windows', () => {
   it('returns only the settings a window shows', () => {
     expect(h.ipc.invoke(APP_CHANNELS.settingsGet, PANEL_ID)).toEqual({
       yoloMaster: true,
+      agentPolicy: 'yolo',
       hideAllHotkey: 'Control+Alt+V',
       locale: 'de',
       theme: 'dark',
@@ -947,9 +1084,25 @@ describe('settings and windows', () => {
 
   it('toggles the yolo master', () => {
     expect(h.ipc.invoke(APP_CHANNELS.settingsYolo, PANEL_ID, { enabled: false })).toMatchObject({
-      yoloMaster: false
+      yoloMaster: false,
+      // D4: the coarse toggle lands on the ask-user tier, never on a stale one.
+      agentPolicy: 'ask-user'
     })
     expect(h.store.settings.yoloMaster).toBe(false)
+  })
+
+  it('writes the D4 tier from the settings window and mirrors the boolean', async () => {
+    const next = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'agentPolicy',
+      value: 'ask-orchestrator'
+    })) as PanelSettings
+    expect(next.agentPolicy).toBe('ask-orchestrator')
+    expect(next.yoloMaster).toBe(false)
+    expect(h.store.settings.agentPolicy).toBe('ask-orchestrator')
+
+    await expect(
+      h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, { key: 'agentPolicy', value: 'full-send' })
+    ).rejects.toThrow(/agentPolicy expects/)
   })
 
   it('broadcasts every settings write so the other windows follow', async () => {
@@ -1080,7 +1233,8 @@ describe('settings:set', () => {
       'updateChannel',
       'theme',
       'locale',
-      'appearance'
+      'appearance',
+      'agentPolicy'
     ])
   })
 
@@ -1586,7 +1740,11 @@ describe('production registration', () => {
     const real: WorkspaceDirectory = {
       list: () => [workspace('w1')],
       start: vi.fn(),
+      resume: vi.fn(),
       stop: vi.fn(),
+      answerQuestion: vi.fn(async () => {}),
+      postUserMessage: vi.fn(),
+      promoteAgentBranch: vi.fn(async () => {}),
       focusAgent: vi.fn(),
       closeAgentWindow: vi.fn(),
       focusWorkspace: vi.fn(),
@@ -1596,7 +1754,11 @@ describe('production registration', () => {
     const second: WorkspaceDirectory = {
       list: () => [],
       start: vi.fn(),
+      resume: vi.fn(),
       stop: vi.fn(),
+      answerQuestion: vi.fn(async () => {}),
+      postUserMessage: vi.fn(),
+      promoteAgentBranch: vi.fn(async () => {}),
       focusAgent: vi.fn(),
       closeAgentWindow: vi.fn(),
       focusWorkspace: vi.fn(),

@@ -29,6 +29,7 @@ import { armWindowCapture } from './windows/smokeCapture'
 import { armZoneOverlaySmoke } from './windows/zoneOverlay'
 import { startAppUpdater } from './updater'
 import type { WorkspaceManager } from './workspace/WorkspaceManager'
+import { buildResumeBriefing, latestRun } from './workspace/resume'
 import { createWorktreeCleanup } from './workspace/worktreeCleanup'
 
 /**
@@ -41,13 +42,45 @@ function armScreenshotHook(win: Electron.BrowserWindow, envVar: string, delayMs 
   armWindowCapture(win, envVar, envVar, delayMs)
 }
 
+/**
+ * F: order a flat agent list so every agent follows its parent — root
+ * children in start order, each lead's children directly after the lead.
+ */
+function orderByParent<T extends { agentId: string }>(
+  agents: readonly T[],
+  parentOf: (agent: T) => string | undefined
+): T[] {
+  const byParent = new Map<string | undefined, T[]>()
+  for (const agent of agents) {
+    const key = parentOf(agent)
+    const bucket = byParent.get(key) ?? []
+    bucket.push(agent)
+    byParent.set(key, bucket)
+  }
+  const ordered: T[] = []
+  const seen = new Set<string>()
+  for (const root of byParent.get(undefined) ?? []) {
+    ordered.push(root)
+    seen.add(root.agentId)
+    for (const child of byParent.get(root.agentId) ?? []) {
+      ordered.push(child)
+      seen.add(child.agentId)
+    }
+  }
+  // Orphans (parent no longer listed) still render instead of vanishing.
+  for (const agent of agents) if (!seen.has(agent.agentId)) ordered.push(agent)
+  return ordered
+}
+
 /** Adapter: WorkspaceManager → the view the panel draws. */
 function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): WorkspaceDirectory {
   const roleLabel = (roleId: string): string =>
     allRoleTemplates(getRoleTemplates()).find((role) => role.id === roleId)?.name ?? roleId
 
-  const pendingOf = (workspaceId: string, agentId: string): string | undefined =>
-    mcp.pendingQuestion(workspaceId, agentId)
+  const pendingOf = (
+    workspaceId: string,
+    agentId: string
+  ): { questionId: string; question: string } | undefined => mcp.openQuestion(workspaceId, agentId)
 
   // Active paths across ALL workspaces, not just the asking profile's: two
   // profiles may point at the same repository, and an agent of either must
@@ -66,6 +99,9 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
         const orchestrator = ws.orchestrator
         const roleIds = [...new Set(ws.profile.slots.map((slot) => slot.roleId))]
         const taskText = mcp.workspaceTask(ws.workspaceId)
+        const orchestratorQuestion = orchestrator
+          ? pendingOf(ws.workspaceId, orchestrator.agentId)
+          : undefined
         return {
           workspaceId: ws.workspaceId,
           name: ws.name,
@@ -75,6 +111,14 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
           // must grey the card out even though its record (and window) stay.
           active: ws.orchestratorAlive,
           ...(taskText ? { taskText } : {}),
+          ...(ws.goalText ? { goalText: ws.goalText } : {}),
+          ...(ws.orchestratorIdle ? { orchestratorIdle: true } : {}),
+          // D3: the orchestrator's open ask_user question, registry-keyed
+          // under the reserved agent id 'user'.
+          ...(() => {
+            const open = mcp.openQuestion(ws.workspaceId, 'user')
+            return open ? { userQuestion: open } : {}
+          })(),
           agents: [
             ...(orchestrator
               ? [
@@ -89,20 +133,29 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
                     // tools — the closest truth is the last one it delegated.
                     ...(taskText ? { statusText: taskText } : {}),
                     ...(windowOpenOf(orchestrator.agentId) ? { windowOpen: true } : {}),
-                    ...(pendingOf(ws.workspaceId, orchestrator.agentId)
-                      ? { pendingQuestion: pendingOf(ws.workspaceId, orchestrator.agentId) }
+                    ...(orchestratorQuestion
+                      ? {
+                          pendingQuestion: orchestratorQuestion.question,
+                          pendingQuestionId: orchestratorQuestion.questionId
+                        }
                       : {})
                   }
                 ]
               : []),
-            ...ws.listAgents().map((agent) => {
+            // F: flat list with indentation — every agent right after its
+            // lead. Root children keep start order; orphans (unknown parent)
+            // fall back to the end rather than disappearing.
+            ...orderByParent(ws.listAgents(), (agent) =>
+              mcp.agentParent(ws.workspaceId, agent.agentId)
+            ).map((agent) => {
               const pendingQuestion = pendingOf(ws.workspaceId, agent.agentId)
               const agentTask = mcp.agentTask(ws.workspaceId, agent.agentId)
+              const parentId = mcp.agentParent(ws.workspaceId, agent.agentId)
               return {
                 agentId: agent.agentId,
                 name: agent.name,
                 roleId: agent.role,
-                roleLabel: roleLabel(agent.role),
+                roleLabel: agent.kind === 'lead' ? 'Lead' : roleLabel(agent.role),
                 roleColor: roleColor(agent.role, roleIds.indexOf(agent.role)),
                 state:
                   agent.status === 'working'
@@ -110,23 +163,81 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
                     : agent.status === 'starting'
                       ? ('waiting' as const)
                       : ('stopped' as const),
+                ...(agent.kind ? { kind: agent.kind } : {}),
+                ...(parentId ? { parentId } : {}),
                 ...(agentTask ? { statusText: agentTask } : {}),
                 ...(windowOpenOf(agent.agentId) ? { windowOpen: true } : {}),
-                ...(pendingQuestion ? { pendingQuestion } : {})
+                ...(pendingQuestion
+                  ? {
+                      pendingQuestion: pendingQuestion.question,
+                      pendingQuestionId: pendingQuestion.questionId
+                    }
+                  : {})
               }
             })
           ]
         }
       }),
-    start(profileId) {
+    start(profileId, goal) {
       const profile = getProfile(profileId)
       if (!profile) {
         const locale = readLocale(() => getSettings().ui.locale)
         throw new Error(mainMessages(locale).unknownProfile(profileId))
       }
-      return manager.startWorkspace(profile)
+      return manager.startWorkspace(profile, goal ? { goal } : undefined)
+    },
+    async resume(profileId) {
+      const profile = getProfile(profileId)
+      if (!profile) {
+        const locale = readLocale(() => getSettings().ui.locale)
+        throw new Error(mainMessages(locale).unknownProfile(profileId))
+      }
+      // E3: brief a NEW orchestrator on the newest journaled run. The old
+      // run's goal (when its meta recorded one) is re-seeded over the same
+      // handshake, so the card and the orchestrator agree on what continues.
+      const run = await latestRun(profile.repoPath, profile.id)
+      if (!run) {
+        throw new Error(`resume rejected — no journaled run found in ${profile.repoPath}`)
+      }
+      return manager.startWorkspace(profile, {
+        resume: { briefing: buildResumeBriefing(run), fromWorkspaceId: run.workspaceId },
+        ...(run.meta?.goal ? { goal: run.meta.goal } : {})
+      })
     },
     stop: (workspaceId) => manager.stopWorkspace(workspaceId),
+    postUserMessage(workspaceId, text) {
+      const workspace = manager.get(workspaceId)
+      if (!workspace) throw new Error(`user message rejected — unknown workspace ${workspaceId}`)
+      workspace.postUserMessage(text)
+    },
+    async promoteAgentBranch(workspaceId, agentId) {
+      const workspace = manager.get(workspaceId)
+      if (!workspace) throw new Error(`promote rejected — unknown workspace ${workspaceId}`)
+      const outcome = await workspace.promoteAgentBranch(agentId)
+      if (!outcome.ok) {
+        throw new Error(
+          `Merge conflict — nothing was changed. Conflicting files: ${outcome.conflictFiles.join(', ') || '(unknown)'}`
+        )
+      }
+    },
+    async answerQuestion(workspaceId, agentId, questionId, text) {
+      // One host path (H1): identical to the orchestrator's
+      // send_to_agent{questionId} — see mcp/answerQuestion.ts.
+      const outcome = await mcp.answerQuestion(workspaceId, agentId, questionId, text)
+      if (outcome.ok) return
+      switch (outcome.error) {
+        case 'unknown_workspace':
+          throw new Error(`answer rejected — unknown workspace ${workspaceId}`)
+        case 'unknown_question':
+          throw new Error('answer rejected — that question is already answered or no longer open')
+        case 'question_agent_mismatch':
+          throw new Error('answer rejected — the question belongs to a different agent')
+        case 'answer_delivery_failed':
+          throw new Error(
+            `answer not delivered — the question is still open (${outcome.message ?? 'delivery failed'})`
+          )
+      }
+    },
     focusAgent(agentId) {
       if (getCliWindow(agentId)) {
         focusCliWindow(agentId)
@@ -275,8 +386,11 @@ function buildRemoteController(
             name: profile.name,
             repoPath: profile.repoPath
           })),
-        startWorkspace: (profileId) => directory.start(profileId),
-        stopWorkspace: (workspaceId) => directory.stop(workspaceId)
+        startWorkspace: (profileId, goal) => directory.start(profileId, goal),
+        stopWorkspace: (workspaceId) => directory.stop(workspaceId),
+        answerQuestion: ({ workspaceId, agentId, questionId, text }) =>
+          directory.answerQuestion(workspaceId, agentId, questionId, text),
+        userMessage: ({ workspaceId, text }) => directory.postUserMessage(workspaceId, text)
       },
       terminals: () => getAgentRegistry().terminals(),
       onWorkspaceChange: (listener) => manager.onChange(listener),

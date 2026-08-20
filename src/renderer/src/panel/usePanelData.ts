@@ -31,8 +31,17 @@ export interface PanelData {
   update: UpdateState | null
   error: string | null
   dismissError(): void
-  startWorkspace(profileId: string): void
+  /** Start a workspace; a non-empty goal is seeded into the orchestrator (H2). */
+  startWorkspace(profileId: string, goal?: string): void
+  /** E3: start a workspace briefed on the profile's newest journaled run. */
+  resumeWorkspace(profileId: string): void
   stopWorkspace(workspaceId: string): void
+  /** Answer an agent's open question from its `?` badge (H1). */
+  answerQuestion(workspaceId: string, agentId: string, questionId: string, text: string): void
+  /** D2: steer a running workspace — wakes the orchestrator's await_events. */
+  sendUserMessage(workspaceId: string, text: string): void
+  /** E1 Promote: merge this agent's branch into the repo's own checkout. */
+  promoteAgent(workspaceId: string, agentId: string): void
   focusAgent(agentId: string): void
   /** Close a finished agent's CLI window; the row and last task stay. */
   closeAgentWindow(agentId: string): void
@@ -117,9 +126,14 @@ export function usePanelData(): PanelData {
     update,
     error,
     dismissError: () => setError(null),
-    startWorkspace: (profileId) =>
+    startWorkspace: (profileId, goal) =>
       run(async (api) => {
-        await api.startWorkspace(profileId)
+        await api.startWorkspace(profileId, goal)
+        setWorkspaces(await api.listWorkspaces())
+      }),
+    resumeWorkspace: (profileId) =>
+      run(async (api) => {
+        await api.resumeWorkspace(profileId)
         setWorkspaces(await api.listWorkspaces())
       }),
     stopWorkspace: (workspaceId) =>
@@ -127,6 +141,15 @@ export function usePanelData(): PanelData {
         await api.stopWorkspace(workspaceId)
         setWorkspaces(await api.listWorkspaces())
       }),
+    answerQuestion: (workspaceId, agentId, questionId, text) =>
+      run(async (api) => {
+        await api.answerQuestion(workspaceId, agentId, questionId, text)
+        setWorkspaces(await api.listWorkspaces())
+      }),
+    sendUserMessage: (workspaceId, text) =>
+      run((api) => api.sendUserMessage(workspaceId, text)),
+    promoteAgent: (workspaceId, agentId) =>
+      run((api) => api.promoteAgentBranch(workspaceId, agentId)),
     focusAgent: (agentId) => run((api) => api.focusAgent(agentId)),
     closeAgentWindow: (agentId) => run((api) => api.closeAgentWindow(agentId)),
     focusWorkspace: (workspaceId) => run((api) => api.focusWorkspace(workspaceId)),

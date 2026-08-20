@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { Profile, RoleTemplate } from '@shared/schema/profile'
 import type { ProviderConfig } from '@shared/schema/provider'
-import type { ModelLearning, RunRetro } from '@shared/schema/retro'
+import type { ModelLearning, RepoNote, RunRetro } from '@shared/schema/retro'
 import type { Zone, ZoneLayout } from '@shared/schema/zones'
 import type { Appearance } from '@shared/appearance'
 import type { BindOption, RemoteClientInfo, RemoteStatus } from '@shared/remote/types'
@@ -140,15 +140,21 @@ const APP = {
   modelsDiscover: 'models:discover',
   workspacesList: 'workspaces:list',
   workspacesStart: 'workspaces:start',
+  workspacesResume: 'workspaces:resume',
   workspacesStop: 'workspaces:stop',
   workspacesFocusAgent: 'workspaces:focusAgent',
   workspacesFocus: 'workspaces:focus',
   workspacesCloseAgent: 'workspaces:closeAgent',
+  workspacesAnswerQuestion: 'workspaces:answerQuestion',
+  workspacesUserMessage: 'workspaces:userMessage',
+  workspacesPromoteAgent: 'workspaces:promoteAgent',
   worktreesList: 'worktrees:list',
   worktreesRemove: 'worktrees:remove',
   retroList: 'retro:list',
   retroLearnings: 'retro:learnings',
   retroDeleteLearning: 'retro:deleteLearning',
+  retroRepoNotes: 'retro:repoNotes',
+  retroDeleteRepoNote: 'retro:deleteRepoNote',
   settingsGet: 'settings:get',
   settingsYolo: 'settings:yolo',
   settingsSet: 'settings:set',
@@ -215,12 +221,22 @@ export interface WorkspaceAgentSummary {
   state: PanelAgentState
   statusText?: string
   /**
+   * F: 'orchestrator' for the root row, 'lead' for sub-orchestrators, the
+   * role id otherwise. Drives the panel's indentation and lead styling.
+   */
+  kind?: string
+  /** F: the lead this agent works under; absent for direct children. */
+  parentId?: string
+
+  /**
    * True while this agent's CLI window is on screen. A finished agent whose
    * window is still open can be dismissed with ✕; clicking the row after
    * that reopens the scrollback so the last task stays readable.
    */
   windowOpen?: boolean
   pendingQuestion?: string
+  /** Id of that open question — what `answerQuestion` addresses. */
+  pendingQuestionId?: string
 }
 
 export interface WorkspaceSummary {
@@ -231,6 +247,12 @@ export interface WorkspaceSummary {
   active: boolean
   /** Latest assignment the orchestrator handed out — the tooltip's task line. */
   taskText?: string
+  /** Goal the workspace was started with; absent = "no goal" hint on the card. */
+  goalText?: string
+  /** C5: orchestrator alive but silent on its tools — the card shows a hint. */
+  orchestratorIdle?: boolean
+  /** D3: the orchestrator's open ask_user question (answer with agentId "user"). */
+  userQuestion?: { questionId: string; question: string }
   agents: WorkspaceAgentSummary[]
 }
 
@@ -242,7 +264,7 @@ export interface StaleWorktreeSummary {
 }
 
 /** Retro records, re-exported so renderer code imports them from the bridge. */
-export type { ModelLearning, RunRetro } from '@shared/schema/retro'
+export type { ModelLearning, RepoNote, RunRetro } from '@shared/schema/retro'
 
 /** Result of a provider version probe (see main/providers/health.ts). */
 export interface ProviderHealth {
@@ -273,6 +295,8 @@ export interface ModelDiscoveryResult {
 
 export interface PanelSettings {
   yoloMaster: boolean
+  /** D4: the effective subagent tier — mirrors main/appIpc. */
+  agentPolicy: AgentPolicy
   hideAllHotkey: string
   locale: 'de' | 'en'
   theme: 'dark' | 'light'
@@ -288,6 +312,9 @@ export interface PanelSettings {
 
 export type UpdateChannel = 'main' | 'stable'
 
+/** D4: how far a subagent may act on its own; mirrors @shared/agentPolicy. */
+export type AgentPolicy = 'yolo' | 'ask-user' | 'ask-orchestrator'
+
 /** The keys the settings form may write; see WRITABLE_SETTINGS in main/appIpc. */
 export type WritableSetting =
   | 'hideAllHotkey'
@@ -296,6 +323,7 @@ export type WritableSetting =
   | 'theme'
   | 'locale'
   | 'appearance'
+  | 'agentPolicy'
 
 export type UpdateStatus =
   | 'disabled'
@@ -370,8 +398,12 @@ const app = {
   discoverModels: (providerId: string): Promise<ModelDiscoveryResult> =>
     ipcRenderer.invoke(APP.modelsDiscover, { providerId }),
   listWorkspaces: (): Promise<WorkspaceSummary[]> => ipcRenderer.invoke(APP.workspacesList),
-  startWorkspace: (profileId: string): Promise<void> =>
-    ipcRenderer.invoke(APP.workspacesStart, { profileId }),
+  /** Start a workspace; `goal` (optional) is seeded into the orchestrator. */
+  startWorkspace: (profileId: string, goal?: string): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesStart, { profileId, ...(goal ? { goal } : {}) }),
+  /** E3: start a workspace briefed on the profile's newest journaled run. */
+  resumeWorkspace: (profileId: string): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesResume, { profileId }),
   stopWorkspace: (workspaceId: string): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesStop, { workspaceId }),
   focusAgent: (agentId: string): Promise<void> =>
@@ -384,6 +416,31 @@ const app = {
     ipcRenderer.invoke(APP.workspacesCloseAgent, { agentId }),
   focusWorkspace: (workspaceId: string): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesFocus, { workspaceId }),
+  /**
+   * Answer an agent's open question from the panel badge — the same host path
+   * the orchestrator's send_to_agent{questionId} takes. Rejects with a
+   * readable message when the question is gone or delivery failed.
+   */
+  answerQuestion: (
+    workspaceId: string,
+    agentId: string,
+    questionId: string,
+    text: string
+  ): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesAnswerQuestion, { workspaceId, agentId, questionId, text }),
+  /**
+   * D2: steer a running workspace — the text shows up in the orchestrator's
+   * terminal and wakes its parked await_events as a user_message event.
+   */
+  sendUserMessage: (workspaceId: string, text: string): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesUserMessage, { workspaceId, text }),
+  /**
+   * E1 Promote — the user's explicit click: merge this agent's branch into
+   * the repository's own checkout. Rejects readably on a dirty checkout or a
+   * conflict (the merge is aborted then; nothing changes).
+   */
+  promoteAgentBranch: (workspaceId: string, agentId: string): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesPromoteAgent, { workspaceId, agentId }),
   /** Stale worktrees of this profile's repo — the panel's cleanup list. */
   listStaleWorktrees: (profileId: string): Promise<StaleWorktreeSummary[]> =>
     ipcRenderer.invoke(APP.worktreesList, { profileId }),
@@ -403,6 +460,12 @@ const app = {
   /** Remove one learning (explicit user click); answers with the refreshed list. */
   deleteLearning: (id: string): Promise<ModelLearning[]> =>
     ipcRenderer.invoke(APP.retroDeleteLearning, { id }),
+  /** E2: repo notes recorded by past runs; the briefing feeds on them. */
+  listRepoNotes: (profileId?: string): Promise<RepoNote[]> =>
+    ipcRenderer.invoke(APP.retroRepoNotes, profileId ? { profileId } : {}),
+  /** Remove one repo note (explicit user click); answers with the refreshed list. */
+  deleteRepoNote: (id: string): Promise<RepoNote[]> =>
+    ipcRenderer.invoke(APP.retroDeleteRepoNote, { id }),
   getSettings: (): Promise<PanelSettings> => ipcRenderer.invoke(APP.settingsGet),
   /**
    * How see-through the app is. Unlike `getSettings` this one answers in EVERY

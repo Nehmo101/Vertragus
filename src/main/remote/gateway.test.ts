@@ -16,6 +16,8 @@ function host(overrides: Partial<RemoteGatewayHost> = {}): RemoteGatewayHost {
     listProfiles: () => [{ id: 'p1', name: 'Profile', repoPath: '/repo' }],
     startWorkspace: vi.fn(),
     stopWorkspace: vi.fn(),
+    answerQuestion: vi.fn(),
+    userMessage: vi.fn(),
     ...overrides
   }
 }
@@ -65,10 +67,84 @@ describe('runRemoteCommand', () => {
     expect(result).toEqual({ ok: false, error: 'no repo path' })
   })
 
-  it('the exposed surface is exactly four read/lifecycle verbs — no settings, no editing', () => {
+  it('starts with a goal from structured args (H2) — profileId may travel either way', async () => {
+    const start = vi.fn()
+    const h = host({ startWorkspace: start })
+
+    const viaArgs = await runRemoteCommand(h, 'workspaces:start', undefined, {
+      profileId: 'p1',
+      goal: '  Fix the login bug  '
+    })
+    expect(viaArgs).toEqual({ ok: true, result: { started: 'p1', goal: true } })
+    expect(start).toHaveBeenCalledWith('p1', 'Fix the login bug')
+
+    // Old client shape: profileId in `arg`, no goal — still one-argument call.
+    const viaArg = await runRemoteCommand(h, 'workspaces:start', 'p1', { goal: '   ' })
+    expect(viaArg).toEqual({ ok: true, result: { started: 'p1' } })
+    expect(start).toHaveBeenLastCalledWith('p1')
+  })
+
+  it('answers a question through the host (H1) and refuses incomplete args', async () => {
+    const answer = vi.fn()
+    const h = host({ answerQuestion: answer })
+    const args = { workspaceId: 'w1', agentId: 'a1', questionId: 'q1', text: 'Use bcrypt.' }
+
+    const result = await runRemoteCommand(h, 'answer_question', undefined, args)
+    expect(result).toEqual({ ok: true, result: { answered: 'q1', agentId: 'a1' } })
+    expect(answer).toHaveBeenCalledWith(args)
+
+    for (const missing of ['workspaceId', 'agentId', 'questionId', 'text'] as const) {
+      const broken = { ...args, [missing]: '  ' }
+      expect(await runRemoteCommand(h, 'answer_question', undefined, broken)).toMatchObject({
+        ok: false
+      })
+    }
+    expect(await runRemoteCommand(h, 'answer_question', undefined, undefined)).toMatchObject({
+      ok: false
+    })
+    expect(answer).toHaveBeenCalledTimes(1)
+  })
+
+  it('turns an answer the host refuses into a gateway error the client can show', async () => {
+    const result = await runRemoteCommand(
+      host({
+        answerQuestion: () => {
+          throw new Error('that question is already answered')
+        }
+      }),
+      'answer_question',
+      undefined,
+      { workspaceId: 'w1', agentId: 'a1', questionId: 'q1', text: 'x' }
+    )
+    expect(result).toEqual({ ok: false, error: 'that question is already answered' })
+  })
+
+  it('delivers a user_message through the host (D2) and refuses incomplete args', async () => {
+    const steer = vi.fn()
+    const h = host({ userMessage: steer })
+
+    const result = await runRemoteCommand(h, 'user_message', undefined, {
+      workspaceId: 'w1',
+      text: 'Focus on the parser first.'
+    })
+    expect(result).toEqual({ ok: true, result: { delivered: 'w1' } })
+    expect(steer).toHaveBeenCalledWith({ workspaceId: 'w1', text: 'Focus on the parser first.' })
+
+    expect(await runRemoteCommand(h, 'user_message', undefined, { text: 'x' })).toMatchObject({
+      ok: false
+    })
+    expect(
+      await runRemoteCommand(h, 'user_message', undefined, { workspaceId: 'w1', text: '  ' })
+    ).toMatchObject({ ok: false })
+    expect(steer).toHaveBeenCalledTimes(1)
+  })
+
+  it('the exposed surface is exactly six read/lifecycle/steer verbs — no settings, no editing', () => {
     // A guard against scope creep: this list is the whole remote surface.
     expect([...REMOTE_COMMANDS].sort()).toEqual([
+      'answer_question',
       'profiles:list',
+      'user_message',
       'workspaces:list',
       'workspaces:start',
       'workspaces:stop'

@@ -7,6 +7,7 @@ import {
   adoptLegacyStore,
   appSettingsSchema,
   createSettingsStore,
+  effectiveAgentPolicy,
   LEGACY_STORE_NAME,
   SETTINGS_KEYS,
   STORE_NAME,
@@ -126,6 +127,19 @@ describe('profiles', () => {
     })
     settings.saveProfile({ ...validProfile, zones: { zones: [] } })
     expect(settings.getProfile('p1')!.zones).toEqual({ zones: [] })
+  })
+
+  it('E6: keeps a slot’s extraMcp when a form save omits it; [] clears it', () => {
+    const { store: settings } = store()
+    const slot = { id: 's1', roleId: 'worker', providerId: 'claude' }
+    const extraMcp = [{ name: 'browser', url: 'http://127.0.0.1:9200/mcp' }]
+    settings.saveProfile({ ...validProfile, slots: [{ ...slot, extraMcp }] })
+    // The profile editor has no extraMcp field — its save must not wipe it.
+    settings.saveProfile({ ...validProfile, slots: [slot] })
+    expect(settings.getProfile('p1')!.slots[0]!.extraMcp).toEqual(extraMcp)
+    // An explicit empty list is the deliberate clear.
+    settings.saveProfile({ ...validProfile, slots: [{ ...slot, extraMcp: [] }] })
+    expect(settings.getProfile('p1')!.slots[0]!.extraMcp).toEqual([])
   })
 
   it('zone → profile-save → placeAgentWindow still lands inside the zone', async () => {
@@ -327,6 +341,43 @@ describe('app settings', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('invalid settings section'))
   })
 
+  it('derives the D4 tier from the legacy boolean when no policy is stored', () => {
+    const { store: settings } = store()
+    expect(effectiveAgentPolicy(settings.getSettings())).toBe('yolo')
+    const { store: off } = store({ yoloMaster: false })
+    expect(effectiveAgentPolicy(off.getSettings())).toBe('ask-user')
+  })
+
+  it('a stored policy wins over the boolean', () => {
+    const { store: settings } = store({ yoloMaster: true, agentPolicy: 'ask-orchestrator' })
+    expect(effectiveAgentPolicy(settings.getSettings())).toBe('ask-orchestrator')
+  })
+
+  it('mirrors a policy write into yoloMaster — one truth, two representations', () => {
+    const { store: settings, backend } = store()
+    settings.setSetting('agentPolicy', 'ask-orchestrator')
+    expect(backend.data.agentPolicy).toBe('ask-orchestrator')
+    expect(backend.data.yoloMaster).toBe(false)
+    settings.setSetting('agentPolicy', 'yolo')
+    expect(backend.data.yoloMaster).toBe(true)
+  })
+
+  it('mirrors the panel’s yolo toggle back into the policy', () => {
+    const { store: settings, backend } = store({ agentPolicy: 'ask-orchestrator' })
+    settings.setSetting('yoloMaster', true)
+    expect(backend.data.agentPolicy).toBe('yolo')
+    settings.setSetting('yoloMaster', false)
+    expect(backend.data.agentPolicy).toBe('ask-user')
+  })
+
+  it('rejects an invented tier and falls back soft on read', () => {
+    const { store: settings } = store()
+    // @ts-expect-error — IPC input is not type-checked; the schema is the gate.
+    expect(() => settings.setSetting('agentPolicy', 'full-send')).toThrow()
+    const { store: corrupt } = store({ agentPolicy: 'full-send' })
+    expect(effectiveAgentPolicy(corrupt.getSettings())).toBe('yolo')
+  })
+
   it('covers every settings key with a schema field', () => {
     for (const key of SETTINGS_KEYS) {
       expect(appSettingsSchema.shape[key]).toBeDefined()
@@ -482,5 +533,43 @@ describe('run retros and model learnings', () => {
     const { store: settings } = store({ modelLearnings: [validLearning, 42] })
     expect(settings.getModelLearnings()).toHaveLength(1)
     expect(warn).toHaveBeenCalledWith('[settings] dropped 1 invalid model learning(s)')
+  })
+})
+
+describe('repo notes — E2', () => {
+  it('adds, filters by profile, dedupes identical notes and deletes by id', () => {
+    const { store: s } = store()
+    const first = s.addRepoNotes('p1', ['tests need pnpm run ci', '  ', 'panel is a drag region'])
+    expect(first.filter((note) => note.profileId === 'p1')).toHaveLength(2)
+
+    // Same note again: reinforced, not duplicated. Other profiles untouched.
+    s.addRepoNotes('p1', ['tests need pnpm run ci'])
+    s.addRepoNotes('p2', ['tests need pnpm run ci'])
+    expect(s.getRepoNotes('p1')).toHaveLength(2)
+    expect(s.getRepoNotes('p2')).toHaveLength(1)
+    expect(s.getRepoNotes()).toHaveLength(3)
+
+    const id = s.getRepoNotes('p1')[0]!.id
+    s.deleteRepoNote(id)
+    expect(s.getRepoNotes('p1')).toHaveLength(1)
+  })
+
+  it('caps per profile — newest win, other profiles keep theirs', () => {
+    const { store: s } = store()
+    s.addRepoNotes('p2', ['keep me'])
+    for (let index = 0; index < 25; index += 1) {
+      s.addRepoNotes('p1', [`note ${index}`])
+    }
+    expect(s.getRepoNotes('p1')).toHaveLength(20)
+    // Newest first: the earliest notes fell off.
+    expect(s.getRepoNotes('p1').some((note) => note.note === 'note 0')).toBe(false)
+    expect(s.getRepoNotes('p1')[0]!.note).toBe('note 24')
+    expect(s.getRepoNotes('p2')).toHaveLength(1)
+  })
+
+  it('drops corrupt rows on read instead of losing the list', () => {
+    const { store: s } = store({ repoNotes: [{ junk: true }, null] })
+    expect(s.getRepoNotes()).toEqual([])
+    expect(warn).toHaveBeenCalled()
   })
 })

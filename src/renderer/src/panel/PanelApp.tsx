@@ -122,6 +122,7 @@ export function PanelApp(): React.JSX.Element {
                     setSelectedProfileId(nextSelectedProfileId(activeProfileId, profileId))
                   }
                   onStart={panel.startWorkspace}
+                  onResume={panel.resumeWorkspace}
                   onEdit={panel.editProfile}
                   cleanupOpen={cleanupProfileId === profile.id}
                   onToggleCleanup={(profileId) =>
@@ -189,6 +190,9 @@ export function PanelApp(): React.JSX.Element {
                   onStop={panel.stopWorkspace}
                   onFocusAgent={panel.focusAgent}
                   onCloseAgentWindow={panel.closeAgentWindow}
+                  onAnswerQuestion={panel.answerQuestion}
+                  onUserMessage={panel.sendUserMessage}
+                  onPromoteAgent={panel.promoteAgent}
                 />
               ))}
             </div>

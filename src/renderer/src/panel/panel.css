@@ -628,6 +628,13 @@
   display: flex;
   align-items: center;
   gap: 2px;
+  /* the fold-out answer field breaks onto its own full-width row */
+  flex-wrap: wrap;
+}
+
+/* F: a lead's team indents under its lead row — flat list, no tree widget. */
+.panel-agent-line.is-child {
+  margin-left: 14px;
 }
 
 .panel-agent {
@@ -692,17 +699,212 @@
   color: var(--text-3);
 }
 
+/* A button since H1: clicking it folds the answer field out below the row. */
 .panel-question {
   flex: 0 0 auto;
   display: grid;
   place-items: center;
   width: 14px;
   height: 14px;
+  padding: 0;
   border-radius: 50%;
   border: 1px solid rgba(245, 165, 36, 0.55);
   background: rgba(245, 165, 36, 0.2);
   color: var(--warn-text);
   font: 700 9px var(--font-body);
+  cursor: pointer;
+}
+
+.panel-question:hover {
+  background: rgba(245, 165, 36, 0.35);
+}
+
+/* --- the fold-out answer field (H1) ------------------------------------ */
+
+.panel-answer {
+  flex: 1 1 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 2px 5px 4px;
+}
+
+.panel-answer-question {
+  margin: 0;
+  font: 400 10.5px var(--font-body);
+  color: var(--warn-text);
+}
+
+.panel-answer-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--hairline);
+  background: var(--glass-input);
+  color: var(--text);
+  font: 400 11.5px var(--font-body);
+  resize: vertical;
+}
+
+.panel-answer-send {
+  align-self: flex-end;
+  padding: 2px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--hairline);
+  background: transparent;
+  color: var(--text-2);
+  font: 500 11px var(--font-body);
+  cursor: pointer;
+}
+
+.panel-answer-send:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.panel-answer-send:not(:disabled):hover {
+  background: var(--hover-wash);
+}
+
+/* --- the goal line of an expanded card (H2) ---------------------------- */
+
+.panel-card-goal {
+  margin: 4px 5px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 10.5px var(--font-body);
+  color: var(--text-3);
+}
+
+.panel-card-goal.is-empty {
+  font-style: italic;
+}
+
+/* C5: orchestrator alive but silent on its tools. */
+.panel-card-goal.is-idle {
+  color: var(--warn-text);
+}
+
+/* D3: the orchestrator's question to the HUMAN — card-level, not a row. */
+.panel-user-question {
+  margin: 6px 5px 2px;
+  padding: 6px;
+  border-radius: 8px;
+  border: 1px solid rgba(245, 165, 36, 0.45);
+  background: rgba(245, 165, 36, 0.08);
+}
+
+/* D2: the card's composer. */
+.panel-composer {
+  display: flex;
+  gap: 4px;
+  margin: 6px 5px 2px;
+}
+
+.panel-composer .panel-answer-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* --- the goal field under a profile row (H2) --------------------------- */
+
+.panel-goal {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 5px 6px;
+}
+
+.panel-goal-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--hairline);
+  background: var(--glass-input);
+  color: var(--text);
+  font: 400 11.5px var(--font-body);
+  resize: vertical;
+}
+
+.panel-goal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.panel-goal-start {
+  padding: 2px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--hairline);
+  background: transparent;
+  color: var(--text-2);
+  font: 500 11px var(--font-body);
+  cursor: pointer;
+}
+
+.panel-goal-start:hover {
+  background: var(--hover-wash);
+}
+
+/* E3: quieter sibling of the start button — resume is the rarer gesture. */
+.panel-goal-resume {
+  padding: 2px 10px;
+  border-radius: 6px;
+  border: 1px dashed var(--hairline);
+  background: transparent;
+  color: var(--text-3);
+  font: 500 11px var(--font-body);
+  cursor: pointer;
+}
+
+.panel-goal-resume:hover {
+  background: var(--hover-wash);
+  color: var(--text-2);
+}
+
+/* E6: playbook quick-picks above the goal field. */
+.panel-goal-playbooks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.panel-goal-playbook {
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline);
+  background: transparent;
+  color: var(--text-2);
+  font: 500 10.5px var(--font-body);
+  cursor: pointer;
+}
+
+.panel-goal-playbook:hover {
+  background: var(--hover-wash);
+}
+
+/* E1: promote a finished agent's branch into the main checkout. */
+.panel-agent-promote {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.panel-agent-promote:hover {
+  background: rgba(47, 125, 109, 0.18);
+  color: var(--verdigris-text);
 }
 
 /*

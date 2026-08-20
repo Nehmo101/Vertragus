@@ -88,6 +88,39 @@ export const runRetroSchema = z
   .strict()
 export type RunRetro = z.infer<typeof runRetroSchema>
 
+/** E2: how many repo notes one profile keeps — newest win, older fall off. */
+export const MAX_REPO_NOTES_PER_PROFILE = 20
+
+/**
+ * E2: one repository note from `record_retro.repoNotes[]` — a short, durable
+ * fact about THIS repository ("tests need pnpm 9", "the panel is a drag
+ * region") that goes back into the next orchestrator briefing. No RAG: a
+ * capped, user-deletable list, exactly like the model learnings.
+ */
+export const repoNoteSchema = z
+  .object({
+    id: z.string().trim().min(1).max(120),
+    profileId: idSchema,
+    note: z.string().trim().min(1).max(300),
+    createdAt: z.number().int().nonnegative()
+  })
+  .strict()
+export type RepoNote = z.infer<typeof repoNoteSchema>
+
+/** Same fail-soft rule for the repo-note store. */
+export function parseRepoNotes(raw: unknown): RepoNote[] {
+  if (!Array.isArray(raw)) return []
+  const seen = new Set<string>()
+  const notes: RepoNote[] = []
+  for (const entry of raw) {
+    const parsed = repoNoteSchema.safeParse(entry)
+    if (!parsed.success || seen.has(parsed.data.id)) continue
+    seen.add(parsed.data.id)
+    notes.push(parsed.data)
+  }
+  return notes
+}
+
 /**
  * Validate a raw retro list fail-soft: one corrupt row must not cost the user
  * the rest of the history. Duplicate ids keep the first occurrence.

@@ -37,7 +37,9 @@ import type { ProviderConfig } from '@shared/schema/provider'
 import { normalizeAppearance, type Appearance } from '@shared/appearance'
 import { mainMessages, readLocale } from '@shared/mainMessages'
 import type { AppSettings, SettingsStore } from '@main/store/settings'
-import { settings } from '@main/store/settings'
+import { effectiveAgentPolicy, settings } from '@main/store/settings'
+import type { AgentPolicy } from '@shared/agentPolicy'
+import { AGENT_POLICIES } from '@shared/agentPolicy'
 import { discoverModels, type ModelDiscoveryResult } from '@main/providers/discovery'
 import { checkAllProviders, type ProviderHealth } from '@main/providers/health'
 import { closeCliWindow, focusCliWindow, listCliWindows } from '@main/windows/cliWindow'
@@ -92,15 +94,21 @@ export const APP_CHANNELS = {
   modelsDiscover: 'models:discover',
   workspacesList: 'workspaces:list',
   workspacesStart: 'workspaces:start',
+  workspacesResume: 'workspaces:resume',
   workspacesStop: 'workspaces:stop',
   workspacesFocusAgent: 'workspaces:focusAgent',
   workspacesFocus: 'workspaces:focus',
   workspacesCloseAgent: 'workspaces:closeAgent',
+  workspacesAnswerQuestion: 'workspaces:answerQuestion',
+  workspacesUserMessage: 'workspaces:userMessage',
+  workspacesPromoteAgent: 'workspaces:promoteAgent',
   worktreesList: 'worktrees:list',
   worktreesRemove: 'worktrees:remove',
   retroList: 'retro:list',
   retroLearnings: 'retro:learnings',
   retroDeleteLearning: 'retro:deleteLearning',
+  retroRepoNotes: 'retro:repoNotes',
+  retroDeleteRepoNote: 'retro:deleteRepoNote',
   settingsGet: 'settings:get',
   settingsYolo: 'settings:yolo',
   settingsSet: 'settings:set',
@@ -175,8 +183,21 @@ export interface WorkspaceAgentSummary {
    * so the last task remains readable, and a click reopens the scrollback.
    */
   windowOpen?: boolean
+  /**
+   * F: 'orchestrator' for the root row, 'lead' for sub-orchestrators, the
+   * role id otherwise. Drives the panel's indentation and lead styling.
+   */
+  kind?: string
+  /** F: the lead this agent works under; absent for direct children. */
+  parentId?: string
   /** Set while the agent waits for an answer — drives the `?` badge. */
   pendingQuestion?: string
+  /**
+   * Registry id of that open question — what the badge's answer field sends
+   * back over `workspaces:answerQuestion`. Always set together with
+   * {@link pendingQuestion}.
+   */
+  pendingQuestionId?: string
 }
 
 /** One workspace card. */
@@ -190,6 +211,23 @@ export interface WorkspaceSummary {
   active: boolean
   /** Latest assignment the orchestrator handed out — the tooltip's task line. */
   taskText?: string
+  /**
+   * The goal this workspace was started with (H2) — only once it was actually
+   * delivered to the orchestrator. Absent on a bare Play: the card then shows
+   * "no goal — the orchestrator is waiting".
+   */
+  goalText?: string
+  /**
+   * C5: the orchestrator process lives but has stopped calling its tools —
+   * the card shows an idle hint distinct from the greyed-out exited state.
+   */
+  orchestratorIdle?: boolean
+  /**
+   * D3: the orchestrator's open `ask_user` question — the workspace-level
+   * badge. Answered over the same `workspaces:answerQuestion` channel with
+   * the reserved agent id `user`.
+   */
+  userQuestion?: { questionId: string; question: string }
   agents: WorkspaceAgentSummary[]
 }
 
@@ -209,10 +247,40 @@ export interface WorkspaceDirectory {
   /**
    * Play: open a new workspace for this profile. The return value is ignored
    * (and typed loosely) so a manager whose `startWorkspace` resolves with its
-   * own runtime object needs no adapter lambda here.
+   * own runtime object needs no adapter lambda here. `goal` (H2) is seeded
+   * into the orchestrator once it is up; absent = classic bare Play.
    */
-  start(profileId: string): void | Promise<unknown>
+  start(profileId: string, goal?: string): void | Promise<unknown>
+  /**
+   * E3: start a NEW workspace of this profile briefed on the repository's
+   * newest journaled run (worktrees/branches survive; processes do not).
+   * Rejects with a readable message when the repo holds no journaled run.
+   */
+  resume(profileId: string): void | Promise<unknown>
   stop(workspaceId: string): void | Promise<unknown>
+  /**
+   * Answer one agent question (H1) — the SAME host path the orchestrator's
+   * `send_to_agent{questionId}` takes, so panel, remote and MCP tool share one
+   * question registry. Rejects with a readable message on failure (unknown
+   * question, wrong agent, PTY delivery failed — the question stays open then).
+   */
+  answerQuestion(
+    workspaceId: string,
+    agentId: string,
+    questionId: string,
+    text: string
+  ): Promise<void>
+  /**
+   * D2: steer the run — the text appears in the orchestrator's terminal and
+   * lands as a `user_message` event that wakes its parked `await_events`.
+   */
+  postUserMessage(workspaceId: string, text: string): void | Promise<unknown>
+  /**
+   * E1 Promote — the user's explicit click: merge this agent's branch into
+   * the repository's own checkout. Must reject with a readable message on a
+   * dirty main checkout or a merge conflict (the merge is aborted then).
+   */
+  promoteAgentBranch(workspaceId: string, agentId: string): Promise<void>
   /** Bring an agent's CLI window to the front. */
   focusAgent(agentId: string): void
   /**
@@ -257,7 +325,11 @@ export function createStubWorkspaceDirectory(
   return {
     list: () => [],
     start: refuse,
+    resume: refuse,
     stop: refuse,
+    answerQuestion: async () => refuse(),
+    postUserMessage: refuse,
+    promoteAgentBranch: async () => refuse(),
     focusAgent: (agentId) => focusCliWindow(agentId),
     closeAgentWindow: (agentId) => closeCliWindow(agentId),
     // No manager → no workspace→agent map; quiet no-op like focusAgent on a ghost.
@@ -283,6 +355,8 @@ export type AppSettingsPort = Pick<
   | 'getRunRetros'
   | 'getModelLearnings'
   | 'deleteModelLearning'
+  | 'getRepoNotes'
+  | 'deleteRepoNote'
   | 'getSettings'
   | 'setSetting'
 >
@@ -299,6 +373,8 @@ export interface ProviderListEntry {
  */
 export interface PanelSettings {
   yoloMaster: boolean
+  /** D4: the effective tier — stored policy, or derived from `yoloMaster`. */
+  agentPolicy: AgentPolicy
   hideAllHotkey: string
   locale: AppSettings['ui']['locale']
   theme: AppSettings['ui']['theme']
@@ -331,7 +407,8 @@ export const WRITABLE_SETTINGS = [
   'updateChannel',
   'theme',
   'locale',
-  'appearance'
+  'appearance',
+  'agentPolicy'
 ] as const
 export type WritableSetting = (typeof WRITABLE_SETTINGS)[number]
 
@@ -593,6 +670,7 @@ export function toPanelSettings(
 ): PanelSettings {
   return {
     yoloMaster: value.yoloMaster,
+    agentPolicy: effectiveAgentPolicy(value),
     hideAllHotkey: value.hideAllHotkey,
     locale: value.ui.locale,
     theme: value.ui.theme,
@@ -781,10 +859,23 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
   handle(APP_CHANNELS.workspacesList, requirePanel, () => host.directory.list())
 
   handle(APP_CHANNELS.workspacesStart, requirePanel, async (_event, payload) => {
+    const body =
+      typeof payload === 'string'
+        ? { profileId: payload }
+        : ((payload ?? {}) as { profileId?: string; goal?: unknown })
+    if (!body.profileId) throw new Error('workspaces:start rejected — missing profile id')
+    // Goal is optional (back-compat bare Play); anything non-string or blank
+    // is treated as absent rather than refused — an empty field is not an error.
+    const goal = typeof body.goal === 'string' && body.goal.trim() ? body.goal.trim() : undefined
+    await (goal ? host.directory.start(body.profileId, goal) : host.directory.start(body.profileId))
+    emitWorkspaces()
+  })
+
+  handle(APP_CHANNELS.workspacesResume, requirePanel, async (_event, payload) => {
     const profileId =
       typeof payload === 'string' ? payload : (payload as { profileId?: string })?.profileId
-    if (!profileId) throw new Error('workspaces:start rejected — missing profile id')
-    await host.directory.start(profileId)
+    if (!profileId) throw new Error('workspaces:resume rejected — missing profile id')
+    await host.directory.resume(profileId)
     emitWorkspaces()
   })
 
@@ -816,6 +907,38 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     if (!agentId) throw new Error('workspaces:closeAgent rejected — missing agent id')
     host.directory.closeAgentWindow(agentId)
     emitWorkspaces()
+  })
+
+  handle(APP_CHANNELS.workspacesAnswerQuestion, requirePanel, async (_event, payload) => {
+    const body = (payload ?? {}) as {
+      workspaceId?: string
+      agentId?: string
+      questionId?: string
+      text?: string
+    }
+    if (!body.workspaceId) throw new Error('workspaces:answerQuestion rejected — missing workspace id')
+    if (!body.agentId) throw new Error('workspaces:answerQuestion rejected — missing agent id')
+    if (!body.questionId) throw new Error('workspaces:answerQuestion rejected — missing question id')
+    if (!body.text?.trim()) throw new Error('workspaces:answerQuestion rejected — missing answer text')
+    await host.directory.answerQuestion(body.workspaceId, body.agentId, body.questionId, body.text)
+    // The badge derives from the question registry; answering mutates it and
+    // the registry's onMutate feed pushes — this emit only covers a directory
+    // without a push channel.
+    emitWorkspaces()
+  })
+
+  handle(APP_CHANNELS.workspacesUserMessage, requirePanel, async (_event, payload) => {
+    const body = (payload ?? {}) as { workspaceId?: string; text?: string }
+    if (!body.workspaceId) throw new Error('workspaces:userMessage rejected — missing workspace id')
+    if (!body.text?.trim()) throw new Error('workspaces:userMessage rejected — missing text')
+    await host.directory.postUserMessage(body.workspaceId, body.text.trim())
+  })
+
+  handle(APP_CHANNELS.workspacesPromoteAgent, requirePanel, async (_event, payload) => {
+    const body = (payload ?? {}) as { workspaceId?: string; agentId?: string }
+    if (!body.workspaceId) throw new Error('workspaces:promoteAgent rejected — missing workspace id')
+    if (!body.agentId) throw new Error('workspaces:promoteAgent rejected — missing agent id')
+    await host.directory.promoteAgentBranch(body.workspaceId, body.agentId)
   })
 
   // --- worktree cleanup ----------------------------------------------------
@@ -862,6 +985,18 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     return host.store.deleteModelLearning(id)
   })
 
+  handle(APP_CHANNELS.retroRepoNotes, requirePanel, (_event, payload) => {
+    const profileId =
+      typeof payload === 'string' ? payload : (payload as { profileId?: string })?.profileId
+    return host.store.getRepoNotes(profileId || undefined)
+  })
+
+  handle(APP_CHANNELS.retroDeleteRepoNote, requirePanel, (_event, payload) => {
+    const id = typeof payload === 'string' ? payload : (payload as { id?: string })?.id
+    if (!id) throw new Error('retro:deleteRepoNote rejected — missing note id')
+    return host.store.deleteRepoNote(id)
+  })
+
   // --- settings & windows ------------------------------------------------
 
   handle(APP_CHANNELS.settingsGet, requireAppWindow, () => panelSettings())
@@ -887,7 +1022,7 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
   /**
    * The settings form's single write path.
    *
-   * Three of the five keys have an effect that must happen NOW, not at the next
+   * Three of the keys have an effect that must happen NOW, not at the next
    * boot — the hotkey, the login item and the update channel. They are applied
    * here rather than in the renderer, so the same guarantee holds no matter who
    * calls the channel.
@@ -944,6 +1079,17 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
           // `ui` is one strict object in the schema: read, patch, write back.
           const ui = { ...host.store.getSettings().ui, [key]: body.value }
           return panelSettings(host.store.setSetting('ui', ui))
+        }
+        case 'agentPolicy': {
+          // D4: the store mirrors `yoloMaster` on this write, so the panel's
+          // toggle and this picker can never show two different truths.
+          const policy = AGENT_POLICIES.find((tier) => tier === body.value)
+          if (!policy) {
+            throw new Error(
+              `settings:set rejected — agentPolicy expects ${AGENT_POLICIES.join(', ')}`
+            )
+          }
+          return panelSettings(host.store.setSetting('agentPolicy', policy))
         }
         default: {
           // Unreachable while WRITABLE_SETTINGS and this switch agree; the
@@ -1237,6 +1383,8 @@ export function registerAppIpc(directory?: WorkspaceDirectory): AppIpc {
     getRunRetros: () => settings().getRunRetros(),
     getModelLearnings: () => settings().getModelLearnings(),
     deleteModelLearning: (id) => settings().deleteModelLearning(id),
+    getRepoNotes: (profileId) => settings().getRepoNotes(profileId),
+    deleteRepoNote: (id) => settings().deleteRepoNote(id),
     getSettings: () => settings().getSettings(),
     setSetting: (key, value) => settings().setSetting(key, value)
   }

@@ -18,9 +18,16 @@ export const AGENT_EVENT_TYPES = [
   'agent_exited',
   'agent_stopped',
   'orchestrator_exited',
+  'orchestrator_idle',
   'orchestrator_handoff_started',
   'orchestrator_started',
-  'orchestrator_handoff_failed'
+  'orchestrator_handoff_failed',
+  'user_message',
+  'user_question',
+  'subtree_adopted',
+  'integrate_ok',
+  'integrate_conflict',
+  'budget_warning'
 ] as const
 
 export type AgentEventType = (typeof AGENT_EVENT_TYPES)[number]
@@ -120,6 +127,94 @@ const orchestratorExitedPayload = z.object({
   exitCode: z.number().int().nullable().optional()
 })
 
+/**
+ * C5: the orchestrator PROCESS is alive but has stopped calling its tools —
+ * the other death, distinct from `orchestrator_exited`. A parked
+ * `await_events` long-poll is NOT idle (its call touched the watchdog); idle
+ * means no tool call started or finished for the whole window. The event is
+ * for the panel, the remote client and the history — the orchestrator itself
+ * is the one reader that will not see it (it stopped reading), so nothing
+ * here tries to wake it.
+ */
+const orchestratorIdlePayload = z.object({
+  type: z.literal('orchestrator_idle'),
+  ...identity,
+  /** Seconds since the last orchestrator tool call when the watchdog fired. */
+  idleSec: z.number().int().nonnegative()
+})
+
+/**
+ * D2: the human steered the run from the panel or the remote client. No agent
+ * identity — the sender is the user, who is not an agent. Pushing it is what
+ * wakes a parked `await_events`, so the orchestrator reads the steering
+ * immediately instead of after its next poll window.
+ */
+const userMessagePayload = z.object({
+  type: z.literal('user_message'),
+  text: z.string().min(1).max(20_000)
+})
+
+/**
+ * D3: the orchestrator asked the HUMAN a question (`ask_user`) and is blocked
+ * on the answer. The registry entry behind `questionId` is what the panel /
+ * remote answer path resolves; the event is the badge's push signal and the
+ * history record. No agent identity — the addressee is the user.
+ */
+const userQuestionPayload = z.object({
+  type: z.literal('user_question'),
+  questionId: z.string().min(1),
+  question: z.string().min(1)
+})
+
+/**
+ * F: a lead orchestrator died (or was stopped) and its still-running children
+ * were REPARENTED to the root — their future events now land in the root
+ * queue. Only in the failure case does the root see more events; that is the
+ * deal. Past subtree events are NOT replayed (the retro tap already recorded
+ * them); the root inspects the adopted agents instead.
+ */
+const subtreeAdoptedPayload = z.object({
+  type: z.literal('subtree_adopted'),
+  /** The dead lead. */
+  leadAgentId: z.string().min(1),
+  area: z.string().min(1).max(200),
+  /** The reparented children — direct children of the root from now on. */
+  adoptedAgentIds: z.array(z.string().min(1)).max(200)
+})
+
+/**
+ * E1: the host merged `branch` into the target agent's worktree — or aborted
+ * on conflict, leaving the worktree clean and naming the conflicting files.
+ * Identity is the TARGET agent (whose checkout was merged into).
+ */
+const integrateOkPayload = z.object({
+  type: z.literal('integrate_ok'),
+  ...identity,
+  branch: z.string().min(1),
+  headSha: z.string().min(1)
+})
+
+const integrateConflictPayload = z.object({
+  type: z.literal('integrate_conflict'),
+  ...identity,
+  branch: z.string().min(1),
+  conflictFiles: z.array(z.string().min(1).max(400)).max(80),
+  message: z.string().max(2_000)
+})
+
+/**
+ * E4: the workspace burned through its runtime budget (sum of agent-seconds
+ * against `maxRuntimeMin`). Pushed once per threshold; new starts are refused
+ * once the budget is exhausted. A wall clock, never a guessed token counter.
+ */
+const budgetWarningPayload = z.object({
+  type: z.literal('budget_warning'),
+  usedSec: z.number().int().nonnegative(),
+  limitSec: z.number().int().positive(),
+  /** True once new agent starts are refused. */
+  exhausted: z.boolean()
+})
+
 const orchestratorHandoffStartedPayload = z.object({
   type: z.literal('orchestrator_handoff_started'),
   ...identity,
@@ -152,9 +247,16 @@ export const agentEventPayloadSchema = z.discriminatedUnion('type', [
   agentExitedPayload,
   agentStoppedPayload,
   orchestratorExitedPayload,
+  orchestratorIdlePayload,
   orchestratorHandoffStartedPayload,
   orchestratorStartedPayload,
-  orchestratorHandoffFailedPayload
+  orchestratorHandoffFailedPayload,
+  userMessagePayload,
+  userQuestionPayload,
+  subtreeAdoptedPayload,
+  integrateOkPayload,
+  integrateConflictPayload,
+  budgetWarningPayload
 ])
 export type AgentEventPayload = z.infer<typeof agentEventPayloadSchema>
 
@@ -174,9 +276,16 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   agentExitedPayload.extend(envelope),
   agentStoppedPayload.extend(envelope),
   orchestratorExitedPayload.extend(envelope),
+  orchestratorIdlePayload.extend(envelope),
   orchestratorHandoffStartedPayload.extend(envelope),
   orchestratorStartedPayload.extend(envelope),
-  orchestratorHandoffFailedPayload.extend(envelope)
+  orchestratorHandoffFailedPayload.extend(envelope),
+  userMessagePayload.extend(envelope),
+  userQuestionPayload.extend(envelope),
+  subtreeAdoptedPayload.extend(envelope),
+  integrateOkPayload.extend(envelope),
+  integrateConflictPayload.extend(envelope),
+  budgetWarningPayload.extend(envelope)
 ])
 export type AgentEvent = z.infer<typeof agentEventSchema>
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { ModelLearning, RunRetro, VertragusAppApi } from '../../../preload'
+import type { ModelLearning, RepoNote, RunRetro, VertragusAppApi } from '../../../preload'
 import { errorText } from './viewModel'
 import { groupLearnings, retroIsEmpty, runRows } from './retroViewModel'
 import { TrashIcon } from './icons'
@@ -22,16 +22,22 @@ export function RetroPanel({ profileId, bridge }: Props): React.JSX.Element {
   const { t, i18n } = useTranslation()
   const [retros, setRetros] = useState<RunRetro[] | null>(null)
   const [learnings, setLearnings] = useState<ModelLearning[] | null>(null)
+  const [repoNotes, setRepoNotes] = useState<RepoNote[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
 
   useEffect(() => {
     let alive = true
-    Promise.all([bridge.listRetros(profileId), bridge.listLearnings(profileId)]).then(
-      ([nextRetros, nextLearnings]) => {
+    Promise.all([
+      bridge.listRetros(profileId),
+      bridge.listLearnings(profileId),
+      bridge.listRepoNotes(profileId)
+    ]).then(
+      ([nextRetros, nextLearnings, nextNotes]) => {
         if (!alive) return
         setRetros(nextRetros)
         setLearnings(nextLearnings)
+        setRepoNotes(nextNotes)
       },
       (cause) => {
         if (alive) setError(errorText(cause))
@@ -53,6 +59,21 @@ export function RetroPanel({ profileId, bridge }: Props): React.JSX.Element {
         setLearnings(
           next.filter((entry) => !entry.profileId || entry.profileId === profileId)
         )
+      },
+      (cause) => {
+        setBusyId(null)
+        setError(errorText(cause))
+      }
+    )
+  }
+
+  const removeNote = (id: string): void => {
+    setBusyId(id)
+    setError(null)
+    bridge.deleteRepoNote(id).then(
+      (next) => {
+        setBusyId(null)
+        setRepoNotes(next.filter((entry) => entry.profileId === profileId))
       },
       (cause) => {
         setBusyId(null)
@@ -106,6 +127,29 @@ export function RetroPanel({ profileId, bridge }: Props): React.JSX.Element {
               </ul>
             </div>
           ))}
+        </>
+      ) : null}
+
+      {repoNotes && repoNotes.length > 0 ? (
+        <>
+          <p className="panel-retro-label">{t('panel.retroRepoNotes')}</p>
+          <ul className="panel-retro-list">
+            {repoNotes.map((note) => (
+              <li key={note.id} className="panel-retro-row" title={note.note}>
+                <span className="panel-retro-insight">{note.note}</span>
+                <button
+                  type="button"
+                  className="panel-icon-button panel-retro-remove"
+                  title={t('panel.retroDeleteRepoNote', { note: note.note })}
+                  aria-label={t('panel.retroDeleteRepoNote', { note: note.note })}
+                  disabled={busyId !== null}
+                  onClick={() => removeNote(note.id)}
+                >
+                  <TrashIcon />
+                </button>
+              </li>
+            ))}
+          </ul>
         </>
       ) : null}
 

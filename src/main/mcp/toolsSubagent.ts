@@ -13,6 +13,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { AGENT_DONE_STATUSES } from '@shared/schema/events'
 import {
   errorMessage,
+  queueForAgent,
   toolError,
   toolJson,
   worktreeEventFields,
@@ -88,13 +89,18 @@ export function registerSubagentTools(
         summary,
         status: status ?? 'success'
       }
-      // Git hiccup must not swallow the done report — the summary is still
+      // C3: the host snapshots — a dirty worktree is committed onto the
+      // agent's branch first, so baseBranch chaining points at the work. A
+      // git hiccup must not swallow the done report — the summary is still
       // the agent's word; the orchestrator can inspect_agent afterwards.
+      // F: the report lands in the PARENT's queue — a lead's child reports to
+      // the lead, not to the root.
+      const queue = queueForAgent(runtime, agentId)
       try {
-        const facts = await ctx.host.snapshotWorktree(agentId)
-        ctx.events.push({ ...payload, ...worktreeEventFields(facts) })
+        const facts = await ctx.host.snapshotDone(agentId, summary)
+        queue.push({ ...payload, ...worktreeEventFields(facts) })
       } catch {
-        ctx.events.push(payload)
+        queue.push(payload)
       }
       return toolJson({
         ok: true,
@@ -149,7 +155,9 @@ export function registerSubagentTools(
       const alreadyOpen = runtime.questions.openForAgent(agentId)
       const pending = alreadyOpen ?? runtime.questions.create(agentId, question)
       if (!alreadyOpen) {
-        ctx.events.push({
+        // F: questions climb exactly ONE level — the event goes to the
+        // asking agent's parent (lead or root), never skip-level.
+        queueForAgent(runtime, agentId).push({
           type: 'agent_question',
           ...identity(),
           questionId: pending.questionId,
@@ -182,7 +190,7 @@ export function registerSubagentTools(
     },
     async ({ note }): Promise<ToolText> => {
       try {
-        ctx.events.push({ type: 'agent_progress', ...identity(), note })
+        queueForAgent(runtime, agentId).push({ type: 'agent_progress', ...identity(), note })
       } catch (error) {
         return toolError({ error: 'progress_failed', message: errorMessage(error) })
       }
