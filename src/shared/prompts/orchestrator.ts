@@ -15,6 +15,12 @@ export interface RoleWithLimit {
   description?: string
   /** Maximum concurrent agents of this role; undefined = orchestrator decides. */
   max?: number
+  /**
+   * Track 4: the role's configured slots — what `start_agent{providerId}` /
+   * `{slotId}` can address. Rendered so provider diversity is visible instead
+   * of dead UI; absent or single-provider roles render as before.
+   */
+  slots?: Array<{ id: string; providerId: string; model?: string }>
 }
 
 export interface OrchestratorPromptInput {
@@ -30,7 +36,13 @@ export interface OrchestratorPromptInput {
 function renderRole(role: RoleWithLimit): string {
   const limit = role.max === undefined ? 'no limit' : `max ${role.max} at a time`
   const description = role.description ? ` — ${role.description}` : ''
-  return `- ${role.id} (${limit})${description}`
+  const slots =
+    role.slots && role.slots.length > 0
+      ? ` — slots: ${role.slots
+          .map((slot) => `${slot.providerId}${slot.model ? ` (${slot.model})` : ''}`)
+          .join(', ')}`
+      : ''
+  return `- ${role.id} (${limit})${description}${slots}`
 }
 
 function renderKnowledge(entry: SlotKnowledge): string {
@@ -83,7 +95,7 @@ export function buildOrchestratorSystemPrompt({
     ...knowledgeBlock,
     '',
     'Your tools:',
-    '- start_agent{role, task, model?, baseBranch?} — start a subagent. The task must be self-contained: goal, the files or area involved, the definition of done, and how to verify it. Every agent automatically gets its own git worktree and branch; the response tells you both. Pass baseBranch to start the agent on top of another agent’s branch. The agent starts in the background: the response returns immediately with state "starting", and await_events later delivers agent_started (it accepted its task) or agent_start_failed (the start failed and the slot is free again). Do not send an agent messages before its agent_started event.',
+    '- start_agent{role, task, model?, providerId?, slotId?, baseBranch?} — start a subagent. The task must be self-contained: goal, the files or area involved, the definition of done, and how to verify it. Every agent automatically gets its own git worktree and branch; the response tells you both. When a role lists several slots (providers), pass providerId to pick one deliberately — without it the first slot with room wins. Pass baseBranch to start the agent on top of another agent’s branch. The agent starts in the background: the response returns immediately with state "starting", and await_events later delivers agent_started (it accepted its task) or agent_start_failed (the start failed and the slot is free again). Do not send an agent messages before its agent_started event.',
     '- send_to_agent{agentId, text, questionId?} — answer an open question (pass its questionId) or give a running agent a new instruction.',
     '- await_events{cursor, timeoutSec?} — block until something happens. This is your main loop.',
     '- list_agents{} — a snapshot of every agent, its status and its open question.',

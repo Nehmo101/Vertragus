@@ -1595,3 +1595,86 @@ describe('postUserMessage — D2', () => {
     expect(() => workspace.postUserMessage('x')).toThrow(/no running orchestrator/)
   })
 })
+
+describe('slot/provider choice at start_agent — Track 4', () => {
+  /** A worker role with two slots on different providers. */
+  const twoProviderProfile = (): ReturnType<typeof testProfile> =>
+    testProfile({
+      slots: [
+        { id: 'slot-claude', roleId: 'worker', providerId: 'claude', model: 'sonnet', maxCount: 2 },
+        { id: 'slot-codex', roleId: 'worker', providerId: 'codex', maxCount: 1 },
+        { id: 'slot-reviewer', roleId: 'reviewer', providerId: 'claude' }
+      ]
+    })
+
+  it('providerId picks the matching slot even though the first slot has room', async () => {
+    const { workspace, spawns } = harness({ profile: twoProviderProfile() })
+    const started = await workspace.startAgent({
+      role: 'worker',
+      task: 'x',
+      providerId: 'codex'
+    })
+    expect(started.providerId).toBe('codex')
+    expect(spawns[0]!.input.provider.id).toBe('codex')
+  })
+
+  it('slotId picks exactly that slot; a provider mismatch on top is an error', async () => {
+    const { workspace } = harness({ profile: twoProviderProfile() })
+    const started = await workspace.startAgent({ role: 'worker', task: 'x', slotId: 'slot-codex' })
+    expect(started.providerId).toBe('codex')
+
+    await expect(
+      workspace.startAgent({ role: 'worker', task: 'x', slotId: 'slot-claude', providerId: 'codex' })
+    ).rejects.toThrow(/runs provider "claude"/)
+  })
+
+  it('unknown slotId / unconfigured providerId are clear errors, never silent fallbacks', async () => {
+    const { workspace } = harness({ profile: twoProviderProfile() })
+    await expect(
+      workspace.startAgent({ role: 'worker', task: 'x', slotId: 'ghost' })
+    ).rejects.toThrow(/Unknown slotId "ghost".*slot-claude, slot-codex/)
+    await expect(
+      workspace.startAgent({ role: 'worker', task: 'x', providerId: 'ollama' })
+    ).rejects.toThrow(/No slot of role "worker" runs provider "ollama"/)
+    expect(workspace.listAgents()).toEqual([])
+  })
+
+  it('an explicitly chosen full slot refuses instead of overflowing — caps stay race-free', async () => {
+    const { workspace } = harness({ profile: twoProviderProfile() })
+    await workspace.startAgent({ role: 'worker', task: 'x', providerId: 'codex' })
+
+    // The codex slot (maxCount 1) is taken; the claude slot has room, but an
+    // explicit choice must not land there.
+    await expect(
+      workspace.startAgent({ role: 'worker', task: 'x', providerId: 'codex' })
+    ).rejects.toThrow(/codex.*at its limit/)
+    await expect(
+      workspace.startAgent({ role: 'worker', task: 'x', slotId: 'slot-codex' })
+    ).rejects.toThrow(/at its limit/)
+
+    // Reservations count: a begun-but-unfinished start blocks the slot too.
+    const begun = workspace.beginAgent({ role: 'worker', task: 'x', providerId: 'claude' })
+    expect(() =>
+      workspace.beginAgent({ role: 'worker', task: 'x', slotId: 'slot-claude' })
+    ).not.toThrow() // second claude seat (maxCount 2)
+    expect(() =>
+      workspace.beginAgent({ role: 'worker', task: 'x', providerId: 'claude' })
+    ).toThrow(/at its limit/)
+    await begun.ready
+  })
+
+  it('without a choice the old "first slot with room" behaviour stands', async () => {
+    const { workspace, spawns } = harness({ profile: twoProviderProfile() })
+    await workspace.startAgent({ role: 'worker', task: 'x' })
+    expect(spawns[0]!.input.provider.id).toBe('claude')
+  })
+
+  it('renders each role’s slots into the orchestrator prompt', () => {
+    const { workspace } = harness({ profile: twoProviderProfile() })
+    const roles = workspace.rolesWithLimits()
+    expect(roles.find((role) => role.id === 'worker')?.slots).toEqual([
+      { id: 'slot-claude', providerId: 'claude', model: 'sonnet' },
+      { id: 'slot-codex', providerId: 'codex' }
+    ])
+  })
+})

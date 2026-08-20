@@ -116,9 +116,11 @@ Es schließt **nicht**: zwei Worker-Slots Claude vs. Codex. Der
 Orchestrator kann `model` überschreiben, nicht den Provider. Es gewinnt
 weiter „erster mit Platz“, also meist immer Claude.
 
-Harness-Rest, nicht A1: `start_agent{role, slotId? | providerId?}` oder
-eine Rolle = ein Slot als Profil-Regel. Sonst ist Provider-Diversität
-pro Rolle tote UI.
+**Umgesetzt (Track 4):** `start_agent{role, providerId?, slotId?}` — eine
+explizite Wahl fällt hart (unbekannt/voll = Fehler, kein stilles
+Ausweichen), ohne Wahl bleibt „erster mit Platz". Der Orchestrator-Prompt
+listet die Slots (Provider/Model) je Rolle, damit die Wahl informiert ist.
+Caps bleiben sync über die Reservierung.
 
 ---
 

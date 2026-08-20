@@ -128,6 +128,25 @@ export function registerOrchestratorTools(rawServer: McpServer, runtime: Workspa
           .describe(`One of the configured roles: ${ctx.roles.join(', ') || '(none configured)'}`),
         task: z.string().min(1).max(20_000).describe('The complete assignment for this agent'),
         model: z.string().min(1).max(200).optional().describe('Override the role default model'),
+        providerId: z
+          .string()
+          .min(1)
+          .max(200)
+          .optional()
+          .describe(
+            'Pick the role slot running this provider (your system prompt lists each role’s ' +
+              'slots). Without it the first slot with free capacity wins. A provider the role ' +
+              'has no slot for is an error, never a silent fallback.'
+          ),
+        slotId: z
+          .string()
+          .min(1)
+          .max(200)
+          .optional()
+          .describe(
+            'Pick one specific profile slot by id. Unknown or full slots are an error — an ' +
+              'explicit choice never lands elsewhere. Rarely needed; providerId is usually enough.'
+          ),
         baseBranch: z
           .string()
           .min(1)
@@ -140,7 +159,7 @@ export function registerOrchestratorTools(rawServer: McpServer, runtime: Workspa
           )
       }
     },
-    async ({ role, task, model, baseBranch }): Promise<ToolText> => {
+    async ({ role, task, model, baseBranch, slotId, providerId }): Promise<ToolText> => {
       if (!ctx.roles.includes(role)) {
         return toolError({
           error: 'unknown_role',
@@ -197,7 +216,7 @@ export function registerOrchestratorTools(rawServer: McpServer, runtime: Workspa
       // arrives as an event instead.
       let started: StartingAgent
       try {
-        started = ctx.host.beginAgent({ role, task: seed, model, baseBranch })
+        started = ctx.host.beginAgent({ role, task: seed, model, baseBranch, slotId, providerId })
       } catch (error) {
         return toolError({ error: 'start_failed', role, message: errorMessage(error) })
       }

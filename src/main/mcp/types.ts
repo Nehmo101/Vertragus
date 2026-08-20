@@ -34,6 +34,19 @@ export interface StartAgentInput {
    * on another's result. Absent = the repository HEAD.
    */
   baseBranch?: string
+  /**
+   * Track 4: pick a SPECIFIC profile slot of the role instead of the first
+   * one with capacity. An unknown id or a full slot is a hard error — an
+   * explicit choice must never silently land elsewhere.
+   */
+  slotId?: string
+  /**
+   * Track 4: pick the role's slot running THIS provider (e.g. "codex").
+   * Without it `slotWithCapacity` keeps choosing "first with room", which in
+   * practice always favours the first provider. Ignored when `slotId` is set
+   * (they must agree then).
+   */
+  providerId?: string
 }
 
 /** What the host reports back once the agent process is up and seeded. */

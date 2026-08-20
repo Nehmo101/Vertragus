@@ -39,7 +39,7 @@ describe('buildOrchestratorSystemPrompt', () => {
     expect(prompt).toMatch(/merging the other branches into its own/i)
     // The old opt-in flag is gone — the prompt must not teach it.
     expect(prompt).not.toContain('worktree: true')
-    expect(prompt).toContain('start_agent{role, task, model?, baseBranch?}')
+    expect(prompt).toContain('start_agent{role, task, model?, providerId?, slotId?, baseBranch?}')
   })
 
   it('teaches baseBranch as the way to chain one agent’s work onto another’s', () => {

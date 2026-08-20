@@ -502,7 +502,10 @@ export class Workspace implements AgentHost {
     const urls = this.requireMcp()
     // Everything that can refuse, refuses BEFORE the reservation — a begin
     // that throws must not leak a name or a claimed slot.
-    const slot = this.slotWithCapacity(input.role)
+    const slot = this.slotWithCapacity(input.role, {
+      slotId: input.slotId,
+      providerId: input.providerId
+    })
     const provider = this.requireProvider(slot.providerId)
     const template = this.requireRoleTemplate(input.role)
 
@@ -978,7 +981,15 @@ export class Workspace implements AgentHost {
     return profileRoleIds(this.profile).map((roleId) => ({
       id: roleId,
       description: templates.find((template) => template.id === roleId)?.name,
-      max: slotLimitFor(this.profile, roleId).max
+      max: slotLimitFor(this.profile, roleId).max,
+      // Track 4: what start_agent{providerId}/{slotId} can address.
+      slots: this.profile.slots
+        .filter((slot) => slot.roleId === roleId)
+        .map((slot) => ({
+          id: slot.id,
+          providerId: slot.providerId,
+          ...(slot.model ? { model: slot.model } : {})
+        }))
     }))
   }
 
@@ -1039,16 +1050,63 @@ export class Workspace implements AgentHost {
    * belongs on the next slot, which is the whole point of configuring two
    * slots for one role (a different provider or model for the overflow).
    * Reservations count exactly like live records.
+   *
+   * Track 4: an explicit `slotId` or `providerId` narrows the candidates
+   * FIRST — an explicit choice that is unknown or full is a hard error, never
+   * a silent fallback to another slot. Without it, "first with room" still
+   * wins (back-compat), which in practice favours the first provider.
    */
-  private slotWithCapacity(roleId: string): Slot {
+  private slotWithCapacity(
+    roleId: string,
+    choice: { slotId?: string; providerId?: string } = {}
+  ): Slot {
     const slots = this.profile.slots.filter((candidate) => candidate.roleId === roleId)
     if (slots.length === 0) {
       throw new Error(
         `No slot configured for role "${roleId}" in profile "${this.profile.name}".`
       )
     }
+
+    const hasRoom = (slot: Slot): boolean =>
+      slot.maxCount === undefined || this.countForSlot(slot.id) < slot.maxCount
+
+    if (choice.slotId) {
+      const slot = slots.find((candidate) => candidate.id === choice.slotId)
+      if (!slot) {
+        throw new Error(
+          `Unknown slotId "${choice.slotId}" for role "${roleId}" — configured slots: ${slots
+            .map((candidate) => candidate.id)
+            .join(', ')}.`
+        )
+      }
+      if (choice.providerId && slot.providerId !== choice.providerId) {
+        throw new Error(
+          `Slot "${slot.id}" runs provider "${slot.providerId}", not "${choice.providerId}" — drop one of the two parameters.`
+        )
+      }
+      if (!hasRoom(slot)) {
+        throw new Error(`Slot "${slot.id}" of role "${roleId}" is at its limit.`)
+      }
+      return slot
+    }
+
+    if (choice.providerId) {
+      const matching = slots.filter((candidate) => candidate.providerId === choice.providerId)
+      if (matching.length === 0) {
+        throw new Error(
+          `No slot of role "${roleId}" runs provider "${choice.providerId}" — configured providers: ${[
+            ...new Set(slots.map((candidate) => candidate.providerId))
+          ].join(', ')}.`
+        )
+      }
+      for (const slot of matching) if (hasRoom(slot)) return slot
+      throw new Error(
+        `Every "${choice.providerId}" slot of role "${roleId}" is at its limit.`
+      )
+    }
+
     for (const slot of slots) {
-      if (slot.maxCount === undefined || this.countForSlot(slot.id) < slot.maxCount) return slot
+      if (hasRoom(slot)) return slot
     }
     throw new Error(
       `Every slot of role "${roleId}" in profile "${this.profile.name}" is at its limit.`

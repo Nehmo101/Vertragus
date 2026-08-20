@@ -147,6 +147,22 @@ describe('start_agent', () => {
     expect(baseBranches).toEqual([undefined, 'vertragus/arsenale/agent-1'])
   })
 
+  it('Track 4: hands slotId and providerId through to the host untouched', async () => {
+    const choices: Array<{ slotId?: string; providerId?: string }> = []
+    const host = new FakeAgentHost({
+      onStart: (input) => choices.push({ slotId: input.slotId, providerId: input.providerId })
+    })
+    const { tools } = setup({ host })
+
+    await callTool(tools, 'start_agent', { role: 'worker', task: 't', providerId: 'codex' })
+    await callTool(tools, 'start_agent', { role: 'worker', task: 't', slotId: 'slot-2' })
+
+    expect(choices).toEqual([
+      { slotId: undefined, providerId: 'codex' },
+      { slotId: 'slot-2', providerId: undefined }
+    ])
+  })
+
   it('C4: a baseBranch with a reported done gets a handoff block between task and contract', async () => {
     const { runtime, tools } = setup()
     runtime.events.push({
