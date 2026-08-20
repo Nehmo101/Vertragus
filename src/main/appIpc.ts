@@ -96,6 +96,7 @@ export const APP_CHANNELS = {
   workspacesFocusAgent: 'workspaces:focusAgent',
   workspacesFocus: 'workspaces:focus',
   workspacesCloseAgent: 'workspaces:closeAgent',
+  workspacesAnswerQuestion: 'workspaces:answerQuestion',
   worktreesList: 'worktrees:list',
   worktreesRemove: 'worktrees:remove',
   retroList: 'retro:list',
@@ -177,6 +178,12 @@ export interface WorkspaceAgentSummary {
   windowOpen?: boolean
   /** Set while the agent waits for an answer — drives the `?` badge. */
   pendingQuestion?: string
+  /**
+   * Registry id of that open question — what the badge's answer field sends
+   * back over `workspaces:answerQuestion`. Always set together with
+   * {@link pendingQuestion}.
+   */
+  pendingQuestionId?: string
 }
 
 /** One workspace card. */
@@ -190,6 +197,12 @@ export interface WorkspaceSummary {
   active: boolean
   /** Latest assignment the orchestrator handed out — the tooltip's task line. */
   taskText?: string
+  /**
+   * The goal this workspace was started with (H2) — only once it was actually
+   * delivered to the orchestrator. Absent on a bare Play: the card then shows
+   * "no goal — the orchestrator is waiting".
+   */
+  goalText?: string
   agents: WorkspaceAgentSummary[]
 }
 
@@ -209,10 +222,23 @@ export interface WorkspaceDirectory {
   /**
    * Play: open a new workspace for this profile. The return value is ignored
    * (and typed loosely) so a manager whose `startWorkspace` resolves with its
-   * own runtime object needs no adapter lambda here.
+   * own runtime object needs no adapter lambda here. `goal` (H2) is seeded
+   * into the orchestrator once it is up; absent = classic bare Play.
    */
-  start(profileId: string): void | Promise<unknown>
+  start(profileId: string, goal?: string): void | Promise<unknown>
   stop(workspaceId: string): void | Promise<unknown>
+  /**
+   * Answer one agent question (H1) — the SAME host path the orchestrator's
+   * `send_to_agent{questionId}` takes, so panel, remote and MCP tool share one
+   * question registry. Rejects with a readable message on failure (unknown
+   * question, wrong agent, PTY delivery failed — the question stays open then).
+   */
+  answerQuestion(
+    workspaceId: string,
+    agentId: string,
+    questionId: string,
+    text: string
+  ): Promise<void>
   /** Bring an agent's CLI window to the front. */
   focusAgent(agentId: string): void
   /**
@@ -258,6 +284,7 @@ export function createStubWorkspaceDirectory(
     list: () => [],
     start: refuse,
     stop: refuse,
+    answerQuestion: async () => refuse(),
     focusAgent: (agentId) => focusCliWindow(agentId),
     closeAgentWindow: (agentId) => closeCliWindow(agentId),
     // No manager → no workspace→agent map; quiet no-op like focusAgent on a ghost.
@@ -781,10 +808,15 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
   handle(APP_CHANNELS.workspacesList, requirePanel, () => host.directory.list())
 
   handle(APP_CHANNELS.workspacesStart, requirePanel, async (_event, payload) => {
-    const profileId =
-      typeof payload === 'string' ? payload : (payload as { profileId?: string })?.profileId
-    if (!profileId) throw new Error('workspaces:start rejected — missing profile id')
-    await host.directory.start(profileId)
+    const body =
+      typeof payload === 'string'
+        ? { profileId: payload }
+        : ((payload ?? {}) as { profileId?: string; goal?: unknown })
+    if (!body.profileId) throw new Error('workspaces:start rejected — missing profile id')
+    // Goal is optional (back-compat bare Play); anything non-string or blank
+    // is treated as absent rather than refused — an empty field is not an error.
+    const goal = typeof body.goal === 'string' && body.goal.trim() ? body.goal.trim() : undefined
+    await (goal ? host.directory.start(body.profileId, goal) : host.directory.start(body.profileId))
     emitWorkspaces()
   })
 
@@ -815,6 +847,24 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
       typeof payload === 'string' ? payload : (payload as { agentId?: string })?.agentId
     if (!agentId) throw new Error('workspaces:closeAgent rejected — missing agent id')
     host.directory.closeAgentWindow(agentId)
+    emitWorkspaces()
+  })
+
+  handle(APP_CHANNELS.workspacesAnswerQuestion, requirePanel, async (_event, payload) => {
+    const body = (payload ?? {}) as {
+      workspaceId?: string
+      agentId?: string
+      questionId?: string
+      text?: string
+    }
+    if (!body.workspaceId) throw new Error('workspaces:answerQuestion rejected — missing workspace id')
+    if (!body.agentId) throw new Error('workspaces:answerQuestion rejected — missing agent id')
+    if (!body.questionId) throw new Error('workspaces:answerQuestion rejected — missing question id')
+    if (!body.text?.trim()) throw new Error('workspaces:answerQuestion rejected — missing answer text')
+    await host.directory.answerQuestion(body.workspaceId, body.agentId, body.questionId, body.text)
+    // The badge derives from the question registry; answering mutates it and
+    // the registry's onMutate feed pushes — this emit only covers a directory
+    // without a push channel.
     emitWorkspaces()
   })
 

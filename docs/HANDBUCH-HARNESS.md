@@ -28,8 +28,9 @@ BigBoy macht den Loop *stabil und fernsteuerbar*. Es macht ihn nicht
 | C1 `inspect_agent` | Read-only Git gegen das Agent-Worktree (`status` / `diff` / `log` / `file`) |
 | C2 Host-Fakten auf `agent_done` | `branch`, `headSha`, `uncommitted`, `changedFiles`, `diffStat` — nicht als git-status auf jedem `list_agents` |
 
-Gateway-Allow-List ist **vier Verben**: `workspaces:list`, `workspaces:start`,
-`workspaces:stop`, `profiles:list`. Kein `focus_agent` / `stop_agent` auf dem
+Gateway-Allow-List ist seit Track 0 **fünf Verben**: `workspaces:list`,
+`workspaces:start` (jetzt mit optionalem `goal`), `workspaces:stop`,
+`profiles:list`, `answer_question`. Kein `focus_agent` / `stop_agent` auf dem
 Gateway. `resize` existiert im WS-Protokoll; es ist kein Produktziel von
 Remote-v1.
 
@@ -42,8 +43,8 @@ Remote-Server.
 
 | Haken / Phase | Status |
 | --- | --- |
-| H1 `answer_question` am Gateway | **offen** — Tippen in die PTY löst `ask_orchestrator` nicht |
-| H2 `workspaces:start {goal}` | **offen** — Start bleibt `profileId` only |
+| H1 `answer_question` am Gateway | **umgesetzt** (Track 0) — ein Host-Pfad (`mcp/answerQuestion.ts`), Gateway-Verb, Panel-Badge |
+| H2 `workspaces:start {goal}` | **umgesetzt** (Track 0) — Goal-Seed über den Assignment-Handshake, Back-compat ohne Goal |
 | C3 Snapshot-Commit / C4 Handoff-Paket | später |
 | C5 Orchestrator-Idle-Watchdog | später, und nicht A1.1 (`orchestrator_exited` ist Prozess-Tod) |
 | D Mensch im Loop | nach H1/H2 |
@@ -583,7 +584,7 @@ wählt wenn flach nicht mehr trägt. A/B sind das Fundament.
 | Acht Orchestrator-Tools | `toolsOrchestrator.ts` inkl. `inspect_agent` | **PR #17** |
 | Host-Fakten auf `agent_done` | `toolsSubagent.ts` `report_done`, Sentinel in `Workspace.ts` | **PR #17** |
 | MCP-Identität binär (Root vs. Blatt) | `server.ts` `McpIdentity` — Lead kommt in F | offen |
-| Play ohne Goal | `appIpc.ts` `workspaces:start`, Gateway `profileId` only | H2 offen |
-| MCP-Fragen vom Handy | Gateway hat kein `answer_question` | H1 offen |
+| Goal at Play | `workspaces:start{goal}` Panel + Gateway, Seed via `Workspace.assignGoal` | **Track 0** |
+| MCP-Fragen vom Handy/Panel | `answer_question` Gateway-Verb + `workspaces:answerQuestion`, ein Pfad in `mcp/answerQuestion.ts` | **Track 0** |
 | Worker „nie committen“ | `roles.ts` — Snapshot-Commit ist C3 | später |
 | `runStats.ts` „Cursor hat kein agent_done“ | veraltet (`none` = Ollama) | ignorieren |

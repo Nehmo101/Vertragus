@@ -264,11 +264,12 @@ interface Harness {
   store: ReturnType<typeof createFakeStore>
   broadcasts: { channel: string; payload: unknown }[]
   directory: WorkspaceDirectory & {
-    started: string[]
+    started: Array<{ profileId: string; goal?: string }>
     stopped: string[]
     focused: string[]
     focusedWorkspaces: string[]
     closedAgents: string[]
+    answered: Array<{ workspaceId: string; agentId: string; questionId: string; text: string }>
     removedWorktrees: Array<{ profileId: string; path: string }>
     staleWorktrees: { path: string; branch?: string }[]
     change?: () => void
@@ -371,21 +372,25 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
   }
 
   const directory = {
-    started: [] as string[],
+    started: [] as Array<{ profileId: string; goal?: string }>,
     stopped: [] as string[],
     focused: [] as string[],
     focusedWorkspaces: [] as string[],
     closedAgents: [] as string[],
+    answered: [] as Array<{ workspaceId: string; agentId: string; questionId: string; text: string }>,
     removedWorktrees: [] as Array<{ profileId: string; path: string }>,
     staleWorktrees: [
       { path: '/repo/.vertragus/worktrees/old-1', branch: 'vertragus/paradiso/caronte' }
     ] as { path: string; branch?: string }[],
     list: () => state.workspaces,
-    start(profileId: string) {
-      this.started.push(profileId)
+    start(profileId: string, goal?: string) {
+      this.started.push({ profileId, ...(goal !== undefined ? { goal } : {}) })
     },
     stop(workspaceId: string) {
       this.stopped.push(workspaceId)
+    },
+    async answerQuestion(workspaceId: string, agentId: string, questionId: string, text: string) {
+      this.answered.push({ workspaceId, agentId, questionId, text })
     },
     focusAgent(agentId: string) {
       this.focused.push(agentId)
@@ -733,7 +738,7 @@ describe('workspaces', () => {
     h.ipc.invoke(APP_CHANNELS.workspacesFocus, PANEL_ID, { workspaceId: 'w1' })
     h.ipc.invoke(APP_CHANNELS.workspacesCloseAgent, PANEL_ID, { agentId: 'w1-orch' })
 
-    expect(h.directory.started).toEqual(['p1'])
+    expect(h.directory.started).toEqual([{ profileId: 'p1' }])
     expect(h.directory.stopped).toEqual(['w1'])
     expect(h.directory.focused).toEqual(['w1-orch'])
     expect(h.directory.focusedWorkspaces).toEqual(['w1'])
@@ -743,6 +748,52 @@ describe('workspaces', () => {
       APP_CHANNELS.eventWorkspaces,
       APP_CHANNELS.eventWorkspaces
     ])
+  })
+
+  it('passes a goal through to the directory and treats a blank one as absent (H2)', async () => {
+    await h.ipc.invoke(APP_CHANNELS.workspacesStart, PANEL_ID, {
+      profileId: 'p1',
+      goal: '  Fix the login bug  '
+    })
+    await h.ipc.invoke(APP_CHANNELS.workspacesStart, PANEL_ID, { profileId: 'p1', goal: '   ' })
+
+    expect(h.directory.started).toEqual([
+      { profileId: 'p1', goal: 'Fix the login bug' },
+      { profileId: 'p1' }
+    ])
+  })
+
+  it('answers an agent question over the directory (H1) — panel only, all ids required', async () => {
+    await h.ipc.invoke(APP_CHANNELS.workspacesAnswerQuestion, PANEL_ID, {
+      workspaceId: 'w1',
+      agentId: 'a1',
+      questionId: 'q1',
+      text: 'Use bcrypt.'
+    })
+    expect(h.directory.answered).toEqual([
+      { workspaceId: 'w1', agentId: 'a1', questionId: 'q1', text: 'Use bcrypt.' }
+    ])
+
+    for (const broken of [
+      { agentId: 'a1', questionId: 'q1', text: 'x' },
+      { workspaceId: 'w1', questionId: 'q1', text: 'x' },
+      { workspaceId: 'w1', agentId: 'a1', text: 'x' },
+      { workspaceId: 'w1', agentId: 'a1', questionId: 'q1', text: '  ' }
+    ]) {
+      await expect(
+        Promise.resolve(h.ipc.invoke(APP_CHANNELS.workspacesAnswerQuestion, PANEL_ID, broken))
+      ).rejects.toThrow(/rejected/)
+    }
+    expect(h.directory.answered).toHaveLength(1)
+
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.workspacesAnswerQuestion, CLI_ID, {
+        workspaceId: 'w1',
+        agentId: 'a1',
+        questionId: 'q1',
+        text: 'x'
+      })
+    ).toThrow(/not the panel/)
   })
 
   it('rejects a focus-workspace call without a workspace id', () => {
@@ -766,6 +817,7 @@ describe('workspaces', () => {
         list: () => [],
         start: refuse,
         stop() {},
+        answerQuestion: async () => refuse(),
         focusAgent() {},
         closeAgentWindow() {},
         focusWorkspace() {},
@@ -1587,6 +1639,7 @@ describe('production registration', () => {
       list: () => [workspace('w1')],
       start: vi.fn(),
       stop: vi.fn(),
+      answerQuestion: vi.fn(async () => {}),
       focusAgent: vi.fn(),
       closeAgentWindow: vi.fn(),
       focusWorkspace: vi.fn(),
@@ -1597,6 +1650,7 @@ describe('production registration', () => {
       list: () => [],
       start: vi.fn(),
       stop: vi.fn(),
+      answerQuestion: vi.fn(async () => {}),
       focusAgent: vi.fn(),
       closeAgentWindow: vi.fn(),
       focusWorkspace: vi.fn(),

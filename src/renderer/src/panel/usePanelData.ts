@@ -31,8 +31,11 @@ export interface PanelData {
   update: UpdateState | null
   error: string | null
   dismissError(): void
-  startWorkspace(profileId: string): void
+  /** Start a workspace; a non-empty goal is seeded into the orchestrator (H2). */
+  startWorkspace(profileId: string, goal?: string): void
   stopWorkspace(workspaceId: string): void
+  /** Answer an agent's open question from its `?` badge (H1). */
+  answerQuestion(workspaceId: string, agentId: string, questionId: string, text: string): void
   focusAgent(agentId: string): void
   /** Close a finished agent's CLI window; the row and last task stay. */
   closeAgentWindow(agentId: string): void
@@ -117,14 +120,19 @@ export function usePanelData(): PanelData {
     update,
     error,
     dismissError: () => setError(null),
-    startWorkspace: (profileId) =>
+    startWorkspace: (profileId, goal) =>
       run(async (api) => {
-        await api.startWorkspace(profileId)
+        await api.startWorkspace(profileId, goal)
         setWorkspaces(await api.listWorkspaces())
       }),
     stopWorkspace: (workspaceId) =>
       run(async (api) => {
         await api.stopWorkspace(workspaceId)
+        setWorkspaces(await api.listWorkspaces())
+      }),
+    answerQuestion: (workspaceId, agentId, questionId, text) =>
+      run(async (api) => {
+        await api.answerQuestion(workspaceId, agentId, questionId, text)
         setWorkspaces(await api.listWorkspaces())
       }),
     focusAgent: (agentId) => run((api) => api.focusAgent(agentId)),

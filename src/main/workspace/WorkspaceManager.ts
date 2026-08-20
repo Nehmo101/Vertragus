@@ -58,8 +58,18 @@ export interface StopOptions {
   awaitExitMs?: number
 }
 
+/** Options for {@link WorkspaceManager.startWorkspace}. */
+export interface StartWorkspaceOptions {
+  /**
+   * Goal to seed into the orchestrator once it is up (H2) — same handshake as
+   * every assignment. Absent = the classic bare Play: allowed, the card shows
+   * "no goal" until someone types one into the TUI.
+   */
+  goal?: string
+}
+
 export interface WorkspaceManager {
-  startWorkspace(profile: Profile): Promise<RunningWorkspace>
+  startWorkspace(profile: Profile, options?: StartWorkspaceOptions): Promise<RunningWorkspace>
   stopWorkspace(workspaceId: string, options?: StopOptions): Promise<boolean>
   stopAll(options?: StopOptions): Promise<void>
   get(workspaceId: string): Workspace | undefined
@@ -134,7 +144,10 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     return tap
   }
 
-  async function startWorkspace(profile: Profile): Promise<RunningWorkspace> {
+  async function startWorkspace(
+    profile: Profile,
+    options?: StartWorkspaceOptions
+  ): Promise<RunningWorkspace> {
     if (!profile.repoPath.trim()) {
       throw new Error(`Profile "${profile.name}" has no repository path.`)
     }
@@ -167,8 +180,21 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     try {
       const orchestrator = await workspace.startOrchestrator()
       notifyChange()
+      // Goal AFTER the orchestrator is up, over the same seed handshake as any
+      // assignment. A failed delivery does NOT tear the workspace down — the
+      // orchestrator is running and the user can still type into its terminal;
+      // the error travels to the caller (panel banner / gateway error) and the
+      // card truthfully shows "no goal".
+      const goal = options?.goal?.trim()
+      if (goal) {
+        await workspace.assignGoal(goal)
+        notifyChange()
+      }
       return { workspace, orchestrator, urls: registered }
     } catch (error) {
+      // Only a failed ORCHESTRATOR start unwinds the workspace; a delivered
+      // orchestrator with an undelivered goal stays up (see above).
+      if (workspace.orchestratorAlive) throw error
       workspaces.delete(workspace.workspaceId)
       dropTap(workspace.workspaceId)
       dropChangeTap(workspace.workspaceId)

@@ -46,8 +46,10 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
   const roleLabel = (roleId: string): string =>
     allRoleTemplates(getRoleTemplates()).find((role) => role.id === roleId)?.name ?? roleId
 
-  const pendingOf = (workspaceId: string, agentId: string): string | undefined =>
-    mcp.pendingQuestion(workspaceId, agentId)
+  const pendingOf = (
+    workspaceId: string,
+    agentId: string
+  ): { questionId: string; question: string } | undefined => mcp.openQuestion(workspaceId, agentId)
 
   // Active paths across ALL workspaces, not just the asking profile's: two
   // profiles may point at the same repository, and an agent of either must
@@ -66,6 +68,9 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
         const orchestrator = ws.orchestrator
         const roleIds = [...new Set(ws.profile.slots.map((slot) => slot.roleId))]
         const taskText = mcp.workspaceTask(ws.workspaceId)
+        const orchestratorQuestion = orchestrator
+          ? pendingOf(ws.workspaceId, orchestrator.agentId)
+          : undefined
         return {
           workspaceId: ws.workspaceId,
           name: ws.name,
@@ -75,6 +80,7 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
           // must grey the card out even though its record (and window) stay.
           active: ws.orchestratorAlive,
           ...(taskText ? { taskText } : {}),
+          ...(ws.goalText ? { goalText: ws.goalText } : {}),
           agents: [
             ...(orchestrator
               ? [
@@ -89,8 +95,11 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
                     // tools — the closest truth is the last one it delegated.
                     ...(taskText ? { statusText: taskText } : {}),
                     ...(windowOpenOf(orchestrator.agentId) ? { windowOpen: true } : {}),
-                    ...(pendingOf(ws.workspaceId, orchestrator.agentId)
-                      ? { pendingQuestion: pendingOf(ws.workspaceId, orchestrator.agentId) }
+                    ...(orchestratorQuestion
+                      ? {
+                          pendingQuestion: orchestratorQuestion.question,
+                          pendingQuestionId: orchestratorQuestion.questionId
+                        }
                       : {})
                   }
                 ]
@@ -112,21 +121,44 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
                       : ('stopped' as const),
                 ...(agentTask ? { statusText: agentTask } : {}),
                 ...(windowOpenOf(agent.agentId) ? { windowOpen: true } : {}),
-                ...(pendingQuestion ? { pendingQuestion } : {})
+                ...(pendingQuestion
+                  ? {
+                      pendingQuestion: pendingQuestion.question,
+                      pendingQuestionId: pendingQuestion.questionId
+                    }
+                  : {})
               }
             })
           ]
         }
       }),
-    start(profileId) {
+    start(profileId, goal) {
       const profile = getProfile(profileId)
       if (!profile) {
         const locale = readLocale(() => getSettings().ui.locale)
         throw new Error(mainMessages(locale).unknownProfile(profileId))
       }
-      return manager.startWorkspace(profile)
+      return manager.startWorkspace(profile, goal ? { goal } : undefined)
     },
     stop: (workspaceId) => manager.stopWorkspace(workspaceId),
+    async answerQuestion(workspaceId, agentId, questionId, text) {
+      // One host path (H1): identical to the orchestrator's
+      // send_to_agent{questionId} — see mcp/answerQuestion.ts.
+      const outcome = await mcp.answerQuestion(workspaceId, agentId, questionId, text)
+      if (outcome.ok) return
+      switch (outcome.error) {
+        case 'unknown_workspace':
+          throw new Error(`answer rejected — unknown workspace ${workspaceId}`)
+        case 'unknown_question':
+          throw new Error('answer rejected — that question is already answered or no longer open')
+        case 'question_agent_mismatch':
+          throw new Error('answer rejected — the question belongs to a different agent')
+        case 'answer_delivery_failed':
+          throw new Error(
+            `answer not delivered — the question is still open (${outcome.message ?? 'delivery failed'})`
+          )
+      }
+    },
     focusAgent(agentId) {
       if (getCliWindow(agentId)) {
         focusCliWindow(agentId)
@@ -275,8 +307,10 @@ function buildRemoteController(
             name: profile.name,
             repoPath: profile.repoPath
           })),
-        startWorkspace: (profileId) => directory.start(profileId),
-        stopWorkspace: (workspaceId) => directory.stop(workspaceId)
+        startWorkspace: (profileId, goal) => directory.start(profileId, goal),
+        stopWorkspace: (workspaceId) => directory.stop(workspaceId),
+        answerQuestion: ({ workspaceId, agentId, questionId, text }) =>
+          directory.answerQuestion(workspaceId, agentId, questionId, text)
       },
       terminals: () => getAgentRegistry().terminals(),
       onWorkspaceChange: (listener) => manager.onChange(listener),

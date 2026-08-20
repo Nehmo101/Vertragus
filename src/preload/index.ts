@@ -144,6 +144,7 @@ const APP = {
   workspacesFocusAgent: 'workspaces:focusAgent',
   workspacesFocus: 'workspaces:focus',
   workspacesCloseAgent: 'workspaces:closeAgent',
+  workspacesAnswerQuestion: 'workspaces:answerQuestion',
   worktreesList: 'worktrees:list',
   worktreesRemove: 'worktrees:remove',
   retroList: 'retro:list',
@@ -221,6 +222,8 @@ export interface WorkspaceAgentSummary {
    */
   windowOpen?: boolean
   pendingQuestion?: string
+  /** Id of that open question — what `answerQuestion` addresses. */
+  pendingQuestionId?: string
 }
 
 export interface WorkspaceSummary {
@@ -231,6 +234,8 @@ export interface WorkspaceSummary {
   active: boolean
   /** Latest assignment the orchestrator handed out — the tooltip's task line. */
   taskText?: string
+  /** Goal the workspace was started with; absent = "no goal" hint on the card. */
+  goalText?: string
   agents: WorkspaceAgentSummary[]
 }
 
@@ -370,8 +375,9 @@ const app = {
   discoverModels: (providerId: string): Promise<ModelDiscoveryResult> =>
     ipcRenderer.invoke(APP.modelsDiscover, { providerId }),
   listWorkspaces: (): Promise<WorkspaceSummary[]> => ipcRenderer.invoke(APP.workspacesList),
-  startWorkspace: (profileId: string): Promise<void> =>
-    ipcRenderer.invoke(APP.workspacesStart, { profileId }),
+  /** Start a workspace; `goal` (optional) is seeded into the orchestrator. */
+  startWorkspace: (profileId: string, goal?: string): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesStart, { profileId, ...(goal ? { goal } : {}) }),
   stopWorkspace: (workspaceId: string): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesStop, { workspaceId }),
   focusAgent: (agentId: string): Promise<void> =>
@@ -384,6 +390,18 @@ const app = {
     ipcRenderer.invoke(APP.workspacesCloseAgent, { agentId }),
   focusWorkspace: (workspaceId: string): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesFocus, { workspaceId }),
+  /**
+   * Answer an agent's open question from the panel badge — the same host path
+   * the orchestrator's send_to_agent{questionId} takes. Rejects with a
+   * readable message when the question is gone or delivery failed.
+   */
+  answerQuestion: (
+    workspaceId: string,
+    agentId: string,
+    questionId: string,
+    text: string
+  ): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesAnswerQuestion, { workspaceId, agentId, questionId, text }),
   /** Stale worktrees of this profile's repo — the panel's cleanup list. */
   listStaleWorktrees: (profileId: string): Promise<StaleWorktreeSummary[]> =>
     ipcRenderer.invoke(APP.worktreesList, { profileId }),

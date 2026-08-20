@@ -47,14 +47,19 @@ your PC. It is **off by default**; enable it under **Settings → Remote access*
   and never leaves the machine in plaintext. Regenerating it disconnects every
   paired device.
 - **What a remote device can do.** Watch any agent's terminal live, type into
-  it, and start or stop workspaces. The command allow-list is exactly four
-  verbs: `workspaces:list`, `workspaces:start`, `workspaces:stop`,
-  `profiles:list`. There is no `focus_agent` or `stop_agent` on the gateway.
-  Typing into a PTY reaches the CLI (permission dialogs live there); it does
-  **not** resolve an MCP `ask_orchestrator` wait — that still needs
-  `send_to_agent{questionId}` on the orchestrator, which remote v1 does not
-  expose. It **cannot** edit profiles, providers or settings, touch windows
-  or zones, or remove worktrees.
+  it, start a workspace **with a goal** (the host seeds it into the
+  orchestrator over the same handshake as any assignment; starting without a
+  goal stays allowed and the card says "no goal — the orchestrator is
+  waiting"), stop workspaces, and **answer an agent's open MCP question** from
+  its `?` badge. The command allow-list is exactly five verbs:
+  `workspaces:list`, `workspaces:start`, `workspaces:stop`, `profiles:list`,
+  `answer_question`. There is no `focus_agent` or `stop_agent` on the gateway.
+  `answer_question` takes the same host path as the orchestrator's
+  `send_to_agent{questionId}`, so it resolves the parked `ask_orchestrator`
+  wait (and delivers sentinel answers into the agent's PTY) — one question
+  registry, one truth. Typing into a raw PTY still only reaches the CLI
+  (permission dialogs live there). A remote device **cannot** edit profiles,
+  providers or settings, touch windows or zones, or remove worktrees.
 - **Threat model — read this.** Subagents run in YOLO mode
   (`--dangerously-skip-permissions`). **A paired device therefore has code
   execution on your PC through the agents it drives.** Only pair devices you

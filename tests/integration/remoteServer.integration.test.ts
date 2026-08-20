@@ -43,16 +43,21 @@ function fakeTerminals(): { directory: TerminalDirectory; emit: (data: string) =
   return { directory, emit: (data) => sink?.onData(data) }
 }
 
-const started: string[] = []
+const started: Array<{ profileId: string; goal?: string }> = []
+const answered: Array<{ workspaceId: string; agentId: string; questionId: string; text: string }> =
+  []
 const gateway: RemoteGatewayHost = {
   listWorkspaces: () => [
     { workspaceId: 'w1', name: 'Paradiso', profileId: 'p1', active: true, agents: [] }
   ],
   listProfiles: () => [{ id: 'p1', name: 'Profile', repoPath: '/repo' }],
-  startWorkspace: (profileId) => {
-    started.push(profileId)
+  startWorkspace: (profileId, goal) => {
+    started.push({ profileId, ...(goal !== undefined ? { goal } : {}) })
   },
-  stopWorkspace: () => undefined
+  stopWorkspace: () => undefined,
+  answerQuestion: (input) => {
+    answered.push(input)
+  }
 }
 
 let notifyChange: (() => void) | undefined
@@ -112,6 +117,7 @@ beforeEach(() => {
   staticRoot = mkdtempSync(join(tmpdir(), 'vertragus-remote-'))
   writeFileSync(join(staticRoot, 'index.html'), '<!doctype html><title>Vertragus</title>')
   started.length = 0
+  answered.length = 0
 })
 
 afterEach(async () => {
@@ -198,7 +204,38 @@ describe('remote server websocket', () => {
     const result = nextMessage(socket, 'command_result')
     socket.send(JSON.stringify({ type: 'command', id: 'c1', name: 'workspaces:start', arg: 'p1' }))
     expect(await result).toMatchObject({ type: 'command_result', id: 'c1', ok: true })
-    expect(started).toEqual(['p1'])
+    expect(started).toEqual([{ profileId: 'p1' }])
+
+    // H2: structured args carry the goal alongside the profileId.
+    const withGoal = nextMessage(socket, 'command_result')
+    socket.send(
+      JSON.stringify({
+        type: 'command',
+        id: 'c2',
+        name: 'workspaces:start',
+        args: { profileId: 'p1', goal: 'Fix the login bug' }
+      })
+    )
+    expect(await withGoal).toMatchObject({ type: 'command_result', id: 'c2', ok: true })
+    expect(started).toEqual([
+      { profileId: 'p1' },
+      { profileId: 'p1', goal: 'Fix the login bug' }
+    ])
+
+    // H1: the phone answers an agent question over the gateway.
+    const answeredResult = nextMessage(socket, 'command_result')
+    socket.send(
+      JSON.stringify({
+        type: 'command',
+        id: 'c3',
+        name: 'answer_question',
+        args: { workspaceId: 'w1', agentId: 'a1', questionId: 'q1', text: 'Use bcrypt.' }
+      })
+    )
+    expect(await answeredResult).toMatchObject({ type: 'command_result', id: 'c3', ok: true })
+    expect(answered).toEqual([
+      { workspaceId: 'w1', agentId: 'a1', questionId: 'q1', text: 'Use bcrypt.' }
+    ])
 
     const pushed = nextMessage(socket, 'workspaces')
     notifyChange?.()

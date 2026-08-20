@@ -9,6 +9,7 @@
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { buildReminderSuffix, buildTaskContract } from '@shared/prompts/contract'
+import { answerAgentQuestion } from './answerQuestion'
 import {
   errorMessage,
   INSPECT_VIEWS,
@@ -204,43 +205,33 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
     },
     async ({ agentId, text, questionId }): Promise<ToolText> => {
       if (questionId) {
-        const open = runtime.questions.get(questionId)
-        if (!open) {
-          return toolError({
-            error: 'unknown_question',
-            questionId,
-            note: 'That question is already answered or no longer open. Call send_to_agent again without questionId to just send the text.'
-          })
-        }
-        if (open.agentId !== agentId) {
-          return toolError({
-            error: 'question_agent_mismatch',
-            questionId,
-            expectedAgentId: open.agentId,
-            note: 'Answer a question with the agentId that asked it.'
-          })
-        }
-        // Sentinel questions: deliver to the PTY FIRST, then close the registry.
-        // Closing first left a failed seed with no open question and a stuck
-        // agent (dedup still held the ASK hash). MCP questions have no
-        // deliverAnswer — answer() alone wakes waitForAnswer as before.
-        if (open.deliverAnswer) {
-          try {
-            await open.deliverAnswer(text)
-          } catch (error) {
+        // One host path for answers — the panel badge and the remote gateway's
+        // `answer_question` run through the same function (see answerQuestion.ts).
+        const outcome = await answerAgentQuestion(runtime.questions, agentId, questionId, text)
+        if (outcome.ok) return toolJson({ ok: true, delivered: 'answer', agentId, questionId })
+        switch (outcome.error) {
+          case 'unknown_question':
+            return toolError({
+              error: 'unknown_question',
+              questionId,
+              note: 'That question is already answered or no longer open. Call send_to_agent again without questionId to just send the text.'
+            })
+          case 'question_agent_mismatch':
+            return toolError({
+              error: 'question_agent_mismatch',
+              questionId,
+              expectedAgentId: outcome.expectedAgentId,
+              note: 'Answer a question with the agentId that asked it.'
+            })
+          case 'answer_delivery_failed':
             return toolError({
               error: 'answer_delivery_failed',
               agentId,
               questionId,
-              message: errorMessage(error),
+              message: outcome.message,
               note: 'The question is still open — retry send_to_agent with the same questionId.'
             })
-          }
-          runtime.questions.answer(questionId, text)
-          return toolJson({ ok: true, delivered: 'answer', agentId, questionId })
         }
-        runtime.questions.answer(questionId, text)
-        return toolJson({ ok: true, delivered: 'answer', agentId, questionId })
       }
 
       const stillOpen = runtime.questions.openForAgent(agentId)

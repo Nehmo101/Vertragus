@@ -888,6 +888,54 @@ describe('autoSubmitTasks', () => {
   })
 })
 
+describe('assignGoal — H2, the goal rides the assignment handshake', () => {
+  it('types the goal into the orchestrator PTY and records it as goalText', async () => {
+    const { workspace, spawns, prompts, seedOptions } = harness()
+    await workspace.startOrchestrator()
+    expect(workspace.goalText).toBeUndefined()
+
+    await workspace.assignGoal('Fix the login bug')
+
+    expect(prompts.at(-1)).toBe('Fix the login bug')
+    expect(spawns[0]!.pty.written).toContain('Fix the login bug')
+    expect(workspace.goalText).toBe('Fix the login bug')
+    // The goal comes straight from the user — always submitted, even when the
+    // profile withholds Enter for assignments the orchestrator hands out.
+    expect(seedOptions.at(-1)?.autoSubmit).toBe(true)
+  })
+
+  it('always submits, autoSubmitTasks off included', async () => {
+    const { workspace, seedOptions } = harness({
+      profile: testProfile({ autoSubmitTasks: false })
+    })
+    await workspace.startOrchestrator()
+    await workspace.assignGoal('Goal.')
+    expect(seedOptions.at(-1)?.autoSubmit).toBe(true)
+  })
+
+  it('refuses without an orchestrator and leaves goalText unset', async () => {
+    const { workspace } = harness()
+    await expect(workspace.assignGoal('Goal.')).rejects.toThrow(/no orchestrator/)
+    expect(workspace.goalText).toBeUndefined()
+  })
+
+  it('does not record a goal the CLI never accepted', async () => {
+    const seedOk = { value: true }
+    const { workspace } = harness({
+      deps: {
+        seed: (async (write: (text: string) => void, _s: unknown, prompt: string) => {
+          if (seedOk.value) write(prompt)
+          return seedOk.value
+        }) as unknown as WorkspaceDeps['seed']
+      }
+    })
+    await workspace.startOrchestrator()
+    seedOk.value = false
+    await expect(workspace.assignGoal('Goal.')).rejects.toThrow(/did not accept the goal/)
+    expect(workspace.goalText).toBeUndefined()
+  })
+})
+
 /**
  * Ollama runs `mcp: none` on purpose — no verified attach surface, so declaring
  * one would kill the launch. The price is an agent that cannot report anything,

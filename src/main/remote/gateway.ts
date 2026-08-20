@@ -17,8 +17,21 @@ import type { RemoteCommand, RemoteProfileSummary, RemoteWorkspaceSummary } from
 export interface RemoteGatewayHost {
   listWorkspaces(): RemoteWorkspaceSummary[]
   listProfiles(): RemoteProfileSummary[]
-  startWorkspace(profileId: string): void | Promise<unknown>
+  /** `goal` (H2) is seeded into the orchestrator; absent = classic bare start. */
+  startWorkspace(profileId: string, goal?: string): void | Promise<unknown>
   stopWorkspace(workspaceId: string): void | Promise<unknown>
+  /**
+   * Answer one agent question (H1) — the SAME host path as the orchestrator's
+   * `send_to_agent{questionId}`, so answering from the phone resolves the very
+   * `ask_orchestrator` waiter the MCP tool would. Must reject/throw on failure
+   * (unknown question, wrong agent, PTY delivery failed).
+   */
+  answerQuestion(input: {
+    workspaceId: string
+    agentId: string
+    questionId: string
+    text: string
+  }): void | Promise<unknown>
 }
 
 export type GatewayResult =
@@ -33,7 +46,8 @@ export type GatewayResult =
 export async function runRemoteCommand(
   host: RemoteGatewayHost,
   name: RemoteCommand,
-  arg: string | undefined
+  arg: string | undefined,
+  args?: Readonly<Record<string, string>>
 ): Promise<GatewayResult> {
   try {
     switch (name) {
@@ -42,14 +56,31 @@ export async function runRemoteCommand(
       case 'profiles:list':
         return { ok: true, result: host.listProfiles() }
       case 'workspaces:start': {
-        if (!arg) return { ok: false, error: 'workspaces:start needs a profileId' }
-        await host.startWorkspace(arg)
-        return { ok: true, result: { started: arg } }
+        // `arg` stays the profileId for old clients; `args` adds the goal (H2).
+        const profileId = args?.profileId?.trim() || arg
+        if (!profileId) return { ok: false, error: 'workspaces:start needs a profileId' }
+        const goal = args?.goal?.trim() || undefined
+        await (goal ? host.startWorkspace(profileId, goal) : host.startWorkspace(profileId))
+        return { ok: true, result: { started: profileId, ...(goal ? { goal: true } : {}) } }
       }
       case 'workspaces:stop': {
         if (!arg) return { ok: false, error: 'workspaces:stop needs a workspaceId' }
         await host.stopWorkspace(arg)
         return { ok: true, result: { stopped: arg } }
+      }
+      case 'answer_question': {
+        const workspaceId = args?.workspaceId?.trim()
+        const agentId = args?.agentId?.trim()
+        const questionId = args?.questionId?.trim()
+        const text = args?.text?.trim()
+        if (!workspaceId || !agentId || !questionId || !text) {
+          return {
+            ok: false,
+            error: 'answer_question needs args {workspaceId, agentId, questionId, text}'
+          }
+        }
+        await host.answerQuestion({ workspaceId, agentId, questionId, text })
+        return { ok: true, result: { answered: questionId, agentId } }
       }
       default: {
         // Exhaustiveness guard: a new RemoteCommand must be handled above.

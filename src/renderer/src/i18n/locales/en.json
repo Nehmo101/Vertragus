@@ -56,7 +56,15 @@
     "quit": "Quit Vertragus",
     "settings": "Settings",
     "updateReady": "Update ready — restart",
-    "updateReadyTitle": "Version {{version}} has been downloaded. Clicking restarts Vertragus — every running agent is stopped."
+    "updateReadyTitle": "Version {{version}} has been downloaded. Clicking restarts Vertragus — every running agent is stopped.",
+    "goalPlaceholder": "Goal for the orchestrator … (empty = start without a goal)",
+    "startWithGoal": "Start with goal",
+    "startWithoutGoal": "Start without goal",
+    "noGoal": "No goal — the orchestrator is waiting",
+    "workspaceGoal": "Goal: {{goal}}",
+    "answerQuestion": "Answer {{agent}}’s question",
+    "answerPlaceholder": "Answer …",
+    "answerSend": "Answer"
   },
   "profileEditor": {
     "title": "Edit profile",

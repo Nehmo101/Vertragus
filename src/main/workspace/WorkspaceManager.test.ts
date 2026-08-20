@@ -55,6 +55,24 @@ class FakeMcp implements McpServerHandle {
   pendingQuestion(workspaceId: string, agentId: string): string | undefined {
     return this.runtimes.get(workspaceId)?.questions.openForAgent(agentId)?.question
   }
+  openQuestion(
+    workspaceId: string,
+    agentId: string
+  ): { questionId: string; question: string } | undefined {
+    const open = this.runtimes.get(workspaceId)?.questions.openForAgent(agentId)
+    return open ? { questionId: open.questionId, question: open.question } : undefined
+  }
+  async answerQuestion(
+    workspaceId: string,
+    _agentId: string,
+    questionId: string,
+    text: string
+  ): ReturnType<McpServerHandle['answerQuestion']> {
+    const runtime = this.runtimes.get(workspaceId)
+    if (!runtime) return { ok: false as const, error: 'unknown_workspace' as const, questionId }
+    runtime.questions.answer(questionId, text)
+    return { ok: true as const, agentId: _agentId, questionId }
+  }
   workspaceTask(workspaceId: string): string | undefined {
     return this.runtimes.get(workspaceId)?.latestTask
   }
@@ -151,6 +169,48 @@ describe('startWorkspace', () => {
     expect(mcp.lastQuestions?.openForAgent(running.workspace.listAgents()[0]!.agentId)?.question).toBe(
       'shared registry?'
     )
+  })
+
+  it('seeds a goal into the orchestrator after start (H2) and records it', async () => {
+    const { manager, spawns } = harness()
+    const running = await manager.startWorkspace(testProfile(), { goal: '  Fix the login bug  ' })
+
+    expect(running.workspace.goalText).toBe('Fix the login bug')
+    expect(spawns[0]!.pty.written).toContain('Fix the login bug')
+  })
+
+  it('a bare start stays a bare start — no goal, no seed, no crash', async () => {
+    const { manager, spawns } = harness()
+    const running = await manager.startWorkspace(testProfile())
+    expect(running.workspace.goalText).toBeUndefined()
+    // Nothing was typed into the orchestrator (fake launch has no ptySystemPrompt).
+    expect(spawns[0]!.pty.written).toEqual([])
+
+    const blank = await manager.startWorkspace(testProfile(), { goal: '   ' })
+    expect(blank.workspace.goalText).toBeUndefined()
+  })
+
+  it('a failed goal delivery surfaces the error but keeps the workspace running', async () => {
+    let orchestratorSeeded = false
+    const { manager } = harness({
+      seed: (async (write: (text: string) => void, _s: unknown, prompt: string) => {
+        // First seed call would be the goal (fake launch has no ptySystemPrompt).
+        if (!orchestratorSeeded) {
+          orchestratorSeeded = true
+          return false
+        }
+        write(prompt)
+        return true
+      }) as unknown as WorkspaceDeps['seed']
+    })
+
+    await expect(
+      manager.startWorkspace(testProfile(), { goal: 'Goal.' })
+    ).rejects.toThrow(/did not accept the goal/)
+    // The orchestrator lives on; the workspace stays listed and stoppable.
+    expect(manager.list()).toHaveLength(1)
+    expect(manager.list()[0]!.orchestratorAlive).toBe(true)
+    expect(manager.list()[0]!.goalText).toBeUndefined()
   })
 
   it('passes the profile limits and roles into the MCP context', async () => {

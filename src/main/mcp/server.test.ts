@@ -212,6 +212,30 @@ describe('startMcpServer', () => {
     expect(() => handle.subagentUrl('nope', 'a1')).toThrow(/Unknown MCP workspace/)
   })
 
+  it('exposes open questions with ids and answers them on the shared path (H1)', async () => {
+    const registered = handle.registerWorkspace(context({ workspaceId: 'w-answer' }))
+    const pending = registered.runtime.questions.create('agent-1', 'Which DB?')
+    const waiter = registered.runtime.questions.waitForAnswer(pending.questionId, 'agent-1', 5_000)
+
+    expect(handle.openQuestion('w-answer', 'agent-1')).toEqual({
+      questionId: pending.questionId,
+      question: 'Which DB?'
+    })
+    expect(handle.openQuestion('w-answer', 'ghost')).toBeUndefined()
+    expect(handle.openQuestion('ghost', 'agent-1')).toBeUndefined()
+
+    await expect(handle.answerQuestion('ghost', 'agent-1', pending.questionId, 'x')).resolves.toEqual({
+      ok: false,
+      error: 'unknown_workspace',
+      questionId: pending.questionId
+    })
+    await expect(
+      handle.answerQuestion('w-answer', 'agent-1', pending.questionId, 'Postgres.')
+    ).resolves.toEqual({ ok: true, agentId: 'agent-1', questionId: pending.questionId })
+    await expect(waiter).resolves.toEqual({ state: 'answered', answer: 'Postgres.' })
+    expect(handle.openQuestion('w-answer', 'agent-1')).toBeUndefined()
+  })
+
   it('names itself vertragus so tools resolve as mcp__vertragus__*', async () => {
     const registered = handle.registerWorkspace(context({ workspaceId: 'w8' }))
     const client = await connect(registered.orchestratorUrl)

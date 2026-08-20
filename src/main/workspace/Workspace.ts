@@ -281,6 +281,8 @@ export class Workspace implements AgentHost {
   private closed = false
   /** The record_retro summary, held until the manager finalizes the run at stop. */
   pendingRetroSummary: string | undefined
+  /** The user's goal, once it was DELIVERED to the orchestrator (H2). */
+  private goal: string | undefined
 
   constructor(init: WorkspaceInit, deps: WorkspaceDeps) {
     this.profile = init.profile
@@ -312,6 +314,16 @@ export class Workspace implements AgentHost {
     const record = this.orchestratorRecord
     if (!record) return false
     return record.pty.isAlive && !record.stopped && record.exit === undefined
+  }
+
+  /**
+   * The goal this workspace was started with — set only after
+   * {@link assignGoal} actually delivered it to the orchestrator's CLI, so the
+   * panel and the remote client never show a goal the orchestrator never saw.
+   * Undefined for a bare Play (back-compat): the UI shows "no goal" instead.
+   */
+  get goalText(): string | undefined {
+    return this.goal
   }
 
   /** The orchestrator, once started. Never part of {@link listAgents}. */
@@ -766,6 +778,29 @@ export class Workspace implements AgentHost {
       this.discard(agentId, name, spawned?.pty)
       throw error
     }
+  }
+
+  /**
+   * Seed the user's goal into the orchestrator's CLI — the SAME handshake every
+   * assignment takes (H2), so "start with a goal" and "type the goal into the
+   * TUI" are one mechanism, not two. Always submitted: the goal comes straight
+   * from the user, there is nothing left to redact. Throws when the CLI did not
+   * accept the text; the workspace keeps running then (the user can still type
+   * into the terminal), and {@link goalText} stays unset — an undelivered goal
+   * must not show up on the card as if the orchestrator had it.
+   */
+  async assignGoal(goal: string): Promise<void> {
+    this.assertOpen()
+    const record = this.orchestratorRecord
+    if (!record) throw new Error(`Workspace ${this.name} has no orchestrator to give a goal to.`)
+    if (!record.pty.isAlive) {
+      throw new Error(`${record.name} is no longer running — its process has ended.`)
+    }
+    const accepted = await this.seed(record, goal, true)
+    if (!accepted) {
+      throw new Error(`${record.name} did not accept the goal — type it into its terminal instead.`)
+    }
+    this.goal = goal
   }
 
   /**

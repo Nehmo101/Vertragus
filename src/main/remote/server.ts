@@ -309,7 +309,7 @@ export async function startRemoteServer(
             send(socket, { type: 'workspaces', workspaces: options.gateway.listWorkspaces() })
             break
           case 'command': {
-            void runRemoteCommand(options.gateway, message.name, message.arg).then(
+            void runRemoteCommand(options.gateway, message.name, message.arg, message.args).then(
               (result) => {
                 if (result.ok) {
                   send(socket, { type: 'command_result', id: message.id, ok: true, result: result.result })

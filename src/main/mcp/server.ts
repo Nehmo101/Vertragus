@@ -20,6 +20,7 @@ import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
+import { answerAgentQuestion, type AnswerQuestionOutcome } from './answerQuestion'
 import { PendingQuestions } from './pendingQuestions'
 import { registerOrchestratorTools } from './toolsOrchestrator'
 import { registerSubagentTools } from './toolsSubagent'
@@ -73,6 +74,26 @@ export interface McpServerHandle {
    * waiting agent can blink without round-tripping through MCP tools.
    */
   pendingQuestion(workspaceId: string, agentId: string): string | undefined
+  /**
+   * Open question of an agent WITH its id — what the panel and the remote
+   * client need to answer it (the text alone cannot address the registry).
+   */
+  openQuestion(
+    workspaceId: string,
+    agentId: string
+  ): { questionId: string; question: string } | undefined
+  /**
+   * Answer one open question on the SAME path `send_to_agent{questionId}`
+   * takes (H1): sentinel questions deliver to the PTY first, MCP questions
+   * wake their parked `ask_orchestrator` waiter. Never throws — failures come
+   * back as values so panel IPC and remote gateway shape their own errors.
+   */
+  answerQuestion(
+    workspaceId: string,
+    agentId: string,
+    questionId: string,
+    text: string
+  ): Promise<AnswerQuestionOutcome | { ok: false; error: 'unknown_workspace'; questionId: string }>
   /**
    * The latest assignment the orchestrator handed out in this workspace,
    * shortened to one line. The panel appends it to the workspace tooltip.
@@ -412,6 +433,20 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
 
     pendingQuestion(workspaceId: string, agentId: string): string | undefined {
       return workspaces.get(workspaceId)?.questions.openForAgent(agentId)?.question
+    },
+
+    openQuestion(
+      workspaceId: string,
+      agentId: string
+    ): { questionId: string; question: string } | undefined {
+      const open = workspaces.get(workspaceId)?.questions.openForAgent(agentId)
+      return open ? { questionId: open.questionId, question: open.question } : undefined
+    },
+
+    async answerQuestion(workspaceId, agentId, questionId, text) {
+      const runtime = workspaces.get(workspaceId)
+      if (!runtime) return { ok: false, error: 'unknown_workspace', questionId }
+      return answerAgentQuestion(runtime.questions, agentId, questionId, text)
     },
 
     workspaceTask(workspaceId: string): string | undefined {

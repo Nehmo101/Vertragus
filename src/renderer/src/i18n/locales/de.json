@@ -56,7 +56,15 @@
     "quit": "Vertragus beenden",
     "settings": "Einstellungen",
     "updateReady": "Update bereit — Neustart",
-    "updateReadyTitle": "Version {{version}} ist geladen. Klicken startet Vertragus neu — alle laufenden Agenten werden beendet."
+    "updateReadyTitle": "Version {{version}} ist geladen. Klicken startet Vertragus neu — alle laufenden Agenten werden beendet.",
+    "goalPlaceholder": "Ziel für den Orchestrator … (leer = ohne Ziel starten)",
+    "startWithGoal": "Mit Ziel starten",
+    "startWithoutGoal": "Ohne Ziel starten",
+    "noGoal": "Kein Ziel — Orchestrator wartet",
+    "workspaceGoal": "Ziel: {{goal}}",
+    "answerQuestion": "Frage von {{agent}} beantworten",
+    "answerPlaceholder": "Antwort …",
+    "answerSend": "Antworten"
   },
   "profileEditor": {
     "title": "Profil bearbeiten",

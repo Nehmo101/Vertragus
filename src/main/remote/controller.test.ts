@@ -64,7 +64,13 @@ function harness(initial: RemoteSettings = DEFAULTS, interfaces = tailnet) {
     },
     staticRoot: '/out/remote',
     serverBase: {
-      gateway: { listWorkspaces: () => [], listProfiles: () => [], startWorkspace: () => {}, stopWorkspace: () => {} },
+      gateway: {
+        listWorkspaces: () => [],
+        listProfiles: () => [],
+        startWorkspace: () => {},
+        stopWorkspace: () => {},
+        answerQuestion: () => {}
+      },
       terminals: () => ({ list: () => [], get: () => undefined, attach: () => undefined, write: () => false, resize: () => false }),
       onWorkspaceChange: () => () => {},
       locale: () => 'de',
