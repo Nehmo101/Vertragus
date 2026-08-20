@@ -781,6 +781,82 @@ describe('startOrchestrator', () => {
   })
 })
 
+describe('requestSuccession', () => {
+  it('replaces the orchestrator, keeps workers, and seeds the successor with the package', async () => {
+    const packages: unknown[] = []
+    const { workspace, spawns, prompts, questions } = harness({
+      ptySystemPrompt: true,
+      deps: { writeSuccession: (pkg) => packages.push(pkg) }
+    })
+    const predecessor = await workspace.startOrchestrator()
+    const worker = await workspace.startAgent({ role: 'worker', task: 'Implement the parser.' })
+    questions.create(worker.agentId, 'which interface?')
+
+    const begun = workspace.requestSuccession({
+      reason: 'context_full',
+      nextActions: ['Answer Caronte first'],
+      decisions: ['Use zod']
+    })
+    expect(begun.predecessorAgentId).toBe(predecessor.agentId)
+    expect(begun.successorAgentId).not.toBe(predecessor.agentId)
+
+    const successor = await begun.ready
+
+    expect(workspace.successionInProgress()).toBe(false)
+    expect(workspace.orchestratorAlive).toBe(true)
+    expect(workspace.orchestrator?.agentId).toBe(successor.agentId)
+    expect(workspace.listAgents().map((agent) => agent.agentId)).toContain(worker.agentId)
+    expect(questions.openForAgent(worker.agentId)?.question).toBe('which interface?')
+
+    const types = workspace.events.all().map((event) => event.type)
+    expect(types).toContain('orchestrator_handoff_started')
+    expect(types).toContain('orchestrator_started')
+    expect(types).not.toContain('orchestrator_exited')
+
+    expect(spawns).toHaveLength(3)
+    expect(spawns[2]!.input.mcpUrl).not.toBe(spawns[0]!.input.mcpUrl)
+    expect(spawns[2]!.input.mcpUrl).toContain('token=')
+    expect(prompts.at(-1)).toContain('successor of')
+    expect(prompts.at(-1)).toContain(`cursor ${begun.eventCursor}`)
+    expect(prompts.at(-1)).toContain('which interface?')
+
+    const pkg = packages[0] as { openQuestions: Array<{ question: string }>; eventCursor: number }
+    expect(pkg.openQuestions[0]?.question).toBe('which interface?')
+    expect(pkg.eventCursor).toBe(begun.eventCursor)
+  })
+
+  it('refuses a second succession while one is in flight', async () => {
+    const { workspace } = harness()
+    await workspace.startOrchestrator()
+    const first = workspace.requestSuccession({ reason: 'long_run' })
+    expect(() => workspace.requestSuccession({ reason: 'other' })).toThrow(/already_in_progress/)
+    await first.ready
+  })
+
+  it('restores the predecessor when the successor fails to spawn', async () => {
+    const inner = fakeSpawn()
+    const { workspace } = harness({
+      deps: {
+        spawn: (async (input) => {
+          if (input.kind === 'orchestrator' && inner.calls.length >= 1) {
+            throw new Error('successor boom')
+          }
+          return inner.spawn(input)
+        }) as WorkspaceDeps['spawn']
+      }
+    })
+    const predecessor = await workspace.startOrchestrator()
+    const begun = workspace.requestSuccession({ reason: 'context_full' })
+    await expect(begun.ready).rejects.toThrow(/successor boom/)
+    expect(workspace.orchestrator?.agentId).toBe(predecessor.agentId)
+    expect(workspace.orchestratorAlive).toBe(true)
+    expect(workspace.successionInProgress()).toBe(false)
+    expect(workspace.events.all().some((event) => event.type === 'orchestrator_handoff_failed')).toBe(
+      true
+    )
+  })
+})
+
 describe('stopAll / close', () => {
   it('stops subagents first and the orchestrator last', async () => {
     const { workspace, windows } = harness()

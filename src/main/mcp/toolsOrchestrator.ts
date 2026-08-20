@@ -1,5 +1,5 @@
 /**
- * The eleven tools the orchestrator agent gets. Everything the orchestrator can
+ * The tools the orchestrator agent gets. Everything the orchestrator can
  * do to the world goes through here — there is no second path.
  *
  * The tools deliberately do very little themselves: check the limits, compose
@@ -9,6 +9,7 @@
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { buildHandoffBlock, buildReminderSuffix, buildTaskContract } from '@shared/prompts/contract'
+import { successionRequestSchema } from '@shared/schema/handoff'
 import { answerAgentQuestion } from './answerQuestion'
 import { resolveAskTimeoutMs, SUBAGENT_TOOL_NAMES } from './toolsSubagent'
 import {
@@ -47,7 +48,8 @@ export const ORCHESTRATOR_TOOL_NAMES = [
   'integrate_branch',
   'ask_user',
   'start_orchestrator',
-  'record_retro'
+  'record_retro',
+  'request_succession'
 ] as const
 
 export type OrchestratorToolName = (typeof ORCHESTRATOR_TOOL_NAMES)[number]
@@ -108,6 +110,16 @@ const AWAIT_TIMEOUT_NOTE =
   'Call await_events again with the cursor from this response. Do not stop, do not idle, ' +
   'and do not switch to polling list_agents.'
 
+function successionBlock(runtime: WorkspaceRuntime): ToolText | undefined {
+  if (!runtime.ctx.host.successionInProgress()) return undefined
+  return toolError({
+    error: 'succession_in_progress',
+    note:
+      'An orchestrator succession is in progress. Wait for the successor. ' +
+      'Do not start agents, send messages, stop agents, or record a retro.'
+  })
+}
+
 /**
  * C5: every orchestrator tool call touches the runtime's idle watchdog — on
  * entry and on exit (see {@link WorkspaceRuntime.onOrchestratorToolCall}).
@@ -147,6 +159,14 @@ export function registerOrchestratorTools(
   const { ctx } = runtime
   const server = withOrchestratorTouch(rawServer, runtime)
   const leadId = scope?.leadId
+
+  /**
+   * C6: while a succession is pending, the ROOT's mutating tools refuse — the
+   * predecessor must stop driving. Leads are agents of the run and keep
+   * working through the handoff, so a scoped registration never gates.
+   */
+  const successionGate = (): ToolText | undefined =>
+    leadId ? undefined : successionBlock(runtime)
 
   /** The caller's own event queue: the lead's, or the workspace root queue. */
   const ownQueue = (): EventQueue =>
@@ -247,6 +267,8 @@ export function registerOrchestratorTools(
       }
     },
     async ({ role, task, model, baseBranch, slotId, providerId }): Promise<ToolText> => {
+      const blocked = successionGate()
+      if (blocked) return blocked
       if (!ctx.roles.includes(role)) {
         return toolError({
           error: 'unknown_role',
@@ -401,6 +423,8 @@ export function registerOrchestratorTools(
       }
     },
     async ({ agentId, text, questionId }): Promise<ToolText> => {
+      const blocked = successionGate()
+      if (blocked) return blocked
       // F: one level only — answers and instructions go to DIRECT children.
       const fenced = outOfScope(agentId)
       if (fenced) return fenced
@@ -533,6 +557,8 @@ export function registerOrchestratorTools(
       inputSchema: { agentId: z.string().min(1) }
     },
     async ({ agentId }): Promise<ToolText> => {
+      const blocked = successionGate()
+      if (blocked) return blocked
       const fenced = outOfScope(agentId)
       if (fenced) return fenced
       const known = ctx.host.listAgents().find((agent) => agent.agentId === agentId)
@@ -649,9 +675,10 @@ export function registerOrchestratorTools(
     {
       description:
         'Your run retrospective — call it exactly once, at the end of the run, after stopping your ' +
-        'agents. Give a one-or-two-sentence verdict and per-model learnings: for every model that ' +
-        'ran, fill a strength AND a weakness slot when the run gave evidence for it. A slot may stay ' +
-        'empty — never invent a weakness. These insights steer model choice in future runs.',
+        'agents. Never call it as part of a context handoff (that is request_succession). Give a ' +
+        'one-or-two-sentence verdict and per-model learnings: for every model that ran, fill a ' +
+        'strength AND a weakness slot when the run gave evidence for it. A slot may stay empty — ' +
+        'never invent a weakness. These insights steer model choice in future runs.',
       inputSchema: {
         summary: z
           .string()
@@ -697,6 +724,8 @@ export function registerOrchestratorTools(
       }
     },
     async ({ summary, learnings, repoNotes }): Promise<ToolText> => {
+      const blocked = successionGate()
+      if (blocked) return blocked
       const retro = ctx.retro
       if (!retro) {
         return toolError({
@@ -1018,4 +1047,61 @@ export function registerOrchestratorTools(
       })
     }
   )
+
+  // C6 root-only: a lead never replaces the root orchestrator, and depth
+  // stays 1 — succession is serial replacement of the ROOT, nothing else.
+  if (!scope) {
+    server.registerTool(
+      'request_succession',
+      {
+        description:
+          'Replace yourself with a successor orchestrator that continues this run with a fresh context. ' +
+          'Call this when your context is nearly full, the provider warns about context, or you are ' +
+          'losing track of agents or decisions. Do not call it when the goal is done — that is ' +
+          'record_retro. Fill goal, decisions, risks and nextActions honestly; omit unknowns. After ' +
+          'this returns, stop: the successor takes the loop. This is serial replacement, not a second ' +
+          'concurrent orchestrator.',
+        inputSchema: {
+          reason: successionRequestSchema.shape.reason.describe(
+            'Why you are handing off. context_full is the usual case.'
+          ),
+          goal: successionRequestSchema.shape.goal,
+          decisions: successionRequestSchema.shape.decisions,
+          risks: successionRequestSchema.shape.risks,
+          nextActions: successionRequestSchema.shape.nextActions,
+          agentNotes: successionRequestSchema.shape.agentNotes,
+          note: successionRequestSchema.shape.note
+        }
+      },
+      async (args): Promise<ToolText> => {
+        let parsed
+        try {
+          parsed = successionRequestSchema.parse(args)
+        } catch (error) {
+          return toolError({ error: 'invalid_package', message: errorMessage(error) })
+        }
+        try {
+          const started = ctx.host.requestSuccession(parsed)
+          return toolJson({
+            successorAgentId: started.successorAgentId,
+            successorName: started.successorName,
+            predecessorAgentId: started.predecessorAgentId,
+            eventCursor: started.eventCursor,
+            state: 'succession_started',
+            note:
+              'Successor is starting in the background. Stop now. await_events is no longer yours — ' +
+              `the successor will resume from cursor ${started.eventCursor}.`
+          })
+        } catch (error) {
+          const message = errorMessage(error)
+          const code = message.includes('already_in_progress')
+            ? 'already_in_progress'
+            : message.includes('no_orchestrator')
+              ? 'no_orchestrator'
+              : 'succession_failed'
+          return toolError({ error: code, message })
+        }
+      }
+    )
+  }
 }

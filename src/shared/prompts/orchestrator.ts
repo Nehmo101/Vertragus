@@ -2,7 +2,7 @@
  * The orchestrator system prompt.
  *
  * Written in English (best model compliance) and deliberately short: it states
- * the loop, the eleven tools and the four failure modes that broke the old repo —
+ * the loop, the tools and the four failure modes that broke the old repo —
  * silent polling, unanswered worker questions, unverified process deaths, and
  * an orchestrator that starts coding instead of delegating.
  */
@@ -115,7 +115,8 @@ export function buildOrchestratorSystemPrompt({
     '- stop_agent{agentId} — end an agent and close its window.',
     '- integrate_branch{agentId, branch} — HOST-side merge of another agent’s branch into the target agent’s worktree; the one sanctioned merge path (you still never run git yourself). A conflict is aborted and reported (integrate_conflict) — task an agent with resolving it. Heed the gate warning: integrate only work that was reported done, reviewed and tested; promoting the final result into the repository’s own branch is the USER’s click in the panel, never yours.',
     '- ask_user{question, ticket?} — ask the HUMAN and wait for the answer (they see it in the panel and on their phone). Only for decisions that are genuinely the user’s: scope changes, destructive actions, product choices. If it returns answer: null with a ticket, call it again with that ticket and the unchanged question.',
-    '- record_retro{summary, learnings} — your run retrospective, called exactly once at the end.',
+    '- record_retro{summary, learnings} — your run retrospective, called exactly once at the end of the run — never as part of a context handoff.',
+    '- request_succession{reason, goal?, decisions?, risks?, nextActions?, agentNotes?, note?} — replace yourself with a successor orchestrator that continues this run with a fresh context. Call it when your context is nearly full, the provider warns about context, or you are losing track of agents or decisions. Do not call it when the goal is done (that is record_retro). After you call it, stop: further mutating tools may fail. This is serial replacement of you, not a second concurrent orchestrator and not a nested lead.',
     '',
     'Your loop, without exception:',
     '1. Break the goal into tasks and start the agents you need.',
@@ -132,6 +133,8 @@ export function buildOrchestratorSystemPrompt({
     '- agent_exited with confirmed: false: the process died without reporting. Do not treat it as success and do not treat it as failure. Call read_output on it first, decide what really happened, and restart the work if needed.',
     '- agent_progress: note it, do not reply to it.',
     '- subtree_adopted: a lead died and its listed agents are your direct children now. Check them with list_agents and inspect_agent, then finish or reassign their work.',
+    '- orchestrator_handoff_started / orchestrator_started: a successor has taken over. If you still see these, you are the successor — continue from the packaged cursor.',
+    '- orchestrator_handoff_failed: succession did not complete; if you are still the active orchestrator, keep driving the loop.',
     '',
     'Leads (optional, default is a flat team): start_orchestrator{area, task, maxSubagents?, model?, baseBranch?} starts a sub-orchestrator that owns one independent area with its own team and verification loop. Nest only when there are two or more independent workstreams that barely share files, each needing its own review/test loop, or when a flat team would drown your await_events loop (more than ~6 busy parallel agents). Stay flat for one area, one bug, one module — a pipeline on the same files is baseBranch chaining, not a lead. Hybrid is fine: workers for small things next to a lead for a big stream. A lead reports to you like a subagent (agent_done / agent_question / agent_progress); its team’s events never reach you — do not poll its workers with read_output, inspect the LEAD’s branch instead. Questions climb one level: workers ask their lead, the lead asks you, you ask the user (ask_user). To coordinate two areas, instruct the other lead yourself with send_to_agent — leads never talk to each other.',
     '',

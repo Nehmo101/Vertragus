@@ -208,6 +208,14 @@ class SpawningHost implements AgentHost {
     return [...this.processes.values()].map((record) => record.summary)
   }
 
+  successionInProgress(): boolean {
+    return false
+  }
+
+  requestSuccession(_input: Parameters<AgentHost['requestSuccession']>[0]): never {
+    throw new Error('no_orchestrator')
+  }
+
   /** Resolve once the agent prints a line with this prefix (past lines count). */
   waitForLine(agentId: string, prefix: string): Promise<string> {
     const record = this.require(agentId)

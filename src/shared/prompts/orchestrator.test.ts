@@ -48,7 +48,7 @@ describe('buildOrchestratorSystemPrompt', () => {
     expect(prompt).toMatch(/reports every agent’s branch back/i)
   })
 
-  it('names all eight orchestrator tools', () => {
+  it('names all orchestrator tools', () => {
     const prompt = buildOrchestratorSystemPrompt(base)
     for (const tool of [
       'start_agent',
@@ -58,7 +58,8 @@ describe('buildOrchestratorSystemPrompt', () => {
       'inspect_agent',
       'read_output',
       'stop_agent',
-      'record_retro'
+      'record_retro',
+      'request_succession'
     ]) {
       expect(prompt).toContain(tool)
     }
@@ -134,6 +135,14 @@ describe('buildOrchestratorSystemPrompt', () => {
     expect(prompt).toMatch(/never edit, create or delete files yourself/i)
     expect(prompt).toMatch(/stop every remaining agent with stop_agent/i)
     expect(prompt).toMatch(/one summary/i)
+  })
+
+  it('teaches request_succession as serial replacement, not run end', () => {
+    const prompt = buildOrchestratorSystemPrompt(base)
+    expect(prompt).toMatch(/request_succession\{reason/)
+    expect(prompt).toMatch(/fresh context/i)
+    expect(prompt).toMatch(/not a second concurrent orchestrator/i)
+    expect(prompt).toMatch(/never as part of a context handoff/i)
   })
 
   it('is plain English with no German left in it', () => {

@@ -11,7 +11,7 @@ function setup(options: Parameters<typeof fakeRuntime>[0] = {}) {
 }
 
 describe('orchestrator tool surface', () => {
-  it('registers exactly the eleven documented tools', () => {
+  it('registers exactly the documented tools', () => {
     const { tools } = setup()
     expect([...tools.keys()].sort()).toEqual([...ORCHESTRATOR_TOOL_NAMES].sort())
   })
@@ -1078,5 +1078,53 @@ describe('record_retro repoNotes — E2', () => {
     expect(result.isError).toBe(false)
     expect(result.json.appliedRepoNotes).toBe(1)
     expect(recorded).toEqual([['tests need pnpm run ci']])
+  })
+})
+
+describe('request_succession', () => {
+  it('returns succession_started and does not wait for the successor spawn', async () => {
+    const { runtime, tools } = setup()
+    const result = await callTool(tools, 'request_succession', {
+      reason: 'context_full',
+      nextActions: ['answer the open question']
+    })
+    expect(result.isError).toBe(false)
+    expect(result.json).toMatchObject({
+      state: 'succession_started',
+      predecessorAgentId: 'orch-live',
+      eventCursor: 0
+    })
+    expect(runtime.host.successionCalls).toHaveLength(1)
+    expect(runtime.host.successionCalls[0]).toMatchObject({ reason: 'context_full' })
+  })
+
+  it('refuses a second succession and mutating tools while one is in flight', async () => {
+    const host = new FakeAgentHost({ holdSuccession: true })
+    const { tools } = setup({ host, retro: { recordLearnings: () => ({ applied: 0 }), recordSummary: () => undefined } })
+
+    const first = await callTool(tools, 'request_succession', { reason: 'long_run' })
+    expect(first.isError).toBe(false)
+
+    const second = await callTool(tools, 'request_succession', { reason: 'other' })
+    expect(second.isError).toBe(true)
+    expect(second.json.error).toBe('already_in_progress')
+
+    const start = await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
+    expect(start.json.error).toBe('succession_in_progress')
+    const retro = await callTool(tools, 'record_retro', { summary: 'done' })
+    expect(retro.json.error).toBe('succession_in_progress')
+    const send = await callTool(tools, 'send_to_agent', { agentId: 'x', text: 'hi' })
+    expect(send.json.error).toBe('succession_in_progress')
+
+    host.completeSuccession()
+  })
+
+  it('still allows list_agents during succession', async () => {
+    const host = new FakeAgentHost({ holdSuccession: true })
+    const { tools } = setup({ host })
+    await callTool(tools, 'request_succession', { reason: 'context_full' })
+    const listed = await callTool(tools, 'list_agents')
+    expect(listed.isError).toBe(false)
+    host.completeSuccession()
   })
 })

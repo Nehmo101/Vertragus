@@ -19,6 +19,9 @@ export const AGENT_EVENT_TYPES = [
   'agent_stopped',
   'orchestrator_exited',
   'orchestrator_idle',
+  'orchestrator_handoff_started',
+  'orchestrator_started',
+  'orchestrator_handoff_failed',
   'user_message',
   'user_question',
   'subtree_adopted',
@@ -212,6 +215,28 @@ const budgetWarningPayload = z.object({
   exhausted: z.boolean()
 })
 
+const orchestratorHandoffStartedPayload = z.object({
+  type: z.literal('orchestrator_handoff_started'),
+  ...identity,
+  reason: z.enum(['context_full', 'long_run', 'user_requested', 'other']),
+  eventCursor: z.number().int().nonnegative(),
+  successorAgentId: z.string().min(1)
+})
+
+const orchestratorStartedPayload = z.object({
+  type: z.literal('orchestrator_started'),
+  ...identity,
+  predecessorAgentId: z.string().min(1),
+  eventCursor: z.number().int().nonnegative()
+})
+
+const orchestratorHandoffFailedPayload = z.object({
+  type: z.literal('orchestrator_handoff_failed'),
+  ...identity,
+  message: z.string().min(1),
+  successorAgentId: z.string().min(1).optional()
+})
+
 /** Event body as produced by a caller — no `seq`/`ts` yet. */
 export const agentEventPayloadSchema = z.discriminatedUnion('type', [
   agentStartedPayload,
@@ -223,6 +248,9 @@ export const agentEventPayloadSchema = z.discriminatedUnion('type', [
   agentStoppedPayload,
   orchestratorExitedPayload,
   orchestratorIdlePayload,
+  orchestratorHandoffStartedPayload,
+  orchestratorStartedPayload,
+  orchestratorHandoffFailedPayload,
   userMessagePayload,
   userQuestionPayload,
   subtreeAdoptedPayload,
@@ -249,6 +277,9 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   agentStoppedPayload.extend(envelope),
   orchestratorExitedPayload.extend(envelope),
   orchestratorIdlePayload.extend(envelope),
+  orchestratorHandoffStartedPayload.extend(envelope),
+  orchestratorStartedPayload.extend(envelope),
+  orchestratorHandoffFailedPayload.extend(envelope),
   userMessagePayload.extend(envelope),
   userQuestionPayload.extend(envelope),
   subtreeAdoptedPayload.extend(envelope),

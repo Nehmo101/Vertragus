@@ -102,6 +102,15 @@ export class PendingQuestions {
     return publicQuestion(entry)
   }
 
+  /**
+   * Every currently unanswered question, oldest first. Succession packages
+   * the full list so a successor can drain the backlog; {@link openForAgent}
+   * is still the one-question-at-a-time view.
+   */
+  listOpen(): PendingQuestion[] {
+    return [...this.open.values()].map(publicQuestion)
+  }
+
   get(questionId: string): PendingQuestion | undefined {
     const entry = this.open.get(questionId)
     return entry ? publicQuestion(entry) : undefined

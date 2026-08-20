@@ -28,7 +28,9 @@ workspaces get places (Paradiso, Inferno, …).
 The German handbook [`docs/HANDBUCH-HARNESS.md`](docs/HANDBUCH-HARNESS.md)
 is a code-grounded look at the harness core after the robustness and
 Tailscale-remote work: host-truth for verification (`inspect_agent`) and
-handoff, the human inside the event loop — without a second orchestrator.
+handoff, the human inside the event loop — without a second *concurrent*
+orchestrator. Planned serial root succession (fresh context, same team) is
+sketched in [`docs/ORCHESTRATOR-SUCCESSION.md`](docs/ORCHESTRATOR-SUCCESSION.md).
 
 ## Remote access (Tailscale)
 
