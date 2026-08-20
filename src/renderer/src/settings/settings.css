@@ -475,6 +475,18 @@
   align-items: flex-start;
 }
 
+.st-remote-pairing .st-input {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.st-remote-pairing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .st-qr {
   width: 160px;
   height: 160px;

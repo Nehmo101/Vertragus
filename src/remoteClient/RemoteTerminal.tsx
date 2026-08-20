@@ -12,30 +12,43 @@ import { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
+import type { RemoteCopy } from './i18n'
 import type { RemoteApi } from './useRemote'
 
 const XTERM_THEME = {
   background: 'rgba(0,0,0,0)',
-  foreground: '#e7efe9',
-  cursor: '#8fd6bd',
-  selectionBackground: 'rgba(143,214,189,0.3)'
+  foreground: '#eae6db',
+  cursor: '#cba35a',
+  selectionBackground: 'rgba(203,163,90,0.3)'
+}
+
+const FONT_MIN = 12
+const FONT_MAX = 18
+const FONT_DEFAULT = 14
+
+function isCoarsePointer(): boolean {
+  return window.matchMedia('(pointer: coarse)').matches
 }
 
 export function RemoteTerminal({
   agentId,
   api,
+  copy,
   onBack
 }: {
   agentId: string
   api: RemoteApi
+  copy: RemoteCopy
   onBack: () => void
 }): React.JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
+  const fitRef = useRef<FitAddon | null>(null)
   const [title, setTitle] = useState(agentId)
-  const [roleColor, setRoleColor] = useState('#8fd6bd')
+  const [roleColor, setRoleColor] = useState('#cba35a')
   const [exited, setExited] = useState<number | null>(null)
   const [line, setLine] = useState('')
+  const [fontSize, setFontSize] = useState(FONT_DEFAULT)
 
   useEffect(() => {
     const host = hostRef.current
@@ -44,8 +57,8 @@ export function RemoteTerminal({
       allowTransparency: true,
       theme: XTERM_THEME,
       fontFamily: "'JetBrains Mono', ui-monospace, Menlo, monospace",
-      fontSize: 12.5,
-      lineHeight: 1.35,
+      fontSize,
+      lineHeight: 1.4,
       cursorBlink: false,
       scrollback: 5000
     })
@@ -53,6 +66,7 @@ export function RemoteTerminal({
     term.loadAddon(fit)
     term.open(host)
     termRef.current = term
+    fitRef.current = fit
     const applyFit = (): void => {
       try {
         fit.fit()
@@ -69,7 +83,7 @@ export function RemoteTerminal({
         setRoleColor(color)
         term.write(snapshot)
         applyFit()
-        term.focus()
+        if (!isCoarsePointer()) term.focus()
       },
       onData: (data) => term.write(data),
       onExit: (exitCode) => {
@@ -81,16 +95,19 @@ export function RemoteTerminal({
     const observer = new ResizeObserver(() => applyFit())
     observer.observe(host)
     window.addEventListener('resize', applyFit)
+    window.visualViewport?.addEventListener('resize', applyFit)
 
     return () => {
       observer.disconnect()
       window.removeEventListener('resize', applyFit)
+      window.visualViewport?.removeEventListener('resize', applyFit)
       offInput.dispose()
       detach()
       term.dispose()
       termRef.current = null
+      fitRef.current = null
     }
-  }, [agentId, api])
+  }, [agentId, api, fontSize])
 
   const sendLine = (): void => {
     api.sendInput(agentId, `${line}\r`)
@@ -99,22 +116,64 @@ export function RemoteTerminal({
 
   const key = (data: string): void => api.sendInput(agentId, data)
 
+  const bumpFont = (delta: number): void => {
+    setFontSize((current) => Math.min(FONT_MAX, Math.max(FONT_MIN, current + delta)))
+  }
+
   return (
     <div className="terminal-view" style={{ '--role': roleColor } as React.CSSProperties}>
       <header className="terminal-header">
-        <button className="back" onClick={onBack} aria-label="Zurück">
+        <button className="back" onClick={onBack} aria-label={copy.back} type="button">
           ‹
         </button>
         <span className="terminal-title">{title}</span>
-        <span className={`dot ${exited === null ? 'live' : 'dead'}`} />
+        <span
+          className={`dot ${exited === null ? 'live' : 'dead'}`}
+          title={exited === null ? copy.terminalLive : copy.terminalDead}
+        />
+        <button
+          type="button"
+          className="font-btn"
+          onClick={() => bumpFont(-1)}
+          aria-label={copy.fontSmaller}
+        >
+          A−
+        </button>
+        <button
+          type="button"
+          className="font-btn"
+          onClick={() => bumpFont(1)}
+          aria-label={copy.fontLarger}
+        >
+          A+
+        </button>
       </header>
       <div className="terminal-host" ref={hostRef} />
-      <div className="key-row">
-        <button onClick={() => key('\x1b')}>Esc</button>
-        <button onClick={() => key('\t')}>Tab</button>
-        <button onClick={() => key('\x03')}>Ctrl-C</button>
-        <button onClick={() => key('\x1b[A')}>↑</button>
-        <button onClick={() => key('\x1b[B')}>↓</button>
+      <div className="key-row" role="toolbar" aria-label="Steuertasten">
+        <button type="button" onClick={() => key('\x1b')}>
+          Esc
+        </button>
+        <button type="button" onClick={() => key('\t')}>
+          Tab
+        </button>
+        <button type="button" onClick={() => key('\r')}>
+          Enter
+        </button>
+        <button type="button" onClick={() => key('\x03')}>
+          Ctrl-C
+        </button>
+        <button type="button" onClick={() => key('\x1b[D')}>
+          ←
+        </button>
+        <button type="button" onClick={() => key('\x1b[A')}>
+          ↑
+        </button>
+        <button type="button" onClick={() => key('\x1b[B')}>
+          ↓
+        </button>
+        <button type="button" onClick={() => key('\x1b[C')}>
+          →
+        </button>
       </div>
       <form
         className="input-bar"
@@ -126,12 +185,14 @@ export function RemoteTerminal({
         <input
           value={line}
           onChange={(event) => setLine(event.target.value)}
-          placeholder="Eingabe an den Agent …"
+          placeholder={copy.terminalInput}
           autoCapitalize="off"
           autoCorrect="off"
+          autoComplete="off"
           spellCheck={false}
+          enterKeyHint="send"
         />
-        <button type="submit">Senden</button>
+        <button type="submit">{copy.composerSend}</button>
       </form>
     </div>
   )

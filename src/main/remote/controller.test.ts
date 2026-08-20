@@ -34,10 +34,24 @@ describe('resolveBindAddress', () => {
   })
 })
 
+function memoryFallback(initial?: string) {
+  let value = initial
+  return {
+    read: () => value,
+    write: (token: string) => {
+      value = token
+    },
+    clear: () => {
+      value = undefined
+    }
+  }
+}
+
 function harness(initial: RemoteSettings = DEFAULTS, interfaces = tailnet) {
   let settings = { ...initial }
   const closes: number[] = []
   let closeCount = 0
+  const fallback = memoryFallback()
   const fakeHandle = (host: string, port: number): RemoteServerHandle => ({
     host,
     port,
@@ -62,6 +76,7 @@ function harness(initial: RemoteSettings = DEFAULTS, interfaces = tailnet) {
       encrypt: (plain) => `enc(${plain})`,
       decrypt: (cipher) => (cipher.startsWith('enc(') ? cipher.slice(4, -1) : undefined)
     },
+    tokenFallback: fallback,
     staticRoot: '/out/remote',
     serverBase: {
       gateway: {
@@ -79,7 +94,7 @@ function harness(initial: RemoteSettings = DEFAULTS, interfaces = tailnet) {
     },
     startServer: startServer as unknown as RemoteControllerDeps['startServer']
   }
-  return { deps, startServer, getSettings: () => settings }
+  return { deps, startServer, getSettings: () => settings, fallback }
 }
 
 describe('createRemoteController', () => {
@@ -115,6 +130,54 @@ describe('createRemoteController', () => {
     expect(getSettings().pairingTokenEncrypted).toMatch(/^enc\(/)
   })
 
+  it('reuses the same pairing URL across a restart (new controller, same stores)', async () => {
+    const { deps, getSettings } = harness()
+    const first = createRemoteController(deps)
+    const enabled = await first.apply({ enabled: true })
+    expect(enabled.pairingUrl).toMatch(/#token=/)
+
+    const second = createRemoteController(deps)
+    const resumed = await second.apply({ enabled: true })
+    expect(resumed.pairingUrl).toBe(enabled.pairingUrl)
+    expect(getSettings().pairingTokenEncrypted).toMatch(/^enc\(/)
+  })
+
+  it('does not mint over ciphertext that the keychain cannot unlock', async () => {
+    const { deps, getSettings } = harness({
+      ...DEFAULTS,
+      pairingTokenEncrypted: 'enc(original-token)'
+    })
+    deps.secrets = {
+      available: true,
+      encrypt: (plain) => `enc(${plain})`,
+      decrypt: () => undefined
+    }
+    deps.tokenFallback = memoryFallback()
+    const controller = createRemoteController(deps)
+    const status = await controller.apply({ enabled: true })
+
+    expect(status.pairingUrl).toBeUndefined()
+    expect(status.error).toMatch(/entsperrt/)
+    expect(getSettings().pairingTokenEncrypted).toBe('enc(original-token)')
+  })
+
+  it('uses the fallback file when the keychain cannot decrypt', async () => {
+    const { deps } = harness({
+      ...DEFAULTS,
+      pairingTokenEncrypted: 'enc(old-token)'
+    })
+    deps.secrets = {
+      available: true,
+      encrypt: (plain) => `enc(${plain})`,
+      decrypt: () => undefined
+    }
+    deps.tokenFallback = memoryFallback('fallback-token')
+    const controller = createRemoteController(deps)
+    const status = await controller.apply({ enabled: true })
+    expect(status.pairingUrl).toContain('#token=fallback-token')
+    expect(status.error).toBeUndefined()
+  })
+
   it('reports an error instead of starting when auto-bind finds no tailnet', async () => {
     const { deps, startServer } = harness(DEFAULTS, noTailnet)
     const controller = createRemoteController(deps)
@@ -145,9 +208,9 @@ describe('createRemoteController', () => {
     expect(status.running).toBe(false)
   })
 
-  it('keeps the token in memory and OFF DISK when no keychain is available', async () => {
-    const { deps, getSettings } = harness()
-    // No OS keychain: encrypt must never reach disk.
+  it('keeps the token out of electron-store when no keychain is available', async () => {
+    const { deps, getSettings, fallback } = harness()
+    // No OS keychain: encrypt must never reach the settings JSON.
     deps.secrets = {
       available: false,
       encrypt: () => {
@@ -158,9 +221,27 @@ describe('createRemoteController', () => {
     const controller = createRemoteController(deps)
     const status = await controller.apply({ enabled: true })
 
-    // The QR still works — a token exists — but nothing plaintext is persisted.
     expect(status.hasToken).toBe(true)
     expect(status.pairingUrl).toMatch(/#token=/)
     expect(getSettings().pairingTokenEncrypted).toBeUndefined()
+    expect(fallback.read()).toMatch(/^[A-Za-z0-9_-]+$/)
+  })
+
+  it('reuses the fallback-file token across a restart without a keychain', async () => {
+    const { deps, fallback } = harness()
+    deps.secrets = {
+      available: false,
+      encrypt: () => {
+        throw new Error('encrypt must not be called without a keychain')
+      },
+      decrypt: () => undefined
+    }
+    const first = createRemoteController(deps)
+    const enabled = await first.apply({ enabled: true })
+    expect(fallback.read()).toBeTruthy()
+
+    const second = createRemoteController(deps)
+    const resumed = await second.apply({ enabled: true })
+    expect(resumed.pairingUrl).toBe(enabled.pairingUrl)
   })
 })

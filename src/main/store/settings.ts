@@ -112,7 +112,8 @@ export type UiSettings = z.infer<typeof uiSettingsSchema>
  * `0.0.0.0`) is a deliberate override set in the settings window. The pairing
  * token is stored ENCRYPTED (Electron `safeStorage`, base64) because
  * electron-store is plaintext JSON on disk — the encryption happens in the
- * remote wiring, this schema only carries the opaque ciphertext.
+ * remote wiring, this schema only carries the opaque ciphertext. A 0600
+ * file under userData is the restart-safe copy when the keychain is missing.
  */
 export const remoteSettingsSchema = z
   .object({
