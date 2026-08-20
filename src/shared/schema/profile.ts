@@ -34,6 +34,32 @@ export const roleTemplateSchema = z
   .strict()
 export type RoleTemplate = z.infer<typeof roleTemplateSchema>
 
+/** E6: at most this many extra MCP servers per slot — a bug net, not a quota. */
+export const MAX_EXTRA_MCP = 4
+
+/**
+ * E6: one extra MCP server a slot's agents attach IN ADDITION to Vertragus.
+ * The name must be a TOML/JSON-safe bare key (it becomes a Codex `-c
+ * mcp_servers.<name>.url` override and a Grok `[mcp_servers.<name>]` table),
+ * and `vertragus` is reserved so nothing can shadow the reporting channel.
+ */
+export const extraMcpServerSchema = z
+  .object({
+    name: z
+      .string()
+      .trim()
+      .min(1)
+      .max(40)
+      .regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/, 'letters, digits, "_" and "-" only')
+      .refine((name) => name.toLowerCase() !== 'vertragus', {
+        message: 'the name "vertragus" is reserved for the built-in server'
+      }),
+    /** HTTP(S) Streamable endpoint; every dialect here treats a bare url as HTTP. */
+    url: z.string().trim().url().max(500)
+  })
+  .strict()
+export type ExtraMcpServer = z.infer<typeof extraMcpServerSchema>
+
 export const slotSchema = z
   .object({
     id: idSchema,
@@ -43,7 +69,14 @@ export const slotSchema = z
     model: z.string().trim().max(200).optional(),
     effort: effortLevelSchema.optional(),
     /** Max parallel instances of this slot. Absent = only `maxSubagents` binds. */
-    maxCount: z.number().int().min(1).max(MAX_SLOT_COUNT).optional()
+    maxCount: z.number().int().min(1).max(MAX_SLOT_COUNT).optional(),
+    /**
+     * E6: extra MCP servers for this slot's agents — SUBAGENTS ONLY. The
+     * orchestrator and leads never get them: their tool surface is the
+     * allow-list, and a browser tool on the delegator is how a delegator
+     * starts doing the work itself.
+     */
+    extraMcp: z.array(extraMcpServerSchema).max(MAX_EXTRA_MCP).optional()
   })
   .strict()
 export type Slot = z.infer<typeof slotSchema>

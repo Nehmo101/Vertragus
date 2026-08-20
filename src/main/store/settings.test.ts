@@ -129,6 +129,19 @@ describe('profiles', () => {
     expect(settings.getProfile('p1')!.zones).toEqual({ zones: [] })
   })
 
+  it('E6: keeps a slot’s extraMcp when a form save omits it; [] clears it', () => {
+    const { store: settings } = store()
+    const slot = { id: 's1', roleId: 'worker', providerId: 'claude' }
+    const extraMcp = [{ name: 'browser', url: 'http://127.0.0.1:9200/mcp' }]
+    settings.saveProfile({ ...validProfile, slots: [{ ...slot, extraMcp }] })
+    // The profile editor has no extraMcp field — its save must not wipe it.
+    settings.saveProfile({ ...validProfile, slots: [slot] })
+    expect(settings.getProfile('p1')!.slots[0]!.extraMcp).toEqual(extraMcp)
+    // An explicit empty list is the deliberate clear.
+    settings.saveProfile({ ...validProfile, slots: [{ ...slot, extraMcp: [] }] })
+    expect(settings.getProfile('p1')!.slots[0]!.extraMcp).toEqual([])
+  })
+
   it('zone → profile-save → placeAgentWindow still lands inside the zone', async () => {
     const { placeAgentWindow } = await import('@main/windows/placement')
     const { store: settings } = store()

@@ -701,3 +701,40 @@ describe('spawnAgent', () => {
     expect(pty.snapshot()).toContain('claude')
   })
 })
+
+describe('E6 extra MCP servers', () => {
+  const EXTRA = [{ name: 'browser', url: 'http://127.0.0.1:9200/mcp' }]
+
+  it('a Claude subagent gets the extra servers in its transient config', () => {
+    const { argv } = buildAgentArgv(launchInput({ extraMcp: EXTRA }))
+    const configPath = argv[argv.indexOf('--mcp-config') + 1]!
+    const config = JSON.parse(readFileSync(configPath, 'utf8')) as {
+      mcpServers: Record<string, unknown>
+    }
+    expect(config.mcpServers.browser).toEqual({ type: 'http', url: 'http://127.0.0.1:9200/mcp' })
+    expect(config.mcpServers.vertragus).toBeDefined()
+  })
+
+  it('a Codex subagent gets one -c url override per server', () => {
+    const { argv } = buildAgentArgv(
+      launchInput({ provider: preset('codex'), model: 'gpt-5.6', extraMcp: EXTRA })
+    )
+    expect(argv).toContain('mcp_servers.browser.url="http://127.0.0.1:9200/mcp"')
+  })
+
+  it('an orchestrator and a lead NEVER get extra servers, whatever the input says', () => {
+    for (const kind of ['orchestrator', 'lead'] as const) {
+      const { argv } = buildAgentArgv(launchInput({ kind, extraMcp: EXTRA }))
+      const configPath = argv[argv.indexOf('--mcp-config') + 1]!
+      const config = JSON.parse(readFileSync(configPath, 'utf8')) as {
+        mcpServers: Record<string, unknown>
+      }
+      expect(Object.keys(config.mcpServers)).toEqual(['vertragus'])
+
+      const codex = buildAgentArgv(
+        launchInput({ kind, provider: preset('codex'), model: 'm', extraMcp: EXTRA })
+      )
+      expect(codex.argv.join(' ')).not.toContain('mcp_servers.browser')
+    }
+  })
+})

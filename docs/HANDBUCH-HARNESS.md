@@ -48,7 +48,7 @@ Remote-Server.
 | C3 Snapshot-Commit / C4 Handoff-Paket | **umgesetzt** (Track 1) — `snapshotDone` committet dirty Worktrees beim Done; `start_agent{baseBranch}` trägt Handoff-Block |
 | C5 Orchestrator-Idle-Watchdog | **umgesetzt** (Track 2) — `orchestrator_idle` Event + Panel/Remote-Hinweis; Timeouts ≠ Idle (Touch bei Call-Start und -Ende) |
 | D Mensch im Loop | **D1–D4 umgesetzt** (Track 3 + Follow-up) — Goal-UI, `user_message` weckt `await_events`, `ask_user` mit Ticket; D4 Stufen `yolo`/`ask-user`/`ask-orchestrator` (Store-Spiegel zu `yoloMaster`, Contract-Approval-Regel, Threat-Model im README) |
-| E integrate / briefing / eval | **Kern umgesetzt** (Track 6) — `integrate_branch` + Gate-Warnung + Promote-Klick, Briefing + `repoNotes`, Journal + Resume (E3, Briefing statt Re-Spawn), Budget-Wanduhr, Janitor/Explorer, Playbooks; offen: Extra-MCP an Worker (E6), Live-Loop-Eval (E5) |
+| E integrate / briefing / eval | **Kern umgesetzt** (Track 6) — `integrate_branch` + Gate-Warnung + Promote-Klick, Briefing + `repoNotes`, Journal + Resume (E3, Briefing statt Re-Spawn), Budget-Wanduhr, Janitor/Explorer, Playbooks, Extra-MCP an Worker (E6); offen: Live-Loop-Eval (E5) |
 | F Multi-Orch (Lead, Tiefe 1) | **umgesetzt** (Track 5) — dritte Identität `lead=`, eigene Queues, `start_orchestrator`, Fan-in nur Direktkinder, Reparent (`subtree_adopted`), Caps host-seitig |
 
 ---
@@ -334,6 +334,14 @@ Orchestrator, Assert Worker + `inspect` zeigt Datei + Tester success +
 Orchestrator-Worktree ohne eigenen Diff.
 
 ### E6 Playbooks, Extra-MCP, fehlende Rollen
+
+**Status: umgesetzt** (Playbooks/Rollen in Track 6, Extra-MCP im
+Follow-up). Slot-Schema `extraMcp: [{name, url}]` (Name TOML-sicher,
+`vertragus` reserviert, max 4); alle fünf Attach-Dialekte schreiben die
+Zusatz-Server (Claude strict-File, Codex `-c`-Overrides, Kimi/Cursor/Grok
+Projekt-Dateien) — **nur für Subagents**, Orchestrator/Lead nie. Kein
+Formular-Feld: der Store bewahrt `extraMcp` über Editor-Saves (wie
+Zones), konfiguriert wird per Profil-JSON.
 
 Playbook = Goal-Template, kein vorstartetes Team. Extra-MCP nur an
 Worker (`mcp/attach.ts` kennt die Dialekte). Templates Janitor/Explorer,

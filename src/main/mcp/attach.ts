@@ -61,8 +61,21 @@
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import type { ExtraMcpServer } from '@shared/schema/profile'
 import { MCP_SERVER_NAME } from './server'
 import { LEAD_TOOL_NAMES, ORCHESTRATOR_TOOL_NAMES } from './toolsOrchestrator'
+
+/**
+ * E6: extra MCP servers a SLOT declares for its subagents, defence-in-depth
+ * filtered — the schema already refuses the reserved name, but these writers
+ * are also reachable from tests and future callers, and a `vertragus` entry
+ * here would silently shadow the reporting channel.
+ */
+export function usableExtraMcp(
+  extra: readonly ExtraMcpServer[] | undefined
+): ExtraMcpServer[] {
+  return (extra ?? []).filter((server) => server.name.toLowerCase() !== MCP_SERVER_NAME)
+}
 
 /** Claude built-ins the orchestrator may use for verification without a prompt. */
 export const READONLY_CLAUDE_TOOLS = ['Read', 'Glob', 'Grep', 'TodoWrite'] as const
@@ -149,9 +162,20 @@ export interface McpAttachTarget {
   allowedTools?: string[]
 }
 
-/** The `{ mcpServers: { vertragus: … } }` object Claude expects. */
-export function toClaudeMcpConfig(url: string): { mcpServers: Record<string, unknown> } {
-  return { mcpServers: { [MCP_SERVER_NAME]: { type: 'http', url } } }
+/**
+ * The `{ mcpServers: { vertragus: … } }` object Claude expects. E6: extra
+ * slot servers land in the SAME transient file — `--strict-mcp-config` limits
+ * Claude to this file, so this is the only place they can come from.
+ */
+export function toClaudeMcpConfig(
+  url: string,
+  extraMcp?: readonly ExtraMcpServer[]
+): { mcpServers: Record<string, unknown> } {
+  const servers: Record<string, unknown> = { [MCP_SERVER_NAME]: { type: 'http', url } }
+  for (const server of usableExtraMcp(extraMcp)) {
+    servers[server.name] = { type: 'http', url: server.url }
+  }
+  return { mcpServers: servers }
 }
 
 /** Fail closed: prove the file we just wrote is the shape Claude will read. */
@@ -167,12 +191,13 @@ export function assertWrittenClaudeMcpConfig(configPath: string): void {
 export function writeClaudeMcpConfigFile(
   url: string,
   configDir: string,
-  fileTag: string
+  fileTag: string,
+  extraMcp?: readonly ExtraMcpServer[]
 ): string {
   const dir = join(configDir, 'vertragus-mcp')
   mkdirSync(dir, { recursive: true })
   const configPath = join(dir, `${fileTag}.json`)
-  writeFileSync(configPath, JSON.stringify(toClaudeMcpConfig(url), null, 2))
+  writeFileSync(configPath, JSON.stringify(toClaudeMcpConfig(url, extraMcp), null, 2))
   assertWrittenClaudeMcpConfig(configPath)
   return configPath
 }
@@ -258,6 +283,21 @@ export function codexServerOverrides(url: string, allowedTools?: readonly string
 }
 
 /**
+ * E6: `-c mcp_servers.<name>.url=…` per extra slot server. Only the url — no
+ * `required` (a worker must still start when a user's server is down) and no
+ * pre-approval (these are the user's servers, not our loopback; the yolo tier
+ * already covers prompts where it applies).
+ */
+export function codexExtraServerOverrides(
+  extraMcp: readonly ExtraMcpServer[] | undefined
+): string[] {
+  return usableExtraMcp(extraMcp).flatMap((server) => [
+    CODEX_CONFIG_FLAG,
+    `mcp_servers.${server.name}.url=${tomlString(server.url)}`
+  ])
+}
+
+/**
  * Codex launch arguments for the MCP attachment.
  *
  * KNOWN LIMIT, and deliberately not papered over: Codex has no
@@ -336,12 +376,15 @@ export const KIMI_AGENT_DESCRIPTION = 'Vertragus agent profile for this launch'
 /** One `mcpServers` entry as Kimi reads it: a bare `url` means HTTP. */
 export function toKimiMcpConfig(
   url: string,
-  allowedTools?: readonly string[]
+  allowedTools?: readonly string[],
+  extraMcp?: readonly ExtraMcpServer[]
 ): { mcpServers: Record<string, unknown> } {
   const entry: Record<string, unknown> = { url }
   const tools = serverScopedTools(allowedTools)
   if (tools) entry.enabledTools = tools
-  return { mcpServers: { [MCP_SERVER_NAME]: entry } }
+  const servers: Record<string, unknown> = { [MCP_SERVER_NAME]: entry }
+  for (const server of usableExtraMcp(extraMcp)) servers[server.name] = { url: server.url }
+  return { mcpServers: servers }
 }
 
 /** Fail closed: prove the project file we just wrote names our server. */
@@ -369,12 +412,13 @@ export function assertWrittenKimiMcpConfig(configPath: string): void {
 export function writeKimiProjectMcpConfig(
   url: string,
   workspaceDir: string,
-  allowedTools?: readonly string[]
+  allowedTools?: readonly string[],
+  extraMcp?: readonly ExtraMcpServer[]
 ): string {
   const dir = join(workspaceDir, KIMI_PROJECT_DIR)
   mkdirSync(dir, { recursive: true })
   const configPath = join(dir, KIMI_MCP_FILE)
-  writeFileSync(configPath, JSON.stringify(toKimiMcpConfig(url, allowedTools), null, 2))
+  writeFileSync(configPath, JSON.stringify(toKimiMcpConfig(url, allowedTools, extraMcp), null, 2))
   assertWrittenKimiMcpConfig(configPath)
   return configPath
 }
@@ -491,7 +535,8 @@ export const CURSOR_APPROVE_MCPS_FLAG = '--approve-mcps'
  */
 export function toCursorMcpConfig(
   existing: Record<string, unknown> | null | undefined,
-  url: string
+  url: string,
+  extraMcp?: readonly ExtraMcpServer[]
 ): { mcpServers: Record<string, unknown> } {
   const prevServers = existing?.mcpServers
   const servers =
@@ -499,6 +544,9 @@ export function toCursorMcpConfig(
       ? { ...(prevServers as Record<string, unknown>) }
       : {}
   servers[MCP_SERVER_NAME] = { url }
+  // E6: extra slot servers ride in the same merge — foreign entries still win
+  // nothing and lose nothing; only keys we own are (re)written.
+  for (const server of usableExtraMcp(extraMcp)) servers[server.name] = { url: server.url }
   // Keep any other top-level keys the user already had (Cursor may grow them).
   const base =
     existing && typeof existing === 'object' && !Array.isArray(existing) ? { ...existing } : {}
@@ -534,7 +582,11 @@ export function assertWrittenCursorMcpConfig(configPath: string): void {
  * sessions in that repo see a dead server ("needs approval"). Cleanup belongs
  * in `unregisterWorkspace` if it ever annoys — not in v1.
  */
-export function writeCursorProjectMcpConfig(url: string, workspaceDir: string): string {
+export function writeCursorProjectMcpConfig(
+  url: string,
+  workspaceDir: string,
+  extraMcp?: readonly ExtraMcpServer[]
+): string {
   const dir = join(workspaceDir, CURSOR_PROJECT_DIR)
   mkdirSync(dir, { recursive: true })
   const configPath = join(dir, CURSOR_MCP_FILE)
@@ -551,7 +603,7 @@ export function writeCursorProjectMcpConfig(url: string, workspaceDir: string): 
     // Absent file or unparseable JSON → replace / create.
   }
 
-  writeFileSync(configPath, JSON.stringify(toCursorMcpConfig(existing, url), null, 2))
+  writeFileSync(configPath, JSON.stringify(toCursorMcpConfig(existing, url, extraMcp), null, 2))
   assertWrittenCursorMcpConfig(configPath)
   return configPath
 }
@@ -596,29 +648,47 @@ export function grokAllowMcpArgs(): string[] {
 }
 
 /**
- * One `[mcp_servers.vertragus]` table. `url` is a TOML basic string so query
+ * One `[mcp_servers.<name>]` table. `url` is a TOML basic string so query
  * tokens with `=` / `&` survive; Grok treats a bare url as HTTP/SSE.
  */
-export function grokMcpServerBlock(url: string): string {
-  return [`[mcp_servers.${MCP_SERVER_NAME}]`, `url = ${tomlString(url)}`, ''].join('\n')
+export function grokMcpServerBlock(url: string, serverName = MCP_SERVER_NAME): string {
+  return [`[mcp_servers.${serverName}]`, `url = ${tomlString(url)}`, ''].join('\n')
+}
+
+/** Replace-or-append one named table; the E6 extra servers reuse it. */
+function upsertGrokTable(existing: string, serverName: string, url: string): string {
+  const block = grokMcpServerBlock(url, serverName)
+  const escaped = serverName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const source = `^\\[mcp_servers\\.(?:"${escaped}"|${escaped})\\][ \\t]*\\r?\\n(?:(?!\\[)[^\\n]*\\r?\\n?)*`
+  // Presence is checked separately: "replace produced the same string" also
+  // happens when the table already carries exactly this url, and reading that
+  // as "no table" would append a duplicate on every re-merge.
+  if (new RegExp(source, 'm').test(existing)) {
+    return existing.replace(new RegExp(source, 'gm'), () => block)
+  }
+  const trimmed = existing.replace(/(?:\r?\n)*$/u, '')
+  return trimmed.length > 0 ? `${trimmed}\n\n${block}` : block
 }
 
 /**
- * Replace an existing `[mcp_servers.vertragus]` table, or append one.
+ * Replace an existing `[mcp_servers.vertragus]` table, or append one — plus
+ * one table per E6 extra server the same way.
  *
- * Deliberately not a TOML parser: the only thing we own in this file is our
- * table, and a real parser would be a dependency plus a new failure mode for a
+ * Deliberately not a TOML parser: the only tables we own in this file are our
+ * own, and a real parser would be a dependency plus a new failure mode for a
  * file we do not own. Foreign tables, `[permission]`, `[plugins]` stay byte
  * for byte. Quoted (`[mcp_servers."vertragus"]`) and bare headers both match.
  */
-export function mergeGrokConfigToml(existing: string, url: string): string {
-  const block = grokMcpServerBlock(url)
-  const table =
-    /^\[mcp_servers\.(?:"vertragus"|vertragus)\][ \t]*\r?\n(?:(?!\[)[^\n]*\r?\n?)*/gm
-  const merged = existing.replace(table, () => block)
-  if (merged !== existing) return merged
-  const trimmed = existing.replace(/(?:\r?\n)*$/u, '')
-  return trimmed.length > 0 ? `${trimmed}\n\n${block}` : block
+export function mergeGrokConfigToml(
+  existing: string,
+  url: string,
+  extraMcp?: readonly ExtraMcpServer[]
+): string {
+  let merged = upsertGrokTable(existing, MCP_SERVER_NAME, url)
+  for (const server of usableExtraMcp(extraMcp)) {
+    merged = upsertGrokTable(merged, server.name, server.url)
+  }
+  return merged
 }
 
 /** Fail closed: prove the project file we just wrote names our server URL. */
@@ -645,7 +715,11 @@ export function assertWrittenGrokMcpConfig(configPath: string, url: string): voi
  * The `vertragus` table is left behind on purpose (see the module note in
  * `agents/spawn`: nothing is deleted afterwards).
  */
-export function writeGrokProjectMcpConfig(url: string, workspaceDir: string): string {
+export function writeGrokProjectMcpConfig(
+  url: string,
+  workspaceDir: string,
+  extraMcp?: readonly ExtraMcpServer[]
+): string {
   const dir = join(workspaceDir, GROK_PROJECT_DIR)
   mkdirSync(dir, { recursive: true })
   const configPath = join(dir, GROK_CONFIG_FILE)
@@ -657,7 +731,7 @@ export function writeGrokProjectMcpConfig(url: string, workspaceDir: string): st
     // Absent file → create.
   }
 
-  writeFileSync(configPath, mergeGrokConfigToml(existing, url))
+  writeFileSync(configPath, mergeGrokConfigToml(existing, url, extraMcp))
   assertWrittenGrokMcpConfig(configPath, url)
   return configPath
 }

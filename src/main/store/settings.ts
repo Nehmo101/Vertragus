@@ -351,10 +351,21 @@ export function createSettingsStore({ backend, warn = console.warn }: SettingsSt
       // just drew — only an explicit `zones` field (including `{ zones: [] }`)
       // replaces what is stored.
       const existing = readProfiles().find((entry) => entry.id === parsed.id)
-      const next =
+      const withZones =
         parsed.zones === undefined && existing?.zones
           ? { ...parsed, zones: existing.zones }
           : parsed
+      // E6: `extraMcp` has no form field either — a slot save that omits it
+      // keeps what the same slot (by id) already stored. `extraMcp: []`
+      // explicitly clears it.
+      const next = {
+        ...withZones,
+        slots: withZones.slots.map((slot) => {
+          if (slot.extraMcp !== undefined) return slot
+          const kept = existing?.slots.find((entry) => entry.id === slot.id)?.extraMcp
+          return kept ? { ...slot, extraMcp: kept } : slot
+        })
+      }
       const profiles = upsert(readProfiles(), next)
       backend.set('profiles', profiles)
       return profiles

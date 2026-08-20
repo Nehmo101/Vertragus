@@ -46,6 +46,7 @@
  */
 import {
   buildCodexMcpArgs,
+  codexExtraServerOverrides,
   CURSOR_APPROVE_MCPS_FLAG,
   grokAllowMcpArgs,
   codexDeveloperInstructionsArgs,
@@ -59,6 +60,7 @@ import {
   writeKimiAgentFile,
   writeKimiProjectMcpConfig
 } from '@main/mcp/attach'
+import type { ExtraMcpServer } from '@shared/schema/profile'
 import {
   buildEffortArgs,
   buildModelArgs,
@@ -107,6 +109,12 @@ export interface AgentLaunchInput {
   configDir: string
   /** Role prompt for a subagent, orchestrator prompt for the orchestrator. */
   systemPrompt?: string
+  /**
+   * E6: extra MCP servers from the agent's slot. Honored for `kind:
+   * 'subagent'` ONLY — same construction as the yolo rule: no profile and no
+   * caller can hand an orchestrator or lead a second tool surface.
+   */
+  extraMcp?: readonly ExtraMcpServer[]
   /** Platform override for testing the Windows resolution off-Windows. */
   platform?: NodeJS.Platform
 }
@@ -144,9 +152,17 @@ export interface ResolvedLaunch extends AgentArgv {
  */
 export function buildMcpArgs(input: AgentLaunchInput): string[] {
   const { provider } = input
+  // E6: extra slot servers reach SUBAGENTS only — an orchestrator or lead
+  // with a browser tool is a delegator that starts doing the work itself.
+  const extraMcp = input.kind === 'subagent' ? input.extraMcp : undefined
   switch (provider.mcp.kind) {
     case 'claude-json': {
-      const configPath = writeClaudeMcpConfigFile(input.mcpUrl, input.configDir, input.fileTag)
+      const configPath = writeClaudeMcpConfigFile(
+        input.mcpUrl,
+        input.configDir,
+        input.fileTag,
+        extraMcp
+      )
       const args = [provider.mcp.configArg, configPath]
       if (provider.mcp.strictArg) args.push(provider.mcp.strictArg)
       // Subagents run WITHOUT an allowlist on purpose: a worker must be able to
@@ -164,13 +180,16 @@ export function buildMcpArgs(input: AgentLaunchInput): string[] {
       // Codex takes no config file: the whole attachment is `-c` overrides.
       // The orchestrator's allowlist is SERVER-scoped here (`enabled_tools`),
       // so Claude's read-only built-ins have no place in it.
-      return buildCodexMcpArgs({
-        url: input.mcpUrl,
-        configDir: input.configDir,
-        fileTag: input.fileTag,
-        ...(input.kind === 'orchestrator' ? { allowedTools: orchestratorMcpTools() } : {}),
-        ...(input.kind === 'lead' ? { allowedTools: leadMcpTools() } : {})
-      })
+      return [
+        ...buildCodexMcpArgs({
+          url: input.mcpUrl,
+          configDir: input.configDir,
+          fileTag: input.fileTag,
+          ...(input.kind === 'orchestrator' ? { allowedTools: orchestratorMcpTools() } : {}),
+          ...(input.kind === 'lead' ? { allowedTools: leadMcpTools() } : {})
+        }),
+        ...codexExtraServerOverrides(extraMcp)
+      ]
     case 'kimi-project':
       // Kimi has no flag either — the attachment is a file in the agent's own
       // working directory, so this contributes nothing to the argv. It is
@@ -182,7 +201,8 @@ export function buildMcpArgs(input: AgentLaunchInput): string[] {
           ? orchestratorMcpTools()
           : input.kind === 'lead'
             ? leadMcpTools()
-            : undefined
+            : undefined,
+        extraMcp
       )
       return []
     case 'cursor-project':
@@ -192,14 +212,14 @@ export function buildMcpArgs(input: AgentLaunchInput): string[] {
       // - no per-server tool filter — orchestrator scoping stays URL-side
       //   (same declared limit as Codex' missing `--strict-mcp-config`);
       // - the flag also approves the user's own project servers for this run.
-      writeCursorProjectMcpConfig(input.mcpUrl, input.cwd)
+      writeCursorProjectMcpConfig(input.mcpUrl, input.cwd, extraMcp)
       return [CURSOR_APPROVE_MCPS_FLAG]
     case 'grok-project':
       // Grok reads `<cwd>/.grok/config.toml` and has no config-file flag.
       // `--allow MCPTool(vertragus__*)` pre-approves our loopback tools so the
       // orchestrator is not stuck on a TUI prompt. KNOWN LIMIT: no per-server
       // tool filter on the TOML table — orchestrator scoping stays URL-side.
-      writeGrokProjectMcpConfig(input.mcpUrl, input.cwd)
+      writeGrokProjectMcpConfig(input.mcpUrl, input.cwd, extraMcp)
       return grokAllowMcpArgs()
     case 'none':
       return []

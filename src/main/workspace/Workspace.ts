@@ -761,6 +761,8 @@ export class Workspace implements AgentHost {
         // asks in the terminal); `ask-orchestrator` keeps them and gates via
         // the contract instead — nobody sits at a subagent terminal.
         yolo: this.agentPolicy() !== 'ask-user',
+        // E6: the slot's extra MCP servers — spawn honors them for subagents only.
+        ...(slot.extraMcp ? { extraMcp: slot.extraMcp } : {}),
         cwd: worktree.path,
         mcpUrl: urls.subagentUrl(pending.agentId),
         fileTag: `sub-${pending.agentId}`,

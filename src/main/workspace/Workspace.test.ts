@@ -235,6 +235,17 @@ describe('startAgent', () => {
     )
   })
 
+  it('E6: passes the slot’s extra MCP servers into the subagent launch', async () => {
+    const extraMcp = [{ name: 'browser', url: 'http://127.0.0.1:9200/mcp' }]
+    const { workspace, spawns } = harness({
+      profile: testProfile({
+        slots: [{ id: 'slot-worker', roleId: 'worker', providerId: 'claude', extraMcp }]
+      })
+    })
+    await workspace.startAgent({ role: 'worker', task: 'x' })
+    expect(spawns[0]!.input.extraMcp).toEqual(extraMcp)
+  })
+
   it('refuses a role the profile has no slot for', async () => {
     const { workspace, registry, windows } = harness()
     await expect(workspace.startAgent({ role: 'tester', task: 'x' })).rejects.toThrow(
