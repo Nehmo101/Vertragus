@@ -80,6 +80,27 @@ export const profileSchema = z
      * field so a human can redact it before it runs.
      */
     autoSubmitTasks: z.boolean().default(true),
+    /**
+     * E4: wall-clock budget — the sum of agent-seconds a run may burn before
+     * new starts are refused (`budget_warning` fires at 80% and at 100%).
+     * Deliberately time, not tokens: the host can measure time truthfully.
+     */
+    maxRuntimeMin: z.number().int().min(1).max(24 * 60).optional(),
+    /**
+     * E6: playbooks are GOAL TEMPLATES — one click fills the goal field, the
+     * orchestrator still decides the team. Never a pre-started crew.
+     */
+    playbooks: z
+      .array(
+        z
+          .object({
+            name: z.string().trim().min(1).max(60),
+            goal: z.string().trim().min(1).max(4_000)
+          })
+          .strict()
+      )
+      .max(12)
+      .optional(),
     zones: zoneLayoutSchema.optional()
   })
   .strict()

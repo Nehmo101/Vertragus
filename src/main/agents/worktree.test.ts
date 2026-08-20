@@ -305,3 +305,44 @@ describe('commitWorktree — C3 snapshot commit', () => {
     await expect(commitWorktree('/wt', 'msg', { git })).rejects.toThrow(/index\.lock held/)
   })
 })
+
+describe('mergeBranchIntoWorktree — E1 host merge', () => {
+  it('merges with the pinned identity and returns the new HEAD', async () => {
+    const { mergeBranchIntoWorktree } = await import('./worktree')
+    const calls: string[][] = []
+    const git = vi.fn(async (args: string[]) => {
+      calls.push(args)
+      if (args[0] === 'rev-parse') return { stdout: 'beefbeef\n', stderr: '' }
+      return { stdout: '', stderr: '' }
+    })
+
+    const outcome = await mergeBranchIntoWorktree('/wt', 'vertragus/x/other', { git })
+
+    expect(outcome).toEqual({ ok: true, headSha: 'beefbeef' })
+    const merge = calls.find((args) => args.includes('merge'))!
+    expect(merge).toContain('vertragus/x/other')
+    expect(merge).toContain('--no-edit')
+    expect(calls.some((args) => args[0] === 'push' || args.includes('--force'))).toBe(false)
+  })
+
+  it('aborts on conflict, reports the files, and leaves the worktree clean', async () => {
+    const { mergeBranchIntoWorktree } = await import('./worktree')
+    const calls: string[][] = []
+    const git = vi.fn(async (args: string[]) => {
+      calls.push(args)
+      if (args.includes('merge') && !args.includes('--abort')) {
+        throw Object.assign(new Error('x'), { stderr: 'CONFLICT (content): src/a.ts' })
+      }
+      if (args[0] === 'diff') return { stdout: 'src/a.ts\nsrc/b.ts\n', stderr: '' }
+      return { stdout: '', stderr: '' }
+    })
+
+    const outcome = await mergeBranchIntoWorktree('/wt', 'other', { git })
+
+    expect(outcome).toMatchObject({
+      ok: false,
+      conflictFiles: ['src/a.ts', 'src/b.ts']
+    })
+    expect(calls.some((args) => args.includes('merge') && args.includes('--abort'))).toBe(true)
+  })
+})

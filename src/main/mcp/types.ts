@@ -213,6 +213,17 @@ export interface AgentHost {
    * exactly like {@link snapshotWorktree} (never drop the done event).
    */
   snapshotDone(agentId: string, summary: string): Promise<WorktreeFacts>
+  /**
+   * E1: merge `branch` into the agent's own worktree — the host-side
+   * integrate. No push, no --force; a conflict aborts (worktree stays clean)
+   * and reports the files. Same refusal rules as {@link inspectAgent}.
+   */
+  integrateBranch(agentId: string, branch: string): Promise<IntegrateOutcome>
+  /**
+   * E4: the workspace's runtime budget — a wall clock over agent-seconds,
+   * never a guessed token counter. `limitSec` absent = no budget configured.
+   */
+  budget(): WorkspaceBudget
   listAgents(): AgentSummary[]
   /**
    * Which reporting dialect a *new* agent of this role should get. Used by
@@ -220,6 +231,21 @@ export interface AgentHost {
    * provider (`mcp.kind === 'none'` → sentinel).
    */
   reportingMode(role: string): ReportingMode
+}
+
+/** E1: outcome of a host merge into an agent worktree. */
+export type IntegrateOutcome =
+  | { ok: true; headSha: string }
+  | { ok: false; conflictFiles: string[]; message: string }
+
+/** E4: the workspace's wall-clock budget state. */
+export interface WorkspaceBudget {
+  /** Sum of agent-seconds so far (running agents count up to now). */
+  usedSec: number
+  /** From the profile's `maxRuntimeMin`; absent = unbounded. */
+  limitSec?: number
+  /** True once the budget is spent — new starts must be refused. */
+  exhausted: boolean
 }
 
 /** How many agents the orchestrator may run. */
@@ -273,6 +299,18 @@ export interface RetroLearningInput {
 export interface WorkspaceRetroPort {
   recordLearnings(learnings: readonly RetroLearningInput[]): { applied: number }
   recordSummary(summary: string): void
+  /** E2: durable repo facts for future briefings; optional for old fakes. */
+  recordRepoNotes?(notes: readonly string[]): { applied: number }
+}
+
+/**
+ * E4: bookkeeping so budget thresholds fire exactly once per workspace —
+ * lives on the runtime because the tool layer is the one that reads the
+ * clock on every call.
+ */
+export interface BudgetFlags {
+  warned: boolean
+  exhausted: boolean
 }
 
 /** F: host-enforced cap on concurrent leads (the profile may be tighter). */
@@ -340,6 +378,8 @@ export interface WorkspaceRuntime {
    * never looks idle even though no *new* call happened while it blocked.
    */
   onOrchestratorToolCall?: () => void
+  /** E4: which budget thresholds were already announced. */
+  budgetFlags?: BudgetFlags
 }
 
 /**

@@ -10,7 +10,7 @@
  */
 import type { AgentEvent } from '@shared/schema/events'
 import type { Profile } from '@shared/schema/profile'
-import type { ModelLearning, NewModelLearning, RunRetro } from '@shared/schema/retro'
+import type { ModelLearning, NewModelLearning, RepoNote, RunRetro } from '@shared/schema/retro'
 import { mergeModelLearnings } from '@shared/retro/learnings'
 import { computeRoutingScores } from '@shared/retro/routingStats'
 import { deriveRoleModelStats, knowledgeForSlots, type SlotKnowledge } from '@shared/retro/runStats'
@@ -22,6 +22,9 @@ export interface RetroStorePort {
   recordRunRetro(retro: unknown): RunRetro[]
   getModelLearnings(): ModelLearning[]
   setModelLearnings(learnings: readonly unknown[]): ModelLearning[]
+  /** E2 repo notes; optional so older store fakes keep compiling. */
+  getRepoNotes?(profileId?: string): RepoNote[]
+  addRepoNotes?(profileId: string, notes: readonly string[]): RepoNote[]
 }
 
 export interface RetroSinkDeps {
@@ -48,6 +51,10 @@ export interface RetroSink {
   finalizeRun(input: FinalizeRunInput): RunRetro | undefined
   /** The per-slot knowledge block for the orchestrator prompt. */
   knowledge(profile: Profile): SlotKnowledge[]
+  /** E2: durable repo facts for the next briefing; newest first. */
+  repoNotes(profile: Profile): string[]
+  /** E2: store repo notes from record_retro; dedupes identical ones. */
+  recordRepoNotes(profile: Profile, notes: readonly string[]): { applied: number }
 }
 
 export function createRetroSink({ store, now = Date.now }: RetroSinkDeps): RetroSink {
@@ -102,6 +109,19 @@ export function createRetroSink({ store, now = Date.now }: RetroSinkDeps): Retro
       const learnings = store.getModelLearnings()
       const scores = computeRoutingScores(store.getRunRetros())
       return knowledgeForSlots(profile.slots, learnings, scores)
+    },
+
+    repoNotes(profile) {
+      return (store.getRepoNotes?.(profile.id) ?? []).map((note) => note.note)
+    },
+
+    recordRepoNotes(profile, notes) {
+      if (!store.addRepoNotes || notes.length === 0) return { applied: 0 }
+      const before = store.getRepoNotes?.(profile.id).length ?? 0
+      const after = store.addRepoNotes(profile.id, notes).filter(
+        (note) => note.profileId === profile.id
+      ).length
+      return { applied: Math.max(0, after - before) }
     }
   }
 }

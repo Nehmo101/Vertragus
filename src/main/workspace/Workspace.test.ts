@@ -1746,3 +1746,111 @@ describe('event router — F', () => {
     expect(workspace.events.all().filter((event) => event.type === 'agent_exited')).toEqual([])
   })
 })
+
+describe('budget — E4 wall clock', () => {
+  it('sums agent-seconds (orchestrator excluded) and flags exhaustion', async () => {
+    const { workspace, now, spawns } = harness({
+      profile: testProfile({ maxRuntimeMin: 1 })
+    })
+    await workspace.startOrchestrator()
+    expect(workspace.budget()).toMatchObject({ usedSec: 0, limitSec: 60, exhausted: false })
+
+    await workspace.startAgent({ role: 'worker', task: 't' })
+    now.value += 30_000
+    expect(workspace.budget()).toMatchObject({ usedSec: 30, exhausted: false })
+
+    // A second agent doubles the burn rate.
+    await workspace.startAgent({ role: 'worker', task: 't' })
+    now.value += 20_000
+    expect(workspace.budget()).toMatchObject({ usedSec: 70, exhausted: true })
+
+    // A stopped agent stops burning.
+    spawns[1]!.pty.exit({ exitCode: 0 })
+    const frozen = workspace.budget().usedSec
+    now.value += 60_000
+    expect(workspace.budget().usedSec).toBe(frozen + 60)
+  })
+
+  it('no maxRuntimeMin → unbounded, never exhausted', async () => {
+    const { workspace, now } = harness()
+    await workspace.startAgent({ role: 'worker', task: 't' })
+    now.value += 10_000_000
+    expect(workspace.budget()).toMatchObject({ exhausted: false })
+    expect(workspace.budget().limitSec).toBeUndefined()
+  })
+})
+
+describe('promoteAgentBranch — E1 user click', () => {
+  function gitWithMainState(options: { mainDirty: boolean }): {
+    calls: Array<{ args: string[]; cwd: string }>
+    git: NonNullable<NonNullable<WorkspaceDeps['worktreeDeps']>['git']>
+  } {
+    const calls: Array<{ args: string[]; cwd: string }> = []
+    return {
+      calls,
+      git: async (args, cwd) => {
+        calls.push({ args, cwd })
+        if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') {
+          return { stdout: 'main\n', stderr: '' }
+        }
+        if (args[0] === 'rev-parse') return { stdout: 'a'.repeat(40) + '\n', stderr: '' }
+        if (args[0] === 'status') {
+          return { stdout: cwd === '/repo' && options.mainDirty ? ' M src/x.ts\n' : '', stderr: '' }
+        }
+        return { stdout: '', stderr: '' }
+      }
+    }
+  }
+
+  it('merges the agent branch into the MAIN checkout when it is clean', async () => {
+    const fake = gitWithMainState({ mainDirty: false })
+    const { workspace } = harness({ deps: { worktreeDeps: { git: fake.git } } })
+    const started = await workspace.startAgent({ role: 'worker', task: 't' })
+
+    const outcome = await workspace.promoteAgentBranch(started.agentId)
+    expect(outcome.ok).toBe(true)
+    const merge = fake.calls.find((call) => call.args.includes('merge'))!
+    expect(merge.cwd).toBe('/repo')
+    expect(merge.args).toContain(started.branch)
+  })
+
+  it('refuses a dirty main checkout — no push, no silent overwrite', async () => {
+    const fake = gitWithMainState({ mainDirty: true })
+    const { workspace } = harness({ deps: { worktreeDeps: { git: fake.git } } })
+    const started = await workspace.startAgent({ role: 'worker', task: 't' })
+
+    await expect(workspace.promoteAgentBranch(started.agentId)).rejects.toThrow(
+      /uncommitted changes/
+    )
+    expect(fake.calls.some((call) => call.args.includes('merge'))).toBe(false)
+  })
+})
+
+describe('orchestrator briefing — E2', () => {
+  it('feeds the last commits and stored repo notes into the orchestrator prompt', async () => {
+    const { workspace, spawns } = harness({
+      deps: {
+        worktreeDeps: { git: cannedGit() },
+        retro: {
+          recordLearnings: () => ({ applied: 0 }),
+          knowledge: () => [],
+          repoNotes: () => ['tests need pnpm run ci'],
+          recordRepoNotes: () => ({ applied: 0 })
+        }
+      }
+    })
+    await workspace.startOrchestrator()
+
+    const prompt = spawns[0]!.input.systemPrompt!
+    expect(prompt).toContain('Repository briefing')
+    expect(prompt).toContain('last commits')
+    expect(prompt).toContain('aaaaaaaa fixture')
+    expect(prompt).toContain('tests need pnpm run ci')
+  })
+
+  it('a repo without docs, notes or history still boots — no briefing block', async () => {
+    const { workspace, spawns } = harness()
+    await workspace.startOrchestrator()
+    expect(spawns[0]!.input.systemPrompt).not.toContain('Repository briefing')
+  })
+})

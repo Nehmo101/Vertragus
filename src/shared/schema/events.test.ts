@@ -9,7 +9,7 @@ import {
 const identity = { agentId: 'a1', name: 'Arlecchino', roleId: 'worker' }
 
 describe('agent event schema', () => {
-  it('covers exactly the twelve documented event types', () => {
+  it('covers exactly the fifteen documented event types', () => {
     expect([...AGENT_EVENT_TYPES]).toEqual([
       'agent_started',
       'agent_start_failed',
@@ -22,8 +22,43 @@ describe('agent event schema', () => {
       'orchestrator_idle',
       'user_message',
       'user_question',
-      'subtree_adopted'
+      'subtree_adopted',
+      'integrate_ok',
+      'integrate_conflict',
+      'budget_warning'
     ])
+  })
+
+  it('E1/E4: integrate and budget events parse with their payloads', () => {
+    expect(
+      agentEventPayloadSchema.parse({
+        type: 'integrate_ok',
+        agentId: 'a1',
+        name: 'Caronte',
+        roleId: 'worker',
+        branch: 'vertragus/x/y',
+        headSha: 'abc'
+      })
+    ).toMatchObject({ type: 'integrate_ok' })
+    expect(
+      agentEventPayloadSchema.parse({
+        type: 'integrate_conflict',
+        agentId: 'a1',
+        name: 'Caronte',
+        roleId: 'worker',
+        branch: 'vertragus/x/y',
+        conflictFiles: ['src/a.ts'],
+        message: 'CONFLICT'
+      })
+    ).toMatchObject({ conflictFiles: ['src/a.ts'] })
+    expect(
+      agentEventPayloadSchema.parse({
+        type: 'budget_warning',
+        usedSec: 100,
+        limitSec: 120,
+        exhausted: false
+      })
+    ).toMatchObject({ type: 'budget_warning' })
   })
 
   it('F: subtree_adopted names the dead lead, its area and the reparented children', () => {

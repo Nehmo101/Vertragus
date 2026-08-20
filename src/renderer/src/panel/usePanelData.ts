@@ -38,6 +38,8 @@ export interface PanelData {
   answerQuestion(workspaceId: string, agentId: string, questionId: string, text: string): void
   /** D2: steer a running workspace — wakes the orchestrator's await_events. */
   sendUserMessage(workspaceId: string, text: string): void
+  /** E1 Promote: merge this agent's branch into the repo's own checkout. */
+  promoteAgent(workspaceId: string, agentId: string): void
   focusAgent(agentId: string): void
   /** Close a finished agent's CLI window; the row and last task stay. */
   closeAgentWindow(agentId: string): void
@@ -139,6 +141,8 @@ export function usePanelData(): PanelData {
       }),
     sendUserMessage: (workspaceId, text) =>
       run((api) => api.sendUserMessage(workspaceId, text)),
+    promoteAgent: (workspaceId, agentId) =>
+      run((api) => api.promoteAgentBranch(workspaceId, agentId)),
     focusAgent: (agentId) => run((api) => api.focusAgent(agentId)),
     closeAgentWindow: (agentId) => run((api) => api.closeAgentWindow(agentId)),
     focusWorkspace: (workspaceId) => run((api) => api.focusWorkspace(workspaceId)),

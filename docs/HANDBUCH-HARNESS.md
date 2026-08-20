@@ -48,7 +48,7 @@ Remote-Server.
 | C3 Snapshot-Commit / C4 Handoff-Paket | **umgesetzt** (Track 1) — `snapshotDone` committet dirty Worktrees beim Done; `start_agent{baseBranch}` trägt Handoff-Block |
 | C5 Orchestrator-Idle-Watchdog | **umgesetzt** (Track 2) — `orchestrator_idle` Event + Panel/Remote-Hinweis; Timeouts ≠ Idle (Touch bei Call-Start und -Ende) |
 | D Mensch im Loop | **D1–D3 umgesetzt** (Track 3) — Goal-UI, `user_message` weckt `await_events`, `ask_user` mit Ticket; D4 Yolo-Stufen folgt |
-| E integrate / briefing / eval | nach C |
+| E integrate / briefing / eval | **Kern umgesetzt** (Track 6) — `integrate_branch` + Gate-Warnung + Promote-Klick, Briefing + `repoNotes`, Journal (write-only), Budget-Wanduhr, Janitor/Explorer, Playbooks; offen: Resume/Re-Spawn (E3), Extra-MCP an Worker (E6), Live-Loop-Eval (E5) |
 | F Multi-Orch (Lead, Tiefe 1) | **umgesetzt** (Track 5) — dritte Identität `lead=`, eigene Queues, `start_orchestrator`, Fan-in nur Direktkinder, Reparent (`subtree_adopted`), Caps host-seitig |
 
 ---

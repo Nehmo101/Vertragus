@@ -330,6 +330,8 @@ describe('retro finalization', () => {
       sink: {
         recordLearnings: () => ({ applied: 0 }),
         knowledge: () => [],
+        repoNotes: () => [],
+        recordRepoNotes: () => ({ applied: 0 }),
         finalizeRun: (input) => {
           log.push('finalize')
           finalized.push(input)

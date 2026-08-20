@@ -46,12 +46,16 @@ import {
   type ProviderConfig
 } from '@shared/schema/provider'
 import {
+  MAX_REPO_NOTES_PER_PROFILE,
   MAX_RUN_RETROS,
   modelLearningSchema,
   parseModelLearnings,
+  parseRepoNotes,
   parseRunRetros,
+  repoNoteSchema,
   runRetroSchema,
   type ModelLearning,
+  type RepoNote,
   type RunRetro
 } from '@shared/schema/retro'
 import { providerPresets } from '@main/providers/presets'
@@ -239,6 +243,10 @@ export interface SettingsStore {
   /** Replace the whole list — the merge itself lives in shared/retro/learnings. */
   setModelLearnings(learnings: readonly unknown[]): ModelLearning[]
   deleteModelLearning(id: string): ModelLearning[]
+  /** E2: repo notes per profile, newest first, bounded per profile. */
+  getRepoNotes(profileId?: string): RepoNote[]
+  addRepoNotes(profileId: string, notes: readonly string[]): RepoNote[]
+  deleteRepoNote(id: string): RepoNote[]
   getSettings(): AppSettings
   setSetting<K extends keyof AppSettings>(key: K, value: AppSettings[K]): AppSettings
 }
@@ -279,6 +287,15 @@ export function createSettingsStore({ backend, warn = console.warn }: SettingsSt
       warn(`[settings] dropped ${raw.length - retros.length} invalid run retro(s)`)
     }
     return retros
+  }
+
+  function readRepoNotes(): RepoNote[] {
+    const raw = backend.get('repoNotes')
+    const notes = parseRepoNotes(raw)
+    if (Array.isArray(raw) && raw.length !== notes.length) {
+      warn(`[settings] dropped ${raw.length - notes.length} invalid repo note(s)`)
+    }
+    return notes
   }
 
   function readModelLearnings(): ModelLearning[] {
@@ -389,6 +406,52 @@ export function createSettingsStore({ backend, warn = console.warn }: SettingsSt
       const learnings = readModelLearnings().filter((learning) => learning.id !== id)
       backend.set('modelLearnings', learnings)
       return learnings
+    },
+
+    getRepoNotes(profileId) {
+      const notes = readRepoNotes()
+      return profileId ? notes.filter((note) => note.profileId === profileId) : notes
+    },
+
+    addRepoNotes(profileId, notes) {
+      const existing = readRepoNotes()
+      const now = Date.now()
+      const fresh = notes
+        .map((note) => note.trim())
+        .filter(Boolean)
+        // Reinforcing an identical note must not duplicate it.
+        .filter(
+          (note) =>
+            !existing.some((entry) => entry.profileId === profileId && entry.note === note)
+        )
+        .map((note, index) =>
+          repoNoteSchema.parse({
+            // Bursts land in the same millisecond — the random suffix keeps
+            // ids unique, and parseRepoNotes dedupes BY id on read.
+            id: `${profileId}-${now}-${index}-${Math.random().toString(36).slice(2, 8)}`,
+            profileId,
+            note,
+            createdAt: now
+          })
+        )
+      // Newest first; the per-profile cap drops the oldest, other profiles untouched.
+      const merged = [...fresh, ...existing]
+      const kept: RepoNote[] = []
+      const perProfile = new Map<string, number>()
+      for (const note of merged) {
+        const count = perProfile.get(note.profileId) ?? 0
+        if (count >= MAX_REPO_NOTES_PER_PROFILE) continue
+        perProfile.set(note.profileId, count + 1)
+        kept.push(note)
+      }
+      backend.set('repoNotes', kept)
+      return kept
+    },
+
+    deleteRepoNote(id) {
+      const notes = readRepoNotes().filter((note) => note.id !== id)
+      backend.set('repoNotes', notes)
+      return notes
     },
 
     getSettings: readSettings,

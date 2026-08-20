@@ -29,6 +29,7 @@ import type { Profile } from '@shared/schema/profile'
 import type { StartedAgent } from '@main/mcp/types'
 import type { AgentEvent } from '@shared/schema/events'
 import type { RetroSink } from './retroSink'
+import type { RunJournal } from './journal'
 import { Workspace, type WorkspaceDeps, type WorkspaceMcpUrls } from './Workspace'
 
 export interface WorkspaceManagerDeps
@@ -41,6 +42,13 @@ export interface WorkspaceManagerDeps
   yoloMaster?: boolean | (() => boolean)
   /** Full sink (the workspace itself only sees the feed slice). Absent = no retro. */
   retro?: RetroSink
+  /**
+   * E3: run-journal factory. Absent = no journal (unit tests). Production
+   * passes {@link createRunJournal} so every event of a run — subtree events
+   * included — survives the EventQueue's ring in
+   * `.vertragus/runs/<id>/events.jsonl`.
+   */
+  journal?: (repoPath: string, workspaceId: string) => RunJournal
 }
 
 export interface RunningWorkspace {
@@ -164,6 +172,15 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     // F: host events about a lead's child go to the lead's queue, not the root's.
     workspace.attachEventRouter((agentId) => queueForAgent(registered.runtime, agentId))
     workspaces.set(workspace.workspaceId, workspace)
+    // E3: the durable journal outlives the ring buffer. Never a blocker.
+    const journal = ((): RunJournal | undefined => {
+      try {
+        return deps.journal?.(profile.repoPath, workspace.workspaceId)
+      } catch (error) {
+        console.warn('[journal] not started:', error)
+        return undefined
+      }
+    })()
     if (deps.retro) {
       const events: AgentEvent[] = []
       const off = workspace.events.onPush((event) => events.push(event))
@@ -171,10 +188,12 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     }
     changeTaps.set(workspace.workspaceId, [
       workspace.events.onPush(() => notifyChange()),
-      registered.runtime.questions.onMutate(() => notifyChange())
+      registered.runtime.questions.onMutate(() => notifyChange()),
+      ...(journal ? [workspace.events.onPush((event) => journal.append(event))] : [])
     ])
     // F: lead queues carry the subtrees' events past the root queue — the
-    // retro needs them for honest stats and the panel needs the change ticks.
+    // retro and the journal need them for honest history, the panel needs
+    // the change ticks.
     registered.runtime.onLeadCreated = (lead) => {
       const tap = eventTaps.get(workspace.workspaceId)
       changeTaps
@@ -182,6 +201,7 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
         ?.push(
           lead.events.onPush((event) => {
             tap?.events.push(event)
+            journal?.append(event)
             notifyChange()
           })
         )

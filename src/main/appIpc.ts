@@ -98,11 +98,14 @@ export const APP_CHANNELS = {
   workspacesCloseAgent: 'workspaces:closeAgent',
   workspacesAnswerQuestion: 'workspaces:answerQuestion',
   workspacesUserMessage: 'workspaces:userMessage',
+  workspacesPromoteAgent: 'workspaces:promoteAgent',
   worktreesList: 'worktrees:list',
   worktreesRemove: 'worktrees:remove',
   retroList: 'retro:list',
   retroLearnings: 'retro:learnings',
   retroDeleteLearning: 'retro:deleteLearning',
+  retroRepoNotes: 'retro:repoNotes',
+  retroDeleteRepoNote: 'retro:deleteRepoNote',
   settingsGet: 'settings:get',
   settingsYolo: 'settings:yolo',
   settingsSet: 'settings:set',
@@ -263,6 +266,12 @@ export interface WorkspaceDirectory {
    * lands as a `user_message` event that wakes its parked `await_events`.
    */
   postUserMessage(workspaceId: string, text: string): void | Promise<unknown>
+  /**
+   * E1 Promote — the user's explicit click: merge this agent's branch into
+   * the repository's own checkout. Must reject with a readable message on a
+   * dirty main checkout or a merge conflict (the merge is aborted then).
+   */
+  promoteAgentBranch(workspaceId: string, agentId: string): Promise<void>
   /** Bring an agent's CLI window to the front. */
   focusAgent(agentId: string): void
   /**
@@ -310,6 +319,7 @@ export function createStubWorkspaceDirectory(
     stop: refuse,
     answerQuestion: async () => refuse(),
     postUserMessage: refuse,
+    promoteAgentBranch: async () => refuse(),
     focusAgent: (agentId) => focusCliWindow(agentId),
     closeAgentWindow: (agentId) => closeCliWindow(agentId),
     // No manager → no workspace→agent map; quiet no-op like focusAgent on a ghost.
@@ -335,6 +345,8 @@ export type AppSettingsPort = Pick<
   | 'getRunRetros'
   | 'getModelLearnings'
   | 'deleteModelLearning'
+  | 'getRepoNotes'
+  | 'deleteRepoNote'
   | 'getSettings'
   | 'setSetting'
 >
@@ -900,6 +912,13 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     await host.directory.postUserMessage(body.workspaceId, body.text.trim())
   })
 
+  handle(APP_CHANNELS.workspacesPromoteAgent, requirePanel, async (_event, payload) => {
+    const body = (payload ?? {}) as { workspaceId?: string; agentId?: string }
+    if (!body.workspaceId) throw new Error('workspaces:promoteAgent rejected — missing workspace id')
+    if (!body.agentId) throw new Error('workspaces:promoteAgent rejected — missing agent id')
+    await host.directory.promoteAgentBranch(body.workspaceId, body.agentId)
+  })
+
   // --- worktree cleanup ----------------------------------------------------
 
   handle(APP_CHANNELS.worktreesList, requirePanel, (_event, payload) => {
@@ -942,6 +961,18 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     const id = typeof payload === 'string' ? payload : (payload as { id?: string })?.id
     if (!id) throw new Error('retro:deleteLearning rejected — missing learning id')
     return host.store.deleteModelLearning(id)
+  })
+
+  handle(APP_CHANNELS.retroRepoNotes, requirePanel, (_event, payload) => {
+    const profileId =
+      typeof payload === 'string' ? payload : (payload as { profileId?: string })?.profileId
+    return host.store.getRepoNotes(profileId || undefined)
+  })
+
+  handle(APP_CHANNELS.retroDeleteRepoNote, requirePanel, (_event, payload) => {
+    const id = typeof payload === 'string' ? payload : (payload as { id?: string })?.id
+    if (!id) throw new Error('retro:deleteRepoNote rejected — missing note id')
+    return host.store.deleteRepoNote(id)
   })
 
   // --- settings & windows ------------------------------------------------
@@ -1319,6 +1350,8 @@ export function registerAppIpc(directory?: WorkspaceDirectory): AppIpc {
     getRunRetros: () => settings().getRunRetros(),
     getModelLearnings: () => settings().getModelLearnings(),
     deleteModelLearning: (id) => settings().deleteModelLearning(id),
+    getRepoNotes: (profileId) => settings().getRepoNotes(profileId),
+    deleteRepoNote: (id) => settings().deleteRepoNote(id),
     getSettings: () => settings().getSettings(),
     setSetting: (key, value) => settings().setSetting(key, value)
   }

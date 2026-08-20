@@ -94,7 +94,7 @@ import { REMOTE_CHANNELS } from './remote/ipc'
 import type { MinimalIpcMain } from './ipc'
 import type { WorkspaceSummary as PreloadWorkspaceSummary } from '../preload'
 import { profileSchema, type Profile, type RoleTemplate } from '@shared/schema/profile'
-import type { ModelLearning, RunRetro } from '@shared/schema/retro'
+import type { ModelLearning, RepoNote, RunRetro } from '@shared/schema/retro'
 import { DEFAULT_APPEARANCE } from '@shared/appearance'
 import type { AppSettings } from './store/settings'
 import type { ProviderConfig, ProviderConfigInput } from '@shared/schema/provider'
@@ -174,7 +174,11 @@ function createFakeStore(
   let roles: RoleTemplate[] = []
   let storedProviders: ProviderConfig[] = []
   const settings: AppSettings = structuredClone(SETTINGS)
-  const retroState = { retros: [] as RunRetro[], learnings: [] as ModelLearning[] }
+  const retroState = {
+    retros: [] as RunRetro[],
+    learnings: [] as ModelLearning[],
+    repoNotes: [] as RepoNote[]
+  }
   return {
     settings,
     get retros() {
@@ -194,6 +198,14 @@ function createFakeStore(
     deleteModelLearning(id) {
       retroState.learnings = retroState.learnings.filter((entry) => entry.id !== id)
       return [...retroState.learnings]
+    },
+    getRepoNotes: (profileId) =>
+      profileId
+        ? retroState.repoNotes.filter((entry) => entry.profileId === profileId)
+        : [...retroState.repoNotes],
+    deleteRepoNote(id) {
+      retroState.repoNotes = retroState.repoNotes.filter((entry) => entry.id !== id)
+      return [...retroState.repoNotes]
     },
     getProfiles: () => profiles,
     saveProfile(raw) {
@@ -271,6 +283,7 @@ interface Harness {
     closedAgents: string[]
     answered: Array<{ workspaceId: string; agentId: string; questionId: string; text: string }>
     userMessages: Array<{ workspaceId: string; text: string }>
+    promoted: Array<{ workspaceId: string; agentId: string }>
     removedWorktrees: Array<{ profileId: string; path: string }>
     staleWorktrees: { path: string; branch?: string }[]
     change?: () => void
@@ -380,6 +393,7 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     closedAgents: [] as string[],
     answered: [] as Array<{ workspaceId: string; agentId: string; questionId: string; text: string }>,
     userMessages: [] as Array<{ workspaceId: string; text: string }>,
+    promoted: [] as Array<{ workspaceId: string; agentId: string }>,
     removedWorktrees: [] as Array<{ profileId: string; path: string }>,
     staleWorktrees: [
       { path: '/repo/.vertragus/worktrees/old-1', branch: 'vertragus/paradiso/caronte' }
@@ -396,6 +410,9 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     },
     postUserMessage(workspaceId: string, text: string) {
       this.userMessages.push({ workspaceId, text })
+    },
+    async promoteAgentBranch(workspaceId: string, agentId: string) {
+      this.promoted.push({ workspaceId, agentId })
     },
     focusAgent(agentId: string) {
       this.focused.push(agentId)
@@ -818,6 +835,20 @@ describe('workspaces', () => {
     ).toThrow(/not the panel/)
   })
 
+  it('promotes an agent branch on explicit click (E1) — panel only', async () => {
+    await h.ipc.invoke(APP_CHANNELS.workspacesPromoteAgent, PANEL_ID, {
+      workspaceId: 'w1',
+      agentId: 'a1'
+    })
+    expect(h.directory.promoted).toEqual([{ workspaceId: 'w1', agentId: 'a1' }])
+    await expect(
+      Promise.resolve(h.ipc.invoke(APP_CHANNELS.workspacesPromoteAgent, PANEL_ID, { agentId: 'a1' }))
+    ).rejects.toThrow(/missing workspace id/)
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.workspacesPromoteAgent, CLI_ID, { workspaceId: 'w1', agentId: 'a1' })
+    ).toThrow(/not the panel/)
+  })
+
   it('rejects a focus-workspace call without a workspace id', () => {
     expect(() => h.ipc.invoke(APP_CHANNELS.workspacesFocus, PANEL_ID, {})).toThrow(
       /missing workspace id/
@@ -841,6 +872,7 @@ describe('workspaces', () => {
         stop() {},
         answerQuestion: async () => refuse(),
         postUserMessage: refuse,
+        promoteAgentBranch: async () => refuse(),
         focusAgent() {},
         closeAgentWindow() {},
         focusWorkspace() {},
@@ -1664,6 +1696,7 @@ describe('production registration', () => {
       stop: vi.fn(),
       answerQuestion: vi.fn(async () => {}),
       postUserMessage: vi.fn(),
+      promoteAgentBranch: vi.fn(async () => {}),
       focusAgent: vi.fn(),
       closeAgentWindow: vi.fn(),
       focusWorkspace: vi.fn(),
@@ -1676,6 +1709,7 @@ describe('production registration', () => {
       stop: vi.fn(),
       answerQuestion: vi.fn(async () => {}),
       postUserMessage: vi.fn(),
+      promoteAgentBranch: vi.fn(async () => {}),
       focusAgent: vi.fn(),
       closeAgentWindow: vi.fn(),
       focusWorkspace: vi.fn(),

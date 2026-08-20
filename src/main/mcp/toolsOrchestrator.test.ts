@@ -11,7 +11,7 @@ function setup(options: Parameters<typeof fakeRuntime>[0] = {}) {
 }
 
 describe('orchestrator tool surface', () => {
-  it('registers exactly the ten documented tools', () => {
+  it('registers exactly the eleven documented tools', () => {
     const { tools } = setup()
     expect([...tools.keys()].sort()).toEqual([...ORCHESTRATOR_TOOL_NAMES].sort())
   })
@@ -734,7 +734,7 @@ describe('record_retro', () => {
 })
 
 describe('multi-orchestration — F', () => {
-  it('root registers ten tools; a lead scope registers only the seven down-tools', () => {
+  it('root registers eleven tools; a lead scope registers only the eight down-tools', () => {
     const { tools } = setup()
     expect([...tools.keys()].sort()).toEqual([...ORCHESTRATOR_TOOL_NAMES].sort())
 
@@ -743,7 +743,7 @@ describe('multi-orchestration — F', () => {
       registerOrchestratorTools(server, runtime, { leadId: 'lead-1' })
     )
     expect([...leadTools.keys()].sort()).toEqual(
-      ['start_agent', 'send_to_agent', 'await_events', 'list_agents', 'stop_agent', 'read_output', 'inspect_agent'].sort()
+      ['start_agent', 'send_to_agent', 'await_events', 'list_agents', 'stop_agent', 'read_output', 'inspect_agent', 'integrate_branch'].sort()
     )
     // Depth 1 and root-only surface enforced by ABSENCE, not by prompt.
     expect(leadTools.has('start_orchestrator')).toBe(false)
@@ -914,5 +914,154 @@ describe('multi-orchestration — F', () => {
     // Adopting twice is a no-op.
     adoptSubtree(runtime, leadId)
     expect(runtime.events.all().filter((event) => event.type === 'subtree_adopted')).toHaveLength(1)
+  })
+})
+
+describe('integrate_branch — E1', () => {
+  it('merges via the host, pushes integrate_ok, and warns when nobody reported done on the branch', async () => {
+    const { runtime, tools } = setup()
+    const started = await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
+    const agentId = String(started.json.agentId)
+
+    const result = await callTool(tools, 'integrate_branch', {
+      agentId,
+      branch: 'vertragus/arsenale/other'
+    })
+
+    expect(result.isError).toBe(false)
+    expect(runtime.host.integrations).toEqual([{ agentId, branch: 'vertragus/arsenale/other' }])
+    expect(String(result.json.warning)).toMatch(/nobody verified/i)
+    expect(runtime.events.all().at(-1)).toMatchObject({
+      type: 'integrate_ok',
+      agentId,
+      branch: 'vertragus/arsenale/other'
+    })
+  })
+
+  it('does not warn when the branch carries a clean success report', async () => {
+    const { runtime, tools } = setup()
+    const started = await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
+    const agentId = String(started.json.agentId)
+    runtime.events.push({
+      type: 'agent_done',
+      agentId: 'agent-0',
+      name: 'Caronte',
+      roleId: 'worker',
+      summary: 'done',
+      status: 'success',
+      branch: 'vertragus/arsenale/other',
+      uncommitted: false
+    })
+
+    const result = await callTool(tools, 'integrate_branch', {
+      agentId,
+      branch: 'vertragus/arsenale/other'
+    })
+    expect(result.json.warning).toBeUndefined()
+  })
+
+  it('a conflict aborts, reports the files, and pushes integrate_conflict', async () => {
+    const { runtime, tools } = setup()
+    runtime.host.integrateConflict = { conflictFiles: ['src/a.ts'], message: 'CONFLICT' }
+    const started = await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
+    const agentId = String(started.json.agentId)
+
+    const result = await callTool(tools, 'integrate_branch', { agentId, branch: 'other' })
+
+    expect(result.isError).toBe(true)
+    expect(result.json).toMatchObject({ error: 'integrate_conflict', conflictFiles: ['src/a.ts'] })
+    expect(runtime.events.all().at(-1)).toMatchObject({
+      type: 'integrate_conflict',
+      agentId,
+      conflictFiles: ['src/a.ts']
+    })
+  })
+
+  it('stays fenced to the caller’s subtree — the root cannot merge into a grandchild', async () => {
+    const runtime = fakeRuntime()
+    const rootTools = captureTools((server) => registerOrchestratorTools(server, runtime))
+    await callTool(rootTools, 'start_orchestrator', { area: 'x', task: 't' })
+    const leadId = [...runtime.leads.keys()][0]!
+    const leadTools = captureTools((server) =>
+      registerOrchestratorTools(server, runtime, { leadId })
+    )
+    const child = await callTool(leadTools, 'start_agent', { role: 'worker', task: 't' })
+    const grandchildId = String(child.json.agentId)
+
+    const result = await callTool(rootTools, 'integrate_branch', {
+      agentId: grandchildId,
+      branch: 'b'
+    })
+    expect(result.isError).toBe(true)
+    expect(result.json.error).toBe('unknown_agent')
+    // The lead itself may integrate within its subtree.
+    expect(
+      (await callTool(leadTools, 'integrate_branch', { agentId: grandchildId, branch: 'b' })).isError
+    ).toBe(false)
+  })
+})
+
+describe('budget — E4', () => {
+  it('refuses new starts once the budget is spent and announces it exactly once', async () => {
+    const { runtime, tools } = setup()
+    runtime.host.budgetState = { usedSec: 601, limitSec: 600, exhausted: true }
+
+    const refused = await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
+    expect(refused.isError).toBe(true)
+    expect(refused.json).toMatchObject({ error: 'budget_exhausted', limitSec: 600 })
+
+    const refusedLead = await callTool(tools, 'start_orchestrator', { area: 'x', task: 't' })
+    expect(refusedLead.isError).toBe(true)
+
+    const warnings = runtime.events.all().filter((event) => event.type === 'budget_warning')
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toMatchObject({ exhausted: true, usedSec: 601, limitSec: 600 })
+
+    // Everything that is not a new start keeps working — wrap-up needs tools.
+    expect((await callTool(tools, 'list_agents', {})).isError).toBe(false)
+  })
+
+  it('announces the 80% threshold once without refusing anything', async () => {
+    const { runtime, tools } = setup()
+    runtime.host.budgetState = { usedSec: 500, limitSec: 600, exhausted: false }
+
+    expect((await callTool(tools, 'start_agent', { role: 'worker', task: 't' })).isError).toBe(false)
+    expect((await callTool(tools, 'start_agent', { role: 'worker', task: 't' })).isError).toBe(false)
+
+    const warnings = runtime.events.all().filter((event) => event.type === 'budget_warning')
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toMatchObject({ exhausted: false })
+  })
+
+  it('no budget configured → no gate, no events', async () => {
+    const { runtime, tools } = setup()
+    expect((await callTool(tools, 'start_agent', { role: 'worker', task: 't' })).isError).toBe(false)
+    expect(runtime.events.all().some((event) => event.type === 'budget_warning')).toBe(false)
+  })
+})
+
+describe('record_retro repoNotes — E2', () => {
+  it('hands repo notes to the retro port and reports the applied count', async () => {
+    const recorded: string[][] = []
+    const runtime = fakeRuntime({
+      retro: {
+        recordLearnings: () => ({ applied: 0 }),
+        recordSummary: () => undefined,
+        recordRepoNotes: (notes) => {
+          recorded.push([...notes])
+          return { applied: notes.length }
+        }
+      }
+    })
+    const tools = captureTools((server) => registerOrchestratorTools(server, runtime))
+
+    const result = await callTool(tools, 'record_retro', {
+      summary: 'Went fine.',
+      repoNotes: ['tests need pnpm run ci']
+    })
+
+    expect(result.isError).toBe(false)
+    expect(result.json.appliedRepoNotes).toBe(1)
+    expect(recorded).toEqual([['tests need pnpm run ci']])
   })
 })

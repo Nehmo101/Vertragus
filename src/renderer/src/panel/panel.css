@@ -849,6 +849,48 @@
   background: var(--hover-wash);
 }
 
+/* E6: playbook quick-picks above the goal field. */
+.panel-goal-playbooks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.panel-goal-playbook {
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline);
+  background: transparent;
+  color: var(--text-2);
+  font: 500 10.5px var(--font-body);
+  cursor: pointer;
+}
+
+.panel-goal-playbook:hover {
+  background: var(--hover-wash);
+}
+
+/* E1: promote a finished agent's branch into the main checkout. */
+.panel-agent-promote {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.panel-agent-promote:hover {
+  background: rgba(47, 125, 109, 0.18);
+  color: var(--verdigris-text);
+}
+
 /*
  * --- attention pulses --------------------------------------------------
  *

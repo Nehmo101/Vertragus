@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { Profile, RoleTemplate } from '@shared/schema/profile'
 import type { ProviderConfig } from '@shared/schema/provider'
-import type { ModelLearning, RunRetro } from '@shared/schema/retro'
+import type { ModelLearning, RepoNote, RunRetro } from '@shared/schema/retro'
 import type { Zone, ZoneLayout } from '@shared/schema/zones'
 import type { Appearance } from '@shared/appearance'
 import type { BindOption, RemoteClientInfo, RemoteStatus } from '@shared/remote/types'
@@ -146,11 +146,14 @@ const APP = {
   workspacesCloseAgent: 'workspaces:closeAgent',
   workspacesAnswerQuestion: 'workspaces:answerQuestion',
   workspacesUserMessage: 'workspaces:userMessage',
+  workspacesPromoteAgent: 'workspaces:promoteAgent',
   worktreesList: 'worktrees:list',
   worktreesRemove: 'worktrees:remove',
   retroList: 'retro:list',
   retroLearnings: 'retro:learnings',
   retroDeleteLearning: 'retro:deleteLearning',
+  retroRepoNotes: 'retro:repoNotes',
+  retroDeleteRepoNote: 'retro:deleteRepoNote',
   settingsGet: 'settings:get',
   settingsYolo: 'settings:yolo',
   settingsSet: 'settings:set',
@@ -260,7 +263,7 @@ export interface StaleWorktreeSummary {
 }
 
 /** Retro records, re-exported so renderer code imports them from the bridge. */
-export type { ModelLearning, RunRetro } from '@shared/schema/retro'
+export type { ModelLearning, RepoNote, RunRetro } from '@shared/schema/retro'
 
 /** Result of a provider version probe (see main/providers/health.ts). */
 export interface ProviderHealth {
@@ -421,6 +424,13 @@ const app = {
    */
   sendUserMessage: (workspaceId: string, text: string): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesUserMessage, { workspaceId, text }),
+  /**
+   * E1 Promote — the user's explicit click: merge this agent's branch into
+   * the repository's own checkout. Rejects readably on a dirty checkout or a
+   * conflict (the merge is aborted then; nothing changes).
+   */
+  promoteAgentBranch: (workspaceId: string, agentId: string): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesPromoteAgent, { workspaceId, agentId }),
   /** Stale worktrees of this profile's repo — the panel's cleanup list. */
   listStaleWorktrees: (profileId: string): Promise<StaleWorktreeSummary[]> =>
     ipcRenderer.invoke(APP.worktreesList, { profileId }),
@@ -440,6 +450,12 @@ const app = {
   /** Remove one learning (explicit user click); answers with the refreshed list. */
   deleteLearning: (id: string): Promise<ModelLearning[]> =>
     ipcRenderer.invoke(APP.retroDeleteLearning, { id }),
+  /** E2: repo notes recorded by past runs; the briefing feeds on them. */
+  listRepoNotes: (profileId?: string): Promise<RepoNote[]> =>
+    ipcRenderer.invoke(APP.retroRepoNotes, profileId ? { profileId } : {}),
+  /** Remove one repo note (explicit user click); answers with the refreshed list. */
+  deleteRepoNote: (id: string): Promise<RepoNote[]> =>
+    ipcRenderer.invoke(APP.retroDeleteRepoNote, { id }),
   getSettings: (): Promise<PanelSettings> => ipcRenderer.invoke(APP.settingsGet),
   /**
    * How see-through the app is. Unlike `getSettings` this one answers in EVERY

@@ -262,6 +262,54 @@ export async function commitWorktree(
   }
 }
 
+/** Outcome of one host-side merge (E1) — never a throw for a plain conflict. */
+export type MergeOutcome =
+  | { ok: true; headSha: string }
+  | { ok: false; conflictFiles: string[]; message: string }
+
+/**
+ * E1: merge `branch` into the checkout at `worktreePath` — the host-side
+ * integrate. No push, no `--force`; identity pinned like the snapshot commits.
+ * A conflict ABORTS the merge (the worktree stays clean) and reports the
+ * conflicting files instead of leaving a half-merged tree for an agent to
+ * stumble into.
+ */
+export async function mergeBranchIntoWorktree(
+  worktreePath: string,
+  branch: string,
+  deps: WorktreeDeps = {}
+): Promise<MergeOutcome> {
+  const git = deps.git ?? defaultGitRunner
+  const identity = [
+    '-c',
+    `user.name=${SNAPSHOT_AUTHOR_NAME}`,
+    '-c',
+    `user.email=${SNAPSHOT_AUTHOR_EMAIL}`
+  ]
+  try {
+    await git([...identity, 'merge', '--no-edit', branch], worktreePath)
+  } catch (error) {
+    const message = gitErrorMessage(error)
+    let conflictFiles: string[] = []
+    try {
+      const { stdout } = await git(['diff', '--name-only', '--diff-filter=U'], worktreePath)
+      conflictFiles = stdout
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .slice(0, 80)
+    } catch {
+      /* the abort below still runs */
+    }
+    // Leave a CLEAN worktree behind — a half-merged tree under a working
+    // agent is worse than the conflict report.
+    await git(['merge', '--abort'], worktreePath).catch(() => undefined)
+    return { ok: false, conflictFiles, message }
+  }
+  const { stdout } = await git(['rev-parse', 'HEAD'], worktreePath)
+  return { ok: true, headSha: stdout.trim() }
+}
+
 /**
  * Put the MCP config files the attach dialects write into agent worktrees on
  * the repository's `.git/info/exclude`.

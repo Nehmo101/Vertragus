@@ -20,6 +20,7 @@ import { getAgentRegistry } from './ipc'
 import { startMcpServer, type McpServerHandle } from './mcp/server'
 import { closeCliWindow, createCliWindow } from './windows/cliWindow'
 import { effectiveProviders, getRoleTemplates, getSettings, settings } from './store/settings'
+import { createRunJournal } from './workspace/journal'
 import { createRetroSink } from './workspace/retroSink'
 import { createWorkspaceManager, type WorkspaceManager } from './workspace/WorkspaceManager'
 import type { Workspace } from './workspace/Workspace'
@@ -79,7 +80,9 @@ export function createAppWorkspaceManager(mcp: McpServerHandle): WorkspaceManage
     yoloMaster: () => getSettings().yoloMaster,
     // The retro loop: run stats and learnings land in the settings store, and
     // the accumulated knowledge returns via the next orchestrator prompt.
-    retro: createRetroSink({ store: settings() })
+    retro: createRetroSink({ store: settings() }),
+    // E3: the durable per-run event journal in the repository's .vertragus/.
+    journal: (repoPath, workspaceId) => createRunJournal(repoPath, workspaceId)
   })
 }
 

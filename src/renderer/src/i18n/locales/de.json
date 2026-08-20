@@ -69,7 +69,10 @@
     "orchestratorIdleTitle": "Der Orchestrator-Prozess läuft, ruft aber seine Werkzeuge (await_events) nicht mehr auf.",
     "userQuestion": "Frage an dich: {{question}}",
     "composerPlaceholder": "Nachricht an den Orchestrator …",
-    "composerSend": "Senden"
+    "composerSend": "Senden",
+    "promoteBranch": "Branch von {{agent}} in den Haupt-Checkout mergen (kein Push)",
+    "retroRepoNotes": "Repo-Notizen",
+    "retroDeleteRepoNote": "Notiz „{{note}}“ löschen"
   },
   "profileEditor": {
     "title": "Profil bearbeiten",

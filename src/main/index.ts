@@ -191,6 +191,16 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
       if (!workspace) throw new Error(`user message rejected — unknown workspace ${workspaceId}`)
       workspace.postUserMessage(text)
     },
+    async promoteAgentBranch(workspaceId, agentId) {
+      const workspace = manager.get(workspaceId)
+      if (!workspace) throw new Error(`promote rejected — unknown workspace ${workspaceId}`)
+      const outcome = await workspace.promoteAgentBranch(agentId)
+      if (!outcome.ok) {
+        throw new Error(
+          `Merge conflict — nothing was changed. Conflicting files: ${outcome.conflictFiles.join(', ') || '(unknown)'}`
+        )
+      }
+    },
     async answerQuestion(workspaceId, agentId, questionId, text) {
       // One host path (H1): identical to the orchestrator's
       // send_to_agent{questionId} — see mcp/answerQuestion.ts.

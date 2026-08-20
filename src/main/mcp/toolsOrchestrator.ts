@@ -1,5 +1,5 @@
 /**
- * The nine tools the orchestrator agent gets. Everything the orchestrator can
+ * The eleven tools the orchestrator agent gets. Everything the orchestrator can
  * do to the world goes through here — there is no second path.
  *
  * The tools deliberately do very little themselves: check the limits, compose
@@ -44,6 +44,7 @@ export const ORCHESTRATOR_TOOL_NAMES = [
   'stop_agent',
   'read_output',
   'inspect_agent',
+  'integrate_branch',
   'ask_user',
   'start_orchestrator',
   'record_retro'
@@ -64,6 +65,7 @@ export const LEAD_TOOL_NAMES = [
   'stop_agent',
   'read_output',
   'inspect_agent',
+  'integrate_branch',
   ...SUBAGENT_TOOL_NAMES
 ] as const
 
@@ -131,7 +133,7 @@ function withOrchestratorTouch(
 }
 
 /**
- * Register the orchestration tools. Without `scope` this is the ROOT: all ten
+ * Register the orchestration tools. Without `scope` this is the ROOT: all eleven
  * tools, reading the root queue, its direct children (leads included) in
  * view. With `scope` it is a LEAD (F): the downward subset only, its own
  * queue, and every agent-addressing tool fenced to its own subtree — a lead
@@ -149,6 +151,40 @@ export function registerOrchestratorTools(
   /** The caller's own event queue: the lead's, or the workspace root queue. */
   const ownQueue = (): EventQueue =>
     (leadId ? runtime.leads.get(leadId)?.events : undefined) ?? ctx.events
+
+  /**
+   * E4: the wall-clock budget. Threshold events fire exactly once (80% and
+   * exhaustion); once spent, new starts are refused — nothing else is.
+   */
+  const budgetGate = (): ToolText | undefined => {
+    const budget = ctx.host.budget()
+    if (budget.limitSec === undefined) return undefined
+    const flags = (runtime.budgetFlags ??= { warned: false, exhausted: false })
+    const push = (exhausted: boolean): void => {
+      if (ctx.events.isClosed) return
+      ctx.events.push({
+        type: 'budget_warning',
+        usedSec: budget.usedSec,
+        limitSec: budget.limitSec!,
+        exhausted
+      })
+    }
+    if (!flags.warned && budget.usedSec >= budget.limitSec * 0.8) {
+      flags.warned = true
+      if (!budget.exhausted) push(false)
+    }
+    if (!budget.exhausted) return undefined
+    if (!flags.exhausted) {
+      flags.exhausted = true
+      push(true)
+    }
+    return toolError({
+      error: 'budget_exhausted',
+      usedSec: budget.usedSec,
+      limitSec: budget.limitSec,
+      note: 'The workspace runtime budget is spent — no new agents. Verify what exists, stop your agents, and wrap up (record_retro, final summary).'
+    })
+  }
 
   /** Fence: agent-addressing tools only reach the caller's DIRECT children. */
   const outOfScope = (agentId: string): ToolText | undefined => {
@@ -219,6 +255,8 @@ export function registerOrchestratorTools(
           note: 'Use one of availableRoles exactly as written.'
         })
       }
+      const overBudget = budgetGate()
+      if (overBudget) return overBudget
 
       // Race-free without locks: `listAgents()` already counts reservations
       // (status `starting`), and nothing between this check and `beginAgent`
@@ -614,6 +652,14 @@ export function registerOrchestratorTools(
           .min(1)
           .max(500)
           .describe('One or two sentences: what the run achieved and how the team performed'),
+        repoNotes: z
+          .array(z.string().min(1).max(300))
+          .max(10)
+          .default([])
+          .describe(
+            'Durable facts about THIS repository worth telling the next run’s orchestrator ' +
+              '("tests need pnpm run ci", "panel is a drag region"). Not run outcomes — those are the summary.'
+          ),
         learnings: z
           .array(
             z.object({
@@ -644,7 +690,7 @@ export function registerOrchestratorTools(
           .default([])
       }
     },
-    async ({ summary, learnings }): Promise<ToolText> => {
+    async ({ summary, learnings, repoNotes }): Promise<ToolText> => {
       const retro = ctx.retro
       if (!retro) {
         return toolError({
@@ -665,9 +711,11 @@ export function registerOrchestratorTools(
       }
       retro.recordSummary(summary)
       const { applied } = retro.recordLearnings(learnings)
+      const appliedNotes = repoNotes.length > 0 ? retro.recordRepoNotes?.(repoNotes)?.applied ?? 0 : 0
       return toolJson({
         ok: true,
         appliedLearnings: applied,
+        appliedRepoNotes: appliedNotes,
         note: 'Retro recorded. Now give the user your final summary.'
       })
     }
@@ -715,6 +763,8 @@ export function registerOrchestratorTools(
       }
     },
     async ({ area, task, maxSubagents, model, baseBranch }): Promise<ToolText> => {
+      const overBudget = budgetGate()
+      if (overBudget) return overBudget
       if (runtime.leads.size >= MAX_LEADS) {
         return toolError({
           error: 'limit_exceeded',
@@ -877,6 +927,89 @@ export function registerOrchestratorTools(
       } catch (error) {
         return toolError({ error: 'inspect_failed', agentId, message: errorMessage(error) })
       }
+    }
+  )
+
+  server.registerTool(
+    'integrate_branch',
+    {
+      description:
+        'HOST-side merge (E1): merge another agent’s branch into the TARGET agent’s worktree. You ' +
+        'never merge yourself — this is the one sanctioned path. On conflict the merge is aborted ' +
+        '(the worktree stays clean) and the conflicting files are reported; then task an agent with ' +
+        'resolving, or restructure the work. The result also warns when the source branch’s last ' +
+        'report was not a verified success — integrating unreviewed work is how gates become theater.',
+      inputSchema: {
+        agentId: z
+          .string()
+          .min(1)
+          .describe('TARGET agent whose worktree receives the merge (often your integrator agent)'),
+        branch: z
+          .string()
+          .min(1)
+          .max(300)
+          .describe('Source branch to merge in — another agent’s vertragus/* branch')
+      }
+    },
+    async ({ agentId, branch }): Promise<ToolText> => {
+      const fenced = outOfScope(agentId)
+      if (fenced) return fenced
+      const known = ctx.host.listAgents().find((agent) => agent.agentId === agentId)
+      const identityFields = {
+        agentId,
+        name: known?.name ?? agentId,
+        roleId: known?.role ?? 'unknown'
+      }
+      // E1 gate (soft): warn when the branch's latest report is not a clean success.
+      const lastDone = [...ctx.events.all(), ...(leadId ? ownQueue().all() : [])]
+        .reverse()
+        .find((event) => event.type === 'agent_done' && event.branch === branch)
+      const gateWarning =
+        lastDone && lastDone.type === 'agent_done'
+          ? lastDone.status !== 'success'
+            ? `The last report on ${branch} was "${lastDone.status}" — integrating unverified work.`
+            : lastDone.uncommitted
+              ? `The last report on ${branch} left uncommitted changes behind.`
+              : undefined
+          : `No agent_done was reported on ${branch} — integrating work nobody verified.`
+
+      let outcome
+      try {
+        outcome = await ctx.host.integrateBranch(agentId, branch)
+      } catch (error) {
+        return toolError({ error: 'integrate_failed', agentId, branch, message: errorMessage(error) })
+      }
+      const queue = queueForAgent(runtime, agentId)
+      if (outcome.ok) {
+        if (!queue.isClosed) {
+          queue.push({ type: 'integrate_ok', ...identityFields, branch, headSha: outcome.headSha })
+        }
+        return toolJson({
+          ok: true,
+          agentId,
+          branch,
+          headSha: outcome.headSha,
+          ...(gateWarning ? { warning: gateWarning } : {})
+        })
+      }
+      if (!queue.isClosed) {
+        queue.push({
+          type: 'integrate_conflict',
+          ...identityFields,
+          branch,
+          conflictFiles: outcome.conflictFiles,
+          message: outcome.message.slice(0, 2_000)
+        })
+      }
+      return toolError({
+        error: 'integrate_conflict',
+        agentId,
+        branch,
+        conflictFiles: outcome.conflictFiles,
+        message: outcome.message.slice(0, 2_000),
+        note: 'The merge was aborted — the worktree is clean. Task an agent with resolving the conflict (give it both branches), or restructure the work.',
+        ...(gateWarning ? { warning: gateWarning } : {})
+      })
     }
   )
 }

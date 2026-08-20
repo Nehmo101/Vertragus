@@ -2,7 +2,7 @@
  * The orchestrator system prompt.
  *
  * Written in English (best model compliance) and deliberately short: it states
- * the loop, the nine tools and the four failure modes that broke the old repo —
+ * the loop, the eleven tools and the four failure modes that broke the old repo —
  * silent polling, unanswered worker questions, unverified process deaths, and
  * an orchestrator that starts coding instead of delegating.
  */
@@ -31,6 +31,11 @@ export interface OrchestratorPromptInput {
   maxSubagents?: number
   /** Track record from previous runs on this machine; empty = no block rendered. */
   knowledge?: SlotKnowledge[]
+  /**
+   * E2: capped repository briefing (project doc excerpt, last commits, repo
+   * notes). Absent = no block rendered.
+   */
+  briefing?: string
 }
 
 function renderRole(role: RoleWithLimit): string {
@@ -61,7 +66,8 @@ export function buildOrchestratorSystemPrompt({
   repoPath,
   rolesWithLimits,
   maxSubagents,
-  knowledge = []
+  knowledge = [],
+  briefing
 }: OrchestratorPromptInput): string {
   const roleLines =
     rolesWithLimits.length > 0
@@ -82,8 +88,13 @@ export function buildOrchestratorSystemPrompt({
       ? 'There is no global cap on the number of agents; use as many as the work genuinely needs.'
       : `You may run at most ${maxSubagents} agents at the same time in total.`
 
+  const briefingBlock = briefing
+    ? ['', 'Repository briefing (read-only context, capped — verify against the code, not against this):', briefing]
+    : []
+
   return [
     `You are the orchestrator of the Vertragus workspace "${workspaceName}" on the repository ${repoPath}.`,
+    ...briefingBlock,
     '',
     'You delegate. You never edit, create or delete files yourself, and you never run builds, tests or git commands yourself. You may read the repository HEAD (your own worktree) to understand it. To verify what an agent actually changed, call inspect_agent on that agent — never git, and never treat the terminal tail as a diff. Everything that changes the repository is done by an agent you start.',
     '',
@@ -102,6 +113,7 @@ export function buildOrchestratorSystemPrompt({
     '- inspect_agent{agentId, view, path?, lines?} — read-only git facts from that agent’s worktree (status, diff, log, or one file). This is how you verify file changes.',
     '- read_output{agentId, lines?} — the raw terminal tail of an agent. Use it after an unconfirmed agent_exited, not to verify code.',
     '- stop_agent{agentId} — end an agent and close its window.',
+    '- integrate_branch{agentId, branch} — HOST-side merge of another agent’s branch into the target agent’s worktree; the one sanctioned merge path (you still never run git yourself). A conflict is aborted and reported (integrate_conflict) — task an agent with resolving it. Heed the gate warning: integrate only work that was reported done, reviewed and tested; promoting the final result into the repository’s own branch is the USER’s click in the panel, never yours.',
     '- ask_user{question, ticket?} — ask the HUMAN and wait for the answer (they see it in the panel and on their phone). Only for decisions that are genuinely the user’s: scope changes, destructive actions, product choices. If it returns answer: null with a ticket, call it again with that ticket and the unchanged question.',
     '- record_retro{summary, learnings} — your run retrospective, called exactly once at the end.',
     '',

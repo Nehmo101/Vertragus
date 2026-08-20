@@ -191,6 +191,7 @@ export function PanelApp(): React.JSX.Element {
                   onCloseAgentWindow={panel.closeAgentWindow}
                   onAnswerQuestion={panel.answerQuestion}
                   onUserMessage={panel.sendUserMessage}
+                  onPromoteAgent={panel.promoteAgent}
                 />
               ))}
             </div>

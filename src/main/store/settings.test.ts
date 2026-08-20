@@ -484,3 +484,41 @@ describe('run retros and model learnings', () => {
     expect(warn).toHaveBeenCalledWith('[settings] dropped 1 invalid model learning(s)')
   })
 })
+
+describe('repo notes — E2', () => {
+  it('adds, filters by profile, dedupes identical notes and deletes by id', () => {
+    const { store: s } = store()
+    const first = s.addRepoNotes('p1', ['tests need pnpm run ci', '  ', 'panel is a drag region'])
+    expect(first.filter((note) => note.profileId === 'p1')).toHaveLength(2)
+
+    // Same note again: reinforced, not duplicated. Other profiles untouched.
+    s.addRepoNotes('p1', ['tests need pnpm run ci'])
+    s.addRepoNotes('p2', ['tests need pnpm run ci'])
+    expect(s.getRepoNotes('p1')).toHaveLength(2)
+    expect(s.getRepoNotes('p2')).toHaveLength(1)
+    expect(s.getRepoNotes()).toHaveLength(3)
+
+    const id = s.getRepoNotes('p1')[0]!.id
+    s.deleteRepoNote(id)
+    expect(s.getRepoNotes('p1')).toHaveLength(1)
+  })
+
+  it('caps per profile — newest win, other profiles keep theirs', () => {
+    const { store: s } = store()
+    s.addRepoNotes('p2', ['keep me'])
+    for (let index = 0; index < 25; index += 1) {
+      s.addRepoNotes('p1', [`note ${index}`])
+    }
+    expect(s.getRepoNotes('p1')).toHaveLength(20)
+    // Newest first: the earliest notes fell off.
+    expect(s.getRepoNotes('p1').some((note) => note.note === 'note 0')).toBe(false)
+    expect(s.getRepoNotes('p1')[0]!.note).toBe('note 24')
+    expect(s.getRepoNotes('p2')).toHaveLength(1)
+  })
+
+  it('drops corrupt rows on read instead of losing the list', () => {
+    const { store: s } = store({ repoNotes: [{ junk: true }, null] })
+    expect(s.getRepoNotes()).toEqual([])
+    expect(warn).toHaveBeenCalled()
+  })
+})

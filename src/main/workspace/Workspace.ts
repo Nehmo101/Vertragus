@@ -39,6 +39,8 @@
  * handshake.
  */
 import { randomUUID } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import type { AgentMeta, AgentRegistry } from '@main/ipc'
 import { EventQueue } from '@main/mcp/eventQueue'
 import type { PendingQuestions } from '@main/mcp/pendingQuestions'
@@ -46,7 +48,9 @@ import {
   USER_QUESTION_AGENT_ID,
   worktreeEventFields,
   type AgentHost,
+  type IntegrateOutcome,
   type StartLeadInput,
+  type WorkspaceBudget,
   type AgentSummary,
   type InspectAgentOptions,
   type InspectAgentResult,
@@ -65,6 +69,8 @@ import { inspectWorktree, snapshotWorktree } from '@main/agents/inspectWorktree'
 import {
   commitWorktree,
   createWorktree,
+  defaultGitRunner,
+  mergeBranchIntoWorktree,
   worktreeBranchName,
   worktreePathFor,
   type CreatedWorktree,
@@ -188,6 +194,9 @@ export interface WorkspaceDeps {
 export interface WorkspaceRetroFeed {
   recordLearnings(profile: Profile, learnings: readonly RetroLearningInput[]): { applied: number }
   knowledge(profile: Profile): SlotKnowledge[]
+  /** E2: durable repo facts for the orchestrator briefing; optional for old fakes. */
+  repoNotes?(profile: Profile): string[]
+  recordRepoNotes?(profile: Profile, notes: readonly string[]): { applied: number }
 }
 
 export interface WorkspaceInit {
@@ -239,6 +248,9 @@ interface AgentRecord {
   stopped: boolean
   exit?: PtyExitInfo
   lastOutputAt: number
+  /** E4: wall-clock bookkeeping — when this agent started and (maybe) ended. */
+  startedAt: number
+  endedAt?: number
   /**
    * Event cursor when this agent last received an assignment. An `agent_done`
    * newer than this proves the agent confirmed *this* task — which is exactly
@@ -518,7 +530,10 @@ export class Workspace implements AgentHost {
                 retro.recordLearnings(this.profile, learnings),
               recordSummary: (summary: string) => {
                 this.pendingRetroSummary = summary
-              }
+              },
+              // E2: durable repo facts, fed into the next run's briefing.
+              recordRepoNotes: (notes: readonly string[]) =>
+                retro.recordRepoNotes?.(this.profile, notes) ?? { applied: 0 }
             }
           }
         : {})
@@ -882,6 +897,52 @@ export class Workspace implements AgentHost {
     return worktreeEventFields(snapshot)
   }
 
+  async integrateBranch(agentId: string, branch: string): Promise<IntegrateOutcome> {
+    const record = this.requireAgent(agentId)
+    return mergeBranchIntoWorktree(record.worktreePath, branch, this.deps.worktreeDeps)
+  }
+
+  /**
+   * E1 Promote — the USER's click, never an agent tool: merge one agent's
+   * branch into the repository's own checkout (`repoPath`). Refuses a dirty
+   * main checkout — promoting over uncommitted user work would be exactly the
+   * "overwrite my repo" accident the remote allow-list also refuses to offer.
+   * No push, no --force; a conflict aborts and reports.
+   */
+  async promoteAgentBranch(agentId: string): Promise<IntegrateOutcome> {
+    const record = this.requireAgent(agentId)
+    const deps = this.deps.worktreeDeps
+    const main = await snapshotWorktree(this.repoPath, deps)
+    if (main.uncommitted) {
+      throw new Error(
+        'Promote refused — the main checkout has uncommitted changes. Commit or stash them first.'
+      )
+    }
+    return mergeBranchIntoWorktree(this.repoPath, record.branch, deps)
+  }
+
+  /**
+   * E4: the wall clock over agent-seconds — subagents and leads count, the
+   * orchestrator (the reader) does not. Reservations are ignored: seconds are
+   * only honest once a process exists.
+   */
+  budget(): WorkspaceBudget {
+    const now = this.now()
+    let usedMs = 0
+    for (const record of this.agents.values()) {
+      if (record.orchestrator) continue
+      usedMs += Math.max(0, (record.endedAt ?? now) - record.startedAt)
+    }
+    const usedSec = Math.round(usedMs / 1_000)
+    const limitSec =
+      this.profile.maxRuntimeMin !== undefined ? this.profile.maxRuntimeMin * 60 : undefined
+    return {
+      usedSec,
+      ...(limitSec !== undefined ? { limitSec } : {}),
+      exhausted: limitSec !== undefined && usedSec >= limitSec
+    }
+  }
+
   /**
    * The worktrees of every agent whose process is still alive — orchestrator
    * included. This is what the panel's cleanup view must NOT offer for
@@ -994,7 +1055,9 @@ export class Workspace implements AgentHost {
       repoPath: this.repoPath,
       rolesWithLimits: this.rolesWithLimits(),
       maxSubagents: this.profile.maxSubagents,
-      knowledge: this.deps.retro?.knowledge(this.profile) ?? []
+      knowledge: this.deps.retro?.knowledge(this.profile) ?? [],
+      // E2: best-effort — a repo without docs or git history still boots.
+      briefing: await this.collectBriefing()
     })
 
     let spawned: SpawnedAgent | undefined
@@ -1120,6 +1183,46 @@ export class Workspace implements AgentHost {
       worktreeBranchName(this.name, agentName),
       { ...this.deps.worktreeDeps, ...(startPoint ? { startPoint } : {}) }
     )
+  }
+
+  /**
+   * E2: the capped repository briefing — the first project doc that exists
+   * (AGENTS.md / CLAUDE.md / README.md), the last eight commits, and the
+   * stored repo notes. Every part is best-effort and hard-capped; no RAG,
+   * no index — just what a human would skim before the first delegation.
+   */
+  private async collectBriefing(): Promise<string | undefined> {
+    const cap = (text: string, max: number): string =>
+      text.length <= max ? text : `${text.slice(0, max)}\n…(truncated)`
+    const parts: string[] = []
+    for (const file of ['AGENTS.md', 'CLAUDE.md', 'README.md']) {
+      try {
+        const text = await readFile(join(this.repoPath, file), 'utf8')
+        if (text.trim()) {
+          parts.push(`--- ${file} (capped) ---\n${cap(text.trim(), 1_500)}`)
+          break
+        }
+      } catch {
+        /* try the next doc */
+      }
+    }
+    try {
+      const git = this.deps.worktreeDeps?.git ?? defaultGitRunner
+      const { stdout } = await git(['log', '-8', '--oneline'], this.repoPath)
+      if (stdout.trim()) parts.push(`--- last commits ---\n${cap(stdout.trim(), 800)}`)
+    } catch {
+      /* an empty or brand-new repo has no log */
+    }
+    const notes = this.deps.retro?.repoNotes?.(this.profile) ?? []
+    if (notes.length > 0) {
+      parts.push(
+        `--- repo notes from previous runs ---\n${notes
+          .slice(0, 20)
+          .map((note) => `- ${note}`)
+          .join('\n')}`
+      )
+    }
+    return parts.length > 0 ? parts.join('\n\n') : undefined
   }
 
   /** Roles and their caps, as the orchestrator prompt renders them. */
@@ -1342,6 +1445,7 @@ export class Workspace implements AgentHost {
       stopping: false,
       stopped: false,
       lastOutputAt: this.now(),
+      startedAt: this.now(),
       assignmentCursor: this.events.cursor,
       doneSinceAssignment: false,
       unsubscribe: [],
@@ -1614,6 +1718,7 @@ export class Workspace implements AgentHost {
    */
   private handleExit(record: AgentRecord, info: PtyExitInfo): void {
     record.exit = info
+    record.endedAt = record.endedAt ?? this.now()
     // A dead process is not a silent one — its exit event says everything.
     this.clearIdleHint(record)
     if (record.orchestrator) {
@@ -1667,6 +1772,7 @@ export class Workspace implements AgentHost {
   private terminate(record: AgentRecord): void {
     record.stopping = true
     record.stopped = true
+    record.endedAt = record.endedAt ?? this.now()
     this.clearIdleHint(record)
     if (record.orchestrator) {
       this.clearOrchestratorIdleWatchdog()

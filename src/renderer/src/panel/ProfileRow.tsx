@@ -127,6 +127,23 @@ export function ProfileRow({
       </div>
       {goalOpen ? (
         <div className="panel-goal">
+          {profile.playbooks && profile.playbooks.length > 0 ? (
+            // E6: playbooks are GOAL templates — one click fills the field,
+            // the orchestrator still decides the team.
+            <div className="panel-goal-playbooks">
+              {profile.playbooks.map((playbook) => (
+                <button
+                  key={playbook.name}
+                  type="button"
+                  className="panel-goal-playbook"
+                  title={playbook.goal}
+                  onClick={() => setGoal(playbook.goal)}
+                >
+                  {playbook.name}
+                </button>
+              ))}
+            </div>
+          ) : null}
           <textarea
             className="panel-goal-input"
             rows={2}

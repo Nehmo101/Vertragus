@@ -175,3 +175,58 @@ describe('knowledge', () => {
     expect(knowledge[1]!.score).toBeUndefined()
   })
 })
+
+describe('repo notes — E2 sink', () => {
+  it('feeds stored notes into the briefing and records new ones per profile', async () => {
+    const { createRetroSink } = await import('./retroSink')
+    const notes: Array<{ profileId: string; note: string }> = []
+    const sink = createRetroSink({
+      store: {
+        getRunRetros: () => [],
+        recordRunRetro: () => [],
+        getModelLearnings: () => [],
+        setModelLearnings: () => [],
+        getRepoNotes: (profileId) =>
+          notes
+            .filter((entry) => !profileId || entry.profileId === profileId)
+            .map((entry, index) => ({
+              id: `n${index}`,
+              profileId: entry.profileId,
+              note: entry.note,
+              createdAt: 1
+            })),
+        addRepoNotes: (profileId, fresh) => {
+          for (const note of fresh) notes.push({ profileId, note })
+          return notes.map((entry, index) => ({
+            id: `n${index}`,
+            profileId: entry.profileId,
+            note: entry.note,
+            createdAt: 1
+          }))
+        }
+      }
+    })
+    const profile = {
+      id: 'p1',
+      slots: []
+    } as unknown as import('@shared/schema/profile').Profile
+
+    expect(sink.recordRepoNotes(profile, ['tests need pnpm run ci'])).toEqual({ applied: 1 })
+    expect(sink.repoNotes(profile)).toEqual(['tests need pnpm run ci'])
+  })
+
+  it('stays a no-op against a store without the repo-note surface', async () => {
+    const { createRetroSink } = await import('./retroSink')
+    const sink = createRetroSink({
+      store: {
+        getRunRetros: () => [],
+        recordRunRetro: () => [],
+        getModelLearnings: () => [],
+        setModelLearnings: () => []
+      }
+    })
+    const profile = { id: 'p1', slots: [] } as unknown as import('@shared/schema/profile').Profile
+    expect(sink.recordRepoNotes(profile, ['x'])).toEqual({ applied: 0 })
+    expect(sink.repoNotes(profile)).toEqual([])
+  })
+})

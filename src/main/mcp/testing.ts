@@ -183,6 +183,24 @@ export class FakeAgentHost implements AgentHost {
   /** Every C3 done-snapshot the tools asked for, in call order. */
   readonly doneSnapshots: Array<{ agentId: string; summary: string }> = []
 
+  /** E1: recorded merges; set `integrateConflict` to force the conflict path. */
+  readonly integrations: Array<{ agentId: string; branch: string }> = []
+  integrateConflict: { conflictFiles: string[]; message: string } | undefined
+
+  async integrateBranch(agentId: string, branch: string): ReturnType<AgentHost['integrateBranch']> {
+    if (!this.agents.has(agentId)) throw new Error(`Unknown agent ${agentId}`)
+    this.integrations.push({ agentId, branch })
+    if (this.integrateConflict) return { ok: false, ...this.integrateConflict }
+    return { ok: true, headSha: FAKE_HEAD }
+  }
+
+  /** E4: settable wall clock; no limit by default. */
+  budgetState: ReturnType<AgentHost['budget']> = { usedSec: 0, exhausted: false }
+
+  budget(): ReturnType<AgentHost['budget']> {
+    return this.budgetState
+  }
+
   async snapshotDone(agentId: string, summary: string): Promise<WorktreeFacts> {
     const facts = await this.snapshotWorktree(agentId)
     this.doneSnapshots.push({ agentId, summary })

@@ -22,6 +22,8 @@ interface AgentProps {
   onCloseWindow(agentId: string): void
   /** Answer this agent's open question (H1) — absent while it has none. */
   onAnswer(agentId: string, questionId: string, text: string): void
+  /** E1 Promote: merge this agent's branch into the repo's own checkout. */
+  onPromote(agentId: string): void
 }
 
 /**
@@ -31,7 +33,7 @@ interface AgentProps {
  * answer field out below the row, which sends over the SAME host path the
  * orchestrator's `send_to_agent{questionId}` uses (H1).
  */
-function AgentRow({ agent, onFocus, onCloseWindow, onAnswer }: AgentProps): React.JSX.Element {
+function AgentRow({ agent, onFocus, onCloseWindow, onAnswer, onPromote }: AgentProps): React.JSX.Element {
   const { t } = useTranslation()
   const canClose = agentCanCloseWindow(agent)
   const [answering, setAnswering] = useState(false)
@@ -70,6 +72,17 @@ function AgentRow({ agent, onFocus, onCloseWindow, onAnswer }: AgentProps): Reac
           onClick={() => setAnswering((current) => !current)}
         >
           ?
+        </button>
+      ) : null}
+      {agent.state === 'stopped' && agent.roleId !== 'orchestrator' ? (
+        <button
+          type="button"
+          className="panel-agent-promote"
+          title={t('panel.promoteBranch', { agent: agent.name })}
+          aria-label={t('panel.promoteBranch', { agent: agent.name })}
+          onClick={() => onPromote(agent.agentId)}
+        >
+          ⇪
         </button>
       ) : null}
       {canClose ? (
@@ -126,6 +139,8 @@ interface Props {
   onAnswerQuestion(workspaceId: string, agentId: string, questionId: string, text: string): void
   /** D2: steer the run — wakes the orchestrator's await_events. */
   onUserMessage(workspaceId: string, text: string): void
+  /** E1 Promote — the user's click, merged by the host into the main checkout. */
+  onPromoteAgent(workspaceId: string, agentId: string): void
 }
 
 /**
@@ -223,7 +238,8 @@ export function WorkspaceCard({
   onFocusAgent,
   onCloseAgentWindow,
   onAnswerQuestion,
-  onUserMessage
+  onUserMessage,
+  onPromoteAgent
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
   const stop = t('panel.stopWorkspace', { workspace: workspace.name })
@@ -302,6 +318,7 @@ export function WorkspaceCard({
                   onAnswer={(agentId, questionId, text) =>
                     onAnswerQuestion(workspace.workspaceId, agentId, questionId, text)
                   }
+                  onPromote={(agentId) => onPromoteAgent(workspace.workspaceId, agentId)}
                 />
               ))
             )}

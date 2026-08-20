@@ -21,7 +21,10 @@ export const AGENT_EVENT_TYPES = [
   'orchestrator_idle',
   'user_message',
   'user_question',
-  'subtree_adopted'
+  'subtree_adopted',
+  'integrate_ok',
+  'integrate_conflict',
+  'budget_warning'
 ] as const
 
 export type AgentEventType = (typeof AGENT_EVENT_TYPES)[number]
@@ -176,6 +179,39 @@ const subtreeAdoptedPayload = z.object({
   adoptedAgentIds: z.array(z.string().min(1)).max(200)
 })
 
+/**
+ * E1: the host merged `branch` into the target agent's worktree — or aborted
+ * on conflict, leaving the worktree clean and naming the conflicting files.
+ * Identity is the TARGET agent (whose checkout was merged into).
+ */
+const integrateOkPayload = z.object({
+  type: z.literal('integrate_ok'),
+  ...identity,
+  branch: z.string().min(1),
+  headSha: z.string().min(1)
+})
+
+const integrateConflictPayload = z.object({
+  type: z.literal('integrate_conflict'),
+  ...identity,
+  branch: z.string().min(1),
+  conflictFiles: z.array(z.string().min(1).max(400)).max(80),
+  message: z.string().max(2_000)
+})
+
+/**
+ * E4: the workspace burned through its runtime budget (sum of agent-seconds
+ * against `maxRuntimeMin`). Pushed once per threshold; new starts are refused
+ * once the budget is exhausted. A wall clock, never a guessed token counter.
+ */
+const budgetWarningPayload = z.object({
+  type: z.literal('budget_warning'),
+  usedSec: z.number().int().nonnegative(),
+  limitSec: z.number().int().positive(),
+  /** True once new agent starts are refused. */
+  exhausted: z.boolean()
+})
+
 /** Event body as produced by a caller — no `seq`/`ts` yet. */
 export const agentEventPayloadSchema = z.discriminatedUnion('type', [
   agentStartedPayload,
@@ -189,7 +225,10 @@ export const agentEventPayloadSchema = z.discriminatedUnion('type', [
   orchestratorIdlePayload,
   userMessagePayload,
   userQuestionPayload,
-  subtreeAdoptedPayload
+  subtreeAdoptedPayload,
+  integrateOkPayload,
+  integrateConflictPayload,
+  budgetWarningPayload
 ])
 export type AgentEventPayload = z.infer<typeof agentEventPayloadSchema>
 
@@ -212,7 +251,10 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   orchestratorIdlePayload.extend(envelope),
   userMessagePayload.extend(envelope),
   userQuestionPayload.extend(envelope),
-  subtreeAdoptedPayload.extend(envelope)
+  subtreeAdoptedPayload.extend(envelope),
+  integrateOkPayload.extend(envelope),
+  integrateConflictPayload.extend(envelope),
+  budgetWarningPayload.extend(envelope)
 ])
 export type AgentEvent = z.infer<typeof agentEventSchema>
 
