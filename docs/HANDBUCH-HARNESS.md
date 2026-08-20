@@ -286,6 +286,23 @@ H1/H2 sollten in BigBoy B als Kanten schon existieren. D füllt sie.
 Siehe H2. Sobald `start({goal})` existiert: Panel-Pflichtfeld,
 `VERTRAGUS_DEV_RUN` aus Env/stdin.
 
+### D1b Lange Blockfenster — `mcpToolTimeoutSec`
+
+Ein Provider kann deklarieren, dass sein MCP-Tool-Timeout prozesslokal
+anhebbar ist (`mcpToolTimeoutSec`, Claude-Preset: 600 s — Env
+`MCP_TIMEOUT`/`MCP_TOOL_TIMEOUT`; Codex-Mechanik existiert, Preset
+deklariert bewusst nicht). Daraus leitet der Host Fenster mit Marge ab
+(Claim ≥ 120 s, sonst nichts): `await_events` default 300 s / max 570 s
+statt 50/55 s, und **pro Agent** dasselbe Fenster für die Ask-Blöcke —
+`ask_user` über das Orchestrator-Fenster, `ask_orchestrator` über das
+Fenster des *fragenden* Agents (ein Codex-Worker mit 60-s-Default
+ticketet weiter, während ein Claude-Worker im selben Run minutenlang
+blockt). Jede vermiedene Leerlauf-Antwort (`events: []`,
+`answer: null`) ist ein gesparter Modell-Turn über den ganzen Kontext.
+`VERTRAGUS_ASK_TIMEOUT_MS` schlägt weiterhin alles außer der
+Workspace-Option — die Integrationstests müssen den Ticket-Pfad
+erzwingen können.
+
 ### D2 `user_message` weckt `await_events`
 
 Composer auf der Karte (Desktop + Remote-Client, **nicht** nur raw

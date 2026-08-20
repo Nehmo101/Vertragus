@@ -50,6 +50,18 @@ describe('ask_user — D3', () => {
     expect(resumed.json).toMatchObject({ answer: 'Yes, ship it.', ticket })
   })
 
+  it('blocks per the raised orchestrator window instead of the 50 s ticket carousel', async () => {
+    // awaitTimeout is the orchestrator CLI's raised window — ask_user runs on
+    // that same CLI, so with no explicit askTimeoutMs the call must block
+    // maxSec (here 1 s), not the 50 s default (which would fail this test).
+    const { tools } = setup({ awaitTimeout: { defaultSec: 1, maxSec: 1 } })
+    const begun = Date.now()
+    const first = await callTool(tools, 'ask_user', { question: 'Q?' })
+    expect(Date.now() - begun).toBeLessThan(5_000)
+    expect(first.json.answer).toBeNull()
+    expect(first.json.ticket).toBeTruthy()
+  })
+
   it('answers immediately when the user is faster than the timeout', async () => {
     const { runtime, tools } = setup()
     runtime.ctx.askTimeoutMs = 5_000

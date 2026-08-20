@@ -3,10 +3,11 @@
  * URL — a worker can neither claim to be another agent nor reach an
  * orchestrator tool, because it never gets a schema for one.
  *
- * `ask_orchestrator` is the important one: it blocks server-side for ~50 s
- * (under the 60 s MCP request timeout) and, on timeout, hands out a ticket that
- * resumes the SAME question. The old repo instead let a worker re-ask, produced
- * three questions nobody answered, and starved the worker.
+ * `ask_orchestrator` is the important one: it blocks server-side — ~50 s under
+ * the CLIs' 60 s MCP request timeout, or the agent's own raised window when its
+ * provider declares `mcpToolTimeoutSec` — and, on timeout, hands out a ticket
+ * that resumes the SAME question. The old repo instead let a worker re-ask,
+ * produced three questions nobody answered, and starved the worker.
  */
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
@@ -31,16 +32,21 @@ export const PROGRESS_NOTE_MAX = 500
 /**
  * Resolve the ask window: workspace option first, then the
  * `VERTRAGUS_ASK_TIMEOUT_MS` environment override (used by the integration
- * harness to force the ticket path in milliseconds instead of a minute), then
- * the 50 s default.
+ * harness to force the ticket path in milliseconds instead of a minute — it
+ * must keep winning over any provider claim, or the harness could no longer
+ * exercise tickets at all), then the caller's raised window (an agent whose
+ * CLI tolerates long MCP tool calls blocks instead of ticketing — every
+ * `answer: null` round trip is a full model turn), then the 50 s default.
  */
 export function resolveAskTimeoutMs(
   configured: number | undefined,
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
+  raisedMs?: number
 ): number {
   if (configured !== undefined && Number.isFinite(configured) && configured > 0) return configured
   const raw = Number(env.VERTRAGUS_ASK_TIMEOUT_MS)
   if (Number.isFinite(raw) && raw > 0) return raw
+  if (raisedMs !== undefined && Number.isFinite(raisedMs) && raisedMs > 0) return raisedMs
   return ASK_TIMEOUT_DEFAULT_MS
 }
 
@@ -130,7 +136,15 @@ export function registerSubagentTools(
       }
     },
     async ({ question, ticket }): Promise<ToolText> => {
-      const timeoutMs = resolveAskTimeoutMs(ctx.askTimeoutMs)
+      // Per CALLER, not per workspace: the window an agent may block is bounded
+      // by ITS OWN CLI's MCP tool timeout, and a run happily mixes a claude
+      // worker (raised) with a codex worker (60 s default). Resolved per call —
+      // cheap, and the host owns the provider lookup.
+      const timeoutMs = resolveAskTimeoutMs(
+        ctx.askTimeoutMs,
+        process.env,
+        ctx.host.askTimeoutMsFor?.(agentId)
+      )
 
       if (ticket) {
         const resumed = await runtime.questions.waitForAnswer(ticket, agentId, timeoutMs)

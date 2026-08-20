@@ -102,6 +102,8 @@ export class FakeAgentHost implements AgentHost {
   output = new Map<string, string>()
   /** Canned git facts per agent; absent → a clean fake snapshot. */
   snapshots = new Map<string, WorktreeFacts>()
+  /** Canned raised ask windows per agent (ms); absent → classic 50 s default. */
+  askWindows = new Map<string, number>()
   /** Live root id the fake succession reports as predecessor. */
   orchestratorId = 'orch-live'
   private counter = 0
@@ -112,6 +114,10 @@ export class FakeAgentHost implements AgentHost {
 
   reportingMode(role: string): AgentSummary['reporting'] {
     return this.options.reportingMode?.(role) ?? 'mcp'
+  }
+
+  askTimeoutMsFor(agentId: string): number | undefined {
+    return this.askWindows.get(agentId)
   }
 
   beginAgent(input: StartAgentInput): StartingAgent {

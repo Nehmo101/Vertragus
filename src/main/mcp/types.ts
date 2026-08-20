@@ -246,6 +246,17 @@ export interface AgentHost {
   budget(): WorkspaceBudget
   listAgents(): AgentSummary[]
   /**
+   * The raised `ask_orchestrator` block window for THIS agent, in
+   * milliseconds, already margin-adjusted below its own CLI's MCP tool
+   * timeout — the same derivation that funds the orchestrator's long
+   * `await_events` poll. Undefined (or an absent method — old fakes) keeps
+   * the classic 50 s window. Per agent, not per workspace: a codex worker on
+   * a 60 s CLI timeout must keep ticketing even while a claude worker in the
+   * same run blocks for minutes, so the workspace-wide `askTimeoutMs` could
+   * never carry this.
+   */
+  askTimeoutMsFor?(agentId: string): number | undefined
+  /**
    * True while a root succession is in flight. Mutating orchestrator tools
    * refuse with `succession_in_progress` until the successor is active.
    */

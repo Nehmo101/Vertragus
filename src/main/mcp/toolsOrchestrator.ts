@@ -633,7 +633,15 @@ export function registerOrchestratorTools(
       }
     },
     async ({ question, ticket }): Promise<ToolText> => {
-      const timeoutMs = resolveAskTimeoutMs(ctx.askTimeoutMs)
+      // The same raised window that funds the long await_events poll: ask_user
+      // runs on the orchestrator's own CLI, so awaitMax is exactly the block
+      // this call can afford — a human who answers within it costs zero
+      // `answer: null` round trips, and each of those is a full model turn.
+      const timeoutMs = resolveAskTimeoutMs(
+        ctx.askTimeoutMs,
+        process.env,
+        ctx.awaitTimeout ? ctx.awaitTimeout.maxSec * 1_000 : undefined
+      )
       const userTicketNote =
         'The user has not answered yet. Call ask_user again with ticket set to the value above and ' +
         'the unchanged question. Do NOT rephrase and do NOT open a second question. While waiting ' +
