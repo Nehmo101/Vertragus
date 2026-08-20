@@ -188,9 +188,14 @@ gegen `starting` ist derselbe Fehler wie `send_to_agent`.
 inspect_agent{agentId, view: status | diff | log | file, path?, lines?}
 ```
 
-Read-only, nie Hauptcheckout. Gecappt (80 k Zeichen Diff/Datei, Log
-max 50). Prompt: Verifikation über `inspect_agent`, niemals über eigene
-Git-Befehle, niemals über `read_output`. Provider-neutral.
+Read-only, nie Hauptcheckout. Gecappt (20 k Zeichen Diff, 80 k Datei,
+Log max 50); der Truncation-Marker nennt den Ausweg (`path` setzen,
+`view: file`, oder `status` lesen) statt nur „truncated“. `path` ist
+Pflicht für `file` und optional für `diff` — dann diffed der Host nur
+diese Datei bzw. dieses Verzeichnis. Prompt: Verifikation über
+`inspect_agent` — erst `status` (Porcelain + Diffstat), voller Diff nur
+bei Auffälligkeiten —, niemals über eigene Git-Befehle, niemals über
+`read_output`. Provider-neutral.
 Orchestrator-Tool, kein Gateway-Befehl (Remote soll nicht beliebige
 Repo-Dateien lesen). Gestoppte Agenten bleiben inspectable — das
 Worktree überlebt `stop_agent`.
@@ -264,7 +269,9 @@ Vollständiger Plan: [`docs/ORCHESTRATOR-SUCCESSION.md`](./ORCHESTRATOR-SUCCESSI
 
 **S1 im Code:** `request_succession` (neuntes Orchestrator-Tool), Host-Paket,
 `orchToken`-Rotation (alte URL → 401, Subagent-URLs bleiben), Successor-Seed
-mit `eventCursor` und offenen Fragen, Fence `succession_in_progress` auf
+mit `eventCursor` und offenen Fragen — das Paket wird einmal als Prosa
+gerendert (Roster, Fragen, Next Actions, Decisions, Risks, Note,
+Event-Schwanz), kein zusätzlicher JSON-Dump —, Fence `succession_in_progress` auf
 mutierenden Tools, `record_retro` währenddessen verboten. User-Button, C5
 und C3-SHA-Härtung sind später.
 
@@ -278,6 +285,23 @@ H1/H2 sollten in BigBoy B als Kanten schon existieren. D füllt sie.
 
 Siehe H2. Sobald `start({goal})` existiert: Panel-Pflichtfeld,
 `VERTRAGUS_DEV_RUN` aus Env/stdin.
+
+### D1b Lange Blockfenster — `mcpToolTimeoutSec`
+
+Ein Provider kann deklarieren, dass sein MCP-Tool-Timeout prozesslokal
+anhebbar ist (`mcpToolTimeoutSec`, Claude-Preset: 600 s — Env
+`MCP_TIMEOUT`/`MCP_TOOL_TIMEOUT`; Codex-Mechanik existiert, Preset
+deklariert bewusst nicht). Daraus leitet der Host Fenster mit Marge ab
+(Claim ≥ 120 s, sonst nichts): `await_events` default 300 s / max 570 s
+statt 50/55 s, und **pro Agent** dasselbe Fenster für die Ask-Blöcke —
+`ask_user` über das Orchestrator-Fenster, `ask_orchestrator` über das
+Fenster des *fragenden* Agents (ein Codex-Worker mit 60-s-Default
+ticketet weiter, während ein Claude-Worker im selben Run minutenlang
+blockt). Jede vermiedene Leerlauf-Antwort (`events: []`,
+`answer: null`) ist ein gesparter Modell-Turn über den ganzen Kontext.
+`VERTRAGUS_ASK_TIMEOUT_MS` schlägt weiterhin alles außer der
+Workspace-Option — die Integrationstests müssen den Ticket-Pfad
+erzwingen können.
 
 ### D2 `user_message` weckt `await_events`
 

@@ -41,6 +41,17 @@ describe('providerPresets', () => {
     expect(providerPreset('copilot')).toBeUndefined()
   })
 
+  /**
+   * A raised MCP tool timeout is a claim about a mechanism someone verified on
+   * that CLI. Only Claude Code has one here (its env pair); every other preset
+   * stays on the 60 s default, because a CLI that kills the call mid-poll is
+   * worse than a short poll.
+   */
+  it('claims a raised MCP tool timeout for Claude Code only', () => {
+    const claiming = providerPresets().filter((entry) => entry.mcpToolTimeoutSec !== undefined)
+    expect(claiming.map((entry) => entry.id)).toEqual(['claude'])
+  })
+
   it('probes every provider with --version', () => {
     for (const entry of providerPresets()) expect(entry.versionArgs).toEqual(['--version'])
   })
@@ -100,6 +111,16 @@ describe('claude preset', () => {
     })
   })
 
+  /**
+   * The one preset that claims a raised MCP tool timeout: Claude Code takes it
+   * from the environment, so the spawn layer can raise it per process. Ten
+   * minutes is what turns the orchestrator's `await_events` from a 50 s
+   * metronome into a single blocking wait.
+   */
+  it('claims a ten-minute MCP tool timeout — the long-poll budget', () => {
+    expect(claude.mcpToolTimeoutSec).toBe(600)
+  })
+
   it('discovers models from the local account cache only — never an API key', () => {
     expect(claude.modelDiscovery).toEqual({
       kind: 'file',
@@ -140,6 +161,16 @@ describe('codex preset', () => {
   it('keeps the distinct OpenAI attach surface (no Anthropic flags)', () => {
     expect(codex.systemPromptDelivery).toEqual({ kind: 'codex-config' })
     expect(codex.mcp).toEqual({ kind: 'codex-overrides' })
+  })
+
+  /**
+   * Deliberately no raised tool timeout: `tool_timeout_sec` is a newer Codex
+   * key and an older build meeting an unknown `mcp_servers.*` key could refuse
+   * the launch. The attach layer emits the override the moment this is set —
+   * the claim is what stays unverified, not the mechanism.
+   */
+  it('makes no MCP tool-timeout claim — unverified on older codex builds', () => {
+    expect(codex.mcpToolTimeoutSec).toBeUndefined()
   })
 
   it('reads the account catalogue cache', () => {

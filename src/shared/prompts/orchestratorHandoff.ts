@@ -2,9 +2,29 @@
  * Seed text for a successor orchestrator: the living loop rules plus the
  * frozen handoff package. English on purpose — same compliance reason as the
  * rest of the orchestrator prompt.
+ *
+ * The package is rendered ONCE, as prose. It used to be prose plus the whole
+ * package pretty-printed as JSON, which paid for every fact twice in the most
+ * expensive prompt of the system. Every field a successor can act on has a
+ * section below; pure bookkeeping (schemaVersion, ids, timestamps, limits) is
+ * dropped on purpose, and per-agent notes (`agentNotes`) already arrive merged
+ * into the roster as `agent.orchNote`.
  */
-import type { OrchestratorHandoffPackage } from '../schema/handoff'
+import type { HandoffRecentEvent, OrchestratorHandoffPackage } from '../schema/handoff'
 import { buildOrchestratorSystemPrompt, type OrchestratorPromptInput } from './orchestrator'
+
+/** Keep the tail only: older events are already condensed into the roster. */
+const SEED_RECENT_EVENTS_MAX = 10
+
+function renderRecentEvent(event: HandoffRecentEvent): string {
+  const who = event.name ?? event.agentId
+  const what = event.summary ?? event.question ?? event.message ?? event.status
+  return `- #${event.seq} ${event.type}${who ? ` ${who}` : ''}${what ? `: ${what}` : ''}`
+}
+
+function section(title: string, lines: readonly string[]): string[] {
+  return lines.length === 0 ? [] : ['', title, ...lines]
+}
 
 export function formatHandoffSeed(pkg: OrchestratorHandoffPackage): string {
   const goal =
@@ -55,9 +75,23 @@ export function formatHandoffSeed(pkg: OrchestratorHandoffPackage): string {
     open,
     '',
     next,
-    '',
-    'Full handoff package (JSON):',
-    JSON.stringify(pkg, null, 2)
+    ...section(
+      'Decisions already made (do not relitigate them without new evidence):',
+      pkg.decisions.map((decision) => `- ${decision}`)
+    ),
+    ...section(
+      'Known risks:',
+      pkg.risks.map((risk) => `- ${risk}`)
+    ),
+    ...section(
+      'Branches of interest:',
+      pkg.branchesOfInterest.map((branch) => `- ${branch}`)
+    ),
+    ...section(
+      `Last events before the handoff (history only — start await_events at ${pkg.eventCursor}):`,
+      pkg.recentEvents.slice(-SEED_RECENT_EVENTS_MAX).map(renderRecentEvent)
+    ),
+    ...(pkg.note ? ['', `Note from your predecessor: ${pkg.note}`] : [])
   ].join('\n')
 }
 

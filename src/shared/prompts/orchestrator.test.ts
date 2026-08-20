@@ -130,6 +130,19 @@ describe('buildOrchestratorSystemPrompt', () => {
     expect(prompt).toMatch(/host facts on the event/i)
   })
 
+  it('orders verification cheapest-first: status before a full diff', () => {
+    const prompt = buildOrchestratorSystemPrompt(base)
+    expect(prompt).toMatch(/view "status" \(porcelain \+ diffstat\) first/i)
+    expect(prompt).toMatch(/full diff only when something looks off/i)
+    expect(prompt).toMatch(/pass path to scope the diff/i)
+  })
+
+  it('teaches model economy for role and slot choice', () => {
+    const prompt = buildOrchestratorSystemPrompt(base)
+    expect(prompt).toMatch(/smaller, faster slot or model/i)
+    expect(prompt).toMatch(/reserve the strongest ones for review, architecture/i)
+  })
+
   it('forbids coding and requires a closing summary plus stop', () => {
     const prompt = buildOrchestratorSystemPrompt(base)
     expect(prompt).toMatch(/never edit, create or delete files yourself/i)
@@ -143,6 +156,12 @@ describe('buildOrchestratorSystemPrompt', () => {
     expect(prompt).toMatch(/fresh context/i)
     expect(prompt).toMatch(/not a second concurrent orchestrator/i)
     expect(prompt).toMatch(/never as part of a context handoff/i)
+  })
+
+  it('asks for succession early instead of at the context wall', () => {
+    const prompt = buildOrchestratorSystemPrompt(base)
+    expect(prompt).toMatch(/Call it EARLY and proactively/)
+    expect(prompt).toMatch(/do not wait for a provider context warning/i)
   })
 
   it('is plain English with no German left in it', () => {

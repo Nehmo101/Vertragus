@@ -20,6 +20,7 @@ import {
   queueForAgent,
   recordAssignment,
   runningAgents,
+  slimAgentsSummary,
   summarizeAgents,
   toolError,
   toolJson,
@@ -105,10 +106,13 @@ export function handoffFor(events: EventQueue, baseBranch: string): string | und
   return undefined
 }
 
+/**
+ * One sentence, because it is repeated on EVERY empty long-poll — the most
+ * frequent tool result of the whole run. It still has to carry the two rules
+ * that keep the loop alive: call again with this cursor, never poll.
+ */
 const AWAIT_TIMEOUT_NOTE =
-  'No events within the wait window — this is normal, the agents are still working. ' +
-  'Call await_events again with the cursor from this response. Do not stop, do not idle, ' +
-  'and do not switch to polling list_agents.'
+  'No events yet (normal — agents still working). Call await_events again with this cursor; never poll list_agents.'
 
 function successionBlock(runtime: WorkspaceRuntime): ToolText | undefined {
   if (!runtime.ctx.host.successionInProgress()) return undefined
@@ -159,6 +163,15 @@ export function registerOrchestratorTools(
   const { ctx } = runtime
   const server = withOrchestratorTouch(rawServer, runtime)
   const leadId = scope?.leadId
+
+  // The long-poll window is resolved ONCE, at registration: the schema's `max`
+  // and its description are baked into the tool definition the model sees, so
+  // they must agree with the clamp the handler applies. A host that raised its
+  // CLI's MCP request timeout says so via `ctx.awaitTimeout`; without it the
+  // classic sub-60 s constants stand. Longer windows mean fewer empty wake-ups,
+  // and every empty wake-up costs a full model pass over the whole context.
+  const awaitDefault = ctx.awaitTimeout?.defaultSec ?? AWAIT_TIMEOUT_DEFAULT_SEC
+  const awaitMax = ctx.awaitTimeout?.maxSec ?? AWAIT_TIMEOUT_MAX_SEC
 
   /**
    * C6: while a succession is pending, the ROOT's mutating tools refuse — the
@@ -397,10 +410,9 @@ export function registerOrchestratorTools(
         worktreePath: started.worktreePath,
         branch: started.branch,
         state: 'starting',
-        note:
-          'Agent reserved and starting in the background. await_events delivers agent_started once ' +
-          'it accepted its task, or agent_start_failed if the start failed. Do not send it messages ' +
-          'before agent_started.'
+        // Short on purpose: the tool description already spells the rule out in
+        // full, and this note is echoed back on every single start.
+        note: 'Starting in the background — await_events brings agent_started or agent_start_failed. Do not message it before agent_started.'
       })
     }
   )
@@ -502,14 +514,14 @@ export function registerOrchestratorTools(
           .number()
           .int()
           .min(1)
-          .max(AWAIT_TIMEOUT_MAX_SEC)
+          .max(awaitMax)
           .optional()
-          .describe(`Seconds to block, default ${AWAIT_TIMEOUT_DEFAULT_SEC}, max ${AWAIT_TIMEOUT_MAX_SEC}`)
+          .describe(`Seconds to block, default ${awaitDefault}, max ${awaitMax}`)
       }
     },
     async ({ cursor, timeoutSec }): Promise<ToolText> => {
       const from = cursor ?? 0
-      const seconds = Math.min(timeoutSec ?? AWAIT_TIMEOUT_DEFAULT_SEC, AWAIT_TIMEOUT_MAX_SEC)
+      const seconds = Math.min(timeoutSec ?? awaitDefault, awaitMax)
       // F: the root reads the root queue (direct children only — leads report
       // as one line each); a lead reads its own subtree queue.
       const queue = ownQueue()
@@ -518,10 +530,17 @@ export function registerOrchestratorTools(
       // A reader whose cursor fell behind the ring gets told, not left to
       // infer the loss from a seq jump nothing pointed at.
       const dropped = queue.droppedSince(from)
+      // The empty result is the loop's most repeated answer, so it carries the
+      // absolute minimum: nothing changed, so an agent overview would restate
+      // what the orchestrator already knows. `list_agents` is one call away
+      // when it actually wants one.
+      if (events.length === 0 && !dropped) {
+        return toolJson({ events, cursor: next, note: AWAIT_TIMEOUT_NOTE })
+      }
       return toolJson({
         events,
         cursor: next,
-        agentsSummary: summarizeAgents(runtime, { leadId }),
+        agentsSummary: slimAgentsSummary(runtime, { leadId }),
         ...(events.length === 0 ? { note: AWAIT_TIMEOUT_NOTE } : {}),
         ...(dropped
           ? {
@@ -614,7 +633,15 @@ export function registerOrchestratorTools(
       }
     },
     async ({ question, ticket }): Promise<ToolText> => {
-      const timeoutMs = resolveAskTimeoutMs(ctx.askTimeoutMs)
+      // The same raised window that funds the long await_events poll: ask_user
+      // runs on the orchestrator's own CLI, so awaitMax is exactly the block
+      // this call can afford — a human who answers within it costs zero
+      // `answer: null` round trips, and each of those is a full model turn.
+      const timeoutMs = resolveAskTimeoutMs(
+        ctx.askTimeoutMs,
+        process.env,
+        ctx.awaitTimeout ? ctx.awaitTimeout.maxSec * 1_000 : undefined
+      )
       const userTicketNote =
         'The user has not answered yet. Call ask_user again with ticket set to the value above and ' +
         'the unchanged question. Do NOT rephrase and do NOT open a second question. While waiting ' +
@@ -943,7 +970,10 @@ export function registerOrchestratorTools(
           .min(1)
           .max(500)
           .optional()
-          .describe('Relative path inside the agent worktree — required for view "file"'),
+          .describe(
+            'Relative path inside the agent worktree — required for view "file", and optional for ' +
+              'view "diff" to restrict the diff to that file or directory'
+          ),
         lines: z
           .number()
           .int()

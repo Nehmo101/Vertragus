@@ -952,6 +952,69 @@ describe('mcpContext', () => {
     expect(ctx.events).toBe(workspace.events)
     expect(ctx.orchToken).not.toBe(ctx.subToken)
   })
+
+  /**
+   * The long-poll window is derived from the ORCHESTRATOR's provider, because
+   * that CLI is what kills a tool call — and leads share this very context, so
+   * they inherit the same window from the same provider.
+   */
+  it('derives the await_events window from the orchestrator provider claim', () => {
+    // Claude claims 600 s: a five-minute default poll (the cap), 570 s ceiling.
+    // Both stay clear of the CLI's own limit — a poll that outlives it costs the
+    // turn anyway and turns a quiet loop into an error.
+    expect(harness().workspace.mcpContext().awaitTimeout).toEqual({
+      defaultSec: 300,
+      maxSec: 570
+    })
+  })
+
+  it('leaves the window unset when the orchestrator CLI keeps its 60 s default', () => {
+    const providers = testProviders().map((provider) =>
+      provider.id === 'claude' ? { ...provider, mcpToolTimeoutSec: undefined } : provider
+    )
+    expect(harness({ deps: { providers } }).workspace.mcpContext().awaitTimeout).toBeUndefined()
+
+    // A claim too small to fund a longer poll than the classic 50 s one buys
+    // nothing and is ignored rather than clamped into a worse window.
+    const tiny = testProviders().map((provider) =>
+      provider.id === 'claude' ? { ...provider, mcpToolTimeoutSec: 90 } : provider
+    )
+    expect(harness({ deps: { providers: tiny } }).workspace.mcpContext().awaitTimeout).toBeUndefined()
+  })
+
+  it('follows a shorter claim instead of the cap', () => {
+    const providers = testProviders().map((provider) =>
+      provider.id === 'claude' ? { ...provider, mcpToolTimeoutSec: 240 } : provider
+    )
+    expect(harness({ deps: { providers } }).workspace.mcpContext().awaitTimeout).toEqual({
+      defaultSec: 180,
+      maxSec: 210
+    })
+  })
+
+  /**
+   * The ask window is per AGENT, not per workspace: it is the asking agent's
+   * own CLI whose tool timeout would kill the blocked ask_orchestrator call,
+   * and a run happily mixes raised and 60 s-default workers.
+   */
+  it('derives the per-agent ask window from that agent’s own provider claim', async () => {
+    const { workspace } = harness()
+    const begun = workspace.beginAgent({ role: 'worker', task: 'x', providerId: 'claude' })
+    await begun.ready
+    // Claude claims 600 s → the same 570 s ceiling the await_events poll gets.
+    expect(workspace.askTimeoutMsFor(begun.agentId)).toBe(570_000)
+  })
+
+  it('keeps 60 s-default agents and unknown ids on the classic ticket carousel', async () => {
+    const providers = testProviders().map((provider) =>
+      provider.id === 'claude' ? { ...provider, mcpToolTimeoutSec: undefined } : provider
+    )
+    const { workspace } = harness({ deps: { providers } })
+    const begun = workspace.beginAgent({ role: 'worker', task: 'x', providerId: 'claude' })
+    await begun.ready
+    expect(workspace.askTimeoutMsFor(begun.agentId)).toBeUndefined()
+    expect(workspace.askTimeoutMsFor('never-started')).toBeUndefined()
+  })
 })
 
 describe('the real seed handshake', () => {

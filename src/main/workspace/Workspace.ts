@@ -349,6 +349,23 @@ function awaitPtyExit(pty: AgentPty, timeoutMs: number): Promise<void> {
   })
 }
 
+/**
+ * The usable long-block window a provider's raised MCP tool timeout funds —
+ * shared by `await_events` (orchestrator side) and the per-agent ask windows.
+ * Both numbers stay a margin below the raised limit: a call that outlives the
+ * CLI's own timeout costs the caller the turn anyway AND turns a quiet block
+ * into an error. `defaultSec` is additionally capped at five minutes — past
+ * that the saving flattens while a stuck agent stays invisible for longer.
+ * The guard is the point: a claim under two minutes cannot fund a longer
+ * block than the classic 50 s one, so it gets none.
+ */
+function raisedWindow(
+  toolTimeoutSec: number | undefined
+): { defaultSec: number; maxSec: number } | undefined {
+  if (!toolTimeoutSec || toolTimeoutSec < 120) return undefined
+  return { defaultSec: Math.min(300, toolTimeoutSec - 60), maxSec: toolTimeoutSec - 30 }
+}
+
 export class Workspace implements AgentHost {
   readonly workspaceId: string
   readonly name: string
@@ -563,9 +580,42 @@ export class Workspace implements AgentHost {
     return this.deps.agentPolicy ?? ((this.deps.yoloMaster ?? true) ? 'yolo' : 'ask-user')
   }
 
+  /**
+   * How long `await_events` may block, derived from the ORCHESTRATOR provider's
+   * declared MCP tool timeout — it is that CLI that kills a tool call, and the
+   * orchestrator (plus every lead, which runs the same provider and shares this
+   * context) is the only caller of the long poll. Absent when the provider
+   * makes no claim: the tool then keeps its classic 50 s/55 s window under the
+   * CLIs' 60 s default. Margins and guard live in {@link raisedWindow}.
+   */
+  private awaitTimeout(): { defaultSec: number; maxSec: number } | undefined {
+    const provider = this.deps.providers.find(
+      (candidate) => candidate.id === this.profile.orchestrator.providerId
+    )
+    return raisedWindow(provider?.mcpToolTimeoutSec)
+  }
+
+  /**
+   * The raised `ask_orchestrator` window for ONE agent — same claim, same
+   * margin as {@link awaitTimeout}, but looked up on the ASKING agent's own
+   * provider: it is that CLI's tool timeout that would kill the blocked call,
+   * and a run happily mixes raised and 60 s-default workers. Undefined keeps
+   * the classic 50 s ticket carousel; with a raised window the agent simply
+   * blocks until the answer arrives, and every avoided `answer: null` round
+   * trip is a model turn the run does not pay for.
+   */
+  askTimeoutMsFor(agentId: string): number | undefined {
+    const record = this.agents.get(agentId)
+    if (!record) return undefined
+    const provider = this.deps.providers.find((candidate) => candidate.id === record.providerId)
+    const window = raisedWindow(provider?.mcpToolTimeoutSec)
+    return window ? window.maxSec * 1_000 : undefined
+  }
+
   /** The registration payload for `mcp/server.registerWorkspace`. */
   mcpContext(): WorkspaceMcpContext {
     const retro = this.deps.retro
+    const awaitTimeout = this.awaitTimeout()
     return {
       workspaceId: this.workspaceId,
       workspaceName: this.name,
@@ -577,6 +627,7 @@ export class Workspace implements AgentHost {
       limits: this.limits(),
       roles: profileRoleIds(this.profile),
       agentPolicy: this.agentPolicy(),
+      ...(awaitTimeout ? { awaitTimeout } : {}),
       ...(retro
         ? {
             retro: {

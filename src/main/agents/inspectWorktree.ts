@@ -13,7 +13,13 @@ import { defaultGitRunner, type WorktreeDeps } from './worktree'
 export const INSPECT_VIEWS = ['status', 'diff', 'log', 'file'] as const
 export type InspectView = (typeof INSPECT_VIEWS)[number]
 
-export const INSPECT_DIFF_MAX_CHARS = 80_000
+/**
+ * A full worktree diff is the single biggest thing the orchestrator can pull
+ * into its context — 80 k chars are ~20 k tokens in one tool result and starve
+ * the loop it has to keep running. The cap is deliberately small; the way to
+ * see more is to narrow (path filter, file view), not to raise it.
+ */
+export const INSPECT_DIFF_MAX_CHARS = 20_000
 export const INSPECT_FILE_MAX_CHARS = 80_000
 export const INSPECT_LOG_DEFAULT_LINES = 20
 export const INSPECT_LOG_MAX_LINES = 50
@@ -32,7 +38,10 @@ export interface WorktreeSnapshot {
 export interface InspectWorktreeInput {
   worktreePath: string
   view: InspectView
-  /** Relative path inside the worktree — required for `file`. */
+  /**
+   * Relative path inside the worktree — required for `file`, optional for
+   * `diff` (file or directory pathspec that scopes it), ignored otherwise.
+   */
   path?: string
   /** Line count for `log`; ignored otherwise. */
   lines?: number
@@ -53,9 +62,26 @@ function gitErrorMessage(error: unknown): string {
   return String(error)
 }
 
-function cap(text: string, max: number): string {
+/**
+ * Truncation is a dead end unless the model is told the way out — without a
+ * hint it either re-requests the same oversized view or guesses. The marker
+ * therefore names the cap and the narrower call that would have fit.
+ */
+function cap(text: string, max: number, hint?: string): string {
   if (text.length <= max) return text
-  return `${text.slice(0, max)}\n…(truncated)`
+  const how = hint ? ` — ${hint}` : ''
+  return `${text.slice(0, max)}\n…(truncated at ${max} chars${how})`
+}
+
+const DIFF_TRUNCATION_HINT =
+  'narrow it instead of asking again: pass path ("src/foo" or "src/foo/bar.ts") to diff only that file or directory, use view "file" to read a single file in full, or judge from view "status" (porcelain + diffStat).'
+
+const FILE_TRUNCATION_HINT =
+  'this file is longer than the cap — use view "diff" with path to see only what changed in it.'
+
+/** Normalize a caller path for git pathspecs and porcelain prefix matching. */
+function normalizeRelPath(requested: string): string {
+  return requested.trim().replace(/\\/g, '/').replace(/\/+$/, '')
 }
 
 /** Porcelain `XY PATH` / `XY old -> new` → the resulting path. */
@@ -154,20 +180,29 @@ export async function inspectWorktree(
   }
 
   if (input.view === 'diff') {
+    // `path` is optional here: the escape hatch out of a capped full diff is a
+    // scoped one, so the same traversal rules as `file` apply (a pathspec that
+    // escapes the worktree would diff the host).
+    const scope = input.path ? normalizeRelPath(input.path) : ''
+    if (scope) resolveInsideWorktree(input.worktreePath, scope)
+    const args = scope ? ['diff', 'HEAD', '--', scope] : ['diff', 'HEAD']
     const diff = cap(
-      (await gitText(['diff', 'HEAD'], input.worktreePath, deps)).trimEnd(),
-      INSPECT_DIFF_MAX_CHARS
+      (await gitText(args, input.worktreePath, deps)).trimEnd(),
+      INSPECT_DIFF_MAX_CHARS,
+      DIFF_TRUNCATION_HINT
     )
     const untracked = snapshot.porcelain
       .split(/\r?\n/)
       .filter((line) => line.startsWith('??'))
       .map((line) => line.slice(3).trim())
       .filter(Boolean)
+      .filter((path) => !scope || path === scope || path.startsWith(`${scope}/`))
     const header =
       untracked.length > 0
         ? `untracked:\n${untracked.map((path) => `  ${path}`).join('\n')}\n`
         : ''
-    return { ...snapshot, view: 'diff', body: `${header}${diff || '(no tracked diff)'}` }
+    const empty = scope ? `(no tracked diff under ${scope})` : '(no tracked diff)'
+    return { ...snapshot, view: 'diff', body: `${header}${diff || empty}` }
   }
 
   if (input.view === 'log') {
@@ -193,5 +228,9 @@ export async function inspectWorktree(
     throw error
   }
   if (text.includes('\0')) throw new Error(`file looks binary, not shown: ${rel}`)
-  return { ...snapshot, view: 'file', body: cap(text, INSPECT_FILE_MAX_CHARS) }
+  return {
+    ...snapshot,
+    view: 'file',
+    body: cap(text, INSPECT_FILE_MAX_CHARS, FILE_TRUNCATION_HINT)
+  }
 }

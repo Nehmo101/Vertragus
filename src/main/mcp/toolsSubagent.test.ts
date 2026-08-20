@@ -223,7 +223,37 @@ describe('resolveAskTimeoutMs', () => {
     )
   })
 
+  it('uses the caller raised window over the default, but never over option or env', () => {
+    expect(resolveAskTimeoutMs(undefined, {}, 570_000)).toBe(570_000)
+    // The harness env override must keep forcing the ticket path even for a
+    // provider with a raised claim — otherwise tickets become untestable.
+    expect(resolveAskTimeoutMs(undefined, { VERTRAGUS_ASK_TIMEOUT_MS: '250' }, 570_000)).toBe(250)
+    expect(resolveAskTimeoutMs(1_234, {}, 570_000)).toBe(1_234)
+    // A nonsense raised window falls through to the default instead of hanging.
+    expect(resolveAskTimeoutMs(undefined, {}, 0)).toBe(ASK_TIMEOUT_DEFAULT_MS)
+    expect(resolveAskTimeoutMs(undefined, {}, Number.NaN)).toBe(ASK_TIMEOUT_DEFAULT_MS)
+  })
+
   it('stays below the 60 s MCP request timeout by default', () => {
     expect(ASK_TIMEOUT_DEFAULT_MS).toBeLessThan(60_000)
+  })
+})
+
+describe('ask_orchestrator raised window', () => {
+  it('blocks per the host-declared per-agent window when the workspace sets none', async () => {
+    // No workspace askTimeoutMs — the raised window is the only thing keeping
+    // this test from the 50 s default, so its resolution is observable.
+    const runtime = fakeRuntime({})
+    const started = runtime.host.beginAgent({ role: 'worker', task: 't' })
+    runtime.host.askWindows.set(started.agentId, 30)
+    const tools = captureTools((server) =>
+      registerSubagentTools(server, runtime, started.agentId)
+    )
+
+    const begun = Date.now()
+    const result = await callTool(tools, 'ask_orchestrator', { question: 'which db?' })
+    expect(Date.now() - begun).toBeLessThan(5_000)
+    expect(result.json.answer).toBeNull()
+    expect(result.json.ticket).toBeTruthy()
   })
 })

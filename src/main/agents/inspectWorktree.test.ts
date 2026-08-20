@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
+  INSPECT_DIFF_MAX_CHARS,
   inspectWorktree,
   parsePorcelainPaths,
   resolveInsideWorktree,
@@ -101,6 +102,56 @@ describe('snapshotWorktree / inspectWorktree', () => {
       path: 'src/nested.ts'
     })
     expect(file.body).toBe('export {}\n')
+  }, 30_000)
+
+  it('scopes the diff and the untracked list to path', async () => {
+    const created = await createWorktree(repoPath, 'inspect-scope', 'vertragus/inspect/scope')
+    writeFileSync(join(created.path, 'README.md'), '# changed outside\n')
+    mkdirSync(join(created.path, 'src'))
+    writeFileSync(join(created.path, 'src', 'new.ts'), 'export const inside = 1\n')
+    writeFileSync(join(created.path, 'outside.ts'), 'export const outside = 1\n')
+
+    const scoped = await inspectWorktree({
+      worktreePath: created.path,
+      view: 'diff',
+      path: 'src'
+    })
+    expect(scoped.body).toContain('src/new.ts')
+    expect(scoped.body).not.toContain('outside.ts')
+    expect(scoped.body).not.toContain('# changed outside')
+    // The snapshot around the body stays repository-wide.
+    expect(scoped.changedFiles).toEqual(expect.arrayContaining(['README.md', 'outside.ts']))
+
+    const scopedFile = await inspectWorktree({
+      worktreePath: created.path,
+      view: 'diff',
+      path: 'README.md'
+    })
+    expect(scopedFile.body).toContain('# changed outside')
+    expect(scopedFile.body).not.toContain('src/new.ts')
+
+    const nothing = await inspectWorktree({
+      worktreePath: created.path,
+      view: 'diff',
+      path: 'docs'
+    })
+    expect(nothing.body).toBe('(no tracked diff under docs)')
+
+    await expect(
+      inspectWorktree({ worktreePath: created.path, view: 'diff', path: '../README.md' })
+    ).rejects.toThrow(/\.\./)
+  }, 30_000)
+
+  it('tells the model how to narrow when the diff hits the cap', async () => {
+    const created = await createWorktree(repoPath, 'inspect-cap', 'vertragus/inspect/cap')
+    const huge = `${'x'.repeat(100)}\n`.repeat(Math.ceil(INSPECT_DIFF_MAX_CHARS / 50))
+    writeFileSync(join(created.path, 'README.md'), huge)
+
+    const diff = await inspectWorktree({ worktreePath: created.path, view: 'diff' })
+    expect(diff.body).toContain(`truncated at ${INSPECT_DIFF_MAX_CHARS} chars`)
+    expect(diff.body).toContain('pass path')
+    expect(diff.body).toContain('view "file"')
+    expect(diff.body).toContain('view "status"')
   }, 30_000)
 
   it('refuses a missing file and a path that leaves the worktree', async () => {

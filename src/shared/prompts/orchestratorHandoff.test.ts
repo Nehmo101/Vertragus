@@ -32,7 +32,7 @@ describe('formatHandoffSeed', () => {
     expect(seed).toContain('Do not call record_retro until the goal is actually reached')
   })
 
-  it('lists the live team in prose, not only inside the JSON dump', () => {
+  it('lists the live team in prose', () => {
     const seed = formatHandoffSeed(
       buildHandoffPackage({
         ...pkgInput,
@@ -62,6 +62,57 @@ describe('formatHandoffSeed', () => {
     const seed = formatHandoffSeed(buildHandoffPackage({ ...pkgInput, agents: [] }))
     expect(seed).toContain('No subagents are running for you right now')
   })
+
+  it('renders decisions, risks, branches, note and the event tail as prose', () => {
+    const seed = formatHandoffSeed(
+      buildHandoffPackage({
+        ...pkgInput,
+        decisions: ['Parser stays hand-written'],
+        risks: ['Windows path handling untested'],
+        branchesOfInterest: ['vertragus/paradiso/caronte'],
+        note: 'Minosse is slower than expected.',
+        recentEvents: [
+          { seq: 40, type: 'agent_done', agentId: 'a1', name: 'Caronte', summary: 'Parser landed' }
+        ]
+      })
+    )
+    expect(seed).toContain('Decisions already made')
+    expect(seed).toContain('- Parser stays hand-written')
+    expect(seed).toContain('Known risks:')
+    expect(seed).toContain('- Windows path handling untested')
+    expect(seed).toContain('Branches of interest:')
+    expect(seed).toContain('- vertragus/paradiso/caronte')
+    expect(seed).toContain('#40 agent_done Caronte: Parser landed')
+    expect(seed).toContain('Note from your predecessor: Minosse is slower than expected.')
+  })
+
+  it('omits empty sections and never dumps the package as JSON', () => {
+    const seed = formatHandoffSeed(pkg)
+    expect(seed).not.toContain('Decisions already made')
+    expect(seed).not.toContain('Known risks')
+    expect(seed).not.toContain('Note from your predecessor')
+    // The dedupe that matters: no second, JSON-shaped copy of the same facts.
+    expect(seed).not.toContain('"eventCursor"')
+    expect(seed).not.toContain('"schemaVersion"')
+    expect(seed).not.toContain('Full handoff package')
+  })
+
+  it('keeps only the tail of recentEvents', () => {
+    const seed = formatHandoffSeed(
+      buildHandoffPackage({
+        ...pkgInput,
+        recentEvents: Array.from({ length: 25 }, (_, i) => ({
+          seq: i + 1,
+          type: 'agent_done',
+          agentId: 'a1',
+          summary: `step ${i + 1}`
+        }))
+      })
+    )
+    expect(seed).toContain('#25 agent_done a1: step 25')
+    expect(seed).toContain('#16 agent_done a1: step 16')
+    expect(seed).not.toContain('#15 agent_done a1: step 15')
+  })
 })
 
 describe('buildSuccessorOrchestratorSystemPrompt', () => {
@@ -76,6 +127,6 @@ describe('buildSuccessorOrchestratorSystemPrompt', () => {
     )
     expect(prompt).toContain('You are the orchestrator of the Vertragus workspace')
     expect(prompt).toContain('request_succession')
-    expect(prompt).toContain('"eventCursor": 42')
+    expect(prompt).toContain('cursor 42')
   })
 })
