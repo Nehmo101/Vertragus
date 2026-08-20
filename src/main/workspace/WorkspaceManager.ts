@@ -33,13 +33,15 @@ import type { RunJournal } from './journal'
 import { Workspace, type WorkspaceDeps, type WorkspaceMcpUrls } from './Workspace'
 
 export interface WorkspaceManagerDeps
-  extends Omit<WorkspaceDeps, 'providers' | 'roleTemplates' | 'yoloMaster' | 'retro'> {
+  extends Omit<WorkspaceDeps, 'providers' | 'roleTemplates' | 'yoloMaster' | 'agentPolicy' | 'retro'> {
   mcp: McpServerHandle
   /** Read fresh per start so a provider edit reaches the next workspace. */
   providers: WorkspaceDeps['providers'] | (() => WorkspaceDeps['providers'])
   roleTemplates?: WorkspaceDeps['roleTemplates'] | (() => WorkspaceDeps['roleTemplates'])
   /** Master yolo switch; also read fresh per start. */
   yoloMaster?: boolean | (() => boolean)
+  /** D4: the three-tier policy; wins over `yoloMaster`. Also read fresh per start. */
+  agentPolicy?: WorkspaceDeps['agentPolicy'] | (() => WorkspaceDeps['agentPolicy'])
   /** Full sink (the workspace itself only sees the feed slice). Absent = no retro. */
   retro?: RetroSink
   /**
@@ -141,6 +143,7 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
       providers: resolveValue(deps.providers),
       roleTemplates: deps.roleTemplates ? resolveValue(deps.roleTemplates) : [],
       yoloMaster: deps.yoloMaster === undefined ? true : resolveValue(deps.yoloMaster),
+      agentPolicy: deps.agentPolicy === undefined ? undefined : resolveValue(deps.agentPolicy),
       retro: deps.retro
     }
   }

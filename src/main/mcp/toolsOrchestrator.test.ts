@@ -116,6 +116,21 @@ describe('start_agent', () => {
     expect(events[0]).toMatchObject({ type: 'agent_started', agentId: 'agent-1', roleId: 'worker' })
   })
 
+  it('D4: appends the approval rule only under the ask-orchestrator tier', async () => {
+    const gated = setup()
+    gated.runtime.ctx.agentPolicy = 'ask-orchestrator'
+    await callTool(gated.tools, 'start_agent', { role: 'worker', task: 't' })
+    expect(gated.runtime.host.seeded[0]!.task).toContain(
+      'call ask_orchestrator and wait for the approval'
+    )
+
+    // The other tiers (and a context without the field) keep the contract as-is.
+    const plain = setup()
+    plain.runtime.ctx.agentPolicy = 'ask-user'
+    await callTool(plain.tools, 'start_agent', { role: 'worker', task: 't' })
+    expect(plain.runtime.host.seeded[0]!.task).not.toContain('approval')
+  })
+
   it('passes the model through and reports the agent’s own worktree and branch back', async () => {
     const { runtime, tools } = setup()
     const result = await callTool(tools, 'start_agent', {

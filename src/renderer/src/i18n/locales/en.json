@@ -251,6 +251,11 @@
   "settings": {
     "title": "Settings",
     "subtitle": "Applies to Vertragus as a whole.",
+    "agentPolicy": "Subagent policy",
+    "agentPolicyYolo": "Yolo — act without asking",
+    "agentPolicyAskUser": "Ask user — the CLI asks in its terminal",
+    "agentPolicyAskOrchestrator": "Ask orchestrator — risky actions need its approval",
+    "agentPolicyHint": "Yolo: full autonomy. Ask user: the CLI's own permission prompt waits for you in the agent terminal (hard boundary). Ask orchestrator: subagents run autonomously, but their contract requires the orchestrator's approval before risky actions (soft boundary — see the README threat model).",
     "hotkey": "“Hide everything” hotkey",
     "hotkeyHint": "Electron format: join modifiers with +, e.g. Control+Alt+V. Takes effect right after saving.",
     "hotkeyPlaceholder": "Control+Alt+V",

@@ -47,7 +47,7 @@ Remote-Server.
 | H2 `workspaces:start {goal}` | **umgesetzt** (Track 0) — Goal-Seed über den Assignment-Handshake, Back-compat ohne Goal |
 | C3 Snapshot-Commit / C4 Handoff-Paket | **umgesetzt** (Track 1) — `snapshotDone` committet dirty Worktrees beim Done; `start_agent{baseBranch}` trägt Handoff-Block |
 | C5 Orchestrator-Idle-Watchdog | **umgesetzt** (Track 2) — `orchestrator_idle` Event + Panel/Remote-Hinweis; Timeouts ≠ Idle (Touch bei Call-Start und -Ende) |
-| D Mensch im Loop | **D1–D3 umgesetzt** (Track 3) — Goal-UI, `user_message` weckt `await_events`, `ask_user` mit Ticket; D4 Yolo-Stufen folgt |
+| D Mensch im Loop | **D1–D4 umgesetzt** (Track 3 + Follow-up) — Goal-UI, `user_message` weckt `await_events`, `ask_user` mit Ticket; D4 Stufen `yolo`/`ask-user`/`ask-orchestrator` (Store-Spiegel zu `yoloMaster`, Contract-Approval-Regel, Threat-Model im README) |
 | E integrate / briefing / eval | **Kern umgesetzt** (Track 6) — `integrate_branch` + Gate-Warnung + Promote-Klick, Briefing + `repoNotes`, Journal (write-only), Budget-Wanduhr, Janitor/Explorer, Playbooks; offen: Resume/Re-Spawn (E3), Extra-MCP an Worker (E6), Live-Loop-Eval (E5) |
 | F Multi-Orch (Lead, Tiefe 1) | **umgesetzt** (Track 5) — dritte Identität `lead=`, eigene Queues, `start_orchestrator`, Fan-in nur Direktkinder, Reparent (`subtree_adopted`), Caps host-seitig |
 
@@ -275,6 +275,11 @@ User-Fragen: Auflösen des `ask_user`-Waiters. Ein Textfeld, zwei
 Backends.
 
 ### D4 Yolo als Policy
+
+**Status: umgesetzt.** `agentPolicy` im Store (gespiegelt mit `yoloMaster`,
+eine Wahrheit), Dreifach-Picker im Settings-Fenster, `ask-user` nimmt den
+Subagents die Yolo-Flags, `ask-orchestrator` hängt eine Approval-Regel in
+den Task-Contract (beide Dialekte); ehrliches Threat-Model im README.
 
 Heute ein Bool; Remote × Default-Yolo = RCE auf dem PC (BigBoy sagt das
 richtig; opt-in + Tailscale-Bind + Kill-Switch ist die v1-Antwort).

@@ -50,17 +50,18 @@ your PC. It is **off by default**; enable it under **Settings → Remote access*
   it, start a workspace **with a goal** (the host seeds it into the
   orchestrator over the same handshake as any assignment; starting without a
   goal stays allowed and the card says "no goal — the orchestrator is
-  waiting"), stop workspaces, and **answer an agent's open MCP question** from
-  its `?` badge. The command allow-list is exactly five verbs:
-  `workspaces:list`, `workspaces:start`, `workspaces:stop`, `profiles:list`,
-  `answer_question`. There is no `focus_agent` or `stop_agent` on the gateway.
+  waiting"), stop workspaces, send the orchestrator a steering message, and
+  **answer an agent's open MCP question** from its `?` badge. The command
+  allow-list is exactly six verbs: `workspaces:list`, `workspaces:start`,
+  `workspaces:stop`, `profiles:list`, `answer_question`, `user_message`.
+  There is no `focus_agent` or `stop_agent` on the gateway.
   `answer_question` takes the same host path as the orchestrator's
   `send_to_agent{questionId}`, so it resolves the parked `ask_orchestrator`
   wait (and delivers sentinel answers into the agent's PTY) — one question
   registry, one truth. Typing into a raw PTY still only reaches the CLI
   (permission dialogs live there). A remote device **cannot** edit profiles,
   providers or settings, touch windows or zones, or remove worktrees.
-- **Threat model — read this.** Subagents run in YOLO mode
+- **Threat model — read this.** By default subagents run in YOLO mode
   (`--dangerously-skip-permissions`). **A paired device therefore has code
   execution on your PC through the agents it drives.** Only pair devices you
   would trust with the machine itself. The settings section lists connected
@@ -68,6 +69,20 @@ your PC. It is **off by default**; enable it under **Settings → Remote access*
   regenerating the token severs every session immediately. The in-app MCP
   server that agents use stays loopback-only and is a separate listener with a
   separate token domain — remote access never widens it.
+
+  The **subagent policy** (settings window) has three tiers — be honest with
+  yourself about what each one actually guarantees:
+
+  | Tier | CLI permission flags | Enforcement | Trade-off |
+  | --- | --- | --- | --- |
+  | `yolo` (default) | skip-permissions on | none | Full autonomy. An agent can run any command your user account can. |
+  | `ask-user` | off | **hard** — the CLI's own permission prompt blocks in the agent's terminal | Safest, but needs you at the desktop; unattended runs stall. Remote v1 deliberately does not relay these CLI prompts to a phone. |
+  | `ask-orchestrator` | skip-permissions on | **soft** — the task contract requires `ask_orchestrator` approval before risky actions | Keeps runs unattended, and the orchestrator can escalate to you via `ask_user`. But it is prompt-level only: a misbehaving or manipulated agent can ignore the rule. Treat it as guidance for honest agents, not as a sandbox. |
+
+  Orchestrators and leads never get yolo flags under any tier — they operate
+  through an MCP tool allow-list instead. The panel footer's yolo switch is the
+  coarse control: on = `yolo`, off = `ask-user`; the three-way picker lives in
+  the settings window, and both write the same stored truth.
 
 ## Development
 

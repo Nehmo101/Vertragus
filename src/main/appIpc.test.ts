@@ -14,7 +14,12 @@ vi.mock('electron', () => ({
   dialog: { showOpenDialog: vi.fn(), showMessageBox: vi.fn() },
   BrowserWindow: { getAllWindows: () => [] }
 }))
-vi.mock('@main/store/settings', () => ({ settings: vi.fn() }))
+vi.mock('@main/store/settings', async (importOriginal) => ({
+  // The real helpers (effectiveAgentPolicy) stay; only the Electron-backed
+  // store singleton is stubbed out.
+  ...(await importOriginal<typeof import('@main/store/settings')>()),
+  settings: vi.fn()
+}))
 vi.mock('@main/providers/discovery', () => ({ discoverModels: vi.fn() }))
 vi.mock('@main/providers/health', () => ({ checkAllProviders: vi.fn() }))
 vi.mock('@main/windows/cliWindow', () => ({
@@ -245,6 +250,13 @@ function createFakeStore(
     getSettings: () => settings,
     setSetting(key, value) {
       ;(settings as Record<string, unknown>)[key] = value
+      // D4 mirror — same write rule as the real store, so panelSettings sees
+      // one truth here too.
+      if (key === 'agentPolicy' && value !== undefined) {
+        settings.yoloMaster = value === 'yolo'
+      } else if (key === 'yoloMaster') {
+        settings.agentPolicy = value ? 'yolo' : 'ask-user'
+      }
       return settings
     }
   }
@@ -992,6 +1004,7 @@ describe('settings and windows', () => {
   it('returns only the settings a window shows', () => {
     expect(h.ipc.invoke(APP_CHANNELS.settingsGet, PANEL_ID)).toEqual({
       yoloMaster: true,
+      agentPolicy: 'yolo',
       hideAllHotkey: 'Control+Alt+V',
       locale: 'de',
       theme: 'dark',
@@ -1054,9 +1067,25 @@ describe('settings and windows', () => {
 
   it('toggles the yolo master', () => {
     expect(h.ipc.invoke(APP_CHANNELS.settingsYolo, PANEL_ID, { enabled: false })).toMatchObject({
-      yoloMaster: false
+      yoloMaster: false,
+      // D4: the coarse toggle lands on the ask-user tier, never on a stale one.
+      agentPolicy: 'ask-user'
     })
     expect(h.store.settings.yoloMaster).toBe(false)
+  })
+
+  it('writes the D4 tier from the settings window and mirrors the boolean', async () => {
+    const next = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'agentPolicy',
+      value: 'ask-orchestrator'
+    })) as PanelSettings
+    expect(next.agentPolicy).toBe('ask-orchestrator')
+    expect(next.yoloMaster).toBe(false)
+    expect(h.store.settings.agentPolicy).toBe('ask-orchestrator')
+
+    await expect(
+      h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, { key: 'agentPolicy', value: 'full-send' })
+    ).rejects.toThrow(/agentPolicy expects/)
   })
 
   it('broadcasts every settings write so the other windows follow', async () => {
@@ -1187,7 +1216,8 @@ describe('settings:set', () => {
       'updateChannel',
       'theme',
       'locale',
-      'appearance'
+      'appearance',
+      'agentPolicy'
     ])
   })
 

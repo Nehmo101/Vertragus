@@ -294,6 +294,8 @@ export interface ModelDiscoveryResult {
 
 export interface PanelSettings {
   yoloMaster: boolean
+  /** D4: the effective subagent tier — mirrors main/appIpc. */
+  agentPolicy: AgentPolicy
   hideAllHotkey: string
   locale: 'de' | 'en'
   theme: 'dark' | 'light'
@@ -309,6 +311,9 @@ export interface PanelSettings {
 
 export type UpdateChannel = 'main' | 'stable'
 
+/** D4: how far a subagent may act on its own; mirrors @shared/agentPolicy. */
+export type AgentPolicy = 'yolo' | 'ask-user' | 'ask-orchestrator'
+
 /** The keys the settings form may write; see WRITABLE_SETTINGS in main/appIpc. */
 export type WritableSetting =
   | 'hideAllHotkey'
@@ -317,6 +322,7 @@ export type WritableSetting =
   | 'theme'
   | 'locale'
   | 'appearance'
+  | 'agentPolicy'
 
 export type UpdateStatus =
   | 'disabled'

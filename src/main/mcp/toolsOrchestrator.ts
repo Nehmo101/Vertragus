@@ -310,9 +310,15 @@ export function registerOrchestratorTools(
       // predecessor's own report instead of the orchestrator's prose.
       const reporting = ctx.host.reportingMode(role)
       const handoff = baseBranch ? handoffFor(ctx.events, baseBranch) : undefined
-      const seed = [task, ...(handoff ? [handoff] : []), buildTaskContract({ role, reporting })].join(
-        '\n\n'
-      )
+      // D4: under `ask-orchestrator` the contract carries the approval rule —
+      // the CLI still runs yolo (nobody watches a subagent terminal), so the
+      // contract is where the gate lives.
+      const contract = buildTaskContract({
+        role,
+        reporting,
+        ...(ctx.agentPolicy === 'ask-orchestrator' ? { approvals: 'ask-orchestrator' as const } : {})
+      })
+      const seed = [task, ...(handoff ? [handoff] : []), contract].join('\n\n')
 
       // `beginAgent` reserves synchronously and returns before the pipeline
       // (worktree, spawn, seed handshake) ran — that pipeline can outlast the

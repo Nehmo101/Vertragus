@@ -92,6 +92,37 @@ describe('buildTaskContract — sentinel dialect', () => {
   })
 })
 
+describe('buildTaskContract — D4 approvals', () => {
+  it('inserts the approval rule after the ask rule and renumbers cleanly (mcp)', () => {
+    const contract = buildTaskContract({ role: 'worker', approvals: 'ask-orchestrator' })
+    expect(contract).toContain(
+      '4. Before an action that is hard to undo or that reaches beyond your worktree'
+    )
+    expect(contract).toContain('wait for the approval')
+    expect(contract).toContain('needs no approval')
+    // The old rules 4–7 shift down by one; the last rule keeps its content.
+    expect(contract).toContain('5. If ask_orchestrator returns answer: null and a ticket')
+    expect(contract).toContain('8. After report_done, stay available')
+  })
+
+  it('inserts the approval rule in the sentinel dialect and stays echo-safe', () => {
+    const contract = buildTaskContract({
+      role: 'worker',
+      reporting: 'sentinel',
+      approvals: 'ask-orchestrator'
+    })
+    expect(contract).toContain('4. Before an action that is hard to undo')
+    expect(contract).toContain('print one ASK report line as taught above')
+    expect(contract).toContain('8. After a DONE report line, stay available')
+    expect(contract.replace(/\s+/g, '')).not.toMatch(/@@VERTRAGUS:/)
+  })
+
+  it('leaves both dialects untouched when approvals is unset', () => {
+    expect(buildTaskContract({ role: 'worker' })).not.toContain('approval')
+    expect(buildTaskContract({ role: 'worker', reporting: 'sentinel' })).not.toContain('approval')
+  })
+})
+
 describe('buildReminderSuffix', () => {
   it('stays short and repeats only the two obligations', () => {
     const reminder = buildReminderSuffix()

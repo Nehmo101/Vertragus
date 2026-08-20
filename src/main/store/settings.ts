@@ -30,6 +30,7 @@ import { join } from 'node:path'
 import { app } from 'electron'
 import Store from 'electron-store'
 import { z } from 'zod'
+import { AGENT_POLICIES, type AgentPolicy } from '@shared/agentPolicy'
 import { normalizeAppearance } from '@shared/appearance'
 import {
   parseProfiles,
@@ -130,6 +131,13 @@ export const appSettingsSchema = z
     remote: remoteSettingsSchema.default({}),
     /** Master switch above every slot's yolo flag. Subagents default to yolo. */
     yoloMaster: z.boolean().default(true),
+    /**
+     * D4: the three-tier policy behind the yolo boolean. Optional on purpose —
+     * a store from before D4 has only `yoloMaster`, and
+     * {@link effectiveAgentPolicy} derives the tier from it. `setSetting`
+     * mirrors the two keys so they can never disagree.
+     */
+    agentPolicy: z.enum(AGENT_POLICIES).optional(),
     /** Electron accelerator; registration failure must be shown, never swallowed. */
     hideAllHotkey: z.string().trim().min(1).max(80).default('Control+Alt+V'),
     autostart: z.boolean().default(false),
@@ -151,11 +159,24 @@ export const SETTINGS_KEYS = [
   'ui',
   'remote',
   'yoloMaster',
+  'agentPolicy',
   'hideAllHotkey',
   'autostart',
   'updateChannel',
   'modelMemory'
 ] as const
+
+/**
+ * D4: the tier a subagent actually runs under. The stored `agentPolicy` wins;
+ * a store from before D4 falls back to the legacy boolean — `yoloMaster` on
+ * was always "act without asking", off was always "the CLI asks in its
+ * terminal".
+ */
+export function effectiveAgentPolicy(
+  value: Pick<AppSettings, 'agentPolicy' | 'yoloMaster'>
+): AgentPolicy {
+  return value.agentPolicy ?? (value.yoloMaster ? 'yolo' : 'ask-user')
+}
 
 export interface SettingsBackend {
   get(key: string): unknown
@@ -459,6 +480,14 @@ export function createSettingsStore({ backend, warn = console.warn }: SettingsSt
     setSetting(key, value) {
       const field = appSettingsSchema.shape[key] as z.ZodTypeAny
       backend.set(key, field.parse(value))
+      // D4: one truth, two representations. The panel's yolo toggle writes the
+      // boolean, the settings picker writes the tier — whichever landed, the
+      // other key follows, so no reader can see them disagree.
+      if (key === 'agentPolicy' && value !== undefined) {
+        backend.set('yoloMaster', value === 'yolo')
+      } else if (key === 'yoloMaster') {
+        backend.set('agentPolicy', value ? 'yolo' : 'ask-user')
+      }
       return readSettings()
     }
   }

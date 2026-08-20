@@ -7,6 +7,7 @@ import {
   adoptLegacyStore,
   appSettingsSchema,
   createSettingsStore,
+  effectiveAgentPolicy,
   LEGACY_STORE_NAME,
   SETTINGS_KEYS,
   STORE_NAME,
@@ -325,6 +326,43 @@ describe('app settings', () => {
     // Fail-soft on read: the bad key falls back, the good ones survive.
     expect(settings.getSettings().updateChannel).toBe('main')
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('invalid settings section'))
+  })
+
+  it('derives the D4 tier from the legacy boolean when no policy is stored', () => {
+    const { store: settings } = store()
+    expect(effectiveAgentPolicy(settings.getSettings())).toBe('yolo')
+    const { store: off } = store({ yoloMaster: false })
+    expect(effectiveAgentPolicy(off.getSettings())).toBe('ask-user')
+  })
+
+  it('a stored policy wins over the boolean', () => {
+    const { store: settings } = store({ yoloMaster: true, agentPolicy: 'ask-orchestrator' })
+    expect(effectiveAgentPolicy(settings.getSettings())).toBe('ask-orchestrator')
+  })
+
+  it('mirrors a policy write into yoloMaster — one truth, two representations', () => {
+    const { store: settings, backend } = store()
+    settings.setSetting('agentPolicy', 'ask-orchestrator')
+    expect(backend.data.agentPolicy).toBe('ask-orchestrator')
+    expect(backend.data.yoloMaster).toBe(false)
+    settings.setSetting('agentPolicy', 'yolo')
+    expect(backend.data.yoloMaster).toBe(true)
+  })
+
+  it('mirrors the panel’s yolo toggle back into the policy', () => {
+    const { store: settings, backend } = store({ agentPolicy: 'ask-orchestrator' })
+    settings.setSetting('yoloMaster', true)
+    expect(backend.data.agentPolicy).toBe('yolo')
+    settings.setSetting('yoloMaster', false)
+    expect(backend.data.agentPolicy).toBe('ask-user')
+  })
+
+  it('rejects an invented tier and falls back soft on read', () => {
+    const { store: settings } = store()
+    // @ts-expect-error — IPC input is not type-checked; the schema is the gate.
+    expect(() => settings.setSetting('agentPolicy', 'full-send')).toThrow()
+    const { store: corrupt } = store({ agentPolicy: 'full-send' })
+    expect(effectiveAgentPolicy(corrupt.getSettings())).toBe('yolo')
   })
 
   it('covers every settings key with a schema field', () => {

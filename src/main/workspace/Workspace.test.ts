@@ -209,6 +209,32 @@ describe('startAgent', () => {
     expect(off.spawns[0]!.input.yolo).toBe(false)
   })
 
+  it('D4: only the ask-user tier takes the yolo flags away from subagents', async () => {
+    // The tier wins over the boolean — a stale yoloMaster cannot override it.
+    const askUser = harness({ deps: { agentPolicy: 'ask-user', yoloMaster: true } })
+    await askUser.workspace.startAgent({ role: 'worker', task: 'x' })
+    expect(askUser.spawns[0]!.input.yolo).toBe(false)
+
+    // ask-orchestrator keeps CLI autonomy; the gate lives in the contract.
+    const askOrch = harness({ deps: { agentPolicy: 'ask-orchestrator', yoloMaster: false } })
+    await askOrch.workspace.startAgent({ role: 'worker', task: 'x' })
+    expect(askOrch.spawns[0]!.input.yolo).toBe(true)
+
+    const yolo = harness({ deps: { agentPolicy: 'yolo' } })
+    await yolo.workspace.startAgent({ role: 'worker', task: 'x' })
+    expect(yolo.spawns[0]!.input.yolo).toBe(true)
+  })
+
+  it('D4: the mcp context carries the effective tier for the contract layer', () => {
+    expect(harness({ deps: { agentPolicy: 'ask-orchestrator' } }).workspace.mcpContext().agentPolicy).toBe(
+      'ask-orchestrator'
+    )
+    expect(harness().workspace.mcpContext().agentPolicy).toBe('yolo')
+    expect(harness({ deps: { yoloMaster: false } }).workspace.mcpContext().agentPolicy).toBe(
+      'ask-user'
+    )
+  })
+
   it('refuses a role the profile has no slot for', async () => {
     const { workspace, registry, windows } = harness()
     await expect(workspace.startAgent({ role: 'tester', task: 'x' })).rejects.toThrow(

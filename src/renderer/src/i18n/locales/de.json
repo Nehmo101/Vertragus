@@ -251,6 +251,11 @@
   "settings": {
     "title": "Einstellungen",
     "subtitle": "Gilt für Vertragus als Ganzes.",
+    "agentPolicy": "Subagent-Policy",
+    "agentPolicyYolo": "Yolo — ohne Rückfrage handeln",
+    "agentPolicyAskUser": "Nachfragen — die CLI fragt im Terminal",
+    "agentPolicyAskOrchestrator": "Orchestrator fragen — riskante Aktionen erst nach Freigabe",
+    "agentPolicyHint": "Yolo: volle Autonomie. Nachfragen: die CLI-eigene Berechtigungsabfrage wartet im Agent-Terminal auf dich (harte Grenze). Orchestrator fragen: Subagents laufen autonom, ihr Vertrag verlangt aber vor riskanten Aktionen eine Freigabe des Orchestrators (weiche Grenze — Details im README-Threat-Model).",
     "hotkey": "Hotkey „Alles ausblenden“",
     "hotkeyHint": "Electron-Format: Modifier mit + verbinden, z. B. Control+Alt+V. Wirkt sofort nach dem Speichern.",
     "hotkeyPlaceholder": "Control+Alt+V",

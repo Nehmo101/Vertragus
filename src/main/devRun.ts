@@ -19,7 +19,13 @@ import { app } from 'electron'
 import { getAgentRegistry } from './ipc'
 import { startMcpServer, type McpServerHandle } from './mcp/server'
 import { closeCliWindow, createCliWindow } from './windows/cliWindow'
-import { effectiveProviders, getRoleTemplates, getSettings, settings } from './store/settings'
+import {
+  effectiveAgentPolicy,
+  effectiveProviders,
+  getRoleTemplates,
+  getSettings,
+  settings
+} from './store/settings'
 import { createRunJournal } from './workspace/journal'
 import { createRetroSink } from './workspace/retroSink'
 import { createWorkspaceManager, type WorkspaceManager } from './workspace/WorkspaceManager'
@@ -78,6 +84,9 @@ export function createAppWorkspaceManager(mcp: McpServerHandle): WorkspaceManage
     providers: () => effectiveProviders(),
     roleTemplates: () => getRoleTemplates(),
     yoloMaster: () => getSettings().yoloMaster,
+    // D4: the tier wins over the boolean; read fresh so a settings change
+    // reaches the next workspace without a restart.
+    agentPolicy: () => effectiveAgentPolicy(getSettings()),
     // The retro loop: run stats and learnings land in the settings store, and
     // the accumulated knowledge returns via the next orchestrator prompt.
     retro: createRetroSink({ store: settings() }),

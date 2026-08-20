@@ -81,6 +81,7 @@ import {
   seedOptionsFromProvider,
   type SeedWithReadyOptions
 } from '@main/agents/interactiveReady'
+import type { AgentPolicy } from '@shared/agentPolicy'
 import { buildReminderSuffix, type ReportingMode } from '@shared/prompts/contract'
 import {
   buildLeadSystemPrompt,
@@ -177,6 +178,13 @@ export interface WorkspaceDeps {
   roleTemplates?: readonly RoleTemplate[]
   /** Master yolo switch. Subagents are yolo when it is on; orchestrators never. */
   yoloMaster?: boolean
+  /**
+   * D4: the three-tier policy. Wins over `yoloMaster` when set; absent falls
+   * back to the boolean (on = `yolo`, off = `ask-user`) so old callers keep
+   * their behavior. Only subagents are governed — orchestrators and leads
+   * have no yolo surface under any tier.
+   */
+  agentPolicy?: AgentPolicy
   spawn?: typeof spawnAgent
   createWorktree?: typeof createWorktree
   seed?: typeof seedWithReadyHandshake
@@ -510,6 +518,11 @@ export class Workspace implements AgentHost {
     return { perRole, maxTotal: this.profile.maxSubagents }
   }
 
+  /** D4: the tier subagents run under — the stored policy, else the legacy bool. */
+  private agentPolicy(): AgentPolicy {
+    return this.deps.agentPolicy ?? ((this.deps.yoloMaster ?? true) ? 'yolo' : 'ask-user')
+  }
+
   /** The registration payload for `mcp/server.registerWorkspace`. */
   mcpContext(): WorkspaceMcpContext {
     const retro = this.deps.retro
@@ -523,6 +536,7 @@ export class Workspace implements AgentHost {
       events: this.events,
       limits: this.limits(),
       roles: profileRoleIds(this.profile),
+      agentPolicy: this.agentPolicy(),
       ...(retro
         ? {
             retro: {
@@ -738,7 +752,10 @@ export class Workspace implements AgentHost {
         effort: slot.effort,
         // Subagents default to yolo — a worker that cannot act is the old
         // repo's "permission-starved" failure. The orchestrator never gets it.
-        yolo: this.deps.yoloMaster ?? true,
+        // D4: only the `ask-user` tier drops the flags (the CLI's own prompt
+        // asks in the terminal); `ask-orchestrator` keeps them and gates via
+        // the contract instead — nobody sits at a subagent terminal.
+        yolo: this.agentPolicy() !== 'ask-user',
         cwd: worktree.path,
         mcpUrl: urls.subagentUrl(pending.agentId),
         fileTag: `sub-${pending.agentId}`,

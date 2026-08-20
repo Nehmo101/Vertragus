@@ -119,6 +119,20 @@ export function SettingsApp(): React.JSX.Element {
         <RemoteSection />
 
         <section className="st-field">
+          <span className="st-label">{t('settings.agentPolicy')}</span>
+          <select
+            className="st-input"
+            value={settings.agentPolicy}
+            onChange={(event) => view.set('agentPolicy', event.target.value)}
+          >
+            <option value="yolo">{t('settings.agentPolicyYolo')}</option>
+            <option value="ask-user">{t('settings.agentPolicyAskUser')}</option>
+            <option value="ask-orchestrator">{t('settings.agentPolicyAskOrchestrator')}</option>
+          </select>
+          <span className="st-hint">{t('settings.agentPolicyHint')}</span>
+        </section>
+
+        <section className="st-field">
           <span className="st-label">{t('settings.hotkey')}</span>
           <div className="st-row">
             <input

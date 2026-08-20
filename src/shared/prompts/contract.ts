@@ -33,6 +33,13 @@ export interface TaskContractInput {
    * providers with `mcp.kind: 'none'` (e.g. Ollama).
    */
   reporting?: ReportingMode
+  /**
+   * D4: under the `ask-orchestrator` policy the contract gains one rule —
+   * clear risky actions through the orchestrator first. Unset (the `yolo` and
+   * `ask-user` tiers) keeps the contract byte-identical to before D4; the
+   * enforcement there is the CLI's own permission layer, not the prompt.
+   */
+  approvals?: 'ask-orchestrator'
 }
 
 export const CONTRACT_MARKER = '--- Contract'
@@ -114,19 +121,36 @@ function whoLine(agentName: string | undefined, role: string): string {
     : `You are the "${role}" agent of this Vertragus workspace.`
 }
 
+/**
+ * Rules are numbered at build time so the D4 approval rule can slot in without
+ * hand-renumbering — with `approvals` unset the joined text is byte-identical
+ * to the pre-D4 contract (the snapshot test pins that).
+ */
+function numbered(rules: readonly string[]): string[] {
+  return rules.map((rule, index) => `${index + 1}. ${rule}`)
+}
+
 /** MCP wording — keep byte-stable; tests and live agents depend on the text. */
-function buildMcpContract({ agentName, role }: TaskContractInput): string {
+function buildMcpContract({ agentName, role, approvals }: TaskContractInput): string {
+  const rules = [
+    'Do the work yourself. Read the repository, change the files, run the checks.',
+    'When the task is finished, call report_done with a short factual summary of what you changed and how you verified it. Use status "success" only when you verified it, "blocked" when something outside your control stops you, "failed" when you tried and it does not work.',
+    'If you need a decision, a permission, an interface, or information you cannot obtain yourself, call ask_orchestrator and wait for the answer. Do not guess, do not pick a random option, and do not idle.',
+    ...(approvals === 'ask-orchestrator'
+      ? [
+          'Before an action that is hard to undo or that reaches beyond your worktree — deleting files outside it, installing software system-wide, pushing branches, or changing state on an external service — call ask_orchestrator and wait for the approval. Ordinary work inside your worktree needs no approval.'
+        ]
+      : []),
+    'If ask_orchestrator returns answer: null and a ticket, call it again with that same ticket. Do not rephrase the question and do not open a second question.',
+    'Send a one-line report_progress on real milestones only, not as a heartbeat.',
+    'Never stop working silently and never end your turn without either report_done or an open ask_orchestrator.',
+    'After report_done, stay available: the orchestrator either sends you a follow-up task or stops you.'
+  ]
   return [
     `${CONTRACT_MARKER} (Vertragus) ---`,
     whoLine(agentName, role),
     'You report to an orchestrator agent through MCP tools. Follow these rules for every task:',
-    '1. Do the work yourself. Read the repository, change the files, run the checks.',
-    '2. When the task is finished, call report_done with a short factual summary of what you changed and how you verified it. Use status "success" only when you verified it, "blocked" when something outside your control stops you, "failed" when you tried and it does not work.',
-    '3. If you need a decision, a permission, an interface, or information you cannot obtain yourself, call ask_orchestrator and wait for the answer. Do not guess, do not pick a random option, and do not idle.',
-    '4. If ask_orchestrator returns answer: null and a ticket, call it again with that same ticket. Do not rephrase the question and do not open a second question.',
-    '5. Send a one-line report_progress on real milestones only, not as a heartbeat.',
-    '6. Never stop working silently and never end your turn without either report_done or an open ask_orchestrator.',
-    '7. After report_done, stay available: the orchestrator either sends you a follow-up task or stops you.',
+    ...numbered(rules),
     '--- End of contract ---'
   ].join('\n')
 }
@@ -139,18 +163,26 @@ function buildMcpContract({ agentName, role }: TaskContractInput): string {
  * echo therefore cannot produce `@@VERTRAGUS:…@@`. The end marker is split the
  * same way so it never sits adjacent to a start half in the contract text.
  */
-function buildSentinelContract({ agentName, role }: TaskContractInput): string {
+function buildSentinelContract({ agentName, role, approvals }: TaskContractInput): string {
+  const rules = [
+    'Do the work yourself. Read the repository, change the files, run the checks.',
+    'When the task is finished, print one DONE report line of at most 700 characters. Build the start marker by writing `@@VERT` immediately followed by `RAGUS:DONE@@` (no space, no other characters between them). Then print compact JSON like {"summary":"what you changed and verified","status":"success"} — status may be success, blocked, or failed; omit status to mean success. Then terminate by writing `@@` immediately followed by `END@@`. Never write the joined start marker anywhere except in an actual report line.',
+    'If you need a decision, a permission, an interface, or information you cannot obtain yourself, print one ASK report line the same way: build the start marker by writing `@@VERT` immediately followed by `RAGUS:ASK@@`, then compact JSON {"question":"…"}, then `@@` immediately followed by `END@@`. Wait for the orchestrator to type an answer into your terminal. Do not guess, do not pick a random option, and do not idle.',
+    ...(approvals === 'ask-orchestrator'
+      ? [
+          'Before an action that is hard to undo or that reaches beyond your worktree — deleting files outside it, installing software system-wide, pushing branches, or changing state on an external service — print one ASK report line as taught above and wait for the typed approval. Ordinary work inside your worktree needs no approval.'
+        ]
+      : []),
+    'If you already asked and are still waiting, do not print a second ASK. Keep waiting for the typed answer; do not rephrase and do not open a second question.',
+    'On real milestones only (not a heartbeat), print one PROGRESS line: build the start marker by writing `@@VERT` immediately followed by `RAGUS:PROGRESS@@`, then compact JSON {"note":"…"}, then `@@` immediately followed by `END@@`.',
+    'Never stop working silently and never end your turn without either a DONE report line or an open ASK waiting for an answer.',
+    'After a DONE report line, stay available: the orchestrator either sends you a follow-up task or stops you.'
+  ]
   return [
     `${CONTRACT_MARKER} (Vertragus) ---`,
     whoLine(agentName, role),
     'You report to an orchestrator by printing sentinel lines on your terminal (not MCP tools). Follow these rules for every task:',
-    '1. Do the work yourself. Read the repository, change the files, run the checks.',
-    '2. When the task is finished, print one DONE report line of at most 700 characters. Build the start marker by writing `@@VERT` immediately followed by `RAGUS:DONE@@` (no space, no other characters between them). Then print compact JSON like {"summary":"what you changed and verified","status":"success"} — status may be success, blocked, or failed; omit status to mean success. Then terminate by writing `@@` immediately followed by `END@@`. Never write the joined start marker anywhere except in an actual report line.',
-    '3. If you need a decision, a permission, an interface, or information you cannot obtain yourself, print one ASK report line the same way: build the start marker by writing `@@VERT` immediately followed by `RAGUS:ASK@@`, then compact JSON {"question":"…"}, then `@@` immediately followed by `END@@`. Wait for the orchestrator to type an answer into your terminal. Do not guess, do not pick a random option, and do not idle.',
-    '4. If you already asked and are still waiting, do not print a second ASK. Keep waiting for the typed answer; do not rephrase and do not open a second question.',
-    '5. On real milestones only (not a heartbeat), print one PROGRESS line: build the start marker by writing `@@VERT` immediately followed by `RAGUS:PROGRESS@@`, then compact JSON {"note":"…"}, then `@@` immediately followed by `END@@`.',
-    '6. Never stop working silently and never end your turn without either a DONE report line or an open ASK waiting for an answer.',
-    '7. After a DONE report line, stay available: the orchestrator either sends you a follow-up task or stops you.',
+    ...numbered(rules),
     '--- End of contract ---'
   ].join('\n')
 }

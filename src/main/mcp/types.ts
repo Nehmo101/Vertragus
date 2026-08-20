@@ -21,6 +21,7 @@
  */
 import type { EventQueue } from './eventQueue'
 import type { PendingQuestions } from './pendingQuestions'
+import type { AgentPolicy } from '@shared/agentPolicy'
 import type { ReportingMode } from '@shared/prompts/contract'
 
 /** What `start_agent` hands the host. */
@@ -273,6 +274,13 @@ export interface WorkspaceMcpContext {
   limits: WorkspaceLimits
   /** Role ids the orchestrator may pass to `start_agent`. */
   roles: string[]
+  /**
+   * D4: the tier subagents run under. `ask-orchestrator` makes `start_agent`
+   * append the approval rule to every task contract; the other tiers (and an
+   * old fake that omits the field) leave the contract untouched — their
+   * enforcement is the CLI's permission layer, not the prompt.
+   */
+  agentPolicy?: AgentPolicy
   /**
    * How long `ask_orchestrator` blocks before handing out a ticket. Defaults to
    * 50 s (below the 60 s MCP request timeout). Tests shorten it.

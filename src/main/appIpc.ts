@@ -37,7 +37,9 @@ import type { ProviderConfig } from '@shared/schema/provider'
 import { normalizeAppearance, type Appearance } from '@shared/appearance'
 import { mainMessages, readLocale } from '@shared/mainMessages'
 import type { AppSettings, SettingsStore } from '@main/store/settings'
-import { settings } from '@main/store/settings'
+import { effectiveAgentPolicy, settings } from '@main/store/settings'
+import type { AgentPolicy } from '@shared/agentPolicy'
+import { AGENT_POLICIES } from '@shared/agentPolicy'
 import { discoverModels, type ModelDiscoveryResult } from '@main/providers/discovery'
 import { checkAllProviders, type ProviderHealth } from '@main/providers/health'
 import { closeCliWindow, focusCliWindow, listCliWindows } from '@main/windows/cliWindow'
@@ -363,6 +365,8 @@ export interface ProviderListEntry {
  */
 export interface PanelSettings {
   yoloMaster: boolean
+  /** D4: the effective tier — stored policy, or derived from `yoloMaster`. */
+  agentPolicy: AgentPolicy
   hideAllHotkey: string
   locale: AppSettings['ui']['locale']
   theme: AppSettings['ui']['theme']
@@ -395,7 +399,8 @@ export const WRITABLE_SETTINGS = [
   'updateChannel',
   'theme',
   'locale',
-  'appearance'
+  'appearance',
+  'agentPolicy'
 ] as const
 export type WritableSetting = (typeof WRITABLE_SETTINGS)[number]
 
@@ -657,6 +662,7 @@ export function toPanelSettings(
 ): PanelSettings {
   return {
     yoloMaster: value.yoloMaster,
+    agentPolicy: effectiveAgentPolicy(value),
     hideAllHotkey: value.hideAllHotkey,
     locale: value.ui.locale,
     theme: value.ui.theme,
@@ -1000,7 +1006,7 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
   /**
    * The settings form's single write path.
    *
-   * Three of the five keys have an effect that must happen NOW, not at the next
+   * Three of the keys have an effect that must happen NOW, not at the next
    * boot — the hotkey, the login item and the update channel. They are applied
    * here rather than in the renderer, so the same guarantee holds no matter who
    * calls the channel.
@@ -1057,6 +1063,17 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
           // `ui` is one strict object in the schema: read, patch, write back.
           const ui = { ...host.store.getSettings().ui, [key]: body.value }
           return panelSettings(host.store.setSetting('ui', ui))
+        }
+        case 'agentPolicy': {
+          // D4: the store mirrors `yoloMaster` on this write, so the panel's
+          // toggle and this picker can never show two different truths.
+          const policy = AGENT_POLICIES.find((tier) => tier === body.value)
+          if (!policy) {
+            throw new Error(
+              `settings:set rejected — agentPolicy expects ${AGENT_POLICIES.join(', ')}`
+            )
+          }
+          return panelSettings(host.store.setSetting('agentPolicy', policy))
         }
         default: {
           // Unreachable while WRITABLE_SETTINGS and this switch agree; the
