@@ -24,6 +24,22 @@ export function formatHandoffSeed(pkg: OrchestratorHandoffPackage): string {
     pkg.nextActions.length === 0
       ? 'No next-actions were recorded — inspect list_agents and continue the goal.'
       : ['Next actions:', ...pkg.nextActions.map((action) => `- ${action}`)].join('\n')
+  const team =
+    pkg.agents.length === 0
+      ? 'No subagents are running for you right now — list_agents will confirm.'
+      : [
+          'Your team right now (host roster at handoff — these agents keep working for YOU):',
+          ...pkg.agents.map((agent) => {
+            const parts = [`- ${agent.name} [${agent.agentId}] (${agent.role}, ${agent.status})`]
+            if (agent.branch) parts.push(`branch ${agent.branch}`)
+            if (agent.pendingQuestionId) {
+              parts.push(`waiting on your answer to question ${agent.pendingQuestionId}`)
+            }
+            if (agent.orchNote) parts.push(`note: ${agent.orchNote}`)
+            if (agent.lastSummary) parts.push(`last reported: ${agent.lastSummary}`)
+            return parts.join(' — ')
+          })
+        ].join('\n')
 
   return [
     `You are the successor of ${pkg.predecessor.name} in workspace "${pkg.workspaceName}".`,
@@ -33,6 +49,8 @@ export function formatHandoffSeed(pkg: OrchestratorHandoffPackage): string {
     goal,
     `Your first await_events MUST use cursor ${pkg.eventCursor} (package.eventCursor). Do not start at 0.`,
     'Trust host facts in this package and on agent_done / inspect_agent over prose when they disagree.',
+    '',
+    team,
     '',
     open,
     '',

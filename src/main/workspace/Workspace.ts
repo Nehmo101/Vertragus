@@ -1398,6 +1398,19 @@ export class Workspace implements AgentHost {
       question: question.question
     }))
 
+    // The incumbent's self-report wins, but a context-starved orchestrator
+    // often omits the goal entirely — the host delivered it ({@link assignGoal})
+    // and must not let it fall out of the run at exactly the moment a fresh
+    // context needs it most.
+    const goalOriginal = input.goal?.original ?? this.goal
+    const goal =
+      goalOriginal || input.goal?.current
+        ? {
+            ...(goalOriginal ? { original: goalOriginal } : {}),
+            ...(input.goal?.current ? { current: input.goal.current } : {})
+          }
+        : undefined
+
     return buildHandoffPackage({
       workspaceId: this.workspaceId,
       workspaceName: this.name,
@@ -1415,7 +1428,7 @@ export class Workspace implements AgentHost {
       agents,
       openQuestions,
       recentEvents: compactRecentEvents(this.events.all()),
-      goal: input.goal,
+      goal,
       decisions: input.decisions,
       risks: input.risks,
       nextActions: input.nextActions,

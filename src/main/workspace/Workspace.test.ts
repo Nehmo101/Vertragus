@@ -825,6 +825,59 @@ describe('requestSuccession', () => {
     expect(pkg.eventCursor).toBe(begun.eventCursor)
   })
 
+  it('falls back to the host-delivered goal when the incumbent omits it', async () => {
+    const packages: unknown[] = []
+    const { workspace, prompts } = harness({
+      ptySystemPrompt: true,
+      deps: { writeSuccession: (pkg) => packages.push(pkg) }
+    })
+    await workspace.startOrchestrator()
+    await workspace.assignGoal('Fix the login bug')
+
+    const begun = workspace.requestSuccession({ reason: 'context_full' })
+    await begun.ready
+
+    const pkg = packages[0] as { goal?: { original?: string; current?: string } }
+    expect(pkg.goal?.original).toBe('Fix the login bug')
+    expect(prompts.at(-1)).toContain('Current goal: Fix the login bug')
+  })
+
+  it('keeps the incumbent-reported goal over the host fallback', async () => {
+    const packages: unknown[] = []
+    const { workspace, prompts } = harness({
+      ptySystemPrompt: true,
+      deps: { writeSuccession: (pkg) => packages.push(pkg) }
+    })
+    await workspace.startOrchestrator()
+    await workspace.assignGoal('Fix the login bug')
+
+    const begun = workspace.requestSuccession({
+      reason: 'context_full',
+      goal: { original: 'Fix the login bug', current: 'Login fixed; hardening the session store' }
+    })
+    await begun.ready
+
+    const pkg = packages[0] as { goal?: { original?: string; current?: string } }
+    expect(pkg.goal).toEqual({
+      original: 'Fix the login bug',
+      current: 'Login fixed; hardening the session store'
+    })
+    expect(prompts.at(-1)).toContain('Current goal: Login fixed; hardening the session store')
+  })
+
+  it('seeds the successor with the team roster in prose', async () => {
+    const { workspace, prompts } = harness({ ptySystemPrompt: true })
+    await workspace.startOrchestrator()
+    const worker = await workspace.startAgent({ role: 'worker', task: 'Implement the parser.' })
+
+    const begun = workspace.requestSuccession({ reason: 'context_full' })
+    await begun.ready
+
+    const seed = prompts.at(-1)!
+    expect(seed).toContain('Your team right now')
+    expect(seed).toContain(`[${worker.agentId}] (worker`)
+  })
+
   it('refuses a second succession while one is in flight', async () => {
     const { workspace } = harness()
     await workspace.startOrchestrator()

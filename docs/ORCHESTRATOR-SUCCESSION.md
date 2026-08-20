@@ -174,7 +174,7 @@ prompt. Thin pointer event on the queue.
 
 | Field | Source | Cap |
 | --- | --- | --- |
-| `goal.*` | orch (host may seed from `workspaceTask` on user button) | 2× 2k chars |
+| `goal.*` | orch; host falls back to the delivered goal (`assignGoal`) when omitted | 2× 2k chars |
 | `eventCursor` | **host** (`events.cursor` at freeze) | int |
 | `recentEvents` | **host** | ≤40 or ≤24k; prefer done/question/exited/start_failed |
 | `agents[]` | **host** roster + C2 facts | full roster; summary ≤500; files ≤20 |
