@@ -45,7 +45,7 @@ Remote-Server.
 | --- | --- |
 | H1 `answer_question` am Gateway | **umgesetzt** (Track 0) — ein Host-Pfad (`mcp/answerQuestion.ts`), Gateway-Verb, Panel-Badge |
 | H2 `workspaces:start {goal}` | **umgesetzt** (Track 0) — Goal-Seed über den Assignment-Handshake, Back-compat ohne Goal |
-| C3 Snapshot-Commit / C4 Handoff-Paket | später |
+| C3 Snapshot-Commit / C4 Handoff-Paket | **umgesetzt** (Track 1) — `snapshotDone` committet dirty Worktrees beim Done; `start_agent{baseBranch}` trägt Handoff-Block |
 | C5 Orchestrator-Idle-Watchdog | später, und nicht A1.1 (`orchestrator_exited` ist Prozess-Tod) |
 | D Mensch im Loop | nach H1/H2 |
 | E integrate / briefing / eval | nach C |
@@ -586,5 +586,5 @@ wählt wenn flach nicht mehr trägt. A/B sind das Fundament.
 | MCP-Identität binär (Root vs. Blatt) | `server.ts` `McpIdentity` — Lead kommt in F | offen |
 | Goal at Play | `workspaces:start{goal}` Panel + Gateway, Seed via `Workspace.assignGoal` | **Track 0** |
 | MCP-Fragen vom Handy/Panel | `answer_question` Gateway-Verb + `workspaces:answerQuestion`, ein Pfad in `mcp/answerQuestion.ts` | **Track 0** |
-| Worker „nie committen“ | `roles.ts` — Snapshot-Commit ist C3 | später |
+| Worker „nie committen” + Host-Snapshot | `roles.ts`, `Workspace.snapshotDone`, `commitWorktree`, Handoff in `toolsOrchestrator.ts` | **Track 1** |
 | `runStats.ts` „Cursor hat kein agent_done“ | veraltet (`none` = Ollama) | ignorieren |

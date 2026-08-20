@@ -8,7 +8,8 @@
  */
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { buildReminderSuffix, buildTaskContract } from '@shared/prompts/contract'
+import { buildHandoffBlock, buildReminderSuffix, buildTaskContract } from '@shared/prompts/contract'
+import type { EventQueue } from './eventQueue'
 import { answerAgentQuestion } from './answerQuestion'
 import {
   errorMessage,
@@ -48,6 +49,31 @@ export const AWAIT_TIMEOUT_MAX_SEC = 55
 export const READ_OUTPUT_DEFAULT_LINES = 60
 export const READ_OUTPUT_MAX_LINES = 400
 export const INSPECT_LOG_MAX_LINES = 50
+
+/**
+ * C4: the latest `agent_done` reported on this branch, rendered as a handoff
+ * block — or undefined when nothing was reported there (a plain repo branch,
+ * or the done fell out of the event ring). Latest wins: after a rework round
+ * the newer report describes the branch, the older one does not.
+ */
+export function handoffFor(events: EventQueue, baseBranch: string): string | undefined {
+  const all = events.all()
+  for (let index = all.length - 1; index >= 0; index -= 1) {
+    const event = all[index]!
+    if (event.type !== 'agent_done' || event.branch !== baseBranch) continue
+    return buildHandoffBlock({
+      agentName: event.name,
+      role: event.roleId,
+      branch: baseBranch,
+      summary: event.summary,
+      status: event.status,
+      headSha: event.headSha,
+      changedFiles: event.changedFiles,
+      uncommitted: event.uncommitted
+    })
+  }
+  return undefined
+}
 
 const AWAIT_TIMEOUT_NOTE =
   'No events within the wait window — this is normal, the agents are still working. ' +
@@ -128,8 +154,14 @@ export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceR
       // passes through, so no spawn path can produce an agent that never
       // reports back. The name is not allocated yet, hence role-only. Dialect
       // comes from the host (provider mcp.kind) — this layer does not guess.
+      // C4: a baseBranch that carries reported work gets its handoff block
+      // between task and contract, so the new agent starts from the
+      // predecessor's own report instead of the orchestrator's prose.
       const reporting = ctx.host.reportingMode(role)
-      const seed = `${task}\n\n${buildTaskContract({ role, reporting })}`
+      const handoff = baseBranch ? handoffFor(ctx.events, baseBranch) : undefined
+      const seed = [task, ...(handoff ? [handoff] : []), buildTaskContract({ role, reporting })].join(
+        '\n\n'
+      )
 
       // `beginAgent` reserves synchronously and returns before the pipeline
       // (worktree, spawn, seed handshake) ran — that pipeline can outlast the

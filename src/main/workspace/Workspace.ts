@@ -61,6 +61,7 @@ import type { PtyExitInfo, Unsubscribe } from '@main/agents/PtyAgent'
 import { spawnAgent, type AgentLaunchInput, type AgentPty, type SpawnedAgent } from '@main/agents/spawn'
 import { inspectWorktree, snapshotWorktree } from '@main/agents/inspectWorktree'
 import {
+  commitWorktree,
   createWorktree,
   worktreeBranchName,
   worktreePathFor,
@@ -242,6 +243,27 @@ interface AgentRecord {
    * host-authored text must not be parsed as agent reports.
    */
   suppressSentinel: boolean
+}
+
+/** Max summary characters carried into a snapshot-commit subject line. */
+const SNAPSHOT_SUBJECT_MAX = 120
+
+/**
+ * C3 commit message: `vertragus: <agent> / <role> — <first line of the
+ * summary>`. Exported so the format is pinned by a test — reviewers grep for
+ * these commits.
+ */
+export function snapshotCommitMessage(agentName: string, roleId: string, summary: string): string {
+  const firstLine =
+    summary
+      .split('\n')
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) ?? ''
+  const capped =
+    firstLine.length <= SNAPSHOT_SUBJECT_MAX
+      ? firstLine
+      : `${firstLine.slice(0, SNAPSHOT_SUBJECT_MAX - 1)}…`
+  return `vertragus: ${agentName} / ${roleId}${capped ? ` — ${capped}` : ''}`
 }
 
 /** Resolve once the PTY's process has exited, or after `timeoutMs` — never rejects. */
@@ -594,6 +616,34 @@ export class Workspace implements AgentHost {
   async snapshotWorktree(agentId: string): Promise<WorktreeFacts> {
     const record = this.requireAgent(agentId)
     return this.factsOf(await snapshotWorktree(record.worktreePath, this.deps.worktreeDeps))
+  }
+
+  async snapshotDone(agentId: string, summary: string): Promise<WorktreeFacts> {
+    const record = this.requireAgent(agentId)
+    const deps = this.deps.worktreeDeps
+    const before = await snapshotWorktree(record.worktreePath, deps)
+    if (!before.uncommitted) return this.factsOf(before)
+    try {
+      await commitWorktree(
+        record.worktreePath,
+        snapshotCommitMessage(record.name, record.roleId, summary),
+        deps
+      )
+      const after = await snapshotWorktree(record.worktreePath, deps)
+      return {
+        branch: after.branch,
+        headSha: after.headSha,
+        uncommitted: after.uncommitted,
+        // The done's OWN change set — post-commit porcelain is empty, and an
+        // agent_done that says "nothing changed" about committed work is a lie.
+        changedFiles: before.changedFiles,
+        diffStat: before.diffStat
+      }
+    } catch {
+      // The dirty snapshot is still the truth; a failed commit must neither
+      // drop the done event nor pretend the branch carries the work.
+      return this.factsOf(before)
+    }
   }
 
   private factsOf(snapshot: {
@@ -1090,8 +1140,10 @@ export class Workspace implements AgentHost {
   }
 
   /**
-   * Push `agent_done` with host-truth git facts when git answers. A git
-   * failure still emits the prose-only event — never drop a done report.
+   * Push `agent_done` with host-truth git facts when git answers. Since C3
+   * the snapshot also COMMITS a dirty worktree onto the agent's branch (see
+   * {@link snapshotDone}). A git failure still emits the prose-only event —
+   * never drop a done report.
    */
   private async emitAgentDone(
     record: AgentRecord,
@@ -1107,7 +1159,7 @@ export class Workspace implements AgentHost {
       status
     }
     try {
-      const facts = await this.snapshotWorktree(record.agentId)
+      const facts = await this.snapshotDone(record.agentId, summary)
       if (this.events.isClosed) return
       this.events.push({ ...payload, ...facts })
     } catch {

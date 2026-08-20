@@ -88,10 +88,12 @@ export function registerSubagentTools(
         summary,
         status: status ?? 'success'
       }
-      // Git hiccup must not swallow the done report — the summary is still
+      // C3: the host snapshots — a dirty worktree is committed onto the
+      // agent's branch first, so baseBranch chaining points at the work. A
+      // git hiccup must not swallow the done report — the summary is still
       // the agent's word; the orchestrator can inspect_agent afterwards.
       try {
-        const facts = await ctx.host.snapshotWorktree(agentId)
+        const facts = await ctx.host.snapshotDone(agentId, summary)
         ctx.events.push({ ...payload, ...worktreeEventFields(facts) })
       } catch {
         ctx.events.push(payload)

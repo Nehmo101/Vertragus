@@ -62,6 +62,52 @@ export function buildReminderSuffix(reporting: ReportingMode = 'mcp'): string {
   ].join('\n')
 }
 
+/** What C4 knows about the work a `baseBranch` carries — from its `agent_done`. */
+export interface HandoffInput {
+  agentName: string
+  role: string
+  branch: string
+  summary: string
+  status?: string
+  headSha?: string
+  changedFiles?: readonly string[]
+  uncommitted?: boolean
+}
+
+export const HANDOFF_MARKER = '--- Handoff'
+const HANDOFF_SUMMARY_MAX = 700
+const HANDOFF_FILES_MAX = 20
+
+/**
+ * C4: the handoff block `start_agent` appends to the task (before the
+ * contract) when `baseBranch` points at another agent's reported work — so a
+ * reviewer starts from the predecessor's own report and file list instead of
+ * reconstructing the diff from the orchestrator's prose.
+ */
+export function buildHandoffBlock(input: HandoffInput): string {
+  const summary =
+    input.summary.length <= HANDOFF_SUMMARY_MAX
+      ? input.summary
+      : `${input.summary.slice(0, HANDOFF_SUMMARY_MAX - 1)}…`
+  const files = input.changedFiles ?? []
+  const shownFiles = files.slice(0, HANDOFF_FILES_MAX)
+  const moreFiles = files.length - shownFiles.length
+  return [
+    `${HANDOFF_MARKER} (Vertragus) ---`,
+    `Your branch starts from "${input.branch}", which carries work reported done by ${input.agentName} (${input.role}).`,
+    `Their report${input.status ? ` (${input.status})` : ''}: ${summary}`,
+    ...(input.headSha ? [`Branch HEAD at handoff: ${input.headSha}`] : []),
+    ...(shownFiles.length > 0
+      ? [`Files they touched: ${shownFiles.join(', ')}${moreFiles > 0 ? ` (+${moreFiles} more)` : ''}`]
+      : []),
+    ...(input.uncommitted
+      ? ['Note: their worktree still held uncommitted changes — the branch may not carry everything the report claims.']
+      : []),
+    'Verify against the actual content of your checkout, not against this report alone.',
+    '--- End of handoff ---'
+  ].join('\n')
+}
+
 function whoLine(agentName: string | undefined, role: string): string {
   return agentName
     ? `You are ${agentName}, the "${role}" agent of this Vertragus workspace.`

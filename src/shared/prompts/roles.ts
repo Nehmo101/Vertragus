@@ -38,7 +38,8 @@ export const BUILTIN_ROLE_TEMPLATES: readonly RoleTemplate[] = [
       'you, fix it. If it was already broken before you started, say so instead of quietly',
       'repairing unrelated things.',
       '',
-      'Never commit, push or switch git branches unless the task says to. When you are done,',
+      'Never commit, push or switch branches — Vertragus snapshots your work into a commit',
+      'on your branch when you report done. When done,',
       'report what you changed, which files, and what you ran to verify it. If the task is',
       'ambiguous or needs a decision that is not yours, ask the orchestrator instead of',
       'guessing — an unanswered assumption costs more than a question.'

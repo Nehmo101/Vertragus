@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { CONTRACT_MARKER } from '@shared/prompts/contract'
+import { CONTRACT_MARKER, HANDOFF_MARKER } from '@shared/prompts/contract'
 import { ORCHESTRATOR_TOOL_NAMES, registerOrchestratorTools } from './toolsOrchestrator'
 import { callTool, captureTools, FakeAgentHost, fakeRuntime } from './testing'
 
@@ -68,6 +68,74 @@ describe('start_agent', () => {
     })
 
     expect(baseBranches).toEqual([undefined, 'vertragus/arsenale/agent-1'])
+  })
+
+  it('C4: a baseBranch with a reported done gets a handoff block between task and contract', async () => {
+    const { runtime, tools } = setup()
+    runtime.events.push({
+      type: 'agent_done',
+      agentId: 'agent-0',
+      name: 'Caronte',
+      roleId: 'worker',
+      summary: 'Rewired the parser and ran the tests.',
+      status: 'success',
+      branch: 'vertragus/arsenale/agent-0',
+      headSha: 'cafebabe',
+      uncommitted: false,
+      changedFiles: ['src/parser.ts', 'src/parser.test.ts'],
+      diffStat: '2 files changed'
+    })
+    // A later done on the SAME branch supersedes the earlier one.
+    runtime.events.push({
+      type: 'agent_done',
+      agentId: 'agent-0',
+      name: 'Caronte',
+      roleId: 'worker',
+      summary: 'Fixed the review findings.',
+      status: 'success',
+      branch: 'vertragus/arsenale/agent-0',
+      headSha: 'deadbeef',
+      changedFiles: ['src/parser.ts']
+    })
+
+    await callTool(tools, 'start_agent', {
+      role: 'reviewer',
+      task: 'Review the parser work.',
+      baseBranch: 'vertragus/arsenale/agent-0'
+    })
+
+    const seeded = runtime.host.seeded[0]!.task
+    expect(seeded).toContain(HANDOFF_MARKER)
+    expect(seeded).toContain('Caronte (worker)')
+    expect(seeded).toContain('Fixed the review findings.')
+    expect(seeded).toContain('deadbeef')
+    expect(seeded).not.toContain('Rewired the parser')
+    // Order: task, then handoff, then contract.
+    expect(seeded.indexOf('Review the parser work.')).toBeLessThan(seeded.indexOf(HANDOFF_MARKER))
+    expect(seeded.indexOf(HANDOFF_MARKER)).toBeLessThan(seeded.indexOf(CONTRACT_MARKER))
+  })
+
+  it('C4: no handoff without a matching done — and none without baseBranch', async () => {
+    const { runtime, tools } = setup()
+    runtime.events.push({
+      type: 'agent_done',
+      agentId: 'agent-0',
+      name: 'Caronte',
+      roleId: 'worker',
+      summary: 'Other work.',
+      status: 'success',
+      branch: 'vertragus/arsenale/other'
+    })
+
+    await callTool(tools, 'start_agent', { role: 'worker', task: 'Fresh work.' })
+    await callTool(tools, 'start_agent', {
+      role: 'reviewer',
+      task: 'Review.',
+      baseBranch: 'vertragus/arsenale/agent-ghost'
+    })
+
+    expect(runtime.host.seeded[0]!.task).not.toContain(HANDOFF_MARKER)
+    expect(runtime.host.seeded[1]!.task).not.toContain(HANDOFF_MARKER)
   })
 
   it('rejects an unknown role and names the valid ones', async () => {

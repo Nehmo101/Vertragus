@@ -230,6 +230,38 @@ export async function createWorktree(
   return { path, branch }
 }
 
+/** Identity of the host's snapshot commits — deliberately not the user's. */
+export const SNAPSHOT_AUTHOR_NAME = 'Vertragus'
+export const SNAPSHOT_AUTHOR_EMAIL = 'vertragus@localhost'
+
+/**
+ * C3: commit EVERYTHING in one agent worktree onto its own branch — the
+ * host's snapshot at done-time. No push, no `--force`, and `--no-verify` on
+ * purpose: repo hooks belong to the user's own commits, not to a host
+ * snapshot whose only job is to make `baseBranch` point at the work. The
+ * author identity is pinned so the commit works on machines without a global
+ * git identity and is recognisable as host-made.
+ */
+export async function commitWorktree(
+  worktreePath: string,
+  message: string,
+  deps: WorktreeDeps = {}
+): Promise<void> {
+  const git = deps.git ?? defaultGitRunner
+  const identity = [
+    '-c',
+    `user.name=${SNAPSHOT_AUTHOR_NAME}`,
+    '-c',
+    `user.email=${SNAPSHOT_AUTHOR_EMAIL}`
+  ]
+  try {
+    await git(['add', '-A'], worktreePath)
+    await git([...identity, 'commit', '-m', message, '--no-verify'], worktreePath)
+  } catch (error) {
+    throw new Error(`git snapshot commit failed in ${worktreePath}: ${gitErrorMessage(error)}`)
+  }
+}
+
 /**
  * Put the MCP config files the attach dialects write into agent worktrees on
  * the repository's `.git/info/exclude`.

@@ -179,6 +179,18 @@ export class FakeAgentHost implements AgentHost {
     )
   }
 
+  /** Every C3 done-snapshot the tools asked for, in call order. */
+  readonly doneSnapshots: Array<{ agentId: string; summary: string }> = []
+
+  async snapshotDone(agentId: string, summary: string): Promise<WorktreeFacts> {
+    const facts = await this.snapshotWorktree(agentId)
+    this.doneSnapshots.push({ agentId, summary })
+    // Mirror the real host: a dirty worktree comes back committed, keeping
+    // the pre-commit change set on the facts.
+    if (!facts.uncommitted) return facts
+    return { ...facts, uncommitted: false, headSha: `${facts.headSha.slice(0, 39)}b` }
+  }
+
   listAgents(): AgentSummary[] {
     return [...this.agents.values()]
   }

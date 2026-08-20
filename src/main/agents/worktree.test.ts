@@ -270,3 +270,38 @@ describe('listWorktrees', () => {
     ])
   })
 })
+
+describe('commitWorktree — C3 snapshot commit', () => {
+  it('stages everything and commits with the pinned identity, no push, no --force', async () => {
+    const { commitWorktree, SNAPSHOT_AUTHOR_NAME, SNAPSHOT_AUTHOR_EMAIL } = await import('./worktree')
+    const calls: string[][] = []
+    const git = vi.fn(async (args: string[]) => {
+      calls.push(args)
+      return { stdout: '', stderr: '' }
+    })
+
+    await commitWorktree('/wt', 'vertragus: Caronte / worker — fixed', { git })
+
+    expect(calls[0]).toEqual(['add', '-A'])
+    expect(calls[1]).toEqual([
+      '-c',
+      `user.name=${SNAPSHOT_AUTHOR_NAME}`,
+      '-c',
+      `user.email=${SNAPSHOT_AUTHOR_EMAIL}`,
+      'commit',
+      '-m',
+      'vertragus: Caronte / worker — fixed',
+      '--no-verify'
+    ])
+    expect(calls.some((args) => args[0] === 'push' || args.includes('--force'))).toBe(false)
+  })
+
+  it('rethrows with git stderr so the caller can fall back to the dirty snapshot', async () => {
+    const { commitWorktree } = await import('./worktree')
+    const git = vi.fn(async (args: string[]) => {
+      if (args.includes('commit')) throw Object.assign(new Error('x'), { stderr: 'index.lock held' })
+      return { stdout: '', stderr: '' }
+    })
+    await expect(commitWorktree('/wt', 'msg', { git })).rejects.toThrow(/index\.lock held/)
+  })
+})

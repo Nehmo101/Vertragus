@@ -8,7 +8,12 @@ import { slugifyRef, worktreePathFor } from '@main/agents/worktree'
 import { PendingQuestions } from '@main/mcp/pendingQuestions'
 import { buildReminderSuffix } from '@shared/prompts/contract'
 import { ORCHESTRATOR_COLOR, ORCHESTRATOR_ROLE_ID, roleColor } from '@shared/prompts/roles'
-import { PTY_ONLY_IDLE_HINT_MS, Workspace, type WorkspaceDeps } from './Workspace'
+import {
+  PTY_ONLY_IDLE_HINT_MS,
+  snapshotCommitMessage,
+  Workspace,
+  type WorkspaceDeps
+} from './Workspace'
 import {
   FakeRegistry,
   FakeWindows,
@@ -1360,5 +1365,115 @@ describe('inspectAgent', () => {
     await workspace.stopAgent(started.agentId)
     const status = await workspace.inspectAgent(started.agentId, { view: 'status' })
     expect(status.branch).toBe('vertragus/paradiso/caronte')
+  })
+})
+
+describe('snapshotDone — C3 snapshot commit at done-time', () => {
+  /** A stateful git fake: dirty until a commit lands, then clean with a new HEAD. */
+  function statefulGit(options: { dirty?: boolean; commitError?: string } = {}): {
+    calls: string[][]
+    git: NonNullable<NonNullable<WorkspaceDeps['worktreeDeps']>['git']>
+  } {
+    const state = { dirty: options.dirty ?? true }
+    const calls: string[][] = []
+    return {
+      calls,
+      git: async (args) => {
+        calls.push(args)
+        if (args.includes('commit')) {
+          if (options.commitError) throw new Error(options.commitError)
+          state.dirty = false
+          return { stdout: '', stderr: '' }
+        }
+        if (args[0] === 'add') return { stdout: '', stderr: '' }
+        if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref') {
+          return { stdout: 'vertragus/paradiso/caronte\n', stderr: '' }
+        }
+        if (args[0] === 'rev-parse') {
+          return { stdout: state.dirty ? 'a'.repeat(40) + '\n' : 'b'.repeat(40) + '\n', stderr: '' }
+        }
+        if (args[0] === 'status') return { stdout: state.dirty ? ' M src/a.ts\n' : '', stderr: '' }
+        if (args[0] === 'diff') return { stdout: state.dirty ? ' src/a.ts | 2 +-\n' : '', stderr: '' }
+        return { stdout: '', stderr: '' }
+      }
+    }
+  }
+
+  it('commits a dirty worktree and keeps the change set on the facts', async () => {
+    const fake = statefulGit()
+    const { workspace } = harness({ deps: { worktreeDeps: { git: fake.git } } })
+    const started = await workspace.startAgent({ role: 'worker', task: 'Do it.' })
+
+    const facts = await workspace.snapshotDone(started.agentId, 'Parser fixed.\nDetails below.')
+
+    const commit = fake.calls.find((args) => args.includes('commit'))!
+    expect(commit).toBeDefined()
+    expect(commit[commit.indexOf('-m') + 1]).toBe(
+      `vertragus: ${started.name} / worker — Parser fixed.`
+    )
+    // No push, no --force — ever.
+    expect(fake.calls.some((args) => args[0] === 'push' || args.includes('--force'))).toBe(false)
+    expect(facts.uncommitted).toBe(false)
+    expect(facts.headSha).toBe('b'.repeat(40))
+    // The done's own change set survives the commit on the event facts.
+    expect(facts.changedFiles).toEqual(['src/a.ts'])
+    expect(facts.diffStat).toContain('src/a.ts')
+  })
+
+  it('does not commit a clean worktree', async () => {
+    const fake = statefulGit({ dirty: false })
+    const { workspace } = harness({ deps: { worktreeDeps: { git: fake.git } } })
+    const started = await workspace.startAgent({ role: 'worker', task: 'Do it.' })
+
+    const facts = await workspace.snapshotDone(started.agentId, 'Nothing to do.')
+    expect(fake.calls.some((args) => args.includes('commit') || args[0] === 'add')).toBe(false)
+    expect(facts.uncommitted).toBe(false)
+  })
+
+  it('falls back to the dirty snapshot when the commit fails — done facts stay truthful', async () => {
+    const fake = statefulGit({ commitError: 'index.lock held' })
+    const { workspace } = harness({ deps: { worktreeDeps: { git: fake.git } } })
+    const started = await workspace.startAgent({ role: 'worker', task: 'Do it.' })
+
+    const facts = await workspace.snapshotDone(started.agentId, 'Tried.')
+    expect(facts.uncommitted).toBe(true)
+    expect(facts.changedFiles).toEqual(['src/a.ts'])
+  })
+
+  it('a sentinel DONE runs the snapshot commit and still emits agent_done on failure', async () => {
+    const fake = statefulGit()
+    const { workspace, spawns } = harness({
+      profile: testProfile({
+        slots: [
+          { id: 'slot-worker', roleId: 'worker', providerId: 'ollama' },
+          { id: 'slot-reviewer', roleId: 'reviewer', providerId: 'claude' }
+        ]
+      }),
+      ptySystemPrompt: true,
+      deps: { worktreeDeps: { git: fake.git } }
+    })
+    await workspace.startAgent({ role: 'worker', task: 'Do it.' })
+    spawns[0]!.pty.emit(`@@VERTRAGUS:DONE@@${JSON.stringify({ summary: 'shipped' })}@@END@@`)
+    await waitForDone(workspace)
+
+    expect(fake.calls.some((args) => args.includes('commit'))).toBe(true)
+    expect(workspace.events.all().at(-1)).toMatchObject({
+      type: 'agent_done',
+      summary: 'shipped',
+      uncommitted: false,
+      changedFiles: ['src/a.ts']
+    })
+  })
+})
+
+describe('snapshotCommitMessage', () => {
+  it('uses the first non-empty summary line and caps it', () => {
+    expect(snapshotCommitMessage('Caronte', 'worker', '\n  Fixed it.  \nMore.')).toBe(
+      'vertragus: Caronte / worker — Fixed it.'
+    )
+    expect(snapshotCommitMessage('Caronte', 'worker', 'x'.repeat(400))).toHaveLength(
+      'vertragus: Caronte / worker — '.length + 120
+    )
+    expect(snapshotCommitMessage('Caronte', 'worker', '   ')).toBe('vertragus: Caronte / worker')
   })
 })

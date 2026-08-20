@@ -164,6 +164,17 @@ export interface AgentHost {
    * hiccup must never drop the done event.
    */
   snapshotWorktree(agentId: string): Promise<WorktreeFacts>
+  /**
+   * C3: the done-time snapshot. A dirty worktree is COMMITTED onto the
+   * agent's own branch first (message `vertragus: <agent> / <role> — <first
+   * summary line>`; no push, no --force), so `baseBranch` chaining points at
+   * the work instead of at HEAD. The returned facts keep the pre-commit
+   * `changedFiles`/`diffStat` — they describe what this done changed — while
+   * `headSha`/`uncommitted` reflect the post-commit state. A failed commit
+   * falls back to the plain dirty snapshot; callers must tolerate a throw
+   * exactly like {@link snapshotWorktree} (never drop the done event).
+   */
+  snapshotDone(agentId: string, summary: string): Promise<WorktreeFacts>
   listAgents(): AgentSummary[]
   /**
    * Which reporting dialect a *new* agent of this role should get. Used by
