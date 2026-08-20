@@ -40,6 +40,14 @@ const TEST_TIMEOUT = 30_000
 const BUGGY = 'export const add = (a, b) => a - b\n'
 const FIXED = 'export const add = (a, b) => a + b\n'
 
+/**
+ * Fresh `git worktree add` checkouts materialize with the platform's line
+ * endings (autocrlf on the Windows CI runner), so full-content assertions
+ * compare normalized text — the diff under test is `a + b` vs `a - b`,
+ * never CRLF vs LF.
+ */
+const normalized = (text: string): string => text.replace(/\r\n/g, '\n')
+
 let repo: string
 
 async function git(args: string[]): Promise<string> {
@@ -136,7 +144,7 @@ describe('E5 loop eval — fix travels worker → snapshot → tester, orchestra
           baseBranch: facts.branch!
         })
         const testerCopy = await readFile(join(tester.worktreePath, 'src', 'math.js'), 'utf8')
-        expect(testerCopy).toBe(FIXED)
+        expect(normalized(testerCopy)).toBe(FIXED)
 
         // The tester "ran the check" and reports success having changed nothing:
         // no snapshot commit, no uncommitted leftovers.
@@ -153,10 +161,10 @@ describe('E5 loop eval — fix travels worker → snapshot → tester, orchestra
         })
         expect(status.stdout.trim()).toBe('')
         const orchestratorCopy = await readFile(join(orchestratorPath, 'src', 'math.js'), 'utf8')
-        expect(orchestratorCopy).toBe(BUGGY)
+        expect(normalized(orchestratorCopy)).toBe(BUGGY)
 
         // And the repository's own checkout on main never moved either.
-        expect(await readFile(join(repo, 'src', 'math.js'), 'utf8')).toBe(BUGGY)
+        expect(normalized(await readFile(join(repo, 'src', 'math.js'), 'utf8'))).toBe(BUGGY)
         expect(orchestrator.agentId).not.toBe(worker.agentId)
       } finally {
         await workspace.close()
