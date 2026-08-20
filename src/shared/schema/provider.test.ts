@@ -118,6 +118,22 @@ describe('providerConfigSchema', () => {
     ).toBe(false)
   })
 
+  /**
+   * The capability claim behind the long `await_events` poll. Absent means "the
+   * CLI keeps its 60 s default" — so a zero, a fraction or an hour-plus value
+   * must not parse into a claim nobody can honour.
+   */
+  it('accepts a raised MCP tool timeout as a bounded positive integer', () => {
+    expect(config().mcpToolTimeoutSec).toBeUndefined()
+    expect(config({ mcpToolTimeoutSec: 600 }).mcpToolTimeoutSec).toBe(600)
+    expect(config({ mcpToolTimeoutSec: 3600 }).mcpToolTimeoutSec).toBe(3600)
+    for (const value of [0, -1, 1.5, 3601, '600']) {
+      expect(
+        providerConfigSchema.safeParse({ ...minimal, mcpToolTimeoutSec: value }).success
+      ).toBe(false)
+    }
+  })
+
   it('accepts optional seed-handshake overrides and rejects junk', () => {
     expect(
       providerConfigSchema.safeParse({ ...minimal, seed: { submitDelayMs: 750 } }).success

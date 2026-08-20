@@ -348,7 +348,8 @@ afterEach(async () => {
 interface AwaitResult {
   events: AgentEvent[]
   cursor: number
-  agentsSummary: Array<Record<string, unknown>>
+  /** Absent on an empty long-poll — nothing changed, so nothing is restated. */
+  agentsSummary?: Array<Record<string, unknown>>
   note?: string
 }
 

@@ -563,9 +563,35 @@ export class Workspace implements AgentHost {
     return this.deps.agentPolicy ?? ((this.deps.yoloMaster ?? true) ? 'yolo' : 'ask-user')
   }
 
+  /**
+   * How long `await_events` may block, derived from the ORCHESTRATOR provider's
+   * declared MCP tool timeout — it is that CLI that kills a tool call, and the
+   * orchestrator (plus every lead, which runs the same provider and shares this
+   * context) is the only caller of the long poll.
+   *
+   * Absent when the provider makes no claim: the tool then keeps its classic
+   * 50 s/55 s window under the CLIs' 60 s default. Both derived numbers stay a
+   * margin below the raised limit — a poll that outlives the CLI's own timeout
+   * costs the orchestrator the turn anyway AND turns a quiet loop into an
+   * error. `defaultSec` is additionally capped at five minutes: past that the
+   * saving flattens while a stuck agent stays invisible for longer.
+   *
+   * The guard is the point of the whole change: a provider claiming less than
+   * two minutes cannot fund a longer poll than the classic one, so it gets none.
+   */
+  private awaitTimeout(): { defaultSec: number; maxSec: number } | undefined {
+    const provider = this.deps.providers.find(
+      (candidate) => candidate.id === this.profile.orchestrator.providerId
+    )
+    const seconds = provider?.mcpToolTimeoutSec
+    if (!seconds || seconds < 120) return undefined
+    return { defaultSec: Math.min(300, seconds - 60), maxSec: seconds - 30 }
+  }
+
   /** The registration payload for `mcp/server.registerWorkspace`. */
   mcpContext(): WorkspaceMcpContext {
     const retro = this.deps.retro
+    const awaitTimeout = this.awaitTimeout()
     return {
       workspaceId: this.workspaceId,
       workspaceName: this.name,
@@ -577,6 +603,7 @@ export class Workspace implements AgentHost {
       limits: this.limits(),
       roles: profileRoleIds(this.profile),
       agentPolicy: this.agentPolicy(),
+      ...(awaitTimeout ? { awaitTimeout } : {}),
       ...(retro
         ? {
             retro: {

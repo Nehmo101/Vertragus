@@ -143,8 +143,10 @@ ACTIVE             — successor await_events{cursor: package.eventCursor}
 
 ## 5. Handoff package schema
 
-**Transport:** JSON on disk + truncated injection into successor seed/system
-prompt. Thin pointer event on the queue.
+**Transport:** JSON on disk; the successor seed/system prompt renders the
+package once as capped prose (no additional JSON dump — same content twice
+would double the most expensive prompt of the system). Thin pointer event on
+the queue.
 
 ```jsonc
 {

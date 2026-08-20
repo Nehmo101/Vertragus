@@ -317,6 +317,8 @@ export interface FakeRuntimeOptions {
   perRole?: Record<string, number | undefined>
   maxTotal?: number
   askTimeoutMs?: number
+  /** Injected long-poll window — tests use seconds small enough to actually wait. */
+  awaitTimeout?: { defaultSec: number; maxSec: number }
   host?: FakeAgentHost
   retro?: WorkspaceRetroPort
 }
@@ -342,6 +344,7 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): WorkspaceRuntime 
     },
     roles: options.roles ?? ['worker', 'reviewer'],
     askTimeoutMs: options.askTimeoutMs,
+    awaitTimeout: options.awaitTimeout,
     retro: options.retro
   }
   return {

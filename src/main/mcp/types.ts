@@ -83,7 +83,7 @@ export interface StartedAgent {
   branch: string
 }
 
-/** One row of `list_agents` / the `agentsSummary` in `await_events`. */
+/** One row of the host's agent overview — `list_agents` returns it in full. */
 export interface AgentSummary {
   agentId: string
   name: string
@@ -158,7 +158,10 @@ export interface WorktreeFacts {
 
 export interface InspectAgentOptions {
   view: InspectView
-  /** Relative path inside the worktree — required for `file`. */
+  /**
+   * Relative path inside the worktree — required for `file`, optional for
+   * `diff` (narrows the diff to that path).
+   */
   path?: string
   /** Line count for `log`; ignored otherwise. */
   lines?: number
@@ -313,6 +316,14 @@ export interface WorkspaceMcpContext {
    * 50 s (below the 60 s MCP request timeout). Tests shorten it.
    */
   askTimeoutMs?: number
+  /**
+   * Long-poll window for `await_events`. Set by the host when the
+   * orchestrator's provider tolerates MCP tool calls longer than the default
+   * 60 s (the attach layer raises the CLI's timeout); absent = the classic
+   * 50 s default / 55 s max. Fewer, longer polls save orchestrator turns —
+   * every empty wake-up costs a full model pass over the whole context.
+   */
+  awaitTimeout?: { defaultSec: number; maxSec: number }
   /**
    * Where `record_retro` lands. Absent = the tool answers `retro_unavailable`
    * instead of failing the workspace — retros are an amenity, never a blocker.
@@ -524,11 +535,15 @@ export function inScope(
 }
 
 /**
- * The agent overview, enriched with the open questions the MCP layer knows
+ * The FULL agent overview, enriched with the open questions the MCP layer knows
  * about — the host cannot see them, and without the id the orchestrator has no
  * way to answer. F: scoped to DIRECT children of the caller — the root sees
  * its own children (leads included, with their child counts), a lead sees only
  * its subtree; grandchildren never leak into the root's view.
+ *
+ * Only `list_agents` — the deliberate one-off overview — returns these rows.
+ * `await_events` repeats its summary on every single loop turn, so it uses
+ * {@link slimAgentsSummary} instead.
  */
 export function summarizeAgents(
   runtime: WorkspaceRuntime,
@@ -552,6 +567,40 @@ export function summarizeAgents(
 }
 
 /**
+ * The row `await_events` returns: everything that CHANGES over an agent's life,
+ * nothing that is fixed at birth.
+ */
+export type SlimAgentsSummaryRow = Omit<AgentsSummaryRow, 'worktreePath' | 'model' | 'reporting'>
+
+/**
+ * {@link summarizeAgents} minus the three static-per-agent fields
+ * (`worktreePath`, `model`, `reporting`). They never change after the start, and
+ * the orchestrator already got all three from `start_agent` and the
+ * `agent_started` event — repeating them on every await_events turn is pure
+ * token waste. `list_agents` still hands out the full row when the orchestrator
+ * genuinely wants the overview again.
+ */
+export function slimAgentsSummary(
+  runtime: WorkspaceRuntime,
+  scope?: { leadId?: string }
+): SlimAgentsSummaryRow[] {
+  // Built by naming what stays rather than deleting what goes: a new field on
+  // AgentSummary must then be opted INTO the per-turn payload, never sneak in.
+  return summarizeAgents(runtime, scope).map((row) => ({
+    agentId: row.agentId,
+    name: row.name,
+    role: row.role,
+    status: row.status,
+    ...(row.branch !== undefined ? { branch: row.branch } : {}),
+    lastOutputAgeSec: row.lastOutputAgeSec,
+    ...(row.kind !== undefined ? { kind: row.kind } : {}),
+    ...(row.childCount !== undefined ? { childCount: row.childCount } : {}),
+    ...(row.pendingQuestion !== undefined ? { pendingQuestion: row.pendingQuestion } : {}),
+    ...(row.pendingQuestionId !== undefined ? { pendingQuestionId: row.pendingQuestionId } : {})
+  }))
+}
+
+/**
  * MCP tool result shape (text content only — every tool answers with JSON).
  * The index signature is what the SDK's `CallToolResult` requires.
  */
@@ -565,8 +614,14 @@ export function toolText(body: string): ToolText {
   return { content: [{ type: 'text', text: body }] }
 }
 
+/**
+ * Compact on purpose: the reader is a model, not a human. Pretty-printing costs
+ * one token per indent run and per newline on every field of every tool result
+ * — pure waste in a loop the orchestrator runs hundreds of times. Nothing in
+ * the app parses the text back except tests, which use `JSON.parse`.
+ */
 export function toolJson(body: unknown): ToolText {
-  return toolText(JSON.stringify(body, null, 2))
+  return toolText(JSON.stringify(body))
 }
 
 /** A tool-level failure: the model sees it as an error, the call still returns. */

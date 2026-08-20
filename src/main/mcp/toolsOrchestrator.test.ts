@@ -521,15 +521,49 @@ describe('await_events', () => {
 
   it('keeps the cursor and demands a re-call when nothing happened', async () => {
     const { tools } = setup()
+    await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
     const result = await callTool(tools, 'await_events', { cursor: 7, timeoutSec: 1 })
     expect(result.json.events).toEqual([])
     expect(result.json.cursor).toBe(7)
     expect(String(result.json.note)).toMatch(/call await_events again/i)
+    // Nothing happened, so nothing about the agents changed either — the empty
+    // answer stays as small as the loop's most repeated result deserves.
+    expect(result.json.agentsSummary).toBeUndefined()
+  })
+
+  it('answers in compact JSON — no pretty-printing anywhere in the loop', async () => {
+    const { tools } = setup()
+    await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
+    const result = await callTool(tools, 'await_events', { cursor: 0, timeoutSec: 1 })
+    expect(result.text).not.toMatch(/\n/)
+    expect(result.text.startsWith('{"events":[{')).toBe(true)
   })
 
   it('clamps the timeout to 55 s by rejecting anything larger', async () => {
     const { tools } = setup()
     await expect(callTool(tools, 'await_events', { timeoutSec: 900 })).rejects.toThrow()
+  })
+
+  it('honours an injected long-poll window for its default and its ceiling', async () => {
+    // Small seconds so the assertion is a real wait and the suite stays fast.
+    const { tools } = setup({ awaitTimeout: { defaultSec: 2, maxSec: 3 } })
+    const timeout = tools.get('await_events')!.inputSchema.timeoutSec as {
+      description?: string
+    }
+    expect(String(timeout.description)).toContain('default 2')
+    expect(String(timeout.description)).toContain('max 3')
+
+    // Above the injected ceiling the schema refuses — even though the built-in
+    // fallback (55 s) would have accepted it.
+    await expect(callTool(tools, 'await_events', { timeoutSec: 10 })).rejects.toThrow()
+
+    // No timeoutSec at all blocks for the injected default, not the 50 s one.
+    const started = Date.now()
+    const result = await callTool(tools, 'await_events', { cursor: 0 })
+    const elapsed = Date.now() - started
+    expect(result.json.events).toEqual([])
+    expect(elapsed).toBeGreaterThanOrEqual(1_800)
+    expect(elapsed).toBeLessThan(3_000)
   })
 
   it('returns as soon as an event is pushed while it waits', async () => {
@@ -559,6 +593,30 @@ describe('await_events', () => {
       agentId,
       pendingQuestion: 'which db?',
       pendingQuestionId: question.questionId
+    })
+  })
+
+  it('drops the static per-agent fields from its summary rows', async () => {
+    const { tools } = setup()
+    await callTool(tools, 'start_agent', { role: 'worker', task: 't', model: 'opus' })
+
+    const result = await callTool(tools, 'await_events', { cursor: 0, timeoutSec: 1 })
+    const row = (result.json.agentsSummary as Array<Record<string, unknown>>)[0]!
+    // Fixed at birth and already delivered by start_agent / agent_started —
+    // repeating them every loop turn is pure token waste.
+    expect(row).not.toHaveProperty('worktreePath')
+    expect(row).not.toHaveProperty('model')
+    expect(row).not.toHaveProperty('reporting')
+    // What actually changes stays.
+    expect(row).toMatchObject({ status: 'running', branch: expect.any(String) })
+    expect(row).toHaveProperty('lastOutputAgeSec')
+
+    // list_agents remains the full one-off overview.
+    const listed = await callTool(tools, 'list_agents')
+    expect((listed.json.agents as Array<Record<string, unknown>>)[0]).toMatchObject({
+      model: 'opus',
+      worktreePath: '/tmp/worktrees/agent-1',
+      reporting: 'mcp'
     })
   })
 })

@@ -19,6 +19,7 @@ import { providerPreset, providerPresets } from '@main/providers/presets'
 import { providerConfigSchema, type ProviderConfig } from '@shared/schema/provider'
 import {
   buildAgentArgv,
+  buildAgentEnv,
   buildAgentLaunch,
   needsFaithfulArgs,
   spawnAgent,
@@ -228,6 +229,23 @@ describe('buildAgentArgv — per preset', () => {
       'developer_instructions="You orchestrate."'
     ])
     expect(argv).not.toContain('--dangerously-bypass-approvals-and-sandbox')
+  })
+
+  /**
+   * The Codex half of the long-poll lever, opt-in as DATA: the preset makes no
+   * claim (unknown `mcp_servers.*` keys are unverified on older builds), but a
+   * user or a custom provider that sets the field gets the override — and no
+   * environment, because Codex takes its settings as arguments.
+   */
+  it('passes a declared tool timeout to Codex as one more -c override', () => {
+    const codex = { ...preset('codex'), mcpToolTimeoutSec: 600 }
+    const { argv } = buildAgentArgv(launchInput({ provider: codex, kind: 'orchestrator' }))
+    expect(argv).toContain('mcp_servers.vertragus.tool_timeout_sec=600')
+    expect(buildAgentEnv(launchInput({ provider: codex }))).toBeUndefined()
+
+    // And nothing at all when the preset is left as shipped.
+    const { argv: plain } = buildAgentArgv(launchInput({ provider: preset('codex') }))
+    expect(plain.some((arg) => arg.includes('tool_timeout_sec'))).toBe(false)
   })
 
   it('composes a Kimi subagent: a file in the cwd, a file for the prompt', () => {
@@ -550,6 +568,39 @@ describe('buildAgentLaunch', () => {
     expect(resolve.mock.calls[0]![2]).toMatchObject({ requireFaithfulArgs: false })
   })
 
+  /**
+   * The long-poll lever: a Claude launch carries the raised MCP tool timeout in
+   * its own environment (milliseconds), so `await_events` can block for minutes
+   * instead of waking the orchestrator — and its whole context — every 50 s.
+   */
+  it('raises the MCP tool timeout in the environment of a Claude launch', async () => {
+    const resolve = async (_c: string, args: string[]): Promise<{ file: string; args: string[] }> => ({
+      file: 'claude',
+      args
+    })
+    const launch = await buildAgentLaunch(launchInput({ kind: 'orchestrator' }), { resolve })
+    expect(launch.env).toEqual({ MCP_TIMEOUT: '600000', MCP_TOOL_TIMEOUT: '600000' })
+    // Nothing about the argument vector changes — the raise is env-only.
+    expect(launch.argv.join(' ')).not.toContain('MCP_TIMEOUT')
+  })
+
+  it('leaves the environment alone for a provider that claims nothing', async () => {
+    const resolve = async (_c: string, args: string[]): Promise<{ file: string; args: string[] }> => ({
+      file: 'x',
+      args
+    })
+    // Codex declares no timeout (unverified key on older builds) and Cursor has
+    // no known mechanism at all: both spawn with a clean environment.
+    for (const id of ['codex', 'cursor']) {
+      const launch = await buildAgentLaunch(launchInput({ provider: preset(id), cwd }), { resolve })
+      expect(launch.env).toBeUndefined()
+    }
+    // And a Claude-dialect provider that simply does not claim it.
+    const quiet = { ...preset('claude') }
+    delete quiet.mcpToolTimeoutSec
+    expect((await buildAgentLaunch(launchInput({ provider: quiet }), { resolve })).env).toBeUndefined()
+  })
+
   it('detects arguments a cmd.exe wrapper would truncate', () => {
     expect(needsFaithfulArgs(['--model', 'opus'])).toBe(false)
     expect(needsFaithfulArgs(['--prompt', 'a\nb'])).toBe(true)
@@ -609,6 +660,24 @@ describe('spawnAgent', () => {
       args: launch.args,
       cwd: '/repo/.vertragus/worktrees/a1'
     })
+  })
+
+  it('hands the raised MCP timeout to the process, and nothing when unclaimed', async () => {
+    const claiming = new FakePty()
+    await spawnAgent(launchInput({ kind: 'orchestrator' }), {
+      resolve,
+      createPty: () => claiming
+    })
+    expect(claiming.spawnOptions?.env).toEqual({ MCP_TIMEOUT: '600000', MCP_TOOL_TIMEOUT: '600000' })
+
+    // An unclaiming provider spawns exactly as it always did — no `env` key at
+    // all, so it inherits the app environment untouched.
+    const quiet = new FakePty()
+    await spawnAgent(launchInput({ provider: preset('ollama'), cwd }), {
+      resolve,
+      createPty: () => quiet
+    })
+    expect(quiet.spawnOptions && 'env' in quiet.spawnOptions).toBe(false)
   })
 
   it('pre-accepts the trust dialog for the exact directory it launches in', async () => {

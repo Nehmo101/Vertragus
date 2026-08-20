@@ -227,6 +227,30 @@ export const providerConfigSchema = z
     auth: providerAuthSchema.optional(),
     systemPromptDelivery: systemPromptDeliverySchema.default({ kind: 'pty' }),
     mcp: mcpAttachSchema.default({ kind: 'none' }),
+    /**
+     * How long ONE MCP tool call may run on this CLI, in seconds, once the
+     * launch layer has raised the limit. Absent = the CLI keeps its own default
+     * (60 s in every CLI shipped here), which is what caps the orchestrator's
+     * `await_events` long poll at 50 s.
+     *
+     * A capability claim, not a wish: setting it means "the spawn/attach layer
+     * knows how to raise THIS CLI's tool timeout, process-locally" — Claude's
+     * `MCP_TIMEOUT`/`MCP_TOOL_TIMEOUT` env pair, Codex' per-server
+     * `tool_timeout_sec` override. A dialect with no known mechanism ignores
+     * the number, and nothing is ever written to a user-global config.
+     *
+     * It lives here and not inside `mcp` because that union is strict and
+     * per-dialect: the field would have to be repeated in every variant
+     * (including `none`, where it means nothing) or force a narrowing at every
+     * read site. It stays DATA on the provider so a custom Claude-compatible
+     * CLI can opt in without a Vertragus release.
+     *
+     * Why it matters: every empty `await_events` return costs the orchestrator
+     * a full model pass over its whole context. A ten-minute poll is an order
+     * of magnitude fewer idle turns than a fifty-second one — the single
+     * biggest token lever in the loop.
+     */
+    mcpToolTimeoutSec: z.number().int().positive().max(3600).optional(),
     modelDiscovery: modelDiscoverySchema.default({ kind: 'none' }),
     /**
      * Ids that are ALWAYS offered, merged behind whatever discovery found.

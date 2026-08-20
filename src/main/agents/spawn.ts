@@ -46,6 +46,7 @@
  */
 import {
   buildCodexMcpArgs,
+  claudeMcpTimeoutEnv,
   codexExtraServerOverrides,
   CURSOR_APPROVE_MCPS_FLAG,
   grokAllowMcpArgs,
@@ -138,6 +139,12 @@ export interface ResolvedLaunch extends AgentArgv {
   /** The provider's declared command, before resolution — for logs and errors. */
   command: string
   cwd: string
+  /**
+   * Environment overlaid on `process.env` for this launch only. Set when the
+   * provider's MCP dialect spells a setting as an env var; absent otherwise —
+   * see {@link buildAgentEnv}.
+   */
+  env?: Record<string, string>
 }
 
 /**
@@ -186,7 +193,12 @@ export function buildMcpArgs(input: AgentLaunchInput): string[] {
           configDir: input.configDir,
           fileTag: input.fileTag,
           ...(input.kind === 'orchestrator' ? { allowedTools: orchestratorMcpTools() } : {}),
-          ...(input.kind === 'lead' ? { allowedTools: leadMcpTools() } : {})
+          ...(input.kind === 'lead' ? { allowedTools: leadMcpTools() } : {}),
+          // Codex spells the raised tool timeout as one more `-c` override; it
+          // is emitted only when the provider claims the capability.
+          ...(provider.mcpToolTimeoutSec
+            ? { toolTimeoutSec: provider.mcpToolTimeoutSec }
+            : {})
         }),
         ...codexExtraServerOverrides(extraMcp)
       ]
@@ -224,6 +236,28 @@ export function buildMcpArgs(input: AgentLaunchInput): string[] {
     case 'none':
       return []
   }
+}
+
+/**
+ * Per-launch environment for one agent — currently only the MCP tool-call
+ * timeout, and only for the dialects that spell it as an env var.
+ *
+ * The number is the provider's `mcpToolTimeoutSec` claim; the SPELLING is the
+ * dialect's, which is why the pair itself lives in `mcp/attach` next to every
+ * other per-CLI attachment fact. Claude reads `MCP_TIMEOUT`/`MCP_TOOL_TIMEOUT`
+ * from its environment (milliseconds), so the raise dies with the process —
+ * the same philosophy as Codex' `-c` overrides and the transient config file:
+ * a Vertragus launch never edits a user-global config. Codex takes its raise as
+ * an argument instead (`tool_timeout_sec`, see {@link buildMcpArgs}), and the
+ * remaining dialects have no verified mechanism, so they get nothing.
+ *
+ * Every kind of agent gets it, not just the orchestrator: `await_events` is the
+ * orchestrator's loop, but a lead runs the same loop, and a subagent whose CLI
+ * survives a long tool call is never worse off.
+ */
+export function buildAgentEnv(input: AgentLaunchInput): Record<string, string> | undefined {
+  if (input.provider.mcp.kind !== 'claude-json') return undefined
+  return claudeMcpTimeoutEnv(input.provider.mcpToolTimeoutSec)
 }
 
 /**
@@ -299,13 +333,15 @@ export async function buildAgentLaunch(
     requireFaithfulArgs: needsFaithfulArgs(argv),
     ...(input.platform ? { platform: input.platform } : {})
   })
+  const env = buildAgentEnv(input)
   return {
     file: resolved.file,
     args: resolved.args,
     command: input.provider.command,
     argv,
     cwd: input.cwd,
-    ptySystemPrompt
+    ptySystemPrompt,
+    ...(env ? { env } : {})
   }
 }
 
@@ -389,6 +425,9 @@ export async function spawnAgent(
       file: launch.file,
       args: launch.args,
       cwd: launch.cwd,
+      // Overlaid on `process.env` by the PTY; absent for a provider that needs
+      // no environment, so an untouched dialect keeps spawning byte-identically.
+      ...(launch.env ? { env: launch.env } : {}),
       ...(deps.cols ? { cols: deps.cols } : {}),
       ...(deps.rows ? { rows: deps.rows } : {})
     })

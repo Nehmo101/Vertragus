@@ -16,6 +16,9 @@ import {
   buildKimiMcpArgs,
   buildKimiOrchestratorArgs,
   buildKimiSubagentArgs,
+  claudeMcpTimeoutEnv,
+  CLAUDE_MCP_TIMEOUT_ENV,
+  CLAUDE_MCP_TOOL_TIMEOUT_ENV,
   codexDeveloperInstructionsArgs,
   codexExtraServerOverrides,
   CURSOR_APPROVE_MCPS_FLAG,
@@ -107,6 +110,29 @@ describe('buildClaudeMcpArgs', () => {
       systemPrompt: 'You orchestrate.'
     })
     expect(args[args.indexOf('--append-system-prompt') + 1]).toBe('You orchestrate.')
+  })
+})
+
+/**
+ * The long-poll budget. `await_events` can only block for minutes if the CLI
+ * stops killing the tool call at 60 s — Claude reads that limit from its
+ * environment, in milliseconds, and a provider that makes no claim must keep
+ * spawning with a clean environment.
+ */
+describe('claude MCP tool timeout', () => {
+  it('translates declared seconds into the millisecond env pair', () => {
+    expect(claudeMcpTimeoutEnv(600)).toEqual({
+      [CLAUDE_MCP_TIMEOUT_ENV]: '600000',
+      [CLAUDE_MCP_TOOL_TIMEOUT_ENV]: '600000'
+    })
+    // Startup AND tool call: raising one of the two is a 60 s failure that
+    // nobody can place.
+    expect(Object.keys(claudeMcpTimeoutEnv(600) ?? {})).toEqual(['MCP_TIMEOUT', 'MCP_TOOL_TIMEOUT'])
+  })
+
+  it('stays silent for a provider that makes no claim', () => {
+    expect(claudeMcpTimeoutEnv(undefined)).toBeUndefined()
+    expect(claudeMcpTimeoutEnv(0)).toBeUndefined()
   })
 })
 
@@ -206,6 +232,24 @@ describe('codex attach', () => {
     const args = buildCodexSubagentArgs({ url: URL, configDir, fileTag: 'sub' })
     expect(args.some((arg) => arg.includes('enabled_tools'))).toBe(false)
     expect(args).toContain(`mcp_servers.vertragus.url="${URL}"`)
+  })
+
+  /**
+   * Codex spells the raised timeout as one more process-local override. It is
+   * emitted ONLY on demand: no shipped preset claims it, because an older codex
+   * meeting an unknown `mcp_servers.*` key could refuse to start — and a launch
+   * that never starts is worse than a 50 s poll.
+   */
+  it('adds tool_timeout_sec only when the provider declares one', () => {
+    const plain = buildCodexMcpArgs({ url: URL, configDir, fileTag: 'c' })
+    expect(plain.some((arg) => arg.includes('tool_timeout_sec'))).toBe(false)
+
+    const raised = buildCodexMcpArgs({ url: URL, configDir, fileTag: 'c', toolTimeoutSec: 600 })
+    expect(raised).toContain('mcp_servers.vertragus.tool_timeout_sec=600')
+    // Seconds here, unlike Claude's millisecond env pair.
+    expect(raised).not.toContain('mcp_servers.vertragus.tool_timeout_sec=600000')
+    // Everything else about the attachment is untouched.
+    expect(raised.slice(0, plain.length)).toEqual(plain)
   })
 
   it('omits developer_instructions when there is no prompt', () => {

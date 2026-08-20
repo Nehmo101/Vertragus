@@ -160,6 +160,33 @@ export interface McpAttachTarget {
    * Explicit tool allowlist. Omit for subagents — they run unrestricted.
    */
   allowedTools?: string[]
+  /**
+   * The CLI's raised per-tool-call timeout in seconds
+   * (`ProviderConfig.mcpToolTimeoutSec`). Absent = the CLI's own 60 s default,
+   * which is what forces `await_events` into a 50 s metronome.
+   */
+  toolTimeoutSec?: number
+}
+
+/**
+ * Claude Code's MCP timeout pair, both in MILLISECONDS.
+ *
+ * `MCP_TIMEOUT` covers server startup, `MCP_TOOL_TIMEOUT` one tool call; a long
+ * `await_events` needs the latter, and raising only one of them is the kind of
+ * half-measure that shows up as a 60 s failure nobody can place. Environment,
+ * not settings file: the raise then belongs to this launch alone and cannot
+ * leak into the user's own Claude sessions.
+ */
+export const CLAUDE_MCP_TIMEOUT_ENV = 'MCP_TIMEOUT'
+export const CLAUDE_MCP_TOOL_TIMEOUT_ENV = 'MCP_TOOL_TIMEOUT'
+
+/** The env pair for one Claude launch, or nothing when the provider is silent. */
+export function claudeMcpTimeoutEnv(
+  toolTimeoutSec: number | undefined
+): Record<string, string> | undefined {
+  if (!toolTimeoutSec || toolTimeoutSec <= 0) return undefined
+  const ms = String(Math.floor(toolTimeoutSec) * 1000)
+  return { [CLAUDE_MCP_TIMEOUT_ENV]: ms, [CLAUDE_MCP_TOOL_TIMEOUT_ENV]: ms }
 }
 
 /**
@@ -266,8 +293,17 @@ export function tomlString(value: string): string {
  * up as a mute agent. `default_tools_approval_mode="approve"` pre-approves this
  * server's tools only — it is a loopback server Vertragus minted seconds ago,
  * and an approval prompt on `report_done` would deadlock the agent.
+ *
+ * `tool_timeout_sec` is emitted ONLY when the provider declares
+ * `mcpToolTimeoutSec` — the key exists on newer Codex builds, and no shipped
+ * preset claims it, because an older codex meeting an unknown key under
+ * `mcp_servers.*` could refuse the launch outright (see the codex preset).
  */
-export function codexServerOverrides(url: string, allowedTools?: readonly string[]): string[] {
+export function codexServerOverrides(
+  url: string,
+  allowedTools?: readonly string[],
+  toolTimeoutSec?: number
+): string[] {
   const key = `mcp_servers.${MCP_SERVER_NAME}`
   const args = [
     CODEX_CONFIG_FLAG,
@@ -279,6 +315,9 @@ export function codexServerOverrides(url: string, allowedTools?: readonly string
   ]
   const tools = serverScopedTools(allowedTools)
   if (tools) args.push(CODEX_CONFIG_FLAG, `${key}.enabled_tools=${JSON.stringify(tools)}`)
+  if (toolTimeoutSec && toolTimeoutSec > 0) {
+    args.push(CODEX_CONFIG_FLAG, `${key}.tool_timeout_sec=${Math.floor(toolTimeoutSec)}`)
+  }
   return args
 }
 
@@ -307,7 +346,7 @@ export function codexExtraServerOverrides(
  * is still scoped by `enabled_tools`; the user's are not ours to switch off.
  */
 export function buildCodexMcpArgs(target: McpAttachTarget): string[] {
-  return codexServerOverrides(target.url, target.allowedTools)
+  return codexServerOverrides(target.url, target.allowedTools, target.toolTimeoutSec)
 }
 
 /**

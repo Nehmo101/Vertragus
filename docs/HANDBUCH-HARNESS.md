@@ -188,9 +188,14 @@ gegen `starting` ist derselbe Fehler wie `send_to_agent`.
 inspect_agent{agentId, view: status | diff | log | file, path?, lines?}
 ```
 
-Read-only, nie Hauptcheckout. Gecappt (80 k Zeichen Diff/Datei, Log
-max 50). Prompt: Verifikation über `inspect_agent`, niemals über eigene
-Git-Befehle, niemals über `read_output`. Provider-neutral.
+Read-only, nie Hauptcheckout. Gecappt (20 k Zeichen Diff, 80 k Datei,
+Log max 50); der Truncation-Marker nennt den Ausweg (`path` setzen,
+`view: file`, oder `status` lesen) statt nur „truncated“. `path` ist
+Pflicht für `file` und optional für `diff` — dann diffed der Host nur
+diese Datei bzw. dieses Verzeichnis. Prompt: Verifikation über
+`inspect_agent` — erst `status` (Porcelain + Diffstat), voller Diff nur
+bei Auffälligkeiten —, niemals über eigene Git-Befehle, niemals über
+`read_output`. Provider-neutral.
 Orchestrator-Tool, kein Gateway-Befehl (Remote soll nicht beliebige
 Repo-Dateien lesen). Gestoppte Agenten bleiben inspectable — das
 Worktree überlebt `stop_agent`.
@@ -264,7 +269,9 @@ Vollständiger Plan: [`docs/ORCHESTRATOR-SUCCESSION.md`](./ORCHESTRATOR-SUCCESSI
 
 **S1 im Code:** `request_succession` (neuntes Orchestrator-Tool), Host-Paket,
 `orchToken`-Rotation (alte URL → 401, Subagent-URLs bleiben), Successor-Seed
-mit `eventCursor` und offenen Fragen, Fence `succession_in_progress` auf
+mit `eventCursor` und offenen Fragen — das Paket wird einmal als Prosa
+gerendert (Roster, Fragen, Next Actions, Decisions, Risks, Note,
+Event-Schwanz), kein zusätzlicher JSON-Dump —, Fence `succession_in_progress` auf
 mutierenden Tools, `record_retro` währenddessen verboten. User-Button, C5
 und C3-SHA-Härtung sind später.
 

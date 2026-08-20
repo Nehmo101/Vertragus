@@ -57,6 +57,15 @@ const PRESETS: readonly ProviderConfig[] = [
       strictArg: '--strict-mcp-config',
       allowedToolsArg: '--allowedTools'
     },
+    /**
+     * Claude Code reads `MCP_TIMEOUT` / `MCP_TOOL_TIMEOUT` (milliseconds) from
+     * its own environment, so the raise is process-local — the spawn layer sets
+     * the pair, nothing touches `~/.claude/settings.json`. Ten minutes is the
+     * point where the orchestrator's `await_events` stops being a metronome:
+     * one long poll instead of ~12 empty 50 s ones, each of which would cost a
+     * full model pass over the whole orchestrator context.
+     */
+    mcpToolTimeoutSec: 600,
     modelDiscovery: {
       kind: 'file',
       path: '~/.claude.json',
@@ -94,6 +103,12 @@ const PRESETS: readonly ProviderConfig[] = [
     auth: { loginArgs: ['login'], statusArgs: ['login', 'status'] },
     systemPromptDelivery: { kind: 'codex-config' },
     mcp: { kind: 'codex-overrides' },
+    // No `mcpToolTimeoutSec` on purpose. Newer Codex builds take a per-server
+    // `tool_timeout_sec`, and the attach layer emits the `-c` override the
+    // moment this field is set — but nothing here verified how an OLDER codex
+    // reacts to an unknown key under `mcp_servers.*`, and a rejected override
+    // is a launch that never starts. The mechanism ships, the claim does not:
+    // a user on a recent codex opts in by editing this preset.
     modelDiscovery: {
       kind: 'file',
       path: '~/.codex/models_cache.json',
