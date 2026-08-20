@@ -1560,3 +1560,38 @@ describe('orchestrator idle watchdog — C5', () => {
     ).toHaveLength(1)
   })
 })
+
+describe('postUserMessage — D2', () => {
+  it('shows the text in the orchestrator terminal (display only) and pushes user_message', async () => {
+    const { workspace, spawns } = harness()
+    await workspace.startOrchestrator()
+
+    workspace.postUserMessage('Focus on the parser first.')
+
+    // Visible in the scrollback, but never typed into the CLI's stdin — a
+    // typed line would start a second turn beside the MCP loop.
+    expect(spawns[0]!.pty.snapshot()).toContain('Focus on the parser first.')
+    expect(spawns[0]!.pty.written).toEqual([])
+    expect(workspace.events.all().at(-1)).toMatchObject({
+      type: 'user_message',
+      text: 'Focus on the parser first.'
+    })
+  })
+
+  it('wakes a parked await_events-style waiter immediately', async () => {
+    const { workspace } = harness()
+    await workspace.startOrchestrator()
+    const cursor = workspace.events.cursor
+    const parked = workspace.events.wait(cursor, 5_000)
+
+    workspace.postUserMessage('steer')
+
+    const events = await parked
+    expect(events.map((event) => event.type)).toEqual(['user_message'])
+  })
+
+  it('refuses without a running orchestrator', async () => {
+    const { workspace } = harness()
+    expect(() => workspace.postUserMessage('x')).toThrow(/no running orchestrator/)
+  })
+})

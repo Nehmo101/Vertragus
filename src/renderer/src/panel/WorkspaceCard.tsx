@@ -123,6 +123,91 @@ interface Props {
   onCloseAgentWindow(agentId: string): void
   /** H1: answer one agent's open question over the shared host path. */
   onAnswerQuestion(workspaceId: string, agentId: string, questionId: string, text: string): void
+  /** D2: steer the run — wakes the orchestrator's await_events. */
+  onUserMessage(workspaceId: string, text: string): void
+}
+
+/**
+ * D3: the orchestrator asked the HUMAN. Same field as the agent answers, other
+ * backend: the answer goes to the reserved agent id `user`, which resolves the
+ * parked `ask_user` waiter.
+ */
+function UserQuestion({
+  workspaceId,
+  question,
+  questionId,
+  onAnswer
+}: {
+  workspaceId: string
+  question: string
+  questionId: string
+  onAnswer(workspaceId: string, agentId: string, questionId: string, text: string): void
+}): React.JSX.Element {
+  const { t } = useTranslation()
+  const [answer, setAnswer] = useState('')
+  const submit = (): void => {
+    if (!answer.trim()) return
+    onAnswer(workspaceId, 'user', questionId, answer.trim())
+    setAnswer('')
+  }
+  return (
+    <div className="panel-answer panel-user-question">
+      <p className="panel-answer-question">{t('panel.userQuestion', { question })}</p>
+      <textarea
+        className="panel-answer-input"
+        rows={2}
+        placeholder={t('panel.answerPlaceholder')}
+        value={answer}
+        onChange={(event) => setAnswer(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault()
+            submit()
+          }
+        }}
+      />
+      <button type="button" className="panel-answer-send" disabled={!answer.trim()} onClick={submit}>
+        {t('panel.answerSend')}
+      </button>
+    </div>
+  )
+}
+
+/** D2: the card's composer — one line to steer the whole run. */
+function Composer({
+  workspaceId,
+  onSend
+}: {
+  workspaceId: string
+  onSend(workspaceId: string, text: string): void
+}): React.JSX.Element {
+  const { t } = useTranslation()
+  const [text, setText] = useState('')
+  const submit = (): void => {
+    if (!text.trim()) return
+    onSend(workspaceId, text.trim())
+    setText('')
+  }
+  return (
+    <div className="panel-composer">
+      <input
+        className="panel-answer-input"
+        type="text"
+        placeholder={t('panel.composerPlaceholder')}
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault()
+            submit()
+          }
+        }}
+      />
+      <button type="button" className="panel-answer-send" disabled={!text.trim()} onClick={submit}>
+        {t('panel.composerSend')}
+      </button>
+    </div>
+  )
 }
 
 /**
@@ -136,7 +221,8 @@ export function WorkspaceCard({
   onStop,
   onFocusAgent,
   onCloseAgentWindow,
-  onAnswerQuestion
+  onAnswerQuestion,
+  onUserMessage
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
   const stop = t('panel.stopWorkspace', { workspace: workspace.name })
@@ -194,6 +280,14 @@ export function WorkspaceCard({
               {goalLine}
             </p>
           ) : null}
+          {workspace.userQuestion ? (
+            <UserQuestion
+              workspaceId={workspace.workspaceId}
+              question={workspace.userQuestion.question}
+              questionId={workspace.userQuestion.questionId}
+              onAnswer={onAnswerQuestion}
+            />
+          ) : null}
           <ul className="panel-agents">
             {workspace.agents.length === 0 ? (
               <li className="panel-agents-empty">{t('panel.noAgents')}</li>
@@ -211,6 +305,9 @@ export function WorkspaceCard({
               ))
             )}
           </ul>
+          {workspace.active ? (
+            <Composer workspaceId={workspace.workspaceId} onSend={onUserMessage} />
+          ) : null}
         </>
       ) : null}
     </article>

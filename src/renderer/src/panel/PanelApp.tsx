@@ -190,6 +190,7 @@ export function PanelApp(): React.JSX.Element {
                   onFocusAgent={panel.focusAgent}
                   onCloseAgentWindow={panel.closeAgentWindow}
                   onAnswerQuestion={panel.answerQuestion}
+                  onUserMessage={panel.sendUserMessage}
                 />
               ))}
             </div>

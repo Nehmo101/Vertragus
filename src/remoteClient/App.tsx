@@ -201,6 +201,9 @@ function WorkspaceCard({
         <p className="card-task no-goal">Kein Ziel — Orchestrator wartet</p>
       ) : null}
       {workspace.taskText ? <p className="card-task">{workspace.taskText}</p> : null}
+      {workspace.userQuestion ? (
+        <UserQuestionForm api={api} workspace={workspace} />
+      ) : null}
       <div className="agents">
         {workspace.agents.map((agent) => (
           <AgentChip
@@ -228,7 +231,99 @@ function WorkspaceCard({
             )
           })()
         : null}
+      {workspace.active ? <Composer api={api} workspaceId={workspace.workspaceId} /> : null}
     </section>
+  )
+}
+
+/**
+ * D3: the orchestrator's question to the HUMAN — answered with the reserved
+ * agent id "user" over the same answer_question verb as agent questions.
+ */
+function UserQuestionForm({
+  api,
+  workspace
+}: {
+  api: RemoteApi
+  workspace: RemoteWorkspaceSummary
+}): React.JSX.Element {
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const question = workspace.userQuestion!
+
+  const submit = (): void => {
+    if (!text.trim() || busy) return
+    setBusy(true)
+    setError(null)
+    api
+      .runCommand('answer_question', undefined, {
+        workspaceId: workspace.workspaceId,
+        agentId: 'user',
+        questionId: question.questionId,
+        text: text.trim()
+      })
+      .then(
+        () => {
+          setText('')
+          setBusy(false)
+        },
+        (cause: Error) => {
+          setError(cause.message)
+          setBusy(false)
+        }
+      )
+  }
+
+  return (
+    <div className="answer-form">
+      <p className="answer-question">Frage an dich: {question.question}</p>
+      <textarea
+        className="goal-input"
+        rows={3}
+        placeholder="Antwort …"
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+      />
+      {error ? <p className="form-error">{error}</p> : null}
+      <button className="primary" disabled={busy || !text.trim()} onClick={submit}>
+        Antworten
+      </button>
+    </div>
+  )
+}
+
+/** D2: steer the run from the phone — wakes the orchestrator's await_events. */
+function Composer({ api, workspaceId }: { api: RemoteApi; workspaceId: string }): React.JSX.Element {
+  const [text, setText] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  const submit = (): void => {
+    const trimmed = text.trim()
+    if (!trimmed) return
+    setError(null)
+    api.runCommand('user_message', undefined, { workspaceId, text: trimmed }).then(
+      () => setText(''),
+      (cause: Error) => setError(cause.message)
+    )
+  }
+
+  return (
+    <div className="composer">
+      <input
+        type="text"
+        placeholder="Nachricht an den Orchestrator …"
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') submit()
+        }}
+      />
+      <button className="primary" disabled={!text.trim()} onClick={submit}>
+        Senden
+      </button>
+      {error ? <p className="form-error">{error}</p> : null}
+    </div>
   )
 }
 

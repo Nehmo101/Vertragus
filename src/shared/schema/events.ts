@@ -18,7 +18,9 @@ export const AGENT_EVENT_TYPES = [
   'agent_exited',
   'agent_stopped',
   'orchestrator_exited',
-  'orchestrator_idle'
+  'orchestrator_idle',
+  'user_message',
+  'user_question'
 ] as const
 
 export type AgentEventType = (typeof AGENT_EVENT_TYPES)[number]
@@ -134,6 +136,29 @@ const orchestratorIdlePayload = z.object({
   idleSec: z.number().int().nonnegative()
 })
 
+/**
+ * D2: the human steered the run from the panel or the remote client. No agent
+ * identity — the sender is the user, who is not an agent. Pushing it is what
+ * wakes a parked `await_events`, so the orchestrator reads the steering
+ * immediately instead of after its next poll window.
+ */
+const userMessagePayload = z.object({
+  type: z.literal('user_message'),
+  text: z.string().min(1).max(20_000)
+})
+
+/**
+ * D3: the orchestrator asked the HUMAN a question (`ask_user`) and is blocked
+ * on the answer. The registry entry behind `questionId` is what the panel /
+ * remote answer path resolves; the event is the badge's push signal and the
+ * history record. No agent identity — the addressee is the user.
+ */
+const userQuestionPayload = z.object({
+  type: z.literal('user_question'),
+  questionId: z.string().min(1),
+  question: z.string().min(1)
+})
+
 /** Event body as produced by a caller — no `seq`/`ts` yet. */
 export const agentEventPayloadSchema = z.discriminatedUnion('type', [
   agentStartedPayload,
@@ -144,7 +169,9 @@ export const agentEventPayloadSchema = z.discriminatedUnion('type', [
   agentExitedPayload,
   agentStoppedPayload,
   orchestratorExitedPayload,
-  orchestratorIdlePayload
+  orchestratorIdlePayload,
+  userMessagePayload,
+  userQuestionPayload
 ])
 export type AgentEventPayload = z.infer<typeof agentEventPayloadSchema>
 
@@ -164,7 +191,9 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   agentExitedPayload.extend(envelope),
   agentStoppedPayload.extend(envelope),
   orchestratorExitedPayload.extend(envelope),
-  orchestratorIdlePayload.extend(envelope)
+  orchestratorIdlePayload.extend(envelope),
+  userMessagePayload.extend(envelope),
+  userQuestionPayload.extend(envelope)
 ])
 export type AgentEvent = z.infer<typeof agentEventSchema>
 

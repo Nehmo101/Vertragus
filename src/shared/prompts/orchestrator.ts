@@ -2,7 +2,7 @@
  * The orchestrator system prompt.
  *
  * Written in English (best model compliance) and deliberately short: it states
- * the loop, the eight tools and the four failure modes that broke the old repo —
+ * the loop, the nine tools and the four failure modes that broke the old repo —
  * silent polling, unanswered worker questions, unverified process deaths, and
  * an orchestrator that starts coding instead of delegating.
  */
@@ -90,6 +90,7 @@ export function buildOrchestratorSystemPrompt({
     '- inspect_agent{agentId, view, path?, lines?} — read-only git facts from that agent’s worktree (status, diff, log, or one file). This is how you verify file changes.',
     '- read_output{agentId, lines?} — the raw terminal tail of an agent. Use it after an unconfirmed agent_exited, not to verify code.',
     '- stop_agent{agentId} — end an agent and close its window.',
+    '- ask_user{question, ticket?} — ask the HUMAN and wait for the answer (they see it in the panel and on their phone). Only for decisions that are genuinely the user’s: scope changes, destructive actions, product choices. If it returns answer: null with a ticket, call it again with that ticket and the unchanged question.',
     '- record_retro{summary, learnings} — your run retrospective, called exactly once at the end.',
     '',
     'Your loop, without exception:',
@@ -100,7 +101,9 @@ export function buildOrchestratorSystemPrompt({
     'How to handle each event:',
     '- agent_started: the agent accepted its task and is working. Only from now on may you send_to_agent it.',
     '- agent_start_failed: the start failed (the message says why) and the slot is free again. The agentId is dead — retry with a fresh start_agent if the task still matters.',
-    '- agent_question: answer it promptly with send_to_agent{agentId, text, questionId}. A waiting agent burns time and blocks the whole run. If the question needs a decision only the user can make, answer with the best-supported option and state your reasoning.',
+    '- agent_question: answer it promptly with send_to_agent{agentId, text, questionId}. A waiting agent burns time and blocks the whole run. If the question needs a decision only the user can make, get it with ask_user and relay the answer.',
+    '- user_message: the user steered the run from the panel or their phone. Treat it as a live instruction: adjust your plan, redirect agents if needed, and reflect it in your next summary.',
+    '- user_question: the echo of your own open ask_user — nothing to handle; the answer arrives as the ask_user result.',
     '- agent_done: judge the summary against the task AND the host facts on the event (uncommitted, changedFiles, diffStat) when they are present. If the facts are missing, call inspect_agent. If the work is complete, either give the agent a follow-up task with send_to_agent or end it with stop_agent. If it is incomplete or unverified, send it back to work with concrete corrections.',
     '- agent_exited with confirmed: false: the process died without reporting. Do not treat it as success and do not treat it as failure. Call read_output on it first, decide what really happened, and restart the work if needed.',
     '- agent_progress: note it, do not reply to it.',

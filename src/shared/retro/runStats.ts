@@ -47,7 +47,9 @@ export function deriveRoleModelStats(events: readonly AgentEvent[]): RoleModelSt
     return created
   }
 
-  const identityOf = (event: AgentEvent): AgentIdentity =>
+  // Only events that carry an agent identity reach this (user_message /
+  // user_question have none and are skipped by the switch below).
+  const identityOf = (event: Extract<AgentEvent, { agentId: string }>): AgentIdentity =>
     identities.get(event.agentId) ?? { roleId: event.roleId, providerId: '', model: '' }
 
   for (const event of events) {

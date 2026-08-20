@@ -9,7 +9,7 @@ import {
 const identity = { agentId: 'a1', name: 'Arlecchino', roleId: 'worker' }
 
 describe('agent event schema', () => {
-  it('covers exactly the nine documented event types', () => {
+  it('covers exactly the eleven documented event types', () => {
     expect([...AGENT_EVENT_TYPES]).toEqual([
       'agent_started',
       'agent_start_failed',
@@ -19,8 +19,23 @@ describe('agent event schema', () => {
       'agent_exited',
       'agent_stopped',
       'orchestrator_exited',
-      'orchestrator_idle'
+      'orchestrator_idle',
+      'user_message',
+      'user_question'
     ])
+  })
+
+  it('D2/D3: user_message and user_question carry no agent identity', () => {
+    expect(
+      agentEventPayloadSchema.parse({ type: 'user_message', text: 'Focus on the parser.' })
+    ).toMatchObject({ type: 'user_message' })
+    expect(() => agentEventPayloadSchema.parse({ type: 'user_message', text: '' })).toThrow()
+    expect(
+      agentEventPayloadSchema.parse({ type: 'user_question', questionId: 'q1', question: 'Ship?' })
+    ).toMatchObject({ questionId: 'q1' })
+    expect(() =>
+      agentEventPayloadSchema.parse({ type: 'user_question', question: 'Ship?' })
+    ).toThrow()
   })
 
   it('C5: orchestrator_idle carries the silence length and stays distinct from exited', () => {

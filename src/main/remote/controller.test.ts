@@ -69,7 +69,8 @@ function harness(initial: RemoteSettings = DEFAULTS, interfaces = tailnet) {
         listProfiles: () => [],
         startWorkspace: () => {},
         stopWorkspace: () => {},
-        answerQuestion: () => {}
+        answerQuestion: () => {},
+        userMessage: () => {}
       },
       terminals: () => ({ list: () => [], get: () => undefined, attach: () => undefined, write: () => false, resize: () => false }),
       onWorkspaceChange: () => () => {},

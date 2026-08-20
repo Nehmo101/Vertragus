@@ -270,6 +270,7 @@ interface Harness {
     focusedWorkspaces: string[]
     closedAgents: string[]
     answered: Array<{ workspaceId: string; agentId: string; questionId: string; text: string }>
+    userMessages: Array<{ workspaceId: string; text: string }>
     removedWorktrees: Array<{ profileId: string; path: string }>
     staleWorktrees: { path: string; branch?: string }[]
     change?: () => void
@@ -378,6 +379,7 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     focusedWorkspaces: [] as string[],
     closedAgents: [] as string[],
     answered: [] as Array<{ workspaceId: string; agentId: string; questionId: string; text: string }>,
+    userMessages: [] as Array<{ workspaceId: string; text: string }>,
     removedWorktrees: [] as Array<{ profileId: string; path: string }>,
     staleWorktrees: [
       { path: '/repo/.vertragus/worktrees/old-1', branch: 'vertragus/paradiso/caronte' }
@@ -391,6 +393,9 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     },
     async answerQuestion(workspaceId: string, agentId: string, questionId: string, text: string) {
       this.answered.push({ workspaceId, agentId, questionId, text })
+    },
+    postUserMessage(workspaceId: string, text: string) {
+      this.userMessages.push({ workspaceId, text })
     },
     focusAgent(agentId: string) {
       this.focused.push(agentId)
@@ -796,6 +801,23 @@ describe('workspaces', () => {
     ).toThrow(/not the panel/)
   })
 
+  it('steers a workspace over user_message (D2) — panel only, text required', async () => {
+    await h.ipc.invoke(APP_CHANNELS.workspacesUserMessage, PANEL_ID, {
+      workspaceId: 'w1',
+      text: '  Focus on the parser.  '
+    })
+    expect(h.directory.userMessages).toEqual([{ workspaceId: 'w1', text: 'Focus on the parser.' }])
+
+    await expect(
+      Promise.resolve(
+        h.ipc.invoke(APP_CHANNELS.workspacesUserMessage, PANEL_ID, { workspaceId: 'w1', text: ' ' })
+      )
+    ).rejects.toThrow(/missing text/)
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.workspacesUserMessage, CLI_ID, { workspaceId: 'w1', text: 'x' })
+    ).toThrow(/not the panel/)
+  })
+
   it('rejects a focus-workspace call without a workspace id', () => {
     expect(() => h.ipc.invoke(APP_CHANNELS.workspacesFocus, PANEL_ID, {})).toThrow(
       /missing workspace id/
@@ -818,6 +840,7 @@ describe('workspaces', () => {
         start: refuse,
         stop() {},
         answerQuestion: async () => refuse(),
+        postUserMessage: refuse,
         focusAgent() {},
         closeAgentWindow() {},
         focusWorkspace() {},
@@ -1640,6 +1663,7 @@ describe('production registration', () => {
       start: vi.fn(),
       stop: vi.fn(),
       answerQuestion: vi.fn(async () => {}),
+      postUserMessage: vi.fn(),
       focusAgent: vi.fn(),
       closeAgentWindow: vi.fn(),
       focusWorkspace: vi.fn(),
@@ -1651,6 +1675,7 @@ describe('production registration', () => {
       start: vi.fn(),
       stop: vi.fn(),
       answerQuestion: vi.fn(async () => {}),
+      postUserMessage: vi.fn(),
       focusAgent: vi.fn(),
       closeAgentWindow: vi.fn(),
       focusWorkspace: vi.fn(),

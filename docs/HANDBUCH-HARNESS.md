@@ -47,7 +47,7 @@ Remote-Server.
 | H2 `workspaces:start {goal}` | **umgesetzt** (Track 0) — Goal-Seed über den Assignment-Handshake, Back-compat ohne Goal |
 | C3 Snapshot-Commit / C4 Handoff-Paket | **umgesetzt** (Track 1) — `snapshotDone` committet dirty Worktrees beim Done; `start_agent{baseBranch}` trägt Handoff-Block |
 | C5 Orchestrator-Idle-Watchdog | **umgesetzt** (Track 2) — `orchestrator_idle` Event + Panel/Remote-Hinweis; Timeouts ≠ Idle (Touch bei Call-Start und -Ende) |
-| D Mensch im Loop | nach H1/H2 |
+| D Mensch im Loop | **D1–D3 umgesetzt** (Track 3) — Goal-UI, `user_message` weckt `await_events`, `ask_user` mit Ticket; D4 Yolo-Stufen folgt |
 | E integrate / briefing / eval | nach C |
 | F Multi-Orch (Lead, Tiefe 1) | nach C; Host auto-nestet nie |
 

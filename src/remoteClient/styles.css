@@ -272,6 +272,30 @@ button {
   font-size: 0.8rem;
   color: var(--danger);
 }
+/* D2: the card's composer. */
+.composer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.composer input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--hair);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font: inherit;
+}
+.composer .primary {
+  margin-top: 0;
+}
+.composer .primary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 
 /* --- terminal view --- */
 .terminal-view {

@@ -66,7 +66,10 @@
     "answerPlaceholder": "Answer …",
     "answerSend": "Answer",
     "orchestratorIdle": "Orchestrator silent — no more tool calls",
-    "orchestratorIdleTitle": "The orchestrator process is running but no longer calls its tools (await_events)."
+    "orchestratorIdleTitle": "The orchestrator process is running but no longer calls its tools (await_events).",
+    "userQuestion": "Question for you: {{question}}",
+    "composerPlaceholder": "Message to the orchestrator …",
+    "composerSend": "Send"
   },
   "profileEditor": {
     "title": "Edit profile",

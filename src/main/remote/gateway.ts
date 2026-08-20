@@ -32,6 +32,12 @@ export interface RemoteGatewayHost {
     questionId: string
     text: string
   }): void | Promise<unknown>
+  /**
+   * D2: steer the run. Visible in the orchestrator terminal, pushed as a
+   * `user_message` event that wakes a parked `await_events`. Must throw on an
+   * unknown workspace or a dead orchestrator.
+   */
+  userMessage(input: { workspaceId: string; text: string }): void | Promise<unknown>
 }
 
 export type GatewayResult =
@@ -81,6 +87,15 @@ export async function runRemoteCommand(
         }
         await host.answerQuestion({ workspaceId, agentId, questionId, text })
         return { ok: true, result: { answered: questionId, agentId } }
+      }
+      case 'user_message': {
+        const workspaceId = args?.workspaceId?.trim()
+        const text = args?.text?.trim()
+        if (!workspaceId || !text) {
+          return { ok: false, error: 'user_message needs args {workspaceId, text}' }
+        }
+        await host.userMessage({ workspaceId, text })
+        return { ok: true, result: { delivered: workspaceId } }
       }
       default: {
         // Exhaustiveness guard: a new RemoteCommand must be handled above.

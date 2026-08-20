@@ -145,6 +145,7 @@ const APP = {
   workspacesFocus: 'workspaces:focus',
   workspacesCloseAgent: 'workspaces:closeAgent',
   workspacesAnswerQuestion: 'workspaces:answerQuestion',
+  workspacesUserMessage: 'workspaces:userMessage',
   worktreesList: 'worktrees:list',
   worktreesRemove: 'worktrees:remove',
   retroList: 'retro:list',
@@ -238,6 +239,8 @@ export interface WorkspaceSummary {
   goalText?: string
   /** C5: orchestrator alive but silent on its tools — the card shows a hint. */
   orchestratorIdle?: boolean
+  /** D3: the orchestrator's open ask_user question (answer with agentId "user"). */
+  userQuestion?: { questionId: string; question: string }
   agents: WorkspaceAgentSummary[]
 }
 
@@ -404,6 +407,12 @@ const app = {
     text: string
   ): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesAnswerQuestion, { workspaceId, agentId, questionId, text }),
+  /**
+   * D2: steer a running workspace — the text shows up in the orchestrator's
+   * terminal and wakes its parked await_events as a user_message event.
+   */
+  sendUserMessage: (workspaceId: string, text: string): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesUserMessage, { workspaceId, text }),
   /** Stale worktrees of this profile's repo — the panel's cleanup list. */
   listStaleWorktrees: (profileId: string): Promise<StaleWorktreeSummary[]> =>
     ipcRenderer.invoke(APP.worktreesList, { profileId }),

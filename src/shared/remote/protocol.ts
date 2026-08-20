@@ -26,8 +26,13 @@ export const REMOTE_COMMANDS = [
   'profiles:list',
   // H1: answer an agent's open MCP question over the same host path the
   // orchestrator's send_to_agent{questionId} takes. One extra verb, no second
-  // question registry, no new orchestration surface.
-  'answer_question'
+  // question registry, no new orchestration surface. Since D3 it also answers
+  // the orchestrator's ask_user questions (reserved agentId "user").
+  'answer_question',
+  // D2: steer the run — visible in the orchestrator terminal and pushed as a
+  // user_message event that wakes its parked await_events. Distinct from raw
+  // terminal `input`, which only reaches the CLI's own prompt.
+  'user_message'
 ] as const
 export type RemoteCommand = (typeof REMOTE_COMMANDS)[number]
 
@@ -92,6 +97,8 @@ export interface RemoteWorkspaceSummary {
   goalText?: string
   /** C5: orchestrator alive but silent on its tools — the card shows a hint. */
   orchestratorIdle?: boolean
+  /** D3: the orchestrator's open ask_user question (answer with agentId "user"). */
+  userQuestion?: { questionId: string; question: string }
   agents: RemoteAgentSummary[]
 }
 

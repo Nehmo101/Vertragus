@@ -154,7 +154,7 @@ describe('startMcpServer', () => {
     expect(buildOrchestratorUrl(handle.port, 'x', 'y')).toContain('http://127.0.0.1:')
   })
 
-  it('serves the eight orchestrator tools on an orchestrator URL', async () => {
+  it('serves the nine orchestrator tools on an orchestrator URL', async () => {
     const registered = handle.registerWorkspace(context({ workspaceId: 'w1' }))
     const client = await connect(registered.orchestratorUrl)
     const tools = (await client.listTools()).tools.map((tool) => tool.name).sort()

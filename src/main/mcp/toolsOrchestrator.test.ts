@@ -10,7 +10,7 @@ function setup(options: Parameters<typeof fakeRuntime>[0] = {}) {
 }
 
 describe('orchestrator tool surface', () => {
-  it('registers exactly the eight documented tools', () => {
+  it('registers exactly the nine documented tools', () => {
     const { tools } = setup()
     expect([...tools.keys()].sort()).toEqual([...ORCHESTRATOR_TOOL_NAMES].sort())
   })
@@ -18,6 +18,63 @@ describe('orchestrator tool surface', () => {
   it('describes every tool for the model', () => {
     const { tools } = setup()
     for (const tool of tools.values()) expect(tool.description?.length ?? 0).toBeGreaterThan(40)
+  })
+})
+
+describe('ask_user — D3', () => {
+  it('parks a question for the human, pushes user_question once, and resumes by ticket', async () => {
+    const { runtime, tools } = setup()
+
+    // First call times out (nobody answered) and hands out a ticket.
+    runtime.ctx.askTimeoutMs = 10
+    const first = await callTool(tools, 'ask_user', { question: 'Ship v1 without dark mode?' })
+    expect(first.json.answer).toBeNull()
+    const ticket = String(first.json.ticket)
+    expect(ticket).toBeTruthy()
+
+    const events = runtime.events.all().filter((event) => event.type === 'user_question')
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ questionId: ticket, question: 'Ship v1 without dark mode?' })
+
+    // A repeated ask without a ticket reuses the SAME open question — one
+    // blocking prompt for the human, not a pile.
+    const repeat = await callTool(tools, 'ask_user', { question: 'Ship v1 without dark mode?' })
+    expect(repeat.json.ticket).toBe(ticket)
+    expect(runtime.events.all().filter((event) => event.type === 'user_question')).toHaveLength(1)
+
+    // The panel/gateway answers under the reserved agent id `user` (H1 path);
+    // the ticket resume then delivers it.
+    runtime.questions.answer(ticket, 'Yes, ship it.')
+    const resumed = await callTool(tools, 'ask_user', { question: 'unchanged', ticket })
+    expect(resumed.json).toMatchObject({ answer: 'Yes, ship it.', ticket })
+  })
+
+  it('answers immediately when the user is faster than the timeout', async () => {
+    const { runtime, tools } = setup()
+    runtime.ctx.askTimeoutMs = 5_000
+    const pending = callTool(tools, 'ask_user', { question: 'Which name?' })
+    await vi.waitFor(() => {
+      expect(runtime.questions.openForAgent('user')).toBeTruthy()
+    })
+    const open = runtime.questions.openForAgent('user')!
+    runtime.questions.answer(open.questionId, 'Vertragus.')
+    expect((await pending).json).toMatchObject({ answer: 'Vertragus.' })
+  })
+
+  it('send_to_agent cannot answer the user’s question by accident', async () => {
+    const { runtime, tools } = setup()
+    runtime.ctx.askTimeoutMs = 10
+    const first = await callTool(tools, 'ask_user', { question: 'Q?' })
+    const ticket = String(first.json.ticket)
+
+    const wrong = await callTool(tools, 'send_to_agent', {
+      agentId: 'agent-1',
+      text: 'answer',
+      questionId: ticket
+    })
+    expect(wrong.isError).toBe(true)
+    expect(wrong.json.error).toBe('question_agent_mismatch')
+    expect(runtime.questions.openForAgent('user')?.questionId).toBe(ticket)
   })
 })
 

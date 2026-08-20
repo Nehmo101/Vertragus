@@ -782,6 +782,27 @@
   color: var(--warn-text);
 }
 
+/* D3: the orchestrator's question to the HUMAN — card-level, not a row. */
+.panel-user-question {
+  margin: 6px 5px 2px;
+  padding: 6px;
+  border-radius: 8px;
+  border: 1px solid rgba(245, 165, 36, 0.45);
+  background: rgba(245, 165, 36, 0.08);
+}
+
+/* D2: the card's composer. */
+.panel-composer {
+  display: flex;
+  gap: 4px;
+  margin: 6px 5px 2px;
+}
+
+.panel-composer .panel-answer-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 /* --- the goal field under a profile row (H2) --------------------------- */
 
 .panel-goal {

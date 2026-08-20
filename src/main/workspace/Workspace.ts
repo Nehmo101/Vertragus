@@ -43,6 +43,7 @@ import type { AgentMeta, AgentRegistry } from '@main/ipc'
 import { EventQueue } from '@main/mcp/eventQueue'
 import type { PendingQuestions } from '@main/mcp/pendingQuestions'
 import {
+  USER_QUESTION_AGENT_ID,
   worktreeEventFields,
   type AgentHost,
   type AgentSummary,
@@ -911,6 +912,24 @@ export class Workspace implements AgentHost {
   }
 
   /**
+   * D2: the human steers the run. The text becomes VISIBLE in the
+   * orchestrator's terminal (display-only — typing it in would start a second
+   * turn beside the MCP loop, the exact two-brains failure H1 documents) and
+   * lands as a `user_message` event in the queue, which is what wakes a
+   * parked `await_events` immediately.
+   */
+  postUserMessage(text: string): void {
+    this.assertOpen()
+    const record = this.orchestratorRecord
+    if (!record || !this.orchestratorAlive) {
+      throw new Error(`Workspace ${this.name} has no running orchestrator to steer.`)
+    }
+    if (this.events.isClosed) throw new Error(`Workspace ${this.name} is closed.`)
+    record.pty.push(`\r\n\x1b[36mUser (via Vertragus): ${text}\x1b[0m\r\n`)
+    this.events.push({ type: 'user_message', text })
+  }
+
+  /**
    * Seed the user's goal into the orchestrator's CLI — the SAME handshake every
    * assignment takes (H2), so "start with a goal" and "type the goal into the
    * TUI" are one mechanism, not two. Always submitted: the goal comes straight
@@ -1384,7 +1403,11 @@ export class Workspace implements AgentHost {
     record.exit = info
     // A dead process is not a silent one — its exit event says everything.
     this.clearIdleHint(record)
-    if (record.orchestrator) this.clearOrchestratorIdleWatchdog()
+    if (record.orchestrator) {
+      this.clearOrchestratorIdleWatchdog()
+      // Its open ask_user is unanswerable now — the badge must go dark.
+      this.questions?.cancelForAgent(USER_QUESTION_AGENT_ID)
+    }
     this.questions?.cancelForAgent(record.agentId)
     if (record.stopping) return
     if (this.events.isClosed) return
@@ -1430,7 +1453,10 @@ export class Workspace implements AgentHost {
     record.stopping = true
     record.stopped = true
     this.clearIdleHint(record)
-    if (record.orchestrator) this.clearOrchestratorIdleWatchdog()
+    if (record.orchestrator) {
+      this.clearOrchestratorIdleWatchdog()
+      this.questions?.cancelForAgent(USER_QUESTION_AGENT_ID)
+    }
     // Cancel here too: pty.kill() is async and we unsubscribe onExit below, so
     // handleExit's cancelForAgent would not run on the stop path.
     this.questions?.cancelForAgent(record.agentId)

@@ -272,6 +272,15 @@ export interface WorkspaceRuntime {
   onOrchestratorToolCall?: () => void
 }
 
+/**
+ * D3: registry key for questions the orchestrator asks the HUMAN (`ask_user`).
+ * They live in the same {@link PendingQuestions} registry as agent questions —
+ * one registry, one answer path (H1's `answerQuestion` with this agentId) —
+ * but under an id no real agent can ever have, so `send_to_agent{questionId}`
+ * cannot accidentally answer the user's question for them.
+ */
+export const USER_QUESTION_AGENT_ID = 'user'
+
 /** Max length of the panel's "current task" note. */
 export const TASK_NOTE_MAX = 140
 

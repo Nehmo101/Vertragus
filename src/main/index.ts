@@ -82,6 +82,12 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
           ...(taskText ? { taskText } : {}),
           ...(ws.goalText ? { goalText: ws.goalText } : {}),
           ...(ws.orchestratorIdle ? { orchestratorIdle: true } : {}),
+          // D3: the orchestrator's open ask_user question, registry-keyed
+          // under the reserved agent id 'user'.
+          ...(() => {
+            const open = mcp.openQuestion(ws.workspaceId, 'user')
+            return open ? { userQuestion: open } : {}
+          })(),
           agents: [
             ...(orchestrator
               ? [
@@ -142,6 +148,11 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
       return manager.startWorkspace(profile, goal ? { goal } : undefined)
     },
     stop: (workspaceId) => manager.stopWorkspace(workspaceId),
+    postUserMessage(workspaceId, text) {
+      const workspace = manager.get(workspaceId)
+      if (!workspace) throw new Error(`user message rejected — unknown workspace ${workspaceId}`)
+      workspace.postUserMessage(text)
+    },
     async answerQuestion(workspaceId, agentId, questionId, text) {
       // One host path (H1): identical to the orchestrator's
       // send_to_agent{questionId} — see mcp/answerQuestion.ts.
@@ -311,7 +322,8 @@ function buildRemoteController(
         startWorkspace: (profileId, goal) => directory.start(profileId, goal),
         stopWorkspace: (workspaceId) => directory.stop(workspaceId),
         answerQuestion: ({ workspaceId, agentId, questionId, text }) =>
-          directory.answerQuestion(workspaceId, agentId, questionId, text)
+          directory.answerQuestion(workspaceId, agentId, questionId, text),
+        userMessage: ({ workspaceId, text }) => directory.postUserMessage(workspaceId, text)
       },
       terminals: () => getAgentRegistry().terminals(),
       onWorkspaceChange: (listener) => manager.onChange(listener),

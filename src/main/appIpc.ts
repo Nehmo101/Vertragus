@@ -97,6 +97,7 @@ export const APP_CHANNELS = {
   workspacesFocus: 'workspaces:focus',
   workspacesCloseAgent: 'workspaces:closeAgent',
   workspacesAnswerQuestion: 'workspaces:answerQuestion',
+  workspacesUserMessage: 'workspaces:userMessage',
   worktreesList: 'worktrees:list',
   worktreesRemove: 'worktrees:remove',
   retroList: 'retro:list',
@@ -208,6 +209,12 @@ export interface WorkspaceSummary {
    * the card shows an idle hint distinct from the greyed-out exited state.
    */
   orchestratorIdle?: boolean
+  /**
+   * D3: the orchestrator's open `ask_user` question — the workspace-level
+   * badge. Answered over the same `workspaces:answerQuestion` channel with
+   * the reserved agent id `user`.
+   */
+  userQuestion?: { questionId: string; question: string }
   agents: WorkspaceAgentSummary[]
 }
 
@@ -244,6 +251,11 @@ export interface WorkspaceDirectory {
     questionId: string,
     text: string
   ): Promise<void>
+  /**
+   * D2: steer the run — the text appears in the orchestrator's terminal and
+   * lands as a `user_message` event that wakes its parked `await_events`.
+   */
+  postUserMessage(workspaceId: string, text: string): void | Promise<unknown>
   /** Bring an agent's CLI window to the front. */
   focusAgent(agentId: string): void
   /**
@@ -290,6 +302,7 @@ export function createStubWorkspaceDirectory(
     start: refuse,
     stop: refuse,
     answerQuestion: async () => refuse(),
+    postUserMessage: refuse,
     focusAgent: (agentId) => focusCliWindow(agentId),
     closeAgentWindow: (agentId) => closeCliWindow(agentId),
     // No manager → no workspace→agent map; quiet no-op like focusAgent on a ghost.
@@ -871,6 +884,13 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     // the registry's onMutate feed pushes — this emit only covers a directory
     // without a push channel.
     emitWorkspaces()
+  })
+
+  handle(APP_CHANNELS.workspacesUserMessage, requirePanel, async (_event, payload) => {
+    const body = (payload ?? {}) as { workspaceId?: string; text?: string }
+    if (!body.workspaceId) throw new Error('workspaces:userMessage rejected — missing workspace id')
+    if (!body.text?.trim()) throw new Error('workspaces:userMessage rejected — missing text')
+    await host.directory.postUserMessage(body.workspaceId, body.text.trim())
   })
 
   // --- worktree cleanup ----------------------------------------------------

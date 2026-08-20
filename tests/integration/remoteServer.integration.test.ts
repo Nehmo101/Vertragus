@@ -57,7 +57,8 @@ const gateway: RemoteGatewayHost = {
   stopWorkspace: () => undefined,
   answerQuestion: (input) => {
     answered.push(input)
-  }
+  },
+  userMessage: () => undefined
 }
 
 let notifyChange: (() => void) | undefined

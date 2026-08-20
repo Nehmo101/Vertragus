@@ -1,5 +1,5 @@
 /**
- * The eight tools the orchestrator agent gets. Everything the orchestrator can
+ * The nine tools the orchestrator agent gets. Everything the orchestrator can
  * do to the world goes through here — there is no second path.
  *
  * The tools deliberately do very little themselves: check the limits, compose
@@ -11,6 +11,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { buildHandoffBlock, buildReminderSuffix, buildTaskContract } from '@shared/prompts/contract'
 import type { EventQueue } from './eventQueue'
 import { answerAgentQuestion } from './answerQuestion'
+import { resolveAskTimeoutMs } from './toolsSubagent'
 import {
   errorMessage,
   INSPECT_VIEWS,
@@ -20,6 +21,7 @@ import {
   toolError,
   toolJson,
   toolText,
+  USER_QUESTION_AGENT_ID,
   type StartingAgent,
   type ToolText,
   type WorkspaceRuntime
@@ -38,6 +40,7 @@ export const ORCHESTRATOR_TOOL_NAMES = [
   'stop_agent',
   'read_output',
   'inspect_agent',
+  'ask_user',
   'record_retro'
 ] as const
 
@@ -408,6 +411,85 @@ export function registerOrchestratorTools(rawServer: McpServer, runtime: Workspa
         agentId,
         ...(stopped ? {} : { note: 'No such running agent — it had already ended.' })
       })
+    }
+  )
+
+  server.registerTool(
+    'ask_user',
+    {
+      description:
+        'Ask the HUMAN a question and wait for the answer — for decisions that are genuinely the ' +
+        'user’s (scope changes, destructive actions, product choices), never for things an agent or ' +
+        'you can decide. Blocks until the user answers in the panel or on their phone. If it returns ' +
+        'answer: null, call it again with the returned ticket and the unchanged question. Never guess ' +
+        'the user’s decision and never continue without it.',
+      inputSchema: {
+        question: z
+          .string()
+          .min(1)
+          .max(4_000)
+          .describe('One concrete question, with the context the user needs to answer it'),
+        ticket: z
+          .string()
+          .min(1)
+          .optional()
+          .describe('Only when resuming: the ticket from a previous answer: null response')
+      }
+    },
+    async ({ question, ticket }): Promise<ToolText> => {
+      const timeoutMs = resolveAskTimeoutMs(ctx.askTimeoutMs)
+      const userTicketNote =
+        'The user has not answered yet. Call ask_user again with ticket set to the value above and ' +
+        'the unchanged question. Do NOT rephrase and do NOT open a second question. While waiting ' +
+        'you may keep handling agent events.'
+
+      if (ticket) {
+        const resumed = await runtime.questions.waitForAnswer(
+          ticket,
+          USER_QUESTION_AGENT_ID,
+          timeoutMs
+        )
+        if (resumed.state === 'answered') return toolJson({ answer: resumed.answer, ticket })
+        if (resumed.state === 'timeout') return toolJson({ answer: null, ticket, note: userTicketNote })
+        if (resumed.state === 'cancelled') {
+          return toolJson({
+            answer: null,
+            ticket: null,
+            note: 'The question was withdrawn (the workspace is stopping). Stop waiting.'
+          })
+        }
+        return toolError({
+          error: 'unknown_ticket',
+          ticket,
+          note: 'That ticket is not an open user question. Ask again without a ticket.'
+        })
+      }
+
+      // One open user question at a time — a second one would give the human
+      // two blocking prompts for one orchestrator.
+      const alreadyOpen = runtime.questions.openForAgent(USER_QUESTION_AGENT_ID)
+      const pending =
+        alreadyOpen ?? runtime.questions.create(USER_QUESTION_AGENT_ID, question)
+      if (!alreadyOpen) {
+        ctx.events.push({ type: 'user_question', questionId: pending.questionId, question })
+      }
+
+      const result = await runtime.questions.waitForAnswer(
+        pending.questionId,
+        USER_QUESTION_AGENT_ID,
+        timeoutMs
+      )
+      if (result.state === 'answered') {
+        return toolJson({ answer: result.answer, ticket: pending.questionId })
+      }
+      if (result.state === 'cancelled') {
+        return toolJson({
+          answer: null,
+          ticket: null,
+          note: 'The question was withdrawn (the workspace is stopping). Stop waiting.'
+        })
+      }
+      return toolJson({ answer: null, ticket: pending.questionId, note: userTicketNote })
     }
   )
 

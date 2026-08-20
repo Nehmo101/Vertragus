@@ -17,6 +17,7 @@ function host(overrides: Partial<RemoteGatewayHost> = {}): RemoteGatewayHost {
     startWorkspace: vi.fn(),
     stopWorkspace: vi.fn(),
     answerQuestion: vi.fn(),
+    userMessage: vi.fn(),
     ...overrides
   }
 }
@@ -118,11 +119,32 @@ describe('runRemoteCommand', () => {
     expect(result).toEqual({ ok: false, error: 'that question is already answered' })
   })
 
-  it('the exposed surface is exactly five read/lifecycle/answer verbs — no settings, no editing', () => {
+  it('delivers a user_message through the host (D2) and refuses incomplete args', async () => {
+    const steer = vi.fn()
+    const h = host({ userMessage: steer })
+
+    const result = await runRemoteCommand(h, 'user_message', undefined, {
+      workspaceId: 'w1',
+      text: 'Focus on the parser first.'
+    })
+    expect(result).toEqual({ ok: true, result: { delivered: 'w1' } })
+    expect(steer).toHaveBeenCalledWith({ workspaceId: 'w1', text: 'Focus on the parser first.' })
+
+    expect(await runRemoteCommand(h, 'user_message', undefined, { text: 'x' })).toMatchObject({
+      ok: false
+    })
+    expect(
+      await runRemoteCommand(h, 'user_message', undefined, { workspaceId: 'w1', text: '  ' })
+    ).toMatchObject({ ok: false })
+    expect(steer).toHaveBeenCalledTimes(1)
+  })
+
+  it('the exposed surface is exactly six read/lifecycle/steer verbs — no settings, no editing', () => {
     // A guard against scope creep: this list is the whole remote surface.
     expect([...REMOTE_COMMANDS].sort()).toEqual([
       'answer_question',
       'profiles:list',
+      'user_message',
       'workspaces:list',
       'workspaces:start',
       'workspaces:stop'

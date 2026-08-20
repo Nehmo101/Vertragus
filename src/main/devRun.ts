@@ -29,6 +29,12 @@ import { profileSchema, type Profile } from '@shared/schema/profile'
 /** Env var that arms the dev run; its value is the repository path. */
 export const DEV_RUN_ENV = 'VERTRAGUS_DEV_RUN'
 
+/**
+ * D1: optional goal for the dev run — seeded into the orchestrator exactly
+ * like the panel's goal field, so a headless run needs no TUI typing either.
+ */
+export const DEV_GOAL_ENV = 'VERTRAGUS_DEV_GOAL'
+
 export const DEV_PROFILE_ID = 'dev-run'
 
 /**
@@ -121,7 +127,11 @@ export async function maybeStartDevWorkspace(
 
   const manager = (options.createManager ?? createAppWorkspaceManager)(mcp)
   try {
-    const running = await manager.startWorkspace(buildDevProfile(repoPath))
+    const goal = env[DEV_GOAL_ENV]?.trim()
+    const profile = buildDevProfile(repoPath)
+    const running = await (goal
+      ? manager.startWorkspace(profile, { goal })
+      : manager.startWorkspace(profile))
     log(
       `[dev-run] workspace "${running.workspace.name}" on ${repoPath} — ` +
         `orchestrator ${running.orchestrator.name}, MCP on port ${mcp.port}`
