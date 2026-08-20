@@ -80,8 +80,33 @@ const AWAIT_TIMEOUT_NOTE =
   'Call await_events again with the cursor from this response. Do not stop, do not idle, ' +
   'and do not switch to polling list_agents.'
 
-export function registerOrchestratorTools(server: McpServer, runtime: WorkspaceRuntime): void {
+/**
+ * C5: every orchestrator tool call touches the runtime's idle watchdog — on
+ * entry and on exit (see {@link WorkspaceRuntime.onOrchestratorToolCall}).
+ * Wrapped at registration so no individual handler can forget it.
+ */
+function withOrchestratorTouch(
+  server: McpServer,
+  runtime: WorkspaceRuntime
+): Pick<McpServer, 'registerTool'> {
+  type LooseRegister = (name: string, config: unknown, handler: (...args: never[]) => unknown) => unknown
+  const register = server.registerTool.bind(server) as unknown as LooseRegister
+  return {
+    registerTool: ((name: string, config: unknown, handler: (...args: unknown[]) => Promise<unknown>) =>
+      register(name, config, (async (...args: unknown[]) => {
+        runtime.onOrchestratorToolCall?.()
+        try {
+          return await handler(...args)
+        } finally {
+          runtime.onOrchestratorToolCall?.()
+        }
+      }) as unknown as (...args: never[]) => unknown)) as unknown as McpServer['registerTool']
+  }
+}
+
+export function registerOrchestratorTools(rawServer: McpServer, runtime: WorkspaceRuntime): void {
   const { ctx } = runtime
+  const server = withOrchestratorTouch(rawServer, runtime)
 
   server.registerTool(
     'start_agent',

@@ -181,6 +181,11 @@ export function WorkspaceCard({
       </header>
       {expanded ? (
         <>
+          {workspace.orchestratorIdle ? (
+            <p className="panel-card-goal is-idle" title={t('panel.orchestratorIdleTitle')}>
+              {t('panel.orchestratorIdle')}
+            </p>
+          ) : null}
           {goalLine ? (
             <p
               className={workspace.goalText ? 'panel-card-goal' : 'panel-card-goal is-empty'}

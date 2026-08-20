@@ -263,6 +263,13 @@ export interface WorkspaceRuntime {
    * event, so without this hook nothing would wake the UI.
    */
   onTasksChanged?: () => void
+  /**
+   * C5: fires at the start AND end of every orchestrator tool call — the
+   * host's idle watchdog feeds on it. End included on purpose: a parked
+   * `await_events` long-poll (~50 s) touches when it returns, so a live loop
+   * never looks idle even though no *new* call happened while it blocked.
+   */
+  onOrchestratorToolCall?: () => void
 }
 
 /** Max length of the panel's "current task" note. */

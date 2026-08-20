@@ -81,6 +81,7 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
           active: ws.orchestratorAlive,
           ...(taskText ? { taskText } : {}),
           ...(ws.goalText ? { goalText: ws.goalText } : {}),
+          ...(ws.orchestratorIdle ? { orchestratorIdle: true } : {}),
           agents: [
             ...(orchestrator
               ? [

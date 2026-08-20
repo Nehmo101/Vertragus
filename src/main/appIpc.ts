@@ -203,6 +203,11 @@ export interface WorkspaceSummary {
    * "no goal — the orchestrator is waiting".
    */
   goalText?: string
+  /**
+   * C5: the orchestrator process lives but has stopped calling its tools —
+   * the card shows an idle hint distinct from the greyed-out exited state.
+   */
+  orchestratorIdle?: boolean
   agents: WorkspaceAgentSummary[]
 }
 

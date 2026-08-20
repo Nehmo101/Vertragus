@@ -250,6 +250,10 @@ button {
 .card-task.no-goal {
   font-style: italic;
 }
+/* C5: orchestrator alive but silent on its tools. */
+.card-task.idle-hint {
+  color: var(--danger);
+}
 .answer-form {
   display: flex;
   flex-direction: column;

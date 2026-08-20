@@ -17,7 +17,8 @@ export const AGENT_EVENT_TYPES = [
   'agent_progress',
   'agent_exited',
   'agent_stopped',
-  'orchestrator_exited'
+  'orchestrator_exited',
+  'orchestrator_idle'
 ] as const
 
 export type AgentEventType = (typeof AGENT_EVENT_TYPES)[number]
@@ -117,6 +118,22 @@ const orchestratorExitedPayload = z.object({
   exitCode: z.number().int().nullable().optional()
 })
 
+/**
+ * C5: the orchestrator PROCESS is alive but has stopped calling its tools —
+ * the other death, distinct from `orchestrator_exited`. A parked
+ * `await_events` long-poll is NOT idle (its call touched the watchdog); idle
+ * means no tool call started or finished for the whole window. The event is
+ * for the panel, the remote client and the history — the orchestrator itself
+ * is the one reader that will not see it (it stopped reading), so nothing
+ * here tries to wake it.
+ */
+const orchestratorIdlePayload = z.object({
+  type: z.literal('orchestrator_idle'),
+  ...identity,
+  /** Seconds since the last orchestrator tool call when the watchdog fired. */
+  idleSec: z.number().int().nonnegative()
+})
+
 /** Event body as produced by a caller — no `seq`/`ts` yet. */
 export const agentEventPayloadSchema = z.discriminatedUnion('type', [
   agentStartedPayload,
@@ -126,7 +143,8 @@ export const agentEventPayloadSchema = z.discriminatedUnion('type', [
   agentProgressPayload,
   agentExitedPayload,
   agentStoppedPayload,
-  orchestratorExitedPayload
+  orchestratorExitedPayload,
+  orchestratorIdlePayload
 ])
 export type AgentEventPayload = z.infer<typeof agentEventPayloadSchema>
 
@@ -145,7 +163,8 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   agentProgressPayload.extend(envelope),
   agentExitedPayload.extend(envelope),
   agentStoppedPayload.extend(envelope),
-  orchestratorExitedPayload.extend(envelope)
+  orchestratorExitedPayload.extend(envelope),
+  orchestratorIdlePayload.extend(envelope)
 ])
 export type AgentEvent = z.infer<typeof agentEventSchema>
 

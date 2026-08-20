@@ -9,6 +9,7 @@ import { PendingQuestions } from '@main/mcp/pendingQuestions'
 import { buildReminderSuffix } from '@shared/prompts/contract'
 import { ORCHESTRATOR_COLOR, ORCHESTRATOR_ROLE_ID, roleColor } from '@shared/prompts/roles'
 import {
+  ORCHESTRATOR_IDLE_MS,
   PTY_ONLY_IDLE_HINT_MS,
   snapshotCommitMessage,
   Workspace,
@@ -1475,5 +1476,87 @@ describe('snapshotCommitMessage', () => {
       'vertragus: Caronte / worker — '.length + 120
     )
     expect(snapshotCommitMessage('Caronte', 'worker', '   ')).toBe('vertragus: Caronte / worker')
+  })
+})
+
+describe('orchestrator idle watchdog — C5', () => {
+  function advance(h: Harness, ms: number): void {
+    h.now.value += ms
+    vi.advanceTimersByTime(ms)
+  }
+
+  function idleEvents(h: Harness): Array<{ idleSec: number }> {
+    return h.workspace.events
+      .all()
+      .filter((event) => event.type === 'orchestrator_idle') as Array<{ idleSec: number }>
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('reports one orchestrator_idle after the window and writes one reminder line', async () => {
+    const h = harness()
+    await h.workspace.startOrchestrator()
+    expect(h.workspace.orchestratorIdle).toBe(false)
+
+    advance(h, ORCHESTRATOR_IDLE_MS - 1)
+    expect(idleEvents(h)).toEqual([])
+
+    advance(h, 1)
+    expect(idleEvents(h)).toHaveLength(1)
+    expect(idleEvents(h)[0]!.idleSec).toBe(Math.round(ORCHESTRATOR_IDLE_MS / 1_000))
+    expect(h.workspace.orchestratorIdle).toBe(true)
+    // Display-only reminder into the orchestrator terminal — never typed input.
+    expect(h.spawns[0]!.pty.snapshot()).toContain('the loop looks idle')
+    expect(h.spawns[0]!.pty.written.some((entry) => entry.includes('idle'))).toBe(false)
+
+    // One event per silence phase, not a drip.
+    advance(h, ORCHESTRATOR_IDLE_MS * 3)
+    expect(idleEvents(h)).toHaveLength(1)
+  })
+
+  it('no false positives while the loop long-polls — every tool call resets the clock', async () => {
+    const h = harness()
+    await h.workspace.startOrchestrator()
+
+    // A live await_events loop touches at least every ~55 s (call start + end).
+    for (let i = 0; i < 10; i += 1) {
+      advance(h, 55_000)
+      h.workspace.noteOrchestratorActivity()
+    }
+    expect(idleEvents(h)).toEqual([])
+    expect(h.workspace.orchestratorIdle).toBe(false)
+  })
+
+  it('a tool call ends the reported phase; the NEXT silence earns its own event', async () => {
+    const h = harness()
+    await h.workspace.startOrchestrator()
+
+    advance(h, ORCHESTRATOR_IDLE_MS)
+    expect(idleEvents(h)).toHaveLength(1)
+    expect(h.workspace.orchestratorIdle).toBe(true)
+
+    h.workspace.noteOrchestratorActivity()
+    expect(h.workspace.orchestratorIdle).toBe(false)
+
+    advance(h, ORCHESTRATOR_IDLE_MS)
+    expect(idleEvents(h)).toHaveLength(2)
+  })
+
+  it('stays quiet after the orchestrator exited — idle and exited are distinct', async () => {
+    const h = harness()
+    await h.workspace.startOrchestrator()
+    h.spawns[0]!.pty.exit({ exitCode: 1 })
+
+    advance(h, ORCHESTRATOR_IDLE_MS * 2)
+    expect(idleEvents(h)).toEqual([])
+    expect(h.workspace.orchestratorIdle).toBe(false)
+    expect(
+      h.workspace.events.all().filter((event) => event.type === 'orchestrator_exited')
+    ).toHaveLength(1)
   })
 })

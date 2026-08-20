@@ -236,6 +236,8 @@ export interface WorkspaceSummary {
   taskText?: string
   /** Goal the workspace was started with; absent = "no goal" hint on the card. */
   goalText?: string
+  /** C5: orchestrator alive but silent on its tools — the card shows a hint. */
+  orchestratorIdle?: boolean
   agents: WorkspaceAgentSummary[]
 }
 

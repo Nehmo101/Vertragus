@@ -64,7 +64,9 @@
     "workspaceGoal": "Ziel: {{goal}}",
     "answerQuestion": "Frage von {{agent}} beantworten",
     "answerPlaceholder": "Antwort …",
-    "answerSend": "Antworten"
+    "answerSend": "Antworten",
+    "orchestratorIdle": "Orchestrator still — keine Tool-Aufrufe mehr",
+    "orchestratorIdleTitle": "Der Orchestrator-Prozess läuft, ruft aber seine Werkzeuge (await_events) nicht mehr auf."
   },
   "profileEditor": {
     "title": "Profil bearbeiten",

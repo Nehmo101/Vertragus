@@ -9,7 +9,7 @@ import {
 const identity = { agentId: 'a1', name: 'Arlecchino', roleId: 'worker' }
 
 describe('agent event schema', () => {
-  it('covers exactly the eight documented event types', () => {
+  it('covers exactly the nine documented event types', () => {
     expect([...AGENT_EVENT_TYPES]).toEqual([
       'agent_started',
       'agent_start_failed',
@@ -18,8 +18,24 @@ describe('agent event schema', () => {
       'agent_progress',
       'agent_exited',
       'agent_stopped',
-      'orchestrator_exited'
+      'orchestrator_exited',
+      'orchestrator_idle'
     ])
+  })
+
+  it('C5: orchestrator_idle carries the silence length and stays distinct from exited', () => {
+    const parsed = agentEventPayloadSchema.parse({
+      type: 'orchestrator_idle',
+      ...identity,
+      idleSec: 120
+    })
+    expect(parsed).toMatchObject({ type: 'orchestrator_idle', idleSec: 120 })
+    expect(() =>
+      agentEventPayloadSchema.parse({ type: 'orchestrator_idle', ...identity })
+    ).toThrow()
+    expect(() =>
+      agentEventPayloadSchema.parse({ type: 'orchestrator_idle', ...identity, idleSec: -1 })
+    ).toThrow()
   })
 
   it('requires a message on agent_start_failed — a silent failure helps nobody', () => {

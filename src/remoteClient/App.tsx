@@ -192,6 +192,9 @@ function WorkspaceCard({
           <span className="inactive-tag">beendet</span>
         )}
       </div>
+      {workspace.orchestratorIdle ? (
+        <p className="card-task idle-hint">Orchestrator still — keine Tool-Aufrufe mehr</p>
+      ) : null}
       {workspace.goalText ? (
         <p className="card-task">Ziel: {workspace.goalText}</p>
       ) : workspace.active ? (

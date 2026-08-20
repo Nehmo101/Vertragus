@@ -777,6 +777,11 @@
   font-style: italic;
 }
 
+/* C5: orchestrator alive but silent on its tools. */
+.panel-card-goal.is-idle {
+  color: var(--warn-text);
+}
+
 /* --- the goal field under a profile row (H2) --------------------------- */
 
 .panel-goal {

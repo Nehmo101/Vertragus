@@ -173,6 +173,8 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     // Assignments too: a follow-up task pushes no agent event, so without this
     // the panel's status lines and the CLI hover cards would lag behind it.
     registered.runtime.onTasksChanged = () => notifyChange()
+    // C5: every orchestrator tool call feeds the host's idle watchdog.
+    registered.runtime.onOrchestratorToolCall = () => workspace.noteOrchestratorActivity()
     // Visible right away — the card renders "starting" while the orchestrator
     // boots instead of appearing only once it is done.
     notifyChange()

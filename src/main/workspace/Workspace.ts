@@ -117,6 +117,14 @@ export const AGENT_STATUS = {
  */
 export const PTY_ONLY_IDLE_HINT_MS = 120_000
 
+/**
+ * C5: how long the orchestrator may go without calling ANY of its MCP tools
+ * before the host reports `orchestrator_idle`. Must sit well above the ~55 s
+ * `await_events` long-poll ceiling — a parked poll touches the watchdog only
+ * when it returns, and that must never count as idle.
+ */
+export const ORCHESTRATOR_IDLE_MS = 120_000
+
 /** How many characters of scrollback one output line is assumed to cost. */
 const CHARS_PER_LINE = 600
 const MIN_TAIL_CHARS = 8_000
@@ -305,6 +313,11 @@ export class Workspace implements AgentHost {
   pendingRetroSummary: string | undefined
   /** The user's goal, once it was DELIVERED to the orchestrator (H2). */
   private goal: string | undefined
+  /** C5 idle watchdog: when the orchestrator last called one of its tools. */
+  private orchestratorLastToolAt = 0
+  private orchestratorIdleTimer: ReturnType<typeof setTimeout> | undefined
+  /** True while the current silence phase has been reported — one event, not a drip. */
+  private orchestratorIdleNotified = false
 
   constructor(init: WorkspaceInit, deps: WorkspaceDeps) {
     this.profile = init.profile
@@ -346,6 +359,70 @@ export class Workspace implements AgentHost {
    */
   get goalText(): string | undefined {
     return this.goal
+  }
+
+  /**
+   * C5: true while the orchestrator process lives but has not called any of
+   * its tools for {@link ORCHESTRATOR_IDLE_MS} — the reported silence phase.
+   * The panel and the remote client derive their idle hint from this.
+   */
+  get orchestratorIdle(): boolean {
+    return this.orchestratorIdleNotified && this.orchestratorAlive
+  }
+
+  /**
+   * C5: the MCP layer reports an orchestrator tool call (entry and exit).
+   * Ends any reported silence phase and re-arms the watchdog.
+   */
+  noteOrchestratorActivity(): void {
+    this.orchestratorLastToolAt = this.now()
+    this.orchestratorIdleNotified = false
+    this.armOrchestratorIdleWatchdog()
+  }
+
+  private armOrchestratorIdleWatchdog(): void {
+    if (this.closed || !this.orchestratorAlive) return
+    if (this.orchestratorIdleTimer) clearTimeout(this.orchestratorIdleTimer)
+    const timer = setTimeout(() => this.emitOrchestratorIdle(), ORCHESTRATOR_IDLE_MS)
+    ;(timer as { unref?: () => void }).unref?.()
+    this.orchestratorIdleTimer = timer
+  }
+
+  private clearOrchestratorIdleWatchdog(): void {
+    if (this.orchestratorIdleTimer) clearTimeout(this.orchestratorIdleTimer)
+    this.orchestratorIdleTimer = undefined
+  }
+
+  /**
+   * The watchdog fired. Deliberately does NOT wake the orchestrator — it is
+   * the one reader that stopped reading; the event is for the panel, the
+   * remote client and the history. One reminder line goes into its terminal
+   * (display only, no input), once per silence phase.
+   */
+  private emitOrchestratorIdle(): void {
+    this.orchestratorIdleTimer = undefined
+    const record = this.orchestratorRecord
+    if (!record || !this.orchestratorAlive || this.orchestratorIdleNotified) return
+    if (this.events.isClosed) return
+    const idleMs = this.now() - this.orchestratorLastToolAt
+    // A timer that fired early (fake clocks, drift) re-arms instead of lying.
+    if (idleMs < ORCHESTRATOR_IDLE_MS) {
+      this.armOrchestratorIdleWatchdog()
+      return
+    }
+    this.orchestratorIdleNotified = true
+    this.events.push({
+      type: 'orchestrator_idle',
+      agentId: record.agentId,
+      name: record.name,
+      roleId: record.roleId,
+      idleSec: Math.round(idleMs / 1_000)
+    })
+    record.pty.push(
+      `\r\n\x1b[33mVertragus: no orchestrator tool call for ${Math.round(
+        idleMs / 1_000
+      )} s — the loop looks idle. Continue with await_events.\x1b[0m\r\n`
+    )
   }
 
   /** The orchestrator, once started. Never part of {@link listAgents}. */
@@ -814,6 +891,9 @@ export class Workspace implements AgentHost {
       }
       record.seeded = true
       record.assignmentCursor = this.events.cursor
+      // C5: the idle clock starts at boot — an orchestrator that never makes
+      // its first tool call is exactly as idle as one that stopped mid-run.
+      this.noteOrchestratorActivity()
       return {
         agentId,
         name,
@@ -1304,6 +1384,7 @@ export class Workspace implements AgentHost {
     record.exit = info
     // A dead process is not a silent one — its exit event says everything.
     this.clearIdleHint(record)
+    if (record.orchestrator) this.clearOrchestratorIdleWatchdog()
     this.questions?.cancelForAgent(record.agentId)
     if (record.stopping) return
     if (this.events.isClosed) return
@@ -1349,6 +1430,7 @@ export class Workspace implements AgentHost {
     record.stopping = true
     record.stopped = true
     this.clearIdleHint(record)
+    if (record.orchestrator) this.clearOrchestratorIdleWatchdog()
     // Cancel here too: pty.kill() is async and we unsubscribe onExit below, so
     // handleExit's cancelForAgent would not run on the stop path.
     this.questions?.cancelForAgent(record.agentId)

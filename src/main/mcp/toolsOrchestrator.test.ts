@@ -21,6 +21,26 @@ describe('orchestrator tool surface', () => {
   })
 })
 
+describe('C5 idle-watchdog touch', () => {
+  it('every tool call touches the runtime hook on entry AND exit', async () => {
+    const { runtime, tools } = setup()
+    let touches = 0
+    runtime.onOrchestratorToolCall = () => {
+      touches += 1
+    }
+
+    await callTool(tools, 'list_agents', {})
+    expect(touches).toBe(2)
+
+    await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
+    expect(touches).toBe(4)
+
+    // Errors touch too — a refused call is still activity.
+    await callTool(tools, 'start_agent', { role: 'ghost', task: 't' })
+    expect(touches).toBe(6)
+  })
+})
+
 describe('start_agent', () => {
   it('starts the agent, appends the contract and pushes agent_started', async () => {
     const { runtime, tools } = setup()

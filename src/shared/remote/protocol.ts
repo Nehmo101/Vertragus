@@ -90,6 +90,8 @@ export interface RemoteWorkspaceSummary {
   taskText?: string
   /** Goal the workspace was started with (H2); absent = "no goal" hint. */
   goalText?: string
+  /** C5: orchestrator alive but silent on its tools — the card shows a hint. */
+  orchestratorIdle?: boolean
   agents: RemoteAgentSummary[]
 }
 
