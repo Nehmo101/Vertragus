@@ -33,6 +33,8 @@ export interface PanelData {
   dismissError(): void
   /** Start a workspace; a non-empty goal is seeded into the orchestrator (H2). */
   startWorkspace(profileId: string, goal?: string): void
+  /** E3: start a workspace briefed on the profile's newest journaled run. */
+  resumeWorkspace(profileId: string): void
   stopWorkspace(workspaceId: string): void
   /** Answer an agent's open question from its `?` badge (H1). */
   answerQuestion(workspaceId: string, agentId: string, questionId: string, text: string): void
@@ -127,6 +129,11 @@ export function usePanelData(): PanelData {
     startWorkspace: (profileId, goal) =>
       run(async (api) => {
         await api.startWorkspace(profileId, goal)
+        setWorkspaces(await api.listWorkspaces())
+      }),
+    resumeWorkspace: (profileId) =>
+      run(async (api) => {
+        await api.resumeWorkspace(profileId)
         setWorkspaces(await api.listWorkspaces())
       }),
     stopWorkspace: (workspaceId) =>

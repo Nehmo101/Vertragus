@@ -849,6 +849,22 @@
   background: var(--hover-wash);
 }
 
+/* E3: quieter sibling of the start button — resume is the rarer gesture. */
+.panel-goal-resume {
+  padding: 2px 10px;
+  border-radius: 6px;
+  border: 1px dashed var(--hairline);
+  background: transparent;
+  color: var(--text-3);
+  font: 500 11px var(--font-body);
+  cursor: pointer;
+}
+
+.panel-goal-resume:hover {
+  background: var(--hover-wash);
+  color: var(--text-2);
+}
+
 /* E6: playbook quick-picks above the goal field. */
 .panel-goal-playbooks {
   display: flex;

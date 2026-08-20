@@ -122,6 +122,7 @@ export function PanelApp(): React.JSX.Element {
                     setSelectedProfileId(nextSelectedProfileId(activeProfileId, profileId))
                   }
                   onStart={panel.startWorkspace}
+                  onResume={panel.resumeWorkspace}
                   onEdit={panel.editProfile}
                   cleanupOpen={cleanupProfileId === profile.id}
                   onToggleCleanup={(profileId) =>

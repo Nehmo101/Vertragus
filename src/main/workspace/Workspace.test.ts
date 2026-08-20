@@ -1879,4 +1879,14 @@ describe('orchestrator briefing — E2', () => {
     await workspace.startOrchestrator()
     expect(spawns[0]!.input.systemPrompt).not.toContain('Repository briefing')
   })
+
+  it('E3: a resume briefing leads the briefing block', async () => {
+    const { workspace, spawns } = harness({
+      deps: { resumeBriefing: 'Previous run left branch vertragus/x with a done report.' }
+    })
+    await workspace.startOrchestrator()
+    const prompt = spawns[0]!.input.systemPrompt!
+    expect(prompt).toContain('--- resumed run ---')
+    expect(prompt).toContain('branch vertragus/x')
+  })
 })

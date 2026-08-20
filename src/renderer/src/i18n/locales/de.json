@@ -60,6 +60,8 @@
     "goalPlaceholder": "Ziel für den Orchestrator … (leer = ohne Ziel starten)",
     "startWithGoal": "Mit Ziel starten",
     "startWithoutGoal": "Ohne Ziel starten",
+    "resumeRun": "Letzten Lauf fortsetzen",
+    "resumeHint": "Neuer Orchestrator mit Briefing über den letzten Lauf — Branches und Worktrees bleiben, Prozesse und offene Fragen nicht",
     "noGoal": "Kein Ziel — Orchestrator wartet",
     "workspaceGoal": "Ziel: {{goal}}",
     "answerQuestion": "Frage von {{agent}} beantworten",

@@ -196,6 +196,11 @@ export interface WorkspaceDeps {
   worktreeDeps?: WorktreeDeps
   /** Retro feed: learnings in, accumulated knowledge out. Absent = no retro. */
   retro?: WorkspaceRetroFeed
+  /**
+   * E3: pre-built briefing about the run this workspace resumes — shown first
+   * in the orchestrator's repository briefing. Absent = a fresh run.
+   */
+  resumeBriefing?: string
 }
 
 /** The slice of the retro sink a single workspace consumes (Electron-free). */
@@ -1212,6 +1217,10 @@ export class Workspace implements AgentHost {
     const cap = (text: string, max: number): string =>
       text.length <= max ? text : `${text.slice(0, max)}\n…(truncated)`
     const parts: string[] = []
+    // E3 first: what this run continues matters more than what the repo is.
+    if (this.deps.resumeBriefing?.trim()) {
+      parts.push(`--- resumed run ---\n${cap(this.deps.resumeBriefing.trim(), 2_500)}`)
+    }
     for (const file of ['AGENTS.md', 'CLAUDE.md', 'README.md']) {
       try {
         const text = await readFile(join(this.repoPath, file), 'utf8')

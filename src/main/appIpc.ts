@@ -94,6 +94,7 @@ export const APP_CHANNELS = {
   modelsDiscover: 'models:discover',
   workspacesList: 'workspaces:list',
   workspacesStart: 'workspaces:start',
+  workspacesResume: 'workspaces:resume',
   workspacesStop: 'workspaces:stop',
   workspacesFocusAgent: 'workspaces:focusAgent',
   workspacesFocus: 'workspaces:focus',
@@ -250,6 +251,12 @@ export interface WorkspaceDirectory {
    * into the orchestrator once it is up; absent = classic bare Play.
    */
   start(profileId: string, goal?: string): void | Promise<unknown>
+  /**
+   * E3: start a NEW workspace of this profile briefed on the repository's
+   * newest journaled run (worktrees/branches survive; processes do not).
+   * Rejects with a readable message when the repo holds no journaled run.
+   */
+  resume(profileId: string): void | Promise<unknown>
   stop(workspaceId: string): void | Promise<unknown>
   /**
    * Answer one agent question (H1) — the SAME host path the orchestrator's
@@ -318,6 +325,7 @@ export function createStubWorkspaceDirectory(
   return {
     list: () => [],
     start: refuse,
+    resume: refuse,
     stop: refuse,
     answerQuestion: async () => refuse(),
     postUserMessage: refuse,
@@ -860,6 +868,14 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     // is treated as absent rather than refused — an empty field is not an error.
     const goal = typeof body.goal === 'string' && body.goal.trim() ? body.goal.trim() : undefined
     await (goal ? host.directory.start(body.profileId, goal) : host.directory.start(body.profileId))
+    emitWorkspaces()
+  })
+
+  handle(APP_CHANNELS.workspacesResume, requirePanel, async (_event, payload) => {
+    const profileId =
+      typeof payload === 'string' ? payload : (payload as { profileId?: string })?.profileId
+    if (!profileId) throw new Error('workspaces:resume rejected — missing profile id')
+    await host.directory.resume(profileId)
     emitWorkspaces()
   })
 

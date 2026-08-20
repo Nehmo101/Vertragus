@@ -15,6 +15,8 @@ interface Props {
   onSelect(profileId: string): void
   /** Start a workspace; a non-empty goal is seeded into the orchestrator (H2). */
   onStart(profileId: string, goal?: string): void
+  /** E3: start a workspace briefed on the profile's newest journaled run. */
+  onResume(profileId: string): void
   onEdit(profileId: string): void
   /** True while this row's worktree cleanup list is unfolded below it. */
   cleanupOpen: boolean
@@ -45,6 +47,7 @@ export function ProfileRow({
   selected,
   onSelect,
   onStart,
+  onResume,
   onEdit,
   cleanupOpen,
   onToggleCleanup,
@@ -165,6 +168,20 @@ export function ProfileRow({
           <div className="panel-goal-actions">
             <button type="button" className="panel-goal-start" onClick={startNow}>
               {goal.trim() ? t('panel.startWithGoal') : t('panel.startWithoutGoal')}
+            </button>
+            {/* E3: brief a fresh orchestrator on the newest journaled run —
+                branches survive, processes and open questions do not. */}
+            <button
+              type="button"
+              className="panel-goal-resume"
+              title={t('panel.resumeHint')}
+              onClick={() => {
+                onResume(profile.id)
+                setGoal('')
+                setGoalOpen(false)
+              }}
+            >
+              {t('panel.resumeRun')}
             </button>
           </div>
         </div>

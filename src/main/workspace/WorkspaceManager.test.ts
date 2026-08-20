@@ -145,6 +145,33 @@ describe('startWorkspace', () => {
     expect(otherFirst.workspace.name).toBe('Paradiso')
   })
 
+  it('E3: a resume start writes meta and briefs the orchestrator on the old run', async () => {
+    const appended: unknown[] = []
+    const metas: unknown[] = []
+    const { manager, spawns } = harness({
+      journal: () => ({
+        path: '/repo/.vertragus/runs/x/events.jsonl',
+        append: (event) => appended.push(event),
+        writeMeta: (meta) => metas.push(meta)
+      })
+    })
+
+    await manager.startWorkspace(testProfile(), {
+      goal: 'continue the parser work',
+      resume: { briefing: 'Old run left branch vertragus/a1.', fromWorkspaceId: 'ws-old' }
+    })
+
+    expect(metas).toHaveLength(1)
+    expect(metas[0]).toMatchObject({
+      profileId: testProfile().id,
+      goal: 'continue the parser work',
+      resumedFrom: 'ws-old'
+    })
+    const prompt = spawns[0]!.input.systemPrompt!
+    expect(prompt).toContain('--- resumed run ---')
+    expect(prompt).toContain('branch vertragus/a1')
+  })
+
   it('registers with the MCP server BEFORE the orchestrator is spawned', async () => {
     const { manager, log } = harness()
     await manager.startWorkspace(testProfile())

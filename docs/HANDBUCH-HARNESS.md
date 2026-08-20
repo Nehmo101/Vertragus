@@ -48,7 +48,7 @@ Remote-Server.
 | C3 Snapshot-Commit / C4 Handoff-Paket | **umgesetzt** (Track 1) — `snapshotDone` committet dirty Worktrees beim Done; `start_agent{baseBranch}` trägt Handoff-Block |
 | C5 Orchestrator-Idle-Watchdog | **umgesetzt** (Track 2) — `orchestrator_idle` Event + Panel/Remote-Hinweis; Timeouts ≠ Idle (Touch bei Call-Start und -Ende) |
 | D Mensch im Loop | **D1–D4 umgesetzt** (Track 3 + Follow-up) — Goal-UI, `user_message` weckt `await_events`, `ask_user` mit Ticket; D4 Stufen `yolo`/`ask-user`/`ask-orchestrator` (Store-Spiegel zu `yoloMaster`, Contract-Approval-Regel, Threat-Model im README) |
-| E integrate / briefing / eval | **Kern umgesetzt** (Track 6) — `integrate_branch` + Gate-Warnung + Promote-Klick, Briefing + `repoNotes`, Journal (write-only), Budget-Wanduhr, Janitor/Explorer, Playbooks; offen: Resume/Re-Spawn (E3), Extra-MCP an Worker (E6), Live-Loop-Eval (E5) |
+| E integrate / briefing / eval | **Kern umgesetzt** (Track 6) — `integrate_branch` + Gate-Warnung + Promote-Klick, Briefing + `repoNotes`, Journal + Resume (E3, Briefing statt Re-Spawn), Budget-Wanduhr, Janitor/Explorer, Playbooks; offen: Extra-MCP an Worker (E6), Live-Loop-Eval (E5) |
 | F Multi-Orch (Lead, Tiefe 1) | **umgesetzt** (Track 5) — dritte Identität `lead=`, eigene Queues, `start_orchestrator`, Fan-in nur Direktkinder, Reparent (`subtree_adopted`), Caps host-seitig |
 
 ---
@@ -309,6 +309,14 @@ Orchestrator-Prompt. `record_retro.repoNotes[]` analog Model-Learnings,
 löschbar im bestehenden Retro-Panel. Kein RAG.
 
 ### E3 Journal über den Gap hinaus / Resume
+
+**Status: umgesetzt.** Journal schreibt `events.jsonl` + `meta.json`
+(Goal, Profil, `resumedFrom`); `resume.ts` liest fail-soft, wählt den
+neuesten Lauf des Profils und baut das Resume-Briefing für einen NEUEN
+Orchestrator (Branches/Worktrees bleiben, Chaining via
+`start_agent{baseBranch}`); Panel-Button „Letzten Lauf fortsetzen“ im
+Play-Fold-out. Kein Re-Spawn alter CLI-Prozesse — offene Tickets nach
+Crash = tot, das Briefing sagt es wörtlich.
 
 A2.3 macht die Lücke *sichtbar*. Resume braucht zusätzlich ein Journal
 (`.vertragus/runs/<id>/events.jsonl`) + Re-Spawn in alten Worktrees.

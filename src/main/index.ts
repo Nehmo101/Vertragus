@@ -29,6 +29,7 @@ import { armWindowCapture } from './windows/smokeCapture'
 import { armZoneOverlaySmoke } from './windows/zoneOverlay'
 import { startAppUpdater } from './updater'
 import type { WorkspaceManager } from './workspace/WorkspaceManager'
+import { buildResumeBriefing, latestRun } from './workspace/resume'
 import { createWorktreeCleanup } from './workspace/worktreeCleanup'
 
 /**
@@ -184,6 +185,24 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
         throw new Error(mainMessages(locale).unknownProfile(profileId))
       }
       return manager.startWorkspace(profile, goal ? { goal } : undefined)
+    },
+    async resume(profileId) {
+      const profile = getProfile(profileId)
+      if (!profile) {
+        const locale = readLocale(() => getSettings().ui.locale)
+        throw new Error(mainMessages(locale).unknownProfile(profileId))
+      }
+      // E3: brief a NEW orchestrator on the newest journaled run. The old
+      // run's goal (when its meta recorded one) is re-seeded over the same
+      // handshake, so the card and the orchestrator agree on what continues.
+      const run = await latestRun(profile.repoPath, profile.id)
+      if (!run) {
+        throw new Error(`resume rejected — no journaled run found in ${profile.repoPath}`)
+      }
+      return manager.startWorkspace(profile, {
+        resume: { briefing: buildResumeBriefing(run), fromWorkspaceId: run.workspaceId },
+        ...(run.meta?.goal ? { goal: run.meta.goal } : {})
+      })
     },
     stop: (workspaceId) => manager.stopWorkspace(workspaceId),
     postUserMessage(workspaceId, text) {

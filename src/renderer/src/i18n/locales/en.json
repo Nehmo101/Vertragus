@@ -60,6 +60,8 @@
     "goalPlaceholder": "Goal for the orchestrator … (empty = start without a goal)",
     "startWithGoal": "Start with goal",
     "startWithoutGoal": "Start without goal",
+    "resumeRun": "Resume last run",
+    "resumeHint": "New orchestrator briefed on the last run — branches and worktrees survive, processes and open questions do not",
     "noGoal": "No goal — the orchestrator is waiting",
     "workspaceGoal": "Goal: {{goal}}",
     "answerQuestion": "Answer {{agent}}’s question",

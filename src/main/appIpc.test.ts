@@ -289,6 +289,7 @@ interface Harness {
   broadcasts: { channel: string; payload: unknown }[]
   directory: WorkspaceDirectory & {
     started: Array<{ profileId: string; goal?: string }>
+    resumed: string[]
     stopped: string[]
     focused: string[]
     focusedWorkspaces: string[]
@@ -399,6 +400,7 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
 
   const directory = {
     started: [] as Array<{ profileId: string; goal?: string }>,
+    resumed: [] as string[],
     stopped: [] as string[],
     focused: [] as string[],
     focusedWorkspaces: [] as string[],
@@ -413,6 +415,9 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     list: () => state.workspaces,
     start(profileId: string, goal?: string) {
       this.started.push({ profileId, ...(goal !== undefined ? { goal } : {}) })
+    },
+    resume(profileId: string) {
+      this.resumed.push(profileId)
     },
     stop(workspaceId: string) {
       this.stopped.push(workspaceId)
@@ -797,6 +802,17 @@ describe('workspaces', () => {
     ])
   })
 
+  it('resumes the last run over the directory (E3) — panel only, id required', async () => {
+    await h.ipc.invoke(APP_CHANNELS.workspacesResume, PANEL_ID, { profileId: 'p1' })
+    expect(h.directory.resumed).toEqual(['p1'])
+    await expect(
+      Promise.resolve(h.ipc.invoke(APP_CHANNELS.workspacesResume, PANEL_ID, {}))
+    ).rejects.toThrow(/missing profile id/)
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.workspacesResume, CLI_ID, { profileId: 'p1' })
+    ).toThrow(/not the panel/)
+  })
+
   it('answers an agent question over the directory (H1) — panel only, all ids required', async () => {
     await h.ipc.invoke(APP_CHANNELS.workspacesAnswerQuestion, PANEL_ID, {
       workspaceId: 'w1',
@@ -881,6 +897,7 @@ describe('workspaces', () => {
       directory: {
         list: () => [],
         start: refuse,
+        resume: refuse,
         stop() {},
         answerQuestion: async () => refuse(),
         postUserMessage: refuse,
@@ -1723,6 +1740,7 @@ describe('production registration', () => {
     const real: WorkspaceDirectory = {
       list: () => [workspace('w1')],
       start: vi.fn(),
+      resume: vi.fn(),
       stop: vi.fn(),
       answerQuestion: vi.fn(async () => {}),
       postUserMessage: vi.fn(),
@@ -1736,6 +1754,7 @@ describe('production registration', () => {
     const second: WorkspaceDirectory = {
       list: () => [],
       start: vi.fn(),
+      resume: vi.fn(),
       stop: vi.fn(),
       answerQuestion: vi.fn(async () => {}),
       postUserMessage: vi.fn(),

@@ -140,6 +140,7 @@ const APP = {
   modelsDiscover: 'models:discover',
   workspacesList: 'workspaces:list',
   workspacesStart: 'workspaces:start',
+  workspacesResume: 'workspaces:resume',
   workspacesStop: 'workspaces:stop',
   workspacesFocusAgent: 'workspaces:focusAgent',
   workspacesFocus: 'workspaces:focus',
@@ -400,6 +401,9 @@ const app = {
   /** Start a workspace; `goal` (optional) is seeded into the orchestrator. */
   startWorkspace: (profileId: string, goal?: string): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesStart, { profileId, ...(goal ? { goal } : {}) }),
+  /** E3: start a workspace briefed on the profile's newest journaled run. */
+  resumeWorkspace: (profileId: string): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesResume, { profileId }),
   stopWorkspace: (workspaceId: string): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesStop, { workspaceId }),
   focusAgent: (agentId: string): Promise<void> =>

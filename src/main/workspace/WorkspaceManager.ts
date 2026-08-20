@@ -33,7 +33,10 @@ import type { RunJournal } from './journal'
 import { Workspace, type WorkspaceDeps, type WorkspaceMcpUrls } from './Workspace'
 
 export interface WorkspaceManagerDeps
-  extends Omit<WorkspaceDeps, 'providers' | 'roleTemplates' | 'yoloMaster' | 'agentPolicy' | 'retro'> {
+  extends Omit<
+    WorkspaceDeps,
+    'providers' | 'roleTemplates' | 'yoloMaster' | 'agentPolicy' | 'retro' | 'resumeBriefing'
+  > {
   mcp: McpServerHandle
   /** Read fresh per start so a provider edit reaches the next workspace. */
   providers: WorkspaceDeps['providers'] | (() => WorkspaceDeps['providers'])
@@ -77,6 +80,13 @@ export interface StartWorkspaceOptions {
    * "no goal" until someone types one into the TUI.
    */
   goal?: string
+  /**
+   * E3: this start resumes an earlier run. The briefing (built by
+   * `resume.buildResumeBriefing` from the old run's journal) lands in the new
+   * orchestrator's system prompt; `fromWorkspaceId` is recorded in the new
+   * run's meta. Nothing else is restored — the old processes are gone.
+   */
+  resume?: { briefing: string; fromWorkspaceId: string }
 }
 
 export interface WorkspaceManager {
@@ -163,7 +173,14 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     if (!profile.repoPath.trim()) {
       throw new Error(`Profile "${profile.name}" has no repository path.`)
     }
-    const workspace = new Workspace({ profile, name: nextName(profile.id) }, workspaceDeps())
+    const workspace = new Workspace(
+      { profile, name: nextName(profile.id) },
+      {
+        ...workspaceDeps(),
+        // E3: the previous run's briefing rides into the orchestrator prompt.
+        ...(options?.resume ? { resumeBriefing: options.resume.briefing } : {})
+      }
+    )
 
     // Register before spawning: the orchestrator's launch args contain its MCP
     // URL, so there is no window in which an agent exists without an attachment.
@@ -184,6 +201,15 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
         return undefined
       }
     })()
+    // E3: the run's identity, once — everything after this line is events.
+    journal?.writeMeta({
+      workspaceId: workspace.workspaceId,
+      profileId: profile.id,
+      workspaceName: workspace.name,
+      ...(options?.goal?.trim() ? { goal: options.goal.trim() } : {}),
+      startedAt: Date.now(),
+      ...(options?.resume ? { resumedFrom: options.resume.fromWorkspaceId } : {})
+    })
     if (deps.retro) {
       const events: AgentEvent[] = []
       const off = workspace.events.onPush((event) => events.push(event))
