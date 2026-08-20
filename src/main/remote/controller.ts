@@ -13,6 +13,7 @@ import type { RemoteStatus } from '@shared/remote/types'
 import { detectTailscaleAddress, type NetworkInterfaces } from './interfaces'
 import { mintPairingToken, pairingUrl } from './pairing'
 import { startRemoteServer, type RemoteServerHandle, type RemoteServerOptions } from './server'
+import type { PairingTokenFallback } from './tokenFile'
 
 export type { RemoteStatus } from '@shared/remote/types'
 
@@ -29,11 +30,14 @@ export interface RemoteControllerDeps {
   networkInterfaces: () => NetworkInterfaces
   secrets: RemoteSecretCodec
   staticRoot: string
+  /**
+   * Restart-safe token store used when the OS keychain cannot wrap the secret
+   * (or as a backup if decrypt fails). Must not be electron-store — that file
+   * is plaintext JSON. Production injects a 0600 file under userData.
+   */
+  tokenFallback?: PairingTokenFallback
   /** Everything the server needs that is not remote-config: gateway, terminals… */
-  serverBase: Omit<
-    RemoteServerOptions,
-    'host' | 'port' | 'pairingToken' | 'staticRoot'
-  >
+  serverBase: Omit<RemoteServerOptions, 'host' | 'port' | 'pairingToken' | 'staticRoot'>
   startServer?: typeof startRemoteServer
 }
 
@@ -65,34 +69,61 @@ export function resolveBindAddress(
   }
 }
 
+const TOKEN_UNLOCK_ERROR =
+  'Kopplungs-Token konnte nicht entsperrt werden. Erzeuge in den Einstellungen einen neuen Code, oder entsperre den System-Schlüsselbund.'
+
 export function createRemoteController(deps: RemoteControllerDeps): RemoteController {
   const startServer = deps.startServer ?? startRemoteServer
   let handle: RemoteServerHandle | undefined
   let lastError: string | undefined
   /**
-   * When the OS keychain is unavailable, the token is kept HERE and never
-   * written to disk — persisting it would mean plaintext-at-rest (electron-store
-   * is plain JSON), which is exactly the leak we refuse. The cost is that the
-   * token does not survive a restart without a keychain: the user re-pairs.
+   * Process-local cache. Persistence is encrypted settings and/or the
+   * injected fallback file — never a new mint on every boot.
    */
   let memoryToken: string | undefined
 
+  const ciphertext = (): string | undefined => deps.readSettings().pairingTokenEncrypted
+
   const token = (): string | undefined => {
     if (memoryToken) return memoryToken
-    const stored = deps.readSettings().pairingTokenEncrypted
-    return stored ? deps.secrets.decrypt(stored) : undefined
+    const stored = ciphertext()
+    if (stored) {
+      const decrypted = deps.secrets.decrypt(stored)
+      if (decrypted) {
+        memoryToken = decrypted
+        return decrypted
+      }
+    }
+    const fallback = deps.tokenFallback?.read()
+    if (fallback) {
+      memoryToken = fallback
+      return fallback
+    }
+    return undefined
   }
 
-  /** Store a freshly minted token: encrypted on disk when possible, else memory-only. */
+  /**
+   * Write the pairing token so a restart shows the same QR. Encrypted in the
+   * settings file when the keychain works; always also the fallback file when
+   * one is injected, so a locked keyring cannot silently rotate the link.
+   */
   const persistToken = (settings: RemoteSettings, fresh: string): void => {
+    memoryToken = fresh
     if (deps.secrets.available) {
-      memoryToken = undefined
       deps.writeSettings({ ...settings, pairingTokenEncrypted: deps.secrets.encrypt(fresh) })
-    } else {
-      // Drop any stale ciphertext and keep the token only in memory.
-      memoryToken = fresh
+    } else if (settings.pairingTokenEncrypted) {
       deps.writeSettings({ ...settings, pairingTokenEncrypted: undefined })
     }
+    deps.tokenFallback?.write(fresh)
+  }
+
+  /** If we recovered the token from the file, wrap it in the keychain too. */
+  const migrateFallbackToKeychain = (settings: RemoteSettings, current: string): void => {
+    if (!deps.secrets.available) return
+    const stored = settings.pairingTokenEncrypted
+    const decrypted = stored ? deps.secrets.decrypt(stored) : undefined
+    if (decrypted === current) return
+    deps.writeSettings({ ...settings, pairingTokenEncrypted: deps.secrets.encrypt(current) })
   }
 
   const status = (): RemoteStatus => {
@@ -132,9 +163,21 @@ export function createRemoteController(deps: RemoteControllerDeps): RemoteContro
       lastError = resolved.error
       return
     }
-    // A first enable with no token yet mints one, so the QR is never empty.
-    if (!token()) {
-      persistToken(settings, mintPairingToken())
+    const current = token()
+    if (!current) {
+      // A locked ciphertext without a fallback must not be overwritten — that
+      // is how the QR used to change on every restart. First enable (nothing
+      // stored) still mints.
+      if (ciphertext()) {
+        lastError = TOKEN_UNLOCK_ERROR
+      } else {
+        persistToken(settings, mintPairingToken())
+      }
+    } else {
+      // Keep the 0600 file in sync so a later keychain lock cannot rotate
+      // the QR. Also wrap a file-recovered token in the keychain when it works.
+      deps.tokenFallback?.write(current)
+      migrateFallbackToKeychain(deps.readSettings(), current)
     }
     try {
       handle = await startServer({

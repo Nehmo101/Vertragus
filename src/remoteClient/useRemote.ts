@@ -4,12 +4,15 @@
  * desktop panel.
  *
  * Auth: the pairing URL carries the token in the fragment (`#token=…`); this
- * exchanges it for a session over `POST /api/auth`, keeps the session in
- * `sessionStorage`, and clears the fragment so a shared screenshot of the URL
- * bar leaks nothing. The WebSocket authenticates with its first frame, then
- * multiplexes workspace state, terminals and commands. A dropped socket
+ * exchanges it for a session over `POST /api/auth`, keeps the session AND the
+ * pairing token in `localStorage` (so a phone home-screen bookmark survives
+ * a desktop restart), and clears the fragment so a shared screenshot of the
+ * URL bar leaks nothing. The WebSocket authenticates with its first frame,
+ * then multiplexes workspace state, terminals and commands. A dropped socket
  * reconnects with backoff and re-attaches losslessly (the server replays
- * scrollback on attach).
+ * scrollback on attach). If the desktop restarted and in-memory sessions
+ * died, the stored pairing token silently mints a new session — the QR does
+ * not have to be scanned again.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
@@ -21,6 +24,7 @@ import type {
 export type RemotePhase = 'pairing' | 'connecting' | 'ready' | 'error' | 'revoked'
 
 const SESSION_KEY = 'vertragus.remote.session'
+const PAIRING_KEY = 'vertragus.remote.pairing'
 const RECONNECT_BASE_MS = 500
 const RECONNECT_MAX_MS = 10_000
 
@@ -35,6 +39,7 @@ export interface RemoteApi {
   error: string | null
   workspaces: RemoteWorkspaceSummary[]
   theme: 'dark' | 'light'
+  locale: string
   attach(agentId: string, handlers: TerminalHandlers): () => void
   sendInput(agentId: string, data: string): void
   resize(agentId: string, cols: number, rows: number): void
@@ -55,6 +60,29 @@ function readTokenFromHash(): string | undefined {
   return params.get('token') ?? undefined
 }
 
+function readStored(key: string): string | undefined {
+  return window.localStorage.getItem(key) ?? window.sessionStorage.getItem(key) ?? undefined
+}
+
+function writeSession(session: string): void {
+  window.localStorage.setItem(SESSION_KEY, session)
+  window.sessionStorage.removeItem(SESSION_KEY)
+}
+
+function writePairing(token: string): void {
+  window.localStorage.setItem(PAIRING_KEY, token)
+}
+
+function clearSession(): void {
+  window.localStorage.removeItem(SESSION_KEY)
+  window.sessionStorage.removeItem(SESSION_KEY)
+}
+
+function clearAuth(): void {
+  clearSession()
+  window.localStorage.removeItem(PAIRING_KEY)
+}
+
 async function pair(token: string): Promise<string | undefined> {
   const response = await fetch('/api/auth', {
     method: 'POST',
@@ -71,6 +99,8 @@ export function useRemote(): RemoteApi {
   const [error, setError] = useState<string | null>(null)
   const [workspaces, setWorkspaces] = useState<RemoteWorkspaceSummary[]>([])
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
+  const [locale, setLocale] = useState('de')
+  const [repairNonce, setRepairNonce] = useState(0)
 
   const socketRef = useRef<WebSocket | null>(null)
   const sessionRef = useRef<string | null>(null)
@@ -94,6 +124,7 @@ export function useRemote(): RemoteApi {
       case 'hello':
         setWorkspaces(message.workspaces)
         setTheme(message.theme)
+        setLocale(message.locale)
         setPhase('ready')
         reconnectAttempt.current = 0
         // Re-attach any terminals the UI was watching before a reconnect.
@@ -114,9 +145,9 @@ export function useRemote(): RemoteApi {
         terminalHandlers.current.get(message.agentId)?.onExit(message.exitCode)
         break
       case 'session_revoked':
-        window.sessionStorage.removeItem(SESSION_KEY)
+        clearSession()
         sessionRef.current = null
-        setPhase('revoked')
+        setRepairNonce((nonce) => nonce + 1)
         break
       case 'command_result': {
         const pending = pendingCommands.current.get(message.id)
@@ -151,13 +182,14 @@ export function useRemote(): RemoteApi {
       }
     }
     socket.onclose = () => {
+      if (socketRef.current !== socket) return
       socketRef.current = null
       // Commands in flight died with the socket — a parked form must not hang.
       for (const pending of pendingCommands.current.values()) {
         pending.reject(new Error('Verbindung unterbrochen.'))
       }
       pendingCommands.current.clear()
-      if (!aliveRef.current || phaseIsTerminal()) return
+      if (!aliveRef.current || sessionRef.current === null) return
       // Reconnect with capped exponential backoff.
       const delay = Math.min(RECONNECT_BASE_MS * 2 ** reconnectAttempt.current, RECONNECT_MAX_MS)
       reconnectAttempt.current += 1
@@ -167,12 +199,17 @@ export function useRemote(): RemoteApi {
       }, delay)
     }
     socket.onerror = () => socket.close()
-
-    function phaseIsTerminal(): boolean {
-      // A revoked session must not silently reconnect — it needs to re-pair.
-      return sessionRef.current === null
-    }
   }, [dispatch])
+
+  const adoptSession = useCallback(
+    (session: string, pairingToken?: string) => {
+      writeSession(session)
+      if (pairingToken) writePairing(pairingToken)
+      sessionRef.current = session
+      connect()
+    },
+    [connect]
+  )
 
   const beginPairing = useCallback(async () => {
     const token = readTokenFromHash()
@@ -181,23 +218,30 @@ export function useRemote(): RemoteApi {
       history.replaceState(null, '', window.location.pathname + window.location.search)
       const session = await pair(token)
       if (session) {
-        window.sessionStorage.setItem(SESSION_KEY, session)
-        sessionRef.current = session
-        connect()
+        adoptSession(session, token)
         return
       }
       setError('Pairing fehlgeschlagen — der Link ist abgelaufen oder ungültig.')
       setPhase('error')
       return
     }
-    const stored = window.sessionStorage.getItem(SESSION_KEY)
-    if (stored) {
-      sessionRef.current = stored
+    const storedSession = readStored(SESSION_KEY)
+    if (storedSession) {
+      sessionRef.current = storedSession
       connect()
       return
     }
+    const storedPairing = readStored(PAIRING_KEY)
+    if (storedPairing) {
+      const session = await pair(storedPairing)
+      if (session) {
+        adoptSession(session, storedPairing)
+        return
+      }
+      window.localStorage.removeItem(PAIRING_KEY)
+    }
     setPhase('pairing')
-  }, [connect])
+  }, [adoptSession, connect])
 
   useEffect(() => {
     aliveRef.current = true
@@ -208,6 +252,25 @@ export function useRemote(): RemoteApi {
     }
     // Runs once on mount — beginPairing owns the whole connect lifecycle.
   }, [beginPairing])
+
+  useEffect(() => {
+    if (repairNonce === 0) return
+    const pairing = readStored(PAIRING_KEY)
+    if (!pairing) {
+      setPhase('revoked')
+      return
+    }
+    setPhase('connecting')
+    void pair(pairing).then((session) => {
+      if (!aliveRef.current) return
+      if (session) {
+        adoptSession(session, pairing)
+        return
+      }
+      clearAuth()
+      setPhase('revoked')
+    })
+  }, [repairNonce, adoptSession])
 
   const attach = useCallback(
     (agentId: string, handlers: TerminalHandlers): (() => void) => {
@@ -228,9 +291,10 @@ export function useRemote(): RemoteApi {
     error,
     workspaces,
     theme,
+    locale,
     attach,
     sendInput: (agentId, data) => sendRaw({ type: 'input', agentId, data }),
-    resize: (agentId, cols, rows) => sendRaw({ type: 'resize', agentId, cols, rows }),
+    resize: (agentId, cols: number, rows: number) => sendRaw({ type: 'resize', agentId, cols, rows }),
     runCommand: (name, arg, args) => {
       const id = `c${(commandSeq.current += 1)}-${Date.now()}`
       const promise = new Promise<unknown>((resolve, reject) => {
@@ -241,7 +305,7 @@ export function useRemote(): RemoteApi {
     },
     refresh: () => sendRaw({ type: 'refresh' }),
     reset: () => {
-      window.sessionStorage.removeItem(SESSION_KEY)
+      clearAuth()
       sessionRef.current = null
       setPhase('pairing')
     }

@@ -88,6 +88,8 @@ export interface RemoteAgentSummary {
   kind?: string
   /** F: the lead this agent works under; absent for direct children. */
   parentId?: string
+  /** Short activity note ("plant", "T-142"). Absent = derived from `state`. */
+  statusText?: string
   pendingQuestion?: string
   /** Registry id of that open question — what `answer_question` addresses. */
   pendingQuestionId?: string

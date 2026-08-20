@@ -25,6 +25,7 @@ import {
 import { createRemoteController, type RemoteController } from './remote/controller'
 import { registerRemoteIpc } from './remote/ipc'
 import { bindOptions } from './remote/interfaces'
+import { createPairingTokenFile } from './remote/tokenFile'
 import { armWindowCapture } from './windows/smokeCapture'
 import { armZoneOverlaySmoke } from './windows/zoneOverlay'
 import { startAppUpdater } from './updater'
@@ -350,8 +351,11 @@ function remoteStaticRoot(): string {
 /**
  * Wire the remote-access controller to the app: the command gateway delegates
  * to the same WorkspaceDirectory the panel uses, terminals come from the shared
- * registry, and workspace changes fan out over the same manager feed. The
- * pairing token is encrypted at rest with Electron safeStorage.
+ * registry, and workspace changes fan out over the same manager feed.
+ *
+ * The pairing token is encrypted at rest with Electron safeStorage when the
+ * OS keychain is available, and always also written to a 0600 file under
+ * userData so the Tailscale QR survives a restart without a keyring.
  */
 function buildRemoteController(
   directory: WorkspaceDirectory,
@@ -362,10 +366,9 @@ function buildRemoteController(
     writeSettings: (next) => setSetting('remote', next),
     networkInterfaces: () => networkInterfaces() as Parameters<typeof bindOptions>[0],
     secrets: {
-      // No OS keychain (a Linux desktop without a configured keyring) → the
-      // controller keeps the token in memory instead of writing plaintext to
-      // the settings file. base64 is not encryption, and a token recoverable
-      // from an unencrypted file on disk is exactly the leak we refuse.
+      // No OS keychain (a Linux desktop without a configured keyring) → do
+      // not write the token into electron-store JSON. The 0600 fallback file
+      // is what keeps the pairing URL stable across restarts in that case.
       available: safeStorage.isEncryptionAvailable(),
       encrypt: (plain) => safeStorage.encryptString(plain).toString('base64'),
       decrypt: (cipher) => {
@@ -376,6 +379,7 @@ function buildRemoteController(
         }
       }
     },
+    tokenFallback: createPairingTokenFile(join(app.getPath('userData'), 'remote-pairing.token')),
     staticRoot: remoteStaticRoot(),
     serverBase: {
       gateway: {

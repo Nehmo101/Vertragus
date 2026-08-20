@@ -2,7 +2,7 @@
  * The remote client's three screens: pair, workspace list, terminal.
  *
  * Deliberately small — it mirrors the panel's model (workspace cards with
- * agent chips and question badges) over the remote protocol, and hands a
+ * agent rows and question banners) over the remote protocol, and hands a
  * full-screen terminal to whichever agent the user taps. No settings, no
  * editing: the command surface is the same few verbs the server allows.
  * Since Track 0 the phone can also do the two things that used to require the
@@ -11,36 +11,60 @@
  * panel and the orchestrator tools use.
  */
 import { useEffect, useState } from 'react'
+import HoundLogo from '@renderer/panel/HoundLogo'
 import type {
   RemoteAgentSummary,
   RemoteProfileSummary,
   RemoteWorkspaceSummary
 } from '@shared/remote/protocol'
+import { remoteCopy, type RemoteCopy } from './i18n'
 import { RemoteTerminal } from './RemoteTerminal'
 import { useRemote, type RemoteApi } from './useRemote'
+import { useVisualViewport } from './useVisualViewport'
+import {
+  agentDotKind,
+  agentStatusLine,
+  endedWorkspaces,
+  hasActiveWorkspace,
+  isWorkspaceExpanded,
+  liveWorkspaces,
+  orderWorkspaces,
+  workspaceCardClass,
+  workspaceGoalLine
+} from './viewModel'
 import './styles.css'
 
 export function App(): React.JSX.Element {
   const api = useRemote()
+  const copy = remoteCopy(api.locale)
   const [openAgent, setOpenAgent] = useState<string | null>(null)
+  useVisualViewport()
 
   useEffect(() => {
     document.documentElement.dataset.theme = api.theme
+    document.querySelector('meta[name="theme-color"]')?.setAttribute(
+      'content',
+      api.theme === 'light' ? '#f4f1ea' : '#0e1013'
+    )
   }, [api.theme])
 
   if (openAgent) {
-    return <RemoteTerminal agentId={openAgent} api={api} onBack={() => setOpenAgent(null)} />
+    return (
+      <RemoteTerminal
+        agentId={openAgent}
+        api={api}
+        copy={copy}
+        onBack={() => setOpenAgent(null)}
+      />
+    )
   }
 
   if (api.phase === 'pairing' || api.phase === 'revoked') {
     return (
       <Centered>
-        <h1>Vertragus Remote</h1>
-        <p>
-          {api.phase === 'revoked'
-            ? 'Die Sitzung wurde beendet. Öffne den Kopplungs-Link (QR-Code) aus den Vertragus-Einstellungen erneut.'
-            : 'Öffne den Kopplungs-Link (QR-Code) aus den Vertragus-Einstellungen, um dieses Gerät zu verbinden.'}
-        </p>
+        <HoundLogo size={36} badge={false} />
+        <h1>{api.phase === 'revoked' ? copy.revokedTitle : copy.pairingTitle}</h1>
+        <p>{api.phase === 'revoked' ? copy.revokedBody : copy.pairingBody}</p>
       </Centered>
     )
   }
@@ -48,10 +72,11 @@ export function App(): React.JSX.Element {
   if (api.phase === 'error') {
     return (
       <Centered>
-        <h1>Verbindung fehlgeschlagen</h1>
-        <p>{api.error ?? 'Unbekannter Fehler.'}</p>
-        <button className="primary" onClick={api.reset}>
-          Erneut koppeln
+        <HoundLogo size={36} badge={false} />
+        <h1>{copy.errorTitle}</h1>
+        <p>{api.error ?? copy.unknownError}</p>
+        <button className="primary" type="button" onClick={api.reset}>
+          {copy.pairAgain}
         </button>
       </Centered>
     )
@@ -60,40 +85,105 @@ export function App(): React.JSX.Element {
   return (
     <div className="app">
       <header className="app-header">
-        <span className="brand">Vertragus</span>
-        <span className={`conn ${api.phase === 'ready' ? 'ok' : 'pending'}`}>
-          {api.phase === 'ready' ? 'verbunden' : 'verbinde …'}
-        </span>
-        <button className="ghost" onClick={api.refresh} aria-label="Aktualisieren">
+        <HoundLogo size={28} badge={false} />
+        <div className="brand-block">
+          <span className="brand">{copy.wordmark}</span>
+          <span className={`conn ${api.phase === 'ready' ? 'ok' : 'pending'}`}>
+            {api.phase === 'ready' ? copy.connected : copy.connecting}
+          </span>
+        </div>
+        <button className="ghost" type="button" onClick={api.refresh} aria-label={copy.refresh}>
           ⟳
         </button>
       </header>
       <main className="workspace-list">
-        <StartForm api={api} />
-        {api.workspaces.length === 0 ? (
-          <p className="empty">Keine laufenden Workspaces.</p>
-        ) : (
-          api.workspaces.map((workspace) => (
+        <StartForm api={api} copy={copy} collapsed={hasActiveWorkspace(api.workspaces)} />
+        <WorkspaceList api={api} copy={copy} onOpenAgent={setOpenAgent} />
+      </main>
+    </div>
+  )
+}
+
+function WorkspaceList({
+  api,
+  copy,
+  onOpenAgent
+}: {
+  api: RemoteApi
+  copy: RemoteCopy
+  onOpenAgent: (agentId: string) => void
+}): React.JSX.Element {
+  const ordered = orderWorkspaces(api.workspaces)
+  const live = liveWorkspaces(ordered)
+  const ended = endedWorkspaces(ordered)
+  const [showEnded, setShowEnded] = useState(false)
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+
+  const toggle = (workspaceId: string, workspace: RemoteWorkspaceSummary): void => {
+    setExpanded((current) => ({
+      ...current,
+      [workspaceId]: !isWorkspaceExpanded(workspace, current)
+    }))
+  }
+
+  if (ordered.length === 0) {
+    return <p className="empty">{copy.empty}</p>
+  }
+
+  return (
+    <>
+      {live.map((workspace) => (
+        <WorkspaceCard
+          key={workspace.workspaceId}
+          workspace={workspace}
+          expanded={isWorkspaceExpanded(workspace, expanded)}
+          onToggle={() => toggle(workspace.workspaceId, workspace)}
+          api={api}
+          copy={copy}
+          onOpenAgent={onOpenAgent}
+        />
+      ))}
+      {ended.length > 0 ? (
+        <button
+          type="button"
+          className="ended-toggle"
+          onClick={() => setShowEnded((current) => !current)}
+        >
+          {showEnded ? copy.hideEnded : copy.showEnded(ended.length)}
+        </button>
+      ) : null}
+      {showEnded
+        ? ended.map((workspace) => (
             <WorkspaceCard
               key={workspace.workspaceId}
               workspace={workspace}
+              expanded={isWorkspaceExpanded(workspace, expanded)}
+              onToggle={() => toggle(workspace.workspaceId, workspace)}
               api={api}
-              onOpenAgent={setOpenAgent}
+              copy={copy}
+              onOpenAgent={onOpenAgent}
             />
           ))
-        )}
-      </main>
-    </div>
+        : null}
+    </>
   )
 }
 
 /**
  * Start a workspace from the phone — profile picker plus the goal field (H2).
  * Without a goal the start stays allowed (back-compat); the card below then
- * says so. The xterm-with-software-keyboard path this replaces was the worst
- * one in the whole remote plan.
+ * says so. Collapsed by default while a run is already live so the list can
+ * scroll to the work, not the form.
  */
-function StartForm({ api }: { api: RemoteApi }): React.JSX.Element | null {
+function StartForm({
+  api,
+  copy,
+  collapsed
+}: {
+  api: RemoteApi
+  copy: RemoteCopy
+  collapsed: boolean
+}): React.JSX.Element | null {
   const [profiles, setProfiles] = useState<RemoteProfileSummary[]>([])
   const [profileId, setProfileId] = useState('')
   const [goal, setGoal] = useState('')
@@ -111,9 +201,7 @@ function StartForm({ api }: { api: RemoteApi }): React.JSX.Element | null {
       },
       () => setProfiles([])
     )
-    // Once per connection: the profile list only changes on the desktop.
-    // (`api` is a fresh object each render but its callbacks are stable —
-    // `ready` is the real trigger here.)
+    // `api` is a fresh object each render; `ready` is the real trigger.
   }, [ready])
 
   if (!ready || profiles.length === 0) return null
@@ -137,15 +225,15 @@ function StartForm({ api }: { api: RemoteApi }): React.JSX.Element | null {
   }
 
   return (
-    <section className="card start-card">
-      <div className="card-head">
-        <span className="card-name">Neuer Workspace</span>
-      </div>
+    <details className="card start-card" open={!collapsed}>
+      <summary className="card-head start-summary">
+        <span className="card-name">{copy.newWorkspace}</span>
+      </summary>
       <select
         className="start-profile"
         value={profileId}
         onChange={(event) => setProfileId(event.target.value)}
-        aria-label="Profil"
+        aria-label={copy.profile}
       >
         {profiles.map((profile) => (
           <option key={profile.id} value={profile.id}>
@@ -155,85 +243,133 @@ function StartForm({ api }: { api: RemoteApi }): React.JSX.Element | null {
       </select>
       <textarea
         className="goal-input"
-        rows={2}
-        placeholder="Ziel für den Orchestrator … (leer = ohne Ziel starten)"
+        rows={3}
+        placeholder={copy.goalPlaceholder}
         value={goal}
+        enterKeyHint="enter"
         onChange={(event) => setGoal(event.target.value)}
       />
       {error ? <p className="form-error">{error}</p> : null}
-      <button className="primary" disabled={busy} onClick={start}>
-        {goal.trim() ? 'Mit Ziel starten' : 'Ohne Ziel starten'}
+      <button className="primary" type="button" disabled={busy} onClick={start}>
+        {goal.trim() ? copy.startWithGoal : copy.startWithoutGoal}
       </button>
-    </section>
+    </details>
   )
 }
 
 function WorkspaceCard({
   workspace,
+  expanded,
+  onToggle,
   api,
+  copy,
   onOpenAgent
 }: {
   workspace: RemoteWorkspaceSummary
+  expanded: boolean
+  onToggle: () => void
   api: RemoteApi
+  copy: RemoteCopy
   onOpenAgent: (agentId: string) => void
 }): React.JSX.Element {
-  /** The agent whose question is being answered inline, if any. */
   const [answering, setAnswering] = useState<string | null>(null)
+  const [confirmStop, setConfirmStop] = useState(false)
+  const goalLine = workspaceGoalLine(workspace, copy)
+
+  const stop = (): void => {
+    api.runCommand('workspaces:stop', workspace.workspaceId)
+    setConfirmStop(false)
+  }
+
   return (
-    <section className={`card ${workspace.active ? 'active' : 'inactive'}`}>
+    <section className={workspaceCardClass(workspace, expanded)}>
       <div className="card-head">
-        <span className="card-name">{workspace.name}</span>
-        {workspace.profileName ? <span className="card-profile">{workspace.profileName}</span> : null}
+        <button
+          type="button"
+          className="card-toggle"
+          aria-expanded={expanded}
+          onClick={onToggle}
+        >
+          <span className="card-name">{workspace.name}</span>
+          {workspace.profileName ? (
+            <span className="card-profile">{workspace.profileName}</span>
+          ) : null}
+          <span className="card-count">{copy.agents(workspace.agents.length)}</span>
+          {!expanded && workspaceNeedsDot(workspace) ? <span className="card-attention" /> : null}
+        </button>
         {workspace.active ? (
-          <button className="stop" onClick={() => api.runCommand('workspaces:stop', workspace.workspaceId)}>
-            Stop
-          </button>
+          confirmStop ? (
+            <span className="stop-confirm">
+              <button type="button" className="stop is-confirm" onClick={stop}>
+                {copy.stopConfirm}
+              </button>
+              <button type="button" className="ghost-inline" onClick={() => setConfirmStop(false)}>
+                {copy.stopCancel}
+              </button>
+            </span>
+          ) : (
+            <button type="button" className="stop" onClick={() => setConfirmStop(true)}>
+              {copy.stop}
+            </button>
+          )
         ) : (
-          <span className="inactive-tag">beendet</span>
+          <span className="inactive-tag">{copy.inactive}</span>
         )}
       </div>
-      {workspace.orchestratorIdle ? (
-        <p className="card-task idle-hint">Orchestrator still — keine Tool-Aufrufe mehr</p>
+      {expanded ? (
+        <>
+          {workspace.orchestratorIdle ? <p className="card-task idle-hint">{copy.idleHint}</p> : null}
+          {goalLine ? (
+            <p className={workspace.goalText ? 'card-task' : 'card-task no-goal'}>{goalLine}</p>
+          ) : null}
+          {workspace.taskText ? <p className="card-task">{workspace.taskText}</p> : null}
+          {workspace.userQuestion ? (
+            <UserQuestionForm api={api} workspace={workspace} copy={copy} />
+          ) : null}
+          <ul className="agents">
+            {workspace.agents.map((agent) => (
+              <li
+                key={agent.agentId}
+                className={agent.parentId ? 'agent-line is-child' : 'agent-line'}
+              >
+                <AgentRow
+                  agent={agent}
+                  copy={copy}
+                  onOpen={() => onOpenAgent(agent.agentId)}
+                  onToggleAnswer={() =>
+                    setAnswering((current) => (current === agent.agentId ? null : agent.agentId))
+                  }
+                />
+              </li>
+            ))}
+          </ul>
+          {answering
+            ? (() => {
+                const agent = workspace.agents.find((entry) => entry.agentId === answering)
+                if (!agent?.pendingQuestion || !agent.pendingQuestionId) return null
+                return (
+                  <AnswerForm
+                    api={api}
+                    copy={copy}
+                    workspaceId={workspace.workspaceId}
+                    agent={agent}
+                    questionId={agent.pendingQuestionId}
+                    onDone={() => setAnswering(null)}
+                  />
+                )
+              })()
+            : null}
+          {workspace.active ? (
+            <Composer api={api} workspaceId={workspace.workspaceId} copy={copy} />
+          ) : null}
+        </>
       ) : null}
-      {workspace.goalText ? (
-        <p className="card-task">Ziel: {workspace.goalText}</p>
-      ) : workspace.active ? (
-        <p className="card-task no-goal">Kein Ziel — Orchestrator wartet</p>
-      ) : null}
-      {workspace.taskText ? <p className="card-task">{workspace.taskText}</p> : null}
-      {workspace.userQuestion ? (
-        <UserQuestionForm api={api} workspace={workspace} />
-      ) : null}
-      <div className="agents">
-        {workspace.agents.map((agent) => (
-          <AgentChip
-            key={agent.agentId}
-            agent={agent}
-            onOpen={() => onOpenAgent(agent.agentId)}
-            onToggleAnswer={() =>
-              setAnswering((current) => (current === agent.agentId ? null : agent.agentId))
-            }
-          />
-        ))}
-      </div>
-      {answering
-        ? (() => {
-            const agent = workspace.agents.find((entry) => entry.agentId === answering)
-            if (!agent?.pendingQuestion || !agent.pendingQuestionId) return null
-            return (
-              <AnswerForm
-                api={api}
-                workspaceId={workspace.workspaceId}
-                agent={agent}
-                questionId={agent.pendingQuestionId}
-                onDone={() => setAnswering(null)}
-              />
-            )
-          })()
-        : null}
-      {workspace.active ? <Composer api={api} workspaceId={workspace.workspaceId} /> : null}
     </section>
   )
+}
+
+function workspaceNeedsDot(workspace: RemoteWorkspaceSummary): boolean {
+  return Boolean(workspace.userQuestion) || workspace.agents.some((agent) => agent.pendingQuestion)
 }
 
 /**
@@ -242,10 +378,12 @@ function WorkspaceCard({
  */
 function UserQuestionForm({
   api,
-  workspace
+  workspace,
+  copy
 }: {
   api: RemoteApi
   workspace: RemoteWorkspaceSummary
+  copy: RemoteCopy
 }): React.JSX.Element {
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
@@ -276,25 +414,34 @@ function UserQuestionForm({
   }
 
   return (
-    <div className="answer-form">
-      <p className="answer-question">Frage an dich: {question.question}</p>
+    <div className="answer-form is-user">
+      <p className="answer-question">{copy.userQuestion(question.question)}</p>
       <textarea
         className="goal-input"
-        rows={3}
-        placeholder="Antwort …"
+        rows={4}
+        placeholder={copy.answerPlaceholder}
         value={text}
+        enterKeyHint="enter"
         onChange={(event) => setText(event.target.value)}
       />
       {error ? <p className="form-error">{error}</p> : null}
-      <button className="primary" disabled={busy || !text.trim()} onClick={submit}>
-        Antworten
+      <button className="primary" type="button" disabled={busy || !text.trim()} onClick={submit}>
+        {copy.answerSend}
       </button>
     </div>
   )
 }
 
 /** D2: steer the run from the phone — wakes the orchestrator's await_events. */
-function Composer({ api, workspaceId }: { api: RemoteApi; workspaceId: string }): React.JSX.Element {
+function Composer({
+  api,
+  workspaceId,
+  copy
+}: {
+  api: RemoteApi
+  workspaceId: string
+  copy: RemoteCopy
+}): React.JSX.Element {
   const [text, setText] = useState('')
   const [error, setError] = useState<string | null>(null)
 
@@ -310,37 +457,37 @@ function Composer({ api, workspaceId }: { api: RemoteApi; workspaceId: string })
 
   return (
     <div className="composer">
-      <input
-        type="text"
-        placeholder="Nachricht an den Orchestrator …"
+      <textarea
+        rows={2}
+        placeholder={copy.composerPlaceholder}
         value={text}
+        enterKeyHint="send"
         onChange={(event) => setText(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === 'Enter') submit()
+          if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault()
+            submit()
+          }
         }}
       />
-      <button className="primary" disabled={!text.trim()} onClick={submit}>
-        Senden
+      <button className="primary" type="button" disabled={!text.trim()} onClick={submit}>
+        {copy.composerSend}
       </button>
       {error ? <p className="form-error">{error}</p> : null}
     </div>
   )
 }
 
-/**
- * Answer one agent question (H1). Goes over the gateway's `answer_question` —
- * the same host path the orchestrator's send_to_agent{questionId} takes, so
- * the parked ask_orchestrator waiter (or the sentinel PTY delivery) resolves
- * exactly as if the orchestrator had answered.
- */
 function AnswerForm({
   api,
+  copy,
   workspaceId,
   agent,
   questionId,
   onDone
 }: {
   api: RemoteApi
+  copy: RemoteCopy
   workspaceId: string
   agent: RemoteAgentSummary
   questionId: string
@@ -380,50 +527,66 @@ function AnswerForm({
       </p>
       <textarea
         className="goal-input"
-        rows={3}
-        placeholder="Antwort …"
+        rows={4}
+        placeholder={copy.answerPlaceholder}
         value={text}
-        autoFocus
         onChange={(event) => setText(event.target.value)}
       />
       {error ? <p className="form-error">{error}</p> : null}
-      <button className="primary" disabled={busy || !text.trim()} onClick={submit}>
-        Antworten
+      <button className="primary" type="button" disabled={busy || !text.trim()} onClick={submit}>
+        {copy.answerSend}
       </button>
     </div>
   )
 }
 
-function AgentChip({
+function AgentRow({
   agent,
+  copy,
   onOpen,
   onToggleAnswer
 }: {
   agent: RemoteAgentSummary
+  copy: RemoteCopy
   onOpen: () => void
   onToggleAnswer: () => void
 }): React.JSX.Element {
+  const kind = agentDotKind(agent)
   return (
-    <span className="chip-group">
+    <div className="chip-group">
       <button
-        className={`chip state-${agent.state}`}
+        type="button"
+        className={`agent-row state-${agent.state}`}
         style={{ '--role': agent.roleColor } as React.CSSProperties}
         onClick={onOpen}
-        title={agent.pendingQuestion ?? agent.roleLabel ?? agent.roleId}
+        aria-label={copy.openAgent(agent.name)}
       >
-        <span className="chip-name">{agent.name}</span>
+        <span
+          className={`dot-live ${kind === 'idle' ? 'is-idle' : 'is-working'} ${kind === 'working-orchestrator' ? 'is-orchestrator' : ''}`}
+        />
+        <span className="agent-text">
+          <span className="chip-name">{agent.name}</span>
+          <span className="chip-status">
+            {agentStatusLine(agent, {
+              working: copy.working,
+              waiting: copy.waiting,
+              stopped: copy.stopped
+            })}
+          </span>
+        </span>
       </button>
       {agent.pendingQuestion && agent.pendingQuestionId ? (
         <button
+          type="button"
           className="badge"
           onClick={onToggleAnswer}
-          aria-label={`Frage von ${agent.name} beantworten`}
+          aria-label={copy.answerQuestion(agent.name)}
           title={agent.pendingQuestion}
         >
           ?
         </button>
       ) : null}
-    </span>
+    </div>
   )
 }
 

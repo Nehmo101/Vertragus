@@ -37,6 +37,7 @@ export function RemoteSection(): React.JSX.Element | null {
   const [clients, setClients] = useState<RemoteClientInfo[]>([])
   const [allConfirmed, setAllConfirmed] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [copied, setCopied] = useState(false)
 
   const refresh = useCallback(() => {
     if (!bridge) return
@@ -199,14 +200,33 @@ export function RemoteSection(): React.JSX.Element | null {
           />
           <label className="st-label">{t('settings.remotePairingUrl')}</label>
           <input className="st-input st-mono" readOnly value={status.pairingUrl} />
-          <button
-            type="button"
-            className="st-secondary"
-            disabled={busy}
-            onClick={() => bridge.regenerateRemoteToken().then(setStatus)}
-          >
-            {t('settings.remoteRegenerate')}
-          </button>
+          <div className="st-remote-pairing-actions">
+            <button
+              type="button"
+              className="st-secondary"
+              disabled={busy}
+              onClick={() => {
+                void navigator.clipboard.writeText(status.pairingUrl ?? '').then(
+                  () => {
+                    setCopied(true)
+                    window.setTimeout(() => setCopied(false), 1600)
+                  },
+                  () => undefined
+                )
+              }}
+            >
+              {copied ? t('settings.remoteCopied') : t('settings.remoteCopy')}
+            </button>
+            <button
+              type="button"
+              className="st-secondary"
+              disabled={busy}
+              onClick={() => bridge.regenerateRemoteToken().then(setStatus)}
+            >
+              {t('settings.remoteRegenerate')}
+            </button>
+          </div>
+          <span className="st-hint">{t('settings.remotePersistHint')}</span>
           <span className="st-hint">{t('settings.remoteRegenerateHint')}</span>
         </div>
       ) : null}

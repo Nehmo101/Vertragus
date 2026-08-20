@@ -46,8 +46,10 @@ your PC. It is **off by default**; enable it under **Settings → Remote access*
 - **Pairing.** Enabling generates a 256-bit pairing token, shown as a QR code
   and a link. Scanning it on a device on the same tailnet exchanges the token
   for a session; the token is stored encrypted at rest (Electron `safeStorage`)
-  and never leaves the machine in plaintext. Regenerating it disconnects every
-  paired device.
+  and, so the QR survives a restart even without a keyring, in a 0600 file
+  under userData. Regenerating it is the only way the link changes — it
+  disconnects every paired device. The phone also keeps the pairing token in
+  `localStorage` and silently mints a new session if the desktop restarted.
 - **What a remote device can do.** Watch any agent's terminal live, type into
   it, start a workspace **with a goal** (the host seeds it into the
   orchestrator over the same handshake as any assignment; starting without a
