@@ -57,7 +57,7 @@ function metaLabel(
   const engine = [meta.provider, meta.model].filter(Boolean).join(' ')
   return (
     <>
-      <LoreTip name={meta.name} blurb={metaBlurb(t, meta, task)} />
+      <LoreTip className="cli-name" name={meta.name} blurb={metaBlurb(t, meta, task)} />
       <span className="cli-label-dim">
         {' · '}
         {meta.role}

@@ -148,8 +148,9 @@ export const BUILTIN_ROLE_TEMPLATES: readonly RoleTemplate[] = [
 
 /**
  * Role accent colours — muted bronze/verdigris-compatible tones on graphite.
- * Explicitly no neon: these appear as window edge accents and status dots on
- * translucent glass, where a saturated colour reads as an error state.
+ * Explicitly no neon: these tint the CLI chrome (border, title bar, name) and
+ * the status dots on translucent glass, where a saturated colour reads as an
+ * error state.
  */
 export const ROLE_COLOR_POOL = [
   '#2f7d6d', // verdigris — work in motion
