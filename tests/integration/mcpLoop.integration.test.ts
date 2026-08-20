@@ -182,6 +182,10 @@ class SpawningHost implements AgentHost {
     return this.snapshotWorktree(agentId)
   }
 
+  beginLead(): never {
+    throw new Error('the integration loop runs flat — no leads')
+  }
+
   private fakeFacts(record: FakeProcess): WorktreeFacts {
     return {
       branch: record.summary.branch ?? 'unknown',

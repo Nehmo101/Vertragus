@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BRACKETED_PASTE_ON, PASTE_BEGIN, PASTE_END } from '@main/agents/interactiveReady'
 import { buildAgentArgv } from '@main/agents/spawn'
 import { slugifyRef, worktreePathFor } from '@main/agents/worktree'
+import { EventQueue } from '@main/mcp/eventQueue'
 import { PendingQuestions } from '@main/mcp/pendingQuestions'
 import { buildReminderSuffix } from '@shared/prompts/contract'
 import { ORCHESTRATOR_COLOR, ORCHESTRATOR_ROLE_ID, roleColor } from '@shared/prompts/roles'
@@ -76,7 +77,8 @@ function harness(
   )
   workspace.attachMcp({
     orchestratorUrl: 'http://127.0.0.1:1/mcp?ws=w&token=orch',
-    subagentUrl: (agentId) => `http://127.0.0.1:1/mcp?ws=w&agent=${agentId}&token=sub`
+    subagentUrl: (agentId) => `http://127.0.0.1:1/mcp?ws=w&agent=${agentId}&token=sub`,
+    leadUrl: (agentId) => `http://127.0.0.1:1/mcp?ws=w&lead=${agentId}&token=lead`
   })
   workspace.attachQuestions(questions)
 
@@ -1676,5 +1678,71 @@ describe('slot/provider choice at start_agent — Track 4', () => {
       { id: 'slot-claude', providerId: 'claude', model: 'sonnet' },
       { id: 'slot-codex', providerId: 'codex' }
     ])
+  })
+})
+
+describe('beginLead — F', () => {
+  it('spawns a lead: orchestrator provider, lead prompt, no yolo, lead URL, darker bronze', async () => {
+    const { workspace, spawns, windows, prompts } = harness()
+    await workspace.startOrchestrator()
+
+    const lead = await workspace.startLead({
+      area: 'payments',
+      task: 'Own the payments rework.',
+      maxSubagents: 2
+    })
+
+    expect(lead.role).toBe('lead')
+    const launch = spawns[1]!.input
+    expect(launch.kind).toBe('lead')
+    // The profile's orchestrator blueprint, not a slot.
+    expect(launch.provider.id).toBe('claude')
+    expect(launch.model).toBe('opus')
+    expect(launch.yolo).toBe(false)
+    expect(launch.mcpUrl).toContain(`lead=${lead.agentId}`)
+    expect(launch.systemPrompt).toContain('LEAD orchestrator')
+    expect(launch.systemPrompt).toContain('payments')
+    expect(launch.systemPrompt).toContain('budget is 2 agents')
+    // Darker bronze, and the task seeded through the normal handshake.
+    expect(windows.opened.at(-1)).toMatchObject({ agentId: lead.agentId })
+    expect(prompts.at(-1)).toBe('Own the payments rework.')
+    // Listed like a subagent, flagged as lead.
+    const row = workspace.listAgents().find((agent) => agent.agentId === lead.agentId)
+    expect(row?.kind).toBe('lead')
+    expect(row?.status).toBe('working')
+  })
+
+  it('model override wins over the profile orchestrator model', async () => {
+    const { workspace, spawns } = harness()
+    await workspace.startLead({ area: 'x', task: 't', model: 'sonnet' })
+    expect(spawns[0]!.input.model).toBe('sonnet')
+  })
+
+  it('a lead occupies no profile slot — worker capacity stays untouched', async () => {
+    const { workspace } = harness()
+    await workspace.startLead({ area: 'x', task: 't' })
+    // Both worker seats (maxCount 2) are still free.
+    await workspace.startAgent({ role: 'worker', task: 't' })
+    await workspace.startAgent({ role: 'worker', task: 't' })
+  })
+})
+
+describe('event router — F', () => {
+  it('routes host events about a routed agent into the queue the router names', async () => {
+    const { workspace, spawns } = harness()
+    const leadQueue = new EventQueue()
+    const routed = new Set<string>()
+    workspace.attachEventRouter((agentId) =>
+      routed.has(agentId) ? leadQueue : workspace.events
+    )
+
+    const started = await workspace.startAgent({ role: 'worker', task: 'Do it.' })
+    routed.add(started.agentId)
+    spawns[0]!.pty.exit({ exitCode: 1 })
+
+    expect(
+      leadQueue.all().filter((event) => event.type === 'agent_exited' && event.agentId === started.agentId)
+    ).toHaveLength(1)
+    expect(workspace.events.all().filter((event) => event.type === 'agent_exited')).toEqual([])
   })
 })

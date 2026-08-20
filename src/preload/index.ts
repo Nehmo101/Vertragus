@@ -217,6 +217,14 @@ export interface WorkspaceAgentSummary {
   state: PanelAgentState
   statusText?: string
   /**
+   * F: 'orchestrator' for the root row, 'lead' for sub-orchestrators, the
+   * role id otherwise. Drives the panel's indentation and lead styling.
+   */
+  kind?: string
+  /** F: the lead this agent works under; absent for direct children. */
+  parentId?: string
+
+  /**
    * True while this agent's CLI window is on screen. A finished agent whose
    * window is still open can be dismissed with ✕; clicking the row after
    * that reopens the scrollback so the last task stays readable.

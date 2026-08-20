@@ -49,6 +49,8 @@ import {
   CURSOR_APPROVE_MCPS_FLAG,
   grokAllowMcpArgs,
   codexDeveloperInstructionsArgs,
+  leadAllowedTools,
+  leadMcpTools,
   orchestratorAllowedTools,
   orchestratorMcpTools,
   writeClaudeMcpConfigFile,
@@ -68,8 +70,12 @@ import { ensureKimiWorkspaceTrust } from './kimiTrust'
 import { PtyAgent, type PtyAgentLike, type PtySpawnOptions } from './PtyAgent'
 import { resolveLaunch, type ResolveLaunchOptions } from './resolveCommand'
 
-/** Orchestrator and subagent differ in exactly two places: yolo and allowlist. */
-export type AgentLaunchKind = 'orchestrator' | 'subagent'
+/**
+ * Orchestrator and subagent differ in exactly two places: yolo and allowlist.
+ * F adds 'lead': launched like an orchestrator (never yolo) but with the lead
+ * allowlist — the scoped down-tools plus the upward reporting tools.
+ */
+export type AgentLaunchKind = 'orchestrator' | 'subagent' | 'lead'
 
 /**
  * The PTY surface the workspace layer needs. Wider than {@link PtyAgentLike}
@@ -149,6 +155,9 @@ export function buildMcpArgs(input: AgentLaunchInput): string[] {
       if (input.kind === 'orchestrator' && provider.mcp.allowedToolsArg) {
         args.push(provider.mcp.allowedToolsArg, orchestratorAllowedTools().join(','))
       }
+      if (input.kind === 'lead' && provider.mcp.allowedToolsArg) {
+        args.push(provider.mcp.allowedToolsArg, leadAllowedTools().join(','))
+      }
       return args
     }
     case 'codex-overrides':
@@ -159,7 +168,8 @@ export function buildMcpArgs(input: AgentLaunchInput): string[] {
         url: input.mcpUrl,
         configDir: input.configDir,
         fileTag: input.fileTag,
-        ...(input.kind === 'orchestrator' ? { allowedTools: orchestratorMcpTools() } : {})
+        ...(input.kind === 'orchestrator' ? { allowedTools: orchestratorMcpTools() } : {}),
+        ...(input.kind === 'lead' ? { allowedTools: leadMcpTools() } : {})
       })
     case 'kimi-project':
       // Kimi has no flag either — the attachment is a file in the agent's own
@@ -168,7 +178,11 @@ export function buildMcpArgs(input: AgentLaunchInput): string[] {
       writeKimiProjectMcpConfig(
         input.mcpUrl,
         input.cwd,
-        input.kind === 'orchestrator' ? orchestratorMcpTools() : undefined
+        input.kind === 'orchestrator'
+          ? orchestratorMcpTools()
+          : input.kind === 'lead'
+            ? leadMcpTools()
+            : undefined
       )
       return []
     case 'cursor-project':

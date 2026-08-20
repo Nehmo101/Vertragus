@@ -41,6 +41,36 @@ function armScreenshotHook(win: Electron.BrowserWindow, envVar: string, delayMs 
   armWindowCapture(win, envVar, envVar, delayMs)
 }
 
+/**
+ * F: order a flat agent list so every agent follows its parent — root
+ * children in start order, each lead's children directly after the lead.
+ */
+function orderByParent<T extends { agentId: string }>(
+  agents: readonly T[],
+  parentOf: (agent: T) => string | undefined
+): T[] {
+  const byParent = new Map<string | undefined, T[]>()
+  for (const agent of agents) {
+    const key = parentOf(agent)
+    const bucket = byParent.get(key) ?? []
+    bucket.push(agent)
+    byParent.set(key, bucket)
+  }
+  const ordered: T[] = []
+  const seen = new Set<string>()
+  for (const root of byParent.get(undefined) ?? []) {
+    ordered.push(root)
+    seen.add(root.agentId)
+    for (const child of byParent.get(root.agentId) ?? []) {
+      ordered.push(child)
+      seen.add(child.agentId)
+    }
+  }
+  // Orphans (parent no longer listed) still render instead of vanishing.
+  for (const agent of agents) if (!seen.has(agent.agentId)) ordered.push(agent)
+  return ordered
+}
+
 /** Adapter: WorkspaceManager → the view the panel draws. */
 function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): WorkspaceDirectory {
   const roleLabel = (roleId: string): string =>
@@ -111,14 +141,20 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
                   }
                 ]
               : []),
-            ...ws.listAgents().map((agent) => {
+            // F: flat list with indentation — every agent right after its
+            // lead. Root children keep start order; orphans (unknown parent)
+            // fall back to the end rather than disappearing.
+            ...orderByParent(ws.listAgents(), (agent) =>
+              mcp.agentParent(ws.workspaceId, agent.agentId)
+            ).map((agent) => {
               const pendingQuestion = pendingOf(ws.workspaceId, agent.agentId)
               const agentTask = mcp.agentTask(ws.workspaceId, agent.agentId)
+              const parentId = mcp.agentParent(ws.workspaceId, agent.agentId)
               return {
                 agentId: agent.agentId,
                 name: agent.name,
                 roleId: agent.role,
-                roleLabel: roleLabel(agent.role),
+                roleLabel: agent.kind === 'lead' ? 'Lead' : roleLabel(agent.role),
                 roleColor: roleColor(agent.role, roleIds.indexOf(agent.role)),
                 state:
                   agent.status === 'working'
@@ -126,6 +162,8 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
                     : agent.status === 'starting'
                       ? ('waiting' as const)
                       : ('stopped' as const),
+                ...(agent.kind ? { kind: agent.kind } : {}),
+                ...(parentId ? { parentId } : {}),
                 ...(agentTask ? { statusText: agentTask } : {}),
                 ...(windowOpenOf(agent.agentId) ? { windowOpen: true } : {}),
                 ...(pendingQuestion

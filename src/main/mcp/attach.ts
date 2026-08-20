@@ -54,7 +54,7 @@
  * Every other flag and key below was verified against the CLIs installed on
  * this machine (claude, codex-cli 0.144.6, kimi 0.34.0) — not from documentation.
  *
- * The orchestrator runs on a strict allowlist (its nine tools plus Claude's
+ * The orchestrator runs on a strict allowlist (its ten tools plus Claude's
  * read-only built-ins) so it cannot start editing code itself. Subagents get NO
  * `--allowedTools` at all: they are meant to work, and restricting them is what
  * produced the "permission-starved" workers in the old retros.
@@ -62,7 +62,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { MCP_SERVER_NAME } from './server'
-import { ORCHESTRATOR_TOOL_NAMES } from './toolsOrchestrator'
+import { LEAD_TOOL_NAMES, ORCHESTRATOR_TOOL_NAMES } from './toolsOrchestrator'
 
 /** Claude built-ins the orchestrator may use for verification without a prompt. */
 export const READONLY_CLAUDE_TOOLS = ['Read', 'Glob', 'Grep', 'TodoWrite'] as const
@@ -99,9 +99,19 @@ export function orchestratorMcpTools(): string[] {
   return ORCHESTRATOR_TOOL_NAMES.map(qualifiedToolName)
 }
 
-/** The orchestrator's complete allowlist: its nine tools plus read-only built-ins. */
+/** The orchestrator's complete allowlist: its ten tools plus read-only built-ins. */
 export function orchestratorAllowedTools(): string[] {
   return [...orchestratorMcpTools(), ...READONLY_CLAUDE_TOOLS]
+}
+
+/** F: a lead's tools ON THIS SERVER — the scoped down-set plus the upward three. */
+export function leadMcpTools(): string[] {
+  return LEAD_TOOL_NAMES.map(qualifiedToolName)
+}
+
+/** F: a lead's complete allowlist — like the orchestrator, verification is read-only. */
+export function leadAllowedTools(): string[] {
+  return [...leadMcpTools(), ...READONLY_CLAUDE_TOOLS]
 }
 
 /** `mcp__vertragus__start_agent` → `start_agent`. Codex and Kimi want bare names. */

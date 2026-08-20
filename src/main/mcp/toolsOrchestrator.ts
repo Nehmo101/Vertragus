@@ -9,12 +9,14 @@
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { buildHandoffBlock, buildReminderSuffix, buildTaskContract } from '@shared/prompts/contract'
-import type { EventQueue } from './eventQueue'
 import { answerAgentQuestion } from './answerQuestion'
-import { resolveAskTimeoutMs } from './toolsSubagent'
+import { resolveAskTimeoutMs, SUBAGENT_TOOL_NAMES } from './toolsSubagent'
 import {
   errorMessage,
+  inScope,
   INSPECT_VIEWS,
+  MAX_LEADS,
+  queueForAgent,
   recordAssignment,
   runningAgents,
   summarizeAgents,
@@ -22,10 +24,12 @@ import {
   toolJson,
   toolText,
   USER_QUESTION_AGENT_ID,
+  type LeadRuntime,
   type StartingAgent,
   type ToolText,
   type WorkspaceRuntime
 } from './types'
+import { EventQueue } from './eventQueue'
 
 /**
  * Bare names of every orchestrator tool. The launch allowlist and the invariant
@@ -41,10 +45,29 @@ export const ORCHESTRATOR_TOOL_NAMES = [
   'read_output',
   'inspect_agent',
   'ask_user',
+  'start_orchestrator',
   'record_retro'
 ] as const
 
 export type OrchestratorToolName = (typeof ORCHESTRATOR_TOOL_NAMES)[number]
+
+/**
+ * F: the tools a LEAD identity gets — downward the scoped orchestration
+ * subset (no ask_user, no record_retro, no start_orchestrator: depth stays
+ * exactly 1), upward the three subagent tools. Union by design.
+ */
+export const LEAD_TOOL_NAMES = [
+  'start_agent',
+  'send_to_agent',
+  'await_events',
+  'list_agents',
+  'stop_agent',
+  'read_output',
+  'inspect_agent',
+  ...SUBAGENT_TOOL_NAMES
+] as const
+
+export type LeadToolName = (typeof LEAD_TOOL_NAMES)[number]
 
 /** Long-poll defaults for `await_events`, kept under the 60 s MCP timeout. */
 export const AWAIT_TIMEOUT_DEFAULT_SEC = 50
@@ -107,9 +130,37 @@ function withOrchestratorTouch(
   }
 }
 
-export function registerOrchestratorTools(rawServer: McpServer, runtime: WorkspaceRuntime): void {
+/**
+ * Register the orchestration tools. Without `scope` this is the ROOT: all ten
+ * tools, reading the root queue, its direct children (leads included) in
+ * view. With `scope` it is a LEAD (F): the downward subset only, its own
+ * queue, and every agent-addressing tool fenced to its own subtree — a lead
+ * can neither reach a sibling's workers nor the root's.
+ */
+export function registerOrchestratorTools(
+  rawServer: McpServer,
+  runtime: WorkspaceRuntime,
+  scope?: { leadId: string }
+): void {
   const { ctx } = runtime
   const server = withOrchestratorTouch(rawServer, runtime)
+  const leadId = scope?.leadId
+
+  /** The caller's own event queue: the lead's, or the workspace root queue. */
+  const ownQueue = (): EventQueue =>
+    (leadId ? runtime.leads.get(leadId)?.events : undefined) ?? ctx.events
+
+  /** Fence: agent-addressing tools only reach the caller's DIRECT children. */
+  const outOfScope = (agentId: string): ToolText | undefined => {
+    if (inScope(runtime, agentId, leadId)) return undefined
+    return toolError({
+      error: 'unknown_agent',
+      agentId,
+      note: leadId
+        ? 'That agent is not part of your subtree. You only address agents you started yourself; escalate to your orchestrator for anything else.'
+        : 'That agent is not one of your direct children. A lead’s workers are addressed by their lead — send the lead an instruction instead.'
+    })
+  }
 
   server.registerTool(
     'start_agent',
@@ -196,6 +247,21 @@ export function registerOrchestratorTools(rawServer: McpServer, runtime: Workspa
           note: 'The workspace is at its total agent limit. Stop an agent you no longer need before starting another.'
         })
       }
+      // F: a lead also stays inside the subtree budget the root handed down.
+      if (leadId) {
+        const budget = runtime.leads.get(leadId)?.maxSubagents
+        const mine = running.filter((agent) => inScope(runtime, agent.agentId, leadId)).length
+        if (budget !== undefined && mine >= budget) {
+          return toolError({
+            error: 'limit_exceeded',
+            scope: 'subtree',
+            role,
+            running: mine,
+            max: budget,
+            note: 'Your subtree is at the budget your orchestrator gave you. Stop one of your agents first, or report the constraint upward.'
+          })
+        }
+      }
 
       // The contract is appended HERE, in the one place every subagent start
       // passes through, so no spawn path can produce an agent that never
@@ -220,11 +286,17 @@ export function registerOrchestratorTools(rawServer: McpServer, runtime: Workspa
       } catch (error) {
         return toolError({ error: 'start_failed', role, message: errorMessage(error) })
       }
+      // F: parented synchronously with the reservation — the child's events
+      // route to this lead's queue from the very first one.
+      if (leadId) runtime.parentOf.set(started.agentId, leadId)
       recordAssignment(runtime, started.agentId, task)
       started.ready.then(
         () => {
-          if (ctx.events.isClosed) return
-          ctx.events.push({
+          // Routed at resolution time: if the lead died mid-start the child
+          // was adopted and the event belongs to the root now.
+          const queue = queueForAgent(runtime, started.agentId)
+          if (queue.isClosed) return
+          queue.push({
             type: 'agent_started',
             agentId: started.agentId,
             name: started.name,
@@ -238,8 +310,10 @@ export function registerOrchestratorTools(rawServer: McpServer, runtime: Workspa
         (error: unknown) => {
           // The workspace may have closed mid-start (stop button, quit) —
           // then there is no queue left and nobody to tell.
-          if (ctx.events.isClosed) return
-          ctx.events.push({
+          runtime.parentOf.delete(started.agentId)
+          const queue = leadId ? ownQueue() : ctx.events
+          if (queue.isClosed) return
+          queue.push({
             type: 'agent_start_failed',
             agentId: started.agentId,
             name: started.name,
@@ -283,6 +357,9 @@ export function registerOrchestratorTools(rawServer: McpServer, runtime: Workspa
       }
     },
     async ({ agentId, text, questionId }): Promise<ToolText> => {
+      // F: one level only — answers and instructions go to DIRECT children.
+      const fenced = outOfScope(agentId)
+      if (fenced) return fenced
       if (questionId) {
         // One host path for answers — the panel badge and the remote gateway's
         // `answer_question` run through the same function (see answerQuestion.ts).
@@ -365,15 +442,18 @@ export function registerOrchestratorTools(rawServer: McpServer, runtime: Workspa
     async ({ cursor, timeoutSec }): Promise<ToolText> => {
       const from = cursor ?? 0
       const seconds = Math.min(timeoutSec ?? AWAIT_TIMEOUT_DEFAULT_SEC, AWAIT_TIMEOUT_MAX_SEC)
-      const events = await ctx.events.wait(from, seconds * 1_000)
+      // F: the root reads the root queue (direct children only — leads report
+      // as one line each); a lead reads its own subtree queue.
+      const queue = ownQueue()
+      const events = await queue.wait(from, seconds * 1_000)
       const next = events.length > 0 ? events[events.length - 1]!.seq : from
       // A reader whose cursor fell behind the ring gets told, not left to
       // infer the loss from a seq jump nothing pointed at.
-      const dropped = ctx.events.droppedSince(from)
+      const dropped = queue.droppedSince(from)
       return toolJson({
         events,
         cursor: next,
-        agentsSummary: summarizeAgents(runtime),
+        agentsSummary: summarizeAgents(runtime, { leadId }),
         ...(events.length === 0 ? { note: AWAIT_TIMEOUT_NOTE } : {}),
         ...(dropped
           ? {
@@ -397,7 +477,7 @@ export function registerOrchestratorTools(rawServer: McpServer, runtime: Workspa
       inputSchema: {}
     },
     async (): Promise<ToolText> =>
-      toolJson({ workspace: ctx.workspaceName, agents: summarizeAgents(runtime) })
+      toolJson({ workspace: ctx.workspaceName, agents: summarizeAgents(runtime, { leadId }) })
   )
 
   server.registerTool(
@@ -409,6 +489,8 @@ export function registerOrchestratorTools(rawServer: McpServer, runtime: Workspa
       inputSchema: { agentId: z.string().min(1) }
     },
     async ({ agentId }): Promise<ToolText> => {
+      const fenced = outOfScope(agentId)
+      if (fenced) return fenced
       const known = ctx.host.listAgents().find((agent) => agent.agentId === agentId)
       let stopped: boolean
       try {
@@ -418,7 +500,9 @@ export function registerOrchestratorTools(rawServer: McpServer, runtime: Workspa
       }
       runtime.questions.cancelForAgent(agentId)
       if (stopped && known) {
-        ctx.events.push({
+        // Into the parent's queue — for a stopped LEAD that is the root queue,
+        // where the adoption tap reparents its children (F).
+        queueForAgent(runtime, agentId).push({
           type: 'agent_stopped',
           agentId,
           name: known.name,
@@ -433,6 +517,10 @@ export function registerOrchestratorTools(rawServer: McpServer, runtime: Workspa
     }
   )
 
+  // Root-only surface: ask_user, record_retro and start_orchestrator never
+  // exist on a lead session — depth 1 and "retro is the root's" are enforced
+  // by absence, not by prompt discipline (F).
+  if (!scope) {
   server.registerTool(
     'ask_user',
     {
@@ -586,6 +674,142 @@ export function registerOrchestratorTools(rawServer: McpServer, runtime: Workspa
   )
 
   server.registerTool(
+    'start_orchestrator',
+    {
+      description:
+        'Start a LEAD: a sub-orchestrator that owns one independent area with its own team and its ' +
+        'own verification loop. Use it only when the goal has two or more independent workstreams ' +
+        'that barely share files, or when a flat team would drown your await_events loop; stay flat ' +
+        'otherwise. The lead runs your orchestrator provider, gets its own worktree and branch, and ' +
+        'reports upward to you like a subagent (report_done / ask_orchestrator). Its team’s events ' +
+        'go to the lead, not to you — await_events only shows you the lead itself. Leads cannot ' +
+        'start leads (depth is exactly 1).',
+      inputSchema: {
+        area: z
+          .string()
+          .min(1)
+          .max(200)
+          .describe('Short label for the lead’s area, e.g. "payments" or "docs"'),
+        task: z
+          .string()
+          .min(1)
+          .max(20_000)
+          .describe('The area’s complete goal: scope, definition of done, how to verify'),
+        maxSubagents: z
+          .number()
+          .int()
+          .min(1)
+          .max(50)
+          .optional()
+          .describe(
+            'Subtree budget you hand down — how many agents the lead may run at once. The global ' +
+              'workspace cap still counts leads and their agents together.'
+          ),
+        model: z.string().min(1).max(200).optional().describe('Override the orchestrator model'),
+        baseBranch: z
+          .string()
+          .min(1)
+          .max(300)
+          .optional()
+          .describe('Existing branch the lead’s branch starts from. Default: the repository HEAD.')
+      }
+    },
+    async ({ area, task, maxSubagents, model, baseBranch }): Promise<ToolText> => {
+      if (runtime.leads.size >= MAX_LEADS) {
+        return toolError({
+          error: 'limit_exceeded',
+          scope: 'leads',
+          running: runtime.leads.size,
+          max: MAX_LEADS,
+          note: 'Lead cap reached. Finish or stop a lead before starting another — or stay flat.'
+        })
+      }
+      // Global cap counts leads and grandchildren alike — one reservation net.
+      const running = runningAgents(ctx.host.listAgents())
+      if (ctx.limits.maxTotal !== undefined && running.length >= ctx.limits.maxTotal) {
+        return toolError({
+          error: 'limit_exceeded',
+          scope: 'workspace',
+          running: running.length,
+          max: ctx.limits.maxTotal,
+          note: 'The workspace is at its total agent limit (leads count). Stop something first.'
+        })
+      }
+
+      const handoff = baseBranch ? handoffFor(ctx.events, baseBranch) : undefined
+      const seed = [
+        task,
+        ...(handoff ? [handoff] : []),
+        buildTaskContract({ role: 'lead', reporting: 'mcp' })
+      ].join('\n\n')
+
+      let started: StartingAgent
+      try {
+        started = ctx.host.beginLead({ area, task: seed, model, baseBranch, maxSubagents })
+      } catch (error) {
+        return toolError({ error: 'start_failed', area, message: errorMessage(error) })
+      }
+      // The lead's own queue exists from the reservation on — its children's
+      // events have somewhere to go before the lead even finished booting.
+      const lead: LeadRuntime = {
+        agentId: started.agentId,
+        area,
+        events: new EventQueue(),
+        ...(maxSubagents !== undefined ? { maxSubagents } : {})
+      }
+      runtime.leads.set(started.agentId, lead)
+      runtime.onLeadCreated?.(lead)
+      recordAssignment(runtime, started.agentId, task)
+      started.ready.then(
+        () => {
+          if (ctx.events.isClosed) return
+          ctx.events.push({
+            type: 'agent_started',
+            agentId: started.agentId,
+            name: started.name,
+            roleId: started.role,
+            providerId: started.providerId,
+            model: started.model,
+            worktreePath: started.worktreePath,
+            branch: started.branch
+          })
+        },
+        (error: unknown) => {
+          // The reservation is gone; so is the lead — adopt would-be children
+          // (there are none yet) and close its queue.
+          runtime.leads.delete(started.agentId)
+          lead.events.close()
+          if (ctx.events.isClosed) return
+          ctx.events.push({
+            type: 'agent_start_failed',
+            agentId: started.agentId,
+            name: started.name,
+            roleId: started.role,
+            message: errorMessage(error)
+          })
+        }
+      )
+      return toolJson({
+        agentId: started.agentId,
+        name: started.name,
+        area,
+        role: started.role,
+        providerId: started.providerId,
+        model: started.model,
+        worktreePath: started.worktreePath,
+        branch: started.branch,
+        ...(maxSubagents !== undefined ? { maxSubagents } : {}),
+        state: 'starting',
+        note:
+          'Lead reserved and starting in the background. await_events delivers agent_started once ' +
+          'it accepted its area, or agent_start_failed. You will only see the lead’s own events ' +
+          '(done / question / progress) — its team stays in its subtree.'
+      })
+    }
+  )
+  } // end root-only surface
+
+  server.registerTool(
     'read_output',
     {
       description:
@@ -604,6 +828,8 @@ export function registerOrchestratorTools(rawServer: McpServer, runtime: Workspa
       }
     },
     async ({ agentId, lines }): Promise<ToolText> => {
+      const fenced = outOfScope(agentId)
+      if (fenced) return fenced
       const count = Math.min(lines ?? READ_OUTPUT_DEFAULT_LINES, READ_OUTPUT_MAX_LINES)
       try {
         const output = await ctx.host.readOutput(agentId, count)
@@ -643,6 +869,8 @@ export function registerOrchestratorTools(rawServer: McpServer, runtime: Workspa
       }
     },
     async ({ agentId, view, path, lines }): Promise<ToolText> => {
+      const fenced = outOfScope(agentId)
+      if (fenced) return fenced
       try {
         const result = await ctx.host.inspectAgent(agentId, { view, path, lines })
         return toolJson({ agentId, ...result })

@@ -23,6 +23,7 @@
  * against fakes with no Electron runtime in sight.
  */
 import type { McpServerHandle } from '@main/mcp/server'
+import { queueForAgent } from '@main/mcp/types'
 import { workspacePlaceName } from '@shared/workspaceNames'
 import type { Profile } from '@shared/schema/profile'
 import type { StartedAgent } from '@main/mcp/types'
@@ -160,6 +161,8 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     const registered = deps.mcp.registerWorkspace(workspace.mcpContext())
     workspace.attachMcp(registered)
     workspace.attachQuestions(registered.runtime.questions)
+    // F: host events about a lead's child go to the lead's queue, not the root's.
+    workspace.attachEventRouter((agentId) => queueForAgent(registered.runtime, agentId))
     workspaces.set(workspace.workspaceId, workspace)
     if (deps.retro) {
       const events: AgentEvent[] = []
@@ -170,6 +173,19 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
       workspace.events.onPush(() => notifyChange()),
       registered.runtime.questions.onMutate(() => notifyChange())
     ])
+    // F: lead queues carry the subtrees' events past the root queue — the
+    // retro needs them for honest stats and the panel needs the change ticks.
+    registered.runtime.onLeadCreated = (lead) => {
+      const tap = eventTaps.get(workspace.workspaceId)
+      changeTaps
+        .get(workspace.workspaceId)
+        ?.push(
+          lead.events.onPush((event) => {
+            tap?.events.push(event)
+            notifyChange()
+          })
+        )
+    }
     // Assignments too: a follow-up task pushes no agent event, so without this
     // the panel's status lines and the CLI hover cards would lag behind it.
     registered.runtime.onTasksChanged = () => notifyChange()

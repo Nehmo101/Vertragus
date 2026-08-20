@@ -13,6 +13,7 @@ import type {
   InspectAgentOptions,
   InspectAgentResult,
   StartAgentInput,
+  StartLeadInput,
   StartingAgent,
   ToolText,
   WorktreeFacts,
@@ -194,6 +195,38 @@ export class FakeAgentHost implements AgentHost {
   listAgents(): AgentSummary[] {
     return [...this.agents.values()]
   }
+
+  /** F: leads mirror beginAgent, with the lead role and no profile slot. */
+  beginLead(input: StartLeadInput): StartingAgent {
+    if (this.options.startError) throw new Error(this.options.startError)
+    const agentId = `agent-${++this.counter}`
+    const worktreePath = `/tmp/worktrees/${agentId}`
+    const branch = `vertragus/arsenale/${agentId}`
+    const agent: AgentSummary = {
+      agentId,
+      name: `Lead ${this.counter}`,
+      role: 'lead',
+      status: 'running',
+      model: input.model,
+      worktreePath,
+      branch,
+      lastOutputAgeSec: 0,
+      kind: 'lead',
+      reporting: 'mcp'
+    }
+    this.agents.set(agentId, agent)
+    this.seeded.push({ agentId, task: input.task })
+    return {
+      agentId,
+      name: agent.name,
+      role: agent.role,
+      providerId: 'fake',
+      model: input.model,
+      worktreePath,
+      branch,
+      ready: Promise.resolve()
+    }
+  }
 }
 
 export interface FakeRuntimeOptions {
@@ -228,5 +261,13 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): WorkspaceRuntime 
     askTimeoutMs: options.askTimeoutMs,
     retro: options.retro
   }
-  return { ctx, questions: new PendingQuestions(), agentTasks: new Map(), host, events }
+  return {
+    ctx,
+    questions: new PendingQuestions(),
+    agentTasks: new Map(),
+    leads: new Map(),
+    parentOf: new Map(),
+    host,
+    events
+  }
 }

@@ -49,7 +49,7 @@ Remote-Server.
 | C5 Orchestrator-Idle-Watchdog | **umgesetzt** (Track 2) — `orchestrator_idle` Event + Panel/Remote-Hinweis; Timeouts ≠ Idle (Touch bei Call-Start und -Ende) |
 | D Mensch im Loop | **D1–D3 umgesetzt** (Track 3) — Goal-UI, `user_message` weckt `await_events`, `ask_user` mit Ticket; D4 Yolo-Stufen folgt |
 | E integrate / briefing / eval | nach C |
-| F Multi-Orch (Lead, Tiefe 1) | nach C; Host auto-nestet nie |
+| F Multi-Orch (Lead, Tiefe 1) | **umgesetzt** (Track 5) — dritte Identität `lead=`, eigene Queues, `start_orchestrator`, Fan-in nur Direktkinder, Reparent (`subtree_adopted`), Caps host-seitig |
 
 ---
 
@@ -585,7 +585,7 @@ wählt wenn flach nicht mehr trägt. A/B sind das Fundament.
 | Quit awaited | `index.ts` `before-quit` | **PR #17** |
 | Acht Orchestrator-Tools | `toolsOrchestrator.ts` inkl. `inspect_agent` | **PR #17** |
 | Host-Fakten auf `agent_done` | `toolsSubagent.ts` `report_done`, Sentinel in `Workspace.ts` | **PR #17** |
-| MCP-Identität binär (Root vs. Blatt) | `server.ts` `McpIdentity` — Lead kommt in F | offen |
+| MCP-Identität dreifach (Root/Lead/Blatt) | `server.ts` `McpIdentity` inkl. `lead=` + `leadToken` | **Track 5** |
 | Goal at Play | `workspaces:start{goal}` Panel + Gateway, Seed via `Workspace.assignGoal` | **Track 0** |
 | MCP-Fragen vom Handy/Panel | `answer_question` Gateway-Verb + `workspaces:answerQuestion`, ein Pfad in `mcp/answerQuestion.ts` | **Track 0** |
 | Worker „nie committen” + Host-Snapshot | `roles.ts`, `Workspace.snapshotDone`, `commitWorktree`, Handoff in `toolsOrchestrator.ts` | **Track 1** |

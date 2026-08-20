@@ -47,7 +47,8 @@ function AgentRow({ agent, onFocus, onCloseWindow, onAnswer }: AgentProps): Reac
   }
 
   return (
-    <li className="panel-agent-line">
+    // F: children of a lead indent under it — flat list, no tree widget.
+    <li className={agent.parentId ? 'panel-agent-line is-child' : 'panel-agent-line'}>
       <button
         type="button"
         className={agentRowClass(agent)}

@@ -46,6 +46,7 @@ import {
   USER_QUESTION_AGENT_ID,
   worktreeEventFields,
   type AgentHost,
+  type StartLeadInput,
   type AgentSummary,
   type InspectAgentOptions,
   type InspectAgentResult,
@@ -75,10 +76,16 @@ import {
   type SeedWithReadyOptions
 } from '@main/agents/interactiveReady'
 import { buildReminderSuffix, type ReportingMode } from '@shared/prompts/contract'
-import { buildOrchestratorSystemPrompt, type RoleWithLimit } from '@shared/prompts/orchestrator'
+import {
+  buildLeadSystemPrompt,
+  buildOrchestratorSystemPrompt,
+  type RoleWithLimit
+} from '@shared/prompts/orchestrator'
 import type { SlotKnowledge } from '@shared/retro/runStats'
 import {
   allRoleTemplates,
+  LEAD_COLOR,
+  LEAD_ROLE_ID,
   ORCHESTRATOR_COLOR,
   ORCHESTRATOR_ROLE_ID,
   roleColor
@@ -149,6 +156,8 @@ export interface WorkspaceWindows {
 export interface WorkspaceMcpUrls {
   orchestratorUrl: string
   subagentUrl(agentId: string): string
+  /** F: the MCP URL a lead process attaches with (`lead=` identity). */
+  leadUrl(agentId: string): string
 }
 
 export interface WorkspaceDeps {
@@ -196,11 +205,14 @@ interface PendingStart {
   agentId: string
   name: string
   roleId: string
-  slotId: string
+  /** Absent for leads — they occupy no profile slot. */
+  slotId?: string
   providerId: string
   model?: string
   worktreePath: string
   branch: string
+  /** F: reserved by beginLead. */
+  lead?: boolean
 }
 
 interface AgentRecord {
@@ -218,6 +230,8 @@ interface AgentRecord {
   pty: AgentPty
   /** The workspace's own orchestrator — excluded from listAgents and events. */
   orchestrator: boolean
+  /** F: a sub-orchestrator started via start_orchestrator. Listed like a subagent. */
+  lead: boolean
   /** True once the CLI accepted its assignment through the seed handshake. */
   seeded: boolean
   /** Set before we kill it, so its exit does not look like an unasked death. */
@@ -309,6 +323,12 @@ export class Workspace implements AgentHost {
   private mcpUrls: WorkspaceMcpUrls | undefined
   /** Open-question registry from MCP registration — needed for sentinel ASK. */
   private questions: PendingQuestions | undefined
+  /**
+   * F: routes an event ABOUT an agent to its parent's queue (a lead's child →
+   * the lead queue). Installed by the WorkspaceManager after registration;
+   * without it everything lands in the root queue (flat workspace).
+   */
+  private eventRouter: ((agentId: string) => EventQueue) | undefined
   private closed = false
   /** The record_retro summary, held until the manager finalizes the run at stop. */
   pendingRetroSummary: string | undefined
@@ -456,6 +476,16 @@ export class Workspace implements AgentHost {
     this.questions = questions
   }
 
+  /** F: install the MCP layer's parent-queue router (see {@link queueFor}). */
+  attachEventRouter(router: (agentId: string) => EventQueue): void {
+    this.eventRouter = router
+  }
+
+  /** The queue an event about `agentId` belongs in — its parent's, else root. */
+  private queueFor(agentId: string): EventQueue {
+    return this.eventRouter?.(agentId) ?? this.events
+  }
+
   /**
    * Per-role and total caps, derived from the profile. The MCP layer enforces
    * them; this only reports what the profile declares.
@@ -548,6 +578,120 @@ export class Workspace implements AgentHost {
   }
 
   /**
+   * F: reserve and begin one LEAD start. Same reservation discipline as
+   * {@link beginAgent}; no profile slot (the global cap is checked by the
+   * tool layer), the profile's orchestrator provider, an orchestrator-kind
+   * name, never yolo, darker bronze, and a `lead=` MCP URL.
+   */
+  beginLead(input: StartLeadInput): StartingAgent {
+    this.assertOpen()
+    const urls = this.requireMcp()
+    const provider = this.requireProvider(this.profile.orchestrator.providerId)
+
+    const agentId = this.newId()
+    const name = this.names.allocate('orchestrator')
+    const model = input.model?.trim() || this.profile.orchestrator.model
+    const pending: PendingStart = {
+      agentId,
+      name,
+      roleId: LEAD_ROLE_ID,
+      providerId: provider.id,
+      model,
+      worktreePath: worktreePathFor(this.repoPath, agentId),
+      branch: worktreeBranchName(this.name, name),
+      lead: true
+    }
+    this.pendingStarts.set(agentId, pending)
+
+    return {
+      agentId,
+      name,
+      role: LEAD_ROLE_ID,
+      providerId: provider.id,
+      model,
+      worktreePath: pending.worktreePath,
+      branch: pending.branch,
+      ready: this.finishLeadStart(pending, provider, input, urls)
+    }
+  }
+
+  /** Test/live convenience: begin a lead and wait for the whole pipeline. */
+  async startLead(input: StartLeadInput): Promise<StartedAgent> {
+    const begun = this.beginLead(input)
+    await begun.ready
+    return begun
+  }
+
+  /** The heavy half of {@link beginLead} — mirrors {@link finishStart}. */
+  private async finishLeadStart(
+    pending: PendingStart,
+    provider: ProviderConfig,
+    input: StartLeadInput,
+    urls: WorkspaceMcpUrls
+  ): Promise<void> {
+    let spawned: SpawnedAgent | undefined
+    try {
+      const worktree = await this.createWorktreeFor(pending.agentId, pending.name, input.baseBranch)
+      this.assertOpenDuringStart(pending)
+
+      const systemPrompt = buildLeadSystemPrompt({
+        workspaceName: this.name,
+        repoPath: this.repoPath,
+        rolesWithLimits: this.rolesWithLimits(),
+        maxSubagents: this.profile.maxSubagents,
+        area: input.area,
+        parentName: this.orchestratorRecord?.name,
+        subtreeBudget: input.maxSubagents
+      })
+      spawned = await (this.deps.spawn ?? spawnAgent)({
+        kind: 'lead',
+        provider,
+        model: pending.model,
+        effort: this.profile.orchestrator.effort,
+        // Like the root: a lead has no yolo surface at all.
+        yolo: false,
+        cwd: worktree.path,
+        mcpUrl: urls.leadUrl(pending.agentId),
+        fileTag: `lead-${pending.agentId}`,
+        configDir: this.deps.configDir,
+        systemPrompt
+      })
+      this.assertOpenDuringStart(pending)
+
+      const record = this.track({
+        agentId: pending.agentId,
+        name: pending.name,
+        roleId: LEAD_ROLE_ID,
+        providerId: provider.id,
+        model: pending.model,
+        worktreePath: worktree.path,
+        branch: worktree.branch,
+        pty: spawned.pty,
+        lead: true
+      })
+      this.pendingStarts.delete(pending.agentId)
+
+      this.openWindow(record, LEAD_COLOR)
+
+      const seedText = spawned.launch.ptySystemPrompt
+        ? `${spawned.launch.ptySystemPrompt}\n\n${input.task}`
+        : input.task
+      const accepted = await this.seed(record, seedText, this.autoSubmitTasks)
+      if (!accepted) {
+        throw new Error(
+          `${pending.name} (${provider.label}) never became ready — the CLI did not accept its area.`
+        )
+      }
+      record.seeded = true
+      record.assignmentCursor = this.queueFor(record.agentId).cursor
+    } catch (error) {
+      this.pendingStarts.delete(pending.agentId)
+      this.discard(pending.agentId, pending.name, spawned?.pty)
+      throw error
+    }
+  }
+
+  /**
    * The heavy half of {@link beginAgent}: worktree, spawn, window, seed. Runs
    * behind the returned `ready` promise so `start_agent` never sits on it —
    * the pipeline (keyboard wait, settle, gated Enters) can outlast the 60 s
@@ -619,7 +763,7 @@ export class Workspace implements AgentHost {
         )
       }
       record.seeded = true
-      record.assignmentCursor = this.events.cursor
+      record.assignmentCursor = this.queueFor(record.agentId).cursor
     } catch (error) {
       // A half-started agent must not hold a name, a window, a process — or
       // its reservation.
@@ -654,8 +798,9 @@ export class Workspace implements AgentHost {
     // A new assignment resets the "has it confirmed?" question — and the
     // sentinel dedup memory, so a legitimate identical DONE for a follow-up
     // still fires. Seed echoes were suppressed during the write; reset drops
-    // any partial buffer state before the agent speaks again.
-    record.assignmentCursor = this.events.cursor
+    // any partial buffer state before the agent speaks again. F: the cursor
+    // belongs to the queue this agent's events land in (its parent's).
+    record.assignmentCursor = this.queueFor(agentId).cursor
     record.doneSinceAssignment = false
     record.sentinel?.reset()
   }
@@ -768,7 +913,7 @@ export class Workspace implements AgentHost {
     if (!record) return false
     this.openWindow(
       record,
-      record.orchestrator ? ORCHESTRATOR_COLOR : this.colorFor(record.roleId)
+      record.orchestrator ? ORCHESTRATOR_COLOR : record.lead ? LEAD_COLOR : this.colorFor(record.roleId)
     )
     return true
   }
@@ -791,6 +936,7 @@ export class Workspace implements AgentHost {
           worktreePath: record.worktreePath,
           branch: record.branch,
           lastOutputAgeSec: Math.max(0, Math.round((now - record.lastOutputAt) / 1_000)),
+          ...(record.lead ? { kind: 'lead' as const } : {}),
           reporting: this.reportingForProvider(record.providerId)
         })),
       // Reservations: begun but not yet spawned. They occupy their slot (the
@@ -807,6 +953,7 @@ export class Workspace implements AgentHost {
           worktreePath: pending.worktreePath,
           branch: pending.branch,
           lastOutputAgeSec: 0,
+          ...(pending.lead ? { kind: 'lead' as const } : {}),
           reporting: this.reportingForProvider(pending.providerId)
         }))
     ]
@@ -1177,6 +1324,7 @@ export class Workspace implements AgentHost {
     branch: string
     pty: AgentPty
     orchestrator?: boolean
+    lead?: boolean
   }): AgentRecord {
     const record: AgentRecord = {
       agentId: input.agentId,
@@ -1189,6 +1337,7 @@ export class Workspace implements AgentHost {
       branch: input.branch,
       pty: input.pty,
       orchestrator: input.orchestrator === true,
+      lead: input.lead === true,
       seeded: false,
       stopping: false,
       stopped: false,
@@ -1205,7 +1354,11 @@ export class Workspace implements AgentHost {
       agentId: record.agentId,
       name: record.name,
       role: record.roleId,
-      roleColor: input.orchestrator ? ORCHESTRATOR_COLOR : this.colorFor(record.roleId),
+      roleColor: input.orchestrator
+        ? ORCHESTRATOR_COLOR
+        : input.lead
+          ? LEAD_COLOR
+          : this.colorFor(record.roleId),
       provider: record.providerId,
       model: record.model ?? ''
     }
@@ -1241,7 +1394,8 @@ export class Workspace implements AgentHost {
    * Turn a parsed sentinel report into the same event shapes MCP tools push.
    */
   private handleSentinelReport(record: AgentRecord, report: SentinelReport): void {
-    if (this.events.isClosed || record.orchestrator) return
+    const queue = this.queueFor(record.agentId)
+    if (queue.isClosed || record.orchestrator) return
     const identity = {
       agentId: record.agentId,
       name: record.name,
@@ -1253,10 +1407,10 @@ export class Workspace implements AgentHost {
         void this.emitAgentDone(record, report.summary, report.status)
         return
       case 'progress':
-        this.events.push({ type: 'agent_progress', ...identity, note: report.note })
+        queue.push({ type: 'agent_progress', ...identity, note: report.note })
         return
       case 'unparseable':
-        this.events.push({
+        queue.push({
           type: 'agent_progress',
           ...identity,
           note: `unparseable sentinel line (${report.reason})`
@@ -1265,7 +1419,7 @@ export class Workspace implements AgentHost {
       case 'ask': {
         if (!this.questions) {
           // Wiring bug: WorkspaceManager always attachQuestions. Surface it.
-          this.events.push({
+          queue.push({
             type: 'agent_progress',
             ...identity,
             note: 'sentinel ASK ignored: questions registry not attached'
@@ -1285,7 +1439,7 @@ export class Workspace implements AgentHost {
             )
           }
         })
-        this.events.push({
+        queue.push({
           type: 'agent_question',
           ...identity,
           questionId: pending.questionId,
@@ -1315,13 +1469,14 @@ export class Workspace implements AgentHost {
       summary,
       status
     }
+    const queue = this.queueFor(record.agentId)
     try {
       const facts = await this.snapshotDone(record.agentId, summary)
-      if (this.events.isClosed) return
-      this.events.push({ ...payload, ...facts })
+      if (queue.isClosed) return
+      queue.push({ ...payload, ...facts })
     } catch {
-      if (this.events.isClosed) return
-      this.events.push(payload)
+      if (queue.isClosed) return
+      queue.push(payload)
     }
   }
 
@@ -1361,7 +1516,7 @@ export class Workspace implements AgentHost {
    */
   private emitIdleHint(record: AgentRecord): void {
     record.idleTimer = undefined
-    if (record.idleNotified || this.events.isClosed) return
+    if (record.idleNotified || this.queueFor(record.agentId).isClosed) return
     const status = this.statusOf(record)
     if (status === AGENT_STATUS.exited || status === AGENT_STATUS.stopped) return
     // A fake clock (or a timer that fired early) must not produce a false hint.
@@ -1370,7 +1525,7 @@ export class Workspace implements AgentHost {
       return
     }
     record.idleNotified = true
-    this.events.push({
+    this.queueFor(record.agentId).push({
       type: 'agent_progress',
       agentId: record.agentId,
       name: record.name,
@@ -1484,7 +1639,9 @@ export class Workspace implements AgentHost {
       })
       return
     }
-    this.events.push({
+    // F: a grandchild's death goes to its lead; a lead's own death goes to
+    // the root, where the adoption tap reparents its children.
+    this.queueFor(record.agentId).push({
       type: 'agent_exited',
       agentId: record.agentId,
       name: record.name,
@@ -1496,7 +1653,7 @@ export class Workspace implements AgentHost {
 
   private hasConfirmedSinceAssignment(record: AgentRecord): boolean {
     if (record.doneSinceAssignment) return true
-    return this.events
+    return this.queueFor(record.agentId)
       .all()
       .some(
         (event) =>

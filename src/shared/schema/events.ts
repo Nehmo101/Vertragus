@@ -20,7 +20,8 @@ export const AGENT_EVENT_TYPES = [
   'orchestrator_exited',
   'orchestrator_idle',
   'user_message',
-  'user_question'
+  'user_question',
+  'subtree_adopted'
 ] as const
 
 export type AgentEventType = (typeof AGENT_EVENT_TYPES)[number]
@@ -159,6 +160,22 @@ const userQuestionPayload = z.object({
   question: z.string().min(1)
 })
 
+/**
+ * F: a lead orchestrator died (or was stopped) and its still-running children
+ * were REPARENTED to the root — their future events now land in the root
+ * queue. Only in the failure case does the root see more events; that is the
+ * deal. Past subtree events are NOT replayed (the retro tap already recorded
+ * them); the root inspects the adopted agents instead.
+ */
+const subtreeAdoptedPayload = z.object({
+  type: z.literal('subtree_adopted'),
+  /** The dead lead. */
+  leadAgentId: z.string().min(1),
+  area: z.string().min(1).max(200),
+  /** The reparented children — direct children of the root from now on. */
+  adoptedAgentIds: z.array(z.string().min(1)).max(200)
+})
+
 /** Event body as produced by a caller — no `seq`/`ts` yet. */
 export const agentEventPayloadSchema = z.discriminatedUnion('type', [
   agentStartedPayload,
@@ -171,7 +188,8 @@ export const agentEventPayloadSchema = z.discriminatedUnion('type', [
   orchestratorExitedPayload,
   orchestratorIdlePayload,
   userMessagePayload,
-  userQuestionPayload
+  userQuestionPayload,
+  subtreeAdoptedPayload
 ])
 export type AgentEventPayload = z.infer<typeof agentEventPayloadSchema>
 
@@ -193,7 +211,8 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   orchestratorExitedPayload.extend(envelope),
   orchestratorIdlePayload.extend(envelope),
   userMessagePayload.extend(envelope),
-  userQuestionPayload.extend(envelope)
+  userQuestionPayload.extend(envelope),
+  subtreeAdoptedPayload.extend(envelope)
 ])
 export type AgentEvent = z.infer<typeof agentEventSchema>
 

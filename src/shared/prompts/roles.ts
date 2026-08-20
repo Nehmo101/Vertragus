@@ -166,6 +166,10 @@ export const ROLE_COLOR_POOL = [
 /** The orchestrator is bronze — the brand's colour for decisions. Never pooled. */
 export const ORCHESTRATOR_COLOR = '#cba35a'
 
+/** F: a lead (sub-orchestrator) — a darker bronze, visibly kin to the root. */
+export const LEAD_ROLE_ID = 'lead'
+export const LEAD_COLOR = '#a58245'
+
 /** Fixed assignments for the shipped roles; index order matches the pool. */
 const BUILTIN_ROLE_COLORS: Record<string, string> = {
   [WORKER_ROLE_ID]: ROLE_COLOR_POOL[0],
@@ -185,6 +189,7 @@ const RESERVED_POOL_SIZE = Object.keys(BUILTIN_ROLE_COLORS).length
  */
 export function roleColor(roleId: string, index = 0): string {
   if (roleId === ORCHESTRATOR_ROLE_ID) return ORCHESTRATOR_COLOR
+  if (roleId === LEAD_ROLE_ID) return LEAD_COLOR
   const fixed = BUILTIN_ROLE_COLORS[roleId]
   if (fixed) return fixed
   const offset = RESERVED_POOL_SIZE + (index < 0 ? 0 : index)

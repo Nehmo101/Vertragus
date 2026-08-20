@@ -81,6 +81,13 @@ export interface RemoteAgentSummary {
   roleLabel?: string
   roleColor: string
   state: 'working' | 'waiting' | 'stopped'
+  /**
+   * F: 'orchestrator' for the root row, 'lead' for sub-orchestrators, the
+   * role id otherwise. Drives the panel's indentation and lead styling.
+   */
+  kind?: string
+  /** F: the lead this agent works under; absent for direct children. */
+  parentId?: string
   pendingQuestion?: string
   /** Registry id of that open question — what `answer_question` addresses. */
   pendingQuestionId?: string

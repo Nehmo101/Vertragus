@@ -9,7 +9,7 @@ import {
 const identity = { agentId: 'a1', name: 'Arlecchino', roleId: 'worker' }
 
 describe('agent event schema', () => {
-  it('covers exactly the eleven documented event types', () => {
+  it('covers exactly the twelve documented event types', () => {
     expect([...AGENT_EVENT_TYPES]).toEqual([
       'agent_started',
       'agent_start_failed',
@@ -21,8 +21,23 @@ describe('agent event schema', () => {
       'orchestrator_exited',
       'orchestrator_idle',
       'user_message',
-      'user_question'
+      'user_question',
+      'subtree_adopted'
     ])
+  })
+
+  it('F: subtree_adopted names the dead lead, its area and the reparented children', () => {
+    expect(
+      agentEventPayloadSchema.parse({
+        type: 'subtree_adopted',
+        leadAgentId: 'lead-1',
+        area: 'payments',
+        adoptedAgentIds: ['a1', 'a2']
+      })
+    ).toMatchObject({ leadAgentId: 'lead-1', adoptedAgentIds: ['a1', 'a2'] })
+    expect(() =>
+      agentEventPayloadSchema.parse({ type: 'subtree_adopted', area: 'x', adoptedAgentIds: [] })
+    ).toThrow()
   })
 
   it('D2/D3: user_message and user_question carry no agent identity', () => {

@@ -177,6 +177,13 @@ export interface WorkspaceAgentSummary {
    * so the last task remains readable, and a click reopens the scrollback.
    */
   windowOpen?: boolean
+  /**
+   * F: 'orchestrator' for the root row, 'lead' for sub-orchestrators, the
+   * role id otherwise. Drives the panel's indentation and lead styling.
+   */
+  kind?: string
+  /** F: the lead this agent works under; absent for direct children. */
+  parentId?: string
   /** Set while the agent waits for an answer — drives the `?` badge. */
   pendingQuestion?: string
   /**

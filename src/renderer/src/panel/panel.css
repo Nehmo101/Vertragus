@@ -632,6 +632,11 @@
   flex-wrap: wrap;
 }
 
+/* F: a lead's team indents under its lead row — flat list, no tree widget. */
+.panel-agent-line.is-child {
+  margin-left: 14px;
+}
+
 .panel-agent {
   display: flex;
   align-items: center;

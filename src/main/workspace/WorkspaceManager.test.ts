@@ -29,14 +29,22 @@ class FakeMcp implements McpServerHandle {
   registerWorkspace(ctx: WorkspaceMcpContext): RegisteredWorkspace {
     this.contexts.push(ctx)
     this.log.push(`register:${ctx.workspaceName}`)
-    const runtime = { ctx, questions: new PendingQuestions(), agentTasks: new Map<string, string>() }
+    const runtime = {
+      ctx,
+      questions: new PendingQuestions(),
+      agentTasks: new Map<string, string>(),
+      leads: new Map(),
+      parentOf: new Map()
+    } as RegisteredWorkspace['runtime']
     this.runtimes.set(ctx.workspaceId, runtime)
     this.lastQuestions = runtime.questions
     return {
       runtime,
       orchestratorUrl: `http://127.0.0.1:${this.port}/mcp?ws=${ctx.workspaceId}&token=${ctx.orchToken}`,
       subagentUrl: (agentId: string) =>
-        `http://127.0.0.1:${this.port}/mcp?ws=${ctx.workspaceId}&agent=${agentId}&token=${ctx.subToken}`
+        `http://127.0.0.1:${this.port}/mcp?ws=${ctx.workspaceId}&agent=${agentId}&token=${ctx.subToken}`,
+      leadUrl: (agentId: string) =>
+        `http://127.0.0.1:${this.port}/mcp?ws=${ctx.workspaceId}&lead=${agentId}&token=lead`
     }
   }
 
@@ -78,6 +86,9 @@ class FakeMcp implements McpServerHandle {
   }
   agentTask(workspaceId: string, agentId: string): string | undefined {
     return this.runtimes.get(workspaceId)?.agentTasks.get(agentId)
+  }
+  agentParent(workspaceId: string, agentId: string): string | undefined {
+    return this.runtimes.get(workspaceId)?.parentOf.get(agentId)
   }
   async close(): Promise<void> {}
 }
