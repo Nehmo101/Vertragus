@@ -53,6 +53,24 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
   Main-Prozess außerhalb von `mainMessages.ts` ablehnt, und eine
   Paritätsprüfung für die Texte des Remote-Clients.
 
+- **Succession übersteht einen Host-Crash.** Das Übergabe-Paket liegt jetzt
+  bei den übrigen Artefakten des Laufs statt im Datenverzeichnis der App,
+  und ein Resume, das ein unverbrauchtes findet, seedet den Nachfolger
+  daraus — sagt dabei aber klar, dass die Fragen des toten Laufs verfallen
+  sind. Ein Paket, dem das Journal widerspricht, wird abgelehnt, und eine
+  gescheiterte Übergabe räumt ihr Paket selbst weg, damit es nie über
+  neuere Arbeit gespielt wird.
+- **Orchestrator aus dem Panel ersetzen.** Ein toter oder stummer
+  Orchestrator lässt sich gegen einen Nachfolger mit frischem Kontext
+  tauschen, der Team, Warteschlange und Board behält; das Fenster des
+  Vorgängers bleibt als Obduktion offen.
+- **Das Task-Board auf der Workspace-Karte**, schreibgeschützt und live,
+  mit dem Artefakt-Ordner des Laufs einen Klick entfernt — und dasselbe
+  Board auf dem Handy, weil das Gateway die Zusammenfassung ohnehin
+  weiterreicht.
+- **Ein geführter Erststart**: welche Agenten-CLIs installiert sind, ob sie
+  angemeldet sind, ein Knopf zum ersten Profil und ein Fingerzeig auf Play.
+
 ### Fixed
 
 - Der PTY-Idle-Hinweis erreichte das Orchestrator-Modell auf Deutsch, auf

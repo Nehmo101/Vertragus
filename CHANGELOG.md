@@ -50,6 +50,22 @@ No release has been tagged yet; everything lives under Unreleased.
   in the main process outside `mainMessages.ts`, and a parity check for the
   remote client's copy.
 
+- **Succession survives a host crash.** The handoff package now lives beside
+  the run's other artefacts instead of in the app's own data directory, and
+  a resume that finds an unconsumed one seeds the successor from it — while
+  saying plainly that the dead run's questions are void. A package the
+  journal contradicts is refused, and a failed handoff retires its own
+  package so it can never be replayed over newer work.
+- **Replace the orchestrator from the panel.** A dead or silent orchestrator
+  can be swapped for a fresh-context successor that keeps the team, the
+  queue and the board; the predecessor's window stays open as the
+  post-mortem.
+- **The task board on the workspace card**, read-only and live, with the
+  run's artefact folder one click away — and the same board on the phone,
+  because the gateway already forwards the summary.
+- **A guided first run**: which agent CLIs are installed, whether they are
+  signed in, a button to the first profile, and a pointer at Play.
+
 ### Fixed
 
 - The PTY-idle hint reached the orchestrator model in German on an
