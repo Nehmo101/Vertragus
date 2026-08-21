@@ -38,6 +38,7 @@ import {
   type ProviderConfig
 } from '@shared/schema/provider'
 import { resolveLaunch } from '@main/agents/resolveCommand'
+import { refreshProcessPathFromSystem } from '@main/providers/processPath'
 
 const execFileAsync = promisify(execFile)
 
@@ -87,6 +88,21 @@ export function cliFailureMessage(
   )
 }
 
+/** Injection seam for the platform-dependent halves of {@link execProviderCli}. */
+export interface ProviderCliRuntime {
+  platform: NodeJS.Platform
+  exec(file: string, args: string[], timeoutMs: number): Promise<{ stdout: string; stderr: string }>
+  refreshPath(): Promise<void>
+}
+
+const runProviderCli: ProviderCliRuntime['exec'] = (file, args, timeoutMs) =>
+  execFileAsync(file, args, { timeout: timeoutMs, windowsHide: true })
+
+/** `execFile` reports a command that PATH never resolved as an ENOENT spawn error. */
+function isCommandNotFound(cause: unknown): boolean {
+  return (cause as { code?: unknown } | null | undefined)?.code === 'ENOENT'
+}
+
 /**
  * Run a provider CLI non-interactively.
  *
@@ -107,19 +123,50 @@ export async function execProviderCli(
   command: string,
   args: string[],
   timeoutMs: number,
-  locale?: string
+  locale?: string,
+  overrides: Partial<ProviderCliRuntime> = {}
 ): Promise<string> {
+  // Destructured per call, not captured in a module const: `process.platform`
+  // is swapped per case by the platform tests here and in the health probe.
+  const {
+    platform = process.platform,
+    exec = runProviderCli,
+    refreshPath = refreshProcessPathFromSystem
+  } = overrides
   const launch =
-    process.platform === 'win32' ? await resolveLaunch(command, args) : { file: command, args }
+    platform === 'win32' ? await resolveLaunch(command, args) : { file: command, args }
+
+  const attempt = async (): Promise<string> => {
+    try {
+      const { stdout, stderr } = await exec(launch.file, launch.args, timeoutMs)
+      return stdout || stderr || ''
+    } catch (cause) {
+      const failure = (cause ?? {}) as ExecFailure
+      if (!failure.killed && failure.stdout?.trim()) return failure.stdout
+      throw cause
+    }
+  }
+
   try {
-    const { stdout, stderr } = await execFileAsync(launch.file, launch.args, {
-      timeout: timeoutMs,
-      windowsHide: true
-    })
-    return stdout || stderr || ''
+    return await attempt()
   } catch (cause) {
-    const failure = (cause ?? {}) as ExecFailure
-    if (!failure.killed && failure.stdout?.trim()) return failure.stdout
+    // A macOS app started from Finder/Dock inherits only /usr/bin:/bin:/usr/sbin:
+    // /sbin, so a CLI installed under /opt/homebrew or ~/.local/bin is ENOENT
+    // although it IS installed — and this function backs the health probe, the
+    // auth probe and model discovery alike, so the onboarding card would tell a
+    // Claude Code user that no CLI was found. Same retry-on-failure shape as the
+    // spawn path in agents/resolveCommand: reading the login shell costs a shell
+    // startup, so it happens after a miss and never ahead of every probe. Once
+    // only — a refreshed PATH that still misses is the honest answer — and the
+    // FIRST error is the one reported, because it is the one the CLI produced.
+    if (platform === 'darwin' && isCommandNotFound(cause)) {
+      await refreshPath()
+      try {
+        return await attempt()
+      } catch {
+        throw new Error(cliFailureMessage(cause, timeoutMs, locale))
+      }
+    }
     throw new Error(cliFailureMessage(cause, timeoutMs, locale))
   }
 }

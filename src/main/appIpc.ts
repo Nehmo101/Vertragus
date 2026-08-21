@@ -18,6 +18,15 @@
  * Everything else follows `./ipc.ts`: `createAppIpc(host)` is the testable core,
  * `registerAppIpc()` is the production wiring, and the channel names are
  * duplicated in preload with a parity test that fails on drift.
+ *
+ * The `… rejected — <reason>` throws in this file are RAW ENGLISH ON PURPOSE
+ * and must not be moved into `mainMessages`. Every one of them is a payload or
+ * sender assertion — a missing id, a wrong window type, a malformed zone list —
+ * that no button press can produce; reaching one means the renderer or the
+ * preload contract is broken, and the reader is whoever debugs that. Localized
+ * copy here would only make a bug report harder to search for. Anything a
+ * correct renderer CAN provoke belongs in the locale table like everything
+ * else — see the stub refusal below.
  */
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { profileRoleIds, type Profile, type RoleTemplate } from '@shared/schema/profile'
@@ -391,12 +400,19 @@ export interface WorkspaceDirectory {
  * and `focusAgent` still works (the CLI window registry exists), but `start`
  * and `stop` REFUSE loudly: a Play button that quietly does nothing is the
  * worst possible placeholder.
+ *
+ * `bootError` is what the app entry caught when the MCP server failed to
+ * start. Carried into the refusal because the panel is the only surface the
+ * user has: without it every workspace channel blames an unfinished feature
+ * while the actual cause reaches nothing but `console.error`.
  */
 export function createStubWorkspaceDirectory(
-  locale: () => string | undefined = () => undefined
+  locale: () => string | undefined = () => undefined,
+  bootError?: string
 ): WorkspaceDirectory {
   const refuse = (): never => {
-    throw new Error(mainMessages(readLocale(locale)).stubNotWired)
+    const messages = mainMessages(readLocale(locale))
+    throw new Error(bootError ? messages.stubBootFailed(bootError) : messages.stubNotWired)
   }
   return {
     list: () => [],
@@ -1511,8 +1527,11 @@ function send(targets: readonly (BrowserWindow | null)[], channel: string, paylo
  * stub, which is why the app entry must call this only after the manager is
  * built (or in its catch). Nothing else in the app may call it — window smoke
  * hooks in particular live in the app entry, next to the other boot hooks.
+ *
+ * `bootError` only applies to the stub path: it is the reason the manager does
+ * not exist, and it travels into every workspace refusal.
  */
-export function registerAppIpc(directory?: WorkspaceDirectory): AppIpc {
+export function registerAppIpc(directory?: WorkspaceDirectory, bootError?: string): AppIpc {
   if (instance) return instance
   // Every call goes through `settings()` instead of capturing the store once:
   // constructing electron-store touches the config file, and a corrupt file
@@ -1540,7 +1559,7 @@ export function registerAppIpc(directory?: WorkspaceDirectory): AppIpc {
     store,
     directory:
       directory ??
-      createStubWorkspaceDirectory(() => settings().getSettings().ui.locale),
+      createStubWorkspaceDirectory(() => settings().getSettings().ui.locale, bootError),
     isPanelSender: (id) => isPanelWindowSender(id),
     profileEditorSender: (id) => isProfileEditorWindowSender(id),
     providerEditorSender: (id) => isProviderEditorWindowSender(id),

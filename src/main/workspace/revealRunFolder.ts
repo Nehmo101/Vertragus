@@ -10,13 +10,20 @@
  * asserting against itself.
  */
 
+import { mainMessages } from '@shared/mainMessages'
+
 /** The `shell.openPath` contract: resolves '' on success, a reason on failure. */
 export type OpenPath = (path: string) => Promise<string>
 
-export async function revealRunFolder(open: OpenPath, dir: string): Promise<void> {
+export async function revealRunFolder(
+  open: OpenPath,
+  dir: string,
+  locale?: string
+): Promise<void> {
   const failure = await open(dir)
   // The path is in the message on purpose: the usual failure is a run whose
   // folder was never written (read-only repo, journal factory refused), and
   // the OS reason alone ("No such file or directory") does not say which one.
-  if (failure) throw new Error(`run folder ${dir} could not be opened — ${failure}`)
+  // The OS reason itself stays in whatever language the OS produced it.
+  if (failure) throw new Error(mainMessages(locale).runFolderNotOpened(dir, failure))
 }

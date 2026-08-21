@@ -80,6 +80,7 @@ import { settings } from '@main/store/settings'
 import {
   APP_CHANNELS,
   createAppIpc,
+  createStubWorkspaceDirectory,
   disposeAppIpc,
   PROVIDER_HEALTH_TTL_MS,
   quitConfirmationText,
@@ -1989,6 +1990,43 @@ describe('production registration', () => {
     ).resolves.toBeUndefined()
     expect(real.start).toHaveBeenCalledWith('p1')
     expect(second.start).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * The panel is the only surface a boot failure can reach. `console.error` is
+ * not one — nobody opens a devtools console to find out why Play did nothing.
+ */
+describe('stub workspace directory', () => {
+  it('names the boot failure instead of blaming an unfinished feature', () => {
+    const stub = createStubWorkspaceDirectory(() => 'en', 'listen EADDRINUSE :::9481')
+    expect(() => stub.start('p1')).toThrow(
+      'The workspace manager could not start — no agents can be launched: listen EADDRINUSE :::9481'
+    )
+    // Every workspace channel, not just Play: Resume is the likelier first click.
+    expect(() => stub.resume('p1')).toThrow(/listen EADDRINUSE/)
+    expect(() => stub.stop('w1')).toThrow(/listen EADDRINUSE/)
+  })
+
+  it('speaks the stored locale — the reason rides along in the CLI’s own words', () => {
+    const stub = createStubWorkspaceDirectory(() => 'de', 'spawn claude ENOENT')
+    expect(() => stub.start('p1')).toThrow(
+      'Workspace-Manager konnte nicht starten — Agenten lassen sich nicht anlegen: spawn claude ENOENT'
+    )
+  })
+
+  /** Without a recorded reason there is nothing honest to add. */
+  it('falls back to the plain refusal when no boot error was recorded', () => {
+    expect(() => createStubWorkspaceDirectory(() => 'en').start('p1')).toThrow(
+      'The workspace manager is not wired up yet.'
+    )
+  })
+
+  /** The refusals are the point; the read-only halves must stay usable. */
+  it('still lists nothing and still focuses a CLI window', () => {
+    const stub = createStubWorkspaceDirectory(() => 'en', 'boom')
+    expect(stub.list()).toEqual([])
+    expect(() => stub.focusWorkspace('w1')).not.toThrow()
   })
 })
 
