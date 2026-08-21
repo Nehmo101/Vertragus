@@ -417,6 +417,24 @@ describe('startWorkspace', () => {
     expect(ctx.limits.perRole.get('worker')).toBe(2)
   })
 
+  it('resolves extra MCP servers on orchestrator spawn', async () => {
+    const extras = [
+      {
+        id: 'github',
+        label: 'GitHub',
+        transport: 'stdio' as const,
+        command: 'npx',
+        args: [] as string[],
+        enabled: true
+      }
+    ]
+    const extraMcpServers = vi.fn(() => extras)
+    const { manager, spawns } = harness({ extraMcpServers })
+    await manager.startWorkspace(testProfile())
+    expect(extraMcpServers).toHaveBeenCalled()
+    expect(spawns[0]!.input.extraMcpServers).toEqual(extras)
+  })
+
   it('reads providers, role templates and yolo fresh on every start', async () => {
     const providers = vi.fn(() => testProviders())
     const roleTemplates = vi.fn(() => [])

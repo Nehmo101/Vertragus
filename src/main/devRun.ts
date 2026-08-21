@@ -19,6 +19,7 @@ import { app } from 'electron'
 import { getAgentRegistry } from './ipc'
 import { startMcpServer, type McpServerHandle } from './mcp/server'
 import { closeCliWindow, createCliWindow } from './windows/cliWindow'
+import { enabledExtraMcpServers } from '@shared/schema/mcpServer'
 import {
   effectiveAgentPolicy,
   effectiveProviders,
@@ -88,6 +89,7 @@ export function createAppWorkspaceManager(mcp: McpServerHandle): WorkspaceManage
     // D4: the tier wins over the boolean; read fresh so a settings change
     // reaches the next workspace without a restart.
     agentPolicy: () => effectiveAgentPolicy(getSettings()),
+    extraMcpServers: () => enabledExtraMcpServers(getSettings().mcpServers),
     // The retro loop: run stats and learnings land in the settings store, and
     // the accumulated knowledge returns via the next orchestrator prompt.
     retro: createRetroSink({ store: settings() }),

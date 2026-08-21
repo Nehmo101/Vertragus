@@ -61,9 +61,19 @@
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { ExtraMcpServer } from '@shared/schema/profile'
+import {
+  enabledExtraMcpServers,
+  type ExtraMcpServer
+} from '@shared/schema/mcpServer'
+import type { ExtraMcpServer as SlotExtraMcpServer } from '@shared/schema/profile'
 import { MCP_SERVER_NAME } from './server'
 import { LEAD_TOOL_NAMES, ORCHESTRATOR_TOOL_NAMES } from './toolsOrchestrator'
+
+/**
+ * Either a global extra (Settings) or an E6 slot extra. Writers accept both
+ * so the two sources can ride the same dialect without a second code path.
+ */
+export type AttachableExtra = ExtraMcpServer | SlotExtraMcpServer
 
 /**
  * E6: extra MCP servers a SLOT declares for its subagents, defence-in-depth
@@ -72,9 +82,94 @@ import { LEAD_TOOL_NAMES, ORCHESTRATOR_TOOL_NAMES } from './toolsOrchestrator'
  * here would silently shadow the reporting channel.
  */
 export function usableExtraMcp(
-  extra: readonly ExtraMcpServer[] | undefined
-): ExtraMcpServer[] {
+  extra: readonly SlotExtraMcpServer[] | undefined
+): SlotExtraMcpServer[] {
   return (extra ?? []).filter((server) => server.name.toLowerCase() !== MCP_SERVER_NAME)
+}
+
+/** Enabled extras from global settings. Reserved `vertragus` never comes through. */
+export function attachableExtraMcpServers(
+  servers?: readonly ExtraMcpServer[]
+): ExtraMcpServer[] {
+  return enabledExtraMcpServers(servers ?? [])
+}
+
+function isGlobalExtra(server: AttachableExtra): server is ExtraMcpServer {
+  return 'transport' in server
+}
+
+/**
+ * Collapse Settings extras and E6 slot extras into one ExtraMcpServer list.
+ * Slot extras are HTTP-only `{ name, url }`; they become `{ id: name, url }`.
+ * First id wins; reserved `vertragus` is dropped.
+ */
+export function extrasToAttach(
+  extras?: readonly AttachableExtra[]
+): ExtraMcpServer[] {
+  if (!extras) return []
+  const out: ExtraMcpServer[] = []
+  const seen = new Set<string>()
+  for (const extra of extras) {
+    if (isGlobalExtra(extra)) {
+      for (const server of attachableExtraMcpServers([extra])) {
+        if (server.id === MCP_SERVER_NAME || seen.has(server.id)) continue
+        seen.add(server.id)
+        out.push(server)
+      }
+    } else if (extra.name.toLowerCase() !== MCP_SERVER_NAME && !seen.has(extra.name)) {
+      seen.add(extra.name)
+      out.push({
+        transport: 'http',
+        id: extra.name,
+        label: extra.name,
+        enabled: true,
+        url: extra.url
+      })
+    }
+  }
+  return out
+}
+
+/** Claude `--allowedTools` entries that unlock an extra server (`mcp__<id>`). */
+export function extraMcpServerAllowlist(servers?: readonly AttachableExtra[]): string[] {
+  return extrasToAttach(servers).map((server) => `mcp__${server.id}`)
+}
+
+function extraStdioEntry(
+  server: Extract<ExtraMcpServer, { transport: 'stdio' }>,
+  withType: boolean
+): Record<string, unknown> {
+  const entry: Record<string, unknown> = { command: server.command }
+  if (withType) entry.type = 'stdio'
+  if (server.args.length > 0) entry.args = server.args
+  if (server.env && Object.keys(server.env).length > 0) entry.env = server.env
+  return entry
+}
+
+function extraHttpEntry(
+  server: Extract<ExtraMcpServer, { transport: 'http' }>,
+  options: { type?: boolean; headers?: boolean }
+): Record<string, unknown> {
+  const entry: Record<string, unknown> = { url: server.url }
+  if (options.type) entry.type = 'http'
+  if (options.headers && server.headers && Object.keys(server.headers).length > 0) {
+    entry.headers = server.headers
+  }
+  return entry
+}
+
+function dialectEntry(
+  extra: ExtraMcpServer,
+  dialect: 'claude' | 'kimi' | 'cursor'
+): Record<string, unknown> {
+  if (dialect === 'claude') {
+    return extra.transport === 'stdio'
+      ? extraStdioEntry(extra, true)
+      : extraHttpEntry(extra, { type: true, headers: true })
+  }
+  return extra.transport === 'stdio'
+    ? extraStdioEntry(extra, false)
+    : extraHttpEntry(extra, { headers: false })
 }
 
 /** Claude built-ins the orchestrator may use for verification without a prompt. */
@@ -166,6 +261,8 @@ export interface McpAttachTarget {
    * which is what forces `await_events` into a 50 s metronome.
    */
   toolTimeoutSec?: number
+  /** Extra MCP servers (Settings extras and, for subagents, E6 slot extras). */
+  extraMcpServers?: readonly AttachableExtra[]
 }
 
 /**
@@ -190,17 +287,19 @@ export function claudeMcpTimeoutEnv(
 }
 
 /**
- * The `{ mcpServers: { vertragus: … } }` object Claude expects. E6: extra
- * slot servers land in the SAME transient file — `--strict-mcp-config` limits
- * Claude to this file, so this is the only place they can come from.
+ * The `{ mcpServers: { vertragus: … } }` object Claude expects. Extra servers
+ * (Settings extras and E6 slot extras) land in the SAME transient file —
+ * `--strict-mcp-config` limits Claude to this file, so this is the only place
+ * they can come from.
  */
 export function toClaudeMcpConfig(
   url: string,
-  extraMcp?: readonly ExtraMcpServer[]
+  extras?: readonly AttachableExtra[]
 ): { mcpServers: Record<string, unknown> } {
   const servers: Record<string, unknown> = { [MCP_SERVER_NAME]: { type: 'http', url } }
-  for (const server of usableExtraMcp(extraMcp)) {
-    servers[server.name] = { type: 'http', url: server.url }
+  for (const extra of extrasToAttach(extras)) {
+    if (extra.id === MCP_SERVER_NAME) continue
+    servers[extra.id] = dialectEntry(extra, 'claude')
   }
   return { mcpServers: servers }
 }
@@ -219,12 +318,12 @@ export function writeClaudeMcpConfigFile(
   url: string,
   configDir: string,
   fileTag: string,
-  extraMcp?: readonly ExtraMcpServer[]
+  extras?: readonly AttachableExtra[]
 ): string {
   const dir = join(configDir, 'vertragus-mcp')
   mkdirSync(dir, { recursive: true })
   const configPath = join(dir, `${fileTag}.json`)
-  writeFileSync(configPath, JSON.stringify(toClaudeMcpConfig(url, extraMcp), null, 2))
+  writeFileSync(configPath, JSON.stringify(toClaudeMcpConfig(url, extras), null, 2))
   assertWrittenClaudeMcpConfig(configPath)
   return configPath
 }
@@ -234,7 +333,12 @@ export function writeClaudeMcpConfigFile(
  * server), optional system prompt, optional allowlist.
  */
 export function buildClaudeMcpArgs(target: McpAttachTarget): string[] {
-  const configPath = writeClaudeMcpConfigFile(target.url, target.configDir, target.fileTag)
+  const configPath = writeClaudeMcpConfigFile(
+    target.url,
+    target.configDir,
+    target.fileTag,
+    target.extraMcpServers
+  )
   const args = ['--mcp-config', configPath, '--strict-mcp-config']
   // Attach first, prompt last — the same order `agents/spawn` composes, so the
   // two routes stay comparable argument for argument (see its drift test).
@@ -249,7 +353,10 @@ export function buildClaudeMcpArgs(target: McpAttachTarget): string[] {
 export function buildClaudeOrchestratorArgs(
   target: Omit<McpAttachTarget, 'allowedTools'>
 ): string[] {
-  return buildClaudeMcpArgs({ ...target, allowedTools: orchestratorAllowedTools() })
+  return buildClaudeMcpArgs({
+    ...target,
+    allowedTools: [...orchestratorAllowedTools(), ...extraMcpServerAllowlist(target.extraMcpServers)]
+  })
 }
 
 /**
@@ -322,18 +429,34 @@ export function codexServerOverrides(
 }
 
 /**
- * E6: `-c mcp_servers.<name>.url=…` per extra slot server. Only the url — no
- * `required` (a worker must still start when a user's server is down) and no
- * pre-approval (these are the user's servers, not our loopback; the yolo tier
- * already covers prompts where it applies).
+ * Process-local `-c` overrides for extra MCP servers (Settings extras and E6
+ * slot extras). Never `required=true` (a down extra must not block spawn) and
+ * never `enabled_tools` (that key belongs only to the Vertragus server).
+ *
+ * KNOWN LIMIT: Codex HTTP header key is not verified in this repo — URL only.
  */
 export function codexExtraServerOverrides(
-  extraMcp: readonly ExtraMcpServer[] | undefined
+  extras?: readonly AttachableExtra[]
 ): string[] {
-  return usableExtraMcp(extraMcp).flatMap((server) => [
-    CODEX_CONFIG_FLAG,
-    `mcp_servers.${server.name}.url=${tomlString(server.url)}`
-  ])
+  const args: string[] = []
+  for (const extra of extrasToAttach(extras)) {
+    if (extra.id === MCP_SERVER_NAME) continue
+    const key = `mcp_servers.${extra.id}`
+    if (extra.transport === 'stdio') {
+      args.push(CODEX_CONFIG_FLAG, `${key}.command=${tomlString(extra.command)}`)
+      if (extra.args.length > 0) {
+        args.push(CODEX_CONFIG_FLAG, `${key}.args=${JSON.stringify(extra.args)}`)
+      }
+      if (extra.env) {
+        for (const [name, value] of Object.entries(extra.env)) {
+          args.push(CODEX_CONFIG_FLAG, `${key}.env.${name}=${tomlString(value)}`)
+        }
+      }
+    } else {
+      args.push(CODEX_CONFIG_FLAG, `${key}.url=${tomlString(extra.url)}`)
+    }
+  }
+  return args
 }
 
 /**
@@ -346,7 +469,10 @@ export function codexExtraServerOverrides(
  * is still scoped by `enabled_tools`; the user's are not ours to switch off.
  */
 export function buildCodexMcpArgs(target: McpAttachTarget): string[] {
-  return codexServerOverrides(target.url, target.allowedTools, target.toolTimeoutSec)
+  return [
+    ...codexServerOverrides(target.url, target.allowedTools, target.toolTimeoutSec),
+    ...codexExtraServerOverrides(target.extraMcpServers)
+  ]
 }
 
 /**
@@ -416,13 +542,16 @@ export const KIMI_AGENT_DESCRIPTION = 'Vertragus agent profile for this launch'
 export function toKimiMcpConfig(
   url: string,
   allowedTools?: readonly string[],
-  extraMcp?: readonly ExtraMcpServer[]
+  extras?: readonly AttachableExtra[]
 ): { mcpServers: Record<string, unknown> } {
   const entry: Record<string, unknown> = { url }
   const tools = serverScopedTools(allowedTools)
   if (tools) entry.enabledTools = tools
   const servers: Record<string, unknown> = { [MCP_SERVER_NAME]: entry }
-  for (const server of usableExtraMcp(extraMcp)) servers[server.name] = { url: server.url }
+  for (const extra of extrasToAttach(extras)) {
+    if (extra.id === MCP_SERVER_NAME) continue
+    servers[extra.id] = dialectEntry(extra, 'kimi')
+  }
   return { mcpServers: servers }
 }
 
@@ -452,12 +581,12 @@ export function writeKimiProjectMcpConfig(
   url: string,
   workspaceDir: string,
   allowedTools?: readonly string[],
-  extraMcp?: readonly ExtraMcpServer[]
+  extras?: readonly AttachableExtra[]
 ): string {
   const dir = join(workspaceDir, KIMI_PROJECT_DIR)
   mkdirSync(dir, { recursive: true })
   const configPath = join(dir, KIMI_MCP_FILE)
-  writeFileSync(configPath, JSON.stringify(toKimiMcpConfig(url, allowedTools, extraMcp), null, 2))
+  writeFileSync(configPath, JSON.stringify(toKimiMcpConfig(url, allowedTools, extras), null, 2))
   assertWrittenKimiMcpConfig(configPath)
   return configPath
 }
@@ -497,7 +626,12 @@ export function writeKimiAgentFile(
  * args), the system prompt is an agent file (so it contributes two).
  */
 export function buildKimiMcpArgs(target: McpAttachTarget & { workspaceDir: string }): string[] {
-  writeKimiProjectMcpConfig(target.url, target.workspaceDir, target.allowedTools)
+  writeKimiProjectMcpConfig(
+    target.url,
+    target.workspaceDir,
+    target.allowedTools,
+    target.extraMcpServers
+  )
   const prompt = target.systemPrompt?.trim()
   if (!prompt) return []
   return [KIMI_AGENT_FILE_FLAG, writeKimiAgentFile(prompt, target.configDir, target.fileTag)]
@@ -575,17 +709,19 @@ export const CURSOR_APPROVE_MCPS_FLAG = '--approve-mcps'
 export function toCursorMcpConfig(
   existing: Record<string, unknown> | null | undefined,
   url: string,
-  extraMcp?: readonly ExtraMcpServer[]
+  extras?: readonly AttachableExtra[]
 ): { mcpServers: Record<string, unknown> } {
   const prevServers = existing?.mcpServers
   const servers =
     prevServers && typeof prevServers === 'object' && !Array.isArray(prevServers)
       ? { ...(prevServers as Record<string, unknown>) }
       : {}
+  for (const extra of extrasToAttach(extras)) {
+    if (extra.id === MCP_SERVER_NAME) continue
+    servers[extra.id] = dialectEntry(extra, 'cursor')
+  }
+  // Vertragus last so extras cannot clobber it.
   servers[MCP_SERVER_NAME] = { url }
-  // E6: extra slot servers ride in the same merge — foreign entries still win
-  // nothing and lose nothing; only keys we own are (re)written.
-  for (const server of usableExtraMcp(extraMcp)) servers[server.name] = { url: server.url }
   // Keep any other top-level keys the user already had (Cursor may grow them).
   const base =
     existing && typeof existing === 'object' && !Array.isArray(existing) ? { ...existing } : {}
@@ -624,7 +760,7 @@ export function assertWrittenCursorMcpConfig(configPath: string): void {
 export function writeCursorProjectMcpConfig(
   url: string,
   workspaceDir: string,
-  extraMcp?: readonly ExtraMcpServer[]
+  extras?: readonly AttachableExtra[]
 ): string {
   const dir = join(workspaceDir, CURSOR_PROJECT_DIR)
   mkdirSync(dir, { recursive: true })
@@ -642,7 +778,7 @@ export function writeCursorProjectMcpConfig(
     // Absent file or unparseable JSON → replace / create.
   }
 
-  writeFileSync(configPath, JSON.stringify(toCursorMcpConfig(existing, url, extraMcp), null, 2))
+  writeFileSync(configPath, JSON.stringify(toCursorMcpConfig(existing, url, extras), null, 2))
   assertWrittenCursorMcpConfig(configPath)
   return configPath
 }
@@ -694,9 +830,15 @@ export function grokMcpServerBlock(url: string, serverName = MCP_SERVER_NAME): s
   return [`[mcp_servers.${serverName}]`, `url = ${tomlString(url)}`, ''].join('\n')
 }
 
-/** Replace-or-append one named table; the E6 extra servers reuse it. */
-function upsertGrokTable(existing: string, serverName: string, url: string): string {
-  const block = grokMcpServerBlock(url, serverName)
+function grokStdioBlock(server: Extract<ExtraMcpServer, { transport: 'stdio' }>): string {
+  const lines = [`[mcp_servers.${server.id}]`, `command = ${tomlString(server.command)}`]
+  if (server.args.length > 0) lines.push(`args = ${JSON.stringify(server.args)}`)
+  lines.push('')
+  return lines.join('\n')
+}
+
+/** Replace-or-append one named table; extra servers reuse it. */
+function upsertGrokBlock(existing: string, serverName: string, block: string): string {
   const escaped = serverName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const source = `^\\[mcp_servers\\.(?:"${escaped}"|${escaped})\\][ \\t]*\\r?\\n(?:(?!\\[)[^\\n]*\\r?\\n?)*`
   // Presence is checked separately: "replace produced the same string" also
@@ -707,6 +849,10 @@ function upsertGrokTable(existing: string, serverName: string, url: string): str
   }
   const trimmed = existing.replace(/(?:\r?\n)*$/u, '')
   return trimmed.length > 0 ? `${trimmed}\n\n${block}` : block
+}
+
+function upsertGrokTable(existing: string, serverName: string, url: string): string {
+  return upsertGrokBlock(existing, serverName, grokMcpServerBlock(url, serverName))
 }
 
 /**
@@ -721,11 +867,15 @@ function upsertGrokTable(existing: string, serverName: string, url: string): str
 export function mergeGrokConfigToml(
   existing: string,
   url: string,
-  extraMcp?: readonly ExtraMcpServer[]
+  extras?: readonly AttachableExtra[]
 ): string {
   let merged = upsertGrokTable(existing, MCP_SERVER_NAME, url)
-  for (const server of usableExtraMcp(extraMcp)) {
-    merged = upsertGrokTable(merged, server.name, server.url)
+  for (const extra of extrasToAttach(extras)) {
+    if (extra.id === MCP_SERVER_NAME) continue
+    merged =
+      extra.transport === 'http'
+        ? upsertGrokTable(merged, extra.id, extra.url)
+        : upsertGrokBlock(merged, extra.id, grokStdioBlock(extra))
   }
   return merged
 }
@@ -757,7 +907,7 @@ export function assertWrittenGrokMcpConfig(configPath: string, url: string): voi
 export function writeGrokProjectMcpConfig(
   url: string,
   workspaceDir: string,
-  extraMcp?: readonly ExtraMcpServer[]
+  extras?: readonly AttachableExtra[]
 ): string {
   const dir = join(workspaceDir, GROK_PROJECT_DIR)
   mkdirSync(dir, { recursive: true })
@@ -770,7 +920,7 @@ export function writeGrokProjectMcpConfig(
     // Absent file → create.
   }
 
-  writeFileSync(configPath, mergeGrokConfigToml(existing, url, extraMcp))
+  writeFileSync(configPath, mergeGrokConfigToml(existing, url, extras))
   assertWrittenGrokMcpConfig(configPath, url)
   return configPath
 }
@@ -779,8 +929,12 @@ export function writeGrokProjectMcpConfig(
  * Grok launch arguments: the MCP attachment is a file (so it contributes no
  * path flag), the tools are pre-allowed via `--allow`.
  */
-export function buildGrokMcpArgs(target: { url: string; workspaceDir: string }): string[] {
-  writeGrokProjectMcpConfig(target.url, target.workspaceDir)
+export function buildGrokMcpArgs(target: {
+  url: string
+  workspaceDir: string
+  extraMcpServers?: readonly AttachableExtra[]
+}): string[] {
+  writeGrokProjectMcpConfig(target.url, target.workspaceDir, target.extraMcpServers)
   return grokAllowMcpArgs()
 }
 
@@ -788,11 +942,16 @@ export function buildGrokMcpArgs(target: { url: string; workspaceDir: string }):
 export function buildGrokOrchestratorArgs(target: {
   url: string
   workspaceDir: string
+  extraMcpServers?: readonly AttachableExtra[]
 }): string[] {
   return buildGrokMcpArgs(target)
 }
 
 /** Grok args for a subagent: attached, unrestricted. */
-export function buildGrokSubagentArgs(target: { url: string; workspaceDir: string }): string[] {
+export function buildGrokSubagentArgs(target: {
+  url: string
+  workspaceDir: string
+  extraMcpServers?: readonly AttachableExtra[]
+}): string[] {
   return buildGrokMcpArgs(target)
 }

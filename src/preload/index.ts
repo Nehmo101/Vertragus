@@ -3,6 +3,7 @@ import type { Profile, RoleTemplate } from '@shared/schema/profile'
 import type { ProviderConfig } from '@shared/schema/provider'
 import type { ModelLearning, RepoNote, RunRetro } from '@shared/schema/retro'
 import type { Zone, ZoneLayout } from '@shared/schema/zones'
+import type { ExtraMcpServer } from '@shared/schema/mcpServer'
 import type { Appearance } from '@shared/appearance'
 import type { BindOption, RemoteClientInfo, RemoteStatus } from '@shared/remote/types'
 
@@ -350,6 +351,8 @@ export interface PanelSettings {
   autostartSupported: boolean
   /** Present only when the global hide-all hotkey could not be registered. */
   hideAllHotkeyError?: string
+  /** Extra MCP servers attached next to Vertragus on the next spawn. */
+  mcpServers: ExtraMcpServer[]
 }
 
 export type UpdateChannel = 'main' | 'stable'
@@ -367,6 +370,7 @@ export type WritableSetting =
   | 'appearance'
   | 'agentPolicy'
   | 'onboardingDismissed'
+  | 'mcpServers'
 
 export type UpdateStatus =
   | 'disabled'

@@ -262,7 +262,8 @@ describe('app settings', () => {
       hideAllHotkey: 'Control+Alt+V',
       autostart: false,
       updateChannel: 'main',
-      modelMemory: {}
+      modelMemory: {},
+      mcpServers: []
     })
   })
 
@@ -396,6 +397,44 @@ describe('app settings', () => {
       expect(appSettingsSchema.shape[key]).toBeDefined()
     }
     expect(Object.keys(appSettingsSchema.shape).sort()).toEqual([...SETTINGS_KEYS].sort())
+    expect(SETTINGS_KEYS).toContain('mcpServers')
+  })
+
+  it('round-trips extra MCP servers', () => {
+    const { store: settings, backend } = store()
+    const servers = [
+      {
+        id: 'github',
+        label: 'GitHub',
+        transport: 'stdio' as const,
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-github'],
+        enabled: true
+      }
+    ]
+    expect(settings.setSetting('mcpServers', servers).mcpServers).toEqual(servers)
+    expect(backend.data.mcpServers).toEqual(servers)
+  })
+
+  it('drops an invalid MCP row on read and keeps the rest', () => {
+    const { store: settings } = store({
+      mcpServers: [
+        { id: 'github', label: 'GitHub', transport: 'stdio', command: 'npx' },
+        { id: 'broken' },
+        { id: 'vertragus', label: 'Nope', transport: 'http', url: 'http://127.0.0.1/mcp' }
+      ]
+    })
+    expect(settings.getSettings().mcpServers.map((server) => server.id)).toEqual(['github'])
+  })
+
+  it('rejects a reserved MCP id on write', () => {
+    const { store: settings } = store()
+    expect(() =>
+      settings.setSetting('mcpServers', [
+        { id: 'vertragus', label: 'Nope', transport: 'stdio', command: 'npx', enabled: true, args: [] }
+      ])
+    ).toThrow(/reserved/)
+    expect(settings.getSettings().mcpServers).toEqual([])
   })
 
   /**
@@ -452,6 +491,7 @@ describe('adoptLegacyStore', () => {
       appearance: DEFAULT_APPEARANCE,
       onboardingDismissed: false
     })
+    expect(adopted.mcpServers).toBeUndefined()
   })
 
   it('leaves the archived app’s own records behind instead of dropping them loudly', () => {

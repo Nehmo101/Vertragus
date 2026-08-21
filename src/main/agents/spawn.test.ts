@@ -16,6 +16,7 @@ import {
 } from '@main/mcp/attach'
 import { ORCHESTRATOR_TOOL_NAMES } from '@main/mcp/toolsOrchestrator'
 import { providerPreset, providerPresets } from '@main/providers/presets'
+import { extraMcpServerSchema } from '@shared/schema/mcpServer'
 import { providerConfigSchema, type ProviderConfig } from '@shared/schema/provider'
 import {
   buildAgentArgv,
@@ -544,6 +545,65 @@ describe('MCP attach — the regression that killed the old repo', () => {
       // A CLI that takes the prompt at launch leaves nothing for the seed path.
       expect(ptySystemPrompt, `${provider.id}`).toBeUndefined()
     }
+  })
+
+  it('writes extra MCP servers into Claude/Codex/Kimi/Cursor launches', () => {
+    const github = extraMcpServerSchema.parse({
+      id: 'github',
+      label: 'GitHub',
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-github']
+    })
+
+    const claude = buildAgentArgv(
+      launchInput({ extraMcpServers: [github], kind: 'orchestrator', systemPrompt: 'Delegate.' })
+    )
+    const claudePath = claude.argv[claude.argv.indexOf('--mcp-config') + 1]!
+    const claudeFile = JSON.parse(readFileSync(claudePath, 'utf8')) as {
+      mcpServers: Record<string, unknown>
+    }
+    expect(claudeFile.mcpServers.github).toMatchObject({ type: 'stdio', command: 'npx' })
+    expect(claude.argv[claude.argv.indexOf('--allowedTools') + 1]).toContain('mcp__github')
+
+    const claudeSub = buildAgentArgv(launchInput({ extraMcpServers: [github] }))
+    expect(claudeSub.argv).not.toContain('--allowedTools')
+
+    const codex = buildAgentArgv(
+      launchInput({ provider: preset('codex'), extraMcpServers: [github] })
+    )
+    expect(codex.argv).toContain('mcp_servers.github.command="npx"')
+
+    buildAgentArgv(
+      launchInput({ provider: preset('kimi'), cwd, extraMcpServers: [github] })
+    )
+    const kimiFile = JSON.parse(readFileSync(join(cwd, '.kimi-code', 'mcp.json'), 'utf8')) as {
+      mcpServers: Record<string, unknown>
+    }
+    expect(kimiFile.mcpServers.github).toMatchObject({ command: 'npx' })
+    expect(kimiFile.mcpServers.vertragus).toBeDefined()
+
+    buildAgentArgv(
+      launchInput({ provider: preset('cursor'), cwd, extraMcpServers: [github] })
+    )
+    const cursorFile = JSON.parse(readFileSync(join(cwd, '.cursor', 'mcp.json'), 'utf8')) as {
+      mcpServers: Record<string, unknown>
+    }
+    expect(cursorFile.mcpServers.github).toMatchObject({ command: 'npx' })
+    expect(cursorFile.mcpServers.vertragus).toBeDefined()
+  })
+
+  it('leaves an mcp: none launch unattached even when extras are set', () => {
+    const github = extraMcpServerSchema.parse({
+      id: 'github',
+      label: 'GitHub',
+      transport: 'stdio',
+      command: 'npx'
+    })
+    const { argv } = buildAgentArgv(
+      launchInput({ provider: preset('ollama'), model: 'qwen3:32b', extraMcpServers: [github] })
+    )
+    expect(argv).toEqual(['run', '--nowordwrap', 'qwen3:32b'])
   })
 
   it('writes Kimi’s project config into the worktree, never into the shared repo', () => {

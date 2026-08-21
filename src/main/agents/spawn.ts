@@ -47,10 +47,10 @@
 import {
   buildCodexMcpArgs,
   claudeMcpTimeoutEnv,
-  codexExtraServerOverrides,
   CURSOR_APPROVE_MCPS_FLAG,
   grokAllowMcpArgs,
   codexDeveloperInstructionsArgs,
+  extraMcpServerAllowlist,
   leadAllowedTools,
   leadMcpTools,
   orchestratorAllowedTools,
@@ -61,7 +61,8 @@ import {
   writeKimiAgentFile,
   writeKimiProjectMcpConfig
 } from '@main/mcp/attach'
-import type { ExtraMcpServer } from '@shared/schema/profile'
+import type { ExtraMcpServer } from '@shared/schema/mcpServer'
+import type { ExtraMcpServer as SlotExtraMcpServer } from '@shared/schema/profile'
 import {
   buildEffortArgs,
   buildInitialPromptArgs,
@@ -121,7 +122,9 @@ export interface AgentLaunchInput {
    * 'subagent'` ONLY — same construction as the yolo rule: no profile and no
    * caller can hand an orchestrator or lead a second tool surface.
    */
-  extraMcp?: readonly ExtraMcpServer[]
+  extraMcp?: readonly SlotExtraMcpServer[]
+  /** Extra MCP servers from global settings; attached next to Vertragus. */
+  extraMcpServers?: readonly ExtraMcpServer[]
   /** Platform override for testing the Windows resolution off-Windows. */
   platform?: NodeJS.Platform
 }
@@ -165,16 +168,20 @@ export interface ResolvedLaunch extends AgentArgv {
  */
 export function buildMcpArgs(input: AgentLaunchInput): string[] {
   const { provider } = input
-  // E6: extra slot servers reach SUBAGENTS only — an orchestrator or lead
-  // with a browser tool is a delegator that starts doing the work itself.
-  const extraMcp = input.kind === 'subagent' ? input.extraMcp : undefined
+  // Settings extras attach for every MCP-capable spawn. E6 slot extras reach
+  // SUBAGENTS only — an orchestrator or lead with a browser tool is a
+  // delegator that starts doing the work itself.
+  const extras = [
+    ...(input.extraMcpServers ?? []),
+    ...(input.kind === 'subagent' ? (input.extraMcp ?? []) : [])
+  ]
   switch (provider.mcp.kind) {
     case 'claude-json': {
       const configPath = writeClaudeMcpConfigFile(
         input.mcpUrl,
         input.configDir,
         input.fileTag,
-        extraMcp
+        extras
       )
       const args = [provider.mcp.configArg, configPath]
       if (provider.mcp.strictArg) args.push(provider.mcp.strictArg)
@@ -182,10 +189,15 @@ export function buildMcpArgs(input: AgentLaunchInput): string[] {
       // edit, run and commit. Its discipline comes from the task contract, not
       // from a tool cage — the cage is what starved the old repo's workers.
       if (input.kind === 'orchestrator' && provider.mcp.allowedToolsArg) {
-        args.push(provider.mcp.allowedToolsArg, orchestratorAllowedTools().join(','))
+        const allow = [
+          ...orchestratorAllowedTools(),
+          ...extraMcpServerAllowlist(input.extraMcpServers)
+        ]
+        args.push(provider.mcp.allowedToolsArg, allow.join(','))
       }
       if (input.kind === 'lead' && provider.mcp.allowedToolsArg) {
-        args.push(provider.mcp.allowedToolsArg, leadAllowedTools().join(','))
+        const allow = [...leadAllowedTools(), ...extraMcpServerAllowlist(input.extraMcpServers)]
+        args.push(provider.mcp.allowedToolsArg, allow.join(','))
       }
       return args
     }
@@ -193,21 +205,17 @@ export function buildMcpArgs(input: AgentLaunchInput): string[] {
       // Codex takes no config file: the whole attachment is `-c` overrides.
       // The orchestrator's allowlist is SERVER-scoped here (`enabled_tools`),
       // so Claude's read-only built-ins have no place in it.
-      return [
-        ...buildCodexMcpArgs({
-          url: input.mcpUrl,
-          configDir: input.configDir,
-          fileTag: input.fileTag,
-          ...(input.kind === 'orchestrator' ? { allowedTools: orchestratorMcpTools() } : {}),
-          ...(input.kind === 'lead' ? { allowedTools: leadMcpTools() } : {}),
-          // Codex spells the raised tool timeout as one more `-c` override; it
-          // is emitted only when the provider claims the capability.
-          ...(provider.mcpToolTimeoutSec
-            ? { toolTimeoutSec: provider.mcpToolTimeoutSec }
-            : {})
-        }),
-        ...codexExtraServerOverrides(extraMcp)
-      ]
+      return buildCodexMcpArgs({
+        url: input.mcpUrl,
+        configDir: input.configDir,
+        fileTag: input.fileTag,
+        extraMcpServers: extras,
+        ...(input.kind === 'orchestrator' ? { allowedTools: orchestratorMcpTools() } : {}),
+        ...(input.kind === 'lead' ? { allowedTools: leadMcpTools() } : {}),
+        // Codex spells the raised tool timeout as one more `-c` override; it
+        // is emitted only when the provider claims the capability.
+        ...(provider.mcpToolTimeoutSec ? { toolTimeoutSec: provider.mcpToolTimeoutSec } : {})
+      })
     case 'kimi-project':
       // Kimi has no flag either — the attachment is a file in the agent's own
       // working directory, so this contributes nothing to the argv. It is
@@ -220,7 +228,7 @@ export function buildMcpArgs(input: AgentLaunchInput): string[] {
           : input.kind === 'lead'
             ? leadMcpTools()
             : undefined,
-        extraMcp
+        extras
       )
       return []
     case 'cursor-project':
@@ -230,14 +238,14 @@ export function buildMcpArgs(input: AgentLaunchInput): string[] {
       // - no per-server tool filter — orchestrator scoping stays URL-side
       //   (same declared limit as Codex' missing `--strict-mcp-config`);
       // - the flag also approves the user's own project servers for this run.
-      writeCursorProjectMcpConfig(input.mcpUrl, input.cwd, extraMcp)
+      writeCursorProjectMcpConfig(input.mcpUrl, input.cwd, extras)
       return [CURSOR_APPROVE_MCPS_FLAG]
     case 'grok-project':
       // Grok reads `<cwd>/.grok/config.toml` and has no config-file flag.
       // `--allow MCPTool(vertragus__*)` pre-approves our loopback tools so the
       // orchestrator is not stuck on a TUI prompt. KNOWN LIMIT: no per-server
       // tool filter on the TOML table — orchestrator scoping stays URL-side.
-      writeGrokProjectMcpConfig(input.mcpUrl, input.cwd, extraMcp)
+      writeGrokProjectMcpConfig(input.mcpUrl, input.cwd, extras)
       return grokAllowMcpArgs()
     case 'none':
       return []

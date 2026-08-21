@@ -12,6 +12,7 @@ import { readSuccessionPackage } from './resume'
 import { buildReminderSuffix } from '@shared/prompts/contract'
 import { buildHandoffPackage } from '@shared/schema/handoff'
 import { ORCHESTRATOR_COLOR, ORCHESTRATOR_ROLE_ID, roleColor } from '@shared/prompts/roles'
+import { extraMcpServerSchema } from '@shared/schema/mcpServer'
 import {
   ORCHESTRATOR_IDLE_MS,
   PTY_ONLY_IDLE_HINT_MS,
@@ -139,6 +140,7 @@ describe('startAgent', () => {
     // Slot blueprint: role → provider + model.
     expect(launch.provider.id).toBe('claude')
     expect(launch.model).toBe('sonnet')
+    expect(launch.extraMcpServers ?? []).toEqual([])
 
     const meta = registry.registered[0]!.meta
     expect(meta).toMatchObject({
@@ -716,6 +718,20 @@ describe('stopAgent', () => {
     spawns[0]!.pty.exit({ exitCode: 0 })
     await expect(workspace.stopAgent(started.agentId)).resolves.toBe(false)
     await expect(workspace.stopAgent('unknown')).resolves.toBe(false)
+  })
+
+  it('puts extra MCP servers from deps onto the spawn input', async () => {
+    const extras = [
+      extraMcpServerSchema.parse({
+        id: 'github',
+        label: 'GitHub',
+        transport: 'stdio',
+        command: 'npx'
+      })
+    ]
+    const { workspace, spawns } = harness({ deps: { extraMcpServers: extras } })
+    await workspace.startAgent({ role: 'worker', task: 'x' })
+    expect(spawns[0]!.input.extraMcpServers).toEqual(extras)
   })
 })
 

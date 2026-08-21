@@ -3,6 +3,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
+  extraMcpServerSchema,
+  type ExtraMcpServer
+} from '@shared/schema/mcpServer'
+import {
   assertWrittenClaudeMcpConfig,
   assertWrittenCursorMcpConfig,
   assertWrittenKimiMcpConfig,
@@ -546,5 +550,149 @@ describe('E6 extra MCP servers', () => {
       vertragus: { type: 'http', url: URL }
     })
     expect(codexExtraServerOverrides(shadow)).toEqual([])
+  })
+})
+
+const GITHUB = extraMcpServerSchema.parse({
+  id: 'github',
+  label: 'GitHub',
+  transport: 'stdio',
+  command: 'npx',
+  args: ['-y', '@modelcontextprotocol/server-github'],
+  env: { GITHUB_PERSONAL_ACCESS_TOKEN: 'secret' }
+})
+
+const LINEAR = extraMcpServerSchema.parse({
+  id: 'linear',
+  label: 'Linear',
+  transport: 'http',
+  url: 'https://mcp.linear.app/mcp',
+  headers: { Authorization: 'Bearer x' }
+})
+
+const DISABLED: ExtraMcpServer = extraMcpServerSchema.parse({
+  ...GITHUB,
+  id: 'off',
+  enabled: false
+})
+
+const RESERVED: ExtraMcpServer = { ...GITHUB, id: 'vertragus' }
+
+describe('extra MCP servers', () => {
+  it('puts extras next to vertragus in the Claude config', () => {
+    expect(toClaudeMcpConfig(URL, [GITHUB, LINEAR])).toEqual({
+      mcpServers: {
+        vertragus: { type: 'http', url: URL },
+        github: {
+          type: 'stdio',
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-github'],
+          env: { GITHUB_PERSONAL_ACCESS_TOKEN: 'secret' }
+        },
+        linear: {
+          type: 'http',
+          url: 'https://mcp.linear.app/mcp',
+          headers: { Authorization: 'Bearer x' }
+        }
+      }
+    })
+  })
+
+  it('skips disabled and reserved extras and never replaces vertragus', () => {
+    const claude = toClaudeMcpConfig(URL, [DISABLED, RESERVED, GITHUB])
+    expect(claude.mcpServers.vertragus).toEqual({ type: 'http', url: URL })
+    expect(claude.mcpServers).not.toHaveProperty('off')
+    expect(Object.keys(claude.mcpServers)).toEqual(['vertragus', 'github'])
+
+    const kimi = toKimiMcpConfig(URL, undefined, [RESERVED, GITHUB])
+    expect(kimi.mcpServers.vertragus).toEqual({ url: URL })
+    expect(kimi.mcpServers.github).toEqual({
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-github'],
+      env: { GITHUB_PERSONAL_ACCESS_TOKEN: 'secret' }
+    })
+  })
+
+  it('writes extras into Claude’s transient file under strict mode', () => {
+    const path = writeClaudeMcpConfigFile(URL, configDir, 'extra', [GITHUB])
+    const written = JSON.parse(readFileSync(path, 'utf8')) as {
+      mcpServers: Record<string, unknown>
+    }
+    expect(written.mcpServers.vertragus).toEqual({ type: 'http', url: URL })
+    expect(written.mcpServers.github).toMatchObject({ type: 'stdio', command: 'npx' })
+  })
+
+  it('appends mcp__github to Claude orchestrator --allowedTools, not to subagents', () => {
+    const orch = buildClaudeOrchestratorArgs({
+      url: URL,
+      configDir,
+      fileTag: 'orch',
+      extraMcpServers: [GITHUB]
+    })
+    const list = orch[orch.indexOf('--allowedTools') + 1]!
+    expect(list).toContain('mcp__github')
+    expect(list).toContain('mcp__vertragus__await_events')
+
+    const sub = buildClaudeSubagentArgs({
+      url: URL,
+      configDir,
+      fileTag: 'sub',
+      extraMcpServers: [GITHUB]
+    })
+    expect(sub).not.toContain('--allowedTools')
+  })
+
+  it('adds Codex extra overrides without required=true or enabled_tools', () => {
+    const extras = codexExtraServerOverrides([GITHUB, LINEAR])
+    expect(extras).toContain('mcp_servers.github.command="npx"')
+    expect(extras).toContain(
+      `mcp_servers.github.args=${JSON.stringify(['-y', '@modelcontextprotocol/server-github'])}`
+    )
+    expect(extras).toContain('mcp_servers.github.env.GITHUB_PERSONAL_ACCESS_TOKEN="secret"')
+    expect(extras).toContain('mcp_servers.linear.url="https://mcp.linear.app/mcp"')
+    expect(extras.join(' ')).not.toMatch(/mcp_servers\.(github|linear)\.required/)
+    expect(extras.join(' ')).not.toContain('enabled_tools')
+
+    const args = buildCodexMcpArgs({
+      url: URL,
+      configDir,
+      fileTag: 'c',
+      extraMcpServers: [GITHUB]
+    })
+    expect(args).toContain('mcp_servers.vertragus.required=true')
+    expect(args).toContain('mcp_servers.github.command="npx"')
+  })
+
+  it('merges extras into Kimi next to vertragus without enabledTools on extras', () => {
+    expect(toKimiMcpConfig(URL, orchestratorAllowedTools(), [GITHUB, LINEAR])).toEqual({
+      mcpServers: {
+        vertragus: { url: URL, enabledTools: [...ORCHESTRATOR_TOOL_NAMES] },
+        github: {
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-github'],
+          env: { GITHUB_PERSONAL_ACCESS_TOKEN: 'secret' }
+        },
+        linear: { url: 'https://mcp.linear.app/mcp' }
+      }
+    })
+  })
+
+  it('preserves a foreign Cursor server, lets extras win collisions, keeps vertragus last', () => {
+    const existing = {
+      mcpServers: {
+        'user-server': { url: 'http://127.0.0.1:9/user' },
+        github: { url: 'http://127.0.0.1:9/old-github' },
+        vertragus: { url: 'http://127.0.0.1:1/stale' }
+      }
+    }
+    const merged = toCursorMcpConfig(existing, URL, [GITHUB, RESERVED])
+    expect(merged.mcpServers['user-server']).toEqual({ url: 'http://127.0.0.1:9/user' })
+    expect(merged.mcpServers.github).toEqual({
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-github'],
+      env: { GITHUB_PERSONAL_ACCESS_TOKEN: 'secret' }
+    })
+    expect(merged.mcpServers.vertragus).toEqual({ url: URL })
+    expect(Object.keys(merged.mcpServers).at(-1)).toBe('vertragus')
   })
 })
