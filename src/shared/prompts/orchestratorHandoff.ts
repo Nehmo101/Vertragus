@@ -57,6 +57,7 @@ export function formatHandoffSeed(pkg: OrchestratorHandoffPackage): string {
             }
             if (agent.orchNote) parts.push(`note: ${agent.orchNote}`)
             if (agent.lastSummary) parts.push(`last reported: ${agent.lastSummary}`)
+            if (agent.lastResult) parts.push(`last result: ${agent.lastResult}`)
             return parts.join(' — ')
           })
         ].join('\n')

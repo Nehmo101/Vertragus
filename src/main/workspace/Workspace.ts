@@ -93,8 +93,10 @@ import {
 import { buildSuccessorOrchestratorSystemPrompt } from '@shared/prompts/orchestratorHandoff'
 import {
   buildHandoffPackage,
+  capText,
   compactRecentEvents,
   AGENT_FILES_MAX,
+  AGENT_RESULT_MAX_CHARS,
   AGENT_SUMMARY_MAX_CHARS,
   type OrchestratorHandoffPackage,
   type SuccessionRequest
@@ -1407,14 +1409,19 @@ export class Workspace implements AgentHost {
     successorAgentId: string
   ): OrchestratorHandoffPackage {
     const notes = new Map((input.agentNotes ?? []).map((entry) => [entry.agentId, entry.note]))
-    const lastDone = new Map<string, { summary: string; headSha?: string; uncommitted?: boolean; changedFiles?: string[] }>()
+    const lastDone = new Map<string, { summary: string; headSha?: string; uncommitted?: boolean; changedFiles?: string[]; result?: string }>()
     for (const event of this.events.all()) {
       if (event.type !== 'agent_done') continue
       lastDone.set(event.agentId, {
         summary: event.summary,
         ...(event.headSha ? { headSha: event.headSha } : {}),
         ...(event.uncommitted !== undefined ? { uncommitted: event.uncommitted } : {}),
-        ...(event.changedFiles ? { changedFiles: event.changedFiles.slice(0, AGENT_FILES_MAX) } : {})
+        ...(event.changedFiles ? { changedFiles: event.changedFiles.slice(0, AGENT_FILES_MAX) } : {}),
+        // S3: the validated structured report survives the handoff, capped —
+        // the successor sees facts, not only the prose summary.
+        ...(event.result !== undefined
+          ? { result: capText(JSON.stringify(event.result), AGENT_RESULT_MAX_CHARS).value }
+          : {})
       })
     }
 
@@ -1435,6 +1442,7 @@ export class Workspace implements AgentHost {
         ...(done?.summary
           ? { lastSummary: done.summary.slice(0, AGENT_SUMMARY_MAX_CHARS) }
           : {}),
+        ...(done?.result ? { lastResult: done.result } : {}),
         ...(done?.changedFiles ? { changedFiles: done.changedFiles } : {}),
         ...(orchNote ? { orchNote } : {}),
         ...(open

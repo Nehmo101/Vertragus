@@ -34,7 +34,8 @@ class FakeMcp implements McpServerHandle {
       questions: new PendingQuestions(),
       agentTasks: new Map<string, string>(),
       leads: new Map(),
-      parentOf: new Map()
+      parentOf: new Map(),
+      resultSchemas: new Map()
     } as RegisteredWorkspace['runtime']
     this.runtimes.set(ctx.workspaceId, runtime)
     this.lastQuestions = runtime.questions

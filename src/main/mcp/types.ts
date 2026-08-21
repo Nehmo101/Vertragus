@@ -24,6 +24,7 @@ import type { PendingQuestions } from './pendingQuestions'
 import type { AgentPolicy } from '@shared/agentPolicy'
 import type { ReportingMode } from '@shared/prompts/contract'
 import type { SuccessionRequest } from '@shared/schema/handoff'
+import type { ResultSchema } from '@shared/schema/resultSchema'
 
 /** What `start_agent` hands the host. */
 export interface StartAgentInput {
@@ -421,6 +422,14 @@ export interface WorkspaceRuntime {
    * exactly the question a hover over a finished agent answers.
    */
   agentTasks: Map<string, string>
+  /**
+   * S3: the vetted `start_agent{resultSchema}` per agent — what `report_done`
+   * validates `result` against before pushing `agent_done`. Entries are
+   * removed on `agent_start_failed` and in `stop_agent`; a follow-up via
+   * `send_to_agent` deliberately KEEPS the schema (v1: one schema per agent
+   * life, documented in the tool).
+   */
+  resultSchemas: Map<string, ResultSchema>
   /**
    * Fires after {@link latestTask} / {@link agentTasks} changed. The
    * WorkspaceManager binds this to its change feed so the panel and the CLI

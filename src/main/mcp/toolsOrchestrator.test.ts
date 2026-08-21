@@ -350,6 +350,114 @@ describe('start_agent', () => {
   })
 })
 
+describe('start_agent — S3 resultSchema', () => {
+  const schema = {
+    type: 'object',
+    required: ['pass'],
+    properties: { pass: { type: 'boolean' } }
+  }
+
+  it('vets the schema fail-loud BEFORE anything is reserved', async () => {
+    const { runtime, tools } = setup()
+    const result = await callTool(tools, 'start_agent', {
+      role: 'worker',
+      task: 't',
+      resultSchema: { type: 'object', oneOf: [] }
+    })
+    expect(result.isError).toBe(true)
+    expect(result.json.error).toBe('invalid_result_schema')
+    expect((result.json.problems as string[])[0]).toContain('resultSchema.oneOf')
+    // Nothing was started, reserved or recorded.
+    expect(runtime.host.agents.size).toBe(0)
+    expect(runtime.resultSchemas.size).toBe(0)
+    expect(runtime.events.all()).toHaveLength(0)
+  })
+
+  it('rejects a non-object root and an oversized schema the same way', async () => {
+    const { runtime, tools } = setup()
+    const scalarRoot = await callTool(tools, 'start_agent', {
+      role: 'worker',
+      task: 't',
+      resultSchema: { type: 'string' }
+    })
+    expect(scalarRoot.json.error).toBe('invalid_result_schema')
+
+    const oversized = await callTool(tools, 'start_agent', {
+      role: 'worker',
+      task: 't',
+      resultSchema: {
+        type: 'object',
+        properties: { x: { type: 'string', description: 'y'.repeat(4_000) } }
+      }
+    })
+    expect(oversized.json.error).toBe('invalid_result_schema')
+    expect(String((oversized.json.problems as string[])[0])).toContain('4000')
+    expect(runtime.host.agents.size).toBe(0)
+  })
+
+  it('registers the schema for the agent and teaches it in the contract', async () => {
+    const { runtime, tools } = setup()
+    const result = await callTool(tools, 'start_agent', {
+      role: 'worker',
+      task: 't',
+      resultSchema: schema
+    })
+    expect(result.isError).toBe(false)
+    expect(runtime.resultSchemas.get(String(result.json.agentId))).toEqual(schema)
+    const seeded = runtime.host.seeded[0]!.task
+    expect(seeded).toContain('matching exactly this schema')
+    expect(seeded).toContain(JSON.stringify(schema))
+    // A start without a schema keeps the contract untouched.
+    await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
+    expect(runtime.host.seeded[1]!.task).not.toContain('matching exactly this schema')
+  })
+
+  it('refuses a schema for a sentinel-reporting role — a promise nobody could keep', async () => {
+    const host = new FakeAgentHost({ reportingMode: () => 'sentinel' })
+    const { runtime, tools } = setup({ host })
+    const result = await callTool(tools, 'start_agent', {
+      role: 'worker',
+      task: 't',
+      resultSchema: schema
+    })
+    expect(result.isError).toBe(true)
+    expect(result.json.error).toBe('invalid_result_schema')
+    expect(String((result.json.problems as string[])[0])).toContain('sentinel')
+    expect(runtime.host.agents.size).toBe(0)
+  })
+
+  it('drops the schema again when the start pipeline fails', async () => {
+    const host = new FakeAgentHost({ readyError: 'spawn died' })
+    const { runtime, tools } = setup({ host })
+    const result = await callTool(tools, 'start_agent', {
+      role: 'worker',
+      task: 't',
+      resultSchema: schema
+    })
+    const agentId = String(result.json.agentId)
+    // Registered with the reservation, gone once the pipeline rejected (the
+    // rejection handler runs on a microtask, so only the end state is stable
+    // to observe) and agent_start_failed was pushed.
+    await vi.waitFor(() => {
+      expect(runtime.events.all().at(-1)).toMatchObject({ type: 'agent_start_failed', agentId })
+    })
+    expect(runtime.resultSchemas.has(agentId)).toBe(false)
+  })
+
+  it('drops the schema in stop_agent — a stopped agent reports nothing more', async () => {
+    const { runtime, tools } = setup()
+    const started = await callTool(tools, 'start_agent', {
+      role: 'worker',
+      task: 't',
+      resultSchema: schema
+    })
+    const agentId = String(started.json.agentId)
+    expect(runtime.resultSchemas.has(agentId)).toBe(true)
+    await callTool(tools, 'stop_agent', { agentId })
+    expect(runtime.resultSchemas.has(agentId)).toBe(false)
+  })
+})
+
 describe('send_to_agent', () => {
   async function withAgent(): Promise<{
     runtime: ReturnType<typeof fakeRuntime>
