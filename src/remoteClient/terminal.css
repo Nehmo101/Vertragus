@@ -1,0 +1,128 @@
+/*
+ * Vertragus remote client — TERMINAL sheet: the full-screen agent terminal,
+ * its key row and its input bar. Consumes the brand tokens defined in
+ * `styles.css`.
+ */
+
+/* --- terminal view: the one nested scroller, sized to visualViewport --- */
+.terminal-view {
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  inset: 0;
+  height: var(--vv-height, 100dvh);
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.terminal-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: max(8px, env(safe-area-inset-top)) 10px 8px;
+  border-bottom: 1px solid var(--hairline);
+  background: var(--surface);
+}
+
+.back {
+  min-width: var(--touch);
+  min-height: var(--touch);
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 2rem;
+  line-height: 1;
+  padding: 0;
+}
+
+.terminal-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 650;
+  color: var(--role, var(--text));
+  overflow-wrap: anywhere;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.dot.live {
+  background: var(--verdigris-bright);
+}
+.dot.dead {
+  background: var(--idle);
+}
+
+.font-btn {
+  min-width: var(--touch);
+  min-height: var(--touch);
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-weight: 700;
+}
+
+.terminal-host {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 8px;
+  overflow: hidden;
+}
+
+.terminal-host .xterm {
+  height: 100%;
+}
+
+.key-row {
+  display: flex;
+  gap: 8px;
+  padding: 8px 10px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-top: 1px solid var(--hairline);
+  background: var(--surface);
+}
+
+.key-row button {
+  flex: 0 0 auto;
+  min-height: var(--touch);
+  padding: 0 14px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.input-bar {
+  display: flex;
+  gap: 8px;
+  padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--hairline);
+  background: var(--surface);
+}
+
+.input-bar input {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--touch);
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.input-bar button {
+  min-height: var(--touch);
+  padding: 0 18px;
+  border: none;
+  border-radius: 12px;
+  background: var(--bronze);
+  color: var(--on-bronze);
+  font-weight: 650;
+}

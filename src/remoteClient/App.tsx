@@ -33,6 +33,7 @@ import {
   workspaceGoalLine
 } from './viewModel'
 import './styles.css'
+import './overview.css'
 
 export function App(): React.JSX.Element {
   const api = useRemote()
