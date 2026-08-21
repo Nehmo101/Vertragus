@@ -33,6 +33,12 @@ export interface FocusWorkspaceTarget {
 export interface FocusWorkspaceDeps {
   /** Every registered CLI window, in a stable order. */
   windows(): readonly FocusWorkspaceTarget[]
+  /**
+   * Wanted minimized windows, immediately before `restore()`. Production
+   * suppresses move-tracking so a delayed restore animation cannot mark the
+   * window as user-dragged or overwrite the later zone snap.
+   */
+  beforeRestore?(agentId: string): void
 }
 
 /**
@@ -62,7 +68,10 @@ export function focusWorkspaceAgents(
   for (const agentId of agentIds) {
     const target = targets.find((entry) => entry.agentId === agentId)
     if (!target) continue
-    if (target.window.isMinimized()) target.window.restore()
+    if (target.window.isMinimized()) {
+      deps.beforeRestore?.(agentId)
+      target.window.restore()
+    }
     target.window.showInactive()
     if (!focusTarget) focusTarget = target.window
   }

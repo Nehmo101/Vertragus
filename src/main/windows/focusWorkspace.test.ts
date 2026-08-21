@@ -132,4 +132,24 @@ describe('focusWorkspaceAgents', () => {
 
     expect(log).toEqual(['hide:foreign', 'show:mine', 'focus:mine'])
   })
+
+  it('calls beforeRestore for a minimized wanted window before restore', () => {
+    const { log, windows, targets } = harness(['mine', 'other'])
+    windows.mine!.minimized = true
+    windows.other!.minimized = true
+    const beforeRestore = vi.fn((agentId: string) => {
+      log.push(`beforeRestore:${agentId}`)
+    })
+
+    focusWorkspaceAgents(['mine'], { windows: () => targets, beforeRestore })
+
+    const hookAt = log.indexOf('beforeRestore:mine')
+    const restoreAt = log.indexOf('restore:mine')
+    expect(hookAt).toBeGreaterThanOrEqual(0)
+    expect(restoreAt).toBeGreaterThan(hookAt)
+    expect(beforeRestore).toHaveBeenCalledWith('mine')
+    expect(beforeRestore).toHaveBeenCalledTimes(1)
+    expect(log).not.toContain('beforeRestore:other')
+    expect(log).not.toContain('restore:other')
+  })
 })

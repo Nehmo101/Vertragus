@@ -383,4 +383,52 @@ describe('layoutCliWindows', () => {
     // Opted out of the tile count, so the sibling takes the whole zone.
     expect(second.bounds).toEqual(ZONE_BOUNDS)
   })
+
+  it('snaps only the first placement\'s workspace and leaves the other put', () => {
+    const zonesA = {
+      zones: [{ roleId: 'worker', displayId: 1, rect: { x: 0, y: 0, w: 0.5, h: 1 } }]
+    }
+    const zonesB = {
+      zones: [{ roleId: 'worker', displayId: 2, rect: { x: 0.5, y: 0, w: 0.5, h: 1 } }]
+    }
+    const zoneA = { x: 0, y: 0, width: 960, height: 1040 }
+
+    const a1 = fake(
+      cli.createCliWindow('a1', {
+        ...WORKER,
+        placement: { roleId: 'worker', zones: zonesA, workspaceId: 'A' }
+      })
+    )
+    const a2 = fake(
+      cli.createCliWindow('a2', {
+        ...WORKER,
+        placement: { roleId: 'worker', zones: zonesA, workspaceId: 'A' }
+      })
+    )
+    const b1 = fake(
+      cli.createCliWindow('b1', {
+        ...WORKER,
+        placement: { roleId: 'worker', zones: zonesB, workspaceId: 'B' }
+      })
+    )
+
+    userDrags(a1)
+    a1.setBounds({ x: 10, y: 10, width: 500, height: 400 })
+    userDrags(a2)
+    a2.setBounds({ x: 20, y: 20, width: 500, height: 400 })
+    userDrags(b1)
+    b1.setBounds({ x: 30, y: 30, width: 500, height: 400 })
+    const pinnedB = { ...b1.bounds }
+
+    cli.layoutCliWindows(['a1', 'a2', 'b1'])
+
+    expect(b1.bounds).toEqual(pinnedB)
+    expect(placement.isMovedByUser('b1')).toBe(true)
+    expect(a1.bounds).not.toEqual({ x: 10, y: 10, width: 500, height: 400 })
+    expect(a2.bounds).not.toEqual({ x: 20, y: 20, width: 500, height: 400 })
+    expect(a1.bounds.x).toBeGreaterThanOrEqual(zoneA.x)
+    expect(a1.bounds.x + a1.bounds.width).toBeLessThanOrEqual(zoneA.x + zoneA.width)
+    expect(a2.bounds.x).toBeGreaterThanOrEqual(zoneA.x)
+    expect(a2.bounds.x + a2.bounds.width).toBeLessThanOrEqual(zoneA.x + zoneA.width)
+  })
 })

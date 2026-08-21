@@ -221,8 +221,10 @@ function anotherCliWindowIsFocused(except: BrowserWindow): boolean {
 
 /**
  * Snap these agents' CLI windows into their profile zones (or auto-tiles).
- * Drops the moved-by-user mark so a workspace click is a "go home", the same
- * idea as shrinking from maximize. Maximized windows are left alone.
+ * Only the first placement's workspace takes part — same grouping as
+ * {@link planFor} (omitted workspace ids group with each other). Drops the
+ * moved-by-user mark so a workspace click is a "go home", the same idea as
+ * shrinking from maximize. Maximized windows are left alone.
  */
 export function layoutCliWindows(agentIds: readonly string[]): void {
   const entries: CliWindowEntry[] = []
@@ -235,7 +237,12 @@ export function layoutCliWindows(agentIds: readonly string[]): void {
   const placement = entries.find((entry) => entry.options.placement)?.options.placement
   if (!placement) return
 
-  for (const entry of entries) {
+  const scoped = entries.filter(
+    (entry) => windowWorkspaceId(entry.agentId) === placement.workspaceId
+  )
+  if (scoped.length === 0) return
+
+  for (const entry of scoped) {
     if (isCliWindowMaximized(entry.agentId)) continue
     forgetWindowPlacement(entry.agentId)
   }
@@ -246,7 +253,7 @@ export function layoutCliWindows(agentIds: readonly string[]): void {
     ...(placement.zones ? { profile: { zones: placement.zones } } : {}),
     displays,
     ...(rail ? { rail } : {}),
-    windows: entries.map((entry) =>
+    windows: scoped.map((entry) =>
       toAgentWindowInfo(entry.agentId, entry.options.placement?.roleId ?? placement.roleId)
     )
   })

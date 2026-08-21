@@ -16,18 +16,22 @@ vi.mock('electron', () => ({
 }))
 const getSettings = vi.fn(() => ({ hideAllHotkey: 'Control+Alt+V' }))
 vi.mock('@main/store/settings', () => ({ getSettings: () => getSettings() }))
-vi.mock('./cliWindow', () => ({ listCliWindows: () => [] }))
+vi.mock('./cliWindow', () => ({ listCliWindows: vi.fn(() => []) }))
 vi.mock('./profileEditor', () => ({ listProfileEditorWindows: () => [] }))
 vi.mock('./providerEditor', () => ({ listProviderEditorWindows: () => [] }))
 vi.mock('./settingsWindow', () => ({ listSettingsWindows: () => [] }))
 
+import { listCliWindows } from './cliWindow'
 import {
   createHideAllController,
+  forgetHideAll,
   hideAllHotkeyStatus,
+  isEverythingHidden,
   registerAppHideAllShortcut,
   registerHideAllShortcut,
   reRegisterHideAllShortcut,
   resetHideAllForTesting,
+  toggleHideAll,
   type HideAllTarget
 } from './hideAll'
 
@@ -91,6 +95,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   register.mockImplementation(() => true)
   resetHideAllForTesting()
+  vi.mocked(listCliWindows).mockReturnValue([])
 })
 
 describe('toggle', () => {
@@ -203,6 +208,44 @@ describe('toggle', () => {
     hideAll.toggle()
     // Nothing to hide (already hidden), so nothing happens — and no restore.
     expect(log).toEqual([])
+  })
+
+  it('reset then toggle hides what is visible instead of restoring the previous hide', () => {
+    const { log, windows, targets } = harness(['a', 'b'])
+    const hideAll = createHideAllController({ targets: () => targets })
+    hideAll.toggle()
+    // Workspace click showed `a`; `b` stays hidden.
+    windows.a!.visible = true
+    hideAll.reset()
+    log.length = 0
+
+    expect(hideAll.isHidden()).toBe(false)
+    expect(hideAll.toggle()).toBe('hidden')
+    expect(log).toEqual(['hide:a'])
+    expect(windows.b!.visible).toBe(false)
+    expect(log).not.toContain('show:b')
+  })
+})
+
+describe('forgetHideAll', () => {
+  it('clears live memory so the next toggle hides, not restores', () => {
+    const { log, windows } = harness(['a', 'b'])
+    vi.mocked(listCliWindows).mockReturnValue([
+      { agentId: 'a', window: windows.a as never },
+      { agentId: 'b', window: windows.b as never }
+    ])
+
+    expect(toggleHideAll()).toBe('hidden')
+    expect(isEverythingHidden()).toBe(true)
+    windows.a!.visible = true
+    forgetHideAll()
+    expect(isEverythingHidden()).toBe(false)
+
+    log.length = 0
+    expect(toggleHideAll()).toBe('hidden')
+    expect(log).toEqual(['hide:a'])
+    expect(windows.b!.visible).toBe(false)
+    expect(log).not.toContain('show:b')
   })
 })
 
