@@ -1,21 +1,34 @@
 import { homedir } from 'node:os'
-import { app } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { allRoleTemplates, roleColor } from '@shared/prompts/roles'
 import { PtyAgent } from './agents/PtyAgent'
 import { resolveLaunch } from './agents/resolveCommand'
-import { registerAppIpc, type WorkspaceDirectory, type WorkspaceSummary } from './appIpc'
+import {
+  APP_CHANNELS,
+  createStubWorkspaceDirectory,
+  registerAppIpc,
+  toPanelSettings,
+  type WorkspaceDirectory,
+  type WorkspaceSummary
+} from './appIpc'
+import { createAppVoice, installDefaultVoicePermissions, type AppVoice } from './appVoice'
 import { createAppWorkspaceManager, maybeStartDevWorkspace, type DevRunHandle } from './devRun'
 import { registerTerminalIpc } from './ipc'
 import { startMcpServer, type McpServerHandle } from './mcp/server'
-import { getProfile, getRoleTemplates } from './store/settings'
+import { getProfile, getRoleTemplates, getSettings, settings } from './store/settings'
 import { createCliWindow, focusCliWindow } from './windows/cliWindow'
 import { cliFocusTargets, focusWorkspaceAgents } from './windows/focusWorkspace'
-import { registerAppHideAllShortcut, unregisterHideAllShortcut } from './windows/hideAll'
-import { createPanelWindow } from './windows/panel'
-import { armProfileEditorSmoke } from './windows/profileEditor'
+import {
+  hideAllHotkeyStatus,
+  registerAppHideAllShortcut,
+  toggleHideAll,
+  unregisterHideAllShortcut
+} from './windows/hideAll'
+import { createPanelWindow, getPanelWindow, isPanelWindowSender } from './windows/panel'
+import { armProfileEditorSmoke, openProfileEditorWindow } from './windows/profileEditor'
 import { armProviderEditorSmoke } from './windows/providerEditor'
-import { armSettingsWindowSmoke } from './windows/settingsWindow'
+import { armSettingsWindowSmoke, openSettingsWindow } from './windows/settingsWindow'
 import { armWindowCapture } from './windows/smokeCapture'
 import { armZoneOverlaySmoke } from './windows/zoneOverlay'
 import { startAppUpdater } from './updater'
@@ -167,6 +180,36 @@ async function startDevAgent(): Promise<void> {
 let appMcp: McpServerHandle | undefined
 let appManager: WorkspaceManager | undefined
 let devRun: DevRunHandle | undefined
+let appVoice: AppVoice | undefined
+
+function sendToPanel(channel: string, payload: unknown): void {
+  const win = getPanelWindow()
+  if (win && !win.webContents.isDestroyed()) win.webContents.send(channel, payload)
+}
+
+function broadcastPanelSettings(): void {
+  const value = toPanelSettings(getSettings(), hideAllHotkeyStatus(), app.isPackaged)
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.webContents.isDestroyed()) continue
+    win.webContents.send(APP_CHANNELS.eventSettings, value)
+    win.webContents.send(APP_CHANNELS.eventAppearance, value.appearance)
+  }
+}
+
+function attachVoice(directory: WorkspaceDirectory): AppVoice {
+  const voice = createAppVoice({
+    directory,
+    store: () => settings(),
+    hideAll: () => toggleHideAll(),
+    openSettings: () => openSettingsWindow(),
+    openProfileEditor: (profileId) => openProfileEditorWindow(profileId),
+    quit: () => app.quit(),
+    onYoloChanged: () => broadcastPanelSettings(),
+    sendToPanel
+  })
+  appVoice = voice
+  return voice
+}
 
 app.whenReady().then(async () => {
   electronApp.setAppUserModelId('org.nehmo.vertragus')
@@ -188,11 +231,15 @@ app.whenReady().then(async () => {
   try {
     appMcp = await startMcpServer()
     appManager = createAppWorkspaceManager(appMcp)
-    registerAppIpc(panelDirectory(appManager, appMcp))
+    const directory = panelDirectory(appManager, appMcp)
+    registerAppIpc(directory, attachVoice(directory).port)
   } catch (error) {
     console.error('[boot] MCP server did not start — panel runs without workspaces:', error)
-    registerAppIpc()
+    registerAppIpc(undefined, attachVoice(createStubWorkspaceDirectory()).port)
   }
+
+  // Mic capture is a panel-window permission; CLI windows must not get it.
+  installDefaultVoicePermissions((id) => isPanelWindowSender(id))
 
   // Hide-all: the global hotkey. A failed registration is not fatal — the
   // status reaches the panel through settings:get, and the eye still works.
@@ -208,6 +255,10 @@ app.whenReady().then(async () => {
   // here, next to each other — a window smoke hook hidden inside an IPC
   // registration is how you end up calling that registration twice.
   armScreenshotHook(createPanelWindow(), 'VERTRAGUS_PANEL_SCREENSHOT')
+
+  // After the panel exists so a stored-on session can ask for the mic.
+  const voiceOn = getSettings().voice.enabled
+  if (voiceOn) void appVoice?.port.setEnabled(true)
   armProfileEditorSmoke()
   armProviderEditorSmoke()
   armSettingsWindowSmoke()
@@ -243,6 +294,8 @@ app.on('will-quit', () => {
 
 app.on('before-quit', () => {
   // devRun shares the app's manager/server, so stopping twice must be safe.
+  appVoice?.dispose()
+  appVoice = undefined
   void devRun?.stop().catch(() => undefined)
   void appManager?.stopAll().catch(() => undefined)
   void appMcp?.close().catch(() => undefined)

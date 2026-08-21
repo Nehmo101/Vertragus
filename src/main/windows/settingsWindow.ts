@@ -20,7 +20,7 @@ export const SETTINGS_WINDOW_WIDTH = 480
 // Measured against the rendered sheet: tall enough that the update block is on
 // screen without scrolling (the thing people open this window for), short
 // enough that there is no empty half below it.
-export const SETTINGS_WINDOW_HEIGHT = 570
+export const SETTINGS_WINDOW_HEIGHT = 780
 export const SETTINGS_WINDOW_MIN_WIDTH = 420
 export const SETTINGS_WINDOW_MIN_HEIGHT = 420
 

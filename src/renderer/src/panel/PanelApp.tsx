@@ -210,6 +210,10 @@ export function PanelApp(): React.JSX.Element {
         updateReady={panel.update?.status === 'downloaded'}
         updateVersion={panel.update?.availableVersion}
         onInstallUpdate={panel.installUpdate}
+        bridge={panel.bridge}
+        voiceEnabled={panel.settings?.voiceEnabled ?? false}
+        voiceWakePhrase={panel.settings?.voiceWakePhrase ?? 'Hey Vertragus'}
+        onToggleVoice={panel.toggleVoice}
       />
     </aside>
   )

@@ -137,6 +137,10 @@ const APP = {
   windowsHideAll: 'windows:hideAll',
   windowsMinimizePanel: 'windows:minimizePanel',
   appQuit: 'app:quit',
+  voiceStatus: 'voice:status',
+  voiceSetEnabled: 'voice:setEnabled',
+  voicePcm: 'voice:pcm',
+  voiceAudio: 'voice:audio',
   dialogPickDirectory: 'dialog:pickDirectory',
   profileEditorOpen: 'profileEditor:open',
   profileEditorClose: 'profileEditor:close',
@@ -157,6 +161,7 @@ const APP = {
   eventWorkspaces: 'ev:workspaces',
   eventUpdate: 'ev:update',
   eventSettings: 'ev:settings',
+  eventVoice: 'ev:voice',
   settingsAppearance: 'settings:appearance',
   eventAppearance: 'ev:appearance'
 } as const
@@ -251,6 +256,25 @@ export interface PanelSettings {
   autostartSupported: boolean
   /** Present only when the global hide-all hotkey could not be registered. */
   hideAllHotkeyError?: string
+  voiceEnabled: boolean
+  voiceWakePhrase: string
+  voiceVoiceId: string
+  /** Whether a key is stored. The raw key never appears here. */
+  voiceApiKeySet: boolean
+}
+
+export type VoicePhase = 'idle' | 'listening' | 'engaged' | 'error'
+
+export interface VoiceStatusPayload {
+  phase: VoicePhase
+  enabled: boolean
+  error?: string
+}
+
+export interface VoiceEventPayload {
+  phase: VoicePhase
+  transcript?: string
+  error?: string
 }
 
 export type UpdateChannel = 'main' | 'stable'
@@ -263,6 +287,7 @@ export type WritableSetting =
   | 'theme'
   | 'locale'
   | 'appearance'
+  | 'voice'
 
 export type UpdateStatus =
   | 'disabled'
@@ -451,7 +476,17 @@ const app = {
     subscribe(APP.eventAppearance, listener),
   /** Cursor enters/leaves the panel window — the panel's hover signal. */
   onPointer: (listener: (event: PanelPointerEvent) => void): (() => void) =>
-    subscribe(PANEL_POINTER, listener)
+    subscribe(PANEL_POINTER, listener),
+  voiceStatus: (): Promise<VoiceStatusPayload> => ipcRenderer.invoke(APP.voiceStatus),
+  setVoiceEnabled: (enabled: boolean): Promise<VoiceStatusPayload> =>
+    ipcRenderer.invoke(APP.voiceSetEnabled, { enabled }),
+  sendVoicePcm: (pcm: Int16Array): void => {
+    ipcRenderer.send(APP.voicePcm, pcm)
+  },
+  onVoice: (listener: (event: VoiceEventPayload) => void): (() => void) =>
+    subscribe(APP.eventVoice, listener),
+  onVoiceAudio: (listener: (pcm: Int16Array) => void): (() => void) =>
+    subscribe(APP.voiceAudio, listener)
 }
 
 /**

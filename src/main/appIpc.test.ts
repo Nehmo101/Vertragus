@@ -155,7 +155,8 @@ const SETTINGS: AppSettings = {
   hideAllHotkey: 'Control+Alt+V',
   autostart: false,
   updateChannel: 'main',
-  modelMemory: {}
+  modelMemory: {},
+  voice: { enabled: false, wakePhrase: 'Hey Vertragus', apiKey: '', voiceId: 'eve' }
 }
 
 /** An in-memory stand-in for the settings store, with the same write rules. */
@@ -914,11 +915,17 @@ describe('settings and windows', () => {
       autostart: false,
       updateChannel: 'main',
       autostartSupported: true,
-      appearance: DEFAULT_APPEARANCE
+      appearance: DEFAULT_APPEARANCE,
+      voiceEnabled: false,
+      voiceWakePhrase: 'Hey Vertragus',
+      voiceVoiceId: 'eve',
+      voiceApiKeySet: false
     })
-    // Never the app's own bookkeeping — model memory and panel bounds are
-    // written by the app and have no form.
+    // Never the app's own bookkeeping — model memory, panel bounds and the
+    // raw voice API key have no form and must not leak to a renderer.
     expect(h.ipc.invoke(APP_CHANNELS.settingsGet, PANEL_ID)).not.toHaveProperty('modelMemory')
+    expect(h.ipc.invoke(APP_CHANNELS.settingsGet, PANEL_ID)).not.toHaveProperty('apiKey')
+    expect(h.ipc.invoke(APP_CHANNELS.settingsGet, PANEL_ID)).not.toHaveProperty('voiceApiKey')
   })
 
   it('answers the appearance in EVERY window — a CLI window included', () => {
@@ -1103,8 +1110,54 @@ describe('settings:set', () => {
       'updateChannel',
       'theme',
       'locale',
-      'appearance'
+      'appearance',
+      'voice'
     ])
+  })
+
+  it('accepts a partial voice write and never puts the raw api key on PanelSettings', async () => {
+    h.store.settings.voice.apiKey = 'xai-secret'
+    const next = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'voice',
+      value: { enabled: true, wakePhrase: 'Hey Grok' }
+    })) as PanelSettings
+
+    expect(h.store.settings.voice).toMatchObject({
+      enabled: true,
+      wakePhrase: 'Hey Grok',
+      apiKey: 'xai-secret',
+      voiceId: 'eve'
+    })
+    expect(next.voiceEnabled).toBe(true)
+    expect(next.voiceWakePhrase).toBe('Hey Grok')
+    expect(next.voiceVoiceId).toBe('eve')
+    expect(next.voiceApiKeySet).toBe(true)
+    expect(next).not.toHaveProperty('apiKey')
+    expect(JSON.stringify(next)).not.toContain('xai-secret')
+  })
+
+  it('leaves the stored api key unchanged when the write sends an empty string', async () => {
+    h.store.settings.voice.apiKey = 'xai-keep-me'
+    const next = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'voice',
+      value: { apiKey: '' }
+    })) as PanelSettings
+
+    expect(h.store.settings.voice.apiKey).toBe('xai-keep-me')
+    expect(next.voiceApiKeySet).toBe(true)
+    expect(JSON.stringify(next)).not.toContain('xai-keep-me')
+  })
+
+  it('replaces the stored api key when the write sends a non-empty string', async () => {
+    h.store.settings.voice.apiKey = 'xai-old'
+    const next = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'voice',
+      value: { apiKey: 'xai-new' }
+    })) as PanelSettings
+
+    expect(h.store.settings.voice.apiKey).toBe('xai-new')
+    expect(next.voiceApiKeySet).toBe(true)
+    expect(JSON.stringify(next)).not.toContain('xai-new')
   })
 
   it('takes a new hotkey immediately instead of at the next boot', async () => {
@@ -1297,6 +1350,84 @@ describe('quitting the app', () => {
   })
 })
 
+describe('voice IPC', () => {
+  function voicePort(): {
+    status: ReturnType<typeof vi.fn>
+    setEnabled: ReturnType<typeof vi.fn>
+    pushPcm: ReturnType<typeof vi.fn>
+  } {
+    return {
+      status: vi.fn(() => ({ phase: 'listening', enabled: true })),
+      setEnabled: vi.fn(async () => undefined),
+      pushPcm: vi.fn()
+    }
+  }
+
+  it('reports idle from the store when no runtime is wired', () => {
+    expect(h.ipc.invoke(APP_CHANNELS.voiceStatus, PANEL_ID)).toEqual({
+      phase: 'idle',
+      enabled: false
+    })
+  })
+
+  it('persists setEnabled and starts the optional runtime', async () => {
+    const voice = voicePort()
+    const live = harness({ voice })
+    const status = await live.ipc.invoke(APP_CHANNELS.voiceSetEnabled, PANEL_ID, { enabled: true })
+    expect(live.store.settings.voice.enabled).toBe(true)
+    expect(voice.setEnabled).toHaveBeenCalledWith(true)
+    expect(status).toEqual({ phase: 'listening', enabled: true })
+    const pushed = live.broadcasts.filter((entry) => entry.channel === APP_CHANNELS.eventSettings)
+    expect((pushed.at(-1)?.payload as PanelSettings).voiceEnabled).toBe(true)
+    expect(JSON.stringify(pushed.at(-1)?.payload)).not.toMatch(/apiKey/)
+  })
+
+  it('forwards panel PCM to the runtime and ignores a CLI sender', () => {
+    const voice = voicePort()
+    const live = harness({ voice })
+    const pcm = new Int16Array([1, 2, 3, 4])
+    live.ipc.send(APP_CHANNELS.voicePcm, PANEL_ID, pcm)
+    expect(voice.pushPcm).toHaveBeenCalledTimes(1)
+    expect(voice.pushPcm.mock.calls[0]![0]).toEqual(pcm)
+
+    live.ipc.send(APP_CHANNELS.voicePcm, CLI_ID, new Int16Array([9]))
+    expect(voice.pushPcm).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects voice invokes from a CLI window', () => {
+    expect(() => h.ipc.invoke(APP_CHANNELS.voiceStatus, CLI_ID)).toThrow(/not the panel window/)
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.voiceSetEnabled, CLI_ID, { enabled: true })
+    ).toThrow(/not the panel window/)
+    expect(h.store.settings.voice.enabled).toBe(false)
+  })
+
+  it('rejects a settings window on the panel-only voice channels', () => {
+    expect(() => h.ipc.invoke(APP_CHANNELS.voiceStatus, SETTINGS_ID)).toThrow(/not the panel window/)
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.voiceSetEnabled, SETTINGS_ID, { enabled: true })
+    ).toThrow(/not the panel window/)
+  })
+
+  it('recreates the runtime after a voice or locale write while enabled', async () => {
+    const voice = voicePort()
+    const live = harness({ voice })
+    live.store.settings.voice.enabled = true
+    await live.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'voice',
+      value: { wakePhrase: 'Hey Grok' }
+    })
+    expect(voice.setEnabled).toHaveBeenCalledWith(true)
+
+    await live.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'locale',
+      value: 'en'
+    })
+    expect(voice.setEnabled).toHaveBeenCalledTimes(2)
+    expect(voice.setEnabled).toHaveBeenLastCalledWith(true)
+  })
+})
+
 describe('sender authorization', () => {
   const panelOnly = [
     APP_CHANNELS.workspacesList,
@@ -1308,7 +1439,9 @@ describe('sender authorization', () => {
     APP_CHANNELS.settingsYolo,
     APP_CHANNELS.windowsHideAll,
     APP_CHANNELS.windowsMinimizePanel,
-    APP_CHANNELS.appQuit
+    APP_CHANNELS.appQuit,
+    APP_CHANNELS.voiceStatus,
+    APP_CHANNELS.voiceSetEnabled
   ]
   const appWindows = [
     APP_CHANNELS.profilesList,
@@ -1618,7 +1751,7 @@ describe('preload parity', () => {
     }
     const found = [
       ...source.matchAll(
-        /'((?:profiles|roles|providers|models|workspaces|worktrees|retro|settings|settingsWindow|updates|windows|app|dialog|profileEditor|providerEditor|zones|ev):[a-zA-Z]+)'/g
+        /'((?:profiles|roles|providers|models|workspaces|worktrees|retro|settings|settingsWindow|updates|windows|app|dialog|profileEditor|providerEditor|zones|voice|ev):[a-zA-Z]+)'/g
       )
     ].map((match) => match[1])
     expect(new Set(found)).toEqual(new Set(Object.values(APP_CHANNELS)))

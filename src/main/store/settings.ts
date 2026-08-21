@@ -101,6 +101,21 @@ export const uiSettingsSchema = z
   .strict()
 export type UiSettings = z.infer<typeof uiSettingsSchema>
 
+/**
+ * Voice assistant. Off until the user turns it on — a mic that listens on
+ * first boot is a surprise, not a feature. The API key lives here; it never
+ * rides on PanelSettings / `ev:settings`.
+ */
+export const voiceSettingsSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    wakePhrase: z.string().trim().min(1).max(80).default('Hey Vertragus'),
+    apiKey: z.string().max(200).default(''),
+    voiceId: z.string().trim().min(1).max(40).default('eve')
+  })
+  .strict()
+export type VoiceSettings = z.infer<typeof voiceSettingsSchema>
+
 export const appSettingsSchema = z
   .object({
     ui: uiSettingsSchema.default({}),
@@ -116,7 +131,8 @@ export const appSettingsSchema = z
      */
     updateChannel: z.enum(['main', 'stable']).default('main'),
     /** `{ providerId: { modelId: lastSeenAtMs } }` — see providers/discovery. */
-    modelMemory: modelMemorySchema.default({})
+    modelMemory: modelMemorySchema.default({}),
+    voice: voiceSettingsSchema.default({})
   })
   .strict()
 export type AppSettings = z.infer<typeof appSettingsSchema>
@@ -129,7 +145,8 @@ export const SETTINGS_KEYS = [
   'hideAllHotkey',
   'autostart',
   'updateChannel',
-  'modelMemory'
+  'modelMemory',
+  'voice'
 ] as const
 
 export interface SettingsBackend {

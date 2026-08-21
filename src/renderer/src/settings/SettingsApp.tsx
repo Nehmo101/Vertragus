@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   APPEARANCE_LIMITS,
@@ -5,6 +6,7 @@ import {
   type Appearance,
   type AppearanceSlider
 } from '@shared/appearance'
+import type { PanelSettings } from '../../../preload'
 import { LOCALES, translator } from '../i18n'
 import { useSettings, type SettingsState } from './useSettings'
 import './settings.css'
@@ -57,6 +59,110 @@ function AppearanceSliderRow({
       />
       <span className="st-hint">{t(`settings.glassSlider.${field}Hint`)}</span>
     </div>
+  )
+}
+
+function VoiceSection({
+  settings,
+  set
+}: {
+  settings: PanelSettings
+  set: SettingsState['set']
+}): React.JSX.Element {
+  const { t } = useTranslation()
+  const [wake, setWake] = useState(settings.voiceWakePhrase)
+  const [voiceId, setVoiceId] = useState(settings.voiceVoiceId)
+  const [apiKey, setApiKey] = useState('')
+
+  useEffect(() => {
+    setWake(settings.voiceWakePhrase)
+    setVoiceId(settings.voiceVoiceId)
+  }, [settings.voiceWakePhrase, settings.voiceVoiceId])
+
+  return (
+    <section className="st-glass-section">
+      <h2 className="st-section-label">{t('settings.voice')}</h2>
+      <label className="st-switch">
+        <input
+          type="checkbox"
+          className="st-switch-input"
+          checked={settings.voiceEnabled}
+          onChange={(event) => set('voice', { enabled: event.target.checked })}
+        />
+        <span className="st-switch-text">
+          <span className="st-switch-label">{t('settings.voiceEnabled')}</span>
+          <span className="st-hint">{t('settings.voiceEnabledHint')}</span>
+        </span>
+      </label>
+      <div className="st-field">
+        <span className="st-label">{t('settings.voiceWakePhrase')}</span>
+        <input
+          className="st-input"
+          value={wake}
+          maxLength={80}
+          onChange={(event) => setWake(event.target.value)}
+          onBlur={() => {
+            const trimmed = wake.trim()
+            if (trimmed && trimmed !== settings.voiceWakePhrase) {
+              set('voice', { wakePhrase: trimmed })
+            } else {
+              setWake(settings.voiceWakePhrase)
+            }
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') (event.target as HTMLInputElement).blur()
+          }}
+        />
+        <span className="st-hint">{t('settings.voiceWakePhraseHint')}</span>
+      </div>
+      <div className="st-field">
+        <span className="st-label">{t('settings.voiceVoiceId')}</span>
+        <input
+          className="st-input st-mono"
+          value={voiceId}
+          maxLength={40}
+          onChange={(event) => setVoiceId(event.target.value)}
+          onBlur={() => {
+            const trimmed = voiceId.trim()
+            if (trimmed && trimmed !== settings.voiceVoiceId) {
+              set('voice', { voiceId: trimmed })
+            } else {
+              setVoiceId(settings.voiceVoiceId)
+            }
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') (event.target as HTMLInputElement).blur()
+          }}
+        />
+        <span className="st-hint">{t('settings.voiceVoiceIdHint')}</span>
+      </div>
+      <div className="st-field">
+        <span className="st-label">{t('settings.voiceApiKey')}</span>
+        <input
+          type="password"
+          className="st-input st-mono"
+          value={apiKey}
+          maxLength={200}
+          autoComplete="off"
+          placeholder={
+            settings.voiceApiKeySet
+              ? t('settings.voiceApiKeySet')
+              : t('settings.voiceApiKeyPlaceholder')
+          }
+          onChange={(event) => setApiKey(event.target.value)}
+          onBlur={() => {
+            if (apiKey.length > 0) {
+              set('voice', { apiKey })
+              setApiKey('')
+            }
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') (event.target as HTMLInputElement).blur()
+          }}
+        />
+        <span className="st-hint">{t('settings.voiceApiKeyHint')}</span>
+      </div>
+    </section>
   )
 }
 
@@ -204,6 +310,8 @@ export function SettingsApp(): React.JSX.Element {
             <span className="st-hint">{t('settings.localeHint')}</span>
           </section>
         </div>
+
+        <VoiceSection settings={settings} set={view.set} />
 
         <section className="st-glass-section">
           <h2 className="st-section-label">{t('settings.glass')}</h2>

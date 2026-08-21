@@ -241,8 +241,55 @@ describe('app settings', () => {
       hideAllHotkey: 'Control+Alt+V',
       autostart: false,
       updateChannel: 'main',
-      modelMemory: {}
+      modelMemory: {},
+      voice: { enabled: false, wakePhrase: 'Hey Vertragus', apiKey: '', voiceId: 'eve' }
     })
+  })
+
+  it('keeps the voice assistant off until the user turns it on', () => {
+    const { store: settings } = store()
+    expect(settings.getSettings().voice.enabled).toBe(false)
+    expect(settings.getSettings().voice.wakePhrase).toBe('Hey Vertragus')
+    expect(settings.getSettings().voice.voiceId).toBe('eve')
+    expect(settings.getSettings().voice.apiKey).toBe('')
+  })
+
+  it('round-trips a voice section without touching the other keys', () => {
+    const { store: settings, backend } = store()
+    settings.setSetting('yoloMaster', false)
+    const next = settings.setSetting('voice', {
+      enabled: true,
+      wakePhrase: 'Hey Grok',
+      apiKey: 'xai-test-key',
+      voiceId: 'ara'
+    })
+    expect(next.voice).toEqual({
+      enabled: true,
+      wakePhrase: 'Hey Grok',
+      apiKey: 'xai-test-key',
+      voiceId: 'ara'
+    })
+    expect(next.yoloMaster).toBe(false)
+    expect(backend.data.voice).toEqual(next.voice)
+    expect(settings.getSettings().voice).toEqual(next.voice)
+  })
+
+  it('drops an invalid voice section without killing the rest', () => {
+    const { store: settings } = store({
+      yoloMaster: false,
+      hideAllHotkey: 'Control+Shift+H',
+      voice: { enabled: 'yes', wakePhrase: '' }
+    })
+    const result = settings.getSettings()
+    expect(result.yoloMaster).toBe(false)
+    expect(result.hideAllHotkey).toBe('Control+Shift+H')
+    expect(result.voice).toEqual({
+      enabled: false,
+      wakePhrase: 'Hey Vertragus',
+      apiKey: '',
+      voiceId: 'eve'
+    })
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('invalid settings section'))
   })
 
   it('switches the update channel and refuses an invented one', () => {

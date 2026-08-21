@@ -280,6 +280,18 @@
   color: var(--text);
 }
 
+.panel-mic.is-listening {
+  color: var(--verdigris-text);
+}
+
+.panel-mic.is-engaged {
+  color: var(--bronze-bright);
+}
+
+.panel-mic.is-error {
+  color: var(--err-text);
+}
+
 /* --- worktree cleanup (folded out under a profile row) ------------------ */
 
 .panel-worktrees {
