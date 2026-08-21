@@ -29,9 +29,9 @@ class FakeWindow {
   isMinimized(): boolean {
     return this.minimized
   }
-  minimize(): void {
-    this.minimized = true
-    this.log.push(`minimize:${this.key}`)
+  hide(): void {
+    this.visible = false
+    this.log.push(`hide:${this.key}`)
   }
   restore(): void {
     this.minimized = false
@@ -62,38 +62,49 @@ function harness(agentIds: string[]): {
 }
 
 describe('focusWorkspaceAgents', () => {
-  it('minimizes foreign windows and restores+shows the workspace ones once', () => {
+  it('hides foreign windows and restores+shows the workspace ones once', () => {
     const { log, windows, targets } = harness(['orch', 'worker', 'other-a', 'other-b'])
     windows.orch!.minimized = true
 
     focusWorkspaceAgents(['orch', 'worker'], { windows: () => targets })
 
     expect(log).toEqual([
-      'minimize:other-a',
-      'minimize:other-b',
+      'hide:other-a',
+      'hide:other-b',
       'restore:orch',
       'show:orch',
       'show:worker',
       'focus:orch'
     ])
     expect(log.filter((entry) => entry.startsWith('focus:'))).toHaveLength(1)
-    expect(windows['other-a']!.minimized).toBe(true)
-    expect(windows['other-b']!.minimized).toBe(true)
+    expect(windows['other-a']!.visible).toBe(false)
+    expect(windows['other-b']!.visible).toBe(false)
+    expect(log.some((entry) => entry.startsWith('minimize:'))).toBe(false)
   })
 
-  it('leaves hidden and already-minimized foreign windows alone', () => {
+  it('hides minimized foreign windows and leaves already-hidden ones untouched', () => {
     const { log, windows, targets } = harness(['mine', 'hidden', 'minimized', 'visible'])
     windows.hidden!.visible = false
     windows.minimized!.minimized = true
 
     focusWorkspaceAgents(['mine'], { windows: () => targets })
 
-    expect(log).toEqual(['minimize:visible', 'show:mine', 'focus:mine'])
+    expect(log).toEqual(['hide:minimized', 'hide:visible', 'show:mine', 'focus:mine'])
     expect(windows.hidden!.visible).toBe(false)
     expect(windows.hidden!.minimized).toBe(false)
-    expect(windows.minimized!.minimized).toBe(true)
-    expect(log).not.toContain('minimize:hidden')
-    expect(log).not.toContain('minimize:minimized')
+    expect(windows.minimized!.visible).toBe(false)
+    expect(log).not.toContain('hide:hidden')
+    expect(log.some((entry) => entry.startsWith('minimize:'))).toBe(false)
+  })
+
+  it('shows workspace windows that were hidden', () => {
+    const { log, windows, targets } = harness(['mine', 'foreign'])
+    windows.mine!.visible = false
+
+    focusWorkspaceAgents(['mine'], { windows: () => targets })
+
+    expect(log).toEqual(['hide:foreign', 'show:mine', 'focus:mine'])
+    expect(windows.mine!.visible).toBe(true)
   })
 
   it('focuses exactly once, on the first workspace window in caller order', () => {
@@ -102,13 +113,7 @@ describe('focusWorkspaceAgents', () => {
     focusWorkspaceAgents(['b', 'a', 'c'], { windows: () => targets })
 
     expect(log.filter((entry) => entry.startsWith('focus:'))).toEqual(['focus:b'])
-    expect(log).toEqual([
-      'minimize:foreign',
-      'show:b',
-      'show:a',
-      'show:c',
-      'focus:b'
-    ])
+    expect(log).toEqual(['hide:foreign', 'show:b', 'show:a', 'show:c', 'focus:b'])
   })
 
   it('is a no-op for an empty agent id list (unknown workspace)', () => {
@@ -125,6 +130,26 @@ describe('focusWorkspaceAgents', () => {
 
     focusWorkspaceAgents(['mine', 'ghost', 'gone'], { windows: () => targets })
 
-    expect(log).toEqual(['minimize:foreign', 'show:mine', 'focus:mine'])
+    expect(log).toEqual(['hide:foreign', 'show:mine', 'focus:mine'])
+  })
+
+  it('calls beforeRestore for a minimized wanted window before restore', () => {
+    const { log, windows, targets } = harness(['mine', 'other'])
+    windows.mine!.minimized = true
+    windows.other!.minimized = true
+    const beforeRestore = vi.fn((agentId: string) => {
+      log.push(`beforeRestore:${agentId}`)
+    })
+
+    focusWorkspaceAgents(['mine'], { windows: () => targets, beforeRestore })
+
+    const hookAt = log.indexOf('beforeRestore:mine')
+    const restoreAt = log.indexOf('restore:mine')
+    expect(hookAt).toBeGreaterThanOrEqual(0)
+    expect(restoreAt).toBeGreaterThan(hookAt)
+    expect(beforeRestore).toHaveBeenCalledWith('mine')
+    expect(beforeRestore).toHaveBeenCalledTimes(1)
+    expect(log).not.toContain('beforeRestore:other')
+    expect(log).not.toContain('restore:other')
   })
 })

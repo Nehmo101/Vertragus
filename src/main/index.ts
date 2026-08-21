@@ -16,9 +16,17 @@ import { createAppWorkspaceManager, maybeStartDevWorkspace, type DevRunHandle } 
 import { getAgentRegistry, registerTerminalIpc, setTerminalInputSink } from './ipc'
 import { startMcpServer, type McpServerHandle } from './mcp/server'
 import { getProfile, getProfiles, getRoleTemplates, getSettings, setSetting } from './store/settings'
-import { closeCliWindow, createCliWindow, focusCliWindow, getCliWindow, onCliWindowClosed } from './windows/cliWindow'
+import {
+  closeCliWindow,
+  createCliWindow,
+  focusCliWindow,
+  getCliWindow,
+  layoutCliWindows,
+  onCliWindowClosed
+} from './windows/cliWindow'
 import { cliFocusTargets, focusWorkspaceAgents } from './windows/focusWorkspace'
-import { registerAppHideAllShortcut, unregisterHideAllShortcut } from './windows/hideAll'
+import { forgetHideAll, registerAppHideAllShortcut, unregisterHideAllShortcut } from './windows/hideAll'
+import { suppressMoveTracking } from './windows/placement'
 import { createPanelWindow } from './windows/panel'
 import { armProfileEditorSmoke } from './windows/profileEditor'
 import { armProviderEditorSmoke } from './windows/providerEditor'
@@ -353,7 +361,16 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
         ...(workspace.orchestrator ? [workspace.orchestrator.agentId] : []),
         ...workspace.listAgents().map((agent) => agent.agentId)
       ]
-      focusWorkspaceAgents(agentIds, { windows: cliFocusTargets })
+      if (agentIds.length === 0) return
+      // Workspace click replaced hide-all's snapshot: forget it so the next
+      // toggle hides what is visible instead of restoring foreign windows.
+      forgetHideAll()
+      focusWorkspaceAgents(agentIds, {
+        windows: cliFocusTargets,
+        beforeRestore: suppressMoveTracking
+      })
+      // After show: restore can fire move events that wreck bounds (Windows).
+      layoutCliWindows(agentIds)
     },
     listStaleWorktrees: (profileId) => cleanup.listStale(profileId),
     removeWorktree: (profileId, worktreePath) => cleanup.remove(profileId, worktreePath),

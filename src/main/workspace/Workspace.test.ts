@@ -157,7 +157,7 @@ describe('startAgent', () => {
         title: started.name,
         roleColor: roleColor('worker', 0),
         // The window layer turns this into bounds (zone, else auto-tiling).
-        placement: { roleId: 'worker' }
+        placement: { roleId: 'worker', workspaceId: workspace.workspaceId }
       }
     ])
   })
@@ -173,7 +173,7 @@ describe('startAgent', () => {
         agentId: started.agentId,
         title: started.name,
         roleColor: roleColor('worker', 0),
-        placement: { roleId: 'worker', zones }
+        placement: { roleId: 'worker', zones, workspaceId: workspace.workspaceId }
       }
     ])
   })
@@ -772,7 +772,7 @@ describe('startOrchestrator', () => {
       agentId: orchestrator.agentId,
       roleColor: ORCHESTRATOR_COLOR,
       // The orchestrator is placed by its own role key, not by a slot role.
-      placement: { roleId: ORCHESTRATOR_ROLE_ID }
+      placement: { roleId: ORCHESTRATOR_ROLE_ID, workspaceId: workspace.workspaceId }
     })
     expect(workspace.orchestrator).toMatchObject({ name: orchestrator.name })
   })

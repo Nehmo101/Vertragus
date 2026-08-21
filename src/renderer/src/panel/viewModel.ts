@@ -414,6 +414,19 @@ export function nextSelectedProfileId(
 }
 
 /**
+ * Workspace whose CLI windows come forward when the user selects a profile
+ * (clicking the name, not toggling the filter off). Prefers an active
+ * workspace of that profile, otherwise the first matching card.
+ */
+export function workspaceIdToFocusForProfile(
+  workspaces: readonly Pick<WorkspaceSummary, 'workspaceId' | 'profileId' | 'active'>[],
+  profileId: string
+): string | null {
+  const matching = workspaces.filter((entry) => entry.profileId === profileId)
+  return matching.find((entry) => entry.active)?.workspaceId ?? matching[0]?.workspaceId ?? null
+}
+
+/**
  * Drop a filter whose profile has disappeared from the list so the UI cannot
  * stick on an invisible selection. A still-present id (even with zero
  * workspaces) is left alone — the user clears it by clicking again.
