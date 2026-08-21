@@ -1,3 +1,6 @@
+> Historical document (German). Kept as the original research record;
+> see the Phase-G summary in [`HANDBOOK-HARNESS.md`](HANDBOOK-HARNESS.md).
+
 # Deep Research: DeepSeek Harness (`dsh`)
 
 Stand: 21. August 2026. Primärquelle: das offizielle Repository

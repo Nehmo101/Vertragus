@@ -1,3 +1,5 @@
+English | [Deutsch](ORCHESTRATOR-SUCCESSION.de.md)
+
 # Orchestrator Context Handoff (Succession)
 
 Plan for replacing the **root** orchestrator mid-run when its LLM context is
@@ -310,7 +312,8 @@ Existing `tests/live/handover.live.test.ts` is **not** succession coverage.
 
 ## 11. Relation to the harness handbook
 
-Add as **C6 Orchestrator-Succession** under Phase C (after C5), with explicit
-separation from C4 and F. Update the missing-hooks table and the track diagram.
+Recorded as **C6 orchestrator succession** under Phase C (after C5) in
+[`HANDBOOK-HARNESS.md`](./HANDBOOK-HARNESS.md), with explicit separation from
+C4 and F; the handbook's missing-hooks table and track diagram carry it.
 Implementation stays out of BigBoy A/B — this is a Workspace/MCP cutover, not a
 second product surface.

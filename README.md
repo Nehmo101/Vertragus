@@ -1,3 +1,5 @@
+English | [Deutsch](README.de.md)
+
 <p align="center">
   <img src="build/icon.svg" width="112" alt="Vertragus — a greyhound in full sprint with verdigris speed lines" />
 </p>
@@ -25,7 +27,7 @@ workspaces get places (Paradiso, Inferno, …).
 > [Vertragus-Archiv](https://github.com/Nehmo101/Vertragus-Archiv) with a
 > radically smaller core. Nothing here is release-ready yet.
 
-The German handbook [`docs/HANDBUCH-HARNESS.md`](docs/HANDBUCH-HARNESS.md)
+The handbook [`docs/HANDBOOK-HARNESS.md`](docs/HANDBOOK-HARNESS.md)
 is the code-grounded map of the harness core; serial root succession
 (fresh context, same team) is described in
 [`docs/ORCHESTRATOR-SUCCESSION.md`](docs/ORCHESTRATOR-SUCCESSION.md) and
@@ -197,23 +199,10 @@ your PC. It is **off by default**; enable it under **Settings → Remote access*
   execution on your PC through the agents it drives.** Only pair devices you
   would trust with the machine itself. The settings section lists connected
   devices and lets you disconnect any of them; disabling remote access or
-  regenerating the token severs every session immediately. The in-app MCP
-  server that agents use stays loopback-only and is a separate listener with a
-  separate token domain — remote access never widens it.
-
-  The **subagent policy** (settings window) has three tiers — be honest with
-  yourself about what each one actually guarantees:
-
-  | Tier | CLI permission flags | Enforcement | Trade-off |
-  | --- | --- | --- | --- |
-  | `yolo` (default) | skip-permissions on | none | Full autonomy. An agent can run any command your user account can. |
-  | `ask-user` | off | **hard** — the CLI's own permission prompt blocks in the agent's terminal | Safest, but needs you at the desktop; unattended runs stall. Remote v1 deliberately does not relay these CLI prompts to a phone. |
-  | `ask-orchestrator` | skip-permissions on | **soft** — the task contract requires `ask_orchestrator` approval before risky actions | Keeps runs unattended, and the orchestrator can escalate to you via `ask_user`. But it is prompt-level only: a misbehaving or manipulated agent can ignore the rule. Treat it as guidance for honest agents, not as a sandbox. |
-
-  Orchestrators and leads never get yolo flags under any tier — they operate
-  through an MCP tool allow-list instead. The panel footer's yolo switch is the
-  coarse control: on = `yolo`, off = `ask-user`; the three-way picker lives in
-  the settings window, and both write the same stored truth.
+  regenerating the token severs every session immediately. The full threat
+  model — the three subagent policy tiers (`yolo` / `ask-user` /
+  `ask-orchestrator`), what each one actually enforces, and how to report a
+  vulnerability — lives in [`SECURITY.md`](SECURITY.md).
 
 ## Development
 
@@ -232,6 +221,10 @@ worktree.
 
 Windows is the primary, owner-verified platform; macOS and Linux are built in
 CI on a best-effort basis.
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the build/test workflow and the
+language policy (docs are English-canonical with maintained German `.de.md`
+twins), and [`CHANGELOG.md`](CHANGELOG.md) for what changed.
 
 ## License
 

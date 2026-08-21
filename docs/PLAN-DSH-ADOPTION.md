@@ -1,3 +1,6 @@
+> Historical document (German). Kept as the original planning record;
+> see the Phase-G summary in [`HANDBOOK-HARNESS.md`](HANDBOOK-HARNESS.md).
+
 # Umsetzungsplan: Fünf dsh-Muster für Vertragus
 
 Stand: 21. August 2026. Basiert auf dem Deep Research in
