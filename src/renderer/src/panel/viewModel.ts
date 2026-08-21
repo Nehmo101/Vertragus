@@ -281,7 +281,10 @@ export function taskStatusLabel(t: Translate, status: WorkspaceTaskSummary['stat
  * What is derived is the *hint*: which dependencies are still open, so a
  * blocked row can name them instead of only looking grey. A dependency the cap
  * cut off counts as open — the honest direction, since the host already said
- * this row is not ready.
+ * this row is not ready. That reasoning only holds because the host emits LIVE
+ * dependencies only (`Workspace.listTasks`): a reference to a deleted task is
+ * ignored by the readiness rule, so a hint naming it would name a task that is
+ * neither in the plan nor blocking anything.
  */
 export function taskRows(
   t: Translate,
@@ -327,16 +330,37 @@ export function taskRowClass(row: Pick<TaskRow, 'blocked' | 'status'>): string {
   return parts.join(' ')
 }
 
-/** Section header: "3/7 done" — the plan's progress without opening the box. */
+/**
+ * Section header: "3/7 done" — the plan's progress without opening the box.
+ *
+ * The numbers come from the HOST, over the whole board. `tasks` is a capped
+ * window, so counting it would answer a different question than the one the
+ * header asks ("30/30 done" for a run with fifteen open tasks). The array is
+ * only the fallback for a summary that predates the counts.
+ */
 export function taskProgressLabel(
   t: Translate,
-  workspace: Pick<WorkspaceSummary, 'tasks'>
+  workspace: Pick<WorkspaceSummary, 'tasks' | 'taskTotal' | 'taskDone'>
 ): string {
   const tasks = workspace.tasks ?? []
   return t('panel.taskProgress', {
-    done: tasks.filter((task) => task.status === 'completed').length,
-    total: tasks.length
+    done: workspace.taskDone ?? tasks.filter((task) => task.status === 'completed').length,
+    total: workspace.taskTotal ?? tasks.length
   })
+}
+
+/**
+ * "+15 more" under the last visible row. Undefined when the whole plan fits —
+ * truncation the card does not admit to is the reason the progress figure was
+ * worth distrusting in the first place.
+ */
+export function taskOverflowLabel(
+  t: Translate,
+  workspace: Pick<WorkspaceSummary, 'tasks' | 'taskTotal'>
+): string | undefined {
+  const shown = workspace.tasks?.length ?? 0
+  const total = workspace.taskTotal ?? shown
+  return total > shown ? t('panel.taskMore', { count: total - shown }) : undefined
 }
 
 /**

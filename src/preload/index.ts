@@ -274,6 +274,12 @@ export interface WorkspaceSummary {
   agents: WorkspaceAgentSummary[]
   /** S4: the run's task board, capped and tombstone-free. Absent = no plan yet. */
   tasks?: WorkspaceTaskSummary[]
+  /**
+   * S4: counts over the WHOLE plan, not over the capped {@link tasks} — the
+   * card must never derive progress from the rows that happened to fit.
+   */
+  taskTotal?: number
+  taskDone?: number
 }
 
 /** One stale worktree the panel's cleanup view offers for removal. */

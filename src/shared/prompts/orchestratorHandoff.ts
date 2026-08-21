@@ -38,6 +38,18 @@ function section(title: string, lines: readonly string[]): string[] {
  */
 export interface HandoffSeedOptions {
   recovered?: boolean
+  /**
+   * Whether `task_list` will actually answer with this plan. The package's
+   * tasks are a synchronous snapshot taken at handoff; the board the resumed
+   * run boots with comes from `tasks.json`, written asynchronously and silent
+   * after the first disk failure. The two can disagree, and only the host
+   * knows — so the host says, rather than the seed guessing.
+   *
+   * Only consulted in {@link recovered} mode: a live cutover keeps the same
+   * host board across the seat change, so there is nothing to disagree about.
+   * Default false, because a caller that does not know must not claim.
+   */
+  boardRestored?: boolean
 }
 
 export function formatHandoffSeed(
@@ -102,14 +114,26 @@ export function formatHandoffSeed(
 
   // S4: one sentence, because the board itself is host state — task_list is
   // the truth; the rows below only show that a plan exists to continue.
+  //
+  // Unless it does not. A recovery whose board did NOT come back gets the
+  // opposite sentence, and the rows demoted to history. Softening the claim is
+  // the right fix rather than rebuilding the board from these rows: they are a
+  // lossy projection (subjects capped at TASK_SUBJECT_MAX_CHARS, no timestamps,
+  // no nextTaskNumber), so seeding from them would replace a board the host
+  // never wrote with one it invented — the same host-truth inversion, one
+  // layer down and harder to see.
+  const boardRestored = options.boardRestored === true
+  const tasksAreHistory = recovered && !boardRestored
   const tasks =
     pkg.tasks.length === 0
       ? []
       : [
           '',
-          recovered
-            ? 'The task board is HOST state and survived on disk — task_list shows it; do not rebuild it from prose. Tasks that were in_progress are back to pending because their owners are gone:'
-            : 'The task board is HOST state and survived this handoff — task_list shows it; do not rebuild it from prose:',
+          tasksAreHistory
+            ? 'This plan is HISTORY — the board did not survive: task_list is empty and these rows are not in it. Recreate with task_create whatever still matters; do not assume a task exists because it is listed here:'
+            : recovered
+              ? 'The task board is HOST state and survived on disk — task_list shows it; do not rebuild it from prose. Tasks that were in_progress are back to pending because their owners are gone:'
+              : 'The task board is HOST state and survived this handoff — task_list shows it; do not rebuild it from prose:',
           ...pkg.tasks.map(
             (task) =>
               `- ${task.taskId} rev ${task.revision} (${task.status}${

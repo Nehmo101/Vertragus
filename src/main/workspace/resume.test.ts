@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { join } from 'node:path'
+import type { AgentEvent } from '@shared/schema/events'
+import { orchestratorHandoffPackageSchema } from '@shared/schema/handoff'
 import type { TaskBoardState } from '@shared/schema/tasks'
 import {
   boardForResume,
@@ -9,6 +11,7 @@ import {
   readRunEvents,
   readRunTasks,
   readSuccessionPackage,
+  successionSuperseded,
   type ResumeDeps
 } from './resume'
 
@@ -312,5 +315,80 @@ describe('markSuccessionConsumed — C6', () => {
         }) as never
       })
     ).resolves.toBeUndefined()
+  })
+
+  it('retires a superseded package under its own name — nothing consumed it', async () => {
+    const moves: Array<[string, string]> = []
+    await markSuccessionConsumed(
+      '/repo',
+      'ws-1',
+      {
+        rename: (async (from: unknown, to: unknown) => {
+          moves.push([String(from), String(to)])
+        }) as never
+      },
+      'failed'
+    )
+    expect(moves[0]![1]).toBe(join(RUNS, 'ws-1', 'succession.failed.json'))
+  })
+})
+
+describe('successionSuperseded — C6', () => {
+  const pkg = orchestratorHandoffPackageSchema.parse(successionPackage())
+
+  function event(overrides: Record<string, unknown>): AgentEvent {
+    return {
+      seq: 1,
+      ts: 1,
+      agentId: 'orch-1',
+      name: 'Virgilio',
+      roleId: 'orchestrator',
+      ...overrides
+    } as AgentEvent
+  }
+
+  it('accepts a package whose run really did stop at the freeze', () => {
+    expect(successionSuperseded(pkg, [])).toBe(false)
+    expect(
+      successionSuperseded(pkg, [
+        event({ seq: 41, type: 'orchestrator_handoff_started', reason: 'context_full' }),
+        event({ seq: 60, type: 'agent_done', status: 'success', summary: 'done' })
+      ])
+    ).toBe(false)
+  })
+
+  it('rejects a package the run journaled a failed handoff for', () => {
+    // The retiring rename is best-effort, so the file surviving proves
+    // nothing; this event proves the predecessor stayed in the seat.
+    expect(
+      successionSuperseded(pkg, [
+        event({
+          seq: 50,
+          type: 'orchestrator_handoff_failed',
+          message: 'successor boom',
+          successorAgentId: 'orch-2'
+        })
+      ])
+    ).toBe(true)
+    // A failure naming a DIFFERENT successor says nothing about this package.
+    expect(
+      successionSuperseded(pkg, [
+        event({
+          seq: 50,
+          type: 'orchestrator_handoff_failed',
+          message: 'boom',
+          successorAgentId: 'orch-9'
+        })
+      ])
+    ).toBe(false)
+  })
+
+  it('rejects a package a later orchestrator_started already overtook', () => {
+    const started = (seq: number): AgentEvent =>
+      event({ seq, type: 'orchestrator_started', predecessorAgentId: 'orch-1', eventCursor: seq })
+    // Past the frozen cursor: a seat change this package cannot be describing.
+    expect(successionSuperseded(pkg, [started(43)])).toBe(true)
+    // At or before it: the boot the package itself was frozen after.
+    expect(successionSuperseded(pkg, [started(42)])).toBe(false)
   })
 })

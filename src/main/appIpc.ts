@@ -283,6 +283,15 @@ export interface WorkspaceSummary {
    * section at all.
    */
   tasks?: WorkspaceTaskSummary[]
+  /**
+   * S4: rows in the WHOLE living plan, and how many of them are completed —
+   * counts over the board, not over {@link tasks}. The window is a display
+   * decision; "30/45 done" is a fact about the run, and a card that recomputed
+   * it from the rows that happened to fit would read an unfinished plan as
+   * finished. Present exactly when {@link tasks} is.
+   */
+  taskTotal?: number
+  taskDone?: number
 }
 
 /** One stale worktree the panel's cleanup view offers for removal. */

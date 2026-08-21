@@ -88,6 +88,8 @@
     "taskCompleted": "done",
     "taskOwner": "worked on by {{agent}}",
     "taskBlocked": "waiting for {{tasks}}",
+    "taskMore_one": "+{{count}} more task — the whole plan is in tasks.json",
+    "taskMore_other": "+{{count}} more tasks — the whole plan is in tasks.json",
     "openRunFolder": "Open the run folder — spill/, tasks.json and events.jsonl in the file manager",
     "onboardingTitle": "First steps",
     "onboardingIntro": "No profile yet. Four steps to the first run.",

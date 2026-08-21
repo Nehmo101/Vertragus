@@ -12,7 +12,9 @@
  * - the predecessor's token is dead the moment the successor exists (401),
  *   even though nobody could ask the predecessor to hand it over;
  * - the subagent, its worktree and its MCP session survive the cutover;
- * - exactly ONE orchestrator is live afterwards;
+ * - the seat moves to the successor, while the dead predecessor's record is
+ *   left alone — window not closed, no kill, no `orchestrator_exited` from the
+ *   cutover: that corpse is the post-mortem the button was pressed in front of;
  * - C3: the `headSha` the package carries for an agent is the commit
  *   `snapshotDone` made at report time, not the pre-commit HEAD;
  * - the package is frozen in the RUN directory and renamed to
@@ -125,6 +127,8 @@ interface Harness {
   handle: McpServerHandle
   workspace: Workspace
   spawnCalls: RecordedSpawn[]
+  /** The corpse is evidence: nothing about the cutover may close its window. */
+  windows: FakeWindows
   orchestratorUrl(): string
   subagentUrl(agentId: string): string
   connect(url: string): Promise<Client>
@@ -134,6 +138,7 @@ interface Harness {
 async function makeHarness(): Promise<Harness> {
   const handle = await startMcpServer()
   const spawner = fakeSpawn()
+  const windows = new FakeWindows()
   const workspace = new Workspace(
     {
       profile: testProfile({
@@ -144,7 +149,7 @@ async function makeHarness(): Promise<Harness> {
     },
     {
       registry: new FakeRegistry(),
-      windows: new FakeWindows(),
+      windows,
       configDir: join(repo, '.vertragus-config'),
       providers: testProviders(),
       // Fake processes, REAL worktrees AND a real package on disk: the
@@ -163,6 +168,7 @@ async function makeHarness(): Promise<Harness> {
     handle,
     workspace,
     spawnCalls: spawner.calls,
+    windows,
     orchestratorUrl: () => registered.orchestratorUrl,
     subagentUrl: (agentId) => registered.subagentUrl(agentId),
     async connect(url) {
@@ -214,17 +220,28 @@ describe('S3 host-triggered replacement of a DEAD orchestrator', () => {
         harness.spawnCalls[0]!.pty.exit({ exitCode: 137 })
         expect(workspace.orchestratorAlive).toBe(false)
 
+        const eventsBeforeCutover = workspace.events.all().length
         const successor = await workspace.replaceOrchestratorFromHost()
 
         expect(successor.agentId).not.toBe(predecessor.agentId)
         expect(workspace.orchestratorAlive).toBe(true)
-        expect(workspace.orchestrator?.agentId).toBe(successor.agentId)
-        // Exactly one live orchestrator: two spawned, one alive.
+        // The seat moved: a second orchestrator was spawned, and it is the one
+        // the workspace now drives the loop through.
         const orchestratorSpawns = harness.spawnCalls.filter(
           (call) => call.input.kind === 'orchestrator'
         )
         expect(orchestratorSpawns).toHaveLength(2)
-        expect(orchestratorSpawns.filter((call) => call.pty.isAlive)).toHaveLength(1)
+        expect(workspace.orchestrator?.agentId).toBe(successor.agentId)
+
+        // The dead-path invariants. A DEAD predecessor is not terminated: its
+        // window and scrollback are the post-mortem the user pressed the
+        // button in front of, and the cutover must not close them or announce
+        // a death the workspace already reported when the process exited.
+        expect(harness.windows.closed).not.toContain(predecessor.agentId)
+        expect(harness.spawnCalls[0]!.pty.killed).toBe(0)
+        const cutoverEvents = workspace.events.all().slice(eventsBeforeCutover)
+        expect(cutoverEvents.map((event) => event.type)).not.toContain('orchestrator_exited')
+        expect(cutoverEvents.map((event) => event.type)).toContain('orchestrator_started')
 
         // The dead predecessor's URL is dead too — a crashed CLI that comes
         // back (a supervisor restart) must not find a second live seat.
