@@ -71,6 +71,18 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
 - **Ein geführter Erststart**: welche Agenten-CLIs installiert sind, ob sie
   angemeldet sind, ein Knopf zum ersten Profil und ein Fingerzeig auf Play.
 
+- **Ein abgesicherter Release-Pfad.** `scripts/release-version.mjs` läuft als
+  erster Job des Release-Workflows und weist einen Tag zurück, der nicht zur
+  `package.json` passt (oder ein Prerelease-Suffix trägt oder dessen Patch
+  nicht `0` ist) — bevor irgendein Release-Objekt oder Artefakt existiert. CI
+  fährt ihr volles Gate jetzt auch auf Tags, damit der Release-Build nicht der
+  einzige Build ohne Smoke-Test ist. `docs/RELEASE-CHECKLIST.md` hat die
+  Versionskonvention und ein nummeriertes Tag-Runbook bekommen, jeder Schritt
+  als human bzw. automated markiert.
+- Ein Pull-Request-Template mit den Release-Tabellen und ein
+  Bug-Report-Issue-Template, das nach Betriebssystem, Vertragus-Version und
+  Provider-CLI-Version fragt.
+
 ### Fixed
 
 - Der PTY-Idle-Hinweis erreichte das Orchestrator-Modell auf Deutsch, auf
@@ -85,6 +97,21 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
   statt auf Deutsch zu fallen; eine gespeicherte Wahl gewinnt immer.
 
 ### Changed
+
+- **Die App-Version ist `1.0.0`** — das erste getaggte Release. Die
+  eingecheckte Version ist eine Patch-BASIS (`X.Y.0`): Prereleases des
+  `main`-Kanals addieren die Run-Nummer darauf, main wird deshalb direkt nach
+  einem Tag auf `X.(Y+1).0` gehoben. Diese Prereleases sortieren über dem
+  veröffentlichten Stable — harmlos, weil die Zielgruppen durch den
+  Update-KANAL getrennt werden, nicht durch die Versionsreihenfolge.
+- `MCP_SERVER_VERSION` ist `1.0.0` und als Tool-CONTRACT-Version dokumentiert:
+  Sie bewegt sich, wenn sich die MCP-Tool-Oberfläche bewegt, nicht mit jedem
+  App-Release.
+- `@vitest/coverage-v8` und `vitest` sind beide exakt auf `3.2.7` gepinnt; das
+  Coverage-Instrument, das Releases absichert, driftet damit nicht mehr vom
+  Runner weg, den es als exakten Peer deklariert.
+- Der Remote-Client setzt `<html lang>` aus dem `hello.locale` des Hosts,
+  statt ein hartkodiertes `de` auszuliefern.
 
 - **Die Doku ist jetzt englisch-kanonisch mit gepflegten deutschen
   Zwillingen.** Das deutsche Handbuch `docs/HANDBUCH-HARNESS.md` wurde als

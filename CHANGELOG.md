@@ -66,6 +66,16 @@ No release has been tagged yet; everything lives under Unreleased.
 - **A guided first run**: which agent CLIs are installed, whether they are
   signed in, a button to the first profile, and a pointer at Play.
 
+- **A guarded release path.** `scripts/release-version.mjs` runs as the first
+  job of the release workflow and refuses a tag that disagrees with
+  `package.json` (or that carries a prerelease suffix, or whose patch is not
+  `0`) before any release object or artifact exists; CI now also runs its full
+  gate on tags, so a release build is no longer the one build without a smoke
+  test. `docs/RELEASE-CHECKLIST.md` gained the versioning convention and a
+  numbered tag runbook marked human vs. automated.
+- A pull-request template carrying the release tables, and a bug-report issue
+  template that asks for OS, Vertragus version and provider CLI version.
+
 ### Fixed
 
 - The PTY-idle hint reached the orchestrator model in German on an
@@ -79,6 +89,19 @@ No release has been tagged yet; everything lives under Unreleased.
   of defaulting to German; a stored choice always wins.
 
 ### Changed
+
+- **The app version is `1.0.0`** — the first tagged release. The committed
+  version is a patch BASE (`X.Y.0`): main-channel prereleases add the run
+  number to it, so main is opened at `X.(Y+1).0` right after a tag. Those
+  prereleases sort above the released stable, which is harmless because the
+  update CHANNEL, not the version order, keeps the two audiences apart.
+- `MCP_SERVER_VERSION` is `1.0.0` and documented as a tool-CONTRACT version:
+  it moves when the MCP tool surface moves, not with every app release.
+- `@vitest/coverage-v8` and `vitest` are both pinned exactly to `3.2.7`; the
+  coverage instrumenter that gates releases no longer floats away from the
+  runner it declares as an exact peer.
+- The remote client sets `<html lang>` from the host's `hello.locale` instead
+  of shipping a hardcoded `de`.
 
 - **Documentation is now English-canonical with maintained German twins.**
   The German handbook `docs/HANDBUCH-HARNESS.md` was translated to

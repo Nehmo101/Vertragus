@@ -29,7 +29,22 @@ import { adoptSubtree, type WorkspaceMcpContext, type WorkspaceRuntime } from '.
 
 /** MCP namespace of our tools: `mcp__vertragus__<tool>`. */
 export const MCP_SERVER_NAME = 'vertragus'
-export const MCP_SERVER_VERSION = '0.1.0'
+
+/**
+ * The TOOL-CONTRACT version, not the app version — this is what an agent CLI
+ * receives as `serverInfo.version` in the MCP handshake, and the only thing it
+ * can use to reason about which tools it is talking to. So it is bumped when
+ * the tool SURFACE changes (a tool added or removed, an argument or an event
+ * semantic changed), not on every app patch: an agent has no interest in
+ * whether the panel's blur radius moved.
+ *
+ * Deliberately a literal and not `app.getVersion()`: this module imports no
+ * Electron at all (it is unit-tested in plain Node, and `app` does not exist
+ * there), and tying the contract to the app version would announce a change on
+ * every release that did not make one. `docs/RELEASE-CHECKLIST.md` carries the
+ * reminder to bump it when the surface actually moved.
+ */
+export const MCP_SERVER_VERSION = '1.0.0'
 export const MCP_PATH = '/mcp'
 export const MCP_BIND_HOST = '127.0.0.1'
 

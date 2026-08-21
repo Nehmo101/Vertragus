@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { remoteCopy, type RemoteCopy } from './i18n'
+import { remoteCopy, remoteLanguage, type RemoteCopy } from './i18n'
 
 const de = remoteCopy('de')
 const en = remoteCopy('en')
@@ -89,5 +89,19 @@ describe('locale resolution', () => {
     // BCP-47 variants of English count as English; anything unknown stays German.
     expect(remoteCopy('en-US').brandRemote).toBe('Remote')
     expect(remoteCopy('fr').brandRemote).toBe('Fernzugriff')
+  })
+
+  it('reduces the locale to the `lang` the document gets, by the same rule', () => {
+    // App.tsx writes this into `document.documentElement.lang`; index.html can
+    // only carry a placeholder, since one static bundle serves both languages.
+    // Copy and `lang` must come from the same decision or a German phone
+    // announces itself as English to the screen reader.
+    expect(remoteLanguage('de')).toBe('de')
+    expect(remoteLanguage('en')).toBe('en')
+    expect(remoteLanguage('EN-GB')).toBe('en')
+    expect(remoteLanguage('fr')).toBe('de')
+    for (const locale of ['de', 'en', 'en-US', 'fr', '']) {
+      expect(remoteCopy(locale), locale).toBe(remoteCopy(remoteLanguage(locale)))
+    }
   })
 })

@@ -158,6 +158,17 @@ const en: RemoteCopy = {
   fontLarger: 'Larger type'
 }
 
+/**
+ * The one place the host's `hello.locale` is reduced to a language: BCP-47
+ * variants of English count as English, anything else falls back to the
+ * authored German. Exported because the copy is not the only thing that
+ * follows it — `App.tsx` sets `document.documentElement.lang` from it, and the
+ * two must never disagree.
+ */
+export function remoteLanguage(locale: string): RemoteLocale {
+  return locale.toLowerCase().startsWith('en') ? 'en' : 'de'
+}
+
 export function remoteCopy(locale: string): RemoteCopy {
-  return locale.toLowerCase().startsWith('en') ? en : de
+  return remoteLanguage(locale) === 'en' ? en : de
 }
