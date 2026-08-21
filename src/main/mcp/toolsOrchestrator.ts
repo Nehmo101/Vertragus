@@ -10,6 +10,15 @@ import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { buildHandoffBlock, buildReminderSuffix, buildTaskContract } from '@shared/prompts/contract'
 import { successionRequestSchema } from '@shared/schema/handoff'
+import { searchRuns } from '@main/workspace/searchRuns'
+import {
+  assertSupportedResultSchema,
+  ResultSchemaError,
+  RESULT_SCHEMA_MAX_CHARS,
+  type ResultSchema
+} from '@shared/schema/resultSchema'
+import { TASK_STATUSES, type Task } from '@shared/schema/tasks'
+import { TASK_ACTIONS, type TaskBoard, type TaskBoardFailure } from '@main/workspace/taskBoard'
 import { answerAgentQuestion } from './answerQuestion'
 import { resolveAskTimeoutMs, SUBAGENT_TOOL_NAMES } from './toolsSubagent'
 import {
@@ -50,7 +59,11 @@ export const ORCHESTRATOR_TOOL_NAMES = [
   'ask_user',
   'start_orchestrator',
   'record_retro',
-  'request_succession'
+  'request_succession',
+  'search_runs',
+  'task_create',
+  'task_update',
+  'task_list'
 ] as const
 
 export type OrchestratorToolName = (typeof ORCHESTRATOR_TOOL_NAMES)[number]
@@ -69,6 +82,9 @@ export const LEAD_TOOL_NAMES = [
   'read_output',
   'inspect_agent',
   'integrate_branch',
+  'task_create',
+  'task_update',
+  'task_list',
   ...SUBAGENT_TOOL_NAMES
 ] as const
 
@@ -80,6 +96,22 @@ export const AWAIT_TIMEOUT_MAX_SEC = 55
 export const READ_OUTPUT_DEFAULT_LINES = 60
 export const READ_OUTPUT_MAX_LINES = 400
 export const INSPECT_LOG_MAX_LINES = 50
+
+/**
+ * S1: above this many chars a tool result spills to a file (preview + path
+ * instead of truncation). ~1.5k tokens — big enough that nothing routine
+ * spills, small enough that a full diff or buffer never floods the context.
+ */
+export const SPILL_THRESHOLD_CHARS = 6_000
+export const SPILL_HEAD_CHARS = 2_000
+export const SPILL_TAIL_CHARS = 1_000
+
+/** 41312 → "41_312" — the digit grouping the spill preview banner uses. */
+function groupDigits(value: number): string {
+  return String(value).replace(/\B(?=(\d{3})+$)/g, '_')
+}
+
+const SPILL_FAILED_NOTE = 'full output unavailable (spill failed)'
 
 /**
  * C4: the latest `agent_done` reported on this branch, rendered as a handoff
@@ -219,6 +251,42 @@ export function registerOrchestratorTools(
     })
   }
 
+  /**
+   * S1: oversized text spills to a file — the model gets head/tail plus the
+   * absolute path to read or grep. A missing store keeps today's inline
+   * behaviour, and a failed save degrades to a truncated inline text with a
+   * note — never a tool error (fail-soft, like the journal).
+   */
+  const spillOversized = async (
+    name: string,
+    text: string
+  ): Promise<
+    | { kind: 'inline' }
+    | { kind: 'spilled'; path: string; head: string; tail: string }
+    | { kind: 'failed'; head: string; tail: string }
+  > => {
+    if (text.length <= SPILL_THRESHOLD_CHARS || !ctx.spill) return { kind: 'inline' }
+    const head = text.slice(0, SPILL_HEAD_CHARS)
+    const tail = text.slice(-SPILL_TAIL_CHARS)
+    const path = await ctx.spill.save(name, text)
+    return path ? { kind: 'spilled', path, head, tail } : { kind: 'failed', head, tail }
+  }
+
+  /** {@link spillOversized} for plain-text tool results (`read_output`). */
+  const withSpill = async (name: string, text: string): Promise<ToolText> => {
+    const outcome = await spillOversized(name, text)
+    if (outcome.kind === 'inline') return toolText(text)
+    if (outcome.kind === 'failed') {
+      return toolText(`${outcome.head}\n…\n${outcome.tail}\nnote: ${SPILL_FAILED_NOTE}`)
+    }
+    return toolText(
+      `[output too large: ${groupDigits(text.length)} chars — full text at\n` +
+        ` ${outcome.path}\n` +
+        ` read or grep that file for the full output]\n` +
+        `${outcome.head}\n…\n${outcome.tail}`
+    )
+  }
+
   /** Fence: agent-addressing tools only reach the caller's DIRECT children. */
   const outOfScope = (agentId: string): ToolText | undefined => {
     if (inScope(runtime, agentId, leadId)) return undefined
@@ -230,6 +298,57 @@ export function registerOrchestratorTools(
         : 'That agent is not one of your direct children. A lead’s workers are addressed by their lead — send the lead an instruction instead.'
     })
   }
+
+  /** S4: the honest refusal for runtimes without a board (old fakes). */
+  const boardUnavailable = (): ToolText =>
+    toolError({
+      error: 'task_board_unavailable',
+      note: 'This workspace has no task board. Track your plan in your own context instead.'
+    })
+
+  /** S4: board failures become tool errors verbatim — plus a note the model can act on. */
+  const taskFailure = (failure: TaskBoardFailure): ToolText => {
+    const body: Record<string, unknown> = { ...failure }
+    delete body.ok
+    const notes: Record<TaskBoardFailure['error'], string> = {
+      stale_revision:
+        'Your revision is outdated — the CURRENT task is in this payload. Reconcile against it and retry with task.revision.',
+      unknown_task: 'No task with that id exists on the board. task_list shows what does.',
+      task_deleted: 'That task is a tombstone — deleted is final. Create a new task instead.',
+      dependency_cycle: 'These dependencies would close a cycle — restructure the blockedBy chain.',
+      dependency_deleted: 'A dependency is deleted — drop it from blockedBy.',
+      task_limit: 'The board is at its task limit. Deleted and completed tasks still count; plan coarser.',
+      invalid_transition: 'That action does not apply to the task’s current status — see task_list.',
+      missing_field: 'That action needs the named field.'
+    }
+    return toolError({ ...body, note: notes[failure.error] })
+  }
+
+  /**
+   * S4 fence, same shape as the agent fence: a LEAD may hand tasks only to
+   * itself or agents of its own subtree; the root assigns freely. delete and
+   * reassign stay root-only (checked separately).
+   */
+  const ownerOutOfScope = (ownerAgentId: string): ToolText | undefined => {
+    if (!leadId) return undefined
+    if (ownerAgentId === leadId || inScope(runtime, ownerAgentId, leadId)) return undefined
+    return toolError({
+      error: 'owner_out_of_scope',
+      ownerAgentId,
+      note: 'A lead assigns tasks only to itself or to agents of its own subtree.'
+    })
+  }
+
+  /** The compact row task_list returns — `ready` = pending ∧ deps completed. */
+  const taskRow = (board: TaskBoard, task: Task) => ({
+    taskId: task.taskId,
+    revision: task.revision,
+    subject: task.subject,
+    status: task.status,
+    ...(task.ownerAgentId ? { ownerAgentId: task.ownerAgentId } : {}),
+    blockedBy: task.blockedBy,
+    ready: board.isReady(task.taskId)
+  })
 
   server.registerTool(
     'start_agent',
@@ -276,10 +395,37 @@ export function registerOrchestratorTools(
             'Existing branch the new agent starts from — pass another agent’s branch so this ' +
               'agent builds on that result (e.g. a reviewer on a worker’s branch, or an agent ' +
               'merging teammates’ branches into its own). Default: the repository HEAD.'
+          ),
+        resultSchema: z
+          .unknown()
+          .optional()
+          .describe(
+            'Object-rooted JSON schema (small subset: type, properties, required, items, enum, ' +
+              'const, additionalProperties) the agent’s final report_done result must match; keep ' +
+              'it small. The agent retries until its result validates; the schema sticks for ' +
+              'follow-up tasks via send_to_agent (one schema per agent life).'
+          ),
+        taskId: z
+          .string()
+          .regex(/^task-\d+$/)
+          .optional()
+          .describe(
+            'S4: a pending board task this agent works on. The host claims it for the new ' +
+              'agent (owner, in_progress) and appends its subject and description to the seed. ' +
+              'A task that is unknown, deleted or not pending fails the start before anything runs.'
           )
       }
     },
-    async ({ role, task, model, baseBranch, slotId, providerId }): Promise<ToolText> => {
+    async ({
+      role,
+      task,
+      model,
+      baseBranch,
+      slotId,
+      providerId,
+      resultSchema,
+      taskId
+    }): Promise<ToolText> => {
       const blocked = successionGate()
       if (blocked) return blocked
       if (!ctx.roles.includes(role)) {
@@ -289,6 +435,33 @@ export function registerOrchestratorTools(
           availableRoles: ctx.roles,
           note: 'Use one of availableRoles exactly as written.'
         })
+      }
+      // S3: vet the result schema BEFORE anything is reserved — fail-loud like
+      // slot errors. A schema that cannot be enforced (unsupported keywords,
+      // non-object root, oversized) must never start an agent whose contract
+      // then promises validation nobody performs.
+      let vettedSchema: ResultSchema | undefined
+      if (resultSchema !== undefined) {
+        try {
+          assertSupportedResultSchema(resultSchema)
+        } catch (error) {
+          return toolError({
+            error: 'invalid_result_schema',
+            problems: error instanceof ResultSchemaError ? error.problems : [errorMessage(error)],
+            note: 'Fix the schema (or drop it) and call start_agent again — nothing was started.'
+          })
+        }
+        const size = JSON.stringify(resultSchema).length
+        if (size > RESULT_SCHEMA_MAX_CHARS) {
+          return toolError({
+            error: 'invalid_result_schema',
+            problems: [
+              `resultSchema: serialized schema is ${size} chars — the cap is ${RESULT_SCHEMA_MAX_CHARS}. Keep result schemas small.`
+            ],
+            note: 'Fix the schema (or drop it) and call start_agent again — nothing was started.'
+          })
+        }
+        vettedSchema = resultSchema
       }
       const overBudget = budgetGate()
       if (overBudget) return overBudget
@@ -343,7 +516,40 @@ export function registerOrchestratorTools(
       // C4: a baseBranch that carries reported work gets its handoff block
       // between task and contract, so the new agent starts from the
       // predecessor's own report instead of the orchestrator's prose.
+      // S4: reservation of the board task, fail-loud BEFORE beginAgent. From
+      // this check to the claim below nothing awaits, so the revision read
+      // here cannot go stale in between (same race-free argument as the caps).
+      let boardTask: Task | undefined
+      if (taskId) {
+        const board = runtime.taskBoard
+        if (!board) return boardUnavailable()
+        const found = board.get(taskId)
+        if (!found) return taskFailure({ ok: false, error: 'unknown_task', taskId })
+        if (found.status === 'deleted') return taskFailure({ ok: false, error: 'task_deleted', taskId })
+        if (found.status !== 'pending') {
+          return taskFailure({
+            ok: false,
+            error: 'invalid_transition',
+            taskId,
+            status: found.status,
+            action: 'claim'
+          })
+        }
+        boardTask = found
+      }
+
       const reporting = ctx.host.reportingMode(role)
+      // S3: a sentinel agent has no report_done call to validate — a schema
+      // there would be a promise nobody keeps, so it is refused, not ignored.
+      if (vettedSchema && reporting !== 'mcp') {
+        return toolError({
+          error: 'invalid_result_schema',
+          problems: [
+            `resultSchema: role "${role}" reports via PTY sentinel lines, not MCP — a structured result cannot be validated for it.`
+          ],
+          note: 'Drop resultSchema for this role and call start_agent again — nothing was started.'
+        })
+      }
       const handoff = baseBranch ? handoffFor(ctx.events, baseBranch) : undefined
       // D4: under `ask-orchestrator` the contract carries the approval rule —
       // the CLI still runs yolo (nobody watches a subagent terminal), so the
@@ -351,9 +557,22 @@ export function registerOrchestratorTools(
       const contract = buildTaskContract({
         role,
         reporting,
-        ...(ctx.agentPolicy === 'ask-orchestrator' ? { approvals: 'ask-orchestrator' as const } : {})
+        ...(ctx.agentPolicy === 'ask-orchestrator' ? { approvals: 'ask-orchestrator' as const } : {}),
+        ...(vettedSchema ? { resultSchema: vettedSchema } : {})
       })
-      const seed = [task, ...(handoff ? [handoff] : []), contract].join('\n\n')
+      // S4: the claimed task rides into the seed as host truth — subject and
+      // description straight from the board, before the contract.
+      const taskContext = boardTask
+        ? `Task ${boardTask.taskId}: ${boardTask.subject}${
+            boardTask.description ? `\n${boardTask.description}` : ''
+          }`
+        : undefined
+      const seed = [
+        task,
+        ...(taskContext ? [taskContext] : []),
+        ...(handoff ? [handoff] : []),
+        contract
+      ].join('\n\n')
 
       // `beginAgent` reserves synchronously and returns before the pipeline
       // (worktree, spawn, seed handshake) ran — that pipeline can outlast the
@@ -368,6 +587,20 @@ export function registerOrchestratorTools(
       // F: parented synchronously with the reservation — the child's events
       // route to this lead's queue from the very first one.
       if (leadId) runtime.parentOf.set(started.agentId, leadId)
+      // S3: registered with the reservation, so a report_done racing the ready
+      // handshake already validates. Removed again on start failure and stop.
+      if (vettedSchema) runtime.resultSchemas.set(started.agentId, vettedSchema)
+      // S4: claim in the same synchronous block as the check above — the
+      // revision cannot have moved, so this cannot fail (guarded anyway).
+      let claimWarning: string | undefined
+      if (boardTask) {
+        const claimed = runtime.taskBoard?.update(boardTask.taskId, boardTask.revision, 'claim', {
+          ownerAgentId: started.agentId
+        })
+        if (claimed && !claimed.ok) {
+          claimWarning = `Task ${boardTask.taskId} could not be claimed (${claimed.error}) — the agent starts anyway; fix the board with task_update.`
+        }
+      }
       recordAssignment(runtime, started.agentId, task)
       started.ready.then(
         () => {
@@ -390,6 +623,7 @@ export function registerOrchestratorTools(
           // The workspace may have closed mid-start (stop button, quit) —
           // then there is no queue left and nobody to tell.
           runtime.parentOf.delete(started.agentId)
+          runtime.resultSchemas.delete(started.agentId)
           const queue = leadId ? ownQueue() : ctx.events
           if (queue.isClosed) return
           queue.push({
@@ -409,6 +643,8 @@ export function registerOrchestratorTools(
         model: started.model,
         worktreePath: started.worktreePath,
         branch: started.branch,
+        ...(boardTask ? { taskId: boardTask.taskId } : {}),
+        ...(claimWarning ? { warning: claimWarning } : {}),
         state: 'starting',
         // Short on purpose: the tool description already spells the rule out in
         // full, and this note is echoed back on every single start.
@@ -588,15 +824,22 @@ export function registerOrchestratorTools(
         return toolError({ error: 'stop_failed', agentId, message: errorMessage(error) })
       }
       runtime.questions.cancelForAgent(agentId)
+      // S3: a stopped agent reports nothing more — its result schema goes too.
+      runtime.resultSchemas.delete(agentId)
       if (stopped && known) {
         // Into the parent's queue — for a stopped LEAD that is the root queue,
-        // where the adoption tap reparents its children (F).
-        queueForAgent(runtime, agentId).push({
-          type: 'agent_stopped',
-          agentId,
-          name: known.name,
-          roleId: known.role
-        })
+        // where the adoption tap reparents its children (F). Quiet: a pure
+        // echo of the caller's own stop_agent — the tool result already said
+        // everything; the event is for the journal and the panel.
+        queueForAgent(runtime, agentId).push(
+          {
+            type: 'agent_stopped',
+            agentId,
+            name: known.name,
+            roleId: known.role
+          },
+          { quiet: true }
+        )
       }
       return toolJson({
         ok: stopped,
@@ -675,7 +918,13 @@ export function registerOrchestratorTools(
       const pending =
         alreadyOpen ?? runtime.questions.create(USER_QUESTION_AGENT_ID, question)
       if (!alreadyOpen) {
-        ctx.events.push({ type: 'user_question', questionId: pending.questionId, question })
+        // Quiet: the badge/remote signal for the PANEL — the asker itself is
+        // blocked right here on waitForAnswer and must not be woken by the
+        // echo of its own question.
+        ctx.events.push(
+          { type: 'user_question', questionId: pending.questionId, question },
+          { quiet: true }
+        )
       }
 
       const result = await runtime.questions.waitForAnswer(
@@ -919,6 +1168,56 @@ export function registerOrchestratorTools(
       })
     }
   )
+
+  // S5: the pull side of the run memory. Root-only like record_retro — the
+  // history is the ROOT's institutional memory, a lead gets its slice from
+  // its task. The repo path comes from the workspace context; the CURRENT
+  // run's journal lives on disk like every other, so it is searched for free.
+  server.registerTool(
+    'search_runs',
+    {
+      description:
+        'Search this repository’s past run journals — use it before re-solving a problem an ' +
+        'earlier run already hit (build quirks, flaky tests, decisions). Case-insensitive ' +
+        'substring over every journaled event and each run’s goal (no regex); returns the newest ' +
+        'matching runs with short excerpts.',
+      inputSchema: {
+        query: z
+          .string()
+          .min(3)
+          .max(500)
+          .describe('Plain substring to look for; whitespace in it matches any whitespace run'),
+        maxResults: z
+          .number()
+          .int()
+          .min(1)
+          .max(20)
+          .optional()
+          .describe('Runs with matches to return, default 8')
+      }
+    },
+    async ({ query, maxResults }): Promise<ToolText> => {
+      try {
+        const { hits, searchedRuns, skipped } = await searchRuns(ctx.repoPath, query, {
+          maxResults
+        })
+        // The empty answer names its coverage — "no match" over zero searched
+        // runs and over twenty are very different facts.
+        const note =
+          hits.length === 0
+            ? `searched ${searchedRuns} runs, no match`
+            : `${hits.length} matching runs of ${searchedRuns} searched, newest first`
+        return toolJson({
+          hits,
+          searchedRuns,
+          skipped,
+          note: skipped.length > 0 ? `${note}; skipped oversized journals: ${skipped.join(', ')}` : note
+        })
+      } catch (error) {
+        return toolError({ error: 'search_failed', message: errorMessage(error) })
+      }
+    }
+  )
   } // end root-only surface
 
   server.registerTool(
@@ -927,7 +1226,8 @@ export function registerOrchestratorTools(
       description:
         'The plain-text tail of an agent terminal. Use it after an agent_exited event with ' +
         'confirmed: false, and for debugging a stuck CLI. Do not use it to verify file changes — ' +
-        'that is inspect_agent.',
+        'that is inspect_agent. full: true writes the complete buffer to a file and returns ' +
+        'preview + path — read or grep that path instead of asking for more lines.',
       inputSchema: {
         agentId: z.string().min(1),
         lines: z
@@ -936,14 +1236,28 @@ export function registerOrchestratorTools(
           .min(1)
           .max(READ_OUTPUT_MAX_LINES)
           .optional()
-          .describe(`Lines from the end, default ${READ_OUTPUT_DEFAULT_LINES}, max ${READ_OUTPUT_MAX_LINES}`)
+          .describe(`Lines from the end, default ${READ_OUTPUT_DEFAULT_LINES}, max ${READ_OUTPUT_MAX_LINES}`),
+        full: z
+          .boolean()
+          .optional()
+          .describe(
+            'Read the WHOLE buffer instead of a tail: the full text is written to a file and ' +
+              'this call returns a head/tail preview plus the absolute path'
+          )
       }
     },
-    async ({ agentId, lines }): Promise<ToolText> => {
+    async ({ agentId, lines, full }): Promise<ToolText> => {
       const fenced = outOfScope(agentId)
       if (fenced) return fenced
-      const count = Math.min(lines ?? READ_OUTPUT_DEFAULT_LINES, READ_OUTPUT_MAX_LINES)
       try {
+        // S1: the full read never inlines an unbounded buffer — it spills and
+        // the model follows the returned path for anything past the preview.
+        if (full) {
+          const output = await ctx.host.readOutputFull(agentId)
+          if (output.trim().length === 0) return toolText('(no output captured yet)')
+          return await withSpill(`read-output-${agentId}`, output)
+        }
+        const count = Math.min(lines ?? READ_OUTPUT_DEFAULT_LINES, READ_OUTPUT_MAX_LINES)
         const output = await ctx.host.readOutput(agentId, count)
         return toolText(output.trim().length > 0 ? output : '(no output captured yet)')
       } catch (error) {
@@ -988,6 +1302,32 @@ export function registerOrchestratorTools(
       if (fenced) return fenced
       try {
         const result = await ctx.host.inspectAgent(agentId, { view, path, lines })
+        // S1: only diff and file can grow without bound — status and log are
+        // small by construction and keep their exact shape. An oversized body
+        // spills; the compact result keeps the toolJson format via spillPath.
+        if (view === 'diff' || view === 'file') {
+          const outcome = await spillOversized(`inspect-${view}-${agentId}`, result.body)
+          if (outcome.kind === 'spilled') {
+            return toolJson({
+              agentId,
+              view,
+              truncated: true,
+              spillPath: outcome.path,
+              head: outcome.head,
+              tail: outcome.tail
+            })
+          }
+          if (outcome.kind === 'failed') {
+            return toolJson({
+              agentId,
+              view,
+              truncated: true,
+              head: outcome.head,
+              tail: outcome.tail,
+              note: SPILL_FAILED_NOTE
+            })
+          }
+        }
         return toolJson({ agentId, ...result })
       } catch (error) {
         return toolError({ error: 'inspect_failed', agentId, message: errorMessage(error) })
@@ -1045,9 +1385,15 @@ export function registerOrchestratorTools(
         return toolError({ error: 'integrate_failed', agentId, branch, message: errorMessage(error) })
       }
       const queue = queueForAgent(runtime, agentId)
+      // Both integrate events are quiet: the tool result below carries the
+      // same data synchronously — the events exist for journal/panel/retro,
+      // not to wake the caller with an echo of its own merge.
       if (outcome.ok) {
         if (!queue.isClosed) {
-          queue.push({ type: 'integrate_ok', ...identityFields, branch, headSha: outcome.headSha })
+          queue.push(
+            { type: 'integrate_ok', ...identityFields, branch, headSha: outcome.headSha },
+            { quiet: true }
+          )
         }
         return toolJson({
           ok: true,
@@ -1058,13 +1404,16 @@ export function registerOrchestratorTools(
         })
       }
       if (!queue.isClosed) {
-        queue.push({
-          type: 'integrate_conflict',
-          ...identityFields,
-          branch,
-          conflictFiles: outcome.conflictFiles,
-          message: outcome.message.slice(0, 2_000)
-        })
+        queue.push(
+          {
+            type: 'integrate_conflict',
+            ...identityFields,
+            branch,
+            conflictFiles: outcome.conflictFiles,
+            message: outcome.message.slice(0, 2_000)
+          },
+          { quiet: true }
+        )
       }
       return toolError({
         error: 'integrate_conflict',
@@ -1075,6 +1424,132 @@ export function registerOrchestratorTools(
         note: 'The merge was aborted — the worktree is clean. Task an agent with resolving the conflict (give it both branches), or restructure the work.',
         ...(gateWarning ? { warning: gateWarning } : {})
       })
+    }
+  )
+
+  // S4: the task board — the shared plan of root and leads, host state that
+  // survives succession and resume. Three tools, no task_get (task_list is
+  // small enough). delete/reassign are root-only; owners are fenced like
+  // agents (a lead assigns only into its own subtree).
+  server.registerTool(
+    'task_create',
+    {
+      description:
+        'Create a task on the shared task board — your plan as host state: it survives orchestrator ' +
+        'succession and resume, unlike your own context. One task per unit of work you will hand to ' +
+        'an agent. blockedBy lists taskIds that must be completed first (acyclic). Returns the taskId ' +
+        'and its revision — pass that revision to task_update (it moves on every change).',
+      inputSchema: {
+        subject: z.string().min(1).max(200).describe('One line: what this task delivers'),
+        description: z
+          .string()
+          .max(2_000)
+          .optional()
+          .describe('The full assignment — start_agent{taskId} seeds it to the claiming agent'),
+        blockedBy: z
+          .array(z.string().regex(/^task-\d+$/))
+          .max(20)
+          .optional()
+          .describe('taskIds that must be completed before this one is ready'),
+        ownerAgentId: z
+          .string()
+          .min(1)
+          .optional()
+          .describe('Assign immediately to a running agent (the task starts in_progress)')
+      }
+    },
+    async ({ subject, description, blockedBy, ownerAgentId }): Promise<ToolText> => {
+      const blocked = successionGate()
+      if (blocked) return blocked
+      const board = runtime.taskBoard
+      if (!board) return boardUnavailable()
+      if (ownerAgentId) {
+        const fenced = ownerOutOfScope(ownerAgentId)
+        if (fenced) return fenced
+      }
+      const created = board.create({ subject, description, blockedBy, ownerAgentId })
+      if (!created.ok) return taskFailure(created)
+      return toolJson({ taskId: created.task.taskId, revision: created.task.revision })
+    }
+  )
+
+  server.registerTool(
+    'task_update',
+    {
+      description:
+        'Mutate one board task with compare-and-swap: pass the revision you last saw; if the task ' +
+        'changed since, you get stale_revision WITH the current task — reconcile and retry. Actions: ' +
+        'claim (owner + in_progress; needs ownerAgentId), release (back to pending, owner-free), edit ' +
+        '(subject/description), set_dependencies (blockedBy, acyclic), complete (ONLY after you ' +
+        'verified the work — never on the agent’s word alone), reopen (completed back to pending), ' +
+        'delete (tombstone, root-only), reassign (new owner, root-only). Returns the new task snapshot.',
+      inputSchema: {
+        taskId: z.string().regex(/^task-\d+$/),
+        expectedRevision: z
+          .number()
+          .int()
+          .positive()
+          .describe('The revision you last saw for this task'),
+        action: z.enum(TASK_ACTIONS),
+        subject: z.string().min(1).max(200).optional().describe('For action "edit"'),
+        description: z.string().max(2_000).optional().describe('For action "edit"'),
+        blockedBy: z
+          .array(z.string().regex(/^task-\d+$/))
+          .max(20)
+          .optional()
+          .describe('For action "set_dependencies" — the complete new list'),
+        ownerAgentId: z
+          .string()
+          .min(1)
+          .optional()
+          .describe('For actions "claim" and "reassign"')
+      }
+    },
+    async ({ taskId, expectedRevision, action, subject, description, blockedBy, ownerAgentId }): Promise<ToolText> => {
+      const blocked = successionGate()
+      if (blocked) return blocked
+      const board = runtime.taskBoard
+      if (!board) return boardUnavailable()
+      // The dsh authorization matrix, one step simpler: destructive and
+      // cross-team actions belong to the root alone.
+      if (leadId && (action === 'delete' || action === 'reassign')) {
+        return toolError({
+          error: 'root_only_action',
+          action,
+          note: 'delete and reassign are the root orchestrator’s — report the need upward instead.'
+        })
+      }
+      if (ownerAgentId && (action === 'claim' || action === 'reassign')) {
+        const fenced = ownerOutOfScope(ownerAgentId)
+        if (fenced) return fenced
+      }
+      const updated = board.update(taskId, expectedRevision, action, {
+        subject,
+        description,
+        blockedBy,
+        ownerAgentId
+      })
+      if (!updated.ok) return taskFailure(updated)
+      return toolJson({ task: updated.task, ready: board.isReady(taskId) })
+    }
+  )
+
+  server.registerTool(
+    'task_list',
+    {
+      description:
+        'The shared task board — your plan as compact rows; it survives succession and resume. ' +
+        'ready: true means pending with every blockedBy completed (deleted dependencies are ignored). ' +
+        'Filter by status to see only pending, in_progress, completed or deleted tasks.',
+      inputSchema: {
+        status: z.enum(TASK_STATUSES).optional().describe('Only tasks with this status')
+      }
+    },
+    async ({ status }): Promise<ToolText> => {
+      const board = runtime.taskBoard
+      if (!board) return boardUnavailable()
+      const tasks = board.list(status ? { status } : undefined)
+      return toolJson({ tasks: tasks.map((task) => taskRow(board, task)) })
     }
   )
 

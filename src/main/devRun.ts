@@ -27,6 +27,7 @@ import {
   settings
 } from './store/settings'
 import { createRunJournal } from './workspace/journal'
+import { createTaskBoard } from './workspace/taskBoard'
 import { createRetroSink } from './workspace/retroSink'
 import { createWorkspaceManager, type WorkspaceManager } from './workspace/WorkspaceManager'
 import type { Workspace } from './workspace/Workspace'
@@ -91,7 +92,9 @@ export function createAppWorkspaceManager(mcp: McpServerHandle): WorkspaceManage
     // the accumulated knowledge returns via the next orchestrator prompt.
     retro: createRetroSink({ store: settings() }),
     // E3: the durable per-run event journal in the repository's .vertragus/.
-    journal: (repoPath, workspaceId) => createRunJournal(repoPath, workspaceId)
+    journal: (repoPath, workspaceId) => createRunJournal(repoPath, workspaceId),
+    // S4: the task board next to it — the run's plan as host state.
+    taskBoard: (repoPath, workspaceId) => createTaskBoard(repoPath, workspaceId)
   })
 }
 

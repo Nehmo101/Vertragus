@@ -48,16 +48,18 @@ second path:
 
 | Tool | What it does |
 | --- | --- |
-| `start_agent{role, task, model?, providerId?, slotId?, baseBranch?}` | Start a subagent in its own worktree. Explicit provider/slot choice fails hard instead of silently falling back; `baseBranch` chains onto another agent's result. |
+| `start_agent{role, task, model?, providerId?, slotId?, baseBranch?, resultSchema?, taskId?}` | Start a subagent in its own worktree. Explicit provider/slot choice fails hard instead of silently falling back; `baseBranch` chains onto another agent's result; `resultSchema` makes the agent's final report a validated JSON object; `taskId` claims a board task and seeds its subject into the assignment. |
 | `send_to_agent{agentId, text, questionId?}` | Answer an agent's question or give a follow-up instruction. |
 | `await_events{cursor, timeoutSec?}` | The main loop: block until something happens. True long-poll, no busy polling. |
-| `list_agents` / `read_output` / `inspect_agent` | Snapshot, raw terminal tail, and **read-only git facts** (status/diff/log/file) from an agent's worktree — verification is host truth, not the agent's word. |
+| `list_agents` / `read_output` / `inspect_agent` | Snapshot, raw terminal tail, and **read-only git facts** (status/diff/log/file) from an agent's worktree — verification is host truth, not the agent's word. Oversized output spills to a file (preview + path) instead of being truncated. |
 | `stop_agent` | End an agent; files, branch and worktree stay. |
 | `integrate_branch{agentId, branch}` | The one sanctioned merge path: a **host-side** merge into the target agent's worktree. Conflicts abort cleanly and are reported (`integrate_conflict`); a gate warning flags integrating unverified work. |
 | `ask_user{question, ticket?}` | Ask the human and block for the answer (panel badge and phone); ticket-resume survives the MCP request timeout. |
 | `start_orchestrator{area, task, …}` | Start a **lead** (see below). |
 | `record_retro{summary, learnings, repoNotes?}` | The run retrospective, once at the end. |
 | `request_succession{reason, …}` | Replace a context-full root with a successor that keeps the same team, queue and open questions. |
+| `task_create` / `task_update` / `task_list` | The shared **task board**: host state with CAS revisions, `blockedBy` dependencies and ownership. It survives succession and resume — the plan lives on the host, not in the model context. |
+| `search_runs{query, maxResults?}` | Full-text search over this repository's past run journals — the root's institutional memory. |
 
 Subagents report back with `report_done` / `ask_orchestrator` /
 `report_progress`. Every task carries a **contract** appended by the MCP

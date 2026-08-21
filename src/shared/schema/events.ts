@@ -37,6 +37,25 @@ export const AGENT_DONE_STATUSES = ['success', 'blocked', 'failed'] as const
 export const agentDoneStatusSchema = z.enum(AGENT_DONE_STATUSES)
 export type AgentDoneStatus = (typeof AGENT_DONE_STATUSES)[number]
 
+/** Any JSON value — what a structured `agent_done.result` may carry. */
+export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
+
+/**
+ * S3: recursive schema for {@link JsonValue}. The event layer only guards
+ * "this is JSON" — the SHAPE was already enforced by `report_done` against the
+ * `start_agent{resultSchema}` before the event was pushed.
+ */
+export const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
+  z.union([
+    z.string(),
+    z.number(),
+    z.boolean(),
+    z.null(),
+    z.array(jsonValueSchema),
+    z.record(jsonValueSchema)
+  ])
+)
+
 /** Identity fields every event repeats so a reader never needs a side lookup. */
 const identity = {
   agentId: z.string().min(1),
@@ -72,6 +91,12 @@ const agentDonePayload = z.object({
   ...identity,
   summary: z.string(),
   status: agentDoneStatusSchema,
+  /**
+   * S3: the agent's structured report — validated against the
+   * `start_agent{resultSchema}` (when one was registered) BEFORE the event is
+   * pushed, so a reader can trust the shape without re-validating.
+   */
+  result: jsonValueSchema.optional(),
   /**
    * Host-truth from the agent's worktree at report time. Absent when git
    * failed — the summary still stands; the orchestrator then uses inspect_agent.
@@ -264,7 +289,13 @@ const envelope = {
   /** Strictly increasing per workspace, starting at 1. */
   seq: z.number().int().positive(),
   /** Unix epoch milliseconds. */
-  ts: z.number().int().nonnegative()
+  ts: z.number().int().nonnegative(),
+  /**
+   * S2: true = does not wake a parked `await_events`; rides along with the
+   * next wake. Stamped by the queue for pure echo events whose data the
+   * caller already got synchronously. Optional so old journals stay valid.
+   */
+  quiet: z.literal(true).optional()
 }
 
 export const agentEventSchema = z.discriminatedUnion('type', [

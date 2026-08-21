@@ -24,6 +24,11 @@ import type { PendingQuestions } from './pendingQuestions'
 import type { AgentPolicy } from '@shared/agentPolicy'
 import type { ReportingMode } from '@shared/prompts/contract'
 import type { SuccessionRequest } from '@shared/schema/handoff'
+// Type-only on purpose: the MCP layer stays free of workspace runtime code —
+// the store implementation is injected by the host via the context.
+import type { SpillStore } from '@main/workspace/spill'
+import type { ResultSchema } from '@shared/schema/resultSchema'
+import type { TaskBoard } from '@main/workspace/taskBoard'
 
 /** What `start_agent` hands the host. */
 export interface StartAgentInput {
@@ -210,6 +215,12 @@ export interface AgentHost {
   /** ANSI-stripped tail of the agent's output. */
   readOutput(agentId: string, lines: number): Promise<string>
   /**
+   * S1: the WHOLE retained scrollback, same normalisation and source as
+   * {@link readOutput} but without the line cap. Only `read_output{full:true}`
+   * calls it, and the tool spills the result to a file instead of inlining it.
+   */
+  readOutputFull(agentId: string): Promise<string>
+  /**
    * Read-only git inspection of one agent's own worktree. Refuses agents that
    * are still `starting`. Stopped agents remain inspectable — their worktree
    * survives `stop_agent`.
@@ -340,6 +351,12 @@ export interface WorkspaceMcpContext {
    * instead of failing the workspace — retros are an amenity, never a blocker.
    */
   retro?: WorkspaceRetroPort
+  /**
+   * S1: where oversized tool output spills to disk (preview + path instead of
+   * truncation). Optional like `retro` — absent (old fakes, unit tests) keeps
+   * today's inline behaviour everywhere.
+   */
+  spill?: SpillStore
 }
 
 /** One qualitative insight as the orchestrator hands it in — role-keyed. */
@@ -392,6 +409,13 @@ export interface LeadRuntime {
 export interface WorkspaceRuntime {
   ctx: WorkspaceMcpContext
   questions: PendingQuestions
+  /**
+   * S4: the run's task board — the shared plan of root and leads, persisted
+   * next to the run journal. Installed by the WorkspaceManager after
+   * registration (like the journal, it needs the repository on disk); absent
+   * in old fakes, where the task tools answer `task_board_unavailable`.
+   */
+  taskBoard?: TaskBoard
   /** F: running leads by agentId. Empty in a flat (default) run. */
   leads: Map<string, LeadRuntime>
   /**
@@ -421,6 +445,14 @@ export interface WorkspaceRuntime {
    * exactly the question a hover over a finished agent answers.
    */
   agentTasks: Map<string, string>
+  /**
+   * S3: the vetted `start_agent{resultSchema}` per agent — what `report_done`
+   * validates `result` against before pushing `agent_done`. Entries are
+   * removed on `agent_start_failed` and in `stop_agent`; a follow-up via
+   * `send_to_agent` deliberately KEEPS the schema (v1: one schema per agent
+   * life, documented in the tool).
+   */
+  resultSchemas: Map<string, ResultSchema>
   /**
    * Fires after {@link latestTask} / {@link agentTasks} changed. The
    * WorkspaceManager binds this to its change feed so the panel and the CLI

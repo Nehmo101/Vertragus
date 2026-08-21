@@ -93,8 +93,10 @@ import {
 import { buildSuccessorOrchestratorSystemPrompt } from '@shared/prompts/orchestratorHandoff'
 import {
   buildHandoffPackage,
+  capText,
   compactRecentEvents,
   AGENT_FILES_MAX,
+  AGENT_RESULT_MAX_CHARS,
   AGENT_SUMMARY_MAX_CHARS,
   type OrchestratorHandoffPackage,
   type SuccessionRequest
@@ -119,6 +121,8 @@ import type { ProviderConfig } from '@shared/schema/provider'
 import type { ZoneLayout } from '@shared/schema/zones'
 import type { AgentDoneStatus } from '@shared/schema/events'
 import { SentinelParser, type SentinelReport } from './sentinel'
+import { createSpillStore, type SpillStore } from './spill'
+import type { TaskBoard } from './taskBoard'
 import { terminalTailText } from './terminalText'
 
 /** Agent statuses this host reports. See `mcp/types` TERMINAL_AGENT_STATUSES. */
@@ -384,6 +388,8 @@ export class Workspace implements AgentHost {
   private mcpUrls: WorkspaceMcpUrls | undefined
   /** Open-question registry from MCP registration — needed for sentinel ASK. */
   private questions: PendingQuestions | undefined
+  /** S4: the run's task board (installed by the manager) — for the handoff package. */
+  private taskBoard: TaskBoard | undefined
   /**
    * F: routes an event ABOUT an agent to its parent's queue (a lead's child →
    * the lead queue). Installed by the WorkspaceManager after registration;
@@ -404,6 +410,8 @@ export class Workspace implements AgentHost {
     | undefined
   /** The record_retro summary, held until the manager finalizes the run at stop. */
   pendingRetroSummary: string | undefined
+  /** S1: spill store for oversized tool output; created with the MCP context. */
+  private spillStore: SpillStore | undefined
   /** The user's goal, once it was DELIVERED to the orchestrator (H2). */
   private goal: string | undefined
   /** C5 idle watchdog: when the orchestrator last called one of its tools. */
@@ -558,6 +566,11 @@ export class Workspace implements AgentHost {
     this.eventRouter = router
   }
 
+  /** S4: hand over the run's task board so succession can package the plan. */
+  attachTaskBoard(board: TaskBoard): void {
+    this.taskBoard = board
+  }
+
   /** The queue an event about `agentId` belongs in — its parent's, else root. */
   private queueFor(agentId: string): EventQueue {
     return this.eventRouter?.(agentId) ?? this.events
@@ -616,6 +629,10 @@ export class Workspace implements AgentHost {
   mcpContext(): WorkspaceMcpContext {
     const retro = this.deps.retro
     const awaitTimeout = this.awaitTimeout()
+    // S1: one spill store per workspace, next to the run journal on disk. It
+    // does no I/O until the first save, so creating it here is free; kept on
+    // the instance so re-registration cannot restart the seq counter.
+    this.spillStore ??= createSpillStore(this.repoPath, this.workspaceId)
     return {
       workspaceId: this.workspaceId,
       workspaceName: this.name,
@@ -627,6 +644,7 @@ export class Workspace implements AgentHost {
       limits: this.limits(),
       roles: profileRoleIds(this.profile),
       agentPolicy: this.agentPolicy(),
+      spill: this.spillStore,
       ...(awaitTimeout ? { awaitTimeout } : {}),
       ...(retro
         ? {
@@ -944,6 +962,14 @@ export class Workspace implements AgentHost {
     const record = this.requireAgent(agentId)
     const chars = Math.min(MAX_TAIL_CHARS, Math.max(MIN_TAIL_CHARS, lines * CHARS_PER_LINE))
     return terminalTailText(record.pty.tail(chars), lines)
+  }
+
+  async readOutputFull(agentId: string): Promise<string> {
+    const record = this.requireAgent(agentId)
+    // S1: same source and normalisation as the tail, without the line cap —
+    // the scrollback's own retention (MAX_TAIL_CHARS) is the only bound left.
+    // The MCP layer spills this to a file; it never travels inline.
+    return terminalTailText(record.pty.tail(MAX_TAIL_CHARS), Number.MAX_SAFE_INTEGER)
   }
 
   async inspectAgent(agentId: string, options: InspectAgentOptions): Promise<InspectAgentResult> {
@@ -1407,14 +1433,19 @@ export class Workspace implements AgentHost {
     successorAgentId: string
   ): OrchestratorHandoffPackage {
     const notes = new Map((input.agentNotes ?? []).map((entry) => [entry.agentId, entry.note]))
-    const lastDone = new Map<string, { summary: string; headSha?: string; uncommitted?: boolean; changedFiles?: string[] }>()
+    const lastDone = new Map<string, { summary: string; headSha?: string; uncommitted?: boolean; changedFiles?: string[]; result?: string }>()
     for (const event of this.events.all()) {
       if (event.type !== 'agent_done') continue
       lastDone.set(event.agentId, {
         summary: event.summary,
         ...(event.headSha ? { headSha: event.headSha } : {}),
         ...(event.uncommitted !== undefined ? { uncommitted: event.uncommitted } : {}),
-        ...(event.changedFiles ? { changedFiles: event.changedFiles.slice(0, AGENT_FILES_MAX) } : {})
+        ...(event.changedFiles ? { changedFiles: event.changedFiles.slice(0, AGENT_FILES_MAX) } : {}),
+        // S3: the validated structured report survives the handoff, capped —
+        // the successor sees facts, not only the prose summary.
+        ...(event.result !== undefined
+          ? { result: capText(JSON.stringify(event.result), AGENT_RESULT_MAX_CHARS).value }
+          : {})
       })
     }
 
@@ -1435,6 +1466,7 @@ export class Workspace implements AgentHost {
         ...(done?.summary
           ? { lastSummary: done.summary.slice(0, AGENT_SUMMARY_MAX_CHARS) }
           : {}),
+        ...(done?.result ? { lastResult: done.result } : {}),
         ...(done?.changedFiles ? { changedFiles: done.changedFiles } : {}),
         ...(orchNote ? { orchNote } : {}),
         ...(open
@@ -1448,6 +1480,19 @@ export class Workspace implements AgentHost {
       agentId: question.agentId,
       question: question.question
     }))
+
+    // S4: the plan rides along — tombstones excluded (a successor's task_list
+    // can still show them; the seed should carry the living plan only).
+    const tasks = (this.taskBoard?.snapshot().tasks ?? [])
+      .filter((task) => task.status !== 'deleted')
+      .map((task) => ({
+        taskId: task.taskId,
+        revision: task.revision,
+        subject: task.subject,
+        status: task.status,
+        ...(task.ownerAgentId ? { ownerAgentId: task.ownerAgentId } : {}),
+        blockedBy: task.blockedBy
+      }))
 
     // The incumbent's self-report wins, but a context-starved orchestrator
     // often omits the goal entirely — the host delivered it ({@link assignGoal})
@@ -1478,6 +1523,7 @@ export class Workspace implements AgentHost {
       eventCursor: this.events.cursor,
       agents,
       openQuestions,
+      tasks,
       recentEvents: compactRecentEvents(this.events.all()),
       goal,
       decisions: input.decisions,
@@ -1881,14 +1927,19 @@ export class Workspace implements AgentHost {
         void this.emitAgentDone(record, report.summary, report.status)
         return
       case 'progress':
-        queue.push({ type: 'agent_progress', ...identity, note: report.note })
+        // Quiet like MCP report_progress: a milestone note never needs a
+        // reaction, so it must not cost the orchestrator a wake-up turn.
+        queue.push({ type: 'agent_progress', ...identity, note: report.note }, { quiet: true })
         return
       case 'unparseable':
-        queue.push({
-          type: 'agent_progress',
-          ...identity,
-          note: `unparseable sentinel line (${report.reason})`
-        })
+        queue.push(
+          {
+            type: 'agent_progress',
+            ...identity,
+            note: `unparseable sentinel line (${report.reason})`
+          },
+          { quiet: true }
+        )
         return
       case 'ask': {
         if (!this.questions) {

@@ -662,6 +662,67 @@ Umsetzung, wenn der Root-Kontext voll läuft. A/B sind das Fundament.
 
 ---
 
+## Phase G — dsh-Adoption (S1–S5): umgesetzt
+
+Fünf Muster aus dem DeepSeek-Harness-Research
+([`RESEARCH-DEEPSEEK-HARNESS.md`](RESEARCH-DEEPSEEK-HARNESS.md), Plan in
+[`PLAN-DSH-ADOPTION.md`](PLAN-DSH-ADOPTION.md)), alle gelandet:
+
+### G1 Spill statt Truncation — **umgesetzt**
+
+`spill.ts` (fail-soft wie das Journal) legt Übergrößen verbatim unter
+`.vertragus/runs/<ws>/spill/` ab; `read_output{full}` und
+`inspect_agent`-`diff`/`file` liefern Head/Tail-Preview + Pfad statt
+stiller Kappung. Save-Fehler degradieren zum Inline-Tail mit Note, nie
+zum Tool-Error. Schwellen: 6 000 / 2 000 / 1 000 Zeichen.
+
+### G2 Quiet-Events — **umgesetzt**
+
+`quiet`-Flag im Event-Envelope; die Queue weckt Waiter nur bei
+Nicht-Quiet-Events, Quiet-Events reisen beim nächsten Wake **oder
+Timeout** mit (Cursor rückt vor; Listener — Journal, Panel, Retro —
+sehen weiter alles sofort). Quiet sind die Echos eigener Tool-Calls
+(`integrate_ok`/`integrate_conflict`, `agent_stopped`, `user_question`)
+und `agent_progress` (MCP wie Sentinel). `report_progress` heißt jetzt
+ehrlich: „sichtbar beim nächsten Aufwachen“. Der Idle-Hint und die
+Sentinel-ASK-Wiring-Warnung wecken weiterhin — beide verlangen Reaktion.
+
+### G3 Strukturierte Reports (`resultSchema`) — **umgesetzt**
+
+`start_agent{resultSchema}` (Subset-Validator in
+`shared/schema/resultSchema.ts`, kein ajv; fail-loud vor der
+Reservierung; für Sentinel-Rollen abgelehnt, weil deren Done-Pfad nicht
+validieren kann). Ein invalides `result` bei `report_done` geht als
+Fehler **ans Kind** zurück (exakte Pfade, kein `agent_done`-Push) — der
+Retry-Loop läuft beim Kind, der Orchestrator sieht nur Validiertes.
+`agent_done.result` und `handoff.lastResult` tragen das Ergebnis weiter.
+
+### G4 Task-Board mit CAS-Revisionen — **umgesetzt**
+
+`taskBoard.ts`: In-Memory-Wahrheit + atomarer Snapshot
+`.vertragus/runs/<ws>/tasks.json` (tmp+rename, fail-soft).
+`task_create` / `task_update` / `task_list` für Root **und** Leads
+(Owner-Fencing via `inScope`; `delete`/`reassign` Root-only;
+`stale_revision` trägt den aktuellen Task). `start_agent{taskId}` claimt
+mechanisch und seedet Subject/Description; `agent_done` schreibt nur
+`lastReport` — **`complete` bleibt eine explizite
+Orchestrator-Entscheidung nach Verifikation.** Succession trägt das
+Board unkürzbar im Package, Resume setzt Tasks toter Owner auf `pending`
+zurück. Board ≠ Assignment: der Task ist „was zu tun ist“, das
+Assignment „was ich dem Agenten gesagt habe“.
+
+### G5 `search_runs` — **umgesetzt**
+
+Root-only Volltextsuche über die Journale der letzten Läufe (inkl. des
+laufenden): Substring case-insensitive, Excerpts ±120 Zeichen,
+>5-MB-Journale werden benannt übersprungen statt still gelassen. Das
+institutionelle Gedächtnis zum Nachschlagen — ergänzt Retro-Learnings
+(Push), ersetzt sie nicht.
+
+Offen aus dem Plan: Loop-Eval-Szenarien für G3/G4 (Schema-Tester,
+Zwei-Task-Board mit Succession) — Unit-/Integrationstests decken die
+Pfade, das End-to-End-Szenario ist Folgearbeit.
+
 ## Anhang: Code-Anker
 
 | Thema | Wo | Stand |
@@ -673,7 +734,7 @@ Umsetzung, wenn der Root-Kontext voll läuft. A/B sind das Fundament.
 | Gap sichtbar | `eventQueue.ts` `droppedSince` → `await_events.eventsDropped` | **PR #17** |
 | Panel-Push | `WorkspaceDirectory.onChange` | **PR #17** |
 | Quit awaited | `index.ts` `before-quit` | **PR #17** |
-| Elf Orchestrator-Tools + `request_succession` | `toolsOrchestrator.ts` inkl. `inspect_agent` | **C6 S1** |
+| Sechzehn Orchestrator-Tools (inkl. `request_succession`, `search_runs`, `task_*`) | `toolsOrchestrator.ts` inkl. `inspect_agent` | **C6 S1 / G** |
 | Host-Fakten auf `agent_done` | `toolsSubagent.ts` `report_done`, Sentinel in `Workspace.ts` | **PR #17** |
 | MCP-Identität dreifach (Root/Lead/Blatt) | `server.ts` `McpIdentity` inkl. `lead=` + `leadToken` | **Track 5** |
 | Ein Orchestrator pro Workspace | `Workspace.startOrchestrator` wirft bei Zweitem — C6 ersetzt seriell, nestet nicht | **C6 S1** |

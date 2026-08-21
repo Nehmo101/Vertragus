@@ -161,6 +161,11 @@ class SpawningHost implements AgentHost {
     return this.require(agentId).lines.slice(-lines).join('\n')
   }
 
+  /** S1: the whole captured output — the integration fake's "no line cap". */
+  async readOutputFull(agentId: string): Promise<string> {
+    return this.require(agentId).lines.join('\n')
+  }
+
   async inspectAgent(agentId: string, options: InspectAgentOptions): Promise<InspectAgentResult> {
     const record = this.require(agentId)
     if (options.view === 'file' && !options.path?.trim()) {

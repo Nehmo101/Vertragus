@@ -490,7 +490,8 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
       questions: new PendingQuestions(),
       agentTasks: new Map(),
       leads: new Map(),
-      parentOf: new Map()
+      parentOf: new Map(),
+      resultSchemas: new Map()
     }
     // F: a lead that dies (or is stopped) has its children reparented to the
     // root. The tap lives here because the root queue is where both the

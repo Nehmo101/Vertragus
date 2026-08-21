@@ -93,6 +93,33 @@ describe('report_done', () => {
     expect(runtime.host.doneSnapshots).toEqual([{ agentId, summary: 'parser fixed' }])
   })
 
+  it('S4: lands as lastReport on the agent’s board tasks — status untouched', async () => {
+    const { runtime, tools, agentId } = await setup()
+    const board = runtime.taskBoard!
+    board.create({ subject: 'Mine', ownerAgentId: agentId })
+    board.create({ subject: 'Not mine', ownerAgentId: 'someone-else' })
+
+    await callTool(tools, 'report_done', { summary: 'parser fixed', status: 'success' })
+    const mine = board.get('task-1')!
+    expect(mine.lastReport).toMatchObject({ status: 'success', summary: 'parser fixed' })
+    // The C3 snapshot's HEAD rides along as a host fact.
+    expect(mine.lastReport?.headSha).toBeTruthy()
+    // Verification stays the orchestrator's explicit decision — never here.
+    expect(mine.status).toBe('in_progress')
+    expect(board.get('task-2')?.lastReport).toBeUndefined()
+  })
+
+  it('S4: notes the report even when the worktree snapshot fails (no headSha then)', async () => {
+    const runtime = fakeRuntime({ host: new FakeAgentHost({ snapshotError: 'git died' }) })
+    const started = runtime.host.beginAgent({ role: 'worker', task: 't' })
+    const tools = captureTools((server) => registerSubagentTools(server, runtime, started.agentId))
+    runtime.taskBoard!.create({ subject: 'Mine', ownerAgentId: started.agentId })
+
+    await callTool(tools, 'report_done', { summary: 'done anyway' })
+    const task = runtime.taskBoard!.get('task-1')!
+    expect(task.lastReport).toEqual({ status: 'success', summary: 'done anyway' })
+  })
+
   it('still reports done when the worktree snapshot fails', async () => {
     const runtime = fakeRuntime({ host: new FakeAgentHost({ snapshotError: 'git died' }) })
     const started = runtime.host.beginAgent({ role: 'worker', task: 't' })
@@ -109,14 +136,102 @@ describe('report_done', () => {
   })
 })
 
-describe('report_progress', () => {
-  it('pushes agent_progress', async () => {
+describe('report_done — S3 structured results', () => {
+  const schema = {
+    type: 'object' as const,
+    required: ['pass', 'failures'],
+    additionalProperties: false,
+    properties: {
+      pass: { type: 'boolean' as const },
+      failures: { type: 'array' as const, items: { type: 'string' as const } }
+    }
+  }
+
+  it('stays unchanged without a registered schema — no result required, none delivered', async () => {
     const { runtime, tools } = await setup()
+    const result = await callTool(tools, 'report_done', { summary: 'done' })
+    expect(result.json.ok).toBe(true)
+    expect(runtime.events.all().at(-1)).not.toHaveProperty('result')
+  })
+
+  it('without a schema, an offered result is passed through honestly, not dropped', async () => {
+    const { runtime, tools } = await setup()
+    await callTool(tools, 'report_done', { summary: 'done', result: { pass: true } })
+    expect(runtime.events.all().at(-1)).toMatchObject({ result: { pass: true } })
+  })
+
+  it('with a schema, a missing result is an error and NO agent_done is pushed', async () => {
+    const { runtime, tools, agentId } = await setup()
+    runtime.resultSchemas.set(agentId, schema)
+    const result = await callTool(tools, 'report_done', { summary: 'done' })
+    expect(result.isError).toBe(true)
+    expect(result.json.error).toBe('invalid_result')
+    expect((result.json.problems as string[])[0]).toContain('result: missing')
+    expect(String(result.json.note)).toContain('NOT delivered')
+    expect(runtime.events.all().filter((event) => event.type === 'agent_done')).toHaveLength(0)
+  })
+
+  it('with a schema, an invalid result names the wrong paths and pushes nothing', async () => {
+    const { runtime, tools, agentId } = await setup()
+    runtime.resultSchemas.set(agentId, schema)
+    const result = await callTool(tools, 'report_done', {
+      summary: 'done',
+      result: { pass: 'yes', failures: ['a', 2] }
+    })
+    expect(result.isError).toBe(true)
+    expect(result.json.problems).toEqual([
+      'result.pass: expected boolean, got string',
+      'result.failures[1]: expected string, got number'
+    ])
+    expect(runtime.events.all().filter((event) => event.type === 'agent_done')).toHaveLength(0)
+  })
+
+  it('a valid result rides the agent_done event — the retry loop ends at the child', async () => {
+    const { runtime, tools, agentId } = await setup()
+    runtime.resultSchemas.set(agentId, schema)
+    const result = await callTool(tools, 'report_done', {
+      summary: 'tests run',
+      result: { pass: false, failures: ['login flow red'] }
+    })
+    expect(result.isError).toBe(false)
+    expect(runtime.events.all().at(-1)).toMatchObject({
+      type: 'agent_done',
+      summary: 'tests run',
+      result: { pass: false, failures: ['login flow red'] }
+    })
+  })
+
+  it('caps the serialized result size — with and without a schema', async () => {
+    const { runtime, tools, agentId } = await setup()
+    const huge = { pass: true, failures: ['x'.repeat(9_000)] }
+    // No schema: too large is an error, never a silent drop.
+    const bare = await callTool(tools, 'report_done', { summary: 's', result: huge })
+    expect(bare.isError).toBe(true)
+    expect(bare.json.error).toBe('invalid_result')
+    expect(String((bare.json.problems as string[])[0])).toContain('8000')
+    // With a schema the same cap applies on top of validation.
+    runtime.resultSchemas.set(agentId, schema)
+    const typed = await callTool(tools, 'report_done', { summary: 's', result: huge })
+    expect(typed.isError).toBe(true)
+    expect(runtime.events.all().filter((event) => event.type === 'agent_done')).toHaveLength(0)
+  })
+})
+
+describe('report_progress', () => {
+  it('pushes agent_progress as a quiet event — a milestone note never needs a reaction', async () => {
+    const { runtime, tools } = await setup()
+    // S2: a parked orchestrator loop must sleep through the note and read it
+    // with its next wake instead of spending a model turn on it.
+    const parked = runtime.events.wait(runtime.events.cursor, 5_000)
     await callTool(tools, 'report_progress', { note: 'schema written' })
+    expect(runtime.events.waiterCount).toBe(1)
     expect(runtime.events.all().at(-1)).toMatchObject({
       type: 'agent_progress',
-      note: 'schema written'
+      note: 'schema written',
+      quiet: true
     })
+    runtime.events.close()
+    expect((await parked).map((event) => event.type)).toEqual(['agent_progress'])
   })
 
   it('caps the note length at the schema', async () => {

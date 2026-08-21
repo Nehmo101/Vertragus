@@ -5,6 +5,7 @@
  */
 import { z, type ZodRawShape } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { createTaskBoard, type TaskBoard } from '@main/workspace/taskBoard'
 import { EventQueue } from './eventQueue'
 import { PendingQuestions } from './pendingQuestions'
 import type {
@@ -78,6 +79,11 @@ export interface FakeHostOptions {
   /** Called instead of the default bookkeeping when an agent is started. */
   onStart?: (input: StartAgentInput, agent: AgentSummary) => void
   startError?: string
+  /**
+   * When set, every begun agent's `ready` REJECTS with this message — the
+   * pipeline-failure path (`agent_start_failed`) becomes testable.
+   */
+  readyError?: string
   /** Override {@link AgentHost.reportingMode}; defaults to always `'mcp'`. */
   reportingMode?: (role: string) => AgentSummary['reporting']
   /** When set, {@link FakeAgentHost.snapshotWorktree} throws this message. */
@@ -150,8 +156,11 @@ export class FakeAgentHost implements AgentHost {
       model: input.model,
       worktreePath,
       branch,
-      // The fake has no pipeline — a begun agent is a ready agent.
-      ready: Promise.resolve()
+      // The fake has no pipeline — a begun agent is a ready agent (unless the
+      // test injected a pipeline failure via `readyError`).
+      ready: this.options.readyError
+        ? Promise.reject(new Error(this.options.readyError))
+        : Promise.resolve()
     }
   }
 
@@ -173,13 +182,23 @@ export class FakeAgentHost implements AgentHost {
     return all.slice(Math.max(0, all.length - lines)).join('\n')
   }
 
+  /** S1: the whole canned buffer — the fake's "no line cap". */
+  async readOutputFull(agentId: string): Promise<string> {
+    if (!this.agents.has(agentId)) throw new Error(`Unknown agent ${agentId}`)
+    return this.output.get(agentId) ?? ''
+  }
+
+  /** S1: canned inspect body per agent; absent → the small fake body. */
+  inspectBodies = new Map<string, string>()
+
   async inspectAgent(agentId: string, options: InspectAgentOptions): Promise<InspectAgentResult> {
     const facts = await this.snapshotWorktree(agentId)
     if (options.view === 'file' && !options.path?.trim()) {
       throw new Error('inspect view "file" needs path.')
     }
     const extra = options.path ? ` ${options.path}` : ''
-    return { ...facts, view: options.view, body: `(fake ${options.view}${extra})` }
+    const body = this.inspectBodies.get(agentId) ?? `(fake ${options.view}${extra})`
+    return { ...facts, view: options.view, body }
   }
 
   async snapshotWorktree(agentId: string): Promise<WorktreeFacts> {
@@ -327,6 +346,20 @@ export interface FakeRuntimeOptions {
   awaitTimeout?: { defaultSec: number; maxSec: number }
   host?: FakeAgentHost
   retro?: WorkspaceRetroPort
+  /** S1: injected spill store; absent keeps today's inline behaviour. */
+  spill?: WorkspaceMcpContext['spill']
+  /** S4: override the default in-memory board; `null` = a runtime WITHOUT one. */
+  taskBoard?: TaskBoard | null
+}
+
+/** S4: a task board that never touches disk — persistence is stubbed out. */
+export function memoryTaskBoard(now?: () => number): TaskBoard {
+  return createTaskBoard('/repo', 'ws-test', {
+    mkdir: async () => undefined,
+    writeFile: async () => undefined,
+    rename: async () => undefined,
+    ...(now ? { now } : {})
+  })
 }
 
 /** A workspace runtime wired to a {@link FakeAgentHost}. */
@@ -351,14 +384,18 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): WorkspaceRuntime 
     roles: options.roles ?? ['worker', 'reviewer'],
     askTimeoutMs: options.askTimeoutMs,
     awaitTimeout: options.awaitTimeout,
-    retro: options.retro
+    retro: options.retro,
+    spill: options.spill
   }
+  const taskBoard = options.taskBoard === null ? undefined : options.taskBoard ?? memoryTaskBoard()
   return {
     ctx,
     questions: new PendingQuestions(),
     agentTasks: new Map(),
     leads: new Map(),
     parentOf: new Map(),
+    resultSchemas: new Map(),
+    ...(taskBoard ? { taskBoard } : {}),
     host,
     events
   }

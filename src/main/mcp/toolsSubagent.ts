@@ -11,7 +11,8 @@
  */
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { AGENT_DONE_STATUSES } from '@shared/schema/events'
+import { AGENT_DONE_STATUSES, type JsonValue } from '@shared/schema/events'
+import { RESULT_MAX_CHARS, validateResult } from '@shared/schema/resultSchema'
 import {
   errorMessage,
   queueForAgent,
@@ -73,7 +74,10 @@ export function registerSubagentTools(
     {
       description:
         'Report that your current task is finished. Say what you changed and how you verified it. You ' +
-        'may call this again for every follow-up task you receive.',
+        'may call this again for every follow-up task you receive. If your task specifies a result ' +
+        'schema, you MUST pass a matching result — an invalid one comes back as an error and your ' +
+        'report is not delivered until it validates. Without a schema, result is optional and passed ' +
+        'to the orchestrator as-is (serialized size capped at 8000 characters — larger is an error).',
       inputSchema: {
         summary: z
           .string()
@@ -85,15 +89,48 @@ export function registerSubagentTools(
           .optional()
           .describe(
             'success = done and verified (default), blocked = something outside your control stops you, failed = you tried and it does not work'
+          ),
+        result: z
+          .unknown()
+          .optional()
+          .describe(
+            'Structured result. Required and validated when your task states a result schema; ' +
+              'otherwise optional, delivered as-is when small enough'
           )
       }
     },
-    async ({ summary, status }): Promise<ToolText> => {
+    async ({ summary, status, result }): Promise<ToolText> => {
+      // S3: the schema-vetted structured report. The retry loop runs HERE, at
+      // the child — the parent only ever sees the validated end state, so a
+      // failed validation must push NO event (the summary is "not delivered").
+      const schema = runtime.resultSchemas.get(agentId)
+      const serialized = result === undefined ? undefined : JSON.stringify(result)
+      const problems: string[] = []
+      if (schema) {
+        if (result === undefined) {
+          problems.push('result: missing — your task states a result schema; pass a matching result')
+        } else {
+          problems.push(...validateResult(schema, result))
+        }
+      }
+      if (serialized !== undefined && serialized.length > RESULT_MAX_CHARS) {
+        problems.push(
+          `result: serialized result is ${serialized.length} chars — the cap is ${RESULT_MAX_CHARS}. Report the essentials, not the raw data.`
+        )
+      }
+      if (problems.length > 0) {
+        return toolError({
+          error: 'invalid_result',
+          problems,
+          note: 'Call report_done again with a corrected result. Your summary was NOT delivered yet.'
+        })
+      }
       const payload = {
         type: 'agent_done' as const,
         ...identity(),
         summary,
-        status: status ?? 'success'
+        status: status ?? 'success',
+        ...(result !== undefined ? { result: result as JsonValue } : {})
       }
       // C3: the host snapshots — a dirty worktree is committed onto the
       // agent's branch first, so baseBranch chaining points at the work. A
@@ -102,12 +139,22 @@ export function registerSubagentTools(
       // F: the report lands in the PARENT's queue — a lead's child reports to
       // the lead, not to the root.
       const queue = queueForAgent(runtime, agentId)
+      let headSha: string | undefined
       try {
         const facts = await ctx.host.snapshotDone(agentId, summary)
+        headSha = facts.headSha
         queue.push({ ...payload, ...worktreeEventFields(facts) })
       } catch {
         queue.push(payload)
       }
+      // S4: the same path also lands on the task board — lastReport on every
+      // task this agent owns. Display facts only; the status NEVER moves here
+      // (completing is the orchestrator's explicit decision after verification).
+      runtime.taskBoard?.noteReport(agentId, {
+        status: payload.status,
+        summary,
+        ...(headSha ? { headSha } : {})
+      })
       return toolJson({
         ok: true,
         note: 'The orchestrator has your result. Stay available: it either sends you a follow-up task or stops you. Do not exit on your own.'
@@ -196,15 +243,20 @@ export function registerSubagentTools(
     'report_progress',
     {
       description:
-        'Report a real milestone in one line (not a heartbeat). The orchestrator sees it live; it does ' +
-        'not reply to it.',
+        'Report a real milestone in one line (not a heartbeat). The orchestrator sees it with its ' +
+        'next wake-up; it does not reply to it.',
       inputSchema: {
         note: z.string().min(1).max(PROGRESS_NOTE_MAX).describe('What you just achieved, one line')
       }
     },
     async ({ note }): Promise<ToolText> => {
       try {
-        queueForAgent(runtime, agentId).push({ type: 'agent_progress', ...identity(), note })
+        // Quiet: a milestone note never needs a reaction — it rides along
+        // with the orchestrator's next wake instead of costing it a turn.
+        queueForAgent(runtime, agentId).push(
+          { type: 'agent_progress', ...identity(), note },
+          { quiet: true }
+        )
       } catch (error) {
         return toolError({ error: 'progress_failed', message: errorMessage(error) })
       }

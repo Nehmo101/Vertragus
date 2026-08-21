@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { McpServerHandle, RegisteredWorkspace } from '@main/mcp/server'
 import type { WorkspaceMcpContext } from '@main/mcp/types'
 import { PendingQuestions } from '@main/mcp/pendingQuestions'
+import { memoryTaskBoard } from '@main/mcp/testing'
 import { createWorkspaceManager, type WorkspaceManagerDeps } from './WorkspaceManager'
 import type { WorkspaceDeps, WorkspaceWindows } from './Workspace'
 import {
@@ -23,6 +24,8 @@ class FakeMcp implements McpServerHandle {
   private readonly runtimes = new Map<string, RegisteredWorkspace['runtime']>()
   /** Last questions registry minted at registerWorkspace — for attachQuestions checks. */
   lastQuestions: PendingQuestions | undefined
+  /** Last runtime minted at registerWorkspace — for taskBoard wiring checks (S4). */
+  lastRuntime: RegisteredWorkspace['runtime'] | undefined
 
   constructor(private readonly log: string[] = []) {}
 
@@ -34,10 +37,12 @@ class FakeMcp implements McpServerHandle {
       questions: new PendingQuestions(),
       agentTasks: new Map<string, string>(),
       leads: new Map(),
-      parentOf: new Map()
+      parentOf: new Map(),
+      resultSchemas: new Map()
     } as RegisteredWorkspace['runtime']
     this.runtimes.set(ctx.workspaceId, runtime)
     this.lastQuestions = runtime.questions
+    this.lastRuntime = runtime
     return {
       runtime,
       orchestratorUrl: `http://127.0.0.1:${this.port}/mcp?ws=${ctx.workspaceId}&token=${ctx.orchToken}`,
@@ -196,6 +201,42 @@ describe('startWorkspace', () => {
     const prompt = spawns[0]!.input.systemPrompt!
     expect(prompt).toContain('--- resumed run ---')
     expect(prompt).toContain('branch vertragus/a1')
+  })
+
+  it('S4: installs the task board on the MCP runtime and seeds it on resume', async () => {
+    const board = memoryTaskBoard()
+    const factory = vi.fn(() => board)
+    const { manager, mcp } = harness({ taskBoard: factory })
+
+    const running = await manager.startWorkspace(testProfile(), {
+      resume: {
+        briefing: 'old run',
+        fromWorkspaceId: 'ws-old',
+        tasks: {
+          schemaVersion: 1,
+          nextTaskNumber: 3,
+          tasks: [
+            {
+              taskId: 'task-2',
+              revision: 4,
+              subject: 'Carry me over',
+              description: '',
+              status: 'pending',
+              blockedBy: [],
+              createdAt: 1,
+              updatedAt: 1
+            }
+          ]
+        }
+      }
+    })
+
+    expect(factory).toHaveBeenCalledWith(testProfile().repoPath, running.workspace.workspaceId)
+    // The MCP tool layer reads the board off the runtime — it must be there.
+    expect(mcp.lastRuntime?.taskBoard).toBe(board)
+    expect(board.get('task-2')).toMatchObject({ subject: 'Carry me over', revision: 4 })
+    // New ids continue after the seeded numbering — no collisions.
+    expect(board.create({ subject: 'fresh' })).toMatchObject({ ok: true, task: { taskId: 'task-3' } })
   })
 
   it('registers with the MCP server BEFORE the orchestrator is spawned', async () => {
