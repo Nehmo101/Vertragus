@@ -24,15 +24,18 @@ Windhund. Agenten sind nach der Göttlichen Komödie benannt — Orchestratoren
 bekommen Führer (Virgilio, Beatrice, …), Subagenten die Figuren (Caronte,
 Ulisse, …), Workspaces die Orte (Paradiso, Inferno, …).
 
-> **Status: früher Neuaufbau.** Dieses Repository ist ein Neustart von
-> [Vertragus-Archiv](https://github.com/Nehmo101/Vertragus-Archiv) von Grund
-> auf, mit radikal kleinerem Kern. Nichts hier ist schon release-reif.
+> **Status: erster stabiler Meilenstein.** Vertragus funktioniert und ist
+> gründlich getestet — rund 1900 Tests, ein Coverage-Ratchet und ein echter
+> Electron-Boot-Check auf Windows, macOS und Linux. Es ist auch jung:
+> Downloads sind bewusst unsigniert, Releases enthalten keinen macOS-Build,
+> und Agenten laufen nicht in einer Sandbox. Diese Grenzen stehen dort, wo
+> sie zählen — nicht im Kleingedruckten.
 
 Das Handbuch [`docs/HANDBOOK-HARNESS.md`](docs/HANDBOOK-HARNESS.md)
 ist die code-verankerte Karte des Harness-Kerns; serielle Root-Succession
 (frischer Kontext, gleiches Team) ist in
 [`docs/ORCHESTRATOR-SUCCESSION.md`](docs/ORCHESTRATOR-SUCCESSION.md)
-beschrieben und in ihrer ersten Stufe umgesetzt.
+beschrieben.
 
 ## Wie ein Lauf funktioniert
 
@@ -233,6 +236,69 @@ aktualisieren kann, schlechter ist als keiner — bau ihn lokal mit
 `pnpm run build:mac`. Die Signier-Maschinerie ist implementiert und schläft,
 das hier ist also ein Secret weit von einer Änderung entfernt. Details und
 die Prüf-Anleitung: [`docs/SIGNING.md`](docs/SIGNING.md).
+
+## Installation
+
+Lade den Installer für dein System von der
+[Releases-Seite](https://github.com/Nehmo101/Vertragus/releases):
+`Vertragus-<version>-setup.exe` unter Windows, `.AppImage` oder `.deb` unter
+Linux. Windows SmartScreen unterbricht den ersten Start — klicke **Weitere
+Informationen → Trotzdem ausführen**; Downloads sind bewusst unsigniert, und
+[`docs/SIGNING.md`](docs/SIGNING.md) erklärt warum und wie du eine Datei
+gegen die Hashes prüfst, die auch der Auto-Updater prüft.
+
+**Es gibt keinen macOS-Download.** Squirrel.Mac verweigert unsignierte
+Updates, ein Mac-Release würde sich also einmal installieren und danach nie
+wieder aktualisieren; nichts auszuliefern ist die ehrlichere Option. Unter
+macOS baust du aus einem Checkout (siehe Entwicklung unten) — es funktioniert
+alles, nur der fertige Download fehlt.
+
+Updates kommen von selbst. Die Einstellungen bieten zwei Kanäle: **stable**
+folgt getaggten Releases, **main** jedem grünen Build des Hauptbranches.
+
+## Vor dem ersten Lauf
+
+Vertragus fährt Agenten-CLIs — es liefert sie nicht mit und ersetzt sie
+nicht. Installiere mindestens eine selbst und melde dich in deinem eigenen
+Terminal an:
+
+| CLI | Installation | Anmelden |
+| --- | --- | --- |
+| Claude Code | `npm i -g @anthropic-ai/claude-code` | `claude auth login` |
+| Codex | `npm i -g @openai/codex` | `codex login` |
+| Kimi, Cursor, Grok Build, Ollama | siehe die Anleitung des jeweiligen Anbieters | anbieterspezifisch |
+
+Mehr braucht es nicht. Vertragus speichert keine eigenen API-Schlüssel und
+meldet sich nie für dich an: Die CLI, der du ohnehin vertraust, behält ihre
+eigene Session.
+
+## Der erste Lauf
+
+Das Panel öffnet sich mit einer **Erste-Schritte-Karte**, die die vier Dinge
+durchgeht, die ein erster Lauf braucht — in der Reihenfolge, in der er
+tatsächlich scheitert:
+
+1. **Welche CLIs gefunden wurden** — ein Punkt je Provider, mit dem Grund,
+   wenn eine nicht startet. Installiere eine und drücke ⟳.
+2. **Login-Status** — für CLIs, die einen anbieten, sonst das exakte Kommando
+   zum Kopieren. Das Anmelden passiert in deinem Terminal; Vertragus zeigt
+   nur den Befehl.
+3. **Das erste Profil** — ein Repository-Pfad und ein Orchestrator. Der Rest
+   kann bleiben, wie er ist.
+4. **▶ drücken** — das Feld daneben trägt das Ziel. Bleibt es leer, wartet
+   der Orchestrator auf Ansage.
+
+Ab dann ist die Workspace-Karte der Lauf: Agenten-Zeilen mit Status, das
+geteilte **Task-Board** (schreibgeschützt — einen Task abzuhaken bleibt die
+Entscheidung des Orchestrators, nachdem er die Arbeit verifiziert hat), ein
+Composer zum Steuern, `?`-Badges für Fragen in beide Richtungen und ein
+Ordner-Knopf, der die Artefakte des Laufs öffnet (`spill/`, `tasks.json`, das
+Event-Journal). Stirbt ein Orchestrator oder verstummt er, übergibt
+**Orchestrator ersetzen** dasselbe Team, dieselbe Queue und dasselbe Board an
+einen Nachfolger mit frischem Kontext.
+
+Was tun, wenn etwas nicht läuft wie erwartet, steht in
+[`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
 
 ## Entwicklung
 

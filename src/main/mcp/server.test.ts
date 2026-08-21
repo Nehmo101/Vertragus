@@ -9,6 +9,7 @@ import {
   isAllowedOrigin,
   leadToken,
   MCP_SERVER_NAME,
+  MCP_SERVER_VERSION,
   resolveIdentity,
   startMcpServer,
   subagentToken,
@@ -328,6 +329,13 @@ describe('startMcpServer', () => {
     const client = await connect(registered.orchestratorUrl)
     expect(client.getServerVersion()?.name).toBe(MCP_SERVER_NAME)
     await client.close()
+  })
+
+  it('announces a parseable semver as its tool-contract version', () => {
+    // Goes out over the wire in the handshake, where a client may compare it.
+    // It is the TOOL CONTRACT's version, not the app's (see the constant's
+    // doc comment) — this only pins that it stays a legible semver.
+    expect(MCP_SERVER_VERSION).toMatch(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/)
   })
 
   it('403s a request whose Host is not loopback — before identity even runs', async () => {

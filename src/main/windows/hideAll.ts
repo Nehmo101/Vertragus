@@ -236,9 +236,11 @@ export function registerAppHideAllShortcut(): HideAllHotkeyStatus {
     status = {
       hotkey,
       registered: false,
-      // Store unreadable → locale unreadable too; the German default matches
-      // the schema default.
-      error: `Einstellungen nicht lesbar: ${error instanceof Error ? error.message : String(error)}`
+      // Store unreadable → locale unreadable too, so `mainMessages(undefined)`
+      // renders the schema-default language on purpose.
+      error: mainMessages(undefined).settingsUnreadable(
+        error instanceof Error ? error.message : String(error)
+      )
     }
     return status
   }

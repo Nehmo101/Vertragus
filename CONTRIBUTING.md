@@ -54,6 +54,30 @@ headless dev workspace on a real repository.
   (`src/remoteClient/i18n.ts`), which follows the `hello.locale` the
   gateway sends. Add every new string to both locales of the right layer.
 
+## Versioning and releases
+
+Vertragus ships two update channels from one repository: every green build of
+`main` becomes a prerelease on the `main` channel, and a pushed `vX.Y.0` tag
+becomes a normal release on `latest`. An installation follows exactly one of
+them (`applyChannel` in `src/main/updater.ts`), so they never see each other's
+builds.
+
+The `version` in `package.json` is a **patch base**, not a count: the release
+workflow ADDS the run number to the patch, so a committed `1.1.0` produces
+main builds `1.1.<run>-main.<attempt>.g<sha>`. Two rules follow, and
+`scripts/release-version.mjs` enforces the first of them on every pushed tag:
+
+- Committed versions are always `X.Y.0`; releases are tagged `vX.Y.0`, and the
+  tag must equal the `package.json` version, because the artifacts and
+  `latest.yml` are named from `package.json`, not from the tag.
+- Right after a release, main is bumped to `X.(Y+1).0`. Its prereleases then
+  sort above the freshly released stable — intended and harmless, because the
+  CHANNEL keeps the audiences apart, not the version order. Do not merge the
+  channels to "fix" the overlap.
+
+The full procedure, step by step and marked human vs. automated, is in
+[`docs/RELEASE-CHECKLIST.md`](docs/RELEASE-CHECKLIST.md).
+
 ## Security
 
 Do not report vulnerabilities in public issues — see

@@ -96,11 +96,11 @@ async function waitForPaint(
       const mounted = await win.webContents.executeJavaScript(PAINTED_PROBE)
       if (typeof mounted === 'number' && mounted > 0) return true
     } catch (error) {
-      log(`[smoke] ${label}: Render-Probe fehlgeschlagen:`, error)
+      log(`[smoke] ${label}: paint probe failed:`, error)
     }
     if (attempt < attempts) await wait(pollMs)
   }
-  log(`[smoke] ${label}: #root blieb leer — der Renderer hat nichts gezeichnet.`)
+  log(`[smoke] ${label}: #root stayed empty — the renderer drew nothing.`)
   return false
 }
 
@@ -144,16 +144,16 @@ export async function captureWindowToFile(
       const image = await win.webContents.capturePage()
       // A capture that "succeeded" with nothing in it is a failed capture; the
       // viz process reports that this way instead of rejecting.
-      if (image.isEmpty()) throw new Error('capturePage lieferte ein leeres Bild.')
+      if (image.isEmpty()) throw new Error('capturePage returned an empty image.')
       await writeFile(target, image.toPNG())
       return true
     } catch (error) {
       lastError = error
-      log(`[smoke] ${label}: Aufnahme ${attempt}/${attempts} fehlgeschlagen:`, error)
+      log(`[smoke] ${label}: capture ${attempt}/${attempts} failed:`, error)
       if (attempt < attempts) await wait(retryMs)
     }
   }
-  log(`[smoke] ${label}: keine Aufnahme nach ${attempts} Versuchen.`, lastError)
+  log(`[smoke] ${label}: no capture after ${attempts} attempts.`, lastError)
   return false
 }
 
