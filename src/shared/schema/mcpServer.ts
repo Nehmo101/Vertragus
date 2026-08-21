@@ -22,9 +22,17 @@ const MAX_MAP_KEY_LENGTH = 200
 const MAX_MAP_VALUE_LENGTH = 2000
 const MAX_MAP_ENTRIES = 32
 
-/** Same alphabet as provider ids: lowercase `[a-z0-9._-]`. */
+/**
+ * Same lowercase / punctuation rules as provider ids, including `.`.
+ * Extra MCP ids that still contain a `.` after this are rejected — Codex
+ * `-c mcp_servers.${id}.*` treats dots as TOML nesting.
+ */
 export function normalizeMcpServerId(id: string): string {
   return normalizeProviderId(id)
+}
+
+function mcpServerIdHasDot(id: string): boolean {
+  return id.includes('.')
 }
 
 const extraMcpMapSchema = z
@@ -35,7 +43,14 @@ const extraMcpMapSchema = z
   .optional()
 
 const extraMcpServerBase = {
-  id: z.string().trim().min(1).max(MAX_ID_LENGTH),
+  id: z
+    .string()
+    .trim()
+    .min(1)
+    .max(MAX_ID_LENGTH)
+    .refine((value) => !mcpServerIdHasDot(value), {
+      message: 'mcp server id cannot contain a dot'
+    }),
   label: z.string().trim().min(1).max(MAX_LABEL_LENGTH),
   enabled: z.boolean().default(true)
 }
@@ -65,7 +80,7 @@ export type ExtraMcpServerInput = z.input<typeof extraMcpServerSchema>
 
 function withNormalizedId(server: ExtraMcpServer): ExtraMcpServer | undefined {
   const id = normalizeMcpServerId(server.id)
-  if (!id || id === RESERVED_MCP_SERVER_ID) return undefined
+  if (!id || id === RESERVED_MCP_SERVER_ID || mcpServerIdHasDot(id)) return undefined
   return { ...server, id }
 }
 
@@ -104,6 +119,7 @@ export function parseExtraMcpServersForWrite(raw: unknown): ExtraMcpServer[] {
     }
     const id = normalizeMcpServerId(parsed.data.id)
     if (!id) throw new Error('mcp server id is empty')
+    if (mcpServerIdHasDot(id)) throw new Error('mcp server id cannot contain a dot')
     if (id === RESERVED_MCP_SERVER_ID) {
       throw new Error(`mcp server id "${RESERVED_MCP_SERVER_ID}" is reserved`)
     }

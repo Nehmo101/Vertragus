@@ -125,6 +125,14 @@ describe('MCP draft helpers', () => {
       expect(blankResult.errors.command).toBeTruthy()
     }
 
+    const dotted = validateMcpDraft(
+      t,
+      { ...emptyMcpDraft(), id: 'github.api', label: 'GitHub', command: 'npx' },
+      []
+    )
+    expect(dotted.ok).toBe(false)
+    if (!dotted.ok) expect(dotted.errors.id).toBeTruthy()
+
     const reserved = validateMcpDraft(
       t,
       { ...emptyMcpDraft(), id: 'vertragus', label: 'X', command: 'npx' },

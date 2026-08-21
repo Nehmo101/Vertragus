@@ -67,6 +67,10 @@ describe('extraMcpServerSchema', () => {
   it('rejects an unknown field (strict)', () => {
     expect(extraMcpServerSchema.safeParse({ ...stdio, extra: true }).success).toBe(false)
   })
+
+  it('rejects a dotted id — Codex would treat it as TOML nesting', () => {
+    expect(extraMcpServerSchema.safeParse({ ...stdio, id: 'github.api' }).success).toBe(false)
+  })
 })
 
 describe('normalizeMcpServerId', () => {
@@ -108,6 +112,10 @@ describe('parseExtraMcpServers', () => {
     const parsed = parseExtraMcpServers([{ ...stdio, id: '  GitHub  ' }])
     expect(parsed[0]!.id).toBe('github')
   })
+
+  it('drops github.api on read', () => {
+    expect(parseExtraMcpServers([{ ...stdio, id: 'github.api' }])).toEqual([])
+  })
 })
 
 describe('parseExtraMcpServersForWrite', () => {
@@ -129,6 +137,7 @@ describe('parseExtraMcpServersForWrite', () => {
     ).toThrow(/reserved/)
     expect(() => parseExtraMcpServersForWrite({ id: 'github' })).toThrow(/array/)
     expect(() => parseExtraMcpServersForWrite([{ id: 'x' }])).toThrow(/invalid/)
+    expect(() => parseExtraMcpServersForWrite([{ ...stdio, id: 'github.api' }])).toThrow()
   })
 })
 

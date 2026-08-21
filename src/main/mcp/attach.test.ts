@@ -672,9 +672,38 @@ describe('extra MCP servers', () => {
           args: ['-y', '@modelcontextprotocol/server-github'],
           env: { GITHUB_PERSONAL_ACCESS_TOKEN: 'secret' }
         },
-        linear: { url: 'https://mcp.linear.app/mcp' }
+        linear: {
+          url: 'https://mcp.linear.app/mcp',
+          headers: { Authorization: 'Bearer x' }
+        }
       }
     })
+  })
+
+  it('writes HTTP headers into Kimi and Cursor project files, not into Codex overrides', () => {
+    const kimiPath = writeKimiProjectMcpConfig(URL, workspaceDir, undefined, [LINEAR])
+    const kimi = JSON.parse(readFileSync(kimiPath, 'utf8')) as {
+      mcpServers: Record<string, unknown>
+    }
+    expect(kimi.mcpServers.linear).toEqual({
+      url: 'https://mcp.linear.app/mcp',
+      headers: { Authorization: 'Bearer x' }
+    })
+    expect(kimi.mcpServers.linear).not.toHaveProperty('type')
+
+    const cursorPath = writeCursorProjectMcpConfig(URL, workspaceDir, [LINEAR])
+    const cursor = JSON.parse(readFileSync(cursorPath, 'utf8')) as {
+      mcpServers: Record<string, unknown>
+    }
+    expect(cursor.mcpServers.linear).toEqual({
+      url: 'https://mcp.linear.app/mcp',
+      headers: { Authorization: 'Bearer x' }
+    })
+    expect(cursor.mcpServers.linear).not.toHaveProperty('type')
+
+    const extras = codexExtraServerOverrides([LINEAR]).join(' ')
+    expect(extras).toContain('mcp_servers.linear.url="https://mcp.linear.app/mcp"')
+    expect(extras).not.toMatch(/header/i)
   })
 
   it('preserves a foreign Cursor server, lets extras win collisions, keeps vertragus last', () => {

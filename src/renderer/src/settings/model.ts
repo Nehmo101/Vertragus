@@ -269,7 +269,7 @@ export function validateMcpDraft(
   const errors: McpDraftErrors = {}
   if (!draft.label.trim()) errors.label = t('settings.errors.mcpLabel')
   const id = normalizeMcpServerId(draft.id)
-  if (!id) errors.id = t('settings.errors.mcpId')
+  if (!id || draft.id.includes('.') || id.includes('.')) errors.id = t('settings.errors.mcpId')
   else if (id === RESERVED_MCP_SERVER_ID) errors.id = t('settings.errors.mcpReserved')
   else {
     const taken = existing.some(

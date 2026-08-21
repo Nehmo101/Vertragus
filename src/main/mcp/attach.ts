@@ -148,11 +148,11 @@ function extraStdioEntry(
 
 function extraHttpEntry(
   server: Extract<ExtraMcpServer, { transport: 'http' }>,
-  options: { type?: boolean; headers?: boolean }
+  withType: boolean
 ): Record<string, unknown> {
   const entry: Record<string, unknown> = { url: server.url }
-  if (options.type) entry.type = 'http'
-  if (options.headers && server.headers && Object.keys(server.headers).length > 0) {
+  if (withType) entry.type = 'http'
+  if (server.headers && Object.keys(server.headers).length > 0) {
     entry.headers = server.headers
   }
   return entry
@@ -162,14 +162,10 @@ function dialectEntry(
   extra: ExtraMcpServer,
   dialect: 'claude' | 'kimi' | 'cursor'
 ): Record<string, unknown> {
-  if (dialect === 'claude') {
-    return extra.transport === 'stdio'
-      ? extraStdioEntry(extra, true)
-      : extraHttpEntry(extra, { type: true, headers: true })
-  }
+  const withType = dialect === 'claude'
   return extra.transport === 'stdio'
-    ? extraStdioEntry(extra, false)
-    : extraHttpEntry(extra, { headers: false })
+    ? extraStdioEntry(extra, withType)
+    : extraHttpEntry(extra, withType)
 }
 
 /** Claude built-ins the orchestrator may use for verification without a prompt. */
@@ -292,6 +288,7 @@ export function claudeMcpTimeoutEnv(
  * `--strict-mcp-config` limits Claude to this file, so this is the only place
  * they can come from.
  */
+
 export function toClaudeMcpConfig(
   url: string,
   extras?: readonly AttachableExtra[]
@@ -329,8 +326,9 @@ export function writeClaudeMcpConfigFile(
 }
 
 /**
- * Claude Code launch arguments: transient MCP config, strict mode (only our
- * server), optional system prompt, optional allowlist.
+ * Claude Code launch arguments: transient MCP config, strict mode (only the
+ * servers in that file — Vertragus plus enabled extras), optional system
+ * prompt, optional allowlist.
  */
 export function buildClaudeMcpArgs(target: McpAttachTarget): string[] {
   const configPath = writeClaudeMcpConfigFile(
