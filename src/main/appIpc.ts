@@ -88,6 +88,7 @@ export const APP_CHANNELS = {
   modelsDiscover: 'models:discover',
   workspacesList: 'workspaces:list',
   workspacesStart: 'workspaces:start',
+  workspacesSendToOrchestrator: 'workspaces:sendToOrchestrator',
   workspacesStop: 'workspaces:stop',
   workspacesFocusAgent: 'workspaces:focusAgent',
   workspacesFocus: 'workspaces:focus',
@@ -198,9 +199,13 @@ export interface WorkspaceDirectory {
    * Play: open a new workspace for this profile. The return value is ignored
    * (and typed loosely) so a manager whose `startWorkspace` resolves with its
    * own runtime object needs no adapter lambda here.
+   * `options.goal` is typed into the orchestrator after spawn; omit it for the
+   * Play-button path.
    */
-  start(profileId: string): void | Promise<unknown>
+  start(profileId: string, options?: { goal?: string }): void | Promise<unknown>
   stop(workspaceId: string): void | Promise<unknown>
+  /** Type a follow-up into the running orchestrator of this workspace. */
+  sendToOrchestrator(workspaceId: string, text: string): void | Promise<unknown>
   /** Bring an agent's CLI window to the front. */
   focusAgent(agentId: string): void
   /**
@@ -226,9 +231,9 @@ export interface WorkspaceDirectory {
 
 /**
  * The directory used until the WorkspaceManager is injected. `list` is empty
- * and `focusAgent` still works (the CLI window registry exists), but `start`
- * and `stop` REFUSE loudly: a Play button that quietly does nothing is the
- * worst possible placeholder.
+ * and `focusAgent` still works (the CLI window registry exists), but `start`,
+ * `stop` and `sendToOrchestrator` REFUSE loudly: a Play button that quietly
+ * does nothing is the worst possible placeholder.
  */
 export function createStubWorkspaceDirectory(): WorkspaceDirectory {
   const refuse = (): never => {
@@ -238,6 +243,7 @@ export function createStubWorkspaceDirectory(): WorkspaceDirectory {
     list: () => [],
     start: refuse,
     stop: refuse,
+    sendToOrchestrator: refuse,
     focusAgent: (agentId) => focusCliWindow(agentId),
     // No manager → no workspace→agent map; quiet no-op like focusAgent on a ghost.
     focusWorkspace() {},
@@ -729,8 +735,25 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     const profileId =
       typeof payload === 'string' ? payload : (payload as { profileId?: string })?.profileId
     if (!profileId) throw new Error('workspaces:start rejected — missing profile id')
-    await host.directory.start(profileId)
+    const goal =
+      payload &&
+      typeof payload === 'object' &&
+      typeof (payload as { goal?: unknown }).goal === 'string'
+        ? (payload as { goal: string }).goal
+        : undefined
+    if (goal !== undefined) await host.directory.start(profileId, { goal })
+    else await host.directory.start(profileId)
     emitWorkspaces()
+  })
+
+  handle(APP_CHANNELS.workspacesSendToOrchestrator, requirePanel, (_event, payload) => {
+    const body = (payload ?? {}) as { workspaceId?: string; text?: string }
+    if (!body.workspaceId) {
+      throw new Error('workspaces:sendToOrchestrator rejected — missing workspace id')
+    }
+    const text = typeof body.text === 'string' ? body.text.trim() : ''
+    if (!text) throw new Error('workspaces:sendToOrchestrator rejected — missing text')
+    return host.directory.sendToOrchestrator(body.workspaceId, text)
   })
 
   handle(APP_CHANNELS.workspacesStop, requirePanel, async (_event, payload) => {
