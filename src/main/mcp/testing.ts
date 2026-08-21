@@ -173,13 +173,23 @@ export class FakeAgentHost implements AgentHost {
     return all.slice(Math.max(0, all.length - lines)).join('\n')
   }
 
+  /** S1: the whole canned buffer — the fake's "no line cap". */
+  async readOutputFull(agentId: string): Promise<string> {
+    if (!this.agents.has(agentId)) throw new Error(`Unknown agent ${agentId}`)
+    return this.output.get(agentId) ?? ''
+  }
+
+  /** S1: canned inspect body per agent; absent → the small fake body. */
+  inspectBodies = new Map<string, string>()
+
   async inspectAgent(agentId: string, options: InspectAgentOptions): Promise<InspectAgentResult> {
     const facts = await this.snapshotWorktree(agentId)
     if (options.view === 'file' && !options.path?.trim()) {
       throw new Error('inspect view "file" needs path.')
     }
     const extra = options.path ? ` ${options.path}` : ''
-    return { ...facts, view: options.view, body: `(fake ${options.view}${extra})` }
+    const body = this.inspectBodies.get(agentId) ?? `(fake ${options.view}${extra})`
+    return { ...facts, view: options.view, body }
   }
 
   async snapshotWorktree(agentId: string): Promise<WorktreeFacts> {
@@ -327,6 +337,8 @@ export interface FakeRuntimeOptions {
   awaitTimeout?: { defaultSec: number; maxSec: number }
   host?: FakeAgentHost
   retro?: WorkspaceRetroPort
+  /** S1: injected spill store; absent keeps today's inline behaviour. */
+  spill?: WorkspaceMcpContext['spill']
 }
 
 /** A workspace runtime wired to a {@link FakeAgentHost}. */
@@ -351,7 +363,8 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): WorkspaceRuntime 
     roles: options.roles ?? ['worker', 'reviewer'],
     askTimeoutMs: options.askTimeoutMs,
     awaitTimeout: options.awaitTimeout,
-    retro: options.retro
+    retro: options.retro,
+    spill: options.spill
   }
   return {
     ctx,

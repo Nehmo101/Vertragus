@@ -84,6 +84,22 @@ export const READ_OUTPUT_MAX_LINES = 400
 export const INSPECT_LOG_MAX_LINES = 50
 
 /**
+ * S1: above this many chars a tool result spills to a file (preview + path
+ * instead of truncation). ~1.5k tokens — big enough that nothing routine
+ * spills, small enough that a full diff or buffer never floods the context.
+ */
+export const SPILL_THRESHOLD_CHARS = 6_000
+export const SPILL_HEAD_CHARS = 2_000
+export const SPILL_TAIL_CHARS = 1_000
+
+/** 41312 → "41_312" — the digit grouping the spill preview banner uses. */
+function groupDigits(value: number): string {
+  return String(value).replace(/\B(?=(\d{3})+$)/g, '_')
+}
+
+const SPILL_FAILED_NOTE = 'full output unavailable (spill failed)'
+
+/**
  * C4: the latest `agent_done` reported on this branch, rendered as a handoff
  * block — or undefined when nothing was reported there (a plain repo branch,
  * or the done fell out of the event ring). Latest wins: after a rework round
@@ -219,6 +235,42 @@ export function registerOrchestratorTools(
       limitSec: budget.limitSec,
       note: 'The workspace runtime budget is spent — no new agents. Verify what exists, stop your agents, and wrap up (record_retro, final summary).'
     })
+  }
+
+  /**
+   * S1: oversized text spills to a file — the model gets head/tail plus the
+   * absolute path to read or grep. A missing store keeps today's inline
+   * behaviour, and a failed save degrades to a truncated inline text with a
+   * note — never a tool error (fail-soft, like the journal).
+   */
+  const spillOversized = async (
+    name: string,
+    text: string
+  ): Promise<
+    | { kind: 'inline' }
+    | { kind: 'spilled'; path: string; head: string; tail: string }
+    | { kind: 'failed'; head: string; tail: string }
+  > => {
+    if (text.length <= SPILL_THRESHOLD_CHARS || !ctx.spill) return { kind: 'inline' }
+    const head = text.slice(0, SPILL_HEAD_CHARS)
+    const tail = text.slice(-SPILL_TAIL_CHARS)
+    const path = await ctx.spill.save(name, text)
+    return path ? { kind: 'spilled', path, head, tail } : { kind: 'failed', head, tail }
+  }
+
+  /** {@link spillOversized} for plain-text tool results (`read_output`). */
+  const withSpill = async (name: string, text: string): Promise<ToolText> => {
+    const outcome = await spillOversized(name, text)
+    if (outcome.kind === 'inline') return toolText(text)
+    if (outcome.kind === 'failed') {
+      return toolText(`${outcome.head}\n…\n${outcome.tail}\nnote: ${SPILL_FAILED_NOTE}`)
+    }
+    return toolText(
+      `[output too large: ${groupDigits(text.length)} chars — full text at\n` +
+        ` ${outcome.path}\n` +
+        ` read or grep that file for the full output]\n` +
+        `${outcome.head}\n…\n${outcome.tail}`
+    )
   }
 
   /** Fence: agent-addressing tools only reach the caller's DIRECT children. */
@@ -990,7 +1042,8 @@ export function registerOrchestratorTools(
       description:
         'The plain-text tail of an agent terminal. Use it after an agent_exited event with ' +
         'confirmed: false, and for debugging a stuck CLI. Do not use it to verify file changes — ' +
-        'that is inspect_agent.',
+        'that is inspect_agent. full: true writes the complete buffer to a file and returns ' +
+        'preview + path — read or grep that path instead of asking for more lines.',
       inputSchema: {
         agentId: z.string().min(1),
         lines: z
@@ -999,14 +1052,28 @@ export function registerOrchestratorTools(
           .min(1)
           .max(READ_OUTPUT_MAX_LINES)
           .optional()
-          .describe(`Lines from the end, default ${READ_OUTPUT_DEFAULT_LINES}, max ${READ_OUTPUT_MAX_LINES}`)
+          .describe(`Lines from the end, default ${READ_OUTPUT_DEFAULT_LINES}, max ${READ_OUTPUT_MAX_LINES}`),
+        full: z
+          .boolean()
+          .optional()
+          .describe(
+            'Read the WHOLE buffer instead of a tail: the full text is written to a file and ' +
+              'this call returns a head/tail preview plus the absolute path'
+          )
       }
     },
-    async ({ agentId, lines }): Promise<ToolText> => {
+    async ({ agentId, lines, full }): Promise<ToolText> => {
       const fenced = outOfScope(agentId)
       if (fenced) return fenced
-      const count = Math.min(lines ?? READ_OUTPUT_DEFAULT_LINES, READ_OUTPUT_MAX_LINES)
       try {
+        // S1: the full read never inlines an unbounded buffer — it spills and
+        // the model follows the returned path for anything past the preview.
+        if (full) {
+          const output = await ctx.host.readOutputFull(agentId)
+          if (output.trim().length === 0) return toolText('(no output captured yet)')
+          return await withSpill(`read-output-${agentId}`, output)
+        }
+        const count = Math.min(lines ?? READ_OUTPUT_DEFAULT_LINES, READ_OUTPUT_MAX_LINES)
         const output = await ctx.host.readOutput(agentId, count)
         return toolText(output.trim().length > 0 ? output : '(no output captured yet)')
       } catch (error) {
@@ -1051,6 +1118,32 @@ export function registerOrchestratorTools(
       if (fenced) return fenced
       try {
         const result = await ctx.host.inspectAgent(agentId, { view, path, lines })
+        // S1: only diff and file can grow without bound — status and log are
+        // small by construction and keep their exact shape. An oversized body
+        // spills; the compact result keeps the toolJson format via spillPath.
+        if (view === 'diff' || view === 'file') {
+          const outcome = await spillOversized(`inspect-${view}-${agentId}`, result.body)
+          if (outcome.kind === 'spilled') {
+            return toolJson({
+              agentId,
+              view,
+              truncated: true,
+              spillPath: outcome.path,
+              head: outcome.head,
+              tail: outcome.tail
+            })
+          }
+          if (outcome.kind === 'failed') {
+            return toolJson({
+              agentId,
+              view,
+              truncated: true,
+              head: outcome.head,
+              tail: outcome.tail,
+              note: SPILL_FAILED_NOTE
+            })
+          }
+        }
         return toolJson({ agentId, ...result })
       } catch (error) {
         return toolError({ error: 'inspect_failed', agentId, message: errorMessage(error) })
