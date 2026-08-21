@@ -164,7 +164,20 @@ describe('authRows', () => {
   })
 
   it('treats a status that has not arrived yet as unknown, never as fine', () => {
-    expect(authRows(t, [entries[0]!], [])[0]?.state).toBe('unknown')
+    expect(authRows(t, [entries[0]!], null)[0]?.state).toBe('unknown')
+  })
+
+  it('tells "still asking" apart from "asks nothing" — both are unknown', () => {
+    // claude declares statusArgs, so "exposes no status command" would be a
+    // lie about it — and it is the row the user reads for the 1-3 s the probe
+    // takes while providers:list is already back off its cache.
+    const probing = authRows(t, [entries[0]!], null)[0]
+    expect(probing?.title).toContain(t('panel.onboardingAuthProbing'))
+    expect(probing?.title).not.toContain(t('panel.onboardingAuthNoProbe'))
+
+    const answered = authRows(t, [entries[0]!], [status('claude', 'unknown')])[0]
+    expect(answered?.title).toContain(t('panel.onboardingAuthNoProbe'))
+    expect(answered?.title).not.toContain(t('panel.onboardingAuthProbing'))
   })
 })
 
@@ -206,6 +219,7 @@ describe('loginCommands', () => {
 describe('onboardingSteps', () => {
   const progress = {
     providersLoaded: true,
+    authLoaded: true,
     foundCount: 0,
     authRows: [] as AuthRow[],
     hasProfile: false
@@ -246,18 +260,49 @@ describe('onboardingSteps', () => {
     ).toEqual(['done', 'done', 'active', 'todo'])
   })
 
-  it('keeps the login step open while one CLI stays unknown', () => {
-    // An unanswerable status is not a signed-in one; the step that shows the
-    // login command has to stay reachable.
-    const unknown: AuthRow = { ...signedIn, id: 'kimi', state: 'unknown', tone: 'unknown' }
+  const unknown: AuthRow = { ...signedIn, id: 'ollama', state: 'unknown', tone: 'unknown' }
+  const loggedOut: AuthRow = { ...signedIn, id: 'cursor', state: 'logged-out', tone: 'warn' }
+
+  it('does not park the checklist on a CLI that can never report a status', () => {
+    // ollama declares loginArgs but no statusArgs, so its row is `unknown`
+    // permanently, not transiently. Gating on `logged-in` would leave step 2
+    // active with nothing to act on and dim the "+ create the first profile"
+    // button behind it for the life of the card.
+    expect(stateOf(onboardingSteps(t, { ...progress, foundCount: 1, authRows: [unknown] }))).toEqual(
+      ['done', 'done', 'active', 'todo']
+    )
     expect(
-      stateOf(onboardingSteps(t, { ...progress, foundCount: 1, authRows: [signedIn, unknown] }))
+      stateOf(onboardingSteps(t, { ...progress, foundCount: 2, authRows: [signedIn, unknown] }))
+    ).toEqual(['done', 'done', 'active', 'todo'])
+  })
+
+  it('still stops at a CLI that is known to be signed out', () => {
+    // The one state that IS a blocker — and the only one loginCommands offers
+    // a command for, so step 2 has something to act on.
+    expect(
+      stateOf(onboardingSteps(t, { ...progress, foundCount: 2, authRows: [unknown, loggedOut] }))
+    ).toEqual(['done', 'active', 'todo', 'todo'])
+  })
+
+  it('waits for the login probe instead of ticking the step off and taking it back', () => {
+    // Every row reads `unknown` while the probe is out. Settling on that would
+    // mark step 2 done and undo it seconds later.
+    expect(
+      stateOf(
+        onboardingSteps(t, {
+          ...progress,
+          authLoaded: false,
+          foundCount: 1,
+          authRows: [unknown]
+        })
+      )
     ).toEqual(['done', 'active', 'todo', 'todo'])
   })
 
   it('never calls the run step done — a first run needs a profile', () => {
     const steps = onboardingSteps(t, {
       providersLoaded: true,
+      authLoaded: true,
       foundCount: 1,
       authRows: [signedIn],
       hasProfile: true

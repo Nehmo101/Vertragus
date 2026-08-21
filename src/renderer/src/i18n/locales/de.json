@@ -106,6 +106,7 @@
     "onboardingAuthIn": "angemeldet",
     "onboardingAuthOut": "nicht angemeldet",
     "onboardingAuthUnknown": "unbekannt",
+    "onboardingAuthProbing": "Wird abgefragt — die CLI antwortet noch nicht.",
     "onboardingAuthNoProbe": "Diese CLI kennt keine Status-Abfrage — Vertragus rät nicht.",
     "onboardingAuthLoading": "Frage die CLIs nach ihrem Anmeldestatus …",
     "onboardingAuthNone": "Noch keine installierte CLI, die gefragt werden könnte.",

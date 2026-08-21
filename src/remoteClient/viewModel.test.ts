@@ -112,29 +112,46 @@ describe('goal line', () => {
   })
 })
 
-const copyForBoard = { goal: (goal: string) => `Ziel: ${goal}`, noGoal: 'Kein Ziel' }
+describe('the task board on the wire', () => {
+  // S4 added `tasks` to the desktop summary and the gateway forwards that
+  // summary verbatim, so the board reaches the phone without a verb of its own.
+  // `RemoteWorkspaceSummary` now DECLARES the field, which is what makes these
+  // assertions mean something: the object below is typed, so a helper that
+  // rebuilt its cards field by field — the natural way to lose the board —
+  // would have to drop a member the shared type names.
+  const withBoard: RemoteWorkspaceSummary = workspace({
+    goalText: 'Fix login',
+    tasks: [
+      { taskId: 'task-1', subject: 'Build the parser', status: 'completed', blockedBy: [], ready: false },
+      {
+        taskId: 'task-2',
+        subject: 'Wire the panel',
+        status: 'pending',
+        ownerAgentId: 'a1',
+        blockedBy: ['task-1'],
+        ready: true
+      }
+    ]
+  })
 
-describe('a summary field this client does not know yet', () => {
-  it('rides along untouched — the phone gets the panel payload, not a copy of it', () => {
-    // S4 added `tasks` to the desktop summary, and the gateway forwards that
-    // summary verbatim over workspaces:list. This client draws no board (a
-    // deliberate post-1.0 call), so the field must simply pass through: no
-    // crash, no dropped card, and everything it does know keeps working.
-    const withBoard = {
-      ...workspace({ goalText: 'Fix login' }),
-      tasks: [
-        {
-          taskId: 'task-1',
-          subject: 'Build the parser',
-          status: 'pending',
-          blockedBy: [],
-          ready: true
-        }
-      ]
-    }
-    expect(orderWorkspaces([withBoard]).map((entry) => entry.workspaceId)).toEqual(['w1'])
+  it('survives the helpers that reshape the list', () => {
+    const [ordered] = orderWorkspaces([workspace({ workspaceId: 'old', active: false }), withBoard])
+    expect(ordered?.tasks?.map((task) => task.taskId)).toEqual(['task-1', 'task-2'])
+    expect(liveWorkspaces([withBoard])[0]?.tasks).toHaveLength(2)
+    expect(liveWorkspaces([withBoard])[0]?.tasks?.[1]).toMatchObject({
+      ownerAgentId: 'a1',
+      blockedBy: ['task-1'],
+      ready: true
+    })
+  })
+
+  it('changes nothing this client already drew', () => {
+    // The client draws no board yet (a deliberate post-1.0 call); carrying the
+    // field must therefore stay invisible in every line it does draw.
     expect(workspaceNeedsAttention(withBoard)).toBe(false)
     expect(agentStatusLine(withBoard.agents[0]!, labels)).toBe('Worker · arbeitet')
-    expect(workspaceGoalLine(withBoard, copyForBoard)).toBe('Ziel: Fix login')
+    expect(
+      workspaceGoalLine(withBoard, { goal: (goal) => `Ziel: ${goal}`, noGoal: 'Kein Ziel' })
+    ).toBe('Ziel: Fix login')
   })
 })

@@ -95,6 +95,26 @@ export interface RemoteAgentSummary {
   pendingQuestionId?: string
 }
 
+/**
+ * S4: one row of the run's task board as it reaches a paired browser. The
+ * gateway forwards the panel's summary verbatim, so the board travels whether
+ * or not a client draws it — declaring it here is what makes that a documented
+ * part of the wire rather than an undeclared field riding along by accident.
+ * Mirrors the panel's `WorkspaceTaskSummary`; the gateway test pins the two
+ * structs together at compile time.
+ */
+export interface RemoteTaskSummary {
+  taskId: string
+  subject: string
+  /** Tombstones never travel — the summary carries the living plan only. */
+  status: 'pending' | 'in_progress' | 'completed'
+  /** Agent id of the owner; resolved to its Commedia name from `agents`. */
+  ownerAgentId?: string
+  blockedBy: string[]
+  /** pending AND every blockedBy completed — the board's own readiness rule. */
+  ready: boolean
+}
+
 export interface RemoteWorkspaceSummary {
   workspaceId: string
   name: string
@@ -109,6 +129,12 @@ export interface RemoteWorkspaceSummary {
   /** D3: the orchestrator's open ask_user question (answer with agentId "user"). */
   userQuestion?: { questionId: string; question: string }
   agents: RemoteAgentSummary[]
+  /**
+   * S4: the run's task board, capped and tombstone-free by the panel. Absent
+   * while the run has no plan. Optional because a run without a plan has no
+   * board, not because a client may drop it in transit.
+   */
+  tasks?: RemoteTaskSummary[]
 }
 
 export interface RemoteProfileSummary {

@@ -68,7 +68,12 @@ export function OnboardingCard({ bridge, onNewProfile, onDismiss }: Props): Reac
     const fail = (cause: unknown): void => {
       if (alive) setError(errorText(cause))
     }
-    bridge.listProviders().then((next) => {
+    // Round 0 is the mount and takes the cached health the picker warmed;
+    // every later round is the ⟳, and that button exists precisely for the
+    // user who just installed a CLI — served from a 30 s cache it would be a
+    // no-op exactly when it is pressed. The auth probe needs no such flag: it
+    // is uncached by design.
+    bridge.listProviders(round > 0 ? { refresh: true } : undefined).then((next) => {
       if (alive) setProviders(next)
     }, fail)
     bridge.listProviderAuth().then((next) => {
@@ -82,10 +87,13 @@ export function OnboardingCard({ bridge, onNewProfile, onDismiss }: Props): Reac
   const entries = providers ?? []
   const clis = providerRows(t, entries)
   const tally = providerTally(entries)
-  const logins = authRows(t, entries, auth ?? [])
+  // `auth` stays null until the probe answers — passed through as such, so a
+  // row that is only waiting is not described as a CLI without a status command.
+  const logins = authRows(t, entries, auth)
   const commands = loginCommands(logins)
   const steps = onboardingSteps(t, {
     providersLoaded: providers !== null,
+    authLoaded: auth !== null,
     foundCount: tally.found,
     authRows: logins,
     hasProfile: false

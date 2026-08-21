@@ -431,7 +431,13 @@ const app = {
   listRoles: (): Promise<RoleTemplate[]> => ipcRenderer.invoke(APP.rolesList),
   saveRole: (template: RoleTemplate): Promise<RoleTemplate[]> =>
     ipcRenderer.invoke(APP.rolesSave, template),
-  listProviders: (): Promise<ProviderListEntry[]> => ipcRenderer.invoke(APP.providersList),
+  /**
+   * The effective providers with their health probe. `refresh` skips the main
+   * process' 30 s health cache — reserved for an explicit user gesture (the
+   * first-run card's ⟳); every read that happens on a render omits it.
+   */
+  listProviders: (options?: { refresh?: boolean }): Promise<ProviderListEntry[]> =>
+    ipcRenderer.invoke(APP.providersList, options),
   /**
    * WP-7: login state per provider. Shells out to the CLIs' own status
    * commands, so it is called on demand (the first-run card, its ⟳) and never

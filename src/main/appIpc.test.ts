@@ -678,6 +678,24 @@ describe('providers and models', () => {
     expect(h.health).toHaveBeenCalledTimes(2)
   })
 
+  it('re-probes on an explicit refresh and leaves the cache warm for the picker', async () => {
+    // WP-7: the first-run card's ⟳ is the one affordance step 1 has, and its
+    // own copy tells the user to press it after installing a CLI. Served from
+    // the cache it would be a no-op for up to 30 s — a hit does not even
+    // refresh its timestamp, so pressing again would change nothing either.
+    await h.ipc.invoke(APP_CHANNELS.providersList, PANEL_ID)
+    expect(h.health).toHaveBeenCalledTimes(1)
+
+    await h.ipc.invoke(APP_CHANNELS.providersList, PANEL_ID, { refresh: true })
+    expect(h.health).toHaveBeenCalledTimes(2)
+
+    // The refresh overwrote the cache rather than dropping it: the picker's
+    // frequent reads keep their TTL.
+    await h.ipc.invoke(APP_CHANNELS.providersList, PANEL_ID)
+    await h.ipc.invoke(APP_CHANNELS.providersList, EDITOR_ID, { refresh: false })
+    expect(h.health).toHaveBeenCalledTimes(2)
+  })
+
   it('discovers models for a known provider', async () => {
     const result = await h.ipc.invoke(APP_CHANNELS.modelsDiscover, EDITOR_ID, {
       providerId: 'codex'
