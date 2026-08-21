@@ -1881,14 +1881,19 @@ export class Workspace implements AgentHost {
         void this.emitAgentDone(record, report.summary, report.status)
         return
       case 'progress':
-        queue.push({ type: 'agent_progress', ...identity, note: report.note })
+        // Quiet like MCP report_progress: a milestone note never needs a
+        // reaction, so it must not cost the orchestrator a wake-up turn.
+        queue.push({ type: 'agent_progress', ...identity, note: report.note }, { quiet: true })
         return
       case 'unparseable':
-        queue.push({
-          type: 'agent_progress',
-          ...identity,
-          note: `unparseable sentinel line (${report.reason})`
-        })
+        queue.push(
+          {
+            type: 'agent_progress',
+            ...identity,
+            note: `unparseable sentinel line (${report.reason})`
+          },
+          { quiet: true }
+        )
         return
       case 'ask': {
         if (!this.questions) {
