@@ -1,4 +1,8 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
+import { buildAgentArgv } from '@main/agents/spawn'
 import type { McpServerHandle, RegisteredWorkspace } from '@main/mcp/server'
 import type { WorkspaceMcpContext } from '@main/mcp/types'
 import { PendingQuestions } from '@main/mcp/pendingQuestions'
@@ -325,6 +329,30 @@ describe('startWorkspace', () => {
 
     expect(running.workspace.goalText).toBe('Fix the login bug')
     expect(spawns[0]!.pty.written).toContain('Fix the login bug')
+    expect(spawns[0]!.input.initialPrompt).toBeUndefined()
+  })
+
+  it('delivers a grok start-goal as a trailing positional argv, without PTY-seeding it', async () => {
+    const { manager, spawns } = harness()
+    const running = await manager.startWorkspace(
+      testProfile({ orchestrator: { providerId: 'grok' } }),
+      { goal: '  Fix the login bug  ' }
+    )
+
+    expect(running.workspace.goalText).toBe('Fix the login bug')
+    expect(spawns[0]!.input.initialPrompt).toBe('Fix the login bug')
+    expect(spawns[0]!.pty.written).not.toContain('Fix the login bug')
+
+    const cwd = mkdtempSync(join(tmpdir(), 'vertragus-ws-grok-goal-'))
+    try {
+      const { argv } = buildAgentArgv({ ...spawns[0]!.input, cwd })
+      expect(argv.at(-1)).toBe('Fix the login bug')
+      expect(argv).not.toContain('-p')
+      expect(argv).not.toContain('--single')
+      expect(argv).not.toContain('--max-turns')
+    } finally {
+      rmSync(cwd, { recursive: true, force: true })
+    }
   })
 
   it('a bare start stays a bare start — no goal, no seed, no crash', async () => {
@@ -333,9 +361,27 @@ describe('startWorkspace', () => {
     expect(running.workspace.goalText).toBeUndefined()
     // Nothing was typed into the orchestrator (fake launch has no ptySystemPrompt).
     expect(spawns[0]!.pty.written).toEqual([])
+    expect(spawns[0]!.input.initialPrompt).toBeUndefined()
 
     const blank = await manager.startWorkspace(testProfile(), { goal: '   ' })
     expect(blank.workspace.goalText).toBeUndefined()
+  })
+
+  it('a grok start without a goal does not add a positional prompt', async () => {
+    const { manager, spawns } = harness()
+    const running = await manager.startWorkspace(
+      testProfile({ orchestrator: { providerId: 'grok' } })
+    )
+    expect(running.workspace.goalText).toBeUndefined()
+    expect(spawns[0]!.input.initialPrompt).toBeUndefined()
+    expect(spawns[0]!.pty.written).toEqual([])
+
+    const blank = await manager.startWorkspace(
+      testProfile({ orchestrator: { providerId: 'grok' } }),
+      { goal: '   ' }
+    )
+    expect(blank.workspace.goalText).toBeUndefined()
+    expect(spawns[1]!.input.initialPrompt).toBeUndefined()
   })
 
   it('a failed goal delivery surfaces the error but keeps the workspace running', async () => {

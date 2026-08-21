@@ -782,6 +782,24 @@ describe('startOrchestrator', () => {
     })
     await expect(disabled.workspace.startOrchestrator()).rejects.toThrow(/is disabled/)
   })
+
+  it('puts a grok start-goal on spawn argv and records goalText without PTY-seeding it', async () => {
+    const { workspace, spawns, prompts } = harness({
+      profile: testProfile({ orchestrator: { providerId: 'grok' } })
+    })
+    await workspace.startOrchestrator({ initialPrompt: '  Fix the login bug  ' })
+
+    expect(spawns[0]!.input.initialPrompt).toBe('Fix the login bug')
+    expect(workspace.goalText).toBe('Fix the login bug')
+    expect(prompts).toEqual([])
+  })
+
+  it('does not put a start-goal on argv when the provider has no initialPrompt surface', async () => {
+    const { workspace, spawns } = harness()
+    await workspace.startOrchestrator({ initialPrompt: 'Fix the login bug' })
+    expect(spawns[0]!.input.initialPrompt).toBeUndefined()
+    expect(workspace.goalText).toBeUndefined()
+  })
 })
 
 describe('requestSuccession', () => {

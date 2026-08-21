@@ -52,6 +52,13 @@ describe('providerPresets', () => {
     expect(claiming.map((entry) => entry.id)).toEqual(['claude'])
   })
 
+  it('declares a spawn-time first prompt for Grok only — others stay on the PTY fallback', () => {
+    const claiming = providerPresets().filter((entry) => entry.initialPromptDelivery)
+    expect(claiming.map((entry) => [entry.id, entry.initialPromptDelivery])).toEqual([
+      ['grok', { kind: 'positional' }]
+    ])
+  })
+
   it('probes every provider with --version', () => {
     for (const entry of providerPresets()) expect(entry.versionArgs).toEqual(['--version'])
   })
@@ -251,6 +258,7 @@ describe('grok preset', () => {
       kind: 'arg',
       flag: '--append-system-prompt'
     })
+    expect(grok.initialPromptDelivery).toEqual({ kind: 'positional' })
     expect(grok.mcp).toEqual({ kind: 'grok-project' })
   })
 
