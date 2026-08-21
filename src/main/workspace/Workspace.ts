@@ -121,6 +121,10 @@ import {
   type RoleTemplate,
   type Slot
 } from '@shared/schema/profile'
+import {
+  enabledExtraMcpServers,
+  type ExtraMcpServer
+} from '@shared/schema/mcpServer'
 import { buildInitialPromptArgs, type ProviderConfig } from '@shared/schema/provider'
 import type { ZoneLayout } from '@shared/schema/zones'
 import type { AgentDoneStatus } from '@shared/schema/events'
@@ -229,6 +233,12 @@ export interface WorkspaceDeps {
    * have no yolo surface under any tier.
    */
   agentPolicy?: AgentPolicy
+  /**
+   * Extra MCP servers from global settings. A getter is resolved at EACH
+   * subagent spawn so a settings edit reaches the next worker of a running
+   * workspace. Orchestrator and lead never receive them.
+   */
+  extraMcpServers?: readonly ExtraMcpServer[] | (() => readonly ExtraMcpServer[])
   spawn?: typeof spawnAgent
   createWorktree?: typeof createWorktree
   seed?: typeof seedWithReadyHandshake
@@ -940,7 +950,8 @@ export class Workspace implements AgentHost {
         mcpUrl: urls.subagentUrl(pending.agentId),
         fileTag: `sub-${pending.agentId}`,
         configDir: this.deps.configDir,
-        systemPrompt: template.prompt
+        systemPrompt: template.prompt,
+        extraMcpServers: this.extraMcpServersForLaunch()
       }
       spawned = await (this.deps.spawn ?? spawnAgent)(launchInput)
       this.assertOpenDuringStart(pending)
@@ -2028,6 +2039,14 @@ export class Workspace implements AgentHost {
     if (!provider) throw new Error(`Unknown provider "${providerId}".`)
     if (!provider.enabled) throw new Error(`Provider "${provider.label}" is disabled.`)
     return provider
+  }
+
+  /** Fresh on every spawn so a settings edit reaches the next agent. */
+  private extraMcpServersForLaunch(): ExtraMcpServer[] {
+    const source = this.deps.extraMcpServers
+    if (source === undefined) return []
+    const list = typeof source === 'function' ? source() : source
+    return enabledExtraMcpServers(list)
   }
 
   private requireRoleTemplate(roleId: string): RoleTemplate {

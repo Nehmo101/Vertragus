@@ -417,6 +417,29 @@ describe('startWorkspace', () => {
     expect(ctx.limits.perRole.get('worker')).toBe(2)
   })
 
+  it('resolves extra MCP servers on subagent spawn, not orchestrator', async () => {
+    const extras = [
+      {
+        id: 'github',
+        label: 'GitHub',
+        transport: 'stdio' as const,
+        command: 'npx',
+        args: [] as string[],
+        enabled: true
+      }
+    ]
+    const extraMcpServers = vi.fn(() => extras)
+    const { manager, spawns } = harness({ extraMcpServers })
+    const running = await manager.startWorkspace(testProfile())
+    expect(spawns[0]!.input.kind).toBe('orchestrator')
+    expect(spawns[0]!.input.extraMcpServers).toBeUndefined()
+
+    await running.workspace.startAgent({ role: 'worker', task: 'x' })
+    expect(extraMcpServers).toHaveBeenCalled()
+    expect(spawns[1]!.input.kind).toBe('subagent')
+    expect(spawns[1]!.input.extraMcpServers).toEqual(extras)
+  })
+
   it('reads providers, role templates and yolo fresh on every start', async () => {
     const providers = vi.fn(() => testProviders())
     const roleTemplates = vi.fn(() => [])

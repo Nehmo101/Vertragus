@@ -16,6 +16,7 @@ import {
 } from '@main/mcp/attach'
 import { ORCHESTRATOR_TOOL_NAMES } from '@main/mcp/toolsOrchestrator'
 import { providerPreset, providerPresets } from '@main/providers/presets'
+import { extraMcpServerSchema } from '@shared/schema/mcpServer'
 import { providerConfigSchema, type ProviderConfig } from '@shared/schema/provider'
 import {
   buildAgentArgv,
@@ -546,6 +547,77 @@ describe('MCP attach — the regression that killed the old repo', () => {
     }
   })
 
+  it('writes extra MCP servers into Claude/Codex/Kimi/Cursor subagent launches', () => {
+    const github = extraMcpServerSchema.parse({
+      id: 'github',
+      label: 'GitHub',
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-github']
+    })
+
+    const claudeSub = buildAgentArgv(launchInput({ extraMcpServers: [github] }))
+    const claudePath = claudeSub.argv[claudeSub.argv.indexOf('--mcp-config') + 1]!
+    const claudeFile = JSON.parse(readFileSync(claudePath, 'utf8')) as {
+      mcpServers: Record<string, unknown>
+    }
+    expect(claudeFile.mcpServers.github).toMatchObject({ type: 'stdio', command: 'npx' })
+    expect(claudeSub.argv).not.toContain('--allowedTools')
+
+    const claudeOrch = buildAgentArgv(
+      launchInput({ extraMcpServers: [github], kind: 'orchestrator', systemPrompt: 'Delegate.' })
+    )
+    const orchPath = claudeOrch.argv[claudeOrch.argv.indexOf('--mcp-config') + 1]!
+    const orchFile = JSON.parse(readFileSync(orchPath, 'utf8')) as {
+      mcpServers: Record<string, unknown>
+    }
+    expect(Object.keys(orchFile.mcpServers)).toEqual(['vertragus'])
+    expect(claudeOrch.argv[claudeOrch.argv.indexOf('--allowedTools') + 1]).not.toContain(
+      'mcp__github'
+    )
+
+    const claudeLead = buildAgentArgv(
+      launchInput({ extraMcpServers: [github], kind: 'lead', systemPrompt: 'Lead.' })
+    )
+    const leadPath = claudeLead.argv[claudeLead.argv.indexOf('--mcp-config') + 1]!
+    const leadFile = JSON.parse(readFileSync(leadPath, 'utf8')) as {
+      mcpServers: Record<string, unknown>
+    }
+    expect(Object.keys(leadFile.mcpServers)).toEqual(['vertragus'])
+
+    const codex = buildAgentArgv(
+      launchInput({ provider: preset('codex'), extraMcpServers: [github] })
+    )
+    expect(codex.argv).toContain('mcp_servers.github.command="npx"')
+
+    buildAgentArgv(launchInput({ provider: preset('kimi'), cwd, extraMcpServers: [github] }))
+    const kimiFile = JSON.parse(readFileSync(join(cwd, '.kimi-code', 'mcp.json'), 'utf8')) as {
+      mcpServers: Record<string, unknown>
+    }
+    expect(kimiFile.mcpServers.github).toMatchObject({ command: 'npx' })
+    expect(kimiFile.mcpServers.vertragus).toBeDefined()
+
+    buildAgentArgv(launchInput({ provider: preset('cursor'), cwd, extraMcpServers: [github] }))
+    const cursorFile = JSON.parse(readFileSync(join(cwd, '.cursor', 'mcp.json'), 'utf8')) as {
+      mcpServers: Record<string, unknown>
+    }
+    expect(cursorFile.mcpServers.github).toMatchObject({ command: 'npx' })
+    expect(cursorFile.mcpServers.vertragus).toBeDefined()
+  })
+
+  it('leaves an mcp: none launch unattached even when extras are set', () => {
+    const github = extraMcpServerSchema.parse({
+      id: 'github',
+      label: 'GitHub',
+      transport: 'stdio',
+      command: 'npx'
+    })
+    const { argv } = buildAgentArgv(
+      launchInput({ provider: preset('ollama'), model: 'qwen3:32b', extraMcpServers: [github] })
+    )
+    expect(argv).toEqual(['run', '--nowordwrap', 'qwen3:32b'])
+  })
+
   it('writes Kimi’s project config into the worktree, never into the shared repo', () => {
     const worktree = mkdtempSync(join(tmpdir(), 'vertragus-spawn-wt-'))
     try {
@@ -856,8 +928,16 @@ describe('E6 extra MCP servers', () => {
   })
 
   it('an orchestrator and a lead NEVER get extra servers, whatever the input says', () => {
+    const github = extraMcpServerSchema.parse({
+      id: 'github',
+      label: 'GitHub',
+      transport: 'stdio',
+      command: 'npx'
+    })
     for (const kind of ['orchestrator', 'lead'] as const) {
-      const { argv } = buildAgentArgv(launchInput({ kind, extraMcp: EXTRA }))
+      const { argv } = buildAgentArgv(
+        launchInput({ kind, extraMcp: EXTRA, extraMcpServers: [github] })
+      )
       const configPath = argv[argv.indexOf('--mcp-config') + 1]!
       const config = JSON.parse(readFileSync(configPath, 'utf8')) as {
         mcpServers: Record<string, unknown>
@@ -865,9 +945,16 @@ describe('E6 extra MCP servers', () => {
       expect(Object.keys(config.mcpServers)).toEqual(['vertragus'])
 
       const codex = buildAgentArgv(
-        launchInput({ kind, provider: preset('codex'), model: 'm', extraMcp: EXTRA })
+        launchInput({
+          kind,
+          provider: preset('codex'),
+          model: 'm',
+          extraMcp: EXTRA,
+          extraMcpServers: [github]
+        })
       )
       expect(codex.argv.join(' ')).not.toContain('mcp_servers.browser')
+      expect(codex.argv.join(' ')).not.toContain('mcp_servers.github')
     }
   })
 })

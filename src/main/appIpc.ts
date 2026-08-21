@@ -42,6 +42,8 @@ import {
   ORCHESTRATOR_ROLE_ID,
   roleColor
 } from '@shared/prompts/roles'
+import type { ExtraMcpServer } from '@shared/schema/mcpServer'
+import { parseExtraMcpServersForWrite } from '@shared/schema/mcpServer'
 import type { ProviderConfig } from '@shared/schema/provider'
 import { normalizeAppearance, type Appearance } from '@shared/appearance'
 import { mainMessages, readLocale } from '@shared/mainMessages'
@@ -489,6 +491,8 @@ export interface PanelSettings {
    * on the hide-all eye — a hotkey that silently does nothing is a support case.
    */
   hideAllHotkeyError?: string
+  /** Extra MCP servers attached next to Vertragus on the next spawn. */
+  mcpServers: ExtraMcpServer[]
 }
 
 /**
@@ -505,7 +509,8 @@ export const WRITABLE_SETTINGS = [
   'locale',
   'appearance',
   'agentPolicy',
-  'onboardingDismissed'
+  'onboardingDismissed',
+  'mcpServers'
 ] as const
 export type WritableSetting = (typeof WRITABLE_SETTINGS)[number]
 
@@ -785,6 +790,7 @@ export function toPanelSettings(
     autostart: value.autostart,
     updateChannel: value.updateChannel,
     autostartSupported,
+    mcpServers: value.mcpServers,
     ...(hotkey && !hotkey.registered ? { hideAllHotkeyError: hotkey.error ?? '' } : {})
   }
 }
@@ -1251,6 +1257,15 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
             )
           }
           return panelSettings(host.store.setSetting('agentPolicy', policy))
+        }
+        case 'mcpServers': {
+          try {
+            const parsed = parseExtraMcpServersForWrite(body.value)
+            return panelSettings(host.store.setSetting('mcpServers', parsed))
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'invalid mcpServers'
+            throw new Error(`settings:set rejected — ${message}`)
+          }
         }
         default: {
           // Unreachable while WRITABLE_SETTINGS and this switch agree; the
