@@ -264,7 +264,13 @@ const envelope = {
   /** Strictly increasing per workspace, starting at 1. */
   seq: z.number().int().positive(),
   /** Unix epoch milliseconds. */
-  ts: z.number().int().nonnegative()
+  ts: z.number().int().nonnegative(),
+  /**
+   * S2: true = does not wake a parked `await_events`; rides along with the
+   * next wake. Stamped by the queue for pure echo events whose data the
+   * caller already got synchronously. Optional so old journals stay valid.
+   */
+  quiet: z.literal(true).optional()
 }
 
 export const agentEventSchema = z.discriminatedUnion('type', [

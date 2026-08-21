@@ -110,13 +110,20 @@ describe('report_done', () => {
 })
 
 describe('report_progress', () => {
-  it('pushes agent_progress', async () => {
+  it('pushes agent_progress as a quiet event — a milestone note never needs a reaction', async () => {
     const { runtime, tools } = await setup()
+    // S2: a parked orchestrator loop must sleep through the note and read it
+    // with its next wake instead of spending a model turn on it.
+    const parked = runtime.events.wait(runtime.events.cursor, 5_000)
     await callTool(tools, 'report_progress', { note: 'schema written' })
+    expect(runtime.events.waiterCount).toBe(1)
     expect(runtime.events.all().at(-1)).toMatchObject({
       type: 'agent_progress',
-      note: 'schema written'
+      note: 'schema written',
+      quiet: true
     })
+    runtime.events.close()
+    expect((await parked).map((event) => event.type)).toEqual(['agent_progress'])
   })
 
   it('caps the note length at the schema', async () => {
