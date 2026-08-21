@@ -117,7 +117,7 @@ import {
   type RoleTemplate,
   type Slot
 } from '@shared/schema/profile'
-import type { ProviderConfig } from '@shared/schema/provider'
+import { buildInitialPromptArgs, type ProviderConfig } from '@shared/schema/provider'
 import type { ZoneLayout } from '@shared/schema/zones'
 import type { AgentDoneStatus } from '@shared/schema/events'
 import { runsDir } from './journal'
@@ -494,10 +494,11 @@ export class Workspace implements AgentHost {
   }
 
   /**
-   * The goal this workspace was started with — set only after
-   * {@link assignGoal} actually delivered it to the orchestrator's CLI, so the
-   * panel and the remote client never show a goal the orchestrator never saw.
-   * Undefined for a bare Play (back-compat): the UI shows "no goal" instead.
+   * The goal this workspace was started with — set only after it was actually
+   * delivered to the orchestrator's CLI (argv at spawn, or {@link assignGoal}
+   * over the PTY), so the panel and the remote client never show a goal the
+   * orchestrator never saw. Undefined for a bare Play (back-compat): the UI
+   * shows "no goal" instead.
    */
   get goalText(): string | undefined {
     return this.goal
@@ -1265,12 +1266,17 @@ export class Workspace implements AgentHost {
    * orchestrator system prompt through whatever delivery its provider declares
    * (a launch flag for Claude, the seed handshake for a PTY-only CLI).
    *
+   * When `initialPrompt` is set and the provider declares
+   * `initialPromptDelivery`, the text rides the spawn argv as the CLI's first
+   * user turn and {@link goalText} is set. Providers without that surface
+   * ignore it here — the caller PTY-seeds via {@link assignGoal}.
+   *
    * The orchestrator gets its own worktree like every other agent: it never
    * edits files itself, but its CLI still leaves per-agent artefacts in its
    * working directory (Kimi's `.kimi-code/mcp.json`), and two orchestrators
    * sharing the main checkout would overwrite each other's.
    */
-  async startOrchestrator(): Promise<StartedAgent> {
+  async startOrchestrator(options?: { initialPrompt?: string }): Promise<StartedAgent> {
     this.assertOpen()
     if (this.succession) {
       throw new Error('A successor orchestrator is already starting.')
@@ -1278,16 +1284,24 @@ export class Workspace implements AgentHost {
     if (this.orchestratorRecord) throw new Error('This workspace already has an orchestrator.')
     const agentId = this.newId()
     const name = this.names.allocate('orchestrator')
+    const initialPrompt = options?.initialPrompt?.trim()
     const record = await this.spawnOrchestratorRecord({
       agentId,
       name,
       systemPrompt: await this.orchestratorPrompt(),
-      mcpUrl: this.requireMcp().orchestratorUrl
+      mcpUrl: this.requireMcp().orchestratorUrl,
+      ...(initialPrompt ? { initialPrompt } : {})
     })
     this.orchestratorRecord = record
     // C5: the idle clock starts at boot — an orchestrator that never makes
     // its first tool call is exactly as idle as one that stopped mid-run.
     this.noteOrchestratorActivity()
+    if (initialPrompt) {
+      const provider = this.requireProvider(this.profile.orchestrator.providerId)
+      if (buildInitialPromptArgs(provider, initialPrompt).length > 0) {
+        this.goal = initialPrompt
+      }
+    }
     return this.startedOf(record)
   }
 
@@ -1411,11 +1425,13 @@ export class Workspace implements AgentHost {
     name: string
     systemPrompt: string
     mcpUrl: string
+    initialPrompt?: string
   }): Promise<AgentRecord> {
     const provider = this.requireProvider(this.profile.orchestrator.providerId)
     let spawned: SpawnedAgent | undefined
     try {
       const worktree = await this.createWorktreeFor(input.agentId, input.name)
+      const [argvInitialPrompt] = buildInitialPromptArgs(provider, input.initialPrompt)
       spawned = await (this.deps.spawn ?? spawnAgent)({
         kind: 'orchestrator',
         provider,
@@ -1426,7 +1442,8 @@ export class Workspace implements AgentHost {
         mcpUrl: input.mcpUrl,
         fileTag: `orch-${input.agentId}`,
         configDir: this.deps.configDir,
-        systemPrompt: input.systemPrompt
+        systemPrompt: input.systemPrompt,
+        ...(argvInitialPrompt ? { initialPrompt: argvInitialPrompt } : {})
       })
 
       const record = this.track({
@@ -1741,9 +1758,9 @@ export class Workspace implements AgentHost {
   }
 
   /**
-   * Seed the user's goal into the orchestrator's CLI — the SAME handshake every
-   * assignment takes (H2), so "start with a goal" and "type the goal into the
-   * TUI" are one mechanism, not two. Always submitted: the goal comes straight
+   * Seed the user's goal into the orchestrator's CLI over the PTY — the SAME
+   * handshake every assignment takes (H2). Used when the provider has no
+   * spawn-time first-prompt surface. Always submitted: the goal comes straight
    * from the user, there is nothing left to redact. Throws when the CLI did not
    * accept the text; the workspace keeps running then (the user can still type
    * into the terminal), and {@link goalText} stays unset — an undelivered goal

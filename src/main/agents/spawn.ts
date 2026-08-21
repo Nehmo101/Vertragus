@@ -64,6 +64,7 @@ import {
 import type { ExtraMcpServer } from '@shared/schema/profile'
 import {
   buildEffortArgs,
+  buildInitialPromptArgs,
   buildModelArgs,
   type EffortLevel,
   type ProviderConfig
@@ -110,6 +111,11 @@ export interface AgentLaunchInput {
   configDir: string
   /** Role prompt for a subagent, orchestrator prompt for the orchestrator. */
   systemPrompt?: string
+  /**
+   * First user turn, when the provider declares `initialPromptDelivery`.
+   * Orchestrator start-goal only. Never a headless `-p` / `--single` one-shot.
+   */
+  initialPrompt?: string
   /**
    * E6: extra MCP servers from the agent's slot. Honored for `kind:
    * 'subagent'` ONLY — same construction as the yolo rule: no profile and no
@@ -292,7 +298,9 @@ export function buildSystemPromptArgs(input: AgentLaunchInput): AgentArgv {
  *
  * Order matters. `provider.args` first (`ollama run`), then the model — which
  * for a provider without `modelArg` is positional and must sit directly behind
- * those args — then effort, yolo, MCP attach and the system prompt.
+ * those args — then effort, yolo, MCP attach, the system prompt, and finally
+ * an optional first-user prompt (trailing positional when the provider
+ * declares it).
  */
 export function buildAgentArgv(input: AgentLaunchInput): AgentArgv {
   const { provider } = input
@@ -303,6 +311,7 @@ export function buildAgentArgv(input: AgentLaunchInput): AgentArgv {
   argv.push(...buildMcpArgs(input))
   const prompt = buildSystemPromptArgs(input)
   argv.push(...prompt.argv)
+  argv.push(...buildInitialPromptArgs(provider, input.initialPrompt))
   return { argv, ptySystemPrompt: prompt.ptySystemPrompt }
 }
 

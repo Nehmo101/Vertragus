@@ -114,6 +114,7 @@ const SHAPES: ProviderConfig[] = (
       effortArg: { style: 'flag', flag: '--effort' },
       auth: { loginArgs: ['login'] },
       systemPromptDelivery: { kind: 'arg', flag: '--append-system-prompt' },
+      initialPromptDelivery: { kind: 'positional' },
       mcp: { kind: 'grok-project' },
       modelDiscovery: { kind: 'cli', args: ['models'], parse: 'lines' },
       seedModels: ['grok-build']
@@ -227,6 +228,14 @@ describe('draft ⇄ ProviderConfig', () => {
     })
     const edited = { ...draftFromProvider(tuned), label: 'Cursor (mine)' }
     expect((toProviderInput(edited) as { seed?: unknown }).seed).toEqual(tuned.seed)
+  })
+
+  it('carries initialPromptDelivery through an edit instead of dropping it', () => {
+    const grokLike = shape('shape-grok')
+    const edited = { ...draftFromProvider(grokLike), label: 'Grok (mine)' }
+    expect((toProviderInput(edited) as { initialPromptDelivery?: unknown }).initialPromptDelivery).toEqual(
+      { kind: 'positional' }
+    )
   })
 
   it('normalizes an id typed with spaces and capitals', () => {

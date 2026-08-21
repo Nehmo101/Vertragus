@@ -343,6 +343,53 @@ describe('buildAgentArgv — per preset', () => {
     expect(argv).not.toContain('--always-approve')
   })
 
+  it('appends a grok start-goal as a trailing positional, never -p/--single', () => {
+    const { argv, ptySystemPrompt } = buildAgentArgv(
+      launchInput({
+        provider: preset('grok'),
+        kind: 'orchestrator',
+        cwd,
+        systemPrompt: 'You orchestrate.',
+        initialPrompt: '  Fix the login bug  '
+      })
+    )
+
+    expect(argv.at(-1)).toBe('Fix the login bug')
+    expect(argv).toEqual([
+      ...grokAllowMcpArgs(),
+      '--append-system-prompt',
+      'You orchestrate.',
+      'Fix the login bug'
+    ])
+    expect(argv).not.toContain('-p')
+    expect(argv).not.toContain('--single')
+    expect(argv).not.toContain('--max-turns')
+    expect(ptySystemPrompt).toBeUndefined()
+  })
+
+  it('omits a positional first prompt when the goal is blank or the provider has no surface', () => {
+    const grokBare = buildAgentArgv(
+      launchInput({
+        provider: preset('grok'),
+        kind: 'orchestrator',
+        cwd,
+        systemPrompt: 'You orchestrate.',
+        initialPrompt: '   '
+      })
+    ).argv
+    expect(grokBare.at(-1)).toBe('You orchestrate.')
+
+    const claude = buildAgentArgv(
+      launchInput({
+        kind: 'orchestrator',
+        systemPrompt: 'You orchestrate.',
+        initialPrompt: 'Fix the login bug'
+      })
+    ).argv
+    expect(claude).not.toContain('Fix the login bug')
+    expect(claude.at(-1)).toBe('You orchestrate.')
+  })
+
   it('omits model and effort args when the launch does not set them', () => {
     const { argv } = buildAgentArgv(launchInput({ yolo: false }))
     expect(normalize(argv)).toEqual(['--mcp-config', '<mcp-config.json>', '--strict-mcp-config'])
@@ -566,6 +613,23 @@ describe('buildAgentLaunch', () => {
     resolve.mockClear()
     await buildAgentLaunch(launchInput({ systemPrompt: 'single line' }), { resolve })
     expect(resolve.mock.calls[0]![2]).toMatchObject({ requireFaithfulArgs: false })
+  })
+
+  it('still demands faithful args when a positional goal rides a multiline system prompt', async () => {
+    const resolve = vi.fn(
+      async (_c: string, args: string[], _o?: ResolveLaunchOptions) => ({ file: 'grok', args })
+    )
+    await buildAgentLaunch(
+      launchInput({
+        provider: preset('grok'),
+        kind: 'orchestrator',
+        cwd,
+        systemPrompt: 'line one\nline two',
+        initialPrompt: 'Fix login'
+      }),
+      { resolve }
+    )
+    expect(resolve.mock.calls[0]![2]).toMatchObject({ requireFaithfulArgs: true })
   })
 
   /**
