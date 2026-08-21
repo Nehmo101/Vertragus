@@ -105,7 +105,8 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
   const cleanup = createWorktreeCleanup({
     repoPathFor: (profileId) => getProfile(profileId)?.repoPath,
     activeWorktreePaths: () =>
-      manager.list().flatMap((workspace) => workspace.activeWorktreePaths())
+      manager.list().flatMap((workspace) => workspace.activeWorktreePaths()),
+    locale: () => readLocale(() => getSettings().ui.locale)
   })
 
   const windowOpenOf = (agentId: string): boolean => getCliWindow(agentId) !== null
@@ -226,7 +227,8 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
       // handshake, so the card and the orchestrator agree on what continues.
       const run = await latestRun(profile.repoPath, profile.id)
       if (!run) {
-        throw new Error(`resume rejected — no journaled run found in ${profile.repoPath}`)
+        const locale = readLocale(() => getSettings().ui.locale)
+        throw new Error(mainMessages(locale).resumeNoRun(profile.repoPath))
       }
       // S4 (fail-soft): the old run's task board — dead owners freed — seeds
       // the new board and gets one honest mention in the briefing.
@@ -270,11 +272,12 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
         // The host codes are the MCP contract's, not a sentence for a human
         // who just pressed a button.
         const message = error instanceof Error ? error.message : String(error)
+        const messages = mainMessages(readLocale(() => getSettings().ui.locale))
         if (message.includes('already_in_progress')) {
-          throw new Error('orchestrator replacement rejected — a successor is already starting')
+          throw new Error(messages.successorAlreadyStarting)
         }
         if (message.includes('no_orchestrator')) {
-          throw new Error('orchestrator replacement rejected — this workspace has no orchestrator')
+          throw new Error(messages.noOrchestrator)
         }
         throw error
       }
@@ -289,8 +292,11 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
       if (!workspace) throw new Error(`promote rejected — unknown workspace ${workspaceId}`)
       const outcome = await workspace.promoteAgentBranch(agentId)
       if (!outcome.ok) {
+        const locale = readLocale(() => getSettings().ui.locale)
         throw new Error(
-          `Merge conflict — nothing was changed. Conflicting files: ${outcome.conflictFiles.join(', ') || '(unknown)'}`
+          mainMessages(locale).promoteConflict(
+            outcome.conflictFiles.join(', ') || mainMessages(locale).unknownConflictFiles
+          )
         )
       }
     },
@@ -299,24 +305,31 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
       if (!workspace) throw new Error(`run folder rejected — unknown workspace ${workspaceId}`)
       // The openPath contract (resolves with an error STRING, never rejects)
       // is a rule with two branches, so it lives in a module a test can hold.
-      await revealRunFolder((path) => shell.openPath(path), runDir(workspace.repoPath, workspaceId))
+      await revealRunFolder(
+        (path) => shell.openPath(path),
+        runDir(workspace.repoPath, workspaceId),
+        readLocale(() => getSettings().ui.locale)
+      )
     },
     async answerQuestion(workspaceId, agentId, questionId, text) {
       // One host path (H1): identical to the orchestrator's
       // send_to_agent{questionId} — see mcp/answerQuestion.ts.
       const outcome = await mcp.answerQuestion(workspaceId, agentId, questionId, text)
       if (outcome.ok) return
+      const messages = mainMessages(readLocale(() => getSettings().ui.locale))
       switch (outcome.error) {
         case 'unknown_workspace':
+          // Raw like the other unknown-id refusals in this directory: only a
+          // renderer that lost track of a closed workspace can reach it.
           throw new Error(`answer rejected — unknown workspace ${workspaceId}`)
+        // The remaining three are races an ordinary click loses: the question
+        // was answered elsewhere, or the agent died between render and send.
         case 'unknown_question':
-          throw new Error('answer rejected — that question is already answered or no longer open')
+          throw new Error(messages.answerQuestionClosed)
         case 'question_agent_mismatch':
-          throw new Error('answer rejected — the question belongs to a different agent')
+          throw new Error(messages.answerAgentMismatch)
         case 'answer_delivery_failed':
-          throw new Error(
-            `answer not delivered — the question is still open (${outcome.message ?? 'delivery failed'})`
-          )
+          throw new Error(messages.answerNotDelivered(outcome.message))
       }
     },
     focusAgent(agentId) {
@@ -400,7 +413,9 @@ async function startDevAgent(): Promise<void> {
     const launch = await resolveLaunch(command, rawArgs)
     agent.spawn({ file: launch.file, args: launch.args, cwd: homedir() })
   } catch (error) {
-    agent.push(`\x1b[31mSpawn fehlgeschlagen: ${String(error)}\x1b[0m\r\n`)
+    // Raw English on purpose: this whole path exists only behind
+    // VERTRAGUS_DEV_SPAWN and is read by whoever set that variable.
+    agent.push(`\x1b[31mspawn failed: ${String(error)}\x1b[0m\r\n`)
   }
   registry.registerAgent({
     pty: agent,
@@ -530,7 +545,11 @@ app.whenReady().then(async () => {
     }
   } catch (error) {
     console.error('[boot] MCP server did not start — panel runs without workspaces:', error)
-    registerAppIpc()
+    // A console the user cannot open is not a report. The reason travels into
+    // the stub directory, so the next Play/Resume answers with what actually
+    // failed instead of "not wired up yet" — which reads as an unfinished
+    // feature and sends nobody looking for a broken MCP boot.
+    registerAppIpc(undefined, error instanceof Error ? error.message : String(error))
   }
 
   // Hide-all: the global hotkey. A failed registration is not fatal — the

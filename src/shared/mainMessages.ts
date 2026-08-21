@@ -12,9 +12,44 @@
 export type MainLocale = 'de' | 'en'
 
 interface MainMessages {
-  /** Panel Play before the workspace manager is wired (boot failure). */
+  /** Panel Play before the workspace manager is wired (no reason recorded). */
   stubNotWired: string
+  /**
+   * Same refusal, but the boot DID fail and said why. The reason is the thrown
+   * message from `startMcpServer()`; without it the panel blames an unfinished
+   * feature while the only account of the real failure sits in a console the
+   * user cannot open.
+   */
+  stubBootFailed: (reason: string) => string
   unknownProfile: (profileId: string) => string
+  /**
+   * Worktree cleanup refused a removal: the path is not in the CURRENT stale
+   * list. Which of the three reasons applies is deliberately not narrowed —
+   * the list is re-read per click, so an answer naming one could already be
+   * wrong by the time it is read.
+   */
+  worktreeNotRemovable: (worktreePath: string) => string
+  /**
+   * Panel Resume with nothing journaled in the repository — very likely on a
+   * first run, and reached by an ordinary button press.
+   */
+  resumeNoRun: (repoPath: string) => string
+  /** Orchestrator succession: a successor is already on its way. */
+  successorAlreadyStarting: string
+  /** Orchestrator succession: this workspace never had an orchestrator. */
+  noOrchestrator: string
+  /** Promote left the branch untouched because the merge conflicted. */
+  promoteConflict: (conflictFiles: string) => string
+  /** Git named no paths in the conflict — the list must still say something. */
+  unknownConflictFiles: string
+  /** The answered question closed between render and click. */
+  answerQuestionClosed: string
+  /** The answered question belongs to a different agent than the one clicked. */
+  answerAgentMismatch: string
+  /** The agent could not be reached; the question stays open. */
+  answerNotDelivered: (reason: string | undefined) => string
+  /** `shell.openPath` refused the run folder (never written, or removed). */
+  runFolderNotOpened: (dir: string, reason: string) => string
   quitTitle: string
   quitMessage: (runningAgents: number) => string
   quitDetail: string
@@ -23,6 +58,12 @@ interface MainMessages {
   hotkeyNone: string
   hotkeyTaken: (hotkey: string) => string
   hotkeyInvalid: (hotkey: string, reason: string) => string
+  /**
+   * The settings store itself could not be read. No locale is reachable in
+   * that state, so this one always renders in the schema-default language —
+   * the key exists so the sentence still lives in the table, not in main.
+   */
+  settingsUnreadable: (reason: string) => string
   /** Updater in a dev/unpackaged build — mirrors `settings.updateStatus.disabled`. */
   updatesDevBuild: string
   /** `install()` called while no finished download is waiting. */
@@ -53,7 +94,25 @@ interface MainMessages {
 const MESSAGES: Record<MainLocale, MainMessages> = {
   de: {
     stubNotWired: 'Workspace-Manager ist noch nicht verdrahtet.',
+    stubBootFailed: (reason) =>
+      `Workspace-Manager konnte nicht starten — Agenten lassen sich nicht anlegen: ${reason}`,
     unknownProfile: (profileId) => `Unbekanntes Profil ${profileId}`,
+    worktreeNotRemovable: (worktreePath) =>
+      `Worktree ${worktreePath} ist nicht entfernbar — er ist aktiv, fremd oder existiert nicht.`,
+    resumeNoRun: (repoPath) =>
+      `Fortsetzen abgelehnt — in ${repoPath} liegt kein aufgezeichneter Lauf.`,
+    successorAlreadyStarting: 'Orchestrator-Wechsel abgelehnt — ein Nachfolger startet bereits.',
+    noOrchestrator: 'Orchestrator-Wechsel abgelehnt — dieser Workspace hat keinen Orchestrator.',
+    promoteConflict: (conflictFiles) =>
+      `Merge-Konflikt — es wurde nichts geändert. Betroffene Dateien: ${conflictFiles}`,
+    unknownConflictFiles: '(unbekannt)',
+    answerQuestionClosed:
+      'Antwort abgelehnt — diese Frage ist bereits beantwortet oder nicht mehr offen.',
+    answerAgentMismatch: 'Antwort abgelehnt — die Frage gehört zu einem anderen Agenten.',
+    answerNotDelivered: (reason) =>
+      `Antwort nicht zugestellt — die Frage bleibt offen (${reason ?? 'Zustellung fehlgeschlagen'}).`,
+    runFolderNotOpened: (dir, reason) =>
+      `Lauf-Ordner ${dir} konnte nicht geöffnet werden — ${reason}`,
     quitTitle: 'Vertragus beenden',
     quitMessage: (runningAgents) =>
       `${runningAgents === 1 ? '1 Agent läuft' : `${runningAgents} Agenten laufen`} noch — Vertragus beenden?`,
@@ -64,6 +123,7 @@ const MESSAGES: Record<MainLocale, MainMessages> = {
     hotkeyTaken: (hotkey) =>
       `Hotkey ${hotkey} ist belegt — eine andere Anwendung hat ihn zuerst registriert.`,
     hotkeyInvalid: (hotkey, reason) => `Hotkey ${hotkey} ist ungültig: ${reason}`,
+    settingsUnreadable: (reason) => `Einstellungen nicht lesbar: ${reason}`,
     updatesDevBuild: 'Self-Updates laufen nur in der installierten App.',
     updateNotReady: 'Es liegt kein fertig geladenes Update bereit.',
     remoteNoTailscale:
@@ -85,7 +145,24 @@ const MESSAGES: Record<MainLocale, MainMessages> = {
   },
   en: {
     stubNotWired: 'The workspace manager is not wired up yet.',
+    stubBootFailed: (reason) =>
+      `The workspace manager could not start — no agents can be launched: ${reason}`,
     unknownProfile: (profileId) => `Unknown profile ${profileId}`,
+    worktreeNotRemovable: (worktreePath) =>
+      `Worktree ${worktreePath} cannot be removed — it is active, foreign, or does not exist.`,
+    resumeNoRun: (repoPath) => `Resume rejected — no journaled run found in ${repoPath}.`,
+    successorAlreadyStarting:
+      'Orchestrator replacement rejected — a successor is already starting.',
+    noOrchestrator: 'Orchestrator replacement rejected — this workspace has no orchestrator.',
+    promoteConflict: (conflictFiles) =>
+      `Merge conflict — nothing was changed. Conflicting files: ${conflictFiles}`,
+    unknownConflictFiles: '(unknown)',
+    answerQuestionClosed:
+      'Answer rejected — that question is already answered or no longer open.',
+    answerAgentMismatch: 'Answer rejected — the question belongs to a different agent.',
+    answerNotDelivered: (reason) =>
+      `Answer not delivered — the question is still open (${reason ?? 'delivery failed'}).`,
+    runFolderNotOpened: (dir, reason) => `Run folder ${dir} could not be opened — ${reason}`,
     quitTitle: 'Quit Vertragus',
     quitMessage: (runningAgents) =>
       `${runningAgents === 1 ? '1 agent is' : `${runningAgents} agents are`} still running — quit Vertragus?`,
@@ -96,6 +173,7 @@ const MESSAGES: Record<MainLocale, MainMessages> = {
     hotkeyTaken: (hotkey) =>
       `Hotkey ${hotkey} is taken — another application registered it first.`,
     hotkeyInvalid: (hotkey, reason) => `Hotkey ${hotkey} is invalid: ${reason}`,
+    settingsUnreadable: (reason) => `Settings could not be read: ${reason}`,
     updatesDevBuild: 'Self-updates only run in the installed app.',
     updateNotReady: 'No finished update download is ready.',
     remoteNoTailscale:

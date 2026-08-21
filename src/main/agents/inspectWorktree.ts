@@ -5,6 +5,12 @@
  * repository HEAD — not Caronte's files. This is the host-truth path: status,
  * diff, log and file reads against the agent's worktree, never the main
  * checkout. No writes, no `git add`, no shell.
+ *
+ * The thrown messages here are RAW ENGLISH ON PURPOSE and must not be moved
+ * into `mainMessages`. They travel back as MCP tool-call errors, so their only
+ * reader is the orchestrator LLM — which has to act on them ("narrow the path",
+ * "that file is binary"). Translating them would put the instruction in a
+ * language the tool contract is not written in, for no human's benefit.
  */
 import { readFile } from 'node:fs/promises'
 import { isAbsolute, relative, resolve } from 'node:path'

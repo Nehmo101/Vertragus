@@ -15,14 +15,17 @@ function entries(): WorktreeEntry[] {
   ]
 }
 
-function setup(options: { active?: string[]; list?: WorktreeEntry[] } = {}) {
+function setup(
+  options: { active?: string[]; list?: WorktreeEntry[]; locale?: string } = {}
+) {
   const list = vi.fn(async () => options.list ?? entries())
   const remove = vi.fn(async () => undefined)
   const cleanup = createWorktreeCleanup({
     repoPathFor: (profileId) => (profileId === 'p1' ? REPO : undefined),
     activeWorktreePaths: () => options.active ?? [],
     list,
-    remove
+    remove,
+    ...(options.locale ? { locale: () => options.locale } : {})
   })
   return { cleanup, list, remove }
 }
@@ -62,6 +65,21 @@ describe('listStale', () => {
   it('refuses an unknown profile', async () => {
     const { cleanup } = setup()
     await expect(cleanup.listStale('nope')).rejects.toThrow(/Unbekanntes Profil/)
+  })
+})
+
+/**
+ * Both refusals land in the panel's error row verbatim. Neither carries an
+ * umlaut, so the drift guard's letter test never saw them — these cases are
+ * what pins them to the locale table instead of to this module.
+ */
+describe('locale', () => {
+  it('speaks English when the stored UI locale is en', async () => {
+    const { cleanup } = setup({ locale: 'en' })
+    await expect(cleanup.listStale('nope')).rejects.toThrow('Unknown profile nope')
+    await expect(cleanup.remove('p1', '/repo')).rejects.toThrow(
+      'Worktree /repo cannot be removed — it is active, foreign, or does not exist.'
+    )
   })
 })
 
