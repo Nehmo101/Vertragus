@@ -9,6 +9,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { reflowNeighbors as reflowLayout } from '@shared/layout/reflow'
 import type { ZoneEditorPayload, ZoneEditorRole } from '../../../preload'
 import { applyLocale } from '../i18n'
 import { applyTheme } from '../theme'
@@ -19,6 +20,7 @@ import {
   clampMove,
   clampResize,
   draftsToZones,
+  minZoneSize,
   newZoneRect,
   relToPx,
   type DraftZone,
@@ -33,6 +35,7 @@ export interface ZoneEditorState {
   viewport: Viewport
   roles: ZoneEditorRole[]
   zones: DraftZone[]
+  reflowNeighbors: boolean
   error: string | null
   saving: boolean
   demo: boolean
@@ -40,6 +43,7 @@ export interface ZoneEditorState {
   removeZone(id: string): void
   moveZone(id: string, rect: PxRect): void
   resizeZone(id: string, rect: PxRect): void
+  setReflowNeighbors(value: boolean): void
   /** Replace drafts with an auto-layout of the palette roles (not persisted until save). */
   autoLayout(): void
   /** Called at the end of a gesture — main only needs the settled rectangles. */
@@ -74,6 +78,36 @@ function toDrafts(loaded: ZoneEditorPayload, viewport: Viewport, offset: number)
   })
 }
 
+/**
+ * Apply a drag/resize. Off: clamp-only, this rectangle moves. On: neighbors
+ * shrink and expand into the gap via the shared layout function.
+ */
+function applyGesture(
+  current: readonly DraftZone[],
+  id: string,
+  nextRect: PxRect,
+  viewport: Viewport,
+  reflow: boolean
+): DraftZone[] {
+  if (!reflow) {
+    return current.map((zone) => (zone.id === id ? { ...zone, rect: nextRect } : zone))
+  }
+  const min = minZoneSize(viewport)
+  const laidOut = reflowLayout({
+    rects: current.map((zone) => ({ id: zone.id, rect: zone.rect })),
+    movedId: id,
+    nextRect,
+    bounds: { x: 0, y: 0, width: viewport.width, height: viewport.height },
+    minWidth: min.width,
+    minHeight: min.height
+  })
+  const byId = new Map(laidOut.map((item) => [item.id, item.rect]))
+  return current.map((zone) => {
+    const rect = byId.get(zone.id)
+    return rect === undefined ? zone : { ...zone, rect }
+  })
+}
+
 export function useZoneEditor({ displayId, demo = false }: UseZoneEditorInput): ZoneEditorState {
   const { t } = useTranslation()
   const bridge = useMemo(() => window.vertragus?.zones, [])
@@ -93,6 +127,7 @@ export function useZoneEditor({ displayId, demo = false }: UseZoneEditorInput): 
     bridge || demo ? null : t('common.bridgeMissing')
   )
   const [saving, setSaving] = useState(false)
+  const [reflowNeighbors, setReflowNeighborsState] = useState(seed?.reflowNeighbors ?? true)
   /** Monotonic counter for local zone keys and the new-zone cascade. */
   const created = useRef(seed ? seed.zones.length : 0)
 
@@ -109,6 +144,7 @@ export function useZoneEditor({ displayId, demo = false }: UseZoneEditorInput): 
         void applyLocale(loaded.locale)
         applyTheme(loaded.theme)
         setPayload(loaded)
+        setReflowNeighborsState(loaded.reflowNeighbors ?? true)
         setZones(toDrafts(loaded, viewport, created.current))
         created.current += loaded.zones.length
       },
@@ -137,10 +173,20 @@ export function useZoneEditor({ displayId, demo = false }: UseZoneEditorInput): 
     return () => window.removeEventListener('keydown', onKey)
   }, [cancel])
 
+  const pushDraft = useCallback(
+    (nextZones: readonly DraftZone[], reflow: boolean): void => {
+      if (!bridge || demo) return
+      bridge.draft({
+        zones: draftsToZones(nextZones, displayId, viewport),
+        reflowNeighbors: reflow
+      })
+    },
+    [bridge, demo, displayId, viewport]
+  )
+
   const commit = useCallback(() => {
-    if (!bridge || demo) return
-    bridge.draft(draftsToZones(zones, displayId, viewport))
-  }, [bridge, demo, displayId, viewport, zones])
+    pushDraft(zones, reflowNeighbors)
+  }, [pushDraft, zones, reflowNeighbors])
 
   return {
     ready: payload !== null,
@@ -149,6 +195,7 @@ export function useZoneEditor({ displayId, demo = false }: UseZoneEditorInput): 
     viewport,
     roles: payload?.roles ?? [],
     zones,
+    reflowNeighbors,
     error,
     saving,
     demo,
@@ -175,18 +222,25 @@ export function useZoneEditor({ displayId, demo = false }: UseZoneEditorInput): 
 
     moveZone(id, rect) {
       setZones((current) =>
-        current.map((zone) => (zone.id === id ? { ...zone, rect: clampMove(rect, viewport) } : zone))
+        applyGesture(current, id, clampMove(rect, viewport), viewport, reflowNeighbors)
       )
     },
 
     resizeZone(id, rect) {
       setZones((current) =>
-        current.map((zone) =>
-          zone.id === id
-            ? { ...zone, rect: clampMove(clampResize(rect, viewport), viewport) }
-            : zone
+        applyGesture(
+          current,
+          id,
+          clampMove(clampResize(rect, viewport), viewport),
+          viewport,
+          reflowNeighbors
         )
       )
+    },
+
+    setReflowNeighbors(value) {
+      setReflowNeighborsState(value)
+      pushDraft(zones, value)
     },
 
     autoLayout() {
@@ -197,8 +251,7 @@ export function useZoneEditor({ displayId, demo = false }: UseZoneEditorInput): 
       })
       setZones(next)
       // Push immediately — `commit()` would still see the previous `zones` closure.
-      if (!bridge || demo) return
-      bridge.draft(draftsToZones(next, displayId, viewport))
+      pushDraft(next, reflowNeighbors)
     },
 
     commit,
@@ -211,15 +264,20 @@ export function useZoneEditor({ displayId, demo = false }: UseZoneEditorInput): 
       }
       setSaving(true)
       setError(null)
-      bridge.save(payload.profileId, draftsToZones(zones, displayId, viewport)).then(
-        () => {
-          // The overlay closes from main; nothing left to do here.
-        },
-        (cause) => {
-          setSaving(false)
-          setError(errorText(cause))
-        }
-      )
+      bridge
+        .save(payload.profileId, {
+          zones: draftsToZones(zones, displayId, viewport),
+          reflowNeighbors
+        })
+        .then(
+          () => {
+            // The overlay closes from main; nothing left to do here.
+          },
+          (cause) => {
+            setSaving(false)
+            setError(errorText(cause))
+          }
+        )
     },
 
     cancel

@@ -235,6 +235,8 @@
     "autostart": "Mit Windows starten",
     "autostartHint": "Vertragus startet nach der Anmeldung automatisch.",
     "autostartUnsupported": "Nur in der installierten App: im Entwicklungslauf würde der Autostart auf die Electron-Binärdatei zeigen.",
+    "reflowNeighbors": "Nachbarn anpassen",
+    "reflowNeighborsHint": "Wenn du ein Agent-Fenster oder eine Zone verschiebst, füllen die anderen die Lücke. Aus: nur dieses Fenster bewegt sich.",
     "updateChannel": "Update-Kanal",
     "updateChannelMain": "main — jeder grüne Build",
     "updateChannelStable": "stable — nur veröffentlichte Versionen",
@@ -296,6 +298,8 @@
     "addZone": "+ {{role}}",
     "removeZone": "Zone „{{role}}“ entfernen",
     "autoLayout": "Automatisch aufteilen",
+    "reflowNeighbors": "Nachbarn anpassen",
+    "reflowNeighborsHint": "Wenn du eine Zone verschiebst, füllen die anderen die Lücke. Aus: nur diese Zone bewegt sich.",
     "empty": "Noch keine Zone auf diesem Bildschirm — wähle unten eine Rolle.",
     "cancel": "Abbrechen (Esc)",
     "demoBadge": "Demo-Ansicht"

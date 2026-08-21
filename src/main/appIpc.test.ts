@@ -150,7 +150,7 @@ function provider(input: ProviderConfigInput): ProviderConfig {
 }
 
 const SETTINGS: AppSettings = {
-  ui: { theme: 'dark', locale: 'de', appearance: DEFAULT_APPEARANCE },
+  ui: { theme: 'dark', locale: 'de', appearance: DEFAULT_APPEARANCE, reflowNeighbors: true },
   yoloMaster: true,
   hideAllHotkey: 'Control+Alt+V',
   autostart: false,
@@ -862,7 +862,8 @@ describe('settings and windows', () => {
       autostart: false,
       updateChannel: 'main',
       autostartSupported: true,
-      appearance: DEFAULT_APPEARANCE
+      appearance: DEFAULT_APPEARANCE,
+      reflowNeighbors: true
     })
     // Never the app's own bookkeeping — model memory and panel bounds are
     // written by the app and have no form.
@@ -1051,7 +1052,8 @@ describe('settings:set', () => {
       'updateChannel',
       'theme',
       'locale',
-      'appearance'
+      'appearance',
+      'reflowNeighbors'
     ])
   })
 
@@ -1143,8 +1145,30 @@ describe('settings:set', () => {
     expect(h.store.settings.ui).toEqual({
       theme: 'light',
       locale: 'en',
-      appearance: DEFAULT_APPEARANCE
+      appearance: DEFAULT_APPEARANCE,
+      reflowNeighbors: true
     })
+  })
+
+  it('patches reflowNeighbors into ui and rejects a non-boolean', async () => {
+    const off = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'reflowNeighbors',
+      value: false
+    })) as PanelSettings
+    expect(off.reflowNeighbors).toBe(false)
+    expect(h.store.settings.ui.reflowNeighbors).toBe(false)
+    expect(h.store.settings.ui.theme).toBe('dark')
+
+    const on = (await h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+      key: 'reflowNeighbors',
+      value: true
+    })) as PanelSettings
+    expect(on.reflowNeighbors).toBe(true)
+
+    await expect(
+      h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, { key: 'reflowNeighbors', value: 'ja' })
+    ).rejects.toThrow(/expects a boolean/)
+    expect(h.store.settings.ui.reflowNeighbors).toBe(true)
   })
 })
 
@@ -1327,6 +1351,7 @@ describe('zones', () => {
     ])
     expect(payload.locale).toBe('de')
     expect(payload.theme).toBe('dark')
+    expect(payload.reflowNeighbors).toBe(true)
   })
 
   it('saves the layout of every overlay, not just the one that clicked save', () => {
@@ -1424,6 +1449,37 @@ describe('zones', () => {
     expect(() => h.ipc.send(APP_CHANNELS.zonesDraft, OVERLAY_A_ID, { zones: 'nope' })).not.toThrow()
     h.ipc.invoke(APP_CHANNELS.zonesSave, OVERLAY_A_ID, { profileId: 'p1', zones: [] })
     expect(h.store.getProfiles().find((entry) => entry.id === 'p1')!.zones?.zones).toEqual([])
+  })
+
+  it('lets an overlay write reflowNeighbors onto ui without saving the layout', () => {
+    h.broadcasts.length = 0
+    h.ipc.send(APP_CHANNELS.zonesDraft, OVERLAY_A_ID, {
+      zones: [{ roleId: 'worker', rect: rel(0, 0, 0.5, 1) }],
+      reflowNeighbors: false
+    })
+    expect(h.store.settings.ui.reflowNeighbors).toBe(false)
+    expect(h.store.getProfiles().find((entry) => entry.id === 'p1')!.zones).toBeUndefined()
+    expect(h.broadcasts[0]?.channel).toBe(APP_CHANNELS.eventSettings)
+    expect((h.broadcasts[0]?.payload as PanelSettings).reflowNeighbors).toBe(false)
+  })
+
+  it('persists reflowNeighbors from a save payload', () => {
+    h.ipc.invoke(APP_CHANNELS.zonesSave, OVERLAY_A_ID, {
+      profileId: 'p1',
+      zones: [],
+      reflowNeighbors: false
+    })
+    expect(h.store.settings.ui.reflowNeighbors).toBe(false)
+  })
+
+  it('ignores a non-boolean reflowNeighbors on a draft', () => {
+    expect(() =>
+      h.ipc.send(APP_CHANNELS.zonesDraft, OVERLAY_A_ID, {
+        zones: [{ roleId: 'worker', rect: rel(0, 0, 0.5, 1) }],
+        reflowNeighbors: 'nope'
+      })
+    ).not.toThrow()
+    expect(h.store.settings.ui.reflowNeighbors).toBe(true)
   })
 
   it('refuses a save whose zones are not a list', () => {

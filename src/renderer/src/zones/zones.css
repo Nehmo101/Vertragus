@@ -217,7 +217,8 @@
 }
 
 .zones-ghost,
-.zones-primary {
+.zones-primary,
+.zones-switch {
   flex: 0 0 auto;
   white-space: nowrap;
   padding: 7px 16px;
@@ -226,13 +227,30 @@
   cursor: pointer;
 }
 
-.zones-ghost {
+.zones-ghost,
+.zones-switch {
   border: 1px solid var(--hairline-strong);
   background: transparent;
   color: var(--text-2);
 }
 
-.zones-ghost:hover {
+.zones-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+}
+
+.zones-switch input {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--bronze);
+  cursor: pointer;
+}
+
+.zones-ghost:hover,
+.zones-switch:hover {
   background: var(--hover-wash);
   color: var(--text);
 }

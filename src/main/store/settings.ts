@@ -96,7 +96,9 @@ export const uiSettingsSchema = z
     panelBounds: panelBoundsSchema.optional(),
     theme: z.enum(['dark', 'light']).default('dark'),
     locale: z.enum(['de', 'en']).default('de'),
-    appearance: appearanceSchema
+    appearance: appearanceSchema,
+    /** When a window or zone is moved, neighbors shrink and fill the gap. */
+    reflowNeighbors: z.boolean().default(true)
   })
   .strict()
 export type UiSettings = z.infer<typeof uiSettingsSchema>

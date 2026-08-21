@@ -235,6 +235,8 @@
     "autostart": "Start with Windows",
     "autostartHint": "Vertragus starts automatically after you sign in.",
     "autostartUnsupported": "Installed app only: in a dev run the login item would point at the Electron binary.",
+    "reflowNeighbors": "Reflow neighbors",
+    "reflowNeighborsHint": "When you move an agent window or a zone, the others fill the gap. Off: only this window moves.",
     "updateChannel": "Update channel",
     "updateChannelMain": "main — every green build",
     "updateChannelStable": "stable — released versions only",
@@ -296,6 +298,8 @@
     "addZone": "+ {{role}}",
     "removeZone": "Remove zone “{{role}}”",
     "autoLayout": "Auto layout",
+    "reflowNeighbors": "Reflow neighbors",
+    "reflowNeighborsHint": "When you move a zone, the others fill the gap. Off: only this zone moves.",
     "empty": "No zone on this screen yet — pick a role below.",
     "cancel": "Cancel (Esc)",
     "demoBadge": "Demo view"

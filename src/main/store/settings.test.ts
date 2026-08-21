@@ -236,13 +236,19 @@ describe('app settings', () => {
   it('serves the documented defaults on a fresh store', () => {
     const { store: settings } = store()
     expect(settings.getSettings()).toEqual({
-      ui: { theme: 'dark', locale: 'de', appearance: DEFAULT_APPEARANCE },
+      ui: { theme: 'dark', locale: 'de', appearance: DEFAULT_APPEARANCE, reflowNeighbors: true },
       yoloMaster: true,
       hideAllHotkey: 'Control+Alt+V',
       autostart: false,
       updateChannel: 'main',
       modelMemory: {}
     })
+  })
+
+  it('defaults reflowNeighbors to true when ui is missing', () => {
+    const { store: settings } = store({ hideAllHotkey: 'Control+Shift+H' })
+    expect(settings.getSettings().ui.reflowNeighbors).toBe(true)
+    expect(settings.getSettings().hideAllHotkey).toBe('Control+Shift+H')
   })
 
   it('switches the update channel and refuses an invented one', () => {
@@ -279,12 +285,14 @@ describe('app settings', () => {
       theme: 'dark',
       locale: 'en',
       appearance: DEFAULT_APPEARANCE,
+      reflowNeighbors: true,
       panelBounds: { edge: 'right', y: 320 }
     })
     expect(settings.getSettings().ui).toEqual({
       theme: 'dark',
       locale: 'en',
       appearance: DEFAULT_APPEARANCE,
+      reflowNeighbors: true,
       panelBounds: { edge: 'right', y: 320 }
     })
   })
@@ -309,7 +317,12 @@ describe('app settings', () => {
     expect(result.hideAllHotkey).toBe('Control+Shift+H')
     // An old `ui` section without an appearance reads as the design defaults —
     // the setting is new, the config file predates it, and neither is an error.
-    expect(result.ui).toEqual({ theme: 'light', locale: 'en', appearance: DEFAULT_APPEARANCE })
+    expect(result.ui).toEqual({
+      theme: 'light',
+      locale: 'en',
+      appearance: DEFAULT_APPEARANCE,
+      reflowNeighbors: true
+    })
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('invalid settings section'))
   })
 
@@ -363,7 +376,12 @@ describe('adoptLegacyStore', () => {
     expect((adopted.roleTemplates as unknown[])).toHaveLength(1)
     expect(adopted.hideAllHotkey).toBe('Control+Shift+H')
     expect(adopted.updateChannel).toBe('stable')
-    expect(adopted.ui).toEqual({ theme: 'light', locale: 'en', appearance: DEFAULT_APPEARANCE })
+    expect(adopted.ui).toEqual({
+      theme: 'light',
+      locale: 'en',
+      appearance: DEFAULT_APPEARANCE,
+      reflowNeighbors: true
+    })
   })
 
   it('leaves the archived app’s own records behind instead of dropping them loudly', () => {
