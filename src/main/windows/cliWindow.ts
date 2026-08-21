@@ -186,17 +186,36 @@ function planFor(agentId: string, placement: CliWindowPlacement): PlacedWindow[]
   })
 }
 
+/**
+ * Another live CLI already has the keyboard. The window being reused is
+ * excluded so its own isFocused() does not suppress the show+focus path.
+ */
+function anotherCliWindowIsFocused(except: BrowserWindow): boolean {
+  for (const { window } of listCliWindows()) {
+    if (window === except) continue
+    if (window.isFocused()) return true
+  }
+  return false
+}
+
 export function createCliWindow(agentId: string, options: CliWindowOptions): BrowserWindow {
   const existing = getCliWindow(agentId)
   if (existing) {
-    existing.show()
-    existing.focus()
+    // show() activates; do not steal keystrokes from another live CLI.
+    if (anotherCliWindowIsFocused(existing)) existing.showInactive()
+    else {
+      existing.show()
+      existing.focus()
+    }
     return existing
   }
 
   const plan = options.bounds || !options.placement ? [] : planFor(agentId, options.placement)
   const placed = plan.find((entry) => entry.agentId === agentId)?.bounds
   const bounds = options.bounds ?? placed
+
+  // Windows: new BrowserWindow() can steal OS focus before ready-to-show.
+  const keepKeyboard = listCliWindows().some(({ window }) => window.isFocused())
 
   const win = new BrowserWindow({
     ...glassWindowOptions(),
@@ -220,7 +239,8 @@ export function createCliWindow(agentId: string, options: CliWindowOptions): Bro
   secureWindow(win)
   loadRoute(win, `/agent/${encodeURIComponent(agentId)}`)
   win.on('ready-to-show', () => {
-    win.show()
+    if (keepKeyboard) win.showInactive()
+    else win.show()
     // Constructor x/y is a hint. Linux compositors often ignore it until
     // after `show`; pinning here is what actually lands the window on the
     // target display.

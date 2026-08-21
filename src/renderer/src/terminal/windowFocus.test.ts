@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { trackWindowFocus, WINDOW_FOCUSED_CLASS } from './windowFocus'
+import { shouldFocusTerminal, trackWindowFocus, WINDOW_FOCUSED_CLASS } from './windowFocus'
 
 /** A classList and a window, small enough to assert on. */
 function fakes(hasFocus: boolean): {
@@ -84,5 +84,12 @@ describe('trackWindowFocus', () => {
     expect(classes.has(WINDOW_FOCUSED_CLASS)).toBe(false)
     fire('focus')
     expect(classes.has(WINDOW_FOCUSED_CLASS)).toBe(true)
+  })
+})
+
+describe('shouldFocusTerminal', () => {
+  it('focuses xterm only when the document already has OS focus', () => {
+    expect(shouldFocusTerminal(true)).toBe(true)
+    expect(shouldFocusTerminal(false)).toBe(false)
   })
 })

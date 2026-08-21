@@ -28,6 +28,14 @@ export interface FocusEventSource {
 export const WINDOW_FOCUSED_CLASS = 'is-window-focused'
 
 /**
+ * xterm focusing its textarea activates the BrowserWindow on Windows even
+ * after showInactive(). Only steal that focus when the document already has it.
+ */
+export function shouldFocusTerminal(hasDocumentFocus: boolean): boolean {
+  return hasDocumentFocus
+}
+
+/**
  * Mirror the window's focus state onto `target` until the returned function is
  * called. Returns a cleanup that also drops the class, so a React strict-mode
  * double mount cannot leave a stale one behind.
