@@ -8,6 +8,17 @@
  * not reliably pan an inner `overflow-y: auto` flex child; 100% height plus
  * nowrap ellipsis on the goal was why the old client felt unreadable and
  * "did not scroll".
+ *
+ * The tokens below are the single definition for the whole client — the other
+ * two sheets consume them and never redefine them. Colours are chosen for a
+ * phone held outdoors, not for a monitor: every pairing used for text clears
+ * WCAG AA (4.5:1) against every surface it can land on, and every pairing used
+ * for a dot, a badge fill or a state border clears the 3:1 bar for non-text
+ * UI. The comment on each fixed value records what it was and why it moved.
+ *
+ * `--vv-height`, `--keyboard-inset` and `--vv-offset-top` are declared here as
+ * fallbacks only; `useVisualViewport.ts` owns them at runtime and documents
+ * their contract.
  */
 
 @font-face {
@@ -56,7 +67,8 @@
   --ink-rgb: 234, 230, 219;
   --text: #eae6db;
   --text-2: #c4c0b4;
-  --text-3: #9a968b;
+  /* was #9a968b — 5.40:1 on --surface-2, legal but thin in sunlight. */
+  --text-3: #adaa9e;
   --bronze: #cba35a;
   --bronze-bright: #e4c888;
   --on-bronze: #1d1a12;
@@ -67,7 +79,8 @@
   --warn-text: #f7c96b;
   --err: #d9735c;
   --err-text: #f0a08c;
-  --idle: #8c8069;
+  /* was #8c8069 — 4.10:1 on --surface-2, only just past the 3:1 dot bar. */
+  --idle: #988c73;
   --bg: #0e1013;
   --surface: #16191f;
   --surface-2: #1e222a;
@@ -76,9 +89,11 @@
   --sage: var(--verdigris);
   --accent-soft: rgba(203, 163, 90, 0.14);
   --accent-line: rgba(203, 163, 90, 0.45);
+  /* A fingertip does not scale with the type size, so this stays in px. */
   --touch: 44px;
   --keyboard-inset: 0px;
   --vv-height: 100dvh;
+  --vv-offset-top: 0px;
   color-scheme: dark;
 }
 
@@ -86,18 +101,26 @@
   --ink-rgb: 29, 26, 18;
   --text: #1d1a12;
   --text-2: #3f3b32;
-  --text-3: #5c584e;
+  /* was #5c584e — 5.96:1 on --surface-2; the same sunlight margin as dark. */
+  --text-3: #4c483f;
+  /* --bronze stays: it is a *fill*, and --on-bronze on it is 4.99:1. */
   --bronze: #a8843d;
-  --bronze-bright: #b8944a;
+  /* was #b8944a — lighter than --bronze, which inverts "bright" on a light
+     ground and measured 2.39:1. On light, more emphasis means darker. */
+  --bronze-bright: #8a6b2c;
   --on-bronze: #1d1a12;
   --verdigris: #2a6b5e;
   --verdigris-bright: #348574;
   --verdigris-text: #1f5a4e;
-  --warn: #c47d10;
-  --warn-text: #9a6208;
-  --err: #c45a45;
+  /* was #c47d10 — 2.81:1 on --surface-2, under the 3:1 bar for a status dot. */
+  --warn: #a86a08;
+  /* was #9a6208 — 4.28:1 on --surface-2, under AA for the text it carries. */
+  --warn-text: #8c5806;
+  /* was #c45a45 — 3.61:1 on --surface-2. */
+  --err: #b64c37;
   --err-text: #a84838;
-  --idle: #7a6f5a;
+  /* was #7a6f5a — 4.15:1 on --surface-2. */
+  --idle: #6f6550;
   --bg: #f4f1ea;
   --surface: #fffcf6;
   --surface-2: #efebe2;
@@ -112,7 +135,37 @@
 }
 
 html {
+  /* Never let iOS inflate text on rotation; the layout is already fluid. */
   -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  /* The viewport is the only scroller: the terminal's fixed overlay and the
+     sticky header both depend on that, and iOS pans it reliably. */
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  /* Kills the browser's own pull-to-refresh and the rubber-band chain, so a
+     flick at the top of the list cannot reload the page mid-run. */
+  overscroll-behavior-y: contain;
+  /* No layout jump on a desktop browser when the list outgrows the viewport. */
+  scrollbar-gutter: stable;
+  /* The interactive elements below opt back in to a visible tap flash; the
+     page itself flashing grey on every scroll start is what reads as "web
+     page". */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/*
+ * `clip` rather than `hidden` where it exists: `hidden` makes the element a
+ * scroll container, and that is what silently disables a sticky header. For
+ * the same reason `body` carries no overflow of its own at all — with a
+ * non-visible overflow on `html`, the body's own value would apply to the
+ * body box and make *it* the scrollport the sticky header resolves against,
+ * one that never scrolls.
+ */
+@supports (overflow: clip) {
+  html {
+    overflow-x: clip;
+  }
 }
 
 html,
@@ -123,18 +176,21 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-body);
-  font-size: 17px;
+  /* In rem, so the phone's own text-size setting scales the whole client.
+     17px at the default root size. */
+  font-size: 1.0625rem;
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
-  overflow-x: hidden;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior-y: contain;
 }
 
 #root {
   min-height: 100%;
   min-height: 100dvh;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--bronze) 32%, transparent);
+  color: var(--text);
 }
 
 button,
@@ -143,18 +199,27 @@ select,
 textarea {
   font: inherit;
   color: inherit;
+  /* No 300 ms double-tap wait, and no double-tap zoom on a control. */
   touch-action: manipulation;
-  -webkit-tap-highlight-color: rgba(203, 163, 90, 0.18);
+  -webkit-tap-highlight-color: color-mix(in srgb, var(--bronze) 18%, transparent);
+  accent-color: var(--bronze);
 }
 
 button {
   cursor: pointer;
+  /* A long press on a control should act, not offer to copy its label or drag
+     it out as a link. Text and terminal output keep the callout. */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 input,
 select,
 textarea {
-  font-size: 16px; /* iOS zooms any focused field under 16px */
+  /* iOS zooms any focused field under 16px; `max` keeps that floor while the
+     phone's larger text sizes still come through. */
+  font-size: max(16px, 1.0625rem);
 }
 
 textarea {
@@ -166,37 +231,82 @@ input:focus,
 select:focus,
 textarea:focus,
 button:focus-visible {
-  outline: 2px solid rgba(203, 163, 90, 0.65);
+  /* Derived from the token, so the light theme gets its own bronze instead of
+     the dark one hard-coded. */
+  outline: 2px solid color-mix(in srgb, var(--bronze) 70%, transparent);
   outline-offset: 1px;
 }
 
+/* Both pulses derive their colour from the tokens so the light theme does not
+   inherit the dark theme's glow. */
 @keyframes vg-pulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(62, 157, 130, 0.55);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--verdigris-bright) 55%, transparent);
   }
   70% {
-    box-shadow: 0 0 0 8px rgba(62, 157, 130, 0);
+    box-shadow: 0 0 0 8px transparent;
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(62, 157, 130, 0);
+    box-shadow: 0 0 0 0 transparent;
   }
 }
 @keyframes vg-pulse-bronze {
   0% {
-    box-shadow: 0 0 0 0 rgba(203, 163, 90, 0.5);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--bronze) 50%, transparent);
   }
   70% {
-    box-shadow: 0 0 0 8px rgba(203, 163, 90, 0);
+    box-shadow: 0 0 0 8px transparent;
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(203, 163, 90, 0);
+    box-shadow: 0 0 0 0 transparent;
   }
 }
 
+/*
+ * Reduced motion, the whole client. Not `animation: none`: that drops an
+ * animation's end state as well, so anything that fades or slides *in* would
+ * stay at its start value and simply never appear. Collapsing the durations
+ * keeps every end state and removes the movement, which is what the setting
+ * asks for. `scroll-behavior` has to be named explicitly — a smooth
+ * programmatic scroll is motion too.
+ */
 @media (prefers-reduced-motion: reduce) {
-  * {
-    animation: none !important;
-    transition: none !important;
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/*
+ * "Increase Contrast" on the phone. Only the tokens the eye reads as grey
+ * move, plus the hairlines, which are the first thing to disappear outdoors.
+ * Both selectors are repeated because the base light block outweighs a bare
+ * `:root` here.
+ */
+@media (prefers-contrast: more) {
+  :root,
+  :root[data-theme='dark'] {
+    --text-2: #ded9cd;
+    --text-3: #c8c4b8;
+    --hairline: rgba(234, 230, 219, 0.34);
+  }
+
+  :root[data-theme='light'] {
+    --text-2: #2a2720;
+    --text-3: #35322b;
+    --hairline: rgba(29, 26, 18, 0.38);
+  }
+
+  input:focus,
+  select:focus,
+  textarea:focus,
+  button:focus-visible {
+    outline-width: 3px;
+    outline-color: var(--bronze);
   }
 }
 
@@ -206,7 +316,10 @@ button:focus-visible {
   align-items: center;
   justify-content: center;
   min-height: 100dvh;
-  padding: max(24px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom));
+  /* The horizontal insets are zero in portrait and the notch/rounded corner in
+     landscape, where a flat 24px would put the text under the cut-out. */
+  padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right))
+    max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
 }
 .centered-inner {
   max-width: 22rem;
@@ -238,6 +351,11 @@ button:focus-visible {
   background: var(--bronze);
   color: var(--on-bronze);
   font-weight: 600;
+  transition: transform 90ms ease-out;
+}
+/* A press has to answer instantly: over Tailscale the round-trip does not. */
+.primary:active:not(:disabled) {
+  transform: scale(0.97);
 }
 .primary:disabled {
   opacity: 0.45;
@@ -249,9 +367,20 @@ button:focus-visible {
   display: flex;
   flex-direction: column;
   min-height: 100dvh;
-  padding-bottom: calc(24px + env(safe-area-inset-bottom) + var(--keyboard-inset));
+  /* `max`, not a sum: the keyboard already covers the home-indicator strip, so
+     adding both insets pushes the last row needlessly far up the screen. */
+  padding-bottom: calc(24px + max(env(safe-area-inset-bottom), var(--keyboard-inset)));
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 }
 
+/*
+ * `backdrop-filter` makes this a stacking context *and* a containing block for
+ * fixed descendants. That is safe here only because the terminal is a sibling
+ * route, not a child: App.tsx returns `<RemoteTerminal>` instead of the shell,
+ * so `.terminal-view`'s `position: fixed` never resolves against this element.
+ * Nesting a fixed overlay under the header would silently trap it.
+ */
 .app-header {
   position: sticky;
   top: 0;
@@ -259,10 +388,18 @@ button:focus-visible {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: max(10px, env(safe-area-inset-top)) 14px 12px;
+  padding: max(10px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) 12px
+    max(14px, env(safe-area-inset-left));
   border-bottom: 1px solid var(--hairline);
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   backdrop-filter: blur(16px) saturate(1.1);
+}
+
+/* Without the blur the header would be see-through over scrolling content. */
+@supports not (backdrop-filter: blur(1px)) {
+  .app-header {
+    background: var(--surface);
+  }
 }
 
 .brand-block {
@@ -279,22 +416,40 @@ button:focus-visible {
   font-weight: 400;
 }
 
+/*
+ * The connection pill is the one thing on this screen that has to be readable
+ * at arm's length in sunlight, so it carries a border as well as a fill: a
+ * tinted background alone disappears behind a reflection.
+ */
 .conn {
   font-size: 0.78rem;
   padding: 1px 8px;
   border-radius: 999px;
+  border: 1px solid var(--hairline);
   background: var(--surface-2);
   color: var(--text-3);
   width: max-content;
 }
 .conn.ok {
   color: var(--verdigris-text);
+  border-color: color-mix(in srgb, var(--verdigris-text) 40%, transparent);
+}
+/* `api.online === false`: not reconnecting, waiting for a network at all. */
+.conn.off {
+  color: var(--warn-text);
+  border-color: color-mix(in srgb, var(--warn) 55%, transparent);
 }
 
+/* `inline-flex` so the min touch box actually centres its glyph rather than
+   leaving it on the text baseline of a 44px-tall button. */
 .ghost {
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-width: var(--touch);
   min-height: var(--touch);
+  border-radius: 12px;
   background: none;
   border: none;
   color: var(--text-2);
@@ -302,12 +457,21 @@ button:focus-visible {
 }
 
 .ghost-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: var(--touch);
   padding: 0 10px;
+  border-radius: 12px;
   background: none;
   border: none;
   color: var(--text-2);
   font-size: 0.9rem;
+}
+
+.ghost:active,
+.ghost-inline:active {
+  background: var(--accent-soft);
 }
 
 /* --- shared form feedback --- */

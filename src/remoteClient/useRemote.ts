@@ -8,11 +8,22 @@
  * pairing token in `localStorage` (so a phone home-screen bookmark survives
  * a desktop restart), and clears the fragment so a shared screenshot of the
  * URL bar leaks nothing. The WebSocket authenticates with its first frame,
- * then multiplexes workspace state, terminals and commands. A dropped socket
- * reconnects with backoff and re-attaches losslessly (the server replays
- * scrollback on attach). If the desktop restarted and in-memory sessions
- * died, the stored pairing token silently mints a new session — the QR does
- * not have to be scanned again.
+ * then multiplexes workspace state, terminals and commands. If the desktop
+ * restarted and in-memory sessions died, the stored pairing token silently
+ * mints a new session — the QR does not have to be scanned again.
+ *
+ * Staying connected is the hard half, and it is why this hook is bigger than
+ * a socket wrapper. A phone sleeps mid-run, walks out of Wi-Fi range, and
+ * comes back with a socket the browser still calls `OPEN`. Three mechanisms
+ * cover that, all of them policy in `connection.ts`:
+ *   - capped exponential backoff for an honest close,
+ *   - an immediate reconnect on wake-up (tab visible, network back, bfcache
+ *     restore) that resets the backoff instead of waiting out its ceiling,
+ *   - a `refresh` round-trip that turns silence into a verdict on a socket
+ *     that only looks alive.
+ * Every reconnect re-attaches the terminals the UI was watching (see the
+ * `hello` case) and the server replays their scrollback, so a reconnect is
+ * lossless from the user's side.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
@@ -20,19 +31,26 @@ import type {
   RemoteWorkspaceSummary,
   ServerMessage
 } from '@shared/remote/protocol'
+import {
+  decideLiveness,
+  decideWake,
+  LIVENESS_TICK_MS,
+  reconnectDelayMs,
+  tokenFromHash
+} from './connection'
+import { remoteCopy } from './i18n'
 
 export type RemotePhase = 'pairing' | 'connecting' | 'ready' | 'error' | 'revoked'
 
 /**
- * Machine-readable error causes. The hook does not localize — the view maps
- * these onto `RemoteCopy` fields so the message follows the active locale.
+ * Machine-readable error causes. The hook does not localize its phases — the
+ * view maps these onto `RemoteCopy` fields so the message follows the active
+ * locale.
  */
 export type RemoteError = 'pairingFailed'
 
 const SESSION_KEY = 'vertragus.remote.session'
 const PAIRING_KEY = 'vertragus.remote.pairing'
-const RECONNECT_BASE_MS = 500
-const RECONNECT_MAX_MS = 10_000
 
 export interface TerminalHandlers {
   onSnapshot(snapshot: string, cols: number, rows: number, name: string, roleColor: string): void
@@ -46,6 +64,9 @@ export interface RemoteApi {
   workspaces: RemoteWorkspaceSummary[]
   theme: 'dark' | 'light'
   locale: string
+  /** navigator.onLine, kept live — the header can say "offline" instead of
+   *  spinning on a reconnect that cannot succeed. */
+  online: boolean
   attach(agentId: string, handlers: TerminalHandlers): () => void
   sendInput(agentId: string, data: string): void
   resize(agentId: string, cols: number, rows: number): void
@@ -58,12 +79,6 @@ export interface RemoteApi {
   refresh(): void
   /** Re-pair from scratch (session revoked or expired). */
   reset(): void
-}
-
-function readTokenFromHash(): string | undefined {
-  const hash = window.location.hash.replace(/^#/, '')
-  const params = new URLSearchParams(hash)
-  return params.get('token') ?? undefined
 }
 
 function readStored(key: string): string | undefined {
@@ -106,6 +121,7 @@ export function useRemote(): RemoteApi {
   const [workspaces, setWorkspaces] = useState<RemoteWorkspaceSummary[]>([])
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
   const [locale, setLocale] = useState('de')
+  const [online, setOnline] = useState(() => window.navigator.onLine)
   const [repairNonce, setRepairNonce] = useState(0)
 
   const socketRef = useRef<WebSocket | null>(null)
@@ -113,74 +129,135 @@ export function useRemote(): RemoteApi {
   const terminalHandlers = useRef(new Map<string, TerminalHandlers>())
   const attachedAgents = useRef(new Set<string>())
   const reconnectAttempt = useRef(0)
+  const reconnectTimer = useRef<number | null>(null)
   const aliveRef = useRef(true)
+  const lastInboundAt = useRef(Date.now())
+  const probeSentAt = useRef<number | null>(null)
+  /**
+   * The locale as a ref: a command rejects from inside a socket callback that
+   * closed over the render it was created in, and a German error on an English
+   * phone is exactly the leak the i18n layer exists to prevent.
+   */
+  const localeRef = useRef(locale)
   /** Command promises parked until their command_result frame arrives. */
   const pendingCommands = useRef(
     new Map<string, { resolve: (result: unknown) => void; reject: (error: Error) => void }>()
   )
   const commandSeq = useRef(0)
 
+  useEffect(() => {
+    localeRef.current = locale
+  }, [locale])
+
   const sendRaw = useCallback((message: object) => {
     const socket = socketRef.current
     if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message))
   }, [])
 
-  const dispatch = useCallback((message: ServerMessage) => {
-    switch (message.type) {
-      case 'hello':
-        setWorkspaces(message.workspaces)
-        setTheme(message.theme)
-        setLocale(message.locale)
-        setPhase('ready')
-        reconnectAttempt.current = 0
-        // Re-attach any terminals the UI was watching before a reconnect.
-        for (const agentId of attachedAgents.current) sendRaw({ type: 'attach', agentId })
-        break
-      case 'workspaces':
-        setWorkspaces(message.workspaces)
-        break
-      case 'snapshot':
-        terminalHandlers.current
-          .get(message.agentId)
-          ?.onSnapshot(message.snapshot, message.cols, message.rows, message.name, message.roleColor)
-        break
-      case 'data':
-        terminalHandlers.current.get(message.agentId)?.onData(message.data)
-        break
-      case 'exit':
-        terminalHandlers.current.get(message.agentId)?.onExit(message.exitCode)
-        break
-      case 'session_revoked':
-        clearSession()
-        sessionRef.current = null
-        setRepairNonce((nonce) => nonce + 1)
-        break
-      case 'command_result': {
-        const pending = pendingCommands.current.get(message.id)
-        if (pending) {
-          pendingCommands.current.delete(message.id)
-          if (message.ok) pending.resolve(message.result)
-          else pending.reject(new Error(message.error))
-        }
-        break
-      }
-      case 'error':
-        // Soft errors surface through the workspace push that follows them;
-        // nothing to render inline in this minimal client.
-        break
-    }
+  /** Ask for a workspace push and start the clock on the answer. */
+  const probe = useCallback(() => {
+    if (socketRef.current?.readyState !== WebSocket.OPEN) return
+    probeSentAt.current = Date.now()
+    sendRaw({ type: 'refresh' })
   }, [sendRaw])
+
+  const clearReconnectTimer = useCallback(() => {
+    if (reconnectTimer.current === null) return
+    window.clearTimeout(reconnectTimer.current)
+    reconnectTimer.current = null
+  }, [])
+
+  /** A socket that goes away takes every command parked on it with it. */
+  const failPendingCommands = useCallback(() => {
+    if (pendingCommands.current.size === 0) return
+    const message = remoteCopy(localeRef.current).connectionLost
+    const parked = [...pendingCommands.current.values()]
+    pendingCommands.current.clear()
+    for (const pending of parked) pending.reject(new Error(message))
+  }, [])
+
+  const dispatch = useCallback(
+    (message: ServerMessage) => {
+      switch (message.type) {
+        case 'hello':
+          setWorkspaces(message.workspaces)
+          setTheme(message.theme)
+          setLocale(message.locale)
+          setPhase('ready')
+          reconnectAttempt.current = 0
+          // Re-attach any terminals the UI was watching before a reconnect.
+          for (const agentId of attachedAgents.current) sendRaw({ type: 'attach', agentId })
+          break
+        case 'workspaces':
+          setWorkspaces(message.workspaces)
+          break
+        case 'snapshot':
+          terminalHandlers.current
+            .get(message.agentId)
+            ?.onSnapshot(
+              message.snapshot,
+              message.cols,
+              message.rows,
+              message.name,
+              message.roleColor
+            )
+          break
+        case 'data':
+          terminalHandlers.current.get(message.agentId)?.onData(message.data)
+          break
+        case 'exit':
+          terminalHandlers.current.get(message.agentId)?.onExit(message.exitCode)
+          break
+        case 'session_revoked':
+          clearSession()
+          sessionRef.current = null
+          setRepairNonce((nonce) => nonce + 1)
+          break
+        case 'command_result': {
+          const pending = pendingCommands.current.get(message.id)
+          if (pending) {
+            pendingCommands.current.delete(message.id)
+            if (message.ok) pending.resolve(message.result)
+            else pending.reject(new Error(message.error))
+          }
+          break
+        }
+        case 'error':
+          // Soft errors surface through the workspace push that follows them;
+          // nothing to render inline in this minimal client.
+          break
+      }
+    },
+    [sendRaw]
+  )
 
   const connect = useCallback(() => {
     const session = sessionRef.current
     if (!session) return
+    clearReconnectTimer()
+    // A wake-up or a liveness verdict can land while an earlier socket is still
+    // around. Drop it deliberately and clear `socketRef` first: that ref is the
+    // identity every handler checks, so the orphan's `onclose` becomes a no-op
+    // and cannot schedule a second reconnect behind this one.
+    const orphan = socketRef.current
+    socketRef.current = null
+    if (orphan) {
+      orphan.close()
+      failPendingCommands()
+    }
+
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const socket = new WebSocket(`${protocol}//${window.location.host}/ws`)
     socketRef.current = socket
     setPhase('connecting')
+    lastInboundAt.current = Date.now()
+    probeSentAt.current = null
 
     socket.onopen = () => socket.send(JSON.stringify({ type: 'auth', session }))
     socket.onmessage = (event) => {
+      // Any frame is proof of life, whichever probe or push produced it.
+      lastInboundAt.current = Date.now()
+      probeSentAt.current = null
       try {
         dispatch(JSON.parse(event.data as string) as ServerMessage)
       } catch {
@@ -190,22 +267,24 @@ export function useRemote(): RemoteApi {
     socket.onclose = () => {
       if (socketRef.current !== socket) return
       socketRef.current = null
-      // Commands in flight died with the socket — a parked form must not hang.
-      for (const pending of pendingCommands.current.values()) {
-        pending.reject(new Error('Verbindung unterbrochen.'))
-      }
-      pendingCommands.current.clear()
+      failPendingCommands()
       if (!aliveRef.current || sessionRef.current === null) return
-      // Reconnect with capped exponential backoff.
-      const delay = Math.min(RECONNECT_BASE_MS * 2 ** reconnectAttempt.current, RECONNECT_MAX_MS)
+      const delay = reconnectDelayMs(reconnectAttempt.current)
       reconnectAttempt.current += 1
       setPhase('connecting')
-      window.setTimeout(() => {
+      reconnectTimer.current = window.setTimeout(() => {
+        reconnectTimer.current = null
         if (aliveRef.current && sessionRef.current) connect()
       }, delay)
     }
     socket.onerror = () => socket.close()
-  }, [dispatch])
+  }, [clearReconnectTimer, dispatch, failPendingCommands])
+
+  /** Reconnect now, from the top of the backoff schedule. */
+  const reconnectNow = useCallback(() => {
+    reconnectAttempt.current = 0
+    connect()
+  }, [connect])
 
   const adoptSession = useCallback(
     (session: string, pairingToken?: string) => {
@@ -218,7 +297,7 @@ export function useRemote(): RemoteApi {
   )
 
   const beginPairing = useCallback(async () => {
-    const token = readTokenFromHash()
+    const token = tokenFromHash(window.location.hash)
     if (token) {
       // Strip the token from the URL before anything can screenshot it.
       history.replaceState(null, '', window.location.pathname + window.location.search)
@@ -254,10 +333,13 @@ export function useRemote(): RemoteApi {
     void beginPairing()
     return () => {
       aliveRef.current = false
-      socketRef.current?.close()
+      clearReconnectTimer()
+      const socket = socketRef.current
+      socketRef.current = null
+      socket?.close()
     }
     // Runs once on mount — beginPairing owns the whole connect lifecycle.
-  }, [beginPairing])
+  }, [beginPairing, clearReconnectTimer])
 
   useEffect(() => {
     if (repairNonce === 0) return
@@ -277,6 +359,61 @@ export function useRemote(): RemoteApi {
       setPhase('revoked')
     })
   }, [repairNonce, adoptSession])
+
+  // Wake-up: the phone came back, so find out where the connection stands
+  // instead of sitting out the rest of a ten-second backoff.
+  useEffect(() => {
+    const wake = (): void => {
+      if (!aliveRef.current || !sessionRef.current) return
+      switch (decideWake(socketRef.current?.readyState ?? null)) {
+        case 'reconnect':
+          reconnectNow()
+          break
+        case 'probe':
+          // Doubles as the refresh the overview needs: the answer is a
+          // `workspaces` push, so a list frozen since the phone slept updates
+          // in the same round-trip that proves the route still carries traffic.
+          probe()
+          break
+        case 'wait':
+          break
+      }
+    }
+    const onVisibility = (): void => {
+      if (document.visibilityState === 'visible') wake()
+    }
+    const onOnline = (): void => {
+      setOnline(true)
+      wake()
+    }
+    const onOffline = (): void => setOnline(false)
+    document.addEventListener('visibilitychange', onVisibility)
+    // `pageshow` also fires for a bfcache restore, where no other event does.
+    window.addEventListener('pageshow', wake)
+    window.addEventListener('online', onOnline)
+    window.addEventListener('offline', onOffline)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('pageshow', wake)
+      window.removeEventListener('online', onOnline)
+      window.removeEventListener('offline', onOffline)
+    }
+  }, [probe, reconnectNow])
+
+  useEffect(() => {
+    const tick = window.setInterval(() => {
+      const action = decideLiveness({
+        now: Date.now(),
+        lastInboundAt: lastInboundAt.current,
+        probeSentAt: probeSentAt.current,
+        visible: document.visibilityState === 'visible',
+        open: socketRef.current?.readyState === WebSocket.OPEN
+      })
+      if (action === 'probe') probe()
+      else if (action === 'reconnect') reconnectNow()
+    }, LIVENESS_TICK_MS)
+    return () => window.clearInterval(tick)
+  }, [probe, reconnectNow])
 
   const attach = useCallback(
     (agentId: string, handlers: TerminalHandlers): (() => void) => {
@@ -298,6 +435,7 @@ export function useRemote(): RemoteApi {
     workspaces,
     theme,
     locale,
+    online,
     attach,
     sendInput: (agentId, data) => sendRaw({ type: 'input', agentId, data }),
     resize: (agentId, cols: number, rows: number) => sendRaw({ type: 'resize', agentId, cols, rows }),
@@ -313,6 +451,11 @@ export function useRemote(): RemoteApi {
     reset: () => {
       clearAuth()
       sessionRef.current = null
+      clearReconnectTimer()
+      const socket = socketRef.current
+      socketRef.current = null
+      socket?.close()
+      failPendingCommands()
       setPhase('pairing')
     }
   }

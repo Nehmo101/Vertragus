@@ -29,11 +29,13 @@ export function hapticPattern(kind: HapticKind): number | number[] {
 
 /** Fire one haptic. Silent no-op where the API or permission is missing. */
 export function haptic(kind: HapticKind): void {
-  const vibrate = typeof navigator === 'undefined' ? undefined : navigator.vibrate
-  if (typeof vibrate !== 'function') return
+  // Called through `navigator`, not through a detached reference: the DOM lib
+  // declares `vibrate` as an overload set, and a detached one collapses to the
+  // `Iterable<number>` signature that a bare `number` does not satisfy.
+  if (typeof navigator === 'undefined' || typeof navigator.vibrate !== 'function') return
   if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
   try {
-    vibrate.call(navigator, hapticPattern(kind))
+    navigator.vibrate(hapticPattern(kind))
   } catch {
     /* A browser that rejects the pattern is not worth a crash. */
   }

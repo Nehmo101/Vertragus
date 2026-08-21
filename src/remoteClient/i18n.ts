@@ -109,6 +109,9 @@ export interface RemoteCopy {
   searchNext: string
   searchPrev: string
   searchNoMatch: string
+  searchResult: (index: number, count: number) => string
+  terminalRegion: string
+  historyControls: string
   copyBuffer: string
   copyDone: string
   copyFailed: string
@@ -211,6 +214,9 @@ const de: RemoteCopy = {
   searchNext: 'Weiter',
   searchPrev: 'Zurück',
   searchNoMatch: 'kein Treffer',
+  searchResult: (index, count) => `Treffer ${index} von ${count}`,
+  terminalRegion: 'Terminal-Ausgabe',
+  historyControls: 'Verlaufssteuerung',
   copyBuffer: 'Verlauf kopieren',
   copyDone: 'kopiert',
   copyFailed: 'Kopieren fehlgeschlagen'
@@ -312,6 +318,9 @@ const en: RemoteCopy = {
   searchNext: 'Next',
   searchPrev: 'Previous',
   searchNoMatch: 'no match',
+  searchResult: (index, count) => `Match ${index} of ${count}`,
+  terminalRegion: 'Terminal output',
+  historyControls: 'History controls',
   copyBuffer: 'Copy the history',
   copyDone: 'copied',
   copyFailed: 'Copying failed'
