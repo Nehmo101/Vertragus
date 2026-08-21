@@ -13,6 +13,8 @@
  * key, mirroring `isCliWindowSender`.
  */
 import { BrowserWindow } from 'electron'
+import { mainMessages, readLocale } from '@shared/mainMessages'
+import { getSettings } from '@main/store/settings'
 import { glassWindowOptions, loadRoute, secureWindow } from './base'
 import { armWindowCapture } from './smokeCapture'
 
@@ -105,7 +107,8 @@ export function openProfileEditorWindow(profileId?: string): BrowserWindow {
     resizable: true,
     // Never always-on-top: the editor is a task, not a HUD.
     alwaysOnTop: false,
-    title: 'Vertragus — Profil'
+    // OS-chrome title in the stored locale (see settingsWindow.ts).
+    title: mainMessages(readLocale(() => getSettings().ui.locale)).profileEditorTitle
   })
   secureWindow(win)
   loadRoute(win, key === NEW_PROFILE_KEY ? '/profile-editor' : `/profile-editor/${encodeURIComponent(key)}`)

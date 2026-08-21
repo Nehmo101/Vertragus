@@ -82,17 +82,20 @@ describe('loreTipPlacement', () => {
 describe('the names the card is for', () => {
   it('answers for the places and figures the user actually sees', () => {
     // The three the report named, end to end through the shared rosters.
-    expect(workspacePlaceBlurb('Limbo')).toMatch(/Kreis/)
-    expect(workspacePlaceBlurb('Inferno')).toMatch(/Hölle/)
-    expect(loreBlurb('Fortuna')).toMatch(/Glücksgöttin/)
+    expect(workspacePlaceBlurb('Limbo', 'de')).toMatch(/Kreis/)
+    expect(workspacePlaceBlurb('Inferno', 'de')).toMatch(/Hölle/)
+    expect(loreBlurb('Fortuna', 'de')).toMatch(/Glücksgöttin/)
+    // …and in the English UI, which gets its own copy instead of the German one.
+    expect(workspacePlaceBlurb('Inferno', 'en')).toMatch(/Hell/)
+    expect(loreBlurb('Fortuna', 'en')).toMatch(/fortune/)
     // …and through the allocator's suffixes, which is what a second workspace
     // or a second agent of the same name is called.
-    expect(workspacePlaceBlurb('Inferno II')).toBe(workspacePlaceBlurb('Inferno'))
-    expect(loreBlurb('Fortuna 2')).toBe(loreBlurb('Fortuna'))
+    expect(workspacePlaceBlurb('Inferno II', 'de')).toBe(workspacePlaceBlurb('Inferno', 'de'))
+    expect(loreBlurb('Fortuna 2', 'en')).toBe(loreBlurb('Fortuna', 'en'))
   })
 
   it('has nothing to say about a name nobody named', () => {
-    expect(loreBlurb('Eigenbau')).toBeUndefined()
-    expect(workspacePlaceBlurb('Eigenbau')).toBeUndefined()
+    expect(loreBlurb('Eigenbau', 'de')).toBeUndefined()
+    expect(workspacePlaceBlurb('Eigenbau', 'en')).toBeUndefined()
   })
 })

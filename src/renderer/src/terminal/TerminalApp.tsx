@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { applyLocale } from '../i18n'
+import { activeLocale, applyLocale } from '../i18n'
 import { LoreTip } from '../lore/LoreTip'
 import { applyTheme } from '../theme'
 import { metaBlurb } from './titleBlurb'
@@ -9,7 +9,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { WebLinksAddon } from '@xterm/addon-web-links'
-import type { Translate } from '../i18n'
+import type { Locale, Translate } from '../i18n'
 import type { TerminalAgentMeta, TerminalExitEvent } from '../../../preload'
 import '@xterm/xterm/css/xterm.css'
 import './terminal.css'
@@ -49,6 +49,7 @@ function loadRenderer(term: Terminal): void {
  */
 function metaLabel(
   t: Translate,
+  locale: Locale,
   meta: TerminalAgentMeta | null,
   agentId: string,
   task: string | undefined
@@ -57,7 +58,7 @@ function metaLabel(
   const engine = [meta.provider, meta.model].filter(Boolean).join(' ')
   return (
     <>
-      <LoreTip className="cli-name" name={meta.name} blurb={metaBlurb(t, meta, task)} />
+      <LoreTip className="cli-name" name={meta.name} blurb={metaBlurb(t, locale, meta, task)} />
       <span className="cli-label-dim">
         {' · '}
         {meta.role}
@@ -100,7 +101,7 @@ function MaximizeGlyph({ maximized }: { maximized: boolean }): React.JSX.Element
  * the main process, this attaches to it, replays the scrollback and streams.
  */
 export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const hostRef = useRef<HTMLDivElement>(null)
   const [meta, setMeta] = useState<TerminalAgentMeta | null>(null)
   const [task, setTask] = useState<string | undefined>(undefined)
@@ -277,7 +278,7 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
             running ? t('terminal.running') : t('terminal.stopped', { code: exit?.exitCode })
           }
         />
-        <span className="cli-label">{metaLabel(t, meta, agentId, task)}</span>
+        <span className="cli-label">{metaLabel(t, activeLocale(i18n.language), meta, agentId, task)}</span>
         <button
           className="cli-minimize"
           onClick={minimize}

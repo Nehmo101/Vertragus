@@ -2050,14 +2050,17 @@ export class Workspace implements AgentHost {
       return
     }
     record.idleNotified = true
+    // ENGLISH on purpose: this note rides the model-facing event channel the
+    // orchestrator reads, not the UI — same language policy as the prompts
+    // (see shared/prompts/roles.ts). Never localize model-directed text.
     this.queueFor(record.agentId).push({
       type: 'agent_progress',
       agentId: record.agentId,
       name: record.name,
       roleId: record.roleId,
-      note: `${record.name} (PTY-only): ${Math.round(
+      note: `${record.name} (PTY-only): no output for ${Math.round(
         PTY_ONLY_IDLE_HINT_MS / 1_000
-      )} s ohne Ausgabe — Status unbestätigt, ggf. read_output prüfen`
+      )} s — status unconfirmed, consider checking with read_output`
     })
   }
 

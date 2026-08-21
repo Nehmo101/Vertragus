@@ -127,24 +127,30 @@ describe('dismissing a finished agent window', () => {
 
 describe('tooltips', () => {
   it('reveals who a Commedia figure is, numbered clones included', () => {
-    expect(agentTooltip(t, agent({ name: 'Caronte' }))).toMatch(/Fährmann/)
-    expect(agentTooltip(t, agent({ name: 'Virgilio 2' }))).toMatch(/Führer/)
-    expect(agentTooltip(t, agent({ name: 'Nobody' }))).toBeUndefined()
+    expect(agentTooltip(t, 'de', agent({ name: 'Caronte' }))).toMatch(/Fährmann/)
+    expect(agentTooltip(t, 'de', agent({ name: 'Virgilio 2' }))).toMatch(/Führer/)
+    expect(agentTooltip(t, 'de', agent({ name: 'Nobody' }))).toBeUndefined()
+  })
+
+  it('speaks the locale it is handed — the blurbs are bilingual data', () => {
+    expect(agentTooltip(en, 'en', agent({ name: 'Caronte' }))).toMatch(/Ferryman/)
+    expect(agentTooltip(en, 'en', agent({ name: 'Virgilio 2' }))).toMatch(/guide/)
+    expect(workspacePlaceTooltip('en', workspace())).toMatch(/Paradise/)
   })
 
   it('appends the agent\'s current task to its hover card', () => {
     const withTask = agent({ statusText: 'Parser-Bug in tokenizer.ts fixen' })
-    expect(agentTooltip(t, withTask)).toMatch(/Fährmann/)
-    expect(agentTooltip(t, withTask)).toContain(
+    expect(agentTooltip(t, 'de', withTask)).toMatch(/Fährmann/)
+    expect(agentTooltip(t, 'de', withTask)).toContain(
       'Aktuelle Aufgabe: Parser-Bug in tokenizer.ts fixen'
     )
-    expect(agentTooltip(en, withTask)).toContain(
+    expect(agentTooltip(en, 'en', withTask)).toContain(
       'Current task: Parser-Bug in tokenizer.ts fixen'
     )
     // Whitespace is not a task — the blurb stands alone.
-    expect(agentTooltip(t, agent({ statusText: '   ' }))).not.toContain('Aufgabe')
+    expect(agentTooltip(t, 'de', agent({ statusText: '   ' }))).not.toContain('Aufgabe')
     // A name outside the roster still gets a card once there is a task.
-    expect(agentTooltip(t, agent({ name: 'Nobody', statusText: 'Docs schreiben' }))).toBe(
+    expect(agentTooltip(t, 'de', agent({ name: 'Nobody', statusText: 'Docs schreiben' }))).toBe(
       'Aktuelle Aufgabe: Docs schreiben'
     )
   })
@@ -155,34 +161,36 @@ describe('tooltips', () => {
       roleId: 'orchestrator',
       statusText: 'Parser-Bug fixen'
     })
-    expect(agentTooltip(t, orchestrator)).toContain('Zuletzt delegiert: Parser-Bug fixen')
-    expect(agentTooltip(en, orchestrator)).toContain('Last delegated: Parser-Bug fixen')
+    expect(agentTooltip(t, 'de', orchestrator)).toContain('Zuletzt delegiert: Parser-Bug fixen')
+    expect(agentTooltip(en, 'en', orchestrator)).toContain('Last delegated: Parser-Bug fixen')
   })
 
   it('reveals what kind of place a workspace is, cycle suffix included', () => {
-    expect(workspacePlaceTooltip(workspace())).toMatch(/Himmelssphären/)
-    expect(workspacePlaceTooltip(workspace({ name: 'Paradiso II' }))).toMatch(/Himmelssphären/)
+    expect(workspacePlaceTooltip('de', workspace())).toMatch(/Himmelssphären/)
+    expect(workspacePlaceTooltip('de', workspace({ name: 'Paradiso II' }))).toMatch(
+      /Himmelssphären/
+    )
     // A name the roster does not know gets no card at all — a box repeating the
     // word under the cursor is worse than nothing.
-    expect(workspacePlaceTooltip(workspace({ name: 'Eigenbau' }))).toBeUndefined()
-    expect(workspaceTooltip(t, workspace({ name: 'Eigenbau' }))).toBeUndefined()
+    expect(workspacePlaceTooltip('de', workspace({ name: 'Eigenbau' }))).toBeUndefined()
+    expect(workspaceTooltip(t, 'de', workspace({ name: 'Eigenbau' }))).toBeUndefined()
   })
 
   it('appends the current task to the workspace hover card once one exists', () => {
     const withTask = workspace({ taskText: 'Parser-Bug in tokenizer.ts fixen' })
-    expect(workspaceTooltip(t, withTask)).toMatch(/Himmelssphären/)
-    expect(workspaceTooltip(t, withTask)).toContain(
+    expect(workspaceTooltip(t, 'de', withTask)).toMatch(/Himmelssphären/)
+    expect(workspaceTooltip(t, 'de', withTask)).toContain(
       'Aktuelle Aufgabe: Parser-Bug in tokenizer.ts fixen'
     )
-    expect(workspaceTooltip(en, withTask)).toContain(
+    expect(workspaceTooltip(en, 'en', withTask)).toContain(
       'Current task: Parser-Bug in tokenizer.ts fixen'
     )
     // Whitespace is not a task — the blurb stands alone.
-    expect(workspaceTooltip(t, workspace({ taskText: '   ' }))).not.toContain('Aufgabe')
+    expect(workspaceTooltip(t, 'de', workspace({ taskText: '   ' }))).not.toContain('Aufgabe')
     // An unknown name with a task still gets a card — the task carries it.
-    expect(workspaceTooltip(t, workspace({ name: 'Eigenbau', taskText: 'Docs schreiben' }))).toBe(
-      'Aktuelle Aufgabe: Docs schreiben'
-    )
+    expect(
+      workspaceTooltip(t, 'de', workspace({ name: 'Eigenbau', taskText: 'Docs schreiben' }))
+    ).toBe('Aktuelle Aufgabe: Docs schreiben')
   })
 })
 

@@ -1397,7 +1397,10 @@ export function registerAppIpc(directory?: WorkspaceDirectory): AppIpc {
     isPanelSender: (id) => isPanelWindowSender(id),
     profileEditorSender: (id) => isProfileEditorWindowSender(id),
     providerEditorSender: (id) => isProviderEditorWindowSender(id),
-    discoverModels: (config) => discoverModels(config),
+    discoverModels: (config) =>
+      discoverModels(config, {
+        locale: () => readLocale(() => settings().getSettings().ui.locale)
+      }),
     checkProviders: (configs) => checkAllProviders(configs),
     async pickDirectory(webContentsId, defaultPath) {
       // Modal to the asking window, so the dialog cannot end up behind the

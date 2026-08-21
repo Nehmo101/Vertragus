@@ -9,6 +9,7 @@
  * enumeration) live here, injected.
  */
 import type { RemoteSettings } from '@main/store/settings'
+import { mainMessages } from '@shared/mainMessages'
 import type { RemoteStatus } from '@shared/remote/types'
 import { detectTailscaleAddress, type NetworkInterfaces } from './interfaces'
 import { mintPairingToken, pairingUrl } from './pairing'
@@ -39,6 +40,11 @@ export interface RemoteControllerDeps {
   /** Everything the server needs that is not remote-config: gateway, terminals… */
   serverBase: Omit<RemoteServerOptions, 'host' | 'port' | 'pairingToken' | 'staticRoot'>
   startServer?: typeof startRemoteServer
+  /**
+   * Stored UI locale for the error strings the settings window shows; absent
+   * (tests) falls back to the schema default via `mainMessages`.
+   */
+  locale?(): string | undefined
 }
 
 export interface RemoteController {
@@ -58,19 +64,14 @@ export interface RemoteController {
  */
 export function resolveBindAddress(
   settings: RemoteSettings,
-  interfaces: NetworkInterfaces
+  interfaces: NetworkInterfaces,
+  locale?: string
 ): { address: string } | { error: string } {
   if (settings.bindAddress) return { address: settings.bindAddress }
   const tailscale = detectTailscaleAddress(interfaces)
   if (tailscale) return { address: tailscale }
-  return {
-    error:
-      'Keine Tailscale-Adresse gefunden. Starte Tailscale, oder wähle in den Einstellungen eine andere Bind-Adresse.'
-  }
+  return { error: mainMessages(locale).remoteNoTailscale }
 }
-
-const TOKEN_UNLOCK_ERROR =
-  'Kopplungs-Token konnte nicht entsperrt werden. Erzeuge in den Einstellungen einen neuen Code, oder entsperre den System-Schlüsselbund.'
 
 export function createRemoteController(deps: RemoteControllerDeps): RemoteController {
   const startServer = deps.startServer ?? startRemoteServer
@@ -146,7 +147,7 @@ export function createRemoteController(deps: RemoteControllerDeps): RemoteContro
   }
 
   const bindPreview = (settings: RemoteSettings): string | undefined => {
-    const resolved = resolveBindAddress(settings, deps.networkInterfaces())
+    const resolved = resolveBindAddress(settings, deps.networkInterfaces(), deps.locale?.())
     return 'address' in resolved ? resolved.address : undefined
   }
 
@@ -158,7 +159,7 @@ export function createRemoteController(deps: RemoteControllerDeps): RemoteContro
 
   const start = async (settings: RemoteSettings): Promise<void> => {
     lastError = undefined
-    const resolved = resolveBindAddress(settings, deps.networkInterfaces())
+    const resolved = resolveBindAddress(settings, deps.networkInterfaces(), deps.locale?.())
     if ('error' in resolved) {
       lastError = resolved.error
       return
@@ -169,7 +170,7 @@ export function createRemoteController(deps: RemoteControllerDeps): RemoteContro
       // is how the QR used to change on every restart. First enable (nothing
       // stored) still mints.
       if (ciphertext()) {
-        lastError = TOKEN_UNLOCK_ERROR
+        lastError = mainMessages(deps.locale?.()).remoteTokenLocked
       } else {
         persistToken(settings, mintPairingToken())
       }

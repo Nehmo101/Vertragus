@@ -1251,7 +1251,8 @@ describe('PTY-only silence hint', () => {
     expect(hints(h)).toHaveLength(1)
     expect(hints(h)[0]).toContain(started.name)
     expect(hints(h)[0]).toContain('PTY-only')
-    expect(hints(h)[0]).toContain('120 s ohne Ausgabe')
+    // English on purpose — the note travels the model-facing event channel.
+    expect(hints(h)[0]).toContain('no output for 120 s')
     expect(hints(h)[0]).toContain('read_output')
 
     // Not a drip: the same silence must not keep firing.

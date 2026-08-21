@@ -7,6 +7,7 @@ import {
   adoptLegacyStore,
   appSettingsSchema,
   createSettingsStore,
+  defaultLocaleForOs,
   effectiveAgentPolicy,
   LEGACY_STORE_NAME,
   SETTINGS_KEYS,
@@ -383,6 +384,24 @@ describe('app settings', () => {
       expect(appSettingsSchema.shape[key]).toBeDefined()
     }
     expect(Object.keys(appSettingsSchema.shape).sort()).toEqual([...SETTINGS_KEYS].sort())
+  })
+
+  /**
+   * WP-1: the first-run UI language follows the OS. The rule itself is pure —
+   * the Electron backend applies it exactly once, on a first run with no
+   * stored `ui`, so a stored choice always wins (see createElectronBackend).
+   */
+  it('derives the first-run locale from the OS: de* stays German, the rest gets English', () => {
+    expect(defaultLocaleForOs('de')).toBe('de')
+    expect(defaultLocaleForOs('de-DE')).toBe('de')
+    expect(defaultLocaleForOs('de-AT')).toBe('de')
+    expect(defaultLocaleForOs('DE_CH')).toBe('de')
+    expect(defaultLocaleForOs('en-US')).toBe('en')
+    expect(defaultLocaleForOs('fr')).toBe('en')
+    expect(defaultLocaleForOs('')).toBe('en')
+    expect(defaultLocaleForOs(undefined)).toBe('en')
+    // A partially German-looking tag that is not German must not match.
+    expect(defaultLocaleForOs('nds')).toBe('en')
   })
 })
 

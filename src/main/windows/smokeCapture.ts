@@ -125,7 +125,8 @@ export async function captureWindowToFile(
   } = options
 
   if (win.isDestroyed()) {
-    log(`[smoke] ${label}: Fenster ist bereits zerstört.`)
+    // Developer-facing CI log, not UI copy — English like the rest of stderr.
+    log(`[smoke] ${label}: window is already destroyed.`)
     return false
   }
   ensureVisible(win)
@@ -135,7 +136,7 @@ export async function captureWindowToFile(
   let lastError: unknown
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     if (win.isDestroyed()) {
-      log(`[smoke] ${label}: Fenster verschwand während der Aufnahme.`)
+      log(`[smoke] ${label}: window disappeared during capture.`)
       return false
     }
     ensureVisible(win)

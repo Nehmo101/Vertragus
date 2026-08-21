@@ -63,25 +63,27 @@ describe('workspacePlaceName', () => {
 })
 
 describe('workspacePlaceBlurb', () => {
-  it('gives every curated place a non-empty description', () => {
+  it('gives every curated place a non-empty description in both languages', () => {
     for (const place of WORKSPACE_PLACES) {
-      expect(place.blurb.trim().length).toBeGreaterThan(0)
+      expect(place.blurb.de.trim().length, place.name).toBeGreaterThan(0)
+      expect(place.blurb.en.trim().length, place.name).toBeGreaterThan(0)
     }
   })
 
-  it('resolves the blurb for a bare place-name', () => {
-    expect(workspacePlaceBlurb('Paradiso')).toBe(WORKSPACE_PLACES[0]!.blurb)
+  it('resolves the blurb for a bare place-name in the asked-for language', () => {
+    expect(workspacePlaceBlurb('Paradiso', 'de')).toBe(WORKSPACE_PLACES[0]!.blurb.de)
+    expect(workspacePlaceBlurb('Paradiso', 'en')).toBe(WORKSPACE_PLACES[0]!.blurb.en)
   })
 
   it('resolves the blurb through a Roman cycle suffix', () => {
     const names = shuffleWorkspacePlaceNames(() => 0)
     const cycledName = workspacePlaceName(names.length + 1, names)
 
-    expect(workspacePlaceBlurb(cycledName)).toBe(workspacePlaceBlurb(names[0]!))
+    expect(workspacePlaceBlurb(cycledName, 'de')).toBe(workspacePlaceBlurb(names[0]!, 'de'))
   })
 
   it('returns undefined for custom or unknown names', () => {
-    expect(workspacePlaceBlurb('Mein eigener Workspace')).toBeUndefined()
-    expect(workspacePlaceBlurb('')).toBeUndefined()
+    expect(workspacePlaceBlurb('Mein eigener Workspace', 'de')).toBeUndefined()
+    expect(workspacePlaceBlurb('', 'en')).toBeUndefined()
   })
 })

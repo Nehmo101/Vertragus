@@ -372,6 +372,7 @@ function buildRemoteController(
   return createRemoteController({
     readSettings: () => getSettings().remote,
     writeSettings: (next) => setSetting('remote', next),
+    locale: () => readLocale(() => getSettings().ui.locale),
     networkInterfaces: () => networkInterfaces() as Parameters<typeof bindOptions>[0],
     secrets: {
       // No OS keychain (a Linux desktop without a configured keyring) → do
