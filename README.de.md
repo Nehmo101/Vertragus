@@ -220,6 +220,18 @@ es auf deinem PC läuft. Es ist **standardmäßig aus**; aktiviere es unter
   jede davon tatsächlich erzwingt, und wie du eine Schwachstelle meldest —
   steht in [`SECURITY.md`](SECURITY.md).
 
+## Signierung
+
+Downloads sind derzeit **unsigniert**: Windows SmartScreen unterbricht den
+ersten Start des Installers — klicke **Weitere Informationen → Trotzdem
+ausführen**. Jeder Download lässt sich gegen die sha512-Hashes in der
+`latest.yml` / `main.yml` des Releases prüfen — dieselben Werte, die auch der
+Auto-Updater prüft. Das Signier- und Notarisierungs-Plumbing ist vorhanden
+und aktiviert sich über Repository-Secrets; macOS-Artefakte kommen erst mit
+existierender Signatur in Releases, weil Squirrel.Mac unsignierte
+Auto-Updates verweigert. Details, Secret-Namen und die Prüf-Anleitung:
+[`docs/SIGNING.md`](docs/SIGNING.md).
+
 ## Entwicklung
 
 ```bash
