@@ -13,7 +13,7 @@ import type { Locale, Translate } from '../i18n'
 import type { TerminalAgentMeta, TerminalExitEvent } from '../../../preload'
 import '@xterm/xterm/css/xterm.css'
 import './terminal.css'
-import { trackWindowFocus } from './windowFocus'
+import { shouldFocusTerminal, trackWindowFocus } from './windowFocus'
 import { XTERM_THEME } from './xtermTheme'
 
 /**
@@ -202,6 +202,13 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
     const observer = new ResizeObserver(() => applyFit())
     observer.observe(host)
 
+    // Panel click / later OS focus after showInactive: attach skipped term.focus().
+    const onWindowFocus = (): void => {
+      if (disposed) return
+      if (shouldFocusTerminal(document.hasFocus())) term.focus()
+    }
+    window.addEventListener('focus', onWindowFocus)
+
     void bridge
       .attach(agentId)
       .then((result) => {
@@ -218,7 +225,7 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
         for (const chunk of queued) term.write(chunk)
         queued.length = 0
         applyFit()
-        term.focus()
+        if (shouldFocusTerminal(document.hasFocus())) term.focus()
       })
       .catch((cause: unknown) => {
         if (disposed) return
@@ -227,6 +234,7 @@ export function TerminalApp({ agentId }: { agentId: string }): React.JSX.Element
 
     return () => {
       disposed = true
+      window.removeEventListener('focus', onWindowFocus)
       observer.disconnect()
       offData()
       offExit()

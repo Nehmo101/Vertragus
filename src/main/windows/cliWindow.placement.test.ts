@@ -55,6 +55,10 @@ class FakeBrowserWindow {
     this.bounds = bounds
   }
   show(): void {}
+  showInactive(): void {}
+  isFocused(): boolean {
+    return false
+  }
   focus(): void {}
   restore(): void {}
   close(): void {
