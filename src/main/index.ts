@@ -30,7 +30,7 @@ import { armWindowCapture } from './windows/smokeCapture'
 import { armZoneOverlaySmoke } from './windows/zoneOverlay'
 import { startAppUpdater } from './updater'
 import type { WorkspaceManager } from './workspace/WorkspaceManager'
-import { buildResumeBriefing, latestRun } from './workspace/resume'
+import { boardForResume, buildResumeBriefing, latestRun, readRunTasks } from './workspace/resume'
 import { createWorktreeCleanup } from './workspace/worktreeCleanup'
 
 /**
@@ -200,8 +200,16 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
       if (!run) {
         throw new Error(`resume rejected — no journaled run found in ${profile.repoPath}`)
       }
+      // S4 (fail-soft): the old run's task board — dead owners freed — seeds
+      // the new board and gets one honest mention in the briefing.
+      const rawTasks = await readRunTasks(profile.repoPath, run.workspaceId)
+      const tasks = rawTasks ? boardForResume(rawTasks) : undefined
       return manager.startWorkspace(profile, {
-        resume: { briefing: buildResumeBriefing(run), fromWorkspaceId: run.workspaceId },
+        resume: {
+          briefing: buildResumeBriefing(run, tasks),
+          fromWorkspaceId: run.workspaceId,
+          ...(tasks ? { tasks } : {})
+        },
         ...(run.meta?.goal ? { goal: run.meta.goal } : {})
       })
     },

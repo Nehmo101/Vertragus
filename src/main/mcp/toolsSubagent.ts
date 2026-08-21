@@ -102,12 +102,22 @@ export function registerSubagentTools(
       // F: the report lands in the PARENT's queue — a lead's child reports to
       // the lead, not to the root.
       const queue = queueForAgent(runtime, agentId)
+      let headSha: string | undefined
       try {
         const facts = await ctx.host.snapshotDone(agentId, summary)
+        headSha = facts.headSha
         queue.push({ ...payload, ...worktreeEventFields(facts) })
       } catch {
         queue.push(payload)
       }
+      // S4: the same path also lands on the task board — lastReport on every
+      // task this agent owns. Display facts only; the status NEVER moves here
+      // (completing is the orchestrator's explicit decision after verification).
+      runtime.taskBoard?.noteReport(agentId, {
+        status: payload.status,
+        summary,
+        ...(headSha ? { headSha } : {})
+      })
       return toolJson({
         ok: true,
         note: 'The orchestrator has your result. Stay available: it either sends you a follow-up task or stops you. Do not exit on your own.'

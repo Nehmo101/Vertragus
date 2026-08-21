@@ -819,7 +819,7 @@ describe('record_retro', () => {
 })
 
 describe('multi-orchestration — F', () => {
-  it('root registers eleven tools; a lead scope registers only the eight down-tools', () => {
+  it('root registers every documented tool; a lead scope registers only the down-tools', () => {
     const { tools } = setup()
     expect([...tools.keys()].sort()).toEqual([...ORCHESTRATOR_TOOL_NAMES].sort())
 
@@ -827,8 +827,9 @@ describe('multi-orchestration — F', () => {
     const leadTools = captureTools((server) =>
       registerOrchestratorTools(server, runtime, { leadId: 'lead-1' })
     )
+    // S4: the task tools are shared with the root — same board, fenced owners.
     expect([...leadTools.keys()].sort()).toEqual(
-      ['start_agent', 'send_to_agent', 'await_events', 'list_agents', 'stop_agent', 'read_output', 'inspect_agent', 'integrate_branch'].sort()
+      ['start_agent', 'send_to_agent', 'await_events', 'list_agents', 'stop_agent', 'read_output', 'inspect_agent', 'integrate_branch', 'task_create', 'task_update', 'task_list'].sort()
     )
     // Depth 1 and root-only surface enforced by ABSENCE, not by prompt.
     expect(leadTools.has('start_orchestrator')).toBe(false)
@@ -1196,5 +1197,193 @@ describe('request_succession', () => {
     const listed = await callTool(tools, 'list_agents')
     expect(listed.isError).toBe(false)
     host.completeSuccession()
+  })
+})
+
+describe('task board — S4', () => {
+  function leadSetup() {
+    const runtime = fakeRuntime()
+    const tools = captureTools((server) =>
+      registerOrchestratorTools(server, runtime, { leadId: 'lead-1' })
+    )
+    return { runtime, tools }
+  }
+
+  it('task_create → task_list roundtrip with ready flags (deleted deps ignored)', async () => {
+    const { runtime, tools } = setup()
+    const first = await callTool(tools, 'task_create', { subject: 'Build parser' })
+    expect(first.json).toMatchObject({ taskId: 'task-1', revision: 1 })
+    await callTool(tools, 'task_create', { subject: 'Doomed' })
+    await callTool(tools, 'task_create', { subject: 'Test parser', blockedBy: ['task-1', 'task-2'] })
+
+    let rows = (await callTool(tools, 'task_list')).json.tasks as Array<Record<string, unknown>>
+    expect(rows.map((row) => [row.taskId, row.ready])).toEqual([
+      ['task-1', true],
+      ['task-2', true],
+      ['task-3', false]
+    ])
+    // The compact row: no description, no timestamps — task_list stays cheap.
+    expect(rows[2]).toEqual({
+      taskId: 'task-3',
+      revision: 1,
+      subject: 'Test parser',
+      status: 'pending',
+      blockedBy: ['task-1', 'task-2'],
+      ready: false
+    })
+
+    await callTool(tools, 'task_update', { taskId: 'task-1', expectedRevision: 1, action: 'complete' })
+    await callTool(tools, 'task_update', { taskId: 'task-2', expectedRevision: 1, action: 'delete' })
+    rows = (await callTool(tools, 'task_list', { status: 'pending' })).json.tasks as Array<
+      Record<string, unknown>
+    >
+    // Ready now: task-1 completed, the tombstone task-2 is ignored, not cascaded.
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ taskId: 'task-3', ready: true })
+    expect(runtime.taskBoard!.get('task-3')!.blockedBy).toEqual(['task-1', 'task-2'])
+  })
+
+  it('stale_revision rides the CURRENT task in the tool error payload', async () => {
+    const { tools } = setup()
+    await callTool(tools, 'task_create', { subject: 'S' })
+    await callTool(tools, 'task_update', {
+      taskId: 'task-1',
+      expectedRevision: 1,
+      action: 'edit',
+      subject: 'Renamed'
+    })
+    const stale = await callTool(tools, 'task_update', {
+      taskId: 'task-1',
+      expectedRevision: 1,
+      action: 'complete'
+    })
+    expect(stale.isError).toBe(true)
+    expect(stale.json.error).toBe('stale_revision')
+    expect(stale.json.task).toMatchObject({ taskId: 'task-1', revision: 2, subject: 'Renamed' })
+  })
+
+  it('fences a lead: owners only from its own subtree (or itself)', async () => {
+    const { runtime, tools } = leadSetup()
+    runtime.parentOf.set('agent-mine', 'lead-1')
+    await callTool(tools, 'task_create', { subject: 'S' })
+
+    // A root child (no parentOf entry) is out of the lead's subtree.
+    const foreign = await callTool(tools, 'task_update', {
+      taskId: 'task-1',
+      expectedRevision: 1,
+      action: 'claim',
+      ownerAgentId: 'agent-of-root'
+    })
+    expect(foreign.isError).toBe(true)
+    expect(foreign.json.error).toBe('owner_out_of_scope')
+
+    const own = await callTool(tools, 'task_update', {
+      taskId: 'task-1',
+      expectedRevision: 1,
+      action: 'claim',
+      ownerAgentId: 'agent-mine'
+    })
+    expect(own.isError).toBe(false)
+    // The lead itself is a legal owner too.
+    const created = await callTool(tools, 'task_create', { subject: 'Own', ownerAgentId: 'lead-1' })
+    expect(created.isError).toBe(false)
+  })
+
+  it('delete and reassign are root-only; the root may do both', async () => {
+    const { tools } = leadSetup()
+    await callTool(tools, 'task_create', { subject: 'S' })
+    for (const action of ['delete', 'reassign'] as const) {
+      const refused = await callTool(tools, 'task_update', {
+        taskId: 'task-1',
+        expectedRevision: 1,
+        action,
+        ownerAgentId: 'lead-1'
+      })
+      expect(refused.isError).toBe(true)
+      expect(refused.json.error).toBe('root_only_action')
+    }
+
+    const { tools: rootTools } = setup()
+    await callTool(rootTools, 'task_create', { subject: 'S', ownerAgentId: 'agent-x' })
+    const reassigned = await callTool(rootTools, 'task_update', {
+      taskId: 'task-1',
+      expectedRevision: 1,
+      action: 'reassign',
+      ownerAgentId: 'agent-y'
+    })
+    expect(reassigned.isError).toBe(false)
+    expect(reassigned.json.task).toMatchObject({ ownerAgentId: 'agent-y' })
+    const deleted = await callTool(rootTools, 'task_update', {
+      taskId: 'task-1',
+      expectedRevision: 2,
+      action: 'delete'
+    })
+    expect(deleted.isError).toBe(false)
+  })
+
+  it('start_agent{taskId} claims the task for the new agent and seeds its text before the contract', async () => {
+    const { runtime, tools } = setup()
+    await callTool(tools, 'task_create', { subject: 'Fix the parser', description: 'See src/parser.' })
+    const started = await callTool(tools, 'start_agent', {
+      role: 'worker',
+      task: 'Work on your board task.',
+      taskId: 'task-1'
+    })
+    expect(started.isError).toBe(false)
+    expect(started.json.taskId).toBe('task-1')
+
+    const task = runtime.taskBoard!.get('task-1')!
+    expect(task).toMatchObject({
+      status: 'in_progress',
+      ownerAgentId: started.json.agentId,
+      revision: 2
+    })
+
+    const seed = runtime.host.seeded[0]!.task
+    const taskContext = 'Task task-1: Fix the parser\nSee src/parser.'
+    expect(seed).toContain(taskContext)
+    expect(seed.indexOf(taskContext)).toBeGreaterThan(seed.indexOf('Work on your board task.'))
+    expect(seed.indexOf(taskContext)).toBeLessThan(seed.indexOf(CONTRACT_MARKER))
+  })
+
+  it('start_agent{taskId} fails loud BEFORE the reservation for unclaimable tasks', async () => {
+    const { runtime, tools } = setup()
+    const unknown = await callTool(tools, 'start_agent', { role: 'worker', task: 't', taskId: 'task-9' })
+    expect(unknown.isError).toBe(true)
+    expect(unknown.json.error).toBe('unknown_task')
+
+    await callTool(tools, 'task_create', { subject: 'Taken', ownerAgentId: 'agent-elsewhere' })
+    const taken = await callTool(tools, 'start_agent', { role: 'worker', task: 't', taskId: 'task-1' })
+    expect(taken.isError).toBe(true)
+    expect(taken.json).toMatchObject({ error: 'invalid_transition', status: 'in_progress' })
+
+    await callTool(tools, 'task_create', { subject: 'Gone' })
+    await callTool(tools, 'task_update', { taskId: 'task-2', expectedRevision: 1, action: 'delete' })
+    const gone = await callTool(tools, 'start_agent', { role: 'worker', task: 't', taskId: 'task-2' })
+    expect(gone.isError).toBe(true)
+    expect(gone.json.error).toBe('task_deleted')
+
+    // Fail-loud means BEFORE beginAgent: no reservation, no seed, no agent.
+    expect(runtime.host.seeded).toHaveLength(0)
+    expect(runtime.host.listAgents()).toHaveLength(0)
+  })
+
+  it('answers task_board_unavailable on a runtime without a board (old fakes)', async () => {
+    const runtime = fakeRuntime({ taskBoard: null })
+    const tools = captureTools((server) => registerOrchestratorTools(server, runtime))
+    for (const [name, args] of [
+      ['task_create', { subject: 'S' }],
+      ['task_update', { taskId: 'task-1', expectedRevision: 1, action: 'complete' }],
+      ['task_list', {}]
+    ] as const) {
+      const result = await callTool(tools, name, args as Record<string, unknown>)
+      expect(result.isError).toBe(true)
+      expect(result.json.error).toBe('task_board_unavailable')
+    }
+    // start_agent{taskId} refuses too — but a plain start still works.
+    const withTask = await callTool(tools, 'start_agent', { role: 'worker', task: 't', taskId: 'task-1' })
+    expect(withTask.json.error).toBe('task_board_unavailable')
+    const plain = await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
+    expect(plain.isError).toBe(false)
   })
 })

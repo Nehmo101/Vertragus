@@ -93,6 +93,33 @@ describe('report_done', () => {
     expect(runtime.host.doneSnapshots).toEqual([{ agentId, summary: 'parser fixed' }])
   })
 
+  it('S4: lands as lastReport on the agent’s board tasks — status untouched', async () => {
+    const { runtime, tools, agentId } = await setup()
+    const board = runtime.taskBoard!
+    board.create({ subject: 'Mine', ownerAgentId: agentId })
+    board.create({ subject: 'Not mine', ownerAgentId: 'someone-else' })
+
+    await callTool(tools, 'report_done', { summary: 'parser fixed', status: 'success' })
+    const mine = board.get('task-1')!
+    expect(mine.lastReport).toMatchObject({ status: 'success', summary: 'parser fixed' })
+    // The C3 snapshot's HEAD rides along as a host fact.
+    expect(mine.lastReport?.headSha).toBeTruthy()
+    // Verification stays the orchestrator's explicit decision — never here.
+    expect(mine.status).toBe('in_progress')
+    expect(board.get('task-2')?.lastReport).toBeUndefined()
+  })
+
+  it('S4: notes the report even when the worktree snapshot fails (no headSha then)', async () => {
+    const runtime = fakeRuntime({ host: new FakeAgentHost({ snapshotError: 'git died' }) })
+    const started = runtime.host.beginAgent({ role: 'worker', task: 't' })
+    const tools = captureTools((server) => registerSubagentTools(server, runtime, started.agentId))
+    runtime.taskBoard!.create({ subject: 'Mine', ownerAgentId: started.agentId })
+
+    await callTool(tools, 'report_done', { summary: 'done anyway' })
+    const task = runtime.taskBoard!.get('task-1')!
+    expect(task.lastReport).toEqual({ status: 'success', summary: 'done anyway' })
+  })
+
   it('still reports done when the worktree snapshot fails', async () => {
     const runtime = fakeRuntime({ host: new FakeAgentHost({ snapshotError: 'git died' }) })
     const started = runtime.host.beginAgent({ role: 'worker', task: 't' })

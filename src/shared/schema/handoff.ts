@@ -65,6 +65,27 @@ export const handoffAgentSchema = z
   .strict()
 export type HandoffAgent = z.infer<typeof handoffAgentSchema>
 
+/** S4: max subject characters carried per task row in the package. */
+export const TASK_SUBJECT_MAX_CHARS = 200
+
+/**
+ * S4: one task-board row in the package. Like `openQuestions`, tasks are NEVER
+ * truncated away by the size cap — the board is the plan, and a successor that
+ * loses it rebuilds it from prose, which is exactly the failure S4 removes.
+ * The full board stays host state anyway (task_list); these rows seed trust.
+ */
+export const handoffTaskSchema = z
+  .object({
+    taskId: z.string().min(1),
+    revision: z.number().int().positive(),
+    subject: cappedString(TASK_SUBJECT_MAX_CHARS),
+    status: z.string().min(1),
+    ownerAgentId: z.string().min(1).optional(),
+    blockedBy: z.array(z.string())
+  })
+  .strict()
+export type HandoffTask = z.infer<typeof handoffTaskSchema>
+
 export const handoffOpenQuestionSchema = z
   .object({
     questionId: z.string().min(1),
@@ -122,6 +143,7 @@ export const orchestratorHandoffPackageSchema = z
     recentEvents: z.array(handoffRecentEventSchema).max(RECENT_EVENTS_MAX),
     agents: z.array(handoffAgentSchema),
     openQuestions: z.array(handoffOpenQuestionSchema),
+    tasks: z.array(handoffTaskSchema),
     decisions: z.array(cappedString(NOTE_MAX_CHARS)).max(DECISIONS_MAX),
     risks: z.array(cappedString(NOTE_MAX_CHARS)).max(RISKS_MAX),
     nextActions: z.array(cappedString(NOTE_MAX_CHARS)).max(NEXT_ACTIONS_MAX),
@@ -225,6 +247,8 @@ export interface BuildHandoffPackageInput {
   eventCursor: number
   agents: HandoffAgent[]
   openQuestions: HandoffOpenQuestion[]
+  /** S4: the task board at handoff; absent = a run without a board (old fakes). */
+  tasks?: HandoffTask[]
   recentEvents: HandoffRecentEvent[]
   goal?: HandoffGoal
   decisions?: string[]
@@ -269,6 +293,14 @@ export function buildHandoffPackage(input: BuildHandoffPackageInput): Orchestrat
     return { ...question, question: capped.value }
   })
 
+  // S4: subjects are capped, rows are not — tasks survive the size cap whole,
+  // like openQuestions (see handoffTaskSchema).
+  const tasks = (input.tasks ?? []).map((task) => {
+    const capped = capText(task.subject, TASK_SUBJECT_MAX_CHARS)
+    if (capped.truncated) truncated.push('tasks.subject')
+    return { ...task, subject: capped.value }
+  })
+
   const recentEvents = compactRecentEvents(input.recentEvents)
   if (recentEvents.length < input.recentEvents.length) truncated.push('recentEvents')
 
@@ -286,6 +318,7 @@ export function buildHandoffPackage(input: BuildHandoffPackageInput): Orchestrat
     recentEvents,
     agents: input.agents,
     openQuestions,
+    tasks,
     decisions: decisions.values,
     risks: risks.values,
     nextActions: nextActions.values,

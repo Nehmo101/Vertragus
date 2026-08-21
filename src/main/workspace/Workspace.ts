@@ -119,6 +119,7 @@ import type { ProviderConfig } from '@shared/schema/provider'
 import type { ZoneLayout } from '@shared/schema/zones'
 import type { AgentDoneStatus } from '@shared/schema/events'
 import { SentinelParser, type SentinelReport } from './sentinel'
+import type { TaskBoard } from './taskBoard'
 import { terminalTailText } from './terminalText'
 
 /** Agent statuses this host reports. See `mcp/types` TERMINAL_AGENT_STATUSES. */
@@ -384,6 +385,8 @@ export class Workspace implements AgentHost {
   private mcpUrls: WorkspaceMcpUrls | undefined
   /** Open-question registry from MCP registration — needed for sentinel ASK. */
   private questions: PendingQuestions | undefined
+  /** S4: the run's task board (installed by the manager) — for the handoff package. */
+  private taskBoard: TaskBoard | undefined
   /**
    * F: routes an event ABOUT an agent to its parent's queue (a lead's child →
    * the lead queue). Installed by the WorkspaceManager after registration;
@@ -556,6 +559,11 @@ export class Workspace implements AgentHost {
   /** F: install the MCP layer's parent-queue router (see {@link queueFor}). */
   attachEventRouter(router: (agentId: string) => EventQueue): void {
     this.eventRouter = router
+  }
+
+  /** S4: hand over the run's task board so succession can package the plan. */
+  attachTaskBoard(board: TaskBoard): void {
+    this.taskBoard = board
   }
 
   /** The queue an event about `agentId` belongs in — its parent's, else root. */
@@ -1449,6 +1457,19 @@ export class Workspace implements AgentHost {
       question: question.question
     }))
 
+    // S4: the plan rides along — tombstones excluded (a successor's task_list
+    // can still show them; the seed should carry the living plan only).
+    const tasks = (this.taskBoard?.snapshot().tasks ?? [])
+      .filter((task) => task.status !== 'deleted')
+      .map((task) => ({
+        taskId: task.taskId,
+        revision: task.revision,
+        subject: task.subject,
+        status: task.status,
+        ...(task.ownerAgentId ? { ownerAgentId: task.ownerAgentId } : {}),
+        blockedBy: task.blockedBy
+      }))
+
     // The incumbent's self-report wins, but a context-starved orchestrator
     // often omits the goal entirely — the host delivered it ({@link assignGoal})
     // and must not let it fall out of the run at exactly the moment a fresh
@@ -1478,6 +1499,7 @@ export class Workspace implements AgentHost {
       eventCursor: this.events.cursor,
       agents,
       openQuestions,
+      tasks,
       recentEvents: compactRecentEvents(this.events.all()),
       goal,
       decisions: input.decisions,

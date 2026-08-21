@@ -5,6 +5,7 @@
  */
 import { z, type ZodRawShape } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { createTaskBoard, type TaskBoard } from '@main/workspace/taskBoard'
 import { EventQueue } from './eventQueue'
 import { PendingQuestions } from './pendingQuestions'
 import type {
@@ -327,6 +328,18 @@ export interface FakeRuntimeOptions {
   awaitTimeout?: { defaultSec: number; maxSec: number }
   host?: FakeAgentHost
   retro?: WorkspaceRetroPort
+  /** S4: override the default in-memory board; `null` = a runtime WITHOUT one. */
+  taskBoard?: TaskBoard | null
+}
+
+/** S4: a task board that never touches disk — persistence is stubbed out. */
+export function memoryTaskBoard(now?: () => number): TaskBoard {
+  return createTaskBoard('/repo', 'ws-test', {
+    mkdir: async () => undefined,
+    writeFile: async () => undefined,
+    rename: async () => undefined,
+    ...(now ? { now } : {})
+  })
 }
 
 /** A workspace runtime wired to a {@link FakeAgentHost}. */
@@ -353,12 +366,14 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): WorkspaceRuntime 
     awaitTimeout: options.awaitTimeout,
     retro: options.retro
   }
+  const taskBoard = options.taskBoard === null ? undefined : options.taskBoard ?? memoryTaskBoard()
   return {
     ctx,
     questions: new PendingQuestions(),
     agentTasks: new Map(),
     leads: new Map(),
     parentOf: new Map(),
+    ...(taskBoard ? { taskBoard } : {}),
     host,
     events
   }
