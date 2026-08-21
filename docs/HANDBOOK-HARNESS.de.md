@@ -1,3 +1,5 @@
+Deutsch | [English](HANDBOOK-HARNESS.md)
+
 # Vertragus als AI-Harness
 
 Ideen, die aus dem Code kommen — nicht aus einer generischen Agent-Roadmap.

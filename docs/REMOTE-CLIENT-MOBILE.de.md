@@ -1,3 +1,5 @@
+Deutsch | [English](REMOTE-CLIENT-MOBILE.md)
+
 # Remote-Client (Handy / Tailscale)
 
 Analyse des bisherigen Tailgate-Clients, was dieser PR ändert, und was

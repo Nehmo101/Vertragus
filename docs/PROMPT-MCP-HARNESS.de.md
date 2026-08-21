@@ -1,7 +1,9 @@
+Deutsch | [English](PROMPT-MCP-HARNESS.md)
+
 # Prompt: Vertragus MCP & Harness — alle offenen Themen
 
 > Copy-paste-fähiger Agent-Prompt. Primärquelle für Reihenfolge und
-> Non-Goals: [`HANDBUCH-HARNESS.md`](./HANDBUCH-HARNESS.md). Code-Anker
+> Non-Goals: [`HANDBOOK-HARNESS.md`](./HANDBOOK-HARNESS.md). Code-Anker
 > unten. **Nicht** A1–A3 / Remote-v1 / C1–C2 neu bauen — die liegen.
 
 ---
@@ -15,10 +17,12 @@ Non-Goals unten zu brechen.
 
 Arbeite in **Tracks** (nicht alles in einem PR). Jeder Track: eigene
 Branch `cursor/<kurz>-94bd` (oder Repo-Konvention), grüne Tests, PR mit
-Bezug auf dieses Dokument und `docs/HANDBUCH-HARNESS.md`.
+Bezug auf dieses Dokument und `docs/HANDBOOK-HARNESS.md`.
 
 Sprache der Tool-Descriptions, Contracts und Orchestrator-Prompts:
-**Englisch** (imperativ). UI-Strings / Handbuch: Deutsch ok.
+**Englisch** (imperativ). Doku ist englisch-kanonisch mit gepflegten
+deutschen `.de.md`-Zwillingen — wer Doku anfasst, pflegt beide.
+UI-Strings laufen über die i18n-Schichten (de + en).
 
 ---
 
@@ -131,7 +135,7 @@ workspaces:start { profileId, goal?: string }
 ### Prompt (kurz)
 
 > Implementiere H1 `answer_question` und H2 `workspaces:start{goal}` laut
-> `docs/HANDBUCH-HARNESS.md`. Ein Host-Pfad mit MCP `send_to_agent{questionId}`;
+> `docs/HANDBOOK-HARNESS.md`. Ein Host-Pfad mit MCP `send_to_agent{questionId}`;
 > Gateway Allow-List +1; Panel-Badge; Goal-Seed. Keine neuen MCP-Tools in
 > diesem Track außer Integrationstests gegen bestehende Tools.
 
@@ -427,7 +431,7 @@ Wenn du **alle** Themen in einem Agent-Lauf anstoßen willst, paste dies:
 
 ```
 Du bist Coding-Agent in Vertragus. Lies zuerst:
-- docs/HANDBUCH-HARNESS.md
+- docs/HANDBOOK-HARNESS.md
 - docs/PROMPT-MCP-HARNESS.md  (dieses Dokument)
 - src/main/mcp/* , src/shared/schema/events.ts , src/shared/prompts/*
 
@@ -496,7 +500,7 @@ docs/PROMPT-MCP-HARNESS.md. Caps sync/race-free lassen.
 
 ```
 Implementiere Phase F Multi-Orch (Track 5) aus docs/PROMPT-MCP-HARNESS.md
-und HANDBUCH-HARNESS.md. Dritte Identität lead=; eigene Queues; Fan-in;
+und HANDBOOK-HARNESS.md. Dritte Identität lead=; eigene Queues; Fan-in;
 Reparent; Caps Host-seitig. Default flach. Braucht C3/C4.
 ```
 
