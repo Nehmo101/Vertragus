@@ -455,7 +455,7 @@ function errorMessage(cause: unknown): string {
  * "Not logged in" and exits 0, while `cursor-agent models` exits 1 — the exit
  * code says nothing, the sentence does.
  */
-const AUTH_FAILURE_PATTERN =
+export const AUTH_FAILURE_PATTERN =
   /(authentication|authorization)\s+(required|failed)|not\s+(logged\s*in|signed\s*in|authenticated)|unauthorized|please\s+(log|sign)\s*-?\s*in|no\s+(api[\s-]?key|credentials|token)\s+(found|provided|set)|invalid\s+(api[\s-]?key|token|credentials)|\bHTTP\s*401\b/i
 
 /**

@@ -15,9 +15,16 @@ import './profileEditor.css'
  * schema the store enforces and shows every rejection on its field — a save
  * that silently does nothing is the one outcome this form must never have.
  */
-export function ProfileEditorApp({ profileId }: { profileId?: string }): React.JSX.Element {
+export function ProfileEditorApp({
+  profileId,
+  providerHint
+}: {
+  profileId?: string
+  /** WP-7: orchestrator preselection for a NEW profile; see the route. */
+  providerHint?: string
+}): React.JSX.Element {
   const { t } = useTranslation()
-  const editor = useProfileEditor(profileId)
+  const editor = useProfileEditor(profileId, providerHint)
   const { draft } = editor
 
   if (editor.fatal) {

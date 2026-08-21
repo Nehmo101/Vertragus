@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import HoundLogo from './HoundLogo'
+import { OnboardingCard } from './OnboardingCard'
+import { shouldShowOnboarding } from './onboardingViewModel'
 import { PanelFooter } from './PanelFooter'
 import { ProfileRow } from './ProfileRow'
 import { WorkspaceCard } from './WorkspaceCard'
@@ -101,6 +103,24 @@ export function PanelApp(): React.JSX.Element {
       <div className="panel-divider" />
 
       <div className="panel-scroll">
+        {/*
+          WP-7: the first-run card. Mounted only while there is no profile, so
+          its two shell-outs (provider health, login status) run when somebody
+          is actually looking at them and never on a panel render.
+        */}
+        {panel.bridge &&
+        shouldShowOnboarding(
+          panel.profiles,
+          panel.settings?.onboardingDismissed ?? false,
+          panel.profilesLoaded && panel.settings !== null
+        ) ? (
+          <OnboardingCard
+            bridge={panel.bridge}
+            onNewProfile={(providerId) => panel.editProfile(undefined, providerId)}
+            onDismiss={panel.dismissOnboarding}
+          />
+        ) : null}
+
         <section className="panel-section">
           <h2 className="panel-label">
             {t('panel.profilesLabel')}

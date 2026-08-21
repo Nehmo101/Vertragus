@@ -135,6 +135,7 @@ const APP = {
   rolesList: 'roles:list',
   rolesSave: 'roles:save',
   providersList: 'providers:list',
+  providersAuthStatus: 'providers:authStatus',
   providersSave: 'providers:save',
   providersDelete: 'providers:delete',
   modelsDiscover: 'models:discover',
@@ -300,6 +301,20 @@ export interface ProviderListEntry {
   health?: ProviderHealth
 }
 
+/** WP-7: how a provider answered its own login question. */
+export type ProviderAuthState = 'logged-in' | 'logged-out' | 'unknown'
+
+/** Login state of one provider (see main/providers/authStatus.ts). */
+export interface ProviderAuthStatus {
+  id: string
+  state: ProviderAuthState
+  /** The probe's first output line, or the error that replaced it. */
+  detail?: string
+  /** `cursor-agent login`, composed from the descriptor. Absent = none declared. */
+  loginCommand?: string
+  checkedAt: number
+}
+
 export interface ModelDiscoveryResult {
   models: string[]
   /**
@@ -321,6 +336,8 @@ export interface PanelSettings {
   theme: 'dark' | 'light'
   /** Window opacity and glass transparency; see @shared/appearance. */
   appearance: Appearance
+  /** WP-7: the first-run card was closed by hand — the panel honours it. */
+  onboardingDismissed: boolean
   autostart: boolean
   updateChannel: UpdateChannel
   /** False in a dev run — the login item would point at the Electron binary. */
@@ -343,6 +360,7 @@ export type WritableSetting =
   | 'locale'
   | 'appearance'
   | 'agentPolicy'
+  | 'onboardingDismissed'
 
 export type UpdateStatus =
   | 'disabled'
@@ -414,6 +432,13 @@ const app = {
   saveRole: (template: RoleTemplate): Promise<RoleTemplate[]> =>
     ipcRenderer.invoke(APP.rolesSave, template),
   listProviders: (): Promise<ProviderListEntry[]> => ipcRenderer.invoke(APP.providersList),
+  /**
+   * WP-7: login state per provider. Shells out to the CLIs' own status
+   * commands, so it is called on demand (the first-run card, its ⟳) and never
+   * on a render.
+   */
+  listProviderAuth: (): Promise<ProviderAuthStatus[]> =>
+    ipcRenderer.invoke(APP.providersAuthStatus),
   discoverModels: (providerId: string): Promise<ModelDiscoveryResult> =>
     ipcRenderer.invoke(APP.modelsDiscover, { providerId }),
   listWorkspaces: (): Promise<WorkspaceSummary[]> => ipcRenderer.invoke(APP.workspacesList),
@@ -528,8 +553,13 @@ const app = {
   quitApp: (): Promise<boolean> => ipcRenderer.invoke(APP.appQuit),
   pickDirectory: (defaultPath?: string): Promise<string | null> =>
     ipcRenderer.invoke(APP.dialogPickDirectory, { defaultPath }),
-  openProfileEditor: (profileId?: string): Promise<void> =>
-    ipcRenderer.invoke(APP.profileEditorOpen, { profileId }),
+  /**
+   * Open the profile editor. `providerId` (WP-7) preselects the orchestrator
+   * of a NEW profile and is ignored for an existing one — a hint from the
+   * first-run card, never a write.
+   */
+  openProfileEditor: (profileId?: string, providerId?: string): Promise<void> =>
+    ipcRenderer.invoke(APP.profileEditorOpen, { profileId, providerId }),
   /**
    * Write a provider descriptor. Saving under a preset id EDITS that built-in;
    * the merged list that comes back is what every picker should show next.

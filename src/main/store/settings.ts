@@ -101,7 +101,16 @@ export const uiSettingsSchema = z
     panelBounds: panelBoundsSchema.optional(),
     theme: z.enum(['dark', 'light']).default('dark'),
     locale: z.enum(['de', 'en']).default('de'),
-    appearance: appearanceSchema
+    appearance: appearanceSchema,
+    /**
+     * WP-7: the user closed the first-run card. NOT the card's trigger — that
+     * stays "there is no profile yet", which is true again after a reinstall
+     * and needs nothing persisted. This flag only records the one thing the
+     * trigger cannot know: that somebody looked at the card and would rather
+     * find their own way. Defaulting to false means an install from before it
+     * existed reads as "never dismissed", which is the truth.
+     */
+    onboardingDismissed: z.boolean().default(false)
   })
   .strict()
 export type UiSettings = z.infer<typeof uiSettingsSchema>
