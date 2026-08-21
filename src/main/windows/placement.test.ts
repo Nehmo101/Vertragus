@@ -6,6 +6,7 @@ import {
   forgetWindowPlacement,
   flushLiveReflow,
   isMovedByUser,
+  mergeLiveReflowZones,
   placeAgentWindow,
   planLiveReflow,
   planWindowLayout,
@@ -414,6 +415,49 @@ describe('live neighbor reflow', () => {
 
     expect(plan!.placements.map((entry) => entry.agentId)).toEqual(['left'])
     expect(plan!.placements.find((entry) => entry.agentId === 'max')).toBeUndefined()
+  })
+
+  it('keeps overlay zones that no live window occupies on the reflowed display', () => {
+    const existing = layout(
+      { roleId: 'worker', displayId: 1, rect: { x: 0, y: 0, w: 0.5, h: 1 } },
+      { roleId: 'reviewer', displayId: 1, rect: { x: 0.5, y: 0, w: 0.5, h: 1 } },
+      { roleId: 'orchestrator', displayId: 1, rect: { x: 0, y: 0, w: 0.25, h: 0.25 } },
+      { roleId: 'worker', displayId: 2, rect: { x: 0, y: 0, w: 1, h: 1 } }
+    )
+    const live = layout(
+      { roleId: 'worker', displayId: 1, rect: { x: 0, y: 0, w: 600 / 1920, h: 1 } },
+      { roleId: 'reviewer', displayId: 1, rect: { x: 600 / 1920, y: 0, w: 1320 / 1920, h: 1 } }
+    )
+    const merged = mergeLiveReflowZones(existing, live, [PRIMARY.id])
+
+    expect(
+      merged.zones.map((zone) => `${zone.roleId}:${zone.displayId}`)
+    ).toEqual(['orchestrator:1', 'worker:2', 'worker:1', 'reviewer:1'])
+    expect(
+      merged.zones.find((zone) => zone.roleId === 'orchestrator' && zone.displayId === 1)?.rect
+    ).toEqual({ x: 0, y: 0, w: 0.25, h: 0.25 })
+    expect(
+      merged.zones.find((zone) => zone.roleId === 'worker' && zone.displayId === 2)?.rect
+    ).toEqual({ x: 0, y: 0, w: 1, h: 1 })
+    expect(
+      merged.zones.find((zone) => zone.roleId === 'worker' && zone.displayId === 1)?.rect.w
+    ).toBeCloseTo(600 / 1920)
+
+    const plan = planLiveReflow({
+      displays: [PRIMARY, SECOND],
+      previousDisplayId: PRIMARY.id,
+      existingZones: existing,
+      movedId: 'left',
+      nextRect: { x: 0, y: 0, width: 600, height: 1080 },
+      windows: [
+        { agentId: 'left', roleId: 'worker', bounds: { x: 0, y: 0, width: 960, height: 1080 } },
+        { agentId: 'right', roleId: 'reviewer', bounds: { x: 960, y: 0, width: 960, height: 1080 } }
+      ]
+    })
+
+    expect(
+      plan!.zones.zones.map((zone) => `${zone.roleId}:${zone.displayId}`).sort()
+    ).toEqual(['orchestrator:1', 'reviewer:1', 'worker:1', 'worker:2'])
   })
 
   it('pins a window that crossed displays and lets the remainder fill the origin', () => {

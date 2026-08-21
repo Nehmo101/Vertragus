@@ -1451,16 +1451,15 @@ describe('zones', () => {
     expect(h.store.getProfiles().find((entry) => entry.id === 'p1')!.zones?.zones).toEqual([])
   })
 
-  it('lets an overlay write reflowNeighbors onto ui without saving the layout', () => {
+  it('does not write reflowNeighbors from a draft', () => {
     h.broadcasts.length = 0
     h.ipc.send(APP_CHANNELS.zonesDraft, OVERLAY_A_ID, {
       zones: [{ roleId: 'worker', rect: rel(0, 0, 0.5, 1) }],
       reflowNeighbors: false
     })
-    expect(h.store.settings.ui.reflowNeighbors).toBe(false)
+    expect(h.store.settings.ui.reflowNeighbors).toBe(true)
     expect(h.store.getProfiles().find((entry) => entry.id === 'p1')!.zones).toBeUndefined()
-    expect(h.broadcasts[0]?.channel).toBe(APP_CHANNELS.eventSettings)
-    expect((h.broadcasts[0]?.payload as PanelSettings).reflowNeighbors).toBe(false)
+    expect(h.broadcasts.filter((entry) => entry.channel === APP_CHANNELS.eventSettings)).toEqual([])
   })
 
   it('persists reflowNeighbors from a save payload', () => {

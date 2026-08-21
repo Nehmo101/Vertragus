@@ -631,7 +631,7 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     ;(host.broadcastAll ?? host.broadcast)(APP_CHANNELS.eventAppearance, value.appearance)
   }
 
-  /** Overlay draft/save may carry the toggle; only a real boolean is stored. */
+  /** Overlay save may carry the toggle; only a real boolean is stored. Drafts never write it. */
   const persistReflowNeighbors = (payload: unknown): void => {
     if (typeof payload !== 'object' || payload === null) return
     if (!('reflowNeighbors' in payload)) return
@@ -1074,7 +1074,6 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     } catch {
       /* ignore */
     }
-    persistReflowNeighbors(payload)
   }) as IpcListener)
 
   host.ipcMain.on(APP_CHANNELS.zonesCancel, ((event: IpcEvent): void => {

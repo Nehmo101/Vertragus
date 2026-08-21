@@ -214,6 +214,7 @@ function reflowLiveNeighbors(agentId: string): void {
   if (previousDisplayId === undefined) return
 
   const rail = panelRail(displays)
+  const existingZones = zonesForPlan(entry.options.placement)
   const plan = planLiveReflow({
     windows: liveWindowsForReflow(),
     movedId: agentId,
@@ -222,20 +223,24 @@ function reflowLiveNeighbors(agentId: string): void {
     displays,
     ...(rail ? { rail } : {}),
     minWidth: CLI_MIN_WIDTH,
-    minHeight: CLI_MIN_HEIGHT
+    minHeight: CLI_MIN_HEIGHT,
+    ...(existingZones ? { existingZones } : {})
   })
   if (!plan) return
 
   for (const id of plan.markMoved) markMovedByUser(id)
 
   for (const placed of plan.placements) {
+    // The OS already has the user's bounds. Applying a clamp would start
+    // programmatic grace and swallow the rest of the drag.
+    if (placed.agentId === agentId) continue
     const win = getCliWindow(placed.agentId)
     if (!win) continue
     if (rectsEqual(win.getBounds(), placed.bounds)) continue
     applyWindowBounds(placed.agentId, win, placed.bounds)
     rememberDisplay(placed.agentId, placed.bounds)
   }
-  rememberDisplay(agentId, getCliWindow(agentId)?.getBounds() ?? nextRect)
+  rememberDisplay(agentId, entry.window.getBounds())
 
   for (const { agentId: otherId } of listCliWindows()) {
     const other = windows.get(otherId)
@@ -295,7 +300,11 @@ export function createCliWindow(agentId: string, options: CliWindowOptions): Bro
     // Watch for user drags BEFORE re-tiling, so our own setBounds calls are
     // inside the guard window and are not mistaken for a manual move.
     setLiveReflowHandler(reflowLiveNeighbors)
-    trackWindowMoves(agentId, win)
+    trackWindowMoves(agentId, win, undefined, () => {
+      // Reflow-off pin path: lastDisplayId must follow the user, or a later
+      // reflow-on resize is misread as a cross-display jump.
+      rememberDisplay(agentId, win.getBounds())
+    })
     rememberDisplay(agentId, win.getBounds())
     for (const entry of plan) {
       if (entry.agentId === agentId) continue

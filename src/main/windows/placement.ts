@@ -302,6 +302,8 @@ export interface PlanLiveReflowInput {
   rail?: RailInfo
   minWidth?: number
   minHeight?: number
+  /** Current profile layout; unused overlay zones survive a live reflow. */
+  existingZones?: ZoneLayout
 }
 
 export interface LiveReflowPlan {
@@ -332,6 +334,26 @@ function zoneLayoutFromWindows(
     })
   }
   return { zones }
+}
+
+function zoneRoleDisplayKey(zone: Pick<Zone, 'roleId' | 'displayId'>): string {
+  return `${zone.roleId}\0${String(zone.displayId)}`
+}
+
+/**
+ * Keep overlay zones that no live window occupies on a reflowed display.
+ * Live windows replace only the matching (roleId, displayId) pairs there.
+ */
+export function mergeLiveReflowZones(
+  existing: ZoneLayout | undefined,
+  live: ZoneLayout,
+  reflowedDisplayIds: readonly number[]
+): ZoneLayout {
+  const reflowed = new Set(reflowedDisplayIds)
+  const incoming = live.zones.filter((zone) => reflowed.has(zone.displayId))
+  const taken = new Set(incoming.map(zoneRoleDisplayKey))
+  const kept = (existing?.zones ?? []).filter((zone) => !taken.has(zoneRoleDisplayKey(zone)))
+  return { zones: [...kept, ...incoming] }
 }
 
 function withPlacements(
@@ -432,9 +454,13 @@ export function planLiveReflow(input: PlanLiveReflowInput): LiveReflowPlan | nul
     return {
       placements,
       markMoved: [input.movedId],
-      zones: zoneLayoutFromWindows(
-        withPlacements(input.windows, placements, new Map([[input.movedId, nextRect]])),
-        input.displays
+      zones: mergeLiveReflowZones(
+        input.existingZones,
+        zoneLayoutFromWindows(
+          withPlacements(input.windows, placements, new Map([[input.movedId, nextRect]])),
+          input.displays
+        ),
+        [previousDisplay.id]
       )
     }
   }
@@ -463,7 +489,11 @@ export function planLiveReflow(input: PlanLiveReflowInput): LiveReflowPlan | nul
   return {
     placements,
     markMoved: [],
-    zones: zoneLayoutFromWindows(withPlacements(input.windows, placements, new Map()), input.displays)
+    zones: mergeLiveReflowZones(
+      input.existingZones,
+      zoneLayoutFromWindows(withPlacements(input.windows, placements, new Map()), input.displays),
+      [currentDisplay.id]
+    )
   }
 }
 
@@ -568,7 +598,12 @@ export function suppressMoveTracking(agentId: string, now?: () => number): void 
  * placement is suppressed here as well, because showing a window at its
  * constructor bounds already emits a `move` on some platforms.
  */
-export function trackWindowMoves(agentId: string, win: MovableWindow, now?: () => number): void {
+export function trackWindowMoves(
+  agentId: string,
+  win: MovableWindow,
+  now?: () => number,
+  onUserMoved?: () => void
+): void {
   suppressMoveTracking(agentId, now)
   const onUserGesture = (): void => {
     if ((now ?? clock)() < (programmaticUntil.get(agentId) ?? 0)) return
@@ -577,6 +612,7 @@ export function trackWindowMoves(agentId: string, win: MovableWindow, now?: () =
       return
     }
     movedByUser.add(agentId)
+    onUserMoved?.()
   }
   win.on('move', onUserGesture)
   win.on('resize', onUserGesture)

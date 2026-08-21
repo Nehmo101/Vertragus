@@ -174,19 +174,18 @@ export function useZoneEditor({ displayId, demo = false }: UseZoneEditorInput): 
   }, [cancel])
 
   const pushDraft = useCallback(
-    (nextZones: readonly DraftZone[], reflow: boolean): void => {
+    (nextZones: readonly DraftZone[]): void => {
       if (!bridge || demo) return
       bridge.draft({
-        zones: draftsToZones(nextZones, displayId, viewport),
-        reflowNeighbors: reflow
+        zones: draftsToZones(nextZones, displayId, viewport)
       })
     },
     [bridge, demo, displayId, viewport]
   )
 
   const commit = useCallback(() => {
-    pushDraft(zones, reflowNeighbors)
-  }, [pushDraft, zones, reflowNeighbors])
+    pushDraft(zones)
+  }, [pushDraft, zones])
 
   return {
     ready: payload !== null,
@@ -240,7 +239,6 @@ export function useZoneEditor({ displayId, demo = false }: UseZoneEditorInput): 
 
     setReflowNeighbors(value) {
       setReflowNeighborsState(value)
-      pushDraft(zones, value)
     },
 
     autoLayout() {
@@ -251,7 +249,7 @@ export function useZoneEditor({ displayId, demo = false }: UseZoneEditorInput): 
       })
       setZones(next)
       // Push immediately — `commit()` would still see the previous `zones` closure.
-      pushDraft(next, reflowNeighbors)
+      pushDraft(next)
     },
 
     commit,

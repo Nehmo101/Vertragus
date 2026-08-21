@@ -262,6 +262,83 @@ describe('createCliWindow with a placement', () => {
     expect(placement.isMovedByUser('a')).toBe(true)
   })
 
+  it('does not applyBounds to the window the user is still dragging', () => {
+    placement.setReflowNeighborsGetter(() => true)
+    const zones = {
+      zones: [
+        { roleId: 'worker', displayId: 1, rect: { x: 0, y: 0, w: 0.5, h: 1 } },
+        { roleId: 'reviewer', displayId: 1, rect: { x: 0.5, y: 0, w: 0.5, h: 1 } }
+      ]
+    }
+    const first = fake(
+      cli.createCliWindow('a', { ...WORKER, placement: { roleId: 'worker', zones } })
+    )
+    const second = fake(
+      cli.createCliWindow('b', { ...REVIEWER, placement: { roleId: 'reviewer', zones } })
+    )
+
+    let applied = 0
+    const original = first.setBounds.bind(first)
+    first.setBounds = (bounds) => {
+      applied += 1
+      original(bounds)
+    }
+
+    const dragged = { x: 0, y: 0, width: 100, height: 1040 }
+    userGestures(first, 'resize', dragged)
+
+    expect(applied).toBe(1)
+    expect(first.bounds).toEqual(dragged)
+    expect(second.bounds.x).toBeGreaterThan(100)
+    expect(placement.isMovedByUser('a')).toBe(false)
+
+    const neighborAfter = { ...second.bounds }
+    now += 1
+    first.setBounds({ x: 0, y: 0, width: 600, height: 1040 })
+    first.emit('resize')
+    now += placement.REFLOW_DEBOUNCE_MS
+    placement.flushLiveReflow()
+    expect(second.bounds).not.toEqual(neighborAfter)
+    expect(second.bounds).toEqual({ x: 600, y: 0, width: 1320, height: 1040 })
+  })
+
+  it('does not treat a later resize as a cross-display pin after a reflow-off drag', () => {
+    placement.setReflowNeighborsGetter(() => false)
+    const first = fake(cli.createCliWindow('a', { ...WORKER, placement: { roleId: 'worker' } }))
+    const second = fake(
+      cli.createCliWindow('b', { ...REVIEWER, placement: { roleId: 'reviewer' } })
+    )
+    const originNeighbor = { ...second.bounds }
+
+    first.setBounds({ x: 2000, y: 10, width: 700, height: 500 })
+    userDrags(first)
+    expect(placement.isMovedByUser('a')).toBe(true)
+
+    placement.setReflowNeighborsGetter(() => true)
+    userGestures(first, 'resize', { x: 2000, y: 10, width: 800, height: 500 })
+
+    expect(second.bounds).toEqual(originNeighbor)
+    expect(first.bounds).toEqual({ x: 2000, y: 10, width: 800, height: 500 })
+  })
+
+  it('still pins a cross-display drag after a same-display gesture with reflow off', () => {
+    placement.setReflowNeighborsGetter(() => false)
+    const first = fake(cli.createCliWindow('a', { ...WORKER, placement: { roleId: 'worker' } }))
+    const second = fake(
+      cli.createCliWindow('b', { ...REVIEWER, placement: { roleId: 'reviewer' } })
+    )
+
+    userDrags(first)
+    expect(placement.isMovedByUser('a')).toBe(true)
+
+    placement.setReflowNeighborsGetter(() => true)
+    userGestures(first, 'move', { x: 2000, y: 10, width: 700, height: 500 })
+
+    expect(placement.isMovedByUser('a')).toBe(true)
+    expect(first.bounds).toEqual({ x: 2000, y: 10, width: 700, height: 500 })
+    expect(second.bounds).toEqual(DISPLAYS[0]!.workArea)
+  })
+
   it('pins a window that left its display and lets the remainder fill the origin', () => {
     placement.setReflowNeighborsGetter(() => true)
     const persisted: unknown[] = []

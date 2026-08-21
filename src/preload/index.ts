@@ -467,10 +467,10 @@ const zones = {
   /**
    * Push the current rectangles of this display without saving. Every overlay
    * does this while dragging, so whichever window hits "save" persists the
-   * whole multi-monitor layout and not just its own screen. `reflowNeighbors`
-   * is optional: when it is a boolean, main writes it onto `ui`.
+   * whole multi-monitor layout and not just its own screen. Drafts store
+   * rectangles only — `reflowNeighbors` is overlay-local until save.
    */
-  draft: (payload: { zones: readonly Zone[]; reflowNeighbors?: boolean }): void => {
+  draft: (payload: { zones: readonly Zone[] }): void => {
     ipcRenderer.send(APP.zonesDraft, payload)
   },
   /** Persist the layout of every overlay and close the session. */
