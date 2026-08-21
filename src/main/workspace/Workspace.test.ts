@@ -913,6 +913,29 @@ describe('requestSuccession', () => {
     expect(prompts.at(-1)).toContain('Current goal: Login fixed; hardening the session store')
   })
 
+  it('does not pass the original start-goal as a positional argv to a grok successor', async () => {
+    const { workspace, spawns } = harness({
+      profile: testProfile({ orchestrator: { providerId: 'grok' } })
+    })
+    await workspace.startOrchestrator({ initialPrompt: 'Fix the login bug' })
+    expect(spawns[0]!.input.initialPrompt).toBe('Fix the login bug')
+
+    await workspace.requestSuccession({ reason: 'context_full' }).ready
+
+    const successor = spawns[1]!
+    expect(successor.input.kind).toBe('orchestrator')
+    expect(successor.input.initialPrompt).toBeUndefined()
+
+    const cwd = mkdtempSync(join(tmpdir(), 'vertragus-ws-grok-succ-'))
+    try {
+      const { argv } = buildAgentArgv({ ...successor.input, cwd })
+      expect(argv.at(-1)).not.toBe('Fix the login bug')
+      expect(argv).not.toContain('Fix the login bug')
+    } finally {
+      rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
   it('seeds the successor with the team roster in prose', async () => {
     const { workspace, prompts } = harness({ ptySystemPrompt: true })
     await workspace.startOrchestrator()
