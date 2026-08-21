@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server } from 'node:http'
-import type { AddressInfo, Socket } from 'node:net'
+import type { AddressInfo } from 'node:net'
+import type { Duplex } from 'node:stream'
 import { afterEach, describe, expect, it } from 'vitest'
 import { HeaderWebSocket } from './headerWebSocket'
 
@@ -10,7 +11,7 @@ function acceptKey(key: string): string {
   return createHash('sha1').update(`${key}${GUID}`).digest('base64')
 }
 
-function completeUpgrade(req: IncomingMessage, socket: Socket): void {
+function completeUpgrade(req: IncomingMessage, socket: Duplex): void {
   const key = req.headers['sec-websocket-key']
   if (typeof key !== 'string') {
     socket.destroy()
@@ -115,7 +116,7 @@ describe('HeaderWebSocket', () => {
   it('aborts an in-flight handshake on close and ignores a late upgrade', async () => {
     const { server, url } = await listen()
     servers.push(server)
-    let pending: { req: IncomingMessage; socket: Socket } | undefined
+    let pending: { req: IncomingMessage; socket: Duplex } | undefined
     server.on('upgrade', (req, socket) => {
       socket.on('error', () => undefined)
       pending = { req, socket }
@@ -127,7 +128,7 @@ describe('HeaderWebSocket', () => {
       opened.push(event ?? {})
     }
 
-    const held = await new Promise<{ req: IncomingMessage; socket: Socket }>((resolve, reject) => {
+    const held = await new Promise<{ req: IncomingMessage; socket: Duplex }>((resolve, reject) => {
       const started = Date.now()
       const tick = (): void => {
         if (pending) {
