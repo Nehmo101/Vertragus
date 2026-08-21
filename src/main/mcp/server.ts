@@ -496,12 +496,14 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
     // F: a lead that dies (or is stopped) has its children reparented to the
     // root. The tap lives here because the root queue is where both the
     // host's agent_exited and the root's agent_stopped for a lead land.
+    // S3: the same terminal events also release the agent's result schema —
+    // stop_agent and start-failure clean up in the tool layer, but an agent
+    // that EXITS on its own is only observed by the host, so without this
+    // tap the registry entry would leak until workspace unregistration.
     ctx.events.onPush((event) => {
-      if (
-        (event.type === 'agent_exited' || event.type === 'agent_stopped') &&
-        runtime.leads.has(event.agentId)
-      ) {
-        adoptSubtree(runtime, event.agentId)
+      if (event.type === 'agent_exited' || event.type === 'agent_stopped') {
+        runtime.resultSchemas.delete(event.agentId)
+        if (runtime.leads.has(event.agentId)) adoptSubtree(runtime, event.agentId)
       }
     })
     workspaces.set(ctx.workspaceId, runtime)

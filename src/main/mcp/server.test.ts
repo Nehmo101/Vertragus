@@ -206,6 +206,23 @@ describe('startMcpServer', () => {
     expect(() => handle.unregisterWorkspace('never-there')).not.toThrow()
   })
 
+  // S3: stop_agent and start-failure clean the schema registry in the tool
+  // layer, but a self-exiting agent is only observed by the host — the queue
+  // tap must release its entry, or it leaks until workspace unregistration.
+  it('releases an agent result schema when the agent exits on its own', () => {
+    const ctx = context({ workspaceId: 'w8' })
+    const registered = handle.registerWorkspace(ctx)
+    registered.runtime.resultSchemas.set('agent-1', { type: 'object' })
+    ctx.events.push({
+      type: 'agent_exited',
+      agentId: 'agent-1',
+      name: 'Caronte',
+      roleId: 'worker',
+      confirmed: false
+    })
+    expect(registered.runtime.resultSchemas.has('agent-1')).toBe(false)
+  })
+
   it('builds both URLs for a registered workspace from the handle', () => {
     const ctx = context({ workspaceId: 'w7' })
     handle.registerWorkspace(ctx)
