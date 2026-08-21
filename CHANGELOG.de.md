@@ -85,6 +85,33 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
 
 ### Fixed
 
+- **Provider-Erkennung unter macOS.** Eine aus dem Finder oder Dock
+  gestartete App erbt einen minimalen `PATH`, weshalb jede Probe — Health,
+  Login-Status, Modell-Discovery — eine installierte CLI als fehlend
+  meldete und die Erste-Schritte-Karte behauptete, es sei keine Agenten-CLI
+  gefunden worden. Die Proben holen den `PATH` der Login-Shell jetzt einmal
+  nach, genau wie der Spawn-Pfad es schon tat.
+- **Das Glas-Panel unter Linux ohne Compositor**, wo Transparenz als
+  schwarzes oder unbemaltes Rechteck ankam. Fenster fallen jetzt auf einen
+  opaken Theme-Hintergrund zurück, mit einem ausdrücklichen
+  `VERTRAGUS_TRANSPARENT`-Override — es gibt kein verlässliches
+  Compositor-Signal, und ein schwarz malendes Fenster lässt sich nicht
+  benutzen, um seine eigenen Einstellungen zu öffnen.
+- Zwei deutsche Sätze erreichten über die Worktree-Bereinigung das Panel,
+  ohne einen Umlaut zu enthalten — genau das, worauf der Drift-Guard
+  prüfte. Beide sind lokalisiert, und der Guard erkennt jetzt auch deutsche
+  Funktionswörter, was sofort drei weitere zutage förderte.
+- Fehler, die ein gewöhnlicher Knopfdruck erzeugt — Fortsetzen ohne
+  aufgezeichneten Lauf, ein konfliktbehaftetes Promote, die
+  Succession-Ablehnungen, die Antwort-Races, ein Run-Ordner, der sich nicht
+  öffnen lässt — waren rohe englische Techniktexte; sie sind lokalisiert.
+  Validierungsfehler, die nur ein kaputter Renderer auslöst, und
+  Tool-Fehler für das Orchestrator-Modell bleiben bewusst roh und sagen das
+  jetzt auch.
+- Ein gescheiterter Start zeigte „Workspace-Manager ist noch nicht
+  verdrahtet", während der wirkliche Grund nur in einer Konsole stand, die
+  der Nutzer nicht öffnen kann.
+
 - Der PTY-Idle-Hinweis erreichte das Orchestrator-Modell auf Deutsch, auf
   einem ansonsten englischen Kanal; er ist jetzt englisch.
 - Das Result-Schema eines Subagenten blieb in der Registry liegen, wenn der

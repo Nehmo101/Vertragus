@@ -78,6 +78,29 @@ No release has been tagged yet; everything lives under Unreleased.
 
 ### Fixed
 
+- **Provider detection on macOS.** An app started from Finder or the Dock
+  inherits a minimal `PATH`, so every probe — health, login status, model
+  discovery — reported an installed CLI as missing, and the first-steps card
+  told the user no agent CLI was found. The probes now recover the login
+  shell's `PATH` once on a miss, the same way the spawn path already did.
+- **The glass panel on Linux without a compositor**, where transparency
+  rendered as a black or unpainted rectangle. Windows now fall back to an
+  opaque themed background, with an explicit `VERTRAGUS_TRANSPARENT`
+  override because no reliable compositor signal exists and a window that
+  paints black cannot be used to reach its own settings.
+- Two German sentences reached the panel through worktree cleanup while
+  containing no umlaut, which is exactly what the drift guard tested for.
+  Both are localized now, and the guard also matches German function words —
+  which immediately surfaced three more.
+- Errors an ordinary button press can produce — resume with nothing
+  journaled, a conflicted promote, the succession refusals, the
+  answer-a-question races, a run folder that will not open — were raw
+  English technical strings; they are localized. Validation errors that only
+  a broken renderer can trigger, and tool errors written for the
+  orchestrator model, stay raw on purpose and now say so.
+- A failed boot showed "the workspace manager is not wired up yet" while the
+  real reason went only to a console the user cannot open.
+
 - The PTY-idle hint reached the orchestrator model in German on an
   otherwise English channel; it is English now.
 - A subagent's result schema leaked in the registry when the agent exited
