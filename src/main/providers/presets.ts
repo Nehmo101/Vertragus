@@ -7,9 +7,11 @@
  * preset" possible without a special case anywhere else.
  *
  * Every flag below is taken from the verified launch code of the previous
- * Vertragus generation (`src/main/providers/types.ts` YOLO_FLAGS /
- * buildInteractiveLaunch, `src/shared/providers.ts` PROVIDERS,
- * `src/main/orchestrator/mcpConfig.ts`, `docs/MODELS_AND_EFFORT.md`) — not from
+ * Vertragus generation (the Vertragus-Archiv repository: its
+ * `src/main/providers/types.ts` YOLO_FLAGS / buildInteractiveLaunch,
+ * `src/shared/providers.ts` PROVIDERS, `src/main/orchestrator/mcpConfig.ts`
+ * and its model/effort notes; the current model discovery story lives in
+ * README.md "Providers") — not from
  * documentation guesses. An unknown CLI flag kills a launch, so nothing
  * unverified is declared here. Grok Build is the exception that was added
  * after that generation: its flags come from the published CLI reference

@@ -1,100 +1,103 @@
-# Remote-Client (Handy / Tailscale)
+English | [Deutsch](REMOTE-CLIENT-MOBILE.de.md)
 
-Analyse des bisherigen Tailgate-Clients, was dieser PR ändert, und was
-danach bewusst offen bleibt. Der Client lebt in `src/remoteClient` und
-wird als `out/remote` vom Remote-Server ausgeliefert.
+# Remote Client (phone / Tailscale)
 
-## Was bisher schiefging
+Analysis of the previous Tailgate client, what this PR changes, and what
+deliberately stays open afterwards. The client lives in `src/remoteClient`
+and is served as `out/remote` by the remote server.
 
-Der Client war ein **herunterskaliertes Desktop-Panel**, kein Phone-UI.
+## What went wrong before
 
-### Lesbarkeit
+The client was a **scaled-down desktop panel**, not a phone UI.
 
-- Eigene Farbwelt (`#0f1512`, grelles Verdigris), nicht die
-  Bronze/Graphit-Sprache des Panels. Figtree/JetBrains Mono waren
-  referenziert, aber **nicht geladen** — System-UI, 16px-Felder fehlten.
-- Ziel, Aufgabe und Orchestrator-Fragen lagen in **einer Zeile mit
-  Ellipsis** (`white-space: nowrap`). Auf 390 px Breite unlesbar.
-- Agenten waren **Chips ohne Status**. `statusText` kam vom Host schon
-  mit, der Typ und die UI haben es ignoriert. Working/Waiting sahen
-  gleich aus, außer Stopped war transparent.
-- Die `?`-Badges waren 20×20 px (Apple HIG: 44 px). Fragen an den
-  Menschen waren ein grauer Einzeiler, kein Banner.
-- Feste 12,5 px Terminalschrift, keine A+/A−-Stufe.
+### Readability
 
-### Scrollen
+- Its own colour world (`#0f1512`, garish verdigris), not the
+  bronze/graphite language of the panel. Figtree/JetBrains Mono were
+  referenced but **never loaded** — system UI, and the 16px fields were
+  missing.
+- Goal, task and orchestrator questions sat on **one line with ellipsis**
+  (`white-space: nowrap`). Unreadable at 390px width.
+- Agents were **chips without status**. `statusText` already came from the
+  host; the type and the UI ignored it. Working/waiting looked identical,
+  except stopped was transparent.
+- The `?` badges were 20×20px (Apple HIG: 44px). Questions to the human
+  were a grey one-liner, not a banner.
+- Fixed 12.5px terminal font, no A+/A− step.
 
-Ursache, nicht „zu viel Inhalt":
+### Scrolling
 
-1. `html, body, #root, .app { height: 100% }` hat die Seite auf die
-   Viewport-Höhe **festgenagelt**.
-2. `.workspace-list { flex: 1; overflow-y: auto }` war der vorgesehene
-   Scroller, aber **ohne `min-height: 0`**. Flex-Kinder schrumpfen dann
-   nicht; `overflow-y: auto` greift nie.
-3. iOS Safari pans **Dokument-Scroll** zuverlässig, innere Overflow-Boxen
-   oft nicht — und `-webkit-overflow-scrolling` fehlte.
-4. Safe-Area hing fälschlich am Header-**unten**; die Liste hatte keinen
-   unteren Inset. Die Software-Tastatur (`visualViewport`) wurde ignoriert,
-   Composer und Terminal-Leiste lagen unter den Keys.
+Causes, not "too much content":
 
-### Kopplungs-Link bei jedem Neustart neu
+1. `html, body, #root, .app { height: 100% }` **nailed** the page to the
+   viewport height.
+2. `.workspace-list { flex: 1; overflow-y: auto }` was the intended
+   scroller, but **without `min-height: 0`**. Flex children then never
+   shrink; `overflow-y: auto` never engages.
+3. iOS Safari pans **document scroll** reliably, inner overflow boxes
+   often not — and `-webkit-overflow-scrolling` was missing.
+4. The safe area was wrongly attached to the header **bottom**; the list
+   had no bottom inset. The software keyboard (`visualViewport`) was
+   ignored; composer and terminal bar sat under the keys.
 
-Kein UI-Bug. In `createRemoteController`:
+### A new pairing link on every restart
 
-- Mit OS-Schlüsselbund: Token encrypted in `vertragus-v2.json`.
-- **Ohne Schlüsselbund** (häufig Linux, und Windows/macOS wenn
-  `safeStorage` beim Boot noch nicht entsperrt ist): Token nur im RAM.
-  Jeder Start hat `if (!token()) persistToken(mintPairingToken())`
-  ausgeführt — neuer QR, altes Handy tot.
-- Selbst bei gleichem Token: Sessions leben nur im Prozess. Nach einem
-  Desktop-Neustart bekam das Handy `session_revoked`, der Hash war aber
-  schon aus der URL gestrichen (`sessionStorage`). Erneut scannen.
+Not a UI bug. In `createRemoteController`:
 
-## Was dieser PR tut
+- With an OS keyring: token encrypted in `vertragus-v2.json`.
+- **Without a keyring** (common on Linux, and on Windows/macOS when
+  `safeStorage` is not yet unlocked at boot): token only in RAM. Every
+  start executed `if (!token()) persistToken(mintPairingToken())` — new
+  QR, old phone dead.
+- Even with the same token: sessions live only in the process. After a
+  desktop restart the phone got `session_revoked`, but the hash was
+  already stripped from the URL (`sessionStorage`). Scan again.
 
-| Thema | Änderung |
+## What this PR does
+
+| Topic | Change |
 | --- | --- |
-| Stabiler Link | Token zusätzlich in `userData/remote-pairing.token` (0600). Nie still überschreiben, wenn Ciphertext nicht entsperrt. `Regenerate` bleibt der einzige Rotationsweg. |
-| Handy bleibt gekoppelt | Pairing-Token + Session in `localStorage`. Nach Desktop-Restart: stilles Re-Pair über den gespeicherten Token. |
-| Scrollen | Dokument-Scroll, sticky Header, kein inneres Overflow auf der Liste. Terminal als `position: fixed` auf `visualViewport.height`. |
-| Lesen | 17 px Body, 16 px Inputs, Ziele umbrechen, Agentenzeilen mit Rolle·Status, 44 px Touch, Warn-Banner für `ask_user`. |
-| Brand | Caprasimo/Figtree/JetBrains Mono, Bronze/Verdigris, Fusione-Marke. |
-| Terminal | Größere Default-Schrift, A+/A−, Esc/Tab/Enter/Ctrl-C/Pfeile, kein Auto-Focus der versteckten xterm-Textarea auf dem Handy. |
+| Stable link | Token additionally in `userData/remote-pairing.token` (0600). Never silently overwrite when the ciphertext cannot be unlocked. `Regenerate` remains the only rotation path. |
+| Phone stays paired | Pairing token + session in `localStorage`. After a desktop restart: silent re-pair via the stored token. |
+| Scrolling | Document scroll, sticky header, no inner overflow on the list. Terminal as `position: fixed` on `visualViewport.height`. |
+| Reading | 17px body, 16px inputs, goals wrap, agent rows with role·status, 44px touch, warning banner for `ask_user`. |
+| Brand | Caprasimo/Figtree/JetBrains Mono, bronze/verdigris, the Fusione mark. |
+| Terminal | Larger default font, A+/A−, Esc/Tab/Enter/Ctrl-C/arrows, no auto-focus of the hidden xterm textarea on the phone. |
 
-Die Gateway-Allow-List bleibt bei sechs Verben. Kein Promote, keine
-Settings, keine CLI-Permission-TUIs auf dem Handy.
+The gateway allow-list stays at six verbs. No promote, no settings, no CLI
+permission TUIs on the phone.
 
-## Design-Ideen (umgesetzt vs. später)
+## Design ideas (implemented vs. later)
 
-### Jetzt drin, weil sie das Handy benutzbar machen
+### In now, because they make the phone usable
 
-- Karten auf-/zuklappen; beendete Workspaces hinter einem Toggle.
-- Startformular als `<details>`, zu wenn schon ein Lauf lebt.
-- Stop erst nach zweitem Tap.
-- Sticky Header mit Verbindungsstatus.
-- Locale aus `hello.locale`.
+- Cards collapse/expand; ended workspaces behind a toggle.
+- Start form as `<details>`, closed when a run is already alive.
+- Stop only on the second tap.
+- Sticky header with connection status.
+- Locale from `hello.locale`.
 
-### Nächste Stufe, ohne Allow-List zu erweitern
+### Next stage, without widening the allow-list
 
-- **PWA-Manifest + Icon**, „Zum Home-Bildschirm" — der stabile Link macht
-  das erst sinnvoll.
-- **Pull-to-refresh** (das ⟳ bleibt).
-- **Haptik** auf Stop / Antworten (`navigator.vibrate`).
-- **Frage-Inbox** oben, unabhängig von der Karte — `ask_user` darf nicht
-  unter dem Fold verschwinden.
-- Terminal: optionales **Wrap** statt horizontales xterm-Scrollen;
-  Snapshot-Suche.
-- Light/Dark lokal überschreiben, statt nur dem Desktop zu folgen.
+- **PWA manifest + icon**, "Add to Home Screen" — the stable link is what
+  makes that worthwhile.
+- **Pull-to-refresh** (the ⟳ stays).
+- **Haptics** on stop / answers (`navigator.vibrate`).
+- **Question inbox** at the top, independent of the card — `ask_user` must
+  not disappear under the fold.
+- Terminal: optional **wrap** instead of horizontal xterm scrolling;
+  snapshot search.
+- Override light/dark locally instead of only following the desktop.
 
-### Braucht ein neues Gateway-Verb — nicht in v1
+### Needs a new gateway verb — not in v1
 
-- Promote / Worktree-Cleanup (bewusst Desktop-only, siehe Handbuch).
-- CLI-Permission-Dialoge auf das Handy spiegeln (`ask-user`-Tier).
-- Live-`statusText`-Push feiner als der Workspace-Summary-Takt.
-- Retro / Briefing lesen.
+- Promote / worktree cleanup (deliberately desktop-only, see the handbook).
+- Mirroring CLI permission dialogs to the phone (`ask-user` tier).
+- Live `statusText` push finer than the workspace summary cadence.
+- Reading retro / briefing.
 
-### Nicht tun
+### Do not
 
-- Zweiten MCP-Server oder Spiegel aller `APP_CHANNELS`.
-- Raw-xterm als primäre Handy-Tastatur zurückbauen.
-- Den Token in `electron-store` als Klartext legen.
+- A second MCP server or a mirror of all `APP_CHANNELS`.
+- Rebuilding raw xterm as the primary phone keyboard.
+- Putting the token into `electron-store` as plain text.

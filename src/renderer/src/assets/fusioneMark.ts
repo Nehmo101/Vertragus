@@ -9,9 +9,10 @@
  * Urfassung: gestreckter Windhund, Kopf rechts, vier Läufe, Rute nach
  * hinten in die dritte Tempolinie auslaufend.
  *
- * BRAND.md: galoppierender Windhund, Tempo-Schlitze durch Lende und Kruppe,
- * Rute läuft in Linie 3 aus, Linie 4 hinter den Läufen, angelegtes Ohr,
- * Bronze vorn / Verdigris hinten.
+ * Brand shorthand (see README.md's mark description and build/icon.svg):
+ * galloping greyhound, speed slits through loin and croup, tail running out
+ * into line 3, line 4 behind the legs, folded ear, bronze front / verdigris
+ * rear.
  */
 
 /**

@@ -3,7 +3,8 @@
  * electron-builder, BrowserWindow, and the renderer favicon.
  * Run directly or through `pnpm run icons`.
  *
- * Icon-Sonderformate notes (see docs/BRAND.md):
+ * Icon special-format notes (canonical mark geometry:
+ * src/renderer/src/assets/fusioneMark.ts and build/icon.svg):
  * - macOS: build/icon.svg uses rx=27 squircle on 116px tile with 3.5px inset safe zone
  * - Windows: tile gradient #123B34 → #0A211D matches Start-menu tile palette
  */

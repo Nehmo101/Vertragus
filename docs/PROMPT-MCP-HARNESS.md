@@ -1,521 +1,527 @@
-# Prompt: Vertragus MCP & Harness — alle offenen Themen
+English | [Deutsch](PROMPT-MCP-HARNESS.de.md)
 
-> Copy-paste-fähiger Agent-Prompt. Primärquelle für Reihenfolge und
-> Non-Goals: [`HANDBUCH-HARNESS.md`](./HANDBUCH-HARNESS.md). Code-Anker
-> unten. **Nicht** A1–A3 / Remote-v1 / C1–C2 neu bauen — die liegen.
+# Prompt: Vertragus MCP & Harness — all open topics
 
----
-
-## Rolle
-
-Du arbeitest im Repo **Vertragus** (Electron-Panel + in-app MCP-Server).
-Ziel: den internen MCP-/Harness-Loop von „stabil und fernsteuerbar“ zu
-„wissend, menschlich steuerbar, optional breit“ machen — ohne die
-Non-Goals unten zu brechen.
-
-Arbeite in **Tracks** (nicht alles in einem PR). Jeder Track: eigene
-Branch `cursor/<kurz>-94bd` (oder Repo-Konvention), grüne Tests, PR mit
-Bezug auf dieses Dokument und `docs/HANDBUCH-HARNESS.md`.
-
-Sprache der Tool-Descriptions, Contracts und Orchestrator-Prompts:
-**Englisch** (imperativ). UI-Strings / Handbuch: Deutsch ok.
+> Copy-paste-ready agent prompt. Primary source for ordering and
+> non-goals: [`HANDBOOK-HARNESS.md`](./HANDBOOK-HARNESS.md). Code anchors
+> below. Do **not** rebuild A1–A3 / Remote v1 / C1–C2 — those are in place.
 
 ---
 
-## Kontext — was schon da ist (nicht anfassen außer Integration)
+## Role
 
-| Bereich | Stand |
+You work in the repo **Vertragus** (Electron panel + in-app MCP server).
+Goal: take the internal MCP/harness loop from "stable and remotely
+steerable" to "knowing, humanly steerable, optionally broad" — without
+breaking the non-goals below.
+
+Work in **tracks** (not everything in one PR). Each track: its own branch
+`cursor/<short>-94bd` (or the repo convention), green tests, a PR
+referencing this document and `docs/HANDBOOK-HARNESS.md`.
+
+Language of tool descriptions, contracts and orchestrator prompts:
+**English** (imperative). Docs are English-canonical with maintained German
+`.de.md` twins — whoever touches docs maintains both. UI strings go through
+the i18n layers (de + en).
+
+---
+
+## Context — what already exists (do not touch except to integrate)
+
+| Area | Status |
 | --- | --- |
-| Lifecycle | `orchestrator_exited`, Quit awaited, sync `beginAgent` → `starting`, `slotWithCapacity` |
-| MCP Auth | per-agent HMAC-Subtokens, Host/Origin-Rebinding, MCP-Configs in `.git/info/exclude` |
-| Start | async `start_agent` → `{state:'starting'}` + Events `agent_started` / `agent_start_failed` |
-| Events | `EventQueue` + `await_events.eventsDropped` (Feld am Result, kein synthetisches Event) |
-| Verify | `inspect_agent` (`status`/`diff`/`log`/`file`); Host-Fakten auf `agent_done` |
-| Tools heute | Orch: 8 Tools in `ORCHESTRATOR_TOOL_NAMES`; Sub: `report_done` / `ask_orchestrator` / `report_progress` |
-| Identität | binär: `?ws=&token=<orch>` vs `?ws=&agent=&token=<sub>` |
-| Remote v1 | 4 Gateway-Verben; MCP bleibt loopback; Tippen in PTY löst **kein** `ask_orchestrator` |
+| Lifecycle | `orchestrator_exited`, quit awaited, sync `beginAgent` → `starting`, `slotWithCapacity` |
+| MCP auth | per-agent HMAC subtokens, host/origin rebinding, MCP configs in `.git/info/exclude` |
+| Start | async `start_agent` → `{state:'starting'}` + events `agent_started` / `agent_start_failed` |
+| Events | `EventQueue` + `await_events.eventsDropped` (field on the result, no synthetic event) |
+| Verify | `inspect_agent` (`status`/`diff`/`log`/`file`); host facts on `agent_done` |
+| Tools today | Orch: 8 tools in `ORCHESTRATOR_TOOL_NAMES`; sub: `report_done` / `ask_orchestrator` / `report_progress` |
+| Identity | binary: `?ws=&token=<orch>` vs `?ws=&agent=&token=<sub>` |
+| Remote v1 | 4 gateway verbs; MCP stays loopback; typing into a PTY does **not** resolve `ask_orchestrator` |
 
-Code-Anker:
+Code anchors:
 
-- `src/main/mcp/server.ts` — HTTP, Identität, Sessions
+- `src/main/mcp/server.ts` — HTTP, identity, sessions
 - `src/main/mcp/toolsOrchestrator.ts` / `toolsSubagent.ts`
 - `src/main/mcp/pendingQuestions.ts` / `eventQueue.ts` / `types.ts` / `attach.ts`
 - `src/shared/schema/events.ts`
 - `src/shared/prompts/orchestrator.ts` / `contract.ts` / `roles.ts`
-- Workspace/Host: AgentHost-Implementierung (WorkspaceManager / Workspace)
-- Remote: Gateway Allow-List, `protocol.ts`
+- Workspace/host: the AgentHost implementation (WorkspaceManager / Workspace)
+- Remote: gateway allow-list, `protocol.ts`
 
 ---
 
-## Harte Non-Goals (niemals)
+## Hard non-goals (never)
 
-- Peer-to-Peer zwischen Subagents **oder** Leads
-- Vorstartetes Team / Playbooks die Fenster spawnen
-- Orchestrator der selbst committen/mergen/testen/pushen soll
-- Autodelete von Worktrees/Branches
-- Hardcodierte Modellkataloge, RAG
-- Zweite Orchestrierung als Produkt (Kanban, DAG, Cloud-Runner, Workspace-pro-Area)
-- Automatisches Nesting / Nesting-Profil-Toggle — Root entscheidet per Tool, Default flach
-- Tiefe > 1 (Lead startet Lead)
-- Enkel-Events in der Root-`await_events`-Queue
-- `read_output` als Verifikation (nur Debug / unconfirmed exit)
-- Remote als zweiten MCP-Server oder Spiegel aller APP_CHANNELS
-- Tunnel/TLS/Account/Internet-Exposure als Teil dieses Tracks
-- `git status` auf jedem `list_agents` / `await_events` (Feed nicht verteuern)
-- Synthetisches Event `events_dropped` (Gap bleibt Feld am Tool-Result)
+- Peer-to-peer between subagents **or** leads
+- A pre-started team / playbooks that spawn windows
+- An orchestrator that is supposed to commit/merge/test/push itself
+- Autodelete of worktrees/branches
+- Hardcoded model catalogues, RAG
+- A second orchestration as a product (kanban, DAG, cloud runner, workspace-per-area)
+- Automatic nesting / a nesting profile toggle — the root decides via tool, default flat
+- Depth > 1 (lead starts lead)
+- Grandchild events in the root's `await_events` queue
+- `read_output` as verification (debug / unconfirmed exit only)
+- Remote as a second MCP server or a mirror of all APP_CHANNELS
+- Tunnels/TLS/accounts/internet exposure as part of these tracks
+- `git status` on every `list_agents` / `await_events` (do not make the feed expensive)
+- A synthetic `events_dropped` event (the gap stays a field on the tool result)
 
 ---
 
-## Reihenfolge der Tracks
+## Track ordering
 
 ```
-Track 0  H1 + H2     Remote/Panel-Kanten für Mensch im Loop
-Track 1  C3 + C4     Snapshot-Commit + Handoff-Paket an start_agent
-Track 2  C5          Orchestrator-Idle-Watchdog
-Track 3  D           Goal-UI, user_message, ask_user  (braucht 0)
-Track 4  Slot/Provider-Wahl an start_agent           (klein, jederzeit nach 0)
-Track 5  F           Multi-Orch Lead (braucht 1; braucht Remote nicht)
-Track 6  E           integrate/gate, Briefing, Resume, Budget, Eval, Extra-MCP
+Track 0  H1 + H2     remote/panel edges for the human in the loop
+Track 1  C3 + C4     snapshot commit + handoff package on start_agent
+Track 2  C5          orchestrator idle watchdog
+Track 3  D           goal UI, user_message, ask_user  (needs 0)
+Track 4  slot/provider choice on start_agent          (small, any time after 0)
+Track 5  F           multi-orch lead (needs 1; does not need Remote)
+Track 6  E           integrate/gate, briefing, resume, budget, eval, extra MCP
 ```
 
-Unten: **ein Prompt-Block pro Track**. Bei Auftrag „alles“: Track 0→6
-sequentiell, je eigener PR. Bei Auftrag „nur MCP-Tools“: Tracks 1–5
-plus D3/D2-Teile die Event/Tool betreffen; H1/H2 trotzdem zuerst wenn
-Remote/Panel betroffen.
+Below: **one prompt block per track**. For an "everything" assignment:
+Track 0→6 sequentially, one PR each. For an "MCP tools only" assignment:
+Tracks 1–5 plus the D3/D2 parts that touch events/tools; H1/H2 still first
+when remote/panel is affected.
 
 ---
 
 ## TRACK 0 — H1 `answer_question` + H2 `workspaces:start {goal}`
 
-### Ziel
+### Goal
 
-Mensch (Panel + Remote) kann MCP-Fragen beantworten und einen Workspace
-mit Goal starten — ohne zweiten Orchestrator-Hirn.
+A human (panel + remote) can answer MCP questions and start a workspace
+with a goal — without a second orchestrator brain.
 
 ### H1 — `answer_question`
 
-Problem: `ask_orchestrator` parkt in `PendingQuestions`. Antwort nur über
-Orchestrator-Tool `send_to_agent{questionId}`. Tippen in Subagent-TUI
-löst Waiter nicht. Tippen in Orchestrator-TUI während `await_events`
-hängt → zweiter Turn.
+Problem: `ask_orchestrator` parks in `PendingQuestions`. The answer only
+comes through the orchestrator tool `send_to_agent{questionId}`. Typing
+into the subagent TUI does not release the waiter. Typing into the
+orchestrator TUI while `await_events` is parked → a second turn.
 
-Implementiere **einen** Host-Pfad (gleicher wie MCP-Tool):
+Implement **one** host path (same as the MCP tool):
 
 ```
 answer_question { workspaceId, agentId, questionId, text }
 ```
 
-- Gateway Allow-List um genau diesen Befehl erweitern
-- Panel: Badge → Textfeld nutzt denselben Pfad
-- Sentinel-ASK: weiter `deliverAnswer` in PTY, aber Registry bleibt
-  eine Wahrheit
-- Keine neue Orchestrierung, keine zweite Question-Map
+- Extend the gateway allow-list by exactly this command
+- Panel: badge → text field uses the same path
+- Sentinel ASK: keep `deliverAnswer` into the PTY, but the registry stays
+  one truth
+- No new orchestration, no second question map
 
-### H2 — Goal at start
+### H2 — goal at start
 
 ```
 workspaces:start { profileId, goal?: string }
 ```
 
-- Host seedet Goal wie Assignment-Handshake
-- Ohne Goal: Start erlaubt (Back-compat), UI zeigt „kein Ziel — Orchestrator wartet“
-- Panel + Remote teilen das Feld; Desktop nicht nur TUI-Tippen
+- The host seeds the goal like the assignment handshake
+- Without a goal: starting allowed (back-compat), the UI shows "no goal —
+  orchestrator waiting"
+- Panel + remote share the field; the desktop is not TUI-typing only
 
-### Done wenn
+### Done when
 
-- Tests: Registry-Antwort vom Gateway weckt `ask_orchestrator`
-- Remote-Client / Panel können Frage schließen
-- Start mit Goal erscheint in Orchestrator-Seed; ohne Goal kein Crash
-- README Remote-Abschnitt aktualisieren (was Handy jetzt kann)
+- Tests: a registry answer from the gateway wakes `ask_orchestrator`
+- Remote client / panel can close a question
+- A start with a goal appears in the orchestrator seed; without a goal, no crash
+- Update the README remote section (what the phone can do now)
 
-### Prompt (kurz)
+### Prompt (short)
 
-> Implementiere H1 `answer_question` und H2 `workspaces:start{goal}` laut
-> `docs/HANDBUCH-HARNESS.md`. Ein Host-Pfad mit MCP `send_to_agent{questionId}`;
-> Gateway Allow-List +1; Panel-Badge; Goal-Seed. Keine neuen MCP-Tools in
-> diesem Track außer Integrationstests gegen bestehende Tools.
-
----
-
-## TRACK 1 — C3 Snapshot-Commit + C4 Handoff-Paket
-
-### C3 Snapshot-Commit (Default an)
-
-Bei `agent_done` / Host-Done-Pfad: wenn Worktree dirty → Commit auf
-Agent-Branch:
-
-```
-vertragus: <agent> / <role> — <erste Zeile der Summary>
-```
-
-- Kein Push, kein `--force`
-- Worker-Prompt (`roles.ts` / Contract): „committe nicht selbst — Host snapshotet“
-- Fehler beim Commit dürfen `agent_done` nicht schlucken (wie heute bei
-  Snapshot-Facts)
-
-### C4 Handoff an `start_agent`
-
-Wenn `baseBranch` gesetzt: Host hängt letztes relevantes `agent_done`
-(Summary, Files, SHA, Branch) an den Task-Text bevor Contract appended
-wird. Reviewer rekonstruiert Diff nicht aus Prosa. Star-Topologie bleibt.
-
-### Done wenn
-
-- Unit/Integration: dirty → Commit; clean → kein Leercommit
-- `start_agent{baseBranch}` enthält Handoff-Block im Seed
-- `inspect_agent` + Host-Fakten unverändert korrekt
-- Prompt-Texte angepasst
-
-### Prompt (kurz)
-
-> Implementiere C3 Snapshot-Commit und C4 Handoff-Paket. Host-Wahrheit
-> für Git; MCP `start_agent` / `report_done` nur verdrahten. Kein Merge,
-> kein Push, kein Feed-`git status`.
+> Implement H1 `answer_question` and H2 `workspaces:start{goal}` per
+> `docs/HANDBOOK-HARNESS.md`. One host path with MCP `send_to_agent{questionId}`;
+> gateway allow-list +1; panel badge; goal seed. No new MCP tools in this
+> track except integration tests against existing tools.
 
 ---
 
-## TRACK 2 — C5 Orchestrator-Idle-Watchdog
+## TRACK 1 — C3 snapshot commit + C4 handoff package
 
-### Ziel
+### C3 snapshot commit (default on)
 
-Prozess lebt, ruft aber `await_events` / Orchestrator-Tools nicht mehr.
-≠ `orchestrator_exited` (Prozess-Tod).
+On `agent_done` / the host done path: if the worktree is dirty → commit on
+the agent branch:
+
+```
+vertragus: <agent> / <role> — <first line of the summary>
+```
+
+- No push, no `--force`
+- Worker prompt (`roles.ts` / contract): "do not commit yourself — the host snapshots"
+- Commit failures must not swallow `agent_done` (as with snapshot facts today)
+
+### C4 handoff on `start_agent`
+
+When `baseBranch` is set: the host attaches the last relevant `agent_done`
+(summary, files, SHA, branch) to the task text before the contract is
+appended. The reviewer does not reconstruct the diff from prose. The star
+topology stays.
+
+### Done when
+
+- Unit/integration: dirty → commit; clean → no empty commit
+- `start_agent{baseBranch}` contains the handoff block in the seed
+- `inspect_agent` + host facts remain correct, unchanged
+- Prompt texts adjusted
+
+### Prompt (short)
+
+> Implement C3 snapshot commit and C4 handoff package. Host truth for git;
+> only wire up MCP `start_agent` / `report_done`. No merge, no push, no
+> feed `git status`.
+
+---
+
+## TRACK 2 — C5 orchestrator idle watchdog
+
+### Goal
+
+The process is alive but no longer calls `await_events` / orchestrator
+tools. ≠ `orchestrator_exited` (process death).
 
 ### Design
 
-- Watchdog auf letzten Orchestrator-MCP-Tool-Call
-- Event `orchestrator_idle` + Panel/Remote-Karte
-- Optional Reminder-Zeile in TUI, einmal pro Stillephase
-- Weckt den Orchestrator **nicht** (er pollt ja nicht)
+- Watchdog on the last orchestrator MCP tool call
+- Event `orchestrator_idle` + panel/remote card
+- Optionally a reminder line into the TUI, once per silent phase
+- Does **not** wake the orchestrator (it is not polling anyway)
 
-### Done wenn
+### Done when
 
-- Event-Schema erweitert + Tests
-- Panel zeigt Idle; Remote liest Summary
-- Keine False-Positives während normalem `await_events`-Long-Poll
-  (Timeouts ≠ Idle)
+- Event schema extended + tests
+- Panel shows idle; remote reads the summary
+- No false positives during a normal `await_events` long-poll
+  (timeouts ≠ idle)
 
-### Prompt (kurz)
+### Prompt (short)
 
-> Implementiere C5 `orchestrator_idle` Watchdog. Distinkt von
-> `orchestrator_exited`. Idle = keine Orchestrator-Tool-Calls mehr,
-> nicht „await_events hat leeres Result“.
+> Implement C5 `orchestrator_idle` watchdog. Distinct from
+> `orchestrator_exited`. Idle = no more orchestrator tool calls, not
+> "await_events had an empty result".
 
 ---
 
-## TRACK 3 — Phase D Mensch im Loop
+## TRACK 3 — Phase D human in the loop
 
-Voraussetzung: Track 0 (H1/H2).
+Prerequisite: Track 0 (H1/H2).
 
-### D1 Goal-at-Play
+### D1 goal at Play
 
-Sobald `start({goal})` existiert: Panel-Pflichtfeld (oder klare Warnung),
-`VERTRAGUS_DEV_RUN` aus Env/stdin.
+As soon as `start({goal})` exists: mandatory panel field (or a clear
+warning), `VERTRAGUS_DEV_RUN` from env/stdin.
 
-### D2 `user_message` weckt `await_events`
+### D2 `user_message` wakes `await_events`
 
-Composer auf Workspace-Karte (Desktop + Remote, nicht nur raw xterm):
+Composer on the workspace card (desktop + remote, not just raw xterm):
 
-1. Text in Orchestrator-TUI (sichtbar)
-2. Push `user_message` in EventQueue → parkendes `await_events` kehrt sofort zurück
+1. text into the orchestrator TUI (visible)
+2. push `user_message` into the EventQueue → a parked `await_events` returns immediately
 
-Remote: neuer Message-Typ in `protocol.ts` (zod-Union), z. B. `steer` /
-`user_message`. Nicht in B1 vorbauen außer Gateway nicht zuschweißen.
+Remote: a new message type in `protocol.ts` (zod union), e.g. `steer` /
+`user_message`. Do not pre-build in B1 beyond not welding the gateway shut.
 
-### D3 `ask_user` + Badge-Antwort
+### D3 `ask_user` + badge answer
 
-Neues **Orchestrator-MCP-Tool**, blockierend, Ticket wie
+A new **orchestrator MCP tool**, blocking, ticket like
 `ask_orchestrator`:
 
-- Event `user_question` auf Workspace-Karte
-- Prompt-Zeile „answer with the best-supported option“ entfernen/ersetzen
-- Subagent-Fragen: Host-Pfad = H1
-- User-Fragen: eigener Waiter; **ein** Textfeld, zwei Backends
-- `ORCHESTRATOR_TOOL_NAMES` + Allowlists (`attach.ts`) + Prompt
-  `orchestrator.ts` aktualisieren
+- Event `user_question` on the workspace card
+- Remove/replace the prompt line "answer with the best-supported option"
+- Subagent questions: host path = H1
+- User questions: their own waiter; **one** text field, two backends
+- Update `ORCHESTRATOR_TOOL_NAMES` + allowlists (`attach.ts`) + prompt
+  `orchestrator.ts`
 
-### D4 Yolo als Policy (später im Track oder Follow-up)
+### D4 yolo as a policy (later in the track or a follow-up)
 
-Stufen `yolo` / `ask-user` / `ask-orchestrator`. Remote-v1 nicht
-CLI-Permission-TUIs „schön“ machen. Threat-Model in README halten.
+Tiers `yolo` / `ask-user` / `ask-orchestrator`. Remote v1 does not make
+CLI permission TUIs "pretty". Keep the threat model in the README.
 
-### Done wenn
+### Done when
 
-- Composer weckt `await_events` (Test mit Fake-Host + EventQueue)
-- `ask_user` Roundtrip inkl. Ticket-Resume
-- Panel + Remote Badge für User- und Agent-Fragen
-- Prompt nennt `ask_user` / `user_message`
+- The composer wakes `await_events` (test with fake host + EventQueue)
+- `ask_user` round trip incl. ticket resume
+- Panel + remote badge for user and agent questions
+- The prompt names `ask_user` / `user_message`
 
-### Prompt (kurz)
+### Prompt (short)
 
-> Phase D: D1 Goal-UI, D2 `user_message` Event + Composer, D3 MCP-Tool
-> `ask_user` mit Ticket. H1/H2 vorausgesetzt. Ein Textfeld, zwei
-> Backends. Kein Peer-to-Peer, kein zweiter Orchestrator.
+> Phase D: D1 goal UI, D2 `user_message` event + composer, D3 MCP tool
+> `ask_user` with ticket. H1/H2 assumed. One text field, two backends. No
+> peer-to-peer, no second orchestrator.
 
 ---
 
-## TRACK 4 — Provider-/Slot-Wahl an `start_agent`
+## TRACK 4 — provider/slot choice on `start_agent`
 
 ### Problem
 
-`slotWithCapacity` nimmt ersten Slot der Rolle mit Platz. Orchestrator
-kann `model` überschreiben, nicht Provider → Diversität oft tot.
+`slotWithCapacity` takes the first slot of the role with room. The
+orchestrator can override `model`, not the provider → diversity often dead.
 
-### Design (eines wählen, Profil-Regel bevorzugen wenn einfacher)
+### Design (choose one, prefer the profile rule if simpler)
 
-- `start_agent{role, slotId? | providerId?}` **oder**
-- Profil-Regel: eine Rolle = ein Slot
+- `start_agent{role, slotId? | providerId?}` **or**
+- profile rule: one role = one slot
 
-Host erzwingt Cap weiterhin sync über Reservierung.
+The host keeps enforcing the cap synchronously through the reservation.
 
-### Done wenn
+### Done when
 
-- Explizite Provider-/Slot-Wahl möglich ohne Cap-Regression
-- Unbekannte slotId/providerId → klares `toolError`
-- Prompt dokumentiert Parameter
+- Explicit provider/slot choice possible without a cap regression
+- Unknown slotId/providerId → a clear `toolError`
+- The prompt documents the parameters
 
-### Prompt (kurz)
+### Prompt (short)
 
-> Erweitere `start_agent` um optionale Slot-/Provider-Wahl ohne TOCTOU
-> und ohne Cap-Bugs. Kein neues Nesting.
+> Extend `start_agent` with optional slot/provider choice without TOCTOU
+> and without cap bugs. No new nesting.
 
 ---
 
-## TRACK 5 — Phase F Multi-Orchestrierung (Lead)
+## TRACK 5 — Phase F multi-orchestration (lead)
 
-Voraussetzung: Track 1 (C3/C4). Braucht Remote **nicht**.
+Prerequisite: Track 1 (C3/C4). Does **not** need Remote.
 
-### Dritte MCP-Identität
+### A third MCP identity
 
-Heute binär. Neu:
+Today binary. New:
 
 ```
-/mcp?ws=&token=<orch>                 → Root-Tools (+ start_orchestrator)
-/mcp?ws=&agent=<id>&token=<sub>       → Blatt-Tools
-/mcp?ws=&lead=<id>&token=<per-agent>  → Lead-Tools (Union)
+/mcp?ws=&token=<orch>                 → root tools (+ start_orchestrator)
+/mcp?ws=&agent=<id>&token=<sub>       → leaf tools
+/mcp?ws=&lead=<id>&token=<per-agent>  → lead tools (union)
 ```
 
-### Lead-Tools
+### Lead tools
 
-| Richtung | Tools |
+| Direction | Tools |
 | --- | --- |
-| Nach unten (Unterbaum) | `start_agent`, `send_to_agent`, `await_events`, `list_agents`, `stop_agent`, `read_output`, `inspect_agent` |
-| Nach oben | `report_done`, `ask_orchestrator`, `report_progress` |
-| Verboten | `record_retro`, `start_orchestrator` |
+| Downward (subtree) | `start_agent`, `send_to_agent`, `await_events`, `list_agents`, `stop_agent`, `read_output`, `inspect_agent` |
+| Upward | `report_done`, `ask_orchestrator`, `report_progress` |
+| Forbidden | `record_retro`, `start_orchestrator` |
 
-### Root zusätzlich
+### Root additionally
 
 ```
 start_orchestrator{area, task, maxSubagents?, model?, baseBranch?}
 ```
 
-- `area` Label für Prompt/Panel
-- `maxSubagents` = Teilbudget, nicht zweites Profil-Limit
-- `profile.maxSubagents` global über Root-Kinder + Enkel
-- `start_agent` bleibt auf Root (flach + hybrid)
+- `area` label for prompt/panel
+- `maxSubagents` = sub-budget, not a second profile limit
+- `profile.maxSubagents` global over root children + grandchildren
+- `start_agent` stays on the root (flat + hybrid)
 
 ### Fan-in
 
-- Jeder Lead: eigene `EventQueue`
-- Root `await_events` sieht **nur Direktkinder**
-- Enkel-Events nur in Lead-Queue
-- Retro-Tap abonniert **alle** Queues
-- `PendingQuestions` eine Registry; `agent_question` in Parent-Queue
-- Fragen steigen eine Stufe, nie zwei; kein Skip-Level; keine Peer-Fragen
+- Every lead: its own `EventQueue`
+- Root `await_events` sees **direct children only**
+- Grandchild events only in the lead queue
+- The retro tap subscribes to **all** queues
+- `PendingQuestions` one registry; `agent_question` into the parent queue
+- Questions climb one level, never two; no skip-level; no peer questions
 
-### Lead-Tod
+### Lead death
 
-- Root bekommt `agent_exited` für Lead
-- Reparent: Enkel → Direktkinder Root; Queue-Merge `subtree_adopted`
-- Nicht: Enkel stoppen; nicht: orphaned `ask_orchestrator`
+- The root gets `agent_exited` for the lead
+- Reparent: grandchildren → direct children of the root; queue merge `subtree_adopted`
+- Not: stopping grandchildren; not: orphaned `ask_orchestrator`
 
-### Caps (Host, nicht Prompt)
+### Caps (host, not prompt)
 
-- Tiefe genau 1
-- Max Leads z. B. 4
-- Globales `maxSubagents` inkl. Leads/Enkel
-- Async start + Per-Agent-Token wie heute
-- Per-Rolle-Limits v1 global
+- Depth exactly 1
+- Max leads e.g. 4
+- Global `maxSubagents` incl. leads/grandchildren
+- Async start + per-agent tokens as today
+- Per-role limits global in v1
 
-### Panel / Remote
+### Panel / remote
 
 - `parentId` + `kind: 'orchestrator' | 'lead' | <role>`
-- Einrückung, kein Baum-Widget
-- `answer_question` adressiert Parent aus `agentId`
-- `start_orchestrator` **kein** Remote-API
+- Indentation, no tree widget
+- `answer_question` addresses the parent from `agentId`
+- `start_orchestrator` is **not** a remote API
 
-### Prompt (kurz)
+### Prompt (short)
 
-> Implementiere Phase F Multi-Orch laut Handbuch: dritte Identität
-> `lead=`, eigene Queues, `start_orchestrator`, Fan-in nur Direktkinder,
-> Reparent bei Lead-Tod. Default flach. Kein Auto-Nesting, Tiefe > 1,
-> Enkel in Root-Queue, Peer-to-Peer verboten. Braucht C3/C4.
+> Implement Phase F multi-orch per the handbook: third identity `lead=`,
+> own queues, `start_orchestrator`, fan-in of direct children only,
+> reparent on lead death. Default flat. No auto-nesting, no depth > 1, no
+> grandchildren in the root queue, no peer-to-peer. Needs C3/C4.
 
 ---
 
-## TRACK 6 — Phase E Integration, Gedächtnis, Eval
+## TRACK 6 — Phase E integration, memory, eval
 
-Voraussetzung: Track 1 (C). D/F optional parallel wo unabhängig.
+Prerequisite: Track 1 (C). D/F optionally parallel where independent.
 
-### E1 `integrate_branch` / Verify-Gate / Promote
+### E1 `integrate_branch` / verify gate / promote
 
-- Host-Merge im Ziel-Worktree
+- Host merge in the target worktree
 - Events `integrate_ok` | `integrate_conflict`
-- Gate: Worker-Snapshot + Reviewer ohne Blocker + Tester `success`
-- Promote nach `<base>` = **User-Klick** (nicht Remote-v1 Handy)
+- Gate: worker snapshot + reviewer without blockers + tester `success`
+- Promote to `<base>` = **user click** (not Remote-v1 phone)
 
-### E2 Briefing + Repo-Notes
+### E2 briefing + repo notes
 
-- Gecappter Block `AGENTS.md`/`CLAUDE.md`/`README`/`git log -8` in
-  Orchestrator-Prompt
-- `record_retro.repoNotes[]` analog Model-Learnings, löschbar im Retro-Panel
-- Kein RAG
+- Capped block of `AGENTS.md`/`CLAUDE.md`/`README`/`git log -8` into the
+  orchestrator prompt
+- `record_retro.repoNotes[]` analogous to model learnings, deletable in the retro panel
+- No RAG
 
-### E3 Journal / Resume
+### E3 journal / resume
 
-- `.vertragus/runs/<id>/events.jsonl` über Gap hinaus
-- Re-Spawn in alten Worktrees
-- Offene Tickets nach Crash = tot, ehrlich sagen
+- `.vertragus/runs/<id>/events.jsonl` beyond the gap
+- Re-spawn in old worktrees
+- Open tickets after a crash = dead, say it honestly
 
-### E4 Budget
+### E4 budget
 
-- Summe Agent-Sekunden + `maxRuntimeMin`
-- Events `budget_warning`; keine neuen Starts über Limit
-- Keine geratenen Token-Zähler
+- Sum of agent-seconds + `maxRuntimeMin`
+- `budget_warning` events; no new starts over the limit
+- No guessed token counters
 
-### E5 Loop-Eval
+### E5 loop eval
 
-- Mini-Repo mit Bug; Assert Worker + `inspect` + Tester success +
-  Orchestrator-Worktree ohne eigenen Diff
-- Handover-Live-Test behalten
+- Mini repo with a bug; assert worker + `inspect` + tester success +
+  orchestrator worktree without its own diff
+- Keep the handover live test
 
-### E6 Playbooks, Extra-MCP, Rollen-Templates
+### E6 playbooks, extra MCP, role templates
 
-- Playbook = Goal-Template, **kein** vorstartetes Team
-- Extra-MCP nur an Worker (`attach.ts` Dialekte)
-- Templates Janitor/Explorer; Browser erst mit Extra-MCP
+- Playbook = goal template, **not** a pre-started team
+- Extra MCP only for workers (`attach.ts` dialects)
+- Templates Janitor/Explorer; browser only with extra MCP
 
-### Prompt (kurz)
+### Prompt (short)
 
-> Phase E laut Handbuch: integrate/gate/promote (User-Klick), Briefing,
-> Journal/Resume, Budget-Wanduhr, Loop-Eval, Playbooks + Extra-MCP an
-> Worker. Kein RAG, kein Autodelete, Orchestrator merged nicht selbst
-> außer Host-Tool `integrate_branch`.
-
----
-
-## Querschnitt — bei jedem Track prüfen
-
-1. **Events:** Schema in `events.ts`; ein Owner pro Event-Typ (siehe
-   Kommentar in `types.ts`); keine Duplikate MCP vs Host/Sentinel.
-2. **Tools:** `ORCHESTRATOR_TOOL_NAMES` / `SUBAGENT_TOOL_NAMES` und
-   Provider-Allowlists in `attach.ts` synchron; Prompt `orchestrator.ts`
-   + Contract nennen neue Tools.
-3. **Timeouts:** Long-Polls unter 60s MCP-Timeout (`await_events` ~50s,
-   `ask_*` ~50s, Ticket-Resume).
-4. **Sicherheit:** Loopback MCP; Tokens nicht committen; Remote Allow-List
-   minimal; Yolo-Threat-Model ehrlich.
-5. **Tests:** Unit für Queue/Questions/Tools; Integration wo Spawn;
-   `pnpm run ci` grün.
-6. **Docs:** Handbuch-Statuszeile / README nur wenn Nutzer-Verhalten ändert.
+> Phase E per the handbook: integrate/gate/promote (user click), briefing,
+> journal/resume, budget wall clock, loop eval, playbooks + extra MCP for
+> workers. No RAG, no autodelete, the orchestrator does not merge itself
+> except through the host tool `integrate_branch`.
 
 ---
 
-## Master-Prompt (alles in einem Auftrag)
+## Cross-cutting — check on every track
 
-Wenn du **alle** Themen in einem Agent-Lauf anstoßen willst, paste dies:
+1. **Events:** schema in `events.ts`; one owner per event type (see the
+   comment in `types.ts`); no duplicates MCP vs host/sentinel.
+2. **Tools:** `ORCHESTRATOR_TOOL_NAMES` / `SUBAGENT_TOOL_NAMES` and the
+   provider allowlists in `attach.ts` in sync; the prompt `orchestrator.ts`
+   + contract name new tools.
+3. **Timeouts:** long-polls under the 60s MCP timeout (`await_events` ~50s,
+   `ask_*` ~50s, ticket resume).
+4. **Security:** loopback MCP; do not commit tokens; minimal remote
+   allow-list; an honest yolo threat model.
+5. **Tests:** unit for queue/questions/tools; integration where spawning;
+   `pnpm run ci` green.
+6. **Docs:** handbook status line / README only when user-visible behaviour changes.
+
+---
+
+## Master prompt (everything in one assignment)
+
+If you want to kick off **all** topics in one agent run, paste this:
 
 ```
-Du bist Coding-Agent in Vertragus. Lies zuerst:
-- docs/HANDBUCH-HARNESS.md
-- docs/PROMPT-MCP-HARNESS.md  (dieses Dokument)
+You are a coding agent in Vertragus. Read first:
+- docs/HANDBOOK-HARNESS.md
+- docs/PROMPT-MCP-HARNESS.md  (this document)
 - src/main/mcp/* , src/shared/schema/events.ts , src/shared/prompts/*
 
-Ziel: alle offenen Harness/MCP-Tracks umsetzen — aber in getrennten
-PRs/Commits in der Reihenfolge Track 0 → 6. Non-Goals strikt einhalten.
-Nichts aus „Was PR #17 gelandet hat“ neu bauen.
+Goal: implement all open harness/MCP tracks — but in separate PRs/commits
+in the order Track 0 → 6. Follow the non-goals strictly. Do not rebuild
+anything from "What PR #17 landed".
 
-Pro Track:
-1. Branch anlegen
-2. Minimalen Diff laut Track-Abschnitt
+Per track:
+1. Create a branch
+2. Minimal diff per the track section
 3. Tests + ci
-4. Kurzen PR-Body mit Track-ID und Done-Kriterien
-5. Erst dann nächster Track
+4. Short PR body with the track ID and done criteria
+5. Only then the next track
 
-Beginne mit Track 0 (H1 answer_question + H2 start{goal}).
-Wenn ein Track blockiert ist, stoppe und berichte Blocker — nicht
-heimlich Track 5 vor Track 1 bauen.
+Start with Track 0 (H1 answer_question + H2 start{goal}).
+If a track is blocked, stop and report the blocker — do not quietly build
+Track 5 before Track 1.
 ```
 
 ---
 
-## Einzel-Prompts (Copy-Paste)
+## Single prompts (copy-paste)
 
-### Nur Track 0
-
-```
-Implementiere Track 0 aus docs/PROMPT-MCP-HARNESS.md: H1 answer_question
-(Gateway + Panel, gleicher Pfad wie send_to_agent{questionId}) und H2
-workspaces:start{goal}. Tests, README Remote-Abschnitt. Keine neuen
-Orchestrierungs-Tools.
-```
-
-### Nur Track 1
+### Track 0 only
 
 ```
-Implementiere Track 1 (C3 Snapshot-Commit + C4 Handoff) aus
-docs/PROMPT-MCP-HARNESS.md. Host-Git-Wahrheit; agent_done darf bei
-Commit-Fehlern nicht sterben; start_agent{baseBranch} bekommt Handoff.
-Worker-Prompt: nicht selbst committen.
+Implement Track 0 from docs/PROMPT-MCP-HARNESS.md: H1 answer_question
+(gateway + panel, same path as send_to_agent{questionId}) and H2
+workspaces:start{goal}. Tests, README remote section. No new
+orchestration tools.
 ```
 
-### Nur Track 2
+### Track 1 only
 
 ```
-Implementiere Track 2 C5 orchestrator_idle aus docs/PROMPT-MCP-HARNESS.md.
-Distinkt von orchestrator_exited. Keine False-Positives während
-await_events-Long-Poll.
+Implement Track 1 (C3 snapshot commit + C4 handoff) from
+docs/PROMPT-MCP-HARNESS.md. Host git truth; agent_done must not die on
+commit failures; start_agent{baseBranch} gets the handoff. Worker prompt:
+do not commit yourself.
 ```
 
-### Nur Track 3
+### Track 2 only
 
 ```
-Implementiere Phase D (Track 3) aus docs/PROMPT-MCP-HARNESS.md.
-Voraussetzung H1/H2. D2 user_message weckt await_events; D3 ask_user
-MCP-Tool mit Ticket; ein Textfeld zwei Backends; Allowlists + Prompt.
+Implement Track 2 C5 orchestrator_idle from docs/PROMPT-MCP-HARNESS.md.
+Distinct from orchestrator_exited. No false positives during the
+await_events long-poll.
 ```
 
-### Nur Track 4
+### Track 3 only
 
 ```
-Implementiere Track 4 start_agent Slot-/Provider-Wahl aus
-docs/PROMPT-MCP-HARNESS.md. Caps sync/race-free lassen.
+Implement Phase D (Track 3) from docs/PROMPT-MCP-HARNESS.md.
+Prerequisite H1/H2. D2 user_message wakes await_events; D3 ask_user MCP
+tool with ticket; one text field, two backends; allowlists + prompt.
 ```
 
-### Nur Track 5
+### Track 4 only
 
 ```
-Implementiere Phase F Multi-Orch (Track 5) aus docs/PROMPT-MCP-HARNESS.md
-und HANDBUCH-HARNESS.md. Dritte Identität lead=; eigene Queues; Fan-in;
-Reparent; Caps Host-seitig. Default flach. Braucht C3/C4.
+Implement Track 4 start_agent slot/provider choice from
+docs/PROMPT-MCP-HARNESS.md. Keep caps sync/race-free.
 ```
 
-### Nur Track 6
+### Track 5 only
 
 ```
-Implementiere Phase E (Track 6) aus docs/PROMPT-MCP-HARNESS.md:
-integrate_branch/gate/promote, Briefing/repoNotes, Journal/Resume,
-Budget, Loop-Eval, Playbooks + Extra-MCP nur Worker. Non-Goals beachten.
+Implement Phase F multi-orch (Track 5) from docs/PROMPT-MCP-HARNESS.md
+and HANDBOOK-HARNESS.md. Third identity lead=; own queues; fan-in;
+reparent; caps host-side. Default flat. Needs C3/C4.
+```
+
+### Track 6 only
+
+```
+Implement Phase E (Track 6) from docs/PROMPT-MCP-HARNESS.md:
+integrate_branch/gate/promote, briefing/repoNotes, journal/resume,
+budget, loop eval, playbooks + extra MCP workers-only. Respect the
+non-goals.
 ```
 
 ---
 
-## Akzeptanz gesamt (Ende Track 6)
+## Overall acceptance (end of Track 6)
 
-- Mensch kann vom Panel/Remote Goals setzen, steuern (`user_message`),
-  Agent- und User-Fragen beantworten
-- Host kennt Git (inspect, Done-Fakten, Snapshot-Commit, Handoff)
-- Idle und Exit sind unterscheidbar
-- Root kann optional Leads nesten ohne Event-Sturm
-- Integrate/Gate/Promote und Resume existieren ohne Autodelete/RAG
-- `pnpm run ci` grün; Handbuch-Status aktualisiert
+- A human can set goals from panel/remote, steer (`user_message`), and
+  answer agent and user questions
+- The host knows git (inspect, done facts, snapshot commit, handoff)
+- Idle and exit are distinguishable
+- The root can optionally nest leads without an event storm
+- Integrate/gate/promote and resume exist without autodelete/RAG
+- `pnpm run ci` green; handbook status updated
