@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 
 // devRun is the production wiring: it reaches for Electron's userData path, the
@@ -15,6 +17,15 @@ import { buildDevProfile, DEV_RUN_ENV, maybeStartDevWorkspace } from './devRun'
 import { profileRoleIds, slotLimitFor } from '@shared/schema/profile'
 import type { McpServerHandle } from './mcp/server'
 import type { WorkspaceManager } from './workspace/WorkspaceManager'
+
+describe('createAppWorkspaceManager', () => {
+  it('installs the live-reflow getter from ui.reflowNeighbors', () => {
+    const source = readFileSync(join(__dirname, 'devRun.ts'), 'utf8')
+    expect(source).toMatch(
+      /setReflowNeighborsGetter\(\(\) => getSettings\(\)\.ui\.reflowNeighbors\)/
+    )
+  })
+})
 
 describe('buildDevProfile', () => {
   it('is a valid profile with a worker and a reviewer on Claude', () => {

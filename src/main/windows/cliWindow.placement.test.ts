@@ -229,11 +229,11 @@ describe('createCliWindow with a placement', () => {
         { roleId: 'reviewer', displayId: 1, rect: { x: 0.5, y: 0, w: 0.5, h: 1 } }
       ]
     }
-    let persisted: (typeof zones) | undefined
+    const persisted: Array<typeof zones> = []
     const first = fake(
       cli.createCliWindow('a', {
         ...WORKER,
-        placement: { roleId: 'worker', zones, onZonesChange: (next) => (persisted = next) }
+        placement: { roleId: 'worker', zones, onZonesChange: (next) => persisted.push(next) }
       })
     )
     const second = fake(
@@ -246,7 +246,8 @@ describe('createCliWindow with a placement', () => {
 
     expect(second.bounds).toEqual({ x: 600, y: 0, width: 1320, height: 1040 })
     expect(placement.isMovedByUser('a')).toBe(false)
-    expect(persisted?.zones).toHaveLength(2)
+    expect(persisted).toHaveLength(1)
+    expect(persisted[0]?.zones).toHaveLength(2)
 
     const afterReflow = { ...second.bounds }
     second.emit('move')
@@ -259,6 +260,31 @@ describe('createCliWindow with a placement', () => {
     const first = fake(cli.createCliWindow('a', { ...WORKER, placement: { roleId: 'worker' } }))
     userDrags(first)
     expect(placement.isMovedByUser('a')).toBe(true)
+  })
+
+  it('pins a window that left its display and lets the remainder fill the origin', () => {
+    placement.setReflowNeighborsGetter(() => true)
+    const persisted: unknown[] = []
+    const first = fake(
+      cli.createCliWindow('a', {
+        ...WORKER,
+        placement: {
+          roleId: 'worker',
+          onZonesChange: (next) => persisted.push(next)
+        }
+      })
+    )
+    const second = fake(
+      cli.createCliWindow('b', { ...REVIEWER, placement: { roleId: 'reviewer' } })
+    )
+
+    userGestures(first, 'move', { x: 2000, y: 10, width: 700, height: 500 })
+
+    expect(placement.isMovedByUser('a')).toBe(true)
+    expect(placement.isMovedByUser('b')).toBe(false)
+    expect(first.bounds).toEqual({ x: 2000, y: 10, width: 700, height: 500 })
+    expect(second.bounds).toEqual(DISPLAYS[0]!.workArea)
+    expect(persisted).toHaveLength(1)
   })
 })
 

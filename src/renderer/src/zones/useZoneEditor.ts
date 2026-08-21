@@ -82,7 +82,7 @@ function toDrafts(loaded: ZoneEditorPayload, viewport: Viewport, offset: number)
  * Apply a drag/resize. Off: clamp-only, this rectangle moves. On: neighbors
  * shrink and expand into the gap via the shared layout function.
  */
-function applyGesture(
+export function applyGesture(
   current: readonly DraftZone[],
   id: string,
   nextRect: PxRect,
