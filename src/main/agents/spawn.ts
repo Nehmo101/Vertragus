@@ -50,7 +50,6 @@ import {
   CURSOR_APPROVE_MCPS_FLAG,
   grokAllowMcpArgs,
   codexDeveloperInstructionsArgs,
-  extraMcpServerAllowlist,
   leadAllowedTools,
   leadMcpTools,
   orchestratorAllowedTools,
@@ -123,7 +122,11 @@ export interface AgentLaunchInput {
    * caller can hand an orchestrator or lead a second tool surface.
    */
   extraMcp?: readonly SlotExtraMcpServer[]
-  /** Extra MCP servers from global settings; attached next to Vertragus. */
+  /**
+   * Extra MCP servers from global settings. Honored for `kind: 'subagent'`
+   * ONLY — same rule as {@link extraMcp}: orchestrator and lead stay on the
+   * built-in Vertragus server.
+   */
   extraMcpServers?: readonly ExtraMcpServer[]
   /** Platform override for testing the Windows resolution off-Windows. */
   platform?: NodeJS.Platform
@@ -168,13 +171,13 @@ export interface ResolvedLaunch extends AgentArgv {
  */
 export function buildMcpArgs(input: AgentLaunchInput): string[] {
   const { provider } = input
-  // Settings extras attach for every MCP-capable spawn. E6 slot extras reach
-  // SUBAGENTS only — an orchestrator or lead with a browser tool is a
-  // delegator that starts doing the work itself.
-  const extras = [
-    ...(input.extraMcpServers ?? []),
-    ...(input.kind === 'subagent' ? (input.extraMcp ?? []) : [])
-  ]
+  // Settings extras and E6 slot extras both reach SUBAGENTS only — an
+  // orchestrator or lead with a browser tool is a delegator that starts
+  // doing the work itself.
+  const extras =
+    input.kind === 'subagent'
+      ? [...(input.extraMcpServers ?? []), ...(input.extraMcp ?? [])]
+      : []
   switch (provider.mcp.kind) {
     case 'claude-json': {
       const configPath = writeClaudeMcpConfigFile(
@@ -189,15 +192,10 @@ export function buildMcpArgs(input: AgentLaunchInput): string[] {
       // edit, run and commit. Its discipline comes from the task contract, not
       // from a tool cage — the cage is what starved the old repo's workers.
       if (input.kind === 'orchestrator' && provider.mcp.allowedToolsArg) {
-        const allow = [
-          ...orchestratorAllowedTools(),
-          ...extraMcpServerAllowlist(input.extraMcpServers)
-        ]
-        args.push(provider.mcp.allowedToolsArg, allow.join(','))
+        args.push(provider.mcp.allowedToolsArg, orchestratorAllowedTools().join(','))
       }
       if (input.kind === 'lead' && provider.mcp.allowedToolsArg) {
-        const allow = [...leadAllowedTools(), ...extraMcpServerAllowlist(input.extraMcpServers)]
-        args.push(provider.mcp.allowedToolsArg, allow.join(','))
+        args.push(provider.mcp.allowedToolsArg, leadAllowedTools().join(','))
       }
       return args
     }

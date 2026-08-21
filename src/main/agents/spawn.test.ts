@@ -547,7 +547,7 @@ describe('MCP attach — the regression that killed the old repo', () => {
     }
   })
 
-  it('writes extra MCP servers into Claude/Codex/Kimi/Cursor launches', () => {
+  it('writes extra MCP servers into Claude/Codex/Kimi/Cursor subagent launches', () => {
     const github = extraMcpServerSchema.parse({
       id: 'github',
       label: 'GitHub',
@@ -556,36 +556,48 @@ describe('MCP attach — the regression that killed the old repo', () => {
       args: ['-y', '@modelcontextprotocol/server-github']
     })
 
-    const claude = buildAgentArgv(
-      launchInput({ extraMcpServers: [github], kind: 'orchestrator', systemPrompt: 'Delegate.' })
-    )
-    const claudePath = claude.argv[claude.argv.indexOf('--mcp-config') + 1]!
+    const claudeSub = buildAgentArgv(launchInput({ extraMcpServers: [github] }))
+    const claudePath = claudeSub.argv[claudeSub.argv.indexOf('--mcp-config') + 1]!
     const claudeFile = JSON.parse(readFileSync(claudePath, 'utf8')) as {
       mcpServers: Record<string, unknown>
     }
     expect(claudeFile.mcpServers.github).toMatchObject({ type: 'stdio', command: 'npx' })
-    expect(claude.argv[claude.argv.indexOf('--allowedTools') + 1]).toContain('mcp__github')
-
-    const claudeSub = buildAgentArgv(launchInput({ extraMcpServers: [github] }))
     expect(claudeSub.argv).not.toContain('--allowedTools')
+
+    const claudeOrch = buildAgentArgv(
+      launchInput({ extraMcpServers: [github], kind: 'orchestrator', systemPrompt: 'Delegate.' })
+    )
+    const orchPath = claudeOrch.argv[claudeOrch.argv.indexOf('--mcp-config') + 1]!
+    const orchFile = JSON.parse(readFileSync(orchPath, 'utf8')) as {
+      mcpServers: Record<string, unknown>
+    }
+    expect(Object.keys(orchFile.mcpServers)).toEqual(['vertragus'])
+    expect(claudeOrch.argv[claudeOrch.argv.indexOf('--allowedTools') + 1]).not.toContain(
+      'mcp__github'
+    )
+
+    const claudeLead = buildAgentArgv(
+      launchInput({ extraMcpServers: [github], kind: 'lead', systemPrompt: 'Lead.' })
+    )
+    const leadPath = claudeLead.argv[claudeLead.argv.indexOf('--mcp-config') + 1]!
+    const leadFile = JSON.parse(readFileSync(leadPath, 'utf8')) as {
+      mcpServers: Record<string, unknown>
+    }
+    expect(Object.keys(leadFile.mcpServers)).toEqual(['vertragus'])
 
     const codex = buildAgentArgv(
       launchInput({ provider: preset('codex'), extraMcpServers: [github] })
     )
     expect(codex.argv).toContain('mcp_servers.github.command="npx"')
 
-    buildAgentArgv(
-      launchInput({ provider: preset('kimi'), cwd, extraMcpServers: [github] })
-    )
+    buildAgentArgv(launchInput({ provider: preset('kimi'), cwd, extraMcpServers: [github] }))
     const kimiFile = JSON.parse(readFileSync(join(cwd, '.kimi-code', 'mcp.json'), 'utf8')) as {
       mcpServers: Record<string, unknown>
     }
     expect(kimiFile.mcpServers.github).toMatchObject({ command: 'npx' })
     expect(kimiFile.mcpServers.vertragus).toBeDefined()
 
-    buildAgentArgv(
-      launchInput({ provider: preset('cursor'), cwd, extraMcpServers: [github] })
-    )
+    buildAgentArgv(launchInput({ provider: preset('cursor'), cwd, extraMcpServers: [github] }))
     const cursorFile = JSON.parse(readFileSync(join(cwd, '.cursor', 'mcp.json'), 'utf8')) as {
       mcpServers: Record<string, unknown>
     }
@@ -916,8 +928,16 @@ describe('E6 extra MCP servers', () => {
   })
 
   it('an orchestrator and a lead NEVER get extra servers, whatever the input says', () => {
+    const github = extraMcpServerSchema.parse({
+      id: 'github',
+      label: 'GitHub',
+      transport: 'stdio',
+      command: 'npx'
+    })
     for (const kind of ['orchestrator', 'lead'] as const) {
-      const { argv } = buildAgentArgv(launchInput({ kind, extraMcp: EXTRA }))
+      const { argv } = buildAgentArgv(
+        launchInput({ kind, extraMcp: EXTRA, extraMcpServers: [github] })
+      )
       const configPath = argv[argv.indexOf('--mcp-config') + 1]!
       const config = JSON.parse(readFileSync(configPath, 'utf8')) as {
         mcpServers: Record<string, unknown>
@@ -925,9 +945,16 @@ describe('E6 extra MCP servers', () => {
       expect(Object.keys(config.mcpServers)).toEqual(['vertragus'])
 
       const codex = buildAgentArgv(
-        launchInput({ kind, provider: preset('codex'), model: 'm', extraMcp: EXTRA })
+        launchInput({
+          kind,
+          provider: preset('codex'),
+          model: 'm',
+          extraMcp: EXTRA,
+          extraMcpServers: [github]
+        })
       )
       expect(codex.argv.join(' ')).not.toContain('mcp_servers.browser')
+      expect(codex.argv.join(' ')).not.toContain('mcp_servers.github')
     }
   })
 })

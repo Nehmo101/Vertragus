@@ -230,8 +230,9 @@ export interface WorkspaceDeps {
    */
   agentPolicy?: AgentPolicy
   /**
-   * Extra MCP servers from global settings. A getter is resolved at EACH spawn
-   * so a settings edit reaches the next agent of a running workspace.
+   * Extra MCP servers from global settings. A getter is resolved at EACH
+   * subagent spawn so a settings edit reaches the next worker of a running
+   * workspace. Orchestrator and lead never receive them.
    */
   extraMcpServers?: readonly ExtraMcpServer[] | (() => readonly ExtraMcpServer[])
   spawn?: typeof spawnAgent
@@ -860,8 +861,7 @@ export class Workspace implements AgentHost {
         mcpUrl: urls.leadUrl(pending.agentId),
         fileTag: `lead-${pending.agentId}`,
         configDir: this.deps.configDir,
-        systemPrompt,
-        extraMcpServers: this.extraMcpServersForLaunch()
+        systemPrompt
       })
       this.assertOpenDuringStart(pending)
 
@@ -1454,7 +1454,6 @@ export class Workspace implements AgentHost {
         fileTag: `orch-${input.agentId}`,
         configDir: this.deps.configDir,
         systemPrompt: input.systemPrompt,
-        extraMcpServers: this.extraMcpServersForLaunch(),
         ...(argvInitialPrompt ? { initialPrompt: argvInitialPrompt } : {})
       })
 

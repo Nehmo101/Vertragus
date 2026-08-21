@@ -130,11 +130,6 @@ export function extrasToAttach(
   return out
 }
 
-/** Claude `--allowedTools` entries that unlock an extra server (`mcp__<id>`). */
-export function extraMcpServerAllowlist(servers?: readonly AttachableExtra[]): string[] {
-  return extrasToAttach(servers).map((server) => `mcp__${server.id}`)
-}
-
 function extraStdioEntry(
   server: Extract<ExtraMcpServer, { transport: 'stdio' }>,
   withType: boolean
@@ -353,7 +348,8 @@ export function buildClaudeOrchestratorArgs(
 ): string[] {
   return buildClaudeMcpArgs({
     ...target,
-    allowedTools: [...orchestratorAllowedTools(), ...extraMcpServerAllowlist(target.extraMcpServers)]
+    extraMcpServers: undefined,
+    allowedTools: orchestratorAllowedTools()
   })
 }
 
@@ -488,7 +484,11 @@ export function buildCodexOrchestratorArgs(
   target: Omit<McpAttachTarget, 'allowedTools'>
 ): string[] {
   return [
-    ...buildCodexMcpArgs({ ...target, allowedTools: orchestratorMcpTools() }),
+    ...buildCodexMcpArgs({
+      ...target,
+      extraMcpServers: undefined,
+      allowedTools: orchestratorMcpTools()
+    }),
     ...codexDeveloperInstructionsArgs(target.systemPrompt)
   ]
 }
@@ -639,7 +639,11 @@ export function buildKimiMcpArgs(target: McpAttachTarget & { workspaceDir: strin
 export function buildKimiOrchestratorArgs(
   target: Omit<McpAttachTarget, 'allowedTools'> & { workspaceDir: string }
 ): string[] {
-  return buildKimiMcpArgs({ ...target, allowedTools: orchestratorMcpTools() })
+  return buildKimiMcpArgs({
+    ...target,
+    extraMcpServers: undefined,
+    allowedTools: orchestratorMcpTools()
+  })
 }
 
 /** Kimi args for a subagent: attached, unrestricted. */
@@ -942,7 +946,7 @@ export function buildGrokOrchestratorArgs(target: {
   workspaceDir: string
   extraMcpServers?: readonly AttachableExtra[]
 }): string[] {
-  return buildGrokMcpArgs(target)
+  return buildGrokMcpArgs({ ...target, extraMcpServers: undefined })
 }
 
 /** Grok args for a subagent: attached, unrestricted. */

@@ -622,7 +622,7 @@ describe('extra MCP servers', () => {
     expect(written.mcpServers.github).toMatchObject({ type: 'stdio', command: 'npx' })
   })
 
-  it('appends mcp__github to Claude orchestrator --allowedTools, not to subagents', () => {
+  it('keeps Claude orchestrator on vertragus only even if extras are passed', () => {
     const orch = buildClaudeOrchestratorArgs({
       url: URL,
       configDir,
@@ -630,8 +630,13 @@ describe('extra MCP servers', () => {
       extraMcpServers: [GITHUB]
     })
     const list = orch[orch.indexOf('--allowedTools') + 1]!
-    expect(list).toContain('mcp__github')
+    expect(list).not.toContain('mcp__github')
     expect(list).toContain('mcp__vertragus__await_events')
+    const orchPath = orch[orch.indexOf('--mcp-config') + 1]!
+    const orchFile = JSON.parse(readFileSync(orchPath, 'utf8')) as {
+      mcpServers: Record<string, unknown>
+    }
+    expect(Object.keys(orchFile.mcpServers)).toEqual(['vertragus'])
 
     const sub = buildClaudeSubagentArgs({
       url: URL,
@@ -640,6 +645,11 @@ describe('extra MCP servers', () => {
       extraMcpServers: [GITHUB]
     })
     expect(sub).not.toContain('--allowedTools')
+    const subPath = sub[sub.indexOf('--mcp-config') + 1]!
+    const subFile = JSON.parse(readFileSync(subPath, 'utf8')) as {
+      mcpServers: Record<string, unknown>
+    }
+    expect(subFile.mcpServers.github).toMatchObject({ type: 'stdio', command: 'npx' })
   })
 
   it('adds Codex extra overrides without required=true or enabled_tools', () => {
