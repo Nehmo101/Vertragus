@@ -78,6 +78,11 @@ export interface FakeHostOptions {
   /** Called instead of the default bookkeeping when an agent is started. */
   onStart?: (input: StartAgentInput, agent: AgentSummary) => void
   startError?: string
+  /**
+   * When set, every begun agent's `ready` REJECTS with this message — the
+   * pipeline-failure path (`agent_start_failed`) becomes testable.
+   */
+  readyError?: string
   /** Override {@link AgentHost.reportingMode}; defaults to always `'mcp'`. */
   reportingMode?: (role: string) => AgentSummary['reporting']
   /** When set, {@link FakeAgentHost.snapshotWorktree} throws this message. */
@@ -150,8 +155,11 @@ export class FakeAgentHost implements AgentHost {
       model: input.model,
       worktreePath,
       branch,
-      // The fake has no pipeline — a begun agent is a ready agent.
-      ready: Promise.resolve()
+      // The fake has no pipeline — a begun agent is a ready agent (unless the
+      // test injected a pipeline failure via `readyError`).
+      ready: this.options.readyError
+        ? Promise.reject(new Error(this.options.readyError))
+        : Promise.resolve()
     }
   }
 
@@ -372,6 +380,7 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): WorkspaceRuntime 
     agentTasks: new Map(),
     leads: new Map(),
     parentOf: new Map(),
+    resultSchemas: new Map(),
     host,
     events
   }

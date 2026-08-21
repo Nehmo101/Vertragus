@@ -21,6 +21,8 @@ export const GOAL_MAX_CHARS = 2_000
 export const NOTE_MAX_CHARS = 300
 export const QUESTION_MAX_CHARS = 2_000
 export const AGENT_SUMMARY_MAX_CHARS = 500
+/** S3: serialized `agent_done.result` cap in the succession package. */
+export const AGENT_RESULT_MAX_CHARS = 500
 export const AGENT_FILES_MAX = 20
 export const DECISIONS_MAX = 15
 export const RISKS_MAX = 10
@@ -57,6 +59,11 @@ export const handoffAgentSchema = z
     headSha: z.string().min(1).optional(),
     uncommitted: z.boolean().optional(),
     lastSummary: cappedString(AGENT_SUMMARY_MAX_CHARS).optional(),
+    /**
+     * S3: the latest `agent_done.result`, JSON-serialized and capped — the
+     * successor sees validated facts, not only the prose lastSummary.
+     */
+    lastResult: cappedString(AGENT_RESULT_MAX_CHARS).optional(),
     changedFiles: z.array(z.string().min(1).max(400)).max(AGENT_FILES_MAX).optional(),
     orchNote: cappedString(NOTE_MAX_CHARS).optional(),
     pendingQuestionId: z.string().min(1).optional(),

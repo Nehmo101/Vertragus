@@ -11,6 +11,12 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { buildHandoffBlock, buildReminderSuffix, buildTaskContract } from '@shared/prompts/contract'
 import { successionRequestSchema } from '@shared/schema/handoff'
 import { searchRuns } from '@main/workspace/searchRuns'
+import {
+  assertSupportedResultSchema,
+  ResultSchemaError,
+  RESULT_SCHEMA_MAX_CHARS,
+  type ResultSchema
+} from '@shared/schema/resultSchema'
 import { answerAgentQuestion } from './answerQuestion'
 import { resolveAskTimeoutMs, SUBAGENT_TOOL_NAMES } from './toolsSubagent'
 import {
@@ -330,10 +336,19 @@ export function registerOrchestratorTools(
             'Existing branch the new agent starts from — pass another agent’s branch so this ' +
               'agent builds on that result (e.g. a reviewer on a worker’s branch, or an agent ' +
               'merging teammates’ branches into its own). Default: the repository HEAD.'
+          ),
+        resultSchema: z
+          .unknown()
+          .optional()
+          .describe(
+            'Object-rooted JSON schema (small subset: type, properties, required, items, enum, ' +
+              'const, additionalProperties) the agent’s final report_done result must match; keep ' +
+              'it small. The agent retries until its result validates; the schema sticks for ' +
+              'follow-up tasks via send_to_agent (one schema per agent life).'
           )
       }
     },
-    async ({ role, task, model, baseBranch, slotId, providerId }): Promise<ToolText> => {
+    async ({ role, task, model, baseBranch, slotId, providerId, resultSchema }): Promise<ToolText> => {
       const blocked = successionGate()
       if (blocked) return blocked
       if (!ctx.roles.includes(role)) {
@@ -343,6 +358,33 @@ export function registerOrchestratorTools(
           availableRoles: ctx.roles,
           note: 'Use one of availableRoles exactly as written.'
         })
+      }
+      // S3: vet the result schema BEFORE anything is reserved — fail-loud like
+      // slot errors. A schema that cannot be enforced (unsupported keywords,
+      // non-object root, oversized) must never start an agent whose contract
+      // then promises validation nobody performs.
+      let vettedSchema: ResultSchema | undefined
+      if (resultSchema !== undefined) {
+        try {
+          assertSupportedResultSchema(resultSchema)
+        } catch (error) {
+          return toolError({
+            error: 'invalid_result_schema',
+            problems: error instanceof ResultSchemaError ? error.problems : [errorMessage(error)],
+            note: 'Fix the schema (or drop it) and call start_agent again — nothing was started.'
+          })
+        }
+        const size = JSON.stringify(resultSchema).length
+        if (size > RESULT_SCHEMA_MAX_CHARS) {
+          return toolError({
+            error: 'invalid_result_schema',
+            problems: [
+              `resultSchema: serialized schema is ${size} chars — the cap is ${RESULT_SCHEMA_MAX_CHARS}. Keep result schemas small.`
+            ],
+            note: 'Fix the schema (or drop it) and call start_agent again — nothing was started.'
+          })
+        }
+        vettedSchema = resultSchema
       }
       const overBudget = budgetGate()
       if (overBudget) return overBudget
@@ -398,6 +440,17 @@ export function registerOrchestratorTools(
       // between task and contract, so the new agent starts from the
       // predecessor's own report instead of the orchestrator's prose.
       const reporting = ctx.host.reportingMode(role)
+      // S3: a sentinel agent has no report_done call to validate — a schema
+      // there would be a promise nobody keeps, so it is refused, not ignored.
+      if (vettedSchema && reporting !== 'mcp') {
+        return toolError({
+          error: 'invalid_result_schema',
+          problems: [
+            `resultSchema: role "${role}" reports via PTY sentinel lines, not MCP — a structured result cannot be validated for it.`
+          ],
+          note: 'Drop resultSchema for this role and call start_agent again — nothing was started.'
+        })
+      }
       const handoff = baseBranch ? handoffFor(ctx.events, baseBranch) : undefined
       // D4: under `ask-orchestrator` the contract carries the approval rule —
       // the CLI still runs yolo (nobody watches a subagent terminal), so the
@@ -405,7 +458,8 @@ export function registerOrchestratorTools(
       const contract = buildTaskContract({
         role,
         reporting,
-        ...(ctx.agentPolicy === 'ask-orchestrator' ? { approvals: 'ask-orchestrator' as const } : {})
+        ...(ctx.agentPolicy === 'ask-orchestrator' ? { approvals: 'ask-orchestrator' as const } : {}),
+        ...(vettedSchema ? { resultSchema: vettedSchema } : {})
       })
       const seed = [task, ...(handoff ? [handoff] : []), contract].join('\n\n')
 
@@ -422,6 +476,9 @@ export function registerOrchestratorTools(
       // F: parented synchronously with the reservation — the child's events
       // route to this lead's queue from the very first one.
       if (leadId) runtime.parentOf.set(started.agentId, leadId)
+      // S3: registered with the reservation, so a report_done racing the ready
+      // handshake already validates. Removed again on start failure and stop.
+      if (vettedSchema) runtime.resultSchemas.set(started.agentId, vettedSchema)
       recordAssignment(runtime, started.agentId, task)
       started.ready.then(
         () => {
@@ -444,6 +501,7 @@ export function registerOrchestratorTools(
           // The workspace may have closed mid-start (stop button, quit) —
           // then there is no queue left and nobody to tell.
           runtime.parentOf.delete(started.agentId)
+          runtime.resultSchemas.delete(started.agentId)
           const queue = leadId ? ownQueue() : ctx.events
           if (queue.isClosed) return
           queue.push({
@@ -642,6 +700,8 @@ export function registerOrchestratorTools(
         return toolError({ error: 'stop_failed', agentId, message: errorMessage(error) })
       }
       runtime.questions.cancelForAgent(agentId)
+      // S3: a stopped agent reports nothing more — its result schema goes too.
+      runtime.resultSchemas.delete(agentId)
       if (stopped && known) {
         // Into the parent's queue — for a stopped LEAD that is the root queue,
         // where the adoption tap reparents its children (F). Quiet: a pure

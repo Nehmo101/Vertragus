@@ -17,6 +17,8 @@
  *   echo-safety test). The host parser requires a full start…end pair.
  */
 
+import type { ResultSchema } from '@shared/schema/resultSchema'
+
 /** How a subagent reports back to the orchestrator. */
 export type ReportingMode = 'mcp' | 'sentinel'
 
@@ -40,6 +42,12 @@ export interface TaskContractInput {
    * enforcement there is the CLI's own permission layer, not the prompt.
    */
   approvals?: 'ask-orchestrator'
+  /**
+   * S3: the vetted `start_agent{resultSchema}`. When set, the mcp contract
+   * gains a paragraph teaching the agent to pass a matching `result` to
+   * report_done. Unset keeps the contract byte-identical to before S3.
+   */
+  resultSchema?: ResultSchema
 }
 
 export const CONTRACT_MARKER = '--- Contract'
@@ -130,8 +138,23 @@ function numbered(rules: readonly string[]): string[] {
   return rules.map((rule, index) => `${index + 1}. ${rule}`)
 }
 
+/**
+ * S3: the paragraph a `resultSchema` adds to the mcp contract. Compact JSON on
+ * purpose — the schema was capped at start time and every pretty-printed
+ * indent run costs the worker a token on every read of its own seed.
+ */
+function resultParagraph(schema: ResultSchema): string {
+  return [
+    'When you call report_done, also pass "result": a JSON value matching exactly this schema ' +
+      '(status and summary stay required):',
+    JSON.stringify(schema),
+    'A missing or invalid result comes back to you as an error naming the wrong paths — correct it ' +
+      'and call report_done again; your report is not delivered until the result validates.'
+  ].join('\n')
+}
+
 /** MCP wording — keep byte-stable; tests and live agents depend on the text. */
-function buildMcpContract({ agentName, role, approvals }: TaskContractInput): string {
+function buildMcpContract({ agentName, role, approvals, resultSchema }: TaskContractInput): string {
   const rules = [
     'Do the work yourself. Read the repository, change the files, run the checks.',
     'When the task is finished, call report_done with a short factual summary of what you changed and how you verified it. Use status "success" only when you verified it, "blocked" when something outside your control stops you, "failed" when you tried and it does not work.',
@@ -151,6 +174,7 @@ function buildMcpContract({ agentName, role, approvals }: TaskContractInput): st
     whoLine(agentName, role),
     'You report to an orchestrator agent through MCP tools. Follow these rules for every task:',
     ...numbered(rules),
+    ...(resultSchema ? [resultParagraph(resultSchema)] : []),
     '--- End of contract ---'
   ].join('\n')
 }
