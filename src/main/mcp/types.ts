@@ -28,6 +28,7 @@ import type { SuccessionRequest } from '@shared/schema/handoff'
 // the store implementation is injected by the host via the context.
 import type { SpillStore } from '@main/workspace/spill'
 import type { ResultSchema } from '@shared/schema/resultSchema'
+import type { TaskBoard } from '@main/workspace/taskBoard'
 
 /** What `start_agent` hands the host. */
 export interface StartAgentInput {
@@ -408,6 +409,13 @@ export interface LeadRuntime {
 export interface WorkspaceRuntime {
   ctx: WorkspaceMcpContext
   questions: PendingQuestions
+  /**
+   * S4: the run's task board — the shared plan of root and leads, persisted
+   * next to the run journal. Installed by the WorkspaceManager after
+   * registration (like the journal, it needs the repository on disk); absent
+   * in old fakes, where the task tools answer `task_board_unavailable`.
+   */
+  taskBoard?: TaskBoard
   /** F: running leads by agentId. Empty in a flat (default) run. */
   leads: Map<string, LeadRuntime>
   /**

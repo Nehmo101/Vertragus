@@ -28,8 +28,10 @@ import { workspacePlaceName } from '@shared/workspaceNames'
 import type { Profile } from '@shared/schema/profile'
 import type { StartedAgent } from '@main/mcp/types'
 import type { AgentEvent } from '@shared/schema/events'
+import type { TaskBoardState } from '@shared/schema/tasks'
 import type { RetroSink } from './retroSink'
 import type { RunJournal } from './journal'
+import type { TaskBoard } from './taskBoard'
 import { Workspace, type WorkspaceDeps, type WorkspaceMcpUrls } from './Workspace'
 
 export interface WorkspaceManagerDeps
@@ -54,6 +56,13 @@ export interface WorkspaceManagerDeps
    * `.vertragus/runs/<id>/events.jsonl`.
    */
   journal?: (repoPath: string, workspaceId: string) => RunJournal
+  /**
+   * S4: task-board factory, created next to the journal. Absent = no board
+   * (unit tests) — the task tools then answer `task_board_unavailable`.
+   * Production passes {@link createTaskBoard}, which persists the board to
+   * `.vertragus/runs/<id>/tasks.json`.
+   */
+  taskBoard?: (repoPath: string, workspaceId: string) => TaskBoard
 }
 
 export interface RunningWorkspace {
@@ -86,7 +95,15 @@ export interface StartWorkspaceOptions {
    * orchestrator's system prompt; `fromWorkspaceId` is recorded in the new
    * run's meta. Nothing else is restored — the old processes are gone.
    */
-  resume?: { briefing: string; fromWorkspaceId: string }
+  resume?: {
+    briefing: string
+    fromWorkspaceId: string
+    /**
+     * S4: the resumed run's task board, already transformed for the new run
+     * (dead owners freed — see `resume.boardForResume`). Seeds the new board.
+     */
+    tasks?: TaskBoardState
+  }
 }
 
 export interface WorkspaceManager {
@@ -201,6 +218,21 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
         return undefined
       }
     })()
+    // S4: the task board, next to the journal and equally never a blocker.
+    // On the runtime because the MCP tool layer owns the calls; the workspace
+    // gets it too, for the succession package.
+    try {
+      const board = deps.taskBoard?.(profile.repoPath, workspace.workspaceId)
+      if (board) {
+        // Resume carries the old run's plan over — dead owners were already
+        // freed by the caller (resume.boardForResume).
+        if (options?.resume?.tasks) board.seed(options.resume.tasks)
+        registered.runtime.taskBoard = board
+        workspace.attachTaskBoard(board)
+      }
+    } catch (error) {
+      console.warn('[taskBoard] not started:', error)
+    }
     // E3: the run's identity, once — everything after this line is events.
     journal?.writeMeta({
       workspaceId: workspace.workspaceId,

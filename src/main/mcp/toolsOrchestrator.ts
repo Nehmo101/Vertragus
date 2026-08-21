@@ -17,6 +17,8 @@ import {
   RESULT_SCHEMA_MAX_CHARS,
   type ResultSchema
 } from '@shared/schema/resultSchema'
+import { TASK_STATUSES, type Task } from '@shared/schema/tasks'
+import { TASK_ACTIONS, type TaskBoard, type TaskBoardFailure } from '@main/workspace/taskBoard'
 import { answerAgentQuestion } from './answerQuestion'
 import { resolveAskTimeoutMs, SUBAGENT_TOOL_NAMES } from './toolsSubagent'
 import {
@@ -58,7 +60,10 @@ export const ORCHESTRATOR_TOOL_NAMES = [
   'start_orchestrator',
   'record_retro',
   'request_succession',
-  'search_runs'
+  'search_runs',
+  'task_create',
+  'task_update',
+  'task_list'
 ] as const
 
 export type OrchestratorToolName = (typeof ORCHESTRATOR_TOOL_NAMES)[number]
@@ -77,6 +82,9 @@ export const LEAD_TOOL_NAMES = [
   'read_output',
   'inspect_agent',
   'integrate_branch',
+  'task_create',
+  'task_update',
+  'task_list',
   ...SUBAGENT_TOOL_NAMES
 ] as const
 
@@ -291,6 +299,57 @@ export function registerOrchestratorTools(
     })
   }
 
+  /** S4: the honest refusal for runtimes without a board (old fakes). */
+  const boardUnavailable = (): ToolText =>
+    toolError({
+      error: 'task_board_unavailable',
+      note: 'This workspace has no task board. Track your plan in your own context instead.'
+    })
+
+  /** S4: board failures become tool errors verbatim — plus a note the model can act on. */
+  const taskFailure = (failure: TaskBoardFailure): ToolText => {
+    const body: Record<string, unknown> = { ...failure }
+    delete body.ok
+    const notes: Record<TaskBoardFailure['error'], string> = {
+      stale_revision:
+        'Your revision is outdated — the CURRENT task is in this payload. Reconcile against it and retry with task.revision.',
+      unknown_task: 'No task with that id exists on the board. task_list shows what does.',
+      task_deleted: 'That task is a tombstone — deleted is final. Create a new task instead.',
+      dependency_cycle: 'These dependencies would close a cycle — restructure the blockedBy chain.',
+      dependency_deleted: 'A dependency is deleted — drop it from blockedBy.',
+      task_limit: 'The board is at its task limit. Deleted and completed tasks still count; plan coarser.',
+      invalid_transition: 'That action does not apply to the task’s current status — see task_list.',
+      missing_field: 'That action needs the named field.'
+    }
+    return toolError({ ...body, note: notes[failure.error] })
+  }
+
+  /**
+   * S4 fence, same shape as the agent fence: a LEAD may hand tasks only to
+   * itself or agents of its own subtree; the root assigns freely. delete and
+   * reassign stay root-only (checked separately).
+   */
+  const ownerOutOfScope = (ownerAgentId: string): ToolText | undefined => {
+    if (!leadId) return undefined
+    if (ownerAgentId === leadId || inScope(runtime, ownerAgentId, leadId)) return undefined
+    return toolError({
+      error: 'owner_out_of_scope',
+      ownerAgentId,
+      note: 'A lead assigns tasks only to itself or to agents of its own subtree.'
+    })
+  }
+
+  /** The compact row task_list returns — `ready` = pending ∧ deps completed. */
+  const taskRow = (board: TaskBoard, task: Task) => ({
+    taskId: task.taskId,
+    revision: task.revision,
+    subject: task.subject,
+    status: task.status,
+    ...(task.ownerAgentId ? { ownerAgentId: task.ownerAgentId } : {}),
+    blockedBy: task.blockedBy,
+    ready: board.isReady(task.taskId)
+  })
+
   server.registerTool(
     'start_agent',
     {
@@ -345,10 +404,28 @@ export function registerOrchestratorTools(
               'const, additionalProperties) the agent’s final report_done result must match; keep ' +
               'it small. The agent retries until its result validates; the schema sticks for ' +
               'follow-up tasks via send_to_agent (one schema per agent life).'
+          ),
+        taskId: z
+          .string()
+          .regex(/^task-\d+$/)
+          .optional()
+          .describe(
+            'S4: a pending board task this agent works on. The host claims it for the new ' +
+              'agent (owner, in_progress) and appends its subject and description to the seed. ' +
+              'A task that is unknown, deleted or not pending fails the start before anything runs.'
           )
       }
     },
-    async ({ role, task, model, baseBranch, slotId, providerId, resultSchema }): Promise<ToolText> => {
+    async ({
+      role,
+      task,
+      model,
+      baseBranch,
+      slotId,
+      providerId,
+      resultSchema,
+      taskId
+    }): Promise<ToolText> => {
       const blocked = successionGate()
       if (blocked) return blocked
       if (!ctx.roles.includes(role)) {
@@ -439,6 +516,28 @@ export function registerOrchestratorTools(
       // C4: a baseBranch that carries reported work gets its handoff block
       // between task and contract, so the new agent starts from the
       // predecessor's own report instead of the orchestrator's prose.
+      // S4: reservation of the board task, fail-loud BEFORE beginAgent. From
+      // this check to the claim below nothing awaits, so the revision read
+      // here cannot go stale in between (same race-free argument as the caps).
+      let boardTask: Task | undefined
+      if (taskId) {
+        const board = runtime.taskBoard
+        if (!board) return boardUnavailable()
+        const found = board.get(taskId)
+        if (!found) return taskFailure({ ok: false, error: 'unknown_task', taskId })
+        if (found.status === 'deleted') return taskFailure({ ok: false, error: 'task_deleted', taskId })
+        if (found.status !== 'pending') {
+          return taskFailure({
+            ok: false,
+            error: 'invalid_transition',
+            taskId,
+            status: found.status,
+            action: 'claim'
+          })
+        }
+        boardTask = found
+      }
+
       const reporting = ctx.host.reportingMode(role)
       // S3: a sentinel agent has no report_done call to validate — a schema
       // there would be a promise nobody keeps, so it is refused, not ignored.
@@ -461,7 +560,19 @@ export function registerOrchestratorTools(
         ...(ctx.agentPolicy === 'ask-orchestrator' ? { approvals: 'ask-orchestrator' as const } : {}),
         ...(vettedSchema ? { resultSchema: vettedSchema } : {})
       })
-      const seed = [task, ...(handoff ? [handoff] : []), contract].join('\n\n')
+      // S4: the claimed task rides into the seed as host truth — subject and
+      // description straight from the board, before the contract.
+      const taskContext = boardTask
+        ? `Task ${boardTask.taskId}: ${boardTask.subject}${
+            boardTask.description ? `\n${boardTask.description}` : ''
+          }`
+        : undefined
+      const seed = [
+        task,
+        ...(taskContext ? [taskContext] : []),
+        ...(handoff ? [handoff] : []),
+        contract
+      ].join('\n\n')
 
       // `beginAgent` reserves synchronously and returns before the pipeline
       // (worktree, spawn, seed handshake) ran — that pipeline can outlast the
@@ -479,6 +590,17 @@ export function registerOrchestratorTools(
       // S3: registered with the reservation, so a report_done racing the ready
       // handshake already validates. Removed again on start failure and stop.
       if (vettedSchema) runtime.resultSchemas.set(started.agentId, vettedSchema)
+      // S4: claim in the same synchronous block as the check above — the
+      // revision cannot have moved, so this cannot fail (guarded anyway).
+      let claimWarning: string | undefined
+      if (boardTask) {
+        const claimed = runtime.taskBoard?.update(boardTask.taskId, boardTask.revision, 'claim', {
+          ownerAgentId: started.agentId
+        })
+        if (claimed && !claimed.ok) {
+          claimWarning = `Task ${boardTask.taskId} could not be claimed (${claimed.error}) — the agent starts anyway; fix the board with task_update.`
+        }
+      }
       recordAssignment(runtime, started.agentId, task)
       started.ready.then(
         () => {
@@ -521,6 +643,8 @@ export function registerOrchestratorTools(
         model: started.model,
         worktreePath: started.worktreePath,
         branch: started.branch,
+        ...(boardTask ? { taskId: boardTask.taskId } : {}),
+        ...(claimWarning ? { warning: claimWarning } : {}),
         state: 'starting',
         // Short on purpose: the tool description already spells the rule out in
         // full, and this note is echoed back on every single start.
@@ -1300,6 +1424,132 @@ export function registerOrchestratorTools(
         note: 'The merge was aborted — the worktree is clean. Task an agent with resolving the conflict (give it both branches), or restructure the work.',
         ...(gateWarning ? { warning: gateWarning } : {})
       })
+    }
+  )
+
+  // S4: the task board — the shared plan of root and leads, host state that
+  // survives succession and resume. Three tools, no task_get (task_list is
+  // small enough). delete/reassign are root-only; owners are fenced like
+  // agents (a lead assigns only into its own subtree).
+  server.registerTool(
+    'task_create',
+    {
+      description:
+        'Create a task on the shared task board — your plan as host state: it survives orchestrator ' +
+        'succession and resume, unlike your own context. One task per unit of work you will hand to ' +
+        'an agent. blockedBy lists taskIds that must be completed first (acyclic). Returns the taskId ' +
+        'and its revision — pass that revision to task_update (it moves on every change).',
+      inputSchema: {
+        subject: z.string().min(1).max(200).describe('One line: what this task delivers'),
+        description: z
+          .string()
+          .max(2_000)
+          .optional()
+          .describe('The full assignment — start_agent{taskId} seeds it to the claiming agent'),
+        blockedBy: z
+          .array(z.string().regex(/^task-\d+$/))
+          .max(20)
+          .optional()
+          .describe('taskIds that must be completed before this one is ready'),
+        ownerAgentId: z
+          .string()
+          .min(1)
+          .optional()
+          .describe('Assign immediately to a running agent (the task starts in_progress)')
+      }
+    },
+    async ({ subject, description, blockedBy, ownerAgentId }): Promise<ToolText> => {
+      const blocked = successionGate()
+      if (blocked) return blocked
+      const board = runtime.taskBoard
+      if (!board) return boardUnavailable()
+      if (ownerAgentId) {
+        const fenced = ownerOutOfScope(ownerAgentId)
+        if (fenced) return fenced
+      }
+      const created = board.create({ subject, description, blockedBy, ownerAgentId })
+      if (!created.ok) return taskFailure(created)
+      return toolJson({ taskId: created.task.taskId, revision: created.task.revision })
+    }
+  )
+
+  server.registerTool(
+    'task_update',
+    {
+      description:
+        'Mutate one board task with compare-and-swap: pass the revision you last saw; if the task ' +
+        'changed since, you get stale_revision WITH the current task — reconcile and retry. Actions: ' +
+        'claim (owner + in_progress; needs ownerAgentId), release (back to pending, owner-free), edit ' +
+        '(subject/description), set_dependencies (blockedBy, acyclic), complete (ONLY after you ' +
+        'verified the work — never on the agent’s word alone), reopen (completed back to pending), ' +
+        'delete (tombstone, root-only), reassign (new owner, root-only). Returns the new task snapshot.',
+      inputSchema: {
+        taskId: z.string().regex(/^task-\d+$/),
+        expectedRevision: z
+          .number()
+          .int()
+          .positive()
+          .describe('The revision you last saw for this task'),
+        action: z.enum(TASK_ACTIONS),
+        subject: z.string().min(1).max(200).optional().describe('For action "edit"'),
+        description: z.string().max(2_000).optional().describe('For action "edit"'),
+        blockedBy: z
+          .array(z.string().regex(/^task-\d+$/))
+          .max(20)
+          .optional()
+          .describe('For action "set_dependencies" — the complete new list'),
+        ownerAgentId: z
+          .string()
+          .min(1)
+          .optional()
+          .describe('For actions "claim" and "reassign"')
+      }
+    },
+    async ({ taskId, expectedRevision, action, subject, description, blockedBy, ownerAgentId }): Promise<ToolText> => {
+      const blocked = successionGate()
+      if (blocked) return blocked
+      const board = runtime.taskBoard
+      if (!board) return boardUnavailable()
+      // The dsh authorization matrix, one step simpler: destructive and
+      // cross-team actions belong to the root alone.
+      if (leadId && (action === 'delete' || action === 'reassign')) {
+        return toolError({
+          error: 'root_only_action',
+          action,
+          note: 'delete and reassign are the root orchestrator’s — report the need upward instead.'
+        })
+      }
+      if (ownerAgentId && (action === 'claim' || action === 'reassign')) {
+        const fenced = ownerOutOfScope(ownerAgentId)
+        if (fenced) return fenced
+      }
+      const updated = board.update(taskId, expectedRevision, action, {
+        subject,
+        description,
+        blockedBy,
+        ownerAgentId
+      })
+      if (!updated.ok) return taskFailure(updated)
+      return toolJson({ task: updated.task, ready: board.isReady(taskId) })
+    }
+  )
+
+  server.registerTool(
+    'task_list',
+    {
+      description:
+        'The shared task board — your plan as compact rows; it survives succession and resume. ' +
+        'ready: true means pending with every blockedBy completed (deleted dependencies are ignored). ' +
+        'Filter by status to see only pending, in_progress, completed or deleted tasks.',
+      inputSchema: {
+        status: z.enum(TASK_STATUSES).optional().describe('Only tasks with this status')
+      }
+    },
+    async ({ status }): Promise<ToolText> => {
+      const board = runtime.taskBoard
+      if (!board) return boardUnavailable()
+      const tasks = board.list(status ? { status } : undefined)
+      return toolJson({ tasks: tasks.map((task) => taskRow(board, task)) })
     }
   )
 

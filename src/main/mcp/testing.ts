@@ -5,6 +5,7 @@
  */
 import { z, type ZodRawShape } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { createTaskBoard, type TaskBoard } from '@main/workspace/taskBoard'
 import { EventQueue } from './eventQueue'
 import { PendingQuestions } from './pendingQuestions'
 import type {
@@ -347,6 +348,18 @@ export interface FakeRuntimeOptions {
   retro?: WorkspaceRetroPort
   /** S1: injected spill store; absent keeps today's inline behaviour. */
   spill?: WorkspaceMcpContext['spill']
+  /** S4: override the default in-memory board; `null` = a runtime WITHOUT one. */
+  taskBoard?: TaskBoard | null
+}
+
+/** S4: a task board that never touches disk — persistence is stubbed out. */
+export function memoryTaskBoard(now?: () => number): TaskBoard {
+  return createTaskBoard('/repo', 'ws-test', {
+    mkdir: async () => undefined,
+    writeFile: async () => undefined,
+    rename: async () => undefined,
+    ...(now ? { now } : {})
+  })
 }
 
 /** A workspace runtime wired to a {@link FakeAgentHost}. */
@@ -374,6 +387,7 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): WorkspaceRuntime 
     retro: options.retro,
     spill: options.spill
   }
+  const taskBoard = options.taskBoard === null ? undefined : options.taskBoard ?? memoryTaskBoard()
   return {
     ctx,
     questions: new PendingQuestions(),
@@ -381,6 +395,7 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): WorkspaceRuntime 
     leads: new Map(),
     parentOf: new Map(),
     resultSchemas: new Map(),
+    ...(taskBoard ? { taskBoard } : {}),
     host,
     events
   }

@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { join } from 'node:path'
-import { buildResumeBriefing, latestRun, readRunEvents, type ResumeDeps } from './resume'
+import type { TaskBoardState } from '@shared/schema/tasks'
+import {
+  boardForResume,
+  buildResumeBriefing,
+  latestRun,
+  readRunEvents,
+  readRunTasks,
+  type ResumeDeps
+} from './resume'
 
 const RUNS = join('/repo', '.vertragus', 'runs')
 
@@ -136,5 +144,78 @@ describe('buildResumeBriefing', () => {
     expect(briefing).toContain('("ws-9")')
     expect(briefing).toContain('started no agents')
     expect(briefing).toContain('No process from that run is still alive')
+  })
+
+  it('S4: mentions open tasks and points at task_list — silent without a board', () => {
+    const run = { workspaceId: 'ws-9', events: [] }
+    const briefing = buildResumeBriefing(run, {
+      schemaVersion: 1,
+      nextTaskNumber: 4,
+      tasks: [
+        task('task-1', 'pending'),
+        { ...task('task-2', 'completed'), subject: 'Done work' },
+        { ...task('task-3', 'deleted'), subject: 'Gone work' }
+      ]
+    })
+    expect(briefing).toContain('task_list')
+    expect(briefing).toContain('- task-1: subject of task-1')
+    expect(briefing).not.toContain('Done work')
+    expect(briefing).not.toContain('Gone work')
+    expect(buildResumeBriefing(run)).not.toContain('task_list')
+  })
+})
+
+const task = (taskId: string, status: TaskBoardState['tasks'][number]['status'], extra: Partial<TaskBoardState['tasks'][number]> = {}): TaskBoardState['tasks'][number] => ({
+  taskId,
+  revision: 1,
+  subject: `subject of ${taskId}`,
+  description: '',
+  status,
+  blockedBy: [],
+  createdAt: 1,
+  updatedAt: 1,
+  ...extra
+})
+
+describe('readRunTasks — S4', () => {
+  it('reads and validates tasks.json of one run', async () => {
+    const board: TaskBoardState = { schemaVersion: 1, nextTaskNumber: 2, tasks: [task('task-1', 'pending')] }
+    const deps = fakeFs({ files: { [join(RUNS, 'ws-1', 'tasks.json')]: JSON.stringify(board) } })
+    expect(await readRunTasks('/repo', 'ws-1', deps)).toEqual(board)
+  })
+
+  it('fails soft: missing, corrupt or invalid tasks.json is undefined', async () => {
+    expect(await readRunTasks('/repo', 'ws-1', fakeFs({}))).toBeUndefined()
+    expect(
+      await readRunTasks('/repo', 'ws-1', fakeFs({ files: { [join(RUNS, 'ws-1', 'tasks.json')]: 'not json' } }))
+    ).toBeUndefined()
+    expect(
+      await readRunTasks(
+        '/repo',
+        'ws-1',
+        fakeFs({ files: { [join(RUNS, 'ws-1', 'tasks.json')]: JSON.stringify({ schemaVersion: 99 }) } })
+      )
+    ).toBeUndefined()
+  })
+})
+
+describe('boardForResume — S4', () => {
+  it('frees dead owners: in_progress becomes pending and owner-free, revision bumps', () => {
+    const revived = boardForResume({
+      schemaVersion: 1,
+      nextTaskNumber: 4,
+      tasks: [
+        task('task-1', 'in_progress', { ownerAgentId: 'dead-agent', revision: 5 }),
+        task('task-2', 'pending'),
+        task('task-3', 'completed', { ownerAgentId: 'dead-agent' })
+      ]
+    })
+    expect(revived.tasks[0]).toMatchObject({ taskId: 'task-1', status: 'pending', revision: 6 })
+    expect(revived.tasks[0]!.ownerAgentId).toBeUndefined()
+    // Everything not in_progress stays exactly as journaled — completed keeps
+    // its (dead) owner as history, pending was untouched anyway.
+    expect(revived.tasks[1]).toEqual(task('task-2', 'pending'))
+    expect(revived.tasks[2]).toEqual(task('task-3', 'completed', { ownerAgentId: 'dead-agent' }))
+    expect(revived.nextTaskNumber).toBe(4)
   })
 })

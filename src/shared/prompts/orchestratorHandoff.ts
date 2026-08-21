@@ -62,6 +62,22 @@ export function formatHandoffSeed(pkg: OrchestratorHandoffPackage): string {
           })
         ].join('\n')
 
+  // S4: one sentence, because the board itself is host state — task_list is
+  // the truth; the rows below only show that a plan exists to continue.
+  const tasks =
+    pkg.tasks.length === 0
+      ? []
+      : [
+          '',
+          'The task board is HOST state and survived this handoff — task_list shows it; do not rebuild it from prose:',
+          ...pkg.tasks.map(
+            (task) =>
+              `- ${task.taskId} rev ${task.revision} (${task.status}${
+                task.ownerAgentId ? `, owner ${task.ownerAgentId}` : ''
+              }${task.blockedBy.length > 0 ? `, blockedBy ${task.blockedBy.join(',')}` : ''}): ${task.subject}`
+          )
+        ]
+
   return [
     `You are the successor of ${pkg.predecessor.name} in workspace "${pkg.workspaceName}".`,
     'This is a continuation of the same run, not a new one. Do not restart the work from scratch.',
@@ -72,6 +88,7 @@ export function formatHandoffSeed(pkg: OrchestratorHandoffPackage): string {
     'Trust host facts in this package and on agent_done / inspect_agent over prose when they disagree.',
     '',
     team,
+    ...tasks,
     '',
     open,
     '',

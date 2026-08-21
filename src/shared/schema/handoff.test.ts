@@ -79,4 +79,34 @@ describe('buildHandoffPackage', () => {
     expect(pkg.agents[0]?.agentId).toBe('a1')
     expect(pkg.openQuestions).toHaveLength(1)
   })
+
+  it('S4: carries the task board rows, capping subjects but never dropping rows', () => {
+    const tasks = [
+      {
+        taskId: 'task-1',
+        revision: 3,
+        subject: 's'.repeat(300),
+        status: 'in_progress',
+        ownerAgentId: 'a1',
+        blockedBy: []
+      },
+      { taskId: 'task-2', revision: 1, subject: 'small', status: 'pending', blockedBy: ['task-1'] }
+    ]
+    // The same size pressure that shrinks recentEvents must not touch tasks.
+    const recentEvents = Array.from({ length: 40 }, (_, i) => ({
+      seq: i + 1,
+      type: 'agent_done',
+      agentId: 'a1',
+      summary: 's'.repeat(800)
+    }))
+    const pkg = buildHandoffPackage({ ...base, tasks, recentEvents })
+    expect(JSON.stringify(pkg).length).toBeLessThanOrEqual(PACKAGE_MAX_CHARS)
+    expect(pkg.tasks).toHaveLength(2)
+    expect(pkg.tasks[0]).toMatchObject({ taskId: 'task-1', revision: 3, ownerAgentId: 'a1' })
+    expect(pkg.tasks[0]!.subject).toHaveLength(200)
+    expect(pkg.limits.truncated).toContain('tasks.subject')
+    expect(pkg.tasks[1]).toEqual(tasks[1])
+    // A run without a board still validates — tasks default to empty.
+    expect(buildHandoffPackage(base).tasks).toEqual([])
+  })
 })

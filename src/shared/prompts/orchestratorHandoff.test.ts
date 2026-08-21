@@ -97,6 +97,30 @@ describe('formatHandoffSeed', () => {
     expect(seed).not.toContain('Full handoff package')
   })
 
+  it('S4: names the task board as host state and renders its rows — omitted when empty', () => {
+    const seed = formatHandoffSeed(
+      buildHandoffPackage({
+        ...pkgInput,
+        tasks: [
+          {
+            taskId: 'task-1',
+            revision: 4,
+            subject: 'Fix the parser',
+            status: 'in_progress',
+            ownerAgentId: 'a1',
+            blockedBy: []
+          },
+          { taskId: 'task-2', revision: 1, subject: 'Review it', status: 'pending', blockedBy: ['task-1'] }
+        ]
+      })
+    )
+    expect(seed).toContain('task_list shows it; do not rebuild it from prose')
+    expect(seed).toContain('- task-1 rev 4 (in_progress, owner a1): Fix the parser')
+    expect(seed).toContain('- task-2 rev 1 (pending, blockedBy task-1): Review it')
+    // A run without a board keeps the seed clean.
+    expect(formatHandoffSeed(pkg)).not.toContain('task board')
+  })
+
   it('keeps only the tail of recentEvents', () => {
     const seed = formatHandoffSeed(
       buildHandoffPackage({

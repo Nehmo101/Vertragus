@@ -7,6 +7,7 @@ import { buildAgentArgv } from '@main/agents/spawn'
 import { slugifyRef, worktreePathFor } from '@main/agents/worktree'
 import { EventQueue } from '@main/mcp/eventQueue'
 import { PendingQuestions } from '@main/mcp/pendingQuestions'
+import { memoryTaskBoard } from '@main/mcp/testing'
 import { buildReminderSuffix } from '@shared/prompts/contract'
 import { ORCHESTRATOR_COLOR, ORCHESTRATOR_ROLE_ID, roleColor } from '@shared/prompts/roles'
 import {
@@ -823,6 +824,33 @@ describe('requestSuccession', () => {
     const pkg = packages[0] as { openQuestions: Array<{ question: string }>; eventCursor: number }
     expect(pkg.openQuestions[0]?.question).toBe('which interface?')
     expect(pkg.eventCursor).toBe(begun.eventCursor)
+  })
+
+  it('S4: packages the task board — tombstones excluded — and briefs the successor on it', async () => {
+    const packages: unknown[] = []
+    const { workspace, prompts } = harness({
+      ptySystemPrompt: true,
+      deps: { writeSuccession: (pkg) => packages.push(pkg) }
+    })
+    await workspace.startOrchestrator()
+    const board = memoryTaskBoard()
+    workspace.attachTaskBoard(board)
+    board.create({ subject: 'Fix the parser', ownerAgentId: 'a1' })
+    board.create({ subject: 'Review it', blockedBy: ['task-1'] })
+    board.create({ subject: 'Abandoned' })
+    board.update('task-3', 1, 'delete')
+
+    const begun = workspace.requestSuccession({ reason: 'context_full' })
+    await begun.ready
+
+    const pkg = packages[0] as { tasks: Array<Record<string, unknown>> }
+    expect(pkg.tasks.map((task) => task.taskId)).toEqual(['task-1', 'task-2'])
+    expect(pkg.tasks[0]).toMatchObject({ revision: 1, status: 'in_progress', ownerAgentId: 'a1' })
+    expect(pkg.tasks[1]).toMatchObject({ status: 'pending', blockedBy: ['task-1'] })
+    // The live board is untouched by the handoff — it IS the continuity.
+    expect(board.list()).toHaveLength(3)
+    expect(prompts.at(-1)).toContain('task_list shows it; do not rebuild it from prose')
+    expect(prompts.at(-1)).toContain('Fix the parser')
   })
 
   it('falls back to the host-delivered goal when the incumbent omits it', async () => {
