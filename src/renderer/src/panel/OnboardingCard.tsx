@@ -52,11 +52,19 @@ export function OnboardingCard({ bridge, onNewProfile, onDismiss }: Props): Reac
   /** Bumped by ⟳ — the way to re-probe after logging in elsewhere. */
   const [round, setRound] = useState(0)
 
-  useEffect(() => {
-    let alive = true
+  // The reset belongs to the ⟳ handler, not here: on mount all three are
+  // already null, and clearing them inside the effect is a synchronous
+  // setState during render that the react-hooks rule refuses (rightly — it
+  // schedules a second render for state that never differed).
+  const recheck = (): void => {
     setProviders(null)
     setAuth(null)
     setError(null)
+    setRound((current) => current + 1)
+  }
+
+  useEffect(() => {
+    let alive = true
     const fail = (cause: unknown): void => {
       if (alive) setError(errorText(cause))
     }
@@ -165,7 +173,7 @@ export function OnboardingCard({ bridge, onNewProfile, onDismiss }: Props): Reac
           className="panel-onboarding-recheck"
           title={t('panel.onboardingRecheck')}
           aria-label={t('panel.onboardingRecheck')}
-          onClick={() => setRound((current) => current + 1)}
+          onClick={recheck}
         >
           ⟳
         </button>
