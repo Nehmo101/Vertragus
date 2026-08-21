@@ -122,16 +122,21 @@ const AUTH_TONE: Record<ProviderAuthStatus['state'], OnboardingTone> = {
  *
  * Filtered on health for a reason: "you are not logged into a CLI you do not
  * have" is noise that pushes the row that matters off the card. A provider
- * that is installed but whose status has not come back yet is listed as
- * `unknown` — the same honest placeholder as a CLI that has no status probe at
- * all, with its own explanation in the title.
+ * that is installed but whose status has not come back yet is `unknown` too —
+ * but for a different reason than a CLI that declares no status probe, and the
+ * title has to say which. `statuses === null` is that distinction: the probe
+ * shells out to the CLIs and takes seconds, while `providers:list` answers off
+ * a warm cache in about no time, so those seconds are real and the card spends
+ * them with an answer it does not have yet. Telling the user "this CLI exposes
+ * no status command" about a claude that declares `auth status` is the exact
+ * guess this module refuses to make.
  */
 export function authRows(
   t: Translate,
   entries: readonly ProviderListEntry[],
-  statuses: readonly ProviderAuthStatus[]
+  statuses: readonly ProviderAuthStatus[] | null
 ): AuthRow[] {
-  const byId = new Map(statuses.map((status) => [status.id, status]))
+  const byId = new Map((statuses ?? []).map((status) => [status.id, status]))
   const stateLabel: Record<ProviderAuthStatus['state'], string> = {
     'logged-in': t('panel.onboardingAuthIn'),
     'logged-out': t('panel.onboardingAuthOut'),
@@ -142,7 +147,10 @@ export function authRows(
     .map((entry) => {
       const status = byId.get(entry.config.id)
       const state = status?.state ?? 'unknown'
-      const detail = status?.detail ?? t('panel.onboardingAuthNoProbe')
+      const detail =
+        statuses === null
+          ? t('panel.onboardingAuthProbing')
+          : (status?.detail ?? t('panel.onboardingAuthNoProbe'))
       return {
         id: entry.config.id,
         label: entry.config.label,
@@ -191,6 +199,13 @@ export interface OnboardingStep {
 export interface OnboardingProgress {
   /** False until `providers:list` has answered once. */
   providersLoaded: boolean
+  /**
+   * False until `providers:authStatus` has answered once. Without it the login
+   * step would settle on rows that are all `unknown` because nothing has come
+   * back yet, and un-settle again seconds later — a checklist that ticks a step
+   * off and takes it back is worse than one that waits.
+   */
+  authLoaded: boolean
   foundCount: number
   authRows: readonly AuthRow[]
   hasProfile: boolean
@@ -206,9 +221,18 @@ export interface OnboardingProgress {
  * computing them here instead of hard-coding two `todo`s.
  */
 export function onboardingSteps(t: Translate, progress: OnboardingProgress): OnboardingStep[] {
+  // `unknown` must not block. Kimi, Grok and Ollama declare `loginArgs` but no
+  // `statusArgs`, so their rows are `unknown` BY CONSTRUCTION — permanently,
+  // not while something is still loading. Demanding `logged-in` from every row
+  // parks a user with such a CLI on step 2 forever, with nothing to act on
+  // (`loginCommands` offers no command for an unknown row either) and step 3 —
+  // the "+ create the first profile" button, the card's whole point — dimmed
+  // behind it. So the step advances when nothing is KNOWN to be broken; the
+  // rows themselves keep saying `unknown`, which is still the honest word.
   const loggedIn =
+    progress.authLoaded &&
     progress.authRows.length > 0 &&
-    progress.authRows.every((row) => row.state === 'logged-in')
+    progress.authRows.every((row) => row.state !== 'logged-out')
   const done: Record<OnboardingStepId, boolean> = {
     clis: progress.providersLoaded && progress.foundCount > 0,
     login: loggedIn,

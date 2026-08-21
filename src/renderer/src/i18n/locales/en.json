@@ -106,6 +106,7 @@
     "onboardingAuthIn": "signed in",
     "onboardingAuthOut": "not signed in",
     "onboardingAuthUnknown": "unknown",
+    "onboardingAuthProbing": "Asking — this CLI has not answered yet.",
     "onboardingAuthNoProbe": "This CLI exposes no status command — Vertragus does not guess.",
     "onboardingAuthLoading": "Asking the CLIs about their login state …",
     "onboardingAuthNone": "No installed CLI to ask yet.",

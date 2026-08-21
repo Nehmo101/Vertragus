@@ -870,9 +870,17 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
 
   // --- providers & models ------------------------------------------------
 
-  handle(APP_CHANNELS.providersList, requireAppWindow, async () => {
+  handle(APP_CHANNELS.providersList, requireAppWindow, async (_event, payload) => {
     const configs = host.store.effectiveProviders()
-    const cached = healthCache && now() - healthCache.at <= PROVIDER_HEALTH_TTL_MS
+    // `{ refresh: true }` is the first-run card's ⟳ (WP-7). The TTL exists for
+    // the picker, which reads this on every editor open; but a user who just
+    // installed a CLI and pressed the one button the copy told them to press
+    // would otherwise be served the same "not found" for up to 30 s — a cache
+    // hit does not even refresh its own timestamp, so pressing again changes
+    // nothing. An explicit gesture may therefore skip the cache and overwrite
+    // it; nothing that reads on a render is allowed to pass this flag.
+    const refresh = (payload as { refresh?: unknown } | undefined)?.refresh === true
+    const cached = !refresh && healthCache && now() - healthCache.at <= PROVIDER_HEALTH_TTL_MS
     // Probes run in parallel inside checkProviders — one dead CLI must not
     // serialize the picker behind its timeout.
     const health = cached ? healthCache!.health : await host.checkProviders(configs)
