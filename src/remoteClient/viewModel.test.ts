@@ -5,10 +5,12 @@ import {
   agentNeedsAttention,
   agentStatusLine,
   endedWorkspaces,
+  everyCardExpanded,
   hasActiveWorkspace,
   isWorkspaceExpanded,
   liveWorkspaces,
   orderWorkspaces,
+  setAllExpanded,
   workspaceGoalLine,
   workspaceNeedsAttention
 } from './viewModel'
@@ -43,6 +45,61 @@ describe('orderWorkspaces', () => {
     const ended = workspace({ workspaceId: 'old', active: false })
     const live = workspace({ workspaceId: 'now', active: true })
     expect(orderWorkspaces([ended, live]).map((entry) => entry.workspaceId)).toEqual(['now', 'old'])
+  })
+
+  it('is a total order, so a reshuffled push cannot move a row', () => {
+    const items = [
+      workspace({ workspaceId: 'w1', name: 'Purgatorio' }),
+      workspace({ workspaceId: 'w2', name: 'inferno' }),
+      workspace({ workspaceId: 'w3', name: 'Paradiso' }),
+      workspace({ workspaceId: 'w4', name: 'Limbo', active: false })
+    ]
+    const order = orderWorkspaces(items).map((entry) => entry.workspaceId)
+    expect(order).toEqual(['w2', 'w3', 'w1', 'w4'])
+    expect(orderWorkspaces([...items].reverse()).map((entry) => entry.workspaceId)).toEqual(order)
+  })
+
+  it('breaks a shared name on the workspace id', () => {
+    const items = [
+      workspace({ workspaceId: 'b', name: 'Paradiso' }),
+      workspace({ workspaceId: 'a', name: 'Paradiso' })
+    ]
+    expect(orderWorkspaces(items).map((entry) => entry.workspaceId)).toEqual(['a', 'b'])
+    expect(orderWorkspaces([...items].reverse()).map((entry) => entry.workspaceId)).toEqual([
+      'a',
+      'b'
+    ])
+  })
+
+  it('leaves the source array alone', () => {
+    const items = [
+      workspace({ workspaceId: 'z', name: 'Zeta' }),
+      workspace({ workspaceId: 'a', name: 'Alpha' })
+    ]
+    orderWorkspaces(items)
+    expect(items.map((entry) => entry.workspaceId)).toEqual(['z', 'a'])
+  })
+})
+
+describe('expand all / collapse all', () => {
+  const items = [
+    workspace({ workspaceId: 'w1', active: true }),
+    workspace({ workspaceId: 'w2', active: false })
+  ]
+
+  it('writes an explicit decision per card so a push cannot re-open one', () => {
+    expect(setAllExpanded(items, false)).toEqual({ w1: false, w2: false })
+    expect(setAllExpanded(items, true)).toEqual({ w1: true, w2: true })
+    expect(setAllExpanded([], true)).toEqual({})
+  })
+
+  it('knows which way the list-wide toggle should go', () => {
+    expect(everyCardExpanded(items, setAllExpanded(items, true))).toBe(true)
+    expect(everyCardExpanded(items, setAllExpanded(items, false))).toBe(false)
+    // Defaults count: the live card is open without an entry of its own.
+    expect(everyCardExpanded(items, {})).toBe(false)
+    expect(everyCardExpanded([items[0]!], {})).toBe(true)
+    expect(everyCardExpanded([], {})).toBe(false)
   })
 })
 

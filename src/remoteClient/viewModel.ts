@@ -5,10 +5,37 @@
  */
 import type { RemoteAgentSummary, RemoteWorkspaceSummary } from '@shared/remote/protocol'
 
+/**
+ * Codepoint order on the lowercased text. Deliberately not `localeCompare`:
+ * the same list must come out in the same order on the phone and on the
+ * desktop, and ICU collation differs between those two engines.
+ */
+function compareText(a: string, b: string): number {
+  const left = a.toLowerCase()
+  const right = b.toLowerCase()
+  if (left < right) return -1
+  return left > right ? 1 : 0
+}
+
+/**
+ * A total order over the list, not just a partition.
+ *
+ * `active` alone leaves every live card equal to every other, and `sort` is
+ * stable — so equal keys keep the order of the *incoming* array, which is the
+ * host's and is re-derived on every `workspaces` push. A card could therefore
+ * swap places with its neighbour under a thumb already reaching for it.
+ * Sorting on keys the push cannot change (name, then id) means a push may add
+ * or remove a row, but never move one.
+ */
 export function orderWorkspaces(
   workspaces: readonly RemoteWorkspaceSummary[]
 ): RemoteWorkspaceSummary[] {
-  return [...workspaces].sort((a, b) => Number(b.active) - Number(a.active))
+  return [...workspaces].sort(
+    (a, b) =>
+      Number(b.active) - Number(a.active) ||
+      compareText(a.name, b.name) ||
+      compareText(a.workspaceId, b.workspaceId)
+  )
 }
 
 export function hasActiveWorkspace(workspaces: readonly RemoteWorkspaceSummary[]): boolean {
@@ -98,4 +125,30 @@ export function workspaceGoalLine(
   const goal = workspace.goalText?.trim()
   if (goal) return copy.goal(goal)
   return workspace.active ? copy.noGoal : undefined
+}
+
+/**
+ * The explicit expansion map for "expand all" / "collapse all". Written out
+ * per workspace rather than kept as one flag because `isWorkspaceExpanded`
+ * falls back to the card's own default: an empty map after "collapse all"
+ * would re-open every live card on the next push.
+ */
+export function setAllExpanded(
+  workspaces: readonly RemoteWorkspaceSummary[],
+  open: boolean
+): Record<string, boolean> {
+  const next: Record<string, boolean> = {}
+  for (const workspace of workspaces) next[workspace.workspaceId] = open
+  return next
+}
+
+/** Which way the one list-wide toggle should go; an empty list collapses. */
+export function everyCardExpanded(
+  workspaces: readonly RemoteWorkspaceSummary[],
+  expanded: Readonly<Record<string, boolean>>
+): boolean {
+  return (
+    workspaces.length > 0 &&
+    workspaces.every((workspace) => isWorkspaceExpanded(workspace, expanded))
+  )
 }
