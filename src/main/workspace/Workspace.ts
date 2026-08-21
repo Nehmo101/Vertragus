@@ -120,6 +120,7 @@ import {
 import type { ProviderConfig } from '@shared/schema/provider'
 import type { ZoneLayout } from '@shared/schema/zones'
 import type { AgentDoneStatus } from '@shared/schema/events'
+import { runsDir } from './journal'
 import { SentinelParser, type SentinelReport } from './sentinel'
 import { createSpillStore, type SpillStore } from './spill'
 import type { TaskBoard } from './taskBoard'
@@ -222,7 +223,21 @@ export interface WorkspaceDeps {
    * in the orchestrator's repository briefing. Absent = a fresh run.
    */
   resumeBriefing?: string
-  /** Override succession package persist (tests). Default: configDir/runs/<ws>/succession.json */
+  /**
+   * C6 crash recovery: the unconsumed succession package of the run this
+   * workspace resumes. Present = the predecessor died mid-handoff, and the
+   * orchestrator prompt is built from the package (strictly richer than
+   * {@link resumeBriefing}: roster, open questions, decisions, cursor) in
+   * recovery mode — see `buildSuccessorOrchestratorSystemPrompt`.
+   */
+  resumeSuccession?: OrchestratorHandoffPackage
+  /**
+   * Override succession package persist (tests / a host that owns the file
+   * itself). Default: `runsDir(repoPath)/<workspaceId>/succession.json`, next
+   * to the run journal and the task board — the package is a RUN artefact, and
+   * a resume looks for it there. An injected writer also owns consumption:
+   * nothing on disk means nothing to rename after the cutover.
+   */
   writeSuccession?: (pkg: OrchestratorHandoffPackage) => void
 }
 
@@ -406,6 +421,14 @@ export class Workspace implements AgentHost {
         previousToken: string
         previousUrl: string
         pkg: OrchestratorHandoffPackage
+        /**
+         * Where {@link persistSuccession} put the package, so the cutover can
+         * mark exactly that file consumed. Absent when a host writer took
+         * persistence over — then there is no file of ours to rename.
+         */
+        packagePath?: string
+        /** A dead predecessor is not killed at cutover — see {@link requestSuccession}. */
+        predecessorAlive: boolean
       }
     | undefined
   /** The record_retro summary, held until the manager finalizes the run at stop. */
@@ -566,9 +589,26 @@ export class Workspace implements AgentHost {
     this.eventRouter = router
   }
 
-  /** S4: hand over the run's task board so succession can package the plan. */
+  /**
+   * S4: hand over the run's task board so succession can package the plan.
+   *
+   * The board must be the SAME object the MCP runtime serves `task_*` from —
+   * two boards mean working tools and a succession that packages someone
+   * else's (usually empty) plan. Since the runtime's `taskBoard` is an
+   * accessor over this one (see `mcp/server.registerWorkspace`), the two
+   * cannot drift apart; a second, different board is a wiring bug and says so
+   * loudly instead of quietly winning.
+   */
   attachTaskBoard(board: TaskBoard): void {
+    if (this.taskBoard && this.taskBoard !== board) {
+      throw new Error(`Workspace ${this.name} already has a different task board attached.`)
+    }
     this.taskBoard = board
+  }
+
+  /** The one board of this run, or undefined before the manager installed it. */
+  attachedTaskBoard(): TaskBoard | undefined {
+    return this.taskBoard
   }
 
   /** The queue an event about `agentId` belongs in — its parent's, else root. */
@@ -1199,18 +1239,44 @@ export class Workspace implements AgentHost {
     return this.startedOf(record)
   }
 
-  requestSuccession(input: SuccessionRequest): StartingSuccession {
+  /**
+   * S3: the human's escape hatch — replace the root orchestrator from the
+   * host, with no tool call from the incumbent. The usual reason to press it
+   * is a DEAD orchestrator (crashed CLI, killed window): the team keeps
+   * running, nobody drives the loop, and `stopWorkspace` would throw the whole
+   * run away. A live-but-stuck orchestrator (C5 idle) takes the same path and
+   * is fenced and killed exactly like a self-declared handoff.
+   *
+   * The package is built from HOST state alone — a dead predecessor writes no
+   * goal, no decisions, no notes, and inventing them would be the one lie this
+   * whole feature exists to avoid.
+   */
+  async replaceOrchestratorFromHost(): Promise<StartedAgent> {
+    const starting = this.requestSuccession(
+      { reason: 'user_requested' },
+      { allowDeadPredecessor: true }
+    )
+    return starting.ready
+  }
+
+  requestSuccession(
+    input: SuccessionRequest,
+    options: { allowDeadPredecessor?: boolean } = {}
+  ): StartingSuccession {
     this.assertOpen()
     if (this.succession) throw new Error('already_in_progress')
     const predecessor = this.orchestratorRecord
-    if (!predecessor || !this.orchestratorAlive) {
+    // The tool path requires a LIVE incumbent (a dead one cannot have called
+    // it); the host path accepts a corpse, which is its whole point.
+    if (!predecessor || (!this.orchestratorAlive && !options.allowDeadPredecessor)) {
       throw new Error('no_orchestrator')
     }
+    const predecessorAlive = this.orchestratorAlive
 
     const successorAgentId = this.newId()
     const successorName = this.names.allocate('orchestrator')
     const pkg = this.buildSuccessionPackage(input, predecessor, successorAgentId)
-    this.persistSuccession(pkg)
+    const packagePath = this.persistSuccession(pkg)
 
     this.succession = {
       successorAgentId,
@@ -1218,7 +1284,9 @@ export class Workspace implements AgentHost {
       predecessorId: predecessor.agentId,
       previousToken: this.orchToken,
       previousUrl: this.requireMcp().orchestratorUrl,
-      pkg
+      pkg,
+      predecessorAlive,
+      ...(packagePath ? { packagePath } : {})
     }
 
     this.events.push({
@@ -1241,7 +1309,7 @@ export class Workspace implements AgentHost {
   }
 
   private async orchestratorPrompt(): Promise<string> {
-    return buildOrchestratorSystemPrompt({
+    const input = {
       workspaceName: this.name,
       repoPath: this.repoPath,
       rolesWithLimits: this.rolesWithLimits(),
@@ -1249,7 +1317,16 @@ export class Workspace implements AgentHost {
       knowledge: this.deps.retro?.knowledge(this.profile) ?? [],
       // E2: best-effort — a repo without docs or git history still boots.
       briefing: await this.collectBriefing()
-    })
+    }
+    // C6 crash recovery: the resumed run left a frozen package behind. It is
+    // strictly richer than the journal briefing (roster with branches, the
+    // decisions and next actions the dead orchestrator wrote down, the plan),
+    // so it replaces it — in recovery mode, which is what keeps the seed
+    // honest about the parts of it that died with the processes.
+    const recovered = this.deps.resumeSuccession
+    return recovered
+      ? buildSuccessorOrchestratorSystemPrompt(input, recovered, { recovered: true })
+      : buildOrchestratorSystemPrompt(input)
   }
 
   private startedOf(record: AgentRecord): StartedAgent {
@@ -1351,9 +1428,15 @@ export class Workspace implements AgentHost {
       this.orchestratorRecord = record
       // C5: the successor starts with a fresh idle clock, like any boot.
       this.noteOrchestratorActivity()
-      if (predecessor && predecessor !== record) {
+      // A live predecessor is killed here — the fence (rotated token) already
+      // holds, and two CLIs believing they own the loop is the failure this
+      // whole cutover order prevents. A DEAD one is left alone: its process is
+      // gone anyway, and its window plus scrollback are the post-mortem the
+      // user pressed the button in front of.
+      if (predecessor && predecessor !== record && pending.predecessorAlive) {
         this.terminate(predecessor)
       }
+      this.markSuccessionConsumed(pending.packagePath)
       this.succession = undefined
       this.events.push({
         type: 'orchestrator_started',
@@ -1410,20 +1493,46 @@ export class Workspace implements AgentHost {
     this.orchToken = token
   }
 
-  private persistSuccession(pkg: OrchestratorHandoffPackage): void {
+  /**
+   * Freeze the package on disk BEFORE the cutover, in the run's own directory
+   * (`.vertragus/runs/<workspaceId>/`) next to `events.jsonl` and `tasks.json`
+   * — a host crash mid-handoff kills every process here, so recovery is a
+   * RESUME of that run, and resume only ever looks in the run directory.
+   * Returns the path it wrote, or undefined when there is nothing of ours to
+   * consume later. Fail-soft: a read-only repo costs crash recovery, never the
+   * handoff — the in-memory package still seeds the successor.
+   */
+  private persistSuccession(pkg: OrchestratorHandoffPackage): string | undefined {
     if (this.deps.writeSuccession) {
       this.deps.writeSuccession(pkg)
-      return
+      return undefined
     }
     try {
-      const dir = join(this.deps.configDir, 'runs', this.workspaceId)
+      const dir = join(runsDir(this.repoPath), this.workspaceId)
       mkdirSync(dir, { recursive: true })
       const dest = join(dir, 'succession.json')
       const tmp = `${dest}.tmp`
       writeFileSync(tmp, JSON.stringify(pkg, null, 2), 'utf8')
       renameSync(tmp, dest)
+      return dest
     } catch {
-      // Best-effort: the in-memory package still seeds the successor.
+      return undefined
+    }
+  }
+
+  /**
+   * The cutover worked, so nobody may recover from this package again: the
+   * rename makes "recover once" a filesystem fact rather than a flag some
+   * later reader has to be trusted to check. Atomic and best-effort — a
+   * failed rename leaves a package a resume would replay, which is survivable;
+   * a half-written marker file would not be.
+   */
+  private markSuccessionConsumed(packagePath: string | undefined): void {
+    if (!packagePath) return
+    try {
+      renameSync(packagePath, packagePath.replace(/\.json$/, '.consumed.json'))
+    } catch {
+      /* see above */
     }
   }
 

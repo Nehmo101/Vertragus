@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -9,6 +9,7 @@ import { EventQueue } from '@main/mcp/eventQueue'
 import { PendingQuestions } from '@main/mcp/pendingQuestions'
 import { memoryTaskBoard } from '@main/mcp/testing'
 import { buildReminderSuffix } from '@shared/prompts/contract'
+import { buildHandoffPackage } from '@shared/schema/handoff'
 import { ORCHESTRATOR_COLOR, ORCHESTRATOR_ROLE_ID, roleColor } from '@shared/prompts/roles'
 import {
   ORCHESTRATOR_IDLE_MS,
@@ -936,6 +937,137 @@ describe('requestSuccession', () => {
       true
     )
   })
+
+  it('freezes the package in the RUN directory and retires it after the cutover', async () => {
+    const repo = mkdtempSync(join(tmpdir(), 'vertragus-succession-'))
+    try {
+      const { workspace } = harness({
+        ptySystemPrompt: true,
+        profile: testProfile({ repoPath: repo })
+      })
+      await workspace.startOrchestrator()
+
+      const begun = workspace.requestSuccession({ reason: 'context_full', decisions: ['Use zod'] })
+      // Next to events.jsonl and tasks.json — a resume only ever looks here,
+      // and the app's userData directory is not part of the repository.
+      const dir = join(repo, '.vertragus', 'runs', workspace.workspaceId)
+      const frozen = JSON.parse(readFileSync(join(dir, 'succession.json'), 'utf8')) as {
+        kind: string
+        decisions: string[]
+        eventCursor: number
+      }
+      expect(frozen).toMatchObject({ kind: 'orchestrator_succession', decisions: ['Use zod'] })
+      expect(existsSync(join(dir, 'succession.consumed.json'))).toBe(false)
+
+      await begun.ready
+
+      // "Recover once" as a fact of the filesystem: the package a cutover used
+      // is gone under its recoverable name.
+      expect(existsSync(join(dir, 'succession.json'))).toBe(false)
+      const consumed = JSON.parse(
+        readFileSync(join(dir, 'succession.consumed.json'), 'utf8')
+      ) as { eventCursor: number }
+      expect(consumed.eventCursor).toBe(begun.eventCursor)
+    } finally {
+      rmSync(repo, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses a second, DIFFERENT task board — tools and package share one plan', async () => {
+    const { workspace } = harness()
+    const board = memoryTaskBoard()
+    workspace.attachTaskBoard(board)
+    // Wiring the same board twice is how the manager and the MCP runtime both
+    // arrive at it; that must stay silent.
+    workspace.attachTaskBoard(board)
+    expect(() => workspace.attachTaskBoard(memoryTaskBoard())).toThrow(/different task board/)
+    expect(workspace.attachedTaskBoard()).toBe(board)
+  })
+})
+
+describe('replaceOrchestratorFromHost — S3', () => {
+  it('replaces a DEAD orchestrator, keeps the team and leaves the corpse readable', async () => {
+    const packages: unknown[] = []
+    const { workspace, spawns, windows, prompts } = harness({
+      ptySystemPrompt: true,
+      deps: { writeSuccession: (pkg) => packages.push(pkg) }
+    })
+    const predecessor = await workspace.startOrchestrator()
+    const worker = await workspace.startAgent({ role: 'worker', task: 'Implement the parser.' })
+    spawns[0]!.pty.exit({ exitCode: 1 })
+    expect(workspace.orchestratorAlive).toBe(false)
+    expect(workspace.events.all().some((event) => event.type === 'orchestrator_exited')).toBe(true)
+
+    const successor = await workspace.replaceOrchestratorFromHost()
+
+    expect(workspace.orchestratorAlive).toBe(true)
+    expect(workspace.orchestrator?.agentId).toBe(successor.agentId)
+    expect(successor.agentId).not.toBe(predecessor.agentId)
+    // The point of the button: the team survives its orchestrator.
+    expect(workspace.listAgents().map((agent) => agent.agentId)).toContain(worker.agentId)
+    // A dead predecessor is not "terminated": its window and scrollback are
+    // the post-mortem the user was looking at when they pressed the button.
+    expect(windows.closed).not.toContain(predecessor.agentId)
+    expect(prompts.at(-1)).toContain('successor of')
+    // Rotated all the same — the dead CLI must not come back onto the queue.
+    expect(spawns.at(-1)!.input.mcpUrl).not.toBe(spawns[0]!.input.mcpUrl)
+    expect(packages[0]).toMatchObject({ reason: 'user_requested' })
+  })
+
+  it('fences and kills a LIVE predecessor exactly like a self-declared handoff', async () => {
+    const { workspace, windows } = harness({ ptySystemPrompt: true })
+    const predecessor = await workspace.startOrchestrator()
+
+    const successor = await workspace.replaceOrchestratorFromHost()
+
+    expect(windows.closed).toContain(predecessor.agentId)
+    expect(workspace.orchestrator?.agentId).toBe(successor.agentId)
+    expect(workspace.successionInProgress()).toBe(false)
+  })
+
+  it('refuses when the workspace never had an orchestrator', async () => {
+    const { workspace } = harness()
+    await expect(workspace.replaceOrchestratorFromHost()).rejects.toThrow(/no_orchestrator/)
+  })
+})
+
+describe('C6 crash recovery seed', () => {
+  it('boots the resumed orchestrator from the unconsumed package, in recovery mode', async () => {
+    const pkg = buildHandoffPackage({
+      workspaceId: 'ws-old',
+      workspaceName: 'Inferno',
+      profileId: 'profile-1',
+      createdAt: 1,
+      reason: 'context_full',
+      predecessor: { agentId: 'o1', name: 'Virgilio', providerId: 'claude' },
+      successorAgentId: 'o2',
+      eventCursor: 77,
+      agents: [
+        {
+          agentId: 'a1',
+          name: 'Caronte',
+          role: 'worker',
+          status: 'working',
+          branch: 'vertragus/inferno/caronte'
+        }
+      ],
+      openQuestions: [{ questionId: 'q1', agentId: 'a1', question: 'which interface?' }],
+      recentEvents: []
+    })
+    const { workspace, prompts } = harness({
+      ptySystemPrompt: true,
+      deps: { resumeSuccession: pkg }
+    })
+
+    await workspace.startOrchestrator()
+
+    const seed = prompts.at(-1)!
+    expect(seed).toContain('recovering the run of Virgilio')
+    expect(seed).toContain('Start await_events at cursor 0')
+    expect(seed).toContain('They are VOID')
+    expect(seed).toContain('which interface?')
+    expect(seed).toContain('vertragus/inferno/caronte')
+  })
 })
 
 describe('stopAll / close', () => {
@@ -1724,6 +1856,41 @@ describe('snapshotDone — C3 snapshot commit at done-time', () => {
       uncommitted: false,
       changedFiles: ['src/a.ts']
     })
+  })
+
+  it('C3 × C6: the succession package carries the SHA the snapshot commit produced', async () => {
+    const fake = statefulGit()
+    const packages: unknown[] = []
+    const { workspace, spawns } = harness({
+      profile: testProfile({
+        slots: [
+          { id: 'slot-worker', roleId: 'worker', providerId: 'ollama' },
+          { id: 'slot-reviewer', roleId: 'reviewer', providerId: 'claude' }
+        ]
+      }),
+      ptySystemPrompt: true,
+      deps: {
+        worktreeDeps: { git: fake.git },
+        writeSuccession: (pkg) => packages.push(pkg)
+      }
+    })
+    await workspace.startOrchestrator()
+    const worker = await workspace.startAgent({ role: 'worker', task: 'Do it.' })
+    spawns[1]!.pty.emit(`@@VERTRAGUS:DONE@@${JSON.stringify({ summary: 'shipped' })}@@END@@`)
+    await waitForDone(workspace)
+
+    const begun = workspace.requestSuccession({ reason: 'context_full' })
+    await begun.ready
+
+    const packaged = (packages[0] as { agents: Array<Record<string, unknown>> }).agents.find(
+      (agent) => agent.agentId === worker.agentId
+    )!
+    // Without C3 the package would name the PRE-commit HEAD — a SHA whose
+    // tree does not contain the work the successor is told is finished.
+    expect(packaged.headSha).toBe('b'.repeat(40))
+    expect(packaged.headSha).not.toBe('a'.repeat(40))
+    expect(packaged.uncommitted).toBe(false)
+    expect(packaged.lastSummary).toBe('shipped')
   })
 })
 

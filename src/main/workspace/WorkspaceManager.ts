@@ -28,6 +28,7 @@ import { workspacePlaceName } from '@shared/workspaceNames'
 import type { Profile } from '@shared/schema/profile'
 import type { StartedAgent } from '@main/mcp/types'
 import type { AgentEvent } from '@shared/schema/events'
+import type { OrchestratorHandoffPackage } from '@shared/schema/handoff'
 import type { TaskBoardState } from '@shared/schema/tasks'
 import type { RetroSink } from './retroSink'
 import type { RunJournal } from './journal'
@@ -37,7 +38,13 @@ import { Workspace, type WorkspaceDeps, type WorkspaceMcpUrls } from './Workspac
 export interface WorkspaceManagerDeps
   extends Omit<
     WorkspaceDeps,
-    'providers' | 'roleTemplates' | 'yoloMaster' | 'agentPolicy' | 'retro' | 'resumeBriefing'
+    | 'providers'
+    | 'roleTemplates'
+    | 'yoloMaster'
+    | 'agentPolicy'
+    | 'retro'
+    | 'resumeBriefing'
+    | 'resumeSuccession'
   > {
   mcp: McpServerHandle
   /** Read fresh per start so a provider edit reaches the next workspace. */
@@ -103,6 +110,13 @@ export interface StartWorkspaceOptions {
      * (dead owners freed — see `resume.boardForResume`). Seeds the new board.
      */
     tasks?: TaskBoardState
+    /**
+     * C6: the frozen succession package of that run — present only when it
+     * died mid-handoff (see `resume.readSuccessionPackage`). It REPLACES the
+     * briefing in the orchestrator prompt: same dead run, more of it, and two
+     * accounts of one run would only compete for the successor's attention.
+     */
+    succession?: OrchestratorHandoffPackage
   }
 }
 
@@ -194,8 +208,14 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
       { profile, name: nextName(profile.id) },
       {
         ...workspaceDeps(),
-        // E3: the previous run's briefing rides into the orchestrator prompt.
-        ...(options?.resume ? { resumeBriefing: options.resume.briefing } : {})
+        // E3: the previous run's briefing rides into the orchestrator prompt —
+        // unless C6 left a succession package, which says the same and more
+        // (see StartWorkspaceOptions.resume.succession).
+        ...(options?.resume?.succession
+          ? { resumeSuccession: options.resume.succession }
+          : options?.resume
+            ? { resumeBriefing: options.resume.briefing }
+            : {})
       }
     )
 
@@ -219,8 +239,11 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
       }
     })()
     // S4: the task board, next to the journal and equally never a blocker.
-    // On the runtime because the MCP tool layer owns the calls; the workspace
-    // gets it too, for the succession package.
+    // ONE assignment installs it for both readers — the tool layer calls
+    // through `runtime.taskBoard`, the succession package reads the host's,
+    // and the runtime property is an accessor over exactly that (see
+    // `mcp/server.registerWorkspace`). Wiring one side and forgetting the
+    // other is no longer expressible.
     try {
       const board = deps.taskBoard?.(profile.repoPath, workspace.workspaceId)
       if (board) {
@@ -228,7 +251,6 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
         // freed by the caller (resume.boardForResume).
         if (options?.resume?.tasks) board.seed(options.resume.tasks)
         registered.runtime.taskBoard = board
-        workspace.attachTaskBoard(board)
       }
     } catch (error) {
       console.warn('[taskBoard] not started:', error)

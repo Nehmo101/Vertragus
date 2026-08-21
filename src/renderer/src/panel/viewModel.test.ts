@@ -22,11 +22,13 @@ import {
   orderWorkspaces,
   resolveSelectedProfileId,
   shouldFocusWorkspaceOnToggle,
+  workspaceCanReplaceOrchestrator,
   workspaceCardClass,
   workspaceCountByProfile,
   workspaceHasWaitingSubagent,
   workspaceNeedsAttention,
   workspacePlaceTooltip,
+  workspaceSuccessionLabel,
   workspaceTooltip
 } from './viewModel'
 
@@ -214,6 +216,27 @@ describe('cards', () => {
       'w2',
       'w0'
     ])
+  })
+})
+
+describe('orchestrator succession — C6/S3', () => {
+  it('badges a workspace whose seat is being replaced, in both languages', () => {
+    expect(workspaceSuccessionLabel(t, workspace())).toBeUndefined()
+    expect(workspaceSuccessionLabel(t, workspace({ successionInProgress: true }))).toBe('Übergabe')
+    expect(workspaceSuccessionLabel(en, workspace({ successionInProgress: true }))).toBe('Handover')
+  })
+
+  it('offers the replace button for a dead or silent orchestrator only', () => {
+    // The running, talking case needs no escape hatch.
+    expect(workspaceCanReplaceOrchestrator(workspace())).toBe(false)
+    // Dead: the team is still up and Stop would end the whole run.
+    expect(workspaceCanReplaceOrchestrator(workspace({ active: false }))).toBe(true)
+    // C5 silence: alive but no longer calling its tools.
+    expect(workspaceCanReplaceOrchestrator(workspace({ orchestratorIdle: true }))).toBe(true)
+    // A successor is already on its way — offering it again reads as failure.
+    expect(
+      workspaceCanReplaceOrchestrator(workspace({ active: false, successionInProgress: true }))
+    ).toBe(false)
   })
 })
 

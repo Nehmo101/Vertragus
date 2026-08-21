@@ -17,7 +17,7 @@ import {
 import { EventQueue } from './eventQueue'
 import { LEAD_TOOL_NAMES, ORCHESTRATOR_TOOL_NAMES } from './toolsOrchestrator'
 import { SUBAGENT_TOOL_NAMES } from './toolsSubagent'
-import { fakeRuntime } from './testing'
+import { fakeRuntime, memoryTaskBoard, type FakeAgentHost } from './testing'
 import type { WorkspaceMcpContext } from './types'
 
 function context(overrides: Partial<WorkspaceMcpContext> = {}): WorkspaceMcpContext {
@@ -204,6 +204,24 @@ describe('startMcpServer', () => {
 
   it('ignores unregistering an unknown workspace', () => {
     expect(() => handle.unregisterWorkspace('never-there')).not.toThrow()
+  })
+
+  // S4 × C6: the task board used to need wiring in two places by hand — the
+  // runtime for the task_* tools, the host for the succession package. Wiring
+  // one gave a run working tools and a handoff that packaged an empty plan.
+  it('serves ONE task board: installing it on either side installs it on both', () => {
+    const fromTools = context({ workspaceId: 'w-board-tools' })
+    const registered = handle.registerWorkspace(fromTools)
+    const board = memoryTaskBoard()
+    registered.runtime.taskBoard = board
+    expect((fromTools.host as FakeAgentHost).attachedTaskBoard()).toBe(board)
+    expect(registered.runtime.taskBoard).toBe(board)
+
+    const fromHost = context({ workspaceId: 'w-board-host' })
+    const hostRegistered = handle.registerWorkspace(fromHost)
+    const hostBoard = memoryTaskBoard()
+    ;(fromHost.host as FakeAgentHost).attachTaskBoard(hostBoard)
+    expect(hostRegistered.runtime.taskBoard).toBe(hostBoard)
   })
 
   // S3: stop_agent and start-failure clean the schema registry in the tool

@@ -145,6 +145,33 @@ export function workspaceGoalLine(
   return workspace.active ? t('panel.noGoal') : undefined
 }
 
+/**
+ * C6: the cutover badge. A workspace mid-succession is neither working nor
+ * dead — its seat is being replaced — and saying so is what stops the greyed
+ * card from reading as "the run is over".
+ */
+export function workspaceSuccessionLabel(
+  t: Translate,
+  workspace: Pick<WorkspaceSummary, 'successionInProgress'>
+): string | undefined {
+  return workspace.successionInProgress ? t('panel.succession') : undefined
+}
+
+/**
+ * S3: offer the "replace orchestrator" button. Two states earn it — a DEAD
+ * orchestrator (the usual reason a human reaches for it: the team is still
+ * running, nobody drives the loop, and Stop would throw the run away) and a
+ * live one that went silent (C5), where replacing beats waiting. Never while a
+ * successor is already spawning: the same click twice is refused by the host
+ * anyway, and offering it would read as "it did not work".
+ */
+export function workspaceCanReplaceOrchestrator(
+  workspace: Pick<WorkspaceSummary, 'active' | 'orchestratorIdle' | 'successionInProgress'>
+): boolean {
+  if (workspace.successionInProgress) return false
+  return !workspace.active || workspace.orchestratorIdle === true
+}
+
 export function workspaceCardClass(
   workspace: Pick<WorkspaceSummary, 'active' | 'agents'>
 ): string {

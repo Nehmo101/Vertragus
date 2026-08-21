@@ -142,6 +142,7 @@ const APP = {
   workspacesStart: 'workspaces:start',
   workspacesResume: 'workspaces:resume',
   workspacesStop: 'workspaces:stop',
+  workspacesSucceedOrchestrator: 'workspaces:succeedOrchestrator',
   workspacesFocusAgent: 'workspaces:focusAgent',
   workspacesFocus: 'workspaces:focus',
   workspacesCloseAgent: 'workspaces:closeAgent',
@@ -251,6 +252,8 @@ export interface WorkspaceSummary {
   goalText?: string
   /** C5: orchestrator alive but silent on its tools — the card shows a hint. */
   orchestratorIdle?: boolean
+  /** C6: a successor orchestrator is spawning — the card shows a badge. */
+  successionInProgress?: true
   /** D3: the orchestrator's open ask_user question (answer with agentId "user"). */
   userQuestion?: { questionId: string; question: string }
   agents: WorkspaceAgentSummary[]
@@ -406,6 +409,14 @@ const app = {
     ipcRenderer.invoke(APP.workspacesResume, { profileId }),
   stopWorkspace: (workspaceId: string): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesStop, { workspaceId }),
+  /**
+   * C6/S3: replace this workspace's orchestrator with a fresh one that
+   * continues the run — the escape hatch for a dead or silent orchestrator.
+   * Subagents, worktrees and the task board stay; rejects readably when there
+   * is nothing to replace.
+   */
+  succeedOrchestrator: (workspaceId: string): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesSucceedOrchestrator, { workspaceId }),
   focusAgent: (agentId: string): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesFocusAgent, { agentId }),
   /**

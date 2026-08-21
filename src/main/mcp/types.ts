@@ -279,6 +279,17 @@ export interface AgentHost {
    */
   requestSuccession(input: SuccessionRequest): StartingSuccession
   /**
+   * S4 × C6: the ONE task board of this run. The host owns it because the
+   * succession package is built from it; the tool layer reads it through
+   * {@link WorkspaceRuntime.taskBoard}, which is an accessor over exactly
+   * these two methods — a board installed on either side is the board on both,
+   * so `task_*` tools and the handoff package can no longer disagree. Optional
+   * so older fakes (which carry their own board on the runtime) still satisfy
+   * the interface.
+   */
+  attachedTaskBoard?(): TaskBoard | undefined
+  attachTaskBoard?(board: TaskBoard): void
+  /**
    * Which reporting dialect a *new* agent of this role should get. Used by
    * `start_agent` before the agent exists; derived from the profile slot's
    * provider (`mcp.kind === 'none'` → sentinel).
@@ -414,6 +425,12 @@ export interface WorkspaceRuntime {
    * next to the run journal. Installed by the WorkspaceManager after
    * registration (like the journal, it needs the repository on disk); absent
    * in old fakes, where the task tools answer `task_board_unavailable`.
+   *
+   * On a real registration this is an ACCESSOR over the host's board (see
+   * `server.registerWorkspace`): assigning here attaches it to the host too,
+   * and reading here returns whatever the host holds. Wiring only one of the
+   * two used to give a run working `task_*` tools and a succession package
+   * with an empty plan — the accessor is what makes that unreachable.
    */
   taskBoard?: TaskBoard
   /** F: running leads by agentId. Empty in a flat (default) run. */
