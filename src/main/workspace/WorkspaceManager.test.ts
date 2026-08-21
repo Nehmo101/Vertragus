@@ -563,4 +563,26 @@ describe('onChange — the push channel that replaced the panel poll', () => {
     await Promise.resolve()
     expect(fired).toBe(afterOff)
   })
+
+  it('S4: a board mutation reaches the feed too — the card carries the plan now', async () => {
+    const board = memoryTaskBoard()
+    const { manager, mcp } = harness({ taskBoard: () => board })
+    const running = await manager.startWorkspace(testProfile())
+    let fired = 0
+    const off = manager.onChange(() => {
+      fired += 1
+    })
+
+    // What the task tools call after an accepted create/update. No second feed
+    // exists on purpose: the board rides the assignment channel, and that one
+    // is already bound to ev:workspaces.
+    board.create({ subject: 'Fix the parser' })
+    mcp.lastRuntime!.onTasksChanged!()
+    await Promise.resolve()
+    expect(fired).toBe(1)
+    // And the plan is on the summary the panel renders from.
+    expect(running.workspace.listTasks()).toMatchObject([{ taskId: 'task-1', ready: true }])
+
+    off()
+  })
 })

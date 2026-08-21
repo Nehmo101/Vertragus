@@ -148,6 +148,7 @@ const APP = {
   workspacesAnswerQuestion: 'workspaces:answerQuestion',
   workspacesUserMessage: 'workspaces:userMessage',
   workspacesPromoteAgent: 'workspaces:promoteAgent',
+  workspacesOpenRunFolder: 'workspaces:openRunFolder',
   worktreesList: 'worktrees:list',
   worktreesRemove: 'worktrees:remove',
   retroList: 'retro:list',
@@ -239,6 +240,19 @@ export interface WorkspaceAgentSummary {
   pendingQuestionId?: string
 }
 
+/** S4: one row of the run's task board. Mirrors main's WorkspaceTaskSummary. */
+export interface WorkspaceTaskSummary {
+  taskId: string
+  subject: string
+  /** Tombstones never travel — the card shows the living plan only. */
+  status: 'pending' | 'in_progress' | 'completed'
+  /** Agent id of the owner; the card resolves it to the Commedia name. */
+  ownerAgentId?: string
+  blockedBy: string[]
+  /** pending AND every blockedBy completed — decided by the host's board. */
+  ready: boolean
+}
+
 export interface WorkspaceSummary {
   workspaceId: string
   name: string
@@ -254,6 +268,8 @@ export interface WorkspaceSummary {
   /** D3: the orchestrator's open ask_user question (answer with agentId "user"). */
   userQuestion?: { questionId: string; question: string }
   agents: WorkspaceAgentSummary[]
+  /** S4: the run's task board, capped and tombstone-free. Absent = no plan yet. */
+  tasks?: WorkspaceTaskSummary[]
 }
 
 /** One stale worktree the panel's cleanup view offers for removal. */
@@ -441,6 +457,12 @@ const app = {
    */
   promoteAgentBranch: (workspaceId: string, agentId: string): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesPromoteAgent, { workspaceId, agentId }),
+  /**
+   * Reveal this run's artefact folder (spill/, tasks.json, events.jsonl) in the
+   * OS file manager. Rejects readably when the run left nothing on disk.
+   */
+  openRunFolder: (workspaceId: string): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesOpenRunFolder, { workspaceId }),
   /** Stale worktrees of this profile's repo — the panel's cleanup list. */
   listStaleWorktrees: (profileId: string): Promise<StaleWorktreeSummary[]> =>
     ipcRenderer.invoke(APP.worktreesList, { profileId }),

@@ -2122,3 +2122,40 @@ describe('orchestrator briefing — E2', () => {
     expect(prompt).toContain('branch vertragus/x')
   })
 })
+
+describe('listTasks — the board as the panel reads it', () => {
+  it('drops tombstones and takes readiness from the board, not from a second rule', () => {
+    const { workspace } = harness()
+    const board = memoryTaskBoard()
+    workspace.attachTaskBoard(board)
+    board.create({ subject: 'Fix the parser', ownerAgentId: 'a1' })
+    board.create({ subject: 'Review it', blockedBy: ['task-1'] })
+    board.create({ subject: 'Abandoned' })
+    board.create({ subject: 'Blocked by a tombstone', blockedBy: ['task-3'] })
+    board.update('task-3', 1, 'delete')
+
+    const rows = workspace.listTasks()
+    expect(rows.map((row) => row.taskId)).toEqual(['task-1', 'task-2', 'task-4'])
+    expect(rows[0]).toEqual({
+      taskId: 'task-1',
+      subject: 'Fix the parser',
+      status: 'in_progress',
+      ownerAgentId: 'a1',
+      blockedBy: [],
+      // in_progress is never ready — ready means "claiming this starts work".
+      ready: false
+    })
+    // task-2 waits on an unfinished dependency; task-4's only one is a
+    // tombstone, which the board ignores instead of blocking forever.
+    expect(rows[1]).toMatchObject({ status: 'pending', ready: false })
+    expect(rows[2]).toMatchObject({ status: 'pending', ready: true })
+
+    expect(board.update('task-1', 1, 'complete').ok).toBe(true)
+    expect(workspace.listTasks()[1]).toMatchObject({ taskId: 'task-2', ready: true })
+  })
+
+  it('is empty — not broken — for a workspace that never got a board', () => {
+    const { workspace } = harness()
+    expect(workspace.listTasks()).toEqual([])
+  })
+})

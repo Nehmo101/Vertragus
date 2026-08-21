@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import type { WorkspaceAgentSummary, WorkspaceSummary } from '../../../preload'
 import { activeLocale } from '../i18n'
 import { LoreTip } from '../lore/LoreTip'
-import { CloseIcon, StopIcon } from './icons'
+import { ChevronIcon, CloseIcon, FolderIcon, StopIcon } from './icons'
 import {
   agentCanCloseWindow,
   agentCountLabel,
@@ -11,6 +11,9 @@ import {
   agentRowClass,
   agentStatusLine,
   agentTooltip,
+  taskProgressLabel,
+  taskRowClass,
+  taskRows,
   workspaceCardClass,
   workspaceGoalLine,
   workspaceHasWaitingSubagent,
@@ -146,6 +149,8 @@ interface Props {
   onUserMessage(workspaceId: string, text: string): void
   /** E1 Promote — the user's click, merged by the host into the main checkout. */
   onPromoteAgent(workspaceId: string, agentId: string): void
+  /** Reveal this run's artefact folder in the OS file manager (desktop only). */
+  onOpenRunFolder(workspaceId: string): void
 }
 
 /**
@@ -190,6 +195,50 @@ function UserQuestion({
       <button type="button" className="panel-answer-send" disabled={!answer.trim()} onClick={submit}>
         {t('panel.answerSend')}
       </button>
+    </div>
+  )
+}
+
+/**
+ * S4: the run's plan, read-only. The panel never mutates the board — completing
+ * a task stays the orchestrator's decision after verification (host doctrine),
+ * so this box has no buttons at all. Collapsed by default: the agent list is
+ * what the card is for, and a 30-row plan would push it off the rail.
+ */
+function TaskBoardSection({ workspace }: { workspace: WorkspaceSummary }): React.JSX.Element {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const rows = taskRows(t, workspace)
+  const toggle = t('panel.tasksToggle', { workspace: workspace.name })
+  return (
+    <div className="panel-tasks">
+      <button
+        type="button"
+        className="panel-tasks-head"
+        aria-label={toggle}
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <ChevronIcon expanded={open} />
+        <span className="panel-tasks-label">{t('panel.tasksLabel')}</span>
+        <span className="panel-tasks-progress">{taskProgressLabel(t, workspace)}</span>
+      </button>
+      {open ? (
+        <ul className="panel-tasks-list">
+          {rows.map((row) => (
+            <li key={row.taskId} className={taskRowClass(row)} title={row.title}>
+              <span className="panel-task-glyph" aria-label={row.statusLabel}>
+                {row.glyph}
+              </span>
+              <span className="panel-task-subject">{row.subject}</span>
+              {row.ownerName ? (
+                <span className="panel-task-owner">{row.ownerName}</span>
+              ) : null}
+              {row.hint ? <span className="panel-task-hint">{row.hint}</span> : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   )
 }
@@ -244,10 +293,12 @@ export function WorkspaceCard({
   onCloseAgentWindow,
   onAnswerQuestion,
   onUserMessage,
-  onPromoteAgent
+  onPromoteAgent,
+  onOpenRunFolder
 }: Props): React.JSX.Element {
   const { t, i18n } = useTranslation()
   const stop = t('panel.stopWorkspace', { workspace: workspace.name })
+  const runFolder = t('panel.openRunFolder')
   const toggle = expanded
     ? t('panel.collapseWorkspace', { workspace: workspace.name })
     : t('panel.expandWorkspace', { workspace: workspace.name })
@@ -276,6 +327,17 @@ export function WorkspaceCard({
             // — this dot is only the "open me" hint.
             <span className="panel-card-attention" title={t('panel.subagentWaiting')} />
           ) : null}
+        </button>
+        {/* Next to stop because it is the other thing you do to a whole run —
+            and unlike stop it stays useful once the run is over. */}
+        <button
+          type="button"
+          className="panel-icon-button panel-run-folder"
+          title={runFolder}
+          aria-label={runFolder}
+          onClick={() => onOpenRunFolder(workspace.workspaceId)}
+        >
+          <FolderIcon size={11} />
         </button>
         <button
           type="button"
@@ -328,6 +390,9 @@ export function WorkspaceCard({
               ))
             )}
           </ul>
+          {workspace.tasks && workspace.tasks.length > 0 ? (
+            <TaskBoardSection workspace={workspace} />
+          ) : null}
           {workspace.active ? (
             <Composer workspaceId={workspace.workspaceId} onSend={onUserMessage} />
           ) : null}

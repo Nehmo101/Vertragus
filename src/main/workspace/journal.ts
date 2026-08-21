@@ -38,6 +38,16 @@ export function runsDir(repoPath: string): string {
   return join(repoPath, VERTRAGUS_DIR, 'runs')
 }
 
+/**
+ * The one directory a single run leaves behind: `events.jsonl`, `meta.json`,
+ * `tasks.json` and `spill/`. Named here because it is the folder the panel's
+ * run-artifact button hands to the OS file manager — the artefacts are one
+ * place on disk, and only one function may decide where that is.
+ */
+export function runDir(repoPath: string, workspaceId: string): string {
+  return join(runsDir(repoPath), workspaceId)
+}
+
 export interface RunJournal {
   /** Append one event; serialized internally, never throws. */
   append(event: AgentEvent): void
@@ -63,7 +73,7 @@ export function createRunJournal(
   const append = deps.appendFile ?? appendFile
   const write = deps.writeFile ?? writeFile
   const warn = deps.warn ?? ((message, error) => console.warn(message, error))
-  const dir = join(runsDir(repoPath), workspaceId)
+  const dir = runDir(repoPath, workspaceId)
   const path = join(dir, 'events.jsonl')
 
   // One chain serializes writes so lines never interleave; `broken` silences

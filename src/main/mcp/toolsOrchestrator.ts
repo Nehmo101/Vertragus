@@ -1469,6 +1469,10 @@ export function registerOrchestratorTools(
       }
       const created = board.create({ subject, description, blockedBy, ownerAgentId })
       if (!created.ok) return taskFailure(created)
+      // The board is on the workspace card now, and a board mutation pushes no
+      // agent event — the assignment feed is what wakes the panel. Same hook as
+      // recordAssignment on purpose: one change channel, not a second one.
+      runtime.onTasksChanged?.()
       return toolJson({ taskId: created.task.taskId, revision: created.task.revision })
     }
   )
@@ -1530,6 +1534,7 @@ export function registerOrchestratorTools(
         ownerAgentId
       })
       if (!updated.ok) return taskFailure(updated)
+      runtime.onTasksChanged?.()
       return toolJson({ task: updated.task, ready: board.isReady(taskId) })
     }
   )

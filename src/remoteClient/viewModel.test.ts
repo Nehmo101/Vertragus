@@ -111,3 +111,30 @@ describe('goal line', () => {
     expect(workspaceGoalLine(workspace({ active: false }), copy)).toBeUndefined()
   })
 })
+
+const copyForBoard = { goal: (goal: string) => `Ziel: ${goal}`, noGoal: 'Kein Ziel' }
+
+describe('a summary field this client does not know yet', () => {
+  it('rides along untouched — the phone gets the panel payload, not a copy of it', () => {
+    // S4 added `tasks` to the desktop summary, and the gateway forwards that
+    // summary verbatim over workspaces:list. This client draws no board (a
+    // deliberate post-1.0 call), so the field must simply pass through: no
+    // crash, no dropped card, and everything it does know keeps working.
+    const withBoard = {
+      ...workspace({ goalText: 'Fix login' }),
+      tasks: [
+        {
+          taskId: 'task-1',
+          subject: 'Build the parser',
+          status: 'pending',
+          blockedBy: [],
+          ready: true
+        }
+      ]
+    }
+    expect(orderWorkspaces([withBoard]).map((entry) => entry.workspaceId)).toEqual(['w1'])
+    expect(workspaceNeedsAttention(withBoard)).toBe(false)
+    expect(agentStatusLine(withBoard.agents[0]!, labels)).toBe('Worker · arbeitet')
+    expect(workspaceGoalLine(withBoard, copyForBoard)).toBe('Ziel: Fix login')
+  })
+})

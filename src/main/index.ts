@@ -1,12 +1,17 @@
 import { homedir, networkInterfaces } from 'node:os'
 import { join } from 'node:path'
-import { app, safeStorage, ipcMain } from 'electron'
+import { app, safeStorage, ipcMain, shell } from 'electron'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { mainMessages, readLocale } from '@shared/mainMessages'
 import { allRoleTemplates, roleColor } from '@shared/prompts/roles'
 import { PtyAgent } from './agents/PtyAgent'
 import { resolveLaunch } from './agents/resolveCommand'
-import { registerAppIpc, type WorkspaceDirectory, type WorkspaceSummary } from './appIpc'
+import {
+  registerAppIpc,
+  PANEL_TASKS_MAX,
+  type WorkspaceDirectory,
+  type WorkspaceSummary
+} from './appIpc'
 import { createAppWorkspaceManager, maybeStartDevWorkspace, type DevRunHandle } from './devRun'
 import { getAgentRegistry, registerTerminalIpc } from './ipc'
 import { startMcpServer, type McpServerHandle } from './mcp/server'
@@ -30,6 +35,7 @@ import { armWindowCapture } from './windows/smokeCapture'
 import { armZoneOverlaySmoke } from './windows/zoneOverlay'
 import { startAppUpdater } from './updater'
 import type { WorkspaceManager } from './workspace/WorkspaceManager'
+import { runDir } from './workspace/journal'
 import { boardForResume, buildResumeBriefing, latestRun, readRunTasks } from './workspace/resume'
 import { createWorktreeCleanup } from './workspace/worktreeCleanup'
 
@@ -103,6 +109,10 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
         const orchestratorQuestion = orchestrator
           ? pendingOf(ws.workspaceId, orchestrator.agentId)
           : undefined
+        // S4: the plan, already tombstone-free and readiness-resolved by the
+        // host. Capped here because this payload is re-broadcast on every
+        // change and also travels to the phone.
+        const tasks = ws.listTasks().slice(0, PANEL_TASKS_MAX)
         return {
           workspaceId: ws.workspaceId,
           name: ws.name,
@@ -120,6 +130,7 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
             const open = mcp.openQuestion(ws.workspaceId, 'user')
             return open ? { userQuestion: open } : {}
           })(),
+          ...(tasks.length > 0 ? { tasks } : {}),
           agents: [
             ...(orchestrator
               ? [
@@ -228,6 +239,16 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
           `Merge conflict — nothing was changed. Conflicting files: ${outcome.conflictFiles.join(', ') || '(unknown)'}`
         )
       }
+    },
+    async openRunFolder(workspaceId) {
+      const workspace = manager.get(workspaceId)
+      if (!workspace) throw new Error(`run folder rejected — unknown workspace ${workspaceId}`)
+      const dir = runDir(workspace.repoPath, workspaceId)
+      // openPath answers with an error STRING (never a rejection), and an empty
+      // one means it opened — a run whose folder does not exist yet must say so
+      // instead of leaving the click looking like it worked.
+      const failure = await shell.openPath(dir)
+      if (failure) throw new Error(`run folder ${dir} could not be opened — ${failure}`)
     },
     async answerQuestion(workspaceId, agentId, questionId, text) {
       // One host path (H1): identical to the orchestrator's

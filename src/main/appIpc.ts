@@ -102,6 +102,13 @@ export const APP_CHANNELS = {
   workspacesAnswerQuestion: 'workspaces:answerQuestion',
   workspacesUserMessage: 'workspaces:userMessage',
   workspacesPromoteAgent: 'workspaces:promoteAgent',
+  /**
+   * S1/S4: reveal one run's artefact folder (`spill/`, `tasks.json`,
+   * `events.jsonl`) in the OS file manager. Panel-only and deliberately absent
+   * from the remote gateway — opening a folder is meaningful on the machine
+   * the app runs on and nowhere else.
+   */
+  workspacesOpenRunFolder: 'workspaces:openRunFolder',
   worktreesList: 'worktrees:list',
   worktreesRemove: 'worktrees:remove',
   retroList: 'retro:list',
@@ -200,6 +207,31 @@ export interface WorkspaceAgentSummary {
   pendingQuestionId?: string
 }
 
+/**
+ * S4: one row of the run's task board, as the card paints it. Mirrors
+ * `Workspace.listTasks()`; see {@link PANEL_TASKS_MAX} for why the card only
+ * ever sees a prefix of the board.
+ */
+export interface WorkspaceTaskSummary {
+  taskId: string
+  subject: string
+  /** Tombstones never travel — the summary carries the living plan only. */
+  status: 'pending' | 'in_progress' | 'completed'
+  /** Agent id of the owner; resolved to its Commedia name from `agents`. */
+  ownerAgentId?: string
+  blockedBy: string[]
+  /** pending AND every blockedBy completed — the board's own readiness rule. */
+  ready: boolean
+}
+
+/**
+ * How many board rows one card carries. The board itself allows 200; this
+ * payload is re-broadcast on every change and travels to the phone as well, so
+ * it stays a bounded prefix. The whole board remains readable in `tasks.json`
+ * and through the orchestrator's `task_list`.
+ */
+export const PANEL_TASKS_MAX = 30
+
 /** One workspace card. */
 export interface WorkspaceSummary {
   workspaceId: string
@@ -229,6 +261,12 @@ export interface WorkspaceSummary {
    */
   userQuestion?: { questionId: string; question: string }
   agents: WorkspaceAgentSummary[]
+  /**
+   * S4: the run's task board, capped at {@link PANEL_TASKS_MAX} and free of
+   * tombstones. Absent while the run has no plan — an empty board draws no
+   * section at all.
+   */
+  tasks?: WorkspaceTaskSummary[]
 }
 
 /** One stale worktree the panel's cleanup view offers for removal. */
@@ -281,6 +319,12 @@ export interface WorkspaceDirectory {
    * dirty main checkout or a merge conflict (the merge is aborted then).
    */
   promoteAgentBranch(workspaceId: string, agentId: string): Promise<void>
+  /**
+   * Reveal this run's artefact folder in the OS file manager — the journal,
+   * the task board and the spill files the tools wrote. Rejects readably when
+   * the workspace is unknown or the OS refused to open the path.
+   */
+  openRunFolder(workspaceId: string): Promise<void>
   /** Bring an agent's CLI window to the front. */
   focusAgent(agentId: string): void
   /**
@@ -330,6 +374,7 @@ export function createStubWorkspaceDirectory(
     answerQuestion: async () => refuse(),
     postUserMessage: refuse,
     promoteAgentBranch: async () => refuse(),
+    openRunFolder: async () => refuse(),
     focusAgent: (agentId) => focusCliWindow(agentId),
     closeAgentWindow: (agentId) => closeCliWindow(agentId),
     // No manager → no workspace→agent map; quiet no-op like focusAgent on a ghost.
@@ -939,6 +984,17 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     if (!body.workspaceId) throw new Error('workspaces:promoteAgent rejected — missing workspace id')
     if (!body.agentId) throw new Error('workspaces:promoteAgent rejected — missing agent id')
     await host.directory.promoteAgentBranch(body.workspaceId, body.agentId)
+  })
+
+  // Panel-only by construction: `requirePanel` is the same guard the workspace
+  // lifecycle uses, and the remote gateway holds an allow-list of verbs rather
+  // than a mirror of these channels — so this one cannot be reached from a
+  // paired browser at all.
+  handle(APP_CHANNELS.workspacesOpenRunFolder, requirePanel, async (_event, payload) => {
+    const workspaceId =
+      typeof payload === 'string' ? payload : (payload as { workspaceId?: string })?.workspaceId
+    if (!workspaceId) throw new Error('workspaces:openRunFolder rejected — missing workspace id')
+    await host.directory.openRunFolder(workspaceId)
   })
 
   // --- worktree cleanup ----------------------------------------------------

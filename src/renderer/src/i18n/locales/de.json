@@ -74,7 +74,16 @@
     "composerSend": "Senden",
     "promoteBranch": "Branch von {{agent}} in den Haupt-Checkout mergen (kein Push)",
     "retroRepoNotes": "Repo-Notizen",
-    "retroDeleteRepoNote": "Notiz „{{note}}“ löschen"
+    "retroDeleteRepoNote": "Notiz „{{note}}“ löschen",
+    "tasksLabel": "Aufgabenboard",
+    "tasksToggle": "Aufgabenboard von „{{workspace}}“ auf- oder zuklappen",
+    "taskProgress": "{{done}}/{{total}} erledigt",
+    "taskPending": "offen",
+    "taskInProgress": "in Arbeit",
+    "taskCompleted": "erledigt",
+    "taskOwner": "bearbeitet von {{agent}}",
+    "taskBlocked": "wartet auf {{tasks}}",
+    "openRunFolder": "Lauf-Ordner öffnen — spill/, tasks.json und events.jsonl im Dateimanager"
   },
   "profileEditor": {
     "title": "Profil bearbeiten",

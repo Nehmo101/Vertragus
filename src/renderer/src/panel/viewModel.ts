@@ -9,7 +9,11 @@
 import { loreBlurb } from '@shared/lore'
 import { ORCHESTRATOR_ROLE_ID } from '@shared/prompts/roles'
 import { workspacePlaceBlurb } from '@shared/workspaceNames'
-import type { WorkspaceAgentSummary, WorkspaceSummary } from '../../../preload'
+import type {
+  WorkspaceAgentSummary,
+  WorkspaceSummary,
+  WorkspaceTaskSummary
+} from '../../../preload'
 import type { Locale, Translate } from '../i18n'
 
 /** Dot appearance: bronze pulse for the orchestrator, verdigris for workers. */
@@ -203,6 +207,109 @@ export function agentCountLabel(
   workspace: Pick<WorkspaceSummary, 'agents'>
 ): string {
   return t('panel.agentCount', { count: workspace.agents.length })
+}
+
+// --- S4: the task board on the card --------------------------------------
+
+/** One board row, ready to paint. Every decision about it was made here. */
+export interface TaskRow {
+  taskId: string
+  subject: string
+  status: WorkspaceTaskSummary['status']
+  /** ○ ◐ ✓ — the glyph vocabulary the retro tally already established. */
+  glyph: string
+  /** Spoken form of the glyph; the glyph itself is decoration for a reader. */
+  statusLabel: string
+  /**
+   * Commedia name of the owner. Absent when the task has none — and also when
+   * its owner is no longer in this summary's agent list: a raw agent uuid on a
+   * card says less than nothing, and the status glyph still shows it is taken.
+   */
+  ownerName?: string
+  /** Pending with unfinished dependencies. The row is dimmed, not hidden. */
+  blocked: boolean
+  /** "waiting for task-3" — only on a blocked row. */
+  hint?: string
+  /** Native tooltip: the full row in one line. */
+  title: string
+}
+
+/** ○ pending · ◐ in progress · ✓ completed. */
+export function taskStatusGlyph(status: WorkspaceTaskSummary['status']): string {
+  if (status === 'completed') return '✓'
+  if (status === 'in_progress') return '◐'
+  return '○'
+}
+
+export function taskStatusLabel(t: Translate, status: WorkspaceTaskSummary['status']): string {
+  if (status === 'completed') return t('panel.taskCompleted')
+  if (status === 'in_progress') return t('panel.taskInProgress')
+  return t('panel.taskPending')
+}
+
+/**
+ * The card's view of the run's plan. `ready` is NOT recomputed here — the host
+ * decides readiness over the whole board, and the card only ever sees a capped
+ * prefix of it, so a second rule here would disagree with the orchestrator's.
+ * What is derived is the *hint*: which dependencies are still open, so a
+ * blocked row can name them instead of only looking grey. A dependency the cap
+ * cut off counts as open — the honest direction, since the host already said
+ * this row is not ready.
+ */
+export function taskRows(
+  t: Translate,
+  workspace: Pick<WorkspaceSummary, 'tasks' | 'agents'>
+): TaskRow[] {
+  const tasks = workspace.tasks ?? []
+  const completed = new Set(
+    tasks.filter((task) => task.status === 'completed').map((task) => task.taskId)
+  )
+  const nameOf = new Map(workspace.agents.map((agent) => [agent.agentId, agent.name]))
+  return tasks.map((task) => {
+    const blocked = task.status === 'pending' && !task.ready
+    const waitingFor = task.blockedBy.filter((taskId) => !completed.has(taskId))
+    const ownerName = task.ownerAgentId ? nameOf.get(task.ownerAgentId) : undefined
+    const statusLabel = taskStatusLabel(t, task.status)
+    const hint =
+      blocked && waitingFor.length > 0
+        ? t('panel.taskBlocked', { tasks: waitingFor.join(', ') })
+        : undefined
+    return {
+      taskId: task.taskId,
+      subject: task.subject,
+      status: task.status,
+      glyph: taskStatusGlyph(task.status),
+      statusLabel,
+      ...(ownerName ? { ownerName } : {}),
+      blocked,
+      ...(hint ? { hint } : {}),
+      title: [
+        `${task.taskId}: ${task.subject}`,
+        statusLabel,
+        ...(ownerName ? [t('panel.taskOwner', { agent: ownerName })] : []),
+        ...(hint ? [hint] : [])
+      ].join(' · ')
+    }
+  })
+}
+
+export function taskRowClass(row: Pick<TaskRow, 'blocked' | 'status'>): string {
+  const parts = ['panel-task-row']
+  if (row.blocked) parts.push('is-blocked')
+  if (row.status === 'completed') parts.push('is-done')
+  return parts.join(' ')
+}
+
+/** Section header: "3/7 done" — the plan's progress without opening the box. */
+export function taskProgressLabel(
+  t: Translate,
+  workspace: Pick<WorkspaceSummary, 'tasks'>
+): string {
+  const tasks = workspace.tasks ?? []
+  return t('panel.taskProgress', {
+    done: tasks.filter((task) => task.status === 'completed').length,
+    total: tasks.length
+  })
 }
 
 /**
