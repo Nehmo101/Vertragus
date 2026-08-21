@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { Field, SwitchField } from '../profileEditor/fields'
 import { normalizeProviderId } from '@shared/schema/provider'
 import type { McpAttach, ModelDiscovery, SystemPromptDelivery } from '@shared/schema/provider'
-import { type EffortStyleChoice, type ProviderDraft } from './model'
+import { versionDrift, type EffortStyleChoice, type ProviderDraft } from './model'
 import { useProviderEditor } from './useProviderEditor'
 import '../profileEditor/profileEditor.css'
 import './providerEditor.css'
@@ -92,6 +92,21 @@ export function ProviderEditorApp({ providerId }: { providerId?: string }): Reac
             {editor.health.error ?? editor.health.detail ?? t('providerEditor.errors.command')}
           </p>
         ) : null}
+
+        {(() => {
+          // A hint, never an error: the launch flags were verified against one
+          // CLI version, the health probe reports another. Nothing is blocked.
+          const drift = versionDrift(draft.presetId, editor.health?.version)
+          return drift ? (
+            <p className="pe-hint pv-drift">
+              {t('providerEditor.verifiedDrift', {
+                verified: drift.verified,
+                installed: drift.installed
+              })}{' '}
+              {t('providerEditor.verifiedOn', { date: drift.verifiedAt })}
+            </p>
+          ) : null
+        })()}
 
         {/* --- identity --- */}
         <section className="pv-section">

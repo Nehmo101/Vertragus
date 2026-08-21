@@ -24,6 +24,15 @@ import {
 } from '@shared/schema/provider'
 
 /**
+ * Which CLI version each preset was last verified against. The data lives in
+ * `@shared/presetVerification` so the renderer's provider editor can show a
+ * drift hint without importing main-process code; it is re-exported here
+ * because this file is where the presets — and their verification notes in the
+ * comments below — are defined.
+ */
+export { PRESET_VERIFICATION, type PresetVerification } from '@shared/presetVerification'
+
+/**
  * Model discovery notes for the file/http sources below:
  * - Claude keeps a partial local cache of the account's extra model options in
  *   `~/.claude.json`. Only the entry values are read; the rolling family

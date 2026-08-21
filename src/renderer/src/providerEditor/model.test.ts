@@ -10,6 +10,7 @@ import {
   toLines,
   toProviderInput,
   validateDraft,
+  versionDrift,
   type ProviderDraft
 } from './model'
 
@@ -305,5 +306,30 @@ describe('validation', () => {
     const result = validateDraft(t, draftFromProvider(shape('shape-kimi')))
     expect(result.ok).toBe(true)
     if (result.ok) expect(() => providerConfigSchema.parse(result.config)).not.toThrow()
+  })
+})
+
+describe('versionDrift', () => {
+  it('says nothing for a custom provider or before the health probe answered', () => {
+    expect(versionDrift(undefined, '9.9.9')).toBeNull()
+    expect(versionDrift('claude', undefined)).toBeNull()
+    expect(versionDrift('claude', '   ')).toBeNull()
+  })
+
+  it('says nothing when the installed CLI matches the verified version', () => {
+    // Probes answer decorated strings — the verified version appearing
+    // anywhere in them means there is nothing to hint at.
+    expect(versionDrift('codex', 'codex-cli 0.144.6')).toBeNull()
+    expect(versionDrift('cursor', '2026.08.11-e8db854')).toBeNull()
+    expect(versionDrift('ollama', 'ollama version is 0.30.11')).toBeNull()
+  })
+
+  it('reports the pair the hint shows when the versions differ', () => {
+    const drift = versionDrift('codex', 'codex-cli 0.150.0')
+    expect(drift).toEqual({
+      verified: '0.144.6',
+      installed: 'codex-cli 0.150.0',
+      verifiedAt: expect.any(String)
+    })
   })
 })

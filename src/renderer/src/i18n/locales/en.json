@@ -236,6 +236,8 @@
     "deleteProvider": "Delete provider",
     "deleteConfirm": "Really delete provider “{{label}}”? Profiles that use it can no longer be started afterwards.",
     "unknownProvider": "This provider does not exist (any more).",
+    "verifiedDrift": "Preset last verified against {{verified}}; installed is {{installed}}.",
+    "verifiedOn": "Verified on {{date}}.",
     "errors": {
       "label": "Please enter a display name.",
       "id": "Please use an id of letters, digits, dot, dash or underscore.",
