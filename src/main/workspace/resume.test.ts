@@ -128,6 +128,7 @@ describe('buildResumeBriefing', () => {
     expect(briefing).toContain('- Minosse (worker) on branch vertragus/inferno/a2 — no done report')
     expect(briefing).toContain('start_agent{baseBranch: "<branch>"}')
     expect(briefing).toContain('every question or ticket from it is void')
+    expect(briefing).toContain('Past runs are searchable with search_runs.')
   })
 
   it('an empty run still produces the caveats, never a lie about agents', () => {
