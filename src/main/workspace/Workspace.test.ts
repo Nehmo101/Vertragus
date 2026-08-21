@@ -8,6 +8,7 @@ import { slugifyRef, worktreePathFor } from '@main/agents/worktree'
 import { EventQueue } from '@main/mcp/eventQueue'
 import { PendingQuestions } from '@main/mcp/pendingQuestions'
 import { memoryTaskBoard } from '@main/mcp/testing'
+import { readSuccessionPackage } from './resume'
 import { buildReminderSuffix } from '@shared/prompts/contract'
 import { buildHandoffPackage } from '@shared/schema/handoff'
 import { ORCHESTRATOR_COLOR, ORCHESTRATOR_ROLE_ID, roleColor } from '@shared/prompts/roles'
@@ -973,6 +974,44 @@ describe('requestSuccession', () => {
     }
   })
 
+  it('retires the package when the cutover FAILS — a surviving predecessor is not a crash', async () => {
+    const repo = mkdtempSync(join(tmpdir(), 'vertragus-succession-failed-'))
+    try {
+      const inner = fakeSpawn()
+      const { workspace } = harness({
+        ptySystemPrompt: true,
+        profile: testProfile({ repoPath: repo }),
+        deps: {
+          spawn: (async (input) => {
+            if (input.kind === 'orchestrator' && inner.calls.length >= 1) {
+              throw new Error('successor boom')
+            }
+            return inner.spawn(input)
+          }) as WorkspaceDeps['spawn']
+        }
+      })
+      const predecessor = await workspace.startOrchestrator()
+
+      const begun = workspace.requestSuccession({ reason: 'context_full' })
+      const dir = join(repo, '.vertragus', 'runs', workspace.workspaceId)
+      expect(existsSync(join(dir, 'succession.json'))).toBe(true)
+      await expect(begun.ready).rejects.toThrow(/successor boom/)
+
+      // The predecessor kept the seat and keeps journaling; a package left
+      // under its recoverable name would present itself to the next Resume as
+      // "the host died mid-handoff" over a roster that only gets staler.
+      expect(workspace.orchestrator?.agentId).toBe(predecessor.agentId)
+      expect(existsSync(join(dir, 'succession.json'))).toBe(false)
+      expect(existsSync(join(dir, 'succession.failed.json'))).toBe(true)
+      // The boundary a later Resume reads: nothing to recover from, so the
+      // journal briefing (which covers everything the predecessor did after
+      // the freeze) is what briefs the next orchestrator.
+      expect(await readSuccessionPackage(repo, workspace.workspaceId)).toBeUndefined()
+    } finally {
+      rmSync(repo, { recursive: true, force: true })
+    }
+  })
+
   it('refuses a second, DIFFERENT task board — tools and package share one plan', async () => {
     const { workspace } = harness()
     const board = memoryTaskBoard()
@@ -1067,6 +1106,65 @@ describe('C6 crash recovery seed', () => {
     expect(seed).toContain('They are VOID')
     expect(seed).toContain('which interface?')
     expect(seed).toContain('vertragus/inferno/caronte')
+  })
+
+  describe('the packaged plan is only claimed to exist when the board came back', () => {
+    /** The package always carries the plan; whether the BOARD has it varies. */
+    const withPlan = buildHandoffPackage({
+      workspaceId: 'ws-old',
+      workspaceName: 'Inferno',
+      profileId: 'profile-1',
+      createdAt: 1,
+      reason: 'context_full',
+      predecessor: { agentId: 'o1', name: 'Virgilio', providerId: 'claude' },
+      successorAgentId: 'o2',
+      eventCursor: 77,
+      agents: [],
+      openQuestions: [],
+      recentEvents: [],
+      tasks: [
+        { taskId: 'task-1', revision: 1, subject: 'Fix the parser', status: 'pending', blockedBy: [] }
+      ]
+    })
+
+    it('says task_list has it when tasks.json restored the board', async () => {
+      const { workspace, prompts } = harness({
+        ptySystemPrompt: true,
+        deps: { resumeSuccession: withPlan }
+      })
+      const board = memoryTaskBoard()
+      board.create({ subject: 'Fix the parser' })
+      workspace.attachTaskBoard(board)
+
+      await workspace.startOrchestrator()
+
+      expect(prompts.at(-1)!).toContain('The task board is HOST state and survived on disk')
+    })
+
+    it('demotes it to history when the board did not — task_list would answer nothing', async () => {
+      // tasks.json missing or unreadable: the package still carries the plan,
+      // but forbidding a rebuild while the board is empty is the inversion.
+      const { workspace, prompts } = harness({
+        ptySystemPrompt: true,
+        deps: { resumeSuccession: withPlan }
+      })
+      workspace.attachTaskBoard(memoryTaskBoard())
+
+      await workspace.startOrchestrator()
+
+      const seed = prompts.at(-1)!
+      expect(seed).toContain('This plan is HISTORY')
+      expect(seed).not.toContain('do not rebuild it from prose')
+    })
+
+    it('treats a workspace with no board at all as "not restored"', async () => {
+      const { workspace, prompts } = harness({
+        ptySystemPrompt: true,
+        deps: { resumeSuccession: withPlan }
+      })
+      await workspace.startOrchestrator()
+      expect(prompts.at(-1)!).toContain('This plan is HISTORY')
+    })
   })
 })
 
@@ -2319,6 +2417,25 @@ describe('listTasks — the board as the panel reads it', () => {
 
     expect(board.update('task-1', 1, 'complete').ok).toBe(true)
     expect(workspace.listTasks()[1]).toMatchObject({ taskId: 'task-2', ready: true })
+  })
+
+  it('emits only LIVE dependencies — a tombstoned edge blocks nothing and names nothing', () => {
+    const { workspace } = harness()
+    const board = memoryTaskBoard()
+    workspace.attachTaskBoard(board)
+    board.create({ subject: 'Parse' })
+    board.create({ subject: 'Wire it up' })
+    board.create({ subject: 'Test', blockedBy: ['task-1', 'task-2'] })
+    board.update('task-1', 1, 'delete')
+
+    // Delete does not cascade, so task-3 still holds the reference — but the
+    // readiness rule ignores it, and a reader that saw it would report
+    // "waiting for task-1" about a task that is not in the plan at all.
+    expect(board.get('task-3')!.blockedBy).toEqual(['task-1', 'task-2'])
+    expect(workspace.listTasks().find((row) => row.taskId === 'task-3')).toMatchObject({
+      blockedBy: ['task-2'],
+      ready: false
+    })
   })
 
   it('is empty — not broken — for a workspace that never got a board', () => {

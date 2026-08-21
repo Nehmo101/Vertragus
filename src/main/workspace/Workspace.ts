@@ -1224,15 +1224,24 @@ export class Workspace implements AgentHost {
   listTasks(): WorkspaceTaskSummary[] {
     const board = this.taskBoard
     if (!board) return []
+    const all = board.list()
+    // A dependency on a tombstone is not a dependency: `taskReady` ignores it
+    // (deleting does not cascade, so the reference outlives the task), and a
+    // reader that saw it would name a task nobody can find in the plan. Emit
+    // the edges the readiness rule actually honours, so what the card can
+    // still be unsure about is exactly what a cap cut off.
+    const live = new Set(
+      all.filter((task) => task.status !== 'deleted').map((task) => task.taskId)
+    )
     const rows: WorkspaceTaskSummary[] = []
-    for (const task of board.list()) {
+    for (const task of all) {
       if (task.status === 'deleted') continue
       rows.push({
         taskId: task.taskId,
         subject: task.subject,
         status: task.status,
         ...(task.ownerAgentId ? { ownerAgentId: task.ownerAgentId } : {}),
-        blockedBy: task.blockedBy,
+        blockedBy: task.blockedBy.filter((dependencyId) => live.has(dependencyId)),
         ready: board.isReady(task.taskId)
       })
     }
@@ -1367,9 +1376,17 @@ export class Workspace implements AgentHost {
     // so it replaces it — in recovery mode, which is what keeps the seed
     // honest about the parts of it that died with the processes.
     const recovered = this.deps.resumeSuccession
-    return recovered
-      ? buildSuccessorOrchestratorSystemPrompt(input, recovered, { recovered: true })
-      : buildOrchestratorSystemPrompt(input)
+    if (!recovered) return buildOrchestratorSystemPrompt(input)
+    // S4 × C6: the package's tasks are a snapshot frozen at handoff, the board
+    // is `tasks.json` read back separately — and it can be missing or stale
+    // (asynchronous writer, silent after its first disk failure). Ask the board
+    // that is actually attached, here, at seed time: this is the last moment
+    // where "the plan survived" can still be checked instead of asserted.
+    const board = this.taskBoard?.list() ?? []
+    return buildSuccessorOrchestratorSystemPrompt(input, recovered, {
+      recovered: true,
+      boardRestored: board.some((task) => task.status !== 'deleted')
+    })
   }
 
   private startedOf(record: AgentRecord): StartedAgent {
@@ -1479,7 +1496,7 @@ export class Workspace implements AgentHost {
       if (predecessor && predecessor !== record && pending.predecessorAlive) {
         this.terminate(predecessor)
       }
-      this.markSuccessionConsumed(pending.packagePath)
+      this.retireSuccessionPackage(pending.packagePath, 'consumed')
       this.succession = undefined
       this.events.push({
         type: 'orchestrator_started',
@@ -1492,6 +1509,13 @@ export class Workspace implements AgentHost {
       return this.startedOf(record)
     } catch (error) {
       this.restoreOrchToken(pending.previousToken, pending.previousUrl)
+      // The cutover did not happen, so nothing crashed and nothing is waiting
+      // to be recovered — the predecessor is back in the seat (or the run is
+      // being torn down). A surviving package would out-live every event this
+      // run still journals and then present itself to the next Resume as the
+      // fresher truth. Retire it on BOTH exits: `events.isClosed` (stopped
+      // mid-handoff) leaves the same file behind as the ordinary failure.
+      this.retireSuccessionPackage(pending.packagePath, 'failed')
       if (this.events.isClosed) {
         this.succession = undefined
         throw error
@@ -1564,16 +1588,26 @@ export class Workspace implements AgentHost {
   }
 
   /**
-   * The cutover worked, so nobody may recover from this package again: the
-   * rename makes "recover once" a filesystem fact rather than a flag some
-   * later reader has to be trusted to check. Atomic and best-effort — a
-   * failed rename leaves a package a resume would replay, which is survivable;
-   * a half-written marker file would not be.
+   * Retire a frozen package so no resume can ever replay it: the rename makes
+   * "recover at most once" a filesystem fact rather than a flag some later
+   * reader has to be trusted to check. Atomic and best-effort — a failed
+   * rename leaves a package a resume would replay, which the journal check in
+   * `resume.successionSuperseded` catches; a half-written marker file would
+   * not be catchable at all.
+   *
+   * Both outcomes retire it, and a FAILED cutover retires it for the stronger
+   * reason: the predecessor survived the attempt and keeps driving the run, so
+   * there is no crash to recover from — every hour it keeps working makes the
+   * package a worse description of the run than the journal is. Kept under
+   * `.failed.json` because a cutover that broke is worth reading afterwards.
    */
-  private markSuccessionConsumed(packagePath: string | undefined): void {
+  private retireSuccessionPackage(
+    packagePath: string | undefined,
+    outcome: 'consumed' | 'failed'
+  ): void {
     if (!packagePath) return
     try {
-      renameSync(packagePath, packagePath.replace(/\.json$/, '.consumed.json'))
+      renameSync(packagePath, packagePath.replace(/\.json$/, `.${outcome}.json`))
     } catch {
       /* see above */
     }

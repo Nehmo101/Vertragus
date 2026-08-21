@@ -42,8 +42,11 @@ import {
   latestRun,
   markSuccessionConsumed,
   readRunTasks,
-  readSuccessionPackage
+  readSuccessionPackage,
+  successionSuperseded
 } from './workspace/resume'
+import { revealRunFolder } from './workspace/revealRunFolder'
+import { taskWindow } from './workspace/taskWindow'
 import { createWorktreeCleanup } from './workspace/worktreeCleanup'
 
 /**
@@ -118,8 +121,10 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
           : undefined
         // S4: the plan, already tombstone-free and readiness-resolved by the
         // host. Capped here because this payload is re-broadcast on every
-        // change and also travels to the phone.
-        const tasks = ws.listTasks().slice(0, PANEL_TASKS_MAX)
+        // change and also travels to the phone — but the counts come from the
+        // whole board, and the window keeps unfinished work over finished
+        // (see workspace/taskWindow).
+        const plan = taskWindow(ws.listTasks(), PANEL_TASKS_MAX)
         return {
           workspaceId: ws.workspaceId,
           name: ws.name,
@@ -140,7 +145,9 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
             const open = mcp.openQuestion(ws.workspaceId, 'user')
             return open ? { userQuestion: open } : {}
           })(),
-          ...(tasks.length > 0 ? { tasks } : {}),
+          ...(plan.total > 0
+            ? { tasks: plan.rows, taskTotal: plan.total, taskDone: plan.done }
+            : {}),
           agents: [
             ...(orchestrator
               ? [
@@ -228,7 +235,17 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
       // C6: that run may have died mid-handoff. Its frozen package briefs the
       // new orchestrator instead of the journal summary — and is only retired
       // once the start actually succeeded, so a failed boot can try again.
-      const succession = await readSuccessionPackage(profile.repoPath, run.workspaceId)
+      //
+      // Unless the journal contradicts it. Both renames that retire a package
+      // are best-effort, so a surviving `succession.json` is a hint, not a
+      // fact; the journal is the fact, and it is already loaded. A package the
+      // run outlived would seed a fresh orchestrator with a stale roster while
+      // asserting the run died at the freeze — and would drop the briefing
+      // that covers everything since.
+      const frozen = await readSuccessionPackage(profile.repoPath, run.workspaceId)
+      const stale = frozen !== undefined && successionSuperseded(frozen, run.events)
+      if (stale) await markSuccessionConsumed(profile.repoPath, run.workspaceId, {}, 'failed')
+      const succession = stale ? undefined : frozen
       const running = await manager.startWorkspace(profile, {
         resume: {
           briefing: buildResumeBriefing(run, tasks),
@@ -280,12 +297,9 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
     async openRunFolder(workspaceId) {
       const workspace = manager.get(workspaceId)
       if (!workspace) throw new Error(`run folder rejected — unknown workspace ${workspaceId}`)
-      const dir = runDir(workspace.repoPath, workspaceId)
-      // openPath answers with an error STRING (never a rejection), and an empty
-      // one means it opened — a run whose folder does not exist yet must say so
-      // instead of leaving the click looking like it worked.
-      const failure = await shell.openPath(dir)
-      if (failure) throw new Error(`run folder ${dir} could not be opened — ${failure}`)
+      // The openPath contract (resolves with an error STRING, never rejects)
+      // is a rule with two branches, so it lives in a module a test can hold.
+      await revealRunFolder((path) => shell.openPath(path), runDir(workspace.repoPath, workspaceId))
     },
     async answerQuestion(workspaceId, agentId, questionId, text) {
       // One host path (H1): identical to the orchestrator's

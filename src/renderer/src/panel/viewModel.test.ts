@@ -26,6 +26,7 @@ import {
   orderWorkspaces,
   resolveSelectedProfileId,
   shouldFocusWorkspaceOnToggle,
+  taskOverflowLabel,
   taskProgressLabel,
   taskRowClass,
   taskRows,
@@ -486,15 +487,70 @@ describe('the task board on the card', () => {
     expect(taskRows(en, workspace({ tasks: [running] }))[0]!.statusLabel).toBe('in progress')
   })
 
+  it('names no dependency the board has tombstoned', () => {
+    // Deleting task-1 does not cascade, so task-3 keeps the reference and the
+    // host's readiness rule ignores it. The host drops the dead edge before
+    // the summary travels, so the row cannot name a task nobody can find.
+    const rows = taskRows(
+      t,
+      workspace({
+        tasks: [
+          task({ taskId: 'task-2', subject: 'Wire it up' }),
+          task({ taskId: 'task-3', blockedBy: ['task-2'], ready: false })
+        ]
+      })
+    )
+    expect(rows[1]!.hint).toBe('wartet auf task-2')
+    expect(rows[1]!.hint).not.toContain('task-1')
+  })
+
   it('counts the plan for the collapsed header, and survives a card without one', () => {
     expect(
       taskProgressLabel(
         t,
-        workspace({ tasks: [task({ status: 'completed' }), task({ taskId: 'task-2' })] })
+        workspace({
+          tasks: [task({ status: 'completed' }), task({ taskId: 'task-2' })],
+          taskTotal: 2,
+          taskDone: 1
+        })
       )
     ).toBe('1/2 erledigt')
     expect(taskProgressLabel(en, workspace())).toBe('0/0 done')
     expect(taskRows(t, workspace())).toEqual([])
+  })
+
+  it('reports the HOST counts, not the counts of the rows that fit', () => {
+    // The regression: 45 tasks, the first 30 completed, the cap a blind
+    // prefix — the card read "30/30 erledigt" over fifteen open rows.
+    const capped = workspace({
+      tasks: Array.from({ length: 30 }, (_, i) =>
+        task({ taskId: `task-${i + 1}`, status: 'completed' })
+      ),
+      taskTotal: 45,
+      taskDone: 30
+    })
+    expect(taskProgressLabel(t, capped)).toBe('30/45 erledigt')
+    expect(taskOverflowLabel(t, capped)).toBe(
+      '+15 weitere Aufgaben — der ganze Plan steht in tasks.json'
+    )
+    expect(taskOverflowLabel(en, capped)).toBe('+15 more tasks — the whole plan is in tasks.json')
+    // A single hidden row is still a hidden row, and reads like one.
+    expect(taskOverflowLabel(en, { ...capped, taskTotal: 31 })).toBe(
+      '+1 more task — the whole plan is in tasks.json'
+    )
+  })
+
+  it('admits no truncation when the whole plan travelled', () => {
+    expect(
+      taskOverflowLabel(t, workspace({ tasks: [task()], taskTotal: 1, taskDone: 0 }))
+    ).toBeUndefined()
+    expect(taskOverflowLabel(t, workspace())).toBeUndefined()
+  })
+
+  it('falls back to the rows for a summary that predates the host counts', () => {
+    const legacy = workspace({ tasks: [task({ status: 'completed' }), task({ taskId: 'task-2' })] })
+    expect(taskProgressLabel(t, legacy)).toBe('1/2 erledigt')
+    expect(taskOverflowLabel(t, legacy)).toBeUndefined()
   })
 })
 

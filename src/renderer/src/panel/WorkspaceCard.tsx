@@ -11,6 +11,7 @@ import {
   agentRowClass,
   agentStatusLine,
   agentTooltip,
+  taskOverflowLabel,
   taskProgressLabel,
   taskRowClass,
   taskRows,
@@ -213,6 +214,7 @@ function TaskBoardSection({ workspace }: { workspace: WorkspaceSummary }): React
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const rows = taskRows(t, workspace)
+  const overflow = taskOverflowLabel(t, workspace)
   const toggle = t('panel.tasksToggle', { workspace: workspace.name })
   return (
     <div className="panel-tasks">
@@ -241,6 +243,13 @@ function TaskBoardSection({ workspace }: { workspace: WorkspaceSummary }): React
               {row.hint ? <span className="panel-task-hint">{row.hint}</span> : null}
             </li>
           ))}
+          {/* The cap is a display decision, so it is shown, not hidden: a list
+              that simply stops reads as the end of the plan. */}
+          {overflow ? (
+            <li className="panel-task-row is-more" title={overflow}>
+              <span className="panel-task-subject">{overflow}</span>
+            </li>
+          ) : null}
         </ul>
       ) : null}
     </div>

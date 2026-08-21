@@ -182,23 +182,53 @@ export async function readSuccessionPackage(
 }
 
 /**
- * Retire a package a recovery actually used, with the same rename the live
- * cutover performs — one recovery per package, enforced by the filesystem.
- * Best-effort: a failed rename costs a second (harmless, idempotent) recovery
- * offer, never the run that just started.
+ * Retire a package, with the same rename the live cutover performs — at most
+ * one recovery per package, enforced by the filesystem. `consumed` = a
+ * recovery used it; `failed` = nothing ever will (see
+ * {@link successionSuperseded}). Best-effort: a failed rename costs a second
+ * (harmless, idempotent) recovery offer, never the run that just started.
  */
 export async function markSuccessionConsumed(
   repoPath: string,
   workspaceId: string,
-  deps: ResumeDeps = {}
+  deps: ResumeDeps = {},
+  outcome: 'consumed' | 'failed' = 'consumed'
 ): Promise<void> {
   const move = deps.rename ?? rename
   const path = successionPath(repoPath, workspaceId)
   try {
-    await move(path, path.replace(/\.json$/, '.consumed.json'))
+    await move(path, path.replace(/\.json$/, `.${outcome}.json`))
   } catch {
     /* see above */
   }
+}
+
+/**
+ * Does this run's journal contradict the package it left on disk?
+ *
+ * The rename that retires a package is best-effort by design, so the file
+ * alone is not proof that a host died mid-handoff. Two journal facts say it
+ * did not, and both mean the predecessor kept driving the run AFTER the freeze:
+ *
+ * - an `orchestrator_handoff_failed` naming this successor — the cutover was
+ *   attempted and refused, and the seat went back to the predecessor;
+ * - an `orchestrator_started` past `pkg.eventCursor` — a seat change the
+ *   package cannot be describing, because the package was frozen before it.
+ *
+ * Either way the run outlived the package: recovering from it would seed a new
+ * orchestrator with an hour-old roster while telling it the run died at the
+ * freeze, and would drop the journal briefing that actually covers that hour.
+ */
+export function successionSuperseded(
+  pkg: OrchestratorHandoffPackage,
+  events: readonly AgentEvent[]
+): boolean {
+  return events.some((event) => {
+    if (isAgentEvent(event, 'orchestrator_handoff_failed')) {
+      return event.successorAgentId === pkg.successorAgentId
+    }
+    return isAgentEvent(event, 'orchestrator_started') && event.seq > pkg.eventCursor
+  })
 }
 
 /**
