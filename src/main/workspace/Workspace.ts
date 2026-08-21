@@ -112,7 +112,11 @@ export interface WorkspaceWindows {
       title: string
       roleColor: string
       /** Role + zone layout; the window layer turns this into bounds. */
-      placement?: { roleId: string; zones?: ZoneLayout }
+      placement?: {
+        roleId: string
+        zones?: ZoneLayout
+        onZonesChange?: (zones: ZoneLayout) => void
+      }
     }
   ): void
   close(agentId: string): void
@@ -146,6 +150,11 @@ export interface WorkspaceDeps {
   worktreeDeps?: WorktreeDeps
   /** Retro feed: learnings in, accumulated knowledge out. Absent = no retro. */
   retro?: WorkspaceRetroFeed
+  /**
+   * Persist a profile after a live-reflow gesture rewrites its zones.
+   * Absent in tests — the in-memory `profile` still updates.
+   */
+  saveProfile?(profile: Profile): void
 }
 
 /** The slice of the retro sink a single workspace consumes (Electron-free). */
@@ -206,11 +215,11 @@ interface AgentRecord {
 export class Workspace implements AgentHost {
   readonly workspaceId: string
   readonly name: string
-  readonly profile: Profile
   readonly events: EventQueue
   readonly orchToken: string
   readonly subToken: string
 
+  private currentProfile: Profile
   private readonly deps: WorkspaceDeps
   private readonly names: NameAllocator
   private readonly agents = new Map<string, AgentRecord>()
@@ -225,7 +234,7 @@ export class Workspace implements AgentHost {
   pendingRetroSummary: string | undefined
 
   constructor(init: WorkspaceInit, deps: WorkspaceDeps) {
-    this.profile = init.profile
+    this.currentProfile = init.profile
     this.name = init.name
     this.deps = deps
     this.now = deps.now ?? Date.now
@@ -237,12 +246,16 @@ export class Workspace implements AgentHost {
     this.names = new NameAllocator(deps.random)
   }
 
+  get profile(): Profile {
+    return this.currentProfile
+  }
+
   get profileId(): string {
-    return this.profile.id
+    return this.currentProfile.id
   }
 
   get repoPath(): string {
-    return this.profile.repoPath
+    return this.currentProfile.repoPath
   }
 
   /** The orchestrator, once started. Never part of {@link listAgents}. */
@@ -864,7 +877,11 @@ export class Workspace implements AgentHost {
       roleColor: color,
       placement: {
         roleId: record.orchestrator ? ORCHESTRATOR_ROLE_ID : record.roleId,
-        ...(this.profile.zones ? { zones: this.profile.zones } : {})
+        ...(this.currentProfile.zones ? { zones: this.currentProfile.zones } : {}),
+        onZonesChange: (zones) => {
+          this.currentProfile = { ...this.currentProfile, zones }
+          this.deps.saveProfile?.(this.currentProfile)
+        }
       }
     })
   }

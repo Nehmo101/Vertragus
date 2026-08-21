@@ -14,19 +14,26 @@
  *    terminals onto the primary monitor while a second one stays empty. The
  *    orchestrator is sorted to the front and handed to `computeTiles` as its
  *    `primaryIndex`, so it gets the largest cell on the first display.
- * 3. **A window the user moved is never touched again.** Manual placement is a
- *    decision, and silently undoing it on the next `start_agent` is the single
- *    most infuriating thing a tiling layer can do. Moved windows drop out of
- *    the layout entirely (they also do not consume a cell — they are simply not
- *    part of the tiling any more).
+ * 3. **A window the user moved is never touched again — unless live reflow is
+ *    on.** With `ui.reflowNeighbors` off, a drag pins the window (`movedByUser`)
+ *    and neighbors stay put until the next `start_agent`. With it on, the same
+ *    gesture reflows neighbors on that display and rewrites their zones instead
+ *    of pinning. Cross-display drags still pin the window that left.
  *
  * Electron-free on purpose: displays, windows and bounds all come in as plain
  * data, so every rule above is a pure unit test with fake monitors. The only
  * stateful part is the moved-by-user registry, and it is fed through a minimal
  * window interface the tests can fake as well.
  */
+import { reflowNeighbors } from '@shared/layout/reflow'
 import { ORCHESTRATOR_ROLE_ID } from '@shared/prompts/roles'
-import { resolveZoneRect, zonesForRole, type ZoneLayout } from '@shared/schema/zones'
+import {
+  absToRelRect,
+  resolveZoneRect,
+  zonesForRole,
+  type Zone,
+  type ZoneLayout
+} from '@shared/schema/zones'
 import { availableArea, computeTiles, type Rect } from './tiling'
 
 export type { Rect }
@@ -90,6 +97,26 @@ export const COMFORT_HEIGHT = 480
 export const NEW_AGENT_KEY = '__new__'
 
 const FALLBACK_RECT: Rect = { x: 0, y: 0, width: COMFORT_WIDTH, height: COMFORT_HEIGHT }
+
+export function rectsEqual(a: Rect, b: Rect): boolean {
+  return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
+}
+
+/**
+ * The display a window sits on, by its center point. Shared by auto-tiling,
+ * grow/shrink and live reflow so a window never "belongs" to two monitors.
+ */
+export function displayFor(bounds: Rect, displays: readonly DisplayInfo[]): DisplayInfo | undefined {
+  const centerX = bounds.x + bounds.width / 2
+  const centerY = bounds.y + bounds.height / 2
+  return displays.find(
+    ({ workArea }) =>
+      centerX >= workArea.x &&
+      centerX < workArea.x + workArea.width &&
+      centerY >= workArea.y &&
+      centerY < workArea.y + workArea.height
+  )
+}
 
 function areaOf(rect: Rect): number {
   return Math.max(0, rect.width) * Math.max(0, rect.height)
@@ -252,6 +279,194 @@ export function placeAgentWindow(input: PlaceAgentWindowInput): Rect {
   return plan.find((entry) => entry.agentId === agentId)?.bounds ?? FALLBACK_RECT
 }
 
+// --- live neighbor reflow ------------------------------------------------
+
+/** Settle delay after the last user move/resize before neighbors are laid out. */
+export const REFLOW_DEBOUNCE_MS = 80
+
+/** One live CLI window as the reflow layer sees it. */
+export interface LiveWindowInfo {
+  agentId: string
+  roleId: string
+  bounds: Rect
+  maximized?: boolean
+}
+
+export interface PlanLiveReflowInput {
+  windows: readonly LiveWindowInfo[]
+  movedId: string
+  nextRect: Rect
+  /** Display the gesture window sat on before this gesture. */
+  previousDisplayId: number
+  displays: readonly DisplayInfo[]
+  rail?: RailInfo
+  minWidth?: number
+  minHeight?: number
+}
+
+export interface LiveReflowPlan {
+  placements: PlacedWindow[]
+  /** Gesture window, when it left its display — neighbors on the origin fill. */
+  markMoved: string[]
+  zones: ZoneLayout
+}
+
+function workAreaMinusRail(display: DisplayInfo, rail: RailInfo | undefined): Rect {
+  const own = rail && rail.displayId === display.id ? rail : undefined
+  return availableArea(display.workArea, own?.edge, own?.width ?? 0)
+}
+
+function zoneLayoutFromWindows(
+  windows: readonly LiveWindowInfo[],
+  displays: readonly DisplayInfo[]
+): ZoneLayout {
+  const zones: Zone[] = []
+  for (const window of windows) {
+    if (!window.roleId) continue
+    const display = displayFor(window.bounds, displays)
+    if (!display) continue
+    zones.push({
+      roleId: window.roleId,
+      displayId: display.id,
+      rect: absToRelRect(window.bounds, display.workArea)
+    })
+  }
+  return { zones }
+}
+
+function withPlacements(
+  windows: readonly LiveWindowInfo[],
+  placements: readonly PlacedWindow[],
+  extras: ReadonlyMap<string, Rect>
+): LiveWindowInfo[] {
+  const byId = new Map(placements.map((entry) => [entry.agentId, entry.bounds]))
+  for (const [agentId, bounds] of extras) byId.set(agentId, bounds)
+  return windows.map((window) => {
+    const bounds = byId.get(window.agentId)
+    return bounds ? { ...window, bounds } : window
+  })
+}
+
+function participantsOn(
+  windows: readonly LiveWindowInfo[],
+  displayId: number,
+  displays: readonly DisplayInfo[],
+  movedId: string,
+  movedRect: Rect
+): LiveWindowInfo[] {
+  return windows.filter((window) => {
+    if (window.maximized) return false
+    const bounds = window.agentId === movedId ? movedRect : window.bounds
+    return displayFor(bounds, displays)?.id === displayId
+  })
+}
+
+function expandRemainder(
+  remainder: readonly LiveWindowInfo[],
+  bounds: Rect,
+  minWidth: number,
+  minHeight: number
+): PlacedWindow[] {
+  if (remainder.length === 0) return []
+  if (remainder.length === 1) {
+    const only = remainder[0]!
+    return reflowNeighbors({
+      rects: [{ id: only.agentId, rect: only.bounds }],
+      movedId: only.agentId,
+      nextRect: bounds,
+      bounds,
+      minWidth,
+      minHeight
+    }).map((item) => ({ agentId: item.id, bounds: item.rect }))
+  }
+
+  let items = remainder.map((window) => ({ id: window.agentId, rect: window.bounds }))
+  for (const window of remainder) {
+    const current = items.find((item) => item.id === window.agentId)
+    if (!current) continue
+    items = reflowNeighbors({
+      rects: items,
+      movedId: window.agentId,
+      nextRect: current.rect,
+      bounds,
+      minWidth,
+      minHeight
+    })
+  }
+  return items.map((item) => ({ agentId: item.id, bounds: item.rect }))
+}
+
+/**
+ * Layout after a user drag/resize: neighbors on the same display shrink and
+ * fill the gap. Maximized windows are skipped. A window whose center has moved
+ * to another display is dropped from the set (and marked moved) so the rest
+ * can reclaim the origin work area.
+ */
+export function planLiveReflow(input: PlanLiveReflowInput): LiveReflowPlan | null {
+  const moved = input.windows.find((window) => window.agentId === input.movedId)
+  if (!moved || moved.maximized) return null
+
+  const minWidth = input.minWidth ?? AUTO_MIN_WIDTH
+  const minHeight = input.minHeight ?? AUTO_MIN_HEIGHT
+  const previousDisplay = input.displays.find((display) => display.id === input.previousDisplayId)
+  if (!previousDisplay) return null
+
+  const nextRect = input.nextRect
+  const currentDisplay = displayFor(nextRect, input.displays)
+  const crossed = currentDisplay === undefined || currentDisplay.id !== previousDisplay.id
+
+  if (crossed) {
+    const remainder = participantsOn(
+      input.windows,
+      previousDisplay.id,
+      input.displays,
+      input.movedId,
+      moved.bounds
+    ).filter((window) => window.agentId !== input.movedId)
+    const placements = expandRemainder(
+      remainder,
+      workAreaMinusRail(previousDisplay, input.rail),
+      minWidth,
+      minHeight
+    )
+    return {
+      placements,
+      markMoved: [input.movedId],
+      zones: zoneLayoutFromWindows(
+        withPlacements(input.windows, placements, new Map([[input.movedId, nextRect]])),
+        input.displays
+      )
+    }
+  }
+
+  const participants = participantsOn(
+    input.windows,
+    currentDisplay.id,
+    input.displays,
+    input.movedId,
+    nextRect
+  )
+  if (participants.length === 0) return null
+
+  const laidOut = reflowNeighbors({
+    rects: participants.map((window) => ({
+      id: window.agentId,
+      rect: window.agentId === input.movedId ? moved.bounds : window.bounds
+    })),
+    movedId: input.movedId,
+    nextRect,
+    bounds: workAreaMinusRail(currentDisplay, input.rail),
+    minWidth,
+    minHeight
+  })
+  const placements = laidOut.map((item) => ({ agentId: item.id, bounds: item.rect }))
+  return {
+    placements,
+    markMoved: [],
+    zones: zoneLayoutFromWindows(withPlacements(input.windows, placements, new Map()), input.displays)
+  }
+}
+
 // --- moved-by-user registry ----------------------------------------------
 
 /** The slice of a BrowserWindow this module needs. Faked wholesale in tests. */
@@ -273,6 +488,55 @@ const movedByUser = new Set<string>()
 const programmaticUntil = new Map<string, number>()
 /** Read at event time, never captured, so a test can travel in time mid-run. */
 let clock: () => number = () => Date.now()
+/** True while tests drive `clock` — debounce is flushed, not a real timer. */
+let testClock = false
+
+let reflowNeighborsGetter: () => boolean = () => false
+let liveReflowHandler: ((agentId: string) => void) | undefined
+let pendingReflowId: string | undefined
+let pendingReflowAt = 0
+let reflowTimer: ReturnType<typeof setTimeout> | undefined
+
+/** Test / production seam. Placement never reads the settings store itself. */
+export function setReflowNeighborsGetter(getter: () => boolean): void {
+  reflowNeighborsGetter = getter
+}
+
+export function reflowNeighborsEnabled(): boolean {
+  return reflowNeighborsGetter()
+}
+
+/** cliWindow registers the Electron-side apply/persist; tests inject a spy. */
+export function setLiveReflowHandler(handler: ((agentId: string) => void) | undefined): void {
+  liveReflowHandler = handler
+}
+
+function clearReflowTimer(): void {
+  if (reflowTimer !== undefined) clearTimeout(reflowTimer)
+  reflowTimer = undefined
+}
+
+function scheduleLiveReflow(agentId: string): void {
+  pendingReflowId = agentId
+  pendingReflowAt = clock() + REFLOW_DEBOUNCE_MS
+  clearReflowTimer()
+  if (testClock) return
+  reflowTimer = setTimeout(() => {
+    reflowTimer = undefined
+    flushLiveReflow()
+  }, REFLOW_DEBOUNCE_MS)
+}
+
+/** Run a due live reflow. Tests advance the placement clock, then call this. */
+export function flushLiveReflow(nowMs?: number): void {
+  if (pendingReflowId === undefined) return
+  if ((nowMs ?? clock()) < pendingReflowAt) return
+  const agentId = pendingReflowId
+  pendingReflowId = undefined
+  pendingReflowAt = 0
+  clearReflowTimer()
+  liveReflowHandler?.(agentId)
+}
 
 export function isMovedByUser(agentId: string): boolean {
   return movedByUser.has(agentId)
@@ -286,6 +550,11 @@ export function markMovedByUser(agentId: string): void {
 export function forgetWindowPlacement(agentId: string): void {
   movedByUser.delete(agentId)
   programmaticUntil.delete(agentId)
+  if (pendingReflowId === agentId) {
+    pendingReflowId = undefined
+    pendingReflowAt = 0
+    clearReflowTimer()
+  }
 }
 
 /** Ignore move/resize events for this window for the next grace period. */
@@ -303,6 +572,10 @@ export function trackWindowMoves(agentId: string, win: MovableWindow, now?: () =
   suppressMoveTracking(agentId, now)
   const onUserGesture = (): void => {
     if ((now ?? clock)() < (programmaticUntil.get(agentId) ?? 0)) return
+    if (reflowNeighborsGetter()) {
+      scheduleLiveReflow(agentId)
+      return
+    }
     movedByUser.add(agentId)
   }
   win.on('move', onUserGesture)
@@ -325,5 +598,11 @@ export function applyWindowBounds(
 export function resetPlacementStateForTesting(clockForTesting?: () => number): void {
   movedByUser.clear()
   programmaticUntil.clear()
+  pendingReflowId = undefined
+  pendingReflowAt = 0
+  clearReflowTimer()
+  reflowNeighborsGetter = (): boolean => false
+  liveReflowHandler = undefined
   clock = clockForTesting ?? ((): number => Date.now())
+  testClock = clockForTesting !== undefined
 }

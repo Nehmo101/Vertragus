@@ -91,6 +91,7 @@ type PlacementModule = typeof import('./placement')
 let cli: CliModule
 let placement: PlacementModule
 let now = 100_000
+const REVIEWER = { title: 'Benedetto', roleColor: '#8c4a3a' }
 
 const WORKER = { title: 'Arlecchino', roleColor: '#2f7d6d' }
 
@@ -110,6 +111,15 @@ beforeEach(async () => {
 function userDrags(win: FakeBrowserWindow): void {
   now += 60_000
   win.emit('move')
+}
+
+/** User move/resize after grace, then the live-reflow debounce. */
+function userGestures(win: FakeBrowserWindow, event: 'move' | 'resize', bounds: Bounds): void {
+  now += placement.PROGRAMMATIC_GRACE_MS + 1
+  win.setBounds(bounds)
+  win.emit(event)
+  now += placement.REFLOW_DEBOUNCE_MS
+  placement.flushLiveReflow()
 }
 
 function fake(win: unknown): FakeBrowserWindow {
@@ -209,6 +219,46 @@ describe('createCliWindow with a placement', () => {
 
     cli.closeCliWindow('a')
     expect(placement.isMovedByUser('a')).toBe(false)
+  })
+
+  it('reflows a neighbor when the setting is on, without pinning the dragged window', () => {
+    placement.setReflowNeighborsGetter(() => true)
+    const zones = {
+      zones: [
+        { roleId: 'worker', displayId: 1, rect: { x: 0, y: 0, w: 0.5, h: 1 } },
+        { roleId: 'reviewer', displayId: 1, rect: { x: 0.5, y: 0, w: 0.5, h: 1 } }
+      ]
+    }
+    let persisted: (typeof zones) | undefined
+    const first = fake(
+      cli.createCliWindow('a', {
+        ...WORKER,
+        placement: { roleId: 'worker', zones, onZonesChange: (next) => (persisted = next) }
+      })
+    )
+    const second = fake(
+      cli.createCliWindow('b', { ...REVIEWER, placement: { roleId: 'reviewer', zones } })
+    )
+    expect(first.bounds).toEqual({ x: 0, y: 0, width: 960, height: 1040 })
+    expect(second.bounds).toEqual({ x: 960, y: 0, width: 960, height: 1040 })
+
+    userGestures(first, 'resize', { x: 0, y: 0, width: 600, height: 1040 })
+
+    expect(second.bounds).toEqual({ x: 600, y: 0, width: 1320, height: 1040 })
+    expect(placement.isMovedByUser('a')).toBe(false)
+    expect(persisted?.zones).toHaveLength(2)
+
+    const afterReflow = { ...second.bounds }
+    second.emit('move')
+    expect(placement.isMovedByUser('b')).toBe(false)
+    expect(second.bounds).toEqual(afterReflow)
+  })
+
+  it('still pins a dragged window when reflow is off', () => {
+    placement.setReflowNeighborsGetter(() => false)
+    const first = fake(cli.createCliWindow('a', { ...WORKER, placement: { roleId: 'worker' } }))
+    userDrags(first)
+    expect(placement.isMovedByUser('a')).toBe(true)
   })
 })
 

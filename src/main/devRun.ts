@@ -19,6 +19,7 @@ import { app } from 'electron'
 import { getAgentRegistry } from './ipc'
 import { startMcpServer, type McpServerHandle } from './mcp/server'
 import { closeCliWindow, createCliWindow } from './windows/cliWindow'
+import { setReflowNeighborsGetter } from './windows/placement'
 import { effectiveProviders, getRoleTemplates, getSettings, settings } from './store/settings'
 import { createRetroSink } from './workspace/retroSink'
 import { createWorkspaceManager, type WorkspaceManager } from './workspace/WorkspaceManager'
@@ -57,6 +58,7 @@ export function buildDevProfile(repoPath: string): Profile {
  * workspace without a restart.
  */
 export function createAppWorkspaceManager(mcp: McpServerHandle): WorkspaceManager {
+  setReflowNeighborsGetter(() => getSettings().ui.reflowNeighbors)
   return createWorkspaceManager({
     mcp,
     registry: getAgentRegistry(),
@@ -71,6 +73,9 @@ export function createAppWorkspaceManager(mcp: McpServerHandle): WorkspaceManage
     providers: () => effectiveProviders(),
     roleTemplates: () => getRoleTemplates(),
     yoloMaster: () => getSettings().yoloMaster,
+    saveProfile: (profile) => {
+      settings().saveProfile(profile)
+    },
     // The retro loop: run stats and learnings land in the settings store, and
     // the accumulated knowledge returns via the next orchestrator prompt.
     retro: createRetroSink({ store: settings() })

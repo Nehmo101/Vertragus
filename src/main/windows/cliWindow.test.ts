@@ -36,6 +36,20 @@ class FakeBrowserWindow {
   isMinimized(): boolean {
     return this.minimized
   }
+  getBounds(): { x: number; y: number; width: number; height: number } {
+    return {
+      x: (this.options.x as number) ?? 0,
+      y: (this.options.y as number) ?? 0,
+      width: (this.options.width as number) ?? 0,
+      height: (this.options.height as number) ?? 0
+    }
+  }
+  setBounds(bounds: { x: number; y: number; width: number; height: number }): void {
+    this.options.x = bounds.x
+    this.options.y = bounds.y
+    this.options.width = bounds.width
+    this.options.height = bounds.height
+  }
   restore(): void {
     this.minimized = false
   }

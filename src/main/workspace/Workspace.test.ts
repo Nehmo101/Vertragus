@@ -120,9 +120,10 @@ describe('startAgent', () => {
         title: started.name,
         roleColor: roleColor('worker', 0),
         // The window layer turns this into bounds (zone, else auto-tiling).
-        placement: { roleId: 'worker' }
+        placement: expect.objectContaining({ roleId: 'worker' })
       }
     ])
+    expect(windows.opened[0]!.placement?.onZonesChange).toEqual(expect.any(Function))
   })
 
   it('hands the profile zone layout to the window layer', async () => {
@@ -136,9 +137,31 @@ describe('startAgent', () => {
         agentId: started.agentId,
         title: started.name,
         roleColor: roleColor('worker', 0),
-        placement: { roleId: 'worker', zones }
+        placement: expect.objectContaining({ roleId: 'worker', zones })
       }
     ])
+  })
+
+  it('rewrites the in-memory profile from onZonesChange without saveProfile', async () => {
+    const { workspace, windows } = harness()
+    await workspace.startAgent({ role: 'worker', task: 'x' })
+    const zones = {
+      zones: [{ roleId: 'worker', displayId: 1, rect: { x: 0, y: 0, w: 0.5, h: 1 } }]
+    }
+    windows.opened[0]!.placement!.onZonesChange!(zones)
+    expect(workspace.profile.zones).toEqual(zones)
+  })
+
+  it('persists the profile when saveProfile is wired', async () => {
+    const saveProfile = vi.fn()
+    const { workspace, windows } = harness({ deps: { saveProfile } })
+    await workspace.startAgent({ role: 'worker', task: 'x' })
+    const zones = {
+      zones: [{ roleId: 'reviewer', displayId: 2, rect: { x: 0.25, y: 0, w: 0.5, h: 1 } }]
+    }
+    windows.opened[0]!.placement!.onZonesChange!(zones)
+    expect(saveProfile).toHaveBeenCalledWith(expect.objectContaining({ zones }))
+    expect(workspace.profile.zones).toEqual(zones)
   })
 
   it('types the assignment in — exactly as the MCP layer composed it', async () => {
