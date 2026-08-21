@@ -63,6 +63,8 @@
     "resumeRun": "Resume last run",
     "resumeHint": "New orchestrator briefed on the last run — branches and worktrees survive, processes and open questions do not",
     "noGoal": "No goal — the orchestrator is waiting",
+    "assignGoalTitle": "Hand this run its goal now — it becomes the orchestrator’s first user turn.",
+    "assignGoalSend": "Set goal",
     "workspaceGoal": "Goal: {{goal}}",
     "answerQuestion": "Answer {{agent}}’s question",
     "answerPlaceholder": "Answer …",

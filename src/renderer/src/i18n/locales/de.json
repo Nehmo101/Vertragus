@@ -63,6 +63,8 @@
     "resumeRun": "Letzten Lauf fortsetzen",
     "resumeHint": "Neuer Orchestrator mit Briefing über den letzten Lauf — Branches und Worktrees bleiben, Prozesse und offene Fragen nicht",
     "noGoal": "Kein Ziel — Orchestrator wartet",
+    "assignGoalTitle": "Diesem Lauf jetzt sein Ziel geben — es wird der erste User-Turn des Orchestrators.",
+    "assignGoalSend": "Ziel setzen",
     "workspaceGoal": "Ziel: {{goal}}",
     "answerQuestion": "Frage von {{agent}} beantworten",
     "answerPlaceholder": "Antwort …",

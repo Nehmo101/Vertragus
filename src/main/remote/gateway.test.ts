@@ -19,6 +19,7 @@ function host(overrides: Partial<RemoteGatewayHost> = {}): RemoteGatewayHost {
     stopWorkspace: vi.fn(),
     answerQuestion: vi.fn(),
     userMessage: vi.fn(),
+    assignGoal: vi.fn(),
     ...overrides
   }
 }
@@ -140,12 +141,47 @@ describe('runRemoteCommand', () => {
     expect(steer).toHaveBeenCalledTimes(1)
   })
 
-  it('the exposed surface is exactly six read/lifecycle/steer verbs — no settings, no editing', () => {
+  it('assigns a late goal through the host (H2 refill) and refuses incomplete args', async () => {
+    const assign = vi.fn()
+    const h = host({ assignGoal: assign })
+
+    const result = await runRemoteCommand(h, 'workspaces:goal', undefined, {
+      workspaceId: 'w1',
+      goal: '  Fix the login bug  '
+    })
+    expect(result).toEqual({ ok: true, result: { goal: 'w1' } })
+    expect(assign).toHaveBeenCalledWith({ workspaceId: 'w1', goal: 'Fix the login bug' })
+
+    expect(await runRemoteCommand(h, 'workspaces:goal', undefined, { goal: 'x' })).toMatchObject({
+      ok: false
+    })
+    expect(
+      await runRemoteCommand(h, 'workspaces:goal', undefined, { workspaceId: 'w1', goal: '  ' })
+    ).toMatchObject({ ok: false })
+    expect(assign).toHaveBeenCalledTimes(1)
+  })
+
+  it('turns a refused late goal into a gateway error the client can show', async () => {
+    const result = await runRemoteCommand(
+      host({
+        assignGoal: () => {
+          throw new Error('this run already has a goal')
+        }
+      }),
+      'workspaces:goal',
+      undefined,
+      { workspaceId: 'w1', goal: 'Second goal' }
+    )
+    expect(result).toEqual({ ok: false, error: 'this run already has a goal' })
+  })
+
+  it('the exposed surface is exactly seven read/lifecycle/steer verbs — no settings, no editing', () => {
     // A guard against scope creep: this list is the whole remote surface.
     expect([...REMOTE_COMMANDS].sort()).toEqual([
       'answer_question',
       'profiles:list',
       'user_message',
+      'workspaces:goal',
       'workspaces:list',
       'workspaces:start',
       'workspaces:stop'

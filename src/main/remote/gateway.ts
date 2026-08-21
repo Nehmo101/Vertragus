@@ -38,6 +38,14 @@ export interface RemoteGatewayHost {
    * unknown workspace or a dead orchestrator.
    */
   userMessage(input: { workspaceId: string; text: string }): void | Promise<unknown>
+  /**
+   * H2 refill: the goal of a run that was started bare — the same host path
+   * the start goal takes (`Workspace.assignGoal`). Must throw on an unknown
+   * workspace, a dead orchestrator, a CLI that refused the text, and on a run
+   * that already carries a goal: this verb hands out a first user turn, it
+   * never rewrites one.
+   */
+  assignGoal(input: { workspaceId: string; goal: string }): void | Promise<unknown>
 }
 
 export type GatewayResult =
@@ -87,6 +95,15 @@ export async function runRemoteCommand(
         }
         await host.answerQuestion({ workspaceId, agentId, questionId, text })
         return { ok: true, result: { answered: questionId, agentId } }
+      }
+      case 'workspaces:goal': {
+        const workspaceId = args?.workspaceId?.trim()
+        const goal = args?.goal?.trim()
+        if (!workspaceId || !goal) {
+          return { ok: false, error: 'workspaces:goal needs args {workspaceId, goal}' }
+        }
+        await host.assignGoal({ workspaceId, goal })
+        return { ok: true, result: { goal: workspaceId } }
       }
       case 'user_message': {
         const workspaceId = args?.workspaceId?.trim()

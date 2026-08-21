@@ -141,6 +141,7 @@ const APP = {
   modelsDiscover: 'models:discover',
   workspacesList: 'workspaces:list',
   workspacesStart: 'workspaces:start',
+  workspacesGoal: 'workspaces:goal',
   workspacesResume: 'workspaces:resume',
   workspacesStop: 'workspaces:stop',
   workspacesSucceedOrchestrator: 'workspaces:succeedOrchestrator',
@@ -457,6 +458,13 @@ const app = {
   /** Start a workspace; `goal` (optional) is seeded into the orchestrator. */
   startWorkspace: (profileId: string, goal?: string): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesStart, { profileId, ...(goal ? { goal } : {}) }),
+  /**
+   * H2 refill: hand a workspace that was started bare its goal now. Rejects
+   * readably when the run already has one (steer it with a message instead) or
+   * when its CLI refused the text.
+   */
+  assignWorkspaceGoal: (workspaceId: string, goal: string): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesGoal, { workspaceId, goal }),
   /** E3: start a workspace briefed on the profile's newest journaled run. */
   resumeWorkspace: (profileId: string): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesResume, { profileId }),

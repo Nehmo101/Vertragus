@@ -1765,9 +1765,16 @@ export class Workspace implements AgentHost {
    * accept the text; the workspace keeps running then (the user can still type
    * into the terminal), and {@link goalText} stays unset — an undelivered goal
    * must not show up on the card as if the orchestrator had it.
+   *
+   * Also the refill path for a run that was started bare: the same handshake,
+   * just later. A workspace that already carries a delivered goal refuses with
+   * `goal_already_set` — a second goal typed into a CLI that is already driving
+   * the MCP loop is the two-brains failure H1 documents; steering an existing
+   * run is {@link postUserMessage}'s job.
    */
   async assignGoal(goal: string): Promise<void> {
     this.assertOpen()
+    if (this.goal) throw new Error('goal_already_set')
     const record = this.orchestratorRecord
     if (!record) throw new Error(`Workspace ${this.name} has no orchestrator to give a goal to.`)
     if (!record.pty.isAlive) {
