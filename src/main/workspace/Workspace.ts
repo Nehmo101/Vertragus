@@ -170,7 +170,7 @@ export interface WorkspaceWindows {
       title: string
       roleColor: string
       /** Role + zone layout; the window layer turns this into bounds. */
-      placement?: { roleId: string; zones?: ZoneLayout }
+      placement?: { roleId: string; zones?: ZoneLayout; workspaceId?: string }
     }
   ): void
   close(agentId: string): void
@@ -2276,6 +2276,7 @@ export class Workspace implements AgentHost {
       roleColor: color,
       placement: {
         roleId: record.orchestrator ? ORCHESTRATOR_ROLE_ID : record.roleId,
+        workspaceId: this.workspaceId,
         ...(this.profile.zones ? { zones: this.profile.zones } : {})
       }
     })

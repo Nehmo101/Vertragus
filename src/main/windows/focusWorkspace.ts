@@ -1,11 +1,12 @@
 /**
- * Focus one workspace: minimize every other agents' CLI window, bring this
- * workspace's windows forward at their existing positions.
+ * Focus one workspace: hide every other agent's CLI window, bring this
+ * workspace's windows forward. Zone re-tiling is the caller's job
+ * (`layoutCliWindows`) — this module stays Electron-free.
  *
- * Deliberately never moves or re-tiles — placement stays whatever the zone
- * layout (or the user) already set. Only minimize / restore / showInactive /
- * focus. Hidden windows (hide-all) and already-minimized foreign windows are
- * left alone: they are not ours to touch.
+ * Foreign windows are `hide()`d, never minimized: minimize/restore fires move
+ * events on Windows and wrecks bounds (see hideAll.ts). Already-hidden windows
+ * stay hidden. Minimized foreign windows are still hidden so they leave the
+ * taskbar. PTYs keep running.
  *
  * Focus is stolen once, at the end, onto the first workspace window in stable
  * order (orchestrator first when the caller sorts that way) — the same rule
@@ -18,7 +19,7 @@ export interface FocusableWindow {
   isDestroyed(): boolean
   isVisible(): boolean
   isMinimized(): boolean
-  minimize(): void
+  hide(): void
   restore(): void
   showInactive(): void
   focus(): void
@@ -35,7 +36,7 @@ export interface FocusWorkspaceDeps {
 }
 
 /**
- * Minimize foreign CLI windows and surface the ones whose agent ids are in
+ * Hide foreign CLI windows and surface the ones whose agent ids are in
  * `agentIds`. Empty `agentIds` (unknown workspace) is a no-op — same quiet
  * shrug as {@link focusCliWindow} for a ghost agent.
  */
@@ -50,10 +51,10 @@ export function focusWorkspaceAgents(
 
   for (const target of targets) {
     if (wanted.has(target.agentId)) continue
-    // Hidden (hide-all) or already minimized: leave alone.
-    if (!target.window.isVisible()) continue
-    if (target.window.isMinimized()) continue
-    target.window.minimize()
+    // Hidden (hide-all): leave alone. Minimized still gets hide() so it
+    // drops off the taskbar.
+    if (!target.window.isVisible() && !target.window.isMinimized()) continue
+    target.window.hide()
   }
 
   // Stable caller order: restore + showInactive each, then one focus.

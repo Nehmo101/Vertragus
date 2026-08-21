@@ -16,7 +16,14 @@ import { createAppWorkspaceManager, maybeStartDevWorkspace, type DevRunHandle } 
 import { getAgentRegistry, registerTerminalIpc } from './ipc'
 import { startMcpServer, type McpServerHandle } from './mcp/server'
 import { getProfile, getProfiles, getRoleTemplates, getSettings, setSetting } from './store/settings'
-import { closeCliWindow, createCliWindow, focusCliWindow, getCliWindow, onCliWindowClosed } from './windows/cliWindow'
+import {
+  closeCliWindow,
+  createCliWindow,
+  focusCliWindow,
+  getCliWindow,
+  layoutCliWindows,
+  onCliWindowClosed
+} from './windows/cliWindow'
 import { cliFocusTargets, focusWorkspaceAgents } from './windows/focusWorkspace'
 import { registerAppHideAllShortcut, unregisterHideAllShortcut } from './windows/hideAll'
 import { createPanelWindow } from './windows/panel'
@@ -354,6 +361,8 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
         ...workspace.listAgents().map((agent) => agent.agentId)
       ]
       focusWorkspaceAgents(agentIds, { windows: cliFocusTargets })
+      // After show: restore can fire move events that wreck bounds (Windows).
+      layoutCliWindows(agentIds)
     },
     listStaleWorktrees: (profileId) => cleanup.listStale(profileId),
     removeWorktree: (profileId, worktreePath) => cleanup.remove(profileId, worktreePath),

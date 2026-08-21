@@ -38,6 +38,11 @@ export interface CliWindowPlacement {
   roleId: string
   /** The profile's zone layout, if it has one. */
   zones?: ZoneLayout
+  /**
+   * Tiling group. Windows of another workspace are never re-tiled together
+   * with this one; omitted ids group with each other.
+   */
+  workspaceId?: string
 }
 
 export interface CliWindowOptions {
@@ -162,21 +167,37 @@ function panelRail(displays: readonly DisplayInfo[]): RailInfo | undefined {
   return { displayId: host.id, edge, width: bounds.width }
 }
 
+/** Tiling group for a live window — omitted workspace ids group with each other. */
+function windowWorkspaceId(agentId: string): string | undefined {
+  return windows.get(agentId)?.options.placement?.workspaceId
+}
+
+function toAgentWindowInfo(agentId: string, roleId: string): AgentWindowInfo {
+  return {
+    agentId,
+    roleId,
+    // A maximized window is as deliberate as a dragged one: re-tiling it out
+    // of full screen because somebody else started an agent is not on.
+    movedByUser: isMovedByUser(agentId) || isCliWindowMaximized(agentId)
+  }
+}
+
 /**
  * Bounds for the window about to open, plus the re-tiling of the ones already
- * there. Windows the user dragged are not in the plan — see placement.ts.
+ * in the same workspace. Windows with no workspaceId group with each other.
+ * Windows the user dragged are not in the plan — see placement.ts.
  */
 function planFor(agentId: string, placement: CliWindowPlacement): PlacedWindow[] {
   const displays = currentDisplays()
   const existing: AgentWindowInfo[] = listCliWindows()
     .filter((entry) => entry.agentId !== agentId)
-    .map((entry) => ({
-      agentId: entry.agentId,
-      roleId: windows.get(entry.agentId)?.options.placement?.roleId ?? '',
-      // A maximized window is as deliberate as a dragged one: re-tiling it out
-      // of full screen because somebody else started an agent is not on.
-      movedByUser: isMovedByUser(entry.agentId) || isCliWindowMaximized(entry.agentId)
-    }))
+    .filter((entry) => windowWorkspaceId(entry.agentId) === placement.workspaceId)
+    .map((entry) =>
+      toAgentWindowInfo(
+        entry.agentId,
+        windows.get(entry.agentId)?.options.placement?.roleId ?? ''
+      )
+    )
   const rail = panelRail(displays)
   return planWindowLayout({
     ...(placement.zones ? { profile: { zones: placement.zones } } : {}),
@@ -196,6 +217,45 @@ function anotherCliWindowIsFocused(except: BrowserWindow): boolean {
     if (window.isFocused()) return true
   }
   return false
+}
+
+/**
+ * Snap these agents' CLI windows into their profile zones (or auto-tiles).
+ * Drops the moved-by-user mark so a workspace click is a "go home", the same
+ * idea as shrinking from maximize. Maximized windows are left alone.
+ */
+export function layoutCliWindows(agentIds: readonly string[]): void {
+  const entries: CliWindowEntry[] = []
+  for (const agentId of agentIds) {
+    const entry = liveEntry(agentId)
+    if (entry) entries.push(entry)
+  }
+  if (entries.length === 0) return
+
+  const placement = entries.find((entry) => entry.options.placement)?.options.placement
+  if (!placement) return
+
+  for (const entry of entries) {
+    if (isCliWindowMaximized(entry.agentId)) continue
+    forgetWindowPlacement(entry.agentId)
+  }
+
+  const displays = currentDisplays()
+  const rail = panelRail(displays)
+  const plan = planWindowLayout({
+    ...(placement.zones ? { profile: { zones: placement.zones } } : {}),
+    displays,
+    ...(rail ? { rail } : {}),
+    windows: entries.map((entry) =>
+      toAgentWindowInfo(entry.agentId, entry.options.placement?.roleId ?? placement.roleId)
+    )
+  })
+
+  for (const placed of plan) {
+    if (isCliWindowMaximized(placed.agentId)) continue
+    const win = getCliWindow(placed.agentId)
+    if (win) applyWindowBounds(placed.agentId, win, placed.bounds)
+  }
 }
 
 export function createCliWindow(agentId: string, options: CliWindowOptions): BrowserWindow {

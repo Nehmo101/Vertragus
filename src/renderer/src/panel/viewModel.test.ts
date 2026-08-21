@@ -35,6 +35,7 @@ import {
   workspaceCardClass,
   workspaceCountByProfile,
   workspaceHasWaitingSubagent,
+  workspaceIdToFocusForProfile,
   workspaceNeedsAttention,
   workspacePlaceTooltip,
   workspaceSuccessionLabel,
@@ -338,6 +339,15 @@ describe('profile workspace filter', () => {
     expect(expandedWorkspaceId(filtered, 'w1')).toBeNull()
     expect(nextSelectedWorkspaceId(filtered, undefined, 'w3')).toBe('w3')
     expect(expandedWorkspaceId(filtered, 'w3')).toBe('w3')
+  })
+
+  it('picks the workspace to focus when a profile is selected', () => {
+    expect(workspaceIdToFocusForProfile([a1, a2, b1], 'p1')).toBe('w1')
+    expect(workspaceIdToFocusForProfile([a2, a1, b1], 'p1')).toBe('w1')
+    expect(workspaceIdToFocusForProfile([a2, b1], 'p1')).toBe('w2')
+    expect(workspaceIdToFocusForProfile([a1, a2, b1], 'p2')).toBe('w3')
+    expect(workspaceIdToFocusForProfile([a1, a2, b1], 'gone')).toBeNull()
+    expect(workspaceIdToFocusForProfile([], 'p1')).toBeNull()
   })
 })
 

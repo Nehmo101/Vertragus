@@ -299,3 +299,88 @@ describe('grow and shrink', () => {
     expect(cli.isCliWindowMaximized('a')).toBe(false)
   })
 })
+
+describe('workspace-isolated tiling', () => {
+  it('does not move a window that belongs to another workspace', () => {
+    const first = fake(
+      cli.createCliWindow('a', { ...WORKER, placement: { roleId: 'worker', workspaceId: 'A' } })
+    )
+    const pinned = { ...first.bounds }
+
+    cli.createCliWindow('b', { ...WORKER, placement: { roleId: 'worker', workspaceId: 'B' } })
+
+    expect(first.bounds).toEqual(pinned)
+  })
+
+  it('still re-tiles two windows of the same workspace', () => {
+    const first = fake(
+      cli.createCliWindow('a', { ...WORKER, placement: { roleId: 'worker', workspaceId: 'W' } })
+    )
+    const before = { ...first.bounds }
+
+    cli.createCliWindow('b', { ...WORKER, placement: { roleId: 'worker', workspaceId: 'W' } })
+
+    expect(first.bounds).not.toEqual(before)
+    expect(first.bounds.width).toBeLessThan(before.width)
+  })
+
+  it('groups windows that omit workspaceId with each other, not with a named workspace', () => {
+    const first = fake(cli.createCliWindow('a', { ...WORKER, placement: { roleId: 'worker' } }))
+    const before = { ...first.bounds }
+
+    cli.createCliWindow('b', { ...WORKER, placement: { roleId: 'worker' } })
+    expect(first.bounds).not.toEqual(before)
+    const afterPair = { ...first.bounds }
+
+    cli.createCliWindow('c', { ...WORKER, placement: { roleId: 'worker', workspaceId: 'B' } })
+    expect(first.bounds).toEqual(afterPair)
+  })
+})
+
+describe('layoutCliWindows', () => {
+  const ZONES = {
+    zones: [{ roleId: 'worker', displayId: 2, rect: { x: 0.5, y: 0, w: 0.5, h: 1 } }]
+  }
+  const ZONE_BOUNDS = { x: 2720, y: 0, width: 800, height: 900 }
+
+  it('snaps workspace windows into zones even if they were marked movedByUser', () => {
+    const win = fake(
+      cli.createCliWindow('a', {
+        ...WORKER,
+        placement: { roleId: 'worker', zones: ZONES, workspaceId: 'W' }
+      })
+    )
+    userDrags(win)
+    win.setBounds({ x: 10, y: 10, width: 500, height: 400 })
+    expect(placement.isMovedByUser('a')).toBe(true)
+
+    cli.layoutCliWindows(['a'])
+
+    expect(win.bounds).toEqual(ZONE_BOUNDS)
+    expect(placement.isMovedByUser('a')).toBe(false)
+  })
+
+  it('leaves a maximized window put', () => {
+    const first = fake(
+      cli.createCliWindow('a', {
+        ...WORKER,
+        placement: { roleId: 'worker', zones: ZONES, workspaceId: 'W' }
+      })
+    )
+    const second = fake(
+      cli.createCliWindow('b', {
+        ...WORKER,
+        placement: { roleId: 'worker', zones: ZONES, workspaceId: 'W' }
+      })
+    )
+    cli.toggleCliWindowMaximized('a')
+    const full = { ...first.bounds }
+
+    cli.layoutCliWindows(['a', 'b'])
+
+    expect(first.bounds).toEqual(full)
+    expect(cli.isCliWindowMaximized('a')).toBe(true)
+    // Opted out of the tile count, so the sibling takes the whole zone.
+    expect(second.bounds).toEqual(ZONE_BOUNDS)
+  })
+})

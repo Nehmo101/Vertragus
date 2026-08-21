@@ -375,8 +375,8 @@ export interface WorkspaceDirectory {
    */
   closeAgentWindow(agentId: string): void
   /**
-   * Bring one workspace's CLI windows forward and minimize every other
-   * agent's — positions stay; see {@link focusWorkspaceAgents}.
+   * Bring one workspace's CLI windows forward into its zone layout and hide
+   * every other agent's — see {@link focusWorkspaceAgents}.
    */
   focusWorkspace(workspaceId: string): void
   /**
