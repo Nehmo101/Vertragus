@@ -98,12 +98,21 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
           ]
         }
       }),
-    start(profileId) {
+    start(profileId, options) {
       const profile = getProfile(profileId)
       if (!profile) throw new Error(`Unbekanntes Profil ${profileId}`)
-      return manager.startWorkspace(profile)
+      return manager.startWorkspace(profile, options)
     },
     stop: (workspaceId) => manager.stopWorkspace(workspaceId),
+    sendToOrchestrator(workspaceId, text) {
+      const workspace = manager.get(workspaceId)
+      if (!workspace) throw new Error(`Unbekannter Workspace ${workspaceId}`)
+      const orchestrator = workspace.orchestrator
+      if (!orchestrator) {
+        throw new Error(`Workspace ${workspaceId} hat keinen aktiven Orchestrator.`)
+      }
+      return workspace.sendToAgent(orchestrator.agentId, text)
+    },
     focusAgent: (agentId) => focusCliWindow(agentId),
     focusWorkspace(workspaceId) {
       const workspace = manager.get(workspaceId)

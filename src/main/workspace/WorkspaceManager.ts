@@ -48,8 +48,13 @@ export interface RunningWorkspace {
   urls: WorkspaceMcpUrls
 }
 
+export interface StartWorkspaceOptions {
+  /** Typed into the orchestrator after spawn, via {@link Workspace.sendToAgent}. */
+  goal?: string
+}
+
 export interface WorkspaceManager {
-  startWorkspace(profile: Profile): Promise<RunningWorkspace>
+  startWorkspace(profile: Profile, options?: StartWorkspaceOptions): Promise<RunningWorkspace>
   stopWorkspace(workspaceId: string): Promise<boolean>
   stopAll(): Promise<void>
   get(workspaceId: string): Workspace | undefined
@@ -97,7 +102,10 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
     return tap
   }
 
-  async function startWorkspace(profile: Profile): Promise<RunningWorkspace> {
+  async function startWorkspace(
+    profile: Profile,
+    options?: StartWorkspaceOptions
+  ): Promise<RunningWorkspace> {
     if (!profile.repoPath.trim()) {
       throw new Error(`Profile "${profile.name}" has no repository path.`)
     }
@@ -119,6 +127,8 @@ export function createWorkspaceManager(deps: WorkspaceManagerDeps): WorkspaceMan
 
     try {
       const orchestrator = await workspace.startOrchestrator()
+      const goal = options?.goal?.trim()
+      if (goal) await workspace.sendToAgent(orchestrator.agentId, goal)
       return { workspace, orchestrator, urls: registered }
     } catch (error) {
       workspaces.delete(workspace.workspaceId)

@@ -261,6 +261,8 @@ interface Harness {
   broadcasts: { channel: string; payload: unknown }[]
   directory: WorkspaceDirectory & {
     started: string[]
+    startCalls: Array<{ profileId: string; options?: { goal?: string } }>
+    sentToOrchestrator: Array<{ workspaceId: string; text: string }>
     stopped: string[]
     focused: string[]
     focusedWorkspaces: string[]
@@ -365,6 +367,8 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
 
   const directory = {
     started: [] as string[],
+    startCalls: [] as Array<{ profileId: string; options?: { goal?: string } }>,
+    sentToOrchestrator: [] as Array<{ workspaceId: string; text: string }>,
     stopped: [] as string[],
     focused: [] as string[],
     focusedWorkspaces: [] as string[],
@@ -373,8 +377,12 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
       { path: '/repo/.vertragus/worktrees/old-1', branch: 'vertragus/paradiso/caronte' }
     ] as { path: string; branch?: string }[],
     list: () => state.workspaces,
-    start(profileId: string) {
+    start(profileId: string, options?: { goal?: string }) {
       this.started.push(profileId)
+      this.startCalls.push(options === undefined ? { profileId } : { profileId, options })
+    },
+    sendToOrchestrator(workspaceId: string, text: string) {
+      this.sentToOrchestrator.push({ workspaceId, text })
     },
     stop(workspaceId: string) {
       this.stopped.push(workspaceId)
@@ -714,6 +722,7 @@ describe('workspaces', () => {
     h.ipc.invoke(APP_CHANNELS.workspacesFocus, PANEL_ID, { workspaceId: 'w1' })
 
     expect(h.directory.started).toEqual(['p1'])
+    expect(h.directory.startCalls).toEqual([{ profileId: 'p1' }])
     expect(h.directory.stopped).toEqual(['w1'])
     expect(h.directory.focused).toEqual(['w1-orch'])
     expect(h.directory.focusedWorkspaces).toEqual(['w1'])
@@ -721,6 +730,48 @@ describe('workspaces', () => {
       APP_CHANNELS.eventWorkspaces,
       APP_CHANNELS.eventWorkspaces
     ])
+  })
+
+  it('passes an optional goal through to directory.start', async () => {
+    await h.ipc.invoke(APP_CHANNELS.workspacesStart, PANEL_ID, {
+      profileId: 'p1',
+      goal: 'Build xyz'
+    })
+    expect(h.directory.startCalls).toEqual([{ profileId: 'p1', options: { goal: 'Build xyz' } }])
+  })
+
+  it('sends a follow-up to the running orchestrator', async () => {
+    await h.ipc.invoke(APP_CHANNELS.workspacesSendToOrchestrator, PANEL_ID, {
+      workspaceId: 'w1',
+      text: '  follow up  '
+    })
+    expect(h.directory.sentToOrchestrator).toEqual([{ workspaceId: 'w1', text: 'follow up' }])
+  })
+
+  it('rejects sendToOrchestrator without a workspace id or non-empty text', () => {
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.workspacesSendToOrchestrator, PANEL_ID, { text: 'hi' })
+    ).toThrow(/missing workspace id/)
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.workspacesSendToOrchestrator, PANEL_ID, { workspaceId: 'w1' })
+    ).toThrow(/missing text/)
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.workspacesSendToOrchestrator, PANEL_ID, {
+        workspaceId: 'w1',
+        text: '   '
+      })
+    ).toThrow(/missing text/)
+    expect(h.directory.sentToOrchestrator).toEqual([])
+  })
+
+  it('rejects a CLI sender on sendToOrchestrator', () => {
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.workspacesSendToOrchestrator, CLI_ID, {
+        workspaceId: 'w1',
+        text: 'hi'
+      })
+    ).toThrow(/not the panel/)
+    expect(h.directory.sentToOrchestrator).toEqual([])
   })
 
   it('rejects a focus-workspace call without a workspace id', () => {
@@ -738,6 +789,7 @@ describe('workspaces', () => {
         list: () => [],
         start: refuse,
         stop() {},
+        sendToOrchestrator: refuse,
         focusAgent() {},
         focusWorkspace() {},
         listStaleWorktrees: async () => refuse(),
@@ -1249,6 +1301,7 @@ describe('sender authorization', () => {
   const panelOnly = [
     APP_CHANNELS.workspacesList,
     APP_CHANNELS.workspacesStart,
+    APP_CHANNELS.workspacesSendToOrchestrator,
     APP_CHANNELS.workspacesStop,
     APP_CHANNELS.workspacesFocusAgent,
     APP_CHANNELS.workspacesFocus,
@@ -1527,6 +1580,7 @@ describe('production registration', () => {
       list: () => [workspace('w1')],
       start: vi.fn(),
       stop: vi.fn(),
+      sendToOrchestrator: vi.fn(),
       focusAgent: vi.fn(),
       focusWorkspace: vi.fn(),
       listStaleWorktrees: vi.fn(async () => []),
@@ -1536,6 +1590,7 @@ describe('production registration', () => {
       list: () => [],
       start: vi.fn(),
       stop: vi.fn(),
+      sendToOrchestrator: vi.fn(),
       focusAgent: vi.fn(),
       focusWorkspace: vi.fn(),
       listStaleWorktrees: vi.fn(async () => []),

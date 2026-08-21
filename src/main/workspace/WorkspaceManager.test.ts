@@ -3,7 +3,7 @@ import type { McpServerHandle, RegisteredWorkspace } from '@main/mcp/server'
 import type { WorkspaceMcpContext } from '@main/mcp/types'
 import { PendingQuestions } from '@main/mcp/pendingQuestions'
 import { createWorkspaceManager, type WorkspaceManagerDeps } from './WorkspaceManager'
-import type { WorkspaceDeps, WorkspaceWindows } from './Workspace'
+import { Workspace, type WorkspaceDeps, type WorkspaceWindows } from './Workspace'
 import {
   FakeRegistry,
   fakeSeed,
@@ -193,6 +193,45 @@ describe('startWorkspace', () => {
     await expect(manager.startWorkspace(testProfile())).rejects.toThrow('spawn claude ENOENT')
     expect(mcp.unregistered).toHaveLength(1)
     expect(manager.list()).toHaveLength(0)
+  })
+
+  it('seeds the orchestrator with a non-empty goal after start', async () => {
+    const send = vi.spyOn(Workspace.prototype, 'sendToAgent')
+    try {
+      const { manager } = harness()
+      const running = await manager.startWorkspace(testProfile(), { goal: '  Build xyz  ' })
+      expect(send).toHaveBeenCalledWith(running.orchestrator.agentId, 'Build xyz')
+      expect(manager.list()).toEqual([running.workspace])
+    } finally {
+      send.mockRestore()
+    }
+  })
+
+  it('does not seed when no goal is passed', async () => {
+    const send = vi.spyOn(Workspace.prototype, 'sendToAgent')
+    try {
+      const { manager } = harness()
+      await manager.startWorkspace(testProfile())
+      await manager.startWorkspace(testProfile(), {})
+      await manager.startWorkspace(testProfile(), { goal: '   ' })
+      expect(send).not.toHaveBeenCalled()
+    } finally {
+      send.mockRestore()
+    }
+  })
+
+  it('unwinds the workspace when the goal seed fails', async () => {
+    const send = vi.spyOn(Workspace.prototype, 'sendToAgent').mockRejectedValue(new Error('did not accept'))
+    try {
+      const { manager, mcp } = harness()
+      await expect(manager.startWorkspace(testProfile(), { goal: 'Build xyz' })).rejects.toThrow(
+        'did not accept'
+      )
+      expect(manager.list()).toHaveLength(0)
+      expect(mcp.unregistered).toHaveLength(1)
+    } finally {
+      send.mockRestore()
+    }
   })
 })
 

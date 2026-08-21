@@ -122,6 +122,7 @@ const APP = {
   modelsDiscover: 'models:discover',
   workspacesList: 'workspaces:list',
   workspacesStart: 'workspaces:start',
+  workspacesSendToOrchestrator: 'workspaces:sendToOrchestrator',
   workspacesStop: 'workspaces:stop',
   workspacesFocusAgent: 'workspaces:focusAgent',
   workspacesFocus: 'workspaces:focus',
@@ -324,8 +325,10 @@ const app = {
   discoverModels: (providerId: string): Promise<ModelDiscoveryResult> =>
     ipcRenderer.invoke(APP.modelsDiscover, { providerId }),
   listWorkspaces: (): Promise<WorkspaceSummary[]> => ipcRenderer.invoke(APP.workspacesList),
-  startWorkspace: (profileId: string): Promise<void> =>
-    ipcRenderer.invoke(APP.workspacesStart, { profileId }),
+  startWorkspace: (profileId: string, options?: { goal?: string }): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesStart, { profileId, ...options }),
+  sendToOrchestrator: (workspaceId: string, text: string): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesSendToOrchestrator, { workspaceId, text }),
   stopWorkspace: (workspaceId: string): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesStop, { workspaceId }),
   focusAgent: (agentId: string): Promise<void> =>
