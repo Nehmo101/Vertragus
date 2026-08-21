@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import type { WorkspaceAgentSummary, WorkspaceSummary } from '../../../preload'
+import type {
+  WorkspaceAgentSummary,
+  WorkspaceSummary,
+  WorkspaceTaskSummary
+} from '../../../preload'
 import { translator } from '../i18n'
 import {
   agentCanCloseWindow,
@@ -22,6 +26,10 @@ import {
   orderWorkspaces,
   resolveSelectedProfileId,
   shouldFocusWorkspaceOnToggle,
+  taskProgressLabel,
+  taskRowClass,
+  taskRows,
+  taskStatusGlyph,
   workspaceCanReplaceOrchestrator,
   workspaceCardClass,
   workspaceCountByProfile,
@@ -388,6 +396,105 @@ describe('expanded workspace selection', () => {
     expect(shouldFocusWorkspaceOnToggle(EXPAND_ALL_WORKSPACES, live)).toBe(false)
     expect(shouldFocusWorkspaceOnToggle('w2', other)).toBe(false)
     expect(shouldFocusWorkspaceOnToggle('w1', other)).toBe(false)
+  })
+})
+
+describe('the task board on the card', () => {
+  function task(overrides: Partial<WorkspaceTaskSummary> = {}): WorkspaceTaskSummary {
+    return {
+      taskId: 'task-1',
+      subject: 'Build the parser',
+      status: 'pending',
+      blockedBy: [],
+      ready: true,
+      ...overrides
+    }
+  }
+
+  it('paints status with the glyph vocabulary the retro tally already uses', () => {
+    expect(taskStatusGlyph('pending')).toBe('○')
+    expect(taskStatusGlyph('in_progress')).toBe('◐')
+    expect(taskStatusGlyph('completed')).toBe('✓')
+  })
+
+  it('resolves the owner to its Commedia name from the same summary', () => {
+    const rows = taskRows(
+      t,
+      workspace({
+        agents: [agent({ agentId: 'a1', name: 'Caronte' })],
+        tasks: [task({ status: 'in_progress', ownerAgentId: 'a1' })]
+      })
+    )
+    expect(rows[0]!.ownerName).toBe('Caronte')
+    expect(rows[0]!.title).toContain('bearbeitet von Caronte')
+  })
+
+  it('shows no owner for an agent this summary no longer lists — a uuid says nothing', () => {
+    const rows = taskRows(
+      t,
+      workspace({ agents: [], tasks: [task({ status: 'in_progress', ownerAgentId: 'gone' })] })
+    )
+    expect(rows[0]!.ownerName).toBeUndefined()
+    expect(rows[0]!.title).not.toContain('gone')
+  })
+
+  it('dims a blocked row and names only the dependencies still open', () => {
+    const rows = taskRows(
+      t,
+      workspace({
+        tasks: [
+          task({ taskId: 'task-1', status: 'completed' }),
+          task({ taskId: 'task-2', subject: 'Wire it up' }),
+          task({
+            taskId: 'task-3',
+            subject: 'Test the parser',
+            blockedBy: ['task-1', 'task-2'],
+            ready: false
+          })
+        ]
+      })
+    )
+    const blocked = rows[2]!
+    expect(blocked.blocked).toBe(true)
+    // task-1 is done — naming it would read as stuck when it is not.
+    expect(blocked.hint).toBe('wartet auf task-2')
+    expect(taskRowClass(blocked)).toBe('panel-task-row is-blocked')
+    expect(taskRowClass(rows[0]!)).toBe('panel-task-row is-done')
+    expect(taskRowClass(rows[1]!)).toBe('panel-task-row')
+  })
+
+  it('trusts the host flag instead of recomputing readiness from a capped list', () => {
+    // task-9 was cut off by PANEL_TASKS_MAX; the host still says "not ready",
+    // and the hint names the dependency it cannot see rather than dropping it.
+    const rows = taskRows(
+      t,
+      workspace({ tasks: [task({ blockedBy: ['task-9'], ready: false })] })
+    )
+    expect(rows[0]!.blocked).toBe(true)
+    expect(rows[0]!.hint).toBe('wartet auf task-9')
+    // A pending row the host called ready is never dimmed, whatever it lists.
+    expect(taskRows(t, workspace({ tasks: [task({ blockedBy: ['task-9'] })] }))[0]!.blocked).toBe(
+      false
+    )
+  })
+
+  it('carries an in-progress row without a hint, in both languages', () => {
+    const running = task({ status: 'in_progress', ready: false })
+    const row = taskRows(t, workspace({ tasks: [running] }))[0]!
+    expect(row).toMatchObject({ blocked: false, statusLabel: 'in Arbeit' })
+    expect(row.hint).toBeUndefined()
+    expect(taskRows(en, workspace({ tasks: [running] }))[0]!.statusLabel).toBe('in progress')
+  })
+
+  it('counts the plan for the collapsed header, and survives a card without one', () => {
+    expect(
+      taskProgressLabel(
+        t,
+        workspace({ tasks: [task({ status: 'completed' }), task({ taskId: 'task-2' })] })
+      )
+    ).toBe('1/2 erledigt')
+    expect(taskProgressLabel(en, workspace())).toBe('0/0 done')
+    expect(taskRows(t, workspace())).toEqual([])
   })
 })
 

@@ -471,10 +471,11 @@ export interface WorkspaceRuntime {
    */
   resultSchemas: Map<string, ResultSchema>
   /**
-   * Fires after {@link latestTask} / {@link agentTasks} changed. The
-   * WorkspaceManager binds this to its change feed so the panel and the CLI
-   * windows follow a follow-up assignment live — a follow-up pushes no agent
-   * event, so without this hook nothing would wake the UI.
+   * Fires after {@link latestTask} / {@link agentTasks} or the {@link taskBoard}
+   * changed. The WorkspaceManager binds this to its change feed so the panel
+   * and the CLI windows follow a follow-up assignment and a board mutation
+   * live — neither pushes an agent event, so without this hook nothing would
+   * wake the UI.
    */
   onTasksChanged?: () => void
   /**

@@ -79,7 +79,16 @@
     "composerSend": "Send",
     "promoteBranch": "Merge {{agent}}’s branch into the main checkout (no push)",
     "retroRepoNotes": "Repo notes",
-    "retroDeleteRepoNote": "Delete note “{{note}}”"
+    "retroDeleteRepoNote": "Delete note “{{note}}”",
+    "tasksLabel": "Task board",
+    "tasksToggle": "Expand or collapse the task board of “{{workspace}}”",
+    "taskProgress": "{{done}}/{{total}} done",
+    "taskPending": "pending",
+    "taskInProgress": "in progress",
+    "taskCompleted": "done",
+    "taskOwner": "worked on by {{agent}}",
+    "taskBlocked": "waiting for {{tasks}}",
+    "openRunFolder": "Open the run folder — spill/, tasks.json and events.jsonl in the file manager"
   },
   "profileEditor": {
     "title": "Edit profile",

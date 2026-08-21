@@ -121,6 +121,7 @@ import type { ProviderConfig } from '@shared/schema/provider'
 import type { ZoneLayout } from '@shared/schema/zones'
 import type { AgentDoneStatus } from '@shared/schema/events'
 import { runsDir } from './journal'
+import type { TaskStatus } from '@shared/schema/tasks'
 import { SentinelParser, type SentinelReport } from './sentinel'
 import { createSpillStore, type SpillStore } from './spill'
 import type { TaskBoard } from './taskBoard'
@@ -173,6 +174,23 @@ export interface WorkspaceWindows {
     }
   ): void
   close(agentId: string): void
+}
+
+/**
+ * One board row as a reader outside the MCP tools sees it (the panel, and
+ * through the same summary the phone). Deliberately narrower than {@link Task}:
+ * no description, no timestamps, no `lastReport` — a card shows the plan, not
+ * the archive, and every field here has to survive an IPC hop.
+ */
+export interface WorkspaceTaskSummary {
+  taskId: string
+  subject: string
+  /** Tombstones are filtered out, so `deleted` cannot appear here. */
+  status: Exclude<TaskStatus, 'deleted'>
+  ownerAgentId?: string
+  blockedBy: string[]
+  /** pending AND every blockedBy completed — computed by the board itself. */
+  ready: boolean
 }
 
 /** The MCP URLs of this workspace, handed over after registration. */
@@ -1194,6 +1212,31 @@ export class Workspace implements AgentHost {
           reporting: this.reportingForProvider(pending.providerId)
         }))
     ]
+  }
+
+  /**
+   * S4 read model: the run's living plan, for readers that are not the MCP
+   * tool layer. Tombstones are dropped — a deleted task left the plan — and
+   * `ready` comes from {@link TaskBoard.isReady}, so the readiness rule keeps
+   * exactly one implementation. A workspace without a board (unit tests, a
+   * board factory that refused) has an empty plan, not a missing one.
+   */
+  listTasks(): WorkspaceTaskSummary[] {
+    const board = this.taskBoard
+    if (!board) return []
+    const rows: WorkspaceTaskSummary[] = []
+    for (const task of board.list()) {
+      if (task.status === 'deleted') continue
+      rows.push({
+        taskId: task.taskId,
+        subject: task.subject,
+        status: task.status,
+        ...(task.ownerAgentId ? { ownerAgentId: task.ownerAgentId } : {}),
+        blockedBy: task.blockedBy,
+        ready: board.isReady(task.taskId)
+      })
+    }
+    return rows
   }
 
   /**

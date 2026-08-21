@@ -278,6 +278,18 @@ function workspace(id: string, active = true): WorkspaceSummary {
         state: 'working',
         statusText: 'plant'
       }
+    ],
+    // S4: present here so the preload parity check below covers the board row
+    // as well — a field only main knows about is a field the panel cannot draw.
+    tasks: [
+      {
+        taskId: 'task-1',
+        subject: 'Build the parser',
+        status: 'in_progress',
+        ownerAgentId: `${id}-orch`,
+        blockedBy: [],
+        ready: false
+      }
     ]
   }
 }
@@ -298,6 +310,7 @@ interface Harness {
     answered: Array<{ workspaceId: string; agentId: string; questionId: string; text: string }>
     userMessages: Array<{ workspaceId: string; text: string }>
     promoted: Array<{ workspaceId: string; agentId: string }>
+    runFolders: string[]
     removedWorktrees: Array<{ profileId: string; path: string }>
     staleWorktrees: { path: string; branch?: string }[]
     change?: () => void
@@ -410,6 +423,7 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     answered: [] as Array<{ workspaceId: string; agentId: string; questionId: string; text: string }>,
     userMessages: [] as Array<{ workspaceId: string; text: string }>,
     promoted: [] as Array<{ workspaceId: string; agentId: string }>,
+    runFolders: [] as string[],
     removedWorktrees: [] as Array<{ profileId: string; path: string }>,
     staleWorktrees: [
       { path: '/repo/.vertragus/worktrees/old-1', branch: 'vertragus/paradiso/caronte' }
@@ -435,6 +449,10 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     },
     async promoteAgentBranch(workspaceId: string, agentId: string) {
       this.promoted.push({ workspaceId, agentId })
+    },
+    async openRunFolder(workspaceId: string) {
+      if (workspaceId === 'gone') throw new Error(`run folder rejected — unknown workspace ${workspaceId}`)
+      this.runFolders.push(workspaceId)
     },
     focusAgent(agentId: string) {
       this.focused.push(agentId)
@@ -895,6 +913,31 @@ describe('workspaces', () => {
     ).toThrow(/not the panel/)
   })
 
+  it('reveals a run folder — panel only, id required, disk failure stays loud', async () => {
+    await h.ipc.invoke(APP_CHANNELS.workspacesOpenRunFolder, PANEL_ID, { workspaceId: 'w1' })
+    // The single-id shorthand every other workspace channel accepts.
+    await h.ipc.invoke(APP_CHANNELS.workspacesOpenRunFolder, PANEL_ID, 'w2')
+    expect(h.directory.runFolders).toEqual(['w1', 'w2'])
+
+    await expect(
+      Promise.resolve(h.ipc.invoke(APP_CHANNELS.workspacesOpenRunFolder, PANEL_ID, {}))
+    ).rejects.toThrow(/missing workspace id/)
+    await expect(
+      Promise.resolve(
+        h.ipc.invoke(APP_CHANNELS.workspacesOpenRunFolder, PANEL_ID, { workspaceId: 'gone' })
+      )
+    ).rejects.toThrow(/unknown workspace gone/)
+
+    // Desktop-only by construction: only the panel window may ask, and no
+    // gateway verb mirrors it (see main/remote/gateway.test.ts).
+    for (const sender of [CLI_ID, EDITOR_ID, SETTINGS_ID, PROVIDER_EDITOR_ID]) {
+      expect(() =>
+        h.ipc.invoke(APP_CHANNELS.workspacesOpenRunFolder, sender, { workspaceId: 'w1' })
+      ).toThrow(/not the panel/)
+    }
+    expect(h.directory.runFolders).toEqual(['w1', 'w2'])
+  })
+
   it('rejects a focus-workspace call without a workspace id', () => {
     expect(() => h.ipc.invoke(APP_CHANNELS.workspacesFocus, PANEL_ID, {})).toThrow(
       /missing workspace id/
@@ -921,6 +964,7 @@ describe('workspaces', () => {
         answerQuestion: async () => refuse(),
         postUserMessage: refuse,
         promoteAgentBranch: async () => refuse(),
+        openRunFolder: async () => refuse(),
         focusAgent() {},
         closeAgentWindow() {},
         focusWorkspace() {},
@@ -1766,6 +1810,7 @@ describe('production registration', () => {
       answerQuestion: vi.fn(async () => {}),
       postUserMessage: vi.fn(),
       promoteAgentBranch: vi.fn(async () => {}),
+      openRunFolder: vi.fn(async () => {}),
       focusAgent: vi.fn(),
       closeAgentWindow: vi.fn(),
       focusWorkspace: vi.fn(),
@@ -1781,6 +1826,7 @@ describe('production registration', () => {
       answerQuestion: vi.fn(async () => {}),
       postUserMessage: vi.fn(),
       promoteAgentBranch: vi.fn(async () => {}),
+      openRunFolder: vi.fn(async () => {}),
       focusAgent: vi.fn(),
       closeAgentWindow: vi.fn(),
       focusWorkspace: vi.fn(),

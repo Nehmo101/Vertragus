@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { join } from 'node:path'
 import type { AgentEvent } from '@shared/schema/events'
-import { createRunJournal } from './journal'
+import { createRunJournal, runDir, runsDir } from './journal'
 
 const event = (seq: number): AgentEvent =>
   ({ type: 'agent_progress', agentId: 'a1', name: 'Caronte', roleId: 'worker', note: 'x', seq, ts: 1 }) as AgentEvent
@@ -68,5 +68,21 @@ describe('createRunJournal — E3 (write-only half)', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(warn).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('runDir', () => {
+  it('names the folder the journal, the board and the spill store all write into', () => {
+    const dir = runDir('/repo', 'ws-1')
+    expect(dir).toBe(join(runsDir('/repo'), 'ws-1'))
+    // The panel's run-artifact button hands exactly this path to the OS, so it
+    // must be the directory the journal itself uses — not a parallel guess.
+    expect(
+      createRunJournal('/repo', 'ws-1', {
+        mkdir: vi.fn(async () => undefined),
+        appendFile: vi.fn(async () => undefined) as never,
+        warn: vi.fn()
+      }).path
+    ).toBe(join(dir, 'events.jsonl'))
   })
 })

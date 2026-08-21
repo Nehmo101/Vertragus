@@ -194,6 +194,7 @@ export function PanelApp(): React.JSX.Element {
                   onAnswerQuestion={panel.answerQuestion}
                   onUserMessage={panel.sendUserMessage}
                   onPromoteAgent={panel.promoteAgent}
+                  onOpenRunFolder={panel.openRunFolder}
                 />
               ))}
             </div>
