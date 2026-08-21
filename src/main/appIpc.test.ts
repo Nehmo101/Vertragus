@@ -22,6 +22,7 @@ vi.mock('@main/store/settings', async (importOriginal) => ({
 }))
 vi.mock('@main/providers/discovery', () => ({ discoverModels: vi.fn() }))
 vi.mock('@main/providers/health', () => ({ checkAllProviders: vi.fn() }))
+vi.mock('@main/providers/authStatus', () => ({ checkAllProviderAuth: vi.fn() }))
 vi.mock('@main/windows/cliWindow', () => ({
   focusCliWindow: vi.fn(),
   listCliWindows: vi.fn(() => [])
@@ -158,7 +159,7 @@ function provider(input: ProviderConfigInput): ProviderConfig {
 }
 
 const SETTINGS: AppSettings = {
-  ui: { theme: 'dark', locale: 'de', appearance: DEFAULT_APPEARANCE },
+  ui: { theme: 'dark', locale: 'de', appearance: DEFAULT_APPEARANCE, onboardingDismissed: false },
   remote: { enabled: false, bindAddress: '', port: 9482 },
   yoloMaster: true,
   hideAllHotkey: 'Control+Alt+V',
@@ -302,9 +303,13 @@ interface Harness {
     change?: () => void
   }
   health: ReturnType<typeof vi.fn>
+  /** WP-7: the login probe behind `providers:authStatus`. */
+  auth: ReturnType<typeof vi.fn>
   discover: ReturnType<typeof vi.fn>
   pick: ReturnType<typeof vi.fn>
   opened: (string | undefined)[]
+  /** WP-7: the orchestrator hint each editor-open carried, in the same order. */
+  openedHints: (string | undefined)[]
   closed: number[]
   providerEditorsOpened: (string | undefined)[]
   providerEditorsClosed: number[]
@@ -343,12 +348,22 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
   const broadcasts: { channel: string; payload: unknown }[] = []
   const state = { workspaces: [workspace('w1')] }
   const opened: (string | undefined)[] = []
+  const openedHints: (string | undefined)[] = []
   const closed: number[] = []
   const providerEditorsOpened: (string | undefined)[] = []
   const providerEditorsClosed: number[] = []
   const health = vi.fn(
     async (configs: readonly ProviderConfig[]): Promise<ProviderHealth[]> =>
       configs.map((config) => ({ id: config.id, available: true, checkedAt: 1 }))
+  )
+  const auth = vi.fn(
+    async (configs: readonly ProviderConfig[]) =>
+      configs.map((config) => ({
+        id: config.id,
+        state: 'logged-in' as const,
+        loginCommand: `${config.command} login`,
+        checkedAt: 1
+      }))
   )
   const discover = vi.fn(async (config: ProviderConfig) => ({
     models: [`${config.id}-model`],
@@ -361,9 +376,11 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     store,
     broadcasts,
     health,
+    auth,
     discover,
     pick,
     opened,
+    openedHints,
     closed,
     providerEditorsOpened,
     providerEditorsClosed,
@@ -467,8 +484,12 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     providerEditorSender: (id) => (id === PROVIDER_EDITOR_ID ? 'claude' : null),
     discoverModels: discover,
     checkProviders: health,
+    checkProviderAuth: auth,
     pickDirectory: pick,
-    openProfileEditor: (profileId) => opened.push(profileId),
+    openProfileEditor: (profileId, providerId) => {
+      opened.push(profileId)
+      openedHints.push(providerId)
+    },
     closeProfileEditor: (id) => closed.push(id),
     openProviderEditor: (providerId) => providerEditorsOpened.push(providerId),
     closeProviderEditor: (id) => providerEditorsClosed.push(id),
@@ -646,6 +667,77 @@ describe('providers and models', () => {
     await expect(
       Promise.resolve(h.ipc.invoke(APP_CHANNELS.modelsDiscover, EDITOR_ID, { providerId: 'ghost' }))
     ).rejects.toThrow(/unknown provider/)
+  })
+})
+
+describe('provider login status (WP-7)', () => {
+  it('answers the panel with one entry per effective provider', async () => {
+    const statuses = (await h.ipc.invoke(APP_CHANNELS.providersAuthStatus, PANEL_ID)) as {
+      id: string
+      state: string
+      loginCommand?: string
+    }[]
+
+    expect(statuses.map((entry) => entry.id)).toEqual(['claude', 'codex'])
+    expect(statuses[0]).toMatchObject({ state: 'logged-in', loginCommand: 'claude login' })
+    expect(h.auth.mock.calls[0]![0]).toHaveLength(2)
+  })
+
+  it('probes again on every call — "I just logged in" must not wait out a TTL', async () => {
+    await h.ipc.invoke(APP_CHANNELS.providersAuthStatus, PANEL_ID)
+    await h.ipc.invoke(APP_CHANNELS.providersAuthStatus, PANEL_ID)
+    expect(h.auth).toHaveBeenCalledTimes(2)
+  })
+
+  it('includes a provider that was just created', async () => {
+    h.ipc.invoke(APP_CHANNELS.providersSave, PANEL_ID, {
+      id: 'my-cli',
+      label: 'Mein CLI',
+      command: 'mycli'
+    })
+    const statuses = (await h.ipc.invoke(APP_CHANNELS.providersAuthStatus, PANEL_ID)) as {
+      id: string
+    }[]
+    expect(statuses.map((entry) => entry.id)).toEqual(['claude', 'codex', 'my-cli'])
+  })
+
+  it('is closed to a CLI window and to a zone overlay', () => {
+    for (const sender of [CLI_ID, OVERLAY_A_ID]) {
+      expect(() => h.ipc.invoke(APP_CHANNELS.providersAuthStatus, sender)).toThrow(
+        /not a panel or editor/
+      )
+    }
+    expect(h.auth).not.toHaveBeenCalled()
+  })
+})
+
+describe('reading providers from the panel (WP-7)', () => {
+  it('lets the panel read the list its first-run card draws', async () => {
+    const entries = (await h.ipc.invoke(APP_CHANNELS.providersList, PANEL_ID)) as {
+      config: ProviderConfig
+      health?: ProviderHealth
+    }[]
+    expect(entries.map((entry) => entry.config.id)).toEqual(['claude', 'codex'])
+  })
+
+  it('still refuses every sender it refused before', () => {
+    // The card is a read; widening the guard would be the regression. These are
+    // the two window kinds that have their own bridge object and are NOT app
+    // windows — a CLI window above all.
+    for (const sender of [CLI_ID, OVERLAY_A_ID, OVERLAY_B_ID, 999]) {
+      expect(() => h.ipc.invoke(APP_CHANNELS.providersList, sender)).toThrow(
+        /not a panel or editor/
+      )
+    }
+    expect(h.health).not.toHaveBeenCalled()
+  })
+
+  it('keeps the write channels closed to everything but panel and editors', () => {
+    for (const channel of [APP_CHANNELS.providersSave, APP_CHANNELS.providersDelete]) {
+      expect(() => h.ipc.invoke(channel, CLI_ID, { id: 'claude' })).toThrow(
+        /not a panel or editor/
+      )
+    }
   })
 })
 
@@ -1028,7 +1120,8 @@ describe('settings and windows', () => {
       autostart: false,
       updateChannel: 'main',
       autostartSupported: true,
-      appearance: DEFAULT_APPEARANCE
+      appearance: DEFAULT_APPEARANCE,
+      onboardingDismissed: false
     })
     // Never the app's own bookkeeping — model memory and panel bounds are
     // written by the app and have no form.
@@ -1167,6 +1260,16 @@ describe('settings and windows', () => {
     expect(h.opened).toEqual(['p1', undefined])
   })
 
+  it('carries the first-run card orchestrator hint through (WP-7)', () => {
+    h.ipc.invoke(APP_CHANNELS.profileEditorOpen, PANEL_ID, { providerId: 'codex' })
+    // Blank is absent, not a provider id: a hint nobody sent must not become
+    // an empty orchestrator on the new profile.
+    h.ipc.invoke(APP_CHANNELS.profileEditorOpen, PANEL_ID, { providerId: '' })
+    h.ipc.invoke(APP_CHANNELS.profileEditorOpen, PANEL_ID, 'p1')
+    expect(h.opened).toEqual([undefined, undefined, 'p1'])
+    expect(h.openedHints).toEqual(['codex', undefined, undefined])
+  })
+
   it('lets only an editor close an editor', () => {
     h.ipc.send(APP_CHANNELS.profileEditorClose, CLI_ID)
     h.ipc.send(APP_CHANNELS.profileEditorClose, PANEL_ID)
@@ -1234,7 +1337,8 @@ describe('settings:set', () => {
       'theme',
       'locale',
       'appearance',
-      'agentPolicy'
+      'agentPolicy',
+      'onboardingDismissed'
     ])
   })
 
@@ -1326,8 +1430,31 @@ describe('settings:set', () => {
     expect(h.store.settings.ui).toEqual({
       theme: 'light',
       locale: 'en',
-      appearance: DEFAULT_APPEARANCE
+      appearance: DEFAULT_APPEARANCE,
+      onboardingDismissed: false
     })
+  })
+
+  it('lets the panel close the first-run card for good (WP-7)', async () => {
+    const next = (await h.ipc.invoke(APP_CHANNELS.settingsSet, PANEL_ID, {
+      key: 'onboardingDismissed',
+      value: true
+    })) as PanelSettings
+
+    expect(next.onboardingDismissed).toBe(true)
+    // Patched into `ui`, not written over it: theme and locale survive.
+    expect(h.store.settings.ui).toMatchObject({ theme: 'dark', locale: 'de' })
+    // Every window learns about it in the same tick, like any other setting.
+    expect(h.broadcasts.map((entry) => entry.channel)).toContain(APP_CHANNELS.eventSettings)
+  })
+
+  it('refuses a dismiss payload that is not a boolean', async () => {
+    await expect(
+      h.ipc.invoke(APP_CHANNELS.settingsSet, SETTINGS_ID, {
+        key: 'onboardingDismissed',
+        value: 'ja'
+      })
+    ).rejects.toThrow(/expects a boolean/)
   })
 })
 
@@ -1727,7 +1854,7 @@ describe('production registration', () => {
   it('opens the profile editor for a gear click from the panel', () => {
     registerAppIpc()
     invokeRegistered(APP_CHANNELS.profileEditorOpen, PANEL_ID, { profileId: 'p1' })
-    expect(openProfileEditorWindow).toHaveBeenCalledWith('p1')
+    expect(openProfileEditorWindow).toHaveBeenCalledWith('p1', undefined)
   })
 
   it('registers every channel exactly once', () => {

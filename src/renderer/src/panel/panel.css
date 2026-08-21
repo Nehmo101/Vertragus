@@ -464,6 +464,207 @@
   color: var(--text-3);
 }
 
+/* --- first run (WP-7, only while there is no profile) --------------------- */
+
+.panel-onboarding {
+  gap: 2px;
+}
+
+.panel-onboarding-recheck {
+  margin-left: auto;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  font: 400 12px var(--font-body);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.panel-onboarding-recheck:hover {
+  background: var(--hover-wash);
+  color: var(--text);
+}
+
+.panel-onboarding-dismiss {
+  width: 18px;
+  height: 18px;
+  align-self: center;
+}
+
+.panel-onboarding-intro {
+  margin: 0 0 3px 6px;
+  font: 400 11px var(--font-body);
+  color: var(--text-2);
+}
+
+.panel-onboarding-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Marker column plus a full-width body underneath it. */
+.panel-onboarding-step {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  align-items: baseline;
+  column-gap: 6px;
+  padding: 2px 6px 3px;
+  border-radius: 10px;
+}
+
+.panel-onboarding-step.is-active {
+  background: var(--hover-wash);
+}
+
+.panel-onboarding-step.is-todo {
+  opacity: 0.55;
+}
+
+.panel-onboarding-marker {
+  display: grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  border: 1px solid rgba(var(--ink-rgb), 0.16);
+  border-radius: 50%;
+  font: 500 9px var(--font-body);
+  color: var(--text-3);
+}
+
+.panel-onboarding-step.is-done .panel-onboarding-marker {
+  border-color: transparent;
+  color: var(--verdigris-text);
+}
+
+.panel-onboarding-step-label {
+  font: 600 10px var(--font-body);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.panel-onboarding-body {
+  grid-column: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.panel-onboarding-list {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.panel-onboarding-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.panel-onboarding-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-3);
+}
+
+.panel-onboarding-dot.is-ok {
+  background: var(--verdigris-text);
+}
+
+.panel-onboarding-dot.is-warn {
+  background: var(--warn-text);
+}
+
+/* `unknown` stays the neutral grey of the base rule — see onboardingViewModel. */
+.panel-onboarding-dot.is-unknown {
+  opacity: 0.6;
+}
+
+.panel-onboarding-name {
+  flex: 0 0 auto;
+  font: 400 11px var(--font-body);
+  color: var(--text-2);
+}
+
+.panel-onboarding-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  font: 400 10px var(--font-body);
+  color: var(--text-3);
+}
+
+.panel-onboarding-note {
+  margin: 2px 0 0;
+  font: 400 10px var(--font-body);
+  color: var(--text-3);
+}
+
+/* The whole command line is the copy button — nothing else is clickable here. */
+.panel-onboarding-command {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+  padding: 3px 6px;
+  border: 1px solid rgba(var(--ink-rgb), 0.13);
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.panel-onboarding-command:hover {
+  background: var(--hover-wash);
+}
+
+.panel-onboarding-command code {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 10px var(--font-mono, monospace);
+  color: var(--text-2);
+}
+
+.panel-onboarding-copy {
+  flex: 0 0 auto;
+  overflow: hidden;
+  max-width: 96px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 9px var(--font-body);
+  color: var(--text-3);
+}
+
+.panel-onboarding-action {
+  margin-top: 4px;
+}
+
+.panel-onboarding-error {
+  margin: 3px 0 0 6px;
+  font: 400 11px var(--font-body);
+  color: var(--warn-text);
+  overflow-wrap: anywhere;
+}
+
 .panel-icon-button.has-warning {
   position: relative;
   color: var(--warn-text);

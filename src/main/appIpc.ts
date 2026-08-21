@@ -41,6 +41,7 @@ import { effectiveAgentPolicy, settings } from '@main/store/settings'
 import type { AgentPolicy } from '@shared/agentPolicy'
 import { AGENT_POLICIES } from '@shared/agentPolicy'
 import { discoverModels, type ModelDiscoveryResult } from '@main/providers/discovery'
+import { checkAllProviderAuth, type ProviderAuthStatus } from '@main/providers/authStatus'
 import { checkAllProviders, type ProviderHealth } from '@main/providers/health'
 import { closeCliWindow, focusCliWindow, listCliWindows } from '@main/windows/cliWindow'
 import {
@@ -89,6 +90,14 @@ export const APP_CHANNELS = {
   rolesList: 'roles:list',
   rolesSave: 'roles:save',
   providersList: 'providers:list',
+  /**
+   * WP-7: login state per provider, read on demand by the panel's first-run
+   * card. Separate from `providers:list` because it is a different kind of
+   * cost — `list` probes `--version` on every editor open, this one shells out
+   * to the CLIs' own status commands and is only ever run while somebody is
+   * looking at the answer.
+   */
+  providersAuthStatus: 'providers:authStatus',
   providersSave: 'providers:save',
   providersDelete: 'providers:delete',
   modelsDiscover: 'models:discover',
@@ -380,6 +389,8 @@ export interface PanelSettings {
   theme: AppSettings['ui']['theme']
   /** Opacity and glass transparency; see shared/appearance.ts. */
   appearance: Appearance
+  /** WP-7: the first-run card was closed by hand — the panel honours it. */
+  onboardingDismissed: boolean
   autostart: boolean
   updateChannel: AppSettings['updateChannel']
   /**
@@ -408,7 +419,8 @@ export const WRITABLE_SETTINGS = [
   'theme',
   'locale',
   'appearance',
-  'agentPolicy'
+  'agentPolicy',
+  'onboardingDismissed'
 ] as const
 export type WritableSetting = (typeof WRITABLE_SETTINGS)[number]
 
@@ -581,8 +593,17 @@ export interface AppIpcHost {
   providerEditorSender(webContentsId: number): string | null
   discoverModels(config: ProviderConfig): Promise<ModelDiscoveryResult>
   checkProviders(configs: readonly ProviderConfig[]): Promise<ProviderHealth[]>
+  /** WP-7: login state per provider; see `@main/providers/authStatus`. */
+  checkProviderAuth(configs: readonly ProviderConfig[]): Promise<ProviderAuthStatus[]>
   pickDirectory(webContentsId: number, defaultPath?: string): Promise<string | null>
-  openProfileEditor(profileId?: string): void
+  /**
+   * `providerId` (WP-7) preselects the orchestrator of a NEW profile — the
+   * first-run card knows which CLI actually answered its health probe, and
+   * dropping the user into a form defaulted to a provider that is not
+   * installed is how a guided first run stops being guided. A hint, never a
+   * write: an existing profile carries its own provider and ignores it.
+   */
+  openProfileEditor(profileId?: string, providerId?: string): void
   closeProfileEditor(webContentsId: number): void
   openProviderEditor(providerId?: string): void
   closeProviderEditor(webContentsId: number): void
@@ -675,6 +696,7 @@ export function toPanelSettings(
     locale: value.ui.locale,
     theme: value.ui.theme,
     appearance: value.ui.appearance,
+    onboardingDismissed: value.ui.onboardingDismissed,
     autostart: value.autostart,
     updateChannel: value.updateChannel,
     autostartSupported,
@@ -801,6 +823,24 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
       health: byId.get(config.id)
     }))
   })
+
+  /**
+   * WP-7: who is logged in where.
+   *
+   * Guarded like `providers:list` and not more narrowly: both reads feed the
+   * same first-run card, and giving the two halves of one card two different
+   * sender rules would be a trap for whoever adds the third. It answers a
+   * descriptor-derived login command and whatever the CLI printed about
+   * itself — no credentials, no tokens, nothing a provider list does not
+   * already imply.
+   *
+   * Deliberately uncached: the whole point is to be re-run right after the
+   * user typed the login command in their own terminal, and a TTL would make
+   * "I just logged in" a wait instead of a click.
+   */
+  handle(APP_CHANNELS.providersAuthStatus, requireAppWindow, () =>
+    host.checkProviderAuth(host.store.effectiveProviders())
+  )
 
   /**
    * Announce the effective provider list. Every window that shows providers
@@ -1074,6 +1114,13 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
           const ui = { ...host.store.getSettings().ui, appearance: normalizeAppearance(body.value) }
           return panelSettings(host.store.setSetting('ui', ui))
         }
+        case 'onboardingDismissed': {
+          if (typeof body.value !== 'boolean') {
+            throw new Error('settings:set rejected — onboardingDismissed expects a boolean')
+          }
+          const ui = { ...host.store.getSettings().ui, onboardingDismissed: body.value }
+          return panelSettings(host.store.setSetting('ui', ui))
+        }
         case 'theme':
         case 'locale': {
           // `ui` is one strict object in the schema: read, patch, write back.
@@ -1140,9 +1187,11 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
   })
 
   handle(APP_CHANNELS.profileEditorOpen, requireAppWindow, (_event, payload) => {
-    const profileId =
-      typeof payload === 'string' ? payload : (payload as { profileId?: string })?.profileId
-    host.openProfileEditor(profileId || undefined)
+    const body =
+      typeof payload === 'string'
+        ? { profileId: payload }
+        : ((payload ?? {}) as { profileId?: string; providerId?: string })
+    host.openProfileEditor(body.profileId || undefined, body.providerId || undefined)
   })
 
   host.ipcMain.on(APP_CHANNELS.profileEditorClose, ((event: IpcEvent): void => {
@@ -1402,6 +1451,7 @@ export function registerAppIpc(directory?: WorkspaceDirectory): AppIpc {
         locale: () => readLocale(() => settings().getSettings().ui.locale)
       }),
     checkProviders: (configs) => checkAllProviders(configs),
+    checkProviderAuth: (configs) => checkAllProviderAuth(configs),
     async pickDirectory(webContentsId, defaultPath) {
       // Modal to the asking window, so the dialog cannot end up behind the
       // always-on-top panel.
@@ -1417,8 +1467,8 @@ export function registerAppIpc(directory?: WorkspaceDirectory): AppIpc {
         : await dialog.showOpenDialog(options)
       return result.canceled ? null : (result.filePaths[0] ?? null)
     },
-    openProfileEditor: (profileId) => {
-      openProfileEditorWindow(profileId)
+    openProfileEditor: (profileId, providerId) => {
+      openProfileEditorWindow(profileId, providerId)
     },
     closeProfileEditor: (webContentsId) => {
       const key = isProfileEditorWindowSender(webContentsId)
