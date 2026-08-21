@@ -1472,6 +1472,50 @@ describe('assignGoal — H2, the goal rides the assignment handshake', () => {
   })
 })
 
+describe('noteOrchestratorGoal — first CLI submit becomes goalText', () => {
+  it('records the first submitted note as goalText', () => {
+    const { workspace } = harness()
+    expect(workspace.noteOrchestratorGoal('Fix')).toBe(false)
+    expect(workspace.goalText).toBeUndefined()
+    expect(workspace.noteOrchestratorGoal(' the panel\r')).toBe(true)
+    expect(workspace.goalText).toBe('Fix the panel')
+  })
+
+  it('does not replace a start-with-goal already on goalText', async () => {
+    const { workspace } = harness()
+    await workspace.startOrchestrator()
+    await workspace.assignGoal('Fix the login bug')
+    expect(workspace.noteOrchestratorGoal('later steering\r')).toBe(false)
+    expect(workspace.goalText).toBe('Fix the login bug')
+  })
+
+  it('first successful submit sticks; a later Enter does not clobber it', () => {
+    const { workspace } = harness()
+    expect(workspace.noteOrchestratorGoal('first assignment\r')).toBe(true)
+    expect(workspace.noteOrchestratorGoal('also look at X\r')).toBe(false)
+    expect(workspace.goalText).toBe('first assignment')
+  })
+
+  it('a new workspace does not inherit a leftover assembler (unregister/reuse)', () => {
+    const first = harness()
+    expect(first.workspace.noteOrchestratorGoal('leftover partial')).toBe(false)
+    expect(first.workspace.goalText).toBeUndefined()
+
+    const again = harness()
+    expect(again.workspace.goalText).toBeUndefined()
+    expect(again.workspace.noteOrchestratorGoal('new assignment\r')).toBe(true)
+    expect(again.workspace.goalText).toBe('new assignment')
+    expect(first.workspace.goalText).toBeUndefined()
+  })
+
+  it('a closed workspace stops capturing', async () => {
+    const { workspace } = harness()
+    await workspace.close()
+    expect(workspace.noteOrchestratorGoal('too late\r')).toBe(false)
+    expect(workspace.goalText).toBeUndefined()
+  })
+})
+
 /**
  * Ollama runs `mcp: none` on purpose — no verified attach surface, so declaring
  * one would kill the launch. The price is an agent that cannot report anything,

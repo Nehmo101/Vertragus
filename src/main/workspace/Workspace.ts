@@ -44,6 +44,10 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { AgentMeta, AgentRegistry } from '@main/ipc'
 import { EventQueue } from '@main/mcp/eventQueue'
+import {
+  createOrchestratorGoalAssembler,
+  type OrchestratorGoalAssembler
+} from '@main/mcp/orchestratorGoal'
 import type { PendingQuestions } from '@main/mcp/pendingQuestions'
 import {
   USER_QUESTION_AGENT_ID,
@@ -453,8 +457,14 @@ export class Workspace implements AgentHost {
   pendingRetroSummary: string | undefined
   /** S1: spill store for oversized tool output; created with the MCP context. */
   private spillStore: SpillStore | undefined
-  /** The user's goal, once it was DELIVERED to the orchestrator (H2). */
+  /**
+   * The user's goal, once delivered: start-with-goal (argv at spawn or
+   * {@link assignGoal} over the PTY), or the first submitted orchestrator CLI
+   * assignment when Play was bare.
+   */
   private goal: string | undefined
+  /** Buffers `terminal:input` until the first successful submit; see {@link noteOrchestratorGoal}. */
+  private goalAssembler: OrchestratorGoalAssembler | undefined
   /** C5 idle watchdog: when the orchestrator last called one of its tools. */
   private orchestratorLastToolAt = 0
   private orchestratorIdleTimer: ReturnType<typeof setTimeout> | undefined
@@ -494,11 +504,11 @@ export class Workspace implements AgentHost {
   }
 
   /**
-   * The goal this workspace was started with — set only after it was actually
-   * delivered to the orchestrator's CLI (argv at spawn, or {@link assignGoal}
-   * over the PTY), so the panel and the remote client never show a goal the
-   * orchestrator never saw. Undefined for a bare Play (back-compat): the UI
-   * shows "no goal" instead.
+   * The user's assignment to this workspace. Set after it was actually
+   * delivered to the orchestrator's CLI: argv at spawn, {@link assignGoal}
+   * over the PTY, or the first submitted orchestrator CLI note
+   * ({@link noteOrchestratorGoal}). Undefined for a bare Play that nobody has
+   * typed into yet: the UI shows "no goal" instead.
    */
   get goalText(): string | undefined {
     return this.goal
@@ -1778,6 +1788,23 @@ export class Workspace implements AgentHost {
       throw new Error(`${record.name} did not accept the goal — type it into its terminal instead.`)
     }
     this.goal = goal
+  }
+
+  /**
+   * Feed a chunk of user PTY input from the orchestrator CLI. Seed writes and
+   * `sendToAgent` go through `pty.write` directly and never reach this. First
+   * successful note sticks; a start-with-goal that already set {@link goalText}
+   * is a no-op. Returns true when the goal newly landed so the panel can emit
+   * without waiting for a poll.
+   */
+  noteOrchestratorGoal(chunk: string): boolean {
+    if (this.closed || this.goal !== undefined) return false
+    if (!this.goalAssembler) this.goalAssembler = createOrchestratorGoalAssembler()
+    if (!this.goalAssembler.push(chunk)) return false
+    const note = this.goalAssembler.goalText
+    if (!note) return false
+    this.goal = note
+    return true
   }
 
   /**

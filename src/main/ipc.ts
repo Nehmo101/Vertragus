@@ -211,6 +211,22 @@ function isPositiveInt(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0
 }
 
+/**
+ * Observer of user PTY input (`terminal:input` and {@link TerminalDirectory.write}).
+ * Late-bound because `registerTerminalIpc()` runs before WorkspaceManager exists;
+ * ipc.ts must not import the manager. A missing sink is a no-op.
+ *
+ * Seed writes and `sendToAgent` go through `pty.write` directly and never
+ * reach this — they are plumbing, not the user's assignment.
+ */
+export type TerminalInputSink = (agentId: string, data: string) => void
+
+let terminalInputSink: TerminalInputSink | undefined
+
+export function setTerminalInputSink(sink: TerminalInputSink | undefined): void {
+  terminalInputSink = sink
+}
+
 export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
   const coalesceMs = host.coalesceMs ?? TERMINAL_COALESCE_MS
   const agents = new Map<string, AgentRecord>()
@@ -283,13 +299,20 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
     }
   }) as IpcListener)
 
+  const writeUserInput = (record: AgentRecord, data: string): void => {
+    record.entry.pty.write(data)
+    // Any agent: the sink decides orchestrator vs not. Seed writes never pass
+    // through this path, so they cannot be mistaken for the user's goal.
+    terminalInputSink?.(record.entry.meta.agentId, data)
+  }
+
   host.ipcMain.on(TERMINAL_CHANNELS.input, ((
     event: { sender: { id: number } },
     data?: unknown
   ): void => {
     const record = resolveRecord(event)
     if (!record || typeof data !== 'string' || !data) return
-    record.entry.pty.write(data)
+    writeUserInput(record, data)
   }) as IpcListener)
 
   host.ipcMain.on(TERMINAL_CHANNELS.resize, ((
@@ -455,7 +478,8 @@ export function createTerminalIpc(host: TerminalIpcHost): AgentRegistry {
         write(agentId, data) {
           const record = agents.get(agentId)
           if (!record || !data) return false
-          record.entry.pty.write(data)
+          // Same path as `terminal:input` — remote steering is user input too.
+          writeUserInput(record, data)
           return true
         },
         resize(agentId, cols, rows) {

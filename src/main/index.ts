@@ -13,7 +13,7 @@ import {
   type WorkspaceSummary
 } from './appIpc'
 import { createAppWorkspaceManager, maybeStartDevWorkspace, type DevRunHandle } from './devRun'
-import { getAgentRegistry, registerTerminalIpc } from './ipc'
+import { getAgentRegistry, registerTerminalIpc, setTerminalInputSink } from './ipc'
 import { startMcpServer, type McpServerHandle } from './mcp/server'
 import { getProfile, getProfiles, getRoleTemplates, getSettings, setSetting } from './store/settings'
 import { closeCliWindow, createCliWindow, focusCliWindow, getCliWindow, onCliWindowClosed } from './windows/cliWindow'
@@ -523,6 +523,13 @@ app.whenReady().then(async () => {
     const directory = panelDirectory(appManager, appMcp)
     registerAppIpc(directory)
     armTerminalTaskFeed(appManager, appMcp)
+    // Late-bound: registerTerminalIpc ran before the manager existed. ipc.ts
+    // must not import WorkspaceManager. Seed / sendToAgent / assignGoal paste
+    // go through pty.write and never hit this sink.
+    const manager = appManager
+    setTerminalInputSink((agentId, data) => {
+      manager.noteOrchestratorGoal(agentId, data)
+    })
     // Remote access — off by default. The controller does nothing until the
     // user enables it in settings; wiring it here gives the settings channels
     // a live controller to drive.
