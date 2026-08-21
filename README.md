@@ -206,14 +206,16 @@ your PC. It is **off by default**; enable it under **Settings → Remote access*
 
 ## Signing
 
-Downloads are currently **unsigned**: Windows SmartScreen will interrupt the
-first run of the installer — click **More info → Run anyway**. You can verify
-any download against the sha512 hashes in the release's `latest.yml` /
-`main.yml`, the same values the auto-updater checks. The signing and
-notarization plumbing is in place and activates via repository secrets;
-macOS artifacts only join releases once signing exists, because Squirrel.Mac
-refuses unsigned auto-updates. Details, secret names and the verification
-recipe: [`docs/SIGNING.md`](docs/SIGNING.md).
+Downloads are **unsigned by choice** — certificates are a recurring cost
+this project does not carry. Windows SmartScreen interrupts the installer's
+first run: click **More info → Run anyway**. Verify any download against the
+sha512 hashes in the release's `latest.yml` / `main.yml`, the same values the
+auto-updater checks. Releases carry no macOS files at all, because
+Squirrel.Mac refuses unsigned auto-updates and a mac build that can never
+update itself is worse than none — build it locally with
+`pnpm run build:mac`. The signing machinery is implemented and dormant, so
+this is one secret away from changing. Details and the verification recipe:
+[`docs/SIGNING.md`](docs/SIGNING.md).
 
 ## Development
 
