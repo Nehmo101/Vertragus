@@ -163,6 +163,7 @@ export function buildResumeBriefing(run: RunRecord): string {
         ]
       : ['That run started no agents worth listing.']),
     'The branches and worktrees above survived on disk — start follow-up agents with start_agent{baseBranch: "<branch>"} to build on them instead of redoing the work.',
-    'No process from that run is still alive, and every question or ticket from it is void. Reports are claims: verify branch contents (inspect_agent, or a reviewer on the branch) before trusting them.'
+    'No process from that run is still alive, and every question or ticket from it is void. Reports are claims: verify branch contents (inspect_agent, or a reviewer on the branch) before trusting them.',
+    'Past runs are searchable with search_runs.'
   ].join('\n')
 }

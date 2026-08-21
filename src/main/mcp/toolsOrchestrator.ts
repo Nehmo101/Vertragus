@@ -10,6 +10,7 @@ import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { buildHandoffBlock, buildReminderSuffix, buildTaskContract } from '@shared/prompts/contract'
 import { successionRequestSchema } from '@shared/schema/handoff'
+import { searchRuns } from '@main/workspace/searchRuns'
 import { answerAgentQuestion } from './answerQuestion'
 import { resolveAskTimeoutMs, SUBAGENT_TOOL_NAMES } from './toolsSubagent'
 import {
@@ -50,7 +51,8 @@ export const ORCHESTRATOR_TOOL_NAMES = [
   'ask_user',
   'start_orchestrator',
   'record_retro',
-  'request_succession'
+  'request_succession',
+  'search_runs'
 ] as const
 
 export type OrchestratorToolName = (typeof ORCHESTRATOR_TOOL_NAMES)[number]
@@ -928,6 +930,56 @@ export function registerOrchestratorTools(
           'it accepted its area, or agent_start_failed. You will only see the lead’s own events ' +
           '(done / question / progress) — its team stays in its subtree.'
       })
+    }
+  )
+
+  // S5: the pull side of the run memory. Root-only like record_retro — the
+  // history is the ROOT's institutional memory, a lead gets its slice from
+  // its task. The repo path comes from the workspace context; the CURRENT
+  // run's journal lives on disk like every other, so it is searched for free.
+  server.registerTool(
+    'search_runs',
+    {
+      description:
+        'Search this repository’s past run journals — use it before re-solving a problem an ' +
+        'earlier run already hit (build quirks, flaky tests, decisions). Case-insensitive ' +
+        'substring over every journaled event and each run’s goal (no regex); returns the newest ' +
+        'matching runs with short excerpts.',
+      inputSchema: {
+        query: z
+          .string()
+          .min(3)
+          .max(500)
+          .describe('Plain substring to look for; whitespace in it matches any whitespace run'),
+        maxResults: z
+          .number()
+          .int()
+          .min(1)
+          .max(20)
+          .optional()
+          .describe('Runs with matches to return, default 8')
+      }
+    },
+    async ({ query, maxResults }): Promise<ToolText> => {
+      try {
+        const { hits, searchedRuns, skipped } = await searchRuns(ctx.repoPath, query, {
+          maxResults
+        })
+        // The empty answer names its coverage — "no match" over zero searched
+        // runs and over twenty are very different facts.
+        const note =
+          hits.length === 0
+            ? `searched ${searchedRuns} runs, no match`
+            : `${hits.length} matching runs of ${searchedRuns} searched, newest first`
+        return toolJson({
+          hits,
+          searchedRuns,
+          skipped,
+          note: skipped.length > 0 ? `${note}; skipped oversized journals: ${skipped.join(', ')}` : note
+        })
+      } catch (error) {
+        return toolError({ error: 'search_failed', message: errorMessage(error) })
+      }
     }
   )
   } // end root-only surface

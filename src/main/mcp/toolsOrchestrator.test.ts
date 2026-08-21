@@ -1213,6 +1213,34 @@ describe('record_retro repoNotes — E2', () => {
   })
 })
 
+describe('search_runs — S5', () => {
+  it('is registered root-only — absent on a lead registration', () => {
+    const { tools } = setup()
+    expect(tools.has('search_runs')).toBe(true)
+
+    const runtime = fakeRuntime()
+    const leadTools = captureTools((server) =>
+      registerOrchestratorTools(server, runtime, { leadId: 'lead-1' })
+    )
+    expect(leadTools.has('search_runs')).toBe(false)
+  })
+
+  it('answers an empty result with an honest coverage note', async () => {
+    const { tools } = setup()
+    // fakeRuntime's repoPath has no journals on the real fs — the fail-soft
+    // reader reports zero searched runs instead of throwing.
+    const result = await callTool(tools, 'search_runs', { query: 'flaky test' })
+    expect(result.isError).toBe(false)
+    expect(result.json).toMatchObject({ hits: [], searchedRuns: 0, skipped: [] })
+    expect(String(result.json.note)).toBe('searched 0 runs, no match')
+  })
+
+  it('rejects a too-short query at the schema', async () => {
+    const { tools } = setup()
+    await expect(callTool(tools, 'search_runs', { query: 'ab' })).rejects.toThrow()
+  })
+})
+
 describe('request_succession', () => {
   it('returns succession_started and does not wait for the successor spawn', async () => {
     const { runtime, tools } = setup()
