@@ -17,7 +17,7 @@ import {
 import { EventQueue } from './eventQueue'
 import { LEAD_TOOL_NAMES, ORCHESTRATOR_TOOL_NAMES } from './toolsOrchestrator'
 import { SUBAGENT_TOOL_NAMES } from './toolsSubagent'
-import { fakeRuntime } from './testing'
+import { fakeRuntime, memoryTaskBoard, type FakeAgentHost } from './testing'
 import type { WorkspaceMcpContext } from './types'
 
 function context(overrides: Partial<WorkspaceMcpContext> = {}): WorkspaceMcpContext {
@@ -204,6 +204,41 @@ describe('startMcpServer', () => {
 
   it('ignores unregistering an unknown workspace', () => {
     expect(() => handle.unregisterWorkspace('never-there')).not.toThrow()
+  })
+
+  // S4 × C6: the task board used to need wiring in two places by hand — the
+  // runtime for the task_* tools, the host for the succession package. Wiring
+  // one gave a run working tools and a handoff that packaged an empty plan.
+  it('serves ONE task board: installing it on either side installs it on both', () => {
+    const fromTools = context({ workspaceId: 'w-board-tools' })
+    const registered = handle.registerWorkspace(fromTools)
+    const board = memoryTaskBoard()
+    registered.runtime.taskBoard = board
+    expect((fromTools.host as FakeAgentHost).attachedTaskBoard()).toBe(board)
+    expect(registered.runtime.taskBoard).toBe(board)
+
+    const fromHost = context({ workspaceId: 'w-board-host' })
+    const hostRegistered = handle.registerWorkspace(fromHost)
+    const hostBoard = memoryTaskBoard()
+    ;(fromHost.host as FakeAgentHost).attachTaskBoard(hostBoard)
+    expect(hostRegistered.runtime.taskBoard).toBe(hostBoard)
+  })
+
+  // S3: stop_agent and start-failure clean the schema registry in the tool
+  // layer, but a self-exiting agent is only observed by the host — the queue
+  // tap must release its entry, or it leaks until workspace unregistration.
+  it('releases an agent result schema when the agent exits on its own', () => {
+    const ctx = context({ workspaceId: 'w8' })
+    const registered = handle.registerWorkspace(ctx)
+    registered.runtime.resultSchemas.set('agent-1', { type: 'object' })
+    ctx.events.push({
+      type: 'agent_exited',
+      agentId: 'agent-1',
+      name: 'Caronte',
+      roleId: 'worker',
+      confirmed: false
+    })
+    expect(registered.runtime.resultSchemas.has('agent-1')).toBe(false)
   })
 
   it('builds both URLs for a registered workspace from the handle', () => {

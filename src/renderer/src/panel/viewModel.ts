@@ -9,8 +9,12 @@
 import { loreBlurb } from '@shared/lore'
 import { ORCHESTRATOR_ROLE_ID } from '@shared/prompts/roles'
 import { workspacePlaceBlurb } from '@shared/workspaceNames'
-import type { WorkspaceAgentSummary, WorkspaceSummary } from '../../../preload'
-import type { Translate } from '../i18n'
+import type {
+  WorkspaceAgentSummary,
+  WorkspaceSummary,
+  WorkspaceTaskSummary
+} from '../../../preload'
+import type { Locale, Translate } from '../i18n'
 
 /** Dot appearance: bronze pulse for the orchestrator, verdigris for workers. */
 export type AgentDotKind = 'working-orchestrator' | 'working' | 'idle'
@@ -77,12 +81,16 @@ export function agentCanCloseWindow(
  * assigned a task through the tools, it is the last one it delegated.
  * Undefined when there is neither — a card repeating the bare name would be
  * worse than no card (see {@link workspacePlaceTooltip}).
+ *
+ * `locale` travels next to `t` for the same reason `t` does (see
+ * {@link agentStatusLine}): the blurbs are bilingual data, not i18next keys.
  */
 export function agentTooltip(
   t: Translate,
+  locale: Locale,
   agent: Pick<WorkspaceAgentSummary, 'name' | 'roleId' | 'statusText'>
 ): string | undefined {
-  const blurb = loreBlurb(agent.name)
+  const blurb = loreBlurb(agent.name, locale)
   const task = agent.statusText?.trim()
   if (!task) return blurb
   const taskLine =
@@ -101,9 +109,10 @@ export function agentTooltip(
  * user is already pointing at.
  */
 export function workspacePlaceTooltip(
+  locale: Locale,
   workspace: Pick<WorkspaceSummary, 'name'>
 ): string | undefined {
-  return workspacePlaceBlurb(workspace.name)
+  return workspacePlaceBlurb(workspace.name, locale)
 }
 
 /**
@@ -115,9 +124,10 @@ export function workspacePlaceTooltip(
  */
 export function workspaceTooltip(
   t: Translate,
+  locale: Locale,
   workspace: Pick<WorkspaceSummary, 'name' | 'taskText'>
 ): string | undefined {
-  const blurb = workspacePlaceTooltip(workspace)
+  const blurb = workspacePlaceTooltip(locale, workspace)
   const task = workspace.taskText?.trim()
   if (!task) return blurb
   const taskLine = t('panel.workspaceTask', { task })
@@ -137,6 +147,33 @@ export function workspaceGoalLine(
   const goal = workspace.goalText?.trim()
   if (goal) return t('panel.workspaceGoal', { goal })
   return workspace.active ? t('panel.noGoal') : undefined
+}
+
+/**
+ * C6: the cutover badge. A workspace mid-succession is neither working nor
+ * dead — its seat is being replaced — and saying so is what stops the greyed
+ * card from reading as "the run is over".
+ */
+export function workspaceSuccessionLabel(
+  t: Translate,
+  workspace: Pick<WorkspaceSummary, 'successionInProgress'>
+): string | undefined {
+  return workspace.successionInProgress ? t('panel.succession') : undefined
+}
+
+/**
+ * S3: offer the "replace orchestrator" button. Two states earn it — a DEAD
+ * orchestrator (the usual reason a human reaches for it: the team is still
+ * running, nobody drives the loop, and Stop would throw the run away) and a
+ * live one that went silent (C5), where replacing beats waiting. Never while a
+ * successor is already spawning: the same click twice is refused by the host
+ * anyway, and offering it would read as "it did not work".
+ */
+export function workspaceCanReplaceOrchestrator(
+  workspace: Pick<WorkspaceSummary, 'active' | 'orchestratorIdle' | 'successionInProgress'>
+): boolean {
+  if (workspace.successionInProgress) return false
+  return !workspace.active || workspace.orchestratorIdle === true
 }
 
 export function workspaceCardClass(
@@ -197,6 +234,133 @@ export function agentCountLabel(
   workspace: Pick<WorkspaceSummary, 'agents'>
 ): string {
   return t('panel.agentCount', { count: workspace.agents.length })
+}
+
+// --- S4: the task board on the card --------------------------------------
+
+/** One board row, ready to paint. Every decision about it was made here. */
+export interface TaskRow {
+  taskId: string
+  subject: string
+  status: WorkspaceTaskSummary['status']
+  /** ○ ◐ ✓ — the glyph vocabulary the retro tally already established. */
+  glyph: string
+  /** Spoken form of the glyph; the glyph itself is decoration for a reader. */
+  statusLabel: string
+  /**
+   * Commedia name of the owner. Absent when the task has none — and also when
+   * its owner is no longer in this summary's agent list: a raw agent uuid on a
+   * card says less than nothing, and the status glyph still shows it is taken.
+   */
+  ownerName?: string
+  /** Pending with unfinished dependencies. The row is dimmed, not hidden. */
+  blocked: boolean
+  /** "waiting for task-3" — only on a blocked row. */
+  hint?: string
+  /** Native tooltip: the full row in one line. */
+  title: string
+}
+
+/** ○ pending · ◐ in progress · ✓ completed. */
+export function taskStatusGlyph(status: WorkspaceTaskSummary['status']): string {
+  if (status === 'completed') return '✓'
+  if (status === 'in_progress') return '◐'
+  return '○'
+}
+
+export function taskStatusLabel(t: Translate, status: WorkspaceTaskSummary['status']): string {
+  if (status === 'completed') return t('panel.taskCompleted')
+  if (status === 'in_progress') return t('panel.taskInProgress')
+  return t('panel.taskPending')
+}
+
+/**
+ * The card's view of the run's plan. `ready` is NOT recomputed here — the host
+ * decides readiness over the whole board, and the card only ever sees a capped
+ * prefix of it, so a second rule here would disagree with the orchestrator's.
+ * What is derived is the *hint*: which dependencies are still open, so a
+ * blocked row can name them instead of only looking grey. A dependency the cap
+ * cut off counts as open — the honest direction, since the host already said
+ * this row is not ready. That reasoning only holds because the host emits LIVE
+ * dependencies only (`Workspace.listTasks`): a reference to a deleted task is
+ * ignored by the readiness rule, so a hint naming it would name a task that is
+ * neither in the plan nor blocking anything.
+ */
+export function taskRows(
+  t: Translate,
+  workspace: Pick<WorkspaceSummary, 'tasks' | 'agents'>
+): TaskRow[] {
+  const tasks = workspace.tasks ?? []
+  const completed = new Set(
+    tasks.filter((task) => task.status === 'completed').map((task) => task.taskId)
+  )
+  const nameOf = new Map(workspace.agents.map((agent) => [agent.agentId, agent.name]))
+  return tasks.map((task) => {
+    const blocked = task.status === 'pending' && !task.ready
+    const waitingFor = task.blockedBy.filter((taskId) => !completed.has(taskId))
+    const ownerName = task.ownerAgentId ? nameOf.get(task.ownerAgentId) : undefined
+    const statusLabel = taskStatusLabel(t, task.status)
+    const hint =
+      blocked && waitingFor.length > 0
+        ? t('panel.taskBlocked', { tasks: waitingFor.join(', ') })
+        : undefined
+    return {
+      taskId: task.taskId,
+      subject: task.subject,
+      status: task.status,
+      glyph: taskStatusGlyph(task.status),
+      statusLabel,
+      ...(ownerName ? { ownerName } : {}),
+      blocked,
+      ...(hint ? { hint } : {}),
+      title: [
+        `${task.taskId}: ${task.subject}`,
+        statusLabel,
+        ...(ownerName ? [t('panel.taskOwner', { agent: ownerName })] : []),
+        ...(hint ? [hint] : [])
+      ].join(' · ')
+    }
+  })
+}
+
+export function taskRowClass(row: Pick<TaskRow, 'blocked' | 'status'>): string {
+  const parts = ['panel-task-row']
+  if (row.blocked) parts.push('is-blocked')
+  if (row.status === 'completed') parts.push('is-done')
+  return parts.join(' ')
+}
+
+/**
+ * Section header: "3/7 done" — the plan's progress without opening the box.
+ *
+ * The numbers come from the HOST, over the whole board. `tasks` is a capped
+ * window, so counting it would answer a different question than the one the
+ * header asks ("30/30 done" for a run with fifteen open tasks). The array is
+ * only the fallback for a summary that predates the counts.
+ */
+export function taskProgressLabel(
+  t: Translate,
+  workspace: Pick<WorkspaceSummary, 'tasks' | 'taskTotal' | 'taskDone'>
+): string {
+  const tasks = workspace.tasks ?? []
+  return t('panel.taskProgress', {
+    done: workspace.taskDone ?? tasks.filter((task) => task.status === 'completed').length,
+    total: workspace.taskTotal ?? tasks.length
+  })
+}
+
+/**
+ * "+15 more" under the last visible row. Undefined when the whole plan fits —
+ * truncation the card does not admit to is the reason the progress figure was
+ * worth distrusting in the first place.
+ */
+export function taskOverflowLabel(
+  t: Translate,
+  workspace: Pick<WorkspaceSummary, 'tasks' | 'taskTotal'>
+): string | undefined {
+  const shown = workspace.tasks?.length ?? 0
+  const total = workspace.taskTotal ?? shown
+  return total > shown ? t('panel.taskMore', { count: total - shown }) : undefined
 }
 
 /**

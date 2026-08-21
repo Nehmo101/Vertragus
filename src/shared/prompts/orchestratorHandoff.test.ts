@@ -139,6 +139,77 @@ describe('formatHandoffSeed', () => {
   })
 })
 
+describe('formatHandoffSeed — C6 recovery mode', () => {
+  const recoveredPkg = buildHandoffPackage({
+    ...pkgInput,
+    agents: [
+      {
+        agentId: 'a1',
+        name: 'Caronte',
+        role: 'worker',
+        status: 'working',
+        branch: 'vertragus/paradiso/caronte',
+        pendingQuestionId: 'q1'
+      }
+    ],
+    tasks: [
+      { taskId: 'task-1', revision: 2, subject: 'Fix the parser', status: 'pending', blockedBy: [] }
+    ]
+  })
+  const recovered = formatHandoffSeed(recoveredPkg, { recovered: true, boardRestored: true })
+
+  it('voids the dead run’s questions instead of offering them as tickets', () => {
+    expect(recovered).toContain('They are VOID')
+    expect(recovered).toContain('merge which branch?')
+    // The ticket id would only invite a send_to_agent that cannot resolve.
+    expect(recovered).not.toContain('[q1]')
+    expect(recovered).not.toContain('send_to_agent{questionId}')
+    expect(recovered).toContain('was waiting on an answer when the run died')
+  })
+
+  it('sends the successor to cursor 0 — the packaged cursor died with its queue', () => {
+    expect(recovered).toContain('Start await_events at cursor 0')
+    expect(recovered).not.toContain('MUST use cursor 42')
+  })
+
+  it('offers the surviving branches and the board, not a live team', () => {
+    expect(recovered).toContain('The team of the dead run')
+    expect(recovered).toContain('start_agent{baseBranch: "<branch>"}')
+    expect(recovered).toContain('branch vertragus/paradiso/caronte')
+    expect(recovered).toContain('search_runs')
+    expect(recovered).toContain('survived on disk')
+    expect(recovered).toContain('Continue the work, do not restart it.')
+  })
+
+  it('claims the board survived only when the host says it did', () => {
+    expect(recovered).toContain('The task board is HOST state and survived on disk')
+    expect(recovered).toContain('do not rebuild it from prose')
+    expect(recovered).toContain('task-1 rev 2 (pending): Fix the parser')
+  })
+
+  it('demotes the plan to history when the board did NOT come back', () => {
+    // The package's tasks are a snapshot; the resumed board comes from
+    // tasks.json, which can be missing. Forbidding a rebuild while task_list
+    // answers with nothing is the host-truth inversion this seed exists against.
+    const lost = formatHandoffSeed(recoveredPkg, { recovered: true })
+    expect(lost).toContain('This plan is HISTORY')
+    expect(lost).toContain('task_list is empty')
+    expect(lost).not.toContain('do not rebuild it from prose')
+    // The rows still travel — as history the successor may act on, not as a
+    // board it is told already exists.
+    expect(lost).toContain('task-1 rev 2 (pending): Fix the parser')
+  })
+
+  it('never asks about the board outside recovery — a live cutover keeps it', () => {
+    // Same host board across the seat change, so `boardRestored` is not a
+    // question a normal handoff has to answer.
+    expect(formatHandoffSeed(recoveredPkg)).toContain('survived this handoff')
+    expect(formatHandoffSeed(recoveredPkg, { boardRestored: false })).toContain(
+      'survived this handoff'
+    )
+  })
+})
+
 describe('buildSuccessorOrchestratorSystemPrompt', () => {
   it('keeps the loop rules and appends the package', () => {
     const prompt = buildSuccessorOrchestratorSystemPrompt(

@@ -29,6 +29,7 @@ import { execFile } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { promisify } from 'node:util'
+import { mainMessages } from '@shared/mainMessages'
 import { modelFamily, normalizeModelKey, orderedModelList, uniqueModels } from '@shared/models'
 import {
   modelMemorySchema,
@@ -73,9 +74,13 @@ interface ExecFailure {
  * dropped. A kill is reported as what it was, because a killed process has no
  * error message of its own.
  */
-export function cliFailureMessage(cause: unknown, timeoutMs: number): string {
+export function cliFailureMessage(
+  cause: unknown,
+  timeoutMs: number,
+  locale?: string
+): string {
   const failure = (cause ?? {}) as ExecFailure
-  if (failure.killed) return `keine Antwort binnen ${timeoutMs} ms`
+  if (failure.killed) return mainMessages(locale).discoveryTimeout(timeoutMs)
   return (
     firstOutputLine(failure.stderr) ||
     (cause instanceof Error && cause.message.trim() ? cause.message.trim() : String(cause))
@@ -101,7 +106,8 @@ export function cliFailureMessage(cause: unknown, timeoutMs: number): string {
 export async function execProviderCli(
   command: string,
   args: string[],
-  timeoutMs: number
+  timeoutMs: number,
+  locale?: string
 ): Promise<string> {
   const launch =
     process.platform === 'win32' ? await resolveLaunch(command, args) : { file: command, args }
@@ -114,7 +120,7 @@ export async function execProviderCli(
   } catch (cause) {
     const failure = (cause ?? {}) as ExecFailure
     if (!failure.killed && failure.stdout?.trim()) return failure.stdout
-    throw new Error(cliFailureMessage(cause, timeoutMs))
+    throw new Error(cliFailureMessage(cause, timeoutMs, locale))
   }
 }
 
@@ -126,6 +132,13 @@ export interface DiscoveryDependencies {
   now(): number
   readMemory(): unknown | Promise<unknown>
   writeMemory(memory: ModelMemory): void | Promise<void>
+  /**
+   * Stored UI locale for the user-facing `detail` strings. Optional — absent
+   * (tests, headless probes) falls back to the schema default via
+   * `mainMessages`. A function, not a value, so appIpc reads the CURRENT
+   * setting per discovery instead of freezing boot-time state.
+   */
+  locale?(): string | undefined
 }
 
 const defaultDependencies: DiscoveryDependencies = {
@@ -442,7 +455,7 @@ function errorMessage(cause: unknown): string {
  * "Not logged in" and exits 0, while `cursor-agent models` exits 1 — the exit
  * code says nothing, the sentence does.
  */
-const AUTH_FAILURE_PATTERN =
+export const AUTH_FAILURE_PATTERN =
   /(authentication|authorization)\s+(required|failed)|not\s+(logged\s*in|signed\s*in|authenticated)|unauthorized|please\s+(log|sign)\s*-?\s*in|no\s+(api[\s-]?key|credentials|token)\s+(found|provided|set)|invalid\s+(api[\s-]?key|token|credentials)|\bHTTP\s*401\b/i
 
 /**
@@ -455,15 +468,21 @@ const AUTH_FAILURE_PATTERN =
  * provider, so the hint is composed from the descriptor rather than typed out
  * per preset. The CLI's own sentence is kept behind it: it is where the
  * alternatives (API key, env var) are spelled out.
+ *
+ * `locale` picks the language of the hint (the wording lives in
+ * `mainMessages`): this string is interpolated into the profile editor's
+ * "models from X" sentence, and a German fragment inside an English sentence
+ * is exactly the drift WP-1 exists to end.
  */
-export function authFailureHint(config: ProviderConfig, failure: string): string | undefined {
+export function authFailureHint(
+  config: ProviderConfig,
+  failure: string,
+  locale?: string
+): string | undefined {
   if (!AUTH_FAILURE_PATTERN.test(failure)) return undefined
   const loginArgs = config.auth?.loginArgs ?? []
-  const login =
-    loginArgs.length > 0
-      ? `'${[config.command, ...loginArgs].join(' ')}' ausführen`
-      : 'bitte anmelden'
-  return `nicht angemeldet — ${login} (${failure})`
+  const login = loginArgs.length > 0 ? [config.command, ...loginArgs].join(' ') : undefined
+  return mainMessages(locale).authNotLoggedIn(login, failure)
 }
 
 /**
@@ -485,14 +504,16 @@ export async function discoverModels(
   try {
     live = await runDiscovery(config, discovery, deps)
     if (live.length === 0 && discovery.kind !== 'none') {
-      detail = `${describeSource(config, discovery)}: keine Modelle in der Antwort`
+      detail = `${describeSource(config, discovery)}: ${
+        mainMessages(deps.locale?.()).discoveryNoModels
+      }`
     }
   } catch (cause) {
     // Fail-soft by design — see the function contract.
     live = []
     const failure = errorMessage(cause)
     detail = `${describeSource(config, discovery)}: ${
-      authFailureHint(config, failure) ?? failure
+      authFailureHint(config, failure, deps.locale?.()) ?? failure
     }`
   }
   // Aliases first: they are the entries that keep tracking new releases.

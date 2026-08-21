@@ -74,7 +74,7 @@ export function App(): React.JSX.Element {
       <Centered>
         <HoundLogo size={36} badge={false} />
         <h1>{copy.errorTitle}</h1>
-        <p>{api.error ?? copy.unknownError}</p>
+        <p>{api.error ? copy[api.error] : copy.unknownError}</p>
         <button className="primary" type="button" onClick={api.reset}>
           {copy.pairAgain}
         </button>

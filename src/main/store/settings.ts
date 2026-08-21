@@ -101,7 +101,16 @@ export const uiSettingsSchema = z
     panelBounds: panelBoundsSchema.optional(),
     theme: z.enum(['dark', 'light']).default('dark'),
     locale: z.enum(['de', 'en']).default('de'),
-    appearance: appearanceSchema
+    appearance: appearanceSchema,
+    /**
+     * WP-7: the user closed the first-run card. NOT the card's trigger — that
+     * stays "there is no profile yet", which is true again after a reinstall
+     * and needs nothing persisted. This flag only records the one thing the
+     * trigger cannot know: that somebody looked at the card and would rather
+     * find their own way. Defaulting to false means an install from before it
+     * existed reads as "never dismissed", which is the truth.
+     */
+    onboardingDismissed: z.boolean().default(false)
   })
   .strict()
 export type UiSettings = z.infer<typeof uiSettingsSchema>
@@ -182,6 +191,16 @@ export function effectiveAgentPolicy(
 export interface SettingsBackend {
   get(key: string): unknown
   set(key: string, value: unknown): void
+}
+
+/**
+ * Map an OS locale (`app.getLocale()`, BCP-47-ish) onto a shipped UI locale:
+ * any German variant (de, de-DE, de-AT, de_CH…) stays German, everything else
+ * gets English. Pure and exported so the rule is unit-testable without
+ * Electron.
+ */
+export function defaultLocaleForOs(osLocale: string | undefined): UiSettings['locale'] {
+  return osLocale?.toLowerCase().startsWith('de') ? 'de' : 'en'
 }
 
 export interface SettingsStoreDeps {
@@ -560,6 +579,29 @@ function createElectronBackend(): SettingsBackend {
     if (keys.length > 0) {
       for (const key of keys) store.set(key, adopted[key])
       console.info(`[settings] adopted from ${LEGACY_STORE_NAME}.json: ${keys.join(', ')}`)
+    }
+  }
+
+  /*
+   * WP-1: first-run UI language follows the OS (de* → de, else en).
+   *
+   * Decision: the zod schema keeps its pure `'de'` default — the schema must
+   * stay evaluable without an Electron runtime (tests, the renderer's boot
+   * fallback, `mainMessages`' documented fallback all lean on it). The OS
+   * derivation therefore lives HERE, in the only place that constructs the
+   * real Electron backend, and it MATERIALIZES the choice by writing a `ui`
+   * value once. Written, not derived per read, so the decision is stable: a
+   * later OS-language change must not silently flip an installation's UI. A
+   * stored `ui` (including one adopted from the legacy file above) always
+   * wins — this only fills true first runs that have no `ui` at all.
+   */
+  if (firstRun && store.get('ui') === undefined) {
+    try {
+      store.set('ui', { locale: defaultLocaleForOs(app.getLocale()) })
+    } catch {
+      // Unreadable OS locale (stripped runtime, too-early call): write
+      // nothing and let the schema default ('de') carry, rather than failing
+      // the whole store construction over a nicety.
     }
   }
 

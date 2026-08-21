@@ -1,12 +1,17 @@
 import { homedir, networkInterfaces } from 'node:os'
 import { join } from 'node:path'
-import { app, safeStorage, ipcMain } from 'electron'
+import { app, safeStorage, ipcMain, shell } from 'electron'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { mainMessages, readLocale } from '@shared/mainMessages'
 import { allRoleTemplates, roleColor } from '@shared/prompts/roles'
 import { PtyAgent } from './agents/PtyAgent'
 import { resolveLaunch } from './agents/resolveCommand'
-import { registerAppIpc, type WorkspaceDirectory, type WorkspaceSummary } from './appIpc'
+import {
+  registerAppIpc,
+  PANEL_TASKS_MAX,
+  type WorkspaceDirectory,
+  type WorkspaceSummary
+} from './appIpc'
 import { createAppWorkspaceManager, maybeStartDevWorkspace, type DevRunHandle } from './devRun'
 import { getAgentRegistry, registerTerminalIpc } from './ipc'
 import { startMcpServer, type McpServerHandle } from './mcp/server'
@@ -30,7 +35,18 @@ import { armWindowCapture } from './windows/smokeCapture'
 import { armZoneOverlaySmoke } from './windows/zoneOverlay'
 import { startAppUpdater } from './updater'
 import type { WorkspaceManager } from './workspace/WorkspaceManager'
-import { boardForResume, buildResumeBriefing, latestRun, readRunTasks } from './workspace/resume'
+import { runDir } from './workspace/journal'
+import {
+  boardForResume,
+  buildResumeBriefing,
+  latestRun,
+  markSuccessionConsumed,
+  readRunTasks,
+  readSuccessionPackage,
+  successionSuperseded
+} from './workspace/resume'
+import { revealRunFolder } from './workspace/revealRunFolder'
+import { taskWindow } from './workspace/taskWindow'
 import { createWorktreeCleanup } from './workspace/worktreeCleanup'
 
 /**
@@ -103,6 +119,12 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
         const orchestratorQuestion = orchestrator
           ? pendingOf(ws.workspaceId, orchestrator.agentId)
           : undefined
+        // S4: the plan, already tombstone-free and readiness-resolved by the
+        // host. Capped here because this payload is re-broadcast on every
+        // change and also travels to the phone — but the counts come from the
+        // whole board, and the window keeps unfinished work over finished
+        // (see workspace/taskWindow).
+        const plan = taskWindow(ws.listTasks(), PANEL_TASKS_MAX)
         return {
           workspaceId: ws.workspaceId,
           name: ws.name,
@@ -114,12 +136,18 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
           ...(taskText ? { taskText } : {}),
           ...(ws.goalText ? { goalText: ws.goalText } : {}),
           ...(ws.orchestratorIdle ? { orchestratorIdle: true } : {}),
+          // C6: a successor is spawning — the seat is mid-cutover, which is
+          // neither "working" nor the greyed-out dead state.
+          ...(ws.successionInProgress() ? { successionInProgress: true as const } : {}),
           // D3: the orchestrator's open ask_user question, registry-keyed
           // under the reserved agent id 'user'.
           ...(() => {
             const open = mcp.openQuestion(ws.workspaceId, 'user')
             return open ? { userQuestion: open } : {}
           })(),
+          ...(plan.total > 0
+            ? { tasks: plan.rows, taskTotal: plan.total, taskDone: plan.done }
+            : {}),
           agents: [
             ...(orchestrator
               ? [
@@ -204,16 +232,53 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
       // the new board and gets one honest mention in the briefing.
       const rawTasks = await readRunTasks(profile.repoPath, run.workspaceId)
       const tasks = rawTasks ? boardForResume(rawTasks) : undefined
-      return manager.startWorkspace(profile, {
+      // C6: that run may have died mid-handoff. Its frozen package briefs the
+      // new orchestrator instead of the journal summary — and is only retired
+      // once the start actually succeeded, so a failed boot can try again.
+      //
+      // Unless the journal contradicts it. Both renames that retire a package
+      // are best-effort, so a surviving `succession.json` is a hint, not a
+      // fact; the journal is the fact, and it is already loaded. A package the
+      // run outlived would seed a fresh orchestrator with a stale roster while
+      // asserting the run died at the freeze — and would drop the briefing
+      // that covers everything since.
+      const frozen = await readSuccessionPackage(profile.repoPath, run.workspaceId)
+      const stale = frozen !== undefined && successionSuperseded(frozen, run.events)
+      if (stale) await markSuccessionConsumed(profile.repoPath, run.workspaceId, {}, 'failed')
+      const succession = stale ? undefined : frozen
+      const running = await manager.startWorkspace(profile, {
         resume: {
           briefing: buildResumeBriefing(run, tasks),
           fromWorkspaceId: run.workspaceId,
-          ...(tasks ? { tasks } : {})
+          ...(tasks ? { tasks } : {}),
+          ...(succession ? { succession } : {})
         },
         ...(run.meta?.goal ? { goal: run.meta.goal } : {})
       })
+      if (succession) await markSuccessionConsumed(profile.repoPath, run.workspaceId)
+      return running
     },
     stop: (workspaceId) => manager.stopWorkspace(workspaceId),
+    async succeedOrchestrator(workspaceId) {
+      const workspace = manager.get(workspaceId)
+      if (!workspace) {
+        throw new Error(`orchestrator replacement rejected — unknown workspace ${workspaceId}`)
+      }
+      try {
+        await workspace.replaceOrchestratorFromHost()
+      } catch (error) {
+        // The host codes are the MCP contract's, not a sentence for a human
+        // who just pressed a button.
+        const message = error instanceof Error ? error.message : String(error)
+        if (message.includes('already_in_progress')) {
+          throw new Error('orchestrator replacement rejected — a successor is already starting')
+        }
+        if (message.includes('no_orchestrator')) {
+          throw new Error('orchestrator replacement rejected — this workspace has no orchestrator')
+        }
+        throw error
+      }
+    },
     postUserMessage(workspaceId, text) {
       const workspace = manager.get(workspaceId)
       if (!workspace) throw new Error(`user message rejected — unknown workspace ${workspaceId}`)
@@ -228,6 +293,13 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
           `Merge conflict — nothing was changed. Conflicting files: ${outcome.conflictFiles.join(', ') || '(unknown)'}`
         )
       }
+    },
+    async openRunFolder(workspaceId) {
+      const workspace = manager.get(workspaceId)
+      if (!workspace) throw new Error(`run folder rejected — unknown workspace ${workspaceId}`)
+      // The openPath contract (resolves with an error STRING, never rejects)
+      // is a rule with two branches, so it lives in a module a test can hold.
+      await revealRunFolder((path) => shell.openPath(path), runDir(workspace.repoPath, workspaceId))
     },
     async answerQuestion(workspaceId, agentId, questionId, text) {
       // One host path (H1): identical to the orchestrator's
@@ -372,6 +444,7 @@ function buildRemoteController(
   return createRemoteController({
     readSettings: () => getSettings().remote,
     writeSettings: (next) => setSetting('remote', next),
+    locale: () => readLocale(() => getSettings().ui.locale),
     networkInterfaces: () => networkInterfaces() as Parameters<typeof bindOptions>[0],
     secrets: {
       // No OS keychain (a Linux desktop without a configured keyring) → do

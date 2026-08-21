@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { WorkspaceAgentSummary, WorkspaceSummary } from '../../../preload'
+import { activeLocale } from '../i18n'
 import { LoreTip } from '../lore/LoreTip'
-import { CloseIcon, StopIcon } from './icons'
+import { ChevronIcon, CloseIcon, FolderIcon, StopIcon } from './icons'
 import {
   agentCanCloseWindow,
   agentCountLabel,
@@ -10,9 +11,15 @@ import {
   agentRowClass,
   agentStatusLine,
   agentTooltip,
+  taskOverflowLabel,
+  taskProgressLabel,
+  taskRowClass,
+  taskRows,
+  workspaceCanReplaceOrchestrator,
   workspaceCardClass,
   workspaceGoalLine,
   workspaceHasWaitingSubagent,
+  workspaceSuccessionLabel,
   workspaceTooltip
 } from './viewModel'
 
@@ -34,7 +41,7 @@ interface AgentProps {
  * orchestrator's `send_to_agent{questionId}` uses (H1).
  */
 function AgentRow({ agent, onFocus, onCloseWindow, onAnswer, onPromote }: AgentProps): React.JSX.Element {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const canClose = agentCanCloseWindow(agent)
   const [answering, setAnswering] = useState(false)
   const [answer, setAnswer] = useState('')
@@ -59,7 +66,11 @@ function AgentRow({ agent, onFocus, onCloseWindow, onAnswer, onPromote }: AgentP
         onClick={() => onFocus(agent.agentId)}
       >
         <span className={agentDotClass(agent)} />
-        <LoreTip className="panel-agent-name" name={agent.name} blurb={agentTooltip(t, agent)} />
+        <LoreTip
+          className="panel-agent-name"
+          name={agent.name}
+          blurb={agentTooltip(t, activeLocale(i18n.language), agent)}
+        />
         <span className="panel-agent-status">{agentStatusLine(t, agent)}</span>
       </button>
       {question && questionId ? (
@@ -133,6 +144,8 @@ interface Props {
   expanded: boolean
   onToggle(): void
   onStop(workspaceId: string): void
+  /** C6/S3: replace a dead or silent orchestrator — the run keeps its team. */
+  onSucceedOrchestrator(workspaceId: string): void
   onFocusAgent(agentId: string): void
   onCloseAgentWindow(agentId: string): void
   /** H1: answer one agent's open question over the shared host path. */
@@ -141,6 +154,8 @@ interface Props {
   onUserMessage(workspaceId: string, text: string): void
   /** E1 Promote — the user's click, merged by the host into the main checkout. */
   onPromoteAgent(workspaceId: string, agentId: string): void
+  /** Reveal this run's artefact folder in the OS file manager (desktop only). */
+  onOpenRunFolder(workspaceId: string): void
 }
 
 /**
@@ -185,6 +200,58 @@ function UserQuestion({
       <button type="button" className="panel-answer-send" disabled={!answer.trim()} onClick={submit}>
         {t('panel.answerSend')}
       </button>
+    </div>
+  )
+}
+
+/**
+ * S4: the run's plan, read-only. The panel never mutates the board — completing
+ * a task stays the orchestrator's decision after verification (host doctrine),
+ * so this box has no buttons at all. Collapsed by default: the agent list is
+ * what the card is for, and a 30-row plan would push it off the rail.
+ */
+function TaskBoardSection({ workspace }: { workspace: WorkspaceSummary }): React.JSX.Element {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const rows = taskRows(t, workspace)
+  const overflow = taskOverflowLabel(t, workspace)
+  const toggle = t('panel.tasksToggle', { workspace: workspace.name })
+  return (
+    <div className="panel-tasks">
+      <button
+        type="button"
+        className="panel-tasks-head"
+        aria-label={toggle}
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <ChevronIcon expanded={open} />
+        <span className="panel-tasks-label">{t('panel.tasksLabel')}</span>
+        <span className="panel-tasks-progress">{taskProgressLabel(t, workspace)}</span>
+      </button>
+      {open ? (
+        <ul className="panel-tasks-list">
+          {rows.map((row) => (
+            <li key={row.taskId} className={taskRowClass(row)} title={row.title}>
+              <span className="panel-task-glyph" aria-label={row.statusLabel}>
+                {row.glyph}
+              </span>
+              <span className="panel-task-subject">{row.subject}</span>
+              {row.ownerName ? (
+                <span className="panel-task-owner">{row.ownerName}</span>
+              ) : null}
+              {row.hint ? <span className="panel-task-hint">{row.hint}</span> : null}
+            </li>
+          ))}
+          {/* The cap is a display decision, so it is shown, not hidden: a list
+              that simply stops reads as the end of the plan. */}
+          {overflow ? (
+            <li className="panel-task-row is-more" title={overflow}>
+              <span className="panel-task-subject">{overflow}</span>
+            </li>
+          ) : null}
+        </ul>
+      ) : null}
     </div>
   )
 }
@@ -235,14 +302,19 @@ export function WorkspaceCard({
   expanded,
   onToggle,
   onStop,
+  onSucceedOrchestrator,
   onFocusAgent,
   onCloseAgentWindow,
   onAnswerQuestion,
   onUserMessage,
-  onPromoteAgent
+  onPromoteAgent,
+  onOpenRunFolder
 }: Props): React.JSX.Element {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const stop = t('panel.stopWorkspace', { workspace: workspace.name })
+  const succession = workspaceSuccessionLabel(t, workspace)
+  const replace = t('panel.replaceOrchestrator', { workspace: workspace.name })
+  const runFolder = t('panel.openRunFolder')
   const toggle = expanded
     ? t('panel.collapseWorkspace', { workspace: workspace.name })
     : t('panel.expandWorkspace', { workspace: workspace.name })
@@ -263,7 +335,7 @@ export function WorkspaceCard({
           <LoreTip
             className="panel-card-name"
             name={workspace.name}
-            blurb={workspaceTooltip(t, workspace)}
+            blurb={workspaceTooltip(t, activeLocale(i18n.language), workspace)}
           />
           <span className="panel-card-count">{agentCountLabel(t, workspace)}</span>
           {!expanded && workspaceHasWaitingSubagent(workspace) ? (
@@ -271,6 +343,24 @@ export function WorkspaceCard({
             // — this dot is only the "open me" hint.
             <span className="panel-card-attention" title={t('panel.subagentWaiting')} />
           ) : null}
+          {succession ? (
+            // In the head, not in the body: a collapsed card must not hide
+            // that its orchestrator is being replaced right now.
+            <span className="panel-card-badge" title={t('panel.successionTitle')}>
+              {succession}
+            </span>
+          ) : null}
+        </button>
+        {/* Next to stop because it is the other thing you do to a whole run —
+            and unlike stop it stays useful once the run is over. */}
+        <button
+          type="button"
+          className="panel-icon-button panel-run-folder"
+          title={runFolder}
+          aria-label={runFolder}
+          onClick={() => onOpenRunFolder(workspace.workspaceId)}
+        >
+          <FolderIcon size={11} />
         </button>
         <button
           type="button"
@@ -288,6 +378,20 @@ export function WorkspaceCard({
             <p className="panel-card-goal is-idle" title={t('panel.orchestratorIdleTitle')}>
               {t('panel.orchestratorIdle')}
             </p>
+          ) : null}
+          {workspaceCanReplaceOrchestrator(workspace) ? (
+            // C5's escape hatch and the dead-orchestrator recovery are one
+            // button: the team, the worktrees and the task board survive, only
+            // the brain is replaced. Stop would end the run instead.
+            <button
+              type="button"
+              className="panel-card-replace"
+              title={t('panel.replaceOrchestratorTitle')}
+              aria-label={replace}
+              onClick={() => onSucceedOrchestrator(workspace.workspaceId)}
+            >
+              {t('panel.replaceOrchestratorAction')}
+            </button>
           ) : null}
           {goalLine ? (
             <p
@@ -323,6 +427,9 @@ export function WorkspaceCard({
               ))
             )}
           </ul>
+          {workspace.tasks && workspace.tasks.length > 0 ? (
+            <TaskBoardSection workspace={workspace} />
+          ) : null}
           {workspace.active ? (
             <Composer workspaceId={workspace.workspaceId} onSend={onUserMessage} />
           ) : null}

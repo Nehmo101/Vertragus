@@ -37,9 +37,17 @@ export function App(): React.JSX.Element {
     return <ProviderEditorApp providerId={rest ? decodeURIComponent(rest) : undefined} />
   }
   if (route.startsWith(PROFILE_EDITOR_ROUTE)) {
-    // No id = a profile that does not exist yet.
-    const rest = route.slice(PROFILE_EDITOR_ROUTE.length).replace(/^\//, '')
-    return <ProfileEditorApp profileId={rest ? decodeURIComponent(rest) : undefined} />
+    // No id = a profile that does not exist yet. `?provider=` (WP-7) preselects
+    // the orchestrator of such a new profile — see main/windows/profileEditor.
+    const [path, query] = route.slice(PROFILE_EDITOR_ROUTE.length).split('?')
+    const rest = (path ?? '').replace(/^\//, '')
+    const provider = new URLSearchParams(query ?? '').get('provider')
+    return (
+      <ProfileEditorApp
+        profileId={rest ? decodeURIComponent(rest) : undefined}
+        providerHint={provider || undefined}
+      />
+    )
   }
   if (route.startsWith('/panel')) return <PanelApp />
   return <PanelApp />

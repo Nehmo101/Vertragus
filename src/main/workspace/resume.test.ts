@@ -1,12 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import { join } from 'node:path'
+import type { AgentEvent } from '@shared/schema/events'
+import { orchestratorHandoffPackageSchema } from '@shared/schema/handoff'
 import type { TaskBoardState } from '@shared/schema/tasks'
 import {
   boardForResume,
   buildResumeBriefing,
   latestRun,
+  markSuccessionConsumed,
   readRunEvents,
   readRunTasks,
+  readSuccessionPackage,
+  successionSuperseded,
   type ResumeDeps
 } from './resume'
 
@@ -217,5 +222,173 @@ describe('boardForResume — S4', () => {
     expect(revived.tasks[1]).toEqual(task('task-2', 'pending'))
     expect(revived.tasks[2]).toEqual(task('task-3', 'completed', { ownerAgentId: 'dead-agent' }))
     expect(revived.nextTaskNumber).toBe(4)
+  })
+})
+
+/** The smallest package the zod schema accepts. */
+function successionPackage(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    schemaVersion: 1,
+    kind: 'orchestrator_succession',
+    workspaceId: 'ws-1',
+    workspaceName: 'Paradiso',
+    profileId: 'p1',
+    createdAt: 5,
+    reason: 'context_full',
+    predecessor: { agentId: 'orch-1', name: 'Virgilio', providerId: 'claude' },
+    successorAgentId: 'orch-2',
+    eventCursor: 42,
+    recentEvents: [],
+    agents: [],
+    openQuestions: [],
+    tasks: [],
+    decisions: [],
+    risks: [],
+    nextActions: [],
+    branchesOfInterest: [],
+    limits: { maxChars: 48_000, truncated: [] },
+    ...overrides
+  }
+}
+
+describe('readSuccessionPackage — C6 crash recovery', () => {
+  it('reads the frozen package of a run that died mid-handoff', async () => {
+    const deps = fakeFs({
+      files: { [join(RUNS, 'ws-1', 'succession.json')]: JSON.stringify(successionPackage()) }
+    })
+    const pkg = await readSuccessionPackage('/repo', 'ws-1', deps)
+    expect(pkg).toMatchObject({ workspaceId: 'ws-1', eventCursor: 42, reason: 'context_full' })
+  })
+
+  it('ignores a package a cutover already consumed — recover once, by rename', async () => {
+    const deps = fakeFs({
+      files: {
+        [join(RUNS, 'ws-1', 'succession.consumed.json')]: JSON.stringify(successionPackage())
+      }
+    })
+    expect(await readSuccessionPackage('/repo', 'ws-1', deps)).toBeUndefined()
+  })
+
+  it('fails soft: missing, torn or schema-violating files cost the recovery only', async () => {
+    expect(await readSuccessionPackage('/repo', 'ws-1', fakeFs({}))).toBeUndefined()
+    expect(
+      await readSuccessionPackage(
+        '/repo',
+        'ws-1',
+        fakeFs({ files: { [join(RUNS, 'ws-1', 'succession.json')]: '{"schemaVersion":1,' } })
+      )
+    ).toBeUndefined()
+    expect(
+      await readSuccessionPackage(
+        '/repo',
+        'ws-1',
+        fakeFs({
+          files: {
+            [join(RUNS, 'ws-1', 'succession.json')]: JSON.stringify(
+              successionPackage({ kind: 'something_else' })
+            )
+          }
+        })
+      )
+    ).toBeUndefined()
+  })
+})
+
+describe('markSuccessionConsumed — C6', () => {
+  it('renames the package so the next resume cannot replay it', async () => {
+    const moves: Array<[string, string]> = []
+    await markSuccessionConsumed('/repo', 'ws-1', {
+      rename: (async (from: unknown, to: unknown) => {
+        moves.push([String(from), String(to)])
+      }) as never
+    })
+    expect(moves).toEqual([
+      [join(RUNS, 'ws-1', 'succession.json'), join(RUNS, 'ws-1', 'succession.consumed.json')]
+    ])
+  })
+
+  it('swallows a failing rename — a replayable package beats a failed start', async () => {
+    await expect(
+      markSuccessionConsumed('/repo', 'ws-1', {
+        rename: (async () => {
+          throw new Error('EPERM')
+        }) as never
+      })
+    ).resolves.toBeUndefined()
+  })
+
+  it('retires a superseded package under its own name — nothing consumed it', async () => {
+    const moves: Array<[string, string]> = []
+    await markSuccessionConsumed(
+      '/repo',
+      'ws-1',
+      {
+        rename: (async (from: unknown, to: unknown) => {
+          moves.push([String(from), String(to)])
+        }) as never
+      },
+      'failed'
+    )
+    expect(moves[0]![1]).toBe(join(RUNS, 'ws-1', 'succession.failed.json'))
+  })
+})
+
+describe('successionSuperseded — C6', () => {
+  const pkg = orchestratorHandoffPackageSchema.parse(successionPackage())
+
+  function event(overrides: Record<string, unknown>): AgentEvent {
+    return {
+      seq: 1,
+      ts: 1,
+      agentId: 'orch-1',
+      name: 'Virgilio',
+      roleId: 'orchestrator',
+      ...overrides
+    } as AgentEvent
+  }
+
+  it('accepts a package whose run really did stop at the freeze', () => {
+    expect(successionSuperseded(pkg, [])).toBe(false)
+    expect(
+      successionSuperseded(pkg, [
+        event({ seq: 41, type: 'orchestrator_handoff_started', reason: 'context_full' }),
+        event({ seq: 60, type: 'agent_done', status: 'success', summary: 'done' })
+      ])
+    ).toBe(false)
+  })
+
+  it('rejects a package the run journaled a failed handoff for', () => {
+    // The retiring rename is best-effort, so the file surviving proves
+    // nothing; this event proves the predecessor stayed in the seat.
+    expect(
+      successionSuperseded(pkg, [
+        event({
+          seq: 50,
+          type: 'orchestrator_handoff_failed',
+          message: 'successor boom',
+          successorAgentId: 'orch-2'
+        })
+      ])
+    ).toBe(true)
+    // A failure naming a DIFFERENT successor says nothing about this package.
+    expect(
+      successionSuperseded(pkg, [
+        event({
+          seq: 50,
+          type: 'orchestrator_handoff_failed',
+          message: 'boom',
+          successorAgentId: 'orch-9'
+        })
+      ])
+    ).toBe(false)
+  })
+
+  it('rejects a package a later orchestrator_started already overtook', () => {
+    const started = (seq: number): AgentEvent =>
+      event({ seq, type: 'orchestrator_started', predecessorAgentId: 'orch-1', eventCursor: seq })
+    // Past the frozen cursor: a seat change this package cannot be describing.
+    expect(successionSuperseded(pkg, [started(43)])).toBe(true)
+    // At or before it: the boot the package itself was frozen after.
+    expect(successionSuperseded(pkg, [started(42)])).toBe(false)
   })
 })

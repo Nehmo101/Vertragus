@@ -7,6 +7,7 @@ import {
   adoptLegacyStore,
   appSettingsSchema,
   createSettingsStore,
+  defaultLocaleForOs,
   effectiveAgentPolicy,
   LEGACY_STORE_NAME,
   SETTINGS_KEYS,
@@ -250,7 +251,12 @@ describe('app settings', () => {
   it('serves the documented defaults on a fresh store', () => {
     const { store: settings } = store()
     expect(settings.getSettings()).toEqual({
-      ui: { theme: 'dark', locale: 'de', appearance: DEFAULT_APPEARANCE },
+      ui: {
+        theme: 'dark',
+        locale: 'de',
+        appearance: DEFAULT_APPEARANCE,
+        onboardingDismissed: false
+      },
       remote: { enabled: false, bindAddress: '', port: 9482 },
       yoloMaster: true,
       hideAllHotkey: 'Control+Alt+V',
@@ -294,12 +300,14 @@ describe('app settings', () => {
       theme: 'dark',
       locale: 'en',
       appearance: DEFAULT_APPEARANCE,
+      onboardingDismissed: false,
       panelBounds: { edge: 'right', y: 320 }
     })
     expect(settings.getSettings().ui).toEqual({
       theme: 'dark',
       locale: 'en',
       appearance: DEFAULT_APPEARANCE,
+      onboardingDismissed: false,
       panelBounds: { edge: 'right', y: 320 }
     })
   })
@@ -324,7 +332,12 @@ describe('app settings', () => {
     expect(result.hideAllHotkey).toBe('Control+Shift+H')
     // An old `ui` section without an appearance reads as the design defaults —
     // the setting is new, the config file predates it, and neither is an error.
-    expect(result.ui).toEqual({ theme: 'light', locale: 'en', appearance: DEFAULT_APPEARANCE })
+    expect(result.ui).toEqual({
+      theme: 'light',
+      locale: 'en',
+      appearance: DEFAULT_APPEARANCE,
+      onboardingDismissed: false
+    })
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('invalid settings section'))
   })
 
@@ -384,6 +397,24 @@ describe('app settings', () => {
     }
     expect(Object.keys(appSettingsSchema.shape).sort()).toEqual([...SETTINGS_KEYS].sort())
   })
+
+  /**
+   * WP-1: the first-run UI language follows the OS. The rule itself is pure —
+   * the Electron backend applies it exactly once, on a first run with no
+   * stored `ui`, so a stored choice always wins (see createElectronBackend).
+   */
+  it('derives the first-run locale from the OS: de* stays German, the rest gets English', () => {
+    expect(defaultLocaleForOs('de')).toBe('de')
+    expect(defaultLocaleForOs('de-DE')).toBe('de')
+    expect(defaultLocaleForOs('de-AT')).toBe('de')
+    expect(defaultLocaleForOs('DE_CH')).toBe('de')
+    expect(defaultLocaleForOs('en-US')).toBe('en')
+    expect(defaultLocaleForOs('fr')).toBe('en')
+    expect(defaultLocaleForOs('')).toBe('en')
+    expect(defaultLocaleForOs(undefined)).toBe('en')
+    // A partially German-looking tag that is not German must not match.
+    expect(defaultLocaleForOs('nds')).toBe('en')
+  })
 })
 
 describe('the store file name', () => {
@@ -415,7 +446,12 @@ describe('adoptLegacyStore', () => {
     expect((adopted.roleTemplates as unknown[])).toHaveLength(1)
     expect(adopted.hideAllHotkey).toBe('Control+Shift+H')
     expect(adopted.updateChannel).toBe('stable')
-    expect(adopted.ui).toEqual({ theme: 'light', locale: 'en', appearance: DEFAULT_APPEARANCE })
+    expect(adopted.ui).toEqual({
+      theme: 'light',
+      locale: 'en',
+      appearance: DEFAULT_APPEARANCE,
+      onboardingDismissed: false
+    })
   })
 
   it('leaves the archived app’s own records behind instead of dropping them loudly', () => {

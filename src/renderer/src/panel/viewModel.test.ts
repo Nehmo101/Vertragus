@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import type { WorkspaceAgentSummary, WorkspaceSummary } from '../../../preload'
+import type {
+  WorkspaceAgentSummary,
+  WorkspaceSummary,
+  WorkspaceTaskSummary
+} from '../../../preload'
 import { translator } from '../i18n'
 import {
   agentCanCloseWindow,
@@ -22,11 +26,18 @@ import {
   orderWorkspaces,
   resolveSelectedProfileId,
   shouldFocusWorkspaceOnToggle,
+  taskOverflowLabel,
+  taskProgressLabel,
+  taskRowClass,
+  taskRows,
+  taskStatusGlyph,
+  workspaceCanReplaceOrchestrator,
   workspaceCardClass,
   workspaceCountByProfile,
   workspaceHasWaitingSubagent,
   workspaceNeedsAttention,
   workspacePlaceTooltip,
+  workspaceSuccessionLabel,
   workspaceTooltip
 } from './viewModel'
 
@@ -127,24 +138,30 @@ describe('dismissing a finished agent window', () => {
 
 describe('tooltips', () => {
   it('reveals who a Commedia figure is, numbered clones included', () => {
-    expect(agentTooltip(t, agent({ name: 'Caronte' }))).toMatch(/Fährmann/)
-    expect(agentTooltip(t, agent({ name: 'Virgilio 2' }))).toMatch(/Führer/)
-    expect(agentTooltip(t, agent({ name: 'Nobody' }))).toBeUndefined()
+    expect(agentTooltip(t, 'de', agent({ name: 'Caronte' }))).toMatch(/Fährmann/)
+    expect(agentTooltip(t, 'de', agent({ name: 'Virgilio 2' }))).toMatch(/Führer/)
+    expect(agentTooltip(t, 'de', agent({ name: 'Nobody' }))).toBeUndefined()
+  })
+
+  it('speaks the locale it is handed — the blurbs are bilingual data', () => {
+    expect(agentTooltip(en, 'en', agent({ name: 'Caronte' }))).toMatch(/Ferryman/)
+    expect(agentTooltip(en, 'en', agent({ name: 'Virgilio 2' }))).toMatch(/guide/)
+    expect(workspacePlaceTooltip('en', workspace())).toMatch(/Paradise/)
   })
 
   it('appends the agent\'s current task to its hover card', () => {
     const withTask = agent({ statusText: 'Parser-Bug in tokenizer.ts fixen' })
-    expect(agentTooltip(t, withTask)).toMatch(/Fährmann/)
-    expect(agentTooltip(t, withTask)).toContain(
+    expect(agentTooltip(t, 'de', withTask)).toMatch(/Fährmann/)
+    expect(agentTooltip(t, 'de', withTask)).toContain(
       'Aktuelle Aufgabe: Parser-Bug in tokenizer.ts fixen'
     )
-    expect(agentTooltip(en, withTask)).toContain(
+    expect(agentTooltip(en, 'en', withTask)).toContain(
       'Current task: Parser-Bug in tokenizer.ts fixen'
     )
     // Whitespace is not a task — the blurb stands alone.
-    expect(agentTooltip(t, agent({ statusText: '   ' }))).not.toContain('Aufgabe')
+    expect(agentTooltip(t, 'de', agent({ statusText: '   ' }))).not.toContain('Aufgabe')
     // A name outside the roster still gets a card once there is a task.
-    expect(agentTooltip(t, agent({ name: 'Nobody', statusText: 'Docs schreiben' }))).toBe(
+    expect(agentTooltip(t, 'de', agent({ name: 'Nobody', statusText: 'Docs schreiben' }))).toBe(
       'Aktuelle Aufgabe: Docs schreiben'
     )
   })
@@ -155,34 +172,36 @@ describe('tooltips', () => {
       roleId: 'orchestrator',
       statusText: 'Parser-Bug fixen'
     })
-    expect(agentTooltip(t, orchestrator)).toContain('Zuletzt delegiert: Parser-Bug fixen')
-    expect(agentTooltip(en, orchestrator)).toContain('Last delegated: Parser-Bug fixen')
+    expect(agentTooltip(t, 'de', orchestrator)).toContain('Zuletzt delegiert: Parser-Bug fixen')
+    expect(agentTooltip(en, 'en', orchestrator)).toContain('Last delegated: Parser-Bug fixen')
   })
 
   it('reveals what kind of place a workspace is, cycle suffix included', () => {
-    expect(workspacePlaceTooltip(workspace())).toMatch(/Himmelssphären/)
-    expect(workspacePlaceTooltip(workspace({ name: 'Paradiso II' }))).toMatch(/Himmelssphären/)
+    expect(workspacePlaceTooltip('de', workspace())).toMatch(/Himmelssphären/)
+    expect(workspacePlaceTooltip('de', workspace({ name: 'Paradiso II' }))).toMatch(
+      /Himmelssphären/
+    )
     // A name the roster does not know gets no card at all — a box repeating the
     // word under the cursor is worse than nothing.
-    expect(workspacePlaceTooltip(workspace({ name: 'Eigenbau' }))).toBeUndefined()
-    expect(workspaceTooltip(t, workspace({ name: 'Eigenbau' }))).toBeUndefined()
+    expect(workspacePlaceTooltip('de', workspace({ name: 'Eigenbau' }))).toBeUndefined()
+    expect(workspaceTooltip(t, 'de', workspace({ name: 'Eigenbau' }))).toBeUndefined()
   })
 
   it('appends the current task to the workspace hover card once one exists', () => {
     const withTask = workspace({ taskText: 'Parser-Bug in tokenizer.ts fixen' })
-    expect(workspaceTooltip(t, withTask)).toMatch(/Himmelssphären/)
-    expect(workspaceTooltip(t, withTask)).toContain(
+    expect(workspaceTooltip(t, 'de', withTask)).toMatch(/Himmelssphären/)
+    expect(workspaceTooltip(t, 'de', withTask)).toContain(
       'Aktuelle Aufgabe: Parser-Bug in tokenizer.ts fixen'
     )
-    expect(workspaceTooltip(en, withTask)).toContain(
+    expect(workspaceTooltip(en, 'en', withTask)).toContain(
       'Current task: Parser-Bug in tokenizer.ts fixen'
     )
     // Whitespace is not a task — the blurb stands alone.
-    expect(workspaceTooltip(t, workspace({ taskText: '   ' }))).not.toContain('Aufgabe')
+    expect(workspaceTooltip(t, 'de', workspace({ taskText: '   ' }))).not.toContain('Aufgabe')
     // An unknown name with a task still gets a card — the task carries it.
-    expect(workspaceTooltip(t, workspace({ name: 'Eigenbau', taskText: 'Docs schreiben' }))).toBe(
-      'Aktuelle Aufgabe: Docs schreiben'
-    )
+    expect(
+      workspaceTooltip(t, 'de', workspace({ name: 'Eigenbau', taskText: 'Docs schreiben' }))
+    ).toBe('Aktuelle Aufgabe: Docs schreiben')
   })
 })
 
@@ -206,6 +225,27 @@ describe('cards', () => {
       'w2',
       'w0'
     ])
+  })
+})
+
+describe('orchestrator succession — C6/S3', () => {
+  it('badges a workspace whose seat is being replaced, in both languages', () => {
+    expect(workspaceSuccessionLabel(t, workspace())).toBeUndefined()
+    expect(workspaceSuccessionLabel(t, workspace({ successionInProgress: true }))).toBe('Übergabe')
+    expect(workspaceSuccessionLabel(en, workspace({ successionInProgress: true }))).toBe('Handover')
+  })
+
+  it('offers the replace button for a dead or silent orchestrator only', () => {
+    // The running, talking case needs no escape hatch.
+    expect(workspaceCanReplaceOrchestrator(workspace())).toBe(false)
+    // Dead: the team is still up and Stop would end the whole run.
+    expect(workspaceCanReplaceOrchestrator(workspace({ active: false }))).toBe(true)
+    // C5 silence: alive but no longer calling its tools.
+    expect(workspaceCanReplaceOrchestrator(workspace({ orchestratorIdle: true }))).toBe(true)
+    // A successor is already on its way — offering it again reads as failure.
+    expect(
+      workspaceCanReplaceOrchestrator(workspace({ active: false, successionInProgress: true }))
+    ).toBe(false)
   })
 })
 
@@ -357,6 +397,160 @@ describe('expanded workspace selection', () => {
     expect(shouldFocusWorkspaceOnToggle(EXPAND_ALL_WORKSPACES, live)).toBe(false)
     expect(shouldFocusWorkspaceOnToggle('w2', other)).toBe(false)
     expect(shouldFocusWorkspaceOnToggle('w1', other)).toBe(false)
+  })
+})
+
+describe('the task board on the card', () => {
+  function task(overrides: Partial<WorkspaceTaskSummary> = {}): WorkspaceTaskSummary {
+    return {
+      taskId: 'task-1',
+      subject: 'Build the parser',
+      status: 'pending',
+      blockedBy: [],
+      ready: true,
+      ...overrides
+    }
+  }
+
+  it('paints status with the glyph vocabulary the retro tally already uses', () => {
+    expect(taskStatusGlyph('pending')).toBe('○')
+    expect(taskStatusGlyph('in_progress')).toBe('◐')
+    expect(taskStatusGlyph('completed')).toBe('✓')
+  })
+
+  it('resolves the owner to its Commedia name from the same summary', () => {
+    const rows = taskRows(
+      t,
+      workspace({
+        agents: [agent({ agentId: 'a1', name: 'Caronte' })],
+        tasks: [task({ status: 'in_progress', ownerAgentId: 'a1' })]
+      })
+    )
+    expect(rows[0]!.ownerName).toBe('Caronte')
+    expect(rows[0]!.title).toContain('bearbeitet von Caronte')
+  })
+
+  it('shows no owner for an agent this summary no longer lists — a uuid says nothing', () => {
+    const rows = taskRows(
+      t,
+      workspace({ agents: [], tasks: [task({ status: 'in_progress', ownerAgentId: 'gone' })] })
+    )
+    expect(rows[0]!.ownerName).toBeUndefined()
+    expect(rows[0]!.title).not.toContain('gone')
+  })
+
+  it('dims a blocked row and names only the dependencies still open', () => {
+    const rows = taskRows(
+      t,
+      workspace({
+        tasks: [
+          task({ taskId: 'task-1', status: 'completed' }),
+          task({ taskId: 'task-2', subject: 'Wire it up' }),
+          task({
+            taskId: 'task-3',
+            subject: 'Test the parser',
+            blockedBy: ['task-1', 'task-2'],
+            ready: false
+          })
+        ]
+      })
+    )
+    const blocked = rows[2]!
+    expect(blocked.blocked).toBe(true)
+    // task-1 is done — naming it would read as stuck when it is not.
+    expect(blocked.hint).toBe('wartet auf task-2')
+    expect(taskRowClass(blocked)).toBe('panel-task-row is-blocked')
+    expect(taskRowClass(rows[0]!)).toBe('panel-task-row is-done')
+    expect(taskRowClass(rows[1]!)).toBe('panel-task-row')
+  })
+
+  it('trusts the host flag instead of recomputing readiness from a capped list', () => {
+    // task-9 was cut off by PANEL_TASKS_MAX; the host still says "not ready",
+    // and the hint names the dependency it cannot see rather than dropping it.
+    const rows = taskRows(
+      t,
+      workspace({ tasks: [task({ blockedBy: ['task-9'], ready: false })] })
+    )
+    expect(rows[0]!.blocked).toBe(true)
+    expect(rows[0]!.hint).toBe('wartet auf task-9')
+    // A pending row the host called ready is never dimmed, whatever it lists.
+    expect(taskRows(t, workspace({ tasks: [task({ blockedBy: ['task-9'] })] }))[0]!.blocked).toBe(
+      false
+    )
+  })
+
+  it('carries an in-progress row without a hint, in both languages', () => {
+    const running = task({ status: 'in_progress', ready: false })
+    const row = taskRows(t, workspace({ tasks: [running] }))[0]!
+    expect(row).toMatchObject({ blocked: false, statusLabel: 'in Arbeit' })
+    expect(row.hint).toBeUndefined()
+    expect(taskRows(en, workspace({ tasks: [running] }))[0]!.statusLabel).toBe('in progress')
+  })
+
+  it('names no dependency the board has tombstoned', () => {
+    // Deleting task-1 does not cascade, so task-3 keeps the reference and the
+    // host's readiness rule ignores it. The host drops the dead edge before
+    // the summary travels, so the row cannot name a task nobody can find.
+    const rows = taskRows(
+      t,
+      workspace({
+        tasks: [
+          task({ taskId: 'task-2', subject: 'Wire it up' }),
+          task({ taskId: 'task-3', blockedBy: ['task-2'], ready: false })
+        ]
+      })
+    )
+    expect(rows[1]!.hint).toBe('wartet auf task-2')
+    expect(rows[1]!.hint).not.toContain('task-1')
+  })
+
+  it('counts the plan for the collapsed header, and survives a card without one', () => {
+    expect(
+      taskProgressLabel(
+        t,
+        workspace({
+          tasks: [task({ status: 'completed' }), task({ taskId: 'task-2' })],
+          taskTotal: 2,
+          taskDone: 1
+        })
+      )
+    ).toBe('1/2 erledigt')
+    expect(taskProgressLabel(en, workspace())).toBe('0/0 done')
+    expect(taskRows(t, workspace())).toEqual([])
+  })
+
+  it('reports the HOST counts, not the counts of the rows that fit', () => {
+    // The regression: 45 tasks, the first 30 completed, the cap a blind
+    // prefix — the card read "30/30 erledigt" over fifteen open rows.
+    const capped = workspace({
+      tasks: Array.from({ length: 30 }, (_, i) =>
+        task({ taskId: `task-${i + 1}`, status: 'completed' })
+      ),
+      taskTotal: 45,
+      taskDone: 30
+    })
+    expect(taskProgressLabel(t, capped)).toBe('30/45 erledigt')
+    expect(taskOverflowLabel(t, capped)).toBe(
+      '+15 weitere Aufgaben — der ganze Plan steht in tasks.json'
+    )
+    expect(taskOverflowLabel(en, capped)).toBe('+15 more tasks — the whole plan is in tasks.json')
+    // A single hidden row is still a hidden row, and reads like one.
+    expect(taskOverflowLabel(en, { ...capped, taskTotal: 31 })).toBe(
+      '+1 more task — the whole plan is in tasks.json'
+    )
+  })
+
+  it('admits no truncation when the whole plan travelled', () => {
+    expect(
+      taskOverflowLabel(t, workspace({ tasks: [task()], taskTotal: 1, taskDone: 0 }))
+    ).toBeUndefined()
+    expect(taskOverflowLabel(t, workspace())).toBeUndefined()
+  })
+
+  it('falls back to the rows for a summary that predates the host counts', () => {
+    const legacy = workspace({ tasks: [task({ status: 'completed' }), task({ taskId: 'task-2' })] })
+    expect(taskProgressLabel(t, legacy)).toBe('1/2 erledigt')
+    expect(taskOverflowLabel(t, legacy)).toBeUndefined()
   })
 })
 

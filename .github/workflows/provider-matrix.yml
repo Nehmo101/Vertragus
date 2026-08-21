@@ -1,0 +1,76 @@
+# Weekly provider matrix — the Tier-2 canary of WP-6.
+#
+# Installs the six provider CLIs best-effort, then runs
+# scripts/provider-matrix.mjs: version probe, PTY spawn dry-run, DECSET 2004
+# ("keyboard taken") watch, markdown table into the job summary. It proves the
+# CLIs install, spawn and listen — it does NOT prove they can log in or execute
+# a task; that is the release checklist's live probe (docs/RELEASE-CHECKLIST.md).
+#
+# Deliberately NOT part of ci.yml: it depends on third-party registries and
+# unauthenticated CLIs, so it is advisory by construction (continue-on-error)
+# and must never gate a merge.
+name: Provider matrix
+
+on:
+  schedule:
+    # Mondays 05:17 UTC — off the full hour to dodge the cron thundering herd.
+    - cron: '17 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Advisory: a broken third-party installer or a CLI that changed its boot
+    # behaviour is exactly what the SUMMARY reports — it must not page anyone red.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.13'
+          cache: pnpm
+
+      # node-pty for the spawn dry-run comes from the repo's own dependencies.
+      - run: pnpm install --frozen-lockfile
+
+      # Best-effort installs, one step per CLI so a vanished package or a
+      # renamed installer shows up as ONE failed step and one "not installed"
+      # table row — never as a dead job. Only Claude Code and Codex are
+      # npm-installable; the rest ship their own installers.
+      - name: Install Claude Code (npm)
+        continue-on-error: true
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Install Codex (npm)
+        continue-on-error: true
+        run: npm install -g @openai/codex
+      - name: Install Cursor Agent (vendor installer)
+        continue-on-error: true
+        run: curl -fsS https://cursor.com/install | bash && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Install Kimi Code (vendor installer)
+        continue-on-error: true
+        run: |
+          pipx install kimi-cli || pip install --user kimi-cli
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Install Grok Build (npm)
+        continue-on-error: true
+        run: npm install -g @xai-org/grok-cli
+      - name: Install Ollama (vendor installer)
+        continue-on-error: true
+        run: curl -fsSL https://ollama.com/install.sh | sh
+
+      - name: Probe the matrix
+        run: node scripts/provider-matrix.mjs --out provider-matrix.md
+
+      - name: Upload summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: provider-matrix
+          path: provider-matrix.md
+          if-no-files-found: warn
+          retention-days: 90

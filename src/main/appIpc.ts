@@ -41,6 +41,7 @@ import { effectiveAgentPolicy, settings } from '@main/store/settings'
 import type { AgentPolicy } from '@shared/agentPolicy'
 import { AGENT_POLICIES } from '@shared/agentPolicy'
 import { discoverModels, type ModelDiscoveryResult } from '@main/providers/discovery'
+import { checkAllProviderAuth, type ProviderAuthStatus } from '@main/providers/authStatus'
 import { checkAllProviders, type ProviderHealth } from '@main/providers/health'
 import { closeCliWindow, focusCliWindow, listCliWindows } from '@main/windows/cliWindow'
 import {
@@ -89,6 +90,14 @@ export const APP_CHANNELS = {
   rolesList: 'roles:list',
   rolesSave: 'roles:save',
   providersList: 'providers:list',
+  /**
+   * WP-7: login state per provider, read on demand by the panel's first-run
+   * card. Separate from `providers:list` because it is a different kind of
+   * cost — `list` probes `--version` on every editor open, this one shells out
+   * to the CLIs' own status commands and is only ever run while somebody is
+   * looking at the answer.
+   */
+  providersAuthStatus: 'providers:authStatus',
   providersSave: 'providers:save',
   providersDelete: 'providers:delete',
   modelsDiscover: 'models:discover',
@@ -96,12 +105,20 @@ export const APP_CHANNELS = {
   workspacesStart: 'workspaces:start',
   workspacesResume: 'workspaces:resume',
   workspacesStop: 'workspaces:stop',
+  workspacesSucceedOrchestrator: 'workspaces:succeedOrchestrator',
   workspacesFocusAgent: 'workspaces:focusAgent',
   workspacesFocus: 'workspaces:focus',
   workspacesCloseAgent: 'workspaces:closeAgent',
   workspacesAnswerQuestion: 'workspaces:answerQuestion',
   workspacesUserMessage: 'workspaces:userMessage',
   workspacesPromoteAgent: 'workspaces:promoteAgent',
+  /**
+   * S1/S4: reveal one run's artefact folder (`spill/`, `tasks.json`,
+   * `events.jsonl`) in the OS file manager. Panel-only and deliberately absent
+   * from the remote gateway — opening a folder is meaningful on the machine
+   * the app runs on and nowhere else.
+   */
+  workspacesOpenRunFolder: 'workspaces:openRunFolder',
   worktreesList: 'worktrees:list',
   worktreesRemove: 'worktrees:remove',
   retroList: 'retro:list',
@@ -200,6 +217,31 @@ export interface WorkspaceAgentSummary {
   pendingQuestionId?: string
 }
 
+/**
+ * S4: one row of the run's task board, as the card paints it. Mirrors
+ * `Workspace.listTasks()`; see {@link PANEL_TASKS_MAX} for why the card only
+ * ever sees a prefix of the board.
+ */
+export interface WorkspaceTaskSummary {
+  taskId: string
+  subject: string
+  /** Tombstones never travel — the summary carries the living plan only. */
+  status: 'pending' | 'in_progress' | 'completed'
+  /** Agent id of the owner; resolved to its Commedia name from `agents`. */
+  ownerAgentId?: string
+  blockedBy: string[]
+  /** pending AND every blockedBy completed — the board's own readiness rule. */
+  ready: boolean
+}
+
+/**
+ * How many board rows one card carries. The board itself allows 200; this
+ * payload is re-broadcast on every change and travels to the phone as well, so
+ * it stays a bounded prefix. The whole board remains readable in `tasks.json`
+ * and through the orchestrator's `task_list`.
+ */
+export const PANEL_TASKS_MAX = 30
+
 /** One workspace card. */
 export interface WorkspaceSummary {
   workspaceId: string
@@ -223,12 +265,33 @@ export interface WorkspaceSummary {
    */
   orchestratorIdle?: boolean
   /**
+   * C6: a successor orchestrator is being spawned for this workspace. The card
+   * shows a badge — mid-cutover is neither the working state nor the dead one,
+   * and the replace button must not be offered twice.
+   */
+  successionInProgress?: true
+  /**
    * D3: the orchestrator's open `ask_user` question — the workspace-level
    * badge. Answered over the same `workspaces:answerQuestion` channel with
    * the reserved agent id `user`.
    */
   userQuestion?: { questionId: string; question: string }
   agents: WorkspaceAgentSummary[]
+  /**
+   * S4: the run's task board, capped at {@link PANEL_TASKS_MAX} and free of
+   * tombstones. Absent while the run has no plan — an empty board draws no
+   * section at all.
+   */
+  tasks?: WorkspaceTaskSummary[]
+  /**
+   * S4: rows in the WHOLE living plan, and how many of them are completed —
+   * counts over the board, not over {@link tasks}. The window is a display
+   * decision; "30/45 done" is a fact about the run, and a card that recomputed
+   * it from the rows that happened to fit would read an unfinished plan as
+   * finished. Present exactly when {@link tasks} is.
+   */
+  taskTotal?: number
+  taskDone?: number
 }
 
 /** One stale worktree the panel's cleanup view offers for removal. */
@@ -259,6 +322,13 @@ export interface WorkspaceDirectory {
   resume(profileId: string): void | Promise<unknown>
   stop(workspaceId: string): void | Promise<unknown>
   /**
+   * C6/S3: replace this workspace's root orchestrator with a fresh one that
+   * continues the same run — the user's escape hatch when the orchestrator
+   * died or went silent. Keeps subagents, worktrees, questions and the task
+   * board; rejects with a readable message when there is nothing to replace.
+   */
+  succeedOrchestrator(workspaceId: string): void | Promise<unknown>
+  /**
    * Answer one agent question (H1) — the SAME host path the orchestrator's
    * `send_to_agent{questionId}` takes, so panel, remote and MCP tool share one
    * question registry. Rejects with a readable message on failure (unknown
@@ -281,6 +351,12 @@ export interface WorkspaceDirectory {
    * dirty main checkout or a merge conflict (the merge is aborted then).
    */
   promoteAgentBranch(workspaceId: string, agentId: string): Promise<void>
+  /**
+   * Reveal this run's artefact folder in the OS file manager — the journal,
+   * the task board and the spill files the tools wrote. Rejects readably when
+   * the workspace is unknown or the OS refused to open the path.
+   */
+  openRunFolder(workspaceId: string): Promise<void>
   /** Bring an agent's CLI window to the front. */
   focusAgent(agentId: string): void
   /**
@@ -327,9 +403,11 @@ export function createStubWorkspaceDirectory(
     start: refuse,
     resume: refuse,
     stop: refuse,
+    succeedOrchestrator: refuse,
     answerQuestion: async () => refuse(),
     postUserMessage: refuse,
     promoteAgentBranch: async () => refuse(),
+    openRunFolder: async () => refuse(),
     focusAgent: (agentId) => focusCliWindow(agentId),
     closeAgentWindow: (agentId) => closeCliWindow(agentId),
     // No manager → no workspace→agent map; quiet no-op like focusAgent on a ghost.
@@ -380,6 +458,8 @@ export interface PanelSettings {
   theme: AppSettings['ui']['theme']
   /** Opacity and glass transparency; see shared/appearance.ts. */
   appearance: Appearance
+  /** WP-7: the first-run card was closed by hand — the panel honours it. */
+  onboardingDismissed: boolean
   autostart: boolean
   updateChannel: AppSettings['updateChannel']
   /**
@@ -408,7 +488,8 @@ export const WRITABLE_SETTINGS = [
   'theme',
   'locale',
   'appearance',
-  'agentPolicy'
+  'agentPolicy',
+  'onboardingDismissed'
 ] as const
 export type WritableSetting = (typeof WRITABLE_SETTINGS)[number]
 
@@ -581,8 +662,17 @@ export interface AppIpcHost {
   providerEditorSender(webContentsId: number): string | null
   discoverModels(config: ProviderConfig): Promise<ModelDiscoveryResult>
   checkProviders(configs: readonly ProviderConfig[]): Promise<ProviderHealth[]>
+  /** WP-7: login state per provider; see `@main/providers/authStatus`. */
+  checkProviderAuth(configs: readonly ProviderConfig[]): Promise<ProviderAuthStatus[]>
   pickDirectory(webContentsId: number, defaultPath?: string): Promise<string | null>
-  openProfileEditor(profileId?: string): void
+  /**
+   * `providerId` (WP-7) preselects the orchestrator of a NEW profile — the
+   * first-run card knows which CLI actually answered its health probe, and
+   * dropping the user into a form defaulted to a provider that is not
+   * installed is how a guided first run stops being guided. A hint, never a
+   * write: an existing profile carries its own provider and ignores it.
+   */
+  openProfileEditor(profileId?: string, providerId?: string): void
   closeProfileEditor(webContentsId: number): void
   openProviderEditor(providerId?: string): void
   closeProviderEditor(webContentsId: number): void
@@ -675,6 +765,7 @@ export function toPanelSettings(
     locale: value.ui.locale,
     theme: value.ui.theme,
     appearance: value.ui.appearance,
+    onboardingDismissed: value.ui.onboardingDismissed,
     autostart: value.autostart,
     updateChannel: value.updateChannel,
     autostartSupported,
@@ -788,9 +879,17 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
 
   // --- providers & models ------------------------------------------------
 
-  handle(APP_CHANNELS.providersList, requireAppWindow, async () => {
+  handle(APP_CHANNELS.providersList, requireAppWindow, async (_event, payload) => {
     const configs = host.store.effectiveProviders()
-    const cached = healthCache && now() - healthCache.at <= PROVIDER_HEALTH_TTL_MS
+    // `{ refresh: true }` is the first-run card's ⟳ (WP-7). The TTL exists for
+    // the picker, which reads this on every editor open; but a user who just
+    // installed a CLI and pressed the one button the copy told them to press
+    // would otherwise be served the same "not found" for up to 30 s — a cache
+    // hit does not even refresh its own timestamp, so pressing again changes
+    // nothing. An explicit gesture may therefore skip the cache and overwrite
+    // it; nothing that reads on a render is allowed to pass this flag.
+    const refresh = (payload as { refresh?: unknown } | undefined)?.refresh === true
+    const cached = !refresh && healthCache && now() - healthCache.at <= PROVIDER_HEALTH_TTL_MS
     // Probes run in parallel inside checkProviders — one dead CLI must not
     // serialize the picker behind its timeout.
     const health = cached ? healthCache!.health : await host.checkProviders(configs)
@@ -801,6 +900,24 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
       health: byId.get(config.id)
     }))
   })
+
+  /**
+   * WP-7: who is logged in where.
+   *
+   * Guarded like `providers:list` and not more narrowly: both reads feed the
+   * same first-run card, and giving the two halves of one card two different
+   * sender rules would be a trap for whoever adds the third. It answers a
+   * descriptor-derived login command and whatever the CLI printed about
+   * itself — no credentials, no tokens, nothing a provider list does not
+   * already imply.
+   *
+   * Deliberately uncached: the whole point is to be re-run right after the
+   * user typed the login command in their own terminal, and a TTL would make
+   * "I just logged in" a wait instead of a click.
+   */
+  handle(APP_CHANNELS.providersAuthStatus, requireAppWindow, () =>
+    host.checkProviderAuth(host.store.effectiveProviders())
+  )
 
   /**
    * Announce the effective provider list. Every window that shows providers
@@ -887,6 +1004,16 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     emitWorkspaces()
   })
 
+  handle(APP_CHANNELS.workspacesSucceedOrchestrator, requirePanel, async (_event, payload) => {
+    const workspaceId =
+      typeof payload === 'string' ? payload : (payload as { workspaceId?: string })?.workspaceId
+    if (!workspaceId) {
+      throw new Error('workspaces:succeedOrchestrator rejected — missing workspace id')
+    }
+    await host.directory.succeedOrchestrator(workspaceId)
+    emitWorkspaces()
+  })
+
   handle(APP_CHANNELS.workspacesFocusAgent, requirePanel, (_event, payload) => {
     const agentId =
       typeof payload === 'string' ? payload : (payload as { agentId?: string })?.agentId
@@ -939,6 +1066,17 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
     if (!body.workspaceId) throw new Error('workspaces:promoteAgent rejected — missing workspace id')
     if (!body.agentId) throw new Error('workspaces:promoteAgent rejected — missing agent id')
     await host.directory.promoteAgentBranch(body.workspaceId, body.agentId)
+  })
+
+  // Panel-only by construction: `requirePanel` is the same guard the workspace
+  // lifecycle uses, and the remote gateway holds an allow-list of verbs rather
+  // than a mirror of these channels — so this one cannot be reached from a
+  // paired browser at all.
+  handle(APP_CHANNELS.workspacesOpenRunFolder, requirePanel, async (_event, payload) => {
+    const workspaceId =
+      typeof payload === 'string' ? payload : (payload as { workspaceId?: string })?.workspaceId
+    if (!workspaceId) throw new Error('workspaces:openRunFolder rejected — missing workspace id')
+    await host.directory.openRunFolder(workspaceId)
   })
 
   // --- worktree cleanup ----------------------------------------------------
@@ -1074,6 +1212,13 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
           const ui = { ...host.store.getSettings().ui, appearance: normalizeAppearance(body.value) }
           return panelSettings(host.store.setSetting('ui', ui))
         }
+        case 'onboardingDismissed': {
+          if (typeof body.value !== 'boolean') {
+            throw new Error('settings:set rejected — onboardingDismissed expects a boolean')
+          }
+          const ui = { ...host.store.getSettings().ui, onboardingDismissed: body.value }
+          return panelSettings(host.store.setSetting('ui', ui))
+        }
         case 'theme':
         case 'locale': {
           // `ui` is one strict object in the schema: read, patch, write back.
@@ -1140,9 +1285,11 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
   })
 
   handle(APP_CHANNELS.profileEditorOpen, requireAppWindow, (_event, payload) => {
-    const profileId =
-      typeof payload === 'string' ? payload : (payload as { profileId?: string })?.profileId
-    host.openProfileEditor(profileId || undefined)
+    const body =
+      typeof payload === 'string'
+        ? { profileId: payload }
+        : ((payload ?? {}) as { profileId?: string; providerId?: string })
+    host.openProfileEditor(body.profileId || undefined, body.providerId || undefined)
   })
 
   host.ipcMain.on(APP_CHANNELS.profileEditorClose, ((event: IpcEvent): void => {
@@ -1397,8 +1544,12 @@ export function registerAppIpc(directory?: WorkspaceDirectory): AppIpc {
     isPanelSender: (id) => isPanelWindowSender(id),
     profileEditorSender: (id) => isProfileEditorWindowSender(id),
     providerEditorSender: (id) => isProviderEditorWindowSender(id),
-    discoverModels: (config) => discoverModels(config),
+    discoverModels: (config) =>
+      discoverModels(config, {
+        locale: () => readLocale(() => settings().getSettings().ui.locale)
+      }),
     checkProviders: (configs) => checkAllProviders(configs),
+    checkProviderAuth: (configs) => checkAllProviderAuth(configs),
     async pickDirectory(webContentsId, defaultPath) {
       // Modal to the asking window, so the dialog cannot end up behind the
       // always-on-top panel.
@@ -1414,8 +1565,8 @@ export function registerAppIpc(directory?: WorkspaceDirectory): AppIpc {
         : await dialog.showOpenDialog(options)
       return result.canceled ? null : (result.filePaths[0] ?? null)
     },
-    openProfileEditor: (profileId) => {
-      openProfileEditorWindow(profileId)
+    openProfileEditor: (profileId, providerId) => {
+      openProfileEditorWindow(profileId, providerId)
     },
     closeProfileEditor: (webContentsId) => {
       const key = isProfileEditorWindowSender(webContentsId)

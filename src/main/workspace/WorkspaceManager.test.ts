@@ -3,6 +3,7 @@ import type { McpServerHandle, RegisteredWorkspace } from '@main/mcp/server'
 import type { WorkspaceMcpContext } from '@main/mcp/types'
 import { PendingQuestions } from '@main/mcp/pendingQuestions'
 import { memoryTaskBoard } from '@main/mcp/testing'
+import { buildHandoffPackage } from '@shared/schema/handoff'
 import { createWorkspaceManager, type WorkspaceManagerDeps } from './WorkspaceManager'
 import type { WorkspaceDeps, WorkspaceWindows } from './Workspace'
 import {
@@ -38,7 +39,15 @@ class FakeMcp implements McpServerHandle {
       agentTasks: new Map<string, string>(),
       leads: new Map(),
       parentOf: new Map(),
-      resultSchemas: new Map()
+      resultSchemas: new Map(),
+      // Mirrors the real registration: the runtime's board IS the host's, so
+      // one assignment wires the tools AND the succession package.
+      get taskBoard() {
+        return ctx.host.attachedTaskBoard?.()
+      },
+      set taskBoard(board) {
+        if (board) ctx.host.attachTaskBoard?.(board)
+      }
     } as RegisteredWorkspace['runtime']
     this.runtimes.set(ctx.workspaceId, runtime)
     this.lastQuestions = runtime.questions
@@ -203,6 +212,37 @@ describe('startWorkspace', () => {
     expect(prompt).toContain('branch vertragus/a1')
   })
 
+  it('C6: an unconsumed succession package brief REPLACES the journal briefing', async () => {
+    const { manager, spawns } = harness()
+
+    await manager.startWorkspace(testProfile(), {
+      resume: {
+        briefing: 'Old run left branch vertragus/a1.',
+        fromWorkspaceId: 'ws-old',
+        succession: buildHandoffPackage({
+          workspaceId: 'ws-old',
+          workspaceName: 'Inferno',
+          profileId: testProfile().id,
+          createdAt: 1,
+          reason: 'context_full',
+          predecessor: { agentId: 'o1', name: 'Virgilio', providerId: 'claude' },
+          successorAgentId: 'o2',
+          eventCursor: 12,
+          agents: [],
+          openQuestions: [],
+          recentEvents: [],
+          decisions: ['Parser stays hand-written']
+        })
+      }
+    })
+
+    const prompt = spawns[0]!.input.systemPrompt!
+    expect(prompt).toContain('recovering the run of Virgilio')
+    expect(prompt).toContain('Parser stays hand-written')
+    // Two accounts of one dead run would only compete for attention.
+    expect(prompt).not.toContain('--- resumed run ---')
+  })
+
   it('S4: installs the task board on the MCP runtime and seeds it on resume', async () => {
     const board = memoryTaskBoard()
     const factory = vi.fn(() => board)
@@ -234,6 +274,9 @@ describe('startWorkspace', () => {
     expect(factory).toHaveBeenCalledWith(testProfile().repoPath, running.workspace.workspaceId)
     // The MCP tool layer reads the board off the runtime — it must be there.
     expect(mcp.lastRuntime?.taskBoard).toBe(board)
+    // And the succession package reads the HOST's, which is the same object:
+    // one wiring seam, no way to end up with tools and a package disagreeing.
+    expect(running.workspace.attachedTaskBoard()).toBe(board)
     expect(board.get('task-2')).toMatchObject({ subject: 'Carry me over', revision: 4 })
     // New ids continue after the seeded numbering — no collisions.
     expect(board.create({ subject: 'fresh' })).toMatchObject({ ok: true, task: { taskId: 'task-3' } })
@@ -562,5 +605,27 @@ describe('onChange — the push channel that replaced the panel poll', () => {
     running.workspace.events.push({ type: 'agent_progress', ...identity, note: 'ignored' })
     await Promise.resolve()
     expect(fired).toBe(afterOff)
+  })
+
+  it('S4: a board mutation reaches the feed too — the card carries the plan now', async () => {
+    const board = memoryTaskBoard()
+    const { manager, mcp } = harness({ taskBoard: () => board })
+    const running = await manager.startWorkspace(testProfile())
+    let fired = 0
+    const off = manager.onChange(() => {
+      fired += 1
+    })
+
+    // What the task tools call after an accepted create/update. No second feed
+    // exists on purpose: the board rides the assignment channel, and that one
+    // is already bound to ev:workspaces.
+    board.create({ subject: 'Fix the parser' })
+    mcp.lastRuntime!.onTasksChanged!()
+    await Promise.resolve()
+    expect(fired).toBe(1)
+    // And the plan is on the summary the panel renders from.
+    expect(running.workspace.listTasks()).toMatchObject([{ taskId: 'task-1', ready: true }])
+
+    off()
   })
 })

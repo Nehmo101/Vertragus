@@ -25,6 +25,12 @@ import { errorText } from './viewModel'
 export interface PanelData {
   bridge: VertragusAppApi | undefined
   profiles: Profile[]
+  /**
+   * WP-7: has the profile list actually answered once? An empty list means
+   * "nothing loaded yet" until it has, and the first-run card reacts to
+   * emptiness.
+   */
+  profilesLoaded: boolean
   workspaces: WorkspaceSummary[]
   settings: PanelSettings | null
   /** Null until the first push/poll; `disabled` in a dev run. */
@@ -36,18 +42,28 @@ export interface PanelData {
   /** E3: start a workspace briefed on the profile's newest journaled run. */
   resumeWorkspace(profileId: string): void
   stopWorkspace(workspaceId: string): void
+  /** C6/S3: replace a dead or silent orchestrator; the run itself continues. */
+  succeedOrchestrator(workspaceId: string): void
   /** Answer an agent's open question from its `?` badge (H1). */
   answerQuestion(workspaceId: string, agentId: string, questionId: string, text: string): void
   /** D2: steer a running workspace — wakes the orchestrator's await_events. */
   sendUserMessage(workspaceId: string, text: string): void
   /** E1 Promote: merge this agent's branch into the repo's own checkout. */
   promoteAgent(workspaceId: string, agentId: string): void
+  /** Reveal this run's artefacts (spill/, tasks.json, events.jsonl) on disk. */
+  openRunFolder(workspaceId: string): void
   focusAgent(agentId: string): void
   /** Close a finished agent's CLI window; the row and last task stay. */
   closeAgentWindow(agentId: string): void
   /** Bring this workspace's CLI windows forward; minimize the others. */
   focusWorkspace(workspaceId: string): void
-  editProfile(profileId?: string): void
+  /**
+   * Open the profile editor. `providerId` (WP-7) preselects the orchestrator
+   * of a NEW profile — the first-run card passes the CLI that answered.
+   */
+  editProfile(profileId?: string, providerId?: string): void
+  /** WP-7: close the first-run card for good (`ui.onboardingDismissed`). */
+  dismissOnboarding(): void
   openSettings(): void
   toggleYolo(): void
   hideAll(): void
@@ -62,6 +78,7 @@ export interface PanelData {
 export function usePanelData(): PanelData {
   const bridge = useMemo(() => window.vertragus?.app, [])
   const [profiles, setProfiles] = useState<Profile[]>([])
+  const [profilesLoaded, setProfilesLoaded] = useState(false)
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([])
   const [settings, setSettings] = useState<PanelSettings | null>(null)
   const [update, setUpdate] = useState<UpdateState | null>(null)
@@ -79,7 +96,9 @@ export function usePanelData(): PanelData {
       }, fail)
     }
     bridge.listProfiles().then((next) => {
-      if (alive) setProfiles(next)
+      if (!alive) return
+      setProfiles(next)
+      setProfilesLoaded(true)
     }, fail)
     bridge.getSettings().then((next) => {
       if (alive) setSettings(next)
@@ -95,7 +114,12 @@ export function usePanelData(): PanelData {
     )
     loadWorkspaces()
 
-    const offProfiles = bridge.onProfiles((next) => setProfiles(next))
+    const offProfiles = bridge.onProfiles((next) => {
+      // A push is an answer too — a save that lands before the initial read
+      // must not leave the list marked "still loading".
+      setProfiles(next)
+      setProfilesLoaded(true)
+    })
     const offWorkspaces = bridge.onWorkspaces((next) => setWorkspaces(next))
     const offUpdate = bridge.onUpdate((next) => setUpdate(next))
     window.addEventListener('focus', loadWorkspaces)
@@ -121,6 +145,7 @@ export function usePanelData(): PanelData {
   return {
     bridge,
     profiles,
+    profilesLoaded,
     workspaces,
     settings,
     update,
@@ -141,6 +166,11 @@ export function usePanelData(): PanelData {
         await api.stopWorkspace(workspaceId)
         setWorkspaces(await api.listWorkspaces())
       }),
+    succeedOrchestrator: (workspaceId) =>
+      run(async (api) => {
+        await api.succeedOrchestrator(workspaceId)
+        setWorkspaces(await api.listWorkspaces())
+      }),
     answerQuestion: (workspaceId, agentId, questionId, text) =>
       run(async (api) => {
         await api.answerQuestion(workspaceId, agentId, questionId, text)
@@ -150,10 +180,16 @@ export function usePanelData(): PanelData {
       run((api) => api.sendUserMessage(workspaceId, text)),
     promoteAgent: (workspaceId, agentId) =>
       run((api) => api.promoteAgentBranch(workspaceId, agentId)),
+    openRunFolder: (workspaceId) => run((api) => api.openRunFolder(workspaceId)),
     focusAgent: (agentId) => run((api) => api.focusAgent(agentId)),
     closeAgentWindow: (agentId) => run((api) => api.closeAgentWindow(agentId)),
     focusWorkspace: (workspaceId) => run((api) => api.focusWorkspace(workspaceId)),
-    editProfile: (profileId) => run((api) => api.openProfileEditor(profileId)),
+    editProfile: (profileId, providerId) =>
+      run((api) => api.openProfileEditor(profileId, providerId)),
+    dismissOnboarding: () =>
+      run(async (api) => {
+        setSettings(await api.setSetting('onboardingDismissed', true))
+      }),
     openSettings: () => run((api) => api.openSettings()),
     installUpdate: () => run((api) => api.installUpdate()),
     toggleYolo: () =>

@@ -60,6 +60,16 @@ export function translator(locale: Locale): Translate {
   return i18n.getFixedT(locale)
 }
 
+/**
+ * Narrow i18next's free-form `i18n.language` to a shipped locale. Components
+ * pass the result into pure functions that pick bilingual data (the Commedia
+ * blurbs) — the same threading discipline as `t`, so those functions stay
+ * testable in plain Node without a hidden language singleton.
+ */
+export function activeLocale(language: string | undefined): Locale {
+  return isLocale(language) ? language : DEFAULT_LOCALE
+}
+
 /** Switch the UI language of THIS window. Unknown values are ignored. */
 export async function applyLocale(locale: unknown): Promise<void> {
   if (!isLocale(locale) || locale === i18n.language) return

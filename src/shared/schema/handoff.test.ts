@@ -109,4 +109,48 @@ describe('buildHandoffPackage', () => {
     // A run without a board still validates — tasks default to empty.
     expect(buildHandoffPackage(base).tasks).toEqual([])
   })
+
+  it('records the real size, and admits it when the protected fields blow the cap', () => {
+    const small = buildHandoffPackage(base)
+    // Exact, admission included: `chars` describes the string that ships, not
+    // the shorter one the cap check happened to see (see the schema's note).
+    expect(small.limits.chars).toBe(JSON.stringify(small).length)
+    expect(small.limits.overCap).toBeUndefined()
+
+    // The cap decision runs with `chars` reserved, so a package that fits
+    // still fits once the field is in it — the loops cannot stop one admission
+    // short of the cap and ship an over-cap package with `overCap` absent.
+    const nearCap = buildHandoffPackage({
+      ...base,
+      recentEvents: Array.from({ length: 40 }, (_, i) => ({
+        seq: i + 1,
+        type: 'agent_done',
+        agentId: 'a1',
+        summary: 's'.repeat(400)
+      }))
+    })
+    expect(nearCap.limits.chars).toBe(JSON.stringify(nearCap).length)
+    expect(nearCap.limits.chars).toBeLessThanOrEqual(PACKAGE_MAX_CHARS)
+    expect(nearCap.limits.overCap).toBeUndefined()
+
+    // A board near TASKS_MAX with long subjects: tasks and open questions are
+    // never dropped, so the shrink loops run out of material while the package
+    // is still over the cap. That must be recorded, not quietly over-claimed.
+    const tasks = Array.from({ length: 200 }, (_, i) => ({
+      taskId: `task-${i + 1}`,
+      revision: 1,
+      subject: 's'.repeat(200),
+      status: 'pending',
+      blockedBy: []
+    }))
+    const pkg = buildHandoffPackage({ ...base, tasks })
+    expect(pkg.tasks).toHaveLength(200)
+    expect(pkg.recentEvents).toHaveLength(0)
+    expect(pkg.limits.overCap).toBe(true)
+    expect(pkg.limits.chars).toBeGreaterThan(PACKAGE_MAX_CHARS)
+    expect(pkg.limits.chars).toBe(JSON.stringify(pkg).length)
+    // Still a valid package: the successor gets everything, `limits` no longer
+    // claims a size the package does not have.
+    expect(orchestratorHandoffPackageSchema.parse(pkg).openQuestions).toHaveLength(1)
+  })
 })

@@ -10,15 +10,16 @@
  */
 import { loreBlurb } from '@shared/lore'
 import { ORCHESTRATOR_ROLE_ID } from '@shared/prompts/roles'
-import type { Translate } from '../i18n'
+import type { Locale, Translate } from '../i18n'
 import type { TerminalAgentMeta } from '../../../preload'
 
 export function metaBlurb(
   t: Translate,
+  locale: Locale,
   meta: Pick<TerminalAgentMeta, 'name' | 'role'>,
   task: string | undefined
 ): string | undefined {
-  const lore = loreBlurb(meta.name)
+  const lore = loreBlurb(meta.name, locale)
   const trimmed = task?.trim()
   if (!trimmed) return lore
   const taskLine =

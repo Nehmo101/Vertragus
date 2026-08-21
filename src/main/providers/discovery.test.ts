@@ -436,6 +436,17 @@ describe('authFailureHint', () => {
       'nicht angemeldet — bitte anmelden (Not logged in)'
     )
   })
+
+  /** The hint lands inside an ENGLISH profile-editor sentence when ui.locale is en. */
+  it('speaks the stored locale instead of gluing German into an English sentence', () => {
+    expect(authFailureHint(preset('cursor'), 'Not logged in', 'en')).toMatch(
+      /^not logged in — run '.+' \(Not logged in\)$/
+    )
+    const config = { ...preset('cursor'), auth: undefined }
+    expect(authFailureHint(config, 'Not logged in', 'en')).toBe(
+      'not logged in — please log in (Not logged in)'
+    )
+  })
 })
 
 describe('execProviderCli', () => {

@@ -19,6 +19,7 @@ import { access, readdir, readFile, realpath } from 'node:fs/promises'
 import { constants as fsConstants } from 'node:fs'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
+import { mainMessages } from '@shared/mainMessages'
 import { refreshProcessPathFromSystem } from '@main/providers/processPath'
 
 const execFileAsync = promisify(execFile)
@@ -341,6 +342,21 @@ export async function resolveFaithfulShimLaunch(
   return resolveVersionedLayoutLaunch(dir, args, { pathExists, listDir })
 }
 
+/**
+ * Stored UI locale for the user-facing launch error. Imported lazily for the
+ * same reason discovery's `readMemory` is: the settings store pulls in
+ * Electron, and this module must stay importable (and testable) without an
+ * Electron runtime. Anything unreadable falls back to the schema default.
+ */
+async function storedLocale(): Promise<string | undefined> {
+  try {
+    const { getSettings } = await import('@main/store/settings')
+    return getSettings().ui.locale
+  } catch {
+    return undefined
+  }
+}
+
 export async function resolveLaunch(
   command: string,
   args: string[],
@@ -358,11 +374,7 @@ export async function resolveLaunch(
     if (!isShim) return { file: resolved, args }
     const faithful = await resolveFaithfulShimLaunch(resolved, args)
     if (faithful) return faithful
-    throw new Error(
-      `Kein argumenttreuer Startpfad für '${command}' gefunden (aufgelöst zu ${resolved}). ` +
-        'Ein cmd.exe/PowerShell-Wrapper würde mehrzeilige Prompts abschneiden und Shell-Metazeichen ' +
-        'ausführbar machen. Erwartet wird ein direkt startbares .exe oder ein Node-Entrypoint neben dem Shim.'
-    )
+    throw new Error(mainMessages(await storedLocale()).noFaithfulLaunch(command, resolved))
   }
 
   if (lowerExtEndsWith(lower, '.ps1')) {

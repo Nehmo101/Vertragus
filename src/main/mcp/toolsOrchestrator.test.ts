@@ -1571,6 +1571,33 @@ describe('task board — S4', () => {
     expect(runtime.taskBoard!.get('task-3')!.blockedBy).toEqual(['task-1', 'task-2'])
   })
 
+  it('announces every accepted board mutation on the assignment feed — the panel shows the plan', async () => {
+    const { tools, runtime } = setup()
+    let notified = 0
+    runtime.onTasksChanged = () => {
+      notified += 1
+    }
+
+    await callTool(tools, 'task_create', { subject: 'Build parser' })
+    await callTool(tools, 'task_update', {
+      taskId: 'task-1',
+      expectedRevision: 1,
+      action: 'complete'
+    })
+    expect(notified).toBe(2)
+
+    // Refusals change nothing, so they must wake nothing — a repaint per
+    // rejected CAS retry would be pure noise on the rail.
+    await callTool(tools, 'task_update', {
+      taskId: 'task-1',
+      expectedRevision: 1,
+      action: 'reopen'
+    })
+    await callTool(tools, 'task_create', { subject: 'Nowhere', blockedBy: ['task-9'] })
+    await callTool(tools, 'task_list')
+    expect(notified).toBe(2)
+  })
+
   it('stale_revision rides the CURRENT task in the tool error payload', async () => {
     const { tools } = setup()
     await callTool(tools, 'task_create', { subject: 'S' })

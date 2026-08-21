@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { REMOTE_COMMANDS } from '@shared/remote/protocol'
+import { REMOTE_COMMANDS, type RemoteWorkspaceSummary } from '@shared/remote/protocol'
+import type { WorkspaceSummary } from '@main/appIpc'
 import { runRemoteCommand, type RemoteGatewayHost } from './gateway'
 
 function host(overrides: Partial<RemoteGatewayHost> = {}): RemoteGatewayHost {
@@ -149,5 +150,51 @@ describe('runRemoteCommand', () => {
       'workspaces:start',
       'workspaces:stop'
     ])
+    // S4/S1: the panel's run-folder channel is deliberately NOT mirrored here.
+    // Opening a directory means something on the machine the app runs on and
+    // nothing at all in a paired browser, so the phone never gets a verb for it.
+    expect([...REMOTE_COMMANDS]).not.toContain('workspaces:openRunFolder')
+  })
+
+  it('S4: forwards the panel summary as it stands — the board rides workspaces:list', async () => {
+    // The gateway carries whatever the WorkspaceDirectory produces, so the
+    // phone gets the task board without a verb of its own. Typed from the
+    // panel's own summary on purpose: if the two structs ever drift, this stops
+    // compiling instead of silently shipping a half-empty card.
+    const fromPanel: WorkspaceSummary = {
+      workspaceId: 'w1',
+      name: 'Paradiso',
+      profileId: 'p1',
+      active: true,
+      agents: [
+        {
+          agentId: 'a1',
+          name: 'Caronte',
+          roleId: 'worker',
+          roleColor: '#2f7d6d',
+          state: 'working'
+        }
+      ],
+      tasks: [
+        {
+          taskId: 'task-1',
+          subject: 'Build the parser',
+          status: 'in_progress',
+          ownerAgentId: 'a1',
+          blockedBy: [],
+          ready: false
+        }
+      ]
+    }
+    const forwarded: RemoteWorkspaceSummary[] = [fromPanel]
+    const result = await runRemoteCommand(
+      host({ listWorkspaces: () => forwarded }),
+      'workspaces:list',
+      undefined
+    )
+    expect(result).toMatchObject({
+      ok: true,
+      result: [{ workspaceId: 'w1', tasks: [{ taskId: 'task-1', ready: false }] }]
+    })
   })
 })

@@ -30,6 +30,14 @@ export const NEXT_ACTIONS_MAX = 10
 export const RECENT_EVENTS_MAX = 40
 export const PACKAGE_MAX_CHARS = 48_000
 
+/**
+ * What admitting the size costs inside `limits`: the `chars` member itself,
+ * with a number as wide as the cap, joined to the object by one comma. Held in
+ * reserve by {@link buildHandoffPackage} before every cap decision, because the
+ * field is part of the package it measures.
+ */
+const ADMISSION_CHARS = `,"chars":${PACKAGE_MAX_CHARS}`.length
+
 const cappedString = (max: number) => z.string().max(max)
 
 export const handoffGoalSchema = z
@@ -160,7 +168,22 @@ export const orchestratorHandoffPackageSchema = z
     limits: z
       .object({
         maxChars: z.number().int().positive(),
-        truncated: z.array(z.string().min(1))
+        truncated: z.array(z.string().min(1)),
+        /**
+         * Serialized size of the finished package, admission fields included —
+         * `JSON.stringify(pkg).length` of exactly what ships. The field counts
+         * itself, which is why {@link buildHandoffPackage} settles it on a
+         * fixed point instead of measuring once.
+         */
+        chars: z.number().int().nonnegative().optional(),
+        /**
+         * The package is larger than {@link maxChars} and nothing droppable is
+         * left: tasks, open questions and the roster are never truncated (see
+         * {@link handoffTaskSchema}), so a board near `TASKS_MAX` can blow the
+         * cap on its own. Recorded instead of silently over-claiming — the
+         * successor still gets everything, and `limits` stops lying about it.
+         */
+        overCap: z.literal(true).optional()
       })
       .strict()
   })
@@ -337,16 +360,43 @@ export function buildHandoffPackage(input: BuildHandoffPackageInput): Orchestrat
   if (input.orchWorktree) pkg.orchWorktree = input.orchWorktree
   if (note) pkg.note = note.value
 
+  // The admission fields live INSIDE the package they describe, so a size
+  // measured before they exist is the wrong number to hold the cap against:
+  // the loops would stop just under it and the appended `chars` would push the
+  // shipped package over — with `overCap` absent, because the verdict ran on a
+  // string that did not contain the field yet. Reserve `chars` up front for
+  // every comparison below. `overCap` needs no reservation: it only ever
+  // appears on a package that is already over, where 15 more characters change
+  // nothing that is still decidable.
   let serialized = JSON.stringify(pkg)
-  while (serialized.length > PACKAGE_MAX_CHARS && pkg.recentEvents.length > 0) {
+  const fits = (): boolean => serialized.length + ADMISSION_CHARS <= PACKAGE_MAX_CHARS
+  while (!fits() && pkg.recentEvents.length > 0) {
     pkg.recentEvents = pkg.recentEvents.slice(1)
     if (!pkg.limits.truncated.includes('recentEvents')) pkg.limits.truncated.push('recentEvents')
     serialized = JSON.stringify(pkg)
   }
-  while (serialized.length > PACKAGE_MAX_CHARS && pkg.decisions.length > 0) {
+  while (!fits() && pkg.decisions.length > 0) {
     pkg.decisions = pkg.decisions.slice(0, -1)
     if (!pkg.limits.truncated.includes('decisions')) pkg.limits.truncated.push('decisions')
     serialized = JSON.stringify(pkg)
+  }
+  // The shrink loops can only reach orch prose and recentEvents. Everything
+  // else — the roster, open questions, the whole task board — is protected by
+  // contract, so a large enough run exhausts the loops while still over the
+  // cap. That case must not pass silently as a package whose own `limits`
+  // claims a size it does not have: it is recorded, not thrown. Throwing would
+  // mean a run with a big board can never hand off at all, which is exactly the
+  // moment succession exists for.
+  if (!fits()) pkg.limits.overCap = true
+  // `chars` counts itself, so writing it changes what it should say. Only its
+  // own digit count can still move, and the size is monotone in it, so this
+  // settles after one or two rounds; the bound is there so "settles" is a
+  // property of the loop and not an assumption about JSON.
+  pkg.limits.chars = JSON.stringify(pkg).length
+  for (let round = 0; round < 4; round += 1) {
+    const size = JSON.stringify(pkg).length
+    if (size === pkg.limits.chars) break
+    pkg.limits.chars = size
   }
   return orchestratorHandoffPackageSchema.parse(pkg)
 }

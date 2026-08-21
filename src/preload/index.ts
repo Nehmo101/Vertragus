@@ -135,6 +135,7 @@ const APP = {
   rolesList: 'roles:list',
   rolesSave: 'roles:save',
   providersList: 'providers:list',
+  providersAuthStatus: 'providers:authStatus',
   providersSave: 'providers:save',
   providersDelete: 'providers:delete',
   modelsDiscover: 'models:discover',
@@ -142,12 +143,14 @@ const APP = {
   workspacesStart: 'workspaces:start',
   workspacesResume: 'workspaces:resume',
   workspacesStop: 'workspaces:stop',
+  workspacesSucceedOrchestrator: 'workspaces:succeedOrchestrator',
   workspacesFocusAgent: 'workspaces:focusAgent',
   workspacesFocus: 'workspaces:focus',
   workspacesCloseAgent: 'workspaces:closeAgent',
   workspacesAnswerQuestion: 'workspaces:answerQuestion',
   workspacesUserMessage: 'workspaces:userMessage',
   workspacesPromoteAgent: 'workspaces:promoteAgent',
+  workspacesOpenRunFolder: 'workspaces:openRunFolder',
   worktreesList: 'worktrees:list',
   worktreesRemove: 'worktrees:remove',
   retroList: 'retro:list',
@@ -239,6 +242,19 @@ export interface WorkspaceAgentSummary {
   pendingQuestionId?: string
 }
 
+/** S4: one row of the run's task board. Mirrors main's WorkspaceTaskSummary. */
+export interface WorkspaceTaskSummary {
+  taskId: string
+  subject: string
+  /** Tombstones never travel — the card shows the living plan only. */
+  status: 'pending' | 'in_progress' | 'completed'
+  /** Agent id of the owner; the card resolves it to the Commedia name. */
+  ownerAgentId?: string
+  blockedBy: string[]
+  /** pending AND every blockedBy completed — decided by the host's board. */
+  ready: boolean
+}
+
 export interface WorkspaceSummary {
   workspaceId: string
   name: string
@@ -251,9 +267,19 @@ export interface WorkspaceSummary {
   goalText?: string
   /** C5: orchestrator alive but silent on its tools — the card shows a hint. */
   orchestratorIdle?: boolean
+  /** C6: a successor orchestrator is spawning — the card shows a badge. */
+  successionInProgress?: true
   /** D3: the orchestrator's open ask_user question (answer with agentId "user"). */
   userQuestion?: { questionId: string; question: string }
   agents: WorkspaceAgentSummary[]
+  /** S4: the run's task board, capped and tombstone-free. Absent = no plan yet. */
+  tasks?: WorkspaceTaskSummary[]
+  /**
+   * S4: counts over the WHOLE plan, not over the capped {@link tasks} — the
+   * card must never derive progress from the rows that happened to fit.
+   */
+  taskTotal?: number
+  taskDone?: number
 }
 
 /** One stale worktree the panel's cleanup view offers for removal. */
@@ -281,6 +307,20 @@ export interface ProviderListEntry {
   health?: ProviderHealth
 }
 
+/** WP-7: how a provider answered its own login question. */
+export type ProviderAuthState = 'logged-in' | 'logged-out' | 'unknown'
+
+/** Login state of one provider (see main/providers/authStatus.ts). */
+export interface ProviderAuthStatus {
+  id: string
+  state: ProviderAuthState
+  /** The probe's first output line, or the error that replaced it. */
+  detail?: string
+  /** `cursor-agent login`, composed from the descriptor. Absent = none declared. */
+  loginCommand?: string
+  checkedAt: number
+}
+
 export interface ModelDiscoveryResult {
   models: string[]
   /**
@@ -302,6 +342,8 @@ export interface PanelSettings {
   theme: 'dark' | 'light'
   /** Window opacity and glass transparency; see @shared/appearance. */
   appearance: Appearance
+  /** WP-7: the first-run card was closed by hand — the panel honours it. */
+  onboardingDismissed: boolean
   autostart: boolean
   updateChannel: UpdateChannel
   /** False in a dev run — the login item would point at the Electron binary. */
@@ -324,6 +366,7 @@ export type WritableSetting =
   | 'locale'
   | 'appearance'
   | 'agentPolicy'
+  | 'onboardingDismissed'
 
 export type UpdateStatus =
   | 'disabled'
@@ -394,7 +437,20 @@ const app = {
   listRoles: (): Promise<RoleTemplate[]> => ipcRenderer.invoke(APP.rolesList),
   saveRole: (template: RoleTemplate): Promise<RoleTemplate[]> =>
     ipcRenderer.invoke(APP.rolesSave, template),
-  listProviders: (): Promise<ProviderListEntry[]> => ipcRenderer.invoke(APP.providersList),
+  /**
+   * The effective providers with their health probe. `refresh` skips the main
+   * process' 30 s health cache — reserved for an explicit user gesture (the
+   * first-run card's ⟳); every read that happens on a render omits it.
+   */
+  listProviders: (options?: { refresh?: boolean }): Promise<ProviderListEntry[]> =>
+    ipcRenderer.invoke(APP.providersList, options),
+  /**
+   * WP-7: login state per provider. Shells out to the CLIs' own status
+   * commands, so it is called on demand (the first-run card, its ⟳) and never
+   * on a render.
+   */
+  listProviderAuth: (): Promise<ProviderAuthStatus[]> =>
+    ipcRenderer.invoke(APP.providersAuthStatus),
   discoverModels: (providerId: string): Promise<ModelDiscoveryResult> =>
     ipcRenderer.invoke(APP.modelsDiscover, { providerId }),
   listWorkspaces: (): Promise<WorkspaceSummary[]> => ipcRenderer.invoke(APP.workspacesList),
@@ -406,6 +462,14 @@ const app = {
     ipcRenderer.invoke(APP.workspacesResume, { profileId }),
   stopWorkspace: (workspaceId: string): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesStop, { workspaceId }),
+  /**
+   * C6/S3: replace this workspace's orchestrator with a fresh one that
+   * continues the run — the escape hatch for a dead or silent orchestrator.
+   * Subagents, worktrees and the task board stay; rejects readably when there
+   * is nothing to replace.
+   */
+  succeedOrchestrator: (workspaceId: string): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesSucceedOrchestrator, { workspaceId }),
   focusAgent: (agentId: string): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesFocusAgent, { agentId }),
   /**
@@ -441,6 +505,12 @@ const app = {
    */
   promoteAgentBranch: (workspaceId: string, agentId: string): Promise<void> =>
     ipcRenderer.invoke(APP.workspacesPromoteAgent, { workspaceId, agentId }),
+  /**
+   * Reveal this run's artefact folder (spill/, tasks.json, events.jsonl) in the
+   * OS file manager. Rejects readably when the run left nothing on disk.
+   */
+  openRunFolder: (workspaceId: string): Promise<void> =>
+    ipcRenderer.invoke(APP.workspacesOpenRunFolder, { workspaceId }),
   /** Stale worktrees of this profile's repo — the panel's cleanup list. */
   listStaleWorktrees: (profileId: string): Promise<StaleWorktreeSummary[]> =>
     ipcRenderer.invoke(APP.worktreesList, { profileId }),
@@ -495,8 +565,13 @@ const app = {
   quitApp: (): Promise<boolean> => ipcRenderer.invoke(APP.appQuit),
   pickDirectory: (defaultPath?: string): Promise<string | null> =>
     ipcRenderer.invoke(APP.dialogPickDirectory, { defaultPath }),
-  openProfileEditor: (profileId?: string): Promise<void> =>
-    ipcRenderer.invoke(APP.profileEditorOpen, { profileId }),
+  /**
+   * Open the profile editor. `providerId` (WP-7) preselects the orchestrator
+   * of a NEW profile and is ignored for an existing one — a hint from the
+   * first-run card, never a write.
+   */
+  openProfileEditor: (profileId?: string, providerId?: string): Promise<void> =>
+    ipcRenderer.invoke(APP.profileEditorOpen, { profileId, providerId }),
   /**
    * Write a provider descriptor. Saving under a preset id EDITS that built-in;
    * the merged list that comes back is what every picker should show next.
