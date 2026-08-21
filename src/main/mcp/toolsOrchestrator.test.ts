@@ -756,6 +756,136 @@ describe('inspect_agent', () => {
   })
 })
 
+describe('spill — S1', () => {
+  /** A fake SpillStore: records saves, answers a fixed path (or undefined). */
+  function spillRecorder(result: string | undefined) {
+    const calls: Array<{ name: string; content: string }> = []
+    return {
+      calls,
+      store: {
+        save: async (name: string, content: string) => {
+          calls.push({ name, content })
+          return result
+        }
+      }
+    }
+  }
+
+  async function startedAgent(tools: Awaited<ReturnType<typeof setup>>['tools']): Promise<string> {
+    const started = await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
+    return String(started.json.agentId)
+  }
+
+  it('keeps read_output full: true inline at or under the threshold — no save', async () => {
+    const recorder = spillRecorder('/abs/spill/1-x.txt')
+    const { runtime, tools } = setup({ spill: recorder.store })
+    const agentId = await startedAgent(tools)
+    runtime.host.output.set(agentId, 'small full buffer')
+
+    const result = await callTool(tools, 'read_output', { agentId, full: true })
+    expect(result.text).toBe('small full buffer')
+    expect(recorder.calls).toHaveLength(0)
+  })
+
+  it('spills an oversized full buffer and returns banner + head + tail', async () => {
+    const path = '/repo/.vertragus/runs/ws-test/spill/1-read-output.txt'
+    const recorder = spillRecorder(path)
+    const { runtime, tools } = setup({ spill: recorder.store })
+    const agentId = await startedAgent(tools)
+    const big = 'H'.repeat(2_500) + 'M'.repeat(3_000) + 'T'.repeat(1_500)
+    runtime.host.output.set(agentId, big)
+
+    const result = await callTool(tools, 'read_output', { agentId, full: true })
+    expect(result.isError).toBe(false)
+    // The banner names the char count, the absolute path and the retrieval hint.
+    expect(result.text).toContain('[output too large: 7_000 chars — full text at')
+    expect(result.text).toContain(path)
+    expect(result.text).toContain('read or grep that file for the full output]')
+    // Preview: the first 2000 chars, an ellipsis line, the last 1000 chars.
+    expect(result.text).toContain(`\n${'H'.repeat(2_000)}\n…\n${'T'.repeat(1_000)}`)
+    // The FILE got the untruncated text, keyed by the tool and agent.
+    expect(recorder.calls).toEqual([{ name: `read-output-${agentId}`, content: big }])
+  })
+
+  it('degrades a failed save to truncated inline text plus a note — never an error', async () => {
+    const recorder = spillRecorder(undefined)
+    const { runtime, tools } = setup({ spill: recorder.store })
+    const agentId = await startedAgent(tools)
+    runtime.host.output.set(agentId, 'x'.repeat(10_000))
+
+    const result = await callTool(tools, 'read_output', { agentId, full: true })
+    expect(result.isError).toBe(false)
+    expect(result.text).toContain('…')
+    expect(result.text).toContain('note: full output unavailable (spill failed)')
+    expect(result.text).not.toContain('output too large')
+  })
+
+  it('keeps today’s inline behaviour when no spill store is configured', async () => {
+    const { runtime, tools } = setup()
+    const agentId = await startedAgent(tools)
+    const big = 'x'.repeat(10_000)
+    runtime.host.output.set(agentId, big)
+
+    const result = await callTool(tools, 'read_output', { agentId, full: true })
+    expect(result.text).toBe(big)
+  })
+
+  it('turns an oversized inspect_agent diff into the compact spillPath shape', async () => {
+    const path = '/repo/.vertragus/runs/ws-test/spill/1-inspect-diff.txt'
+    const recorder = spillRecorder(path)
+    const { runtime, tools } = setup({ spill: recorder.store })
+    const agentId = await startedAgent(tools)
+    const body = 'D'.repeat(7_000)
+    runtime.host.inspectBodies.set(agentId, body)
+
+    const result = await callTool(tools, 'inspect_agent', { agentId, view: 'diff' })
+    expect(result.isError).toBe(false)
+    // Exact shape: no body, no git facts — the head/tail and the path carry it.
+    expect(result.json).toEqual({
+      agentId,
+      view: 'diff',
+      truncated: true,
+      spillPath: path,
+      head: 'D'.repeat(2_000),
+      tail: 'D'.repeat(1_000)
+    })
+    expect(recorder.calls).toEqual([{ name: `inspect-diff-${agentId}`, content: body }])
+  })
+
+  it('keeps a failed inspect spill inline: truncated head/tail plus a note field', async () => {
+    const recorder = spillRecorder(undefined)
+    const { runtime, tools } = setup({ spill: recorder.store })
+    const agentId = await startedAgent(tools)
+    runtime.host.inspectBodies.set(agentId, 'D'.repeat(7_000))
+
+    const result = await callTool(tools, 'inspect_agent', { agentId, view: 'file', path: 'a.ts' })
+    expect(result.isError).toBe(false)
+    expect(result.json).toMatchObject({
+      agentId,
+      view: 'file',
+      truncated: true,
+      note: 'full output unavailable (spill failed)'
+    })
+    expect(result.json.spillPath).toBeUndefined()
+  })
+
+  it('leaves small inspect results and the status view exactly as today', async () => {
+    const recorder = spillRecorder('/abs/spill/1-x.txt')
+    const { runtime, tools } = setup({ spill: recorder.store })
+    const agentId = await startedAgent(tools)
+
+    const small = await callTool(tools, 'inspect_agent', { agentId, view: 'diff' })
+    expect(small.json).toMatchObject({ agentId, view: 'diff', body: '(fake diff)' })
+    expect(small.json.truncated).toBeUndefined()
+
+    // status is small by construction and never spills, even with a big body.
+    runtime.host.inspectBodies.set(agentId, 'S'.repeat(7_000))
+    const status = await callTool(tools, 'inspect_agent', { agentId, view: 'status' })
+    expect(status.json.body).toBe('S'.repeat(7_000))
+    expect(recorder.calls).toHaveLength(0)
+  })
+})
+
 describe('record_retro', () => {
   function retroPort(): {
     port: { recordLearnings: ReturnType<typeof vi.fn>; recordSummary: ReturnType<typeof vi.fn> }

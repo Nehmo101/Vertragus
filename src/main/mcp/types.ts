@@ -24,6 +24,9 @@ import type { PendingQuestions } from './pendingQuestions'
 import type { AgentPolicy } from '@shared/agentPolicy'
 import type { ReportingMode } from '@shared/prompts/contract'
 import type { SuccessionRequest } from '@shared/schema/handoff'
+// Type-only on purpose: the MCP layer stays free of workspace runtime code —
+// the store implementation is injected by the host via the context.
+import type { SpillStore } from '@main/workspace/spill'
 
 /** What `start_agent` hands the host. */
 export interface StartAgentInput {
@@ -210,6 +213,12 @@ export interface AgentHost {
   /** ANSI-stripped tail of the agent's output. */
   readOutput(agentId: string, lines: number): Promise<string>
   /**
+   * S1: the WHOLE retained scrollback, same normalisation and source as
+   * {@link readOutput} but without the line cap. Only `read_output{full:true}`
+   * calls it, and the tool spills the result to a file instead of inlining it.
+   */
+  readOutputFull(agentId: string): Promise<string>
+  /**
    * Read-only git inspection of one agent's own worktree. Refuses agents that
    * are still `starting`. Stopped agents remain inspectable — their worktree
    * survives `stop_agent`.
@@ -340,6 +349,12 @@ export interface WorkspaceMcpContext {
    * instead of failing the workspace — retros are an amenity, never a blocker.
    */
   retro?: WorkspaceRetroPort
+  /**
+   * S1: where oversized tool output spills to disk (preview + path instead of
+   * truncation). Optional like `retro` — absent (old fakes, unit tests) keeps
+   * today's inline behaviour everywhere.
+   */
+  spill?: SpillStore
 }
 
 /** One qualitative insight as the orchestrator hands it in — role-keyed. */

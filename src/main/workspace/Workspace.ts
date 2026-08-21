@@ -119,6 +119,7 @@ import type { ProviderConfig } from '@shared/schema/provider'
 import type { ZoneLayout } from '@shared/schema/zones'
 import type { AgentDoneStatus } from '@shared/schema/events'
 import { SentinelParser, type SentinelReport } from './sentinel'
+import { createSpillStore, type SpillStore } from './spill'
 import { terminalTailText } from './terminalText'
 
 /** Agent statuses this host reports. See `mcp/types` TERMINAL_AGENT_STATUSES. */
@@ -404,6 +405,8 @@ export class Workspace implements AgentHost {
     | undefined
   /** The record_retro summary, held until the manager finalizes the run at stop. */
   pendingRetroSummary: string | undefined
+  /** S1: spill store for oversized tool output; created with the MCP context. */
+  private spillStore: SpillStore | undefined
   /** The user's goal, once it was DELIVERED to the orchestrator (H2). */
   private goal: string | undefined
   /** C5 idle watchdog: when the orchestrator last called one of its tools. */
@@ -616,6 +619,10 @@ export class Workspace implements AgentHost {
   mcpContext(): WorkspaceMcpContext {
     const retro = this.deps.retro
     const awaitTimeout = this.awaitTimeout()
+    // S1: one spill store per workspace, next to the run journal on disk. It
+    // does no I/O until the first save, so creating it here is free; kept on
+    // the instance so re-registration cannot restart the seq counter.
+    this.spillStore ??= createSpillStore(this.repoPath, this.workspaceId)
     return {
       workspaceId: this.workspaceId,
       workspaceName: this.name,
@@ -627,6 +634,7 @@ export class Workspace implements AgentHost {
       limits: this.limits(),
       roles: profileRoleIds(this.profile),
       agentPolicy: this.agentPolicy(),
+      spill: this.spillStore,
       ...(awaitTimeout ? { awaitTimeout } : {}),
       ...(retro
         ? {
@@ -944,6 +952,14 @@ export class Workspace implements AgentHost {
     const record = this.requireAgent(agentId)
     const chars = Math.min(MAX_TAIL_CHARS, Math.max(MIN_TAIL_CHARS, lines * CHARS_PER_LINE))
     return terminalTailText(record.pty.tail(chars), lines)
+  }
+
+  async readOutputFull(agentId: string): Promise<string> {
+    const record = this.requireAgent(agentId)
+    // S1: same source and normalisation as the tail, without the line cap —
+    // the scrollback's own retention (MAX_TAIL_CHARS) is the only bound left.
+    // The MCP layer spills this to a file; it never travels inline.
+    return terminalTailText(record.pty.tail(MAX_TAIL_CHARS), Number.MAX_SAFE_INTEGER)
   }
 
   async inspectAgent(agentId: string, options: InspectAgentOptions): Promise<InspectAgentResult> {
