@@ -35,6 +35,36 @@ Es wurde noch kein Release getaggt; alles steht unter Unreleased.
   passende Heading-Bäume und Link-Ziele je Zwillingspaar, kein deutscher
   Text in englischen Kanon-Dateien, keine verwaisten Zwillinge, keine toten
   Doc-Links oder Doc-Referenzen in Quellcode-Kommentaren.
+- **Englische Blurbs für jeden Agenten-, Workspace- und Ortsnamen**, damit
+  die englische Oberfläche keine deutschen Hover-Karten mehr zeigt.
+- **Signier- und Notarisierungs-Plumbing**, ruhend bis Repository-Secrets
+  existieren: Azure Trusted Signing für Windows, Developer ID plus
+  Notarisierung für macOS (das erst mit funktionierender Signatur in
+  Releases kommt, weil Squirrel.Mac unsignierte Auto-Updates verweigert),
+  Signaturprüfung je Betriebssystem nach dem Packen und `docs/SIGNING.md`.
+- **Provider-Verifikationsmatrix**: Argv-Snapshots für jedes Preset und
+  jede Startform, eine `PRESET_VERIFICATION`-Karte mit Drift-Hinweis im
+  Provider-Editor, ein wöchentlicher Best-Effort-Spawn-Probelauf und
+  `docs/RELEASE-CHECKLIST.md`.
+- Integrationsszenarien für die Phase-G-Features: eine `resultSchema`-
+  Schleife über einen echten MCP-Server und ein Task-Board über eine
+  Succession hinweg.
+- Guards gegen Sprach-Drift: ein Scanner, der deutsche Literale im
+  Main-Prozess außerhalb von `mainMessages.ts` ablehnt, und eine
+  Paritätsprüfung für die Texte des Remote-Clients.
+
+### Fixed
+
+- Der PTY-Idle-Hinweis erreichte das Orchestrator-Modell auf Deutsch, auf
+  einem ansonsten englischen Kanal; er ist jetzt englisch.
+- Das Result-Schema eines Subagenten blieb in der Registry liegen, wenn der
+  Agent sich selbst beendete (nur `stop_agent` und Startfehler gaben es
+  frei).
+- Der Profil-Editor mischte ein deutsches Fehlerfragment in einen
+  englischen Satz; Provider-Auth-Hinweise und Discovery-Details folgen
+  jetzt der Oberflächensprache.
+- Beim echten Erststart folgt die Oberflächensprache dem Betriebssystem
+  statt auf Deutsch zu fallen; eine gespeicherte Wahl gewinnt immer.
 
 ### Changed
 

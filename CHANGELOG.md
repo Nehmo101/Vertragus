@@ -33,6 +33,34 @@ No release has been tagged yet; everything lives under Unreleased.
   matching heading trees and link targets per twin pair, no German copy in
   English canonicals, no orphan twins, no dead doc links or doc references
   in source comments.
+- **English blurbs for every agent, workspace and place name**, so the
+  English UI no longer shows German hover cards.
+- **Code-signing and notarization plumbing**, dormant until repository
+  secrets exist: Azure Trusted Signing for Windows, Developer ID plus
+  notarization for macOS (which only joins releases once signing works,
+  because Squirrel.Mac refuses unsigned auto-updates), per-OS post-package
+  signature verification, and `docs/SIGNING.md`.
+- **Provider verification matrix**: argv snapshots for every preset and
+  launch shape, a `PRESET_VERIFICATION` map with a drift hint in the
+  provider editor, a weekly best-effort spawn probe workflow, and
+  `docs/RELEASE-CHECKLIST.md`.
+- Integration scenarios for the Phase-G features: a `resultSchema` loop
+  over a real MCP server, and a task board carried across a succession.
+- Guards against language drift: a scanner that fails on German literals
+  in the main process outside `mainMessages.ts`, and a parity check for the
+  remote client's copy.
+
+### Fixed
+
+- The PTY-idle hint reached the orchestrator model in German on an
+  otherwise English channel; it is English now.
+- A subagent's result schema leaked in the registry when the agent exited
+  on its own (only `stop_agent` and start failures released it).
+- The profile editor interpolated a German failure fragment into an English
+  sentence; provider auth hints and discovery details now follow the UI
+  language.
+- On a true first run the UI language follows the operating system instead
+  of defaulting to German; a stored choice always wins.
 
 ### Changed
 
