@@ -712,6 +712,7 @@
 }
 
 .panel-card {
+  min-width: 0;
   padding: 8px 9px 7px;
   border-radius: var(--radius-card);
   border: 1px solid var(--hairline);
@@ -968,10 +969,11 @@
   background: var(--hover-wash);
 }
 
-/* --- the goal line of an expanded card (H2) ---------------------------- */
+/* --- the goal line of a card (H2) — collapsed and expanded ------------- */
 
 .panel-card-goal {
   margin: 4px 5px 0;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

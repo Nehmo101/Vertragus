@@ -135,8 +135,9 @@ export function workspaceTooltip(
 }
 
 /**
- * The goal line of an expanded card (H2). A delivered goal is quoted; a
- * RUNNING workspace without one says so — "kein Ziel — Orchestrator wartet"
+ * The goal line of a workspace card (H2). Shown collapsed and expanded — a
+ * shut card must still say what the run is for. A delivered goal is quoted;
+ * a RUNNING workspace without one says so — "kein Ziel — Orchestrator wartet"
  * is the honest state of a bare Play. A finished workspace without a goal
  * gets no line at all (there is nothing left to wait for).
  */

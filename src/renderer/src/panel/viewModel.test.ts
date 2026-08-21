@@ -34,6 +34,7 @@ import {
   workspaceCanReplaceOrchestrator,
   workspaceCardClass,
   workspaceCountByProfile,
+  workspaceGoalLine,
   workspaceHasWaitingSubagent,
   workspaceNeedsAttention,
   workspacePlaceTooltip,
@@ -202,6 +203,36 @@ describe('tooltips', () => {
     expect(
       workspaceTooltip(t, 'de', workspace({ name: 'Eigenbau', taskText: 'Docs schreiben' }))
     ).toBe('Aktuelle Aufgabe: Docs schreiben')
+  })
+})
+
+describe('goal line', () => {
+  it('quotes a delivered goal from the summary — expansion is a card concern', () => {
+    expect(workspaceGoalLine(t, workspace({ goalText: 'Parser-Bug in tokenizer.ts fixen' }))).toBe(
+      'Ziel: Parser-Bug in tokenizer.ts fixen'
+    )
+    expect(workspaceGoalLine(t, workspace({ goalText: '  trim me  ' }))).toBe('Ziel: trim me')
+    expect(workspaceGoalLine(en, workspace({ goalText: 'Fix the parser' }))).toBe(
+      'Goal: Fix the parser'
+    )
+  })
+
+  it('says so when a running workspace has no goal yet', () => {
+    expect(workspaceGoalLine(t, workspace())).toBe('Kein Ziel — Orchestrator wartet')
+    expect(workspaceGoalLine(en, workspace())).toBe('No goal — the orchestrator is waiting')
+    expect(workspaceGoalLine(t, workspace({ goalText: '   ' }))).toBe(
+      'Kein Ziel — Orchestrator wartet'
+    )
+    expect(workspaceGoalLine(t, workspace({ goalText: '' }))).toBe(
+      'Kein Ziel — Orchestrator wartet'
+    )
+  })
+
+  it('omits the line on a finished workspace without a goal', () => {
+    expect(workspaceGoalLine(t, workspace({ active: false }))).toBeUndefined()
+    expect(
+      workspaceGoalLine(t, workspace({ active: false, goalText: 'Keep showing this' }))
+    ).toBe('Ziel: Keep showing this')
   })
 })
 
