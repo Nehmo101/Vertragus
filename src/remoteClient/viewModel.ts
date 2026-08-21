@@ -99,3 +99,16 @@ export function workspaceGoalLine(
   if (goal) return copy.goal(goal)
   return workspace.active ? copy.noGoal : undefined
 }
+
+/**
+ * Collapsed-card count: "2/3 Agenten" — currently working over the roster.
+ * Waiting and stopped stay in the denominator; orchestrator and subagents
+ * count the same. Pluralization follows the TOTAL (`count`).
+ */
+export function agentCountLabel(
+  workspace: Pick<RemoteWorkspaceSummary, 'agents'>,
+  copy: { agents: (working: number, count: number) => string }
+): string {
+  const working = workspace.agents.filter((agent) => agent.state === 'working').length
+  return copy.agents(working, workspace.agents.length)
+}

@@ -36,7 +36,7 @@ export interface RemoteCopy {
   idleHint: string
   noGoal: string
   goal: (goal: string) => string
-  agents: (count: number) => string
+  agents: (working: number, count: number) => string
   working: string
   waiting: string
   stopped: string
@@ -88,7 +88,8 @@ const de: RemoteCopy = {
   idleHint: 'Orchestrator still — keine Tool-Aufrufe mehr',
   noGoal: 'Kein Ziel — Orchestrator wartet',
   goal: (goal) => `Ziel: ${goal}`,
-  agents: (count) => (count === 1 ? '1 Agent' : `${count} Agenten`),
+  agents: (working, count) =>
+    count === 1 ? `${working}/${count} Agent` : `${working}/${count} Agenten`,
   working: 'arbeitet',
   waiting: 'wartet',
   stopped: 'beendet',
@@ -139,7 +140,8 @@ const en: RemoteCopy = {
   idleHint: 'Orchestrator silent — no more tool calls',
   noGoal: 'No goal — the orchestrator is waiting',
   goal: (goal) => `Goal: ${goal}`,
-  agents: (count) => (count === 1 ? '1 agent' : `${count} agents`),
+  agents: (working, count) =>
+    count === 1 ? `${working}/${count} agent` : `${working}/${count} agents`,
   working: 'working',
   waiting: 'waiting',
   stopped: 'stopped',

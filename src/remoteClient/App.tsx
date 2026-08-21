@@ -22,6 +22,7 @@ import { RemoteTerminal } from './RemoteTerminal'
 import { useRemote, type RemoteApi } from './useRemote'
 import { useVisualViewport } from './useVisualViewport'
 import {
+  agentCountLabel,
   agentDotKind,
   agentStatusLine,
   endedWorkspaces,
@@ -303,7 +304,7 @@ function WorkspaceCard({
           {workspace.profileName ? (
             <span className="card-profile">{workspace.profileName}</span>
           ) : null}
-          <span className="card-count">{copy.agents(workspace.agents.length)}</span>
+          <span className="card-count">{agentCountLabel(workspace, copy)}</span>
           {!expanded && workspaceNeedsDot(workspace) ? <span className="card-attention" /> : null}
         </button>
         {workspace.active ? (

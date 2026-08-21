@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { RemoteAgentSummary, RemoteWorkspaceSummary } from '@shared/remote/protocol'
+import { remoteCopy } from './i18n'
 import {
+  agentCountLabel,
   agentDotKind,
   agentNeedsAttention,
   agentStatusLine,
@@ -109,6 +111,31 @@ describe('goal line', () => {
     expect(workspaceGoalLine(workspace({ goalText: 'Fix login' }), copy)).toBe('Ziel: Fix login')
     expect(workspaceGoalLine(workspace({ active: true }), copy)).toBe('Kein Ziel')
     expect(workspaceGoalLine(workspace({ active: false }), copy)).toBeUndefined()
+  })
+})
+
+describe('agent count label', () => {
+  const de = remoteCopy('de')
+  const en = remoteCopy('en')
+
+  it('shows working/total and pluralizes on the roster, not the working count', () => {
+    const orch = agent({ agentId: 'orch', roleId: 'orchestrator', state: 'working' })
+    const worker = agent({ agentId: 'w', state: 'working' })
+    const waiting = agent({ agentId: 'wait', state: 'waiting' })
+    const stopped = agent({ agentId: 'stop', state: 'stopped' })
+    const waiting2 = agent({ agentId: 'w2', state: 'waiting' })
+    expect(agentCountLabel(workspace({ agents: [orch, worker, waiting] }), de)).toBe('2/3 Agenten')
+    expect(agentCountLabel(workspace({ agents: [waiting, stopped, waiting2] }), de)).toBe(
+      '0/3 Agenten'
+    )
+    expect(agentCountLabel(workspace({ agents: [orch] }), de)).toBe('1/1 Agent')
+    expect(agentCountLabel(workspace({ agents: [] }), de)).toBe('0/0 Agenten')
+    expect(agentCountLabel(workspace({ agents: [orch, worker, waiting] }), en)).toBe('2/3 agents')
+    expect(agentCountLabel(workspace({ agents: [waiting, stopped, waiting2] }), en)).toBe(
+      '0/3 agents'
+    )
+    expect(agentCountLabel(workspace({ agents: [orch] }), en)).toBe('1/1 agent')
+    expect(agentCountLabel(workspace({ agents: [] }), en)).toBe('0/0 agents')
   })
 })
 
