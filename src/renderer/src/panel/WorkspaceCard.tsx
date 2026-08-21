@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { WorkspaceAgentSummary, WorkspaceSummary } from '../../../preload'
+import { activeLocale } from '../i18n'
 import { LoreTip } from '../lore/LoreTip'
 import { CloseIcon, StopIcon } from './icons'
 import {
@@ -34,7 +35,7 @@ interface AgentProps {
  * orchestrator's `send_to_agent{questionId}` uses (H1).
  */
 function AgentRow({ agent, onFocus, onCloseWindow, onAnswer, onPromote }: AgentProps): React.JSX.Element {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const canClose = agentCanCloseWindow(agent)
   const [answering, setAnswering] = useState(false)
   const [answer, setAnswer] = useState('')
@@ -59,7 +60,11 @@ function AgentRow({ agent, onFocus, onCloseWindow, onAnswer, onPromote }: AgentP
         onClick={() => onFocus(agent.agentId)}
       >
         <span className={agentDotClass(agent)} />
-        <LoreTip className="panel-agent-name" name={agent.name} blurb={agentTooltip(t, agent)} />
+        <LoreTip
+          className="panel-agent-name"
+          name={agent.name}
+          blurb={agentTooltip(t, activeLocale(i18n.language), agent)}
+        />
         <span className="panel-agent-status">{agentStatusLine(t, agent)}</span>
       </button>
       {question && questionId ? (
@@ -241,7 +246,7 @@ export function WorkspaceCard({
   onUserMessage,
   onPromoteAgent
 }: Props): React.JSX.Element {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const stop = t('panel.stopWorkspace', { workspace: workspace.name })
   const toggle = expanded
     ? t('panel.collapseWorkspace', { workspace: workspace.name })
@@ -263,7 +268,7 @@ export function WorkspaceCard({
           <LoreTip
             className="panel-card-name"
             name={workspace.name}
-            blurb={workspaceTooltip(t, workspace)}
+            blurb={workspaceTooltip(t, activeLocale(i18n.language), workspace)}
           />
           <span className="panel-card-count">{agentCountLabel(t, workspace)}</span>
           {!expanded && workspaceHasWaitingSubagent(workspace) ? (

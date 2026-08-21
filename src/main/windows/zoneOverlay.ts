@@ -25,6 +25,8 @@
  * one (profileId, displayId) pair, so nothing else can write a zone layout.
  */
 import { BrowserWindow, screen } from 'electron'
+import { mainMessages, readLocale } from '@shared/mainMessages'
+import { getSettings } from '@main/store/settings'
 import { glassWindowOptions, loadRoute, secureWindow } from './base'
 import { armWindowCapture } from './smokeCapture'
 
@@ -151,7 +153,8 @@ function createOverlayWindow(
     skipTaskbar: true,
     hasShadow: false,
     alwaysOnTop: true,
-    title: 'Vertragus — Zonen'
+    // OS-chrome title in the stored locale (see settingsWindow.ts).
+    title: mainMessages(readLocale(() => getSettings().ui.locale)).zoneOverlayTitle
   })
   // Above the always-on-top panel: the overlay is modal in spirit.
   win.setAlwaysOnTop(true, 'screen-saver')

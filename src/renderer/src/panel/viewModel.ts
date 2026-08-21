@@ -10,7 +10,7 @@ import { loreBlurb } from '@shared/lore'
 import { ORCHESTRATOR_ROLE_ID } from '@shared/prompts/roles'
 import { workspacePlaceBlurb } from '@shared/workspaceNames'
 import type { WorkspaceAgentSummary, WorkspaceSummary } from '../../../preload'
-import type { Translate } from '../i18n'
+import type { Locale, Translate } from '../i18n'
 
 /** Dot appearance: bronze pulse for the orchestrator, verdigris for workers. */
 export type AgentDotKind = 'working-orchestrator' | 'working' | 'idle'
@@ -77,12 +77,16 @@ export function agentCanCloseWindow(
  * assigned a task through the tools, it is the last one it delegated.
  * Undefined when there is neither — a card repeating the bare name would be
  * worse than no card (see {@link workspacePlaceTooltip}).
+ *
+ * `locale` travels next to `t` for the same reason `t` does (see
+ * {@link agentStatusLine}): the blurbs are bilingual data, not i18next keys.
  */
 export function agentTooltip(
   t: Translate,
+  locale: Locale,
   agent: Pick<WorkspaceAgentSummary, 'name' | 'roleId' | 'statusText'>
 ): string | undefined {
-  const blurb = loreBlurb(agent.name)
+  const blurb = loreBlurb(agent.name, locale)
   const task = agent.statusText?.trim()
   if (!task) return blurb
   const taskLine =
@@ -101,9 +105,10 @@ export function agentTooltip(
  * user is already pointing at.
  */
 export function workspacePlaceTooltip(
+  locale: Locale,
   workspace: Pick<WorkspaceSummary, 'name'>
 ): string | undefined {
-  return workspacePlaceBlurb(workspace.name)
+  return workspacePlaceBlurb(workspace.name, locale)
 }
 
 /**
@@ -115,9 +120,10 @@ export function workspacePlaceTooltip(
  */
 export function workspaceTooltip(
   t: Translate,
+  locale: Locale,
   workspace: Pick<WorkspaceSummary, 'name' | 'taskText'>
 ): string | undefined {
-  const blurb = workspacePlaceTooltip(workspace)
+  const blurb = workspacePlaceTooltip(locale, workspace)
   const task = workspace.taskText?.trim()
   if (!task) return blurb
   const taskLine = t('panel.workspaceTask', { task })

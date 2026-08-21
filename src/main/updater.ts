@@ -24,6 +24,7 @@
  */
 import { app } from 'electron'
 import { autoUpdater } from 'electron-updater'
+import { mainMessages, readLocale } from '@shared/mainMessages'
 import { getSettings, setSetting, type UpdateChannel } from '@main/store/settings'
 
 /** Six hours: often enough for a day of work, rare enough to be invisible. */
@@ -71,6 +72,11 @@ export interface UpdaterDeps {
   writeChannel(channel: UpdateChannel): void
   /** Push to the panel. Called on every state change, including the first. */
   publish(state: UpdateState): void
+  /**
+   * Stored UI locale for the user-facing `message` strings; undefined (or a
+   * missing dep) falls back to the schema default via `mainMessages`.
+   */
+  locale?(): string | undefined
   /** Injectable so the test does not wait six hours. */
   setInterval?(handler: () => void, ms: number): { unref?(): void }
   clearInterval?(timer: unknown): void
@@ -140,7 +146,7 @@ export function createUpdater(deps: UpdaterDeps): Updater {
       if (!deps.enabled) {
         publish({
           status: 'disabled',
-          message: 'Self-Updates laufen nur in der installierten App.'
+          message: mainMessages(deps.locale?.()).updatesDevBuild
         })
         return
       }
@@ -194,7 +200,7 @@ export function createUpdater(deps: UpdaterDeps): Updater {
 
     install() {
       if (state.status !== 'downloaded') {
-        throw new Error('Es liegt kein fertig geladenes Update bereit.')
+        throw new Error(mainMessages(deps.locale?.()).updateNotReady)
       }
       deps.autoUpdater.quitAndInstall(false, true)
     },
@@ -241,7 +247,8 @@ export function appUpdater(): Updater {
       },
       publish: (state) => {
         for (const listener of listeners) listener(state)
-      }
+      },
+      locale: () => readLocale(() => getSettings().ui.locale)
     })
   }
   return instance

@@ -23,6 +23,27 @@ interface MainMessages {
   hotkeyNone: string
   hotkeyTaken: (hotkey: string) => string
   hotkeyInvalid: (hotkey: string, reason: string) => string
+  /** Updater in a dev/unpackaged build — mirrors `settings.updateStatus.disabled`. */
+  updatesDevBuild: string
+  /** `install()` called while no finished download is waiting. */
+  updateNotReady: string
+  /** Remote bind resolution: auto mode found no Tailscale interface. */
+  remoteNoTailscale: string
+  /** Stored pairing-token ciphertext cannot be decrypted (locked keyring). */
+  remoteTokenLocked: string
+  /** Windows shim that cannot receive arguments faithfully (resolveLaunch). */
+  noFaithfulLaunch: (command: string, resolved: string) => string
+  /**
+   * Model discovery failed on a missing login. `login` is the full provider
+   * login command when the descriptor declares one; the CLI's own `failure`
+   * sentence rides along because it names the alternatives (API key, env var).
+   */
+  authNotLoggedIn: (login: string | undefined, failure: string) => string
+  /** OS-level window titles — set at window creation, shown by the OS chrome. */
+  settingsWindowTitle: string
+  profileEditorTitle: string
+  providerEditorTitle: string
+  zoneOverlayTitle: string
 }
 
 const MESSAGES: Record<MainLocale, MainMessages> = {
@@ -38,7 +59,23 @@ const MESSAGES: Record<MainLocale, MainMessages> = {
     hotkeyNone: 'Kein Hotkey konfiguriert.',
     hotkeyTaken: (hotkey) =>
       `Hotkey ${hotkey} ist belegt — eine andere Anwendung hat ihn zuerst registriert.`,
-    hotkeyInvalid: (hotkey, reason) => `Hotkey ${hotkey} ist ungültig: ${reason}`
+    hotkeyInvalid: (hotkey, reason) => `Hotkey ${hotkey} ist ungültig: ${reason}`,
+    updatesDevBuild: 'Self-Updates laufen nur in der installierten App.',
+    updateNotReady: 'Es liegt kein fertig geladenes Update bereit.',
+    remoteNoTailscale:
+      'Keine Tailscale-Adresse gefunden. Starte Tailscale, oder wähle in den Einstellungen eine andere Bind-Adresse.',
+    remoteTokenLocked:
+      'Kopplungs-Token konnte nicht entsperrt werden. Erzeuge in den Einstellungen einen neuen Code, oder entsperre den System-Schlüsselbund.',
+    noFaithfulLaunch: (command, resolved) =>
+      `Kein argumenttreuer Startpfad für '${command}' gefunden (aufgelöst zu ${resolved}). ` +
+      'Ein cmd.exe/PowerShell-Wrapper würde mehrzeilige Prompts abschneiden und Shell-Metazeichen ' +
+      'ausführbar machen. Erwartet wird ein direkt startbares .exe oder ein Node-Entrypoint neben dem Shim.',
+    authNotLoggedIn: (login, failure) =>
+      `nicht angemeldet — ${login ? `'${login}' ausführen` : 'bitte anmelden'} (${failure})`,
+    settingsWindowTitle: 'Vertragus — Einstellungen',
+    profileEditorTitle: 'Vertragus — Profil',
+    providerEditorTitle: 'Vertragus — Provider',
+    zoneOverlayTitle: 'Vertragus — Zonen'
   },
   en: {
     stubNotWired: 'The workspace manager is not wired up yet.',
@@ -52,7 +89,23 @@ const MESSAGES: Record<MainLocale, MainMessages> = {
     hotkeyNone: 'No hotkey configured.',
     hotkeyTaken: (hotkey) =>
       `Hotkey ${hotkey} is taken — another application registered it first.`,
-    hotkeyInvalid: (hotkey, reason) => `Hotkey ${hotkey} is invalid: ${reason}`
+    hotkeyInvalid: (hotkey, reason) => `Hotkey ${hotkey} is invalid: ${reason}`,
+    updatesDevBuild: 'Self-updates only run in the installed app.',
+    updateNotReady: 'No finished update download is ready.',
+    remoteNoTailscale:
+      'No Tailscale address found. Start Tailscale, or pick another bind address in the settings.',
+    remoteTokenLocked:
+      'The pairing token could not be unlocked. Generate a new code in the settings, or unlock the system keyring.',
+    noFaithfulLaunch: (command, resolved) =>
+      `No argument-faithful launch path found for '${command}' (resolved to ${resolved}). ` +
+      'A cmd.exe/PowerShell wrapper would truncate multi-line prompts and make shell metacharacters ' +
+      'executable. Expected is a directly runnable .exe or a Node entrypoint next to the shim.',
+    authNotLoggedIn: (login, failure) =>
+      `not logged in — ${login ? `run '${login}'` : 'please log in'} (${failure})`,
+    settingsWindowTitle: 'Vertragus — Settings',
+    profileEditorTitle: 'Vertragus — Profile',
+    providerEditorTitle: 'Vertragus — Provider',
+    zoneOverlayTitle: 'Vertragus — Zones'
   }
 }
 

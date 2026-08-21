@@ -29,6 +29,7 @@ import { execFile } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { promisify } from 'node:util'
+import { mainMessages } from '@shared/mainMessages'
 import { modelFamily, normalizeModelKey, orderedModelList, uniqueModels } from '@shared/models'
 import {
   modelMemorySchema,
@@ -126,6 +127,13 @@ export interface DiscoveryDependencies {
   now(): number
   readMemory(): unknown | Promise<unknown>
   writeMemory(memory: ModelMemory): void | Promise<void>
+  /**
+   * Stored UI locale for the user-facing `detail` strings. Optional — absent
+   * (tests, headless probes) falls back to the schema default via
+   * `mainMessages`. A function, not a value, so appIpc reads the CURRENT
+   * setting per discovery instead of freezing boot-time state.
+   */
+  locale?(): string | undefined
 }
 
 const defaultDependencies: DiscoveryDependencies = {
@@ -455,15 +463,21 @@ const AUTH_FAILURE_PATTERN =
  * provider, so the hint is composed from the descriptor rather than typed out
  * per preset. The CLI's own sentence is kept behind it: it is where the
  * alternatives (API key, env var) are spelled out.
+ *
+ * `locale` picks the language of the hint (the wording lives in
+ * `mainMessages`): this string is interpolated into the profile editor's
+ * "models from X" sentence, and a German fragment inside an English sentence
+ * is exactly the drift WP-1 exists to end.
  */
-export function authFailureHint(config: ProviderConfig, failure: string): string | undefined {
+export function authFailureHint(
+  config: ProviderConfig,
+  failure: string,
+  locale?: string
+): string | undefined {
   if (!AUTH_FAILURE_PATTERN.test(failure)) return undefined
   const loginArgs = config.auth?.loginArgs ?? []
-  const login =
-    loginArgs.length > 0
-      ? `'${[config.command, ...loginArgs].join(' ')}' ausführen`
-      : 'bitte anmelden'
-  return `nicht angemeldet — ${login} (${failure})`
+  const login = loginArgs.length > 0 ? [config.command, ...loginArgs].join(' ') : undefined
+  return mainMessages(locale).authNotLoggedIn(login, failure)
 }
 
 /**
@@ -492,7 +506,7 @@ export async function discoverModels(
     live = []
     const failure = errorMessage(cause)
     detail = `${describeSource(config, discovery)}: ${
-      authFailureHint(config, failure) ?? failure
+      authFailureHint(config, failure, deps.locale?.()) ?? failure
     }`
   }
   // Aliases first: they are the entries that keep tracking new releases.

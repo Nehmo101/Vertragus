@@ -5,7 +5,6 @@ import {
   type Appearance,
   type AppearanceSlider
 } from '@shared/appearance'
-import { LOCALES, translator } from '../i18n'
 import { RemoteSection } from './RemoteSection'
 import { useSettings, type SettingsState } from './useSettings'
 import './settings.css'
@@ -99,14 +98,11 @@ export function SettingsApp(): React.JSX.Element {
   // an unknown one still shows its raw name rather than an empty line.
   const statusKey = `settings.updateStatus.${update?.status}`
   const statusText = update ? t([statusKey, update.status]) : t('common.loading')
-  // The updater's own `message` is authored in the main process and therefore
-  // German. For `disabled` it says exactly what the status line already says,
-  // so it is dropped — comparing against BOTH languages, not just the current
-  // one: in English the two strings differ and the German sentence would be
-  // printed underneath the English one.
-  const messageAddsSomething =
-    update?.message !== undefined &&
-    !LOCALES.some((locale) => translator(locale)(statusKey) === update.message)
+  // The updater's `message` comes from the main process via `mainMessages`,
+  // in the stored locale. For `disabled` it says by construction exactly what
+  // the status line already says (`settings.updateStatus.disabled`), so only
+  // the other states print it underneath.
+  const messageAddsSomething = update?.message !== undefined && update?.status !== 'disabled'
 
   return (
     <div className="st glass">

@@ -23,6 +23,12 @@ import type {
 
 export type RemotePhase = 'pairing' | 'connecting' | 'ready' | 'error' | 'revoked'
 
+/**
+ * Machine-readable error causes. The hook does not localize — the view maps
+ * these onto `RemoteCopy` fields so the message follows the active locale.
+ */
+export type RemoteError = 'pairingFailed'
+
 const SESSION_KEY = 'vertragus.remote.session'
 const PAIRING_KEY = 'vertragus.remote.pairing'
 const RECONNECT_BASE_MS = 500
@@ -36,7 +42,7 @@ export interface TerminalHandlers {
 
 export interface RemoteApi {
   phase: RemotePhase
-  error: string | null
+  error: RemoteError | null
   workspaces: RemoteWorkspaceSummary[]
   theme: 'dark' | 'light'
   locale: string
@@ -96,7 +102,7 @@ async function pair(token: string): Promise<string | undefined> {
 
 export function useRemote(): RemoteApi {
   const [phase, setPhase] = useState<RemotePhase>('connecting')
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<RemoteError | null>(null)
   const [workspaces, setWorkspaces] = useState<RemoteWorkspaceSummary[]>([])
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
   const [locale, setLocale] = useState('de')
@@ -221,7 +227,7 @@ export function useRemote(): RemoteApi {
         adoptSession(session, token)
         return
       }
-      setError('Pairing fehlgeschlagen — der Link ist abgelaufen oder ungültig.')
+      setError('pairingFailed')
       setPhase('error')
       return
     }

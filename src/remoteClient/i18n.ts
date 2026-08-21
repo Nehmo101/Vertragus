@@ -17,6 +17,7 @@ export interface RemoteCopy {
   revokedBody: string
   errorTitle: string
   unknownError: string
+  pairingFailed: string
   pairAgain: string
   empty: string
   ended: string
@@ -68,6 +69,7 @@ const de: RemoteCopy = {
     'Die Sitzung wurde beendet. Öffne den Kopplungs-Link (QR-Code) aus den Vertragus-Einstellungen erneut.',
   errorTitle: 'Verbindung fehlgeschlagen',
   unknownError: 'Unbekannter Fehler.',
+  pairingFailed: 'Pairing fehlgeschlagen — der Link ist abgelaufen oder ungültig.',
   pairAgain: 'Erneut koppeln',
   empty: 'Keine laufenden Workspaces.',
   ended: 'beendet',
@@ -118,6 +120,7 @@ const en: RemoteCopy = {
   revokedBody: 'The session was ended. Open the pairing link (QR code) from Vertragus settings again.',
   errorTitle: 'Connection failed',
   unknownError: 'Unknown error.',
+  pairingFailed: 'Pairing failed — the link has expired or is invalid.',
   pairAgain: 'Pair again',
   empty: 'No running workspaces.',
   ended: 'ended',

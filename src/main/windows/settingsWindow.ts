@@ -13,6 +13,8 @@
  * and from nowhere else except the panel.
  */
 import { BrowserWindow } from 'electron'
+import { mainMessages, readLocale } from '@shared/mainMessages'
+import { getSettings } from '@main/store/settings'
 import { glassWindowOptions, loadRoute, secureWindow } from './base'
 import { armWindowCapture } from './smokeCapture'
 
@@ -83,7 +85,9 @@ export function openSettingsWindow(): BrowserWindow {
     minHeight: SETTINGS_WINDOW_MIN_HEIGHT,
     resizable: true,
     alwaysOnTop: false,
-    title: 'Vertragus — Einstellungen'
+    // OS-chrome title, set once at creation in the stored locale — a later
+    // language flip retitles on the next open, which is what OS windows do.
+    title: mainMessages(readLocale(() => getSettings().ui.locale)).settingsWindowTitle
   })
   secureWindow(win)
   loadRoute(win, '/settings')

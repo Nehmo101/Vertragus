@@ -21,6 +21,13 @@ export const JANITOR_ROLE_ID = 'janitor'
 export const EXPLORER_ROLE_ID = 'explorer'
 export const ORCHESTRATOR_ROLE_ID = 'orchestrator'
 
+/**
+ * WP-1 language policy: role NAMES ('Worker', 'Reviewer', …, and the
+ * 'Orchestrator'/'Lead' labels) stay English identifiers by design and are
+ * deliberately NOT translated in the German UI. They double as model-facing
+ * role ids in prompts and tool payloads (`start_agent{role}`), so a localized
+ * label would fork the vocabulary the model and the user share.
+ */
 export const BUILTIN_ROLE_TEMPLATES: readonly RoleTemplate[] = [
   {
     id: WORKER_ROLE_ID,
