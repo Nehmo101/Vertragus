@@ -1,0 +1,58 @@
+# Deliberately minimal: the four fields below (OS, Vertragus version,
+# provider CLI and its version) are what almost every Vertragus bug report
+# turns out to need, because a report without them cannot be reproduced —
+# the app orchestrates third-party CLIs whose behaviour differs per version
+# and per platform. Everything else is free text on purpose.
+name: Bug report
+description: Something in Vertragus does not work as documented.
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got instead.
+      placeholder: Steps to reproduce, then expected vs. actual.
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      description: Name and version.
+      placeholder: Windows 11 23H2 / macOS 15.1 / Ubuntu 24.04
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Vertragus version
+      description: Settings → About, or the installer file name. Please include
+        the update channel (`latest` or `main`).
+      placeholder: 1.0.0 (channel latest)
+    validations:
+      required: true
+
+  - type: input
+    id: provider
+    attributes:
+      label: Provider CLI and version
+      description: Which agent CLI was involved, and the output of its version
+        command (e.g. `claude --version`). "none / not applicable" is a valid
+        answer for bugs in the panel itself.
+      placeholder: claude 2.0.14
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Anything from the run journal under `.vertragus/runs/` or the
+        terminal that looks related. Redact tokens and paths you do not want
+        public.
+      render: text
+    validations:
+      required: false

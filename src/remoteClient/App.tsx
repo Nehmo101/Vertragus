@@ -17,7 +17,7 @@ import type {
   RemoteProfileSummary,
   RemoteWorkspaceSummary
 } from '@shared/remote/protocol'
-import { remoteCopy, type RemoteCopy } from './i18n'
+import { remoteCopy, remoteLanguage, type RemoteCopy } from './i18n'
 import { RemoteTerminal } from './RemoteTerminal'
 import { useRemote, type RemoteApi } from './useRemote'
 import { useVisualViewport } from './useVisualViewport'
@@ -47,6 +47,15 @@ export function App(): React.JSX.Element {
       api.theme === 'light' ? '#f4f1ea' : '#0e1013'
     )
   }, [api.theme])
+
+  // The document language follows the host, exactly like the copy does: the
+  // page is served as one static bundle for both languages, so index.html can
+  // only carry a placeholder until `hello.locale` arrives. A wrong `lang` is
+  // not cosmetic on a phone — it is what a screen reader picks its voice from
+  // and what the on-screen keyboard uses for autocorrect.
+  useEffect(() => {
+    document.documentElement.lang = remoteLanguage(api.locale)
+  }, [api.locale])
 
   if (openAgent) {
     return (

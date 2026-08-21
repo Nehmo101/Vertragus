@@ -59,6 +59,34 @@ einem echten Repository.
   `hello.locale` des Gateways folgt. Trage jeden neuen String in beide
   Sprachen der richtigen Schicht ein.
 
+## Versionierung und Releases
+
+Vertragus liefert zwei Update-Kanäle aus einem Repository: Jeder grüne Build
+von `main` wird ein Prerelease auf dem `main`-Kanal, ein gepushter Tag
+`vX.Y.0` ein normales Release auf `latest`. Eine Installation folgt genau
+einem davon (`applyChannel` in `src/main/updater.ts`), die beiden sehen die
+Builds des jeweils anderen also nie.
+
+Die `version` in `package.json` ist eine **Patch-Basis**, kein Zähler: Der
+Release-Workflow ADDIERT die Run-Nummer auf den Patch, ein eingecheckter
+`1.1.0` erzeugt also Main-Builds `1.1.<run>-main.<attempt>.g<sha>`. Daraus
+folgen zwei Regeln; die erste erzwingt `scripts/release-version.mjs` bei jedem
+gepushten Tag:
+
+- Eingecheckte Versionen sind immer `X.Y.0`; Releases werden als `vX.Y.0`
+  getaggt, und der Tag muss der `package.json`-Version entsprechen — die
+  Artefakte und `latest.yml` werden aus `package.json` benannt, nicht aus dem
+  Tag.
+- Direkt nach einem Release wird main auf `X.(Y+1).0` gehoben. Dessen
+  Prereleases sortieren dann über dem gerade veröffentlichten Stable — so
+  gewollt und harmlos, denn getrennt werden die Zielgruppen durch den KANAL,
+  nicht durch die Versionsreihenfolge. Die Kanäle nicht zusammenlegen, um die
+  Überlappung zu "reparieren".
+
+Der vollständige Ablauf, Schritt für Schritt und als human bzw. automated
+markiert, steht in
+[`docs/RELEASE-CHECKLIST.md`](docs/RELEASE-CHECKLIST.md).
+
 ## Sicherheit
 
 Melde Schwachstellen nicht in öffentlichen Issues — siehe

@@ -1,9 +1,14 @@
 name: CI
 
+# Tags run the full gate too (`tags: ['v*']`): release.yml builds and publishes
+# the installers, but it never runs the coverage ratchet or the panel smoke —
+# without this trigger a release tag would be the ONE build that ships with no
+# smoke test behind it.
 on:
   pull_request:
   push:
     branches: [main]
+    tags: ['v*']
 
 permissions:
   contents: read
@@ -93,7 +98,12 @@ jobs:
   package:
     # Proves the installers still BUILD on every platform. Nothing is published
     # here — that is release.yml's job, and only from main.
+    #
+    # Skipped on tags: release.yml packages the very same commit on the very
+    # same runners a minute later, and it publishes what it builds. Doing it
+    # twice would double the slowest part of a release for no extra signal.
     name: package (${{ matrix.os }})
+    if: github.ref_type != 'tag'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
