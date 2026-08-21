@@ -30,7 +30,14 @@ import { armWindowCapture } from './windows/smokeCapture'
 import { armZoneOverlaySmoke } from './windows/zoneOverlay'
 import { startAppUpdater } from './updater'
 import type { WorkspaceManager } from './workspace/WorkspaceManager'
-import { boardForResume, buildResumeBriefing, latestRun, readRunTasks } from './workspace/resume'
+import {
+  boardForResume,
+  buildResumeBriefing,
+  latestRun,
+  markSuccessionConsumed,
+  readRunTasks,
+  readSuccessionPackage
+} from './workspace/resume'
 import { createWorktreeCleanup } from './workspace/worktreeCleanup'
 
 /**
@@ -114,6 +121,9 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
           ...(taskText ? { taskText } : {}),
           ...(ws.goalText ? { goalText: ws.goalText } : {}),
           ...(ws.orchestratorIdle ? { orchestratorIdle: true } : {}),
+          // C6: a successor is spawning — the seat is mid-cutover, which is
+          // neither "working" nor the greyed-out dead state.
+          ...(ws.successionInProgress() ? { successionInProgress: true as const } : {}),
           // D3: the orchestrator's open ask_user question, registry-keyed
           // under the reserved agent id 'user'.
           ...(() => {
@@ -204,16 +214,43 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
       // the new board and gets one honest mention in the briefing.
       const rawTasks = await readRunTasks(profile.repoPath, run.workspaceId)
       const tasks = rawTasks ? boardForResume(rawTasks) : undefined
-      return manager.startWorkspace(profile, {
+      // C6: that run may have died mid-handoff. Its frozen package briefs the
+      // new orchestrator instead of the journal summary — and is only retired
+      // once the start actually succeeded, so a failed boot can try again.
+      const succession = await readSuccessionPackage(profile.repoPath, run.workspaceId)
+      const running = await manager.startWorkspace(profile, {
         resume: {
           briefing: buildResumeBriefing(run, tasks),
           fromWorkspaceId: run.workspaceId,
-          ...(tasks ? { tasks } : {})
+          ...(tasks ? { tasks } : {}),
+          ...(succession ? { succession } : {})
         },
         ...(run.meta?.goal ? { goal: run.meta.goal } : {})
       })
+      if (succession) await markSuccessionConsumed(profile.repoPath, run.workspaceId)
+      return running
     },
     stop: (workspaceId) => manager.stopWorkspace(workspaceId),
+    async succeedOrchestrator(workspaceId) {
+      const workspace = manager.get(workspaceId)
+      if (!workspace) {
+        throw new Error(`orchestrator replacement rejected — unknown workspace ${workspaceId}`)
+      }
+      try {
+        await workspace.replaceOrchestratorFromHost()
+      } catch (error) {
+        // The host codes are the MCP contract's, not a sentence for a human
+        // who just pressed a button.
+        const message = error instanceof Error ? error.message : String(error)
+        if (message.includes('already_in_progress')) {
+          throw new Error('orchestrator replacement rejected — a successor is already starting')
+        }
+        if (message.includes('no_orchestrator')) {
+          throw new Error('orchestrator replacement rejected — this workspace has no orchestrator')
+        }
+        throw error
+      }
+    },
     postUserMessage(workspaceId, text) {
       const workspace = manager.get(workspaceId)
       if (!workspace) throw new Error(`user message rejected — unknown workspace ${workspaceId}`)

@@ -109,4 +109,31 @@ describe('buildHandoffPackage', () => {
     // A run without a board still validates — tasks default to empty.
     expect(buildHandoffPackage(base).tasks).toEqual([])
   })
+
+  it('records the real size, and admits it when the protected fields blow the cap', () => {
+    const small = buildHandoffPackage(base)
+    // Measured before the admission fields were appended — off by their own
+    // length and nothing else (see the schema's note on `chars`).
+    expect(JSON.stringify(small).length - small.limits.chars!).toBeLessThan(30)
+    expect(small.limits.overCap).toBeUndefined()
+
+    // A board near TASKS_MAX with long subjects: tasks and open questions are
+    // never dropped, so the shrink loops run out of material while the package
+    // is still over the cap. That must be recorded, not quietly over-claimed.
+    const tasks = Array.from({ length: 200 }, (_, i) => ({
+      taskId: `task-${i + 1}`,
+      revision: 1,
+      subject: 's'.repeat(200),
+      status: 'pending',
+      blockedBy: []
+    }))
+    const pkg = buildHandoffPackage({ ...base, tasks })
+    expect(pkg.tasks).toHaveLength(200)
+    expect(pkg.recentEvents).toHaveLength(0)
+    expect(pkg.limits.overCap).toBe(true)
+    expect(pkg.limits.chars).toBeGreaterThan(PACKAGE_MAX_CHARS)
+    // Still a valid package: the successor gets everything, `limits` no longer
+    // claims a size the package does not have.
+    expect(orchestratorHandoffPackageSchema.parse(pkg).openQuestions).toHaveLength(1)
+  })
 })

@@ -291,6 +291,7 @@ interface Harness {
     started: Array<{ profileId: string; goal?: string }>
     resumed: string[]
     stopped: string[]
+    succeeded: string[]
     focused: string[]
     focusedWorkspaces: string[]
     closedAgents: string[]
@@ -402,6 +403,7 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     started: [] as Array<{ profileId: string; goal?: string }>,
     resumed: [] as string[],
     stopped: [] as string[],
+    succeeded: [] as string[],
     focused: [] as string[],
     focusedWorkspaces: [] as string[],
     closedAgents: [] as string[],
@@ -421,6 +423,9 @@ function harness(overrides: Partial<AppIpcHost> = {}): Harness {
     },
     stop(workspaceId: string) {
       this.stopped.push(workspaceId)
+    },
+    succeedOrchestrator(workspaceId: string) {
+      this.succeeded.push(workspaceId)
     },
     async answerQuestion(workspaceId: string, agentId: string, questionId: string, text: string) {
       this.answered.push({ workspaceId, agentId, questionId, text })
@@ -813,6 +818,19 @@ describe('workspaces', () => {
     ).toThrow(/not the panel/)
   })
 
+  it('replaces an orchestrator over the directory (C6/S3) — panel only, id required', async () => {
+    await h.ipc.invoke(APP_CHANNELS.workspacesSucceedOrchestrator, PANEL_ID, { workspaceId: 'w1' })
+    expect(h.directory.succeeded).toEqual(['w1'])
+    // The card's badge and the replace button both derive from the list.
+    expect(h.broadcasts.map((entry) => entry.channel)).toEqual([APP_CHANNELS.eventWorkspaces])
+    await expect(
+      Promise.resolve(h.ipc.invoke(APP_CHANNELS.workspacesSucceedOrchestrator, PANEL_ID, {}))
+    ).rejects.toThrow(/missing workspace id/)
+    expect(() =>
+      h.ipc.invoke(APP_CHANNELS.workspacesSucceedOrchestrator, CLI_ID, { workspaceId: 'w1' })
+    ).toThrow(/not the panel/)
+  })
+
   it('answers an agent question over the directory (H1) — panel only, all ids required', async () => {
     await h.ipc.invoke(APP_CHANNELS.workspacesAnswerQuestion, PANEL_ID, {
       workspaceId: 'w1',
@@ -899,6 +917,7 @@ describe('workspaces', () => {
         start: refuse,
         resume: refuse,
         stop() {},
+        succeedOrchestrator: refuse,
         answerQuestion: async () => refuse(),
         postUserMessage: refuse,
         promoteAgentBranch: async () => refuse(),
@@ -1433,6 +1452,7 @@ describe('sender authorization', () => {
     APP_CHANNELS.workspacesList,
     APP_CHANNELS.workspacesStart,
     APP_CHANNELS.workspacesStop,
+    APP_CHANNELS.workspacesSucceedOrchestrator,
     APP_CHANNELS.workspacesFocusAgent,
     APP_CHANNELS.workspacesFocus,
     APP_CHANNELS.workspacesCloseAgent,
@@ -1742,6 +1762,7 @@ describe('production registration', () => {
       start: vi.fn(),
       resume: vi.fn(),
       stop: vi.fn(),
+      succeedOrchestrator: vi.fn(),
       answerQuestion: vi.fn(async () => {}),
       postUserMessage: vi.fn(),
       promoteAgentBranch: vi.fn(async () => {}),
@@ -1756,6 +1777,7 @@ describe('production registration', () => {
       start: vi.fn(),
       resume: vi.fn(),
       stop: vi.fn(),
+      succeedOrchestrator: vi.fn(),
       answerQuestion: vi.fn(async () => {}),
       postUserMessage: vi.fn(),
       promoteAgentBranch: vi.fn(async () => {}),

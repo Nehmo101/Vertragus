@@ -26,7 +26,25 @@ function section(title: string, lines: readonly string[]): string[] {
   return lines.length === 0 ? [] : ['', title, ...lines]
 }
 
-export function formatHandoffSeed(pkg: OrchestratorHandoffPackage): string {
+/**
+ * C6 crash recovery: the same package, read back from disk after the whole
+ * host died mid-handoff. Everything the package says about PROCESSES is dead
+ * by then — the queue this successor polls is a new one starting at 0, the
+ * ticket ids belong to waiters that no longer exist, and the roster lists
+ * agents whose CLIs are gone. What survives is on disk: branches, worktrees,
+ * the task board, and what the predecessor wrote down. A seed that did not say
+ * that would send a fresh orchestrator to answer questions nobody is waiting
+ * for.
+ */
+export interface HandoffSeedOptions {
+  recovered?: boolean
+}
+
+export function formatHandoffSeed(
+  pkg: OrchestratorHandoffPackage,
+  options: HandoffSeedOptions = {}
+): string {
+  const recovered = options.recovered === true
   const goal =
     pkg.goal?.current || pkg.goal?.original
       ? `Current goal: ${pkg.goal.current ?? pkg.goal.original}`
@@ -34,26 +52,46 @@ export function formatHandoffSeed(pkg: OrchestratorHandoffPackage): string {
   const open =
     pkg.openQuestions.length === 0
       ? 'No open agent questions.'
-      : [
-          'Open questions (answer these first with send_to_agent{questionId}):',
-          ...pkg.openQuestions.map(
-            (question) => `- ${question.agentId} [${question.questionId}]: ${question.question}`
-          )
-        ].join('\n')
+      : recovered
+        ? [
+            'These questions were open when the old run died. They are VOID: the agents that asked ' +
+              'them are gone, their question ids answer nothing, and send_to_agent will fail on them. ' +
+              'Treat them as open QUESTIONS, not as open tickets — decide them yourself, ask the user ' +
+              'with ask_user, or re-ask a fresh agent:',
+            ...pkg.openQuestions.map((question) => `- ${question.agentId}: ${question.question}`)
+          ].join('\n')
+        : [
+            'Open questions (answer these first with send_to_agent{questionId}):',
+            ...pkg.openQuestions.map(
+              (question) => `- ${question.agentId} [${question.questionId}]: ${question.question}`
+            )
+          ].join('\n')
   const next =
     pkg.nextActions.length === 0
-      ? 'No next-actions were recorded — inspect list_agents and continue the goal.'
+      ? recovered
+        ? 'No next-actions were recorded — read task_list and the branches above, then continue the goal.'
+        : 'No next-actions were recorded — inspect list_agents and continue the goal.'
       : ['Next actions:', ...pkg.nextActions.map((action) => `- ${action}`)].join('\n')
   const team =
     pkg.agents.length === 0
-      ? 'No subagents are running for you right now — list_agents will confirm.'
+      ? recovered
+        ? 'That run had no subagents left when it died.'
+        : 'No subagents are running for you right now — list_agents will confirm.'
       : [
-          'Your team right now (host roster at handoff — these agents keep working for YOU):',
+          recovered
+            ? 'The team of the dead run. None of these processes is alive; what survived is their ' +
+              'branches and worktrees — continue on them with start_agent{baseBranch: "<branch>"} ' +
+              'instead of redoing the work, and verify a report before trusting it:'
+            : 'Your team right now (host roster at handoff — these agents keep working for YOU):',
           ...pkg.agents.map((agent) => {
             const parts = [`- ${agent.name} [${agent.agentId}] (${agent.role}, ${agent.status})`]
             if (agent.branch) parts.push(`branch ${agent.branch}`)
             if (agent.pendingQuestionId) {
-              parts.push(`waiting on your answer to question ${agent.pendingQuestionId}`)
+              parts.push(
+                recovered
+                  ? 'was waiting on an answer when the run died'
+                  : `waiting on your answer to question ${agent.pendingQuestionId}`
+              )
             }
             if (agent.orchNote) parts.push(`note: ${agent.orchNote}`)
             if (agent.lastSummary) parts.push(`last reported: ${agent.lastSummary}`)
@@ -69,7 +107,9 @@ export function formatHandoffSeed(pkg: OrchestratorHandoffPackage): string {
       ? []
       : [
           '',
-          'The task board is HOST state and survived this handoff — task_list shows it; do not rebuild it from prose:',
+          recovered
+            ? 'The task board is HOST state and survived on disk — task_list shows it; do not rebuild it from prose. Tasks that were in_progress are back to pending because their owners are gone:'
+            : 'The task board is HOST state and survived this handoff — task_list shows it; do not rebuild it from prose:',
           ...pkg.tasks.map(
             (task) =>
               `- ${task.taskId} rev ${task.revision} (${task.status}${
@@ -78,14 +118,34 @@ export function formatHandoffSeed(pkg: OrchestratorHandoffPackage): string {
           )
         ]
 
+  const head = recovered
+    ? [
+        `You are recovering the run of ${pkg.predecessor.name} in workspace "${pkg.workspaceName}".`,
+        'That run was handing over to a successor when the host died; this package is what it froze ' +
+          'before dying, and you are the successor it never got. Continue the work, do not restart it.',
+        'Nothing of that run is still RUNNING: no CLI, no event queue, no pending ticket. Everything ' +
+          'below that survived is on disk — branches, worktrees, the task board, past runs ' +
+          '(search_runs).',
+        'Do not call record_retro until the goal is actually reached.',
+        '',
+        goal,
+        `Start await_events at cursor 0. This workspace has a NEW event queue; cursor ${pkg.eventCursor} ` +
+          'belonged to the dead one and means nothing here.',
+        'Trust the branches and inspect_agent over the prose below when they disagree — every report ' +
+          'in this package is a claim from a process that is no longer there to defend it.'
+      ]
+    : [
+        `You are the successor of ${pkg.predecessor.name} in workspace "${pkg.workspaceName}".`,
+        'This is a continuation of the same run, not a new one. Do not restart the work from scratch.',
+        'Do not call record_retro until the goal is actually reached.',
+        '',
+        goal,
+        `Your first await_events MUST use cursor ${pkg.eventCursor} (package.eventCursor). Do not start at 0.`,
+        'Trust host facts in this package and on agent_done / inspect_agent over prose when they disagree.'
+      ]
+
   return [
-    `You are the successor of ${pkg.predecessor.name} in workspace "${pkg.workspaceName}".`,
-    'This is a continuation of the same run, not a new one. Do not restart the work from scratch.',
-    'Do not call record_retro until the goal is actually reached.',
-    '',
-    goal,
-    `Your first await_events MUST use cursor ${pkg.eventCursor} (package.eventCursor). Do not start at 0.`,
-    'Trust host facts in this package and on agent_done / inspect_agent over prose when they disagree.',
+    ...head,
     '',
     team,
     ...tasks,
@@ -106,7 +166,9 @@ export function formatHandoffSeed(pkg: OrchestratorHandoffPackage): string {
       pkg.branchesOfInterest.map((branch) => `- ${branch}`)
     ),
     ...section(
-      `Last events before the handoff (history only — start await_events at ${pkg.eventCursor}):`,
+      recovered
+        ? 'Last events of that run (history only — this queue starts at 0):'
+        : `Last events before the handoff (history only — start await_events at ${pkg.eventCursor}):`,
       pkg.recentEvents.slice(-SEED_RECENT_EVENTS_MAX).map(renderRecentEvent)
     ),
     ...(pkg.note ? ['', `Note from your predecessor: ${pkg.note}`] : [])
@@ -115,7 +177,8 @@ export function formatHandoffSeed(pkg: OrchestratorHandoffPackage): string {
 
 export function buildSuccessorOrchestratorSystemPrompt(
   input: OrchestratorPromptInput,
-  pkg: OrchestratorHandoffPackage
+  pkg: OrchestratorHandoffPackage,
+  options: HandoffSeedOptions = {}
 ): string {
-  return `${buildOrchestratorSystemPrompt(input)}\n\n${formatHandoffSeed(pkg)}`
+  return `${buildOrchestratorSystemPrompt(input)}\n\n${formatHandoffSeed(pkg, options)}`
 }

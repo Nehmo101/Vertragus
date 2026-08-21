@@ -5,8 +5,10 @@ import {
   boardForResume,
   buildResumeBriefing,
   latestRun,
+  markSuccessionConsumed,
   readRunEvents,
   readRunTasks,
+  readSuccessionPackage,
   type ResumeDeps
 } from './resume'
 
@@ -217,5 +219,98 @@ describe('boardForResume — S4', () => {
     expect(revived.tasks[1]).toEqual(task('task-2', 'pending'))
     expect(revived.tasks[2]).toEqual(task('task-3', 'completed', { ownerAgentId: 'dead-agent' }))
     expect(revived.nextTaskNumber).toBe(4)
+  })
+})
+
+/** The smallest package the zod schema accepts. */
+function successionPackage(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    schemaVersion: 1,
+    kind: 'orchestrator_succession',
+    workspaceId: 'ws-1',
+    workspaceName: 'Paradiso',
+    profileId: 'p1',
+    createdAt: 5,
+    reason: 'context_full',
+    predecessor: { agentId: 'orch-1', name: 'Virgilio', providerId: 'claude' },
+    successorAgentId: 'orch-2',
+    eventCursor: 42,
+    recentEvents: [],
+    agents: [],
+    openQuestions: [],
+    tasks: [],
+    decisions: [],
+    risks: [],
+    nextActions: [],
+    branchesOfInterest: [],
+    limits: { maxChars: 48_000, truncated: [] },
+    ...overrides
+  }
+}
+
+describe('readSuccessionPackage — C6 crash recovery', () => {
+  it('reads the frozen package of a run that died mid-handoff', async () => {
+    const deps = fakeFs({
+      files: { [join(RUNS, 'ws-1', 'succession.json')]: JSON.stringify(successionPackage()) }
+    })
+    const pkg = await readSuccessionPackage('/repo', 'ws-1', deps)
+    expect(pkg).toMatchObject({ workspaceId: 'ws-1', eventCursor: 42, reason: 'context_full' })
+  })
+
+  it('ignores a package a cutover already consumed — recover once, by rename', async () => {
+    const deps = fakeFs({
+      files: {
+        [join(RUNS, 'ws-1', 'succession.consumed.json')]: JSON.stringify(successionPackage())
+      }
+    })
+    expect(await readSuccessionPackage('/repo', 'ws-1', deps)).toBeUndefined()
+  })
+
+  it('fails soft: missing, torn or schema-violating files cost the recovery only', async () => {
+    expect(await readSuccessionPackage('/repo', 'ws-1', fakeFs({}))).toBeUndefined()
+    expect(
+      await readSuccessionPackage(
+        '/repo',
+        'ws-1',
+        fakeFs({ files: { [join(RUNS, 'ws-1', 'succession.json')]: '{"schemaVersion":1,' } })
+      )
+    ).toBeUndefined()
+    expect(
+      await readSuccessionPackage(
+        '/repo',
+        'ws-1',
+        fakeFs({
+          files: {
+            [join(RUNS, 'ws-1', 'succession.json')]: JSON.stringify(
+              successionPackage({ kind: 'something_else' })
+            )
+          }
+        })
+      )
+    ).toBeUndefined()
+  })
+})
+
+describe('markSuccessionConsumed — C6', () => {
+  it('renames the package so the next resume cannot replay it', async () => {
+    const moves: Array<[string, string]> = []
+    await markSuccessionConsumed('/repo', 'ws-1', {
+      rename: (async (from: unknown, to: unknown) => {
+        moves.push([String(from), String(to)])
+      }) as never
+    })
+    expect(moves).toEqual([
+      [join(RUNS, 'ws-1', 'succession.json'), join(RUNS, 'ws-1', 'succession.consumed.json')]
+    ])
+  })
+
+  it('swallows a failing rename — a replayable package beats a failed start', async () => {
+    await expect(
+      markSuccessionConsumed('/repo', 'ws-1', {
+        rename: (async () => {
+          throw new Error('EPERM')
+        }) as never
+      })
+    ).resolves.toBeUndefined()
   })
 })

@@ -139,6 +139,51 @@ describe('formatHandoffSeed', () => {
   })
 })
 
+describe('formatHandoffSeed — C6 recovery mode', () => {
+  const recovered = formatHandoffSeed(
+    buildHandoffPackage({
+      ...pkgInput,
+      agents: [
+        {
+          agentId: 'a1',
+          name: 'Caronte',
+          role: 'worker',
+          status: 'working',
+          branch: 'vertragus/paradiso/caronte',
+          pendingQuestionId: 'q1'
+        }
+      ],
+      tasks: [
+        { taskId: 'task-1', revision: 2, subject: 'Fix the parser', status: 'pending', blockedBy: [] }
+      ]
+    }),
+    { recovered: true }
+  )
+
+  it('voids the dead run’s questions instead of offering them as tickets', () => {
+    expect(recovered).toContain('They are VOID')
+    expect(recovered).toContain('merge which branch?')
+    // The ticket id would only invite a send_to_agent that cannot resolve.
+    expect(recovered).not.toContain('[q1]')
+    expect(recovered).not.toContain('send_to_agent{questionId}')
+    expect(recovered).toContain('was waiting on an answer when the run died')
+  })
+
+  it('sends the successor to cursor 0 — the packaged cursor died with its queue', () => {
+    expect(recovered).toContain('Start await_events at cursor 0')
+    expect(recovered).not.toContain('MUST use cursor 42')
+  })
+
+  it('offers the surviving branches and the board, not a live team', () => {
+    expect(recovered).toContain('The team of the dead run')
+    expect(recovered).toContain('start_agent{baseBranch: "<branch>"}')
+    expect(recovered).toContain('branch vertragus/paradiso/caronte')
+    expect(recovered).toContain('search_runs')
+    expect(recovered).toContain('survived on disk')
+    expect(recovered).toContain('Continue the work, do not restart it.')
+  })
+})
+
 describe('buildSuccessorOrchestratorSystemPrompt', () => {
   it('keeps the loop rules and appends the package', () => {
     const prompt = buildSuccessorOrchestratorSystemPrompt(

@@ -9,12 +9,21 @@
  * old run is void. The briefing says all of that in as many words — a resume
  * that pretended more would lie.
  *
+ * C6 adds one more thing a dead run can leave behind: a frozen succession
+ * package (`succession.json`) whose cutover never happened because the host
+ * died mid-handoff. Recovery from it is this same resume path, not a respawn —
+ * see {@link readSuccessionPackage}.
+ *
  * Reading is fail-soft throughout: a corrupt line, a missing `meta.json` or an
  * unreadable directory cost exactly that piece, never the resume.
  */
-import { readdir, readFile, stat } from 'node:fs/promises'
+import { readdir, readFile, rename, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { agentEventSchema, isAgentEvent, type AgentEvent } from '@shared/schema/events'
+import {
+  orchestratorHandoffPackageSchema,
+  type OrchestratorHandoffPackage
+} from '@shared/schema/handoff'
 import { taskBoardSchema, type TaskBoardState } from '@shared/schema/tasks'
 import { runMetaSchema, runsDir, type RunMeta } from './journal'
 
@@ -30,6 +39,12 @@ export interface ResumeDeps {
   readdir?: typeof readdir
   readFile?: typeof readFile
   stat?: typeof stat
+  rename?: typeof rename
+}
+
+/** Where a run's frozen succession package waits for a recovery. */
+function successionPath(repoPath: string, workspaceId: string): string {
+  return join(runsDir(repoPath), workspaceId, 'succession.json')
 }
 
 /**
@@ -133,6 +148,56 @@ export async function readRunTasks(
     return parsed.success ? parsed.data : undefined
   } catch {
     return undefined
+  }
+}
+
+/**
+ * C6 crash recovery: the succession package a run froze but never cut over to,
+ * or undefined when there is none.
+ *
+ * A host crash mid-handoff kills the predecessor, the successor and the app
+ * itself, so recovery cannot be an in-process respawn — it is resume-shaped:
+ * a NEW workspace, briefed from this package instead of from the journal alone
+ * (see `buildSuccessorOrchestratorSystemPrompt(…, { recovered: true })`).
+ *
+ * Only `succession.json` is read. A package that a cutover already used was
+ * renamed to `succession.consumed.json` by the workspace, so "recover once" is
+ * a fact of the filesystem and not a flag this reader has to be trusted with.
+ * Fail-soft like everything here: a missing, torn or schema-violating file
+ * costs the recovery, never the resume.
+ */
+export async function readSuccessionPackage(
+  repoPath: string,
+  workspaceId: string,
+  deps: ResumeDeps = {}
+): Promise<OrchestratorHandoffPackage | undefined> {
+  const read = deps.readFile ?? readFile
+  try {
+    const raw = await read(successionPath(repoPath, workspaceId), 'utf8')
+    const parsed = orchestratorHandoffPackageSchema.safeParse(JSON.parse(raw))
+    return parsed.success ? parsed.data : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Retire a package a recovery actually used, with the same rename the live
+ * cutover performs — one recovery per package, enforced by the filesystem.
+ * Best-effort: a failed rename costs a second (harmless, idempotent) recovery
+ * offer, never the run that just started.
+ */
+export async function markSuccessionConsumed(
+  repoPath: string,
+  workspaceId: string,
+  deps: ResumeDeps = {}
+): Promise<void> {
+  const move = deps.rename ?? rename
+  const path = successionPath(repoPath, workspaceId)
+  try {
+    await move(path, path.replace(/\.json$/, '.consumed.json'))
+  } catch {
+    /* see above */
   }
 }
 

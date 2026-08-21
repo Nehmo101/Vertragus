@@ -188,6 +188,7 @@ export function PanelApp(): React.JSX.Element {
                     }
                   }}
                   onStop={panel.stopWorkspace}
+                  onSucceedOrchestrator={panel.succeedOrchestrator}
                   onFocusAgent={panel.focusAgent}
                   onCloseAgentWindow={panel.closeAgentWindow}
                   onAnswerQuestion={panel.answerQuestion}

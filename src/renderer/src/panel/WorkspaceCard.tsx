@@ -11,9 +11,11 @@ import {
   agentRowClass,
   agentStatusLine,
   agentTooltip,
+  workspaceCanReplaceOrchestrator,
   workspaceCardClass,
   workspaceGoalLine,
   workspaceHasWaitingSubagent,
+  workspaceSuccessionLabel,
   workspaceTooltip
 } from './viewModel'
 
@@ -138,6 +140,8 @@ interface Props {
   expanded: boolean
   onToggle(): void
   onStop(workspaceId: string): void
+  /** C6/S3: replace a dead or silent orchestrator — the run keeps its team. */
+  onSucceedOrchestrator(workspaceId: string): void
   onFocusAgent(agentId: string): void
   onCloseAgentWindow(agentId: string): void
   /** H1: answer one agent's open question over the shared host path. */
@@ -240,6 +244,7 @@ export function WorkspaceCard({
   expanded,
   onToggle,
   onStop,
+  onSucceedOrchestrator,
   onFocusAgent,
   onCloseAgentWindow,
   onAnswerQuestion,
@@ -248,6 +253,8 @@ export function WorkspaceCard({
 }: Props): React.JSX.Element {
   const { t, i18n } = useTranslation()
   const stop = t('panel.stopWorkspace', { workspace: workspace.name })
+  const succession = workspaceSuccessionLabel(t, workspace)
+  const replace = t('panel.replaceOrchestrator', { workspace: workspace.name })
   const toggle = expanded
     ? t('panel.collapseWorkspace', { workspace: workspace.name })
     : t('panel.expandWorkspace', { workspace: workspace.name })
@@ -276,6 +283,13 @@ export function WorkspaceCard({
             // — this dot is only the "open me" hint.
             <span className="panel-card-attention" title={t('panel.subagentWaiting')} />
           ) : null}
+          {succession ? (
+            // In the head, not in the body: a collapsed card must not hide
+            // that its orchestrator is being replaced right now.
+            <span className="panel-card-badge" title={t('panel.successionTitle')}>
+              {succession}
+            </span>
+          ) : null}
         </button>
         <button
           type="button"
@@ -293,6 +307,20 @@ export function WorkspaceCard({
             <p className="panel-card-goal is-idle" title={t('panel.orchestratorIdleTitle')}>
               {t('panel.orchestratorIdle')}
             </p>
+          ) : null}
+          {workspaceCanReplaceOrchestrator(workspace) ? (
+            // C5's escape hatch and the dead-orchestrator recovery are one
+            // button: the team, the worktrees and the task board survive, only
+            // the brain is replaced. Stop would end the run instead.
+            <button
+              type="button"
+              className="panel-card-replace"
+              title={t('panel.replaceOrchestratorTitle')}
+              aria-label={replace}
+              onClick={() => onSucceedOrchestrator(workspace.workspaceId)}
+            >
+              {t('panel.replaceOrchestratorAction')}
+            </button>
           ) : null}
           {goalLine ? (
             <p

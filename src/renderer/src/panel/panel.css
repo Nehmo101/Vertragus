@@ -787,6 +787,34 @@
   color: var(--warn-text);
 }
 
+/* C6: a successor is spawning — head badge, so a shut card shows it too. */
+.panel-card-badge {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline);
+  background: transparent;
+  color: var(--text-3);
+  font: 500 9.5px var(--font-body);
+  white-space: nowrap;
+}
+
+/* S3: the user's escape hatch out of a dead or silent orchestrator. */
+.panel-card-replace {
+  margin: 6px 5px 0;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline);
+  background: transparent;
+  color: var(--text-2);
+  font: 500 10.5px var(--font-body);
+  cursor: pointer;
+}
+
+.panel-card-replace:hover {
+  background: var(--hover-wash);
+}
+
 /* D3: the orchestrator's question to the HUMAN — card-level, not a row. */
 .panel-user-question {
   margin: 6px 5px 2px;

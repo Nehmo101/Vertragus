@@ -160,7 +160,21 @@ export const orchestratorHandoffPackageSchema = z
     limits: z
       .object({
         maxChars: z.number().int().positive(),
-        truncated: z.array(z.string().min(1))
+        truncated: z.array(z.string().min(1)),
+        /**
+         * Serialized size of the finished package. Measured at the moment the
+         * cap was checked, i.e. WITHOUT these two admission fields — they are
+         * added afterwards and cost a few dozen characters more.
+         */
+        chars: z.number().int().nonnegative().optional(),
+        /**
+         * The package is larger than {@link maxChars} and nothing droppable is
+         * left: tasks, open questions and the roster are never truncated (see
+         * {@link handoffTaskSchema}), so a board near `TASKS_MAX` can blow the
+         * cap on its own. Recorded instead of silently over-claiming — the
+         * successor still gets everything, and `limits` stops lying about it.
+         */
+        overCap: z.literal(true).optional()
       })
       .strict()
   })
@@ -348,5 +362,14 @@ export function buildHandoffPackage(input: BuildHandoffPackageInput): Orchestrat
     if (!pkg.limits.truncated.includes('decisions')) pkg.limits.truncated.push('decisions')
     serialized = JSON.stringify(pkg)
   }
+  // The shrink loops can only reach orch prose and recentEvents. Everything
+  // else — the roster, open questions, the whole task board — is protected by
+  // contract, so a large enough run exhausts the loops while still over the
+  // cap. That case must not pass silently as a package whose own `limits`
+  // claims a size it does not have: it is recorded, not thrown. Throwing would
+  // mean a run with a big board can never hand off at all, which is exactly the
+  // moment succession exists for.
+  pkg.limits.chars = serialized.length
+  if (serialized.length > PACKAGE_MAX_CHARS) pkg.limits.overCap = true
   return orchestratorHandoffPackageSchema.parse(pkg)
 }

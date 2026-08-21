@@ -36,6 +36,8 @@ export interface PanelData {
   /** E3: start a workspace briefed on the profile's newest journaled run. */
   resumeWorkspace(profileId: string): void
   stopWorkspace(workspaceId: string): void
+  /** C6/S3: replace a dead or silent orchestrator; the run itself continues. */
+  succeedOrchestrator(workspaceId: string): void
   /** Answer an agent's open question from its `?` badge (H1). */
   answerQuestion(workspaceId: string, agentId: string, questionId: string, text: string): void
   /** D2: steer a running workspace — wakes the orchestrator's await_events. */
@@ -139,6 +141,11 @@ export function usePanelData(): PanelData {
     stopWorkspace: (workspaceId) =>
       run(async (api) => {
         await api.stopWorkspace(workspaceId)
+        setWorkspaces(await api.listWorkspaces())
+      }),
+    succeedOrchestrator: (workspaceId) =>
+      run(async (api) => {
+        await api.succeedOrchestrator(workspaceId)
         setWorkspaces(await api.listWorkspaces())
       }),
     answerQuestion: (workspaceId, agentId, questionId, text) =>

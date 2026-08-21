@@ -96,6 +96,7 @@ export const APP_CHANNELS = {
   workspacesStart: 'workspaces:start',
   workspacesResume: 'workspaces:resume',
   workspacesStop: 'workspaces:stop',
+  workspacesSucceedOrchestrator: 'workspaces:succeedOrchestrator',
   workspacesFocusAgent: 'workspaces:focusAgent',
   workspacesFocus: 'workspaces:focus',
   workspacesCloseAgent: 'workspaces:closeAgent',
@@ -223,6 +224,12 @@ export interface WorkspaceSummary {
    */
   orchestratorIdle?: boolean
   /**
+   * C6: a successor orchestrator is being spawned for this workspace. The card
+   * shows a badge — mid-cutover is neither the working state nor the dead one,
+   * and the replace button must not be offered twice.
+   */
+  successionInProgress?: true
+  /**
    * D3: the orchestrator's open `ask_user` question — the workspace-level
    * badge. Answered over the same `workspaces:answerQuestion` channel with
    * the reserved agent id `user`.
@@ -258,6 +265,13 @@ export interface WorkspaceDirectory {
    */
   resume(profileId: string): void | Promise<unknown>
   stop(workspaceId: string): void | Promise<unknown>
+  /**
+   * C6/S3: replace this workspace's root orchestrator with a fresh one that
+   * continues the same run — the user's escape hatch when the orchestrator
+   * died or went silent. Keeps subagents, worktrees, questions and the task
+   * board; rejects with a readable message when there is nothing to replace.
+   */
+  succeedOrchestrator(workspaceId: string): void | Promise<unknown>
   /**
    * Answer one agent question (H1) — the SAME host path the orchestrator's
    * `send_to_agent{questionId}` takes, so panel, remote and MCP tool share one
@@ -327,6 +341,7 @@ export function createStubWorkspaceDirectory(
     start: refuse,
     resume: refuse,
     stop: refuse,
+    succeedOrchestrator: refuse,
     answerQuestion: async () => refuse(),
     postUserMessage: refuse,
     promoteAgentBranch: async () => refuse(),
@@ -884,6 +899,16 @@ export function createAppIpc(host: AppIpcHost): AppIpc {
       typeof payload === 'string' ? payload : (payload as { workspaceId?: string })?.workspaceId
     if (!workspaceId) throw new Error('workspaces:stop rejected — missing workspace id')
     await host.directory.stop(workspaceId)
+    emitWorkspaces()
+  })
+
+  handle(APP_CHANNELS.workspacesSucceedOrchestrator, requirePanel, async (_event, payload) => {
+    const workspaceId =
+      typeof payload === 'string' ? payload : (payload as { workspaceId?: string })?.workspaceId
+    if (!workspaceId) {
+      throw new Error('workspaces:succeedOrchestrator rejected — missing workspace id')
+    }
+    await host.directory.succeedOrchestrator(workspaceId)
     emitWorkspaces()
   })
 

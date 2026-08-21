@@ -20,6 +20,7 @@ import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
+import type { TaskBoard } from '@main/workspace/taskBoard'
 import { answerAgentQuestion, type AnswerQuestionOutcome } from './answerQuestion'
 import { PendingQuestions } from './pendingQuestions'
 import { registerOrchestratorTools } from './toolsOrchestrator'
@@ -485,13 +486,26 @@ export async function startMcpServer(options: StartMcpServerOptions = {}): Promi
     if (workspaces.has(ctx.workspaceId)) {
       throw new Error(`MCP workspace already registered: ${ctx.workspaceId}`)
     }
+    // S4 × C6: one board per run, not one per wiring site. The tool layer
+    // reads `runtime.taskBoard`, the succession package reads the host's — so
+    // the runtime's property is an accessor over the host and the two are the
+    // same object by construction. `fallback` serves hosts that predate the
+    // pair (fakes): they keep a board of their own here, exactly as before.
+    let fallback: TaskBoard | undefined
     const runtime: WorkspaceRuntime = {
       ctx,
       questions: new PendingQuestions(),
       agentTasks: new Map(),
       leads: new Map(),
       parentOf: new Map(),
-      resultSchemas: new Map()
+      resultSchemas: new Map(),
+      get taskBoard(): TaskBoard | undefined {
+        return ctx.host.attachedTaskBoard?.() ?? fallback
+      },
+      set taskBoard(board: TaskBoard | undefined) {
+        fallback = board
+        if (board) ctx.host.attachTaskBoard?.(board)
+      }
     }
     // F: a lead that dies (or is stopped) has its children reparented to the
     // root. The tap lives here because the root queue is where both the

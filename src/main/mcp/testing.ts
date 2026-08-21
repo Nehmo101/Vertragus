@@ -113,6 +113,7 @@ export class FakeAgentHost implements AgentHost {
   /** Live root id the fake succession reports as predecessor. */
   orchestratorId = 'orch-live'
   private counter = 0
+  private hostBoard: TaskBoard | undefined
   private successionHeld = false
   private successionResolvers: Array<(agent: import('./types').StartedAgent) => void> = []
 
@@ -287,6 +288,22 @@ export class FakeAgentHost implements AgentHost {
 
   successionInProgress(): boolean {
     return this.successionHeld
+  }
+
+  /**
+   * S4 × C6: the host half of the single board seam, mirroring
+   * `Workspace.attachTaskBoard` — including its refusal of a second, different
+   * board, which is the wiring bug the seam exists to make loud.
+   */
+  attachedTaskBoard(): TaskBoard | undefined {
+    return this.hostBoard
+  }
+
+  attachTaskBoard(board: TaskBoard): void {
+    if (this.hostBoard && this.hostBoard !== board) {
+      throw new Error('Fake host already has a different task board attached.')
+    }
+    this.hostBoard = board
   }
 
   requestSuccession(input: SuccessionRequest): StartingSuccession {
