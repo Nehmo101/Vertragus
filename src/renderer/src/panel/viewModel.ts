@@ -230,11 +230,17 @@ export function agentRowClass(
   return agentNeedsAttention(agent) ? 'panel-agent needs-attention' : 'panel-agent'
 }
 
+/**
+ * Collapsed-card count: "2/3 Agenten" — currently working over the roster.
+ * Waiting and stopped stay in the denominator; orchestrator and subagents
+ * count the same. Pluralization follows the TOTAL (`count`).
+ */
 export function agentCountLabel(
   t: Translate,
   workspace: Pick<WorkspaceSummary, 'agents'>
 ): string {
-  return t('panel.agentCount', { count: workspace.agents.length })
+  const working = workspace.agents.filter((agent) => agent.state === 'working').length
+  return t('panel.agentCount', { count: workspace.agents.length, working })
 }
 
 // --- S4: the task board on the card --------------------------------------

@@ -240,11 +240,29 @@ describe('cards', () => {
   it('marks an active workspace and counts its agents in German', () => {
     expect(workspaceCardClass(workspace())).toBe('panel-card is-active')
     expect(workspaceCardClass(workspace({ active: false }))).toBe('panel-card')
-    expect(agentCountLabel(t, workspace())).toBe('1 Agent')
-    expect(agentCountLabel(t, workspace({ agents: [agent(), agent()] }))).toBe('2 Agenten')
-    expect(agentCountLabel(t, workspace({ agents: [] }))).toBe('0 Agenten')
-    expect(agentCountLabel(en, workspace())).toBe('1 agent')
-    expect(agentCountLabel(en, workspace({ agents: [agent(), agent()] }))).toBe('2 agents')
+    expect(agentCountLabel(t, workspace())).toBe('1/1 Agent')
+    expect(agentCountLabel(t, workspace({ agents: [agent(), agent()] }))).toBe('2/2 Agenten')
+    expect(agentCountLabel(t, workspace({ agents: [] }))).toBe('0/0 Agenten')
+    expect(agentCountLabel(en, workspace())).toBe('1/1 agent')
+    expect(agentCountLabel(en, workspace({ agents: [agent(), agent()] }))).toBe('2/2 agents')
+  })
+
+  it('shows working/total and pluralizes on the roster, not the working count', () => {
+    const orch = agent({ agentId: 'orch', roleId: 'orchestrator', state: 'working' })
+    const worker = agent({ agentId: 'w', state: 'working' })
+    const waiting = agent({ agentId: 'wait', state: 'waiting' })
+    const stopped = agent({ agentId: 'stop', state: 'stopped' })
+    const waiting2 = agent({ agentId: 'w2', state: 'waiting' })
+    expect(agentCountLabel(t, workspace({ agents: [orch, worker, waiting] }))).toBe('2/3 Agenten')
+    expect(agentCountLabel(t, workspace({ agents: [orch, waiting, stopped] }))).toBe('1/3 Agenten')
+    expect(agentCountLabel(t, workspace({ agents: [waiting, stopped, waiting2] }))).toBe(
+      '0/3 Agenten'
+    )
+    expect(agentCountLabel(t, workspace({ agents: [orch] }))).toBe('1/1 Agent')
+    expect(agentCountLabel(en, workspace({ agents: [orch, worker, waiting] }))).toBe('2/3 agents')
+    expect(agentCountLabel(en, workspace({ agents: [waiting, stopped] }))).toBe('0/2 agents')
+    expect(agentCountLabel(en, workspace({ agents: [orch] }))).toBe('1/1 agent')
+    expect(agentCountLabel(en, workspace({ agents: [] }))).toBe('0/0 agents')
   })
 
   it('sorts live workspaces above finished ones without reordering peers', () => {
