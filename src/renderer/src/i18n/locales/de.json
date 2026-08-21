@@ -236,6 +236,8 @@
     "deleteProvider": "Provider löschen",
     "deleteConfirm": "Provider „{{label}}“ wirklich löschen? Profile, die ihn nutzen, lassen sich danach nicht mehr starten.",
     "unknownProvider": "Diesen Provider gibt es nicht (mehr).",
+    "verifiedDrift": "Preset zuletzt geprüft gegen {{verified}}; installiert ist {{installed}}.",
+    "verifiedOn": "Geprüft am {{date}}.",
     "errors": {
       "label": "Bitte einen Anzeigenamen vergeben.",
       "id": "Bitte eine Id aus Buchstaben, Ziffern, Punkt, Strich oder Unterstrich.",

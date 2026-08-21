@@ -24,6 +24,7 @@ import {
   type ProviderSeed,
   type SystemPromptDelivery
 } from '@shared/schema/provider'
+import { PRESET_VERIFICATION } from '@shared/presetVerification'
 import type { Translate } from '../i18n'
 
 /** `''` means "no effort switch at all" — the CLI has no such knob. */
@@ -367,6 +368,41 @@ export function validateDraft(
     return { ok: false, errors: { form: t('providerEditor.errors.generic') } }
   }
   return { ok: true, config: { ...parsed.data, id } }
+}
+
+/** What the drift hint shows: the verified version vs. the installed one. */
+export interface VersionDrift {
+  verified: string
+  installed: string
+  verifiedAt: string
+}
+
+/**
+ * Whether the installed CLI differs from the version its preset was verified
+ * against (`PRESET_VERIFICATION`). A HINT, never an error: a newer CLI usually
+ * keeps its flags, and the health probe already reports a CLI that is broken.
+ *
+ * `null` when there is nothing to say: a custom provider (no preset, so no
+ * "verified against"), a provider whose health probe has not answered, or an
+ * installed version that matches. The match is a substring test on purpose —
+ * probes answer decorated strings ("codex-cli 0.144.6",
+ * "2026.08.11-e8db854"), and the verified version appearing anywhere in them
+ * means there is no drift to hint at.
+ */
+export function versionDrift(
+  presetId: ProviderPresetId | undefined,
+  installedVersion: string | undefined
+): VersionDrift | null {
+  if (!presetId) return null
+  const installed = installedVersion?.trim()
+  if (!installed) return null
+  const verification = PRESET_VERIFICATION[presetId]
+  if (installed.includes(verification.cliVersion)) return null
+  return {
+    verified: verification.cliVersion,
+    installed,
+    verifiedAt: verification.verifiedAt
+  }
 }
 
 /** Marker value of the "define your own provider" entry in a provider picker. */
