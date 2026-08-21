@@ -140,6 +140,15 @@ describe('agent event schema', () => {
     expect(() => agentEventSchema.parse({ ...full, seq: 0 })).toThrow()
   })
 
+  it('S2: quiet is an optional literal-true envelope flag — old journals stay valid', () => {
+    const full = { type: 'agent_stopped', ...identity, seq: 1, ts: 1 }
+    // An event without the flag (every pre-S2 journal line) parses unchanged.
+    expect('quiet' in agentEventSchema.parse(full)).toBe(false)
+    expect(agentEventSchema.parse({ ...full, quiet: true })).toMatchObject({ quiet: true })
+    // Only literal true is a valid stamp — `quiet: false` is a producer bug.
+    expect(() => agentEventSchema.parse({ ...full, quiet: false })).toThrow()
+  })
+
   it('keeps done status inside the enum and defaults nothing implicitly', () => {
     expect(() =>
       agentEventPayloadSchema.parse({

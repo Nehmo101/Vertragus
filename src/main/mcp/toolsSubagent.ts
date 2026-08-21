@@ -196,15 +196,20 @@ export function registerSubagentTools(
     'report_progress',
     {
       description:
-        'Report a real milestone in one line (not a heartbeat). The orchestrator sees it live; it does ' +
-        'not reply to it.',
+        'Report a real milestone in one line (not a heartbeat). The orchestrator sees it with its ' +
+        'next wake-up; it does not reply to it.',
       inputSchema: {
         note: z.string().min(1).max(PROGRESS_NOTE_MAX).describe('What you just achieved, one line')
       }
     },
     async ({ note }): Promise<ToolText> => {
       try {
-        queueForAgent(runtime, agentId).push({ type: 'agent_progress', ...identity(), note })
+        // Quiet: a milestone note never needs a reaction — it rides along
+        // with the orchestrator's next wake instead of costing it a turn.
+        queueForAgent(runtime, agentId).push(
+          { type: 'agent_progress', ...identity(), note },
+          { quiet: true }
+        )
       } catch (error) {
         return toolError({ error: 'progress_failed', message: errorMessage(error) })
       }

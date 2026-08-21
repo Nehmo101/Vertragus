@@ -35,7 +35,12 @@ describe('ask_user — D3', () => {
 
     const events = runtime.events.all().filter((event) => event.type === 'user_question')
     expect(events).toHaveLength(1)
-    expect(events[0]).toMatchObject({ questionId: ticket, question: 'Ship v1 without dark mode?' })
+    // S2 quiet: the badge signal must not wake the asker's own parked loop.
+    expect(events[0]).toMatchObject({
+      questionId: ticket,
+      question: 'Ship v1 without dark mode?',
+      quiet: true
+    })
 
     // A repeated ask without a ticket reuses the SAME open question — one
     // blocking prompt for the human, not a pile.
@@ -608,6 +613,26 @@ describe('await_events', () => {
     })
   })
 
+  it('S2: a timeout with a quiet-only backlog still delivers it, with agentsSummary', async () => {
+    const { runtime, tools } = setup()
+    await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
+    runtime.events.push(
+      { type: 'agent_progress', agentId: 'a', name: 'A', roleId: 'worker', note: 'milestone' },
+      { quiet: true }
+    )
+
+    // Past agent_started only the quiet event remains — the call parks and
+    // returns it on timeout instead of losing it behind a stuck cursor.
+    const result = await callTool(tools, 'await_events', { cursor: 1, timeoutSec: 1 })
+    const events = result.json.events as Array<{ type: string; quiet?: boolean }>
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ type: 'agent_progress', quiet: true })
+    expect(result.json.cursor).toBe(2)
+    // Non-empty result → the summary comes along, exactly like a woken return.
+    expect(result.json.agentsSummary).toBeDefined()
+    expect(result.json.note).toBeUndefined()
+  })
+
   it('drops the static per-agent fields from its summary rows', async () => {
     const { tools } = setup()
     await callTool(tools, 'start_agent', { role: 'worker', task: 't', model: 'opus' })
@@ -651,7 +676,12 @@ describe('list_agents / stop_agent / read_output', () => {
     const result = await callTool(tools, 'stop_agent', { agentId })
     expect(result.json.ok).toBe(true)
     expect(runtime.questions.openCount).toBe(0)
-    expect(runtime.events.all().at(-1)).toMatchObject({ type: 'agent_stopped', agentId })
+    // S2 quiet: an echo of the caller's own stop must not wake its loop.
+    expect(runtime.events.all().at(-1)).toMatchObject({
+      type: 'agent_stopped',
+      agentId,
+      quiet: true
+    })
   })
 
   it('reports a no-op stop without inventing an event', async () => {
@@ -1019,7 +1049,9 @@ describe('integrate_branch — E1', () => {
     expect(runtime.events.all().at(-1)).toMatchObject({
       type: 'integrate_ok',
       agentId,
-      branch: 'vertragus/arsenale/other'
+      branch: 'vertragus/arsenale/other',
+      // S2 quiet: the tool result above already carried the same data.
+      quiet: true
     })
   })
 
@@ -1058,8 +1090,38 @@ describe('integrate_branch — E1', () => {
     expect(runtime.events.all().at(-1)).toMatchObject({
       type: 'integrate_conflict',
       agentId,
-      conflictFiles: ['src/a.ts']
+      conflictFiles: ['src/a.ts'],
+      quiet: true
     })
+  })
+
+  it('S2: does not wake a parked await_events waiter — the tool result already told the caller', async () => {
+    const { runtime, tools } = setup()
+    const started = await callTool(tools, 'start_agent', { role: 'worker', task: 't' })
+    const agentId = String(started.json.agentId)
+
+    // Park the loop past agent_started, then merge: the quiet integrate_ok
+    // must leave the waiter asleep.
+    const parked = callTool(tools, 'await_events', { cursor: 1, timeoutSec: 5 })
+    await Promise.resolve()
+    expect(runtime.events.waiterCount).toBe(1)
+    await callTool(tools, 'integrate_branch', { agentId, branch: 'other' })
+    expect(runtime.events.waiterCount).toBe(1)
+
+    // A real event ends the wait and delivers BOTH — quiet rides along.
+    runtime.events.push({
+      type: 'agent_done',
+      agentId,
+      name: 'A',
+      roleId: 'worker',
+      summary: 'done',
+      status: 'success'
+    })
+    const result = await parked
+    const events = result.json.events as Array<{ type: string; quiet?: boolean }>
+    expect(events.map((e) => e.type)).toEqual(['integrate_ok', 'agent_done'])
+    expect(events.map((e) => e.quiet ?? false)).toEqual([true, false])
+    expect(result.json.cursor).toBe(3)
   })
 
   it('stays fenced to the caller’s subtree — the root cannot merge into a grandchild', async () => {

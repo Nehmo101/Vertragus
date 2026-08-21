@@ -590,13 +590,18 @@ export function registerOrchestratorTools(
       runtime.questions.cancelForAgent(agentId)
       if (stopped && known) {
         // Into the parent's queue — for a stopped LEAD that is the root queue,
-        // where the adoption tap reparents its children (F).
-        queueForAgent(runtime, agentId).push({
-          type: 'agent_stopped',
-          agentId,
-          name: known.name,
-          roleId: known.role
-        })
+        // where the adoption tap reparents its children (F). Quiet: a pure
+        // echo of the caller's own stop_agent — the tool result already said
+        // everything; the event is for the journal and the panel.
+        queueForAgent(runtime, agentId).push(
+          {
+            type: 'agent_stopped',
+            agentId,
+            name: known.name,
+            roleId: known.role
+          },
+          { quiet: true }
+        )
       }
       return toolJson({
         ok: stopped,
@@ -675,7 +680,13 @@ export function registerOrchestratorTools(
       const pending =
         alreadyOpen ?? runtime.questions.create(USER_QUESTION_AGENT_ID, question)
       if (!alreadyOpen) {
-        ctx.events.push({ type: 'user_question', questionId: pending.questionId, question })
+        // Quiet: the badge/remote signal for the PANEL — the asker itself is
+        // blocked right here on waitForAnswer and must not be woken by the
+        // echo of its own question.
+        ctx.events.push(
+          { type: 'user_question', questionId: pending.questionId, question },
+          { quiet: true }
+        )
       }
 
       const result = await runtime.questions.waitForAnswer(
@@ -1045,9 +1056,15 @@ export function registerOrchestratorTools(
         return toolError({ error: 'integrate_failed', agentId, branch, message: errorMessage(error) })
       }
       const queue = queueForAgent(runtime, agentId)
+      // Both integrate events are quiet: the tool result below carries the
+      // same data synchronously — the events exist for journal/panel/retro,
+      // not to wake the caller with an echo of its own merge.
       if (outcome.ok) {
         if (!queue.isClosed) {
-          queue.push({ type: 'integrate_ok', ...identityFields, branch, headSha: outcome.headSha })
+          queue.push(
+            { type: 'integrate_ok', ...identityFields, branch, headSha: outcome.headSha },
+            { quiet: true }
+          )
         }
         return toolJson({
           ok: true,
@@ -1058,13 +1075,16 @@ export function registerOrchestratorTools(
         })
       }
       if (!queue.isClosed) {
-        queue.push({
-          type: 'integrate_conflict',
-          ...identityFields,
-          branch,
-          conflictFiles: outcome.conflictFiles,
-          message: outcome.message.slice(0, 2_000)
-        })
+        queue.push(
+          {
+            type: 'integrate_conflict',
+            ...identityFields,
+            branch,
+            conflictFiles: outcome.conflictFiles,
+            message: outcome.message.slice(0, 2_000)
+          },
+          { quiet: true }
+        )
       }
       return toolError({
         error: 'integrate_conflict',
