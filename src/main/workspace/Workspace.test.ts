@@ -1479,21 +1479,33 @@ describe('noteOrchestratorGoal — first CLI submit becomes goalText', () => {
     expect(workspace.goalText).toBeUndefined()
     expect(workspace.noteOrchestratorGoal(' the panel\r')).toBe(true)
     expect(workspace.goalText).toBe('Fix the panel')
+    expect(workspace.orchestratorTaskText).toBe('Fix the panel')
   })
 
   it('does not replace a start-with-goal already on goalText', async () => {
     const { workspace } = harness()
     await workspace.startOrchestrator()
     await workspace.assignGoal('Fix the login bug')
-    expect(workspace.noteOrchestratorGoal('later steering\r')).toBe(false)
+    expect(workspace.noteOrchestratorGoal('later steering\r')).toBe(true)
     expect(workspace.goalText).toBe('Fix the login bug')
+    expect(workspace.orchestratorTaskText).toBe('later steering')
   })
 
-  it('first successful submit sticks; a later Enter does not clobber it', () => {
+  it('first successful submit sticks; a later Enter updates only the orchestrator task', () => {
     const { workspace } = harness()
     expect(workspace.noteOrchestratorGoal('first assignment\r')).toBe(true)
-    expect(workspace.noteOrchestratorGoal('also look at X\r')).toBe(false)
+    expect(workspace.noteOrchestratorGoal('also look at X\r')).toBe(true)
     expect(workspace.goalText).toBe('first assignment')
+    expect(workspace.orchestratorTaskText).toBe('also look at X')
+  })
+
+  it('keeps a multi-line CLI goal whole', () => {
+    const { workspace } = harness()
+    expect(
+      workspace.noteOrchestratorGoal('Fix the parser\nDefinition of done\r')
+    ).toBe(true)
+    expect(workspace.goalText).toBe('Fix the parser\nDefinition of done')
+    expect(workspace.orchestratorTaskText).toBe('Fix the parser')
   })
 
   it('a new workspace does not inherit a leftover assembler (unregister/reuse)', () => {

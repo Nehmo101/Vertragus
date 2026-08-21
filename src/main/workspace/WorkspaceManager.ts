@@ -141,7 +141,8 @@ export interface WorkspaceManager {
    * Feed a user-input chunk from an agent's CLI. Only the workspace whose
    * orchestrator owns `agentId` is considered; a subagent is a no-op. First
    * successful note sticks on {@link Workspace.goalText}; a start-with-goal
-   * is never overwritten. Fires {@link onChange} when the goal newly lands.
+   * is never overwritten. Later submits update the orchestrator's current
+   * task only. Fires {@link onChange} when either field changes.
    */
   noteOrchestratorGoal(agentId: string, chunk: string): boolean
 }

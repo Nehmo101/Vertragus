@@ -7,8 +7,9 @@ import { allRoleTemplates, roleColor } from '@shared/prompts/roles'
 import { PtyAgent } from './agents/PtyAgent'
 import { resolveLaunch } from './agents/resolveCommand'
 import {
-  registerAppIpc,
+  agentCurrentTaskFields,
   PANEL_TASKS_MAX,
+  registerAppIpc,
   type WorkspaceDirectory,
   type WorkspaceSummary
 } from './appIpc'
@@ -116,7 +117,6 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
       manager.list().map<WorkspaceSummary>((ws) => {
         const orchestrator = ws.orchestrator
         const roleIds = [...new Set(ws.profile.slots.map((slot) => slot.roleId))]
-        const taskText = mcp.workspaceTask(ws.workspaceId)
         const orchestratorQuestion = orchestrator
           ? pendingOf(ws.workspaceId, orchestrator.agentId)
           : undefined
@@ -134,7 +134,6 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
           // Not "was an orchestrator ever started" — a crashed orchestrator
           // must grey the card out even though its record (and window) stay.
           active: ws.orchestratorAlive,
-          ...(taskText ? { taskText } : {}),
           ...(ws.goalText ? { goalText: ws.goalText } : {}),
           ...(ws.orchestratorIdle ? { orchestratorIdle: true } : {}),
           // C6: a successor is spawning — the seat is mid-cutover, which is
@@ -159,9 +158,8 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
                     roleLabel: 'Orchestrator',
                     roleColor: roleColor('orchestrator'),
                     state: ws.orchestratorAlive ? ('working' as const) : ('stopped' as const),
-                    // The orchestrator is never assigned a task through the
-                    // tools — the closest truth is the last one it delegated.
-                    ...(taskText ? { statusText: taskText } : {}),
+                    // Latest user CLI submit — not the last delegated start_agent.
+                    ...agentCurrentTaskFields(ws.orchestratorTaskText),
                     ...(windowOpenOf(orchestrator.agentId) ? { windowOpen: true } : {}),
                     ...(orchestratorQuestion
                       ? {
@@ -195,7 +193,7 @@ function panelDirectory(manager: WorkspaceManager, mcp: McpServerHandle): Worksp
                       : ('stopped' as const),
                 ...(agent.kind ? { kind: agent.kind } : {}),
                 ...(parentId ? { parentId } : {}),
-                ...(agentTask ? { statusText: agentTask } : {}),
+                ...agentCurrentTaskFields(agentTask),
                 ...(windowOpenOf(agent.agentId) ? { windowOpen: true } : {}),
                 ...(pendingQuestion
                   ? {
@@ -384,9 +382,7 @@ function armTerminalTaskFeed(manager: WorkspaceManager, mcp: McpServerHandle): v
     for (const ws of manager.list()) {
       const orchestrator = ws.orchestrator
       if (orchestrator) {
-        // The orchestrator has no assigned task — its card shows the last one
-        // it delegated, same as its panel row.
-        registry.setAgentTask(orchestrator.agentId, mcp.workspaceTask(ws.workspaceId))
+        registry.setAgentTask(orchestrator.agentId, ws.orchestratorTaskText)
       }
       for (const agent of ws.listAgents()) {
         registry.setAgentTask(agent.agentId, mcp.agentTask(ws.workspaceId, agent.agentId))

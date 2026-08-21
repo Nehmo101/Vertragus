@@ -224,6 +224,11 @@ export interface WorkspaceAgentSummary {
   state: PanelAgentState
   statusText?: string
   /**
+   * Current task for the row's hover card. Subagents: last start_agent /
+   * follow-up send_to_agent. Orchestrator: latest submitted user CLI note.
+   */
+  taskText?: string
+  /**
    * F: 'orchestrator' for the root row, 'lead' for sub-orchestrators, the
    * role id otherwise. Drives the panel's indentation and lead styling.
    */
@@ -261,9 +266,12 @@ export interface WorkspaceSummary {
   profileId: string
   profileName?: string
   active: boolean
-  /** Latest assignment the orchestrator handed out — the tooltip's task line. */
+  /**
+   * Last delegated assignment, when still populated. The workspace hover uses
+   * {@link goalText}, not this.
+   */
   taskText?: string
-  /** Goal the workspace was started with; absent = "no goal" hint on the card. */
+  /** User's workspace goal (full text); absent = "no goal" hint on the card. */
   goalText?: string
   /** C5: orchestrator alive but silent on its tools — the card shows a hint. */
   orchestratorIdle?: boolean
