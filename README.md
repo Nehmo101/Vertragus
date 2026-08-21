@@ -23,15 +23,16 @@ Agents are named after the Divine Comedy — orchestrators get guides
 (Virgilio, Beatrice, …), subagents get the cast (Caronte, Ulisse, …),
 workspaces get places (Paradiso, Inferno, …).
 
-> **Status: early rework.** This repository is a ground-up restart of
-> [Vertragus-Archiv](https://github.com/Nehmo101/Vertragus-Archiv) with a
-> radically smaller core. Nothing here is release-ready yet.
+> **Status: first stable milestone.** Vertragus works and is heavily
+> tested — around 1900 tests, a coverage ratchet, and a real-Electron boot
+> check on Windows, macOS and Linux. It is also young: downloads are
+> unsigned by choice, releases carry no macOS build, and agents are not
+> sandboxed. Those limits are named where they matter, not buried.
 
 The handbook [`docs/HANDBOOK-HARNESS.md`](docs/HANDBOOK-HARNESS.md)
 is the code-grounded map of the harness core; serial root succession
 (fresh context, same team) is described in
-[`docs/ORCHESTRATOR-SUCCESSION.md`](docs/ORCHESTRATOR-SUCCESSION.md) and
-implemented in its first stage.
+[`docs/ORCHESTRATOR-SUCCESSION.md`](docs/ORCHESTRATOR-SUCCESSION.md).
 
 ## How a run works
 
@@ -216,6 +217,66 @@ update itself is worse than none — build it locally with
 `pnpm run build:mac`. The signing machinery is implemented and dormant, so
 this is one secret away from changing. Details and the verification recipe:
 [`docs/SIGNING.md`](docs/SIGNING.md).
+
+## Install
+
+Download the installer for your system from the
+[releases page](https://github.com/Nehmo101/Vertragus/releases):
+`Vertragus-<version>-setup.exe` on Windows, `.AppImage` or `.deb` on Linux.
+Windows SmartScreen will interrupt the first run — click **More info → Run
+anyway**; downloads are unsigned by choice, and
+[`docs/SIGNING.md`](docs/SIGNING.md) explains why and how to verify a file
+against the hashes the auto-updater itself checks.
+
+**There is no macOS download.** Squirrel.Mac refuses to apply unsigned
+updates, so a mac release would install once and never update itself again;
+shipping nothing is the more honest option. On macOS, build it from a
+checkout (see Development below) — everything works, only the packaged
+download is missing.
+
+Updates arrive on their own. Settings offers two channels: **stable**, which
+follows tagged releases, and **main**, which follows every green build of the
+default branch.
+
+## Before the first run
+
+Vertragus drives agent CLIs — it does not ship or replace them. Install at
+least one yourself and sign in, in your own terminal:
+
+| CLI | Install | Sign in |
+| --- | --- | --- |
+| Claude Code | `npm i -g @anthropic-ai/claude-code` | `claude auth login` |
+| Codex | `npm i -g @openai/codex` | `codex login` |
+| Kimi, Cursor, Grok Build, Ollama | see each vendor's instructions | vendor-specific |
+
+Nothing else is required. Vertragus stores no API keys of its own and never
+logs in for you: the CLI you already trust keeps its own session.
+
+## The first run
+
+The panel opens with a **first-steps card** that walks the four things a
+first run needs, in the order it actually fails in:
+
+1. **Which CLIs were found** — a dot per provider, with what went wrong when
+   one cannot start. Install one and press ⟳.
+2. **Login status** — for CLIs that expose one, plus the exact command to
+   copy when they do not. Signing in happens in your terminal; Vertragus only
+   shows the command.
+3. **The first profile** — a repository path and an orchestrator. The rest can
+   stay as it is.
+4. **Press ▶** — the field beside it carries the goal. Leave it empty and the
+   orchestrator waits for word.
+
+From then on the workspace card is the run: agent rows with their status, the
+shared **task board** (read-only — completing a task stays the orchestrator's
+decision after it verified the work), a composer to steer, `?` badges for
+questions in either direction, and a folder button that opens the run's own
+artefacts (`spill/`, `tasks.json`, the event journal). When an orchestrator
+dies or goes silent, **Replace orchestrator** hands the same team, queue and
+board to a fresh-context successor.
+
+Something not going the way you expect is covered in
+[`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
 
 ## Development
 
