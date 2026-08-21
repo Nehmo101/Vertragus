@@ -74,9 +74,13 @@ interface ExecFailure {
  * dropped. A kill is reported as what it was, because a killed process has no
  * error message of its own.
  */
-export function cliFailureMessage(cause: unknown, timeoutMs: number): string {
+export function cliFailureMessage(
+  cause: unknown,
+  timeoutMs: number,
+  locale?: string
+): string {
   const failure = (cause ?? {}) as ExecFailure
-  if (failure.killed) return `keine Antwort binnen ${timeoutMs} ms`
+  if (failure.killed) return mainMessages(locale).discoveryTimeout(timeoutMs)
   return (
     firstOutputLine(failure.stderr) ||
     (cause instanceof Error && cause.message.trim() ? cause.message.trim() : String(cause))
@@ -102,7 +106,8 @@ export function cliFailureMessage(cause: unknown, timeoutMs: number): string {
 export async function execProviderCli(
   command: string,
   args: string[],
-  timeoutMs: number
+  timeoutMs: number,
+  locale?: string
 ): Promise<string> {
   const launch =
     process.platform === 'win32' ? await resolveLaunch(command, args) : { file: command, args }
@@ -115,7 +120,7 @@ export async function execProviderCli(
   } catch (cause) {
     const failure = (cause ?? {}) as ExecFailure
     if (!failure.killed && failure.stdout?.trim()) return failure.stdout
-    throw new Error(cliFailureMessage(cause, timeoutMs))
+    throw new Error(cliFailureMessage(cause, timeoutMs, locale))
   }
 }
 
@@ -499,7 +504,9 @@ export async function discoverModels(
   try {
     live = await runDiscovery(config, discovery, deps)
     if (live.length === 0 && discovery.kind !== 'none') {
-      detail = `${describeSource(config, discovery)}: keine Modelle in der Antwort`
+      detail = `${describeSource(config, discovery)}: ${
+        mainMessages(deps.locale?.()).discoveryNoModels
+      }`
     }
   } catch (cause) {
     // Fail-soft by design — see the function contract.

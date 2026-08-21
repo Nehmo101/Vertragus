@@ -39,6 +39,10 @@ interface MainMessages {
    * sentence rides along because it names the alternatives (API key, env var).
    */
   authNotLoggedIn: (login: string | undefined, failure: string) => string
+  /** Model discovery ran but the CLI/HTTP answer named no models. */
+  discoveryNoModels: string
+  /** A provider CLI was killed after `timeoutMs` without answering. */
+  discoveryTimeout: (timeoutMs: number) => string
   /** OS-level window titles — set at window creation, shown by the OS chrome. */
   settingsWindowTitle: string
   profileEditorTitle: string
@@ -72,6 +76,8 @@ const MESSAGES: Record<MainLocale, MainMessages> = {
       'ausführbar machen. Erwartet wird ein direkt startbares .exe oder ein Node-Entrypoint neben dem Shim.',
     authNotLoggedIn: (login, failure) =>
       `nicht angemeldet — ${login ? `'${login}' ausführen` : 'bitte anmelden'} (${failure})`,
+    discoveryNoModels: 'keine Modelle in der Antwort',
+    discoveryTimeout: (timeoutMs) => `keine Antwort binnen ${timeoutMs} ms`,
     settingsWindowTitle: 'Vertragus — Einstellungen',
     profileEditorTitle: 'Vertragus — Profil',
     providerEditorTitle: 'Vertragus — Provider',
@@ -102,6 +108,8 @@ const MESSAGES: Record<MainLocale, MainMessages> = {
       'executable. Expected is a directly runnable .exe or a Node entrypoint next to the shim.',
     authNotLoggedIn: (login, failure) =>
       `not logged in — ${login ? `run '${login}'` : 'please log in'} (${failure})`,
+    discoveryNoModels: 'no models in the response',
+    discoveryTimeout: (timeoutMs) => `no reply within ${timeoutMs} ms`,
     settingsWindowTitle: 'Vertragus — Settings',
     profileEditorTitle: 'Vertragus — Profile',
     providerEditorTitle: 'Vertragus — Provider',
