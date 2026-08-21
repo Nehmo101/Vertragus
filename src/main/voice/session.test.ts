@@ -166,7 +166,7 @@ describe('createVoiceSession', () => {
     expect(fake.stt[0]?.language).toBe('de')
     expect(fake.stt[0]?.keyterms).toEqual(expect.arrayContaining(['Vertragus', 'UWE']))
     expect(fake.sessionUpdates[0]?.tools?.some((tool) => tool.name === 'start_workspace')).toBe(true)
-    expect(fake.sessionUpdates[0]?.idleTimeoutMs).toBe(20_000)
+    expect(fake.sessionUpdates[0]?.idleTimeoutMs).toBeUndefined()
     expect(fake.userTexts[0]?.toLowerCase()).toContain('starte')
     expect(fake.responses).toBe(1)
     expect(transcripts.some((row) => row.origin === 'user' && /vertragus/i.test(row.text))).toBe(true)
@@ -212,7 +212,7 @@ describe('createVoiceSession', () => {
     expect(fake.audioIn.some((pcm) => pcm === chunk || pcm.length === 2)).toBe(true)
   })
 
-  it('returns to listening after end_session and response.done', async () => {
+  it('stays engaged on the tool-turn response.done after end_session and drops on the follow-up', async () => {
     const fake = createFakeClient({ transcript: 'Hey Vertragus.' })
     const session = createVoiceSession({
       host: createHost(),
@@ -228,6 +228,55 @@ describe('createVoiceSession', () => {
     })
     expect(session.phase).toBe('engaged')
     fake.handlers()?.onResponseDone?.()
+    expect(session.phase).toBe('engaged')
+    fake.handlers()?.onResponseDone?.()
+    expect(session.phase).toBe('listening')
+  })
+
+  it('does not hang up on xAI idle timeout and uses a local timer after response.done', async () => {
+    const pending = new Map<number, { fn: () => void; ms: number }>()
+    let nextId = 1
+    const fake = createFakeClient({ transcript: 'Hey Vertragus.' })
+    const session = createVoiceSession({
+      host: createHost(),
+      client: fake.client,
+      config: { wakePhrase: 'Vertragus', voiceId: 'eve', locale: 'de', idleTimeoutMs: 20_000 },
+      setTimeout: (fn, ms) => {
+        const id = nextId++
+        pending.set(id, { fn, ms })
+        return id
+      },
+      clearTimeout: (id) => {
+        pending.delete(id as number)
+      }
+    })
+    session.start()
+    await session.pushPcm(utterance())
+    expect(fake.sessionUpdates[0]?.idleTimeoutMs).toBeUndefined()
+    expect(fake.handlers()?.onIdleTimeout).toBeUndefined()
+    expect(session.phase).toBe('engaged')
+
+    fake.handlers()?.onResponseDone?.()
+    expect(session.phase).toBe('engaged')
+    expect([...pending.values()].map((item) => item.ms)).toEqual([20_000])
+
+    await session.pushPcm(new Int16Array([1, 2, 3]))
+    expect(pending.size).toBe(0)
+
+    fake.handlers()?.onResponseDone?.()
+    expect(pending.size).toBe(1)
+    await fake.handlers()?.onFunctionCall?.({
+      callId: 'c-status',
+      name: 'status',
+      arguments: {}
+    })
+    expect(pending.size).toBe(0)
+
+    fake.handlers()?.onResponseDone?.()
+    expect(pending.size).toBe(1)
+    const due = [...pending.values()]
+    pending.clear()
+    for (const item of due) item.fn()
     expect(session.phase).toBe('listening')
   })
 

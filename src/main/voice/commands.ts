@@ -198,6 +198,8 @@ export const VOICE_TOOLS: VoiceFunctionTool[] = [
   }
 ]
 
+const quitArmedByHost = new WeakMap<VoiceHost, true>()
+
 export async function executeCommand(
   host: VoiceHost,
   name: string,
@@ -243,6 +245,7 @@ export async function executeCommand(
           )
         }
       case 'quit_app':
+        quitArmedByHost.set(host, true)
         return {
           ok: true,
           confirmQuit: true,
@@ -253,6 +256,16 @@ export async function executeCommand(
           )
         }
       case 'confirm_quit':
+        if (!quitArmedByHost.get(host)) {
+          return fail(
+            t(
+              locale,
+              'Ich beende nur, wenn du mich zuerst darum bittest.',
+              'Ask me to quit first.'
+            )
+          )
+        }
+        quitArmedByHost.delete(host)
         host.quitApp()
         return ok(t(locale, 'Beende Vertragus.', 'Quitting Vertragus.'))
       default:
@@ -282,19 +295,30 @@ function resolveSpoken<T>(
 ): SpokenResolve<T> {
   const needle = spoken.trim()
   if (!needle) return { ok: false, reason: 'missing', candidates: [] }
+  const needleLower = needle.toLowerCase()
+  const needleNorm = normalizeWake(needle)
 
-  const layers: Array<(name: string) => boolean> = [
-    (name) => name.toLowerCase() === needle.toLowerCase(),
-    (name) => name.toLowerCase().startsWith(needle.toLowerCase()),
-    (name) => name.toLowerCase().includes(needle.toLowerCase()),
-    (name) => normalizeWake(name) === normalizeWake(needle)
-  ]
+  const exact = items.filter((item) => {
+    const name = nameOf(item)
+    return name.toLowerCase() === needleLower || normalizeWake(name) === needleNorm
+  })
+  if (exact.length === 1) return { ok: true, item: exact[0]! }
+  if (exact.length > 1) return { ok: false, reason: 'ambiguous', candidates: exact }
 
-  for (const pred of layers) {
-    const hits = items.filter((item) => pred(nameOf(item)))
-    if (hits.length === 1) return { ok: true, item: hits[0]! }
-    if (hits.length > 1) return { ok: false, reason: 'ambiguous', candidates: hits }
-  }
+  const starts = items.filter((item) => {
+    const name = nameOf(item)
+    return name.toLowerCase().startsWith(needleLower) || normalizeWake(name).startsWith(needleNorm)
+  })
+  if (starts.length === 1) return { ok: true, item: starts[0]! }
+  if (starts.length > 1) return { ok: false, reason: 'ambiguous', candidates: starts }
+
+  const includes = items.filter((item) => {
+    const name = nameOf(item)
+    return name.toLowerCase().includes(needleLower) || normalizeWake(name).includes(needleNorm)
+  })
+  if (includes.length === 1) return { ok: true, item: includes[0]! }
+  if (includes.length > 1) return { ok: false, reason: 'ambiguous', candidates: includes }
+
   return { ok: false, reason: 'missing', candidates: [] }
 }
 

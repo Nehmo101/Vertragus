@@ -70,11 +70,15 @@ export type InjectedWebSocketConstructor = new (
   options?: { headers?: Record<string, string> }
 ) => InjectedWebSocket
 
+export const XAI_REALTIME_OPEN_TIMEOUT_MS = 8_000
+
 export interface XaiClientDeps {
   fetch: typeof fetch
   WebSocket: InjectedWebSocketConstructor
   apiKey: string
   now?: () => number
+  /** Override for tests. Production default is `XAI_REALTIME_OPEN_TIMEOUT_MS`. */
+  openTimeoutMs?: number
 }
 
 export interface XaiClient {
@@ -92,8 +96,10 @@ export interface XaiClient {
 export function createXaiClient(deps: XaiClientDeps): XaiClient {
   const authHeader = `Bearer ${deps.apiKey}`
   let socket: InjectedWebSocket | undefined
+  let socketGeneration = 0
   let handlers: XaiRealtimeHandlers = {}
   let closing = false
+  const openTimeoutMs = deps.openTimeoutMs ?? XAI_REALTIME_OPEN_TIMEOUT_MS
 
   function sendJson(payload: unknown): void {
     if (!socket) return
@@ -206,6 +212,7 @@ export function createXaiClient(deps: XaiClientDeps): XaiClient {
   return {
     transcribe,
     async connectRealtime(nextHandlers: XaiRealtimeHandlers): Promise<void> {
+      const generation = ++socketGeneration
       close()
       closing = false
       handlers = nextHandlers
@@ -213,16 +220,32 @@ export function createXaiClient(deps: XaiClientDeps): XaiClient {
         headers: { Authorization: authHeader }
       })
       socket = ws
-      await waitForOpen(ws)
+      try {
+        await waitForOpen(ws, openTimeoutMs)
+      } catch (error) {
+        if (socketGeneration === generation && socket === ws) {
+          socket = undefined
+          try {
+            ws.close()
+          } catch {
+            /* already closed */
+          }
+        }
+        throw error
+      }
+      if (socketGeneration !== generation || socket !== ws) return
       listen(ws, 'message', (event) => {
+        if (socketGeneration !== generation || socket !== ws) return
         handleMessage(event.data ?? event)
       })
       listen(ws, 'error', (event) => {
+        if (socketGeneration !== generation || socket !== ws) return
         const message = wsErrorMessage(event)
         handlers.onError?.(message, isAuthFailure(message, ''))
       })
       listen(ws, 'close', (event) => {
-        socket = undefined
+        if (socketGeneration !== generation) return
+        if (socket === ws) socket = undefined
         const reason = typeof event.reason === 'string' ? event.reason : ''
         const code = typeof event.code === 'number' ? event.code : 0
         if (isAuthFailure(reason, String(code)) || code === 4401) {
@@ -240,8 +263,7 @@ export function createXaiClient(deps: XaiClientDeps): XaiClient {
           instructions: config.instructions,
           tools: config.tools ?? VOICE_TOOLS,
           turn_detection: {
-            type: 'server_vad',
-            idle_timeout_ms: config.idleTimeoutMs ?? 20_000
+            type: 'server_vad'
           },
           audio: {
             input: {
@@ -408,18 +430,25 @@ function listen(
   if (type === 'close') ws.onclose = (event) => listener(event ?? {})
 }
 
-function waitForOpen(ws: InjectedWebSocket): Promise<void> {
+function waitForOpen(ws: InjectedWebSocket, timeoutMs: number): Promise<void> {
   if (ws.readyState === 1) return Promise.resolve()
   return new Promise((resolve, reject) => {
     let settled = false
+    const timeout = setTimeout(() => {
+      if (settled) return
+      settled = true
+      reject(new XaiError(`realtime open timeout after ${timeoutMs}ms`))
+    }, timeoutMs)
     const onOpen = (): void => {
       if (settled) return
       settled = true
+      clearTimeout(timeout)
       resolve()
     }
     const onError = (event: unknown): void => {
       if (settled) return
       settled = true
+      clearTimeout(timeout)
       reject(new XaiError(wsErrorMessage(event), undefined, isAuthFailure(wsErrorMessage(event), '')))
     }
     listen(ws, 'open', onOpen)

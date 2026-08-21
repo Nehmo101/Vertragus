@@ -32,6 +32,8 @@ export interface VoiceSessionDeps {
   onAudioOut?: (pcm: Int16Array) => void
   onError?: (message: string) => void
   waitForPlayback?: () => Promise<void>
+  setTimeout?: (handler: () => void, timeout: number) => unknown
+  clearTimeout?: (id: unknown) => void
 }
 
 export interface VoiceSession {
@@ -44,13 +46,32 @@ export interface VoiceSession {
 export function createVoiceSession(deps: VoiceSessionDeps): VoiceSession {
   const idleTimeoutMs = deps.config.idleTimeoutMs ?? 20_000
   const waitForPlayback = deps.waitForPlayback ?? (async () => undefined)
+  const scheduleTimeout = deps.setTimeout ?? ((handler: () => void, timeout: number) => setTimeout(handler, timeout))
+  const cancelTimeout = deps.clearTimeout ?? ((id: unknown) => clearTimeout(id as ReturnType<typeof setTimeout>))
 
   let phase: VoicePhase = 'idle'
   let vad: Vad = createVad()
   let wakeInFlight = false
   let pendingEndSession = false
+  let skipNextResponseDone = false
   let socketReady = false
+  let idleTimer: unknown = undefined
   const pcmQueue: Int16Array[] = []
+
+  function clearIdleTimer(): void {
+    if (idleTimer === undefined) return
+    cancelTimeout(idleTimer)
+    idleTimer = undefined
+  }
+
+  function armIdleTimer(): void {
+    clearIdleTimer()
+    if (phase !== 'engaged' || pendingEndSession) return
+    idleTimer = scheduleTimeout(() => {
+      idleTimer = undefined
+      if (phase === 'engaged' && !pendingEndSession) dropToListening()
+    }, idleTimeoutMs)
+  }
 
   function setPhase(next: VoicePhase): void {
     if (phase === next) return
@@ -63,7 +84,9 @@ export function createVoiceSession(deps: VoiceSessionDeps): VoiceSession {
   }
 
   function dropToListening(): void {
+    clearIdleTimer()
     pendingEndSession = false
+    skipNextResponseDone = false
     socketReady = false
     pcmQueue.length = 0
     deps.client.close()
@@ -73,6 +96,7 @@ export function createVoiceSession(deps: VoiceSessionDeps): VoiceSession {
   }
 
   function fail(error: unknown): void {
+    clearIdleTimer()
     const message = error instanceof Error ? error.message : String(error)
     const authFailed =
       (error instanceof XaiError && error.authFailed) || /401|403|unauthor|invalid_api_key/i.test(message)
@@ -89,20 +113,34 @@ export function createVoiceSession(deps: VoiceSessionDeps): VoiceSession {
   }
 
   const realtimeHandlers: XaiRealtimeHandlers = {
-    onAudioOut: (pcm) => deps.onAudioOut?.(pcm),
-    onTranscript: (text) => deps.onTranscript?.(text, 'assistant'),
-    onText: (text) => deps.onTranscript?.(text, 'assistant'),
+    onAudioOut: (pcm) => {
+      clearIdleTimer()
+      deps.onAudioOut?.(pcm)
+    },
+    onTranscript: (text) => {
+      clearIdleTimer()
+      deps.onTranscript?.(text, 'assistant')
+    },
+    onText: (text) => {
+      clearIdleTimer()
+      deps.onTranscript?.(text, 'assistant')
+    },
     onFunctionCall: (call) => handleFunctionCall(call),
     onResponseDone: () => {
-      if (!pendingEndSession) return
-      pendingEndSession = false
-      dropToListening()
-    },
-    onIdleTimeout: () => {
-      dropToListening()
+      if (skipNextResponseDone) {
+        skipNextResponseDone = false
+        return
+      }
+      if (pendingEndSession) {
+        pendingEndSession = false
+        dropToListening()
+        return
+      }
+      if (phase === 'engaged') armIdleTimer()
     },
     onError: (message, authFailed) => {
       if (authFailed) {
+        clearIdleTimer()
         deps.onError?.(message)
         deps.client.close()
         setPhase('error')
@@ -117,16 +155,26 @@ export function createVoiceSession(deps: VoiceSessionDeps): VoiceSession {
   }
 
   async function handleFunctionCall(call: XaiFunctionCall): Promise<void> {
+    clearIdleTimer()
+    if (call.name === 'end_session') {
+      pendingEndSession = true
+      skipNextResponseDone = true
+    }
     const result = await executeCommand(deps.host, call.name, call.arguments, deps.config.locale)
     deps.client.sendFunctionOutput(call.callId, result)
-    if (result.endSession) pendingEndSession = true
+    if (result.endSession) {
+      pendingEndSession = true
+      skipNextResponseDone = true
+    }
     await waitForPlayback()
     deps.client.requestResponse()
   }
 
   async function engage(remainder: string): Promise<void> {
     setPhase('engaged')
+    clearIdleTimer()
     pendingEndSession = false
+    skipNextResponseDone = false
     socketReady = false
     try {
       await deps.client.connectRealtime(realtimeHandlers)
@@ -138,7 +186,6 @@ export function createVoiceSession(deps: VoiceSessionDeps): VoiceSession {
           profiles: deps.host.listProfiles()
         }),
         tools: VOICE_TOOLS,
-        idleTimeoutMs,
         languageHint: deps.config.locale,
         keyterms: keyterms()
       })
@@ -192,14 +239,18 @@ export function createVoiceSession(deps: VoiceSessionDeps): VoiceSession {
     start(): void {
       if (phase === 'listening' || phase === 'engaged') return
       vad = createVad()
+      clearIdleTimer()
       pendingEndSession = false
+      skipNextResponseDone = false
       wakeInFlight = false
       socketReady = false
       pcmQueue.length = 0
       setPhase('listening')
     },
     stop(): void {
+      clearIdleTimer()
       pendingEndSession = false
+      skipNextResponseDone = false
       socketReady = false
       pcmQueue.length = 0
       deps.client.close()
@@ -211,6 +262,7 @@ export function createVoiceSession(deps: VoiceSessionDeps): VoiceSession {
         return
       }
       if (phase !== 'engaged') return
+      clearIdleTimer()
       if (socketReady) deps.client.appendInputAudio(pcm)
       else pcmQueue.push(pcm)
     }

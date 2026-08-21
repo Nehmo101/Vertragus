@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { pcm16ToBase64 } from './pcm'
 import {
   createXaiClient,
@@ -58,8 +58,46 @@ class FakeWebSocket implements InjectedWebSocket {
   }
 }
 
+/** Socket that never emits `open`, used to exercise waitForOpen's timeout. */
+class HangWebSocket implements InjectedWebSocket {
+  static instances: HangWebSocket[] = []
+  readonly sent: string[] = []
+  readonly listeners = new Map<string, Array<(event: { data?: unknown; code?: number; reason?: string }) => void>>()
+  readyState = 0
+
+  constructor(
+    readonly url: string,
+    readonly options?: { headers?: Record<string, string> }
+  ) {
+    HangWebSocket.instances.push(this)
+  }
+
+  addEventListener(
+    type: 'open' | 'message' | 'error' | 'close',
+    listener: (event: { data?: unknown; code?: number; reason?: string }) => void
+  ): void {
+    const list = this.listeners.get(type) ?? []
+    list.push(listener)
+    this.listeners.set(type, list)
+  }
+
+  send(data: string): void {
+    this.sent.push(data)
+  }
+
+  close(code = 1000, reason = ''): void {
+    this.readyState = 3
+    this.emit('close', { code, reason })
+  }
+
+  emit(type: string, event: { data?: unknown; code?: number; reason?: string }): void {
+    for (const listener of this.listeners.get(type) ?? []) listener(event)
+  }
+}
+
 afterEach(() => {
   FakeWebSocket.instances = []
+  HangWebSocket.instances = []
   delete process.env.XAI_API_KEY
 })
 
@@ -166,7 +204,7 @@ describe('createXaiClient realtime', () => {
       session: {
         voice: string
         tools: { name: string }[]
-        turn_detection: { type: string; idle_timeout_ms: number }
+        turn_detection: { type: string; idle_timeout_ms?: number }
         audio: {
           input: { format: { type: string; rate: number }; transcription: { language_hint: string; keyterms: string[] } }
         }
@@ -174,7 +212,9 @@ describe('createXaiClient realtime', () => {
     }
     expect(update.type).toBe('session.update')
     expect(update.session.voice).toBe('eve')
-    expect(update.session.turn_detection).toEqual({ type: 'server_vad', idle_timeout_ms: 20_000 })
+    expect(update.session.turn_detection).toEqual({ type: 'server_vad' })
+    expect(update.session.turn_detection).not.toHaveProperty('idle_timeout_ms')
+    expect(JSON.stringify(update)).not.toContain('idle_timeout_ms')
     expect(update.session.audio.input.format).toEqual({ type: 'audio/pcm', rate: 24_000 })
     expect(update.session.audio.input.transcription.language_hint).toBe('de')
     expect(update.session.audio.input.transcription.keyterms).toContain('Vertragus')
@@ -229,5 +269,46 @@ describe('createXaiClient realtime', () => {
       type: 'conversation.item.create',
       item: { type: 'force_message' }
     })
+  })
+
+  it('ignores close from a superseded socket so the live socket can still send', async () => {
+    const client = createXaiClient({
+      fetch: (async () => new Response('no')) as typeof fetch,
+      WebSocket: FakeWebSocket as unknown as InjectedWebSocketConstructor,
+      apiKey: 'rt-key'
+    })
+
+    await client.connectRealtime({})
+    const first = FakeWebSocket.instances[0]!
+    await client.connectRealtime({})
+    const second = FakeWebSocket.instances[1]!
+    expect(second).not.toBe(first)
+
+    first.emit('close', { code: 1000, reason: 'superseded' })
+
+    const pcm = new Int16Array([1, 2, 3, 4])
+    client.appendInputAudio(pcm)
+    expect(second.parsed()).toContainEqual({
+      type: 'input_audio_buffer.append',
+      audio: pcm16ToBase64(pcm)
+    })
+  })
+
+  it('rejects connectRealtime when the socket never opens', async () => {
+    vi.useFakeTimers()
+    try {
+      const client = createXaiClient({
+        fetch: (async () => new Response('no')) as typeof fetch,
+        WebSocket: HangWebSocket as unknown as InjectedWebSocketConstructor,
+        apiKey: 'rt-key',
+        openTimeoutMs: 25
+      })
+      const pending = client.connectRealtime({})
+      const assertion = expect(pending).rejects.toThrow(/timeout/i)
+      await vi.advanceTimersByTimeAsync(25)
+      await assertion
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

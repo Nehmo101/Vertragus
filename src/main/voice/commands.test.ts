@@ -148,6 +148,31 @@ describe('resolveProfile / start_workspace', () => {
     expect(result.message).toMatch(/not found/i)
     expect(host.started).toEqual([])
   })
+
+  it('prefers an exact name over a longer startsWith candidate', () => {
+    const host = createHost({
+      profiles: [
+        { id: 'p-code', name: 'Code' },
+        { id: 'p-codegen', name: 'Codegen' }
+      ]
+    })
+    const resolved = resolveProfile(host, 'Code')
+    expect(resolved).toEqual({ ok: true, item: { id: 'p-code', name: 'Code' } })
+  })
+
+  it('refuses a short prefix that matches more than one profile', () => {
+    const host = createHost({
+      profiles: [
+        { id: 'p-code', name: 'Code' },
+        { id: 'p-codegen', name: 'Codegen' }
+      ]
+    })
+    const resolved = resolveProfile(host, 'Co')
+    expect(resolved.ok).toBe(false)
+    if (resolved.ok) return
+    expect(resolved.reason).toBe('ambiguous')
+    expect(resolved.candidates.map((profile) => profile.name)).toEqual(['Code', 'Codegen'])
+  })
 })
 
 describe('stop_workspace and send_to_orchestrator', () => {
@@ -194,6 +219,13 @@ describe('executeCommand edge cases', () => {
     const confirm = await executeCommand(host, 'confirm_quit', {})
     expect(confirm.ok).toBe(true)
     expect(host.quit).toBe(1)
+  })
+
+  it('refuses a bare confirm_quit with no prior quit_app', async () => {
+    const host = createHost()
+    const bare = await executeCommand(host, 'confirm_quit', {})
+    expect(bare.ok).toBe(false)
+    expect(host.quit).toBe(0)
   })
 
   it('marks end_session so the session layer can hang up', async () => {
