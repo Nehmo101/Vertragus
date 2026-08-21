@@ -245,6 +245,7 @@
     "mcpKindKimiProject": "Project file .kimi-code/mcp.json (Kimi)",
     "mcpKindCursorProject": "Project file .cursor/mcp.json (Cursor)",
     "mcpKindGrokProject": "Project file .grok/config.toml (Grok Build)",
+
     "mcpKindNone": "none — plain terminal",
     "mcpConfigArg": "Config flag",
     "mcpStrictArg": "Strict flag",
@@ -254,7 +255,8 @@
     "mcpCodexHint": "Codex has no config file: url, required and enabled_tools travel along as -c overrides.",
     "mcpKimiHint": "Kimi has no flag: Vertragus creates .kimi-code/mcp.json in the agent’s working directory.",
     "mcpCursorHint": "Cursor has no flag: Vertragus merges vertragus into .cursor/mcp.json and launches with --approve-mcps.",
-    "mcpGrokHint": "Grok has no flag: Vertragus merges [mcp_servers.vertragus] into .grok/config.toml and allows the tools via --allow.",
+    "mcpGrokHint": "Grok has no flag: Vertragus merges [mcp_servers.vertragus] into .grok/config.toml and allows the tools via --allow. Orchestrators also get a permission cage.",
+
     "mcpNoneHint": "The agent can report nothing. Vertragus warns the orchestrator after 120 s without output.",
     "discovery": "Model list",
     "discoveryKind": "Source",

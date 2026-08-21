@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -28,14 +28,26 @@ import {
   CURSOR_APPROVE_MCPS_FLAG,
   CURSOR_MCP_FILE,
   CURSOR_PROJECT_DIR,
+  GROK_AGENT_FILE,
+  GROK_AGENT_NAME,
   GROK_ALLOW_MCP_FLAG,
   GROK_CONFIG_FILE,
+  GROK_NO_SUBAGENTS_FLAG,
+  GROK_ORCHESTRATOR_ALLOW,
+  GROK_ORCHESTRATOR_DENY,
   GROK_PROJECT_DIR,
   assertWrittenGrokMcpConfig,
   buildGrokMcpArgs,
+  buildGrokOrchestratorArgs,
+  buildGrokSubagentArgs,
   grokAllowMcpRule,
   grokMcpServerBlock,
+  grokOrchestratorAgentFileText,
+  grokOrchestratorArgv,
+  grokOrchestratorEnv,
   mergeGrokConfigToml,
+  renderGrokProjectMcpConfig,
+  writeGrokOrchestratorAgentFile,
   writeGrokProjectMcpConfig,
   KIMI_AGENT_NAME,
   kimiAgentFileText,
@@ -489,6 +501,108 @@ describe('grok attach', () => {
     expect(args).toEqual([GROK_ALLOW_MCP_FLAG, grokAllowMcpRule()])
     expect(args).toEqual(['--allow', 'MCPTool(vertragus__*)'])
     expect(existsSync(join(workspaceDir, GROK_PROJECT_DIR, GROK_CONFIG_FILE))).toBe(true)
+  })
+
+  it('writes deny+allow for the orchestrator so MCP tools are approved and edit/run are not', () => {
+    const path = writeGrokProjectMcpConfig(URL, workspaceDir, undefined, { orchestrator: true })
+    const raw = readFileSync(path, 'utf8')
+    expect(raw).toContain('[mcp_servers.vertragus]')
+    expect(raw).toContain(tomlString(URL))
+    expect(raw).toContain('[permission]')
+    for (const rule of GROK_ORCHESTRATOR_DENY) expect(raw).toContain(tomlString(rule))
+    for (const rule of GROK_ORCHESTRATOR_ALLOW) expect(raw).toContain(tomlString(rule))
+  })
+
+  it('unions the orchestrator cage into an existing [permission] table', () => {
+    mkdirSync(join(workspaceDir, GROK_PROJECT_DIR), { recursive: true })
+    writeFileSync(
+      join(workspaceDir, GROK_PROJECT_DIR, GROK_CONFIG_FILE),
+      ['[permission]', 'allow = ["Bash(git *)"]', 'ask = ["Edit"]', ''].join('\n')
+    )
+    const raw = readFileSync(
+      writeGrokProjectMcpConfig(URL, workspaceDir, undefined, { orchestrator: true }),
+      'utf8'
+    )
+    expect(raw).toContain(tomlString('Bash(git *)'))
+    expect(raw).toContain('ask = ["Edit"]')
+    for (const rule of GROK_ORCHESTRATOR_DENY) expect(raw).toContain(tomlString(rule))
+    expect(raw).toContain(tomlString('MCPTool(vertragus__*)'))
+  })
+
+  it('replaces a non-TOML existing file instead of guessing', () => {
+    mkdirSync(join(workspaceDir, GROK_PROJECT_DIR), { recursive: true })
+    writeFileSync(
+      join(workspaceDir, GROK_PROJECT_DIR, GROK_CONFIG_FILE),
+      JSON.stringify({ mcpServers: { vertragus: { url: 'stale' } } })
+    )
+    const raw = readFileSync(writeGrokProjectMcpConfig(URL, workspaceDir), 'utf8')
+    expect(raw).toContain('[mcp_servers.vertragus]')
+    expect(raw).toContain(tomlString(URL))
+    expect(raw).not.toContain('mcpServers')
+  })
+
+  it('still merges a file we wrote — multiline permission arrays stay TOML', () => {
+    writeGrokProjectMcpConfig(URL, workspaceDir, undefined, { orchestrator: true })
+    const raw = readFileSync(
+      writeGrokProjectMcpConfig(URL, workspaceDir, undefined, { orchestrator: true }),
+      'utf8'
+    )
+    expect(raw).toContain(tomlString(URL))
+    expect(raw).toContain('[permission]')
+    for (const rule of GROK_ORCHESTRATOR_DENY) expect(raw).toContain(tomlString(rule))
+  })
+
+  it('replaces non-JSON garbage instead of merging it as a TOML preamble', () => {
+    mkdirSync(join(workspaceDir, GROK_PROJECT_DIR), { recursive: true })
+    writeFileSync(
+      join(workspaceDir, GROK_PROJECT_DIR, GROK_CONFIG_FILE),
+      'this is not a config file\nhello world\n<!DOCTYPE html>\n'
+    )
+    const raw = readFileSync(
+      writeGrokProjectMcpConfig(URL, workspaceDir, undefined, { orchestrator: true }),
+      'utf8'
+    )
+    expect(raw).toBe(renderGrokProjectMcpConfig(URL, true))
+    expect(raw).not.toContain('hello world')
+    expect(raw).not.toContain('this is not a config file')
+    expect(raw).not.toContain('<!DOCTYPE html>')
+    expect(raw).toContain('[mcp_servers.vertragus]')
+    expect(raw).toContain('[permission]')
+  })
+
+  it('writes the orchestrator agent file with the TUI tool allowlist and Agent denylist', () => {
+    const path = writeGrokOrchestratorAgentFile(workspaceDir)
+    expect(path).toBe(join(workspaceDir, GROK_PROJECT_DIR, 'agents', GROK_AGENT_FILE))
+    const text = grokOrchestratorAgentFileText()
+    expect(readFileSync(path, 'utf8')).toBe(text)
+    expect(text).toContain(`name: ${GROK_AGENT_NAME}`)
+    expect(text).toContain('tools: read_file, list_dir, grep, search_tool, use_tool, todo_write')
+    expect(text).toContain('disallowedTools: Agent')
+  })
+
+  it('gives the orchestrator cage argv and env, and does not yolo', () => {
+    const args = buildGrokOrchestratorArgs({ url: URL, workspaceDir })
+    expect(args[0]).toBe(GROK_NO_SUBAGENTS_FLAG)
+    expect(args).toEqual(grokOrchestratorArgv())
+    expect(args).not.toContain('--always-approve')
+    expect(args).not.toContain('--yolo')
+    expect(args).not.toContain('--tools')
+    expect(args).not.toContain('--disallowed-tools')
+    expect(grokOrchestratorEnv()).toEqual({
+      GROK_SUBAGENTS: '0',
+      GROK_WORKFLOWS: '0',
+      GROK_AGENT: GROK_AGENT_NAME
+    })
+    expect(existsSync(join(workspaceDir, GROK_PROJECT_DIR, 'agents', GROK_AGENT_FILE))).toBe(true)
+  })
+
+  it('attaches a subagent without a cage, without the orchestrator agent file', () => {
+    const args = buildGrokSubagentArgs({ url: URL, workspaceDir })
+    expect(args).toEqual([GROK_ALLOW_MCP_FLAG, grokAllowMcpRule()])
+    const raw = readFileSync(join(workspaceDir, GROK_PROJECT_DIR, GROK_CONFIG_FILE), 'utf8')
+    expect(raw).toContain(tomlString(URL))
+    expect(raw).not.toContain('[permission]')
+    expect(existsSync(join(workspaceDir, GROK_PROJECT_DIR, 'agents', GROK_AGENT_FILE))).toBe(false)
   })
 })
 
