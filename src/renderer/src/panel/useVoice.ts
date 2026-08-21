@@ -65,10 +65,7 @@ export function useVoice(bridge: VertragusAppApi | undefined, enabled: boolean):
   }, [bridge])
 
   useEffect(() => {
-    if (!bridge || !enabled) {
-      setHud((current) => (current.phase === 'idle' ? current : { phase: 'idle' }))
-      return
-    }
+    if (!bridge || !enabled) return
 
     let stopped = false
     let stream: MediaStream | undefined
@@ -138,5 +135,5 @@ export function useVoice(bridge: VertragusAppApi | undefined, enabled: boolean):
     }
   }, [bridge, enabled])
 
-  return hud
+  return enabled ? hud : { phase: 'idle' }
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   APPEARANCE_LIMITS,
@@ -62,7 +62,11 @@ function AppearanceSliderRow({
   )
 }
 
-function VoiceSection({
+/**
+ * Wake-phrase and voice-id drafts. Keyed by the stored pair so a settings
+ * update remounts with fresh initial state instead of syncing in an effect.
+ */
+function VoiceDraftFields({
   settings,
   set
 }: {
@@ -72,28 +76,9 @@ function VoiceSection({
   const { t } = useTranslation()
   const [wake, setWake] = useState(settings.voiceWakePhrase)
   const [voiceId, setVoiceId] = useState(settings.voiceVoiceId)
-  const [apiKey, setApiKey] = useState('')
-
-  useEffect(() => {
-    setWake(settings.voiceWakePhrase)
-    setVoiceId(settings.voiceVoiceId)
-  }, [settings.voiceWakePhrase, settings.voiceVoiceId])
 
   return (
-    <section className="st-glass-section">
-      <h2 className="st-section-label">{t('settings.voice')}</h2>
-      <label className="st-switch">
-        <input
-          type="checkbox"
-          className="st-switch-input"
-          checked={settings.voiceEnabled}
-          onChange={(event) => set('voice', { enabled: event.target.checked })}
-        />
-        <span className="st-switch-text">
-          <span className="st-switch-label">{t('settings.voiceEnabled')}</span>
-          <span className="st-hint">{t('settings.voiceEnabledHint')}</span>
-        </span>
-      </label>
+    <>
       <div className="st-field">
         <span className="st-label">{t('settings.voiceWakePhrase')}</span>
         <input
@@ -136,6 +121,40 @@ function VoiceSection({
         />
         <span className="st-hint">{t('settings.voiceVoiceIdHint')}</span>
       </div>
+    </>
+  )
+}
+
+function VoiceSection({
+  settings,
+  set
+}: {
+  settings: PanelSettings
+  set: SettingsState['set']
+}): React.JSX.Element {
+  const { t } = useTranslation()
+  const [apiKey, setApiKey] = useState('')
+
+  return (
+    <section className="st-glass-section">
+      <h2 className="st-section-label">{t('settings.voice')}</h2>
+      <label className="st-switch">
+        <input
+          type="checkbox"
+          className="st-switch-input"
+          checked={settings.voiceEnabled}
+          onChange={(event) => set('voice', { enabled: event.target.checked })}
+        />
+        <span className="st-switch-text">
+          <span className="st-switch-label">{t('settings.voiceEnabled')}</span>
+          <span className="st-hint">{t('settings.voiceEnabledHint')}</span>
+        </span>
+      </label>
+      <VoiceDraftFields
+        key={`${settings.voiceWakePhrase}\0${settings.voiceVoiceId}`}
+        settings={settings}
+        set={set}
+      />
       <div className="st-field">
         <span className="st-label">{t('settings.voiceApiKey')}</span>
         <input

@@ -10,7 +10,7 @@
  * Never log `options.headers` — that object holds the API key.
  */
 import { createHash, randomBytes } from 'node:crypto'
-import { request as httpRequest, type IncomingMessage } from 'node:http'
+import { request as httpRequest, type ClientRequest, type IncomingMessage } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import type { Socket } from 'node:net'
 import type { InjectedWebSocket } from './voice/xai'
@@ -30,6 +30,8 @@ export class HeaderWebSocket implements InjectedWebSocket {
   onclose: ((event?: { code?: number; reason?: string }) => void) | null = null
 
   private socket: Socket | undefined
+  /** In-flight HTTP upgrade; aborted in `closed()` so a late 101 cannot resurrect. */
+  private handshake: ClientRequest | undefined
   private leftover: Buffer = Buffer.alloc(0)
   private readonly listeners = new Map<string, WsListener[]>()
 
@@ -53,7 +55,12 @@ export class HeaderWebSocket implements InjectedWebSocket {
         ...(options?.headers ?? {})
       }
     })
+    this.handshake = req
     req.on('upgrade', (res, socket) => {
+      if (this.readyState !== 0) {
+        socket.destroy()
+        return
+      }
       if (!acceptsKey(res, key)) {
         socket.destroy()
         this.fail('websocket handshake rejected')
@@ -66,6 +73,11 @@ export class HeaderWebSocket implements InjectedWebSocket {
       socket.on('close', () => this.closed(1006, ''))
       this.emit('open', {})
       this.onopen?.({})
+    })
+    // Non-101 answers (401, 4xx) arrive as `response`, not `upgrade`.
+    req.on('response', (res) => {
+      res.resume()
+      this.fail(`websocket handshake HTTP ${res.statusCode ?? 0}`)
     })
     req.on('error', (error) => this.fail(error.message))
     req.end()
@@ -126,6 +138,7 @@ export class HeaderWebSocket implements InjectedWebSocket {
   }
 
   private fail(message: string): void {
+    if (this.readyState === 2 || this.readyState === 3) return
     this.emit('error', { message })
     this.onerror?.({ message })
     this.closed(1006, message)
@@ -134,8 +147,15 @@ export class HeaderWebSocket implements InjectedWebSocket {
   private closed(code: number, reason: string): void {
     if (this.readyState === 3) return
     this.readyState = 3
+    const handshake = this.handshake
+    this.handshake = undefined
     const socket = this.socket
     this.socket = undefined
+    try {
+      handshake?.destroy()
+    } catch {
+      /* already gone */
+    }
     try {
       socket?.destroy()
     } catch {

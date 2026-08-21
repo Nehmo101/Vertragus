@@ -121,9 +121,11 @@ export function useSettings(): SettingsState {
     )
 
     const off = bridge.onUpdate((next) => setUpdate(next))
+    const offSettings = bridge.onSettings((next) => apply(next))
     return () => {
       alive = false
       off()
+      offSettings()
     }
   }, [bridge, apply])
 
